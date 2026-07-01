@@ -1,0 +1,40 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class Appointment extends Model
+{
+    protected $fillable = [
+        'user_id', 'ticket_id', 'ext_id', 'type', 'ico', 'lawyer', 'day', 'time', 'branch', 'status', 'tone', 'when_kind',
+    ];
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function ticket(): BelongsTo
+    {
+        return $this->belongsTo(Ticket::class);
+    }
+
+    // الشكل الذي تتوقعه الواجهة (يطابق DATA.appts)
+    public function toCard(): array
+    {
+        return [
+            'id' => $this->ext_id,
+            'type' => $this->type,
+            'ico' => $this->ico,
+            'lawyer' => $this->lawyer,
+            'day' => $this->day,
+            'time' => $this->time,
+            'branch' => $this->branch,
+            'status' => $this->status,
+            'tone' => $this->tone,
+            'when' => $this->when_kind,
+        ];
+    }
+}

@@ -1,0 +1,8 @@
+@import 'tailwindcss';
+
+/* نظام تصميم منصة سلاسل بابل — مستخرج حرفياً من index (82).html
+   هذا هو مصدر التطابق 1:1 مع الأصل. */
+@import './babylon.css';
+
+/* اتجاه الصفحة من اليمين لليسار (الأصل يضبطه عبر <html dir="rtl">) */
+html { direction: rtl; }
