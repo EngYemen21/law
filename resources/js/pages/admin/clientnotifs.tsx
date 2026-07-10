@@ -1,61 +1,69 @@
+import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
-import { type ClientNotif, CLIENT_DIR, DEMO_CLIENT_NOTIFS } from '@/lib/admin-data';
 
-// يطابق adClientNotifsView + adToggleUnread + adMarkClientRead + clientNotifsList في index (82).html
+// إشعارات العملاء — الإدارة تعرض إشعارات أي عميل وترسل إشعاراً حقيقياً (UserNotification)
 
-const AdminClientNotifs: React.FC = () => {
+interface Notif { id: number; ic: string; tone: string; text: string; time: string; unread: boolean; }
+interface Props { clients: { id: number; name: string }[]; selected: number; notifs: Notif[]; }
+
+const AdminClientNotifs: React.FC<Props> = ({ clients, selected, notifs }) => {
   const toast = useToast();
-  const [store, setStore] = useState<Record<string, ClientNotif[]>>(() => {
-    const s: Record<string, ClientNotif[]> = {};
-    Object.keys(DEMO_CLIENT_NOTIFS).forEach((k) => { s[k] = DEMO_CLIENT_NOTIFS[k].map((n) => ({ ...n })); });
-    return s;
-  });
-  const [client, setClient] = useState(CLIENT_DIR[0].name);
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [body, setBody] = useState('');
 
-  const count = (name: string) => (store[name] || []).length;
+  const pick = (id: number) => router.get('/admin/clientnotifs', { client: id }, { preserveState: false });
 
-  const markRead = () => {
-    setStore((prev) => ({ ...prev, [client]: (prev[client] || []).map((n) => ({ ...n, unread: false })) }));
-    toast('تم تعليم إشعارات العميل كمقروءة');
+  const send = () => {
+    if (!body.trim()) { toast('اكتب نص الإشعار'); return; }
+    router.post('/admin/clientnotifs/send', { client_id: selected, body: body.trim() }, {
+      preserveScroll: true,
+      onSuccess: () => { setBody(''); toast('تم إرسال الإشعار للعميل'); },
+    });
   };
 
-  let arr = store[client] || [];
-  if (unreadOnly) arr = arr.filter((n) => n.unread);
+  const markRead = () => router.post('/admin/clientnotifs/read', { client_id: selected }, {
+    preserveScroll: true, onSuccess: () => toast('تم تعليم الإشعارات كمقروءة'),
+  });
+
+  const list = unreadOnly ? notifs.filter((n) => n.unread) : notifs;
 
   return (
     <>
       <div className="ai-banner">
         <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
-        <p>تتيح الإدارة العليا متابعة إشعارات أي عميل مسجّل (الدعوات والتأكيدات والروابط). يصل كل إشعار إلى صاحبه فقط.</p>
+        <p>تتيح الإدارة العليا متابعة إشعارات أي عميل وإرسال إشعار جديد يصل إلى صاحبه فقط.</p>
       </div>
+
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="card-h"><h3>إرسال إشعار</h3></div>
+        <div className="card-b" style={{ padding: 16 }}>
+          <div className="field">
+            <label>العميل</label>
+            <select value={selected} onChange={(e) => pick(Number(e.target.value))}>
+              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div className="field"><label>نص الإشعار</label><textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="اكتب الإشعار الذي يصل العميل…" /></div>
+          <button className="btn" onClick={send} type="button"><Icon name="bell" /> إرسال الإشعار</button>
+        </div>
+      </div>
+
       <div className="card">
         <div className="card-h">
           <h3>إشعارات العميل</h3>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <select value={client} onChange={(e) => setClient(e.target.value)}>
-              {CLIENT_DIR.map((c) => <option key={c.name} value={c.name}>{c.name} ({count(c.name)})</option>)}
-            </select>
-            <button className="btn soft sm" onClick={() => setUnreadOnly((v) => !v)} type="button">
-              {unreadOnly ? 'عرض الكل' : 'غير المقروء فقط'}
-            </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn soft sm" onClick={() => setUnreadOnly((v) => !v)} type="button">{unreadOnly ? 'عرض الكل' : 'غير المقروء فقط'}</button>
             <button className="btn soft sm" onClick={markRead} type="button"><Icon name="check" /> تعليم كمقروء</button>
           </div>
         </div>
         <div className="card-b">
-          {arr.length ? arr.map((n, i) => (
-            <div key={i} className={`notif ${n.unread ? 'unread' : ''}`}>
+          {list.length ? list.map((n) => (
+            <div key={n.id} className={`notif ${n.unread ? 'unread' : ''}`}>
               <div className={`nico stat ${n.tone}`} style={{ padding: 0 }}><Icon name={n.ic} /></div>
               <div className="nbody">
-                <p>{n.text}</p>
-                {n.link && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '6px 0 2px' }}>
-                    <span style={{ direction: 'ltr', color: 'var(--primary)', fontWeight: 700, fontSize: '11.5px' }}>🔗 {n.link}</span>
-                    <button className="btn soft sm" onClick={() => toast('تم نسخ رابط الاجتماع')} type="button"><Icon name="link" /> نسخ الرابط</button>
-                  </div>
-                )}
+                <p dangerouslySetInnerHTML={{ __html: n.text }} />
                 <time>{n.time}</time>
               </div>
             </div>

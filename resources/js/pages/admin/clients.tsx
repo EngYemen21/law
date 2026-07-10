@@ -1,11 +1,12 @@
 import React from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
-import { CLIENTS } from '@/lib/admin-data';
 
-// يطابق adClients في index (82).html
+// يطابق adClients — العملاء من جدول users بدور client مع إخفاء PII
 
-const AdminClients: React.FC = () => (
+interface ClientRow { name: string; id: string; mobile: string; tickets: number; status: string }
+
+const AdminClients: React.FC<{ clients: ClientRow[] }> = ({ clients }) => (
   <>
     <div className="ai-banner">
       <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
@@ -28,8 +29,8 @@ const AdminClients: React.FC = () => (
             </tr>
           </thead>
           <tbody>
-            {CLIENTS.map((c) => (
-              <tr key={c.id}>
+            {clients.map((c) => (
+              <tr key={c.name}>
                 <td>{c.name}</td>
                 <td className="mono">{c.id}</td>
                 <td className="mono">{c.mobile}</td>

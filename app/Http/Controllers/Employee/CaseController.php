@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers\Employee;
 
+use App\Http\Controllers\Concerns\BranchScoped;
 use App\Http\Controllers\Controller;
 use App\Models\LegalCase;
-use Illuminate\Http\RedirectResponse;
+use App\Models\Ticket;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -14,11 +15,13 @@ use Inertia\Response;
  */
 class CaseController extends Controller
 {
+    use BranchScoped;
+
     public function index(): Response
     {
-        $cases = LegalCase::with('user')->latest('id')->get()->map(fn (LegalCase $c) => [
+        $cases = LegalCase::with('user')->where('branch', $this->currentBranch())->latest('id')->get()->map(fn (LegalCase $c) => [
             'no' => $c->number,
-            'client' => \App\Models\Ticket::maskClient($c->user?->name ?? ''),
+            'client' => Ticket::maskClient($c->user?->name ?? ''),
             'type' => $c->type,
             'lawyer' => $c->assigned_lawyer ?: '—',
             'status' => $c->status,
@@ -31,11 +34,12 @@ class CaseController extends Controller
 
     public function show(LegalCase $case): Response
     {
+        $this->guardBranch($case);
         $case->load(['user', 'hearings']);
 
         return Inertia::render('employee/case', [
             'case' => [
-                'no' => $case->number, 'client' => \App\Models\Ticket::maskClient($case->user?->name ?? ''),
+                'no' => $case->number, 'client' => Ticket::maskClient($case->user?->name ?? ''),
                 'type' => $case->type, 'dept' => $case->department, 'lawyer' => $case->assigned_lawyer ?: '—',
                 'status' => $case->status, 'tone' => $case->tone, 'next' => $case->next_hearing,
             ],
@@ -48,6 +52,7 @@ class CaseController extends Controller
     // ردّ خدمة العملاء للعميل داخل القضية (بثّ لحظي)
     public function reply(Request $request, LegalCase $case): \Illuminate\Http\Response
     {
+        $this->guardBranch($case);
         $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
 
         $case->messages()->create([

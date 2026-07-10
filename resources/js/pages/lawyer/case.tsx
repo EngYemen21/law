@@ -12,9 +12,9 @@ interface CaseInfo {
   no: string; client: string; type: string; dept: string; lawyer: string;
   status: string; tone: string; next?: string | null; pleadingStatus: string; ruling?: string | null;
 }
-interface Props { case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; }
+interface Props { case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; convertedExec?: boolean; }
 
-const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings }) => {
+const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, convertedExec }) => {
   const toast = useToast();
   const base = `/lawyer/cases/${encodeURIComponent(c.no)}`;
   const [h, setH] = useState({ title: '', day: '', time: '', court: '' });
@@ -49,6 +49,8 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings }) =
     if (!ruling.trim()) { toast('أدخل منطوق الحكم'); return; }
     router.post(`${base}/ruling`, { ruling }, { preserveScroll: true, onSuccess: () => { setRuling(''); toast('تم تسجيل الحكم'); } });
   };
+  const convertToExec = () =>
+    router.post(`${base}/execute`, {}, { onSuccess: () => toast('تم فتح طلب تنفيذ الحكم') });
 
   const active = c.status === 'منظورة';
 
@@ -132,6 +134,22 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings }) =
                     )}
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {(live.status === 'صدر الحكم' || convertedExec) && (
+            <div className="card">
+              <div className="card-h"><h3>تنفيذ الحكم</h3>{convertedExec && <Badge text="محوّل لتنفيذ" tone="b-cyan" />}</div>
+              <div className="card-b" style={{ padding: 14 }}>
+                {convertedExec ? (
+                  <div className="empty"><Icon name="exec" /><b>فُتح طلب تنفيذ لهذا الحكم</b></div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>صدر الحكم. يمكنك فتح طلب تنفيذ لتحصيل الحق لدى محكمة التنفيذ.</div>
+                    <button className="btn sm" type="button" onClick={convertToExec}><Icon name="exec" /> فتح طلب تنفيذ الحكم</button>
+                  </>
+                )}
               </div>
             </div>
           )}

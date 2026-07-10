@@ -4,10 +4,13 @@ namespace App\Http\Controllers\Lawyer;
 
 use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
+use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
-use App\Models\LegalCase;
+use App\Models\Meeting;
+use App\Models\Task;
 use App\Models\Ticket;
 use App\Models\UserNotification;
+use App\Support\CaseConversion;
 use App\Support\ServiceDocs;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,29 +24,39 @@ use Inertia\Response;
  */
 class TicketController extends Controller
 {
-    // التذاكر المحالة للمستشار (التي لها ملخص ملف)
-    public function index(): Response
+    use ScopedToLawyer;
+
+    // التذاكر المحالة للمستشار (التي لها ملخص ملف ومسندة إليه)
+    public function index(Request $request): Response
     {
-        $tickets = Ticket::with(['user', 'summary'])->withExists('legalCase')->whereHas('summary')->latest('id')->get()
+        $tickets = Ticket::with(['user', 'summary'])->withExists('legalCase')->whereHas('summary')
+            ->where('assigned_lawyer_id', $request->user()->id)->latest('id')->get()
             ->map(fn (Ticket $t) => array_merge($t->toEmployeeCard(), ['converted' => (bool) $t->legal_case_exists]));
 
         return Inertia::render('lawyer/tickets', ['tickets' => $tickets]);
     }
 
-    // لوحة المحامي
-    public function dashboard(): Response
+    // لوحة المحامي — مؤشرات حقيقية بالكامل
+    public function dashboard(Request $request): Response
     {
-        $tickets = Ticket::with(['user', 'summary'])->whereHas('summary')->latest('id')->get();
+        $lawyerId = $request->user()->id;
+        // التذاكر المحالة لهذا المحامي (لها ملخص ومسندة إليه)
+        $tickets = Ticket::with(['user', 'summary'])->whereHas('summary')
+            ->where('assigned_lawyer_id', $lawyerId)->latest('id')->get();
 
         return Inertia::render('lawyer/dashboard', [
             'tickets' => $tickets->map(fn (Ticket $t) => $t->toEmployeeCard()),
             'pendingSummaries' => $tickets->where('summary.status', 'awaiting_lawyer')->count(),
+            'todayMeetings' => Meeting::where('created_by', $lawyerId)
+                ->whereIn('status', ['قادم', 'جارٍ'])->count(),
+            'openTasks' => Task::where('assigned_to', $lawyerId)->where('status', '!=', 'منجزة')->count(),
         ]);
     }
 
     // محادثة التذكرة (قراءة سياق + الملخص) للمستشار
     public function show(Ticket $ticket): Response
     {
+        $this->guardAssigned($ticket);
         $ticket->load(['user', 'summary']);
 
         return Inertia::render('lawyer/ticketchat', [
@@ -55,10 +68,11 @@ class TicketController extends Controller
         ]);
     }
 
-    // قائمة الملخصات بانتظار اعتماد المستشار
-    public function summaries(): Response
+    // قائمة الملخصات بانتظار اعتماد المستشار (المسندة إليه)
+    public function summaries(Request $request): Response
     {
-        $summaries = Ticket::with('summary')->whereHas('summary')->latest('id')->get()
+        $summaries = Ticket::with('summary')->whereHas('summary')
+            ->where('assigned_lawyer_id', $request->user()->id)->latest('id')->get()
             ->map(fn (Ticket $t) => array_merge($t->summary->toData(), [
                 'type' => $t->type,
                 'client' => Ticket::maskClient($t->user?->name ?? ''),
@@ -68,20 +82,24 @@ class TicketController extends Controller
     }
 
     // عرض ملخص ملف واحد للمراجعة والاعتماد
-    public function showSummary(Ticket $ticket): Response
+    public function showSummary(Request $request, Ticket $ticket): Response
     {
+        $this->guardAssigned($ticket);
         $ticket->load(['user', 'summary']);
         abort_unless($ticket->summary, 404);
 
         return Inertia::render('lawyer/summary', [
             'ticket' => $ticket->toEmployeeCard(),
             'summary' => $ticket->summary->toData(),
+            // الإدارة تراجع/تعتمد من مسارها الخاص (صلاحيات مطلقة)؛ المحامي من مساره
+            'base' => $request->user()->isAdmin() ? '/admin' : '/lawyer',
         ]);
     }
 
     // حفظ تعديلات المحامي على نص الملخص
     public function updateSummary(Request $request, Ticket $ticket): RedirectResponse
     {
+        $this->guardAssigned($ticket);
         abort_unless($ticket->summary, 404);
         $data = $request->validate([
             'case_summary' => ['nullable', 'string', 'max:5000'],
@@ -97,6 +115,7 @@ class TicketController extends Controller
     // اعتماد الملخص: يصل اعتماد المستشار والرأي القانوني إلى محادثة العميل + إشعار
     public function approveSummary(Request $request, Ticket $ticket): RedirectResponse
     {
+        $this->guardAssigned($ticket);
         $summary = $ticket->summary;
         abort_unless($summary, 404);
 
@@ -151,12 +170,13 @@ class TicketController extends Controller
             'is_read' => false,
         ]);
 
-        return redirect()->route('lawyer.summaries');
+        return redirect()->route($request->user()->isAdmin() ? 'admin.summaries' : 'lawyer.summaries');
     }
 
     // اعتماد المستشار لنتيجة الجلسة → ترفع للإدارة للاعتماد النهائي (يطابق tfLawyerReview)
     public function approveResult(Request $request, Ticket $ticket): RedirectResponse
     {
+        $this->guardAssigned($ticket);
         $summary = $ticket->summary;
         abort_unless($summary && $summary->result_status === 'pending_lawyer', 404);
 
@@ -185,10 +205,11 @@ class TicketController extends Controller
     // تحويل التذكرة المكتملة إلى قضية قانونية (يطابق cfConvert) — قرار المستشار
     public function convertToCase(Request $request, Ticket $ticket): RedirectResponse
     {
+        $this->guardAssigned($ticket);
         abort_unless($ticket->status === 'مكتملة', 422);
         abort_if($ticket->legalCase()->exists(), 409); // محوّلة مسبقاً
 
-        \App\Support\CaseConversion::convert($ticket, $request->user());
+        CaseConversion::convert($ticket, $request->user());
 
         return redirect()->route('lawyer.tickets');
     }
@@ -196,6 +217,7 @@ class TicketController extends Controller
     // قرار المستشار: إغلاق الطلب بعد الاستشارة دون تحويله إلى قضية (يطابق cfClose)
     public function closeWithoutCase(Request $request, Ticket $ticket): RedirectResponse
     {
+        $this->guardAssigned($ticket);
         abort_unless($ticket->status === 'مكتملة', 422);
         abort_if($ticket->legalCase()->exists(), 409);
 
@@ -214,6 +236,7 @@ class TicketController extends Controller
     // قرار المستشار: طلب مستندات إضافية قبل اتخاذ القرار (يطابق cfReqDocs)
     public function requestDocs(Request $request, Ticket $ticket): RedirectResponse
     {
+        $this->guardAssigned($ticket);
         $chips = implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', ServiceDocs::for($ticket->type)));
         $msg = $ticket->messages()->create([
             'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'نواقص',

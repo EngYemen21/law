@@ -54,4 +54,18 @@ return [
         'model' => env('GEMINI_MODEL', 'gemini-2.5-flash'),
     ],
 
+    // الوكيل التشغيلي الذكي للتذاكر (فرز آلي + طلب مستندات + إحالة) — مفتاح تعطيل فوري
+    'ai_agent' => [
+        'enabled' => env('AI_TICKET_AGENT', true),
+    ],
+
+    // Zoom (Server-to-Server OAuth) — اجتماعات الاستشارات المرئية
+    'zoom' => [
+        'account_id' => env('ZOOM_ACCOUNT_ID'),
+        'client_id' => env('ZOOM_CLIENT_ID'),
+        'client_secret' => env('ZOOM_CLIENT_SECRET'),
+        // الرابط الاحتياطي (placeholder) حين لا تُهيّأ مفاتيح Zoom بعد — مصدر واحد موحّد
+        'fallback_base' => env('ZOOM_FALLBACK_BASE', 'https://meet.salasel.sa/'),
+    ],
+
 ];

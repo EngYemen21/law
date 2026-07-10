@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Sidebar from '@/components/navigation/Sidebar';
 import Topbar from '@/components/navigation/Topbar';
+import ImpersonationBanner from '@/components/navigation/ImpersonationBanner';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -20,6 +21,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       />
 
       <div className="main">
+        <ImpersonationBanner />
         <Topbar onMenuToggle={() => setSidebarOpen(!sidebarOpen)} />
         <div className="content" id="content">
           <div className="view">{children}</div>

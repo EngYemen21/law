@@ -14,6 +14,9 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
+        // صلاحيات spatie وأدوار القوالب أولاً (قبل إسناد أي صلاحية)
+        $this->call(PermissionSeeder::class);
+
         // حسابات تجريبية — حساب واحد لكل دور (كلمة المرور: password)
         $users = [
             ['name' => 'عبدالله محمد العتيبي', 'email' => 'client@salasel.test',   'role' => Role::Client,   'avatar_initials' => 'ع م'],
@@ -37,11 +40,14 @@ class DatabaseSeeder extends Seeder
         }
 
         $this->call([
+            BranchSeeder::class,
+            StaffSeeder::class,   // يُثري employee@/lawyer@ ببيانات العمل والصلاحيات + يضيف أ. خالد
             TicketSeeder::class,
             CaseSeeder::class,
             ExecutionSeeder::class,
             NotificationSeeder::class,
             AppointmentSeeder::class,
+            ConsultSeeder::class,
             MeetingSeeder::class,
             DocumentSeeder::class,
             InvoiceSeeder::class,

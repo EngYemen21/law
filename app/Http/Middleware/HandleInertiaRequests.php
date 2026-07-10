@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\Permissions;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -36,6 +37,7 @@ class HandleInertiaRequests extends Middleware
     public function share(Request $request): array
     {
         $user = $request->user();
+        $impersonatorId = $request->session()->get('impersonator_id');
 
         return [
             ...parent::share($request),
@@ -49,12 +51,21 @@ class HandleInertiaRequests extends Middleware
                     'roleLabel' => $user->role->label(),
                     'avatar' => $user->avatar_initials,
                     'home' => $user->role->home(),
+                    // الصلاحيات التفصيلية (spatie) — الإدارة تتجاوز الكل (isSuper)
+                    'isSuper' => $user->isAdmin(),
+                    'permissions' => $user->isAdmin() ? [] : $user->getPermissionNames()->all(),
                 ] : null,
             ],
+            // لافتة معاينة لوحة الموظف (إمبرسنيشن) — نشطة عند وجود مُدير أصلي في الجلسة
+            'impersonating' => ($impersonatorId && $user) ? ['name' => $user->name] : null,
+            // كتالوج الصلاحيات (المصدر الوحيد من الخادم) — للتصفية وشاشة الموظفين
+            'permCatalog' => $user ? Permissions::catalog() : null,
             'flash' => [
                 'error' => fn () => $request->session()->get('error'),
                 'success' => fn () => $request->session()->get('success'),
             ],
+            // كلمة المرور المولّدة للموظف الجديد (تُعرض مرة واحدة لدى الإدارة)
+            'generatedPassword' => fn () => $request->session()->get('generatedPassword'),
         ];
     }
 }

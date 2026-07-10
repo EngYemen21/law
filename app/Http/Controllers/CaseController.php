@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Events\CaseStatusBroadcast;
+use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Services\LegalAiService;
+use App\Support\AfterResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -13,9 +15,7 @@ use Inertia\Response;
 
 class CaseController extends Controller
 {
-    public function __construct(private LegalAiService $ai)
-    {
-    }
+    public function __construct(private LegalAiService $ai) {}
 
     // قائمة قضايا العميل الحالي
     public function index(Request $request): Response
@@ -72,16 +72,19 @@ class CaseController extends Controller
             'time_label' => $this->clock(),
         ]);
 
-        // ردّ «الفريق القانوني» الحقيقي عبر الذكاء الاصطناعي (الأساس) مع احتياط عند التعذّر
-        $aiText = $this->ai->caseReply($case, $data['body'])
-            ?? 'تم استلام رسالتك بخصوص القضية، وسيوافيك المختص بالرد في أقرب وقت.';
-        $case->messages()->create([
-            'who' => 'ai',
-            'name' => LegalAiService::AGENT_NAME,
-            'role' => LegalAiService::AGENT_ROLE,
-            'body' => nl2br(e($aiText)),
-            'time_label' => $this->clock(),
-        ]);
+        // ردّ «الفريق القانوني» عبر AI بعد إرسال الاستجابة (يصل بالبث اللحظي عبر hook الرسائل)
+        $body = $data['body'];
+        AfterResponse::defer(function () use ($case, $body) {
+            $aiText = app(LegalAiService::class)->caseReply($case, $body)
+                ?? 'تم استلام رسالتك بخصوص القضية، وسيوافيك المختص بالرد في أقرب وقت.';
+            $case->messages()->create([
+                'who' => 'ai',
+                'name' => LegalAiService::AGENT_NAME,
+                'role' => LegalAiService::AGENT_ROLE,
+                'body' => nl2br(e($aiText)),
+                'time_label' => $this->clock(),
+            ]);
+        });
 
         return response()->noContent();
     }
@@ -178,19 +181,22 @@ class CaseController extends Controller
             'time_label' => $this->clock(),
         ]);
 
-        $draft = $this->ai->draftPleading($case);
-        $case->messages()->create([
-            'who' => 'ai', 'name' => 'المساعد القانوني', 'role' => 'مسودة اللائحة',
-            'body' => '<div class="draft" style="white-space:pre-line">'.e($draft).'</div>',
-            'time_label' => $this->clock(),
-        ]);
+        // مسودة اللائحة عبر AI بعد إرسال الاستجابة (سداد العميل لا ينتظر التوليد)
+        AfterResponse::defer(function () use ($case) {
+            $draft = app(LegalAiService::class)->draftPleading($case);
+            $case->messages()->create([
+                'who' => 'ai', 'name' => 'المساعد القانوني', 'role' => 'مسودة اللائحة',
+                'body' => '<div class="draft" style="white-space:pre-line">'.e($draft).'</div>',
+                'time_label' => $this->clock(),
+            ]);
+        });
 
         broadcast(new CaseStatusBroadcast($case));
     }
 
     private function markInvoicePaid(LegalCase $case): void
     {
-        \App\Models\Invoice::where('case_id', $case->id)->where('paid', false)
+        Invoice::where('case_id', $case->id)->where('paid', false)
             ->update(['paid' => true, 'status' => 'مدفوعة', 'tone' => 'b-green']);
     }
 

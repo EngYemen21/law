@@ -3,23 +3,23 @@ import React from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
-import { useTicketActions } from '@/components/babylon/TicketActions';
-import { SYS_TICKETS, maskClient } from '@/lib/employee-data';
 
-// يطابق emHome في index (82).html
+// لوحة الموظف — تذاكر تحتاج إجراءً وعدّادات حقيقية من الخادم
 
-const openTicket = (no: string) =>
-  router.visit(`/employee/tickets/chat?no=${encodeURIComponent(no)}`);
+interface EmpTicket { no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string; }
+interface Props {
+  tickets: EmpTicket[];
+  counts: { needAction: number; missingDocs: number; todayAppts: number; referred: number };
+}
 
-const EmployeeDashboard: React.FC = () => {
-  const { openReqDocs, openSchedule, node } = useTicketActions();
-  const needAction = SYS_TICKETS.filter((t) => t.status !== 'مغلقة');
+const openTicket = (no: string) => router.visit(`/employee/tickets/${encodeURIComponent(no)}`);
 
+const EmployeeDashboard: React.FC<Props> = ({ tickets, counts }) => {
   const stats: StatItem[] = [
-    ['t-blue', 'folder', needAction.length, 'تذاكر بانتظار إجراء'],
-    ['t-amber', 'upload', SYS_TICKETS.filter((t) => t.status === 'بانتظار مرفقات').length, 'نواقص مطلوبة'],
-    ['t-cyan', 'cal', 3, 'مواعيد اليوم'],
-    ['t-green', 'reply', 2, 'محوّلة للقسم'],
+    ['t-blue', 'folder', counts.needAction, 'تذاكر بانتظار إجراء'],
+    ['t-amber', 'upload', counts.missingDocs, 'نواقص مطلوبة'],
+    ['t-cyan', 'cal', counts.todayAppts, 'مواعيد قادمة'],
+    ['t-green', 'reply', counts.referred, 'محوّلة للقسم'],
   ];
 
   return (
@@ -34,48 +34,32 @@ const EmployeeDashboard: React.FC = () => {
       <div className="card">
         <div className="card-h"><h3>تذاكر تحتاج إجراءً</h3></div>
         <div className="card-b t-wrap">
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>التذكرة</th>
-                <th>العميل</th>
-                <th>النوع</th>
-                <th>الحالة</th>
-                <th>إجراءات</th>
-              </tr>
-            </thead>
-            <tbody>
-              {needAction.map((t) => (
-                <tr key={t.no} className="click" onClick={() => openTicket(t.no)}>
-                  <td className="mono">{t.no}</td>
-                  <td>{maskClient(t.client)}</td>
-                  <td className="muted">{t.type}</td>
-                  <td><Badge text={t.status} tone={t.tone} /></td>
-                  <td>
-                    <div
-                      className="row-acts"
-                      style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button className="btn sm" onClick={() => openTicket(t.no)} type="button">
+          {tickets.length ? (
+            <table className="tbl">
+              <thead>
+                <tr><th>التذكرة</th><th>العميل</th><th>النوع</th><th>الحالة</th><th></th></tr>
+              </thead>
+              <tbody>
+                {tickets.map((t) => (
+                  <tr key={t.no} className="click" onClick={() => openTicket(t.no)}>
+                    <td className="mono">{t.no}</td>
+                    <td>{t.client}</td>
+                    <td className="muted">{t.type}</td>
+                    <td><Badge text={t.status} tone={t.tone} /></td>
+                    <td>
+                      <button className="btn sm" onClick={(e) => { e.stopPropagation(); openTicket(t.no); }} type="button">
                         <Icon name="reply" /> فتح المحادثة
                       </button>
-                      <button className="btn soft sm" onClick={() => openReqDocs(t.no)} type="button">
-                        <Icon name="upload" /> نواقص
-                      </button>
-                      <button className="btn soft sm" onClick={() => openSchedule(t.no)} type="button">
-                        <Icon name="cal" /> جدولة
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="empty"><Icon name="folder" /><b>لا تذاكر تحتاج إجراءً حالياً</b></div>
+          )}
         </div>
       </div>
-
-      {node}
     </>
   );
 };

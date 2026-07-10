@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import FlowLine from '@/components/babylon/FlowLine';
+import MsgMeta from '@/components/babylon/MsgMeta';
 import { echo } from '@/lib/echo';
 import { TICKET_STATES, STATE_TONES } from '@/lib/employee-data';
 import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
@@ -36,6 +37,7 @@ const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
           <time>{m.time}</time>
         </div>
         <div className="bubble" dangerouslySetInnerHTML={{ __html: m.text }} />
+        <MsgMeta m={m} />
       </div>
     </div>
   );

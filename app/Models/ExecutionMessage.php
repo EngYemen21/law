@@ -2,12 +2,21 @@
 
 namespace App\Models;
 
+use App\Events\ExecMessageBroadcast;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ExecutionMessage extends Model
 {
     protected $fillable = ['execution_id', 'who', 'name', 'role', 'body', 'time_label'];
+
+    // بثّ كل رسالة تنفيذ لحظياً فور إنشائها (كـ CaseMessage)
+    protected static function booted(): void
+    {
+        static::created(function (ExecutionMessage $m) {
+            broadcast(new ExecMessageBroadcast($m));
+        });
+    }
 
     public function execution(): BelongsTo
     {
@@ -18,6 +27,7 @@ class ExecutionMessage extends Model
     public function toMessage(): array
     {
         return [
+            'id' => $this->id,
             'who' => $this->who,
             'name' => $this->name,
             'role' => $this->role,

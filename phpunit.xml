@@ -20,8 +20,12 @@
     <php>
         <env name="APP_ENV" value="testing"/>
         <env name="GLM_API_KEY" value=""/>
+        <env name="AI_TICKET_AGENT" value="false"/>
         <env name="ANTHROPIC_API_KEY" value=""/>
         <env name="GEMINI_API_KEY" value=""/>
+        <env name="ZOOM_ACCOUNT_ID" value=""/>
+        <env name="ZOOM_CLIENT_ID" value=""/>
+        <env name="ZOOM_CLIENT_SECRET" value=""/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>

@@ -1,25 +1,19 @@
 import { router } from '@inertiajs/react';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
-import {
-  type FullMeeting, FULL_MEETINGS, MEET_STATUSES, MEET_TYPES_FULL, MEET_TEMPLATES,
-  meetStatusTone, CLIENT_DIR, STAFF_DIR, TASKS,
-} from '@/lib/admin-data';
+import { MEET_STATUSES, MEET_TYPES_FULL, MEET_TEMPLATES, meetStatusTone, STAFF_DIR } from '@/lib/admin-data';
+import { type ClientDirEntry, type FullMeetingCard } from '@/lib/meeting-ui';
 
-// يطابق meetMgmtView + openCreateMeeting + submitMeeting في index (82).html
+// يطابق meetMgmtView + openCreateMeeting + submitMeeting في index (82).html — البيانات حقيقية من الخادم
 
-const caseOptionsFor = (name: string): string[] => {
-  const c = CLIENT_DIR.find((x) => x.name === name);
-  return (c && c.items) || [];
-};
+interface Props { meetings: FullMeetingCard[]; clients: ClientDirEntry[] }
 
-const AdminMeetMgmt: React.FC = () => {
+const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients }) => {
   const toast = useToast();
-  const [meetings, setMeetings] = useState<FullMeeting[]>(() => FULL_MEETINGS.map((m) => ({ ...m })));
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState(false);
 
@@ -29,26 +23,29 @@ const AdminMeetMgmt: React.FC = () => {
   const [prio, setPrio] = useState('عادية');
   const [conf, setConf] = useState('عادي');
   const [dur, setDur] = useState('');
-  const [desc, setDesc] = useState('');
-  const [client, setClient] = useState(CLIENT_DIR[0].name);
+  const [participants, setParticipants] = useState<string[]>([]);
+  const [day, setDay] = useState('');
+  const [time, setTime] = useState('10:00');
+  const [clientId, setClientId] = useState<number | ''>('');
   const [caseRef, setCaseRef] = useState('');
+  useEffect(() => { setCaseRef(''); }, [clientId]);
 
   const up = meetings.filter((m) => m.status === 'قادم').length;
   const live = meetings.filter((m) => m.status === 'جارٍ').length;
   const done = meetings.filter((m) => m.status === 'منتهٍ');
   const att = done.length ? Math.round(done.reduce((a, m) => a + (m.attend || 0), 0) / done.length) : 0;
-  const openTasks = TASKS.filter((t) => t.status !== 'منجزة' && t.status !== 'مكتملة').length;
 
   const stats: StatItem[] = [
     ['t-blue', 'video', up, 'اجتماعات قادمة'],
     ['t-amber', 'video', live, 'جارية الآن'],
     ['t-cyan', 'user', `${att}%`, 'نسبة الحضور'],
     ['t-green', 'check', '78%', 'تنفيذ القرارات'],
-    ['t-amber', 'exec', openTasks, 'مهام مفتوحة'],
-    ['t-blue', 'clock', '52 د', 'متوسط المدة'],
+    ['t-grey', 'clock', '52 د', 'متوسط المدة'],
+    ['t-blue', 'folder', meetings.length, 'إجمالي الاجتماعات'],
   ];
 
   const list = meetings.filter((m) => filter === 'all' || m.status === filter);
+  const caseOptions = clients.find((c) => c.id === clientId)?.items ?? [];
 
   const applyTpl = (name: string, t: string) => {
     setTitle(name); setType(t);
@@ -57,22 +54,20 @@ const AdminMeetMgmt: React.FC = () => {
 
   const submit = () => {
     if (!title.trim()) { toast('أدخل عنوان الاجتماع'); return; }
-    const id = 'M' + (meetings.length + 1);
-    const nm: FullMeeting = {
-      id, title, type, client: client || caseRef || '—',
-      when: 'اليوم · 10:00', dur: dur || '60 دقيقة', status: 'قادم',
-      priority: prio, conf, attend: 0, link: caseRef || client || '—',
-      meetId: 'SLS-' + Math.floor(200000 + Math.random() * 99999),
-      meetLink: 'https://meet.salasel.sa/new',
-      approve: 'بانتظار اعتماد الإدارة',
-      before: ['تحليل الموضوع', 'مراجعة المستندات', 'تجهيز جدول الأعمال'],
-      during: ['تحويل الصوت إلى نص', 'استخراج القرارات', 'تحديد المهام'],
-      after: ['إنشاء الملخص', 'تحديث القضية', 'إنشاء المهام'],
-    };
-    setMeetings((p) => [nm, ...p]);
-    setOpen(false); setFilter('قادم');
-    setTitle(''); setDur(''); setDesc('');
-    toast('تم إنشاء الاجتماع وإضافته للتقويم');
+    router.post('/admin/meetings', {
+      title, type, priority: prio, conf, dur,
+      participants: participants.join('، '),
+      day, time,
+      client_id: clientId === '' ? null : clientId,
+      case_ref: caseRef,
+    }, {
+      preserveScroll: true,
+      onSuccess: () => {
+        setOpen(false); setFilter('قادم');
+        setTitle(''); setDur(''); setParticipants([]);
+        toast('تم إنشاء الاجتماع بجلسة Zoom وإضافته للتقويم');
+      },
+    });
   };
 
   return (
@@ -142,12 +137,17 @@ const AdminMeetMgmt: React.FC = () => {
           </div>
           <div className="field"><label>المدة</label><input className="input" value={dur} onChange={(e) => setDur(e.target.value)} placeholder="مثال: 60 دقيقة" /></div>
         </div>
-        <div className="field"><label>وصف الاجتماع</label><textarea className="input" rows={2} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="وصف مختصر" /></div>
 
         <div className="form-sec-h"><span className="si"><Icon name="user" /></span> المشاركون</div>
         <div className="field">
           <label>الموظفون / المحامون المشاركون (من المسجّلين)</label>
-          <select multiple size={4} style={{ height: 'auto', padding: 8 }}>
+          <select
+            multiple
+            size={4}
+            style={{ height: 'auto', padding: 8 }}
+            value={participants}
+            onChange={(e) => setParticipants([...e.target.selectedOptions].map((o) => o.value))}
+          >
             {STAFF_DIR.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>اختر اسماً أو أكثر (Ctrl/⌘ للتعدد)</div>
@@ -155,27 +155,27 @@ const AdminMeetMgmt: React.FC = () => {
 
         <div className="form-sec-h"><span className="si"><Icon name="cal" /></span> الموعد</div>
         <div className="picker-grid">
-          <div className="field"><label>التاريخ</label><input className="input" type="date" /></div>
-          <div className="field"><label>من</label><input className="input" type="time" defaultValue="10:00" /></div>
+          <div className="field"><label>التاريخ</label><input className="input" type="date" value={day} onChange={(e) => setDay(e.target.value)} /></div>
+          <div className="field"><label>من</label><input className="input" type="time" value={time} onChange={(e) => setTime(e.target.value)} /></div>
         </div>
-        <div className="field"><label>إلى</label><input className="input" type="time" defaultValue="11:00" /></div>
 
         <div className="form-sec-h"><span className="si"><Icon name="link" /></span> ربط الاجتماع</div>
         <div className="picker-grid">
           <div className="field"><label>العميل (من المسجّلين)</label>
-            <select value={client} onChange={(e) => { setClient(e.target.value); setCaseRef(''); }}>
-              {CLIENT_DIR.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+            <select value={clientId} onChange={(e) => setClientId(e.target.value === '' ? '' : Number(e.target.value))}>
+              <option value="">— داخلي (بلا عميل) —</option>
+              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div className="field"><label>قضية / استشارة العميل</label>
             <select value={caseRef} onChange={(e) => setCaseRef(e.target.value)}>
               <option value="">— اختر قضية/استشارة —</option>
-              {caseOptionsFor(client).map((i) => <option key={i} value={i}>{i}</option>)}
+              {caseOptions.map((i) => <option key={i} value={i}>{i}</option>)}
             </select>
           </div>
         </div>
         <div className="action-hint" style={{ margin: '10px 0' }}>
-          <Icon name="cal" /> التقويم الذكي يمنع تعارض المواعيد ويرسل دعوة Google Calendar تلقائياً.
+          <Icon name="cal" /> يُنشأ اجتماع Zoom تلقائياً ويصل رابطه للعميل المرتبط في إشعاراته واجتماعاته.
         </div>
         <button className="btn block" onClick={submit} type="button"><Icon name="check" /> إنشاء الاجتماع وإضافته للتقويم</button>
       </Modal>

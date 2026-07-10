@@ -22,6 +22,10 @@ const Topbar: React.FC<TopbarProps> = ({ onMenuToggle }) => {
   if (!titles[path] && /\/cases\/[^/]+$/.test(path)) {
     [title, crumb] = ['متابعة القضية', titles[`${path.split('/cases')[0]}/cases`]?.[1] ?? crumb];
   }
+  // تفاصيل طلب التنفيذ الديناميكية /(lawyer|employee)?/execs/{no}
+  if (!titles[path] && /\/execs\/[^/]+$/.test(path)) {
+    [title, crumb] = ['متابعة طلب التنفيذ', titles[`${path.split('/execs')[0]}/execs`]?.[1] ?? crumb];
+  }
 
   return (
     <header className="topbar">

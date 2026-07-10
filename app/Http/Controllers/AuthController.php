@@ -31,6 +31,15 @@ class AuthController extends Controller
             ]);
         }
 
+        // منع الحسابات الموقوفة من الدخول
+        if (! $request->user()->isActive()) {
+            Auth::logout();
+
+            throw ValidationException::withMessages([
+                'email' => 'الحساب موقوف حالياً، يرجى مراجعة الإدارة.',
+            ]);
+        }
+
         $request->session()->regenerate();
 
         // التوجيه إلى لوحة الدور المناسب

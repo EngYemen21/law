@@ -1,19 +1,19 @@
 import { router } from '@inertiajs/react';
 import React from 'react';
 import Icon from '@/lib/icons';
-import { FULL_MEETINGS } from '@/lib/admin-data';
+import { type FullMeetingCard } from '@/lib/meeting-ui';
 
-// يطابق meetLogView في index (82).html
+// يطابق meetLogView في index (82).html — الأرشيف حقيقي من الخادم
 
 const PROT = ['تسجيل مرئي', 'تسجيل صوتي', 'النص الكامل', 'المحضر', 'القرارات', 'سجل الحضور', 'Audit Log'];
 
-const AdminMeetLog: React.FC = () => {
-  const ended = FULL_MEETINGS.filter((m) => m.status === 'منتهٍ');
+const AdminMeetLog: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) => {
+  const ended = meetings.filter((m) => m.status === 'منتهٍ');
   return (
     <>
       <div className="ai-banner">
         <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
-        <p>أرشيف كامل للاجتماعات المنتهية: التسجيل المرئي/الصوتي، النص الكامل، المحضر، القرارات، المهام، سجل الحضور، وسجل العمليات (Audit Log).</p>
+        <p>أرشيف كامل للاجتماعات المنتهية: التسجيل المرئي/الصوتي (على Zoom)، النص الكامل، المحضر، القرارات، المهام، سجل الحضور، وسجل العمليات (Audit Log).</p>
       </div>
       <div className="card">
         <div className="card-h"><h3>سجل الاجتماعات</h3><span className="sub">{ended.length} اجتماع منتهٍ</span></div>

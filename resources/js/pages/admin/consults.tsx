@@ -4,25 +4,25 @@ import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { BarChart } from '@/components/babylon/admin-charts';
-import { CONSULTS, cTone } from '@/lib/employee-data';
+import { cTone } from '@/lib/employee-data';
 import { maskClient } from '@/lib/admin-data';
+import { type ConsultCard } from '@/lib/consult-ui';
 
-// يطابق adConsultsView + cKPIs في index (82).html
-
-const by = (s: string) => CONSULTS.filter((c) => c.status === s).length;
+// يطابق adConsultsView + cKPIs في index (82).html — البيانات حقيقية من الخادم
 
 const openConsult = (ref: string) =>
   router.visit(`/admin/consult?ref=${encodeURIComponent(ref)}`);
 
-const AdminConsults: React.FC = () => {
-  const late = CONSULTS.filter((c) =>
+const AdminConsults: React.FC<{ consults: ConsultCard[] }> = ({ consults }) => {
+  const by = (s: string) => consults.filter((c) => c.status === s).length;
+  const late = consults.filter((c) =>
     (c.mins || 0) > 100 && c.status.indexOf('جاهز') < 0 && c.status.indexOf('محال') < 0 && c.status.indexOf('محول') < 0
   ).length;
-  const toCase = CONSULTS.filter((c) => c.status === 'محولة إلى قضية').length;
-  const conv = Math.round((toCase / CONSULTS.length) * 100);
+  const toCase = consults.filter((c) => c.status === 'محولة إلى قضية').length;
+  const conv = consults.length ? Math.round((toCase / consults.length) * 100) : 0;
 
   const stats: StatItem[] = [
-    ['t-blue', 'folder', CONSULTS.length, 'إجمالي الاستشارات'],
+    ['t-blue', 'folder', consults.length, 'إجمالي الاستشارات'],
     ['t-cyan', 'info', by('جديدة'), 'جديدة'],
     ['t-red', 'clock', late, 'متأخرة'],
     ['t-amber', 'user', by('قيد مراجعة الموظف'), 'قيد مراجعة الموظفين'],
@@ -34,16 +34,16 @@ const AdminConsults: React.FC = () => {
 
   // أداء الموظفين
   const emp: Record<string, number> = {};
-  CONSULTS.forEach((c) => { if (c.employee && c.employee !== '—') emp[c.employee] = (emp[c.employee] || 0) + 1; });
+  consults.forEach((c) => { if (c.employee && c.employee !== '—') emp[c.employee] = (emp[c.employee] || 0) + 1; });
   const empData: [string, number][] = Object.keys(emp).map((k) => [k, emp[k]]);
 
   // توزيع المحامين
   const law: Record<string, number> = {};
-  CONSULTS.forEach((c) => { if (c.lawyer && c.lawyer !== '—') law[c.lawyer] = (law[c.lawyer] || 0) + 1; });
+  consults.forEach((c) => { if (c.lawyer && c.lawyer !== '—') law[c.lawyer] = (law[c.lawyer] || 0) + 1; });
   const lawData: [string, number][] = Object.keys(law).length ? Object.keys(law).map((k) => [k, law[k]]) : [['—', 0]];
 
   // سجل التدقيق
-  const audit = CONSULTS.flatMap((c) => c.audit.map((a) => ({ ref: c.ref, ...a }))).slice(0, 8);
+  const audit = consults.flatMap((c) => c.audit.map((a) => ({ ref: c.ref, ...a }))).slice(0, 8);
 
   return (
     <>
@@ -76,9 +76,9 @@ const AdminConsults: React.FC = () => {
       </div>
 
       <div className="card">
-        <div className="card-h"><h3>جميع الاستشارات</h3><span className="sub">{CONSULTS.length}</span></div>
+        <div className="card-h"><h3>جميع الاستشارات</h3><span className="sub">{consults.length}</span></div>
         <div className="card-b">
-          {CONSULTS.map((c) => (
+          {consults.length ? consults.map((c) => (
             <div key={c.ref} className="item">
               <div className="iico"><Icon name="folder" /></div>
               <div className="imeta">
@@ -95,7 +95,9 @@ const AdminConsults: React.FC = () => {
                 </button>
               </div>
             </div>
-          ))}
+          )) : (
+            <div className="empty"><Icon name="folder" /><b>لا استشارات بعد</b></div>
+          )}
         </div>
       </div>
     </>

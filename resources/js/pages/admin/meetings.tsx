@@ -1,20 +1,20 @@
 import { router } from '@inertiajs/react';
-import React, { useState } from 'react';
+import React from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
-import { type FullMeeting, FULL_MEETINGS } from '@/lib/admin-data';
+import { type FullMeetingCard } from '@/lib/meeting-ui';
 
-// يطابق adMeetings + mApprove في index (82).html
+// يطابق adMeetings + mApprove في index (82).html — الاعتماد حقيقي (يصل المحضر والملخص للعميل)
 
-const AdminMeetings: React.FC = () => {
+const AdminMeetings: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) => {
   const toast = useToast();
-  const [meetings, setMeetings] = useState<FullMeeting[]>(() => FULL_MEETINGS.map((m) => ({ ...m })));
 
-  const approve = (id: string) => {
-    setMeetings((prev) => prev.map((m) => (m.id === id ? { ...m, approve: 'معتمد' } : m)));
-    toast('تم اعتماد الاجتماع ومحضره');
-  };
+  const approve = (m: FullMeetingCard) =>
+    router.post(`/admin/meetings/${m.dbId}/approve`, {}, {
+      preserveScroll: true,
+      onSuccess: () => toast('تم اعتماد الاجتماع ومحضره'),
+    });
 
   const pending = meetings.filter((m) => m.approve !== 'معتمد').length;
 
@@ -22,12 +22,12 @@ const AdminMeetings: React.FC = () => {
     <>
       <div className="ai-banner">
         <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
-        <p>أمثلة حيّة للاجتماعات — استعرض مخرجات الفريق القانوني (قبل/أثناء/بعد) واعتمد المحضر.</p>
+        <p>استعرض مخرجات الفريق القانوني (قبل/أثناء/بعد) واعتمد المحضر — الاعتماد يُتيح المحضر والملخص للعميل.</p>
       </div>
       <div className="card">
         <div className="card-h"><h3>اعتماد الاجتماعات</h3><span className="sub">{pending} بانتظار الاعتماد</span></div>
         <div className="card-b">
-          {meetings.map((m) => (
+          {meetings.length ? meetings.map((m) => (
             <div key={m.id} className="item">
               <div className="iico"><Icon name="video" /></div>
               <div className="imeta"><b>{m.title}</b><span>{m.type} · {m.when}</span></div>
@@ -38,11 +38,13 @@ const AdminMeetings: React.FC = () => {
                 {m.approve === 'معتمد' ? (
                   <Badge text="معتمد" tone="b-green" />
                 ) : (
-                  <button className="btn sm" onClick={() => approve(m.id)} type="button"><Icon name="check" /> اعتماد</button>
+                  <button className="btn sm" onClick={() => approve(m)} type="button"><Icon name="check" /> اعتماد</button>
                 )}
               </div>
             </div>
-          ))}
+          )) : (
+            <div className="empty"><Icon name="video" /><b>لا اجتماعات بعد</b></div>
+          )}
         </div>
       </div>
     </>

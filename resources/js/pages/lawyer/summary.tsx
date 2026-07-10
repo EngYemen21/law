@@ -10,7 +10,7 @@ import { SUM_FLOW, type SummaryData, sumStage } from '@/lib/lawyer-data';
 // الاعتماد يرسل الرأي القانوني + إشعاراً مباشرةً إلى محادثة العميل.
 
 interface EmpTicket { no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string; }
-interface Props { ticket: EmpTicket; summary: SummaryData; }
+interface Props { ticket: EmpTicket; summary: SummaryData; base?: string; }
 
 const FIELDS: { key: keyof SummaryData; label: string }[] = [
   { key: 'caseSummary', label: 'تلخيص القضية' },
@@ -19,7 +19,7 @@ const FIELDS: { key: keyof SummaryData; label: string }[] = [
   { key: 'keyPoints', label: 'النقاط المهمة والتوصيات' },
 ];
 
-const LawyerSummary: React.FC<Props> = ({ ticket, summary }) => {
+const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) => {
   const toast = useToast();
   const approved = summary.approved;
   const canEdit = !approved;
@@ -44,12 +44,12 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary }) => {
   }));
 
   const save = () =>
-    router.post(`/lawyer/summary/${encodeURIComponent(ticket.no)}`, form, {
+    router.post(`${base}/summary/${encodeURIComponent(ticket.no)}`, form, {
       preserveScroll: true, onSuccess: () => toast('تم حفظ تعديلات الملخص'),
     });
 
   const approve = () =>
-    router.post(`/lawyer/summary/${encodeURIComponent(ticket.no)}/approve`, form, {
+    router.post(`${base}/summary/${encodeURIComponent(ticket.no)}/approve`, form, {
       onSuccess: () => toast('تم اعتماد الملخص وإرساله لمحادثة العميل'),
     });
 
@@ -59,7 +59,7 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary }) => {
   return (
     <div className="detail-wrap">
       <div style={{ marginBottom: 14 }}>
-        <Link href="/lawyer/summaries" className="btn soft sm">
+        <Link href={`${base}/summaries`} className="btn soft sm">
           <Icon name="reply" /> رجوع للملخصات
         </Link>
       </div>

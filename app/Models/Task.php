@@ -1,0 +1,30 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class Task extends Model
+{
+    protected $fillable = ['assigned_to', 'title', 'ref', 'due', 'status', 'tone'];
+
+    public function assignee(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_to');
+    }
+
+    // الشكل الذي تتوقعه واجهة المهام (يطابق LawyerTask)
+    public function toData(): array
+    {
+        return [
+            'id' => $this->id,
+            'title' => $this->title,
+            'ref' => $this->ref ?: '—',
+            'owner' => $this->assignee?->name ?: '—',
+            'due' => $this->due ?: '—',
+            'status' => $this->status,
+            'tone' => $this->tone,
+        ];
+    }
+}

@@ -1,3 +1,4 @@
+import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
@@ -16,6 +17,24 @@ const Toggle: React.FC<{ initial?: boolean; onChange: (on: boolean) => void }> =
 
 const Profile: React.FC = () => {
   const toast = useToast();
+  const [curPw, setCurPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [newPw2, setNewPw2] = useState('');
+  const [pwBusy, setPwBusy] = useState(false);
+
+  const changePassword = () => {
+    setPwBusy(true);
+    router.post('/profile/password', {
+      current_password: curPw,
+      password: newPw,
+      password_confirmation: newPw2,
+    }, {
+      preserveScroll: true,
+      onSuccess: () => { setCurPw(''); setNewPw(''); setNewPw2(''); toast('تم تغيير كلمة المرور'); },
+      onError: (e) => toast((Object.values(e)[0] as string) || 'تعذّر تغيير كلمة المرور'),
+      onFinish: () => setPwBusy(false),
+    });
+  };
 
   return (
     <div className="grid-2">
@@ -46,14 +65,18 @@ const Profile: React.FC = () => {
           <div className="card-b" style={{ padding: 18 }}>
             <div className="field">
               <label>كلمة المرور الحالية</label>
-              <input className="input" type="password" defaultValue="········" />
+              <input className="input" type="password" value={curPw} onChange={(e) => setCurPw(e.target.value)} placeholder="••••••••" />
             </div>
             <div className="field">
               <label>كلمة المرور الجديدة</label>
-              <input className="input" type="password" placeholder="••••••••" />
+              <input className="input" type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="••••••••" />
             </div>
-            <button className="btn ghost" type="button" onClick={() => toast('تم تغيير كلمة المرور')}>
-              <Icon name="lock" /> تغيير كلمة المرور
+            <div className="field">
+              <label>تأكيد كلمة المرور الجديدة</label>
+              <input className="input" type="password" value={newPw2} onChange={(e) => setNewPw2(e.target.value)} placeholder="••••••••" />
+            </div>
+            <button className="btn ghost" type="button" onClick={changePassword} disabled={pwBusy}>
+              <Icon name="lock" /> {pwBusy ? 'جارٍ التغيير…' : 'تغيير كلمة المرور'}
             </button>
           </div>
         </div>

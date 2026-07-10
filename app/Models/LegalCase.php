@@ -2,17 +2,21 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class LegalCase extends Model
 {
+    use HasBranch;
+
     // Case كلمة محجوزة في PHP، لذا نستخدم LegalCase مع جدول cases
     protected $table = 'cases';
 
     protected $fillable = [
-        'user_id', 'ticket_id', 'number', 'type', 'assigned_lawyer', 'department', 'status', 'tone',
+        'user_id', 'ticket_id', 'number', 'type', 'assigned_lawyer', 'assigned_lawyer_id', 'branch', 'department', 'status', 'tone',
         'update_text', 'next_hearing', 'invoice_text', 'paid_text', 'fee', 'fee_status',
         'lawyer_fee', 'lawyer_pct', 'pleading_status', 'ruling',
         'pay_plan', 'installments_total', 'installments_paid',
@@ -28,6 +32,12 @@ class LegalCase extends Model
         return $this->belongsTo(Ticket::class);
     }
 
+    // حساب المحامي المسند (المصدر الموثوق؛ العمود النصي للعرض فقط)
+    public function assignedLawyer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_lawyer_id');
+    }
+
     public function messages(): HasMany
     {
         return $this->hasMany(CaseMessage::class, 'case_id')->orderBy('id');
@@ -36,6 +46,11 @@ class LegalCase extends Model
     public function hearings(): HasMany
     {
         return $this->hasMany(CaseHearing::class, 'case_id')->orderBy('id');
+    }
+
+    public function execution(): HasOne
+    {
+        return $this->hasOne(Execution::class, 'case_id');
     }
 
     // ربط المسار برقم القضية بدل المعرّف

@@ -8,6 +8,7 @@ use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Services\LegalAiService;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -26,7 +27,7 @@ class CaseConversion
     public static function convert(Ticket $ticket, User $actor): LegalCase
     {
         // تحليل ذكي يقترح نوع القضية والقسم المختص (يطابق cfAnalysis)
-        $analysis = app(\App\Services\LegalAiService::class)->classifyCase($ticket);
+        $analysis = app(LegalAiService::class)->classifyCase($ticket);
 
         $case = DB::transaction(function () use ($ticket, $analysis) {
             $number = 'CASE-'.now()->year.'-'.str_pad((string) random_int(1, 9999), 4, '0', STR_PAD_LEFT);
@@ -37,6 +38,8 @@ class CaseConversion
                 'number' => $number,
                 'type' => $analysis['type'],
                 'assigned_lawyer' => $ticket->assigned_lawyer,
+                'assigned_lawyer_id' => $ticket->assigned_lawyer_id,
+                'branch' => $ticket->branch,
                 'department' => $analysis['department'],
                 'status' => 'بانتظار اعتماد الأتعاب',
                 'tone' => 'b-amber',

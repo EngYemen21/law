@@ -2,14 +2,15 @@ import { router } from '@inertiajs/react';
 import React from 'react';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
-import { FULL_MEETINGS } from '@/lib/lawyer-data';
+import { openMeeting } from '@/lib/consult-ui';
+import { type FullMeetingCard } from '@/lib/meeting-ui';
 
-// يطابق lwMeetings في index (82).html
+// يطابق lwMeetings في index (82).html — الاجتماعات حقيقية من الخادم
 
-const openMeeting = (id: string) =>
+const openPage = (id: string) =>
   router.visit(`/lawyer/meeting?id=${encodeURIComponent(id)}`);
 
-const LawyerMeetings: React.FC = () => {
+const LawyerMeetings: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) => {
   const toast = useToast();
 
   return (
@@ -19,7 +20,7 @@ const LawyerMeetings: React.FC = () => {
         <p>الفريق القانوني يجهّز الاجتماع قبله، يوثّقه أثناءه، ويستخرج المحضر والمهام والقرارات بعده.</p>
       </div>
 
-      {FULL_MEETINGS.map((m) => (
+      {meetings.length ? meetings.map((m) => (
         <div key={m.id} className="card">
           <div className="card-h">
             <h3>{m.title}</h3>
@@ -48,19 +49,27 @@ const LawyerMeetings: React.FC = () => {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-              <button className="btn sm" onClick={() => toast('سيتم فتح رابط الاجتماع في موعده')} type="button">
-                <Icon name="link" /> رابط الاجتماع
+              <button className="btn sm" onClick={() => openMeeting(m.hostLink || m.meetLink)} type="button">
+                <Icon name="link" /> دخول اجتماع Zoom
               </button>
-              <button className="btn soft sm" onClick={() => openMeeting(m.id)} type="button">
+              <button className="btn soft sm" onClick={() => openPage(m.id)} type="button">
                 <Icon name="doc" /> فتح الصفحة
               </button>
-              <button className="btn soft sm" onClick={() => toast('تم فتح الملخص')} type="button">
+              <button
+                className="btn soft sm"
+                onClick={() => (m.summary ? openPage(m.id) : toast('لم يُحفظ ملخص بعد — افتح الصفحة لإعداده'))}
+                type="button"
+              >
                 <Icon name="out" /> الملخص
               </button>
             </div>
           </div>
         </div>
-      ))}
+      )) : (
+        <div className="card"><div className="card-b">
+          <div className="empty"><Icon name="video" /><b>لا اجتماعات بعد</b></div>
+        </div></div>
+      )}
     </>
   );
 };

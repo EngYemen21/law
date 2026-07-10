@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '@/lib/icons';
+import MsgMeta from '@/components/babylon/MsgMeta';
 import { useToast } from '@/components/babylon/Toast';
 import { echo } from '@/lib/echo';
 import {
@@ -8,10 +9,7 @@ import {
   CLIENT_NAME,
   ackMessage,
   attachMessage,
-  cleanTime,
-  msgIP,
   nowClock,
-  todayDate,
 } from '@/lib/chat';
 
 // يطابق ctRenderMsg + metaLine
@@ -21,7 +19,6 @@ const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
   const actor = isClient ? 'me' : 'ai';
   const name = isClient ? 'أنت' : m.name || 'خدمة العملاء';
   const role = isClient ? '' : m.role || '';
-  const ip = msgIP(m.who);
 
   return (
     <div className={`msg ${actor}`}>
@@ -35,11 +32,7 @@ const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
           <time>{m.time}</time>
         </div>
         <div className="bubble" dangerouslySetInnerHTML={{ __html: m.text }} />
-        <div className="msg-meta">
-          <span><Icon name="cal" />{todayDate()}</span>
-          <span><Icon name="clock" />{cleanTime(m.time)}</span>
-          <span><Icon name="pin" /><bdi>{ip}</bdi></span>
-        </div>
+        <MsgMeta m={m} />
       </div>
     </div>
   );

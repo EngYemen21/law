@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Models\Appointment;
+use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Models\UserNotification;
@@ -48,6 +49,16 @@ class ConsultBookingTest extends TestCase
         $this->assertSame('استشارة مرئية', $appt->type);
         $this->assertSame('11:30 ص', $appt->time);
         $this->assertSame('أ. سارة القحطاني', $appt->lawyer);
+
+        // أُنشئ سجلّ استشارة حقيقي (CN-) مرتبط بالتذكرة والموعد — يظهر في «استشاراتي»
+        $consult = Consult::where('ticket_id', $ticket->id)->first();
+        $this->assertNotNull($consult);
+        $this->assertStringStartsWith('CN-', $consult->ref);
+        $this->assertSame('مرئية', $consult->channel);
+        $this->assertSame($appt->id, $consult->appointment_id);
+        $this->assertSame(450, $consult->price);
+        $this->assertSame(518, $consult->total);
+        $this->assertSame('بانتظار الجلسة', $consult->session);
 
         // تقدّمت التذكرة إلى «موعد مؤكد» + رسالة بطاقة الموعد + إشعار
         $ticket->refresh();

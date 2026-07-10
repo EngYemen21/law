@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
+use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
@@ -17,14 +18,15 @@ class CaseConversionTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function completedTicket(User $client): Ticket
+    private function completedTicket(User $client, ?User $lawyer = null): Ticket
     {
         return Ticket::create([
             'user_id' => $client->id,
             'number' => 'SB-2026-9100',
             'type' => 'نزاع تجاري',
             'department' => 'القسم التجاري',
-            'assigned_lawyer' => 'أ. سارة القحطاني',
+            'assigned_lawyer' => $lawyer?->name ?? 'أ. سارة القحطاني',
+            'assigned_lawyer_id' => $lawyer?->id,
             'status' => 'مكتملة',
             'tone' => 'b-green',
         ]);
@@ -34,7 +36,7 @@ class CaseConversionTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'أ. سارة القحطاني']);
-        $ticket = $this->completedTicket($client);
+        $ticket = $this->completedTicket($client, $lawyer);
 
         $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
 
@@ -79,7 +81,7 @@ class CaseConversionTest extends TestCase
     public function test_cannot_convert_unless_completed(): void
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]));
+        $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]), $lawyer);
         $ticket->update(['status' => 'الرأي القانوني']);
 
         $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertStatus(422);
@@ -88,7 +90,7 @@ class CaseConversionTest extends TestCase
     public function test_cannot_convert_twice(): void
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]));
+        $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]), $lawyer);
 
         $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
         $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertStatus(409);
@@ -100,7 +102,7 @@ class CaseConversionTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $admin = User::factory()->create(['role' => Role::Admin]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = $this->completedTicket($client);
+        $ticket = $this->completedTicket($client, $lawyer);
 
         $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
         $case = LegalCase::where('ticket_id', $ticket->id)->firstOrFail();
@@ -125,7 +127,7 @@ class CaseConversionTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $admin = User::factory()->create(['role' => Role::Admin]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = $this->completedTicket($client);
+        $ticket = $this->completedTicket($client, $lawyer);
         $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
         $case = LegalCase::where('ticket_id', $ticket->id)->firstOrFail();
 
@@ -138,10 +140,10 @@ class CaseConversionTest extends TestCase
     public function test_conversion_runs_ai_analysis(): void
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]));
+        $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]), $lawyer);
 
         $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
-        $case = \App\Models\LegalCase::where('ticket_id', $ticket->id)->firstOrFail();
+        $case = LegalCase::where('ticket_id', $ticket->id)->firstOrFail();
         // رسالة التحليل الذكي (cfAnalysis) موجودة + النوع/القسم مُعبّآن
         $this->assertTrue($case->messages->contains(fn ($m) => $m->role === 'تحليل'));
         $this->assertNotEmpty($case->type);
@@ -153,12 +155,12 @@ class CaseConversionTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $admin = User::factory()->create(['role' => Role::Admin]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = $this->completedTicket($client);
+        $ticket = $this->completedTicket($client, $lawyer);
         $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
-        $case = \App\Models\LegalCase::where('ticket_id', $ticket->id)->firstOrFail();
+        $case = LegalCase::where('ticket_id', $ticket->id)->firstOrFail();
 
         $this->actingAs($admin)->post(route('admin.cases.fee', $case), ['fee' => 10000])->assertRedirect();
-        $inv = \App\Models\Invoice::where('case_id', $case->id)->first();
+        $inv = Invoice::where('case_id', $case->id)->first();
         $this->assertNotNull($inv);
         $this->assertSame(11500, $inv->amount); // 10000 + 15% ضريبة
         $this->assertFalse($inv->paid);
@@ -172,7 +174,7 @@ class CaseConversionTest extends TestCase
     public function test_installment_payment_plan(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $case = \App\Models\LegalCase::create([
+        $case = LegalCase::create([
             'user_id' => $client->id, 'number' => 'CASE-2026-0500', 'type' => 'تجاري',
             'status' => 'بانتظار سداد الأتعاب', 'tone' => 'b-amber',
             'fee' => 9000, 'fee_status' => 'pending_payment', 'pleading_status' => 'none',
@@ -196,7 +198,7 @@ class CaseConversionTest extends TestCase
     public function test_lawyer_closes_ticket_without_case(): void
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]));
+        $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]), $lawyer);
 
         $this->actingAs($lawyer)->post(route('lawyer.tickets.close', $ticket))->assertRedirect();
         $this->assertSame('مغلقة', $ticket->fresh()->status);
@@ -207,7 +209,7 @@ class CaseConversionTest extends TestCase
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $client = User::factory()->create(['role' => Role::Client]);
-        $ticket = $this->completedTicket($client);
+        $ticket = $this->completedTicket($client, $lawyer);
 
         $this->actingAs($lawyer)->post(route('lawyer.tickets.reqdocs', $ticket))->assertRedirect();
         $this->assertTrue($ticket->messages->contains(fn ($m) => $m->who === 'lawyer' && $m->role === 'نواقص'));
@@ -219,7 +221,7 @@ class CaseConversionTest extends TestCase
     {
         $admin = User::factory()->create(['role' => Role::Admin]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]));
+        $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]), $lawyer);
         $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
 
         $this->actingAs($admin)->get(route('admin.casefees'))

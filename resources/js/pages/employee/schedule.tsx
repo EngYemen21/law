@@ -1,68 +1,68 @@
+import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
-import { CLIENTS, LAWYERS, SCHEDULE_TIMES } from '@/lib/employee-data';
 
-// يطابق emScheduleView + emPickSlot في index (82).html
+// جدولة موعد استشارة من الموظف نيابةً عن عميل — يحفظ حجزاً حقيقياً
 
-const EmployeeSchedule: React.FC = () => {
+interface Props { clients: { id: number; name: string }[]; lawyers: string[]; }
+
+const TYPES: [string, string][] = [['office', 'حضورية'], ['video', 'مرئية'], ['phone', 'هاتفية']];
+
+const EmployeeSchedule: React.FC<Props> = ({ clients, lawyers }) => {
   const toast = useToast();
-  const [sel, setSel] = useState<number | null>(null);
+  const [clientId, setClientId] = useState<number | ''>(clients[0]?.id ?? '');
+  const [lawyer, setLawyer] = useState(lawyers[0] ?? '');
+  const [type, setType] = useState('office');
+  const [subject, setSubject] = useState('');
+  const [day, setDay] = useState('');
+  const [time, setTime] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = () => {
+    if (!clientId || !day.trim() || !time.trim()) { toast('اختر العميل واليوم والوقت'); return; }
+    setBusy(true);
+    router.post('/employee/schedule', { client_id: clientId, lawyer, type, subject: subject.trim(), day: day.trim(), time: time.trim() }, {
+      preserveScroll: true,
+      onFinish: () => setBusy(false),
+      onSuccess: () => { toast('تم إنشاء الموعد وحفظه'); setSubject(''); setDay(''); setTime(''); },
+    });
+  };
 
   return (
     <div className="card">
       <div className="card-h"><h3>جدولة موعد جديد</h3></div>
       <div className="card-b" style={{ padding: 18 }}>
+        {clients.length === 0 && <div className="empty"><Icon name="user" /><b>لا عملاء مسجّلون بعد</b></div>}
         <div className="picker-grid">
           <div className="field">
             <label>العميل</label>
-            <select>{CLIENTS.map((c) => <option key={c.name}>{c.name}</option>)}</select>
+            <select value={clientId} onChange={(e) => setClientId(Number(e.target.value))}>
+              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
           </div>
           <div className="field">
             <label>المستشار</label>
-            <select>{LAWYERS.map((l) => <option key={l.name}>{l.name}</option>)}</select>
+            <select value={lawyer} onChange={(e) => setLawyer(e.target.value)}>
+              {lawyers.map((l) => <option key={l}>{l}</option>)}
+            </select>
           </div>
         </div>
         <div className="picker-grid">
           <div className="field">
             <label>نوع الاستشارة</label>
-            <select>
-              <option>حضورية</option>
-              <option>مرئية</option>
-              <option>هاتفية</option>
+            <select value={type} onChange={(e) => setType(e.target.value)}>
+              {TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           </div>
-          <div className="field">
-            <label>اليوم</label>
-            <select>
-              <option>الأحد 28 يونيو</option>
-              <option>الاثنين 29 يونيو</option>
-            </select>
-          </div>
+          <div className="field"><label>موضوع الاستشارة</label><input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="اختياري" /></div>
         </div>
-        <label style={{ display: 'block', fontSize: 13, fontWeight: 700, margin: '4px 0 8px' }}>الوقت</label>
-        <div className="slots">
-          {SCHEDULE_TIMES.map((t, i) => (
-            <button
-              key={t}
-              className={`slot${sel === i ? ' sel' : ''}`}
-              onClick={() => setSel(i)}
-              type="button"
-            >
-              {t}
-            </button>
-          ))}
+        <div className="picker-grid">
+          <div className="field"><label>اليوم</label><input value={day} onChange={(e) => setDay(e.target.value)} placeholder="مثال: الأحد 12 يوليو" /></div>
+          <div className="field"><label>الوقت</label><input value={time} onChange={(e) => setTime(e.target.value)} placeholder="مثال: 01:00 م" /></div>
         </div>
-        <div className="cal-note">
-          <Icon name="check" /> يتحقق النظام من التعارض عبر Google Calendar
-        </div>
-        <button
-          className="btn block"
-          style={{ marginTop: 14 }}
-          onClick={() => toast('تم إنشاء الموعد ومزامنته مع التقويم')}
-          type="button"
-        >
-          <Icon name="calplus" /> تأكيد الجدولة
+        <button className="btn block" style={{ marginTop: 14 }} onClick={submit} type="button" disabled={busy}>
+          <Icon name="calplus" /> {busy ? 'جارٍ الحفظ…' : 'تأكيد الجدولة'}
         </button>
       </div>
     </div>

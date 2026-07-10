@@ -1,6 +1,7 @@
 import React from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
+import MsgMeta from '@/components/babylon/MsgMeta';
 import { type Message } from '@/lib/chat';
 
 // أدوات واجهة القضية المشتركة (تطابق CaseJourney::LIFE في الخادم)
@@ -63,6 +64,7 @@ export const CaseMsgRow: React.FC<{ m: Message }> = ({ m }) => {
           <time>{m.time}</time>
         </div>
         <div className="bubble" dangerouslySetInnerHTML={{ __html: m.text }} />
+        <MsgMeta m={m} />
       </div>
     </div>
   );

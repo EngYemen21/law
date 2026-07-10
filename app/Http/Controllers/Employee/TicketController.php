@@ -2,16 +2,18 @@
 
 namespace App\Http\Controllers\Employee;
 
-use App\Enums\Role;
 use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
+use App\Http\Controllers\Concerns\BranchScoped;
 use App\Http\Controllers\Controller;
 use App\Models\Ticket;
-use App\Models\User;
-use App\Services\LegalAiService;
+use App\Support\AfterResponse;
+use App\Support\CaseConversion;
 use App\Support\ServiceDocs;
 use App\Support\TicketJourney;
 use App\Support\TicketResult;
+use App\Support\TicketTriage;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
 use Inertia\Inertia;
@@ -23,13 +25,12 @@ use Inertia\Response;
  */
 class TicketController extends Controller
 {
-    public function __construct(private LegalAiService $ai)
-    {
-    }
+    use BranchScoped;
 
     public function index(): Response
     {
-        $tickets = Ticket::with('user')->withExists('legalCase')->latest('id')->get()
+        $tickets = Ticket::with('user')->withExists('legalCase')
+            ->where('branch', $this->currentBranch())->latest('id')->get()
             ->map(fn (Ticket $t) => array_merge($t->toEmployeeCard(), ['converted' => (bool) $t->legal_case_exists]));
 
         return Inertia::render('employee/tickets', [
@@ -39,6 +40,7 @@ class TicketController extends Controller
 
     public function show(Ticket $ticket): Response
     {
+        $this->guardBranch($ticket);
         $ticket->load('user');
 
         return Inertia::render('employee/ticketchat', [
@@ -52,6 +54,7 @@ class TicketController extends Controller
     // ردّ الموظف (يراه العميل ضمن نفس التذكرة) — بثّ لحظي
     public function reply(Request $request, Ticket $ticket): HttpResponse
     {
+        $this->guardBranch($ticket);
         $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
 
         $msg = $ticket->messages()->create([
@@ -71,6 +74,7 @@ class TicketController extends Controller
     // ملاحظة داخلية (لا يراها العميل) — تُبثّ على قناة الموظفين فقط
     public function note(Request $request, Ticket $ticket): HttpResponse
     {
+        $this->guardBranch($ticket);
         $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
 
         $msg = $ticket->messages()->create([
@@ -88,6 +92,7 @@ class TicketController extends Controller
     // تغيير حالة التذكرة (بثّ لحظي — يتقدّم المسار لدى الطرفين)
     public function status(Request $request, Ticket $ticket): HttpResponse
     {
+        $this->guardBranch($ticket);
         $data = $request->validate([
             'status' => ['required', 'string', 'max:60'],
             'tone' => ['required', 'string', 'max:16'],
@@ -102,6 +107,7 @@ class TicketController extends Controller
     // تنفيذ المرحلة التالية من رحلة المعالجة (تحديث الحالة + رسالة + بثّ)
     public function advance(Request $request, Ticket $ticket): HttpResponse
     {
+        $this->guardBranch($ticket);
         // مراحل بيد المحامي/الإدارة — لا يتقدّم الموظف فيها
         if (in_array($ticket->status, ['بانتظار اعتماد المستشار', 'بانتظار اعتماد النتيجة', 'بانتظار اعتماد الإدارة'], true)) {
             return response()->noContent();
@@ -137,9 +143,9 @@ class TicketController extends Controller
             return response()->noContent();
         }
 
-        // الإحالة للقسم القانوني: تجهيز ملخص الملف للمستشار، ثم انتظار اعتماده
+        // الإحالة للقسم القانوني: تجهيز ملخص الملف للمستشار (AI بعد الاستجابة)، ثم انتظار اعتماده
         if ($stage['status'] === 'محالة للقسم القانوني') {
-            $this->referToLawyer($ticket);
+            AfterResponse::defer(fn () => TicketTriage::referToLawyer($ticket));
 
             return response()->noContent();
         }
@@ -171,53 +177,15 @@ class TicketController extends Controller
     }
 
     // تحويل التذكرة المكتملة إلى قضية (يظهر للموظف بعد انتهاء الاستشارة)
-    public function convertToCase(Request $request, Ticket $ticket): \Illuminate\Http\RedirectResponse
+    public function convertToCase(Request $request, Ticket $ticket): RedirectResponse
     {
+        $this->guardBranch($ticket);
         abort_unless($ticket->status === 'مكتملة', 422);
         abort_if($ticket->legalCase()->exists(), 409);
 
-        \App\Support\CaseConversion::convert($ticket, $request->user());
+        CaseConversion::convert($ticket, $request->user());
 
         return back();
-    }
-
-    /**
-     * الإحالة للقسم القانوني: إسناد محامٍ + تجهيز ملخص الملف الذكي + انتظار اعتماد المستشار.
-     */
-    private function referToLawyer(Ticket $ticket): void
-    {
-        $lawyer = User::where('role', Role::Lawyer)->first();
-
-        // تجهيز ملخص الملف الرباعي (الذكاء الاصطناعي مع احتياط قالبي)
-        $parts = $this->ai->summarize($ticket);
-        $ticket->summary()->updateOrCreate([], [
-            'lawyer_id' => $lawyer?->id,
-            'case_summary' => $parts['case_summary'],
-            'attachments_summary' => $parts['attachments_summary'],
-            'facts' => $parts['facts'],
-            'key_points' => $parts['key_points'],
-            'status' => 'awaiting_lawyer',
-            'approved_at' => null,
-        ]);
-
-        $dept = $ticket->department ?: 'القسم القانوني المختص';
-        $ticket->update([
-            'assigned_lawyer' => $lawyer?->name ?: $ticket->assigned_lawyer,
-            'status' => 'بانتظار اعتماد المستشار',
-            'tone' => 'b-amber',
-            'last_message' => 'تمت الإحالة، وجارٍ اعتماد ملخص الملف من المستشار',
-            'date_label' => 'الآن',
-        ]);
-
-        $msg = $ticket->messages()->create([
-            'who' => 'staff',
-            'name' => 'خدمة العملاء',
-            'role' => 'إحالة',
-            'body' => "تمت إحالة طلبكم إلى {$dept} لدراسة الموضوع، وجهّز الفريق القانوني ملخص الملف، وهو الآن بانتظار اعتماد المستشار القانوني.",
-            'time_label' => $this->clock(),
-        ]);
-        broadcast(new TicketMessageBroadcast($msg));
-        broadcast(new TicketStatusBroadcast($ticket));
     }
 
     /**

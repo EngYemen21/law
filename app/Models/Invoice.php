@@ -21,6 +21,12 @@ class Invoice extends Model
         return $this->belongsTo(User::class);
     }
 
+    // ربط المسار برقم الفاتورة بدل المعرّف
+    public function getRouteKeyName(): string
+    {
+        return 'number';
+    }
+
     // الشكل الذي تتوقعه الواجهة (يطابق DATA.invoices)
     public function toCard(): array
     {

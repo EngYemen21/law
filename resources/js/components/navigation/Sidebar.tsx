@@ -2,6 +2,7 @@ import { Link, router, usePage } from '@inertiajs/react';
 import React from 'react';
 import Icon from '@/lib/icons';
 import { ROLES, ROLE_NAV, roleOfPath } from '@/lib/data';
+import { canViewRoute, type PermCatalog } from '@/lib/permissions';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -14,8 +15,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const path = (url as string).split('?')[0];
   const role = roleOfPath(path);
   const roleMeta = ROLES.find((r) => r.key === role) ?? ROLES[0];
-  const nav = ROLE_NAV[role] ?? ROLE_NAV.client;
+  const rawNav = ROLE_NAV[role] ?? ROLE_NAV.client;
   const isAdmin = user?.role === 'admin';
+
+  // تصفية القائمة حسب صلاحيات المستخدم (isSuper يرى الكل)؛ خريطة الصلاحيات من كتالوج الخادم
+  const perms: string[] = user?.permissions ?? [];
+  const isSuper: boolean = user?.isSuper ?? false;
+  const viewMap = (props?.permCatalog as PermCatalog | undefined)?.viewMap ?? {};
+  const nav = rawNav
+    .map((grp) => ({ ...grp, items: grp.items.filter((it) => canViewRoute(it.route, perms, isSuper, viewMap)) }))
+    .filter((grp) => grp.items.length > 0);
 
   const isActive = (route: string) =>
     route === roleMeta.home ? path === route : path.startsWith(route);

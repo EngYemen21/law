@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Lawyer;
 
 use App\Events\CaseStatusBroadcast;
+use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
 use App\Models\CaseHearing;
 use App\Models\LegalCase;
+use App\Models\Ticket;
 use App\Models\UserNotification;
+use App\Support\ExecutionCreation;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -17,9 +20,12 @@ use Inertia\Response;
  */
 class CaseController extends Controller
 {
-    public function index(): Response
+    use ScopedToLawyer;
+
+    public function index(Request $request): Response
     {
-        $cases = LegalCase::with('user')->whereNotNull('ticket_id')->latest('id')->get()
+        $cases = LegalCase::with('user')->whereNotNull('ticket_id')
+            ->where('assigned_lawyer_id', $request->user()->id)->latest('id')->get()
             ->map(fn (LegalCase $c) => $this->card($c));
 
         return Inertia::render('lawyer/cases', ['cases' => $cases]);
@@ -27,6 +33,7 @@ class CaseController extends Controller
 
     public function show(LegalCase $case): Response
     {
+        $this->guardAssigned($case);
         $case->load(['user', 'hearings']);
 
         return Inertia::render('lawyer/case', [
@@ -34,12 +41,25 @@ class CaseController extends Controller
             'channel' => 'case.'.$case->id,
             'messages' => $case->messages->where('who', '!=', 'note')->values()->map->toMessage(),
             'hearings' => $case->hearings->map->toData(),
+            'convertedExec' => $case->execution()->exists(),
         ]);
+    }
+
+    // فتح طلب تنفيذ من قضية بلغت «صدر الحكم» (تنفيذ الحكم)
+    public function convertToExecution(Request $request, LegalCase $case): RedirectResponse
+    {
+        $this->guardAssigned($case);
+        abort_unless(ExecutionCreation::isEligible($case), 422);
+
+        ExecutionCreation::fromCase($case, $request->user());
+
+        return redirect()->route('lawyer.execs');
     }
 
     // اعتماد اللائحة → القضية منظورة (يطابق cfApprove → cfTrack)
     public function approvePleading(Request $request, LegalCase $case): RedirectResponse
     {
+        $this->guardAssigned($case);
         abort_unless($case->pleading_status === 'pending_lawyer', 422);
 
         $case->update([
@@ -62,6 +82,7 @@ class CaseController extends Controller
     // جدولة جلسة جديدة (يراها العميل في «الجلسة القادمة»)
     public function addHearing(Request $request, LegalCase $case): RedirectResponse
     {
+        $this->guardAssigned($case);
         $data = $request->validate([
             'title' => ['required', 'string', 'max:120'],
             'day' => ['required', 'string', 'max:60'],
@@ -88,6 +109,7 @@ class CaseController extends Controller
     // تسجيل نتيجة جلسة
     public function recordHearing(Request $request, LegalCase $case, CaseHearing $hearing): RedirectResponse
     {
+        $this->guardAssigned($case);
         abort_unless($hearing->case_id === $case->id, 404);
         $data = $request->validate([
             'status' => ['required', 'string', 'in:منعقدة,مؤجلة'],
@@ -102,6 +124,10 @@ class CaseController extends Controller
     // تسجيل الحكم → بانتظار إغلاق الإدارة (يطابق ما قبل cfCloseCase)
     public function recordRuling(Request $request, LegalCase $case): RedirectResponse
     {
+        $this->guardAssigned($case);
+        // لا يُسجَّل حكم إلا وقضية منظورة (بعد اعتماد اللائحة ورفع الدعوى)، ولا يُسجَّل مرتين
+        abort_unless($case->status === 'منظورة', 422);
+
         $data = $request->validate(['ruling' => ['required', 'string', 'max:3000']]);
 
         $case->update([
@@ -125,7 +151,7 @@ class CaseController extends Controller
     {
         return [
             'no' => $c->number,
-            'client' => \App\Models\Ticket::maskClient($c->user?->name ?? ''),
+            'client' => Ticket::maskClient($c->user?->name ?? ''),
             'type' => $c->type,
             'dept' => $c->department,
             'lawyer' => $c->assigned_lawyer ?: '—',

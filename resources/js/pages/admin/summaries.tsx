@@ -1,4 +1,4 @@
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import React from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
@@ -39,8 +39,13 @@ const AdminSummaries: React.FC<Props> = ({ summaries }) => {
                 </button>
               ) : s.resultStatus === 'approved' ? (
                 <Badge text="مكتملة — أُرسلت النتيجة" tone="b-green" />
+              ) : s.approved ? (
+                <Badge text="الملخص معتمد" tone="b-cyan" />
               ) : (
-                <Badge text={s.approved ? 'الملخص معتمد' : 'بانتظار المستشار'} tone={s.approved ? 'b-cyan' : 'b-amber'} />
+                // الإدارة العليا تراجع/تعتمد/تعدّل ملخص الملف مباشرةً (صلاحيات مطلقة)
+                <Link href={`/admin/summary/${encodeURIComponent(s.ref!)}`} className="btn sm">
+                  <Icon name="doc" /> مراجعة واعتماد الملخص
+                </Link>
               )}
             </div>
           </div>

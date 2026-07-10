@@ -3,21 +3,20 @@ import React from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
-import { TASKS } from '@/lib/lawyer-data';
 
 // لوحة المحامي — التذاكر المحالة وملخصاتها (بيانات حقيقية من الخادم)
 
 interface EmpTicket { no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string; }
-interface Props { tickets: EmpTicket[]; pendingSummaries: number; }
+interface Props { tickets: EmpTicket[]; pendingSummaries: number; todayMeetings: number; openTasks: number; }
 
 const studyTicket = (no: string) => router.visit(`/lawyer/summary/${encodeURIComponent(no)}`);
 
-const LawyerDashboard: React.FC<Props> = ({ tickets, pendingSummaries }) => {
+const LawyerDashboard: React.FC<Props> = ({ tickets, pendingSummaries, todayMeetings, openTasks }) => {
   const stats: StatItem[] = [
     ['t-blue', 'folder', tickets.length, 'تذاكر محالة إليّ'],
-    ['t-cyan', 'video', 1, 'اجتماعات اليوم'],
+    ['t-cyan', 'video', todayMeetings, 'اجتماعات قادمة'],
     ['t-amber', 'doc', pendingSummaries, 'ملخصات بانتظار اعتمادي'],
-    ['t-green', 'exec', TASKS.filter((t) => t.status !== 'منجزة').length, 'مهام مفتوحة'],
+    ['t-green', 'exec', openTasks, 'مهام مفتوحة'],
   ];
 
   return (

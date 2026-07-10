@@ -1,22 +1,25 @@
+import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
-import { type Branch, BRANCHES } from '@/lib/admin-data';
 
-// يطابق adBranches + addBranch في index (82).html
+// يطابق adBranches + addBranch — مربوط بموديل Branch الحقيقي
 
-const AdminBranches: React.FC = () => {
+interface BranchCard { id: number; name: string; city: string; phone: string }
+
+const AdminBranches: React.FC<{ branches: BranchCard[] }> = ({ branches }) => {
   const toast = useToast();
-  const [list, setList] = useState<Branch[]>(() => BRANCHES.map((b) => ({ ...b })));
   const [name, setName] = useState('');
   const [city, setCity] = useState('');
   const [phone, setPhone] = useState('');
 
   const add = () => {
     if (!name.trim()) { toast('أدخل اسم الفرع'); return; }
-    setList((p) => [...p, { name: name.trim(), city: city || '—', phone: phone || '—' }]);
-    setName(''); setCity(''); setPhone('');
-    toast('تمت إضافة الفرع');
+    router.post('/admin/branches', { name, city, phone }, {
+      preserveScroll: true,
+      onSuccess: () => { setName(''); setCity(''); setPhone(''); toast('تمت إضافة الفرع'); },
+      onError: (e) => toast(Object.values(e)[0] as string || 'تعذّر إضافة الفرع'),
+    });
   };
 
   return (
@@ -46,14 +49,16 @@ const AdminBranches: React.FC = () => {
         </div>
       </div>
       <div className="card">
-        <div className="card-h"><h3>الفروع</h3><span className="sub">{list.length}</span></div>
+        <div className="card-h"><h3>الفروع</h3><span className="sub">{branches.length}</span></div>
         <div className="card-b">
-          {list.map((b) => (
-            <div key={b.name} className="item">
+          {branches.length ? branches.map((b) => (
+            <div key={b.id} className="item">
               <div className="iico"><Icon name="office" /></div>
-              <div className="imeta"><b>{b.name}</b><span>{b.city} · {b.phone}</span></div>
+              <div className="imeta"><b>{b.name}</b><span>{b.city}{b.phone ? ` · ${b.phone}` : ''}</span></div>
             </div>
-          ))}
+          )) : (
+            <div className="empty"><Icon name="office" /><b>لا فروع بعد</b></div>
+          )}
         </div>
       </div>
     </>

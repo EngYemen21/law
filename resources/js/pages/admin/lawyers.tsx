@@ -1,11 +1,12 @@
 import React from 'react';
 import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
-import { LAWYERS } from '@/lib/admin-data';
 
-// يطابق adLawyers في index (82).html
+// يطابق adLawyers — المحامون من جدول users بدور lawyer + عدد التذاكر المحالة
 
-const AdminLawyers: React.FC = () => {
+interface LawyerRow { name: string; depts: string[]; active: number; mode: string }
+
+const AdminLawyers: React.FC<{ lawyers: LawyerRow[] }> = ({ lawyers }) => {
   const toast = useToast();
   return (
     <div className="card">
@@ -25,12 +26,12 @@ const AdminLawyers: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {LAWYERS.map((l) => (
+            {lawyers.length ? lawyers.map((l) => (
               <tr key={l.name}>
                 <td><b>{l.name}</b></td>
                 <td>
                   <div className="chips">
-                    {l.depts.map((d) => <span key={d} className="chip muted">{d}</span>)}
+                    {l.depts.length ? l.depts.map((d) => <span key={d} className="chip muted">{d}</span>) : <span className="chip muted">—</span>}
                   </div>
                 </td>
                 <td>{l.active}</td>
@@ -41,7 +42,9 @@ const AdminLawyers: React.FC = () => {
                   </button>
                 </td>
               </tr>
-            ))}
+            )) : (
+              <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--muted)', padding: 20 }}>لا محامون مسجّلون بعد</td></tr>
+            )}
           </tbody>
         </table>
       </div>

@@ -3,8 +3,8 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
-use App\Models\CaseHearing;
 use App\Models\LegalCase;
+use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -49,7 +49,7 @@ class CaseLifecycleTest extends TestCase
     public function test_lawyer_approves_pleading_makes_case_active(): void
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $case = $this->caseFor(User::factory()->create(['role' => Role::Client]));
+        $case = $this->caseFor(User::factory()->create(['role' => Role::Client]), ['assigned_lawyer_id' => $lawyer->id]);
 
         $this->actingAs($lawyer)->post(route('lawyer.cases.pleading', $case))->assertRedirect();
 
@@ -62,7 +62,7 @@ class CaseLifecycleTest extends TestCase
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $client = User::factory()->create(['role' => Role::Client]);
-        $case = $this->caseFor($client, ['status' => 'منظورة', 'pleading_status' => 'approved']);
+        $case = $this->caseFor($client, ['status' => 'منظورة', 'pleading_status' => 'approved', 'assigned_lawyer_id' => $lawyer->id]);
 
         $this->actingAs($lawyer)->post(route('lawyer.cases.hearings.add', $case), [
             'title' => 'الجلسة الأولى', 'day' => 'الخميس 02 يوليو', 'time' => '10:00 ص', 'court' => 'الدائرة التجارية',
@@ -88,7 +88,7 @@ class CaseLifecycleTest extends TestCase
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $admin = User::factory()->create(['role' => Role::Admin]);
-        $case = $this->caseFor(User::factory()->create(['role' => Role::Client]), ['status' => 'منظورة', 'pleading_status' => 'approved']);
+        $case = $this->caseFor(User::factory()->create(['role' => Role::Client]), ['status' => 'منظورة', 'pleading_status' => 'approved', 'assigned_lawyer_id' => $lawyer->id]);
 
         // الحكم
         $this->actingAs($lawyer)->post(route('lawyer.cases.ruling', $case), ['ruling' => 'إلزام المدّعى عليه بالمبلغ والمصاريف.'])->assertRedirect();
@@ -99,6 +99,25 @@ class CaseLifecycleTest extends TestCase
         // الإدارة تغلق
         $this->actingAs($admin)->post(route('admin.cases.close', $case))->assertRedirect();
         $this->assertSame('مغلقة', $case->fresh()->status);
+    }
+
+    public function test_lawyer_cannot_record_ruling_before_pleading_approved(): void
+    {
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $case = $this->caseFor(User::factory()->create(['role' => Role::Client]), ['assigned_lawyer_id' => $lawyer->id]); // قيد التحضير
+
+        $this->actingAs($lawyer)->post(route('lawyer.cases.ruling', $case), ['ruling' => 'نص حكم مبكر.'])->assertStatus(422);
+        $this->assertNull($case->fresh()->ruling);
+    }
+
+    public function test_lawyer_cannot_record_ruling_twice(): void
+    {
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $case = $this->caseFor(User::factory()->create(['role' => Role::Client]), ['status' => 'منظورة', 'pleading_status' => 'approved', 'assigned_lawyer_id' => $lawyer->id]);
+
+        $this->actingAs($lawyer)->post(route('lawyer.cases.ruling', $case), ['ruling' => 'الحكم الأول.'])->assertRedirect();
+        $this->actingAs($lawyer)->post(route('lawyer.cases.ruling', $case), ['ruling' => 'حكم معدّل.'])->assertStatus(422);
+        $this->assertSame('الحكم الأول.', $case->fresh()->ruling);
     }
 
     public function test_admin_cannot_close_before_ruling(): void
@@ -112,7 +131,7 @@ class CaseLifecycleTest extends TestCase
     public function test_lawyer_cannot_approve_pleading_twice(): void
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $case = $this->caseFor(User::factory()->create(['role' => Role::Client]));
+        $case = $this->caseFor(User::factory()->create(['role' => Role::Client]), ['assigned_lawyer_id' => $lawyer->id]);
 
         $this->actingAs($lawyer)->post(route('lawyer.cases.pleading', $case))->assertRedirect();
         $this->actingAs($lawyer)->post(route('lawyer.cases.pleading', $case))->assertStatus(422);
@@ -148,11 +167,11 @@ class CaseLifecycleTest extends TestCase
         $admin = User::factory()->create(['role' => Role::Admin]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
 
-        // قضية المحامي محوّلة من تذكرة (ticket_id مطلوب)
-        $ticket = \App\Models\Ticket::create([
+        // قضية المحامي محوّلة من تذكرة (ticket_id مطلوب)، مسندة إليه (قائمة المحامي تُفلتر بـFK)
+        $ticket = Ticket::create([
             'user_id' => $client->id, 'number' => 'SB-2026-7001', 'type' => 'نزاع تجاري', 'status' => 'مكتملة', 'tone' => 'b-green',
         ]);
-        $this->caseFor($client, ['ticket_id' => $ticket->id]);
+        $this->caseFor($client, ['ticket_id' => $ticket->id, 'assigned_lawyer_id' => $lawyer->id]);
 
         $this->actingAs($admin)->get(route('admin.cases'))
             ->assertOk()->assertInertia(fn ($p) => $p->component('admin/cases')->has('cases', 1));

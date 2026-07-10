@@ -5,10 +5,19 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * الاجتماع الكامل (FullMeeting): قبل/أثناء/بعد + محضر وملخص + اعتماد الإدارة + جلسة Zoom.
+ */
 class Meeting extends Model
 {
     protected $fillable = [
-        'user_id', 'title', 'when_label', 'is_up', 'has_link', 'has_minutes', 'has_summary',
+        'user_id', 'ref', 'title', 'type', 'client_name', 'when_label',
+        'status', 'priority', 'conf', 'attend', 'dur', 'approve',
+        'before_items', 'during_items', 'after_items',
+        'summary', 'sum_approved', 'minutes', 'participants', 'case_ref',
+        'decisions', 'tasks_created',
+        'meet_id', 'meet_link', 'host_link', 'created_by',
+        'is_up', 'has_link', 'has_minutes', 'has_summary',
     ];
 
     protected $casts = [
@@ -16,6 +25,12 @@ class Meeting extends Model
         'has_link' => 'boolean',
         'has_minutes' => 'boolean',
         'has_summary' => 'boolean',
+        'sum_approved' => 'boolean',
+        'tasks_created' => 'boolean',
+        'before_items' => 'array',
+        'during_items' => 'array',
+        'after_items' => 'array',
+        'decisions' => 'array',
     ];
 
     public function user(): BelongsTo
@@ -23,16 +38,62 @@ class Meeting extends Model
         return $this->belongsTo(User::class);
     }
 
-    // الشكل الذي تتوقعه الواجهة (يطابق DATA.meetings)
+    public function isUpcoming(): bool
+    {
+        return in_array($this->status, ['قادم', 'جارٍ'], true);
+    }
+
+    public function joinLink(): string
+    {
+        return $this->meet_link ?: config('services.zoom.fallback_base').($this->ref ?: 'M-'.$this->id);
+    }
+
+    // بطاقة العميل (يطابق DATA.meetings + viewMeetings) — المحضر/الملخص بعد اعتماد الإدارة فقط
     public function toCard(): array
     {
+        $approved = $this->approve === 'معتمد';
+
         return [
+            'id' => $this->id,
             'title' => $this->title,
             'when' => $this->when_label,
-            'up' => $this->is_up,
-            'link' => $this->has_link,
-            'minutes' => $this->has_minutes,
-            'summary' => $this->has_summary,
+            'up' => $this->isUpcoming(),
+            'link' => $this->isUpcoming() ? $this->joinLink() : '',
+            'minutes' => $approved ? $this->minutes : null,
+            'summary' => $approved ? $this->summary : null,
+        ];
+    }
+
+    // بطاقة المكتب (تطابق واجهة FullMeeting في lawyer-data/admin-data)
+    public function toFullCard(): array
+    {
+        return [
+            'id' => $this->ref ?: 'M-'.$this->id,
+            'dbId' => $this->id,
+            'title' => $this->title,
+            'type' => $this->type,
+            'client' => $this->client_name ?: 'داخلي',
+            'when' => $this->when_label,
+            'approve' => $this->approve,
+            'before' => $this->before_items ?? [],
+            'during' => $this->during_items ?? [],
+            'after' => $this->after_items ?? [],
+            'status' => $this->status,
+            'priority' => $this->priority,
+            'conf' => $this->conf,
+            'attend' => $this->attend,
+            'link' => $this->case_ref ?: ($this->client_name ?: '—'),
+            'meetId' => $this->meet_id ?: ($this->ref ?: 'M-'.$this->id),
+            'meetLink' => $this->joinLink(),
+            'hostLink' => $this->host_link,
+            'dur' => $this->dur ?: '60 دقيقة',
+            'summary' => $this->summary,
+            'sumApproved' => (bool) $this->sum_approved,
+            'minutes' => $this->minutes,
+            'participants' => $this->participants,
+            'caseRef' => $this->case_ref,
+            'decisions' => $this->decisions ?? [],
+            'tasksCreated' => (bool) $this->tasks_created,
         ];
     }
 }

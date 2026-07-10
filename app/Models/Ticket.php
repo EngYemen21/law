@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -9,8 +10,10 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Ticket extends Model
 {
+    use HasBranch;
+
     protected $fillable = [
-        'user_id', 'number', 'type', 'department', 'assigned_lawyer', 'status', 'tone', 'attachments', 'last_message', 'date_label',
+        'user_id', 'number', 'type', 'department', 'assigned_lawyer', 'assigned_lawyer_id', 'branch', 'status', 'tone', 'attachments', 'last_message', 'date_label',
     ];
 
     public function user(): BelongsTo
@@ -26,6 +29,18 @@ class Ticket extends Model
     public function summary(): HasOne
     {
         return $this->hasOne(TicketSummary::class);
+    }
+
+    // المستندات المرفوعة مع نتيجة فحصها الذكي
+    public function documents(): HasMany
+    {
+        return $this->hasMany(TicketDocument::class)->orderBy('id');
+    }
+
+    // حساب المحامي المسند (المصدر الموثوق؛ العمود النصي للعرض فقط)
+    public function assignedLawyer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_lawyer_id');
     }
 
     public function legalCase(): HasOne

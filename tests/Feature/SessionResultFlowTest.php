@@ -16,14 +16,15 @@ class SessionResultFlowTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function confirmedTicket(User $client): Ticket
+    private function confirmedTicket(User $client, ?User $lawyer = null): Ticket
     {
         $ticket = Ticket::create([
             'user_id' => $client->id,
             'number' => 'SB-2026-8888',
             'type' => 'نزاع تجاري',
             'department' => 'القسم التجاري',
-            'assigned_lawyer' => 'أ. سارة القحطاني',
+            'assigned_lawyer' => $lawyer?->name ?? 'أ. سارة القحطاني',
+            'assigned_lawyer_id' => $lawyer?->id,
             'status' => 'موعد مؤكد',
             'tone' => 'b-green',
         ]);
@@ -62,7 +63,7 @@ class SessionResultFlowTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = $this->confirmedTicket($client);
+        $ticket = $this->confirmedTicket($client, $lawyer);
         $ticket->summary->update(['result_status' => 'pending_lawyer', 'result' => 'نتيجة الجلسة']);
 
         $this->actingAs($lawyer)->post(route('lawyer.result.approve', $ticket))->assertRedirect();

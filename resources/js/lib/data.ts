@@ -6,7 +6,7 @@ export interface Ticket { no: string; type: string; dept: string; status: string
 export interface Case { no: string; type: string; status: string; tone: string; update: string; }
 export interface Exec { no: string; subject: string; status: string; tone: string; last: string; }
 export interface Appt { id: string; type: string; ico: string; lawyer: string; day: string; time: string; branch: string; status: string; tone: string; when: 'up' | 'past'; }
-export interface Meeting { title: string; when: string; up: boolean; link: boolean; minutes: boolean; summary: boolean; }
+export interface Meeting { id?: number; title: string; when: string; up: boolean; link: string; minutes: string | null; summary: string | null; }
 export interface DocItem { name: string; meta: string; }
 export interface Invoice { no: string; desc: string; amount: number; status: string; tone: string; due: string; paid: boolean; }
 export interface Notif { ic: string; tone: string; text: string; time: string; unread: boolean; }
@@ -33,8 +33,8 @@ export const DATA = {
     { id: 'AP3', type: 'حضورية', ico: 'office', lawyer: 'أ. ريم الزهراني', day: 'الجمعة 12 يونيو 2026', time: '10:00 ص', branch: 'جدة — حي الروضة', status: 'منتهٍ', tone: 'b-grey', when: 'past' },
   ] as Appt[],
   meetings: [
-    { title: 'استشارة مرئية — نزاع تجاري', when: 'الاثنين 29 يونيو · 11:30 ص', up: true, link: true, minutes: false, summary: false },
-    { title: 'استشارة مرئية — نزاع عقاري', when: 'الجمعة 12 يونيو · 10:00 ص', up: false, link: false, minutes: true, summary: true },
+    { title: 'استشارة مرئية — نزاع تجاري', when: 'الاثنين 29 يونيو · 11:30 ص', up: true, link: 'https://meet.salasel.sa/M-1', minutes: null, summary: null },
+    { title: 'استشارة مرئية — نزاع عقاري', when: 'الجمعة 12 يونيو · 10:00 ص', up: false, link: '', minutes: 'محضر معتمد', summary: 'ملخص معتمد' },
   ] as Meeting[],
   docsUp: [
     { name: 'عقد_التوريد.pdf', meta: 'PDF · 1.2MB · تذكرة SB-2026-1042' },
@@ -210,6 +210,7 @@ const EMPLOYEE_NAV: SideGroup[] = [
     { icon: 'home', label: 'الرئيسية', route: '/employee/dashboard' },
     { icon: 'folder', label: 'التذاكر', route: '/employee/tickets' },
     { icon: 'scale', label: 'القضايا', route: '/employee/cases' },
+    { icon: 'exec', label: 'طلبات التنفيذ', route: '/employee/execs' },
     { icon: 'scale', label: 'إدارة الاستشارات', route: '/employee/consults' },
     { icon: 'cal', label: 'جدولة المواعيد', route: '/employee/schedule' },
     { icon: 'reply', label: 'التحويلات', route: '/employee/transfer' },
@@ -224,7 +225,7 @@ const LAWYER_NAV: SideGroup[] = [
     { icon: 'home', label: 'الرئيسية', route: '/lawyer/dashboard' },
     { icon: 'folder', label: 'التذاكر', route: '/lawyer/tickets' },
     { icon: 'scale', label: 'قضاياي', route: '/lawyer/cases' },
-    { icon: 'scale', label: 'تحويل لقضية', route: '/lawyer/caseflow' },
+    { icon: 'exec', label: 'طلبات التنفيذ', route: '/lawyer/execs' },
     { icon: 'video', label: 'الاجتماعات', route: '/lawyer/meetings' },
     { icon: 'video', label: 'طلبات الاجتماعات', route: '/lawyer/meetreqs' },
     { icon: 'calgrid', label: 'التقويم', route: '/lawyer/calendar' },
@@ -244,6 +245,7 @@ const ADMIN_NAV: SideGroup[] = [
     { icon: 'user', label: 'العملاء', route: '/admin/clients' },
     { icon: 'folder', label: 'التذاكر', route: '/admin/tickets' },
     { icon: 'scale', label: 'كل القضايا', route: '/admin/cases' },
+    { icon: 'exec', label: 'طلبات التنفيذ', route: '/admin/execs' },
     { icon: 'scale', label: 'المحامون', route: '/admin/lawyers' },
     { icon: 'scale', label: 'إدارة الاستشارات', route: '/admin/consults' },
   ] },
@@ -299,6 +301,7 @@ const EMPLOYEE_TITLES: Record<string, [string, string]> = {
   '/employee/tickets': ['التذاكر', 'لوحة الموظف'],
   '/employee/tickets/chat': ['محادثة التذكرة', 'لوحة الموظف'],
   '/employee/cases': ['القضايا', 'لوحة الموظف'],
+  '/employee/execs': ['طلبات التنفيذ', 'لوحة الموظف'],
   '/employee/consults': ['إدارة الاستشارات', 'لوحة الموظف'],
   '/employee/consult': ['رحلة الاستشارة', 'لوحة الموظف'],
   '/employee/schedule': ['جدولة المواعيد', 'لوحة الموظف'],
@@ -313,12 +316,13 @@ const LAWYER_TITLES: Record<string, [string, string]> = {
   '/lawyer/tickets': ['التذاكر', 'لوحة المحامي'],
   '/lawyer/tickets/chat': ['محادثة التذكرة', 'لوحة المحامي'],
   '/lawyer/cases': ['قضاياي', 'لوحة المحامي'],
-  '/lawyer/caseflow': ['تحويل الاستشارة إلى قضية', 'لوحة المحامي'],
+  '/lawyer/execs': ['طلبات التنفيذ', 'لوحة المحامي'],
   '/lawyer/meetings': ['الاجتماعات', 'لوحة المحامي'],
   '/lawyer/meetreqs': ['طلبات الاجتماعات', 'لوحة المحامي'],
   '/lawyer/calendar': ['التقويم', 'لوحة المحامي'],
   '/lawyer/assistant': ['المساعد القانوني الذكي', 'لوحة المحامي'],
   '/lawyer/consultrecv': ['استقبال الاستشارات', 'لوحة المحامي'],
+  '/lawyer/consult': ['رحلة الاستشارة', 'لوحة المحامي'],
   '/lawyer/summaries': ['الملخصات', 'لوحة المحامي'],
   '/lawyer/tasks': ['المهام', 'لوحة المحامي'],
   '/lawyer/videoroom': ['غرفة الجلسة المرئية', 'لوحة المحامي'],
@@ -330,12 +334,14 @@ const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/tickets': ['التذاكر', 'لوحة الإدارة'],
   '/admin/lawyers': ['المحامون', 'لوحة الإدارة'],
   '/admin/consults': ['إدارة الاستشارات', 'الإدارة العليا'],
+  '/admin/consult': ['رحلة الاستشارة', 'الإدارة العليا'],
   '/admin/staff': ['تسجيل الموظفين', 'الإدارة العليا'],
   '/admin/branches': ['الفروع', 'الإدارة العليا'],
   '/admin/archive': ['أرشيف الاستشارات', 'الإدارة العليا'],
   '/admin/distribute': ['توزيع التذاكر', 'الإدارة العليا'],
   '/admin/casefees': ['أتعاب القضايا', 'الإدارة العليا'],
   '/admin/cases': ['كل القضايا', 'لوحة الإدارة'],
+  '/admin/execs': ['طلبات التنفيذ', 'لوحة الإدارة'],
   '/admin/tasks': ['مهام العمل', 'الإدارة العليا'],
   '/admin/meetmgmt': ['إدارة الاجتماعات', 'الإدارة العليا'],
   '/admin/meetreqs': ['طلبات الاجتماعات', 'لوحة الإدارة'],
