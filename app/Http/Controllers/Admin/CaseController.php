@@ -6,7 +6,10 @@ use App\Events\CaseStatusBroadcast;
 use App\Http\Controllers\Controller;
 use App\Models\Invoice;
 use App\Models\LegalCase;
+use App\Models\Ticket;
 use App\Models\UserNotification;
+use App\Support\CaseJourney;
+use App\Support\Live;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -25,7 +28,7 @@ class CaseController extends Controller
             ->map(fn (LegalCase $c) => [
                 'no' => $c->number,
                 'type' => $c->type,
-                'client' => \App\Models\Ticket::maskClient($c->user?->name ?? ''),
+                'client' => Ticket::maskClient($c->user?->name ?? ''),
                 'lawyer' => $c->assigned_lawyer ?: '—',
                 'status' => $c->status,
                 'tone' => $c->tone,
@@ -59,7 +62,7 @@ class CaseController extends Controller
             'lawyer_pct' => $pct,
             'fee_status' => 'pending_payment',
             'status' => 'بانتظار سداد الأتعاب',
-            'tone' => 'b-amber',
+            'tone' => CaseJourney::toneFor('بانتظار سداد الأتعاب'),
             'invoice_text' => "أتعاب القضية {$data['fee']} ر.س + ضريبة {$vat} = {$total} ر.س",
             'update_text' => 'حدّدت الإدارة الأتعاب، بانتظار سداد العميل لتفعيل القضية',
         ]);
@@ -94,7 +97,7 @@ class CaseController extends Controller
             'time_label' => 'الآن',
             'is_read' => false,
         ]);
-        broadcast(new CaseStatusBroadcast($case));
+        Live::push(new CaseStatusBroadcast($case));
 
         return back();
     }
@@ -104,7 +107,7 @@ class CaseController extends Controller
     {
         $cases = LegalCase::with('user')->latest('id')->get()->map(fn (LegalCase $c) => [
             'no' => $c->number,
-            'client' => \App\Models\Ticket::maskClient($c->user?->name ?? ''),
+            'client' => Ticket::maskClient($c->user?->name ?? ''),
             'type' => $c->type,
             'lawyer' => $c->assigned_lawyer ?: '—',
             'status' => $c->status,
@@ -122,7 +125,7 @@ class CaseController extends Controller
 
         $case->update([
             'status' => 'مغلقة',
-            'tone' => 'b-grey',
+            'tone' => CaseJourney::toneFor('مغلقة'),
             'update_text' => 'أُغلقت القضية وحُفظ كامل الملف في الأرشيف',
         ]);
         $case->messages()->create([
@@ -135,7 +138,7 @@ class CaseController extends Controller
             'body' => "أُغلقت قضيتك {$case->number} وأُرشفت بعد اكتمال الإجراءات.",
             'time_label' => 'الآن', 'is_read' => false,
         ]);
-        broadcast(new CaseStatusBroadcast($case));
+        Live::push(new CaseStatusBroadcast($case));
 
         return back();
     }

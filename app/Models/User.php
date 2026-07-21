@@ -25,6 +25,7 @@ use Spatie\Permission\Traits\HasRoles;
  * @property string $status
  * @property string|null $branch
  * @property string|null $department
+ * @property string $distribution_mode // auto | manual
  * @property string|null $job_title
  * @property string|null $pay_type
  * @property int $salary
@@ -42,7 +43,7 @@ use Spatie\Permission\Traits\HasRoles;
  */
 #[Fillable([
     'name', 'email', 'password', 'role', 'avatar_initials', 'title', 'phone',
-    'status', 'branch', 'department', 'job_title',
+    'status', 'branch', 'department', 'distribution_mode', 'job_title',
     'pay_type', 'salary', 'pay_pct', 'session_fee',
     'national_id', 'join_date', 'work_start', 'work_end',
 ])]

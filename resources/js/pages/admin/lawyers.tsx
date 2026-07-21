@@ -1,13 +1,29 @@
-import React from 'react';
+import { router } from '@inertiajs/react';
+import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
 
 // يطابق adLawyers — المحامون من جدول users بدور lawyer + عدد التذاكر المحالة
+// + وضع التوزيع لكل محامٍ (تلقائي/يدوي) قابل للتبديل عبر /admin/lawyers/{id}/mode
 
-interface LawyerRow { name: string; depts: string[]; active: number; mode: string }
+interface LawyerRow { id: number; name: string; depts: string[]; active: number; mode: string }
 
 const AdminLawyers: React.FC<{ lawyers: LawyerRow[] }> = ({ lawyers }) => {
   const toast = useToast();
+  const [busyId, setBusyId] = useState<number | undefined>(undefined);
+
+  // تبديل وضع التوزيع للمحامي: تلقائي ⇄ يدوي
+  const toggleMode = (l: LawyerRow) => {
+    if (busyId === l.id) return;
+    setBusyId(l.id);
+    router.post(`/admin/lawyers/${l.id}/mode`, {}, {
+      preserveScroll: true,
+      onSuccess: () => toast(`تم تبديل وضع التوزيع إلى: ${l.mode === 'تلقائي' ? 'يدوي' : 'تلقائي'}`),
+      onError: () => toast('تعذّر تبديل الوضع، حاول مجدداً'),
+      onFinish: () => setBusyId(undefined), // ضمان تحرير الزر حتى عند الخطأ
+    });
+  };
+
   return (
     <div className="card">
       <div className="card-h">
@@ -27,7 +43,7 @@ const AdminLawyers: React.FC<{ lawyers: LawyerRow[] }> = ({ lawyers }) => {
           </thead>
           <tbody>
             {lawyers.length ? lawyers.map((l) => (
-              <tr key={l.name}>
+              <tr key={l.id}>
                 <td><b>{l.name}</b></td>
                 <td>
                   <div className="chips">
@@ -37,8 +53,13 @@ const AdminLawyers: React.FC<{ lawyers: LawyerRow[] }> = ({ lawyers }) => {
                 <td>{l.active}</td>
                 <td><Badge text={l.mode} tone={l.mode === 'تلقائي' ? 'b-blue' : 'b-amber'} /></td>
                 <td>
-                  <button className="btn soft sm" onClick={() => toast('تم تحديث إعداد التوزيع')} type="button">
-                    تبديل التوزيع
+                  <button
+                    className="btn soft sm"
+                    type="button"
+                    disabled={busyId === l.id}
+                    onClick={() => toggleMode(l)}
+                  >
+                    {busyId === l.id ? '…' : 'تبديل التوزيع'}
                   </button>
                 </td>
               </tr>

@@ -8,7 +8,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Appointment extends Model
 {
     protected $fillable = [
-        'user_id', 'ticket_id', 'ext_id', 'type', 'ico', 'lawyer', 'day', 'time', 'branch', 'status', 'tone', 'when_kind',
+        'user_id', 'ticket_id', 'ext_id', 'type', 'ico', 'lawyer', 'lawyer_id', 'day', 'time',
+        'starts_at', 'duration_min', 'branch', 'status', 'tone', 'when_kind',
+    ];
+
+    protected $casts = [
+        'starts_at' => 'datetime',
     ];
 
     public function user(): BelongsTo
@@ -19,6 +24,12 @@ class Appointment extends Model
     public function ticket(): BelongsTo
     {
         return $this->belongsTo(Ticket::class);
+    }
+
+    // المحامي المسند بالمعرّف (مصدر الحقيقة لحساب التعارض والتفرّغ)
+    public function lawyerUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'lawyer_id');
     }
 
     // الشكل الذي تتوقعه الواجهة (يطابق DATA.appts)

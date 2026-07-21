@@ -88,12 +88,14 @@ class TicketTriageTest extends TestCase
         $this->assertSame('awaiting_lawyer', $summary->status);
         $this->assertNotEmpty($summary->case_summary);
 
-        // سجل المستند: محفوظ بمساره ونتيجة فحصه + رسالة تأكيد الفحص للعميل
+        // سجل المستند: محفوظ بمساره ونتيجة فحصه + ملاحظة داخلية بانتظار اعتماد الموظف
         $doc = $ticket->documents()->firstOrFail();
         $this->assertSame('مرتبط', $doc->status);
         $this->assertSame('عقد توريد', $doc->doc_type);
         $this->assertNotEmpty($doc->path);
-        $this->assertTrue($ticket->messages->contains(fn ($m) => $m->role === 'فحص المستند'));
+        // الملخص الآن ملاحظة داخلية (note) بانتظار اعتماد الموظف — لا تظهر للعميل مباشرة
+        $this->assertTrue($ticket->messages->contains(fn ($m) => $m->who === 'note' && $m->role === 'ملخص بانتظار الاعتماد'));
+        $this->assertNull($doc->summary_approved); // لم يُعتمد بعد
     }
 
     public function test_unrelated_document_is_rejected_and_correct_docs_requested(): void

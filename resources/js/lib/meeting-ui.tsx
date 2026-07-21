@@ -1,19 +1,34 @@
 import { Link, router } from '@inertiajs/react';
 import React, { useEffect, useState } from 'react';
-import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import FlowLine from '@/components/babylon/FlowLine';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { nowClock, todayDate } from '@/lib/chat';
-import { MR_FLOW, maskClient } from '@/lib/employee-data';
 import { openMeeting } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
+import { MR_FLOW, maskClient } from '@/lib/employee-data';
+import Icon from '@/lib/icons';
+import ZoomEmbedRoom from '@/lib/zoom-room';
 
 // ============================================================
 // واجهة الاجتماعات المشتركة (Meeting/MeetRequest الحقيقيان من الخادم)
 // يطابق meetReqsView + meetingView في index (82).html
 // ============================================================
+
+/**
+ * نغمة شارة حالة الاجتماع — مصدر وحيد لكل اللوحات.
+ * حالة الاجتماع مشتقّة لا مخزّنة (لا عمود tone في الجدول)، فمكانها الصحيح هنا لا على الخادم.
+ * كانت خريطتان متناقضتان: قائمة الإدارة تلوّن «جارٍ» عنبرياً وصفحة التفاصيل أزرق،
+ * و«قادم» أزرق في القائمة ورمادي في التفاصيل — لنفس الاجتماع.
+ */
+export function meetStatusTone(status: string): string {
+  const m: Record<string, string> = {
+    'قادم': 'b-blue', 'جارٍ': 'b-amber', 'منتهٍ': 'b-green', 'مؤجل': 'b-grey', 'ملغى': 'b-red',
+  };
+
+  return m[status] ?? 'b-grey';
+}
 
 // بطاقة الاجتماع الكامل (Meeting::toFullCard) — تطابق FullMeeting
 export interface FullMeetingCard {
@@ -60,9 +75,22 @@ export interface MeetReqCard {
   meetId: string | null;
   meetLink: string | null;
   hostLink: string | null;
+  meetingRef: string | null; // مرجع الاجتماع المرتبط (M-…) للغرفة المضمّنة
 }
 
 export interface ClientDirEntry { id: number; name: string; items: string[] }
+
+// غرفة الاجتماع المضمّنة لدور المكتب — فيديو Zoom داخل الموقع (المحضر/الملخص في صفحة الاجتماع)
+export const StaffMeetingRoom: React.FC<{ meeting: FullMeetingCard; base: string }> = ({ meeting, base }) => (
+  <ZoomEmbedRoom
+    cref={meeting.id}
+    kind="meeting"
+    label={`${meeting.id} · ${meeting.title}`}
+    back={`${base}/meeting?id=${encodeURIComponent(meeting.id)}`}
+    fallbackUrl={meeting.hostLink || meeting.meetLink}
+    viewer="staff"
+  />
+);
 
 // ============================================================
 // طلبات الاجتماعات — صفحة مشتركة للموظف/المحامي/الإدارة
@@ -80,7 +108,9 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
   const [miType, setMiType] = useState('استشارة مرئية');
   const [miDay, setMiDay] = useState('');
   const [miTime, setMiTime] = useState('');
-  useEffect(() => { setMiCase(''); }, [miClient]);
+  useEffect(() => {
+ setMiCase(''); 
+}, [miClient]);
 
   const caseOptions = clients.find((c) => c.id === miClient)?.items ?? [];
 
@@ -101,15 +131,27 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
   const cancel = (r: MeetReqCard) =>
     router.post(`${base}/meetreqs/${r.dbId}/cancel`, {}, { preserveScroll: true, onSuccess: () => toast('تم إلغاء الدعوة') });
 
-  // دخول الجلسة — يفتح Zoom كمضيف ويعلّم «تنفيذ الجلسة»
+  // دخول الغرفة المضمّنة كمضيف ويعلّم «تنفيذ الجلسة»
   const enterRoom = (r: MeetReqCard) => {
-    if (r.type.indexOf('مرئية') >= 0) openMeeting(r.hostLink || r.meetLink || '');
-    else toast('سيتم فتح رابط الاجتماع في موعده');
-    if (r.stage === 1) router.post(`${base}/meetreqs/${r.dbId}/start`, {}, { preserveScroll: true });
+    if (r.stage === 1) {
+router.post(`${base}/meetreqs/${r.dbId}/start`, {}, { preserveScroll: true });
+}
+
+    if (r.meetingRef) {
+router.visit(`${base}/meetingroom?ref=${encodeURIComponent(r.meetingRef)}`);
+} else if (r.type.indexOf('مرئية') >= 0) {
+openMeeting(r.hostLink || r.meetLink || '');
+} // احتياط
+    else {
+toast('سيتم فتح رابط الاجتماع في موعده');
+}
   };
 
   const copyLink = (r: MeetReqCard) => {
-    if (navigator.clipboard && r.meetLink) void navigator.clipboard.writeText(r.meetLink);
+    if (navigator.clipboard && r.meetLink) {
+void navigator.clipboard.writeText(r.meetLink);
+}
+
     toast('تم نسخ رابط الاجتماع');
   };
 
@@ -263,10 +305,19 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
   useEffect(() => {
     const ch = echo.private(`meeting.${m.dbId}`).listen('.status', (e: { status: string; approve: string; summary: string | null; minutes: string | null }) => {
       setStatus(e.status); setApprove(e.approve);
-      if (e.summary) setSummary(e.summary);
-      if (e.minutes) setMinutes(e.minutes);
+
+      if (e.summary) {
+setSummary(e.summary);
+}
+
+      if (e.minutes) {
+setMinutes(e.minutes);
+}
     });
-    return () => { void ch; echo.leave(`meeting.${m.dbId}`); };
+
+    return () => {
+ void ch; echo.leave(`meeting.${m.dbId}`); 
+};
   }, [m.dbId]);
 
   const saveSummary = () =>
@@ -275,16 +326,24 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
     router.post(`${base}/meetings/${m.dbId}/minutes`, { minutes }, { preserveScroll: true, onSuccess: () => toast('تم حفظ المحضر') });
 
   const copyLink = () => {
-    if (navigator.clipboard) void navigator.clipboard.writeText(m.meetLink);
+    if (navigator.clipboard) {
+void navigator.clipboard.writeText(m.meetLink);
+}
+
     toast('تم نسخ رابط الاجتماع');
   };
 
   // تحويل قرارات الاجتماع إلى مهام حقيقية (موديل Task) — لمرة واحدة
   const decisionsToTasks = () => {
-    if (tasksDone || decisions.length === 0) return;
+    if (tasksDone || decisions.length === 0) {
+return;
+}
+
     router.post(`${base}/meetings/${m.dbId}/tasks`, {}, {
       preserveScroll: true,
-      onSuccess: () => { setTasksDone(true); toast(`تم تحويل ${decisions.length} قرار إلى مهام`); },
+      onSuccess: () => {
+ setTasksDone(true); toast(`تم تحويل ${decisions.length} قرار إلى مهام`); 
+},
     });
   };
 
@@ -300,7 +359,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
         <div className="card-h">
           <h3>{m.title}</h3>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Badge text={status} tone={status === 'منتهٍ' ? 'b-green' : status === 'جارٍ' ? 'b-blue' : 'b-grey'} />
+            <Badge text={status} tone={meetStatusTone(status)} />
             <Badge text={approve} tone={approved ? 'b-green' : 'b-amber'} />
           </div>
         </div>
@@ -323,7 +382,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
               <button className="btn soft sm" onClick={copyLink} type="button">
                 <Icon name="link" /> نسخ الرابط
               </button>
-              <button className="btn sm" onClick={() => openMeeting(m.hostLink || m.meetLink)} type="button">
+              <button className="btn sm" onClick={() => router.visit(`${base}/meetingroom?ref=${encodeURIComponent(m.id)}`)} type="button">
                 <Icon name="video" /> دخول اجتماع Zoom
               </button>
             </div>

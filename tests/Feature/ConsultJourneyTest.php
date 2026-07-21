@@ -7,6 +7,7 @@ use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Support\LawyerAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -46,8 +47,10 @@ class ConsultJourneyTest extends TestCase
             'tone' => 'b-amber',
         ]);
 
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
         $this->actingAs($client)->post(route('tickets.book', $ticket), [
-            'type' => 'video', 'day' => 'الإثنين 29 يونيو', 'time' => '11:30 ص',
+            'type' => 'video', 'lawyer_id' => $lawyer->id,
+            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '11:30',
         ])->assertNoContent();
 
         $consult = Consult::where('ticket_id', $ticket->id)->firstOrFail();

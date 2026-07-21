@@ -4,12 +4,16 @@ namespace App\Http\Controllers\Staff;
 
 use App\Enums\Role;
 use App\Events\ConsultStatusBroadcast;
+use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
 use App\Models\Consult;
-use App\Models\Task;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Rules\LawyerInBranch;
 use App\Services\LegalAiService;
+use App\Support\DecisionTasks;
+use App\Support\Live;
+use App\Support\Specialties;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -22,12 +26,14 @@ use Inertia\Response;
  */
 class ConsultController extends Controller
 {
+    use ScopedToLawyer;
+
     public function __construct(private LegalAiService $ai) {}
 
     // إدارة الاستشارات (يطابق emConsultsView/adConsultsView) — قائمة الرحلة والمؤشرات
     public function index(Request $request): Response
     {
-        $consults = $this->scopeForEmployee($request, Consult::with('user'))
+        $consults = $this->scopeForRole($request, Consult::with('user'))
             ->latest('id')->get()
             ->map(fn (Consult $c) => $c->toCard());
 
@@ -46,7 +52,21 @@ class ConsultController extends Controller
 
         return Inertia::render($this->prefix($request).'/consult', [
             'consult' => $consult->toCard(),
+            'lawyers' => $this->lawyerOptions($consult),
         ]);
+    }
+
+    /** محامون نشطون حقيقيون للإحالة/التعيين، يتصدّرهم متخصّصو قسم الاستشارة. */
+    private function lawyerOptions(Consult $consult): array
+    {
+        $specialty = $consult->specialty ?: $consult->type;
+
+        return User::where('role', Role::Lawyer)->where('status', 'active')
+            ->orderBy('name')->get(['id', 'name', 'department'])
+            ->sortByDesc(fn ($u) => Specialties::matches($u->department, $specialty) ? 1 : 0)
+            ->values()
+            ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name, 'dept' => $u->department ?: '—'])
+            ->all();
     }
 
     // استلام الاستشارة (يطابق cTake)
@@ -58,7 +78,7 @@ class ConsultController extends Controller
             $consult->logAudit($request->user()->name, 'الحالة', $consult->status, 'قيد مراجعة الموظف');
             $consult->status = 'قيد مراجعة الموظف';
             $consult->save();
-            broadcast(new ConsultStatusBroadcast($consult));
+            Live::push(new ConsultStatusBroadcast($consult));
         }
 
         return back();
@@ -76,7 +96,7 @@ class ConsultController extends Controller
         $consult->logAudit($request->user()->name, 'الحالة', $consult->status, 'بانتظار استكمال البيانات');
         $consult->status = 'بانتظار استكمال البيانات';
         $consult->save();
-        broadcast(new ConsultStatusBroadcast($consult));
+        Live::push(new ConsultStatusBroadcast($consult));
 
         UserNotification::create([
             'user_id' => $consult->user_id,
@@ -107,7 +127,7 @@ class ConsultController extends Controller
         $consult->logAudit('النظام', 'الحالة', 'قيد معالجة الفريق القانوني', 'بانتظار اعتماد الموظف');
         $consult->status = 'بانتظار اعتماد الموظف';
         $consult->save();
-        broadcast(new ConsultStatusBroadcast($consult));
+        Live::push(new ConsultStatusBroadcast($consult));
 
         return back();
     }
@@ -145,7 +165,7 @@ class ConsultController extends Controller
             $consult->logAudit($request->user()->name, 'اعتماد التحليل', $consult->status, 'جاهزة للمحامي');
             $consult->status = 'جاهزة للمحامي';
             $consult->save();
-            broadcast(new ConsultStatusBroadcast($consult));
+            Live::push(new ConsultStatusBroadcast($consult));
         }
 
         return back();
@@ -155,17 +175,35 @@ class ConsultController extends Controller
     public function refer(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
-        $data = $request->validate(['lawyer' => ['nullable', 'string', 'max:80']]);
+        $data = $request->validate([
+            // مشترك بين الموظف/المحامي/الإدارة (كل بدوره عبر route مستقل) — Rule موحَّد يرفض غير المحامين والموقوفين.
+            'lawyer_id' => ['nullable', 'integer', new LawyerInBranch],
+            'lawyer' => ['nullable', 'string', 'max:80'],
+        ]);
 
-        $lawyer = trim($data['lawyer'] ?? '') ?: ($consult->ai_lawyer ?: $consult->lawyer);
+        // حلّ المحامي المختص إلى مستخدم حقيقي: بالمعرّف إن مُرّر، وإلا بمطابقة الاسم المقترح
+        $name = trim($data['lawyer'] ?? '') ?: ($consult->ai_lawyer ?: $consult->lawyer);
+        $lawyerUser = ! empty($data['lawyer_id'])
+            ? User::where('role', Role::Lawyer)->find((int) $data['lawyer_id'])
+            : User::where('role', Role::Lawyer)->where('name', $name)->first();
+        if (! $lawyerUser && $name !== '') {
+            $lawyerUser = User::where('role', Role::Lawyer)->where('name', 'like', '%'.$name.'%')->first();
+        }
+        $lawyer = $lawyerUser?->name ?: $name;
+
         $consult->logAudit($request->user()->name, 'الحالة', $consult->status, 'محالة للمحامي');
         if ($lawyer !== $consult->lawyer) {
             $consult->logAudit($request->user()->name, 'المحامي', $consult->lawyer, $lawyer);
         }
         $consult->lawyer = $lawyer;
+        // ربط المحامي بالمعرّف والفرع (مصدر عزل الرؤية والبثّ)
+        if ($lawyerUser) {
+            $consult->assigned_lawyer_id = $lawyerUser->id;
+            $consult->branch = $lawyerUser->branch ?: $consult->branch;
+        }
         $consult->status = 'محالة للمحامي';
         $consult->save();
-        broadcast(new ConsultStatusBroadcast($consult));
+        Live::push(new ConsultStatusBroadcast($consult));
 
         UserNotification::create([
             'user_id' => $consult->user_id,
@@ -196,7 +234,7 @@ class ConsultController extends Controller
     // استقبال الاستشارات — الجلسات حسب القناة حتى كتابة الملخص
     public function recv(Request $request): Response
     {
-        $consults = $this->scopeForEmployee($request, Consult::with('user'))
+        $consults = $this->scopeForRole($request, Consult::with('user'))
             ->latest('id')->get()
             ->map(fn (Consult $c) => $c->toCard());
 
@@ -211,7 +249,7 @@ class ConsultController extends Controller
         $this->guardConsult($request, $consult);
         if ($consult->session === 'بانتظار الجلسة') {
             $consult->update(['session' => 'جلسة جارية', 'status' => 'قيد الاستشارة']);
-            broadcast(new ConsultStatusBroadcast($consult));
+            Live::push(new ConsultStatusBroadcast($consult));
 
             $verb = match ($consult->channel) {
                 'مرئية' => 'بدأت جلسة استشارتك المرئية — يمكنك الانضمام الآن من صفحة «استشاراتي»',
@@ -251,7 +289,7 @@ class ConsultController extends Controller
                 'summary' => $summary,
                 'decisions' => $this->ai->extractDecisions($summary),
             ]);
-            broadcast(new ConsultStatusBroadcast($consult));
+            Live::push(new ConsultStatusBroadcast($consult));
 
             UserNotification::create([
                 'user_id' => $consult->user_id,
@@ -271,27 +309,11 @@ class ConsultController extends Controller
     {
         $this->guardConsult($request, $consult);
         abort_if($consult->tasks_created, 409);
-        $decisions = $consult->decisions ?? [];
-        abort_if(count($decisions) === 0, 422);
 
-        // المسؤول: الفاعل إن كان محامياً، وإلا محامي الاستشارة بالاسم، وإلا الفاعل
-        $owner = $request->user()->role === Role::Lawyer
-            ? $request->user()
-            : (User::where('role', Role::Lawyer)->where('name', $consult->lawyer)->first() ?? $request->user());
+        $count = DecisionTasks::create($consult, $this->ai, $request->user());
+        abort_if($count === 0, 422);
 
-        foreach ($decisions as $title) {
-            Task::create([
-                'assigned_to' => $owner->id,
-                'title' => (string) $title,
-                'ref' => $consult->ref,
-                'due' => 'خلال أسبوع',
-                'status' => 'مفتوحة',
-                'tone' => 'b-amber',
-            ]);
-        }
-        $consult->update(['tasks_created' => true]);
-
-        return back()->with('flash', 'تم تحويل '.count($decisions).' قرار إلى مهام لدى '.$owner->name);
+        return back()->with('flash', 'تم تحويل '.$count.' قرار إلى مهام');
     }
 
     // غرفة الجلسة المرئية (يطابق openVideoRoom) — ?ref=CN-… للاستشارة، وتبقى kind=req لطلبات الاجتماعات
@@ -323,27 +345,39 @@ class ConsultController extends Controller
     }
 
     /**
-     * عزل استشارات الموظف بحسب فرعه: يرى ما يحمل فرعه + الاستشارات بلا فرع (مجمّع الاستقبال
-     * المشترك للجلسات الهاتفية/المرئية التي لا تحمل فرعاً). المحامي/الإدارة بلا تقييد فرع.
+     * عزل قائمة الاستشارات بحسب الدور:
+     * - المحامي: استشاراته المسندة فقط (assigned_lawyer_id) — يسدّ رؤية استشارات غيره.
+     * - الموظف: فرعه + الاستشارات بلا فرع (مجمّع الاستقبال المشترك قبل الإسناد).
+     * - الإدارة: الكل.
      *
      * @param  Builder<Consult>  $query
      * @return Builder<Consult>
      */
-    private function scopeForEmployee(Request $request, $query)
+    private function scopeForRole(Request $request, $query)
     {
-        if ($request->user()->role === Role::Employee) {
-            $branch = $request->user()->branch;
+        $user = $request->user();
+        if ($user->role === Role::Lawyer) {
+            $query->where('assigned_lawyer_id', $user->id);
+        } elseif ($user->role === Role::Employee) {
+            $branch = $user->branch;
             $query->where(fn ($q) => $q->where('branch', $branch)->orWhereNull('branch'));
         }
 
         return $query;
     }
 
-    /** يمنع (403) الموظف من استشارة تحمل فرعاً مختلفاً عن فرعه (الاستشارات بلا فرع مشتركة). */
+    /**
+     * حارس الوصول المباشر لسجل استشارة (يسدّ IDOR):
+     * - المحامي: يُمنع (403) إن لم تكن الاستشارة مُسندة إليه (guardAssigned، الإدارة مستثناة).
+     * - الموظف: يُمنع إن حملت فرعاً مختلفاً عن فرعه (بلا فرع = مجمّع مشترك).
+     */
     private function guardConsult(Request $request, Consult $consult): void
     {
-        if ($request->user()->role === Role::Employee) {
-            abort_if($consult->branch !== null && $consult->branch !== $request->user()->branch, 403);
+        $user = $request->user();
+        if ($user->role === Role::Lawyer) {
+            $this->guardAssigned($consult);
+        } elseif ($user->role === Role::Employee) {
+            abort_if($consult->branch !== null && $consult->branch !== $user->branch, 403);
         }
     }
 }

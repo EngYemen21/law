@@ -2,8 +2,10 @@ import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
+import SpecialistPicker, { todayISO } from '@/components/SpecialistPicker';
 
-// حجز استشارة مباشر — يحفظ حجزاً حقيقياً (Consult + Appointment)
+// حجز استشارة ذكي — تخصّص → محامون مرتّبون بالذكاء الاصطناعي (بنفس التخصّص + سجلّ النجاح)
+// → تاريخ وفترات متاحة (منع الحجز المزدوج) → حجز حقيقي (Consult + Appointment).
 
 const TYPES: [string, string, string][] = [
   ['office', 'حضورية', 'زيارة المكتب والاجتماع مع المستشار'],
@@ -11,13 +13,18 @@ const TYPES: [string, string, string][] = [
   ['phone', 'هاتفية', 'مكالمة هاتفية مباشرة'],
 ];
 
-interface Props { prices: { office: number; video: number; phone: number; vat: number }; }
+interface Props {
+  prices: { office: number; video: number; phone: number; vat: number };
+  specialties: string[];
+}
 
-const Book: React.FC<Props> = ({ prices }) => {
+const Book: React.FC<Props> = ({ prices, specialties }) => {
   const toast = useToast();
   const [type, setType] = useState<string | null>(null);
   const [subject, setSubject] = useState('');
-  const [day, setDay] = useState('');
+  const [specialty, setSpecialty] = useState('');
+  const [date, setDate] = useState(todayISO());
+  const [lawyerId, setLawyerId] = useState<number | null>(null);
   const [time, setTime] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -25,16 +32,23 @@ const Book: React.FC<Props> = ({ prices }) => {
   const vat = Math.round((price * prices.vat) / 100);
 
   const submit = () => {
-    if (!type || !day.trim() || !time.trim()) { toast('اختر النوع واليوم والوقت'); return; }
+    if (!type) { toast('اختر نوع الاستشارة'); return; }
+    if (!specialty) { toast('اختر التخصّص'); return; }
+    if (!lawyerId) { toast('اختر المستشار'); return; }
+    if (!time) { toast('اختر موعداً متاحاً'); return; }
     setBusy(true);
-    router.post('/book', { type, day: day.trim(), time: time.trim(), subject: subject.trim() }, {
+    router.post('/book', {
+      type, subject: subject.trim(), specialty, lawyer_id: lawyerId, date, time,
+    }, {
       onFinish: () => setBusy(false),
       onSuccess: () => toast('تم تأكيد حجز الاستشارة'),
+      onError: (e) => toast(e.starts_at || e.time || e.lawyer_id || 'تعذّر إتمام الحجز'),
     });
   };
 
   return (
     <>
+      {/* 1) نوع الاستشارة */}
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="card-h"><h3>اختر نوع الاستشارة</h3></div>
         <div className="card-b" style={{ padding: 18 }}>
@@ -58,15 +72,47 @@ const Book: React.FC<Props> = ({ prices }) => {
       </div>
 
       {type && (
-        <div className="card">
-          <div className="card-h"><h3>تفاصيل الموعد</h3><span className="sub">{price.toLocaleString('en-US')} + ضريبة {vat.toLocaleString('en-US')} ر.س</span></div>
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="card-h"><h3>تفاصيل الاستشارة</h3><span className="sub">{price.toLocaleString('en-US')} + ضريبة {vat.toLocaleString('en-US')} ر.س</span></div>
           <div className="card-b" style={{ padding: 18 }}>
             <div className="field"><label>موضوع الاستشارة</label><input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="مثال: نزاع تجاري مع مورّد" /></div>
             <div className="picker-grid">
-              <div className="field"><label>اليوم</label><input value={day} onChange={(e) => setDay(e.target.value)} placeholder="مثال: الأحد 12 يوليو" /></div>
-              <div className="field"><label>الوقت</label><input value={time} onChange={(e) => setTime(e.target.value)} placeholder="مثال: 11:00 ص" /></div>
+              <div className="field">
+                <label>التخصّص</label>
+                <select className="input" value={specialty} onChange={(e) => { setSpecialty(e.target.value); setLawyerId(null); setTime(''); }}>
+                  <option value="">— اختر التخصّص —</option>
+                  {specialties.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label>تاريخ الموعد</label>
+                <input className="input" type="date" min={todayISO()} value={date} onChange={(e) => { setDate(e.target.value); setLawyerId(null); setTime(''); }} />
+              </div>
             </div>
-            <button className="btn block" style={{ marginTop: 8 }} onClick={submit} type="button" disabled={busy}>
+          </div>
+        </div>
+      )}
+
+      {/* 2) المستشارون المتخصّصون (مرتّبون بالذكاء الاصطناعي + سجلّ النجاح) والفترات المتاحة */}
+      {type && specialty && (
+        <div className="card">
+          <div className="card-h">
+            <h3>المستشارون المتخصّصون</h3>
+            <span className="sub">مرتّبون بالأنسب — {new Date(date).toLocaleDateString('ar')}</span>
+          </div>
+          <div className="card-b" style={{ padding: 18 }}>
+            <SpecialistPicker
+              fetchUrl="/book/availability"
+              fetchParams={{ specialty, subject }}
+              enabled={!!type && !!specialty}
+              date={date}
+              onDateSnap={setDate}
+              lawyerId={lawyerId}
+              onLawyerChange={setLawyerId}
+              time={time}
+              onTimeChange={setTime}
+            />
+            <button className="btn block" style={{ marginTop: 14 }} onClick={submit} type="button" disabled={busy || !lawyerId || !time}>
               <Icon name="calplus" /> {busy ? 'جارٍ الحجز…' : 'تأكيد الحجز'}
             </button>
           </div>

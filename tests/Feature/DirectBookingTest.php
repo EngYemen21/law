@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Support\LawyerAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -22,9 +23,12 @@ class DirectBookingTest extends TestCase
     public function test_client_direct_booking_creates_consult_and_appointment(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا العمالية']);
+        $date = LawyerAvailability::resolveDate(null)->toDateString();
 
         $this->actingAs($client)->post(route('book.store'), [
-            'type' => 'phone', 'day' => 'الأحد 12 يوليو', 'time' => '11:00 ص', 'subject' => 'نزاع عمل',
+            'type' => 'phone', 'specialty' => 'القضايا العمالية', 'lawyer_id' => $lawyer->id,
+            'date' => $date, 'time' => '11:00', 'subject' => 'نزاع عمل',
         ])->assertRedirect(route('myconsults'));
 
         $consult = Consult::firstOrFail();
@@ -32,24 +36,30 @@ class DirectBookingTest extends TestCase
         $this->assertNull($consult->ticket_id); // حجز مباشر بلا تذكرة
         $this->assertSame('هاتفية', $consult->channel);
         $this->assertSame(350, $consult->price); // السعر الافتراضي للهاتفية
+        $this->assertSame($lawyer->id, $consult->assigned_lawyer_id); // المحامي المختار مربوط بالمعرّف
         $this->assertSame(1, Appointment::where('user_id', $client->id)->count());
         $this->assertSame(1, UserNotification::where('user_id', $client->id)->count());
     }
 
     public function test_employee_books_on_behalf_of_client(): void
     {
-        $employee = User::factory()->create(['role' => Role::Employee]);
+        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
         $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض', 'name' => 'أ. سارة القحطاني']);
 
+        $date = LawyerAvailability::resolveDate(null)->toDateString();
         $this->actingAs($employee)->post(route('employee.schedule.store'), [
-            'client_id' => $client->id, 'type' => 'office', 'day' => 'الاثنين 13 يوليو', 'time' => '01:00 م',
-            'lawyer' => 'أ. سارة القحطاني', 'subject' => 'عقد',
+            'client_id' => $client->id, 'type' => 'office', 'date' => $date, 'time' => '13:00',
+            'lawyer_id' => $lawyer->id, 'subject' => 'عقد',
         ])->assertRedirect();
 
         $consult = Consult::firstOrFail();
         $this->assertSame($client->id, $consult->user_id);
         $this->assertSame('حضورية', $consult->channel);
         $this->assertSame('أ. سارة القحطاني', $consult->lawyer);
+        $this->assertSame($lawyer->id, $consult->assigned_lawyer_id); // مربوط بالمعرّف والفرع
+        $this->assertSame('فرع الرياض', $consult->branch);
+        $this->assertNotNull($consult->starts_at); // وقت حقيقي (لا نصّ) — يفعّل منع التعارض وجدولة Zoom
     }
 
     public function test_admin_price_change_applies_to_new_bookings(): void
@@ -62,8 +72,11 @@ class DirectBookingTest extends TestCase
         ])->assertRedirect();
         $this->assertSame('400', Setting::get('price_phone'));
 
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
+        $date = LawyerAvailability::resolveDate(null)->toDateString();
         $this->actingAs($client)->post(route('book.store'), [
-            'type' => 'phone', 'day' => 'الثلاثاء', 'time' => '10:00 ص',
+            'type' => 'phone', 'specialty' => 'القضايا التجارية', 'lawyer_id' => $lawyer->id,
+            'date' => $date, 'time' => '10:00',
         ])->assertRedirect();
         $this->assertSame(400, Consult::firstOrFail()->price); // السعر الجديد انعكس
     }

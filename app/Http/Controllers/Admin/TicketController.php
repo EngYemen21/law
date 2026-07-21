@@ -7,6 +7,9 @@ use App\Events\TicketStatusBroadcast;
 use App\Http\Controllers\Controller;
 use App\Models\Ticket;
 use App\Models\UserNotification;
+use App\Services\LegalAiService;
+use App\Support\Live;
+use App\Support\TicketJourney;
 use App\Support\TicketResult;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -64,24 +67,24 @@ class TicketController extends Controller
             'body' => '<p>تم اعتماد ملخص الاستشارة ومحضر الجلسة من الإدارة. تُرسل النتيجة النهائية الآن.</p>',
             'time_label' => $this->clock(),
         ]);
-        broadcast(new TicketMessageBroadcast($ack));
+        Live::push(new TicketMessageBroadcast($ack));
 
         $result = $ticket->messages()->create([
             'who' => 'ai',
-            'name' => 'الفريق القانوني',
+            'name' => LegalAiService::AGENT_NAME,
             'role' => 'النتيجة',
             'body' => TicketResult::card($ticket, $summary),
             'time_label' => $this->clock(),
         ]);
-        broadcast(new TicketMessageBroadcast($result));
+        Live::push(new TicketMessageBroadcast($result));
 
         $ticket->update([
             'status' => 'مكتملة',
-            'tone' => 'b-green',
+            'tone' => TicketJourney::toneFor('مكتملة'),
             'last_message' => 'اكتملت معالجة الطلب، والنتيجة النهائية متاحة في التذكرة',
             'date_label' => 'الآن',
         ]);
-        broadcast(new TicketStatusBroadcast($ticket));
+        Live::push(new TicketStatusBroadcast($ticket));
 
         UserNotification::create([
             'user_id' => $ticket->user_id,

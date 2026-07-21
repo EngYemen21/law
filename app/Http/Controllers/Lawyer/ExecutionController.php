@@ -9,6 +9,8 @@ use App\Models\Execution;
 use App\Models\ExecutionProcedure;
 use App\Models\Ticket;
 use App\Models\UserNotification;
+use App\Support\ExecJourney;
+use App\Support\Live;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -48,14 +50,14 @@ class ExecutionController extends Controller
         $this->guardAssigned($execution);
         abort_unless(in_array($execution->status, ['جديد', 'قيد الفتح'], true), 422);
 
-        $execution->update(['status' => 'تجهيز السند التنفيذي', 'tone' => 'b-blue', 'last_action' => 'تجهيز السند التنفيذي']);
+        $execution->update(['status' => 'تجهيز السند التنفيذي', 'tone' => ExecJourney::toneFor('تجهيز السند التنفيذي'), 'last_action' => 'تجهيز السند التنفيذي']);
         $execution->messages()->create([
             'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'التنفيذ',
             'body' => '<p>جارٍ تجهيز السند التنفيذي وتدقيق مستندات التنفيذ تمهيداً للقيد لدى محكمة التنفيذ.</p>',
             'time_label' => $this->clock(),
         ]);
         $this->notify($execution, 'exec', 't-blue', "بدأ قسم التنفيذ تجهيز السند التنفيذي لطلبك {$execution->number}.");
-        broadcast(new ExecStatusBroadcast($execution));
+        Live::push(new ExecStatusBroadcast($execution));
 
         return back();
     }
@@ -67,14 +69,15 @@ class ExecutionController extends Controller
         abort_unless($execution->status === 'تجهيز السند التنفيذي', 422);
         $data = $request->validate(['court' => ['required', 'string', 'max:120']]);
 
-        $execution->update(['status' => 'مقيّد لدى محكمة التنفيذ', 'court' => $data['court'], 'last_action' => 'القيد لدى '.$data['court']]);
+        // كانت النغمة غائبة هنا وحدها، فتحتفظ الشارة بلون المرحلة السابقة
+        $execution->update(['status' => 'مقيّد لدى محكمة التنفيذ', 'tone' => ExecJourney::toneFor('مقيّد لدى محكمة التنفيذ'), 'court' => $data['court'], 'last_action' => 'القيد لدى '.$data['court']]);
         $execution->messages()->create([
             'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'التنفيذ',
             'body' => '<p>تم قيد طلب التنفيذ لدى <b>'.e($data['court']).'</b>، وبدء الإجراءات النظامية.</p>',
             'time_label' => $this->clock(),
         ]);
         $this->notify($execution, 'exec', 't-cyan', "تم قيد طلب تنفيذك {$execution->number} لدى محكمة التنفيذ.");
-        broadcast(new ExecStatusBroadcast($execution));
+        Live::push(new ExecStatusBroadcast($execution));
 
         return back();
     }
@@ -91,14 +94,14 @@ class ExecutionController extends Controller
         ]);
 
         $execution->procedures()->create($data + ['status' => 'مجدول']);
-        $execution->update(['status' => 'جارٍ', 'tone' => 'b-blue', 'last_action' => $data['title']]);
+        $execution->update(['status' => 'جارٍ', 'tone' => ExecJourney::toneFor('جارٍ'), 'last_action' => $data['title']]);
         $execution->messages()->create([
             'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'إجراء',
             'body' => '<p>إجراء تنفيذ جديد: <b>'.e($data['title']).'</b> ('.e($data['type']).').</p>',
             'time_label' => $this->clock(),
         ]);
         $this->notify($execution, 'exec', 't-blue', "إجراء تنفيذ جديد على طلبك {$execution->number}: {$data['title']}.");
-        broadcast(new ExecStatusBroadcast($execution));
+        Live::push(new ExecStatusBroadcast($execution));
 
         return back();
     }
@@ -111,7 +114,7 @@ class ExecutionController extends Controller
         $data = $request->validate(['status' => ['required', 'string', 'in:منفّذ,مؤجل']]);
         $procedure->update($data);
         $execution->update(['last_action' => $procedure->title.' — '.$data['status']]);
-        broadcast(new ExecStatusBroadcast($execution));
+        Live::push(new ExecStatusBroadcast($execution));
 
         return back();
     }
@@ -122,14 +125,14 @@ class ExecutionController extends Controller
         $this->guardAssigned($execution);
         abort_unless($execution->status === 'جارٍ', 422);
 
-        $execution->update(['status' => 'مكتمل', 'tone' => 'b-green', 'last_action' => 'تم التحصيل وإغلاق طلب التنفيذ']);
+        $execution->update(['status' => 'مكتمل', 'tone' => ExecJourney::toneFor('مكتمل'), 'last_action' => 'تم التحصيل وإغلاق طلب التنفيذ']);
         $execution->messages()->create([
             'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'التنفيذ',
             'body' => '<p>تم استكمال إجراءات التنفيذ والتحصيل، وإغلاق طلب التنفيذ بنجاح.</p>',
             'time_label' => $this->clock(),
         ]);
         $this->notify($execution, 'check', 't-green', "اكتمل تنفيذ طلبك {$execution->number} والتحصيل بنجاح.");
-        broadcast(new ExecStatusBroadcast($execution));
+        Live::push(new ExecStatusBroadcast($execution));
 
         return back();
     }

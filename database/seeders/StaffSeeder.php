@@ -39,10 +39,27 @@ class StaffSeeder extends Seeder
             [
                 'name' => 'أ. خالد المالكي', 'email' => 'k.malki@salasel.test', 'role' => Role::Lawyer,
                 'avatar_initials' => 'خ م', 'title' => 'أ.', 'job_title' => 'محامٍ',
-                'branch' => 'فرع الرياض', 'department' => 'العقارات',
+                'branch' => 'الفرع الرئيسي — جدة', 'department' => 'العقارات',
                 'pay_type' => 'session', 'session_fee' => 800, 'national_id' => '1055667788',
                 'phone' => '0551234503', 'join_date' => '2025-01-10', 'work_start' => '10:00', 'work_end' => '18:00',
                 'perms' => ['المساعد القانوني', 'إدارة القضايا والأتعاب'],
+            ],
+            // موظف خدمة عملاء لكل فرع (كل موظف يرى تذاكر فرعه)
+            [
+                'name' => 'فهد الشمري', 'email' => 'employee.riyadh@salasel.test', 'role' => Role::Employee,
+                'avatar_initials' => 'ف ش', 'job_title' => 'موظف خدمة عملاء',
+                'branch' => 'فرع الرياض', 'department' => 'خدمة العملاء',
+                'pay_type' => 'salary', 'salary' => 7000, 'national_id' => '1033445566',
+                'phone' => '0551234511', 'join_date' => '2025-10-01', 'work_start' => '08:00', 'work_end' => '16:00',
+                'perms' => ['إدارة التذاكر', 'الرد على العملاء', 'جدولة المواعيد', 'تحويل التذاكر', 'استقبال الاستشارات', 'إدارة المواعيد والحجوزات', 'إرسال دعوات الاجتماعات'],
+            ],
+            [
+                'name' => 'نورة الدوسري', 'email' => 'employee.dammam@salasel.test', 'role' => Role::Employee,
+                'avatar_initials' => 'ن د', 'job_title' => 'موظف خدمة عملاء',
+                'branch' => 'فرع الدمام', 'department' => 'خدمة العملاء',
+                'pay_type' => 'salary', 'salary' => 7000, 'national_id' => '1077889900',
+                'phone' => '0551234512', 'join_date' => '2025-10-01', 'work_start' => '08:00', 'work_end' => '16:00',
+                'perms' => ['إدارة التذاكر', 'الرد على العملاء', 'جدولة المواعيد', 'تحويل التذاكر', 'استقبال الاستشارات', 'إدارة المواعيد والحجوزات', 'إرسال دعوات الاجتماعات'],
             ],
         ];
 

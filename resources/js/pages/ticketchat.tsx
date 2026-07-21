@@ -8,53 +8,26 @@ import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
 import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
 import { CONSULT_PRICES, VAT_RATE } from '@/lib/newticket-data';
+import SpecialistPicker, { todayISO } from '@/components/SpecialistPicker';
 
 // يطابق clientTicketView + خطوات حجز الاستشارة (tfChooseConsult→tfInvoice→tfPaid→tfChooseSlot→tfConfirm)
 
 interface TicketCard { no: string; type: string; status: string; tone: string; }
 
-const AR_DAYS = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-const AR_MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
-const TIMES = ['10:00 ص', '11:30 ص', '01:00 م', '02:30 م', '04:00 م', '05:30 م'];
-const BRANCHES = ['الرياض — حي العليا', 'جدة — حي الروضة', 'مكة — العزيزية'];
-const LAWYERS = ['أ. سارة القحطاني', 'أ. خالد المالكي', 'أ. ريم الزهراني'];
 const TYPES: { key: string; label: string; ico: string; sub: string }[] = [
   { key: 'office', label: 'حضورية', ico: 'office', sub: 'في الفرع' },
   { key: 'video', label: 'مرئية', ico: 'video', sub: 'عبر الفيديو' },
   { key: 'phone', label: 'هاتفية', ico: 'phone', sub: 'اتصال مباشر' },
 ];
 
-// عرض الاسم الأول فقط للمستشار (مع الإبقاء على القيمة الكاملة للخادم)
-// «أ. سارة القحطاني» → «أ. سارة»
-function lawyerFirst(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (/^(أ|د|م|الأستاذ|الأستاذة|المحامي|المحامية)\.?$/.test(parts[0]) && parts.length > 1) {
-    return `${parts[0]} ${parts[1]}`;
-  }
-  return parts[0] || name;
-}
-
-function upcomingDays(n: number): string[] {
-  const out: string[] = [];
-  const now = new Date();
-  for (let i = 1; out.length < n; i++) {
-    const x = new Date(now);
-    x.setDate(now.getDate() + i);
-    if (x.getDay() === 5 || x.getDay() === 6) continue; // تخطّي الجمعة/السبت
-    out.push(`${AR_DAYS[x.getDay()]} ${x.getDate()} ${AR_MONTHS[x.getMonth()]}`);
-  }
-  return out;
-}
-
 // لوحة حجز الاستشارة داخل التذكرة — تظهر عند مرحلة «بانتظار حجز الاستشارة»
+// المستشارون المتخصّصون بقسم التذكرة (مرتّبون بالذكاء الاصطناعي + سجلّ النجاح) وفتراتهم المتاحة الحقيقية.
 const BookConsult: React.FC<{ no: string }> = ({ no }) => {
   const toast = useToast();
-  const days = upcomingDays(4);
   const [step, setStep] = useState<'type' | 'invoice' | 'slot'>('type');
   const [type, setType] = useState('');
-  const [branch, setBranch] = useState(BRANCHES[0]);
-  const [lawyer, setLawyer] = useState(LAWYERS[0]);
-  const [day, setDay] = useState(days[0]);
+  const [date, setDate] = useState(todayISO());
+  const [lawyerId, setLawyerId] = useState<number | null>(null);
   const [time, setTime] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -64,8 +37,9 @@ const BookConsult: React.FC<{ no: string }> = ({ no }) => {
   const total = price + vat;
 
   const confirm = () => {
+    if (!lawyerId || !time) { toast('اختر المستشار وموعداً متاحاً'); return; }
     setBusy(true);
-    axios.post(`/tickets/${encodeURIComponent(no)}/book`, { type, day, time, branch, lawyer })
+    axios.post(`/tickets/${encodeURIComponent(no)}/book`, { type, lawyer_id: lawyerId, date, time })
       .then(() => toast('تم تأكيد موعد الاستشارة'))
       .catch(() => { setBusy(false); toast('تعذّر الحجز، حاول مجدداً'); });
   };
@@ -125,40 +99,31 @@ const BookConsult: React.FC<{ no: string }> = ({ no }) => {
 
         {step === 'slot' && (
           <>
-            <div className="picker-grid">
-              {type === 'office' && (
-                <div className="field">
-                  <label>الفرع</label>
-                  <select value={branch} onChange={(e) => setBranch(e.target.value)}>
-                    {BRANCHES.map((b) => <option key={b} value={b}>{b}</option>)}
-                  </select>
-                </div>
-              )}
-              <div className="field">
-                <label>المستشار المتاح</label>
-                <select value={lawyer} onChange={(e) => setLawyer(e.target.value)}>
-                  {LAWYERS.map((l) => <option key={l} value={l}>{lawyerFirst(l)}</option>)}
-                </select>
-              </div>
+            <div className="field" style={{ marginBottom: 8 }}>
+              <label>تاريخ الموعد</label>
+              <input
+                className="input"
+                type="date"
+                min={todayISO()}
+                value={date}
+                onChange={(e) => { setDate(e.target.value); setLawyerId(null); setTime(''); }}
+              />
             </div>
-            <div className="field" style={{ marginBottom: 6 }}>
-              <label>اليوم</label>
-              <select value={day} onChange={(e) => setDay(e.target.value)}>
-                {days.map((d) => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)', margin: '13px 0 0' }}>الوقت المتاح</label>
-            <div className="slots">
-              {TIMES.map((t) => (
-                <button key={t} type="button" className={`slot ${time === t ? 'sel' : ''}`} onClick={() => setTime(t)}>{t}</button>
-              ))}
-            </div>
-            <div className="cal-note"><Icon name="check" /> تم التحقق من التوافر عبر Google Calendar</div>
+            <SpecialistPicker
+              fetchUrl={`/tickets/${encodeURIComponent(no)}/availability`}
+              enabled
+              date={date}
+              onDateSnap={setDate}
+              lawyerId={lawyerId}
+              onLawyerChange={setLawyerId}
+              time={time}
+              onTimeChange={setTime}
+            />
             <button
               className="btn block"
               type="button"
-              style={{ marginTop: 15, opacity: time && !busy ? 1 : 0.5 }}
-              disabled={!time || busy}
+              style={{ marginTop: 15, opacity: lawyerId && time && !busy ? 1 : 0.5 }}
+              disabled={!lawyerId || !time || busy}
               onClick={confirm}
             >
               <Icon name="cal" /> تأكيد الموعد
@@ -175,7 +140,7 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
   // الحالة لحظية: تتحدّث عبر بثّ القناة فيتقدّم المسار دون إعادة تحميل
   const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone });
 
-  const showBooking = status.status === 'بانتظار حجز الاستشارة' || status.status === 'بانتظار حجز استشارة';
+  const showBooking = status.status === 'بانتظار حجز الاستشارة';
 
   const topExtra = (
     <>

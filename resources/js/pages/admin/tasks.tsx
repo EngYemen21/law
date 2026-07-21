@@ -46,7 +46,7 @@ const AdminTasks: React.FC<Props> = ({ tasks, lawyers }) => {
                 {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
             </div>
-            <div className="field"><label>الاستحقاق</label><input value={due} onChange={(e) => setDue(e.target.value)} placeholder="مثال: 05 يوليو" /></div>
+            <div className="field"><label>الاستحقاق</label><input className="input" type="date" value={due} onChange={(e) => setDue(e.target.value)} /></div>
           </div>
           <button className="btn" onClick={add} type="button"><Icon name="exec" /> إسناد المهمة</button>
         </div>

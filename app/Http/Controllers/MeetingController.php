@@ -20,4 +20,16 @@ class MeetingController extends Controller
             'meetings' => $meetings,
         ]);
     }
+
+    // غرفة الاجتماع المضمّنة للعميل — تضمين Zoom داخل المنصّة (?ref=M-…)
+    public function room(Request $request): Response
+    {
+        $meeting = Meeting::where('ref', (string) $request->query('ref'))->firstOrFail();
+        abort_unless($meeting->user_id === $request->user()->id, 403);
+
+        return Inertia::render('meetingroom', [
+            'meeting' => $meeting->toCard(),
+            'selfName' => $request->user()->name,
+        ]);
+    }
 }

@@ -1,0 +1,271 @@
+import { router } from '@inertiajs/react';
+import axios from 'axios';
+import React, { useEffect, useRef, useState } from 'react';
+import Icon from '@/lib/icons';
+
+// ============================================================
+// غرفة الجلسة المرئية — تضمين Zoom (Meeting SDK / Component View) داخل المنصّة
+// يستبدل الفتح الخارجي (window.open) بمكالمة مضمّنة؛ ويتدرّج للفتح الخارجي عند
+// غياب المفاتيح أو الاجتماع الحقيقي (لا يكسر بيئات الاختبار/التطوير).
+// ============================================================
+
+interface SignaturePayload {
+  sdkKey: string;
+  signature: string;
+  meetingNumber: string;
+  password: string;
+  userName: string;
+  userEmail: string;
+  role: number;
+  zak: string | null;
+}
+
+interface Props {
+  cref: string; // مرجع الكيان (CN-… للاستشارة، M-… للاجتماع) لطلب التوقيع
+  kind?: 'consult' | 'meeting'; // نوع الكيان (افتراضي: استشارة)
+  label: string; // «CN-2026-1042 · استشارة مرئية»
+  back: string; // مسار الرجوع
+  fallbackUrl?: string; // رابط Zoom الخارجي للتدرّج الآمن
+  viewer: 'client' | 'staff';
+}
+
+// الحد الأدنى من واجهة Zoom Component View المستخدمة هنا (الحزمة تُحمّل كسولاً وقت التشغيل)
+interface ZoomClient {
+  init(opts: {
+    zoomAppRoot: HTMLElement;
+    language?: string;
+    patchJsMedia?: boolean;
+    customize?: { video?: { isResizable?: boolean } };
+  }): Promise<unknown>;
+  join(opts: {
+    signature: string;
+    meetingNumber: string;
+    password?: string;
+    userName: string;
+    userEmail?: string;
+    zak?: string;
+  }): Promise<unknown>;
+  leaveMeeting(): Promise<unknown>;
+}
+interface ZoomEmbedded {
+  createClient(): ZoomClient;
+  destroyClient(): void;
+}
+
+// يُحمّل Component View من CDN عمداً: يتطلّب Component View وجود React/ReactDOM كمتغيّرات عامّة
+// (window.React). نحمّل نسخة Zoom المرفقة (React 18) كـglobals — معزولة تماماً عن React 19 المضيف
+// (المضيف يستورد React من الحزمة لا من window)، ويتفادى تعارض الحزمة عبر npm مع React 19.
+const ZOOM_SDK_VERSION = '6.2.0';
+const ZOOM_BASE = `https://source.zoom.us/${ZOOM_SDK_VERSION}`;
+const ZOOM_SCRIPTS = [
+  `${ZOOM_BASE}/lib/vendor/react.min.js`,
+  `${ZOOM_BASE}/lib/vendor/react-dom.min.js`,
+  `${ZOOM_BASE}/zoom-meeting-embedded-${ZOOM_SDK_VERSION}.min.js`,
+];
+
+declare global {
+  interface Window {
+    ZoomMtgEmbedded?: ZoomEmbedded;
+    __zoomSdkLoad?: Promise<ZoomEmbedded>;
+  }
+}
+
+function loadScript(src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${src}"]`);
+
+    if (existing) {
+      resolve();
+
+      return;
+    }
+
+    const s = document.createElement('script');
+    s.src = src;
+    s.async = false; // يحافظ على ترتيب التحميل (React قبل ReactDOM قبل SDK)
+    s.onload = () => resolve();
+    // نزيل العقدة الفاشلة كي تُعاد إضافتها عند المحاولة التالية (وإلا حُلّ فوراً بسكربت فاشل)
+    s.onerror = () => { s.remove(); reject(new Error(`failed to load ${src}`)); };
+    document.head.appendChild(s);
+  });
+}
+
+function loadZoomSdk(): Promise<ZoomEmbedded> {
+  if (window.ZoomMtgEmbedded) {
+    return Promise.resolve(window.ZoomMtgEmbedded);
+  }
+
+  if (window.__zoomSdkLoad) {
+    return window.__zoomSdkLoad;
+  }
+
+  const load = (async () => {
+    for (const src of ZOOM_SCRIPTS) {
+      await loadScript(src);
+    }
+
+    if (! window.ZoomMtgEmbedded) {
+      throw new Error('ZoomMtgEmbedded global missing');
+    }
+
+    return window.ZoomMtgEmbedded;
+  })();
+
+  // عند الفشل نُفرّغ الوعد المخبّأ كي تُعاد المحاولة عند الدخول التالي
+  // (كان خطأ CDN عابر يخزّن وعداً مرفوضاً فتبقى الغرفة في الاحتياط حتى إعادة تحميل كاملة)
+  window.__zoomSdkLoad = load.catch((e) => {
+    window.__zoomSdkLoad = undefined;
+    throw e;
+  });
+
+  return window.__zoomSdkLoad;
+}
+
+type Phase = 'loading' | 'joining' | 'joined' | 'fallback' | 'error';
+
+export const ZoomEmbedRoom: React.FC<Props> = ({ cref, kind = 'consult', label, back, fallbackUrl }) => {
+  'use no memo'; // تركيب Zoom تحكّمي (refs/تأثيرات) — خارج مُحسّن React
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  const clientRef = useRef<ZoomClient | null>(null);
+  const [phase, setPhase] = useState<Phase>('loading');
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    let embedded: ZoomEmbedded | null = null;
+
+    const fail = (m: string) => {
+      if (cancelled) {
+return;
+}
+
+      setMsg(m);
+      setPhase(fallbackUrl ? 'fallback' : 'error');
+    };
+
+    void (async () => {
+      // 1) طلب توقيع الانضمام (التفويض/الدور على الخادم)
+      let data: SignaturePayload;
+
+      try {
+        const res = await axios.post<SignaturePayload>('/zoom/sdk-signature', { ref: cref, kind });
+        data = res.data;
+      } catch (e) {
+        const status = axios.isAxiosError(e) ? e.response?.status : undefined;
+        fail(status === 503 ? 'تضمين Zoom غير مُهيّأ بعد.' : 'تعذّر تجهيز غرفة الجلسة.');
+
+        return;
+      }
+
+      // 2) تحميل مكتبة Zoom من CDN عند الطلب (تُعزل عن بقية الصفحات وعن React المضيف)
+      try {
+        embedded = await loadZoomSdk();
+      } catch {
+        fail('تعذّر تحميل مكتبة Zoom.');
+
+        return;
+      }
+
+      if (cancelled || !rootRef.current) {
+return;
+}
+
+      // 3) التهيئة والانضمام (الاسم/الإيميل تلقائياً؛ ZAK للمضيف)
+      try {
+        setPhase('joining');
+        const client = embedded.createClient();
+        clientRef.current = client;
+        await client.init({
+          zoomAppRoot: rootRef.current,
+          language: 'en-US',
+          patchJsMedia: true,
+          customize: { video: { isResizable: true } },
+        });
+
+        if (cancelled) {
+return;
+}
+
+        await client.join({
+          signature: data.signature,
+          meetingNumber: data.meetingNumber,
+          password: data.password,
+          userName: data.userName,
+          userEmail: data.userEmail,
+          zak: data.zak || undefined,
+        });
+
+        if (cancelled) {
+return;
+}
+
+        setPhase('joined');
+      } catch {
+        fail('تعذّر الانضمام إلى الجلسة.');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+
+      try {
+        void clientRef.current?.leaveMeeting();
+        embedded?.destroyClient();
+      } catch {
+        /* تنظيف صامت */
+      }
+    };
+  }, [cref, kind, fallbackUrl]);
+
+  return (
+    <div style={{ maxWidth: 900, margin: '0 auto' }}>
+      <div style={{ marginBottom: 14, display: 'flex', gap: 9, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button className="btn soft sm" onClick={() => router.visit(back)} type="button">
+          <Icon name="reply" /> رجوع
+        </button>
+        <span style={{ opacity: 0.75, fontSize: 12 }}>{label}</span>
+      </div>
+
+      {(phase === 'loading' || phase === 'joining') && (
+        <div className="card"><div className="card-b">
+          <div className="empty">
+            <Icon name="video" />
+            <b>{phase === 'loading' ? 'يجري تجهيز غرفة الجلسة…' : 'يجري الانضمام إلى Zoom…'}</b>
+          </div>
+        </div></div>
+      )}
+
+      {phase === 'fallback' && (
+        <div className="card"><div className="card-b">
+          <div className="empty">
+            <Icon name="video" />
+            <b>تعذّر التضمين داخل المنصّة</b>
+            <span>{msg} يمكنك فتح الجلسة في Zoom مباشرة.</span>
+            <button className="btn sm" style={{ marginTop: 10 }} onClick={() => {
+ if (fallbackUrl) {
+window.open(fallbackUrl, '_blank', 'noopener');
+} 
+}} type="button">
+              <Icon name="video" /> فتح Zoom في تبويب
+            </button>
+          </div>
+        </div></div>
+      )}
+
+      {phase === 'error' && (
+        <div className="card"><div className="card-b">
+          <div className="empty"><Icon name="video" /><b>{msg || 'تعذّر بدء الجلسة'}</b></div>
+        </div></div>
+      )}
+
+      {/* حاوية تضمين Zoom (Component View) — تبقى في DOM ليركّب SDK داخلها عند التهيئة */}
+      <div
+        ref={rootRef}
+        style={{ minHeight: phase === 'joined' || phase === 'joining' ? 520 : 0, direction: 'ltr' }}
+      />
+    </div>
+  );
+};
+
+export default ZoomEmbedRoom;

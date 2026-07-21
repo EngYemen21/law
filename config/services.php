@@ -66,6 +66,11 @@ return [
         'client_secret' => env('ZOOM_CLIENT_SECRET'),
         // الرابط الاحتياطي (placeholder) حين لا تُهيّأ مفاتيح Zoom بعد — مصدر واحد موحّد
         'fallback_base' => env('ZOOM_FALLBACK_BASE', 'https://meet.salasel.sa/'),
+        // Meeting SDK (تضمين الاجتماع داخل المنصّة) — تطبيق منفصل عن S2S
+        'sdk_key' => env('ZOOM_SDK_KEY'),
+        'sdk_secret' => env('ZOOM_SDK_SECRET'),
+        // سرّ التحقّق من أحداث Zoom (Event Subscriptions / Webhooks)
+        'webhook_secret' => env('ZOOM_WEBHOOK_SECRET'),
     ],
 
 ];

@@ -1,11 +1,18 @@
 import React from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
+import { hearingTone } from '@/lib/case-ui';
+import { meetStatusTone } from '@/lib/meeting-ui';
 
 // تقويم المحامي — جلسات قضاياه واجتماعاته الحقيقية (من الخادم)
 
-interface Ev { kind: string; tone: string; title: string; day: string | null; time: string | null; where: string | null; status: string; }
+interface Ev { kind: string; kindKey: string; tone: string; title: string; day: string | null; time: string | null; where: string | null; status: string; }
 interface Props { events: Ev[]; }
+
+// الجلسات والاجتماعات مفردتا حالة مختلفتان — كل حدث يُلوَّن بخريطته
+// (كانت كل الحالات هنا رمادية بينما تقويم العميل يلوّنها)
+const statusTone = (e: Ev): string =>
+  e.kindKey === 'meeting' ? meetStatusTone(e.status) : hearingTone(e.status);
 
 const LawyerCalendar: React.FC<Props> = ({ events }) => (
   <>
@@ -40,7 +47,7 @@ const LawyerCalendar: React.FC<Props> = ({ events }) => (
                   <td className="muted">{e.day || '—'}</td>
                   <td className="muted">{e.time || '—'}</td>
                   <td className="muted">{e.where || '—'}</td>
-                  <td><Badge text={e.status} tone="b-grey" /></td>
+                  <td><Badge text={e.status} tone={statusTone(e)} /></td>
                 </tr>
               ))}
             </tbody>

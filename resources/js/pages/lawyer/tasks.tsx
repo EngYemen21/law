@@ -45,7 +45,7 @@ const LawyerTasks: React.FC<Props> = ({ tasks }) => {
             </div>
             <div className="field">
               <label>الاستحقاق</label>
-              <input value={due} onChange={(e) => setDue(e.target.value)} placeholder="اختياري" />
+              <input className="input" type="date" value={due} onChange={(e) => setDue(e.target.value)} />
             </div>
           </div>
           <button className="btn" onClick={add} type="button"><Icon name="check" /> إضافة</button>

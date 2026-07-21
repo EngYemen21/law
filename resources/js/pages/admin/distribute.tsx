@@ -1,10 +1,10 @@
 import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Icon from '@/lib/icons';
-import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
 
-// توزيع التذاكر — الإدارة تُسند التذاكر للمحامين فعلياً (يكتب assigned_lawyer_id)
+// توزيع التذاكر — الإدارة تُسند التذاكر للمحامين فعلياً (يكتب assigned_lawyer_id)،
+// أو توزّع غير المسندة تلقائياً عبر محرك التوزيع العادل (تخصّص + حمل + أقدمية).
 
 interface T { no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string; }
 interface Props { tickets: T[]; lawyers: { id: number; name: string }[]; }
@@ -13,11 +13,29 @@ const AdminDistribute: React.FC<Props> = ({ tickets, lawyers }) => {
   const toast = useToast();
   const [sel, setSel] = useState<Record<string, number>>(() =>
     Object.fromEntries(tickets.map((t) => [t.no, lawyers[0]?.id ?? 0])));
+  const [autoBusy, setAutoBusy] = useState(false);
+
+  // عدد التذاكر غير المسندة (لا محامٍ مسند) — هي هدف التوزيع التلقائي
+  const autoCount = tickets.filter((t) => !t.lawyer || t.lawyer === '—').length;
 
   const assign = (no: string) => {
     router.post(`/admin/distribute/${encodeURIComponent(no)}`, { lawyer_id: sel[no] }, {
       preserveScroll: true,
       onSuccess: () => toast('تم إسناد التذكرة'),
+      onError: () => toast('تعذّر إسناد التذكرة، حاول مجدداً'),
+    });
+  };
+
+  // التوزيع التلقائي: يستدعي محرك TicketAssignment على غير المسندة فقط
+  const runAuto = () => {
+    if (autoCount === 0 || autoBusy) return;
+    if (!window.confirm(`سيتم توزيع ${autoCount} تذكرة غير مسندة تلقائياً حسب التخصّص والحمل. متابعة؟`)) return;
+    setAutoBusy(true);
+    router.post('/admin/distribute/auto', {}, {
+      preserveScroll: true,
+      onSuccess: () => toast('اكتمل التوزيع التلقائي'),
+      onError: () => toast('فشل التوزيع التلقائي، حاول مجدداً'),
+      onFinish: () => setAutoBusy(false), // ضمان تحرير الزر حتى عند الخطأ
     });
   };
 
@@ -25,10 +43,22 @@ const AdminDistribute: React.FC<Props> = ({ tickets, lawyers }) => {
     <>
       <div className="ai-banner">
         <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
-        <p><b>التوزيع اليدوي</b> — تُسند الإدارة كل تذكرة للمحامي المختص، ويُحفظ الإسناد فعلياً.</p>
+        <p><b>التوزيع</b> — تُسند الإدارة كل تذكرة للمحامي المختص (يدوي)، أو توزّع غير المسندة تلقائياً حسب التخصّص والحمل.</p>
       </div>
       <div className="card">
-        <div className="card-h"><h3>توزيع التذاكر</h3><span className="sub">{tickets.length}</span></div>
+        <div className="card-h">
+          <h3>توزيع التذاكر</h3>
+          <span className="sub">{tickets.length}</span>
+          <button
+            className="btn primary sm"
+            type="button"
+            disabled={autoBusy || autoCount === 0}
+            onClick={runAuto}
+            style={{ marginRight: 8 }}
+          >
+            <Icon name="scale" /> {autoBusy ? 'جارٍ التوزيع…' : `توزيع تلقائي (${autoCount})`}
+          </button>
+        </div>
         <div className="card-b t-wrap">
           {tickets.length ? (
             <table className="tbl">

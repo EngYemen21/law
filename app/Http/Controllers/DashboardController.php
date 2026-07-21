@@ -51,7 +51,7 @@ class DashboardController extends Controller
             'tickets' => $active->map(fn (Ticket $t) => $t->toEmployeeCard()),
             'counts' => [
                 'needAction' => $active->count(),
-                'missingDocs' => $active->whereIn('status', ['بانتظار مرفقات', 'بانتظار مستندات'])->count(),
+                'missingDocs' => $active->where('status', 'بانتظار مستندات')->count(),
                 'todayAppts' => Appointment::where('when_kind', 'up')->count(),
                 'referred' => Ticket::where('branch', $branch)->where('status', 'محالة للقسم القانوني')->count(),
             ],

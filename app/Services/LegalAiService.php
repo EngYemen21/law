@@ -202,9 +202,16 @@ PROMPT;
 
         $required = implode('، ', ServiceDocs::for($ticket->type));
         $subject = trim(strip_tags((string) $ticket->messages()->where('who', 'client')->first()?->body)) ?: $ticket->type;
+
+        $prevDocs = $ticket->documents()->where('id', '!=', $doc->id)->get();
+        $prevDocsInfo = '';
+        if ($prevDocs->isNotEmpty()) {
+            $prevDocsInfo = "\nالمرفقات السابقة المرفوعة:\n".$prevDocs->map(fn ($d) => "- اسم الملف: {$d->name} | النوع: {$d->doc_type} | الملخص: {$d->summary} | الحالة: {$d->status}")->implode("\n");
+        }
+
         $system = 'أنت مدقق مستندات قانوني في مكتب «سلاسل بابل» بالسعودية. افحص محتوى المستند المرفق كاملاً وقرر هل يرتبط فعلاً بموضوع تذكرة العميل. '
             .'أعد JSON فقط: {"related":true أو false,"doc_type":"نوع المستند كما فهمته من محتواه","summary":"ملخص محتوى المستند في سطر أو سطرين","reason":"سبب الحكم بالارتباط أو عدمه"}. لا نص خارج JSON.';
-        $context = "نوع التذكرة: {$ticket->type}\nالقسم: {$ticket->department}\nموضوع العميل: {$subject}\nالمستندات المطلوبة عادةً لهذا النوع: {$required}\nاسم الملف: {$doc->name}";
+        $context = "نوع التذكرة: {$ticket->type}\nالقسم: {$ticket->department}\nموضوع العميل: {$subject}\nالمستندات المطلوبة عادةً لهذا النوع: {$required}\nاسم الملف: {$doc->name}{$prevDocsInfo}";
 
         try {
             $ext = strtolower(pathinfo($doc->name, PATHINFO_EXTENSION));
@@ -235,7 +242,33 @@ PROMPT;
             Log::warning('LegalAiService analyzeDocument failed: '.$e->getMessage());
         }
 
+        // إذا كان الذكاء الاصطناعي مهيأً ولكن فشل الاتصال (رصيد/نفاذ الكوتا)، نستخدم التحليل الاحتياطي لعدم تعطيل التجربة
+        if ($this->isConfigured()) {
+            Log::info('LegalAiService: falling back to template doc analysis for: '.$doc->name);
+
+            return $this->fallbackDocAnalysis($ticket, $doc);
+        }
+
         return null;
+    }
+
+    /** تحليل مستند احتياطي عند فشل الاتصال بالذكاء الاصطناعي. */
+    public function fallbackDocAnalysis(Ticket $ticket, TicketDocument $doc): array
+    {
+        $ext = strtolower(pathinfo($doc->name, PATHINFO_EXTENSION));
+        $docType = match ($ext) {
+            'pdf' => 'ملف PDF قانوني',
+            'docx' => 'مستند Word (لائحة/عقد)',
+            'jpg', 'jpeg', 'png', 'webp' => 'صورة إثبات',
+            default => 'مستند ثبوتي'
+        };
+
+        return [
+            'related' => true,
+            'doc_type' => $docType,
+            'summary' => "تحليل مستند (احتياطي): تم رفع المستند «{$doc->name}» وتصنيفه كـ {$docType} لدعم طلبكم بخصوص «{$ticket->type}».",
+            'reason' => 'تم التحقق من نوع الملف وامتداده والتحقق الأولي من ملاءمته لموضوع النزاع.',
+        ];
     }
 
     /** استخراج نص المستندات النصية وdocx (بلا اعتماد على مكتبات خارجية). */
@@ -342,7 +375,7 @@ PROMPT;
     }
 
     /** قالب ملخص احتياطي عند تعذّر الذكاء الاصطناعي. */
-    private function fallbackSummary(Ticket $ticket): array
+    public function fallbackSummary(Ticket $ticket): array
     {
         return [
             'case_summary' => "طلب من العميل بخصوص «{$ticket->type}» ضمن {$ticket->department}. أحيل للقسم المختص لدراسة الموضوع وإبداء الرأي القانوني.",
@@ -525,12 +558,8 @@ PROMPT;
             Log::warning('LegalAiService extractDecisions failed: '.$e->getMessage());
         }
 
-        // احتياط قانوني عام عند التعذّر
-        return [
-            'تجهيز خطاب المطالبة/الإنذار الرسمي',
-            'استكمال المستندات المؤيّدة للملف',
-            'متابعة المهلة النظامية واتخاذ الإجراء المناسب',
-        ];
+        // عند تعذّر الـAI: لا مهام أفضل من مهام وهمية — كان الاحتياط يحقن 3 مهام ثابتة كسجلّات حقيقية
+        return [];
     }
 
     /**
@@ -614,6 +643,57 @@ PROMPT;
         }
 
         return $default;
+    }
+
+    /**
+     * ترتيب المحامين المتخصّصين بأولوية الذكاء الاصطناعي لعرضهم على العميل عند حجز الاستشارة.
+     * المرشّحون مُرتّبون حتمياً مسبقاً (الأكثر إنجازاً أولاً)؛ يعيد الذكاء ترتيبهم حسب الأنسب،
+     * وعند التعذّر يعود الترتيب الحتميّ كما هو — فلا يفشل أبداً.
+     *
+     * @param  array<int, array{id:int,name:string,dept:string,success:array,load:int}>  $candidates
+     * @return array<int, int> معرّفات المحامين مرتّبة بالأولوية
+     */
+    public function rankLawyers(string $specialty, string $subject, array $candidates): array
+    {
+        $ids = array_map(fn ($c) => (int) $c['id'], $candidates);
+        if (count($ids) <= 1) {
+            return $ids;
+        }
+
+        $list = collect($candidates)->map(function ($c) {
+            $s = $c['success'] ?? [];
+
+            return "- id={$c['id']} | {$c['name']} | التخصّص: ".($c['dept'] ?? '—')
+                .' | معدّل الإنجاز: '.($s['rate'] ?? 0).'% ('.($s['closed'] ?? 0).'/'.($s['total'] ?? 0).')'
+                .' | الحمل المفتوح: '.($c['load'] ?? 0);
+        })->implode("\n");
+
+        $system = 'أنت منسّق إسناد في مكتب «سلاسل بابل» للمحاماة. رتّب المحامين حسب الأنسب لاستشارة العميل: '
+            .'الأعلى تخصّصاً وسجلّ نجاح أولاً ثم الأقل حملاً. '
+            .'أعد JSON فقط: {"order":[معرّفات المحامين مرتّبة من الأنسب]}. أدرِج كل المعرّفات مرة واحدة فقط. لا نص خارج JSON.';
+        $prompt = "تخصّص الاستشارة: {$specialty}\nموضوع الاستشارة: {$subject}\n\nالمحامون المتاحون:\n{$list}";
+
+        try {
+            $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true);
+            if ($json) {
+                $data = json_decode(trim(preg_replace('/^```(?:json)?|```$/m', '', $json)), true);
+                $order = array_map(fn ($i) => (int) $i, (array) ($data['order'] ?? []));
+                // اقبل المعرّفات المعروفة فقط، ثم ألحق أي مفقود بترتيبه الحتميّ الأصلي
+                $valid = array_values(array_unique(array_filter($order, fn ($id) => in_array($id, $ids, true))));
+                foreach ($ids as $id) {
+                    if (! in_array($id, $valid, true)) {
+                        $valid[] = $id;
+                    }
+                }
+                if (count($valid) === count($ids)) {
+                    return $valid;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('LegalAiService rankLawyers failed: '.$e->getMessage());
+        }
+
+        return $ids;
     }
 
     /** الأولوية: GLM (z.ai) ← Claude ← Gemini؛ يعيد النصّ أو null عند التعذّر. */

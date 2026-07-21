@@ -44,10 +44,15 @@ use App\Http\Controllers\Staff\ConsultController as StaffConsultController;
 use App\Http\Controllers\Staff\MeetingController as StaffMeetingController;
 use App\Http\Controllers\Staff\MeetRequestController as StaffMeetRequestController;
 use App\Http\Controllers\TicketController;
+use App\Http\Controllers\ZoomController;
+use App\Http\Controllers\ZoomWebhookController;
 use Illuminate\Support\Facades\Route;
 
 // ── عام (بدون مصادقة) ──
 Route::inertia('/', 'welcome')->name('home');
+
+// مستقبِل أحداث Zoom (Webhooks) — عام، محميّ بتوقيع HMAC ومستثنى من CSRF (Zoom لا يرسل رمزاً)
+Route::post('/webhooks/zoom', [ZoomWebhookController::class, 'handle'])->name('webhooks.zoom');
 
 // المصادقة
 Route::middleware('guest')->group(function () {
@@ -67,6 +72,7 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
     Route::get('/tickets/{ticket}', [TicketController::class, 'show'])->name('tickets.show');
     Route::post('/tickets/{ticket}/messages', [TicketController::class, 'storeMessage'])->name('tickets.messages.store');
     Route::post('/tickets/{ticket}/attach', [TicketController::class, 'attach'])->name('tickets.attach');
+    Route::get('/tickets/{ticket}/availability', [TicketController::class, 'availability'])->name('tickets.availability');
     Route::post('/tickets/{ticket}/book', [TicketController::class, 'book'])->name('tickets.book');
     // القضايا (مربوطة بقاعدة البيانات)
     Route::get('/cases', [CaseController::class, 'index'])->name('cases');
@@ -83,10 +89,13 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
 
     // الاستشارات — «استشاراتي» مربوطة بقاعدة البيانات؛ الجلسات المرئية عبر Zoom
     Route::get('/book', [ConsultBookingController::class, 'index'])->name('book');
+    Route::get('/book/availability', [ConsultBookingController::class, 'availability'])->name('book.availability');
     Route::post('/book', [ConsultBookingController::class, 'store'])->name('book.store');
     Route::get('/myconsults', [ConsultController::class, 'index'])->name('myconsults');
+    Route::get('/consults/room', [ConsultController::class, 'room'])->name('consults.room');
     Route::get('/appointments', [AppointmentController::class, 'index'])->name('appointments');
     Route::get('/meetings', [MeetingController::class, 'index'])->name('meetings');
+    Route::get('/meetingroom', [MeetingController::class, 'room'])->name('meetingroom');
     // دعوات الاجتماعات (مربوطة بقاعدة البيانات — تأكيد الحضور يُنشئ جلسة Zoom)
     Route::get('/meetreqs', [MeetRequestController::class, 'index'])->name('meetreqs');
     Route::post('/meetreqs/{meetRequest}/confirm', [MeetRequestController::class, 'confirm'])->name('meetreqs.confirm');
@@ -105,6 +114,8 @@ Route::middleware(['auth', 'active'])->group(function () {
     Route::post('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password');
     // إنهاء معاينة لوحة الموظف (إمبرسنيشن)
     Route::post('/impersonate/leave', [ImpersonationController::class, 'leave'])->name('impersonate.leave');
+    // توقيع تضمين Zoom (Meeting SDK) — متاح للعميل والموظف؛ التفويض في المتحكّم عبر ChannelAccess
+    Route::post('/zoom/sdk-signature', [ZoomController::class, 'sdkSignature'])->name('zoom.signature');
 });
 
 // ── لوحة الموظف ── (deny-by-default: صلاحية صريحة لكل إجراء حسّاس فوق حارس الدور)
@@ -119,6 +130,7 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
         Route::post('/tickets/{ticket}/status', [EmployeeTicketController::class, 'status'])->name('tickets.status');
         Route::post('/tickets/{ticket}/advance', [EmployeeTicketController::class, 'advance'])->name('tickets.advance');
         Route::post('/tickets/{ticket}/convert', [EmployeeTicketController::class, 'convertToCase'])->name('tickets.convert');
+        Route::post('/tickets/{ticket}/documents/{document}/approve-summary', [EmployeeTicketController::class, 'approveDocSummary'])->name('tickets.documents.approve-summary');
     });
     Route::post('/tickets/{ticket}/reply', [EmployeeTicketController::class, 'reply'])
         ->middleware('permission:الرد على العملاء')->name('tickets.reply');
@@ -214,6 +226,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
     Route::middleware('permission:إدارة الاجتماعات')->group(function () {
         Route::get('/meetings', [StaffMeetingController::class, 'index'])->name('meetings');
         Route::get('/meeting', [StaffMeetingController::class, 'show'])->name('meeting');
+        Route::get('/meetingroom', [StaffMeetingController::class, 'room'])->name('meetingroom');
         Route::post('/meetings/{meeting}/summary', [StaffMeetingController::class, 'saveSummary'])->name('meetings.summary');
         Route::post('/meetings/{meeting}/minutes', [StaffMeetingController::class, 'saveMinutes'])->name('meetings.minutes');
         Route::post('/meetings/{meeting}/end', [StaffMeetingController::class, 'end'])->name('meetings.end');
@@ -259,6 +272,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::get('/tickets/{ticket}', [AdminTicketController::class, 'show'])->name('tickets.show');
     Route::post('/tickets/{ticket}/result', [AdminTicketController::class, 'approveResult'])->name('tickets.result');
     Route::get('/lawyers', [AdminLawyerController::class, 'index'])->name('lawyers');
+    Route::post('/lawyers/{user}/mode', [AdminLawyerController::class, 'toggleMode'])->name('lawyers.mode');
     // رحلة الاستشارة — مربوطة بقاعدة البيانات (+ صلاحيات الإدارة: الأولوية)
     Route::get('/consults', [StaffConsultController::class, 'index'])->name('consults');
     Route::post('/consults/{consult}/take', [StaffConsultController::class, 'take'])->name('consults.take');
@@ -279,6 +293,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/branches', [BranchController::class, 'store'])->name('branches.store');
     Route::get('/archive', [AdminArchiveController::class, 'index'])->name('archive');
     Route::get('/distribute', [AdminDistributeController::class, 'index'])->name('distribute');
+    Route::post('/distribute/auto', [AdminDistributeController::class, 'auto'])->name('distribute.auto');
     Route::post('/distribute/{ticket}', [AdminDistributeController::class, 'assign'])->name('distribute.assign');
     Route::get('/casefees', [AdminCaseController::class, 'fees'])->name('casefees');
     Route::get('/cases', [AdminCaseController::class, 'index'])->name('cases');

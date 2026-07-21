@@ -26,7 +26,8 @@ export interface Hearing {
   court?: string | null; status: string; outcome?: string | null;
 }
 
-const hearingTone = (s: string): string =>
+/** نغمة حالة الجلسة — مصدر وحيد (يستعملها تقويم المحامي أيضاً) */
+export const hearingTone = (s: string): string =>
   s === 'منعقدة' ? 'b-green' : s === 'مؤجلة' ? 'b-amber' : 'b-blue';
 
 export const HearingsCard: React.FC<{ hearings: Hearing[] }> = ({ hearings }) => (

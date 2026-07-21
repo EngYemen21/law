@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\UserNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
@@ -29,6 +30,7 @@ class SessionOutputsTest extends TestCase
         $meeting = Meeting::create([
             'user_id' => $client->id, 'ref' => 'M-9001', 'title' => 'اجتماع مراجعة عقد',
             'client_name' => $client->name, 'when_label' => 'اليوم', 'status' => 'جارٍ', 'is_up' => true,
+            'assigned_lawyer_id' => $lawyer->id,
         ]);
 
         $this->actingAs($lawyer)->post(route('lawyer.meetings.end', $meeting), ['attend' => 90])->assertRedirect();
@@ -46,7 +48,7 @@ class SessionOutputsTest extends TestCase
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $meeting = Meeting::create([
             'ref' => 'M-9002', 'title' => 'اجتماع', 'when_label' => 'اليوم', 'status' => 'منتهٍ',
-            'decisions' => ['قرار أول', 'قرار ثانٍ'],
+            'decisions' => ['قرار أول', 'قرار ثانٍ'], 'assigned_lawyer_id' => $lawyer->id,
         ]);
 
         $this->actingAs($lawyer)->post(route('lawyer.meetings.tasks', $meeting))->assertRedirect();
@@ -80,11 +82,20 @@ class SessionOutputsTest extends TestCase
 
     public function test_consult_end_extracts_decisions_and_converts_to_tasks(): void
     {
+        // يحاكي المزوّد الحقيقي (GLM): ملخّص أوّلاً ثم قرارات — لا اعتماد على نصّ احتياطي وهمي
+        config(['services.glm.key' => 'test-key']);
+        Http::fake([
+            '*/chat/completions' => Http::sequence()
+                ->push(['choices' => [['message' => ['content' => 'ملخص الاستشارة: نوقش النزاع وحُدّد الرأي القانوني والإجراءات.']]]])
+                ->push(['choices' => [['message' => ['content' => '{"decisions":["توجيه إنذار رسمي","تجهيز مذكرة الدعوى"]}']]]]),
+        ]);
+
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'أ. سارة القحطاني']);
         $client = User::factory()->create(['role' => Role::Client]);
         $consult = Consult::create([
             'user_id' => $client->id, 'ref' => 'CN-2026-9100', 'subject' => 'نزاع',
-            'channel' => 'مرئية', 'lawyer' => 'أ. سارة القحطاني', 'day' => 'الأحد', 'time' => '10ص',
+            'channel' => 'مرئية', 'lawyer' => 'أ. سارة القحطاني', 'assigned_lawyer_id' => $lawyer->id,
+            'day' => 'الأحد', 'time' => '10ص',
             'when_label' => 'الأحد', 'session' => 'جلسة جارية', 'status' => 'قيد الاستشارة',
         ]);
 

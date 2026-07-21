@@ -205,6 +205,7 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 .appt-meta .row:last-child{margin-bottom:0}
 .appt-meta .row .ic{width:17px;height:17px;stroke:var(--primary);flex:0 0 17px}
 .appt-meta .row b{color:var(--ink)}.appt-meta .row span{color:var(--muted)}
+.appt-meta .row a{color:var(--primary);font-weight:700;text-decoration:underline;text-underline-offset:3px}
 .qr{width:104px;height:104px;border:1px solid var(--line);border-radius:12px;padding:7px;background:#fff}
 .email-note{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--success);background:var(--success-bg);padding:10px 14px;border-top:1px solid rgba(30,157,107,.18)}
 .email-note .ic{width:16px;height:16px;stroke:var(--success)}

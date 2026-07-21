@@ -3,54 +3,85 @@
 namespace Database\Seeders;
 
 use App\Enums\Role;
+use App\Models\Branch;
 use App\Models\User;
+use App\Support\Permissions;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\PermissionRegistrar;
 
+/**
+ * بذرة الحسابات الحقيقية فقط — بلا أي بيانات تشغيلية وهمية.
+ * تنشئ: الإدارة العليا + عميل + (محامٍ وموظف) لكل فرع، مع الصلاحيات الصحيحة لكل دور.
+ * كلمة المرور للجميع: password.
+ */
 class DatabaseSeeder extends Seeder
 {
     use WithoutModelEvents;
 
     public function run(): void
     {
-        // صلاحيات spatie وأدوار القوالب أولاً (قبل إسناد أي صلاحية)
+        // الأساس: صلاحيات spatie وأدوار القوالب، ثم الفروع
         $this->call(PermissionSeeder::class);
+        $this->call(BranchSeeder::class);
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
 
-        // حسابات تجريبية — حساب واحد لكل دور (كلمة المرور: password)
-        $users = [
-            ['name' => 'عبدالله محمد العتيبي', 'email' => 'client@salasel.test',   'role' => Role::Client,   'avatar_initials' => 'ع م'],
-            ['name' => 'منيرة الحربي',          'email' => 'employee@salasel.test', 'role' => Role::Employee, 'avatar_initials' => 'م ح'],
-            ['name' => 'أ. سارة القحطاني',       'email' => 'lawyer@salasel.test',   'role' => Role::Lawyer,   'avatar_initials' => 'س ق', 'title' => 'أ.'],
-            ['name' => 'الإدارة العليا',         'email' => 'admin@salasel.test',    'role' => Role::Admin,    'avatar_initials' => 'إ ع'],
+        // الإدارة العليا (تتجاوز الصلاحيات عبر Gate::before)
+        $this->makeUser([
+            'name' => 'الإدارة العليا', 'email' => 'admin@salasel.sa', 'role' => Role::Admin,
+            'avatar_initials' => 'إ ع', 'branch' => Branch::DEFAULT, 'job_title' => 'مدير عام',
+        ]);
+
+        // عميل
+        $this->makeUser([
+            'name' => 'العميل', 'email' => 'client@salasel.sa', 'role' => Role::Client,
+            'avatar_initials' => 'عم',
+        ]);
+
+        // محامٍ + موظف لكل فرع (بصلاحيات القالب الصحيحة لكل دور)
+        $branches = [
+            ['name' => 'الفرع الرئيسي — جدة', 'slug' => 'jeddah', 'city' => 'جدة', 'dept' => 'القضايا التجارية'],
+            ['name' => 'فرع الرياض', 'slug' => 'riyadh', 'city' => 'الرياض', 'dept' => 'الأحوال الشخصية'],
+            ['name' => 'فرع الدمام', 'slug' => 'dammam', 'city' => 'الدمام', 'dept' => 'العقارات'],
         ];
 
-        foreach ($users as $u) {
-            User::updateOrCreate(
-                ['email' => $u['email']],
-                [
-                    'name' => $u['name'],
-                    'role' => $u['role'],
-                    'avatar_initials' => $u['avatar_initials'],
-                    'title' => $u['title'] ?? null,
-                    'password' => Hash::make('password'),
-                    'email_verified_at' => now(),
-                ]
+        foreach ($branches as $b) {
+            $lawyer = $this->makeUser([
+                'name' => 'محامي فرع '.$b['city'], 'email' => "lawyer.{$b['slug']}@salasel.sa",
+                'role' => Role::Lawyer, 'title' => 'أ.', 'job_title' => 'محامٍ',
+                'branch' => $b['name'], 'department' => $b['dept'],
+                'work_start' => '09:00', 'work_end' => '17:00', 'avatar_initials' => 'مح',
+            ]);
+            $lawyer->syncPermissions(
+                Permission::whereIn('name', Permissions::ROLE_PERMISSIONS['lawyer'])->get()
+            );
+
+            $employee = $this->makeUser([
+                'name' => 'موظف فرع '.$b['city'], 'email' => "employee.{$b['slug']}@salasel.sa",
+                'role' => Role::Employee, 'job_title' => 'موظف خدمة عملاء',
+                'branch' => $b['name'], 'department' => 'خدمة العملاء',
+                'work_start' => '08:00', 'work_end' => '16:00', 'avatar_initials' => 'مو',
+            ]);
+            $employee->syncPermissions(
+                Permission::whereIn('name', Permissions::ROLE_PERMISSIONS['employee'])->get()
             );
         }
 
-        $this->call([
-            BranchSeeder::class,
-            StaffSeeder::class,   // يُثري employee@/lawyer@ ببيانات العمل والصلاحيات + يضيف أ. خالد
-            TicketSeeder::class,
-            CaseSeeder::class,
-            ExecutionSeeder::class,
-            NotificationSeeder::class,
-            AppointmentSeeder::class,
-            ConsultSeeder::class,
-            MeetingSeeder::class,
-            DocumentSeeder::class,
-            InvoiceSeeder::class,
-        ]);
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+    }
+
+    /** إنشاء/تحديث حساب فعّال بكلمة المرور الموحّدة. */
+    private function makeUser(array $attrs): User
+    {
+        return User::updateOrCreate(
+            ['email' => $attrs['email']],
+            array_merge($attrs, [
+                'password' => Hash::make('password'),
+                'status' => 'active',
+                'email_verified_at' => now(),
+            ])
+        );
     }
 }

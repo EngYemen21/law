@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class TicketDocument extends Model
 {
     protected $fillable = [
-        'ticket_id', 'name', 'path', 'mime', 'size', 'status', 'doc_type', 'summary', 'reason',
+        'ticket_id', 'name', 'path', 'mime', 'size', 'status', 'doc_type', 'summary', 'reason', 'summary_approved',
     ];
 
     public function ticket(): BelongsTo

@@ -13,8 +13,10 @@ class Consult extends Model
 {
     protected $fillable = [
         'user_id', 'ticket_id', 'appointment_id', 'ref', 'subject', 'type', 'priority', 'channel',
-        'lawyer', 'employee', 'day', 'time', 'when_label', 'received_label', 'branch', 'phone',
-        'meet_id', 'meet_link', 'host_link',
+        'lawyer', 'assigned_lawyer_id', 'specialty', 'employee', 'day', 'time', 'when_label', 'received_label', 'branch', 'phone',
+        'starts_at', 'duration_min',
+        'meet_id', 'meet_link', 'host_link', 'meet_password',
+        'link_released_at', 'join_time', 'leave_time', 'duration_sec', 'transcript', 'recording_url', 'transcript_path', 'zoom_summary_at',
         'status', 'session', 'session_notes', 'summary', 'duration_label',
         'decisions', 'tasks_created',
         'price', 'vat', 'total', 'mins',
@@ -27,7 +29,24 @@ class Consult extends Model
         'missing' => 'array',
         'audit' => 'array',
         'decisions' => 'array',
+        'starts_at' => 'datetime',
+        'link_released_at' => 'datetime',
+        'join_time' => 'datetime',
+        'leave_time' => 'datetime',
+        'zoom_summary_at' => 'datetime',
     ];
+
+    /**
+     * هل يُفعَّل زر «الدخول إلى الجلسة»؟ للمرئية فقط، بعد إطلاق الرابط (قبل الموعد بـ5د)،
+     * وقبل انتهاء الجلسة. قبل الإطلاق يكون الزر معطّلاً تماماً.
+     */
+    public function canJoin(): bool
+    {
+        return $this->channel === 'مرئية'
+            && $this->session !== 'منتهية'
+            // يُفعَّل بإطلاق الرابط قبل الموعد بـ5د، أو فور بدء المحامي للجلسة (جارية الآن)
+            && ($this->link_released_at !== null || $this->session === 'جلسة جارية');
+    }
 
     public function user(): BelongsTo
     {
@@ -42,6 +61,12 @@ class Consult extends Model
     public function appointment(): BelongsTo
     {
         return $this->belongsTo(Appointment::class);
+    }
+
+    // المحامي المسند بالمعرّف (لقياس سجلّ النجاح وربط الاستشارة بمحامٍ حقيقي)
+    public function assignedLawyer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_lawyer_id');
     }
 
     // رابط انضمام الجلسة المرئية (join_url من Zoom)؛ وعند غيابه الرابط الاحتياطي الموحّد.
@@ -66,10 +91,12 @@ class Consult extends Model
             'when' => $this->when_label,
             'branch' => $this->branch ?? '',
             'slink' => $this->channel === 'مرئية' ? $this->joinLink() : '',
+            'canJoin' => $this->canJoin(), // زر الدخول معطّل حتى إطلاق الرابط قبل الموعد بـ5د
             'session' => $this->session,
             'status' => $this->status,
             'summary' => $this->summary,
             'duration' => $this->duration_label,
+            // ملاحظة: لا يُكشف للعميل رابط التسجيل ولا أنّ الجلسة مُسجّلة — داخلي للمكتب فقط
         ];
     }
 
@@ -93,6 +120,7 @@ class Consult extends Model
             'status' => $this->status,
             'summary' => $this->summary,
             'duration' => $this->duration_label,
+            'recording' => $this->recording_url,
             'total' => $this->total,
             // رحلة المعالجة (يطابق واجهة Consult في employee-data)
             'type' => $this->type ?? 'عام',

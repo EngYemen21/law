@@ -5,14 +5,14 @@ import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
-import { MEET_STATUSES, MEET_TYPES_FULL, MEET_TEMPLATES, meetStatusTone, STAFF_DIR } from '@/lib/admin-data';
-import { type ClientDirEntry, type FullMeetingCard } from '@/lib/meeting-ui';
+import { MEET_STATUSES, MEET_TYPES_FULL, MEET_TEMPLATES, STAFF_DIR } from '@/lib/admin-data';
+import { meetStatusTone, type ClientDirEntry, type FullMeetingCard } from '@/lib/meeting-ui';
 
 // يطابق meetMgmtView + openCreateMeeting + submitMeeting في index (82).html — البيانات حقيقية من الخادم
 
-interface Props { meetings: FullMeetingCard[]; clients: ClientDirEntry[] }
+interface Props { meetings: FullMeetingCard[]; clients: ClientDirEntry[]; lawyers: { id: number; name: string }[] }
 
-const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients }) => {
+const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers }) => {
   const toast = useToast();
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState(false);
@@ -27,6 +27,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients }) => {
   const [day, setDay] = useState('');
   const [time, setTime] = useState('10:00');
   const [clientId, setClientId] = useState<number | ''>('');
+  const [lawyerId, setLawyerId] = useState<number | ''>('');
   const [caseRef, setCaseRef] = useState('');
   useEffect(() => { setCaseRef(''); }, [clientId]);
 
@@ -59,12 +60,13 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients }) => {
       participants: participants.join('، '),
       day, time,
       client_id: clientId === '' ? null : clientId,
+      lawyer_id: lawyerId === '' ? null : lawyerId,
       case_ref: caseRef,
     }, {
       preserveScroll: true,
       onSuccess: () => {
         setOpen(false); setFilter('قادم');
-        setTitle(''); setDur(''); setParticipants([]);
+        setTitle(''); setDur(''); setParticipants([]); setLawyerId('');
         toast('تم إنشاء الاجتماع بجلسة Zoom وإضافته للتقويم');
       },
     });
@@ -135,7 +137,12 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients }) => {
           <div className="field"><label>مستوى السرية</label>
             <select value={conf} onChange={(e) => setConf(e.target.value)}><option>عادي</option><option>سري</option></select>
           </div>
-          <div className="field"><label>المدة</label><input className="input" value={dur} onChange={(e) => setDur(e.target.value)} placeholder="مثال: 60 دقيقة" /></div>
+          <div className="field"><label>المدة</label>
+            <select className="input" value={dur} onChange={(e) => setDur(e.target.value)}>
+              <option value="">— اختر المدة —</option>
+              {['30 دقيقة', '45 دقيقة', '60 دقيقة', '90 دقيقة', '120 دقيقة'].map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
         </div>
 
         <div className="form-sec-h"><span className="si"><Icon name="user" /></span> المشاركون</div>
@@ -173,6 +180,12 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients }) => {
               {caseOptions.map((i) => <option key={i} value={i}>{i}</option>)}
             </select>
           </div>
+        </div>
+        <div className="field"><label>المحامي المسؤول (يظهر الاجتماع في قائمته)</label>
+          <select value={lawyerId} onChange={(e) => setLawyerId(e.target.value === '' ? '' : Number(e.target.value))}>
+            <option value="">— بلا محامٍ مسؤول —</option>
+            {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
         </div>
         <div className="action-hint" style={{ margin: '10px 0' }}>
           <Icon name="cal" /> يُنشأ اجتماع Zoom تلقائياً ويصل رابطه للعميل المرتبط في إشعاراته واجتماعاته.

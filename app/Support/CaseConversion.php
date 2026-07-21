@@ -42,7 +42,7 @@ class CaseConversion
                 'branch' => $ticket->branch,
                 'department' => $analysis['department'],
                 'status' => 'بانتظار اعتماد الأتعاب',
-                'tone' => 'b-amber',
+                'tone' => CaseJourney::toneFor('بانتظار اعتماد الأتعاب'),
                 'update_text' => 'تم تحويل الاستشارة إلى قضية، بانتظار تحديد الإدارة للأتعاب',
                 'fee_status' => 'none',
             ]);
@@ -74,7 +74,7 @@ class CaseConversion
             'body' => "<p>تم تحويل طلبكم إلى قضية قانونية رقم <b>{$case->number}</b>. يمكنكم متابعتها من قسم «القضايا».</p>",
             'time_label' => self::clock(),
         ]);
-        broadcast(new TicketMessageBroadcast($msg));
+        Live::push(new TicketMessageBroadcast($msg));
 
         UserNotification::create([
             'user_id' => $ticket->user_id,

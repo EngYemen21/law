@@ -1,17 +1,18 @@
-import { Link, router, usePage } from '@inertiajs/react';
-import React, { useEffect, useRef, useState } from 'react';
-import Icon from '@/lib/icons';
+import { Link, router } from '@inertiajs/react';
+import React, { useEffect, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
-import Modal from '@/components/babylon/Modal';
-import StatRow, { type StatItem } from '@/components/babylon/StatRow';
-import { useToast } from '@/components/babylon/Toast';
-import { OFFICE_IP } from '@/lib/chat';
 import FlowLine from '@/components/babylon/FlowLine';
+import Modal from '@/components/babylon/Modal';
+import StatRow from '@/components/babylon/StatRow';
+import type {StatItem} from '@/components/babylon/StatRow';
+import { useToast } from '@/components/babylon/Toast';
 import {
-  type AuditEntry,
-  CONSULT_CHANNELS, CONSULT_FLOW, cStage, cTone,
-  crChannelIcon, crChannelTone, maskClient, MEET_REQUESTS,
+  CONSULT_CHANNELS, CONSULT_FLOW, cStage, cHasStage, cTone,
+  crChannelIcon, crChannelTone, maskClient
 } from '@/lib/employee-data';
+import type {AuditEntry} from '@/lib/employee-data';
+import Icon from '@/lib/icons';
+import ZoomEmbedRoom from '@/lib/zoom-room';
 
 // ============================================================
 // واجهة الاستشارات المشتركة (سجلّ Consult الحقيقي من الخادم)
@@ -30,11 +31,13 @@ export interface ConsultCard {
   branch: string;
   phone: string;
   slink: string;
+  canJoin?: boolean; // زر الدخول مفعّل؟ (بعد إطلاق الرابط قبل الموعد بـ5د)
   hostLink: string | null; // رابط مضيف Zoom (للمكتب)
   session: string; // بانتظار الجلسة / جلسة جارية / منتهية
   status: string;
   summary: string | null;
   duration: string | null;
+  recording?: string | null; // رابط التسجيل السحابي (بعد الجلسة)
   total: number;
   // رحلة المعالجة (CONSULT_FLOW)
   type: string;
@@ -54,15 +57,19 @@ export interface ConsultCard {
 
 // فتح جلسة Zoom في تبويب جديد (المكالمة والتسجيل على Zoom)
 export function openMeeting(url: string): void {
-  if (url) window.open(url, '_blank', 'noopener');
+  if (url) {
+window.open(url, '_blank', 'noopener');
+}
 }
 
 // «أ. سارة القحطاني» → «أ. سارة» (لدور العميل)
 export function lawyerFirst(name: string): string {
   const parts = name.trim().split(/\s+/);
+
   if (/^(أ|د|م|الأستاذ|الأستاذة|المحامي|المحامية)\.?$/.test(parts[0]) && parts.length > 1) {
     return `${parts[0]} ${parts[1]}`;
   }
+
   return parts[0] || name;
 }
 
@@ -70,13 +77,18 @@ export function lawyerFirst(name: string): string {
 export function fmtDur(s: number): string {
   const m = Math.floor(s / 60);
   const ss = s % 60;
+
   return `${m < 10 ? '0' : ''}${m}:${ss < 10 ? '0' : ''}${ss}`;
 }
 
 // يطابق vrInitials
 export function vrInitials(n: string): string {
-  if (!n) return '؟';
+  if (!n) {
+return '؟';
+}
+
   const p = String(n).trim().split(/\s+/);
+
   return (p[0] ? p[0][0] : '') + (p[1] ? ` ${p[1][0]}` : '');
 }
 
@@ -105,7 +117,11 @@ export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }
   const [summaryOf, setSummaryOf] = useState<ConsultCard | null>(null);
 
   const counts: Record<string, number> = { 'مرئية': 0, 'حضورية': 0, 'هاتفية': 0 };
-  consults.forEach((c) => { if (counts[c.channel] != null) counts[c.channel]++; });
+  consults.forEach((c) => {
+ if (counts[c.channel] != null) {
+counts[c.channel]++;
+} 
+});
   const ended = consults.filter((c) => c.session === 'منتهية').length;
 
   const stats: StatItem[] = [
@@ -134,14 +150,20 @@ export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }
     });
   };
 
-  // دخول جلسة Zoom كمضيف — وبدء الجلسة إن لم تكن قد بدأت (يبثّ «جارية الآن» للعميل)
+  // دخول غرفة الجلسة المضمّنة كمضيف — وبدء الجلسة إن لم تكن قد بدأت (يبثّ «جارية الآن» للعميل)
   const enterRoom = (c: ConsultCard) => {
-    openMeeting(c.hostLink || c.slink);
-    if (c.session === 'بانتظار الجلسة') start(c);
+    if (c.session === 'بانتظار الجلسة') {
+start(c);
+}
+
+    router.visit(`${base}/videoroom?ref=${encodeURIComponent(c.ref)}`);
   };
 
   const copyLink = (c: ConsultCard) => {
-    if (navigator.clipboard) void navigator.clipboard.writeText(c.slink);
+    if (navigator.clipboard) {
+void navigator.clipboard.writeText(c.slink);
+}
+
     toast('تم نسخ رابط الاجتماع');
   };
 
@@ -225,7 +247,7 @@ export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }
                     <>
                       <Badge text="جلسة جارية" tone="b-amber" />
                       {c.channel === 'مرئية' && (
-                        <button className="btn soft sm" onClick={() => openMeeting(c.hostLink || c.slink)} type="button">
+                        <button className="btn soft sm" onClick={() => router.visit(`${base}/videoroom?ref=${encodeURIComponent(c.ref)}`)} type="button">
                           <Icon name="video" /> دخول جلسة Zoom
                         </button>
                       )}
@@ -256,120 +278,7 @@ export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }
 };
 
 // ============================================================
-// غرفة الجلسة المرئية — مكوّن مشترك للأدوار الأربعة
-// يطابق videoRoomView + vrTick/vrToggleMic/vrToggleCam/vrEnd/vrMinimize
-// ============================================================
-
-export interface VideoRoomProps {
-  remoteName: string;
-  remoteSub: string;
-  label: string; // «CN-2026-1042 · استشارة مرئية»
-  selfName: string;
-  selfAv: string;
-  viewer: 'client' | 'staff';
-  back: string;
-  onEnd: (notes: string, duration: string, stop: () => void) => void;
-}
-
-export const VideoRoom: React.FC<VideoRoomProps> = ({ remoteName, remoteSub, label, selfName, selfAv, viewer, back, onEnd }) => {
-  const toast = useToast();
-  const [seconds, setSeconds] = useState(0);
-  const [mic, setMic] = useState(true);
-  const [cam, setCam] = useState(true);
-  const [notes, setNotes] = useState('');
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    timer.current = setInterval(() => setSeconds((s) => s + 1), 1000);
-    return () => { if (timer.current) clearInterval(timer.current); };
-  }, []);
-
-  const stopTimer = () => { if (timer.current) { clearInterval(timer.current); timer.current = null; } };
-
-  // يطابق vrMinimize
-  const minimize = () => { stopTimer(); router.visit(back); };
-
-  const end = () => onEnd(notes, fmtDur(seconds), stopTimer);
-
-  const hint = (!mic ? '🔇 الميكروفون مكتوم  ' : '') + (!cam ? '📷 الكاميرا متوقفة' : '')
-    || 'الجلسة مُسجّلة ومحميّة — لا يسمح بالنسخ أو التحميل';
-
-  return (
-    <div style={{ maxWidth: 880, margin: '0 auto' }}>
-      <div style={{ marginBottom: 14, display: 'flex', gap: 9, flexWrap: 'wrap' }}>
-        <button className="btn soft sm" onClick={minimize} type="button">
-          <Icon name="reply" /> تصغير (إبقاء الجلسة)
-        </button>
-      </div>
-
-      <div className="vroom">
-        <div className="vr-stage">
-          <div className="vr-top">
-            <Icon name="video" />
-            <b>{remoteName}</b>
-            <span style={{ opacity: 0.8, fontSize: 12 }}>{label}</span>
-            <span className="vr-rec"><span className="dot" /> تسجيل</span>
-            <span className="vr-timer">{fmtDur(seconds)}</span>
-          </div>
-
-          <div className="vr-main">
-            <div className="vr-ava">{vrInitials(remoteName)}</div>
-            <b>{remoteName}</b>
-            {remoteSub && <span className="st">{remoteSub}</span>}
-            <span className="st">متصل · الكاميرا مفعّلة</span>
-          </div>
-
-          <div className={`vr-self${cam ? '' : ' camoff'}`}>
-            <div className="sa">{selfAv || vrInitials(selfName)}</div>
-            <span className="sl">أنت ({selfName}){cam ? '' : ' · الكاميرا متوقفة'}</span>
-          </div>
-
-          <div className="vr-wm">سري · {OFFICE_IP}</div>
-        </div>
-
-        <div className="vr-controls">
-          <button className={`vr-btn${mic ? '' : ' off'}`} onClick={() => setMic((v) => !v)} title="ميكروفون" type="button">
-            <Icon name="mic" />
-          </button>
-          <button className={`vr-btn${cam ? '' : ' off'}`} onClick={() => setCam((v) => !v)} title="كاميرا" type="button">
-            <Icon name="video" />
-          </button>
-          <button className="vr-btn" onClick={() => toast('تمت مشاركة الشاشة')} title="مشاركة الشاشة" type="button">
-            <Icon name="upload" />
-          </button>
-          <button className="vr-btn end" onClick={end} title="إنهاء الجلسة" type="button">
-            <Icon name="phone" />
-          </button>
-        </div>
-
-        <div className="vr-hint">{hint}</div>
-      </div>
-
-      {viewer === 'staff' && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="card-h">
-            <h3>ملاحظات الجلسة</h3>
-            <button className="btn sm" onClick={end} type="button">
-              <Icon name="doc" /> إنهاء وكتابة الملخص
-            </button>
-          </div>
-          <div className="card-b" style={{ padding: '14px 16px' }}>
-            <textarea
-              className="input"
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="دوّن أبرز نقاط الجلسة المرئية (تُحفظ وتُنقل لصفحة الملخص)…"
-            />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ============================================================
-// غرفة الجلسة للمكتب (موظف/محامٍ/إدارة) — استشارة حقيقية أو طلب اجتماع (kind=req)
+// غرفة الجلسة للمكتب (موظف/محامٍ/إدارة) — استشارة مرئية مضمّنة (Zoom Web SDK)
 // ============================================================
 
 export interface StaffRoomProps {
@@ -379,44 +288,20 @@ export interface StaffRoomProps {
   base: string; // '/employee' | '/lawyer' | '/admin'
 }
 
-export const StaffVideoRoomPage: React.FC<StaffRoomProps> = ({ consult, selfName = '', selfAv = '', base }) => {
+// غرفة الجلسة المضمّنة لدور المكتب — فيديو Zoom + بطاقة الملاحظات/الملخص (يطابق vrEnd)
+const StaffZoomRoom: React.FC<{ consult: ConsultCard; base: string }> = ({ consult, base }) => {
   const toast = useToast();
-  const { url } = usePage() as unknown as { url: string };
-  const params = new URLSearchParams(url.split('?')[1] || '');
+  const [notes, setNotes] = useState('');
+  const [seconds, setSeconds] = useState(0);
 
-  // طلبات الاجتماعات (kind=req) — ما تزال على البيانات التمهيدية
-  if (!consult && params.get('kind') === 'req') {
-    const id = params.get('id') || '';
-    const r = MEET_REQUESTS.find((x) => x.id === id);
-    return (
-      <VideoRoom
-        remoteName={r ? r.client : 'العميل'}
-        remoteSub={r ? r.service : ''}
-        label={`${(r && r.meetId) ? r.meetId : id} · جلسة مرئية`}
-        selfName={selfName}
-        selfAv={selfAv}
-        viewer="staff"
-        back={`${base}/meetreqs`}
-        onEnd={(_notes, dur, stop) => {
-          stop();
-          toast(`انتهت الجلسة المرئية — المدة ${dur}`);
-          router.visit(`${base}/meetreqs`);
-        }}
-      />
-    );
-  }
+  useEffect(() => {
+    const t = setInterval(() => setSeconds((s) => s + 1), 1000);
 
-  if (!consult) {
-    return (
-      <div className="card"><div className="card-b">
-        <div className="empty"><Icon name="video" /><b>لا توجد جلسة محددة</b></div>
-      </div></div>
-    );
-  }
+    return () => clearInterval(t);
+  }, []);
 
-  // يطابق vrEnd (دور المكتب): إنهاء → حفظ الملاحظات → توليد الملخص → العودة للاستقبال
-  const end = (notes: string, dur: string, stop: () => void) => {
-    stop();
+  const end = () => {
+    const dur = fmtDur(seconds);
     router.post(`${base}/consults/${consult.id}/end`, { notes, duration: dur }, {
       onSuccess: () => {
         toast(`انتهت الجلسة (${dur}) — ولّد الفريق القانوني ملخص الاستشارة`);
@@ -426,17 +311,46 @@ export const StaffVideoRoomPage: React.FC<StaffRoomProps> = ({ consult, selfName
   };
 
   return (
-    <VideoRoom
-      remoteName={maskClient(consult.client)}
-      remoteSub={`${consult.lawyer} · ${consult.subject}`}
-      label={`${consult.ref} · استشارة مرئية`}
-      selfName={selfName}
-      selfAv={selfAv}
-      viewer="staff"
-      back={`${base}/consultrecv`}
-      onEnd={end}
-    />
+    <>
+      <ZoomEmbedRoom
+        cref={consult.ref}
+        label={`${consult.ref} · استشارة مرئية`}
+        back={`${base}/consultrecv`}
+        fallbackUrl={consult.hostLink || consult.slink}
+        viewer="staff"
+      />
+      <div className="card" style={{ marginTop: 16, maxWidth: 900, marginInline: 'auto' }}>
+        <div className="card-h">
+          <h3>ملاحظات الجلسة</h3>
+          <button className="btn sm" onClick={end} type="button">
+            <Icon name="doc" /> إنهاء وكتابة الملخص
+          </button>
+        </div>
+        <div className="card-b" style={{ padding: '14px 16px' }}>
+          <textarea
+            className="input"
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="دوّن أبرز نقاط الجلسة المرئية (تُحفظ وتُنقل لصفحة الملخص)…"
+          />
+        </div>
+      </div>
+    </>
   );
+};
+
+export const StaffVideoRoomPage: React.FC<StaffRoomProps> = ({ consult, base }) => {
+  if (!consult) {
+    return (
+      <div className="card"><div className="card-b">
+        <div className="empty"><Icon name="video" /><b>لا توجد جلسة محددة</b></div>
+      </div></div>
+    );
+  }
+
+  // الاستشارة الحقيقية — فيديو Zoom مضمّن + بطاقة الملاحظات/الملخص
+  return <StaffZoomRoom consult={consult} base={base} />;
 };
 
 // ============================================================
@@ -484,7 +398,7 @@ export const ConsultsListPage: React.FC<{ consults: ConsultCard[]; base: string 
                 <span style={{ display: 'block', margin: '3px 0' }}>
                   {c.subject} · {c.type} · {c.received}
                 </span>
-                <span><FlowLine steps={CONSULT_FLOW} cur={cStage(c.status)} /></span>
+                {cHasStage(c.status) && <span><FlowLine steps={CONSULT_FLOW} cur={cStage(c.status)} /></span>}
               </div>
               <div className="iact">
                 <span className={`mq-priority ${c.priority}`}>{c.priority}</span>
@@ -511,23 +425,29 @@ export const ConsultsListPage: React.FC<{ consults: ConsultCard[]; base: string 
 // رحلة الاستشارة (يطابق consultView + cTake/cRequestDocs/cRunAI/cSaveAI/cApproveAI/cRerun/cRefer)
 // ============================================================
 
-const LAWYER_OPTS = ['أ. سارة القحطاني', 'أ. خالد المالكي', 'أ. ريم الزهراني', 'أ. ماجد العتيبي'];
+export interface LawyerOpt { id: number; name: string; dept: string; }
 
-export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; isAdmin?: boolean }> = ({ consult: c, base, isAdmin }) => {
+export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; isAdmin?: boolean; lawyers: LawyerOpt[] }> = ({ consult: c, base, isAdmin, lawyers }) => {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+
+  // مطابقة اقتراح الذكاء الاصطناعي (اسم) بمحامٍ حقيقي، وإلا أوّل محامٍ
+  const matchLawyer = (name?: string): number | '' => lawyers.find((l) => l.name === name)?.id ?? lawyers[0]?.id ?? '';
 
   // الحقول القابلة للتعديل لتحليل الفريق القانوني (تُزامَن مع الخادم بعد كل إجراء)
   const [aiClass, setAiClass] = useState(c.aiClass);
   const [aiSummary, setAiSummary] = useState(c.aiSummary);
-  const [aiLawyer, setAiLawyer] = useState(c.aiLawyer || LAWYER_OPTS[0]);
+  const [lawyerId, setLawyerId] = useState<number | ''>(matchLawyer(c.aiLawyer));
   const [priority, setPriority] = useState(c.priority);
   useEffect(() => {
     setAiClass(c.aiClass);
     setAiSummary(c.aiSummary);
-    setAiLawyer(c.aiLawyer || LAWYER_OPTS[0]);
+    setLawyerId(matchLawyer(c.aiLawyer));
     setPriority(c.priority);
-  }, [c.aiClass, c.aiSummary, c.aiLawyer, c.priority]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [c.aiClass, c.aiSummary, c.aiLawyer, c.priority, lawyers]);
+
+  const lawyerName = lawyers.find((l) => l.id === lawyerId)?.name ?? '';
 
   const post = (action: string, data: Record<string, string>, msg: string) => {
     setBusy(true);
@@ -541,10 +461,10 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
   const take = () => post('take', {}, 'تم استلام الاستشارة لدى الموظف');
   const requestDocs = () => post('reqdocs', {}, 'تم طلب استكمال البيانات وإشعار العميل');
   const runAI = () => post('analyze', {}, 'اكتمل تحليل الفريق القانوني');
-  const saveAI = () => post('analysis', { aiClass, aiSummary, aiLawyer }, 'تم حفظ التعديلات في سجل التدقيق');
+  const saveAI = () => post('analysis', { aiClass, aiSummary, aiLawyer: lawyerName }, 'تم حفظ التعديلات في سجل التدقيق');
   const approveAI = () => post('approve', {}, 'تم اعتماد التحليل — الاستشارة جاهزة للمحامي');
   const rerun = () => post('analyze', {}, 'تمت إعادة التحليل');
-  const refer = () => post('refer', { lawyer: aiLawyer }, `تمت إحالة الاستشارة إلى المحامي: ${aiLawyer}`);
+  const refer = () => post('refer', { lawyer_id: String(lawyerId) }, `تمت إحالة الاستشارة إلى المحامي: ${lawyerName}`);
 
   // تحويل قرارات الاستشارة إلى مهام حقيقية (تُستخرج عند إنهاء الجلسة) — لمرة واحدة
   const [tasksDone, setTasksDone] = useState(c.tasksCreated);
@@ -552,10 +472,13 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
     if (tasksDone || c.decisions.length === 0) {
       return;
     }
+
     setBusy(true);
     router.post(`${base}/consults/${c.id}/tasks`, {}, {
       preserveScroll: true,
-      onSuccess: () => { setTasksDone(true); toast(`تم تحويل ${c.decisions.length} قرار إلى مهام`); },
+      onSuccess: () => {
+ setTasksDone(true); toast(`تم تحويل ${c.decisions.length} قرار إلى مهام`); 
+},
       onFinish: () => setBusy(false),
     });
   };
@@ -596,11 +519,13 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
       </div>
 
       {/* stage */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-b" style={{ padding: '16px 18px' }}>
-          <FlowLine steps={CONSULT_FLOW} cur={cStage(c.status)} />
+      {cHasStage(c.status) && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-b" style={{ padding: '16px 18px' }}>
+            <FlowLine steps={CONSULT_FLOW} cur={cStage(c.status)} />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* action bar */}
       {(showEmpActions || showRefer) && (
@@ -622,7 +547,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
           )}
           {showRefer && (
             <button className="btn" onClick={refer} disabled={busy} type="button">
-              <Icon name="scale" /> إحالة للمحامي ({aiLawyer})
+              <Icon name="scale" /> إحالة للمحامي ({lawyerName})
             </button>
           )}
         </div>
@@ -648,8 +573,9 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
               </div>
               <div className="field">
                 <label>المحامي المقترح</label>
-                <select value={aiLawyer} onChange={(e) => setAiLawyer(e.target.value)}>
-                  {LAWYER_OPTS.map((l) => <option key={l}>{l}</option>)}
+                <select value={lawyerId} onChange={(e) => setLawyerId(Number(e.target.value))}>
+                  {lawyers.length === 0 && <option value="">— لا محامون —</option>}
+                  {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}</option>)}
                 </select>
               </div>
               {c.missing.length > 0 && (
@@ -695,8 +621,9 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
               </button>
               <div className="field" style={{ minWidth: 200, margin: 0 }}>
                 <label>المحامي المختص</label>
-                <select value={aiLawyer} onChange={(e) => setAiLawyer(e.target.value)}>
-                  {LAWYER_OPTS.map((l) => <option key={l}>{l}</option>)}
+                <select value={lawyerId} onChange={(e) => setLawyerId(Number(e.target.value))}>
+                  {lawyers.length === 0 && <option value="">— لا محامون —</option>}
+                  {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}</option>)}
                 </select>
               </div>
               <button className="btn sm" onClick={refer} disabled={busy} type="button">

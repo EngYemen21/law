@@ -24,6 +24,8 @@ class CalendarController extends Controller
         $hearings = CaseHearing::whereIn('case_id', $caseIds)->with('legalCase')->latest('id')->get()
             ->map(fn (CaseHearing $h) => [
                 'kind' => 'جلسة',
+                // النوع يحدّد مفردة الحالة، فتختار الواجهة خريطة النغمة الصحيحة لها
+                'kindKey' => 'hearing',
                 'tone' => 'b-blue',
                 'title' => $h->title.' — قضية '.($h->legalCase?->number ?? ''),
                 'day' => $h->day,
@@ -36,6 +38,7 @@ class CalendarController extends Controller
         $meetings = Meeting::where('created_by', $lawyerId)->latest('id')->get()
             ->map(fn (Meeting $m) => [
                 'kind' => 'اجتماع',
+                'kindKey' => 'meeting',
                 'tone' => 'b-cyan',
                 'title' => $m->title,
                 'day' => $m->when_label,

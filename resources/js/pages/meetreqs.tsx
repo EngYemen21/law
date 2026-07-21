@@ -1,12 +1,12 @@
 import { router } from '@inertiajs/react';
 import React from 'react';
-import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
-import { MR_FLOW } from '@/lib/employee-data';
 import { openMeeting } from '@/lib/consult-ui';
-import { type MeetReqCard } from '@/lib/meeting-ui';
+import { MR_FLOW } from '@/lib/employee-data';
+import Icon from '@/lib/icons';
+import type {MeetReqCard} from '@/lib/meeting-ui';
 
 // دعوات الاجتماعات (دور العميل) — يستقبل دعوة المكتب ويؤكّد حضوره فتُنشأ جلسة Zoom
 
@@ -20,7 +20,10 @@ const MeetReqs: React.FC<{ requests: MeetReqCard[] }> = ({ requests }) => {
     });
 
   const copyLink = (r: MeetReqCard) => {
-    if (navigator.clipboard && r.meetLink) void navigator.clipboard.writeText(r.meetLink);
+    if (navigator.clipboard && r.meetLink) {
+void navigator.clipboard.writeText(r.meetLink);
+}
+
     toast('تم نسخ رابط الجلسة');
   };
 
@@ -62,7 +65,13 @@ const MeetReqs: React.FC<{ requests: MeetReqCard[] }> = ({ requests }) => {
                     <Icon name="link" /> نسخ الرابط
                   </button>
                   {r.type.indexOf('مرئية') >= 0 && (
-                    <button className="btn sm" onClick={() => openMeeting(r.meetLink || '')} type="button">
+                    <button
+                      className="btn sm"
+                      onClick={() => (r.meetingRef
+                        ? router.visit(`/meetingroom?ref=${encodeURIComponent(r.meetingRef)}`)
+                        : openMeeting(r.meetLink || ''))}
+                      type="button"
+                    >
                       <Icon name="video" /> انضم لجلسة Zoom
                     </button>
                   )}

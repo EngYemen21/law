@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\LawyerAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -151,9 +152,10 @@ class ClientTicketJourneyTest extends TestCase
         $this->actingAs($employee)->post(route('employee.tickets.advance', $ticket))->assertNoContent();
         $this->assertSame('بانتظار حجز الاستشارة', $ticket->fresh()->status);
 
-        // العميل يحجز الاستشارة → موعد مؤكد
+        // العميل يحجز الاستشارة → موعد مؤكد (بالمعرّف ووقت حقيقي)
         $this->actingAs($client)->post(route('tickets.book', $ticket), [
-            'type' => 'video', 'day' => 'الإثنين 29 يونيو', 'time' => '11:30 ص',
+            'type' => 'video', 'lawyer_id' => $lawyer->id,
+            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '11:30',
         ])->assertNoContent();
         $this->assertSame('موعد مؤكد', $ticket->fresh()->status);
 

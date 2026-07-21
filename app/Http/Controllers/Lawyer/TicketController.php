@@ -11,7 +11,9 @@ use App\Models\Task;
 use App\Models\Ticket;
 use App\Models\UserNotification;
 use App\Support\CaseConversion;
+use App\Support\Live;
 use App\Support\ServiceDocs;
+use App\Support\TicketJourney;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -145,7 +147,7 @@ class TicketController extends Controller
 
         $ticket->update([
             'status' => 'الرأي القانوني',
-            'tone' => 'b-cyan',
+            'tone' => TicketJourney::toneFor('الرأي القانوني'),
             'last_message' => 'اعتمد المستشار ملخص الملف وأصدر الرأي القانوني المبدئي',
             'date_label' => 'الآن',
         ]);
@@ -157,8 +159,8 @@ class TicketController extends Controller
             'body' => $body,
             'time_label' => $this->clock(),
         ]);
-        broadcast(new TicketMessageBroadcast($msg));
-        broadcast(new TicketStatusBroadcast($ticket));
+        Live::push(new TicketMessageBroadcast($msg));
+        Live::push(new TicketStatusBroadcast($ticket));
 
         // إشعار للعميل
         UserNotification::create([
@@ -184,7 +186,7 @@ class TicketController extends Controller
 
         $ticket->update([
             'status' => 'بانتظار اعتماد الإدارة',
-            'tone' => 'b-blue',
+            'tone' => TicketJourney::toneFor('بانتظار اعتماد الإدارة'),
             'last_message' => 'اعتمد المستشار ملخص الجلسة ورفعه للإدارة',
             'date_label' => 'الآن',
         ]);
@@ -196,8 +198,8 @@ class TicketController extends Controller
             'body' => '<p>راجعتُ ملخص الجلسة والتوصيات والإجراءات المقترحة، وهي معتمدة ومرفوعة إلى الإدارة للاعتماد النهائي.</p>',
             'time_label' => $this->clock(),
         ]);
-        broadcast(new TicketMessageBroadcast($msg));
-        broadcast(new TicketStatusBroadcast($ticket));
+        Live::push(new TicketMessageBroadcast($msg));
+        Live::push(new TicketStatusBroadcast($ticket));
 
         return redirect()->route('lawyer.tickets');
     }
@@ -221,14 +223,14 @@ class TicketController extends Controller
         abort_unless($ticket->status === 'مكتملة', 422);
         abort_if($ticket->legalCase()->exists(), 409);
 
-        $ticket->update(['status' => 'مغلقة', 'tone' => 'b-grey', 'last_message' => 'أُغلق الطلب بعد الاستشارة دون تحويله إلى قضية', 'date_label' => 'الآن']);
+        $ticket->update(['status' => 'مغلقة', 'tone' => TicketJourney::toneFor('مغلقة'), 'last_message' => 'أُغلق الطلب بعد الاستشارة دون تحويله إلى قضية', 'date_label' => 'الآن']);
         $msg = $ticket->messages()->create([
             'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'إغلاق',
             'body' => '<p>تم إغلاق الطلب بعد الاستشارة دون تحويله إلى قضية، وحُفظت كامل المخرجات داخل التذكرة.</p>',
             'time_label' => $this->clock(),
         ]);
-        broadcast(new TicketMessageBroadcast($msg));
-        broadcast(new TicketStatusBroadcast($ticket));
+        Live::push(new TicketMessageBroadcast($msg));
+        Live::push(new TicketStatusBroadcast($ticket));
 
         return redirect()->route('lawyer.tickets');
     }
@@ -243,7 +245,7 @@ class TicketController extends Controller
             'body' => '<p>لاستكمال تقييم الطلب قبل اتخاذ القرار، نأمل تزويدنا بالمستندات الإضافية التالية:</p><div class="doc-list">'.$chips.'</div>',
             'time_label' => $this->clock(),
         ]);
-        broadcast(new TicketMessageBroadcast($msg));
+        Live::push(new TicketMessageBroadcast($msg));
         $ticket->update(['last_message' => 'طلب المستشار مستندات إضافية', 'date_label' => 'الآن']);
 
         UserNotification::create([

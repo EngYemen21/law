@@ -6,11 +6,15 @@ use App\Enums\Role;
 use App\Http\Controllers\Controller;
 use App\Models\Ticket;
 use App\Models\User;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
 /**
  * إدارة المحامين (يطابق adLawyers) — من جدول users بدور lawyer + عدد التذاكر المحالة.
+ * يعرض وضع التوزيع لكل محامٍ (تلقائي/يدوي) ويتيح تبديله عبر toggleMode.
  */
 class LawyerController extends Controller
 {
@@ -19,13 +23,34 @@ class LawyerController extends Controller
         $lawyers = User::where('role', Role::Lawyer)
             ->orderBy('id')->get()
             ->map(fn (User $u) => [
+                'id' => $u->id,
                 'name' => $u->name,
                 'depts' => $u->department ? [$u->department] : [],
-                'active' => Ticket::where('assigned_lawyer', $u->name)
+                'active' => Ticket::where('assigned_lawyer_id', $u->id)
                     ->where('status', '!=', 'مكتملة')->count(),
-                'mode' => 'تلقائي',
+                'mode' => $u->distribution_mode === 'manual' ? 'يدوي' : 'تلقائي',
             ]);
 
         return Inertia::render('admin/lawyers', ['lawyers' => $lawyers]);
+    }
+
+    /**
+     * تبديل وضع توزيع المحامي بين تلقائي (يدخل في محرك التوزيع العادل) ويدوي (مستثنى).
+     * مخصّص للمحامين فقط؛ ضمن قفل صف لتجنّب تبديل متزامن.
+     */
+    public function toggleMode(Request $request, User $user): RedirectResponse
+    {
+        abort_unless($user->role === Role::Lawyer, 422, 'تبديل وضع التوزيع مخصّص للمحامين فقط.');
+
+        DB::transaction(function () use ($user): void {
+            $locked = User::lockForUpdate()->find($user->id);
+            $locked->update([
+                'distribution_mode' => $locked->distribution_mode === 'manual' ? 'auto' : 'manual',
+            ]);
+        });
+
+        $newMode = $user->fresh()->distribution_mode === 'manual' ? 'يدوي' : 'تلقائي';
+
+        return back()->with('flash', "تم تبديل وضع التوزيع للمحامي {$user->name} إلى: {$newMode}.");
     }
 }

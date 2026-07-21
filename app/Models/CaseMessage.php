@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Events\CaseMessageBroadcast;
+use App\Support\Live;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -13,7 +15,7 @@ class CaseMessage extends Model
     protected static function booted(): void
     {
         static::created(function (CaseMessage $m) {
-            broadcast(new \App\Events\CaseMessageBroadcast($m));
+            Live::push(new CaseMessageBroadcast($m));
         });
     }
 

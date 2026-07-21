@@ -134,6 +134,7 @@ class MeetingFlowTest extends TestCase
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $meeting = Meeting::create([
             'ref' => 'M-7200', 'title' => 'اجتماع فريق قضية', 'when_label' => 'اليوم · 09:00 ص',
+            'assigned_lawyer_id' => $lawyer->id,
         ]);
 
         $this->actingAs($lawyer)->post(route('lawyer.meetings.summary', $meeting), ['summary' => 'ملخص محفوظ'])->assertRedirect();
@@ -149,10 +150,32 @@ class MeetingFlowTest extends TestCase
         $this->assertNull($card['summary']);
     }
 
+    public function test_lawyer_cannot_access_unassigned_meeting(): void
+    {
+        $lawyerA = User::factory()->create(['role' => Role::Lawyer]);
+        $lawyerB = User::factory()->create(['role' => Role::Lawyer]);
+        $meeting = Meeting::create([
+            'ref' => 'M-7400', 'title' => 'اجتماع سرّي', 'when_label' => 'اليوم', 'status' => 'قادم',
+            'assigned_lawyer_id' => $lawyerA->id, 'decisions' => ['متابعة'],
+        ]);
+
+        // القائمة لا تُظهر اجتماع محامٍ آخر
+        $this->actingAs($lawyerB)->get(route('lawyer.meetings'))
+            ->assertInertia(fn ($p) => $p->has('meetings', 0));
+        // الوصول المباشر والإجراءات ممنوعة (تكشف hostLink/الملخص)
+        $this->actingAs($lawyerB)->get('/lawyer/meeting?id=M-7400')->assertForbidden();
+        $this->actingAs($lawyerB)->post(route('lawyer.meetings.summary', $meeting), ['summary' => 'x'])->assertForbidden();
+        $this->actingAs($lawyerB)->post(route('lawyer.meetings.tasks', $meeting))->assertForbidden();
+
+        // المحامي المسند يصل
+        $this->actingAs($lawyerA)->get('/lawyer/meeting?id=M-7400')->assertOk();
+    }
+
     public function test_admin_creates_meeting_linked_to_client(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $admin = User::factory()->create(['role' => Role::Admin]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
 
         $this->actingAs($admin)->post(route('admin.meetings.store'), [
             'title' => 'اجتماع مراجعة العقد',
@@ -161,6 +184,7 @@ class MeetingFlowTest extends TestCase
             'conf' => 'سري',
             'dur' => '45 دقيقة',
             'client_id' => $client->id,
+            'lawyer_id' => $lawyer->id,
             'day' => '2026-07-08',
             'time' => '10:00',
         ])->assertRedirect();
@@ -170,14 +194,21 @@ class MeetingFlowTest extends TestCase
         $this->assertSame($client->id, $meeting->user_id);
         $this->assertSame('عالية', $meeting->priority);
         $this->assertNotEmpty($meeting->before_items);
+        // المحامي المسؤول وفرعه مختومان → يظهر في قائمته
+        $this->assertSame($lawyer->id, $meeting->assigned_lawyer_id);
+        $this->assertSame('فرع الرياض', $meeting->branch);
         $this->assertSame(1, UserNotification::where('user_id', $client->id)->count());
+
+        // ويظهر في قائمة المحامي المسؤول
+        $this->actingAs($lawyer)->get(route('lawyer.meetings'))
+            ->assertInertia(fn ($p) => $p->has('meetings', 1));
     }
 
     public function test_meeting_pages_render_with_real_data(): void
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $admin = User::factory()->create(['role' => Role::Admin]);
-        Meeting::create(['ref' => 'M-7300', 'title' => 'اجتماع', 'when_label' => 'اليوم', 'status' => 'منتهٍ']);
+        Meeting::create(['ref' => 'M-7300', 'title' => 'اجتماع', 'when_label' => 'اليوم', 'status' => 'منتهٍ', 'assigned_lawyer_id' => $lawyer->id]);
 
         $this->actingAs($lawyer)->get(route('lawyer.meetings'))
             ->assertInertia(fn ($p) => $p->component('lawyer/meetings')->has('meetings', 1));

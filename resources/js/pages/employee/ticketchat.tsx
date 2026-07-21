@@ -6,20 +6,60 @@ import Badge from '@/components/babylon/Badge';
 import FlowLine from '@/components/babylon/FlowLine';
 import MsgMeta from '@/components/babylon/MsgMeta';
 import { echo } from '@/lib/echo';
-import { TICKET_STATES, STATE_TONES } from '@/lib/employee-data';
 import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
 
 // محادثة التذكرة (لوحة الموظف) — مزامنة لحظية مع العميل (Reverb) بلا إعادة تحميل
 
 interface EmpTicket { no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string; }
+// مفردات الحالة تصل من TicketJourney على الخادم — لا تُكتب يدوياً هنا
+interface StateOption { status: string; tone: string; }
+
+/** استخراج doc_id من body الملاحظة الداخلية (إن وُجد) */
+function extractApproveDocId(html: string): { docId: string; ticketNo: string } | null {
+  try {
+    const m = html.match(/data-approve-doc-id="(\d+)"[^>]*data-ticket-no="([^"]+)"/);
+    if (m) return { docId: m[1], ticketNo: m[2] };
+  } catch { /* ignore */ }
+  return null;
+}
 
 const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
   if (m.who === 'note') {
+    const pending = extractApproveDocId(m.text);
+    const [approved, setApproved] = useState(false);
+    const [busy, setBusy] = useState(false);
+
+    const handleApprove = () => {
+      if (!pending || busy || approved) return;
+      setBusy(true);
+      axios
+        .post(`/employee/tickets/${encodeURIComponent(pending.ticketNo)}/documents/${pending.docId}/approve-summary`)
+        .then(() => setApproved(true))
+        .catch(() => setBusy(false));
+    };
+
     return (
       <div className="msg" style={{ justifyContent: 'center' }}>
         <div style={{ background: '#FBF1E0', border: '1px solid #F0DDB0', color: '#8a6d2f', borderRadius: 11, padding: '9px 13px', fontSize: 12.5, maxWidth: '85%' }}>
           <b>🔒 ملاحظة داخلية — {m.name}</b>
           <div style={{ marginTop: 4 }} dangerouslySetInnerHTML={{ __html: m.text }} />
+          {pending && (
+            <div style={{ marginTop: 8 }}>
+              {approved ? (
+                <span style={{ color: '#2e7d32', fontWeight: 700, fontSize: 12 }}>✅ تم الإرسال للعميل</span>
+              ) : (
+                <button
+                  type="button"
+                  className="btn sm"
+                  style={{ opacity: busy ? 0.6 : 1 }}
+                  disabled={busy}
+                  onClick={handleApprove}
+                >
+                  <Icon name="check" /> {busy ? 'جارٍ الإرسال…' : 'اعتماد وإرسال للعميل'}
+                </button>
+              )}
+            </div>
+          )}
           <time style={{ display: 'block', marginTop: 4, color: '#b08d4a', fontSize: 11 }}>{m.time}</time>
         </div>
       </div>
@@ -43,7 +83,7 @@ const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
   );
 };
 
-const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; messages: Message[] }> = ({ ticket, channel, messages }) => {
+const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; messages: Message[]; states: StateOption[] }> = ({ ticket, channel, messages, states }) => {
   const [msgs, setMsgs] = useState<Message[]>(messages);
   const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone });
   const [reply, setReply] = useState('');
@@ -82,7 +122,8 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
     setNote('');
   };
   const changeStatus = (s: string) => {
-    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/status`, { status: s, tone: STATE_TONES[s] ?? 'b-blue' });
+    // النغمة يشتقّها الخادم من TicketJourney — لا تُرسل من هنا كي لا تُلوَّن الحالة نفسها لونين
+    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/status`, { status: s });
   };
   const advance = () => {
     axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/advance`);
@@ -90,14 +131,22 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
   const cur = tktStage(status.status);
   const isLast = cur >= TKT_LIFE.length - 1;
   // مراحل بيد المحامي/الإدارة/العميل — لا يتقدّم الموظف فيها
+  // يطابق TicketJourney::AWAITING_OTHERS على الخادم
   const WAITING: Record<string, string> = {
     'بانتظار اعتماد المستشار': 'بانتظار اعتماد المستشار',
     'بانتظار حجز الاستشارة': 'بانتظار حجز العميل',
-    'بانتظار حجز استشارة': 'بانتظار حجز العميل',
+    'بانتظار الدفع': 'بانتظار سداد العميل',
     'بانتظار اعتماد النتيجة': 'بانتظار اعتماد المستشار',
     'بانتظار اعتماد الإدارة': 'بانتظار اعتماد الإدارة',
   };
   const waiting = WAITING[status.status];
+  // يطابق TicketJourney::SESSION_READY — الإجراء هنا عقد الجلسة، لا القفز إلى «النتيجة».
+  // كان الزرّ يعِد بالمرحلة التالية بينما الخادم يوثّق المحضر ويرفعه لاعتماد المستشار.
+  const SESSION_ACTION: Record<string, string> = {
+    'موعد مؤكد': 'عقد الجلسة وتوثيق المحضر',
+    'قيد التنفيذ': 'عقد الجلسة وتوثيق المحضر',
+  };
+  const sessionAction = SESSION_ACTION[status.status];
 
   return (
     <div className="tflow">
@@ -109,11 +158,12 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-h">
           <h3>مسار المعالجة</h3>
-          {isLast
-            ? <Badge text="مكتملة" tone="b-green" />
-            : waiting
-              ? <Badge text={waiting} tone="b-amber" />
-              : <button className="btn sm" type="button" onClick={advance}><Icon name="check" /> تنفيذ المرحلة التالية: {TKT_LIFE[cur + 1]}</button>}
+          {/* الانتظار يُفحص أولاً: «بانتظار اعتماد الإدارة» فهرسها 6 فكانت تُعرض «مكتملة» خضراء خطأً */}
+          {waiting
+            ? <Badge text={waiting} tone="b-amber" />
+            : isLast
+              ? <Badge text="مكتملة" tone="b-green" />
+              : <button className="btn sm" type="button" onClick={advance}><Icon name="check" /> {sessionAction ?? `تنفيذ المرحلة التالية: ${TKT_LIFE[cur + 1]}`}</button>}
         </div>
         <div className="card-b" style={{ padding: '16px 18px' }}>
           <FlowLine steps={TKT_LIFE} cur={cur} />
@@ -166,8 +216,17 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
           <div className="card">
             <div className="card-h"><h3>تغيير الحالة</h3></div>
             <div className="card-b" style={{ padding: 14 }}>
+              {/* القائمة للتصحيح فقط: نفس المرحلة أو التراجع. كل مرحلة للأمام معطّلة ورمادية —
+                  التقدّم حصراً بزرّ «تنفيذ المرحلة التالية». يطابق TicketJourney::canTransition */}
               <select value={status.status} onChange={(e) => changeStatus(e.target.value)}>
-                {TICKET_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+                {states.map((o) => {
+                  const locked = tktStage(o.status) > cur; // مرحلة للأمام — لا تُتاح إلا بزرّ التقدّم
+                  return (
+                    <option key={o.status} value={o.status} disabled={locked}>
+                      {o.status}{locked ? ' 🔒' : ''}
+                    </option>
+                  );
+                })}
               </select>
             </div>
           </div>

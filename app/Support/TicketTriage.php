@@ -18,9 +18,6 @@ class TicketTriage
 {
     public const AGENT = 'الوكيل الذكي';
 
-    /** كلمات تستدعي تصعيداً بشرياً فورياً (كشف حتمي لا يعتمد على توفر الذكاء الاصطناعي). */
-    private const ESCALATION_WORDS = ['عاجل', 'مستعجل', 'استعجال', 'شكوى', 'أشتكي', 'اشتكي', 'تأخر', 'تأخير', 'متأخر', 'سيئ', 'سيء'];
-
     public static function enabled(): bool
     {
         return (bool) config('services.ai_agent.enabled');
@@ -47,7 +44,7 @@ class TicketTriage
         $greeting = app(LegalAiService::class)->greet($ticket, $details, $docs);
         $chips = implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', $docs));
 
-        $ticket->update(['status' => 'بانتظار مستندات', 'tone' => 'b-amber', 'last_message' => 'بانتظار إرفاق المستندات المطلوبة', 'date_label' => 'الآن']);
+        $ticket->update(['status' => 'بانتظار مستندات', 'tone' => TicketJourney::toneFor('بانتظار مستندات'), 'last_message' => 'بانتظار إرفاق المستندات المطلوبة', 'date_label' => 'الآن']);
         $msg = $ticket->messages()->create([
             'who' => 'ai',
             'name' => LegalAiService::AGENT_NAME,
@@ -55,10 +52,10 @@ class TicketTriage
             'body' => '<p>'.nl2br(e($greeting)).'</p><div class="doc-list">'.$chips.'</div>',
             'time_label' => self::clock(),
         ]);
-        broadcast(new TicketMessageBroadcast($msg));
+        Live::push(new TicketMessageBroadcast($msg));
 
-        self::audit($ticket, 'فرز آلي عند الفتح: القسم «'.($ticket->department ?: 'غير محدد').'» · الأولوية «'.$triage['priority'].'» · طُلبت المستندات في رسالة ترحيب واحدة.');
-        broadcast(new TicketStatusBroadcast($ticket));
+        self::audit($ticket, sprintf(TicketTexts::AUDIT_AUTO_TRIAGE, $ticket->department ?: 'غير محدد', $triage['priority']));
+        Live::push(new TicketStatusBroadcast($ticket));
     }
 
     /**
@@ -68,7 +65,45 @@ class TicketTriage
      */
     public static function onDocumentAttached(Ticket $ticket, ?TicketDocument $doc = null): void
     {
-        if (! self::enabled() || $ticket->status !== 'بانتظار مستندات') {
+        if (! self::enabled()) {
+            return;
+        }
+
+        if ($ticket->status !== 'بانتظار مستندات') {
+            $analysis = $doc ? app(LegalAiService::class)->analyzeDocument($ticket, $doc) : null;
+            if ($analysis === null) {
+                $doc?->update(['status' => 'بحاجة لمراجعة يدوية']);
+                self::audit($ticket, 'تنبيه: تم إرفاق مستند جديد «'.($doc->name ?? '—').'» وتعذر فحصه آلياً — يحتاج مراجعة يدوية.');
+
+                return;
+            }
+
+            $doc->update([
+                'status' => $analysis['related'] ? 'مرتبط' : 'غير مرتبط',
+                'doc_type' => $analysis['doc_type'],
+                'summary' => $analysis['summary'],
+                'reason' => $analysis['reason'],
+                'summary_approved' => null, // بانتظار اعتماد الموظف
+            ]);
+
+            // ملاحظة داخلية للموظف مع زر الاعتماد — لا ترى العميل قبل الاعتماد
+            $pendingBody = '<div data-approve-doc-id="'.e($doc->id).'" data-ticket-no="'.e($ticket->number).'"'
+                .' style="display:contents">'
+                .'<p>🔍 اكتمل تحليل المستند الإضافي «'.e($doc->name).'» — بانتظار اعتمادك لإرسال الملخص للعميل.</p>'
+                .'<div class="doc-list" style="flex-direction:column;align-items:stretch">'
+                .'<span class="doc-chip">📄 النوع: '.e($analysis['doc_type']).'</span>'
+                .($analysis['summary'] !== '' ? '<span class="doc-chip">📝 '.e($analysis['summary']).'</span>' : '')
+                .'</div></div>';
+
+            $msg = $ticket->messages()->create([
+                'who' => 'note',
+                'name' => LegalAiService::AGENT_NAME,
+                'role' => 'ملخص بانتظار الاعتماد',
+                'body' => $pendingBody,
+                'time_label' => self::clock(),
+            ]);
+            Live::push(new TicketMessageBroadcast($msg));
+
             return;
         }
 
@@ -77,7 +112,7 @@ class TicketTriage
         // تعذّر الفحص (لا مزوّد/نوع غير مدعوم/ملف كبير) — يبقى القرار للموظف
         if ($analysis === null) {
             $doc?->update(['status' => 'بحاجة لمراجعة يدوية']);
-            self::requestHuman($ticket, 'تعذّر الفحص الآلي للمستند «'.($doc->name ?? '—').'» — لن تتم الإحالة آلياً؛ يراجعه الموظف ويُحيل يدوياً.');
+            self::requestHuman($ticket, sprintf(TicketTexts::AUDIT_FAILED_ANALYSIS, $doc->name ?? '—'));
 
             return;
         }
@@ -89,37 +124,48 @@ class TicketTriage
             $chips = implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', ServiceDocs::for($ticket->type)));
             $msg = $ticket->messages()->create([
                 'who' => 'ai',
-                'name' => 'الفريق القانوني',
+                'name' => LegalAiService::AGENT_NAME,
                 'role' => 'نواقص',
                 'body' => '<p>فحصنا المستند «'.e($doc->name).'» وتبيّن أنه <b>غير مرتبط بموضوع تذكرتك</b>'
                     .($analysis['reason'] !== '' ? ' — '.e($analysis['reason']) : '.')
                     .'</p><p>نأمل إرفاق المستندات الصحيحة التالية:</p><div class="doc-list">'.$chips.'</div>',
                 'time_label' => self::clock(),
             ]);
-            broadcast(new TicketMessageBroadcast($msg));
+            Live::push(new TicketMessageBroadcast($msg));
             self::audit($ticket, 'رُفض المستند «'.$doc->name.'» (النوع المكتشف: '.$analysis['doc_type'].') لعدم ارتباطه بالموضوع — طُلب من العميل المستند الصحيح.');
 
             return;
         }
 
-        // مستند مفهوم ومرتبط — تأكيد للعميل ثم الإحالة الآلية
-        $doc->update(['status' => 'مرتبط', 'doc_type' => $analysis['doc_type'], 'summary' => $analysis['summary'], 'reason' => $analysis['reason']]);
+        // مستند مفهوم ومرتبط — الملخص يُعرض أولاً للموظف للاعتماد، ثم الإحالة الآلية
+        $doc->update([
+            'status' => 'مرتبط',
+            'doc_type' => $analysis['doc_type'],
+            'summary' => $analysis['summary'],
+            'reason' => $analysis['reason'],
+            'summary_approved' => null, // بانتظار اعتماد الموظف
+        ]);
+
+        // ملاحظة داخلية للموظف مع زر الاعتماد — لا ترى العميل قبل الاعتماد
+        $pendingBody = '<div data-approve-doc-id="'.e($doc->id).'" data-ticket-no="'.e($ticket->number).'"'
+            .' style="display:contents">'
+            .'<p>🔍 اكتمل تحليل المستند «'.e($doc->name).'» — بانتظار اعتمادك لإرسال الملخص للعميل.</p>'
+            .'<div class="doc-list" style="flex-direction:column;align-items:stretch">'
+            .'<span class="doc-chip">📄 النوع: '.e($analysis['doc_type']).'</span>'
+            .($analysis['summary'] !== '' ? '<span class="doc-chip">📝 '.e($analysis['summary']).'</span>' : '')
+            .'</div></div>';
 
         $msg = $ticket->messages()->create([
-            'who' => 'ai',
-            'name' => 'الفريق القانوني',
-            'role' => 'فحص المستند',
-            'body' => '<p>تم فحص المستند «'.e($doc->name).'» والتحقق من ارتباطه بالموضوع.</p>'
-                .'<div class="doc-list" style="flex-direction:column;align-items:stretch">'
-                .'<span class="doc-chip">📄 النوع: '.e($analysis['doc_type']).'</span>'
-                .($analysis['summary'] !== '' ? '<span class="doc-chip">📝 '.e($analysis['summary']).'</span>' : '')
-                .'</div>',
+            'who' => 'note',
+            'name' => LegalAiService::AGENT_NAME,
+            'role' => 'ملخص بانتظار الاعتماد',
+            'body' => $pendingBody,
             'time_label' => self::clock(),
         ]);
-        broadcast(new TicketMessageBroadcast($msg));
+        Live::push(new TicketMessageBroadcast($msg));
 
         self::referToLawyer($ticket);
-        self::audit($ticket, 'فُحص المستند «'.$doc->name.'» ('.$analysis['doc_type'].') وثبت ارتباطه — إحالة آلية للقسم القانوني بانتظار اعتماد المستشار.');
+        self::audit($ticket, 'فُحص المستند «'.$doc->name.'» ('.$analysis['doc_type'].') وثبت ارتباطه — الملخص بانتظار اعتماد الموظف قبل إرساله للعميل.');
     }
 
     /** عند رسالة عميل: كشف نية شكوى/استعجال → ملاحظة تصعيد داخلية للموظفين. */
@@ -129,7 +175,7 @@ class TicketTriage
             return;
         }
 
-        foreach (self::ESCALATION_WORDS as $word) {
+        foreach (TicketTexts::ESCALATION_WORDS as $word) {
             if (mb_stripos($message, $word) !== false) {
                 self::requestHuman($ticket, "رسالة العميل تتضمن ما يشير إلى شكوى/استعجال («{$word}») — متابعة بشرية عاجلة.");
 
@@ -144,11 +190,14 @@ class TicketTriage
      */
     public static function referToLawyer(Ticket $ticket): void
     {
-        // المحامي المختص مُسنَد مسبقاً عند فتح التذكرة (الإسناد الأول)؛ وإن تعذّر، أسنِد الآن.
+        if (! $ticket->relationLoaded('assignedLawyer') && $ticket->assigned_lawyer_id) {
+            $ticket->load('assignedLawyer');
+        }
         $lawyer = $ticket->assignedLawyer ?? TicketAssignment::assign($ticket);
 
-        // تجهيز ملخص الملف الرباعي (الذكاء الاصطناعي مع احتياط قالبي)
-        $parts = app(LegalAiService::class)->summarize($ticket);
+        // مؤقتاً: تعليق نداء الذكاء الاصطناعي في الإحالة — تقدّم فوري بيد الموظف،
+        // والمحامي يراجع الملخّص القالبي الحتمي ويعتمده. (يُعاد `summarize()` لإعادة التفعيل.)
+        $parts = app(LegalAiService::class)->fallbackSummary($ticket);
         $ticket->summary()->updateOrCreate([], [
             'lawyer_id' => $lawyer?->id,
             'case_summary' => $parts['case_summary'],
@@ -164,7 +213,7 @@ class TicketTriage
             'assigned_lawyer' => $lawyer?->name ?: $ticket->assigned_lawyer,
             'assigned_lawyer_id' => $lawyer?->id ?: $ticket->assigned_lawyer_id,
             'status' => 'بانتظار اعتماد المستشار',
-            'tone' => 'b-amber',
+            'tone' => TicketJourney::toneFor('بانتظار اعتماد المستشار'),
             'last_message' => 'تمت الإحالة، وجارٍ اعتماد ملخص الملف من المستشار',
             'date_label' => 'الآن',
         ]);
@@ -176,8 +225,8 @@ class TicketTriage
             'body' => "تمت إحالة طلبكم إلى {$dept} لدراسة الموضوع، وجهّز الفريق القانوني ملخص الملف، وهو الآن بانتظار اعتماد المستشار القانوني.",
             'time_label' => self::clock(),
         ]);
-        broadcast(new TicketMessageBroadcast($msg));
-        broadcast(new TicketStatusBroadcast($ticket));
+        Live::push(new TicketMessageBroadcast($msg));
+        Live::push(new TicketStatusBroadcast($ticket));
     }
 
     /**
@@ -186,13 +235,13 @@ class TicketTriage
      */
     public static function requestHuman(Ticket $ticket, string $reason): void
     {
-        self::audit($ticket, 'حاجة لتدخّل بشري — '.$reason);
+        self::audit($ticket, sprintf(TicketTexts::AUDIT_HUMAN_REQUIRED, $reason));
 
         UserNotification::create([
             'user_id' => $ticket->user_id,
             'icon' => 'user',
             'tone' => 't-amber',
-            'body' => "طلبك ({$ticket->number}) يحتاج متابعة من أحد موظفينا، وسيتولّاه المختص قريباً.",
+            'body' => sprintf(TicketTexts::NOTIFICATION_HUMAN_REQUIRED, $ticket->number),
             'time_label' => 'الآن',
             'is_read' => false,
         ]);
@@ -208,7 +257,7 @@ class TicketTriage
             'body' => '<p>'.e($text).'</p>',
             'time_label' => self::clock(),
         ]);
-        broadcast(new TicketMessageBroadcast($msg));
+        Live::push(new TicketMessageBroadcast($msg));
     }
 
     private static function clock(): string

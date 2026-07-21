@@ -28,6 +28,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'permission' => EnsurePermission::class,
             'active' => EnsureActive::class,
         ]);
+
+        // Zoom webhook لا يرسل رمز CSRF؛ محميّ بتوقيع HMAC في المتحكّم
+        $middleware->validateCsrfTokens(except: ['webhooks/zoom']);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

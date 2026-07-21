@@ -1,9 +1,8 @@
 import { router } from '@inertiajs/react';
 import React from 'react';
-import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
-import { openMeeting } from '@/lib/consult-ui';
-import { type FullMeetingCard } from '@/lib/meeting-ui';
+import Icon from '@/lib/icons';
+import type {FullMeetingCard} from '@/lib/meeting-ui';
 
 // يطابق lwMeetings في index (82).html — الاجتماعات حقيقية من الخادم
 
@@ -49,8 +48,8 @@ const LawyerMeetings: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings })
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-              <button className="btn sm" onClick={() => openMeeting(m.hostLink || m.meetLink)} type="button">
-                <Icon name="link" /> دخول اجتماع Zoom
+              <button className="btn sm" onClick={() => router.visit(`/lawyer/meetingroom?ref=${encodeURIComponent(m.id)}`)} type="button">
+                <Icon name="video" /> دخول اجتماع Zoom
               </button>
               <button className="btn soft sm" onClick={() => openPage(m.id)} type="button">
                 <Icon name="doc" /> فتح الصفحة

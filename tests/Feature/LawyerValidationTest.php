@@ -1,0 +1,317 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Enums\Role;
+use App\Models\Consult;
+use App\Models\Ticket;
+use App\Models\User;
+use App\Support\LawyerAvailability;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+/**
+ * Rule موحَّد (LawyerInBranch) يحمي كل مسارات اختيار المحامي من تمرير
+ * عميل/موظف/إداري أو محامٍ موقوف أو محامٍ خارج الفرع المسموح.
+ *
+ * يغطّي أربعة مسارات: tickets.book، book.store، employee.schedule.store، employee.transfer.do.
+ */
+class LawyerValidationTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private const BRANCH = 'فرع الرياض';
+
+    private const OTHER_BRANCH = 'فرع جدة';
+
+    private function activeLawyerInBranch(): User
+    {
+        return User::factory()->create([
+            'role' => Role::Lawyer, 'status' => 'active',
+            'branch' => self::BRANCH, 'department' => 'القضايا التجارية',
+        ]);
+    }
+
+    private function ticketReadyToBook(User $client): Ticket
+    {
+        return Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-'.uniqid(),
+            'type' => 'نزاع تجاري', 'department' => 'القضايا التجارية',
+            'status' => 'بانتظار حجز الاستشارة', 'tone' => 'b-amber',
+        ]);
+    }
+
+    // ── tickets.book (العميل من داخل التذكرة) ──
+
+    public function test_book_accepts_active_lawyer(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
+        $ticket = $this->ticketReadyToBook($client);
+
+        $this->actingAs($client)->post(route('tickets.book', $ticket), [
+            'type' => 'video', 'lawyer_id' => $lawyer->id,
+            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '11:00',
+        ])->assertNoContent();
+    }
+
+    public function test_book_rejects_client_id_as_lawyer(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $anotherClient = User::factory()->create(['role' => Role::Client]);
+        $ticket = $this->ticketReadyToBook($client);
+
+        $this->actingAs($client)->post(route('tickets.book', $ticket), [
+            'type' => 'video', 'lawyer_id' => $anotherClient->id,
+            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '11:00',
+        ])->assertSessionHasErrors('lawyer_id');
+    }
+
+    public function test_book_rejects_employee_id_as_lawyer(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $ticket = $this->ticketReadyToBook($client);
+
+        $this->actingAs($client)->post(route('tickets.book', $ticket), [
+            'type' => 'video', 'lawyer_id' => $employee->id,
+            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '11:00',
+        ])->assertSessionHasErrors('lawyer_id');
+    }
+
+    public function test_book_rejects_suspended_lawyer(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $suspended = User::factory()->create(['role' => Role::Lawyer, 'status' => 'suspended']);
+        $ticket = $this->ticketReadyToBook($client);
+
+        $this->actingAs($client)->post(route('tickets.book', $ticket), [
+            'type' => 'video', 'lawyer_id' => $suspended->id,
+            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '11:00',
+        ])->assertSessionHasErrors('lawyer_id');
+    }
+
+    // ── book.store (العميل حجز مباشر) ──
+
+    public function test_direct_booking_rejects_non_lawyer(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
+
+        $this->actingAs($client)->post(route('book.store'), [
+            'type' => 'phone', 'lawyer_id' => $admin->id,
+            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '11:00',
+        ])->assertSessionHasErrors('lawyer_id');
+    }
+
+    public function test_direct_booking_rejects_suspended_lawyer(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $suspended = User::factory()->create(['role' => Role::Lawyer, 'status' => 'suspended']);
+
+        $this->actingAs($client)->post(route('book.store'), [
+            'type' => 'phone', 'lawyer_id' => $suspended->id,
+            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '11:00',
+        ])->assertSessionHasErrors('lawyer_id');
+    }
+
+    // ── employee.schedule.store (الموظف نيابةً عن عميل — محامي الفرع فقط) ──
+
+    public function test_employee_schedule_rejects_lawyer_from_other_branch(): void
+    {
+        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $foreignLawyer = User::factory()->create([
+            'role' => Role::Lawyer, 'status' => 'active', 'branch' => self::OTHER_BRANCH,
+        ]);
+
+        $this->actingAs($employee)->post(route('employee.schedule.store'), [
+            'client_id' => $client->id, 'type' => 'office',
+            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '13:00',
+            'lawyer_id' => $foreignLawyer->id,
+        ])->assertSessionHasErrors('lawyer_id');
+    }
+
+    public function test_employee_schedule_rejects_non_lawyer_as_lawyer(): void
+    {
+        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $anotherEmployee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
+
+        $this->actingAs($employee)->post(route('employee.schedule.store'), [
+            'client_id' => $client->id, 'type' => 'office',
+            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '13:00',
+            'lawyer_id' => $anotherEmployee->id,
+        ])->assertSessionHasErrors('lawyer_id');
+    }
+
+    public function test_employee_schedule_accepts_lawyer_in_branch(): void
+    {
+        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer = $this->activeLawyerInBranch();
+
+        $this->actingAs($employee)->post(route('employee.schedule.store'), [
+            'client_id' => $client->id, 'type' => 'office',
+            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '13:00',
+            'lawyer_id' => $lawyer->id,
+        ])->assertRedirect();
+    }
+
+    // ── employee.transfer.do (تحويل تذكرة — محامي الوجهة ضمن فرع الموظف) ──
+
+    public function test_transfer_rejects_lawyer_from_other_branch(): void
+    {
+        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $foreignLawyer = User::factory()->create([
+            'role' => Role::Lawyer, 'status' => 'active', 'branch' => self::OTHER_BRANCH,
+        ]);
+        $ticket = Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-T-'.uniqid(),
+            'type' => 'تجاري', 'branch' => self::BRANCH, 'status' => 'قيد المعالجة',
+        ]);
+
+        $this->actingAs($employee)->post(route('employee.transfer.do', $ticket), [
+            'lawyer_id' => $foreignLawyer->id,
+        ])->assertSessionHasErrors('lawyer_id');
+    }
+
+    public function test_transfer_rejects_suspended_lawyer(): void
+    {
+        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $suspended = User::factory()->create([
+            'role' => Role::Lawyer, 'status' => 'suspended', 'branch' => self::BRANCH,
+        ]);
+        $ticket = Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-T-'.uniqid(),
+            'type' => 'تجاري', 'branch' => self::BRANCH, 'status' => 'قيد المعالجة',
+        ]);
+
+        $this->actingAs($employee)->post(route('employee.transfer.do', $ticket), [
+            'lawyer_id' => $suspended->id,
+        ])->assertSessionHasErrors('lawyer_id');
+    }
+
+    public function test_transfer_rejects_client_as_lawyer(): void
+    {
+        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $anotherClient = User::factory()->create(['role' => Role::Client]);
+        $ticket = Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-T-'.uniqid(),
+            'type' => 'تجاري', 'branch' => self::BRANCH, 'status' => 'قيد المعالجة',
+        ]);
+
+        $this->actingAs($employee)->post(route('employee.transfer.do', $ticket), [
+            'lawyer_id' => $anotherClient->id,
+        ])->assertSessionHasErrors('lawyer_id');
+    }
+
+    public function test_transfer_accepts_lawyer_in_branch(): void
+    {
+        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer = $this->activeLawyerInBranch();
+        $ticket = Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-T-'.uniqid(),
+            'type' => 'تجاري', 'branch' => self::BRANCH, 'status' => 'قيد المعالجة',
+        ]);
+
+        $this->actingAs($employee)->post(route('employee.transfer.do', $ticket), [
+            'lawyer_id' => $lawyer->id,
+        ])->assertRedirect();
+    }
+
+    // ── admin.distribute.assign (الإدارة — محامٍ نشط فقط) ──
+
+    public function test_admin_distribute_rejects_suspended_lawyer(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $suspended = User::factory()->create(['role' => Role::Lawyer, 'status' => 'suspended']);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $ticket = Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-'.uniqid(),
+            'type' => 'تجاري', 'status' => 'قيد المعالجة',
+        ]);
+
+        $this->actingAs($admin)->post(route('admin.distribute.assign', $ticket), [
+            'lawyer_id' => $suspended->id,
+        ])->assertSessionHasErrors('lawyer_id');
+    }
+
+    public function test_admin_distribute_rejects_non_lawyer(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $ticket = Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-'.uniqid(),
+            'type' => 'تجاري', 'status' => 'قيد المعالجة',
+        ]);
+
+        $this->actingAs($admin)->post(route('admin.distribute.assign', $ticket), [
+            'lawyer_id' => $client->id,
+        ])->assertSessionHasErrors('lawyer_id');
+    }
+
+    // ── admin.consults.refer (إحالة استشارة — محامٍ نشط فقط) ──
+    // آخر route مسجَّل باسم consults.refer هو ضمن group الأدمن، فيكون اسمه الكامل admin.consults.refer.
+
+    public function test_consult_refer_rejects_suspended_lawyer(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $suspended = User::factory()->create(['role' => Role::Lawyer, 'status' => 'suspended']);
+        $consult = Consult::create([
+            'user_id' => $client->id, 'ref' => 'CN-'.uniqid(), 'subject' => 'نزاع',
+            'channel' => 'هاتفية', 'lawyer' => 'محامٍ افتراضي',
+            'day' => 'الأحد', 'time' => '10ص', 'when_label' => 'الأحد · 10ص',
+            'status' => 'جاهزة للمحامي',
+        ]);
+
+        $this->actingAs($admin)->post(route('admin.consults.refer', $consult), [
+            'lawyer_id' => $suspended->id,
+        ])->assertSessionHasErrors('lawyer_id');
+    }
+
+    public function test_consult_refer_rejects_non_lawyer(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $consult = Consult::create([
+            'user_id' => $client->id, 'ref' => 'CN-'.uniqid(), 'subject' => 'نزاع',
+            'channel' => 'هاتفية', 'lawyer' => 'محامٍ افتراضي',
+            'day' => 'الأحد', 'time' => '10ص', 'when_label' => 'الأحد · 10ص',
+            'status' => 'جاهزة للمحامي',
+        ]);
+
+        $this->actingAs($admin)->post(route('admin.consults.refer', $consult), [
+            'lawyer_id' => $client->id,
+        ])->assertSessionHasErrors('lawyer_id');
+    }
+
+    // ── admin.meetings.store (جدولة اجتماع — محامٍ نشط فقط) ──
+
+    public function test_meeting_store_rejects_suspended_lawyer(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $suspended = User::factory()->create(['role' => Role::Lawyer, 'status' => 'suspended']);
+
+        $this->actingAs($admin)->post(route('admin.meetings.store'), [
+            'title' => 'اجتماع اختبار', 'type' => 'تخطيط',
+            'lawyer_id' => $suspended->id,
+        ])->assertSessionHasErrors('lawyer_id');
+    }
+
+    public function test_meeting_store_rejects_non_lawyer(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $client = User::factory()->create(['role' => Role::Client]);
+
+        $this->actingAs($admin)->post(route('admin.meetings.store'), [
+            'title' => 'اجتماع اختبار', 'type' => 'تخطيط',
+            'lawyer_id' => $client->id,
+        ])->assertSessionHasErrors('lawyer_id');
+    }
+}

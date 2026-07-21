@@ -80,10 +80,10 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, con
                 <form onSubmit={addHearing}>
                   <div className="picker-grid">
                     <div className="field"><label>عنوان الجلسة</label><input className="input" value={h.title} onChange={(e) => setH({ ...h, title: e.target.value })} placeholder="الجلسة الأولى" /></div>
-                    <div className="field"><label>اليوم</label><input className="input" value={h.day} onChange={(e) => setH({ ...h, day: e.target.value })} placeholder="الخميس 02 يوليو" /></div>
+                    <div className="field"><label>التاريخ</label><input className="input" type="date" value={h.day} onChange={(e) => setH({ ...h, day: e.target.value })} /></div>
                   </div>
                   <div className="picker-grid">
-                    <div className="field"><label>الوقت</label><input className="input" value={h.time} onChange={(e) => setH({ ...h, time: e.target.value })} placeholder="10:00 ص" /></div>
+                    <div className="field"><label>الوقت</label><input className="input" type="time" value={h.time} onChange={(e) => setH({ ...h, time: e.target.value })} /></div>
                     <div className="field"><label>الدائرة</label><input className="input" value={h.court} onChange={(e) => setH({ ...h, court: e.target.value })} placeholder="الدائرة التجارية الأولى" /></div>
                   </div>
                   <button className="btn" type="submit"><Icon name="cal" /> جدولة الجلسة</button>

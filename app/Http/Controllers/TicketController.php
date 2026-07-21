@@ -4,15 +4,24 @@ namespace App\Http\Controllers;
 
 use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
+use App\Jobs\GenerateTicketReplyJob;
+use App\Jobs\TriageDocumentJob;
+use App\Jobs\TriageTicketOnOpenJob;
 use App\Models\Ticket;
+use App\Rules\LawyerInBranch;
 use App\Services\LegalAiService;
-use App\Support\AfterResponse;
+use App\Support\AppointmentCard;
 use App\Support\ConsultBooking;
+use App\Support\LawyerAvailability;
+use App\Support\Live;
 use App\Support\TicketAssignment;
+use App\Support\TicketJourney;
 use App\Support\TicketTriage;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
+use Illuminate\Support\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -41,14 +50,17 @@ class TicketController extends Controller
         ]);
 
         $details = trim($data['details'] ?? '') ?: ('طلب جديد بخصوص: '.$data['type']);
-        $number = 'SB-'.now()->year.'-'.random_int(1000, 9999);
+        $year = now()->year;
+        do {
+            $number = "SB-{$year}-".random_int(1000, 9999);
+        } while (Ticket::where('number', $number)->exists());
 
         $ticket = $request->user()->tickets()->create([
             'number' => $number,
             'type' => $data['type'],
             'department' => $data['department'] ?? null,
             'status' => 'قيد الدراسة',
-            'tone' => 'b-blue',
+            'tone' => TicketJourney::toneFor('قيد الدراسة'),
             'last_message' => $details,
             'date_label' => 'الآن',
         ]);
@@ -59,24 +71,10 @@ class TicketController extends Controller
 
         // الرسالة الأولى من العميل
         $m1 = $ticket->messages()->create(['who' => 'client', 'name' => 'أنت', 'role' => 'العميل', 'body' => nl2br(e($details)), 'time_label' => $this->clock()]);
-        broadcast(new TicketMessageBroadcast($m1));
+        Live::push(new TicketMessageBroadcast($m1));
 
-        // ترحيب واحد بعد إرسال الاستجابة (يصل بالبث اللحظي) — بلا فيضان رسائل
         $type = $data['type'];
-        AfterResponse::defer(function () use ($ticket, $details, $type) {
-            if (TicketTriage::enabled()) {
-                // الوكيل التشغيلي: تصنيف صامت + رسالة ترحيب إنسانية واحدة تطلب المستندات
-                TicketTriage::onOpened($ticket, $details);
-
-                return;
-            }
-
-            // الوكيل معطّل: ردّ ترحيبي واحد من خدمة العملاء
-            $opening = app(LegalAiService::class)->reply($ticket, $details)
-                ?? 'مرحباً بك، تم استلام طلبك بخصوص «'.$type.'» وإحالته إلى القسم المختص. سنتابع معك خطوة بخطوة، ويمكنك الكتابة هنا في أي وقت.';
-            $m2 = $ticket->messages()->create(['who' => 'ai', 'name' => LegalAiService::AGENT_NAME, 'role' => LegalAiService::AGENT_ROLE, 'body' => nl2br(e($opening)), 'time_label' => $this->clock()]);
-            broadcast(new TicketMessageBroadcast($m2));
-        });
+        TriageTicketOnOpenJob::dispatch($ticket, $details, $type);
 
         return redirect()->route('tickets.show', $ticket);
     }
@@ -101,6 +99,12 @@ class TicketController extends Controller
     {
         $this->authorizeTicket($request, $ticket);
 
+        abort_if(
+            in_array($ticket->status, ['مكتملة', 'مغلقة'], true),
+            422,
+            'لا يمكن إرسال رسائل على تذكرة مكتملة أو مغلقة.'
+        );
+
         $data = $request->validate([
             'body' => ['required', 'string', 'max:5000'],
         ]);
@@ -112,7 +116,7 @@ class TicketController extends Controller
             'body' => e($data['body']),
             'time_label' => $this->clock(),
         ]);
-        broadcast(new TicketMessageBroadcast($clientMsg));
+        Live::push(new TicketMessageBroadcast($clientMsg));
 
         $ticket->update(['last_message' => $data['body'], 'date_label' => 'الآن']);
 
@@ -121,19 +125,7 @@ class TicketController extends Controller
 
         // ردّ «الدعم الفني» عبر AI بعد إرسال الاستجابة (يصل للعميل بالبث اللحظي)
         $body = $data['body'];
-        AfterResponse::defer(function () use ($ticket, $body) {
-            $aiText = app(LegalAiService::class)->reply($ticket, $body)
-                ?? 'تم استلام رسالتك، وسيوافيك المختص بالرد في أقرب وقت.';
-
-            $aiMsg = $ticket->messages()->create([
-                'who' => 'ai',
-                'name' => LegalAiService::AGENT_NAME,
-                'role' => LegalAiService::AGENT_ROLE,
-                'body' => nl2br(e($aiText)),
-                'time_label' => $this->clock(),
-            ]);
-            broadcast(new TicketMessageBroadcast($aiMsg));
-        });
+        GenerateTicketReplyJob::dispatch($ticket, $body);
 
         return response()->noContent();
     }
@@ -166,14 +158,26 @@ class TicketController extends Controller
             'body' => '<p>تم إرفاق مستند:</p><div class="doc-list"><span class="doc-chip">📎 '.e($name).'</span></div>',
             'time_label' => $this->clock(),
         ]);
-        broadcast(new TicketMessageBroadcast($msg));
+        Live::push(new TicketMessageBroadcast($msg));
 
         $ticket->update(['last_message' => 'تم إرفاق مستند: '.$name, 'date_label' => 'الآن']);
 
-        // الوكيل التشغيلي: فحص محتوى المستند وارتباطه — بعد إرسال الاستجابة (فحص AI قد يطول)
-        AfterResponse::defer(fn () => TicketTriage::onDocumentAttached($ticket, $doc));
+        TriageDocumentJob::dispatch($ticket, $doc);
 
         return response()->noContent();
+    }
+
+    // تفرّغ المستشارين المتخصّصين بقسم التذكرة (JSON) — يغذّي مُنتقي الحجز داخل التذكرة.
+    public function availability(Request $request, Ticket $ticket): JsonResponse
+    {
+        $this->authorizeTicket($request, $ticket);
+        $data = $request->validate(['date' => ['nullable', 'date']]);
+
+        $day = LawyerAvailability::resolveDate($data['date'] ?? null);
+        // التخصّص من قسم التذكرة (مصدر الخادم، لا تلاعب) — يجسر Specialties::normalize صياغات SVC
+        $lawyers = LawyerAvailability::rankedSpecialists($ticket->department ?: '', $ticket->type, $day->toDateString());
+
+        return response()->json(['date' => $day->toDateString(), 'lawyers' => $lawyers]);
     }
 
     // حجز موعد استشارة من داخل محادثة التذكرة (يُنشئ موعداً حقيقياً + يؤكّد المسار)
@@ -183,28 +187,41 @@ class TicketController extends Controller
 
         $data = $request->validate([
             'type' => ['required', 'string', 'in:office,video,phone'],
-            'day' => ['required', 'string', 'max:60'],
-            'time' => ['required', 'string', 'max:32'],
-            'branch' => ['nullable', 'string', 'max:80'],
-            'lawyer' => ['nullable', 'string', 'max:80'],
+            // العميل يختار أي محامٍ نشط (بلا تقييد بفرع) — Rule موحَّد يرفض غير المحامين والموقوفين.
+            'lawyer_id' => ['required', 'integer', new LawyerInBranch],
+            'date' => ['required', 'date', 'after_or_equal:today'],
+            'time' => ['required', 'string', 'regex:/^\d{2}:\d{2}$/'],
         ]);
 
-        // إنشاء الحجز الحقيقي (Appointment + Consult + Zoom + إشعار) عبر المصدر الموحّد
-        $consult = ConsultBooking::create($request->user(), $data, $ticket);
+        // حارسة الرحلة: لا يمكن تأكيد موعد على تذكرة اكتملت/أُغلقت أو في مرحلة اعتماد نهائية.
+        // (يختلف هذا عن canTransition الذي صُمِّم لمنع التقدّم اليدوي عبر قائمة الحالة؛
+        // هنا نقبل الحجز من كل المراحل حتى الجلسة، ونرفضه فقط من المراحل اللاحقة.)
+        // نُجرى الفحص قبل إنشاء الحجز لتجنّب إهدار موارد Zoom وقاعدة البيانات.
+        abort_if(
+            TicketJourney::indexOf($ticket->status) > TicketJourney::indexOf('موعد مؤكد')
+            || in_array($ticket->status, ['مكتملة', 'مغلقة', 'بانتظار اعتماد النتيجة', 'بانتظار اعتماد الإدارة'], true),
+            422,
+            'لا يمكن تأكيد الموعد من الحالة الحالية.'
+        );
+
+        $startsAt = Carbon::parse($data['date'].' '.$data['time']);
+
+        // إنشاء الحجز الحقيقي (Appointment + Consult + Zoom + إشعار) عبر المصدر الموحّد:
+        // المستشار المختار (lawyer_id) + وقت حقيقي يُفعّل حارس منع الحجز المزدوج
+        $consult = ConsultBooking::create($request->user(), [
+            'type' => $data['type'],
+            'lawyer_id' => (int) $data['lawyer_id'],
+            'starts_at' => $startsAt->toDateTimeString(),
+            'duration' => LawyerAvailability::slotMinutes(),
+            'day' => $startsAt->format('Y-m-d'),
+            'time' => $data['time'],
+        ], $ticket);
         $m = ConsultBooking::meta($data['type']);
 
-        // بطاقة تأكيد الموعد داخل المحادثة (رابط Zoom الحقيقي إن توفّر)
-        $joinUrl = $consult->joinLink();
-        $slink = $data['type'] === 'video'
-            ? '<span class="doc-chip">🔗 رابط جلسة Zoom: '.e($joinUrl).'</span>'
-            : '';
-        $card = '<p>تم تأكيد موعد استشارتك:</p><div class="doc-list" style="flex-direction:column;align-items:stretch">'
-            .'<span class="doc-chip">🗓️ استشارة '.e($m['label']).' — '.e($data['day']).' · '.e($data['time']).'</span>'
-            .'<span class="doc-chip">👤 المستشار: '.e($consult->lawyer).'</span>'
-            .'<span class="doc-chip">📍 '.e($consult->branch ?: $m['branch']).' · رقم الاستشارة: '.e($consult->ref).'</span>'
-            .$slink
-            .'</div>';
+        // بطاقة تأكيد الموعد داخل المحادثة (تصميم .appt الأصلي + رابط Zoom الحقيقي إن توفّر)
+        $card = AppointmentCard::render($consult, $m);
 
+        // كل كتابات قاعدة البيانات أولاً، ثم البثّ — البثّ أثر جانبي لا يجوز أن يتخلّل الحالة
         $msg = $ticket->messages()->create([
             'who' => 'ai',
             'name' => LegalAiService::AGENT_NAME,
@@ -212,15 +229,15 @@ class TicketController extends Controller
             'body' => $card,
             'time_label' => $this->clock(),
         ]);
-        broadcast(new TicketMessageBroadcast($msg));
 
         $ticket->update([
             'status' => 'موعد مؤكد',
-            'tone' => 'b-green',
-            'last_message' => 'تم تأكيد موعد الاستشارة: '.$data['day'].' · '.$data['time'],
+            'tone' => TicketJourney::toneFor('موعد مؤكد'),
+            'last_message' => 'تم تأكيد موعد الاستشارة: '.$consult->day.' · '.$consult->time,
             'date_label' => 'الآن',
         ]);
-        broadcast(new TicketStatusBroadcast($ticket));
+
+        Live::push(new TicketMessageBroadcast($msg), new TicketStatusBroadcast($ticket));
 
         return response()->noContent();
     }

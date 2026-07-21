@@ -36,7 +36,7 @@ class MeetingStatusBroadcast implements ShouldBroadcastNow
         return [
             'status' => $this->meeting->status,
             'approve' => $this->meeting->approve,
-            // المحضر/الملخص يصلان العميل فقط بعد اعتماد الإدارة
+            // المحضر/الملخص البشري المعتمَد فقط (لا يُبثّ ملخّص AI للعميل)
             'summary' => $approved ? $this->meeting->summary : null,
             'minutes' => $approved ? $this->meeting->minutes : null,
         ];

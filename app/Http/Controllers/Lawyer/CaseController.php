@@ -9,7 +9,9 @@ use App\Models\CaseHearing;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\UserNotification;
+use App\Support\CaseJourney;
 use App\Support\ExecutionCreation;
+use App\Support\Live;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -65,7 +67,7 @@ class CaseController extends Controller
         $case->update([
             'pleading_status' => 'approved',
             'status' => 'منظورة',
-            'tone' => 'b-blue',
+            'tone' => CaseJourney::toneFor('منظورة'),
             'update_text' => 'اعتماد اللائحة ورفع الدعوى — القضية منظورة',
         ]);
         $case->messages()->create([
@@ -74,7 +76,7 @@ class CaseController extends Controller
             'time_label' => $this->clock(),
         ]);
         $this->notify($case, 'scale', 't-blue', "تم اعتماد لائحة قضيتك {$case->number} ورفع الدعوى. القضية الآن منظورة.");
-        broadcast(new CaseStatusBroadcast($case));
+        Live::push(new CaseStatusBroadcast($case));
 
         return back();
     }
@@ -101,7 +103,7 @@ class CaseController extends Controller
             'time_label' => $this->clock(),
         ]);
         $this->notify($case, 'cal', 't-cyan', "جلسة جديدة على قضيتك {$case->number}: {$data['day']}.");
-        broadcast(new CaseStatusBroadcast($case));
+        Live::push(new CaseStatusBroadcast($case));
 
         return back();
     }
@@ -132,7 +134,7 @@ class CaseController extends Controller
 
         $case->update([
             'status' => 'صدر الحكم',
-            'tone' => 'b-cyan',
+            'tone' => CaseJourney::toneFor('صدر الحكم'),
             'ruling' => $data['ruling'],
             'update_text' => 'صدر الحكم في القضية — بانتظار الإغلاق والأرشفة',
         ]);
@@ -142,7 +144,7 @@ class CaseController extends Controller
             'time_label' => $this->clock(),
         ]);
         $this->notify($case, 'scale', 't-green', "صدر الحكم في قضيتك {$case->number}. التفاصيل داخل القضية.");
-        broadcast(new CaseStatusBroadcast($case));
+        Live::push(new CaseStatusBroadcast($case));
 
         return back();
     }

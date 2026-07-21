@@ -151,9 +151,8 @@ export const MEET_TEMPLATES: [string, string][] = [
   ['الإدارة العليا', 'اجتماع الإدارة العليا'],
 ];
 
-export function meetStatusTone(s: string): string {
-  return s === 'جارٍ' ? 'b-amber' : s === 'قادم' ? 'b-blue' : s === 'منتهٍ' ? 'b-green' : s === 'مؤجل' ? 'b-grey' : 'b-red';
-}
+// نغمة حالة الاجتماع انتقلت إلى lib/meeting-ui (المكتبة المشتركة للاجتماعات)،
+// إذ كانت هنا نسخة وثانية سطرية داخل صفحة التفاصيل تخالفها فيظهر الاجتماع نفسه بلونين.
 
 // ── دعوات الاجتماعات (MEET_REQUESTS / MR_FLOW) ──
 export const MR_FLOW = ['دعوة مُرسلة للعميل', 'تأكيد حضور العميل', 'تنفيذ الجلسة', 'اعتماد الإدارة'];
@@ -186,16 +185,8 @@ export const CONSULT_PRICES: Record<string, number> = { 'حضورية': 600, 'م
 export const DEFAULT_VAT_RATE = 0.15;
 export interface PriceLogEntry { who: string; ts: number; changes: string[]; }
 
-// ── قنوات الاستشارات (CONSULT_CHANNELS) ──
-export const CONSULT_CHANNELS: [string, string][] = [
-  ['all', 'الكل'], ['مرئية', 'مرئية (فيديو)'], ['حضورية', 'حضورية'], ['هاتفية', 'هاتفية'],
-];
-export function crChannelIcon(ch: string): string {
-  return ch === 'مرئية' ? 'video' : ch === 'هاتفية' ? 'phone' : 'office';
-}
-export function crChannelTone(ch: string): string {
-  return ch === 'مرئية' ? 'b-blue' : ch === 'هاتفية' ? 'b-amber' : 'b-green';
-}
+// قنوات الاستشارات ونغماتها مصدرها employee-data (تستهلكها consult-ui المشتركة).
+// حُذفت من هنا نسخة ثانية متطابقة لم تكن مستوردة من أي صفحة — نفس ازدواج نغمة الاجتماعات.
 
 // ── إشعارات العملاء (CLIENT_NOTIFS demo) ──
 export interface ClientNotif { ic: string; tone: string; text: string; time: string; link?: string | null; unread: boolean; }

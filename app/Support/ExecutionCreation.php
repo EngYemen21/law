@@ -35,7 +35,7 @@ class ExecutionCreation
                 'assigned_lawyer_id' => $lawyer->id,
                 'branch' => $case->branch ?: $lawyer->branch,
                 'status' => 'جديد',
-                'tone' => 'b-blue',
+                'tone' => ExecJourney::toneFor('جديد'),
                 'last_action' => 'فتح طلب التنفيذ بعد صدور الحكم',
             ]);
 

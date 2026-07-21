@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Enums\Role;
+use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Services\LegalAiService;
@@ -34,7 +35,11 @@ class TicketAssignment
     /** يختار المحامي المختص: مجموعة المرشحين (تخصّص مطابق إن وُجد) مرتّبة حتمياً، ثم اختيار الذكاء الاصطناعي. */
     public static function pickLawyer(Ticket $ticket): ?User
     {
-        $lawyers = User::where('role', Role::Lawyer)->where('status', 'active')->get();
+        // المحامون النشطون في وضع التوزيع التلقائي فقط (الـ manual يُسنَد يدوياً من Distribute)
+        $lawyers = User::where('role', Role::Lawyer)
+            ->where('status', 'active')
+            ->where('distribution_mode', 'auto')
+            ->get();
         if ($lawyers->isEmpty()) {
             return null;
         }
@@ -57,5 +62,25 @@ class TicketAssignment
         $id = app(LegalAiService::class)->chooseLawyer($ticket, $ordered);
 
         return $ordered->firstWhere('id', $id) ?? $ordered->first();
+    }
+
+    /**
+     * انتشار تغيّر محامي التذكرة إلى استشاراتها المفتوحة (غير المنتهية): تحديث المحامي المسند
+     * والفرع معاً حتى لا تبقى الاستشارة معزولة عند المحامي القديم بعد التحويل/إعادة الإسناد.
+     * القضايا/التنفيذ تحتفظ بمحاميها بحسب التصميم.
+     */
+    public static function syncRelatedConsults(Ticket $ticket): void
+    {
+        if (! $ticket->assigned_lawyer_id) {
+            return;
+        }
+
+        Consult::where('ticket_id', $ticket->id)
+            ->where('session', '!=', 'منتهية')
+            ->update([
+                'assigned_lawyer_id' => $ticket->assigned_lawyer_id,
+                'lawyer' => $ticket->assigned_lawyer,
+                'branch' => $ticket->branch,
+            ]);
     }
 }

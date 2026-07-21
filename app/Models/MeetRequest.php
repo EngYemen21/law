@@ -58,6 +58,8 @@ class MeetRequest extends Model
             'by' => $this->sent_by,
             'stage' => $this->stage,
             'meetLink' => $confirmed ? $this->joinLink() : null,
+            // مرجع الاجتماع المرتبط — للدخول للغرفة المضمّنة (kind=meeting)
+            'meetingRef' => $confirmed ? $this->meeting?->ref : null,
         ];
     }
 
@@ -80,6 +82,8 @@ class MeetRequest extends Model
             'meetId' => $confirmed ? ($this->meet_id ?: $this->ref) : null,
             'meetLink' => $confirmed ? $this->joinLink() : null,
             'hostLink' => $confirmed ? $this->host_link : null,
+            // مرجع الاجتماع المرتبط — للدخول للغرفة المضمّنة (kind=meeting)
+            'meetingRef' => $confirmed ? $this->meeting?->ref : null,
         ];
     }
 }

@@ -123,8 +123,10 @@ export interface SummaryData {
 }
 
 // موضع الملخص على مسار SUM_FLOW حسب حالته
+// كان يطوي أربع حالات في اثنتين، فلا يفترق pending_lawyer عن pending_admin بصرياً
 export function sumStage(status: string): number {
-  return status === 'approved' ? 3 : 1;
+  const m: Record<string, number> = { none: 0, pending_lawyer: 1, pending_admin: 2, approved: 3 };
+  return status in m ? m[status] : 1;
 }
 
 // نص ملخص افتراضي — يطابق defaultSummaryText (مُستخرج من summaryView)

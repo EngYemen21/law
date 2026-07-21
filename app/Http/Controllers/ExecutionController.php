@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\GenerateExecutionReplyJob;
 use App\Models\Execution;
 use App\Services\LegalAiService;
-use App\Support\AfterResponse;
+use App\Support\ExecJourney;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -41,7 +42,7 @@ class ExecutionController extends Controller
             'number' => $number,
             'subject' => $data['subject'],
             'status' => 'جديد',
-            'tone' => 'b-blue',
+            'tone' => ExecJourney::toneFor('جديد'),
             'last_action' => 'فتح الطلب',
         ]);
 
@@ -74,6 +75,12 @@ class ExecutionController extends Controller
     {
         $this->authorizeExecution($request, $execution);
 
+        abort_if(
+            in_array($execution->status, ['مكتمل', 'مغلق'], true),
+            422,
+            'لا يمكن إرسال رسائل على طلب تنفيذ مكتمل أو مغلق.'
+        );
+
         $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
 
         $execution->messages()->create([
@@ -81,16 +88,8 @@ class ExecutionController extends Controller
             'body' => e($data['body']), 'time_label' => $this->clock(),
         ]);
 
-        // ردّ فريق التنفيذ عبر AI بعد إرسال الاستجابة (يصل بالبث اللحظي عبر hook الرسائل)
         $body = $data['body'];
-        AfterResponse::defer(function () use ($execution, $body) {
-            $aiText = app(LegalAiService::class)->execReply($execution, $body)
-                ?? 'تم استلام رسالتك بخصوص طلب التنفيذ، وسيوافيك قسم التنفيذ بالمستجدات في أقرب وقت.';
-            $execution->messages()->create([
-                'who' => 'ai', 'name' => LegalAiService::AGENT_NAME, 'role' => 'التنفيذ',
-                'body' => nl2br(e($aiText)), 'time_label' => $this->clock(),
-            ]);
-        });
+        GenerateExecutionReplyJob::dispatch($execution, $body);
 
         return response()->noContent();
     }

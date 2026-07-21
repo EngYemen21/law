@@ -17,9 +17,7 @@ class TicketMessageBroadcast implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
-    public function __construct(public TicketMessage $message)
-    {
-    }
+    public function __construct(public TicketMessage $message) {}
 
     public function broadcastOn(): array
     {

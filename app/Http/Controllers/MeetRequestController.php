@@ -49,6 +49,7 @@ class MeetRequestController extends Controller
                 'meet_id' => $zoom['id'] ?? null,
                 'meet_link' => $zoom['join_url'] ?? null,
                 'host_link' => $zoom['start_url'] ?? null,
+                'meet_password' => $zoom['password'] ?? null,
                 'created_by' => $meetRequest->sent_by,
                 'before_items' => ['مراجعة موضوع الدعوة: '.$meetRequest->service, 'قراءة المستندات ذات الصلة', 'تجهيز جدول الأعمال'],
                 'during_items' => ['تسجيل الجلسة', 'تحويل الصوت إلى نص', 'استخراج القرارات'],

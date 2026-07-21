@@ -1,9 +1,9 @@
+import { router } from '@inertiajs/react';
 import React, { useEffect, useState } from 'react';
-import Icon from '@/lib/icons';
 import Modal from '@/components/babylon/Modal';
-import { type Meeting } from '@/lib/data';
-import { openMeeting } from '@/lib/consult-ui';
+import type {Meeting} from '@/lib/data';
 import { echo } from '@/lib/echo';
+import Icon from '@/lib/icons';
 
 // يطابق viewMeetings في index (82).html (نسخة دور العميل) — روابط Zoom ومحاضر/ملخصات معتمدة حقيقية
 // + تحديث لحظي: يصل المحضر/الملخص وحالة الاجتماع فور اعتماد الإدارة بلا إعادة تحميل.
@@ -15,14 +15,20 @@ const Meetings: React.FC<{ meetings: Meeting[] }> = ({ meetings }) => {
   useEffect(() => {
     setItems(meetings);
     meetings.forEach((m) => {
-      if (!m.id) return;
+      if (!m.id) {
+return;
+}
+
       echo.private(`meeting.${m.id}`).listen('.status', (e: { status: string; summary: string | null; minutes: string | null }) => {
         setItems((prev) => prev.map((x) => x.id === m.id
           ? { ...x, summary: e.summary ?? x.summary, minutes: e.minutes ?? x.minutes, up: e.status === 'قادم' || e.status === 'جارٍ' }
           : x));
       });
     });
-    return () => { meetings.forEach((m) => m.id && echo.leave(`meeting.${m.id}`)); };
+
+    return () => {
+ meetings.forEach((m) => m.id && echo.leave(`meeting.${m.id}`)); 
+};
   }, [meetings]);
 
   const up = items.filter((m) => m.up);
@@ -36,9 +42,9 @@ const Meetings: React.FC<{ meetings: Meeting[] }> = ({ meetings }) => {
         <span>{m.when}</span>
       </div>
       <div className="iact">
-        {m.up && m.link && (
-          <button className="btn sm" type="button" onClick={() => openMeeting(m.link)}>
-            <Icon name="link" /> انضم لجلسة Zoom
+        {m.up && (
+          <button className="btn sm" type="button" onClick={() => router.visit(`/meetingroom?ref=${encodeURIComponent(m.ref)}`)}>
+            <Icon name="video" /> انضم لجلسة Zoom
           </button>
         )}
         {m.minutes && (

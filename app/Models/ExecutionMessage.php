@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Events\ExecMessageBroadcast;
+use App\Support\Live;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -14,7 +15,7 @@ class ExecutionMessage extends Model
     protected static function booted(): void
     {
         static::created(function (ExecutionMessage $m) {
-            broadcast(new ExecMessageBroadcast($m));
+            Live::push(new ExecMessageBroadcast($m));
         });
     }
 

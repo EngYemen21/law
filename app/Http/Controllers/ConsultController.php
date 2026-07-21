@@ -24,4 +24,16 @@ class ConsultController extends Controller
             'consults' => $consults,
         ]);
     }
+
+    // غرفة الجلسة المرئية للعميل — تضمين Zoom داخل المنصّة (?ref=CN-…)
+    public function room(Request $request): Response
+    {
+        $consult = Consult::with('user')->where('ref', $request->query('ref'))->firstOrFail();
+        abort_unless($consult->user_id === $request->user()->id, 403);
+
+        return Inertia::render('videoroom', [
+            'consult' => $consult->toClientCard(),
+            'selfName' => $request->user()->name,
+        ]);
+    }
 }

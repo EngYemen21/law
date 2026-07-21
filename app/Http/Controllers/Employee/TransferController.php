@@ -7,6 +7,8 @@ use App\Http\Controllers\Concerns\BranchScoped;
 use App\Http\Controllers\Controller;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Rules\LawyerInBranch;
+use App\Support\TicketAssignment;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -40,10 +42,11 @@ class TransferController extends Controller
     {
         $this->guardBranch($ticket);
         $data = $request->validate([
-            'lawyer_id' => ['required', 'integer', 'exists:users,id'],
+            // المحامي الوجهة يجب أن يكون نشطاً وضمن فرع الموظف الحالي (عزل تام بين الفروع).
+            'lawyer_id' => ['required', 'integer', new LawyerInBranch($this->currentBranch())],
             'reason' => ['nullable', 'string', 'max:200'],
         ]);
-        $lawyer = User::where('role', Role::Lawyer)->findOrFail($data['lawyer_id']);
+        $lawyer = User::findOrFail($data['lawyer_id']);
         $from = $ticket->assigned_lawyer ?: '—';
 
         // التحويل ينقل التذكرة لفرع المحامي الجديد (يبقى العزل بالفرع متّسقاً)
@@ -52,6 +55,8 @@ class TransferController extends Controller
             'assigned_lawyer_id' => $lawyer->id,
             'branch' => $lawyer->branch ?: $ticket->branch,
         ]);
+        // انتشار المحامي/الفرع الجديد إلى استشارات التذكرة المفتوحة
+        TicketAssignment::syncRelatedConsults($ticket->fresh());
         $ticket->messages()->create([
             'who' => 'note', 'name' => $request->user()->name, 'role' => 'تحويل',
             'body' => '<p>حُوّلت التذكرة من '.e($from).' إلى '.e($lawyer->name).'.'

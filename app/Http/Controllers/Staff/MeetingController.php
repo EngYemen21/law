@@ -4,16 +4,19 @@ namespace App\Http\Controllers\Staff;
 
 use App\Enums\Role;
 use App\Events\MeetingStatusBroadcast;
+use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
+use App\Jobs\GenerateMeetingSummaryJob;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
-use App\Models\Task;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Rules\LawyerInBranch;
 use App\Services\LegalAiService;
 use App\Services\ZoomService;
-use App\Support\AfterResponse;
 use App\Support\ClientDirectory;
+use App\Support\DecisionTasks;
+use App\Support\Live;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -24,13 +27,15 @@ use Inertia\Response;
  */
 class MeetingController extends Controller
 {
+    use ScopedToLawyer;
+
     public function __construct(private ZoomService $zoom, private LegalAiService $ai) {}
 
     // قائمة الاجتماعات (المحامي) / اعتماد الاجتماعات (الإدارة)
     public function index(Request $request): Response
     {
         return Inertia::render($this->prefix($request).'/meetings', [
-            'meetings' => $this->cards(),
+            'meetings' => $this->cards($request),
         ]);
     }
 
@@ -38,9 +43,22 @@ class MeetingController extends Controller
     public function show(Request $request): Response
     {
         $meeting = Meeting::where('ref', (string) $request->query('id'))->firstOrFail();
+        $this->guardMeeting($request, $meeting);
 
         return Inertia::render($this->prefix($request).'/meeting', [
             'meeting' => $meeting->toFullCard(),
+        ]);
+    }
+
+    // غرفة الاجتماع المضمّنة (Zoom Web SDK) — ?ref=M-…
+    public function room(Request $request): Response
+    {
+        $meeting = Meeting::where('ref', (string) $request->query('ref'))->firstOrFail();
+        $this->guardMeeting($request, $meeting);
+
+        return Inertia::render($this->prefix($request).'/meetingroom', [
+            'meeting' => $meeting->toFullCard(),
+            'selfName' => $request->user()->name,
         ]);
     }
 
@@ -48,8 +66,10 @@ class MeetingController extends Controller
     public function mgmt(Request $request): Response
     {
         return Inertia::render('admin/meetmgmt', [
-            'meetings' => $this->cards(),
+            'meetings' => $this->cards($request),
             'clients' => ClientDirectory::list(),
+            'lawyers' => User::where('role', Role::Lawyer)->orderBy('name')->get(['id', 'name'])
+                ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name]),
         ]);
     }
 
@@ -67,9 +87,14 @@ class MeetingController extends Controller
             'time' => ['nullable', 'string', 'max:20'],
             'client_id' => ['nullable', 'integer', 'exists:users,id'],
             'case_ref' => ['nullable', 'string', 'max:120'],
+            'lawyer_id' => ['nullable', 'integer', new LawyerInBranch],
         ]);
 
         $client = ! empty($data['client_id']) ? User::find($data['client_id']) : null;
+        // المحامي المسؤول: المختار صراحةً (يراه في قائمته)، وإلا المنشئ إن كان محامياً
+        $assignedLawyer = ! empty($data['lawyer_id'])
+            ? User::where('role', Role::Lawyer)->find((int) $data['lawyer_id'])
+            : ($request->user()->role === Role::Lawyer ? $request->user() : null);
         $when = trim(($data['day'] ?? '') !== '' ? $data['day'].' · '.($data['time'] ?? '') : 'اليوم · 10:00');
 
         $zoom = $this->zoom->createMeeting($data['title'], 60, ($data['conf'] ?? '') === 'سري');
@@ -90,7 +115,11 @@ class MeetingController extends Controller
             'meet_id' => $zoom['id'] ?? null,
             'meet_link' => $zoom['join_url'] ?? null,
             'host_link' => $zoom['start_url'] ?? null,
+            'meet_password' => $zoom['password'] ?? null,
             'created_by' => $request->user()->name,
+            // عزل الرؤية/البثّ: المحامي المسؤول وفرعه (وإلا فرع المنشئ)
+            'branch' => $assignedLawyer?->branch ?: $request->user()->branch,
+            'assigned_lawyer_id' => $assignedLawyer?->id,
             'before_items' => ['تحليل الموضوع', 'مراجعة المستندات', 'تجهيز جدول الأعمال'],
             'during_items' => ['تحويل الصوت إلى نص', 'استخراج القرارات', 'تحديد المهام'],
             'after_items' => ['إنشاء الملخص', 'تحديث القضية', 'إنشاء المهام'],
@@ -115,6 +144,7 @@ class MeetingController extends Controller
     // حفظ ملخص الاجتماع (المحامي)
     public function saveSummary(Request $request, Meeting $meeting): RedirectResponse
     {
+        $this->guardMeeting($request, $meeting);
         $data = $request->validate(['summary' => ['required', 'string', 'max:6000']]);
         $meeting->update(['summary' => $data['summary']]);
 
@@ -124,6 +154,7 @@ class MeetingController extends Controller
     // حفظ محضر الاجتماع (المحامي)
     public function saveMinutes(Request $request, Meeting $meeting): RedirectResponse
     {
+        $this->guardMeeting($request, $meeting);
         $data = $request->validate(['minutes' => ['required', 'string', 'max:8000']]);
         $meeting->update(['minutes' => $data['minutes']]);
 
@@ -155,7 +186,7 @@ class MeetingController extends Controller
                 ]);
             }
             // بثّ الاعتماد → يصل الملخص/المحضر للعميل لحظياً
-            broadcast(new MeetingStatusBroadcast($meeting->fresh()));
+            Live::push(new MeetingStatusBroadcast($meeting->fresh()));
         }
 
         return back();
@@ -164,6 +195,7 @@ class MeetingController extends Controller
     // إنهاء الاجتماع: تسجيل الحضور + توليد ملخص/محضر/قرارات بالذكاء الاصطناعي + بثّ لحظي
     public function end(Request $request, Meeting $meeting): RedirectResponse
     {
+        $this->guardMeeting($request, $meeting);
         $data = $request->validate([
             'attend' => ['nullable', 'integer', 'min:0', 'max:100'],
             'notes' => ['nullable', 'string', 'max:4000'],
@@ -178,24 +210,10 @@ class MeetingController extends Controller
             MeetRequest::where('meeting_id', $meeting->id)
                 ->where('stage', '<', MeetRequest::STAGE_EXECUTED)
                 ->update(['stage' => MeetRequest::STAGE_EXECUTED]);
-            broadcast(new MeetingStatusBroadcast($meeting));
+            Live::push(new MeetingStatusBroadcast($meeting));
 
-            // توليد المخرجات بالذكاء الاصطناعي بعد إرسال الاستجابة (تفادي مهلة الويب)
             $notes = trim($data['notes'] ?? '');
-            AfterResponse::defer(function () use ($meeting, $notes) {
-                if (filled($meeting->summary) && filled($meeting->minutes)) {
-                    return; // مخرجات محفوظة يدوياً — لا تُستبدل
-                }
-                $out = $this->ai->meetingSummary($meeting->fresh(), $notes);
-                $meeting->update([
-                    'summary' => $meeting->summary ?: $out['summary'],
-                    'minutes' => $meeting->minutes ?: $out['minutes'],
-                    'decisions' => $out['decisions'],
-                    'has_summary' => true,
-                    'has_minutes' => true,
-                ]);
-                broadcast(new MeetingStatusBroadcast($meeting));
-            });
+            GenerateMeetingSummaryJob::dispatch($meeting, $notes);
         }
 
         return back();
@@ -204,28 +222,15 @@ class MeetingController extends Controller
     // تحويل قرارات الاجتماع إلى مهام حقيقية (موديل Task) — لمرة واحدة
     public function createTasks(Request $request, Meeting $meeting): RedirectResponse
     {
+        $this->guardMeeting($request, $meeting);
         abort_if($meeting->tasks_created, 409);
-        $decisions = $meeting->decisions ?? [];
-        abort_if(count($decisions) === 0, 422);
 
-        // المسؤول: الفاعل إن كان محامياً، وإلا أوّل محامٍ في قائمة المشاركين، وإلا الفاعل
-        $owner = $request->user()->role === Role::Lawyer
-            ? $request->user()
-            : (self::firstNamedLawyer($meeting->participants) ?? $request->user());
+        // الاحتياط: أوّل محامٍ في قائمة المشاركين، وإلا الفاعل (المحامي المسنَد له الأولوية داخل DecisionTasks)
+        $fallback = self::firstNamedLawyer($meeting->participants) ?? $request->user();
+        $count = DecisionTasks::create($meeting, $this->ai, $fallback);
+        abort_if($count === 0, 422);
 
-        foreach ($decisions as $title) {
-            Task::create([
-                'assigned_to' => $owner->id,
-                'title' => (string) $title,
-                'ref' => $meeting->ref ?: 'M-'.$meeting->id,
-                'due' => 'خلال أسبوع',
-                'status' => 'مفتوحة',
-                'tone' => 'b-amber',
-            ]);
-        }
-        $meeting->update(['tasks_created' => true]);
-
-        return back()->with('flash', 'تم تحويل '.count($decisions).' قرار إلى مهام لدى '.$owner->name);
+        return back()->with('flash', 'تم تحويل '.$count.' قرار إلى مهام');
     }
 
     /** أوّل محامٍ يُذكر اسمه في قائمة المشاركين النصّية (مطابقة بالاسم). */
@@ -246,18 +251,45 @@ class MeetingController extends Controller
     // سجل الاجتماعات المنتهية (يطابق meetLogView)
     public function log(Request $request): Response
     {
-        return Inertia::render('admin/meetlog', ['meetings' => $this->cards()]);
+        return Inertia::render('admin/meetlog', ['meetings' => $this->cards($request)]);
     }
 
     // تقارير الاجتماعات (يطابق meetReportsView)
     public function reports(Request $request): Response
     {
-        return Inertia::render('admin/meetreports', ['meetings' => $this->cards()]);
+        return Inertia::render('admin/meetreports', ['meetings' => $this->cards($request)]);
     }
 
-    private function cards()
+    /**
+     * بطاقات الاجتماعات معزولة بالدور (تكشف hostLink/الملخص/المحضر — لا تُبثّ للكل):
+     * المحامي اجتماعاته المسندة، الموظف اجتماعات فرعه (+بلا فرع)، الإدارة الكل.
+     */
+    private function cards(Request $request)
     {
-        return Meeting::latest('id')->get()->map(fn (Meeting $m) => $m->toFullCard());
+        $user = $request->user();
+        $query = Meeting::query();
+        if ($user->role === Role::Lawyer) {
+            $query->where('assigned_lawyer_id', $user->id);
+        } elseif ($user->role === Role::Employee) {
+            $branch = $user->branch;
+            $query->where(fn ($q) => $q->where('branch', $branch)->orWhereNull('branch'));
+        }
+
+        return $query->latest('id')->get()->map(fn (Meeting $m) => $m->toFullCard());
+    }
+
+    /**
+     * حارس الوصول المباشر لاجتماع (يسدّ IDOR): المحامي لاجتماعه المسند فقط (guardAssigned)،
+     * الموظف لفرعه (بلا فرع = مشترك)، الإدارة كاملة.
+     */
+    private function guardMeeting(Request $request, Meeting $meeting): void
+    {
+        $user = $request->user();
+        if ($user->role === Role::Lawyer) {
+            $this->guardAssigned($meeting);
+        } elseif ($user->role === Role::Employee) {
+            abort_if($meeting->branch !== null && $meeting->branch !== $user->branch, 403);
+        }
     }
 
     private function prefix(Request $request): string

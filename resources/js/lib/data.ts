@@ -6,7 +6,7 @@ export interface Ticket { no: string; type: string; dept: string; status: string
 export interface Case { no: string; type: string; status: string; tone: string; update: string; }
 export interface Exec { no: string; subject: string; status: string; tone: string; last: string; }
 export interface Appt { id: string; type: string; ico: string; lawyer: string; day: string; time: string; branch: string; status: string; tone: string; when: 'up' | 'past'; }
-export interface Meeting { id?: number; title: string; when: string; up: boolean; link: string; minutes: string | null; summary: string | null; }
+export interface Meeting { id?: number; ref: string; title: string; when: string; up: boolean; link: string; minutes: string | null; summary: string | null; }
 export interface DocItem { name: string; meta: string; }
 export interface Invoice { no: string; desc: string; amount: number; status: string; tone: string; due: string; paid: boolean; }
 export interface Notif { ic: string; tone: string; text: string; time: string; unread: boolean; }
@@ -182,9 +182,18 @@ export const ROLES: RoleMeta[] = [
 
 // تحديد الدور الحالي من المسار
 export function roleOfPath(path: string): string {
-  if (path.startsWith('/employee')) return 'employee';
-  if (path.startsWith('/lawyer')) return 'lawyer';
-  if (path.startsWith('/admin')) return 'admin';
+  if (path.startsWith('/employee')) {
+return 'employee';
+}
+
+  if (path.startsWith('/lawyer')) {
+return 'lawyer';
+}
+
+  if (path.startsWith('/admin')) {
+return 'admin';
+}
+
   return 'client';
 }
 
@@ -286,7 +295,11 @@ export const ROLE_NAV: Record<string, SideGroup[]> = {
 const CLIENT_TITLES: Record<string, [string, string]> = Object.entries(TITLES).reduce(
   (acc, [view, t]) => {
     const r = VIEW_ROUTE[view];
-    if (r) acc[r] = t;
+
+    if (r) {
+acc[r] = t;
+}
+
     return acc;
   },
   {} as Record<string, [string, string]>

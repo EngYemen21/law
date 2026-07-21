@@ -36,6 +36,7 @@ class ConsultStatusBroadcast implements ShouldBroadcastNow
             'status' => $this->consult->status,
             'summary' => $this->consult->summary,
             'duration' => $this->consult->duration_label,
+            'canJoin' => $this->consult->canJoin(),
         ];
     }
 }

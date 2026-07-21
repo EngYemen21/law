@@ -46,17 +46,29 @@ class ConsultSessionTest extends TestCase
                 ->where('consults.0.slink', 'https://meet.salasel.sa/CN-2026-5001'));
     }
 
-    public function test_staff_recv_lists_all_consults_for_all_roles(): void
+    public function test_recv_scoping_isolates_by_role(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $this->makeConsult($client);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        // استشارة بلا فرع (مجمّع الاستقبال) مُسندة لهذا المحامي
+        $this->makeConsult($client, ['assigned_lawyer_id' => $lawyer->id]);
 
-        foreach ([[Role::Employee, 'employee'], [Role::Lawyer, 'lawyer'], [Role::Admin, 'admin']] as [$role, $prefix]) {
-            $staff = User::factory()->create(['role' => $role]);
-            $this->actingAs($staff)->get("/{$prefix}/consultrecv")
-                ->assertOk()
-                ->assertInertia(fn ($p) => $p->component("{$prefix}/consultrecv")->has('consults', 1));
-        }
+        // الموظف يرى استشارة بلا فرع (المجمّع المشترك)
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $this->actingAs($employee)->get('/employee/consultrecv')
+            ->assertOk()->assertInertia(fn ($p) => $p->has('consults', 1));
+
+        // الإدارة ترى الكل
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $this->actingAs($admin)->get('/admin/consultrecv')
+            ->assertOk()->assertInertia(fn ($p) => $p->has('consults', 1));
+
+        // المحامي المسند يراها؛ محامٍ آخر لا يرى شيئاً (عزل الإسناد)
+        $this->actingAs($lawyer)->get('/lawyer/consultrecv')
+            ->assertOk()->assertInertia(fn ($p) => $p->has('consults', 1));
+        $other = User::factory()->create(['role' => Role::Lawyer]);
+        $this->actingAs($other)->get('/lawyer/consultrecv')
+            ->assertOk()->assertInertia(fn ($p) => $p->has('consults', 0));
     }
 
     public function test_employee_starts_session_and_client_is_notified(): void
@@ -78,7 +90,7 @@ class ConsultSessionTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $consult = $this->makeConsult($client, ['session' => 'جلسة جارية', 'status' => 'قيد الاستشارة']);
+        $consult = $this->makeConsult($client, ['session' => 'جلسة جارية', 'status' => 'قيد الاستشارة', 'assigned_lawyer_id' => $lawyer->id]);
 
         $this->actingAs($lawyer)->post(route('lawyer.consults.end', $consult), [
             'notes' => 'العميل زوّدنا بعقد التوريد والمراسلات.',

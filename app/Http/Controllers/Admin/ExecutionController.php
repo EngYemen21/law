@@ -7,6 +7,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Execution;
 use App\Models\Ticket;
 use App\Models\UserNotification;
+use App\Support\ExecJourney;
+use App\Support\Live;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -36,7 +38,7 @@ class ExecutionController extends Controller
     {
         abort_unless($execution->status === 'مكتمل', 422);
 
-        $execution->update(['status' => 'مغلق', 'tone' => 'b-grey', 'last_action' => 'أُغلق طلب التنفيذ وأُرشف']);
+        $execution->update(['status' => 'مغلق', 'tone' => ExecJourney::toneFor('مغلق'), 'last_action' => 'أُغلق طلب التنفيذ وأُرشف']);
         $execution->messages()->create([
             'who' => 'admin', 'name' => 'الإدارة', 'role' => 'إغلاق',
             'body' => '<p>بعد اكتمال التنفيذ والتحصيل، أُغلق طلب التنفيذ وحُفظ ملفه في الأرشيف.</p>',
@@ -47,7 +49,7 @@ class ExecutionController extends Controller
             'body' => "أُغلق طلب تنفيذك {$execution->number} وأُرشف بعد اكتمال الإجراءات.",
             'time_label' => 'الآن', 'is_read' => false,
         ]);
-        broadcast(new ExecStatusBroadcast($execution));
+        Live::push(new ExecStatusBroadcast($execution));
 
         return back();
     }
