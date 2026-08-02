@@ -11,7 +11,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 
 class AppServiceProvider extends ServiceProvider
@@ -34,9 +33,13 @@ class AppServiceProvider extends ServiceProvider
         // الإدارة العليا (enum Admin) تتجاوز كل الصلاحيات — يجعل $user->can(...) صحيحاً دائماً لها
         Gate::before(fn (User $user) => $user->isAdmin() ? true : null);
 
-        // حدّ محاولات الدخول (منع brute-force): 5 محاولات/دقيقة بمفتاح البريد + IP
-        RateLimiter::for('login', fn (Request $request) => Limit::perMinute(5)
-            ->by(Str::lower((string) $request->input('email')).'|'.$request->ip()));
+        // حدّ طلب رمز التحقّق (منع القصف): 3 طلبات/دقيقة بمفتاح الهويّة/الجوال + IP
+        RateLimiter::for('otp-request', fn (Request $request) => Limit::perMinute(3)
+            ->by((string) ($request->input('national_id') ?: $request->input('phone')).'|'.$request->ip()));
+
+        // حدّ تأكيد الرمز/التبديل (منع التخمين): 5/دقيقة بمفتاح IP — مرساة ثابتة حاضرة في كل المسارات
+        // (تحقّق الدخول/البريد، choose-account، switch-account) بلا اعتماد على requestId قد يغيب.
+        RateLimiter::for('otp-verify', fn (Request $request) => Limit::perMinute(5)->by((string) $request->ip()));
     }
 
     /**

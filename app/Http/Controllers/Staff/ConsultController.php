@@ -6,13 +6,15 @@ use App\Enums\Role;
 use App\Events\ConsultStatusBroadcast;
 use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
+use App\Jobs\FinalizeConsultJob;
 use App\Models\Consult;
 use App\Models\User;
-use App\Models\UserNotification;
 use App\Rules\LawyerInBranch;
 use App\Services\LegalAiService;
+use App\Support\ConsultBooking;
 use App\Support\DecisionTasks;
 use App\Support\Live;
+use App\Support\Notify;
 use App\Support\Specialties;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -31,13 +33,28 @@ class ConsultController extends Controller
     public function __construct(private LegalAiService $ai) {}
 
     // إدارة الاستشارات (يطابق emConsultsView/adConsultsView) — قائمة الرحلة والمؤشرات
+    // (تُستثنى طلبات ما قبل الجلسة: تسعير/سداد/اختيار موعد — مكانها شاشة «طلبات الاستشارات»)
     public function index(Request $request): Response
     {
         $consults = $this->scopeForRole($request, Consult::with('user'))
+            ->whereNotIn('status', Consult::PRE_SESSION_STATUSES)
             ->latest('id')->get()
             ->map(fn (Consult $c) => $c->toCard());
 
         return Inertia::render($this->prefix($request).'/consults', [
+            'consults' => $consults,
+        ]);
+    }
+
+    // طلبات الاستشارات وتسعيرها (الإدارة العليا فقط) — دورة الحجز قبل الجلسة + إجراء التسعير
+    public function requests(Request $request): Response
+    {
+        $consults = Consult::with(['user', 'invoice'])
+            ->whereIn('status', Consult::PRE_SESSION_STATUSES)
+            ->latest('id')->get()
+            ->map(fn (Consult $c) => $c->toCard());
+
+        return Inertia::render('admin/consult-requests', [
             'consults' => $consults,
         ]);
     }
@@ -69,6 +86,17 @@ class ConsultController extends Controller
             ->all();
     }
 
+    // تسعير طلب استشارة «بانتظار التسعير» (مطابق للتصميم) — يُصدر الفاتورة ويُشعر العميل للسداد
+    public function setPrice(Request $request, Consult $consult): RedirectResponse
+    {
+        $this->guardConsult($request, $consult);
+        $data = $request->validate(['price' => ['required', 'integer', 'min:0', 'max:100000']]);
+
+        ConsultBooking::setPrice($consult, (int) $data['price'], $request->user());
+
+        return back()->with('flash', 'تم تحديد سعر الاستشارة وإصدار الفاتورة.');
+    }
+
     // استلام الاستشارة (يطابق cTake)
     public function take(Request $request, Consult $consult): RedirectResponse
     {
@@ -98,14 +126,7 @@ class ConsultController extends Controller
         $consult->save();
         Live::push(new ConsultStatusBroadcast($consult));
 
-        UserNotification::create([
-            'user_id' => $consult->user_id,
-            'icon' => 'upload',
-            'tone' => 't-amber',
-            'body' => "نحتاج استكمال مستندات لاستشارتك ({$consult->ref}): ".implode('، ', $consult->missing).'.',
-            'time_label' => 'الآن',
-            'is_read' => false,
-        ]);
+        Notify::send($consult->user_id, 'upload', 't-amber', "نحتاج استكمال مستندات لاستشارتك ({$consult->ref}): ".implode('، ', $consult->missing).'.');
 
         return back();
     }
@@ -205,14 +226,7 @@ class ConsultController extends Controller
         $consult->save();
         Live::push(new ConsultStatusBroadcast($consult));
 
-        UserNotification::create([
-            'user_id' => $consult->user_id,
-            'icon' => 'scale',
-            'tone' => 't-green',
-            'body' => "أُحيلت استشارتك ({$consult->ref}) إلى المستشار المختص وستُعقد الجلسة في موعدها.",
-            'time_label' => 'الآن',
-            'is_read' => false,
-        ]);
+        Notify::send($consult->user_id, 'scale', 't-green', "أُحيلت استشارتك ({$consult->ref}) إلى المستشار المختص وستُعقد الجلسة في موعدها.");
 
         return back();
     }
@@ -232,9 +246,11 @@ class ConsultController extends Controller
     }
 
     // استقبال الاستشارات — الجلسات حسب القناة حتى كتابة الملخص
+    // (تُستثنى طلبات ما قبل الجلسة: تسعير/سداد/اختيار موعد — مكانها قائمة إدارة الاستشارات)
     public function recv(Request $request): Response
     {
         $consults = $this->scopeForRole($request, Consult::with('user'))
+            ->whereNotIn('status', Consult::PRE_SESSION_STATUSES)
             ->latest('id')->get()
             ->map(fn (Consult $c) => $c->toCard());
 
@@ -256,14 +272,7 @@ class ConsultController extends Controller
                 'هاتفية' => 'بدأت مكالمة استشارتك الهاتفية',
                 default => 'بدأت جلسة استشارتك الحضورية',
             };
-            UserNotification::create([
-                'user_id' => $consult->user_id,
-                'icon' => $consult->channel === 'مرئية' ? 'video' : ($consult->channel === 'هاتفية' ? 'phone' : 'office'),
-                'tone' => 't-blue',
-                'body' => "{$verb} ({$consult->ref}).",
-                'time_label' => 'الآن',
-                'is_read' => false,
-            ]);
+            Notify::send($consult->user_id, $consult->channel === 'مرئية' ? 'video' : ($consult->channel === 'هاتفية' ? 'phone' : 'office'), 't-blue', "{$verb} ({$consult->ref}).");
         }
 
         return back();
@@ -280,25 +289,15 @@ class ConsultController extends Controller
         $this->guardConsult($request, $consult);
         if ($consult->session !== 'منتهية') {
             $notes = trim($data['notes'] ?? '');
-            $summary = $this->ai->consultSummary($consult, $notes);
+            // ختم الجلسة فوراً (بلا AI)، ثم توليد الملخّص/القرارات في الخلفية (يصل لحظياً عند جهوزه)
             $consult->update([
                 'session' => 'منتهية',
                 'status' => 'منتهية',
                 'session_notes' => $notes !== '' ? $notes : $consult->session_notes,
                 'duration_label' => $data['duration'] ?? $consult->duration_label,
-                'summary' => $summary,
-                'decisions' => $this->ai->extractDecisions($summary),
             ]);
             Live::push(new ConsultStatusBroadcast($consult));
-
-            UserNotification::create([
-                'user_id' => $consult->user_id,
-                'icon' => 'doc',
-                'tone' => 't-green',
-                'body' => "انتهت جلسة استشارتك ({$consult->ref}) — ملخص الاستشارة متاح الآن في «استشاراتي».",
-                'time_label' => 'الآن',
-                'is_read' => false,
-            ]);
+            FinalizeConsultJob::dispatch($consult, $notes);
         }
 
         return back();

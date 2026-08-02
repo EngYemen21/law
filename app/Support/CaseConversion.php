@@ -4,11 +4,12 @@ namespace App\Support;
 
 use App\Enums\Role;
 use App\Events\TicketMessageBroadcast;
+use App\Mail\CaseConvertedMail;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
-use App\Models\UserNotification;
 use App\Services\LegalAiService;
+use App\Services\MailService;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -47,11 +48,23 @@ class CaseConversion
                 'fee_status' => 'none',
             ]);
 
+            $details = [];
+            if ($ticket->opponent_name) {
+                $details[] = "الخصم: {$ticket->opponent_name}";
+            }
+            if ($ticket->court_name) {
+                $details[] = "المحكمة المختصة: {$ticket->court_name}";
+            }
+            if ($ticket->claim_amount) {
+                $details[] = 'المبلغ المطالب به: '.number_format((float) $ticket->claim_amount).' ر.س';
+            }
+            $extraChips = ! empty($details) ? implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', $details)) : '';
+
             $case->messages()->create([
                 'who' => 'ai',
                 'name' => 'المساعد القانوني',
                 'role' => 'تحليل',
-                'body' => "<p>تحليل ذكي للطلب:</p><div class=\"doc-list\"><span class=\"doc-chip\">نوع القضية: {$analysis['type']}</span><span class=\"doc-chip\">القسم المختص: {$analysis['department']}</span></div>",
+                'body' => "<p>تحليل ذكي للطلب:</p><div class=\"doc-list\"><span class=\"doc-chip\">نوع القضية: {$analysis['type']}</span><span class=\"doc-chip\">القسم المختص: {$analysis['department']}</span>{$extraChips}</div>",
                 'time_label' => self::clock(),
             ]);
             $case->messages()->create([
@@ -76,14 +89,14 @@ class CaseConversion
         ]);
         Live::push(new TicketMessageBroadcast($msg));
 
-        UserNotification::create([
-            'user_id' => $ticket->user_id,
-            'icon' => 'scale',
-            'tone' => 't-cyan',
-            'body' => "تم تحويل تذكرتك {$ticket->number} إلى قضية قانونية رقم {$case->number}. تابعها من «القضايا».",
-            'time_label' => 'الآن',
-            'is_read' => false,
-        ]);
+        Notify::send($ticket->user_id, 'scale', 't-cyan', "تم تحويل تذكرتك {$ticket->number} إلى قضية قانونية رقم {$case->number}. تابعها من «القضايا».");
+
+        // بريد للعميل بتحويل التذكرة إلى قضية (أفضل-جهد — لا يعطّل التحويل إن فشل)
+        $ticket->loadMissing('user');
+        if ($ticket->user?->email) {
+            $case->setRelation('user', $ticket->user);
+            app(MailService::class)->send($ticket->user, new CaseConvertedMail($case, $ticket->number));
+        }
 
         return $case;
     }

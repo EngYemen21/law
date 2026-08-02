@@ -13,7 +13,8 @@ class Ticket extends Model
     use HasBranch;
 
     protected $fillable = [
-        'user_id', 'number', 'type', 'department', 'assigned_lawyer', 'assigned_lawyer_id', 'branch', 'status', 'tone', 'attachments', 'last_message', 'date_label',
+        'user_id', 'number', 'type', 'opponent_name', 'opponent_id', 'claim_amount', 'court_name', 'priority',
+        'department', 'assigned_lawyer', 'assigned_lawyer_id', 'branch', 'status', 'tone', 'attachments', 'last_message', 'date_label',
     ];
 
     public function user(): BelongsTo
@@ -48,6 +49,12 @@ class Ticket extends Model
         return $this->hasOne(LegalCase::class);
     }
 
+    // استشارات هذه التذكرة (تُنشأ عند طلب حجز استشارة من داخل المحادثة)
+    public function consults(): HasMany
+    {
+        return $this->hasMany(Consult::class);
+    }
+
     // ربط المسار برقم التذكرة بدل المعرّف
     public function getRouteKeyName(): string
     {
@@ -60,6 +67,11 @@ class Ticket extends Model
         return [
             'no' => $this->number,
             'type' => $this->type,
+            'opponentName' => $this->opponent_name,
+            'opponentId' => $this->opponent_id,
+            'claimAmount' => $this->claim_amount,
+            'courtName' => $this->court_name,
+            'priority' => $this->priority ?: 'متوسطة',
             'dept' => $this->department,
             'status' => $this->status,
             'tone' => $this->tone,
@@ -74,9 +86,16 @@ class Ticket extends Model
         return [
             'no' => $this->number,
             'client' => self::maskClient($this->user?->name ?? ''),
+            'clientId' => $this->user_id,
             'type' => $this->type,
+            'opponentName' => $this->opponent_name,
+            'opponentId' => $this->opponent_id,
+            'claimAmount' => $this->claim_amount,
+            'courtName' => $this->court_name,
+            'priority' => $this->priority ?: 'متوسطة',
             'dept' => $this->department,
             'lawyer' => $this->assigned_lawyer ?: '—',
+            'lawyerId' => $this->assigned_lawyer_id,
             'status' => $this->status,
             'tone' => $this->tone,
         ];

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * سجلّ الاستشارة (CN-2026-####) — يُنشأ عند تأكيد حجز الاستشارة من التذكرة،
@@ -11,15 +12,18 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class Consult extends Model
 {
+    // حالات دورة الحجز قبل الجلسة (تسعير → سداد → اختيار موعد) — تُستثنى من شاشة استقبال الجلسات
+    public const PRE_SESSION_STATUSES = ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'];
+
     protected $fillable = [
         'user_id', 'ticket_id', 'appointment_id', 'ref', 'subject', 'type', 'priority', 'channel',
         'lawyer', 'assigned_lawyer_id', 'specialty', 'employee', 'day', 'time', 'when_label', 'received_label', 'branch', 'phone',
         'starts_at', 'duration_min',
         'meet_id', 'meet_link', 'host_link', 'meet_password',
-        'link_released_at', 'join_time', 'leave_time', 'duration_sec', 'transcript', 'recording_url', 'transcript_path', 'zoom_summary_at',
+        'link_released_at', 'reminder_24h_sent_at', 'reminder_1h_sent_at', 'join_time', 'leave_time', 'duration_sec', 'transcript', 'recording_url', 'transcript_path', 'zoom_summary_at',
         'status', 'session', 'session_notes', 'summary', 'duration_label',
         'decisions', 'tasks_created',
-        'price', 'vat', 'total', 'mins',
+        'price', 'vat', 'total', 'mins', 'priced_at', 'paid_at',
         'ai_done', 'ai_class', 'ai_summary', 'ai_lawyer', 'missing', 'audit',
     ];
 
@@ -30,7 +34,11 @@ class Consult extends Model
         'audit' => 'array',
         'decisions' => 'array',
         'starts_at' => 'datetime',
+        'priced_at' => 'datetime',
+        'paid_at' => 'datetime',
         'link_released_at' => 'datetime',
+        'reminder_24h_sent_at' => 'datetime',
+        'reminder_1h_sent_at' => 'datetime',
         'join_time' => 'datetime',
         'leave_time' => 'datetime',
         'zoom_summary_at' => 'datetime',
@@ -61,6 +69,12 @@ class Consult extends Model
     public function appointment(): BelongsTo
     {
         return $this->belongsTo(Appointment::class);
+    }
+
+    // فاتورة الاستشارة (تُصدر عند تسعير الإدارة) — للعرض وحالة السداد
+    public function invoice(): HasOne
+    {
+        return $this->hasOne(Invoice::class);
     }
 
     // المحامي المسند بالمعرّف (لقياس سجلّ النجاح وربط الاستشارة بمحامٍ حقيقي)
@@ -96,6 +110,13 @@ class Consult extends Model
             'status' => $this->status,
             'summary' => $this->summary,
             'duration' => $this->duration_label,
+            // دورة الحجز/الدفع (تسعير الإدارة → فاتورة → دفع ميسّر → اختيار الموعد)
+            'price' => $this->price,
+            'vat' => $this->vat,
+            'total' => $this->total,
+            'priced' => $this->priced_at !== null,
+            'paid' => $this->paid_at !== null,
+            'invoiceNo' => $this->invoice?->number,
             // ملاحظة: لا يُكشف للعميل رابط التسجيل ولا أنّ الجلسة مُسجّلة — داخلي للمكتب فقط
         ];
     }
@@ -121,7 +142,12 @@ class Consult extends Model
             'summary' => $this->summary,
             'duration' => $this->duration_label,
             'recording' => $this->recording_url,
+            'price' => $this->price,
+            'vat' => $this->vat,
             'total' => $this->total,
+            'priced' => $this->priced_at !== null,
+            'paid' => $this->paid_at !== null,
+            'invoiceNo' => $this->invoice?->number,
             // رحلة المعالجة (يطابق واجهة Consult في employee-data)
             'type' => $this->type ?? 'عام',
             'priority' => $this->priority ?? 'متوسطة',

@@ -75,17 +75,18 @@ class AuthorizationHardeningTest extends TestCase
         $this->actingAs($admin)->get('/employee/cases')->assertOk();
     }
 
-    // ── throttle الدخول ──
+    // ── throttle طلب رمز الدخول ──
 
     public function test_login_is_rate_limited(): void
     {
-        User::factory()->create(['email' => 'v@salasel.test', 'password' => Hash::make('password')]);
+        User::factory()->create(['national_id' => '2000000001', 'phone' => '0590000001']);
 
-        for ($i = 0; $i < 5; $i++) {
-            $this->post('/login', ['email' => 'v@salasel.test', 'password' => 'wrong'])->assertStatus(302);
+        // الحدّ 3 طلبات/دقيقة بمفتاح الهوية + IP
+        for ($i = 0; $i < 3; $i++) {
+            $this->post('/auth/otp/request', ['national_id' => '2000000001'])->assertStatus(302);
         }
-        // المحاولة السادسة تُحظر (429)
-        $this->post('/login', ['email' => 'v@salasel.test', 'password' => 'wrong'])->assertStatus(429);
+        // الطلب الرابع يُحظر (429)
+        $this->post('/auth/otp/request', ['national_id' => '2000000001'])->assertStatus(429);
     }
 
     // ── الإيقاف الفوري ──
@@ -151,7 +152,8 @@ class AuthorizationHardeningTest extends TestCase
 
         $this->actingAs($admin)->post(route('admin.staff.store'), [
             'name' => 'موظف جديد', 'role' => 'employee', 'job_title' => 'محاسب',
-            'email' => 'new@salasel.test', 'branch' => 'الفرع الرئيسي — جدة', 'payType' => 'salary', 'salary' => 8000, 'perms' => [],
+            'email' => 'new@salasel.test', 'mobile' => '0590001490', 'nid' => '1090001490',
+            'branch' => 'الفرع الرئيسي — جدة', 'payType' => 'salary', 'salary' => 8000, 'perms' => [],
         ])->assertRedirect()->assertSessionHas('generatedPassword');
 
         $created = User::where('email', 'new@salasel.test')->firstOrFail();

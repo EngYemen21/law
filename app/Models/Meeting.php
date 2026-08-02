@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Meeting extends Model
 {
     protected $fillable = [
-        'user_id', 'ref', 'title', 'type', 'client_name', 'when_label',
+        'user_id', 'ref', 'title', 'type', 'client_name', 'when_label', 'starts_at', 'reminder_sent_at',
         'status', 'priority', 'conf', 'attend', 'dur', 'approve',
         'before_items', 'during_items', 'after_items',
         'summary', 'sum_approved', 'minutes', 'participants', 'case_ref',
@@ -24,6 +24,8 @@ class Meeting extends Model
     ];
 
     protected $casts = [
+        'starts_at' => 'datetime',
+        'reminder_sent_at' => 'datetime',
         'zoom_summary_at' => 'datetime',
         'join_time' => 'datetime',
         'leave_time' => 'datetime',

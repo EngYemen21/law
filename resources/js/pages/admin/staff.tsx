@@ -43,6 +43,23 @@ const AdminStaff: React.FC<Props> = ({ staff, branches }) => {
   const [email, setEmail] = useState('');
   const [mobile, setMobile] = useState('');
   const [nid, setNid] = useState('');
+  // تلميح «إضافة دور آخر»: يظهر إن كانت الهُويّة تخصّ شخصاً موجوداً
+  const [nidHint, setNidHint] = useState<{ name: string; phone: string; roles: string[] } | null>(null);
+
+  const checkNid = async (value: string) => {
+    if (!/^\d{10}$/.test(value)) { setNidHint(null); return; }
+    try {
+      const res = await fetch(`/admin/staff/lookup?nid=${value}`, { headers: { Accept: 'application/json' } });
+      const data = await res.json();
+      if (data?.exists) {
+        // الجوال مُقنَّع من الخادم (للعرض فقط) — لا يُملأ حقل الجوال به؛ يُعبّأ الاسم فقط
+        setNidHint({ name: data.name, phone: data.phone, roles: data.roles ?? [] });
+        if (!name) setName(data.name);
+      } else {
+        setNidHint(null);
+      }
+    } catch { setNidHint(null); }
+  };
   const [branch, setBranch] = useState(branches[0] ?? '');
   const [dept, setDept] = useState(DEPTS[0]);
   const [join, setJoin] = useState('');
@@ -217,7 +234,16 @@ const AdminStaff: React.FC<Props> = ({ staff, branches }) => {
             <div className="field"><label>البريد الإلكتروني</label><input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@salasel.sa" /></div>
             <div className="field"><label>الجوال</label><input className="input" value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="05xxxxxxxx" /></div>
           </div>
-          <div className="field"><label>رقم الهوية</label><input className="input" value={nid} onChange={(e) => setNid(e.target.value)} placeholder="1xxxxxxxxx" /></div>
+          <div className="field">
+            <label>رقم الهوية</label>
+            <input className="input" value={nid} onChange={(e) => { setNid(e.target.value); }} onBlur={(e) => checkNid(e.target.value)} placeholder="1xxxxxxxxx" />
+            {nidHint && (
+              <div style={{ marginTop: 6, fontSize: 12, background: 'var(--amber-bg)', color: 'var(--amber)', border: '1px solid var(--amber)', borderRadius: 8, padding: '7px 10px' }}>
+                يوجد شخص بهذه الهوية: <b>{nidHint.name}</b>
+                {nidHint.roles.length > 0 && <> (الأدوار: {nidHint.roles.join('، ')})</>} — سيُضاف <b>دور آخر</b> لنفس الشخص. اختر دوراً مختلفاً.
+              </div>
+            )}
+          </div>
 
           <div className="form-sec-h"><span className="si"><Icon name="office" /></span> بيانات العمل</div>
           <div className="picker-grid">

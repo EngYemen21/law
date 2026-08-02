@@ -14,11 +14,12 @@ class TicketSummary extends Model
 {
     protected $fillable = [
         'ticket_id', 'lawyer_id', 'case_summary', 'attachments_summary', 'facts', 'key_points', 'status', 'approved_at',
-        'result', 'result_status',
+        'result', 'result_status', 'ai_generated',
     ];
 
     protected $casts = [
         'approved_at' => 'datetime',
+        'ai_generated' => 'boolean',
     ];
 
     public function ticket(): BelongsTo
@@ -48,6 +49,7 @@ class TicketSummary extends Model
             'keyPoints' => $this->key_points,
             'status' => $this->status,
             'approved' => $this->isApproved(),
+            'aiGenerated' => (bool) $this->ai_generated,
             'result' => $this->result,
             'resultStatus' => $this->result_status,
         ];

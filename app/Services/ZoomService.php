@@ -79,6 +79,30 @@ class ZoomService
         return null;
     }
 
+    /**
+     * حذف اجتماع Zoom — أفضل-جهد لتنظيف اجتماع يتيم (مثل تعارض جدولة يُلغي السجلّ بعد إنشاء الاجتماع).
+     * يسجّل الفشل ولا يرمي (نظير Live::push) — التنظيف تحسينٌ لا مصدرُ حقيقة.
+     */
+    public function deleteMeeting(string $meetingId): void
+    {
+        if ($meetingId === '' || ! $this->isConfigured()) {
+            return;
+        }
+
+        try {
+            $token = $this->token();
+            if (! $token) {
+                return;
+            }
+            Http::withToken($token)
+                ->timeout(15)
+                ->retry(2, 500, fn ($e) => $e instanceof ConnectionException, throw: false)
+                ->delete('https://api.zoom.us/v2/meetings/'.$meetingId);
+        } catch (\Throwable $e) {
+            Log::warning('ZoomService deleteMeeting failed: '.$e->getMessage());
+        }
+    }
+
     /** هل هُيّئ Meeting SDK (تطبيق منفصل عن S2S) لتوليد توقيع التضمين داخل المنصّة؟ */
     public function sdkConfigured(): bool
     {

@@ -48,9 +48,13 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
       preserveScroll: true, onSuccess: () => toast('تم حفظ تعديلات الملخص'),
     });
 
+  // قالب مبدئي لم يكتمل تحليله الذكي؛ اعتماده يتطلّب تحرير المحامي (يفرضه حارس الخادم أيضاً)
+  const isTemplate = summary.aiGenerated === false;
+
   const approve = () =>
     router.post(`${base}/summary/${encodeURIComponent(ticket.no)}/approve`, form, {
       onSuccess: () => toast('تم اعتماد الملخص وإرساله لمحادثة العميل'),
+      onError: () => toast('لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — حرّره يدوياً أولاً.'),
     });
 
   const statusText = approved ? 'معتمد — أُرسل للعميل' : 'بانتظار اعتماد المستشار';
@@ -67,7 +71,9 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-h">
           <h3>ملخص ملف — {ticket.no} · {ticket.type}</h3>
-          <Badge text={statusText} tone={statusTone} />
+          {!approved && isTemplate
+            ? <Badge text="بانتظار التحليل الذكي" tone="b-red" />
+            : <Badge text={statusText} tone={statusTone} />}
         </div>
         <div className="card-b" style={{ padding: '16px 18px' }}>
           <FlowLine steps={SUM_FLOW} cur={sumStage(summary.status)} />
@@ -77,9 +83,11 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
       <div className="ai-banner">
         <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
         <p>
-          {canEdit
-            ? <><b>الفريق القانوني</b> جهّز هذا الملخص آلياً من ملف التذكرة. راجِعه وعدّله عند الحاجة ثم اعتمده.</>
-            : 'تم اعتماد هذا الملخص وإرساله إلى محادثة العميل.'}
+          {!canEdit
+            ? 'تم اعتماد هذا الملخص وإرساله إلى محادثة العميل.'
+            : isTemplate
+              ? <><b>لم يكتمل التحليل الذكي بعد</b> — هذا قالب مبدئي لا يعكس محتوى الملف/المرفقات. حرّره يدوياً بناءً على المستندات قبل الاعتماد (لن يُقبل اعتماد القالب كما هو).</>
+              : <><b>الفريق القانوني</b> جهّز هذا الملخص آلياً من ملف التذكرة. راجِعه وعدّله عند الحاجة ثم اعتمده.</>}
         </p>
       </div>
 

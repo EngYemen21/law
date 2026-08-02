@@ -44,7 +44,7 @@ class AccountingController extends Controller
 
     public function pay(Request $request, Invoice $invoice): RedirectResponse
     {
-        $invoice->update(['paid' => true, 'status' => 'مدفوعة', 'tone' => 'b-green']);
+        \App\Support\PaymentReconciler::settleDomain($invoice, $request->user()->name);
 
         return back()->with('flash', "تم تسجيل تحصيل الفاتورة {$invoice->number}.");
     }

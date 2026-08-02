@@ -3,9 +3,9 @@
   "configurations": [
     {
       "name": "lawfirm",
-      "runtimeExecutable": "php",
-      "runtimeArgs": ["artisan", "serve", "--port=8123"],
-      "port": 8123
+      "runtimeExecutable": "C:/Users/a/.config/herd/bin/php83/php.exe",
+      "runtimeArgs": ["artisan", "serve", "--port=8000"],
+      "port": 8000
     }
   ]
 }

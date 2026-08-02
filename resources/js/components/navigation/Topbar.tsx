@@ -1,7 +1,7 @@
 import { router, usePage } from '@inertiajs/react';
 import React from 'react';
 import Icon from '@/lib/icons';
-import { ROLE_TITLES, roleOfPath, unread } from '@/lib/data';
+import { ROLE_TITLES, roleOfPath } from '@/lib/data';
 
 interface TopbarProps {
   onMenuToggle: () => void;
@@ -10,6 +10,7 @@ interface TopbarProps {
 const Topbar: React.FC<TopbarProps> = ({ onMenuToggle }) => {
   const { url, props } = usePage() as any;
   const user = props?.auth?.user;
+  const unread = (props?.unreadNotifications as number) ?? 0; // عدّ حقيقي من الخادم
   const path = (url as string).split('?')[0];
   const role = roleOfPath(path);
   const titles = ROLE_TITLES[role] ?? ROLE_TITLES.client;

@@ -97,7 +97,8 @@ class ZoomWebhookController extends Controller
         }
         $join = $request->input('payload.object.participant.join_time');
         if ($join) {
-            $model->update(['join_time' => Carbon::parse($join)]);
+            // طوابع Zoom بتوقيت UTC (…Z)؛ نحوّلها لتوقيت التطبيق كي يتّسق التخزين والقراءة
+            $model->update(['join_time' => Carbon::parse($join)->setTimezone(config('app.timezone'))]);
         }
     }
 
@@ -107,7 +108,7 @@ class ZoomWebhookController extends Controller
         if (! $leave) {
             return;
         }
-        $leaveAt = Carbon::parse($leave);
+        $leaveAt = Carbon::parse($leave)->setTimezone(config('app.timezone'));
         $data = ['leave_time' => $leaveAt];
         if ($model->join_time !== null) {
             $data['duration_sec'] = (int) abs($leaveAt->diffInSeconds($model->join_time));

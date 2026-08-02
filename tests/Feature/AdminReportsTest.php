@@ -42,9 +42,12 @@ class AdminReportsTest extends TestCase
 
         Invoice::create(['user_id' => $client->id, 'number' => 'INV-1', 'description' => 'أتعاب', 'amount' => 11500, 'status' => 'مدفوعة', 'tone' => 'b-green', 'due_label' => 'اليوم', 'paid' => true]);
         Invoice::create(['user_id' => $client->id, 'number' => 'INV-2', 'description' => 'أتعاب', 'amount' => 5000, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال 14 يوماً', 'paid' => false]);
+        // استشارة مدفوعة (paid_at) تُحتسب في الإيراد؛ مسعّرة بلا سداد لا تُحتسب
         Consult::create(['user_id' => $client->id, 'ref' => 'CN-1', 'subject' => 'استشارة', 'type' => 'عام', 'channel' => 'مرئية',
             'lawyer' => 'أ. سارة القحطاني', 'day' => 'الاثنين', 'time' => '11:30 ص', 'when_label' => 'الاثنين · 11:30 ص',
-            'status' => 'منتهية', 'price' => 450, 'vat' => 68, 'total' => 518]);
+            'status' => 'منتهية', 'price' => 450, 'vat' => 68, 'total' => 518, 'paid_at' => now()]);
+        Consult::create(['user_id' => $client->id, 'ref' => 'CN-2', 'subject' => 'استشارة', 'type' => 'عام', 'channel' => 'هاتفية',
+            'lawyer' => 'أ. خالد', 'status' => 'بانتظار السداد', 'price' => 350, 'vat' => 53, 'total' => 403, 'priced_at' => now()]);
 
         $this->actingAs($admin)->get(route('admin.revenue'))
             ->assertOk()

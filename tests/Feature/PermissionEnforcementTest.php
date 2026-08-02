@@ -75,11 +75,13 @@ class PermissionEnforcementTest extends TestCase
     public function test_suspended_user_cannot_log_in(): void
     {
         User::factory()->create([
-            'role' => Role::Employee, 'email' => 's@salasel.test', 'status' => 'suspended',
+            'role' => Role::Employee, 'national_id' => '2000000002', 'phone' => '0590000002', 'status' => 'suspended',
         ]);
 
-        $this->post('/login', ['email' => 's@salasel.test', 'password' => 'password'])
-            ->assertSessionHasErrors('email');
+        // الموقوف يُرفض عند طلب رمز الدخول (مع تهيئة تقنيات كي نصل لفحص الإيقاف)
+        $this->fakeTaqnyatVerify();
+        $this->post('/auth/otp/request', ['national_id' => '2000000002'])
+            ->assertSessionHasErrors('national_id');
         $this->assertGuest();
     }
 

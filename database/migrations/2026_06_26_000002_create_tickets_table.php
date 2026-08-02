@@ -14,7 +14,7 @@ return new class extends Migration
             $table->string('number')->unique();        // SB-2026-1042
             $table->string('type');                     // نزاع تجاري
             $table->string('department')->nullable();   // القسم التجاري
-            $table->string('status')->default('قيد الدراسة');
+            $table->string('status')->default('قيد التحليل');
             $table->string('tone', 16)->default('b-blue'); // لون الشارة
             $table->string('last_message')->nullable();    // معاينة آخر رد في القائمة
             $table->string('date_label')->nullable();      // وصف زمني للعرض (قبل ساعتين)

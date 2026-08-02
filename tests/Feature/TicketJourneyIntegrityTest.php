@@ -43,7 +43,7 @@ class TicketJourneyIntegrityTest extends TestCase
         $statuses = TicketJourney::statuses();
 
         // الحالة الافتراضية لعمود status — حالة كل تذكرة جديدة
-        $this->assertContains('قيد الدراسة', $statuses);
+        $this->assertContains('قيد التحليل', $statuses);
 
         // كل مرحلة من مراحل الرحلة السبع
         foreach (TicketJourney::STAGES as $stage) {
@@ -69,18 +69,18 @@ class TicketJourneyIntegrityTest extends TestCase
 
     public function test_status_endpoint_rejects_status_outside_vocabulary(): void
     {
-        $ticket = $this->ticket('قيد الدراسة');
+        $ticket = $this->ticket('قيد التحليل');
 
         $this->actingAs($this->employee())
             ->post(route('employee.tickets.status', $ticket), ['status' => 'حالة مخترعة', 'tone' => 'b-blue'])
             ->assertSessionHasErrors('status');
 
-        $this->assertSame('قيد الدراسة', $ticket->fresh()->status);
+        $this->assertSame('قيد التحليل', $ticket->fresh()->status);
     }
 
     public function test_status_endpoint_accepts_a_real_journey_status(): void
     {
-        $ticket = $this->ticket('قيد الدراسة');
+        $ticket = $this->ticket('قيد التحليل');
 
         $this->actingAs($this->employee())
             ->post(route('employee.tickets.status', $ticket), ['status' => 'قيد التحليل', 'tone' => 'b-blue'])
@@ -145,7 +145,7 @@ class TicketJourneyIntegrityTest extends TestCase
             throw new BroadcastException('Reverb unreachable');
         });
 
-        $ticket = $this->ticket('قيد الدراسة');
+        $ticket = $this->ticket('قيد التحليل');
 
         $this->actingAs($this->employee())
             ->post(route('employee.tickets.status', $ticket), ['status' => 'قيد التحليل', 'tone' => 'b-blue'])
@@ -171,13 +171,13 @@ class TicketJourneyIntegrityTest extends TestCase
 
     public function test_status_endpoint_rejects_forward_skip(): void
     {
-        $ticket = $this->ticket('قيد الدراسة'); // مرحلة 1
+        $ticket = $this->ticket('قيد التحليل'); // مرحلة 1
 
         $this->actingAs($this->employee())
             ->post(route('employee.tickets.status', $ticket), ['status' => 'مكتملة']) // مرحلة 6
             ->assertStatus(422);
 
-        $this->assertSame('قيد الدراسة', $ticket->fresh()->status);
+        $this->assertSame('قيد التحليل', $ticket->fresh()->status);
     }
 
     public function test_status_endpoint_rejects_even_single_step_forward(): void
@@ -203,20 +203,20 @@ class TicketJourneyIntegrityTest extends TestCase
         $this->assertSame('بانتظار مستندات', $ticket->fresh()->status);
     }
 
-    public function test_status_endpoint_allows_backward_correction(): void
+    public function test_status_endpoint_rejects_backward_stage_jump(): void
     {
         $ticket = $this->ticket('الرأي القانوني'); // 3
 
         $this->actingAs($this->employee())
             ->post(route('employee.tickets.status', $ticket), ['status' => 'قيد التحليل']) // 1
-            ->assertNoContent();
+            ->assertStatus(422);
 
-        $this->assertSame('قيد التحليل', $ticket->fresh()->status);
+        $this->assertSame('الرأي القانوني', $ticket->fresh()->status);
     }
 
     public function test_forward_skip_cannot_unlock_convert_to_case(): void
     {
-        $ticket = $this->ticket('قيد الدراسة');
+        $ticket = $this->ticket('قيد التحليل');
         $employee = $this->employee();
 
         // محاولة القفز إلى «مكتملة» تُرفض…

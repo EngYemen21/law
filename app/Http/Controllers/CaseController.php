@@ -2,14 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Events\CaseStatusBroadcast;
-use App\Jobs\DraftCasePleadingJob;
 use App\Jobs\GenerateCaseReplyJob;
 use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Services\LegalAiService;
-use App\Support\CaseJourney;
-use App\Support\Live;
+use App\Services\MoyasarService;
+use App\Support\CaseFee;
+use App\Support\PaymentReconciler;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -87,14 +86,15 @@ class CaseController extends Controller
         return response()->noContent();
     }
 
-    // سداد أتعاب القضية (كامل أو على دفعات) → تفعيلها (يطابق cfPay/activate)
-    public function pay(Request $request, LegalCase $case): RedirectResponse
+    // سداد أتعاب القضية → تفعيلها. السداد الكامل عبر بوّابة ميسّر (503 إن غابت)؛ الأقساط ميزة مستقلّة.
+    public function pay(Request $request, LegalCase $case): \Symfony\Component\HttpFoundation\Response
     {
         $this->authorizeCase($request, $case);
         abort_unless($case->fee_status === 'pending_payment', 422);
 
         $plan = $request->validate(['plan' => ['nullable', 'in:full,install']])['plan'] ?? 'full';
 
+        // الأقساط: ميزة مستقلّة (لا تمرّ ببوّابة الدفع) — الدفعة الأولى تُفعّل القضية
         if ($plan === 'install') {
             $case->update([
                 'pay_plan' => 'install',
@@ -108,19 +108,39 @@ class CaseController extends Controller
                 'body' => '<p>تم استلام الدفعة الأولى (1 من 3) من أتعاب القضية، وتفعيلها. تُسدَّد بقية الدفعات لاحقاً.</p>',
                 'time_label' => $this->clock(),
             ]);
-        } else {
-            $case->update(['pay_plan' => 'full', 'fee_status' => 'paid', 'paid_text' => 'تم سداد كامل الأتعاب']);
-            $this->markInvoicePaid($case);
-            $case->messages()->create([
-                'who' => 'system', 'name' => 'النظام', 'role' => 'سداد',
-                'body' => '<p>تم استلام سداد كامل الأتعاب وتفعيل القضية.</p>',
-                'time_label' => $this->clock(),
-            ]);
+            CaseFee::activate($case);
+
+            return back();
         }
 
-        $this->activate($case);
+        // السداد الكامل عبر بوّابة ميسّر → إعادة توجيه لصفحة الدفع (التأكيد عبر webhook/callback)
+        abort_unless(app(MoyasarService::class)->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
+        $callback = $request->getSchemeAndHttpHost().route('cases.pay.callback', $case, absolute: false);
+        $url = CaseFee::initiatePayment($case, $callback);
+        if ($url === null) {
+            return back()->with('error', 'تعذّر بدء الدفع حالياً، حاول بعد قليل.');
+        }
 
-        return back();
+        return Inertia::location($url);
+    }
+
+    // العودة من صفحة ميسّر (سداد الأتعاب) — تحقّق خادميّ صارم ثم تسوية الفاتورة وتفعيل القضية.
+    public function payCallback(Request $request, LegalCase $case): RedirectResponse
+    {
+        $this->authorizeCase($request, $case);
+
+        $paymentId = (string) $request->query('id', '');
+        $payment = $paymentId !== '' ? app(MoyasarService::class)->fetchPayment($paymentId) : null;
+
+        // اربط الدفعة بفاتورة هذه القضية تحديدًا (لا تسوية دفعة تخصّ فاتورة أخرى)
+        $ref = Invoice::where('case_id', $case->id)->latest('id')->value('gateway_ref');
+        $belongs = $payment !== null && $ref !== null && (string) ($payment['invoice_id'] ?? '') === (string) $ref;
+
+        if ($belongs && PaymentReconciler::settle($payment, 'callback')) {
+            return redirect()->route('cases.show', $case)->with('success', 'تم تأكيد سداد الأتعاب وتفعيل القضية.');
+        }
+
+        return redirect()->route('cases.show', $case)->with('error', 'تعذّر تأكيد الدفع. إن كان قد خُصم فسيُحدَّث تلقائياً، أو حاول مجدداً.');
     }
 
     // سداد دفعة تالية من الأقساط
@@ -137,7 +157,7 @@ class CaseController extends Controller
             'paid_text' => $done ? 'تم سداد كامل الأتعاب' : "دفعة {$paid} من {$case->installments_total} مدفوعة",
         ]);
         if ($done) {
-            $this->markInvoicePaid($case);
+            CaseFee::markInvoicePaid($case);
         }
         $case->messages()->create([
             'who' => 'system', 'name' => 'النظام', 'role' => 'سداد',
@@ -148,46 +168,6 @@ class CaseController extends Controller
         ]);
 
         return back();
-    }
-
-    // تفعيل القضية: خطة العمل + مسودة اللائحة (مرّة واحدة عند أول سداد)
-    private function activate(LegalCase $case): void
-    {
-        if ($case->pleading_status !== 'none') {
-            return; // فُعّلت سابقاً
-        }
-
-        $case->update([
-            'status' => 'قيد التحضير',
-            'tone' => CaseJourney::toneFor('قيد التحضير'),
-            'update_text' => 'تم تفعيل القضية؛ يجهّز الفريق خطة العمل واللائحة',
-            'pleading_status' => 'pending_lawyer',
-        ]);
-
-        $lawyer = $case->assigned_lawyer ?: 'المستشار القانوني';
-        $case->messages()->create([
-            'who' => 'system', 'name' => 'النظام', 'role' => 'تفعيل',
-            'body' => '<p>تم تفعيل القضية وإسنادها إلى '.e($lawyer).'.</p>',
-            'time_label' => $this->clock(),
-        ]);
-
-        $steps = ['إعداد اللائحة', 'تجهيز المستندات', 'رفع الدعوى', 'متابعة الجلسات', 'متابعة الحكم', 'التنفيذ'];
-        $stepsHtml = implode('', array_map(fn ($s) => '<li>'.e($s).'</li>', $steps));
-        $case->messages()->create([
-            'who' => 'ai', 'name' => 'المساعد القانوني', 'role' => 'خطة العمل',
-            'body' => '<p>خطة العمل المقترحة للقضية:</p><div class="result-card"><div class="result-sec"><div class="t">مراحل القضية</div><ul>'.$stepsHtml.'</ul></div></div>',
-            'time_label' => $this->clock(),
-        ]);
-
-        DraftCasePleadingJob::dispatch($case);
-
-        Live::push(new CaseStatusBroadcast($case));
-    }
-
-    private function markInvoicePaid(LegalCase $case): void
-    {
-        Invoice::where('case_id', $case->id)->where('paid', false)
-            ->update(['paid' => true, 'status' => 'مدفوعة', 'tone' => 'b-green']);
     }
 
     private function authorizeCase(Request $request, LegalCase $case): void

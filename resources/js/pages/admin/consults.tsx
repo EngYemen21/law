@@ -26,7 +26,6 @@ const AdminConsults: React.FC<{ consults: ConsultCard[] }> = ({ consults }) => {
     ['t-cyan', 'info', by('جديدة'), 'جديدة'],
     ['t-red', 'clock', late, 'متأخرة'],
     ['t-amber', 'user', by('قيد مراجعة الموظف'), 'قيد مراجعة الموظفين'],
-    ['t-cyan', 'info', by('قيد معالجة الفريق القانوني'), 'قيد الفريق القانوني'],
     ['t-green', 'scale', by('جاهزة للمحامي'), 'جاهزة للمحامين'],
     ['t-blue', 'exec', toCase, 'محولة إلى قضايا'],
     ['t-green', 'check', `${conv}%`, 'نسبة التحويل'],

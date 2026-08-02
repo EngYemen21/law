@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\CaseFee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -37,7 +38,7 @@ class CaseLifecycleTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $case = $this->caseFor($client, ['status' => 'بانتظار سداد الأتعاب', 'fee_status' => 'pending_payment', 'pleading_status' => 'none']);
 
-        $this->actingAs($client)->post(route('cases.pay', $case))->assertRedirect();
+        CaseFee::markPaid($case->fresh());
 
         $case->refresh();
         $this->assertSame('قيد التحضير', $case->status);

@@ -33,8 +33,16 @@ class ReleaseMeetingLinks extends Command
         foreach ($due as $consult) {
             $consult->update(['link_released_at' => now()]);
             Live::push(new ConsultStatusBroadcast($consult)); // canJoin=true → الزر يُفعّل لحظياً
+
+            // 1. بريد العميل
             if ($consult->user?->email) {
-                Mail::to($consult->user->email)->queue(new MeetingLinkReady($consult));
+                Mail::to($consult->user->email)->send(new MeetingLinkReady($consult, forLawyer: false));
+            }
+
+            // 2. بريد المحامي المسند
+            $lawyerUser = $consult->assignedLawyer ?? ($consult->assigned_lawyer_id ? \App\Models\User::find($consult->assigned_lawyer_id) : null);
+            if ($lawyerUser?->email && $lawyerUser->id !== $consult->user_id) {
+                Mail::to($lawyerUser->email)->send(new MeetingLinkReady($consult, forLawyer: true));
             }
         }
 

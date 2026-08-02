@@ -17,7 +17,7 @@ class NotificationSeeder extends Seeder
 
         // نفس بيانات DATA.notifs في الواجهة
         $notifs = [
-            ['ic' => 'ticket', 'tone' => 't-blue', 'text' => 'تم تحديث حالة التذكرة <b>SB-2026-1042</b> إلى «قيد الدراسة».', 'time' => 'قبل ساعتين', 'unread' => true],
+            ['ic' => 'ticket', 'tone' => 't-blue', 'text' => 'تم تحديث حالة التذكرة <b>SB-2026-1042</b> إلى «قيد التحليل».', 'time' => 'قبل ساعتين', 'unread' => true],
             ['ic' => 'cal', 'tone' => 't-green', 'text' => 'تم تأكيد موعدك يوم <b>الاثنين 29 يونيو</b> الساعة 11:30 ص.', 'time' => 'أمس', 'unread' => true],
             ['ic' => 'video', 'tone' => 't-cyan', 'text' => 'تم اعتماد ملخص اجتماعك ويمكنك الاطلاع عليه في قسم الاجتماعات.', 'time' => 'قبل يومين', 'unread' => false],
             ['ic' => 'card', 'tone' => 't-amber', 'text' => 'فاتورة <b>INV-2026-301</b> مستحقة السداد قبل 30 يونيو.', 'time' => 'قبل 3 أيام', 'unread' => true],

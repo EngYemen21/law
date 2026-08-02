@@ -21,6 +21,7 @@ class ClientController extends Controller
             ->map(fn (User $u) => [
                 'name' => $u->name,
                 'id' => self::mask($u->national_id, 3),
+                'email' => self::maskEmail($u->email),
                 'mobile' => self::mask($u->phone, 2),
                 'tickets' => $u->tickets_count,
                 'status' => $u->isActive() ? 'نشط' : 'موقوف',
@@ -40,5 +41,19 @@ class ClientController extends Controller
         $end = mb_substr($value, -$tail);
 
         return $head.'•••••'.$end;
+    }
+
+    // إخفاء البريد مع إبقاء البنية (يطابق نمط التصميم: ab•••••@•••.com)
+    private static function maskEmail(?string $email): string
+    {
+        $email = $email ?? '';
+        if ($email === '' || ! str_contains($email, '@')) {
+            return '—';
+        }
+        [$local, $domain] = explode('@', $email, 2);
+        $dot = mb_strrpos($domain, '.');
+        $tld = $dot !== false ? mb_substr($domain, $dot) : '';
+
+        return mb_substr($local, 0, 2).'•••••@•••'.$tld;
     }
 }

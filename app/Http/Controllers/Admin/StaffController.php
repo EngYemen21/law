@@ -7,6 +7,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\User;
 use App\Support\Permissions;
+use App\Support\Phone;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -40,7 +42,7 @@ class StaffController extends Controller
     // تسجيل موظف جديد (يطابق addStaff) — ينشئ User حقيقياً بكلمة مرور عشوائية تُعرض مرة
     public function store(Request $request): RedirectResponse
     {
-        $data = $request->validate($this->rules());
+        $data = $request->validate($this->rules(), $this->messages());
 
         $plainPassword = Str::password(14);
 
@@ -65,7 +67,7 @@ class StaffController extends Controller
         // يُعدَّل الموظفون فقط (لا عملاء)
         abort_if($user->role === Role::Client, 403);
 
-        $data = $request->validate($this->rules($user));
+        $data = $request->validate($this->rules($user), $this->messages());
 
         $user->update($this->attributes($data) + ['avatar_initials' => self::initials($data['name'])]);
         $user->syncPermissions(Permission::whereIn('name', $this->permsForRole($data['role'], $data['perms'] ?? []))->get());
@@ -84,16 +86,19 @@ class StaffController extends Controller
         return array_values(array_intersect($perms, $allowed));
     }
 
-    // قواعد التحقّق المشتركة (البريد فريد مع تجاهل الموظف نفسه عند التعديل)
+    // قواعد التحقّق المشتركة — الهُويّة/الجوال إلزاميّان (للدخول بالـOTP) وفريدان **ضمن الدور**
+    // (فيُسمح بإضافة دور آخر لنفس الشخص، ويُمنع تكرار نفس الدور بنفس الهُويّة/الجوال).
     private function rules(?User $ignore = null): array
     {
+        $role = (string) request('role');
+
         return [
             'name' => ['required', 'string', 'max:120'],
             'role' => ['required', 'string', 'in:employee,lawyer,admin'], // الدور/اللوحة صراحةً
             'job_title' => ['required', 'string', 'max:60'],
             'email' => ['required', 'email', 'max:150', Rule::unique('users', 'email')->ignore($ignore?->id)],
-            'mobile' => ['nullable', 'string', 'max:30'],
-            'nid' => ['nullable', 'string', 'max:20'],
+            'mobile' => ['required', 'regex:/^05\d{8}$/', Rule::unique('users', 'phone')->where('role', $role)->ignore($ignore?->id)],
+            'nid' => ['required', 'regex:/^\d{10}$/', Rule::unique('users', 'national_id')->where('role', $role)->ignore($ignore?->id)],
             // الفرع إلزامي للموظف/المحامي (عزل الرؤية بالفرع يتطلّب ربطهم بفرع صراحةً)
             'branch' => ['required_if:role,employee,lawyer', 'nullable', 'string', 'max:120'],
             'dept' => ['nullable', 'string', 'max:120'],
@@ -107,6 +112,43 @@ class StaffController extends Controller
             'perms' => ['array'],
             'perms.*' => ['string', Rule::in(Permissions::all())],
         ];
+    }
+
+    // رسائل التحقّق العربيّة (مع حارس «حساب واحد لكل دور»)
+    private function messages(): array
+    {
+        return [
+            'nid.required' => 'رقم الهوية إلزاميّ (للدخول بالرمز).',
+            'nid.regex' => 'رقم الهوية يجب أن يتكوّن من 10 أرقام.',
+            'nid.unique' => 'يوجد حساب بهذا الدور لنفس الهوية. اختر دوراً مختلفاً لإضافة حساب آخر لهذا الشخص.',
+            'mobile.required' => 'رقم الجوال إلزاميّ (لاستقبال الرمز).',
+            'mobile.regex' => 'رقم الجوال يجب أن يبدأ بـ 05 ويتكوّن من 10 أرقام.',
+            'mobile.unique' => 'يوجد حساب بهذا الدور لنفس الجوال. اختر دوراً مختلفاً.',
+            'email.unique' => 'البريد الإلكتروني مستخدم في حساب آخر (لكل حساب بريد مختلف).',
+        ];
+    }
+
+    // بحث عن شخص بالهُويّة — لتلميح «إضافة دور آخر» في نموذج الموظف (الإدارة)
+    public function lookup(Request $request): JsonResponse
+    {
+        $nid = (string) $request->query('nid', '');
+
+        if (! preg_match('/^\d{10}$/', $nid)) {
+            return response()->json(['exists' => false]);
+        }
+
+        $users = User::where('national_id', $nid)->get();
+
+        if ($users->isEmpty()) {
+            return response()->json(['exists' => false]);
+        }
+
+        return response()->json([
+            'exists' => true,
+            'name' => $users->first()->name,
+            'phone' => Phone::mask((string) $users->first()->phone), // مُقنَّع — لا يُكشف الجوال كاملاً
+            'roles' => $users->map(fn (User $u) => $u->role->label())->unique()->values(),
+        ]);
     }
 
     // تحويل المُدخلات المتحقّقة إلى أعمدة الموديل (مشترك بين الإنشاء والتعديل)

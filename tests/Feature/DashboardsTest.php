@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Models\Appointment;
+use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\Meeting;
 use App\Models\Ticket;
@@ -25,13 +26,44 @@ class DashboardsTest extends TestCase
         Ticket::create(['user_id' => $client->id, 'number' => 'T2', 'type' => 'تجاري', 'status' => 'مكتملة', 'tone' => 'b-green']);
         Appointment::create(['user_id' => $client->id, 'ext_id' => 'AP1', 'type' => 'استشارة', 'ico' => 'office', 'lawyer' => 'أ. سارة القحطاني', 'day' => 'الأحد', 'time' => '10ص', 'branch' => 'الرياض', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up']);
         Invoice::create(['user_id' => $client->id, 'number' => 'INV1', 'description' => 'أتعاب', 'amount' => 5000, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال 14 يوماً', 'paid' => false]);
+        Execution::create(['user_id' => $client->id, 'number' => 'EXE1', 'subject' => 'تنفيذ', 'status' => 'جديد', 'tone' => 'b-blue']);
 
         $this->actingAs($client)->get(route('dashboard'))
             ->assertOk()->assertInertia(fn ($p) => $p->component('dashboard')
             ->where('counts.openTickets', 1)   // T2 مكتملة مستثناة
             ->where('counts.upAppts', 1)
             ->where('counts.dueInv', 1)
+            ->where('counts.myExec', 1)
+            ->has('upcomingAppts', 1)
+            ->has('dueInvoices', 1)
             ->where('lastTicket.no', 'T2'));
+    }
+
+    public function test_client_dashboard_lists_are_scoped_and_filtered(): void
+    {
+        $me = User::factory()->create(['role' => Role::Client]);
+        $other = User::factory()->create(['role' => Role::Client]);
+
+        // بيانات عميل آخر — يجب ألّا تظهر
+        Appointment::create(['user_id' => $other->id, 'ext_id' => 'AP-X', 'type' => 'استشارة', 'ico' => 'office', 'lawyer' => 'أ. خالد', 'day' => 'الاثنين', 'time' => '9ص', 'branch' => 'جدة', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up']);
+        Invoice::create(['user_id' => $other->id, 'number' => 'INV-X', 'description' => 'أتعاب', 'amount' => 999, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'اليوم', 'paid' => false]);
+
+        // موعدي: قادم (يظهر) وسابق (مستثنى)
+        Appointment::create(['user_id' => $me->id, 'ext_id' => 'AP-UP', 'type' => 'استشارة', 'ico' => 'office', 'lawyer' => 'أ. سارة', 'day' => 'الأحد', 'time' => '10ص', 'branch' => 'الرياض', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up']);
+        Appointment::create(['user_id' => $me->id, 'ext_id' => 'AP-PAST', 'type' => 'استشارة', 'ico' => 'office', 'lawyer' => 'أ. سارة', 'day' => 'أمس', 'time' => '10ص', 'branch' => 'الرياض', 'status' => 'منتهٍ', 'tone' => 'b-grey', 'when_kind' => 'past']);
+
+        // فاتورتي: مستحقّة (تظهر) ومدفوعة (مستثناة)
+        Invoice::create(['user_id' => $me->id, 'number' => 'INV-DUE', 'description' => 'أتعاب', 'amount' => 500, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'اليوم', 'paid' => false]);
+        Invoice::create(['user_id' => $me->id, 'number' => 'INV-PAID', 'description' => 'أتعاب', 'amount' => 700, 'status' => 'مدفوعة', 'tone' => 'b-green', 'due_label' => 'أمس', 'paid' => true]);
+
+        $this->actingAs($me)->get(route('dashboard'))
+            ->assertOk()->assertInertia(fn ($p) => $p->component('dashboard')
+            ->where('counts.upAppts', 1)
+            ->where('counts.dueInv', 1)
+            ->has('upcomingAppts', 1)
+            ->where('upcomingAppts.0.id', 'AP-UP')
+            ->has('dueInvoices', 1)
+            ->where('dueInvoices.0.no', 'INV-DUE'));
     }
 
     public function test_employee_dashboard_lists_active_tickets(): void

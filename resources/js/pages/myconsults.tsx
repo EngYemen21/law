@@ -1,12 +1,52 @@
 import { router } from '@inertiajs/react';
 import React, { useEffect, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import SpecialistPicker, { todayISO } from '@/components/SpecialistPicker';
 import { useToast } from '@/components/babylon/Toast';
 import {  lawyerFirst, SummaryModal } from '@/lib/consult-ui';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { crChannelIcon, crChannelTone } from '@/lib/employee-data';
+import { CONSULT_BOOKING_STATUSES, crChannelIcon, crChannelTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+
+// إجراءات دورة الحجز في «استشاراتي»: دفع الفاتورة (محاكى) ثم اختيار الموعد بعد السداد.
+const BookingActions: React.FC<{ c: ConsultCard; toast: (m: string) => void }> = ({ c, toast }) => {
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState(todayISO());
+  const [lawyerId, setLawyerId] = useState<number | null>(null);
+  const [time, setTime] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  if (c.status === 'بانتظار التسعير') return <Badge text="بانتظار تسعير المكتب" tone="b-amber" />;
+
+  if (c.status === 'بانتظار السداد') return (
+    <button className="btn sm" type="button" disabled={busy} onClick={() => {
+      setBusy(true);
+      // النجاح = تحويل المتصفّح لصفحة ميسّر (Inertia::location) — لا توست «تم السداد» هنا؛ فقط عرض تعذّر البدء
+      router.post(`/consults/${c.id}/pay`, {}, { preserveScroll: true, onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر بدء الدفع، حاول بعد قليل'), onFinish: () => setBusy(false) });
+    }}>
+      <Icon name="card" /> ادفع عبر ميسّر — {c.total} ر.س
+    </button>
+  );
+
+  // بانتظار تحديد الموعد
+  return open ? (
+    <div style={{ width: '100%' }}>
+      <SpecialistPicker fetchUrl="/book/availability" fetchParams={{ subject: c.subject }} enabled autoAssign
+        date={date} onDateSnap={setDate} lawyerId={lawyerId} onLawyerChange={setLawyerId} time={time} onTimeChange={setTime} />
+      <button className="btn sm" type="button" style={{ marginTop: 10 }} disabled={!lawyerId || !time || busy} onClick={() => {
+        setBusy(true);
+        router.post(`/consults/${c.id}/schedule`, { lawyer_id: lawyerId, date, time }, {
+          preserveScroll: true, onSuccess: () => toast('تم تأكيد الموعد'), onError: () => toast('تعذّر، جرّب فترة أخرى'), onFinish: () => setBusy(false),
+        });
+      }}>
+        <Icon name="cal" /> تأكيد الموعد
+      </button>
+    </div>
+  ) : (
+    <button className="btn sm" type="button" onClick={() => setOpen(true)}><Icon name="cal" /> اختر موعد الجلسة</button>
+  );
+};
 
 // يطابق myConsultsView في index (82).html — استشارات العميل مع حالة الجلسة لحظياً
 
@@ -20,9 +60,10 @@ const MyConsults: React.FC<Props> = ({ consults }) => {
   // بثّ لحظي: «جارية الآن» والملخص يظهران فور بدء/إنهاء المكتب للجلسة
   useEffect(() => {
     consults.forEach((c) => {
-      echo.private(`consult.${c.id}`).listen('.status', (e: { session: string; status: string; summary: string | null; duration: string | null; canJoin?: boolean }) => {
+      echo.private(`consult.${c.id}`).listen('.status', (e: { session: string; status: string; summary: string | null; duration: string | null; canJoin?: boolean; price?: number; vat?: number; total?: number; priced?: boolean; paid?: boolean; invoiceNo?: string | null; when?: string | null }) => {
         setItems((prev) => prev.map((x) => x.id === c.id
-          ? { ...x, session: e.session, status: e.status, summary: e.summary, duration: e.duration, canJoin: e.canJoin ?? x.canJoin }
+          ? { ...x, session: e.session, status: e.status, summary: e.summary, duration: e.duration, canJoin: e.canJoin ?? x.canJoin,
+              price: e.price ?? x.price, vat: e.vat ?? x.vat, total: e.total ?? x.total, priced: e.priced ?? x.priced, paid: e.paid ?? x.paid, invoiceNo: e.invoiceNo ?? x.invoiceNo, when: e.when ?? x.when }
           : x));
       });
     });
@@ -71,8 +112,11 @@ void navigator.clipboard.writeText(c.slink);
                 )}
               </div>
               <div className="iact">
-                {/* الملغاة أولاً: كانت تسقط إلى «بانتظار الجلسة» ومعها زرّ انضمام لجلسة لن تنعقد */}
-                {c.status === 'ملغاة' ? (
+                {/* دورة الحجز (تسعير/سداد/اختيار موعد) قبل أي منطق جلسة */}
+                {CONSULT_BOOKING_STATUSES.includes(c.status) ? (
+                  <BookingActions c={c} toast={toast} />
+                ) : /* الملغاة: كانت تسقط إلى «بانتظار الجلسة» ومعها زرّ انضمام لجلسة لن تنعقد */
+                c.status === 'ملغاة' ? (
                   <Badge text="ملغاة" tone="b-red" />
                 ) : c.session === 'جلسة جارية' ? (
                   c.channel === 'مرئية' ? (

@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\Role;
 use App\Http\Controllers\Controller;
-use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -20,14 +19,15 @@ class LawyerController extends Controller
 {
     public function index(): Response
     {
+        // withCount بدل COUNT لكل محامٍ (N+1 → استعلام واحد)
         $lawyers = User::where('role', Role::Lawyer)
+            ->withCount(['assignedTickets as active' => fn ($q) => $q->where('status', '!=', 'مكتملة')])
             ->orderBy('id')->get()
             ->map(fn (User $u) => [
                 'id' => $u->id,
                 'name' => $u->name,
                 'depts' => $u->department ? [$u->department] : [],
-                'active' => Ticket::where('assigned_lawyer_id', $u->id)
-                    ->where('status', '!=', 'مكتملة')->count(),
+                'active' => $u->active,
                 'mode' => $u->distribution_mode === 'manual' ? 'يدوي' : 'تلقائي',
             ]);
 

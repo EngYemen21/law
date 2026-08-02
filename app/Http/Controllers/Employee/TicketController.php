@@ -7,10 +7,10 @@ use App\Events\TicketStatusBroadcast;
 use App\Http\Controllers\Concerns\BranchScoped;
 use App\Http\Controllers\Controller;
 use App\Models\Ticket;
-use App\Models\TicketDocument;
 use App\Services\LegalAiService;
 use App\Support\CaseConversion;
 use App\Support\Live;
+use Illuminate\Support\Facades\DB;
 use App\Support\ServiceDocs;
 use App\Support\TicketJourney;
 use App\Support\TicketResult;
@@ -46,6 +46,12 @@ class TicketController extends Controller
         $this->guardBranch($ticket);
         $ticket->load('user');
 
+        $lawyers = \App\Models\User::where('role', \App\Enums\Role::Lawyer)
+            ->where('branch', $this->currentBranch())
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name]);
+
         return Inertia::render('employee/ticketchat', [
             'ticket' => $ticket->toEmployeeCard(),
             'channel' => 'ticket.'.$ticket->id,
@@ -53,43 +59,63 @@ class TicketController extends Controller
             'messages' => $ticket->messages->map->toMessage(),
             // مفردات الحالة من مصدر الرحلة — قائمة مكتوبة يدوياً كانت تُسقط حالات حقيقية
             'states' => TicketJourney::options(),
+            // محامو الفرع لمودال جدولة الموعد المضمّن
+            'lawyers' => $lawyers,
         ]);
     }
 
-    // ردّ الموظف (يراه العميل ضمن نفس التذكرة) — بثّ لحظي
+
+
+    // ردّ الموظف (يراه العميل ضمن نفس التذكرة) — بثّ لحظي معزول بالمعاملة
     public function reply(Request $request, Ticket $ticket): HttpResponse
     {
         $this->guardBranch($ticket);
         $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
 
-        $msg = $ticket->messages()->create([
-            'who' => 'staff',
-            'name' => $request->user()->name,
-            'role' => 'خدمة العملاء',
-            'body' => nl2br(e($data['body'])),
-            'time_label' => $this->clock(),
-        ]);
-        Live::push(new TicketMessageBroadcast($msg));
+        $msg = null;
+        DB::transaction(function () use ($ticket, $request, $data, &$msg) {
+            $msg = $ticket->messages()->create([
+                'who' => 'staff',
+                'name' => $request->user()->name,
+                'role' => 'خدمة العملاء',
+                'body' => nl2br(e($data['body'])),
+                'time_label' => $this->clock(),
+            ]);
 
-        $ticket->update(['last_message' => $data['body'], 'date_label' => 'الآن']);
+            $ticket->update(['last_message' => $data['body'], 'date_label' => 'الآن']);
+        });
+
+        if ($msg) {
+            DB::afterCommit(function () use ($msg) {
+                Live::push(new TicketMessageBroadcast($msg));
+            });
+        }
 
         return response()->noContent();
     }
 
-    // ملاحظة داخلية (لا يراها العميل) — تُبثّ على قناة الموظفين فقط
+    // ملاحظة داخلية (لا يراها العميل) — تُبثّ على قناة الموظفين فقط معزولة بالمعاملة
     public function note(Request $request, Ticket $ticket): HttpResponse
     {
         $this->guardBranch($ticket);
         $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
 
-        $msg = $ticket->messages()->create([
-            'who' => 'note',
-            'name' => $request->user()->name,
-            'role' => 'ملاحظة داخلية',
-            'body' => nl2br(e($data['body'])),
-            'time_label' => $this->clock(),
-        ]);
-        Live::push(new TicketMessageBroadcast($msg));
+        $msg = null;
+        DB::transaction(function () use ($ticket, $request, $data, &$msg) {
+            $msg = $ticket->messages()->create([
+                'who' => 'note',
+                'name' => $request->user()->name,
+                'role' => 'ملاحظة داخلية',
+                'body' => nl2br(e($data['body'])),
+                'time_label' => $this->clock(),
+            ]);
+        });
+
+        if ($msg) {
+            DB::afterCommit(function () use ($msg) {
+                Live::push(new TicketMessageBroadcast($msg));
+            });
+        }
 
         return response()->noContent();
     }
@@ -211,43 +237,24 @@ class TicketController extends Controller
      * اعتماد ملخص المستند وإرساله للعميل.
      * يُستدعى من لوحة الموظف عبر زر «اعتماد وإرسال للعميل» في الملاحظة الداخلية.
      */
-    public function approveDocSummary(Request $request, Ticket $ticket, TicketDocument $document): HttpResponse
+    // إعادة تشغيل تحليل الذكاء الاصطناعي للملخص من لوحة الموظف (يطابق cRerun)
+    public function rerunSummary(Request $request, Ticket $ticket): RedirectResponse
     {
         $this->guardBranch($ticket);
+        abort_unless($ticket->summary, 404);
+        abort_if($ticket->summary->isApproved(), 422, 'لا يمكن إعادة تشغيل التحليل لملخّص تم اعتماده رسمياً.');
 
-        // تأكد أن المستند تابع لهذه التذكرة
-        abort_unless($document->ticket_id === $ticket->id, 403);
+        \App\Jobs\GenerateTicketSummaryJob::dispatch($ticket, force: true);
 
-        // لا إعادة اعتماد لما تم إرساله مسبقاً
-        abort_if($document->summary_approved === true, 409, 'تم إرسال ملخص هذا المستند للعميل مسبقاً.');
-
-        abort_if(empty($document->summary), 422, 'لا يوجد ملخص لهذا المستند.');
-
-        // تسجيل الاعتماد
-        $document->update(['summary_approved' => true]);
-
-        // إنشاء رسالة ai مرئية للعميل بالملخص المعتمد
-        $msg = $ticket->messages()->create([
-            'who' => 'ai',
-            'name' => LegalAiService::AGENT_NAME,
-            'role' => 'تحليل المستند',
-            'body' => '<p>تم فحص المستند «'.e($document->name).'» والتحقق من محتواه.</p>'
-                .'<div class="doc-list" style="flex-direction:column;align-items:stretch">'
-                .'<span class="doc-chip">📄 النوع: '.e($document->doc_type).'</span>'
-                .'<span class="doc-chip">📝 '.e($document->summary).'</span>'
-                .'</div>',
-            'time_label' => $this->clock(),
-        ]);
-        Live::push(new TicketMessageBroadcast($msg));
-
-        return response()->noContent();
+        return back()->with('flash', 'تمت إعادة تشغيل التحليل الذكي للملخّص.');
     }
 
-    // تحويل التذكرة المكتملة إلى قضية (يظهر للموظف بعد انتهاء الاستشارة)
+    // تحويل التذكرة المكتملة إلى قضية (يشترط اعتماد المستشار المسبق للنتيجة)
     public function convertToCase(Request $request, Ticket $ticket): RedirectResponse
     {
         $this->guardBranch($ticket);
         abort_unless($ticket->status === 'مكتملة', 422);
+        abort_unless($ticket->summary?->isApproved(), 422, 'لا يمكن تحويل التذكرة لقضية إلا بعد اعتماد النتيجة من المستشار القانوني.');
         abort_if($ticket->legalCase()->exists(), 409);
 
         CaseConversion::convert($ticket, $request->user());

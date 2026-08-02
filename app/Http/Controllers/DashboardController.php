@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\Role;
 use App\Models\Appointment;
 use App\Models\Consult;
+use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Meeting;
@@ -35,7 +36,15 @@ class DashboardController extends Controller
                 'upAppts' => Appointment::where('user_id', $uid)->where('when_kind', 'up')->count(),
                 'upMeet' => Meeting::where('user_id', $uid)->whereIn('status', ['قادم', 'جارٍ'])->count(),
                 'dueInv' => Invoice::where('user_id', $uid)->where('paid', false)->count(),
+                'myExec' => Execution::where('user_id', $uid)->whereNull('stage')->count(),
             ],
+            // أقرب 3 مواعيد قادمة و3 فواتير مستحقّة — لبطاقتَي «مواعيدك القادمة» و«فواتير بانتظار السداد»
+            'upcomingAppts' => Appointment::where('user_id', $uid)->where('when_kind', 'up')
+                ->with(['user', 'consult'])->latest('id')->take(3)->get()
+                ->map(fn (Appointment $a) => $a->toCard())->values(),
+            'dueInvoices' => Invoice::where('user_id', $uid)->where('paid', false)
+                ->latest('id')->take(3)->get()
+                ->map(fn (Invoice $i) => $i->toCard())->values(),
             'lastTicket' => $last ? ['no' => $last->number, 'step' => TicketJourney::indexOf($last->status)] : null,
         ]);
     }

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -44,7 +45,7 @@ class ClientTicketJourneyTest extends TestCase
 
         $this->assertSame($client->id, $ticket->user_id);
         $this->assertSame('نزاع تجاري', $ticket->type);
-        $this->assertSame('قيد الدراسة', $ticket->status);
+        $this->assertSame('قيد التحليل', $ticket->status);
         $this->assertMatchesRegularExpression('/^SB-\d{4}-\d{4}$/', $ticket->number);
 
         // رسالتان: رسالة العميل + إيصال الاستلام من الفريق
@@ -145,18 +146,26 @@ class ClientTicketJourneyTest extends TestCase
         $this->assertSame('بانتظار اعتماد المستشار', $ticket->fresh()->status);
 
         // اعتماد المستشار للملخص → الرأي القانوني
-        $this->actingAs($lawyer)->post(route('lawyer.summary.approve', $ticket))->assertRedirect();
+        // المستشار يحرّر الملخّص القالبي ثم يعتمده (حارس الصدق يمنع اعتماد القالب كما هو)
+        $this->actingAs($lawyer)->post(route('lawyer.summary.approve', $ticket), [
+            'case_summary' => 'ملخّص محرّر من المستشار بعد مراجعة الملف.',
+            'key_points' => '• الرأي القانوني المبدئي بعد المراجعة.',
+        ])->assertRedirect();
         $this->assertSame('الرأي القانوني', $ticket->fresh()->status);
 
         // الموظف يتقدّم → بانتظار حجز الاستشارة
         $this->actingAs($employee)->post(route('employee.tickets.advance', $ticket))->assertNoContent();
         $this->assertSame('بانتظار حجز الاستشارة', $ticket->fresh()->status);
 
-        // العميل يحجز الاستشارة → موعد مؤكد (بالمعرّف ووقت حقيقي)
-        $this->actingAs($client)->post(route('tickets.book', $ticket), [
-            'type' => 'video', 'lawyer_id' => $lawyer->id,
-            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '11:30',
-        ])->assertNoContent();
+        // العميل يحجز الاستشارة: طلب → تسعير الإدارة → دفع محاكى → اختيار الموعد → موعد مؤكد
+        $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'video'])->assertNoContent();
+        $consult = $ticket->consults()->latest('id')->firstOrFail();
+        $pricingAdmin = User::factory()->create(['role' => Role::Admin]);
+        $this->actingAs($pricingAdmin)->post(route('admin.consults.price', $consult), ['price' => 450])->assertRedirect();
+        ConsultBooking::markPaid($consult->fresh());
+        $this->actingAs($client)->post(route('consults.schedule', $consult), [
+            'lawyer_id' => $lawyer->id, 'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '11:30',
+        ])->assertRedirect();
         $this->assertSame('موعد مؤكد', $ticket->fresh()->status);
 
         // الموظف يعقد الجلسة → بانتظار اعتماد النتيجة

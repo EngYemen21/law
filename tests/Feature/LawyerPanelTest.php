@@ -104,8 +104,9 @@ class LawyerPanelTest extends TestCase
 
         $this->actingAs($mine)->get(route('lawyer.cases'))
             ->assertInertia(fn ($p) => $p->has('cases', 1)->where('cases.0.no', 'CASE-A'));
+        // التبويب الموحّد (execflow): بطاقة التدفّق تستخدم المفتاح id، ومحصورة بالمسند إليه
         $this->actingAs($mine)->get(route('lawyer.execs'))
-            ->assertInertia(fn ($p) => $p->has('execs', 1)->where('execs.0.no', 'EXE-A'));
+            ->assertInertia(fn ($p) => $p->component('execflow')->has('execs', 1)->where('execs.0.id', 'EXE-A'));
     }
 
     public function test_calendar_shows_only_lawyers_events(): void

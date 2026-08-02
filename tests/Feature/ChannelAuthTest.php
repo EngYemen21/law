@@ -58,6 +58,35 @@ class ChannelAuthTest extends TestCase
         $this->assertFalse(ChannelAccess::staffCanSee($empOther, $rec));
     }
 
+    public function test_presence_member_gates_double_reply_notice_to_staff_only(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $lawyerA = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $lawyerB = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $empRiyadh = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض', 'name' => 'منيرة الحربي']);
+        $empDammam = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الدمام']);
+        $admin = User::factory()->create(['role' => Role::Admin]);
+
+        $rec = $this->record($client->id, $lawyerA->id, 'فرع الرياض');
+
+        // العميل لا ينضم لقناة الحضور مطلقاً — التنبيه شأن داخلي (ولو كان مالك التذكرة)
+        $this->assertNull(ChannelAccess::presenceMember($client, $rec));
+        // موظف فرع آخر ومحامٍ غير مسند — ممنوعان (نفس عزل الملاحظات الداخلية)
+        $this->assertNull(ChannelAccess::presenceMember($empDammam, $rec));
+        $this->assertNull(ChannelAccess::presenceMember($lawyerB, $rec));
+
+        // موظف نفس الفرع يُقبل، وتُعاد بياناته للعرض في اللافتة
+        $member = ChannelAccess::presenceMember($empRiyadh, $rec);
+        $this->assertSame(
+            ['id' => $empRiyadh->id, 'name' => 'منيرة الحربي', 'role' => $empRiyadh->role->label()],
+            $member
+        );
+
+        // المحامي المسند والإدارة يُقبلان أيضاً
+        $this->assertNotNull(ChannelAccess::presenceMember($lawyerA, $rec));
+        $this->assertNotNull(ChannelAccess::presenceMember($admin, $rec));
+    }
+
     public function test_null_branch_record_is_not_visible_to_employees(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);

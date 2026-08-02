@@ -8,10 +8,10 @@ use App\Http\Controllers\Controller;
 use App\Models\CaseHearing;
 use App\Models\LegalCase;
 use App\Models\Ticket;
-use App\Models\UserNotification;
 use App\Support\CaseJourney;
 use App\Support\ExecutionCreation;
 use App\Support\Live;
+use App\Support\Notify;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -167,10 +167,7 @@ class CaseController extends Controller
 
     private function notify(LegalCase $case, string $icon, string $tone, string $body): void
     {
-        UserNotification::create([
-            'user_id' => $case->user_id, 'icon' => $icon, 'tone' => $tone,
-            'body' => $body, 'time_label' => 'الآن', 'is_read' => false,
-        ]);
+        Notify::send($case->user_id, $icon, $tone, $body);
     }
 
     private function clock(): string

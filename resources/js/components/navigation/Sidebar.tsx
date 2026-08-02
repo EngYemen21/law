@@ -12,6 +12,7 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const { url, props } = usePage() as any;
   const user = props?.auth?.user;
+  const unreadNotifications = (props?.unreadNotifications as number) ?? 0; // عدّ حقيقي من الخادم
   const path = (url as string).split('?')[0];
   const role = roleOfPath(path);
   const roleMeta = ROLES.find((r) => r.key === role) ?? ROLES[0];
@@ -70,12 +71,41 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               >
                 <Icon name={it.icon} />
                 <span>{it.label}</span>
-                {it.badge ? <span className="badge">{it.badge}</span> : null}
+                {(() => {
+                  // عنصر الإشعارات يأخذ العدّ الحقيقي من الخادم؛ غيره يبقى على شارته الثابتة إن وُجدت
+                  const badge = it.route === '/notifications' ? unreadNotifications : it.badge;
+                  return badge ? <span className="badge">{badge}</span> : null;
+                })()}
               </Link>
             ))}
           </div>
         ))}
       </nav>
+
+      {/* تبديل الحساب — لمن لديه أكثر من حساب بنفس الهُويّة (أدوار مختلفة) */}
+      {Array.isArray(user?.accounts) && user.accounts.filter((a: any) => !a.current).length > 0 && (
+        <div className="role-switch">
+          <div className="gl">تبديل الحساب</div>
+          <div className="role-grid">
+            {user.accounts
+              .filter((a: any) => !a.current)
+              .map((a: any) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  className="role-btn"
+                  onClick={() => {
+                    onClose();
+                    router.post('/auth/switch-account', { account_id: a.id });
+                  }}
+                >
+                  <Icon name="user" />
+                  {a.roleLabel}
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
 
       {/* المستخدم المسجّل + تسجيل الخروج */}
       <div className="sb-user">

@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Support\Notify;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -44,10 +45,7 @@ class ClientNotifController extends Controller
         ]);
         User::where('role', Role::Client)->findOrFail($data['client_id']);
 
-        UserNotification::create([
-            'user_id' => $data['client_id'], 'icon' => 'bell', 'tone' => 't-blue',
-            'body' => $data['body'], 'time_label' => 'الآن', 'is_read' => false,
-        ]);
+        Notify::send($data['client_id'], 'bell', 't-blue', $data['body']);
 
         return back(fallback: route('admin.clientnotifs', ['client' => $data['client_id']]))
             ->with('flash', 'تم إرسال الإشعار للعميل.');

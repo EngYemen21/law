@@ -37,6 +37,15 @@ class ConsultStatusBroadcast implements ShouldBroadcastNow
             'summary' => $this->consult->summary,
             'duration' => $this->consult->duration_label,
             'canJoin' => $this->consult->canJoin(),
+            // دورة الحجز/الدفع — تُمكّن الواجهة من التقدّم لحظياً (فاتورة → دفع → موعد)
+            'price' => $this->consult->price,
+            'vat' => $this->consult->vat,
+            'total' => $this->consult->total,
+            'priced' => $this->consult->priced_at !== null,
+            'paid' => $this->consult->paid_at !== null,
+            'invoiceNo' => $this->consult->invoice?->number,
+            'when' => $this->consult->when_label,
+            'channel' => $this->consult->channel,
         ];
     }
 }

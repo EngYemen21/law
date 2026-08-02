@@ -13,6 +13,7 @@ class AppointmentController extends Controller
     public function index(Request $request): Response
     {
         $appointments = Appointment::where('user_id', $request->user()->id)
+            ->with(['user', 'consult'])
             ->latest('id')->get()
             ->map(fn (Appointment $a) => $a->toCard());
 

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\ConsultBooking;
 use App\Support\TicketJourney;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -41,7 +42,7 @@ class TicketJourneyWalkTest extends TestCase
             'user_id' => $client->id, 'number' => 'SB-2026-7700',
             'type' => 'تجاري', 'department' => 'القضايا التجارية',
             'branch' => self::BRANCH, 'assigned_lawyer_id' => $lawyer->id, 'assigned_lawyer' => $lawyer->name,
-            'status' => 'قيد الدراسة', 'tone' => 'b-blue', 'attachments' => 0,
+            'status' => 'قيد التحليل', 'tone' => 'b-blue', 'attachments' => 0,
         ]);
 
         // ── المرحلة 1: التحليل ──
@@ -68,7 +69,11 @@ class TicketJourneyWalkTest extends TestCase
         $this->assertSame('بانتظار اعتماد المستشار', $ticket->fresh()->status, 'لا يتقدّم الموظف بلا اعتماد');
 
         // ── المرحلة 3: المستشار يعتمد الملخّص ← الرأي القانوني ──
-        $this->actingAs($lawyer)->post(route('lawyer.summary.approve', $ticket))->assertRedirect();
+        // المستشار يحرّر الملخّص القالبي ثم يعتمده (حارس الصدق يمنع اعتماد القالب كما هو)
+        $this->actingAs($lawyer)->post(route('lawyer.summary.approve', $ticket), [
+            'case_summary' => 'ملخّص محرّر من المستشار بعد مراجعة الملف.',
+            'key_points' => '• الرأي القانوني المبدئي بعد المراجعة.',
+        ])->assertRedirect();
         $this->assertSame('الرأي القانوني', $ticket->fresh()->status);
         $this->assertSame(3, $this->stageOf($ticket));
 
@@ -81,13 +86,17 @@ class TicketJourneyWalkTest extends TestCase
         $this->actingAs($employee)->post(route('employee.tickets.advance', $ticket))->assertNoContent();
         $this->assertSame('بانتظار حجز الاستشارة', $ticket->fresh()->status, 'الحجز بيد العميل وحده');
 
-        // ── المرحلة 5: العميل يحجز ← موعد مؤكد ──
-        $this->actingAs($client)->post(route('tickets.book', $ticket), [
-            'type' => 'phone',
+        // ── المرحلة 5: العميل يحجز (طلب → تسعير → دفع → موعد) ← موعد مؤكد ──
+        $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'phone'])->assertNoContent();
+        $consult = $ticket->consults()->latest('id')->firstOrFail();
+        $pricingAdmin = User::factory()->create(['role' => Role::Admin]);
+        $this->actingAs($pricingAdmin)->post(route('admin.consults.price', $consult), ['price' => 350])->assertRedirect();
+        ConsultBooking::markPaid($consult->fresh());
+        $this->actingAs($client)->post(route('consults.schedule', $consult), [
             'lawyer_id' => $lawyer->id,
             'date' => now()->addDays(3)->toDateString(),
             'time' => '11:00',
-        ])->assertNoContent();
+        ])->assertRedirect();
         $this->assertSame('موعد مؤكد', $ticket->fresh()->status, 'حالة التذكرة تُحفظ رغم أي تعثّر في البثّ');
         $this->assertSame(5, $this->stageOf($ticket));
 

@@ -10,12 +10,12 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
-        "anthropic-ai/sdk": "*",
         "inertiajs/inertia-laravel": "^3.0",
         "laravel/framework": "^13.7",
         "laravel/reverb": "*",
         "laravel/tinker": "^3.0",
         "laravel/wayfinder": "^0.1.14",
+        "resend/resend-php": "*",
         "spatie/laravel-permission": "*"
     },
     "require-dev": {

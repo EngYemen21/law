@@ -42,7 +42,7 @@ const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings }) => 
           <div className="card-b" style={{ padding: 16 }}>
             <div style={{ marginBottom: 12 }}>{c.invoice || `أتعاب القضية: ${(c.fee || 0).toLocaleString()} ر.س`}</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button className="btn" type="button" onClick={() => pay('full')}><Icon name="card" /> سداد كامل</button>
+              <button className="btn" type="button" onClick={() => pay('full')}><Icon name="card" /> سداد كامل عبر ميسّر</button>
               <button className="btn soft" type="button" onClick={() => pay('install')}><Icon name="card" /> سداد على 3 دفعات</button>
             </div>
           </div>

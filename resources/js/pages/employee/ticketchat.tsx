@@ -4,62 +4,27 @@ import React, { useEffect, useRef, useState } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import FlowLine from '@/components/babylon/FlowLine';
+import Modal from '@/components/babylon/Modal';
 import MsgMeta from '@/components/babylon/MsgMeta';
+import TicketTalkingNotice from '@/components/babylon/TicketTalkingNotice';
+import { useToast } from '@/components/babylon/Toast';
 import { echo } from '@/lib/echo';
 import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
+import { DEPTS, REQ_DOCS } from '@/lib/employee-data';
 
 // محادثة التذكرة (لوحة الموظف) — مزامنة لحظية مع العميل (Reverb) بلا إعادة تحميل
 
-interface EmpTicket { no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string; }
-// مفردات الحالة تصل من TicketJourney على الخادم — لا تُكتب يدوياً هنا
+interface EmpTicket { no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string; clientId?: number; lawyerId?: number; }
 interface StateOption { status: string; tone: string; }
-
-/** استخراج doc_id من body الملاحظة الداخلية (إن وُجد) */
-function extractApproveDocId(html: string): { docId: string; ticketNo: string } | null {
-  try {
-    const m = html.match(/data-approve-doc-id="(\d+)"[^>]*data-ticket-no="([^"]+)"/);
-    if (m) return { docId: m[1], ticketNo: m[2] };
-  } catch { /* ignore */ }
-  return null;
-}
+interface LawyerOption { id: number; name: string; }
 
 const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
   if (m.who === 'note') {
-    const pending = extractApproveDocId(m.text);
-    const [approved, setApproved] = useState(false);
-    const [busy, setBusy] = useState(false);
-
-    const handleApprove = () => {
-      if (!pending || busy || approved) return;
-      setBusy(true);
-      axios
-        .post(`/employee/tickets/${encodeURIComponent(pending.ticketNo)}/documents/${pending.docId}/approve-summary`)
-        .then(() => setApproved(true))
-        .catch(() => setBusy(false));
-    };
-
     return (
       <div className="msg" style={{ justifyContent: 'center' }}>
         <div style={{ background: '#FBF1E0', border: '1px solid #F0DDB0', color: '#8a6d2f', borderRadius: 11, padding: '9px 13px', fontSize: 12.5, maxWidth: '85%' }}>
           <b>🔒 ملاحظة داخلية — {m.name}</b>
           <div style={{ marginTop: 4 }} dangerouslySetInnerHTML={{ __html: m.text }} />
-          {pending && (
-            <div style={{ marginTop: 8 }}>
-              {approved ? (
-                <span style={{ color: '#2e7d32', fontWeight: 700, fontSize: 12 }}>✅ تم الإرسال للعميل</span>
-              ) : (
-                <button
-                  type="button"
-                  className="btn sm"
-                  style={{ opacity: busy ? 0.6 : 1 }}
-                  disabled={busy}
-                  onClick={handleApprove}
-                >
-                  <Icon name="check" /> {busy ? 'جارٍ الإرسال…' : 'اعتماد وإرسال للعميل'}
-                </button>
-              )}
-            </div>
-          )}
           <time style={{ display: 'block', marginTop: 4, color: '#b08d4a', fontSize: 11 }}>{m.time}</time>
         </div>
       </div>
@@ -83,13 +48,135 @@ const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
   );
 };
 
-const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; messages: Message[]; states: StateOption[] }> = ({ ticket, channel, messages, states }) => {
+const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; messages: Message[]; states: StateOption[]; lawyers: LawyerOption[] }> = ({ ticket, channel, messages, states, lawyers }) => {
+  const toast = useToast();
   const [msgs, setMsgs] = useState<Message[]>(messages);
   const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone });
-  const [reply, setReply] = useState('');
-  const [note, setNote] = useState('');
+  // مؤلّف بمبدّل وضع (يطابق التصميم): ردّ للعميل ⇄ ملاحظة داخلية — صندوق واحد
+  const [mode, setMode] = useState<'reply' | 'note'>('reply');
+  const [body, setBody] = useState('');
+  // يتغيّر مع كل ضغطة في وضع الردّ → يبثّ إشارة «يكتب» لزملائه (منع الردّ المزدوج)
+  const [typingSignal, setTypingSignal] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
   const seen = useRef<Set<number>>(new Set(messages.map((m) => m.id).filter(Boolean) as number[]));
+
+  // ── مودال جدولة الموعد المضمّن (يطابق التصميم المرجعي) ──
+  const [schedOpen, setSchedOpen] = useState(false);
+  const [schedLawyerId, setSchedLawyerId] = useState<string>(ticket.lawyerId ? String(ticket.lawyerId) : (lawyers[0]?.id ? String(lawyers[0].id) : ''));
+  const [schedType, setSchedType] = useState<'office' | 'video' | 'phone'>('office');
+  const [schedDate, setSchedDate] = useState('');
+  const [schedTime, setSchedTime] = useState('');
+  const [schedBusy, setSchedBusy] = useState(false);
+  // الفترات المتاحة: تُجلب من API عند تغيير المحامي أو التاريخ
+  const [slots, setSlots] = useState<{ time: string; taken: boolean }[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+
+  const fetchSlots = (lawyerId: string, date: string) => {
+    if (!lawyerId || !date) { setSlots([]); return; }
+    setSlotsLoading(true);
+    axios.get('/employee/schedule/slots', { params: { lawyer_id: lawyerId, date } })
+      .then((r) => { setSlots(r.data.slots ?? []); setSchedTime(''); })
+      .catch(() => setSlots([]))
+      .finally(() => setSlotsLoading(false));
+  };
+
+  const openSchedule = () => {
+    setSchedDate('');
+    setSchedTime('');
+    setSlots([]);
+    setSchedBusy(false);
+    setSchedOpen(true);
+  };
+
+  // ── مودال تحويل للقسم المضمّن (يطابق التصميم المرجعي) ──
+  const [trOpen, setTrOpen] = useState(false);
+  const [trDept, setTrDept] = useState(ticket.dept || DEPTS[0]);
+  const [trLawyerId, setTrLawyerId] = useState<string>(ticket.lawyerId ? String(ticket.lawyerId) : '');
+  const [trReason, setTrReason] = useState('');
+  const [trBusy, setTrBusy] = useState(false);
+
+  const openTransfer = () => {
+    setTrDept(ticket.dept || DEPTS[0]);
+    setTrLawyerId(ticket.lawyerId ? String(ticket.lawyerId) : '');
+    setTrReason('');
+    setTrBusy(false);
+    setTrOpen(true);
+  };
+
+  const submitTransfer = () => {
+    if (!trLawyerId) { toast('يرجى اختيار المستشار'); return; }
+    setTrBusy(true);
+    axios.post(`/employee/transfer/${encodeURIComponent(ticket.no)}`, {
+      lawyer_id: trLawyerId,
+      reason: trReason.trim() || null,
+    }).then((r) => {
+      toast(`✅ تم تحويل التذكرة إلى ${r.data.lawyer}`);
+      setTrOpen(false);
+    }).catch((err) => {
+      const msg = err.response?.data?.message || 'تعذّر التحويل، تحقق من البيانات';
+      toast(`⚠️ ${msg}`);
+    }).finally(() => setTrBusy(false));
+  };
+
+  // ── مودال طلب النواقص المضمّن (يطابق التصميم المرجعي) ──
+  const [reqOpen, setReqOpen] = useState(false);
+  const [reqChosen, setReqChosen] = useState<Record<string, boolean>>({});
+  const [reqExtra, setReqExtra] = useState('');
+  const [reqBusy, setReqBusy] = useState(false);
+
+  const openReqDocs = () => {
+    setReqChosen({});
+    setReqExtra('');
+    setReqBusy(false);
+    setReqOpen(true);
+  };
+
+  const toggleReqChip = (r: string) => {
+    setReqChosen((prev) => ({ ...prev, [r]: !prev[r] }));
+  };
+
+  const submitReqDocs = () => {
+    const picked = REQ_DOCS.filter((r) => reqChosen[r]);
+    const extras = reqExtra.split('\n').map((s) => s.trim()).filter(Boolean);
+    const allDocs = [...picked, ...extras];
+    if (!allDocs.length) {
+      toast('يرجى اختيار أو كتابة مستند واحد على الأقل');
+      return;
+    }
+    setReqBusy(true);
+    const bodyText = `<p>للتمكن من دراسة طلبكم وإكمال الإجراءات، نأمل تزويدنا بالمستندات التالية:</p><div class="doc-list">${allDocs.map((d) => `<span class="doc-chip">📎 ${d}</span>`).join('')}</div>`;
+
+    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/reply`, { body: bodyText })
+      .then(() => {
+        axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/status`, { status: 'بانتظار مستندات' });
+        toast(`✅ تم إرسال طلب النواقص للعميل (${allDocs.length} مستند)`);
+        setReqOpen(false);
+      })
+      .catch((err) => {
+        const msg = err.response?.data?.message || 'تعذّر إرسال طلب النواقص';
+        toast(`⚠️ ${msg}`);
+      })
+      .finally(() => setReqBusy(false));
+  };
+
+  const submitSchedule = () => {
+    if (!schedDate || !schedTime) { toast('يرجى اختيار التاريخ والوقت'); return; }
+    setSchedBusy(true);
+    axios.post('/employee/schedule', {
+      client_id: ticket.clientId,
+      lawyer_id: schedLawyerId || null,
+      type: schedType,
+      subject: ticket.type,
+      date: schedDate,
+      time: schedTime,
+    }).then(() => {
+      toast('✅ تم إنشاء موعد الاستشارة بنجاح');
+      setSchedOpen(false);
+    }).catch((err) => {
+      const msg = err.response?.data?.message || 'تعذّر إنشاء الموعد، تحقق من البيانات';
+      toast(`⚠️ ${msg}`);
+    }).finally(() => setSchedBusy(false));
+  };
 
   // الاشتراك في قناة التذكرة + قناة الملاحظات الداخلية + تحديثات الحالة
   useEffect(() => {
@@ -109,24 +196,40 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [msgs]);
 
-  const sendReply = (e: React.FormEvent) => {
+  // إرسال موحّد: يوجّه للنقطة القائمة بحسب الوضع (ردّ أو ملاحظة)
+  const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    const v = reply.trim(); if (!v) return;
-    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/reply`, { body: v });
-    setReply('');
+    const v = body.trim(); if (!v) return;
+    const endpoint = mode === 'reply' ? 'reply' : 'note';
+    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/${endpoint}`, { body: v })
+      .catch((err) => {
+        const msg = err.response?.data?.message || 'تعذّر الإرسال';
+        toast(`⚠️ ${msg}`);
+      });
+    setBody('');
   };
-  const sendNote = (e: React.FormEvent) => {
-    e.preventDefault();
-    const v = note.trim(); if (!v) return;
-    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/note`, { body: v });
-    setNote('');
+  const rerunAi = () => {
+    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/rerun`)
+      .then(() => toast('تمت إعادة تشغيل التحليل الذكي للملخّص'))
+      .catch((err) => {
+        const msg = err.response?.data?.message || 'تعذّر إعادة تشغيل التحليل حالياً';
+        toast(`⚠️ ${msg}`);
+      });
   };
   const changeStatus = (s: string) => {
     // النغمة يشتقّها الخادم من TicketJourney — لا تُرسل من هنا كي لا تُلوَّن الحالة نفسها لونين
-    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/status`, { status: s });
+    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/status`, { status: s })
+      .catch((err) => {
+        const msg = err.response?.data?.message || 'تعذّر تغيير الحالة';
+        toast(`⚠️ ${msg}`);
+      });
   };
   const advance = () => {
-    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/advance`);
+    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/advance`)
+      .catch((err) => {
+        const msg = err.response?.data?.message || 'تعذّر تنفيذ المرحلة التالية';
+        toast(`⚠️ ${msg}`);
+      });
   };
   const cur = tktStage(status.status);
   const isLast = cur >= TKT_LIFE.length - 1;
@@ -141,7 +244,6 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
   };
   const waiting = WAITING[status.status];
   // يطابق TicketJourney::SESSION_READY — الإجراء هنا عقد الجلسة، لا القفز إلى «النتيجة».
-  // كان الزرّ يعِد بالمرحلة التالية بينما الخادم يوثّق المحضر ويرفعه لاعتماد المستشار.
   const SESSION_ACTION: Record<string, string> = {
     'موعد مؤكد': 'عقد الجلسة وتوثيق المحضر',
     'قيد التنفيذ': 'عقد الجلسة وتوثيق المحضر',
@@ -150,6 +252,163 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
 
   return (
     <div className="tflow">
+      {/* ── مودال جدولة الموعد (يطابق التصميم المرجعي: فوق المحادثة بلا مغادرة الصفحة) ── */}
+      <Modal title={`جدولة موعد — ${ticket.no}`} open={schedOpen} onClose={() => setSchedOpen(false)}>
+        <div className="field">
+          <label>المستشار القانوني</label>
+          <select
+            value={schedLawyerId}
+            onChange={(e) => { setSchedLawyerId(e.target.value); fetchSlots(e.target.value, schedDate); }}
+          >
+            <option value="">توزيع تلقائي</option>
+            {lawyers.map((l) => (
+              <option key={l.id} value={String(l.id)}>{l.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label>نوع الاستشارة</label>
+          <select value={schedType} onChange={(e) => setSchedType(e.target.value as 'office' | 'video' | 'phone')}>
+            <option value="office">حضورية</option>
+            <option value="video">مرئية</option>
+            <option value="phone">هاتفية</option>
+          </select>
+        </div>
+        <div className="field">
+          <label>تاريخ الموعد</label>
+          <input
+            type="date"
+            value={schedDate}
+            min={new Date().toISOString().split('T')[0]}
+            onChange={(e) => { setSchedDate(e.target.value); fetchSlots(schedLawyerId, e.target.value); }}
+          />
+        </div>
+        {/* شبكة الفترات: تظهر فقط إذا اختار المحامي والتاريخ */}
+        {schedLawyerId && schedDate && (
+          <div className="field">
+            <label>
+              الوقت المتاح
+              {slotsLoading && <span style={{ color: '#888', fontSize: 12, marginRight: 6 }}>جاري التحقق…</span>}
+            </label>
+            {!slotsLoading && slots.length === 0 && (
+              <p style={{ color: '#e55', fontSize: 13, margin: '4px 0' }}>لا توجد فترات متاحة في هذا اليوم</p>
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+              {slots.map((s) => (
+                <button
+                  key={s.time}
+                  type="button"
+                  disabled={s.taken}
+                  onClick={() => setSchedTime(s.time)}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: 7,
+                    fontSize: 13,
+                    border: schedTime === s.time ? '2px solid var(--acc)' : '1px solid #ddd',
+                    background: s.taken
+                      ? '#f5f5f5'
+                      : schedTime === s.time
+                        ? 'var(--acc)'
+                        : '#fff',
+                    color: s.taken ? '#bbb' : schedTime === s.time ? '#fff' : '#333',
+                    cursor: s.taken ? 'not-allowed' : 'pointer',
+                    fontFamily: 'inherit',
+                    textDecoration: s.taken ? 'line-through' : 'none',
+                  }}
+                >
+                  {s.taken ? `${s.time} 🔒` : s.time}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {/* وقت يدوي إن لم يُختر محامٍ بعينه (توزيع تلقائي) */}
+        {!schedLawyerId && (
+          <div className="field">
+            <label>وقت الموعد</label>
+            <input
+              type="time"
+              value={schedTime}
+              onChange={(e) => setSchedTime(e.target.value)}
+            />
+          </div>
+        )}
+        <button className="btn block" type="button" onClick={submitSchedule} disabled={schedBusy}>
+          <Icon name="calplus" /> {schedBusy ? 'جاري الحجز…' : 'تأكيد الجدولة'}
+        </button>
+      </Modal>
+
+      {/* ── مودال تحويل للقسم (يطابق التصميم المرجعي: فوق المحادثة بلا مغادرة الصفحة) ── */}
+      <Modal title={`تحويل التذكرة — ${ticket.no}`} open={trOpen} onClose={() => setTrOpen(false)}>
+        <div className="field">
+          <label>القسم المختص</label>
+          <select value={trDept} onChange={(e) => setTrDept(e.target.value)}>
+            {DEPTS.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label>المستشار</label>
+          <select value={trLawyerId} onChange={(e) => setTrLawyerId(e.target.value)}>
+            <option value="">توزيع تلقائي</option>
+            {lawyers.map((l) => (
+              <option key={l.id} value={String(l.id)}>{l.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label>سبب التحويل (اختياري)</label>
+          <input
+            type="text"
+            value={trReason}
+            onChange={(e) => setTrReason(e.target.value)}
+            placeholder="اكتب سبب التحويل…"
+          />
+        </div>
+        <button className="btn block" type="button" onClick={submitTransfer} disabled={trBusy || !trLawyerId}>
+          <Icon name="reply" /> {trBusy ? 'جاري التحويل…' : 'تأكيد التحويل'}
+        </button>
+      </Modal>
+
+      {/* ── مودال طلب النواقص (يطابق التصميم المرجعي: فوق المحادثة بلا مغادرة الصفحة) ── */}
+      <Modal title={`طلب نواقص — ${ticket.no}`} open={reqOpen} onClose={() => setReqOpen(false)}>
+        <p style={{ fontSize: '13.5px', color: '#2b4a68', marginBottom: 10 }}>
+          اختر المستندات المطلوبة من العميل، ويمكنك أيضاً كتابة مستندات إضافية:
+        </p>
+        <div className="chips" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+          {REQ_DOCS.map((r) => (
+            <span
+              key={r}
+              className={`chip sel-toggle${reqChosen[r] ? ' on' : ''}`}
+              onClick={() => toggleReqChip(r)}
+              style={{
+                padding: '5px 11px',
+                borderRadius: 8,
+                fontSize: 12.5,
+                fontWeight: 600,
+                border: reqChosen[r] ? '1.5px solid var(--primary)' : '1px solid var(--line)',
+                background: reqChosen[r] ? 'rgba(14,92,156,.08)' : '#fff',
+                color: reqChosen[r] ? 'var(--primary)' : 'var(--muted)',
+                cursor: 'pointer',
+              }}
+            >
+              {reqChosen[r] ? '✓ ' : ''}{r}
+            </span>
+          ))}
+        </div>
+        <div className="field">
+          <label>مستندات إضافية (كتابة)</label>
+          <textarea
+            value={reqExtra}
+            onChange={(e) => setReqExtra(e.target.value)}
+            placeholder="اكتب أي مستندات أخرى مطلوبة، كل مستند في سطر…"
+            rows={3}
+          />
+        </div>
+        <button className="btn block" type="button" onClick={submitReqDocs} disabled={reqBusy}>
+          <Icon name="send" /> {reqBusy ? 'جاري الإرسال…' : 'إرسال طلب النواقص'}
+        </button>
+      </Modal>
+
       <div style={{ marginBottom: 14 }}>
         <Link href="/employee/tickets" className="btn soft sm"><Icon name="reply" /> رجوع لكل التذاكر</Link>
       </div>
@@ -177,25 +436,37 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
               <h3>محادثة التذكرة {ticket.no}</h3>
               <Badge text={status.status} tone={status.tone} />
             </div>
+            {/* تنبيه فور الدخول: زميل داخل المحادثة الآن — يمنع الردّ المزدوج */}
+            <TicketTalkingNotice channel={channel} canReply typingSignal={typingSignal} />
+
             <div className="thread">
               {msgs.map((m, i) => <MsgRow key={m.id ?? i} m={m} />)}
               <div ref={endRef} />
             </div>
 
             <div className="composer">
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--faint)', marginBottom: 8 }}>ردّ للعميل (يراه العميل):</div>
-              <form onSubmit={sendReply}>
-                <textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="اكتب ردّك للعميل…" />
+              {/* مبدّل الوضع (يطابق التصميم .cmode): ردّ للعميل ⇄ ملاحظة داخلية */}
+              <div className="cmode">
+                <button type="button" className={mode === 'reply' ? 'on' : ''} onClick={() => setMode('reply')}>
+                  <Icon name="reply" /> رد على العميل
+                </button>
+                <button type="button" className={mode === 'note' ? 'on note-on' : ''} onClick={() => setMode('note')}>
+                  <Icon name="lock" /> ملاحظة داخلية
+                </button>
+              </div>
+              <form onSubmit={submit}>
+                <textarea
+                  value={body}
+                  onChange={(e) => {
+                    setBody(e.target.value);
+                    if (mode === 'reply') setTypingSignal((n) => n + 1); // الهمس في وضع الردّ فقط
+                  }}
+                  placeholder={mode === 'reply' ? 'اكتب ردّك للعميل…' : 'اكتب ملاحظة داخلية لا يراها العميل…'}
+                />
                 <div className="crow">
-                  <button className="btn" type="submit"><Icon name="send" /> إرسال الرد</button>
-                </div>
-              </form>
-
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#8a6d2f', margin: '12px 0 8px' }}>🔒 ملاحظة داخلية (لا يراها العميل):</div>
-              <form onSubmit={sendNote}>
-                <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="ملاحظة للفريق فقط…" />
-                <div className="crow">
-                  <button className="btn soft" type="submit"><Icon name="doc" /> حفظ ملاحظة</button>
+                  <button className={mode === 'reply' ? 'btn' : 'btn soft'} type="submit">
+                    <Icon name={mode === 'reply' ? 'send' : 'doc'} /> {mode === 'reply' ? 'إرسال الرد' : 'حفظ الملاحظة'}
+                  </button>
                 </div>
               </form>
             </div>
@@ -214,20 +485,30 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
           </div>
 
           <div className="card">
-            <div className="card-h"><h3>تغيير الحالة</h3></div>
+            <div className="card-h"><h3>الحالة والإجراءات</h3></div>
             <div className="card-b" style={{ padding: 14 }}>
-              {/* القائمة للتصحيح فقط: نفس المرحلة أو التراجع. كل مرحلة للأمام معطّلة ورمادية —
-                  التقدّم حصراً بزرّ «تنفيذ المرحلة التالية». يطابق TicketJourney::canTransition */}
-              <select value={status.status} onChange={(e) => changeStatus(e.target.value)}>
-                {states.map((o) => {
-                  const locked = tktStage(o.status) > cur; // مرحلة للأمام — لا تُتاح إلا بزرّ التقدّم
-                  return (
-                    <option key={o.status} value={o.status} disabled={locked}>
-                      {o.status}{locked ? ' 🔒' : ''}
-                    </option>
-                  );
-                })}
-              </select>
+              {/* القائمة للتصحيح بنفس المرحلة فقط. الخيارات من مراحل أخرى معطّلة 🔒 */}
+              <div className="field" style={{ marginBottom: 11 }}>
+                <label>تغيير الحالة</label>
+                <select value={status.status} onChange={(e) => changeStatus(e.target.value)}>
+                  {states.map((o) => {
+                    const locked = tktStage(o.status) !== cur;
+                    return (
+                      <option key={o.status} value={o.status} disabled={locked}>
+                        {o.status}{locked ? ' 🔒' : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <button className="btn soft sm" type="button" onClick={openReqDocs}><Icon name="upload" /> طلب نواقص</button>
+                {/* جدولة الموعد: مودال مضمّن (لا توجيه خارجي) — يطابق التصميم المرجعي */}
+                <button className="btn soft sm" type="button" onClick={openSchedule}><Icon name="cal" /> جدولة موعد</button>
+                {/* تحويل للقسم: مودال مضمّن (لا توجيه خارجي) — يطابق التصميم المرجعي */}
+                <button className="btn soft sm" type="button" onClick={openTransfer}><Icon name="reply" /> تحويل للقسم</button>
+                <button className="btn soft sm" type="button" onClick={rerunAi}><Icon name="sparkles" /> إعادة التحليل الذكي</button>
+              </div>
             </div>
           </div>
         </aside>

@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\MeetingScheduledMail;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
-use App\Models\UserNotification;
+use App\Services\MailService;
 use App\Services\ZoomService;
+use App\Support\MeetingTime;
+use App\Support\Notify;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -44,6 +47,7 @@ class MeetRequestController extends Controller
                 'type' => 'اجتماع مع عميل',
                 'client_name' => $request->user()->name,
                 'when_label' => $meetRequest->day.' · '.$meetRequest->time,
+                'starts_at' => MeetingTime::parse($meetRequest->day, $meetRequest->time),
                 'status' => 'قادم',
                 'case_ref' => $meetRequest->case_ref,
                 'meet_id' => $zoom['id'] ?? null,
@@ -66,14 +70,15 @@ class MeetRequestController extends Controller
                 'host_link' => $zoom['start_url'] ?? null,
             ]);
 
-            UserNotification::create([
-                'user_id' => $meetRequest->user_id,
-                'icon' => 'video',
-                'tone' => 't-green',
-                'body' => "تم تأكيد حضورك لاجتماع «{$meetRequest->service}» ({$meetRequest->day} · {$meetRequest->time}) — رابط الجلسة متاح في صفحة الاجتماعات.",
-                'time_label' => 'الآن',
-                'is_read' => false,
-            ]);
+            Notify::send($meetRequest->user_id, 'video', 't-green', "تم تأكيد حضورك لاجتماع «{$meetRequest->service}» ({$meetRequest->day} · {$meetRequest->time}) — رابط الجلسة متاح في صفحة الاجتماعات.");
+
+            // بريد بموعد الاجتماع للعميل (نفس بيانات الدعوة المؤكّدة)
+            app(MailService::class)->send($request->user(), new MeetingScheduledMail(
+                $request->user()->name,
+                "{$meetRequest->type} — {$meetRequest->service}",
+                "{$meetRequest->day} · {$meetRequest->time}",
+                $meeting->joinLink(),
+            ));
         }
 
         return back();

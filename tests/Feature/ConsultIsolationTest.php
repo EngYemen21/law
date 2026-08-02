@@ -72,6 +72,57 @@ class ConsultIsolationTest extends TestCase
         $this->actingAs($admin)->get('/admin/consult?ref='.$consult->ref)->assertOk();
     }
 
+    public function test_pricing_is_admin_only(): void
+    {
+        // التسعير وشاشة «طلبات الاستشارات» للإدارة العليا وحدها (مطابق التصميم)
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $consult = $this->consultFor($lawyer, ['status' => 'بانتظار التسعير']);
+
+        // غير الإدارة: حارس الدور يعيد التوجيه (302) بعيدًا عن مسار /admin
+        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
+        $this->actingAs($employee)->get('/admin/consult-requests')->assertRedirect();
+        $this->actingAs($lawyer)->get('/admin/consult-requests')->assertRedirect();
+
+        // الإدارة ترى الشاشة وتسعّر بنجاح → بانتظار السداد
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $this->actingAs($admin)->get('/admin/consult-requests')->assertOk();
+        $this->actingAs($admin)->post(route('admin.consults.price', $consult), ['price' => 500])->assertRedirect();
+        $this->assertSame('بانتظار السداد', $consult->fresh()->status);
+    }
+
+    public function test_consult_requests_lists_pre_session_only(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        // طلب قبل الجلسة
+        Consult::create(['user_id' => $client->id, 'ref' => 'CN-REQ-1', 'subject' => 'نزاع',
+            'channel' => 'هاتفية', 'lawyer' => 'مستشار', 'status' => 'بانتظار التسعير']);
+        // استشارة داخل رحلة المعالجة
+        Consult::create(['user_id' => $client->id, 'ref' => 'CN-PROC-1', 'subject' => 'نزاع',
+            'channel' => 'مرئية', 'lawyer' => 'مستشار', 'day' => 'الأحد', 'time' => '10ص', 'when_label' => 'الأحد',
+            'session' => 'بانتظار الجلسة', 'status' => 'جديدة']);
+
+        $admin = User::factory()->create(['role' => Role::Admin]);
+
+        // شاشة الطلبات: طلبات ما قبل الجلسة فقط
+        $this->actingAs($admin)->get('/admin/consult-requests')
+            ->assertOk()->assertInertia(fn ($p) => $p->component('admin/consult-requests')->has('consults', 1));
+        // إدارة الاستشارات: تستثني طلبات ما قبل الجلسة
+        $this->actingAs($admin)->get('/admin/consults')
+            ->assertOk()->assertInertia(fn ($p) => $p->has('consults', 1));
+    }
+
+    public function test_only_owner_can_pay_or_schedule(): void
+    {
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $consult = $this->consultFor($lawyer, ['status' => 'بانتظار السداد']);
+        $intruder = User::factory()->create(['role' => Role::Client]);
+
+        $this->actingAs($intruder)->post(route('consults.pay', $consult))->assertForbidden();
+        $this->actingAs($intruder)->post(route('consults.schedule', $consult), [
+            'lawyer_id' => $lawyer->id, 'date' => now()->addDay()->toDateString(), 'time' => '10:00',
+        ])->assertForbidden();
+    }
+
     public function test_created_tasks_go_to_assigned_lawyer_not_actor(): void
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);

@@ -4,12 +4,14 @@ namespace App\Http\Controllers\Admin;
 
 use App\Events\CaseStatusBroadcast;
 use App\Http\Controllers\Controller;
+use App\Mail\CaseFeeSetMail;
 use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Ticket;
-use App\Models\UserNotification;
+use App\Services\MailService;
 use App\Support\CaseJourney;
 use App\Support\Live;
+use App\Support\Notify;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -89,14 +91,14 @@ class CaseController extends Controller
             'time_label' => $this->clock(),
         ]);
 
-        UserNotification::create([
-            'user_id' => $case->user_id,
-            'icon' => 'card',
-            'tone' => 't-amber',
-            'body' => "صدرت فاتورة أتعاب قضيتك {$case->number} بمبلغ {$total} ر.س. سدّدها لتفعيل القضية.",
-            'time_label' => 'الآن',
-            'is_read' => false,
-        ]);
+        Notify::send($case->user_id, 'card', 't-amber', "صدرت فاتورة أتعاب قضيتك {$case->number} بمبلغ {$total} ر.س. سدّدها لتفعيل القضية.");
+
+        // بريد للعميل بتحديد الأتعاب وإصدار الفاتورة (أفضل-جهد — لا يعطّل الطلب إن فشل)
+        $case->loadMissing('user');
+        if ($case->user?->email) {
+            app(MailService::class)->send($case->user, new CaseFeeSetMail($case, $total));
+        }
+
         Live::push(new CaseStatusBroadcast($case));
 
         return back();
@@ -133,11 +135,7 @@ class CaseController extends Controller
             'body' => '<p>بعد صدور الحكم وتنفيذه، تحوّلت القضية إلى <b>مغلقة</b> وحُفظ كامل الملف في الأرشيف القانوني.</p>',
             'time_label' => $this->clock(),
         ]);
-        UserNotification::create([
-            'user_id' => $case->user_id, 'icon' => 'check', 'tone' => 't-green',
-            'body' => "أُغلقت قضيتك {$case->number} وأُرشفت بعد اكتمال الإجراءات.",
-            'time_label' => 'الآن', 'is_read' => false,
-        ]);
+        Notify::send($case->user_id, 'check', 't-green', "أُغلقت قضيتك {$case->number} وأُرشفت بعد اكتمال الإجراءات.");
         Live::push(new CaseStatusBroadcast($case));
 
         return back();

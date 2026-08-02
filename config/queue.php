@@ -40,7 +40,8 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
+            // أطول من سقف نداء الـAI (150ث في LegalAiService) — وإلا أُعيد تشغيل المهمّة قبل انتهائها → نداءات AI مكرّرة
+            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 210),
             'after_commit' => false,
         ],
 

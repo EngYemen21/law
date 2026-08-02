@@ -3,11 +3,13 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
+use App\Events\MeetingStatusBroadcast;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\User;
 use App\Models\UserNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Tests\TestCase;
 
 /**
@@ -107,10 +109,13 @@ class MeetingFlowTest extends TestCase
             'day' => '—', 'time' => '—', 'sent_by' => 'المكتب', 'stage' => 1,
         ]);
 
-        // تنفيذ الجلسة (المرحلة 2) + الاجتماع «جارٍ»
+        // تنفيذ الجلسة (المرحلة 2) + الاجتماع «جارٍ» + علَم «قائم الآن» + بثّ لحظي لشاشة العميل
+        Event::fake([MeetingStatusBroadcast::class]);
         $this->actingAs($employee)->post(route('employee.meetreqs.start', $req))->assertRedirect();
         $this->assertSame(MeetRequest::STAGE_EXECUTED, $req->fresh()->stage);
         $this->assertSame('جارٍ', $meeting->fresh()->status);
+        $this->assertTrue($meeting->fresh()->is_up);
+        Event::assertDispatched(MeetingStatusBroadcast::class);
 
         // إنهاء الاجتماع
         $this->actingAs($admin)->post(route('admin.meetings.end', $meeting), ['attend' => 88])->assertRedirect();

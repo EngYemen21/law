@@ -8,6 +8,7 @@ use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Support\CaseFee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -115,7 +116,7 @@ class CaseConversionTest extends TestCase
         $this->assertSame(10000, $case->fee);
 
         // العميل يسدّد → القضية تُفعّل وتدخل التحضير
-        $this->actingAs($client)->post(route('cases.pay', $case))->assertRedirect();
+        CaseFee::markPaid($case->fresh());
         $case->refresh();
         $this->assertSame('قيد التحضير', $case->status);
         $this->assertSame('paid', $case->fee_status);
@@ -166,7 +167,7 @@ class CaseConversionTest extends TestCase
         $this->assertFalse($inv->paid);
 
         // سداد كامل → الفاتورة مدفوعة
-        $this->actingAs($client)->post(route('cases.pay', $case), ['plan' => 'full'])->assertRedirect();
+        CaseFee::markPaid($case->fresh());
         $this->assertTrue($inv->fresh()->paid);
         $this->assertSame('قيد التحضير', $case->fresh()->status);
     }

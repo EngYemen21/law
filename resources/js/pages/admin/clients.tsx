@@ -4,7 +4,7 @@ import Badge from '@/components/babylon/Badge';
 
 // يطابق adClients — العملاء من جدول users بدور client مع إخفاء PII
 
-interface ClientRow { name: string; id: string; mobile: string; tickets: number; status: string }
+interface ClientRow { name: string; id: string; email: string; mobile: string; tickets: number; status: string }
 
 const AdminClients: React.FC<{ clients: ClientRow[] }> = ({ clients }) => (
   <>
@@ -23,6 +23,7 @@ const AdminClients: React.FC<{ clients: ClientRow[] }> = ({ clients }) => (
             <tr>
               <th>الاسم</th>
               <th>الهوية</th>
+              <th>البريد الإلكتروني</th>
               <th>الجوال</th>
               <th>التذاكر</th>
               <th>الحالة</th>
@@ -33,6 +34,7 @@ const AdminClients: React.FC<{ clients: ClientRow[] }> = ({ clients }) => (
               <tr key={c.name}>
                 <td>{c.name}</td>
                 <td className="mono">{c.id}</td>
+                <td>{c.email}</td>
                 <td className="mono">{c.mobile}</td>
                 <td>{c.tickets}</td>
                 <td><Badge text={c.status} tone={c.status === 'نشط' ? 'b-green' : 'b-grey'} /></td>

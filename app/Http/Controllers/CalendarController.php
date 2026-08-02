@@ -3,13 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\Appointment;
+use App\Models\CaseHearing;
 use App\Models\Meeting;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * تقويم العميل — أحداثه الحقيقية (مواعيد الاستشارات + الاجتماعات) مع رابط
+ * تقويم العميل — أحداثه الحقيقية (مواعيد الاستشارات + جلسات القضايا + الاجتماعات) مع رابط
  * «أضف إلى تقويم جوجل» لكل حدث (بلا مفاتيح/OAuth — يفتح جوجل بالبيانات جاهزة).
  */
 class CalendarController extends Controller
@@ -30,6 +31,19 @@ class CalendarController extends Controller
                 'gcal' => self::gcalUrl($a->type, $a->day, $a->time, $a->branch),
             ]);
 
+        $hearings = CaseHearing::whereHas('legalCase', fn ($q) => $q->where('user_id', $uid))
+            ->latest('id')->get()
+            ->map(fn (CaseHearing $h) => [
+                'kind' => 'جلسة قضية',
+                'tone' => 'b-amber',
+                'title' => $h->title.' (قضية '.$h->legalCase?->number.')',
+                'day' => $h->day,
+                'time' => $h->time,
+                'where' => $h->court ?: 'المحكمة',
+                'status' => $h->status,
+                'gcal' => self::gcalUrl($h->title, $h->day, $h->time, $h->court),
+            ]);
+
         $meetings = Meeting::where('user_id', $uid)->latest('id')->get()
             ->map(fn (Meeting $m) => [
                 'kind' => 'اجتماع',
@@ -43,7 +57,7 @@ class CalendarController extends Controller
             ]);
 
         return Inertia::render('calendar', [
-            'events' => $appts->concat($meetings)->values(),
+            'events' => $appts->concat($hearings)->concat($meetings)->values(),
         ]);
     }
 

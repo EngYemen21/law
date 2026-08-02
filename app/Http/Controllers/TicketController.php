@@ -3,14 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Events\TicketMessageBroadcast;
-use App\Events\TicketStatusBroadcast;
 use App\Jobs\GenerateTicketReplyJob;
 use App\Jobs\TriageDocumentJob;
 use App\Jobs\TriageTicketOnOpenJob;
+use App\Models\Consult;
 use App\Models\Ticket;
-use App\Rules\LawyerInBranch;
 use App\Services\LegalAiService;
-use App\Support\AppointmentCard;
 use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
 use App\Support\Live;
@@ -21,7 +19,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
-use Illuminate\Support\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -47,6 +44,11 @@ class TicketController extends Controller
             'type' => ['required', 'string', 'max:120'],
             'department' => ['nullable', 'string', 'max:120'],
             'details' => ['nullable', 'string', 'max:5000'],
+            'opponent_name' => ['nullable', 'string', 'max:190'],
+            'opponent_id' => ['nullable', 'string', 'max:60'],
+            'claim_amount' => ['nullable', 'integer', 'min:0'],
+            'court_name' => ['nullable', 'string', 'max:190'],
+            'priority' => ['nullable', 'string', 'max:20'],
         ]);
 
         $details = trim($data['details'] ?? '') ?: ('طلب جديد بخصوص: '.$data['type']);
@@ -59,8 +61,13 @@ class TicketController extends Controller
             'number' => $number,
             'type' => $data['type'],
             'department' => $data['department'] ?? null,
-            'status' => 'قيد الدراسة',
-            'tone' => TicketJourney::toneFor('قيد الدراسة'),
+            'opponent_name' => $data['opponent_name'] ?? null,
+            'opponent_id' => $data['opponent_id'] ?? null,
+            'claim_amount' => $data['claim_amount'] ?? null,
+            'court_name' => $data['court_name'] ?? null,
+            'priority' => $data['priority'] ?? 'متوسطة',
+            'status' => 'قيد التحليل',
+            'tone' => TicketJourney::toneFor('قيد التحليل'),
             'last_message' => $details,
             'date_label' => 'الآن',
         ]);
@@ -87,10 +94,14 @@ class TicketController extends Controller
         // العميل لا يرى الملاحظات الداخلية للموظفين
         $messages = $ticket->messages()->where('who', '!=', 'note')->orderBy('id')->get();
 
+        // الاستشارة المرتبطة الأحدث (تُغذّي معالج الحجز: تسعير → فاتورة → دفع → موعد)
+        $consult = $ticket->consults()->with('invoice')->latest('id')->first();
+
         return Inertia::render('ticketchat', [
             'ticket' => $ticket->toCard(),
             'channel' => 'ticket.'.$ticket->id,
             'messages' => $messages->map->toMessage(),
+            'consult' => $consult?->toClientCard(),
         ]);
     }
 
@@ -180,64 +191,46 @@ class TicketController extends Controller
         return response()->json(['date' => $day->toDateString(), 'lawyers' => $lawyers]);
     }
 
-    // حجز موعد استشارة من داخل محادثة التذكرة (يُنشئ موعداً حقيقياً + يؤكّد المسار)
+    // الخطوة 1 من الحجز: طلب استشارة (النوع فقط) من داخل محادثة التذكرة — يُرسل للتسعير،
+    // ولا يُنشئ موعداً بعد. (الفاتورة → الدفع → اختيار الموعد تتمّ لاحقاً عبر مسارات consults.*)
     public function book(Request $request, Ticket $ticket): HttpResponse
     {
         $this->authorizeTicket($request, $ticket);
 
         $data = $request->validate([
             'type' => ['required', 'string', 'in:office,video,phone'],
-            // العميل يختار أي محامٍ نشط (بلا تقييد بفرع) — Rule موحَّد يرفض غير المحامين والموقوفين.
-            'lawyer_id' => ['required', 'integer', new LawyerInBranch],
-            'date' => ['required', 'date', 'after_or_equal:today'],
-            'time' => ['required', 'string', 'regex:/^\d{2}:\d{2}$/'],
         ]);
 
-        // حارسة الرحلة: لا يمكن تأكيد موعد على تذكرة اكتملت/أُغلقت أو في مرحلة اعتماد نهائية.
-        // (يختلف هذا عن canTransition الذي صُمِّم لمنع التقدّم اليدوي عبر قائمة الحالة؛
-        // هنا نقبل الحجز من كل المراحل حتى الجلسة، ونرفضه فقط من المراحل اللاحقة.)
-        // نُجرى الفحص قبل إنشاء الحجز لتجنّب إهدار موارد Zoom وقاعدة البيانات.
+        // حارسة الرحلة: لا يُطلب حجز على تذكرة اكتملت/أُغلقت أو في مرحلة اعتماد نهائية.
         abort_if(
             TicketJourney::indexOf($ticket->status) > TicketJourney::indexOf('موعد مؤكد')
             || in_array($ticket->status, ['مكتملة', 'مغلقة', 'بانتظار اعتماد النتيجة', 'بانتظار اعتماد الإدارة'], true),
             422,
-            'لا يمكن تأكيد الموعد من الحالة الحالية.'
+            'لا يمكن طلب الحجز من الحالة الحالية.'
         );
 
-        $startsAt = Carbon::parse($data['date'].' '.$data['time']);
+        // منع طلبات التسعير المتكرّرة: طلب واحد قائم لكل تذكرة يكفي حتى يكتمل أو يُلغى
+        abort_if(
+            $ticket->consults()->whereIn('status', Consult::PRE_SESSION_STATUSES)->exists(),
+            422,
+            'يوجد طلب استشارة قائم لهذه التذكرة.'
+        );
 
-        // إنشاء الحجز الحقيقي (Appointment + Consult + Zoom + إشعار) عبر المصدر الموحّد:
-        // المستشار المختار (lawyer_id) + وقت حقيقي يُفعّل حارس منع الحجز المزدوج
-        $consult = ConsultBooking::create($request->user(), [
-            'type' => $data['type'],
-            'lawyer_id' => (int) $data['lawyer_id'],
-            'starts_at' => $startsAt->toDateTimeString(),
-            'duration' => LawyerAvailability::slotMinutes(),
-            'day' => $startsAt->format('Y-m-d'),
-            'time' => $data['time'],
-        ], $ticket);
         $m = ConsultBooking::meta($data['type']);
+        ConsultBooking::request($request->user(), ['type' => $data['type']], $ticket);
 
-        // بطاقة تأكيد الموعد داخل المحادثة (تصميم .appt الأصلي + رابط Zoom الحقيقي إن توفّر)
-        $card = AppointmentCard::render($consult, $m);
-
-        // كل كتابات قاعدة البيانات أولاً، ثم البثّ — البثّ أثر جانبي لا يجوز أن يتخلّل الحالة
+        // ملاحظة في المحادثة بأن الطلب أُرسل للتسعير (الرحلة تُكمل عبر «استشاراتي» وبطاقة التذكرة)
         $msg = $ticket->messages()->create([
-            'who' => 'ai',
-            'name' => LegalAiService::AGENT_NAME,
-            'role' => 'مواعيد',
-            'body' => $card,
+            'who' => 'system',
+            'name' => 'النظام',
+            'role' => 'نظام',
+            'body' => "تم إرسال طلب استشارة ({$m['label']}) للمكتب لتحديد السعر. ستصلك الفاتورة لسدادها ثم اختيار الموعد.",
             'time_label' => $this->clock(),
         ]);
 
-        $ticket->update([
-            'status' => 'موعد مؤكد',
-            'tone' => TicketJourney::toneFor('موعد مؤكد'),
-            'last_message' => 'تم تأكيد موعد الاستشارة: '.$consult->day.' · '.$consult->time,
-            'date_label' => 'الآن',
-        ]);
+        $ticket->update(['last_message' => 'طلب تسعير استشارة '.$m['label'], 'date_label' => 'الآن']);
 
-        Live::push(new TicketMessageBroadcast($msg), new TicketStatusBroadcast($ticket));
+        Live::push(new TicketMessageBroadcast($msg));
 
         return response()->noContent();
     }

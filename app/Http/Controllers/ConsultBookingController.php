@@ -3,14 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Setting;
-use App\Rules\LawyerInBranch;
 use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
 use App\Support\Specialties;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -52,34 +50,23 @@ class ConsultBookingController extends Controller
         ]);
     }
 
+    // الخطوة 1: طلب استشارة (النوع/التخصّص فقط) — يُرسل للتسعير، ثم تُكمل الرحلة في «استشاراتي»
+    // (فاتورة الإدارة → دفع محاكى → اختيار الموعد). مطابق لتصميم رحلة الحجز.
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
             'type' => ['required', 'string', 'in:office,video,phone'],
             'subject' => ['nullable', 'string', 'max:120'],
-            'branch' => ['nullable', 'string', 'max:80'],
             'specialty' => ['nullable', 'string', 'max:80'],
-            // العميل يختار أي محامٍ نشط (بلا تقييد بفرع) — Rule موحَّد يرفض غير المحامين والموقوفين.
-            'lawyer_id' => ['required', 'integer', new LawyerInBranch],
-            'date' => ['required', 'date', 'after_or_equal:today'],
-            'time' => ['required', 'string', 'regex:/^\d{2}:\d{2}$/'],
         ]);
 
-        $startsAt = Carbon::parse($data['date'].' '.$data['time']);
-
-        $consult = ConsultBooking::create($request->user(), [
+        $consult = ConsultBooking::request($request->user(), [
             'type' => $data['type'],
             'subject' => $data['subject'] ?? null,
-            'branch' => $data['branch'] ?? null,
             'specialty' => $data['specialty'] ?? null,
-            'lawyer_id' => (int) $data['lawyer_id'],
-            'starts_at' => $startsAt->toDateTimeString(),
-            'duration' => LawyerAvailability::slotMinutes(),
-            'day' => $startsAt->format('Y-m-d'),
-            'time' => $data['time'],
         ]);
 
         return redirect()->route('myconsults')
-            ->with('flash', "تم تأكيد حجز استشارتك برقم {$consult->ref}.");
+            ->with('flash', "تم إرسال طلب استشارتك ({$consult->ref}) — بانتظار تسعير المكتب لسداد الفاتورة ثم اختيار الموعد.");
     }
 }

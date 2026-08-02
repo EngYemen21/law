@@ -7,16 +7,20 @@ use App\Events\MeetingStatusBroadcast;
 use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
 use App\Jobs\GenerateMeetingSummaryJob;
+use App\Mail\MeetingEndedMail;
+use App\Mail\MeetingScheduledMail;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\User;
-use App\Models\UserNotification;
 use App\Rules\LawyerInBranch;
 use App\Services\LegalAiService;
+use App\Services\MailService;
 use App\Services\ZoomService;
 use App\Support\ClientDirectory;
 use App\Support\DecisionTasks;
 use App\Support\Live;
+use App\Support\MeetingTime;
+use App\Support\Notify;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -106,6 +110,7 @@ class MeetingController extends Controller
             'type' => $data['type'],
             'client_name' => $client?->name ?: 'داخلي',
             'when_label' => $when,
+            'starts_at' => MeetingTime::parse($data['day'] ?? null, $data['time'] ?? null),
             'status' => 'قادم',
             'priority' => $data['priority'] ?? 'عادية',
             'conf' => $data['conf'] ?? 'عادي',
@@ -127,15 +132,14 @@ class MeetingController extends Controller
             'has_link' => true,
         ]);
 
+        // إشعار (داخل التطبيق + بريد) بموعد الاجتماع — للعميل والمحامي المسؤول
+        $link = $meeting->joinLink();
         if ($client) {
-            UserNotification::create([
-                'user_id' => $client->id,
-                'icon' => 'video',
-                'tone' => 't-blue',
-                'body' => "تمت جدولة اجتماع «{$meeting->title}» — {$when}. الرابط متاح في صفحة الاجتماعات.",
-                'time_label' => 'الآن',
-                'is_read' => false,
-            ]);
+            Notify::send($client->id, 'video', 't-blue', "تمت جدولة اجتماع «{$meeting->title}» — {$when}. الرابط متاح في صفحة الاجتماعات.");
+            app(MailService::class)->send($client, new MeetingScheduledMail($client->name, $meeting->title, $when, $link));
+        }
+        if ($assignedLawyer) {
+            app(MailService::class)->send($assignedLawyer, new MeetingScheduledMail($assignedLawyer->name, $meeting->title, $when, $link));
         }
 
         return back();
@@ -175,15 +179,12 @@ class MeetingController extends Controller
                 ->where('stage', '<', MeetRequest::STAGE_APPROVED)
                 ->update(['stage' => MeetRequest::STAGE_APPROVED]);
 
-            if ($meeting->user_id) {
-                UserNotification::create([
-                    'user_id' => $meeting->user_id,
-                    'icon' => 'doc',
-                    'tone' => 't-green',
-                    'body' => "اعتمدت الإدارة محضر وملخص اجتماع «{$meeting->title}» — متاحان الآن في صفحة الاجتماعات.",
-                    'time_label' => 'الآن',
-                    'is_read' => false,
-                ]);
+            if ($meeting->user_id && $meeting->user) {
+                Notify::send($meeting->user_id, 'doc', 't-green', "اعتمدت الإدارة محضر وملخص اجتماع «{$meeting->title}» — متاحان الآن في صفحة الاجتماعات.");
+                // بريد «انتهى الاجتماع» مع الملخّص المعتمد + رابط عرض المحضر
+                app(MailService::class)->send($meeting->user, new MeetingEndedMail(
+                    $meeting->user->name, $meeting->title, $meeting->summary, url('/meetings')
+                ));
             }
             // بثّ الاعتماد → يصل الملخص/المحضر للعميل لحظياً
             Live::push(new MeetingStatusBroadcast($meeting->fresh()));

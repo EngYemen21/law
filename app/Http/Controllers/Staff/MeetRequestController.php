@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\Staff;
 
 use App\Enums\Role;
+use App\Events\MeetingStatusBroadcast;
 use App\Http\Controllers\Controller;
 use App\Models\MeetRequest;
 use App\Models\User;
-use App\Models\UserNotification;
 use App\Support\ClientDirectory;
+use App\Support\Live;
+use App\Support\Notify;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -56,14 +58,7 @@ class MeetRequestController extends Controller
             'sent_by' => $request->user()->name.' ('.$request->user()->role->label().')',
         ]);
 
-        UserNotification::create([
-            'user_id' => $client->id,
-            'icon' => 'video',
-            'tone' => 't-blue',
-            'body' => "دعوة اجتماع جديدة ({$req->ref}): {$req->type} بشأن «{$req->service}» — {$req->day} · {$req->time}. أكّد حضورك من «دعوات الاجتماعات».",
-            'time_label' => 'الآن',
-            'is_read' => false,
-        ]);
+        Notify::send($client->id, 'video', 't-blue', "دعوة اجتماع جديدة ({$req->ref}): {$req->type} بشأن «{$req->service}» — {$req->day} · {$req->time}. أكّد حضورك من «دعوات الاجتماعات».");
 
         return back();
     }
@@ -83,7 +78,11 @@ class MeetRequestController extends Controller
     {
         if ($meetRequest->stage === MeetRequest::STAGE_CONFIRMED) {
             $meetRequest->update(['stage' => MeetRequest::STAGE_EXECUTED]);
-            $meetRequest->meeting?->update(['status' => 'جارٍ']);
+            // مطابقة نمط MeetingController: علَم «جارٍ الآن» + بثّ لحظي لشاشة العميل
+            if ($meeting = $meetRequest->meeting) {
+                $meeting->update(['status' => 'جارٍ', 'is_up' => true]);
+                Live::push(new MeetingStatusBroadcast($meeting->fresh()));
+            }
         }
 
         return back();

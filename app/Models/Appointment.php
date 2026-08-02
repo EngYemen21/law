@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Appointment extends Model
 {
@@ -32,6 +33,12 @@ class Appointment extends Model
         return $this->belongsTo(User::class, 'lawyer_id');
     }
 
+    // الاستشارة المرتبطة بالموعد (مصدر حالة السداد الحقيقية لبطاقة الموعد)
+    public function consult(): HasOne
+    {
+        return $this->hasOne(Consult::class, 'appointment_id');
+    }
+
     // الشكل الذي تتوقعه الواجهة (يطابق DATA.appts)
     public function toCard(): array
     {
@@ -46,6 +53,10 @@ class Appointment extends Model
             'status' => $this->status,
             'tone' => $this->tone,
             'when' => $this->when_kind,
+            // بيانات بطاقة الموعد الغنيّة (حقيقيّة)
+            'client' => $this->user?->name,
+            'consultRef' => $this->consult?->ref,
+            'pay' => $this->consult?->paid_at ? 'مدفوع' : 'بانتظار السداد',
         ];
     }
 }

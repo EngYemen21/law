@@ -7,6 +7,7 @@ use App\Models\Appointment;
 use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -74,6 +75,23 @@ class SmartBookingTest extends TestCase
         $this->assertSame($strong->id, $ids->first());
     }
 
+    /** يقود الحجز المباشر عبر الدورة الكاملة (طلب → تسعير → دفع → اختيار موعد)؛ يُرجع استجابة الجدولة. */
+    private function directBookAndSchedule(User $client, User $lawyer, string $date, string $time)
+    {
+        $this->actingAs($client)->post(route('book.store'), [
+            'type' => 'office', 'specialty' => 'القضايا التجارية',
+        ])->assertRedirect(route('myconsults'));
+        $consult = Consult::where('user_id', $client->id)->latest('id')->firstOrFail();
+
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $this->actingAs($admin)->post(route('admin.consults.price', $consult), ['price' => 500])->assertRedirect();
+        ConsultBooking::markPaid($consult->fresh());
+
+        return $this->actingAs($client)->post(route('consults.schedule', $consult), [
+            'lawyer_id' => $lawyer->id, 'date' => $date, 'time' => $time,
+        ]);
+    }
+
     public function test_taken_slot_is_flagged_and_double_booking_is_rejected(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
@@ -81,12 +99,9 @@ class SmartBookingTest extends TestCase
         $lawyer = $this->lawyer('القضايا التجارية');
         $date = LawyerAvailability::resolveDate(null)->toDateString();
 
-        // حجز أول ناجح
-        $this->actingAs($client)->post(route('book.store'), [
-            'type' => 'office', 'specialty' => 'القضايا التجارية',
-            'lawyer_id' => $lawyer->id, 'date' => $date, 'time' => '10:00',
-        ])->assertRedirect(route('myconsults'));
-        $this->assertSame(1, Consult::where('assigned_lawyer_id', $lawyer->id)->count());
+        // حجز أول ناجح (عبر الدورة الكاملة)
+        $this->directBookAndSchedule($client, $lawyer, $date, '10:00')->assertRedirect();
+        $this->assertSame(1, Appointment::where('lawyer_id', $lawyer->id)->count());
 
         // الفترة تظهر محجوزة في التفرّغ
         $res = $this->actingAs($other)->getJson(route('book.availability', ['specialty' => 'القضايا التجارية', 'date' => $date]));
@@ -94,12 +109,25 @@ class SmartBookingTest extends TestCase
         $ten = collect($slots)->firstWhere('time', '10:00');
         $this->assertTrue($ten['taken']);
 
-        // محاولة حجز عميل آخر لنفس الفترة تُرفض (حارس التعارض)
-        $this->actingAs($other)->post(route('book.store'), [
-            'type' => 'office', 'specialty' => 'القضايا التجارية',
-            'lawyer_id' => $lawyer->id, 'date' => $date, 'time' => '10:00',
-        ])->assertSessionHasErrors('starts_at');
-        $this->assertSame(1, Consult::where('assigned_lawyer_id', $lawyer->id)->count());
+        // محاولة حجز عميل آخر لنفس الفترة تُرفض: المختصّ الوحيد مشغول، فلا يوجد بديل متاح
+        $this->directBookAndSchedule($other, $lawyer, $date, '10:00')->assertSessionHasErrors('time');
+        $this->assertSame(1, Appointment::where('lawyer_id', $lawyer->id)->count());
+    }
+
+    public function test_schedule_auto_assigns_top_specialist_ignoring_client(): void
+    {
+        // العميل لا يختار المحامي؛ يُسنَد أعلى مختصّ (تخصّص + سجلّ إنجاز) متاح، ويُتجاهَل أيّ lawyer_id وارد
+        $client = User::factory()->create(['role' => Role::Client]);
+        $strong = $this->lawyer('القضايا التجارية');
+        $weak = $this->lawyer('القضايا التجارية');
+        $this->closeTickets($strong, $client, 3); // الأقوى سجلّ إنجاز
+
+        $date = LawyerAvailability::resolveDate(null)->toDateString();
+        // نحقن الأضعف عمداً — يجب أن يُتجاهَل ويُسنَد الأقوى
+        $this->directBookAndSchedule($client, $weak, $date, '09:00')->assertRedirect();
+
+        $appt = Appointment::latest('id')->firstOrFail();
+        $this->assertSame($strong->id, $appt->lawyer_id);
     }
 
     public function test_busy_lawyer_surfaces_available_alternatives(): void
@@ -109,9 +137,9 @@ class SmartBookingTest extends TestCase
         $free = $this->lawyer('القضايا التجارية');
         $date = LawyerAvailability::resolveDate(null)->toDateString();
 
-        // اشغل كامل يوم المحامي الأول (09:00…16:00)
-        foreach (['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00'] as $t) {
-            $this->bookSlot($busy, $client, $date, $t);
+        // اشغل كامل يوم المحامي الأول (00:00…23:00 — متاح 24 ساعة)
+        for ($h = 0; $h < 24; $h++) {
+            $this->bookSlot($busy, $client, $date, sprintf('%02d:00', $h));
         }
 
         $res = $this->actingAs($client)->getJson(route('book.availability', ['specialty' => 'القضايا التجارية', 'date' => $date]));

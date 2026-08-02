@@ -28,7 +28,7 @@ export const SYS_TICKETS: SysTicket[] = [
 export const DEPTS = ['الاستشارات القانونية', 'العقود والاتفاقيات', 'القضايا التجارية', 'القضايا العمالية', 'الأحوال الشخصية', 'التنفيذ', 'الشركات', 'الملكية الفكرية', 'العقارات', 'البنوك والتمويل', 'التأمين', 'الجرائم المعلوماتية', 'القضايا الجنائية', 'التركات والأوقاف', 'خدمة العملاء', 'الإدارة المالية'];
 
 // مفردات حالة التذكرة ونغماتها تأتي من App\Support\TicketJourney::options() كخاصية من الخادم.
-// كانت مكتوبة هنا يدوياً فأسقطت 9 من 13 حالة حقيقية — منها «قيد الدراسة» حالة كل تذكرة جديدة.
+// كانت مكتوبة هنا يدوياً فأسقطت 9 من 13 حالة حقيقية — منها «قيد التحليل» حالة كل تذكرة جديدة.
 
 export interface Lawyer { name: string; depts: string[]; active: number; mode: string; }
 export const LAWYERS: Lawyer[] = [
@@ -189,9 +189,10 @@ export function cStage(s: string): number {
   return s in m ? m[s] : 0;
 }
 
-/** الاستشارة الملغاة خارج مسار التقدّم — لا تُعرض لها رحلة */
+/** حالات ما قبل الجلسة (تسعير/سداد/اختيار موعد) والملغاة خارج مسار المعالجة — لا تُعرض لها رحلة */
+export const CONSULT_BOOKING_STATUSES = ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'];
 export function cHasStage(s: string): boolean {
-  return s !== 'ملغاة';
+  return s !== 'ملغاة' && !CONSULT_BOOKING_STATUSES.includes(s);
 }
 
 export function cTone(s: string): string {

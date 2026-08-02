@@ -23,11 +23,21 @@ class TicketAssignment
             return null;
         }
 
-        $ticket->update([
+        $updates = [
             'assigned_lawyer' => $lawyer->name,
             'assigned_lawyer_id' => $lawyer->id,
             'branch' => $lawyer->branch ?: $ticket->branch,
-        ]);
+        ];
+
+        if (in_array($ticket->status, ['جديدة', 'قيد التحليل'], true)) {
+            $updates['status'] = 'محالة للقسم القانوني';
+            $updates['tone'] = TicketJourney::toneFor('محالة للقسم القانوني');
+            $updates['last_message'] = 'تمت إحالة طلبكم إلى القسم القانوني المختص لدراسة الموضوع.';
+            $updates['date_label'] = 'الآن';
+        }
+
+        $ticket->update($updates);
+        Live::push(new \App\Events\TicketStatusBroadcast($ticket));
 
         return $lawyer;
     }

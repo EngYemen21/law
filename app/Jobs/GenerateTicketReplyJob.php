@@ -23,14 +23,20 @@ class GenerateTicketReplyJob implements ShouldQueue
 
     public function handle(LegalAiService $ai): void
     {
-        if (in_array($this->ticket->fresh()->status, ['مكتملة', 'مغلقة'], true)) {
+        $ticket = $this->ticket->fresh();
+        if (! $ticket) {
             return;
         }
 
-        $aiText = $ai->reply($this->ticket, $this->body)
+        // يتوقّف الردّ التلقائيّ لـ AI بمجرّد إحالة التذكرة للقسم القانوني أو تحويلها للتعامل البشري
+        if (\App\Support\TicketJourney::indexOf($ticket->status) >= \App\Support\TicketJourney::indexOf('محالة للقسم القانوني')) {
+            return;
+        }
+
+        $aiText = $ai->reply($ticket, $this->body)
             ?? 'تم استلام رسالتك، وسيوافيك المختص بالرد في أقرب وقت.';
 
-        $aiMsg = $this->ticket->messages()->create([
+        $aiMsg = $ticket->messages()->create([
             'who' => 'ai',
             'name' => LegalAiService::AGENT_NAME,
             'role' => LegalAiService::AGENT_ROLE,

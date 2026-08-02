@@ -118,6 +118,7 @@ export interface SummaryData {
   keyPoints?: string;
   status: string; // awaiting_lawyer | approved
   approved: boolean;
+  aiGenerated?: boolean; // false = قالب مبدئي لم يكتمل تحليله الذكي
   result?: string;
   resultStatus?: string; // none | pending_lawyer | pending_admin | approved
 }

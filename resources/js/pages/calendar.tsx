@@ -19,7 +19,7 @@ const Calendar: React.FC<Props> = ({ events }) => (
       <div className="card-b">
         {events.length ? events.map((e, i) => (
           <div key={i} className="item">
-            <div className="iico"><Icon name={e.kind === 'اجتماع' ? 'video' : 'cal'} /></div>
+            <div className="iico"><Icon name={e.kind === 'اجتماع' ? 'video' : e.kind === 'جلسة قضية' ? 'scale' : 'cal'} /></div>
             <div className="imeta">
               <b>{e.title}</b>
               <span>{[e.day, e.time, e.where].filter(Boolean).join(' · ') || '—'}</span>

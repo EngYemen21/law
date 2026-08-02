@@ -47,8 +47,8 @@ class ReportController extends Controller
 
     public function revenue(): Response
     {
-        // إيرادات الاستشارات المحجوزة (كل استشارة تُنشأ بحجز مدفوع يحمل total)
-        $consults = Consult::where('total', '>', 0)->get();
+        // إيرادات الاستشارات المدفوعة فقط (بعد السداد) — لا تُحتسب الطلبات المسعّرة بلا سداد
+        $consults = Consult::whereNotNull('paid_at')->get();
         $bookings = $consults->count();
         $bookingRevenue = (int) $consults->sum('total');
 

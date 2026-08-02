@@ -8,7 +8,6 @@ use App\Models\Consult;
 use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\User;
-use App\Models\UserNotification;
 use App\Support\LawyerAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -20,25 +19,23 @@ class DirectBookingTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_client_direct_booking_creates_consult_and_appointment(): void
+    public function test_client_direct_booking_creates_pricing_request(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا العمالية']);
-        $date = LawyerAvailability::resolveDate(null)->toDateString();
 
+        // الحجز المباشر صار طلباً بانتظار التسعير (لا موعد ولا دفع بعد) — يُكمل في «استشاراتي»
         $this->actingAs($client)->post(route('book.store'), [
-            'type' => 'phone', 'specialty' => 'القضايا العمالية', 'lawyer_id' => $lawyer->id,
-            'date' => $date, 'time' => '11:00', 'subject' => 'نزاع عمل',
+            'type' => 'phone', 'specialty' => 'القضايا العمالية', 'subject' => 'نزاع عمل',
         ])->assertRedirect(route('myconsults'));
 
         $consult = Consult::firstOrFail();
         $this->assertSame($client->id, $consult->user_id);
         $this->assertNull($consult->ticket_id); // حجز مباشر بلا تذكرة
         $this->assertSame('هاتفية', $consult->channel);
-        $this->assertSame(350, $consult->price); // السعر الافتراضي للهاتفية
-        $this->assertSame($lawyer->id, $consult->assigned_lawyer_id); // المحامي المختار مربوط بالمعرّف
-        $this->assertSame(1, Appointment::where('user_id', $client->id)->count());
-        $this->assertSame(1, UserNotification::where('user_id', $client->id)->count());
+        $this->assertSame('بانتظار التسعير', $consult->status);
+        $this->assertSame(350, $consult->price); // السعر الابتدائي المقترح (الافتراضي للهاتفية)
+        $this->assertNull($consult->appointment_id);
+        $this->assertSame(0, Appointment::count()); // لا موعد قبل السداد
     }
 
     public function test_employee_books_on_behalf_of_client(): void
@@ -72,13 +69,10 @@ class DirectBookingTest extends TestCase
         ])->assertRedirect();
         $this->assertSame('400', Setting::get('price_phone'));
 
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
-        $date = LawyerAvailability::resolveDate(null)->toDateString();
         $this->actingAs($client)->post(route('book.store'), [
-            'type' => 'phone', 'specialty' => 'القضايا التجارية', 'lawyer_id' => $lawyer->id,
-            'date' => $date, 'time' => '10:00',
+            'type' => 'phone', 'specialty' => 'القضايا التجارية',
         ])->assertRedirect();
-        $this->assertSame(400, Consult::firstOrFail()->price); // السعر الجديد انعكس
+        $this->assertSame(400, Consult::firstOrFail()->price); // السعر الجديد انعكس على الطلب
     }
 
     public function test_admin_accounting_shows_real_invoices_and_marks_paid(): void

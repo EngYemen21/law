@@ -29,8 +29,16 @@ return Application::configure(basePath: dirname(__DIR__))
             'active' => EnsureActive::class,
         ]);
 
-        // Zoom webhook لا يرسل رمز CSRF؛ محميّ بتوقيع HMAC في المتحكّم
-        $middleware->validateCsrfTokens(except: ['webhooks/zoom']);
+        // Zoom/Moyasar webhooks لا ترسل رمز CSRF؛ محميّة بتوقيع/سرّ في المتحكّم
+        $middleware->validateCsrfTokens(except: ['webhooks/zoom', 'webhooks/moyasar']);
+
+        // الثقة بترويسات الوسيط (X-Forwarded-*) — خلف ngrok/Reverse proxy يبني Laravel
+        // روابط https صحيحة (رابط عودة ميسّر callback_url آمن)، ويكتشف بروتوكول الطلب الحقيقي.
+        $middleware->trustProxies(at: '*', headers: Request::HEADER_X_FORWARDED_FOR
+            | Request::HEADER_X_FORWARDED_HOST
+            | Request::HEADER_X_FORWARDED_PORT
+            | Request::HEADER_X_FORWARDED_PROTO
+            | Request::HEADER_X_FORWARDED_AWS_ELB);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

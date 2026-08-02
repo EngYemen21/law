@@ -2,6 +2,8 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\User;
+use App\Models\UserNotification;
 use App\Support\Permissions;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -47,6 +49,7 @@ class HandleInertiaRequests extends Middleware
                     'id' => $user->id,
                     'name' => $user->name,
                     'email' => $user->email,
+                    'phone' => $user->phone,
                     'role' => $user->role->value,
                     'roleLabel' => $user->role->label(),
                     'avatar' => $user->avatar_initials,
@@ -54,12 +57,24 @@ class HandleInertiaRequests extends Middleware
                     // الصلاحيات التفصيلية (spatie) — الإدارة تتجاوز الكل (isSuper)
                     'isSuper' => $user->isAdmin(),
                     'permissions' => $user->isAdmin() ? [] : $user->getPermissionNames()->all(),
+                    // حسابات نفس الشخص (نفس الهُويّة **والجوال** المُثبت) — لمُبدّل «تبديل الحساب».
+                    // أمنيّ: التجميع بالجوال أيضاً يمنع ظهور حساب مزوّر يشارك الهُويّة بجوال مختلف.
+                    'accounts' => ($user->national_id && $user->phone)
+                        ? User::where('national_id', $user->national_id)->where('phone', $user->phone)->where('status', 'active')
+                            ->get(['id', 'role'])
+                            ->map(fn ($u) => ['id' => $u->id, 'roleLabel' => $u->role->label(), 'current' => $u->id === $user->id])
+                            ->values()
+                        : [],
                 ] : null,
             ],
             // لافتة معاينة لوحة الموظف (إمبرسنيشن) — نشطة عند وجود مُدير أصلي في الجلسة
             'impersonating' => ($impersonatorId && $user) ? ['name' => $user->name] : null,
             // كتالوج الصلاحيات (المصدر الوحيد من الخادم) — للتصفية وشاشة الموظفين
             'permCatalog' => $user ? Permissions::catalog() : null,
+            // عدّ الإشعارات غير المقروءة الحقيقي (كسول) — يغذّي نقطة الجرس وشارة «الإشعارات»
+            'unreadNotifications' => fn () => $user
+                ? UserNotification::where('user_id', $user->id)->where('is_read', false)->count()
+                : 0,
             'flash' => [
                 'error' => fn () => $request->session()->get('error'),
                 'success' => fn () => $request->session()->get('success'),

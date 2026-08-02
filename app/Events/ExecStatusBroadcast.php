@@ -33,7 +33,6 @@ class ExecStatusBroadcast implements ShouldBroadcastNow
         return [
             'status' => $this->execution->status,
             'tone' => $this->execution->tone,
-            'next' => $this->execution->last_action,
         ];
     }
 }

@@ -19,10 +19,11 @@ interface Props {
   onLawyerChange: (id: number | null) => void;
   time: string;
   onTimeChange: (t: string) => void;
+  autoAssign?: boolean;                      // العميل يختار الوقت فقط؛ النظام يُسند أعلى مختصّ متاح
 }
 
 const SpecialistPicker: React.FC<Props> = ({
-  fetchUrl, fetchParams = {}, enabled, date, onDateSnap, lawyerId, onLawyerChange, time, onTimeChange,
+  fetchUrl, fetchParams = {}, enabled, date, onDateSnap, lawyerId, onLawyerChange, time, onTimeChange, autoAssign = false,
 }) => {
   const [lawyers, setLawyers] = useState<LawyerOpt[]>([]);
   const [loading, setLoading] = useState(false);
@@ -54,6 +55,54 @@ const SpecialistPicker: React.FC<Props> = ({
   }, [fetchUrl, paramsKey, date, enabled]);
 
   if (!enabled) return null;
+
+  // اتحاد الأوقات عبر كل المختصّين، ومَن يُسنَد لكل وقت (أعلى مرتّب متاح)
+  const times = lawyers[0]?.slots ?? [];
+  const freeAt = (t: string) => lawyers.filter((l) => l.slots.some((s) => s.time === t && !s.taken));
+  const assigned = time ? (freeAt(time)[0] ?? null) : null;
+  // الاسم الأول فقط (لقب + أول اسم) — لا يُظهَر الاسم الكامل للعميل
+  const firstName = (n: string) => {
+    const p = n.trim().split(/\s+/);
+    return /^(أ|د|م|الأستاذ|الأستاذة|المحامي|المحامية)\.?$/.test(p[0]) && p.length > 1 ? `${p[0]} ${p[1]}` : (p[0] || n);
+  };
+
+  // العميل يختار الوقت فقط؛ النظام يُسند أعلى مختصّ متاح — ولا يُظهَر إلا اسمه الأول
+  if (autoAssign) {
+    return (
+      <>
+        {loading && <p className="sub">جارٍ جلب الأوقات المتاحة…</p>}
+        {!loading && times.length === 0 && <p className="sub">لا يوجد مستشارون متاحون في هذا اليوم — غيّر التاريخ.</p>}
+        {!loading && times.length > 0 && (
+          <>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)', margin: '4px 0 6px' }}>
+              اختر الوقت المتاح
+            </label>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {times.map((s) => {
+                const free = freeAt(s.time).length > 0;
+                return (
+                  <button
+                    key={s.time}
+                    type="button"
+                    className={`btn ${time === s.time ? '' : 'soft'} sm`}
+                    disabled={!free}
+                    title={free ? 'متاح' : 'محجوز'}
+                    style={!free ? { opacity: 0.4, textDecoration: 'line-through' } : undefined}
+                    onClick={() => { onTimeChange(s.time); onLawyerChange(freeAt(s.time)[0]?.id ?? null); }}
+                  >
+                    {s.time}
+                  </button>
+                );
+              })}
+            </div>
+            {assigned
+              ? <p className="sub" style={{ marginTop: 10 }}>سيتولّى استشارتك: <b>{firstName(assigned.name)}</b></p>
+              : <p className="sub" style={{ marginTop: 10 }}>يُسند النظام المستشار المختصّ تلقائيّاً حسب نوع طلبك.</p>}
+          </>
+        )}
+      </>
+    );
+  }
 
   return (
     <>

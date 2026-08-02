@@ -30,6 +30,17 @@ class AppointmentCard
         return '<svg class="ic" viewBox="0 0 24 24">'.(self::ICONS[$key] ?? '').'</svg>';
     }
 
+    /** الاسم الأول فقط (لقب + أول اسم) — لا يُظهَر الاسم الكامل للمحامي للعميل (يطابق lawyerFirst في الواجهة). */
+    private static function firstName(string $name): string
+    {
+        $parts = preg_split('/\s+/', trim($name)) ?: [];
+        if (isset($parts[1]) && preg_match('/^(أ|د|م|الأستاذ|الأستاذة|المحامي|المحامية)\.?$/u', $parts[0])) {
+            return $parts[0].' '.$parts[1];
+        }
+
+        return $parts[0] ?? $name;
+    }
+
     /**
      * @param  array{label:string,branch:string}  $meta  ناتج ConsultBooking::meta()
      */
@@ -38,7 +49,7 @@ class AppointmentCard
         $branch = $consult->branch ?: $meta['branch'];
 
         $rows = '<div class="row">'.self::icon('cal').'<b>'.e($consult->day).'</b><span>· '.e($consult->time).'</span></div>'
-            .'<div class="row">'.self::icon('user').'<span>'.e($consult->lawyer).'</span></div>'
+            .'<div class="row">'.self::icon('user').'<span>'.e(self::firstName($consult->lawyer)).'</span></div>'
             .'<div class="row">'.self::icon('pin').'<span>'.e($branch).'</span></div>';
 
         // رابط الجلسة المرئية: وصلة قابلة للنقر بدل نصّ مهروب لا يُفتح

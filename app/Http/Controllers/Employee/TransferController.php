@@ -64,6 +64,11 @@ class TransferController extends Controller
             'time_label' => 'الآن',
         ]);
 
+        if ($request->expectsJson()) {
+            return response()->json(['ok' => true, 'lawyer' => $lawyer->name]);
+        }
+
         return back()->with('flash', "تم تحويل التذكرة {$ticket->number} إلى {$lawyer->name}.");
+
     }
 }

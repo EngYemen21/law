@@ -39,7 +39,8 @@ class SessionOutputsTest extends TestCase
         $this->assertSame('منتهٍ', $meeting->status);
         $this->assertNotEmpty($meeting->summary);
         $this->assertNotEmpty($meeting->minutes);
-        $this->assertNotEmpty($meeting->decisions);
+        // بلا مفاتيح AI في الاختبار: لا قرارات مُختلَقة (الاحتياط الأمين يُرجع قائمة فارغة)
+        $this->assertEmpty($meeting->decisions);
         Event::assertDispatched(MeetingStatusBroadcast::class);
     }
 

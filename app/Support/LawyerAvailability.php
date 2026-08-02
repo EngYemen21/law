@@ -8,26 +8,26 @@ use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
-use App\Services\LegalAiService;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 /**
  * محرّك التفرّغ والاقتراح لحجز الاستشارة:
- * - يرشّح المحامين بنفس التخصّص ويرتّبهم بأولوية الذكاء الاصطناعي (مستنداً لسجلّ النجاح والحمل).
+ * - يرشّح المحامين بنفس التخصّص ويرتّبهم حتميّاً بسجلّ النجاح والحمل (فوري، بلا نداء AI متزامن).
  * - يحسب سجلّ النجاح لكل محامٍ (نسبة/عدد المغلق من التذاكر والقضايا والتنفيذ).
  * - يولّد فترات المواعيد المتاحة ويكشف الانشغال لمنع الحجز المزدوج.
  * كل المنطق حتميّ ويعمل بلا ذكاء اصطناعي (اختبارات/غياب مزوّد).
  */
 class LawyerAvailability
 {
-    /** أيام العمل: الأحد(0)…الخميس(4) بتقويم Carbon. */
-    private const WORK_DAYS = [0, 1, 2, 3, 4];
+    /** الاستشارات متاحة طوال الأسبوع: الأحد(0)…السبت(6) بتقويم Carbon. */
+    private const WORK_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
-    private const WORK_START = 9;   // 09:00
+    private const WORK_START = 0;   // 00:00 — متاح طوال 24 ساعة
 
-    private const WORK_END = 17;    // 17:00 (آخر بداية 16:00 لموعد 60د)
+    private const WORK_END = 24;    // آخر بداية 23:00 لموعد 60د
 
-    private const SLOT_MIN = 60;
+    private const SLOT_MIN = 60;    // كل استشارة ساعة واحدة
 
     /** حالات «مغلق/منجز» لكل نوع — تُغذّي سجلّ النجاح. */
     private const CLOSED_TICKETS = ['مكتملة', 'مغلقة'];
@@ -51,31 +51,71 @@ class LawyerAvailability
         // مطابقة التخصّص إن وُجد مطابقون، وإلا فكل المحامين
         $matched = $lawyers->filter(fn ($u) => Specialties::matches($u->department, $specialty))->values();
         $pool = $matched->isNotEmpty() ? $matched : $lawyers;
+        $ids = $pool->pluck('id')->map(fn ($i) => (int) $i)->all();
 
-        // وسم كل مرشّح بسجلّ النجاح والحمل، وترتيب حتميّ ابتدائي (الأكثر إنجازاً ← الأقل حملاً)
-        $rows = $pool->map(fn ($u) => [
-            'id' => (int) $u->id,
-            'name' => $u->name,
-            'dept' => $u->department ?: '—',
-            'success' => self::successScore($u),
-            'load' => self::openLoad((int) $u->id),
-        ])->sort(fn ($a, $b) => [$b['success']['closed'], $b['success']['rate'], $a['load'], $a['id']]
+        // تجميع دفعة واحدة (بدل ~8 استعلامات لكل محامٍ): حالات التذاكر/القضايا/التنفيذ لكل الپول
+        $tickets = Ticket::whereIn('assigned_lawyer_id', $ids)->get(['assigned_lawyer_id', 'status'])->groupBy('assigned_lawyer_id');
+        $cases = LegalCase::whereIn('assigned_lawyer_id', $ids)->get(['assigned_lawyer_id', 'status'])->groupBy('assigned_lawyer_id');
+        $execs = Execution::whereIn('assigned_lawyer_id', $ids)->get(['assigned_lawyer_id', 'status'])->groupBy('assigned_lawyer_id');
+
+        // مواعيد اليوم المطلوب لكل الپول دفعة واحدة (بدل استعلام لكل محامٍ)
+        $day = self::resolveDate($date);
+        $isWorkDay = in_array($day->dayOfWeek, self::WORK_DAYS, true);
+        $apptsByLawyer = $isWorkDay
+            ? Appointment::whereIn('lawyer_id', $ids)->whereNotNull('starts_at')->whereDate('starts_at', $day->toDateString())
+                ->get(['lawyer_id', 'starts_at'])->groupBy('lawyer_id')
+            : collect();
+
+        // وسم كل مرشّح بسجلّ النجاح والحمل من البيانات المجمّعة (بلا استعلام لكل محامٍ)
+        $rows = $pool->map(function ($u) use ($tickets, $cases, $execs) {
+            $id = (int) $u->id;
+            $t = $tickets->get($id, collect());
+            $c = $cases->get($id, collect());
+            $e = $execs->get($id, collect());
+            $total = $t->count() + $c->count() + $e->count();
+            $closed = $t->whereIn('status', self::CLOSED_TICKETS)->count()
+                + $c->whereIn('status', self::CLOSED_CASES)->count()
+                + $e->whereIn('status', self::CLOSED_EXECS)->count();
+
+            return [
+                'id' => $id,
+                'name' => $u->name,
+                'dept' => $u->department ?: '—',
+                'success' => [
+                    'rate' => $total > 0 ? (int) round($closed / $total * 100) : 0,
+                    'closed' => $closed,
+                    'total' => $total,
+                ],
+                'load' => $t->whereNotIn('status', self::CLOSED_TICKETS)->count(),
+            ];
+        })->sort(fn ($a, $b) => [$b['success']['closed'], $b['success']['rate'], $a['load'], $a['id']]
             <=> [$a['success']['closed'], $a['success']['rate'], $b['load'], $b['id']]
         )->values();
 
-        // ترتيب ذكي عبر الذكاء الاصطناعي (يعيد الترتيب الحتميّ عند التعذّر)
-        $orderedIds = app(LegalAiService::class)->rankLawyers($specialty, $subject ?: $specialty, $rows->all());
-        $byId = $rows->keyBy('id');
-        $ranked = collect($orderedIds)->map(fn ($id) => $byId->get($id))->filter()->values();
-
-        // إلحاق فترات اليوم المطلوب لكل محامٍ
-        return $ranked->map(function (array $row) use ($date) {
-            $slots = self::slotsFor($row['id'], $date);
+        // ترتيب حتميّ فوري (الأكثر إنجازاً ← الأقل حملاً) — بلا نداء AI متزامن على نقطة تفاعلية
+        // (كان rankLawyers يعلّق طلب اختيار الموعد حتى 150ث؛ الترتيب الحتميّ سريع وسليم).
+        return $rows->map(function (array $row) use ($apptsByLawyer, $isWorkDay) {
+            $slots = self::slotsFromAppointments($apptsByLawyer->get($row['id'], collect()), $isWorkDay);
             $row['slots'] = $slots;
             $row['freeCount'] = count(array_filter($slots, fn ($s) => ! $s['taken']));
 
             return $row;
         })->all();
+    }
+
+    /**
+     * الإسناد التلقائيّ (العميل لا يختار): أعلى مختصّ في نوع المشكلة (تخصّص + سجلّ إنجاز)
+     * غير مشغول في الوقت المطلوب. يعيد المحامي، أو null إن لم يتوفّر أيّ مختصّ في تلك الفترة.
+     */
+    public static function assignLawyer(string $specialty, ?string $subject, Carbon $startsAt, int $dur = self::SLOT_MIN): ?User
+    {
+        foreach (self::rankedSpecialists($specialty, $subject, $startsAt->toDateString()) as $l) {
+            if (! self::isBusy((int) $l['id'], $startsAt, $dur)) {
+                return User::find($l['id']);
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -132,8 +172,7 @@ class LawyerAvailability
     }
 
     /**
-     * فترات يوم عمل لمحامٍ (09:00…16:00 بطول 60د)، كلٌّ مع علامة المحجوز.
-     * يوم عطلة (جمعة/سبت) → لا فترات.
+     * فترات اليوم لمحامٍ (00:00…23:00 بطول 60د، متاحة طوال الأسبوع)، كلٌّ مع علامة المحجوز.
      *
      * @return array<int, array{time:string,taken:bool}>
      */
@@ -152,6 +191,27 @@ class LawyerAvailability
             ->map(fn (Appointment $a) => $a->starts_at->format('H:i'))
             ->all();
 
+        $slots = [];
+        for ($h = self::WORK_START; $h < self::WORK_END; $h++) {
+            $time = sprintf('%02d:00', $h);
+            $slots[] = ['time' => $time, 'taken' => in_array($time, $taken, true)];
+        }
+
+        return $slots;
+    }
+
+    /**
+     * يبني فترات اليوم من مواعيد المحامي المُحمّلة مسبقاً (بلا استعلام) — يخدم المسار المجمّع.
+     *
+     * @param  Collection<int, Appointment>  $appts
+     * @return array<int, array{time:string,taken:bool}>
+     */
+    private static function slotsFromAppointments($appts, bool $isWorkDay): array
+    {
+        if (! $isWorkDay) {
+            return [];
+        }
+        $taken = $appts->map(fn (Appointment $a) => $a->starts_at->format('H:i'))->all();
         $slots = [];
         for ($h = self::WORK_START; $h < self::WORK_END; $h++) {
             $time = sprintf('%02d:00', $h);

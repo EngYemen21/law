@@ -70,7 +70,10 @@ class BranchIsolationTest extends TestCase
         ]);
 
         $this->actingAs($employee)->get(route('employee.cases.show', $case))->assertForbidden();
-        $this->actingAs($employee)->get(route('employee.execs.show', $exec))->assertForbidden();
+        // التنفيذ الموحّد: الموظف لا يتصرّف على تنفيذ فرع آخر (عزل الفرع)، ولا يظهر في قائمته
+        $this->actingAs($employee)->post(route('exec-flow.act', $exec), ['action' => 'refer'])->assertForbidden();
+        $this->actingAs($employee)->get(route('employee.execs'))
+            ->assertOk()->assertInertia(fn ($p) => $p->component('execflow')->has('execs', 0));
     }
 
     public function test_lawyer_cannot_open_another_lawyers_records(): void
@@ -94,7 +97,8 @@ class BranchIsolationTest extends TestCase
 
         $this->actingAs($mine)->get(route('lawyer.tickets.show', $ticket))->assertForbidden();
         $this->actingAs($mine)->get(route('lawyer.cases.show', $case))->assertForbidden();
-        $this->actingAs($mine)->get(route('lawyer.execs.show', $exec))->assertForbidden();
+        // التنفيذ الموحّد: لا يتصرّف المحامي على ملفّ مسند لزميل آخر
+        $this->actingAs($mine)->post(route('exec-flow.act', $exec), ['action' => 'accept'])->assertForbidden();
 
         // المحامي المسند نفسه يصل بلا مانع
         $this->actingAs($other)->get(route('lawyer.cases.show', $case))->assertOk();

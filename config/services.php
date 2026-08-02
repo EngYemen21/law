@@ -35,20 +35,14 @@ return [
         ],
     ],
 
-    // المساعد القانوني الذكي (Claude API)
-    'anthropic' => [
-        'key' => env('ANTHROPIC_API_KEY'),
-        'model' => env('ANTHROPIC_MODEL', 'claude-opus-4-8'),
-    ],
-
-    // الخيار الأول: GLM Coding (z.ai) — متوافق مع OpenAI
+    // احتياطي: GLM Coding (z.ai) — متوافق مع OpenAI
     'glm' => [
         'key' => env('GLM_API_KEY'),
         'model' => env('GLM_MODEL', 'glm-4.6'),
         'base' => env('GLM_BASE_URL', 'https://api.z.ai/api/paas/v4'),
     ],
 
-    // بديل: Gemini API
+    // الأساسي: Gemini API
     'gemini' => [
         'key' => env('GEMINI_API_KEY'),
         'model' => env('GEMINI_MODEL', 'gemini-2.5-flash'),
@@ -57,6 +51,11 @@ return [
     // الوكيل التشغيلي الذكي للتذاكر (فرز آلي + طلب مستندات + إحالة) — مفتاح تعطيل فوري
     'ai_agent' => [
         'enabled' => env('AI_TICKET_AGENT', true),
+    ],
+
+    // مرونة الـAI — مدّة تهدئة المزوّد (بالدقائق) بعد نفاد الحصّة/الازدحام (قاطع الدائرة)
+    'ai' => [
+        'cooldown' => (int) env('AI_COOLDOWN_MINUTES', 30),
     ],
 
     // Zoom (Server-to-Server OAuth) — اجتماعات الاستشارات المرئية
@@ -71,6 +70,43 @@ return [
         'sdk_secret' => env('ZOOM_SDK_SECRET'),
         // سرّ التحقّق من أحداث Zoom (Event Subscriptions / Webhooks)
         'webhook_secret' => env('ZOOM_WEBHOOK_SECRET'),
+    ],
+
+    // بوّابة الدفع Moyasar (ميسّر) — نظام الفواتير المستضاف. بلا مفاتيح يبقى الدفع محاكى.
+    // وضع test/live يُحدَّد ببادئة المفتاح نفسه (sk_test_/sk_live_) — طابِق المفاتيح مع بيئتك.
+    'moyasar' => [
+        // خادميّ فقط — لا يُسرَّب في props/الواجهة/الـLogs
+        'secret_key' => env('MOYASAR_SECRET_KEY'),
+        // آمن للواجهة (Apple Pay/Moyasar.js مستقبلاً)
+        'publishable_key' => env('MOYASAR_PUBLISHABLE_KEY'),
+        // سرّ التحقّق من إشعارات الويب (secret_token في جسم الحدث)
+        'webhook_secret' => env('MOYASAR_WEBHOOK_SECRET'),
+        'base_url' => env('MOYASAR_BASE_URL', 'https://api.moyasar.com/v1'),
+    ],
+
+    // «تقنيات» (taqnyat.sa) — واجهة Verify الرسميّة لرمز التحقّق (OTP): تقنيات تُولّد الرمز وتتحقّق منه.
+    // بلا مفاتيح تُمنع المصادقة برسالة «الخدمة غير مهيّأة» (لا محاكاة — نمط بوّابة الدفع).
+    'taqnyat' => [
+        // خادميّ فقط — لا يُسرَّب في props/الواجهة/الـLogs
+        'api_key' => env('TAQNYAT_API_KEY'),
+        // اسم المُرسِل المعتمد لدى تقنيات (Sender Name) — إلزاميّ للإرسال
+        'sender' => env('TAQNYAT_SENDER'),
+        'base_url' => env('TAQNYAT_BASE_URL', 'https://api.taqnyat.sa'),
+    ],
+
+    // تجاوز تطويريّ مؤقّت لرمز التحقّق (OTP) عند تعطّل المزوّد: رمز ثابت للدخول/التسجيل.
+    // ⚠️ يعمل في غير الإنتاج فقط (يُتجاهَل تماماً حين APP_ENV=production). اتركه فارغاً لإيقافه.
+    'auth_dev_otp' => env('AUTH_DEV_OTP'),
+
+    // النظام الخارجيّ للمخاطبات الرسميّة (ناجز/تراسل...) — يعمل محاكاةً بلا مفاتيح
+    'external_corr' => [
+        'base_url' => env('EXTCORR_BASE_URL'),
+        'api_key' => env('EXTCORR_API_KEY'),
+        'auth_type' => env('EXTCORR_AUTH_TYPE', 'Bearer'),
+        'ref_prefix' => env('EXTCORR_REF_PREFIX', 'EXT'),
+        'ep_send' => env('EXTCORR_EP_SEND', '/v1/correspondence/send'),
+        'ep_status' => env('EXTCORR_EP_STATUS', '/v1/correspondence/{ref}/status'),
+        'ep_reply' => env('EXTCORR_EP_REPLY', '/v1/correspondence/{ref}/reply'),
     ],
 
 ];

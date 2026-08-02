@@ -33,7 +33,6 @@ class CaseStatusBroadcast implements ShouldBroadcastNow
         return [
             'status' => $this->case->status,
             'tone' => $this->case->tone,
-            'next' => $this->case->next_hearing,
         ];
     }
 }

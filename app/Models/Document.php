@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Document extends Model
 {
     protected $fillable = [
-        'user_id', 'name', 'meta', 'direction',
+        'user_id', 'name', 'meta', 'direction', 'path', 'mime', 'size',
     ];
 
     public function user(): BelongsTo
@@ -20,8 +20,10 @@ class Document extends Model
     public function toCard(): array
     {
         return [
+            'id' => $this->id,
             'name' => $this->name,
             'meta' => $this->meta,
+            'canDownload' => $this->path !== null,   // زر التنزيل يظهر فقط لِما له ملفّ فعليّ
         ];
     }
 }

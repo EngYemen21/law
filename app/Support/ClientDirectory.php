@@ -3,9 +3,6 @@
 namespace App\Support;
 
 use App\Enums\Role;
-use App\Models\Consult;
-use App\Models\LegalCase;
-use App\Models\Ticket;
 use App\Models\User;
 
 /**
@@ -16,14 +13,17 @@ class ClientDirectory
 {
     public static function list(): array
     {
-        return User::where('role', Role::Client)->get()->map(function (User $u) {
-            $items = collect()
-                ->merge(Ticket::where('user_id', $u->id)->pluck('number')->map(fn ($n) => $n.' — تذكرة'))
-                ->merge(LegalCase::where('user_id', $u->id)->pluck('number')->map(fn ($n) => $n.' — قضية'))
-                ->merge(Consult::where('user_id', $u->id)->pluck('ref')->map(fn ($n) => $n.' — استشارة'))
-                ->values()->all();
+        // تحميل مسبق: 4 استعلامات إجمالاً بدل 3N+1 (استعلام لكل عميل × 3)
+        return User::where('role', Role::Client)
+            ->with(['tickets:id,user_id,number', 'cases:id,user_id,number', 'consults:id,user_id,ref'])
+            ->get()->map(function (User $u) {
+                $items = collect()
+                    ->merge($u->tickets->pluck('number')->map(fn ($n) => $n.' — تذكرة'))
+                    ->merge($u->cases->pluck('number')->map(fn ($n) => $n.' — قضية'))
+                    ->merge($u->consults->pluck('ref')->map(fn ($n) => $n.' — استشارة'))
+                    ->values()->all();
 
-            return ['id' => $u->id, 'name' => $u->name, 'items' => $items];
-        })->values()->all();
+                return ['id' => $u->id, 'name' => $u->name, 'items' => $items];
+            })->values()->all();
     }
 }

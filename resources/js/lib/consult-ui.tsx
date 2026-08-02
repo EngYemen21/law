@@ -39,6 +39,12 @@ export interface ConsultCard {
   duration: string | null;
   recording?: string | null; // رابط التسجيل السحابي (بعد الجلسة)
   total: number;
+  // دورة الحجز/الدفع (تسعير → فاتورة → دفع محاكى → اختيار الموعد)
+  price?: number;
+  vat?: number;
+  priced?: boolean;
+  paid?: boolean;
+  invoiceNo?: string | null;
   // رحلة المعالجة (CONSULT_FLOW)
   type: string;
   priority: string;
@@ -357,6 +363,31 @@ export const StaffVideoRoomPage: React.FC<StaffRoomProps> = ({ consult, base }) 
 // إدارة الاستشارات — قائمة الرحلة (يطابق emConsultsView + cKPIs)
 // ============================================================
 
+// إجراء تسعير الاستشارة (الإدارة العليا) — يُصدر الفاتورة وينقلها إلى «بانتظار السداد»
+export const PricingAction: React.FC<{ c: ConsultCard; base: string; toast: (m: string) => void }> = ({ c, base, toast }) => {
+  const [price, setPrice] = useState<string>(String(c.price ?? ''));
+  const [busy, setBusy] = useState(false);
+
+  const save = () => {
+    const val = parseInt(price, 10);
+    if (Number.isNaN(val) || val < 0) { toast('أدخل سعراً صحيحاً'); return; }
+    setBusy(true);
+    router.post(`${base}/consults/${c.id}/price`, { price: val }, {
+      preserveScroll: true, onSuccess: () => toast('تم تحديد السعر وإصدار الفاتورة'), onFinish: () => setBusy(false),
+    });
+  };
+
+  return (
+    <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+      <input className="input" style={{ width: 96 }} type="number" min={0} value={price}
+        onChange={(e) => setPrice(e.target.value)} placeholder="السعر" aria-label="سعر الاستشارة" />
+      <button className="btn sm" type="button" disabled={busy} onClick={save}>
+        <Icon name="card" /> تحديد السعر
+      </button>
+    </div>
+  );
+};
+
 export const ConsultsListPage: React.FC<{ consults: ConsultCard[]; base: string }> = ({ consults, base }) => {
   const by = (s: string) => consults.filter((c) => c.status === s).length;
   const done = consults.filter((c) =>
@@ -368,7 +399,6 @@ export const ConsultsListPage: React.FC<{ consults: ConsultCard[]; base: string 
     ['t-blue', 'folder', by('جديدة'), 'جديدة'],
     ['t-cyan', 'user', by('قيد مراجعة الموظف'), 'قيد المراجعة'],
     ['t-amber', 'clock', by('بانتظار استكمال البيانات'), 'بانتظار البيانات'],
-    ['t-cyan', 'info', by('قيد معالجة الفريق القانوني'), 'قيد الفريق القانوني'],
     ['t-amber', 'check', by('بانتظار اعتماد الموظف'), 'بانتظار الاعتماد'],
     ['t-green', 'scale', by('جاهزة للمحامي'), 'جاهزة للمحامي'],
     ['t-blue', 'exec', done, 'منجزة'],

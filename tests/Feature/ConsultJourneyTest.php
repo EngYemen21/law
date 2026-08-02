@@ -7,6 +7,7 @@ use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -48,12 +49,18 @@ class ConsultJourneyTest extends TestCase
         ]);
 
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
-        $this->actingAs($client)->post(route('tickets.book', $ticket), [
-            'type' => 'video', 'lawyer_id' => $lawyer->id,
-            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '11:30',
-        ])->assertNoContent();
 
+        // الدورة الكاملة: طلب → تسعير الإدارة → دفع محاكى → اختيار الموعد → دخول الرحلة «جديدة»
+        $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'video'])->assertNoContent();
         $consult = Consult::where('ticket_id', $ticket->id)->firstOrFail();
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $this->actingAs($admin)->post(route('admin.consults.price', $consult), ['price' => 450])->assertRedirect();
+        ConsultBooking::markPaid($consult->fresh());
+        $this->actingAs($client)->post(route('consults.schedule', $consult), [
+            'lawyer_id' => $lawyer->id, 'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '11:30',
+        ])->assertRedirect();
+
+        $consult->refresh();
         $this->assertSame('جديدة', $consult->status);
         $this->assertSame('التجاري', $consult->type);
         $this->assertSame('متوسطة', $consult->priority);
@@ -64,6 +71,8 @@ class ConsultJourneyTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $employee = User::factory()->create(['role' => Role::Employee, 'name' => 'منيرة الحربي']);
+        // محامٍ حقيقي في قاعدة البيانات — الاحتياط يقترح محامياً فعلياً لا اسماً مُختلَقاً
+        User::factory()->create(['role' => Role::Lawyer, 'name' => 'أ. سارة القحطاني']);
         $consult = $this->makeConsult($client);
 
         // استلام

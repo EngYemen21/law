@@ -6,9 +6,9 @@ use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
 use App\Http\Controllers\Controller;
 use App\Models\Ticket;
-use App\Models\UserNotification;
 use App\Services\LegalAiService;
 use App\Support\Live;
+use App\Support\Notify;
 use App\Support\TicketJourney;
 use App\Support\TicketResult;
 use Illuminate\Http\RedirectResponse;
@@ -86,14 +86,7 @@ class TicketController extends Controller
         ]);
         Live::push(new TicketStatusBroadcast($ticket));
 
-        UserNotification::create([
-            'user_id' => $ticket->user_id,
-            'icon' => 'check',
-            'tone' => 't-green',
-            'body' => "اكتملت معالجة تذكرتك {$ticket->number}، والنتيجة النهائية والتوصيات متاحة داخل التذكرة.",
-            'time_label' => 'الآن',
-            'is_read' => false,
-        ]);
+        Notify::send($ticket->user_id, 'check', 't-green', "اكتملت معالجة تذكرتك {$ticket->number}، والنتيجة النهائية والتوصيات متاحة داخل التذكرة.");
 
         return redirect()->route('admin.tickets');
     }

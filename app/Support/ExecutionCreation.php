@@ -5,7 +5,6 @@ namespace App\Support;
 use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\User;
-use App\Models\UserNotification;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -55,14 +54,7 @@ class ExecutionCreation
             'time_label' => self::clock(),
         ]);
 
-        UserNotification::create([
-            'user_id' => $case->user_id,
-            'icon' => 'exec',
-            'tone' => 't-blue',
-            'body' => "تم فتح طلب تنفيذ الحكم {$exec->number} لقضيتك {$case->number}. تابعه من «طلبات التنفيذ».",
-            'time_label' => 'الآن',
-            'is_read' => false,
-        ]);
+        Notify::send($case->user_id, 'exec', 't-blue', "تم فتح طلب تنفيذ الحكم {$exec->number} لقضيتك {$case->number}. تابعه من «طلبات التنفيذ».");
 
         return $exec;
     }

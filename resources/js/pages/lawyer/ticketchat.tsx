@@ -4,6 +4,7 @@ import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import FlowLine from '@/components/babylon/FlowLine';
 import MsgMeta from '@/components/babylon/MsgMeta';
+import TicketTalkingNotice from '@/components/babylon/TicketTalkingNotice';
 import { useToast } from '@/components/babylon/Toast';
 import { echo } from '@/lib/echo';
 import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
@@ -105,6 +106,8 @@ const LawyerTicketChat: React.FC<Props> = ({ ticket, channel, messages, summary,
         <div>
           <div className="card">
             <div className="card-h"><h3>محادثة العميل {ticket.no}</h3></div>
+            {/* وعيٌ فقط: هل يتحدث موظف مع العميل الآن؟ (لا صندوق ردّ هنا فلا بثّ) */}
+            <TicketTalkingNotice channel={channel} />
             <div className="thread">
               {msgs.map((m, i) => <MsgRow key={m.id ?? i} m={m} />)}
               <div ref={endRef} />

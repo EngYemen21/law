@@ -1,26 +1,37 @@
-import { router } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
 
-// يطابق viewProfile في index (82).html
+// يطابق viewProfile في index (82).html — بيانات حقيقية من auth.user
 
-const Toggle: React.FC<{ initial?: boolean; onChange: (on: boolean) => void }> = ({ initial = true, onChange }) => {
-  const [on, setOn] = useState(initial);
-  return (
-    <div
-      className={`toggle ${on ? 'on' : ''}`}
-      onClick={() => { const next = !on; setOn(next); onChange(next); }}
-    />
-  );
-};
+// مفتاح معطّل (ميزة قيد الإنجاز) — لا يُحفظ حتى تكتمل بنيته الخلفية
+const DisabledToggle: React.FC = () => <div className="toggle" style={{ opacity: 0.45, cursor: 'not-allowed' }} />;
 
 const Profile: React.FC = () => {
   const toast = useToast();
+  const { props } = usePage() as any;
+  const authUser = props?.auth?.user ?? {};
+
+  const [name, setName] = useState<string>(authUser.name ?? '');
+  const [phone, setPhone] = useState<string>(authUser.phone ?? '');
+  const [email, setEmail] = useState<string>(authUser.email ?? '');
+  const [saveBusy, setSaveBusy] = useState(false);
+
   const [curPw, setCurPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [newPw2, setNewPw2] = useState('');
   const [pwBusy, setPwBusy] = useState(false);
+
+  const saveProfile = () => {
+    setSaveBusy(true);
+    router.post('/profile', { name, phone, email }, {
+      preserveScroll: true,
+      onSuccess: () => toast('تم حفظ بياناتك'),
+      onError: (e) => toast((Object.values(e)[0] as string) || 'تعذّر حفظ البيانات'),
+      onFinish: () => setSaveBusy(false),
+    });
+  };
 
   const changePassword = () => {
     setPwBusy(true);
@@ -43,18 +54,18 @@ const Profile: React.FC = () => {
         <div className="card-b" style={{ padding: 18 }}>
           <div className="field">
             <label>الاسم الكامل</label>
-            <input className="input" defaultValue="عبدالله محمد العتيبي" />
+            <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="field">
             <label>رقم الجوال</label>
-            <input className="input" dir="ltr" defaultValue="+966 5X XXX 1234" />
+            <input className="input" dir="ltr" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="05XXXXXXXX" />
           </div>
           <div className="field">
             <label>البريد الإلكتروني</label>
-            <input className="input" dir="ltr" defaultValue="abdullah@example.com" />
+            <input className="input" dir="ltr" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
-          <button className="btn" type="button" onClick={() => toast('تم حفظ التغييرات')}>
-            <Icon name="check" /> حفظ التغييرات
+          <button className="btn" type="button" onClick={saveProfile} disabled={saveBusy}>
+            <Icon name="check" /> {saveBusy ? 'جارٍ الحفظ…' : 'حفظ التغييرات'}
           </button>
         </div>
       </div>
@@ -86,17 +97,17 @@ const Profile: React.FC = () => {
           <div className="card-b" style={{ padding: '6px 18px 14px' }}>
             <div className="switch">
               <div className="sw-t">
-                <b>التحقق الثنائي (2FA)</b>
+                <b>التحقق الثنائي (2FA) <span className="soon-tag">قريباً</span></b>
                 <span>رمز إضافي عبر الرسائل عند تسجيل الدخول</span>
               </div>
-              <Toggle onChange={(on) => toast(on ? 'تم تفعيل التحقق الثنائي' : 'تم إيقاف التحقق الثنائي')} />
+              <DisabledToggle />
             </div>
             <div className="switch">
               <div className="sw-t">
-                <b>تنبيهات تسجيل الدخول</b>
+                <b>تنبيهات تسجيل الدخول <span className="soon-tag">قريباً</span></b>
                 <span>إشعار عند الدخول من جهاز جديد</span>
               </div>
-              <Toggle onChange={() => toast('تم تحديث الإعداد')} />
+              <DisabledToggle />
             </div>
           </div>
         </div>

@@ -151,7 +151,7 @@ const NewTicket: React.FC = () => {
   };
 
   const welcome = async () => {
-    setStage('welcome'); setStatus({ text: 'قيد الاستلام', tone: 'sb-blue' }); setThreadSub('تم استلام الطلب');
+    setStage('welcome'); setStatus({ text: 'جديدة', tone: 'sb-blue' }); setThreadSub('تم استلام الطلب');
     const t = addTyping('ai'); await delay(850); rm(t);
     addMsg('ai', 'الفريق القانوني', 'استقبال', '<p>مرحباً بكم في مكتب المحاماة والاستشارات القانونية. تم استلام طلبكم بنجاح.</p><p>يرجى إرفاق جميع المستندات المتعلقة بالموضوع إن وجدت. سيتم تحليل الطلب وإحالته إلى القسم القانوني المختص للمراجعة.</p><p>يمكنكم كتابة أي ملاحظة أو سؤال في التذكرة في أي وقت من خلال صندوق الكتابة بالأسفل.</p>');
     setComposer(true); await delay(450); await analysis();
@@ -184,7 +184,7 @@ const NewTicket: React.FC = () => {
     await delay(450); await study();
   };
   const study = async () => {
-    setStage('study'); setStatus({ text: 'قيد الدراسة', tone: 'sb-blue' }); setThreadSub('المستشار يدرس الملف');
+    setStage('study'); setStatus({ text: 'قيد التحليل', tone: 'sb-blue' }); setThreadSub('المستشار يدرس الملف');
     const items = ['تلخيص القضية', 'تلخيص المرفقات', 'تجهيز الوقائع', 'تحديد النقاط المهمة'];
     const id = addChecklist('system', 'لوحة المستشار', 'نظام', '<p>يجهّز الفريق القانوني ملخص الملف للمستشار:</p>', items);
     for (let i = 0; i < items.length; i++) { await delay(560); tickChecklist(id, i + 1); }

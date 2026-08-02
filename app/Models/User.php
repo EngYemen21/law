@@ -42,7 +42,7 @@ use Spatie\Permission\Traits\HasRoles;
  * @property Carbon|null $updated_at
  */
 #[Fillable([
-    'name', 'email', 'password', 'role', 'avatar_initials', 'title', 'phone',
+    'name', 'email', 'password', 'role', 'avatar_initials', 'title', 'phone', 'phone_verified_at', 'email_verified_at',
     'status', 'branch', 'department', 'distribution_mode', 'job_title',
     'pay_type', 'salary', 'pay_pct', 'session_fee',
     'national_id', 'join_date', 'work_start', 'work_end',
@@ -62,6 +62,7 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'phone_verified_at' => 'datetime',
             'password' => 'hashed',
             'role' => Role::class,
             'join_date' => 'date',
@@ -126,5 +127,23 @@ class User extends Authenticatable
     public function executions(): HasMany
     {
         return $this->hasMany(Execution::class);
+    }
+
+    /** قضايا العميل (بمعرّف المستخدم) — للتحميل المسبق في دليل العملاء. */
+    public function cases(): HasMany
+    {
+        return $this->hasMany(LegalCase::class);
+    }
+
+    /** استشارات العميل (بمعرّف المستخدم) — للتحميل المسبق في دليل العملاء. */
+    public function consults(): HasMany
+    {
+        return $this->hasMany(Consult::class);
+    }
+
+    /** التذاكر المُسنَدة لهذا المحامي (assigned_lawyer_id) — لعدّ الحمل بـwithCount. */
+    public function assignedTickets(): HasMany
+    {
+        return $this->hasMany(Ticket::class, 'assigned_lawyer_id');
     }
 }

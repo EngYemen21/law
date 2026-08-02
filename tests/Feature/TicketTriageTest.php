@@ -3,12 +3,14 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
+use App\Jobs\GenerateTicketSummaryJob;
 use App\Models\Ticket;
 use App\Models\TicketSummary;
 use App\Models\User;
 use App\Services\LegalAiService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 /**
@@ -49,7 +51,7 @@ class TicketTriageTest extends TestCase
 
         $ticket = $this->openTicket($client);
 
-        // بوابة المستندات صامتة (بلا رسائل «قيد الاستلام/قيد التحليل» الآلية)
+        // بوابة المستندات صامتة (بلا رسائل «جديدة/قيد التحليل» الآلية)
         $this->assertSame('بانتظار مستندات', $ticket->status);
 
         // رسالة ترحيب واحدة فقط للعميل (who=ai من خدمة العملاء) تتضمن المستندات المطلوبة
@@ -88,14 +90,35 @@ class TicketTriageTest extends TestCase
         $this->assertSame('awaiting_lawyer', $summary->status);
         $this->assertNotEmpty($summary->case_summary);
 
-        // سجل المستند: محفوظ بمساره ونتيجة فحصه + ملاحظة داخلية بانتظار اعتماد الموظف
+        // سجل المستند: محفوظ بمساره ونتيجة فحصه + ملخصه أُرسل للعميل مباشرة (أُلغي اعتماد الموظف)
         $doc = $ticket->documents()->firstOrFail();
         $this->assertSame('مرتبط', $doc->status);
         $this->assertSame('عقد توريد', $doc->doc_type);
         $this->assertNotEmpty($doc->path);
-        // الملخص الآن ملاحظة داخلية (note) بانتظار اعتماد الموظف — لا تظهر للعميل مباشرة
-        $this->assertTrue($ticket->messages->contains(fn ($m) => $m->who === 'note' && $m->role === 'ملخص بانتظار الاعتماد'));
-        $this->assertNull($doc->summary_approved); // لم يُعتمد بعد
+        // الملخص رسالة ai مرئية للعميل (لا ملاحظة داخلية بانتظار الاعتماد)
+        $this->assertTrue($ticket->messages->contains(fn ($m) => $m->who === 'ai' && $m->role === 'تحليل المستند'));
+        $this->assertFalse($ticket->messages->contains(fn ($m) => $m->role === 'ملخص بانتظار الاعتماد'));
+        $this->assertTrue((bool) $doc->summary_approved); // يُرسل مباشرة دون اعتماد
+    }
+
+    public function test_referral_dispatches_ai_summary_upgrade_job(): void
+    {
+        $this->enableAgent();
+        // نُزيّف مهمّة الترقية فقط؛ TriageDocumentJob يعمل تزامنياً فيصل للإحالة
+        Queue::fake([GenerateTicketSummaryJob::class]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        User::factory()->create(['role' => Role::Lawyer]);
+        $ticket = $this->openTicket($client);
+        $this->mockDocAnalysis(['related' => true, 'doc_type' => 'عقد توريد', 'summary' => 'عقد توريد.', 'reason' => 'يوثّق العلاقة.']);
+
+        $this->actingAs($client)->post(route('tickets.attach', $ticket), [
+            'file' => UploadedFile::fake()->create('contract.pdf', 100),
+        ])->assertNoContent();
+
+        // الإحالة كتبت الملخّص القالبي فوراً ثم أرسلت مهمّة ترقيته بتحليل حقيقي
+        $this->assertSame('بانتظار اعتماد المستشار', $ticket->fresh()->status);
+        Queue::assertPushed(GenerateTicketSummaryJob::class,
+            fn (GenerateTicketSummaryJob $job) => $job->ticket->id === $ticket->id);
     }
 
     public function test_unrelated_document_is_rejected_and_correct_docs_requested(): void
@@ -154,9 +177,30 @@ class TicketTriageTest extends TestCase
             'file' => UploadedFile::fake()->create('contract.pdf', 100),
         ]);
 
-        // الاعتماد القانوني يبقى بشرياً: المستشار يعتمد الملخص فيتقدم المسار
-        $this->actingAs($lawyer)->post(route('lawyer.summary.approve', $ticket))->assertRedirect();
+        // الاعتماد القانوني يبقى بشرياً: المستشار يراجع ويحرّر الملخّص ثم يعتمده فيتقدم المسار
+        // (حارس الصدق يمنع اعتماد قالب لم يُحلَّل بالـAI ما لم يحرّره المحامي)
+        $this->actingAs($lawyer)->post(route('lawyer.summary.approve', $ticket), [
+            'case_summary' => 'ملخّص محرّر من المستشار بعد مراجعة الملف.',
+            'key_points' => '• توجيه إنذار رسمي ثم دعوى عند التعذّر.',
+        ])->assertRedirect();
         $this->assertSame('الرأي القانوني', $ticket->fresh()->status);
+    }
+
+    public function test_lawyer_cannot_approve_unanalyzed_template_summary(): void
+    {
+        $this->enableAgent();
+        $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $ticket = $this->openTicket($client);
+        $this->mockDocAnalysis(['related' => true, 'doc_type' => 'عقد', 'summary' => 'عقد.', 'reason' => 'مرتبط.']);
+        $this->actingAs($client)->post(route('tickets.attach', $ticket), [
+            'file' => UploadedFile::fake()->create('contract.pdf', 100),
+        ]);
+
+        // ملخّص قالبي (ai_generated=false، بلا مفاتيح AI) — اعتماده بلا تحرير مرفوض حمايةً للعميل
+        $this->assertFalse((bool) $ticket->summary->fresh()->ai_generated);
+        $this->actingAs($lawyer)->post(route('lawyer.summary.approve', $ticket))->assertStatus(422);
+        $this->assertNotSame('الرأي القانوني', $ticket->fresh()->status);
     }
 
     public function test_attach_outside_documents_gate_does_nothing(): void
@@ -197,8 +241,8 @@ class TicketTriageTest extends TestCase
 
         $ticket = $this->openTicket($client);
 
-        // السلوك القديم: التذكرة تبقى قيد الدراسة بانتظار الموظف
-        $this->assertSame('قيد الدراسة', $ticket->status);
+        // السلوك القديم: التذكرة تبقى قيد التحليل بانتظار الموظف
+        $this->assertSame('قيد التحليل', $ticket->status);
         $this->assertFalse($ticket->messages->contains(fn ($m) => $m->name === 'الوكيل الذكي'));
     }
 }

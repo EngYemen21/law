@@ -6,12 +6,15 @@ use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
 use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
+use App\Jobs\GenerateTicketSummaryJob;
+use App\Mail\SummaryApprovedMail;
 use App\Models\Meeting;
 use App\Models\Task;
 use App\Models\Ticket;
-use App\Models\UserNotification;
+use App\Services\MailService;
 use App\Support\CaseConversion;
 use App\Support\Live;
+use App\Support\Notify;
 use App\Support\ServiceDocs;
 use App\Support\TicketJourney;
 use Illuminate\Http\RedirectResponse;
@@ -114,6 +117,18 @@ class TicketController extends Controller
         return back();
     }
 
+    // إعادة تشغيل تحليل الذكاء الاصطناعي للملخص (يطابق cRerun)
+    public function rerunSummary(Request $request, Ticket $ticket): RedirectResponse
+    {
+        $this->guardAssigned($ticket);
+        abort_unless($ticket->summary, 404);
+        abort_if($ticket->summary->isApproved(), 422, 'لا يمكن إعادة تشغيل التحليل لملخّص تم اعتماده رسمياً.');
+
+        GenerateTicketSummaryJob::dispatch($ticket, force: true);
+
+        return back()->with('flash', 'تمت إعادة تشغيل التحليل الذكي للملخّص.');
+    }
+
     // اعتماد الملخص: يصل اعتماد المستشار والرأي القانوني إلى محادثة العميل + إشعار
     public function approveSummary(Request $request, Ticket $ticket): RedirectResponse
     {
@@ -128,7 +143,18 @@ class TicketController extends Controller
             'facts' => ['nullable', 'string', 'max:5000'],
             'key_points' => ['nullable', 'string', 'max:5000'],
         ]);
-        $summary->fill($request->only(['case_summary', 'attachments_summary', 'facts', 'key_points']));
+
+        // حارس الصدق: لا يُعتمَد ملخّص قالبي لم يُحلَّل بالـAI ما لم يحرّره المحامي يدوياً —
+        // فلا يُرسَل رأي أجوف للعميل (يمنع تكرار اعتماد القالب كما في SB-2026-1451).
+        $fields = ['case_summary', 'attachments_summary', 'facts', 'key_points'];
+        $before = $summary->only($fields);
+        $summary->fill($request->only($fields));
+        $edited = $summary->only($fields) != $before;
+        abort_if(
+            ! $summary->ai_generated && ! $summary->isApproved() && ! $edited,
+            422,
+            'لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — يُرجى انتظار التحليل الذكي أو تحرير الملخّص يدوياً قبل الاعتماد.'
+        );
 
         if ($summary->status !== 'approved') {
             $summary->status = 'approved';
@@ -163,14 +189,13 @@ class TicketController extends Controller
         Live::push(new TicketStatusBroadcast($ticket));
 
         // إشعار للعميل
-        UserNotification::create([
-            'user_id' => $ticket->user_id,
-            'icon' => 'scale',
-            'tone' => 't-cyan',
-            'body' => "اعتمد المستشار ملخص ملفك وأصدر الرأي القانوني المبدئي على تذكرتك {$ticket->number}.",
-            'time_label' => 'الآن',
-            'is_read' => false,
-        ]);
+        Notify::send($ticket->user_id, 'scale', 't-cyan', "اعتمد المستشار ملخص ملفك وأصدر الرأي القانوني المبدئي على تذكرتك {$ticket->number}.");
+
+        // بريد للعميل باعتماد الملخّص والرأي القانونيّ (أفضل-جهد — لا يعطّل الطلب إن فشل)
+        $ticket->loadMissing('user');
+        if ($ticket->user?->email) {
+            app(MailService::class)->send($ticket->user, new SummaryApprovedMail($ticket, $summary->key_points));
+        }
 
         return redirect()->route($request->user()->isAdmin() ? 'admin.summaries' : 'lawyer.summaries');
     }
@@ -248,11 +273,7 @@ class TicketController extends Controller
         Live::push(new TicketMessageBroadcast($msg));
         $ticket->update(['last_message' => 'طلب المستشار مستندات إضافية', 'date_label' => 'الآن']);
 
-        UserNotification::create([
-            'user_id' => $ticket->user_id, 'icon' => 'upload', 'tone' => 't-amber',
-            'body' => "طلب المستشار مستندات إضافية على تذكرتك {$ticket->number}.",
-            'time_label' => 'الآن', 'is_read' => false,
-        ]);
+        Notify::send($ticket->user_id, 'upload', 't-amber', "طلب المستشار مستندات إضافية على تذكرتك {$ticket->number}.");
 
         return back();
     }

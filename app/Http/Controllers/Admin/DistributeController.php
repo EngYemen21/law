@@ -4,13 +4,13 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\Role;
 use App\Http\Controllers\Controller;
+use App\Jobs\AssignTicketJob;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Rules\LawyerInBranch;
 use App\Support\TicketAssignment;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -42,13 +42,24 @@ class DistributeController extends Controller
         ]);
         $lawyer = User::findOrFail($data['lawyer_id']);
 
-        $ticket->update([
+        $updates = [
             'assigned_lawyer' => $lawyer->name,
             'assigned_lawyer_id' => $lawyer->id,
             'branch' => $lawyer->branch ?: $ticket->branch,
-        ]);
+        ];
+
+        if (in_array($ticket->status, ['جديدة', 'قيد التحليل'], true)) {
+            $updates['status'] = 'محالة للقسم القانوني';
+            $updates['tone'] = \App\Support\TicketJourney::toneFor('محالة للقسم القانوني');
+            $updates['last_message'] = 'تمت إحالة طلبكم إلى القسم القانوني المختص لدراسة الموضوع.';
+            $updates['date_label'] = 'الآن';
+        }
+
+        $ticket->update($updates);
         // انتشار المحامي/الفرع الجديد إلى استشارات التذكرة المفتوحة
         TicketAssignment::syncRelatedConsults($ticket->fresh());
+        \App\Support\Live::push(new \App\Events\TicketStatusBroadcast($ticket));
+
         $ticket->messages()->create([
             'who' => 'note', 'name' => $request->user()->name, 'role' => 'توزيع',
             'body' => '<p>أسندت الإدارة التذكرة إلى '.e($lawyer->name).'.</p>', 'time_label' => 'الآن',
@@ -58,59 +69,25 @@ class DistributeController extends Controller
     }
 
     /**
-     * التوزيع التلقائي: يُسند المحرك العادل (TicketAssignment) كل التذاكر النشطة غير المسندة.
-     * يعالج فقط assigned_lawyer_id = null؛ التذاكر المسندة سابقاً لا تُلمَس. محميٌّ بقفل الصفوف
-     * لمنع التوزيع المتزامن من مديرَين، ويعيد التحقق بعد القفل لتخطّي ما قد أُسند أثناء الانتظار.
+     * التوزيع التلقائي: يُرسل مهمّة إسناد لكل تذكرة نشطة غير مُسندة (assigned_lawyer_id = null).
+     * نداء الـAI (chooseLawyer) يجري في الخلفية داخل AssignTicketJob — فلا يُعلَّق طلب الإدارة
+     * ولا تُقفل دفعة التذاكر أثناء نداءات الـAI. كل مهمّة تقفل صفّها وتعيد فحص السباق قبل الكتابة.
      */
     public function auto(Request $request): RedirectResponse
     {
-        $assigned = 0;
-        $skipped = 0;
         $actorName = $request->user()->name;
+        $tickets = Ticket::whereNotIn('status', self::CLOSED)
+            ->whereNull('assigned_lawyer_id')
+            ->get(['id']);
 
-        DB::transaction(function () use (&$assigned, &$skipped, $actorName): void {
-            // قفل دفعة التذاكر غير المسندة دفعة واحدة (لا قفل صف بمفرده في حلقة)
-            $tickets = Ticket::whereNotIn('status', self::CLOSED)
-                ->whereNull('assigned_lawyer_id')
-                ->lockForUpdate()
-                ->get();
+        foreach ($tickets as $ticket) {
+            AssignTicketJob::dispatch($ticket->id, $actorName);
+        }
 
-            foreach ($tickets as $ticket) {
-                // إعادة فحص بعد القفل: قد يكون أُسندت أثناء الانتظار (race) — لا خطأ، فقط تخطٍّ
-                if ($ticket->fresh()->assigned_lawyer_id) {
-                    $skipped++;
-
-                    continue;
-                }
-
-                // pickLawyer/assign يستدعيان LegalAiService::chooseLawyer الذي له fallback حتمي
-                // (LegalAiService.php يرجع أول المرشحين عند تعذّر AI) — لا يفشل ما دام هناك مرشّح.
-                $lawyer = TicketAssignment::assign($ticket);
-
-                if (! $lawyer) {
-                    $skipped++;
-
-                    continue;
-                }
-
-                // syncRelatedConsults يقرأ ticket->fresh() — ضمن نفس الاتصال داخل الـ transaction
-                // لا deadlock (Laravel يستخدم savepoint للـ nested transactions على نفس الاتصال).
-                TicketAssignment::syncRelatedConsults($ticket->fresh());
-
-                $ticket->messages()->create([
-                    'who' => 'note',
-                    'name' => $actorName,
-                    'role' => 'توزيع آلي',
-                    'body' => '<p>توزيع تلقائي إلى '.e($lawyer->name).'.</p>',
-                    'time_label' => 'الآن',
-                ]);
-
-                $assigned++;
-            }
-        });
-
-        $msg = "تم توزيع {$assigned} تذكرة تلقائياً";
-        $msg .= $skipped ? "، وتخطّي {$skipped} (مسندة سابقاً أو بلا محامٍ متاح)." : '.';
+        $n = $tickets->count();
+        $msg = $n > 0
+            ? "جارٍ توزيع {$n} تذكرة تلقائياً في الخلفية — حدّث الصفحة بعد قليل لرؤية الإسناد."
+            : 'لا توجد تذاكر غير مُسندة للتوزيع.';
 
         return back()->with('flash', $msg);
     }
