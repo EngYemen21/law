@@ -1,7 +1,7 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import React from 'react';
 import Icon from '@/lib/icons';
-import { ROLES, ROLE_NAV, roleOfPath } from '@/lib/data';
+import { ROLES, ROLE_NAV, panelRole } from '@/lib/data';
 import { canViewRoute, type PermCatalog } from '@/lib/permissions';
 
 interface SidebarProps {
@@ -14,7 +14,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const user = props?.auth?.user;
   const unreadNotifications = (props?.unreadNotifications as number) ?? 0; // عدّ حقيقي من الخادم
   const path = (url as string).split('?')[0];
-  const role = roleOfPath(path);
+  // الصفحات المشتركة (الإشعارات/الملف الشخصي) تُعرض في لوحة دور المستخدم الفعليّ لا لوحة العميل.
+  const role = panelRole(path, user?.role);
   const roleMeta = ROLES.find((r) => r.key === role) ?? ROLES[0];
   const rawNav = ROLE_NAV[role] ?? ROLE_NAV.client;
   const isAdmin = user?.role === 'admin';

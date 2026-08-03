@@ -200,6 +200,19 @@ return 'admin';
   return 'client';
 }
 
+// الصفحات المشتركة (بلا بادئة دور) — تُعرض داخل لوحة دور المستخدم الفعليّ لا لوحة العميل الافتراضية.
+export const SHARED_ACCOUNT_ROUTES = ['/notifications', '/profile'];
+
+// لوحة العرض الصحيحة: للصفحات المشتركة نعتمد دور المستخدم الفعليّ (auth.user.role)،
+// ولغيرها نشتقّ الدور من المسار (يُبقي مبدّل لوحات الإدارة سليماً).
+export function panelRole(path: string, userRole?: string): string {
+  if (userRole && SHARED_ACCOUNT_ROUTES.includes(path)) {
+    return userRole;
+  }
+
+  return roleOfPath(path);
+}
+
 // عناصر الشريط الجانبي (مبنية على المسارات مباشرة)
 export interface SideItem { icon: string; label: string; route: string; badge?: number; alert?: boolean; }
 export interface SideGroup { g: string; items: SideItem[]; }

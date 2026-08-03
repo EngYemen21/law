@@ -1,7 +1,7 @@
 import { router, usePage } from '@inertiajs/react';
 import React from 'react';
 import Icon from '@/lib/icons';
-import { ROLE_TITLES, roleOfPath } from '@/lib/data';
+import { ROLE_TITLES, panelRole } from '@/lib/data';
 
 interface TopbarProps {
   onMenuToggle: () => void;
@@ -12,7 +12,8 @@ const Topbar: React.FC<TopbarProps> = ({ onMenuToggle }) => {
   const user = props?.auth?.user;
   const unread = (props?.unreadNotifications as number) ?? 0; // عدّ حقيقي من الخادم
   const path = (url as string).split('?')[0];
-  const role = roleOfPath(path);
+  // الصفحات المشتركة تُنسب للوحة دور المستخدم الفعليّ (اتّساقاً مع الشريط الجانبيّ).
+  const role = panelRole(path, user?.role);
   const titles = ROLE_TITLES[role] ?? ROLE_TITLES.client;
   // مطابقة مباشرة، مع احتياط لمسار محادثة التذكرة الديناميكي /tickets/{no}
   let [title, crumb] = titles[path] ?? ['الرئيسية', 'منصة العميل'];
@@ -26,6 +27,12 @@ const Topbar: React.FC<TopbarProps> = ({ onMenuToggle }) => {
   // تفاصيل طلب التنفيذ الديناميكية /(lawyer|employee)?/execs/{no}
   if (!titles[path] && /\/execs\/[^/]+$/.test(path)) {
     [title, crumb] = ['متابعة طلب التنفيذ', titles[`${path.split('/execs')[0]}/execs`]?.[1] ?? crumb];
+  }
+  // الصفحات المشتركة: عنوان ثابت لكل الأدوار
+  if (path === '/notifications') {
+    [title, crumb] = ['الإشعارات', 'الحساب'];
+  } else if (path === '/profile') {
+    [title, crumb] = ['الملف الشخصي', 'الحساب'];
   }
 
   return (
