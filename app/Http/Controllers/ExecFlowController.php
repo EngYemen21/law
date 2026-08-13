@@ -3,18 +3,24 @@
 namespace App\Http\Controllers;
 
 use App\Enums\Role;
+use App\Jobs\AnalyzeExecutionDocumentJob;
 use App\Models\Execution;
 use App\Models\ExecutionDocument;
 use App\Services\MoyasarService;
 use App\Support\ExecService;
+use App\Support\Mask;
 use App\Support\Notify;
 use App\Support\PaymentReconciler;
+use App\Support\ReportPrint;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
+use Spatie\Browsershot\Browsershot;
 use Symfony\Component\HttpFoundation\Response as HttpFoundationResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * تدفّق طلب التنفيذ التجاريّ (10 مراحل) — يخدم لوحات الأدوار الأربع (عميل/محامي/إدارة/موظف).
@@ -107,15 +113,18 @@ class ExecFlowController extends Controller
             // الموظف (بوّابة الاستقبال، محصور بفرعه) أو المكتب (محامٍ/إدارة). refer للموظف/الإدارة فقط
             $allowed = $action === 'refer' ? [Role::Employee, Role::Admin] : [Role::Employee, Role::Lawyer, Role::Admin];
             abort_unless(in_array($role, $allowed, true), 403);
+            abort_unless($user->can('إدارة القضايا والأتعاب'), 403);
             abort_if($role === Role::Employee && $execution->branch !== $user->branch, 403);
             abort_if($role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403);
         } elseif (in_array($action, $lawyerPickup, true)) {
             abort_unless($role === Role::Lawyer, 403);
+            abort_unless($user->can('إدارة القضايا والأتعاب'), 403);
             // عزل: لا يتصرّف محامٍ على ملفّ مسند لزميل آخر (يلتقط غير المسند فيُختَم باسمه)
             abort_if($execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403);
             $this->assignLawyerIfNeeded($execution, $user->name, $user->id);
         } elseif (in_array($action, $staffProcActions, true)) {
             abort_unless($role === Role::Lawyer || $role === Role::Admin, 403);
+            abort_unless($user->can('إدارة القضايا والأتعاب'), 403);
             abort_if($role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403);
         } else {
             abort(422, 'إجراء غير معروف.');
@@ -200,7 +209,11 @@ class ExecFlowController extends Controller
         $isClient = $user->role === Role::Client && $execution->user_id === $user->id;
         $isStaff = in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true);
         abort_unless($isClient || $isStaff, 403);
+        if ($isStaff) {
+            abort_unless($user->can('إدارة القضايا والأتعاب'), 403);
+        }
         abort_if($user->role === Role::Employee && $execution->branch !== $user->branch, 403); // عزل الموظف بفرعه
+        abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403); // عزل المحامي بالإسناد
         abort_if(in_array($execution->status, ['مكتمل', 'مغلق'], true) || (int) $execution->stage === 9, 422, 'لا يمكن إرسال رسائل على ملفّ تنفيذ مغلق.');
 
         $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
@@ -230,6 +243,44 @@ class ExecFlowController extends Controller
         return response()->noContent();
     }
 
+    // ── إرفاق مستند حرّ من العميل داخل محادثة التنفيذ (رفع ملف + رسالة + بثّ) ──
+
+    public function attach(Request $request, Execution $execution): HttpResponse
+    {
+        $user = $request->user();
+        abort_unless($user->role === Role::Client && $execution->user_id === $user->id, 403);
+        abort_if(in_array($execution->status, ['مكتمل', 'مغلق'], true) || (int) $execution->stage === 9, 422, 'لا يمكن إرفاق مستندات على ملفّ تنفيذ مغلق.');
+
+        $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx,xlsx']]); // حتى 10MB
+
+        $file = $request->file('file');
+        $name = $file->getClientOriginalName();
+        $doc = $execution->documents()->create([
+            'label' => $name,
+            'status' => 'مرفوع',
+            'path' => $file->store("exec-docs/{$execution->id}"),
+            'mime' => $file->getClientMimeType(),
+            'size' => (int) $file->getSize(),
+            'uploaded_at' => now(),
+        ]);
+
+        // تحليل ذكي للمستند بالخلفية (تصنيف + تلخيص بسياق طلب التنفيذ) ثم ملخّص في المحادثة
+        AnalyzeExecutionDocumentJob::dispatch($execution, $doc);
+
+        // رسالة في محادثة التنفيذ (تُبثّ لحظياً تلقائياً عبر ExecutionMessage::booted)
+        $execution->messages()->create([
+            'who' => 'client', 'name' => 'أنت', 'role' => 'العميل',
+            'body' => '<p>تم إرفاق مستند:</p><div class="doc-list"><span class="doc-chip">📎 '.e($name).'</span></div>',
+            'time_label' => $this->clock(),
+        ]);
+
+        if ($execution->assigned_lawyer_id !== null) {
+            Notify::send($execution->assigned_lawyer_id, 'upload', 't-blue', "أرفق العميل مستنداً «{$name}» على ملفّ التنفيذ {$execution->number}.");
+        }
+
+        return response()->noContent();
+    }
+
     // ── اعتماد/إعادة مستند رفعه العميل (المكتب: محامٍ أو إدارة) ──
 
     public function reviewDocument(Request $request, Execution $execution, ExecutionDocument $document): RedirectResponse
@@ -237,6 +288,7 @@ class ExecFlowController extends Controller
         $user = $request->user();
         abort_unless(in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true), 403);
         abort_if($user->role === Role::Employee && $execution->branch !== $user->branch, 403); // عزل الموظف بفرعه
+        abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403); // عزل المحامي بالإسناد
         abort_unless($document->execution_id === $execution->id, 404);
         abort_unless($document->status === 'مرفوع', 422, 'لا يمكن مراجعة مستند لم يُرفَع بعد.');
 
@@ -247,6 +299,90 @@ class ExecFlowController extends Controller
         Notify::send($execution->user_id, 'file', $decision === 'accept' ? 't-green' : 't-amber', "$msg (ملفّ التنفيذ {$execution->number})");
 
         return back()->with('success', $msg);
+    }
+
+    // ── تنزيل مستند التنفيذ المرفوع (صاحب الملف أو المكتب المصرَّح له) ──
+
+    public function downloadDocument(Request $request, Execution $execution, ExecutionDocument $document): StreamedResponse
+    {
+        $user = $request->user();
+        $isClient = $user->role === Role::Client && $execution->user_id === $user->id;
+        $isStaff = in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true);
+        abort_unless($isClient || $isStaff, 403);
+        abort_if($user->role === Role::Employee && $execution->branch !== $user->branch, 403);
+        abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403);
+        abort_unless($document->execution_id === $execution->id, 404);
+        abort_if($document->path === null, 404, 'الملف غير موجود على الخادم.');
+
+        return Storage::download($document->path, $document->label);
+    }
+
+    // ── طباعة عرض/فاتورة خدمة التنفيذ (PDF حقيقي عبر Browsershot — نظير InvoiceController::pdf) ──
+
+    public function offerPdf(Request $request, Execution $execution): HttpFoundationResponse
+    {
+        $user = $request->user();
+        $isClient = $user->role === Role::Client && $execution->user_id === $user->id;
+        $isStaff = in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true);
+        abort_unless($isClient || $isStaff, 403);
+        abort_if($user->role === Role::Employee && $execution->branch !== $user->branch, 403);
+        abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403);
+        abort_unless((int) $execution->fee > 0, 422, 'لا يوجد عرض/فاتورة على هذا الطلب بعد.');
+
+        $total = (int) $execution->fee + (int) $execution->vat;
+        $lawyer = $isClient ? Mask::lawyer($execution->assigned_lawyer) : ($execution->assigned_lawyer ?: '—');
+
+        $html = ReportPrint::html([
+            'title' => $execution->paid ? 'فاتورة خدمة التنفيذ' : 'عرض خدمة التنفيذ',
+            'subtitle' => $execution->paid ? 'مدفوعة' : 'بانتظار السداد',
+            'ref' => $execution->number,
+            'blocks' => [
+                [
+                    'title' => '١. بيانات طلب التنفيذ',
+                    'cellRows' => [
+                        [['رقم الطلب', $execution->number], ['نوع السند', $execution->sanad ?: '—'], ['الموضوع', $execution->subject], ['المنفَّذ ضده', $execution->defendant ?: '—']],
+                        [['قيمة المطالبة', number_format((int) $execution->amount).' ر.س'], ['رقم ملف التنفيذ', $execution->exec_no ?: '—'], ['رقم الفاتورة', $execution->invoice_no ?: '—']],
+                    ],
+                ],
+                [
+                    ['title' => '٢. بيانات العميل', 'cellRows' => [[['اسم العميل', $execution->user?->name ?: '—']]]],
+                    ['title' => '٣. مقدّم الخدمة', 'cellRows' => [[['الجهة', 'المكتب القانوني'], ['المحامي المسؤول', $lawyer]]]],
+                ],
+                [
+                    'title' => '٤. التفاصيل المالية',
+                    'cellRows' => [[
+                        ['أتعاب التنفيذ', number_format((int) $execution->fee).' ر.س'],
+                        ['ضريبة القيمة المضافة (١٥٪)', number_format((int) $execution->vat).' ر.س'],
+                        ['الإجمالي المستحق', number_format($total).' ر.س'],
+                        ['طريقة السداد', $execution->pay_method ?: '—'],
+                    ]],
+                ],
+            ],
+            'approval' => [
+                'qrSeed' => $execution->number,
+                'rows' => [
+                    ['الجهة', 'سلاسل بابل لتقنية المعلومات'],
+                    ['حالة الطلب', $execution->status],
+                    ['تاريخ الطباعة', now()->format('Y-m-d')],
+                ],
+            ],
+            'note' => 'هذا المستند يمثّل عرض/فاتورة خدمة التنفيذ الصادرة عن المكتب، ولا يُعدّ بذاته سنداً تنفيذياً أو حكماً قضائياً.',
+            'footer' => 'سلاسل بابل لتقنية المعلومات — صادر إلكترونياً',
+        ]);
+
+        $pdf = Browsershot::html($html)
+            ->setCustomTempPath(storage_path('app/browsershot-tmp'))
+            ->setNodeModulePath(base_path('node_modules'))
+            ->noSandbox()
+            ->format('A4')
+            ->showBackground()
+            ->margins(12, 12, 12, 12)
+            ->pdf();
+
+        return response($pdf, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="'.$execution->number.'.pdf"',
+        ]);
     }
 
     // ── رفع مستند مطلوب من العميل ──

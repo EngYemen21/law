@@ -38,6 +38,18 @@ class DirectBookingTest extends TestCase
         $this->assertSame(0, Appointment::count()); // لا موعد قبل السداد
     }
 
+    public function test_client_direct_booking_normalizes_svc_department_specialty(): void
+    {
+        // الواجهة ترسل قسم SVC كما هو (مثال: «قسم القضايا العمالية») بدل التخصّص المعتمد مباشرة
+        $client = User::factory()->create(['role' => Role::Client]);
+
+        $this->actingAs($client)->post(route('book.store'), [
+            'type' => 'phone', 'specialty' => 'قسم القضايا العمالية', 'subject' => 'قضية عمالية — نزاع أجور',
+        ])->assertRedirect(route('myconsults'));
+
+        $this->assertSame('القضايا العمالية', Consult::firstOrFail()->specialty);
+    }
+
     public function test_employee_books_on_behalf_of_client(): void
     {
         $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
@@ -57,6 +69,30 @@ class DirectBookingTest extends TestCase
         $this->assertSame($lawyer->id, $consult->assigned_lawyer_id); // مربوط بالمعرّف والفرع
         $this->assertSame('فرع الرياض', $consult->branch);
         $this->assertNotNull($consult->starts_at); // وقت حقيقي (لا نصّ) — يفعّل منع التعارض وجدولة Zoom
+    }
+
+    public function test_book_page_lists_only_current_client_pending_requests(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $other = User::factory()->create(['role' => Role::Client]);
+
+        // للعميل الحالي: طلب بانتظار التسعير — يجب أن يظهر
+        $this->actingAs($client)->post(route('book.store'), [
+            'type' => 'phone', 'specialty' => 'القضايا التجارية', 'subject' => 'نزاع',
+        ])->assertRedirect();
+
+        // لعميل آخر: يجب ألا يظهر في قائمة العميل الحالي
+        $this->actingAs($other)->post(route('book.store'), [
+            'type' => 'video', 'specialty' => 'القضايا التجارية', 'subject' => 'استشارة أخرى',
+        ])->assertRedirect();
+
+        $this->actingAs($client)->get(route('book'))
+            ->assertOk()
+            ->assertInertia(fn ($p) => $p->component('book')
+                ->has('pending', 1)
+                ->where('pending.0.status', 'بانتظار التسعير')
+                // يُمرَّر التخصّص للعميل حتى يُصفّي منتقي الأوقات بالمختصّين لا كل المحامين
+                ->where('pending.0.specialty', 'القضايا التجارية'));
     }
 
     public function test_admin_price_change_applies_to_new_bookings(): void

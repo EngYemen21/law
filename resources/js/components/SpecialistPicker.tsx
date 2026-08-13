@@ -9,6 +9,10 @@ export interface LawyerOpt { id: number; name: string; dept: string; success: Su
 
 export const todayISO = (): string => new Date().toISOString().slice(0, 10);
 
+// يحجب اختيار وقت انقضى فعلاً (اليوم الحالي فقط — الفترات كلّها بالساعة HH:00). مشترك مع منتقيات الموظف.
+export const isPastSlot = (date: string, t: string): boolean =>
+  date === todayISO() && parseInt(t.slice(0, 2), 10) <= new Date().getHours();
+
 interface Props {
   fetchUrl: string;                          // '/book/availability' أو `/tickets/{no}/availability`
   fetchParams?: Record<string, string>;      // معطيات إضافية (specialty/subject لصفحة /book)
@@ -60,6 +64,7 @@ const SpecialistPicker: React.FC<Props> = ({
   const times = lawyers[0]?.slots ?? [];
   const freeAt = (t: string) => lawyers.filter((l) => l.slots.some((s) => s.time === t && !s.taken));
   const assigned = time ? (freeAt(time)[0] ?? null) : null;
+
   // الاسم الأول فقط (لقب + أول اسم) — لا يُظهَر الاسم الكامل للعميل
   const firstName = (n: string) => {
     const p = n.trim().split(/\s+/);
@@ -79,14 +84,15 @@ const SpecialistPicker: React.FC<Props> = ({
             </label>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {times.map((s) => {
-                const free = freeAt(s.time).length > 0;
+                const past = isPastSlot(date, s.time);
+                const free = !past && freeAt(s.time).length > 0;
                 return (
                   <button
                     key={s.time}
                     type="button"
                     className={`btn ${time === s.time ? '' : 'soft'} sm`}
                     disabled={!free}
-                    title={free ? 'متاح' : 'محجوز'}
+                    title={past ? 'انقضى الوقت' : free ? 'متاح' : 'محجوز'}
                     style={!free ? { opacity: 0.4, textDecoration: 'line-through' } : undefined}
                     onClick={() => { onTimeChange(s.time); onLawyerChange(freeAt(s.time)[0]?.id ?? null); }}
                   >
@@ -140,19 +146,23 @@ const SpecialistPicker: React.FC<Props> = ({
             الوقت المتاح — {selected.name}
           </label>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {selected.slots.map((s) => (
-              <button
-                key={s.time}
-                type="button"
-                className={`btn ${time === s.time ? '' : 'soft'} sm`}
-                disabled={s.taken}
-                title={s.taken ? 'محجوز' : 'متاح'}
-                style={s.taken ? { opacity: 0.4, textDecoration: 'line-through' } : undefined}
-                onClick={() => onTimeChange(s.time)}
-              >
-                {s.time}
-              </button>
-            ))}
+            {selected.slots.map((s) => {
+              const past = isPastSlot(date, s.time);
+              const blocked = s.taken || past;
+              return (
+                <button
+                  key={s.time}
+                  type="button"
+                  className={`btn ${time === s.time ? '' : 'soft'} sm`}
+                  disabled={blocked}
+                  title={past ? 'انقضى الوقت' : s.taken ? 'محجوز' : 'متاح'}
+                  style={blocked ? { opacity: 0.4, textDecoration: 'line-through' } : undefined}
+                  onClick={() => onTimeChange(s.time)}
+                >
+                  {s.time}
+                </button>
+              );
+            })}
           </div>
         </>
       )}

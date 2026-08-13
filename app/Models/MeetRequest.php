@@ -18,9 +18,11 @@ class MeetRequest extends Model
 
     public const STAGE_APPROVED = 3;
 
+    public const STAGE_EXPIRED = 4;
+
     protected $fillable = [
         'user_id', 'meeting_id', 'ref', 'service', 'type', 'case_ref',
-        'day', 'time', 'sent_by', 'stage', 'meet_id', 'meet_link', 'host_link',
+        'day', 'time', 'sent_by', 'sent_by_id', 'assigned_lawyer_id', 'duration_min', 'stage', 'meet_id', 'meet_link', 'host_link',
     ];
 
     protected $casts = ['stage' => 'integer'];
@@ -33,6 +35,18 @@ class MeetRequest extends Model
     public function meeting(): BelongsTo
     {
         return $this->belongsTo(Meeting::class);
+    }
+
+    // المُرسِل (المحامي/الموظف الذي أرسل الدعوة) — أساس عزل الرؤية على جانب المكتب
+    public function sender(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'sent_by_id');
+    }
+
+    // المحامي/المختص المسؤول — يُسنَد للاجتماع عند تأكيد العميل
+    public function assignedLawyer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_lawyer_id');
     }
 
     public function joinLink(): string

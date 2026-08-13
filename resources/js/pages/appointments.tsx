@@ -22,46 +22,6 @@ function apptPlace(a: Appt) {
   return { remote, addr, chip };
 }
 
-// طباعة بطاقة الموعد (تحاكي نمط printOffer → window.open + print) — ببيانات حقيقيّة
-function printAppointment(a: Appt) {
-  const p = apptPlace(a);
-  const paid = a.pay === 'مدفوع';
-  const payLabel = a.pay || 'بانتظار السداد';
-  const rows: [string, string][] = [
-    ['رقم الموعد', a.id],
-    ['رقم الاستشارة', a.consultRef || '—'],
-    ['نوع الاستشارة', a.type],
-    ['التاريخ', a.day],
-    ['الوقت', a.time],
-    ['المكان', p.remote ? 'عن بُعد' : a.branch],
-    ['العميل', a.client || '—'],
-    ['المحامي المكلّف', maskLawyer(a.lawyer)],
-    ['العنوان', p.addr],
-    ['حالة السداد', payLabel],
-  ];
-  const html = `<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${a.id}</title>
-    <style>body{font-family:Tahoma,Arial,sans-serif;padding:26px;color:#16245C}h2{color:#0A2A55;margin:0 0 4px}
-    .sub{color:#5B6B85;font-size:13px;margin-bottom:14px}
-    .atbl{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
-    .atbl th{background:#16245C;color:#fff;padding:8px 10px;text-align:right}
-    .atbl td{padding:7px 10px;border-bottom:1px solid #E2E8EE;text-align:right}
-    .atbl tr:nth-child(even) td{background:#F8FAFC}
-    .pay{display:inline-block;padding:3px 12px;border-radius:99px;font-weight:800;font-size:12px;background:${paid ? '#E6F6EF' : '#FBF1E3'};color:${paid ? '#1E9D6B' : '#C0832B'}}
-    .foot{margin-top:14px;padding:10px 14px;background:#16245C;color:#fff;border-radius:8px;font-size:12px;text-align:center}</style></head>
-    <body><h2>سلاسل بابل لتقنية المعلومات — بطاقة موعد استشارة قانونية</h2>
-    <div class="sub">${a.type} · ${a.day} · ${a.time}</div>
-    <table class="atbl"><thead><tr><th>البند</th><th>التفاصيل</th></tr></thead><tbody>
-    ${rows.map((r) => `<tr><td>${r[0]}</td><td>${r[0] === 'حالة السداد' ? `<span class="pay">${r[1]}</span>` : r[1]}</td></tr>`).join('')}
-    </tbody></table>
-    <div class="foot">يُرجى الحضور قبل الموعد بـ15 دقيقة وإحضار المستندات المطلوبة · www.sb-legal.sa · 011 462 2277</div></body></html>`;
-  const w = window.open('', '_blank', 'width=800,height=900');
-  if (!w) return;
-  w.document.write(html);
-  w.document.close();
-  w.focus();
-  w.print();
-}
-
 // بطاقة الموعد الغنيّة (.apptx) — تطابق openAppt، ببيانات حقيقيّة
 const ApptCard: React.FC<{ a: Appt }> = ({ a }) => {
   const toast = useToast();
@@ -161,9 +121,9 @@ const ApptCard: React.FC<{ a: Appt }> = ({ a }) => {
         <button className="btn soft" type="button" onClick={copyLink}>
           <Icon name="link" /> نسخ الرابط
         </button>
-        <button className="btn soft" type="button" onClick={() => printAppointment(a)}>
-          <Icon name="download" /> طباعة / PDF
-        </button>
+        <a className="btn soft" href={`/appointments/${a.id}/card.pdf`}>
+          <Icon name="download" /> تحميل PDF
+        </a>
       </div>
     </>
   );

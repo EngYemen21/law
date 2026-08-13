@@ -7,7 +7,7 @@ export interface Case { no: string; type: string; status: string; tone: string; 
 export interface Exec { no: string; subject: string; status: string; tone: string; last: string; }
 export interface Appt { id: string; type: string; ico: string; lawyer: string; day: string; time: string; branch: string; status: string; tone: string; when: 'up' | 'past'; client?: string; consultRef?: string; pay?: string; }
 export interface Meeting { id?: number; ref: string; title: string; when: string; up: boolean; link: string; minutes: string | null; summary: string | null; }
-export interface DocItem { id?: number; name: string; meta: string; canDownload?: boolean; }
+export interface DocItem { id?: number; name: string; meta: string; canDownload?: boolean; downloadUrl?: string; }
 export interface Invoice { no: string; desc: string; amount: number; status: string; tone: string; due: string; paid: boolean; hasProof?: boolean; }
 export interface Notif { ic: string; tone: string; text: string; time: string; unread: boolean; }
 

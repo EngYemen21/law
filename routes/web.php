@@ -83,8 +83,11 @@ Route::middleware(['auth', 'active'])->group(function () {
     Route::get('/exec-flow/{execution}/pay/callback', [ExecFlowController::class, 'payCallback'])->name('exec-flow.pay.callback');
     // محادثة ملفّ التنفيذ + رفع المستندات المطلوبة (يحرسان دور العميل/الملكيّة داخليّاً)
     Route::post('/exec-flow/{execution}/messages', [ExecFlowController::class, 'message'])->name('exec-flow.messages.store');
+    Route::post('/exec-flow/{execution}/attach', [ExecFlowController::class, 'attach'])->name('exec-flow.attach');
     Route::post('/exec-flow/{execution}/documents/{document}', [ExecFlowController::class, 'uploadDocument'])->name('exec-flow.documents.upload');
     Route::post('/exec-flow/{execution}/documents/{document}/review', [ExecFlowController::class, 'reviewDocument'])->name('exec-flow.documents.review');
+    Route::get('/exec-flow/{execution}/documents/{document}/download', [ExecFlowController::class, 'downloadDocument'])->name('exec-flow.documents.download');
+    Route::get('/exec-flow/{execution}/offer.pdf', [ExecFlowController::class, 'offerPdf'])->name('exec-flow.offer.pdf');
 });
 
 // ── منصة العميل (دور العميل) — تطابق 1:1 مع index (82).html ──
@@ -104,6 +107,7 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
     Route::get('/cases', [CaseController::class, 'index'])->name('cases');
     Route::get('/cases/{case}', [CaseController::class, 'show'])->name('cases.show');
     Route::post('/cases/{case}/messages', [CaseController::class, 'storeMessage'])->name('cases.messages.store');
+    Route::post('/cases/{case}/attach', [CaseController::class, 'attach'])->name('cases.attach');
     Route::post('/cases/{case}/pay', [CaseController::class, 'pay'])->name('cases.pay');
     Route::get('/cases/{case}/pay/callback', [CaseController::class, 'payCallback'])->name('cases.pay.callback');
     Route::post('/cases/{case}/pay-installment', [CaseController::class, 'payInstallment'])->name('cases.pay-installment');
@@ -123,7 +127,9 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
     Route::get('/consults/{consult}/pay/callback', [ConsultController::class, 'payCallback'])->name('consults.pay.callback');
     Route::post('/consults/{consult}/schedule', [ConsultController::class, 'schedule'])->name('consults.schedule');
     Route::get('/consults/room', [ConsultController::class, 'room'])->name('consults.room');
+    Route::get('/consults/{consult}/report.pdf', [ConsultController::class, 'report'])->name('consults.report');
     Route::get('/appointments', [AppointmentController::class, 'index'])->name('appointments');
+    Route::get('/appointments/{appointment}/card.pdf', [AppointmentController::class, 'card'])->name('appointments.card');
     Route::get('/meetings', [MeetingController::class, 'index'])->name('meetings');
     Route::get('/meetingroom', [MeetingController::class, 'room'])->name('meetingroom');
     // دعوات الاجتماعات (مربوطة بقاعدة البيانات — تأكيد الحضور يُنشئ جلسة Zoom)
@@ -137,9 +143,13 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
     // الملفات والمالية (مربوطة بقاعدة البيانات)
     Route::get('/documents', [DocumentController::class, 'index'])->name('documents');
     Route::post('/documents', [DocumentController::class, 'store'])->name('documents.store');
+    Route::get('/documents/download-file', [DocumentController::class, 'downloadFile'])->name('documents.download-file');
     Route::get('/documents/{document}/download', [DocumentController::class, 'download'])->name('documents.download');
     Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices');
     Route::post('/invoices/{invoice}/proof', [InvoiceController::class, 'uploadProof'])->name('invoices.proof');
+    Route::post('/invoices/{invoice}/checkout', [InvoiceController::class, 'checkout'])->name('invoices.checkout');
+    Route::get('/invoices/{invoice}/checkout/callback', [InvoiceController::class, 'checkoutCallback'])->name('invoices.checkout.callback');
+    Route::get('/invoices/{invoice}/pdf', [InvoiceController::class, 'pdf'])->name('invoices.pdf');
 });
 
 // الحساب — متاح لأي مستخدم مسجّل
@@ -171,6 +181,8 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
     });
     Route::post('/tickets/{ticket}/reply', [EmployeeTicketController::class, 'reply'])
         ->middleware('permission:الرد على العملاء')->name('tickets.reply');
+    Route::post('/tickets/{ticket}/request-docs', [EmployeeTicketController::class, 'requestDocs'])
+        ->middleware('permission:الرد على العملاء')->name('tickets.reqdocs');
 
     // القضايا وطلبات التنفيذ — إدارة القضايا والأتعاب
     Route::middleware('permission:إدارة القضايا والأتعاب')->group(function () {
@@ -217,6 +229,9 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
         Route::post('/meetreqs', [StaffMeetRequestController::class, 'store'])->name('meetreqs.store');
         Route::post('/meetreqs/{meetRequest}/cancel', [StaffMeetRequestController::class, 'cancel'])->name('meetreqs.cancel');
         Route::post('/meetreqs/{meetRequest}/start', [StaffMeetRequestController::class, 'start'])->name('meetreqs.start');
+        Route::get('/meetreqs/availability', [StaffMeetRequestController::class, 'availability'])->name('meetreqs.availability');
+        // غرفة الاجتماع المضمّنة (بعد بدء الدعوة) — داخل الموقع
+        Route::get('/meetingroom', [StaffMeetingController::class, 'room'])->name('meetingroom');
     });
 });
 
@@ -246,8 +261,11 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::get('/cases', [LawyerCaseController::class, 'index'])->name('cases');
         Route::get('/cases/{case}', [LawyerCaseController::class, 'show'])->name('cases.show');
         Route::post('/cases/{case}/pleading', [LawyerCaseController::class, 'approvePleading'])->name('cases.pleading');
+        Route::post('/cases/{case}/attach', [LawyerCaseController::class, 'attach'])->name('cases.attach');
         Route::post('/cases/{case}/hearings', [LawyerCaseController::class, 'addHearing'])->name('cases.hearings.add');
         Route::post('/cases/{case}/hearings/{hearing}', [LawyerCaseController::class, 'recordHearing'])->name('cases.hearings.record');
+        Route::post('/cases/{case}/hearings/{hearing}/update', [LawyerCaseController::class, 'updateHearing'])->name('cases.hearings.update');
+        Route::post('/cases/{case}/hearings/{hearing}/cancel', [LawyerCaseController::class, 'cancelHearing'])->name('cases.hearings.cancel');
         Route::post('/cases/{case}/ruling', [LawyerCaseController::class, 'recordRuling'])->name('cases.ruling');
         Route::post('/cases/{case}/execute', [LawyerCaseController::class, 'convertToExecution'])->name('cases.execute');
         // التنفيذ — تبويب موحّد (تدفّق + تنفيذات قديمة) لدور المحامي، محصور بالمسند إليه/القابل للالتقاط
@@ -265,8 +283,12 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::get('/meetingroom', [StaffMeetingController::class, 'room'])->name('meetingroom');
         Route::post('/meetings/{meeting}/summary', [StaffMeetingController::class, 'saveSummary'])->name('meetings.summary');
         Route::post('/meetings/{meeting}/minutes', [StaffMeetingController::class, 'saveMinutes'])->name('meetings.minutes');
+        Route::post('/meetings/{meeting}/start', [StaffMeetingController::class, 'start'])->name('meetings.start');
         Route::post('/meetings/{meeting}/end', [StaffMeetingController::class, 'end'])->name('meetings.end');
+        Route::post('/meetings/{meeting}/reschedule', [StaffMeetingController::class, 'reschedule'])->name('meetings.reschedule');
+        Route::post('/meetings/{meeting}/cancel', [StaffMeetingController::class, 'cancel'])->name('meetings.cancel');
         Route::post('/meetings/{meeting}/tasks', [StaffMeetingController::class, 'createTasks'])->name('meetings.tasks');
+        Route::get('/meetings/{meeting}/transcript', [StaffMeetingController::class, 'transcript'])->name('meetings.transcript');
     });
 
     // طلبات الاجتماعات — إرسال دعوات الاجتماعات
@@ -275,6 +297,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::post('/meetreqs', [StaffMeetRequestController::class, 'store'])->name('meetreqs.store');
         Route::post('/meetreqs/{meetRequest}/cancel', [StaffMeetRequestController::class, 'cancel'])->name('meetreqs.cancel');
         Route::post('/meetreqs/{meetRequest}/start', [StaffMeetRequestController::class, 'start'])->name('meetreqs.start');
+        Route::get('/meetreqs/availability', [StaffMeetRequestController::class, 'availability'])->name('meetreqs.availability');
     });
 
     Route::middleware('permission:المساعد القانوني')->group(function () {
@@ -359,6 +382,8 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::get('/cases', [AdminCaseController::class, 'index'])->name('cases');
     Route::post('/cases/{case}/fee', [AdminCaseController::class, 'setFee'])->name('cases.fee');
     Route::post('/cases/{case}/close', [AdminCaseController::class, 'closeCase'])->name('cases.close');
+    Route::post('/cases/{case}/archive', [AdminCaseController::class, 'archiveCase'])->name('cases.archive');
+    Route::post('/cases/{case}/execute', [AdminCaseController::class, 'convertToExecution'])->name('cases.execute');
     // التنفيذ — تبويب موحّد (تدفّق + تنفيذات قديمة) لدور الإدارة العليا
     Route::get('/execs', [ExecFlowController::class, 'admin'])->name('execs');
     Route::redirect('/exec-preview', '/admin/execs')->name('exec.preview');
@@ -371,14 +396,22 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/meetreqs', [StaffMeetRequestController::class, 'store'])->name('meetreqs.store');
     Route::post('/meetreqs/{meetRequest}/cancel', [StaffMeetRequestController::class, 'cancel'])->name('meetreqs.cancel');
     Route::post('/meetreqs/{meetRequest}/start', [StaffMeetRequestController::class, 'start'])->name('meetreqs.start');
+    Route::get('/meetreqs/availability', [StaffMeetRequestController::class, 'availability'])->name('meetreqs.availability');
     Route::get('/meetlog', [StaffMeetingController::class, 'log'])->name('meetlog');
     Route::get('/clientnotifs', [AdminClientNotifController::class, 'index'])->name('clientnotifs');
     Route::post('/clientnotifs/send', [AdminClientNotifController::class, 'send'])->name('clientnotifs.send');
     Route::post('/clientnotifs/read', [AdminClientNotifController::class, 'markRead'])->name('clientnotifs.read');
     Route::get('/meetings', [StaffMeetingController::class, 'index'])->name('meetings');
+    Route::get('/meetingroom', [StaffMeetingController::class, 'room'])->name('meetingroom');
+    Route::post('/meetings/{meeting}/summary', [StaffMeetingController::class, 'saveSummary'])->name('meetings.summary');
+    Route::post('/meetings/{meeting}/minutes', [StaffMeetingController::class, 'saveMinutes'])->name('meetings.minutes');
     Route::post('/meetings/{meeting}/approve', [StaffMeetingController::class, 'approve'])->name('meetings.approve');
+    Route::post('/meetings/{meeting}/start', [StaffMeetingController::class, 'start'])->name('meetings.start');
     Route::post('/meetings/{meeting}/end', [StaffMeetingController::class, 'end'])->name('meetings.end');
+    Route::post('/meetings/{meeting}/reschedule', [StaffMeetingController::class, 'reschedule'])->name('meetings.reschedule');
+    Route::post('/meetings/{meeting}/cancel', [StaffMeetingController::class, 'cancel'])->name('meetings.cancel');
     Route::post('/meetings/{meeting}/tasks', [StaffMeetingController::class, 'createTasks'])->name('meetings.tasks');
+    Route::get('/meetings/{meeting}/transcript', [StaffMeetingController::class, 'transcript'])->name('meetings.transcript');
     Route::get('/summaries', [AdminTicketController::class, 'summaries'])->name('summaries');
     // مراجعة/اعتماد/تعديل ملخص الملف (إشراف الإدارة العليا — صلاحيات مطلقة)
     Route::get('/summary/{ticket}', [LawyerTicketController::class, 'showSummary'])->name('summary');

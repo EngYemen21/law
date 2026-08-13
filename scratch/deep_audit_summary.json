@@ -1,0 +1,1535 @@
+{
+  "babel_buttons_sample": [
+    "'+svg('check')+' قبول الطلب",
+    "'+svg('out')+' حذف",
+    "'+svg('reply')+' تحويل استشارة أخرى إلى قضية",
+    "'+svg('doc')+' طلب إفادة رسمية من المكتب",
+    "'+svg('office')+' حفظ وبدء الرحلة",
+    "'+svg('doc')+' تعبئة تقرير العميل",
+    "'+svg('upload')+' رفع مرفق إضافي",
+    "'+chips.map(function(n){return ''+n+'",
+    "'+svg('file')+' مستنداته",
+    "'+svg('check')+' تعليم كمقروء",
+    "'+svg('phone')+' إرسال رمز الاستعادة",
+    "'+svg('download')+' الفاتورة PDF",
+    "'+svg('check')+' قبول العرض",
+    "إعادة التوزيع",
+    "'+svg('office')+' طلب مخاطبة",
+    "'+svg('cal')+' جدولة موعد",
+    "'+svg(d.status==='مسموح'?'out':'check')+' '+(d.status==='مسموح'?'منع':'سماح')+'",
+    "'+svg('out')+' الملخص",
+    "'+svg('reply')+' فتح المحادثة",
+    "'+svg('scale')+' دراسة",
+    "'+svg('compass')+' بدء الجولة",
+    "'+svg('plus')+' تذكرة جديدة",
+    "'+svg('card')+' دفع الآن",
+    "'+svg('user')+' إفادة العميل بالنتيجة",
+    "'+svg('exec')+' إسناد المهمة",
+    "'+svg('video')+' دخول الاجتماع",
+    "'+svg('download')+' طباعة / PDF",
+    "'+svg('reply')+' حذف",
+    "'+svg(CL_REVEAL?'lock':'user')+' '+(CL_REVEAL?'إخفاء البيانات':'كشف البيانات')+'",
+    "'+svg('download')+' طباعة تقرير الحضور (PDF)"
+  ],
+  "total_tsx_buttons": 288,
+  "inactive_elements": [
+    {
+      "file": "components\\SpecialistPicker.tsx",
+      "line": 84,
+      "text": "{ onTimeChange(s.time); onLawyerChange(freeAt(s.time)[0]?.id",
+      "tag": "<button\n                    key={s.time}\n                    type=\"button\"\n                    className={`btn ${time === s.time ? '' : 'soft'} sm`}\n ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "components\\SpecialistPicker.tsx",
+      "line": 129,
+      "text": "{ onLawyerChange(l.id); onTimeChange(''); }}>\n              ",
+      "tag": "<button className=\"btn soft sm\" type=\"button\" disabled={busyDay} onClick={() => { onLawyerChange(l.id); onTimeChange(''); }}>\n                {isSel ?",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "components\\SpecialistPicker.tsx",
+      "line": 144,
+      "text": "onTimeChange(s.time)}\n              >\n                {s.tim",
+      "tag": "<button\n                key={s.time}\n                type=\"button\"\n                className={`btn ${time === s.time ? '' : 'soft'} sm`}\n             ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "components\\navigation\\Header.tsx",
+      "line": 161,
+      "text": "عرض الكل",
+      "tag": "<button\n                  className=\"text-sm font-medium\"\n                  style={{ color: '#0E5C9C' }}\n                >\n                  عرض الكل\n",
+      "status": "potentially_inactive",
+      "reason": "No onClick or href action found on button element"
+    },
+    {
+      "file": "components\\navigation\\Topbar.tsx",
+      "line": 55,
+      "text": "",
+      "tag": "<button className=\"icon-btn\" title=\"دليل النظام\" type=\"button\">\n          <Icon name=\"info\" />\n        </button>",
+      "status": "potentially_inactive",
+      "reason": "No onClick or href action found on button element"
+    },
+    {
+      "file": "components\\ui\\Button.test.tsx",
+      "line": 9,
+      "text": "Click me",
+      "tag": "<Button>Click me</Button>",
+      "status": "potentially_inactive",
+      "reason": "No onClick or href action found on button element"
+    },
+    {
+      "file": "components\\ui\\Button.test.tsx",
+      "line": 14,
+      "text": "Primary",
+      "tag": "<Button variant=\"primary\">Primary</Button>",
+      "status": "potentially_inactive",
+      "reason": "No onClick or href action found on button element"
+    },
+    {
+      "file": "components\\ui\\Button.test.tsx",
+      "line": 18,
+      "text": "Danger",
+      "tag": "<Button variant=\"danger\">Danger</Button>",
+      "status": "potentially_inactive",
+      "reason": "No onClick or href action found on button element"
+    },
+    {
+      "file": "components\\ui\\Button.test.tsx",
+      "line": 24,
+      "text": "Small",
+      "tag": "<Button size=\"sm\">Small</Button>",
+      "status": "potentially_inactive",
+      "reason": "No onClick or href action found on button element"
+    },
+    {
+      "file": "components\\ui\\Button.test.tsx",
+      "line": 28,
+      "text": "Large",
+      "tag": "<Button size=\"lg\">Large</Button>",
+      "status": "potentially_inactive",
+      "reason": "No onClick or href action found on button element"
+    },
+    {
+      "file": "components\\ui\\Button.test.tsx",
+      "line": 44,
+      "text": "Disabled",
+      "tag": "<Button disabled onClick={handleClick}>\n        Disabled\n      </Button>",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "components\\ui\\Button.test.tsx",
+      "line": 57,
+      "text": "Loading",
+      "tag": "<Button isLoading>Loading</Button>",
+      "status": "potentially_inactive",
+      "reason": "No onClick or href action found on button element"
+    },
+    {
+      "file": "components\\ui\\Button.test.tsx",
+      "line": 64,
+      "text": "}>With Icon",
+      "tag": "<Button icon={<TestIcon />}>With Icon</Button>",
+      "status": "potentially_inactive",
+      "reason": "No onClick or href action found on button element"
+    },
+    {
+      "file": "components\\ui\\Button.test.tsx",
+      "line": 73,
+      "text": "} iconPosition=\"left\">\n        Left Icon",
+      "tag": "<Button icon={<TestIcon />} iconPosition=\"left\">\n        Left Icon\n      </Button>",
+      "status": "potentially_inactive",
+      "reason": "No onClick or href action found on button element"
+    },
+    {
+      "file": "components\\ui\\Button.test.tsx",
+      "line": 81,
+      "text": "} iconPosition=\"right\">\n        Right Icon",
+      "tag": "<Button icon={<TestIcon />} iconPosition=\"right\">\n        Right Icon\n      </Button>",
+      "status": "potentially_inactive",
+      "reason": "No onClick or href action found on button element"
+    },
+    {
+      "file": "components\\ui\\Button.test.tsx",
+      "line": 90,
+      "text": "Custom",
+      "tag": "<Button className=\"custom-class\">Custom</Button>",
+      "status": "potentially_inactive",
+      "reason": "No onClick or href action found on button element"
+    },
+    {
+      "file": "components\\ui\\Button.tsx",
+      "line": 13,
+      "text": "= ({\n  variant = 'primary',\n  size = 'md',\n  isLoading = fal",
+      "tag": "<ButtonProps> = ({\n  variant = 'primary',\n  size = 'md',\n  isLoading = false,\n  children,\n  icon,\n  iconPosition = 'right',\n  className,\n  disabled,\n ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "lib\\consult-ui.tsx",
+      "line": 384,
+      "text": "تحديد السعر",
+      "tag": "<button className=\"btn sm\" type=\"button\" disabled={busy} onClick={save}>\n        <Icon name=\"card\" /> تحديد السعر\n      </button>",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "lib\\consult-ui.tsx",
+      "line": 564,
+      "text": "استلام الاستشارة",
+      "tag": "<button className=\"btn\" onClick={take} disabled={busy} type=\"button\">\n              <Icon name=\"check\" /> استلام الاستشارة\n            </button>",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "lib\\consult-ui.tsx",
+      "line": 570,
+      "text": "طلب استكمال مستندات",
+      "tag": "<button className=\"btn soft\" onClick={requestDocs} disabled={busy} type=\"button\">\n                <Icon name=\"upload\" /> طلب استكمال مستندات\n         ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "lib\\consult-ui.tsx",
+      "line": 573,
+      "text": "{busy ? 'جارٍ التحليل…' : 'بدء معالجة الفريق القانوني'}",
+      "tag": "<button className=\"btn\" onClick={runAI} disabled={busy} type=\"button\">\n                <Icon name=\"info\" /> {busy ? 'جارٍ التحليل…' : 'بدء معالجة الفر",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "lib\\consult-ui.tsx",
+      "line": 579,
+      "text": "إحالة للمحامي ({lawyerName})",
+      "tag": "<button className=\"btn\" onClick={refer} disabled={busy} type=\"button\">\n              <Icon name=\"scale\" /> إحالة للمحامي ({lawyerName})\n            </",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "lib\\consult-ui.tsx",
+      "line": 617,
+      "text": "حفظ التعديلات",
+      "tag": "<button className=\"btn soft sm\" onClick={saveAI} disabled={busy} type=\"button\">\n                  <Icon name=\"check\" /> حفظ التعديلات\n                ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "lib\\consult-ui.tsx",
+      "line": 621,
+      "text": "اعتماد التحليل (جاهزة للمحامي)",
+      "tag": "<button className=\"btn sm\" onClick={approveAI} disabled={busy} type=\"button\">\n                    <Icon name=\"check\" /> اعتماد التحليل (جاهزة للمحامي)",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "lib\\consult-ui.tsx",
+      "line": 628,
+      "text": "إعادة التحليل",
+      "tag": "<button className=\"btn soft sm\" onClick={rerun} disabled={busy} type=\"button\">\n                  <Icon name=\"info\" /> إعادة التحليل\n                </",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "lib\\consult-ui.tsx",
+      "line": 649,
+      "text": "تحديث الأولوية",
+      "tag": "<button className=\"btn soft sm\" onClick={savePriority} disabled={busy} type=\"button\">\n                <Icon name=\"check\" /> تحديث الأولوية\n           ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "lib\\consult-ui.tsx",
+      "line": 659,
+      "text": "تعيين المحامي واعتماد الإحالة",
+      "tag": "<button className=\"btn sm\" onClick={refer} disabled={busy} type=\"button\">\n                <Icon name=\"scale\" /> تعيين المحامي واعتماد الإحالة\n        ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "lib\\consult-ui.tsx",
+      "line": 672,
+      "text": "{tasksDone ? 'حُوّلت إلى مهام' : 'تحويل القرارات إلى مهام'}",
+      "tag": "<button className=\"btn soft sm\" onClick={makeTasks} disabled={busy || tasksDone} type=\"button\">\n              <Icon name=\"check\" /> {tasksDone ? 'حُوّ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "lib\\meeting-ui.tsx",
+      "line": 438,
+      "text": "{tasksDone ? 'حُوّلت إلى مهام' : 'تحويل القرارات إلى مهام'}",
+      "tag": "<button className=\"btn soft sm\" onClick={decisionsToTasks} type=\"button\" disabled={tasksDone || decisions.length === 0}>\n            <Icon name=\"check",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\book.tsx",
+      "line": 78,
+      "text": "{busy ? 'جارٍ الإرسال…' : 'إرسال الطلب لتحديد السعر'}",
+      "tag": "<button className=\"btn block\" onClick={submit} type=\"button\" disabled={busy || !specialty}>\n              <Icon name=\"calplus\" /> {busy ? 'جارٍ الإرسا",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\cases.tsx",
+      "line": 59,
+      "text": "التفاصيل",
+      "tag": "<button className=\"btn soft sm\" type=\"button\">\n                      <Icon name=\"scale\" /> التفاصيل\n                    </button>",
+      "status": "potentially_inactive",
+      "reason": "No onClick or href action found on button element"
+    },
+    {
+      "file": "pages\\correspondences.tsx",
+      "line": 50,
+      "text": "إنشاء المخاطبة",
+      "tag": "<button className=\"btn\" type=\"button\" onClick={submit} disabled={busy}><Icon name=\"send\" /> إنشاء المخاطبة</button>",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\documents.tsx",
+      "line": 70,
+      "text": "fileRef.current?.click()} disabled={busy}>\n             {bus",
+      "tag": "<button className=\"btn sm\" type=\"button\" onClick={() => fileRef.current?.click()} disabled={busy}>\n            <Icon name=\"upload\" /> {busy ? 'جارٍ ال",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\execflow.tsx",
+      "line": 157,
+      "text": "إرسال الطلب",
+      "tag": "<button className=\"btn\" type=\"button\" onClick={submit} disabled={busy}><Icon name=\"send\" /> إرسال الطلب</button>",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\invoices.tsx",
+      "line": 87,
+      "text": "fileRef.current?.click()} disabled={busy}>\n               {b",
+      "tag": "<button className=\"btn sm\" type=\"button\" onClick={() => fileRef.current?.click()} disabled={busy}>\n              <Icon name=\"upload\" /> {busy ? 'جارٍ ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\myconsults.tsx",
+      "line": 23,
+      "text": "{\n      setBusy(true);\n      // النجاح = تحويل المتصفّح لصفح",
+      "tag": "<button className=\"btn sm\" type=\"button\" disabled={busy} onClick={() => {\n      setBusy(true);\n      // النجاح = تحويل المتصفّح لصفحة ميسّر (Inertia::",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\myconsults.tsx",
+      "line": 37,
+      "text": "{\n        setBusy(true);\n        router.post(`/consults/${c.",
+      "tag": "<button className=\"btn sm\" type=\"button\" style={{ marginTop: 10 }} disabled={!lawyerId || !time || busy} onClick={() => {\n        setBusy(true);\n     ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\myconsults.tsx",
+      "line": 128,
+      "text": "enterRoom(c)} type=\"button\" disabled={!c.canJoin}>\n         ",
+      "tag": "<button className=\"btn sm\" onClick={() => enterRoom(c)} type=\"button\" disabled={!c.canJoin}>\n                        <Icon name=\"video\" /> انضم لجلسة ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\myconsults.tsx",
+      "line": 159,
+      "text": "الدخول (يُفعَّل قبل الموعد بـ5 د)",
+      "tag": "<button className=\"btn sm\" type=\"button\" disabled title=\"يُفعَّل قبل الموعد بـ5 دقائق\">\n                        <Icon name=\"clock\" /> الدخول (يُفعَّل ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\profile.tsx",
+      "line": 67,
+      "text": "{saveBusy ? 'جارٍ الحفظ…' : 'حفظ التغييرات'}",
+      "tag": "<button className=\"btn\" type=\"button\" onClick={saveProfile} disabled={saveBusy}>\n            <Icon name=\"check\" /> {saveBusy ? 'جارٍ الحفظ…' : 'حفظ ال",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\profile.tsx",
+      "line": 89,
+      "text": "{pwBusy ? 'جارٍ التغيير…' : 'تغيير كلمة المرور'}",
+      "tag": "<button className=\"btn ghost\" type=\"button\" onClick={changePassword} disabled={pwBusy}>\n              <Icon name=\"lock\" /> {pwBusy ? 'جارٍ التغيير…' :",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\ticketchat.tsx",
+      "line": 101,
+      "text": "إرسال الطلب لتحديد السعر",
+      "tag": "<button className=\"btn block\" type=\"button\" disabled={!type || busy} style={{ opacity: type && !busy ? 1 : 0.5 }} onClick={requestConsult}>\n          ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\ticketchat.tsx",
+      "line": 125,
+      "text": "الدفع الآن عبر ميسّر — {consult?.total} ر.س",
+      "tag": "<button className=\"btn block\" type=\"button\" disabled={busy} style={{ marginTop: 14, opacity: busy ? 0.5 : 1 }} onClick={pay}>\n              <Icon name",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\ticketchat.tsx",
+      "line": 145,
+      "text": "تأكيد الموعد",
+      "tag": "<button className=\"btn block\" type=\"button\" style={{ marginTop: 15, opacity: lawyerId && time && !busy ? 1 : 0.5 }}\n              disabled={!lawyerId ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\tickets.tsx",
+      "line": 48,
+      "text": "فتح المحادثة",
+      "tag": "<button className=\"btn soft sm\" type=\"button\">\n                  <Icon name=\"reply\" /> فتح المحادثة\n                </button>",
+      "status": "potentially_inactive",
+      "reason": "No onClick or href action found on button element"
+    },
+    {
+      "file": "pages\\admin\\distribute.tsx",
+      "line": 52,
+      "text": "{autoBusy ? 'جارٍ التوزيع…' : `توزيع تلقائي (${autoCount})`}",
+      "tag": "<button\n            className=\"btn primary sm\"\n            type=\"button\"\n            disabled={autoBusy || autoCount === 0}\n            onClick={runAu",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\admin\\lawyers.tsx",
+      "line": 56,
+      "text": "toggleMode(l)}\n                  >\n                    {busy",
+      "tag": "<button\n                    className=\"btn soft sm\"\n                    type=\"button\"\n                    disabled={busyId === l.id}\n                 ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\admin\\prices.tsx",
+      "line": 52,
+      "text": "{busy ? 'جارٍ الحفظ…' : 'حفظ الأسعار'}",
+      "tag": "<button className=\"btn\" onClick={save} type=\"button\" disabled={busy}><Icon name=\"check\" /> {busy ? 'جارٍ الحفظ…' : 'حفظ الأسعار'}</button>",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\admin\\staff.tsx",
+      "line": 318,
+      "text": "{busy ? 'جارٍ الحفظ…' : (editingId ? 'حفظ التعديلات' : 'تسجي",
+      "tag": "<button className=\"btn block\" style={{ marginTop: 18 }} onClick={submitStaff} disabled={busy} type=\"button\">\n            <Icon name={editingId ? 'chec",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\auth\\login.tsx",
+      "line": 225,
+      "text": "{' '}\n                {otpForm.processing\n                  ",
+      "tag": "<button className=\"lgn-btn\" type=\"submit\" disabled={otpForm.processing || digits.join('').length < 4}>\n                <Icon name=\"check\" />{' '}\n    ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\auth\\login.tsx",
+      "line": 278,
+      "text": "{loginForm.processing ? 'جارٍ الإرسال…' : 'إرسال رمز التحقّق",
+      "tag": "<button className=\"lgn-btn\" type=\"submit\" disabled={loginForm.processing}>\n                    <Icon name=\"phone\" /> {loginForm.processing ? 'جارٍ الإ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\auth\\login.tsx",
+      "line": 317,
+      "text": "{forgotForm.processing ? 'جارٍ الإرسال…' : 'إرسال رمز الاستع",
+      "tag": "<button className=\"lgn-btn\" type=\"submit\" disabled={forgotForm.processing}>\n                    <Icon name=\"phone\" /> {forgotForm.processing ? 'جارٍ ا",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\auth\\login.tsx",
+      "line": 354,
+      "text": "{regForm.processing ? 'جارٍ الإرسال…' : 'إنشاء الحساب وإرسال",
+      "tag": "<button className=\"lgn-btn\" type=\"submit\" disabled={regForm.processing}>\n                    <Icon name=\"user\" /> {regForm.processing ? 'جارٍ الإرسال…",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\employee\\schedule.tsx",
+      "line": 66,
+      "text": "{busy ? 'جارٍ الحفظ…' : 'تأكيد الجدولة'}",
+      "tag": "<button className=\"btn block\" style={{ marginTop: 14 }} onClick={submit} type=\"button\" disabled={busy}>\n          <Icon name=\"calplus\" /> {busy ? 'جار",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\employee\\ticketchat.tsx",
+      "line": 298,
+      "text": "setSchedTime(s.time)}\n                  style={{\n           ",
+      "tag": "<button\n                  key={s.time}\n                  type=\"button\"\n                  disabled={s.taken}\n                  onClick={() => setSchedT",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\employee\\ticketchat.tsx",
+      "line": 336,
+      "text": "{schedBusy ? 'جاري الحجز…' : 'تأكيد الجدولة'}",
+      "tag": "<button className=\"btn block\" type=\"button\" onClick={submitSchedule} disabled={schedBusy}>\n          <Icon name=\"calplus\" /> {schedBusy ? 'جاري الحجز…",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\employee\\ticketchat.tsx",
+      "line": 367,
+      "text": "{trBusy ? 'جاري التحويل…' : 'تأكيد التحويل'}",
+      "tag": "<button className=\"btn block\" type=\"button\" onClick={submitTransfer} disabled={trBusy || !trLawyerId}>\n          <Icon name=\"reply\" /> {trBusy ? 'جاري",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\employee\\ticketchat.tsx",
+      "line": 407,
+      "text": "{reqBusy ? 'جاري الإرسال…' : 'إرسال طلب النواقص'}",
+      "tag": "<button className=\"btn block\" type=\"button\" onClick={submitReqDocs} disabled={reqBusy}>\n          <Icon name=\"send\" /> {reqBusy ? 'جاري الإرسال…' : 'إ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\employee\\ticketchat.tsx",
+      "line": 476,
+      "text": "التذكرة{ticket.no}\n            \n              العميل{ticket.",
+      "tag": "<aside className=\"tf-aside\">\n          <div className=\"card\">\n            <div className=\"tc-top\"><div className=\"lbl\">التذكرة</div><div className=\"nu",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    },
+    {
+      "file": "pages\\lawyer\\assistant.tsx",
+      "line": 83,
+      "text": "{busy ? 'جارٍ التوليد…' : 'توليد المسودة'}",
+      "tag": "<button className=\"btn\" onClick={generate} type=\"button\" disabled={busy}>\n            <Icon name=\"doc\" /> {busy ? 'جارٍ التوليد…' : 'توليد المسودة'}\n ",
+      "status": "disabled",
+      "reason": "Disabled attribute / pointer-events-none"
+    }
+  ],
+  "page_details": {
+    "app.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\AppointmentController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\AuthController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\CalendarController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\CaseController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\ConsultBookingController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\ConsultController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\CorrespondenceController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\DashboardController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\DocumentController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\ExecFlowController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\ImpersonationController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\InvoiceController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\MeetingController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\MeetRequestController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\MoyasarWebhookController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\NotificationController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\ProfileController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\TicketController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\ZoomController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\ZoomWebhookController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Admin\\AccountingController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Admin\\ArchiveController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Admin\\BranchController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Admin\\CaseController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Admin\\ClientController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Admin\\ClientNotifController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Admin\\DistributeController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Admin\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Admin\\LawyerController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Admin\\PriceController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Admin\\ReportController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Admin\\StaffController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Admin\\TaskController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Admin\\TicketController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Employee\\CaseController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Employee\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Employee\\ScheduleController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Employee\\TicketController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Employee\\TransferController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Lawyer\\AssistantController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Lawyer\\CalendarController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Lawyer\\CaseController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Lawyer\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Lawyer\\TaskController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Lawyer\\TicketController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Staff\\ConsultController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Staff\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Staff\\MeetingController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\App\\Http\\Controllers\\Staff\\MeetRequestController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\Illuminate\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\Illuminate\\Broadcasting\\BroadcastController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\Illuminate\\Broadcasting\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\Illuminate\\Routing\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\Illuminate\\Routing\\RedirectController.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\Inertia\\Controller.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "actions\\Inertia\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "components\\SpecialistPicker.tsx": {
+      "total_buttons": 3,
+      "inactive_count": 3
+    },
+    "components\\babylon\\admin-charts.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "components\\babylon\\Badge.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "components\\babylon\\ChatThread.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 0
+    },
+    "components\\babylon\\DetailShell.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "components\\babylon\\FlowLine.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "components\\babylon\\Modal.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "components\\babylon\\MsgMeta.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "components\\babylon\\StatRow.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "components\\babylon\\TicketActions.tsx": {
+      "total_buttons": 3,
+      "inactive_count": 0
+    },
+    "components\\babylon\\TicketTalkingNotice.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "components\\babylon\\Toast.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "components\\layouts\\AppLayout.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "components\\navigation\\Header.tsx": {
+      "total_buttons": 7,
+      "inactive_count": 1
+    },
+    "components\\navigation\\ImpersonationBanner.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "components\\navigation\\Sidebar.tsx": {
+      "total_buttons": 4,
+      "inactive_count": 0
+    },
+    "components\\navigation\\Topbar.tsx": {
+      "total_buttons": 3,
+      "inactive_count": 1
+    },
+    "components\\ui\\Badge.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "components\\ui\\Button.test.tsx": {
+      "total_buttons": 13,
+      "inactive_count": 11
+    },
+    "components\\ui\\Button.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 1
+    },
+    "components\\ui\\Card.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "components\\ui\\Notification.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "lib\\admin-data.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "lib\\case-ui.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "lib\\chat.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "lib\\consult-ui.tsx": {
+      "total_buttons": 23,
+      "inactive_count": 11
+    },
+    "lib\\corr-ui.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "lib\\data.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "lib\\echo.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "lib\\employee-data.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "lib\\exec-flow.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "lib\\exec-ui.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "lib\\icons.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "lib\\lawyer-data.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "lib\\meeting-ui.tsx": {
+      "total_buttons": 11,
+      "inactive_count": 1
+    },
+    "lib\\newticket-data.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "lib\\permissions.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "lib\\utils.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "lib\\zoom-room.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 0
+    },
+    "pages\\appointments.tsx": {
+      "total_buttons": 4,
+      "inactive_count": 0
+    },
+    "pages\\book.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 1
+    },
+    "pages\\calendar.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "pages\\casechat.tsx": {
+      "total_buttons": 3,
+      "inactive_count": 0
+    },
+    "pages\\cases.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 1
+    },
+    "pages\\correspondence.tsx": {
+      "total_buttons": 10,
+      "inactive_count": 0
+    },
+    "pages\\correspondences.tsx": {
+      "total_buttons": 4,
+      "inactive_count": 1
+    },
+    "pages\\dashboard.tsx": {
+      "total_buttons": 5,
+      "inactive_count": 0
+    },
+    "pages\\documents.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 1
+    },
+    "pages\\execflow.tsx": {
+      "total_buttons": 33,
+      "inactive_count": 1
+    },
+    "pages\\invoices.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 1
+    },
+    "pages\\meetingroom.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\meetings.tsx": {
+      "total_buttons": 3,
+      "inactive_count": 0
+    },
+    "pages\\meetreqs.tsx": {
+      "total_buttons": 3,
+      "inactive_count": 0
+    },
+    "pages\\myconsults.tsx": {
+      "total_buttons": 8,
+      "inactive_count": 4
+    },
+    "pages\\mycorr.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 0
+    },
+    "pages\\newticket.tsx": {
+      "total_buttons": 15,
+      "inactive_count": 0
+    },
+    "pages\\notifications.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 0
+    },
+    "pages\\profile.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 2
+    },
+    "pages\\ticketchat.tsx": {
+      "total_buttons": 3,
+      "inactive_count": 3
+    },
+    "pages\\tickets.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 1
+    },
+    "pages\\videoroom.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\welcome.tsx": {
+      "total_buttons": 3,
+      "inactive_count": 0
+    },
+    "pages\\admin\\accounting.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 0
+    },
+    "pages\\admin\\archive.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "pages\\admin\\branches.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "pages\\admin\\casefees.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "pages\\admin\\cases.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "pages\\admin\\clientnotifs.tsx": {
+      "total_buttons": 3,
+      "inactive_count": 0
+    },
+    "pages\\admin\\clients.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\admin\\consult-requests.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\admin\\consult.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\admin\\consultrecv.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\admin\\consults.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "pages\\admin\\dashboard.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\admin\\distribute.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 1
+    },
+    "pages\\admin\\lawyers.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 1
+    },
+    "pages\\admin\\meeting.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\admin\\meetingroom.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\admin\\meetings.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 0
+    },
+    "pages\\admin\\meetlog.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "pages\\admin\\meetmgmt.tsx": {
+      "total_buttons": 5,
+      "inactive_count": 0
+    },
+    "pages\\admin\\meetreports.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\admin\\meetreqs.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\admin\\prices.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 1
+    },
+    "pages\\admin\\reports.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\admin\\revenue.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\admin\\staff.tsx": {
+      "total_buttons": 12,
+      "inactive_count": 1
+    },
+    "pages\\admin\\summaries.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 0
+    },
+    "pages\\admin\\tasks.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "pages\\admin\\tickets.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\admin\\videoroom.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\auth\\login.tsx": {
+      "total_buttons": 12,
+      "inactive_count": 4
+    },
+    "pages\\employee\\case.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 0
+    },
+    "pages\\employee\\cases.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "pages\\employee\\consult.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\employee\\consultrecv.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\employee\\consults.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\employee\\dashboard.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "pages\\employee\\meetingroom.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\employee\\meetreqs.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\employee\\schedule.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 1
+    },
+    "pages\\employee\\ticketchat.tsx": {
+      "total_buttons": 13,
+      "inactive_count": 5
+    },
+    "pages\\employee\\tickets.tsx": {
+      "total_buttons": 3,
+      "inactive_count": 0
+    },
+    "pages\\employee\\transfer.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "pages\\employee\\videoroom.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\lawyer\\assistant.tsx": {
+      "total_buttons": 3,
+      "inactive_count": 1
+    },
+    "pages\\lawyer\\calendar.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\lawyer\\case.tsx": {
+      "total_buttons": 7,
+      "inactive_count": 0
+    },
+    "pages\\lawyer\\cases.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "pages\\lawyer\\consult.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\lawyer\\consultrecv.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\lawyer\\dashboard.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "pages\\lawyer\\meeting.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\lawyer\\meetingroom.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\lawyer\\meetings.tsx": {
+      "total_buttons": 3,
+      "inactive_count": 0
+    },
+    "pages\\lawyer\\meetreqs.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "pages\\lawyer\\summaries.tsx": {
+      "total_buttons": 1,
+      "inactive_count": 0
+    },
+    "pages\\lawyer\\summary.tsx": {
+      "total_buttons": 3,
+      "inactive_count": 0
+    },
+    "pages\\lawyer\\tasks.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 0
+    },
+    "pages\\lawyer\\ticketchat.tsx": {
+      "total_buttons": 7,
+      "inactive_count": 0
+    },
+    "pages\\lawyer\\tickets.tsx": {
+      "total_buttons": 2,
+      "inactive_count": 0
+    },
+    "pages\\lawyer\\videoroom.tsx": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\branches\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\cases\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\clientnotifs\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\consults\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\correspondences\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\distribute\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\exec\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\invoices\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\lawyers\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\meetings\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\meetreqs\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\prices\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\staff\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\summary\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\tasks\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\admin\\tickets\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\auth\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\auth\\otp\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\auth\\register\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\book\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\boost\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\cases\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\cases\\messages\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\cases\\pay\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\consults\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\consults\\pay\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\correspondences\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\documents\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\employee\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\employee\\cases\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\employee\\consults\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\employee\\exec\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\employee\\meetreqs\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\employee\\schedule\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\employee\\tickets\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\employee\\transfer\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\exec\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\exec-flow\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\exec-flow\\documents\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\exec-flow\\messages\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\exec-flow\\pay\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\impersonate\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\invoices\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\lawyer\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\lawyer\\assistant\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\lawyer\\cases\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\lawyer\\cases\\hearings\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\lawyer\\consults\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\lawyer\\correspondences\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\lawyer\\exec\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\lawyer\\meetings\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\lawyer\\meetreqs\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\lawyer\\result\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\lawyer\\summary\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\lawyer\\tasks\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\lawyer\\tickets\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\meetreqs\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\notifications\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\profile\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\storage\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\storage\\local\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\tickets\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\tickets\\messages\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\webhooks\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "routes\\zoom\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "types\\auth.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "types\\global.d.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "types\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "types\\vite-env.d.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    },
+    "wayfinder\\index.ts": {
+      "total_buttons": 0,
+      "inactive_count": 0
+    }
+  }
+}

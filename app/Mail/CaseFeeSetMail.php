@@ -30,18 +30,12 @@ class CaseFeeSetMail extends Mailable implements ShouldQueue
 
     public function content(): Content
     {
-        $c = $this->case;
-        $baseUrl = rtrim((string) config('app.url'), '/');
-
-        $html = '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;line-height:1.9;color:#222">'
-            .'<h2 style="color:#0b5">تم تحديد أتعاب قضيتك</h2>'
-            .'<p>مرحباً '.e($c->user?->name ?? 'عميلنا الكريم').'،</p>'
-            .'<p>حدّدت الإدارة العليا أتعاب قضيتك رقم <b>'.e($c->number).'</b> ('.e($c->type).') بمبلغ <b>'.e((string) $this->total).' ر.س</b> (شامل الضريبة).</p>'
-            .'<p>يُرجى سداد الفاتورة لتفعيل القضية والبدء في إجراءاتها.</p>'
-            .'<p><a href="'.e($baseUrl.'/cases').'" style="background:#0b5;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;display:inline-block">سداد الأتعاب</a></p>'
-            .'<p style="color:#777;margin-top:24px">مكتب سلاسل بابل للمحاماة والاستشارات القانونية</p>'
-            .'</div>';
-
-        return new Content(htmlString: $html);
+        return new Content(
+            view: 'emails.case-fee-set',
+            with: [
+                'case' => $this->case,
+                'total' => $this->total,
+            ]
+        );
     }
 }

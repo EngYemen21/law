@@ -8,9 +8,11 @@ use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
 use App\Jobs\GenerateMeetingSummaryJob;
 use App\Mail\MeetingEndedMail;
+use App\Mail\MeetingEventMail;
 use App\Mail\MeetingScheduledMail;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
+use App\Models\Task;
 use App\Models\User;
 use App\Rules\LawyerInBranch;
 use App\Services\LegalAiService;
@@ -23,8 +25,10 @@ use App\Support\MeetingTime;
 use App\Support\Notify;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * اجتماعات المكتب (يطابق lwMeetings/meetingView/meetMgmtView/adMeetings/meetLogView/meetReportsView).
@@ -74,7 +78,23 @@ class MeetingController extends Controller
             'clients' => ClientDirectory::list(),
             'lawyers' => User::where('role', Role::Lawyer)->orderBy('name')->get(['id', 'name'])
                 ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name]),
+            'kpis' => $this->kpis(),
         ]);
+    }
+
+    /** مؤشرات حقيقية للوحة الإدارة: تنفيذ القرارات (مهام منجزة/الكل) + متوسط مدة المنتهية (دقائق). */
+    private function kpis(): array
+    {
+        $refs = Meeting::query()->pluck('ref')->all();
+        $totalTasks = $refs !== [] ? Task::whereIn('ref', $refs)->count() : 0;
+        $doneTasks = $refs !== [] ? Task::whereIn('ref', $refs)->where('status', 'منجزة')->count() : 0;
+
+        $durations = Meeting::where('status', 'منتهٍ')->whereNotNull('duration_sec')->pluck('duration_sec');
+
+        return [
+            'decisionRate' => $totalTasks > 0 ? (int) round($doneTasks / $totalTasks * 100) : 0,
+            'avgMinutes' => $durations->count() ? (int) round(((float) $durations->avg()) / 60) : 0,
+        ];
     }
 
     // إنشاء اجتماع جديد (يطابق submitMeeting) — مع جلسة Zoom ودعوة العميل إن رُبط
@@ -203,6 +223,8 @@ class MeetingController extends Controller
         ]);
 
         if ($meeting->status !== 'منتهٍ') {
+            // مزامنة Zoom: إنهاء الجلسة الجارية فعليًا على Zoom (best-effort) — الويبهوك اللاحق يُمتَصّ بحارس «منتهٍ»
+            $this->zoom->endMeeting((string) $meeting->meet_id);
             $meeting->update([
                 'status' => 'منتهٍ',
                 'is_up' => false,
@@ -218,6 +240,91 @@ class MeetingController extends Controller
         }
 
         return back();
+    }
+
+    // بدء الاجتماع يدويًا (قادم/مؤجل → جارٍ) — للاجتماعات المجدولة مباشرةً بلا دعوة
+    public function start(Request $request, Meeting $meeting): RedirectResponse
+    {
+        $this->guardMeeting($request, $meeting);
+        if (in_array($meeting->status, ['قادم', 'مؤجل'], true)) {
+            $meeting->update(['status' => 'جارٍ', 'is_up' => true]);
+            MeetRequest::where('meeting_id', $meeting->id)
+                ->where('stage', '<', MeetRequest::STAGE_EXECUTED)
+                ->update(['stage' => MeetRequest::STAGE_EXECUTED]);
+            if ($meeting->user_id) {
+                Notify::send($meeting->user_id, 'video', 't-cyan', "بدأت جلسة اجتماع «{$meeting->title}» — يمكنك الدخول الآن.");
+            }
+            Live::push(new MeetingStatusBroadcast($meeting));
+        }
+
+        return back();
+    }
+
+    // إعادة جدولة/تأجيل الاجتماع — يزامن الموعد مع Zoom (PATCH) ويعيد تسليح التذكير
+    public function reschedule(Request $request, Meeting $meeting): RedirectResponse
+    {
+        $this->guardMeeting($request, $meeting);
+        $data = $request->validate([
+            'day' => ['required', 'string', 'max:40'],
+            'time' => ['nullable', 'string', 'max:20'],
+        ]);
+
+        $startsAt = MeetingTime::parse($data['day'], $data['time'] ?? null);
+        $when = trim($data['day'].(($data['time'] ?? '') !== '' ? ' · '.$data['time'] : ''));
+
+        // مزامنة Zoom: تحديث موعد الاجتماع (إن كان له موعد قابل للتحليل)
+        if ($startsAt) {
+            $this->zoom->updateMeeting((string) $meeting->meet_id, [
+                'start_time' => $startsAt->format('Y-m-d\TH:i:s'),
+                'duration' => 60,
+                'topic' => $meeting->title,
+            ]);
+        }
+
+        $meeting->update([
+            'status' => $startsAt ? 'قادم' : 'مؤجل',
+            'is_up' => true,
+            'when_label' => $when,
+            'starts_at' => $startsAt,
+            'reminder_sent_at' => null, // إعادة تسليح التذكير للموعد الجديد
+        ]);
+        if ($meeting->user_id) {
+            Notify::send($meeting->user_id, 'cal', 't-amber', "أُعيدت جدولة اجتماع «{$meeting->title}»: {$when}.");
+        }
+        $this->mailMeetingEvent($meeting, 'rescheduled');
+        Live::push(new MeetingStatusBroadcast($meeting));
+
+        return back();
+    }
+
+    // إلغاء الاجتماع — يحذف اجتماع Zoom ويضبط «ملغى» (حالة نهائية يحميها حارس الويبهوك)
+    public function cancel(Request $request, Meeting $meeting): RedirectResponse
+    {
+        $this->guardMeeting($request, $meeting);
+        if (! in_array($meeting->status, ['منتهٍ', 'ملغى'], true)) {
+            $this->zoom->deleteMeeting((string) $meeting->meet_id);
+            $meeting->update(['status' => 'ملغى', 'is_up' => false, 'meet_id' => null]);
+            MeetRequest::where('meeting_id', $meeting->id)->delete();
+            if ($meeting->user_id) {
+                Notify::send($meeting->user_id, 'info', 't-red', "أُلغي اجتماع «{$meeting->title}».");
+            }
+            $this->mailMeetingEvent($meeting, 'cancelled');
+            Live::push(new MeetingStatusBroadcast($meeting));
+        }
+
+        return back();
+    }
+
+    /** بريد حدث الاجتماع (إعادة جدولة/إلغاء) للعميل والمحامي — best-effort عبر MailService. */
+    private function mailMeetingEvent(Meeting $meeting, string $event): void
+    {
+        $mail = app(MailService::class);
+        if ($meeting->user) {
+            $mail->send($meeting->user, new MeetingEventMail($meeting, $event));
+        }
+        if ($meeting->assignedLawyer) {
+            $mail->send($meeting->assignedLawyer, new MeetingEventMail($meeting, $event));
+        }
     }
 
     // تحويل قرارات الاجتماع إلى مهام حقيقية (موديل Task) — لمرة واحدة
@@ -255,34 +362,133 @@ class MeetingController extends Controller
         return Inertia::render('admin/meetlog', ['meetings' => $this->cards($request)]);
     }
 
-    // تقارير الاجتماعات (يطابق meetReportsView)
+    // تقارير الاجتماعات (يطابق meetReportsView) — مع تحليلات حقيقية من قاعدة البيانات
     public function reports(Request $request): Response
     {
-        return Inertia::render('admin/meetreports', ['meetings' => $this->cards($request)]);
+        return Inertia::render('admin/meetreports', [
+            'meetings' => $this->cards($request),
+            'analytics' => $this->analytics($request),
+        ]);
     }
 
     /**
-     * بطاقات الاجتماعات معزولة بالدور (تكشف hostLink/الملخص/المحضر — لا تُبثّ للكل):
+     * تحليلات إدارية حقيقية شاملا بيانات Zoom وقاعدة البيانات:
+     * اتجاه شهري، ساعات المكالمات، تغطية الذكاء الاصطناعي، التسجيلات، الاستجابة والتنفيذ.
+     */
+    private function analytics(Request $request): array
+    {
+        // 1. الاتجاه الشهري والساعات الإجمالية لآخر 6 أشهر
+        $months = [];
+        for ($i = 5; $i >= 0; $i--) {
+            $start = now()->startOfMonth()->subMonths($i);
+            $end = (clone $start)->endOfMonth();
+            $count = $this->scopedQuery($request)
+                ->whereRaw('COALESCE(starts_at, created_at) BETWEEN ? AND ?', [$start, $end])
+                ->count();
+            $sec = (float) $this->scopedQuery($request)
+                ->whereRaw('COALESCE(starts_at, created_at) BETWEEN ? AND ?', [$start, $end])
+                ->sum('duration_sec');
+
+            $months[] = [
+                'm' => $start->locale('ar')->translatedFormat('M'),
+                'v' => $count,
+                'hours' => round($sec / 3600, 1),
+            ];
+        }
+
+        // 2. توزيع الحالات
+        $statusCounts = [
+            'منتهٍ' => $this->scopedQuery($request)->where('status', 'منتهٍ')->count(),
+            'قادم' => $this->scopedQuery($request)->where('status', 'قادم')->count(),
+            'لم ينعقد' => $this->scopedQuery($request)->where('status', 'لم ينعقد')->count(),
+            'ملغى' => $this->scopedQuery($request)->where('status', 'ملغى')->count(),
+            'مؤجل' => $this->scopedQuery($request)->where('status', 'مؤجل')->count(),
+        ];
+
+        // 3. تغطية Zoom والذكاء الاصطناعي للمنتهية
+        $totalEnded = $statusCounts['منتهٍ'];
+        $aiSummaryCount = $this->scopedQuery($request)->where('status', 'منتهٍ')->whereNotNull('zoom_summary_at')->count();
+        $recordingCount = $this->scopedQuery($request)->where('status', 'منتهٍ')->where(fn ($q) => $q->whereNotNull('recording_url')->orWhereNotNull('zoom_share_url'))->count();
+        $audioCount = $this->scopedQuery($request)->where('status', 'منتهٍ')->whereNotNull('zoom_audio_url')->count();
+
+        $aiRate = $totalEnded > 0 ? (int) round($aiSummaryCount / $totalEnded * 100) : 0;
+        $recRate = $totalEnded > 0 ? (int) round($recordingCount / $totalEnded * 100) : 0;
+
+        // 4. الساعات الإجمالية لجميع المكالمات والاجتماعات المنتهية
+        $totalDurationSec = (float) $this->scopedQuery($request)->where('status', 'منتهٍ')->sum('duration_sec');
+        $totalZoomHours = round($totalDurationSec / 3600, 1);
+
+        // 5. متوسط مدة الحضور الفعلية (دقائق) حسب المحامي
+        $byLawyer = $this->scopedQuery($request)
+            ->where('status', 'منتهٍ')->whereNotNull('duration_sec')->whereNotNull('assigned_lawyer_id')
+            ->selectRaw('assigned_lawyer_id, AVG(duration_sec) as avg_sec')
+            ->groupBy('assigned_lawyer_id')->get();
+        $names = User::whereIn('id', $byLawyer->pluck('assigned_lawyer_id'))->pluck('name', 'id');
+        $attendanceByLawyer = $byLawyer
+            ->map(fn ($r) => [(string) ($names[$r->assigned_lawyer_id] ?? '—'), (int) round(((float) $r->avg_sec) / 60)])
+            ->values()->all();
+
+        $avgSec = (float) $this->scopedQuery($request)->where('status', 'منتهٍ')->whereNotNull('duration_sec')->avg('duration_sec');
+
+        // 6. معدل تنفيذ القرارات وتحويلها لمهام
+        $refs = $this->scopedQuery($request)->pluck('ref')->all();
+        $totalTasks = $refs !== [] ? Task::whereIn('ref', $refs)->count() : 0;
+        $doneTasks = $refs !== [] ? Task::whereIn('ref', $refs)->where('status', 'منجزة')->count() : 0;
+
+        return [
+            'monthlyTrend' => $months,
+            'statusCounts' => $statusCounts,
+            'attendanceByLawyer' => $attendanceByLawyer,
+            'avgActualMinutes' => $avgSec ? (int) round($avgSec / 60) : 0,
+            'decisionRate' => $totalTasks > 0 ? (int) round($doneTasks / $totalTasks * 100) : 0,
+            'tasksFromDecisions' => $totalTasks,
+            'doneTasksCount' => $doneTasks,
+            'totalZoomHours' => $totalZoomHours,
+            'aiSummaryCount' => $aiSummaryCount,
+            'aiCoverageRate' => $aiRate,
+            'recordingCount' => $recordingCount,
+            'recordingCoverageRate' => $recRate,
+            'audioCount' => $audioCount,
+        ];
+    }
+
+    /**
+     * استعلام الاجتماعات معزولًا بالدور:
      * المحامي اجتماعاته المسندة، الموظف اجتماعات فرعه (+بلا فرع)، الإدارة الكل.
      */
-    private function cards(Request $request)
+    private function scopedQuery(Request $request)
     {
         $user = $request->user();
         $query = Meeting::query();
         if ($user->role === Role::Lawyer) {
             $query->where('assigned_lawyer_id', $user->id);
         } elseif ($user->role === Role::Employee) {
-            $branch = $user->branch;
-            $query->where(fn ($q) => $q->where('branch', $branch)->orWhereNull('branch'));
+            $query->where(fn ($q) => $q->where('branch', $user->branch)->orWhereNull('branch'));
         }
 
-        return $query->latest('id')->get()->map(fn (Meeting $m) => $m->toFullCard());
+        return $query;
+    }
+
+    // بطاقات الاجتماعات معزولة بالدور (تكشف hostLink/الملخص/المحضر — لا تُبثّ للكل)
+    private function cards(Request $request)
+    {
+        return $this->scopedQuery($request)->with('assignedLawyer')
+            ->latest('id')->get()->map(fn (Meeting $m) => $m->toFullCard());
     }
 
     /**
      * حارس الوصول المباشر لاجتماع (يسدّ IDOR): المحامي لاجتماعه المسند فقط (guardAssigned)،
      * الموظف لفرعه (بلا فرع = مشترك)، الإدارة كاملة.
      */
+    // تنزيل نصّ الاجتماع الكامل المحفوظ محليًا (من تسجيل Zoom) — معزول بالدور
+    public function transcript(Request $request, Meeting $meeting): StreamedResponse
+    {
+        $this->guardMeeting($request, $meeting);
+        abort_unless($meeting->transcript_path && Storage::disk('local')->exists($meeting->transcript_path), 404);
+
+        return Storage::disk('local')->download($meeting->transcript_path, 'transcript-'.$meeting->ref.'.txt');
+    }
+
     private function guardMeeting(Request $request, Meeting $meeting): void
     {
         $user = $request->user();

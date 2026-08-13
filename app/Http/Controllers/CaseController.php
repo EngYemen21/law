@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\AnalyzeCaseDocumentJob;
 use App\Jobs\GenerateCaseReplyJob;
 use App\Models\Invoice;
 use App\Models\LegalCase;
@@ -54,7 +55,41 @@ class CaseController extends Controller
             'channel' => 'case.'.$case->id,
             'messages' => $case->messages->where('who', '!=', 'note')->values()->map->toMessage(),
             'hearings' => $case->hearings->map->toData(),
+            'documents' => $case->documents->map->toData(),
         ]);
+    }
+
+    // إرفاق مستند حقيقي من العميل إلى ملف القضية (رفع ملف + رسالة + بثّ) — يُخزَّن ضمن مستندات القضية.
+    public function attach(Request $request, LegalCase $case): HttpResponse
+    {
+        $this->authorizeCase($request, $case);
+        abort_if(in_array($case->status, ['مغلقة', 'مؤرشفة'], true), 422, 'لا يمكن إرفاق مستندات على قضية مغلقة أو مؤرشفة.');
+
+        $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx']]); // حتى 10MB
+
+        $file = $request->file('file');
+        $name = $file->getClientOriginalName();
+        $doc = $case->documents()->create([
+            'name' => $name,
+            'path' => $file->store("case-docs/{$case->id}"),
+            'mime' => $file->getClientMimeType(),
+            'size' => (int) $file->getSize(),
+            'uploaded_by' => 'client',
+            'status' => 'قيد الفحص',
+        ]);
+
+        // رسالة في محادثة القضية (تُبثّ لحظياً تلقائياً عبر CaseMessage::booted)
+        $case->messages()->create([
+            'who' => 'client', 'name' => 'أنت', 'role' => 'العميل',
+            'body' => '<p>تم إرفاق مستند:</p><div class="doc-list"><span class="doc-chip">📎 '.e($name).'</span></div>',
+            'time_label' => $this->clock(),
+        ]);
+        $case->update(['update_text' => 'أرفق العميل مستنداً: '.$name]);
+
+        // تحليل ذكي للمستند بالخلفية (تلخيص + تصنيف ثم ملخّص في المحادثة)
+        AnalyzeCaseDocumentJob::dispatch($case, $doc);
+
+        return response()->noContent();
     }
 
     // إرسال رسالة من العميل + ردّ تلقائي من الفريق (بثّ لحظي بلا إعادة تحميل)

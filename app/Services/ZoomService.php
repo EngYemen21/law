@@ -103,6 +103,63 @@ class ZoomService
         }
     }
 
+    /**
+     * تحديث اجتماع Zoom (إعادة جدولة) — أفضل-جهد لمزامنة الموعد/المدة الجديدين مع Zoom.
+     * يعيد true عند نجاح PATCH (204). يسجّل الفشل ولا يرمي (القاعدة مصدر الحقيقة).
+     *
+     * @param  array<string,mixed>  $changes  مثل ['start_time'=>'Y-m-d\TH:i:s','duration'=>60,'topic'=>'…']
+     */
+    public function updateMeeting(string $meetingId, array $changes): bool
+    {
+        if ($meetingId === '' || $changes === [] || ! $this->isConfigured()) {
+            return false;
+        }
+
+        try {
+            $token = $this->token();
+            if (! $token) {
+                return false;
+            }
+            $response = Http::withToken($token)
+                ->timeout(15)
+                ->retry(2, 500, fn ($e) => $e instanceof ConnectionException, throw: false)
+                ->patch('https://api.zoom.us/v2/meetings/'.$meetingId, $changes + ['timezone' => 'Asia/Riyadh']);
+
+            if ($response->successful()) {
+                return true;
+            }
+            Log::warning('ZoomService updateMeeting failed: '.$response->status().' '.$response->body());
+        } catch (\Throwable $e) {
+            Log::warning('ZoomService updateMeeting failed: '.$e->getMessage());
+        }
+
+        return false;
+    }
+
+    /**
+     * إنهاء اجتماع Zoom الجاري فعليًا (action=end) — أفضل-جهد. يعمل على الاجتماع الجاري فقط؛
+     * على غيره ترفض Zoom بلطف (لا يهمّ، القاعدة مصدر الحقيقة). يسجّل ولا يرمي.
+     */
+    public function endMeeting(string $meetingId): void
+    {
+        if ($meetingId === '' || ! $this->isConfigured()) {
+            return;
+        }
+
+        try {
+            $token = $this->token();
+            if (! $token) {
+                return;
+            }
+            Http::withToken($token)
+                ->timeout(15)
+                ->retry(2, 500, fn ($e) => $e instanceof ConnectionException, throw: false)
+                ->put('https://api.zoom.us/v2/meetings/'.$meetingId.'/status', ['action' => 'end']);
+        } catch (\Throwable $e) {
+            Log::warning('ZoomService endMeeting failed: '.$e->getMessage());
+        }
+    }
+
     /** هل هُيّئ Meeting SDK (تطبيق منفصل عن S2S) لتوليد توقيع التضمين داخل المنصّة؟ */
     public function sdkConfigured(): bool
     {
@@ -276,14 +333,13 @@ class ZoomService
 
     /**
      * ملخّص AI Companion من Zoom لاجتماع منتهٍ (خطة Pro) — نظرة عامّة + تفاصيل + خطوات تالية.
-     * غير متزامن: يجهز بعد دقائق من الانتهاء؛ يعيد null قبل الجهوزية أو بلا نطاق meeting:read:summary.
-     * مسار بديل للأمر المجدول فقط؛ مسار الويبهوك يقرأ من الحمولة عبر summaryFromPayload().
+     * يدعم الجلب بـ Meeting ID أو UUID المشفّر مباشرةً.
      *
-     * @return array{overview: string, details: array<int, array{label: string, summary: string}>, next_steps: array<int, string>}|null
+     * @return array{overview: string, details: array<int, array{label: string, summary: string}>, next_steps: array<int, string>, uuid: ?string}|null
      */
-    public function meetingSummary(string $meetingId): ?array
+    public function meetingSummary(string $meetingId, ?string $uuid = null): ?array
     {
-        if (! $this->isConfigured() || $meetingId === '') {
+        if (! $this->isConfigured() || ($meetingId === '' && ! $uuid)) {
             return null;
         }
 
@@ -295,29 +351,152 @@ class ZoomService
                 return null;
             }
 
-            $response = Http::withToken($token)
-                ->timeout(15)
-                ->get("https://api.zoom.us/v2/meetings/{$meetingId}/meeting_summary");
-
-            if ($response->successful()) {
-                $data = $response->json();
-
-                return [
-                    'overview' => (string) ($data['summary_overview'] ?? ''),
-                    'details' => array_values(array_map(
-                        fn ($d) => ['label' => (string) ($d['label'] ?? ''), 'summary' => (string) ($d['summary'] ?? '')],
-                        (array) ($data['summary_details'] ?? []),
-                    )),
-                    'next_steps' => array_values(array_map('strval', (array) ($data['next_steps'] ?? []))),
-                ];
+            // الاستعلام أولاً بـ UUID المشفّر المزدوج إن وُجد (أضمن للاجتماعات الفورية/المنتهية)
+            $identifiers = [];
+            if ($uuid) {
+                $identifiers[] = urlencode(urlencode($uuid));
+            }
+            if ($meetingId) {
+                $identifiers[] = $meetingId;
             }
 
-            // 400/404 شائعان: الملخّص لم يجهز بعد أو النطاق غير مُفعّل — لا نُسجّل ضجيجاً لهذين
-            if (! in_array($response->status(), [400, 404], true)) {
-                Log::warning('ZoomService meetingSummary failed: '.$response->status().' '.$response->body());
+            foreach ($identifiers as $id) {
+                $response = Http::withToken($token)
+                    ->timeout(15)
+                    ->get("https://api.zoom.us/v2/meetings/{$id}/meeting_summary");
+
+                if ($response->successful()) {
+                    $data = $response->json();
+
+                    return [
+                        'uuid' => $data['meeting_uuid'] ?? $uuid,
+                        'overview' => (string) ($data['summary_overview'] ?? ''),
+                        'details' => array_values(array_map(
+                            fn ($d) => ['label' => (string) ($d['label'] ?? ''), 'summary' => (string) ($d['summary'] ?? '')],
+                            (array) ($data['summary_details'] ?? []),
+                        )),
+                        'next_steps' => array_values(array_map('strval', (array) ($data['next_steps'] ?? []))),
+                    ];
+                }
             }
         } catch (\Throwable $e) {
             Log::warning('ZoomService meetingSummary failed: '.$e->getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * جلب تفاصيل الجلسة المنتهية (المشاركون، البداية والنهاية، التسجيل المرئي والصوتي، ورابط المشاركة).
+     *
+     * @return array{
+     *     uuid: ?string,
+     *     starts_at: ?Carbon,
+     *     ends_at: ?Carbon,
+     *     duration_sec: ?int,
+     *     participants_log: array,
+     *     recording_url: ?string,
+     *     share_url: ?string,
+     *     audio_url: ?string,
+     *     transcript_url: ?string,
+     *     download_token: ?string
+     * }|null
+     */
+    public function fetchPastMeetingDetails(string $meetingId): ?array
+    {
+        if (! $this->isConfigured() || $meetingId === '') {
+            return null;
+        }
+
+        try {
+            $token = $this->token();
+            if (! $token) {
+                return null;
+            }
+
+            $out = [
+                'uuid' => null,
+                'starts_at' => null,
+                'ends_at' => null,
+                'duration_sec' => null,
+                'participants_log' => [],
+                'recording_url' => null,
+                'share_url' => null,
+                'audio_url' => null,
+                'transcript_url' => null,
+                'download_token' => null,
+            ];
+
+            // 1. بيانات Past Meeting الأساسية
+            $pastResp = Http::withToken($token)->timeout(15)
+                ->get("https://api.zoom.us/v2/past_meetings/{$meetingId}");
+
+            if ($pastResp->successful()) {
+                $pastData = $pastResp->json();
+                $out['uuid'] = $pastData['uuid'] ?? null;
+                if (! empty($pastData['start_time'])) {
+                    $out['starts_at'] = Carbon::parse($pastData['start_time'])->setTimezone(config('app.timezone'));
+                }
+                if (! empty($pastData['end_time'])) {
+                    $out['ends_at'] = Carbon::parse($pastData['end_time'])->setTimezone(config('app.timezone'));
+                }
+                if ($out['starts_at'] && $out['ends_at']) {
+                    $out['duration_sec'] = (int) abs($out['ends_at']->diffInSeconds($out['starts_at']));
+                }
+            }
+
+            // 2. سجل الحضور المفصّل
+            $partResp = Http::withToken($token)->timeout(15)
+                ->get("https://api.zoom.us/v2/past_meetings/{$meetingId}/participants");
+
+            if ($partResp->successful()) {
+                $parts = $partResp->json('participants', []);
+                $out['participants_log'] = array_map(fn ($p) => [
+                    'name' => (string) ($p['name'] ?? ''),
+                    'email' => (string) ($p['user_email'] ?? ''),
+                    'join_time' => ! empty($p['join_time']) ? Carbon::parse($p['join_time'])->setTimezone(config('app.timezone'))->format('Y-m-d H:i:s') : null,
+                    'leave_time' => ! empty($p['leave_time']) ? Carbon::parse($p['leave_time'])->setTimezone(config('app.timezone'))->format('Y-m-d H:i:s') : null,
+                    'duration_sec' => (int) ($p['duration'] ?? 0),
+                    'status' => (string) ($p['status'] ?? 'in_meeting'),
+                ], $parts);
+            }
+
+            // 3. التسجيلات وسحابة Zoom
+            $recResp = Http::withToken($token)->timeout(15)
+                ->get("https://api.zoom.us/v2/meetings/{$meetingId}/recordings");
+
+            if ($recResp->successful()) {
+                $recData = $recResp->json();
+                $out['share_url'] = $recData['share_url'] ?? null;
+                $out['download_token'] = $recData['download_access_token'] ?? ($recData['password'] ?? null);
+
+                $files = (array) ($recData['recording_files'] ?? []);
+
+                $videoFile = collect($files)->firstWhere('recording_type', 'shared_screen_with_speaker_view');
+                if (! $videoFile) {
+                    $videoFile = collect($files)->firstWhere('file_extension', 'MP4');
+                }
+                if ($videoFile) {
+                    $out['recording_url'] = $videoFile['play_url'] ?? $videoFile['download_url'] ?? null;
+                }
+
+                $audioFile = collect($files)->firstWhere('recording_type', 'audio_only');
+                if (! $audioFile) {
+                    $audioFile = collect($files)->firstWhere('file_extension', 'M4A');
+                }
+                if ($audioFile) {
+                    $out['audio_url'] = $audioFile['play_url'] ?? $audioFile['download_url'] ?? null;
+                }
+
+                $transcriptFile = collect($files)->firstWhere('recording_type', 'audio_transcript');
+                if ($transcriptFile) {
+                    $out['transcript_url'] = $transcriptFile['download_url'] ?? null;
+                }
+            }
+
+            return $out;
+        } catch (\Throwable $e) {
+            Log::warning('ZoomService fetchPastMeetingDetails failed: '.$e->getMessage());
         }
 
         return null;

@@ -48,6 +48,11 @@ class LegalCase extends Model
         return $this->hasMany(CaseHearing::class, 'case_id')->orderBy('id');
     }
 
+    public function documents(): HasMany
+    {
+        return $this->hasMany(CaseDocument::class, 'case_id')->orderBy('id');
+    }
+
     public function execution(): HasOne
     {
         return $this->hasOne(Execution::class, 'case_id');

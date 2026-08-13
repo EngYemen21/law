@@ -1,8 +1,13 @@
 <?php
 
+use App\Services\TaqnyatVerifyService;
+use App\Support\Phone;
+use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Support\Facades\Http;
+
 require __DIR__.'/../vendor/autoload.php';
 $app = require_once __DIR__.'/../bootstrap/app.php';
-$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+$kernel = $app->make(Kernel::class);
 $kernel->bootstrap();
 
 $phone = '967779475324';
@@ -10,18 +15,18 @@ $requestId = 'test-'.uniqid();
 
 echo "Testing Taqnyat OTP send to {$phone}...\n";
 
-$svc = app(App\Services\TaqnyatVerifyService::class);
+$svc = app(TaqnyatVerifyService::class);
 $isConfigured = $svc->isConfigured();
-echo "Is Configured: ".($isConfigured ? "YES\n" : "NO\n");
+echo 'Is Configured: '.($isConfigured ? "YES\n" : "NO\n");
 
 $apiKey = config('services.taqnyat.api_key');
 $sender = config('services.taqnyat.sender');
-echo "API Key: ".substr($apiKey, 0, 8)."...\n";
+echo 'API Key: '.substr($apiKey, 0, 8)."...\n";
 echo "Sender: {$sender}\n";
 
 $payload = [
     'apiKey' => $apiKey,
-    'numbers' => [\App\Support\Phone::intl($phone)],
+    'numbers' => [Phone::intl($phone)],
     'sender' => $sender,
     'method' => 'sms',
     'lang' => 'ar',
@@ -29,17 +34,18 @@ $payload = [
     'returnJson' => 1,
 ];
 
-echo "Formatted Number: ".PhoneIntlTest($phone)."\n";
+echo 'Formatted Number: '.PhoneIntlTest($phone)."\n";
 
-$response = Illuminate\Support\Facades\Http::withToken($apiKey)
+$response = Http::withToken($apiKey)
     ->acceptJson()
     ->connectTimeout(10)
     ->timeout(30)
     ->post('https://api.taqnyat.sa/verify.php', [$payload]);
 
-echo "HTTP Status: ".$response->status()."\n";
-echo "Response Body: ".$response->body()."\n";
+echo 'HTTP Status: '.$response->status()."\n";
+echo 'Response Body: '.$response->body()."\n";
 
-function PhoneIntlTest($p) {
-    return App\Support\Phone::intl($p);
+function PhoneIntlTest($p)
+{
+    return Phone::intl($p);
 }

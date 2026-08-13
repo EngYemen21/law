@@ -4,9 +4,11 @@ namespace App\Support;
 
 use App\Events\ExecStatusBroadcast;
 use App\Jobs\AnalyzeExecutionJob;
+use App\Mail\ExecutionEventMail;
 use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\User;
+use App\Services\MailService;
 use App\Services\MoyasarService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -91,32 +93,41 @@ class ExecService
 
     public static function approveFee(Execution $exec, ?int $adjustedFee = null): void
     {
-        self::guard($exec, [4], 'لا توجد أتعاب بانتظار الاعتماد.');
+        self::guard($exec, self::feeStages($exec), 'لا توجد أتعاب بانتظار الاعتماد.');
         $fee = $adjustedFee && $adjustedFee > 0 ? $adjustedFee : (int) $exec->fee;
-        $exec->update(['fee' => $fee, 'vat' => (int) round($fee * 0.15), 'fee_approved' => true]);
+        $exec->update(['fee' => $fee, 'vat' => (int) round($fee * 0.15), 'fee_approved' => true, 'offer_status' => null]);
         self::sync($exec, 5, 'اعتمدت الإدارة الأتعاب وأُرسل العرض');
         self::adminMsg($exec, 'اعتماد', 'اعتمدت الإدارة أتعاب التنفيذ وأُرسل العرض للعميل.');
         self::notify($exec, 'card', 't-blue', "عرض خدمة التنفيذ لطلبك {$exec->number} جاهز — بانتظار قبولك.");
+        self::mail($exec, 'feeApproved');
         Live::push(new ExecStatusBroadcast($exec));
     }
 
     /**
      * تسعير الإدارة المباشر (execfeeset): الإدارة تحدّد الأتعاب وتعتمدها وترسل العرض في خطوة واحدة
-     * (المراحل 2‑4 قبل الاعتماد). الأتعاب النهائيّة تُحسب في الواجهة (ثابت/نسبة/محصّل) وتُمرَّر رقماً.
+     * (المراحل 2‑4 قبل الاعتماد، أو 5 لإعادة تسعير عرض رفضه/استفسر عنه العميل). الأتعاب النهائيّة
+     * تُحسب في الواجهة (ثابت/نسبة) وتُمرَّر رقماً.
      */
     public static function setFee(Execution $exec, int $fee, string $duration, string $payMethod): void
     {
-        self::guard($exec, [2, 3, 4], 'لا يمكن تسعير الطلب في مرحلته الحالية.');
+        self::guard($exec, self::feeStages($exec), 'لا يمكن تسعير الطلب في مرحلته الحالية.');
         $exec->update([
             'fee' => $fee, 'vat' => (int) round($fee * 0.15),
             'duration' => $duration ?: '30-45 يوم',
             'pay_method' => in_array($payMethod, ExecFlow::PAYM, true) ? $payMethod : ExecFlow::PAYM[0],
-            'fee_approved' => true,
+            'fee_approved' => true, 'offer_status' => null,
         ]);
         self::sync($exec, 5, 'حدّدت الإدارة الأتعاب واعتمدتها وأُرسل العرض');
         self::adminMsg($exec, 'تسعير', 'حدّدت الإدارة أتعاب التنفيذ واعتمدتها وأُرسل العرض للعميل.');
         self::notify($exec, 'card', 't-blue', "عرض خدمة التنفيذ لطلبك {$exec->number} جاهز — بانتظار قبولك.");
+        self::mail($exec, 'feeApproved');
         Live::push(new ExecStatusBroadcast($exec));
+    }
+
+    /** مراحل التسعير المسموحة: 2‑4 عادةً، وتضمّ 5 أيضاً إن رفض العميل العرض أو استفسر عنه (لإعادة العرض). */
+    private static function feeStages(Execution $exec): array
+    {
+        return in_array($exec->offer_status, ['مرفوض', 'استفسار'], true) ? [2, 3, 4, 5] : [2, 3, 4];
     }
 
     // ── المحامي ──
@@ -124,6 +135,7 @@ class ExecService
     public static function accept(Execution $exec): void
     {
         self::guard($exec, [2], 'لا يمكن قبول هذا الطلب في مرحلته الحالية.');
+        abort_if($exec->decision === 'مرفوض', 422, 'هذا الطلب مرفوض بالفعل.');
         $exec->update(['decision' => 'مقبول']);
         self::sync($exec, 3, 'قبل المحامي الطلب — بانتظار تحديد الأتعاب');
         self::lawyerMsg($exec, 'قبول', 'قُبل الطلب، ويجري تحديد أتعاب التنفيذ.');
@@ -157,6 +169,7 @@ class ExecService
     public static function saveFee(Execution $exec, int $fee, string $duration, string $payMethod): void
     {
         self::guard($exec, [3], 'لا يمكن تحديد الأتعاب في مرحلته الحالية.');
+        abort_if($exec->decision === 'مرفوض', 422, 'هذا الطلب مرفوض بالفعل.');
         $exec->update([
             'fee' => $fee, 'vat' => (int) round($fee * 0.15),
             'duration' => $duration ?: '30-45 يوم',
@@ -197,12 +210,28 @@ class ExecService
             'who' => 'client', 'name' => 'أنت', 'role' => 'العميل',
             'body' => '<p>لديّ استفسار حول عرض خدمة التنفيذ.</p>', 'time_label' => self::clock(),
         ]);
+        self::notifyOffice($exec, 't-amber', "استفسار العميل حول عرض التنفيذ {$exec->number}.");
+        Live::push(new ExecStatusBroadcast($exec));
     }
 
     public static function rejectOffer(Execution $exec): void
     {
         self::guard($exec, [5], 'لا يوجد عرض للرفض.');
         $exec->update(['offer_status' => 'مرفوض']);
+        $exec->messages()->create([
+            'who' => 'client', 'name' => 'أنت', 'role' => 'العميل',
+            'body' => '<p>رفضتُ عرض خدمة التنفيذ.</p>', 'time_label' => self::clock(),
+        ]);
+        self::notifyOffice($exec, 't-red', "رفض العميل عرض خدمة التنفيذ {$exec->number}.");
+        Live::push(new ExecStatusBroadcast($exec));
+    }
+
+    /** يُشعر المحامي المسنَد بحدث من العميل يخصّ العرض؛ بلا إسناد يبقى مرئياً للإدارة عبر القائمة فقط. */
+    private static function notifyOffice(Execution $exec, string $tone, string $body): void
+    {
+        if ($exec->assigned_lawyer_id !== null) {
+            Notify::send($exec->assigned_lawyer_id, 'exec', $tone, $body);
+        }
     }
 
     /**
@@ -250,6 +279,7 @@ class ExecService
             'time_label' => self::clock(),
         ]);
         self::notify($exec, 'check', 't-green', "سُدّدت أتعاب التنفيذ وفُتح ملف التنفيذ {$exec->exec_no} لطلبك {$exec->number}.");
+        self::mail($exec, 'paid');
         Live::push(new ExecStatusBroadcast($exec));
     }
 
@@ -270,10 +300,11 @@ class ExecService
     public static function requestCorr(Execution $exec): void
     {
         self::guard($exec, [7, 8], 'يلزم فتح ملف التنفيذ أولاً.');
+        abort_if($exec->assigned_lawyer_id === null, 422, 'يلزم إسناد محامٍ للملف قبل طلب مخاطبة.');
 
         // إنشاء مخاطبة رسميّة حقيقيّة مرتبطة بملفّ التنفيذ (تُتابَع في وحدة المخاطبات)
         $client = $exec->user;
-        $lawyer = $exec->assignedLawyer ?? $client;
+        $lawyer = $exec->assignedLawyer;
         if ($client) {
             $no = $exec->exec_no ?: $exec->number;
             CorrespondenceFlow::create($lawyer, $client, [
@@ -295,6 +326,7 @@ class ExecService
         self::sync($exec, 9, 'أُغلق ملف التنفيذ وأُرشف');
         self::adminMsg($exec, 'إغلاق', 'أُغلق ملف التنفيذ بعد استكمال الإجراءات وأُرشف.');
         self::notify($exec, 'check', 't-green', "أُغلق ملف التنفيذ {$exec->exec_no} لطلبك {$exec->number}.");
+        self::mail($exec, 'closed');
         Live::push(new ExecStatusBroadcast($exec));
     }
 
@@ -308,18 +340,9 @@ class ExecService
      */
     private static function guard(Execution $exec, array $allowed, string $message): void
     {
-        if (! in_array(self::effectiveStage($exec), $allowed, true)) {
+        if (! in_array($exec->effectiveStage(), $allowed, true)) {
             throw ValidationException::withMessages(['stage' => $message]);
         }
-    }
-
-    private static function effectiveStage(Execution $exec): int
-    {
-        if ($exec->stage !== null) {
-            return (int) $exec->stage;
-        }
-
-        return $exec->status === 'مغلق' ? 9 : 8;
     }
 
     private static function sync(Execution $exec, int $stage, string $lastAction): void
@@ -345,6 +368,14 @@ class ExecService
     private static function notify(Execution $exec, string $icon, string $tone, string $body): void
     {
         Notify::send($exec->user_id, $icon, $tone, $body);
+    }
+
+    /** بريد أفضل-جهد لحدث على طلب/ملف التنفيذ — بجانب إشعار النظام، لا بدلاً عنه. */
+    private static function mail(Execution $exec, string $event): void
+    {
+        if ($exec->user) {
+            app(MailService::class)->send($exec->user, new ExecutionEventMail($exec, $event));
+        }
     }
 
     private static function clock(): string

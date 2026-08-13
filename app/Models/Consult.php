@@ -21,6 +21,7 @@ class Consult extends Model
         'starts_at', 'duration_min',
         'meet_id', 'meet_link', 'host_link', 'meet_password',
         'link_released_at', 'reminder_24h_sent_at', 'reminder_1h_sent_at', 'join_time', 'leave_time', 'duration_sec', 'transcript', 'recording_url', 'transcript_path', 'zoom_summary_at',
+        'zoom_uuid', 'zoom_share_url', 'zoom_audio_url', 'zoom_participants_log', 'zoom_ai_next_steps',
         'status', 'session', 'session_notes', 'summary', 'duration_label',
         'decisions', 'tasks_created',
         'price', 'vat', 'total', 'mins', 'priced_at', 'paid_at',
@@ -33,6 +34,8 @@ class Consult extends Model
         'missing' => 'array',
         'audit' => 'array',
         'decisions' => 'array',
+        'zoom_participants_log' => 'array',
+        'zoom_ai_next_steps' => 'array',
         'starts_at' => 'datetime',
         'priced_at' => 'datetime',
         'paid_at' => 'datetime',
@@ -90,6 +93,15 @@ class Consult extends Model
     }
 
     /**
+     * موعد الاستشارة بصياغة عربية موحّدة (الاثنين ١٠ أغسطس ٢٠٢٦ · ١١:٣٠ ص) من starts_at الحقيقي.
+     * يوحّد العرض عبر كل مسارات الإنشاء؛ ويرجع للنص المخزَّن when_label إن غاب starts_at.
+     */
+    public function whenLabel(): string
+    {
+        return $this->starts_at?->locale('ar')->translatedFormat('l d F Y · h:i A') ?: (string) $this->when_label;
+    }
+
+    /**
      * بطاقة العميل — حقول العرض الآمنة فقط لصفحة «استشاراتي».
      * تستثني عمداً: host_link (رابط المضيف/ZAK)، تحليل الذكاء الاصطناعي، سجل التدقيق،
      * الموظف المسند، والمستندات الناقصة — فهذه بيانات داخلية لا تخصّ العميل.
@@ -100,9 +112,10 @@ class Consult extends Model
             'id' => $this->id,
             'ref' => $this->ref,
             'subject' => $this->subject,
+            'specialty' => $this->specialty ?? '',
             'channel' => $this->channel,
             'lawyer' => $this->lawyer,
-            'when' => $this->when_label,
+            'when' => $this->whenLabel(),
             'branch' => $this->branch ?? '',
             'slink' => $this->channel === 'مرئية' ? $this->joinLink() : '',
             'canJoin' => $this->canJoin(), // زر الدخول معطّل حتى إطلاق الرابط قبل الموعد بـ5د
@@ -131,7 +144,7 @@ class Consult extends Model
             'subject' => $this->subject,
             'channel' => $this->channel,
             'lawyer' => $this->lawyer,
-            'when' => $this->when_label,
+            'when' => $this->whenLabel(),
             'branch' => $this->branch ?? '',
             'phone' => $this->phone ?? '',
             // رابط اجتماع Zoom الحقيقي؛ وعند غيابه (لم تُهيّأ مفاتيح Zoom بعد) الرابط الداخلي الاحتياطي
@@ -162,6 +175,11 @@ class Consult extends Model
             'audit' => $this->audit ?? [],
             'decisions' => $this->decisions ?? [],
             'tasksCreated' => (bool) $this->tasks_created,
+            'zoomUuid' => $this->zoom_uuid,
+            'zoomShareUrl' => $this->zoom_share_url,
+            'zoomAudioUrl' => $this->zoom_audio_url,
+            'zoomParticipantsLog' => $this->zoom_participants_log ?? [],
+            'zoomAiNextSteps' => $this->zoom_ai_next_steps ?? [],
         ];
     }
 

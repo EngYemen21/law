@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Consult;
 use App\Models\Setting;
 use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
@@ -18,11 +19,19 @@ use Inertia\Response;
  */
 class ConsultBookingController extends Controller
 {
-    public function index(): Response
+    public function index(Request $request): Response
     {
+        // طلبات استشارة العميل الحالية بدورة الحجز (بانتظار التسعير/السداد/تحديد الموعد)
+        // تُعرض في نفس صفحة الحجز (مطابقة لدمج القائمة+النموذج بالتصميم المرجعي)
+        $pending = Consult::where('user_id', $request->user()->id)
+            ->whereIn('status', Consult::PRE_SESSION_STATUSES)
+            ->latest('id')->get()
+            ->map(fn (Consult $c) => $c->toClientCard());
+
         return Inertia::render('book', [
             'prices' => Setting::consultPrices(),
             'specialties' => Specialties::all(),
+            'pending' => $pending,
         ]);
     }
 

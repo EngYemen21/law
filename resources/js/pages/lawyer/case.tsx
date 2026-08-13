@@ -12,13 +12,24 @@ interface CaseInfo {
   no: string; client: string; type: string; dept: string; lawyer: string;
   status: string; tone: string; next?: string | null; pleadingStatus: string; ruling?: string | null;
 }
-interface Props { case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; convertedExec?: boolean; }
+interface CaseDoc { id: number; name: string; by: string; status: string; docType: string; summary: string; date: string }
+interface Props { case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[]; convertedExec?: boolean; }
 
-const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, convertedExec }) => {
+const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec }) => {
   const toast = useToast();
   const base = `/lawyer/cases/${encodeURIComponent(c.no)}`;
+  const fileRef = useRef<HTMLInputElement>(null);
+  const onPickDoc = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    router.post(`${base}/attach`, { file }, { preserveScroll: true, forceFormData: true, onSuccess: () => toast('تم رفع المستند'), onError: () => toast('تعذّر رفع المستند') });
+  };
   const [h, setH] = useState({ title: '', day: '', time: '', court: '' });
   const [ruling, setRuling] = useState('');
+  const [editId, setEditId] = useState<number | null>(null);
+  const [eh, setEh] = useState({ title: '', day: '', time: '', court: '' });
+  const [recOutcome, setRecOutcome] = useState('');
   const [msgs, setMsgs] = useState<Message[]>(messages);
   const [live, setLive] = useState({ status: c.status, tone: c.tone });
   const seen = useRef<Set<number>>(new Set(messages.map((m) => m.id).filter(Boolean) as number[]));
@@ -43,7 +54,17 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, con
     router.post(`${base}/hearings`, h, { preserveScroll: true, onSuccess: () => { setH({ title: '', day: '', time: '', court: '' }); toast('تمت جدولة الجلسة'); } });
   };
   const recordHearing = (id: number, status: string) =>
-    router.post(`${base}/hearings/${id}`, { status }, { preserveScroll: true, onSuccess: () => toast('تم تحديث الجلسة') });
+    router.post(`${base}/hearings/${id}`, { status, outcome: recOutcome }, { preserveScroll: true, onSuccess: () => { setRecOutcome(''); toast('تم تحديث الجلسة'); } });
+  const startEdit = (hr: Hearing) => {
+    setEditId(hr.id);
+    setEh({ title: hr.title, day: hr.startsAt ? hr.startsAt.slice(0, 10) : '', time: hr.startsAt ? hr.startsAt.slice(11, 16) : '', court: hr.court || '' });
+  };
+  const submitEdit = (id: number) => {
+    if (!eh.title.trim() || !eh.day.trim()) { toast('أدخل عنوان الجلسة والتاريخ'); return; }
+    router.post(`${base}/hearings/${id}/update`, eh, { preserveScroll: true, onSuccess: () => { setEditId(null); toast('تمت إعادة جدولة الجلسة'); } });
+  };
+  const cancelHearing = (id: number) =>
+    router.post(`${base}/hearings/${id}/cancel`, {}, { preserveScroll: true, onSuccess: () => toast('أُلغيت الجلسة') });
   const recordRuling = (e: React.FormEvent) => {
     e.preventDefault();
     if (!ruling.trim()) { toast('أدخل منطوق الحكم'); return; }
@@ -107,6 +128,29 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, con
         </div>
 
         <aside className="tf-aside">
+          {/* مستندات ملف القضية — رفع وعرض */}
+          <div className="card">
+            <div className="card-h"><h3>مستندات القضية</h3><span className="sub">{documents.length}</span></div>
+            <div className="card-b">
+              {documents.map((d) => (
+                <div key={d.id} className="item">
+                  <div className="iico"><Icon name="doc" /></div>
+                  <div className="imeta">
+                    <b>{d.name}</b>
+                    <span>{d.by} · {d.date}{d.docType ? ` · ${d.docType}` : ''}</span>
+                    {d.summary && <span style={{ display: 'block', marginTop: 3, fontSize: 11.5, color: 'var(--muted)' }}>{d.summary}</span>}
+                  </div>
+                </div>
+              ))}
+              <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style={{ display: 'none' }} onChange={onPickDoc} />
+              {c.status !== 'مؤرشفة' && (
+                <button className="btn soft sm" type="button" style={{ marginTop: documents.length ? 10 : 0 }} onClick={() => fileRef.current?.click()}>
+                  <Icon name="upload" /> إرفاق مستند
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* اعتماد اللائحة */}
           {c.pleadingStatus === 'pending_lawyer' && (
             <div className="card">
@@ -118,19 +162,46 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, con
             </div>
           )}
 
-          {/* إدارة الجلسات */}
+          {/* إدارة الجلسات — تسجيل النتيجة + تعديل/إعادة جدولة + إلغاء */}
           {hearings.length > 0 && (
             <div className="card">
               <div className="card-h"><h3>تحديث الجلسات</h3></div>
               <div className="card-b">
                 {hearings.map((hr) => (
-                  <div key={hr.id} className="item">
-                    <div className="imeta"><b>{hr.title}</b><span>{hr.day} · {hr.status}</span></div>
-                    {hr.status === 'مجدولة' && (
-                      <div className="iact" style={{ gap: 6 }}>
+                  <div key={hr.id} className="item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <div className="imeta"><b>{hr.title}</b><span>{hr.day}{hr.time ? ` · ${hr.time}` : ''} · {hr.status}</span></div>
+                      {hr.status !== 'ملغاة' && hr.status !== 'منعقدة' && (
+                        <div className="iact" style={{ gap: 6 }}>
+                          <button className="btn soft sm" type="button" onClick={() => (editId === hr.id ? setEditId(null) : startEdit(hr))}>تعديل</button>
+                          <button className="btn soft sm" type="button" onClick={() => cancelHearing(hr.id)}>إلغاء</button>
+                        </div>
+                      )}
+                    </div>
+
+                    {hr.status === 'مجدولة' && editId !== hr.id && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <input className="input" placeholder="نتيجة الجلسة (اختياري)" value={recOutcome} onChange={(e) => setRecOutcome(e.target.value)} style={{ flex: 1, minWidth: 150 }} />
                         <button className="btn soft sm" type="button" onClick={() => recordHearing(hr.id, 'منعقدة')}>منعقدة</button>
                         <button className="btn soft sm" type="button" onClick={() => recordHearing(hr.id, 'مؤجلة')}>مؤجلة</button>
                       </div>
+                    )}
+
+                    {editId === hr.id && (
+                      <form onSubmit={(e) => { e.preventDefault(); submitEdit(hr.id); }}>
+                        <div className="picker-grid">
+                          <div className="field"><label>عنوان الجلسة</label><input className="input" value={eh.title} onChange={(e) => setEh({ ...eh, title: e.target.value })} /></div>
+                          <div className="field"><label>الدائرة</label><input className="input" value={eh.court} onChange={(e) => setEh({ ...eh, court: e.target.value })} placeholder="الدائرة التجارية الأولى" /></div>
+                        </div>
+                        <div className="picker-grid">
+                          <div className="field"><label>التاريخ</label><input className="input" type="date" value={eh.day} onChange={(e) => setEh({ ...eh, day: e.target.value })} /></div>
+                          <div className="field"><label>الوقت</label><input className="input" type="time" value={eh.time} onChange={(e) => setEh({ ...eh, time: e.target.value })} /></div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                          <button className="btn sm" type="submit"><Icon name="cal" /> حفظ إعادة الجدولة</button>
+                          <button className="btn soft sm" type="button" onClick={() => setEditId(null)}>إلغاء التعديل</button>
+                        </div>
+                      </form>
                     )}
                   </div>
                 ))}

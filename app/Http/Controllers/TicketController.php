@@ -24,6 +24,9 @@ use Inertia\Response;
 
 class TicketController extends Controller
 {
+    // امتدادات المستندات المسموح رفعها من العميل (عقود ممسوحة/صور هوية/مستندات نصّية) — لا تنفيذية/مضغوطة
+    private const ALLOWED_DOC_MIMES = 'pdf,jpg,jpeg,png,doc,docx';
+
     public function __construct(private LegalAiService $ai) {}
 
     // قائمة تذاكر العميل الحالي
@@ -49,6 +52,8 @@ class TicketController extends Controller
             'claim_amount' => ['nullable', 'integer', 'min:0'],
             'court_name' => ['nullable', 'string', 'max:190'],
             'priority' => ['nullable', 'string', 'max:20'],
+            'files' => ['nullable', 'array', 'max:10'],
+            'files.*' => ['file', 'max:10240', 'mimes:'.self::ALLOWED_DOC_MIMES], // حتى 10MB لكل ملف
         ]);
 
         $details = trim($data['details'] ?? '') ?: ('طلب جديد بخصوص: '.$data['type']);
@@ -79,6 +84,20 @@ class TicketController extends Controller
         // الرسالة الأولى من العميل
         $m1 = $ticket->messages()->create(['who' => 'client', 'name' => 'أنت', 'role' => 'العميل', 'body' => nl2br(e($details)), 'time_label' => $this->clock()]);
         Live::push(new TicketMessageBroadcast($m1));
+
+        // المستندات الداعمة المرفوعة مع الطلب (إن وُجدت) — تُخزَّن فقط هنا؛ تحليلها يتولّاه
+        // مسار الفتح (TicketTriage::onOpened) ضمن قرار واحد واعٍ بالمرفقات (لا فحص منفصل يسبق الترحيب).
+        foreach ($data['files'] ?? [] as $file) {
+            $path = $file->store("ticket-docs/{$ticket->id}");
+            $ticket->increment('attachments');
+            $ticket->documents()->create([
+                'name' => $file->getClientOriginalName(),
+                'path' => $path,
+                'mime' => $file->getClientMimeType(),
+                'size' => (int) $file->getSize(),
+                'status' => 'قيد الفحص',
+            ]);
+        }
 
         $type = $data['type'];
         TriageTicketOnOpenJob::dispatch($ticket, $details, $type);
@@ -146,7 +165,7 @@ class TicketController extends Controller
     {
         $this->authorizeTicket($request, $ticket);
 
-        $request->validate(['file' => ['required', 'file', 'max:10240']]); // حتى 10MB
+        $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:'.self::ALLOWED_DOC_MIMES]]); // حتى 10MB
 
         $file = $request->file('file');
         $name = $file->getClientOriginalName();

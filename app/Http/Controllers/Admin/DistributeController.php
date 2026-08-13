@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\Role;
+use App\Events\TicketStatusBroadcast;
 use App\Http\Controllers\Controller;
 use App\Jobs\AssignTicketJob;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Rules\LawyerInBranch;
+use App\Support\Live;
 use App\Support\TicketAssignment;
+use App\Support\TicketJourney;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -50,7 +53,7 @@ class DistributeController extends Controller
 
         if (in_array($ticket->status, ['جديدة', 'قيد التحليل'], true)) {
             $updates['status'] = 'محالة للقسم القانوني';
-            $updates['tone'] = \App\Support\TicketJourney::toneFor('محالة للقسم القانوني');
+            $updates['tone'] = TicketJourney::toneFor('محالة للقسم القانوني');
             $updates['last_message'] = 'تمت إحالة طلبكم إلى القسم القانوني المختص لدراسة الموضوع.';
             $updates['date_label'] = 'الآن';
         }
@@ -58,7 +61,7 @@ class DistributeController extends Controller
         $ticket->update($updates);
         // انتشار المحامي/الفرع الجديد إلى استشارات التذكرة المفتوحة
         TicketAssignment::syncRelatedConsults($ticket->fresh());
-        \App\Support\Live::push(new \App\Events\TicketStatusBroadcast($ticket));
+        Live::push(new TicketStatusBroadcast($ticket));
 
         $ticket->messages()->create([
             'who' => 'note', 'name' => $request->user()->name, 'role' => 'توزيع',

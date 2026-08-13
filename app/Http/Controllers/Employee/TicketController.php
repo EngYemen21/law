@@ -2,15 +2,18 @@
 
 namespace App\Http\Controllers\Employee;
 
+use App\Enums\Role;
 use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
 use App\Http\Controllers\Concerns\BranchScoped;
 use App\Http\Controllers\Controller;
+use App\Jobs\GenerateTicketSummaryJob;
 use App\Models\Ticket;
+use App\Models\User;
 use App\Services\LegalAiService;
 use App\Support\CaseConversion;
 use App\Support\Live;
-use Illuminate\Support\Facades\DB;
+use App\Support\Notify;
 use App\Support\ServiceDocs;
 use App\Support\TicketJourney;
 use App\Support\TicketResult;
@@ -18,6 +21,7 @@ use App\Support\TicketTriage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -46,7 +50,7 @@ class TicketController extends Controller
         $this->guardBranch($ticket);
         $ticket->load('user');
 
-        $lawyers = \App\Models\User::where('role', \App\Enums\Role::Lawyer)
+        $lawyers = User::where('role', Role::Lawyer)
             ->where('branch', $this->currentBranch())
             ->orderBy('name')
             ->get(['id', 'name'])
@@ -63,8 +67,6 @@ class TicketController extends Controller
             'lawyers' => $lawyers,
         ]);
     }
-
-
 
     // ردّ الموظف (يراه العميل ضمن نفس التذكرة) — بثّ لحظي معزول بالمعاملة
     public function reply(Request $request, Ticket $ticket): HttpResponse
@@ -88,6 +90,52 @@ class TicketController extends Controller
         if ($msg) {
             DB::afterCommit(function () use ($msg) {
                 Live::push(new TicketMessageBroadcast($msg));
+            });
+        }
+
+        return response()->noContent();
+    }
+
+    // طلب النواقص من العميل: يبني القائمة خادميّاً (تهريب اسم كل مستند فقط)، يبثّ الرسالة+الحالة،
+    // ويضع التذكرة في «بانتظار مستندات» — فيمرّ رفع العميل لاحقاً عبر مسار إعادة التحليل/الإحالة للمستشار.
+    public function requestDocs(Request $request, Ticket $ticket): HttpResponse
+    {
+        $this->guardBranch($ticket);
+
+        // التذاكر المكتملة/المغلقة نهائية — لا تُعاد لطلب نواقص (يبقى الحجب النهائي تصميماً)
+        abort_if(in_array($ticket->status, ['مكتملة', 'مغلقة'], true), 422, 'التذكرة مكتملة/مغلقة ولا يمكن طلب نواقص عليها.');
+
+        $data = $request->validate([
+            'docs' => ['required', 'array', 'min:1', 'max:20'],
+            'docs.*' => ['required', 'string', 'max:190'],
+        ]);
+
+        // الغلاف حرفيّ ثابت، والتهريب على أسماء المستندات وحدها — لا HTML قادم من الواجهة (يمنع دمج الكود في الرسالة)
+        $chips = implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', $data['docs']));
+
+        $msg = null;
+        DB::transaction(function () use ($ticket, $request, $chips, &$msg) {
+            $msg = $ticket->messages()->create([
+                'who' => 'staff',
+                'name' => $request->user()->name,
+                'role' => 'نواقص',
+                'body' => '<p>للتمكن من دراسة طلبكم وإكمال الإجراءات، نأمل تزويدنا بالمستندات التالية:</p><div class="doc-list">'.$chips.'</div>',
+                'time_label' => $this->clock(),
+            ]);
+
+            $ticket->update([
+                'status' => 'بانتظار مستندات',
+                'tone' => TicketJourney::toneFor('بانتظار مستندات'),
+                'last_message' => 'طلب نواقص من خدمة العملاء',
+                'date_label' => 'الآن',
+            ]);
+        });
+
+        if ($msg) {
+            DB::afterCommit(function () use ($msg, $ticket) {
+                Live::push(new TicketMessageBroadcast($msg));
+                Live::push(new TicketStatusBroadcast($ticket));
+                Notify::send($ticket->user_id, 'upload', 't-amber', "يرجى إرفاق المستندات المطلوبة على تذكرتك {$ticket->number}.");
             });
         }
 
@@ -244,7 +292,7 @@ class TicketController extends Controller
         abort_unless($ticket->summary, 404);
         abort_if($ticket->summary->isApproved(), 422, 'لا يمكن إعادة تشغيل التحليل لملخّص تم اعتماده رسمياً.');
 
-        \App\Jobs\GenerateTicketSummaryJob::dispatch($ticket, force: true);
+        GenerateTicketSummaryJob::dispatch($ticket, force: true);
 
         return back()->with('flash', 'تمت إعادة تشغيل التحليل الذكي للملخّص.');
     }

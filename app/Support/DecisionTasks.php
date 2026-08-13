@@ -39,10 +39,14 @@ class DecisionTasks
         }
 
         $ref = (string) ($model->ref ?: $model->getKey());
-        foreach ($decisions as $title) {
+        foreach ($decisions as $item) {
+            $taskTitle = is_array($item) ? ($item['title'] ?? json_encode($item, JSON_UNESCAPED_UNICODE)) : (string) $item;
+            if (trim($taskTitle) === '') {
+                continue;
+            }
             Task::create([
                 'assigned_to' => $owner->id,
-                'title' => (string) $title,
+                'title' => $taskTitle,
                 'ref' => $ref,
                 'due' => 'خلال أسبوع',
                 'status' => 'مفتوحة',

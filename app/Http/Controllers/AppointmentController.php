@@ -3,9 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Appointment;
+use App\Support\AppointmentCardPdf;
+use App\Support\Mask;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use Spatie\Browsershot\Browsershot;
 
 class AppointmentController extends Controller
 {
@@ -19,6 +22,53 @@ class AppointmentController extends Controller
 
         return Inertia::render('appointments', [
             'appointments' => $appointments,
+        ]);
+    }
+
+    /**
+     * بطاقة الموعد PDF — بنفس تصميم .apptx المعروض في الواجهة، مُصيَّرة فعلياً عبر Browsershot
+     * (كروم مخفي حقيقي) لا تحويل صورة/محاكاة. ببيانات حقيقية من سجلّ الموعد فقط.
+     */
+    public function card(Request $request, Appointment $appointment): \Symfony\Component\HttpFoundation\Response
+    {
+        abort_unless($appointment->user_id === $request->user()->id, 403);
+
+        $remote = $appointment->type === 'استشارة مرئية'
+            || str_contains((string) $appointment->branch, 'إلكتروني')
+            || str_contains((string) $appointment->branch, 'هاتفية')
+            || str_contains((string) $appointment->branch, 'بُعد');
+        $place = $remote ? 'عن بُعد' : (string) $appointment->branch;
+        $address = $remote ? 'جلسة عن بُعد — يُرسل الرابط قبل الموعد' : (string) $appointment->branch;
+        $consult = $appointment->consult;
+        $paid = $consult?->paid_at !== null;
+
+        $html = AppointmentCardPdf::html([
+            'no' => $appointment->ext_id,
+            'type' => $appointment->type,
+            'day' => $appointment->dayLabel(),
+            'time' => $appointment->timeLabel(),
+            'place' => $place,
+            'client' => $appointment->user?->name ?: '—',
+            'lawyer' => Mask::lawyer($appointment->lawyer),
+            'consultRef' => $consult?->ref ?: '—',
+            'address' => $address,
+            'paid' => $paid,
+            'payLabel' => $paid ? 'مدفوع' : 'بانتظار السداد',
+            'qrSeed' => $appointment->ext_id,
+        ]);
+
+        $pdf = Browsershot::html($html)
+            ->setCustomTempPath(storage_path('app/browsershot-tmp'))
+            ->setNodeModulePath(base_path('node_modules'))
+            ->noSandbox()
+            ->format('A4')
+            ->showBackground()
+            ->margins(14, 14, 14, 14)
+            ->pdf();
+
+        return response($pdf, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="'.$appointment->ext_id.'.pdf"',
         ]);
     }
 }

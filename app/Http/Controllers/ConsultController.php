@@ -11,16 +11,18 @@ use App\Support\AppointmentCard;
 use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
 use App\Support\Live;
+use App\Support\Mask;
 use App\Support\PaymentReconciler;
+use App\Support\ReportPrint;
 use App\Support\TicketJourney;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
-
-use Illuminate\Support\Facades\DB;
+use Spatie\Browsershot\Browsershot;
 
 /**
  * استشارات العميل — «استشاراتي» (يطابق myConsultsView) وغرفة الجلسة المرئية،
@@ -65,6 +67,11 @@ class ConsultController extends Controller
     {
         abort_unless($consult->user_id === $request->user()->id, 403);
 
+        // بعد الدفع يعود العميل لدردشة التذكرة (حيث لوحة اختيار الموعد)؛ وإن لم ترتبط بتذكرة فإلى «استشاراتي».
+        $back = fn (): RedirectResponse => $consult->ticket_id
+            ? redirect()->route('tickets.show', $consult->ticket)
+            : redirect()->route('myconsults');
+
         $paymentId = (string) $request->query('id', '');
         $payment = $paymentId !== '' ? app(MoyasarService::class)->fetchPayment($paymentId) : null;
 
@@ -76,18 +83,18 @@ class ConsultController extends Controller
         );
 
         if ($belongs && PaymentReconciler::settle($payment, 'callback')) {
-            return redirect()->route('myconsults')->with('success', 'تم تأكيد الدفع — اختر الآن موعد الجلسة.');
+            return $back()->with('success', 'تم تأكيد الدفع — اختر الآن موعد الجلسة.');
         }
 
         // إن كانت الفاتورة عُلّمت كمدفوعة أصلًا (تسوّت عبر الـwebhook أو التحصيل الإداري):
         if ($consult->invoice?->paid) {
             PaymentReconciler::settleDomain($consult->invoice, $request->user()->name);
 
-            return redirect()->route('myconsults')->with('success', 'تم تأكيد الدفع — اختر الآن موعد الجلسة.');
+            return $back()->with('success', 'تم تأكيد الدفع — اختر الآن موعد الجلسة.');
         }
 
         // الـwebhook مصدر الحقيقة؛ إن خُصم المبلغ سيُحدَّث تلقائياً
-        return redirect()->route('myconsults')->with('error', 'تعذّر تأكيد الدفع. إن كان قد خُصم فسيُحدَّث تلقائياً، أو حاول مجدداً.');
+        return $back()->with('error', 'تعذّر تأكيد الدفع. إن كان قد خُصم فسيُحدَّث تلقائياً، أو حاول مجدداً.');
     }
 
     // اختيار موعد الاستشارة بعد السداد (محظور قبل الدفع) → يُنشئ الموعد ويؤكّد المسار مع أقفال التزامن
@@ -101,6 +108,9 @@ class ConsultController extends Controller
         ]);
 
         $startsAt = Carbon::parse($data['date'].' '.$data['time']);
+        if ($startsAt->isPast()) {
+            throw ValidationException::withMessages(['time' => 'لا يمكن اختيار موعد في الماضي، فضلاً اختر وقتاً لاحقاً.']);
+        }
         $specialty = $consult->specialty ?: (string) ($consult->ticket?->department ?? '');
         $subject = $consult->subject ?: ($consult->ticket?->type ?? null);
 
@@ -158,6 +168,82 @@ class ConsultController extends Controller
         }
 
         return back()->with('flash', 'تم تأكيد موعد استشارتك.');
+    }
+
+    /**
+     * تقرير الاستشارة PDF — بنفس تصميم بطاقة .cf المرجعية، مُصيَّر فعلياً عبر Browsershot
+     * (كروم مخفي حقيقي) لا تحويل صورة/محاكاة. ببيانات حقيقية من سجلّ الاستشارة فقط.
+     */
+    public function report(Request $request, Consult $consult): \Symfony\Component\HttpFoundation\Response
+    {
+        abort_unless($consult->user_id === $request->user()->id, 403);
+
+        $payLabel = $consult->paid_at !== null ? 'مدفوعة' : ($consult->priced_at !== null ? 'بانتظار السداد' : 'بانتظار التسعير من الإدارة');
+        $place = $consult->channel === 'حضورية'
+            ? ($consult->branch ?: '—')
+            : ($consult->channel === 'مرئية' ? 'اجتماع إلكتروني' : 'مكالمة هاتفية');
+
+        $nextStep = match (true) {
+            $consult->priced_at === null => 'بانتظار تحديد السعر من الإدارة',
+            $consult->paid_at === null => 'سداد الفاتورة عبر ميسّر',
+            $consult->session === 'منتهية' => $consult->summary ? 'راجع ملخص الاستشارة أعلاه' : 'بانتظار إصدار ملخص الاستشارة',
+            $consult->session === 'جلسة جارية' => 'الجلسة قائمة الآن',
+            default => 'حضور الجلسة في الموعد المحدّد',
+        };
+
+        $html = ReportPrint::html([
+            'title' => 'تقرير الاستشارة القانونية',
+            'subtitle' => 'نسخة العميل',
+            'ref' => $consult->ref,
+            'blocks' => [
+                [
+                    'title' => '١. بيانات الاستشارة',
+                    'cellRows' => [
+                        [['رقم الاستشارة', $consult->ref], ['نوع الاستشارة', $consult->channel], ['التخصّص', $consult->specialty ?: '—'], ['الموعد', $consult->when_label ?: '—']],
+                        [['المكان', $place], ['حالة الجلسة', $consult->session ?: '—'], ['حالة السداد', $payLabel], ['رقم الفاتورة', $consult->invoice?->number ?: '—']],
+                    ],
+                ],
+                [
+                    ['title' => '٢. بياناتك', 'cellRows' => [[['اسم العميل', $request->user()->name], ['الحالة', 'عميل نشط']]]],
+                    ['title' => '٣. مقدّم الخدمة', 'cellRows' => [[['الجهة', 'المكتب القانوني'], ['المحامي المسؤول', Mask::lawyer($consult->lawyer)]]]],
+                ],
+                ['title' => '٤. ملخص الاستشارة', 'lines' => $consult->summary ?: 'يُعدّ الفريق القانوني ملخص استشارتك، وسيصلك فور اعتماده من الإدارة.'],
+                [
+                    'title' => '٥. الفاتورة والسداد',
+                    'cellRows' => [[
+                        ['رسوم الاستشارة', $consult->price ? $consult->price.' ر.س' : '—'],
+                        ['الضريبة (١٥٪)', $consult->vat ? $consult->vat.' ر.س' : '—'],
+                        ['الإجمالي', $consult->total ? $consult->total.' ر.س' : '—'],
+                        ['حالة السداد', $payLabel],
+                    ]],
+                ],
+                ['title' => '٦. الإجراء القادم', 'chips' => [$nextStep]],
+            ],
+            'approval' => [
+                'qrSeed' => $consult->ref,
+                'rows' => [
+                    ['الجهة', 'سلاسل بابل لتقنية المعلومات'],
+                    ['حالة الاستشارة', $consult->status],
+                    ['تاريخ الطباعة', now()->format('Y-m-d')],
+                ],
+            ],
+            'note' => 'هذا التقرير يلخّص استشارتك القانونية ولا يُعدّ بذاته مرافعة أو مستنداً قضائياً. للاستفسار يمكنك فتح تذكرة من بوابتك.',
+            'footer' => 'سلاسل بابل لتقنية المعلومات — نسخة العميل · صادرة إلكترونياً',
+        ]);
+
+        $pdf = Browsershot::html($html)
+            ->setCustomTempPath(storage_path('app/browsershot-tmp'))
+            ->setNodeModulePath(base_path('node_modules'))
+            ->noSandbox()
+            ->format('A4')
+            ->showBackground()
+            ->margins(12, 12, 12, 12)
+            ->pdf();
+
+        return response($pdf, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="'.$consult->ref.'.pdf"',
+        ]);
     }
 
     // غرفة الجلسة المرئية للعميل — تضمين Zoom داخل المنصّة (?ref=CN-…)

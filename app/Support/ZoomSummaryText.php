@@ -36,4 +36,59 @@ class ZoomSummaryText
 
         return rtrim($out);
     }
+
+    /** صياغة محضر اجتماع رسمي من ملخص Zoom AI Companion. */
+    public static function formatMinutes(string $title, ?string $when, ?string $participants, array $s): string
+    {
+        $out = "محضر اجتماع: {$title}\n";
+        if ($when) {
+            $out .= "التاريخ: {$when}\n";
+        }
+        if ($participants) {
+            $out .= "الحاضرون: {$participants}\n";
+        }
+
+        if ($s['details'] !== []) {
+            $out .= "\nأبرز ما دار في الاجتماع:\n";
+            foreach ($s['details'] as $d) {
+                $body = trim($d['summary']);
+                if ($body !== '') {
+                    $out .= '• '.$body."\n";
+                }
+            }
+        } elseif (trim($s['overview']) !== '') {
+            $out .= "\nأبرز ما دار في الاجتماع:\n• ".trim($s['overview'])."\n";
+        }
+
+        $steps = array_values(array_filter(array_map('trim', $s['next_steps'] ?? []), fn ($x) => $x !== ''));
+        if ($steps !== []) {
+            $out .= "\nالقرارات والخطوات التالية:\n".implode("\n", array_map(fn ($x) => '• '.$x, $steps))."\n";
+        }
+
+        return rtrim($out);
+    }
+
+    /** فحص ما إذا كان محضر الاجتماع يحتوي نصاً قالبياً افتراضياً. */
+    public static function isPlaceholderMinutes(?string $text): bool
+    {
+        if (! $text || trim($text) === '') {
+            return true;
+        }
+
+        $placeholders = [
+            'إعداد المحضر',
+            'تسجيل الجلسة',
+            'تحويل الصوت إلى نص',
+            'تعذّر التوليد الذكي',
+            'يُرجى تدوين أبرز ما دار',
+        ];
+
+        foreach ($placeholders as $ph) {
+            if (mb_strpos($text, $ph) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

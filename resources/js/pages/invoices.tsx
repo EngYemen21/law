@@ -6,45 +6,22 @@ import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import { type Invoice } from '@/lib/data';
 
-// يطابق viewInvoices في index (82).html — طباعة PDF + رفع إثبات حقيقيّان
-
-// طباعة الفاتورة (طباعة عميلٍ عبر window.print — نمط printOffer)
-function printInvoice(v: Invoice) {
-  const rows: [string, string][] = [
-    ['رقم الفاتورة', v.no],
-    ['الوصف', v.desc],
-    ['المبلغ', v.amount.toLocaleString() + ' ر.س'],
-    ['الحالة', v.status],
-    ['الاستحقاق', v.due],
-  ];
-  const html = `<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${v.no}</title>
-    <style>body{font-family:Tahoma,Arial,sans-serif;padding:26px;color:#16245C}h2{color:#0A2A55;margin:0 0 4px}
-    .sub{color:#5B6B85;font-size:13px;margin-bottom:14px}
-    .atbl{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
-    .atbl th{background:#16245C;color:#fff;padding:8px 10px;text-align:right}
-    .atbl td{padding:7px 10px;border-bottom:1px solid #E2E8EE;text-align:right}
-    .atbl tr:nth-child(even) td{background:#F8FAFC}
-    .paid{display:inline-block;padding:3px 12px;border-radius:99px;font-weight:800;font-size:12px;background:#E6F6EF;color:#1E9D6B}
-    .foot{margin-top:14px;padding:10px 14px;background:#16245C;color:#fff;border-radius:8px;font-size:12px;text-align:center}</style></head>
-    <body><h2>سلاسل بابل لتقنية المعلومات — فاتورة</h2>
-    <div class="sub">${v.desc} · ${v.no}</div>
-    <table class="atbl"><thead><tr><th>البند</th><th>التفاصيل</th></tr></thead><tbody>
-    ${rows.map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}
-    <tr><td>حالة السداد</td><td>${v.paid ? '<span class="paid">مدفوعة</span>' : 'مستحقّة'}</td></tr>
-    </tbody></table>
-    <div class="foot">شكراً لتعاملكم مع سلاسل بابل · www.sb-legal.sa · 011 462 2277</div></body></html>`;
-  const w = window.open('', '_blank', 'width=800,height=900');
-  if (!w) return;
-  w.document.write(html);
-  w.document.close();
-  w.focus();
-  w.print();
-}
+// يطابق viewInvoices في index (82).html — دفع حقيقي عبر ميسّر + رفع إثبات + PDF حقيقي (Browsershot)
 
 const InvRow: React.FC<{ v: Invoice }> = ({ v }) => {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [paying, setPaying] = useState(false);
+
+  const pay = () => {
+    setPaying(true);
+    router.post(`/invoices/${encodeURIComponent(v.no)}/checkout`, {}, {
+      preserveScroll: true,
+      onError: (err) => toast((Object.values(err)[0] as string) || 'تعذّر بدء الدفع، حاول بعد قليل'),
+      onFinish: () => setPaying(false),
+    });
+  };
 
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -77,15 +54,18 @@ const InvRow: React.FC<{ v: Invoice }> = ({ v }) => {
         </span>
         <Badge text={v.status} tone={v.tone} />
         {v.paid ? (
-          <button className="btn soft sm" type="button" onClick={() => printInvoice(v)}>
+          <a className="btn soft sm" href={`/invoices/${encodeURIComponent(v.no)}/pdf`}>
             <Icon name="download" /> الفاتورة PDF
-          </button>
+          </a>
         ) : v.hasProof ? (
           <span className="action-hint" style={{ margin: 0 }}><Icon name="check" /> بانتظار المراجعة</span>
         ) : (
           <>
-            <button className="btn sm" type="button" onClick={() => fileRef.current?.click()} disabled={busy}>
-              <Icon name="upload" /> {busy ? 'جارٍ الرفع…' : 'رفع إثبات التحويل'}
+            <button className="btn sm" type="button" onClick={pay} disabled={paying}>
+              <Icon name="card" /> {paying ? 'جارٍ التحويل…' : 'ادفع عبر ميسّر'}
+            </button>
+            <button className="btn soft sm" type="button" onClick={() => fileRef.current?.click()} disabled={busy}>
+              <Icon name="upload" /> {busy ? 'جارٍ الرفع…' : 'رفع إثبات تحويل بديل'}
             </button>
             <input ref={fileRef} type="file" hidden onChange={onPick} />
           </>

@@ -32,6 +32,10 @@ class ZoomRecording
         $mp4 = self::firstOfType($files, 'MP4');
         $recordingUrl = $mp4['play_url'] ?? $mp4['download_url'] ?? null;
 
+        // رابط تسجيل الصوت فقط
+        $m4a = self::firstOfType($files, 'M4A');
+        $audioUrl = $m4a['play_url'] ?? $m4a['download_url'] ?? null;
+
         // النصّ التفريغي → تنزيل وحفظ محليّ
         $transcriptPath = null;
         $transcriptFile = self::firstOfType($files, 'TRANSCRIPT');
@@ -41,12 +45,13 @@ class ZoomRecording
             Storage::disk('local')->put($transcriptPath, $text);
         }
 
-        if ($recordingUrl === null && $transcriptPath === null) {
+        if ($recordingUrl === null && $transcriptPath === null && $audioUrl === null) {
             return false;
         }
 
         $model->update(array_filter([
             'recording_url' => $recordingUrl,
+            'zoom_audio_url' => $audioUrl,
             'transcript_path' => $transcriptPath,
         ]));
         self::broadcast($model);

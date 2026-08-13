@@ -438,7 +438,7 @@ class ConsultBooking
             ?: (($data['lawyer'] ?? null) ?: ($ticket?->assigned_lawyer ?: 'المستشار القانوني'));
 
         $subject = $data['subject'] ?? $ticket?->type ?? 'استشارة قانونية';
-        $specialty = $data['specialty'] ?? $lawyerUser?->department;
+        $specialty = Specialties::normalize($data['specialty'] ?? $lawyerUser?->department) ?: null;
         $scopeBranch = $lawyerUser?->branch ?: $ticket?->branch;
         $dept = $data['department'] ?? $ticket?->department;
 

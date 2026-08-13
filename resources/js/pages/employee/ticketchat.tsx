@@ -11,6 +11,7 @@ import { useToast } from '@/components/babylon/Toast';
 import { echo } from '@/lib/echo';
 import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
 import { DEPTS, REQ_DOCS } from '@/lib/employee-data';
+import { isPastSlot, todayISO } from '@/components/SpecialistPicker';
 
 // محادثة التذكرة (لوحة الموظف) — مزامنة لحظية مع العميل (Reverb) بلا إعادة تحميل
 
@@ -144,11 +145,9 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
       return;
     }
     setReqBusy(true);
-    const bodyText = `<p>للتمكن من دراسة طلبكم وإكمال الإجراءات، نأمل تزويدنا بالمستندات التالية:</p><div class="doc-list">${allDocs.map((d) => `<span class="doc-chip">📎 ${d}</span>`).join('')}</div>`;
-
-    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/reply`, { body: bodyText })
+    // تُرسَل أسماء المستندات فقط؛ الخادم يبني الرسالة (تهريب آمن) ويبثّها ويضبط حالة «بانتظار مستندات» ويشعر العميل
+    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/request-docs`, { docs: allDocs })
       .then(() => {
-        axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/status`, { status: 'بانتظار مستندات' });
         toast(`✅ تم إرسال طلب النواقص للعميل (${allDocs.length} مستند)`);
         setReqOpen(false);
       })
@@ -161,6 +160,11 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
 
   const submitSchedule = () => {
     if (!schedDate || !schedTime) { toast('يرجى اختيار التاريخ والوقت'); return; }
+    // حجب الأوقات الماضية على تاريخ اليوم (الحارس الخادمي isPast() يبقى شبكة أمان)
+    if (schedDate === todayISO() && schedTime <= new Date().toTimeString().slice(0, 5)) {
+      toast('لا يمكن اختيار وقت ماضٍ، فضلاً اختر وقتاً لاحقاً');
+      return;
+    }
     setSchedBusy(true);
     axios.post('/employee/schedule', {
       client_id: ticket.clientId,
@@ -294,31 +298,36 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
               <p style={{ color: '#e55', fontSize: 13, margin: '4px 0' }}>لا توجد فترات متاحة في هذا اليوم</p>
             )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-              {slots.map((s) => (
+              {slots.map((s) => {
+                const past = isPastSlot(schedDate, s.time);
+                const blocked = s.taken || past;
+                return (
                 <button
                   key={s.time}
                   type="button"
-                  disabled={s.taken}
+                  disabled={blocked}
+                  title={past ? 'انقضى الوقت' : s.taken ? 'محجوز' : 'متاح'}
                   onClick={() => setSchedTime(s.time)}
                   style={{
                     padding: '5px 10px',
                     borderRadius: 7,
                     fontSize: 13,
                     border: schedTime === s.time ? '2px solid var(--acc)' : '1px solid #ddd',
-                    background: s.taken
+                    background: blocked
                       ? '#f5f5f5'
                       : schedTime === s.time
                         ? 'var(--acc)'
                         : '#fff',
-                    color: s.taken ? '#bbb' : schedTime === s.time ? '#fff' : '#333',
-                    cursor: s.taken ? 'not-allowed' : 'pointer',
+                    color: blocked ? '#bbb' : schedTime === s.time ? '#fff' : '#333',
+                    cursor: blocked ? 'not-allowed' : 'pointer',
                     fontFamily: 'inherit',
-                    textDecoration: s.taken ? 'line-through' : 'none',
+                    textDecoration: blocked ? 'line-through' : 'none',
                   }}
                 >
-                  {s.taken ? `${s.time} 🔒` : s.time}
+                  {past ? `${s.time} ⏳` : s.taken ? `${s.time} 🔒` : s.time}
                 </button>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -328,6 +337,7 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
             <label>وقت الموعد</label>
             <input
               type="time"
+              min={schedDate === todayISO() ? new Date().toTimeString().slice(0, 5) : undefined}
               value={schedTime}
               onChange={(e) => setSchedTime(e.target.value)}
             />

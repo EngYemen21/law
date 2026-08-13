@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Events\ConsultStatusBroadcast;
 use App\Mail\MeetingLinkReady;
 use App\Models\Consult;
+use App\Models\User;
 use App\Support\Live;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Mail;
@@ -40,7 +41,7 @@ class ReleaseMeetingLinks extends Command
             }
 
             // 2. بريد المحامي المسند
-            $lawyerUser = $consult->assignedLawyer ?? ($consult->assigned_lawyer_id ? \App\Models\User::find($consult->assigned_lawyer_id) : null);
+            $lawyerUser = $consult->assignedLawyer ?? ($consult->assigned_lawyer_id ? User::find($consult->assigned_lawyer_id) : null);
             if ($lawyerUser?->email && $lawyerUser->id !== $consult->user_id) {
                 Mail::to($lawyerUser->email)->send(new MeetingLinkReady($consult, forLawyer: true));
             }

@@ -2,8 +2,11 @@
 
 namespace App\Jobs;
 
+use App\Events\TicketStatusBroadcast;
 use App\Models\Ticket;
+use App\Support\Live;
 use App\Support\TicketAssignment;
+use App\Support\TicketJourney;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -55,14 +58,14 @@ class AssignTicketJob implements ShouldQueue
 
             if (in_array($locked->status, ['جديدة', 'قيد التحليل'], true)) {
                 $updates['status'] = 'محالة للقسم القانوني';
-                $updates['tone'] = \App\Support\TicketJourney::toneFor('محالة للقسم القانوني');
+                $updates['tone'] = TicketJourney::toneFor('محالة للقسم القانوني');
                 $updates['last_message'] = 'تمت إحالة طلبكم إلى القسم القانوني المختص لدراسة الموضوع.';
                 $updates['date_label'] = 'الآن';
             }
 
             $locked->update($updates);
             TicketAssignment::syncRelatedConsults($locked->fresh());
-            \App\Support\Live::push(new \App\Events\TicketStatusBroadcast($locked));
+            Live::push(new TicketStatusBroadcast($locked));
             $locked->messages()->create([
                 'who' => 'note',
                 'name' => $this->actorName,

@@ -21,6 +21,7 @@ class Meeting extends Model
         'is_up', 'has_link', 'has_minutes', 'has_summary',
         'zoom_summary', 'zoom_summary_at',
         'recording_url', 'transcript_path', 'join_time', 'leave_time', 'duration_sec',
+        'zoom_uuid', 'zoom_share_url', 'zoom_audio_url', 'zoom_participants_log', 'zoom_ai_next_steps',
     ];
 
     protected $casts = [
@@ -39,6 +40,8 @@ class Meeting extends Model
         'during_items' => 'array',
         'after_items' => 'array',
         'decisions' => 'array',
+        'zoom_participants_log' => 'array',
+        'zoom_ai_next_steps' => 'array',
     ];
 
     public function user(): BelongsTo
@@ -89,6 +92,8 @@ class Meeting extends Model
             'title' => $this->title,
             'type' => $this->type,
             'client' => $this->client_name ?: 'داخلي',
+            'lawyer' => $this->assignedLawyer?->name ?: '—',
+            'branch' => $this->branch ?: '—',
             'when' => $this->when_label,
             'approve' => $this->approve,
             'before' => $this->before_items ?? [],
@@ -106,12 +111,26 @@ class Meeting extends Model
             'summary' => $this->summary,
             'zoomSummary' => $this->zoom_summary,
             'recording' => $this->recording_url,
+            'transcript' => (bool) $this->transcript_path,
+            // بيانات جلسة Zoom الفعلية (تُملأ عبر الويبهوك) — للإدارة العليا
+            'startsAt' => $this->starts_at?->toIso8601String(),
+            'joinTime' => $this->join_time?->format('Y-m-d H:i'),
+            'leaveTime' => $this->leave_time?->format('Y-m-d H:i'),
+            'durationSec' => $this->duration_sec !== null ? (int) $this->duration_sec : null,
+            'zoomSummaryAt' => $this->zoom_summary_at?->format('Y-m-d H:i'),
+            'reminderSentAt' => $this->reminder_sent_at?->format('Y-m-d H:i'),
+            'createdBy' => $this->created_by,
             'sumApproved' => (bool) $this->sum_approved,
             'minutes' => $this->minutes,
             'participants' => $this->participants,
             'caseRef' => $this->case_ref,
             'decisions' => $this->decisions ?? [],
             'tasksCreated' => (bool) $this->tasks_created,
+            'zoomUuid' => $this->zoom_uuid,
+            'zoomShareUrl' => $this->zoom_share_url,
+            'zoomAudioUrl' => $this->zoom_audio_url,
+            'zoomParticipantsLog' => $this->zoom_participants_log ?? [],
+            'zoomAiNextSteps' => $this->zoom_ai_next_steps ?? [],
         ];
     }
 }

@@ -3,10 +3,10 @@ import { type ClientDirEntry, type MeetReqCard, MeetReqsPage } from '@/lib/meeti
 
 // يطابق meetReqsView (دور الموظف) — الدعوات حقيقية من الخادم
 
-interface Props { requests: MeetReqCard[]; clients: ClientDirEntry[] }
+interface Props { requests: MeetReqCard[]; clients: ClientDirEntry[]; lawyers: { id: number; name: string }[]; selfLawyerId: number | null }
 
-const EmployeeMeetReqs: React.FC<Props> = ({ requests, clients }) => (
-  <MeetReqsPage requests={requests} clients={clients} base="/employee" />
+const EmployeeMeetReqs: React.FC<Props> = ({ requests, clients, lawyers, selfLawyerId }) => (
+  <MeetReqsPage requests={requests} clients={clients} lawyers={lawyers} selfLawyerId={selfLawyerId} base="/employee" />
 );
 
 export default EmployeeMeetReqs;

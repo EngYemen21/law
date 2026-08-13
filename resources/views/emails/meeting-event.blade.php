@@ -1,0 +1,50 @@
+@extends('emails.layout', [
+    'preview' => $subject ?? 'تحديث على موعد اجتماعك — '.$meeting->ref,
+    'subtitle' => 'تحديثات الاجتماعات'
+])
+
+@section('content')
+    @php
+        $when = $meeting->starts_at?->locale('ar')->translatedFormat('l d F Y · h:i A') ?: (string) $meeting->when_label;
+        $cancelled = $event === 'cancelled';
+        $baseUrl = rtrim((string) config('app.url'), '/');
+    @endphp
+
+    <div style="font-size:17px;font-weight:800;color:{{ $cancelled ? '#C0392B' : '#0A2A55' }};margin-bottom:10px;">
+        {{ $intro }}
+    </div>
+
+    <p style="margin:0 0 16px;color:#33415C;">
+        نود إحاطتكم بآخر المستجدات والتحديثات الخاصة بالاجتماع رقم <b>{{ $meeting->ref }}</b>:
+    </p>
+
+    @include('emails.partials.card', [
+        'title' => 'بيانات الاجتماع',
+        'rows' => [
+            'رقم المرجع' => $meeting->ref,
+            'عنوان الاجتماع' => $meeting->title,
+            'الحالة الحالية' => $cancelled ? 'ملغي ❌' : 'مُعاد جدولته 🔄',
+            'الموعد الجديد' => $cancelled ? null : $when,
+        ]
+    ])
+
+    @if($cancelled)
+        @include('emails.partials.alert', [
+            'type' => 'danger',
+            'title' => '⚠️ إشعار إلغاء',
+            'slot' => 'تم إلغاء هذا الاجتماع. في حال رغبتكم في حجز موعد جديد، يُرجى الدخول إلى حسابكم واختيار موعد بديل.'
+        ])
+    @else
+        @include('emails.partials.alert', [
+            'type' => 'info',
+            'title' => '🗓️ الموعد المعدّل',
+            'slot' => 'تم اعتماد الموعد الجديد للاجتماع، يُرجى التواجد قبل الموعد بـ 5 دقائق.'
+        ])
+    @endif
+
+    @include('emails.partials.button', [
+        'url' => $baseUrl,
+        'label' => 'فتح لوحة التحكم',
+        'variant' => $cancelled ? 'outline' : 'primary'
+    ])
+@endsection

@@ -6,7 +6,7 @@ import ChatThread from '@/components/babylon/ChatThread';
 import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
-import { EXEC_FLOW, EXEC_SANADS, EXEC_PAYM, execTone, execMoney, type ExecDoc, type ExecReq, type Role } from '@/lib/exec-flow';
+import { EXEC_FLOW, EXEC_SANADS, EXEC_PAYM, EXEC_DOC_ACCEPT, EXEC_DOC_HINT, execTone, execMoney, procTone, type ExecDoc, type ExecReq, type Role } from '@/lib/exec-flow';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // تدفّق طلب التنفيذ (المرحلة 2) — مربوط بالخادم. الحالة كلّها props من Inertia،
@@ -190,7 +190,9 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
       </>);
     }
   } else if (role === 'lawyer') {
-    if (r.stage === 2) {
+    if (r.decision === 'مرفوض') {
+      body = <div className="action-hint"><Icon name="info" /> رُفض هذا الطلب — لا مزيد من الإجراءات عليه.</div>;
+    } else if (r.stage === 2) {
       body = (<>
         <button className="btn" type="button" onClick={() => act('accept')}><Icon name="check" /> قبول الطلب</button>
         <button className="btn soft" type="button" onClick={() => act('requestDocs')}><Icon name="upload" /> طلب مستندات</button>
@@ -262,34 +264,9 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
   );
 };
 
-// طباعة عرض/فاتورة التنفيذ (تطابق printExecOffer → .atbl)
-function printOffer(r: ExecReq) {
-  const total = r.fee + r.vat;
-  const rows: [string, string][] = [
-    ['نوع السند التنفيذي', r.sanad], ['موضوع التنفيذ', r.subject], ['المنفَّذ ضده', r.defendant || '—'],
-    ['قيمة المطالبة', execMoney(r.amount) + ' ريال'], ['أتعاب التنفيذ', execMoney(r.fee) + ' ريال'],
-    ['ضريبة القيمة المضافة (15%)', execMoney(r.vat) + ' ريال'], ['الإجمالي المستحق', execMoney(total) + ' ريال'],
-    ['مدة التنفيذ المتوقعة', r.duration || '—'], ['طريقة السداد', r.payMethod || '—'],
-  ];
-  const html = `<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${r.id}</title>
-    <style>body{font-family:Tahoma,Arial,sans-serif;padding:26px;color:#16245C}h2{color:#0A2A55}
-    .atbl{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}
-    .atbl th{background:#16245C;color:#fff;padding:8px 10px;text-align:right}
-    .atbl td{padding:7px 10px;border-bottom:1px solid #E2E8EE;text-align:right}
-    .atbl tr:nth-child(even) td{background:#F8FAFC}
-    .sig{margin-top:14px;padding:10px 14px;background:#16245C;color:#fff;border-radius:8px;display:flex;justify-content:space-between;font-size:12px}</style></head>
-    <body><h2>سلاسل بابل لتقنية المعلومات — عرض/فاتورة خدمة التنفيذ</h2>
-    <div>رقم الطلب: <b>${r.id}</b>${r.execNo ? ` · رقم التنفيذ: <b>${r.execNo}</b>` : ''} · العميل: <b>${r.client}</b></div>
-    <table class="atbl"><thead><tr><th>البند</th><th>التفاصيل</th></tr></thead><tbody>
-    ${rows.map((c) => `<tr><td>${c[0]}</td><td>${c[1]}</td></tr>`).join('')}
-    </tbody></table>
-    <div class="sig"><span>✔ معتمد من الإدارة العليا — سلاسل بابل</span><span>توقيع إلكتروني · ختم رسمي</span></div></body></html>`;
-  const w = window.open('', '_blank', 'width=800,height=900');
-  if (!w) return;
-  w.document.write(html);
-  w.document.close();
-  w.focus();
-  w.print();
+// رابط طباعة عرض/فاتورة التنفيذ — PDF حقيقي عبر الخادم (ExecFlowController::offerPdf)
+function offerPdfHref(r: ExecReq): string {
+  return `/exec-flow/${encodeURIComponent(r.id)}/offer.pdf`;
 }
 
 // ── بطاقة الإجراء الديناميكيّة للعميل (تطابق execClientFlow) ──
@@ -302,11 +279,23 @@ const KpiRow: React.FC<{ t: React.ReactNode; v: React.ReactNode; total?: boolean
 const ClientFlowCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
   const total = r.fee + r.vat;
 
-  // عرض خدمة التنفيذ — بانتظار قبول العميل
-  if (r.stage === 5 && r.feeApproved && !r.paid && r.offerStatus !== 'مقبول') {
+  // رفض المكتب للطلب أصلاً (قبل مرحلة العرض) — رسالة صريحة بدل «قيد الدراسة» المضلِّلة
+  if (r.decision === 'مرفوض') {
     return (
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="card-h"><h3>عرض خدمة التنفيذ</h3><Badge text="بانتظار قبولك" tone="b-amber" /></div>
+        <div className="card-h"><h3>طلب التنفيذ</h3><Badge text="تعذّر قبول الطلب" tone="b-red" /></div>
+        <div className="card-b" style={{ padding: 16 }}>
+          <div className="mtg-pend"><Icon name="info" /> تعذّر قبول طلبك بعد الدراسة. راجع محادثة الملف أدناه للتفاصيل أو تواصل مع المكتب.</div>
+        </div>
+      </div>
+    );
+  }
+
+  // عرض خدمة التنفيذ — بانتظار قبول العميل
+  if (r.stage === 5 && r.feeApproved && !r.paid && !['مقبول', 'مرفوض'].includes(r.offerStatus)) {
+    return (
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="card-h"><h3>عرض خدمة التنفيذ</h3><Badge text={r.offerStatus === 'استفسار' ? 'بانتظار الرد على استفسارك' : 'بانتظار قبولك'} tone="b-amber" /></div>
         <div className="card-b" style={{ padding: 16 }}>
           <KpiRow t="أتعاب التنفيذ" v={`${execMoney(r.fee)} ريال`} />
           <KpiRow t="ضريبة القيمة المضافة (15%)" v={`${execMoney(r.vat)} ريال`} />
@@ -318,6 +307,18 @@ const ClientFlowCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
             <button className="btn soft" type="button" onClick={() => act('inquire')}><Icon name="info" /> استفسار</button>
             <button className="btn soft" type="button" onClick={() => act('rejectOffer')}><Icon name="out" /> رفض</button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // العميل رفض العرض — بانتظار مراجعة المكتب وإعادة عرض جديد (لا تكرار لنفس الأزرار)
+  if (r.stage === 5 && r.offerStatus === 'مرفوض') {
+    return (
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="card-h"><h3>عرض خدمة التنفيذ</h3><Badge text="رفضتَ هذا العرض" tone="b-red" /></div>
+        <div className="card-b" style={{ padding: 16 }}>
+          <div className="mtg-pend"><Icon name="info" /> سيتواصل معك المكتب لمراجعة العرض. يمكنك متابعة الردّ من محادثة الملف أدناه.</div>
         </div>
       </div>
     );
@@ -346,7 +347,11 @@ const ClientFlowCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
         <div className="card-h"><h3>سير إجراءات التنفيذ</h3><span className="sub">{r.procedures.length}</span></div>
         <div className="card-b">
           {r.procedures.length ? r.procedures.map((pr, i) => (
-            <div className="item" key={i}><div className="iico"><Icon name="check" /></div><div className="imeta"><b>{pr.a}</b><span>{pr.t}</span></div></div>
+            <div className="item" key={i}>
+              <div className="iico"><Icon name="check" /></div>
+              <div className="imeta"><b>{pr.a}</b><span>{pr.t}</span></div>
+              {pr.status && <div className="iact"><Badge text={pr.status} tone={procTone(pr.status)} /></div>}
+            </div>
           )) : <div className="empty"><Icon name="exec" /><b>فُتح الملف — بانتظار أول إجراء</b></div>}
         </div>
       </div>
@@ -392,7 +397,11 @@ const DocsPanel: React.FC<{ execId: string; docs: ExecDoc[] }> = ({ execId, docs
         {docs.map((d) => (
           <div className="item" key={d.id}>
             <div className="iico"><Icon name="file" /></div>
-            <div className="imeta"><b>{d.label}</b>{d.fileName && <span>{d.fileName}</span>}</div>
+            <div className="imeta">
+              <b>{d.label}</b>
+              {d.fileName && <span><a href={`/exec-flow/${encodeURIComponent(execId)}/documents/${d.id}/download`} target="_blank" rel="noopener noreferrer">{d.fileName}</a>{d.docType ? ` · ${d.docType}` : ''}</span>}
+              {d.summary && <span style={{ display: 'block', marginTop: 3, fontSize: 11.5, color: 'var(--muted)' }}>{d.summary}</span>}
+            </div>
             <div className="iact" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Badge text={d.status} tone={d.tone} />
               {d.canUpload && (
@@ -413,6 +422,13 @@ const DocsPanel: React.FC<{ execId: string; docs: ExecDoc[] }> = ({ execId, docs
 const ClientExecDetail: React.FC<{ r: ExecReq; onBack: () => void; act: ActFn }> = ({ r, onBack, act }) => {
   const total = r.fee + r.vat;
   const sendMsg = (text: string) => { axios.post(`/exec-flow/${encodeURIComponent(r.id)}/messages`, { body: text }); };
+  // رفع مستند فعلي من محادثة التنفيذ — يظهر رسالة في المحادثة ويُدرَج ضمن مستندات الملف
+  const attachDoc = (file?: File) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    axios.post(`/exec-flow/${encodeURIComponent(r.id)}/attach`, fd).then(() => router.reload({ only: ['execs'] }));
+  };
 
   return (
     <>
@@ -445,7 +461,7 @@ const ClientExecDetail: React.FC<{ r: ExecReq; onBack: () => void; act: ActFn }>
 
       {r.fee > 0 && r.feeApproved && (
         <div style={{ margin: '0 0 14px' }}>
-          <button className="btn soft sm" type="button" onClick={() => printOffer(r)}><Icon name="download" /> طباعة العرض/الفاتورة (PDF)</button>
+          <a className="btn soft sm" href={offerPdfHref(r)}><Icon name="download" /> طباعة العرض/الفاتورة (PDF)</a>
         </div>
       )}
 
@@ -454,7 +470,17 @@ const ClientExecDetail: React.FC<{ r: ExecReq; onBack: () => void; act: ActFn }>
       <div className="card">
         <div className="card-h"><h3>محادثة ملف التنفيذ</h3><span className="sub">{r.messages.length} رسالة</span></div>
         <div className="card-b" style={{ padding: 16 }}>
-          <ChatThread initial={r.messages} channel={r.channel} onSend={sendMsg} placeholder="اكتب رسالتك للمكتب…" />
+          <ChatThread
+            initial={r.messages}
+            channel={r.channel}
+            onSend={sendMsg}
+            onAttach={attachDoc}
+            accept={EXEC_DOC_ACCEPT}
+            hint={EXEC_DOC_HINT}
+            onStatus={() => router.reload({ only: ['execs'] })}
+            readOnly={r.closed}
+            placeholder="اكتب رسالتك للمكتب…"
+          />
         </div>
       </div>
     </>
@@ -463,7 +489,7 @@ const ClientExecDetail: React.FC<{ r: ExecReq; onBack: () => void; act: ActFn }>
 
 // ── بطاقة تسعير الإدارة (تطابق execfeeset): ثابت/نسبة/محصّل + سداد + مدّة → اعتماد وإرسال العرض ──
 const PricingCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
-  const [mode, setMode] = useState<'fixed' | 'pct' | 'collect'>('fixed');
+  const [mode, setMode] = useState<'fixed' | 'pct'>('fixed');
   const [fixed, setFixed] = useState('');
   const [pct, setPct] = useState('');
   const [dur, setDur] = useState('');
@@ -479,10 +505,9 @@ const PricingCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
       <div className="card-b" style={{ padding: 16 }}>
         <KpiRow t="قيمة المطالبة" v={`${execMoney(r.amount)} ريال`} />
         <div className="field"><label>نوع التسعير</label>
-          <select className="input" value={mode} onChange={(e) => setMode(e.target.value as 'fixed' | 'pct' | 'collect')}>
+          <select className="input" value={mode} onChange={(e) => setMode(e.target.value as 'fixed' | 'pct')}>
             <option value="fixed">مبلغ ثابت</option>
             <option value="pct">نسبة من قيمة المطالبة</option>
-            <option value="collect">نسبة من المحصّل فعليّاً</option>
           </select>
         </div>
         {mode === 'fixed'
@@ -503,7 +528,7 @@ const PricingCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
 };
 
 // ── مراجعة المكتب لمستندات العميل المرفوعة (اعتماد/إعادة) — تطابق exDocPanel لغير العميل ──
-const ExecDocReview: React.FC<{ docs: ExecDoc[]; onReview: (docId: number, decision: 'accept' | 'reject') => void }> = ({ docs, onReview }) => {
+const ExecDocReview: React.FC<{ execId: string; docs: ExecDoc[]; onReview: (docId: number, decision: 'accept' | 'reject') => void }> = ({ execId, docs, onReview }) => {
   if (!docs.length) return null;
   return (
     <div className="card" style={{ marginBottom: 12 }}>
@@ -512,7 +537,11 @@ const ExecDocReview: React.FC<{ docs: ExecDoc[]; onReview: (docId: number, decis
         {docs.map((d) => (
           <div className="item" key={d.id}>
             <div className="iico"><Icon name="file" /></div>
-            <div className="imeta"><b>{d.label}</b>{d.fileName && <span>{d.fileName}</span>}</div>
+            <div className="imeta">
+              <b>{d.label}</b>
+              {d.fileName && <span><a href={`/exec-flow/${encodeURIComponent(execId)}/documents/${d.id}/download`} target="_blank" rel="noopener noreferrer">{d.fileName}</a>{d.docType ? ` · ${d.docType}` : ''}</span>}
+              {d.summary && <span style={{ display: 'block', marginTop: 3, fontSize: 11.5, color: 'var(--muted)' }}>{d.summary}</span>}
+            </div>
             <div className="iact" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <Badge text={d.status} tone={d.tone} />
               {d.status === 'مرفوع' && (
@@ -586,7 +615,7 @@ const ExecDetail: React.FC<{ role: Role; r: ExecReq; onBack: () => void; act: Ac
 
       {r.fee > 0 && r.feeApproved && (
         <div style={{ margin: '0 0 12px' }}>
-          <button className="btn soft sm" type="button" onClick={() => printOffer(r)}><Icon name="download" /> طباعة العرض/الفاتورة (PDF)</button>
+          <a className="btn soft sm" href={offerPdfHref(r)}><Icon name="download" /> طباعة العرض/الفاتورة (PDF)</a>
         </div>
       )}
 
@@ -599,7 +628,7 @@ const ExecDetail: React.FC<{ role: Role; r: ExecReq; onBack: () => void; act: Ac
         </div>
       </div>
 
-      <ExecDocReview docs={r.docItems} onReview={reviewDoc} />
+      <ExecDocReview execId={r.id} docs={r.docItems} onReview={reviewDoc} />
 
       {r.stage >= 7 && (role === 'client' ? (
         <div className="card" style={{ marginBottom: 12 }}>
@@ -615,7 +644,11 @@ const ExecDetail: React.FC<{ role: Role; r: ExecReq; onBack: () => void; act: Ac
           <div className="card-h"><h3>سجل إجراءات التنفيذ</h3><span className="sub">{r.procedures.length}</span></div>
           <div className="card-b">
             {r.procedures.length ? r.procedures.map((pr, i) => (
-              <div className="item" key={i}><div className="iico"><Icon name="check" /></div><div className="imeta"><b>{pr.a}</b><span>{pr.t}</span></div></div>
+              <div className="item" key={i}>
+              <div className="iico"><Icon name="check" /></div>
+              <div className="imeta"><b>{pr.a}</b><span>{pr.t}</span></div>
+              {pr.status && <div className="iact"><Badge text={pr.status} tone={procTone(pr.status)} /></div>}
+            </div>
             )) : <div className="empty"><Icon name="doc" /><b>لا إجراءات بعد</b></div>}
           </div>
         </div>
@@ -647,7 +680,14 @@ const ExecDetail: React.FC<{ role: Role; r: ExecReq; onBack: () => void; act: Ac
         <div className="card" style={{ margin: '12px 0' }}>
           <div className="card-h"><h3>محادثة ملف التنفيذ</h3><span className="sub">{r.messages.length} رسالة</span></div>
           <div className="card-b" style={{ padding: 16 }}>
-            <ChatThread initial={r.messages} channel={r.channel} onSend={sendMsg} placeholder="اكتب ردّك للعميل…" />
+            <ChatThread
+              initial={r.messages}
+              channel={r.channel}
+              onSend={sendMsg}
+              onStatus={() => router.reload({ only: ['execs'] })}
+              readOnly={r.closed}
+              placeholder="اكتب ردّك للعميل…"
+            />
           </div>
         </div>
       )}
@@ -681,6 +721,7 @@ const ExecFlow: React.FC<{ role: Role; execs: ExecReq[] }> = ({ role, execs }) =
     router.post(`/exec-flow/${id}/action`, { action, ...payload }, {
       preserveScroll: true,
       preserveState: true,
+      onSuccess: () => toast('تم تنفيذ الإجراء'),
       onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر تنفيذ الإجراء'),
     });
   };

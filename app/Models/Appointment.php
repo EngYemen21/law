@@ -17,6 +17,12 @@ class Appointment extends Model
         'starts_at' => 'datetime',
     ];
 
+    /** ربط الراوت برقم العمل (ext_id) لا المعرّف الداخلي — يطابق نمط LegalCase/Invoice. */
+    public function getRouteKeyName(): string
+    {
+        return 'ext_id';
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
@@ -39,6 +45,18 @@ class Appointment extends Model
         return $this->hasOne(Consult::class, 'appointment_id');
     }
 
+    /** يوم الموعد بصياغة عربية مقروءة (الاثنين ٢٩ يونيو ٢٠٢٦) من starts_at الحقيقي؛ يرجع للنص المخزَّن إن غاب. */
+    public function dayLabel(): string
+    {
+        return $this->starts_at?->locale('ar')->translatedFormat('l d F Y') ?: (string) $this->day;
+    }
+
+    /** وقت الموعد بصياغة عربية مقروءة (١١:٣٠ ص) من starts_at الحقيقي؛ يرجع للنص المخزَّن إن غاب. */
+    public function timeLabel(): string
+    {
+        return $this->starts_at?->locale('ar')->translatedFormat('h:i A') ?: (string) $this->time;
+    }
+
     // الشكل الذي تتوقعه الواجهة (يطابق DATA.appts)
     public function toCard(): array
     {
@@ -47,8 +65,8 @@ class Appointment extends Model
             'type' => $this->type,
             'ico' => $this->ico,
             'lawyer' => $this->lawyer,
-            'day' => $this->day,
-            'time' => $this->time,
+            'day' => $this->dayLabel(),
+            'time' => $this->timeLabel(),
             'branch' => $this->branch,
             'status' => $this->status,
             'tone' => $this->tone,

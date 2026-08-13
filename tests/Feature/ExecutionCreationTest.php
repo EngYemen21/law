@@ -68,6 +68,27 @@ class ExecutionCreationTest extends TestCase
         $this->assertSame($caseLawyer->name, $exec->assigned_lawyer);
     }
 
+    public function test_admin_opens_execution_from_ruled_case_without_assignment(): void
+    {
+        // الإدارة العليا مطلقة الصلاحية — تفتح تنفيذ أي قضية محكومة بلا قيد إسناد (خلافاً للمحامي)
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $case = $this->ruledCase(User::factory()->create(['role' => Role::Client]));
+
+        $this->actingAs($admin)->post(route('admin.cases.execute', $case))->assertRedirect(route('admin.execs'));
+
+        $exec = Execution::where('case_id', $case->id)->first();
+        $this->assertNotNull($exec);
+    }
+
+    public function test_admin_cannot_open_execution_before_ruling(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $case = $this->ruledCase(User::factory()->create(['role' => Role::Client]));
+        $case->update(['status' => 'منظورة']);
+
+        $this->actingAs($admin)->post(route('admin.cases.execute', $case))->assertStatus(422);
+    }
+
     public function test_cannot_open_execution_before_ruling(): void
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);

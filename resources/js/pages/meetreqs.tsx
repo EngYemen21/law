@@ -9,6 +9,10 @@ import Icon from '@/lib/icons';
 import type {MeetReqCard} from '@/lib/meeting-ui';
 
 // دعوات الاجتماعات (دور العميل) — يستقبل دعوة المكتب ويؤكّد حضوره فتُنشأ جلسة Zoom
+// يطابق meetReqsView (دور العميل) — رأس greet + شريط إحصائي + بطاقات agd-c ملوّنة حسب المرحلة
+// (نفس نمط execflow.tsx/correspondences.tsx المستخدَم فعلياً بالمشروع لقوائم رحلة المراحل)
+
+const stageColor = (stage: number) => (stage >= 3 ? '#1E9D6B' : stage === 0 ? '#C0832B' : '#0E5C9C');
 
 const MeetReqs: React.FC<{ requests: MeetReqCard[] }> = ({ requests }) => {
   const toast = useToast();
@@ -27,66 +31,90 @@ void navigator.clipboard.writeText(r.meetLink);
     toast('تم نسخ رابط الجلسة');
   };
 
+  const s0 = requests.filter((r) => r.stage === 0).length;
+  const s1 = requests.filter((r) => r.stage >= 1 && r.stage < 3).length;
+  const s3 = requests.filter((r) => r.stage >= 3).length;
+
   return (
-    <div className="card">
-      <div className="card-h">
-        <h3>دعوات الاجتماعات</h3>
-        <span className="sub">{requests.length} دعوة</span>
+    <>
+      <div className="greet">
+        <h2>دعوات الاجتماعات</h2>
+        <p>تصلك هنا دعوات الاجتماعات من المكتب، ويمكنك تأكيد حضورك.</p>
       </div>
-      <div className="card-b">
-        {requests.length ? requests.map((r) => (
-          <div key={r.id} className="item">
-            <div className="iico"><Icon name="video" /></div>
-            <div className="imeta">
-              <b>{r.id} — {r.service}</b>
-              <span style={{ display: 'block', margin: '3px 0' }}>
-                {r.type} · {r.day} {r.time} · أرسلها: {r.by || 'المكتب'}
-              </span>
-              {r.stage >= 1 && r.meetLink && (
-                <span style={{ display: 'block', margin: '4px 0', fontSize: '11.5px', color: 'var(--primary)', fontWeight: 700, direction: 'ltr', textAlign: 'right' }}>
-                  🔗 {r.meetLink}
-                </span>
+
+      <div className="stat-strip">
+        <span className="stat-pill"><span className="pd" style={{ background: '#C0832B' }} /><b>{s0}</b> بانتظار التأكيد</span>
+        <span className="stat-pill"><span className="pd" style={{ background: '#0E5C9C' }} /><b>{s1}</b> قيد التنفيذ</span>
+        <span className="stat-pill"><span className="pd" style={{ background: '#1E9D6B' }} /><b>{s3}</b> معتمدة</span>
+      </div>
+
+      <div className="card">
+        <div className="card-h">
+          <h3>دعوات الاجتماعات</h3>
+          <span className="sub">{requests.length} دعوة</span>
+        </div>
+        <div className="card-b" style={{ padding: '14px 16px' }}>
+          {requests.length ? requests.map((r) => (
+            <div key={r.id} className="agd-c" style={{ borderRightColor: stageColor(r.stage), marginBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div className="mtg-t">{r.id} — {r.service}</div>
+                  <div className="mtg-m">{r.type} · {r.day} {r.time} · أرسلها: {r.by || 'المكتب'}</div>
+                </div>
+                {r.stage === 4 ? (
+                  <Badge text="منتهية الصلاحية" tone="b-red" />
+                ) : r.stage >= 3 ? (
+                  <Badge text="معتمد" tone="b-green" />
+                ) : r.stage > 0 ? (
+                  <Badge text={MR_FLOW[r.stage] ?? 'قيد المعالجة'} tone="b-blue" />
+                ) : (
+                  <Badge text="بانتظار التأكيد" tone="b-amber" />
+                )}
+              </div>
+
+              {r.stage < 4 && (
+                <div style={{ margin: '10px 0' }}><FlowLine steps={MR_FLOW} cur={r.stage} /></div>
               )}
-              <span><FlowLine steps={MR_FLOW} cur={r.stage} /></span>
-            </div>
-            <div className="iact">
-              {r.stage === 0 ? (
-                <button className="btn sm" onClick={() => confirm(r)} type="button">
-                  <Icon name="check" /> تأكيد الحضور
-                </button>
-              ) : r.stage >= 3 ? (
-                <Badge text="معتمد" tone="b-green" />
-              ) : (
-                <Badge text={MR_FLOW[r.stage]} tone="b-blue" />
+              {r.stage === 4 && (
+                <div style={{ margin: '8px 0', fontSize: '12px', color: 'var(--red)' }}>
+                  ⚠️ تجاوزت هذه الدعوة تاريخ موعدها دون تأكيد. يمكنك طلب موعد جديد من المكتب.
+                </div>
               )}
-              {r.stage >= 1 && r.stage < 3 && r.meetLink && (
-                <>
-                  <button className="btn soft sm" onClick={() => copyLink(r)} type="button">
-                    <Icon name="link" /> نسخ الرابط
+              <div className="mtg-a">
+                {r.stage === 0 && (
+                  <button className="btn sm" onClick={() => confirm(r)} type="button">
+                    <Icon name="check" /> تأكيد الحضور
                   </button>
-                  {r.type.indexOf('مرئية') >= 0 && (
-                    <button
-                      className="btn sm"
-                      onClick={() => (r.meetingRef
-                        ? router.visit(`/meetingroom?ref=${encodeURIComponent(r.meetingRef)}`)
-                        : openMeeting(r.meetLink || ''))}
-                      type="button"
-                    >
-                      <Icon name="video" /> انضم لجلسة Zoom
+                )}
+                {r.stage === 1 && r.meetLink && (
+                  <>
+                    <button className="btn soft sm" onClick={() => copyLink(r)} type="button">
+                      <Icon name="link" /> نسخ الرابط
                     </button>
-                  )}
-                </>
-              )}
+                    {r.type.indexOf('مرئية') >= 0 && (
+                      <button
+                        className="btn sm"
+                        onClick={() => (r.meetingRef
+                          ? router.visit(`/meetingroom?ref=${encodeURIComponent(r.meetingRef)}`)
+                          : openMeeting(r.meetLink || ''))}
+                        type="button"
+                      >
+                        <Icon name="video" /> انضم لجلسة Zoom
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
-          </div>
-        )) : (
-          <div className="empty">
-            <Icon name="video" />
-            <b>لا دعوات اجتماعات جديدة</b>
-          </div>
-        )}
+          )) : (
+            <div className="empty">
+              <Icon name="video" />
+              <b>لا دعوات اجتماعات جديدة</b>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 };
 

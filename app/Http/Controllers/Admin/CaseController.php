@@ -10,6 +10,7 @@ use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Services\MailService;
 use App\Support\CaseJourney;
+use App\Support\ExecutionCreation;
 use App\Support\Live;
 use App\Support\Notify;
 use Illuminate\Http\RedirectResponse;
@@ -115,12 +116,14 @@ class CaseController extends Controller
             'status' => $c->status,
             'tone' => $c->tone,
             'canClose' => $c->status === 'صدر الحكم',
+            'canArchive' => $c->status === 'مغلقة',
+            'canExecute' => ExecutionCreation::isEligible($c),
         ]);
 
         return Inertia::render('admin/cases', ['cases' => $cases]);
     }
 
-    // الإغلاق والأرشفة بعد الحكم (يطابق cfCloseCase)
+    // الإغلاق بعد الحكم (يطابق cfCloseCase) — الأرشفة النهائية خطوة إدارية مستقلة لاحقة
     public function closeCase(LegalCase $case): RedirectResponse
     {
         abort_unless($case->status === 'صدر الحكم', 422);
@@ -128,17 +131,48 @@ class CaseController extends Controller
         $case->update([
             'status' => 'مغلقة',
             'tone' => CaseJourney::toneFor('مغلقة'),
-            'update_text' => 'أُغلقت القضية وحُفظ كامل الملف في الأرشيف',
+            'update_text' => 'أُغلقت القضية بعد اكتمال إجراءات الحكم',
         ]);
         $case->messages()->create([
             'who' => 'admin', 'name' => 'الإدارة', 'role' => 'إغلاق',
-            'body' => '<p>بعد صدور الحكم وتنفيذه، تحوّلت القضية إلى <b>مغلقة</b> وحُفظ كامل الملف في الأرشيف القانوني.</p>',
+            'body' => '<p>بعد صدور الحكم وتنفيذه، تحوّلت القضية إلى <b>مغلقة</b>. وستُؤرشف نهائياً بعد استيفاء كامل الإجراءات.</p>',
             'time_label' => $this->clock(),
         ]);
-        Notify::send($case->user_id, 'check', 't-green', "أُغلقت قضيتك {$case->number} وأُرشفت بعد اكتمال الإجراءات.");
+        Notify::send($case->user_id, 'check', 't-green', "أُغلقت قضيتك {$case->number} بعد اكتمال الإجراءات.");
         Live::push(new CaseStatusBroadcast($case));
 
         return back();
+    }
+
+    // الأرشفة النهائية — تُحفظ القضية المغلقة في الأرشيف القانوني (خطوة إدارية صريحة بعد الإغلاق)
+    public function archiveCase(LegalCase $case): RedirectResponse
+    {
+        abort_unless($case->status === 'مغلقة', 422);
+
+        $case->update([
+            'status' => 'مؤرشفة',
+            'tone' => CaseJourney::toneFor('مؤرشفة'),
+            'update_text' => 'أُرشفت القضية وحُفظ كامل الملف في الأرشيف القانوني',
+        ]);
+        $case->messages()->create([
+            'who' => 'admin', 'name' => 'الإدارة', 'role' => 'أرشفة',
+            'body' => '<p>تمت <b>أرشفة</b> القضية نهائياً وحُفظ كامل الملف (اللوائح والجلسات والمستندات والفواتير) في الأرشيف القانوني.</p>',
+            'time_label' => $this->clock(),
+        ]);
+        Notify::send($case->user_id, 'check', 't-green', "أُرشفت قضيتك {$case->number} وحُفظ ملفها في الأرشيف.");
+        Live::push(new CaseStatusBroadcast($case));
+
+        return back();
+    }
+
+    // تحويل قضية محكومة إلى طلب تنفيذ (نظير Lawyer\CaseController::convertToExecution — بلا قيد إسناد، الإدارة مطلقة)
+    public function convertToExecution(Request $request, LegalCase $case): RedirectResponse
+    {
+        abort_unless(ExecutionCreation::isEligible($case), 422);
+
+        ExecutionCreation::fromCase($case, $request->user());
+
+        return redirect()->route('admin.execs');
     }
 
     private function clock(): string

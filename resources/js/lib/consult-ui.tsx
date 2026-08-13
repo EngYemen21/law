@@ -19,12 +19,23 @@ import ZoomEmbedRoom from '@/lib/zoom-room';
 // يطابق consultRecvView + videoRoomView + vrEnd في index (82).html
 // ============================================================
 
+// نصّ قرار آمن للعرض — القرارات نصوص عادةً، لكن بيانات قديمة قد تحمل كائن مهمّة {title,...}
+// (نظير الحارس نفسه في DecisionTasks::create على الخادم) فلا يُكسَر React عند عنصر غير نصّي.
+function decisionText(x: unknown): string {
+  if (typeof x === 'string') {
+    return x;
+  }
+
+  return (x as { title?: string })?.title ?? JSON.stringify(x);
+}
+
 // بطاقة الاستشارة كما يعيدها الخادم (Consult::toCard)
 export interface ConsultCard {
   id: number;
   ref: string;
   client: string;
   subject: string;
+  specialty?: string; // تخصّص الاستشارة (لتصفية منتقي المستشارين عند اختيار الموعد)
   channel: string; // مرئية / حضورية / هاتفية
   lawyer: string;
   when: string;
@@ -212,11 +223,7 @@ void navigator.clipboard.writeText(c.slink);
               <span style={{ display: 'block', marginTop: 3, fontSize: '11.5px', color: 'var(--muted)' }}>
                 <Icon name="phone" /> {c.phone || '—'}
               </span>
-            ) : (
-              <span style={{ display: 'block', marginTop: 3, direction: 'ltr', textAlign: 'right', fontSize: 11, color: 'var(--primary)', fontWeight: 700 }}>
-                🔗 {c.slink}
-              </span>
-            );
+            ) : null;
 
             return (
               <div key={c.ref} className="item">
@@ -675,7 +682,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
           </div>
           <div className="card-b">
             <ul style={{ margin: 0, paddingInlineStart: 18, lineHeight: 2 }}>
-              {c.decisions.map((d, i) => <li key={i}>{d}</li>)}
+              {c.decisions.map((d, i) => <li key={i}>{decisionText(d)}</li>)}
             </ul>
           </div>
         </div>

@@ -48,6 +48,14 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
       preserveScroll: true, onSuccess: () => toast('تم حفظ تعديلات الملخص'),
     });
 
+  // إعادة تشغيل التحليل الذكي للملخّص (نفس نقطة الموظف، من مسار المحامي) — يُعيد توليد الملخّص من الملف والمرفقات
+  const rerun = () =>
+    router.post(`${base}/summary/${encodeURIComponent(ticket.no)}/rerun`, {}, {
+      preserveScroll: true,
+      onSuccess: () => toast('تمت إعادة تشغيل التحليل الذكي للملخّص'),
+      onError: () => toast('تعذّر إعادة تشغيل التحليل حالياً'),
+    });
+
   // قالب مبدئي لم يكتمل تحليله الذكي؛ اعتماده يتطلّب تحرير المحامي (يفرضه حارس الخادم أيضاً)
   const isTemplate = summary.aiGenerated === false;
 
@@ -115,6 +123,11 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
             <button className="btn soft" onClick={save} type="button">
               حفظ التعديلات
             </button>
+            {base === '/lawyer' && (
+              <button className="btn soft" onClick={rerun} type="button">
+                <Icon name="info" /> إعادة التحليل الذكي
+              </button>
+            )}
           </>
         ) : (
           <span className="chip muted">تم إرسال الملخص والرأي القانوني للعميل</span>

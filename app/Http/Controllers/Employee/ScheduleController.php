@@ -43,7 +43,7 @@ class ScheduleController extends Controller
     {
         $data = $request->validate([
             'lawyer_id' => ['required', 'integer', 'exists:users,id'],
-            'date'      => ['required', 'date', 'after_or_equal:today'],
+            'date' => ['required', 'date', 'after_or_equal:today'],
         ]);
 
         $slots = LawyerAvailability::slotsFor((int) $data['lawyer_id'], $data['date']);
@@ -55,16 +55,26 @@ class ScheduleController extends Controller
     {
         $data = $request->validate([
             'client_id' => ['required', 'integer', 'exists:users,id'],
-            'type'      => ['required', 'string', 'in:office,video,phone'],
-            'date'      => ['required', 'date', 'after_or_equal:today'],
-            'time'      => ['required', 'string', 'regex:/^\d{2}:\d{2}$/'],
+            'type' => ['required', 'string', 'in:office,video,phone'],
+            'date' => ['required', 'date', 'after_or_equal:today'],
+            'time' => ['required', 'string', 'regex:/^\d{2}:\d{2}$/'],
             // المحامي اختياري؛ إن اختير يجب أن يكون نشطاً وضمن فرع الموظف (عزل بالفرع).
             'lawyer_id' => ['nullable', 'integer', new LawyerInBranch($this->currentBranch())],
-            'subject'   => ['nullable', 'string', 'max:120'],
+            'subject' => ['nullable', 'string', 'max:120'],
         ]);
 
-        $client   = User::where('role', Role::Client)->findOrFail($data['client_id']);
+        $client = User::where('role', Role::Client)->findOrFail($data['client_id']);
         $startsAt = Carbon::parse($data['date'].' '.$data['time']);
+
+        if ($startsAt->isPast()) {
+            $msg = 'لا يمكن اختيار موعد في الماضي، فضلاً اختر وقتاً لاحقاً.';
+
+            if ($request->expectsJson()) {
+                return response()->json(['message' => $msg], 422);
+            }
+
+            return back()->withErrors(['time' => $msg]);
+        }
 
         // ── فحص التعارض: هل المحامي مشغول في هذه الفترة؟ ──
         if (! empty($data['lawyer_id'])) {
@@ -87,13 +97,13 @@ class ScheduleController extends Controller
         }
 
         $consult = ConsultBooking::create($client, [
-            'type'      => $data['type'],
-            'subject'   => $data['subject'] ?? null,
+            'type' => $data['type'],
+            'subject' => $data['subject'] ?? null,
             'lawyer_id' => $data['lawyer_id'] ?? null,
             'starts_at' => $startsAt->toDateTimeString(),
-            'duration'  => LawyerAvailability::slotMinutes(),
-            'day'       => $startsAt->format('Y-m-d'),
-            'time'      => $data['time'],
+            'duration' => LawyerAvailability::slotMinutes(),
+            'day' => $startsAt->format('Y-m-d'),
+            'time' => $data['time'],
         ]);
 
         if ($request->expectsJson()) {

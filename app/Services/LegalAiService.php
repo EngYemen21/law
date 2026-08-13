@@ -3,8 +3,10 @@
 namespace App\Services;
 
 use App\Enums\Role;
+use App\Models\CaseDocument;
 use App\Models\Consult;
 use App\Models\Execution;
+use App\Models\ExecutionDocument;
 use App\Models\LegalCase;
 use App\Models\Meeting;
 use App\Models\Ticket;
@@ -296,6 +298,49 @@ PROMPT;
         return null;
     }
 
+    /**
+     * تحليل مستند ملف القضية — تلخيص وتصنيف (لا حكم «صلة»: المستند دليلٌ مقبول ضمن الملف).
+     * يعيد {doc_type, summary} أو null عند تعذّر القراءة/غياب المزوّد (فيُوسَم للمراجعة اليدوية).
+     *
+     * @return array{doc_type:string,summary:string}|null
+     */
+    public function analyzeCaseDocument(LegalCase $case, CaseDocument $doc): ?array
+    {
+        $abs = Storage::disk('local')->path($doc->path);
+        if (! is_file($abs) || $doc->size > 8 * 1024 * 1024) {
+            return null; // ملف مفقود أو أكبر من حد الفحص
+        }
+
+        $system = 'أنت مساعد قانوني في مكتب «سلاسل بابل» بالسعودية. اقرأ محتوى المستند المرفق بملف القضية كاملاً، '
+            .'صنّف نوعه ولخّص محتواه بإيجاز مفيد للمحامي. أعد JSON فقط: '
+            .'{"doc_type":"نوع المستند كما فهمته من محتواه","summary":"ملخّص محتوى المستند في سطر أو سطرين"}. لا نص خارج JSON.';
+        $context = "نوع القضية: {$case->type}\nالقسم: ".($case->department ?? '—')."\nاسم الملف: {$doc->name}";
+
+        try {
+            $ext = strtolower(pathinfo($doc->name, PATHINFO_EXTENSION));
+            $json = null;
+
+            if ($text = $this->extractText($abs, $ext)) {
+                $prompt = $context."\n\nمحتوى المستند:\n".mb_substr($text, 0, 20000)."\n\nلخّص المحتوى وصنّفه وأعد JSON.";
+                $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true);
+            } elseif (in_array($ext, ['pdf', 'jpg', 'jpeg', 'png', 'webp'], true) && ! empty(config('services.gemini.key'))) {
+                $mime = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'][$ext];
+                $json = $this->viaGeminiDocument($system, $context."\n\nلخّص المستند المرفق وصنّفه وأعد JSON.", base64_encode((string) file_get_contents($abs)), $mime);
+            }
+
+            if ($json && ($data = self::parseJsonResponse($json)) && (isset($data['summary']) || isset($data['doc_type']))) {
+                return [
+                    'doc_type' => (string) ($data['doc_type'] ?? 'مستند'),
+                    'summary' => (string) ($data['summary'] ?? ''),
+                ];
+            }
+        } catch (\Throwable $e) {
+            Log::warning('LegalAiService analyzeCaseDocument failed: '.$e->getMessage());
+        }
+
+        return null;
+    }
+
     /** استخراج نص المستندات النصية وdocx (بلا اعتماد على مكتبات خارجية). */
     private function extractText(string $abs, string $ext): ?string
     {
@@ -327,9 +372,53 @@ PROMPT;
      */
     public function draftPleading(LegalCase $case): string
     {
+        // سياق القضية الحقيقي (لا اختلاق): وقائع الملخّص المعتمد + بيانات الخصم + ملخّصات مستندات الملف
+        $ticket = $case->ticket;
+        $summary = $ticket?->summary;
+
+        $facts = [];
+        if ($summary) {
+            foreach (['case_summary' => 'ملخّص القضية', 'facts' => 'الوقائع', 'key_points' => 'النقاط الجوهرية', 'attachments_summary' => 'ملخّص المرفقات'] as $field => $label) {
+                $v = trim((string) ($summary->$field ?? ''));
+                if ($v !== '') {
+                    $facts[] = "{$label}: {$v}";
+                }
+            }
+        }
+
+        $parties = [];
+        if ($ticket) {
+            if ($ticket->opponent_name) {
+                $parties[] = 'المدّعى عليه: '.$ticket->opponent_name.($ticket->opponent_id ? ' (هوية/سجل: '.$ticket->opponent_id.')' : '');
+            }
+            if ($ticket->claim_amount) {
+                $parties[] = 'قيمة المطالبة: '.number_format((int) $ticket->claim_amount).' ريال';
+            }
+            if ($ticket->court_name) {
+                $parties[] = 'المحكمة: '.$ticket->court_name;
+            }
+        }
+
+        $docs = $case->documents()->whereNotNull('summary')->where('summary', '!=', '')->get()
+            ->map(fn ($d) => '- '.($d->doc_type ?: 'مستند').': '.$d->summary)->implode("\n");
+
+        $context = "رقم القضية: {$case->number}\nنوع القضية: {$case->type}\nالقسم: ".($case->department ?? '—');
+        if ($parties !== []) {
+            $context .= "\n".implode("\n", $parties);
+        }
+        if ($facts !== []) {
+            $context .= "\n\nوقائع وبيانات الملف (المعتمدة):\n".implode("\n", $facts);
+        }
+        if ($docs !== '') {
+            $context .= "\n\nملخّصات مستندات الملف:\n".$docs;
+        }
+
         $system = 'أنت محامٍ مرافع في مكتب «سلاسل بابل» بالسعودية. اكتب مسودة «لائحة دعوى» موجزة ومهنية بالعربية الفصحى '
-            .'بأقسام واضحة: «الدفوع الشكلية» (إن وُجدت) ثم «الوقائع» ثم «الأسانيد النظامية والشرعية والقواعد القضائية» ثم «الطلبات». لا تذكر أنك ذكاء اصطناعي ولا تكتب أي شيء خارج اللائحة.';
-        $prompt = "قضية رقم {$case->number}، نوعها «{$case->type}»، القسم: {$case->department}. اكتب مسودة لائحة الدعوى.";
+            .'بأقسام واضحة: «الدفوع الشكلية» (إن وُجدت) ثم «الوقائع» ثم «الأسانيد النظامية والشرعية والقواعد القضائية» ثم «الطلبات». '
+            .'استند حصراً إلى الوقائع والبيانات المذكورة أدناه، ولا تختلق أطرافاً أو أسماء أو تواريخ أو مبالغ أو وقائع غير مذكورة. '
+            .'وما نقص من بيانات اتركه بين قوسين هكذا: (يُستكمل) بدلاً من اختراعه، ولا تخترع مواد نظامية بأرقام غير مؤكّدة. '
+            .'لا تذكر أنك ذكاء اصطناعي ولا تكتب أي شيء خارج اللائحة.';
+        $prompt = $context."\n\nاكتب مسودة لائحة الدعوى بناءً على ما سبق فقط.";
 
         try {
             $text = $this->run($system, [['role' => 'user', 'content' => $prompt]]);
@@ -438,6 +527,43 @@ PROMPT;
     }
 
     /**
+     * رسالة إقرار عند فتح تذكرة مصحوبة بمستندات ذات صلة — بنبرة الموظف المختص:
+     * تُرحّب، تعيد صياغة الطلب بإيجاز، وتُقرّ باستلام المستندات وأنها روجعت وستُحال للقسم المختص.
+     * رسالة واحدة قصيرة. احتياط إنساني حتمي عند تعذّر AI.
+     *
+     * @param  array<int,array{name:string,summary:string}>  $relatedDocs
+     */
+    public function acknowledgeDocs(Ticket $ticket, string $details, array $relatedDocs): string
+    {
+        $names = array_map(fn ($d) => $d['name'], $relatedDocs);
+        $nameList = implode('، ', $names);
+        $docLines = implode("\n", array_map(
+            fn ($d) => '- '.$d['name'].($d['summary'] !== '' ? ': '.$d['summary'] : ''),
+            $relatedDocs
+        ));
+
+        $system = self::SYSTEM."\n\n"
+            .'مهمتك الآن: العميل فتح تذكرته وأرفق مستندات ذات صلة بموضوعه فُحصت فعلاً. '
+            .'رحّب به باسم المكتب بإيجاز، وأظهر أنك فهمت طلبه بإعادة صياغة موجزة، '
+            .'ثم أقرّ باستلام مستنداته المرفقة وأنه تمّت مراجعتها، وطمئنه أن طلبه يُحال الآن إلى القسم المختص لدراسته. '
+            .'رسالة واحدة قصيرة بنبرة إنسانية طبيعية، دون تعداد آلي جاف ودون ذكر خطوات داخلية.';
+        $prompt = "نوع الطلب: {$ticket->type}\nما كتبه العميل:\n{$details}\nالمستندات المرفقة ذات الصلة:\n{$docLines}";
+
+        try {
+            $text = $this->run($system, [['role' => 'user', 'content' => $prompt]]);
+            if ($text && trim($text) !== '') {
+                return trim($text);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('LegalAiService acknowledgeDocs failed: '.$e->getMessage());
+        }
+
+        // احتياط إنساني (رسالة واحدة) عند تعذّر AI
+        return "شكراً لك، وصلني طلبك بخصوص «{$ticket->type}» ومستنداتك المرفقة ("
+            .$nameList.') واطّلعنا عليها. سنحيل طلبك الآن إلى القسم المختص لدراسته وموافاتك بالمستجدات.';
+    }
+
+    /**
      * يولّد ردّ الفريق القانوني على آخر رسالة من العميل ضمن القضية (الذكاء الاصطناعي هو الأساس).
      * يعيد نصّ الردّ، أو null عند تعذّر الاتصال (ليستخدم المُستدعي ردّاً احتياطياً).
      */
@@ -449,20 +575,6 @@ PROMPT;
             .'أنت تتابع قضية قانونية نشطة لهذا العميل؛ أجب عن استفساراته حول سير القضية والجلسات والإجراءات بدقّة وطمأنة.';
 
         return $this->run($system, $this->history($case, $clientMessage));
-    }
-
-    /**
-     * يولّد ردّ فريق التنفيذ على آخر رسالة من العميل ضمن طلب التنفيذ (الذكاء الاصطناعي هو الأساس).
-     */
-    public function execReply(Execution $exec, string $clientMessage): ?string
-    {
-        $court = $exec->court ? "؛ محكمة التنفيذ: {$exec->court}" : '';
-        $last = $exec->last_action ? "؛ آخر إجراء: {$exec->last_action}" : '';
-        $system = self::SYSTEM."\n\n"
-            ."سياق طلب التنفيذ — رقم: {$exec->number}؛ الموضوع: {$exec->subject}؛ الحالة: {$exec->status}{$court}{$last}. "
-            .'أنت تتابع طلب تنفيذ لدى محكمة التنفيذ بالسعودية بموجب نظام التنفيذ ولائحته؛ أجب عن استفسارات العميل حول السند التنفيذي، وإجراءات الإبلاغ (المادة 34)، وقرارات التنفيذ والحجز والإفصاح والإفراج (المادة 46)، بدقّة وطمأنة.';
-
-        return $this->run($system, $this->history($exec, $clientMessage));
     }
 
     /**
@@ -652,6 +764,52 @@ PROMPT;
             .($complete ? 'مؤهّل للإحالة إلى قسم التنفيذ ومباشرة الإجراءات' : 'ويلزم استكمال النواقص قبل الإحالة').'.';
 
         return ['summary' => $summary, 'missing' => $missing, 'procedures' => $defaultProcs];
+    }
+
+    /**
+     * تحليل مستند مرفَق على طلب تنفيذ (نظير analyzeCaseDocument، بسياق التنفيذ: نوع السند/قيمة
+     * المطالبة/المنفَّذ ضده) — يُقيّم مدى توافق محتوى المستند مع بيانات الطلب لا تصنيفاً عاماً فقط.
+     *
+     * @return array{doc_type:string,summary:string}|null
+     */
+    public function analyzeExecutionDocument(Execution $exec, ExecutionDocument $doc): ?array
+    {
+        $abs = Storage::disk('local')->path((string) $doc->path);
+        if (! is_file($abs) || (int) $doc->size > 8 * 1024 * 1024) {
+            return null; // ملف مفقود أو أكبر من حد الفحص
+        }
+
+        $fileName = basename((string) $doc->path);
+        $system = 'أنت مساعد قانوني في قسم التنفيذ بمكتب «سلاسل بابل» بالسعودية. اقرأ محتوى المستند المرفق على طلب تنفيذ كاملاً، '
+            .'صنّف نوعه، ولخّص محتواه موضحاً مدى توافقه مع بيانات الطلب (نوع السند/قيمة المطالبة/المنفَّذ ضده) إن أمكن. أعد JSON فقط: '
+            .'{"doc_type":"نوع المستند كما فهمته من محتواه","summary":"ملخّص محتوى المستند وتوافقه مع الطلب في سطر أو سطرين"}. لا نص خارج JSON.';
+        $context = "طلب تنفيذ {$exec->number} — نوع السند: {$exec->sanad}، الموضوع: «{$exec->subject}»، "
+            .'قيمة المطالبة: '.number_format((int) $exec->amount).' ريال، '
+            .'المنفَّذ ضده: '.($exec->defendant ?: 'غير محدّد')."\nاسم الملف: {$fileName}";
+
+        try {
+            $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+            $json = null;
+
+            if ($text = $this->extractText($abs, $ext)) {
+                $prompt = $context."\n\nمحتوى المستند:\n".mb_substr($text, 0, 20000)."\n\nلخّص المحتوى وصنّفه وأعد JSON.";
+                $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true);
+            } elseif (in_array($ext, ['pdf', 'jpg', 'jpeg', 'png', 'webp'], true) && ! empty(config('services.gemini.key'))) {
+                $mime = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'][$ext];
+                $json = $this->viaGeminiDocument($system, $context."\n\nلخّص المستند المرفق وصنّفه وأعد JSON.", base64_encode((string) file_get_contents($abs)), $mime);
+            }
+
+            if ($json && ($data = self::parseJsonResponse($json)) && (isset($data['summary']) || isset($data['doc_type']))) {
+                return [
+                    'doc_type' => (string) ($data['doc_type'] ?? 'مستند'),
+                    'summary' => (string) ($data['summary'] ?? ''),
+                ];
+            }
+        } catch (\Throwable $e) {
+            Log::warning('LegalAiService analyzeExecutionDocument failed: '.$e->getMessage());
+        }
+
+        return null;
     }
 
     /**

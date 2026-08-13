@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\User;
 use Illuminate\Database\Seeder;
@@ -10,7 +11,8 @@ class ConsultSeeder extends Seeder
 {
     public function run(): void
     {
-        $client = User::where('email', 'client@salasel.test')->first();
+        // العميل التجريبي مُعرَّف برقم الهوية الثابت في DatabaseSeeder (لا بالبريد — قد يتغيّر).
+        $client = User::where('national_id', '1000000002')->where('role', Role::Client)->first();
         if (! $client) {
             return;
         }

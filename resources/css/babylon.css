@@ -158,6 +158,10 @@ svg{display:block}
 .btn.soft{background:var(--paper-2);color:var(--ink);border:1px solid var(--line);box-shadow:none}
 .btn.soft:hover{border-color:var(--cyan);color:var(--primary)}
 .btn.block{width:100%}
+.btn:disabled{opacity:.6;cursor:not-allowed;box-shadow:none}
+.btn:disabled:hover{transform:none}
+.btn .spin{width:15px;height:15px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
 .consults{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
@@ -730,6 +734,33 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 .vr-btn.end{background:#C0392B;color:#fff;width:66px;border-radius:30px}
 .vr-btn .ic{width:22px;height:22px}
 .vr-hint{text-align:center;color:rgba(255,255,255,.72);font-size:11px;padding:0 0 14px;background:#0A2A55;min-height:14px}
+
+/* غرفة الاجتماع المخصّصة داخل الموقع — إطار بهوية المكتب + لوحة جانبية + شاشات الحالة */
+.mroom-grid{display:grid;grid-template-columns:1fr 300px;gap:16px;align-items:start}
+.mroom{background:#0A2A55;border-radius:16px;overflow:hidden;box-shadow:0 22px 55px -30px rgba(10,42,85,.6)}
+.mroom-head{display:flex;align-items:center;gap:10px;padding:11px 15px;color:#fff;background:linear-gradient(to left,rgba(255,255,255,.07),transparent);border-bottom:1px solid rgba(255,255,255,.1)}
+.mroom-head .brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:13px;white-space:nowrap}
+.mroom-head .brand img{width:26px;height:26px;border-radius:7px;object-fit:cover}
+.mroom-head .ttl{font-size:12px;opacity:.82;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mroom-video{position:relative;min-height:520px;background:radial-gradient(circle at 50% 34%,#16427d,#0A2A55 72%);direction:ltr}
+.mroom-overlay{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:#fff;padding:26px;z-index:4}
+.mroom-overlay .oi{width:66px;height:66px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.1);margin:0 auto 4px}
+.mroom-overlay .oi .ic{width:30px;height:30px}
+.mroom-overlay b{font-size:16px;display:block}
+.mroom-overlay .os{font-size:12.5px;opacity:.82;max-width:36ch;margin:3px auto 0;line-height:1.7}
+.mroom-wm{position:absolute;bottom:12px;inset-inline-end:14px;color:rgba(255,255,255,.34);font-size:10.5px;font-weight:700;pointer-events:none;direction:ltr;z-index:5;letter-spacing:.3px}
+.mroom-spin{width:42px;height:42px;border-radius:50%;border:3px solid rgba(255,255,255,.22);border-top-color:#fff;animation:mroomspin .85s linear infinite}
+@keyframes mroomspin{to{transform:rotate(360deg)}}
+.mroom-side .card-b{padding:12px 15px 15px}
+.mroom-row{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px}
+.mroom-row:last-child{border-bottom:none}
+.mroom-row .k{color:var(--muted)}
+.mroom-row .v{font-weight:700;color:var(--ink);text-align:left;max-width:60%}
+.mroom-agd{margin-top:6px}
+.mroom-agd h5{font-size:11.5px;color:var(--primary);margin:10px 0 4px;font-weight:800}
+.mroom-agd li{font-size:12px;color:var(--ink);opacity:.85;padding:2px 0 2px 0;list-style:none;position:relative;padding-inline-start:14px}
+.mroom-agd li::before{content:"";position:absolute;inset-inline-start:2px;top:9px;width:5px;height:5px;border-radius:50%;background:var(--cyan)}
+@media(max-width:900px){.mroom-grid{grid-template-columns:1fr}}
 .menu-btn{display:none}
 .scrim{display:none}
 @media(max-width:1080px){.stats{grid-template-columns:repeat(2,1fr)}.tiles{grid-template-columns:repeat(3,1fr)}.tflow .tf-grid{grid-template-columns:1fr}.tflow .tf-aside{position:static}}
@@ -752,6 +783,11 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
   .tflow .bubble{padding:10px 12px;font-size:13.5px}
   .tflow .av{width:32px;height:32px;flex:0 0 32px;font-size:12px}
   .tflow .who b{font-size:12px}
+  .apptx-body{flex-direction:column;align-items:center}
+  .apptx-qr{width:100%}
+  .apptx-chips{justify-content:center}
+  .apptx-no{text-align:center}
+  .apptx-foot{justify-content:center;text-align:center}
 }
 @media(max-width:520px){
   .stats{grid-template-columns:1fr 1fr}.tiles{grid-template-columns:1fr 1fr}.greet h2{font-size:20px}

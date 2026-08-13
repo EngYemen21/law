@@ -86,18 +86,45 @@ class DatabaseSeeder extends Seeder
         }
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        // بيانات تجريبية حقيقية للعميل (تذاكر + استشارات قيد المعالجة + مواعيد مجدولة فعلياً
+        // عبر مسار الحجز الحقيقي) — تُعيد تشغيلها بأمان دون تكرار (فحوصات وجود مسبقة).
+        $this->call([
+            TicketSeeder::class,
+            ConsultSeeder::class,
+            AppointmentSeeder::class,
+            MeetingSeeder::class,
+            ExecutionSeeder::class,
+        ]);
     }
 
-    /** إنشاء/تحديث حساب فعّال بكلمة المرور الموحّدة. */
+    /**
+     * إنشاء/تحديث حساب فعّال بكلمة المرور الموحّدة — يطابق بالبريد أولاً، وإلا يتحقّق من
+     * تعارض حقيقي على قيد التفرّد (رقم الهوية + الدور): إن وُجد حساب حقيقي آخر (مثلاً أنشأه
+     * مستخدم فعليّ عبر تسجيل OTP بنفس رقم الهوية التجريبي) يُعاد كما هو دون لمسه أو تكراره.
+     */
     private function makeUser(array $attrs): User
     {
-        return User::updateOrCreate(
-            ['email' => $attrs['email']],
-            array_merge($attrs, [
+        $existing = User::where('email', $attrs['email'])->first();
+        if ($existing) {
+            $existing->update(array_merge($attrs, [
                 'password' => Hash::make('password'),
                 'status' => 'active',
                 'email_verified_at' => now(),
-            ])
-        );
+            ]));
+
+            return $existing->fresh();
+        }
+
+        $conflict = User::where('national_id', $attrs['national_id'])->where('role', $attrs['role'])->first();
+        if ($conflict) {
+            return $conflict;
+        }
+
+        return User::create(array_merge($attrs, [
+            'password' => Hash::make('password'),
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]));
     }
 }

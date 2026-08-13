@@ -16,6 +16,10 @@ export const CLIENT_NAME = 'عبدالله العتيبي';
 export const OFFICE_IP = '212.71.46.10';
 export const CLIENT_IP = '178.45.12.90'; // عنوان عميل ثابت (بدل simIP العشوائي)
 
+// امتدادات المستندات المسموح رفعها من العميل — يطابق TicketController::ALLOWED_DOC_MIMES بالخادم
+export const ALLOWED_DOC_ACCEPT = '.pdf,.jpg,.jpeg,.png,.doc,.docx';
+export const ALLOWED_DOC_HINT = 'الصيغ المسموحة: PDF، JPG، PNG، DOC، DOCX — حتى 10MB لكل ملف';
+
 // يطابق nowClock()
 export function nowClock(): string {
   try {

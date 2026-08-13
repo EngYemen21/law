@@ -1,52 +1,13 @@
 import { router } from '@inertiajs/react';
 import React, { useEffect, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
-import SpecialistPicker, { todayISO } from '@/components/SpecialistPicker';
+import BookingActions from '@/components/babylon/BookingActions';
 import { useToast } from '@/components/babylon/Toast';
 import {  lawyerFirst, SummaryModal } from '@/lib/consult-ui';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { CONSULT_BOOKING_STATUSES, crChannelIcon, crChannelTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
-
-// إجراءات دورة الحجز في «استشاراتي»: دفع الفاتورة (محاكى) ثم اختيار الموعد بعد السداد.
-const BookingActions: React.FC<{ c: ConsultCard; toast: (m: string) => void }> = ({ c, toast }) => {
-  const [open, setOpen] = useState(false);
-  const [date, setDate] = useState(todayISO());
-  const [lawyerId, setLawyerId] = useState<number | null>(null);
-  const [time, setTime] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  if (c.status === 'بانتظار التسعير') return <Badge text="بانتظار تسعير المكتب" tone="b-amber" />;
-
-  if (c.status === 'بانتظار السداد') return (
-    <button className="btn sm" type="button" disabled={busy} onClick={() => {
-      setBusy(true);
-      // النجاح = تحويل المتصفّح لصفحة ميسّر (Inertia::location) — لا توست «تم السداد» هنا؛ فقط عرض تعذّر البدء
-      router.post(`/consults/${c.id}/pay`, {}, { preserveScroll: true, onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر بدء الدفع، حاول بعد قليل'), onFinish: () => setBusy(false) });
-    }}>
-      <Icon name="card" /> ادفع عبر ميسّر — {c.total} ر.س
-    </button>
-  );
-
-  // بانتظار تحديد الموعد
-  return open ? (
-    <div style={{ width: '100%' }}>
-      <SpecialistPicker fetchUrl="/book/availability" fetchParams={{ subject: c.subject }} enabled autoAssign
-        date={date} onDateSnap={setDate} lawyerId={lawyerId} onLawyerChange={setLawyerId} time={time} onTimeChange={setTime} />
-      <button className="btn sm" type="button" style={{ marginTop: 10 }} disabled={!lawyerId || !time || busy} onClick={() => {
-        setBusy(true);
-        router.post(`/consults/${c.id}/schedule`, { lawyer_id: lawyerId, date, time }, {
-          preserveScroll: true, onSuccess: () => toast('تم تأكيد الموعد'), onError: () => toast('تعذّر، جرّب فترة أخرى'), onFinish: () => setBusy(false),
-        });
-      }}>
-        <Icon name="cal" /> تأكيد الموعد
-      </button>
-    </div>
-  ) : (
-    <button className="btn sm" type="button" onClick={() => setOpen(true)}><Icon name="cal" /> اختر موعد الجلسة</button>
-  );
-};
 
 // يطابق myConsultsView في index (82).html — استشارات العميل مع حالة الجلسة لحظياً
 
@@ -86,9 +47,19 @@ void navigator.clipboard.writeText(c.slink);
 
   return (
     <>
+      <div className="greet">
+        <h2>استشاراتي</h2>
+        <p>استشاراتك المحجوزة وحالتها. لاستشارات الفيديو، ادخل الجلسة المرئية مباشرةً من هنا.</p>
+      </div>
+
+      <div className="ai-banner">
+        <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
+        <p>عند بدء المكتب للجلسة المرئية يصلك إشعار، وتدخل الغرفة نفسها عبر «دخول الجلسة المرئية».</p>
+      </div>
+
       <div className="card">
         <div className="card-h">
-          <h3>استشاراتي</h3>
+          <h3>الاستشارات المحجوزة</h3>
           <span className="sub">{items.length} استشارة</span>
         </div>
         <div className="card-b">
@@ -100,11 +71,7 @@ void navigator.clipboard.writeText(c.slink);
                 <span style={{ display: 'block', margin: '3px 0' }}>
                   <Badge text={c.channel} tone={crChannelTone(c.channel)} /> · {lawyerFirst(c.lawyer)} · {c.when}
                 </span>
-                {c.channel === 'مرئية' && c.session !== 'منتهية' && c.canJoin && (
-                  <span style={{ display: 'block', direction: 'ltr', textAlign: 'right', fontSize: 11, color: 'var(--primary)', fontWeight: 700 }}>
-                    🔗 {c.slink}
-                  </span>
-                )}
+
                 {c.channel === 'حضورية' && (
                   <span style={{ display: 'block', marginTop: 3, fontSize: '11.5px', color: 'var(--muted)' }}>
                     <Icon name="pin" /> {c.branch}
@@ -165,6 +132,11 @@ void navigator.clipboard.writeText(c.slink);
                   <Badge text="سيتصل بك المكتب في الموعد" tone="b-amber" />
                 ) : (
                   <Badge text="بانتظار الجلسة" tone="b-grey" />
+                )}
+                {!CONSULT_BOOKING_STATUSES.includes(c.status) && c.status !== 'ملغاة' && (
+                  <a className="btn soft sm" href={`/consults/${c.id}/report.pdf`}>
+                    <Icon name="download" /> تحميل التقرير (PDF)
+                  </a>
                 )}
               </div>
             </div>

@@ -3,7 +3,7 @@ import React, { useEffect, useReducer, useRef, useState } from 'react';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
 import { maskLawyer } from '@/lib/utils';
-import { todayDate } from '@/lib/chat';
+import { ALLOWED_DOC_ACCEPT, ALLOWED_DOC_HINT, todayDate } from '@/lib/chat';
 import {
   SVC, SVC_GROUPS, RAIL, STAGE_RAIL, CONSULT_PRICES, VAT_RATE, TF_FILES,
   qrRects, QR_SIZE,
@@ -100,6 +100,9 @@ const NewTicket: React.FC = () => {
   const [fService, setFService] = useState('');
   const [details, setDetails] = useState('');
   const [errSvc, setErrSvc] = useState(false);
+  const [pickedFiles, setPickedFiles] = useState<File[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [invoice, setInvoice] = useState({ amt: 0, vat: 0, total: 0 });
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -126,7 +129,7 @@ const NewTicket: React.FC = () => {
   const start = () => {
     tf.current = { no: '', stage: 'create', service: '', dept: '', consult: '', branch: '', lawyer: '', day: '', time: '', files: [] };
     clock.current = new Date();
-    setMessages([]); setComposer(false); setFService(''); setDetails(''); setErrSvc(false);
+    setMessages([]); setComposer(false); setFService(''); setDetails(''); setErrSvc(false); setPickedFiles([]);
     setStatus({ text: 'مسودة', tone: 'sb-grey' }); setThreadSub('ابدأ بإنشاء طلبك'); setActionStage('create');
     force();
     setTimeout(() => addMsg('system', 'النظام', 'نظام', 'مرحباً بك. اختر نوع الخدمة، صِف طلبك، وأرفق مستنداتك ثم اضغط «إرسال الطلب».'), 0);
@@ -140,13 +143,28 @@ const NewTicket: React.FC = () => {
   };
   const rmFile = (i: number) => { tf.current.files = tf.current.files.filter((_, x) => x !== i); force(); };
 
-  // إنشاء التذكرة فعلياً في قاعدة البيانات ثم الانتقال إليها
+  // رفع مستندات داعمة حقيقية (اختيار من جهاز العميل) قبل إنشاء التذكرة
+  const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files || []);
+    if (picked.length) setPickedFiles((prev) => [...prev, ...picked]);
+    e.target.value = '';
+  };
+  const removePickedFile = (i: number) => setPickedFiles((prev) => prev.filter((_, x) => x !== i));
+
+  // إنشاء التذكرة فعلياً في قاعدة البيانات (مع مرفقاتها الحقيقية) ثم الانتقال إليها
   const submit = () => {
+    if (submitting) return; // منع الإرسال المزدوج (حارس متزامن قبل إعادة الرسم)
     if (!fService) { setErrSvc(true); return; }
+    setSubmitting(true);
     router.post('/tickets', {
       type: SVC[fService].label,
       department: SVC[fService].dept,
       details: details.trim(),
+      files: pickedFiles,
+    }, {
+      forceFormData: true,
+      onError: () => { setSubmitting(false); toast('تعذّر إرسال الطلب، تحقّق من البيانات والمرفقات'); },
+      onFinish: () => setSubmitting(false),
     });
   };
 
@@ -296,14 +314,16 @@ const NewTicket: React.FC = () => {
             </div>
             <div className="field">
               <label>المستندات الداعمة</label>
-              <div className="upload" onClick={addFile}><Icon name="upload" />اضغط لرفع الملفات</div>
+              <div className="upload" onClick={() => fileInputRef.current?.click()}><Icon name="upload" />اضغط لرفع الملفات</div>
+              <input ref={fileInputRef} type="file" multiple hidden accept={ALLOWED_DOC_ACCEPT} onChange={onPickFiles} />
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>{ALLOWED_DOC_HINT}</div>
               <div className="uploaded">
-                {c.files.map((f, i) => (
-                  <span key={i} className="file-tag">📎 {f} <span className="x" onClick={() => rmFile(i)}>✕</span></span>
+                {pickedFiles.map((f, i) => (
+                  <span key={i} className="file-tag">📎 {f.name} <span className="x" onClick={() => removePickedFile(i)}>✕</span></span>
                 ))}
               </div>
             </div>
-            <button className="btn block" onClick={submit}>إرسال الطلب <Icon name="send" /></button>
+            <button className="btn block" onClick={submit} disabled={submitting}>{submitting ? <><span className="spin" /> جارٍ الإرسال…</> : <>إرسال الطلب <Icon name="send" /></>}</button>
           </>
         );
       case 'missing':

@@ -29,18 +29,12 @@ class CaseConvertedMail extends Mailable implements ShouldQueue
 
     public function content(): Content
     {
-        $c = $this->case;
-        $baseUrl = rtrim((string) config('app.url'), '/');
-
-        $html = '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;line-height:1.9;color:#222">'
-            .'<h2 style="color:#0b5">تم تحويل طلبك إلى قضية قانونية</h2>'
-            .'<p>مرحباً '.e($c->user?->name ?? 'عميلنا الكريم').'،</p>'
-            .'<p>تم تحويل تذكرتك رقم <b>'.e($this->ticketNumber).'</b> إلى قضية قانونية رقم <b>'.e($c->number).'</b> ('.e($c->type).').</p>'
-            .'<p>الخطوة التالية: تتولّى الإدارة تحديد الأتعاب، وستصلك فاتورتها لسدادها وتفعيل القضية.</p>'
-            .'<p><a href="'.e($baseUrl.'/cases').'" style="background:#0b5;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;display:inline-block">متابعة قضيتي</a></p>'
-            .'<p style="color:#777;margin-top:24px">مكتب سلاسل بابل للمحاماة والاستشارات القانونية</p>'
-            .'</div>';
-
-        return new Content(htmlString: $html);
+        return new Content(
+            view: 'emails.case-converted',
+            with: [
+                'case' => $this->case,
+                'ticketNumber' => $this->ticketNumber,
+            ]
+        );
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Invoice;
 use App\Models\Ticket;
+use App\Support\PaymentReconciler;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -44,7 +45,7 @@ class AccountingController extends Controller
 
     public function pay(Request $request, Invoice $invoice): RedirectResponse
     {
-        \App\Support\PaymentReconciler::settleDomain($invoice, $request->user()->name);
+        PaymentReconciler::settleDomain($invoice, $request->user()->name);
 
         return back()->with('flash', "تم تسجيل تحصيل الفاتورة {$invoice->number}.");
     }

@@ -18,7 +18,7 @@ class Execution extends Model
         'stage', 'sanad', 'defendant', 'amount', 'notes', 'docs', 'client_code',
         'ai_done', 'ai_summary', 'ai_missing', 'ai_procedures',
         'decision', 'fee', 'vat', 'duration', 'pay_method', 'fee_approved', 'offer_status',
-        'invoice_no', 'paid', 'paid_at', 'exec_no',
+        'invoice_no', 'paid', 'paid_at', 'exec_no', 'payment_reminder_sent_at',
     ];
 
     protected $casts = [
@@ -33,6 +33,7 @@ class Execution extends Model
         'fee_approved' => 'boolean',
         'paid' => 'boolean',
         'paid_at' => 'datetime',
+        'payment_reminder_sent_at' => 'datetime',
     ];
 
     public function user(): BelongsTo
@@ -85,20 +86,6 @@ class Execution extends Model
         return 'number';
     }
 
-    // الشكل الذي تتوقعه الواجهة (يطابق DATA.execs)
-    public function toCard(): array
-    {
-        return [
-            'no' => $this->number,
-            'subject' => $this->subject,
-            'status' => $this->status,
-            'tone' => $this->tone,
-            'last' => $this->last_action,
-            'lawyer' => $this->assigned_lawyer,
-            'court' => $this->court,
-        ];
-    }
-
     /**
      * شكل سجلّ تدفّق التنفيذ التجاريّ للواجهة (يطابق نوع ExecReq في exec-flow.ts).
      * $masked: إخفاء اسم العميل لغير مالكه (المحامي/الموظف/الإدارة).
@@ -106,7 +93,7 @@ class Execution extends Model
     public function toFlowCard(bool $masked = false): array
     {
         $client = $this->user?->name ?? '—';
-        $stage = $this->displayStage();
+        $stage = $this->effectiveStage();
 
         return [
             'id' => $this->number,
@@ -144,6 +131,8 @@ class Execution extends Model
             'procedures' => $this->procedures->map(fn (ExecutionProcedure $p) => [
                 'a' => $p->title,
                 't' => $p->created_at?->format('Y/m/d h:i') ?? '',
+                'type' => $p->type,
+                'status' => $p->status,
             ])->values()->all(),
             'closed' => $stage >= 9,
             'linkedCorr' => $this->relationLoaded('correspondences')
@@ -157,11 +146,12 @@ class Execution extends Model
     }
 
     /**
-     * مرحلة العرض: التنفيذات القديمة (stage=null، من البذور/تحويل قضية→تنفيذ) تُعرَض للعميل
+     * المرحلة الفعّالة: التنفيذات القديمة (stage=null، من البذور/تحويل قضية→تنفيذ) تُعامَل
      * كملفّات مفتوحة أصلاً — «مغلق»(9) إن اكتملت، وإلا «قيد التنفيذ»(8). العمود يبقى null في القاعدة
-     * كي لا تتأثّر استعلامات بقيّة الأدوار (whereNull/whereNotNull).
+     * كي لا تتأثّر استعلامات بقيّة الأدوار (whereNull/whereNotNull). مصدر وحيد يستخدمه العرض
+     * (toFlowCard) وحارس الانتقالات (ExecService::guard) معاً — لا تكرار.
      */
-    private function displayStage(): int
+    public function effectiveStage(): int
     {
         if ($this->stage !== null) {
             return (int) $this->stage;

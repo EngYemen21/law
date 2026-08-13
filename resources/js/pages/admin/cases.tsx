@@ -6,14 +6,22 @@ import { useToast } from '@/components/babylon/Toast';
 
 // إشراف الإدارة على كل القضايا + الإغلاق والأرشفة بعد الحكم
 
-interface CaseRow { no: string; client: string; type: string; lawyer: string; status: string; tone: string; canClose: boolean; }
+interface CaseRow { no: string; client: string; type: string; lawyer: string; status: string; tone: string; canClose: boolean; canArchive: boolean; canExecute: boolean; }
 interface Props { cases: CaseRow[]; }
 
 const AdminCases: React.FC<Props> = ({ cases }) => {
   const toast = useToast();
   const close = (no: string) =>
     router.post(`/admin/cases/${encodeURIComponent(no)}/close`, {}, {
-      preserveScroll: true, onSuccess: () => toast('تم إغلاق القضية وأرشفتها'),
+      preserveScroll: true, onSuccess: () => toast('تم إغلاق القضية'),
+    });
+  const archive = (no: string) =>
+    router.post(`/admin/cases/${encodeURIComponent(no)}/archive`, {}, {
+      preserveScroll: true, onSuccess: () => toast('تمت أرشفة القضية'),
+    });
+  const execute = (no: string) =>
+    router.post(`/admin/cases/${encodeURIComponent(no)}/execute`, {}, {
+      preserveScroll: true, onSuccess: () => toast('تم فتح طلب تنفيذ للقضية'),
     });
 
   return (
@@ -39,7 +47,17 @@ const AdminCases: React.FC<Props> = ({ cases }) => {
                   <td>
                     {c.canClose && (
                       <button className="btn sm" type="button" onClick={() => close(c.no)}>
-                        <Icon name="check" /> إغلاق وأرشفة
+                        <Icon name="check" /> إغلاق
+                      </button>
+                    )}
+                    {c.canArchive && (
+                      <button className="btn sm soft" type="button" onClick={() => archive(c.no)}>
+                        <Icon name="folder" /> أرشفة
+                      </button>
+                    )}
+                    {c.canExecute && (
+                      <button className="btn sm soft" type="button" onClick={() => execute(c.no)}>
+                        <Icon name="exec" /> تحويل لتنفيذ
                       </button>
                     )}
                   </td>

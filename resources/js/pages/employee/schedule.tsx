@@ -20,8 +20,13 @@ const EmployeeSchedule: React.FC<Props> = ({ clients, lawyers }) => {
   const [time, setTime] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // حجب الأوقات الماضية على تاريخ اليوم (شبكة الأمان الخادمية isPast() تبقى قائمة)
+  const nowHM = () => new Date().toTimeString().slice(0, 5);
+  const isPast = date === todayISO() && time !== '' && time <= nowHM();
+
   const submit = () => {
     if (!clientId || !date || !time) { toast('اختر العميل والتاريخ والوقت'); return; }
+    if (isPast) { toast('لا يمكن اختيار وقت ماضٍ، فضلاً اختر وقتاً لاحقاً'); return; }
     setBusy(true);
     router.post('/employee/schedule', { client_id: clientId, lawyer_id: lawyerId || null, type, subject: subject.trim(), date, time }, {
       preserveScroll: true,
@@ -61,9 +66,10 @@ const EmployeeSchedule: React.FC<Props> = ({ clients, lawyers }) => {
         </div>
         <div className="picker-grid">
           <div className="field"><label>التاريخ</label><input className="input" type="date" min={todayISO()} value={date} onChange={(e) => setDate(e.target.value)} /></div>
-          <div className="field"><label>الوقت</label><input className="input" type="time" value={time} onChange={(e) => setTime(e.target.value)} /></div>
+          <div className="field"><label>الوقت</label><input className="input" type="time" min={date === todayISO() ? nowHM() : undefined} value={time} onChange={(e) => setTime(e.target.value)} /></div>
         </div>
-        <button className="btn block" style={{ marginTop: 14 }} onClick={submit} type="button" disabled={busy}>
+        {isPast && <div style={{ color: 'var(--danger, #c0392b)', fontSize: 12, margin: '2px 0 8px' }}>الوقت المختار مضى — اختر وقتاً لاحقاً.</div>}
+        <button className="btn block" style={{ marginTop: 14 }} onClick={submit} type="button" disabled={busy || isPast}>
           <Icon name="calplus" /> {busy ? 'جارٍ الحفظ…' : 'تأكيد الجدولة'}
         </button>
       </div>

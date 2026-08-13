@@ -129,7 +129,9 @@ class ZoomWebhookController extends Controller
 
     private function setMeetingStatus(Meeting $meeting, string $status): void
     {
-        if ($meeting->status === 'منتهٍ' || $meeting->status === $status) {
+        // الحالات النهائية لا تُحدَّث بحدث Zoom متأخّر: «منتهٍ» و«ملغى»
+        // (فلا يُحيي حدث started/ended مطابور قبل الحذف اجتماعًا أُلغي).
+        if (in_array($meeting->status, ['منتهٍ', 'ملغى'], true) || $meeting->status === $status) {
             return;
         }
 

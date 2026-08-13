@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { router } from '@inertiajs/react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import DetailShell from '@/components/babylon/DetailShell';
 import ChatThread from '@/components/babylon/ChatThread';
 import FlowLine from '@/components/babylon/FlowLine';
@@ -34,6 +34,7 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
   const [lawyerId, setLawyerId] = useState<number | null>(null);
   const [time, setTime] = useState('');
   const [busy, setBusy] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   // بثّ لحظي لتقدّم الاستشارة (تسعير الإدارة/السداد) — يعيد تحميل الحقول من الخادم
   useEffect(() => {
@@ -43,6 +44,13 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
   }, [consult?.id]);
 
   const status = consult?.status ?? null;
+
+  // عند وصول خطوة اختيار الموعد (بعد الدفع) — التمرير لأعلى ليظهر قسم حجز الموعد بدل بقاء الشاشة أسفل الدردشة
+  useEffect(() => {
+    if (status === 'بانتظار تحديد الموعد') {
+      cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [status]);
 
   // الخطوة 1: طلب الاستشارة (النوع فقط) → يُرسل للتسعير
   const requestConsult = () => {
@@ -79,7 +87,7 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
       : status === 'بانتظار السداد' ? 'بانتظار السداد' : 'اختر الموعد';
 
   return (
-    <div className="card" style={{ marginBottom: 16 }}>
+    <div className="card" ref={cardRef} style={{ marginBottom: 16 }}>
       <div className="card-h">
         <h3>حجز موعد الاستشارة</h3>
         <Badge text={badge} tone="b-amber" />
@@ -158,6 +166,13 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
   // الحالة لحظية: تتحدّث عبر بثّ القناة فيتقدّم المسار دون إعادة تحميل
   const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone });
 
+  // عند بثّ حالة التذكرة (تقدّم المسار خادميّاً) نعيد جلب الاستشارة المرتبطة أيضاً — فتصل حقول
+  // الفاتورة/السداد لحظياً ويُفعَّل زر «الدفع عبر ميسّر» دون إعادة تحميل يدوي للصفحة.
+  const onStatus = (s: { status: string; tone: string }) => {
+    setStatus(s);
+    router.reload({ only: ['consult'] });
+  };
+
   // تُعرض لوحة الحجز عند مرحلة الحجز، أو ما دامت هناك استشارة قيد الحجز/الدفع/الجدولة
   const bookingActive = consult && ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'].includes(consult.status);
   const showBooking = status.status === 'بانتظار حجز الاستشارة' || !!bookingActive;
@@ -205,7 +220,8 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
         channel={channel}
         onSend={send}
         onAttach={attach}
-        onStatus={setStatus}
+        onStatus={onStatus}
+        readOnly={['مكتملة', 'مغلقة'].includes(status.status)}
         placeholder="اكتب رسالتك للفريق القانوني…"
       />
     </DetailShell>

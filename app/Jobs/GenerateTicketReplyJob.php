@@ -6,6 +6,7 @@ use App\Events\TicketMessageBroadcast;
 use App\Models\Ticket;
 use App\Services\LegalAiService;
 use App\Support\Live;
+use App\Support\TicketJourney;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -29,7 +30,7 @@ class GenerateTicketReplyJob implements ShouldQueue
         }
 
         // يتوقّف الردّ التلقائيّ لـ AI بمجرّد إحالة التذكرة للقسم القانوني أو تحويلها للتعامل البشري
-        if (\App\Support\TicketJourney::indexOf($ticket->status) >= \App\Support\TicketJourney::indexOf('محالة للقسم القانوني')) {
+        if (TicketJourney::indexOf($ticket->status) >= TicketJourney::indexOf('محالة للقسم القانوني')) {
             return;
         }
 

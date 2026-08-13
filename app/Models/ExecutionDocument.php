@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class ExecutionDocument extends Model
 {
-    protected $fillable = ['execution_id', 'label', 'status', 'path', 'mime', 'size', 'uploaded_at'];
+    protected $fillable = ['execution_id', 'label', 'status', 'path', 'mime', 'size', 'uploaded_at', 'doc_type', 'summary'];
 
     protected $casts = [
         'size' => 'integer',
@@ -32,6 +32,8 @@ class ExecutionDocument extends Model
             'tone' => self::statusTone($this->status),
             'fileName' => $this->path ? basename((string) $this->path) : null,
             'canUpload' => in_array($this->status, ['مطلوب', 'مرفوض'], true),
+            'docType' => $this->doc_type ?? '',
+            'summary' => $this->summary ?? '',
         ];
     }
 

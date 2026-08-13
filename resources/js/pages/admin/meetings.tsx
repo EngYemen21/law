@@ -3,7 +3,7 @@ import React from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
-import { type FullMeetingCard } from '@/lib/meeting-ui';
+import { fmtActualDuration, type FullMeetingCard } from '@/lib/meeting-ui';
 
 // يطابق adMeetings + mApprove في index (82).html — الاعتماد حقيقي (يصل المحضر والملخص للعميل)
 
@@ -30,7 +30,16 @@ const AdminMeetings: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) 
           {meetings.length ? meetings.map((m) => (
             <div key={m.id} className="item">
               <div className="iico"><Icon name="video" /></div>
-              <div className="imeta"><b>{m.title}</b><span>{m.type} · {m.when}</span></div>
+              <div className="imeta">
+                <b>{m.title}</b>
+                <span>{m.type} · {m.when} · {m.client} · {m.lawyer !== '—' ? m.lawyer : 'بلا محامٍ'}</span>
+                <div className="prot-list" style={{ marginTop: 5 }}>
+                  <span className="chip" style={{ opacity: m.summary ? 1 : 0.5 }}>{m.summary ? '✓ ملخّص' : 'بلا ملخّص'}</span>
+                  <span className="chip" style={{ opacity: m.minutes ? 1 : 0.5 }}>{m.minutes ? '✓ محضر' : 'بلا محضر'}</span>
+                  <span className="chip" style={{ opacity: m.decisions.length ? 1 : 0.5 }}>{m.decisions.length ? `✓ قرارات (${m.decisions.length})` : 'بلا قرارات'}</span>
+                  {m.status === 'منتهٍ' && <span className="chip">حضور {m.attend || 0}%{fmtActualDuration(m.durationSec) ? ` · ${fmtActualDuration(m.durationSec)}` : ''}</span>}
+                </div>
+              </div>
               <div className="iact">
                 <button className="btn soft sm" onClick={() => router.visit(`/admin/meeting?id=${encodeURIComponent(m.id)}`)} type="button">
                   <Icon name="out" /> فتح الصفحة

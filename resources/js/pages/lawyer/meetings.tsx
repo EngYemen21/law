@@ -48,9 +48,11 @@ const LawyerMeetings: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings })
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-              <button className="btn sm" onClick={() => router.visit(`/lawyer/meetingroom?ref=${encodeURIComponent(m.id)}`)} type="button">
-                <Icon name="video" /> دخول اجتماع Zoom
-              </button>
+              {m.meetLink && !['منتهٍ', 'ملغى'].includes(m.status) && (
+                <button className="btn sm" onClick={() => router.visit(`/lawyer/meetingroom?ref=${encodeURIComponent(m.id)}`)} type="button">
+                  <Icon name="video" /> دخول اجتماع Zoom
+                </button>
+              )}
               <button className="btn soft sm" onClick={() => openPage(m.id)} type="button">
                 <Icon name="doc" /> فتح الصفحة
               </button>

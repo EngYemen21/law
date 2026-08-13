@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Enums\Role;
 use App\Models\Document;
 use App\Models\User;
 
@@ -13,7 +14,7 @@ class DocumentPolicy
     public function view(User $user, Document $document): bool
     {
         // Admin, Employee, or Lawyer can view relevant documents
-        if ($user->isAdmin() || $user->isEmployee() || $user->isLawyer()) {
+        if (in_array($user->role, [Role::Admin, Role::Employee, Role::Lawyer], true)) {
             return true;
         }
 
@@ -26,7 +27,7 @@ class DocumentPolicy
      */
     public function delete(User $user, Document $document): bool
     {
-        if ($user->isAdmin()) {
+        if ($user->role === Role::Admin) {
             return true;
         }
 

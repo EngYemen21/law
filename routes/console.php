@@ -19,3 +19,10 @@ Schedule::command('meetings:send-reminders')->everyMinute()->withoutOverlapping(
 
 // تذكير بمواعيد الاستشارات عبر البريد (طبقتا: قبل 24 ساعة، وقبل ساعة) (يحتاج `schedule:run` عبر cron)
 Schedule::command('consults:send-reminders')->everyMinute()->withoutOverlapping();
+
+// تذكير بجلسات القضايا — إشعار داخلي + بريد (طبقتا: قبل 24 ساعة، وقبل ساعة) (يحتاج `schedule:run` عبر cron)
+Schedule::command('hearings:send-reminders')->everyMinute()->withoutOverlapping();
+
+// حسم وتصفية الاجتماعات والدعوات القديمة غير المنعقدة تلقائياً
+Schedule::command('zoom:auto-close-missed')->everyFifteenMinutes()->withoutOverlapping();
+

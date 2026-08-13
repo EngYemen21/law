@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Enums\Role;
+use App\Events\TicketStatusBroadcast;
 use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
@@ -37,7 +38,7 @@ class TicketAssignment
         }
 
         $ticket->update($updates);
-        Live::push(new \App\Events\TicketStatusBroadcast($ticket));
+        Live::push(new TicketStatusBroadcast($ticket));
 
         return $lawyer;
     }

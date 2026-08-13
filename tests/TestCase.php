@@ -4,11 +4,29 @@ namespace Tests;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 
 abstract class TestCase extends BaseTestCase
 {
+    /**
+     * تثبيت وقت اليوم (لا التاريخ) على ساعة مبكرة (٠٠:٣٠) لكل اختبار — يمنع تذبذب الاختبارات
+     * التي تحجز بساعات ثابتة (مثل ١١:٠٠/١٣:٠٠) اعتماداً على وقت التشغيل الفعلي، بعد إضافة
+     * حارس «لا حجز في الماضي» الحقيقي. التاريخ يبقى اليوم الفعلي — لا يتأثر أي منطق تقويمي آخر.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Carbon::setTestNow(Carbon::today()->setTime(0, 30));
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
+
     /**
      * تهيئة مفاتيح تقنيات + تزييف واجهة Verify (generate=5، check=10 للرمز الصحيح و11 لغيره).
      * تُستدعى في الاختبارات التي تمرّ بمسار المصادقة الفعليّ.

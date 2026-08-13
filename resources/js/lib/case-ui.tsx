@@ -23,12 +23,12 @@ export function caseStage(status: string): number {
 
 export interface Hearing {
   id: number; title: string; day: string; time?: string | null;
-  court?: string | null; status: string; outcome?: string | null;
+  court?: string | null; status: string; outcome?: string | null; startsAt?: string | null;
 }
 
 /** نغمة حالة الجلسة — مصدر وحيد (يستعملها تقويم المحامي أيضاً) */
 export const hearingTone = (s: string): string =>
-  s === 'منعقدة' ? 'b-green' : s === 'مؤجلة' ? 'b-amber' : 'b-blue';
+  s === 'منعقدة' ? 'b-green' : s === 'مؤجلة' ? 'b-amber' : s === 'ملغاة' ? 'b-grey' : 'b-blue';
 
 export const HearingsCard: React.FC<{ hearings: Hearing[] }> = ({ hearings }) => (
   <div className="card">

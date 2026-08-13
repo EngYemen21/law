@@ -26,14 +26,18 @@ class DashboardsTest extends TestCase
         Ticket::create(['user_id' => $client->id, 'number' => 'T2', 'type' => 'تجاري', 'status' => 'مكتملة', 'tone' => 'b-green']);
         Appointment::create(['user_id' => $client->id, 'ext_id' => 'AP1', 'type' => 'استشارة', 'ico' => 'office', 'lawyer' => 'أ. سارة القحطاني', 'day' => 'الأحد', 'time' => '10ص', 'branch' => 'الرياض', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up']);
         Invoice::create(['user_id' => $client->id, 'number' => 'INV1', 'description' => 'أتعاب', 'amount' => 5000, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال 14 يوماً', 'paid' => false]);
+        // تنفيذ من النمط القديم (stage=null) + تنفيذ من تدفّق «المرحلة 2» الجديد (stage=1، نشط) — كلاهما يُحتسَب
         Execution::create(['user_id' => $client->id, 'number' => 'EXE1', 'subject' => 'تنفيذ', 'status' => 'جديد', 'tone' => 'b-blue']);
+        Execution::create(['user_id' => $client->id, 'number' => 'EXE2', 'subject' => 'تنفيذ جديد', 'status' => 'تحليل ذكي', 'tone' => 'b-blue', 'stage' => 1]);
+        // تنفيذ مغلق (stage=9) لا يُحتسَب ضمن «ملفات التنفيذ» النشطة
+        Execution::create(['user_id' => $client->id, 'number' => 'EXE3', 'subject' => 'تنفيذ مغلق', 'status' => 'مغلق', 'tone' => 'b-grey', 'stage' => 9]);
 
         $this->actingAs($client)->get(route('dashboard'))
             ->assertOk()->assertInertia(fn ($p) => $p->component('dashboard')
             ->where('counts.openTickets', 1)   // T2 مكتملة مستثناة
             ->where('counts.upAppts', 1)
             ->where('counts.dueInv', 1)
-            ->where('counts.myExec', 1)
+            ->where('counts.myExec', 2)
             ->has('upcomingAppts', 1)
             ->has('dueInvoices', 1)
             ->where('lastTicket.no', 'T2'));

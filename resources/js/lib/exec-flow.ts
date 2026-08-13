@@ -12,15 +12,19 @@ export const EXEC_FLOW = [
 export const EXEC_SANADS = ['حكم قضائي', 'سند لأمر', 'شيك', 'عقد تنفيذي', 'محضر صلح', 'قرار تحكيم'];
 export const EXEC_PAYM = ['دفعة واحدة', 'دفعات', 'حسب مراحل التنفيذ', 'نسبة من المحصّل'];
 
+// صيغ الإرفاق في محادثة التنفيذ — تطابق ExecFlowController::attach (يضيف XLSX عن نظيرتها في التذاكر/القضايا)
+export const EXEC_DOC_ACCEPT = '.pdf,.jpg,.jpeg,.png,.doc,.docx,.xlsx';
+export const EXEC_DOC_HINT = 'الصيغ المسموحة: PDF، JPG، PNG، DOC، DOCX، XLSX — حتى 10MB لكل ملف';
+
 import { type Message } from '@/lib/chat';
 
 export type Role = 'client' | 'lawyer' | 'admin' | 'employee';
 
-export interface Proc { a: string; t: string }
+export interface Proc { a: string; t: string; type?: string; status?: string }
 export interface LinkedCorr { id: string; entity: string; stageLabel: string }
 
 // مستند مطلوب من العميل (يطابق exDocPanel)
-export interface ExecDoc { id: number; label: string; status: string; tone: string; fileName: string | null; canUpload: boolean }
+export interface ExecDoc { id: number; label: string; status: string; tone: string; fileName: string | null; canUpload: boolean; docType?: string; summary?: string }
 
 export interface ExecReq {
   id: string;
@@ -64,4 +68,9 @@ export function execTone(stage: number): string {
 // تنسيق المبلغ (تطابق execMoney)
 export function execMoney(n: number): string {
   return Number(n || 0).toLocaleString('en-US');
+}
+
+// نغمة شارة حالة إجراء التنفيذ (منفّذ/مجدول/مؤجل)
+export function procTone(status?: string): string {
+  return status === 'منفّذ' ? 'b-green' : status === 'مؤجل' ? 'b-amber' : status === 'مجدول' ? 'b-blue' : 'b-grey';
 }

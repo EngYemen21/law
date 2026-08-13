@@ -36,7 +36,9 @@ class DashboardController extends Controller
                 'upAppts' => Appointment::where('user_id', $uid)->where('when_kind', 'up')->count(),
                 'upMeet' => Meeting::where('user_id', $uid)->whereIn('status', ['قادم', 'جارٍ'])->count(),
                 'dueInv' => Invoice::where('user_id', $uid)->where('paid', false)->count(),
-                'myExec' => Execution::where('user_id', $uid)->whereNull('stage')->count(),
+                'myExec' => Execution::where('user_id', $uid)
+                    ->where(fn ($q) => $q->whereNull('stage')->orWhere('stage', '<', 9))
+                    ->count(),
             ],
             // أقرب 3 مواعيد قادمة و3 فواتير مستحقّة — لبطاقتَي «مواعيدك القادمة» و«فواتير بانتظار السداد»
             'upcomingAppts' => Appointment::where('user_id', $uid)->where('when_kind', 'up')

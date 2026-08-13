@@ -17,13 +17,25 @@ interface CaseDetail {
   invoice: string; paid: string; fee?: number | null; feeStatus?: string;
   installmentsPaid?: number; installmentsTotal?: number;
 }
-interface Props { case: CaseDetail; channel: string; messages: Message[]; hearings: Hearing[]; }
+interface CaseDoc { id: number; name: string; by: string; status: string; docType: string; summary: string; date: string }
+interface Props { case: CaseDetail; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[]; }
 
-const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings }) => {
+const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings, documents }) => {
   const toast = useToast();
   const [status, setStatus] = useState({ status: c.status, tone: c.tone });
   const send = (text: string) => {
     axios.post(`/cases/${encodeURIComponent(c.no)}/messages`, { body: text });
+  };
+  // المحادثة والرفع متاحان ما لم تكن القضية مغلقة/مؤرشفة (متوافق مع حارس الخادم)
+  const chatOpen = !['مغلقة', 'مؤرشفة'].includes(status.status);
+  // رفع مستند فعلي لملف القضية — تظهر رسالته لحظياً عبر البثّ، وتُحدَّث قائمة المستندات فور نجاح الرفع
+  const attach = (file?: File) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    axios.post(`/cases/${encodeURIComponent(c.no)}/attach`, fd)
+      .then(() => { toast('تم رفع المستند'); router.reload({ only: ['documents'] }); })
+      .catch(() => toast('تعذّر رفع المستند'));
   };
   const pay = (plan: 'full' | 'install') =>
     router.post(`/cases/${encodeURIComponent(c.no)}/pay`, { plan }, { preserveScroll: true, onSuccess: () => toast('تم استلام السداد وتفعيل القضية') });
@@ -58,6 +70,23 @@ const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings }) => 
         </div>
       )}
       {hearings.length > 0 && <div style={{ marginBottom: 16 }}><HearingsCard hearings={hearings} /></div>}
+      {documents.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-h"><h3>مستندات القضية</h3><span className="sub">{documents.length} مستند</span></div>
+          <div className="card-b">
+            {documents.map((d) => (
+              <div key={d.id} className="item">
+                <div className="iico"><Icon name="doc" /></div>
+                <div className="imeta">
+                  <b>{d.name}</b>
+                  <span>{d.by} · {d.date}{d.docType ? ` · ${d.docType}` : ''}</span>
+                  {d.summary && <span style={{ display: 'block', marginTop: 3, fontSize: 11.5, color: 'var(--muted)' }}>{d.summary}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </>
   );
 
@@ -79,7 +108,7 @@ const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings }) => 
       ]}
       topExtra={flowCard}
     >
-      <ChatThread initial={messages} channel={channel} onSend={send} onStatus={setStatus} placeholder="اكتب رسالتك للفريق القانوني…" />
+      <ChatThread initial={messages} channel={channel} onSend={send} onAttach={attach} onStatus={setStatus} readOnly={!chatOpen} placeholder="اكتب رسالتك للفريق القانوني…" />
     </DetailShell>
   );
 };

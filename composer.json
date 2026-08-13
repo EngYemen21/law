@@ -16,6 +16,7 @@
         "laravel/tinker": "^3.0",
         "laravel/wayfinder": "^0.1.14",
         "resend/resend-php": "*",
+        "spatie/browsershot": "*",
         "spatie/laravel-permission": "*"
     },
     "require-dev": {

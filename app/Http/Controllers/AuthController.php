@@ -18,6 +18,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use Spatie\Permission\PermissionRegistrar;
 
 /**
  * المصادقة بلا كلمة مرور — دخول برقم الهويّة + رمز SMS (OTP) عبر واجهة «Verify» الرسميّة من تقنيات،
@@ -190,7 +191,7 @@ class AuthController extends Controller
 
         if ($target->id !== $current->id) {
             Auth::login($target);
-            app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+            app(PermissionRegistrar::class)->forgetCachedPermissions();
             $request->session()->forget(['otp', 'reg', 'account_choice']);
             $request->session()->regenerate();
         }

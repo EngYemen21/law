@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Enums\Role;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\User;
@@ -11,7 +12,9 @@ class MeetingSeeder extends Seeder
 {
     public function run(): void
     {
-        $client = User::where('email', 'client@salasel.test')->first();
+        // العميل التجريبي مُعرَّف برقم الهوية الثابت في DatabaseSeeder (لا بالبريد — قد يتغيّر).
+        $client = User::where('national_id', '1000000002')->where('role', Role::Client)->first();
+        $lawyer = User::where('email', 'lawyer.jeddah@salasel.sa')->first();
         if (! $client) {
             return;
         }
@@ -20,7 +23,7 @@ class MeetingSeeder extends Seeder
         $meetings = [
             [
                 'ref' => 'M-26101', 'title' => 'استشارة مرئية — نزاع تجاري', 'type' => 'اجتماع مع عميل',
-                'client_name' => $client->name, 'user_id' => $client->id,
+                'client_name' => $client->name, 'user_id' => $client->id, 'assigned_lawyer_id' => $lawyer?->id,
                 'when_label' => 'الاثنين 29 يونيو · 11:30 ص', 'status' => 'قادم', 'priority' => 'عالية',
                 'conf' => 'سري', 'dur' => '45 دقيقة', 'approve' => 'بانتظار اعتماد الإدارة',
                 'case_ref' => 'SB-2026-1042 — تذكرة', 'created_by' => 'منيرة الحربي',
@@ -56,7 +59,7 @@ class MeetingSeeder extends Seeder
             ],
             [
                 'ref' => 'M-26104', 'title' => 'استشارة مرئية — نزاع عقاري', 'type' => 'اجتماع مع عميل',
-                'client_name' => $client->name, 'user_id' => $client->id,
+                'client_name' => $client->name, 'user_id' => $client->id, 'assigned_lawyer_id' => $lawyer?->id,
                 'when_label' => 'الجمعة 12 يونيو · 10:00 ص', 'status' => 'منتهٍ', 'priority' => 'متوسطة',
                 'conf' => 'عادي', 'dur' => '45 دقيقة', 'attend' => 86, 'approve' => 'معتمد', 'sum_approved' => true,
                 'created_by' => 'منيرة الحربي',

@@ -20,7 +20,15 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $tmpDir = storage_path('app/browsershot-tmp');
+        if (!is_dir($tmpDir)) {
+            @mkdir($tmpDir, 0777, true);
+        }
+        putenv("TMP={$tmpDir}");
+        putenv("TEMP={$tmpDir}");
+        putenv("TMPDIR={$tmpDir}");
+        $_ENV['TMP'] = $_ENV['TEMP'] = $_ENV['TMPDIR'] = $tmpDir;
+        $_SERVER['TMP'] = $_SERVER['TEMP'] = $_SERVER['TMPDIR'] = $tmpDir;
     }
 
     /**

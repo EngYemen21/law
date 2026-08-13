@@ -24,13 +24,16 @@ class MeetingFlowTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $employee = User::factory()->create(['role' => Role::Employee, 'name' => 'منيرة الحربي']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
 
         $this->actingAs($employee)->post(route('employee.meetreqs.store'), [
             'client_id' => $client->id,
+            'lawyer_id' => $lawyer->id,
             'service' => 'نزاع تجاري',
             'type' => 'استشارة مرئية',
-            'day' => '2026-07-06',
+            'day' => now()->addWeek()->format('Y-m-d'),
             'time' => '11:30',
+            'duration' => 60,
         ])->assertRedirect();
 
         $req = MeetRequest::firstOrFail();
@@ -47,7 +50,8 @@ class MeetingFlowTest extends TestCase
         $employee = User::factory()->create(['role' => Role::Employee]);
 
         $this->actingAs($employee)->post(route('employee.meetreqs.store'), [
-            'client_id' => $lawyer->id, 'type' => 'استشارة مرئية',
+            'client_id' => $lawyer->id, 'lawyer_id' => $lawyer->id, 'type' => 'استشارة مرئية',
+            'day' => now()->addWeek()->format('Y-m-d'), 'time' => '11:30', 'duration' => 60,
         ])->assertStatus(422);
     }
 
@@ -106,7 +110,7 @@ class MeetingFlowTest extends TestCase
         $req = MeetRequest::create([
             'user_id' => $client->id, 'meeting_id' => $meeting->id, 'ref' => 'MR-7100',
             'service' => 'نزاع تجاري', 'type' => 'استشارة مرئية',
-            'day' => '—', 'time' => '—', 'sent_by' => 'المكتب', 'stage' => 1,
+            'day' => '—', 'time' => '—', 'sent_by' => 'المكتب', 'sent_by_id' => $employee->id, 'stage' => 1,
         ]);
 
         // تنفيذ الجلسة (المرحلة 2) + الاجتماع «جارٍ» + علَم «قائم الآن» + بثّ لحظي لشاشة العميل

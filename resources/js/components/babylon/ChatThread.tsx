@@ -5,6 +5,8 @@ import { useToast } from '@/components/babylon/Toast';
 import { echo } from '@/lib/echo';
 import {
   type Message,
+  ALLOWED_DOC_ACCEPT,
+  ALLOWED_DOC_HINT,
   ATTACH_POOL,
   CLIENT_NAME,
   ackMessage,
@@ -48,10 +50,15 @@ interface ChatThreadProps {
   channel?: string;
   // تحديث حالة التذكرة لحظياً (تقدّم مسار المعالجة)
   onStatus?: (s: { status: string; tone: string }) => void;
+  // للقراءة فقط: تُخفى منطقة الكتابة/الإرفاق (سجلّ مغلق — مثل قضية مغلقة/مؤرشفة)
+  readOnly?: boolean;
+  // تجاوز صيغ/تلميح الإرفاق الافتراضيّين (مثال: لتضمين XLSX في محادثة التنفيذ)
+  accept?: string;
+  hint?: string;
 }
 
 // يطابق سلوك ctSend / ctAttach مع مؤشر الكتابة والرد التلقائي
-const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكتب رسالتك لخدمة العملاء…', onSend, onAttach, channel, onStatus }) => {
+const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكتب رسالتك لخدمة العملاء…', onSend, onAttach, channel, onStatus, readOnly = false, accept = ALLOWED_DOC_ACCEPT, hint = ALLOWED_DOC_HINT }) => {
   const toast = useToast();
   const serverMode = !!onSend;
   const liveMode = !!channel;
@@ -135,25 +142,34 @@ const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكت�
         )}
         <div ref={endRef} />
       </div>
-      <div className="composer">
-        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--faint)', marginBottom: 8 }}>
-          اكتب هنا:
+      {readOnly ? (
+        <div className="composer" style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 12.5, fontWeight: 700 }}>
+          انتهت هذه المحادثة — السجلّ متاح للاطّلاع فقط.
         </div>
-        <textarea
-          value={reply}
-          onChange={(e) => setReply(e.target.value)}
-          placeholder={placeholder}
-        />
-        <div className="crow">
-          <button className="btn" onClick={send} type="button">
-            <Icon name="send" /> إرسال
-          </button>
-          <button className="btn soft" onClick={attach} type="button">
-            <Icon name="upload" /> إرفاق مستند
-          </button>
-          <input ref={fileRef} type="file" hidden onChange={onFilePicked} />
+      ) : (
+        <div className="composer">
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--faint)', marginBottom: 8 }}>
+            اكتب هنا:
+          </div>
+          <textarea
+            value={reply}
+            onChange={(e) => setReply(e.target.value)}
+            placeholder={placeholder}
+          />
+          <div className="crow">
+            <button className="btn" onClick={send} type="button">
+              <Icon name="send" /> إرسال
+            </button>
+            {onAttach && (
+              <button className="btn soft" onClick={attach} type="button">
+                <Icon name="upload" /> إرفاق مستند
+              </button>
+            )}
+            <input ref={fileRef} type="file" hidden accept={accept} onChange={onFilePicked} />
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>{hint}</div>
         </div>
-      </div>
+      )}
     </>
   );
 };

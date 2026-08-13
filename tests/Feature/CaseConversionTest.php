@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Ticket;
+use App\Models\TicketSummary;
 use App\Models\User;
 use App\Models\UserNotification;
 use App\Support\CaseFee;
@@ -60,6 +61,11 @@ class CaseConversionTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $employee = User::factory()->create(['role' => Role::Employee]);
         $ticket = $this->completedTicket($client);
+        // في التدفق الواقعي لا تصل التذكرة «مكتملة» إلا بعد اعتماد المستشار للملخّص — شرط تحويل الموظف
+        TicketSummary::create([
+            'ticket_id' => $ticket->id, 'case_summary' => 'ملخّص معتمد', 'status' => 'approved',
+            'approved_at' => now(), 'ai_generated' => true,
+        ]);
 
         $this->actingAs($employee)->post(route('employee.tickets.convert', $ticket))->assertRedirect();
 
