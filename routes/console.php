@@ -26,3 +26,6 @@ Schedule::command('hearings:send-reminders')->everyMinute()->withoutOverlapping(
 // حسم وتصفية الاجتماعات والدعوات القديمة غير المنعقدة تلقائياً
 Schedule::command('zoom:auto-close-missed')->everyFifteenMinutes()->withoutOverlapping();
 
+// تذكير بسداد فواتير أتعاب التنفيذ المستحقة
+Schedule::command('exec:send-payment-reminders')->everyThirtyMinutes()->withoutOverlapping();
+
