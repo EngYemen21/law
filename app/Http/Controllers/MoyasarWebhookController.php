@@ -17,9 +17,15 @@ class MoyasarWebhookController extends Controller
 {
     public function handle(Request $request): JsonResponse
     {
+        Log::info('moyasar.webhook.hit', [
+            'type' => $request->input('type'),
+            'id' => data_get($request->input('data'), 'id'),
+            'ip' => $request->ip(),
+        ]);
+
         abort_unless(MoyasarWebhook::secret() !== null, 503, 'Moyasar webhook غير مُهيّأ.');
 
-        abort_unless(MoyasarWebhook::verify($request->all()), 403, 'سرّ Moyasar غير صالح.');
+        abort_unless(MoyasarWebhook::verify($request), 403, 'سرّ Moyasar غير صالح.');
 
         // لا تثق بجسم الحدث: أعد جلب الدفعة من ميسّر بالمعرّف ثم سوِّها (اتّساقاً مع مسار الـcallback).
         $data = $request->input('data', []);
