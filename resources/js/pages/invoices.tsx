@@ -43,15 +43,22 @@ const InvRow: React.FC<{ v: Invoice }> = ({ v }) => {
 
   return (
     <div className="item">
-      <div className={`iico ${v.paid ? '' : 'pay-ico'}`}><Icon name="card" /></div>
-      <div className="imeta">
-        <b>{v.desc}</b>
-        <span className="mono" style={{ direction: 'ltr' }}>{v.no}</span> · <span>{v.due}</span>
+      <div className="item-top">
+        <div className={`iico ${v.paid ? '' : 'pay-ico'}`}><Icon name="card" /></div>
+        <div className="imeta">
+          <b>{v.desc}</b>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+            <span className="mono" style={{ direction: 'ltr', fontWeight: 600, fontSize: 12 }}>{v.no}</span>
+            <span style={{ color: 'var(--muted)', fontSize: 12 }}>· {v.due}</span>
+          </div>
+        </div>
+        <div className="item-price-tag" style={{ marginInlineStart: 'auto', textAlign: 'end' }}>
+          <span style={{ fontWeight: 800, color: 'var(--deep)', fontSize: 15, display: 'block' }}>
+            {v.amount.toLocaleString()} ر.س
+          </span>
+        </div>
       </div>
       <div className="iact">
-        <span style={{ fontWeight: 800, color: 'var(--deep)', fontSize: 15 }}>
-          {v.amount.toLocaleString()} ر.س
-        </span>
         <Badge text={v.status} tone={v.tone} />
         {v.paid ? (
           <a className="btn soft sm" href={`/invoices/${encodeURIComponent(v.no)}/pdf`}>

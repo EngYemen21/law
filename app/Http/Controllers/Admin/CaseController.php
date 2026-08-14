@@ -83,12 +83,11 @@ class CaseController extends Controller
             'paid' => false,
         ]);
 
-        $lawyerLine = $pct > 0 ? " (نصيب المحامي {$lawyerFee} ر.س بنسبة {$pct}%)" : '';
         $case->messages()->create([
             'who' => 'admin',
             'name' => 'الإدارة العليا',
             'role' => 'أتعاب',
-            'body' => "<p>تم تحديد أتعاب القضية بمبلغ <b>{$total} ر.س</b> (شامل الضريبة){$lawyerLine}. تُفعّل القضية بعد السداد.</p>",
+            'body' => '<p>تم تحديد واعتماد أتعاب القضية وإصدار الفاتورة للعميل، وتُفعّل القضية فور إتمام السداد.</p>',
             'time_label' => $this->clock(),
         ]);
 

@@ -114,7 +114,7 @@ const ApptCard: React.FC<{ a: Appt }> = ({ a }) => {
           <span>يُرجى الحضور قبل الموعد بـ15 دقيقة وإحضار المستندات المطلوبة</span>
         </div>
       </div>
-      <div style={{ display: 'flex', gap: 9, marginTop: 16, flexWrap: 'wrap' }}>
+      <div className="apptx-actions">
         <a className="btn" target="_blank" rel="noopener" href={calHref}>
           <Icon name="calplus" /> أضف إلى Google Calendar
         </a>
@@ -131,10 +131,16 @@ const ApptCard: React.FC<{ a: Appt }> = ({ a }) => {
 
 const ApptItem: React.FC<{ a: Appt; onOpen: (a: Appt) => void }> = ({ a, onOpen }) => (
   <div className="item">
-    <div className="iico"><Icon name={a.ico} /></div>
-    <div className="imeta">
-      <b>{a.type}</b>
-      <span>{a.day} · {a.time} · {maskLawyer(a.lawyer)} · {a.branch}</span>
+    <div className="item-top">
+      <div className="iico"><Icon name={a.ico} /></div>
+      <div className="imeta">
+        <b>{a.type}</b>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+          <span style={{ color: 'var(--ink)', fontWeight: 600, fontSize: 12 }}>{a.day} · {a.time}</span>
+          <span style={{ color: 'var(--muted)', fontSize: 12 }}>· {maskLawyer(a.lawyer)}</span>
+          <span style={{ color: 'var(--muted)', fontSize: 12 }}>· {a.branch}</span>
+        </div>
+      </div>
     </div>
     <div className="iact">
       <Badge text={a.status} tone={a.tone} />

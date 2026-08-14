@@ -83,9 +83,12 @@ class ExecFlowController extends Controller
             'defendant' => ['nullable', 'string', 'max:160'],
             'amount' => ['nullable', 'integer', 'min:0', 'max:1000000000'],
             'notes' => ['nullable', 'string', 'max:2000'],
+            'files' => ['nullable', 'array', 'max:10'],
+            'files.*' => ['file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx'],
         ]);
 
-        ExecService::submit($request->user(), $data);
+        $files = $request->file('files', []);
+        ExecService::submit($request->user(), $data, is_array($files) ? $files : [$files]);
 
         return back();
     }

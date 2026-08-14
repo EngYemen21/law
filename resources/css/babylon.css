@@ -172,14 +172,16 @@ svg{display:block}
 .consult b{font-size:15px;color:var(--ink);display:block}
 .consult span{font-size:12.5px;color:var(--muted);display:block;margin:3px 0 14px}
 
-.item{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid var(--line-soft)}
+.item{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 0;border-bottom:1px solid var(--line-soft)}
 .item:last-child{border-bottom:none}
+.item-top{display:flex;align-items:center;gap:14px;flex:1;min-width:0}
 .item .iico{width:44px;height:44px;border-radius:12px;flex:0 0 44px;display:grid;place-items:center;background:rgba(14,92,156,.08);color:var(--primary)}
 .item .iico .ic{width:21px;height:21px}
 .item .imeta{flex:1;min-width:0}
 .item .imeta b{font-size:14px;color:var(--ink);font-weight:700;display:block}
 .item .imeta span{font-size:12.5px;color:var(--muted)}
 .item .iact{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.item-price-tag{font-size:15px;font-weight:800;color:var(--deep);display:inline-flex;align-items:center;gap:4px;flex-shrink:0}
 .file-ico{background:rgba(17,160,200,.1);color:var(--cyan)}
 .pay-ico{background:var(--amber-bg);color:var(--amber)}
 
@@ -682,8 +684,8 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 .inv-ft .qr svg{width:84px;height:84px}
 .niv-row{display:grid;grid-template-columns:1fr 70px 90px 30px;gap:8px;align-items:center;margin-bottom:8px}
 .niv-row .x{cursor:pointer;color:var(--red);text-align:center;font-weight:800}
-.apptx{border-radius:18px;overflow:hidden;background:#fff;box-shadow:0 18px 50px -24px rgba(60,40,140,.45);max-width:560px;margin:0 auto;border:1px solid var(--line)}
-.apptx-head{background:linear-gradient(135deg,#5B4BD6,#7C3AED 55%,#9061F9);color:#fff;padding:18px 20px 20px}
+.apptx{border-radius:18px;overflow:hidden;background:#fff;box-shadow:0 18px 50px -24px rgba(10,42,85,.35);max-width:560px;margin:0 auto;border:1px solid var(--line)}
+.apptx-head{background:linear-gradient(135deg,#0A2A55,#0E5C9C 55%,#11A0C8);color:#fff;padding:18px 20px 20px}
 .apptx-brand{display:flex;align-items:center;gap:11px;margin-bottom:15px}
 .apptx-logo{width:42px;height:42px;border-radius:11px;background:rgba(255,255,255,.18);display:grid;place-items:center;font-weight:800;font-size:15px;letter-spacing:.5px}
 .apptx-brand b{font-size:15px;display:block;line-height:1.3}
@@ -700,7 +702,7 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 .apptx-qr p{font-size:10.5px;color:var(--muted);margin-top:9px;line-height:1.6}
 .apptx-rows{flex:1;display:flex;flex-direction:column;gap:13px;min-width:0}
 .apptx-row{display:flex;align-items:flex-start;gap:11px}
-.apptx-row .ri{width:34px;height:34px;border-radius:9px;background:var(--bg);display:grid;place-items:center;color:#7C3AED;flex-shrink:0}
+.apptx-row .ri{width:34px;height:34px;border-radius:9px;background:var(--bg);display:grid;place-items:center;color:var(--primary);flex-shrink:0}
 .apptx-row .ri .ic{width:17px;height:17px}
 .apptx-row .rc{flex:1;min-width:0}
 .apptx-row .rl{font-size:10.5px;color:var(--muted);font-weight:600;margin-bottom:2px}
@@ -772,28 +774,67 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
   .appt-body{grid-template-columns:1fr;text-align:center}.qr{margin:0 auto}
   .tflow .choices{grid-template-columns:1fr}
   .mpanel{grid-template-columns:1fr}.bars{gap:8px}
+
+  /* تحسين عناصر القوائم (استشاراتي، الفواتير، المواعيد) على الشاشات المتوسطة والصغيرة */
+  .item{display:flex !important;flex-direction:column !important;align-items:stretch !important;gap:12px !important;padding:16px 0 !important;width:100% !important}
+  .item-top{display:flex !important;align-items:flex-start !important;gap:12px !important;width:100% !important;min-width:0 !important}
+  .item .iico{flex:0 0 44px !important}
+  .item .imeta{flex:1 1 auto !important;min-width:0 !important;width:100% !important}
+  .item .imeta b{font-size:14.5px !important;line-height:1.4 !important;word-break:normal !important;overflow-wrap:break-word !important;display:block !important}
+  .item .imeta span{font-size:12px !important;line-height:1.5 !important}
+  .item .iact{width:100% !important;display:flex !important;flex-wrap:wrap !important;align-items:center !important;justify-content:flex-start !important;gap:8px !important;margin-top:6px !important;padding-top:10px !important;border-top:1px dashed var(--line-soft) !important}
+  .item .iact .btn,.item .iact a.btn{min-height:38px;padding:8px 14px;font-size:12.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+  .item .iact .badge{padding:5px 12px;font-size:12px}
+  .item-price-tag{font-size:16px;font-weight:800;color:var(--deep);display:inline-flex;align-items:center;gap:4px;margin-inline-end:auto}
 }
 @media(max-width:560px){
   .tflow .picker-grid,.picker-grid{grid-template-columns:1fr}
   .tflow .slots{grid-template-columns:repeat(2,1fr)}
-  .modal-bg{padding:12px}
-  .modal{max-height:92vh}
+  .modal-bg{padding:10px}
+  .modal{max-height:94vh;border-radius:18px}
+  .modal-head{padding:14px 16px}
+  .modal-body{padding:14px 12px}
   .tflow .thread{padding:14px 10px;gap:14px}
   .tflow .composer{padding:12px 10px}
   .tflow .bubble{padding:10px 12px;font-size:13.5px}
   .tflow .av{width:32px;height:32px;flex:0 0 32px;font-size:12px}
   .tflow .who b{font-size:12px}
-  .apptx-body{flex-direction:column;align-items:center}
-  .apptx-qr{width:100%}
-  .apptx-chips{justify-content:center}
-  .apptx-no{text-align:center}
-  .apptx-foot{justify-content:center;text-align:center}
+  .apptx{border-radius:14px;box-shadow:none}
+  .apptx-head{padding:16px 14px}
+  .apptx-body{flex-direction:column;align-items:center;padding:16px 12px;gap:16px}
+  .apptx-qr{width:100%;margin:0 auto}
+  .apptx-qr .qrbox svg{width:96px;height:96px}
+  .apptx-chips{justify-content:center;gap:6px;margin-top:10px}
+  .apptx-chip{font-size:11.5px;padding:4px 10px}
+  .apptx-no{text-align:center;font-size:22px}
+  .apptx-foot{justify-content:center;text-align:center;padding:10px 12px;font-size:10px}
+  .apptx-actions{display:flex;flex-direction:column;gap:8px;width:100%;margin-top:14px}
+  .apptx-actions .btn,.apptx-actions a.btn{width:100%;justify-content:center;min-height:40px}
+  .item .iact .btn,.item .iact a.btn{flex:1 1 100%}
 }
 @media(max-width:520px){
-  .stats{grid-template-columns:1fr 1fr}.tiles{grid-template-columns:1fr 1fr}.greet h2{font-size:20px}
-  .topbar h1{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
-  .content{padding:10px}
+  .stats{grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
+  .stat{padding:12px 10px;border-radius:14px}
+  .stat .num{font-size:20px}
+  .stat .lbl{font-size:11px;margin-top:3px}
+  .stat .si{width:34px;height:34px;margin-bottom:8px;border-radius:10px}
+  .stat .si .ic{width:17px;height:17px}
+  .tiles{grid-template-columns:1fr 1fr;gap:10px}
+  .greet h2{font-size:18px}
+  .greet p{font-size:12px}
+  .ai-banner{padding:10px 12px;gap:10px;margin-bottom:16px}
+  .ai-banner .ab{width:34px;height:34px;flex:0 0 34px}
+  .ai-banner p{font-size:12px}
+  .card{border-radius:14px;margin-bottom:16px}
+  .card-h{padding:12px 14px}
+  .card-h h3{font-size:14.5px}
+  .card-b{padding:10px 12px}
+  .topbar h1{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
+  .content{padding:10px 8px}
   .tflow .card-b{padding:12px 10px !important}
+}
+@media(max-width:380px){
+  .stats{grid-template-columns:1fr;gap:8px}
 }
 @media(max-width:400px){
   .tflow .slots{grid-template-columns:1fr}

@@ -22,8 +22,13 @@ class ExecService
     // ── التقديم + التحليل ──
 
     /** @param array{sanad:string,subject:string,defendant?:string,amount?:int,notes?:string} $data */
-    public static function submit(User $client, array $data): Execution
+    public static function submit(User $client, array $data, array $files = []): Execution
     {
+        $docs = ['السند التنفيذي', 'الهوية'];
+        if (! empty($data['notes'])) {
+            $docs[] = 'مستند داعم';
+        }
+
         $exec = Execution::create([
             'user_id' => $client->id,
             'client_code' => 'CL-'.str_pad((string) $client->id, 6, '0', STR_PAD_LEFT),
@@ -33,17 +38,39 @@ class ExecService
             'defendant' => $data['defendant'] ?? '',
             'amount' => (int) ($data['amount'] ?? 0),
             'notes' => $data['notes'] ?? '',
-            'docs' => array_values(array_filter(['السند التنفيذي', 'الهوية', ! empty($data['notes']) ? 'مستند داعم' : null])),
+            'docs' => $docs,
             'stage' => 1, // «تحليل ذكي» — بانتظار مهمّة التحليل بالذكاء الاصطناعي
             'status' => ExecFlow::label(1),
             'tone' => ExecFlow::tone(1),
             'ai_done' => false,
-            'last_action' => 'فتح الطلب — جارٍ التحليل الذكيّ',
+            'last_action' => 'فتح الطلب — جارٍ التحليل الذكيّ للمستندات',
         ]);
+
+        // حفظ الملفات المرفقة كمستندات رسمية لطلب التنفيذ
+        $attachedNames = [];
+        foreach ($files as $file) {
+            if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+                $path = $file->store("executions/{$exec->id}", 'local');
+                $origName = $file->getClientOriginalName();
+                $attachedNames[] = $origName;
+                $exec->documents()->create([
+                    'label' => $origName,
+                    'path' => $path,
+                    'mime' => $file->getClientMimeType(),
+                    'size' => $file->getSize(),
+                    'status' => 'مرفوع',
+                    'uploaded_at' => now(),
+                ]);
+            }
+        }
+
+        $attachMsg = ! empty($attachedNames)
+            ? ' (مرفق: '.implode('، ', $attachedNames).')'
+            : '';
 
         $exec->messages()->create([
             'who' => 'client', 'name' => 'أنت', 'role' => 'العميل',
-            'body' => '<p>طلب تنفيذ '.e($exec->sanad).' — '.e($exec->subject).'.</p>',
+            'body' => '<p>طلب تنفيذ '.e($exec->sanad).' — '.e($exec->subject).e($attachMsg).'.</p>',
             'time_label' => self::clock(),
         ]);
 

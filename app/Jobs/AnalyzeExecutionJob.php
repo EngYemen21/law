@@ -23,13 +23,26 @@ class AnalyzeExecutionJob implements ShouldQueue
 
     public function handle(LegalAiService $ai): void
     {
-        $exec = $this->execution->fresh();
+        $exec = $this->execution->fresh(['documents']);
         // idempotent: لا نعيد التحليل بعد اكتماله أو بعد تجاوز مرحلة التحليل
         if ($exec === null || $exec->ai_done || (int) $exec->stage > 1) {
             return;
         }
 
-        $result = $ai->analyzeExecution($exec);
+        // تحليل وتصنيف كل مستند مرفق بالذكاء الاصطناعي
+        foreach ($exec->documents as $doc) {
+            if (empty($doc->summary)) {
+                $docAnalysis = $ai->analyzeExecutionDocument($exec, $doc);
+                if ($docAnalysis) {
+                    $doc->update([
+                        'doc_type' => $docAnalysis['doc_type'],
+                        'summary' => $docAnalysis['summary'],
+                    ]);
+                }
+            }
+        }
+
+        $result = $ai->analyzeExecution($exec->fresh(['documents']));
         ExecService::applyAnalysis($exec, $result);
     }
 }

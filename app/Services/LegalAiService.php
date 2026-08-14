@@ -731,14 +731,41 @@ PROMPT;
     {
         $defaultProcs = ['تقديم طلب تنفيذ إلكتروني', 'طلب الإفصاح عن الأصول', 'الحجز على الحسابات'];
 
-        $system = 'أنت الفريق القانوني في مكتب «سلاسل بابل» بالسعودية، مختصّ بالتنفيذ. حلّل طلب التنفيذ وأعد JSON فقط بالحقول: '
-            .'"summary" (ملخّص قانونيّ موجز: نوع السند وقابليّته للتنفيذ، والمطالبة، ومسار التنفيذ لدى محكمة التنفيذ)، '
-            .'"missing" (قائمة بيانات/مستندات ناقصة تلزم قبل الإحالة، وقد تكون فارغة)، '
-            .'"procedures" (قائمة إجراءات التنفيذ المقترحة لدى محكمة التنفيذ). لا تكتب شيئاً خارج JSON.';
+        // قراءة وتلخيص كافة المستندات المرفقة مع الطلب
+        $exec->loadMissing('documents');
+        $docSnippets = [];
+        foreach ($exec->documents as $doc) {
+            $abs = Storage::disk('local')->path((string) $doc->path);
+            $fileName = basename((string) $doc->path);
+            $docContent = '';
+            if (is_file($abs)) {
+                $ext = strtolower(pathinfo((string) $doc->path, PATHINFO_EXTENSION));
+                if ($text = $this->extractText($abs, $ext)) {
+                    $docContent = mb_substr($text, 0, 3000);
+                } elseif (! empty($doc->summary)) {
+                    $docContent = $doc->summary;
+                }
+            } elseif (! empty($doc->summary)) {
+                $docContent = $doc->summary;
+            }
+            $docSnippets[] = "- ملف: {$fileName} (التصنيف: {$doc->label})" . ($docContent ? " — محتواه:\n{$docContent}" : '');
+        }
+
+        $docsContext = ! empty($docSnippets)
+            ? "\n\nالمستندات المرفقة مع الطلب:\n" . implode("\n", $docSnippets)
+            : "\n(لم يتم إرفاق مستندات بعد)";
+
+        $system = 'أنت الفريق القانوني في مكتب «سلاسل بابل» بالسعودية، مختصّ بالتنفيذ القضائي والتجاري. '
+            .'حلّل طلب التنفيذ ومحتوى كافة المستندات المرفقة معه بدقة، وتأكد من استيفاء السند للشروط التنفيذية، ثم أعد JSON فقط بالحقول: '
+            .'"summary" (ملخّص قانونيّ شامل: نوع السند، صحة المستندات المرفقة، والمطالبة، ومسار التنفيذ لدى محكمة التنفيذ)، '
+            .'"missing" (قائمة بيانات/مستندات ناقصة تلزم قبل مباشرة التنفيذ، وتكون فارغة إن كانت المستندات المرفقة مستوفية)، '
+            .'"procedures" (قائمة إجراءات التنفيذ المقترحة لدى محكمة التنفيذ بحسب نظام التنفيذ السعودي). لا تكتب شيئاً خارج JSON.';
         $prompt = "طلب تنفيذ {$exec->number} — نوع السند: {$exec->sanad}، الموضوع: «{$exec->subject}»، "
             .'قيمة المطالبة: '.number_format((int) $exec->amount).' ريال، '
             .'المنفَّذ ضده: '.($exec->defendant ?: 'غير محدّد').'، '
-            .'ملاحظات: '.($exec->notes ?: '—').'. حلّل وأعد JSON.';
+            .'ملاحظات: '.($exec->notes ?: '—').'.'
+            .$docsContext
+            ."\n\nحلّل الطلب والمستندات المرفقة وأعد JSON.";
 
         try {
             $text = $this->run($system, [['role' => 'user', 'content' => $prompt]], true);

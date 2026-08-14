@@ -13,9 +13,9 @@ createInertiaApp({
         const pages = import.meta.glob('./pages/**/*.tsx', { eager: true });
         const page = pages[`./pages/${name}.tsx`] as any;
 
-        // الصفحة الترويجية (welcome) وصفحات المصادقة بلا تخطيط لوحة التحكم
-        const noLayout = name === 'welcome' || name.startsWith('auth/');
-        if (page && !noLayout && page.default.layout === undefined) {
+        // الصفحة الترويجية (welcome) وصفحات المصادقة مستقلة تماماً بلا تخطيط لوحة التحكم
+        const isStandalone = name.toLowerCase() === 'welcome' || name.startsWith('auth/') || name.startsWith('Auth/');
+        if (page && !isStandalone && page.default?.layout === undefined) {
             page.default.layout = (children: React.ReactNode) => (
                 <AppLayout>{children}</AppLayout>
             );

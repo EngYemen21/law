@@ -105,24 +105,56 @@ const ExecList: React.FC<{ role: Role; execs: ExecReq[]; onNew: () => void; onOp
   );
 };
 
-// ── نموذج التقديم (تطابق execNew) ──
-const ExecNew: React.FC<{ onSubmit: (d: { sanad: string; subject: string; defendant: string; amount: number; notes: string }) => void; onBack: () => void; busy: boolean }> = ({ onSubmit, onBack, busy }) => {
+// ── نموذج التقديم (تطابق execNew مع إرفاق المستندات للتحليل الذكي) ──
+interface ExecNewPayload {
+  sanad: string;
+  subject: string;
+  defendant: string;
+  amount: number;
+  notes: string;
+  files?: File[];
+}
+
+const ExecNew: React.FC<{ onSubmit: (d: ExecNewPayload) => void; onBack: () => void; busy: boolean }> = ({ onSubmit, onBack, busy }) => {
   const [sanad, setSanad] = useState(EXEC_SANADS[0]);
   const [amount, setAmount] = useState('');
   const [subject, setSubject] = useState('');
   const [defendant, setDefendant] = useState('');
   const [notes, setNotes] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const chosen = e.target.files;
+    if (!chosen || chosen.length === 0) return;
+    const list = Array.from(chosen);
+    // حد أقصى 10 ملفات وحجم 10 ميجابايت للملف
+    const valid = list.filter((f) => f.size <= 10 * 1024 * 1024);
+    setFiles((prev) => [...prev, ...valid].slice(0, 10));
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeFile = (idx: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
 
   const submit = () => {
     if (!subject.trim()) return;
-    onSubmit({ sanad, subject: subject.trim(), defendant: defendant.trim(), amount: parseInt(amount || '0', 10) || 0, notes: notes.trim() });
+    onSubmit({
+      sanad,
+      subject: subject.trim(),
+      defendant: defendant.trim(),
+      amount: parseInt(amount || '0', 10) || 0,
+      notes: notes.trim(),
+      files,
+    });
   };
 
   return (
     <>
       <div className="greet">
         <h2>طلب تنفيذ جديد</h2>
-        <p>أدخل بيانات السند والمطالبة وأرفق المستندات، وسيحلّلها الفريق القانوني الذكي قبل الإحالة.</p>
+        <p>أدخل بيانات السند والمطالبة وأرفق المستندات، وسيحلّلها الفريق القانوني الذكي بالكامل قبل الإحالة.</p>
       </div>
       <div className="card">
         <div className="card-b" style={{ padding: 18 }}>
@@ -148,13 +180,98 @@ const ExecNew: React.FC<{ onSubmit: (d: { sanad: string; subject: string; defend
           </div>
           <div className="field">
             <label>معلومات إضافية</label>
-            <textarea className="input" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+            <textarea className="input" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="أي إيضاحات أو تواريخ إضافية…" />
           </div>
-          <div className="action-hint" style={{ margin: '6px 0' }}>
-            <Icon name="upload" /> المرفقات: الحكم/السند التنفيذي/سند الأمر/الشيك/عقد التنفيذ/مستندات داعمة (محاكاة الرفع).
+
+          <div className="field">
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>إرفاق المستندات والسندات التنفيذية</span>
+              <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 'normal' }}>
+                (PDF، صور، Word، Excel — حتى 10 ملفات)
+              </span>
+            </label>
+            <div
+              style={{
+                border: '1.5px dashed #C0D2E6',
+                borderRadius: 14,
+                padding: '16px 14px',
+                background: '#F8FAFC',
+                textAlign: 'center',
+                cursor: 'pointer',
+                transition: 'border-color 0.2s',
+              }}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <div style={{ color: 'var(--primary)', marginBottom: 6 }}>
+                <Icon name="upload" />
+              </div>
+              <b style={{ color: 'var(--ink)', fontSize: 13.5, display: 'block' }}>
+                انقر لاختيار المستندات أو اسحبها هنا
+              </b>
+              <span style={{ color: 'var(--muted)', fontSize: 11.5, display: 'block', marginTop: 4 }}>
+                الحكم القضائي، الشيك، السند لأمر، العقد الموثق، أو الهوية
+              </span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
+                style={{ display: 'none' }}
+                onChange={onFileChange}
+              />
+            </div>
+
+            {files.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+                {files.map((file, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      background: '#fff',
+                      border: '1px solid var(--line)',
+                      borderRadius: 10,
+                      padding: '7px 12px',
+                      fontSize: 12.5,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                      <span style={{ color: 'var(--primary)', flexShrink: 0 }}><Icon name="doc" /></span>
+                      <span style={{ fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {file.name}
+                      </span>
+                      <span style={{ color: 'var(--muted)', fontSize: 11, flexShrink: 0 }}>
+                        ({(file.size / 1024).toFixed(0)} KB)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--red)',
+                        cursor: 'pointer',
+                        fontWeight: 800,
+                        padding: '2px 6px',
+                        fontSize: 13,
+                      }}
+                      title="حذف المستند"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn" type="button" onClick={submit} disabled={busy}><Icon name="send" /> إرسال الطلب</button>
+
+         
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+            <button className="btn" type="button" onClick={submit} disabled={busy}><Icon name="send" /> {busy ? 'جارٍ الإرسال والتحليل…' : 'إرسال الطلب'}</button>
             <button className="btn soft" type="button" onClick={onBack}><Icon name="out" /> رجوع</button>
           </div>
         </div>
@@ -726,11 +843,22 @@ const ExecFlow: React.FC<{ role: Role; execs: ExecReq[] }> = ({ role, execs }) =
     });
   };
 
-  const submitNew = (d: { sanad: string; subject: string; defendant: string; amount: number; notes: string }) => {
+  const submitNew = (d: ExecNewPayload) => {
     setBusy(true);
-    router.post('/exec-flow', d, {
+    const formData = new FormData();
+    formData.append('sanad', d.sanad);
+    formData.append('subject', d.subject);
+    formData.append('defendant', d.defendant);
+    formData.append('amount', String(d.amount));
+    formData.append('notes', d.notes);
+    if (d.files && d.files.length > 0) {
+      d.files.forEach((f) => formData.append('files[]', f));
+    }
+
+    router.post('/exec-flow', formData, {
+      forceFormData: true,
       preserveScroll: true,
-      onSuccess: () => { setView('list'); toast('تم إرسال طلب التنفيذ'); },
+      onSuccess: () => { setView('list'); toast('تم إرسال طلب التنفيذ وبدء التحليل الذكي للمستندات'); },
       onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر إرسال الطلب'),
       onFinish: () => setBusy(false),
     });

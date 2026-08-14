@@ -65,18 +65,21 @@ void navigator.clipboard.writeText(c.slink);
         <div className="card-b">
           {items.length ? items.map((c) => (
             <div key={c.ref} className="item">
-              <div className="iico"><Icon name={crChannelIcon(c.channel)} /></div>
-              <div className="imeta">
-                <b>{c.ref} — {c.subject}</b>
-                <span style={{ display: 'block', margin: '3px 0' }}>
-                  <Badge text={c.channel} tone={crChannelTone(c.channel)} /> · {lawyerFirst(c.lawyer)} · {c.when}
-                </span>
+              <div className="item-top">
+                <div className="iico"><Icon name={crChannelIcon(c.channel)} /></div>
+                <div className="imeta">
+                  <b>{c.ref} — {c.subject}</b>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                    <Badge text={c.channel} tone={crChannelTone(c.channel)} />
+                    <span style={{ color: 'var(--muted)', fontSize: '12px' }}>· {lawyerFirst(c.lawyer)} · {c.when}</span>
+                  </div>
 
-                {c.channel === 'حضورية' && (
-                  <span style={{ display: 'block', marginTop: 3, fontSize: '11.5px', color: 'var(--muted)' }}>
-                    <Icon name="pin" /> {c.branch}
-                  </span>
-                )}
+                  {c.channel === 'حضورية' && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: '11.5px', color: 'var(--muted)' }}>
+                      <Icon name="pin" /> {c.branch}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="iact">
                 {/* دورة الحجز (تسعير/سداد/اختيار موعد) قبل أي منطق جلسة */}
