@@ -22,11 +22,23 @@ class MoyasarWebhookController extends Controller
         abort_unless(MoyasarWebhook::verify($request->all()), 403, 'سرّ Moyasar غير صالح.');
 
         // لا تثق بجسم الحدث: أعد جلب الدفعة من ميسّر بالمعرّف ثم سوِّها (اتّساقاً مع مسار الـcallback).
-        $paymentId = (string) data_get($request->input('data'), 'id', '');
-        $payment = $paymentId !== '' ? app(MoyasarService::class)->fetchPayment($paymentId) : null;
+        $data = $request->input('data', []);
+        $id = (string) data_get($data, 'id', '');
+        $payment = null;
+
+        if (str_starts_with($id, 'pay_')) {
+            $payment = app(MoyasarService::class)->fetchPayment($id);
+        } elseif (str_starts_with($id, 'inv_') && ! empty($data['payments'])) {
+            $last = end($data['payments']);
+            if (! empty($last['id'])) {
+                $payment = app(MoyasarService::class)->fetchPayment((string) $last['id']);
+            }
+        } elseif ($id !== '') {
+            $payment = app(MoyasarService::class)->fetchPayment($id);
+        }
 
         if ($payment === null) {
-            Log::warning('moyasar.webhook.fetch_failed', ['payment_id' => $paymentId]);
+            Log::warning('moyasar.webhook.fetch_failed', ['id' => $id]);
 
             return response()->json(['ok' => false], 502); // فشل تحقّق عابر → اطلب من ميسّر إعادة الإرسال
         }

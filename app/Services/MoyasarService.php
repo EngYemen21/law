@@ -135,18 +135,10 @@ class MoyasarService
     }
 
     /**
-     * رابط صفحة الدفع لفاتورة النظام — **يعيد استخدام** فاتورة ميسّر القائمة غير المدفوعة إن وُجدت
-     * (يمنع ازدواج الفواتير وفقدان الدفعة عند تكرار الضغط)، وإلا يُنشئ واحدة ويخزّن معرّفها.
+     * رابط صفحة الدفع لفاتورة النظام — ينشئ فاتورة ميسّر بالرابط المعتمد الحالي ويخزّن معرّفها.
      */
     public function hostedUrlForInvoice(Invoice $invoice, string $callbackUrl): ?string
     {
-        if ($invoice->gateway_ref) {
-            $existing = $this->getInvoice($invoice->gateway_ref);
-            if ($existing !== null && $existing['status'] === 'initiated') {
-                return $existing['url'];
-            }
-        }
-
         $result = $this->createInvoice($invoice, $callbackUrl);
         if ($result === null) {
             return null;

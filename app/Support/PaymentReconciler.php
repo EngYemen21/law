@@ -115,6 +115,16 @@ class PaymentReconciler
             return $inv;
         }
 
+        $consultId = $payment['metadata']['consult_id'] ?? null;
+        if ($consultId && ($consult = Consult::find($consultId)) && $consult->invoice) {
+            return $consult->invoice;
+        }
+
+        $paymentId = $payment['id'] ?? null;
+        if ($paymentId && ($inv = Invoice::where('gateway_payment_id', $paymentId)->first())) {
+            return $inv;
+        }
+
         return null;
     }
 }
