@@ -42,6 +42,8 @@ class MoyasarService
                     'currency' => 'SAR',
                     'description' => (string) $invoice->description,
                     'callback_url' => $callbackUrl,
+                    'back_url' => $callbackUrl,
+                    'success_url' => $callbackUrl,
                     'metadata' => [
                         'invoice_number' => (string) $invoice->number,
                         'consult_id' => (string) $invoice->consult_id,

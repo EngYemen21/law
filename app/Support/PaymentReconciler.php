@@ -111,8 +111,28 @@ class PaymentReconciler
         }
 
         $gatewayRef = $payment['invoice_id'] ?? null;
-        if ($gatewayRef && ($inv = Invoice::where('gateway_ref', $gatewayRef)->first())) {
-            return $inv;
+        if ($gatewayRef) {
+            $inv = Invoice::where('gateway_ref', $gatewayRef)->first();
+            if ($inv) {
+                return $inv;
+            }
+
+            // جلب بيانات الفاتورة من ميسّر إن غاب الربط المسبق
+            $moyasarInvoice = app(MoyasarService::class)->getInvoice((string) $gatewayRef);
+            if ($moyasarInvoice) {
+                $invNum = $moyasarInvoice['metadata']['invoice_number'] ?? null;
+                if ($invNum && ($inv = Invoice::where('number', $invNum)->first())) {
+                    $inv->update(['gateway_ref' => (string) $gatewayRef]);
+
+                    return $inv;
+                }
+                $cId = $moyasarInvoice['metadata']['consult_id'] ?? null;
+                if ($cId && ($consult = Consult::find($cId)) && $consult->invoice) {
+                    $consult->invoice->update(['gateway_ref' => (string) $gatewayRef]);
+
+                    return $consult->invoice;
+                }
+            }
         }
 
         $consultId = $payment['metadata']['consult_id'] ?? null;
