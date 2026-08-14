@@ -27,20 +27,21 @@ class MoyasarWebhookController extends Controller
 
         abort_unless(MoyasarWebhook::verify($request), 403, 'سرّ Moyasar غير صالح.');
 
-        // لا تثق بجسم الحدث: أعد جلب الدفعة من ميسّر بالمعرّف ثم سوِّها (اتّساقاً مع مسار الـcallback).
-        $data = $request->input('data', []);
-        $id = (string) data_get($data, 'id', '');
+        // لا تثق بجسم الحدث وحده إن أمكن: أعد جلب الدفعة من ميسّر بالمعرّف، وإلا استخدم بيانات الحدث المعتمدة.
+        $raw = json_decode((string) $request->getContent(), true) ?: [];
+        $data = $request->input('data') ?: ($raw['data'] ?? []);
+        $id = (string) (data_get($data, 'id') ?: '');
         $payment = null;
 
         if (str_starts_with($id, 'pay_')) {
-            $payment = app(MoyasarService::class)->fetchPayment($id);
+            $payment = app(MoyasarService::class)->fetchPayment($id) ?: ($data['status'] === 'paid' ? $data : null);
         } elseif (str_starts_with($id, 'inv_') && ! empty($data['payments'])) {
             $last = end($data['payments']);
             if (! empty($last['id'])) {
-                $payment = app(MoyasarService::class)->fetchPayment((string) $last['id']);
+                $payment = app(MoyasarService::class)->fetchPayment((string) $last['id']) ?: ($last['status'] === 'paid' ? $last : null);
             }
         } elseif ($id !== '') {
-            $payment = app(MoyasarService::class)->fetchPayment($id);
+            $payment = app(MoyasarService::class)->fetchPayment($id) ?: (isset($data['status']) ? $data : null);
         }
 
         if ($payment === null) {

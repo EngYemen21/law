@@ -7,6 +7,7 @@ use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Payment;
+use App\Services\MoyasarService;
 use Illuminate\Support\Facades\Log;
 
 /**

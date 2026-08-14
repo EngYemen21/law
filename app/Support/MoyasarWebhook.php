@@ -27,8 +27,10 @@ class MoyasarWebhook
 
         $token = '';
         if ($requestOrPayload instanceof \Illuminate\Http\Request) {
+            $rawJson = json_decode((string) $requestOrPayload->getContent(), true) ?: [];
             $token = (string) (
                 $requestOrPayload->input('secret_token')
+                ?: ($rawJson['secret_token'] ?? '')
                 ?: $requestOrPayload->header('X-Moyasar-Secret-Token')
                 ?: $requestOrPayload->header('X-Secret-Token')
                 ?: $requestOrPayload->header('secret-token')
