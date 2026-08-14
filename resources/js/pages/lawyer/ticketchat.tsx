@@ -16,6 +16,17 @@ interface EmpTicket { no: string; client: string; type: string; dept: string; la
 interface Props { ticket: EmpTicket; channel: string; messages: Message[]; summary: SummaryData | null; converted?: boolean; }
 
 const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
+  if (m.who === 'note') {
+    return (
+      <div className="msg" style={{ justifyContent: 'center' }}>
+        <div style={{ background: '#FBF1E0', border: '1px solid #F0DDB0', color: '#8a6d2f', borderRadius: 11, padding: '9px 13px', fontSize: 12.5, maxWidth: '85%' }}>
+          <b>🔒 ملاحظة داخلية — {m.name}</b>
+          <div style={{ marginTop: 4 }} dangerouslySetInnerHTML={{ __html: m.text }} />
+          <time style={{ display: 'block', marginTop: 4, color: '#b08d4a', fontSize: 11 }}>{m.time}</time>
+        </div>
+      </div>
+    );
+  }
   const isClient = m.who === 'client' || m.who === 'me';
   const actor = isClient ? 'me' : 'ai';
   return (

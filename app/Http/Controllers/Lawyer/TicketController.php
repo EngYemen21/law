@@ -67,7 +67,7 @@ class TicketController extends Controller
         return Inertia::render('lawyer/ticketchat', [
             'ticket' => $ticket->toEmployeeCard(),
             'channel' => 'ticket.'.$ticket->id,
-            'messages' => $ticket->messages->where('who', '!=', 'note')->values()->map->toMessage(),
+            'messages' => $ticket->messages->map->toMessage(),
             'summary' => $ticket->summary?->toData(),
             'converted' => $ticket->legalCase()->exists(),
         ]);
