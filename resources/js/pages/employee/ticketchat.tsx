@@ -1,4 +1,4 @@
-import { Link } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '@/lib/icons';
@@ -7,15 +7,28 @@ import FlowLine from '@/components/babylon/FlowLine';
 import Modal from '@/components/babylon/Modal';
 import MsgMeta from '@/components/babylon/MsgMeta';
 import TicketTalkingNotice from '@/components/babylon/TicketTalkingNotice';
+import TicketActionsPanel from '@/components/babylon/TicketActionsPanel';
+import TicketOpsModals, { type TicketOpsKind } from '@/components/babylon/TicketOpsModals';
 import { useToast } from '@/components/babylon/Toast';
 import { echo } from '@/lib/echo';
 import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
-import { DEPTS, REQ_DOCS } from '@/lib/employee-data';
+import { useCan } from '@/lib/permissions';
 import { isPastSlot, todayISO } from '@/components/SpecialistPicker';
+
+// حالتان نهائيّتان — الخادم يمنع الخروج منهما لأي حالة أخرى (Employee\TicketController::status)
+const FINAL = ['مكتملة', 'مغلقة'];
+
+// ردود سريعة بنقرة واحدة (مطابقة للتصميم المرجعي)
+const EM_QUICK = [
+  'تم استلام طلبكم وجارٍ المتابعة مع المستشار المختص.',
+  'نأمل تزويدنا بالمستندات المطلوبة لاستكمال دراسة الطلب.',
+  'تمت إحالة الطلب للقسم القانوني وسنوافيكم بالرأي قريباً.',
+  'سيتم التواصل معكم لترتيب موعد جلسة الاستشارة.',
+];
 
 // محادثة التذكرة (لوحة الموظف) — مزامنة لحظية مع العميل (Reverb) بلا إعادة تحميل
 
-interface EmpTicket { no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string; clientId?: number; lawyerId?: number; }
+interface EmpTicket { no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string; clientId?: number; lawyerId?: number; caseRef?: string | null; }
 interface StateOption { status: string; tone: string; }
 interface LawyerOption { id: number; name: string; }
 
@@ -51,10 +64,15 @@ const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
 
 const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; messages: Message[]; states: StateOption[]; lawyers: LawyerOption[] }> = ({ ticket, channel, messages, states, lawyers }) => {
   const toast = useToast();
+  const can = useCan();
+  // الأزرار تُخفى بحسب الصلاحية التفصيلية — كانت تُعرض للجميع ثم يُبتلع رفض الخادم
+  const canReply = can('الرد على العملاء');
+  const canSchedule = can('جدولة المواعيد');
+  const canTransfer = can('تحويل التذاكر');
   const [msgs, setMsgs] = useState<Message[]>(messages);
   const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone });
   // مؤلّف بمبدّل وضع (يطابق التصميم): ردّ للعميل ⇄ ملاحظة داخلية — صندوق واحد
-  const [mode, setMode] = useState<'reply' | 'note'>('reply');
+  const [mode, setMode] = useState<'reply' | 'note'>(canReply ? 'reply' : 'note');
   const [body, setBody] = useState('');
   // يتغيّر مع كل ضغطة في وضع الردّ → يبثّ إشارة «يكتب» لزملائه (منع الردّ المزدوج)
   const [typingSignal, setTypingSignal] = useState(0);
@@ -89,74 +107,10 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
     setSchedOpen(true);
   };
 
-  // ── مودال تحويل للقسم المضمّن (يطابق التصميم المرجعي) ──
-  const [trOpen, setTrOpen] = useState(false);
-  const [trDept, setTrDept] = useState(ticket.dept || DEPTS[0]);
-  const [trLawyerId, setTrLawyerId] = useState<string>(ticket.lawyerId ? String(ticket.lawyerId) : '');
-  const [trReason, setTrReason] = useState('');
-  const [trBusy, setTrBusy] = useState(false);
-
-  const openTransfer = () => {
-    setTrDept(ticket.dept || DEPTS[0]);
-    setTrLawyerId(ticket.lawyerId ? String(ticket.lawyerId) : '');
-    setTrReason('');
-    setTrBusy(false);
-    setTrOpen(true);
-  };
-
-  const submitTransfer = () => {
-    if (!trLawyerId) { toast('يرجى اختيار المستشار'); return; }
-    setTrBusy(true);
-    axios.post(`/employee/transfer/${encodeURIComponent(ticket.no)}`, {
-      lawyer_id: trLawyerId,
-      reason: trReason.trim() || null,
-    }).then((r) => {
-      toast(`✅ تم تحويل التذكرة إلى ${r.data.lawyer}`);
-      setTrOpen(false);
-    }).catch((err) => {
-      const msg = err.response?.data?.message || 'تعذّر التحويل، تحقق من البيانات';
-      toast(`⚠️ ${msg}`);
-    }).finally(() => setTrBusy(false));
-  };
-
-  // ── مودال طلب النواقص المضمّن (يطابق التصميم المرجعي) ──
-  const [reqOpen, setReqOpen] = useState(false);
-  const [reqChosen, setReqChosen] = useState<Record<string, boolean>>({});
-  const [reqExtra, setReqExtra] = useState('');
-  const [reqBusy, setReqBusy] = useState(false);
-
-  const openReqDocs = () => {
-    setReqChosen({});
-    setReqExtra('');
-    setReqBusy(false);
-    setReqOpen(true);
-  };
-
-  const toggleReqChip = (r: string) => {
-    setReqChosen((prev) => ({ ...prev, [r]: !prev[r] }));
-  };
-
-  const submitReqDocs = () => {
-    const picked = REQ_DOCS.filter((r) => reqChosen[r]);
-    const extras = reqExtra.split('\n').map((s) => s.trim()).filter(Boolean);
-    const allDocs = [...picked, ...extras];
-    if (!allDocs.length) {
-      toast('يرجى اختيار أو كتابة مستند واحد على الأقل');
-      return;
-    }
-    setReqBusy(true);
-    // تُرسَل أسماء المستندات فقط؛ الخادم يبني الرسالة (تهريب آمن) ويبثّها ويضبط حالة «بانتظار مستندات» ويشعر العميل
-    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/request-docs`, { docs: allDocs })
-      .then(() => {
-        toast(`✅ تم إرسال طلب النواقص للعميل (${allDocs.length} مستند)`);
-        setReqOpen(false);
-      })
-      .catch((err) => {
-        const msg = err.response?.data?.message || 'تعذّر إرسال طلب النواقص';
-        toast(`⚠️ ${msg}`);
-      })
-      .finally(() => setReqBusy(false));
-  };
+  // ── مودالا التحويل وطلب النواقص — نسخة مشتركة واحدة (TicketOpsModals) ──
+  const [opsKind, setOpsKind] = useState<TicketOpsKind>(null);
+  const openTransfer = () => setOpsKind('transfer');
+  const openReqDocs = () => setOpsKind('reqdocs');
 
   const submitSchedule = () => {
     if (!schedDate || !schedTime) { toast('يرجى اختيار التاريخ والوقت'); return; }
@@ -205,12 +159,13 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
     e.preventDefault();
     const v = body.trim(); if (!v) return;
     const endpoint = mode === 'reply' ? 'reply' : 'note';
+    // لا يُمسح النص إلا بعد نجاح الإرسال فعلاً — كان يضيع عند أي فشل (صلاحية/تحقّق/خادم)
     axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/${endpoint}`, { body: v })
+      .then(() => setBody(''))
       .catch((err) => {
         const msg = err.response?.data?.message || 'تعذّر الإرسال';
         toast(`⚠️ ${msg}`);
       });
-    setBody('');
   };
   const rerunAi = () => {
     axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/rerun`)
@@ -348,76 +303,16 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
         </button>
       </Modal>
 
-      {/* ── مودال تحويل للقسم (يطابق التصميم المرجعي: فوق المحادثة بلا مغادرة الصفحة) ── */}
-      <Modal title={`تحويل التذكرة — ${ticket.no}`} open={trOpen} onClose={() => setTrOpen(false)}>
-        <div className="field">
-          <label>القسم المختص</label>
-          <select value={trDept} onChange={(e) => setTrDept(e.target.value)}>
-            {DEPTS.map((d) => <option key={d} value={d}>{d}</option>)}
-          </select>
-        </div>
-        <div className="field">
-          <label>المستشار</label>
-          <select value={trLawyerId} onChange={(e) => setTrLawyerId(e.target.value)}>
-            <option value="">توزيع تلقائي</option>
-            {lawyers.map((l) => (
-              <option key={l.id} value={String(l.id)}>{l.name}</option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <label>سبب التحويل (اختياري)</label>
-          <input
-            type="text"
-            value={trReason}
-            onChange={(e) => setTrReason(e.target.value)}
-            placeholder="اكتب سبب التحويل…"
-          />
-        </div>
-        <button className="btn block" type="button" onClick={submitTransfer} disabled={trBusy || !trLawyerId}>
-          <Icon name="reply" /> {trBusy ? 'جاري التحويل…' : 'تأكيد التحويل'}
-        </button>
-      </Modal>
-
-      {/* ── مودال طلب النواقص (يطابق التصميم المرجعي: فوق المحادثة بلا مغادرة الصفحة) ── */}
-      <Modal title={`طلب نواقص — ${ticket.no}`} open={reqOpen} onClose={() => setReqOpen(false)}>
-        <p style={{ fontSize: '13.5px', color: '#2b4a68', marginBottom: 10 }}>
-          اختر المستندات المطلوبة من العميل، ويمكنك أيضاً كتابة مستندات إضافية:
-        </p>
-        <div className="chips" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
-          {REQ_DOCS.map((r) => (
-            <span
-              key={r}
-              className={`chip sel-toggle${reqChosen[r] ? ' on' : ''}`}
-              onClick={() => toggleReqChip(r)}
-              style={{
-                padding: '5px 11px',
-                borderRadius: 8,
-                fontSize: 12.5,
-                fontWeight: 600,
-                border: reqChosen[r] ? '1.5px solid var(--primary)' : '1px solid var(--line)',
-                background: reqChosen[r] ? 'rgba(14,92,156,.08)' : '#fff',
-                color: reqChosen[r] ? 'var(--primary)' : 'var(--muted)',
-                cursor: 'pointer',
-              }}
-            >
-              {reqChosen[r] ? '✓ ' : ''}{r}
-            </span>
-          ))}
-        </div>
-        <div className="field">
-          <label>مستندات إضافية (كتابة)</label>
-          <textarea
-            value={reqExtra}
-            onChange={(e) => setReqExtra(e.target.value)}
-            placeholder="اكتب أي مستندات أخرى مطلوبة، كل مستند في سطر…"
-            rows={3}
-          />
-        </div>
-        <button className="btn block" type="button" onClick={submitReqDocs} disabled={reqBusy}>
-          <Icon name="send" /> {reqBusy ? 'جاري الإرسال…' : 'إرسال طلب النواقص'}
-        </button>
-      </Modal>
+      {/* ── مودالا التحويل وطلب النواقص (نسخة مشتركة مع قائمة التذاكر) ── */}
+      <TicketOpsModals
+        kind={opsKind}
+        ticketNo={ticket.no}
+        dept={ticket.dept}
+        lawyerId={ticket.lawyerId ?? null}
+        lawyers={lawyers}
+        onClose={() => setOpsKind(null)}
+        onDone={() => router.reload({ only: ['ticket', 'messages'] })}
+      />
 
       <div style={{ marginBottom: 14 }}>
         <Link href="/employee/tickets" className="btn soft sm"><Icon name="reply" /> رجوع لكل التذاكر</Link>
@@ -431,7 +326,7 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
           {waiting
             ? <Badge text={waiting} tone="b-amber" />
             : isLast
-              ? <Badge text="مكتملة" tone="b-green" />
+              ? <Badge text={status.status} tone={status.tone} />
               : <button className="btn sm" type="button" onClick={advance}><Icon name="check" /> {sessionAction ?? `تنفيذ المرحلة التالية: ${TKT_LIFE[cur + 1]}`}</button>}
         </div>
         <div className="card-b" style={{ padding: '16px 18px' }}>
@@ -457,13 +352,34 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
             <div className="composer">
               {/* مبدّل الوضع (يطابق التصميم .cmode): ردّ للعميل ⇄ ملاحظة داخلية */}
               <div className="cmode">
-                <button type="button" className={mode === 'reply' ? 'on' : ''} onClick={() => setMode('reply')}>
-                  <Icon name="reply" /> رد على العميل
-                </button>
+                {canReply && (
+                  <button type="button" className={mode === 'reply' ? 'on' : ''} onClick={() => setMode('reply')}>
+                    <Icon name="reply" /> رد على العميل
+                  </button>
+                )}
                 <button type="button" className={mode === 'note' ? 'on note-on' : ''} onClick={() => setMode('note')}>
                   <Icon name="lock" /> ملاحظة داخلية
                 </button>
               </div>
+
+              {/* شريط الردود السريعة الجاهزة (مطابق للتصميم المرجعي) */}
+              {mode === 'reply' && (
+                <div className="quick">
+                  {EM_QUICK.map((q, idx) => (
+                    <span
+                      key={idx}
+                      className="q"
+                      onClick={() => {
+                        setBody((prev) => (prev ? `${prev} ${q}` : q));
+                        setTypingSignal((n) => n + 1);
+                      }}
+                    >
+                      {q}
+                    </span>
+                  ))}
+                </div>
+              )}
+
               <form onSubmit={submit}>
                 <textarea
                   value={body}
@@ -494,15 +410,28 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
             </div>
           </div>
 
+          {/* لوحة إجراءات وتحويلات التذكرة الموحدة (المطابقة للتصميم المرجعي) */}
+          <TicketActionsPanel
+            ticketNo={ticket.no}
+            status={status.status}
+            caseRef={ticket.caseRef ?? null}
+            role="employee"
+            onRequestDocs={canReply ? openReqDocs : undefined}
+            onSchedule={canSchedule ? openSchedule : undefined}
+            onTransfer={canTransfer ? openTransfer : undefined}
+          />
+
           <div className="card">
-            <div className="card-h"><h3>الحالة والإجراءات</h3></div>
+            <div className="card-h"><h3>الحالة والتحكم الإداري</h3></div>
             <div className="card-b" style={{ padding: 14 }}>
               {/* القائمة للتصحيح بنفس المرحلة فقط. الخيارات من مراحل أخرى معطّلة 🔒 */}
               <div className="field" style={{ marginBottom: 11 }}>
                 <label>تغيير الحالة</label>
                 <select value={status.status} onChange={(e) => changeStatus(e.target.value)}>
                   {states.map((o) => {
-                    const locked = tktStage(o.status) !== cur;
+                    // نفس حرّاس الخادم: نفس المرحلة، وإن كانت التذكرة نهائية فلا خروج عن النهائيّتين
+                    const locked = tktStage(o.status) !== cur
+                      || (FINAL.includes(status.status) && !FINAL.includes(o.status));
                     return (
                       <option key={o.status} value={o.status} disabled={locked}>
                         {o.status}{locked ? ' 🔒' : ''}
@@ -512,12 +441,7 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
                 </select>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <button className="btn soft sm" type="button" onClick={openReqDocs}><Icon name="upload" /> طلب نواقص</button>
-                {/* جدولة الموعد: مودال مضمّن (لا توجيه خارجي) — يطابق التصميم المرجعي */}
-                <button className="btn soft sm" type="button" onClick={openSchedule}><Icon name="cal" /> جدولة موعد</button>
-                {/* تحويل للقسم: مودال مضمّن (لا توجيه خارجي) — يطابق التصميم المرجعي */}
-                <button className="btn soft sm" type="button" onClick={openTransfer}><Icon name="reply" /> تحويل للقسم</button>
-                <button className="btn soft sm" type="button" onClick={rerunAi}><Icon name="sparkles" /> إعادة التحليل الذكي</button>
+                <button className="btn soft sm" type="button" onClick={rerunAi}><Icon name="sparkles" /> إعادة التحليل الذكي للملخص</button>
               </div>
             </div>
           </div>

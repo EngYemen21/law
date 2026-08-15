@@ -64,17 +64,20 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
   const pay = () => {
     if (!consult) return;
     setBusy(true);
+    // النجاح = تحويل المتصفّح لصفحة ميسّر (Inertia::location) — لا توست «تم السداد» هنا،
+    // فـ back()->with('error') عند تعذّر بدء الدفع استجابة ناجحة أيضاً وكانت تُظهر نجاحاً كاذباً.
     router.post(`/consults/${consult.id}/pay`, {}, {
       preserveScroll: true,
-      onSuccess: () => toast('تم السداد — اختر الآن موعد الجلسة'),
+      onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر بدء الدفع، حاول بعد قليل'),
       onFinish: () => setBusy(false),
     });
   };
 
   const confirmSlot = () => {
-    if (!consult || !lawyerId || !time) { toast('اختر المستشار وموعداً متاحاً'); return; }
+    if (!consult || !time) { toast('اختر موعداً متاحاً'); return; }
     setBusy(true);
-    router.post(`/consults/${consult.id}/schedule`, { lawyer_id: lawyerId, date, time }, {
+    // الإسناد خادميّ (LawyerAvailability::assignLawyer) — لا يُرسل lawyer_id لأنه كان يُهمَل بالكامل
+    router.post(`/consults/${consult.id}/schedule`, { date, time }, {
       preserveScroll: true,
       onSuccess: () => toast('تم تأكيد موعد الاستشارة'),
       onError: () => toast('تعذّر تأكيد الموعد، جرّب فترة أخرى'),

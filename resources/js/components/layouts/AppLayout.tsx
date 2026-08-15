@@ -19,6 +19,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   };
   const userId = props.auth?.user?.id;
   const flashError = props.flash?.error;
+  const flashSuccess = props.flash?.success;
 
   // إشعارات لحظية: قناة المستخدم الخاصّة — تنبيه فوريّ + تحديث نقطة الجرس وقائمة الإشعارات بلا إعادة تحميل
   useEffect(() => {
@@ -30,10 +31,14 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     return () => { echo.leave(`notifications.${userId}`); };
   }, [userId]);
 
-  // رسائل الخطأ من الخادم (flash.error) → toast — استهلاك مشاركة موجودة أصلاً في HandleInertiaRequests
+  // رسائل الخادم (flash.error / flash.success) → toast — استهلاك مشاركة موجودة أصلاً في HandleInertiaRequests
   useEffect(() => {
     if (flashError) toast(flashError);
   }, [flashError, toast]);
+
+  useEffect(() => {
+    if (flashSuccess) toast(flashSuccess);
+  }, [flashSuccess, toast]);
 
   return (
     <div className="app">

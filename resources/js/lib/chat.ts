@@ -10,11 +10,10 @@ export interface Message {
   role: string;
   text: string; // قد يحتوي HTML بسيط
   time: string;
+  date?: string; // تاريخ الرسالة الحقيقي من الخادم (created_at)
 }
 
 export const CLIENT_NAME = 'عبدالله العتيبي';
-export const OFFICE_IP = '212.71.46.10';
-export const CLIENT_IP = '178.45.12.90'; // عنوان عميل ثابت (بدل simIP العشوائي)
 
 // امتدادات المستندات المسموح رفعها من العميل — يطابق TicketController::ALLOWED_DOC_MIMES بالخادم
 export const ALLOWED_DOC_ACCEPT = '.pdf,.jpg,.jpeg,.png,.doc,.docx';
@@ -44,10 +43,6 @@ export function cleanTime(t?: string): string {
   t = (t || '').toString();
   if (t.indexOf('·') >= 0) return t.split('·').pop()!.trim();
   return t;
-}
-
-export function msgIP(who: Message['who']): string {
-  return who === 'client' || who === 'me' ? CLIENT_IP : OFFICE_IP;
 }
 
 // يطابق convGet — البذرة العامة للمحادثة

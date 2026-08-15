@@ -75,9 +75,11 @@ class HandleInertiaRequests extends Middleware
             'unreadNotifications' => fn () => $user
                 ? UserNotification::where('user_id', $user->id)->where('is_read', false)->count()
                 : 0,
+            // المفتاحان مقبولان: with('success', …) وwith('flash', …) — الأخير مستعمل في 17 متحكّماً
+            // وكان يُهمَل صامتاً لأنه غير مشارك، فتضيع كل رسائل التأكيد.
             'flash' => [
                 'error' => fn () => $request->session()->get('error'),
-                'success' => fn () => $request->session()->get('success'),
+                'success' => fn () => $request->session()->get('success') ?? $request->session()->get('flash'),
             ],
             // كلمة المرور المولّدة للموظف الجديد (تُعرض مرة واحدة لدى الإدارة)
             'generatedPassword' => fn () => $request->session()->get('generatedPassword'),

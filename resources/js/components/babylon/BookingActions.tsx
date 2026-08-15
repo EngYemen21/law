@@ -31,7 +31,8 @@ const BookingActions: React.FC<{ c: ConsultCard; toast: (m: string) => void }> =
   // بانتظار تحديد الموعد
   const confirm = () => {
     setBusy(true);
-    router.post(`/consults/${c.id}/schedule`, { lawyer_id: lawyerId, date, time }, {
+    // الإسناد خادميّ (LawyerAvailability::assignLawyer) — lawyer_id كان يُرسَل ويُهمَل
+    router.post(`/consults/${c.id}/schedule`, { date, time }, {
       preserveScroll: true,
       onSuccess: () => { toast('تم تأكيد الموعد'); setOpen(false); setTime(''); setLawyerId(null); },
       onError: () => toast('تعذّر، جرّب فترة أخرى'),

@@ -37,6 +37,8 @@ export const ICON_PATHS: Record<string, string> = {
   send: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 11h1v5h1"/>',
   compass: '<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>',
+  // التحليل الذكي — كانت مستعملة في الأزرار وغير معرّفة فيظهر svg فارغ
+  sparkles: '<path d="M11 3l1.8 4.2L17 9l-4.2 1.8L11 15l-1.8-4.2L5 9l4.2-1.8z"/><path d="M18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9z"/>',
   // أيقونات الـ topbar
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/>',

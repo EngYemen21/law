@@ -91,7 +91,8 @@ class EmployeeRequestDocsTest extends TestCase
         $ticket->update(['status' => 'مكتملة']);
         $employee = $this->employeeFor($ticket);
 
-        $this->actingAs($employee)->post(route('employee.tickets.reqdocs', $ticket), [
+        // مودال النواقص ينادي بـaxios (Accept: application/json) فيصل الرفض 422 بجسم أخطاء
+        $this->actingAs($employee)->postJson(route('employee.tickets.reqdocs', $ticket), [
             'docs' => ['أي مستند'],
         ])->assertStatus(422);
 

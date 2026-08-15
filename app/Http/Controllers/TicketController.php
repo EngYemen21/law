@@ -19,6 +19,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -45,6 +46,7 @@ class TicketController extends Controller
     {
         $data = $request->validate([
             'type' => ['required', 'string', 'max:120'],
+            'subject' => ['nullable', 'string', 'max:190'],
             'department' => ['nullable', 'string', 'max:120'],
             'details' => ['nullable', 'string', 'max:5000'],
             'opponent_name' => ['nullable', 'string', 'max:190'],
@@ -65,6 +67,7 @@ class TicketController extends Controller
         $ticket = $request->user()->tickets()->create([
             'number' => $number,
             'type' => $data['type'],
+            'subject' => $data['subject'] ?? null,
             'department' => $data['department'] ?? null,
             'opponent_name' => $data['opponent_name'] ?? null,
             'opponent_id' => $data['opponent_id'] ?? null,
@@ -129,11 +132,11 @@ class TicketController extends Controller
     {
         $this->authorizeTicket($request, $ticket);
 
-        abort_if(
-            in_array($ticket->status, ['مكتملة', 'مغلقة'], true),
-            422,
-            'لا يمكن إرسال رسائل على تذكرة مكتملة أو مغلقة.'
-        );
+        if (in_array($ticket->status, ['مكتملة', 'مغلقة'], true)) {
+            throw ValidationException::withMessages([
+                'body' => 'لا يمكن إرسال رسائل على تذكرة مكتملة أو مغلقة.',
+            ]);
+        }
 
         $data = $request->validate([
             'body' => ['required', 'string', 'max:5000'],
@@ -221,19 +224,19 @@ class TicketController extends Controller
         ]);
 
         // حارسة الرحلة: لا يُطلب حجز على تذكرة اكتملت/أُغلقت أو في مرحلة اعتماد نهائية.
-        abort_if(
-            TicketJourney::indexOf($ticket->status) > TicketJourney::indexOf('موعد مؤكد')
-            || in_array($ticket->status, ['مكتملة', 'مغلقة', 'بانتظار اعتماد النتيجة', 'بانتظار اعتماد الإدارة'], true),
-            422,
-            'لا يمكن طلب الحجز من الحالة الحالية.'
-        );
+        if (TicketJourney::indexOf($ticket->status) > TicketJourney::indexOf('موعد مؤكد')
+            || in_array($ticket->status, ['مكتملة', 'مغلقة', 'بانتظار اعتماد النتيجة', 'بانتظار اعتماد الإدارة'], true)) {
+            throw ValidationException::withMessages([
+                'type' => 'لا يمكن طلب الحجز من الحالة الحالية.',
+            ]);
+        }
 
         // منع طلبات التسعير المتكرّرة: طلب واحد قائم لكل تذكرة يكفي حتى يكتمل أو يُلغى
-        abort_if(
-            $ticket->consults()->whereIn('status', Consult::PRE_SESSION_STATUSES)->exists(),
-            422,
-            'يوجد طلب استشارة قائم لهذه التذكرة.'
-        );
+        if ($ticket->consults()->whereIn('status', Consult::PRE_SESSION_STATUSES)->exists()) {
+            throw ValidationException::withMessages([
+                'type' => 'يوجد طلب استشارة قائم لهذه التذكرة.',
+            ]);
+        }
 
         $m = ConsultBooking::meta($data['type']);
         ConsultBooking::request($request->user(), ['type' => $data['type']], $ticket);

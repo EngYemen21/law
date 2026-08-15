@@ -26,6 +26,12 @@ class EnsurePermission
             }
         }
 
+        // نداءات axios/fetch (لا Inertia) تتبع التحويل تلقائياً فتقرأ 200 وتظنّ الإجراء ناجحاً.
+        // الرفض هنا صريح (403) حتى يعرض الزرّ خطأً حقيقياً بدل توست نجاح كاذب.
+        if (! $request->inertia() && ($request->expectsJson() || $request->ajax())) {
+            abort(403, 'لا تملك صلاحية تنفيذ هذا الإجراء.');
+        }
+
         return redirect($user->role->home())
             ->with('error', 'لا تملك صلاحية الوصول إلى هذه الصفحة.');
     }

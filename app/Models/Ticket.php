@@ -13,7 +13,7 @@ class Ticket extends Model
     use HasBranch;
 
     protected $fillable = [
-        'user_id', 'number', 'type', 'opponent_name', 'opponent_id', 'claim_amount', 'court_name', 'priority',
+        'user_id', 'number', 'type', 'subject', 'opponent_name', 'opponent_id', 'claim_amount', 'court_name', 'priority',
         'department', 'assigned_lawyer', 'assigned_lawyer_id', 'branch', 'status', 'tone', 'attachments', 'last_message', 'date_label',
     ];
 
@@ -67,10 +67,7 @@ class Ticket extends Model
         return [
             'no' => $this->number,
             'type' => $this->type,
-            'opponentName' => $this->opponent_name,
-            'opponentId' => $this->opponent_id,
-            'claimAmount' => $this->claim_amount,
-            'courtName' => $this->court_name,
+            'subject' => $this->subject,
             'priority' => $this->priority ?: 'متوسطة',
             'dept' => $this->department,
             'status' => $this->status,
@@ -88,10 +85,7 @@ class Ticket extends Model
             'client' => self::maskClient($this->user?->name ?? ''),
             'clientId' => $this->user_id,
             'type' => $this->type,
-            'opponentName' => $this->opponent_name,
-            'opponentId' => $this->opponent_id,
-            'claimAmount' => $this->claim_amount,
-            'courtName' => $this->court_name,
+            'subject' => $this->subject,
             'priority' => $this->priority ?: 'متوسطة',
             'dept' => $this->department,
             'lawyer' => $this->assigned_lawyer ?: '—',

@@ -23,6 +23,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -42,13 +43,19 @@ class TicketController extends Controller
 
         return Inertia::render('employee/tickets', [
             'tickets' => $tickets,
+            // محامو الفرع — مودال التحويل في القائمة يحتاج القائمة الحقيقية لا بيانات ثابتة
+            'lawyers' => User::where('role', Role::Lawyer)
+                ->where('branch', $this->currentBranch())
+                ->orderBy('name')
+                ->get(['id', 'name'])
+                ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name]),
         ]);
     }
 
     public function show(Ticket $ticket): Response
     {
         $this->guardBranch($ticket);
-        $ticket->load('user');
+        $ticket->load(['user', 'legalCase']);
 
         $lawyers = User::where('role', Role::Lawyer)
             ->where('branch', $this->currentBranch())
@@ -57,7 +64,8 @@ class TicketController extends Controller
             ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name]);
 
         return Inertia::render('employee/ticketchat', [
-            'ticket' => $ticket->toEmployeeCard(),
+            // caseRef يخفي زرّ «تحويل إلى قضية» بعد التحويل ويعرض رابط ملف القضية بدله
+            'ticket' => array_merge($ticket->toEmployeeCard(), ['caseRef' => $ticket->legalCase?->number]),
             'channel' => 'ticket.'.$ticket->id,
             // الموظف يرى كل الرسائل بما فيها الملاحظات الداخلية
             'messages' => $ticket->messages->map->toMessage(),
@@ -103,7 +111,11 @@ class TicketController extends Controller
         $this->guardBranch($ticket);
 
         // التذاكر المكتملة/المغلقة نهائية — لا تُعاد لطلب نواقص (يبقى الحجب النهائي تصميماً)
-        abort_if(in_array($ticket->status, ['مكتملة', 'مغلقة'], true), 422, 'التذكرة مكتملة/مغلقة ولا يمكن طلب نواقص عليها.');
+        if (in_array($ticket->status, ['مكتملة', 'مغلقة'], true)) {
+            throw ValidationException::withMessages([
+                'docs' => 'التذكرة مكتملة/مغلقة ولا يمكن طلب نواقص عليها.',
+            ]);
+        }
 
         $data = $request->validate([
             'docs' => ['required', 'array', 'min:1', 'max:20'],
@@ -181,20 +193,19 @@ class TicketController extends Controller
         // التذاكر المكتملة/المغلقة نهائية — لا تُعاد لمرحلة سابقة (تمنع مسح اعتماد
         // المحامي/الإدارة عبر إعادة تنفيذ referToLawyer على تذكرة منصرفة). يُسمح بالتبديل
         // بين الحالات النهائية فقط (مكتملة ⇄ مغلقة)، لا التراجع لمراحل المعالجة.
-        abort_if(
-            in_array($ticket->status, ['مكتملة', 'مغلقة'], true)
-            && ! in_array($data['status'], ['مكتملة', 'مغلقة'], true),
-            422,
-            'التذكرة مكتملة/مغلقة ولا يمكن إعادة فتحها. أنشئ تذكرة جديدة إن لزم.'
-        );
+        if (in_array($ticket->status, ['مكتملة', 'مغلقة'], true) && ! in_array($data['status'], ['مكتملة', 'مغلقة'], true)) {
+            throw ValidationException::withMessages([
+                'status' => 'التذكرة مكتملة/مغلقة ولا يمكن إعادة فتحها. أنشئ تذكرة جديدة إن لزم.',
+            ]);
+        }
 
         // الترتيب محروس أيضاً: المفردات وحدها كانت تسمح بالقفز إلى «مكتملة» فيُتخطّى
         // مسار الرحلة كلّه ويُفتح تحويل التذكرة إلى قضية — باب خلفي يلتفّ على advance.
-        abort_unless(
-            TicketJourney::canTransition($ticket->status, $data['status']),
-            422,
-            'انتقال غير مسموح: لا يمكن تخطّي مراحل الرحلة.',
-        );
+        if (! TicketJourney::canTransition($ticket->status, $data['status'])) {
+            throw ValidationException::withMessages([
+                'status' => 'انتقال غير مسموح: لا يمكن تخطّي مراحل الرحلة.',
+            ]);
+        }
 
         $ticket->update(['status' => $data['status'], 'tone' => TicketJourney::toneFor($data['status'])]);
         Live::push(new TicketStatusBroadcast($ticket));
@@ -230,8 +241,13 @@ class TicketController extends Controller
             return response()->noContent(); // اكتملت الرحلة
         }
 
+        // «محالة للقسم القانوني» مرحلة عبور تُفضي دائماً إلى المستشار: سواء ننتقل إليها الآن أو
+        // كانت التذكرة واقفة عليها (وصلتها مثلاً عبر فتحٍ بلا تحليل ذكي) — الوجهة «بانتظار اعتماد
+        // المستشار» لا «الرأي القانوني»؛ فاعتماد المستشار وحده يفتح «الرأي القانوني».
+        $referring = $stage['status'] === 'محالة للقسم القانوني' || $ticket->status === 'محالة للقسم القانوني';
+
         // بوابة المستندات: لا تُحال للقسم قبل التأكد من إرفاق المستندات
-        if ($stage['status'] === 'محالة للقسم القانوني' && $ticket->attachments < 1) {
+        if ($referring && $ticket->attachments < 1) {
             $ticket->update(['status' => 'بانتظار مستندات', 'tone' => TicketJourney::toneFor('بانتظار مستندات'), 'last_message' => 'بانتظار إرفاق المستندات المطلوبة', 'date_label' => 'الآن']);
 
             $chips = implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', ServiceDocs::for($ticket->type)));
@@ -249,7 +265,7 @@ class TicketController extends Controller
         }
 
         // الإحالة للقسم القانوني: تقدّم فوري بيد الموظف (بلا نداء AI)، ثم انتظار اعتماد المستشار
-        if ($stage['status'] === 'محالة للقسم القانوني') {
+        if ($referring) {
             TicketTriage::referToLawyer($ticket);
 
             return response()->noContent();
@@ -290,7 +306,11 @@ class TicketController extends Controller
     {
         $this->guardBranch($ticket);
         abort_unless($ticket->summary, 404);
-        abort_if($ticket->summary->isApproved(), 422, 'لا يمكن إعادة تشغيل التحليل لملخّص تم اعتماده رسمياً.');
+        if ($ticket->summary?->isApproved()) {
+            throw ValidationException::withMessages([
+                'summary' => 'لا يمكن إعادة تشغيل التحليل لملخّص تم اعتماده رسمياً.',
+            ]);
+        }
 
         GenerateTicketSummaryJob::dispatch($ticket, force: true);
 
@@ -301,9 +321,21 @@ class TicketController extends Controller
     public function convertToCase(Request $request, Ticket $ticket): RedirectResponse
     {
         $this->guardBranch($ticket);
-        abort_unless($ticket->status === 'مكتملة', 422);
-        abort_unless($ticket->summary?->isApproved(), 422, 'لا يمكن تحويل التذكرة لقضية إلا بعد اعتماد النتيجة من المستشار القانوني.');
-        abort_if($ticket->legalCase()->exists(), 409);
+        if ($ticket->status !== 'مكتملة') {
+            throw ValidationException::withMessages([
+                'ticket' => 'لا يمكن تحويل التذكرة لقضية إلا بعد اكتمالها.',
+            ]);
+        }
+        if (! $ticket->summary?->isApproved()) {
+            throw ValidationException::withMessages([
+                'ticket' => 'لا يمكن تحويل التذكرة لقضية إلا بعد اعتماد النتيجة من المستشار القانوني.',
+            ]);
+        }
+        if ($ticket->legalCase()->exists()) {
+            throw ValidationException::withMessages([
+                'ticket' => 'تم تحويل هذه التذكرة لقضية مسبقاً.',
+            ]);
+        }
 
         CaseConversion::convert($ticket, $request->user());
 

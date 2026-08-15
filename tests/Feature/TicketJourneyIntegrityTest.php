@@ -175,7 +175,7 @@ class TicketJourneyIntegrityTest extends TestCase
 
         $this->actingAs($this->employee())
             ->post(route('employee.tickets.status', $ticket), ['status' => 'مكتملة']) // مرحلة 6
-            ->assertStatus(422);
+            ->assertSessionHasErrors('status'); // ValidationException (تخطّي مرفوض)
 
         $this->assertSame('قيد التحليل', $ticket->fresh()->status);
     }
@@ -187,7 +187,7 @@ class TicketJourneyIntegrityTest extends TestCase
 
         $this->actingAs($this->employee())
             ->post(route('employee.tickets.status', $ticket), ['status' => 'محالة للقسم القانوني']) // 2
-            ->assertStatus(422);
+            ->assertSessionHasErrors('status');
 
         $this->assertSame('قيد التحليل', $ticket->fresh()->status);
     }
@@ -209,7 +209,7 @@ class TicketJourneyIntegrityTest extends TestCase
 
         $this->actingAs($this->employee())
             ->post(route('employee.tickets.status', $ticket), ['status' => 'قيد التحليل']) // 1
-            ->assertStatus(422);
+            ->assertSessionHasErrors('status');
 
         $this->assertSame('الرأي القانوني', $ticket->fresh()->status);
     }
@@ -222,12 +222,12 @@ class TicketJourneyIntegrityTest extends TestCase
         // محاولة القفز إلى «مكتملة» تُرفض…
         $this->actingAs($employee)
             ->post(route('employee.tickets.status', $ticket), ['status' => 'مكتملة'])
-            ->assertStatus(422);
+            ->assertSessionHasErrors('status');
 
         // …فيبقى تحويل التذكرة إلى قضية مقفلاً (يشترط «مكتملة»)
         $this->actingAs($employee)
             ->post(route('employee.tickets.convert', $ticket))
-            ->assertStatus(422);
+            ->assertSessionHasErrors('ticket');
     }
 
     // ── منع إعادة فتح التذاكر المكتملة/المغلقة ──
@@ -240,7 +240,7 @@ class TicketJourneyIntegrityTest extends TestCase
 
         $this->actingAs($this->employee())
             ->post(route('employee.tickets.status', $ticket), ['status' => 'قيد التحليل'])
-            ->assertStatus(422);
+            ->assertSessionHasErrors('status');
 
         $this->assertSame('مكتملة', $ticket->fresh()->status);
     }
@@ -251,7 +251,7 @@ class TicketJourneyIntegrityTest extends TestCase
 
         $this->actingAs($this->employee())
             ->post(route('employee.tickets.status', $ticket), ['status' => 'قيد التحليل'])
-            ->assertStatus(422);
+            ->assertSessionHasErrors('status');
 
         $this->assertSame('مغلقة', $ticket->fresh()->status);
     }

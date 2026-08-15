@@ -23,6 +23,19 @@ export function usePermCatalog(): PermCatalog {
   return props.permCatalog ?? EMPTY;
 }
 
+// هل يملك المستخدم صلاحية تفصيلية بعينها؟ — لإخفاء الأزرار داخل الصفحات (لا الروابط فقط)
+// الإدارة (isSuper) تتجاوز الكل، مطابقةً لـ Gate::before في AppServiceProvider.
+export function useCan(): (permission: string) => boolean {
+  const { props } = usePage() as unknown as {
+    props: { auth?: { user?: { isSuper?: boolean; permissions?: string[] } | null } };
+  };
+  const user = props.auth?.user;
+  if (user?.isSuper) return () => true;
+  const owned = user?.permissions ?? [];
+
+  return (permission: string) => owned.includes(permission);
+}
+
 // هل يملك المستخدم صلاحية رؤية مسار؟ (segment-aware؛ isSuper يرى الكل) — viewMap يأتي من الكتالوج
 export function canViewRoute(
   route: string,

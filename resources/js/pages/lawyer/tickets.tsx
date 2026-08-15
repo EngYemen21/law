@@ -1,8 +1,10 @@
 import { router } from '@inertiajs/react';
-import React from 'react';
+import React, { useState } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
+import QuickTicketModal, { type TicketPreviewData } from '@/components/babylon/QuickTicketModal';
+import { useCan } from '@/lib/permissions';
 
 // تذاكر المستشار المحالة — بيانات حقيقية من الخادم (لها ملخص ملف)
 
@@ -13,10 +15,14 @@ const openTicket = (no: string) => router.visit(`/lawyer/tickets/${encodeURIComp
 
 const LawyerTickets: React.FC<Props> = ({ tickets }) => {
   const toast = useToast();
+  const canManageCases = useCan()('إدارة القضايا والأتعاب');
+  const [previewTicket, setPreviewTicket] = useState<TicketPreviewData | null>(null);
 
   const convert = (no: string) =>
     router.post(`/lawyer/tickets/${encodeURIComponent(no)}/convert`, {}, {
-      preserveScroll: true, onSuccess: () => toast('تم تحويل التذكرة إلى قضية'),
+      preserveScroll: true,
+      onSuccess: () => toast('تم تحويل التذكرة إلى قضية'),
+      onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تحويل التذكرة لقضية'}`),
     });
 
   return (
@@ -48,13 +54,16 @@ const LawyerTickets: React.FC<Props> = ({ tickets }) => {
                   <td><Badge text={t.status} tone={t.tone} /></td>
                   <td>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
-                      <button className="btn soft sm" onClick={() => openTicket(t.no)} type="button">
-                        <Icon name="scale" /> فتح
+                      <button className="btn soft sm" onClick={() => setPreviewTicket(t)} type="button">
+                        <Icon name="doc" /> معاينة
+                      </button>
+                      <button className="btn sm" onClick={() => openTicket(t.no)} type="button">
+                        <Icon name="scale" /> دراسة الملف
                       </button>
                       {t.status === 'مكتملة' && (
                         t.converted
                           ? <Badge text="محوّلة لقضية" tone="b-cyan" />
-                          : (
+                          : canManageCases && (
                             <button className="btn sm" onClick={() => convert(t.no)} type="button">
                               <Icon name="scale" /> تحويل لقضية
                             </button>
@@ -70,6 +79,12 @@ const LawyerTickets: React.FC<Props> = ({ tickets }) => {
           <div className="empty"><Icon name="folder" /><b>لا تذاكر محالة إليك بعد</b></div>
         )}
       </div>
+      <QuickTicketModal
+        ticket={previewTicket}
+        open={Boolean(previewTicket)}
+        role="lawyer"
+        onClose={() => setPreviewTicket(null)}
+      />
     </div>
   );
 };

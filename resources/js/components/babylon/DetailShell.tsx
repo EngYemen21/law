@@ -2,7 +2,7 @@ import { Link } from '@inertiajs/react';
 import React from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
-import { nowClock, todayDate, CLIENT_IP } from '@/lib/chat';
+import { nowClock, todayDate } from '@/lib/chat';
 
 // يطابق renderDetail/tflow/tf-grid/tf-aside في index (82).html
 
@@ -54,10 +54,7 @@ const DetailShell: React.FC<DetailShellProps> = ({
                 <span className="v">{v}</span>
               </div>
             ))}
-            <div className="tc-row">
-              <span className="k">عنوان IP</span>
-              <span className="v" style={{ direction: 'ltr' }}>{CLIENT_IP}</span>
-            </div>
+            {/* حُذف صفّ «عنوان IP» — كان ثابتاً وهمياً */}
             <div className="tc-row">
               <span className="k">التاريخ</span>
               <span className="v">{todayDate()}</span>

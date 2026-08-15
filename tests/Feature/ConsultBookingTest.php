@@ -184,8 +184,8 @@ class ConsultBookingTest extends TestCase
         $ticket = $this->ticketReadyToBook($client);
 
         $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'video'])->assertNoContent();
-        // طلب ثانٍ بينما الأول لم يكتمل → مرفوض
-        $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'phone'])->assertStatus(422);
+        // طلب ثانٍ بينما الأول لم يكتمل → مرفوض (نداء axios ⇒ 422 بجسم أخطاء)
+        $this->actingAs($client)->postJson(route('tickets.book', $ticket), ['type' => 'phone'])->assertStatus(422);
         $this->assertSame(1, Consult::where('ticket_id', $ticket->id)->count());
     }
 
@@ -199,7 +199,9 @@ class ConsultBookingTest extends TestCase
         $ticket = $this->ticketReadyToBook($client);
         $ticket->update(['status' => $status]);
 
-        $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'video'])->assertStatus(422);
+        // الواجهة تنادي هذه النقطة بـaxios (Accept: application/json) فيصل الرفض 422 بجسم أخطاء،
+        // بينما طلب HTML عاديّ يُعاد توجيهه بأخطاء الجلسة — الاختبار يحاكي نداء الواجهة الفعليّ.
+        $this->actingAs($client)->postJson(route('tickets.book', $ticket), ['type' => 'video'])->assertStatus(422);
 
         $this->assertSame(0, Consult::where('ticket_id', $ticket->id)->count());
         $this->assertFalse($ticket->fresh()->messages->contains(fn ($m) => $m->role === 'مواعيد'));

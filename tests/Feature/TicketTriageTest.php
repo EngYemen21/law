@@ -199,7 +199,7 @@ class TicketTriageTest extends TestCase
 
         // ملخّص قالبي (ai_generated=false، بلا مفاتيح AI) — اعتماده بلا تحرير مرفوض حمايةً للعميل
         $this->assertFalse((bool) $ticket->summary->fresh()->ai_generated);
-        $this->actingAs($lawyer)->post(route('lawyer.summary.approve', $ticket))->assertStatus(422);
+        $this->actingAs($lawyer)->post(route('lawyer.summary.approve', $ticket))->assertSessionHasErrors('case_summary');
         $this->assertNotSame('الرأي القانوني', $ticket->fresh()->status);
     }
 

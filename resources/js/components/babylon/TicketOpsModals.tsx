@@ -1,0 +1,162 @@
+import axios from 'axios';
+import React, { useEffect, useState } from 'react';
+import Icon from '@/lib/icons';
+import Modal from '@/components/babylon/Modal';
+import { useToast } from '@/components/babylon/Toast';
+import { DEPTS, REQ_DOCS } from '@/lib/employee-data';
+
+// مودالا «تحويل التذكرة» و«طلب النواقص» — نسخة واحدة عاملة تُصيب المسارات الحقيقية،
+// تحلّ محلّ النسخة المكرّرة في محادثة الموظف والنسخة الديكورية القديمة في قائمة التذاكر.
+
+export interface LawyerOption { id: number; name: string }
+export type TicketOpsKind = 'transfer' | 'reqdocs' | null;
+
+interface Props {
+  kind: TicketOpsKind;
+  ticketNo: string;
+  dept?: string;
+  lawyerId?: number | null;
+  lawyers: LawyerOption[];
+  onClose: () => void;
+  onDone?: () => void; // إعادة تحميل/تحديث بعد نجاح فعلي
+}
+
+const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawyers, onClose, onDone }) => {
+  const toast = useToast();
+
+  // ── تحويل التذكرة ──
+  const [trDept, setTrDept] = useState(dept || DEPTS[0]);
+  const [trLawyerId, setTrLawyerId] = useState<string>(lawyerId ? String(lawyerId) : '');
+  const [trReason, setTrReason] = useState('');
+  const [trBusy, setTrBusy] = useState(false);
+
+  // ── طلب النواقص ──
+  const [reqChosen, setReqChosen] = useState<Record<string, boolean>>({});
+  const [reqExtra, setReqExtra] = useState('');
+  const [reqBusy, setReqBusy] = useState(false);
+
+  // إعادة الضبط عند فتح مودال لتذكرة أخرى (القائمة تفتح تذاكر مختلفة بنفس المكوّن)
+  useEffect(() => {
+    if (kind === 'transfer') {
+      setTrDept(dept || DEPTS[0]);
+      setTrLawyerId(lawyerId ? String(lawyerId) : '');
+      setTrReason('');
+      setTrBusy(false);
+    }
+    if (kind === 'reqdocs') {
+      setReqChosen({});
+      setReqExtra('');
+      setReqBusy(false);
+    }
+  }, [kind, ticketNo, dept, lawyerId]);
+
+  const submitTransfer = () => {
+    if (!trLawyerId) { toast('يرجى اختيار المستشار'); return; }
+    setTrBusy(true);
+    axios.post(`/employee/transfer/${encodeURIComponent(ticketNo)}`, {
+      lawyer_id: trLawyerId,
+      department: trDept,
+      reason: trReason.trim() || null,
+    }).then((r) => {
+      toast(`✅ تم تحويل التذكرة إلى ${r.data?.lawyer ?? 'المستشار المحدّد'}`);
+      onClose();
+      onDone?.();
+    }).catch((err) => {
+      const msg = err.response?.data?.message || 'تعذّر التحويل، تحقق من البيانات';
+      toast(`⚠️ ${msg}`);
+    }).finally(() => setTrBusy(false));
+  };
+
+  const submitReqDocs = () => {
+    const picked = REQ_DOCS.filter((r) => reqChosen[r]);
+    const extras = reqExtra.split('\n').map((s) => s.trim()).filter(Boolean);
+    const allDocs = [...picked, ...extras];
+    if (!allDocs.length) { toast('يرجى اختيار أو كتابة مستند واحد على الأقل'); return; }
+    setReqBusy(true);
+    // تُرسَل أسماء المستندات فقط؛ الخادم يبني الرسالة (تهريب آمن) ويبثّها ويضبط «بانتظار مستندات» ويشعر العميل
+    axios.post(`/employee/tickets/${encodeURIComponent(ticketNo)}/request-docs`, { docs: allDocs })
+      .then(() => {
+        toast(`✅ تم إرسال طلب النواقص للعميل (${allDocs.length} مستند)`);
+        onClose();
+        onDone?.();
+      })
+      .catch((err) => {
+        const msg = err.response?.data?.message || 'تعذّر إرسال طلب النواقص';
+        toast(`⚠️ ${msg}`);
+      })
+      .finally(() => setReqBusy(false));
+  };
+
+  return (
+    <>
+      <Modal title={`تحويل التذكرة — ${ticketNo}`} open={kind === 'transfer'} onClose={onClose}>
+        <div className="field">
+          <label>القسم المختص</label>
+          <select value={trDept} onChange={(e) => setTrDept(e.target.value)}>
+            {DEPTS.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label>المستشار</label>
+          <select value={trLawyerId} onChange={(e) => setTrLawyerId(e.target.value)}>
+            <option value="">اختر المستشار…</option>
+            {lawyers.map((l) => <option key={l.id} value={String(l.id)}>{l.name}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label>سبب التحويل (اختياري)</label>
+          <input
+            type="text"
+            value={trReason}
+            onChange={(e) => setTrReason(e.target.value)}
+            placeholder="اكتب سبب التحويل…"
+          />
+        </div>
+        <button className="btn block" type="button" onClick={submitTransfer} disabled={trBusy || !trLawyerId}>
+          <Icon name="reply" /> {trBusy ? 'جاري التحويل…' : 'تأكيد التحويل'}
+        </button>
+      </Modal>
+
+      <Modal title={`طلب نواقص — ${ticketNo}`} open={kind === 'reqdocs'} onClose={onClose}>
+        <p style={{ fontSize: '13.5px', color: '#2b4a68', marginBottom: 10 }}>
+          اختر المستندات المطلوبة من العميل، ويمكنك أيضاً كتابة مستندات إضافية:
+        </p>
+        <div className="chips" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+          {REQ_DOCS.map((r) => (
+            <span
+              key={r}
+              className={`chip sel-toggle${reqChosen[r] ? ' on' : ''}`}
+              onClick={() => setReqChosen((prev) => ({ ...prev, [r]: !prev[r] }))}
+              style={{
+                padding: '5px 11px',
+                borderRadius: 8,
+                fontSize: 12.5,
+                fontWeight: 600,
+                border: reqChosen[r] ? '1.5px solid var(--primary)' : '1px solid var(--line)',
+                background: reqChosen[r] ? 'rgba(14,92,156,.08)' : '#fff',
+                color: reqChosen[r] ? 'var(--primary)' : 'var(--muted)',
+                cursor: 'pointer',
+              }}
+            >
+              {reqChosen[r] ? '✓ ' : ''}{r}
+            </span>
+          ))}
+        </div>
+        <div className="field">
+          <label>مستندات إضافية (كتابة)</label>
+          <textarea
+            value={reqExtra}
+            onChange={(e) => setReqExtra(e.target.value)}
+            placeholder="اكتب أي مستندات أخرى مطلوبة، كل مستند في سطر…"
+            rows={3}
+          />
+        </div>
+        <button className="btn block" type="button" onClick={submitReqDocs} disabled={reqBusy}>
+          <Icon name="send" /> {reqBusy ? 'جاري الإرسال…' : 'إرسال طلب النواقص'}
+        </button>
+      </Modal>
+    </>
+  );
+};
+
+export default TicketOpsModals;

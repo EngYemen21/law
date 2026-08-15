@@ -30,7 +30,7 @@ const AdminSummaries: React.FC<Props> = ({ summaries }) => {
             <div className="iico"><Icon name="doc" /></div>
             <div className="imeta">
               <b>ملخص ملف — {s.ref}{s.type ? ` · ${s.type}` : ''}</b>
-              <span><FlowLine steps={SUM_FLOW} cur={sumStage(s.status)} /></span>
+              <span><FlowLine steps={SUM_FLOW} cur={sumStage(s.resultStatus)} /></span>
             </div>
             <div className="iact">
               {s.resultStatus === 'pending_admin' ? (

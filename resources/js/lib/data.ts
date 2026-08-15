@@ -324,14 +324,10 @@ acc[r] = t;
   {} as Record<string, [string, string]>
 );
 // مسارات إضافية لدور العميل (المحادثات)
-CLIENT_TITLES['/tickets/chat'] = ['محادثة التذكرة', 'طلباتي'];
-CLIENT_TITLES['/cases/chat'] = ['متابعة القضية', 'طلباتي'];
-CLIENT_TITLES['/execs/chat'] = ['متابعة طلب التنفيذ', 'طلباتي'];
 
 const EMPLOYEE_TITLES: Record<string, [string, string]> = {
   '/employee/dashboard': ['الرئيسية', 'لوحة الموظف'],
   '/employee/tickets': ['التذاكر', 'لوحة الموظف'],
-  '/employee/tickets/chat': ['محادثة التذكرة', 'لوحة الموظف'],
   '/employee/cases': ['القضايا', 'لوحة الموظف'],
   '/employee/execs': ['التنفيذ', 'لوحة الموظف'],
   '/employee/consults': ['إدارة الاستشارات', 'لوحة الموظف'],
@@ -346,7 +342,6 @@ const EMPLOYEE_TITLES: Record<string, [string, string]> = {
 const LAWYER_TITLES: Record<string, [string, string]> = {
   '/lawyer/dashboard': ['الرئيسية', 'لوحة المحامي'],
   '/lawyer/tickets': ['التذاكر', 'لوحة المحامي'],
-  '/lawyer/tickets/chat': ['محادثة التذكرة', 'لوحة المحامي'],
   '/lawyer/cases': ['قضاياي', 'لوحة المحامي'],
   '/lawyer/execs': ['التنفيذ', 'لوحة المحامي'],
   '/lawyer/correspondences': ['المخاطبات', 'لوحة المحامي'],

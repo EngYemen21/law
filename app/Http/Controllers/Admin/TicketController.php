@@ -31,13 +31,16 @@ class TicketController extends Controller
 
     public function show(Ticket $ticket): Response
     {
-        $ticket->load(['user', 'summary']);
+        $ticket->load(['user', 'summary', 'legalCase']);
 
         return Inertia::render('lawyer/ticketchat', [
-            'ticket' => $ticket->toEmployeeCard(),
+            'ticket' => array_merge($ticket->toEmployeeCard(), ['caseRef' => $ticket->legalCase?->number]),
             'channel' => 'ticket.'.$ticket->id,
             'messages' => $ticket->messages->map->toMessage(),
             'summary' => $ticket->summary?->toData(),
+            // كانت مفقودة ⇒ canConvert صحيح دائماً فيظهر زر التحويل حتى بعد التحويل
+            'converted' => (bool) $ticket->legalCase,
+            'base' => '/admin',
         ]);
     }
 

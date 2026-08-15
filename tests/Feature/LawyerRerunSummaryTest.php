@@ -70,7 +70,8 @@ class LawyerRerunSummaryTest extends TestCase
         $lawyer = $this->assignedLawyer();
         $ticket = $this->ticketWithSummary($lawyer, approvedAt: now()->toDateTimeString());
 
-        $this->actingAs($lawyer)->post(route('lawyer.summary.rerun', $ticket))->assertStatus(422);
+        // النداء من الواجهة عبر Inertia ⇒ تحويل يحمل أخطاء الجلسة
+        $this->actingAs($lawyer)->post(route('lawyer.summary.rerun', $ticket))->assertSessionHasErrors('summary');
 
         Queue::assertNotPushed(GenerateTicketSummaryJob::class);
     }

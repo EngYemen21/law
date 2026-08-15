@@ -342,6 +342,10 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::get('/tickets', [AdminTicketController::class, 'index'])->name('tickets');
     Route::get('/tickets/{ticket}', [AdminTicketController::class, 'show'])->name('tickets.show');
     Route::post('/tickets/{ticket}/result', [AdminTicketController::class, 'approveResult'])->name('tickets.result');
+    // صفحة تذكرة الإدارة تعيد استخدام شاشة المستشار — فتحتاج نظائر admin.* لإجراءاتها (كانت مثبّتة على /lawyer)
+    Route::post('/tickets/{ticket}/convert', [LawyerTicketController::class, 'convertToCase'])->name('tickets.convert');
+    Route::post('/tickets/{ticket}/close', [LawyerTicketController::class, 'closeWithoutCase'])->name('tickets.close');
+    Route::post('/tickets/{ticket}/request-docs', [LawyerTicketController::class, 'requestDocs'])->name('tickets.reqdocs');
     Route::get('/lawyers', [AdminLawyerController::class, 'index'])->name('lawyers');
     Route::post('/lawyers/{user}/mode', [AdminLawyerController::class, 'toggleMode'])->name('lawyers.mode');
     // المخاطبات الرسميّة (الإدارة ترى الكلّ + الاعتماد/الإرسال/الإغلاق)

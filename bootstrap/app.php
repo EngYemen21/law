@@ -41,7 +41,11 @@ return Application::configure(basePath: dirname(__DIR__))
             | Request::HEADER_X_FORWARDED_AWS_ELB);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // نداءات axios في الواجهة (Accept: application/json) تحتاج جسم خطأ حقيقياً (422/403).
+        // كانت تُعاد توجيهاً فيتبعه axios ويقرأ 200 فيشتعل then() ويظهر توست «✅ تم…» بلا تنفيذ.
+        // زيارات Inertia مستثناة: تعتمد على التحويل مع أخطاء الجلسة (onError).
         $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*'),
+            fn (Request $request) => $request->is('api/*')
+                || (! $request->inertia() && $request->expectsJson()),
         );
     })->create();

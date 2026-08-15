@@ -21,6 +21,7 @@ const Tickets: React.FC<{ tickets: TicketCard[] }> = ({ tickets }) => (
       </button>
     </div>
     <div className="card-b t-wrap">
+      {tickets.length ? (
       <table className="tbl">
         <thead>
           <tr>
@@ -44,8 +45,12 @@ const Tickets: React.FC<{ tickets: TicketCard[] }> = ({ tickets }) => (
               <td><Badge text={t.status} tone={t.tone} /></td>
               <td className="last muted">{t.last}</td>
               <td className="muted">{t.date}</td>
-              <td>
-                <button className="btn soft sm" type="button">
+              <td onClick={(e) => e.stopPropagation()}>
+                <button
+                  className="btn soft sm"
+                  type="button"
+                  onClick={() => router.visit(`/tickets/${encodeURIComponent(t.no)}`)}
+                >
                   <Icon name="reply" /> فتح المحادثة
                 </button>
               </td>
@@ -53,6 +58,9 @@ const Tickets: React.FC<{ tickets: TicketCard[] }> = ({ tickets }) => (
           ))}
         </tbody>
       </table>
+      ) : (
+        <div className="empty"><Icon name="ticket" /><b>لا تذاكر بعد</b></div>
+      )}
     </div>
   </div>
 );

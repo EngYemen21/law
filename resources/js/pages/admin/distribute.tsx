@@ -50,7 +50,7 @@ const AdminDistribute: React.FC<Props> = ({ tickets, lawyers }) => {
           <h3>توزيع التذاكر</h3>
           <span className="sub">{tickets.length}</span>
           <button
-            className="btn primary sm"
+            className="btn sm"
             type="button"
             disabled={autoBusy || autoCount === 0}
             onClick={runAuto}

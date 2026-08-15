@@ -101,8 +101,9 @@ const SpecialistPicker: React.FC<Props> = ({
                 );
               })}
             </div>
+            {/* الإسناد النهائيّ خادميّ لحظة الحجز — لا نَعِد العميل باسم قد يتغيّر */}
             {assigned
-              ? <p className="sub" style={{ marginTop: 10 }}>سيتولّى استشارتك: <b>{firstName(assigned.name)}</b></p>
+              ? <p className="sub" style={{ marginTop: 10 }}>المتاح الآن لهذا الوقت: <b>{firstName(assigned.name)}</b> — يُعتمد الإسناد بعد تأكيد الحجز.</p>
               : <p className="sub" style={{ marginTop: 10 }}>يُسند النظام المستشار المختصّ تلقائيّاً حسب نوع طلبك.</p>}
           </>
         )}

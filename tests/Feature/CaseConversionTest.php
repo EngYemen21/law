@@ -82,7 +82,8 @@ class CaseConversionTest extends TestCase
         $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]));
         $ticket->update(['status' => 'الرأي القانوني']);
 
-        $this->actingAs($employee)->post(route('employee.tickets.convert', $ticket))->assertStatus(422);
+        // النداء من الواجهة عبر Inertia ⇒ تحويل يحمل أخطاء الجلسة (يقرأها onError)
+        $this->actingAs($employee)->post(route('employee.tickets.convert', $ticket))->assertSessionHasErrors('ticket');
     }
 
     public function test_cannot_convert_unless_completed(): void
@@ -91,7 +92,7 @@ class CaseConversionTest extends TestCase
         $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]), $lawyer);
         $ticket->update(['status' => 'الرأي القانوني']);
 
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertStatus(422);
+        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertSessionHasErrors('ticket');
     }
 
     public function test_cannot_convert_twice(): void
@@ -100,7 +101,7 @@ class CaseConversionTest extends TestCase
         $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]), $lawyer);
 
         $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertStatus(409);
+        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertSessionHasErrors('ticket');
         $this->assertSame(1, LegalCase::where('ticket_id', $ticket->id)->count());
     }
 

@@ -15,10 +15,16 @@ const Topbar: React.FC<TopbarProps> = ({ onMenuToggle }) => {
   // الصفحات المشتركة تُنسب للوحة دور المستخدم الفعليّ (اتّساقاً مع الشريط الجانبيّ).
   const role = panelRole(path, user?.role);
   const titles = ROLE_TITLES[role] ?? ROLE_TITLES.client;
-  // مطابقة مباشرة، مع احتياط لمسار محادثة التذكرة الديناميكي /tickets/{no}
+  // مطابقة مباشرة، مع احتياط للمسارات الديناميكية
   let [title, crumb] = titles[path] ?? ['الرئيسية', 'منصة العميل'];
-  if (!titles[path] && /^\/tickets\/[^/]+$/.test(path) && path !== '/tickets/new') {
-    [title, crumb] = ['محادثة التذكرة', 'طلباتي'];
+  // محادثة التذكرة في كل اللوحات: /tickets/{no} و/(employee|lawyer|admin)/tickets/{no}
+  // كان النمط مثبّتاً ببداية «/tickets» فتظهر لوحات الموظف والمستشار والإدارة بعنوان «الرئيسية / منصة العميل»
+  if (!titles[path] && /^(?:\/employee|\/lawyer|\/admin)?\/tickets\/[^/]+$/.test(path) && path !== '/tickets/new') {
+    [title, crumb] = ['محادثة التذكرة', titles[`${path.split('/tickets')[0]}/tickets`]?.[1] ?? 'طلباتي'];
+  }
+  // ملخص الملف الديناميكي /(lawyer|admin)/summary/{no}
+  if (!titles[path] && /^(?:\/lawyer|\/admin)\/summary\/[^/]+$/.test(path)) {
+    [title, crumb] = ['ملخص الملف', titles[`${path.split('/summary')[0]}/summaries`]?.[1] ?? crumb];
   }
   // تفاصيل القضية الديناميكية /(lawyer|employee)?/cases/{no}
   if (!titles[path] && /\/cases\/[^/]+$/.test(path)) {
@@ -47,15 +53,6 @@ const Topbar: React.FC<TopbarProps> = ({ onMenuToggle }) => {
       </div>
 
       <div className="top-actions">
-        <div className="search">
-          <Icon name="search" />
-          <input placeholder="بحث…" />
-        </div>
-
-        <button className="icon-btn" title="دليل النظام" type="button">
-          <Icon name="info" />
-        </button>
-
         <button
           className="icon-btn"
           onClick={() => router.visit('/notifications')}

@@ -45,21 +45,27 @@ class TransferController extends Controller
             // المحامي الوجهة يجب أن يكون نشطاً وضمن فرع الموظف الحالي (عزل تام بين الفروع).
             'lawyer_id' => ['required', 'integer', new LawyerInBranch($this->currentBranch())],
             'reason' => ['nullable', 'string', 'max:200'],
+            // القسم المختص يُختار في المودال وكان يُهمَل — يُحفظ الآن فعلياً
+            'department' => ['nullable', 'string', 'max:190'],
         ]);
         $lawyer = User::findOrFail($data['lawyer_id']);
         $from = $ticket->assigned_lawyer ?: '—';
+        $fromDept = $ticket->department;
+        $toDept = $data['department'] ?? null;
 
         // التحويل ينقل التذكرة لفرع المحامي الجديد (يبقى العزل بالفرع متّسقاً)
-        $ticket->update([
+        $ticket->update(array_filter([
             'assigned_lawyer' => $lawyer->name,
             'assigned_lawyer_id' => $lawyer->id,
             'branch' => $lawyer->branch ?: $ticket->branch,
-        ]);
+            'department' => $toDept,
+        ], fn ($v) => $v !== null));
         // انتشار المحامي/الفرع الجديد إلى استشارات التذكرة المفتوحة
         TicketAssignment::syncRelatedConsults($ticket->fresh());
         $ticket->messages()->create([
             'who' => 'note', 'name' => $request->user()->name, 'role' => 'تحويل',
             'body' => '<p>حُوّلت التذكرة من '.e($from).' إلى '.e($lawyer->name).'.'
+                .($toDept !== null && $toDept !== $fromDept ? ' القسم: '.e($fromDept ?: '—').' ← '.e($toDept).'.' : '')
                 .(! empty($data['reason']) ? ' السبب: '.e($data['reason']).'.' : '').'</p>',
             'time_label' => 'الآن',
         ]);

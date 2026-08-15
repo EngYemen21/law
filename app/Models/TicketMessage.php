@@ -24,6 +24,8 @@ class TicketMessage extends Model
             'role' => $this->role,
             'text' => $this->body,
             'time' => $this->time_label,
+            // التاريخ الحقيقي للرسالة — كانت الواجهة تطبع تاريخ اليوم على كل رسالة مهما قدُمت
+            'date' => $this->created_at?->locale('ar')->translatedFormat('l j F Y'),
         ];
     }
 }

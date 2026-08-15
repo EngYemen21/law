@@ -62,7 +62,10 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
   const approve = () =>
     router.post(`${base}/summary/${encodeURIComponent(ticket.no)}/approve`, form, {
       onSuccess: () => toast('تم اعتماد الملخص وإرساله لمحادثة العميل'),
-      onError: () => toast('لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — حرّره يدوياً أولاً.'),
+      onError: (errors) => {
+        const firstError = Object.values(errors)[0];
+        toast(typeof firstError === 'string' ? firstError : 'لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — حرّره يدوياً أولاً.');
+      },
     });
 
   const statusText = approved ? 'معتمد — أُرسل للعميل' : 'بانتظار اعتماد المستشار';
@@ -84,7 +87,7 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
             : <Badge text={statusText} tone={statusTone} />}
         </div>
         <div className="card-b" style={{ padding: '16px 18px' }}>
-          <FlowLine steps={SUM_FLOW} cur={sumStage(summary.status)} />
+          <FlowLine steps={SUM_FLOW} cur={sumStage(summary.resultStatus)} />
         </div>
       </div>
 

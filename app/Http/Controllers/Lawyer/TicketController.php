@@ -19,6 +19,7 @@ use App\Support\ServiceDocs;
 use App\Support\TicketJourney;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -59,17 +60,20 @@ class TicketController extends Controller
     }
 
     // محادثة التذكرة (قراءة سياق + الملخص) للمستشار
-    public function show(Ticket $ticket): Response
+    public function show(Request $request, Ticket $ticket): Response
     {
         $this->guardAssigned($ticket);
-        $ticket->load(['user', 'summary']);
+        $ticket->load(['user', 'summary', 'legalCase']);
 
         return Inertia::render('lawyer/ticketchat', [
-            'ticket' => $ticket->toEmployeeCard(),
+            // رقم القضية الحقيقي — كانت الواجهة تطبع نصّاً ثابتاً مكان الرقم
+            'ticket' => array_merge($ticket->toEmployeeCard(), ['caseRef' => $ticket->legalCase?->number]),
             'channel' => 'ticket.'.$ticket->id,
             'messages' => $ticket->messages->map->toMessage(),
             'summary' => $ticket->summary?->toData(),
-            'converted' => $ticket->legalCase()->exists(),
+            'converted' => (bool) $ticket->legalCase,
+            // الإدارة تفتح نفس الصفحة من مسارها — الروابط تُبنى من base لا مثبّتة على /lawyer
+            'base' => $request->user()->isAdmin() ? '/admin' : '/lawyer',
         ]);
     }
 
@@ -122,7 +126,11 @@ class TicketController extends Controller
     {
         $this->guardAssigned($ticket);
         abort_unless($ticket->summary, 404);
-        abort_if($ticket->summary->isApproved(), 422, 'لا يمكن إعادة تشغيل التحليل لملخّص تم اعتماده رسمياً.');
+        if ($ticket->summary?->isApproved()) {
+            throw ValidationException::withMessages([
+                'summary' => 'لا يمكن إعادة تشغيل التحليل لملخّص تم اعتماده رسمياً.',
+            ]);
+        }
 
         GenerateTicketSummaryJob::dispatch($ticket, force: true);
 
@@ -150,11 +158,11 @@ class TicketController extends Controller
         $before = $summary->only($fields);
         $summary->fill($request->only($fields));
         $edited = $summary->only($fields) != $before;
-        abort_if(
-            ! $summary->ai_generated && ! $summary->isApproved() && ! $edited,
-            422,
-            'لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — يُرجى انتظار التحليل الذكي أو تحرير الملخّص يدوياً قبل الاعتماد.'
-        );
+        if (! $summary->ai_generated && ! $summary->isApproved() && ! $edited) {
+            throw ValidationException::withMessages([
+                'case_summary' => 'لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — يُرجى انتظار التحليل الذكي أو تحرير الملخّص يدوياً قبل الاعتماد.',
+            ]);
+        }
 
         if ($summary->status !== 'approved') {
             $summary->status = 'approved';
@@ -226,27 +234,43 @@ class TicketController extends Controller
         Live::push(new TicketMessageBroadcast($msg));
         Live::push(new TicketStatusBroadcast($ticket));
 
-        return redirect()->route('lawyer.tickets');
+        return redirect()->route($request->user()->isAdmin() ? 'admin.tickets' : 'lawyer.tickets');
     }
 
     // تحويل التذكرة المكتملة إلى قضية قانونية (يطابق cfConvert) — قرار المستشار
     public function convertToCase(Request $request, Ticket $ticket): RedirectResponse
     {
         $this->guardAssigned($ticket);
-        abort_unless($ticket->status === 'مكتملة', 422);
-        abort_if($ticket->legalCase()->exists(), 409); // محوّلة مسبقاً
+        if ($ticket->status !== 'مكتملة') {
+            throw ValidationException::withMessages([
+                'ticket' => 'لا يمكن تحويل التذكرة لقضية إلا بعد اكتمالها.',
+            ]);
+        }
+        if ($ticket->legalCase()->exists()) {
+            throw ValidationException::withMessages([
+                'ticket' => 'تم تحويل هذه التذكرة لقضية مسبقاً.',
+            ]);
+        }
 
         CaseConversion::convert($ticket, $request->user());
 
-        return redirect()->route('lawyer.tickets');
+        return redirect()->route($request->user()->isAdmin() ? 'admin.tickets' : 'lawyer.tickets');
     }
 
     // قرار المستشار: إغلاق الطلب بعد الاستشارة دون تحويله إلى قضية (يطابق cfClose)
     public function closeWithoutCase(Request $request, Ticket $ticket): RedirectResponse
     {
         $this->guardAssigned($ticket);
-        abort_unless($ticket->status === 'مكتملة', 422);
-        abort_if($ticket->legalCase()->exists(), 409);
+        if ($ticket->status !== 'مكتملة') {
+            throw ValidationException::withMessages([
+                'ticket' => 'لا يمكن إغلاق التذكرة إلا بعد اكتمالها.',
+            ]);
+        }
+        if ($ticket->legalCase()->exists()) {
+            throw ValidationException::withMessages([
+                'ticket' => 'تم تحويل هذه التذكرة لقضية مسبقاً ولا يمكن إغلاقها.',
+            ]);
+        }
 
         $ticket->update(['status' => 'مغلقة', 'tone' => TicketJourney::toneFor('مغلقة'), 'last_message' => 'أُغلق الطلب بعد الاستشارة دون تحويله إلى قضية', 'date_label' => 'الآن']);
         $msg = $ticket->messages()->create([
@@ -257,7 +281,7 @@ class TicketController extends Controller
         Live::push(new TicketMessageBroadcast($msg));
         Live::push(new TicketStatusBroadcast($ticket));
 
-        return redirect()->route('lawyer.tickets');
+        return redirect()->route($request->user()->isAdmin() ? 'admin.tickets' : 'lawyer.tickets');
     }
 
     // قرار المستشار: طلب مستندات إضافية قبل اتخاذ القرار (يطابق cfReqDocs)
