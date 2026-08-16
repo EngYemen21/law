@@ -141,6 +141,13 @@ class MoyasarService
      */
     public function hostedUrlForInvoice(Invoice $invoice, string $callbackUrl): ?string
     {
+        if (! empty($invoice->gateway_ref)) {
+            $existing = $this->getInvoice((string) $invoice->gateway_ref);
+            if ($existing !== null && in_array($existing['status'], ['initiated', 'pending', ''], true)) {
+                return $existing['url'];
+            }
+        }
+
         $result = $this->createInvoice($invoice, $callbackUrl);
         if ($result === null) {
             return null;

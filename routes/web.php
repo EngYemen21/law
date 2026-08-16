@@ -178,6 +178,8 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
         Route::post('/tickets/{ticket}/advance', [EmployeeTicketController::class, 'advance'])->name('tickets.advance');
         Route::post('/tickets/{ticket}/rerun', [EmployeeTicketController::class, 'rerunSummary'])->name('tickets.rerun');
         Route::post('/tickets/{ticket}/convert', [EmployeeTicketController::class, 'convertToCase'])->name('tickets.convert');
+        // تحويل التذكرة إلى طلب استشارة (يطابق convertToConsult المرجعي) — ينشئ طلب تسعير للعميل
+        Route::post('/tickets/{ticket}/convert-consult', [EmployeeTicketController::class, 'convertToConsult'])->name('tickets.convert-consult');
     });
     Route::post('/tickets/{ticket}/reply', [EmployeeTicketController::class, 'reply'])
         ->middleware('permission:الرد على العملاء')->name('tickets.reply');
@@ -255,8 +257,14 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::post('/summary/{ticket}', [LawyerTicketController::class, 'updateSummary'])->name('summary.update');
         Route::post('/summary/{ticket}/approve', [LawyerTicketController::class, 'approveSummary'])->name('summary.approve');
         Route::post('/summary/{ticket}/rerun', [LawyerTicketController::class, 'rerunSummary'])->name('summary.rerun');
+        Route::post('/summary/{ticket}/najiz', [LawyerTicketController::class, 'generateNajizDraft'])->name('summary.najiz');
+        Route::get('/summary/{ticket}/print', [LawyerTicketController::class, 'printSummary'])->name('summary.print');
         Route::post('/tickets/{ticket}/result', [LawyerTicketController::class, 'approveResult'])->name('result.approve');
     });
+
+    // المساعد القانوني ومختبر الصياغة والتحليل
+    Route::get('/assistant', [LawyerAssistantController::class, 'index'])->name('assistant');
+    Route::post('/assistant/generate', [LawyerAssistantController::class, 'generate'])->name('assistant.generate');
 
     // التحويل لقضية + دورة القضية + التنفيذ + المهام — إدارة القضايا والأتعاب
     Route::middleware('permission:إدارة القضايا والأتعاب')->group(function () {
@@ -430,6 +438,10 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/summary/{ticket}', [LawyerTicketController::class, 'updateSummary'])->name('summary.update');
     Route::post('/summary/{ticket}/approve', [LawyerTicketController::class, 'approveSummary'])->name('summary.approve');
     Route::post('/summary/{ticket}/rerun', [LawyerTicketController::class, 'rerunSummary'])->name('summary.rerun');
+    Route::post('/summary/{ticket}/najiz', [LawyerTicketController::class, 'generateNajizDraft'])->name('summary.najiz');
+    Route::get('/summary/{ticket}/print', [LawyerTicketController::class, 'printSummary'])->name('summary.print');
+    Route::get('/assistant', [LawyerAssistantController::class, 'index'])->name('assistant');
+    Route::post('/assistant/generate', [LawyerAssistantController::class, 'generate'])->name('assistant.generate');
     Route::get('/revenue', [AdminReportController::class, 'revenue'])->name('revenue');
     Route::get('/prices', [AdminPriceController::class, 'index'])->name('prices');
     Route::post('/prices', [AdminPriceController::class, 'update'])->name('prices.update');

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
+import axios from 'axios';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
 
@@ -39,8 +40,24 @@ const TicketActionsPanel: React.FC<Props> = ({
     });
   };
 
+  // تحويل التذكرة إلى طلب استشارة (يطابق convertToConsult المرجعي) — لطاقم المكتب لا للمستشار.
+  // المسار خادميّ تحت لوحة الموظف؛ الإدارة تمرّ عبره (حارس الدور والفرع يستثنيانها).
+  const staffOps = role !== 'lawyer';
+  const convertToConsult = () => {
+    setBusy(true);
+    axios.post(`/employee/tickets/${encodeURIComponent(ticketNo)}/convert-consult`, {})
+      .then(() => toast('✅ حُوّلت التذكرة إلى طلب استشارة وأُرسلت للتسعير'))
+      .catch((err) => {
+        const errors = err.response?.data?.errors;
+        const msg = (errors && (Object.values(errors)[0] as string[])[0])
+          || err.response?.data?.message || 'تعذّر تحويل التذكرة إلى استشارة';
+        toast(`⚠️ ${msg}`);
+      })
+      .finally(() => setBusy(false));
+  };
+
   // لا تُعرض بطاقة فارغة حين تُخفى كل الإجراءات (حالة التذكرة أو صلاحيات المستخدم)
-  const hasAny = caseRef || canConvert || onSchedule || onRequestDocs || onTransfer;
+  const hasAny = caseRef || canConvert || staffOps || onSchedule || onRequestDocs || onTransfer;
   if (!hasAny) return null;
 
   return (
@@ -76,7 +93,31 @@ const TicketActionsPanel: React.FC<Props> = ({
             </button>
           )}
 
-          {/* 2. جدولة موعد استشارة */}
+          {/* 2. تحويل إلى طلب استشارة — يُنشئ طلب تسعير نيابةً عن العميل */}
+          {staffOps && (
+            <button
+              className="btn soft block"
+              type="button"
+              onClick={convertToConsult}
+              disabled={busy}
+              style={{ justifyContent: 'center' }}
+            >
+              <Icon name="calplus" /> تحويل التذكرة إلى استشارة
+            </button>
+          )}
+
+          {/* 3. تحويل إلى لائحة — عنصر عرض مرجعي (بلا حدث، بطلب صاحب المنتج) */}
+          {staffOps && (
+            <button
+              className="btn soft block"
+              type="button"
+              style={{ justifyContent: 'center' }}
+            >
+              <Icon name="doc" /> تحويل إلى لائحة
+            </button>
+          )}
+
+          {/* 4. جدولة موعد استشارة */}
           {onSchedule && (
             <button
               className="btn soft block"
@@ -88,7 +129,7 @@ const TicketActionsPanel: React.FC<Props> = ({
             </button>
           )}
 
-          {/* 3. طلب نواقص المستندات */}
+          {/* 5. طلب نواقص المستندات */}
           {onRequestDocs && (
             <button
               className="btn soft block"
@@ -100,7 +141,7 @@ const TicketActionsPanel: React.FC<Props> = ({
             </button>
           )}
 
-          {/* 4. تحويل لموظف / فرع آخر */}
+          {/* 6. تحويل لموظف / فرع آخر */}
           {onTransfer && (
             <button
               className="btn soft block"

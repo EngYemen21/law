@@ -76,6 +76,20 @@ class LawyerRerunSummaryTest extends TestCase
         Queue::assertNotPushed(GenerateTicketSummaryJob::class);
     }
 
+    public function test_admin_can_rerun_from_admin_summary_route(): void
+    {
+        Queue::fake();
+        $lawyer = $this->assignedLawyer();
+        $ticket = $this->ticketWithSummary($lawyer);
+        $admin = User::factory()->create(['role' => Role::Admin, 'status' => 'active']);
+
+        // المسار admin.summary.rerun أُضيف ليطابق نظيره لدى المستشار — الإدارة تتجاوز إسناد المحامي
+        $this->actingAs($admin)->post(route('admin.summary.rerun', $ticket))->assertRedirect();
+
+        Queue::assertPushed(GenerateTicketSummaryJob::class,
+            fn (GenerateTicketSummaryJob $job) => $job->ticket->id === $ticket->id && $job->force === true);
+    }
+
     public function test_unassigned_lawyer_is_forbidden(): void
     {
         Queue::fake();

@@ -13,10 +13,11 @@ interface Props {
   meetings: FullMeetingCard[];
   clients: ClientDirEntry[];
   lawyers: { id: number; name: string }[];
+  staff?: { id: number; name: string; role?: string; label: string }[];
   kpis: { decisionRate: number; avgMinutes: number };
 }
 
-const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, kpis }) => {
+const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = [], kpis }) => {
   const toast = useToast();
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState(false);
@@ -343,124 +344,380 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, kpis }) =>
         </div>
       </div>
 
-      {/* 📝 مودال إنشاء اجتماع جديد المطور */}
-      <Modal title="جدولة اجتماع جديد عبر Zoom" open={open} onClose={() => setOpen(false)}>
-        <div className="presets" style={{ marginBottom: 14 }}>
-          <span style={{ fontSize: 12, color: 'var(--muted)', alignSelf: 'center' }}>قوالب الاجتماعات السريعة:</span>
-
-          {MEET_TEMPLATES.map((t) => (
-            <button key={t[0]} className="preset-btn" onClick={() => applyTpl(t[0], t[1])} type="button">
-              {t[0]}
-            </button>
-          ))}
-        </div>
-
-        <div className="form-sec-h"><span className="si"><Icon name="video" /></span> بيانات الجلسة والاجتماع</div>
-        <div className="field">
-          <label>عنوان الاجتماع</label>
-          <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="مثال: استشارة مرئية — نزاع عقاري وتجاري" />
-        </div>
-
-        <div className="picker-grid">
-          <div className="field">
-            <label>نوع الاجتماع</label>
-            <select value={type} onChange={(e) => setType(e.target.value)}>
-              {MEET_TYPES_FULL.map((t) => <option key={t}>{t}</option>)}
-            </select>
+      {/* 📝 مودال إنشاء اجتماع جديد المطور — التصميم الاحترافي الفاخر 2026 */}
+      <Modal
+        title="جدولة جلسة واجتماع جديد"
+        subtitle="إنشاء جلسة مرئية سحابية عبر Zoom وربطها التلقائي بملفات القضايا والتقويم"
+        badge={<Badge text="Zoom Cloud API" tone="b-blue" />}
+        maxWidth={780}
+        open={open}
+        onClose={() => setOpen(false)}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          
+          {/* ⚡ القوالب السريعة الذكية */}
+          <div>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--ink-soft)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="sparkles" /> قوالب الجلسات السريعة (اختر لملء البيانات فورياً):
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
+              {MEET_TEMPLATES.map((t) => {
+                const isSelected = title === t[0];
+                return (
+                  <button
+                    key={t[0]}
+                    type="button"
+                    onClick={() => applyTpl(t[0], t[1])}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: 10,
+                      border: isSelected ? '2px solid var(--primary)' : '1px solid var(--line-soft, #e2e8f0)',
+                      background: isSelected ? 'rgba(14,92,156,0.08)' : '#ffffff',
+                      color: isSelected ? 'var(--primary)' : 'var(--ink)',
+                      fontWeight: isSelected ? 800 : 600,
+                      fontSize: '12.5px',
+                      cursor: 'pointer',
+                      textAlign: 'right',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <span>{t[0]}</span>
+                    {isSelected && <Icon name="check" />}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <div className="field">
-            <label>الأولوية</label>
-            <select value={prio} onChange={(e) => setPrio(e.target.value)}>
-              <option>عادية</option>
-              <option>متوسطة</option>
-              <option>عالية</option>
-            </select>
-          </div>
-        </div>
 
-        <div className="picker-grid">
-          <div className="field">
-            <label>مستوى السرية والخصوصية</label>
-            <select value={conf} onChange={(e) => setConf(e.target.value)}>
-              <option>عادي</option>
-              <option>سري</option>
-            </select>
-          </div>
-          <div className="field">
-            <label>المدة المقدرة</label>
-            <select className="input" value={dur} onChange={(e) => setDur(e.target.value)}>
-              <option value="">— اختر مدة الاجتماع —</option>
+          {/* 📋 القسم 1: بيانات وتصنيف الجلسة */}
+          <div style={{ background: 'var(--surface-soft, #f8fafc)', border: '1px solid var(--line-soft, #e2e8f0)', borderRadius: 12, padding: 16 }}>
+            <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--deep)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="video" /> بيانات الجلسة والموضوع
+            </div>
 
-              {['30 دقيقة', '45 دقيقة', '60 دقيقة', '90 دقيقة', '120 دقيقة'].map((d) => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
-          </div>
-        </div>
+            <div className="field" style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>عنوان الاجتماع / الجلسة *</label>
+              <input
+                className="input"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="مثال: استشارة مرئية — مناقشة صياغة العقد التجاري"
+                style={{ borderRadius: 9, padding: '10px 14px', fontSize: '13.5px', border: '1px solid var(--line-soft, #cbd5e1)', background: '#fff' }}
+              />
+            </div>
 
-        <div className="form-sec-h"><span className="si"><Icon name="user" /></span> الأطراف والمشاركون</div>
-        <div className="field">
-          <label>المشاركون من الكادر القانوني والإداري</label>
-          <select
-            multiple
-            size={4}
-            style={{ height: 'auto', padding: 8, borderRadius: 8 }}
-            value={participants}
-            onChange={(e) => setParticipants([...e.target.selectedOptions].map((o) => o.value))}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
+              <div className="field">
+                <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>نوع الجلسة</label>
+                <select
+                  className="input"
+                  value={type}
+                  onChange={(e) => setType(e.target.value)}
+                  style={{ borderRadius: 9, padding: '9px 12px', fontSize: '13px', border: '1px solid var(--line-soft, #cbd5e1)', background: '#fff' }}
+                >
+                  {MEET_TYPES_FULL.map((t) => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+
+              <div className="field">
+                <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>درجة الأولوية</label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {[
+                    { label: 'عادية', color: '#0369a1', bg: '#e0f2fe' },
+                    { label: 'متوسطة', color: '#b45309', bg: '#fef3c7' },
+                    { label: 'عالية', color: '#b91c1c', bg: '#fee2e2' },
+                  ].map((p) => {
+                    const sel = prio === p.label;
+                    return (
+                      <button
+                        key={p.label}
+                        type="button"
+                        onClick={() => setPrio(p.label)}
+                        style={{
+                          flex: 1,
+                          padding: '7px 4px',
+                          borderRadius: 8,
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          border: sel ? `2px solid ${p.color}` : '1px solid var(--line-soft, #cbd5e1)',
+                          background: sel ? p.bg : '#ffffff',
+                          color: sel ? p.color : 'var(--ink-soft)',
+                          transition: '0.15s',
+                        }}
+                      >
+                        {p.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+              <div className="field">
+                <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>السرية والخصوصية</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {[
+                    { id: 'عادي', label: 'عادي (دخول مباشر)', icon: 'video' },
+                    { id: 'سري', label: 'سري (غرفة انتظار مشفرة)', icon: 'lock' },
+                  ].map((c) => {
+                    const sel = conf === c.id;
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setConf(c.id)}
+                        style={{
+                          flex: 1,
+                          padding: '8px 10px',
+                          borderRadius: 8,
+                          fontSize: '11.5px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          border: sel ? '2px solid var(--primary)' : '1px solid var(--line-soft, #cbd5e1)',
+                          background: sel ? 'rgba(14,92,156,0.08)' : '#ffffff',
+                          color: sel ? 'var(--primary)' : 'var(--ink-soft)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                          transition: '0.15s',
+                        }}
+                      >
+                        <Icon name={c.icon} />
+                        <span>{c.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="field">
+                <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>المدة الزمنية المقدرة</label>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {['30 دقيقة', '45 دقيقة', '60 دقيقة', '90 دقيقة', '120 دقيقة'].map((d) => {
+                    const sel = (dur || '60 دقيقة') === d;
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setDur(d)}
+                        style={{
+                          padding: '6px 9px',
+                          borderRadius: 7,
+                          fontSize: '11.5px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          border: sel ? '1.5px solid var(--primary)' : '1px solid var(--line-soft, #cbd5e1)',
+                          background: sel ? 'var(--primary)' : '#ffffff',
+                          color: sel ? '#ffffff' : 'var(--ink)',
+                          transition: '0.15s',
+                        }}
+                      >
+                        {d}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 📅 القسم 2: الموعد والتوقيت */}
+          <div style={{ background: 'var(--surface-soft, #f8fafc)', border: '1px solid var(--line-soft, #e2e8f0)', borderRadius: 12, padding: 16 }}>
+            <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--deep)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="cal" /> الموعد وتوقيت البدء
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+              <div className="field">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                  <label style={{ fontSize: '12px', fontWeight: 700 }}>التاريخ المجدول</label>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button
+                      type="button"
+                      onClick={() => setDay(new Date().toISOString().slice(0, 10))}
+                      style={{ fontSize: 10.5, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--line-soft)', background: '#fff', cursor: 'pointer' }}
+                    >
+                      اليوم
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() + 1);
+                        setDay(d.toISOString().slice(0, 10));
+                      }}
+                      style={{ fontSize: 10.5, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--line-soft)', background: '#fff', cursor: 'pointer' }}
+                    >
+                      غداً
+                    </button>
+                  </div>
+                </div>
+                <input
+                  className="input"
+                  type="date"
+                  value={day}
+                  onChange={(e) => setDay(e.target.value)}
+                  style={{ borderRadius: 9, padding: '9px 12px', fontSize: '13px', border: '1px solid var(--line-soft, #cbd5e1)', background: '#fff' }}
+                />
+              </div>
+
+              <div className="field">
+                <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>وقت بدء الجلسة</label>
+                <input
+                  className="input"
+                  type="time"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  style={{ borderRadius: 9, padding: '9px 12px', fontSize: '13px', border: '1px solid var(--line-soft, #cbd5e1)', background: '#fff' }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* 👥 القسم 3: الربط بالعميل والقضايا والكادر */}
+          <div style={{ background: 'var(--surface-soft, #f8fafc)', border: '1px solid var(--line-soft, #e2e8f0)', borderRadius: 12, padding: 16 }}>
+            <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--deep)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="link" /> الأطراف، ملف القضية، والكادر المسؤول
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
+              <div className="field">
+                <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>👤 العميل المستهدف</label>
+                <select
+                  className="input"
+                  value={clientId}
+                  onChange={(e) => setClientId(e.target.value === '' ? '' : Number(e.target.value))}
+                  style={{ borderRadius: 9, padding: '9px 12px', fontSize: '13px', border: '1px solid var(--line-soft, #cbd5e1)', background: '#fff' }}
+                >
+                  <option value="">— اجتماع داخلي (بدون عميل) —</option>
+                  {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+
+              <div className="field">
+                <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>⚖️ القضية / التذكرة المربوطة</label>
+                <select
+                  className="input"
+                  value={caseRef}
+                  onChange={(e) => setCaseRef(e.target.value)}
+                  style={{ borderRadius: 9, padding: '9px 12px', fontSize: '13px', border: '1px solid var(--line-soft, #cbd5e1)', background: '#fff' }}
+                >
+                  <option value="">— اختر ملف القضية / الاستشارة —</option>
+                  {caseOptions.map((i) => <option key={i} value={i}>{i}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="field" style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>👔 المحامي المسؤول والمشرف على الجلسة</label>
+              <select
+                className="input"
+                value={lawyerId}
+                onChange={(e) => setLawyerId(e.target.value === '' ? '' : Number(e.target.value))}
+                style={{ borderRadius: 9, padding: '9px 12px', fontSize: '13px', border: '1px solid var(--line-soft, #cbd5e1)', background: '#fff' }}
+              >
+                <option value="">— بدون محامٍ محدد —</option>
+                {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            </div>
+
+            {/* اختيار الكادر والمشاركين بنظام البطاقات التفاعلية */}
+            <div className="field">
+              <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 6, display: 'block' }}>
+                👥 المشاركون من الكادر القانوني والإداري (انقر للتحديد والإضافة)
+              </label>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', maxHeight: 110, overflowY: 'auto', padding: 6, border: '1px solid var(--line-soft, #cbd5e1)', borderRadius: 9, background: '#fff' }}>
+                {(staff && staff.length > 0 ? staff.map((s) => s.label) : STAFF_DIR).map((s) => {
+                  const isChecked = participants.includes(s);
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => {
+                        if (isChecked) {
+                          setParticipants(participants.filter((p) => p !== s));
+                        } else {
+                          setParticipants([...participants, s]);
+                        }
+                      }}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 20,
+                        fontSize: '11.5px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        border: isChecked ? '1.5px solid var(--primary)' : '1px solid var(--line-soft, #e2e8f0)',
+                        background: isChecked ? 'var(--primary)' : '#f8fafc',
+                        color: isChecked ? '#ffffff' : 'var(--ink)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        transition: '0.12s ease',
+                      }}
+                    >
+                      <span>{isChecked ? '✓' : '+'}</span>
+                      <span>{s}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* 🛡️ إشعار الأمان وتكامل Zoom السحابي */}
+          <div
+            style={{
+              padding: '12px 16px',
+              borderRadius: 10,
+              background: 'linear-gradient(135deg, rgba(10,42,85,0.04) 0%, rgba(14,92,156,0.08) 100%)',
+              border: '1px solid rgba(14,92,156,0.15)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+            }}
           >
-            {STAFF_DIR.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>يمكنك اختيار اسم أو أكثر (اضغط Ctrl/⌘ للتحديد المتعدد)</div>
-        </div>
-
-        <div className="form-sec-h"><span className="si"><Icon name="cal" /></span> التوقيت والموعد</div>
-        <div className="picker-grid">
-          <div className="field">
-            <label>التاريخ</label>
-            <input className="input" type="date" value={day} onChange={(e) => setDay(e.target.value)} />
+            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'var(--primary)', color: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+              <Icon name="video" />
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--ink-soft)', lineHeight: 1.5 }}>
+              <b style={{ color: 'var(--deep)', display: 'block', marginBottom: 2 }}>تأكيد الجدولة المباشرة عبر Zoom:</b>
+              سيتم إنشاء جلسة Zoom سحابية برمز مرور وتشفير كامل، وإدراج الموعد في تقويم المنصة، وإرسال دعوة الحضور بالبريد والإشعارات لجميع الأطراف.
+            </div>
           </div>
-          <div className="field">
-            <label>وقت البدء</label>
-            <input className="input" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+
+          {/* 🚀 أزرار الإجراءات السفلية */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 6 }}>
+            <button
+              type="button"
+              className="btn soft"
+              onClick={() => setOpen(false)}
+              style={{ padding: '11px 20px', borderRadius: 10, fontWeight: 700 }}
+            >
+              إلغاء
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={submit}
+              style={{
+                padding: '11px 26px',
+                borderRadius: 10,
+                fontSize: '13.5px',
+                fontWeight: 800,
+                boxShadow: '0 4px 14px rgba(14,92,156,0.25)',
+              }}
+            >
+              <Icon name="check" /> تأكيد جدولة الاجتماع وإطلاقه
+            </button>
           </div>
+
         </div>
-
-        <div className="form-sec-h"><span className="si"><Icon name="link" /></span> الربط بالعميل والقضية</div>
-        <div className="picker-grid">
-          <div className="field">
-            <label>العميل المستهدف</label>
-            <select value={clientId} onChange={(e) => setClientId(e.target.value === '' ? '' : Number(e.target.value))}>
-              <option value="">— اجتماع داخلي (بلا عميل) —</option>
-
-              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div className="field">
-            <label>القضية / الاستشارة المربوطة</label>
-            <select value={caseRef} onChange={(e) => setCaseRef(e.target.value)}>
-              <option value="">— اختر ملف القضية —</option>
-
-              {caseOptions.map((i) => <option key={i} value={i}>{i}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <div className="field">
-          <label>المحامي المسؤول عن الجلسة</label>
-          <select value={lawyerId} onChange={(e) => setLawyerId(e.target.value === '' ? '' : Number(e.target.value))}>
-            <option value="">— بلا محامٍ مسؤول —</option>
-
-            {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
-        </div>
-
-        <div className="action-hint" style={{ margin: '12px 0', padding: 10, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-          <Icon name="cal" /> سيتم إنشاء جلسة Zoom سحابية تلقائياً وإدراج الموعد في تقويم العميل والمحامي مع إرسال إشعارات الانضمام.
-        </div>
-
-        <button className="btn block" onClick={submit} type="button" style={{ padding: '12px', fontSize: 14, fontWeight: 700 }}>
-          <Icon name="check" /> تأكيد جدولة الاجتماع وإطلاقه
-        </button>
       </Modal>
     </>
   );

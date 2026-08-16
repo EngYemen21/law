@@ -78,6 +78,14 @@ class MeetingController extends Controller
             'clients' => ClientDirectory::list(),
             'lawyers' => User::where('role', Role::Lawyer)->orderBy('name')->get(['id', 'name'])
                 ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name]),
+            'staff' => User::whereIn('role', [Role::Lawyer, Role::Employee, Role::Admin])
+                ->orderBy('name')->get(['id', 'name', 'role', 'department'])
+                ->map(fn ($u) => [
+                    'id' => $u->id,
+                    'name' => $u->name,
+                    'role' => $u->role->value ?? 'كادر',
+                    'label' => "{$u->name} (".($u->department ?: ($u->role->value ?? 'كادر')).')',
+                ]),
             'kpis' => $this->kpis(),
         ]);
     }
@@ -120,8 +128,10 @@ class MeetingController extends Controller
             ? User::where('role', Role::Lawyer)->find((int) $data['lawyer_id'])
             : ($request->user()->role === Role::Lawyer ? $request->user() : null);
         $when = trim(($data['day'] ?? '') !== '' ? $data['day'].' · '.($data['time'] ?? '') : 'اليوم · 10:00');
+        $startsAt = MeetingTime::parse($data['day'] ?? null, $data['time'] ?? null);
+        $durMinutes = (int) ($data['dur'] ?? 60) ?: 60;
 
-        $zoom = $this->zoom->createMeeting($data['title'], 60, ($data['conf'] ?? '') === 'سري');
+        $zoom = $this->zoom->createMeeting($data['title'], $durMinutes, ($data['conf'] ?? '') === 'سري', $startsAt);
 
         $meeting = Meeting::create([
             'user_id' => $client?->id,
@@ -130,7 +140,7 @@ class MeetingController extends Controller
             'type' => $data['type'],
             'client_name' => $client?->name ?: 'داخلي',
             'when_label' => $when,
-            'starts_at' => MeetingTime::parse($data['day'] ?? null, $data['time'] ?? null),
+            'starts_at' => $startsAt,
             'status' => 'قادم',
             'priority' => $data['priority'] ?? 'عادية',
             'conf' => $data['conf'] ?? 'عادي',

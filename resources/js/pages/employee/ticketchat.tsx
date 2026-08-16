@@ -19,14 +19,6 @@ import { isPastSlot, todayISO } from '@/components/SpecialistPicker';
 // حالتان نهائيّتان — الخادم يمنع الخروج منهما لأي حالة أخرى (Employee\TicketController::status)
 const FINAL = ['مكتملة', 'مغلقة'];
 
-// ردود سريعة بنقرة واحدة — النصوص المرجعية الحرفية (EM_QUICK في babel-system.html:1774)
-const EM_QUICK = [
-  'تم استلام طلبكم وجارٍ تحويله للقسم المختص.',
-  'نأمل تزويدنا بالمستندات المطلوبة لاستكمال الدراسة.',
-  'تمت جدولة موعد استشارتكم وسيصلكم إشعار التأكيد.',
-  'نشكر تواصلكم، تم تحديث حالة طلبكم وسنوافيكم بالمستجدات.',
-];
-
 // محادثة التذكرة (لوحة الموظف) — مزامنة لحظية مع العميل (Reverb) بلا إعادة تحميل
 
 interface EmpTicket {
@@ -382,24 +374,6 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
                   <Icon name="lock" /> ملاحظة داخلية
                 </button>
               </div>
-
-              {/* شريط الردود السريعة الجاهزة (مطابق للتصميم المرجعي) */}
-              {mode === 'reply' && (
-                <div className="quick">
-                  {EM_QUICK.map((q, idx) => (
-                    <span
-                      key={idx}
-                      className="q"
-                      onClick={() => {
-                        setBody((prev) => (prev ? `${prev} ${q}` : q));
-                        setTypingSignal((n) => n + 1);
-                      }}
-                    >
-                      {q}
-                    </span>
-                  ))}
-                </div>
-              )}
 
               <form onSubmit={submit}>
                 <textarea

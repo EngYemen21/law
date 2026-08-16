@@ -34,11 +34,11 @@ class MoyasarWebhookController extends Controller
         $payment = null;
 
         if (str_starts_with($id, 'pay_')) {
-            $payment = app(MoyasarService::class)->fetchPayment($id) ?: ($data['status'] === 'paid' ? $data : null);
+            $payment = app(MoyasarService::class)->fetchPayment($id) ?: ((($data['status'] ?? null) === 'paid') ? $data : null);
         } elseif (str_starts_with($id, 'inv_') && ! empty($data['payments'])) {
             $last = end($data['payments']);
             if (! empty($last['id'])) {
-                $payment = app(MoyasarService::class)->fetchPayment((string) $last['id']) ?: ($last['status'] === 'paid' ? $last : null);
+                $payment = app(MoyasarService::class)->fetchPayment((string) $last['id']) ?: ((($last['status'] ?? null) === 'paid') ? $last : null);
             }
         } elseif ($id !== '') {
             $payment = app(MoyasarService::class)->fetchPayment($id) ?: (isset($data['status']) ? $data : null);

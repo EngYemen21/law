@@ -8,10 +8,12 @@ use App\Events\TicketStatusBroadcast;
 use App\Http\Controllers\Concerns\BranchScoped;
 use App\Http\Controllers\Controller;
 use App\Jobs\GenerateTicketSummaryJob;
+use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Services\LegalAiService;
 use App\Support\CaseConversion;
+use App\Support\ConsultBooking;
 use App\Support\Live;
 use App\Support\Notify;
 use App\Support\ServiceDocs;
@@ -105,6 +107,50 @@ class TicketController extends Controller
                 Live::push(new TicketMessageBroadcast($msg));
             });
         }
+
+        return response()->noContent();
+    }
+
+    // تحويل التذكرة إلى استشارة (يطابق convertToConsult المرجعي) — ينشئ طلب تسعير نيابةً عن العميل
+    // بنفس حرّاس مسار العميل (book): لا على حالة نهائية، ولا مع طلب استشارة قائم.
+    public function convertToConsult(Request $request, Ticket $ticket): HttpResponse
+    {
+        $this->guardBranch($ticket);
+
+        $data = $request->validate([
+            'type' => ['nullable', 'string', 'in:office,video,phone'],
+        ]);
+        $type = $data['type'] ?? 'office';
+
+        if (TicketJourney::indexOf($ticket->status) > TicketJourney::indexOf('موعد مؤكد')
+            || in_array($ticket->status, ['مكتملة', 'مغلقة', 'بانتظار اعتماد النتيجة', 'بانتظار اعتماد الإدارة'], true)) {
+            throw ValidationException::withMessages([
+                'type' => 'لا يمكن تحويل التذكرة لاستشارة من الحالة الحالية.',
+            ]);
+        }
+        if ($ticket->consults()->whereIn('status', Consult::PRE_SESSION_STATUSES)->exists()) {
+            throw ValidationException::withMessages([
+                'type' => 'يوجد طلب استشارة قائم لهذه التذكرة.',
+            ]);
+        }
+
+        $ticket->loadMissing('user');
+        abort_unless($ticket->user, 404);
+
+        $m = ConsultBooking::meta($type);
+        $consult = ConsultBooking::request($ticket->user, ['type' => $type], $ticket);
+
+        $msg = $ticket->messages()->create([
+            'who' => 'staff',
+            'name' => $request->user()->name,
+            'role' => 'خدمة العملاء',
+            'body' => "<p>تم تحويل التذكرة إلى طلب استشارة ({$m['label']}) وإرساله للتسعير. ستصل العميل الفاتورة لسدادها ثم اختيار الموعد.</p>",
+            'time_label' => $this->clock(),
+        ]);
+        Live::push(new TicketMessageBroadcast($msg));
+
+        $ticket->update(['last_message' => 'حُوّلت التذكرة إلى طلب استشارة '.$m['label'], 'date_label' => 'الآن']);
+        Notify::send($ticket->user_id, 'cal', 't-blue', "حوّل المكتب تذكرتك {$ticket->number} إلى طلب استشارة ({$consult->ref}) — ستصلك الفاتورة فور التسعير.");
 
         return response()->noContent();
     }

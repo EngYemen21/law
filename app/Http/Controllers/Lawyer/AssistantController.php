@@ -32,10 +32,10 @@ class AssistantController extends Controller
     public function generate(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'kind' => ['required', 'string', 'in:lawahe,mems,analyze,defense'],
-            'docType' => ['required', 'string', 'max:60'],
+            'kind' => ['required', 'string', 'in:lawahe,mems,analyze,defense,reply_memo,contract_check,strengths_weaknesses,qualification'],
+            'docType' => ['required', 'string', 'max:80'],
             'ref' => ['nullable', 'string', 'max:60'],
-            'context' => ['nullable', 'string', 'max:8000'],
+            'context' => ['nullable', 'string', 'max:15000'],
         ]);
 
         // متزامن: المحامي ينتظر المسودة؛ set_time_limit داخل run() يحمي من مهلة الويب

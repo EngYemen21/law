@@ -11,12 +11,15 @@ use App\Mail\SummaryApprovedMail;
 use App\Models\Meeting;
 use App\Models\Task;
 use App\Models\Ticket;
+use App\Services\LegalAiService;
 use App\Services\MailService;
 use App\Support\CaseConversion;
 use App\Support\Live;
 use App\Support\Notify;
+use App\Support\ReportPrint;
 use App\Support\ServiceDocs;
 use App\Support\TicketJourney;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -271,6 +274,73 @@ class TicketController extends Controller
         }
 
         return redirect()->route($request->user()->isAdmin() ? 'admin.summaries' : 'lawyer.summaries');
+    }
+
+    // توليد مسودة لائحة دعوى لمعايير منصة ناجز
+    public function generateNajizDraft(Request $request, Ticket $ticket, LegalAiService $ai): JsonResponse
+    {
+        $this->guardAssigned($ticket);
+        $draft = $ai->generateNajizDraft($ticket);
+
+        return response()->json(['draft' => $draft]);
+    }
+
+    // تصدير وطباعة تقرير دراسة الملف والرأي القانوني كـ PDF رسمي
+    public function printSummary(Request $request, Ticket $ticket): HttpResponse
+    {
+        $this->guardAssigned($ticket);
+        $ticket->loadMissing(['user', 'summary', 'documents']);
+        $summary = $ticket->summary;
+        abort_unless($summary, 404);
+
+        $clientName = $ticket->user?->name ?? 'العميل';
+        $lawyerName = $ticket->assigned_lawyer ?: ($request->user()->name ?: 'المستشار القانوني');
+
+        $doc = [
+            'title' => 'تقرير دراسة الملف والرأي القانوني المبدئي',
+            'subtitle' => "التذكرة: {$ticket->number} · {$ticket->type}",
+            'ref' => "REF-{$ticket->number}",
+            'blocks' => [
+                [
+                    'title' => 'بيانات القضية والموكل',
+                    'cellRows' => [
+                        [['رقم التذكرة', $ticket->number], ['اسم العميل', $clientName]],
+                        [['نوع القضية', $ticket->type], ['الفرع', $ticket->branch ?: 'الفرع الرئيسي']],
+                        [['المستشار المسؤول', $lawyerName], ['حالة الدراسة', $summary->isApproved() ? 'معتمد رسمياً' : 'قيد الدراسة']],
+                    ],
+                ],
+                [
+                    'title' => 'أولاً: ملخص موضوع النزاع',
+                    'lines' => $summary->case_summary ?: ($ticket->details ?: '—'),
+                ],
+                [
+                    'title' => 'ثانياً: فحص المرفقات والمستندات الثبوتية',
+                    'lines' => $summary->attachments_summary ?: 'تم فحص المرفقات ومطابقتها وفق نظام الإثبات السعودي.',
+                ],
+                [
+                    'title' => 'ثالثاً: سرد الوقائع التعاقدية والإجرائية',
+                    'lines' => $summary->facts ?: '—',
+                ],
+                [
+                    'title' => 'رابعاً: الرأي القانوني المعتمد والتوصيات',
+                    'lines' => $summary->key_points ?: 'تم اعتماد الدراسة وإصدار التوصية بالمتابعة.',
+                ],
+            ],
+            'approval' => [
+                'qrSeed' => "https://sb-legal.sa/verify?ref={$ticket->number}&approved=1",
+                'rows' => [
+                    ['المستشار المعتمد', $lawyerName],
+                    ['تاريخ الاعتماد', $summary->approved_at ? $summary->approved_at->format('Y-m-d H:i') : date('Y-m-d H:i')],
+                    ['الاعتماد الإلكتروني', 'موثق ومعتمد برقم مرجعي'],
+                ],
+            ],
+            'note' => 'إشعار سرية: هذا التقرير صادر إلكترونياً من منصة سلاسل بابل ويخضع للسرية المهنية والمصادقة المعتمدة.',
+            'footer' => 'سلاسل بابل لتقنية المعلومات — منظومة المحاماة والاستشارات القانونية بالمملكة العربية السعودية',
+        ];
+
+        $html = ReportPrint::html($doc);
+
+        return response($html)->header('Content-Type', 'text/html; charset=UTF-8');
     }
 
     // اعتماد المستشار لنتيجة الجلسة → ترفع للإدارة للاعتماد النهائي (يطابق tfLawyerReview)
