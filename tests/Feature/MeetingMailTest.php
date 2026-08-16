@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
+use App\Mail\MeetInviteMail;
 use App\Mail\MeetingEndedMail;
 use App\Mail\MeetingScheduledMail;
 use App\Models\Meeting;
@@ -30,7 +31,7 @@ class MeetingMailTest extends TestCase
             'day' => '2026-08-08', 'time' => '10:00',
         ])->assertRedirect();
 
-        Mail::assertQueued(MeetingScheduledMail::class, fn ($m) => $m->hasTo('client@example.com'));
+        Mail::assertQueued(MeetInviteMail::class, fn ($m) => $m->hasTo('client@example.com'));
         Mail::assertQueued(MeetingScheduledMail::class, fn ($m) => $m->hasTo('lawyer@example.com'));
     }
 

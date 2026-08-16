@@ -29,43 +29,16 @@ class MeetInviteMail extends Mailable implements ShouldQueue
 
     public function content(): Content
     {
-        $startsAt = MeetingTime::parse($this->req->day, $this->req->time) ?: now();
-        $link = url('/meetreqs');
-        $googleSchema = IcalendarService::googleSchemaJsonLd(
-            reservationNumber: $this->req->ref,
-            recipientName: $this->req->client_name ?: 'العميل',
-            title: 'دعوة اجتماع: '.$this->req->service,
-            description: "دعوة اجتماع رسمي — {$this->req->day} · {$this->req->time}",
-            startsAt: $startsAt,
-            durationMinutes: $this->req->duration_min ?: 60,
-            locationUrl: $link
-        );
-
         return new Content(
             view: 'emails.meet-invite',
             with: [
                 'req' => $this->req,
-                'googleSchema' => $googleSchema,
             ]
         );
     }
 
     public function attachments(): array
     {
-        $startsAt = MeetingTime::parse($this->req->day, $this->req->time) ?: now();
-        $link = url('/meetreqs');
-        $ics = IcalendarService::generate(
-            uid: 'MEETREQ-'.$this->req->id,
-            title: 'دعوة اجتماع: '.$this->req->service.' ('.$this->req->ref.')',
-            description: "دعوة اجتماع رسمي من النظام الإداري لمكاتب المحاماة.\nالموعد: {$this->req->day} · {$this->req->time}\nرابط التأكيد والحضور: {$link}",
-            startsAt: $startsAt,
-            durationMinutes: $this->req->duration_min ?: 60,
-            locationUrl: $link
-        );
-
-        return [
-            Attachment::fromData(fn () => $ics, 'invite.ics')
-                ->withMime('text/calendar; charset=UTF-8; method=REQUEST'),
-        ];
+        return [];
     }
 }

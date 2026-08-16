@@ -36,46 +36,17 @@ class ConsultBooked extends Mailable implements ShouldQueue
 
     public function content(): Content
     {
-        $startsAt = $this->consult->starts_at ?: (MeetingTime::parse($this->consult->day ?? '', $this->consult->time ?? '') ?: now());
-        $link = $this->consult->joinLink();
-        $recipientName = $this->forLawyer ? $this->consult->lawyer : ($this->consult->user?->name ?? 'العميل');
-
-        $googleSchema = IcalendarService::googleSchemaJsonLd(
-            reservationNumber: $this->consult->ref,
-            recipientName: $recipientName,
-            title: 'استشارة: '.$this->consult->subject,
-            description: "استشارة قانونية ({$this->consult->channel}) — المستشار: {$this->consult->lawyer}",
-            startsAt: $startsAt,
-            durationMinutes: $this->consult->duration_minutes ?: 45,
-            locationUrl: $link
-        );
-
         return new Content(
             view: 'emails.consult-booked',
             with: [
                 'consult' => $this->consult,
                 'forLawyer' => $this->forLawyer,
-                'googleSchema' => $googleSchema,
             ]
         );
     }
 
     public function attachments(): array
     {
-        $startsAt = $this->consult->starts_at ?: (MeetingTime::parse($this->consult->day ?? '', $this->consult->time ?? '') ?: now());
-        $link = $this->consult->joinLink();
-        $ics = IcalendarService::generate(
-            uid: 'CONSULT-'.$this->consult->id,
-            title: 'استشارة: '.$this->consult->subject.' ('.$this->consult->ref.')',
-            description: "استشارة قانونية ({$this->consult->channel})\nالمستشار: {$this->consult->lawyer}\nرابط الجلسة: {$link}",
-            startsAt: $startsAt,
-            durationMinutes: $this->consult->duration_minutes ?: 45,
-            locationUrl: $this->consult->channel === 'حضورية' ? ($this->consult->branch ?: 'مكتب المحاماة') : $link
-        );
-
-        return [
-            Attachment::fromData(fn () => $ics, 'invite.ics')
-                ->withMime('text/calendar; charset=UTF-8; method=REQUEST'),
-        ];
+        return [];
     }
 }

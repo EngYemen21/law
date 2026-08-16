@@ -53,18 +53,11 @@
                 padding-top: 0 !important;
             }
         }
-    @if(!empty($googleSchema))
-        {!! $googleSchema !!}
-    @endif
 </head>
 <body style="margin:0;padding:0;background-color:#EEF2F6;font-family:'Tajawal',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#13314F;direction:rtl;text-align:right;">
 
     @php
-        $logoPath = public_path('images/021.png');
-        $hasMessage = isset($message) && is_object($message) && method_exists($message, 'embed');
-        $logoSrc = ($hasMessage && file_exists($logoPath))
-            ? $message->embed($logoPath)
-            : rtrim((string) config('app.url', 'http://localhost'), '/').'/images/021.png';
+        $logoSrc = rtrim((string) config('app.url', 'http://localhost'), '/').'/images/021.png';
     @endphp
 
     {{-- نص المعاينة الخفي (Preheader) --}}
