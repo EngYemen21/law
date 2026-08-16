@@ -24,15 +24,21 @@
     @if ($note)
         @include('emails.partials.alert', [
             'type' => 'info',
-            'title' => '📝 ملاحظات إضافية',
+            'title' => '📝 تعليمات الدخول',
             'slot' => $note
+        ])
+    @else
+        @include('emails.partials.alert', [
+            'type' => 'info',
+            'title' => '🔒 خصوصية وأمان الجلسة',
+            'slot' => 'لأسباب الأمان والسرية، تنعقد جميع الجلسات داخل المنصة وتتطلب تسجيل الدخول المسبق.'
         ])
     @endif
 
     @if ($joinUrl)
         @include('emails.partials.button', [
             'url' => $joinUrl,
-            'label' => 'الانضمام للاجتماع',
+            'label' => 'الدخول للمنصة والاطلاع على تفاصيل الاجتماع',
             'variant' => 'primary'
         ])
     @endif

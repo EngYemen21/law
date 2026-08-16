@@ -36,11 +36,10 @@ class SendMeetingReminders extends Command
             $when = $meeting->when_label ?: $meeting->starts_at?->format('Y-m-d H:i');
             $mins = (int) ceil(now()->diffInMinutes($meeting->starts_at));
             $remaining = $mins > 0 ? $mins.' دقيقة' : null;
-            $link = $meeting->joinLink();
-
             $ok = false;
             foreach ([$meeting->user, $meeting->assignedLawyer] as $recipient) {
                 if ($recipient) {
+                    $link = $meeting->portalUrlFor($recipient);
                     $ok = app(MailService::class)->send(
                         $recipient,
                         new MeetingReminderMail($recipient->name, $meeting->title, $when, $link, $remaining)

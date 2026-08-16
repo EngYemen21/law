@@ -162,14 +162,50 @@ class MeetingController extends Controller
             'has_link' => true,
         ]);
 
-        // إشعار (داخل التطبيق + بريد) بموعد الاجتماع — للعميل والمحامي المسؤول
-        $link = $meeting->joinLink();
+        // إشعار (داخل التطبيق + بريد) بموعد الاجتماع — توجيه آمن داخل المنصّة لكل دور (لا روابط خارجية)
         if ($client) {
-            Notify::send($client->id, 'video', 't-blue', "تمت جدولة اجتماع «{$meeting->title}» — {$when}. الرابط متاح في صفحة الاجتماعات.");
-            app(MailService::class)->send($client, new MeetingScheduledMail($client->name, $meeting->title, $when, $link));
+            $clientUrl = $meeting->portalUrlFor($client);
+            Notify::send($client->id, 'video', 't-blue', "تمت جدولة اجتماع «{$meeting->title}» — {$when}. يرجى تسجيل الدخول والاطلاع على تفاصيل الدعوة في قسم «دعوات الاجتماع».");
+            app(MailService::class)->send($client, new MeetingScheduledMail(
+                $client->name,
+                $meeting->title,
+                $when,
+                $clientUrl,
+                'داخل منصة سلاسل بابل (قسم دعوات الاجتماع)',
+                'لأسباب الأمان والسرية، يتطلب حضور الجلسة تسجيل دخولك أولاً للمنصة عبر رقم الهوية ورمز التحقق.'
+            ));
         }
+
         if ($assignedLawyer) {
-            app(MailService::class)->send($assignedLawyer, new MeetingScheduledMail($assignedLawyer->name, $meeting->title, $when, $link));
+            $lawyerUrl = $meeting->portalUrlFor($assignedLawyer);
+            Notify::send($assignedLawyer->id, 'video', 't-blue', "تم تكليفك باجتماع «{$meeting->title}» — {$when}. متاح في قسم «طلبات الاجتماعات» بلوحة المحامي.");
+            app(MailService::class)->send($assignedLawyer, new MeetingScheduledMail(
+                $assignedLawyer->name,
+                $meeting->title,
+                $when,
+                $lawyerUrl,
+                'داخل لوحة المحامي (قسم طلبات الاجتماعات)',
+                'يرجى الدخول للوحة المحامي لاعتماد وإدارة الجلسة.'
+            ));
+        }
+
+        // إشعار باقي الكادر القانوني والإداري المشارك في الجلسة (الموظفون/المحامون)
+        if (! empty($validated['participants'])) {
+            foreach ($validated['participants'] as $pName) {
+                $staffUser = User::where('name', $pName)->first();
+                if ($staffUser && $staffUser->id !== $assignedLawyer?->id) {
+                    $staffUrl = $meeting->portalUrlFor($staffUser);
+                    Notify::send($staffUser->id, 'video', 't-blue', "تمت إضافتك كمشارك في اجتماع «{$meeting->title}» — {$when}. متاح في لوحتك.");
+                    app(MailService::class)->send($staffUser, new MeetingScheduledMail(
+                        $staffUser->name,
+                        $meeting->title,
+                        $when,
+                        $staffUrl,
+                        'داخل منصة سلاسل بابل',
+                        'تمت إضافتك كمشارك في الاجتماع من قِبل الإدارة، يرجى تسجيل الدخول للمنصة للحضور.'
+                    ));
+                }
+            }
         }
 
         return back();

@@ -233,4 +233,36 @@ class MeetingFlowTest extends TestCase
         $this->actingAs($admin)->get(route('admin.meetings'))
             ->assertInertia(fn ($p) => $p->component('admin/meetings')->has('meetings', 1));
     }
+
+    public function test_meeting_links_are_in_platform_and_require_auth_redirection(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+
+        $meeting = Meeting::create([
+            'ref' => 'M-9900',
+            'title' => 'جلسة سرية هامة',
+            'status' => 'قادم',
+            'when_label' => 'اليوم 10:00 ص',
+            'user_id' => $client->id,
+            'assigned_lawyer_id' => $lawyer->id,
+            'meet_link' => 'https://zoom.us/j/123456789',
+        ]);
+
+        // روابط الدخول لا ترسل المستخدم لزووم الخارجي بل للغرفة المضمنة بالمنصة
+        $this->assertSame(url('/meetingroom?ref=M-9900'), $meeting->joinLink($client));
+        $this->assertSame(url('/lawyer/meetingroom?ref=M-9900'), $meeting->joinLink($lawyer));
+        $this->assertSame(url('/employee/meetingroom?ref=M-9900'), $meeting->joinLink($employee));
+
+        // روابط التبويبات الموجهة بالبريد
+        $this->assertSame(url('/meetreqs'), $meeting->portalUrlFor($client));
+        $this->assertSame(url('/lawyer/meetreqs'), $meeting->portalUrlFor($lawyer));
+        $this->assertSame(url('/employee/meetreqs'), $meeting->portalUrlFor($employee));
+
+        // الزائر غير المسجل يتم توجيهه لصفحة الدخول
+        $this->get('/meetingroom?ref=M-9900')->assertRedirect('/login');
+        $this->get('/meetreqs')->assertRedirect('/login');
+        $this->get('/lawyer/meetreqs')->assertRedirect('/login');
+    }
 }

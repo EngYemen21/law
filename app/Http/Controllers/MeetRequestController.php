@@ -73,14 +73,16 @@ class MeetRequestController extends Controller
                 'host_link' => $zoom['start_url'] ?? null,
             ]);
 
-            Notify::send($meetRequest->user_id, 'video', 't-green', "تم تأكيد حضورك لاجتماع «{$meetRequest->service}» ({$meetRequest->day} · {$meetRequest->time}) — رابط الجلسة متاح في صفحة الاجتماعات.");
+            Notify::send($meetRequest->user_id, 'video', 't-green', "تم تأكيد حضورك لاجتماع «{$meetRequest->service}» ({$meetRequest->day} · {$meetRequest->time}) — الجلسة متاحة في قسم الاجتماعات بالمنصة.");
 
-            // بريد بموعد الاجتماع للعميل (نفس بيانات الدعوة المؤكّدة)
+            // بريد بموعد الاجتماع للعميل (توجيه للمنصة)
             app(MailService::class)->send($request->user(), new MeetingScheduledMail(
                 $request->user()->name,
                 "{$meetRequest->type} — {$meetRequest->service}",
                 "{$meetRequest->day} · {$meetRequest->time}",
-                $meeting->joinLink(),
+                $meeting->portalUrlFor($request->user()),
+                'داخل منصة سلاسل بابل (قسم دعوات الاجتماع)',
+                'لأسباب السرية، يرجى تسجيل الدخول إلى حسابك بالمنصة لحضور الجلسة.'
             ));
         }
 

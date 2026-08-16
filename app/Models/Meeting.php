@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\Role;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -60,9 +61,42 @@ class Meeting extends Model
         return in_array($this->status, ['قادم', 'جارٍ'], true);
     }
 
-    public function joinLink(): string
+    /**
+     * رابط دخول الجلسة المضمّنة داخل المنصّة حصراً (لا روابط خارجية تخرج المستخدم عن المنصة).
+     */
+    public function joinLink(?User $user = null): string
     {
-        return $this->meet_link ?: config('services.zoom.fallback_base').($this->ref ?: 'M-'.$this->id);
+        $ref = $this->ref ?: 'M-'.$this->id;
+
+        if ($user) {
+            return match ($user->role) {
+                Role::Client => url('/meetingroom?ref='.$ref),
+                Role::Lawyer => url('/lawyer/meetingroom?ref='.$ref),
+                Role::Employee => url('/employee/meetingroom?ref='.$ref),
+                Role::Admin => url('/admin/meetingroom?ref='.$ref),
+                default => url('/meetingroom?ref='.$ref),
+            };
+        }
+
+        return url('/meetingroom?ref='.$ref);
+    }
+
+    /**
+     * رابط تبويب الاجتماعات/الدعوات بحسب دور المستخدم (لتوجيهه عند الدخول للمنصة).
+     */
+    public function portalUrlFor(?User $user = null): string
+    {
+        if (! $user) {
+            return url('/meetreqs');
+        }
+
+        return match ($user->role) {
+            Role::Client => url('/meetreqs'),
+            Role::Lawyer => url('/lawyer/meetreqs'),
+            Role::Employee => url('/employee/meetreqs'),
+            Role::Admin => url('/admin/meetmgmt'),
+            default => url('/meetreqs'),
+        };
     }
 
     // بطاقة العميل (يطابق DATA.meetings + viewMeetings) — المحضر/الملخص بعد اعتماد الإدارة فقط
