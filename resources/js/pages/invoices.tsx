@@ -61,7 +61,7 @@ const InvRow: React.FC<{ v: Invoice }> = ({ v }) => {
       <div className="iact">
         <Badge text={v.status} tone={v.tone} />
         {v.paid ? (
-          <a className="btn soft sm" href={`/invoices/${encodeURIComponent(v.no)}/pdf`}>
+          <a className="btn soft sm" href={`/invoices/${encodeURIComponent(v.no)}/pdf`} download>
             <Icon name="download" /> الفاتورة PDF
           </a>
         ) : v.hasProof ? (

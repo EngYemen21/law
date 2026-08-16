@@ -17,7 +17,7 @@ const DocRow: React.FC<{ d: DocItem; outbound: boolean }> = ({ d, outbound }) =>
     </div>
     <div className="iact">
       {d.canDownload ? (
-        <a className="btn soft sm" href={d.downloadUrl || `/documents/${d.id}/download`} target="_blank" rel="noopener noreferrer">
+        <a className="btn soft sm" href={d.downloadUrl || `/documents/${d.id}/download`} download>
           <Icon name="download" /> تحميل
         </a>
       ) : null}

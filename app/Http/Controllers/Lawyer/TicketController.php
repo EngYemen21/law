@@ -340,7 +340,7 @@ class TicketController extends Controller
 
         $html = ReportPrint::html($doc);
 
-        return response($html)->header('Content-Type', 'text/html; charset=UTF-8');
+        return \App\Support\PdfRenderer::render($html, 'Summary-'.$ticket->number.'.pdf');
     }
 
     // اعتماد المستشار لنتيجة الجلسة → ترفع للإدارة للاعتماد النهائي (يطابق tfLawyerReview)

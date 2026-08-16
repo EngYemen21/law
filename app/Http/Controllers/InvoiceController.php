@@ -120,18 +120,6 @@ class InvoiceController extends Controller
             'footer' => 'النظام الإداري لمكاتب المحاماة — شكراً لتعاملكم معنا',
         ]);
 
-        $pdf = Browsershot::html($html)
-            ->setCustomTempPath(storage_path('app/browsershot-tmp'))
-            ->setNodeModulePath(base_path('node_modules'))
-            ->noSandbox()
-            ->format('A4')
-            ->showBackground()
-            ->margins(12, 12, 12, 12)
-            ->pdf();
-
-        return response($pdf, 200, [
-            'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'attachment; filename="'.$invoice->number.'.pdf"',
-        ]);
+        return \App\Support\PdfRenderer::render($html, $invoice->number.'.pdf');
     }
 }

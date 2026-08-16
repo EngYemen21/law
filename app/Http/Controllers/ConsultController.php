@@ -231,19 +231,7 @@ class ConsultController extends Controller
             'footer' => 'النظام الإداري لمكاتب المحاماة — نسخة العميل · صادرة إلكترونياً',
         ]);
 
-        $pdf = Browsershot::html($html)
-            ->setCustomTempPath(storage_path('app/browsershot-tmp'))
-            ->setNodeModulePath(base_path('node_modules'))
-            ->noSandbox()
-            ->format('A4')
-            ->showBackground()
-            ->margins(12, 12, 12, 12)
-            ->pdf();
-
-        return response($pdf, 200, [
-            'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'attachment; filename="'.$consult->ref.'.pdf"',
-        ]);
+        return \App\Support\PdfRenderer::render($html, $consult->ref.'.pdf');
     }
 
     // غرفة الجلسة المرئية للعميل — تضمين Zoom داخل المنصّة (?ref=CN-…)

@@ -137,7 +137,7 @@ void navigator.clipboard.writeText(c.slink);
                   <Badge text="بانتظار الجلسة" tone="b-grey" />
                 )}
                 {!CONSULT_BOOKING_STATUSES.includes(c.status) && c.status !== 'ملغاة' && (
-                  <a className="btn soft sm" href={`/consults/${c.id}/report.pdf`}>
+                  <a className="btn soft sm" href={`/consults/${c.id}/report.pdf`} download>
                     <Icon name="download" /> تحميل التقرير (PDF)
                   </a>
                 )}
