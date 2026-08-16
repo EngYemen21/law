@@ -30,8 +30,6 @@ class PdfRenderer
                 'disable-dev-shm-usage',
                 'disable-gpu',
                 'no-first-run',
-                'no-zygote',
-                'single-process',
                 'disable-extensions',
                 'hide-scrollbars',
             ])
@@ -55,7 +53,12 @@ class PdfRenderer
             $browsershot->setChromePath($chromePath);
         }
 
-        $pdf = $browsershot->pdf();
+        try {
+            $pdf = $browsershot->pdf();
+        } catch (\Throwable $e) {
+            Log::warning("PdfRenderer: Browsershot error ({$e->getMessage()}), using native binary PDF fallback.");
+            $pdf = NativePdf::build($html, $filename);
+        }
 
         return response($pdf, 200, [
             'Content-Type' => 'application/pdf',
