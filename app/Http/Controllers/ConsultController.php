@@ -222,13 +222,13 @@ class ConsultController extends Controller
             'approval' => [
                 'qrSeed' => $consult->ref,
                 'rows' => [
-                    ['الجهة', 'سلاسل بابل لتقنية المعلومات'],
+                    ['الجهة', 'النظام الإداري لمكاتب المحاماة'],
                     ['حالة الاستشارة', $consult->status],
                     ['تاريخ الطباعة', now()->format('Y-m-d')],
                 ],
             ],
             'note' => 'هذا التقرير يلخّص استشارتك القانونية ولا يُعدّ بذاته مرافعة أو مستنداً قضائياً. للاستفسار يمكنك فتح تذكرة من بوابتك.',
-            'footer' => 'سلاسل بابل لتقنية المعلومات — نسخة العميل · صادرة إلكترونياً',
+            'footer' => 'النظام الإداري لمكاتب المحاماة — نسخة العميل · صادرة إلكترونياً',
         ]);
 
         $pdf = Browsershot::html($html)
@@ -251,6 +251,7 @@ class ConsultController extends Controller
     {
         $consult = Consult::with('user')->where('ref', $request->query('ref'))->firstOrFail();
         abort_unless($consult->user_id === $request->user()->id, 403);
+        abort_unless($consult->canJoin(), 403, 'لا يمكن دخول الجلسة إلا قبل موعدها بـ 5 دقائق.');
 
         return Inertia::render('videoroom', [
             'consult' => $consult->toClientCard(),

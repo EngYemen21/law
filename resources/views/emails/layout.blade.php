@@ -53,7 +53,9 @@
                 padding-top: 0 !important;
             }
         }
-    </style>
+    @if(!empty($googleSchema))
+        {!! $googleSchema !!}
+    @endif
 </head>
 <body style="margin:0;padding:0;background-color:#EEF2F6;font-family:'Tajawal',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#13314F;direction:rtl;text-align:right;">
 
@@ -94,14 +96,14 @@
                             <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 16px;">
                                 <tr>
                                     <td align="center" style="background:#FFFFFF;border:2px solid rgba(255,255,255,0.4);border-radius:14px;text-align:center;vertical-align:middle;padding:8px 16px;box-shadow:0 8px 24px rgba(0,0,0,0.18);">
-                                        <img src="{{ $logoSrc }}" alt="سلاسل بابل لتقنية المعلومات" width="220" style="display:block;margin:0 auto;width:220px;max-width:100%;height:auto;max-height:60px;object-fit:contain;border:0;">
+                                        <img src="{{ $logoSrc }}" alt="النظام الإداري لمكاتب المحاماة" width="220" style="display:block;margin:0 auto;width:220px;max-width:100%;height:auto;max-height:60px;object-fit:contain;border:0;">
                                     </td>
                                 </tr>
                             </table>
 
                             {{-- اسم المنصة / النظام --}}
                             <div style="font-size:20px;font-weight:800;letter-spacing:-0.2px;color:#ffffff;line-height:1.3;margin-bottom:6px;">
-                                النظام الإداري لمكاتب المحاماه
+                                النظام الإداري لمكاتب المحاماة
                             </div>
 
                             {{-- الشارة الفرعية / التصنيف --}}

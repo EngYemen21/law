@@ -33,10 +33,10 @@ const MyCorr: React.FC<Props> = ({ corrs }) => {
   const printBrief = (c: ClientCorrCard) => {
     const html = `<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${c.id}</title>
       <style>body{font-family:Tahoma,Arial,sans-serif;padding:30px;color:#16245C;line-height:1.9}h2{color:#0A2A55}</style></head>
-      <body><h2>سلاسل بابل للمحاماة — إفادة العميل</h2><div>مرجع: <b>${c.id}</b> · ${c.date}</div>
+      <body><h2>النظام الإداري لمكاتب المحاماة — إفادة العميل</h2><div>مرجع: <b>${c.id}</b> · ${c.date}</div>
       <div>الجهة: <b>${c.entity}</b> · الموضوع: <b>${c.subject}</b></div>
       <hr><div>${c.briefNote}</div>${c.reply ? `<hr><b>ردّ الجهة:</b><div>${c.reply}</div>` : ''}
-      <p style="margin-top:24px">مع خالص التقدير،<br>سلاسل بابل للمحاماة</p></body></html>`;
+      <p style="margin-top:24px">مع خالص التقدير،<br>النظام الإداري لمكاتب المحاماة</p></body></html>`;
     const w = window.open('', '_blank', 'width=800,height=900');
     if (!w) return;
     w.document.write(html); w.document.close(); w.focus(); w.print();

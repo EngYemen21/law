@@ -11,7 +11,7 @@
         @viteReactRefresh
         @vite(['resources/css/app.css', 'resources/js/app.tsx'])
         <x-inertia::head>
-            <title>{{ config('app.name', 'سلاسل بابل') }}</title>
+            <title>{{ config('app.name', 'النظام الإداري لمكاتب المحاماة') }}</title>
         </x-inertia::head>
     </head>
     <body>

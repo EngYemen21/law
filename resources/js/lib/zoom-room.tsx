@@ -382,7 +382,7 @@ window.open(fallbackUrl, '_blank', 'noopener');
       <div className="mroom-grid">
         <div className="mroom">
           <div className="mroom-head">
-            <span className="brand"><Icon name="video" /> سلاسل بابل</span>
+            <span className="brand"><Icon name="video" /> النظام الإداري لمكاتب المحاماة</span>
             <span className="ttl">{details.title}</span>
             {phase === 'joined' && (
               <>

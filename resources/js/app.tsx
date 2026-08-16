@@ -5,7 +5,7 @@ import AppLayout from '@/components/layouts/AppLayout';
 import { ToastProvider } from '@/components/babylon/Toast';
 import '@/lib/echo';
 
-const appName = import.meta.env.VITE_APP_NAME || 'منصة سلاسل بابل';
+const appName = import.meta.env.VITE_APP_NAME || 'النظام الإداري لمكاتب المحاماة';
 
 createInertiaApp({
     title: (title) => (title ? `${title} - ${appName}` : appName),

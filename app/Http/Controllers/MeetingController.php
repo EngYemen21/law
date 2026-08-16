@@ -26,6 +26,7 @@ class MeetingController extends Controller
     {
         $meeting = Meeting::where('ref', (string) $request->query('ref'))->firstOrFail();
         abort_unless($meeting->user_id === $request->user()->id, 403);
+        abort_unless($meeting->canJoin(), 403, 'لا يمكن دخول الجلسة إلا قبل موعدها بـ 5 دقائق.');
 
         return Inertia::render('meetingroom', [
             'meeting' => $meeting->toCard(),

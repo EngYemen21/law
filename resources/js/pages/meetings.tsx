@@ -43,9 +43,15 @@ return;
       </div>
       <div className="iact">
         {m.up && (
-          <button className="btn sm" type="button" onClick={() => router.visit(`/meetingroom?ref=${encodeURIComponent(m.ref)}`)}>
-            <Icon name="video" /> انضم لجلسة Zoom
-          </button>
+          m.canJoin ? (
+            <button className="btn sm" type="button" onClick={() => router.visit(`/meetingroom?ref=${encodeURIComponent(m.ref)}`)}>
+              <Icon name="video" /> دخول الجلسة الآن
+            </button>
+          ) : (
+            <button className="btn sm" type="button" disabled style={{ opacity: 0.65, cursor: 'not-allowed' }} title="يُفعَّل زر الدخول قبل الموعد بـ 5 دقائق">
+              <Icon name="clock" /> الدخول (يُفعَّل قبل الموعد بـ 5 د)
+            </button>
+          )
         )}
         {m.minutes && (
           <button className="btn soft sm" type="button" onClick={() => setDoc({ title: `محضر الاجتماع — ${m.title}`, body: m.minutes! })}>

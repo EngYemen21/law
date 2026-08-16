@@ -70,12 +70,12 @@ class ReportPrint
 
         $approvalHtml = isset($doc['approval']) ? self::renderApproval($doc['approval']) : '';
         $noteHtml = isset($doc['note']) ? '<div class="cf-note">'.e($doc['note']).'</div>' : '';
-        $footerHtml = '<div class="cf-foot">'.e($doc['footer'] ?? 'سلاسل بابل لتقنية المعلومات — صادر إلكترونياً').'</div>';
+        $footerHtml = '<div class="cf-foot">'.e($doc['footer'] ?? 'النظام الإداري لمكاتب المحاماة — صادر إلكترونياً').'</div>';
         $logo = self::logoDataUri();
 
         return '<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>'.e($doc['ref']).'</title><style>'.self::STYLE.'</style></head><body>'
             .'<div class="cf">'
-            .'<div class="cf-hd">'.($logo ? '<img src="'.$logo.'" alt="">' : '').'<div class="t"><b>سلاسل بابل لتقنية المعلومات</b><span>SALASEL BABEL INFORMATION TECHNOLOGY</span></div><div class="meta">www.sb-legal.sa<br>011 462 2277</div></div>'
+            .'<div class="cf-hd">'.($logo ? '<img src="'.$logo.'" alt="">' : '').'<div class="t"><b>النظام الإداري لمكاتب المحاماة</b><span>LEGAL OFFICE MANAGEMENT SYSTEM</span></div><div class="meta">www.legal-office.sa<br>011 462 2277</div></div>'
             .'<div class="cf-title"><div><b>'.e($doc['title']).'</b><span class="s">'.e($doc['subtitle']).'</span></div><div class="rf">'.e($doc['ref']).'</div></div>'
             .$blocksHtml.$approvalHtml.$noteHtml.$footerHtml
             .'</div></body></html>';

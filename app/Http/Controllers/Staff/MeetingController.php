@@ -7,6 +7,7 @@ use App\Events\MeetingStatusBroadcast;
 use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
 use App\Jobs\GenerateMeetingSummaryJob;
+use App\Mail\MeetInviteMail;
 use App\Mail\MeetingEndedMail;
 use App\Mail\MeetingEventMail;
 use App\Mail\MeetingScheduledMail;
@@ -133,6 +134,8 @@ class MeetingController extends Controller
 
         $zoom = $this->zoom->createMeeting($data['title'], $durMinutes, ($data['conf'] ?? '') === 'سري', $startsAt);
 
+        $status = $client ? 'بانتظار التأكيد' : 'قادم';
+
         $meeting = Meeting::create([
             'user_id' => $client?->id,
             'ref' => 'M-'.now()->format('y').random_int(100, 999),
@@ -141,7 +144,7 @@ class MeetingController extends Controller
             'client_name' => $client?->name ?: 'داخلي',
             'when_label' => $when,
             'starts_at' => $startsAt,
-            'status' => 'قادم',
+            'status' => $status,
             'priority' => $data['priority'] ?? 'عادية',
             'conf' => $data['conf'] ?? 'عادي',
             'dur' => ($data['dur'] ?? '') ?: '60 دقيقة',
@@ -164,28 +167,44 @@ class MeetingController extends Controller
 
         // إشعار (داخل التطبيق + بريد) بموعد الاجتماع — توجيه آمن داخل المنصّة لكل دور (لا روابط خارجية)
         if ($client) {
-            $clientUrl = $meeting->portalUrlFor($client);
-            Notify::send($client->id, 'video', 't-blue', "تمت جدولة اجتماع «{$meeting->title}» — {$when}. يرجى تسجيل الدخول والاطلاع على تفاصيل الدعوة في قسم «دعوات الاجتماع».");
-            app(MailService::class)->send($client, new MeetingScheduledMail(
-                $client->name,
-                $meeting->title,
-                $when,
-                $clientUrl,
-                'داخل منصة سلاسل بابل (قسم دعوات الاجتماع)',
-                'لأسباب الأمان والسرية، يتطلب حضور الجلسة تسجيل دخولك أولاً للمنصة عبر رقم الهوية ورمز التحقق.'
-            ));
+            // إنشاء سجل دعوة رسمي يتيح للعميل مراجعة الدعوة وتأكيد الحضور
+            $meetRequest = MeetRequest::create([
+                'user_id' => $client->id,
+                'meeting_id' => $meeting->id,
+                'ref' => 'MR-'.random_int(1000, 9999),
+                'service' => $data['title'],
+                'type' => $data['type'],
+                'case_ref' => ($data['case_ref'] ?? '') ?: null,
+                'day' => $data['day'] ?: now()->format('Y-m-d'),
+                'time' => $data['time'] ?: '10:00',
+                'duration_min' => $durMinutes,
+                'assigned_lawyer_id' => $assignedLawyer?->id,
+                'sent_by' => $request->user()->name.' ('.$request->user()->role->label().')',
+                'sent_by_id' => $request->user()->id,
+                'stage' => MeetRequest::STAGE_SENT, // 0 = بانتظار تأكيد العميل
+                'meet_id' => $zoom['id'] ?? null,
+                'meet_link' => $zoom['join_url'] ?? null,
+                'host_link' => $zoom['start_url'] ?? null,
+            ]);
+
+            // إشعار وبريد دعوة رسمي للعميل ليؤكد حضوره من المنصة
+            Notify::send($client->id, 'video', 't-blue', "وصلتك دعوة اجتماع «{$meeting->title}» ({$when}). يُرجى تسجيل الدخول وتأكيد الحضور من «دعوات الاجتماع».");
+            app(MailService::class)->send($client, new MeetInviteMail($meetRequest));
         }
 
         if ($assignedLawyer) {
             $lawyerUrl = $meeting->portalUrlFor($assignedLawyer);
-            Notify::send($assignedLawyer->id, 'video', 't-blue', "تم تكليفك باجتماع «{$meeting->title}» — {$when}. متاح في قسم «طلبات الاجتماعات» بلوحة المحامي.");
+            $msg = $client
+                ? "تمت جدولة اجتماع «{$meeting->title}» — {$when} بانتظار تأكيد حضور العميل."
+                : "تم تكليفك باجتماع داخلي «{$meeting->title}» — {$when}.";
+            Notify::send($assignedLawyer->id, 'video', 't-blue', $msg);
             app(MailService::class)->send($assignedLawyer, new MeetingScheduledMail(
                 $assignedLawyer->name,
                 $meeting->title,
                 $when,
                 $lawyerUrl,
                 'داخل لوحة المحامي (قسم طلبات الاجتماعات)',
-                'يرجى الدخول للوحة المحامي لاعتماد وإدارة الجلسة.'
+                $client ? 'تم إرسال الدعوة للعميل وهي بانتظار تأكيد حضوره عبر المنصة.' : 'يرجى الدخول للوحة المحامي للاطلاع على تفاصيل الجلسة.'
             ));
         }
 
@@ -201,7 +220,7 @@ class MeetingController extends Controller
                         $meeting->title,
                         $when,
                         $staffUrl,
-                        'داخل منصة سلاسل بابل',
+                        'داخل النظام الإداري لمكاتب المحاماة',
                         'تمت إضافتك كمشارك في الاجتماع من قِبل الإدارة، يرجى تسجيل الدخول للمنصة للحضور.'
                     ));
                 }

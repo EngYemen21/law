@@ -109,7 +109,7 @@ class AssistantAndSummaryFeaturesTest extends TestCase
         $response = $this->actingAs($lawyer)->get("/lawyer/summary/{$ticket->number}/print");
 
         $response->assertOk();
-        $response->assertSee('سلاسل بابل لتقنية المعلومات');
+        $response->assertSee('النظام الإداري لمكاتب المحاماة');
         $response->assertSee('TKT-TEST-PRINT');
     }
 }

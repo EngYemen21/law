@@ -62,6 +62,31 @@ class Meeting extends Model
     }
 
     /**
+     * هل يُفعَّل زر «الدخول للاجتماع» للعميل؟
+     * متاح حصراً قبل موعد الجلسة بـ 5 دقائق كحد أقصى (أو بعد بدء الجلسة جارياً).
+     */
+    public function canJoin(): bool
+    {
+        if (in_array($this->status, ['منتهٍ', 'ملغى'], true)) {
+            return false;
+        }
+
+        if ($this->status === 'جارٍ') {
+            return true;
+        }
+
+        if ($this->isUpcoming()) {
+            if ($this->starts_at) {
+                return now()->greaterThanOrEqualTo($this->starts_at->copy()->subMinutes(5));
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
      * رابط دخول الجلسة المضمّنة داخل المنصّة حصراً (لا روابط خارجية تخرج المستخدم عن المنصة).
      */
     public function joinLink(?User $user = null): string
@@ -103,14 +128,16 @@ class Meeting extends Model
     public function toCard(): array
     {
         $approved = $this->approve === 'معتمد';
+        $canJoin = $this->canJoin();
 
         return [
             'id' => $this->id,
             'title' => $this->title,
             'when' => $this->when_label,
             'up' => $this->isUpcoming(),
+            'canJoin' => $canJoin,
             'ref' => $this->ref ?: 'M-'.$this->id,
-            'link' => $this->isUpcoming() ? $this->joinLink() : '',
+            'link' => $canJoin ? $this->joinLink() : '',
             'minutes' => $approved ? $this->minutes : null,
             'summary' => $approved ? $this->summary : null,
             // ملاحظة: العميل يرى المحضر/الملخص البشري المعتمَد فقط — لا ملخّص AI ولا رابط تسجيل

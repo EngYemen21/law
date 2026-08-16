@@ -117,7 +117,7 @@ class InvoiceController extends Controller
                 ],
                 ['title' => '٢. المبلغ الإجمالي', 'cellRows' => [[['الإجمالي', number_format($invoice->amount).' ر.س']]]],
             ],
-            'footer' => 'سلاسل بابل لتقنية المعلومات — شكراً لتعاملكم معنا',
+            'footer' => 'النظام الإداري لمكاتب المحاماة — شكراً لتعاملكم معنا',
         ]);
 
         $pdf = Browsershot::html($html)

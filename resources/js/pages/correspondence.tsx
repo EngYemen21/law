@@ -42,7 +42,7 @@ const Correspondence: React.FC<Props> = ({ role, base, corr }) => {
       .hd{border-bottom:2px solid #16245C;padding-bottom:10px;margin-bottom:16px}
       .bd{line-height:1.9;font-size:14px;white-space:pre-wrap}
       .sig{margin-top:24px;padding:10px 14px;background:#16245C;color:#fff;border-radius:8px;display:flex;justify-content:space-between;font-size:12px}</style></head>
-      <body><div class="hd"><h2>سلاسل بابل للمحاماة</h2><div>مخاطبة رسميّة · ${c.id} · ${c.date}</div></div>
+      <body><div class="hd"><h2>النظام الإداري لمكاتب المحاماة</h2><div>مخاطبة رسميّة · ${c.id} · ${c.date}</div></div>
       <div>إلى: <b>${c.entity}</b></div><div>الموضوع: <b>${c.subject}</b></div>
       <div class="bd">${c.body}</div>
       ${c.reply ? `<div style="margin-top:16px"><b>ردّ الجهة:</b><div class="bd">${c.reply}</div></div>` : ''}

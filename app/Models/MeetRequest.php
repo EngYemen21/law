@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\MeetingTime;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -49,9 +50,31 @@ class MeetRequest extends Model
         return $this->belongsTo(User::class, 'assigned_lawyer_id');
     }
 
+    public function canJoin(): bool
+    {
+        if ($this->stage === self::STAGE_EXPIRED) {
+            return false;
+        }
+
+        if ($this->stage >= self::STAGE_CONFIRMED) {
+            if ($this->meeting) {
+                return $this->meeting->canJoin();
+            }
+
+            $startsAt = MeetingTime::parse($this->day, $this->time);
+            if ($startsAt) {
+                return now()->greaterThanOrEqualTo($startsAt->subMinutes(5));
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
     public function joinLink(): string
     {
-        return $this->meet_link ?: config('services.zoom.fallback_base').$this->ref;
+        return url('/meetingroom?ref='.($this->meeting?->ref ?: $this->ref));
     }
 
     /**
@@ -61,6 +84,7 @@ class MeetRequest extends Model
     public function toClientCard(): array
     {
         $confirmed = $this->stage >= self::STAGE_CONFIRMED;
+        $canJoin = $this->canJoin();
 
         return [
             'id' => $this->ref,
@@ -71,7 +95,8 @@ class MeetRequest extends Model
             'time' => $this->time,
             'by' => $this->sent_by,
             'stage' => $this->stage,
-            'meetLink' => $confirmed ? $this->joinLink() : null,
+            'canJoin' => $canJoin,
+            'meetLink' => $canJoin ? $this->joinLink() : null,
             // مرجع الاجتماع المرتبط — للدخول للغرفة المضمّنة (kind=meeting)
             'meetingRef' => $confirmed ? $this->meeting?->ref : null,
         ];

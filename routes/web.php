@@ -56,6 +56,9 @@ Route::post('/webhooks/zoom', [ZoomWebhookController::class, 'handle'])->name('w
 // مستقبِل إشعارات Moyasar (Webhooks) — عام، محميّ بـsecret_token ومستثنى من CSRF
 Route::post('/webhooks/moyasar', [MoyasarWebhookController::class, 'handle'])->name('webhooks.moyasar');
 
+// موجز التقويم الحي (RFC 5545 iCal Live Subscription Feed) — عام ومحمي برمز أمان فريد لكل مستخدم
+Route::get('/calendar/feed/{user}/{token}.ics', [CalendarController::class, 'feed'])->name('calendar.feed');
+
 // المصادقة — دخول برقم الهويّة + رمز SMS (OTP)، بلا كلمة مرور
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'show'])->name('login');

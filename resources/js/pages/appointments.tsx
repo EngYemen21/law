@@ -48,10 +48,10 @@ const ApptCard: React.FC<{ a: Appt }> = ({ a }) => {
       <div className="apptx">
         <div className="apptx-head">
           <div className="apptx-brand">
-            <div className="apptx-logo">SB</div>
+            <div className="apptx-logo">LM</div>
             <div>
-              <b>سلاسل بابل لتقنية المعلومات</b>
-              <span className="bs">SALASEL BABEL · المواعيد القانونية</span>
+              <b>النظام الإداري لمكاتب المحاماة</b>
+              <span className="bs">LEGAL OFFICE MANAGEMENT · المواعيد القانونية</span>
             </div>
           </div>
           <div className="apptx-title"><Icon name="cal" /> بطاقة موعد {a.type}</div>

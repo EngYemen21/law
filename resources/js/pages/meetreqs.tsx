@@ -86,23 +86,29 @@ void navigator.clipboard.writeText(r.meetLink);
                     <Icon name="check" /> تأكيد الحضور
                   </button>
                 )}
-                {r.stage === 1 && r.meetLink && (
-                  <>
-                    <button className="btn soft sm" onClick={() => copyLink(r)} type="button">
-                      <Icon name="link" /> نسخ الرابط
+                {r.stage === 1 && (
+                  r.canJoin ? (
+                    <>
+                      {r.meetLink && (
+                        <button className="btn soft sm" onClick={() => copyLink(r)} type="button">
+                          <Icon name="link" /> نسخ الرابط
+                        </button>
+                      )}
+                      {r.type.indexOf('مرئية') >= 0 && (
+                        <button
+                          className="btn sm"
+                          onClick={() => router.visit(`/meetingroom?ref=${encodeURIComponent(r.meetingRef || r.id)}`)}
+                          type="button"
+                        >
+                          <Icon name="video" /> دخول الجلسة الآن
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <button className="btn sm" type="button" disabled style={{ opacity: 0.65, cursor: 'not-allowed' }} title="يُفعَّل زر الدخول قبل الموعد بـ 5 دقائق">
+                      <Icon name="clock" /> الدخول (يُفعَّل قبل الموعد بـ 5 د)
                     </button>
-                    {r.type.indexOf('مرئية') >= 0 && (
-                      <button
-                        className="btn sm"
-                        onClick={() => (r.meetingRef
-                          ? router.visit(`/meetingroom?ref=${encodeURIComponent(r.meetingRef)}`)
-                          : openMeeting(r.meetLink || ''))}
-                        type="button"
-                      >
-                        <Icon name="video" /> انضم لجلسة Zoom
-                      </button>
-                    )}
-                  </>
+                  )
                 )}
               </div>
             </div>

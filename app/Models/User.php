@@ -146,4 +146,32 @@ class User extends Authenticatable
     {
         return $this->hasMany(Ticket::class, 'assigned_lawyer_id');
     }
+
+    /**
+     * رمز أمان موثوق وثابت لتمكين مزامنة التقويم الحي (Live iCal Feed) دون كشف بيانات تسجيل الدخول.
+     */
+    public function calendarToken(): string
+    {
+        $seed = 'user-cal:'.$this->id.':'.($this->created_at?->timestamp ?? 1700000000);
+
+        return substr(hash_hmac('sha256', $seed, (string) config('app.key')), 0, 32);
+    }
+
+    /**
+     * رابط التغذية الحية لتقويم جوجل والأنظمة المتوافقة (Subscription URL).
+     */
+    public function calendarFeedUrl(): string
+    {
+        return url("/calendar/feed/{$this->id}/".$this->calendarToken().'.ics');
+    }
+
+    /**
+     * رابط الاشتراك المباشر لتقويم الجوال (Webcal Protocol — iOS / Android / macOS).
+     */
+    public function calendarWebcalUrl(): string
+    {
+        $feedUrl = $this->calendarFeedUrl();
+
+        return (string) preg_replace('/^https?:\/\//i', 'webcal://', $feedUrl);
+    }
 }

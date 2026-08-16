@@ -146,9 +146,9 @@ const Login: React.FC = () => {
     <div className="lgn">
       <div className="lgn-card">
         <div className="lgn-hd">
-          <img src="/images/021.png" alt="سلاسل بابل" />
-          <h1>سلاسل بابل لتقنية المعلومات</h1>
-          <p>بوابة الدخول الآمن — النظام القانوني</p>
+          <img src="/images/021.png" alt="النظام الإداري لمكاتب المحاماة" />
+          <h1>النظام الإداري لمكاتب المحاماة</h1>
+          <p>بوابة الدخول الآمن — المنصة الإدارية</p>
         </div>
 
         <div className="lgn-bd">
@@ -365,7 +365,7 @@ const Login: React.FC = () => {
           )}
         </div>
 
-        <div className="lgn-ft">© سلاسل بابل لتقنية المعلومات — جميع الحقوق محفوظة</div>
+        <div className="lgn-ft">© النظام الإداري لمكاتب المحاماة — جميع الحقوق محفوظة</div>
       </div>
     </div>
   );

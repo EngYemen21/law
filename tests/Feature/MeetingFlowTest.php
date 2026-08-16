@@ -73,8 +73,8 @@ class MeetingFlowTest extends TestCase
         $meeting = $req->meeting;
         $this->assertSame('قادم', $meeting->status);
         $this->assertSame($client->id, $meeting->user_id);
-        // بلا مفاتيح Zoom: رابط داخلي احتياطي في البطاقة
-        $this->assertStringContainsString('meet.salasel.sa', $req->fresh()->toCard()['meetLink']);
+        // رابط داخلي آمن للغرفة المضمنة بالمنصة
+        $this->assertStringContainsString('/meetingroom?ref=', $req->fresh()->toCard()['meetLink']);
 
         // يظهر لدى العميل في «دعوات الاجتماعات» و«الاجتماعات»
         $this->actingAs($client)->get(route('meetreqs'))
@@ -199,14 +199,21 @@ class MeetingFlowTest extends TestCase
         ])->assertRedirect();
 
         $meeting = Meeting::firstOrFail();
-        $this->assertSame('قادم', $meeting->status);
+        $this->assertSame('بانتظار التأكيد', $meeting->status);
         $this->assertSame($client->id, $meeting->user_id);
         $this->assertSame('عالية', $meeting->priority);
-        $this->assertNotEmpty($meeting->before_items);
-        // المحامي المسؤول وفرعه مختومان → يظهر في قائمته
         $this->assertSame($lawyer->id, $meeting->assigned_lawyer_id);
         $this->assertSame('فرع الرياض', $meeting->branch);
         $this->assertSame(1, UserNotification::where('user_id', $client->id)->count());
+
+        // تم إنشاء طلب دعوة مرتبط بانتظار تأكيد العميل
+        $req = MeetRequest::where('meeting_id', $meeting->id)->firstOrFail();
+        $this->assertSame(MeetRequest::STAGE_SENT, $req->stage);
+
+        // العميل يؤكد الحضور → تصبح حالة الاجتماع «قادم» وتتأكد الجلسة
+        $this->actingAs($client)->post(route('meetreqs.confirm', $req))->assertRedirect();
+        $meeting->refresh();
+        $this->assertSame('قادم', $meeting->status);
 
         // ويظهر في قائمة المحامي المسؤول
         $this->actingAs($lawyer)->get(route('lawyer.meetings'))

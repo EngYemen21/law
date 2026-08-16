@@ -52,10 +52,10 @@ class AppointmentCard
             .'<div class="row">'.self::icon('user').'<span>'.e(self::firstName($consult->lawyer)).'</span></div>'
             .'<div class="row">'.self::icon('pin').'<span>'.e($branch).'</span></div>';
 
-        // رابط الجلسة المرئية: وصلة قابلة للنقر بدل نصّ مهروب لا يُفتح
+        // رابط الجلسة المرئية داخل المنصة حصراً
         if ($consult->channel === 'مرئية') {
             $rows .= '<div class="row">'.self::icon('video')
-                .'<a href="'.e($consult->joinLink()).'" target="_blank" rel="noopener noreferrer">رابط جلسة Zoom</a></div>';
+                .'<a href="'.e(url('/consults/room?ref='.$consult->ref)).'">الانتقال إلى الغرفة المرئية بالمنصة</a></div>';
         }
 
         return '<p>تم تأكيد موعدك. هذه بطاقة الموعد الخاصة بك:</p>'

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\Role;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -86,10 +87,24 @@ class Consult extends Model
         return $this->belongsTo(User::class, 'assigned_lawyer_id');
     }
 
-    // رابط انضمام الجلسة المرئية (join_url من Zoom)؛ وعند غيابه الرابط الاحتياطي الموحّد.
-    public function joinLink(): string
+    // رابط انضمام الجلسة المرئية المضمّنة داخل المنصّة حصراً (لا روابط خارجية تخرج عن المنصة)
+    public function joinLink(?User $user = null): string
     {
-        return $this->meet_link ?: config('services.zoom.fallback_base').$this->ref;
+        if ($user && $user->role === Role::Lawyer) {
+            return url('/lawyer/consults/room?ref='.$this->ref);
+        }
+
+        return url('/consults/room?ref='.$this->ref);
+    }
+
+    /** رابط التبويب في لوحة التحكم بحسب الدور */
+    public function portalUrlFor(?User $user = null): string
+    {
+        if ($user && $user->role === Role::Lawyer) {
+            return url('/lawyer/consults');
+        }
+
+        return url('/myconsults');
     }
 
     /**

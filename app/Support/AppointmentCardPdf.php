@@ -68,7 +68,7 @@ class AppointmentCardPdf
         return '<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>'.e($a['no']).'</title><style>'.self::STYLE.'</style></head><body>'
             .'<div class="apptx">'
             .'<div class="apptx-head">'
-            .'<div class="apptx-brand"><div class="apptx-logo">SB</div><div><b>سلاسل بابل لتقنية المعلومات</b><span class="bs">SALASEL BABEL · المواعيد القانونية</span></div></div>'
+            .'<div class="apptx-brand"><div class="apptx-logo">LM</div><div><b>النظام الإداري لمكاتب المحاماة</b><span class="bs">LEGAL OFFICE MANAGEMENT · المواعيد القانونية</span></div></div>'
             .'<div class="apptx-title">'.self::icon('cal').' بطاقة موعد '.e($a['type']).'</div>'
             .'<div class="apptx-no">'.e($a['no']).'</div>'
             .'<div class="apptx-chips"><span class="apptx-chip">'.self::icon('cal').' '.e($a['day']).'</span><span class="apptx-chip">'.self::icon('clock').' '.e($a['time']).'</span><span class="apptx-chip">'.self::icon('pin').' '.e($a['place']).'</span></div>'
