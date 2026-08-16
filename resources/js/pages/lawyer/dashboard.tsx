@@ -21,9 +21,20 @@ const LawyerDashboard: React.FC<Props> = ({ tickets, pendingSummaries, todayMeet
 
   return (
     <>
-      <div className="greet">
-        <h2>لوحة المحامي</h2>
-        <p>تذاكرك المحالة، اجتماعاتك، المساعد القانوني الذكي، والملخصات والمهام.</p>
+      <div className="hero">
+        <h2>لوحة المحامي والمستشار القانوني ⚖️</h2>
+        <p>تذاكرك المحالة، اجتماعاتك، المساعد القانوني الذكي، والملخصات والمهام الموكلة إليك.</p>
+        <div className="hero-cta">
+          <button className="hero-b" onClick={() => router.visit('/lawyer/assistant')} type="button">
+            <Icon name="sparkles" /> المساعد الذكي
+          </button>
+          <button className="hero-b ghost" onClick={() => router.visit('/lawyer/meetings')} type="button">
+            <Icon name="video" /> الاجتماعات
+          </button>
+          <button className="hero-b ghost" onClick={() => router.visit('/lawyer/summaries')} type="button">
+            <Icon name="doc" /> الملخصات
+          </button>
+        </div>
       </div>
 
       <StatRow items={stats} />

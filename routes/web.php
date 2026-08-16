@@ -181,6 +181,8 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
     });
     Route::post('/tickets/{ticket}/reply', [EmployeeTicketController::class, 'reply'])
         ->middleware('permission:الرد على العملاء')->name('tickets.reply');
+    Route::post('/tickets/{ticket}/attach', [EmployeeTicketController::class, 'attach'])
+        ->middleware('permission:الرد على العملاء')->name('tickets.attach');
     Route::post('/tickets/{ticket}/request-docs', [EmployeeTicketController::class, 'requestDocs'])
         ->middleware('permission:الرد على العملاء')->name('tickets.reqdocs');
 
@@ -241,6 +243,9 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
     // التذاكر المحالة — عرض عام للمحامي؛ الإجراءات الحسّاسة مُصرَّحة أدناه
     Route::get('/tickets', [LawyerTicketController::class, 'index'])->name('tickets');
     Route::get('/tickets/{ticket}', [LawyerTicketController::class, 'show'])->name('tickets.show');
+    // ردّ المستشار المباشر على العميل (يطابق lwReply المرجعي) + ملاحظته الداخلية — guardAssigned يحصرهما بالمُسنَد
+    Route::post('/tickets/{ticket}/reply', [LawyerTicketController::class, 'reply'])->name('tickets.reply');
+    Route::post('/tickets/{ticket}/note', [LawyerTicketController::class, 'note'])->name('tickets.note');
     Route::get('/calendar', [LawyerCalendarController::class, 'index'])->name('calendar');
 
     // الملخصات والاعتماد — اعتماد الملخصات
@@ -346,6 +351,9 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/tickets/{ticket}/convert', [LawyerTicketController::class, 'convertToCase'])->name('tickets.convert');
     Route::post('/tickets/{ticket}/close', [LawyerTicketController::class, 'closeWithoutCase'])->name('tickets.close');
     Route::post('/tickets/{ticket}/request-docs', [LawyerTicketController::class, 'requestDocs'])->name('tickets.reqdocs');
+    Route::post('/tickets/{ticket}/reply', [LawyerTicketController::class, 'reply'])->name('tickets.reply');
+    // ملاحظة إدارية داخلية (يطابق adtSaveNote المرجعي) — نفس ميثود المستشار (واعٍ بالدور) ولا تصل قناة العميل
+    Route::post('/tickets/{ticket}/note', [LawyerTicketController::class, 'note'])->name('tickets.note');
     Route::get('/lawyers', [AdminLawyerController::class, 'index'])->name('lawyers');
     Route::post('/lawyers/{user}/mode', [AdminLawyerController::class, 'toggleMode'])->name('lawyers.mode');
     // المخاطبات الرسميّة (الإدارة ترى الكلّ + الاعتماد/الإرسال/الإغلاق)
@@ -421,6 +429,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::get('/summary/{ticket}', [LawyerTicketController::class, 'showSummary'])->name('summary');
     Route::post('/summary/{ticket}', [LawyerTicketController::class, 'updateSummary'])->name('summary.update');
     Route::post('/summary/{ticket}/approve', [LawyerTicketController::class, 'approveSummary'])->name('summary.approve');
+    Route::post('/summary/{ticket}/rerun', [LawyerTicketController::class, 'rerunSummary'])->name('summary.rerun');
     Route::get('/revenue', [AdminReportController::class, 'revenue'])->name('revenue');
     Route::get('/prices', [AdminPriceController::class, 'index'])->name('prices');
     Route::post('/prices', [AdminPriceController::class, 'update'])->name('prices.update');

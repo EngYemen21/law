@@ -146,7 +146,7 @@ const Login: React.FC = () => {
     <div className="lgn">
       <div className="lgn-card">
         <div className="lgn-hd">
-          <img src="/images/logo.jpg" alt="سلاسل بابل" />
+          <img src="/images/021.png" alt="سلاسل بابل" />
           <h1>سلاسل بابل لتقنية المعلومات</h1>
           <p>بوابة الدخول الآمن — النظام القانوني</p>
         </div>

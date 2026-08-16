@@ -19,6 +19,8 @@ use App\Support\ServiceDocs;
 use App\Support\TicketJourney;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response as HttpResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -67,7 +69,12 @@ class TicketController extends Controller
 
         return Inertia::render('lawyer/ticketchat', [
             // رقم القضية الحقيقي — كانت الواجهة تطبع نصّاً ثابتاً مكان الرقم
-            'ticket' => array_merge($ticket->toEmployeeCard(), ['caseRef' => $ticket->legalCase?->number]),
+            // mobile/openedAt لبطاقة «تفاصيل الطلب» (يطابق tkDetailsCard المرجعي)
+            'ticket' => array_merge($ticket->toEmployeeCard(), [
+                'caseRef' => $ticket->legalCase?->number,
+                'mobile' => $ticket->user?->phone,
+                'openedAt' => $ticket->created_at?->locale('ar')->translatedFormat('j F Y'),
+            ]),
             'channel' => 'ticket.'.$ticket->id,
             'messages' => $ticket->messages->map->toMessage(),
             'summary' => $ticket->summary?->toData(),
@@ -75,6 +82,64 @@ class TicketController extends Controller
             // الإدارة تفتح نفس الصفحة من مسارها — الروابط تُبنى من base لا مثبّتة على /lawyer
             'base' => $request->user()->isAdmin() ? '/admin' : '/lawyer',
         ]);
+    }
+
+    // ردّ المستشار المباشر للعميل — بثّ لحظي معزول بالمعاملة وإشعار للعميل
+    public function reply(Request $request, Ticket $ticket): HttpResponse
+    {
+        $this->guardAssigned($ticket);
+        $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
+
+        $roleName = $request->user()->isAdmin() ? 'الإدارة' : 'المستشار القانوني';
+        $msg = null;
+        DB::transaction(function () use ($ticket, $request, $data, $roleName, &$msg) {
+            $msg = $ticket->messages()->create([
+                'who' => 'lawyer',
+                'name' => $request->user()->name,
+                'role' => $roleName,
+                'body' => nl2br(e($data['body'])),
+                'time_label' => $this->clock(),
+            ]);
+
+            $ticket->update(['last_message' => $data['body'], 'date_label' => 'الآن']);
+        });
+
+        if ($msg) {
+            DB::afterCommit(function () use ($msg, $ticket) {
+                Live::push(new TicketMessageBroadcast($msg));
+                // بلا اسم المستشار — العميل يرى أطراف المكتب باسم موحّد (سياسة الحجب، ويطابق clientNotify المرجعي)
+                Notify::send($ticket->user_id, 'ticket', 't-blue', "رد جديد من المستشار القانوني على تذكرتك {$ticket->number}.");
+            });
+        }
+
+        return response()->noContent();
+    }
+
+    // ملاحظة داخلية للمستشار (لا يراها العميل) — تُبثّ على قناة الطاقم فقط
+    public function note(Request $request, Ticket $ticket): HttpResponse
+    {
+        $this->guardAssigned($ticket);
+        $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
+
+        $roleName = $request->user()->isAdmin() ? 'ملاحظة إدارة' : 'ملاحظة مستشار';
+        $msg = null;
+        DB::transaction(function () use ($ticket, $request, $data, $roleName, &$msg) {
+            $msg = $ticket->messages()->create([
+                'who' => 'note',
+                'name' => $request->user()->name,
+                'role' => $roleName,
+                'body' => nl2br(e($data['body'])),
+                'time_label' => $this->clock(),
+            ]);
+        });
+
+        if ($msg) {
+            DB::afterCommit(function () use ($msg) {
+                Live::push(new TicketMessageBroadcast($msg));
+            });
+        }
+
+        return response()->noContent();
     }
 
     // قائمة الملخصات بانتظار اعتماد المستشار (المسندة إليه)

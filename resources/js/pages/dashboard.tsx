@@ -37,7 +37,7 @@ const Dashboard: React.FC<Props> = ({ name, counts, upcomingAppts, dueInvoices, 
 
   return (
     <>
-      <div className="greet">
+      <div className="hero">
         <h2>أهلاً {name} 👋</h2>
         <p>هذه نظرة سريعة على طلباتك ومواعيدك وفواتيرك لدى المكتب.</p>
         <div className="hero-cta">

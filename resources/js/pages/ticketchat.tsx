@@ -213,6 +213,7 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
       backLabel="رجوع لكل التذاكر"
       title={`محادثة التذكرة ${ticket.no}`}
       no={ticket.no}
+      noLabel="التذكرة"
       status={status.status}
       tone={status.tone}
       info={[['الحالة', status.status], ['النوع', ticket.type]]}
@@ -226,6 +227,7 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
         onStatus={onStatus}
         readOnly={['مكتملة', 'مغلقة'].includes(status.status)}
         placeholder="اكتب رسالتك للفريق القانوني…"
+        composerLabel="اكتب في التذكرة:"
       />
     </DetailShell>
   );

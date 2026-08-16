@@ -19,7 +19,8 @@ const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
   if (m.who === 'note') return null;
   const isClient = m.who === 'client' || m.who === 'me';
   const actor = isClient ? 'me' : 'ai';
-  const name = isClient ? 'أنت' : m.name || 'خدمة العملاء';
+  // العميل يرى اسماً موحّداً «الفريق القانوني» لكل أطراف المكتب (يطابق ctRenderMsg المرجعي)
+  const name = isClient ? 'أنت' : 'الفريق القانوني';
   const role = isClient ? '' : m.role || '';
 
   return (
@@ -55,10 +56,12 @@ interface ChatThreadProps {
   // تجاوز صيغ/تلميح الإرفاق الافتراضيّين (مثال: لتضمين XLSX في محادثة التنفيذ)
   accept?: string;
   hint?: string;
+  // ملصق منطقة الكتابة — التذكرة تمرّر «اكتب في التذكرة:» (يطابق المرجع)
+  composerLabel?: string;
 }
 
 // يطابق سلوك ctSend / ctAttach مع مؤشر الكتابة والرد التلقائي
-const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكتب رسالتك لخدمة العملاء…', onSend, onAttach, channel, onStatus, readOnly = false, accept = ALLOWED_DOC_ACCEPT, hint = ALLOWED_DOC_HINT }) => {
+const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكتب رسالتك لخدمة العملاء…', onSend, onAttach, channel, onStatus, readOnly = false, accept = ALLOWED_DOC_ACCEPT, hint = ALLOWED_DOC_HINT, composerLabel = 'اكتب هنا:' }) => {
   const toast = useToast();
   const serverMode = !!onSend;
   const liveMode = !!channel;
@@ -149,7 +152,7 @@ const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكت�
       ) : (
         <div className="composer">
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--faint)', marginBottom: 8 }}>
-            اكتب هنا:
+            {composerLabel}
           </div>
           <textarea
             value={reply}

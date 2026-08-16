@@ -65,7 +65,12 @@ class TicketController extends Controller
 
         return Inertia::render('employee/ticketchat', [
             // caseRef يخفي زرّ «تحويل إلى قضية» بعد التحويل ويعرض رابط ملف القضية بدله
-            'ticket' => array_merge($ticket->toEmployeeCard(), ['caseRef' => $ticket->legalCase?->number]),
+            // mobile/openedAt لبطاقتَي «تفاصيل الطلب» ومعلومات التذكرة (يطابق tkDetailsCard المرجعي)
+            'ticket' => array_merge($ticket->toEmployeeCard(), [
+                'caseRef' => $ticket->legalCase?->number,
+                'mobile' => $ticket->user?->phone,
+                'openedAt' => $ticket->created_at?->locale('ar')->translatedFormat('j F Y'),
+            ]),
             'channel' => 'ticket.'.$ticket->id,
             // الموظف يرى كل الرسائل بما فيها الملاحظات الداخلية
             'messages' => $ticket->messages->map->toMessage(),
@@ -100,6 +105,40 @@ class TicketController extends Controller
                 Live::push(new TicketMessageBroadcast($msg));
             });
         }
+
+        return response()->noContent();
+    }
+
+    // إرفاق مستند من الموظف بالتذكرة (يراه العميل) — نفس قيود رفع العميل (10MB + الصيغ المسموحة)
+    public function attach(Request $request, Ticket $ticket): HttpResponse
+    {
+        $this->guardBranch($ticket);
+
+        $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx']]);
+
+        $file = $request->file('file');
+        $name = $file->getClientOriginalName();
+        $path = $file->store("ticket-docs/{$ticket->id}");
+        $ticket->increment('attachments');
+
+        $ticket->documents()->create([
+            'name' => $name,
+            'path' => $path,
+            'mime' => $file->getClientMimeType(),
+            'size' => (int) $file->getSize(),
+            'status' => 'مرفق من المكتب',
+        ]);
+
+        $msg = $ticket->messages()->create([
+            'who' => 'staff',
+            'name' => $request->user()->name,
+            'role' => 'خدمة العملاء',
+            'body' => '<p>تم إرفاق مستند من المكتب:</p><div class="doc-list"><span class="doc-chip">📎 '.e($name).'</span></div>',
+            'time_label' => $this->clock(),
+        ]);
+        Live::push(new TicketMessageBroadcast($msg));
+
+        $ticket->update(['last_message' => 'تم إرفاق مستند: '.$name, 'date_label' => 'الآن']);
 
         return response()->noContent();
     }

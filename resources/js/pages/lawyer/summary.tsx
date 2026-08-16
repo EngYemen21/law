@@ -126,11 +126,10 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
             <button className="btn soft" onClick={save} type="button">
               حفظ التعديلات
             </button>
-            {base === '/lawyer' && (
-              <button className="btn soft" onClick={rerun} type="button">
-                <Icon name="info" /> إعادة التحليل الذكي
-              </button>
-            )}
+            {/* متاح للمستشار والإدارة — مسار /admin/summary/{t}/rerun أُضيف ليطابق نظيره */}
+            <button className="btn soft" onClick={rerun} type="button">
+              <Icon name="sparkles" /> إعادة التحليل الذكي
+            </button>
           </>
         ) : (
           <span className="chip muted">تم إرسال الملخص والرأي القانوني للعميل</span>

@@ -35,7 +35,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     <aside className={`sidebar ${isOpen ? 'open' : ''}`} id="sidebar">
       {/* الشعار */}
       <div className="sb-logo">
-        <img src="/images/logo.jpg" alt="سلاسل بابل لتقنية المعلومات" />
+        <img src="/images/021.png" alt="سلاسل بابل لتقنية المعلومات" />
       </div>
 
       {/* تبديل اللوحة — للإدارة فقط (إشراف على بقية الأدوار) */}

@@ -15,11 +15,13 @@ interface DetailShellProps {
   tone: string;
   info: [string, string][];
   topExtra?: React.ReactNode;
+  // ملصق بطاقة الجانب (tc-top) — التذكرة تمرّر «التذكرة» لأن العنوان «محادثة التذكرة…» يجعل الاشتقاق خاطئاً
+  noLabel?: string;
   children: React.ReactNode; // الثريد + المُحرِّر
 }
 
 const DetailShell: React.FC<DetailShellProps> = ({
-  backHref, backLabel, title, no, status, tone, info, topExtra, children,
+  backHref, backLabel, title, no, status, tone, info, topExtra, noLabel, children,
 }) => (
   <div className="tflow">
     <div style={{ marginBottom: 14 }}>
@@ -44,7 +46,7 @@ const DetailShell: React.FC<DetailShellProps> = ({
       <aside className="tf-aside">
         <div className="card">
           <div className="tc-top">
-            <div className="lbl">{title.split(' ')[0]}</div>
+            <div className="lbl">{noLabel ?? title.split(' ')[0]}</div>
             <div className="num">{no}</div>
           </div>
           <div className="tc-body">

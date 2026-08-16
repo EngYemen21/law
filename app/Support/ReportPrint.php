@@ -126,11 +126,16 @@ class ReportPrint
     /** يضمّن شعار المكتب كـdata URI حتى يظهر داخل PDF المُصيَّر بمعزل عن الخادم المحلي (بلا طلب شبكة). */
     private static function logoDataUri(): ?string
     {
-        $path = public_path('images/logo.jpg');
+        $path = public_path('images/021.png');
+        if (! is_file($path)) {
+            $path = public_path('images/logo.jpg');
+        }
         if (! is_file($path)) {
             return null;
         }
 
-        return 'data:image/jpeg;base64,'.base64_encode((string) file_get_contents($path));
+        $mime = str_ends_with($path, '.png') ? 'image/png' : 'image/jpeg';
+
+        return 'data:'.$mime.';base64,'.base64_encode((string) file_get_contents($path));
     }
 }

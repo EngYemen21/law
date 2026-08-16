@@ -23,8 +23,9 @@ class TicketController extends Controller
 {
     public function index(): Response
     {
+        // الإدارة العليا ترى أسماء العملاء كاملةً (المرجع صريح)؛ التشفير يبقى بين العميل والمحامي/الموظف
         $tickets = Ticket::with(['user', 'summary'])->latest('id')->get()
-            ->map(fn (Ticket $t) => $t->toEmployeeCard());
+            ->map(fn (Ticket $t) => array_merge($t->toEmployeeCard(), ['client' => $t->user?->name ?? '—']));
 
         return Inertia::render('admin/tickets', ['tickets' => $tickets]);
     }
@@ -34,7 +35,13 @@ class TicketController extends Controller
         $ticket->load(['user', 'summary', 'legalCase']);
 
         return Inertia::render('lawyer/ticketchat', [
-            'ticket' => array_merge($ticket->toEmployeeCard(), ['caseRef' => $ticket->legalCase?->number]),
+            'ticket' => array_merge($ticket->toEmployeeCard(), [
+                'caseRef' => $ticket->legalCase?->number,
+                // الإدارة ترى الاسم الكامل + الجوال (بطاقة «تفاصيل الطلب»)
+                'client' => $ticket->user?->name ?? '—',
+                'mobile' => $ticket->user?->phone,
+                'openedAt' => $ticket->created_at?->locale('ar')->translatedFormat('j F Y'),
+            ]),
             'channel' => 'ticket.'.$ticket->id,
             'messages' => $ticket->messages->map->toMessage(),
             'summary' => $ticket->summary?->toData(),
@@ -49,7 +56,8 @@ class TicketController extends Controller
         $summaries = Ticket::with(['summary', 'user'])->whereHas('summary')->latest('id')->get()
             ->map(fn (Ticket $t) => array_merge($t->summary->toData(), [
                 'type' => $t->type,
-                'client' => Ticket::maskClient($t->user?->name ?? ''),
+                // الإدارة ترى الاسم الكامل
+                'client' => $t->user?->name ?? '—',
             ]));
 
         return Inertia::render('admin/summaries', ['summaries' => $summaries]);

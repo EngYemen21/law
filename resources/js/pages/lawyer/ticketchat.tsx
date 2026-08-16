@@ -1,4 +1,5 @@
 import { Link, router } from '@inertiajs/react';
+import axios from 'axios';
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
@@ -6,16 +7,20 @@ import FlowLine from '@/components/babylon/FlowLine';
 import MsgMeta from '@/components/babylon/MsgMeta';
 import TicketTalkingNotice from '@/components/babylon/TicketTalkingNotice';
 import TicketActionsPanel from '@/components/babylon/TicketActionsPanel';
+import TicketDetailsCard from '@/components/babylon/TicketDetailsCard';
 import { useToast } from '@/components/babylon/Toast';
 import { echo } from '@/lib/echo';
 import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
 import { useCan } from '@/lib/permissions';
 import { type SummaryData } from '@/lib/lawyer-data';
 
-// دراسة التذكرة لدى المستشار — محادثة العميل (سياق حيّ) + ملخص الملف + الاعتماد
+// دراسة التذكرة لدى المستشار — محادثة العميل (سياق حيّ + رد مباشر) + ملخص الملف + الاعتماد
 // تُستخدم الصفحة نفسها من لوحة الإدارة؛ لذا كل الروابط تُبنى من base لا مثبّتة على /lawyer.
 
-interface EmpTicket { no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string; caseRef?: string | null; }
+interface EmpTicket {
+  no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string;
+  caseRef?: string | null; subject?: string | null; priority?: string | null; mobile?: string | null; openedAt?: string | null;
+}
 interface Props { ticket: EmpTicket; channel: string; messages: Message[]; summary: SummaryData | null; converted?: boolean; base?: string }
 
 const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
@@ -63,19 +68,25 @@ const LawyerTicketChat: React.FC<Props> = ({ ticket, channel, messages, summary,
   const canManageCases = can('إدارة القضايا والأتعاب');
   const [msgs, setMsgs] = useState<Message[]>(messages);
   const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone });
+  // مؤلّف بمبدّل وضع: ردّ للعميل ⇄ ملاحظة داخلية للمستشار
+  const [mode, setMode] = useState<'reply' | 'note'>('reply');
+  const [body, setBody] = useState('');
+  const [typingSignal, setTypingSignal] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
   const seen = useRef<Set<number>>(new Set(messages.map((m) => m.id).filter(Boolean) as number[]));
 
   useEffect(() => {
-    const ch = echo.private(channel);
-    ch.listen('.message', (e: { message: Message }) => {
+    const append = (e: { message: Message }) => {
       const m = e.message;
       if (m.id && seen.current.has(m.id)) return;
       if (m.id) seen.current.add(m.id);
       setMsgs((prev) => [...prev, m]);
-    });
+    };
+    const ch = echo.private(channel);
+    ch.listen('.message', append);
     ch.listen('.status', (e: { status: string; tone: string }) => setStatus(e));
-    return () => { echo.leave(channel); };
+    echo.private(`${channel}.staff`).listen('.message', append);
+    return () => { echo.leave(channel); echo.leave(`${channel}.staff`); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel]);
 
@@ -84,6 +95,19 @@ const LawyerTicketChat: React.FC<Props> = ({ ticket, channel, messages, summary,
   const no = encodeURIComponent(ticket.no);
   const fail = (fallback: string) => (errors: Record<string, string>) =>
     toast(`⚠️ ${Object.values(errors)[0] ?? fallback}`);
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const v = body.trim(); if (!v) return;
+    const endpoint = mode === 'reply' ? 'reply' : 'note';
+    // لا يُمسح النص إلا بعد نجاح الإرسال فعلاً — لا يضيع عند فشل (صلاحية/تحقّق/خادم)
+    axios.post(`${base}/tickets/${no}/${endpoint}`, { body: v })
+      .then(() => setBody(''))
+      .catch((err) => {
+        const msg = err.response?.data?.message || 'تعذّر الإرسال';
+        toast(`⚠️ ${msg}`);
+      });
+  };
 
   const approve = () =>
     router.post(`${base}/summary/${no}/approve`, {}, {
@@ -131,17 +155,53 @@ const LawyerTicketChat: React.FC<Props> = ({ ticket, channel, messages, summary,
       <div className="tf-grid">
         <div>
           <div className="card">
-            <div className="card-h"><h3>محادثة العميل {ticket.no}</h3></div>
-            {/* وعيٌ فقط: هل يتحدث موظف مع العميل الآن؟ (لا صندوق ردّ هنا فلا بثّ) */}
-            <TicketTalkingNotice channel={channel} />
+            <div className="card-h"><h3>محادثة التذكرة {ticket.no}</h3><Badge text={status.status} tone={status.tone} /></div>
+            {/* تنبيه عند وجود زميل أو إشارة كتابة */}
+            <TicketTalkingNotice channel={channel} canReply typingSignal={typingSignal} />
             <div className="thread">
               {msgs.map((m, i) => <MsgRow key={m.id ?? i} m={m} />)}
               <div ref={endRef} />
+            </div>
+
+            <div className="composer">
+              {/* مبدّل الوضع: ردّ للعميل ⇄ ملاحظة داخلية */}
+              <div className="cmode">
+                <button type="button" className={mode === 'reply' ? 'on' : ''} onClick={() => setMode('reply')}>
+                  <Icon name="reply" /> رد على العميل
+                </button>
+                <button type="button" className={mode === 'note' ? 'on note-on' : ''} onClick={() => setMode('note')}>
+                  <Icon name="lock" /> {base === '/admin' ? 'ملاحظة إدارية' : 'ملاحظة داخلية'}
+                </button>
+              </div>
+
+              <form onSubmit={submit}>
+                <textarea
+                  value={body}
+                  onChange={(e) => {
+                    setBody(e.target.value);
+                    if (mode === 'reply') setTypingSignal((n) => n + 1);
+                  }}
+                  placeholder={mode === 'reply' ? 'اكتب ردّك المباشر للعميل…' : 'اكتب ملاحظة داخلية لا يراها العميل…'}
+                />
+                <div className="crow">
+                  <button className={mode === 'reply' ? 'btn' : 'btn soft'} type="submit">
+                    <Icon name={mode === 'reply' ? 'send' : 'doc'} /> {mode === 'reply' ? 'إرسال الرد' : 'حفظ الملاحظة'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
 
         <aside className="tf-aside">
+          {/* تفاصيل الطلب (يطابق tkDetailsCard المرجعي) — بجانب المحادثة */}
+          <TicketDetailsCard
+            subject={ticket.subject}
+            dept={ticket.dept}
+            service={ticket.type}
+            mobile={ticket.mobile}
+            priority={ticket.priority}
+          />
           <div className="card">
             <div className="card-h">
               <h3>ملخص الملف</h3>

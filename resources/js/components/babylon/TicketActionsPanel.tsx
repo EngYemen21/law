@@ -46,12 +46,12 @@ const TicketActionsPanel: React.FC<Props> = ({
   return (
     <div className="card">
       <div className="card-h">
-        <h3>لوحة إجراءات وتحويلات التذكرة</h3>
+        <h3>خيارات التذكرة</h3>
       </div>
       <div className="card-b" style={{ padding: '14px 16px' }}>
         <div className="action-hint">
-          <Icon name="compass" />
-          <span>تحويل الطلب للمسار المناسب ومتابعة إجراءاته بنقرة واحدة.</span>
+          <Icon name="info" />
+          <span>حوّل التذكرة إلى قضية أو اطلب مستندات من العميل.</span>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

@@ -1,3 +1,4 @@
+import { router } from '@inertiajs/react';
 import React from 'react';
 import Icon from '@/lib/icons';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
@@ -21,9 +22,20 @@ const AdminDashboard: React.FC<Props> = ({ stats, activity }) => {
 
   return (
     <>
-      <div className="greet">
-        <h2>لوحة الإدارة</h2>
-        <p>نظرة شاملة على العملاء والتذاكر والإيرادات والاعتمادات.</p>
+      <div className="hero">
+        <h2>لوحة الإدارة العليا والتحكم العام 🏛️</h2>
+        <p>نظرة شاملة ومباشرة على العملاء، التذاكر، الإيرادات المالية، والاعتمادات الإدارية.</p>
+        <div className="hero-cta">
+          <button className="hero-b" onClick={() => router.visit('/admin/distribute')} type="button">
+            <Icon name="reply" /> توزيع المهام
+          </button>
+          <button className="hero-b ghost" onClick={() => router.visit('/admin/accounting')} type="button">
+            <Icon name="card" /> التقارير المالية
+          </button>
+          <button className="hero-b ghost" onClick={() => router.visit('/admin/staff')} type="button">
+            <Icon name="user" /> إدارة الطاقم
+          </button>
+        </div>
       </div>
 
       <StatRow items={items} />

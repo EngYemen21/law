@@ -9,26 +9,31 @@ import MsgMeta from '@/components/babylon/MsgMeta';
 import TicketTalkingNotice from '@/components/babylon/TicketTalkingNotice';
 import TicketActionsPanel from '@/components/babylon/TicketActionsPanel';
 import TicketOpsModals, { type TicketOpsKind } from '@/components/babylon/TicketOpsModals';
+import TicketDetailsCard from '@/components/babylon/TicketDetailsCard';
 import { useToast } from '@/components/babylon/Toast';
 import { echo } from '@/lib/echo';
-import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
+import { ALLOWED_DOC_ACCEPT, TKT_LIFE, nowClock, tktStage, type Message } from '@/lib/chat';
 import { useCan } from '@/lib/permissions';
 import { isPastSlot, todayISO } from '@/components/SpecialistPicker';
 
 // حالتان نهائيّتان — الخادم يمنع الخروج منهما لأي حالة أخرى (Employee\TicketController::status)
 const FINAL = ['مكتملة', 'مغلقة'];
 
-// ردود سريعة بنقرة واحدة (مطابقة للتصميم المرجعي)
+// ردود سريعة بنقرة واحدة — النصوص المرجعية الحرفية (EM_QUICK في babel-system.html:1774)
 const EM_QUICK = [
-  'تم استلام طلبكم وجارٍ المتابعة مع المستشار المختص.',
-  'نأمل تزويدنا بالمستندات المطلوبة لاستكمال دراسة الطلب.',
-  'تمت إحالة الطلب للقسم القانوني وسنوافيكم بالرأي قريباً.',
-  'سيتم التواصل معكم لترتيب موعد جلسة الاستشارة.',
+  'تم استلام طلبكم وجارٍ تحويله للقسم المختص.',
+  'نأمل تزويدنا بالمستندات المطلوبة لاستكمال الدراسة.',
+  'تمت جدولة موعد استشارتكم وسيصلكم إشعار التأكيد.',
+  'نشكر تواصلكم، تم تحديث حالة طلبكم وسنوافيكم بالمستجدات.',
 ];
 
 // محادثة التذكرة (لوحة الموظف) — مزامنة لحظية مع العميل (Reverb) بلا إعادة تحميل
 
-interface EmpTicket { no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string; clientId?: number; lawyerId?: number; caseRef?: string | null; }
+interface EmpTicket {
+  no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string;
+  clientId?: number; lawyerId?: number; caseRef?: string | null;
+  subject?: string | null; priority?: string | null; mobile?: string | null; openedAt?: string | null;
+}
 interface StateOption { status: string; tone: string; }
 interface LawyerOption { id: number; name: string; }
 
@@ -167,6 +172,22 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
         toast(`⚠️ ${msg}`);
       });
   };
+  // إرفاق مستند من الموظف — نفس قيود رفع العميل (الصيغ + 10MB)؛ الرسالة تصل عبر البثّ
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [attachBusy, setAttachBusy] = useState(false);
+  const attachFile = (f: File) => {
+    setAttachBusy(true);
+    const fd = new FormData();
+    fd.append('file', f);
+    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/attach`, fd)
+      .then(() => toast('✅ تم إرفاق المستند بالتذكرة'))
+      .catch((err) => {
+        const msg = err.response?.data?.message || 'تعذّر إرفاق المستند (الصيغ المسموحة: PDF/JPG/PNG/DOC — حتى 10MB)';
+        toast(`⚠️ ${msg}`);
+      })
+      .finally(() => setAttachBusy(false));
+  };
+
   const rerunAi = () => {
     axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/rerun`)
       .then(() => toast('تمت إعادة تشغيل التحليل الذكي للملخّص'))
@@ -387,12 +408,31 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
                     setBody(e.target.value);
                     if (mode === 'reply') setTypingSignal((n) => n + 1); // الهمس في وضع الردّ فقط
                   }}
-                  placeholder={mode === 'reply' ? 'اكتب ردّك للعميل…' : 'اكتب ملاحظة داخلية لا يراها العميل…'}
+                  placeholder={mode === 'reply' ? 'اكتب ردك للعميل…' : 'اكتب ملاحظة داخلية لا تظهر للعميل…'}
                 />
                 <div className="crow">
                   <button className={mode === 'reply' ? 'btn' : 'btn soft'} type="submit">
                     <Icon name={mode === 'reply' ? 'send' : 'doc'} /> {mode === 'reply' ? 'إرسال الرد' : 'حفظ الملاحظة'}
                   </button>
+                  {/* إرفاق مستند من المكتب (يطابق زر «إرفاق» المرجعي) — بصلاحية الرد على العملاء */}
+                  {canReply && (
+                    <>
+                      <button className="btn soft" type="button" onClick={() => fileRef.current?.click()} disabled={attachBusy}>
+                        <Icon name="upload" /> {attachBusy ? 'جاري الرفع…' : 'إرفاق'}
+                      </button>
+                      <input
+                        ref={fileRef}
+                        type="file"
+                        hidden
+                        accept={ALLOWED_DOC_ACCEPT}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) attachFile(f);
+                          e.target.value = '';
+                        }}
+                      />
+                    </>
+                  )}
                 </div>
               </form>
             </div>
@@ -407,8 +447,19 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
               <div className="tc-row"><span className="k">النوع</span><span className="v">{ticket.type}</span></div>
               <div className="tc-row"><span className="k">القسم</span><span className="v">{ticket.dept}</span></div>
               <div className="tc-row"><span className="k">المحامي</span><span className="v">{ticket.lawyer}</span></div>
+              {ticket.openedAt && <div className="tc-row"><span className="k">تاريخ الفتح</span><span className="v">{ticket.openedAt}</span></div>}
+              <div className="tc-row"><span className="k">وقت العميل</span><span className="v">{nowClock()}</span></div>
             </div>
           </div>
+
+          {/* تفاصيل الطلب (يطابق tkDetailsCard المرجعي): موضوع/قسم/خدمة/جوال/أهمية — بجانب المحادثة */}
+          <TicketDetailsCard
+            subject={ticket.subject}
+            dept={ticket.dept}
+            service={ticket.type}
+            mobile={ticket.mobile}
+            priority={ticket.priority}
+          />
 
           {/* لوحة إجراءات وتحويلات التذكرة الموحدة (المطابقة للتصميم المرجعي) */}
           <TicketActionsPanel

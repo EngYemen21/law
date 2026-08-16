@@ -24,9 +24,20 @@ const EmployeeDashboard: React.FC<Props> = ({ tickets, counts }) => {
 
   return (
     <>
-      <div className="greet">
-        <h2>لوحة الموظف</h2>
-        <p>متابعة التذاكر، طلب النواقص، جدولة المواعيد، وتحويل التذاكر.</p>
+      <div className="hero">
+        <h2>لوحة الموظف وإدارة العمليات 💼</h2>
+        <p>متابعة تذاكر العملاء، طلب النواقص، جدولة المواعيد، وتحويل الملفات للأقسام المختصة.</p>
+        <div className="hero-cta">
+          <button className="hero-b" onClick={() => router.visit('/employee/transfer')} type="button">
+            <Icon name="reply" /> تحويل التذاكر
+          </button>
+          <button className="hero-b ghost" onClick={() => router.visit('/employee/book')} type="button">
+            <Icon name="calplus" /> حجز موعد
+          </button>
+          <button className="hero-b ghost" onClick={() => router.visit('/employee/tasks')} type="button">
+            <Icon name="check" /> المهام
+          </button>
+        </div>
       </div>
 
       <StatRow items={stats} />

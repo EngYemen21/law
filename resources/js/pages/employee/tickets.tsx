@@ -17,11 +17,13 @@ const EmployeeTickets: React.FC<{ tickets: EmpTicket[]; lawyers: LawyerOption[] 
   const toast = useToast();
   const can = useCan();
   const canTransfer = can('تحويل التذاكر');
+  const canReqDocs = can('الرد على العملاء');
   const [previewTicket, setPreviewTicket] = useState<TicketPreviewData | null>(null);
-  // مودال التحويل يعمل على تذكرة الصف المختار (نسخة واحدة مشتركة)
+  // مودالا التحويل والنواقص يعملان على تذكرة الصف المختار (نسخة واحدة مشتركة)
   const [opsKind, setOpsKind] = useState<TicketOpsKind>(null);
   const [opsTicket, setOpsTicket] = useState<EmpTicket | null>(null);
   const openTransfer = (t: EmpTicket) => { setOpsTicket(t); setOpsKind('transfer'); };
+  const openReqDocs = (t: EmpTicket) => { setOpsTicket(t); setOpsKind('reqdocs'); };
 
   const convert = (no: string) =>
     router.post(`/employee/tickets/${encodeURIComponent(no)}/convert`, {}, {
@@ -65,8 +67,14 @@ const EmployeeTickets: React.FC<{ tickets: EmpTicket[]; lawyers: LawyerOption[] 
                       <Icon name="doc" /> معاينة سريعة
                     </button>
                     <button className="btn sm" onClick={() => openTicket(t.no)} type="button">
-                      <Icon name="reply" /> المحادثة
+                      <Icon name="reply" /> فتح المحادثة
                     </button>
+                    {/* طلب نواقص مباشرة من القائمة (يطابق زر «نواقص» المرجعي) — بصلاحية الرد على العملاء */}
+                    {canReqDocs && (
+                      <button className="btn soft sm" onClick={() => openReqDocs(t)} type="button">
+                        <Icon name="upload" /> نواقص
+                      </button>
+                    )}
                     {t.status === 'مكتملة' && (
                       t.converted
                         ? <Badge text="محوّلة لقضية" tone="b-cyan" />
