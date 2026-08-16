@@ -14,20 +14,12 @@
     };
 @endphp
 
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:26px 0 20px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 16px;">
     <tr>
-        <td align="center">
-            <!--[if mso]>
-            <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ $url }}" style="height:46px;v-text-anchor:middle;width:240px;" arcsize="24%" fillcolor="#0E5C9C" stroke="f">
-            <w:anchorlock/>
-            <center style="color:#ffffff;font-family:'Tajawal',Arial,sans-serif;font-size:14.5px;font-weight:bold;">{{ $label }}</center>
-            </v:roundrect>
-            <![endif]-->
-            <!--[if !mso]><!-- -->
-            <a href="{{ $url }}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:13px 32px;border-radius:12px;text-decoration:none;font-weight:800;font-size:14.5px;text-align:center;letter-spacing:0.2px;transition:all 0.2s ease;{{ $styles }}">
+        <td align="center" style="padding:0;text-align:center;">
+            <a href="{{ $url }}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:13px 32px;border-radius:10px;text-decoration:none;font-family:'Tajawal',Arial,sans-serif;font-weight:700;font-size:14.5px;text-align:center;letter-spacing:0.2px;{{ $styles }}">
                 {{ $label }}
             </a>
-            <!--<![endif]-->
         </td>
     </tr>
 </table>
