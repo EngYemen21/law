@@ -23,7 +23,6 @@ class PdfRenderer
             ->setNodeModulePath(base_path('node_modules'))
             ->setIncludePath('$PATH:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin')
             ->newHeadless()
-            ->usePipe()
             ->noSandbox()
             ->addChromiumArguments([
                 'disable-setuid-sandbox',
