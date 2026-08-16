@@ -42,8 +42,8 @@ class PdfRenderer
                 ->showBackground()
                 ->margins(12, 12, 12, 12);
 
-            $chromePath = env('CHROME_PATH') ?: env('PUPPETEER_EXECUTABLE_PATH');
-            if ($chromePath && file_exists($chromePath)) {
+            $chromePath = static::resolveChromePath();
+            if ($chromePath) {
                 $browsershot->setChromePath($chromePath);
             }
 
@@ -98,5 +98,46 @@ HTML;
         return response($output, 200, [
             'Content-Type' => 'text/html; charset=UTF-8',
         ]);
+    }
+
+    /**
+     * اكتشاف تلقائي لمسار متصفح Chromium / Chrome على خوادم الإنتاج وPuppeteer.
+     */
+    public static function resolveChromePath(): ?string
+    {
+        $explicit = env('CHROME_PATH') ?: env('PUPPETEER_EXECUTABLE_PATH');
+        if ($explicit && file_exists($explicit)) {
+            return $explicit;
+        }
+
+        $home = getenv('HOME') ?: (getenv('USERPROFILE') ?: '');
+        $candidates = [
+            $home.'/.cache/puppeteer/chrome/*/chrome-linux64/chrome',
+            $home.'/.cache/puppeteer/chrome/*/*/chrome',
+            '/home/*/.cache/puppeteer/chrome/*/chrome-linux64/chrome',
+            '/usr/bin/google-chrome-stable',
+            '/usr/bin/google-chrome',
+            '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
+            '/snap/bin/chromium',
+            base_path('node_modules/puppeteer/.local-chromium/*/chrome-linux/chrome'),
+        ];
+
+        foreach ($candidates as $pattern) {
+            if (str_contains($pattern, '*')) {
+                $matches = glob($pattern);
+                if (!empty($matches)) {
+                    foreach ($matches as $match) {
+                        if (is_file($match) && (is_executable($match) || file_exists($match))) {
+                            return $match;
+                        }
+                    }
+                }
+            } elseif (is_file($pattern) && (is_executable($pattern) || file_exists($pattern))) {
+                return $pattern;
+            }
+        }
+
+        return null;
     }
 }
