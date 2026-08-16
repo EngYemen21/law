@@ -17,19 +17,39 @@ class PdfRenderer
     {
         $pdf = null;
 
-        // نحاول توليد PDF حقيقي عبر Browsershot بمهلة سريعة (8 ثوانٍ كحد أقصى)
+        $tmpDir = storage_path('app/browsershot-tmp');
+        if (!is_dir($tmpDir)) {
+            @mkdir($tmpDir, 0755, true);
+        }
+
+        // نحاول توليد PDF حقيقي عبر Browsershot مع كامل وسائط Linux الضرورية
         try {
-            $pdf = Browsershot::html($html)
-                ->setCustomTempPath(storage_path('app/browsershot-tmp'))
+            $browsershot = Browsershot::html($html)
+                ->setCustomTempPath($tmpDir)
                 ->setNodeModulePath(base_path('node_modules'))
                 ->noSandbox()
-                ->timeout(8)
+                ->addChromiumArguments([
+                    'disable-setuid-sandbox',
+                    'disable-dev-shm-usage',
+                    'disable-gpu',
+                    'no-first-run',
+                    'no-zygote',
+                    'single-process',
+                    'disable-extensions',
+                ])
+                ->timeout(30)
                 ->format($format)
                 ->showBackground()
-                ->margins(12, 12, 12, 12)
-                ->pdf();
+                ->margins(12, 12, 12, 12);
+
+            $chromePath = env('CHROME_PATH') ?: env('PUPPETEER_EXECUTABLE_PATH');
+            if ($chromePath && file_exists($chromePath)) {
+                $browsershot->setChromePath($chromePath);
+            }
+
+            $pdf = $browsershot->pdf();
         } catch (\Throwable $e) {
-            Log::warning("PdfRenderer: Browsershot unavailable on server ({$e->getMessage()}), falling back to printable view.");
+            Log::warning("PdfRenderer: Browsershot error ({$e->getMessage()}), falling back to printable view.");
         }
 
         if ($pdf !== null) {
