@@ -91,7 +91,7 @@ class ZoomIntegrationTest extends TestCase
 
         $this->actingAs($client)->get(route('myconsults'))
             ->assertOk()->assertInertia(fn ($p) => $p->component('myconsults')
-            ->where('consults.0.slink', 'https://us05web.zoom.us/j/1?pwd=x')
+            ->where('consults.0.slink', url('/consults/room?ref=CN-2026-7001')) // رابط Zoom الخام لا يصل العميل — غرفة المنصة فقط
             ->missing('consults.0.hostLink')
             ->missing('consults.0.aiSummary')
             ->missing('consults.0.employee')
@@ -111,7 +111,7 @@ class ZoomIntegrationTest extends TestCase
 
         $this->actingAs($client)->get(route('meetreqs'))
             ->assertOk()->assertInertia(fn ($p) => $p->component('meetreqs')
-            ->where('requests.0.meetLink', 'https://us05web.zoom.us/j/2?pwd=y')
+            ->where('requests.0.meetLink', url('/meetingroom?ref=MR-7700')) // رابط Zoom الخام لا يصل العميل — غرفة المنصة فقط
             ->missing('requests.0.hostLink'));
     }
 }

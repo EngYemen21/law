@@ -43,7 +43,7 @@ class ConsultSessionTest extends TestCase
             ->assertInertia(fn ($p) => $p->component('myconsults')
                 ->has('consults', 1)
                 ->where('consults.0.ref', 'CN-2026-5001')
-                ->where('consults.0.slink', 'https://meet.salasel.sa/CN-2026-5001'));
+                ->where('consults.0.slink', url('/consults/room?ref=CN-2026-5001')));
     }
 
     public function test_recv_scoping_isolates_by_role(): void
@@ -140,16 +140,17 @@ class ConsultSessionTest extends TestCase
         $consult = $this->makeConsult($client);
 
         $card = $consult->toCard();
-        $this->assertSame('https://meet.salasel.sa/CN-2026-5001', $card['slink']);
+        // التوجيه الداخلي الإلزامي: العميل يدخل عبر غرفة المنصة لا عبر رابط خارجي
+        $this->assertSame(url('/consults/room?ref=CN-2026-5001'), $card['slink']);
         $this->assertNull($card['hostLink']);
 
-        // ومع رابط Zoom محفوظ تُقدَّم روابط Zoom
+        // وحتى مع رابط Zoom محفوظ: دخول العميل يبقى عبر غرفة المنصة حصراً (لا روابط خارجية تخرج عن المنصة)
         $consult->update([
             'meet_link' => 'https://zoom.us/j/123456789',
             'host_link' => 'https://zoom.us/s/123456789?zak=abc',
         ]);
         $card = $consult->fresh()->toCard();
-        $this->assertSame('https://zoom.us/j/123456789', $card['slink']);
+        $this->assertSame(url('/consults/room?ref=CN-2026-5001'), $card['slink']);
         $this->assertSame('https://zoom.us/s/123456789?zak=abc', $card['hostLink']);
     }
 

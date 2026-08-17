@@ -6,10 +6,7 @@ use App\Enums\Role;
 use App\Mail\ConsultBooked;
 use App\Mail\MeetingScheduledMail;
 use App\Mail\MeetInviteMail;
-use App\Models\Appointment;
-use App\Models\CaseHearing;
 use App\Models\Consult;
-use App\Models\LegalCase;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\User;
@@ -96,7 +93,8 @@ class CalendarSyncTest extends TestCase
             ->assertStatus(403);
     }
 
-    public function test_mailables_include_ics_calendar_attachments(): void
+    // بقرار المنتج (fe55756): رسائل البريد بلا أي مرفقات — الدعوة تصل نصاً والرابط داخل المحتوى
+    public function test_mailables_have_no_file_attachments(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $consult = Consult::create([
@@ -112,11 +110,10 @@ class CalendarSyncTest extends TestCase
         ]);
 
         $mail = new ConsultBooked($consult);
-        $attachments = $mail->attachments();
-        $this->assertNotEmpty($attachments);
+        $this->assertSame([], $mail->attachments());
 
         $meetingMail = new MeetingScheduledMail('أحمد', 'اجتماع قضية', 'غداً 10:00 ص', 'https://law-office.test/room');
-        $this->assertNotEmpty($meetingMail->attachments());
+        $this->assertSame([], $meetingMail->attachments());
 
         $meetReq = MeetRequest::create([
             'user_id' => $client->id,
@@ -128,7 +125,7 @@ class CalendarSyncTest extends TestCase
             'sent_by' => 'خدمة العملاء',
         ]);
         $inviteMail = new MeetInviteMail($meetReq);
-        $this->assertNotEmpty($inviteMail->attachments());
+        $this->assertSame([], $inviteMail->attachments());
     }
 
     public function test_calendar_pages_render_with_feed_url(): void

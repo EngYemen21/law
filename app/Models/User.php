@@ -74,6 +74,21 @@ class User extends Authenticatable
         return $this->role === Role::Admin;
     }
 
+    public function isEmployee(): bool
+    {
+        return $this->role === Role::Employee;
+    }
+
+    public function isLawyer(): bool
+    {
+        return $this->role === Role::Lawyer;
+    }
+
+    public function isClient(): bool
+    {
+        return $this->role === Role::Client;
+    }
+
     // الحساب مفعّل؟ (الموقوف يُمنع من الدخول)
     public function isActive(): bool
     {

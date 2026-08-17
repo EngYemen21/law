@@ -7,57 +7,17 @@ use Illuminate\Support\Facades\Log;
 use Spatie\Browsershot\Browsershot;
 
 /**
- * مُصيِّر PDF رسمي عبر Browsershot لتحميل ملفات PDF حقيقية مباشرة إلى جهاز المستخدم.
+ * مُصيِّر PDF رسمي واحترافي عبر Spatie Browsershot v4.
+ * يضمن توليد ملفات PDF حقيقية ومصممة بدقة كاملة عبر Chromium/Chrome على كافة بيئات التشغيل (Windows, Linux, macOS).
  */
 class PdfRenderer
 {
+    /**
+     * تصيير محتوى HTML إلى استجابة PDF مباشرة للتنزيل.
+     */
     public static function render(string $html, string $filename, string $format = 'A4'): HttpResponse
     {
-        $tmpDir = storage_path('app/browsershot-tmp');
-        if (!is_dir($tmpDir)) {
-            @mkdir($tmpDir, 0755, true);
-        }
-
-        $browsershot = Browsershot::html($html)
-            ->setCustomTempPath($tmpDir)
-            ->setNodeModulePath(base_path('node_modules'))
-            ->setIncludePath('$PATH:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin')
-            ->newHeadless()
-            ->noSandbox()
-            ->addChromiumArguments([
-                'disable-setuid-sandbox',
-                'disable-dev-shm-usage',
-                'disable-gpu',
-                'no-first-run',
-                'disable-extensions',
-                'hide-scrollbars',
-            ])
-            ->timeout(60)
-            ->format($format)
-            ->showBackground()
-            ->margins(12, 12, 12, 12);
-
-        $nodeBinary = static::resolveNodePath();
-        if ($nodeBinary) {
-            $browsershot->setNodeBinary($nodeBinary);
-        }
-
-        $npmBinary = static::resolveNpmPath();
-        if ($npmBinary) {
-            $browsershot->setNpmBinary($npmBinary);
-        }
-
-        $chromePath = static::resolveChromePath();
-        if ($chromePath) {
-            $browsershot->setChromePath($chromePath);
-        }
-
-        try {
-            $pdf = $browsershot->pdf();
-        } catch (\Throwable $e) {
-            Log::warning("PdfRenderer: Browsershot error ({$e->getMessage()}), using native binary PDF fallback.");
-            $pdf = NativePdf::build($html, $filename);
-        }
+        $pdf = static::generatePdfBinary($html, $filename, $format);
 
         return response($pdf, 200, [
             'Content-Type' => 'application/pdf',
@@ -67,7 +27,75 @@ class PdfRenderer
     }
 
     /**
-     * اكتشاف مسار Node.js في السيرفر
+     * توليد محتوى الـ PDF الثنائي (Binary Stream).
+     */
+    public static function generatePdfBinary(string $html, string $filename = 'document.pdf', string $format = 'A4'): string
+    {
+        $tmpDir = storage_path('app/browsershot-tmp');
+        if (!is_dir($tmpDir)) {
+            @mkdir($tmpDir, 0755, true);
+        }
+
+        try {
+            $browsershot = Browsershot::html($html)
+                ->writeOptionsToFile()
+                ->setCustomTempPath($tmpDir)
+                ->newHeadless()
+                ->noSandbox()
+                ->emulateMedia('screen')
+                ->showBackground()
+                ->timeout(90)
+                ->format($format)
+                ->margins(10, 10, 10, 10)
+                ->addChromiumArguments([
+                    'disable-gpu',
+                    'disable-setuid-sandbox',
+                    'disable-dev-shm-usage',
+                    'no-first-run',
+                    'no-default-browser-check',
+                    'disable-extensions',
+                    'hide-scrollbars',
+                ]);
+
+            $nodeModules = base_path('node_modules');
+            if (is_dir($nodeModules)) {
+                $browsershot->setNodeModulePath($nodeModules);
+            }
+
+            // تعيين مسارات Node و NPM و Chrome/Edge المكتشفة تلقائياً أو من متغيرات البيئة
+            $nodeBinary = static::resolveNodePath();
+            if ($nodeBinary) {
+                $browsershot->setNodeBinary($nodeBinary);
+            }
+
+            $npmBinary = static::resolveNpmPath();
+            if ($npmBinary) {
+                $browsershot->setNpmBinary($npmBinary);
+            }
+
+            $chromePath = static::resolveChromePath();
+            if ($chromePath) {
+                $browsershot->setChromePath($chromePath);
+            }
+
+            return $browsershot->pdf();
+        } catch (\Throwable $e) {
+            try {
+                if (function_exists('logger')) {
+                    logger()->error("PdfRenderer error: {$e->getMessage()}", [
+                        'filename' => $filename,
+                    ]);
+                }
+            } catch (\Throwable $ignored) {
+            }
+
+            // شبكة الأمان المتقدمة في حال فشل المتصفح لأي سبب غير متوقع
+            return NativePdf::build($html, $filename);
+        }
+    }
+
+    /**
+     * اكتشاف مسار Node.js التنفيذي على مختلف بيئات التشغيل (Windows, Linux, macOS).
      */
     public static function resolveNodePath(): ?string
     {
@@ -76,11 +104,19 @@ class PdfRenderer
             return $explicit;
         }
 
-        $candidates = [
+        $isWindows = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
+
+        $candidates = $isWindows ? [
+            'C:\\Program Files\\nodejs\\node.exe',
+            'C:\\Program Files (x86)\\nodejs\\node.exe',
+            (getenv('LOCALAPPDATA') ?: '').'\\Programs\\nodejs\\node.exe',
+            (getenv('APPDATA') ?: '').'\\npm\\node.exe',
+        ] : [
             '/usr/bin/node',
             '/usr/local/bin/node',
             '/opt/homebrew/bin/node',
-            '/home/salaselbabel2026/.nvm/versions/node/*/bin/node',
+            '/home/*/.nvm/versions/node/*/bin/node',
+            '/root/.nvm/versions/node/*/bin/node',
         ];
 
         foreach ($candidates as $pattern) {
@@ -93,7 +129,7 @@ class PdfRenderer
                         }
                     }
                 }
-            } elseif (is_file($pattern) && (is_executable($pattern) || file_exists($pattern))) {
+            } elseif (!empty($pattern) && is_file($pattern) && file_exists($pattern)) {
                 return $pattern;
             }
         }
@@ -102,7 +138,7 @@ class PdfRenderer
     }
 
     /**
-     * اكتشاف مسار NPM في السيرفر
+     * اكتشاف مسار NPM التنفيذي على مختلف بيئات التشغيل.
      */
     public static function resolveNpmPath(): ?string
     {
@@ -111,11 +147,19 @@ class PdfRenderer
             return $explicit;
         }
 
-        $candidates = [
+        $isWindows = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
+
+        $candidates = $isWindows ? [
+            'C:\\Program Files\\nodejs\\npm.cmd',
+            'C:\\Program Files (x86)\\nodejs\\npm.cmd',
+            (getenv('LOCALAPPDATA') ?: '').'\\Programs\\nodejs\\npm.cmd',
+            (getenv('APPDATA') ?: '').'\\npm\\npm.cmd',
+        ] : [
             '/usr/bin/npm',
             '/usr/local/bin/npm',
             '/opt/homebrew/bin/npm',
-            '/home/salaselbabel2026/.nvm/versions/node/*/bin/npm',
+            '/home/*/.nvm/versions/node/*/bin/npm',
+            '/root/.nvm/versions/node/*/bin/npm',
         ];
 
         foreach ($candidates as $pattern) {
@@ -128,7 +172,7 @@ class PdfRenderer
                         }
                     }
                 }
-            } elseif (is_file($pattern) && (is_executable($pattern) || file_exists($pattern))) {
+            } elseif (!empty($pattern) && is_file($pattern) && file_exists($pattern)) {
                 return $pattern;
             }
         }
@@ -137,7 +181,7 @@ class PdfRenderer
     }
 
     /**
-     * اكتشاف تلقائي لمسار متصفح Chromium / Chrome على خوادم الإنتاج وPuppeteer.
+     * اكتشاف مسار متصفح Chromium / Google Chrome / Microsoft Edge على مختلف بيئات التشغيل.
      */
     public static function resolveChromePath(): ?string
     {
@@ -146,18 +190,31 @@ class PdfRenderer
             return $explicit;
         }
 
-        $home = getenv('HOME') ?: (getenv('USERPROFILE') ?: '');
-        $candidates = [
-            '/home/salaselbabel2026/.cache/puppeteer/chrome/linux-152.0.7977.42/chrome-linux64/chrome',
-            $home.'/.cache/puppeteer/chrome/*/chrome-linux64/chrome',
-            $home.'/.cache/puppeteer/chrome/*/*/chrome',
-            '/home/*/.cache/puppeteer/chrome/*/chrome-linux64/chrome',
-            '/home/*/.cache/puppeteer/chrome/*/*/chrome',
+        $isWindows = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
+        $userProfile = getenv('USERPROFILE') ?: '';
+        $localAppData = getenv('LOCALAPPDATA') ?: '';
+        $home = getenv('HOME') ?: '';
+
+        $candidates = $isWindows ? [
+            'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+            'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+            $localAppData.'\\Google\\Chrome\\Application\\chrome.exe',
+            'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+            'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+            $userProfile.'\\.cache\\puppeteer\\chrome\\*\\chrome-win64\\chrome.exe',
+            $userProfile.'\\.cache\\puppeteer\\chrome\\*\\*\\chrome.exe',
+            base_path('node_modules\\puppeteer\\.local-chromium\\*\\chrome-win32\\chrome.exe'),
+            base_path('node_modules\\puppeteer\\.local-chromium\\*\\chrome-win64\\chrome.exe'),
+        ] : [
             '/usr/bin/google-chrome-stable',
             '/usr/bin/google-chrome',
             '/usr/bin/chromium',
             '/usr/bin/chromium-browser',
             '/snap/bin/chromium',
+            $home.'/.cache/puppeteer/chrome/*/chrome-linux64/chrome',
+            $home.'/.cache/puppeteer/chrome/*/*/chrome',
+            '/home/*/.cache/puppeteer/chrome/*/chrome-linux64/chrome',
+            '/root/.cache/puppeteer/chrome/*/chrome-linux64/chrome',
             base_path('node_modules/puppeteer/.local-chromium/*/chrome-linux/chrome'),
         ];
 
@@ -171,7 +228,7 @@ class PdfRenderer
                         }
                     }
                 }
-            } elseif (is_file($pattern) && (is_executable($pattern) || file_exists($pattern))) {
+            } elseif (!empty($pattern) && is_file($pattern) && file_exists($pattern)) {
                 return $pattern;
             }
         }

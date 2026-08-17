@@ -31,7 +31,15 @@ class AppointmentController extends Controller
      */
     public function card(Request $request, Appointment $appointment): \Symfony\Component\HttpFoundation\Response
     {
-        abort_unless($appointment->user_id === $request->user()->id, 403);
+        $user = $request->user();
+        abort_unless(
+            $appointment->user_id === $user->id ||
+            $appointment->lawyer_id === $user->id ||
+            $user->isAdmin() ||
+            $user->isEmployee() ||
+            $user->isLawyer(),
+            403
+        );
 
         $remote = $appointment->type === 'استشارة مرئية'
             || str_contains((string) $appointment->branch, 'إلكتروني')

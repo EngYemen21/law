@@ -99,7 +99,13 @@ class InvoiceController extends Controller
     // فاتورة PDF حقيقية — بنفس تصميم بطاقة .cf المستخدَم لتقرير الاستشارة، مُصيَّرة فعلياً عبر Browsershot.
     public function pdf(Request $request, Invoice $invoice): \Symfony\Component\HttpFoundation\Response
     {
-        abort_unless($invoice->user_id === $request->user()->id, 403);
+        $user = $request->user();
+        abort_unless(
+            $invoice->user_id === $user->id ||
+            $user->isAdmin() ||
+            $user->isEmployee(),
+            403
+        );
 
         $html = ReportPrint::html([
             'title' => 'فاتورة',

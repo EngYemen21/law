@@ -14,8 +14,10 @@ namespace App\Support;
 class ReportPrint
 {
     private const STYLE = <<<'CSS'
-        body{margin:0;background:#fff;font-family:Tajawal,Tahoma,Arial,sans-serif}
-        .cf{font-family:Tajawal,Tahoma,Arial,sans-serif;color:#1a2540;background:#fff;max-width:820px;margin:0 auto}
+        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap');
+        *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+        body{margin:0;padding:0;background:#fff;font-family:'Tajawal',Tahoma,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+        .cf{font-family:'Tajawal',Tahoma,Arial,sans-serif;color:#1a2540;background:#fff;max-width:820px;margin:0 auto}
         .cf-hd{display:flex;align-items:center;gap:12px;padding:16px 22px 10px;border-bottom:2px solid #0E5C9C}
         .cf-hd img{height:46px}
         .cf-hd .t b{display:block;font-size:15px;color:#0A2A55;font-weight:800}

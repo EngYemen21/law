@@ -121,7 +121,13 @@ const ApptCard: React.FC<{ a: Appt }> = ({ a }) => {
         <button className="btn soft" type="button" onClick={copyLink}>
           <Icon name="link" /> نسخ الرابط
         </button>
-        <a className="btn soft" href={`/appointments/${a.id}/card.pdf`} download>
+        <a
+          className="btn soft"
+          href={`/appointments/${encodeURIComponent(a.id)}/card.pdf`}
+          download={`appointment-${a.id}.pdf`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           <Icon name="download" /> تحميل PDF
         </a>
       </div>

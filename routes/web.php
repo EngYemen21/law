@@ -131,8 +131,10 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
     Route::post('/consults/{consult}/schedule', [ConsultController::class, 'schedule'])->name('consults.schedule');
     Route::get('/consults/room', [ConsultController::class, 'room'])->name('consults.room');
     Route::get('/consults/{consult}/report.pdf', [ConsultController::class, 'report'])->name('consults.report');
+    Route::get('/consults/{consult}/report', [ConsultController::class, 'report'])->name('consults.report.plain');
     Route::get('/appointments', [AppointmentController::class, 'index'])->name('appointments');
     Route::get('/appointments/{appointment}/card.pdf', [AppointmentController::class, 'card'])->name('appointments.card');
+    Route::get('/appointments/{appointment}/card', [AppointmentController::class, 'card'])->name('appointments.card.plain');
     Route::get('/meetings', [MeetingController::class, 'index'])->name('meetings');
     Route::get('/meetingroom', [MeetingController::class, 'room'])->name('meetingroom');
     // دعوات الاجتماعات (مربوطة بقاعدة البيانات — تأكيد الحضور يُنشئ جلسة Zoom)

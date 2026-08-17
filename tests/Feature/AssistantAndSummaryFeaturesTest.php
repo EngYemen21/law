@@ -108,8 +108,10 @@ class AssistantAndSummaryFeaturesTest extends TestCase
 
         $response = $this->actingAs($lawyer)->get("/lawyer/summary/{$ticket->number}/print");
 
+        // الطباعة صارت تنزيلاً مباشراً لملف PDF (PdfRenderer) بدل صفحة HTML
         $response->assertOk();
-        $response->assertSee('النظام الإداري لمكاتب المحاماة');
-        $response->assertSee('TKT-TEST-PRINT');
+        $response->assertHeader('Content-Type', 'application/pdf');
+        $this->assertStringContainsString('Summary-TKT-TEST-PRINT.pdf', (string) $response->headers->get('Content-Disposition'));
+        $this->assertStringStartsWith('%PDF', $response->getContent());
     }
 }

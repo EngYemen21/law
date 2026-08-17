@@ -23,7 +23,9 @@ class AppointmentCardPdf
     ];
 
     private const STYLE = <<<'CSS'
-        body{margin:0;background:#fff;font-family:Tajawal,Tahoma,Arial,sans-serif}
+        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap');
+        *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+        body{margin:0;padding:0;background:#fff;font-family:'Tajawal',Tahoma,Arial,sans-serif;-webkit-font-smoothing:antialiased}
         .apptx{border-radius:18px;overflow:hidden;background:#fff;max-width:560px;margin:0 auto;border:1px solid #E1E8EE}
         .apptx-head{background:linear-gradient(135deg,#5B4BD6,#7C3AED 55%,#9061F9);color:#fff;padding:18px 20px 20px}
         .apptx-brand{display:flex;align-items:center;gap:11px;margin-bottom:15px}

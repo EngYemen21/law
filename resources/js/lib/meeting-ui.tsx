@@ -105,6 +105,7 @@ export interface MeetReqCard {
     meetLink: string | null;
     hostLink: string | null;
     meetingRef: string | null; // مرجع الاجتماع المرتبط (M-…) للغرفة المضمّنة
+    canJoin?: boolean; // زر الدخول يُفعَّل قبل الموعد بـ5 دقائق (يرسله MeetRequest::toCard)
 }
 
 export interface ClientDirEntry { id: number; name: string; items: string[] }

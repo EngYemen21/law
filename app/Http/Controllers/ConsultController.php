@@ -176,7 +176,15 @@ class ConsultController extends Controller
      */
     public function report(Request $request, Consult $consult): \Symfony\Component\HttpFoundation\Response
     {
-        abort_unless($consult->user_id === $request->user()->id, 403);
+        $user = $request->user();
+        abort_unless(
+            $consult->user_id === $user->id ||
+            $consult->lawyer_id === $user->id ||
+            $user->isAdmin() ||
+            $user->isEmployee() ||
+            $user->isLawyer(),
+            403
+        );
 
         $payLabel = $consult->paid_at !== null ? 'مدفوعة' : ($consult->priced_at !== null ? 'بانتظار السداد' : 'بانتظار التسعير من الإدارة');
         $place = $consult->channel === 'حضورية'
