@@ -33,7 +33,7 @@ class PdfRenderer
     {
         $tmpDir = storage_path('app/browsershot-tmp');
         if (!is_dir($tmpDir)) {
-            @mkdir($tmpDir, 0755, true);
+            @mkdir($tmpDir, 0775, true);
         }
 
         try {
@@ -42,10 +42,9 @@ class PdfRenderer
                 ->setCustomTempPath($tmpDir)
                 ->newHeadless()
                 ->noSandbox()
-                ->usePipe()
                 ->emulateMedia('screen')
                 ->showBackground()
-                ->timeout(90)
+                ->timeout(60)
                 ->format($format)
                 ->margins(10, 10, 10, 10)
                 ->addChromiumArguments([
@@ -56,9 +55,26 @@ class PdfRenderer
                     'no-default-browser-check',
                     'disable-extensions',
                     'hide-scrollbars',
-                    'no-zygote',
-                    'single-process',
                     'disable-software-rasterizer',
+                    'disable-background-networking',
+                    'disable-background-timer-throttling',
+                    'disable-backgrounding-occluded-windows',
+                    'disable-breakpad',
+                    'disable-component-update',
+                    'disable-default-apps',
+                    'disable-features=TranslateUI',
+                    'disable-hang-monitor',
+                    'disable-ipc-flooding-protection',
+                    'disable-popup-blocking',
+                    'disable-prompt-on-repost',
+                    'disable-renderer-backgrounding',
+                    'disable-sync',
+                    'force-color-profile=srgb',
+                    'metrics-recording-only',
+                    'password-store=basic',
+                    'use-mock-keychain',
+                    'export-tagged-pdf',
+                    'lang=ar-SA',
                 ]);
 
             $nodeModules = base_path('node_modules');
@@ -66,35 +82,33 @@ class PdfRenderer
                 $browsershot->setNodeModulePath($nodeModules);
             }
 
-            // تعيين مسارات Node و NPM و Chrome/Edge المكتشفة تلقائياً أو من متغيرات البيئة
-            $nodeBinary = static::resolveNodePath();
-            if ($nodeBinary) {
+            if ($nodeBinary = static::resolveNodePath()) {
                 $browsershot->setNodeBinary($nodeBinary);
             }
 
-            $npmBinary = static::resolveNpmPath();
-            if ($npmBinary) {
+            if ($npmBinary = static::resolveNpmPath()) {
                 $browsershot->setNpmBinary($npmBinary);
             }
 
-            $chromePath = static::resolveChromePath();
-            if ($chromePath) {
+            if ($chromePath = static::resolveChromePath()) {
                 $browsershot->setChromePath($chromePath);
             }
 
             return $browsershot->pdf();
         } catch (\Throwable $e) {
             try {
-                if (function_exists('logger')) {
-                    logger()->error("PdfRenderer error: {$e->getMessage()}", [
-                        'filename' => $filename,
-                    ]);
-                }
+                Log::error("PdfRenderer error: {$e->getMessage()}", [
+                    'filename' => $filename,
+                    'trace' => $e->getTraceAsString(),
+                ]);
             } catch (\Throwable $ignored) {
             }
 
-            // شبكة الأمان المتقدمة في حال فشل المتصفح لأي سبب غير متوقع
-            return NativePdf::build($html, $filename);
+            if (class_exists(NativePdf::class)) {
+                return NativePdf::build($html, $filename);
+            }
+
+            throw new \RuntimeException("PDF generation failed: {$e->getMessage()}", 0, $e);
         }
     }
 
@@ -104,7 +118,7 @@ class PdfRenderer
     public static function resolveNodePath(): ?string
     {
         $explicit = env('NODE_BINARY') ?: env('NODE_PATH');
-        if ($explicit && file_exists($explicit)) {
+        if ($explicit && (is_executable($explicit) || file_exists($explicit))) {
             return $explicit;
         }
 
@@ -123,22 +137,7 @@ class PdfRenderer
             '/root/.nvm/versions/node/*/bin/node',
         ];
 
-        foreach ($candidates as $pattern) {
-            if (str_contains($pattern, '*')) {
-                $matches = glob($pattern);
-                if (!empty($matches)) {
-                    foreach ($matches as $match) {
-                        if (is_file($match) && (is_executable($match) || file_exists($match))) {
-                            return $match;
-                        }
-                    }
-                }
-            } elseif (!empty($pattern) && is_file($pattern) && file_exists($pattern)) {
-                return $pattern;
-            }
-        }
-
-        return null;
+        return static::findFirstExisting($candidates);
     }
 
     /**
@@ -147,7 +146,7 @@ class PdfRenderer
     public static function resolveNpmPath(): ?string
     {
         $explicit = env('NPM_BINARY') ?: env('NPM_PATH');
-        if ($explicit && file_exists($explicit)) {
+        if ($explicit && (is_executable($explicit) || file_exists($explicit))) {
             return $explicit;
         }
 
@@ -166,22 +165,7 @@ class PdfRenderer
             '/root/.nvm/versions/node/*/bin/npm',
         ];
 
-        foreach ($candidates as $pattern) {
-            if (str_contains($pattern, '*')) {
-                $matches = glob($pattern);
-                if (!empty($matches)) {
-                    foreach ($matches as $match) {
-                        if (is_file($match) && (is_executable($match) || file_exists($match))) {
-                            return $match;
-                        }
-                    }
-                }
-            } elseif (!empty($pattern) && is_file($pattern) && file_exists($pattern)) {
-                return $pattern;
-            }
-        }
-
-        return null;
+        return static::findFirstExisting($candidates);
     }
 
     /**
@@ -190,7 +174,7 @@ class PdfRenderer
     public static function resolveChromePath(): ?string
     {
         $explicit = env('CHROME_PATH') ?: env('PUPPETEER_EXECUTABLE_PATH');
-        if ($explicit && file_exists($explicit)) {
+        if ($explicit && (is_executable($explicit) || file_exists($explicit))) {
             return $explicit;
         }
 
@@ -229,6 +213,31 @@ class PdfRenderer
             base_path('node_modules/puppeteer/.local-chromium/*/chrome-linux/chrome'),
         ];
 
+        $path = static::findFirstExisting($candidates);
+        if ($path) {
+            return $path;
+        }
+
+        // محاولة استخدام أمر which على سيرفرات Linux
+        if (!$isWindows && function_exists('exec')) {
+            foreach (['google-chrome-stable', 'google-chrome', 'chromium-browser', 'chromium'] as $bin) {
+                $output = [];
+                $returnCode = 0;
+                @exec("which {$bin} 2>/dev/null", $output, $returnCode);
+                if ($returnCode === 0 && !empty($output[0]) && (is_executable($output[0]) || file_exists($output[0]))) {
+                    return $output[0];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * دالة مساعدة لإيجاد أول مسار موجود من قائمة المرشحين.
+     */
+    private static function findFirstExisting(array $candidates): ?string
+    {
         foreach ($candidates as $pattern) {
             if (str_contains($pattern, '*')) {
                 $matches = glob($pattern);
@@ -239,20 +248,8 @@ class PdfRenderer
                         }
                     }
                 }
-            } elseif (!empty($pattern) && is_file($pattern) && file_exists($pattern)) {
+            } elseif (!empty($pattern) && is_file($pattern) && (is_executable($pattern) || file_exists($pattern))) {
                 return $pattern;
-            }
-        }
-
-        // محاولة استخدام أمر which على سيرفرات Linux
-        if (!$isWindows && function_exists('exec')) {
-            foreach (['google-chrome-stable', 'google-chrome', 'chromium-browser', 'chromium'] as $bin) {
-                $output = [];
-                $returnCode = 0;
-                @exec("which {$bin} 2>/dev/null", $output, $returnCode);
-                if ($returnCode === 0 && !empty($output[0]) && is_file($output[0])) {
-                    return $output[0];
-                }
             }
         }
 

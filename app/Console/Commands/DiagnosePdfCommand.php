@@ -35,7 +35,7 @@ class DiagnosePdfCommand extends Command
         if (!$nodePath) {
             $this->error('❌ لم يتم العثور على مسار Node.js التنفيذي تلقائياً.');
             $this->warn('👉 الحل: تأكد من تثبيت Node.js أو حدد مساره في ملف .env:');
-            $this->line('   NODE_BINARY=/usr/bin/node (أو مسار nvm لديك)');
+            $this->line('   NODE_BINARY=/usr/bin/node');
         } else {
             $this->info("   📍 المسار: {$nodePath}");
             $nodeVer = @shell_exec('"' . $nodePath . '" -v');
@@ -60,28 +60,16 @@ class DiagnosePdfCommand extends Command
         $chromePath = PdfRenderer::resolveChromePath();
         if (!$chromePath) {
             $this->error('❌ لم يتم العثور على متصفح Chrome أو Chromium على السيرفر.');
-            $this->warn('👉 خطوات التثبيت السريعة على سيرفر Linux (اختر أحد الخيارين):');
-            $this->line('   الخيار أ (موصى به لـ Puppeteer):');
+            $this->warn('👉 خطوات التثبيت السريعة على سيرفر Linux:');
             $this->line('   npx puppeteer browsers install chrome');
-            $this->line('');
-            $this->line('   الخيار ب (تثبيت حزمة النظام Chromium):');
-            $this->line('   sudo apt update && sudo apt install -y chromium-browser');
-            $this->line('   ثم إضافة في ملف .env:');
-            $this->line('   CHROME_PATH=/usr/bin/chromium-browser');
+            $this->line('   أو: sudo apt update && sudo apt install -y chromium-browser libgbm1 libnss3');
         } else {
             $this->info("   📍 المسار المكتشف: {$chromePath}");
             $rawChromeVer = @shell_exec('"' . $chromePath . '" --version 2>&1');
             if ($rawChromeVer && !str_contains($rawChromeVer, 'error') && !str_contains($rawChromeVer, 'cannot open')) {
                 $this->info('   ✅ تشغيل المتصفح: ' . trim($rawChromeVer));
             } else {
-                $this->warn('   ⚠️ تحذير عند تشغيل Chrome مباشرة: ' . trim((string)$rawChromeVer));
-                if (str_contains((string)$rawChromeVer, 'error while loading shared libraries')) {
-                    $this->error('   ❌ توجد مكتبات ناقصة في نظام Linux لتشغيل المتصفح.');
-                    $this->warn('   👉 الحل: قم بتثبيت المكتبات عبر مدير الحزم:');
-                    $this->line('      sudo apt update && sudo apt install -y libgbm1 libnss3 libatk-bridge2.0-0 libgtk-3-0 libasound2');
-                    $this->line('      أو على RHEL/AlmaLinux/CentOS:');
-                    $this->line('      sudo dnf install -y nss mesa-libgbm alsa-lib atk cups-libs gtk3 libXcomposite libXdamage libXrandr pango');
-                }
+                $this->warn('   ⚠️ حالة تشغيل المتصفح: ' . trim((string)$rawChromeVer));
             }
         }
 
@@ -93,7 +81,7 @@ class DiagnosePdfCommand extends Command
             @mkdir($tmpDir, 0775, true);
         }
         if (!is_writable($tmpDir)) {
-            $this->error("❌ المجلد {$tmpDir} غير قابل للكتابة من قبل مستخدم الويب.");
+            $this->error("❌ المجلد {$tmpDir} غير قابل للكتابة.");
             $this->warn("👉 الحل: sudo chmod -R 775 {$tmpDir}");
         } else {
             $this->info("   ✅ المجلد المؤقت موجود وقابل للكتابة: {$tmpDir}");
@@ -124,10 +112,9 @@ class DiagnosePdfCommand extends Command
                 ->setCustomTempPath($tmpDir)
                 ->newHeadless()
                 ->noSandbox()
-                ->usePipe()
                 ->emulateMedia('screen')
                 ->showBackground()
-                ->timeout(90)
+                ->timeout(60)
                 ->format('A4')
                 ->margins(10, 10, 10, 10)
                 ->addChromiumArguments([
@@ -138,9 +125,9 @@ class DiagnosePdfCommand extends Command
                     'no-default-browser-check',
                     'disable-extensions',
                     'hide-scrollbars',
-                    'no-zygote',
-                    'single-process',
                     'disable-software-rasterizer',
+                    'force-color-profile=srgb',
+                    'lang=ar-SA',
                 ]);
 
             if ($nodePath) $browsershot->setNodeBinary($nodePath);
@@ -157,14 +144,6 @@ class DiagnosePdfCommand extends Command
         } catch (\Throwable $e) {
             $this->error("   ❌ فشل تصيير Browsershot مع الخطأ التالي:");
             $this->line("   " . $e->getMessage());
-            $this->newLine();
-            $this->warn("🔧 إرشادات حل المشكلة على سيرفر Linux:");
-            $this->line("   1. نفّذ الأمر التالي لتثبيت متصفح chrome الخاص بـ puppeteer:");
-            $this->line("      npx puppeteer browsers install chrome");
-            $this->line("   2. أو قم بتثبيت حزمة chromium عبر مدير الحزم:");
-            $this->line("      sudo apt update && sudo apt install -y chromium-browser libgbm1 libnss3");
-            $this->line("   3. تأكد من تحديد المسار في ملف .env إذا لزم الأمر:");
-            $this->line("      CHROME_PATH=/usr/bin/chromium-browser");
             return 1;
         }
     }
