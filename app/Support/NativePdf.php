@@ -13,8 +13,9 @@ class NativePdf
      */
     public static function build(string $html, string $title = 'مستند رسمي'): string
     {
-        // استخراج النصوص والعناوين من الـ HTML
-        $plain = strip_tags(str_replace(['<br>', '<br/>', '<br />', '</tr>', '</div>', '</p>', '</h1>', '</h2>', '</h3>'], "\n", $html));
+        // تنظيف أكواد CSS و JavaScript قبل استخراج النصوص لتجنب طباعة الأكواد
+        $cleanedHtml = preg_replace('/<(style|script)\b[^>]*>(.*?)<\/\1>/is', '', $html);
+        $plain = strip_tags(str_replace(['<br>', '<br/>', '<br />', '</tr>', '</div>', '</p>', '</h1>', '</h2>', '</h3>'], "\n", (string) $cleanedHtml));
         $lines = array_values(array_filter(array_map('trim', explode("\n", $plain)), fn($l) => !empty($l)));
 
         // تنظيف النصوص للعرض القياسي في كائن الـ PDF

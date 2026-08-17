@@ -211,10 +211,17 @@ class PdfRenderer
             '/usr/bin/chromium',
             '/usr/bin/chromium-browser',
             '/snap/bin/chromium',
+            '/opt/google/chrome/chrome',
+            '/opt/google/chrome/google-chrome',
+            '/usr/lib/chromium/chromium',
+            '/usr/lib/chromium-browser/chromium-browser',
             $home.'/.cache/puppeteer/chrome/*/chrome-linux64/chrome',
             $home.'/.cache/puppeteer/chrome/*/*/chrome',
             '/home/*/.cache/puppeteer/chrome/*/chrome-linux64/chrome',
+            '/home/*/.cache/puppeteer/chrome/*/*/chrome',
             '/root/.cache/puppeteer/chrome/*/chrome-linux64/chrome',
+            '/var/www/.cache/puppeteer/chrome/*/chrome-linux64/chrome',
+            '/var/www/.cache/puppeteer/chrome/*/*/chrome',
             base_path('node_modules/puppeteer/.local-chromium/*/chrome-linux/chrome'),
         ];
 
@@ -230,6 +237,18 @@ class PdfRenderer
                 }
             } elseif (!empty($pattern) && is_file($pattern) && file_exists($pattern)) {
                 return $pattern;
+            }
+        }
+
+        // محاولة استخدام أمر which على سيرفرات Linux
+        if (!$isWindows && function_exists('exec')) {
+            foreach (['google-chrome-stable', 'google-chrome', 'chromium-browser', 'chromium'] as $bin) {
+                $output = [];
+                $returnCode = 0;
+                @exec("which {$bin} 2>/dev/null", $output, $returnCode);
+                if ($returnCode === 0 && !empty($output[0]) && is_file($output[0])) {
+                    return $output[0];
+                }
             }
         }
 
