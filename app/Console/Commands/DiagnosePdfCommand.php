@@ -56,7 +56,7 @@ class DiagnosePdfCommand extends Command
 
         // 4. فحص Chrome / Chromium
         $this->newLine();
-        $this->info('4️⃣ فحص مسار متصفح Chromium / Chrome:');
+        $this->info('4️⃣ فحص مسار وتشغيل متصفح Chromium / Chrome:');
         $chromePath = PdfRenderer::resolveChromePath();
         if (!$chromePath) {
             $this->error('❌ لم يتم العثور على متصفح Chrome أو Chromium على السيرفر.');
@@ -70,7 +70,19 @@ class DiagnosePdfCommand extends Command
             $this->line('   CHROME_PATH=/usr/bin/chromium-browser');
         } else {
             $this->info("   📍 المسار المكتشف: {$chromePath}");
-            $this->info('   ✅ متصفح Chrome/Chromium موجود وجاهز.');
+            $rawChromeVer = @shell_exec('"' . $chromePath . '" --version 2>&1');
+            if ($rawChromeVer && !str_contains($rawChromeVer, 'error') && !str_contains($rawChromeVer, 'cannot open')) {
+                $this->info('   ✅ تشغيل المتصفح: ' . trim($rawChromeVer));
+            } else {
+                $this->warn('   ⚠️ تحذير عند تشغيل Chrome مباشرة: ' . trim((string)$rawChromeVer));
+                if (str_contains((string)$rawChromeVer, 'error while loading shared libraries')) {
+                    $this->error('   ❌ توجد مكتبات ناقصة في نظام Linux لتشغيل المتصفح.');
+                    $this->warn('   👉 الحل: قم بتثبيت المكتبات عبر مدير الحزم:');
+                    $this->line('      sudo apt update && sudo apt install -y libgbm1 libnss3 libatk-bridge2.0-0 libgtk-3-0 libasound2');
+                    $this->line('      أو على RHEL/AlmaLinux/CentOS:');
+                    $this->line('      sudo dnf install -y nss mesa-libgbm alsa-lib atk cups-libs gtk3 libXcomposite libXdamage libXrandr pango');
+                }
+            }
         }
 
         // 5. فحص المجلد المؤقت والصلاحيات
@@ -112,6 +124,7 @@ class DiagnosePdfCommand extends Command
                 ->setCustomTempPath($tmpDir)
                 ->newHeadless()
                 ->noSandbox()
+                ->usePipe()
                 ->emulateMedia('screen')
                 ->showBackground()
                 ->timeout(90)
@@ -125,6 +138,9 @@ class DiagnosePdfCommand extends Command
                     'no-default-browser-check',
                     'disable-extensions',
                     'hide-scrollbars',
+                    'no-zygote',
+                    'single-process',
+                    'disable-software-rasterizer',
                 ]);
 
             if ($nodePath) $browsershot->setNodeBinary($nodePath);

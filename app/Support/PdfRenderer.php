@@ -42,6 +42,7 @@ class PdfRenderer
                 ->setCustomTempPath($tmpDir)
                 ->newHeadless()
                 ->noSandbox()
+                ->usePipe()
                 ->emulateMedia('screen')
                 ->showBackground()
                 ->timeout(90)
@@ -55,6 +56,9 @@ class PdfRenderer
                     'no-default-browser-check',
                     'disable-extensions',
                     'hide-scrollbars',
+                    'no-zygote',
+                    'single-process',
+                    'disable-software-rasterizer',
                 ]);
 
             $nodeModules = base_path('node_modules');
