@@ -23,12 +23,20 @@ if (!puppet) {
     process.exit(1);
 }
 
-const [, , htmlFile, outputFile, chromePath, format = 'A4'] = process.argv;
+const [, , htmlFile, outputFile, chromePath, format = 'A4', timeoutArg] = process.argv;
 
 if (!htmlFile || !outputFile) {
-    console.error('Usage: node render.cjs <htmlFile> <outputFile> [chromePath] [format]');
+    console.error('Usage: node render.cjs <htmlFile> <outputFile> [chromePath] [format] [timeoutSec]');
     process.exit(1);
 }
+
+// حارس داخلي: يقتل العملية بعد المهلة مهما علق كروم (WS timeout/ProtocolError) —
+// خروج نظيف بكود 1 يلتقطه PHP فيسقط للاحتياطي بدل تعليق يقتل PHP نفسه.
+const timeoutSec = Math.max(5, parseInt(timeoutArg || '20', 10) || 20);
+const watchdog = setTimeout(() => {
+    console.error('PDF rendering timed out after ' + timeoutSec + 's (watchdog).');
+    process.exit(1);
+}, timeoutSec * 1000);
 
 (async () => {
     try {
@@ -40,6 +48,8 @@ if (!htmlFile || !outputFile) {
 
         const browser = await puppet.launch({
             executablePath: chromePath || '/opt/google/chrome/chrome',
+            timeout: timeoutSec * 1000,
+            protocolTimeout: timeoutSec * 1000,
             headless: true,
             args: [
                 '--no-sandbox',
@@ -65,6 +75,7 @@ if (!htmlFile || !outputFile) {
 
         fs.writeFileSync(outputFile, pdf);
         await browser.close();
+        clearTimeout(watchdog);
         console.log('PDF_OK');
         process.exit(0);
     } catch (e) {

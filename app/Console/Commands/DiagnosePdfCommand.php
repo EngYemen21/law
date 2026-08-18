@@ -10,6 +10,7 @@ use Illuminate\Console\Command;
 class DiagnosePdfCommand extends Command
 {
     protected $signature = 'pdf:diagnose';
+
     protected $description = 'تشخيص واختبار بيئة تشغيل PDF ومحرك Chrome/Puppeteer الشامل على السيرفر';
 
     public function handle(): int
@@ -21,8 +22,9 @@ class DiagnosePdfCommand extends Command
         // 1. فحص الدوال التنفيذية في PHP
         $this->newLine();
         $this->info('1️⃣ فحص دوال النظام في PHP (proc_open / exec / shell_exec):');
-        if (!function_exists('proc_open') || !function_exists('exec') || !function_exists('shell_exec')) {
+        if (! function_exists('proc_open') || ! function_exists('exec') || ! function_exists('shell_exec')) {
             $this->error('❌ دوال التنفيذ معطلة في إعدادات php.ini.');
+
             return 1;
         }
         $this->info('   ✅ دوال النظام مفعلة وتعمل بكفاءة.');
@@ -31,11 +33,12 @@ class DiagnosePdfCommand extends Command
         $this->newLine();
         $this->info('2️⃣ فحص مسار وإصدار Node.js:');
         $nodePath = PdfRenderer::resolveNodePath();
-        if (!$nodePath) {
+        if (! $nodePath) {
             $this->error('❌ لم يتم العثور على مسار Node.js.');
+
             return 1;
         }
-        $nodeVer = trim((string)@shell_exec('"' . $nodePath . '" -v'));
+        $nodeVer = trim((string) @shell_exec('"'.$nodePath.'" -v'));
         $this->info("   📍 المسار: {$nodePath}");
         $this->info("   ✅ الإصدار: {$nodeVer}");
 
@@ -43,12 +46,13 @@ class DiagnosePdfCommand extends Command
         $this->newLine();
         $this->info('3️⃣ فحص مسار وتشغيل متصفح Google Chrome:');
         $chromePath = PdfRenderer::resolveChromePath();
-        if (!$chromePath) {
+        if (! $chromePath) {
             $this->error('❌ لم يتم العثور على متصفح Chrome أو Chromium.');
+
             return 1;
         }
         $this->info("   📍 المسار المكتشف: {$chromePath}");
-        $rawChromeVer = trim((string)@shell_exec('"' . $chromePath . '" --version 2>&1'));
+        $rawChromeVer = trim((string) @shell_exec('"'.$chromePath.'" --version 2>&1'));
         $this->info("   ✅ تشغيل المتصفح: {$rawChromeVer}");
         usleep(500000);
 
@@ -56,7 +60,7 @@ class DiagnosePdfCommand extends Command
         $this->newLine();
         $this->info('4️⃣ فحص المجلد المؤقت storage/app/browsershot-tmp:');
         $tmpDir = storage_path('app/browsershot-tmp');
-        if (!is_dir($tmpDir)) {
+        if (! is_dir($tmpDir)) {
             @mkdir($tmpDir, 0775, true);
         }
         $this->info("   ✅ المجلد المؤقت جاهز وقابل للكتابة: {$tmpDir}");
@@ -90,23 +94,40 @@ class DiagnosePdfCommand extends Command
             $this->info("   📄 حجم الملف: {$size1} bytes (PDF ثنائي حقيقي مصمم ومطابق 100%)");
         } else {
             $this->error("   ❌ فشل توليد بطاقة الموعد. الحجم: {$size1} bytes");
+
             return 1;
         }
 
         // 6. اختبار تقرير الاستشارة الرسمي (Consultation Report PDF)
         $this->newLine();
         $this->info('6️⃣ اختبار تصيير تقرير الاستشارة الرسمي (Consultation Report PDF)...');
+        // نفس عقد ReportPrint::html الفعلي (title/subtitle/ref/blocks) — عيّنة سابقة بمفاتيح خاطئة كانت تفجّر الفحص
         $reportHtml = ReportPrint::html([
-            'reference' => 'CN-2026-9900',
             'title' => 'تقرير الاستشارة والتحليل القانوني الشامل',
-            'subtitle' => 'مكتب المحاماة والاستشارات القانونية',
-            'date' => '18-08-2026',
-            'client' => 'مجموعة الاستثمار الدولية',
-            'lawyer' => 'المستشار القانوني الأول',
-            'status' => 'مكتملة ومعتمدة',
-            'summary' => 'تحليل العقود التجارية وإجراءات الامتثال التنظيمي للأنظمة واللوائح المعتمدة.',
-            'recommendations' => 'يوصى بتحديث بنود الاتفاقية وإعادة صياغة شروط التحكيم والتعويض.',
-            'qrSeed' => 'CN-2026-9900',
+            'subtitle' => 'فحص تشخيصي',
+            'ref' => 'CN-2026-9900',
+            'blocks' => [
+                [
+                    'title' => '١. بيانات الاستشارة',
+                    'cellRows' => [
+                        [['رقم الاستشارة', 'CN-2026-9900'], ['نوع الاستشارة', 'مرئية'], ['الموعد', '18-08-2026']],
+                    ],
+                ],
+                [
+                    ['title' => '٢. العميل', 'cellRows' => [[['الاسم', 'مجموعة الاستثمار الدولية'], ['الحالة', 'عميل نشط']]]],
+                    ['title' => '٣. مقدّم الخدمة', 'cellRows' => [[['الجهة', 'المكتب القانوني'], ['المحامي', 'المستشار القانوني الأول']]]],
+                ],
+                ['title' => '٤. ملخص الاستشارة', 'lines' => 'تحليل العقود التجارية وإجراءات الامتثال التنظيمي للأنظمة واللوائح المعتمدة.'],
+                ['title' => '٥. التوصيات', 'chips' => ['تحديث بنود الاتفاقية', 'إعادة صياغة شروط التحكيم والتعويض']],
+            ],
+            'approval' => [
+                'qrSeed' => 'CN-2026-9900',
+                'rows' => [
+                    ['الجهة', 'النظام الإداري لمكاتب المحاماة'],
+                    ['تاريخ الطباعة', now()->format('Y-m-d')],
+                ],
+            ],
+            'note' => 'مستند فحص تشخيصي — لا يمثّل بيانات حقيقية.',
         ]);
 
         $t2 = microtime(true);
@@ -120,6 +141,7 @@ class DiagnosePdfCommand extends Command
             $this->info("   📄 حجم الملف: {$size2} bytes (PDF ثنائي حقيقي مصمم ومطابق 100%)");
         } else {
             $this->error("   ❌ فشل توليد تقرير الاستشارة. الحجم: {$size2} bytes");
+
             return 1;
         }
 

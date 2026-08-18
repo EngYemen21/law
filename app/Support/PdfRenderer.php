@@ -4,10 +4,18 @@ namespace App\Support;
 
 use Illuminate\Http\Response as HttpResponse;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\Process\Process;
 
 /**
  * مُصيِّر PDF احترافي فائق السرعة والأداء عبر Puppeteer Core و Google Chrome.
  * يضمن توليد ملفات PDF حقيقية ومصممة بدقة كاملة خلال أجزاء من الثانية.
+ *
+ * ضمانة صلبة: لا يخرج من هنا أبداً شيء غير PDF. الثغرة السابقة: shell_exec بلا مهلة —
+ * حين يعلق كروم أطول من max_execution_time (عادة 30s على cPanel) يسقط PHP بخطأ فادح
+ * غير قابل للالتقاط قبل بلوغ الاحتياطي، فيتنزّل خطأ HTML باسم card.html.
+ *
+ * ضبط .env على السيرفر: PDF_TIMEOUT (افتراض 20 ثانية — أقل من 30 عمداً)،
+ * وPDF_ENGINE=native لتجاوز كروم كليّاً إن استمر التعليق (راجع config/pdf.php).
  */
 class PdfRenderer
 {
@@ -26,37 +34,58 @@ class PdfRenderer
     }
 
     /**
-     * توليد محتوى الـ PDF الثنائي (Binary Stream).
+     * توليد محتوى الـ PDF الثنائي (Binary Stream) — يعود دائماً بـPDF صالح مهما حدث.
      */
     public static function generatePdfBinary(string $html, string $filename = 'document.pdf', string $format = 'A4'): string
     {
+        // فكّ قيد مهلة PHP حيث تسمح الاستضافة — يمنع الخطأ الفادح الذي كان يقطع الطريق على الاحتياطي
+        @set_time_limit(240);
+
+        $engine = (string) config('pdf.engine', 'auto');
+        $node = static::resolveNodePath();
+
+        // native: تجاوز كروم كليّاً. auto بلا Node: render.cjs مستحيل — لا نحاول أصلاً (المحاولة هي ما كان يعلق)
+        if ($engine === 'native' || ($engine !== 'chrome' && $node === null && static::resolveChromePath() === null)) {
+            if ($engine !== 'native') {
+                Log::warning('PdfRenderer: no Node/Chrome found, skipping Chrome renderer.');
+            }
+
+            return static::fallbackPdf($html, $filename);
+        }
+
         $tmpDir = storage_path('app/browsershot-tmp');
-        if (!is_dir($tmpDir)) {
+        if (! is_dir($tmpDir)) {
             @mkdir($tmpDir, 0775, true);
         }
 
         $uniq = uniqid();
-        $htmlFile = $tmpDir . '/render-' . $uniq . '.html';
-        $pdfFile = $tmpDir . '/render-' . $uniq . '.pdf';
+        $htmlFile = $tmpDir.'/render-'.$uniq.'.html';
+        $pdfFile = $tmpDir.'/render-'.$uniq.'.pdf';
 
         file_put_contents($htmlFile, $html);
 
-        $node = static::resolveNodePath() ?: 'node';
+        $node = $node ?: 'node';
         $chrome = static::resolveChromePath() ?: '/opt/google/chrome/chrome';
         $script = base_path('app/Support/bin/render.cjs');
         $isWindows = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
+        // مهلة أقل من max_execution_time الشائع (30s) عمداً — قتل العملية المعلّقة بدل سقوط PHP
+        $timeout = max(5, (int) config('pdf.timeout', 20));
 
         try {
             $cmd = $isWindows
-                ? '"' . $node . '" "' . $script . '" "' . $htmlFile . '" "' . $pdfFile . '" "' . $chrome . '" ' . escapeshellarg($format) . ' 2>&1'
-                : 'env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin NODE_PATH="' . base_path('node_modules') . '" "' . $node . '" "' . $script . '" "' . $htmlFile . '" "' . $pdfFile . '" "' . $chrome . '" ' . escapeshellarg($format) . ' 2>&1';
-            
-            $output = @shell_exec($cmd);
+                ? '"'.$node.'" "'.$script.'" "'.$htmlFile.'" "'.$pdfFile.'" "'.$chrome.'" '.escapeshellarg($format).' '.$timeout.' 2>&1'
+                : 'env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin NODE_PATH="'.base_path('node_modules').'" "'.$node.'" "'.$script.'" "'.$htmlFile.'" "'.$pdfFile.'" "'.$chrome.'" '.escapeshellarg($format).' '.$timeout.' 2>&1';
+
+            // Symfony Process بمهلة صلبة تقتل العملية (بدل shell_exec الذي يعلّق بلا حدود حتى يسقط PHP)
+            $process = Process::fromShellCommandline($cmd, base_path(), null, null, (float) ($timeout + 5));
+            $process->run();
+            $output = $process->getOutput().$process->getErrorOutput();
 
             if (file_exists($pdfFile) && filesize($pdfFile) > 0) {
                 $content = file_get_contents($pdfFile);
                 @unlink($htmlFile);
                 @unlink($pdfFile);
+
                 return $content;
             }
 
@@ -73,12 +102,54 @@ class PdfRenderer
             } catch (\Throwable $ignored) {
             }
 
-            if (class_exists(NativePdf::class)) {
-                return NativePdf::build($html, $filename);
+            return static::fallbackPdf($html, $filename);
+        }
+    }
+
+    /** الاحتياطي المضمون: NativePdf، وإن فشل هو أيضاً فأصغر PDF صالح — لا HTML أبداً */
+    private static function fallbackPdf(string $html, string $filename): string
+    {
+        try {
+            return NativePdf::build($html, $filename);
+        } catch (\Throwable $e) {
+            try {
+                Log::error("PdfRenderer: NativePdf fallback failed ({$e->getMessage()}), serving minimal PDF.");
+            } catch (\Throwable $ignored) {
             }
 
-            throw new \RuntimeException("PDF generation failed: {$e->getMessage()}", 0, $e);
+            return static::minimalPdf($filename);
         }
+    }
+
+    /** أصغر PDF صالح (صفحة واحدة برسالة إنجليزية) — ملاذ أخير لا يفشل */
+    private static function minimalPdf(string $title): string
+    {
+        $safe = preg_replace('/[^\x20-\x7E]/', ' ', $title) ?: 'document';
+        $safe = str_replace(['\\', '(', ')'], ['\\\\', '\\(', '\\)'], $safe);
+        $stream = "BT\n/F1 14 Tf\n50 780 Td\n({$safe}) Tj\n0 -24 Td\n/F1 11 Tf\n(Document is temporarily unavailable - please try again later.) Tj\nET\n";
+
+        $objects = [
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+            "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n",
+            "4 0 obj\n<< /Length ".strlen($stream)." >>\nstream\n".$stream."endstream\nendobj\n",
+            "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n",
+        ];
+
+        $pdf = "%PDF-1.4\n";
+        $offsets = [];
+        foreach ($objects as $obj) {
+            $offsets[] = strlen($pdf);
+            $pdf .= $obj;
+        }
+        $xref = strlen($pdf);
+        $pdf .= "xref\n0 ".(count($objects) + 1)."\n0000000000 65535 f \n";
+        foreach ($offsets as $off) {
+            $pdf .= sprintf("%010d 00000 n \n", $off);
+        }
+        $pdf .= 'trailer'."\n".'<< /Size '.(count($objects) + 1).' /Root 1 0 R >>'."\nstartxref\n".$xref."\n%%EOF\n";
+
+        return $pdf;
     }
 
     /**
@@ -185,19 +256,20 @@ class PdfRenderer
         $path = static::findFirstExisting($candidates);
         if ($path) {
             $real = realpath($path);
-            if ($real && is_file($real) && is_executable($real) && !str_ends_with($real, '.sh')) {
+            if ($real && is_file($real) && is_executable($real) && ! str_ends_with($real, '.sh')) {
                 return $real;
             }
+
             return $path;
         }
 
         // محاولة استخدام أمر which على سيرفرات Linux
-        if (!$isWindows && function_exists('exec')) {
+        if (! $isWindows && function_exists('exec')) {
             foreach (['google-chrome-stable', 'google-chrome', 'chromium-browser', 'chromium'] as $bin) {
                 $output = [];
                 $returnCode = 0;
                 @exec("which {$bin} 2>/dev/null", $output, $returnCode);
-                if ($returnCode === 0 && !empty($output[0]) && (is_executable($output[0]) || file_exists($output[0]))) {
+                if ($returnCode === 0 && ! empty($output[0]) && (is_executable($output[0]) || file_exists($output[0]))) {
                     return $output[0];
                 }
             }
@@ -214,14 +286,14 @@ class PdfRenderer
         foreach ($candidates as $pattern) {
             if (str_contains($pattern, '*')) {
                 $matches = glob($pattern);
-                if (!empty($matches)) {
+                if (! empty($matches)) {
                     foreach ($matches as $match) {
                         if (is_file($match) && (is_executable($match) || file_exists($match))) {
                             return $match;
                         }
                     }
                 }
-            } elseif (!empty($pattern) && is_file($pattern) && (is_executable($pattern) || file_exists($pattern))) {
+            } elseif (! empty($pattern) && is_file($pattern) && (is_executable($pattern) || file_exists($pattern))) {
                 return $pattern;
             }
         }
