@@ -530,7 +530,8 @@ PROMPT;
      */
     public function caseReply(LegalCase $case, string $clientMessage): ?string
     {
-        $next = $case->next_hearing ? "؛ الجلسة القادمة: {$case->next_hearing}" : '';
+        $nextLabel = $case->nextHearingLabel();
+        $next = $nextLabel !== '—' ? "؛ الجلسة القادمة: {$nextLabel}" : '';
         $system = self::SYSTEM."\n\n"
             ."سياق القضية — رقم: {$case->number}؛ النوع: {$case->type}؛ القسم: {$case->department}؛ الحالة: {$case->status}{$next}. "
             .'أنت تتابع قضية قانونية نشطة لهذا العميل؛ أجب عن استفساراته حول سير القضية والجلسات والإجراءات بدقّة وطمأنة.';

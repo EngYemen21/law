@@ -10,6 +10,9 @@ namespace App\Support;
  */
 class Specialties
 {
+    /** قيمة خاصة: محامٍ عام مسنَد إليه كل الأقسام — يطابق أي تخصّص مطلوب. */
+    public const ALL_DEPARTMENTS = 'كل الأقسام';
+
     /** التخصّصات القانونية المعتمدة (تُعرض للعميل عند حجز الاستشارة). */
     public const ALL = [
         'الاستشارات القانونية',
@@ -91,10 +94,13 @@ class Specialties
         return $s;
     }
 
-    /** هل يطابق تخصّص المحامي التخصّصَ المطلوب (بعد التطبيع)؟ */
+    /** هل يطابق تخصّص المحامي التخصّصَ المطلوب (بعد التطبيع)؟ «كل الأقسام» تطابق أي تخصّص. */
     public static function matches(?string $lawyerDept, ?string $specialty): bool
     {
         $a = self::normalize($lawyerDept);
+        if ($a === self::ALL_DEPARTMENTS) {
+            return true;
+        }
         $b = self::normalize($specialty);
 
         return $a !== '' && $a === $b;

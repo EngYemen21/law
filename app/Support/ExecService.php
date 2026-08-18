@@ -10,6 +10,7 @@ use App\Models\Invoice;
 use App\Models\User;
 use App\Services\MailService;
 use App\Services\MoyasarService;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -49,7 +50,7 @@ class ExecService
         // حفظ الملفات المرفقة كمستندات رسمية لطلب التنفيذ
         $attachedNames = [];
         foreach ($files as $file) {
-            if ($file instanceof \Illuminate\Http\UploadedFile && $file->isValid()) {
+            if ($file instanceof UploadedFile && $file->isValid()) {
                 $path = $file->store("executions/{$exec->id}", 'local');
                 $origName = $file->getClientOriginalName();
                 $attachedNames[] = $origName;
@@ -220,7 +221,8 @@ class ExecService
                 'user_id' => $exec->user_id, 'exec_id' => $exec->id, 'number' => $number,
                 'description' => 'أتعاب تنفيذ · '.$exec->number,
                 'amount' => (int) $exec->fee + (int) $exec->vat,
-                'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال 3 أيام', 'paid' => false,
+                'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال 3 أيام',
+                'due_at' => now()->addDays(3)->toDateString(), 'paid' => false,
             ]);
             $exec->update(['offer_status' => 'مقبول', 'invoice_no' => $number]);
         });

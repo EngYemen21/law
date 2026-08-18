@@ -73,7 +73,8 @@ class Ticket extends Model
             'status' => $this->status,
             'tone' => $this->tone,
             'last' => $this->last_message,
-            'date' => $this->date_label,
+            // «الآن» المخزّنة كانت تتجمّد للأبد — الاشتقاق الحيّ من آخر تحديث (العمود يبقى للتوافق)
+            'date' => $this->updated_at?->locale('ar')->diffForHumans() ?? $this->date_label,
         ];
     }
 

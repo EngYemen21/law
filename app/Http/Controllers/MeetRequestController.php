@@ -50,7 +50,6 @@ class MeetRequestController extends Controller
                     'meet_link' => $zoom['join_url'] ?? $meeting->meet_link,
                     'host_link' => $zoom['start_url'] ?? $meeting->host_link,
                     'meet_password' => $zoom['password'] ?? $meeting->meet_password,
-                    'is_up' => true,
                     'has_link' => true,
                 ]);
             } else {
@@ -75,7 +74,6 @@ class MeetRequestController extends Controller
                     'before_items' => ['مراجعة موضوع الدعوة: '.$meetRequest->service, 'قراءة المستندات ذات الصلة', 'تجهيز جدول الأعمال'],
                     'during_items' => ['تسجيل الجلسة', 'تحويل الصوت إلى نص', 'استخراج القرارات'],
                     'after_items' => ['إنشاء الملخص', 'إعداد المحضر', 'تحويل القرارات إلى مهام'],
-                    'is_up' => true,
                     'has_link' => true,
                 ]);
             }

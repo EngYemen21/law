@@ -56,11 +56,13 @@ const AdminMeetReports: React.FC<{ meetings: FullMeetingCard[]; analytics: Analy
   const missed = meetings.filter((m) => m.status === 'لم ينعقد').length;
   const postponed = meetings.filter((m) => m.status === 'مؤجل').length;
   const up = meetings.filter((m) => m.status === 'قادم').length;
+  const pendingConfirm = meetings.filter((m) => m.status === 'بانتظار التأكيد').length;
   const approved = meetings.filter((m) => m.approve === 'معتمد').length;
 
   const stats: StatItem[] = [
     ['t-blue', 'video', meetings.length, 'إجمالي الاجتماعات'],
     ['t-cyan', 'video', up, 'قادمة'],
+    ['t-amber', 'clock', pendingConfirm, 'بانتظار التأكيد'],
     ['t-green', 'user', `${att}%`, 'نسبة الحضور'],
     ['t-green', 'check', approved, 'معتمدة'],
     ['t-grey', 'clock', done.length, 'منتهية'],

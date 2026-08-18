@@ -2,16 +2,21 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\Role;
 use App\Events\TicketMessageBroadcast;
 use App\Jobs\GenerateTicketReplyJob;
 use App\Jobs\TriageDocumentJob;
 use App\Jobs\TriageTicketOnOpenJob;
+use App\Mail\TicketOpenedMail;
 use App\Models\Consult;
 use App\Models\Ticket;
+use App\Models\User;
 use App\Services\LegalAiService;
+use App\Services\MailService;
 use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
 use App\Support\Live;
+use App\Support\Notify;
 use App\Support\TicketAssignment;
 use App\Support\TicketJourney;
 use App\Support\TicketTriage;
@@ -105,7 +110,42 @@ class TicketController extends Controller
         $type = $data['type'];
         TriageTicketOnOpenJob::dispatch($ticket, $details, $type);
 
+        // تنبيهات فتح التذكرة: داخلي (موظفو فرعها + الإدارة العليا) + بريد (العميل والموظفين والإدارة)
+        $this->notifyTicketOpened($ticket->fresh(), $request->user());
+
         return redirect()->route('tickets.show', $ticket);
+    }
+
+    /**
+     * تنبيهات فتح التذكرة — كانت التذكرة الجديدة تصل صامتةً: لا يعلم بها الموظف/الإدارة
+     * إلا بتصفّح القائمة، ولا يصل العميل تأكيد استلام. أفضل-جهد بعد الإسناد (الفرع مختوم).
+     */
+    private function notifyTicketOpened(Ticket $ticket, User $client): void
+    {
+        $mail = app(MailService::class);
+
+        // العميل: تأكيد استلام (بريد فقط — المحادثة نفسها أمامه)
+        $mail->send($client, new TicketOpenedMail($ticket, 'client'));
+
+        // موظفو فرع التذكرة (بلا فرع = كل الموظفين — مجمّع الاستقبال المشترك): إشعار داخلي + بريد
+        $employees = User::where('role', Role::Employee)->where('status', 'active')
+            ->when($ticket->branch, fn ($q) => $q->where('branch', $ticket->branch))
+            ->get();
+        foreach ($employees as $employee) {
+            Notify::send($employee->id, 'folder', 't-blue', "تذكرة جديدة {$ticket->number} من العميل — {$ticket->type}. يُرجى المتابعة من لوحة التذاكر.");
+        }
+        if ($employees->isNotEmpty()) {
+            $mail->send($employees->all(), new TicketOpenedMail($ticket, 'employee'));
+        }
+
+        // الإدارة العليا: إشعار داخلي + بريد
+        $admins = User::where('role', Role::Admin)->get();
+        foreach ($admins as $admin) {
+            Notify::send($admin->id, 'folder', 't-blue', "تذكرة جديدة {$ticket->number} من العميل — {$ticket->type}.");
+        }
+        if ($admins->isNotEmpty()) {
+            $mail->send($admins->all(), new TicketOpenedMail($ticket, 'admin'));
+        }
     }
 
     // محادثة تذكرة واحدة

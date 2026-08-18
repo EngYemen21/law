@@ -131,8 +131,8 @@ export interface MeetRequest {
 export const MEET_REQUESTS: MeetRequest[] = [
   { id: 'MR-1042', client: 'عبدالله العتيبي', service: 'نزاع تجاري', type: 'استشارة مرئية', day: 'الاثنين 29 يونيو', time: '11:30 ص', by: 'منيرة الحربي (خدمة العملاء)', stage: 0 },
   { id: 'MR-1039', client: 'نورة الدوسري', service: 'قضية عمالية', type: 'استشارة هاتفية', day: 'الثلاثاء 30 يونيو', time: '10:00 ص', by: 'الإدارة العليا', stage: 0 },
-  { id: 'MR-1035', client: 'شركة الأفق', service: 'مراجعة عقد', type: 'استشارة حضورية', day: 'الأربعاء 01 يوليو', time: '01:00 م', by: 'منيرة الحربي (خدمة العملاء)', stage: 1, meetId: 'SLS-204517', meetLink: 'https://meet.salasel.sa/SLS-204517' },
-  { id: 'MR-1028', client: 'فهد الشهري', service: 'تنفيذ حكم', type: 'استشارة مرئية', day: 'الأحد 28 يونيو', time: '09:00 ص', by: 'الإدارة العليا', stage: 2, meetId: 'SLS-338290', meetLink: 'https://meet.salasel.sa/SLS-338290' },
+  { id: 'MR-1035', client: 'شركة الأفق', service: 'مراجعة عقد', type: 'استشارة حضورية', day: 'الأربعاء 01 يوليو', time: '01:00 م', by: 'منيرة الحربي (خدمة العملاء)', stage: 1, meetId: 'SLS-204517', meetLink: 'https://salaselbabel.net/SLS-204517' },
+  { id: 'MR-1028', client: 'فهد الشهري', service: 'تنفيذ حكم', type: 'استشارة مرئية', day: 'الأحد 28 يونيو', time: '09:00 ص', by: 'الإدارة العليا', stage: 2, meetId: 'SLS-338290', meetLink: 'https://salaselbabel.net/SLS-338290' },
 ];
 
 // ── الاستشارات (CONSULTS) ──
@@ -169,7 +169,7 @@ export const CONSULTS: Consult[] = RAW_CONSULTS.map((c, i) => ({
   when: c.received,
   branch: `الفرع الرئيسي — جدة · قاعة ${(i % 3) + 1}`,
   phone: `05•••••${10 + i}`,
-  slink: `https://meet.salasel.sa/CN-${c.ref.split('-').pop()}`,
+  slink: `https://salaselbabel.net/CN-${c.ref.split('-').pop()}`,
 }));
 
 export const CONSULT_CHANNELS: [string, string][] = [

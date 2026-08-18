@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Models\Branch;
 use App\Models\User;
 use App\Support\Permissions;
+use App\Support\Specialties;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -13,9 +14,12 @@ use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
 
 /**
- * بذرة الحسابات الحقيقية فقط — بلا أي بيانات تشغيلية وهمية.
- * تنشئ: الإدارة العليا + عميل + (محامٍ وموظف) لكل فرع، مع الصلاحيات الصحيحة لكل دور.
- * كلمة المرور للجميع: password.
+ * بذرة الحسابات الأساسية فقط — بلا أي بيانات تشغيلية تجريبية.
+ * أربعة حسابات (الإدارة/المحامي/الموظف في الفرع الرئيسي):
+ *   الإدارة العليا 1000000001 · المحامي 1000000002 · الموظف 1000000003 · العميل 1000000004.
+ * المحامي: كل صلاحيات دوره + دور «محامٍ» + مسنَد إليه كل الأقسام (تخصّص عام).
+ * الموظف: كل صلاحيات دوره + دور «خدمة عملاء».
+ * كلمة المرور للجميع: password — ورمز OTP التطويري: 1234.
  */
 class DatabaseSeeder extends Seeder
 {
@@ -28,80 +32,52 @@ class DatabaseSeeder extends Seeder
         $this->call(BranchSeeder::class);
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
-        // الإدارة العليا (تتجاوز الصلاحيات عبر Gate::before)
-        // ملاحظة: national_id + phone إلزاميان للدخول برقم الهويّة + رمز SMS (OTP)
+        // 1) الإدارة العليا (تتجاوز الصلاحيات عبر Gate::before) — دخول: 1000000001
         $this->makeUser([
-            'name' => 'الإدارة العليا', 'email' => 'admin@salasel.sa', 'role' => Role::Admin,
+            'name' => 'الإدارة العليا', 'email' => 'kfykfy2020@gmail.com', 'role' => Role::Admin,
             'avatar_initials' => 'إ ع', 'branch' => Branch::DEFAULT, 'job_title' => 'مدير عام',
-            'national_id' => '1000000001', 'phone' => '0500000001',
+            'national_id' => '1000000001', 'phone' => '+966537434000',
         ]);
 
-        // حساب محامٍ إضافيّ لنفس شخص الإدارة العليا (نفس الهُويّة + الجوال، بريد مختلف)
-        // — لتوضيح «الشخص الواحد بأكثر من دور»: يظهر مُنتقي الحساب عند الدخول + «تبديل الحساب».
-        $adminLawyer = $this->makeUser([
-            'name' => 'الإدارة العليا', 'email' => 'admin.lawyer@salasel.sa', 'role' => Role::Lawyer,
-            'title' => 'أ.', 'job_title' => 'محامٍ', 'branch' => Branch::DEFAULT, 'department' => 'القضايا التجارية',
-            'work_start' => '09:00', 'work_end' => '17:00', 'avatar_initials' => 'إ ع',
-            'national_id' => '1000000001', 'phone' => '0500000001',
+        // 2) المحامي — دخول: 1000000002 — كل صلاحيات دوره + دور «محامٍ» + مسنَد إليه كل الأقسام
+        $lawyer = $this->makeUser([
+            'name' => 'المحامي', 'email' => 'law@salasel.sa', 'role' => Role::Lawyer,
+            'title' => 'أ.', 'job_title' => 'محامٍ', 'branch' => Branch::DEFAULT,
+            'department' => Specialties::ALL_DEPARTMENTS,
+            'work_start' => '09:00', 'work_end' => '17:00', 'avatar_initials' => 'مح',
+            'national_id' => '1000000002', 'phone' => '+966537434000',
         ]);
-        $adminLawyer->syncPermissions(
+        $lawyer->syncRoles(['محامٍ']);
+        $lawyer->syncPermissions(
             Permission::whereIn('name', Permissions::ROLE_PERMISSIONS['lawyer'])->get()
         );
 
-        // عميل
-        $this->makeUser([
-            'name' => 'العميل', 'email' => 'client@salasel.sa', 'role' => Role::Client,
-            'avatar_initials' => 'عم', 'national_id' => '1000000002', 'phone' => '0500000002',
+        // 3) الموظف — دخول: 1000000003 — كل صلاحيات دوره + دور «خدمة عملاء»
+        //    بنفس فرع المحامي/الإدارة (الفرع الرئيسي) كي تكتمل الرحلة أمام الأدوار الثلاثة
+        $employee = $this->makeUser([
+            'name' => 'الموظف', 'email' => 'emp@salasel.sa', 'role' => Role::Employee,
+            'job_title' => 'موظف خدمة عملاء', 'branch' => Branch::DEFAULT,
+            'department' => 'خدمة العملاء',
+            'work_start' => '08:00', 'work_end' => '16:00', 'avatar_initials' => 'مو',
+            'national_id' => '1000000003', 'phone' => '+966537434000',
         ]);
+        $employee->syncRoles(['خدمة عملاء']);
+        $employee->syncPermissions(
+            Permission::whereIn('name', Permissions::ROLE_PERMISSIONS['employee'])->get()
+        );
 
-        // محامٍ + موظف لكل فرع (بصلاحيات القالب الصحيحة لكل دور)
-        $branches = [
-            ['name' => 'الفرع الرئيسي — جدة', 'slug' => 'jeddah', 'city' => 'جدة', 'dept' => 'القضايا التجارية', 'seq' => 1],
-            ['name' => 'فرع الرياض', 'slug' => 'riyadh', 'city' => 'الرياض', 'dept' => 'الأحوال الشخصية', 'seq' => 2],
-            ['name' => 'فرع الدمام', 'slug' => 'dammam', 'city' => 'الدمام', 'dept' => 'العقارات', 'seq' => 3],
-        ];
-
-        foreach ($branches as $b) {
-            $lawyer = $this->makeUser([
-                'name' => 'محامي فرع '.$b['city'], 'email' => "lawyer.{$b['slug']}@salasel.sa",
-                'role' => Role::Lawyer, 'title' => 'أ.', 'job_title' => 'محامٍ',
-                'branch' => $b['name'], 'department' => $b['dept'],
-                'work_start' => '09:00', 'work_end' => '17:00', 'avatar_initials' => 'مح',
-                'national_id' => '10000000'.$b['seq'].'1', 'phone' => '05000000'.$b['seq'].'1',
-            ]);
-            $lawyer->syncPermissions(
-                Permission::whereIn('name', Permissions::ROLE_PERMISSIONS['lawyer'])->get()
-            );
-
-            $employee = $this->makeUser([
-                'name' => 'موظف فرع '.$b['city'], 'email' => "employee.{$b['slug']}@salasel.sa",
-                'role' => Role::Employee, 'job_title' => 'موظف خدمة عملاء',
-                'branch' => $b['name'], 'department' => 'خدمة العملاء',
-                'work_start' => '08:00', 'work_end' => '16:00', 'avatar_initials' => 'مو',
-                'national_id' => '10000000'.$b['seq'].'2', 'phone' => '05000000'.$b['seq'].'2',
-            ]);
-            $employee->syncPermissions(
-                Permission::whereIn('name', Permissions::ROLE_PERMISSIONS['employee'])->get()
-            );
-        }
+        // 4) العميل — دخول: 1000000004
+        $this->makeUser([
+            'name' => 'العميل', 'email' => 'm.bander.it@gmail.com', 'role' => Role::Client,
+            'avatar_initials' => 'عم', 'national_id' => '1000000004', 'phone' => '+967779475324',
+        ]);
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
-
-        // بيانات تجريبية حقيقية للعميل (تذاكر + استشارات قيد المعالجة + مواعيد مجدولة فعلياً
-        // عبر مسار الحجز الحقيقي) — تُعيد تشغيلها بأمان دون تكرار (فحوصات وجود مسبقة).
-        $this->call([
-            TicketSeeder::class,
-            ConsultSeeder::class,
-            AppointmentSeeder::class,
-            MeetingSeeder::class,
-            ExecutionSeeder::class,
-        ]);
     }
 
     /**
      * إنشاء/تحديث حساب فعّال بكلمة المرور الموحّدة — يطابق بالبريد أولاً، وإلا يتحقّق من
-     * تعارض حقيقي على قيد التفرّد (رقم الهوية + الدور): إن وُجد حساب حقيقي آخر (مثلاً أنشأه
-     * مستخدم فعليّ عبر تسجيل OTP بنفس رقم الهوية التجريبي) يُعاد كما هو دون لمسه أو تكراره.
+     * تعارض حقيقي على قيد التفرّد (رقم الهوية + الدور): إن وُجد حساب حقيقي آخر يُعاد كما هو.
      */
     private function makeUser(array $attrs): User
     {

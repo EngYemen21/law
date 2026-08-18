@@ -31,15 +31,17 @@ class LawyerPanelTest extends TestCase
 
         Task::create(['assigned_to' => $lawyer->id, 'title' => 'مهمة مفتوحة', 'status' => 'مفتوحة', 'tone' => 'b-amber']);
         Task::create(['assigned_to' => $lawyer->id, 'title' => 'مهمة منجزة', 'status' => 'منجزة', 'tone' => 'b-green']);
+        // created_by عمود نصّي يخزّن الاسم (كما يكتبه Staff\MeetingController فعلاً) — كان الاختبار
+        // يضع معرّفاً رقمياً فيطابق العدّاد المعطوب القديم الذي قارن الاسم بالمعرّف
         Meeting::create(['user_id' => $client->id, 'ref' => 'MTG-1', 'title' => 'اجتماع', 'type' => 'اجتماع عميل',
-            'when_label' => 'الأحد', 'status' => 'قادم', 'approve' => 'معتمد', 'created_by' => $lawyer->id]);
+            'when_label' => 'الأحد', 'status' => 'قادم', 'approve' => 'معتمد', 'created_by' => $lawyer->name]);
 
         $this->actingAs($lawyer)->get(route('lawyer.dashboard'))
             ->assertOk()
             ->assertInertia(fn ($p) => $p->component('lawyer/dashboard')
                 ->where('pendingSummaries', 1)
                 ->where('openTasks', 1)
-                ->where('todayMeetings', 1)
+                ->where('openMeetings', 1)
                 ->has('tickets', 1));
     }
 

@@ -61,7 +61,8 @@ class MeetingLifecycleTest extends TestCase
         $this->actingAs($admin)->post(route('admin.meetings.start', $meeting))->assertRedirect();
 
         $this->assertSame('جارٍ', $meeting->fresh()->status);
-        $this->assertTrue((bool) $meeting->fresh()->is_up);
+        // «القادم/الجاري» يُشتق حيّاً — is_up مهجور لم يعد يُكتب
+        $this->assertTrue($meeting->fresh()->isUpcoming());
         $this->assertSame(MeetRequest::STAGE_EXECUTED, $req->fresh()->stage);
     }
 
@@ -137,8 +138,11 @@ class MeetingLifecycleTest extends TestCase
         $fresh = $meeting->fresh();
         $this->assertSame('ملغى', $fresh->status);
         $this->assertNull($fresh->meet_id);
-        $this->assertFalse((bool) $fresh->is_up);
-        $this->assertSame(0, MeetRequest::where('meeting_id', $meeting->id)->count());
+        $this->assertFalse($fresh->isUpcoming());
+        // الدعوة تبقى سجلاً تاريخياً بمرحلة «أُلغيت» (كان الحذف الصلب يُخفيها عن العميل بلا تفسير)
+        $req = MeetRequest::where('meeting_id', $meeting->id)->firstOrFail();
+        $this->assertSame(MeetRequest::STAGE_CANCELLED, $req->stage);
+        $this->assertFalse($req->canJoin());
 
         Http::assertSent(fn ($r) => $r->method() === 'DELETE'
             && str_contains($r->url(), 'api.zoom.us/v2/meetings/81823767754'));

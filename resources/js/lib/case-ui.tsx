@@ -24,6 +24,8 @@ export function caseStage(status: string): number {
 export interface Hearing {
   id: number; title: string; day: string; time?: string | null;
   court?: string | null; status: string; outcome?: string | null; startsAt?: string | null;
+  // جلسة «مجدولة» فات موعدها بلا نتيجة — الحالة المخزّنة لا تتحدّث بمرور الوقت (يشتقها الخادم)
+  lapsed?: boolean;
 }
 
 /** نغمة حالة الجلسة — مصدر وحيد (يستعملها تقويم المحامي أيضاً) */
@@ -42,7 +44,11 @@ export const HearingsCard: React.FC<{ hearings: Hearing[] }> = ({ hearings }) =>
             <span>{h.day}{h.time ? ` · ${h.time}` : ''}{h.court ? ` · ${h.court}` : ''}</span>
             {h.outcome && <span style={{ display: 'block', color: 'var(--muted)', marginTop: 3 }}>{h.outcome}</span>}
           </div>
-          <div className="iact"><Badge text={h.status} tone={hearingTone(h.status)} /></div>
+          <div className="iact">
+            {h.lapsed
+              ? <Badge text="فائتة — بانتظار النتيجة" tone="b-amber" />
+              : <Badge text={h.status} tone={hearingTone(h.status)} />}
+          </div>
         </div>
       )) : (
         <div className="empty"><Icon name="cal" /><b>لا جلسات بعد</b></div>

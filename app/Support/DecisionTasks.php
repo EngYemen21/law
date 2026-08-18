@@ -49,6 +49,7 @@ class DecisionTasks
                 'title' => $taskTitle,
                 'ref' => $ref,
                 'due' => 'خلال أسبوع',
+                'due_at' => now()->addWeek()->toDateString(),
                 'status' => 'مفتوحة',
                 'tone' => 'b-amber',
             ]);

@@ -51,13 +51,35 @@ class Consult extends Model
     /**
      * هل يُفعَّل زر «الدخول إلى الجلسة»؟ للمرئية فقط، بعد إطلاق الرابط (قبل الموعد بـ5د)،
      * وقبل انتهاء الجلسة. قبل الإطلاق يكون الزر معطّلاً تماماً.
+     * سقف علوي: كان الشرط بلا حدّ زمني فيبقى الزر مفعّلاً للأبد بعد فوات موعد لم تُعقد جلسته.
      */
     public function canJoin(): bool
     {
-        return $this->channel === 'مرئية'
-            && $this->session !== 'منتهية'
-            // يُفعَّل بإطلاق الرابط قبل الموعد بـ5د، أو فور بدء المحامي للجلسة (جارية الآن)
-            && ($this->link_released_at !== null || $this->session === 'جلسة جارية');
+        if ($this->channel !== 'مرئية' || $this->session === 'منتهية') {
+            return false;
+        }
+
+        // جلسة جارية فعلاً: الدخول متاح ضمن سقف (المدة + 180د) — لا «جارية» أبدية
+        if ($this->session === 'جلسة جارية') {
+            return $this->starts_at === null
+                || $this->starts_at->copy()->addMinutes(($this->duration_min ?: 45) + 180)->isFuture();
+        }
+
+        if ($this->link_released_at === null) {
+            return false;
+        }
+
+        // أُطلق الرابط: نافذة مغلقة حتى (الموعد + المدة + 30د)
+        return $this->starts_at === null
+            || $this->starts_at->copy()->addMinutes(($this->duration_min ?: 45) + 30)->isFuture();
+    }
+
+    /** فاتت نافذة موعدها (البداية + المدة) ولم تُعقد جلستها — لا تُعرض «بانتظار الجلسة» للأبد */
+    public function isMissed(): bool
+    {
+        return $this->session === 'بانتظار الجلسة'
+            && $this->starts_at !== null
+            && $this->starts_at->copy()->addMinutes($this->duration_min ?: 45)->isPast();
     }
 
     public function user(): BelongsTo
@@ -91,7 +113,8 @@ class Consult extends Model
     public function joinLink(?User $user = null): string
     {
         if ($user && $user->role === Role::Lawyer) {
-            return url('/lawyer/consults/room?ref='.$this->ref);
+            // المساران /lawyer/consults{,/room} غير معرَّفين (404) — غرفة المحامي الفعلية videoroom
+            return url('/lawyer/videoroom?ref='.$this->ref);
         }
 
         return url('/consults/room?ref='.$this->ref);
@@ -101,7 +124,7 @@ class Consult extends Model
     public function portalUrlFor(?User $user = null): string
     {
         if ($user && $user->role === Role::Lawyer) {
-            return url('/lawyer/consults');
+            return url('/lawyer/consultrecv');
         }
 
         return url('/myconsults');
@@ -134,6 +157,7 @@ class Consult extends Model
             'branch' => $this->branch ?? '',
             'slink' => $this->channel === 'مرئية' ? $this->joinLink() : '',
             'canJoin' => $this->canJoin(), // زر الدخول معطّل حتى إطلاق الرابط قبل الموعد بـ5د
+            'missed' => $this->isMissed(), // فات موعدها بلا جلسة — كانت «بانتظار الجلسة» أبدية متناقضة مع «لم يحضر» في المواعيد
             'session' => $this->session,
             'status' => $this->status,
             'summary' => $this->summary,
@@ -144,6 +168,7 @@ class Consult extends Model
             'total' => $this->total,
             'priced' => $this->priced_at !== null,
             'paid' => $this->paid_at !== null,
+            'paidAgo' => $this->paid_at?->locale('ar')->diffForHumans(),
             'invoiceNo' => $this->invoice?->number,
             // ملاحظة: لا يُكشف للعميل رابط التسجيل ولا أنّ الجلسة مُسجّلة — داخلي للمكتب فقط
         ];
@@ -166,6 +191,12 @@ class Consult extends Model
             'slink' => $this->channel === 'مرئية' ? $this->joinLink() : '',
             'hostLink' => $this->channel === 'مرئية' ? ($this->host_link ?: null) : null,
             'session' => $this->session,
+            'missed' => $this->isMissed(), // فات موعدها بلا جلسة — تبويب «فائتة» وإجراءا لم يحضر/إعادة الجدولة
+            // «بدء الجلسة» ضمن نافذة الموعد فقط (قبل 15د فأقرب) — كان الزر ظاهراً لاستشارة بعد 3 أسابيع أو فائتة منذ شهر
+            'startable' => ! $this->isMissed()
+                && $this->session === 'بانتظار الجلسة'
+                && ($this->starts_at === null || now()->greaterThanOrEqualTo($this->starts_at->copy()->subMinutes(15))),
+            'startsAt' => $this->starts_at?->toIso8601String(),
             'status' => $this->status,
             'summary' => $this->summary,
             'duration' => $this->duration_label,
@@ -175,11 +206,13 @@ class Consult extends Model
             'total' => $this->total,
             'priced' => $this->priced_at !== null,
             'paid' => $this->paid_at !== null,
+            'paidAgo' => $this->paid_at?->locale('ar')->diffForHumans(),
             'invoiceNo' => $this->invoice?->number,
             // رحلة المعالجة (يطابق واجهة Consult في employee-data)
             'type' => $this->type ?? 'عام',
             'priority' => $this->priority ?? 'متوسطة',
-            'received' => $this->received_label ?: $this->when_label,
+            // «الآن» المخزّنة كانت تتجمّد للأبد — الاشتقاق الحيّ من وقت الإنشاء (العمود يبقى للتوافق)
+            'received' => $this->created_at?->locale('ar')->diffForHumans() ?? ($this->received_label ?: $this->when_label),
             'employee' => $this->employee ?: '—',
             'mins' => $this->mins ?? 0,
             'aiDone' => (bool) $this->ai_done,
@@ -201,7 +234,8 @@ class Consult extends Model
     // يضيف قيداً في سجل التدقيق (الأحدث أولاً) — على المستدعي الحفظ
     public function logAudit(string $user, string $field, string $before, string $after): void
     {
-        $entry = ['user' => $user, 'field' => $field, 'before' => $before, 'after' => $after, 'time' => 'الآن'];
+        // طابع حقيقي — «الآن» النصية كانت تجعل كل قيود التدقيق تقول «الآن» للأبد
+        $entry = ['user' => $user, 'field' => $field, 'before' => $before, 'after' => $after, 'time' => now()->format('Y/m/d h:i')];
         $this->audit = array_merge([$entry], $this->audit ?? []);
     }
 }

@@ -27,18 +27,13 @@ class AccountingController extends Controller
             'invoices' => $invoices->map(fn (Invoice $v) => [
                 'no' => $v->number,
                 'client' => Ticket::maskClient($v->user?->name ?? ''),
-                'desc' => $v->description,
-                'amount' => $v->amount,
-                'status' => $v->status,
-                'tone' => $v->tone,
-                'due' => $v->due_label,
-                'paid' => $v->paid,
-            ]),
+            ] + $v->toCard()),
             'totals' => [
                 'issued' => $issued,
                 'collected' => $collected,
                 'due' => $issued - $collected,
-                'overdue' => $invoices->where('paid', false)->count(),
+                // كانت «متأخرة» تعدّ كل غير المدفوع (فاتورة صدرت قبل ساعة تُحسب متأخرة) — الفيصل تجاوز الاستحقاق
+                'overdue' => $invoices->filter(fn (Invoice $v) => $v->isOverdue())->count(),
             ],
         ]);
     }

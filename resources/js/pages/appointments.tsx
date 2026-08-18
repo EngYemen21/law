@@ -32,7 +32,7 @@ const ApptCard: React.FC<{ a: Appt }> = ({ a }) => {
     encodeURIComponent(a.type);
 
   const copyLink = () => {
-    const link = 'https://meet.salasel.sa/APT-' + a.id;
+    const link = 'https://salaselbabel.net/APT-' + a.id;
     try {
       navigator.clipboard?.writeText(link).then(
         () => toast('تم نسخ الرابط'),
@@ -110,7 +110,7 @@ const ApptCard: React.FC<{ a: Appt }> = ({ a }) => {
           </div>
         </div>
         <div className="apptx-foot">
-          <span>www.sb-legal.sa · 011 462 2277</span>
+          <span>https://salaselbabel.net/ · 011 462 2277</span>
           <span>يُرجى الحضور قبل الموعد بـ15 دقيقة وإحضار المستندات المطلوبة</span>
         </div>
       </div>
@@ -181,9 +181,16 @@ const Appointments: React.FC<{ appointments: Appt[] }> = ({ appointments }) => {
       </div>
 
       <div className="card">
-        <div className="card-h"><h3>المواعيد السابقة</h3></div>
+        <div className="card-h">
+          <h3>المواعيد السابقة</h3>
+          <span className="sub">{past.length} مواعيد</span>
+        </div>
         <div className="card-b">
-          {past.map((a) => <ApptItem key={a.id} a={a} onOpen={setSel} />)}
+          {past.length ? (
+            past.map((a) => <ApptItem key={a.id} a={a} onOpen={setSel} />)
+          ) : (
+            <div className="empty"><Icon name="clock" /><b>لا مواعيد سابقة</b></div>
+          )}
         </div>
       </div>
 

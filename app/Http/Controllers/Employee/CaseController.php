@@ -26,7 +26,7 @@ class CaseController extends Controller
             'lawyer' => $c->assigned_lawyer ?: '—',
             'status' => $c->status,
             'tone' => $c->tone,
-            'next' => $c->next_hearing,
+            'next' => $c->nextHearingLabel(),
         ]);
 
         return Inertia::render('employee/cases', ['cases' => $cases]);
@@ -41,7 +41,7 @@ class CaseController extends Controller
             'case' => [
                 'no' => $case->number, 'client' => Ticket::maskClient($case->user?->name ?? ''),
                 'type' => $case->type, 'dept' => $case->department, 'lawyer' => $case->assigned_lawyer ?: '—',
-                'status' => $case->status, 'tone' => $case->tone, 'next' => $case->next_hearing,
+                'status' => $case->status, 'tone' => $case->tone, 'next' => $case->nextHearingLabel(),
             ],
             'channel' => 'case.'.$case->id,
             'messages' => $case->messages->where('who', '!=', 'note')->values()->map->toMessage(),

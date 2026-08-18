@@ -1,5 +1,6 @@
 import { router } from '@inertiajs/react';
 import React, { useEffect, useState } from 'react';
+import Badge from '@/components/babylon/Badge';
 import Modal from '@/components/babylon/Modal';
 import type {Meeting} from '@/lib/data';
 import { echo } from '@/lib/echo';
@@ -19,9 +20,18 @@ const Meetings: React.FC<{ meetings: Meeting[] }> = ({ meetings }) => {
 return;
 }
 
-      echo.private(`meeting.${m.id}`).listen('.status', (e: { status: string; summary: string | null; minutes: string | null }) => {
+      // الحالة الحيّة وزر الدخول يصلان من الخادم — كان canJoin لقطة جامدة وup يُعاد اشتقاقه بمنطق ساكن بالمتصفح
+      echo.private(`meeting.${m.id}`).listen('.status', (e: { status: string; liveStatus?: string; tone?: string; up?: boolean; canJoin?: boolean; summary: string | null; minutes: string | null }) => {
         setItems((prev) => prev.map((x) => x.id === m.id
-          ? { ...x, summary: e.summary ?? x.summary, minutes: e.minutes ?? x.minutes, up: e.status === 'قادم' || e.status === 'جارٍ' }
+          ? {
+              ...x,
+              summary: e.summary ?? x.summary,
+              minutes: e.minutes ?? x.minutes,
+              up: e.up ?? (e.status === 'قادم' || e.status === 'جارٍ'),
+              status: e.liveStatus ?? x.status,
+              tone: e.tone ?? x.tone,
+              canJoin: e.canJoin ?? x.canJoin,
+            }
           : x));
       });
     });
@@ -42,6 +52,10 @@ return;
         <span>{m.when}</span>
       </div>
       <div className="iact">
+        {/* شارة الحالة الحيّة — كان العميل بلا أي شارة فلا يفرّق منتهياً عن ملغى عن «لم ينعقد» */}
+        {m.status && <Badge text={m.status} tone={m.tone || 'b-grey'} />}
+        {/* المحضر/الملخص لا يظهران إلا بعد اعتماد الإدارة — الشارة توضّح ذلك للعميل */}
+        {m.approved && <Badge text="معتمد" tone="b-green" />}
         {m.up && (
           m.canJoin ? (
             <button className="btn sm" type="button" onClick={() => router.visit(`/meetingroom?ref=${encodeURIComponent(m.ref)}`)}>

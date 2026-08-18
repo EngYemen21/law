@@ -31,11 +31,16 @@ class TaskController extends Controller
             'due' => ['nullable', 'string', 'max:60'],
         ]);
 
+        // استحقاق حقيقي إن كان النص تاريخاً (حقل date بالواجهة) — النص الحرّ يبقى عرضاً فقط
+        $due = trim($data['due'] ?? '');
+        $dueAt = preg_match('/^\d{4}-\d{2}-\d{2}$/', $due) ? $due : null;
+
         Task::create([
             'assigned_to' => $request->user()->id,
             'title' => $data['title'],
             'ref' => $data['ref'] ?? null,
-            'due' => $data['due'] ?? null,
+            'due' => $due !== '' ? $due : null,
+            'due_at' => $dueAt,
             'status' => 'مفتوحة',
             'tone' => 'b-amber',
         ]);
@@ -47,7 +52,8 @@ class TaskController extends Controller
     {
         abort_unless($task->assigned_to === $request->user()->id, 403);
 
-        $task->update(['status' => 'منجزة', 'tone' => 'b-green', 'due' => 'مكتملة']);
+        // لا دهس للاستحقاق («مكتملة» كانت تمحو الموعد الأصلي فيضيع أثر الالتزام) — طابع إنجاز حقيقي
+        $task->update(['status' => 'منجزة', 'tone' => 'b-green', 'completed_at' => now()]);
 
         return back();
     }

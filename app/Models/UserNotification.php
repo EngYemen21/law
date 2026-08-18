@@ -25,7 +25,8 @@ class UserNotification extends Model
             'ic' => $this->icon,
             'tone' => $this->tone,
             'text' => $this->body,
-            'time' => $this->time_label,
+            // عمر حقيقي من created_at — كان time_label يُخزَّن «الآن» مرة واحدة فيبقى «الآن» للأبد
+            'time' => $this->created_at?->locale('ar')->diffForHumans() ?: $this->time_label,
             'unread' => ! $this->is_read,
         ];
     }

@@ -36,9 +36,10 @@ class ConsultController extends Controller
     // (تُستثنى طلبات ما قبل الجلسة: تسعير/سداد/اختيار موعد — مكانها شاشة «طلبات الاستشارات»)
     public function index(Request $request): Response
     {
+        // ترتيب بموعد الجلسة (الأقرب أولاً، بلا موعد آخراً) — كان بالمعرّف فتختلط الفائتة بالقادمة
         $consults = $this->scopeForRole($request, Consult::with('user'))
             ->whereNotIn('status', Consult::PRE_SESSION_STATUSES)
-            ->latest('id')->get()
+            ->orderByRaw('starts_at IS NULL')->orderBy('starts_at')->latest('id')->get()
             ->map(fn (Consult $c) => $c->toCard());
 
         return Inertia::render($this->prefix($request).'/consults', [
@@ -249,9 +250,10 @@ class ConsultController extends Controller
     // (تُستثنى طلبات ما قبل الجلسة: تسعير/سداد/اختيار موعد — مكانها قائمة إدارة الاستشارات)
     public function recv(Request $request): Response
     {
+        // ترتيب بموعد الجلسة (الأقرب أولاً، بلا موعد آخراً) — كان بالمعرّف فتختلط الفائتة بالقادمة
         $consults = $this->scopeForRole($request, Consult::with('user'))
             ->whereNotIn('status', Consult::PRE_SESSION_STATUSES)
-            ->latest('id')->get()
+            ->orderByRaw('starts_at IS NULL')->orderBy('starts_at')->latest('id')->get()
             ->map(fn (Consult $c) => $c->toCard());
 
         return Inertia::render($this->prefix($request).'/consultrecv', [
@@ -299,6 +301,85 @@ class ConsultController extends Controller
             Live::push(new ConsultStatusBroadcast($consult));
             FinalizeConsultJob::dispatch($consult, $notes);
         }
+
+        return back();
+    }
+
+    // تذكير عميلٍ دفع ولم يختر موعده — الطلب كان يعلق للأبد بلا أي إجراء إداري
+    public function remindSchedule(Request $request, Consult $consult): RedirectResponse
+    {
+        $this->guardConsult($request, $consult);
+        abort_unless($consult->status === 'بانتظار تحديد الموعد', 422, 'التذكير متاح للطلبات المدفوعة بانتظار اختيار الموعد فقط.');
+
+        Notify::send($consult->user_id, 'cal', 't-amber', "تذكير: استشارتك ({$consult->ref}) مدفوعة وبانتظار اختيارك موعد الجلسة من «استشاراتي».");
+        $consult->logAudit($request->user()->name, 'تذكير', '—', 'تذكير باختيار الموعد');
+        $consult->save();
+
+        return back()->with('flash', 'أُرسل التذكير للعميل.');
+    }
+
+    // إلغاء طلب معلّق قبل الجلسة — يُحيي حالة «ملغاة» التي لم يكن لها كاتب في النظام
+    public function cancelRequest(Request $request, Consult $consult): RedirectResponse
+    {
+        $this->guardConsult($request, $consult);
+        abort_unless(in_array($consult->status, Consult::PRE_SESSION_STATUSES, true), 422, 'الإلغاء متاح لطلبات ما قبل الجلسة فقط.');
+
+        $before = $consult->status;
+        $consult->status = 'ملغاة';
+        $consult->logAudit($request->user()->name, 'الحالة', $before, 'ملغاة');
+        $consult->save();
+
+        Live::push(new ConsultStatusBroadcast($consult));
+        Notify::send($consult->user_id, 'info', 't-grey', "أُلغي طلب استشارتك ({$consult->ref}). إن كنت قد سددت فسيتواصل معك المكتب بشأن الاسترداد.");
+
+        return back()->with('flash', 'أُلغي الطلب وأُشعر العميل.');
+    }
+
+    // وسم «لم يحضر» لاستشارة فات موعدها بلا جلسة — كانت تعلق «بانتظار الجلسة» للأبد بلا أي إجراء،
+    // والحيلة الوحيدة (بدء+إنهاء فوري) كانت تزوّر السجل جلسةً منعقدة
+    public function noShow(Request $request, Consult $consult): RedirectResponse
+    {
+        $this->guardConsult($request, $consult);
+        abort_if($consult->session !== 'بانتظار الجلسة', 422, 'الجلسة بدأت أو انتهت — لا يصحّ وسمها «لم يحضر».');
+        abort_unless($consult->isMissed(), 422, 'لم يحن موعد الاستشارة بعد.');
+
+        $consult->session = 'لم تُعقد';
+        $consult->status = 'لم يحضر';
+        $consult->logAudit($request->user()->name, 'الجلسة', 'بانتظار الجلسة', 'لم يحضر');
+        $consult->save();
+
+        Live::push(new ConsultStatusBroadcast($consult));
+        Notify::send($consult->user_id, 'clock', 't-red', "لم تُعقد جلسة استشارتك ({$consult->ref}) في موعدها. يمكنك التواصل مع المكتب لإعادة الجدولة.");
+
+        return back();
+    }
+
+    // إعادة جدولة استشارة لم تنعقد: تعود لمرحلة اختيار الموعد، ويُلغى موعدها القديم واجتماع Zoom المرتبط
+    public function reschedule(Request $request, Consult $consult): RedirectResponse
+    {
+        $this->guardConsult($request, $consult);
+        abort_if($consult->session === 'منتهية', 422, 'الجلسة انتهت — لا يمكن إعادة جدولتها.');
+        abort_if(in_array($consult->status, Consult::PRE_SESSION_STATUSES, true), 422, 'الاستشارة لم تُجدول بعد أصلاً.');
+
+        // إلغاء الموعد القديم (يظهر «ملغي» في تبويب المواعيد لا «لم يحضر»)
+        $consult->appointment?->update(['status' => 'ملغي', 'tone' => 'b-grey', 'when_kind' => 'past']);
+
+        $old = $consult->when_label ?: '—';
+        $consult->status = 'بانتظار تحديد الموعد';
+        $consult->session = 'بانتظار الجلسة';
+        $consult->starts_at = null;
+        $consult->when_label = 'بانتظار اختيار موعد جديد';
+        // بيانات جلسة Zoom القديمة لم تعد صالحة للموعد الجديد
+        $consult->meet_id = null;
+        $consult->meet_link = null;
+        $consult->host_link = null;
+        $consult->meet_password = null;
+        $consult->link_released_at = null;
+        $consult->logAudit($request->user()->name, 'إعادة الجدولة', $old, 'بانتظار اختيار موعد جديد');
+        $consult->save();
+
+        Live::push(new ConsultStatusBroadcast($consult));
+        Notify::send($consult->user_id, 'cal', 't-amber', "أُعيدت استشارتك ({$consult->ref}) لاختيار موعد جديد — اختر الموعد المناسب من «استشاراتي».");
 
         return back();
     }

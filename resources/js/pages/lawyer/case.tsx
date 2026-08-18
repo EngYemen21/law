@@ -170,7 +170,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
                 {hearings.map((hr) => (
                   <div key={hr.id} className="item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <div className="imeta"><b>{hr.title}</b><span>{hr.day}{hr.time ? ` · ${hr.time}` : ''} · {hr.status}</span></div>
+                      <div className="imeta"><b>{hr.title}</b><span>{hr.day}{hr.time ? ` · ${hr.time}` : ''} · {hr.lapsed ? 'فائتة — سجّل نتيجتها' : hr.status}</span></div>
                       {hr.status !== 'ملغاة' && hr.status !== 'منعقدة' && (
                         <div className="iact" style={{ gap: 6 }}>
                           <button className="btn soft sm" type="button" onClick={() => (editId === hr.id ? setEditId(null) : startEdit(hr))}>تعديل</button>

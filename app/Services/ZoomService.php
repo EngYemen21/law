@@ -236,6 +236,49 @@ class ZoomService
     }
 
     /**
+     * أفضل ملف وسائط قابل للتنزيل لتسجيل اجتماع سحابي (فيديو MP4 أو صوت M4A) — [download_url + رمز] أو null.
+     * play_url المخزّن صفحة مشاهدة لا ملفاً؛ التنزيل الفعلي يحتاج download_url من واجهة التسجيلات.
+     *
+     * @return array{url:string, token:?string}|null
+     */
+    public function recordingDownload(string $meetingId, string $type = 'video'): ?array
+    {
+        if (! $this->isConfigured() || $meetingId === '') {
+            return null;
+        }
+
+        try {
+            $token = $this->token();
+            if (! $token) {
+                return null;
+            }
+
+            $resp = Http::withToken($token)->timeout(20)
+                ->get("https://api.zoom.us/v2/meetings/{$meetingId}/recordings");
+            if (! $resp->successful()) {
+                return null;
+            }
+
+            $files = (array) $resp->json('recording_files', []);
+            $file = $type === 'audio'
+                ? (collect($files)->firstWhere('recording_type', 'audio_only')
+                    ?: collect($files)->firstWhere('file_extension', 'M4A'))
+                : (collect($files)->firstWhere('recording_type', 'shared_screen_with_speaker_view')
+                    ?: collect($files)->firstWhere('file_extension', 'MP4'));
+            $url = $file['download_url'] ?? null;
+            if (! $url) {
+                return null;
+            }
+
+            return ['url' => (string) $url, 'token' => ($resp->json('download_access_token') ?: null)];
+        } catch (\Throwable $e) {
+            Log::warning('ZoomService recordingDownload failed: '.$e->getMessage());
+
+            return null;
+        }
+    }
+
+    /**
      * يجلب ملف النصّ التفريغي (VTT) من التسجيل السحابي وينظّفه إلى نصّ عربي متّصل.
      * يستخدم download_token من حدث recording.completed. يعيد null بلطف عند التعذّر.
      */

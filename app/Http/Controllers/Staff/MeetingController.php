@@ -7,10 +7,10 @@ use App\Events\MeetingStatusBroadcast;
 use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
 use App\Jobs\GenerateMeetingSummaryJob;
-use App\Mail\MeetInviteMail;
 use App\Mail\MeetingEndedMail;
 use App\Mail\MeetingEventMail;
 use App\Mail\MeetingScheduledMail;
+use App\Mail\MeetInviteMail;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\Task;
@@ -24,11 +24,12 @@ use App\Support\DecisionTasks;
 use App\Support\Live;
 use App\Support\MeetingTime;
 use App\Support\Notify;
+use App\Support\RecordingArchive;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -161,7 +162,6 @@ class MeetingController extends Controller
             'before_items' => ['تحليل الموضوع', 'مراجعة المستندات', 'تجهيز جدول الأعمال'],
             'during_items' => ['تحويل الصوت إلى نص', 'استخراج القرارات', 'تحديد المهام'],
             'after_items' => ['إنشاء الملخص', 'تحديث القضية', 'إنشاء المهام'],
-            'is_up' => true,
             'has_link' => true,
         ]);
 
@@ -209,21 +209,23 @@ class MeetingController extends Controller
         }
 
         // إشعار باقي الكادر القانوني والإداري المشارك في الجلسة (الموظفون/المحامون)
-        if (! empty($validated['participants'])) {
-            foreach ($validated['participants'] as $pName) {
-                $staffUser = User::where('name', $pName)->first();
-                if ($staffUser && $staffUser->id !== $assignedLawyer?->id) {
-                    $staffUrl = $meeting->portalUrlFor($staffUser);
-                    Notify::send($staffUser->id, 'video', 't-blue', "تمت إضافتك كمشارك في اجتماع «{$meeting->title}» — {$when}. متاح في لوحتك.");
-                    app(MailService::class)->send($staffUser, new MeetingScheduledMail(
-                        $staffUser->name,
-                        $meeting->title,
-                        $when,
-                        $staffUrl,
-                        'داخل النظام الإداري لمكاتب المحاماة',
-                        'تمت إضافتك كمشارك في الاجتماع من قِبل الإدارة، يرجى تسجيل الدخول للمنصة للحضور.'
-                    ));
-                }
+        // كانت الكتلة ميتة: $validated غير معرّف والمشاركون نصّ واحد لا مصفوفة — فلا يصل أي إشعار
+        $participantNames = preg_split('/[،,]/u', (string) ($data['participants'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        foreach (array_filter(array_map('trim', $participantNames)) as $pName) {
+            // الواجهة ترسل «الاسم (القسم/الدور)» — تُزال اللاحقة القوسية للمطابقة بالاسم المجرّد
+            $pName = trim((string) preg_replace('/\s*\([^)]*\)\s*$/u', '', $pName));
+            $staffUser = User::where('name', $pName)->first();
+            if ($staffUser && $staffUser->id !== $assignedLawyer?->id) {
+                $staffUrl = $meeting->portalUrlFor($staffUser);
+                Notify::send($staffUser->id, 'video', 't-blue', "تمت إضافتك كمشارك في اجتماع «{$meeting->title}» — {$when}. متاح في لوحتك.");
+                app(MailService::class)->send($staffUser, new MeetingScheduledMail(
+                    $staffUser->name,
+                    $meeting->title,
+                    $when,
+                    $staffUrl,
+                    'داخل النظام الإداري لمكاتب المحاماة',
+                    'تمت إضافتك كمشارك في الاجتماع من قِبل الإدارة، يرجى تسجيل الدخول للمنصة للحضور.'
+                ));
             }
         }
 
@@ -292,7 +294,6 @@ class MeetingController extends Controller
             $this->zoom->endMeeting((string) $meeting->meet_id);
             $meeting->update([
                 'status' => 'منتهٍ',
-                'is_up' => false,
                 'attend' => $data['attend'] ?? $meeting->attend ?: 90,
             ]);
             MeetRequest::where('meeting_id', $meeting->id)
@@ -312,7 +313,7 @@ class MeetingController extends Controller
     {
         $this->guardMeeting($request, $meeting);
         if (in_array($meeting->status, ['قادم', 'مؤجل'], true)) {
-            $meeting->update(['status' => 'جارٍ', 'is_up' => true]);
+            $meeting->update(['status' => 'جارٍ']);
             MeetRequest::where('meeting_id', $meeting->id)
                 ->where('stage', '<', MeetRequest::STAGE_EXECUTED)
                 ->update(['stage' => MeetRequest::STAGE_EXECUTED]);
@@ -329,6 +330,8 @@ class MeetingController extends Controller
     public function reschedule(Request $request, Meeting $meeting): RedirectResponse
     {
         $this->guardMeeting($request, $meeting);
+        // حارس خادمي: النهائية لا تُعاد جدولتها (إخفاء الزر في الواجهة وحده يُلتفّ عليه)
+        abort_if(in_array($meeting->status, ['منتهٍ', 'ملغى'], true), 422, 'الاجتماع منتهٍ أو ملغى — أنشئ اجتماعاً جديداً بدل إعادة جدولته.');
         $data = $request->validate([
             'day' => ['required', 'string', 'max:40'],
             'time' => ['nullable', 'string', 'max:20'],
@@ -348,11 +351,23 @@ class MeetingController extends Controller
 
         $meeting->update([
             'status' => $startsAt ? 'قادم' : 'مؤجل',
-            'is_up' => true,
             'when_label' => $when,
             'starts_at' => $startsAt,
             'reminder_sent_at' => null, // إعادة تسليح التذكير للموعد الجديد
+            // بيانات جلسة Zoom القديمة لم تعد تخص الموعد الجديد — كانت تلوّث liveState (فات ودخل أحد ⇒ منتهٍ)
+            'join_time' => null,
+            'leave_time' => null,
+            'duration_sec' => null,
+            'recording_url' => null,
+            'attend' => 0, // العمود غير قابل لـnull — صفر يعني «لم يُسجَّل حضور بعد»
         ]);
+        // دعوة نُفّذت جلستها أو انتهت صلاحيتها تعود «مؤكدة» بالموعد الجديد (المرسلة تبقى بانتظار العميل)
+        MeetRequest::where('meeting_id', $meeting->id)
+            ->whereIn('stage', [MeetRequest::STAGE_EXECUTED, MeetRequest::STAGE_EXPIRED])
+            ->update(['stage' => MeetRequest::STAGE_CONFIRMED]);
+        MeetRequest::where('meeting_id', $meeting->id)
+            ->where('stage', '!=', MeetRequest::STAGE_CANCELLED)
+            ->update(['day' => $data['day'], 'time' => ($data['time'] ?? '') ?: '—']);
         if ($meeting->user_id) {
             Notify::send($meeting->user_id, 'cal', 't-amber', "أُعيدت جدولة اجتماع «{$meeting->title}»: {$when}.");
         }
@@ -368,8 +383,10 @@ class MeetingController extends Controller
         $this->guardMeeting($request, $meeting);
         if (! in_array($meeting->status, ['منتهٍ', 'ملغى'], true)) {
             $this->zoom->deleteMeeting((string) $meeting->meet_id);
-            $meeting->update(['status' => 'ملغى', 'is_up' => false, 'meet_id' => null]);
-            MeetRequest::where('meeting_id', $meeting->id)->delete();
+            $meeting->update(['status' => 'ملغى', 'meet_id' => null]);
+            // سجلّ تاريخي «أُلغيت» بدل الحذف الصلب — كان أثر الدعوة يختفي من شاشة العميل بلا تفسير
+            MeetRequest::where('meeting_id', $meeting->id)
+                ->update(['stage' => MeetRequest::STAGE_CANCELLED]);
             if ($meeting->user_id) {
                 Notify::send($meeting->user_id, 'info', 't-red', "أُلغي اجتماع «{$meeting->title}».");
             }
@@ -465,6 +482,8 @@ class MeetingController extends Controller
         $statusCounts = [
             'منتهٍ' => $this->scopedQuery($request)->where('status', 'منتهٍ')->count(),
             'قادم' => $this->scopedQuery($request)->where('status', 'قادم')->count(),
+            'جارٍ' => $this->scopedQuery($request)->where('status', 'جارٍ')->count(),
+            'بانتظار التأكيد' => $this->scopedQuery($request)->where('status', 'بانتظار التأكيد')->count(),
             'لم ينعقد' => $this->scopedQuery($request)->where('status', 'لم ينعقد')->count(),
             'ملغى' => $this->scopedQuery($request)->where('status', 'ملغى')->count(),
             'مؤجل' => $this->scopedQuery($request)->where('status', 'مؤجل')->count(),
@@ -545,13 +564,28 @@ class MeetingController extends Controller
      * حارس الوصول المباشر لاجتماع (يسدّ IDOR): المحامي لاجتماعه المسند فقط (guardAssigned)،
      * الموظف لفرعه (بلا فرع = مشترك)، الإدارة كاملة.
      */
-    // تنزيل نصّ الاجتماع الكامل المحفوظ محليًا (من تسجيل Zoom) — معزول بالدور
+    // تنزيل نصّ الاجتماع الكامل (المحلي إن وُجد وإلا يُجلب من سحابة Zoom ويُحفظ) — معزول بالدور
     public function transcript(Request $request, Meeting $meeting): StreamedResponse
     {
         $this->guardMeeting($request, $meeting);
-        abort_unless($meeting->transcript_path && Storage::disk('local')->exists($meeting->transcript_path), 404);
 
-        return Storage::disk('local')->download($meeting->transcript_path, 'transcript-'.$meeting->ref.'.txt');
+        return RecordingArchive::transcript($meeting);
+    }
+
+    // فيديو جلسة الاجتماع مضغوطاً ZIP (جلب خادمي من سحابة Zoom) — معزول بالدور
+    public function recordingZip(Request $request, Meeting $meeting): BinaryFileResponse
+    {
+        $this->guardMeeting($request, $meeting);
+
+        return RecordingArchive::zip($meeting, 'video');
+    }
+
+    // صوت جلسة الاجتماع (M4A) مضغوطاً ZIP — معزول بالدور
+    public function audioZip(Request $request, Meeting $meeting): BinaryFileResponse
+    {
+        $this->guardMeeting($request, $meeting);
+
+        return RecordingArchive::zip($meeting, 'audio');
     }
 
     private function guardMeeting(Request $request, Meeting $meeting): void

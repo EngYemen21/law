@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Events\ConsultStatusBroadcast;
 use App\Events\MeetingStatusBroadcast;
+use App\Jobs\GenerateMeetingSummaryJob;
 use App\Jobs\ProcessZoomRecordingJob;
 use App\Jobs\ProcessZoomSummaryJob;
 use App\Models\Consult;
 use App\Models\Meeting;
+use App\Models\MeetRequest;
 use App\Support\Live;
 use App\Support\ZoomWebhook;
 use Illuminate\Database\Eloquent\Model;
@@ -73,7 +75,7 @@ class ZoomWebhookController extends Controller
     {
         match ($event) {
             'meeting.started' => $this->setMeetingStatus($meeting, 'جارٍ'),
-            'meeting.ended' => $this->setMeetingStatus($meeting, 'منتهٍ'),
+            'meeting.ended' => $this->endMeeting($meeting),
             'meeting.summary_completed' => ProcessZoomSummaryJob::dispatch($meeting, (array) $request->input('payload.object')),
             'recording.completed' => $this->recording($meeting, $request),
             'meeting.participant_joined' => $this->participantJoined($meeting, $request),
@@ -127,6 +129,28 @@ class ZoomWebhookController extends Controller
         Live::push(new ConsultStatusBroadcast($consult));
     }
 
+    /**
+     * إنهاء الاجتماع من الويبهوك — يُكمل نفس دورة الإنهاء اليدوي (Staff\MeetingController@end):
+     * كان يكتفي بضبط الحالة فتبقى دعوة العميل عالقة في «تنفيذ الجلسة» بلا ملخّص ولا حضور.
+     */
+    private function endMeeting(Meeting $meeting): void
+    {
+        if (in_array($meeting->status, ['منتهٍ', 'ملغى'], true)) {
+            return; // حالة نهائية — الحدث متأخّر/مكرّر
+        }
+
+        $meeting->update([
+            'status' => 'منتهٍ',
+            'attend' => $meeting->attend ?: 90,
+        ]);
+        MeetRequest::where('meeting_id', $meeting->id)
+            ->where('stage', '<', MeetRequest::STAGE_EXECUTED)
+            ->update(['stage' => MeetRequest::STAGE_EXECUTED]);
+        Live::push(new MeetingStatusBroadcast($meeting));
+
+        GenerateMeetingSummaryJob::dispatch($meeting, '');
+    }
+
     private function setMeetingStatus(Meeting $meeting, string $status): void
     {
         // الحالات النهائية لا تُحدَّث بحدث Zoom متأخّر: «منتهٍ» و«ملغى»
@@ -135,7 +159,7 @@ class ZoomWebhookController extends Controller
             return;
         }
 
-        $meeting->update(['status' => $status, 'is_up' => $status !== 'منتهٍ']);
+        $meeting->update(['status' => $status]);
         Live::push(new MeetingStatusBroadcast($meeting));
     }
 }

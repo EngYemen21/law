@@ -216,6 +216,8 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
         Route::get('/consultrecv', [StaffConsultController::class, 'recv'])->name('consultrecv');
         Route::post('/consults/{consult}/start', [StaffConsultController::class, 'start'])->name('consults.start');
         Route::post('/consults/{consult}/end', [StaffConsultController::class, 'end'])->name('consults.end');
+        Route::post('/consults/{consult}/no-show', [StaffConsultController::class, 'noShow'])->name('consults.noshow');
+        Route::post('/consults/{consult}/reschedule', [StaffConsultController::class, 'reschedule'])->name('consults.reschedule');
         Route::post('/consults/{consult}/tasks', [StaffConsultController::class, 'createTasks'])->name('consults.tasks');
     });
     Route::get('/videoroom', [StaffConsultController::class, 'room'])
@@ -238,9 +240,24 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
         Route::post('/meetreqs', [StaffMeetRequestController::class, 'store'])->name('meetreqs.store');
         Route::post('/meetreqs/{meetRequest}/cancel', [StaffMeetRequestController::class, 'cancel'])->name('meetreqs.cancel');
         Route::post('/meetreqs/{meetRequest}/start', [StaffMeetRequestController::class, 'start'])->name('meetreqs.start');
+        Route::post('/meetreqs/{meetRequest}/resend', [StaffMeetRequestController::class, 'resend'])->name('meetreqs.resend');
         Route::get('/meetreqs/availability', [StaffMeetRequestController::class, 'availability'])->name('meetreqs.availability');
         // غرفة الاجتماع المضمّنة (بعد بدء الدعوة) — داخل الموقع
         Route::get('/meetingroom', [StaffMeetingController::class, 'room'])->name('meetingroom');
+        // اجتماعات الموظف (قائمة/تفاصيل/دورة الحياة) — كان الموظف يُشعَر «متاح في لوحتك» بلا أي صفحة (طريق مسدود)؛
+        // المتحكم يعزل بالفرع أصلاً (guardMeeting/scopedQuery)
+        Route::get('/meetings', [StaffMeetingController::class, 'index'])->name('meetings');
+        Route::get('/meeting', [StaffMeetingController::class, 'show'])->name('meeting');
+        Route::post('/meetings/{meeting}/summary', [StaffMeetingController::class, 'saveSummary'])->name('meetings.summary');
+        Route::post('/meetings/{meeting}/minutes', [StaffMeetingController::class, 'saveMinutes'])->name('meetings.minutes');
+        Route::post('/meetings/{meeting}/start', [StaffMeetingController::class, 'start'])->name('meetings.start');
+        Route::post('/meetings/{meeting}/end', [StaffMeetingController::class, 'end'])->name('meetings.end');
+        Route::post('/meetings/{meeting}/reschedule', [StaffMeetingController::class, 'reschedule'])->name('meetings.reschedule');
+        Route::post('/meetings/{meeting}/cancel', [StaffMeetingController::class, 'cancel'])->name('meetings.cancel');
+        Route::post('/meetings/{meeting}/tasks', [StaffMeetingController::class, 'createTasks'])->name('meetings.tasks');
+        Route::get('/meetings/{meeting}/transcript', [StaffMeetingController::class, 'transcript'])->name('meetings.transcript');
+        Route::get('/meetings/{meeting}/recording.zip', [StaffMeetingController::class, 'recordingZip'])->name('meetings.recording');
+        Route::get('/meetings/{meeting}/audio.zip', [StaffMeetingController::class, 'audioZip'])->name('meetings.audio');
     });
 });
 
@@ -307,6 +324,8 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::post('/meetings/{meeting}/cancel', [StaffMeetingController::class, 'cancel'])->name('meetings.cancel');
         Route::post('/meetings/{meeting}/tasks', [StaffMeetingController::class, 'createTasks'])->name('meetings.tasks');
         Route::get('/meetings/{meeting}/transcript', [StaffMeetingController::class, 'transcript'])->name('meetings.transcript');
+        Route::get('/meetings/{meeting}/recording.zip', [StaffMeetingController::class, 'recordingZip'])->name('meetings.recording');
+        Route::get('/meetings/{meeting}/audio.zip', [StaffMeetingController::class, 'audioZip'])->name('meetings.audio');
     });
 
     // طلبات الاجتماعات — إرسال دعوات الاجتماعات
@@ -315,6 +334,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::post('/meetreqs', [StaffMeetRequestController::class, 'store'])->name('meetreqs.store');
         Route::post('/meetreqs/{meetRequest}/cancel', [StaffMeetRequestController::class, 'cancel'])->name('meetreqs.cancel');
         Route::post('/meetreqs/{meetRequest}/start', [StaffMeetRequestController::class, 'start'])->name('meetreqs.start');
+        Route::post('/meetreqs/{meetRequest}/resend', [StaffMeetRequestController::class, 'resend'])->name('meetreqs.resend');
         Route::get('/meetreqs/availability', [StaffMeetRequestController::class, 'availability'])->name('meetreqs.availability');
     });
 
@@ -341,6 +361,8 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::get('/consult', [StaffConsultController::class, 'show'])->name('consult');
         Route::post('/consults/{consult}/start', [StaffConsultController::class, 'start'])->name('consults.start');
         Route::post('/consults/{consult}/end', [StaffConsultController::class, 'end'])->name('consults.end');
+        Route::post('/consults/{consult}/no-show', [StaffConsultController::class, 'noShow'])->name('consults.noshow');
+        Route::post('/consults/{consult}/reschedule', [StaffConsultController::class, 'reschedule'])->name('consults.reschedule');
         Route::post('/consults/{consult}/take', [StaffConsultController::class, 'take'])->name('consults.take');
         Route::post('/consults/{consult}/reqdocs', [StaffConsultController::class, 'requestDocs'])->name('consults.reqdocs');
         Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze');
@@ -356,6 +378,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
 // ── لوحة الإدارة ── (الإدارة تتجاوز الصلاحيات عبر Gate::before؛ الحماية بالدور)
 Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'admin'])->name('dashboard');
+    Route::post('/reset-database', [DashboardController::class, 'resetDatabase'])->name('reset-database');
     Route::get('/clients', [AdminClientController::class, 'index'])->name('clients');
     Route::get('/tickets', [AdminTicketController::class, 'index'])->name('tickets');
     Route::get('/tickets/{ticket}', [AdminTicketController::class, 'show'])->name('tickets.show');
@@ -381,6 +404,8 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     // رحلة الاستشارة — مربوطة بقاعدة البيانات (+ صلاحيات الإدارة: الأولوية)
     Route::get('/consults', [StaffConsultController::class, 'index'])->name('consults');
     Route::get('/consult-requests', [StaffConsultController::class, 'requests'])->name('consult-requests');
+    Route::post('/consults/{consult}/remind-schedule', [StaffConsultController::class, 'remindSchedule'])->name('consults.remind-schedule');
+    Route::post('/consults/{consult}/cancel-request', [StaffConsultController::class, 'cancelRequest'])->name('consults.cancel-request');
     Route::post('/consults/{consult}/price', [StaffConsultController::class, 'setPrice'])->name('consults.price');
     Route::post('/consults/{consult}/take', [StaffConsultController::class, 'take'])->name('consults.take');
     Route::post('/consults/{consult}/reqdocs', [StaffConsultController::class, 'requestDocs'])->name('consults.reqdocs');
@@ -400,6 +425,10 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::get('/branches', [BranchController::class, 'index'])->name('branches');
     Route::post('/branches', [BranchController::class, 'store'])->name('branches.store');
     Route::get('/archive', [AdminArchiveController::class, 'index'])->name('archive');
+    // تنزيل مخرجات جلسة الاستشارة المؤرشفة (جلب خادمي من سحابة Zoom): فيديو/صوت ZIP + نصّ تفريغي
+    Route::get('/consults/{consult}/recording.zip', [AdminArchiveController::class, 'recording'])->name('consults.recording');
+    Route::get('/consults/{consult}/audio.zip', [AdminArchiveController::class, 'audio'])->name('consults.audio');
+    Route::get('/consults/{consult}/transcript.txt', [AdminArchiveController::class, 'transcript'])->name('consults.transcript');
     Route::get('/distribute', [AdminDistributeController::class, 'index'])->name('distribute');
     Route::post('/distribute/auto', [AdminDistributeController::class, 'auto'])->name('distribute.auto');
     Route::post('/distribute/{ticket}', [AdminDistributeController::class, 'assign'])->name('distribute.assign');
@@ -421,6 +450,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/meetreqs', [StaffMeetRequestController::class, 'store'])->name('meetreqs.store');
     Route::post('/meetreqs/{meetRequest}/cancel', [StaffMeetRequestController::class, 'cancel'])->name('meetreqs.cancel');
     Route::post('/meetreqs/{meetRequest}/start', [StaffMeetRequestController::class, 'start'])->name('meetreqs.start');
+    Route::post('/meetreqs/{meetRequest}/resend', [StaffMeetRequestController::class, 'resend'])->name('meetreqs.resend');
     Route::get('/meetreqs/availability', [StaffMeetRequestController::class, 'availability'])->name('meetreqs.availability');
     Route::get('/meetlog', [StaffMeetingController::class, 'log'])->name('meetlog');
     Route::get('/clientnotifs', [AdminClientNotifController::class, 'index'])->name('clientnotifs');
@@ -437,6 +467,8 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/meetings/{meeting}/cancel', [StaffMeetingController::class, 'cancel'])->name('meetings.cancel');
     Route::post('/meetings/{meeting}/tasks', [StaffMeetingController::class, 'createTasks'])->name('meetings.tasks');
     Route::get('/meetings/{meeting}/transcript', [StaffMeetingController::class, 'transcript'])->name('meetings.transcript');
+    Route::get('/meetings/{meeting}/recording.zip', [StaffMeetingController::class, 'recordingZip'])->name('meetings.recording');
+    Route::get('/meetings/{meeting}/audio.zip', [StaffMeetingController::class, 'audioZip'])->name('meetings.audio');
     Route::get('/summaries', [AdminTicketController::class, 'summaries'])->name('summaries');
     // مراجعة/اعتماد/تعديل ملخص الملف (إشراف الإدارة العليا — صلاحيات مطلقة)
     Route::get('/summary/{ticket}', [LawyerTicketController::class, 'showSummary'])->name('summary');
@@ -459,6 +491,8 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::get('/videoroom', [StaffConsultController::class, 'room'])->name('videoroom');
     Route::post('/consults/{consult}/start', [StaffConsultController::class, 'start'])->name('consults.start');
     Route::post('/consults/{consult}/end', [StaffConsultController::class, 'end'])->name('consults.end');
+    Route::post('/consults/{consult}/no-show', [StaffConsultController::class, 'noShow'])->name('consults.noshow');
+    Route::post('/consults/{consult}/reschedule', [StaffConsultController::class, 'reschedule'])->name('consults.reschedule');
     Route::post('/consults/{consult}/tasks', [StaffConsultController::class, 'createTasks'])->name('consults.tasks');
     Route::get('/consult', [StaffConsultController::class, 'show'])->name('consult');
     Route::get('/meeting', [StaffMeetingController::class, 'show'])->name('meeting');

@@ -118,7 +118,7 @@ class MeetingFlowTest extends TestCase
         $this->actingAs($employee)->post(route('employee.meetreqs.start', $req))->assertRedirect();
         $this->assertSame(MeetRequest::STAGE_EXECUTED, $req->fresh()->stage);
         $this->assertSame('جارٍ', $meeting->fresh()->status);
-        $this->assertTrue($meeting->fresh()->is_up);
+        $this->assertTrue($meeting->fresh()->isUpcoming());
         Event::assertDispatched(MeetingStatusBroadcast::class);
 
         // إنهاء الاجتماع
@@ -218,6 +218,46 @@ class MeetingFlowTest extends TestCase
         // ويظهر في قائمة المحامي المسؤول
         $this->actingAs($lawyer)->get(route('lawyer.meetings'))
             ->assertInertia(fn ($p) => $p->has('meetings', 1));
+    }
+
+    public function test_expired_invite_can_be_resent_with_new_date(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $req = MeetRequest::create([
+            'user_id' => $client->id, 'ref' => 'MR-7500', 'service' => 'نزاع تجاري',
+            'type' => 'استشارة مرئية', 'day' => now()->subWeek()->format('Y-m-d'), 'time' => '11:30',
+            'sent_by' => 'المكتب', 'sent_by_id' => $employee->id, 'stage' => MeetRequest::STAGE_EXPIRED,
+        ]);
+
+        $newDay = now()->addWeek()->format('Y-m-d');
+        $this->actingAs($employee)->post(route('employee.meetreqs.resend', $req), [
+            'day' => $newDay, 'time' => '10:00',
+        ])->assertRedirect();
+
+        $req->refresh();
+        $this->assertSame(MeetRequest::STAGE_SENT, $req->stage); // تعود لبداية الرحلة
+        $this->assertSame($newDay, $req->day);
+        $this->assertSame('10:00', $req->time);
+        $this->assertSame(1, UserNotification::where('user_id', $client->id)->count());
+    }
+
+    public function test_resend_rejected_for_non_expired_or_foreign_invite(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $owner = User::factory()->create(['role' => Role::Employee]);
+        $intruder = User::factory()->create(['role' => Role::Employee]);
+        $req = MeetRequest::create([
+            'user_id' => $client->id, 'ref' => 'MR-7501', 'service' => 'خدمة',
+            'type' => 'استشارة مرئية', 'day' => now()->addWeek()->format('Y-m-d'), 'time' => '11:30',
+            'sent_by' => 'المكتب', 'sent_by_id' => $owner->id, 'stage' => MeetRequest::STAGE_SENT,
+        ]);
+        $payload = ['day' => now()->addWeek()->format('Y-m-d'), 'time' => '10:00'];
+
+        // ليست منتهية الصلاحية ⇒ 422، وغير المُرسِل ممنوع 403 حتى لو انتهت
+        $this->actingAs($owner)->post(route('employee.meetreqs.resend', $req), $payload)->assertStatus(422);
+        $req->update(['stage' => MeetRequest::STAGE_EXPIRED]);
+        $this->actingAs($intruder)->post(route('employee.meetreqs.resend', $req), $payload)->assertForbidden();
     }
 
     public function test_meeting_pages_render_with_real_data(): void

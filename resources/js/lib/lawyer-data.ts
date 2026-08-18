@@ -91,7 +91,7 @@ export const FULL_MEETINGS: FullMeeting[] = RAW_MEETINGS.map((m, i) => {
     attend: _A[i] || 0,
     link: m.client,
     meetId,
-    meetLink: `https://meet.salasel.sa/${meetId}`,
+    meetLink: `https://salaselbabel.net/${meetId}`,
     dur: _DUR[i] || '60 دقيقة',
   };
 });

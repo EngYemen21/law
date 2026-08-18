@@ -46,9 +46,9 @@ class MeetRequestIsolationTest extends TestCase
         $this->actingAs($senderB)->post(route('employee.meetreqs.cancel', $req))->assertForbidden();
         $this->assertDatabaseHas('meet_requests', ['id' => $req->id]);
 
-        // (أ) مسموح له بإلغاء دعوته
+        // (أ) مسموح له بإلغاء دعوته — «أُلغيت» سجلاً تاريخياً (لا حذف صلب يُخفي الأثر عن العميل)
         $this->actingAs($senderA)->post(route('employee.meetreqs.cancel', $req))->assertRedirect();
-        $this->assertDatabaseMissing('meet_requests', ['id' => $req->id]);
+        $this->assertSame(MeetRequest::STAGE_CANCELLED, $req->fresh()->stage);
     }
 
     public function test_admin_can_cancel_any_invite(): void
@@ -65,6 +65,6 @@ class MeetRequestIsolationTest extends TestCase
         $req = MeetRequest::firstOrFail();
 
         $this->actingAs($admin)->post(route('admin.meetreqs.cancel', $req))->assertRedirect();
-        $this->assertDatabaseMissing('meet_requests', ['id' => $req->id]);
+        $this->assertSame(MeetRequest::STAGE_CANCELLED, $req->fresh()->stage);
     }
 }

@@ -32,9 +32,16 @@ class MeetingStatusBroadcast implements ShouldBroadcastNow
     public function broadcastWith(): array
     {
         $approved = $this->meeting->approve === 'معتمد';
+        [, $liveStatus, $tone] = $this->meeting->liveState();
 
         return [
             'status' => $this->meeting->status,
+            // الحالة الحيّة المشتقّة + زر الدخول — كان canJoin لقطة جامدة لا تتحدّث فيبقى الزر
+            // معطّلاً بعد بدء الجلسة مبكراً أو مفعّلاً بعد انتهائها حتى إعادة تحميل يدوية
+            'liveStatus' => $liveStatus,
+            'tone' => $tone,
+            'up' => $this->meeting->isUpcoming(),
+            'canJoin' => $this->meeting->canJoin(),
             'approve' => $this->meeting->approve,
             // المحضر/الملخص البشري المعتمَد فقط (لا يُبثّ ملخّص AI للعميل)
             'summary' => $approved ? $this->meeting->summary : null,

@@ -114,10 +114,14 @@ class MeetRequestController extends Controller
         ]);
 
         $fmt = fn (int $min) => sprintf('%02d:%02d', intdiv($min, 60), $min % 60);
-        $busy = array_map(
-            fn ($iv) => [$fmt($iv[0]), $fmt($iv[1])],
-            $this->busy((int) $data['lawyer_id'], $data['day']),
-        );
+        $intervals = $this->busy((int) $data['lawyer_id'], $data['day']);
+
+        // الفترات الماضية محجوبة خادمياً — كان الحجب بساعة متصفّح العميل وحدها (توقيت مختلف يفتح فترات ماضية)
+        if (now()->isSameDay(Carbon::parse($data['day']))) {
+            $intervals[] = [0, now()->hour * 60 + now()->minute];
+        }
+
+        $busy = array_map(fn ($iv) => [$fmt($iv[0]), $fmt($iv[1])], $intervals);
 
         return response()->json(['busy' => $busy]);
     }
@@ -164,12 +168,53 @@ class MeetRequestController extends Controller
         return $out;
     }
 
-    // إلغاء دعوة لم تؤكَّد بعد (يطابق mrCancel)
+    // إعادة إرسال دعوة منتهية الصلاحية بموعد جديد — كانت الدعوة المنتهية طريقاً مسدوداً بلا أي إجراء
+    public function resend(Request $request, MeetRequest $meetRequest): RedirectResponse
+    {
+        $this->guardOwner($request, $meetRequest);
+        abort_unless($meetRequest->stage === MeetRequest::STAGE_EXPIRED, 422, 'إعادة الإرسال متاحة للدعوات المنتهية الصلاحية فقط.');
+
+        $data = $request->validate([
+            'day' => ['required', 'date', 'after_or_equal:today'],
+            'time' => ['required', 'string', 'regex:/^\d{2}:\d{2}$/'],
+        ]);
+
+        // نفس حراس الإرسال الأول: موعد مستقبلي + منع تعارض حجوزات المحامي
+        $startsAt = Carbon::createFromFormat('Y-m-d H:i', $data['day'].' '.$data['time']);
+        if ($startsAt->isPast()) {
+            throw ValidationException::withMessages(['time' => 'لا يمكن اختيار موعد ماضٍ — اختر وقتاً لاحقاً.']);
+        }
+        if ($meetRequest->assigned_lawyer_id) {
+            $start = $startsAt->hour * 60 + $startsAt->minute;
+            $end = $start + (int) ($meetRequest->duration_min ?: 60);
+            foreach ($this->busy($meetRequest->assigned_lawyer_id, $data['day']) as [$s, $e]) {
+                if ($start < $e && $s < $end) {
+                    throw ValidationException::withMessages(['time' => 'هذا الموعد محجوز للمحامي — اختر وقتاً آخر.']);
+                }
+            }
+        }
+
+        $meetRequest->update([
+            'day' => $data['day'],
+            'time' => $data['time'],
+            'stage' => MeetRequest::STAGE_SENT, // تعود لبداية الرحلة بانتظار تأكيد العميل
+        ]);
+
+        Notify::send($meetRequest->user_id, 'video', 't-blue', "أُعيد إرسال دعوة الاجتماع ({$meetRequest->ref}) بموعد جديد: {$meetRequest->day} · {$meetRequest->time}. أكّد حضورك من «دعوات الاجتماعات».");
+        if ($meetRequest->user) {
+            app(MailService::class)->send($meetRequest->user, new MeetInviteMail($meetRequest));
+        }
+
+        return back();
+    }
+
+    // إلغاء دعوة لم تؤكَّد بعد (يطابق mrCancel) — «أُلغيت» سجلاً تاريخياً بدل الحذف الصلب
     public function cancel(Request $request, MeetRequest $meetRequest): RedirectResponse
     {
         $this->guardOwner($request, $meetRequest);
         if ($meetRequest->stage === MeetRequest::STAGE_SENT) {
-            $meetRequest->delete();
+            $meetRequest->update(['stage' => MeetRequest::STAGE_CANCELLED]);
+            Notify::send($meetRequest->user_id, 'info', 't-grey', "أُلغيت دعوة الاجتماع ({$meetRequest->ref}) — «{$meetRequest->service}».");
         }
 
         return back();
@@ -183,7 +228,7 @@ class MeetRequestController extends Controller
             $meetRequest->update(['stage' => MeetRequest::STAGE_EXECUTED]);
             // مطابقة نمط MeetingController: علَم «جارٍ الآن» + بثّ لحظي لشاشة العميل
             if ($meeting = $meetRequest->meeting) {
-                $meeting->update(['status' => 'جارٍ', 'is_up' => true]);
+                $meeting->update(['status' => 'جارٍ']);
                 Live::push(new MeetingStatusBroadcast($meeting->fresh()));
             }
         }

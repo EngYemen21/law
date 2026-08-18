@@ -27,6 +27,7 @@ import ZoomEmbedRoom from '@/lib/zoom-room';
 export function meetStatusTone(status: string): string {
     const m: Record<string, string> = {
         'قادم': 'b-blue', 'جارٍ': 'b-amber', 'منتهٍ': 'b-green', 'مؤجل': 'b-grey', 'ملغى': 'b-red', 'لم ينعقد': 'b-grey',
+        'بانتظار التأكيد': 'b-amber', // كانت يتيمة بلا نغمة فتسقط رمادية صامتة
     };
 
     return m[status] ?? 'b-grey';
@@ -87,6 +88,12 @@ export interface FullMeetingCard {
     caseRef: string | null;
     decisions: string[];
     tasksCreated: boolean;
+    // بيانات جلسة Zoom الإضافية (يرسلها toFullCard — كانت غائبة عن الواجهة النوعية)
+    zoomUuid?: string | null;
+    zoomShareUrl?: string | null;
+    zoomAudioUrl?: string | null;
+    zoomParticipantsLog?: unknown[];
+    zoomAiNextSteps?: unknown[];
 }
 
 // بطاقة دعوة الاجتماع (MeetRequest::toCard) — تطابق MeetRequest
@@ -213,18 +220,38 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
 
     // دخول الغرفة المضمّنة كمضيف ويعلّم «تنفيذ الجلسة»
     const enterRoom = (r: MeetReqCard) => {
+        const go = () => {
+            if (r.meetingRef) {
+                router.visit(`${base}/meetingroom?ref=${encodeURIComponent(r.meetingRef)}`);
+            } else if (r.type.indexOf('مرئية') >= 0) {
+                openMeeting(r.hostLink || r.meetLink || '');
+            } // احتياط
+            else {
+                toast('سيتم فتح رابط الاجتماع في موعده');
+            }
+        };
+
         if (r.stage === 1) {
-            router.post(`${base}/meetreqs/${r.dbId}/start`, {}, { preserveScroll: true });
+            // onSuccess ثم الانتقال — كان visit يُجهض طلب البدء (سباق Inertia) فيدخل المضيف والجلسة لم تُعلَّم «جارية»
+            router.post(`${base}/meetreqs/${r.dbId}/start`, {}, { preserveScroll: true, onSuccess: go, onError: () => toast('تعذّر بدء الجلسة') });
+            return;
         }
 
-        if (r.meetingRef) {
-            router.visit(`${base}/meetingroom?ref=${encodeURIComponent(r.meetingRef)}`);
-        } else if (r.type.indexOf('مرئية') >= 0) {
-            openMeeting(r.hostLink || r.meetLink || '');
-        } // احتياط
-        else {
-            toast('سيتم فتح رابط الاجتماع في موعده');
-        }
+        go();
+    };
+
+    // إعادة إرسال دعوة منتهية الصلاحية بموعد جديد — كانت stage 4 طريقاً مسدوداً بلا أي إجراء
+    const [resendOf, setResendOf] = useState<MeetReqCard | null>(null);
+    const [rsDay, setRsDay] = useState(todayISO());
+    const [rsTime, setRsTime] = useState('');
+    const submitResend = () => {
+        if (!resendOf) { return; }
+        if (!rsTime) { toast('اختر وقت الموعد الجديد'); return; }
+        router.post(`${base}/meetreqs/${resendOf.dbId}/resend`, { day: rsDay, time: rsTime }, {
+            preserveScroll: true,
+            onSuccess: () => { setResendOf(null); setRsTime(''); toast('أُعيد إرسال الدعوة بالموعد الجديد وأُشعر العميل'); },
+            onError: (e) => toast(e.time || e.day || 'تعذّرت إعادة الإرسال'),
+        });
     };
 
     const copyLink = (r: MeetReqCard) => {
@@ -270,8 +297,16 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
                                 )}
                             </div>
                             <div className="iact">
-                                {r.stage === 4 ? (
-                                    <Badge text="منتهية الصلاحية" tone="b-red" />
+                                {r.stage === 5 ? (
+                                    /* أُلغيت — سجلّ تاريخي بلا أي إجراء (كان الحذف الصلب يُخفيها بلا أثر) */
+                                    <Badge text="أُلغيت" tone="b-red" />
+                                ) : r.stage === 4 ? (
+                                    <>
+                                        <Badge text="منتهية الصلاحية" tone="b-red" />
+                                        <button className="btn sm" onClick={() => { setResendOf(r); setRsDay(todayISO()); setRsTime(''); }} type="button">
+                                            <Icon name="send" /> إعادة إرسال بموعد جديد
+                                        </button>
+                                    </>
                                 ) : r.stage >= 3 ? (
                                     <Badge text="معتمد" tone="b-green" />
                                 ) : r.stage === 0 ? (
@@ -284,15 +319,22 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
                                 ) : (
                                     <span className="chip muted">{MR_FLOW[r.stage] ?? 'قيد المعالجة'}</span>
                                 )}
-                                {r.stage === 1 && r.meetLink && (
-                                    <>
-                                        <button className="btn soft sm" onClick={() => copyLink(r)} type="button">
-                                            <Icon name="link" /> نسخ الرابط
+                                {/* كان stage===1 حصراً: بدء الجلسة يرفعها لـ2 فتختفي أزرار المكتب لحظة انعقادها */}
+                                {r.stage >= 1 && r.stage < 3 && r.meetLink && (
+                                    r.canJoin === false ? (
+                                        <button className="btn sm" type="button" disabled style={{ opacity: 0.65, cursor: 'not-allowed' }} title="يُفعَّل الدخول قبل الموعد بـ 5 دقائق">
+                                            <Icon name="clock" /> الدخول (قبل الموعد بـ5 د)
                                         </button>
-                                        <button className="btn sm" onClick={() => enterRoom(r)} type="button">
-                                            <Icon name="video" /> {r.type.indexOf('مرئية') >= 0 ? 'دخول جلسة Zoom' : 'دخول'}
-                                        </button>
-                                    </>
+                                    ) : (
+                                        <>
+                                            <button className="btn soft sm" onClick={() => copyLink(r)} type="button">
+                                                <Icon name="link" /> نسخ الرابط
+                                            </button>
+                                            <button className="btn sm" onClick={() => enterRoom(r)} type="button">
+                                                <Icon name="video" /> {r.type.indexOf('مرئية') >= 0 ? 'دخول جلسة Zoom' : 'دخول'}
+                                            </button>
+                                        </>
+                                    )
                                 )}
                             </div>
                         </div>
@@ -385,6 +427,25 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
                     <Icon name="send" /> إرسال الدعوة للعميل
                 </button>
             </Modal>
+
+            <Modal title={`إعادة إرسال الدعوة ${resendOf?.id ?? ''} بموعد جديد`} open={!!resendOf} onClose={() => setResendOf(null)}>
+                <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
+                    انتهت صلاحية الدعوة دون تأكيد العميل — اختر موعداً جديداً لتعود الدعوة إلى «بانتظار التأكيد» ويُشعر العميل.
+                </p>
+                <div className="picker-grid">
+                    <div className="field">
+                        <label>اليوم الجديد <span className="req">*</span></label>
+                        <input className="input" type="date" min={todayISO()} value={rsDay} onChange={(e) => setRsDay(e.target.value)} />
+                    </div>
+                    <div className="field">
+                        <label>الوقت <span className="req">*</span></label>
+                        <input className="input" type="time" value={rsTime} onChange={(e) => setRsTime(e.target.value)} />
+                    </div>
+                </div>
+                <button className="btn block" onClick={submitResend} type="button" disabled={!rsDay || !rsTime}>
+                    <Icon name="send" /> إعادة الإرسال للعميل
+                </button>
+            </Modal>
         </>
     );
 };
@@ -474,6 +535,8 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
     const [endAttend, setEndAttend] = useState('90');
     const [endNotes, setEndNotes] = useState('');
     const manageable = !['منتهٍ', 'ملغى', 'لم ينعقد'].includes(status);
+    // «لم ينعقد» (المشتقّة لاجتماع فات موعده) يجوز إعادة جدولته — دون بدء/إنهاء/دخول
+    const canReschedule = manageable || status === 'لم ينعقد';
     const canStart = ['قادم', 'مؤجل'].includes(status);
     const canEnd = ['قادم', 'جارٍ'].includes(status);
 
@@ -492,6 +555,13 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
     const cancelMeeting = () =>
         router.post(`${base}/meetings/${m.dbId}/cancel`, {}, { preserveScroll: true, onSuccess: () => toast('أُلغي الاجتماع') });
 
+    // اعتماد الإدارة من صفحة التفاصيل — كان الاعتماد متاحاً من قائمة /admin/meetings فقط
+    const approveMeeting = () =>
+        router.post(`/admin/meetings/${m.dbId}/approve`, {}, {
+            preserveScroll: true,
+            onSuccess: () => { setApprove('معتمد'); toast('اعتُمد الاجتماع — وصل المحضر والملخص للعميل'); },
+        });
+
     return (
         <div className="detail-wrap">
             <div style={{ marginBottom: 14 }}>
@@ -506,6 +576,11 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                         <Badge text={status} tone={meetStatusTone(status)} />
                         <Badge text={approve} tone={approved ? 'b-green' : 'b-amber'} />
+                        {base === '/admin' && !approved && (
+                            <button className="btn sm" type="button" onClick={approveMeeting}>
+                                <Icon name="check" /> اعتماد المحضر والملخص
+                            </button>
+                        )}
                     </div>
                 </div>
                 <div className="card-b" style={{ padding: '14px 18px' }}>
@@ -535,7 +610,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
             </div>
 
             {/* إدارة دورة حياة الاجتماع — متزامنة مع Zoom خادميًّا */}
-            {manageable && (
+            {canReschedule && (
                 <div className="card" style={{ marginBottom: 16 }}>
                     <div className="card-h"><h3>إدارة الجلسة</h3></div>
                     <div className="card-b" style={{ padding: 14 }}>
@@ -543,7 +618,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                             {canStart && <button className="btn sm" type="button" onClick={startMeeting}><Icon name="video" /> بدء الجلسة</button>}
                             {canEnd && <button className="btn soft sm" type="button" onClick={() => setLcMode(lcMode === 'end' ? null : 'end')}><Icon name="check" /> إنهاء الاجتماع</button>}
                             <button className="btn soft sm" type="button" onClick={() => setLcMode(lcMode === 'reschedule' ? null : 'reschedule')}><Icon name="cal" /> إعادة جدولة</button>
-                            <button className="btn soft sm" type="button" onClick={cancelMeeting}><Icon name="info" /> إلغاء الاجتماع</button>
+                            {manageable && <button className="btn soft sm" type="button" onClick={cancelMeeting}><Icon name="info" /> إلغاء الاجتماع</button>}
                         </div>
 
                         {lcMode === 'reschedule' && (
@@ -582,8 +657,13 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                         {m.leaveTime && <div className="kpi-row"><span className="t">آخر مغادرة</span><span className="v" style={{ direction: 'ltr' }}>{m.leaveTime}</span></div>}
                         {fmtActualDuration(m.durationSec) && <div className="kpi-row"><span className="t">مدة الحضور الفعلية</span><span className="v">{fmtActualDuration(m.durationSec)}</span></div>}
                         {status === 'منتهٍ' && <div className="kpi-row"><span className="t">نسبة الحضور</span><span className="v">{m.attend || 0}%</span></div>}
-                        <div className="kpi-row"><span className="t">التسجيل المرئي</span><span className="v">{m.recording ? <a href={m.recording} target="_blank" rel="noopener noreferrer">فتح التسجيل</a> : '—'}</span></div>
-                        <div className="kpi-row"><span className="t">النص الكامل</span><span className="v">{m.transcript ? <a href={`${base}/meetings/${m.dbId}/transcript`}>تنزيل النص</a> : '—'}</span></div>
+                        <div className="kpi-row"><span className="t">التسجيل المرئي</span><span className="v" style={{ display: 'flex', gap: 10 }}>
+                            {m.recording ? <a href={m.recording} target="_blank" rel="noopener noreferrer">مشاهدة</a> : '—'}
+                            {/* تنزيل خادمي مضغوط — الرابط السحابي صفحة مشاهدة لا ملفاً */}
+                            {m.recording && <a href={`${base}/meetings/${m.dbId}/recording.zip`}>تنزيل (ZIP)</a>}
+                        </span></div>
+                        <div className="kpi-row"><span className="t">التسجيل الصوتي</span><span className="v">{m.zoomAudioUrl ? <a href={`${base}/meetings/${m.dbId}/audio.zip`}>تنزيل (ZIP)</a> : '—'}</span></div>
+                        <div className="kpi-row"><span className="t">النص الكامل</span><span className="v">{(m.transcript || m.recording) ? <a href={`${base}/meetings/${m.dbId}/transcript`}>تنزيل النص</a> : '—'}</span></div>
                         {m.zoomSummaryAt && <div className="kpi-row"><span className="t">ملخّص Zoom AI بتاريخ</span><span className="v" style={{ direction: 'ltr' }}>{m.zoomSummaryAt}</span></div>}
                         {m.zoomSummary && (
                             <div style={{ marginTop: 10 }}>
@@ -676,5 +756,79 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                 <button className="btn soft" onClick={saveMinutes} type="button">حفظ المحضر</button>
             </div>
         </div>
+    );
+};
+
+// ============================================================
+// قائمة اجتماعات المكتب — مشتركة للمحامي والموظف (يطابق lwMeetings)
+// ============================================================
+
+export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: string }> = ({ meetings, base }) => {
+    const toast = useToast();
+    const openPage = (id: string) => router.visit(`${base}/meeting?id=${encodeURIComponent(id)}`);
+
+    return (
+        <>
+            <div className="ai-banner">
+                <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
+                <p>الفريق القانوني يجهّز الاجتماع قبله، يوثّقه أثناءه، ويستخرج المحضر والمهام والقرارات بعده.</p>
+            </div>
+
+            {meetings.length ? meetings.map((m) => (
+                <div key={m.id} className="card">
+                    <div className="card-h">
+                        <h3>{m.title}</h3>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                            {/* شارة الحالة الحيّة — كانت البطاقة بلا حالة فلا يُفرَّق القادم عن «لم ينعقد» */}
+                            <Badge text={m.status} tone={meetStatusTone(m.status)} />
+                            <Badge text={m.approve} tone={m.approve === 'معتمد' ? 'b-green' : 'b-amber'} />
+                        </div>
+                    </div>
+                    <div className="card-b" style={{ padding: '14px 18px' }}>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 13 }}>
+                            <span className="chip muted">{m.type}</span>
+                            <span className="chip muted">{m.client}</span>
+                            <span className="chip muted">{m.when}</span>
+                        </div>
+                        <div className="mpanel">
+                            <div className="mbox">
+                                <div className="h">قبل الاجتماع</div>
+                                <ul>{m.before.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                            </div>
+                            <div className="mbox">
+                                <div className="h">أثناء الاجتماع</div>
+                                <ul>{m.during.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                            </div>
+                            <div className="mbox">
+                                <div className="h">بعد الاجتماع</div>
+                                <ul>{m.after.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
+                            {/* «لم ينعقد» فات موعده — الدخول بلا معنى ويصدّه الخادم أصلاً */}
+                            {m.meetLink && !['منتهٍ', 'ملغى', 'لم ينعقد'].includes(m.status) && (
+                                <button className="btn sm" onClick={() => router.visit(`${base}/meetingroom?ref=${encodeURIComponent(m.id)}`)} type="button">
+                                    <Icon name="video" /> دخول اجتماع Zoom
+                                </button>
+                            )}
+                            <button className="btn soft sm" onClick={() => openPage(m.id)} type="button">
+                                <Icon name="doc" /> فتح الصفحة
+                            </button>
+                            <button
+                                className="btn soft sm"
+                                onClick={() => (m.summary ? openPage(m.id) : toast('لم يُحفظ ملخص بعد — افتح الصفحة لإعداده'))}
+                                type="button"
+                            >
+                                <Icon name="out" /> الملخص
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )) : (
+                <div className="card"><div className="card-b">
+                    <div className="empty"><Icon name="video" /><b>لا اجتماعات بعد</b></div>
+                </div></div>
+            )}
+        </>
     );
 };

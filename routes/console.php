@@ -14,6 +14,9 @@ Schedule::command('zoom:release-links')->everyMinute()->withoutOverlapping();
 // جلب ملخّص AI Companion من Zoom للجلسات المنتهية (غير متزامن — يجهز بعد دقائق)
 Schedule::command('zoom:pull-summaries')->everyFiveMinutes()->withoutOverlapping();
 
+// استكمال روابط التسجيل/الصوت والنص التفريغي الناقصة (شبكة أمان لويبهوك التسجيلات)
+Schedule::command('zoom:pull-recordings')->everyFifteenMinutes()->withoutOverlapping();
+
 // تذكير بالاجتماعات القادمة عبر البريد قبل الموعد بـ60د (يحتاج `schedule:run` عبر cron)
 Schedule::command('meetings:send-reminders')->everyMinute()->withoutOverlapping();
 
@@ -26,6 +29,11 @@ Schedule::command('hearings:send-reminders')->everyMinute()->withoutOverlapping(
 // حسم وتصفية الاجتماعات والدعوات القديمة غير المنعقدة تلقائياً
 Schedule::command('zoom:auto-close-missed')->everyFifteenMinutes()->withoutOverlapping();
 
+// حسم الاستشارات الفائتة (بانتظار الجلسة + فات موعدها 12 ساعة ⇒ لم يحضر)
+Schedule::command('consults:auto-close-missed')->everyFifteenMinutes()->withoutOverlapping();
+
+// وسم جلسات القضايا الفائتة (+24 ساعة) «بانتظار تسجيل النتيجة» وتنبيه محاميها
+Schedule::command('hearings:auto-lapse')->hourly()->withoutOverlapping();
+
 // تذكير بسداد فواتير أتعاب التنفيذ المستحقة
 Schedule::command('exec:send-payment-reminders')->everyThirtyMinutes()->withoutOverlapping();
-

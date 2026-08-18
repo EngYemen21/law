@@ -324,6 +324,8 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                     {m.priority}
                   </span>
                   <Badge text={m.status} tone={meetStatusTone(m.status)} />
+                  {/* شارة الاعتماد — كانت حالة الاعتماد غائبة عن القائمة فلا يُعرف ما ينتظر الإدارة */}
+                  <Badge text={m.approve} tone={m.approve === 'معتمد' ? 'b-green' : 'b-amber'} />
                   <button
                     className="btn soft sm"
                     onClick={() => router.visit(`/admin/meeting?id=${encodeURIComponent(m.id)}`)}

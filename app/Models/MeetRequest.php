@@ -21,6 +21,9 @@ class MeetRequest extends Model
 
     public const STAGE_EXPIRED = 4;
 
+    // أُلغي اجتماعها/دعوتها — سجلّ تاريخي يبقى للعميل بدل الحذف الصلب الذي كان يُخفي أثر الدعوة
+    public const STAGE_CANCELLED = 5;
+
     protected $fillable = [
         'user_id', 'meeting_id', 'ref', 'service', 'type', 'case_ref',
         'day', 'time', 'sent_by', 'sent_by_id', 'assigned_lawyer_id', 'duration_min', 'stage', 'meet_id', 'meet_link', 'host_link',
@@ -52,7 +55,7 @@ class MeetRequest extends Model
 
     public function canJoin(): bool
     {
-        if ($this->stage === self::STAGE_EXPIRED) {
+        if (in_array($this->stage, [self::STAGE_EXPIRED, self::STAGE_CANCELLED], true)) {
             return false;
         }
 
@@ -61,9 +64,13 @@ class MeetRequest extends Model
                 return $this->meeting->canJoin();
             }
 
+            // نافذة مغلقة الطرفين — كان الشرط مفتوحاً بعد الموعد فيبقى الزر فعّالاً للأبد.
+            // تعذُّر تحليل التاريخ العربي الحرّ يُبقي السلوك السابق (متاح) — نفس فلسفة
+            // «غير القابل للتحليل ليس ماضياً»، ويحسمه ربط الاجتماع أو المجدول لاحقاً.
             $startsAt = MeetingTime::parse($this->day, $this->time);
             if ($startsAt) {
-                return now()->greaterThanOrEqualTo($startsAt->subMinutes(5));
+                return now()->greaterThanOrEqualTo($startsAt->copy()->subMinutes(5))
+                    && now()->lessThanOrEqualTo($startsAt->copy()->addMinutes(90));
             }
 
             return true;
@@ -111,6 +118,8 @@ class MeetRequest extends Model
             'id' => $this->ref,
             'dbId' => $this->id,
             'client' => $this->user?->name ?? '—',
+            // نافذة الدخول للمكتب أيضاً — أزرار الدخول كانت بلا أي بوابة زمنية على جانب المكتب
+            'canJoin' => $this->canJoin(),
             'service' => $this->service,
             'type' => $this->type,
             'caseRef' => $this->case_ref,

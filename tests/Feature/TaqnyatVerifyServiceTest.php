@@ -106,4 +106,39 @@ class TaqnyatVerifyServiceTest extends TestCase
         $this->assertFalse($this->svc()->generate('0555555555', 'req-1'));
         $this->assertFalse($this->svc()->check('0555555555', 'req-1', '1234'));
     }
+
+    public function test_parses_taqnyat_data_result_wrapper_format(): void
+    {
+        $this->configure();
+
+        Http::fake(['api.taqnyat.sa/verify.php' => Http::response([
+            'status' => 1,
+            'ResponseStatus' => 'success',
+            'Data' => [
+                'id' => '',
+                'result' => 5,
+                'MessageAr' => 'تم ارسال رمز التحقق',
+            ],
+            'Error' => null,
+        ], 200)]);
+
+        $this->assertTrue($this->svc()->generate('0555555555', 'req-1'));
+    }
+
+    public function test_handles_taqnyat_error_response_correctly(): void
+    {
+        $this->configure();
+
+        Http::fake(['api.taqnyat.sa/verify.php' => Http::response([
+            'status' => 1,
+            'ResponseStatus' => 'fail',
+            'Data' => null,
+            'Error' => [
+                'ErrorCode' => 102,
+                'MessageAr' => 'Not authorized',
+            ],
+        ], 200)]);
+
+        $this->assertFalse($this->svc()->generate('0555555555', 'req-1'));
+    }
 }

@@ -7,7 +7,12 @@ export interface Slot { time: string; taken: boolean; }
 export interface Success { rate: number; closed: number; total: number; }
 export interface LawyerOpt { id: number; name: string; dept: string; success: Success; load: number; slots: Slot[]; freeCount: number; }
 
-export const todayISO = (): string => new Date().toISOString().slice(0, 10);
+// بالتوقيت المحلي — toISOString ترجع UTC فتُرجِع «أمس» بعد منتصف الليل المحلي (تفتح فترات ماضية وتقفل صالحة)
+export const todayISO = (): string => {
+  const d = new Date();
+
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 // يحجب اختيار وقت انقضى فعلاً (اليوم الحالي فقط — الفترات كلّها بالساعة HH:00). مشترك مع منتقيات الموظف.
 export const isPastSlot = (date: string, t: string): boolean =>

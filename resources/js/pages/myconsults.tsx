@@ -113,6 +113,18 @@ void navigator.clipboard.writeText(c.slink);
                   ) : (
                     <Badge text="انتهت الجلسة — يُعدّ الملخص" tone="b-green" />
                   )
+                ) : c.session === 'لم تُعقد' ? (
+                  /* وسمها المكتب «لم يحضر» — كانت تسقط لفرع «بانتظار الجلسة» بزرّ دخول معطّل محيّر */
+                  <>
+                    <Badge text="لم تُعقد — لم يحضر" tone="b-red" />
+                    <span className="sub">اطلب إعادة الجدولة من المكتب</span>
+                  </>
+                ) : c.missed ? (
+                  /* فات موعدها بلا جلسة — كانت تبقى «بانتظار الجلسة» + زر دخول للأبد */
+                  <>
+                    <Badge text="فائتة — لم تنعقد" tone="b-red" />
+                    <span className="sub">تواصل مع المكتب لإعادة الجدولة</span>
+                  </>
                 ) : c.channel === 'مرئية' ? (
                   <>
                     <Badge text="بانتظار الجلسة" tone="b-grey" />

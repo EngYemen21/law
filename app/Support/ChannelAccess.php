@@ -21,7 +21,9 @@ class ChannelAccess
             return (int) ($model->assigned_lawyer_id ?? 0) === (int) $user->id;
         }
         if ($user->role === Role::Employee) {
-            return $model->branch !== null && $model->branch === $user->branch;
+            // بلا فرع = المجمّع المشترك قبل الإسناد — نفس قاعدة حراس HTTP (guardMeeting/guardConsult)؛
+            // كان البثّ أشدّ من HTTP فيرى الموظف السجلّ ولا يصله تحديثه اللحظي
+            return $model->branch === null || $model->branch === $user->branch;
         }
 
         return false;

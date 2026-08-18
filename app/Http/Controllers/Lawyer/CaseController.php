@@ -152,7 +152,9 @@ class CaseController extends Controller
     /** يعيد اشتقاق «الجلسة القادمة» من أقرب جلسة مجدولة (بالموعد الحقيقي إن وُجد، وإلا نصّها). */
     private function refreshNextHearing(LegalCase $case): void
     {
+        // الفائتة (starts_at ماضٍ) ليست «قادمة» — كانت جلسة الشهر الماضي تبقى معروضة قادمةً
         $next = $case->hearings()->where('status', 'مجدولة')
+            ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '>=', now()))
             ->orderByRaw('starts_at IS NULL')
             ->orderBy('starts_at')->orderBy('id')
             ->first();
@@ -296,7 +298,7 @@ class CaseController extends Controller
             'lawyer' => $c->assigned_lawyer ?: '—',
             'status' => $c->status,
             'tone' => $c->tone,
-            'next' => $c->next_hearing,
+            'next' => $c->nextHearingLabel(),
             'pleadingStatus' => $c->pleading_status,
             'ruling' => $c->ruling,
         ];

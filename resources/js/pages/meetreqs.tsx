@@ -12,7 +12,8 @@ import type {MeetReqCard} from '@/lib/meeting-ui';
 // يطابق meetReqsView (دور العميل) — رأس greet + شريط إحصائي + بطاقات agd-c ملوّنة حسب المرحلة
 // (نفس نمط execflow.tsx/correspondences.tsx المستخدَم فعلياً بالمشروع لقوائم رحلة المراحل)
 
-const stageColor = (stage: number) => (stage >= 3 ? '#1E9D6B' : stage === 0 ? '#C0832B' : '#0E5C9C');
+// stage 4 (منتهية الصلاحية) كانت تصطبغ خضراء «معتمدة» — تناقض لوني داخل البطاقة الواحدة
+const stageColor = (stage: number) => (stage >= 4 ? '#C0392B' : stage === 3 ? '#1E9D6B' : stage === 0 ? '#C0832B' : '#0E5C9C');
 
 const MeetReqs: React.FC<{ requests: MeetReqCard[] }> = ({ requests }) => {
   const toast = useToast();
@@ -33,7 +34,9 @@ void navigator.clipboard.writeText(r.meetLink);
 
   const s0 = requests.filter((r) => r.stage === 0).length;
   const s1 = requests.filter((r) => r.stage >= 1 && r.stage < 3).length;
-  const s3 = requests.filter((r) => r.stage >= 3).length;
+  // كانت stage>=3 تبتلع المنتهية الصلاحية (4) فتُعرض للعميل إنجازاً «معتمداً»
+  const s3 = requests.filter((r) => r.stage === 3).length;
+  const s4 = requests.filter((r) => r.stage === 4).length;
 
   return (
     <>
@@ -46,6 +49,7 @@ void navigator.clipboard.writeText(r.meetLink);
         <span className="stat-pill"><span className="pd" style={{ background: '#C0832B' }} /><b>{s0}</b> بانتظار التأكيد</span>
         <span className="stat-pill"><span className="pd" style={{ background: '#0E5C9C' }} /><b>{s1}</b> قيد التنفيذ</span>
         <span className="stat-pill"><span className="pd" style={{ background: '#1E9D6B' }} /><b>{s3}</b> معتمدة</span>
+        <span className="stat-pill"><span className="pd" style={{ background: '#C0392B' }} /><b>{s4}</b> منتهية الصلاحية</span>
       </div>
 
       <div className="card">
@@ -61,9 +65,12 @@ void navigator.clipboard.writeText(r.meetLink);
                   <div className="mtg-t">{r.id} — {r.service}</div>
                   <div className="mtg-m">{r.type} · {r.day} {r.time} · أرسلها: {r.by || 'المكتب'}</div>
                 </div>
-                {r.stage === 4 ? (
+                {r.stage === 5 ? (
+                  /* أُلغيت من المكتب — سجلّ تاريخي يبقى بدل الاختفاء الصامت */
+                  <Badge text="أُلغيت" tone="b-red" />
+                ) : r.stage === 4 ? (
                   <Badge text="منتهية الصلاحية" tone="b-red" />
-                ) : r.stage >= 3 ? (
+                ) : r.stage === 3 ? (
                   <Badge text="معتمد" tone="b-green" />
                 ) : r.stage > 0 ? (
                   <Badge text={MR_FLOW[r.stage] ?? 'قيد المعالجة'} tone="b-blue" />
@@ -80,13 +87,19 @@ void navigator.clipboard.writeText(r.meetLink);
                   ⚠️ تجاوزت هذه الدعوة تاريخ موعدها دون تأكيد. يمكنك طلب موعد جديد من المكتب.
                 </div>
               )}
+              {r.stage === 5 && (
+                <div style={{ margin: '8px 0', fontSize: '12px', color: 'var(--muted)' }}>
+                  أُلغي هذا الاجتماع من المكتب. للاستفسار أو طلب موعد بديل تواصل معنا.
+                </div>
+              )}
               <div className="mtg-a">
                 {r.stage === 0 && (
                   <button className="btn sm" onClick={() => confirm(r)} type="button">
                     <Icon name="check" /> تأكيد الحضور
                   </button>
                 )}
-                {r.stage === 1 && (
+                {/* كان stage===1 حصراً: بدء المكتب للجلسة يرفعها لـ2 فيختفي زر الدخول لحظة انعقادها */}
+                {r.stage >= 1 && r.stage < 3 && (
                   r.canJoin ? (
                     <>
                       {r.meetLink && (

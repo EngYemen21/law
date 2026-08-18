@@ -16,6 +16,7 @@ use App\Services\MailService;
 use App\Support\CaseConversion;
 use App\Support\Live;
 use App\Support\Notify;
+use App\Support\PdfRenderer;
 use App\Support\ReportPrint;
 use App\Support\ServiceDocs;
 use App\Support\TicketJourney;
@@ -58,9 +59,15 @@ class TicketController extends Controller
         return Inertia::render('lawyer/dashboard', [
             'tickets' => $tickets->map(fn (Ticket $t) => $t->toEmployeeCard()),
             'pendingSummaries' => $tickets->where('summary.status', 'awaiting_lawyer')->count(),
-            'todayMeetings' => Meeting::where('created_by', $lawyerId)
-                ->whereIn('status', ['قادم', 'جارٍ'])->count(),
+            // created_by عمود نصّي (اسم) — مقارنته بالمعرّف كانت تُصفّر العدّاد لكل محامٍ،
+            // والحالة المخزّنة لا تتحدّث بمرور الوقت — الاشتقاق الحي هو الفيصل
+            'openMeetings' => Meeting::where(fn ($q) => $q->where('assigned_lawyer_id', $lawyerId)
+                ->orWhere('created_by', $request->user()->name))
+                ->get()->filter(fn (Meeting $m) => $m->isUpcoming())->count(),
             'openTasks' => Task::where('assigned_to', $lawyerId)->where('status', '!=', 'منجزة')->count(),
+            // المتأخرة وحدها (تجاوزت استحقاقها) — كانت غائبة فلا يميّز المحامي العاجل من المفتوح
+            'overdueTasks' => Task::where('assigned_to', $lawyerId)->where('status', '!=', 'منجزة')
+                ->get()->filter(fn (Task $t) => $t->isOverdue())->count(),
         ]);
     }
 
@@ -327,7 +334,7 @@ class TicketController extends Controller
                 ],
             ],
             'approval' => [
-                'qrSeed' => "https://sb-legal.sa/verify?ref={$ticket->number}&approved=1",
+                'qrSeed' => "https://salaselbabel.net/verify?ref={$ticket->number}&approved=1",
                 'rows' => [
                     ['المستشار المعتمد', $lawyerName],
                     ['تاريخ الاعتماد', $summary->approved_at ? $summary->approved_at->format('Y-m-d H:i') : date('Y-m-d H:i')],
@@ -340,7 +347,7 @@ class TicketController extends Controller
 
         $html = ReportPrint::html($doc);
 
-        return \App\Support\PdfRenderer::render($html, 'Summary-'.$ticket->number.'.pdf');
+        return PdfRenderer::render($html, 'Summary-'.$ticket->number.'.pdf');
     }
 
     // اعتماد المستشار لنتيجة الجلسة → ترفع للإدارة للاعتماد النهائي (يطابق tfLawyerReview)

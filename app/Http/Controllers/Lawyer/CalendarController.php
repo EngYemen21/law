@@ -85,7 +85,7 @@ class CalendarController extends Controller
                     title: 'استشارة: '.$c->subject.' ('.$c->ref.')',
                     details: 'استشارة قانونية ('.$c->channel.') — العميل: '.($c->user?->name ?? 'عميل المنصة'),
                     startsAt: $start,
-                    durationMinutes: $c->duration_minutes ?: 45,
+                    durationMinutes: $c->duration_min ?: 45,
                     locationUrl: $link
                 );
 

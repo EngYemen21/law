@@ -134,13 +134,13 @@ export const FULL_MEETINGS: FullMeeting[] = RAW_MEETINGS.map((m, i) => ({
   attend: _A[i] || 0,
   link: m.client,
   meetId: 'SLS-' + (200000 + i * 1357),
-  meetLink: 'https://meet.salasel.sa/SLS-' + (200000 + i * 1357),
+  meetLink: 'https://salaselbabel.net/SLS-' + (200000 + i * 1357),
   dur: _D[i] || '60 دقيقة',
 }));
 
 export const MEET_STATUSES: [string, string][] = [
-  ['all', 'الكل'], ['قادم', 'القادمة'], ['جارٍ', 'الجارية'],
-  ['منتهٍ', 'المنتهية'], ['مؤجل', 'المؤجلة'], ['ملغى', 'الملغاة'],
+  ['all', 'الكل'], ['قادم', 'القادمة'], ['بانتظار التأكيد', 'بانتظار التأكيد'], ['جارٍ', 'الجارية'],
+  ['منتهٍ', 'المنتهية'], ['لم ينعقد', 'لم تنعقد'], ['مؤجل', 'المؤجلة'], ['ملغى', 'الملغاة'],
 ];
 export const MEET_TYPES_FULL = ['اجتماع مع عميل', 'اجتماع مع محامٍ', 'اجتماع مع موظف', 'اجتماع متعدد الموظفين', 'اجتماع بين الفروع', 'اجتماع الإدارة العليا', 'اجتماع مرتبط بقضية', 'اجتماع مرتبط باستشارة'];
 export const MEET_TEMPLATES: [string, string][] = [
@@ -164,8 +164,8 @@ export interface MeetRequest {
 export const MEET_REQUESTS: MeetRequest[] = [
   { id: 'MR-1042', client: 'عبدالله العتيبي', service: 'نزاع تجاري', type: 'استشارة مرئية', day: 'الاثنين 29 يونيو', time: '11:30 ص', by: 'منيرة الحربي (خدمة العملاء)', stage: 0 },
   { id: 'MR-1039', client: 'نورة الدوسري', service: 'قضية عمالية', type: 'استشارة هاتفية', day: 'الثلاثاء 30 يونيو', time: '10:00 ص', by: 'الإدارة العليا', stage: 0 },
-  { id: 'MR-1035', client: 'شركة الأفق', service: 'مراجعة عقد', type: 'استشارة حضورية', day: 'الأربعاء 01 يوليو', time: '01:00 م', by: 'منيرة الحربي (خدمة العملاء)', stage: 1, meetId: 'SLS-204517', meetLink: 'https://meet.salasel.sa/SLS-204517' },
-  { id: 'MR-1028', client: 'فهد الشهري', service: 'تنفيذ حكم', type: 'استشارة مرئية', day: 'الأحد 28 يونيو', time: '09:00 ص', by: 'الإدارة العليا', stage: 2, meetId: 'SLS-338290', meetLink: 'https://meet.salasel.sa/SLS-338290' },
+  { id: 'MR-1035', client: 'شركة الأفق', service: 'مراجعة عقد', type: 'استشارة حضورية', day: 'الأربعاء 01 يوليو', time: '01:00 م', by: 'منيرة الحربي (خدمة العملاء)', stage: 1, meetId: 'SLS-204517', meetLink: 'https://salaselbabel.net/SLS-204517' },
+  { id: 'MR-1028', client: 'فهد الشهري', service: 'تنفيذ حكم', type: 'استشارة مرئية', day: 'الأحد 28 يونيو', time: '09:00 ص', by: 'الإدارة العليا', stage: 2, meetId: 'SLS-338290', meetLink: 'https://salaselbabel.net/SLS-338290' },
 ];
 
 // دليل العملاء/الموظفين للدعوات (CLIENT_DIR / STAFF_DIR)
@@ -194,13 +194,13 @@ export const DEMO_CLIENT_NOTIFS: Record<string, ClientNotif[]> = {
   'عبدالله محمد العتيبي': [
     { ic: 'cal', tone: 't-blue', text: 'وصلتك دعوة اجتماع («نزاع تجاري») من المكتب يوم الاثنين 29 يونيو 11:30 ص — يرجى تأكيد حضورك.', time: 'قبل ساعة', link: null, unread: true },
     { ic: 'doc', tone: 't-cyan', text: 'تم إرسال ملخص استشارتك المعتمد (SB-2026-1042) — اطّلع عليه في ملف التذكرة/القضية.', time: 'أمس', link: null, unread: false },
-    { ic: 'video', tone: 't-green', text: 'تم تأكيد ودفع حجز استشارتك (مرئية) ليوم الثلاثاء 30 يونيو 11:30 ص. رابط الجلسة: https://meet.salasel.sa/CN-2026-1042.', time: 'أمس', link: 'https://meet.salasel.sa/CN-2026-1042', unread: false },
+    { ic: 'video', tone: 't-green', text: 'تم تأكيد ودفع حجز استشارتك (مرئية) ليوم الثلاثاء 30 يونيو 11:30 ص. رابط الجلسة: https://salaselbabel.net/CN-2026-1042.', time: 'أمس', link: 'https://salaselbabel.net/CN-2026-1042', unread: false },
   ],
   'نورة سعد الدوسري': [
     { ic: 'folder', tone: 't-amber', text: 'المكتب يطلب استكمال مستندات استشارتك (فصل تعسفي من العمل).', time: 'قبل ساعتين', link: null, unread: true },
   ],
   'شركة الأفق التجارية': [
-    { ic: 'cal', tone: 't-green', text: 'تم تأكيد حضورك لاجتماع («مراجعة عقد») يوم الأربعاء 01 يوليو 01:00 م. معرّف الاجتماع: SLS-204517.', time: 'أمس', link: 'https://meet.salasel.sa/SLS-204517', unread: false },
+    { ic: 'cal', tone: 't-green', text: 'تم تأكيد حضورك لاجتماع («مراجعة عقد») يوم الأربعاء 01 يوليو 01:00 م. معرّف الاجتماع: SLS-204517.', time: 'أمس', link: 'https://salaselbabel.net/SLS-204517', unread: false },
   ],
   'فهد علي الشهري': [],
 };

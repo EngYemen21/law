@@ -26,7 +26,10 @@ class MeetingController extends Controller
     {
         $meeting = Meeting::where('ref', (string) $request->query('ref'))->firstOrFail();
         abort_unless($meeting->user_id === $request->user()->id, 403);
-        abort_unless($meeting->canJoin(), 403, 'لا يمكن دخول الجلسة إلا قبل موعدها بـ 5 دقائق.');
+        // رسالة مميّزة لكل حالة — «انتهت» توحي بمراجعة الملخص، و«لم يحن» تدعو للانتظار
+        abort_unless($meeting->canJoin(), 403, $meeting->liveState()[0] === 'past'
+            ? 'انتهت جلسة هذا الاجتماع — لم يعد الدخول متاحاً.'
+            : 'لم يحن موعد الجلسة بعد — يُفعَّل الدخول قبل الموعد بـ5 دقائق.');
 
         return Inertia::render('meetingroom', [
             'meeting' => $meeting->toCard(),

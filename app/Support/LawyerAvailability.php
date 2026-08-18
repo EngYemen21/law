@@ -94,8 +94,8 @@ class LawyerAvailability
 
         // ترتيب حتميّ فوري (الأكثر إنجازاً ← الأقل حملاً) — بلا نداء AI متزامن على نقطة تفاعلية
         // (كان rankLawyers يعلّق طلب اختيار الموعد حتى 150ث؛ الترتيب الحتميّ سريع وسليم).
-        return $rows->map(function (array $row) use ($apptsByLawyer, $isWorkDay) {
-            $slots = self::slotsFromAppointments($apptsByLawyer->get($row['id'], collect()), $isWorkDay);
+        return $rows->map(function (array $row) use ($apptsByLawyer, $isWorkDay, $day) {
+            $slots = self::slotsFromAppointments($apptsByLawyer->get($row['id'], collect()), $isWorkDay, $day);
             $row['slots'] = $slots;
             $row['freeCount'] = count(array_filter($slots, fn ($s) => ! $s['taken']));
 
@@ -192,9 +192,10 @@ class LawyerAvailability
             ->all();
 
         $slots = [];
+        $pastHour = self::pastHourFor($day);
         for ($h = self::WORK_START; $h < self::WORK_END; $h++) {
             $time = sprintf('%02d:00', $h);
-            $slots[] = ['time' => $time, 'taken' => in_array($time, $taken, true)];
+            $slots[] = ['time' => $time, 'taken' => in_array($time, $taken, true) || $h <= $pastHour];
         }
 
         return $slots;
@@ -206,19 +207,33 @@ class LawyerAvailability
      * @param  Collection<int, Appointment>  $appts
      * @return array<int, array{time:string,taken:bool}>
      */
-    private static function slotsFromAppointments($appts, bool $isWorkDay): array
+    private static function slotsFromAppointments($appts, bool $isWorkDay, Carbon $day): array
     {
         if (! $isWorkDay) {
             return [];
         }
         $taken = $appts->map(fn (Appointment $a) => $a->starts_at->format('H:i'))->all();
         $slots = [];
+        $pastHour = self::pastHourFor($day);
         for ($h = self::WORK_START; $h < self::WORK_END; $h++) {
             $time = sprintf('%02d:00', $h);
-            $slots[] = ['time' => $time, 'taken' => in_array($time, $taken, true)];
+            $slots[] = ['time' => $time, 'taken' => in_array($time, $taken, true) || $h <= $pastHour];
         }
 
         return $slots;
+    }
+
+    /**
+     * آخر ساعة منقضية لليوم المُعطى بتوقيت الخادم — الفترات الماضية تُعلَّم محجوزةً خادمياً
+     * (كان الحجب بساعة متصفّح العميل وحدها، فمتصفّح بتوقيت مختلف يفتح فترات ماضية).
+     */
+    private static function pastHourFor(Carbon $day): int
+    {
+        if ($day->isToday()) {
+            return now()->hour;
+        }
+
+        return $day->isPast() ? 24 : -1;
     }
 
     /** أقرب يوم عمل من تاريخ مُعطى (أو من اليوم إن لم يُعطَ). */

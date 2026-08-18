@@ -81,12 +81,15 @@ class AdminOpsTest extends TestCase
     {
         $admin = User::factory()->create(['role' => Role::Admin]);
         $client = User::factory()->create(['role' => Role::Client]);
+        // معيار الأرشيف «الجلسة منتهية» لا الحالة — الحالة قد تتحوّل («محولة إلى قضية») بعد جلسة منعقدة
         Consult::create(['user_id' => $client->id, 'ref' => 'CN-1', 'subject' => 'استشارة', 'type' => 'عام', 'channel' => 'مرئية',
-            'lawyer' => 'أ. سارة القحطاني', 'day' => 'الأحد', 'time' => '11ص', 'when_label' => 'الأحد · 11ص', 'status' => 'منتهية']);
+            'lawyer' => 'أ. سارة القحطاني', 'day' => 'الأحد', 'time' => '11ص', 'when_label' => 'الأحد · 11ص',
+            'status' => 'منتهية', 'session' => 'منتهية']);
         Consult::create(['user_id' => $client->id, 'ref' => 'CN-2', 'subject' => 'استشارة', 'type' => 'عام', 'channel' => 'هاتفية',
-            'lawyer' => 'أ. سارة القحطاني', 'day' => 'الاثنين', 'time' => '10ص', 'when_label' => 'الاثنين · 10ص', 'status' => 'جديدة']);
+            'lawyer' => 'أ. سارة القحطاني', 'day' => 'الاثنين', 'time' => '10ص', 'when_label' => 'الاثنين · 10ص',
+            'status' => 'جديدة', 'session' => 'بانتظار الجلسة']);
 
         $this->actingAs($admin)->get(route('admin.archive'))
-            ->assertOk()->assertInertia(fn ($p) => $p->component('admin/archive')->has('rows', 1)); // المنتهية فقط
+            ->assertOk()->assertInertia(fn ($p) => $p->component('admin/archive')->has('rows', 1)); // المنعقدة جلستها فقط
     }
 }

@@ -11,6 +11,7 @@ import {
   crChannelIcon, crChannelTone, maskClient
 } from '@/lib/employee-data';
 import type {AuditEntry} from '@/lib/employee-data';
+import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
 import ZoomEmbedRoom from '@/lib/zoom-room';
 
@@ -43,6 +44,9 @@ export interface ConsultCard {
   phone: string;
   slink: string;
   canJoin?: boolean; // زر الدخول مفعّل؟ (بعد إطلاق الرابط قبل الموعد بـ5د)
+  missed?: boolean; // فات موعدها بلا جلسة (يشتقه الخادم)
+  startable?: boolean; // «بدء الجلسة» ضمن نافذة الموعد فقط (يشتقه الخادم — بطاقة المكتب)
+  startsAt?: string | null;
   hostLink: string | null; // رابط مضيف Zoom (للمكتب)
   session: string; // بانتظار الجلسة / جلسة جارية / منتهية
   status: string;
@@ -55,6 +59,7 @@ export interface ConsultCard {
   vat?: number;
   priced?: boolean;
   paid?: boolean;
+  paidAgo?: string | null; // «دُفع منذ …» لطلبات الإدارة المعلقة
   invoiceNo?: string | null;
   // رحلة المعالجة (CONSULT_FLOW)
   type: string;
@@ -132,20 +137,37 @@ export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }
   const toast = useToast();
   const [filter, setFilter] = useState('all');
   const [summaryOf, setSummaryOf] = useState<ConsultCard | null>(null);
+  const [items, setItems] = useState<ConsultCard[]>(consults);
+
+  // تزامن لحظي: الويبهوك/زميل آخر قد يبدّل الجلسة — كانت الشاشة ساكنة فيضغط الموظف «بدء» على جلسة تعمل فعلاً
+  useEffect(() => {
+    setItems(consults);
+    consults.forEach((c) => {
+      echo.private(`consult.${c.id}`).listen('.status', (e: { session?: string; status?: string; canJoin?: boolean; summary?: string | null }) => {
+        setItems((prev) => prev.map((x) => x.id === c.id
+          ? { ...x, session: e.session ?? x.session, status: e.status ?? x.status, canJoin: e.canJoin ?? x.canJoin, summary: e.summary ?? x.summary }
+          : x));
+      });
+    });
+    return () => { consults.forEach((c) => echo.leave(`consult.${c.id}`)); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [consults]);
 
   const counts: Record<string, number> = { 'مرئية': 0, 'حضورية': 0, 'هاتفية': 0 };
-  consults.forEach((c) => {
+  items.forEach((c) => {
  if (counts[c.channel] != null) {
 counts[c.channel]++;
 } 
 });
-  const ended = consults.filter((c) => c.session === 'منتهية').length;
+  const ended = items.filter((c) => c.session === 'منتهية').length;
+  const missedCount = items.filter((c) => c.missed).length;
 
   const stats: StatItem[] = [
     ['t-blue', 'video', counts['مرئية'], 'مرئية (فيديو)'],
     ['t-green', 'office', counts['حضورية'], 'حضورية'],
     ['t-amber', 'phone', counts['هاتفية'], 'هاتفية'],
     ['t-cyan', 'check', ended, 'منتهية'],
+    ['t-red', 'clock', missedCount, 'فائتة'],
   ];
 
   // يطابق crStart — بدء الجلسة (يبثّ للعميل لحظياً)
@@ -167,13 +189,37 @@ counts[c.channel]++;
     });
   };
 
-  // دخول غرفة الجلسة المضمّنة كمضيف — وبدء الجلسة إن لم تكن قد بدأت (يبثّ «جارية الآن» للعميل)
+  // دخول غرفة الجلسة المضمّنة كمضيف — وبدء الجلسة إن لم تكن قد بدأت (يبثّ «جارية الآن» للعميل).
+  // كان router.visit يُجهض طلب البدء (سباق Inertia) فيدخل الموظف والجلسة لم تبدأ رسمياً
   const enterRoom = (c: ConsultCard) => {
+    const room = `${base}/videoroom?ref=${encodeURIComponent(c.ref)}`;
     if (c.session === 'بانتظار الجلسة') {
-start(c);
-}
+      router.post(`${base}/consults/${c.id}/start`, {}, {
+        preserveScroll: true,
+        onSuccess: () => router.visit(room),
+        onError: () => toast('تعذّر بدء الجلسة'),
+      });
+      return;
+    }
 
-    router.visit(`${base}/videoroom?ref=${encodeURIComponent(c.ref)}`);
+    router.visit(room);
+  };
+
+  // وسم «لم يحضر» لاستشارة فائتة — كانت الحيلة الوحيدة (بدء+إنهاء فوري) تزوّر السجل جلسةً منعقدة
+  const markNoShow = (c: ConsultCard) => {
+    router.post(`${base}/consults/${c.id}/no-show`, {}, {
+      preserveScroll: true,
+      onSuccess: () => toast('وُسمت الاستشارة «لم يحضر» وأُشعر العميل'),
+      onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر الوسم'}`),
+    });
+  };
+
+  const reschedule = (c: ConsultCard) => {
+    router.post(`${base}/consults/${c.id}/reschedule`, {}, {
+      preserveScroll: true,
+      onSuccess: () => toast('أُعيدت الاستشارة لاختيار موعد جديد وأُشعر العميل'),
+      onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر إعادة الجدولة'}`),
+    });
   };
 
   const copyLink = (c: ConsultCard) => {
@@ -184,7 +230,8 @@ void navigator.clipboard.writeText(c.slink);
     toast('تم نسخ رابط الاجتماع');
   };
 
-  const list = consults.filter((c) => filter === 'all' || c.channel === filter);
+  const tabs: [string, string][] = [...CONSULT_CHANNELS, ['_missed', `فائتة (${missedCount})`]];
+  const list = items.filter((c) => (filter === '_missed' ? c.missed : filter === 'all' || c.channel === filter));
 
   return (
     <>
@@ -196,7 +243,7 @@ void navigator.clipboard.writeText(c.slink);
       <StatRow items={stats} />
 
       <div className="mtabs">
-        {CONSULT_CHANNELS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t[0]}
             className={`mtab${filter === t[0] ? ' on' : ''}`}
@@ -237,8 +284,29 @@ void navigator.clipboard.writeText(c.slink);
                 </div>
                 <div className="iact">
                   <Badge text={c.channel} tone={crChannelTone(c.channel)} />
-                  {c.session === 'بانتظار الجلسة' ? (
-                    c.channel === 'مرئية' ? (
+                  {c.missed ? (
+                    /* فات موعدها بلا جلسة — كان زر «بدء» يبقى ظاهراً للأبد بلا أي وسم */
+                    <>
+                      <Badge text="فائتة — لم تنعقد" tone="b-red" />
+                      <button className="btn soft sm" onClick={() => markNoShow(c)} type="button">
+                        <Icon name="clock" /> لم يحضر
+                      </button>
+                      <button className="btn sm" onClick={() => reschedule(c)} type="button">
+                        <Icon name="cal" /> إعادة جدولة
+                      </button>
+                    </>
+                  ) : c.session === 'لم تُعقد' ? (
+                    <>
+                      <Badge text="لم يحضر" tone="b-red" />
+                      <button className="btn soft sm" onClick={() => reschedule(c)} type="button">
+                        <Icon name="cal" /> إعادة جدولة
+                      </button>
+                    </>
+                  ) : c.session === 'بانتظار الجلسة' ? (
+                    c.startable === false ? (
+                      /* موعد مستقبلي خارج نافذة البدء (قبل 15د) — كان الزر ظاهراً لاستشارة بعد أسابيع */
+                      <Badge text="مجدولة — البدء قبل الموعد بـ15د" tone="b-grey" />
+                    ) : c.channel === 'مرئية' ? (
                       <>
                         <button className="btn sm" onClick={() => enterRoom(c)} type="button">
                           <Icon name="video" /> بدء ودخول جلسة Zoom

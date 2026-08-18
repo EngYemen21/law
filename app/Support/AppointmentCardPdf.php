@@ -84,7 +84,7 @@ class AppointmentCardPdf
             .'<div class="apptx-row"><div class="ri">'.self::icon('office').'</div><div class="rc"><div class="rl">العنوان</div><div class="rv">'.e($a['address']).'</div></div></div>'
             .'<div class="apptx-row"><div class="ri">'.self::icon('card').'</div><div class="rc"><div class="rl">حالة السداد</div><div class="rv"><span class="apptx-pay '.$payTone.'">'.self::icon('check').' '.e($a['payLabel']).'</span></div></div></div>'
             .'</div></div>'
-            .'<div class="apptx-foot"><span>www.sb-legal.sa · 011 462 2277</span><span>يُرجى الحضور قبل الموعد بـ15 دقيقة وإحضار المستندات المطلوبة</span></div>'
+            .'<div class="apptx-foot"><span>https://salaselbabel.net/ · 011 462 2277</span><span>يُرجى الحضور قبل الموعد بـ15 دقيقة وإحضار المستندات المطلوبة</span></div>'
             .'</div></body></html>';
     }
 }

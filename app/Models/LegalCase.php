@@ -64,6 +64,44 @@ class LegalCase extends Model
         return 'number';
     }
 
+    /**
+     * أقرب جلسة مجدولة **لم يفت موعدها** — عمود next_hearing المخزّن لا يتحدّث بمرور الوقت
+     * فكانت «الجلسة القادمة» تعرض جلسة ماضية. يستعمل العلاقة المحمّلة إن وُجدت (تفادي N+1).
+     */
+    public function nextHearingLive(): ?CaseHearing
+    {
+        $notPast = fn ($h) => $h->status === 'مجدولة' && ($h->starts_at === null || $h->starts_at->isFuture());
+
+        if ($this->relationLoaded('hearings')) {
+            return $this->hearings
+                ->filter($notPast)
+                ->sortBy([['starts_at', 'asc'], ['id', 'asc']])
+                ->first();
+        }
+
+        return $this->hearings()->where('status', 'مجدولة')
+            ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '>=', now()))
+            ->orderByRaw('starts_at IS NULL')
+            ->orderBy('starts_at')->orderBy('id')
+            ->first();
+    }
+
+    /** نصّ «الجلسة القادمة» الحيّ — المخزَّن احتياط لسجلات قديمة/مبذورة بلا صفوف جلسات */
+    public function nextHearingLabel(): string
+    {
+        $next = $this->nextHearingLive();
+        if ($next) {
+            return $next->label();
+        }
+
+        $hasHearings = $this->relationLoaded('hearings')
+            ? $this->hearings->isNotEmpty()
+            : $this->hearings()->exists();
+
+        // توجد جلسات لكن لا قادمة منها ⇒ «—» صادقة؛ لا جلسات إطلاقاً ⇒ النص المخزّن القديم
+        return $hasHearings ? '—' : ((string) $this->next_hearing ?: '—');
+    }
+
     // الشكل الذي تتوقعه الواجهة (يطابق DATA.cases مع الجلسة القادمة)
     public function toCard(): array
     {
@@ -73,7 +111,7 @@ class LegalCase extends Model
             'status' => $this->status,
             'tone' => $this->tone,
             'update' => $this->update_text,
-            'next' => $this->next_hearing,
+            'next' => $this->nextHearingLabel(),
             'fee' => $this->fee,
             'feeStatus' => $this->fee_status,
             'invoice' => $this->invoice_text,

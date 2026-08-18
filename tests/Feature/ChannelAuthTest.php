@@ -87,15 +87,16 @@ class ChannelAuthTest extends TestCase
         $this->assertNotNull(ChannelAccess::presenceMember($admin, $rec));
     }
 
-    public function test_null_branch_record_is_not_visible_to_employees(): void
+    public function test_null_branch_record_is_shared_pool_for_employees(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
         $admin = User::factory()->create(['role' => Role::Admin]);
 
-        // سجل بلا فرع ولا إسناد: لا يراه الموظف عبر القناة (الإدارة فقط، والمالك)
+        // سجل بلا فرع = المجمّع المشترك قبل الإسناد — يراه الموظف كما في حراس HTTP
+        // (guardMeeting/guardConsult)؛ كان البثّ أشدّ فيرى الموظف السجلّ بالقائمة ولا يصله تحديثه اللحظي
         $rec = $this->record($client->id, null, null);
-        $this->assertFalse(ChannelAccess::staffCanSee($employee, $rec));
+        $this->assertTrue(ChannelAccess::staffCanSee($employee, $rec));
         $this->assertTrue(ChannelAccess::staffCanSee($admin, $rec));
         $this->assertTrue(ChannelAccess::ownerOrStaff($client, $rec));
     }

@@ -80,6 +80,7 @@ class CaseController extends Controller
             'status' => 'مستحقة',
             'tone' => 'b-amber',
             'due_label' => 'خلال 14 يوماً',
+            'due_at' => now()->addDays(14)->toDateString(),
             'paid' => false,
         ]);
 

@@ -110,6 +110,7 @@ class GenerateTicketSummaryJob implements ShouldQueue
                 'title' => "إعداد ملخّص ملف يدوياً — تعذّر التحليل الذكي ({$ticket->number})",
                 'ref' => $ticket->number,
                 'due' => 'اليوم',
+                'due_at' => now()->toDateString(),
                 'status' => 'مفتوحة',
                 'tone' => 'b-red',
             ]);

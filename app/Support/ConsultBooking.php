@@ -70,7 +70,7 @@ class ConsultBooking
             'price' => $ctx['price'],
             'vat' => $ctx['vat'],
             'total' => $ctx['price'] + $ctx['vat'],
-            'audit' => [['user' => 'النظام', 'field' => 'الاستقبال', 'before' => '—', 'after' => 'طلب تسعير — '.$m['label'], 'time' => 'الآن']],
+            'audit' => [['user' => 'النظام', 'field' => 'الاستقبال', 'before' => '—', 'after' => 'طلب تسعير — '.$m['label'], 'time' => now()->format('Y/m/d h:i')]],
         ]);
 
         // إشعار المحامي المسند (إن وُجد) بطلب تسعير جديد — قائمة التسعير تغطّي بقية موظفي الفرع
@@ -124,6 +124,7 @@ class ConsultBooking
                 'status' => 'مستحقة',
                 'tone' => 'b-amber',
                 'due_label' => 'خلال 3 أيام',
+                'due_at' => now()->addDays(3)->toDateString(),
                 'paid' => false,
             ]);
         });
@@ -350,7 +351,7 @@ class ConsultBooking
                 'specialty' => $ctx['specialty'],
                 'priority' => 'متوسطة',
                 'received_label' => 'الآن',
-                'audit' => [['user' => 'النظام', 'field' => 'الاستقبال', 'before' => '—', 'after' => 'حجز مدفوع — '.$m['label'], 'time' => 'الآن']],
+                'audit' => [['user' => 'النظام', 'field' => 'الاستقبال', 'before' => '—', 'after' => 'حجز مدفوع — '.$m['label'], 'time' => now()->format('Y/m/d h:i')]],
                 'meet_id' => $zoom['id'] ?? null,
                 'meet_link' => $zoom['join_url'] ?? null,
                 'host_link' => $zoom['start_url'] ?? null,
@@ -391,6 +392,9 @@ class ConsultBooking
         });
 
         self::sendBookingEmails($consult);
+
+        // بثّ لحظي — شاشات المكتب المفتوحة (استقبال الاستشارات/الطلبات) كانت لا تعلم بالحجز الفوري
+        Live::push(new ConsultStatusBroadcast($consult));
 
         return $consult;
     }

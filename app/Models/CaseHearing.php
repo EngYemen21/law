@@ -26,6 +26,22 @@ class CaseHearing extends Model
         return $this->belongsTo(LegalCase::class, 'case_id');
     }
 
+    /** صياغة الموعد الموحّدة (اليوم · الوقت) — من starts_at الحقيقي وإلا النصوص المخزّنة */
+    public function label(): string
+    {
+        $day = $this->starts_at?->locale('ar')->translatedFormat('l d F Y') ?: (string) $this->day;
+
+        return trim($day.($this->time ? ' · '.$this->time : ''));
+    }
+
+    /** جلسة مجدولة فات موعدها ولم تُسجَّل نتيجتها — الحالة المخزّنة «مجدولة» لا تتحدّث بمرور الوقت */
+    public function isLapsed(): bool
+    {
+        return $this->status === 'مجدولة'
+            && $this->starts_at !== null
+            && $this->starts_at->isPast();
+    }
+
     public function toData(): array
     {
         return [
@@ -36,6 +52,7 @@ class CaseHearing extends Model
             'time' => $this->starts_at?->locale('ar')->translatedFormat('h:i A') ?: $this->time,
             'court' => $this->court,
             'status' => $this->status,
+            'lapsed' => $this->isLapsed(), // للواجهة: شارة «فائتة — بانتظار النتيجة» بدل «مجدولة» الكاذبة
             'outcome' => $this->outcome,
             'startsAt' => $this->starts_at?->toIso8601String(), // لتعبئة نموذج التعديل في الواجهة
         ];

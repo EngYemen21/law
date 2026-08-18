@@ -7,16 +7,17 @@ import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 // لوحة المحامي — التذاكر المحالة وملخصاتها (بيانات حقيقية من الخادم)
 
 interface EmpTicket { no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string; }
-interface Props { tickets: EmpTicket[]; pendingSummaries: number; todayMeetings: number; openTasks: number; }
+interface Props { tickets: EmpTicket[]; pendingSummaries: number; openMeetings: number; openTasks: number; overdueTasks?: number; }
 
 const studyTicket = (no: string) => router.visit(`/lawyer/summary/${encodeURIComponent(no)}`);
 
-const LawyerDashboard: React.FC<Props> = ({ tickets, pendingSummaries, todayMeetings, openTasks }) => {
+const LawyerDashboard: React.FC<Props> = ({ tickets, pendingSummaries, openMeetings, openTasks, overdueTasks = 0 }) => {
   const stats: StatItem[] = [
     ['t-blue', 'folder', tickets.length, 'تذاكر محالة إليّ'],
-    ['t-cyan', 'video', todayMeetings, 'اجتماعات قادمة'],
+    ['t-cyan', 'video', openMeetings, 'اجتماعات قادمة'],
     ['t-amber', 'doc', pendingSummaries, 'ملخصات بانتظار اعتمادي'],
     ['t-green', 'exec', openTasks, 'مهام مفتوحة'],
+    ['t-red', 'clock', overdueTasks, 'مهام متأخرة'],
   ];
 
   return (

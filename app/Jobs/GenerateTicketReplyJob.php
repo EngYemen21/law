@@ -6,6 +6,7 @@ use App\Events\TicketMessageBroadcast;
 use App\Models\Ticket;
 use App\Services\LegalAiService;
 use App\Support\Live;
+use App\Support\Notify;
 use App\Support\TicketJourney;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -29,8 +30,13 @@ class GenerateTicketReplyJob implements ShouldQueue
             return;
         }
 
-        // يتوقّف الردّ التلقائيّ لـ AI بمجرّد إحالة التذكرة للقسم القانوني أو تحويلها للتعامل البشري
+        // يتوقّف الردّ التلقائيّ لـ AI بمجرّد إحالة التذكرة للقسم القانوني أو تحويلها للتعامل البشري —
+        // ويُسلَّم عصا المتابعة للمستشار المسند بإشعار، فلا تضيع رسالة العميل بصمت إن لم تكن شاشته مفتوحة
         if (TicketJourney::indexOf($ticket->status) >= TicketJourney::indexOf('محالة للقسم القانوني')) {
+            if ($ticket->assigned_lawyer_id) {
+                Notify::send($ticket->assigned_lawyer_id, 'folder', 't-blue', "رسالة جديدة من العميل على التذكرة {$ticket->number} — الردّ الآلي متوقف بعد الإحالة، يُرجى المتابعة.");
+            }
+
             return;
         }
 

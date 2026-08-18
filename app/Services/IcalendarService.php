@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Support\MeetingTime;
 use Carbon\CarbonInterface;
 use DateTimeInterface;
+use Illuminate\Support\Carbon;
 
 /**
  * خدمة معمارية نظيفة لتوليد ملفات iCalendar (RFC 5545)
@@ -30,8 +31,8 @@ class IcalendarService
         int $durationMinutes,
         string $locationUrl
     ): string {
-        $start = \Illuminate\Support\Carbon::parse($startsAt)->toIso8601String();
-        $end = \Illuminate\Support\Carbon::parse($startsAt)->copy()->addMinutes(max(15, $durationMinutes))->toIso8601String();
+        $start = Carbon::parse($startsAt)->toIso8601String();
+        $end = Carbon::parse($startsAt)->copy()->addMinutes(max(15, $durationMinutes))->toIso8601String();
 
         $data = [
             '@context' => 'http://schema.org',
@@ -72,7 +73,7 @@ class IcalendarService
         string $organizerName = 'النظام الإداري لمكاتب المحاماة',
         string $organizerEmail = 'no-reply@salasel.sa'
     ): string {
-        $startCarbon = \Illuminate\Support\Carbon::parse($startsAt)->utc();
+        $startCarbon = Carbon::parse($startsAt)->utc();
         $startUtc = $startCarbon->format('Ymd\THis\Z');
         $endUtc = $startCarbon->copy()->addMinutes(max(15, $durationMinutes))->format('Ymd\THis\Z');
         $stampUtc = now()->utc()->format('Ymd\THis\Z');
@@ -116,7 +117,7 @@ class IcalendarService
         int $durationMinutes,
         string $locationUrl
     ): string {
-        $startCarbon = \Illuminate\Support\Carbon::parse($startsAt ?: now())->utc();
+        $startCarbon = Carbon::parse($startsAt ?: now())->utc();
         $start = $startCarbon->format('Ymd\THis\Z');
         $end = $startCarbon->copy()->addMinutes(max(15, $durationMinutes))->format('Ymd\THis\Z');
 
@@ -153,7 +154,7 @@ class IcalendarService
             if (! $start) {
                 continue;
             }
-            $dur = $c->duration_minutes ?: 45;
+            $dur = $c->duration_min ?: 45;
             $link = $c->joinLink($user);
             $events->push(self::formatVEvent(
                 uid: 'CONSULT-'.$c->id,
@@ -203,7 +204,7 @@ class IcalendarService
             }
             $events->push(self::formatVEvent(
                 uid: 'HEARING-'.$h->id,
-                title: "جلسة محكمة: {$h->title} (قضية ".($h->legalCase?->number ?: '—').")",
+                title: "جلسة محكمة: {$h->title} (قضية ".($h->legalCase?->number ?: '—').')',
                 description: "جلسة قضائية\nالمحكمة: ".($h->court ?: 'المحكمة المختصة')."\nرقم القضية: ".($h->legalCase?->number ?: '—'),
                 startsAt: $start,
                 durationMinutes: 60,
@@ -250,7 +251,7 @@ class IcalendarService
         int $durationMinutes,
         string $location
     ): string {
-        $startCarbon = \Illuminate\Support\Carbon::parse($startsAt)->utc();
+        $startCarbon = Carbon::parse($startsAt)->utc();
         $startUtc = $startCarbon->format('Ymd\THis\Z');
         $endUtc = $startCarbon->copy()->addMinutes(max(15, $durationMinutes))->format('Ymd\THis\Z');
         $stampUtc = now()->utc()->format('Ymd\THis\Z');
@@ -273,7 +274,7 @@ class IcalendarService
             ."ACTION:DISPLAY\r\n"
             ."DESCRIPTION:تنبيه بموعد الجلسة\r\n"
             ."END:VALARM\r\n"
-            ."END:VEVENT";
+            .'END:VEVENT';
     }
 
     private static function escape(string $value): string
@@ -281,7 +282,7 @@ class IcalendarService
         $value = str_replace('\\', '\\\\', $value);
         $value = str_replace(';', '\;', $value);
         $value = str_replace(',', '\,', $value);
-        $value = str_replace(["\r\n", "\n", "\r"], "\\n", $value);
+        $value = str_replace(["\r\n", "\n", "\r"], '\\n', $value);
 
         return $value;
     }

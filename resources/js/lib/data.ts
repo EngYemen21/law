@@ -6,9 +6,9 @@ export interface Ticket { no: string; type: string; dept: string; status: string
 export interface Case { no: string; type: string; status: string; tone: string; update: string; }
 export interface Exec { no: string; subject: string; status: string; tone: string; last: string; }
 export interface Appt { id: string; type: string; ico: string; lawyer: string; day: string; time: string; branch: string; status: string; tone: string; when: 'up' | 'past'; client?: string; consultRef?: string; pay?: string; }
-export interface Meeting { id?: number; ref: string; title: string; when: string; up: boolean; canJoin?: boolean; link: string; minutes: string | null; summary: string | null; }
+export interface Meeting { id?: number; ref: string; title: string; when: string; up: boolean; status?: string; tone?: string; canJoin?: boolean; approved?: boolean; link: string; minutes: string | null; summary: string | null; }
 export interface DocItem { id?: number; name: string; meta: string; canDownload?: boolean; downloadUrl?: string; }
-export interface Invoice { no: string; desc: string; amount: number; status: string; tone: string; due: string; paid: boolean; hasProof?: boolean; }
+export interface Invoice { no: string; desc: string; amount: number; status: string; tone: string; due: string; overdue?: boolean; paid: boolean; hasProof?: boolean; }
 export interface Notif { ic: string; tone: string; text: string; time: string; unread: boolean; }
 
 export const DATA = {
@@ -33,7 +33,7 @@ export const DATA = {
     { id: 'AP3', type: 'حضورية', ico: 'office', lawyer: 'أ. ريم الزهراني', day: 'الجمعة 12 يونيو 2026', time: '10:00 ص', branch: 'جدة — حي الروضة', status: 'منتهٍ', tone: 'b-grey', when: 'past' },
   ] as Appt[],
   meetings: [
-    { title: 'استشارة مرئية — نزاع تجاري', when: 'الاثنين 29 يونيو · 11:30 ص', up: true, link: 'https://meet.salasel.sa/M-1', minutes: null, summary: null },
+    { title: 'استشارة مرئية — نزاع تجاري', when: 'الاثنين 29 يونيو · 11:30 ص', up: true, link: 'https://salaselbabel.net/M-1', minutes: null, summary: null },
     { title: 'استشارة مرئية — نزاع عقاري', when: 'الجمعة 12 يونيو · 10:00 ص', up: false, link: '', minutes: 'محضر معتمد', summary: 'ملخص معتمد' },
   ] as Meeting[],
   docsUp: [
@@ -239,6 +239,7 @@ const EMPLOYEE_NAV: SideGroup[] = [
     { icon: 'scale', label: 'إدارة الاستشارات', route: '/employee/consults' },
     { icon: 'cal', label: 'جدولة المواعيد', route: '/employee/schedule' },
     { icon: 'reply', label: 'التحويلات', route: '/employee/transfer' },
+    { icon: 'video', label: 'الاجتماعات', route: '/employee/meetings' },
     { icon: 'video', label: 'طلبات الاجتماعات', route: '/employee/meetreqs' },
     { icon: 'compass', label: 'استقبال الاستشارات', route: '/employee/consultrecv' },
   ] },
@@ -335,6 +336,8 @@ const EMPLOYEE_TITLES: Record<string, [string, string]> = {
   '/employee/schedule': ['جدولة المواعيد', 'لوحة الموظف'],
   '/employee/transfer': ['التحويلات', 'لوحة الموظف'],
   '/employee/meetreqs': ['طلبات الاجتماعات', 'لوحة الموظف'],
+  '/employee/meetings': ['الاجتماعات', 'لوحة الموظف'],
+  '/employee/meeting': ['تفاصيل الاجتماع', 'لوحة الموظف'],
   '/employee/consultrecv': ['استقبال الاستشارات', 'لوحة الموظف'],
   '/employee/videoroom': ['غرفة الجلسة المرئية', 'لوحة الموظف'],
 };

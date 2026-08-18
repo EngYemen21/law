@@ -112,7 +112,7 @@ class TaqnyatVerifyService
         }
     }
 
-    /** استخراج كود النتيجة من الرد دفاعيّاً: JSON (الحقل «code») أو نصّ رقميّ خام (verify.php يعيد رقماً مباشرةً). */
+    /** استخراج كود النتيجة من الرد دفاعيّاً: JSON (الحقل «Data.result» أو «code») أو نصّ رقميّ خام (verify.php يعيد رقماً مباشرةً). */
     private function resultCode(Response $response): ?int
     {
         $json = $response->json();
@@ -123,7 +123,21 @@ class TaqnyatVerifyService
                 $json = $json[0];
             }
 
-            foreach (['code', 'statusCode', 'Code', 'result', 'status'] as $key) {
+            // إذا كان الرد يحمل فشلاً صريحاً أو كائن خطأ
+            if ((isset($json['ResponseStatus']) && $json['ResponseStatus'] === 'fail') || ! empty($json['Error'])) {
+                return null;
+            }
+
+            // فحص البيانات المتداخلة (استجابة تقنيات الحديثة: Data.result)
+            if (isset($json['Data']) && is_array($json['Data'])) {
+                foreach (['result', 'code', 'statusCode', 'Code'] as $key) {
+                    if (isset($json['Data'][$key]) && is_numeric($json['Data'][$key])) {
+                        return (int) $json['Data'][$key];
+                    }
+                }
+            }
+
+            foreach (['code', 'statusCode', 'Code', 'result'] as $key) {
                 if (isset($json[$key]) && is_numeric($json[$key])) {
                     return (int) $json[$key];
                 }

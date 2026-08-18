@@ -1,9 +1,10 @@
 import { router } from '@inertiajs/react';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import BookingActions from '@/components/babylon/BookingActions';
 import { useToast } from '@/components/babylon/Toast';
 import type { ConsultCard } from '@/lib/consult-ui';
+import { echo } from '@/lib/echo';
 import { crChannelIcon, crChannelTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { SVC, SVC_GROUPS } from '@/lib/newticket-data';
@@ -31,6 +32,20 @@ const Book: React.FC<Props> = ({ pending }) => {
   const [otherType, setOtherType] = useState('');
   const [subject, setSubject] = useState('');
   const [busy, setBusy] = useState(false);
+  const [items, setItems] = useState<ConsultCard[]>(pending);
+
+  // تزامن لحظي: تسعير الإدارة/تأكيد الدفع يصلان فوراً — كانت الصفحة ساكنة حتى إعادة التحميل
+  useEffect(() => {
+    setItems(pending);
+    pending.forEach((c) => {
+      echo.private(`consult.${c.id}`).listen('.status', (e: { status?: string; price?: number; vat?: number; total?: number; priced?: boolean; paid?: boolean; invoiceNo?: string | null }) => {
+        setItems((prev) => prev.map((x) => x.id === c.id
+          ? { ...x, status: e.status ?? x.status, price: e.price ?? x.price, vat: e.vat ?? x.vat, total: e.total ?? x.total, priced: e.priced ?? x.priced, paid: e.paid ?? x.paid, invoiceNo: e.invoiceNo ?? x.invoiceNo }
+          : x));
+      });
+    });
+    return () => { pending.forEach((c) => echo.leave(`consult.${c.id}`)); };
+  }, [pending]);
 
   const submit = () => {
     if (!caseType) { toast('اختر نوع القضية'); return; }
@@ -57,14 +72,14 @@ const Book: React.FC<Props> = ({ pending }) => {
         <p>اختر نوع القضية ونوع الاستشارة، وستحدّد الإدارة السعر المناسب قبل السداد واختيار الموعد.</p>
       </div>
 
-      {pending.length > 0 && (
+      {items.length > 0 && (
         <div className="card" style={{ marginBottom: 14 }}>
           <div className="card-h">
             <h3>طلبات الاستشارة</h3>
-            <span className="sub">{pending.length}</span>
+            <span className="sub">{items.length}</span>
           </div>
           <div className="card-b">
-            {pending.map((c) => (
+            {items.map((c) => (
               <div key={c.ref} className="item">
                 <div className="iico"><Icon name={crChannelIcon(c.channel)} /></div>
                 <div className="imeta">

@@ -25,7 +25,7 @@ class CalendarController extends Controller
         $uid = $user->id;
 
         // 1. المواعيد الحضورية والمكتبية
-        $appts = Appointment::where('user_id', $uid)->latest('id')->get()
+        $appts = Appointment::where('user_id', $uid)->with('consult')->latest('id')->get()
             ->map(function (Appointment $a) {
                 $start = MeetingTime::parse($a->day, $a->time);
                 $gcal = IcalendarService::googleUrl(
@@ -43,7 +43,8 @@ class CalendarController extends Controller
                     'day' => $a->day,
                     'time' => $a->time,
                     'where' => $a->branch,
-                    'status' => $a->status,
+                    // الحالة الحيّة — كانت المخزّنة تعرض «مؤكد» لموعد لم يُحضَر
+                    'status' => $a->liveState()[1],
                     'gcal' => $gcal,
                 ];
             });
@@ -57,7 +58,7 @@ class CalendarController extends Controller
                     title: 'استشارة: '.$c->subject.' ('.$c->ref.')',
                     details: 'استشارة قانونية ('.$c->channel.') — المستشار: '.$c->lawyer,
                     startsAt: $start,
-                    durationMinutes: $c->duration_minutes ?: 45,
+                    durationMinutes: $c->duration_min ?: 45,
                     locationUrl: $link
                 );
 
@@ -93,7 +94,7 @@ class CalendarController extends Controller
                     'day' => $h->day,
                     'time' => $h->time,
                     'where' => $h->court ?: 'المحكمة',
-                    'status' => $h->status,
+                    'status' => $h->isLapsed() ? 'فائتة — بانتظار النتيجة' : $h->status,
                     'gcal' => $gcal,
                 ];
             });

@@ -35,6 +35,8 @@ class ZoomController extends Controller
         abort_unless(! empty($joinable->meet_id), 422, 'لا يوجد اجتماع Zoom مرتبط.');
         // القناة المرئية شرط للاستشارة فقط (اجتماع المكتب مرئيّ دائماً)
         abort_if($joinable instanceof Consult && $joinable->channel !== 'مرئية', 422, 'الاستشارة ليست مرئية.');
+        // نافذة الدخول تُفرض خادمياً هنا أيضاً — تعطيل الزر في الواجهة وحده يُلتفّ عليه بطلب مباشر
+        abort_unless($joinable->canJoin(), 403, 'انتهت نافذة دخول الجلسة أو لم تُفتح بعد.');
         abort_unless($this->zoom->sdkConfigured(), 503, 'تضمين Zoom غير مُهيّأ.');
 
         // المضيف يحتاج ZAK؛ إن تعذّر جلبه (نطاق user:read:token غير مُفعّل) يُخفَّض إلى مشارك

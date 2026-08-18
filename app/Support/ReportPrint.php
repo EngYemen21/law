@@ -77,7 +77,7 @@ class ReportPrint
 
         return '<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>'.e($doc['ref']).'</title><style>'.self::STYLE.'</style></head><body>'
             .'<div class="cf">'
-            .'<div class="cf-hd">'.($logo ? '<img src="'.$logo.'" alt="">' : '').'<div class="t"><b>النظام الإداري لمكاتب المحاماة</b><span>LEGAL OFFICE MANAGEMENT SYSTEM</span></div><div class="meta">www.legal-office.sa<br>011 462 2277</div></div>'
+            .'<div class="cf-hd">'.($logo ? '<img src="'.$logo.'" alt="">' : '').'<div class="t"><b>النظام الإداري لمكاتب المحاماة</b><span>LEGAL OFFICE MANAGEMENT SYSTEM</span></div><div class="meta">https://salaselbabel.net/<br>011 462 2277</div></div>'
             .'<div class="cf-title"><div><b>'.e($doc['title']).'</b><span class="s">'.e($doc['subtitle']).'</span></div><div class="rf">'.e($doc['ref']).'</div></div>'
             .$blocksHtml.$approvalHtml.$noteHtml.$footerHtml
             .'</div></body></html>';

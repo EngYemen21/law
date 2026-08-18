@@ -4,10 +4,12 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Events\MeetingStatusBroadcast;
+use App\Jobs\GenerateMeetingSummaryJob;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
@@ -49,7 +51,8 @@ class MeetingZoomParityTest extends TestCase
     {
         $this->configureSdk();
         $client = User::factory()->create(['role' => Role::Client]);
-        $meeting = $this->meeting(null, ['user_id' => $client->id]);
+        // «جارٍ» — التوقيع بات يفرض نافذة canJoin خادمياً، واجتماع الساعة 11:00 خارجها في وقت الاختبار المثبّت (00:30)
+        $meeting = $this->meeting(null, ['user_id' => $client->id, 'status' => 'جارٍ']);
 
         $this->actingAs($client)->postJson(route('zoom.signature'), ['ref' => $meeting->ref, 'kind' => 'meeting'])
             ->assertOk()
@@ -69,7 +72,7 @@ class MeetingZoomParityTest extends TestCase
             'api.zoom.us/v2/users/me/token*' => Http::response(['token' => 'ZAKMEET']),
         ]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
-        $meeting = $this->meeting($lawyer);
+        $meeting = $this->meeting($lawyer, ['status' => 'جارٍ']);
 
         $this->actingAs($lawyer)->postJson(route('zoom.signature'), ['ref' => $meeting->ref, 'kind' => 'meeting'])
             ->assertOk()
@@ -154,7 +157,30 @@ class MeetingZoomParityTest extends TestCase
 
         $this->postSignedWebhook(['event' => 'meeting.ended', 'payload' => ['object' => ['id' => '81823767754']]])->assertOk();
         $this->assertSame('منتهٍ', $meeting->fresh()->status);
-        $this->assertFalse($meeting->fresh()->is_up);
+        $this->assertFalse($meeting->fresh()->isUpcoming());
+        Event::assertDispatched(MeetingStatusBroadcast::class);
+    }
+
+    public function test_webhook_ended_completes_lifecycle_like_manual_end(): void
+    {
+        // كان الويبهوك يضبط «منتهٍ» فقط فتبقى دعوة العميل عالقة في «تنفيذ الجلسة» بلا ملخّص ولا حضور
+        Event::fake([MeetingStatusBroadcast::class]);
+        Bus::fake([GenerateMeetingSummaryJob::class]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $meeting = $this->meeting(null, ['status' => 'جارٍ', 'user_id' => $client->id]);
+        $mr = MeetRequest::create([
+            'user_id' => $client->id, 'meeting_id' => $meeting->id, 'ref' => 'MR-8801',
+            'service' => 'استشارة', 'type' => 'استشارة مرئية', 'day' => 'اليوم', 'time' => '11:00',
+            'sent_by' => 'المكتب', 'stage' => MeetRequest::STAGE_CONFIRMED,
+        ]);
+
+        $this->postSignedWebhook(['event' => 'meeting.ended', 'payload' => ['object' => ['id' => '81823767754']]])->assertOk();
+
+        $meeting->refresh();
+        $this->assertSame('منتهٍ', $meeting->status);
+        $this->assertSame(90, $meeting->attend); // الافتراضي كما في الإنهاء اليدوي
+        $this->assertSame(MeetRequest::STAGE_EXECUTED, $mr->fresh()->stage);
+        Bus::assertDispatched(GenerateMeetingSummaryJob::class, fn ($job) => $job->meeting->is($meeting));
         Event::assertDispatched(MeetingStatusBroadcast::class);
     }
 

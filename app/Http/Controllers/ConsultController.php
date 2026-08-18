@@ -13,6 +13,7 @@ use App\Support\LawyerAvailability;
 use App\Support\Live;
 use App\Support\Mask;
 use App\Support\PaymentReconciler;
+use App\Support\PdfRenderer;
 use App\Support\ReportPrint;
 use App\Support\TicketJourney;
 use Illuminate\Http\RedirectResponse;
@@ -239,7 +240,7 @@ class ConsultController extends Controller
             'footer' => 'النظام الإداري لمكاتب المحاماة — نسخة العميل · صادرة إلكترونياً',
         ]);
 
-        return \App\Support\PdfRenderer::render($html, $consult->ref.'.pdf');
+        return PdfRenderer::render($html, $consult->ref.'.pdf');
     }
 
     // غرفة الجلسة المرئية للعميل — تضمين Zoom داخل المنصّة (?ref=CN-…)
@@ -247,7 +248,10 @@ class ConsultController extends Controller
     {
         $consult = Consult::with('user')->where('ref', $request->query('ref'))->firstOrFail();
         abort_unless($consult->user_id === $request->user()->id, 403);
-        abort_unless($consult->canJoin(), 403, 'لا يمكن دخول الجلسة إلا قبل موعدها بـ 5 دقائق.');
+        // رسالة مميّزة لكل حالة — «انتهت» توحي بمراجعة الملخص، و«لم يحن» تدعو للانتظار
+        abort_unless($consult->canJoin(), 403, ($consult->session === 'منتهية' || $consult->isMissed())
+            ? 'انتهت جلسة هذه الاستشارة — لم يعد الدخول متاحاً.'
+            : 'لم يحن موعد الجلسة بعد — يُفعَّل الدخول قبل الموعد بـ5 دقائق.');
 
         return Inertia::render('videoroom', [
             'consult' => $consult->toClientCard(),

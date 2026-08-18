@@ -80,9 +80,12 @@ const AdminMeetLog: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) =
                   <span style={{ display: 'block', margin: '3px 0' }}>{m.type} · {m.when} · {m.client} · {m.lawyer !== '—' ? m.lawyer : 'بلا محامٍ'}{m.branch !== '—' ? ` · ${m.branch}` : ''}</span>
                   <div className="prot-list" style={{ marginTop: 6 }}>
                     {m.recording
-                      ? <a className="chip" href={m.recording} target="_blank" rel="noopener noreferrer"><Icon name="video" /> تسجيل مرئي</a>
+                      ? <a className="chip" href={m.recording} target="_blank" rel="noopener noreferrer"><Icon name="video" /> مشاهدة</a>
                       : <span className="chip" style={{ opacity: 0.5 }}>لا تسجيل</span>}
-                    {m.transcript
+                    {/* تنزيلات خادمية مضغوطة — روابط Zoom السحابية صفحات مشاهدة لا ملفات */}
+                    {m.recording && <a className="chip" href={`/admin/meetings/${m.dbId}/recording.zip`}><Icon name="download" /> الفيديو ZIP</a>}
+                    {m.zoomAudioUrl && <a className="chip" href={`/admin/meetings/${m.dbId}/audio.zip`}><Icon name="download" /> الصوت ZIP</a>}
+                    {(m.transcript || m.recording)
                       ? <a className="chip" href={`/admin/meetings/${m.dbId}/transcript`}><Icon name="doc" /> النص الكامل</a>
                       : <span className="chip" style={{ opacity: 0.5 }}>لا نصّ</span>}
                     {m.minutes
@@ -92,6 +95,10 @@ const AdminMeetLog: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) =
                       ? <a className="chip" onClick={() => router.visit(`/admin/meeting?id=${encodeURIComponent(m.id)}`)} style={{ cursor: 'pointer' }}><Icon name="check" /> القرارات ({m.decisions.length})</a>
                       : <span className="chip" style={{ opacity: 0.5 }}>بلا قرارات</span>}
                     <span className="chip"><Icon name="user" /> حضور {m.attend || 0}%{actual ? ` · ${actual}` : ''}</span>
+                    {/* شارة الاعتماد — يعرف المدقّق أيّ السجلات لم تُعتمد محاضرها بعد */}
+                    <span className="chip" style={m.approve === 'معتمد' ? undefined : { color: 'var(--amber, #b45309)' }}>
+                      <Icon name="check" /> {m.approve === 'معتمد' ? 'معتمد' : 'بانتظار الاعتماد'}
+                    </span>
                   </div>
                 </div>
                 <div className="iact">

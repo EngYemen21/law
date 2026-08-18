@@ -14,7 +14,7 @@ const JOURNEY = [
 
 interface Props {
   name: string;
-  counts: { openTickets: number; upAppts: number; upMeet: number; dueInv: number; myExec: number };
+  counts: { openTickets: number; upAppts: number; upMeet: number; dueInv: number; overdueInv?: number; myExec: number };
   upcomingAppts: Appt[];
   dueInvoices: Invoice[];
   lastTicket: { no: string; step: number } | null;
@@ -30,7 +30,8 @@ const Dashboard: React.FC<Props> = ({ name, counts, upcomingAppts, dueInvoices, 
     { tone: 't-blue', icon: 'folder', num: counts.openTickets, lbl: 'التذاكر المفتوحة', view: 'tickets' },
     { tone: 't-cyan', icon: 'cal', num: counts.upAppts, lbl: 'المواعيد القادمة', view: 'appts' },
     { tone: 't-green', icon: 'video', num: counts.upMeet, lbl: 'الاجتماعات القادمة', view: 'meetings' },
-    { tone: 't-amber', icon: 'card', num: counts.dueInv, lbl: 'الفواتير المستحقة', view: 'invoices' },
+    // المتأخرة تصبغ العدّاد أحمر وتُذكر صراحةً — كانت مدموجة في «المستحقة» فلا يميّز العميل العاجل
+    { tone: counts.overdueInv ? 't-red' : 't-amber', icon: 'card', num: counts.dueInv, lbl: counts.overdueInv ? `الفواتير المستحقة (${counts.overdueInv} متأخرة)` : 'الفواتير المستحقة', view: 'invoices' },
     { tone: 't-grey', icon: 'exec', num: counts.myExec, lbl: 'ملفات التنفيذ', view: 'execs' },
   ];
   const cur = lastTicket ? Math.min(lastTicket.step, JOURNEY.length - 1) : -1;

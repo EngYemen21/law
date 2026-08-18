@@ -57,9 +57,58 @@ class Appointment extends Model
         return $this->starts_at?->locale('ar')->translatedFormat('h:i A') ?: (string) $this->time;
     }
 
+    /** هل انقضى وقت الموعد (البداية + المدة)؟ — when_kind المخزّنة ثابتة ولا تتحدّث بمرور الوقت */
+    public function isPast(): bool
+    {
+        if (! $this->starts_at) {
+            return $this->when_kind === 'past';
+        }
+
+        return $this->starts_at->copy()->addMinutes($this->duration_min ?: 60)->isPast();
+    }
+
+    /**
+     * الحالة الحيّة المشتقّة [when, status, tone] — مصدر الحقيقة للحضور هو جلسة الاستشارة المرتبطة:
+     * «جلسة جارية» ⇒ قيد الجلسة (تبقى في القادمة)، «منتهية» بعد الموعد ⇒ تم الحضور،
+     * وموعد انقضى بلا جلسة ⇒ لم يحضر. الحالات الملغاة المخزّنة تُحترم كما هي.
+     *
+     * @return array{0:string,1:string,2:string}
+     */
+    public function liveState(): array
+    {
+        $session = $this->consult?->session;
+
+        // «جلسة جارية» ضمن سقف زمني (المدة + 180د) — جلسة بُدئت ولم تُختم لا تُثبّت الموعد في «القادمة» أبدياً
+        if ($session === 'جلسة جارية') {
+            $withinCap = $this->starts_at === null
+                || $this->starts_at->copy()->addMinutes(($this->duration_min ?: 60) + 180)->isFuture();
+
+            // تجاوزت السقف بلا ختم: الجلسة بُدئت فعلاً ⇒ حضورٌ وقع (لا «لم يحضر»)
+            return $withinCap
+                ? ['up', 'قيد الجلسة', 'b-blue']
+                : ['past', 'تم الحضور', 'b-green'];
+        }
+
+        if (! $this->isPast()) {
+            return ['up', $this->status, $this->tone];
+        }
+
+        if (in_array($this->status, ['ملغي', 'ملغى', 'ملغاة'], true)) {
+            return ['past', $this->status, 'b-grey'];
+        }
+
+        if ($session === 'منتهية') {
+            return ['past', 'تم الحضور', 'b-green'];
+        }
+
+        return ['past', 'لم يحضر', 'b-red'];
+    }
+
     // الشكل الذي تتوقعه الواجهة (يطابق DATA.appts)
     public function toCard(): array
     {
+        [$when, $status, $tone] = $this->liveState();
+
         return [
             'id' => $this->ext_id,
             'type' => $this->type,
@@ -68,9 +117,9 @@ class Appointment extends Model
             'day' => $this->dayLabel(),
             'time' => $this->timeLabel(),
             'branch' => $this->branch,
-            'status' => $this->status,
-            'tone' => $this->tone,
-            'when' => $this->when_kind,
+            'status' => $status,
+            'tone' => $tone,
+            'when' => $when,
             // بيانات بطاقة الموعد الغنيّة (حقيقيّة)
             'client' => $this->user?->name,
             'consultRef' => $this->consult?->ref,
