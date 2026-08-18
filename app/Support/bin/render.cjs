@@ -32,7 +32,12 @@ if (!htmlFile || !outputFile) {
 
 (async () => {
     try {
-        const html = fs.readFileSync(htmlFile, 'utf8');
+        let html = fs.readFileSync(htmlFile, 'utf8');
+        // Strip @import url(...) to prevent network timeouts on servers
+        // that cannot reach fonts.googleapis.com. Fallback fonts (Tahoma, Arial)
+        // are already defined in the CSS and render Arabic text correctly.
+        html = html.replace(/@import\s+url\([^)]*\)\s*;?/gi, '');
+
         const browser = await puppet.launch({
             executablePath: chromePath || '/opt/google/chrome/chrome',
             headless: true,
