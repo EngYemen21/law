@@ -1,5 +1,21 @@
-const puppet = require('puppeteer-core');
 const fs = require('fs');
+const path = require('path');
+
+let puppet;
+try {
+    puppet = require('puppeteer-core');
+} catch (e1) {
+    try {
+        puppet = require(path.resolve(__dirname, '../../../node_modules/puppeteer-core'));
+    } catch (e2) {
+        try {
+            puppet = require(path.resolve(process.cwd(), 'node_modules/puppeteer-core'));
+        } catch (e3) {
+            console.error('Cannot find puppeteer-core:', e3.message);
+            process.exit(1);
+        }
+    }
+}
 
 const [, , htmlFile, outputFile, chromePath, format = 'A4'] = process.argv;
 

@@ -44,9 +44,12 @@ class PdfRenderer
         $node = static::resolveNodePath() ?: 'node';
         $chrome = static::resolveChromePath() ?: '/opt/google/chrome/chrome';
         $script = base_path('app/Support/bin/render.cjs');
+        $isWindows = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
 
         try {
-            $cmd = '"' . $node . '" "' . $script . '" "' . $htmlFile . '" "' . $pdfFile . '" "' . $chrome . '" ' . escapeshellarg($format) . ' 2>&1';
+            $cmd = $isWindows
+                ? '"' . $node . '" "' . $script . '" "' . $htmlFile . '" "' . $pdfFile . '" "' . $chrome . '" ' . escapeshellarg($format) . ' 2>&1'
+                : 'NODE_PATH="' . base_path('node_modules') . '" "' . $node . '" "' . $script . '" "' . $htmlFile . '" "' . $pdfFile . '" "' . $chrome . '" ' . escapeshellarg($format) . ' 2>&1';
             
             $output = @shell_exec($cmd);
 
