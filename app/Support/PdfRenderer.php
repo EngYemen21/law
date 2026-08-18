@@ -49,7 +49,7 @@ class PdfRenderer
         try {
             $cmd = $isWindows
                 ? '"' . $node . '" "' . $script . '" "' . $htmlFile . '" "' . $pdfFile . '" "' . $chrome . '" ' . escapeshellarg($format) . ' 2>&1'
-                : 'NODE_PATH="' . base_path('node_modules') . '" "' . $node . '" "' . $script . '" "' . $htmlFile . '" "' . $pdfFile . '" "' . $chrome . '" ' . escapeshellarg($format) . ' 2>&1';
+                : 'env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin NODE_PATH="' . base_path('node_modules') . '" "' . $node . '" "' . $script . '" "' . $htmlFile . '" "' . $pdfFile . '" "' . $chrome . '" ' . escapeshellarg($format) . ' 2>&1';
             
             $output = @shell_exec($cmd);
 
