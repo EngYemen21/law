@@ -106,18 +106,36 @@ class DiagnosePdfCommand extends Command
             'qrSeed' => 'TEST-2026-0001',
         ]);
 
-        try {
-            $pdfContent = PdfRenderer::generatePdfBinary($sampleHtml, 'diagnose_test.pdf');
-            $size = strlen($pdfContent);
+        $node = PdfRenderer::resolveNodePath() ?: 'node';
+        $chrome = PdfRenderer::resolveChromePath() ?: '/opt/google/chrome/chrome';
+        $script = base_path('app/Support/bin/render.cjs');
+        $isWindows = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
 
+        $uniq = uniqid();
+        $htmlFile = $tmpDir . '/diag-' . $uniq . '.html';
+        $pdfFile = $tmpDir . '/diag-' . $uniq . '.pdf';
+        file_put_contents($htmlFile, $sampleHtml);
+
+        $cmd = $isWindows
+            ? '"' . $node . '" "' . $script . '" "' . $htmlFile . '" "' . $pdfFile . '" "' . $chrome . '" A4 2>&1'
+            : 'NODE_PATH="' . base_path('node_modules') . '" "' . $node . '" "' . $script . '" "' . $htmlFile . '" "' . $pdfFile . '" "' . $chrome . '" A4 2>&1';
+
+        $output = @shell_exec($cmd);
+        $this->line("   ⚙️ ناتج تشغيل المحرك: " . trim((string)$output));
+
+        if (file_exists($pdfFile) && filesize($pdfFile) > 5000) {
+            $size = filesize($pdfFile);
+            @unlink($htmlFile);
+            @unlink($pdfFile);
             $this->info("   🎉 نجح التصيير عبر محرك Google Chrome و Puppeteer بنجاح تام!");
             $this->info("   📄 حجم ملف الـ PDF الناتج: {$size} bytes (ملف ثنائي حقيقي ومصمم 100%)");
-
             return 0;
-        } catch (\Throwable $e) {
-            $this->error("   ❌ فشل التصيير مع الخطأ التالي:");
-            $this->line("   " . $e->getMessage());
-            return 1;
         }
+
+        @unlink($htmlFile);
+        @unlink($pdfFile);
+
+        $this->error("   ❌ لم يتم توليد ملف الـ PDF الحقيقي. تفاصيل الخطأ: " . trim((string)$output));
+        return 1;
     }
 }

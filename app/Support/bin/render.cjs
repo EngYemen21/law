@@ -2,19 +2,25 @@ const fs = require('fs');
 const path = require('path');
 
 let puppet;
-try {
-    puppet = require('puppeteer-core');
-} catch (e1) {
+const candidates = [
+    'puppeteer',
+    'puppeteer-core',
+    path.resolve(__dirname, '../../../node_modules/puppeteer'),
+    path.resolve(__dirname, '../../../node_modules/puppeteer-core'),
+    path.resolve(process.cwd(), 'node_modules/puppeteer'),
+    path.resolve(process.cwd(), 'node_modules/puppeteer-core'),
+];
+
+for (const candidate of candidates) {
     try {
-        puppet = require(path.resolve(__dirname, '../../../node_modules/puppeteer-core'));
-    } catch (e2) {
-        try {
-            puppet = require(path.resolve(process.cwd(), 'node_modules/puppeteer-core'));
-        } catch (e3) {
-            console.error('Cannot find puppeteer-core:', e3.message);
-            process.exit(1);
-        }
-    }
+        puppet = require(candidate);
+        if (puppet) break;
+    } catch (e) {}
+}
+
+if (!puppet) {
+    console.error('Error: Could not load puppeteer or puppeteer-core from any known path.');
+    process.exit(1);
 }
 
 const [, , htmlFile, outputFile, chromePath, format = 'A4'] = process.argv;
@@ -57,9 +63,10 @@ if (!htmlFile || !outputFile) {
         });
 
         await browser.close();
+        console.log('PDF_OK');
         process.exit(0);
     } catch (e) {
-        console.error('PDF rendering failed:', e);
+        console.error('PDF rendering failed:', e.message);
         process.exit(1);
     }
 })();
