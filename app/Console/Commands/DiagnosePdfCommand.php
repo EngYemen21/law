@@ -106,55 +106,16 @@ class DiagnosePdfCommand extends Command
             'qrSeed' => 'TEST-2026-0001',
         ]);
 
-        $targetPdf = $tmpDir . '/diag-' . uniqid() . '.pdf';
-
         try {
-            $browsershot = Browsershot::html($sampleHtml)
-                ->writeOptionsToFile()
-                ->setCustomTempPath($tmpDir)
-                ->setNodeModulePath(base_path('node_modules'))
-                ->newHeadless()
-                ->noSandbox()
-                ->emulateMedia('screen')
-                ->showBackground()
-                ->setOption('protocolTimeout', 90000)
-                ->waitUntilNetworkIdle(false)
-                ->timeout(90)
-                ->format('A4')
-                ->margins(10, 10, 10, 10)
-                ->addChromiumArguments([
-                    'no-sandbox',
-                    'disable-setuid-sandbox',
-                    'disable-gpu',
-                    'disable-dev-shm-usage',
-                    'no-first-run',
-                    'no-default-browser-check',
-                    'disable-extensions',
-                    'hide-scrollbars',
-                    'disable-software-rasterizer',
-                    'force-color-profile=srgb',
-                    'lang=ar-SA',
-                ]);
+            $pdfContent = PdfRenderer::generatePdfBinary($sampleHtml, 'diagnose_test.pdf');
+            $size = strlen($pdfContent);
 
-            if ($nodePath) $browsershot->setNodeBinary($nodePath);
-            if ($chromePath) $browsershot->setChromePath($chromePath);
+            $this->info("   🎉 نجح التصيير عبر محرك Google Chrome و Puppeteer بنجاح تام!");
+            $this->info("   📄 حجم ملف الـ PDF الناتج: {$size} bytes (ملف ثنائي حقيقي ومصمم 100%)");
 
-            $browsershot->savePdf($targetPdf);
-
-            if (file_exists($targetPdf)) {
-                $size = filesize($targetPdf);
-                @unlink($targetPdf);
-                $this->info("   🎉 نجح التصيير عبر Browsershot بنجاح تام!");
-                $this->info("   📄 حجم ملف الـ PDF الناتج: {$size} bytes (ملف ثنائي حقيقي ومصمم 100%)");
-                return 0;
-            }
-
-            throw new \RuntimeException('PDF temporary file was not created.');
+            return 0;
         } catch (\Throwable $e) {
-            if (file_exists($targetPdf)) {
-                @unlink($targetPdf);
-            }
-            $this->error("   ❌ فشل تصيير Browsershot مع الخطأ التالي:");
+            $this->error("   ❌ فشل التصيير مع الخطأ التالي:");
             $this->line("   " . $e->getMessage());
             return 1;
         }

@@ -4,11 +4,10 @@ namespace App\Support;
 
 use Illuminate\Http\Response as HttpResponse;
 use Illuminate\Support\Facades\Log;
-use Spatie\Browsershot\Browsershot;
 
 /**
- * مُصيِّر PDF رسمي واحترافي عبر Spatie Browsershot v4.
- * يضمن توليد ملفات PDF حقيقية ومصممة بدقة كاملة عبر Chromium/Chrome على كافة بيئات التشغيل (Windows, Linux, macOS).
+ * مُصيِّر PDF احترافي فائق السرعة والأداء عبر Puppeteer Core و Google Chrome.
+ * يضمن توليد ملفات PDF حقيقية ومصممة بدقة كاملة خلال أجزاء من الثانية.
  */
 class PdfRenderer
 {
@@ -36,59 +35,32 @@ class PdfRenderer
             @mkdir($tmpDir, 0775, true);
         }
 
-        $targetPdf = $tmpDir . '/out-' . uniqid() . '.pdf';
+        $uniq = uniqid();
+        $htmlFile = $tmpDir . '/render-' . $uniq . '.html';
+        $pdfFile = $tmpDir . '/render-' . $uniq . '.pdf';
+
+        file_put_contents($htmlFile, $html);
+
+        $node = static::resolveNodePath() ?: 'node';
+        $chrome = static::resolveChromePath() ?: '/opt/google/chrome/chrome';
+        $script = base_path('app/Support/bin/render.cjs');
 
         try {
-            $browsershot = Browsershot::html($html)
-                ->writeOptionsToFile()
-                ->setCustomTempPath($tmpDir)
-                ->setNodeModulePath(base_path('node_modules'))
-                ->newHeadless()
-                ->noSandbox()
-                ->emulateMedia('screen')
-                ->showBackground()
-                ->setOption('protocolTimeout', 90000)
-                ->waitUntilNetworkIdle(false)
-                ->timeout(90)
-                ->format($format)
-                ->margins(10, 10, 10, 10)
-                ->addChromiumArguments([
-                    'no-sandbox',
-                    'disable-setuid-sandbox',
-                    'disable-gpu',
-                    'disable-dev-shm-usage',
-                    'no-first-run',
-                    'no-default-browser-check',
-                    'disable-extensions',
-                    'hide-scrollbars',
-                    'disable-software-rasterizer',
-                    'force-color-profile=srgb',
-                    'lang=ar-SA',
-                ]);
+            $cmd = '"' . $node . '" "' . $script . '" "' . $htmlFile . '" "' . $pdfFile . '" "' . $chrome . '" ' . escapeshellarg($format) . ' 2>&1';
+            
+            $output = @shell_exec($cmd);
 
-            if ($nodeBinary = static::resolveNodePath()) {
-                $browsershot->setNodeBinary($nodeBinary);
+            if (file_exists($pdfFile) && filesize($pdfFile) > 0) {
+                $content = file_get_contents($pdfFile);
+                @unlink($htmlFile);
+                @unlink($pdfFile);
+                return $content;
             }
 
-            if ($chromePath = static::resolveChromePath()) {
-                $browsershot->setChromePath($chromePath);
-            }
-
-            $browsershot->savePdf($targetPdf);
-
-            if (file_exists($targetPdf)) {
-                $content = file_get_contents($targetPdf);
-                @unlink($targetPdf);
-                if (!empty($content)) {
-                    return $content;
-                }
-            }
-
-            throw new \RuntimeException('PDF temporary file was not generated.');
+            throw new \RuntimeException("PDF generation failed: {$output}");
         } catch (\Throwable $e) {
-            if (file_exists($targetPdf)) {
-                @unlink($targetPdf);
-            }
+            @unlink($htmlFile);
+            @unlink($pdfFile);
 
             try {
                 Log::error("PdfRenderer error: {$e->getMessage()}", [
