@@ -195,15 +195,15 @@ class PdfRenderer
             base_path('node_modules\\puppeteer\\.local-chromium\\*\\chrome-win32\\chrome.exe'),
             base_path('node_modules\\puppeteer\\.local-chromium\\*\\chrome-win64\\chrome.exe'),
         ] : [
+            '/opt/google/chrome/chrome',
+            '/opt/google/chrome/google-chrome',
+            '/usr/lib/chromium/chromium',
+            '/usr/lib/chromium-browser/chromium-browser',
             '/usr/bin/google-chrome-stable',
             '/usr/bin/google-chrome',
             '/usr/bin/chromium',
             '/usr/bin/chromium-browser',
             '/snap/bin/chromium',
-            '/opt/google/chrome/chrome',
-            '/opt/google/chrome/google-chrome',
-            '/usr/lib/chromium/chromium',
-            '/usr/lib/chromium-browser/chromium-browser',
             $home.'/.cache/puppeteer/chrome/*/chrome-linux64/chrome',
             $home.'/.cache/puppeteer/chrome/*/*/chrome',
             '/home/*/.cache/puppeteer/chrome/*/chrome-linux64/chrome',
@@ -216,6 +216,10 @@ class PdfRenderer
 
         $path = static::findFirstExisting($candidates);
         if ($path) {
+            $real = realpath($path);
+            if ($real && is_file($real) && is_executable($real) && !str_ends_with($real, '.sh')) {
+                return $real;
+            }
             return $path;
         }
 
