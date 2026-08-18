@@ -48,6 +48,9 @@ const watchdog = setTimeout(() => {
 
         const browser = await puppet.launch({
             executablePath: chromePath || '/opt/google/chrome/chrome',
+            // بروفايل معزول في مجلد قابل للكتابة لمستخدم الويب (يمرّره PdfRenderer) —
+            // بدونه يحاول كروم الكتابة في HOME وقد يتحطم تحت www-data
+            userDataDir: process.env.CHROME_USER_DATA_DIR || undefined,
             timeout: timeoutSec * 1000,
             protocolTimeout: timeoutSec * 1000,
             headless: true,

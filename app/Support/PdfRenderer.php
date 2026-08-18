@@ -61,6 +61,8 @@ class PdfRenderer
         $uniq = uniqid();
         $htmlFile = $tmpDir.'/render-'.$uniq.'.html';
         $pdfFile = $tmpDir.'/render-'.$uniq.'.pdf';
+        // بروفايل كروم معزول لكل عملية داخل storage — قابل للكتابة لمستخدم الويب
+        $profileDir = $tmpDir.'/profile-'.$uniq;
 
         file_put_contents($htmlFile, $html);
 
@@ -72,9 +74,20 @@ class PdfRenderer
         $timeout = max(5, (int) config('pdf.timeout', 20));
 
         try {
+            // HOME كان مثبّتاً على /root فينجح الأمر من طرفية root ويفشل من طلب الويب
+            // (www-data لا يكتب في /root فيتحطم كروم) — يُوجَّه كل شيء إلى storage القابل للكتابة
+            $envPrefix = 'env -i'
+                .' HOME="'.$tmpDir.'"'
+                .' XDG_CONFIG_HOME="'.$tmpDir.'/.config"'
+                .' XDG_CACHE_HOME="'.$tmpDir.'/.cache"'
+                .' TMPDIR="'.$tmpDir.'"'
+                .' CHROME_USER_DATA_DIR="'.$profileDir.'"'
+                .' PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+                .' NODE_PATH="'.base_path('node_modules').'"';
+
             $cmd = $isWindows
                 ? '"'.$node.'" "'.$script.'" "'.$htmlFile.'" "'.$pdfFile.'" "'.$chrome.'" '.escapeshellarg($format).' '.$timeout.' 2>&1'
-                : 'env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin NODE_PATH="'.base_path('node_modules').'" "'.$node.'" "'.$script.'" "'.$htmlFile.'" "'.$pdfFile.'" "'.$chrome.'" '.escapeshellarg($format).' '.$timeout.' 2>&1';
+                : $envPrefix.' "'.$node.'" "'.$script.'" "'.$htmlFile.'" "'.$pdfFile.'" "'.$chrome.'" '.escapeshellarg($format).' '.$timeout.' 2>&1';
 
             // Symfony Process بمهلة صلبة تقتل العملية (بدل shell_exec الذي يعلّق بلا حدود حتى يسقط PHP)
             $process = Process::fromShellCommandline($cmd, base_path(), null, null, (float) ($timeout + 5));
@@ -85,6 +98,7 @@ class PdfRenderer
                 $content = file_get_contents($pdfFile);
                 @unlink($htmlFile);
                 @unlink($pdfFile);
+                static::cleanupDir($profileDir);
 
                 return $content;
             }
@@ -93,6 +107,7 @@ class PdfRenderer
         } catch (\Throwable $e) {
             @unlink($htmlFile);
             @unlink($pdfFile);
+            static::cleanupDir($profileDir);
 
             try {
                 Log::error("PdfRenderer error: {$e->getMessage()}", [
@@ -103,6 +118,26 @@ class PdfRenderer
             }
 
             return static::fallbackPdf($html, $filename);
+        }
+    }
+
+    /** حذف مجلد البروفايل المؤقت بعد كل تصيير (لا تراكم بروفايلات كروم في storage) */
+    private static function cleanupDir(string $dir): void
+    {
+        if (! is_dir($dir)) {
+            return;
+        }
+
+        try {
+            $items = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::CHILD_FIRST
+            );
+            foreach ($items as $item) {
+                $item->isDir() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
+            }
+            @rmdir($dir);
+        } catch (\Throwable $ignored) {
         }
     }
 
