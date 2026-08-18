@@ -71,6 +71,8 @@ class DiagnosePdfCommand extends Command
             } else {
                 $this->warn('   ⚠️ حالة تشغيل المتصفح: ' . trim((string)$rawChromeVer));
             }
+            // Wait for Chrome singleton lock to release before launching PDF render
+            usleep(1500000);
         }
 
         // 5. فحص المجلد المؤقت والصلاحيات
