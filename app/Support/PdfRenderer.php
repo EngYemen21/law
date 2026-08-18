@@ -36,10 +36,13 @@ class PdfRenderer
             @mkdir($tmpDir, 0775, true);
         }
 
+        $targetPdf = $tmpDir . '/out-' . uniqid() . '.pdf';
+
         try {
             $browsershot = Browsershot::html($html)
                 ->writeOptionsToFile()
                 ->setCustomTempPath($tmpDir)
+                ->setNodeModulePath(base_path('node_modules'))
                 ->newHeadless()
                 ->noSandbox()
                 ->emulateMedia('screen')
@@ -63,11 +66,6 @@ class PdfRenderer
                     'lang=ar-SA',
                 ]);
 
-            $nodeModules = base_path('node_modules');
-            if (is_dir($nodeModules)) {
-                $browsershot->setNodeModulePath($nodeModules);
-            }
-
             if ($nodeBinary = static::resolveNodePath()) {
                 $browsershot->setNodeBinary($nodeBinary);
             }
@@ -76,8 +74,22 @@ class PdfRenderer
                 $browsershot->setChromePath($chromePath);
             }
 
-            return $browsershot->pdf();
+            $browsershot->savePdf($targetPdf);
+
+            if (file_exists($targetPdf)) {
+                $content = file_get_contents($targetPdf);
+                @unlink($targetPdf);
+                if (!empty($content)) {
+                    return $content;
+                }
+            }
+
+            throw new \RuntimeException('PDF temporary file was not generated.');
         } catch (\Throwable $e) {
+            if (file_exists($targetPdf)) {
+                @unlink($targetPdf);
+            }
+
             try {
                 Log::error("PdfRenderer error: {$e->getMessage()}", [
                     'filename' => $filename,

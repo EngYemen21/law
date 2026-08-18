@@ -106,10 +106,13 @@ class DiagnosePdfCommand extends Command
             'qrSeed' => 'TEST-2026-0001',
         ]);
 
+        $targetPdf = $tmpDir . '/diag-' . uniqid() . '.pdf';
+
         try {
             $browsershot = Browsershot::html($sampleHtml)
                 ->writeOptionsToFile()
                 ->setCustomTempPath($tmpDir)
+                ->setNodeModulePath(base_path('node_modules'))
                 ->newHeadless()
                 ->noSandbox()
                 ->emulateMedia('screen')
@@ -136,14 +139,21 @@ class DiagnosePdfCommand extends Command
             if ($nodePath) $browsershot->setNodeBinary($nodePath);
             if ($chromePath) $browsershot->setChromePath($chromePath);
 
-            $pdfContent = $browsershot->pdf();
-            $size = strlen($pdfContent);
+            $browsershot->savePdf($targetPdf);
 
-            $this->info("   🎉 نجح التصيير عبر Browsershot بنجاح تام!");
-            $this->info("   📄 حجم ملف الـ PDF الناتج: {$size} bytes (ملف ثنائي حقيقي ومصمم 100%)");
+            if (file_exists($targetPdf)) {
+                $size = filesize($targetPdf);
+                @unlink($targetPdf);
+                $this->info("   🎉 نجح التصيير عبر Browsershot بنجاح تام!");
+                $this->info("   📄 حجم ملف الـ PDF الناتج: {$size} bytes (ملف ثنائي حقيقي ومصمم 100%)");
+                return 0;
+            }
 
-            return 0;
+            throw new \RuntimeException('PDF temporary file was not created.');
         } catch (\Throwable $e) {
+            if (file_exists($targetPdf)) {
+                @unlink($targetPdf);
+            }
             $this->error("   ❌ فشل تصيير Browsershot مع الخطأ التالي:");
             $this->line("   " . $e->getMessage());
             return 1;
