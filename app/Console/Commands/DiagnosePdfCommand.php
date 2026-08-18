@@ -118,8 +118,9 @@ class DiagnosePdfCommand extends Command
                 ->format('A4')
                 ->margins(10, 10, 10, 10)
                 ->addChromiumArguments([
-                    'disable-gpu',
+                    'no-sandbox',
                     'disable-setuid-sandbox',
+                    'disable-gpu',
                     'disable-dev-shm-usage',
                     'no-first-run',
                     'no-default-browser-check',
