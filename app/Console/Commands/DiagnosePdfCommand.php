@@ -132,10 +132,12 @@ class DiagnosePdfCommand extends Command
             return 0;
         }
 
-        @unlink($htmlFile);
         @unlink($pdfFile);
 
         $this->error("   ❌ لم يتم توليد ملف الـ PDF الحقيقي. تفاصيل الخطأ: " . trim((string)$output));
+        $this->line("   📁 ملف HTML المحفوظ للتشخيص: " . $htmlFile);
+        $this->line("   💡 لتشخيص المشكلة بدقة، نفّذ:");
+        $this->line("   node test_diagnose_html.cjs \"{$chrome}\" \"{$htmlFile}\"");
         return 1;
     }
 }
