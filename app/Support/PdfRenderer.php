@@ -44,7 +44,9 @@ class PdfRenderer
                 ->noSandbox()
                 ->emulateMedia('screen')
                 ->showBackground()
-                ->timeout(60)
+                ->setOption('protocolTimeout', 90000)
+                ->waitUntilNetworkIdle(false)
+                ->timeout(90)
                 ->format($format)
                 ->margins(10, 10, 10, 10)
                 ->addChromiumArguments([
@@ -57,24 +59,7 @@ class PdfRenderer
                     'disable-extensions',
                     'hide-scrollbars',
                     'disable-software-rasterizer',
-                    'disable-background-networking',
-                    'disable-background-timer-throttling',
-                    'disable-backgrounding-occluded-windows',
-                    'disable-breakpad',
-                    'disable-component-update',
-                    'disable-default-apps',
-                    'disable-features=TranslateUI',
-                    'disable-hang-monitor',
-                    'disable-ipc-flooding-protection',
-                    'disable-popup-blocking',
-                    'disable-prompt-on-repost',
-                    'disable-renderer-backgrounding',
-                    'disable-sync',
                     'force-color-profile=srgb',
-                    'metrics-recording-only',
-                    'password-store=basic',
-                    'use-mock-keychain',
-                    'export-tagged-pdf',
                     'lang=ar-SA',
                 ]);
 

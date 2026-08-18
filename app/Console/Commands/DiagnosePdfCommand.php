@@ -114,7 +114,9 @@ class DiagnosePdfCommand extends Command
                 ->noSandbox()
                 ->emulateMedia('screen')
                 ->showBackground()
-                ->timeout(60)
+                ->setOption('protocolTimeout', 90000)
+                ->waitUntilNetworkIdle(false)
+                ->timeout(90)
                 ->format('A4')
                 ->margins(10, 10, 10, 10)
                 ->addChromiumArguments([
