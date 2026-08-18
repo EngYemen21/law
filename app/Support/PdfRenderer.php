@@ -72,10 +72,6 @@ class PdfRenderer
                 $browsershot->setNodeBinary($nodeBinary);
             }
 
-            if ($npmBinary = static::resolveNpmPath()) {
-                $browsershot->setNpmBinary($npmBinary);
-            }
-
             if ($chromePath = static::resolveChromePath()) {
                 $browsershot->setChromePath($chromePath);
             }

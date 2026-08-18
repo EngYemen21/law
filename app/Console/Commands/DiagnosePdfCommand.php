@@ -134,7 +134,6 @@ class DiagnosePdfCommand extends Command
                 ]);
 
             if ($nodePath) $browsershot->setNodeBinary($nodePath);
-            if ($npmPath) $browsershot->setNpmBinary($npmPath);
             if ($chromePath) $browsershot->setChromePath($chromePath);
 
             $pdfContent = $browsershot->pdf();
