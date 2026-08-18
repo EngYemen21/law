@@ -47,12 +47,8 @@ if (!htmlFile || !outputFile) {
                 '--disable-gpu',
                 '--disable-dev-shm-usage',
                 '--no-first-run',
-                '--no-default-browser-check',
                 '--disable-extensions',
                 '--hide-scrollbars',
-                '--disable-software-rasterizer',
-                '--force-color-profile=srgb',
-                '--lang=ar-SA',
             ],
         });
 
