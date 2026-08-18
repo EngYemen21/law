@@ -58,15 +58,16 @@ if (!htmlFile || !outputFile) {
 
         const page = await browser.newPage();
         await page.setContent(html, { waitUntil: 'domcontentloaded' });
-        await page.emulateMediaType('screen');
-        
-        await page.pdf({
-            path: outputFile,
+
+        // Use buffer-based pdf() then write to file — identical to the
+        // pattern that succeeded in test_chrome.cjs on the production server.
+        const pdf = await page.pdf({
             format: format,
             printBackground: true,
             margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' }
         });
 
+        fs.writeFileSync(outputFile, pdf);
         await browser.close();
         console.log('PDF_OK');
         process.exit(0);
