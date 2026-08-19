@@ -76,31 +76,36 @@ class DatabaseSeeder extends Seeder
     }
 
     /**
-     * إنشاء/تحديث حساب فعّال بكلمة المرور الموحّدة — يطابق بالبريد أولاً، وإلا يتحقّق من
-     * تعارض حقيقي على قيد التفرّد (رقم الهوية + الدور): إن وُجد حساب حقيقي آخر يُعاد كما هو.
+     * إنشاء/تحديث حساب فعّال بكلمة المرور الموحّدة — متقارب (idempotent) على أي قاعدة قائمة:
+     * المرساة قيد التفرّد (رقم الهوية + الدور) لا البريد؛ فإن شغل البريدَ صفٌّ آخر مختلف
+     * حُرّر بريده (لاحقة أرشفة) بدل تحويله للدور الجديد — كانت المطابقة بالبريد أولاً تصطدم
+     * بقيد (الهوية+الدور) حين يحمل البريدَ مستخدمٌ قديم غير صفّ الهويّة.
      */
     private function makeUser(array $attrs): User
     {
-        $existing = User::where('email', $attrs['email'])->first();
-        if ($existing) {
-            $existing->update(array_merge($attrs, [
-                'password' => Hash::make('password'),
-                'status' => 'active',
-                'email_verified_at' => now(),
-            ]));
+        $byIdentity = User::where('national_id', $attrs['national_id'])->where('role', $attrs['role'])->first();
+        $byEmail = User::where('email', $attrs['email'])->first();
 
-            return $existing->fresh();
+        // صفّان مختلفان يتنازعان: صفّ يحمل الهويّة+الدور وآخر يحمل البريد — يُؤرشف بريد الأخير
+        // ليتحرّر للحساب القانوني (تحويله للدور الجديد كان يصطدم بقيد الهويّة+الدور)
+        if ($byIdentity && $byEmail && $byIdentity->isnt($byEmail)) {
+            $byEmail->update(['email' => 'archived+'.$byEmail->id.'.'.$byEmail->email]);
+            $byEmail = null;
         }
 
-        $conflict = User::where('national_id', $attrs['national_id'])->where('role', $attrs['role'])->first();
-        if ($conflict) {
-            return $conflict;
-        }
-
-        return User::create(array_merge($attrs, [
+        $payload = array_merge($attrs, [
             'password' => Hash::make('password'),
             'status' => 'active',
             'email_verified_at' => now(),
-        ]));
+        ]);
+
+        $target = $byIdentity ?? $byEmail;
+        if ($target) {
+            $target->update($payload);
+
+            return $target->fresh();
+        }
+
+        return User::create($payload);
     }
 }
