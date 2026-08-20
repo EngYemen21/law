@@ -144,7 +144,7 @@ class ConsultBookingTest extends TestCase
     public function test_office_booking_creates_appointment_with_real_time(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية', 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
         $ticket = $this->ticketReadyToBook($client);
         $date = LawyerAvailability::resolveDate(null)->toDateString();
 
@@ -157,7 +157,7 @@ class ConsultBookingTest extends TestCase
         $this->assertSame('استشارة حضورية', $appt->type);
         $this->assertSame($lawyer->id, $appt->lawyer_id);
         $this->assertNotNull($appt->starts_at);
-        $this->assertNotEmpty($appt->branch);
+        $this->assertNotEmpty($appt->place);
     }
 
     public function test_booking_validates_type(): void

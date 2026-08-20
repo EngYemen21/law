@@ -50,8 +50,7 @@ class ZoomRecordingTest extends TestCase
         return Consult::create(array_merge([
             'user_id' => $client->id, 'ref' => 'CN-2026-'.random_int(1000, 9999),
             'subject' => 'نزاع', 'channel' => 'مرئية', 'lawyer' => $lawyer?->name ?? 'محامٍ',
-            'assigned_lawyer_id' => $lawyer?->id, 'branch' => $lawyer?->branch,
-            'day' => 'اليوم', 'time' => '11:00', 'when_label' => 'اليوم', 'session' => 'منتهية',
+            'assigned_lawyer_id' => $lawyer?->id, 'day' => 'اليوم', 'time' => '11:00', 'when_label' => 'اليوم', 'session' => 'منتهية',
             'meet_id' => '55500011122',
         ], $extra));
     }
@@ -132,7 +131,7 @@ class ZoomRecordingTest extends TestCase
 
     public function test_summary_completed_auto_creates_tasks_for_assigned_lawyer(): void
     {
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         // قرارات حقيقية مبذورة (مصدرها AI في الإنتاج) — لا اعتماد على نصّ احتياطي وهمي
         $consult = $this->consult($lawyer, ['decisions' => ['توجيه إنذار رسمي', 'تجهيز مذكرة الدعوى']]);
         Http::fake([

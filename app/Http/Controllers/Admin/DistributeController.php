@@ -8,7 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\AssignTicketJob;
 use App\Models\Ticket;
 use App\Models\User;
-use App\Rules\LawyerInBranch;
+use App\Rules\ActiveLawyer;
 use App\Support\Live;
 use App\Support\TicketAssignment;
 use App\Support\TicketJourney;
@@ -41,14 +41,13 @@ class DistributeController extends Controller
     {
         $data = $request->validate([
             // الإدارة تُسند لمحامٍ نشط — Rule موحَّد يرفض غير المحامين والموقوفين. (الإدارة صلاحيات مطلقة فلا تقييد بالفرع)
-            'lawyer_id' => ['required', 'integer', new LawyerInBranch],
+            'lawyer_id' => ['required', 'integer', new ActiveLawyer],
         ]);
         $lawyer = User::findOrFail($data['lawyer_id']);
 
         $updates = [
             'assigned_lawyer' => $lawyer->name,
             'assigned_lawyer_id' => $lawyer->id,
-            'branch' => $lawyer->branch ?: $ticket->branch,
         ];
 
         if (in_array($ticket->status, ['جديدة', 'قيد التحليل'], true)) {

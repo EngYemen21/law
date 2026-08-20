@@ -28,11 +28,10 @@ class PermissionXhrRejectionTest extends TestCase
             'department' => 'القانون التجاري',
             'status' => 'قيد التحليل',
             'tone' => 'b-blue',
-            'branch' => 'الرياض',
         ]);
 
         // المصنع يمنح الموظف كل الصلاحيات افتراضياً — نقصرها هنا على فتح الصفحة دون الإجراءات الحسّاسة
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'الرياض']);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         $employee->syncPermissions(Permission::whereIn('name', ['إدارة التذاكر'])->get());
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 

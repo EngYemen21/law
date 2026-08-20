@@ -11,15 +11,12 @@ const AdminMeetLog: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) =
   // بحث وفلترة (client-side — بيانات الإدارة محمّلة كاملةً)
   const [q, setQ] = useState('');
   const [lawyerF, setLawyerF] = useState('');
-  const [branchF, setBranchF] = useState('');
   const [fromD, setFromD] = useState('');
   const [toD, setToD] = useState('');
   const lawyerOpts = [...new Set(ended.map((m) => m.lawyer).filter((l) => l && l !== '—'))];
-  const branchOpts = [...new Set(ended.map((m) => m.branch).filter((b) => b && b !== '—'))];
 
   const list = ended.filter((m) => {
     if (lawyerF && m.lawyer !== lawyerF) return false;
-    if (branchF && m.branch !== branchF) return false;
     if (q.trim()) {
       const hay = `${m.title} ${m.client} ${m.lawyer} ${m.caseRef || ''}`.toLowerCase();
       if (!hay.includes(q.trim().toLowerCase())) return false;
@@ -50,17 +47,11 @@ const AdminMeetLog: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) =
                 {lawyerOpts.map((l) => <option key={l} value={l}>{l}</option>)}
               </select>
             </div>
-            <div className="field"><label>الفرع</label>
-              <select value={branchF} onChange={(e) => setBranchF(e.target.value)}>
-                <option value="">— الكل —</option>
-                {branchOpts.map((b) => <option key={b} value={b}>{b}</option>)}
-              </select>
-            </div>
             <div className="field"><label>من تاريخ</label><input className="input" type="date" value={fromD} onChange={(e) => setFromD(e.target.value)} /></div>
             <div className="field"><label>إلى تاريخ</label><input className="input" type="date" value={toD} onChange={(e) => setToD(e.target.value)} /></div>
           </div>
-          {(q || lawyerF || branchF || fromD || toD) && (
-            <button className="btn soft sm" style={{ marginTop: 8 }} type="button" onClick={() => { setQ(''); setLawyerF(''); setBranchF(''); setFromD(''); setToD(''); }}>
+          {(q || lawyerF || fromD || toD) && (
+            <button className="btn soft sm" style={{ marginTop: 8 }} type="button" onClick={() => { setQ(''); setLawyerF(''); setFromD(''); setToD(''); }}>
               <Icon name="reply" /> مسح الفلاتر
             </button>
           )}
@@ -77,7 +68,7 @@ const AdminMeetLog: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) =
                 <div className="iico"><Icon name="folder" /></div>
                 <div className="imeta">
                   <b>{m.title}</b>
-                  <span style={{ display: 'block', margin: '3px 0' }}>{m.type} · {m.when} · {m.client} · {m.lawyer !== '—' ? m.lawyer : 'بلا محامٍ'}{m.branch !== '—' ? ` · ${m.branch}` : ''}</span>
+                  <span style={{ display: 'block', margin: '3px 0' }}>{m.type} · {m.when} · {m.client} · {m.lawyer !== '—' ? m.lawyer : 'بلا محامٍ'}</span>
                   <div className="prot-list" style={{ marginTop: 6 }}>
                     {m.recording
                       ? <a className="chip" href={m.recording} target="_blank" rel="noopener noreferrer"><Icon name="video" /> مشاهدة</a>

@@ -76,7 +76,7 @@ void navigator.clipboard.writeText(c.slink);
 
                   {c.channel === 'حضورية' && (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: '11.5px', color: 'var(--muted)' }}>
-                      <Icon name="pin" /> {c.branch}
+                      <Icon name="pin" /> {c.place}
                     </span>
                   )}
                 </div>

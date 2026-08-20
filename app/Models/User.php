@@ -23,7 +23,6 @@ use Spatie\Permission\Traits\HasRoles;
  * @property string|null $title
  * @property string|null $phone
  * @property string $status
- * @property string|null $branch
  * @property string|null $department
  * @property string $distribution_mode // auto | manual
  * @property string|null $job_title
@@ -43,7 +42,7 @@ use Spatie\Permission\Traits\HasRoles;
  */
 #[Fillable([
     'name', 'email', 'password', 'role', 'avatar_initials', 'title', 'phone', 'phone_verified_at', 'email_verified_at',
-    'status', 'branch', 'department', 'distribution_mode', 'job_title',
+    'status', 'department', 'distribution_mode', 'job_title',
     'pay_type', 'salary', 'pay_pct', 'session_fee',
     'national_id', 'join_date', 'work_start', 'work_end',
 ])]
@@ -114,7 +113,6 @@ class User extends Authenticatable
             'id' => $this->id,
             'name' => $this->name,
             'role' => $this->job_title ?? $this->role->label(),
-            'branch' => $this->branch ?? '—',
             'dept' => $this->department ?? '—',
             'pay' => $this->payLabel(),
             'salary' => $this->salary,

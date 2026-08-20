@@ -39,14 +39,6 @@ export const REV_BY_SVC: BarDatum[] = [
   { m: 'قضايا/أتعاب', v: 380 }, { m: 'مراجعة مستندات', v: 120 },
 ];
 
-// ── الفروع (BRANCHES) ──
-export interface Branch { name: string; city: string; phone: string; }
-export const BRANCHES: Branch[] = [
-  { name: 'الفرع الرئيسي — جدة', city: 'جدة', phone: '012 000 0000' },
-  { name: 'فرع الرياض', city: 'الرياض', phone: '011 000 0000' },
-  { name: 'فرع الدمام', city: 'الدمام', phone: '013 000 0000' },
-];
-
 // ── أرشيف التسجيلات (ARCHIVE) ──
 export interface ArchiveItem { ref: string; ctype: string; client: string; date: string; dur: string; }
 export const ARCHIVE: ArchiveItem[] = [

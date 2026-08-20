@@ -67,15 +67,15 @@ class AiResilienceTest extends TestCase
         $this->assertFalse($svc->available());
     }
 
-    public function test_escalates_to_lawyer_and_branch_employees_on_exhaustion(): void
+    public function test_escalates_to_lawyer_and_all_employees_on_exhaustion(): void
     {
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
-        $otherBranch = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع جدة']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $secondEmployee = User::factory()->create(['role' => Role::Employee]);
         $client = User::factory()->create(['role' => Role::Client]);
         $ticket = Ticket::create([
             'user_id' => $client->id, 'number' => 'SB-2026-7003', 'type' => 'نزاع تجاري',
-            'department' => 'القسم التجاري', 'branch' => 'فرع الرياض', 'assigned_lawyer_id' => $lawyer->id,
+            'department' => 'القسم التجاري', 'assigned_lawyer_id' => $lawyer->id,
             'status' => 'بانتظار اعتماد المستشار', 'tone' => 'b-amber',
         ]);
         $ticket->summary()->create([
@@ -89,18 +89,18 @@ class AiResilienceTest extends TestCase
         // (1) مهمّة حمراء + إشعار للمحامي المسند
         $this->assertDatabaseHas('tasks', ['assigned_to' => $lawyer->id, 'ref' => 'SB-2026-7003', 'tone' => 'b-red']);
         $this->assertSame(1, UserNotification::where('user_id', $lawyer->id)->count());
-        // (2) إشعار لموظف الفرع نفسه — لا موظف فرع آخر
+        // (2) إشعار لكل موظفي المكتب (مكتب واحد بلا فروع)
         $this->assertSame(1, UserNotification::where('user_id', $employee->id)->count());
-        $this->assertSame(0, UserNotification::where('user_id', $otherBranch->id)->count());
+        $this->assertSame(1, UserNotification::where('user_id', $secondEmployee->id)->count());
     }
 
     public function test_no_escalation_if_summary_became_ai_generated(): void
     {
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $client = User::factory()->create(['role' => Role::Client]);
         $ticket = Ticket::create([
             'user_id' => $client->id, 'number' => 'SB-2026-7004', 'type' => 'نزاع',
-            'department' => 'القسم التجاري', 'branch' => 'فرع الرياض', 'assigned_lawyer_id' => $lawyer->id,
+            'department' => 'القسم التجاري', 'assigned_lawyer_id' => $lawyer->id,
             'status' => 'بانتظار اعتماد المستشار', 'tone' => 'b-amber',
         ]);
         $ticket->summary()->create([

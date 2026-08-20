@@ -34,7 +34,6 @@ class TicketEndToEndFlowTest extends TestCase
             'name' => 'محمد العتيبي',
             'national_id' => '1000000001',
             'phone' => '0500000001',
-            'branch' => 'فرع الرياض',
         ]);
 
         $employee = User::factory()->create([
@@ -42,7 +41,6 @@ class TicketEndToEndFlowTest extends TestCase
             'name' => 'سارة المشرفة',
             'national_id' => '1000000002',
             'phone' => '0500000002',
-            'branch' => 'فرع الرياض',
         ]);
         $employee->syncPermissions(Permission::all());
 
@@ -51,7 +49,6 @@ class TicketEndToEndFlowTest extends TestCase
             'name' => 'أ. خالد المالكي',
             'national_id' => '1000000003',
             'phone' => '0500000003',
-            'branch' => 'فرع الرياض',
         ]);
         $lawyer->syncPermissions(Permission::all());
 

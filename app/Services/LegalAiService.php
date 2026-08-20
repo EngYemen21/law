@@ -816,7 +816,7 @@ PROMPT;
         $default = (int) $candidates->first()->id;
         $ids = $candidates->pluck('id')->map(fn ($i) => (int) $i)->all();
 
-        $list = $candidates->map(fn ($u) => "- id={$u->id} | {$u->name} | التخصّص: ".($u->department ?: '—').' | الفرع: '.($u->branch ?: '—'))->implode("\n");
+        $list = $candidates->map(fn ($u) => "- id={$u->id} | {$u->name} | التخصّص: ".($u->department ?: '—'))->implode("\n");
         $system = 'أنت منسّق إسناد في «النظام الإداري لمكاتب المحاماة». اختر المحامي الأنسب تخصّصاً لموضوع التذكرة من القائمة. '
             .'أعد JSON فقط: {"lawyer_id": المعرّف الرقمي للمحامي المختار}. لا نص خارج JSON.';
         $prompt = "نوع التذكرة: {$ticket->type}\nالقسم: ".($ticket->department ?: '—')."\n\nالمحامون المتاحون:\n{$list}";
@@ -976,7 +976,6 @@ PROMPT;
             ."نوع القضية: {$ticket->type}\n"
             ."موضوع النزاع: {$ticket->subject}\n"
             ."العميل: {$clientName}\n"
-            ."الفرع: {$ticket->branch}\n"
             ."تفاصيل التذكرة:\n{$ticket->details}\n";
 
         if ($summary) {
@@ -1007,7 +1006,7 @@ PROMPT;
 
         // مسودة ناجز احتياطية منظمة
         return "المملكة العربية السعودية\nوزارة العدل — منصة ناجز الإلكترونية\nصحيفة دعوى إلكترونية\n\n"
-            .'لدى المحكمة المختصة بمدينة: '.($ticket->branch ?: 'الرياض')."\n\n"
+            .'لدى المحكمة المختصة بمدينة: '.config('office.city')."\n\n"
             ."المدعي: {$clientName}\n"
             ."المدعى عليه: (يُحدد حسب بيانات الخصم)\n"
             ."نوع الدعوى: {$ticket->type}\n"

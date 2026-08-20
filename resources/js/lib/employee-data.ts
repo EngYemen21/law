@@ -48,14 +48,14 @@ export const CLIENTS: Client[] = [
 
 // ── الموظفون (STAFF) — يطابق STAFF في الأصل ──
 export interface Staff {
-  name: string; role: string; branch: string; dept: string; pay: string;
+  name: string; role: string; dept: string; pay: string;
   salary: number; status: string; perms: string[]; email: string;
   mobile: string; nid: string; join: string; start: string; end: string;
 }
 export const STAFF: Staff[] = [
-  { name: 'منيرة الحربي', role: 'موظف خدمة عملاء', branch: 'الفرع الرئيسي — جدة', dept: 'خدمة العملاء', pay: 'راتب ثابت: 7,000 ر.س/شهري', salary: 7000, status: 'نشط', perms: ['إدارة التذاكر', 'الرد على العملاء', 'جدولة المواعيد', 'تحويل التذاكر'], email: 'm.harbi@salasel.sa', mobile: '0551234501', nid: '1023456789', join: '2025-09-01', start: '08:00', end: '16:00' },
-  { name: 'أ. سارة القحطاني', role: 'محامٍ', branch: 'الفرع الرئيسي — جدة', dept: 'القضايا التجارية', pay: 'راتب 12,000 ر.س + نسبة 10%', salary: 12000, status: 'نشط', perms: ['المساعد القانوني', 'اعتماد الملخصات', 'إدارة القضايا والأتعاب'], email: 's.qahtani@salasel.sa', mobile: '0551234502', nid: '1098765432', join: '2024-03-15', start: '09:00', end: '17:00' },
-  { name: 'أ. خالد المالكي', role: 'محامٍ', branch: 'فرع الرياض', dept: 'العقارات', pay: 'بالجلسة: 800 ر.س/جلسة', salary: 0, status: 'نشط', perms: ['المساعد القانوني', 'إدارة القضايا والأتعاب'], email: 'k.malki@salasel.sa', mobile: '0551234503', nid: '1055667788', join: '2025-01-10', start: '10:00', end: '18:00' },
+  { name: 'منيرة الحربي', role: 'موظف خدمة عملاء', dept: 'خدمة العملاء', pay: 'راتب ثابت: 7,000 ر.س/شهري', salary: 7000, status: 'نشط', perms: ['إدارة التذاكر', 'الرد على العملاء', 'جدولة المواعيد', 'تحويل التذاكر'], email: 'm.harbi@salasel.sa', mobile: '0551234501', nid: '1023456789', join: '2025-09-01', start: '08:00', end: '16:00' },
+  { name: 'أ. سارة القحطاني', role: 'محامٍ', dept: 'القضايا التجارية', pay: 'راتب 12,000 ر.س + نسبة 10%', salary: 12000, status: 'نشط', perms: ['المساعد القانوني', 'اعتماد الملخصات', 'إدارة القضايا والأتعاب'], email: 's.qahtani@salasel.sa', mobile: '0551234502', nid: '1098765432', join: '2024-03-15', start: '09:00', end: '17:00' },
+  { name: 'أ. خالد المالكي', role: 'محامٍ', dept: 'العقارات', pay: 'بالجلسة: 800 ر.س/جلسة', salary: 0, status: 'نشط', perms: ['المساعد القانوني', 'إدارة القضايا والأتعاب'], email: 'k.malki@salasel.sa', mobile: '0551234503', nid: '1055667788', join: '2025-01-10', start: '10:00', end: '18:00' },
 ];
 
 // ── الردود السريعة (EM_QUICK) ──
@@ -144,11 +144,11 @@ export interface Consult {
   priority: string; status: string; received: string; employee: string;
   lawyer: string; mins: number; aiDone: boolean; aiClass: string;
   aiSummary: string; aiLawyer: string; missing: string[]; audit: AuditEntry[];
-  channel: string; session: string; when: string; branch: string;
+  channel: string; session: string; when: string; place: string;
   phone: string; slink: string;
 }
 
-const RAW_CONSULTS: Omit<Consult, 'channel' | 'session' | 'when' | 'branch' | 'phone' | 'slink'>[] = [
+const RAW_CONSULTS: Omit<Consult, 'channel' | 'session' | 'when' | 'place' | 'phone' | 'slink'>[] = [
   { ref: 'CN-2026-1042', client: 'عبدالله محمد العتيبي', subject: 'نزاع تجاري مع مورّد', type: 'تجاري', priority: 'عالية', status: 'جديدة', received: 'اليوم 09:14 ص', employee: '—', lawyer: '—', mins: 6, aiDone: false, aiClass: '', aiSummary: '', aiLawyer: '', missing: [], audit: [] },
   { ref: 'CN-2026-1039', client: 'نورة سعد الدوسري', subject: 'فصل تعسفي من العمل', type: 'عمالي', priority: 'متوسطة', status: 'قيد مراجعة الموظف', received: 'اليوم 08:40 ص', employee: 'منيرة الحربي', lawyer: '—', mins: 35, aiDone: false, aiClass: '', aiSummary: '', aiLawyer: '', missing: [], audit: [{ user: 'منيرة الحربي', field: 'الحالة', before: 'جديدة', after: 'قيد مراجعة الموظف', time: 'اليوم 08:42 ص' }] },
   { ref: 'CN-2026-1035', client: 'شركة الأفق التجارية', subject: 'مراجعة عقد توريد', type: 'تجاري', priority: 'عادية', status: 'بانتظار اعتماد الموظف', received: 'أمس 02:10 م', employee: 'منيرة الحربي', lawyer: '—', mins: 120, aiDone: true, aiClass: 'استشارة عقود تجارية', aiSummary: 'مراجعة بنود التوريد وتقييم مخاطر الإخلال واقتراح تعديلات تحمي الطرف.', aiLawyer: 'أ. سارة القحطاني', missing: ['نسخة العقد الموقّعة'], audit: [{ user: 'النظام', field: 'تحليل الفريق القانوني', before: '—', after: 'اكتمل', time: 'أمس 02:30 م' }] },
@@ -167,7 +167,7 @@ export const CONSULTS: Consult[] = RAW_CONSULTS.map((c, i) => ({
   session: 'بانتظار الجلسة',
   lawyer: !c.lawyer || c.lawyer === '—' ? _LW[i % 3] : c.lawyer,
   when: c.received,
-  branch: `الفرع الرئيسي — جدة · قاعة ${(i % 3) + 1}`,
+  place: `مقر المكتب · قاعة ${(i % 3) + 1}`,
   phone: `05•••••${10 + i}`,
   slink: `https://salaselbabel.net/CN-${c.ref.split('-').pop()}`,
 }));

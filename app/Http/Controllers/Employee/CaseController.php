@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Employee;
 
-use App\Http\Controllers\Concerns\BranchScoped;
 use App\Http\Controllers\Controller;
 use App\Models\LegalCase;
 use App\Models\Ticket;
@@ -15,11 +14,9 @@ use Inertia\Response;
  */
 class CaseController extends Controller
 {
-    use BranchScoped;
-
     public function index(): Response
     {
-        $cases = LegalCase::with('user')->where('branch', $this->currentBranch())->latest('id')->get()->map(fn (LegalCase $c) => [
+        $cases = LegalCase::with('user')->latest('id')->get()->map(fn (LegalCase $c) => [
             'no' => $c->number,
             'client' => Ticket::maskClient($c->user?->name ?? ''),
             'type' => $c->type,
@@ -34,7 +31,6 @@ class CaseController extends Controller
 
     public function show(LegalCase $case): Response
     {
-        $this->guardBranch($case);
         $case->load(['user', 'hearings']);
 
         return Inertia::render('employee/case', [
@@ -52,7 +48,6 @@ class CaseController extends Controller
     // ردّ خدمة العملاء للعميل داخل القضية (بثّ لحظي)
     public function reply(Request $request, LegalCase $case): \Illuminate\Http\Response
     {
-        $this->guardBranch($case);
         $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
 
         $case->messages()->create([

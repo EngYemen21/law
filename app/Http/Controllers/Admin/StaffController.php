@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\Role;
 use App\Http\Controllers\Controller;
-use App\Models\Branch;
 use App\Models\User;
 use App\Support\Permissions;
 use App\Support\Phone;
@@ -35,7 +34,6 @@ class StaffController extends Controller
 
         return Inertia::render('admin/staff', [
             'staff' => $staff,
-            'branches' => Branch::orderBy('id')->pluck('name'),
         ]);
     }
 
@@ -99,8 +97,6 @@ class StaffController extends Controller
             'email' => ['required', 'email', 'max:150', Rule::unique('users', 'email')->ignore($ignore?->id)],
             'mobile' => ['required', 'regex:/^05\d{8}$/', Rule::unique('users', 'phone')->where('role', $role)->ignore($ignore?->id)],
             'nid' => ['required', 'regex:/^\d{10}$/', Rule::unique('users', 'national_id')->where('role', $role)->ignore($ignore?->id)],
-            // الفرع إلزامي للموظف/المحامي (عزل الرؤية بالفرع يتطلّب ربطهم بفرع صراحةً)
-            'branch' => ['required_if:role,employee,lawyer', 'nullable', 'string', 'max:120'],
             'dept' => ['nullable', 'string', 'max:120'],
             'join' => ['nullable', 'date'],
             'start' => ['nullable', 'string', 'max:8'],
@@ -161,7 +157,6 @@ class StaffController extends Controller
             'job_title' => $data['job_title'],
             'phone' => $data['mobile'] ?? null,
             'national_id' => $data['nid'] ?? null,
-            'branch' => $data['branch'] ?? null,
             'department' => $data['dept'] ?? null,
             'join_date' => $data['join'] ?? null,
             'work_start' => $data['start'] ?? null,

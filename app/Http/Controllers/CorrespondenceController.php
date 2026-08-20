@@ -23,7 +23,7 @@ class CorrespondenceController extends Controller
     {
         $user = $request->user();
         $corrs = Correspondence::with(['user', 'legalCase', 'execution'])
-            ->when($user->role !== Role::Admin, fn ($q) => $q->where('branch', $user->branch))
+            ->when($user->role === Role::Lawyer, fn ($q) => $q->where('assigned_lawyer_id', $user->id))
             ->latest('id')->get()->map(fn (Correspondence $c) => $c->toCard());
 
         $clients = User::where('role', Role::Client)->orderBy('name')->get(['id', 'name'])
@@ -142,7 +142,7 @@ class CorrespondenceController extends Controller
         if ($user->role === Role::Admin) {
             return;
         }
-        abort_unless($user->role === Role::Lawyer && $correspondence->branch === $user->branch, 403);
+        abort_unless($user->role === Role::Lawyer && $correspondence->assigned_lawyer_id === $user->id, 403);
     }
 
     private function base($user): string

@@ -38,7 +38,7 @@ class EmployeeRequestDocsTest extends TestCase
 
     private function employeeFor(Ticket $ticket): User
     {
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => $ticket->branch]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         $employee->syncPermissions(Permission::whereIn('name', ['الرد على العملاء'])->get());
 
         return $employee;

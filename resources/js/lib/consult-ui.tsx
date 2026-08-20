@@ -40,7 +40,7 @@ export interface ConsultCard {
   channel: string; // مرئية / حضورية / هاتفية
   lawyer: string;
   when: string;
-  branch: string;
+  place: string;
   phone: string;
   slink: string;
   canJoin?: boolean; // زر الدخول مفعّل؟ (بعد إطلاق الرابط قبل الموعد بـ5د)
@@ -264,7 +264,7 @@ void navigator.clipboard.writeText(c.slink);
           {list.length ? list.map((c) => {
             const extra = c.channel === 'حضورية' ? (
               <span style={{ display: 'block', marginTop: 3, fontSize: '11.5px', color: 'var(--muted)' }}>
-                <Icon name="pin" /> {c.branch}
+                <Icon name="pin" /> {c.place}
               </span>
             ) : c.channel === 'هاتفية' ? (
               <span style={{ display: 'block', marginTop: 3, fontSize: '11.5px', color: 'var(--muted)' }}>

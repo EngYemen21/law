@@ -153,7 +153,7 @@ class AuthorizationHardeningTest extends TestCase
         $this->actingAs($admin)->post(route('admin.staff.store'), [
             'name' => 'موظف جديد', 'role' => 'employee', 'job_title' => 'محاسب',
             'email' => 'new@salasel.test', 'mobile' => '0590001490', 'nid' => '1090001490',
-            'branch' => 'الفرع الرئيسي — جدة', 'payType' => 'salary', 'salary' => 8000, 'perms' => [],
+            'payType' => 'salary', 'salary' => 8000, 'perms' => [],
         ])->assertRedirect()->assertSessionHas('generatedPassword');
 
         $created = User::where('email', 'new@salasel.test')->firstOrFail();

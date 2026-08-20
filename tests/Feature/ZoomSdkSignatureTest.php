@@ -28,7 +28,6 @@ class ZoomSdkSignatureTest extends TestCase
             'channel' => 'مرئية',
             'lawyer' => $lawyer?->name ?? 'محامٍ',
             'assigned_lawyer_id' => $lawyer?->id,
-            'branch' => $lawyer?->branch,
             'day' => 'الأحد', 'time' => '10ص', 'when_label' => 'الأحد',
             'session' => 'جلسة جارية', 'status' => 'قيد الاستشارة',
             'meet_id' => '987654321', 'meet_password' => 'pw',
@@ -94,7 +93,7 @@ class ZoomSdkSignatureTest extends TestCase
             'api.zoom.us/v2/users/me/token*' => Http::response(['token' => 'ZAK123']),
         ]);
 
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $client = User::factory()->create(['role' => Role::Client]);
         $consult = $this->videoConsult($client, $lawyer);
 
@@ -113,7 +112,7 @@ class ZoomSdkSignatureTest extends TestCase
             'api.zoom.us/v2/users/me/token*' => Http::response(['code' => 4711, 'message' => 'no scope'], 400),
         ]);
 
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $client = User::factory()->create(['role' => Role::Client]);
         $consult = $this->videoConsult($client, $lawyer);
 

@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Broadcast;
 
 /**
  * تفويض قنوات البثّ الخاصة بقاعدة موحّدة (App\Support\ChannelAccess): العميل المالك، أو الإدارة،
- * أو المحامي المسند، أو موظف نفس الفرع فقط. يسدّ التسرّب العابر للفروع الذي كان يصرّح لأي موظف.
+ * أو المحامي المسند، أو موظف المكتب. يمنع اشتراك عميل بقناة داخلية أو محامٍ بسجلٍّ غير مسنَد إليه.
  */
 
 // قناة إشعارات المستخدم — يشترك المستخدم بقناته وحده (لا يرى إشعارات غيره)
@@ -25,7 +25,7 @@ Broadcast::channel('ticket.{ticketId}', function (User $user, int $ticketId) {
     return $ticket ? ChannelAccess::ownerOrStaff($user, $ticket) : false;
 });
 
-// قناة الملاحظات الداخلية — الموظف المخوّل فقط (لا العميل، ولا موظف فرع آخر)
+// قناة الملاحظات الداخلية — الموظفون فقط (لا العميل، ولا محامٍ غير مسنَد)
 Broadcast::channel('ticket.{ticketId}.staff', function (User $user, int $ticketId) {
     $ticket = Ticket::find($ticketId);
 

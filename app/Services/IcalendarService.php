@@ -141,7 +141,7 @@ class IcalendarService
         $isStaff = in_array($user->role, [Role::Lawyer, Role::Employee, Role::Admin], true);
 
         // 1. الاستشارات
-        $consultQuery = Consult::query();
+        $consultQuery = Consult::with('appointment');
         if ($isStaff) {
             $consultQuery->where('assigned_lawyer_id', $user->id);
         } else {
@@ -162,7 +162,7 @@ class IcalendarService
                 description: "استشارة قانونية ({$c->channel})\nالمستشار: {$c->lawyer}\nرابط الجلسة: {$link}",
                 startsAt: $start,
                 durationMinutes: $dur,
-                location: $c->channel === 'حضورية' ? ($c->branch ?: 'مكتب المحاماة') : $link
+                location: $c->channel === 'حضورية' ? $c->placeLabel() : $link
             ));
         }
 
@@ -222,10 +222,10 @@ class IcalendarService
             $events->push(self::formatVEvent(
                 uid: 'APPT-'.$a->id,
                 title: "موعد: {$a->type}",
-                description: "موعد رسمي لدى المكتب\nالمحامي: {$a->lawyer}\nالمكان: {$a->branch}",
+                description: "موعد رسمي لدى المكتب\nالمحامي: {$a->lawyer}\nالمكان: {$a->place}",
                 startsAt: $start,
                 durationMinutes: 30,
-                location: $a->branch ?: 'مكتب المحاماة'
+                location: $a->place ?: (string) config('office.address')
             ));
         }
 

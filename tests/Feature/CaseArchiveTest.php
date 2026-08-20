@@ -20,8 +20,7 @@ class CaseArchiveTest extends TestCase
     {
         return LegalCase::create([
             'user_id' => $client->id, 'number' => 'CASE-2026-7001', 'type' => 'نزاع تجاري',
-            'assigned_lawyer' => 'أ. سارة القحطاني', 'branch' => 'الفرع الرئيسي — جدة',
-            'status' => $status, 'tone' => 'b-grey', 'update_text' => '—',
+            'assigned_lawyer' => 'أ. سارة القحطاني', 'status' => $status, 'tone' => 'b-grey', 'update_text' => '—',
         ]);
     }
 

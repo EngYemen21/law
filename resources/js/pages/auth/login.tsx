@@ -14,7 +14,7 @@ type AuthState = {
   nonce: string | null;
 } | null;
 
-type AccountChoice = Array<{ id: number; roleLabel: string; branch: string | null }> | null;
+type AccountChoice = Array<{ id: number; roleLabel: string }> | null;
 
 type PageProps = {
   authState: AuthState;
@@ -168,7 +168,7 @@ const Login: React.FC = () => {
                     className="lgn-btn"
                     onClick={() => router.post('/auth/choose-account', { account_id: a.id }, { preserveScroll: true })}
                   >
-                    <Icon name="user" /> {a.roleLabel}{a.branch ? ` — ${a.branch}` : ''}
+                    <Icon name="user" /> {a.roleLabel}
                   </button>
                 ))}
               </div>

@@ -29,9 +29,8 @@ class EmployeeTicketAttachTest extends TestCase
             'department' => 'القانون التجاري',
             'status' => 'قيد التحليل',
             'tone' => 'b-blue',
-            'branch' => 'الرياض',
         ]);
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'الرياض']);
+        $employee = User::factory()->create(['role' => Role::Employee]);
 
         return [$ticket, $employee];
     }

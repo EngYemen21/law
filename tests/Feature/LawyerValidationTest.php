@@ -13,7 +13,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * Rule موحَّد (LawyerInBranch) يحمي كل مسارات اختيار المحامي من تمرير
+ * Rule موحَّد (ActiveLawyer) يحمي كل مسارات اختيار المحامي من تمرير
  * عميل/موظف/إداري أو محامٍ موقوف أو محامٍ خارج الفرع المسموح.
  *
  * يغطّي أربعة مسارات: tickets.book، book.store، employee.schedule.store، employee.transfer.do.
@@ -22,15 +22,11 @@ class LawyerValidationTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const BRANCH = 'فرع الرياض';
-
-    private const OTHER_BRANCH = 'فرع جدة';
-
-    private function activeLawyerInBranch(): User
+    private function activeLawyer(): User
     {
         return User::factory()->create([
             'role' => Role::Lawyer, 'status' => 'active',
-            'branch' => self::BRANCH, 'department' => 'القضايا التجارية',
+            'department' => 'القضايا التجارية',
         ]);
     }
 
@@ -105,28 +101,13 @@ class LawyerValidationTest extends TestCase
         $this->assertSame($specialist->id, $appt->lawyer_id);
     }
 
-    // ── employee.schedule.store (الموظف نيابةً عن عميل — محامي الفرع فقط) ──
-
-    public function test_employee_schedule_rejects_lawyer_from_other_branch(): void
-    {
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
-        $client = User::factory()->create(['role' => Role::Client]);
-        $foreignLawyer = User::factory()->create([
-            'role' => Role::Lawyer, 'status' => 'active', 'branch' => self::OTHER_BRANCH,
-        ]);
-
-        $this->actingAs($employee)->post(route('employee.schedule.store'), [
-            'client_id' => $client->id, 'type' => 'office',
-            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '13:00',
-            'lawyer_id' => $foreignLawyer->id,
-        ])->assertSessionHasErrors('lawyer_id');
-    }
+    // ── employee.schedule.store (الموظف نيابةً عن عميل — محامٍ نشط فقط) ──
 
     public function test_employee_schedule_rejects_non_lawyer_as_lawyer(): void
     {
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         $client = User::factory()->create(['role' => Role::Client]);
-        $anotherEmployee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
+        $anotherEmployee = User::factory()->create(['role' => Role::Employee]);
 
         $this->actingAs($employee)->post(route('employee.schedule.store'), [
             'client_id' => $client->id, 'type' => 'office',
@@ -135,11 +116,11 @@ class LawyerValidationTest extends TestCase
         ])->assertSessionHasErrors('lawyer_id');
     }
 
-    public function test_employee_schedule_accepts_lawyer_in_branch(): void
+    public function test_employee_schedule_accepts_active_lawyer(): void
     {
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = $this->activeLawyerInBranch();
+        $lawyer = $this->activeLawyer();
 
         $this->actingAs($employee)->post(route('employee.schedule.store'), [
             'client_id' => $client->id, 'type' => 'office',
@@ -148,35 +129,17 @@ class LawyerValidationTest extends TestCase
         ])->assertRedirect();
     }
 
-    // ── employee.transfer.do (تحويل تذكرة — محامي الوجهة ضمن فرع الموظف) ──
-
-    public function test_transfer_rejects_lawyer_from_other_branch(): void
-    {
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
-        $client = User::factory()->create(['role' => Role::Client]);
-        $foreignLawyer = User::factory()->create([
-            'role' => Role::Lawyer, 'status' => 'active', 'branch' => self::OTHER_BRANCH,
-        ]);
-        $ticket = Ticket::create([
-            'user_id' => $client->id, 'number' => 'SB-T-'.uniqid(),
-            'type' => 'تجاري', 'branch' => self::BRANCH, 'status' => 'قيد المعالجة',
-        ]);
-
-        $this->actingAs($employee)->post(route('employee.transfer.do', $ticket), [
-            'lawyer_id' => $foreignLawyer->id,
-        ])->assertSessionHasErrors('lawyer_id');
-    }
+    // ── employee.transfer.do (تحويل تذكرة — محامي الوجهة نشط) ──
 
     public function test_transfer_rejects_suspended_lawyer(): void
     {
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         $client = User::factory()->create(['role' => Role::Client]);
         $suspended = User::factory()->create([
-            'role' => Role::Lawyer, 'status' => 'suspended', 'branch' => self::BRANCH,
-        ]);
+            'role' => Role::Lawyer, 'status' => 'suspended', ]);
         $ticket = Ticket::create([
             'user_id' => $client->id, 'number' => 'SB-T-'.uniqid(),
-            'type' => 'تجاري', 'branch' => self::BRANCH, 'status' => 'قيد المعالجة',
+            'type' => 'تجاري', 'status' => 'قيد المعالجة',
         ]);
 
         $this->actingAs($employee)->post(route('employee.transfer.do', $ticket), [
@@ -186,12 +149,12 @@ class LawyerValidationTest extends TestCase
 
     public function test_transfer_rejects_client_as_lawyer(): void
     {
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         $client = User::factory()->create(['role' => Role::Client]);
         $anotherClient = User::factory()->create(['role' => Role::Client]);
         $ticket = Ticket::create([
             'user_id' => $client->id, 'number' => 'SB-T-'.uniqid(),
-            'type' => 'تجاري', 'branch' => self::BRANCH, 'status' => 'قيد المعالجة',
+            'type' => 'تجاري', 'status' => 'قيد المعالجة',
         ]);
 
         $this->actingAs($employee)->post(route('employee.transfer.do', $ticket), [
@@ -199,14 +162,14 @@ class LawyerValidationTest extends TestCase
         ])->assertSessionHasErrors('lawyer_id');
     }
 
-    public function test_transfer_accepts_lawyer_in_branch(): void
+    public function test_transfer_accepts_active_lawyer(): void
     {
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = $this->activeLawyerInBranch();
+        $lawyer = $this->activeLawyer();
         $ticket = Ticket::create([
             'user_id' => $client->id, 'number' => 'SB-T-'.uniqid(),
-            'type' => 'تجاري', 'branch' => self::BRANCH, 'status' => 'قيد المعالجة',
+            'type' => 'تجاري', 'status' => 'قيد المعالجة',
         ]);
 
         $this->actingAs($employee)->post(route('employee.transfer.do', $ticket), [

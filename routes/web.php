@@ -2,7 +2,6 @@
 
 use App\Http\Controllers\Admin\AccountingController as AdminAccountingController;
 use App\Http\Controllers\Admin\ArchiveController as AdminArchiveController;
-use App\Http\Controllers\Admin\BranchController;
 use App\Http\Controllers\Admin\CaseController as AdminCaseController;
 use App\Http\Controllers\Admin\ClientController as AdminClientController;
 use App\Http\Controllers\Admin\ClientNotifController as AdminClientNotifController;
@@ -421,9 +420,6 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::put('/staff/{user}', [StaffController::class, 'update'])->name('staff.update');
     Route::post('/staff/{user}/toggle', [StaffController::class, 'toggle'])->name('staff.toggle');
     Route::post('/staff/{user}/preview', [StaffController::class, 'preview'])->name('staff.preview');
-    // الفروع (موديل Branch حقيقي)
-    Route::get('/branches', [BranchController::class, 'index'])->name('branches');
-    Route::post('/branches', [BranchController::class, 'store'])->name('branches.store');
     Route::get('/archive', [AdminArchiveController::class, 'index'])->name('archive');
     // تنزيل مخرجات جلسة الاستشارة المؤرشفة (جلب خادمي من سحابة Zoom): فيديو/صوت ZIP + نصّ تفريغي
     Route::get('/consults/{consult}/recording.zip', [AdminArchiveController::class, 'recording'])->name('consults.recording');

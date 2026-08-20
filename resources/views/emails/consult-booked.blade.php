@@ -20,7 +20,7 @@
                 'العميل' => $consult->user?->name ?? 'عميل المنصة',
                 'الموضوع' => $consult->subject,
                 'الموعد' => $consult->when_label,
-                'القناة / الفرع' => $consult->branch ?: $consult->channel,
+                'القناة' => $consult->channel,
                 'نوع الاستشارة' => $consult->channel,
             ]
         ])

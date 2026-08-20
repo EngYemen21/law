@@ -10,45 +10,44 @@ use Tests\TestCase;
 
 /**
  * صفحة اجتماعات الموظف (الدفعة 2): كان الموظف يُشعَر «الاجتماع متاح في لوحتك»
- * بلا أي صفحة (طريق مسدود) — المسارات الجديدة تعيد استخدام Staff\MeetingController بعزل الفرع.
+ * بلا أي صفحة (طريق مسدود) — المسارات تعيد استخدام Staff\MeetingController.
+ * بعد إزالة «الفرع»: الموظف يرى كل اجتماعات المكتب ويتصرّف عليها.
  */
 class EmployeeMeetingsPageTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_employee_sees_branch_scoped_meetings_list_and_detail(): void
+    public function test_employee_sees_all_meetings_list_and_detail(): void
     {
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
-        Meeting::create(['ref' => 'M-8000', 'title' => 'اجتماع فرعنا', 'when_label' => 'اليوم', 'status' => 'قادم', 'branch' => 'فرع الرياض']);
-        Meeting::create(['ref' => 'M-8001', 'title' => 'اجتماع مشترك بلا فرع', 'when_label' => 'اليوم', 'status' => 'قادم']);
-        Meeting::create(['ref' => 'M-8002', 'title' => 'اجتماع فرع آخر', 'when_label' => 'اليوم', 'status' => 'قادم', 'branch' => 'فرع جدة']);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        Meeting::create(['ref' => 'M-8000', 'title' => 'اجتماع أول', 'when_label' => 'اليوم', 'status' => 'قادم']);
+        Meeting::create(['ref' => 'M-8001', 'title' => 'اجتماع ثانٍ', 'when_label' => 'اليوم', 'status' => 'قادم']);
+        Meeting::create(['ref' => 'M-8002', 'title' => 'اجتماع ثالث', 'when_label' => 'اليوم', 'status' => 'قادم']);
 
-        // القائمة: فرعه + بلا فرع (المجمّع المشترك) دون فرع غيره
+        // مكتب واحد بلا فروع: القائمة تضمّ كل الاجتماعات
         $this->actingAs($employee)->get('/employee/meetings')
-            ->assertInertia(fn ($p) => $p->component('employee/meetings')->has('meetings', 2));
+            ->assertInertia(fn ($p) => $p->component('employee/meetings')->has('meetings', 3));
 
-        // التفاصيل: اجتماع فرعه يفتح، واجتماع الفرع الآخر 403 (IDOR)
-        $this->actingAs($employee)->get('/employee/meeting?id=M-8000')
-            ->assertInertia(fn ($p) => $p->component('employee/meeting')->where('meeting.id', 'M-8000'));
-        $this->actingAs($employee)->get('/employee/meeting?id=M-8002')->assertForbidden();
+        $this->actingAs($employee)->get('/employee/meeting?id=M-8002')
+            ->assertInertia(fn ($p) => $p->component('employee/meeting')->where('meeting.id', 'M-8002'));
     }
 
-    public function test_employee_lifecycle_actions_work_within_branch(): void
+    public function test_employee_lifecycle_actions_work_on_any_meeting(): void
     {
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
-        $meeting = Meeting::create(['ref' => 'M-8010', 'title' => 'اجتماع', 'when_label' => 'اليوم', 'status' => 'قادم', 'branch' => 'فرع الرياض']);
-        $foreign = Meeting::create(['ref' => 'M-8011', 'title' => 'اجتماع', 'when_label' => 'اليوم', 'status' => 'قادم', 'branch' => 'فرع جدة']);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $meeting = Meeting::create(['ref' => 'M-8010', 'title' => 'اجتماع', 'when_label' => 'اليوم', 'status' => 'قادم']);
+        $another = Meeting::create(['ref' => 'M-8011', 'title' => 'اجتماع', 'when_label' => 'اليوم', 'status' => 'قادم']);
 
         $this->actingAs($employee)->post(route('employee.meetings.end', $meeting), ['attend' => 80])->assertRedirect();
         $this->assertSame('منتهٍ', $meeting->fresh()->status);
 
-        $this->actingAs($employee)->post(route('employee.meetings.end', $foreign), ['attend' => 80])->assertForbidden();
-        $this->assertSame('قادم', $foreign->fresh()->status);
+        $this->actingAs($employee)->post(route('employee.meetings.end', $another), ['attend' => 80])->assertRedirect();
+        $this->assertSame('منتهٍ', $another->fresh()->status);
     }
 
     public function test_employee_without_permission_is_redirected(): void
     {
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         $employee->syncPermissions([]); // بلا «إرسال دعوات الاجتماعات»
 
         $this->actingAs($employee)->get('/employee/meetings')->assertRedirect();

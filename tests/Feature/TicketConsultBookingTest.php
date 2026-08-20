@@ -106,7 +106,7 @@ class TicketConsultBookingTest extends TestCase
     public function test_booking_binds_chosen_lawyer_and_real_time_after_payment(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية', 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
         $ticket = $this->ticketFor($client);
         $date = LawyerAvailability::resolveDate(null)->toDateString();
 
@@ -119,7 +119,6 @@ class TicketConsultBookingTest extends TestCase
 
         $consult->refresh();
         $this->assertSame($lawyer->id, $consult->assigned_lawyer_id);   // المستشار المختار
-        $this->assertSame('فرع الرياض', $consult->branch);              // فرعه (عزل)
         $this->assertNotNull($consult->starts_at);
         $this->assertSame('جديدة', $consult->status);                   // دخل رحلة المعالجة
         $this->assertSame($ticket->id, $consult->ticket_id);

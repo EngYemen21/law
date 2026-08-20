@@ -118,7 +118,7 @@ class MeetInviteFormTest extends TestCase
     public function test_confirm_assigns_lawyer_and_duration_to_meeting(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $day = now()->addWeek()->format('Y-m-d');
 
         $req = MeetRequest::create([
@@ -131,7 +131,6 @@ class MeetInviteFormTest extends TestCase
 
         $meeting = Meeting::where('user_id', $client->id)->firstOrFail();
         $this->assertSame($lawyer->id, $meeting->assigned_lawyer_id);
-        $this->assertSame('فرع الرياض', $meeting->branch);
         $this->assertSame('90 دقيقة', $meeting->dur);
     }
 }

@@ -63,11 +63,10 @@ class DashboardController extends Controller
         ]);
     }
 
-    // لوحة الموظف — التذاكر التي تحتاج إجراءً + عدّادات (محصورة بفرع الموظف)
+    // لوحة الموظف — التذاكر التي تحتاج إجراءً + عدّادات (مكتب واحد: كل التذاكر)
     public function employee(Request $request): Response
     {
-        $branch = $request->user()->branch;
-        $active = Ticket::with('user')->where('branch', $branch)
+        $active = Ticket::with('user')
             ->whereNotIn('status', self::CLOSED)->latest('id')->get();
 
         return Inertia::render('employee/dashboard', [
@@ -75,13 +74,12 @@ class DashboardController extends Controller
             'counts' => [
                 'needAction' => $active->count(),
                 'missingDocs' => $active->where('status', 'بانتظار مستندات')->count(),
-                // مواعيد قادمة فعلاً (زمنياً) محصورة بعملاء التذاكر ضمن فرع الموظف
+                // مواعيد قادمة فعلاً (زمنياً) — كان الفلتر يقارن فرع الموظف بمكان الجلسة فلا يطابق شيئاً
                 'todayAppts' => Appointment::with('consult')
-                    ->where(fn ($q) => $q->where('branch', $branch)->orWhereNull('branch'))
                     ->whereNotNull('starts_at')->where('starts_at', '>=', now()->subDay())
                     ->get()
                     ->filter(fn (Appointment $a) => $a->liveState()[0] === 'up')->count(),
-                'referred' => Ticket::where('branch', $branch)->where('status', 'محالة للقسم القانوني')->count(),
+                'referred' => Ticket::where('status', 'محالة للقسم القانوني')->count(),
             ],
         ]);
     }

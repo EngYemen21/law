@@ -29,7 +29,7 @@ class AppointmentLabelFormatTest extends TestCase
             'time' => '05:00',
             'starts_at' => Carbon::create(2026, 8, 8, 5, 0, 0),
             'duration_min' => 60,
-            'branch' => 'اجتماع إلكتروني',
+            'place' => 'اجتماع إلكتروني',
             'status' => 'مؤكد',
             'tone' => 'b-green',
             'when_kind' => 'up',

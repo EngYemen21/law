@@ -65,7 +65,6 @@ class MeetRequestController extends Controller
                     'case_ref' => $meetRequest->case_ref,
                     'dur' => $durMinutes.' دقيقة',
                     'assigned_lawyer_id' => $meetRequest->assigned_lawyer_id,
-                    'branch' => $meetRequest->assignedLawyer?->branch,
                     'meet_id' => $zoom['id'] ?? null,
                     'meet_link' => $zoom['join_url'] ?? null,
                     'host_link' => $zoom['start_url'] ?? null,

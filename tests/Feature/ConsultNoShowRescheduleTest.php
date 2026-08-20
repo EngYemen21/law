@@ -76,7 +76,7 @@ class ConsultNoShowRescheduleTest extends TestCase
             'user_id' => $client->id, 'ext_id' => 'AP-26-7001', 'type' => 'استشارة مرئية', 'ico' => 'video',
             'lawyer' => 'أ. سارة', 'day' => 'أمس', 'time' => '10ص',
             'starts_at' => now()->subHours(3), 'duration_min' => 45,
-            'branch' => 'اجتماع إلكتروني', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up',
+            'place' => 'اجتماع إلكتروني', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up',
         ]);
         $consult = $this->consult($client, [
             'appointment_id' => $appt->id,

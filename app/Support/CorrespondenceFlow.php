@@ -23,7 +23,6 @@ class CorrespondenceFlow
             'user_id' => $client->id,
             'assigned_lawyer_id' => $lawyer->id,
             'lawyer' => $lawyer->name,
-            'branch' => $lawyer->branch,
             'case_id' => $data['case_id'] ?? null,
             'execution_id' => $data['execution_id'] ?? null,
             'direction' => in_array($data['direction'] ?? '', ['صادرة', 'واردة'], true) ? $data['direction'] : 'صادرة',

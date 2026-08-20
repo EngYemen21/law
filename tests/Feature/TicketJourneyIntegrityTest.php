@@ -22,20 +22,18 @@ class TicketJourneyIntegrityTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const BRANCH = 'فرع الرياض';
-
     private function ticket(string $status, string $tone = 'b-blue'): Ticket
     {
         return Ticket::create([
             'user_id' => User::factory()->create(['role' => Role::Client])->id,
             'number' => 'SB-2026-7001', 'type' => 'تجاري', 'department' => 'القضايا التجارية',
-            'branch' => self::BRANCH, 'status' => $status, 'tone' => $tone, 'attachments' => 2,
+            'status' => $status, 'tone' => $tone, 'attachments' => 2,
         ]);
     }
 
     private function employee(): User
     {
-        return User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
+        return User::factory()->create(['role' => Role::Employee]);
     }
 
     public function test_vocabulary_covers_every_status_the_server_produces(): void
@@ -107,12 +105,12 @@ class TicketJourneyIntegrityTest extends TestCase
         // الاختبار عن النغمة لا الترتيب: نكتفي بالتبديل بين الحالات النهائية المسموح بها
         // (مكتملة ⇄ مغلقة) بعد حارسة منع إعادة الفتح.
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => self::BRANCH]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
 
         foreach (['مغلقة', 'مكتملة'] as $status) {
             $ticket = Ticket::create([
                 'user_id' => $client->id, 'number' => 'SB-T-'.crc32($status),
-                'type' => 'تجاري', 'branch' => self::BRANCH, 'assigned_lawyer_id' => $lawyer->id,
+                'type' => 'تجاري', 'assigned_lawyer_id' => $lawyer->id,
                 'status' => 'مكتملة', 'tone' => 'b-green',
             ]);
 

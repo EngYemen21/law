@@ -7,23 +7,18 @@ use App\Models\User;
 
 /**
  * قاعدة تفويض موحّدة لقنوات البثّ الخاصة (نفس مبدأ عزل HTTP) — مصدر واحد قابل للاختبار.
- * تمنع اشتراك موظف/محامٍ من فرع آخر أو غير مسنَد بقناة عميل لا يخصّه (تسرّب عابر للفروع).
+ * تمنع اشتراك العميل بقناة داخلية، ومحامٍ غير مسنَد بسجلٍّ لا يخصّه.
  */
 class ChannelAccess
 {
-    /** الموظف المخوّل: الإدارة مطلقاً، المحامي لسجلّه المسند، الموظف لسجلّات فرعه. */
+    /** الموظف المخوّل: الإدارة وموظف المكتب مطلقاً، والمحامي لسجلّه المسند وحده. */
     public static function staffCanSee(User $user, object $model): bool
     {
-        if ($user->isAdmin()) {
+        if ($user->isAdmin() || $user->role === Role::Employee) {
             return true;
         }
         if ($user->role === Role::Lawyer) {
             return (int) ($model->assigned_lawyer_id ?? 0) === (int) $user->id;
-        }
-        if ($user->role === Role::Employee) {
-            // بلا فرع = المجمّع المشترك قبل الإسناد — نفس قاعدة حراس HTTP (guardMeeting/guardConsult)؛
-            // كان البثّ أشدّ من HTTP فيرى الموظف السجلّ ولا يصله تحديثه اللحظي
-            return $model->branch === null || $model->branch === $user->branch;
         }
 
         return false;

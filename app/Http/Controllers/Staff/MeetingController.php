@@ -15,7 +15,7 @@ use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\Task;
 use App\Models\User;
-use App\Rules\LawyerInBranch;
+use App\Rules\ActiveLawyer;
 use App\Services\LegalAiService;
 use App\Services\MailService;
 use App\Services\ZoomService;
@@ -121,7 +121,7 @@ class MeetingController extends Controller
             'time' => ['nullable', 'string', 'max:20'],
             'client_id' => ['nullable', 'integer', 'exists:users,id'],
             'case_ref' => ['nullable', 'string', 'max:120'],
-            'lawyer_id' => ['nullable', 'integer', new LawyerInBranch],
+            'lawyer_id' => ['nullable', 'integer', new ActiveLawyer],
         ]);
 
         $client = ! empty($data['client_id']) ? User::find($data['client_id']) : null;
@@ -156,8 +156,7 @@ class MeetingController extends Controller
             'host_link' => $zoom['start_url'] ?? null,
             'meet_password' => $zoom['password'] ?? null,
             'created_by' => $request->user()->name,
-            // عزل الرؤية/البثّ: المحامي المسؤول وفرعه (وإلا فرع المنشئ)
-            'branch' => $assignedLawyer?->branch ?: $request->user()->branch,
+            // عزل الرؤية/البثّ: المحامي المسؤول (المحامي يرى المسنَد إليه وحده)
             'assigned_lawyer_id' => $assignedLawyer?->id,
             'before_items' => ['تحليل الموضوع', 'مراجعة المستندات', 'تجهيز جدول الأعمال'],
             'during_items' => ['تحويل الصوت إلى نص', 'استخراج القرارات', 'تحديد المهام'],
@@ -546,8 +545,6 @@ class MeetingController extends Controller
         $query = Meeting::query();
         if ($user->role === Role::Lawyer) {
             $query->where('assigned_lawyer_id', $user->id);
-        } elseif ($user->role === Role::Employee) {
-            $query->where(fn ($q) => $q->where('branch', $user->branch)->orWhereNull('branch'));
         }
 
         return $query;
@@ -590,11 +587,8 @@ class MeetingController extends Controller
 
     private function guardMeeting(Request $request, Meeting $meeting): void
     {
-        $user = $request->user();
-        if ($user->role === Role::Lawyer) {
+        if ($request->user()->role === Role::Lawyer) {
             $this->guardAssigned($meeting);
-        } elseif ($user->role === Role::Employee) {
-            abort_if($meeting->branch !== null && $meeting->branch !== $user->branch, 403);
         }
     }
 

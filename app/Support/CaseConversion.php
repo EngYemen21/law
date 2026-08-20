@@ -40,7 +40,6 @@ class CaseConversion
                 'type' => $analysis['type'],
                 'assigned_lawyer' => $ticket->assigned_lawyer,
                 'assigned_lawyer_id' => $ticket->assigned_lawyer_id,
-                'branch' => $ticket->branch,
                 'department' => $analysis['department'],
                 'status' => 'بانتظار اعتماد الأتعاب',
                 'tone' => CaseJourney::toneFor('بانتظار اعتماد الأتعاب'),

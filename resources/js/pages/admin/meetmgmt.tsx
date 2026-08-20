@@ -25,14 +25,12 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
   // بحث وفلترة تصفية متقدمة
   const [q, setQ] = useState('');
   const [lawyerF, setLawyerF] = useState('');
-  const [branchF, setBranchF] = useState('');
   const [fromD, setFromD] = useState('');
   const [toD, setToD] = useState('');
   const [showFilters, setShowFilters] = useState(false);
-  const activeFiltersCount = [lawyerF, branchF, fromD, toD, q].filter(Boolean).length;
+  const activeFiltersCount = [lawyerF, fromD, toD, q].filter(Boolean).length;
 
   const lawyerOpts = [...new Set(meetings.map((m) => m.lawyer).filter((l) => l && l !== '—'))];
-  const branchOpts = [...new Set(meetings.map((m) => m.branch).filter((b) => b && b !== '—'))];
 
   // حقول نموذج إنشاء اجتماع جديد
   const [title, setTitle] = useState('');
@@ -67,7 +65,6 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
   const list = meetings.filter((m) => {
     if (filter !== 'all' && m.status !== filter) return false;
     if (lawyerF && m.lawyer !== lawyerF) return false;
-    if (branchF && m.branch !== branchF) return false;
     if (q.trim()) {
       const hay = `${m.title} ${m.client} ${m.lawyer} ${m.caseRef || ''}`.toLowerCase();
       if (!hay.includes(q.trim().toLowerCase())) return false;
@@ -217,16 +214,6 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
 
               <div className="field">
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--ink-soft)', marginBottom: 5, display: 'block' }}>
-                  🏢 الفرع
-                </label>
-                <select className="input" value={branchF} onChange={(e) => setBranchF(e.target.value)} style={{ borderRadius: 8, padding: '8px 12px' }}>
-                  <option value="">— جميع الفروع —</option>
-                  {branchOpts.map((b) => <option key={b} value={b}>{b}</option>)}
-                </select>
-              </div>
-
-              <div className="field">
-                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--ink-soft)', marginBottom: 5, display: 'block' }}>
                   📅 من تاريخ
                 </label>
                 <input className="input" type="date" value={fromD} onChange={(e) => setFromD(e.target.value)} style={{ borderRadius: 8, padding: '8px 12px' }} />
@@ -248,7 +235,6 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                 <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>الفلاتر النشطة:</span>
                 {q && <span className="chip" style={{ background: '#e0f2fe', color: '#0369a1', fontWeight: 700 }}>بحث: "{q}" <b onClick={() => setQ('')} style={{ cursor: 'pointer', marginRight: 4 }}>✕</b></span>}
                 {lawyerF && <span className="chip" style={{ background: '#fef3c7', color: '#b45309', fontWeight: 700 }}>المحامي: {lawyerF} <b onClick={() => setLawyerF('')} style={{ cursor: 'pointer', marginRight: 4 }}>✕</b></span>}
-                {branchF && <span className="chip" style={{ background: '#dcfce7', color: '#15803d', fontWeight: 700 }}>الفرع: {branchF} <b onClick={() => setBranchF('')} style={{ cursor: 'pointer', marginRight: 4 }}>✕</b></span>}
                 {fromD && <span className="chip">من: {fromD} <b onClick={() => setFromD('')} style={{ cursor: 'pointer', marginRight: 4 }}>✕</b></span>}
                 {toD && <span className="chip">إلى: {toD} <b onClick={() => setToD('')} style={{ cursor: 'pointer', marginRight: 4 }}>✕</b></span>}
               </div>
@@ -256,7 +242,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
               <button
                 className="btn soft sm"
                 type="button"
-                onClick={() => { setQ(''); setLawyerF(''); setBranchF(''); setFromD(''); setToD(''); }}
+                onClick={() => { setQ(''); setLawyerF(''); setFromD(''); setToD(''); }}
                 style={{ fontSize: 12, color: '#dc2626' }}
               >
                 <Icon name="reply" /> مسح جميع الفلاتر
@@ -309,7 +295,6 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
 
                   <div style={{ fontSize: '12px', color: 'var(--ink-soft, #475569)' }}>
                     <b>العميل:</b> {m.client} · <b>المحامي:</b> {m.lawyer !== '—' ? m.lawyer : 'غير مسند'}
-                    {m.branch !== '—' && ` · الفرع: ${m.branch}`}
                     {m.status === 'منتهٍ' && (
                       <span style={{ color: 'var(--primary)', fontWeight: 700, marginRight: 8 }}>
                         · نسبة الحضور: {m.attend || 0}%

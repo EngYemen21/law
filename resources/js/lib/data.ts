@@ -5,7 +5,7 @@
 export interface Ticket { no: string; type: string; dept: string; status: string; tone: string; last: string; date: string; }
 export interface Case { no: string; type: string; status: string; tone: string; update: string; }
 export interface Exec { no: string; subject: string; status: string; tone: string; last: string; }
-export interface Appt { id: string; type: string; ico: string; lawyer: string; day: string; time: string; branch: string; status: string; tone: string; when: 'up' | 'past'; client?: string; consultRef?: string; pay?: string; }
+export interface Appt { id: string; type: string; ico: string; lawyer: string; day: string; time: string; place: string; status: string; tone: string; when: 'up' | 'past'; client?: string; consultRef?: string; pay?: string; }
 export interface Meeting { id?: number; ref: string; title: string; when: string; up: boolean; status?: string; tone?: string; canJoin?: boolean; approved?: boolean; link: string; minutes: string | null; summary: string | null; }
 export interface DocItem { id?: number; name: string; meta: string; canDownload?: boolean; downloadUrl?: string; }
 export interface Invoice { no: string; desc: string; amount: number; status: string; tone: string; due: string; overdue?: boolean; paid: boolean; hasProof?: boolean; }
@@ -28,9 +28,9 @@ export const DATA = {
     { no: 'تنفيذ-5440', subject: 'تنفيذ سند لأمر', status: 'مكتمل', tone: 'b-green', last: 'تم تحصيل كامل المبلغ' },
   ] as Exec[],
   appts: [
-    { id: 'AP1', type: 'مرئية', ico: 'video', lawyer: 'أ. سارة القحطاني', day: 'الاثنين 29 يونيو 2026', time: '11:30 ص', branch: 'اجتماع إلكتروني', status: 'مؤكد', tone: 'b-green', when: 'up' },
-    { id: 'AP2', type: 'حضورية', ico: 'office', lawyer: 'أ. خالد المالكي', day: 'الأربعاء 01 يوليو 2026', time: '01:00 م', branch: 'الرياض — حي العليا', status: 'مؤكد', tone: 'b-green', when: 'up' },
-    { id: 'AP3', type: 'حضورية', ico: 'office', lawyer: 'أ. ريم الزهراني', day: 'الجمعة 12 يونيو 2026', time: '10:00 ص', branch: 'جدة — حي الروضة', status: 'منتهٍ', tone: 'b-grey', when: 'past' },
+    { id: 'AP1', type: 'مرئية', ico: 'video', lawyer: 'أ. سارة القحطاني', day: 'الاثنين 29 يونيو 2026', time: '11:30 ص', place: 'اجتماع إلكتروني', status: 'مؤكد', tone: 'b-green', when: 'up' },
+    { id: 'AP2', type: 'حضورية', ico: 'office', lawyer: 'أ. خالد المالكي', day: 'الأربعاء 01 يوليو 2026', time: '01:00 م', place: 'الرياض — حي العليا', status: 'مؤكد', tone: 'b-green', when: 'up' },
+    { id: 'AP3', type: 'حضورية', ico: 'office', lawyer: 'أ. ريم الزهراني', day: 'الجمعة 12 يونيو 2026', time: '10:00 ص', place: 'جدة — حي الروضة', status: 'منتهٍ', tone: 'b-grey', when: 'past' },
   ] as Appt[],
   meetings: [
     { title: 'استشارة مرئية — نزاع تجاري', when: 'الاثنين 29 يونيو · 11:30 ص', up: true, link: 'https://salaselbabel.net/M-1', minutes: null, summary: null },
@@ -280,7 +280,6 @@ const ADMIN_NAV: SideGroup[] = [
   ] },
   { g: 'الإدارة العليا', items: [
     { icon: 'user', label: 'تسجيل الموظفين', route: '/admin/staff' },
-    { icon: 'office', label: 'الفروع', route: '/admin/branches' },
     { icon: 'video', label: 'أرشيف الاستشارات', route: '/admin/archive' },
     { icon: 'reply', label: 'توزيع التذاكر', route: '/admin/distribute' },
     { icon: 'card', label: 'أتعاب القضايا', route: '/admin/casefees' },
@@ -368,7 +367,6 @@ const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/consult-requests': ['طلبات الاستشارات', 'الإدارة العليا'],
   '/admin/consult': ['رحلة الاستشارة', 'الإدارة العليا'],
   '/admin/staff': ['تسجيل الموظفين', 'الإدارة العليا'],
-  '/admin/branches': ['الفروع', 'الإدارة العليا'],
   '/admin/archive': ['أرشيف الاستشارات', 'الإدارة العليا'],
   '/admin/distribute': ['توزيع التذاكر', 'الإدارة العليا'],
   '/admin/casefees': ['أتعاب القضايا', 'الإدارة العليا'],

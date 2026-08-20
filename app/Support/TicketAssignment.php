@@ -27,7 +27,6 @@ class TicketAssignment
         $updates = [
             'assigned_lawyer' => $lawyer->name,
             'assigned_lawyer_id' => $lawyer->id,
-            'branch' => $lawyer->branch ?: $ticket->branch,
         ];
 
         // قفزة «محالة للقسم القانوني» للوضع البشري فقط (وكيل الاستقبال معطّل — كي لا تعلق التذكرة).
@@ -94,7 +93,6 @@ class TicketAssignment
             ->update([
                 'assigned_lawyer_id' => $ticket->assigned_lawyer_id,
                 'lawyer' => $ticket->assigned_lawyer,
-                'branch' => $ticket->branch,
             ]);
     }
 }

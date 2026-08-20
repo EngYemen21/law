@@ -103,15 +103,16 @@ class ZoomMediaBackfillTest extends TestCase
         $this->assertStringNotContainsString('WEBVTT', $text);
     }
 
-    public function test_branch_foreign_employee_cannot_download_meeting_media(): void
+    public function test_any_employee_may_download_meeting_media(): void
     {
         $this->configureS2S();
         $this->fakeZoomCloud();
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
-        $meeting = $this->endedMeeting(['branch' => 'فرع جدة']);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $meeting = $this->endedMeeting();
 
-        $this->actingAs($employee)->get(route('employee.meetings.recording', $meeting))->assertForbidden();
-        $this->actingAs($employee)->get(route('employee.meetings.audio', $meeting))->assertForbidden();
+        // مكتب واحد بلا فروع: تسجيلات الجلسات متاحة لكل موظفي المكتب
+        $this->actingAs($employee)->get(route('employee.meetings.recording', $meeting))->assertOk();
+        $this->actingAs($employee)->get(route('employee.meetings.audio', $meeting))->assertOk();
     }
 
     public function test_pull_recordings_backfills_missing_media_fields(): void

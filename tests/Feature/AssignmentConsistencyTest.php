@@ -12,38 +12,35 @@ use Tests\TestCase;
 
 /**
  * اتساق إسناد المحامي (assigned_lawyer_id مصدر الحقيقة): كل مسارات إنشاء/تغيير المحامي تربط الـFK
- * والفرع — لا الاسم وحده — كي لا تنكسر عزلة الرؤية ولا تُخطئ توجيه المهام.
+ * بالمعرّف — لا الاسم وحده — كي لا تُخطئ عزلة المحامي ولا توجيه المهام.
  */
 class AssignmentConsistencyTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_booking_derives_lawyer_and_branch_from_ticket_when_no_lawyer_id(): void
+    public function test_booking_derives_lawyer_from_ticket_when_no_lawyer_id(): void
     {
         // يختبر الاشتقاق في ConsultBooking مباشرةً: أي مسار يمرّر تذكرة دون lawyer_id
-        // يجب أن يرث المحامي المسند وفرعه من التذكرة (لا اسماً فقط).
+        // يجب أن يرث المحامي المسند من التذكرة (لا اسماً فقط).
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $ticket = Ticket::create([
             'user_id' => $client->id, 'number' => 'SB-900', 'type' => 'نزاع', 'status' => 'قيد المعالجة',
-            'assigned_lawyer' => $lawyer->name, 'assigned_lawyer_id' => $lawyer->id, 'branch' => 'فرع الرياض',
-        ]);
+            'assigned_lawyer' => $lawyer->name, 'assigned_lawyer_id' => $lawyer->id, ]);
 
         $consult = ConsultBooking::create($client, ['type' => 'phone', 'day' => '2026-07-20', 'time' => '11:00'], $ticket);
 
         $this->assertSame($lawyer->id, $consult->assigned_lawyer_id); // مشتقّ من التذكرة رغم غياب lawyer_id
-        $this->assertSame('فرع الرياض', $consult->branch);
     }
 
     public function test_refer_binds_assigned_lawyer_id(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $consult = Consult::create([
             'user_id' => $client->id, 'ref' => 'CN-2026-8100', 'subject' => 'نزاع', 'channel' => 'هاتفية',
-            'lawyer' => 'المستشار القانوني', 'branch' => 'فرع الرياض',
-            'day' => 'الأحد', 'time' => '10ص', 'when_label' => 'الأحد', 'status' => 'جاهزة للمحامي',
+            'lawyer' => 'المستشار القانوني', 'day' => 'الأحد', 'time' => '10ص', 'when_label' => 'الأحد', 'status' => 'جاهزة للمحامي',
         ]);
 
         $this->actingAs($employee)->post(route('employee.consults.refer', $consult), [
@@ -58,17 +55,16 @@ class AssignmentConsistencyTest extends TestCase
     public function test_ticket_transfer_propagates_to_open_consults(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
-        $lawyerA = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
-        $lawyerB = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $lawyerA = User::factory()->create(['role' => Role::Lawyer]);
+        $lawyerB = User::factory()->create(['role' => Role::Lawyer]);
         $ticket = Ticket::create([
             'user_id' => $client->id, 'number' => 'SB-901', 'type' => 'نزاع', 'status' => 'قيد المعالجة',
-            'assigned_lawyer' => $lawyerA->name, 'assigned_lawyer_id' => $lawyerA->id, 'branch' => 'فرع الرياض',
-        ]);
+            'assigned_lawyer' => $lawyerA->name, 'assigned_lawyer_id' => $lawyerA->id, ]);
         $consult = Consult::create([
             'user_id' => $client->id, 'ticket_id' => $ticket->id, 'ref' => 'CN-2026-8200', 'subject' => 'نزاع',
             'channel' => 'هاتفية', 'lawyer' => $lawyerA->name, 'assigned_lawyer_id' => $lawyerA->id,
-            'branch' => 'فرع الرياض', 'day' => 'الأحد', 'time' => '10ص', 'when_label' => 'الأحد',
+            'day' => 'الأحد', 'time' => '10ص', 'when_label' => 'الأحد',
             'session' => 'بانتظار الجلسة',
         ]);
 

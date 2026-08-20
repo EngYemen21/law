@@ -10,7 +10,7 @@ class Appointment extends Model
 {
     protected $fillable = [
         'user_id', 'ticket_id', 'ext_id', 'type', 'ico', 'lawyer', 'lawyer_id', 'day', 'time',
-        'starts_at', 'duration_min', 'branch', 'status', 'tone', 'when_kind',
+        'starts_at', 'duration_min', 'place', 'status', 'tone', 'when_kind',
     ];
 
     protected $casts = [
@@ -116,7 +116,7 @@ class Appointment extends Model
             'lawyer' => $this->lawyer,
             'day' => $this->dayLabel(),
             'time' => $this->timeLabel(),
-            'branch' => $this->branch,
+            'place' => $this->place,
             'status' => $status,
             'tone' => $tone,
             'when' => $when,

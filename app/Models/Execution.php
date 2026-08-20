@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Models\Concerns\HasBranch;
 use App\Support\CorrFlow;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,10 +9,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Execution extends Model
 {
-    use HasBranch;
-
     protected $fillable = [
-        'user_id', 'case_id', 'number', 'subject', 'assigned_lawyer', 'assigned_lawyer_id', 'branch', 'court', 'status', 'tone', 'last_action',
+        'user_id', 'case_id', 'number', 'subject', 'assigned_lawyer', 'assigned_lawyer_id', 'court', 'status', 'tone', 'last_action',
         // تدفّق التنفيذ التجاريّ (10 مراحل)
         'stage', 'sanad', 'defendant', 'amount', 'notes', 'docs', 'client_code',
         'ai_done', 'ai_summary', 'ai_missing', 'ai_procedures',

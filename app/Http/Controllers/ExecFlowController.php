@@ -11,6 +11,7 @@ use App\Support\ExecService;
 use App\Support\Mask;
 use App\Support\Notify;
 use App\Support\PaymentReconciler;
+use App\Support\PdfRenderer;
 use App\Support\ReportPrint;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -63,9 +64,8 @@ class ExecFlowController extends Controller
 
     public function employee(Request $request): Response
     {
-        // التبويب الموحّد لموظف الاستقبال: كل تنفيذات فرعه (تدفّق + قديمة) — بوّابة الاستقبال والإحالة
+        // التبويب الموحّد لموظف الاستقبال: كل ملفّات التنفيذ (تدفّق + قديمة) — بوّابة الاستقبال والإحالة
         $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'correspondences'])
-            ->where('branch', $request->user()->branch)
             ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(true));
 
         return Inertia::render('execflow', ['role' => 'employee', 'execs' => $execs]);
@@ -117,7 +117,6 @@ class ExecFlowController extends Controller
             $allowed = $action === 'refer' ? [Role::Employee, Role::Admin] : [Role::Employee, Role::Lawyer, Role::Admin];
             abort_unless(in_array($role, $allowed, true), 403);
             abort_unless($user->can('إدارة القضايا والأتعاب'), 403);
-            abort_if($role === Role::Employee && $execution->branch !== $user->branch, 403);
             abort_if($role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403);
         } elseif (in_array($action, $lawyerPickup, true)) {
             abort_unless($role === Role::Lawyer, 403);
@@ -215,7 +214,6 @@ class ExecFlowController extends Controller
         if ($isStaff) {
             abort_unless($user->can('إدارة القضايا والأتعاب'), 403);
         }
-        abort_if($user->role === Role::Employee && $execution->branch !== $user->branch, 403); // عزل الموظف بفرعه
         abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403); // عزل المحامي بالإسناد
         abort_if(in_array($execution->status, ['مكتمل', 'مغلق'], true) || (int) $execution->stage === 9, 422, 'لا يمكن إرسال رسائل على ملفّ تنفيذ مغلق.');
 
@@ -290,7 +288,6 @@ class ExecFlowController extends Controller
     {
         $user = $request->user();
         abort_unless(in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true), 403);
-        abort_if($user->role === Role::Employee && $execution->branch !== $user->branch, 403); // عزل الموظف بفرعه
         abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403); // عزل المحامي بالإسناد
         abort_unless($document->execution_id === $execution->id, 404);
         abort_unless($document->status === 'مرفوع', 422, 'لا يمكن مراجعة مستند لم يُرفَع بعد.');
@@ -312,7 +309,6 @@ class ExecFlowController extends Controller
         $isClient = $user->role === Role::Client && $execution->user_id === $user->id;
         $isStaff = in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true);
         abort_unless($isClient || $isStaff, 403);
-        abort_if($user->role === Role::Employee && $execution->branch !== $user->branch, 403);
         abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403);
         abort_unless($document->execution_id === $execution->id, 404);
         abort_if($document->path === null, 404, 'الملف غير موجود على الخادم.');
@@ -328,7 +324,6 @@ class ExecFlowController extends Controller
         $isClient = $user->role === Role::Client && $execution->user_id === $user->id;
         $isStaff = in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true);
         abort_unless($isClient || $isStaff, 403);
-        abort_if($user->role === Role::Employee && $execution->branch !== $user->branch, 403);
         abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403);
         abort_unless((int) $execution->fee > 0, 422, 'لا يوجد عرض/فاتورة على هذا الطلب بعد.');
 
@@ -373,7 +368,7 @@ class ExecFlowController extends Controller
             'footer' => 'النظام الإداري لمكاتب المحاماة — صادر إلكترونياً',
         ]);
 
-        return \App\Support\PdfRenderer::render($html, $execution->number.'.pdf');
+        return PdfRenderer::render($html, $execution->number.'.pdf');
     }
 
     // ── رفع مستند مطلوب من العميل ──

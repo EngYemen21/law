@@ -56,7 +56,6 @@ export interface FullMeetingCard {
     type: string;
     client: string;
     lawyer: string;
-    branch: string;
     when: string;
     approve: string;
     before: string[];

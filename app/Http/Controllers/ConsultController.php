@@ -34,7 +34,7 @@ class ConsultController extends Controller
     // قائمة استشارات العميل الحالي
     public function index(Request $request): Response
     {
-        $consults = Consult::with('user')
+        $consults = Consult::with(['user', 'appointment'])
             ->where('user_id', $request->user()->id)
             ->latest('id')->get()
             ->map(fn (Consult $c) => $c->toClientCard());
@@ -188,9 +188,7 @@ class ConsultController extends Controller
         );
 
         $payLabel = $consult->paid_at !== null ? 'مدفوعة' : ($consult->priced_at !== null ? 'بانتظار السداد' : 'بانتظار التسعير من الإدارة');
-        $place = $consult->channel === 'حضورية'
-            ? ($consult->branch ?: '—')
-            : ($consult->channel === 'مرئية' ? 'اجتماع إلكتروني' : 'مكالمة هاتفية');
+        $place = $consult->placeLabel();
 
         $nextStep = match (true) {
             $consult->priced_at === null => 'بانتظار تحديد السعر من الإدارة',

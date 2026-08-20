@@ -25,7 +25,7 @@ class CorrespondenceTest extends TestCase
 
     public function test_full_lifecycle_advances_through_stages(): void
     {
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الاختبار']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $client = User::factory()->create(['role' => Role::Client]);
         $admin = User::factory()->create(['role' => Role::Admin]);
         $corr = $this->make($lawyer, $client);
@@ -66,7 +66,7 @@ class CorrespondenceTest extends TestCase
 
     public function test_close_requires_admin_and_reply(): void
     {
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الاختبار']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $client = User::factory()->create(['role' => Role::Client]);
         $corr = $this->make($lawyer, $client);
 
@@ -77,10 +77,10 @@ class CorrespondenceTest extends TestCase
         $this->actingAs($admin)->from('/admin/correspondences')->post(route('admin.correspondences.close', $corr))->assertSessionHasErrors('stage');
     }
 
-    public function test_branch_isolation_blocks_other_lawyer(): void
+    public function test_unassigned_lawyer_blocked_from_correspondence(): void
     {
-        $mine = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع أ']);
-        $other = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع ب']);
+        $mine = User::factory()->create(['role' => Role::Lawyer]);
+        $other = User::factory()->create(['role' => Role::Lawyer]);
         $client = User::factory()->create(['role' => Role::Client]);
         $corr = $this->make($mine, $client); // فرع أ
 
@@ -95,7 +95,7 @@ class CorrespondenceTest extends TestCase
 
     public function test_client_sees_own_and_requests_brief(): void
     {
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الاختبار']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $me = User::factory()->create(['role' => Role::Client]);
         $other = User::factory()->create(['role' => Role::Client]);
         $mine = $this->make($lawyer, $me);
@@ -114,7 +114,7 @@ class CorrespondenceTest extends TestCase
     public function test_exec_request_corr_creates_linked_correspondence(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الاختبار']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         // تنفيذ بمرحلة قيد التنفيذ مسند للمحامي
         $exec = Execution::create(['user_id' => $client->id, 'number' => 'EXE-C', 'subject' => 'تنفيذ حكم', 'status' => 'قيد التنفيذ', 'tone' => 'b-green', 'stage' => 8, 'exec_no' => '77-2026-تنفيذ', 'assigned_lawyer_id' => $lawyer->id, 'assigned_lawyer' => $lawyer->name]);
 

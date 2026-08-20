@@ -3,7 +3,6 @@
 namespace Database\Seeders;
 
 use App\Enums\Role;
-use App\Models\Branch;
 use App\Models\User;
 use App\Support\Permissions;
 use App\Support\Specialties;
@@ -29,20 +28,19 @@ class DatabaseSeeder extends Seeder
     {
         // الأساس: صلاحيات spatie وأدوار القوالب، ثم الفروع
         $this->call(PermissionSeeder::class);
-        $this->call(BranchSeeder::class);
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         // 1) الإدارة العليا (تتجاوز الصلاحيات عبر Gate::before) — دخول: 1000000001
         $this->makeUser([
             'name' => 'الإدارة العليا', 'email' => 'kfykfy2020@gmail.com', 'role' => Role::Admin,
-            'avatar_initials' => 'إ ع', 'branch' => Branch::DEFAULT, 'job_title' => 'مدير عام',
+            'avatar_initials' => 'إ ع', 'job_title' => 'مدير عام',
             'national_id' => '1000000001', 'phone' => '+966537434000',
         ]);
 
         // 2) المحامي — دخول: 1000000002 — كل صلاحيات دوره + دور «محامٍ» + مسنَد إليه كل الأقسام
         $lawyer = $this->makeUser([
             'name' => 'المحامي', 'email' => 'law@salasel.sa', 'role' => Role::Lawyer,
-            'title' => 'أ.', 'job_title' => 'محامٍ', 'branch' => Branch::DEFAULT,
+            'title' => 'أ.', 'job_title' => 'محامٍ',
             'department' => Specialties::ALL_DEPARTMENTS,
             'work_start' => '09:00', 'work_end' => '17:00', 'avatar_initials' => 'مح',
             'national_id' => '1000000002', 'phone' => '+966537434000',
@@ -56,7 +54,7 @@ class DatabaseSeeder extends Seeder
         //    بنفس فرع المحامي/الإدارة (الفرع الرئيسي) كي تكتمل الرحلة أمام الأدوار الثلاثة
         $employee = $this->makeUser([
             'name' => 'الموظف', 'email' => 'emp@salasel.sa', 'role' => Role::Employee,
-            'job_title' => 'موظف خدمة عملاء', 'branch' => Branch::DEFAULT,
+            'job_title' => 'موظف خدمة عملاء',
             'department' => 'خدمة العملاء',
             'work_start' => '08:00', 'work_end' => '16:00', 'avatar_initials' => 'مو',
             'national_id' => '1000000003', 'phone' => '+966537434000',
@@ -88,7 +86,7 @@ class DatabaseSeeder extends Seeder
 
         // صفّان مختلفان يتنازعان: صفّ يحمل الهويّة+الدور وآخر يحمل البريد — يُؤرشف بريد الأخير
         // ليتحرّر للحساب القانوني (تحويله للدور الجديد كان يصطدم بقيد الهويّة+الدور)
-        if ($byIdentity && $byEmail && $byIdentity->isnt($byEmail)) {
+        if ($byIdentity && $byEmail && $byIdentity->isNot($byEmail)) {
             $byEmail->update(['email' => 'archived+'.$byEmail->id.'.'.$byEmail->email]);
             $byEmail = null;
         }

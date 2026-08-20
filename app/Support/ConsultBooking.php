@@ -35,9 +35,9 @@ use Illuminate\Validation\ValidationException;
 class ConsultBooking
 {
     private const MAP = [
-        'office' => ['label' => 'حضورية', 'ico' => 'office', 'branch' => 'الرياض — حي العليا'],
-        'video' => ['label' => 'مرئية', 'ico' => 'video', 'branch' => 'اجتماع إلكتروني'],
-        'phone' => ['label' => 'هاتفية', 'ico' => 'phone', 'branch' => 'مكالمة هاتفية'],
+        'office' => ['label' => 'حضورية', 'ico' => 'office', 'place' => 'الرياض — حي العليا'],
+        'video' => ['label' => 'مرئية', 'ico' => 'video', 'place' => 'اجتماع إلكتروني'],
+        'phone' => ['label' => 'هاتفية', 'ico' => 'phone', 'place' => 'مكالمة هاتفية'],
     ];
 
     /**
@@ -64,7 +64,6 @@ class ConsultBooking
             'channel' => $m['label'],
             'lawyer' => $ctx['lawyer'],
             'assigned_lawyer_id' => $ctx['lawyerId'],
-            'branch' => $ctx['scopeBranch'],
             'phone' => $data['type'] === 'phone' ? $client->phone : null,
             // سعر ابتدائي مقترح من إعدادات الإدارة — لا يُفعِّل السداد حتى يعتمده المسعّر
             'price' => $ctx['price'],
@@ -200,7 +199,7 @@ class ConsultBooking
     /**
      * الخطوة 4 — اختيار الموعد (يُحظر قبل السداد). يُنشئ Appointment + Zoom + حارس التعارض.
      *
-     * @param  array{lawyer_id?:int,day:string,time:string,starts_at?:string,duration?:int,branch?:string}  $slot
+     * @param  array{lawyer_id?:int,day:string,time:string,starts_at?:string,duration?:int,place?:string}  $slot
      */
     public static function schedule(Consult $consult, array $slot): Consult
     {
@@ -213,8 +212,7 @@ class ConsultBooking
         $lawyerUser = ! empty($slot['lawyer_id']) ? User::find((int) $slot['lawyer_id']) : ($consult->assigned_lawyer_id ? User::find($consult->assigned_lawyer_id) : null);
         $lawyer = $lawyerUser?->name ?: ($consult->lawyer ?: 'المستشار القانوني');
         $lawyerId = $lawyerUser?->id;
-        $branch = ($type === 'office' && ! empty($slot['branch'])) ? $slot['branch'] : $m['branch'];
-        $scopeBranch = $lawyerUser?->branch ?: $consult->branch;
+        $place = ($type === 'office' && ! empty($slot['place'])) ? $slot['place'] : $m['place'];
         $startsAt = ! empty($slot['starts_at']) ? Carbon::parse($slot['starts_at']) : null;
         $duration = (int) ($slot['duration'] ?? LawyerAvailability::slotMinutes());
 
@@ -224,7 +222,7 @@ class ConsultBooking
             : null;
 
         try {
-            DB::transaction(function () use ($consult, $slot, $m, $branch, $lawyer, $lawyerId, $scopeBranch, $startsAt, $duration, $zoom) {
+            DB::transaction(function () use ($consult, $slot, $m, $place, $lawyer, $lawyerId, $startsAt, $duration, $zoom) {
                 if ($lawyerId && $startsAt) {
                     self::guardNoConflict($lawyerId, $startsAt, $duration);
                 }
@@ -241,7 +239,7 @@ class ConsultBooking
                     'time' => $slot['time'],
                     'starts_at' => $startsAt,
                     'duration_min' => $duration,
-                    'branch' => $branch,
+                    'place' => $place,
                     'status' => 'مؤكد',
                     'tone' => 'b-green',
                     'when_kind' => 'up',
@@ -252,7 +250,6 @@ class ConsultBooking
                     'appointment_id' => $appt->id,
                     'lawyer' => $lawyer,
                     'assigned_lawyer_id' => $lawyerId,
-                    'branch' => $scopeBranch,
                     'day' => $slot['day'],
                     'time' => $slot['time'],
                     'starts_at' => $startsAt,
@@ -299,13 +296,13 @@ class ConsultBooking
      * مسار فوري «مدفوع مسبقاً» لحجز الموظف نيابةً عن العميل (بلا بوّابة دفع) — يُنشئ الحجز
      * كاملاً (Appointment + Consult + Zoom + فاتورة مدفوعة) بحالة «جديدة» مباشرةً.
      *
-     * @param  array{type:string,day:string,time:string,branch?:string,lawyer?:string,lawyer_id?:int,specialty?:string,starts_at?:string,duration?:int,subject?:string,department?:string}  $data
+     * @param  array{type:string,day:string,time:string,place?:string,lawyer?:string,lawyer_id?:int,specialty?:string,starts_at?:string,duration?:int,subject?:string,department?:string}  $data
      */
     public static function create(User $client, array $data, ?Ticket $ticket = null): Consult
     {
         $ctx = self::resolveContext($client, $data, $ticket);
         $m = $ctx['meta'];
-        $branch = ($data['type'] === 'office' && ! empty($data['branch'])) ? $data['branch'] : $m['branch'];
+        $place = ($data['type'] === 'office' && ! empty($data['place'])) ? $data['place'] : $m['place'];
         $startsAt = ! empty($data['starts_at']) ? Carbon::parse($data['starts_at']) : null;
         $duration = (int) ($data['duration'] ?? LawyerAvailability::slotMinutes());
         $total = $ctx['price'] + $ctx['vat'];
@@ -315,7 +312,7 @@ class ConsultBooking
             : null;
 
         $consult = DB::transaction(function () use (
-            $client, $ticket, $data, $ctx, $m, $branch, $startsAt, $duration, $total, $zoom
+            $client, $ticket, $data, $ctx, $m, $place, $startsAt, $duration, $total, $zoom
         ) {
             if ($ctx['lawyerId'] && $startsAt) {
                 self::guardNoConflict($ctx['lawyerId'], $startsAt, $duration);
@@ -333,7 +330,7 @@ class ConsultBooking
                 'time' => $data['time'],
                 'starts_at' => $startsAt,
                 'duration_min' => $duration,
-                'branch' => $branch,
+                'place' => $place,
                 'status' => 'مؤكد',
                 'tone' => 'b-green',
                 'when_kind' => 'up',
@@ -364,7 +361,6 @@ class ConsultBooking
                 'starts_at' => $startsAt,
                 'duration_min' => $duration,
                 'when_label' => $data['day'].' · '.$data['time'],
-                'branch' => $ctx['scopeBranch'],
                 'phone' => $data['type'] === 'phone' ? $client->phone : null,
                 'price' => $ctx['price'],
                 'vat' => $ctx['vat'],
@@ -427,9 +423,9 @@ class ConsultBooking
     }
 
     /**
-     * حلّ سياق الحجز المشترك (المحامي/الموضوع/التخصّص/الفرع/السعر الابتدائي/المرجع).
+     * حلّ سياق الحجز المشترك (المحامي/الموضوع/التخصّص/السعر الابتدائي/المرجع).
      *
-     * @return array{meta:array,type:string,ref:string,lawyer:string,lawyerId:?int,subject:string,specialty:?string,scopeBranch:?string,price:int,vat:int}
+     * @return array{meta:array,type:string,ref:string,lawyer:string,lawyerId:?int,subject:string,specialty:?string,price:int,vat:int}
      */
     private static function resolveContext(User $client, array $data, ?Ticket $ticket): array
     {
@@ -443,7 +439,6 @@ class ConsultBooking
 
         $subject = $data['subject'] ?? $ticket?->type ?? 'استشارة قانونية';
         $specialty = Specialties::normalize($data['specialty'] ?? $lawyerUser?->department) ?: null;
-        $scopeBranch = $lawyerUser?->branch ?: $ticket?->branch;
         $dept = $data['department'] ?? $ticket?->department;
 
         $prices = Setting::consultPrices();
@@ -458,7 +453,6 @@ class ConsultBooking
             'lawyerId' => $lawyerUser?->id,
             'subject' => $subject,
             'specialty' => $specialty,
-            'scopeBranch' => $scopeBranch,
             'price' => $price,
             'vat' => $vat,
         ];
@@ -488,7 +482,7 @@ class ConsultBooking
         }
     }
 
-    /** بيانات العرض للنوع (label/ico/branch الافتراضي). */
+    /** بيانات العرض للنوع (label/ico/place الافتراضي). */
     public static function meta(string $type): array
     {
         return self::MAP[$type] ?? self::MAP['office'];

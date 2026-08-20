@@ -46,7 +46,7 @@ class PdfDownloadsTest extends TestCase
             'lawyer' => 'أ. سارة القحطاني',
             'day' => '2026-08-20',
             'time' => '10:00 ص',
-            'branch' => 'الرياض — حي العليا',
+            'place' => 'الرياض — حي العليا',
             'status' => 'مؤكد',
             'tone' => 'b-green',
         ]);

@@ -3,9 +3,9 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
-use App\Mail\MeetInviteMail;
 use App\Mail\MeetingEndedMail;
 use App\Mail\MeetingScheduledMail;
+use App\Mail\MeetInviteMail;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\User;
@@ -22,7 +22,7 @@ class MeetingMailTest extends TestCase
     {
         Mail::fake();
         $client = User::factory()->create(['role' => Role::Client, 'email' => 'client@example.com']);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'email' => 'lawyer@example.com', 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'email' => 'lawyer@example.com']);
         $admin = User::factory()->create(['role' => Role::Admin]);
 
         $this->actingAs($admin)->post(route('admin.meetings.store'), [

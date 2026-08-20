@@ -32,7 +32,6 @@ class ExecutionCreation
                 'subject' => 'تنفيذ حكم — '.$case->type,
                 'assigned_lawyer' => $lawyer->name,
                 'assigned_lawyer_id' => $lawyer->id,
-                'branch' => $case->branch ?: $lawyer->branch,
                 'status' => 'جديد',
                 'tone' => ExecJourney::toneFor('جديد'),
                 'last_action' => 'فتح طلب التنفيذ بعد صدور الحكم',

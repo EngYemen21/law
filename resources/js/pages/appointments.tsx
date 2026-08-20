@@ -9,16 +9,16 @@ import { maskLawyer } from '@/lib/utils';
 
 // يطابق viewAppts + openAppt (بطاقة .apptx) في index (21).html — ببيانات حقيقيّة
 
-// اشتقاق المكان من بيانات الموعد الحقيقيّة (الفرع/القناة)
+// اشتقاق المكان من بيانات الموعد الحقيقيّة (المكان/القناة)
 function apptPlace(a: Appt) {
   const remote =
     a.type.includes('مرئية') ||
     a.type.includes('هاتفية') ||
-    a.branch.includes('إلكتروني') ||
-    a.branch.includes('هاتفية') ||
-    a.branch.includes('بُعد');
-  const addr = remote ? 'جلسة عن بُعد — يُرسل الرابط قبل الموعد' : a.branch;
-  const chip = remote ? 'عن بُعد' : a.branch;
+    a.place.includes('إلكتروني') ||
+    a.place.includes('هاتفية') ||
+    a.place.includes('بُعد');
+  const addr = remote ? 'جلسة عن بُعد — يُرسل الرابط قبل الموعد' : a.place;
+  const chip = remote ? 'عن بُعد' : a.place;
   return { remote, addr, chip };
 }
 
@@ -144,7 +144,7 @@ const ApptItem: React.FC<{ a: Appt; onOpen: (a: Appt) => void }> = ({ a, onOpen 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
           <span style={{ color: 'var(--ink)', fontWeight: 600, fontSize: 12 }}>{a.day} · {a.time}</span>
           <span style={{ color: 'var(--muted)', fontSize: 12 }}>· {maskLawyer(a.lawyer)}</span>
-          <span style={{ color: 'var(--muted)', fontSize: 12 }}>· {a.branch}</span>
+          <span style={{ color: 'var(--muted)', fontSize: 12 }}>· {a.place}</span>
         </div>
       </div>
     </div>

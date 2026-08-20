@@ -28,7 +28,6 @@ class ConsultIsolationTest extends TestCase
             'channel' => 'مرئية',
             'lawyer' => $lawyer->name,
             'assigned_lawyer_id' => $lawyer->id,
-            'branch' => $lawyer->branch,
             'day' => 'الأحد', 'time' => '10ص', 'when_label' => 'الأحد',
             'session' => 'جلسة جارية', 'status' => 'قيد الاستشارة',
             'decisions' => ['متابعة'],
@@ -51,23 +50,22 @@ class ConsultIsolationTest extends TestCase
         $this->actingAs($lawyerA)->post(route('lawyer.consults.end', $consult))->assertRedirect();
     }
 
-    public function test_employee_cannot_access_other_branch_consult(): void
+    public function test_employee_can_access_any_consult(): void
     {
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
-        $consult = $this->consultFor($lawyer); // branch = فرع الرياض
+        $consult = $this->consultFor(User::factory()->create(['role' => Role::Lawyer]));
 
-        $riyadh = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
-        $dammam = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الدمام']);
-
-        $this->actingAs($dammam)->get('/employee/consult?ref='.$consult->ref)->assertForbidden();
-        $this->actingAs($riyadh)->get('/employee/consult?ref='.$consult->ref)->assertOk();
+        // مكتب واحد بلا فروع: أيّ موظف يفتح أيّ استشارة (المحامي وحده معزول بالإسناد)
+        $this->actingAs(User::factory()->create(['role' => Role::Employee]))
+            ->get('/employee/consult?ref='.$consult->ref)->assertOk();
+        $this->actingAs(User::factory()->create(['role' => Role::Employee]))
+            ->get('/employee/consult?ref='.$consult->ref)->assertOk();
     }
 
     public function test_admin_sees_any_consult(): void
     {
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $consult = $this->consultFor($lawyer);
-        $admin = User::factory()->create(['role' => Role::Admin, 'branch' => 'فرع الدمام']);
+        $admin = User::factory()->create(['role' => Role::Admin]);
 
         $this->actingAs($admin)->get('/admin/consult?ref='.$consult->ref)->assertOk();
     }
@@ -75,11 +73,11 @@ class ConsultIsolationTest extends TestCase
     public function test_pricing_is_admin_only(): void
     {
         // التسعير وشاشة «طلبات الاستشارات» للإدارة العليا وحدها (مطابق التصميم)
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $consult = $this->consultFor($lawyer, ['status' => 'بانتظار التسعير']);
 
         // غير الإدارة: حارس الدور يعيد التوجيه (302) بعيدًا عن مسار /admin
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         $this->actingAs($employee)->get('/admin/consult-requests')->assertRedirect();
         $this->actingAs($lawyer)->get('/admin/consult-requests')->assertRedirect();
 
@@ -113,7 +111,7 @@ class ConsultIsolationTest extends TestCase
 
     public function test_only_owner_can_pay_or_schedule(): void
     {
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $consult = $this->consultFor($lawyer, ['status' => 'بانتظار السداد']);
         $intruder = User::factory()->create(['role' => Role::Client]);
 
@@ -125,8 +123,8 @@ class ConsultIsolationTest extends TestCase
 
     public function test_created_tasks_go_to_assigned_lawyer_not_actor(): void
     {
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         $consult = $this->consultFor($lawyer, ['session' => 'منتهية', 'status' => 'منتهية']);
 
         $this->actingAs($employee)->post(route('employee.consults.tasks', $consult))->assertRedirect();

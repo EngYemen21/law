@@ -21,12 +21,11 @@ type StaffRow = Staff & {
 
 interface Props {
   staff: StaffRow[];
-  branches: string[];
 }
 
 interface Shared { generatedPassword?: { email: string; password: string } | null }
 
-const AdminStaff: React.FC<Props> = ({ staff, branches }) => {
+const AdminStaff: React.FC<Props> = ({ staff }) => {
   const toast = useToast();
   const { props } = usePage() as unknown as { props: Shared };
   const formRef = React.useRef<HTMLDivElement>(null);
@@ -60,7 +59,6 @@ const AdminStaff: React.FC<Props> = ({ staff, branches }) => {
       }
     } catch { setNidHint(null); }
   };
-  const [branch, setBranch] = useState(branches[0] ?? '');
   const [dept, setDept] = useState(DEPTS[0]);
   const [join, setJoin] = useState('');
   const [start, setStart] = useState('08:00');
@@ -105,7 +103,7 @@ const AdminStaff: React.FC<Props> = ({ staff, branches }) => {
   const resetForm = () => {
     setEditingId(null);
     setName(''); setRoleKey('employee'); setRole('موظف خدمة عملاء');
-    setEmail(''); setMobile(''); setNid(''); setBranch(branches[0] ?? ''); setDept(DEPTS[0]);
+    setEmail(''); setMobile(''); setNid(''); setDept(DEPTS[0]);
     setJoin(''); setStart('08:00'); setEnd('16:00');
     setPayType('salary'); setSalary(''); setPct(''); setSession(''); setPerms([]);
   };
@@ -120,7 +118,6 @@ const AdminStaff: React.FC<Props> = ({ staff, branches }) => {
     setEmail(s.email === '—' ? '' : s.email);
     setMobile(s.mobile === '—' ? '' : s.mobile);
     setNid(s.nid === '—' ? '' : s.nid);
-    setBranch(s.branch && s.branch !== '—' ? s.branch : (branches[0] ?? ''));
     setDept(s.dept && s.dept !== '—' ? s.dept : DEPTS[0]);
     setJoin(s.join === '—' ? '' : s.join);
     setStart(s.start && s.start !== '—' ? s.start : '08:00');
@@ -138,7 +135,7 @@ const AdminStaff: React.FC<Props> = ({ staff, branches }) => {
     setBusy(true);
     const payload = {
       name, role: roleKey, job_title: role, email, mobile, nid,
-      branch, dept, join, start, end,
+      dept, join, start, end,
       payType, salary, pct, session, perms,
     };
     const opts = {
@@ -172,7 +169,7 @@ const AdminStaff: React.FC<Props> = ({ staff, branches }) => {
     <>
       <div className="greet">
         <h2>تسجيل الموظفين</h2>
-        <p>إضافة الموظفين والمحامين وربطهم بالفروع والأقسام وتحديد صلاحياتهم — بحسابات دخول حقيقية.</p>
+        <p>إضافة الموظفين والمحامين وربطهم بالأقسام وتحديد صلاحياتهم — بحسابات دخول حقيقية.</p>
       </div>
 
       {cred && (
@@ -247,11 +244,6 @@ const AdminStaff: React.FC<Props> = ({ staff, branches }) => {
 
           <div className="form-sec-h"><span className="si"><Icon name="office" /></span> بيانات العمل</div>
           <div className="picker-grid">
-            <div className="field"><label>الفرع</label>
-              <select value={branch} onChange={(e) => setBranch(e.target.value)}>
-                {branches.map((b) => <option key={b}>{b}</option>)}
-              </select>
-            </div>
             <div className="field"><label>القسم</label>
               <select value={dept} onChange={(e) => setDept(e.target.value)}>
                 {DEPTS.map((d) => <option key={d}>{d}</option>)}
@@ -327,7 +319,7 @@ const AdminStaff: React.FC<Props> = ({ staff, branches }) => {
           <table className="tbl">
             <thead>
               <tr>
-                <th>الموظف</th><th>الفرع</th><th>الأجر</th><th>الدوام</th><th>الصلاحيات</th><th>الحالة</th><th></th>
+                <th>الموظف</th><th>القسم</th><th>الأجر</th><th>الدوام</th><th>الصلاحيات</th><th>الحالة</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -339,7 +331,7 @@ const AdminStaff: React.FC<Props> = ({ staff, branches }) => {
                       <div><div className="sn-b">{s.name}</div><div className="sn-s">{s.role}</div></div>
                     </div>
                   </td>
-                  <td className="muted">{s.branch}</td>
+                  <td className="muted">{s.dept}</td>
                   <td className="muted">{s.pay || '—'}</td>
                   <td className="muted" style={{ direction: 'ltr' }}>{s.start && s.end && s.start !== '—' ? `${s.start} – ${s.end}` : '—'}</td>
                   <td><span className="perm-count">{(s.perms && s.perms.length) || 0} صلاحية</span></td>
@@ -374,7 +366,6 @@ const AdminStaff: React.FC<Props> = ({ staff, branches }) => {
             </div>
             <div className="kv"><span className="k">الاسم</span><span className="v">{detail.name}</span></div>
             <div className="kv"><span className="k">الصفة</span><span className="v">{detail.role}</span></div>
-            <div className="kv"><span className="k">الفرع</span><span className="v">{detail.branch}</span></div>
             <div className="kv"><span className="k">القسم</span><span className="v">{detail.dept}</span></div>
             <div className="kv"><span className="k">البريد الإلكتروني</span><span className="v" style={{ direction: 'ltr' }}>{detail.email || '—'}</span></div>
             <div className="kv"><span className="k">الجوال</span><span className="v" style={{ direction: 'ltr' }}>{detail.mobile || '—'}</span></div>

@@ -33,10 +33,10 @@ class GrandTourE2ETest extends TestCase
     private function roles(): array
     {
         $this->seed(PermissionSeeder::class);
-        $client = User::factory()->create(['role' => Role::Client, 'branch' => 'فرع الرياض']);
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         $employee->syncPermissions(Permission::all());
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $lawyer->syncPermissions(Permission::all());
         $admin = User::factory()->create(['role' => Role::Admin]);
 
@@ -165,7 +165,6 @@ class GrandTourE2ETest extends TestCase
         // (رسالة «تحليل» AI الأولى عند التقديم مقصودة؛ العدّ يثبت ألا ردود آلية جديدة بعدها)
         $aiBefore = $exec->messages()->where('who', 'ai')->count();
         $this->actingAs($client)->post(route('exec-flow.messages.store', $exec), ['body' => 'ما المستجدات؟'])->assertNoContent();
-        $exec->update(['branch' => 'فرع الرياض']);
         $this->actingAs($employee)->post(route('exec-flow.messages.store', $exec), ['body' => 'نتابع طلبكم.'])->assertNoContent();
         $this->assertSame($aiBefore, $exec->messages()->where('who', 'ai')->count());
 

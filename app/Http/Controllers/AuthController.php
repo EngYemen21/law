@@ -51,7 +51,7 @@ class AuthController extends Controller
             // مُنتقي الحساب: يظهر حين طابقت الهُويّة عدّة حسابات لنفس الشخص (بعد نجاح الرمز)
             'accountChoice' => $choice
                 ? User::whereIn('id', $choice['ids'])->where('status', 'active')->get()
-                    ->map(fn (User $u) => ['id' => $u->id, 'roleLabel' => $u->role->label(), 'branch' => $u->branch])
+                    ->map(fn (User $u) => ['id' => $u->id, 'roleLabel' => $u->role->label()])
                     ->values()
                 : null,
             // تلميح التجاوز التطويريّ المؤقّت (غير الإنتاج فقط) — يُظهر الرمز الثابت للمختبِر

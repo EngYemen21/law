@@ -42,8 +42,7 @@ class MeetingZoomParityTest extends TestCase
             'ref' => 'M-'.random_int(1000, 9999),
             'title' => 'اجتماع تجريبي', 'type' => 'اجتماع مع عميل', 'when_label' => 'اليوم · 11:00', 'status' => 'قادم',
             'meet_id' => '81823767754', 'meet_password' => 'mp123',
-            'assigned_lawyer_id' => $lawyer?->id, 'branch' => $lawyer?->branch,
-        ], $extra));
+            'assigned_lawyer_id' => $lawyer?->id, ], $extra));
     }
 
     // ── توقيع التضمين للاجتماع (kind=meeting) ──
@@ -71,7 +70,7 @@ class MeetingZoomParityTest extends TestCase
             'zoom.us/oauth/token' => Http::response(['access_token' => 'tok', 'expires_in' => 3600]),
             'api.zoom.us/v2/users/me/token*' => Http::response(['token' => 'ZAKMEET']),
         ]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $meeting = $this->meeting($lawyer, ['status' => 'جارٍ']);
 
         $this->actingAs($lawyer)->postJson(route('zoom.signature'), ['ref' => $meeting->ref, 'kind' => 'meeting'])
@@ -83,8 +82,8 @@ class MeetingZoomParityTest extends TestCase
     public function test_unassigned_lawyer_cannot_sign_meeting(): void
     {
         $this->configureSdk();
-        $lawyerA = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
-        $lawyerB = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع جدة']);
+        $lawyerA = User::factory()->create(['role' => Role::Lawyer]);
+        $lawyerB = User::factory()->create(['role' => Role::Lawyer]);
         $meeting = $this->meeting($lawyerA);
 
         $this->actingAs($lawyerB)->postJson(route('zoom.signature'), ['ref' => $meeting->ref, 'kind' => 'meeting'])

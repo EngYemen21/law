@@ -9,7 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\FinalizeConsultJob;
 use App\Models\Consult;
 use App\Models\User;
-use App\Rules\LawyerInBranch;
+use App\Rules\ActiveLawyer;
 use App\Services\LegalAiService;
 use App\Support\ConsultBooking;
 use App\Support\DecisionTasks;
@@ -37,7 +37,7 @@ class ConsultController extends Controller
     public function index(Request $request): Response
     {
         // ترتيب بموعد الجلسة (الأقرب أولاً، بلا موعد آخراً) — كان بالمعرّف فتختلط الفائتة بالقادمة
-        $consults = $this->scopeForRole($request, Consult::with('user'))
+        $consults = $this->scopeForRole($request, Consult::with(['user', 'appointment']))
             ->whereNotIn('status', Consult::PRE_SESSION_STATUSES)
             ->orderByRaw('starts_at IS NULL')->orderBy('starts_at')->latest('id')->get()
             ->map(fn (Consult $c) => $c->toCard());
@@ -50,7 +50,7 @@ class ConsultController extends Controller
     // طلبات الاستشارات وتسعيرها (الإدارة العليا فقط) — دورة الحجز قبل الجلسة + إجراء التسعير
     public function requests(Request $request): Response
     {
-        $consults = Consult::with(['user', 'invoice'])
+        $consults = Consult::with(['user', 'invoice', 'appointment'])
             ->whereIn('status', Consult::PRE_SESSION_STATUSES)
             ->latest('id')->get()
             ->map(fn (Consult $c) => $c->toCard());
@@ -63,7 +63,7 @@ class ConsultController extends Controller
     // رحلة الاستشارة (يطابق consultView) — التفاصيل والإجراءات وسجل التدقيق
     public function show(Request $request): Response
     {
-        $consult = Consult::with('user')
+        $consult = Consult::with(['user', 'appointment'])
             ->where('ref', (string) $request->query('ref'))
             ->firstOrFail();
         $this->guardConsult($request, $consult);
@@ -199,7 +199,7 @@ class ConsultController extends Controller
         $this->guardConsult($request, $consult);
         $data = $request->validate([
             // مشترك بين الموظف/المحامي/الإدارة (كل بدوره عبر route مستقل) — Rule موحَّد يرفض غير المحامين والموقوفين.
-            'lawyer_id' => ['nullable', 'integer', new LawyerInBranch],
+            'lawyer_id' => ['nullable', 'integer', new ActiveLawyer],
             'lawyer' => ['nullable', 'string', 'max:80'],
         ]);
 
@@ -221,7 +221,6 @@ class ConsultController extends Controller
         // ربط المحامي بالمعرّف والفرع (مصدر عزل الرؤية والبثّ)
         if ($lawyerUser) {
             $consult->assigned_lawyer_id = $lawyerUser->id;
-            $consult->branch = $lawyerUser->branch ?: $consult->branch;
         }
         $consult->status = 'محالة للمحامي';
         $consult->save();
@@ -251,7 +250,7 @@ class ConsultController extends Controller
     public function recv(Request $request): Response
     {
         // ترتيب بموعد الجلسة (الأقرب أولاً، بلا موعد آخراً) — كان بالمعرّف فتختلط الفائتة بالقادمة
-        $consults = $this->scopeForRole($request, Consult::with('user'))
+        $consults = $this->scopeForRole($request, Consult::with(['user', 'appointment']))
             ->whereNotIn('status', Consult::PRE_SESSION_STATUSES)
             ->orderByRaw('starts_at IS NULL')->orderBy('starts_at')->latest('id')->get()
             ->map(fn (Consult $c) => $c->toCard());
@@ -438,9 +437,6 @@ class ConsultController extends Controller
         $user = $request->user();
         if ($user->role === Role::Lawyer) {
             $query->where('assigned_lawyer_id', $user->id);
-        } elseif ($user->role === Role::Employee) {
-            $branch = $user->branch;
-            $query->where(fn ($q) => $q->where('branch', $branch)->orWhereNull('branch'));
         }
 
         return $query;
@@ -449,15 +445,12 @@ class ConsultController extends Controller
     /**
      * حارس الوصول المباشر لسجل استشارة (يسدّ IDOR):
      * - المحامي: يُمنع (403) إن لم تكن الاستشارة مُسندة إليه (guardAssigned، الإدارة مستثناة).
-     * - الموظف: يُمنع إن حملت فرعاً مختلفاً عن فرعه (بلا فرع = مجمّع مشترك).
+     * - الموظف/الإدارة: مكتب واحد بلا فروع — الوصول مفتوح لكل سجلات المكتب.
      */
     private function guardConsult(Request $request, Consult $consult): void
     {
-        $user = $request->user();
-        if ($user->role === Role::Lawyer) {
+        if ($request->user()->role === Role::Lawyer) {
             $this->guardAssigned($consult);
-        } elseif ($user->role === Role::Employee) {
-            abort_if($consult->branch !== null && $consult->branch !== $user->branch, 403);
         }
     }
 }

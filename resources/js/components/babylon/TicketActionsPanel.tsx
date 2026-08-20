@@ -141,7 +141,7 @@ const TicketActionsPanel: React.FC<Props> = ({
             </button>
           )}
 
-          {/* 6. تحويل لموظف / فرع آخر */}
+          {/* 6. تحويل لمستشار آخر */}
           {onTransfer && (
             <button
               className="btn soft block"
@@ -149,7 +149,7 @@ const TicketActionsPanel: React.FC<Props> = ({
               onClick={onTransfer}
               style={{ justifyContent: 'center' }}
             >
-              <Icon name="reply" /> تحويل التذكرة لمستشار/فرع
+              <Icon name="reply" /> تحويل التذكرة لمستشار
             </button>
           )}
         </div>

@@ -69,7 +69,7 @@ const QuickTicketModal: React.FC<Props> = ({
             type="button"
             onClick={() => { onClose(); onTransfer(ticket.no); }}
           >
-            <Icon name="reply" /> تحويل لمستشار/فرع
+            <Icon name="reply" /> تحويل لمستشار
           </button>
         )}
         <button className="btn sm" type="button" onClick={goToChat}>

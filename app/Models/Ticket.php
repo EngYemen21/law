@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Models\Concerns\HasBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -10,11 +9,9 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Ticket extends Model
 {
-    use HasBranch;
-
     protected $fillable = [
         'user_id', 'number', 'type', 'subject', 'opponent_name', 'opponent_id', 'claim_amount', 'court_name', 'priority',
-        'department', 'assigned_lawyer', 'assigned_lawyer_id', 'branch', 'status', 'tone', 'attachments', 'last_message', 'date_label',
+        'department', 'assigned_lawyer', 'assigned_lawyer_id', 'status', 'tone', 'attachments', 'last_message', 'date_label',
     ];
 
     public function user(): BelongsTo

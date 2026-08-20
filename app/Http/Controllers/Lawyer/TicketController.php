@@ -312,7 +312,7 @@ class TicketController extends Controller
                     'title' => 'بيانات القضية والموكل',
                     'cellRows' => [
                         [['رقم التذكرة', $ticket->number], ['اسم العميل', $clientName]],
-                        [['نوع القضية', $ticket->type], ['الفرع', $ticket->branch ?: 'الفرع الرئيسي']],
+                        [['نوع القضية', $ticket->type], ['القسم', $ticket->department ?: '—']],
                         [['المستشار المسؤول', $lawyerName], ['حالة الدراسة', $summary->isApproved() ? 'معتمد رسمياً' : 'قيد الدراسة']],
                     ],
                 ],
