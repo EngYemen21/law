@@ -1,3 +1,4 @@
+// ⚠️ اختبار مكوّن غير مستعمل (ui/Button) — المستهلك الوحيد له هو هذا الملف.
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';

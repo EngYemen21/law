@@ -27,7 +27,7 @@ class CaseDocumentTest extends TestCase
         return LegalCase::create([
             'user_id' => $client->id, 'number' => 'CASE-2026-8001', 'type' => 'نزاع تجاري',
             'assigned_lawyer' => $lawyer?->name ?? 'أ. سارة', 'assigned_lawyer_id' => $lawyer?->id,
-            'branch' => 'الفرع الرئيسي — جدة', 'status' => $status, 'tone' => 'b-blue', 'update_text' => '—',
+            'status' => $status, 'tone' => 'b-blue', 'update_text' => '—',
         ]);
     }
 

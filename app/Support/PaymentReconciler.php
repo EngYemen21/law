@@ -62,6 +62,36 @@ class PaymentReconciler
         return true;
     }
 
+    /**
+     * تحصيل يدويّ من الإدارة (نقداً/تحويلاً خارج البوّابة) — يسوّي الفاتورة **ويقيّد الدفتر**.
+     * كان المسار الإداري يعلّم الفاتورة مدفوعة بلا صفّ في payments، فتستحيل التسوية المحاسبية
+     * (المحصّل في اللوحة لا يقابله قيد)، وبلا حارس حالة يُعاد التحصيل على فاتورة مدفوعة.
+     */
+    public static function settleManual(Invoice $invoice, string $actor): bool
+    {
+        if ($invoice->paid) {
+            return false; // مدفوعة أصلاً — لا تُقيَّد مرّتين
+        }
+
+        Payment::updateOrCreate(
+            ['gateway_payment_id' => 'manual-'.$invoice->id],
+            [
+                'invoice_id' => $invoice->id,
+                'gateway' => 'manual',
+                'status' => 'paid',
+                'amount' => (int) $invoice->amount,
+                'currency' => 'SAR',
+                'source_channel' => 'admin',
+                'raw' => ['actor' => $actor, 'settled_at' => now()->toIso8601String()],
+                'reconciled_at' => now(),
+            ]
+        );
+
+        self::settleDomain($invoice, $actor);
+
+        return true;
+    }
+
     /** تسوية كائن المجال والمرتبطة بالفاتورة (استشارة/قضية/تنفيذ) */
     public static function settleDomain(Invoice $invoice, string $actor = 'ميسّر'): void
     {

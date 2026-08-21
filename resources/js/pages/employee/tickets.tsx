@@ -1,101 +1,447 @@
 import { router } from '@inertiajs/react';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
+import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import TicketOpsModals, { type LawyerOption, type TicketOpsKind } from '@/components/babylon/TicketOpsModals';
 import QuickTicketModal, { type TicketPreviewData } from '@/components/babylon/QuickTicketModal';
 import { useCan } from '@/lib/permissions';
 
-// يطابق emTickets — التذاكر من قاعدة البيانات (مشتركة مع العميل)
+// ============================================================
+// لوحة إدارة وتوزيع التذاكر للموظف (Legal Ticket Triage Desk)
+// فلاتر ذكية، مؤشرات أولوية، بحث متعدد الحقول، وإجراءات سريعة
+// ============================================================
 
-interface EmpTicket { no: string; client: string; type: string; dept: string; lawyer: string; lawyerId?: number | null; status: string; tone: string; converted?: boolean; }
+export interface EmpTicket {
+  no: string;
+  client: string;
+  type: string;
+  subject?: string;
+  priority?: string;
+  dept: string;
+  lawyer: string;
+  lawyerId?: number | null;
+  status: string;
+  tone: string;
+  converted?: boolean;
+  updatedAgo?: string;
+  createdAgo?: string;
+}
+
+interface Counts {
+  total?: number;
+  needAction?: number;
+  missingDocs?: number;
+  referred?: number;
+  urgent?: number;
+  completed?: number;
+}
+
+interface Props {
+  tickets: EmpTicket[];
+  lawyers: LawyerOption[];
+  counts?: Counts;
+  departments?: string[];
+}
 
 const openTicket = (no: string) => router.visit(`/employee/tickets/${encodeURIComponent(no)}`);
 
-const EmployeeTickets: React.FC<{ tickets: EmpTicket[]; lawyers: LawyerOption[] }> = ({ tickets, lawyers }) => {
+const EmployeeTickets: React.FC<Props> = ({
+  tickets = [],
+  lawyers = [],
+  counts,
+  departments = [],
+}) => {
   const toast = useToast();
   const can = useCan();
   const canTransfer = can('تحويل التذاكر');
   const canReqDocs = can('الرد على العملاء');
+
+  // التبويب النشط
+  const [activeTab, setActiveTab] = useState<'active' | 'urgent' | 'needAction' | 'missingDocs' | 'referred' | 'completed'>('active');
+
+  // البحث والفلاتر
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterDept, setFilterDept] = useState('all');
+  const [filterLawyer, setFilterLawyer] = useState('all');
+  const [filterPriority, setFilterPriority] = useState('all');
+
+  // المودالات
   const [previewTicket, setPreviewTicket] = useState<TicketPreviewData | null>(null);
-  // مودالا التحويل والنواقص يعملان على تذكرة الصف المختار (نسخة واحدة مشتركة)
   const [opsKind, setOpsKind] = useState<TicketOpsKind>(null);
   const [opsTicket, setOpsTicket] = useState<EmpTicket | null>(null);
-  const openTransfer = (t: EmpTicket) => { setOpsTicket(t); setOpsKind('transfer'); };
-  const openReqDocs = (t: EmpTicket) => { setOpsTicket(t); setOpsKind('reqdocs'); };
+
+  const openTransfer = (t: EmpTicket) => {
+    setOpsTicket(t);
+    setOpsKind('transfer');
+  };
+
+  const openReqDocs = (t: EmpTicket) => {
+    setOpsTicket(t);
+    setOpsKind('reqdocs');
+  };
 
   const convert = (no: string) =>
-    router.post(`/employee/tickets/${encodeURIComponent(no)}/convert`, {}, {
-      preserveScroll: true,
-      onSuccess: () => toast('تم تحويل التذكرة إلى قضية'),
-      onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تحويل التذكرة لقضية'}`),
+    router.post(
+      `/employee/tickets/${encodeURIComponent(no)}/convert`,
+      {},
+      {
+        preserveScroll: true,
+        onSuccess: () => toast('تم تحويل التذكرة إلى قضية بنجاح'),
+        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تحويل التذكرة لقضية'}`),
+      }
+    );
+
+  // حساب الإحصائيات
+  const calculatedCounts = useMemo(() => {
+    const needAction = tickets.filter((t) => !['مكتملة', 'مغلقة', 'بانتظار اعتماد المستشار', 'بانتظار اعتماد الإدارة'].includes(t.status)).length;
+    const missingDocs = tickets.filter((t) => t.status === 'بانتظار مستندات').length;
+    const referred = tickets.filter((t) => t.status === 'محالة للقسم القانوني').length;
+    const urgent = tickets.filter((t) => ['عالية', 'حرجة', 'urgent', 'high'].includes(t.priority?.toLowerCase() ?? '')).length;
+    const completed = tickets.filter((t) => ['مكتملة', 'مغلقة'].includes(t.status)).length;
+
+    return {
+      total: counts?.total ?? tickets.length,
+      needAction: counts?.needAction ?? needAction,
+      missingDocs: counts?.missingDocs ?? missingDocs,
+      referred: counts?.referred ?? referred,
+      urgent: counts?.urgent ?? urgent,
+      completed: counts?.completed ?? completed,
+    };
+  }, [tickets, counts]);
+
+  const stats: StatItem[] = [
+    ['t-blue', 'folder', calculatedCounts.needAction, 'تذاكر بانتظار إجراء'],
+    ['t-red', 'alert', calculatedCounts.urgent, 'تذاكر عالية الأولوية'],
+    ['t-amber', 'upload', calculatedCounts.missingDocs, 'بانتظار مستندات'],
+    ['t-cyan', 'reply', calculatedCounts.referred, 'محالة للقسم القانوني'],
+    ['t-green', 'check', calculatedCounts.completed, 'مكتملة ومغلقة'],
+  ];
+
+  // تصفية التذاكر بحسب التبويب والفلاتر والبحث
+  const filteredTickets = useMemo(() => {
+    return tickets.filter((t) => {
+      // فلترة التبويب
+      if (activeTab === 'active' && ['مكتملة', 'مغلقة'].includes(t.status)) return false;
+      if (activeTab === 'urgent' && !['عالية', 'حرجة', 'urgent', 'high'].includes(t.priority?.toLowerCase() ?? '')) return false;
+      if (activeTab === 'needAction' && ['مكتملة', 'مغلقة', 'بانتظار اعتماد المستشار', 'بانتظار اعتماد الإدارة'].includes(t.status)) return false;
+      if (activeTab === 'missingDocs' && t.status !== 'بانتظار مستندات') return false;
+      if (activeTab === 'referred' && t.status !== 'محالة للقسم القانوني') return false;
+      if (activeTab === 'completed' && !['مكتملة', 'مغلقة'].includes(t.status)) return false;
+
+      // فلترة القسم
+      if (filterDept !== 'all' && t.dept !== filterDept) return false;
+
+      // فلترة المستشار
+      if (filterLawyer !== 'all' && String(t.lawyerId) !== filterLawyer && t.lawyer !== filterLawyer) return false;
+
+      // فلترة الأولوية
+      if (filterPriority !== 'all' && t.priority !== filterPriority) return false;
+
+      // البحث النصي
+      if (searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase();
+        const noMatch = t.no.toLowerCase().includes(q);
+        const clientMatch = t.client.toLowerCase().includes(q);
+        const typeMatch = t.type.toLowerCase().includes(q);
+        const deptMatch = t.dept.toLowerCase().includes(q);
+        const lawyerMatch = t.lawyer.toLowerCase().includes(q);
+        const subMatch = t.subject?.toLowerCase().includes(q) ?? false;
+        if (!noMatch && !clientMatch && !typeMatch && !deptMatch && !lawyerMatch && !subMatch) {
+          return false;
+        }
+      }
+
+      return true;
     });
+  }, [tickets, activeTab, filterDept, filterLawyer, filterPriority, searchQuery]);
 
   return (
-    <div className="card">
-      <div className="card-h">
-        <h3>كل التذاكر</h3>
-        <span className="sub">{tickets.length} تذكرة</span>
+    <>
+      {/* ── الترويسة الرئيسية ── */}
+      <div className="greet" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 14 }}>
+        <div>
+          <h2>إدارة وتوزيع التذاكر 🎫</h2>
+          <p>مركز الفرز والمتابعة لطلبات العملاء، توجيه المعاملات للمستشارين، وطلب استكمال المستندات.</p>
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button className="btn ghost" onClick={() => router.visit('/employee/transfer')} type="button">
+            <Icon name="reply" /> تحويل التذاكر
+          </button>
+          <button className="btn" onClick={() => router.visit('/employee/schedule')} type="button">
+            <Icon name="calplus" /> حجز موعد استشارة
+          </button>
+        </div>
       </div>
-      <div className="card-b t-wrap">
-        <table className="tbl">
-          <thead>
-            <tr>
-              <th>التذكرة</th>
-              <th>العميل</th>
-              <th>النوع</th>
-              <th>القسم</th>
-              <th>الحالة</th>
-              <th>إجراءات</th>
-            </tr>
-          </thead>
-          <tbody>
-            {tickets.map((t) => (
-              <tr key={t.no} className="click" onClick={() => openTicket(t.no)}>
-                <td className="mono">{t.no}</td>
-                <td>{t.client}</td>
-                <td className="muted">{t.type}</td>
-                <td className="muted">{t.dept}</td>
-                <td><Badge text={t.status} tone={t.tone} /></td>
-                <td>
-                  <div
-                    style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}
-                    onClick={(e) => e.stopPropagation()}
+
+      {/* ── شريط مؤشرات الأداء (KPIs) ── */}
+      <StatRow items={stats} />
+
+      {/* ── شريط التبويبات الذكية والبحث والفلاتر ── */}
+      <div className="card" style={{ marginBottom: 18 }}>
+        <div className="card-b" style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* التبويبات العلوية */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderBottom: '1px solid var(--line-soft)', paddingBottom: 12 }}>
+            <button
+              type="button"
+              className={`btn sm ${activeTab === 'active' ? '' : 'soft'}`}
+              style={{ boxShadow: activeTab === 'active' ? undefined : 'none' }}
+              onClick={() => setActiveTab('active')}
+            >
+              <Icon name="folder" /> كل النشطة ({tickets.filter((t) => !['مكتملة', 'مغلقة'].includes(t.status)).length})
+            </button>
+            <button
+              type="button"
+              className={`btn sm ${activeTab === 'urgent' ? '' : 'soft'}`}
+              style={{ boxShadow: activeTab === 'urgent' ? undefined : 'none' }}
+              onClick={() => setActiveTab('urgent')}
+            >
+              <Icon name="alert" /> عاجلة وحرجة ({calculatedCounts.urgent})
+            </button>
+            <button
+              type="button"
+              className={`btn sm ${activeTab === 'needAction' ? '' : 'soft'}`}
+              style={{ boxShadow: activeTab === 'needAction' ? undefined : 'none' }}
+              onClick={() => setActiveTab('needAction')}
+            >
+              <Icon name="clock" /> بانتظار إجراء ({calculatedCounts.needAction})
+            </button>
+            <button
+              type="button"
+              className={`btn sm ${activeTab === 'missingDocs' ? '' : 'soft'}`}
+              style={{ boxShadow: activeTab === 'missingDocs' ? undefined : 'none' }}
+              onClick={() => setActiveTab('missingDocs')}
+            >
+              <Icon name="upload" /> نواقص مطلوبة ({calculatedCounts.missingDocs})
+            </button>
+            <button
+              type="button"
+              className={`btn sm ${activeTab === 'referred' ? '' : 'soft'}`}
+              style={{ boxShadow: activeTab === 'referred' ? undefined : 'none' }}
+              onClick={() => setActiveTab('referred')}
+            >
+              <Icon name="reply" /> محالة للمستشارين ({calculatedCounts.referred})
+            </button>
+            <button
+              type="button"
+              className={`btn sm ${activeTab === 'completed' ? '' : 'soft'}`}
+              style={{ boxShadow: activeTab === 'completed' ? undefined : 'none', marginInlineStart: 'auto' }}
+              onClick={() => setActiveTab('completed')}
+            >
+              <Icon name="check" /> المكتملة ({calculatedCounts.completed})
+            </button>
+          </div>
+
+          {/* شريط البحث والفلاتر */}
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div className="search" style={{ width: 280, padding: '7px 12px' }}>
+              <Icon name="search" />
+              <input
+                placeholder="بحث برقم التذكرة، العميل، الموضوع..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button type="button" onClick={() => setSearchQuery('')} style={{ color: 'var(--faint)' }}>
+                  <Icon name="close" />
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              {departments.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>القسم:</span>
+                  <select
+                    value={filterDept}
+                    onChange={(e) => setFilterDept(e.target.value)}
+                    style={{ width: 140, padding: '6px 28px 6px 10px', fontSize: 13 }}
                   >
-                    <button className="btn soft sm" onClick={() => setPreviewTicket(t)} type="button">
-                      <Icon name="doc" /> معاينة سريعة
-                    </button>
-                    <button className="btn sm" onClick={() => openTicket(t.no)} type="button">
-                      <Icon name="reply" /> فتح المحادثة
-                    </button>
-                    {/* طلب نواقص مباشرة من القائمة (يطابق زر «نواقص» المرجعي) — بصلاحية الرد على العملاء */}
-                    {canReqDocs && (
-                      <button className="btn soft sm" onClick={() => openReqDocs(t)} type="button">
-                        <Icon name="upload" /> نواقص
-                      </button>
-                    )}
-                    {t.status === 'مكتملة' && (
-                      t.converted
-                        ? <Badge text="محوّلة لقضية" tone="b-cyan" />
-                        : (
-                          <button className="btn soft sm" onClick={() => convert(t.no)} type="button">
-                            <Icon name="scale" /> تحويل لقضية
-                          </button>
-                        )
-                    )}
-                    {canTransfer && (
-                      <button className="btn soft sm" onClick={() => openTransfer(t)} type="button">
-                        <Icon name="reply" /> تحويل
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    <option value="all">كل الأقسام</option>
+                    {departments.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>المستشار:</span>
+                <select
+                  value={filterLawyer}
+                  onChange={(e) => setFilterLawyer(e.target.value)}
+                  style={{ width: 140, padding: '6px 28px 6px 10px', fontSize: 13 }}
+                >
+                  <option value="all">كل المستشارين</option>
+                  {lawyers.map((l) => (
+                    <option key={l.id} value={String(l.id)}>{l.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>الأولوية:</span>
+                <select
+                  value={filterPriority}
+                  onChange={(e) => setFilterPriority(e.target.value)}
+                  style={{ width: 120, padding: '6px 28px 6px 10px', fontSize: 13 }}
+                >
+                  <option value="all">الكل</option>
+                  <option value="عالية">عالية 🔴</option>
+                  <option value="متوسطة">متوسطة 🟡</option>
+                  <option value="منخفضة">منخفضة 🟢</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
+
+      {/* ── جدول التذاكر الرئيسي ── */}
+      <div className="card">
+        <div className="card-h">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="ticket" />
+            <h3>قائمة التذاكر ({filteredTickets.length})</h3>
+          </div>
+          <span className="sub">انقر على أي صف لفتح المحادثة الفورية</span>
+        </div>
+
+        <div className="card-b t-wrap" style={{ padding: 0 }}>
+          {filteredTickets.length ? (
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>التذكرة</th>
+                  <th>العميل والموضوع</th>
+                  <th>النوع والقسم</th>
+                  <th>الأولوية</th>
+                  <th>المستشار المكلف</th>
+                  <th>الحالة</th>
+                  <th>الإجراءات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredTickets.map((t) => {
+                  const isUrgent = ['عالية', 'حرجة', 'urgent', 'high'].includes(t.priority?.toLowerCase() ?? '');
+                  const pTone = isUrgent ? 'b-red' : t.priority === 'منخفضة' ? 'b-green' : 'b-amber';
+
+                  return (
+                    <tr key={t.no} className="click" onClick={() => openTicket(t.no)}>
+                      <td>
+                        <div className="mono" style={{ fontWeight: 800, fontSize: 13.5 }}>{t.no}</div>
+                        <div className="muted" style={{ fontSize: 11 }}>{t.updatedAgo || t.createdAgo || 'الآن'}</div>
+                      </td>
+                      <td>
+                        <b>{t.client}</b>
+                        {t.subject && <div className="muted" style={{ fontSize: 11.5 }}>{t.subject}</div>}
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 600, color: 'var(--ink)' }}>{t.type}</div>
+                        <div className="muted" style={{ fontSize: 11 }}>{t.dept}</div>
+                      </td>
+                      <td>
+                        <Badge text={t.priority || 'متوسطة'} tone={pTone} />
+                      </td>
+                      <td>
+                        <b>{t.lawyer}</b>
+                      </td>
+                      <td>
+                        <Badge text={t.status} tone={t.tone} />
+                      </td>
+                      <td>
+                        <div
+                          style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            className="btn soft sm"
+                            onClick={() => setPreviewTicket(t)}
+                            type="button"
+                            title="معاينة سريعة لبيانات التذكرة"
+                          >
+                            <Icon name="doc" /> معاينة
+                          </button>
+                          <button
+                            className="btn sm"
+                            onClick={() => openTicket(t.no)}
+                            type="button"
+                            title="فتح المحادثة"
+                          >
+                            <Icon name="reply" /> المحادثة
+                          </button>
+
+                          {/* طلب نواقص بصلاحية الرد على العملاء */}
+                          {canReqDocs && t.status !== 'مكتملة' && (
+                            <button
+                              className="btn soft sm"
+                              onClick={() => openReqDocs(t)}
+                              type="button"
+                              title="طلب استكمال المستندات من العميل"
+                            >
+                              <Icon name="upload" /> نواقص
+                            </button>
+                          )}
+
+                          {t.status === 'مكتملة' && (
+                            t.converted ? (
+                              <Badge text="محوّلة لقضية" tone="b-cyan" />
+                            ) : (
+                              <button
+                                className="btn soft sm"
+                                onClick={() => convert(t.no)}
+                                type="button"
+                                title="تحويل التذكرة المكتملة إلى ملف قضية"
+                              >
+                                <Icon name="scale" /> تحويل لقضية
+                              </button>
+                            )
+                          )}
+
+                          {canTransfer && t.status !== 'مكتملة' && (
+                            <button
+                              className="btn soft sm"
+                              onClick={() => openTransfer(t)}
+                              type="button"
+                              title="تحويل لمستشار آخر"
+                            >
+                              <Icon name="reply" /> تحويل
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <div className="empty">
+              <Icon name="folder" />
+              <b>لا توجد تذاكر مطابقة لخيارات البحث والتصفية</b>
+              {(searchQuery || filterDept !== 'all' || filterLawyer !== 'all' || filterPriority !== 'all' || activeTab !== 'active') && (
+                <button
+                  className="btn soft sm"
+                  style={{ marginTop: 10 }}
+                  onClick={() => {
+                    setSearchQuery('');
+                    setFilterDept('all');
+                    setFilterLawyer('all');
+                    setFilterPriority('all');
+                    setActiveTab('active');
+                  }}
+                  type="button"
+                >
+                  إعادة ضبط الفلاتر
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── مودال المعاينة السريعة ── */}
       <QuickTicketModal
         ticket={previewTicket}
         open={Boolean(previewTicket)}
@@ -103,9 +449,14 @@ const EmployeeTickets: React.FC<{ tickets: EmpTicket[]; lawyers: LawyerOption[] 
         onClose={() => setPreviewTicket(null)}
         onTransfer={canTransfer ? (no) => {
           const t = tickets.find((x) => x.no === no);
-          if (t) { setPreviewTicket(null); openTransfer(t); }
+          if (t) {
+            setPreviewTicket(null);
+            openTransfer(t);
+          }
         } : undefined}
       />
+
+      {/* ── مودالا التحويل وطلب النواقص ── */}
       <TicketOpsModals
         kind={opsKind}
         ticketNo={opsTicket?.no ?? ''}
@@ -113,10 +464,11 @@ const EmployeeTickets: React.FC<{ tickets: EmpTicket[]; lawyers: LawyerOption[] 
         lawyerId={opsTicket?.lawyerId ?? null}
         lawyers={lawyers}
         onClose={() => setOpsKind(null)}
-        onDone={() => router.reload({ only: ['tickets'] })}
+        onDone={() => router.reload({ only: ['tickets', 'counts'] })}
       />
-    </div>
+    </>
   );
 };
 
 export default EmployeeTickets;
+

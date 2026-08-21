@@ -17,7 +17,7 @@ const Cases: React.FC<{ cases: CaseCard[] }> = ({ cases }) => {
   const pay = (no: string) =>
     router.post(`/cases/${encodeURIComponent(no)}/pay`, {}, {
       preserveScroll: true,
-      onSuccess: () => toast('تم سداد الأتعاب وتفعيل القضية'),
+      onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر بدء الدفع، حاول بعد قليل'),
     });
 
   return (

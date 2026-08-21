@@ -60,7 +60,7 @@ class AdminResetDatabaseTest extends TestCase
         $this->assertDatabaseHas('users', ['id' => $client->id]);
 
         // Perform reset
-        $response = $this->actingAs($admin)->post(route('admin.reset-database'));
+        $response = $this->actingAs($admin)->post(route('admin.reset-database'), ['confirm' => 'RESET']);
         $response->assertRedirect(route('admin.dashboard'));
 
         // Operational tables must be empty

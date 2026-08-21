@@ -53,7 +53,6 @@ class AssignTicketJob implements ShouldQueue
             $updates = [
                 'assigned_lawyer' => $lawyer->name,
                 'assigned_lawyer_id' => $lawyer->id,
-                'branch' => $lawyer->branch ?: $locked->branch,
             ];
 
             if (in_array($locked->status, ['جديدة', 'قيد التحليل'], true)) {

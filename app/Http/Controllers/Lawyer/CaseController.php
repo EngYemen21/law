@@ -52,6 +52,25 @@ class CaseController extends Controller
         ]);
     }
 
+    // ردّ المحامي المسؤول على موكّله داخل ملفّ القضية (نظير رد الموظف) — بثّ لحظي.
+    // كان المحامي يقرأ المحادثة ولا يملك وسيلة للردّ، فيضطر للخروج لقناة أخرى.
+    public function reply(Request $request, LegalCase $case): \Illuminate\Http\Response
+    {
+        $this->guardAssigned($case);
+        $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
+
+        $msg = $case->messages()->create([
+            'who' => 'lawyer',
+            'name' => $request->user()->name,
+            'role' => 'المستشار القانوني',
+            'body' => nl2br(e($data['body'])),
+            'time_label' => now()->format('h:i').' '.(now()->hour < 12 ? 'ص' : 'م'),
+        ]);
+        // البثّ يقع تلقائياً في CaseMessage::booted عند الإنشاء — لا تُكرّره هنا
+
+        return response()->noContent();
+    }
+
     // إرفاق مستند حقيقي من المحامي إلى ملف القضية (مذكرات/أدلة/مسودات) — يُحفظ ضمن مستندات القضية.
     public function attach(Request $request, LegalCase $case): RedirectResponse
     {

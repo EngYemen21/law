@@ -51,7 +51,7 @@ class SmartBookingTest extends TestCase
             'time' => $time,
             'starts_at' => $date.' '.$time.':00',
             'duration_min' => 60,
-            'branch' => 'الرياض',
+            'place' => 'الرياض',
             'status' => 'مؤكد',
         ]);
     }

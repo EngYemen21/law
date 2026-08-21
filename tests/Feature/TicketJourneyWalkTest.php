@@ -23,8 +23,6 @@ class TicketJourneyWalkTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const BRANCH = 'فرع الرياض';
-
     private function stageOf(Ticket $t): int
     {
         return TicketJourney::indexOf($t->fresh()->status);
@@ -35,13 +33,13 @@ class TicketJourneyWalkTest extends TestCase
         Storage::fake('local');
 
         $client = User::factory()->create(['role' => Role::Client]);
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => self::BRANCH]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => self::BRANCH]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
 
         $ticket = Ticket::create([
             'user_id' => $client->id, 'number' => 'SB-2026-7700',
             'type' => 'تجاري', 'department' => 'القضايا التجارية',
-            'branch' => self::BRANCH, 'assigned_lawyer_id' => $lawyer->id, 'assigned_lawyer' => $lawyer->name,
+            'assigned_lawyer_id' => $lawyer->id, 'assigned_lawyer' => $lawyer->name,
             'status' => 'قيد التحليل', 'tone' => 'b-blue', 'attachments' => 0,
         ]);
 

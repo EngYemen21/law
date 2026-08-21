@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\Log;
  *
  * مرونة إنتاجية: عند تعذّر الـAI (نفاد حصّة/ازدحام) لا يُختلَق محتوى — يبقى النائب «بانتظار»،
  * وتُعيد المهمّة المحاولة تلقائياً حتى retryUntil (شفاء ذاتي) فتُرقّى فور عودة الحصّة؛
- * وعند استنفاد المدّة يُصعَّد الأمر لبشر (المحامي + موظفو الفرع).
+ * وعند استنفاد المدّة يُصعَّد الأمر لبشر (المحامي + الموظفون).
  */
 class GenerateTicketSummaryJob implements ShouldQueue
 {
@@ -117,14 +117,11 @@ class GenerateTicketSummaryJob implements ShouldQueue
             Notify::send($ticket->assigned_lawyer_id, 'scale', 't-red', "تعذّر التحليل الذكي لملخّص التذكرة {$ticket->number} — يلزم إعداد الملخّص يدوياً.");
         }
 
-        // (2) إشعار موظفي فرع التذكرة بالمشكلة (لا موظف مثبّت لكل تذكرة، فيُخطَر موظفو الفرع)
-        if ($ticket->branch) {
-            $employees = User::where('role', Role::Employee)->where('branch', $ticket->branch)->get();
-            foreach ($employees as $employee) {
-                Notify::send($employee->id, 'user', 't-amber', "تعذّر التحليل الذكي لملخّص التذكرة {$ticket->number} — يلزم متابعة يدوية.");
-            }
+        // (2) إشعار موظفي المكتب بالمشكلة (لا موظف مثبّت لكل تذكرة، فيُخطَر الموظفون جميعاً)
+        foreach (User::where('role', Role::Employee)->get() as $employee) {
+            Notify::send($employee->id, 'user', 't-amber', "تعذّر التحليل الذكي لملخّص التذكرة {$ticket->number} — يلزم متابعة يدوية.");
         }
 
-        Log::warning("AI summary escalated to humans after retry window ({$ticket->number}) — lawyer + branch employees notified for manual preparation.");
+        Log::warning("AI summary escalated to humans after retry window ({$ticket->number}) — lawyer + employees notified for manual preparation.");
     }
 }

@@ -72,6 +72,7 @@ class TaqnyatVerifyService
             'method' => 'sms',
             'lang' => in_array($lang, ['ar', 'en'], true) ? $lang : 'ar',
             'requestId' => $requestId,
+            'note' => 'للدخول إلى النظام القانوني للشركات ومكاتب المحاماة',
             'returnJson' => 1,
         ];
     }

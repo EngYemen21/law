@@ -23,7 +23,6 @@ class CorrespondenceFlow
             'user_id' => $client->id,
             'assigned_lawyer_id' => $lawyer->id,
             'lawyer' => $lawyer->name,
-            'branch' => $lawyer->branch,
             'case_id' => $data['case_id'] ?? null,
             'execution_id' => $data['execution_id'] ?? null,
             'direction' => in_array($data['direction'] ?? '', ['صادرة', 'واردة'], true) ? $data['direction'] : 'صادرة',
@@ -74,6 +73,13 @@ class CorrespondenceFlow
         $status = app(ExternalSystemService::class)->status($corr);
         $corr->logAudit('مزامنة النظام الخارجيّ: '.$status, 'النظام الخارجيّ');
         $corr->update(['ext_status' => $status, 'ext_synced_at' => now(), 'audit' => $corr->audit]);
+
+        // تقدّم رحلة المكتب إلى «بانتظار الرد» حين تتسلّم الجهة المخاطبة أو تعالجها.
+        // كانت المرحلة 4 معلَنة بلا أي كاتب (receive يقفز 3 ← 5)، فيبقى العميل يرى
+        // «الإرسال للجهة» بينما الجهة تعالج فعلاً — وهي الحالة التي أُنشئت المرحلة لتمثيلها.
+        if ((int) $corr->stage === 3 && in_array($status, ['تم الاستلام لدى الجهة', 'قيد المعالجة لدى الجهة'], true)) {
+            self::setStage($corr, 4, []);
+        }
 
         if ($status === 'صدر الرد من الجهة') {
             self::notifyClient($corr, 'office', 't-green', "صدر ردّ من {$corr->entity} بخصوص ({$corr->subject}).");

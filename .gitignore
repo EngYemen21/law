@@ -26,3 +26,8 @@ yarn-error.log
 /.nova
 /.vscode
 /.zed
+
+# مخلّفات أدوات التدقيق والعمل المؤقّت — لا تخصّ المشروع
+/scratch
+__pycache__/
+*.pyc

@@ -43,8 +43,7 @@ class MeetingLifecycleTest extends TestCase
             'ref' => 'M-'.random_int(1000, 9999),
             'title' => 'اجتماع تجريبي', 'type' => 'اجتماع مع عميل', 'when_label' => 'اليوم · 11:00', 'status' => 'قادم',
             'meet_id' => '81823767754', 'meet_password' => 'mp123',
-            'assigned_lawyer_id' => $lawyer?->id, 'branch' => $lawyer?->branch,
-        ], $extra));
+            'assigned_lawyer_id' => $lawyer?->id, ], $extra));
     }
 
     // ── بدء الجلسة ──

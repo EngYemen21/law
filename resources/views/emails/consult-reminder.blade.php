@@ -18,7 +18,7 @@
             'رقم الاستشارة' => $consult->ref,
             'موضوع الاستشارة' => $consult->subject,
             'الموعد المحدد' => $consult->when_label,
-            'القناة / الفرع' => $consult->channel,
+            'قناة الجلسة' => $consult->channel,
             'المستشار القانوني' => $consult->lawyer,
         ]
     ])

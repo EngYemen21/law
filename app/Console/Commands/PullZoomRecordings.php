@@ -2,9 +2,11 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\BuildRecordingArchive;
 use App\Models\Consult;
 use App\Models\Meeting;
 use App\Services\ZoomService;
+use App\Support\RecordingArchive;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
@@ -44,9 +46,46 @@ class PullZoomRecordings extends Command
             }
         }
 
-        $this->info("فُحص {$targets->count()} جلسة، واستُكملت بيانات {$filled} منها.");
+        $queued = $this->queueArchives();
+
+        $this->info("فُحص {$targets->count()} جلسة، واستُكملت بيانات {$filled} منها، وجُدول بناء {$queued} أرشيفاً.");
 
         return self::SUCCESS;
+    }
+
+    /**
+     * يجدول بناء أرشيفات التسجيل/الصوت للجلسات المنتهية حديثاً التي بلا أرشيف محلّي.
+     * الغاية أن يكون الملف جاهزاً على القرص قبل أن ينقر أحدهم زرّ التنزيل، فيُخدَم فوراً
+     * بدل انتظار دقائق من سحابة Zoom داخل طلب HTTP (504 خلف nginx).
+     * محصور بآخر 30 يوماً كي لا يمتلئ القرص بأرشيف كل تاريخ المكتب.
+     */
+    private function queueArchives(): int
+    {
+        $since = now()->subDays(30);
+
+        $sessions = Meeting::where('status', 'منتهٍ')->whereNotNull('meet_id')
+            ->where('updated_at', '>=', $since)->get()
+            ->concat(
+                Consult::where('session', 'منتهية')->whereNotNull('meet_id')
+                    ->where('updated_at', '>=', $since)->get()
+            );
+
+        $queued = 0;
+        foreach ($sessions as $model) {
+            foreach (['video', 'audio'] as $type) {
+                $hasSource = $type === 'audio' ? $model->zoom_audio_url : $model->recording_url;
+                if (! $hasSource || RecordingArchive::isReady($model, $type)) {
+                    continue;
+                }
+                if (BuildRecordingArchive::recentlyFailed($model, $type)) {
+                    continue; // فشلت قريباً — لا تُعِد الصفّ كل ربع ساعة
+                }
+                BuildRecordingArchive::for($model, $type, null); // بلا مُخطَر: تحضير استباقي صامت
+                $queued++;
+            }
+        }
+
+        return $queued;
     }
 
     /** يملأ الحقول الناقصة فقط (لا يدهس الموجود) — يعيد true إن أُضيف شيء. */

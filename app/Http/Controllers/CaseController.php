@@ -23,7 +23,8 @@ class CaseController extends Controller
     // قائمة قضايا العميل الحالي
     public function index(Request $request): Response
     {
-        $cases = LegalCase::where('user_id', $request->user()->id)->latest('id')->get()
+        // hearings محمّلة مسبقاً: toCard() ينادي nextHearingLabel() الذي يُطلق استعلامين لكل صفّ بدونها
+        $cases = LegalCase::with('hearings')->where('user_id', $request->user()->id)->latest('id')->get()
             ->map(fn (LegalCase $c) => $c->toCard());
 
         return Inertia::render('cases', [

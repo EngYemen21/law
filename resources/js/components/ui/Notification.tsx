@@ -1,3 +1,5 @@
+// ⚠️ غير مستعمل — صفر مستورد في resources/js (تدقيق 2026-08-21). مُحتفَظ به بقرار «لا حذف».
+// قبل أي استعمال: تحقّق من عدم وجود نظير حيّ (components/babylon/*) كي لا يتكرّر المكوّن.
 import React, { useEffect } from 'react';
 import { X, AlertCircle, CheckCircle, Info } from 'lucide-react';
 import clsx from 'clsx';

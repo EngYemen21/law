@@ -3,7 +3,6 @@
 namespace Database\Seeders;
 
 use App\Enums\Role;
-use App\Models\Branch;
 use App\Models\User;
 use App\Support\Permissions;
 use App\Support\Specialties;
@@ -15,7 +14,7 @@ use Spatie\Permission\PermissionRegistrar;
 
 /**
  * بذرة الحسابات الأساسية فقط — بلا أي بيانات تشغيلية تجريبية.
- * أربعة حسابات (الإدارة/المحامي/الموظف في الفرع الرئيسي):
+ * أربعة حسابات (الإدارة/المحامي/الموظف/العميل):
  *   الإدارة العليا 1000000001 · المحامي 1000000002 · الموظف 1000000003 · العميل 1000000004.
  * المحامي: كل صلاحيات دوره + دور «محامٍ» + مسنَد إليه كل الأقسام (تخصّص عام).
  * الموظف: كل صلاحيات دوره + دور «خدمة عملاء».
@@ -27,22 +26,21 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
-        // الأساس: صلاحيات spatie وأدوار القوالب، ثم الفروع
+        // الأساس: صلاحيات spatie وأدوار القوالب
         $this->call(PermissionSeeder::class);
-        $this->call(BranchSeeder::class);
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         // 1) الإدارة العليا (تتجاوز الصلاحيات عبر Gate::before) — دخول: 1000000001
         $this->makeUser([
             'name' => 'الإدارة العليا', 'email' => 'kfykfy2020@gmail.com', 'role' => Role::Admin,
-            'avatar_initials' => 'إ ع', 'branch' => Branch::DEFAULT, 'job_title' => 'مدير عام',
+            'avatar_initials' => 'إ ع', 'job_title' => 'مدير عام',
             'national_id' => '1000000001', 'phone' => '+966537434000',
         ]);
 
         // 2) المحامي — دخول: 1000000002 — كل صلاحيات دوره + دور «محامٍ» + مسنَد إليه كل الأقسام
         $lawyer = $this->makeUser([
             'name' => 'المحامي', 'email' => 'law@salasel.sa', 'role' => Role::Lawyer,
-            'title' => 'أ.', 'job_title' => 'محامٍ', 'branch' => Branch::DEFAULT,
+            'title' => 'أ.', 'job_title' => 'محامٍ',
             'department' => Specialties::ALL_DEPARTMENTS,
             'work_start' => '09:00', 'work_end' => '17:00', 'avatar_initials' => 'مح',
             'national_id' => '1000000002', 'phone' => '+966537434000',
@@ -53,10 +51,10 @@ class DatabaseSeeder extends Seeder
         );
 
         // 3) الموظف — دخول: 1000000003 — كل صلاحيات دوره + دور «خدمة عملاء»
-        //    بنفس فرع المحامي/الإدارة (الفرع الرئيسي) كي تكتمل الرحلة أمام الأدوار الثلاثة
+        //    كي تكتمل الرحلة أمام الأدوار الثلاثة
         $employee = $this->makeUser([
             'name' => 'الموظف', 'email' => 'emp@salasel.sa', 'role' => Role::Employee,
-            'job_title' => 'موظف خدمة عملاء', 'branch' => Branch::DEFAULT,
+            'job_title' => 'موظف خدمة عملاء',
             'department' => 'خدمة العملاء',
             'work_start' => '08:00', 'work_end' => '16:00', 'avatar_initials' => 'مو',
             'national_id' => '1000000003', 'phone' => '+966537434000',
@@ -71,6 +69,16 @@ class DatabaseSeeder extends Seeder
             'name' => 'العميل', 'email' => 'm.bander.it@gmail.com', 'role' => Role::Client,
             'avatar_initials' => 'عم', 'national_id' => '1000000004', 'phone' => '+967779475324',
         ]);
+
+        // البيانات التشغيلية التجريبية (تذاكر، قضايا، مواعيد، تنفيذ، استشارات) لم تعد تُبذَر هنا.
+        //
+        // كان `DemoDataSeeder` يُستدعى تلقائياً، فـ`db:seed` أو `migrate:fresh --seed` على قاعدة
+        // إنتاج يحقن ~55 سجلًّا وهميًّا و10 حسابات كلمة مرورها الموحّدة `password` وسط بيانات
+        // المكتب الحقيقية. الآن `db:seed` يبذر الصلاحيات والحسابات الأساسية الأربعة فقط،
+        // فهو آمن على الإنتاج بلا أي احتراز.
+        //
+        // البيانات التجريبية صارت اختيارية وصريحة (بيئة التطوير وحدها):
+        //     php artisan db:seed --class=DemoDataSeeder
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
@@ -88,7 +96,7 @@ class DatabaseSeeder extends Seeder
 
         // صفّان مختلفان يتنازعان: صفّ يحمل الهويّة+الدور وآخر يحمل البريد — يُؤرشف بريد الأخير
         // ليتحرّر للحساب القانوني (تحويله للدور الجديد كان يصطدم بقيد الهويّة+الدور)
-        if ($byIdentity && $byEmail && $byIdentity->isnt($byEmail)) {
+        if ($byIdentity && $byEmail && $byIdentity->isNot($byEmail)) {
             $byEmail->update(['email' => 'archived+'.$byEmail->id.'.'.$byEmail->email]);
             $byEmail = null;
         }

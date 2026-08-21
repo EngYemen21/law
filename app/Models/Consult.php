@@ -18,7 +18,7 @@ class Consult extends Model
 
     protected $fillable = [
         'user_id', 'ticket_id', 'appointment_id', 'ref', 'subject', 'type', 'priority', 'channel',
-        'lawyer', 'assigned_lawyer_id', 'specialty', 'employee', 'day', 'time', 'when_label', 'received_label', 'branch', 'phone',
+        'lawyer', 'assigned_lawyer_id', 'specialty', 'employee', 'day', 'time', 'when_label', 'received_label', 'phone',
         'starts_at', 'duration_min',
         'meet_id', 'meet_link', 'host_link', 'meet_password',
         'link_released_at', 'reminder_24h_sent_at', 'reminder_1h_sent_at', 'join_time', 'leave_time', 'duration_sec', 'transcript', 'recording_url', 'transcript_path', 'zoom_summary_at',
@@ -97,6 +97,26 @@ class Consult extends Model
         return $this->belongsTo(Appointment::class);
     }
 
+    /**
+     * مكان/قناة الجلسة المعروض — مصدر واحد بعد إزالة كيان «الفرع».
+     * المرئية والهاتفية قناتان لا مكان لهما، والحضورية تأخذ مكان موعدها المقترن
+     * (ConsultBooking يكتبه على الموعد)، وإلا عنوان المكتب من الإعدادات.
+     */
+    public function placeLabel(): string
+    {
+        return match ($this->channel) {
+            'مرئية' => 'اجتماع إلكتروني',
+            'هاتفية' => 'مكالمة هاتفية',
+            default => $this->appointment?->place ?: (string) config('office.address'),
+        };
+    }
+
+    /** المكان للعرض في البطاقات — فارغ ما لم يُحجز موعد بعد. */
+    public function placeForCard(): string
+    {
+        return $this->appointment_id ? $this->placeLabel() : '';
+    }
+
     // فاتورة الاستشارة (تُصدر عند تسعير الإدارة) — للعرض وحالة السداد
     public function invoice(): HasOne
     {
@@ -109,15 +129,26 @@ class Consult extends Model
         return $this->belongsTo(User::class, 'assigned_lawyer_id');
     }
 
-    // رابط انضمام الجلسة المرئية المضمّنة داخل المنصّة حصراً (لا روابط خارجية تخرج عن المنصة)
+    /**
+     * رابط انضمام الجلسة المرئية المضمّنة داخل المنصّة حصراً (لا روابط خارجية).
+     * لكل دور غرفته: غرفة العميل /consults/room محروسة بـrole:client، فإعادتها
+     * لموظف أو محامٍ أو إدارة تعني زرّاً يطرد صاحبه (403/إعادة توجيه).
+     */
     public function joinLink(?User $user = null): string
     {
-        if ($user && $user->role === Role::Lawyer) {
-            // المساران /lawyer/consults{,/room} غير معرَّفين (404) — غرفة المحامي الفعلية videoroom
-            return url('/lawyer/videoroom?ref='.$this->ref);
+        $ref = (string) $this->ref;
+
+        if ($user) {
+            return match ($user->role) {
+                Role::Client => url('/consults/room?ref='.$ref),
+                Role::Lawyer => url('/lawyer/videoroom?ref='.$ref),
+                Role::Employee => url('/employee/videoroom?ref='.$ref),
+                Role::Admin => url('/admin/videoroom?ref='.$ref),
+                default => url('/consults/room?ref='.$ref),
+            };
         }
 
-        return url('/consults/room?ref='.$this->ref);
+        return url('/consults/room?ref='.$ref);
     }
 
     /** رابط التبويب في لوحة التحكم بحسب الدور */
@@ -154,7 +185,7 @@ class Consult extends Model
             'channel' => $this->channel,
             'lawyer' => $this->lawyer,
             'when' => $this->whenLabel(),
-            'branch' => $this->branch ?? '',
+            'place' => $this->placeForCard(),
             'slink' => $this->channel === 'مرئية' ? $this->joinLink() : '',
             'canJoin' => $this->canJoin(), // زر الدخول معطّل حتى إطلاق الرابط قبل الموعد بـ5د
             'missed' => $this->isMissed(), // فات موعدها بلا جلسة — كانت «بانتظار الجلسة» أبدية متناقضة مع «لم يحضر» في المواعيد
@@ -185,7 +216,7 @@ class Consult extends Model
             'channel' => $this->channel,
             'lawyer' => $this->lawyer,
             'when' => $this->whenLabel(),
-            'branch' => $this->branch ?? '',
+            'place' => $this->placeForCard(),
             'phone' => $this->phone ?? '',
             // رابط اجتماع Zoom الحقيقي؛ وعند غيابه (لم تُهيّأ مفاتيح Zoom بعد) الرابط الداخلي الاحتياطي
             'slink' => $this->channel === 'مرئية' ? $this->joinLink() : '',

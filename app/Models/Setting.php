@@ -28,6 +28,18 @@ class Setting extends Model
         static::updateOrCreate(['key' => $key], ['value' => (string) $value]);
     }
 
+    /** نسبة ضريبة القيمة المضافة (%) كما تضبطها الإدارة — مصدر واحد لكل حسابات الضريبة. */
+    public static function vatRate(): int
+    {
+        return (int) static::get('vat_rate', 15);
+    }
+
+    /** مبلغ الضريبة على أساسٍ ما، بنسبة الإدارة الحالية. */
+    public static function vatOn(int|float $base): int
+    {
+        return (int) round($base * static::vatRate() / 100);
+    }
+
     /** أسعار الاستشارات الحالية (office/video/phone) + الضريبة — بافتراضات النظام الأصلية. */
     public static function consultPrices(): array
     {
@@ -35,7 +47,7 @@ class Setting extends Model
             'office' => (int) static::get('price_office', 600),
             'video' => (int) static::get('price_video', 450),
             'phone' => (int) static::get('price_phone', 350),
-            'vat' => (int) static::get('vat_rate', 15),
+            'vat' => static::vatRate(),
         ];
     }
 }

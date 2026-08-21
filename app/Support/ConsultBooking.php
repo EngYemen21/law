@@ -34,11 +34,40 @@ use Illuminate\Validation\ValidationException;
  */
 class ConsultBooking
 {
-    private const MAP = [
-        'office' => ['label' => 'حضورية', 'ico' => 'office', 'branch' => 'الرياض — حي العليا'],
-        'video' => ['label' => 'مرئية', 'ico' => 'video', 'branch' => 'اجتماع إلكتروني'],
-        'phone' => ['label' => 'هاتفية', 'ico' => 'phone', 'branch' => 'مكالمة هاتفية'],
-    ];
+    /**
+     * أنواع الاستشارة ومكانها المكتوب على الموعد.
+     *
+     * دالة لا ثابتاً: عنوان المكتب يأتي من config('office.address') — كان مصلَّباً هنا،
+     * فتغيير OFFICE_ADDRESS يغيّر ما يُعرض ولا يغيّر ما يُكتب على الموعد المحجوز.
+     *
+     * @return array<string, array{label:string, ico:string, place:string}>
+     */
+    private static function map(): array
+    {
+        return [
+            'office' => ['label' => 'حضورية', 'ico' => 'office', 'place' => (string) config('office.address')],
+            'video' => ['label' => 'مرئية', 'ico' => 'video', 'place' => 'اجتماع إلكتروني'],
+            'phone' => ['label' => 'هاتفية', 'ico' => 'phone', 'place' => 'مكالمة هاتفية'],
+        ];
+    }
+
+    /**
+     * تسجيل صريح حين تُجدوَل جلسة مرئية بلا اجتماع Zoom.
+     *
+     * ZoomService لا يرمي أبداً — كل إخفاق يتحوّل إلى null، وبعضه بلا سطر سجلّ أصلاً
+     * (كابح التهدئة 60 ثانية يُصمت الخدمة كلياً بعد أول فشل رمز). فبلا هذا التسجيل
+     * على مستوى العمل لا يبقى أي أثر يربط «العميل لا يستطيع الدخول» بسببه الحقيقي.
+     *
+     * @param  array<string, mixed>|null  $zoom
+     */
+    private static function logMissingMeeting(bool $isVideo, ?array $zoom, string $ref): void
+    {
+        if ($isVideo && empty($zoom['id'])) {
+            Log::error('Zoom: تعذّر إنشاء اجتماع الاستشارة — تُجدوَل بلا رابط جلسة', [
+                'consult' => $ref,
+            ]);
+        }
+    }
 
     /**
      * الخطوة 1 — طلب استشارة (النوع فقط). لا Appointment ولا Zoom ولا حارس تعارض بعد.
@@ -64,7 +93,6 @@ class ConsultBooking
             'channel' => $m['label'],
             'lawyer' => $ctx['lawyer'],
             'assigned_lawyer_id' => $ctx['lawyerId'],
-            'branch' => $ctx['scopeBranch'],
             'phone' => $data['type'] === 'phone' ? $client->phone : null,
             // سعر ابتدائي مقترح من إعدادات الإدارة — لا يُفعِّل السداد حتى يعتمده المسعّر
             'price' => $ctx['price'],
@@ -73,7 +101,7 @@ class ConsultBooking
             'audit' => [['user' => 'النظام', 'field' => 'الاستقبال', 'before' => '—', 'after' => 'طلب تسعير — '.$m['label'], 'time' => now()->format('Y/m/d h:i')]],
         ]);
 
-        // إشعار المحامي المسند (إن وُجد) بطلب تسعير جديد — قائمة التسعير تغطّي بقية موظفي الفرع
+        // إشعار المحامي المسند (إن وُجد) بطلب تسعير جديد — قائمة التسعير تغطّي بقية الموظفين
         if ($ctx['lawyerId']) {
             Notify::send($ctx['lawyerId'], 'card', 't-amber', "طلب تسعير استشارة جديد ({$consult->ref}) — {$m['label']}.");
         }
@@ -200,21 +228,20 @@ class ConsultBooking
     /**
      * الخطوة 4 — اختيار الموعد (يُحظر قبل السداد). يُنشئ Appointment + Zoom + حارس التعارض.
      *
-     * @param  array{lawyer_id?:int,day:string,time:string,starts_at?:string,duration?:int,branch?:string}  $slot
+     * @param  array{lawyer_id?:int,day:string,time:string,starts_at?:string,duration?:int,place?:string}  $slot
      */
     public static function schedule(Consult $consult, array $slot): Consult
     {
         abort_unless($consult->status === 'بانتظار تحديد الموعد', 422, 'يلزم سداد الاستشارة قبل اختيار الموعد.');
 
-        $type = array_search($consult->channel, array_map(fn ($x) => $x['label'], self::MAP), true) ?: 'office';
-        $m = self::MAP[$type];
+        $type = array_search($consult->channel, array_map(fn ($x) => $x['label'], self::map()), true) ?: 'office';
+        $m = self::map()[$type];
 
-        // المحامي المختار عند الجدولة (يُحدّث الإسناد والفرع للعزل ومنع الحجز المزدوج)
+        // المحامي المختار عند الجدولة (يُحدّث الإسناد ويمنع الحجز المزدوج)
         $lawyerUser = ! empty($slot['lawyer_id']) ? User::find((int) $slot['lawyer_id']) : ($consult->assigned_lawyer_id ? User::find($consult->assigned_lawyer_id) : null);
         $lawyer = $lawyerUser?->name ?: ($consult->lawyer ?: 'المستشار القانوني');
         $lawyerId = $lawyerUser?->id;
-        $branch = ($type === 'office' && ! empty($slot['branch'])) ? $slot['branch'] : $m['branch'];
-        $scopeBranch = $lawyerUser?->branch ?: $consult->branch;
+        $place = ($type === 'office' && ! empty($slot['place'])) ? $slot['place'] : $m['place'];
         $startsAt = ! empty($slot['starts_at']) ? Carbon::parse($slot['starts_at']) : null;
         $duration = (int) ($slot['duration'] ?? LawyerAvailability::slotMinutes());
 
@@ -223,8 +250,13 @@ class ConsultBooking
             ? app(ZoomService::class)->createMeeting("استشارة {$consult->ref} — {$consult->subject}", $duration, false, $startsAt)
             : null;
 
+        // إخفاق Zoom لا يوقف الحجز (العميل سدّد، والجلسة قد تُدار يدوياً) — لكنه لا يُبتلع:
+        // بلا هذا السطر تُجدوَل الاستشارة وتُفوتَر ويُرسَل بريدها بـmeet_id فارغ، ولا أثر في
+        // السجلّ يدلّ على السبب، فيصل العميل الغرفة ويحصل على 422 بلا تفسير ولا استدراك.
+        self::logMissingMeeting($consult->channel === 'مرئية', $zoom, $consult->ref);
+
         try {
-            DB::transaction(function () use ($consult, $slot, $m, $branch, $lawyer, $lawyerId, $scopeBranch, $startsAt, $duration, $zoom) {
+            DB::transaction(function () use ($consult, $slot, $m, $place, $lawyer, $lawyerId, $startsAt, $duration, $zoom) {
                 if ($lawyerId && $startsAt) {
                     self::guardNoConflict($lawyerId, $startsAt, $duration);
                 }
@@ -241,7 +273,7 @@ class ConsultBooking
                     'time' => $slot['time'],
                     'starts_at' => $startsAt,
                     'duration_min' => $duration,
-                    'branch' => $branch,
+                    'place' => $place,
                     'status' => 'مؤكد',
                     'tone' => 'b-green',
                     'when_kind' => 'up',
@@ -252,7 +284,6 @@ class ConsultBooking
                     'appointment_id' => $appt->id,
                     'lawyer' => $lawyer,
                     'assigned_lawyer_id' => $lawyerId,
-                    'branch' => $scopeBranch,
                     'day' => $slot['day'],
                     'time' => $slot['time'],
                     'starts_at' => $startsAt,
@@ -299,13 +330,13 @@ class ConsultBooking
      * مسار فوري «مدفوع مسبقاً» لحجز الموظف نيابةً عن العميل (بلا بوّابة دفع) — يُنشئ الحجز
      * كاملاً (Appointment + Consult + Zoom + فاتورة مدفوعة) بحالة «جديدة» مباشرةً.
      *
-     * @param  array{type:string,day:string,time:string,branch?:string,lawyer?:string,lawyer_id?:int,specialty?:string,starts_at?:string,duration?:int,subject?:string,department?:string}  $data
+     * @param  array{type:string,day:string,time:string,place?:string,lawyer?:string,lawyer_id?:int,specialty?:string,starts_at?:string,duration?:int,subject?:string,department?:string}  $data
      */
     public static function create(User $client, array $data, ?Ticket $ticket = null): Consult
     {
         $ctx = self::resolveContext($client, $data, $ticket);
         $m = $ctx['meta'];
-        $branch = ($data['type'] === 'office' && ! empty($data['branch'])) ? $data['branch'] : $m['branch'];
+        $place = ($data['type'] === 'office' && ! empty($data['place'])) ? $data['place'] : $m['place'];
         $startsAt = ! empty($data['starts_at']) ? Carbon::parse($data['starts_at']) : null;
         $duration = (int) ($data['duration'] ?? LawyerAvailability::slotMinutes());
         $total = $ctx['price'] + $ctx['vat'];
@@ -314,8 +345,10 @@ class ConsultBooking
             ? app(ZoomService::class)->createMeeting("استشارة {$ctx['ref']} — {$ctx['subject']}", $duration, false, $startsAt)
             : null;
 
+        self::logMissingMeeting($data['type'] === 'video', $zoom, (string) $ctx['ref']);
+
         $consult = DB::transaction(function () use (
-            $client, $ticket, $data, $ctx, $m, $branch, $startsAt, $duration, $total, $zoom
+            $client, $ticket, $data, $ctx, $m, $place, $startsAt, $duration, $total, $zoom
         ) {
             if ($ctx['lawyerId'] && $startsAt) {
                 self::guardNoConflict($ctx['lawyerId'], $startsAt, $duration);
@@ -333,7 +366,7 @@ class ConsultBooking
                 'time' => $data['time'],
                 'starts_at' => $startsAt,
                 'duration_min' => $duration,
-                'branch' => $branch,
+                'place' => $place,
                 'status' => 'مؤكد',
                 'tone' => 'b-green',
                 'when_kind' => 'up',
@@ -364,7 +397,6 @@ class ConsultBooking
                 'starts_at' => $startsAt,
                 'duration_min' => $duration,
                 'when_label' => $data['day'].' · '.$data['time'],
-                'branch' => $ctx['scopeBranch'],
                 'phone' => $data['type'] === 'phone' ? $client->phone : null,
                 'price' => $ctx['price'],
                 'vat' => $ctx['vat'],
@@ -390,6 +422,18 @@ class ConsultBooking
 
             return $consult;
         });
+
+        // تقديم حالة التذكرة كما تفعل schedule() — بدونها تبقى «بانتظار حجز الاستشارة»
+        // وهي ضمن AWAITING_OTHERS فلا يتقدّم بها الموظف، ومخرجها الوحيد مشروط بـticket_id.
+        if ($ticket) {
+            $ticket->update([
+                'status' => 'موعد مؤكد',
+                'tone' => TicketJourney::toneFor('موعد مؤكد'),
+                'last_message' => "تم تأكيد موعد الجلسة: {$consult->when_label}",
+                'date_label' => 'الآن',
+            ]);
+            Live::push(new TicketStatusBroadcast($ticket));
+        }
 
         self::sendBookingEmails($consult);
 
@@ -427,13 +471,13 @@ class ConsultBooking
     }
 
     /**
-     * حلّ سياق الحجز المشترك (المحامي/الموضوع/التخصّص/الفرع/السعر الابتدائي/المرجع).
+     * حلّ سياق الحجز المشترك (المحامي/الموضوع/التخصّص/السعر الابتدائي/المرجع).
      *
-     * @return array{meta:array,type:string,ref:string,lawyer:string,lawyerId:?int,subject:string,specialty:?string,scopeBranch:?string,price:int,vat:int}
+     * @return array{meta:array,type:string,ref:string,lawyer:string,lawyerId:?int,subject:string,specialty:?string,price:int,vat:int}
      */
     private static function resolveContext(User $client, array $data, ?Ticket $ticket): array
     {
-        $m = self::MAP[$data['type']];
+        $m = self::map()[$data['type']];
 
         $lawyerUser = ! empty($data['lawyer_id'])
             ? User::find((int) $data['lawyer_id'])
@@ -443,7 +487,6 @@ class ConsultBooking
 
         $subject = $data['subject'] ?? $ticket?->type ?? 'استشارة قانونية';
         $specialty = Specialties::normalize($data['specialty'] ?? $lawyerUser?->department) ?: null;
-        $scopeBranch = $lawyerUser?->branch ?: $ticket?->branch;
         $dept = $data['department'] ?? $ticket?->department;
 
         $prices = Setting::consultPrices();
@@ -458,7 +501,6 @@ class ConsultBooking
             'lawyerId' => $lawyerUser?->id,
             'subject' => $subject,
             'specialty' => $specialty,
-            'scopeBranch' => $scopeBranch,
             'price' => $price,
             'vat' => $vat,
         ];
@@ -488,9 +530,9 @@ class ConsultBooking
         }
     }
 
-    /** بيانات العرض للنوع (label/ico/branch الافتراضي). */
+    /** بيانات العرض للنوع (label/ico/place الافتراضي). */
     public static function meta(string $type): array
     {
-        return self::MAP[$type] ?? self::MAP['office'];
+        return self::map()[$type] ?? self::map()['office'];
     }
 }

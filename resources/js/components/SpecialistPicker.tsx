@@ -36,6 +36,7 @@ const SpecialistPicker: React.FC<Props> = ({
 }) => {
   const [lawyers, setLawyers] = useState<LawyerOpt[]>([]);
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false); // خطأ جلب — يُميَّز عن «لا مواعيد»
   const selected = lawyers.find((l) => l.id === lawyerId) || null;
   const paramsKey = JSON.stringify(fetchParams);
 
@@ -43,6 +44,7 @@ const SpecialistPicker: React.FC<Props> = ({
     if (!enabled || !date) { setLawyers([]); return; }
     let cancelled = false;
     setLoading(true);
+    setFailed(false);
     const params = new URLSearchParams({ ...fetchParams, date });
     fetch(`${fetchUrl}?${params.toString()}`, {
       headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
@@ -57,13 +59,21 @@ const SpecialistPicker: React.FC<Props> = ({
         if (!list.some((l) => l.id === lawyerId)) onLawyerChange(null); // اختيار زائل
         onTimeChange('');
       })
-      .catch(() => { if (!cancelled) setLawyers([]); })
+      .catch(() => {
+        // خطأ شبكة/خادم ليس «لا مواعيد» — كان العميل يظنّ الجدول ممتلئاً فيغادر
+        if (cancelled) {
+          return;
+        }
+        setLawyers([]);
+        setFailed(true);
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchUrl, paramsKey, date, enabled]);
 
   if (!enabled) return null;
+
 
   // اتحاد الأوقات عبر كل المختصّين، ومَن يُسنَد لكل وقت (أعلى مرتّب متاح)
   const times = lawyers[0]?.slots ?? [];
@@ -81,8 +91,9 @@ const SpecialistPicker: React.FC<Props> = ({
     return (
       <>
         {loading && <p className="sub">جارٍ جلب الأوقات المتاحة…</p>}
-        {!loading && times.length === 0 && <p className="sub">لا يوجد مستشارون متاحون في هذا اليوم — غيّر التاريخ.</p>}
-        {!loading && times.length > 0 && (
+        {!loading && failed && <p className="sub">تعذّر جلب الأوقات المتاحة — تحقّق من اتصالك وحاول مجدداً.</p>}
+        {!loading && !failed && times.length === 0 && <p className="sub">لا يوجد مستشارون متاحون في هذا اليوم — غيّر التاريخ.</p>}
+        {!loading && !failed && times.length > 0 && (
           <>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)', margin: '4px 0 6px' }}>
               اختر الوقت المتاح

@@ -13,6 +13,7 @@ use App\Models\Ticket;
 use App\Models\TicketDocument;
 use App\Models\User;
 use App\Support\ServiceDocs;
+use App\Support\WebTimeLimit;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -816,7 +817,7 @@ PROMPT;
         $default = (int) $candidates->first()->id;
         $ids = $candidates->pluck('id')->map(fn ($i) => (int) $i)->all();
 
-        $list = $candidates->map(fn ($u) => "- id={$u->id} | {$u->name} | التخصّص: ".($u->department ?: '—').' | الفرع: '.($u->branch ?: '—'))->implode("\n");
+        $list = $candidates->map(fn ($u) => "- id={$u->id} | {$u->name} | التخصّص: ".($u->department ?: '—'))->implode("\n");
         $system = 'أنت منسّق إسناد في «النظام الإداري لمكاتب المحاماة». اختر المحامي الأنسب تخصّصاً لموضوع التذكرة من القائمة. '
             .'أعد JSON فقط: {"lawyer_id": المعرّف الرقمي للمحامي المختار}. لا نص خارج JSON.';
         $prompt = "نوع التذكرة: {$ticket->type}\nالقسم: ".($ticket->department ?: '—')."\n\nالمحامون المتاحون:\n{$list}";
@@ -845,6 +846,7 @@ PROMPT;
      * @param  array<int, array{id:int,name:string,dept:string,success:array,load:int}>  $candidates
      * @return array<int, int> معرّفات المحامين مرتّبة بالأولوية
      */
+    /** ⚠️ غير مستعملة حالياً: LawyerAvailability استُبدلت بترتيب حتميّ سريع (كانت تعلّق الطلب حتى 150ث). محفوظة للرجوع. */
     public function rankLawyers(string $specialty, string $subject, array $candidates): array
     {
         $ids = array_map(fn ($c) => (int) $c['id'], $candidates);
@@ -976,7 +978,6 @@ PROMPT;
             ."نوع القضية: {$ticket->type}\n"
             ."موضوع النزاع: {$ticket->subject}\n"
             ."العميل: {$clientName}\n"
-            ."الفرع: {$ticket->branch}\n"
             ."تفاصيل التذكرة:\n{$ticket->details}\n";
 
         if ($summary) {
@@ -1007,7 +1008,7 @@ PROMPT;
 
         // مسودة ناجز احتياطية منظمة
         return "المملكة العربية السعودية\nوزارة العدل — منصة ناجز الإلكترونية\nصحيفة دعوى إلكترونية\n\n"
-            .'لدى المحكمة المختصة بمدينة: '.($ticket->branch ?: 'الرياض')."\n\n"
+            .'لدى المحكمة المختصة بمدينة: '.config('office.city')."\n\n"
             ."المدعي: {$clientName}\n"
             ."المدعى عليه: (يُحدد حسب بيانات الخصم)\n"
             ."نوع الدعوى: {$ticket->type}\n"
@@ -1083,7 +1084,7 @@ PROMPT;
     /** الأولوية: Gemini (Google) ← GLM (z.ai)؛ يعيد النصّ أو null عند التعذّر. */
     private function run(string $system, array $messages, bool $json = false): ?string
     {
-        @set_time_limit(150); // مهلة الويب (30ث) لا تكفي سلسلة المزوّدين وإعادة محاولاتها
+        WebTimeLimit::raise(150); // مهلة الويب (30ث) لا تكفي سلسلة المزوّدين وإعادة محاولاتها
 
         // ترتيب المزوّدين: Gemini أولاً (العامل)، ثم GLM احتياطياً عند شحن الرصيد
         // قاطع الدائرة: نتخطّى أي مزوّد قيد التهدئة (نفاد حصّة/ازدحام) فلا نداء مهدور
@@ -1252,7 +1253,7 @@ PROMPT;
     /** فحص مستند ثنائي (PDF/صورة) عبر Gemini متعدد الوسائط — يعيد JSON نصياً أو null. */
     private function viaGeminiDocument(string $system, string $prompt, string $base64, string $mime): ?string
     {
-        @set_time_limit(150); // فحص الملفات الكبيرة قد يتجاوز مهلة الويب
+        WebTimeLimit::raise(150); // فحص الملفات الكبيرة قد يتجاوز مهلة الويب
 
         $model = config('services.gemini.model', 'gemini-2.5-flash');
         $payload = [

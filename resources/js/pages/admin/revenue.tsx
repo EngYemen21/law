@@ -41,7 +41,7 @@ const AdminRevenue: React.FC<Props> = ({ bookings, bookingRevenue, issued, colle
     </div>
 
     <div className="card" style={{ marginBottom: 14 }}>
-      <div className="card-h"><h3>الإيراد حسب نوع الاستشارة</h3><span className="sub">ألف ر.س</span></div>
+      <div className="card-h"><h3>الإيراد حسب نوع الاستشارة</h3><span className="sub">ر.س</span></div>
       <div className="card-b" style={{ padding: 18 }}>
         {byService.length ? <Bars data={byService} /> : <div className="empty"><Icon name="card" /><b>لا بيانات إيراد بعد</b></div>}
       </div>

@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\TaqnyatVerifyService;
 use App\Support\EmailOtpService;
 use App\Support\OtpService;
+use App\Support\Phone;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -51,7 +52,7 @@ class AuthController extends Controller
             // مُنتقي الحساب: يظهر حين طابقت الهُويّة عدّة حسابات لنفس الشخص (بعد نجاح الرمز)
             'accountChoice' => $choice
                 ? User::whereIn('id', $choice['ids'])->where('status', 'active')->get()
-                    ->map(fn (User $u) => ['id' => $u->id, 'roleLabel' => $u->role->label(), 'branch' => $u->branch])
+                    ->map(fn (User $u) => ['id' => $u->id, 'roleLabel' => $u->role->label()])
                     ->values()
                 : null,
             // تلميح التجاوز التطويريّ المؤقّت (غير الإنتاج فقط) — يُظهر الرمز الثابت للمختبِر
@@ -215,7 +216,7 @@ class AuthController extends Controller
             'name' => ['required', 'string', 'max:255', 'regex:/^\S+\s+\S+/u'],
             // التفرّد ضمن دور العميل (يسمح بأن يكون للشخص حساب موظف/محامٍ بنفس الهُويّة)
             'national_id' => ['required', 'regex:/^\d{10}$/', Rule::unique('users', 'national_id')->where('role', Role::Client->value)],
-            'phone' => ['required', 'regex:/^05\d{8}$/', Rule::unique('users', 'phone')->where('role', Role::Client->value)],
+            'phone' => ['required', Phone::RULE, Rule::unique('users', 'phone')->where('role', Role::Client->value)],
             'email' => ['required', 'email:rfc', 'max:255', 'unique:users,email'],
         ], [
             'name.required' => 'أدخل الاسم الكامل.',
@@ -225,7 +226,7 @@ class AuthController extends Controller
             'national_id.regex' => 'رقم الهوية يجب أن يتكوّن من 10 أرقام.',
             'national_id.unique' => 'يوجد حساب عميل مسجّل بهذه الهوية، سجّل الدخول بدلاً من ذلك.',
             'phone.required' => 'أدخل رقم الجوال.',
-            'phone.regex' => 'رقم الجوال يجب أن يبدأ بـ 05 ويتكوّن من 10 أرقام.',
+            'phone.regex' => 'رقم الجوال غير صالح — محليّ 05XXXXXXXX أو دوليّ ‎+9665XXXXXXXX.',
             'phone.unique' => 'يوجد حساب مسجّل بهذا الجوال، سجّل الدخول بدلاً من ذلك.',
             'email.required' => 'أدخل البريد الإلكتروني.',
             'email.email' => 'أدخل بريداً إلكترونياً صحيحاً.',

@@ -1,7 +1,9 @@
 import { Link, router } from '@inertiajs/react';
+import axios from 'axios';
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
+import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
 import { echo } from '@/lib/echo';
@@ -31,6 +33,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
   const [eh, setEh] = useState({ title: '', day: '', time: '', court: '' });
   const [recOutcome, setRecOutcome] = useState('');
   const [msgs, setMsgs] = useState<Message[]>(messages);
+  const [reply, setReply] = useState('');
   const [live, setLive] = useState({ status: c.status, tone: c.tone });
   const seen = useRef<Set<number>>(new Set(messages.map((m) => m.id).filter(Boolean) as number[]));
 
@@ -46,6 +49,18 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
     return () => { echo.leave(channel); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel]);
+
+  // ردّ المستشار على موكّله داخل الملفّ — لا يُمسح النصّ إلا بعد نجاح الإرسال
+  const send = (e: React.FormEvent) => {
+    e.preventDefault();
+    const v = reply.trim();
+    if (!v) {
+      return;
+    }
+    axios.post(`${base}/reply`, { body: v })
+      .then(() => setReply(''))
+      .catch(() => toast('⚠️ تعذّر إرسال الردّ، حاول مجدداً'));
+  };
 
   const approvePleading = () => router.post(`${base}/pleading`, {}, { preserveScroll: true, onSuccess: () => toast('تم اعتماد اللائحة') });
   const addHearing = (e: React.FormEvent) => {
@@ -91,6 +106,13 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
           <div className="card">
             <div className="card-h"><h3>محادثة القضية</h3></div>
             <div className="thread">{msgs.map((m, i) => <CaseMsgRow key={m.id ?? i} m={m} />)}</div>
+            <div className="composer">
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--faint)', marginBottom: 8 }}>ردّ للعميل (المستشار القانوني):</div>
+              <form onSubmit={send}>
+                <textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="اكتب ردّك للعميل…" />
+                <div className="crow"><button className="btn" type="submit"><Icon name="send" /> إرسال</button></div>
+              </form>
+            </div>
           </div>
 
           {/* جدولة الجلسات */}
@@ -103,11 +125,15 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
                     <div className="field"><label>عنوان الجلسة</label><input className="input" value={h.title} onChange={(e) => setH({ ...h, title: e.target.value })} placeholder="الجلسة الأولى" /></div>
                     <div className="field"><label>التاريخ</label><input className="input" type="date" value={h.day} onChange={(e) => setH({ ...h, day: e.target.value })} /></div>
                   </div>
-                  <div className="picker-grid">
-                    <div className="field"><label>الوقت</label><input className="input" type="time" value={h.time} onChange={(e) => setH({ ...h, time: e.target.value })} /></div>
-                    <div className="field"><label>الدائرة</label><input className="input" value={h.court} onChange={(e) => setH({ ...h, court: e.target.value })} placeholder="الدائرة التجارية الأولى" /></div>
-                  </div>
-                  <button className="btn" type="submit"><Icon name="cal" /> جدولة الجلسة</button>
+                  <div className="field"><label>الدائرة</label><input className="input" value={h.court} onChange={(e) => setH({ ...h, court: e.target.value })} placeholder="الدائرة التجارية الأولى" /></div>
+                  <TimeSlotPicker
+                    value={h.time}
+                    onChange={(t) => setH({ ...h, time: t })}
+                    date={h.day}
+                    label="وقت الجلسة"
+                    required
+                  />
+                  <button className="btn" type="submit" disabled={!h.time}><Icon name="cal" /> جدولة الجلسة</button>
                 </form>
               </div>
             </div>
@@ -193,12 +219,16 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
                           <div className="field"><label>عنوان الجلسة</label><input className="input" value={eh.title} onChange={(e) => setEh({ ...eh, title: e.target.value })} /></div>
                           <div className="field"><label>الدائرة</label><input className="input" value={eh.court} onChange={(e) => setEh({ ...eh, court: e.target.value })} placeholder="الدائرة التجارية الأولى" /></div>
                         </div>
-                        <div className="picker-grid">
-                          <div className="field"><label>التاريخ</label><input className="input" type="date" value={eh.day} onChange={(e) => setEh({ ...eh, day: e.target.value })} /></div>
-                          <div className="field"><label>الوقت</label><input className="input" type="time" value={eh.time} onChange={(e) => setEh({ ...eh, time: e.target.value })} /></div>
-                        </div>
-                        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                          <button className="btn sm" type="submit"><Icon name="cal" /> حفظ إعادة الجدولة</button>
+                        <div className="field"><label>التاريخ</label><input className="input" type="date" value={eh.day} onChange={(e) => setEh({ ...eh, day: e.target.value })} /></div>
+                        <TimeSlotPicker
+                          value={eh.time}
+                          onChange={(t) => setEh({ ...eh, time: t })}
+                          date={eh.day}
+                          label="الوقت الجديد للجلسة"
+                          required
+                        />
+                        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                          <button className="btn sm" type="submit" disabled={!eh.time}><Icon name="cal" /> حفظ إعادة الجدولة</button>
                           <button className="btn soft sm" type="button" onClick={() => setEditId(null)}>إلغاء التعديل</button>
                         </div>
                       </form>

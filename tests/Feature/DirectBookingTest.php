@@ -52,9 +52,9 @@ class DirectBookingTest extends TestCase
 
     public function test_employee_books_on_behalf_of_client(): void
     {
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض', 'name' => 'أ. سارة القحطاني']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'أ. سارة القحطاني']);
 
         $date = LawyerAvailability::resolveDate(null)->toDateString();
         $this->actingAs($employee)->post(route('employee.schedule.store'), [
@@ -66,8 +66,7 @@ class DirectBookingTest extends TestCase
         $this->assertSame($client->id, $consult->user_id);
         $this->assertSame('حضورية', $consult->channel);
         $this->assertSame('أ. سارة القحطاني', $consult->lawyer);
-        $this->assertSame($lawyer->id, $consult->assigned_lawyer_id); // مربوط بالمعرّف والفرع
-        $this->assertSame('فرع الرياض', $consult->branch);
+        $this->assertSame($lawyer->id, $consult->assigned_lawyer_id); // مربوط بالمعرّف لا بالاسم
         $this->assertNotNull($consult->starts_at); // وقت حقيقي (لا نصّ) — يفعّل منع التعارض وجدولة Zoom
     }
 
@@ -120,7 +119,7 @@ class DirectBookingTest extends TestCase
 
         $this->actingAs($admin)->get(route('admin.accounting'))
             ->assertOk()->assertInertia(fn ($p) => $p->component('admin/accounting')
-            ->where('totals.issued', 11500)->where('totals.collected', 0)->has('invoices', 1));
+            ->where('totals.issued', 11500)->where('totals.collected', 0)->has('invoices.data', 1));
 
         $this->actingAs($admin)->post(route('admin.invoices.pay', $inv))->assertRedirect();
         $this->assertTrue($inv->fresh()->paid);

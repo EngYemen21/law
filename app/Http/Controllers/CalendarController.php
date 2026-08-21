@@ -33,7 +33,7 @@ class CalendarController extends Controller
                     details: 'موعد لدى النظام الإداري لمكاتب المحاماة (المحامي: '.$a->lawyer.')',
                     startsAt: $start,
                     durationMinutes: 30,
-                    locationUrl: $a->branch ?: 'مكتب المحاماة'
+                    locationUrl: $a->place ?: (string) config('office.address')
                 );
 
                 return [
@@ -42,7 +42,7 @@ class CalendarController extends Controller
                     'title' => $a->type,
                     'day' => $a->day,
                     'time' => $a->time,
-                    'where' => $a->branch,
+                    'where' => $a->place,
                     // الحالة الحيّة — كانت المخزّنة تعرض «مؤكد» لموعد لم يُحضَر
                     'status' => $a->liveState()[1],
                     'gcal' => $gcal,
@@ -50,7 +50,7 @@ class CalendarController extends Controller
             });
 
         // 2. الاستشارات القانونية
-        $consults = Consult::where('user_id', $uid)->whereNotIn('status', ['ملغاة'])->latest('id')->get()
+        $consults = Consult::with('appointment')->where('user_id', $uid)->whereNotIn('status', ['ملغاة'])->latest('id')->get()
             ->map(function (Consult $c) use ($user) {
                 $start = $c->starts_at ?: MeetingTime::parse($c->day ?? '', $c->time ?? '');
                 $link = $c->joinLink($user);
@@ -68,7 +68,7 @@ class CalendarController extends Controller
                     'title' => $c->subject.' ('.$c->ref.')',
                     'day' => $c->when_label ?: $c->day,
                     'time' => $c->time,
-                    'where' => $c->channel === 'حضورية' ? $c->branch : 'جلسة مرئية بالمنصة',
+                    'where' => $c->channel === 'حضورية' ? $c->placeLabel() : 'جلسة مرئية بالمنصة',
                     'status' => $c->status,
                     'gcal' => $gcal,
                 ];

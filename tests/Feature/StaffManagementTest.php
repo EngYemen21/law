@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
-use App\Models\Branch;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -38,7 +37,6 @@ class StaffManagementTest extends TestCase
             'email' => 'salma@salasel.test',
             'mobile' => '0551110000',
             'nid' => '1088776655',
-            'branch' => 'الفرع الرئيسي — جدة',
             'dept' => 'خدمة العملاء',
             'join' => '2026-07-01',
             'start' => '08:00',
@@ -51,7 +49,6 @@ class StaffManagementTest extends TestCase
         $user = User::where('email', 'salma@salasel.test')->firstOrFail();
         $this->assertSame(Role::Employee, $user->role);
         $this->assertSame('active', $user->status);
-        $this->assertSame('الفرع الرئيسي — جدة', $user->branch);
         $this->assertSame(8000, $user->salary);
         $this->assertEqualsCanonicalizing(['إدارة التذاكر', 'الرد على العملاء'], $user->getPermissionNames()->all());
         $this->assertTrue($user->can('إدارة التذاكر'));
@@ -72,7 +69,6 @@ class StaffManagementTest extends TestCase
         $this->actingAs($admin)->post(route('admin.staff.store'), [
             'name' => 'أ. ليلى', 'role' => 'lawyer', 'job_title' => 'محامٍ', 'email' => 'laila@salasel.test',
             'mobile' => '0590000072', 'nid' => '1090000072',
-            'branch' => 'الفرع الرئيسي — جدة',
             'payType' => 'session', 'session' => 700, 'perms' => ['المساعد القانوني'],
         ])->assertRedirect();
         $this->assertSame(Role::Lawyer, User::where('email', 'laila@salasel.test')->firstOrFail()->role);
@@ -89,7 +85,6 @@ class StaffManagementTest extends TestCase
         $this->actingAs($admin)->post(route('admin.staff.store'), [
             'name' => 'أحمد الإداري', 'role' => 'employee', 'job_title' => 'إداري', 'email' => 'idari@salasel.test',
             'mobile' => '0590000087', 'nid' => '1090000087',
-            'branch' => 'الفرع الرئيسي — جدة',
             'payType' => 'salary', 'salary' => 9000, 'perms' => ['توزيع التذاكر'],
         ])->assertRedirect();
         $idari = User::where('email', 'idari@salasel.test')->firstOrFail();
@@ -109,8 +104,7 @@ class StaffManagementTest extends TestCase
     {
         $admin = $this->admin();
         $staff = User::factory()->create([
-            'role' => Role::Employee, 'email' => 'edit@salasel.test', 'branch' => 'الرياض',
-        ]);
+            'role' => Role::Employee, 'email' => 'edit@salasel.test', ]);
         $staff->syncPermissions(Permission::whereIn('name', ['إدارة التذاكر'])->get());
 
         $this->actingAs($admin)->put(route('admin.staff.update', $staff), [
@@ -119,7 +113,6 @@ class StaffManagementTest extends TestCase
             'job_title' => 'محامٍ',
             'email' => 'edit@salasel.test', // نفس البريد (يُتجاهل في الفريد)
             'mobile' => '0590000113', 'nid' => '1090000113',
-            'branch' => 'الفرع الرئيسي — جدة',
             'dept' => 'القضايا التجارية',
             'payType' => 'both', 'salary' => 15000, 'pct' => 12,
             'perms' => ['المساعد القانوني', 'إدارة القضايا والأتعاب'],
@@ -128,7 +121,6 @@ class StaffManagementTest extends TestCase
         $staff->refresh();
         $this->assertSame(Role::Lawyer, $staff->role);
         $this->assertSame('اسم محدّث', $staff->name);
-        $this->assertSame('الفرع الرئيسي — جدة', $staff->branch);
         $this->assertSame('both', $staff->pay_type);
         $this->assertSame(15000, $staff->salary);
         $this->assertEqualsCanonicalizing(['المساعد القانوني', 'إدارة القضايا والأتعاب'], $staff->getPermissionNames()->all());
@@ -167,7 +159,7 @@ class StaffManagementTest extends TestCase
         $this->actingAs($admin)->put(route('admin.staff.update', $staff), [
             'name' => 'ثابت', 'role' => 'employee', 'job_title' => 'محاسب',
             'email' => 'pw@salasel.test', 'mobile' => '0590000163', 'nid' => '1090000163',
-            'branch' => 'الفرع الرئيسي — جدة', 'payType' => 'salary', 'salary' => 5000, 'perms' => [],
+            'payType' => 'salary', 'salary' => 5000, 'perms' => [],
         ])->assertRedirect();
 
         $this->assertTrue(Hash::check('keepme123', $staff->fresh()->password));
@@ -195,7 +187,7 @@ class StaffManagementTest extends TestCase
         $this->actingAs($admin)->post(route('admin.staff.store'), [
             'name' => 'موظف', 'role' => 'employee', 'job_title' => 'موظف خدمة عملاء',
             'email' => 'scoped@salasel.test', 'mobile' => '0590000190', 'nid' => '1090000190',
-            'branch' => 'الفرع الرئيسي — جدة', 'payType' => 'salary', 'salary' => 6000,
+            'payType' => 'salary', 'salary' => 6000,
             'perms' => ['إدارة التذاكر', 'المساعد القانوني'], // الثانية خارج صلاحيات الموظف
         ])->assertRedirect();
 
@@ -210,8 +202,8 @@ class StaffManagementTest extends TestCase
             ->assertInertia(fn ($p) => $p->component('admin/staff')
                 ->has('permCatalog.rolePermissions.employee')
                 ->has('permCatalog.rolePermissions.lawyer')
-                // الإدارة العليا = كل الصلاحيات (24)
-                ->has('permCatalog.rolePermissions.admin', 24));
+                // الإدارة العليا = كل الصلاحيات (23 بعد إسقاط «إدارة الفروع»)
+                ->has('permCatalog.rolePermissions.admin', 23));
     }
 
     public function test_toggle_suspends_and_blocks_login(): void
@@ -256,7 +248,7 @@ class StaffManagementTest extends TestCase
         $this->actingAs($admin)->post(route('admin.staff.store'), [
             'name' => 'شخص بدورين', 'role' => 'employee', 'job_title' => 'موظف',
             'email' => 'p.employee@salasel.test', 'mobile' => '0577001100', 'nid' => '1077001100',
-            'branch' => 'الفرع الرئيسي — جدة', 'payType' => 'salary', 'salary' => 7000, 'perms' => [],
+            'payType' => 'salary', 'salary' => 7000, 'perms' => [],
         ])->assertRedirect()->assertSessionHasNoErrors();
 
         $this->assertSame(2, User::where('national_id', '1077001100')->count());
@@ -274,7 +266,7 @@ class StaffManagementTest extends TestCase
         $this->actingAs($admin)->post(route('admin.staff.store'), [
             'name' => 'تكرار', 'role' => 'lawyer', 'job_title' => 'محامٍ',
             'email' => 'duprole2@salasel.test', 'mobile' => '0577002200', 'nid' => '1077002200',
-            'branch' => 'الفرع الرئيسي — جدة', 'payType' => 'salary', 'salary' => 9000, 'perms' => [],
+            'payType' => 'salary', 'salary' => 9000, 'perms' => [],
         ])->assertSessionHasErrors(['nid', 'mobile']);
     }
 
@@ -282,7 +274,7 @@ class StaffManagementTest extends TestCase
     {
         $this->actingAs($this->admin())->post(route('admin.staff.store'), [
             'name' => 'بلا هوية', 'role' => 'employee', 'job_title' => 'موظف',
-            'email' => 'noid@salasel.test', 'branch' => 'الفرع الرئيسي — جدة', 'payType' => 'salary',
+            'email' => 'noid@salasel.test', 'payType' => 'salary',
         ])->assertSessionHasErrors(['nid', 'mobile']);
     }
 
@@ -301,20 +293,6 @@ class StaffManagementTest extends TestCase
             ->assertOk()->assertJson(['exists' => false]);
     }
 
-    public function test_branch_can_be_created_and_listed(): void
-    {
-        $admin = $this->admin();
-
-        $this->actingAs($admin)->post(route('admin.branches.store'), [
-            'name' => 'فرع مكة', 'city' => 'مكة', 'phone' => '012 500 0000',
-        ])->assertRedirect();
-
-        $this->assertDatabaseHas('branches', ['name' => 'فرع مكة', 'city' => 'مكة']);
-
-        $this->actingAs($admin)->get(route('admin.branches'))
-            ->assertOk()->assertInertia(fn ($p) => $p->component('admin/branches')->has('branches', 1));
-    }
-
     public function test_non_admin_cannot_reach_staff_page(): void
     {
         $employee = User::factory()->create(['role' => Role::Employee]);
@@ -323,18 +301,18 @@ class StaffManagementTest extends TestCase
             ->assertRedirect(route('employee.dashboard', absolute: false));
     }
 
-    public function test_staff_index_lists_employees_and_lawyers(): void
+    public function test_staff_index_lists_office_accounts_without_clients(): void
     {
-        Branch::create(['name' => 'ف', 'city' => 'ج']);
         User::factory()->create(['role' => Role::Employee]);
         User::factory()->create(['role' => Role::Lawyer]);
         User::factory()->create(['role' => Role::Client]); // لا يظهر
 
+        // الإدارة تظهر أيضاً: حساب admin يُنشأ من هذه الشاشة نفسها وكان يختفي بعدها
+        // فيصير طريقاً مسدوداً (لا تعديل ولا متابعة). العميل وحده مستثنى.
         $this->actingAs($this->admin())->get(route('admin.staff'))
             ->assertOk()
             ->assertInertia(fn ($p) => $p->component('admin/staff')
-                ->has('staff', 2)
-                ->has('branches', 1)
+                ->has('staff', 3)
                 // الكتالوج مصدره الخادم عبر prop مشترك
                 ->has('permCatalog.groups', 5)
                 ->has('permCatalog.presets', 5)

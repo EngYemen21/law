@@ -15,6 +15,7 @@ use App\Support\TicketJourney;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
@@ -57,31 +58,121 @@ class DashboardController extends Controller
                     ->count(),
             ],
             // أقرب 3 مواعيد قادمة و3 فواتير مستحقّة — لبطاقتَي «مواعيدك القادمة» و«فواتير بانتظار السداد»
-            'upcomingAppts' => $upcoming->take(3)->map(fn (Appointment $a) => $a->toCard())->values(),
+            'upcomingAppts' => $upcoming->take(3)->map(fn (Appointment $a) => $a->toCard($request->user()))->values(),
             'dueInvoices' => $unpaid->take(3)->map(fn (Invoice $i) => $i->toCard())->values(),
             'lastTicket' => $last ? ['no' => $last->number, 'step' => TicketJourney::indexOf($last->status)] : null,
         ]);
     }
 
-    // لوحة الموظف — التذاكر التي تحتاج إجراءً + عدّادات (محصورة بفرع الموظف)
+    // لوحة الموظف — غرفة عمليات 360 درجة (تذاكر + استشارات اليوم + جلسات المحاكم + التنفيذ + تفرغ الفريق)
     public function employee(Request $request): Response
     {
-        $branch = $request->user()->branch;
-        $active = Ticket::with('user')->where('branch', $branch)
+        $active = Ticket::with(['user', 'assignedLawyer'])
             ->whereNotIn('status', self::CLOSED)->latest('id')->get();
 
+        // 1. تذاكر تحتاج إجراء
+        $tickets = $active->map(fn (Ticket $t) => $t->toEmployeeCard());
+
+        // 2. مواعيد واستشارات اليوم
+        $todayAppts = Appointment::with(['user', 'consult', 'lawyerUser'])
+            ->whereNotNull('starts_at')
+            ->whereDate('starts_at', now()->toDateString())
+            ->orderBy('starts_at')
+            ->get()
+            ->map(function (Appointment $a) use ($request) {
+                $card = $a->toCard($request->user());
+                $card['channel'] = $a->consult?->channel ?? ($a->ico === 'video' ? 'مرئية' : ($a->ico === 'phone' ? 'هاتفية' : 'حضورية'));
+                $card['rawStartsAt'] = $a->starts_at?->toIso8601String();
+
+                return $card;
+            });
+
+        // 3. قضايا المكتب وجلسات المحاكم القادمة
+        $casesWithHearings = LegalCase::with(['user', 'assignedLawyer', 'hearings'])
+            ->whereNotIn('status', ['مغلقة', 'مؤرشفة', 'صدر الحكم'])
+            ->latest('id')
+            ->take(6)
+            ->get()
+            ->map(function (LegalCase $c) {
+                $next = $c->nextHearingLive();
+
+                return [
+                    'no' => $c->number,
+                    'type' => $c->type,
+                    'client' => $c->user?->name ?? '—',
+                    'lawyer' => $c->assignedLawyer?->name ?? $c->assigned_lawyer ?? '—',
+                    'status' => $c->status,
+                    'tone' => $c->tone,
+                    'nextHearing' => $next ? $next->label() : ($c->nextHearingLabel()),
+                    'hearingDate' => $next?->starts_at?->format('Y-m-d') ?? null,
+                    'court' => $next?->court ?? 'المحكمة العامة',
+                ];
+            });
+
+        // 4. ملفات التنفيذ النشطة
+        $execs = Execution::with('user')
+            ->where(fn ($q) => $q->whereNull('stage')->orWhere('stage', '<', 9))
+            ->latest('id')
+            ->take(5)
+            ->get()
+            ->map(fn (Execution $e) => [
+                'no' => $e->number,
+                'client' => $e->user?->name ?? '—',
+                'subject' => $e->subject,
+                'court' => $e->court ?? 'محكمة التنفيذ',
+                'status' => $e->status,
+                'tone' => $e->tone,
+                'amount' => (int) $e->amount,
+                'stage' => $e->effectiveStage(),
+            ]);
+
+        // 5. تفرغ ومستشاري المكتب
+        $lawyers = User::where('role', Role::Lawyer)
+            ->where('status', 'active')
+            ->orderBy('name')
+            ->get(['id', 'name', 'department'])
+            ->map(fn ($u) => [
+                'id' => $u->id,
+                'name' => $u->name,
+                'dept' => $u->department ?: 'القسم القانوني',
+                'activeTickets' => Ticket::where('assigned_lawyer_id', $u->id)->whereNotIn('status', self::CLOSED)->count(),
+                'activeCases' => LegalCase::where('assigned_lawyer_id', $u->id)->whereNotIn('status', ['مغلقة', 'مؤرشفة'])->count(),
+            ]);
+
+        // 6. نشاط حديث
+        $recentActivities = collect()
+            ->concat(Ticket::latest('id')->take(3)->get()->map(fn ($t) => [
+                'ico' => 'ticket',
+                'tone' => 't-blue',
+                'title' => 'تذكرة جديدة #'.$t->number,
+                'sub' => $t->type.' · '.($t->user?->name ?? 'عميل'),
+                'time' => $t->created_at?->diffForHumans() ?? 'الآن',
+            ]))
+            ->concat(Consult::latest('id')->take(3)->get()->map(fn ($c) => [
+                'ico' => 'video',
+                'tone' => 't-cyan',
+                'title' => 'استشارة '.$c->ref,
+                'sub' => $c->channel.' · '.($c->subject ?: 'استشارة قانونية'),
+                'time' => $c->created_at?->diffForHumans() ?? 'الآن',
+            ]))
+            ->sortByDesc('time')->take(5)->values();
+
         return Inertia::render('employee/dashboard', [
-            'tickets' => $active->map(fn (Ticket $t) => $t->toEmployeeCard()),
+            'name' => $request->user()->name,
+            'tickets' => $tickets,
+            'todayAppts' => $todayAppts,
+            'cases' => $casesWithHearings,
+            'execs' => $execs,
+            'lawyers' => $lawyers,
+            'recentActivities' => $recentActivities,
             'counts' => [
-                'needAction' => $active->count(),
+                // يستثني ما ينتظر طرفاً آخر (محامٍ/إدارة/عميل) — الموظف لا يتقدّم فيه بنفسه
+                'needAction' => $active->whereNotIn('status', TicketJourney::AWAITING_OTHERS)->count(),
                 'missingDocs' => $active->where('status', 'بانتظار مستندات')->count(),
-                // مواعيد قادمة فعلاً (زمنياً) محصورة بعملاء التذاكر ضمن فرع الموظف
-                'todayAppts' => Appointment::with('consult')
-                    ->where(fn ($q) => $q->where('branch', $branch)->orWhereNull('branch'))
-                    ->whereNotNull('starts_at')->where('starts_at', '>=', now()->subDay())
-                    ->get()
-                    ->filter(fn (Appointment $a) => $a->liveState()[0] === 'up')->count(),
-                'referred' => Ticket::where('branch', $branch)->where('status', 'محالة للقسم القانوني')->count(),
+                'todayAppts' => $todayAppts->count(),
+                'referred' => Ticket::where('status', 'محالة للقسم القانوني')->count(),
+                'activeCases' => LegalCase::whereNotIn('status', ['مغلقة', 'مؤرشفة', 'صدر الحكم'])->count(),
+                'activeExecs' => $execs->count(),
             ],
         ]);
     }
@@ -101,7 +192,8 @@ class DashboardController extends Controller
                 'clients' => User::where('role', Role::Client)->count(),
                 'openTickets' => Ticket::whereNotIn('status', self::CLOSED)->count(),
                 'revenue' => (int) Invoice::where('paid', true)->sum('amount'),
-                'pendingMeetings' => Meeting::where('approve', '!=', 'معتمد')->count(),
+                // الاعتماد لا يُطلب إلا بعد انعقاد الاجتماع — كان يعدّ القادمة أيضاً فيتضخّم الرقم
+                'pendingMeetings' => Meeting::where('approve', '!=', 'معتمد')->where('status', 'منتهٍ')->count(),
             ],
             'activity' => $activity,
         ]);
@@ -109,10 +201,23 @@ class DashboardController extends Controller
 
     /**
      * تصفير بيانات الاختبار — يحذف جميع سجلات الجداول التشغيلية مع الإبقاء على جدول المستخدمين والأدوار.
+     *
+     * إجراء لا رجعة فيه (truncate) على كل بيانات الموكلين. لذا ثلاث طبقات فوق فحص الدور:
+     * (1) محظور في الإنتاج ما لم يُفتح صراحةً بـALLOW_DB_RESET — الدور وحده لا يكفي لأن
+     *     أي حقن في جلسة مدير كان يكفي لاستدعائه، (2) عبارة تأكيد صريحة في الطلب،
+     *     (3) سطر تدقيق يُبقي أثراً لمن نفّذه ومتى.
      */
     public function resetDatabase(Request $request): RedirectResponse
     {
         abort_unless($request->user()->isAdmin(), 403);
+        abort_if(app()->isProduction() && ! config('app.allow_db_reset'), 403, 'تصفير قاعدة البيانات معطّل في بيئة الإنتاج.');
+        $request->validate(['confirm' => ['required', 'string', 'in:RESET']]);
+
+        Log::warning('Database reset executed', [
+            'user_id' => $request->user()->id,
+            'name' => $request->user()->name,
+            'ip' => $request->ip(),
+        ]);
 
         Schema::disableForeignKeyConstraints();
 

@@ -39,7 +39,7 @@ class PdfRenderer
     public static function generatePdfBinary(string $html, string $filename = 'document.pdf', string $format = 'A4'): string
     {
         // فكّ قيد مهلة PHP حيث تسمح الاستضافة — يمنع الخطأ الفادح الذي كان يقطع الطريق على الاحتياطي
-        @set_time_limit(240);
+        WebTimeLimit::raise(240);
 
         $engine = (string) config('pdf.engine', 'auto');
         $node = static::resolveNodePath();
@@ -218,6 +218,7 @@ class PdfRenderer
     /**
      * اكتشاف مسار NPM التنفيذي على مختلف بيئات التشغيل.
      */
+    /** ⚠️ غير مستعملة حالياً: اكتشاف كروم صار عبر مسارات صريحة (راجع pdf:diagnose). */
     public static function resolveNpmPath(): ?string
     {
         $explicit = env('NPM_BINARY') ?: env('NPM_PATH');

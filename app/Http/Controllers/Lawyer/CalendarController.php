@@ -77,7 +77,7 @@ class CalendarController extends Controller
             });
 
         // 3. استشارات مسندة للمحامي
-        $consults = Consult::where('assigned_lawyer_id', $lawyerId)->whereNotIn('status', ['ملغاة'])->latest('id')->get()
+        $consults = Consult::with('appointment')->where('assigned_lawyer_id', $lawyerId)->whereNotIn('status', ['ملغاة'])->latest('id')->get()
             ->map(function (Consult $c) use ($lawyer) {
                 $start = $c->starts_at ?: MeetingTime::parse($c->day ?? '', $c->time ?? '');
                 $link = $c->joinLink($lawyer);
@@ -96,7 +96,7 @@ class CalendarController extends Controller
                     'title' => 'استشارة: '.$c->subject,
                     'day' => $c->when_label ?: $c->day,
                     'time' => $c->time,
-                    'where' => $c->channel === 'حضورية' ? $c->branch : 'جلسة مرئية بالمنصة',
+                    'where' => $c->channel === 'حضورية' ? $c->placeLabel() : 'جلسة مرئية بالمنصة',
                     'status' => $c->status,
                     'gcal' => $gcal,
                 ];

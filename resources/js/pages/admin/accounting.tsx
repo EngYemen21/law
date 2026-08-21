@@ -1,7 +1,8 @@
 import { router } from '@inertiajs/react';
-import React, { useState } from 'react';
+import React from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
+import Pagination, { type Paginated } from '@/components/babylon/Pagination';
 import { useToast } from '@/components/babylon/Toast';
 
 // محاسبة الإدارة — فواتير حقيقية من قاعدة البيانات (موديل Invoice)
@@ -9,16 +10,17 @@ import { useToast } from '@/components/babylon/Toast';
 const fmt = (n: number) => n.toLocaleString('en-US') + ' ر.س';
 
 interface Inv { no: string; client: string; desc: string; amount: number; status: string; tone: string; due: string; paid: boolean; }
-interface Props { invoices: Inv[]; totals: { issued: number; collected: number; due: number; overdue: number }; }
+interface Props { invoices: Paginated<Inv>; filter: string; totals: { issued: number; collected: number; due: number; overdue: number; unpaid: number }; }
 
 const TABS: [string, string][] = [['all', 'الكل'], ['مدفوعة', 'مدفوعة'], ['غير مدفوعة', 'غير المدفوعة']];
 
-const AdminAccounting: React.FC<Props> = ({ invoices, totals }) => {
+const AdminAccounting: React.FC<Props> = ({ invoices, filter, totals }) => {
   const toast = useToast();
-  const [filter, setFilter] = useState('all');
+  const list = invoices.data;
 
-  const list = invoices.filter((v) =>
-    filter === 'all' ? true : filter === 'مدفوعة' ? v.paid : !v.paid);
+  // التصفية خادميّة مع الترقيم: التصفية محلياً كانت ستقتصر على الصفحة الحالية
+  const setFilter = (f: string) =>
+    router.get('/admin/accounting', f === 'all' ? {} : { filter: f }, { preserveScroll: true, preserveState: true });
 
   const markPaid = (no: string) => {
     router.post(`/admin/invoices/${encodeURIComponent(no)}/pay`, {}, {
@@ -38,11 +40,11 @@ const AdminAccounting: React.FC<Props> = ({ invoices, totals }) => {
         <div className="stat t-blue"><div className="si"><Icon name="card" /></div><div className="num">{fmt(totals.issued)}</div><div className="lbl">إجمالي المُصدَر</div></div>
         <div className="stat t-green"><div className="si"><Icon name="check" /></div><div className="num">{fmt(totals.collected)}</div><div className="lbl">المحصّل</div></div>
         <div className="stat t-amber"><div className="si"><Icon name="folder" /></div><div className="num">{fmt(totals.due)}</div><div className="lbl">المستحق (الذمم)</div></div>
-        <div className="stat t-cyan"><div className="si"><Icon name="scale" /></div><div className="num">{totals.overdue}</div><div className="lbl">فواتير غير مدفوعة</div></div>
+        <div className="stat t-cyan"><div className="si"><Icon name="scale" /></div><div className="num">{totals.overdue}</div><div className="lbl">فواتير متأخرة</div></div>
       </div>
 
       <div className="card" style={{ marginTop: 16 }}>
-        <div className="card-h"><h3>الفواتير الصادرة</h3><span className="sub">{invoices.length}</span></div>
+        <div className="card-h"><h3>الفواتير الصادرة</h3><span className="sub">{invoices.meta.total}</span></div>
         <div className="card-b" style={{ padding: '12px 14px' }}>
           <div className="mtabs">
             {TABS.map((t) => (
@@ -72,6 +74,7 @@ const AdminAccounting: React.FC<Props> = ({ invoices, totals }) => {
           ) : (
             <div className="empty"><Icon name="card" /><b>لا فواتير في هذا التصنيف</b></div>
           )}
+          <Pagination meta={invoices.meta} only={['invoices']} />
         </div>
       </div>
     </>

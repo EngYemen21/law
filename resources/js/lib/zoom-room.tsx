@@ -145,6 +145,21 @@ export const ZoomEmbedRoom: React.FC<Props> = ({ cref, kind = 'consult', label, 
   const [userName, setUserName] = useState('');
   const [elapsed, setElapsed] = useState(0); // ثوانٍ منذ الانضمام (المؤقّت التصاعدي)
   const [retryKey, setRetryKey] = useState(0); // إعادة المحاولة داخل الموقع
+  // رابط الطوارئ لا يصلح مخرجاً إن كان يشير إلى هذه الصفحة نفسها. العميل يُمرَّر إليه
+  // joinLink() وهو عنوان هذه الغرفة بالضبط (سياسة مقصودة: لا يُسرَّب رابط Zoom للعميل)،
+  // فكان زرّ «فتح Zoom في تبويب» يعيد فتح الصفحة التي فشلت للتوّ فتفشل ثانيةً — حلقة مغلقة.
+  // الطاقم وحده يملك رابطاً خارجياً حقيقياً (host_link من Zoom) فيبقى الزرّ نافعاً له.
+  const externalFallback = React.useMemo(() => {
+    if (! fallbackUrl) {
+      return null;
+    }
+    try {
+      const target = new URL(fallbackUrl, window.location.href);
+      return target.pathname === window.location.pathname ? null : fallbackUrl;
+    } catch {
+      return fallbackUrl;
+    }
+  }, [fallbackUrl]);
 
   // مؤقّت الجلسة التصاعدي — يعمل أثناء الانضمام فقط
   useEffect(() => {
@@ -180,7 +195,7 @@ return;
 
       teardown();
       setMsg(m);
-      setPhase(fallbackUrl ? 'fallback' : 'error');
+      setPhase(externalFallback ? 'fallback' : 'error');
     };
 
     void (async () => {
@@ -261,10 +276,11 @@ return;
       cancelled = true;
       teardown();
     };
-  }, [cref, kind, fallbackUrl, retryKey]);
+  }, [cref, kind, externalFallback, retryKey]);
 
   const fmtTimer = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
   const retry = () => { setMsg(''); setElapsed(0); setPhase('loading'); setRetryKey((k) => k + 1); };
+
   const leave = () => { void clientRef.current?.leaveMeeting().catch(() => {}); setPhase('ended'); };
 
   // ── الغرفة البسيطة (استشارات) — سلوك أصلي دون تغيير ──
@@ -294,8 +310,8 @@ return;
             <b>تعذّر التضمين داخل المنصّة</b>
             <span>{msg} يمكنك فتح الجلسة في Zoom مباشرة.</span>
             <button className="btn sm" style={{ marginTop: 10 }} onClick={() => {
- if (fallbackUrl) {
-window.open(fallbackUrl, '_blank', 'noopener');
+ if (externalFallback) {
+window.open(externalFallback, '_blank', 'noopener');
 } 
 }} type="button">
               <Icon name="video" /> فتح Zoom في تبويب
@@ -306,7 +322,13 @@ window.open(fallbackUrl, '_blank', 'noopener');
 
       {phase === 'error' && (
         <div className="card"><div className="card-b">
-          <div className="empty"><Icon name="video" /><b>{msg || 'تعذّر بدء الجلسة'}</b></div>
+          <div className="empty">
+            <Icon name="video" />
+            <b>{msg || 'تعذّر بدء الجلسة'}</b>
+            <button className="btn sm" style={{ marginTop: 10 }} onClick={retry} type="button">
+              <Icon name="video" /> إعادة المحاولة
+            </button>
+          </div>
         </div></div>
       )}
 
@@ -356,10 +378,10 @@ window.open(fallbackUrl, '_blank', 'noopener');
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 }}>
             <button className="btn sm" onClick={retry} type="button"><Icon name="video" /> إعادة المحاولة داخل الموقع</button>
           </div>
-          {fallbackUrl && phase === 'fallback' && (
+          {externalFallback && phase === 'fallback' && (
             <div style={{ marginTop: 10 }}>
               <button
-                onClick={() => window.open(fallbackUrl, '_blank', 'noopener')}
+                onClick={() => window.open(externalFallback, '_blank', 'noopener')}
                 style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.55)', fontSize: 11, textDecoration: 'underline', cursor: 'pointer' }}
                 type="button"
               >فتح في Zoom كحلٍّ أخير</button>

@@ -15,7 +15,7 @@ use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\Task;
 use App\Models\User;
-use App\Rules\LawyerInBranch;
+use App\Rules\ActiveLawyer;
 use App\Services\LegalAiService;
 use App\Services\MailService;
 use App\Services\ZoomService;
@@ -29,7 +29,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -121,7 +120,7 @@ class MeetingController extends Controller
             'time' => ['nullable', 'string', 'max:20'],
             'client_id' => ['nullable', 'integer', 'exists:users,id'],
             'case_ref' => ['nullable', 'string', 'max:120'],
-            'lawyer_id' => ['nullable', 'integer', new LawyerInBranch],
+            'lawyer_id' => ['nullable', 'integer', new ActiveLawyer],
         ]);
 
         $client = ! empty($data['client_id']) ? User::find($data['client_id']) : null;
@@ -156,8 +155,7 @@ class MeetingController extends Controller
             'host_link' => $zoom['start_url'] ?? null,
             'meet_password' => $zoom['password'] ?? null,
             'created_by' => $request->user()->name,
-            // عزل الرؤية/البثّ: المحامي المسؤول وفرعه (وإلا فرع المنشئ)
-            'branch' => $assignedLawyer?->branch ?: $request->user()->branch,
+            // عزل الرؤية/البثّ: المحامي المسؤول (المحامي يرى المسنَد إليه وحده)
             'assigned_lawyer_id' => $assignedLawyer?->id,
             'before_items' => ['تحليل الموضوع', 'مراجعة المستندات', 'تجهيز جدول الأعمال'],
             'during_items' => ['تحويل الصوت إلى نص', 'استخراج القرارات', 'تحديد المهام'],
@@ -384,8 +382,11 @@ class MeetingController extends Controller
         if (! in_array($meeting->status, ['منتهٍ', 'ملغى'], true)) {
             $this->zoom->deleteMeeting((string) $meeting->meet_id);
             $meeting->update(['status' => 'ملغى', 'meet_id' => null]);
-            // سجلّ تاريخي «أُلغيت» بدل الحذف الصلب — كان أثر الدعوة يختفي من شاشة العميل بلا تفسير
+            // سجلّ تاريخي «أُلغيت» بدل الحذف الصلب — كان أثر الدعوة يختفي من شاشة العميل بلا تفسير.
+            // الدعوة المعتمدة (STAGE_APPROVED) تُستثنى: تنزيلها يمحو سجلّ اعتمادها بلا رجعة
+            // لأن resend لا يقبل إلا «منتهية الصلاحية» — فتصير بلا مخرج.
             MeetRequest::where('meeting_id', $meeting->id)
+                ->where('stage', '!=', MeetRequest::STAGE_APPROVED)
                 ->update(['stage' => MeetRequest::STAGE_CANCELLED]);
             if ($meeting->user_id) {
                 Notify::send($meeting->user_id, 'info', 't-red', "أُلغي اجتماع «{$meeting->title}».");
@@ -538,7 +539,7 @@ class MeetingController extends Controller
 
     /**
      * استعلام الاجتماعات معزولًا بالدور:
-     * المحامي اجتماعاته المسندة، الموظف اجتماعات فرعه (+بلا فرع)، الإدارة الكل.
+     * المحامي اجتماعاته المسندة، والموظف والإدارة كل اجتماعات المكتب.
      */
     private function scopedQuery(Request $request)
     {
@@ -546,8 +547,6 @@ class MeetingController extends Controller
         $query = Meeting::query();
         if ($user->role === Role::Lawyer) {
             $query->where('assigned_lawyer_id', $user->id);
-        } elseif ($user->role === Role::Employee) {
-            $query->where(fn ($q) => $q->where('branch', $user->branch)->orWhereNull('branch'));
         }
 
         return $query;
@@ -562,7 +561,7 @@ class MeetingController extends Controller
 
     /**
      * حارس الوصول المباشر لاجتماع (يسدّ IDOR): المحامي لاجتماعه المسند فقط (guardAssigned)،
-     * الموظف لفرعه (بلا فرع = مشترك)، الإدارة كاملة.
+     * الموظف والإدارة على المكتب كلّه.
      */
     // تنزيل نصّ الاجتماع الكامل (المحلي إن وُجد وإلا يُجلب من سحابة Zoom ويُحفظ) — معزول بالدور
     public function transcript(Request $request, Meeting $meeting): StreamedResponse
@@ -573,28 +572,25 @@ class MeetingController extends Controller
     }
 
     // فيديو جلسة الاجتماع مضغوطاً ZIP (جلب خادمي من سحابة Zoom) — معزول بالدور
-    public function recordingZip(Request $request, Meeting $meeting): BinaryFileResponse
+    public function recordingZip(Request $request, Meeting $meeting): StreamedResponse|RedirectResponse
     {
         $this->guardMeeting($request, $meeting);
 
-        return RecordingArchive::zip($meeting, 'video');
+        return RecordingArchive::download($meeting, 'video');
     }
 
     // صوت جلسة الاجتماع (M4A) مضغوطاً ZIP — معزول بالدور
-    public function audioZip(Request $request, Meeting $meeting): BinaryFileResponse
+    public function audioZip(Request $request, Meeting $meeting): StreamedResponse|RedirectResponse
     {
         $this->guardMeeting($request, $meeting);
 
-        return RecordingArchive::zip($meeting, 'audio');
+        return RecordingArchive::download($meeting, 'audio');
     }
 
     private function guardMeeting(Request $request, Meeting $meeting): void
     {
-        $user = $request->user();
-        if ($user->role === Role::Lawyer) {
+        if ($request->user()->role === Role::Lawyer) {
             $this->guardAssigned($meeting);
-        } elseif ($user->role === Role::Employee) {
-            abort_if($meeting->branch !== null && $meeting->branch !== $user->branch, 403);
         }
     }
 

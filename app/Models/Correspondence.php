@@ -2,21 +2,18 @@
 
 namespace App\Models;
 
-use App\Models\Concerns\HasBranch;
 use App\Support\CorrFlow;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * مخاطبة رسميّة مع جهة/محكمة عبر النظام الخارجيّ — دورة 7 مراحل + إفادة العميل + ربط بالتنفيذ/القضايا.
- * نظير Execution في النمط (HasBranch + رقم كمفتاح مسار + toCard/toClientCard).
+ * نظير Execution في النمط (رقم كمفتاح مسار + toCard/toClientCard).
  */
 class Correspondence extends Model
 {
-    use HasBranch;
-
     protected $fillable = [
-        'number', 'user_id', 'assigned_lawyer_id', 'lawyer', 'branch', 'case_id', 'execution_id',
+        'number', 'user_id', 'assigned_lawyer_id', 'lawyer', 'case_id', 'execution_id',
         'direction', 'entity', 'subject', 'channel', 'body',
         'stage', 'status', 'tone', 'date_label', 'due_label',
         'ext_ref', 'ext_status', 'ext_synced_at', 'reply_body',

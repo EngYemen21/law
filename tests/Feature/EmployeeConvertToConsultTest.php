@@ -27,9 +27,8 @@ class EmployeeConvertToConsultTest extends TestCase
             'department' => 'القانون التجاري',
             'status' => $status,
             'tone' => 'b-blue',
-            'branch' => 'الرياض',
         ]);
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'الرياض']);
+        $employee = User::factory()->create(['role' => Role::Employee]);
 
         return [$ticket, $employee, $client];
     }

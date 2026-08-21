@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use Illuminate\Http\Request;
+
 /**
  * تحقّق إشعارات Moyasar (Webhooks): يُرسل ميسّر حقل `secret_token` في جسم الحدث،
  * نطابقه بالسرّ المضبوط (مقارنة ثابتة الزمن). مصدر واحد قابل للاختبار (مثل ZoomWebhook).
@@ -26,7 +28,7 @@ class MoyasarWebhook
         }
 
         $token = '';
-        if ($requestOrPayload instanceof \Illuminate\Http\Request) {
+        if ($requestOrPayload instanceof Request) {
             $rawJson = json_decode((string) $requestOrPayload->getContent(), true) ?: [];
             $token = (string) (
                 $requestOrPayload->input('secret_token')
@@ -35,7 +37,7 @@ class MoyasarWebhook
                 ?: $requestOrPayload->header('X-Secret-Token')
                 ?: $requestOrPayload->header('secret-token')
                 ?: $requestOrPayload->bearerToken()
-                ?: $requestOrPayload->query('secret_token', '')
+                // لا يُقبل من سلسلة الاستعلام: السرّ في العنوان يُسجَّل في access.log وأي بروكسي وسيط
             );
         } elseif (is_array($requestOrPayload)) {
             $token = (string) ($requestOrPayload['secret_token'] ?? '');

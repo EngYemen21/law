@@ -5,10 +5,10 @@ namespace App\Http\Controllers\Employee;
 use App\Enums\Role;
 use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
-use App\Http\Controllers\Concerns\BranchScoped;
 use App\Http\Controllers\Controller;
 use App\Jobs\GenerateTicketSummaryJob;
 use App\Models\Consult;
+use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Services\LegalAiService;
@@ -35,19 +35,37 @@ use Inertia\Response;
  */
 class TicketController extends Controller
 {
-    use BranchScoped;
-
     public function index(): Response
     {
-        $tickets = Ticket::with('user')->withExists('legalCase')
-            ->where('branch', $this->currentBranch())->latest('id')->get()
-            ->map(fn (Ticket $t) => array_merge($t->toEmployeeCard(), ['converted' => (bool) $t->legal_case_exists]));
+        $allTickets = Ticket::with(['user', 'assignedLawyer'])->withExists('legalCase')
+            ->latest('id')->get();
+
+        $tickets = $allTickets->map(function (Ticket $t) {
+            $card = $t->toEmployeeCard();
+            $card['converted'] = (bool) $t->legal_case_exists;
+            $card['updatedAgo'] = $t->updated_at?->locale('ar')->diffForHumans() ?? 'الآن';
+            $card['createdAgo'] = $t->created_at?->locale('ar')->diffForHumans() ?? 'الآن';
+
+            return $card;
+        });
+
+        $counts = [
+            'total' => $allTickets->count(),
+            'needAction' => $allTickets->whereNotIn('status', TicketJourney::AWAITING_OTHERS)->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
+            'missingDocs' => $allTickets->where('status', 'بانتظار مستندات')->count(),
+            'referred' => $allTickets->where('status', 'محالة للقسم القانوني')->count(),
+            'urgent' => $allTickets->filter(fn ($t) => in_array($t->priority, ['عالية', 'حرجة', 'urgent', 'high']))->count(),
+            'completed' => $allTickets->whereIn('status', ['مكتملة', 'مغلقة'])->count(),
+        ];
+
+        $departments = $allTickets->pluck('department')->filter()->unique()->values();
 
         return Inertia::render('employee/tickets', [
             'tickets' => $tickets,
-            // محامو الفرع — مودال التحويل في القائمة يحتاج القائمة الحقيقية لا بيانات ثابتة
+            'counts' => $counts,
+            'departments' => $departments,
+            // محامو المكتب — مودال التحويل في القائمة يحتاج القائمة الحقيقية لا بيانات ثابتة
             'lawyers' => User::where('role', Role::Lawyer)
-                ->where('branch', $this->currentBranch())
                 ->orderBy('name')
                 ->get(['id', 'name'])
                 ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name]),
@@ -56,11 +74,17 @@ class TicketController extends Controller
 
     public function show(Ticket $ticket): Response
     {
-        $this->guardBranch($ticket);
         $ticket->load(['user', 'legalCase']);
 
+        $client = $ticket->user;
+        $clientStats = $client ? [
+            'totalTickets' => Ticket::where('user_id', $client->id)->count(),
+            'activeTickets' => Ticket::where('user_id', $client->id)->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
+            'totalCases' => LegalCase::where('user_id', $client->id)->count(),
+            'memberSince' => $client->created_at?->locale('ar')->translatedFormat('F Y') ?? '—',
+        ] : null;
+
         $lawyers = User::where('role', Role::Lawyer)
-            ->where('branch', $this->currentBranch())
             ->orderBy('name')
             ->get(['id', 'name'])
             ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name]);
@@ -72,13 +96,15 @@ class TicketController extends Controller
                 'caseRef' => $ticket->legalCase?->number,
                 'mobile' => $ticket->user?->phone,
                 'openedAt' => $ticket->created_at?->locale('ar')->translatedFormat('j F Y'),
+                'priority' => $ticket->priority ?: 'متوسطة',
             ]),
+            'clientStats' => $clientStats,
             'channel' => 'ticket.'.$ticket->id,
             // الموظف يرى كل الرسائل بما فيها الملاحظات الداخلية
             'messages' => $ticket->messages->map->toMessage(),
             // مفردات الحالة من مصدر الرحلة — قائمة مكتوبة يدوياً كانت تُسقط حالات حقيقية
             'states' => TicketJourney::options(),
-            // محامو الفرع لمودال جدولة الموعد المضمّن
+            // محامو المكتب لمودال جدولة الموعد المضمّن
             'lawyers' => $lawyers,
         ]);
     }
@@ -86,7 +112,6 @@ class TicketController extends Controller
     // ردّ الموظف (يراه العميل ضمن نفس التذكرة) — بثّ لحظي معزول بالمعاملة
     public function reply(Request $request, Ticket $ticket): HttpResponse
     {
-        $this->guardBranch($ticket);
         $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
 
         $msg = null;
@@ -115,7 +140,6 @@ class TicketController extends Controller
     // بنفس حرّاس مسار العميل (book): لا على حالة نهائية، ولا مع طلب استشارة قائم.
     public function convertToConsult(Request $request, Ticket $ticket): HttpResponse
     {
-        $this->guardBranch($ticket);
 
         $data = $request->validate([
             'type' => ['nullable', 'string', 'in:office,video,phone'],
@@ -158,7 +182,6 @@ class TicketController extends Controller
     // إرفاق مستند من الموظف بالتذكرة (يراه العميل) — نفس قيود رفع العميل (10MB + الصيغ المسموحة)
     public function attach(Request $request, Ticket $ticket): HttpResponse
     {
-        $this->guardBranch($ticket);
 
         $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx']]);
 
@@ -193,7 +216,6 @@ class TicketController extends Controller
     // ويضع التذكرة في «بانتظار مستندات» — فيمرّ رفع العميل لاحقاً عبر مسار إعادة التحليل/الإحالة للمستشار.
     public function requestDocs(Request $request, Ticket $ticket): HttpResponse
     {
-        $this->guardBranch($ticket);
 
         // التذاكر المكتملة/المغلقة نهائية — لا تُعاد لطلب نواقص (يبقى الحجب النهائي تصميماً)
         if (in_array($ticket->status, ['مكتملة', 'مغلقة'], true)) {
@@ -242,7 +264,6 @@ class TicketController extends Controller
     // ملاحظة داخلية (لا يراها العميل) — تُبثّ على قناة الموظفين فقط معزولة بالمعاملة
     public function note(Request $request, Ticket $ticket): HttpResponse
     {
-        $this->guardBranch($ticket);
         $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
 
         $msg = null;
@@ -268,7 +289,6 @@ class TicketController extends Controller
     // تغيير حالة التذكرة (بثّ لحظي — يتقدّم المسار لدى الطرفين)
     public function status(Request $request, Ticket $ticket): HttpResponse
     {
-        $this->guardBranch($ticket);
         // الحالة مقيّدة بمفردات الرحلة — نصّ حرّ كان يُحفظ ويُبثّ ثم يُعرض عند مرحلة خاطئة.
         // والنغمة تُشتقّ هنا ولا تُقبل من العميل: كانت أي نغمة تُقبل مع أي حالة.
         $data = $request->validate([
@@ -301,7 +321,6 @@ class TicketController extends Controller
     // تنفيذ المرحلة التالية من رحلة المعالجة (تحديث الحالة + رسالة + بثّ)
     public function advance(Request $request, Ticket $ticket): HttpResponse
     {
-        $this->guardBranch($ticket);
 
         // التذاكر المكتملة/المغلقة نهائية — advance لا يفعل شيئاً (ولا يعيد تنفيذ البوابات).
         // دفاع بالعمق: حتى لو تراجعت status لأي سبب، يبقى advance no-op آمناً.
@@ -389,7 +408,6 @@ class TicketController extends Controller
     // إعادة تشغيل تحليل الذكاء الاصطناعي للملخص من لوحة الموظف (يطابق cRerun)
     public function rerunSummary(Request $request, Ticket $ticket): RedirectResponse
     {
-        $this->guardBranch($ticket);
         abort_unless($ticket->summary, 404);
         if ($ticket->summary?->isApproved()) {
             throw ValidationException::withMessages([
@@ -405,7 +423,6 @@ class TicketController extends Controller
     // تحويل التذكرة المكتملة إلى قضية (يشترط اعتماد المستشار المسبق للنتيجة)
     public function convertToCase(Request $request, Ticket $ticket): RedirectResponse
     {
-        $this->guardBranch($ticket);
         if ($ticket->status !== 'مكتملة') {
             throw ValidationException::withMessages([
                 'ticket' => 'لا يمكن تحويل التذكرة لقضية إلا بعد اكتمالها.',

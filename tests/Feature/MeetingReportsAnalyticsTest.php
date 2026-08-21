@@ -41,8 +41,7 @@ class MeetingReportsAnalyticsTest extends TestCase
 
         Meeting::create([
             'ref' => 'M-A1', 'title' => 'اجتماع منتهٍ', 'when_label' => 'اليوم', 'status' => 'منتهٍ',
-            'attend' => 90, 'duration_sec' => 1800, 'assigned_lawyer_id' => $lawyer->id, 'branch' => $lawyer->branch,
-            'starts_at' => now(),
+            'attend' => 90, 'duration_sec' => 1800, 'assigned_lawyer_id' => $lawyer->id, 'starts_at' => now(),
         ]);
         // مهمتان من قرارات هذا الاجتماع: واحدة منجزة → معدل تنفيذ 50%
         Task::create(['assigned_to' => $lawyer->id, 'title' => 'مهمة1', 'ref' => 'M-A1', 'status' => 'منجزة']);

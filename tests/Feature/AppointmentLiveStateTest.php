@@ -29,7 +29,7 @@ class AppointmentLiveStateTest extends TestCase
             'day' => '2026-08-20',
             'time' => '10:00 ص',
             'duration_min' => 60,
-            'branch' => 'اجتماع إلكتروني',
+            'place' => 'اجتماع إلكتروني',
             'status' => 'مؤكد',
             'tone' => 'b-green',
             'when_kind' => 'up', // مخزّنة «قادمة» دائماً — الاشتقاق الزمني هو الفيصل

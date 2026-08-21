@@ -21,6 +21,8 @@ class PermissionSeeder extends Seeder
             Permission::findOrCreate($name, 'web');
         }
 
+        $this->pruneStalePermissions();
+
         // إعادة تحميل الذاكرة بعد إنشاء الصلاحيات وقبل إسنادها للأدوار
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
@@ -31,5 +33,26 @@ class PermissionSeeder extends Seeder
         }
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
+    }
+
+    /**
+     * حذف الصلاحيات التي خرجت من الكتالوج — «إدارة الفروع» مثالاً بعد إزالة كيان الفرع.
+     *
+     * البذّار كان يُنشئ ولا يحذف، وsyncPermissions أدناه يفصل الصلاحية عن أدوار القوالب فقط:
+     * فيبقى الصفّ قائماً في permissions ويبقى مُسنَداً مباشرةً لكل مستخدم لم يُعدَّل بعد
+     * (المستخدمون يُزامَنون عند التعديل فقط) ⇒ صلاحية شبح حيّة على قواعد الإنتاج القائمة.
+     * نفكّ الإسناد صراحةً ولا نتّكل على تسلسل المفاتيح الأجنبية وحده.
+     */
+    private function pruneStalePermissions(): void
+    {
+        $stale = Permission::where('guard_name', 'web')
+            ->whereNotIn('name', Permissions::all())
+            ->get();
+
+        foreach ($stale as $permission) {
+            $permission->roles()->detach();
+            $permission->users()->detach();
+            $permission->delete();
+        }
     }
 }

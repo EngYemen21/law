@@ -43,13 +43,6 @@ const AdminMeetReports: React.FC<{ meetings: FullMeetingCard[]; analytics: Analy
     ? Object.keys(byLawyer).map((k) => [k, byLawyer[k]])
     : [['—', 0]];
 
-  // توزيع الاجتماعات حسب الفرع
-  const byBranch: Record<string, number> = {};
-  meetings.forEach((m) => { if (m.branch && m.branch !== '—') byBranch[m.branch] = (byBranch[m.branch] || 0) + 1; });
-  const branchData: [string, number][] = Object.keys(byBranch).length
-    ? Object.keys(byBranch).map((k) => [k, byBranch[k]])
-    : [['—', 0]];
-
   const done = meetings.filter((m) => m.status === 'منتهٍ');
   const att = done.length ? Math.round(done.reduce((a, m) => a + (m.attend || 0), 0) / done.length) : 0;
   const cancelled = meetings.filter((m) => m.status === 'ملغى').length;
@@ -166,7 +159,6 @@ const AdminMeetReports: React.FC<{ meetings: FullMeetingCard[]; analytics: Analy
       <BarChart title="الاجتماعات حسب النوع والخدمة" data={typeData} />
       <BarChart title="الاجتماعات حسب العميل/الجهة" data={clientData} />
       <BarChart title="الاجتماعات حسب المحامي المسؤول" data={lawyerData} />
-      <BarChart title="الاجتماعات حسب الفرع" data={branchData} />
       <BarChart title="متوسط مدة الحضور الفعلية حسب المحامي (دقائق)" data={analytics.attendanceByLawyer.length ? analytics.attendanceByLawyer : [['—', 0]]} />
     </>
   );

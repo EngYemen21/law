@@ -84,9 +84,9 @@ class ExecFlowFixesTest extends TestCase
     public function test_staff_message_denied_without_case_permission(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الاختبار']);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         $employee->syncPermissions([]);
-        $exec = $this->execFor($client, ['branch' => 'فرع الاختبار']);
+        $exec = $this->execFor($client);
 
         $this->actingAs($employee)->post(route('exec-flow.messages.store', $exec), ['body' => 'رسالة'])->assertForbidden();
     }

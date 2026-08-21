@@ -41,7 +41,7 @@ class ConsultScheduleConflictTest extends TestCase
 
         // موعد مؤكّد للمحامي نفسه في نفس الوقت → تعارض
         $startsAt = now()->addDay()->setTime(11, 30);
-        Appointment::create(['user_id' => $client->id, 'ext_id' => 'AP-CONF', 'type' => 'استشارة', 'ico' => 'video', 'lawyer' => $lawyer->name, 'lawyer_id' => $lawyer->id, 'day' => 'غد', 'time' => '11:30', 'starts_at' => $startsAt, 'duration_min' => 30, 'branch' => 'الرياض', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up']);
+        Appointment::create(['user_id' => $client->id, 'ext_id' => 'AP-CONF', 'type' => 'استشارة', 'ico' => 'video', 'lawyer' => $lawyer->name, 'lawyer_id' => $lawyer->id, 'day' => 'غد', 'time' => '11:30', 'starts_at' => $startsAt, 'duration_min' => 30, 'place' => 'الرياض', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up']);
 
         $slot = ['lawyer_id' => $lawyer->id, 'day' => 'غد', 'time' => '11:30', 'starts_at' => $startsAt->toDateTimeString(), 'duration' => 30];
 

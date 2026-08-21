@@ -20,6 +20,16 @@ use Illuminate\Support\Carbon;
 class IcalendarService
 {
     /**
+     * نافذة تغذية الطاقم الذي يرى المكتب كلّه (الموظف/الإدارة) — تطابق شاشة تقويم الموظف
+     * (Employee\CalendarController) كي لا يُبنى تقويم اشتراك بلا حدّ من أرشيف المكتب كلّه.
+     */
+    private const FEED_PAST_DAYS = 7;
+
+    private const FEED_FUTURE_DAYS = 90;
+
+    private const FEED_MAX_EVENTS = 300;
+
+    /**
      * ترميز Google Schema.org JSON-LD المعتمد للأحداث (للإدراج التلقائي الصامت في تقويم جوجل فور وصول البريد).
      */
     public static function googleSchemaJsonLd(
@@ -138,12 +148,28 @@ class IcalendarService
     public static function feedForUser(User $user): string
     {
         $events = collect();
-        $isStaff = in_array($user->role, [Role::Lawyer, Role::Employee, Role::Admin], true);
+
+        // ثلاثة مستويات رؤية لا اثنان: المحامي معزول بإسناده، والعميل بسجلّاته، أمّا الموظف
+        // والإدارة فيريان المكتب كلّه. كان الثلاثة (طاقم) يُفلترون بـassigned_lawyer_id، والموظف
+        // والإدارة لا يكونان مُسنَدَين أبداً (العمود للمحامين) ⇒ تغذية فارغة تماماً بينما شاشة
+        // تقويمهما تعرض أحداث المكتب كلّها وتعرض زرّ الاشتراك.
+        $isLawyer = $user->role === Role::Lawyer;
+        $isOfficeWide = in_array($user->role, [Role::Employee, Role::Admin], true);
+        $from = now()->subDays(self::FEED_PAST_DAYS);
+        $to = now()->addDays(self::FEED_FUTURE_DAYS);
+
+        // نافذة المكتب — تُبقي الصفوف بلا موعد محدّد (تُجدول لاحقاً) كما تفعل شاشة التقويم
+        $window = fn ($query) => $query
+            ->where(fn ($q) => $q->whereNull('starts_at')->orWhereBetween('starts_at', [$from, $to]))
+            ->orderByRaw('starts_at is null')->orderBy('starts_at')
+            ->limit(self::FEED_MAX_EVENTS);
 
         // 1. الاستشارات
-        $consultQuery = Consult::query();
-        if ($isStaff) {
+        $consultQuery = Consult::with('appointment');
+        if ($isLawyer) {
             $consultQuery->where('assigned_lawyer_id', $user->id);
+        } elseif ($isOfficeWide) {
+            $window($consultQuery);
         } else {
             $consultQuery->where('user_id', $user->id);
         }
@@ -162,14 +188,16 @@ class IcalendarService
                 description: "استشارة قانونية ({$c->channel})\nالمستشار: {$c->lawyer}\nرابط الجلسة: {$link}",
                 startsAt: $start,
                 durationMinutes: $dur,
-                location: $c->channel === 'حضورية' ? ($c->branch ?: 'مكتب المحاماة') : $link
+                location: $c->channel === 'حضورية' ? $c->placeLabel() : $link
             ));
         }
 
         // 2. الاجتماعات
         $meetingQuery = Meeting::query();
-        if ($isStaff) {
+        if ($isLawyer) {
             $meetingQuery->where('assigned_lawyer_id', $user->id);
+        } elseif ($isOfficeWide) {
+            $window($meetingQuery);
         } else {
             $meetingQuery->where('user_id', $user->id);
         }
@@ -190,8 +218,10 @@ class IcalendarService
 
         // 3. جلسات المحاكم
         $hearingQuery = CaseHearing::query()->with('legalCase');
-        if ($isStaff) {
+        if ($isLawyer) {
             $hearingQuery->whereHas('legalCase', fn ($q) => $q->where('assigned_lawyer_id', $user->id));
+        } elseif ($isOfficeWide) {
+            $window($hearingQuery);
         } else {
             $hearingQuery->whereHas('legalCase', fn ($q) => $q->where('user_id', $user->id));
         }
@@ -222,10 +252,10 @@ class IcalendarService
             $events->push(self::formatVEvent(
                 uid: 'APPT-'.$a->id,
                 title: "موعد: {$a->type}",
-                description: "موعد رسمي لدى المكتب\nالمحامي: {$a->lawyer}\nالمكان: {$a->branch}",
+                description: "موعد رسمي لدى المكتب\nالمحامي: {$a->lawyer}\nالمكان: {$a->place}",
                 startsAt: $start,
                 durationMinutes: 30,
-                location: $a->branch ?: 'مكتب المحاماة'
+                location: $a->place ?: (string) config('office.address')
             ));
         }
 

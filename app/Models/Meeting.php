@@ -20,7 +20,7 @@ class Meeting extends Model
         'summary', 'sum_approved', 'minutes', 'participants', 'case_ref',
         'decisions', 'tasks_created',
         'meet_id', 'meet_link', 'host_link', 'meet_password', 'created_by',
-        'assigned_lawyer_id', 'branch',
+        'assigned_lawyer_id',
         // is_up مهجور (deprecated): «القادم» يُشتق حيّاً من liveState/isUpcoming — لم يعد يُكتب ولا يُقرأ
         'is_up', 'has_link', 'has_minutes', 'has_summary',
         'zoom_summary', 'zoom_summary_at',
@@ -238,7 +238,6 @@ class Meeting extends Model
             'type' => $this->type,
             'client' => $this->client_name ?: 'داخلي',
             'lawyer' => $this->assignedLawyer?->name ?: '—',
-            'branch' => $this->branch ?: '—',
             'when' => $this->when_label,
             'approve' => $this->approve,
             'before' => $this->before_items ?? [],

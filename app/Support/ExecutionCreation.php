@@ -32,7 +32,6 @@ class ExecutionCreation
                 'subject' => 'تنفيذ حكم — '.$case->type,
                 'assigned_lawyer' => $lawyer->name,
                 'assigned_lawyer_id' => $lawyer->id,
-                'branch' => $case->branch ?: $lawyer->branch,
                 'status' => 'جديد',
                 'tone' => ExecJourney::toneFor('جديد'),
                 'last_action' => 'فتح طلب التنفيذ بعد صدور الحكم',
@@ -40,7 +39,7 @@ class ExecutionCreation
 
             $exec->messages()->create([
                 'who' => 'system', 'name' => 'النظام', 'role' => 'فتح',
-                'body' => "<p>تم فتح طلب تنفيذ الحكم الصادر في القضية {$case->number}، وإسناده إلى قسم التنفيذ ({$lawyer->name}).</p>",
+                'body' => '<p>تم فتح طلب تنفيذ الحكم الصادر في القضية '.e($case->number).'، وإسناده إلى قسم التنفيذ ('.e($lawyer->name).').</p>',
                 'time_label' => self::clock(),
             ]);
 

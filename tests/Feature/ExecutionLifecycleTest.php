@@ -93,8 +93,8 @@ class ExecutionLifecycleTest extends TestCase
     public function test_employee_oversees_and_replies_in_unified_tab(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $exec = $this->execFor($client, ['branch' => 'فرع الاختبار']);
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الاختبار']);
+        $exec = $this->execFor($client);
+        $employee = User::factory()->create(['role' => Role::Employee]);
 
         $this->actingAs($employee)->get(route('employee.execs'))
             ->assertOk()->assertInertia(fn ($p) => $p->component('execflow')->where('role', 'employee')->has('execs', 1));
@@ -107,8 +107,8 @@ class ExecutionLifecycleTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         // طلب تدفّق في مرحلة الاستقبال (تحليل ذكي، stage 1) بفرع الموظف
-        $exec = Execution::create(['user_id' => $client->id, 'number' => 'EXE-INT', 'subject' => 'تنفيذ', 'status' => 'تحليل ذكي', 'tone' => 'b-blue', 'stage' => 1, 'branch' => 'فرع الاختبار']);
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الاختبار']);
+        $exec = Execution::create(['user_id' => $client->id, 'number' => 'EXE-INT', 'subject' => 'تنفيذ', 'status' => 'تحليل ذكي', 'tone' => 'b-blue', 'stage' => 1]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
 
         // استقبال: طلب مستندات من العميل
         $this->actingAs($employee)->post(route('exec-flow.act', $exec), ['action' => 'requestDocs'])->assertRedirect();

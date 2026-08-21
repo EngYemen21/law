@@ -184,7 +184,7 @@ class MeetingFlowTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $admin = User::factory()->create(['role' => Role::Admin]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
 
         $this->actingAs($admin)->post(route('admin.meetings.store'), [
             'title' => 'اجتماع مراجعة العقد',
@@ -203,7 +203,6 @@ class MeetingFlowTest extends TestCase
         $this->assertSame($client->id, $meeting->user_id);
         $this->assertSame('عالية', $meeting->priority);
         $this->assertSame($lawyer->id, $meeting->assigned_lawyer_id);
-        $this->assertSame('فرع الرياض', $meeting->branch);
         $this->assertSame(1, UserNotification::where('user_id', $client->id)->count());
 
         // تم إنشاء طلب دعوة مرتبط بانتظار تأكيد العميل

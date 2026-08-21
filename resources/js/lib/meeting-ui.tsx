@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import FlowLine from '@/components/babylon/FlowLine';
 import Modal from '@/components/babylon/Modal';
+import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { todayISO } from '@/components/SpecialistPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { nowClock, todayDate } from '@/lib/chat';
@@ -56,7 +57,6 @@ export interface FullMeetingCard {
     type: string;
     client: string;
     lawyer: string;
-    branch: string;
     when: string;
     approve: string;
     before: string[];
@@ -195,6 +195,12 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
     }), [busy, miDuration, miDay]);
     // صفّر الوقت إن لم يعد متاحاً بعد تغيير المحامي/اليوم/المدة
     useEffect(() => { if (miTime && !availableSlots.includes(miTime)) setMiTime(''); }, [availableSlots, miTime]);
+    // قائمة كاملة بكل الأوقات — المحجوزة تُعلَّم taken:true لتُعرض رمادية في المكوّن
+    const allSlotsWithStatus = useMemo(() => MI_SLOTS.map((s) => {
+        const cs = hmToMin(s); const ce = cs + miDuration;
+        const isBusy = busy.some(([a, b]) => cs < hmToMin(b) && hmToMin(a) < ce);
+        return { time: s, taken: isBusy, label: isBusy ? 'محجوز' : undefined };
+    }), [busy, miDuration, miDay]);
 
     const submitInvite = () => {
         if (!miClient) { toast('اختر العميل'); return; }
@@ -402,23 +408,25 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
                 </div>
 
                 <div className="form-sec-h"><span className="si"><Icon name="cal" /></span> الموعد</div>
-                <div className="picker-grid">
-                    <div className="field">
-                        <label>اليوم <span className="req">*</span></label>
-                        <input className="input" type="date" min={todayISO()} value={miDay} onChange={(e) => setMiDay(e.target.value)} />
-                    </div>
-                    <div className="field">
-                        <label>الموعد المتاح <span className="req">*</span></label>
-                        <select className="input" value={miTime} onChange={(e) => setMiTime(e.target.value)} disabled={!miLawyer}>
-                            <option value="">{!miLawyer ? '— اختر المحامي أولاً —' : (availableSlots.length ? '— اختر موعداً —' : 'لا مواعيد متاحة')}</option>
-                            {availableSlots.map((s) => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                    </div>
+                <div className="field">
+                    <label>اليوم <span className="req">*</span></label>
+                    <input className="input" type="date" min={todayISO()} value={miDay} onChange={(e) => setMiDay(e.target.value)} />
                 </div>
-                {miLawyer && miDay && availableSlots.length === 0 && (
-                    <div style={{ color: 'var(--danger, #c0392b)', fontSize: 12, margin: '2px 0 8px' }}>
-                        لا مواعيد متاحة لهذا المحامي في هذا اليوم — جرّب يوماً آخر أو مدّة أقصر.
+                {!miLawyer ? (
+                    <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Icon name="info" /> اختر المحامي المسؤول أولاً لعرض المواعيد المتاحة
                     </div>
+                ) : (
+                    <TimeSlotPicker
+                        value={miTime}
+                        onChange={setMiTime}
+                        date={miDay}
+                        slots={allSlotsWithStatus}
+                        label="الموعد المتاح"
+                        required
+                        allowCustom={false}
+                        helperText={availableSlots.length === 0 ? 'لا مواعيد متاحة لهذا المحامي في هذا اليوم — جرّب يوماً آخر أو مدّة أقصر.' : undefined}
+                    />
                 )}
                 <div className="action-hint" style={{ margin: '12px 0' }}>
                     <Icon name="info" /> تصل الدعوة للعميل عبر إشعار داخل النظام وبريد إلكتروني ليؤكّد حضوره.
@@ -432,16 +440,17 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
                 <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
                     انتهت صلاحية الدعوة دون تأكيد العميل — اختر موعداً جديداً لتعود الدعوة إلى «بانتظار التأكيد» ويُشعر العميل.
                 </p>
-                <div className="picker-grid">
-                    <div className="field">
-                        <label>اليوم الجديد <span className="req">*</span></label>
-                        <input className="input" type="date" min={todayISO()} value={rsDay} onChange={(e) => setRsDay(e.target.value)} />
-                    </div>
-                    <div className="field">
-                        <label>الوقت <span className="req">*</span></label>
-                        <input className="input" type="time" value={rsTime} onChange={(e) => setRsTime(e.target.value)} />
-                    </div>
+                <div className="field">
+                    <label>اليوم الجديد <span className="req">*</span></label>
+                    <input className="input" type="date" min={todayISO()} value={rsDay} onChange={(e) => setRsDay(e.target.value)} />
                 </div>
+                <TimeSlotPicker
+                    value={rsTime}
+                    onChange={setRsTime}
+                    date={rsDay}
+                    label="وقت الاجتماع الجديد"
+                    required
+                />
                 <button className="btn block" onClick={submitResend} type="button" disabled={!rsDay || !rsTime}>
                     <Icon name="send" /> إعادة الإرسال للعميل
                 </button>
@@ -562,84 +571,264 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
             onSuccess: () => { setApprove('معتمد'); toast('اعتُمد الاجتماع — وصل المحضر والملخص للعميل'); },
         });
 
+    // ألوان حالة الاجتماع — مبنية على CSS variables المنصة (--deep / --primary / --cyan / --amber / --success / --red / --muted)
+    const heroGradients: Record<string, string> = {
+        'قادم':      'linear-gradient(135deg, #0A2A55 0%, #0E5C9C 55%, #11A0C8 100%)', // brand: --deep → --primary → --cyan
+        'جارٍ':      'linear-gradient(135deg, #5a3500 0%, #C0832B 60%, #d9a450 100%)', // brand: --amber
+        'منتهٍ':     'linear-gradient(135deg, #0b3320 0%, #1E9D6B 60%, #2abf85 100%)', // brand: --success
+        'مؤجل':      'linear-gradient(135deg, #1e2d3d 0%, #607689 60%, #90A2B2 100%)', // brand: --muted / --faint
+        'ملغى':      'linear-gradient(135deg, #3d0a0a 0%, #C0392B 60%, #d9504a 100%)', // brand: --red
+        'لم ينعقد':  'linear-gradient(135deg, #1e2d3d 0%, #607689 60%, #90A2B2 100%)', // brand: --muted / --faint
+    };
+    const heroGrad = heroGradients[status] ?? heroGradients['قادم'];
+
     return (
         <div className="detail-wrap">
-            <div style={{ marginBottom: 14 }}>
-                <Link href={`${base}/meetings`} className="btn soft sm">
-                    <Icon name="reply" /> رجوع للاجتماعات
-                </Link>
-            </div>
+            {/* ═══════════════════════════════════════
+                🏛️  بانر البطل — هوية الاجتماع الكاملة
+            ════════════════════════════════════════ */}
+            <div style={{
+                background: heroGrad,
+                borderRadius: 18,
+                padding: '28px 28px 24px',
+                marginBottom: 20,
+                color: '#fff',
+                position: 'relative',
+                overflow: 'hidden',
+            }}>
+                {/* خلفية زخرفية */}
+                <div style={{
+                    position: 'absolute', inset: 0,
+                    background: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' fill=\'none\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Ccircle cx=\'30\' cy=\'30\' r=\'28\' stroke=\'white\' stroke-opacity=\'0.04\' stroke-width=\'2\'/%3E%3C/svg\'")',
+                    backgroundSize: '80px 80px',
+                    opacity: 0.6,
+                    pointerEvents: 'none',
+                }} />
 
-            <div className="card" style={{ marginBottom: 16 }}>
-                <div className="card-h">
-                    <h3>{m.title}</h3>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <Badge text={status} tone={meetStatusTone(status)} />
-                        <Badge text={approve} tone={approved ? 'b-green' : 'b-amber'} />
+                {/* رجوع */}
+                <div style={{ marginBottom: 18 }}>
+                    <Link
+                        href={`${base}/meetings`}
+                        style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.25)',
+                            borderRadius: 8, padding: '5px 12px', fontSize: '12.5px',
+                            color: '#fff', fontWeight: 600, backdropFilter: 'blur(4px)',
+                            transition: 'background 0.2s',
+                        }}
+                    >
+                        <Icon name="reply" /> العودة للاجتماعات
+                    </Link>
+                </div>
+
+                {/* عنوان الاجتماع + شارات الحالة */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        {/* مرجع الاجتماع */}
+                        <div style={{ fontSize: '11.5px', fontWeight: 700, opacity: 0.7, letterSpacing: 1, marginBottom: 6 }}>
+                            {m.id} · {m.type}
+                        </div>
+                        <h2 style={{ fontSize: '22px', fontWeight: 800, lineHeight: 1.3, marginBottom: 10, color: '#fff' }}>
+                            {m.title}
+                        </h2>
+                        {/* معلومات سريعة */}
+                        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: '13px', opacity: 0.9 }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <Icon name="user" /> {m.client}
+                            </span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <Icon name="clock" /> {m.when}
+                            </span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <Icon name="cal" /> {m.dur}
+                            </span>
+                            {m.caseRef && (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                    <Icon name="folder" /> {m.caseRef}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* شارات الحالة والاعتماد */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10, flexShrink: 0 }}>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            <Badge text={status} tone={meetStatusTone(status)} />
+                            <Badge text={approve} tone={approved ? 'b-green' : 'b-amber'} />
+                            {m.conf === 'سري' && (
+                                <span style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                                    background: 'rgba(192,57,43,0.85)', borderRadius: 8,
+                                    padding: '3px 10px', fontSize: '11.5px', fontWeight: 700,
+                                }}>
+                                    <Icon name="lock" /> سري
+                                </span>
+                            )}
+                        </div>
+
+                        {/* زر الاعتماد (إدارة فقط) */}
                         {base === '/admin' && !approved && (
-                            <button className="btn sm" type="button" onClick={approveMeeting}>
+                            <button
+                                type="button"
+                                onClick={approveMeeting}
+                                style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                                    background: '#fff', color: '#0E5C9C',
+                                    border: 'none', borderRadius: 10,
+                                    padding: '8px 18px', fontSize: '13px', fontWeight: 800,
+                                    cursor: 'pointer',
+                                    boxShadow: '0 4px 14px rgba(0,0,0,0.15)',
+                                    transition: 'transform 0.15s, box-shadow 0.15s',
+                                }}
+                            >
                                 <Icon name="check" /> اعتماد المحضر والملخص
                             </button>
                         )}
                     </div>
                 </div>
-                <div className="card-b" style={{ padding: '14px 18px' }}>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <span className="chip muted">{m.type}</span>
-                        <span className="chip muted">{m.client}</span>
-                        <span className="chip muted">{m.when}</span>
-                        <span className="chip muted">{m.dur}</span>
-                        {m.caseRef && <span className="chip muted">{m.caseRef}</span>}
+
+                {/* شريط الإجراءات السريعة */}
+                {(m.meetLink && manageable) && (
+                    <div style={{
+                        marginTop: 20, paddingTop: 16,
+                        borderTop: '1px solid rgba(255,255,255,0.2)',
+                        display: 'flex', gap: 10, flexWrap: 'wrap',
+                    }}>
+                        <button
+                            type="button"
+                            onClick={copyLink}
+                            style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 6,
+                                background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
+                                borderRadius: 9, padding: '7px 14px', fontSize: '12.5px',
+                                color: '#fff', fontWeight: 700, cursor: 'pointer',
+                                backdropFilter: 'blur(4px)',
+                            }}
+                        >
+                            <Icon name="link" /> نسخ رابط Zoom
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => router.visit(`${base}/meetingroom?ref=${encodeURIComponent(m.id)}`)}
+                            style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 6,
+                                background: '#fff', border: 'none',
+                                borderRadius: 9, padding: '7px 16px', fontSize: '12.5px',
+                                color: '#0E5C9C', fontWeight: 800, cursor: 'pointer',
+                                boxShadow: '0 3px 10px rgba(0,0,0,0.12)',
+                            }}
+                        >
+                            <Icon name="video" /> دخول اجتماع Zoom
+                        </button>
                     </div>
-                    {m.participants && (
-                        <div style={{ marginTop: 11, fontSize: '12.5px', color: 'var(--ink)' }}>
-                            <b>المشاركون:</b> <span style={{ color: 'var(--muted)' }}>{m.participants}</span>
-                        </div>
-                    )}
-                    {m.meetLink && manageable && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line-soft)' }}>
-                            <button className="btn soft sm" onClick={copyLink} type="button">
-                                <Icon name="link" /> نسخ الرابط
-                            </button>
-                            <button className="btn sm" onClick={() => router.visit(`${base}/meetingroom?ref=${encodeURIComponent(m.id)}`)} type="button">
-                                <Icon name="video" /> دخول اجتماع Zoom
-                            </button>
-                        </div>
-                    )}
-                </div>
+                )}
             </div>
 
-            {/* إدارة دورة حياة الاجتماع — متزامنة مع Zoom خادميًّا */}
+            {/* ═══════════════════════════════════════
+                🎮  إدارة دورة حياة الاجتماع
+            ════════════════════════════════════════ */}
             {canReschedule && (
-                <div className="card" style={{ marginBottom: 16 }}>
-                    <div className="card-h"><h3>إدارة الجلسة</h3></div>
-                    <div className="card-b" style={{ padding: 14 }}>
+                <div className="card" style={{ marginBottom: 18 }}>
+                    <div className="card-h">
+                        <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{
+                                width: 28, height: 28, borderRadius: 8,
+                                background: 'var(--brand)', color: '#fff',
+                                display: 'grid', placeItems: 'center', flexShrink: 0,
+                            }}><Icon name="cal" /></span>
+                            إدارة الجلسة
+                        </h3>
+                    </div>
+                    <div className="card-b" style={{ padding: '16px 18px' }}>
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                            {canStart && <button className="btn sm" type="button" onClick={startMeeting}><Icon name="video" /> بدء الجلسة</button>}
-                            {canEnd && <button className="btn soft sm" type="button" onClick={() => setLcMode(lcMode === 'end' ? null : 'end')}><Icon name="check" /> إنهاء الاجتماع</button>}
-                            <button className="btn soft sm" type="button" onClick={() => setLcMode(lcMode === 'reschedule' ? null : 'reschedule')}><Icon name="cal" /> إعادة جدولة</button>
-                            {manageable && <button className="btn soft sm" type="button" onClick={cancelMeeting}><Icon name="info" /> إلغاء الاجتماع</button>}
+                            {canStart && (
+                                <button
+                                    className="btn sm" type="button" onClick={startMeeting}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                >
+                                    <Icon name="video" /> بدء الجلسة
+                                </button>
+                            )}
+                            {canEnd && (
+                                <button
+                                    className="btn soft sm" type="button"
+                                    onClick={() => setLcMode(lcMode === 'end' ? null : 'end')}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                >
+                                    <Icon name="check" /> إنهاء الاجتماع
+                                </button>
+                            )}
+                            <button
+                                className="btn soft sm" type="button"
+                                onClick={() => setLcMode(lcMode === 'reschedule' ? null : 'reschedule')}
+                                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                            >
+                                <Icon name="cal" /> إعادة جدولة
+                            </button>
+                            {manageable && (
+                                <button
+                                    className="btn soft sm" type="button" onClick={cancelMeeting}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--red)' }}
+                                >
+                                    <Icon name="info" /> إلغاء الاجتماع
+                                </button>
+                            )}
                         </div>
 
                         {lcMode === 'reschedule' && (
-                            <div className="picker-grid" style={{ marginTop: 12 }}>
-                                <div className="field"><label>التاريخ الجديد</label><input className="input" type="date" value={reDay} onChange={(e) => setReDay(e.target.value)} /></div>
-                                <div className="field"><label>الوقت</label><input className="input" type="time" value={reTime} onChange={(e) => setReTime(e.target.value)} /></div>
-                                <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 6 }}>
-                                    <button className="btn sm" type="button" onClick={submitReschedule}><Icon name="cal" /> حفظ الموعد الجديد</button>
+                            <div style={{
+                                marginTop: 16, padding: 16,
+                                background: 'var(--surface-soft, #f8fafc)',
+                                border: '1px solid var(--line-soft, #e2e8f0)',
+                                borderRadius: 12,
+                            }}>
+                                <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--deep)', marginBottom: 12 }}>
+                                    📅 تحديد الموعد الجديد
+                                </div>
+                                <div className="field" style={{ marginBottom: 12 }}>
+                                    <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>التاريخ الجديد</label>
+                                    <input className="input" type="date" value={reDay} onChange={(e) => setReDay(e.target.value)} style={{ borderRadius: 9 }} />
+                                </div>
+                                <TimeSlotPicker
+                                    value={reTime}
+                                    onChange={setReTime}
+                                    date={reDay}
+                                    label="الوقت الجديد للاجتماع"
+                                    required
+                                />
+                                <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                                    <button className="btn sm" type="button" onClick={submitReschedule} disabled={!reTime}>
+                                        <Icon name="cal" /> حفظ الموعد الجديد
+                                    </button>
                                     <button className="btn soft sm" type="button" onClick={() => setLcMode(null)}>إلغاء</button>
                                 </div>
                             </div>
                         )}
 
                         {lcMode === 'end' && (
-                            <div style={{ marginTop: 12 }}>
-                                <div className="picker-grid">
-                                    <div className="field"><label>نسبة الحضور %</label><input className="input" type="number" min={0} max={100} value={endAttend} onChange={(e) => setEndAttend(e.target.value)} /></div>
+                            <div style={{
+                                marginTop: 16, padding: 16,
+                                background: 'var(--surface-soft, #f8fafc)',
+                                border: '1px solid var(--line-soft, #e2e8f0)',
+                                borderRadius: 12,
+                            }}>
+                                <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--deep)', marginBottom: 12 }}>
+                                    ✅ تفاصيل إنهاء الجلسة
                                 </div>
-                                <div className="field"><label>ملاحظات/نقاط الجلسة (تُغذّي الملخّص)</label><textarea value={endNotes} onChange={(e) => setEndNotes(e.target.value)} style={{ minHeight: 70 }} /></div>
-                                <div style={{ display: 'flex', gap: 6 }}>
-                                    <button className="btn sm" type="button" onClick={submitEnd}><Icon name="check" /> تأكيد الإنهاء</button>
+                                <div className="picker-grid">
+                                    <div className="field">
+                                        <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>نسبة الحضور %</label>
+                                        <input className="input" type="number" min={0} max={100} value={endAttend} onChange={(e) => setEndAttend(e.target.value)} style={{ borderRadius: 9 }} />
+                                    </div>
+                                </div>
+                                <div className="field" style={{ marginTop: 10 }}>
+                                    <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>ملاحظات/نقاط الجلسة (تُغذّي الملخّص)</label>
+                                    <textarea value={endNotes} onChange={(e) => setEndNotes(e.target.value)} style={{ minHeight: 80, borderRadius: 9 }} />
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                                    <button className="btn sm" type="button" onClick={submitEnd}>
+                                        <Icon name="check" /> تأكيد الإنهاء
+                                    </button>
                                     <button className="btn soft sm" type="button" onClick={() => setLcMode(null)}>إلغاء</button>
                                 </div>
                             </div>
@@ -648,112 +837,399 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                 </div>
             )}
 
-            {/* بيانات جلسة Zoom الفعلية (من الويبهوك) — الإدارة العليا فقط */}
+            {/* ═══════════════════════════════════════
+                📡  بيانات جلسة Zoom الفعلية (إدارة فقط)
+            ════════════════════════════════════════ */}
             {base === '/admin' && (
-                <div className="card" style={{ marginBottom: 16 }}>
-                    <div className="card-h"><h3>بيانات جلسة Zoom</h3><span className="sub">بيانات فعلية من الويبهوك</span></div>
-                    <div className="card-b" style={{ padding: 16 }}>
-                        {m.joinTime && <div className="kpi-row"><span className="t">دخول أول مشارك</span><span className="v" style={{ direction: 'ltr' }}>{m.joinTime}</span></div>}
-                        {m.leaveTime && <div className="kpi-row"><span className="t">آخر مغادرة</span><span className="v" style={{ direction: 'ltr' }}>{m.leaveTime}</span></div>}
-                        {fmtActualDuration(m.durationSec) && <div className="kpi-row"><span className="t">مدة الحضور الفعلية</span><span className="v">{fmtActualDuration(m.durationSec)}</span></div>}
-                        {status === 'منتهٍ' && <div className="kpi-row"><span className="t">نسبة الحضور</span><span className="v">{m.attend || 0}%</span></div>}
-                        <div className="kpi-row"><span className="t">التسجيل المرئي</span><span className="v" style={{ display: 'flex', gap: 10 }}>
-                            {m.recording ? <a href={m.recording} target="_blank" rel="noopener noreferrer">مشاهدة</a> : '—'}
-                            {/* تنزيل خادمي مضغوط — الرابط السحابي صفحة مشاهدة لا ملفاً */}
-                            {m.recording && <a href={`${base}/meetings/${m.dbId}/recording.zip`}>تنزيل (ZIP)</a>}
-                        </span></div>
-                        <div className="kpi-row"><span className="t">التسجيل الصوتي</span><span className="v">{m.zoomAudioUrl ? <a href={`${base}/meetings/${m.dbId}/audio.zip`}>تنزيل (ZIP)</a> : '—'}</span></div>
-                        <div className="kpi-row"><span className="t">النص الكامل</span><span className="v">{(m.transcript || m.recording) ? <a href={`${base}/meetings/${m.dbId}/transcript`}>تنزيل النص</a> : '—'}</span></div>
-                        {m.zoomSummaryAt && <div className="kpi-row"><span className="t">ملخّص Zoom AI بتاريخ</span><span className="v" style={{ direction: 'ltr' }}>{m.zoomSummaryAt}</span></div>}
+                <div className="card" style={{ marginBottom: 18 }}>
+                    <div className="card-h">
+                        <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{
+                                width: 28, height: 28, borderRadius: 8,
+                                background: 'var(--cyan)', color: '#fff',
+                                display: 'grid', placeItems: 'center', flexShrink: 0,
+                            }}><Icon name="video" /></span>
+                            بيانات جلسة Zoom
+                        </h3>
+                        <span className="sub">بيانات فعلية من الويبهوك</span>
+                    </div>
+                    <div className="card-b" style={{ padding: '0 0 4px' }}>
+                        {/* شبكة مؤشرات Zoom */}
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                            gap: 1,
+                            background: 'var(--line-soft, #e2e8f0)',
+                            borderRadius: '0 0 14px 14px',
+                            overflow: 'hidden',
+                        }}>
+                            {[
+                                { label: 'دخول أول مشارك', value: m.joinTime, ltr: true },
+                                { label: 'آخر مغادرة', value: m.leaveTime, ltr: true },
+                                { label: 'مدة الحضور الفعلية', value: fmtActualDuration(m.durationSec) },
+                                { label: 'نسبة الحضور', value: status === 'منتهٍ' ? `${m.attend || 0}%` : null },
+                            ].filter(r => r.value).map((row, i) => (
+                                <div key={i} style={{
+                                    background: 'var(--paper)',
+                                    padding: '12px 16px',
+                                    display: 'flex', flexDirection: 'column', gap: 3,
+                                }}>
+                                    <span style={{ fontSize: '11.5px', color: 'var(--muted)', fontWeight: 600 }}>{row.label}</span>
+                                    <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--deep)', direction: row.ltr ? 'ltr' : 'inherit' }}>
+                                        {row.value}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* روابط التسجيل والتنزيل */}
+                        <div style={{ padding: '12px 16px', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                            {m.recording ? (
+                                <>
+                                    <a
+                                        href={m.recording} target="_blank" rel="noopener noreferrer"
+                                        style={{
+                                            display: 'inline-flex', alignItems: 'center', gap: 5,
+                                            padding: '7px 14px', borderRadius: 9,
+                                            background: 'var(--primary)', color: '#fff',
+                                            fontSize: '12px', fontWeight: 700,
+                                        }}
+                                    >
+                                        <Icon name="video" /> مشاهدة التسجيل
+                                    </a>
+                                    <a
+                                        href={`${base}/meetings/${m.dbId}/recording.zip`}
+                                        style={{
+                                            display: 'inline-flex', alignItems: 'center', gap: 5,
+                                            padding: '7px 14px', borderRadius: 9,
+                                            border: '1px solid var(--line-soft)',
+                                            background: 'var(--paper-2)',
+                                            fontSize: '12px', fontWeight: 600,
+                                        }}
+                                    >
+                                        تنزيل (ZIP)
+                                    </a>
+                                </>
+                            ) : (
+                                <span style={{ fontSize: '12.5px', color: 'var(--muted)' }}>لا يوجد تسجيل مرئي بعد</span>
+                            )}
+                            {m.zoomAudioUrl && (
+                                <a
+                                    href={`${base}/meetings/${m.dbId}/audio.zip`}
+                                    style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                                        padding: '7px 14px', borderRadius: 9,
+                                        border: '1px solid var(--line-soft)',
+                                        background: 'var(--paper-2)',
+                                        fontSize: '12px', fontWeight: 600,
+                                    }}
+                                >
+                                    🎵 تسجيل صوتي (ZIP)
+                                </a>
+                            )}
+                            {(m.transcript || m.recording) && (
+                                <a
+                                    href={`${base}/meetings/${m.dbId}/transcript`}
+                                    style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                                        padding: '7px 14px', borderRadius: 9,
+                                        border: '1px solid var(--line-soft)',
+                                        background: 'var(--paper-2)',
+                                        fontSize: '12px', fontWeight: 600,
+                                    }}
+                                >
+                                    📄 تنزيل النص الكامل
+                                </a>
+                            )}
+                        </div>
+
+                        {/* ملخّص Zoom AI */}
                         {m.zoomSummary && (
-                            <div style={{ marginTop: 10 }}>
-                                <b style={{ fontSize: '12.5px' }}>ملخّص Zoom AI:</b>
-                                <p style={{ color: 'var(--muted)', fontSize: '12.5px', marginTop: 4, whiteSpace: 'pre-wrap' }}>{m.zoomSummary}</p>
+                            <div style={{
+                                margin: '0 16px 12px',
+                                padding: 14,
+                                background: 'linear-gradient(135deg, rgba(10,42,85,0.04) 0%, rgba(14,92,156,0.08) 100%)',
+                                border: '1px solid rgba(14,92,156,0.15)',
+                                borderRadius: 10,
+                            }}>
+                                <div style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--deep)', marginBottom: 6 }}>
+                                    🤖 ملخّص Zoom AI {m.zoomSummaryAt && <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— {m.zoomSummaryAt}</span>}
+                                </div>
+                                <p style={{ color: 'var(--muted)', fontSize: '12.5px', lineHeight: 1.7, whiteSpace: 'pre-wrap', margin: 0 }}>
+                                    {m.zoomSummary}
+                                </p>
                             </div>
                         )}
+
                         {!m.joinTime && !m.recording && !m.transcript && status !== 'منتهٍ' && (
-                            <div className="action-hint">تظهر بيانات الجلسة الفعلية (الدخول/المدة/التسجيل/النص) تلقائيًّا بعد انعقاد الجلسة عبر ويبهوك Zoom.</div>
+                            <div className="action-hint" style={{ margin: '8px 16px' }}>
+                                تظهر بيانات الجلسة الفعلية (الدخول/المدة/التسجيل/النص) تلقائيًّا بعد انعقاد الجلسة عبر ويبهوك Zoom.
+                            </div>
                         )}
                     </div>
                 </div>
             )}
 
-            <div className="ai-banner">
-                <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
-                <p>مخرجات الفريق القانوني للاجتماع (قبل/أثناء/بعد)، مع إمكانية تعديل المحضر واعتماده.</p>
+            {/* ═══════════════════════════════════════
+                📋  مخرجات الفريق القانوني
+            ════════════════════════════════════════ */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: 12,
+                marginBottom: 18,
+            }}>
+                {[
+                    { label: 'قبل الاجتماع', icon: '📝', items: m.before, cssColor: 'var(--primary)', cssBg: 'rgba(14,92,156,0.08)', cssBorder: 'rgba(14,92,156,0.18)' },
+                    { label: 'أثناء الاجتماع', icon: '🎙️', items: m.during, cssColor: 'var(--amber)', cssBg: 'var(--amber-bg)', cssBorder: 'rgba(192,131,43,0.2)' },
+                    { label: 'بعد الاجتماع', icon: '✅', items: m.after, cssColor: 'var(--success)', cssBg: 'var(--success-bg)', cssBorder: 'rgba(30,157,107,0.2)' },
+                ].map((col) => (
+                    <div key={col.label} style={{
+                        background: 'var(--paper)',
+                        border: `1px solid ${col.cssBorder}`,
+                        borderRadius: 14,
+                        overflow: 'hidden',
+                        boxShadow: 'var(--shadow)',
+                    }}>
+                        <div style={{
+                            padding: '10px 14px',
+                            background: col.cssBg,
+                            borderBottom: `1px solid ${col.cssBorder}`,
+                            display: 'flex', alignItems: 'center', gap: 7,
+                            fontWeight: 700, fontSize: '13px', color: col.cssColor,
+                        }}>
+                            <span>{col.icon}</span> {col.label}
+                        </div>
+                        <ul style={{ margin: 0, padding: '10px 18px', listStyle: 'none' }}>
+                            {col.items.map((x, i) => (
+                                <li key={i} style={{
+                                    padding: '6px 0',
+                                    fontSize: '13px',
+                                    color: 'var(--ink)',
+                                    borderBottom: i < col.items.length - 1 ? '1px solid var(--line-soft)' : 'none',
+                                    display: 'flex', alignItems: 'flex-start', gap: 8,
+                                }}>
+                                    <span style={{ color: col.cssColor, flexShrink: 0, marginTop: 2 }}>•</span>
+                                    {x}
+                                </li>
+                            ))}
+                            {col.items.length === 0 && (
+                                <li style={{ padding: '10px 0', color: 'var(--muted)', fontSize: '12.5px' }}>لا بنود بعد</li>
+                            )}
+                        </ul>
+                    </div>
+                ))}
             </div>
 
-            <div className="mpanel" style={{ marginBottom: 16 }}>
-                <div className="mbox">
-                    <div className="h">قبل الاجتماع</div>
-                    <ul>{m.before.map((x, i) => <li key={i}>{x}</li>)}</ul>
+            {/* ═══════════════════════════════════════
+                📄  ملخص الاجتماع
+            ════════════════════════════════════════ */}
+            <div style={{
+                background: 'var(--paper)',
+                border: '1px solid var(--line-soft, #e2e8f0)',
+                borderRadius: 14,
+                overflow: 'hidden',
+                marginBottom: 16,
+                boxShadow: 'var(--shadow)',
+            }}>
+                <div style={{
+                    padding: '12px 18px',
+                    background: 'var(--paper-2)',
+                    borderBottom: '1px solid var(--line-soft)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    flexWrap: 'wrap', gap: 8,
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{
+                            width: 28, height: 28, borderRadius: 7,
+                            background: 'var(--brand)', color: '#fff',
+                            display: 'grid', placeItems: 'center',
+                        }}><Icon name="doc" /></span>
+                        <b style={{ fontSize: '14px', color: 'var(--deep)' }}>ملخص الاجتماع</b>
+                        <span style={{
+                            fontSize: '11px', fontWeight: 700, padding: '2px 8px',
+                            borderRadius: 6,
+                            background: m.sumApproved ? 'var(--success-bg)' : 'var(--amber-bg)',
+                            color: m.sumApproved ? 'var(--success)' : 'var(--amber)',
+                        }}>
+                            {m.sumApproved ? '✓ معتمد' : 'مسودة'}
+                        </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        {m.sumApproved && <Badge text="الملخص معتمد ومُرسل للعميل" tone="b-green" />}
+                        <button
+                            className="btn soft sm" onClick={saveSummary} type="button"
+                            style={{ fontSize: '12px' }}
+                        >
+                            حفظ الملخص
+                        </button>
+                    </div>
                 </div>
-                <div className="mbox">
-                    <div className="h">أثناء الاجتماع</div>
-                    <ul>{m.during.map((x, i) => <li key={i}>{x}</li>)}</ul>
-                </div>
-                <div className="mbox">
-                    <div className="h">بعد الاجتماع</div>
-                    <ul>{m.after.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                <div style={{ padding: '14px 18px' }}>
+                    <textarea
+                        value={summary}
+                        onChange={(e) => setSummary(e.target.value)}
+                        style={{
+                            width: '100%', minHeight: 120,
+                            border: '1px solid var(--line-soft)',
+                            borderRadius: 10, padding: '10px 14px',
+                            fontSize: '13.5px', lineHeight: 1.7,
+                            background: 'var(--paper-2)',
+                            color: 'var(--ink)',
+                            resize: 'vertical',
+                        }}
+                    />
                 </div>
             </div>
 
-            <div className="doc-edit" style={{ marginBottom: 8 }}>
-                <div className="doc-head">
-                    <span className="di"><Icon name="doc" /></span>
-                    <b>ملخص الاجتماع</b>
-                    <span className="tag">{m.sumApproved ? 'معتمد' : 'مسودة'}</span>
-                </div>
-                <textarea value={summary} onChange={(e) => setSummary(e.target.value)} />
-            </div>
-            <div style={{ display: 'flex', gap: 9, margin: '10px 0 18px', flexWrap: 'wrap' }}>
-                <button className="btn soft" onClick={saveSummary} type="button">حفظ الملخص</button>
-                {m.sumApproved && <Badge text="الملخص معتمد ومُرسل للعميل" tone="b-green" />}
-            </div>
-
-            <div className="doc-edit">
-                <div className="doc-head">
-                    <span className="di"><Icon name="doc" /></span>
-                    <b>محضر الاجتماع</b>
-                    <span className="tag">{m.id}</span>
-                </div>
-                <textarea value={minutes} onChange={(e) => setMinutes(e.target.value)} />
-            </div>
-
-            <div className="card" style={{ marginTop: 16 }}>
-                <div className="card-h">
-                    <h3>القرارات والمهام</h3>
-                    <button className="btn soft sm" onClick={decisionsToTasks} type="button" disabled={tasksDone || decisions.length === 0}>
-                        <Icon name="check" /> {tasksDone ? 'حُوّلت إلى مهام' : 'تحويل القرارات إلى مهام'}
+            {/* ═══════════════════════════════════════
+                📋  محضر الاجتماع
+            ════════════════════════════════════════ */}
+            <div style={{
+                background: 'var(--paper)',
+                border: '1px solid var(--line-soft, #e2e8f0)',
+                borderRadius: 14,
+                overflow: 'hidden',
+                marginBottom: 18,
+                boxShadow: 'var(--shadow)',
+            }}>
+                <div style={{
+                    padding: '12px 18px',
+                    background: 'var(--paper-2)',
+                    borderBottom: '1px solid var(--line-soft)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    flexWrap: 'wrap', gap: 8,
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{
+                            width: 28, height: 28, borderRadius: 7,
+                            background: 'var(--brand)', color: '#fff',
+                            display: 'grid', placeItems: 'center',
+                        }}><Icon name="doc" /></span>
+                        <b style={{ fontSize: '14px', color: 'var(--deep)' }}>محضر الاجتماع</b>
+                        <span style={{
+                            fontSize: '11px', fontWeight: 700, padding: '2px 8px',
+                            borderRadius: 6,
+                            background: 'var(--paper-2)',
+                            border: '1px solid var(--line-soft)',
+                            color: 'var(--muted)',
+                        }}>
+                            {m.id}
+                        </span>
+                    </div>
+                    <button
+                        className="btn soft sm" onClick={saveMinutes} type="button"
+                        style={{ fontSize: '12px' }}
+                    >
+                        حفظ المحضر
                     </button>
                 </div>
-                <div className="card-b" style={{ padding: '14px 16px' }}>
+                <div style={{ padding: '14px 18px' }}>
+                    <textarea
+                        value={minutes}
+                        onChange={(e) => setMinutes(e.target.value)}
+                        style={{
+                            width: '100%', minHeight: 160,
+                            border: '1px solid var(--line-soft)',
+                            borderRadius: 10, padding: '10px 14px',
+                            fontSize: '13.5px', lineHeight: 1.7,
+                            background: 'var(--paper-2)',
+                            color: 'var(--ink)',
+                            resize: 'vertical',
+                        }}
+                    />
+                </div>
+            </div>
+
+            {/* ═══════════════════════════════════════
+                ⚡  القرارات والمهام
+            ════════════════════════════════════════ */}
+            <div className="card" style={{ marginBottom: 18 }}>
+                <div className="card-h">
+                    <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{
+                            width: 28, height: 28, borderRadius: 8,
+                            background: 'var(--success)', color: '#fff',
+                            display: 'grid', placeItems: 'center', flexShrink: 0,
+                        }}><Icon name="check" /></span>
+                        القرارات والمهام
+                    </h3>
+                    <button
+                        className="btn soft sm" onClick={decisionsToTasks} type="button"
+                        disabled={tasksDone || decisions.length === 0}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                    >
+                        <Icon name="check" /> {tasksDone ? '✓ حُوّلت إلى مهام' : 'تحويل القرارات إلى مهام'}
+                    </button>
+                </div>
+                <div className="card-b" style={{ padding: '14px 18px' }}>
                     {decisions.length ? (
-                        <ul style={{ margin: 0, paddingInlineStart: 18, lineHeight: 2 }}>
-                            {decisions.map((x, i) => <li key={i}>{decisionText(x)}</li>)}
-                        </ul>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {decisions.map((x, i) => (
+                                <div key={i} style={{
+                                    display: 'flex', alignItems: 'flex-start', gap: 10,
+                                    padding: '10px 14px',
+                                    background: 'var(--paper-2)',
+                                    border: '1px solid var(--line-soft)',
+                                    borderRadius: 10,
+                                    fontSize: '13.5px',
+                                }}>
+                                    <span style={{
+                                        width: 22, height: 22, borderRadius: 6,
+                                        background: 'var(--success-bg)',
+                                        color: 'var(--success)',
+                                        display: 'grid', placeItems: 'center',
+                                        fontWeight: 800, fontSize: '11px', flexShrink: 0,
+                                    }}>{i + 1}</span>
+                                    <span style={{ lineHeight: 1.6 }}>{decisionText(x)}</span>
+                                </div>
+                            ))}
+                        </div>
                     ) : (
-                        <div className="empty" style={{ padding: '8px 0' }}>
+                        <div className="empty" style={{ padding: '20px 0' }}>
                             <Icon name="check" /><b>تُستخرج القرارات تلقائياً بعد إنهاء الاجتماع</b>
                         </div>
                     )}
                 </div>
             </div>
 
-            <div className="prot-box">
-                <div className="ph"><Icon name="lock" /> حماية الاجتماع</div>
-                <div className="prot-list">
-                    <span className="chip">منع التحميل</span>
-                    <span className="chip">منع النسخ</span>
-                    <span className="chip">منع الطباعة</span>
-                    <span className="chip">منع المشاركة</span>
-                    <span className="chip">علامة مائية ديناميكية</span>
+            {/* ═══════════════════════════════════════
+                🔒  حماية الاجتماع والتوثيق
+            ════════════════════════════════════════ */}
+            <div style={{
+                padding: '14px 18px',
+                borderRadius: 12,
+                background: 'linear-gradient(135deg, rgba(10,42,85,0.03) 0%, rgba(14,92,156,0.06) 100%)',
+                border: '1px solid rgba(14,92,156,0.12)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 12,
+                marginBottom: 8,
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{
+                        width: 32, height: 32, borderRadius: 8,
+                        background: 'var(--brand)', color: '#fff',
+                        display: 'grid', placeItems: 'center', flexShrink: 0,
+                    }}><Icon name="lock" /></div>
+                    <div>
+                        <div style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--deep)', marginBottom: 4 }}>حماية الاجتماع والتوثيق</div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {['منع التحميل', 'منع النسخ', 'منع الطباعة', 'منع المشاركة', 'علامة مائية ديناميكية'].map((chip) => (
+                                <span key={chip} style={{
+                                    fontSize: '11px', fontWeight: 600, padding: '2px 8px',
+                                    borderRadius: 6, background: 'rgba(14,92,156,0.08)',
+                                    color: 'var(--primary)', border: '1px solid rgba(14,92,156,0.15)',
+                                }}>{chip}</span>
+                            ))}
+                        </div>
+                    </div>
                 </div>
-                <div className="audit">Audit Log · {m.client} · {m.id} · {todayDate()} {nowClock()}</div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 9, marginTop: 16, flexWrap: 'wrap' }}>
-                <button className="btn soft" onClick={saveMinutes} type="button">حفظ المحضر</button>
+                <div style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'monospace', direction: 'ltr', textAlign: 'left' }}>
+                    Audit Log · {m.client} · {m.id} · {todayDate()} {nowClock()}
+                </div>
             </div>
         </div>
     );

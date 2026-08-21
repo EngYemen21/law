@@ -82,7 +82,7 @@ const Dashboard: React.FC<Props> = ({ name, counts, upcomingAppts, dueInvoices, 
                   <div className="nx-ic"><Icon name={a.ico || 'cal'} /></div>
                   <div className="nx-main">
                     <div className="nx-t">استشارة {a.type}</div>
-                    <div className="nx-s">{a.day} · {a.time} · {a.branch}</div>
+                    <div className="nx-s">{a.day} · {a.time} · {a.place}</div>
                   </div>
                   <Badge text={a.status} tone={a.tone} />
                 </div>

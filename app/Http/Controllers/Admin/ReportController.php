@@ -47,18 +47,22 @@ class ReportController extends Controller
 
     public function revenue(): Response
     {
-        // إيرادات الاستشارات المدفوعة فقط (بعد السداد) — لا تُحتسب الطلبات المسعّرة بلا سداد
-        $consults = Consult::whereNotNull('paid_at')->get();
-        $bookings = $consults->count();
-        $bookingRevenue = (int) $consults->sum('total');
+        // إيرادات الاستشارات المدفوعة فقط (بعد السداد) — لا تُحتسب الطلبات المسعّرة بلا سداد.
+        // تُحسب في SQL: تحميل كل الاستشارات في الذاكرة كان يجرّ ~45 عموداً منها transcript
+        // وzoom_participants_log وai_summary (TEXT) لمجرّد جمع عمودين.
+        $paid = Consult::whereNotNull('paid_at');
+        $bookings = (clone $paid)->count();
+        $bookingRevenue = (int) (clone $paid)->sum('total');
 
         // الفواتير الحقيقية (تُصدر عند تحديد أتعاب القضية)
         $issued = (int) Invoice::sum('amount');
         $collected = (int) Invoice::where('paid', true)->sum('amount');
 
-        // الإيراد حسب نوع الاستشارة (شامل الضريبة)
-        $byService = $consults->groupBy('channel')
-            ->map(fn ($g, $ch) => ['m' => $ch ?: 'أخرى', 'v' => (int) round($g->sum('total') / 1000)])
+        // الإيراد حسب نوع الاستشارة (شامل الضريبة) — بالريال كاملاً:
+        // القسمة على 1000 كانت تُصفّر كل إيراد دون 500 ر.س، والرسم نسبيّ لأكبر قيمة أصلاً.
+        $byService = (clone $paid)->selectRaw('channel, SUM(total) AS revenue')
+            ->groupBy('channel')->get()
+            ->map(fn ($row) => ['m' => $row->channel ?: 'أخرى', 'v' => (int) $row->revenue])
             ->values();
 
         // رواتب الموظفين الثابتة (الموظفون النشطون فعلاً)

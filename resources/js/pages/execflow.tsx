@@ -33,6 +33,8 @@ const CellRow: React.FC<{ cells: [string, string][] }> = ({ cells }) => (
 // ── القائمة (تطابق execList) — البيانات مُصفّاة ومُقنّعة من الخادم حسب الدور ──
 // الإجراء التالي المطلوب على البطاقة حسب الدور (تطابق execNextAction)
 const nextAction = (role: Role, r: ExecReq): string => {
+  // الطلب المرفوض لا إجراء عليه — كان يُطبع «اقبل الطلب أو اطلب مستندات» لطلب رُفض فعلاً
+  if (r.decision === 'مرفوض') return 'مرفوض بعد الدراسة';
   if (role === 'admin') return r.stage < 2 ? 'أحِل لقسم التنفيذ' : r.stage === 4 ? 'اعتمد الأتعاب' : '';
   if (role === 'lawyer') {
     if (r.stage <= 1) return 'بانتظار البدء بالدراسة';
@@ -538,13 +540,13 @@ const DocsPanel: React.FC<{ execId: string; docs: ExecDoc[] }> = ({ execId, docs
 // ── تفاصيل العميل الموحّدة (تطابق execClientDetail): بيانات + إجراء ديناميكيّ + مستندات + محادثة ──
 const ClientExecDetail: React.FC<{ r: ExecReq; onBack: () => void; act: ActFn }> = ({ r, onBack, act }) => {
   const total = r.fee + r.vat;
-  const sendMsg = (text: string) => { axios.post(`/exec-flow/${encodeURIComponent(r.id)}/messages`, { body: text }); };
+  const sendMsg = (text: string) => axios.post(`/exec-flow/${encodeURIComponent(r.id)}/messages`, { body: text });
   // رفع مستند فعلي من محادثة التنفيذ — يظهر رسالة في المحادثة ويُدرَج ضمن مستندات الملف
   const attachDoc = (file?: File) => {
     if (!file) return;
     const fd = new FormData();
     fd.append('file', file);
-    axios.post(`/exec-flow/${encodeURIComponent(r.id)}/attach`, fd).then(() => router.reload({ only: ['execs'] }));
+    return axios.post(`/exec-flow/${encodeURIComponent(r.id)}/attach`, fd).then(() => router.reload({ only: ['execs'] }));
   };
 
   return (
@@ -555,6 +557,9 @@ const ClientExecDetail: React.FC<{ r: ExecReq; onBack: () => void; act: ActFn }>
 
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="card-h"><h3>طلب التنفيذ {r.id}</h3><Badge text={EXEC_FLOW[r.stage]} tone={execTone(r.stage)} /></div>
+        <div className="card-b" style={{ padding: 16 }}>
+          <FlowLine steps={EXEC_FLOW} cur={r.stage} />
+        </div>
         <div className="card-b" style={{ padding: 16 }}>
           <KpiRow t="الموضوع" v={r.subject} />
           <KpiRow t="نوع السند" v={r.sanad || '—'} />
@@ -678,7 +683,7 @@ const ExecDocReview: React.FC<{ execId: string; docs: ExecDoc[]; onReview: (docI
 // ── التفاصيل (تطابق execDetail، بنفس ترتيب 1970) — للأدوار غير العميل ──
 const ExecDetail: React.FC<{ role: Role; r: ExecReq; onBack: () => void; act: ActFn }> = ({ role, r, onBack, act }) => {
   const total = r.fee + r.vat;
-  const sendMsg = (text: string) => { axios.post(`/exec-flow/${encodeURIComponent(r.id)}/messages`, { body: text }); };
+  const sendMsg = (text: string) => axios.post(`/exec-flow/${encodeURIComponent(r.id)}/messages`, { body: text });
   const reviewDoc = (docId: number, decision: 'accept' | 'reject') => {
     router.post(`/exec-flow/${encodeURIComponent(r.id)}/documents/${docId}/review`, { decision }, { preserveScroll: true });
   };
@@ -717,7 +722,11 @@ const ExecDetail: React.FC<{ role: Role; r: ExecReq; onBack: () => void; act: Ac
         </div>
       </div>
 
-      {role === 'admin' && r.stage >= 2 && r.stage <= 4 && !r.feeApproved && <PricingCard r={r} act={act} />}
+      {/* إعادة التسعير مسموحة خادمياً في المرحلة 5 حين يرفض العميل العرض أو يستفسر
+          (ExecService::feeStages) — وبلا هذا الشرط كان الطلب المرفوض يتجمّد بلا زرّ لأي دور */}
+      {role === 'admin' && r.stage >= 2 && r.stage <= 5
+        && (!r.feeApproved || ['مرفوض', 'استفسار'].includes(r.offerStatus || ''))
+        && <PricingCard r={r} act={act} />}
 
       {r.stage >= 4 && r.fee > 0 && (
         <div className="card" style={{ marginBottom: 12 }}>

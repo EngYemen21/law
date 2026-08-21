@@ -40,9 +40,16 @@ class MeetRequestController extends Controller
         if ($meetRequest->stage === MeetRequest::STAGE_SENT) {
             $startsAt = MeetingTime::parse($meetRequest->day, $meetRequest->time);
             $durMinutes = $meetRequest->duration_min ?: 60;
-            $zoom = $this->zoom->createMeeting("{$meetRequest->type} — {$meetRequest->service} ({$meetRequest->ref})", $durMinutes, false, $startsAt);
+            $existing = $meetRequest->meeting_id ? Meeting::find($meetRequest->meeting_id) : null;
 
-            if ($meetRequest->meeting_id && ($existing = Meeting::find($meetRequest->meeting_id))) {
+            // اجتماع Zoom واحد لكل دعوة: Staff\MeetingController::store أنشأه سلفاً عند إرسالها.
+            // إنشاء ثانٍ هنا كان يكتب معرّفه فوق الأول ويتركه يتيماً في حساب Zoom — بتسجيل
+            // سحابي مفعّل يستهلك حصّة التخزين — بلا أي مقبض لتنظيفه لاحقاً.
+            $zoom = ($existing && ! empty($existing->meet_id))
+                ? null
+                : $this->zoom->createMeeting("{$meetRequest->type} — {$meetRequest->service} ({$meetRequest->ref})", $durMinutes, false, $startsAt);
+
+            if ($existing) {
                 $meeting = $existing;
                 $meeting->update([
                     'status' => 'قادم',
@@ -65,7 +72,6 @@ class MeetRequestController extends Controller
                     'case_ref' => $meetRequest->case_ref,
                     'dur' => $durMinutes.' دقيقة',
                     'assigned_lawyer_id' => $meetRequest->assigned_lawyer_id,
-                    'branch' => $meetRequest->assignedLawyer?->branch,
                     'meet_id' => $zoom['id'] ?? null,
                     'meet_link' => $zoom['join_url'] ?? null,
                     'host_link' => $zoom['start_url'] ?? null,

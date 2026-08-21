@@ -23,7 +23,7 @@ class AssistantAndSummaryFeaturesTest extends TestCase
 
     public function test_assistant_generate_returns_legal_draft(): void
     {
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'branch' => 'فرع الرياض']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $lawyer->syncPermissions(Permission::all());
 
         $response = $this->actingAs($lawyer)->postJson('/lawyer/assistant/generate', [
@@ -39,8 +39,8 @@ class AssistantAndSummaryFeaturesTest extends TestCase
 
     public function test_generate_najiz_draft_for_ticket(): void
     {
-        $client = User::factory()->create(['role' => Role::Client, 'name' => 'خالد الشمري', 'branch' => 'فرع الرياض']);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'المستشار فهد', 'branch' => 'فرع الرياض']);
+        $client = User::factory()->create(['role' => Role::Client, 'name' => 'خالد الشمري']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'المستشار فهد']);
         $lawyer->syncPermissions(Permission::all());
 
         $ticket = Ticket::create([
@@ -51,7 +51,6 @@ class AssistantAndSummaryFeaturesTest extends TestCase
             'details' => 'قام الموكل بتوريد بضاعة بقيمة 150 ألف ريال وامتنع المدعى عليه عن السداد.',
             'assigned_lawyer_id' => $lawyer->id,
             'assigned_lawyer' => $lawyer->name,
-            'branch' => 'فرع الرياض',
             'status' => 'قيد الدراسة',
             'tone' => 'b-blue',
         ]);
@@ -78,8 +77,8 @@ class AssistantAndSummaryFeaturesTest extends TestCase
 
     public function test_print_summary_html_report(): void
     {
-        $client = User::factory()->create(['role' => Role::Client, 'name' => 'سعد القحطاني', 'branch' => 'فرع الرياض']);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'المستشار عبد العزيز', 'branch' => 'فرع الرياض']);
+        $client = User::factory()->create(['role' => Role::Client, 'name' => 'سعد القحطاني']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'المستشار عبد العزيز']);
         $lawyer->syncPermissions(Permission::all());
 
         $ticket = Ticket::create([
@@ -90,7 +89,6 @@ class AssistantAndSummaryFeaturesTest extends TestCase
             'details' => 'تفاصيل الاستشارة العقارية',
             'assigned_lawyer_id' => $lawyer->id,
             'assigned_lawyer' => $lawyer->name,
-            'branch' => 'فرع الرياض',
             'status' => 'قيد الدراسة',
             'tone' => 'b-blue',
         ]);

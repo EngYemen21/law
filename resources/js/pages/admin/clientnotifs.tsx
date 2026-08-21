@@ -63,7 +63,7 @@ const AdminClientNotifs: React.FC<Props> = ({ clients, selected, notifs }) => {
             <div key={n.id} className={`notif ${n.unread ? 'unread' : ''}`}>
               <div className={`nico stat ${n.tone}`} style={{ padding: 0 }}><Icon name={n.ic} /></div>
               <div className="nbody">
-                <p dangerouslySetInnerHTML={{ __html: n.text }} />
+                <p>{n.text}</p>
                 <time>{n.time}</time>
               </div>
             </div>

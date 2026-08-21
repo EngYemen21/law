@@ -11,6 +11,7 @@ use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\User;
 use App\Services\IcalendarService;
+use Carbon\CarbonInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -160,5 +161,52 @@ class CalendarSyncTest extends TestCase
         $this->assertStringContainsString('EventReservation', $schema);
         $this->assertStringContainsString('RSV-999', $schema);
         $this->assertStringContainsString('خالد عبدالله', $schema);
+    }
+
+    /**
+     * الموظف والإدارة لا يكونان assigned_lawyer_id أبداً، وكانت تغذيتهما تُفلتر به
+     * فتعود بلا حدث واحد بينما شاشة تقويمهما تعرض أحداث المكتب كلّها وزرّ الاشتراك.
+     */
+    public function test_office_wide_staff_feed_carries_events_while_lawyer_stays_isolated(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $ownerLawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $otherLawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
+
+        $this->makeConsult($client, $ownerLawyer, 'CN-7001', now()->addDays(2));
+        // خارج النافذة (+90 يوماً) — لا يُبنى تقويم اشتراك من أرشيف المكتب كلّه
+        $this->makeConsult($client, $ownerLawyer, 'CN-7002', now()->addDays(200));
+
+        foreach ([$employee, $admin] as $staff) {
+            $body = $this->get(route('calendar.feed', ['user' => $staff->id, 'token' => $staff->calendarToken()]))
+                ->assertOk()->getContent();
+
+            $this->assertStringContainsString('CN-7001', $body);
+            $this->assertStringNotContainsString('CN-7002', $body);
+        }
+
+        // العزل قائم: محامٍ غير مسنَد لا يرى استشارة زميله
+        $lawyerBody = $this->get(route('calendar.feed', ['user' => $otherLawyer->id, 'token' => $otherLawyer->calendarToken()]))
+            ->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('CN-7001', $lawyerBody);
+    }
+
+    private function makeConsult(User $client, User $lawyer, string $ref, CarbonInterface $startsAt): Consult
+    {
+        return Consult::create([
+            'user_id' => $client->id,
+            'assigned_lawyer_id' => $lawyer->id,
+            'ref' => $ref,
+            'subject' => 'استشارة مكتبية',
+            'type' => 'عقاري',
+            'channel' => 'مرئية',
+            'lawyer' => $lawyer->name,
+            'starts_at' => $startsAt->setHour(14)->setMinute(0),
+            'duration_minutes' => 60,
+            'status' => 'مؤكدة',
+        ]);
     }
 }

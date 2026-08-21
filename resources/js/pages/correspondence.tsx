@@ -4,7 +4,7 @@ import Badge from '@/components/babylon/Badge';
 import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
 import { echo } from '@/lib/echo';
-import { CORR_FLOW, corrTone, type CorrCard } from '@/lib/corr-ui';
+import { CORR_FLOW, type CorrCard } from '@/lib/corr-ui';
 import Icon from '@/lib/icons';
 
 interface Props { role: string; base: string; corr: CorrCard }
@@ -134,7 +134,9 @@ const Correspondence: React.FC<Props> = ({ role, base, corr }) => {
           ) : (
             <button className="btn" type="button" onClick={() => setBriefing(true)}><Icon name="doc" /> إفادة العميل بالنتيجة</button>
           ))}
-          {c.stage === 5 && c.briefed && isAdmin && (
+          {/* الخادم يشترط stage>=5 فقط — اشتراط briefed كان يترك المخاطبة
+                        التي وردَ ردّها ولا تحتاج إفادة رسمية مفتوحة إلى الأبد */}
+                    {c.stage === 5 && isAdmin && (
             <button className="btn" type="button" onClick={() => act('close')}><Icon name="check" /> الإغلاق والأرشفة</button>
           )}
           {c.stage >= 6 && <div className="mtg-pend"><Icon name="check" /> اكتملت رحلة المخاطبة وأُرشفت.</div>}

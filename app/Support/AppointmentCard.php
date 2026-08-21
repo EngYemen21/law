@@ -42,15 +42,15 @@ class AppointmentCard
     }
 
     /**
-     * @param  array{label:string,branch:string}  $meta  ناتج ConsultBooking::meta()
+     * @param  array{label:string,place:string}  $meta  ناتج ConsultBooking::meta()
      */
     public static function render(Consult $consult, array $meta): string
     {
-        $branch = $consult->branch ?: $meta['branch'];
+        $place = $consult->placeLabel() ?: $meta['place'];
 
         $rows = '<div class="row">'.self::icon('cal').'<b>'.e($consult->day).'</b><span>· '.e($consult->time).'</span></div>'
             .'<div class="row">'.self::icon('user').'<span>'.e(self::firstName($consult->lawyer)).'</span></div>'
-            .'<div class="row">'.self::icon('pin').'<span>'.e($branch).'</span></div>';
+            .'<div class="row">'.self::icon('pin').'<span>'.e($place).'</span></div>';
 
         // رابط الجلسة المرئية داخل المنصة حصراً
         if ($consult->channel === 'مرئية') {

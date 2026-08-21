@@ -24,7 +24,7 @@ class DashboardsTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         Ticket::create(['user_id' => $client->id, 'number' => 'T1', 'type' => 'تجاري', 'status' => 'قيد التحليل', 'tone' => 'b-blue']);
         Ticket::create(['user_id' => $client->id, 'number' => 'T2', 'type' => 'تجاري', 'status' => 'مكتملة', 'tone' => 'b-green']);
-        Appointment::create(['user_id' => $client->id, 'ext_id' => 'AP1', 'type' => 'استشارة', 'ico' => 'office', 'lawyer' => 'أ. سارة القحطاني', 'day' => 'الأحد', 'time' => '10ص', 'branch' => 'الرياض', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up']);
+        Appointment::create(['user_id' => $client->id, 'ext_id' => 'AP1', 'type' => 'استشارة', 'ico' => 'office', 'lawyer' => 'أ. سارة القحطاني', 'day' => 'الأحد', 'time' => '10ص', 'place' => 'الرياض', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up']);
         Invoice::create(['user_id' => $client->id, 'number' => 'INV1', 'description' => 'أتعاب', 'amount' => 5000, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال 14 يوماً', 'paid' => false]);
         // تنفيذ من النمط القديم (stage=null) + تنفيذ من تدفّق «المرحلة 2» الجديد (stage=1، نشط) — كلاهما يُحتسَب
         Execution::create(['user_id' => $client->id, 'number' => 'EXE1', 'subject' => 'تنفيذ', 'status' => 'جديد', 'tone' => 'b-blue']);
@@ -49,12 +49,12 @@ class DashboardsTest extends TestCase
         $other = User::factory()->create(['role' => Role::Client]);
 
         // بيانات عميل آخر — يجب ألّا تظهر
-        Appointment::create(['user_id' => $other->id, 'ext_id' => 'AP-X', 'type' => 'استشارة', 'ico' => 'office', 'lawyer' => 'أ. خالد', 'day' => 'الاثنين', 'time' => '9ص', 'branch' => 'جدة', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up']);
+        Appointment::create(['user_id' => $other->id, 'ext_id' => 'AP-X', 'type' => 'استشارة', 'ico' => 'office', 'lawyer' => 'أ. خالد', 'day' => 'الاثنين', 'time' => '9ص', 'place' => 'جدة', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up']);
         Invoice::create(['user_id' => $other->id, 'number' => 'INV-X', 'description' => 'أتعاب', 'amount' => 999, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'اليوم', 'paid' => false]);
 
         // موعدي: قادم (يظهر) وسابق (مستثنى)
-        Appointment::create(['user_id' => $me->id, 'ext_id' => 'AP-UP', 'type' => 'استشارة', 'ico' => 'office', 'lawyer' => 'أ. سارة', 'day' => 'الأحد', 'time' => '10ص', 'branch' => 'الرياض', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up']);
-        Appointment::create(['user_id' => $me->id, 'ext_id' => 'AP-PAST', 'type' => 'استشارة', 'ico' => 'office', 'lawyer' => 'أ. سارة', 'day' => 'أمس', 'time' => '10ص', 'branch' => 'الرياض', 'status' => 'منتهٍ', 'tone' => 'b-grey', 'when_kind' => 'past']);
+        Appointment::create(['user_id' => $me->id, 'ext_id' => 'AP-UP', 'type' => 'استشارة', 'ico' => 'office', 'lawyer' => 'أ. سارة', 'day' => 'الأحد', 'time' => '10ص', 'place' => 'الرياض', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up']);
+        Appointment::create(['user_id' => $me->id, 'ext_id' => 'AP-PAST', 'type' => 'استشارة', 'ico' => 'office', 'lawyer' => 'أ. سارة', 'day' => 'أمس', 'time' => '10ص', 'place' => 'الرياض', 'status' => 'منتهٍ', 'tone' => 'b-grey', 'when_kind' => 'past']);
 
         // فاتورتي: مستحقّة (تظهر) ومدفوعة (مستثناة)
         Invoice::create(['user_id' => $me->id, 'number' => 'INV-DUE', 'description' => 'أتعاب', 'amount' => 500, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'اليوم', 'paid' => false]);
@@ -90,7 +90,9 @@ class DashboardsTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         Ticket::create(['user_id' => $client->id, 'number' => 'T1', 'type' => 'تجاري', 'status' => 'قيد التحليل', 'tone' => 'b-blue']);
         Invoice::create(['user_id' => $client->id, 'number' => 'INV1', 'description' => 'أتعاب', 'amount' => 8000, 'status' => 'مدفوعة', 'tone' => 'b-green', 'due_label' => 'اليوم', 'paid' => true]);
-        Meeting::create(['user_id' => $client->id, 'ref' => 'MTG1', 'title' => 'اجتماع', 'type' => 'عميل', 'when_label' => 'الأحد', 'status' => 'قادم', 'approve' => 'بانتظار اعتماد الإدارة']);
+        // الاعتماد لا يُطلب إلا بعد انعقاد الاجتماع — العدّاد يحصر المنتهية
+        Meeting::create(['user_id' => $client->id, 'ref' => 'MTG1', 'title' => 'اجتماع', 'type' => 'عميل', 'when_label' => 'الأحد', 'status' => 'منتهٍ', 'approve' => 'بانتظار اعتماد الإدارة']);
+        Meeting::create(['user_id' => $client->id, 'ref' => 'MTG2', 'title' => 'اجتماع قادم', 'type' => 'عميل', 'when_label' => 'غد', 'status' => 'قادم', 'approve' => 'بانتظار اعتماد الإدارة']);
 
         $this->actingAs($admin)->get(route('admin.dashboard'))
             ->assertOk()->assertInertia(fn ($p) => $p->component('admin/dashboard')
@@ -104,7 +106,7 @@ class DashboardsTest extends TestCase
     public function test_client_calendar_shows_events_with_gcal_links(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        Appointment::create(['user_id' => $client->id, 'ext_id' => 'AP1', 'type' => 'استشارة حضورية', 'ico' => 'office', 'lawyer' => 'أ. سارة القحطاني', 'day' => 'الأحد 12 يوليو', 'time' => '11ص', 'branch' => 'الرياض', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up']);
+        Appointment::create(['user_id' => $client->id, 'ext_id' => 'AP1', 'type' => 'استشارة حضورية', 'ico' => 'office', 'lawyer' => 'أ. سارة القحطاني', 'day' => 'الأحد 12 يوليو', 'time' => '11ص', 'place' => 'الرياض', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up']);
 
         $this->actingAs($client)->get(route('calendar'))
             ->assertOk()->assertInertia(fn ($p) => $p->component('calendar')

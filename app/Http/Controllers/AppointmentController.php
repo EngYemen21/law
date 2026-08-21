@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Appointment;
 use App\Support\AppointmentCardPdf;
 use App\Support\Mask;
+use App\Support\PdfRenderer;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -18,7 +19,7 @@ class AppointmentController extends Controller
         $appointments = Appointment::where('user_id', $request->user()->id)
             ->with(['user', 'consult'])
             ->latest('id')->get()
-            ->map(fn (Appointment $a) => $a->toCard());
+            ->map(fn (Appointment $a) => $a->toCard($request->user()));
 
         return Inertia::render('appointments', [
             'appointments' => $appointments,
@@ -42,11 +43,11 @@ class AppointmentController extends Controller
         );
 
         $remote = $appointment->type === 'استشارة مرئية'
-            || str_contains((string) $appointment->branch, 'إلكتروني')
-            || str_contains((string) $appointment->branch, 'هاتفية')
-            || str_contains((string) $appointment->branch, 'بُعد');
-        $place = $remote ? 'عن بُعد' : (string) $appointment->branch;
-        $address = $remote ? 'جلسة عن بُعد — يُرسل الرابط قبل الموعد' : (string) $appointment->branch;
+            || str_contains((string) $appointment->place, 'إلكتروني')
+            || str_contains((string) $appointment->place, 'هاتفية')
+            || str_contains((string) $appointment->place, 'بُعد');
+        $place = $remote ? 'عن بُعد' : (string) $appointment->place;
+        $address = $remote ? 'جلسة عن بُعد — يُرسل الرابط قبل الموعد' : (string) $appointment->place;
         $consult = $appointment->consult;
         $paid = $consult?->paid_at !== null;
 
@@ -65,6 +66,6 @@ class AppointmentController extends Controller
             'qrSeed' => $appointment->ext_id,
         ]);
 
-        return \App\Support\PdfRenderer::render($html, $appointment->ext_id.'.pdf');
+        return PdfRenderer::render($html, $appointment->ext_id.'.pdf');
     }
 }

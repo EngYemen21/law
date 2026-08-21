@@ -22,8 +22,8 @@ class LawyerTicketReplyTest extends TestCase
 
     public function test_lawyer_can_reply_to_client_on_assigned_ticket(): void
     {
-        $client = User::factory()->create(['role' => Role::Client, 'branch' => 'فرع الرياض']);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'المستشار عبد العزيز', 'branch' => 'فرع الرياض']);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'المستشار عبد العزيز']);
         $lawyer->syncPermissions(Permission::all());
 
         $ticket = Ticket::create([
@@ -34,7 +34,6 @@ class LawyerTicketReplyTest extends TestCase
             'details' => 'تفاصيل الاستشارة',
             'assigned_lawyer_id' => $lawyer->id,
             'assigned_lawyer' => $lawyer->name,
-            'branch' => 'فرع الرياض',
             'status' => 'بانتظار دراسة المستشار',
             'tone' => 'b-amber',
         ]);
@@ -65,8 +64,8 @@ class LawyerTicketReplyTest extends TestCase
 
     public function test_lawyer_can_add_internal_note_on_assigned_ticket(): void
     {
-        $client = User::factory()->create(['role' => Role::Client, 'branch' => 'فرع الرياض']);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'المستشار عبد العزيز', 'branch' => 'فرع الرياض']);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'المستشار عبد العزيز']);
         $lawyer->syncPermissions(Permission::all());
 
         $ticket = Ticket::create([
@@ -77,7 +76,6 @@ class LawyerTicketReplyTest extends TestCase
             'details' => 'تفاصيل الاستشارة',
             'assigned_lawyer_id' => $lawyer->id,
             'assigned_lawyer' => $lawyer->name,
-            'branch' => 'فرع الرياض',
             'status' => 'بانتظار دراسة المستشار',
             'tone' => 'b-amber',
         ]);
@@ -98,9 +96,9 @@ class LawyerTicketReplyTest extends TestCase
 
     public function test_lawyer_cannot_reply_or_note_on_ticket_assigned_to_another_lawyer(): void
     {
-        $client = User::factory()->create(['role' => Role::Client, 'branch' => 'فرع الرياض']);
-        $lawyer1 = User::factory()->create(['role' => Role::Lawyer, 'name' => 'المستشار 1', 'branch' => 'فرع الرياض']);
-        $lawyer2 = User::factory()->create(['role' => Role::Lawyer, 'name' => 'المستشار 2', 'branch' => 'فرع الرياض']);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer1 = User::factory()->create(['role' => Role::Lawyer, 'name' => 'المستشار 1']);
+        $lawyer2 = User::factory()->create(['role' => Role::Lawyer, 'name' => 'المستشار 2']);
         $lawyer2->syncPermissions(Permission::all());
 
         $ticket = Ticket::create([
@@ -111,7 +109,6 @@ class LawyerTicketReplyTest extends TestCase
             'details' => 'تفاصيل الاستشارة',
             'assigned_lawyer_id' => $lawyer1->id,
             'assigned_lawyer' => $lawyer1->name,
-            'branch' => 'فرع الرياض',
             'status' => 'بانتظار دراسة المستشار',
             'tone' => 'b-amber',
         ]);
@@ -127,15 +124,14 @@ class LawyerTicketReplyTest extends TestCase
 
     public function test_admin_can_reply_and_note_on_any_ticket(): void
     {
-        $admin = User::factory()->create(['role' => Role::Admin, 'name' => 'مدير النظام', 'branch' => 'فرع الرياض']);
-        $client = User::factory()->create(['role' => Role::Client, 'branch' => 'فرع الرياض']);
+        $admin = User::factory()->create(['role' => Role::Admin, 'name' => 'مدير النظام']);
+        $client = User::factory()->create(['role' => Role::Client]);
         $ticket = Ticket::create([
             'user_id' => $client->id,
             'number' => 'TKT-2026-0004',
             'type' => 'استشارة تجارية',
             'subject' => 'استشارة تجارية عاجلة',
             'details' => 'تفاصيل الاستشارة',
-            'branch' => 'فرع الرياض',
             'status' => 'جديدة',
             'tone' => 'b-amber',
         ]);

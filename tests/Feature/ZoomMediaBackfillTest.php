@@ -3,11 +3,14 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
+use App\Jobs\BuildRecordingArchive;
 use App\Models\Consult;
 use App\Models\Meeting;
 use App\Models\User;
+use App\Support\RecordingArchive;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 use ZipArchive;
@@ -57,30 +60,62 @@ class ZoomMediaBackfillTest extends TestCase
         ], $extra));
     }
 
-    public function test_admin_downloads_meeting_video_and_audio_as_zip(): void
+    /**
+     * الدورة الكاملة: النقرة الأولى تُجدول البناء في الطابور (لا تنتظر سحابة Zoom داخل
+     * طلب HTTP — كان ذلك 504 حتمياً خلف nginx)، وبعد تنفيذ المهمة ينزل الملف فوراً من القرص.
+     */
+    public function test_first_click_queues_the_build_then_download_is_served_locally(): void
     {
+        Storage::fake('local');
+        $this->configureS2S();
+        $this->fakeZoomCloud();
+        Queue::fake();
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $meeting = $this->endedMeeting();
+
+        // النقرة الأولى: لا أرشيف محلي بعد ⇒ تُجدوَل المهمة ويُعاد المستخدم برسالة تحضير
+        $this->actingAs($admin)->get(route('admin.meetings.recording', $meeting))
+            ->assertRedirect()
+            ->assertSessionHas('flash');
+        Queue::assertPushed(BuildRecordingArchive::class);
+    }
+
+    public function test_built_archive_is_downloaded_instantly_with_correct_contents(): void
+    {
+        Storage::fake('local');
         $this->configureS2S();
         $this->fakeZoomCloud();
         $admin = User::factory()->create(['role' => Role::Admin]);
         $meeting = $this->endedMeeting();
 
-        // الفيديو
+        // تنفيذ البناء (كما يفعله عامل الطابور أو المجدول الاستباقي)
+        $this->assertSame("recordings/meeting-{$meeting->ref}-video.zip", RecordingArchive::build($meeting, 'video'));
+        $this->assertSame("recordings/meeting-{$meeting->ref}-audio.zip", RecordingArchive::build($meeting, 'audio'));
+        $this->assertTrue(RecordingArchive::isReady($meeting, 'video'));
+
+        // الفيديو — يُخدَم من القرص فوراً بمحتوى صحيح
         $res = $this->actingAs($admin)->get(route('admin.meetings.recording', $meeting));
-        $res->assertOk();
-        $zip = new ZipArchive;
-        $this->assertTrue($zip->open($res->baseResponse->getFile()->getPathname()));
-        $this->assertSame('VIDEO-BYTES', $zip->getFromName("meeting-{$meeting->ref}.mp4"));
-        $zip->close();
-        @unlink($res->baseResponse->getFile()->getPathname());
+        $res->assertOk()->assertDownload('recording-'.$meeting->ref.'.zip');
+        $this->assertSame('VIDEO-BYTES', $this->zipEntry($meeting, 'video', 'mp4'));
 
         // الصوت (يلتقط ملف audio_only لا الفيديو)
-        $res2 = $this->actingAs($admin)->get(route('admin.meetings.audio', $meeting));
-        $res2->assertOk();
-        $zip2 = new ZipArchive;
-        $this->assertTrue($zip2->open($res2->baseResponse->getFile()->getPathname()));
-        $this->assertSame('AUDIO-BYTES', $zip2->getFromName("meeting-{$meeting->ref}.m4a"));
-        $zip2->close();
-        @unlink($res2->baseResponse->getFile()->getPathname());
+        $this->actingAs($admin)->get(route('admin.meetings.audio', $meeting))
+            ->assertOk()->assertDownload('audio-'.$meeting->ref.'.zip');
+        $this->assertSame('AUDIO-BYTES', $this->zipEntry($meeting, 'audio', 'm4a'));
+    }
+
+    /** يقرأ محتوى مُدخل داخل الأرشيف المحفوظ محلياً. */
+    private function zipEntry(Meeting $meeting, string $type, string $ext): string|false
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'zip');
+        file_put_contents($tmp, Storage::disk('local')->get(RecordingArchive::localPath($meeting, $type)));
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($tmp));
+        $content = $zip->getFromName("meeting-{$meeting->ref}.{$ext}");
+        $zip->close();
+        @unlink($tmp);
+
+        return $content;
     }
 
     public function test_meeting_transcript_is_fetched_from_cloud_and_cached_locally(): void
@@ -103,15 +138,19 @@ class ZoomMediaBackfillTest extends TestCase
         $this->assertStringNotContainsString('WEBVTT', $text);
     }
 
-    public function test_branch_foreign_employee_cannot_download_meeting_media(): void
+    public function test_any_employee_may_download_meeting_media(): void
     {
         $this->configureS2S();
         $this->fakeZoomCloud();
-        $employee = User::factory()->create(['role' => Role::Employee, 'branch' => 'فرع الرياض']);
-        $meeting = $this->endedMeeting(['branch' => 'فرع جدة']);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $meeting = $this->endedMeeting();
 
-        $this->actingAs($employee)->get(route('employee.meetings.recording', $meeting))->assertForbidden();
-        $this->actingAs($employee)->get(route('employee.meetings.audio', $meeting))->assertForbidden();
+        // مكتب واحد بلا فروع: تسجيلات الجلسات متاحة لكل موظفي المكتب
+        // (الأرشيف يُبنى مسبقاً كما يفعل المجدول، فالتنزيل فوريّ)
+        RecordingArchive::build($meeting, 'video');
+        RecordingArchive::build($meeting, 'audio');
+        $this->actingAs($employee)->get(route('employee.meetings.recording', $meeting))->assertOk();
+        $this->actingAs($employee)->get(route('employee.meetings.audio', $meeting))->assertOk();
     }
 
     public function test_pull_recordings_backfills_missing_media_fields(): void

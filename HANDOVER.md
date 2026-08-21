@@ -5,7 +5,7 @@
 > نموذج البيانات، طبقة HTTP، منطق الأعمال، التكاملات الخارجيّة، الواجهة، التشغيل،
 > القضايا المعروفة، واتفاقيّات الكود. مكتوب ليُقرأ بلا الحاجة لسياق المحادثات السابقة.
 >
-> **حالة الوثيقة:** ✅ مكتملة — كل الأقسام مُجمّعة من قراءة فعليّة للكود (63 هجرة، 24 نموذجاً، كامل طبقة
+> **حالة الوثيقة:** ✅ مكتملة — كل الأقسام مُجمّعة من قراءة فعليّة للكود (74 هجرة، 24 نموذجاً، كامل طبقة
 > HTTP والخدمات والواجهة). مبنيّة على مسح آليّ متوازٍ + تدقيق يدويّ للملفّات الحرجة.
 
 ---
@@ -21,10 +21,10 @@
 - **القضايا (Cases):** تُحوَّل من التذاكر؛ أتعاب، جلسات محكمة، لوائح، أحكام.
 - **التنفيذ (Executions):** طلبات تنفيذ مرتبطة بالقضايا.
 - **الاجتماعات (Meetings/MeetRequests):** جدولة، روابط Zoom، تذكير بالبريد، ملخّصات.
-- **المهام، الفوترة والمحاسبة، الأرشيف، التقارير، إدارة الفروع والمستخدمين.**
+- **المهام، الفوترة والمحاسبة، الأرشيف، التقارير، وإدارة المستخدمين.**
 
 **الطابع المعماريّ:** طبقيّ (Controllers رفيعة → Support/Services للمنطق → Models)، مع
-حرص شديد على: الأمان الإنتاجيّ، عزل الأدوار والفروع، البثّ اللحظيّ (Reverb)، التعطّل الآمن
+حرص شديد على: الأمان الإنتاجيّ، عزل الأدوار، البثّ اللحظيّ (Reverb)، التعطّل الآمن
 للتكاملات (fallback بلا مفاتيح)، ومطابقة تصميم مرجعيّ HTML. حالات دورة الحياة كلّها نصوص
 عربيّة (مثل `'قيد التحليل'`, `'موعد مؤكد'`) تُدار عبر صفوف «رحلة» مركزيّة (`*Journey`).
 
@@ -179,36 +179,38 @@ npm install && npm run build
 
 ---
 
-## 7. الأدوار والصلاحيات وعزل الفروع (Roles, Permissions, Branch Isolation)
+## 7. الأدوار والصلاحيات وعزل الرؤية (Roles, Permissions, Visibility)
 
 - **الأدوار:** `app/Enums/Role.php` (عميل/موظف/محامٍ/إدارة) + حزمة `spatie/laravel-permission`.
 - **الحراسة:** middleware `role` (`EnsureRole`)، `permission` (`EnsurePermission`)، `active` (`EnsureActive`
-  — يمنع الموقوفين). Traits في المتحكّمات: `BranchScoped` / `ScopedToLawyer` لعزل الرؤية.
-- **عزل الفروع:** الموظف يرى فرعه + المجمّع المشترك (بلا فرع)؛ المحامي يرى المسند إليه فقط؛ الإدارة الكلّ.
-  قاعدة `app/Rules/LawyerInBranch.php` تحرس الإسناد. تفاصيل كل مسار في القسم 9.
+  — يمنع الموقوفين). Trait `ScopedToLawyer` في المتحكّمات لعزل رؤية المحامي.
+- **عزل الرؤية:** المحامي يرى المسنَد إليه فقط؛ **الموظف والإدارة يريان كل سجلّات المكتب**؛ العميل ملكه فقط.
+  قاعدة `app/Rules/ActiveLawyer.php` تحرس الإسناد. تفاصيل كل مسار في القسم 9.
+  > كيان «الفرع» أُزيل بالكامل (2026-08-20 — الالتزام `640e3b6`). راجع 9.7.
 - **الانتحال (Impersonation):** `app/Http/Controllers/ImpersonationController.php` (الإدارة تعاين حساب مستخدم).
   > **دَيْن معروف:** `switchAccount` لا يمسح `impersonator_id` والمُبدّل يظهر أثناء المعاينة (راجع القسم 15).
 
 ---
 
-## 8. نموذج البيانات (Data Model) — 63 هجرة · 24 نموذجاً
+## 8. نموذج البيانات (Data Model) — 74 هجرة · 24 نموذجاً
 
 **اصطلاحات:** كل جدول له `id` (bigIncrements) و`timestamps` ما لم يُذكر خلافه. FK بسلوك حذف
 `cascade` (يُحذف مع المرجع) أو `nullOnDelete` (يُصفَّر). **الأعمدة النصيّة للمحامي (`assigned_lawyer`)
-للعرض فقط — المصدر الموثوق دائماً `assigned_lawyer_id` (FK).** العزل بالفرع عبر عمود `branch` + trait
-`HasBranch`. المبالغ: `invoices.amount` صحيح بالريال؛ **`payments.amount` بالهللة (×100)**.
+للعرض فقط — المصدر الموثوق دائماً `assigned_lawyer_id` (FK).** **عمود `branch` أُسقِط من كل الجداول**
+(مهاجرة `2026_08_20_000002_drop_branch_scoping`). المبالغ: `invoices.amount` صحيح بالريال؛ **`payments.amount` بالهللة (×100)**.
 
-### 8.1 المستخدمون والأدوار والفروع (المجال أ)
+### 8.1 المستخدمون والأدوار (المجال أ)
 - **`users`** (تراكم عدّة هجرات): `name`, `email` (**unique عالميّاً**), `role`(20، cast→Enum Role),
-  `avatar_initials`, `title`, `phone`, `phone_verified_at`, `status`(20، active/suspended), `branch`,
+  `avatar_initials`, `title`, `phone`, `phone_verified_at`, `status`(20، active/suspended),
   `department`, `distribution_mode`(12، auto/manual — محرّك التوزيع), `job_title`, `pay_type`
   (salary/pct/both/session), `salary`, `pay_pct`, `session_fee`, **`national_id`(20)**, `join_date`,
   `work_start/end`, `email_verified_at`, `password`(hashed), `remember_token`.
   - **تفرّد مركّب لتعدّد الحسابات:** `unique(national_id, role)` و`unique(phone, role)` — شخص واحد
-    (نفس الهويّة/الجوال) = حساب واحد لكل دور. فهارس: `(role,status)`, `(role,branch)`, `distribution_mode`.
+    (نفس الهويّة/الجوال) = حساب واحد لكل دور. فهارس: `(role,status)`, `distribution_mode`.
   - نموذج `User`: fillable/hidden عبر PHP Attributes؛ traits `HasRoles`(spatie)+`Notifiable`؛ علاقات
     `tickets/executions/cases/consults/assignedTickets`؛ دوال `isAdmin/isActive/payLabel/staffCard`.
-- **`branches`**: `name`(unique), `city`, `phone`. ثابت `Branch::DEFAULT='الفرع الرئيسي — جدة'`.
+- ~~**`branches`**~~: **الجدول محذوف** — المكتب واحد. عنوان المكتب صار في `config/office.php`
+  (`OFFICE_CITY`/`OFFICE_ADDRESS`).
 - **`settings`**: PK=`key`(string)، `value`. دوال static `get/put/consultPrices` (office=600, video=450,
   phone=350, vat=15% افتراضاً).
 - **جداول spatie:** `permissions, roles, model_has_permissions, model_has_roles, role_has_permissions` (قياسيّة).
@@ -216,8 +218,8 @@ npm install && npm run build
   ⚠️ جدول `otp_codes` أُنشئ ثم أُسقط — **ليس جزءاً من المخطّط النهائيّ** (التحقّق عبر Verify API + الجلسة).
 
 ### 8.2 التذاكر (المجال ب)
-- **`tickets`** (trait `HasBranch`، مفتاح مسار=`number`): `user_id`(FK cascade), `number`(unique),
-  `type`, `department`, `assigned_lawyer`(نصّي), `assigned_lawyer_id`(FK nullOnDelete), `branch`(index),
+- **`tickets`** (مفتاح مسار=`number`): `user_id`(FK cascade), `number`(unique),
+  `type`, `department`, `assigned_lawyer`(نصّي), `assigned_lawyer_id`(FK nullOnDelete),
   `status`(index، default `قيد التحليل`), `tone`(16), `attachments`, `last_message`, `date_label`.
   علاقات النموذج: `user/messages/summary(1:1)/documents/assignedLawyer/legalCase(1:1)/consults`؛ دوال
   `toCard/toEmployeeCard/maskClient`.
@@ -230,9 +232,9 @@ npm install && npm run build
   `doc_type`, `summary`, `reason`, `summary_approved`(bool).
 
 ### 8.3 القضايا (المجال ج)
-- **`cases`** (نموذج `LegalCase`، `$table='cases'`، trait `HasBranch`، مفتاح=`number`): `user_id`,
+- **`cases`** (نموذج `LegalCase`، `$table='cases'`، مفتاح=`number`): `user_id`,
   `ticket_id`(nullOnDelete، القضية محوّلة من تذكرة), `number`(unique), `type`, `assigned_lawyer`(_id),
-  `department`, `branch`, `status`(default `منظورة`), `tone`, نصوص عرض
+  `department`, `status`(default `منظورة`), `tone`, نصوص عرض
   (`update_text/next_hearing/invoice_text/paid_text`), `fee`, `lawyer_fee`, `lawyer_pct`, `fee_status`(20:
   none/pending_payment/paid), `pay_plan`(full/install), `installments_total/paid`, `pleading_status`(20:
   none/pending_lawyer/approved), `ruling`(منطوق الحكم). علاقات: `user/ticket/assignedLawyer/messages/
@@ -245,7 +247,7 @@ npm install && npm run build
 - **`consults`** (تراكم كبير): `user_id`, `ticket_id`(nullOnDelete), `appointment_id`(nullOnDelete),
   `ref`(unique CN-…), `subject`, `type`, `priority`, `channel`(مرئية/حضورية/هاتفية), `lawyer`(نصّي),
   `assigned_lawyer_id`(index مع starts_at), `specialty`, `employee`, `day/time/when_label`(**nullable**
-  — الموعد يُختار بعد السداد), `branch`, `phone`, **`starts_at`**(مصدر حساب التعارض), `duration_min`(60),
+  — الموعد يُختار بعد السداد), `phone`, **`starts_at`**(مصدر حساب التعارض), `duration_min`(60),
   حقول Zoom (`meet_id, meet_link(500), host_link(1000), meet_password, link_released_at, join_time,
   leave_time, duration_sec, transcript(longText), transcript_path, recording_url, zoom_summary_at`),
   `status`(index), `session`(index: بانتظار الجلسة/جلسة جارية/منتهية), `session_notes`, `summary`,
@@ -256,23 +258,23 @@ npm install && npm run build
 
 ### 8.5 المواعيد والاجتماعات (المجال هـ)
 - **`appointments`**: `user_id`, `ticket_id`(nullOnDelete), `ext_id`, `type`, `lawyer(_id)`, `day`, `time`,
-  `starts_at`, `duration_min`, `branch`, `status`(default `مؤكد`), `when_kind`(up/past). علاقة
+  `starts_at`, `duration_min`, **`place`**(كان `branch` — أُعيدت تسميته), `status`(default `مؤكد`), `when_kind`(up/past). علاقة
   `consult(1:1 عبر appointment_id)`.
 - **`meetings`**: `user_id`(**nullable** — داخليّ=بلا عميل), `ref`(unique), `title`, `type`, `client_name`,
   `when_label`, **`starts_at`** + **`reminder_sent_at`**(idempotent للتذكير), أعلام
   (`is_up/has_link/has_minutes/has_summary/sum_approved/tasks_created`), `status`(قادم/جارٍ/منتهٍ/مؤجل/ملغى),
   `priority`, `conf`(سري/عادي), `attend`, `approve`(default `بانتظار اعتماد الإدارة`),
   `before/during/after_items`(json), `summary`, `decisions`(json), `minutes`(المحضر), `participants`,
-  `case_ref`, حقول Zoom (كاملة)، `created_by`, `assigned_lawyer_id`(index), `branch`(index).
+  `case_ref`, حقول Zoom (كاملة)، `created_by`, `assigned_lawyer_id`(index).
   دوال: `isUpcoming/joinLink/toCard`(المحضر يظهر بعد اعتماد الإدارة فقط)/`toFullCard`.
 - **`meet_requests`**: `user_id`, `meeting_id`(nullOnDelete), `ref`(unique MR-…), `service`, `type`,
   `case_ref`, `day`, `time`, `sent_by`, `stage`(0..3: مُرسلة/مؤكّدة/منفّذة/معتمدة), حقول Zoom.
 
 ### 8.6 التنفيذ (المجال و)
-- **`executions`** (نموذج `Execution`، trait `HasBranch`، مفتاح=`number`، تدفّق 10 مراحل): `user_id`,
+- **`executions`** (نموذج `Execution`، مفتاح=`number`، تدفّق 10 مراحل): `user_id`,
   `case_id`(nullOnDelete، منشأ من قضية محكومة), `number`(unique), `subject`, `sanad`(السند التنفيذيّ),
   `defendant`(المنفَّذ ضده), `amount`(قيمة المطالبة), `notes`, `docs`(json), `assigned_lawyer(_id)`,
-  `branch`, `court`, `status`(index، default `جارٍ`), `stage`(0..9)، `tone`, `last_action`, تحليل AI
+  `court`, `status`(index، default `جارٍ`), `stage`(0..9)، `tone`, `last_action`, تحليل AI
   (`ai_done, ai_summary, ai_missing(json), ai_procedures(json)`), `decision`, `fee/vat`, `duration`,
   `pay_method`, `fee_approved`, `offer_status`, `invoice_no`, `paid(+paid_at)`, `exec_no`. دوال
   `toCard/toFlowCard(masked)`.
@@ -280,7 +282,7 @@ npm install && npm run build
   حجز/تحصيل/إخطار/إجراء، status: مجدول/منفّذ/مؤجل), **`execution_documents`** (label/status/path/mime/size).
 
 ### 8.7 المخاطبات والفواتير والمدفوعات والمهام (المجالات ز/ح/ط)
-- **`correspondences`** (trait `HasBranch`، مفتاح=`number` MKH-…): دورة 7 مراحل، `user_id`,
+- **`correspondences`** (مفتاح=`number` MKH-…): دورة 7 مراحل، `user_id`,
   `assigned_lawyer_id`, `case_id`, `execution_id`, `direction`(صادرة/واردة), `entity`, `subject`, `body`,
   `stage`(0..6), `status`, `ext_ref/ext_status/ext_synced_at`(النظام الخارجيّ), `reply_body`, `briefed`,
   `audit`(json). دوال `toCard/toClientCard`(عبر `CorrFlow::clientStage`).
@@ -308,8 +310,7 @@ users (client/employee/lawyer/admin)
 سلسلة التحويل: ticket → consult / case → execution → correspondence → invoices → payments
 ```
 > ملاحظة: `consults.assigned_lawyer_id`, `appointments.lawyer_id`, `meetings.assigned_lawyer_id` أعمدة
-> بلا قيد FK صريح (توافقاً مع SQLite بالاختبارات) لكن علاقاتها معرّفة في النماذج. `HasBranch::booted`
-> يختم الفرع تلقائيّاً على Ticket/LegalCase/Execution/Correspondence.
+> بلا قيد FK صريح (توافقاً مع SQLite بالاختبارات) لكن علاقاتها معرّفة في النماذج.
 
 ### 8.9 `app/Enums/Role.php`
 enum نصّيّ: `Client/Employee/Lawyer/Admin`؛ دوال `label()` (العميل/الموظف/المحامي/الإدارة)، `home()`
@@ -369,7 +370,7 @@ enum نصّيّ: `Client/Employee/Lawyer/Admin`؛ دوال `label()` (العمي
 - **الاستشارات — `Staff\ConsultController` («استقبال الاستشارات»):** `index/show/take/requestDocs/analyze/
   saveAnalysis/approveAnalysis/refer/recv/start/end/createTasks/room`.
 - **الجدولة/التحويل — `Employee\ScheduleController`(`index/store`)، `Employee\TransferController`(`index/
-  transfer`)** («جدولة المواعيد»/«تحويل التذاكر»؛ كلاهما عبر `LawyerInBranch(currentBranch)`).
+  transfer`)** («جدولة المواعيد»/«تحويل التذاكر»؛ كلاهما عبر `ActiveLawyer`).
 - **الاجتماعات — `Staff\MeetRequestController`:** `index/store/cancel/start` («إرسال دعوات الاجتماعات»).
 
 ### 9.5 لوحة المحامي (`role:lawyer`, prefix `lawyer`)
@@ -390,8 +391,8 @@ enum نصّيّ: `Client/Employee/Lawyer/Admin`؛ دوال `label()` (العمي
   (`index/show/`**`approveResult`** الاعتماد النهائيّ/`summaries`)، `Admin\LawyerController`(`index/toggleMode`).
 - **الاستشارات — `Staff\ConsultController`:** `index/requests/`**`setPrice`**`/take/…/refer/priority/…`.
 - **الإدارة العليا:** `Admin\StaffController` (`index/lookup`(جوال مُقنّع)/`store`/`update`/`toggle`/**`preview`**
-  إمبرسنيشن)، `Admin\BranchController`(`index/store`)، `Admin\ArchiveController@index`،
-  `Admin\DistributeController`(`index/auto/`**`assign`** عبر `LawyerInBranch`)، `Admin\CaseController`
+  إمبرسنيشن)، `Admin\ArchiveController@index`،
+  `Admin\DistributeController`(`index/auto/`**`assign`** عبر `ActiveLawyer`)، `Admin\CaseController`
   (`fees/index/`**`setFee`**`/closeCase`)، `Admin\TaskController`(`index/store`).
 - **العمليّات/الاجتماعات — `Staff\MeetingController`:** `mgmt/store/log/index/`**`approve`**`/end/createTasks/
   reports`؛ `Staff\MeetRequestController`؛ `Admin\ClientNotifController`(`index/send/markRead`)؛ ملخّصات
@@ -399,12 +400,17 @@ enum نصّيّ: `Client/Employee/Lawyer/Admin`؛ دوال `label()` (العمي
 - **الماليّة/التقارير:** `Admin\ReportController`(`revenue/reports`)، `Admin\PriceController`(`index/update`)،
   `Admin\AccountingController`(`index`، `POST /admin/invoices/{invoice}/pay`).
 
-### 9.7 عزل الفروع والإسناد (Traits)
-- **`BranchScoped`** (كل `Employee\*`): `currentBranch()`+`guardBranch()` (403 عند اختلاف الفرع؛ الإدارة مستثناة).
-- **`ScopedToLawyer`** (`Lawyer\*`+`Staff\*`): `guardAssigned()` (403 إن لم يكن `assigned_lawyer_id`=المستخدم؛ الإدارة مستثناة).
-- **`Staff\*`** يعزل بالدور عبر `scopeForRole/cards`: المحامي المسند فقط، الموظف فرعه **+ بلا فرع** (المجمّع المشترك)، الإدارة الكلّ.
-- **`app/Rules/LawyerInBranch.php`:** يرفض تمرير غير المحامي/الموقوف كـ`lawyer_id` ويقيّد بالفرع — في
-  `distribute.assign, employee.transfer/schedule, consults.refer, meetings.store`.
+### 9.7 عزل الرؤية والإسناد (Traits & Rules)
+> **كيان «الفرع» أُزيل بالكامل** (2026-08-20، الالتزام `640e3b6`). المكتب واحد، والموظف والإدارة يريان
+> كل سجلّات المكتب؛ العزل الباقي هو عزل **المحامي** بالإسناد وعزل **العميل** بالملكيّة.
+> زالت معه: `BranchScoped`, `HasBranch`, `Models\Branch`, `Admin\BranchController`, `Rules\LawyerInBranch`,
+> `BranchSeeder`, `pages/admin/branches.tsx`، وعمود `branch` من كل الجداول.
+
+- **`ScopedToLawyer`** (`Lawyer\*` + `Staff\*`): `guardAssigned()` — 403 إن لم يكن `assigned_lawyer_id`
+  يساوي المستخدم. الإدارة مستثناة عبر `Gate::before`.
+- **`Staff\*`** يعزل بالدور عبر `scopeForRole/cards`: المحامي المسنَد إليه فقط؛ **الموظف والإدارة: الكلّ**.
+- **`app/Rules/ActiveLawyer.php`** (خَلَف `LawyerInBranch`): يرفض تمرير غير المحامي أو الموقوف كـ`lawyer_id` —
+  في `distribute.assign`, `employee.transfer/schedule`, `consults.refer`, `meetings.store`.
 
 ### 9.8 نقاط التحقّق الأمنيّة البارزة
 - **IDOR/403 (ملكيّة):** `authorizeTicket/authorizeCase`, `Consult::pay/schedule/room`, `Meeting::room`,
@@ -584,7 +590,7 @@ idempotent → فتح ملف التنفيذ). المستندات (`execution_doc
   `tasks`, `videoroom`.
 - **الإدارة (`pages/admin/`, بادئة `/admin` — ~28 صفحة):** إشراف (`dashboard, clients, tickets, cases,
   execs, correspondences, lawyers, consults, consult-requests, consult, consultrecv`)، إدارة عليا
-  (`staff` تسجيل + صلاحيّات spatie، `branches, archive, distribute, casefees, tasks`)، عمليّات/اجتماعات
+  (`staff` تسجيل + صلاحيّات spatie، `archive, distribute, casefees, tasks`)، عمليّات/اجتماعات
   (`meetmgmt, meetreqs, meetlog, meeting, meetings, meetingroom, videoroom, clientnotifs, summaries`)،
   ماليّة/تقارير (`revenue, prices, accounting, meetreports, reports`).
 
@@ -651,7 +657,7 @@ idempotent → فتح ملف التنفيذ). المستندات (`execution_doc
 | `UserNotificationBroadcast` | `notifications.{userId}` | `broadcastAs('notify')` — غلاف `Notify` |
 
 - **التفويض:** `routes/channels.php` عبر قاعدة موحّدة `app/Support/ChannelAccess.php`: العميل المالك، أو
-  الإدارة مطلقاً، أو المحامي المسند، أو موظف نفس الفرع فقط (يسدّ التسرّب العابر للفروع). قناة
+  الإدارة مطلقاً، أو المحامي المسنَد، أو أيّ موظف (مكتب واحد). قناة
   `ticket.{id}.presence` تُرجع بيانات العضو (لمنع الردّ المزدوج بين الموظفين) و`null` للعميل.
 - **لا `app/Listeners/` ولا `app/Broadcasting/` ولا `app/Notifications/`** — البثّ يُطلق مباشرةً من
   Support/Jobs عبر `Live::push`. العميل عبر `laravel-echo` + `pusher-js`.
@@ -660,7 +666,11 @@ idempotent → فتح ملف التنفيذ). المستندات (`execution_doc
 
 ## 14. الاختبارات وبوّابات الجودة (Testing & QA)
 - **الإطار:** Pest 4 + PHPUnit، `tests/Feature/*` و`tests/Unit/*`. قاعدة اختبار: `RefreshDatabase`.
-- **حالة معروفة:** المجموعة كانت خضراء بالكامل (نحو 433 اختباراً) مع `tsc`/`pint`/`build` نظيفة.
+- **حالة معروفة:** المجموعة خضراء بالكامل — **743 اختباراً في 133 ملفّاً** (2026-08-21) مع
+  `tsc`/`pint`/`build` نظيفة.
+- **⚠️ شغّلها على دفعات (~10 ملفّات لكل استدعاء).** الحزمة كاملة في استدعاء واحد كانت تسقط بـ
+  «Maximum execution time exceeded»: `LegalAiService` كان يستدعي `set_time_limit(150)` فيخفض مهلة
+  الطرفية اللامحدودة. عولج بـ`App\Support\WebTimeLimit` (يرفع ولا يخفض، ويتخطّى الطرفية).
 - **أمثلة مفتاحيّة:** `tests/Feature/TicketTriageTest.php` (الوكيل الذكيّ للتذاكر)، `AiResilienceTest.php`
   (مرونة الـAI/قاطع الدائرة).
 - **بوّابات ما قبل الدمج:** `artisan test` + `pint --test` + `phpstan` (larastan) + `tsc --noEmit` +
@@ -669,32 +679,49 @@ idempotent → فتح ملف التنفيذ). المستندات (`execution_doc
 ---
 
 ## 15. القضايا المعروفة والديون التقنيّة (Known Issues & Tech Debt)
+> حُدِّث 2026-08-21 بعد دفعات الإصلاح أ–و. ما كان مُدرَجاً هنا وعولج نُقل إلى «عولجت» بمرجعه.
 
-### مؤكَّدة (من تدقيق فعليّ للكود)
-1. **🔴 ردود الـAI فوق المحامي (التذاكر):** `GenerateTicketReplyJob` يتوقّف فقط عند `['مكتملة','مغلقة']`
-   ويُطلق على كل رسالة عميل، فيردّ البوت موضوعيّاً حتى بعد الإحالة/الرأي/الموعد → تضارب مع المحامي.
-   **الحلّ المقترح:** حاجز عبر `TicketJourney::indexOf(status) < indexOf('محالة للقسم القانوني')`.
-2. **🟠 لا إعادة توليد لملخّص التذكرة عند مستند جديد:** `GenerateTicketSummaryJob` يُطلق مرّة واحدة فقط؛
-   المستند المرتبط الجديد لا يُحدّث `TicketSummary`. **الحلّ:** علم `force` + إعادة إطلاق مشروط (غير المعتمد).
-3. **🔴 الانتحال + تبديل الحساب:** `switchAccount` لا يمسح `impersonator_id`؛ المُبدّل يظهر أثناء المعاينة.
-   **الحلّ:** `abort_if` عند وجود `impersonator_id` + إخفاء `accounts` أثناء الانتحال.
+### مفتوحة
+1. **🟠 الانتحال + تبديل الحساب:** [`AuthController::switchAccount`](app/Http/Controllers/AuthController.php:178)
+   لا يفحص `impersonator_id`، ومبدّل الحسابات يظهر أثناء المعاينة.
+   **الحلّ:** `abort_if($request->session()->has('impersonator_id'), 403)` + إخفاء `accounts` في المشاركة.
+2. **🟠 لا إعادة توليد لملخّص التذكرة عند مستند جديد:** `GenerateTicketSummaryJob` يُطلق مرّة واحدة؛
+   المستند الجديد لا يُحدّث `TicketSummary`. **الحلّ:** علم `force` + إعادة إطلاق مشروط (لغير المعتمد).
+3. **🟡 `generatedPassword` وهميّة:** [`Admin\StaffController:59`](app/Http/Controllers/Admin/StaffController.php:59)
+   يعرض كلمة مرور مولّدة، والدخول OTP لا يستخدمها إطلاقاً — تضليل للإدارة.
+4. **🟡 `starts_at` هشّ** عند إدخال تاريخ عربيّ حرّ للاجتماعات (قد يصبح `null`) — يُنصح بمنتقي تاريخ/وقت.
+5. **🟡 لا مسار إلغاء/تعديل موعد استشارة** — فجوة مستقبليّة؛ إن أُضيف يلزم ربط عكسيّ بحالة التذكرة.
+6. **🟡 دَين تنسيق:** `phpstan`/larastan غير مضبوط في بوّابات ما قبل الدمج رغم ذكره في القسم 14.
 
-### تشغيليّة / فجوات
-- توثيق تشغيل `queue:work` + `schedule:run` إلزاميّ (بدونهما إيميلات/ملخّصات/تذكيرات تتعطّل صمتاً).
-- `starts_at` للاجتماعات هشّ عند إدخال تاريخ عربيّ حرّ (قد يصبح null) — يُنصح بمنتقي تاريخ/وقت قابل للتحليل.
-- إزالة `generatedPassword` الوهميّة من `Admin\StaffController` (الدخول OTP لا كلمة مرور).
-- تدوير مفتاح Resend حيّ في `.env` وتوثيق نطاق `salasel.sa` في Resend؛ ومفتاح تقنيات صالح لإرسال SMS فعليّ.
-- لا مسار إلغاء/تعديل موعد استشارة (فجوة مستقبليّة؛ إن أُضيف يلزم ربط عكسيّ بحالة التذكرة).
-- **تضارب بذور:** حسابات `DatabaseSeeder` على `@salasel.sa` بينما السيدرات التشغيليّة تستهدف
-  `client@salasel.test` (راجع القسم 17) — توحيد النطاق يمنع «بيانات عرض فارغة».
+### قرار عمل معلّق (ليس عطلاً)
+- **التنفيذ الناشئ من قضية يبدأ بالمرحلة 8:** [`ExecutionCreation::fromCase`](app/Support/ExecutionCreation.php)
+  يُخزّن `stage = null` فتُرجع `Execution::effectiveStage()` القيمة 8 «قيد التنفيذ» — أي يتخطّى
+  الدراسة والأتعاب والعرض والسداد. **موثَّق صراحةً كسلوك مقصود**: الملفّ يخصّ عميلاً قائماً بحكم صادر،
+  فيُعامَل كملفّ مفتوح لا كطلب استقبال. تغييره يعني ألّا يبدأ العميل تنفيذ حكمه حتى يقبل عرضاً جديداً
+  ويسدّد أتعاباً — **قرار عمل لا هندسة**، ولم يُتّخذ.
 
-### كود ميّت / تنظيف (من مسح الواجهة)
-- **`resources/js/components/ui/*` بالكامل** (`Button/Badge/Card/Notification` + `Button.test.tsx`)
-  و**`components/navigation/Header.tsx`** غير مستوردة في أي مكان (سقالة Tailwind/lucide قديمة) — قابلة للحذف.
-  النظام الحيّ يعتمد `babylon/*` + `babylon.css`. (يوجد `Badge` مكرّر: `babylon/Badge` المستخدَم مقابل `ui/Badge` الميّت.)
-- **مزامنة إلزاميّة:** كتالوج الصلاحيّات `app/Support/Permissions.php` يجب أن يبقى مطابقاً لـ
-  `resources/js/lib/admin-data.ts` (وإلا انحرفت تصفية الواجهة عن الإنفاذ الخادميّ).
-- مجلّدات `resources/js/{actions,routes,wayfinder}` مولّدة بـ Wayfinder — لا تُحرَّر يدويّاً.
+### عولجت (2026-08-20/21)
+- ✅ **ردود الـAI فوق المحامي:** حاجز `TicketJourney::indexOf` في `GenerateTicketReplyJob:35`.
+- ✅ **مهلة الحزمة:** `WebTimeLimit` (يرفع ولا يخفض) بدل `set_time_limit(150)` في `LegalAiService`.
+- ✅ **`route:cache` يفشل:** تسجيل مكرّر لنفس اسم المسار (لم يُحذف أيّ مسار — راجع `route:list`).
+- ✅ **الأرقام الدوليّة محجوبة عند التسجيل:** توحيد `Phone::RULE` بين `login.tsx` والخادم.
+- ✅ **`approveFee` يرفض `0`:** الواجهة ترسل `0` حين يُترك الحقل الاختياريّ فارغاً.
+- ✅ **رابط الجلسة يطرد الموظف:** `Consult::joinLink($user)` صار `match` لكل الأدوار، و`toCard()` يمرّر المشاهد.
+- ✅ **أرشيف Zoom يستنزف الذاكرة:** `writeStream` بدل `File::get()`؛ و`ShouldBeUnique` + كابح 6 ساعات
+  للفاشل يمنع 96 إعادة صفّ يوميّاً.
+- ✅ **مراحل بلا مُطلِق:** التنفيذ 7 (`markPaid` يمرّ بها)، والمخاطبة 4 (`CorrespondenceFlow::sync`).
+- ✅ **التذكرة تعلق عند جدولة الموظف:** `ticket_no` يُمرَّر و`ConsultBooking::create()` يُقدّم الحالة.
+- ✅ **تضارب البذور:** `DatabaseSeeder` صار متكرّر الاستدعاء بأربعة حسابات (القسم 17)؛ السيدرات
+  المذكورة سابقاً (`StaffSeeder`/`TicketSeeder`/…) **لم تعد موجودة**.
+- ✅ **`public/hot` البائت:** كان يشير لخادم Vite ميت على نطاق مشروع آخر ⇒ صفحات بيضاء. محذوف ومُتجاهَل.
+- ✅ **XSS مخزّن (5 نواقل)** و**11 صلاحية ميتة** و**كيان الفرع** (راجع 9.7).
+
+### تشغيليّة
+- **`queue:work` + `schedule:run` إلزاميّان** — بدونهما تتعطّل صمتاً: البريد المُطابَر، ملخّصات الـAI،
+  أرشيف Zoom، التذكيرات. `deploy.sh` صار يفحص وجود عامل حيّ ويحذّر إن كان `QUEUE_CONNECTION=sync`.
+  ومحلّياً (`sync`) تُؤجَّل مهمّة الأرشيف إلى ما بعد إرسال الاستجابة كي لا يقع 504.
+- تدوير مفتاح Resend وتوثيق نطاق `salasel.sa` فيه؛ ومفتاح تقنيات صالح لإرسال SMS فعليّ.
+- **`PermissionSeeder` يُنشئ ولا يحذف** — للتنظيف: `php artisan permissions:prune [--force]`.
 
 ---
 
@@ -706,7 +733,7 @@ idempotent → فتح ملف التنفيذ). المستندات (`execution_doc
 - **التعطّل الآمن للتكاملات:** كل مزوّد خارجيّ له نائب/fallback (AI قالبيّ، Zoom رابط احتياطيّ، بريد log،
   دفع محاكى) — النظام يعمل بلا مفاتيح للاختبار.
 - **الأمان الإنتاجيّ:** أسرار خادميّة لا تُسرَّب؛ ويب‑هوكس محميّة بتوقيع/سرّ؛ تقنيع الهواتف/العملاء في العرض؛
-  عزل صارم بالدور والفرع؛ تحقّق مزدوج (واجهة + خادم).
+  عزل صارم بالدور والملكيّة؛ تحقّق مزدوج (واجهة + خادم).
 - **الوقت:** `Concerns/UsesClock` / دوال `clock()` تُنسّق الوقت العربيّ (ص/م).
 - **التوجيهات الحاكمة للمالك:** لا تعديل/استنتاج من ملفّات المكتبات؛ اتّباع أنماط المشروع؛ لا ادّعاء «يعمل»
   قبل تحقّق حيّ؛ فهم التوثيق الرسميّ واختبار فعليّ (لا تخمين)؛ حدّ رفع الملفّات 2MB.
@@ -714,28 +741,23 @@ idempotent → فتح ملف التنفيذ). المستندات (`execution_doc
 ---
 
 ## 17. الحسابات الافتراضيّة (من البذور)
-**الدخول OTP (رقم الهويّة + رمز SMS).** البذور تضبط `password='password'` لكل الحسابات، لكنّ مسار الدخول
-لا يستخدمها (الدخول بالهويّة+OTP؛ رمز التطوير عبر `AUTH_DEV_OTP` مثل `1234`). `DatabaseSeeder` هو الوحيد
-الذي يزرع حسابات افتراضيّاً ويستدعي `PermissionSeeder` ثم `BranchSeeder`.
+**الدخول OTP (رقم الهويّة + رمز SMS).** البذور تضبط `password='password'`، لكنّ مسار الدخول لا يستخدمها
+(الدخول بالهويّة+OTP؛ رمز التطوير عبر `AUTH_DEV_OTP`). `DatabaseSeeder` يزرع أربعة حسابات فقط — واحد لكل
+دور — ويستدعي `PermissionSeeder`. البذرة **متكرّرة الاستدعاء** (idempotent): تطابق بالهويّة+الدور، وأي حساب
+قديم يحمل نفس البريد يُؤرشَف بريده (`archived+{id}.{email}`) بدل أن يفشل الزرع.
 
-| البريد | الدور | الهويّة | الجوال | الفرع/القسم |
-|---|---|---|---|---|
-| `admin@salasel.sa` | admin | 1000000001 | 0500000001 | الرئيسي — جدة / مدير عام |
-| `admin.lawyer@salasel.sa` | lawyer | 1000000001 | 0500000001 | نفس شخص الإدارة بدور محامٍ (عرض تعدّد الحسابات) |
-| `client@salasel.sa` | client | 1000000002 | 0500000002 | — |
-| `lawyer.jeddah@salasel.sa` | lawyer | 1000000011 | 0500000011 | جدة / القضايا التجارية |
-| `employee.jeddah@salasel.sa` | employee | 1000000012 | 0500000012 | جدة / خدمة العملاء |
-| `lawyer.riyadh@salasel.sa` | lawyer | 1000000021 | 0500000021 | الرياض / الأحوال الشخصية |
-| `employee.riyadh@salasel.sa` | employee | 1000000022 | 0500000022 | الرياض / خدمة العملاء |
-| `lawyer.dammam@salasel.sa` | lawyer | 1000000031 | 0500000031 | الدمام / العقارات |
-| `employee.dammam@salasel.sa` | employee | 1000000032 | 0500000032 | الدمام / خدمة العملاء |
+| الدور | الهويّة | البريد | الجوال |
+|---|---|---|---|
+| admin (الإدارة العليا) | 1000000001 | `kfykfy2020@gmail.com` | ‎+966537434000 |
+| lawyer (المحامي) | 1000000002 | `law@salasel.sa` | ‎+966537434000 |
+| employee (الموظف) | 1000000003 | `emp@salasel.sa` | ‎+966537434000 |
+| client (العميل) | 1000000004 | `m.bander.it@gmail.com` | ‎+967779475324 |
 
-- المحامون/الموظفون يُمنحون `Permissions::ROLE_PERMISSIONS[role]`؛ الإدارة تتجاوز عبر `Gate::before`.
-- الفروع (`BranchSeeder`): «الفرع الرئيسي — جدة»، «فرع الرياض»، «فرع الدمام».
-- **⚠️ تنبيه بذور:** `StaffSeeder` (يدويّ، غير مُدرَج في `DatabaseSeeder`) ينشئ موظفين على نطاق `@salasel.test`،
-  والسيدرات التشغيليّة (`Ticket/Case/Consult/…Seeder`) تبحث عن العميل `client@salasel.test` (نطاق `.test`
-  يختلف عن `client@salasel.sa` في `DatabaseSeeder`) — فبيانات العرض التشغيليّة لا تُطبَّق إلا بوجود حساب `.test`.
+- المحامي/الموظف يُمنحان `Permissions::ROLE_PERMISSIONS[role]`؛ الإدارة تتجاوز الحرّاس عبر `Gate::before`.
+- **`DemoDataSeeder`** (يُستدعى من `DatabaseSeeder`) يزرع بيانات عرض إضافيّة فوق هذه الأربعة.
+- **`PermissionSeeder` يُنشئ ولا يحذف:** الصلاحية التي تُزال من الكتالوج تبقى صفّاً في القاعدة ومُسنَدة.
+  للتنظيف: `php artisan permissions:prune` للعرض، و`--force` للحذف الفعليّ.
 
 ---
 _نهاية الوثيقة — كل الأقسام مُجمّعة من قراءة فعليّة للكود. للتحقّق: شغّل `artisan test` + `queue:work` +
-`schedule:run`، واستخدم `AUTH_DEV_OTP=1234` للدخول الحيّ. آخر تحديث: 2026-08-02._
+`schedule:run`، واستخدم `AUTH_DEV_OTP` للدخول الحيّ. آخر تحديث: **2026-08-21** (إزالة كيان الفرع + دفعات الإصلاح أ–و)._

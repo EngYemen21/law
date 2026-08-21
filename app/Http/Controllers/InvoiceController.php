@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Invoice;
 use App\Services\MoyasarService;
 use App\Support\PaymentReconciler;
+use App\Support\PdfRenderer;
 use App\Support\ReportPrint;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -126,6 +127,6 @@ class InvoiceController extends Controller
             'footer' => 'النظام الإداري لمكاتب المحاماة — شكراً لتعاملكم معنا',
         ]);
 
-        return \App\Support\PdfRenderer::render($html, $invoice->number.'.pdf');
+        return PdfRenderer::render($html, $invoice->number.'.pdf');
     }
 }

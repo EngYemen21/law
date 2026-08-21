@@ -6,13 +6,15 @@ use App\Enums\Role;
 use App\Models\Correspondence;
 use App\Models\User;
 use App\Support\CorrespondenceFlow;
+use App\Support\PdfRenderer;
+use App\Support\ReportPrint;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * المخاطبات الرسميّة — لوحة المكتب (المحامي بفرعه، الإدارة ترى الكلّ) + شاشة العميل.
+ * المخاطبات الرسميّة — لوحة المكتب (المحامي بمخاطباته المسندة، الإدارة ترى الكلّ) + شاشة العميل.
  * دورة الحياة كلّها في App\Support\CorrespondenceFlow؛ هذا المتحكّم يحرس الدور/العزل ويعرض.
  */
 class CorrespondenceController extends Controller
@@ -23,7 +25,7 @@ class CorrespondenceController extends Controller
     {
         $user = $request->user();
         $corrs = Correspondence::with(['user', 'legalCase', 'execution'])
-            ->when($user->role !== Role::Admin, fn ($q) => $q->where('branch', $user->branch))
+            ->when($user->role === Role::Lawyer, fn ($q) => $q->where('assigned_lawyer_id', $user->id))
             ->latest('id')->get()->map(fn (Correspondence $c) => $c->toCard());
 
         $clients = User::where('role', Role::Client)->orderBy('name')->get(['id', 'name'])
@@ -134,6 +136,46 @@ class CorrespondenceController extends Controller
         return back();
     }
 
+    /**
+     * إفادة العميل عن المخاطبة — PDF رسمي مُصيَّر خادمياً (نظير printSummary).
+     * كانت الواجهة تفتح نافذة طباعة متصفح بقالب مرتجل: تفشل صامتاً عند حجب المنبثقة،
+     * ولا تحمل ترويسة المكتب ولا مرجع التوثيق.
+     */
+    public function briefPdf(Request $request, Correspondence $correspondence): \Symfony\Component\HttpFoundation\Response
+    {
+        $user = $request->user();
+        abort_unless($correspondence->user_id === $user->id || $user->isAdmin() || $user->isEmployee(), 403);
+        abort_unless($correspondence->briefed && $correspondence->brief_note, 404, 'لم تصدر إفادة لهذه المخاطبة بعد.');
+
+        $html = ReportPrint::html([
+            'title' => 'إفادة العميل عن المخاطبة الرسمية',
+            'subtitle' => "المخاطبة: {$correspondence->number} · {$correspondence->entity}",
+            'ref' => "REF-{$correspondence->number}",
+            'blocks' => array_values(array_filter([
+                [
+                    'title' => 'بيانات المخاطبة',
+                    'cellRows' => [
+                        [['رقم المخاطبة', $correspondence->number], ['الجهة', $correspondence->entity]],
+                        [['الموضوع', $correspondence->subject], ['الاتجاه', $correspondence->direction]],
+                        [['الحالة', $correspondence->status], ['التاريخ', $correspondence->date_label ?: '—']],
+                    ],
+                ],
+                [
+                    'title' => 'نصّ الإفادة',
+                    'lines' => $correspondence->brief_note,
+                ],
+                $correspondence->reply_body ? [
+                    'title' => 'ردّ الجهة',
+                    'lines' => $correspondence->reply_body,
+                ] : null,
+            ])),
+            'note' => 'إشعار سرية: هذه الإفادة صادرة إلكترونياً من النظام الإداري لمكاتب المحاماة وتخضع للسرية المهنية.',
+            'footer' => 'النظام الإداري لمكاتب المحاماة — منظومة المحاماة والاستشارات القانونية بالمملكة العربية السعودية',
+        ]);
+
+        return PdfRenderer::render($html, 'Brief-'.$correspondence->number.'.pdf');
+    }
+
     // ── مساعدات ──
 
     private function guardOffice(Request $request, Correspondence $correspondence): void
@@ -142,7 +184,7 @@ class CorrespondenceController extends Controller
         if ($user->role === Role::Admin) {
             return;
         }
-        abort_unless($user->role === Role::Lawyer && $correspondence->branch === $user->branch, 403);
+        abort_unless($user->role === Role::Lawyer && $correspondence->assigned_lawyer_id === $user->id, 403);
     }
 
     private function base($user): string

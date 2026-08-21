@@ -9,6 +9,11 @@ use Illuminate\Support\Facades\Log;
  * يمنع تجاوز مهلة تنفيذ الويب (30 ثانية) ويعيد الرد فوراً، وتصل النتائج للواجهة
  * عبر البث اللحظي القائم (Reverb). في الطرفية والاختبارات يُنفَّذ فوراً (سلوك حتمي).
  */
+/*
+ * ⚠️ الصنف كلّه غير مستعمَل حالياً: الأعمال الثقيلة انتقلت إلى الطابور
+ * (BuildRecordingArchive وأشباهه) وهو أمتن — يعيد المحاولة ويحتمل إعادة التشغيل.
+ * محفوظ لأن defer() يظلّ الأداة المناسبة لعمل خفيف لا يستحقّ مهمّة طابور.
+ */
 class AfterResponse
 {
     public static function defer(\Closure $work): void
@@ -20,7 +25,7 @@ class AfterResponse
         }
 
         app()->terminating(function () use ($work) {
-            @set_time_limit(300); // مهلة الويب لا تكفي سلسلة مزوّدي AI وإعادة محاولاتها
+            WebTimeLimit::raise(300); // مهلة الويب لا تكفي سلسلة مزوّدي AI وإعادة محاولاتها
 
             try {
                 $work();

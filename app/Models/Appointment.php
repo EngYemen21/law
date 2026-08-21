@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\IcalendarService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -10,7 +11,7 @@ class Appointment extends Model
 {
     protected $fillable = [
         'user_id', 'ticket_id', 'ext_id', 'type', 'ico', 'lawyer', 'lawyer_id', 'day', 'time',
-        'starts_at', 'duration_min', 'branch', 'status', 'tone', 'when_kind',
+        'starts_at', 'duration_min', 'place', 'status', 'tone', 'when_kind',
     ];
 
     protected $casts = [
@@ -105,7 +106,8 @@ class Appointment extends Model
     }
 
     // الشكل الذي تتوقعه الواجهة (يطابق DATA.appts)
-    public function toCard(): array
+    /** @param  User|null  $viewer  المستخدم الذي ستُعرض له البطاقة — يحدّد غرفة الجلسة الصحيحة لدوره. */
+    public function toCard(?User $viewer = null): array
     {
         [$when, $status, $tone] = $this->liveState();
 
@@ -116,7 +118,7 @@ class Appointment extends Model
             'lawyer' => $this->lawyer,
             'day' => $this->dayLabel(),
             'time' => $this->timeLabel(),
-            'branch' => $this->branch,
+            'place' => $this->place,
             'status' => $status,
             'tone' => $tone,
             'when' => $when,
@@ -124,6 +126,16 @@ class Appointment extends Model
             'client' => $this->user?->name,
             'consultRef' => $this->consult?->ref,
             'pay' => $this->consult?->paid_at ? 'مدفوع' : 'بانتظار السداد',
+            // إضافة للتقويم بتوقيت حقيقي (كان الرابط بلا dates فيفتح حدثاً فارغاً)
+            'gcal' => IcalendarService::googleUrl(
+                title: $this->type,
+                details: 'موعد لدى مكتب المحاماة — المحامي: '.$this->lawyer,
+                startsAt: $this->starts_at,
+                durationMinutes: $this->duration_min ?: 60,
+                locationUrl: $this->consult?->joinLink($viewer) ?: (string) $this->place,
+            ),
+            // رابط الجلسة المرئية الحقيقي داخل المنصّة — فارغ لغير المرئية (يُخفى الزرّ)
+            'joinLink' => $this->consult?->channel === 'مرئية' ? $this->consult->joinLink($viewer) : '',
         ];
     }
 }

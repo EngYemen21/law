@@ -1,5 +1,5 @@
 import { router } from '@inertiajs/react';
-import React from 'react';
+import React, { useState } from 'react';
 import Icon from '@/lib/icons';
 import FlowLine from '@/components/babylon/FlowLine';
 import { SUM_FLOW, type SummaryData, sumStage } from '@/lib/lawyer-data';
@@ -12,16 +12,27 @@ const openSummary = (ref: string) =>
   router.visit(`/lawyer/summary/${encodeURIComponent(ref)}`);
 
 const LawyerSummaries: React.FC<Props> = ({ summaries }) => {
+  const [tab, setTab] = useState<'pending' | 'approved'>('pending');
   const pend = summaries.filter((s) => !s.approved);
+  const done = summaries.filter((s) => s.approved);
+  const list = tab === 'pending' ? pend : done;
 
   return (
     <div className="card">
       <div className="card-h">
-        <h3>ملخصات بانتظار اعتمادي</h3>
-        <span className="sub">{pend.length} ملخص</span>
+        <h3>ملخصات الملفات</h3>
+        <span className="sub">{list.length} ملخص</span>
       </div>
       <div className="card-b">
-        {pend.length ? pend.map((s) => (
+        <div className="mtabs">
+          <button className={`mtab ${tab === 'pending' ? 'on' : ''}`} onClick={() => setTab('pending')} type="button">
+            بانتظار اعتمادي ({pend.length})
+          </button>
+          <button className={`mtab ${tab === 'approved' ? 'on' : ''}`} onClick={() => setTab('approved')} type="button">
+            المعتمدة ({done.length})
+          </button>
+        </div>
+        {list.length ? list.map((s) => (
           <div key={s.ref} className="item">
             <div className="iico"><Icon name="doc" /></div>
             <div className="imeta">
@@ -35,7 +46,7 @@ const LawyerSummaries: React.FC<Props> = ({ summaries }) => {
             </div>
           </div>
         )) : (
-          <div className="empty"><Icon name="check" /><b>لا ملخصات بانتظار اعتمادك</b></div>
+          <div className="empty"><Icon name="check" /><b>{tab === 'pending' ? 'لا ملخصات بانتظار اعتمادك' : 'لا ملخصات معتمدة بعد'}</b></div>
         )}
       </div>
     </div>

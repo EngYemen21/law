@@ -9,16 +9,16 @@ import { maskLawyer } from '@/lib/utils';
 
 // يطابق viewAppts + openAppt (بطاقة .apptx) في index (21).html — ببيانات حقيقيّة
 
-// اشتقاق المكان من بيانات الموعد الحقيقيّة (الفرع/القناة)
+// اشتقاق المكان من بيانات الموعد الحقيقيّة (المكان/القناة)
 function apptPlace(a: Appt) {
   const remote =
     a.type.includes('مرئية') ||
     a.type.includes('هاتفية') ||
-    a.branch.includes('إلكتروني') ||
-    a.branch.includes('هاتفية') ||
-    a.branch.includes('بُعد');
-  const addr = remote ? 'جلسة عن بُعد — يُرسل الرابط قبل الموعد' : a.branch;
-  const chip = remote ? 'عن بُعد' : a.branch;
+    a.place.includes('إلكتروني') ||
+    a.place.includes('هاتفية') ||
+    a.place.includes('بُعد');
+  const addr = remote ? 'جلسة عن بُعد — يُرسل الرابط قبل الموعد' : a.place;
+  const chip = remote ? 'عن بُعد' : a.place;
   return { remote, addr, chip };
 }
 
@@ -27,15 +27,15 @@ const ApptCard: React.FC<{ a: Appt }> = ({ a }) => {
   const toast = useToast();
   const p = apptPlace(a);
   const paid = a.pay === 'مدفوع';
-  const calHref =
-    'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' +
-    encodeURIComponent(a.type);
+  // يبنيه الخادم عبر IcalendarService::googleUrl بتوقيت حقيقي — كان الرابط هنا بلا dates
+  const calHref = a.gcal;
 
+  // رابط الجلسة المرئية الحقيقي بالمنصّة — كان يُنسخ رابط مختلق (salaselbabel.net/APT-…) لا مسار له
   const copyLink = () => {
-    const link = 'https://salaselbabel.net/APT-' + a.id;
+    if (!a.joinLink) return;
     try {
-      navigator.clipboard?.writeText(link).then(
-        () => toast('تم نسخ الرابط'),
+      navigator.clipboard?.writeText(a.joinLink).then(
+        () => toast('تم نسخ رابط الجلسة'),
         () => toast('تعذّر نسخ الرابط'),
       );
     } catch {
@@ -118,9 +118,11 @@ const ApptCard: React.FC<{ a: Appt }> = ({ a }) => {
         <a className="btn" target="_blank" rel="noopener" href={calHref}>
           <Icon name="calplus" /> أضف إلى Google Calendar
         </a>
-        <button className="btn soft" type="button" onClick={copyLink}>
-          <Icon name="link" /> نسخ الرابط
-        </button>
+        {a.joinLink && (
+          <button className="btn soft" type="button" onClick={copyLink}>
+            <Icon name="link" /> نسخ رابط الجلسة
+          </button>
+        )}
         <a
           className="btn soft"
           href={`/appointments/${encodeURIComponent(a.id)}/card.pdf`}
@@ -144,7 +146,7 @@ const ApptItem: React.FC<{ a: Appt; onOpen: (a: Appt) => void }> = ({ a, onOpen 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
           <span style={{ color: 'var(--ink)', fontWeight: 600, fontSize: 12 }}>{a.day} · {a.time}</span>
           <span style={{ color: 'var(--muted)', fontSize: 12 }}>· {maskLawyer(a.lawyer)}</span>
-          <span style={{ color: 'var(--muted)', fontSize: 12 }}>· {a.branch}</span>
+          <span style={{ color: 'var(--muted)', fontSize: 12 }}>· {a.place}</span>
         </div>
       </div>
     </div>

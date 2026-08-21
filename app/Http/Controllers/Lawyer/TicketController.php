@@ -38,12 +38,16 @@ class TicketController extends Controller
 {
     use ScopedToLawyer;
 
-    // التذاكر المحالة للمستشار (التي لها ملخص ملف ومسندة إليه)
+    // التذاكر المحالة للمستشار (المسندة إليه) — بما فيها ما لم يُنتَج ملخصه بعد.
+    // كان whereHas('summary') يُخفيها كلياً حتى تنتهي المهمة الخلفية، فيراها الموظف ولا يراها هو.
     public function index(Request $request): Response
     {
-        $tickets = Ticket::with(['user', 'summary'])->withExists('legalCase')->whereHas('summary')
+        $tickets = Ticket::with(['user', 'summary'])->withExists('legalCase')
             ->where('assigned_lawyer_id', $request->user()->id)->latest('id')->get()
-            ->map(fn (Ticket $t) => array_merge($t->toEmployeeCard(), ['converted' => (bool) $t->legal_case_exists]));
+            ->map(fn (Ticket $t) => array_merge($t->toEmployeeCard(), [
+                'converted' => (bool) $t->legal_case_exists,
+                'awaitingSummary' => $t->summary === null,
+            ]));
 
         return Inertia::render('lawyer/tickets', ['tickets' => $tickets]);
     }
@@ -52,8 +56,8 @@ class TicketController extends Controller
     public function dashboard(Request $request): Response
     {
         $lawyerId = $request->user()->id;
-        // التذاكر المحالة لهذا المحامي (لها ملخص ومسندة إليه)
-        $tickets = Ticket::with(['user', 'summary'])->whereHas('summary')
+        // التذاكر المحالة لهذا المحامي (المسندة إليه، بملخص أو بانتظاره)
+        $tickets = Ticket::with(['user', 'summary'])
             ->where('assigned_lawyer_id', $lawyerId)->latest('id')->get();
 
         return Inertia::render('lawyer/dashboard', [
@@ -312,7 +316,7 @@ class TicketController extends Controller
                     'title' => 'بيانات القضية والموكل',
                     'cellRows' => [
                         [['رقم التذكرة', $ticket->number], ['اسم العميل', $clientName]],
-                        [['نوع القضية', $ticket->type], ['الفرع', $ticket->branch ?: 'الفرع الرئيسي']],
+                        [['نوع القضية', $ticket->type], ['القسم', $ticket->department ?: '—']],
                         [['المستشار المسؤول', $lawyerName], ['حالة الدراسة', $summary->isApproved() ? 'معتمد رسمياً' : 'قيد الدراسة']],
                     ],
                 ],

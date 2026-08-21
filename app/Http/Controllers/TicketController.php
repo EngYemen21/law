@@ -85,8 +85,8 @@ class TicketController extends Controller
             'date_label' => 'الآن',
         ]);
 
-        // الإسناد الأول (حتمي وفوري): الذكاء الاصطناعي يختار المحامي المختص ومنه يُختم فرع التذكرة،
-        // فيراها موظف الفرع منذ الاستقبال ويُعزل عنها موظفو الفروع الأخرى.
+        // الإسناد الأول (حتمي وفوري): الذكاء الاصطناعي يختار المحامي المختص،
+        // فيراها الموظفون منذ الاستقبال، ويبقى العزل على العميل ومحاميه المسنَد.
         TicketAssignment::assign($ticket);
 
         // الرسالة الأولى من العميل
@@ -110,7 +110,7 @@ class TicketController extends Controller
         $type = $data['type'];
         TriageTicketOnOpenJob::dispatch($ticket, $details, $type);
 
-        // تنبيهات فتح التذكرة: داخلي (موظفو فرعها + الإدارة العليا) + بريد (العميل والموظفين والإدارة)
+        // تنبيهات فتح التذكرة: داخلي (موظفو المكتب + الإدارة العليا) + بريد (العميل والموظفين والإدارة)
         $this->notifyTicketOpened($ticket->fresh(), $request->user());
 
         return redirect()->route('tickets.show', $ticket);
@@ -118,7 +118,7 @@ class TicketController extends Controller
 
     /**
      * تنبيهات فتح التذكرة — كانت التذكرة الجديدة تصل صامتةً: لا يعلم بها الموظف/الإدارة
-     * إلا بتصفّح القائمة، ولا يصل العميل تأكيد استلام. أفضل-جهد بعد الإسناد (الفرع مختوم).
+     * إلا بتصفّح القائمة، ولا يصل العميل تأكيد استلام. أفضل-جهد بعد الإسناد.
      */
     private function notifyTicketOpened(Ticket $ticket, User $client): void
     {
@@ -127,10 +127,8 @@ class TicketController extends Controller
         // العميل: تأكيد استلام (بريد فقط — المحادثة نفسها أمامه)
         $mail->send($client, new TicketOpenedMail($ticket, 'client'));
 
-        // موظفو فرع التذكرة (بلا فرع = كل الموظفين — مجمّع الاستقبال المشترك): إشعار داخلي + بريد
-        $employees = User::where('role', Role::Employee)->where('status', 'active')
-            ->when($ticket->branch, fn ($q) => $q->where('branch', $ticket->branch))
-            ->get();
+        // موظفو المكتب النشطون (مجمّع الاستقبال المشترك): إشعار داخلي + بريد
+        $employees = User::where('role', Role::Employee)->where('status', 'active')->get();
         foreach ($employees as $employee) {
             Notify::send($employee->id, 'folder', 't-blue', "تذكرة جديدة {$ticket->number} من العميل — {$ticket->type}. يُرجى المتابعة من لوحة التذاكر.");
         }

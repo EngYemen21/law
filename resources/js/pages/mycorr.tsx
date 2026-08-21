@@ -30,18 +30,6 @@ const MyCorr: React.FC<Props> = ({ corrs }) => {
     });
   };
 
-  const printBrief = (c: ClientCorrCard) => {
-    const html = `<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${c.id}</title>
-      <style>body{font-family:Tahoma,Arial,sans-serif;padding:30px;color:#16245C;line-height:1.9}h2{color:#0A2A55}</style></head>
-      <body><h2>النظام الإداري لمكاتب المحاماة — إفادة العميل</h2><div>مرجع: <b>${c.id}</b> · ${c.date}</div>
-      <div>الجهة: <b>${c.entity}</b> · الموضوع: <b>${c.subject}</b></div>
-      <hr><div>${c.briefNote}</div>${c.reply ? `<hr><b>ردّ الجهة:</b><div>${c.reply}</div>` : ''}
-      <p style="margin-top:24px">مع خالص التقدير،<br>النظام الإداري لمكاتب المحاماة</p></body></html>`;
-    const w = window.open('', '_blank', 'width=800,height=900');
-    if (!w) return;
-    w.document.write(html); w.document.close(); w.focus(); w.print();
-  };
-
   return (
     <div className="card">
       <div className="card-h"><h3>مخاطباتي</h3><span className="sub">{items.length} مخاطبة</span></div>
@@ -64,7 +52,7 @@ const MyCorr: React.FC<Props> = ({ corrs }) => {
             </div>
             <div className="iact">
               {c.briefed ? (
-                <button className="btn soft sm" type="button" onClick={() => printBrief(c)}><Icon name="download" /> طباعة الإفادة</button>
+                <a className="btn soft sm" href={`/correspondences/${encodeURIComponent(c.id)}/brief.pdf`} target="_blank" rel="noopener"><Icon name="download" /> طباعة الإفادة (PDF)</a>
               ) : c.briefReq ? (
                 <Badge text="طُلبت الإفادة" tone="b-amber" />
               ) : (

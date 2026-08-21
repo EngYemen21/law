@@ -3,16 +3,41 @@
 > مرجع تشغيليّ متكامل. المكدّس: **PHP 8.3 · Laravel 13 · Inertia/React 19 (Vite) · MySQL · Reverb (WebSockets) · طابور database + عامل · مجدول cron**.
 > خدمات خارجيّة: **تقنيات (OTP)** · **Resend (بريد)** · **Moyasar (دفع)** · **Zoom (اجتماعات)** · (اختياري: GLM/Gemini للـAI).
 >
+> **آخر تحديث: 2026-08-21** — بعد دفعات الإصلاح أ–و، إزالة كيان «الفرع»، وتدقيق تكامل Zoom.
+> حالة الشيفرة: **749/749 اختباراً خضراء** · 74 مهاجرة · `tsc`/`build`/`pint`/`route:cache` نظيفة.
+>
 > ⚠️ **حرِج**: المنصّة لا تعمل «بشكل صحيح» بمجرّد رفع الكود — تحتاج **٣ عمليّات خلفيّة دائمة**: (1) خادم الويب PHP-FPM، (2) **عامل الطابور** `queue:work`، (3) **المجدول** `schedule:run` عبر cron، (4) **Reverb** للبثّ الحيّ. بدون العامل: لا تُرسَل إيميلات الاجتماعات ولا تُولَّد الملخّصات. بدون cron: لا تذكير ولا إطلاق روابط الجلسات. بدون Reverb: لا مزامنة لحظيّة.
 
 ---
 
-## 0) قائمة ما قبل النشر (إصلاحات كود موصى بها أولاً)
-هذه فجوات معروفة يُفضّل معالجتها قبل الإنتاج (اختياريّة لكنها تمنع سلوكاً خاطئاً):
-1. **تبديل الحساب أثناء المعاينة**: امنع `switchAccount` أثناء الانتحال وأخفِ المُبدّل (`AuthController::switchAccount` يمسح `impersonator_id` أو `abort_if` عند وجوده؛ و`HandleInertiaRequests` لا يُصدر `accounts` أثناء الانتحال).
-2. **كلمة مرور الموظف الوهميّة**: أزِل عرض `generatedPassword` من `Admin/StaffController` (الدخول OTP).
-3. **موثوقيّة `starts_at`**: اجعل نماذج الاجتماع/الدعوة تلتقط تاريخاً/وقتاً قابلاً للتحليل (منتقي date/time) وإلا لا يعمل التذكير مع التواريخ العربيّة الحرّة.
-4. **أمان الأسرار**: `AUTH_DEV_OTP=` (فارغ) في الإنتاج، وتدوير `RESEND_API_KEY`، وعدم دفع `.env` لأي مستودع.
+## 0) قائمة ما قبل النشر
+
+### 🔴 حاجز إلزاميّ: العمل ليس في المستودع بعد
+
+`deploy.sh` يشغّل `git pull origin main`. تشغيل النشر قبل تجهيز الإصدار **ينشر الشيفرة القديمة** ولا يصل منه شيء. تحقّق أولاً:
+
+```bash
+git status --short | wc -l                       # يجب أن يكون 0
+git rev-list --count origin/main..HEAD           # يجب أن يكون 0
+```
+
+إن لم يكونا صفراً: التزم العمل على فرعه → ادفعه → ادمجه في `main` → ادفع `main`. **بعدها فقط** ابدأ النشر.
+
+### حالة الإصلاحات الموصى بها سابقاً (محدَّثة 2026-08-21)
+
+| البند | الحالة |
+|---|---|
+| **أمان الأسرار** — `AUTH_DEV_OTP` فارغ في الإنتاج | ✅ **مُنفَّذ وأمتن**: [AppServiceProvider.php:43](app/Providers/AppServiceProvider.php:43) يرمي استثناءً عند الإقلاع إن ضُبط خارج `local/testing`، فلا يعمل التطبيق أصلاً بمفتاح تجاوز مسرَّب. يبقى عليك تدوير `RESEND_API_KEY` وعدم دفع `.env`. |
+| **موثوقيّة `starts_at`** | ✅ **مُعالَج**: الاجتماعات والدعوات والاستشارات وجلسات القضايا تخزّن `starts_at` حقيقيًّا (مهاجرات `2026_08_01` و`2026_08_10`)، والتذكيرات تعتمده لا النصّ العربيّ الحرّ. |
+| **كلمة مرور الموظف الوهميّة** (`generatedPassword`) | ⚠️ **قائم**: [Admin/StaffController.php:59](app/Http/Controllers/Admin/StaffController.php:59) ما زال يمرّرها وتُعرض في [admin/staff.tsx](resources/js/pages/admin/staff.tsx). الدخول بالـOTP فلا قيمة لعرضها. |
+| **تبديل الحساب أثناء الانتحال** | ⚠️ **قائم**: `AuthController::switchAccount` لا يفحص `impersonator_id`، و`HandleInertiaRequests` يُصدر `accounts` أثناء الانتحال. الخطر محدود (الإدارة تملك الانتحال أصلاً) لكنه يُربك مسار «العودة للإدارة». |
+
+### تغييرات سلوكيّة تُبلَّغ للمكتب قبل التسليم
+
+1. **كل موظف يرى كل شيء** — التذاكر والقضايا والتنفيذ والاجتماعات والاستشارات والتسجيلات، بلا حصر (أُزيل كيان «الفرع»).
+2. **كل موظف نشط يصله إشعار داخليّ وبريد عند فتح أيّ تذكرة** ([TicketController.php:131](app/Http/Controllers/TicketController.php:131)) — حجم بريد ملموس في مكتب كثير التذاكر.
+3. **المحامي معزول بإسناده** — لا يرى مخاطبات زملائه ولا السجلات غير المسنَدة إليه.
+4. **التنفيذ المُنشأ من قضية يبدأ بالمرحلة 8 عمداً** — قرار عمل قائم، ليس عطلاً.
 
 ---
 
@@ -65,7 +90,13 @@ cp .env.example .env
 php artisan key:generate
 # حرّر .env (انظر القسم 5)، ثمّ:
 php artisan migrate --force
-php artisan db:seed --force                       # لأوّل نشر فقط (يُنشئ الأدوار/الصلاحيات/الحسابات)
+
+# البذّار آمن على الإنتاج: يُنشئ الصلاحيات الـ23 وأدوار القوالب الخمسة والحسابات الأساسية
+# الأربعة فقط — ولا بيانات تجريبية (DemoDataSeeder صار اختيارياً وصريحاً للتطوير وحده).
+# ويقلّم أيضاً الصلاحيات المهجورة («إدارة الفروع» بعد إزالة كيان الفرع).
+php artisan db:seed --force
+# ⚠️ بعدها فوراً: غيّر كلمة مرور الحسابات الأربعة — تُنشأ بكلمة `password` الموحّدة.
+
 php artisan storage:link
 
 # بناء أصول الواجهة (مطلوب — Vite ينتج public/build)
@@ -150,7 +181,34 @@ ZOOM_SDK_KEY=... ; ZOOM_SDK_SECRET=... ; ZOOM_WEBHOOK_SECRET=...
 # AI (اختياري)
 GLM_API_KEY=... ; GEMINI_API_KEY=...
 AI_TICKET_AGENT=true
+AI_COOLDOWN_MINUTES=30
+
+# هويّة المكتب المكانيّة — تُختَم على المواعيد الحضوريّة وتظهر في التقويم وملفات ICS والـPDF
+OFFICE_CITY="الرياض"
+OFFICE_ADDRESS="الرياض — حي العليا"
+
+# ⚠️ تصفير قاعدة البيانات من لوحة الإدارة — يبقى false في الإنتاج (الأمر محظور أصلاً في production
+# ما لم يُفتح هذا المفتاح، مع تأكيد نصّي RESET وتسجيل المنفِّذ)
+ALLOW_DB_RESET=false
+
+# توليد PDF (browsershot/كروم) — المهلة بالثواني
+PDF_ENGINE=auto
+PDF_TIMEOUT=20
+# عند فشل اكتشاف المسارات على السيرفر (راجع `php artisan pdf:diagnose`):
+# NODE_BINARY=/usr/bin/node
+# CHROME_PATH=/root/.cache/puppeteer/chrome/linux-*/chrome-linux64/chrome
+
+# النظام الخارجيّ للمخاطبات — بلا BASE_URL تبقى المخاطبات داخليّة بلا مزامنة
+EXTCORR_BASE_URL=
+EXTCORR_API_KEY=
+EXTCORR_AUTH_TYPE=Bearer
+EXTCORR_REF_PREFIX=EXT
+
+# تصيير الخادم لإنيرشيا — معطّل عمداً (لا عمليّة SSR دائمة في هذا النشر)
+INERTIA_SSR_ENABLED=false
 ```
+
+> `.env.example` في المستودع محدَّث ويحوي كل المفاتيح أعلاه بقيمها الافتراضيّة — اعتمده مرجعاً.
 
 ---
 
@@ -238,6 +296,13 @@ sudo certbot --nginx -d DOMAIN        # HTTPS إلزاميّ (الجلسات ا�
 ## 8) ضبط الويب-هوكس (بعد HTTPS)
 - **Moyasar** → `https://DOMAIN/webhooks/moyasar` (محميّ بـ`MOYASAR_WEBHOOK_SECRET`، مستثنى من CSRF).
 - **Zoom** → `https://DOMAIN/webhooks/zoom` (محميّ بتوقيع HMAC، مستثنى من CSRF).
+  الأحداث المطلوب اشتراكها: `meeting.started` · `meeting.ended` · `meeting.participant_joined` · `meeting.participant_left` · `recording.completed` · `meeting.summary_completed`.
+
+> ⚠️ **أوّل ما تحفظ رابط Zoom، تحقّق من نجاح `endpoint.url_validation`.** التطبيق يفحص ختماً زمنيًّا
+> بالثواني ضمن نافذة 5 دقائق ([ZoomWebhook.php:38](app/Support/ZoomWebhook.php:38)). لو ردّ الخادم **403**
+> بدل قبول التحدّي فالسببان المحتملان: **ساعة الخادم منحرفة** (شغّل `timedatectl` وفعّل NTP)، أو
+> **Zoom يرسل الختم بالمللي ثانية** على حسابك — وهي حالة لا تكشفها الاختبارات لأنها كلّها توقّع
+> بالثواني. راقب `storage/logs/laravel.log` عند أوّل حدث حقيقيّ.
 
 ---
 
@@ -261,22 +326,35 @@ sudo certbot --nginx -d DOMAIN        # HTTPS إلزاميّ (الجلسات ا�
 5. **البثّ الحيّ**: افتح لوحتين → غيّر حالة → تحديث لحظيّ (يؤكّد Reverb + بروكسي wss).
 6. **الدفع**: دورة استشارة → ميسّر ببطاقة اختبار/حيّة → callback + webhook.
 7. **الطابور الفاشل**: `php artisan queue:failed` يجب أن يكون فارغاً.
+8. **الصلاحيات**: `php artisan tinker --execute='echo Spatie\Permission\Models\Permission::count();'` ⇒ **23**، ولا وجود لصلاحية «إدارة الفروع».
+9. **الجلسة المرئيّة**: احجز استشارة مرئيّة → تأكّد أنّ `meet_id` غير فارغ في `consults`، وأنّ `storage/logs/laravel.log` **خالٍ** من `Zoom: تعذّر إنشاء اجتماع الاستشارة` — وجودها يعني أنّ الجلسة حُجزت بلا اجتماع Zoom وتحتاج معالجة يدويّة.
+10. **إطلاق روابط الجلسات**: بعد دقيقة من اقتراب موعد جلسة مرئيّة، يجب أن يمتلئ `link_released_at`. إن بقي فارغاً فالمجدول لا يعمل (راجع §6-ج) — **ولن يُفعَّل زرّ الدخول أبداً**.
+11. **PDF**: `php artisan pdf:diagnose` — يؤكّد مسار كروم/Node وعنوان المكتب من `config/office.php`.
+12. **الأصول**: افتح أي صفحة وتأكّد أنّ `public/build/manifest.json` موجود وأنّ لا `public/hot` متبقٍّ (وجوده يجعل Laravel يتجاهل البناء ⇒ صفحات بيضاء).
 
 ---
 
 ## 11) إجراء التحديث (Deploy لاحق)
+
+**استعمل السكربت — لا الخطوات اليدويّة.** [`deploy.sh`](deploy.sh) في جذر المستودع يؤدّي التسلسل كاملاً وبحمايات لا توفّرها الأوامر اليدويّة:
+
 ```bash
-cd /var/www/salasel
-php artisan down                      # وضع الصيانة
-git pull
-composer install --no-dev --optimize-autoloader
-php artisan migrate --force
-npm ci && npm run build
-php artisan config:cache && php artisan route:cache && php artisan view:cache && php artisan event:cache
-sudo supervisorctl restart salasel-worker:* salasel-reverb   # ⚠️ إعادة تشغيل العامل بعد كل تحديث كود
-php artisan up
+cd /var/www/law && bash deploy.sh
 ```
-> **قاعدة ذهبيّة**: عامل الطابور يحمّل الكود في الذاكرة — **أعِد تشغيله بعد كل نشر** وإلا ينفّذ كوداً قديماً.
+
+يفعل بالترتيب: **نسخة احتياطيّة `mysqldump` أولاً** (ويتوقّف إن غاب `mysqldump`) → `down` → `git pull origin main` → `composer install --no-dev` → `npm ci` + `build` → **إيقاف العمّال قبل الترحيل** (عامل بكود قديم يضرب أعمدة مُرحَّلة ⇒ `SQLSTATE 42S22`) → `migrate --force` → الكاشات الأربع → تشغيل العمّال → `up` → **فحص صحّة `/up`** → **فحص عامل الطابور**.
+
+وفيه `trap` يُعيد الموقع من وضع الصيانة مهما أخفق — الخطوة التي كان نسيانها يترك الموقع مُقفلاً.
+
+⚠️ كتلة `supervisorctl` داخله مشروطة بـ`$EUID -eq 0`؛ بمستخدم غير جذر تتخطّى **بصمت**، فاقرأ رسالة فحص عامل الطابور في آخر المخرجات بعناية:
+- `✅ عامل الطابور يعمل` ⇒ سليم.
+- `⚠️ QUEUE_CONNECTION=sync` ⇒ خطأ إعداد: كل مهمّة تُنفَّذ داخل طلب المستخدم، وأرشفة تسجيل Zoom تعني **504**.
+- `⚠️ لا عامل طابور يعمل` ⇒ شغّله عبر Supervisor (§6-أ).
+
+> **قاعدة ذهبيّة**: عامل الطابور يحمّل الكود في الذاكرة — **أعِد تشغيله بعد كل نشر** وإلا ينفّذ كوداً قديماً. السكربت يفعلها؛ إن نشرت يدويًّا فلا تنسَها.
+
+> **السكربت لا يشغّل أيّ بذّار.** بعد ترحيل يضيف/يحذف صلاحيات، شغّل يدويًّا:
+> `php artisan db:seed --class=PermissionSeeder --force`
 
 ---
 
@@ -284,3 +362,18 @@ php artisan up
 - نسخ MySQL يوميّاً (`mysqldump`) + `storage/app` (المستندات المرفوعة).
 - راقب: `storage/logs/laravel.log`, `worker.log`, `reverb.log`, و`queue:failed`.
 - تنبيهات على فشل الطابور وتوقّف Reverb/العامل (Supervisor autorestart يغطّي الانهيار).
+
+---
+
+## 13) بنود مفتوحة تُراقَب بعد النشر
+
+من تدقيق تكامل Zoom (‏2026-08-21) — لا تمنع النشر، لكن راقبها:
+
+| البند | المؤشّر |
+|---|---|
+| وحدة ختم الـwebhook الزمنيّ | ‏403 على كل حدث Zoom بما فيه تحدّي التحقّق ⇒ راجع §8 |
+| طول `start_url` مقابل عمود `varchar(1000)` | رابط مضيف مبتور أو خطأ إدراج عند أوّل اجتماع Zoom حقيقيّ |
+| نافذة `ReleaseMeetingLinks` ‏`[−60د، +5د]` | تعطّل المجدول ساعةً يترك `link_released_at` فارغاً **للأبد** لتلك الجلسات — راقب §10-10 |
+| لا سياسة احتفاظ لـ`recordings/` و`transcripts/` | نموّ بلا حدّ في `storage/app/private/` — راقب المساحة |
+| `deleteMeeting`/`endMeeting` لا يفحصان الاستجابة | إلغاء اجتماع يبدو ناجحاً ولو رفضه Zoom ⇒ اجتماعات يتيمة في الحساب |
+| `ZOOM_FALLBACK_BASE` | إعداد ميت (لا قارئ له في الكود) — لا تعتمد عليه |

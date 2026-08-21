@@ -31,7 +31,6 @@
             'نوع الطلب' => $ticket->type,
             'القسم' => $ticket->department ?: null,
             'الأولوية' => $ticket->priority ?: null,
-            'الفرع' => $audience === 'client' ? null : ($ticket->branch ?: null),
         ])
     ])
 

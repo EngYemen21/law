@@ -26,7 +26,12 @@ class CaseDocument extends Model
         return [
             'id' => $this->id,
             'name' => $this->name,
-            'by' => $this->uploaded_by === 'lawyer' ? 'المحامي' : 'العميل',
+            // 'staff' أضيف حين صار الموظف يرفع مستندات القضية — كان يُعرض «العميل»
+            'by' => match ($this->uploaded_by) {
+                'lawyer' => 'المحامي',
+                'staff' => 'المكتب',
+                default => 'العميل',
+            },
             'status' => $this->status,
             'docType' => $this->doc_type ?? '',
             'summary' => $this->summary ?? '',
