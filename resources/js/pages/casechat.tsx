@@ -23,9 +23,7 @@ interface Props { case: CaseDetail; channel: string; messages: Message[]; hearin
 const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings, documents }) => {
   const toast = useToast();
   const [status, setStatus] = useState({ status: c.status, tone: c.tone });
-  const send = (text: string) => {
-    axios.post(`/cases/${encodeURIComponent(c.no)}/messages`, { body: text });
-  };
+  const send = (text: string) => axios.post(`/cases/${encodeURIComponent(c.no)}/messages`, { body: text });
   // المحادثة والرفع متاحان ما لم تكن القضية مغلقة/مؤرشفة (متوافق مع حارس الخادم)
   const chatOpen = !['مغلقة', 'مؤرشفة'].includes(status.status);
   // رفع مستند فعلي لملف القضية — تظهر رسالته لحظياً عبر البثّ، وتُحدَّث قائمة المستندات فور نجاح الرفع
@@ -33,14 +31,23 @@ const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings, docum
     if (!file) return;
     const fd = new FormData();
     fd.append('file', file);
-    axios.post(`/cases/${encodeURIComponent(c.no)}/attach`, fd)
-      .then(() => { toast('تم رفع المستند'); router.reload({ only: ['documents'] }); })
-      .catch(() => toast('تعذّر رفع المستند'));
+    return axios.post(`/cases/${encodeURIComponent(c.no)}/attach`, fd)
+      .then(() => { toast('تم رفع المستند'); router.reload({ only: ['documents'] }); });
   };
+  // «full» يحوّل المتصفّح لبوّابة ميسّر عند النجاح، فالتوست هنا كان يعني الفشل دائماً (نجاح كاذب).
+  // «install» يعود للصفحة فعلاً بعد تفعيل القضية، فالتوست فيه صحيح.
   const pay = (plan: 'full' | 'install') =>
-    router.post(`/cases/${encodeURIComponent(c.no)}/pay`, { plan }, { preserveScroll: true, onSuccess: () => toast('تم استلام السداد وتفعيل القضية') });
+    router.post(`/cases/${encodeURIComponent(c.no)}/pay`, { plan }, {
+      preserveScroll: true,
+      onSuccess: () => { if (plan === 'install') toast('تم استلام الدفعة الأولى وتفعيل القضية'); },
+      onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر بدء الدفع، حاول بعد قليل'),
+    });
   const payInstallment = () =>
-    router.post(`/cases/${encodeURIComponent(c.no)}/pay-installment`, {}, { preserveScroll: true, onSuccess: () => toast('تم استلام الدفعة') });
+    router.post(`/cases/${encodeURIComponent(c.no)}/pay-installment`, {}, {
+      preserveScroll: true,
+      onSuccess: () => toast('تم استلام الدفعة'),
+      onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر تسجيل الدفعة'),
+    });
 
   const flowCard = (
     <>

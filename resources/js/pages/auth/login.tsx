@@ -25,11 +25,12 @@ type PageProps = {
 
 // أنماط التحقّق ورسائل الخطأ — تطابق قواعد الخادم (دفاع مزدوج: واجهة + خادم)
 const RE_NID = /^\d{10}$/;
-const RE_PHONE = /^05\d{8}$/;
+// يطابق App\Support\Phone::RULE حرفياً — يقبل المحلي السعودي والدوليّ الكامل
+const RE_PHONE = /^(?:05\d{8}|\+?[1-9]\d{7,14})$/;
 const RE_EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const MSG = {
   nid: 'رقم الهوية يجب أن يتكوّن من 10 أرقام.',
-  phone: 'رقم الجوال يجب أن يبدأ بـ 05 ويتكوّن من 10 أرقام.',
+  phone: 'أدخل رقم جوال صحيحاً: محليّ 05XXXXXXXX أو دوليّ بصيغة ‎+9665XXXXXXXX.',
   email: 'أدخل بريداً إلكترونياً صحيحاً.',
   name: 'أدخل الاسم كاملاً (كلمتان على الأقل).',
   code: 'أدخل رمز التحقّق المكوّن من 4 أرقام.',
@@ -344,7 +345,7 @@ const Login: React.FC = () => {
                   </div>
                   <div className="lgn-f">
                     <label>رقم الجوال</label>
-                    <input className="lgn-txt ltr" inputMode="numeric" maxLength={10} placeholder="05XXXXXXXX" value={regForm.data.phone} onChange={(e) => regForm.setData('phone', e.target.value.replace(/\D/g, ''))} />
+                    <input className="lgn-txt ltr" inputMode="tel" maxLength={16} placeholder="05XXXXXXXX أو ‎+9665XXXXXXXX" value={regForm.data.phone} onChange={(e) => regForm.setData('phone', e.target.value.replace(/[^\d+]/g, ''))} />
                   </div>
                   <div className="lgn-f">
                     <label>البريد الإلكتروني</label>

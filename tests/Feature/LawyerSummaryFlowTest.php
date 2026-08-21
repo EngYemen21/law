@@ -126,7 +126,7 @@ class LawyerSummaryFlowTest extends TestCase
         $this->referredTicket($this->client(), $this->employee(), $this->lawyer());
 
         $this->actingAs($admin)->get(route('admin.tickets'))
-            ->assertOk()->assertInertia(fn ($p) => $p->component('admin/tickets')->has('tickets', 1));
+            ->assertOk()->assertInertia(fn ($p) => $p->component('admin/tickets')->has('tickets.data', 1));
 
         $this->actingAs($admin)->get(route('admin.summaries'))
             ->assertOk()->assertInertia(fn ($p) => $p->component('admin/summaries')->has('summaries', 1));

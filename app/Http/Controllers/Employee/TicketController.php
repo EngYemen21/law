@@ -8,6 +8,7 @@ use App\Events\TicketStatusBroadcast;
 use App\Http\Controllers\Controller;
 use App\Jobs\GenerateTicketSummaryJob;
 use App\Models\Consult;
+use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Services\LegalAiService;
@@ -36,12 +37,33 @@ class TicketController extends Controller
 {
     public function index(): Response
     {
-        $tickets = Ticket::with('user')->withExists('legalCase')
-            ->latest('id')->get()
-            ->map(fn (Ticket $t) => array_merge($t->toEmployeeCard(), ['converted' => (bool) $t->legal_case_exists]));
+        $allTickets = Ticket::with(['user', 'assignedLawyer'])->withExists('legalCase')
+            ->latest('id')->get();
+
+        $tickets = $allTickets->map(function (Ticket $t) {
+            $card = $t->toEmployeeCard();
+            $card['converted'] = (bool) $t->legal_case_exists;
+            $card['updatedAgo'] = $t->updated_at?->locale('ar')->diffForHumans() ?? 'الآن';
+            $card['createdAgo'] = $t->created_at?->locale('ar')->diffForHumans() ?? 'الآن';
+
+            return $card;
+        });
+
+        $counts = [
+            'total' => $allTickets->count(),
+            'needAction' => $allTickets->whereNotIn('status', TicketJourney::AWAITING_OTHERS)->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
+            'missingDocs' => $allTickets->where('status', 'بانتظار مستندات')->count(),
+            'referred' => $allTickets->where('status', 'محالة للقسم القانوني')->count(),
+            'urgent' => $allTickets->filter(fn ($t) => in_array($t->priority, ['عالية', 'حرجة', 'urgent', 'high']))->count(),
+            'completed' => $allTickets->whereIn('status', ['مكتملة', 'مغلقة'])->count(),
+        ];
+
+        $departments = $allTickets->pluck('department')->filter()->unique()->values();
 
         return Inertia::render('employee/tickets', [
             'tickets' => $tickets,
+            'counts' => $counts,
+            'departments' => $departments,
             // محامو المكتب — مودال التحويل في القائمة يحتاج القائمة الحقيقية لا بيانات ثابتة
             'lawyers' => User::where('role', Role::Lawyer)
                 ->orderBy('name')
@@ -53,6 +75,14 @@ class TicketController extends Controller
     public function show(Ticket $ticket): Response
     {
         $ticket->load(['user', 'legalCase']);
+
+        $client = $ticket->user;
+        $clientStats = $client ? [
+            'totalTickets' => Ticket::where('user_id', $client->id)->count(),
+            'activeTickets' => Ticket::where('user_id', $client->id)->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
+            'totalCases' => LegalCase::where('user_id', $client->id)->count(),
+            'memberSince' => $client->created_at?->locale('ar')->translatedFormat('F Y') ?? '—',
+        ] : null;
 
         $lawyers = User::where('role', Role::Lawyer)
             ->orderBy('name')
@@ -66,13 +96,15 @@ class TicketController extends Controller
                 'caseRef' => $ticket->legalCase?->number,
                 'mobile' => $ticket->user?->phone,
                 'openedAt' => $ticket->created_at?->locale('ar')->translatedFormat('j F Y'),
+                'priority' => $ticket->priority ?: 'متوسطة',
             ]),
+            'clientStats' => $clientStats,
             'channel' => 'ticket.'.$ticket->id,
             // الموظف يرى كل الرسائل بما فيها الملاحظات الداخلية
             'messages' => $ticket->messages->map->toMessage(),
             // مفردات الحالة من مصدر الرحلة — قائمة مكتوبة يدوياً كانت تُسقط حالات حقيقية
             'states' => TicketJourney::options(),
-            // محامو الفرع لمودال جدولة الموعد المضمّن
+            // محامو المكتب لمودال جدولة الموعد المضمّن
             'lawyers' => $lawyers,
         ]);
     }

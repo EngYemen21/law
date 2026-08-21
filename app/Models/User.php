@@ -154,6 +154,16 @@ class User extends Authenticatable
         return $this->hasMany(Consult::class);
     }
 
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
+    }
+
+    public function documents(): HasMany
+    {
+        return $this->hasMany(Document::class);
+    }
+
     /** التذاكر المُسنَدة لهذا المحامي (assigned_lawyer_id) — لعدّ الحمل بـwithCount. */
     public function assignedTickets(): HasMany
     {

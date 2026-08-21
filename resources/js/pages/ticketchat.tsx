@@ -21,7 +21,7 @@ interface ConsultLink {
 }
 
 const TYPES: { key: string; label: string; ico: string; sub: string }[] = [
-  { key: 'office', label: 'حضورية', ico: 'office', sub: 'في الفرع' },
+  { key: 'office', label: 'حضورية', ico: 'office', sub: 'في مقرّ المكتب' },
   { key: 'video', label: 'مرئية', ico: 'video', sub: 'عبر الفيديو' },
   { key: 'phone', label: 'هاتفية', ico: 'phone', sub: 'اتصال مباشر' },
 ];
@@ -195,16 +195,14 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
     </>
   );
 
-  const send = (text: string) => {
-    axios.post(`/tickets/${encodeURIComponent(ticket.no)}/messages`, { body: text });
-  };
+  const send = (text: string) => axios.post(`/tickets/${encodeURIComponent(ticket.no)}/messages`, { body: text });
 
   // رفع مستند فعلي — يظهر للطرفين لحظياً
   const attach = (file?: File) => {
     if (!file) return;
     const fd = new FormData();
     fd.append('file', file);
-    axios.post(`/tickets/${encodeURIComponent(ticket.no)}/attach`, fd);
+    return axios.post(`/tickets/${encodeURIComponent(ticket.no)}/attach`, fd);
   };
 
   return (

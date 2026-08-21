@@ -42,7 +42,7 @@ const Notifications: React.FC<{ notifications: NotifItem[] }> = ({ notifications
               <Icon name={n.ic} />
             </div>
             <div className="nbody">
-              <p dangerouslySetInnerHTML={{ __html: n.text }} />
+              <p>{n.text}</p>
               <time>{n.time}</time>
             </div>
             {n.link && (

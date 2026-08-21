@@ -2,17 +2,14 @@
 
 namespace App\Mail;
 
-use App\Services\IcalendarService;
-use App\Support\MeetingTime;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
-use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-/** إشعار بموعد اجتماع — معطيات مفصولة عن النماذج مع مرفق iCalendar القياسي وترميز Google Schema JSON-LD. */
+/** إشعار بموعد اجتماع — معطيات مفصولة عن النماذج، مع ترميز Google Schema JSON-LD. */
 class MeetingScheduledMail extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
@@ -43,6 +40,11 @@ class MeetingScheduledMail extends Mailable implements ShouldQueue
         ]);
     }
 
+    /**
+     * بلا مرفقات عمداً (fe55756): مرفق ‎.ics كان يُحجب أو يُعرض ملفّاً غامضاً لدى عملاء
+     * بريد كثيرين. البديل الحيّ هو زرّ «أضِف إلى تقويمك» وتغذية Webcal في شاشة التقويم
+     * (IcalendarService::googleUrl / feedForUser). لا تُعِدها إلا بقرار صريح.
+     */
     public function attachments(): array
     {
         return [];

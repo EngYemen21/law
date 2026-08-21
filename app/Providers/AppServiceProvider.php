@@ -21,7 +21,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $tmpDir = storage_path('app/browsershot-tmp');
-        if (!is_dir($tmpDir)) {
+        if (! is_dir($tmpDir)) {
             @mkdir($tmpDir, 0777, true);
         }
         putenv("TMP={$tmpDir}");
@@ -37,6 +37,12 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+
+        // تجاوز OTP التطويري (رمز ثابت لأي هوية) مسموح في local/testing فقط.
+        // خطأ في APP_ENV على خادم الإنتاج كان يكفي لفتح دخول بلا رمز حقيقي — نُفشل الإقلاع بدل الصمت.
+        if (config('services.auth_dev_otp') && ! app()->environment('local', 'testing')) {
+            throw new \RuntimeException('AUTH_DEV_OTP مضبوط خارج بيئة التطوير — أزِله فوراً من ملف البيئة.');
+        }
 
         // الإدارة العليا (enum Admin) تتجاوز كل الصلاحيات — يجعل $user->can(...) صحيحاً دائماً لها
         Gate::before(fn (User $user) => $user->isAdmin() ? true : null);

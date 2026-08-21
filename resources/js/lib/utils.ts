@@ -2,6 +2,8 @@ import type { ClassValue } from 'clsx';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+// ⚠️ غير مستعملة — صفر مناد في resources/js (تدقيق 2026-08-21). مُحتفَظ بها بقرار «لا حذف»؛
+// المشروع لا يستعمل tailwind-merge في أي مكان آخر.
 export function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
 }

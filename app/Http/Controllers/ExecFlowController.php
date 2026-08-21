@@ -104,7 +104,7 @@ class ExecFlowController extends Controller
         // خرائط الصلاحية لكلّ إجراء
         $clientActions = ['acceptOffer', 'inquire', 'rejectOffer'];
         $adminOnly = ['approveFee', 'setFee'];               // قرار ماليّ — الإدارة وحدها
-        $intakeActions = ['refer', 'requestDocs'];            // الاستقبال — الموظف (بفرعه) أو المكتب
+        $intakeActions = ['refer', 'requestDocs'];            // الاستقبال — الموظف أو المكتب
         $lawyerPickup = ['accept', 'reject', 'saveFee'];     // المحامي (التقاط/عزل)
         $staffProcActions = ['addProcedure', 'requestCorr', 'close']; // محامي أو إدارة
 
@@ -113,7 +113,7 @@ class ExecFlowController extends Controller
         } elseif (in_array($action, $adminOnly, true)) {
             abort_unless($role === Role::Admin, 403);
         } elseif (in_array($action, $intakeActions, true)) {
-            // الموظف (بوّابة الاستقبال، محصور بفرعه) أو المكتب (محامٍ/إدارة). refer للموظف/الإدارة فقط
+            // الموظف (بوّابة الاستقبال) أو المكتب (محامٍ/إدارة). refer للموظف/الإدارة فقط
             $allowed = $action === 'refer' ? [Role::Employee, Role::Admin] : [Role::Employee, Role::Lawyer, Role::Admin];
             abort_unless(in_array($role, $allowed, true), 403);
             abort_unless($user->can('إدارة القضايا والأتعاب'), 403);
@@ -143,7 +143,12 @@ class ExecFlowController extends Controller
                 (string) $request->input('duration', ''),
                 (string) $request->input('payMethod', ''),
             ),
-            'approveFee' => ExecService::approveFee($execution, (int) $request->input('fee', 0) ?: null),
+            // 0 أو الفراغ = «اعتمد الأتعاب كما هي» (الحقل اختياري في الواجهة) ⇒ null.
+            // والتحقق يمنع السالب والنصّ اللذين كانا يمرّان عبر (int) على مُدخل حرّ.
+            'approveFee' => ExecService::approveFee(
+                $execution,
+                ((int) ($request->validate(['fee' => ['nullable', 'integer', 'min:0']])['fee'] ?? 0)) ?: null,
+            ),
             'setFee' => ExecService::setFee(
                 $execution,
                 (int) $request->validate(['fee' => ['required', 'integer', 'min:1']])['fee'],
@@ -288,6 +293,7 @@ class ExecFlowController extends Controller
     {
         $user = $request->user();
         abort_unless(in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true), 403);
+        abort_unless($user->can('إدارة القضايا والأتعاب'), 403); // إجراء على ملفّ موكّل — يستوجب الصلاحية
         abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403); // عزل المحامي بالإسناد
         abort_unless($document->execution_id === $execution->id, 404);
         abort_unless($document->status === 'مرفوع', 422, 'لا يمكن مراجعة مستند لم يُرفَع بعد.');
@@ -307,11 +313,13 @@ class ExecFlowController extends Controller
     {
         $user = $request->user();
         $isClient = $user->role === Role::Client && $execution->user_id === $user->id;
-        $isStaff = in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true);
+        // الطاقم يحتاج صلاحية الملفّات صراحةً — كان أي موظف بلا صلاحية يُنزّل مستندات أي موكّل
+        $isStaff = in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true) && $user->can('إدارة القضايا والأتعاب');
         abort_unless($isClient || $isStaff, 403);
         abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403);
         abort_unless($document->execution_id === $execution->id, 404);
         abort_if($document->path === null, 404, 'الملف غير موجود على الخادم.');
+        abort_unless(Storage::exists($document->path), 404, 'الملف غير موجود على الخادم.');
 
         return Storage::download($document->path, $document->label);
     }
@@ -322,7 +330,7 @@ class ExecFlowController extends Controller
     {
         $user = $request->user();
         $isClient = $user->role === Role::Client && $execution->user_id === $user->id;
-        $isStaff = in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true);
+        $isStaff = in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true) && $user->can('إدارة القضايا والأتعاب');
         abort_unless($isClient || $isStaff, 403);
         abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403);
         abort_unless((int) $execution->fee > 0, 422, 'لا يوجد عرض/فاتورة على هذا الطلب بعد.');

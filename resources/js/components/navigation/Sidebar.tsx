@@ -13,6 +13,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const { url, props } = usePage() as any;
   const user = props?.auth?.user;
   const unreadNotifications = (props?.unreadNotifications as number) ?? 0; // عدّ حقيقي من الخادم
+  const navBadges = (props?.navBadges as Record<string, number>) ?? {}; // شارات العميل الحقيقية
   const path = (url as string).split('?')[0];
   // الصفحات المشتركة (الإشعارات/الملف الشخصي) تُعرض في لوحة دور المستخدم الفعليّ لا لوحة العميل.
   const role = panelRole(path, user?.role);
@@ -73,8 +74,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                 <Icon name={it.icon} />
                 <span>{it.label}</span>
                 {(() => {
-                  // عنصر الإشعارات يأخذ العدّ الحقيقي من الخادم؛ غيره يبقى على شارته الثابتة إن وُجدت
-                  const badge = it.route === '/notifications' ? unreadNotifications : it.badge;
+                  // كل الشارات من الخادم: الإشعارات من unreadNotifications والباقي من navBadges.
+                  // كانت مشتقّة من DATA الوهمية فيرى كل عميل الأرقام نفسها مهما كان سجلّه.
+                  const badge = it.route === '/notifications' ? unreadNotifications : navBadges[it.route];
                   return badge ? <span className="badge">{badge}</span> : null;
                 })()}
               </Link>

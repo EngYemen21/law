@@ -40,7 +40,7 @@ class DistributeController extends Controller
     public function assign(Request $request, Ticket $ticket): RedirectResponse
     {
         $data = $request->validate([
-            // الإدارة تُسند لمحامٍ نشط — Rule موحَّد يرفض غير المحامين والموقوفين. (الإدارة صلاحيات مطلقة فلا تقييد بالفرع)
+            // الإدارة تُسند لمحامٍ نشط — Rule موحَّد يرفض غير المحامين والموقوفين.
             'lawyer_id' => ['required', 'integer', new ActiveLawyer],
         ]);
         $lawyer = User::findOrFail($data['lawyer_id']);
@@ -58,7 +58,7 @@ class DistributeController extends Controller
         }
 
         $ticket->update($updates);
-        // انتشار المحامي/الفرع الجديد إلى استشارات التذكرة المفتوحة
+        // انتشار المحامي الجديد إلى استشارات التذكرة المفتوحة
         TicketAssignment::syncRelatedConsults($ticket->fresh());
         Live::push(new TicketStatusBroadcast($ticket));
 

@@ -34,11 +34,40 @@ use Illuminate\Validation\ValidationException;
  */
 class ConsultBooking
 {
-    private const MAP = [
-        'office' => ['label' => 'حضورية', 'ico' => 'office', 'place' => 'الرياض — حي العليا'],
-        'video' => ['label' => 'مرئية', 'ico' => 'video', 'place' => 'اجتماع إلكتروني'],
-        'phone' => ['label' => 'هاتفية', 'ico' => 'phone', 'place' => 'مكالمة هاتفية'],
-    ];
+    /**
+     * أنواع الاستشارة ومكانها المكتوب على الموعد.
+     *
+     * دالة لا ثابتاً: عنوان المكتب يأتي من config('office.address') — كان مصلَّباً هنا،
+     * فتغيير OFFICE_ADDRESS يغيّر ما يُعرض ولا يغيّر ما يُكتب على الموعد المحجوز.
+     *
+     * @return array<string, array{label:string, ico:string, place:string}>
+     */
+    private static function map(): array
+    {
+        return [
+            'office' => ['label' => 'حضورية', 'ico' => 'office', 'place' => (string) config('office.address')],
+            'video' => ['label' => 'مرئية', 'ico' => 'video', 'place' => 'اجتماع إلكتروني'],
+            'phone' => ['label' => 'هاتفية', 'ico' => 'phone', 'place' => 'مكالمة هاتفية'],
+        ];
+    }
+
+    /**
+     * تسجيل صريح حين تُجدوَل جلسة مرئية بلا اجتماع Zoom.
+     *
+     * ZoomService لا يرمي أبداً — كل إخفاق يتحوّل إلى null، وبعضه بلا سطر سجلّ أصلاً
+     * (كابح التهدئة 60 ثانية يُصمت الخدمة كلياً بعد أول فشل رمز). فبلا هذا التسجيل
+     * على مستوى العمل لا يبقى أي أثر يربط «العميل لا يستطيع الدخول» بسببه الحقيقي.
+     *
+     * @param  array<string, mixed>|null  $zoom
+     */
+    private static function logMissingMeeting(bool $isVideo, ?array $zoom, string $ref): void
+    {
+        if ($isVideo && empty($zoom['id'])) {
+            Log::error('Zoom: تعذّر إنشاء اجتماع الاستشارة — تُجدوَل بلا رابط جلسة', [
+                'consult' => $ref,
+            ]);
+        }
+    }
 
     /**
      * الخطوة 1 — طلب استشارة (النوع فقط). لا Appointment ولا Zoom ولا حارس تعارض بعد.
@@ -72,7 +101,7 @@ class ConsultBooking
             'audit' => [['user' => 'النظام', 'field' => 'الاستقبال', 'before' => '—', 'after' => 'طلب تسعير — '.$m['label'], 'time' => now()->format('Y/m/d h:i')]],
         ]);
 
-        // إشعار المحامي المسند (إن وُجد) بطلب تسعير جديد — قائمة التسعير تغطّي بقية موظفي الفرع
+        // إشعار المحامي المسند (إن وُجد) بطلب تسعير جديد — قائمة التسعير تغطّي بقية الموظفين
         if ($ctx['lawyerId']) {
             Notify::send($ctx['lawyerId'], 'card', 't-amber', "طلب تسعير استشارة جديد ({$consult->ref}) — {$m['label']}.");
         }
@@ -205,10 +234,10 @@ class ConsultBooking
     {
         abort_unless($consult->status === 'بانتظار تحديد الموعد', 422, 'يلزم سداد الاستشارة قبل اختيار الموعد.');
 
-        $type = array_search($consult->channel, array_map(fn ($x) => $x['label'], self::MAP), true) ?: 'office';
-        $m = self::MAP[$type];
+        $type = array_search($consult->channel, array_map(fn ($x) => $x['label'], self::map()), true) ?: 'office';
+        $m = self::map()[$type];
 
-        // المحامي المختار عند الجدولة (يُحدّث الإسناد والفرع للعزل ومنع الحجز المزدوج)
+        // المحامي المختار عند الجدولة (يُحدّث الإسناد ويمنع الحجز المزدوج)
         $lawyerUser = ! empty($slot['lawyer_id']) ? User::find((int) $slot['lawyer_id']) : ($consult->assigned_lawyer_id ? User::find($consult->assigned_lawyer_id) : null);
         $lawyer = $lawyerUser?->name ?: ($consult->lawyer ?: 'المستشار القانوني');
         $lawyerId = $lawyerUser?->id;
@@ -220,6 +249,11 @@ class ConsultBooking
         $zoom = $consult->channel === 'مرئية'
             ? app(ZoomService::class)->createMeeting("استشارة {$consult->ref} — {$consult->subject}", $duration, false, $startsAt)
             : null;
+
+        // إخفاق Zoom لا يوقف الحجز (العميل سدّد، والجلسة قد تُدار يدوياً) — لكنه لا يُبتلع:
+        // بلا هذا السطر تُجدوَل الاستشارة وتُفوتَر ويُرسَل بريدها بـmeet_id فارغ، ولا أثر في
+        // السجلّ يدلّ على السبب، فيصل العميل الغرفة ويحصل على 422 بلا تفسير ولا استدراك.
+        self::logMissingMeeting($consult->channel === 'مرئية', $zoom, $consult->ref);
 
         try {
             DB::transaction(function () use ($consult, $slot, $m, $place, $lawyer, $lawyerId, $startsAt, $duration, $zoom) {
@@ -311,6 +345,8 @@ class ConsultBooking
             ? app(ZoomService::class)->createMeeting("استشارة {$ctx['ref']} — {$ctx['subject']}", $duration, false, $startsAt)
             : null;
 
+        self::logMissingMeeting($data['type'] === 'video', $zoom, (string) $ctx['ref']);
+
         $consult = DB::transaction(function () use (
             $client, $ticket, $data, $ctx, $m, $place, $startsAt, $duration, $total, $zoom
         ) {
@@ -387,6 +423,18 @@ class ConsultBooking
             return $consult;
         });
 
+        // تقديم حالة التذكرة كما تفعل schedule() — بدونها تبقى «بانتظار حجز الاستشارة»
+        // وهي ضمن AWAITING_OTHERS فلا يتقدّم بها الموظف، ومخرجها الوحيد مشروط بـticket_id.
+        if ($ticket) {
+            $ticket->update([
+                'status' => 'موعد مؤكد',
+                'tone' => TicketJourney::toneFor('موعد مؤكد'),
+                'last_message' => "تم تأكيد موعد الجلسة: {$consult->when_label}",
+                'date_label' => 'الآن',
+            ]);
+            Live::push(new TicketStatusBroadcast($ticket));
+        }
+
         self::sendBookingEmails($consult);
 
         // بثّ لحظي — شاشات المكتب المفتوحة (استقبال الاستشارات/الطلبات) كانت لا تعلم بالحجز الفوري
@@ -429,7 +477,7 @@ class ConsultBooking
      */
     private static function resolveContext(User $client, array $data, ?Ticket $ticket): array
     {
-        $m = self::MAP[$data['type']];
+        $m = self::map()[$data['type']];
 
         $lawyerUser = ! empty($data['lawyer_id'])
             ? User::find((int) $data['lawyer_id'])
@@ -485,6 +533,6 @@ class ConsultBooking
     /** بيانات العرض للنوع (label/ico/place الافتراضي). */
     public static function meta(string $type): array
     {
-        return self::MAP[$type] ?? self::MAP['office'];
+        return self::map()[$type] ?? self::map()['office'];
     }
 }

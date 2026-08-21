@@ -2,6 +2,11 @@
 // بيانات دور الموظف — مستخرجة حرفياً من index (82).html
 // SYS_TICKETS / STAFF / MEET_REQUESTS / CONSULTS ... إلخ
 // ============================================================
+//
+// ⚠️ ثوابت غير مستعملة (تدقيق 2026-08-21) — بيانات عرض بقيت من مرحلة النموذج الثابت،
+//    والشاشات صارت تقرأ من الخادم عبر خصائص Inertia. مُحتفَظ بها بقرار «لا حذف»:
+//   EM_QUICK · SCHEDULE_TIMES · TRANSFERS · TICKET_THREADS
+//    لا تبنِ عليها شيئاً: قيمها ثابتة ولا تعكس القاعدة.
 
 import type { Message } from '@/lib/chat';
 
@@ -156,7 +161,7 @@ const RAW_CONSULTS: Omit<Consult, 'channel' | 'session' | 'when' | 'place' | 'ph
   { ref: 'CN-2026-1020', client: 'نورة سعد الدوسري', subject: 'مطالبة مالية', type: 'تجاري', priority: 'عادية', status: 'محولة إلى قضية', received: 'قبل يومين', employee: 'منيرة الحربي', lawyer: 'أ. سارة القحطاني', mins: 140, aiDone: true, aiClass: 'مطالبة مالية', aiSummary: 'تحويلها إلى قضية مطالبة بعد تعذّر الحل الودي.', aiLawyer: 'أ. سارة القحطاني', missing: [], audit: [] },
 ];
 
-// نفس منطق CONSULTS.forEach في الأصل (قناة/جلسة/محامٍ/موعد/فرع/هاتف/رابط)
+// نفس منطق CONSULTS.forEach في الأصل (قناة/جلسة/محامٍ/موعد/مكان/هاتف/رابط)
 const _CH = ['مرئية', 'هاتفية', 'حضورية'];
 const _LW = ['أ. سارة القحطاني', 'أ. خالد المالكي', 'أ. ماجد العتيبي'];
 export const CONSULTS: Consult[] = RAW_CONSULTS.map((c, i) => ({

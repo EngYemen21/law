@@ -28,7 +28,7 @@ class StaffController extends Controller
     public function index(Request $request): Response
     {
         $staff = User::query()
-            ->whereIn('role', [Role::Employee, Role::Lawyer])
+            ->whereIn('role', [Role::Employee, Role::Lawyer, Role::Admin])
             ->orderByDesc('id')->get()
             ->map(fn (User $u) => $u->staffCard());
 
@@ -59,7 +59,7 @@ class StaffController extends Controller
             ->with('generatedPassword', ['email' => $user->email, 'password' => $plainPassword]);
     }
 
-    // تعديل موظف قائم (الدور/الصلاحيات/الفرع/القسم/الأجر/التواصل) — لا يمسّ كلمة المرور
+    // تعديل موظف قائم (الدور/الصلاحيات/القسم/الأجر/التواصل) — لا يمسّ كلمة المرور
     public function update(Request $request, User $user): RedirectResponse
     {
         // يُعدَّل الموظفون فقط (لا عملاء)
@@ -95,7 +95,7 @@ class StaffController extends Controller
             'role' => ['required', 'string', 'in:employee,lawyer,admin'], // الدور/اللوحة صراحةً
             'job_title' => ['required', 'string', 'max:60'],
             'email' => ['required', 'email', 'max:150', Rule::unique('users', 'email')->ignore($ignore?->id)],
-            'mobile' => ['required', 'regex:/^05\d{8}$/', Rule::unique('users', 'phone')->where('role', $role)->ignore($ignore?->id)],
+            'mobile' => ['required', Phone::RULE, Rule::unique('users', 'phone')->where('role', $role)->ignore($ignore?->id)],
             'nid' => ['required', 'regex:/^\d{10}$/', Rule::unique('users', 'national_id')->where('role', $role)->ignore($ignore?->id)],
             'dept' => ['nullable', 'string', 'max:120'],
             'join' => ['nullable', 'date'],
@@ -118,7 +118,7 @@ class StaffController extends Controller
             'nid.regex' => 'رقم الهوية يجب أن يتكوّن من 10 أرقام.',
             'nid.unique' => 'يوجد حساب بهذا الدور لنفس الهوية. اختر دوراً مختلفاً لإضافة حساب آخر لهذا الشخص.',
             'mobile.required' => 'رقم الجوال إلزاميّ (لاستقبال الرمز).',
-            'mobile.regex' => 'رقم الجوال يجب أن يبدأ بـ 05 ويتكوّن من 10 أرقام.',
+            'mobile.regex' => 'رقم الجوال غير صالح — محليّ 05XXXXXXXX أو دوليّ ‎+9665XXXXXXXX.',
             'mobile.unique' => 'يوجد حساب بهذا الدور لنفس الجوال. اختر دوراً مختلفاً.',
             'email.unique' => 'البريد الإلكتروني مستخدم في حساب آخر (لكل حساب بريد مختلف).',
         ];

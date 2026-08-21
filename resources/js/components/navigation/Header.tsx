@@ -1,3 +1,5 @@
+// ⚠️ غير مستعمل — صفر مستورد في resources/js (تدقيق 2026-08-21): AppLayout يستورد Sidebar وحده.
+// وفيه بيانات إشعارات وهمية مثبّتة أدناه، فلا تُعِده للخدمة قبل ربطها بـnavBadges/الإشعارات الحقيقية.
 import { Link } from '@inertiajs/react';
 import clsx from 'clsx';
 import { Bell, Menu, Search, LogOut, User, Settings } from 'lucide-react';
@@ -244,7 +246,7 @@ const Header: React.FC<HeaderProps> = ({ sidebarOpen, onSidebarToggle, user }) =
                   الملف الشخصي
                 </Link>
                 <Link
-                  href="/settings"
+                  href="/profile"
                   className="flex items-center gap-2 px-4 py-2 text-sm hover:bg-neutral-paper2 transition-colors"
                   style={{ color: '#607689' }}
                 >

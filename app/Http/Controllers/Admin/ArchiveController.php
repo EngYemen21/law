@@ -6,9 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Consult;
 use App\Models\Ticket;
 use App\Support\RecordingArchive;
+use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -44,19 +44,19 @@ class ArchiveController extends Controller
     }
 
     // فيديو جلسة الاستشارة مضغوطاً ZIP (جلب خادمي من سحابة Zoom)
-    public function recording(Consult $consult): BinaryFileResponse
+    public function recording(Consult $consult): StreamedResponse|RedirectResponse
     {
         abort_unless($consult->session === 'منتهية', 404, 'لا تسجيل لهذه الاستشارة — جلستها لم تنعقد.');
 
-        return RecordingArchive::zip($consult, 'video');
+        return RecordingArchive::download($consult, 'video');
     }
 
     // صوت الجلسة (M4A) مضغوطاً ZIP
-    public function audio(Consult $consult): BinaryFileResponse
+    public function audio(Consult $consult): StreamedResponse|RedirectResponse
     {
         abort_unless($consult->session === 'منتهية', 404, 'لا تسجيل لهذه الاستشارة — جلستها لم تنعقد.');
 
-        return RecordingArchive::zip($consult, 'audio');
+        return RecordingArchive::download($consult, 'audio');
     }
 
     // النصّ التفريغي للجلسة (txt) — المحلي إن وُجد وإلا يُجلب من السحابة ويُحفظ

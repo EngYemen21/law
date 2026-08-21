@@ -116,7 +116,9 @@ const Invoices: React.FC<{ invoices: Invoice[] }> = ({ invoices }) => {
       <div className="card">
         <div className="card-h"><h3>الفواتير المدفوعة</h3></div>
         <div className="card-b">
-          {paid.map((v) => <InvRow key={v.no} v={v} />)}
+          {paid.length
+            ? paid.map((v) => <InvRow key={v.no} v={v} />)
+            : <div className="empty"><Icon name="card" /><b>لا فواتير مدفوعة بعد</b></div>}
         </div>
       </div>
     </>

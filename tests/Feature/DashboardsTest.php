@@ -90,7 +90,9 @@ class DashboardsTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         Ticket::create(['user_id' => $client->id, 'number' => 'T1', 'type' => 'تجاري', 'status' => 'قيد التحليل', 'tone' => 'b-blue']);
         Invoice::create(['user_id' => $client->id, 'number' => 'INV1', 'description' => 'أتعاب', 'amount' => 8000, 'status' => 'مدفوعة', 'tone' => 'b-green', 'due_label' => 'اليوم', 'paid' => true]);
-        Meeting::create(['user_id' => $client->id, 'ref' => 'MTG1', 'title' => 'اجتماع', 'type' => 'عميل', 'when_label' => 'الأحد', 'status' => 'قادم', 'approve' => 'بانتظار اعتماد الإدارة']);
+        // الاعتماد لا يُطلب إلا بعد انعقاد الاجتماع — العدّاد يحصر المنتهية
+        Meeting::create(['user_id' => $client->id, 'ref' => 'MTG1', 'title' => 'اجتماع', 'type' => 'عميل', 'when_label' => 'الأحد', 'status' => 'منتهٍ', 'approve' => 'بانتظار اعتماد الإدارة']);
+        Meeting::create(['user_id' => $client->id, 'ref' => 'MTG2', 'title' => 'اجتماع قادم', 'type' => 'عميل', 'when_label' => 'غد', 'status' => 'قادم', 'approve' => 'بانتظار اعتماد الإدارة']);
 
         $this->actingAs($admin)->get(route('admin.dashboard'))
             ->assertOk()->assertInertia(fn ($p) => $p->component('admin/dashboard')

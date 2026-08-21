@@ -1,11 +1,16 @@
 // ============================================================
 // بيانات منصة العميل — مستخرجة حرفياً من index (82).html (DATA)
 // ============================================================
+//
+// ⚠️ ثوابت غير مستعملة (تدقيق 2026-08-21) — بيانات عرض بقيت من مرحلة النموذج الثابت،
+//    والشاشات صارت تقرأ من الخادم عبر خصائص Inertia. مُحتفَظ بها بقرار «لا حذف»:
+//   CASE_DETAILS
+//    لا تبنِ عليها شيئاً: قيمها ثابتة ولا تعكس القاعدة.
 
 export interface Ticket { no: string; type: string; dept: string; status: string; tone: string; last: string; date: string; }
 export interface Case { no: string; type: string; status: string; tone: string; update: string; }
 export interface Exec { no: string; subject: string; status: string; tone: string; last: string; }
-export interface Appt { id: string; type: string; ico: string; lawyer: string; day: string; time: string; place: string; status: string; tone: string; when: 'up' | 'past'; client?: string; consultRef?: string; pay?: string; }
+export interface Appt { id: string; type: string; ico: string; lawyer: string; day: string; time: string; place: string; status: string; tone: string; when: 'up' | 'past'; client?: string; consultRef?: string; pay?: string; gcal?: string; joinLink?: string; }
 export interface Meeting { id?: number; ref: string; title: string; when: string; up: boolean; status?: string; tone?: string; canJoin?: boolean; approved?: boolean; link: string; minutes: string | null; summary: string | null; }
 export interface DocItem { id?: number; name: string; meta: string; canDownload?: boolean; downloadUrl?: string; }
 export interface Invoice { no: string; desc: string; amount: number; status: string; tone: string; due: string; overdue?: boolean; paid: boolean; hasProof?: boolean; }
@@ -238,6 +243,7 @@ const EMPLOYEE_NAV: SideGroup[] = [
     { icon: 'exec', label: 'التنفيذ', route: '/employee/execs' },
     { icon: 'scale', label: 'إدارة الاستشارات', route: '/employee/consults' },
     { icon: 'cal', label: 'جدولة المواعيد', route: '/employee/schedule' },
+    { icon: 'calgrid', label: 'التقويم', route: '/employee/calendar' },
     { icon: 'reply', label: 'التحويلات', route: '/employee/transfer' },
     { icon: 'video', label: 'الاجتماعات', route: '/employee/meetings' },
     { icon: 'video', label: 'طلبات الاجتماعات', route: '/employee/meetreqs' },
@@ -260,6 +266,7 @@ const LAWYER_NAV: SideGroup[] = [
   { g: 'الأدوات', items: [
     { icon: 'doc', label: 'المساعد القانوني', route: '/lawyer/assistant' },
     { icon: 'compass', label: 'استقبال الاستشارات', route: '/lawyer/consultrecv' },
+    { icon: 'scale', label: 'جلسات الاستشارات', route: '/lawyer/consults' },
     { icon: 'out', label: 'الملخصات', route: '/lawyer/summaries' },
     { icon: 'exec', label: 'المهام', route: '/lawyer/tasks' },
   ] },
@@ -293,6 +300,7 @@ const ADMIN_NAV: SideGroup[] = [
     { icon: 'bell', label: 'إشعارات العملاء', route: '/admin/clientnotifs' },
     { icon: 'video', label: 'الاجتماعات', route: '/admin/meetings' },
     { icon: 'out', label: 'الملخصات', route: '/admin/summaries' },
+    { icon: 'doc', label: 'المساعد القانوني', route: '/admin/assistant' },
   ] },
   { g: 'المالية والتقارير', items: [
     { icon: 'card', label: 'الإيرادات', route: '/admin/revenue' },
@@ -323,7 +331,9 @@ acc[r] = t;
   },
   {} as Record<string, [string, string]>
 );
-// مسارات إضافية لدور العميل (المحادثات)
+// مسارات إضافية لدور العميل (الغرف المرئية) — ليست ضمن VIEW_ROUTE فتظهر بلا عنوان
+CLIENT_TITLES['/meetingroom'] = ['غرفة الاجتماع', 'منصة العميل'];
+CLIENT_TITLES['/consults/room'] = ['غرفة الاستشارة المرئية', 'منصة العميل'];
 
 const EMPLOYEE_TITLES: Record<string, [string, string]> = {
   '/employee/dashboard': ['الرئيسية', 'لوحة الموظف'],
@@ -333,10 +343,12 @@ const EMPLOYEE_TITLES: Record<string, [string, string]> = {
   '/employee/consults': ['إدارة الاستشارات', 'لوحة الموظف'],
   '/employee/consult': ['رحلة الاستشارة', 'لوحة الموظف'],
   '/employee/schedule': ['جدولة المواعيد', 'لوحة الموظف'],
+  '/employee/calendar': ['التقويم', 'لوحة الموظف'],
   '/employee/transfer': ['التحويلات', 'لوحة الموظف'],
   '/employee/meetreqs': ['طلبات الاجتماعات', 'لوحة الموظف'],
   '/employee/meetings': ['الاجتماعات', 'لوحة الموظف'],
   '/employee/meeting': ['تفاصيل الاجتماع', 'لوحة الموظف'],
+  '/employee/meetingroom': ['غرفة الاجتماع', 'لوحة الموظف'],
   '/employee/consultrecv': ['استقبال الاستشارات', 'لوحة الموظف'],
   '/employee/videoroom': ['غرفة الجلسة المرئية', 'لوحة الموظف'],
 };
@@ -351,7 +363,10 @@ const LAWYER_TITLES: Record<string, [string, string]> = {
   '/lawyer/meetreqs': ['طلبات الاجتماعات', 'لوحة المحامي'],
   '/lawyer/calendar': ['التقويم', 'لوحة المحامي'],
   '/lawyer/assistant': ['المساعد القانوني الذكي', 'لوحة المحامي'],
+  '/lawyer/meeting': ['تفاصيل الاجتماع', 'لوحة المحامي'],
+  '/lawyer/meetingroom': ['غرفة الاجتماع', 'لوحة المحامي'],
   '/lawyer/consultrecv': ['استقبال الاستشارات', 'لوحة المحامي'],
+  '/lawyer/consults': ['جلسات الاستشارات', 'لوحة المحامي'],
   '/lawyer/consult': ['رحلة الاستشارة', 'لوحة المحامي'],
   '/lawyer/summaries': ['الملخصات', 'لوحة المحامي'],
   '/lawyer/tasks': ['المهام', 'لوحة المحامي'],
@@ -379,6 +394,9 @@ const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/meetlog': ['سجل الاجتماعات', 'الإدارة العليا'],
   '/admin/clientnotifs': ['إشعارات العملاء', 'الإدارة العليا'],
   '/admin/meetings': ['اعتماد الاجتماعات', 'لوحة الإدارة'],
+  '/admin/meeting': ['تفاصيل الاجتماع', 'لوحة الإدارة'],
+  '/admin/meetingroom': ['غرفة الاجتماع', 'لوحة الإدارة'],
+  '/admin/assistant': ['المساعد القانوني الذكي', 'الإدارة العليا'],
   '/admin/summaries': ['اعتماد الملخصات', 'لوحة الإدارة'],
   '/admin/revenue': ['الإيرادات', 'لوحة الإدارة'],
   '/admin/prices': ['أسعار الاستشارات', 'الإدارة العليا'],

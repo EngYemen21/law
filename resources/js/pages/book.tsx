@@ -23,9 +23,12 @@ const OTHER = '__other__';
 
 interface Props {
   pending: ConsultCard[];
+  // الأسعار الحيّة من إعدادات الإدارة (Setting::consultPrices) — كانت تُرسَل وتُهمَل
+  prices?: { office: number; video: number; phone: number; vat: number };
+  specialties?: string[];
 }
 
-const Book: React.FC<Props> = ({ pending }) => {
+const Book: React.FC<Props> = ({ pending, prices, specialties = [] }) => {
   const toast = useToast();
   const [channel, setChannel] = useState('');
   const [caseType, setCaseType] = useState('');
@@ -114,14 +117,30 @@ const Book: React.FC<Props> = ({ pending }) => {
             </select>
           </div>
           {caseType === OTHER && (
-            <div className="field"><label>اكتب نوع القضية</label><input className="input" value={otherType} onChange={(e) => setOtherType(e.target.value)} placeholder="مثال: نزاع تأمين طبي" /></div>
+            <div className="field">
+              <label>اكتب نوع القضية</label>
+              <input className="input" list="book-specialties" value={otherType} onChange={(e) => setOtherType(e.target.value)} placeholder="مثال: نزاع تأمين طبي" />
+              {/* أقسام المكتب الحقيقية من الخادم — اقتراحات تساعد على مطابقة التخصّص عند الإسناد */}
+              <datalist id="book-specialties">
+                {specialties.map((s) => <option key={s} value={s} />)}
+              </datalist>
+            </div>
           )}
           <div className="field">
             <label>نوع الاستشارة</label>
             <select className="input" value={channel} onChange={(e) => setChannel(e.target.value)}>
               <option value="">— اختر نوع الاستشارة —</option>
-              {CHANNELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              {CHANNELS.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {prices ? `${l} — ${prices[v as 'office' | 'video' | 'phone']} ر.س` : l}
+                </option>
+              ))}
             </select>
+            {prices && channel && (
+              <div className="action-hint" style={{ marginTop: 8 }}>
+                <Icon name="card" /> السعر الاسترشادي {prices[channel as 'office' | 'video' | 'phone']} ر.س + ضريبة {prices.vat}% — تعتمده الإدارة أو تعدّله قبل السداد.
+              </div>
+            )}
           </div>
           <div className="field">
             <label>وصف موجز للطلب</label>

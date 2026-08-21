@@ -4,9 +4,13 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Models\User;
+use App\Support\Permissions;
 use Database\Seeders\DatabaseSeeder;
+use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role as SpatieRole;
 use Tests\TestCase;
 
 /**
@@ -49,20 +53,68 @@ class SeederIdempotencyTest extends TestCase
         $this->assertSame(1, User::where('national_id', '1000000001')->where('role', Role::Admin)->count());
     }
 
-    public function test_fresh_seed_creates_exactly_the_four_accounts(): void
+    /**
+     * الحسابات الأساسية الأربعة تُنشأ صحيحة وبلا تكرار.
+     * DatabaseSeeder لم يعد يستدعي DemoDataSeeder (البيانات التجريبية صارت صريحة)،
+     * فالثابت هو أن كل هويّة/دور أساسيّ له حساب واحد ببريده الصحيح ولا حسابات سواها.
+     */
+    public function test_fresh_seed_creates_the_four_core_accounts(): void
     {
         $this->seed(DatabaseSeeder::class);
 
-        $this->assertSame(4, User::count());
         foreach ([
             ['1000000001', Role::Admin, 'kfykfy2020@gmail.com'],
             ['1000000002', Role::Lawyer, 'law@salasel.sa'],
             ['1000000003', Role::Employee, 'emp@salasel.sa'],
             ['1000000004', Role::Client, 'm.bander.it@gmail.com'],
         ] as [$nid, $role, $email]) {
-            $u = User::where('national_id', $nid)->where('role', $role)->first();
-            $this->assertNotNull($u, "الحساب {$nid}/{$role->value} مفقود");
-            $this->assertSame($email, $u->email);
+            $matches = User::where('national_id', $nid)->where('role', $role)->get();
+            $this->assertCount(1, $matches, "الحساب {$nid}/{$role->value} مفقود أو مكرّر");
+            $this->assertSame($email, $matches->first()->email);
         }
+
+        // ولا حساب سواها: البذّار آمن على الإنتاج ولا يحقن حسابات تجريبية
+        $this->assertSame(4, User::count(), 'البذّار أنشأ حسابات خارج الأربعة الأساسية.');
+    }
+
+    /** إعادة البذر لا تُضاعف الحسابات الأساسية (تقارب حقيقي لا مجرّد عدم انفجار). */
+    public function test_reseeding_does_not_duplicate_core_accounts(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $before = User::whereIn('national_id', ['1000000001', '1000000002', '1000000003', '1000000004'])->count();
+
+        $this->seed(DatabaseSeeder::class);
+
+        $this->assertSame($before, User::whereIn('national_id', ['1000000001', '1000000002', '1000000003', '1000000004'])->count());
+    }
+
+    /**
+     * صلاحية خرجت من الكتالوج («إدارة الفروع» بعد إزالة كيان الفرع) كانت تبقى صفّاً حيّاً
+     * ومُسنَدة لكل مستخدم لم يُعدَّل — البذّار يُنشئ ولا يحذف، وsyncPermissions يفصلها عن
+     * أدوار القوالب فقط. الآن تُقلَّم من الصفوف ومن إسناد المستخدمين والأدوار معاً.
+     */
+    public function test_seeder_prunes_permissions_that_left_the_catalogue(): void
+    {
+        $this->seed(PermissionSeeder::class);
+
+        $stale = Permission::findOrCreate('إدارة الفروع', 'web');
+        $role = SpatieRole::findOrCreate('إداري', 'web');
+        $role->givePermissionTo($stale);
+
+        $staff = User::factory()->create(['role' => Role::Employee]);
+        $staff->givePermissionTo($stale);
+        $this->assertTrue($staff->fresh()->hasPermissionTo('إدارة الفروع'));
+
+        $this->seed(PermissionSeeder::class);
+
+        $this->assertNull(Permission::where('name', 'إدارة الفروع')->first());
+        $this->assertNotContains('إدارة الفروع', $staff->fresh()->permissions->pluck('name')->all());
+        $this->assertNotContains('إدارة الفروع', $role->fresh()->permissions->pluck('name')->all());
+
+        // الكتالوج الحيّ سليم بعد التقليم — لا حذف عرَضيّ
+        $this->assertSame(
+            count(Permissions::all()),
+            Permission::where('guard_name', 'web')->count()
+        );
     }
 }

@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Employee;
 
 use App\Enums\Role;
 use App\Http\Controllers\Controller;
+use App\Models\Appointment;
+use App\Models\Ticket;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
 use App\Support\ConsultBooking;
@@ -17,18 +19,48 @@ use Inertia\Response;
 
 /**
  * جدولة/حجز استشارة من الموظف نيابةً عن عميل — يحفظ حجزاً حقيقياً.
- * محامو فرع الموظف فقط (العملاء غير مقيّدين بفرع).
+ * كل محامي المكتب (مكتب واحد بعد إزالة كيان الفرع).
  */
 class ScheduleController extends Controller
 {
-    public function index(): Response
+    public function index(Request $request): Response
     {
+        $appointments = Appointment::with(['user', 'consult', 'lawyerUser'])
+            ->orderByRaw('starts_at IS NULL')
+            ->orderBy('starts_at', 'desc')
+            ->latest('id')
+            ->take(150)
+            ->get()
+            ->map(function (Appointment $a) use ($request) {
+                $card = $a->toCard($request->user());
+                $card['rawStartsAt'] = $a->starts_at?->toIso8601String();
+                $card['rawDate'] = $a->starts_at?->format('Y-m-d');
+                $card['rawTime'] = $a->starts_at?->format('H:i');
+                $card['lawyerId'] = $a->lawyer_id;
+                $card['clientId'] = $a->user_id;
+                $card['phone'] = $a->user?->phone ?? $a->consult?->phone ?? '';
+                $card['channel'] = $a->consult?->channel ?? ($a->ico === 'video' ? 'مرئية' : ($a->ico === 'phone' ? 'هاتفية' : 'حضورية'));
+                $card['subject'] = $a->consult?->subject ?? $a->type ?? '';
+
+                return $card;
+            });
+
+        $todayDate = now()->format('Y-m-d');
+        $counts = [
+            'today' => $appointments->filter(fn ($a) => ($a['rawDate'] ?? null) === $todayDate)->count(),
+            'upcoming' => $appointments->filter(fn ($a) => ($a['when'] ?? null) === 'up')->count(),
+            'video' => $appointments->filter(fn ($a) => ($a['channel'] ?? null) === 'مرئية')->count(),
+            'office' => $appointments->filter(fn ($a) => ($a['channel'] ?? null) === 'حضورية')->count(),
+        ];
+
         return Inertia::render('employee/schedule', [
-            'clients' => User::where('role', Role::Client)->orderBy('name')->get(['id', 'name'])
-                ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name]),
+            'clients' => User::where('role', Role::Client)->orderBy('name')->get(['id', 'name', 'phone', 'email'])
+                ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name, 'phone' => $u->phone ?? '', 'email' => $u->email ?? '']),
             'lawyers' => User::where('role', Role::Lawyer)
-                ->orderBy('name')->get(['id', 'name'])
-                ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name]),
+                ->orderBy('name')->get(['id', 'name', 'department'])
+                ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name, 'dept' => $u->department ?: 'القسم القانوني']),
+            'appointments' => $appointments->values(),
+            'counts' => $counts,
         ]);
     }
 
@@ -58,6 +90,9 @@ class ScheduleController extends Controller
             // المحامي اختياري؛ إن اختير يجب أن يكون نشطاً (يمنع تمرير عميل/موظف/إداري).
             'lawyer_id' => ['nullable', 'integer', new ActiveLawyer],
             'subject' => ['nullable', 'string', 'max:120'],
+            // رقم التذكرة حين تُجدول من شاشة المحادثة — بدونه تبقى التذكرة عالقة في
+            // «بانتظار حجز الاستشارة» بلا مخرج، ويرى الموظف رسالة نجاح كاذبة.
+            'ticket_no' => ['nullable', 'string', 'max:60'],
         ]);
 
         $client = User::where('role', Role::Client)->findOrFail($data['client_id']);
@@ -93,6 +128,10 @@ class ScheduleController extends Controller
             }
         }
 
+        $ticket = ! empty($data['ticket_no'])
+            ? Ticket::where('number', $data['ticket_no'])->where('user_id', $client->id)->first()
+            : null;
+
         $consult = ConsultBooking::create($client, [
             'type' => $data['type'],
             'subject' => $data['subject'] ?? null,
@@ -101,7 +140,7 @@ class ScheduleController extends Controller
             'duration' => LawyerAvailability::slotMinutes(),
             'day' => $startsAt->format('Y-m-d'),
             'time' => $data['time'],
-        ]);
+        ], $ticket);
 
         if ($request->expectsJson()) {
             return response()->json(['ref' => $consult->ref]);

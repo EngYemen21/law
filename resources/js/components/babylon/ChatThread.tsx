@@ -44,9 +44,10 @@ const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
 interface ChatThreadProps {
   initial: Message[];
   placeholder?: string;
-  // وضع الخادم: عند تمريرها تُحفظ الرسائل عبر الخادم بدل المحاكاة المحلية
-  onSend?: (text: string) => void;
-  onAttach?: (file?: File) => void;
+  // وضع الخادم: عند تمريرها تُحفظ الرسائل عبر الخادم بدل المحاكاة المحلية.
+  // إن أعادت وعداً، يُنتظر: يُستعاد النصّ ويُعرض خطأ عند الرفض بدل ضياع الرسالة صامتةً.
+  onSend?: (text: string) => void | Promise<unknown>;
+  onAttach?: (file?: File) => void | Promise<unknown>;
   // وضع البثّ اللحظي: اسم قناة Reverb (مثل ticket.5) — مزامنة بلا إعادة تحميل
   channel?: string;
   // تحديث حالة التذكرة لحظياً (تقدّم مسار المعالجة)
@@ -96,11 +97,29 @@ const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكت�
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [messages, typing]);
 
+  // فشل الإرسال كان صامتاً والنصّ يُمسح على أي حال، فتضيع رسالة العميل بلا أثر
+  const failed = (restore: string, msg: string) => (): void => {
+    setReply(restore);
+    setTyping(false);
+    toast(`⚠️ ${msg}`);
+  };
+
   const send = () => {
     const v = reply.trim();
     if (!v) return;
-    if (liveMode) { onSend?.(v); setReply(''); setTyping(true); return; }
-    if (serverMode) { onSend!(v); setReply(''); return; }
+    if (liveMode) {
+      setReply('');
+      setTyping(true);
+      Promise.resolve(onSend?.(v)).catch(failed(v, 'تعذّر إرسال الرسالة، حاول مجدداً'));
+
+      return;
+    }
+    if (serverMode) {
+      setReply('');
+      Promise.resolve(onSend!(v)).catch(failed(v, 'تعذّر إرسال الرسالة، حاول مجدداً'));
+
+      return;
+    }
     const mine: Message = {
       who: 'client', name: CLIENT_NAME, role: 'العميل',
       text: v.replace(/</g, '&lt;'), time: nowClock(),
@@ -125,7 +144,7 @@ const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكت�
   };
   const onFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f) onAttach?.(f);
+    if (f) Promise.resolve(onAttach?.(f)).catch(() => toast('⚠️ تعذّر رفع المستند، حاول مجدداً'));
     e.target.value = '';
   };
 

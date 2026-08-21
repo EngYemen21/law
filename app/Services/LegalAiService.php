@@ -13,6 +13,7 @@ use App\Models\Ticket;
 use App\Models\TicketDocument;
 use App\Models\User;
 use App\Support\ServiceDocs;
+use App\Support\WebTimeLimit;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -845,6 +846,7 @@ PROMPT;
      * @param  array<int, array{id:int,name:string,dept:string,success:array,load:int}>  $candidates
      * @return array<int, int> معرّفات المحامين مرتّبة بالأولوية
      */
+    /** ⚠️ غير مستعملة حالياً: LawyerAvailability استُبدلت بترتيب حتميّ سريع (كانت تعلّق الطلب حتى 150ث). محفوظة للرجوع. */
     public function rankLawyers(string $specialty, string $subject, array $candidates): array
     {
         $ids = array_map(fn ($c) => (int) $c['id'], $candidates);
@@ -1082,7 +1084,7 @@ PROMPT;
     /** الأولوية: Gemini (Google) ← GLM (z.ai)؛ يعيد النصّ أو null عند التعذّر. */
     private function run(string $system, array $messages, bool $json = false): ?string
     {
-        @set_time_limit(150); // مهلة الويب (30ث) لا تكفي سلسلة المزوّدين وإعادة محاولاتها
+        WebTimeLimit::raise(150); // مهلة الويب (30ث) لا تكفي سلسلة المزوّدين وإعادة محاولاتها
 
         // ترتيب المزوّدين: Gemini أولاً (العامل)، ثم GLM احتياطياً عند شحن الرصيد
         // قاطع الدائرة: نتخطّى أي مزوّد قيد التهدئة (نفاد حصّة/ازدحام) فلا نداء مهدور
@@ -1251,7 +1253,7 @@ PROMPT;
     /** فحص مستند ثنائي (PDF/صورة) عبر Gemini متعدد الوسائط — يعيد JSON نصياً أو null. */
     private function viaGeminiDocument(string $system, string $prompt, string $base64, string $mime): ?string
     {
-        @set_time_limit(150); // فحص الملفات الكبيرة قد يتجاوز مهلة الويب
+        WebTimeLimit::raise(150); // فحص الملفات الكبيرة قد يتجاوز مهلة الويب
 
         $model = config('services.gemini.model', 'gemini-2.5-flash');
         $payload = [

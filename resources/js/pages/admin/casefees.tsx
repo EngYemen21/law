@@ -1,13 +1,14 @@
 import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Icon from '@/lib/icons';
+import Pagination, { type Paginated } from '@/components/babylon/Pagination';
 import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
 
 // أتعاب القضايا المحوّلة — بيانات حقيقية من الخادم (الإدارة تحدّد الأتعاب لتفعيل القضية)
 
 interface CaseFee { no: string; type: string; client: string; lawyer: string; status: string; tone: string; fee: number | null; lawyerFee?: number | null; lawyerPct?: number | null; feeStatus: string; }
-interface Props { cases: CaseFee[]; }
+interface Props { cases: Paginated<CaseFee>; }
 
 const AdminCaseFees: React.FC<Props> = ({ cases }) => {
   const toast = useToast();
@@ -38,7 +39,7 @@ const AdminCaseFees: React.FC<Props> = ({ cases }) => {
         <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
         <p>تُحدِّد <b>الإدارة العليا</b> أتعاب القضايا المحوّلة من الاستشارات. <b>لا تُفعّل القضية حتى يسدّد العميل</b> الفاتورة.</p>
       </div>
-      {cases.length ? cases.map((c) => (
+      {cases.data.length ? cases.data.map((c) => (
         <div key={c.no} className="card">
           <div className="card-h">
             <h3>{c.no}</h3>
@@ -86,6 +87,7 @@ const AdminCaseFees: React.FC<Props> = ({ cases }) => {
       )) : (
         <div className="card"><div className="card-b"><div className="empty"><Icon name="scale" /><b>لا قضايا بانتظار تحديد الأتعاب</b></div></div></div>
       )}
+      <Pagination meta={cases.meta} only={['cases']} />
     </>
   );
 };

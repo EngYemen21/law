@@ -41,7 +41,7 @@ const TicketActionsPanel: React.FC<Props> = ({
   };
 
   // تحويل التذكرة إلى طلب استشارة (يطابق convertToConsult المرجعي) — لطاقم المكتب لا للمستشار.
-  // المسار خادميّ تحت لوحة الموظف؛ الإدارة تمرّ عبره (حارس الدور والفرع يستثنيانها).
+  // المسار خادميّ تحت لوحة الموظف؛ الإدارة تمرّ عبره (حارس الدور يستثنيها).
   const staffOps = role !== 'lawyer';
   const convertToConsult = () => {
     setBusy(true);

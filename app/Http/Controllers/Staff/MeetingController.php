@@ -29,7 +29,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -383,8 +382,11 @@ class MeetingController extends Controller
         if (! in_array($meeting->status, ['منتهٍ', 'ملغى'], true)) {
             $this->zoom->deleteMeeting((string) $meeting->meet_id);
             $meeting->update(['status' => 'ملغى', 'meet_id' => null]);
-            // سجلّ تاريخي «أُلغيت» بدل الحذف الصلب — كان أثر الدعوة يختفي من شاشة العميل بلا تفسير
+            // سجلّ تاريخي «أُلغيت» بدل الحذف الصلب — كان أثر الدعوة يختفي من شاشة العميل بلا تفسير.
+            // الدعوة المعتمدة (STAGE_APPROVED) تُستثنى: تنزيلها يمحو سجلّ اعتمادها بلا رجعة
+            // لأن resend لا يقبل إلا «منتهية الصلاحية» — فتصير بلا مخرج.
             MeetRequest::where('meeting_id', $meeting->id)
+                ->where('stage', '!=', MeetRequest::STAGE_APPROVED)
                 ->update(['stage' => MeetRequest::STAGE_CANCELLED]);
             if ($meeting->user_id) {
                 Notify::send($meeting->user_id, 'info', 't-red', "أُلغي اجتماع «{$meeting->title}».");
@@ -537,7 +539,7 @@ class MeetingController extends Controller
 
     /**
      * استعلام الاجتماعات معزولًا بالدور:
-     * المحامي اجتماعاته المسندة، الموظف اجتماعات فرعه (+بلا فرع)، الإدارة الكل.
+     * المحامي اجتماعاته المسندة، والموظف والإدارة كل اجتماعات المكتب.
      */
     private function scopedQuery(Request $request)
     {
@@ -559,7 +561,7 @@ class MeetingController extends Controller
 
     /**
      * حارس الوصول المباشر لاجتماع (يسدّ IDOR): المحامي لاجتماعه المسند فقط (guardAssigned)،
-     * الموظف لفرعه (بلا فرع = مشترك)، الإدارة كاملة.
+     * الموظف والإدارة على المكتب كلّه.
      */
     // تنزيل نصّ الاجتماع الكامل (المحلي إن وُجد وإلا يُجلب من سحابة Zoom ويُحفظ) — معزول بالدور
     public function transcript(Request $request, Meeting $meeting): StreamedResponse
@@ -570,19 +572,19 @@ class MeetingController extends Controller
     }
 
     // فيديو جلسة الاجتماع مضغوطاً ZIP (جلب خادمي من سحابة Zoom) — معزول بالدور
-    public function recordingZip(Request $request, Meeting $meeting): BinaryFileResponse
+    public function recordingZip(Request $request, Meeting $meeting): StreamedResponse|RedirectResponse
     {
         $this->guardMeeting($request, $meeting);
 
-        return RecordingArchive::zip($meeting, 'video');
+        return RecordingArchive::download($meeting, 'video');
     }
 
     // صوت جلسة الاجتماع (M4A) مضغوطاً ZIP — معزول بالدور
-    public function audioZip(Request $request, Meeting $meeting): BinaryFileResponse
+    public function audioZip(Request $request, Meeting $meeting): StreamedResponse|RedirectResponse
     {
         $this->guardMeeting($request, $meeting);
 
-        return RecordingArchive::zip($meeting, 'audio');
+        return RecordingArchive::download($meeting, 'audio');
     }
 
     private function guardMeeting(Request $request, Meeting $meeting): void

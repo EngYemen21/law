@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\Phone;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -16,13 +17,23 @@ class ProfileController extends Controller
     // حفظ البيانات الشخصية للمستخدم الحالي
     public function updateProfile(Request $request): RedirectResponse
     {
+        $user = $request->user();
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'],
-            'phone' => ['nullable', 'string', 'max:30'],
-            'email' => ['required', 'email', 'max:190', Rule::unique('users')->ignore($request->user()->id)],
+            // الجوال هو عامل المصادقة الوحيد (الدخول برمز OTP): يُتحقّق شكله، ويحترم القيد
+            // المركّب (phone, role) وإلا سقط الحفظ باستثناء قاعدة بيانات غير مُلتقَط (صفحة 500).
+            'phone' => [
+                'nullable', 'string', 'max:30', Phone::RULE,
+                Rule::unique('users', 'phone')->where('role', $user->role->value)->ignore($user->id),
+            ],
+            'email' => ['required', 'email', 'max:190', Rule::unique('users')->ignore($user->id)],
+        ], [
+            'phone.regex' => 'رقم الجوال غير صالح.',
+            'phone.unique' => 'هذا الجوال مستخدم في حساب آخر بنفس الدور.',
         ]);
 
-        $request->user()->update($data);
+        $user->update($data);
 
         return back()->with('success', 'تم حفظ بياناتك.');
     }

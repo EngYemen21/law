@@ -85,8 +85,8 @@ class TicketController extends Controller
             'date_label' => 'الآن',
         ]);
 
-        // الإسناد الأول (حتمي وفوري): الذكاء الاصطناعي يختار المحامي المختص ومنه يُختم فرع التذكرة،
-        // فيراها موظف الفرع منذ الاستقبال ويُعزل عنها موظفو الفروع الأخرى.
+        // الإسناد الأول (حتمي وفوري): الذكاء الاصطناعي يختار المحامي المختص،
+        // فيراها الموظفون منذ الاستقبال، ويبقى العزل على العميل ومحاميه المسنَد.
         TicketAssignment::assign($ticket);
 
         // الرسالة الأولى من العميل
@@ -110,7 +110,7 @@ class TicketController extends Controller
         $type = $data['type'];
         TriageTicketOnOpenJob::dispatch($ticket, $details, $type);
 
-        // تنبيهات فتح التذكرة: داخلي (موظفو فرعها + الإدارة العليا) + بريد (العميل والموظفين والإدارة)
+        // تنبيهات فتح التذكرة: داخلي (موظفو المكتب + الإدارة العليا) + بريد (العميل والموظفين والإدارة)
         $this->notifyTicketOpened($ticket->fresh(), $request->user());
 
         return redirect()->route('tickets.show', $ticket);

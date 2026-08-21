@@ -10,6 +10,7 @@ import TicketTalkingNotice from '@/components/babylon/TicketTalkingNotice';
 import TicketActionsPanel from '@/components/babylon/TicketActionsPanel';
 import TicketOpsModals, { type TicketOpsKind } from '@/components/babylon/TicketOpsModals';
 import TicketDetailsCard from '@/components/babylon/TicketDetailsCard';
+import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { echo } from '@/lib/echo';
 import { ALLOWED_DOC_ACCEPT, TKT_LIFE, nowClock, tktStage, type Message } from '@/lib/chat';
@@ -28,6 +29,12 @@ interface EmpTicket {
 }
 interface StateOption { status: string; tone: string; }
 interface LawyerOption { id: number; name: string; }
+interface ClientStats {
+  totalTickets: number;
+  activeTickets: number;
+  totalCases: number;
+  memberSince: string;
+}
 
 const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
   if (m.who === 'note') {
@@ -59,7 +66,14 @@ const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
   );
 };
 
-const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; messages: Message[]; states: StateOption[]; lawyers: LawyerOption[] }> = ({ ticket, channel, messages, states, lawyers }) => {
+const EmployeeTicketChat: React.FC<{
+  ticket: EmpTicket;
+  channel: string;
+  messages: Message[];
+  states: StateOption[];
+  lawyers: LawyerOption[];
+  clientStats?: ClientStats | null;
+}> = ({ ticket, channel, messages, states, lawyers, clientStats }) => {
   const toast = useToast();
   const can = useCan();
   // الأزرار تُخفى بحسب الصلاحية التفصيلية — كانت تُعرض للجميع ثم يُبتلع رفض الخادم
@@ -124,6 +138,8 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
       subject: ticket.type,
       date: schedDate,
       time: schedTime,
+      // بدونه تبقى التذكرة عالقة في «بانتظار حجز الاستشارة» بلا مخرج رغم رسالة النجاح
+      ticket_no: ticket.no,
     }).then(() => {
       toast('✅ تم إنشاء موعد الاستشارة بنجاح');
       setSchedOpen(false);
@@ -255,63 +271,17 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
             onChange={(e) => { setSchedDate(e.target.value); fetchSlots(schedLawyerId, e.target.value); }}
           />
         </div>
-        {/* شبكة الفترات: تظهر فقط إذا اختار المحامي والتاريخ */}
-        {schedLawyerId && schedDate && (
-          <div className="field">
-            <label>
-              الوقت المتاح
-              {slotsLoading && <span style={{ color: '#888', fontSize: 12, marginRight: 6 }}>جاري التحقق…</span>}
-            </label>
-            {!slotsLoading && slots.length === 0 && (
-              <p style={{ color: '#e55', fontSize: 13, margin: '4px 0' }}>لا توجد فترات متاحة في هذا اليوم</p>
-            )}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-              {slots.map((s) => {
-                const past = isPastSlot(schedDate, s.time);
-                const blocked = s.taken || past;
-                return (
-                <button
-                  key={s.time}
-                  type="button"
-                  disabled={blocked}
-                  title={past ? 'انقضى الوقت' : s.taken ? 'محجوز' : 'متاح'}
-                  onClick={() => setSchedTime(s.time)}
-                  style={{
-                    padding: '5px 10px',
-                    borderRadius: 7,
-                    fontSize: 13,
-                    border: schedTime === s.time ? '2px solid var(--acc)' : '1px solid #ddd',
-                    background: blocked
-                      ? '#f5f5f5'
-                      : schedTime === s.time
-                        ? 'var(--acc)'
-                        : '#fff',
-                    color: blocked ? '#bbb' : schedTime === s.time ? '#fff' : '#333',
-                    cursor: blocked ? 'not-allowed' : 'pointer',
-                    fontFamily: 'inherit',
-                    textDecoration: blocked ? 'line-through' : 'none',
-                  }}
-                >
-                  {past ? `${s.time} ⏳` : s.taken ? `${s.time} 🔒` : s.time}
-                </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        {/* وقت يدوي إن لم يُختر محامٍ بعينه (توزيع تلقائي) */}
-        {!schedLawyerId && (
-          <div className="field">
-            <label>وقت الموعد</label>
-            <input
-              type="time"
-              min={schedDate === todayISO() ? new Date().toTimeString().slice(0, 5) : undefined}
-              value={schedTime}
-              onChange={(e) => setSchedTime(e.target.value)}
-            />
-          </div>
-        )}
-        <button className="btn block" type="button" onClick={submitSchedule} disabled={schedBusy}>
+        {/* شبكة الفترات المتاحة للموعد */}
+        <TimeSlotPicker
+          value={schedTime}
+          onChange={setSchedTime}
+          date={schedDate}
+          slots={schedLawyerId && slots.length > 0 ? slots : undefined}
+          label={schedLawyerId ? 'الوقت المتاح للمستشار' : 'وقت الموعد المقترح'}
+          helperText={slotsLoading ? 'جاري التحقق من أوقات المستشار المتاحة...' : undefined}
+          required
+        />
+        <button className="btn block" type="button" onClick={submitSchedule} disabled={schedBusy || !schedTime}>
           <Icon name="calplus" /> {schedBusy ? 'جاري الحجز…' : 'تأكيد الجدولة'}
         </button>
       </Modal>
@@ -434,6 +404,36 @@ const EmployeeTicketChat: React.FC<{ ticket: EmpTicket; channel: string; message
             mobile={ticket.mobile}
             priority={ticket.priority}
           />
+
+          {/* ملف العميل وسياقه 360 درجة */}
+          {clientStats && (
+            <div className="card">
+              <div className="card-h">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="user" />
+                  <h3>سياق العميل</h3>
+                </div>
+              </div>
+              <div className="card-b" style={{ padding: '12px 16px' }}>
+                <div className="tc-row" style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--line-soft)', fontSize: 13 }}>
+                  <span style={{ color: 'var(--muted)' }}>التذاكر النشطة:</span>
+                  <b style={{ color: 'var(--primary)' }}>{clientStats.activeTickets} تذكرة</b>
+                </div>
+                <div className="tc-row" style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--line-soft)', fontSize: 13 }}>
+                  <span style={{ color: 'var(--muted)' }}>إجمالي القضايا:</span>
+                  <b>{clientStats.totalCases} قضية</b>
+                </div>
+                <div className="tc-row" style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: 13 }}>
+                  <span style={{ color: 'var(--muted)' }}>عضو منذ:</span>
+                  <span className="muted">{clientStats.memberSince}</span>
+                </div>
+                <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--paper-2)', borderRadius: 8, fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="lock" cls="ic sm" />
+                  <span>المستندات والمرفقات سرية ومخصصة للمستشار والإدارة</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* لوحة إجراءات وتحويلات التذكرة الموحدة (المطابقة للتصميم المرجعي) */}
           <TicketActionsPanel

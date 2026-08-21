@@ -7,12 +7,14 @@ use App\Http\Controllers\Controller;
 use App\Mail\CaseFeeSetMail;
 use App\Models\Invoice;
 use App\Models\LegalCase;
+use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\MailService;
 use App\Support\CaseJourney;
 use App\Support\ExecutionCreation;
 use App\Support\Live;
 use App\Support\Notify;
+use App\Support\Paginate;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -23,12 +25,12 @@ use Inertia\Response;
  */
 class CaseController extends Controller
 {
-    private const VAT = 0.15;
-
     public function fees(): Response
     {
-        $cases = LegalCase::with('user')->latest('id')->get()
-            ->map(fn (LegalCase $c) => [
+        $cases = LegalCase::with(['user', 'hearings'])->latest('id')->paginate(50)->withQueryString();
+
+        return Inertia::render('admin/casefees', [
+            'cases' => Paginate::shape($cases, fn (LegalCase $c) => [
                 'no' => $c->number,
                 'type' => $c->type,
                 'client' => Ticket::maskClient($c->user?->name ?? ''),
@@ -39,9 +41,8 @@ class CaseController extends Controller
                 'lawyerFee' => $c->lawyer_fee,
                 'lawyerPct' => $c->lawyer_pct,
                 'feeStatus' => $c->fee_status,
-            ]);
-
-        return Inertia::render('admin/casefees', ['cases' => $cases]);
+            ]),
+        ]);
     }
 
     // تحديد قيمة الأتعاب → القضية بانتظار سداد العميل
@@ -54,7 +55,7 @@ class CaseController extends Controller
             'lawyer_pct' => ['nullable', 'integer', 'min:0', 'max:100'],
         ]);
 
-        $vat = (int) round($data['fee'] * self::VAT);
+        $vat = Setting::vatOn($data['fee']);
         $total = $data['fee'] + $vat;
         $pct = $data['lawyer_pct'] ?? 0;
         $lawyerFee = (int) round($data['fee'] * $pct / 100);
@@ -108,7 +109,7 @@ class CaseController extends Controller
     // إشراف الإدارة على كل القضايا
     public function index(): Response
     {
-        $cases = LegalCase::with('user')->latest('id')->get()->map(fn (LegalCase $c) => [
+        $cases = LegalCase::with(['user', 'hearings'])->latest('id')->get()->map(fn (LegalCase $c) => [
             'no' => $c->number,
             'client' => Ticket::maskClient($c->user?->name ?? ''),
             'type' => $c->type,

@@ -5,8 +5,10 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\User;
+use App\Support\RecordingArchive;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 use ZipArchive;
 
@@ -69,18 +71,16 @@ class ArchiveRecordingZipTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $consult = $this->endedConsult($client, ['meet_id' => '81823767754']);
 
+        // البناء يقع في الطابور/المجدول (لا داخل طلب HTTP — كان 504 حتمياً خلف nginx)
+        $this->assertSame("recordings/consult-{$consult->ref}-video.zip", RecordingArchive::build($consult, 'video'));
+
         $res = $this->actingAs($admin)->get(route('admin.consults.recording', $consult));
 
         $res->assertOk();
         $this->assertStringContainsString("recording-{$consult->ref}.zip", (string) $res->headers->get('content-disposition'));
 
         // ملف ZIP حقيقي يحوي فيديو الجلسة بالبايتات المجلوبة من Zoom
-        $path = $res->baseResponse->getFile()->getPathname();
-        $zip = new ZipArchive;
-        $this->assertTrue($zip->open($path));
-        $this->assertSame('FAKE-MP4-BYTES', $zip->getFromName("consult-{$consult->ref}.mp4"));
-        $zip->close();
-        @unlink($path);
+        $this->assertSame('FAKE-MP4-BYTES', $this->zipEntry($consult, 'video', 'mp4'));
 
         // طلب التنزيل من Zoom حمل رمز التنزيل
         Http::assertSent(fn ($r) => str_contains($r->url(), '/rec/download/abc') && str_contains($r->url(), 'access_token=DLTOK'));
@@ -95,15 +95,10 @@ class ArchiveRecordingZipTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $consult = $this->endedConsult($client, ['recording_url' => 'https://zoom.us/rec/download/direct123']);
 
-        $res = $this->actingAs($admin)->get(route('admin.consults.recording', $consult));
+        RecordingArchive::build($consult, 'video');
 
-        $res->assertOk();
-        $path = $res->baseResponse->getFile()->getPathname();
-        $zip = new ZipArchive;
-        $this->assertTrue($zip->open($path));
-        $this->assertSame('DIRECT-BYTES', $zip->getFromName("consult-{$consult->ref}.mp4"));
-        $zip->close();
-        @unlink($path);
+        $this->actingAs($admin)->get(route('admin.consults.recording', $consult))->assertOk();
+        $this->assertSame('DIRECT-BYTES', $this->zipEntry($consult, 'video', 'mp4'));
     }
 
     public function test_download_unavailable_returns_404(): void
@@ -114,11 +109,28 @@ class ArchiveRecordingZipTest extends TestCase
 
         // منتهية لكن بلا اجتماع ولا رابط تنزيل مباشر (play_url صفحة مشاهدة لا ملف)
         $noSource = $this->endedConsult($client, ['recording_url' => 'https://zoom.us/rec/play/watch-only']);
-        $this->actingAs($admin)->get(route('admin.consults.recording', $noSource))->assertNotFound();
+        // لا مصدر تنزيل ⇒ البناء يعيد null، والمسار يُجدول محاولة ويُبلّغ المستخدم بدل الانتظار
+        $this->assertNull(RecordingArchive::build($noSource, 'video'));
+        $this->actingAs($admin)->get(route('admin.consults.recording', $noSource))
+            ->assertRedirect()->assertSessionHas('flash');
 
         // جلستها لم تنعقد أصلاً
         $notEnded = $this->endedConsult($client, ['session' => 'بانتظار الجلسة', 'meet_id' => '123']);
         $this->actingAs($admin)->get(route('admin.consults.recording', $notEnded))->assertNotFound();
+    }
+
+    /** يقرأ محتوى مُدخل داخل الأرشيف المحفوظ محلياً. */
+    private function zipEntry(Consult $consult, string $type, string $ext): string|false
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'zip');
+        file_put_contents($tmp, Storage::disk('local')->get(RecordingArchive::localPath($consult, $type)));
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($tmp));
+        $content = $zip->getFromName("consult-{$consult->ref}.{$ext}");
+        $zip->close();
+        @unlink($tmp);
+
+        return $content;
     }
 
     public function test_non_admin_cannot_reach_archive_download(): void

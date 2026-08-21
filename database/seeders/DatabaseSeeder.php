@@ -14,7 +14,7 @@ use Spatie\Permission\PermissionRegistrar;
 
 /**
  * بذرة الحسابات الأساسية فقط — بلا أي بيانات تشغيلية تجريبية.
- * أربعة حسابات (الإدارة/المحامي/الموظف في الفرع الرئيسي):
+ * أربعة حسابات (الإدارة/المحامي/الموظف/العميل):
  *   الإدارة العليا 1000000001 · المحامي 1000000002 · الموظف 1000000003 · العميل 1000000004.
  * المحامي: كل صلاحيات دوره + دور «محامٍ» + مسنَد إليه كل الأقسام (تخصّص عام).
  * الموظف: كل صلاحيات دوره + دور «خدمة عملاء».
@@ -26,7 +26,7 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
-        // الأساس: صلاحيات spatie وأدوار القوالب، ثم الفروع
+        // الأساس: صلاحيات spatie وأدوار القوالب
         $this->call(PermissionSeeder::class);
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
@@ -51,7 +51,7 @@ class DatabaseSeeder extends Seeder
         );
 
         // 3) الموظف — دخول: 1000000003 — كل صلاحيات دوره + دور «خدمة عملاء»
-        //    بنفس فرع المحامي/الإدارة (الفرع الرئيسي) كي تكتمل الرحلة أمام الأدوار الثلاثة
+        //    كي تكتمل الرحلة أمام الأدوار الثلاثة
         $employee = $this->makeUser([
             'name' => 'الموظف', 'email' => 'emp@salasel.sa', 'role' => Role::Employee,
             'job_title' => 'موظف خدمة عملاء',
@@ -69,6 +69,16 @@ class DatabaseSeeder extends Seeder
             'name' => 'العميل', 'email' => 'm.bander.it@gmail.com', 'role' => Role::Client,
             'avatar_initials' => 'عم', 'national_id' => '1000000004', 'phone' => '+967779475324',
         ]);
+
+        // البيانات التشغيلية التجريبية (تذاكر، قضايا، مواعيد، تنفيذ، استشارات) لم تعد تُبذَر هنا.
+        //
+        // كان `DemoDataSeeder` يُستدعى تلقائياً، فـ`db:seed` أو `migrate:fresh --seed` على قاعدة
+        // إنتاج يحقن ~55 سجلًّا وهميًّا و10 حسابات كلمة مرورها الموحّدة `password` وسط بيانات
+        // المكتب الحقيقية. الآن `db:seed` يبذر الصلاحيات والحسابات الأساسية الأربعة فقط،
+        // فهو آمن على الإنتاج بلا أي احتراز.
+        //
+        // البيانات التجريبية صارت اختيارية وصريحة (بيئة التطوير وحدها):
+        //     php artisan db:seed --class=DemoDataSeeder
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }

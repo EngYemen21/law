@@ -63,7 +63,7 @@ class CaseConversion
                 'who' => 'ai',
                 'name' => 'المساعد القانوني',
                 'role' => 'تحليل',
-                'body' => "<p>تحليل ذكي للطلب:</p><div class=\"doc-list\"><span class=\"doc-chip\">نوع القضية: {$analysis['type']}</span><span class=\"doc-chip\">القسم المختص: {$analysis['department']}</span>{$extraChips}</div>",
+                'body' => '<p>تحليل ذكي للطلب:</p><div class="doc-list"><span class="doc-chip">نوع القضية: '.e($analysis['type']).'</span><span class="doc-chip">القسم المختص: '.e($analysis['department']).'</span>'.$extraChips.'</div>',
                 'time_label' => self::clock(),
             ]);
             $case->messages()->create([

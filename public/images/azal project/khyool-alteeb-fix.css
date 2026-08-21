@@ -1,0 +1,485 @@
+/* ════════════════════════════════════════════════════════════════════
+   ║  خيول الطيب — إصلاح شامل لنظام الألوان (وضع فاتح فاخر + ذهبي)     ║
+   ║  مبنية على: توثيق سلة الرسمي + فحص الملفات الفعلية للمتجر          ║
+   ║  اللون الأساسي: #D4AF37                                          ║
+   ════════════════════════════════════════════════════════════════════
+   ║  طريقة التركيب:                                                   ║
+   ║  لوحة تحكم سلة ← تصميم المتجر ← تخصيص التصميم ← ملف CSS مخصص     ║
+   ║  الصق هذا المحتوى كاملاً (يستبدل المحتوى القديم)                 ║
+   ════════════════════════════════════════════════════════════════════ */
+
+
+/* ────────────────────────────────────────────────────────────────────
+   ⚙️ 1) إصلاح الجذر: المتغيرات الأساسية
+   ────────────────────────────────────────────────────────────────────
+   المشكلة الأصلية (السطر 86 من HTML): --color-primary كان #ffffff (أبيض)
+   هذا تسبب في اختفاء 233 عنصراً تعتمد عليه.
+   الحل: ضبط اللون الأساسي على الذهبي + اشتقاق الباقي حسب توثيق سلة. */
+
+:root {
+    /* اللون الأساسي وأشتقاقاته (حسب آلية سلة: -dark يُغمّق 15%، -light يُفتّح 15%) */
+    --color-primary:          #D4AF37;  /* ذهبي فاخر — لون الهوية */
+    --color-primary-dark:     #B8962E;  /* ذهبي غامق — للـ hover والوضع الداكن */
+    --color-primary-light:    #E0BC4A;  /* ذهبي فاتح — للخلفيات الناعمة */
+    --color-primary-reverse:  #1C1C1C;  /* أسود فاحم — نص على خلفية ذهبية (تباين 8.9:1) */
+
+    /* متغير لون النص الرئيسي (كان مفقوداً → يسبب مشاكل في العناصر الـ 115) */
+    --color-main:             #1C1C1C;
+
+    /* متغيرات ثانوية لتحسين الهوية */
+    --color-primary-d:        #B8962E;  /* توافق مع سلة الافتراضي */
+    --color-primary-l:        #E0BC4A;  /* توافق مع سلة الافتراضي */
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   🔘 2) الزر الأساسي Primary
+   ────────────────────────────────────────────────────────────────────
+   المشكلة: القاعدة الأصلية تستخدم var(--color-primary) = أبيض → يختفي.
+   الحل: الآن بعد ضبط المتغير، تعمل القاعدة الأصلية تلقائياً.
+   نضيف تحسينات بصرية فقط (بدون !important إلا عند الضرورة). */
+
+.s-button-primary {
+    background-color: var(--color-primary) !important;
+    color: var(--color-primary-reverse) !important;
+    border-color: var(--color-primary-dark) !important;
+    border-radius: 12px !important;
+    font-weight: 700 !important;
+    transition: all 0.2s ease !important;
+}
+
+/* ✅ إصلاح: hover كان مقتولاً بـ !important القديم — نعيد إحياءه */
+.s-button-primary:hover,
+.s-button-primary:focus {
+    background-color: var(--color-primary-dark) !important;
+    color: #ffffff !important;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   ⚡ 3) زر "اشتري الآن" — الإصلاح الأساسي
+   ────────────────────────────────────────────────────────────────────
+   المشكلة المؤكدة: هذا الزر مختفي تماماً على الخلفية البيضاء لأنه
+   يرث s-button-primary الذي كان أبيضاً. المالك حاول ترقيعه عبر
+   .s-fast-checkout-button.outline (كلاس غير موجود أصلاً = لا أثر له).
+   الحل: استهداف الزر بالكلاس الصحيح .s-quick-buy-button. */
+
+.s-quick-buy-button,
+.s-quick-buy-button .s-button-primary,
+salla-quick-buy .s-button-primary {
+    background-color: var(--color-primary) !important;
+    color: var(--color-primary-reverse) !important;
+    border: 2px solid var(--color-primary-dark) !important;
+    border-radius: 12px !important;
+    font-weight: 700 !important;
+    transition: all 0.2s ease !important;
+}
+
+.s-quick-buy-button:hover,
+salla-quick-buy .s-button-primary:hover {
+    background-color: var(--color-primary-dark) !important;
+    color: #ffffff !important;
+}
+
+/* أيقونة البرق داخل زر اشتري الآن */
+.s-quick-buy-button svg {
+    fill: var(--color-primary-reverse) !important;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   🔲 4) زر Outline (الزر المحاط بحدود)
+   ────────────────────────────────────────────────────────────────────
+   المشكلة: كان نصه أسود #1C1C1C بلا خلفية → ضعيف التباين في الوضع الداكن.
+   الحل: تحديد واضح + hover سلس. */
+
+.s-button-primary-outline,
+.s-button-outline {
+    background-color: transparent !important;
+    color: #1C1C1C !important;
+    border: 2px solid var(--color-primary-dark) !important;
+    border-radius: 12px !important;
+    font-weight: 700 !important;
+    transition: all 0.2s ease !important;
+}
+
+.s-button-primary-outline:hover,
+.s-button-outline:hover {
+    background-color: var(--color-primary-light) !important;
+    color: #1C1C1C !important;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   👤 5) زر "تسجيل الدخول" — إصلاح وضوحه البصري
+   ────────────────────────────────────────────────────────────────────
+   المشكلة المؤكدة: حدود #e5e7eb باهتة جداً + أيقونة #374151 رمادية.
+   الحل: ربطه بالهوية الذهبية + حدود أوضح. */
+
+.s-user-menu-login-btn {
+    border-color: var(--color-primary-dark) !important;
+    background-color: rgba(212, 175, 55, 0.08) !important;
+    transition: all 0.2s ease !important;
+}
+
+.s-user-menu-login-btn svg {
+    fill: var(--color-primary-dark) !important;
+}
+
+.s-user-menu-login-btn:hover {
+    background-color: var(--color-primary) !important;
+    border-color: var(--color-primary-dark) !important;
+}
+
+.s-user-menu-login-btn:hover svg {
+    fill: #ffffff !important;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   🛒 6) زر "أضف للسلة" الصغير على بطاقة المنتج
+   ────────────────────────────────────────────────────────────────────
+   المشكلة: يستخدم .s-button-btn الذي يأخذ var(--color-primary) = أبيض سابقاً.
+   الحل: ضمان وضوحه. */
+
+.s-button-btn {
+    border-color: var(--color-primary) !important;
+    color: var(--color-primary-dark) !important;
+}
+
+.s-button-btn:hover {
+    background-color: var(--color-primary) !important;
+    color: #ffffff !important;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   💰 7) الأسعار — تمييزها بلون الهوية (مهم لمتجر عطور)
+   ────────────────────────────────────────────────────────────────────
+   المشكلة: الأسعار تعتمد على لون نص رمادي عام.
+   الحل: السعر الأساسي بالذهبي الغامق ليعكس الفخامة. */
+
+.s-product-price,
+.s-product-card-price,
+.s-price-wrapper {
+    color: var(--color-primary-dark) !important;
+    font-weight: 700 !important;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   🏷️ 8) الروابط والعناصر النصية الأساسية
+   ────────────────────────────────────────────────────────────────────
+   المشكلة: الروابط تأخذ var(--color-primary-reverse) = #808080 رمادي باهت.
+   الحل: ربطها بلون الهوية الذهبي الغامق. */
+
+a {
+    color: var(--color-primary-dark);
+    transition: color 0.2s ease;
+}
+
+a:hover {
+    color: var(--color-primary);
+}
+
+/* النصوص "الأساسية" (.text-primary) */
+.text-primary {
+    color: var(--color-primary-dark) !important;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   📂 9) أيقونات الفئات / الأقسام
+   ────────────────────────────────────────────────────────────────────
+   المشكلة: كانت بلون كريمي #EEE4D3 لا يميّزها بصرياً.
+   الحل: ذهبي غامق يبرزها. */
+
+.slide--cat-entry i,
+.slide--cat-entry svg {
+    color: var(--color-primary-dark) !important;
+    fill: var(--color-primary-dark) !important;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   ⭐ 10) نظام التقييم (النجوم)
+   ────────────────────────────────────────────────────────────────────
+   النجوم المعبأة تأخذ لوناً رمادياً افتراضياً → نجعلها ذهبية. */
+
+.s-rating-stars-btn-star.is-active,
+.s-rating-stars-wrapper .is-active {
+    fill: var(--color-primary) !important;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   🔄 11) مؤشر التحميل (Loader spinner)
+   ────────────────────────────────────────────────────────────────────
+   المشكلة: يستخدم var(--color-primary) → كان أبيضاً = غير مرئي. */
+
+.s-button-loader:before {
+    border-color: var(--color-primary) #f3f4f6 #f3f4f6 var(--color-primary) !important;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   🎯 12) حقول الإدخال — حدّ التركيز (focus)
+   ────────────────────────────────────────────────────────────────────
+   المشكلة: عند الضغط على الحقل، الحد يصبح var(--color-primary) = أبيض = غير مرئي.
+   الحل: حدّ ذهبي واضح عند التركيز. */
+
+.s-input:focus,
+.form-input:focus,
+input:focus,
+textarea:focus,
+select:focus {
+    border-color: var(--color-primary) !important;
+    outline-color: var(--color-primary) !important;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   🛍️ 13) عداد السلة / الشارات (Badges)
+   ──────────────────────────────────────────────────────────────────── */
+
+.s-cart-count,
+.s-cart-badge,
+.s-notification-badge {
+    background-color: var(--color-primary-dark) !important;
+    color: #ffffff !important;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   🎁 14) مؤشرات العروض والخصومات
+   ────────────────────────────────────────────────────────────────────
+   ملاحظة: لون الخصم الأحمر #dc2626 قياسي عالمياً — نُبقيه للتمييز عن الهوية. */
+
+/* السعر بعد الخصم (السعر المخفّض) — يبقى أحمر للدلالة على التخفيض */
+.s-product-card-sale-price,
+del .s-product-price {
+    color: #dc2626 !important;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   🌟 15) لمسات فخامة إضافية (لمتجر عطور)
+   ──────────────────────────────────────────────────────────────────── */
+
+/* ظل ناعم على بطاقات المنتجات لإحساس الفخامة */
+.s-product-card-entry {
+    box-shadow: 0 4px 16px rgba(212, 175, 55, 0.08) !important;
+    transition: all 0.3s ease !important;
+}
+
+.s-product-card-entry:hover {
+    box-shadow: 0 8px 28px rgba(212, 175, 55, 0.18) !important;
+    transform: translateY(-2px);
+}
+
+/* عنوان الأقسام المميزة */
+.s-block-title,
+.s-section-title {
+    color: #1C1C1C !important;
+    font-weight: 700 !important;
+}
+
+/* الفاصل الذهبي تحت العناوين */
+.s-block-title:after,
+.s-section-title:after {
+    background-color: var(--color-primary) !important;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   🌗 16) إجبار الوضع الفاتح على العناصر المتأثرة بكلاس .dark
+   ────────────────────────────────────────────────────────────────────
+   المشكلة: المتجر خلفيته بيضاء لكنه يحمل كلاس color-mode-dark.
+   هذا يجعل 18 عنصراً يظهر بألوان داكنة وسط صفحة بيضاء.
+   الحل: تجاوز قواعد .dark (التي لها specificity أعلى 0,2,0) بـ !important.
+   ملاحظة: الحل الأنظف هو ضبط "وضع الألوان = فاتح" من لوحة تحكم سلة. */
+
+/* حقول الإدخال في صفحة الدفع */
+.dark .s-input,
+.dark .form-input,
+.dark .s-tel-input-control,
+.dark .s-comment-form-input,
+.dark .s-product-availability-input,
+.dark .s-rating-modal-comment,
+.dark .s-verify-input {
+    background-color: #ffffff !important;
+    border-color: #d1d5db !important;
+    color: #1C1C1C !important;
+}
+
+/* صندوق الكوبون في السلة */
+.dark .s-cart-coupons-card,
+.dark .s-cart-coupons-card:before,
+.dark .s-cart-coupons-card:after {
+    background-color: #f9fafb !important;
+}
+
+/* نصوص آراء العملاء (تعود داكنة وواضحة على الخلفية الفاتحة) */
+.dark .s-comments-count-label,
+.dark .s-comments-item-content,
+.dark .s-comments-item-time,
+.dark .s-comments-item-timestamp {
+    color: #374151 !important;
+}
+
+/* شرائط التحميل */
+.dark .s-skeleton-item,
+.dark .s-progress-bar-wrapper,
+.dark .s-product-options-donation-progress-wrapper {
+    background-color: #f3f4f6 !important;
+}
+
+/* نص placeholder في الحقول الداكنة */
+.dark .s-input::placeholder,
+.dark .form-input::placeholder,
+.dark .s-tel-input-control::placeholder {
+    color: #9ca3af !important;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   🔧 17) إصلاحات دقيقة مؤكدة بصرياً (من فحص لقطات الشاشة)
+   ──────────────────────────────────────────────────────────────────── */
+
+/* ── 17-أ: توحيد لون زر "أضف للسلة" مع "اشتري الآن" ──
+   المشكلة المؤكدة بصرياً: زر "أضف للسلة" ظهر ذهبياً باهتاً (#F0E68C)
+   بينما "اشتري الآن" ظهر ذهبياً صحيحاً (#D4AF37).
+   السبب: wrapper .s-add-product-button-main يطبق طبقة شفافة/overlay.
+   الحل: ضبط الزر والـ wrapper بألوان صلبة لا تقبل الشفافية. */
+
+.s-add-product-button-main salla-button,
+.s-add-product-button-main .s-button-primary,
+.s-add-product-button-main button {
+    background-color: var(--color-primary) !important;
+    opacity: 1 !important;
+    filter: none !important;
+}
+
+/* التأكد من عدم وجود خلفية شفافة على الحاوية */
+.s-add-product-button-main {
+    background-color: transparent !important;
+    opacity: 1 !important;
+}
+
+/* ── 17-ب: إجبار hover ذهبي غامق موحد ──
+   المشكلة: في app.css توجد قاعدتا hover للزر الأساسي، الثانية تفرض
+   رمادياً #d1d5db (عند كلاس .dark أو بعض الحالات).
+   الحل: !important على hover لضمان الذهبي الغامق دائماً. */
+
+.s-button-primary:hover,
+.s-add-product-button-main .s-button-primary:hover,
+salla-button .s-button-primary:hover {
+    background-color: var(--color-primary-dark) !important;
+    color: #ffffff !important;
+    border-color: var(--color-primary-dark) !important;
+}
+
+/* ── 17-ج: ضمان عدم وجود overlay يخفي لون الزر ──
+   يزيل أي طبقة شفافة فوق الأزرار الذهبية. */
+
+.s-button-primary:after,
+.s-button-primary:before,
+.s-add-product-button-main salla-button:after {
+    background-color: transparent !important;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────
+   🎯 18) الإصلاح الجذري للأزرار (قوة الأولوية القصوى)
+   ────────────────────────────────────────────────────────────────────
+   المشكلة الجذرية المكتشفة: يوجد قاعدة عامة في app.css:
+       button { background-color: #fff !important; }
+   تجبر كل الأزرار على الخلفية البيضاء. قواعد (0,1,0) لا تكفي لقهرها
+   في بعض الحالات. الحل: استخدام محددات بأولوية (0,2,0) وأعلى. */
+
+/* ── 18-أ: زر "أضف للسلة" — إجباره على الذهبي الممتلئ القوي ──
+   المشكلة: النص الذهبي #D4AF37 على خلفية بيضاء = تباين ضعيف (2.1:1)
+   فيظهر النص "باهتاً". الحل: جعل الزر ممتلئاً ذهبياً بنص أسود قوي. */
+
+.s-add-product-button-main salla-button .s-button-primary,
+.s-add-product-button-main salla-button .s-button-btn,
+.s-add-product-button-main salla-button button,
+.s-add-product-button-main button {
+    background-color: var(--color-primary) !important;
+    color: #1C1C1C !important;
+    border: 2px solid var(--color-primary-dark) !important;
+    font-weight: 700 !important;
+}
+
+.s-add-product-button-main salla-button .s-button-primary:hover,
+.s-add-product-button-main salla-button .s-button-btn:hover,
+.s-add-product-button-main button:hover {
+    background-color: var(--color-primary-dark) !important;
+    color: #ffffff !important;
+}
+
+/* ── 18-ب: زر الدخول في النافذة المنبثقة (s-verify-submit) ──
+   المشكلة: الزر بلا خلفية (أبيض على أبيض) لأن القاعدة العامة
+   button { background:#fff!important } تتغلب. الحل: محدد بأولوية (0,2,0). */
+
+.s-verify-submit salla-button .s-button-primary,
+.s-verify-submit salla-button .s-button-btn,
+.s-verify-submit salla-button button,
+.s-verify-submit button {
+    background-color: var(--color-primary) !important;
+    color: #1C1C1C !important;
+    border: 2px solid var(--color-primary-dark) !important;
+    font-weight: 700 !important;
+    border-radius: 12px !important;
+}
+
+.s-verify-submit salla-button .s-button-primary:hover,
+.s-verify-submit salla-button .s-button-btn:hover,
+.s-verify-submit button:hover {
+    background-color: var(--color-primary-dark) !important;
+    color: #ffffff !important;
+}
+
+/* ── 18-ج: شبكة أمان شاملة لكل الأزرار الذهبية ──
+   تغطي أي زر primary في المتجر باستخدام أولوية (0,2,0). */
+
+salla-button .s-button-primary,
+salla-button .s-button-primary-fill {
+    background-color: var(--color-primary) !important;
+    color: #1C1C1C !important;
+    border-color: var(--color-primary-dark) !important;
+}
+
+salla-button .s-button-primary:hover {
+    background-color: var(--color-primary-dark) !important;
+    color: #ffffff !important;
+}
+
+/* ── 18-د: تقوية زر تسجيل الدخول في الهيدر (الأيقونة الدائرية) ── */
+
+.s-user-menu-login-btn {
+    border-color: var(--color-primary) !important;
+    background-color: rgba(212, 175, 55, 0.1) !important;
+}
+
+.s-user-menu-login-btn svg {
+    fill: var(--color-primary-dark) !important;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   ║  ملاحظات هامة:                                                    ║
+   ║                                                                    ║
+   ║  1) هذا الملف يستبدل بالكامل المحتوى القديم في custom.css.        ║
+   ║                                                                    ║
+   ║  2) القاعدة القديمة .s-fast-checkout-button.outline حُذفت لأنها     ║
+   ║     كانت تستهدف كلاساً غير موجود أصلاً في ثيم سلة.                 ║
+   ║                                                                    ║
+   ║  3) لتحقيق أفضل نتيجة: اضبط اللون الأساسي من لوحة تحكم سلة        ║
+   ║     (تصميم ← تخصيص ← خيارات التصميم ← اللون الأساسي ← #D4AF37)    ║
+   ║     فهذا يُصلح 233 عنصراً إضافياً تلقائياً.                          ║
+   ║                                                                    ║
+   ║  4) جميع قواعد !important هنا ضرورية لتجاوز القاعدة الموروثة      ║
+   ║     من <style> الداخلي في الـ HTML (الذي يضعه المالك على أبيض).    ║
+   ║     بعد ضبط اللون من لوحة التحكم، يمكن إزالة معظمها لاحقاً.        ║
+   ════════════════════════════════════════════════════════════════════ */

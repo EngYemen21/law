@@ -2,13 +2,14 @@
 
 namespace App\Support;
 
+use App\Jobs\BuildRecordingArchive;
 use App\Models\Meeting;
 use App\Services\ZoomService;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use ZipArchive;
 
@@ -20,8 +21,54 @@ use ZipArchive;
  */
 class RecordingArchive
 {
-    /** فيديو (mp4) أو صوت (m4a) الجلسة ملفاً مضغوطاً ZIP يُبثّ ثم يُحذف. */
-    public static function zip(Model $model, string $type = 'video'): BinaryFileResponse
+    /** مسار الأرشيف المحلّي المتوقَّع لهذه الجلسة ونوع الوسيط. */
+    public static function localPath(Model $model, string $type): string
+    {
+        $kind = $model instanceof Meeting ? 'meeting' : 'consult';
+        $ref = (string) ($model->ref ?: $model->getKey());
+
+        return "recordings/{$kind}-{$ref}-{$type}.zip";
+    }
+
+    /** هل الأرشيف جاهز محلياً (فيُنزَّل فوراً بلا انتظار سحابة Zoom)؟ */
+    public static function isReady(Model $model, string $type): bool
+    {
+        return Storage::disk('local')->exists(self::localPath($model, $type));
+    }
+
+    /** اسم الملف المعروض للمستخدم. */
+    public static function fileName(Model $model, string $type): string
+    {
+        $ref = (string) ($model->ref ?: $model->getKey());
+
+        return ($type === 'audio' ? 'audio-' : 'recording-')."{$ref}.zip";
+    }
+
+    /**
+     * تنزيل الأرشيف: المحفوظ محلياً فوراً، وإلا يُجدوَل بناؤه في الطابور ويُبلَّغ المستخدم.
+     *
+     * لماذا: الجلب من سحابة Zoom يستغرق دقائق (ملفات فيديو كبيرة) بينما مهلة nginx
+     * الافتراضية 60ث ⇒ 504 حتمي لأي تسجيل متوسط الحجم. البناء انتقل للطابور،
+     * والزرّ يبقى زرّ تنزيل عاديّاً لأن المجدول يبني الأرشيف سلفاً بعد انتهاء الجلسة.
+     */
+    public static function download(Model $model, string $type = 'video'): StreamedResponse|RedirectResponse
+    {
+        $path = self::localPath($model, $type);
+
+        if (Storage::disk('local')->exists($path)) {
+            return Storage::disk('local')->download($path, self::fileName($model, $type));
+        }
+
+        BuildRecordingArchive::for($model, $type);
+
+        return back()->with('flash', 'جارٍ تحضير ملف الجلسة — سيصلك إشعار فور جهوزيته ثم ينزل فوراً.');
+    }
+
+    /**
+     * يبني الأرشيف ويحفظه محلياً — يُستدعى من الطابور/المجدول لا من الويب.
+     * يعيد المسار المحلي، أو null إن تعذّر (لا رابط لدى Zoom / ملف فارغ).
+     */
+    public static function build(Model $model, string $type = 'video'): ?string
     {
         $ref = (string) ($model->ref ?: $model->getKey());
         $kind = $model instanceof Meeting ? 'meeting' : 'consult';
@@ -36,11 +83,11 @@ class RecordingArchive
                 $url = $stored;
             }
         }
-        abort_if($url === null, 404, $type === 'audio'
-            ? 'لا يتوفر ملف صوت قابل للتنزيل لهذه الجلسة.'
-            : 'لا يتوفر ملف تسجيل قابل للتنزيل لهذه الجلسة.');
+        if ($url === null) {
+            return null; // لا رابط لدى Zoom بعد
+        }
 
-        @set_time_limit(300);
+        WebTimeLimit::raise(300); // بلا أثر في الطابور (runningInConsole) — للاحتياط لو نُودي من الويب
         $dir = storage_path('app/tmp-archive');
         File::ensureDirectoryExists($dir);
         $media = $dir.'/'.$ref.'-'.uniqid().'.'.$ext;
@@ -52,25 +99,44 @@ class RecordingArchive
             }
             // sink يكتب مباشرة للقرص (ملفات كبيرة بلا ابتلاع ذاكرة)؛ وفي بيئة Http::fake يُتجاهل فنكتب الجسم
             $resp = Http::withOptions(['sink' => $media])->timeout(280)->get($url);
-            abort_unless($resp->successful(), 404, 'تعذّر جلب الملف من سحابة Zoom.');
+            if (! $resp->successful()) {
+                return null;
+            }
             clearstatcache(true, $media);
             if (! is_file($media) || filesize($media) === 0) {
                 File::put($media, $resp->body());
             }
             clearstatcache(true, $media);
-            abort_if(filesize($media) === 0, 404, 'الملف فارغ لدى Zoom.');
+            if (filesize($media) === 0) {
+                return null;
+            }
 
             $zip = new ZipArchive;
-            abort_unless($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) === true, 500, 'تعذّر إنشاء الملف المضغوط.');
+            if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+                return null;
+            }
             $zip->addFile($media, "{$kind}-{$ref}.{$ext}");
             $zip->close();
-        } finally {
-            // الملف الوسيط يُحذف دوماً (النجاح أو الفشل)؛ الـZIP يحذفه deleteFileAfterSend بعد البثّ
-            @unlink($media);
-        }
 
-        return response()->download($zipPath, ($type === 'audio' ? 'audio-' : 'recording-')."{$ref}.zip", ['Content-Type' => 'application/zip'])
-            ->deleteFileAfterSend(true);
+            // يُنقل إلى التخزين المحلّي الدائم ليُخدَم فوراً في كل تنزيل لاحق.
+            // بالتدفّق لا بالقراءة الكاملة: أرشيف جلسة 45 دقيقة يبلغ مئات الميغابايت،
+            // وFile::get كان يحمّله كلّه في الذاكرة فتسقط المهمة بـAllowed memory size exhausted.
+            $path = self::localPath($model, $type);
+            $stream = fopen($zipPath, 'rb');
+            if ($stream === false) {
+                return null;
+            }
+            try {
+                Storage::disk('local')->writeStream($path, $stream);
+            } finally {
+                fclose($stream);
+            }
+
+            return $path;
+        } finally {
+            @unlink($media);
+            @unlink($zipPath);
+        }
     }
 
     /**

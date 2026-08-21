@@ -3,15 +3,18 @@ import React from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
+import { useCan } from '@/lib/permissions';
 
 // لوحة المحامي — التذاكر المحالة وملخصاتها (بيانات حقيقية من الخادم)
 
 interface EmpTicket { no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string; }
 interface Props { tickets: EmpTicket[]; pendingSummaries: number; openMeetings: number; openTasks: number; overdueTasks?: number; }
 
-const studyTicket = (no: string) => router.visit(`/lawyer/summary/${encodeURIComponent(no)}`);
+const studyTicket = (no: string) => router.visit(`/lawyer/tickets/${encodeURIComponent(no)}`);
 
 const LawyerDashboard: React.FC<Props> = ({ tickets, pendingSummaries, openMeetings, openTasks, overdueTasks = 0 }) => {
+  // أزرار البطل تقود لمسارات محروسة بصلاحيات تفصيلية — بلا هذا الفحص يُطرد من لا يملكها
+  const can = useCan();
   const stats: StatItem[] = [
     ['t-blue', 'folder', tickets.length, 'تذاكر محالة إليّ'],
     ['t-cyan', 'video', openMeetings, 'اجتماعات قادمة'],
@@ -26,15 +29,21 @@ const LawyerDashboard: React.FC<Props> = ({ tickets, pendingSummaries, openMeeti
         <h2>لوحة المحامي والمستشار القانوني ⚖️</h2>
         <p>تذاكرك المحالة، اجتماعاتك، المساعد القانوني الذكي، والملخصات والمهام الموكلة إليك.</p>
         <div className="hero-cta">
-          <button className="hero-b" onClick={() => router.visit('/lawyer/assistant')} type="button">
-            <Icon name="sparkles" /> المساعد الذكي
-          </button>
-          <button className="hero-b ghost" onClick={() => router.visit('/lawyer/meetings')} type="button">
-            <Icon name="video" /> الاجتماعات
-          </button>
-          <button className="hero-b ghost" onClick={() => router.visit('/lawyer/summaries')} type="button">
-            <Icon name="doc" /> الملخصات
-          </button>
+          {can('المساعد القانوني') && (
+            <button className="hero-b" onClick={() => router.visit('/lawyer/assistant')} type="button">
+              <Icon name="sparkles" /> المساعد الذكي
+            </button>
+          )}
+          {can('إدارة الاجتماعات') && (
+            <button className="hero-b ghost" onClick={() => router.visit('/lawyer/meetings')} type="button">
+              <Icon name="video" /> الاجتماعات
+            </button>
+          )}
+          {can('اعتماد الملخصات') && (
+            <button className="hero-b ghost" onClick={() => router.visit('/lawyer/summaries')} type="button">
+              <Icon name="doc" /> الملخصات
+            </button>
+          )}
         </div>
       </div>
 

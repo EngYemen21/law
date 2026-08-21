@@ -3,7 +3,6 @@ import React from 'react';
 import Badge from '@/components/babylon/Badge';
 import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
-import { openMeeting } from '@/lib/consult-ui';
 import { MR_FLOW } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import type {MeetReqCard} from '@/lib/meeting-ui';
@@ -13,7 +12,7 @@ import type {MeetReqCard} from '@/lib/meeting-ui';
 // (نفس نمط execflow.tsx/correspondences.tsx المستخدَم فعلياً بالمشروع لقوائم رحلة المراحل)
 
 // stage 4 (منتهية الصلاحية) كانت تصطبغ خضراء «معتمدة» — تناقض لوني داخل البطاقة الواحدة
-const stageColor = (stage: number) => (stage >= 4 ? '#C0392B' : stage === 3 ? '#1E9D6B' : stage === 0 ? '#C0832B' : '#0E5C9C');
+const stageColor = (stage: number) => (stage === 5 ? '#8b95a1' : stage === 4 ? '#C0392B' : stage === 3 ? '#1E9D6B' : stage === 0 ? '#C0832B' : '#0E5C9C');
 
 const MeetReqs: React.FC<{ requests: MeetReqCard[] }> = ({ requests }) => {
   const toast = useToast();
@@ -22,6 +21,7 @@ const MeetReqs: React.FC<{ requests: MeetReqCard[] }> = ({ requests }) => {
     router.post(`/meetreqs/${r.dbId}/confirm`, {}, {
       preserveScroll: true,
       onSuccess: () => toast('تم تأكيد حضورك — رابط الجلسة متاح الآن وفي صفحة الاجتماعات'),
+      onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تأكيد الحضور، حاول مجدداً'}`),
     });
 
   const copyLink = (r: MeetReqCard) => {
@@ -37,6 +37,8 @@ void navigator.clipboard.writeText(r.meetLink);
   // كانت stage>=3 تبتلع المنتهية الصلاحية (4) فتُعرض للعميل إنجازاً «معتمداً»
   const s3 = requests.filter((r) => r.stage === 3).length;
   const s4 = requests.filter((r) => r.stage === 4).length;
+  // الإلغاء الناعم (stage 5) كان خارج كل العدّادات فتختفي الدعوة الملغاة من الحصيلة
+  const s5 = requests.filter((r) => r.stage === 5).length;
 
   return (
     <>
@@ -50,6 +52,7 @@ void navigator.clipboard.writeText(r.meetLink);
         <span className="stat-pill"><span className="pd" style={{ background: '#0E5C9C' }} /><b>{s1}</b> قيد التنفيذ</span>
         <span className="stat-pill"><span className="pd" style={{ background: '#1E9D6B' }} /><b>{s3}</b> معتمدة</span>
         <span className="stat-pill"><span className="pd" style={{ background: '#C0392B' }} /><b>{s4}</b> منتهية الصلاحية</span>
+        {s5 > 0 && <span className="stat-pill"><span className="pd" style={{ background: '#8b95a1' }} /><b>{s5}</b> ملغاة</span>}
       </div>
 
       <div className="card">

@@ -4,6 +4,7 @@ import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import Modal from '@/components/babylon/Modal';
+import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { MEET_STATUSES, MEET_TYPES_FULL, MEET_TEMPLATES, STAFF_DIR } from '@/lib/admin-data';
 import { meetStatusTone, fmtActualDuration, type ClientDirEntry, type FullMeetingCard } from '@/lib/meeting-ui';
@@ -553,18 +554,15 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                   style={{ borderRadius: 9, padding: '9px 12px', fontSize: '13px', border: '1px solid var(--line-soft, #cbd5e1)', background: '#fff' }}
                 />
               </div>
-
-              <div className="field">
-                <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>وقت بدء الجلسة</label>
-                <input
-                  className="input"
-                  type="time"
-                  value={time}
-                  onChange={(e) => setTime(e.target.value)}
-                  style={{ borderRadius: 9, padding: '9px 12px', fontSize: '13px', border: '1px solid var(--line-soft, #cbd5e1)', background: '#fff' }}
-                />
-              </div>
             </div>
+
+            <TimeSlotPicker
+              value={time}
+              onChange={setTime}
+              date={day}
+              label="وقت بدء الجلسة / الاجتماع"
+              required
+            />
           </div>
 
           {/* 👥 القسم 3: الربط بالعميل والقضايا والكادر */}

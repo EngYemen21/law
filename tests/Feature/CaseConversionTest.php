@@ -233,6 +233,6 @@ class CaseConversionTest extends TestCase
         $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
 
         $this->actingAs($admin)->get(route('admin.casefees'))
-            ->assertOk()->assertInertia(fn ($p) => $p->component('admin/casefees')->has('cases', 1));
+            ->assertOk()->assertInertia(fn ($p) => $p->component('admin/casefees')->has('cases.data', 1));
     }
 }

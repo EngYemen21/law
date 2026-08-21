@@ -15,8 +15,11 @@ return [
     |
     */
 
+    // معطّل: لا خطوة «npm run build:ssr» في النشر ولا عملية inertia:start-ssr تعمل،
+    // فتفعيله يعني محاولة اتصال فاشلة بـ13714 مع كل عرض صفحة (أو حزمة قديمة لو شُغّل).
+    // لتفعيله لاحقاً: أضف build:ssr إلى deploy.sh وشغّل inertia:start-ssr تحت supervisor.
     'ssr' => [
-        'enabled' => true,
+        'enabled' => (bool) env('INERTIA_SSR_ENABLED', false),
         'url' => 'http://127.0.0.1:13714',
         // 'bundle' => base_path('bootstrap/ssr/ssr.mjs'),
 

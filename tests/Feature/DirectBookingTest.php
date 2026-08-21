@@ -119,7 +119,7 @@ class DirectBookingTest extends TestCase
 
         $this->actingAs($admin)->get(route('admin.accounting'))
             ->assertOk()->assertInertia(fn ($p) => $p->component('admin/accounting')
-            ->where('totals.issued', 11500)->where('totals.collected', 0)->has('invoices', 1));
+            ->where('totals.issued', 11500)->where('totals.collected', 0)->has('invoices.data', 1));
 
         $this->actingAs($admin)->post(route('admin.invoices.pay', $inv))->assertRedirect();
         $this->assertTrue($inv->fresh()->paid);

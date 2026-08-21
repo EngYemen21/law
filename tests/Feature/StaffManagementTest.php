@@ -301,16 +301,18 @@ class StaffManagementTest extends TestCase
             ->assertRedirect(route('employee.dashboard', absolute: false));
     }
 
-    public function test_staff_index_lists_employees_and_lawyers(): void
+    public function test_staff_index_lists_office_accounts_without_clients(): void
     {
         User::factory()->create(['role' => Role::Employee]);
         User::factory()->create(['role' => Role::Lawyer]);
         User::factory()->create(['role' => Role::Client]); // لا يظهر
 
+        // الإدارة تظهر أيضاً: حساب admin يُنشأ من هذه الشاشة نفسها وكان يختفي بعدها
+        // فيصير طريقاً مسدوداً (لا تعديل ولا متابعة). العميل وحده مستثنى.
         $this->actingAs($this->admin())->get(route('admin.staff'))
             ->assertOk()
             ->assertInertia(fn ($p) => $p->component('admin/staff')
-                ->has('staff', 2)
+                ->has('staff', 3)
                 // الكتالوج مصدره الخادم عبر prop مشترك
                 ->has('permCatalog.groups', 5)
                 ->has('permCatalog.presets', 5)

@@ -19,7 +19,7 @@ class AppointmentController extends Controller
         $appointments = Appointment::where('user_id', $request->user()->id)
             ->with(['user', 'consult'])
             ->latest('id')->get()
-            ->map(fn (Appointment $a) => $a->toCard());
+            ->map(fn (Appointment $a) => $a->toCard($request->user()));
 
         return Inertia::render('appointments', [
             'appointments' => $appointments,

@@ -218,7 +218,7 @@ class ConsultController extends Controller
             $consult->logAudit($request->user()->name, 'المحامي', $consult->lawyer, $lawyer);
         }
         $consult->lawyer = $lawyer;
-        // ربط المحامي بالمعرّف والفرع (مصدر عزل الرؤية والبثّ)
+        // ربط المحامي بالمعرّف (مصدر عزل رؤية المحامي والبثّ)
         if ($lawyerUser) {
             $consult->assigned_lawyer_id = $lawyerUser->id;
         }
@@ -426,7 +426,7 @@ class ConsultController extends Controller
     /**
      * عزل قائمة الاستشارات بحسب الدور:
      * - المحامي: استشاراته المسندة فقط (assigned_lawyer_id) — يسدّ رؤية استشارات غيره.
-     * - الموظف: فرعه + الاستشارات بلا فرع (مجمّع الاستقبال المشترك قبل الإسناد).
+     * - الموظف: كل استشارات المكتب (مجمّع الاستقبال المشترك قبل الإسناد وبعده).
      * - الإدارة: الكل.
      *
      * @param  Builder<Consult>  $query
@@ -445,7 +445,7 @@ class ConsultController extends Controller
     /**
      * حارس الوصول المباشر لسجل استشارة (يسدّ IDOR):
      * - المحامي: يُمنع (403) إن لم تكن الاستشارة مُسندة إليه (guardAssigned، الإدارة مستثناة).
-     * - الموظف/الإدارة: مكتب واحد بلا فروع — الوصول مفتوح لكل سجلات المكتب.
+     * - الموظف/الإدارة: الوصول مفتوح لكل سجلات المكتب.
      */
     private function guardConsult(Request $request, Consult $consult): void
     {

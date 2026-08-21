@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\Broadcast;
 // قناة إشعارات المستخدم — يشترك المستخدم بقناته وحده (لا يرى إشعارات غيره)
 Broadcast::channel('notifications.{userId}', fn (User $user, int $userId) => (int) $userId === (int) $user->id);
 
-// قناة التذكرة — العميل صاحبها أو موظف مخوّل (فرعه/إسناده)
+// قناة التذكرة — العميل صاحبها أو موظف المكتب أو المحامي المسنَد
 Broadcast::channel('ticket.{ticketId}', function (User $user, int $ticketId) {
     $ticket = Ticket::find($ticketId);
 

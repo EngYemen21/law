@@ -2,6 +2,10 @@
 
 namespace App\Http\Middleware;
 
+use App\Enums\Role;
+use App\Models\Appointment;
+use App\Models\Invoice;
+use App\Models\Ticket;
 use App\Models\User;
 use App\Models\UserNotification;
 use App\Support\Permissions;
@@ -75,6 +79,18 @@ class HandleInertiaRequests extends Middleware
             'unreadNotifications' => fn () => $user
                 ? UserNotification::where('user_id', $user->id)->where('is_read', false)->count()
                 : 0,
+            // شارات شريط العميل (كسولة) — كانت مشتقّة من بيانات DATA الوهمية في الواجهة،
+            // فيرى كل عميل الأرقام نفسها (تذاكر 3 · مواعيد 2 · فواتير 4) مهما كان سجلّه.
+            'navBadges' => fn () => ($user && $user->role === Role::Client)
+                ? [
+                    '/tickets' => Ticket::where('user_id', $user->id)
+                        ->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
+                    // with('consult') إلزامي: liveState() يقرأ الاستشارة، وبدونه استعلام لكل موعد في كل عرض صفحة
+                    '/appointments' => Appointment::with('consult')->where('user_id', $user->id)
+                        ->get()->filter(fn (Appointment $a) => $a->liveState()[0] === 'up')->count(),
+                    '/invoices' => Invoice::where('user_id', $user->id)->where('paid', false)->count(),
+                ]
+                : [],
             // المفتاحان مقبولان: with('success', …) وwith('flash', …) — الأخير مستعمل في 17 متحكّماً
             // وكان يُهمَل صامتاً لأنه غير مشارك، فتضيع كل رسائل التأكيد.
             'flash' => [

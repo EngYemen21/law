@@ -6,9 +6,9 @@ import { useToast } from '@/components/babylon/Toast';
 import QuickTicketModal, { type TicketPreviewData } from '@/components/babylon/QuickTicketModal';
 import { useCan } from '@/lib/permissions';
 
-// تذاكر المستشار المحالة — بيانات حقيقية من الخادم (لها ملخص ملف)
+// تذاكر المستشار المحالة — بيانات حقيقية من الخادم (بملخص أو بانتظار تحليله)
 
-interface EmpTicket { no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string; converted?: boolean; }
+interface EmpTicket { no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string; converted?: boolean; awaitingSummary?: boolean; }
 interface Props { tickets: EmpTicket[]; }
 
 const openTicket = (no: string) => router.visit(`/lawyer/tickets/${encodeURIComponent(no)}`);
@@ -51,7 +51,10 @@ const LawyerTickets: React.FC<Props> = ({ tickets }) => {
                   <td>{t.client}</td>
                   <td className="muted">{t.type}</td>
                   <td className="muted">{t.dept}</td>
-                  <td><Badge text={t.status} tone={t.tone} /></td>
+                  <td>
+                    <Badge text={t.status} tone={t.tone} />
+                    {t.awaitingSummary && <Badge text="بانتظار التحليل" tone="b-grey" />}
+                  </td>
                   <td>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
                       <button className="btn soft sm" onClick={() => setPreviewTicket(t)} type="button">

@@ -111,7 +111,7 @@ class Consult extends Model
         };
     }
 
-    /** المكان للعرض في البطاقات — فارغ ما لم يُحجز موعد بعد (يطابق سلوك الفرع السابق). */
+    /** المكان للعرض في البطاقات — فارغ ما لم يُحجز موعد بعد. */
     public function placeForCard(): string
     {
         return $this->appointment_id ? $this->placeLabel() : '';
@@ -129,15 +129,26 @@ class Consult extends Model
         return $this->belongsTo(User::class, 'assigned_lawyer_id');
     }
 
-    // رابط انضمام الجلسة المرئية المضمّنة داخل المنصّة حصراً (لا روابط خارجية تخرج عن المنصة)
+    /**
+     * رابط انضمام الجلسة المرئية المضمّنة داخل المنصّة حصراً (لا روابط خارجية).
+     * لكل دور غرفته: غرفة العميل /consults/room محروسة بـrole:client، فإعادتها
+     * لموظف أو محامٍ أو إدارة تعني زرّاً يطرد صاحبه (403/إعادة توجيه).
+     */
     public function joinLink(?User $user = null): string
     {
-        if ($user && $user->role === Role::Lawyer) {
-            // المساران /lawyer/consults{,/room} غير معرَّفين (404) — غرفة المحامي الفعلية videoroom
-            return url('/lawyer/videoroom?ref='.$this->ref);
+        $ref = (string) $this->ref;
+
+        if ($user) {
+            return match ($user->role) {
+                Role::Client => url('/consults/room?ref='.$ref),
+                Role::Lawyer => url('/lawyer/videoroom?ref='.$ref),
+                Role::Employee => url('/employee/videoroom?ref='.$ref),
+                Role::Admin => url('/admin/videoroom?ref='.$ref),
+                default => url('/consults/room?ref='.$ref),
+            };
         }
 
-        return url('/consults/room?ref='.$this->ref);
+        return url('/consults/room?ref='.$ref);
     }
 
     /** رابط التبويب في لوحة التحكم بحسب الدور */

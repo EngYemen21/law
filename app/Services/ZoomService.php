@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\WebTimeLimit;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -288,7 +289,7 @@ class ZoomService
             return null;
         }
 
-        @set_time_limit(120);
+        WebTimeLimit::raise(120);
 
         try {
             $response = Http::withToken($token)->timeout(30)->get($url);
@@ -386,7 +387,7 @@ class ZoomService
             return null;
         }
 
-        @set_time_limit(60);
+        WebTimeLimit::raise(60);
 
         try {
             $token = $this->token();

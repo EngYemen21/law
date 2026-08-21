@@ -39,7 +39,7 @@ class ExecutionCreation
 
             $exec->messages()->create([
                 'who' => 'system', 'name' => 'النظام', 'role' => 'فتح',
-                'body' => "<p>تم فتح طلب تنفيذ الحكم الصادر في القضية {$case->number}، وإسناده إلى قسم التنفيذ ({$lawyer->name}).</p>",
+                'body' => '<p>تم فتح طلب تنفيذ الحكم الصادر في القضية '.e($case->number).'، وإسناده إلى قسم التنفيذ ('.e($lawyer->name).').</p>',
                 'time_label' => self::clock(),
             ]);
 

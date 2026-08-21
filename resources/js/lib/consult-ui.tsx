@@ -697,9 +697,9 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                     <Icon name="check" /> اعتماد التحليل (جاهزة للمحامي)
                   </button>
                 )}
-                <button className="btn soft sm" onClick={() => toast('طباعة الملخص (PDF)')} type="button">
+                <a className="btn soft sm" href={`/consults/${c.id}/report.pdf`} target="_blank" rel="noopener">
                   <Icon name="download" /> طباعة الملخص (PDF)
-                </button>
+                </a>
                 <button className="btn soft sm" onClick={rerun} disabled={busy} type="button">
                   <Icon name="info" /> إعادة التحليل
                 </button>

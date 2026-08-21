@@ -123,6 +123,7 @@ class LawyerAvailability
      *
      * @return array{rate:int,closed:int,total:int}
      */
+    /** ⚠️ غير مستعملة حالياً: بقيت من مسار الترتيب بالذكاء الاصطناعي المُستبدَل. */
     public static function successScore(User $lawyer): array
     {
         $id = (int) $lawyer->id;
@@ -147,6 +148,7 @@ class LawyerAvailability
     }
 
     /** الحمل المفتوح (تذاكر غير مغلقة) لموازنة الترتيب عند تعادل النجاح. */
+    /** ⚠️ غير مستعملة حالياً: بقيت من مسار الترتيب بالذكاء الاصطناعي المُستبدَل. */
     public static function openLoad(int $lawyerId): int
     {
         return Ticket::where('assigned_lawyer_id', $lawyerId)

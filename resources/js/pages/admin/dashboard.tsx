@@ -30,7 +30,7 @@ const AdminDashboard: React.FC<Props> = ({ stats, activity }) => {
     setBusy(true);
     router.post(
       '/admin/reset-database',
-      {},
+      { confirm: 'RESET' },
       {
         onSuccess: () => {
           setResetOpen(false);
@@ -179,7 +179,7 @@ const AdminDashboard: React.FC<Props> = ({ stats, activity }) => {
                 <li>الاستشارات ومواعيدها والاجتماعات والمهام.</li>
               </ul>
               <div style={{ marginTop: 8, color: '#15803d', fontWeight: 700 }}>
-                ✓ سيتم الإبقاء على جدول المستخدمين (Users)، الفروع، والأدوار والصلاحيات.
+                ✓ سيتم الإبقاء على جدول المستخدمين (Users)، والأدوار والصلاحيات.
               </div>
             </div>
           </div>

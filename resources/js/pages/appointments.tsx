@@ -27,15 +27,15 @@ const ApptCard: React.FC<{ a: Appt }> = ({ a }) => {
   const toast = useToast();
   const p = apptPlace(a);
   const paid = a.pay === 'مدفوع';
-  const calHref =
-    'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' +
-    encodeURIComponent(a.type);
+  // يبنيه الخادم عبر IcalendarService::googleUrl بتوقيت حقيقي — كان الرابط هنا بلا dates
+  const calHref = a.gcal;
 
+  // رابط الجلسة المرئية الحقيقي بالمنصّة — كان يُنسخ رابط مختلق (salaselbabel.net/APT-…) لا مسار له
   const copyLink = () => {
-    const link = 'https://salaselbabel.net/APT-' + a.id;
+    if (!a.joinLink) return;
     try {
-      navigator.clipboard?.writeText(link).then(
-        () => toast('تم نسخ الرابط'),
+      navigator.clipboard?.writeText(a.joinLink).then(
+        () => toast('تم نسخ رابط الجلسة'),
         () => toast('تعذّر نسخ الرابط'),
       );
     } catch {
@@ -118,9 +118,11 @@ const ApptCard: React.FC<{ a: Appt }> = ({ a }) => {
         <a className="btn" target="_blank" rel="noopener" href={calHref}>
           <Icon name="calplus" /> أضف إلى Google Calendar
         </a>
-        <button className="btn soft" type="button" onClick={copyLink}>
-          <Icon name="link" /> نسخ الرابط
-        </button>
+        {a.joinLink && (
+          <button className="btn soft" type="button" onClick={copyLink}>
+            <Icon name="link" /> نسخ رابط الجلسة
+          </button>
+        )}
         <a
           className="btn soft"
           href={`/appointments/${encodeURIComponent(a.id)}/card.pdf`}

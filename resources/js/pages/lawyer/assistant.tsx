@@ -109,14 +109,18 @@ const LawyerAssistant: React.FC<Props> = ({ refs }) => {
 
   const activeTab = ASSIST_TABS.find((a) => a.key === tab) || ASSIST_TABS[0];
 
+  // كل إجراء سريع ينتمي لتبويب: النقر ينقل المستخدم إليه ويثبّت نوع الوثيقة الخاص به
+  const QUICK_TAB: Record<string, string> = {
+    reply_memo: 'mems',
+    contract_check: 'analyze',
+    strengths_weaknesses: 'defense',
+    qualification: 'defense',
+  };
+
   const handleQuickAction = (qa: QuickAction) => {
     setSelectedQuick(qa.id);
-    // Find matching tab or set kind
-    const matchTab = ASSIST_TABS.find((t) => t.key === qa.kind);
-    if (matchTab) {
-      setTab(matchTab.key);
-      setType(matchTab.items[0]);
-    }
+    setTab(QUICK_TAB[qa.kind] ?? tab);
+    setType(qa.docType); // نوع الوثيقة الخاص بالإجراء — كان يُهمَل ويُرسل نوع التبويب
     toast(`تم اختيار: ${qa.title} — أدخل التفاصيل واضغط توليد`);
   };
 
@@ -223,8 +227,8 @@ const LawyerAssistant: React.FC<Props> = ({ refs }) => {
           <div className="picker-grid" style={{ marginBottom: 14 }}>
             <div className="field">
               <label>نوع الصياغة / الوثيقة</label>
-              <select value={type} onChange={(e) => setType(e.target.value)}>
-                {activeTab.items.map((x) => (
+              <select value={type} onChange={(e) => { setType(e.target.value); setSelectedQuick(null); }}>
+                {(activeTab.items.includes(type) ? activeTab.items : [type, ...activeTab.items]).map((x) => (
                   <option key={x} value={x}>{x}</option>
                 ))}
               </select>

@@ -7,6 +7,7 @@ use App\Jobs\AnalyzeExecutionJob;
 use App\Mail\ExecutionEventMail;
 use App\Models\Execution;
 use App\Models\Invoice;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\MailService;
 use App\Services\MoyasarService;
@@ -123,7 +124,7 @@ class ExecService
     {
         self::guard($exec, self::feeStages($exec), 'لا توجد أتعاب بانتظار الاعتماد.');
         $fee = $adjustedFee && $adjustedFee > 0 ? $adjustedFee : (int) $exec->fee;
-        $exec->update(['fee' => $fee, 'vat' => (int) round($fee * 0.15), 'fee_approved' => true, 'offer_status' => null]);
+        $exec->update(['fee' => $fee, 'vat' => Setting::vatOn($fee), 'fee_approved' => true, 'offer_status' => null]);
         self::sync($exec, 5, 'اعتمدت الإدارة الأتعاب وأُرسل العرض');
         self::adminMsg($exec, 'اعتماد', 'اعتمدت الإدارة أتعاب التنفيذ وأُرسل العرض للعميل.');
         self::notify($exec, 'card', 't-blue', "عرض خدمة التنفيذ لطلبك {$exec->number} جاهز — بانتظار قبولك.");
@@ -140,7 +141,7 @@ class ExecService
     {
         self::guard($exec, self::feeStages($exec), 'لا يمكن تسعير الطلب في مرحلته الحالية.');
         $exec->update([
-            'fee' => $fee, 'vat' => (int) round($fee * 0.15),
+            'fee' => $fee, 'vat' => Setting::vatOn($fee),
             'duration' => $duration ?: '30-45 يوم',
             'pay_method' => in_array($payMethod, ExecFlow::PAYM, true) ? $payMethod : ExecFlow::PAYM[0],
             'fee_approved' => true, 'offer_status' => null,
@@ -191,6 +192,9 @@ class ExecService
         $exec->update(['decision' => 'مرفوض']);
         self::lawyerMsg($exec, 'رفض', 'تعذّر قبول الطلب بعد الدراسة.');
         self::notify($exec, 'exec', 't-red', "تعذّر قبول طلب التنفيذ {$exec->number} بعد الدراسة.");
+        // لا تُنقل المرحلة إلى 9: المرحلة 9 «مغلق» تعني مؤرشفاً بعد استكمال الإجراءات،
+        // والمرفوض ليس كذلك. الحالة تُقرأ من decision، والقوائم تحترمه في العرض.
+        $exec->update(['last_action' => 'رُفض الطلب بعد الدراسة']);
         Live::push(new ExecStatusBroadcast($exec));
     }
 
@@ -199,7 +203,7 @@ class ExecService
         self::guard($exec, [3], 'لا يمكن تحديد الأتعاب في مرحلته الحالية.');
         abort_if($exec->decision === 'مرفوض', 422, 'هذا الطلب مرفوض بالفعل.');
         $exec->update([
-            'fee' => $fee, 'vat' => (int) round($fee * 0.15),
+            'fee' => $fee, 'vat' => Setting::vatOn($fee),
             'duration' => $duration ?: '30-45 يوم',
             'pay_method' => in_array($payMethod, ExecFlow::PAYM, true) ? $payMethod : ExecFlow::PAYM[0],
         ]);
@@ -300,8 +304,11 @@ class ExecService
         }
 
         $exec->refresh();
-        self::sync($exec, 8, 'سُدّدت الأتعاب وفُتح ملف التنفيذ');
+        // المرور بالمرحلة 7 «ملف تنفيذ» بدل القفز 6 ← 8: كانت مرحلة معلَنة في FLOW
+        // بلا أي كاتب، فيمرّ شريط المراحل فوقها ولا تُعرض للعميل قط.
+        self::sync($exec, 7, 'سُدّدت الأتعاب — يُفتح ملف التنفيذ');
         $exec->procedures()->create(['title' => 'فتح ملف التنفيذ وتقديم الطلب إلكترونياً', 'type' => 'إجراء', 'detail' => '', 'status' => 'منفّذ']);
+        self::sync($exec, 8, 'فُتح ملف التنفيذ وبدأت الإجراءات');
         $exec->messages()->create([
             'who' => 'system', 'name' => 'النظام', 'role' => 'سداد',
             'body' => '<p>تم سداد أتعاب التنفيذ وفتح ملف التنفيذ رقم <b>'.e((string) $exec->exec_no).'</b>.</p>',
