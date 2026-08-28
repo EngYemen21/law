@@ -74,4 +74,29 @@ class PermissionXhrRejectionTest extends TestCase
 
         $this->assertTrue($ticket->fresh()->messages->contains(fn ($m) => $m->role === 'نواقص'));
     }
+
+    /**
+     * 🔴 نفس عطل EnsurePermission لكن في نظيره EnsureRole: كان يعيد 302 دائماً،
+     * فنداء XHR بدور خاطئ يتبع التحويل ويقرأ 200 وتُظهر الواجهة نجاحاً لعملية لم تُنفَّذ.
+     */
+    public function test_wrong_role_xhr_is_rejected_with_403_not_a_redirect(): void
+    {
+        [$ticket] = $this->ticketWithEmployee();
+        $client = User::factory()->create(['role' => Role::Client]);
+
+        $this->actingAs($client)
+            ->postJson(route('employee.tickets.reqdocs', $ticket), ['docs' => ['صورة الهوية']])
+            ->assertForbidden();
+    }
+
+    /** زيارة الصفحة بدور خاطئ تبقى تحويلاً للوحة المستخدم (لا 403 خام أمام المتصفّح). */
+    public function test_wrong_role_page_visit_still_redirects(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+
+        $this->actingAs($client)
+            ->get(route('employee.transfer'))
+            ->assertRedirect(Role::Client->home())
+            ->assertSessionHas('error');
+    }
 }

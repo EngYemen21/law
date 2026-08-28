@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * دعوة/طلب اجتماع (MR_FLOW): دعوة مُرسلة للعميل ← تأكيد حضور العميل ← تنفيذ الجلسة ← اعتماد الإدارة.
+ * دعوة/طلب اجتماع (MR_FLOW): بانتظار موافقة الإدارة ← معتمدة ومنشورة للعميل (مؤكَّدة) ← تنفيذ الجلسة ← اعتماد المحضر والملخص. (تأكيد العميل مُلغى)
  */
 class MeetRequest extends Model
 {
@@ -47,7 +47,7 @@ class MeetRequest extends Model
         return $this->belongsTo(User::class, 'sent_by_id');
     }
 
-    // المحامي/المختص المسؤول — يُسنَد للاجتماع عند تأكيد العميل
+    // المحامي/المختص المسؤول — يُسنَد للاجتماع عند موافقة الإدارة (MeetInvitation::schedule)
     public function assignedLawyer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_lawyer_id');
@@ -127,6 +127,9 @@ class MeetRequest extends Model
             'time' => $this->time,
             'by' => $this->sent_by,
             'stage' => $this->stage,
+            // لفحص إتاحة المحامي في مودال إعادة الإرسال (كان بلا فحص فيصطدم برفض الخادم)
+            'lawyerId' => $this->assigned_lawyer_id,
+            'durationMin' => $this->duration_min ?: 60,
             'meetId' => $confirmed ? ($this->meet_id ?: $this->ref) : null,
             'meetLink' => $confirmed ? $this->joinLink() : null,
             'hostLink' => $confirmed ? $this->host_link : null,

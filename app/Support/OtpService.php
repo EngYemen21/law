@@ -16,6 +16,9 @@ class OtpService
 {
     public const RESEND_SECONDS = 60;
 
+    /** سقف محاولات الرمز على حمولة الجلسة الواحدة — نظير EmailOtpService::MAX_ATTEMPTS. */
+    public const MAX_ATTEMPTS = 5;
+
     /** طلب رمز دخول لمستخدم قائم — يرسله لجواله المسجّل عبر تقنيات. */
     public function request(User $user): array
     {
@@ -38,10 +41,49 @@ class OtpService
         return app(TaqnyatVerifyService::class)->check($phone, $requestId, $code);
     }
 
-    /** تجاوز تطويريّ مؤقّت (رمز ثابت) — بيئتا local/testing حصراً (لا staging/إنتاج) وحين ضبط AUTH_DEV_OTP. */
+    /**
+     * هل AUTH_DEV_OTP مضبوط؟ — `filled` لا truthiness: القيمة "0" رمز صالح يقبله التجاوز،
+     * وكان الحارس في AppServiceProvider يفحص truthiness فيمرّرها بينما يقبلها التجاوز.
+     */
+    public static function isDevOtpConfigured(): bool
+    {
+        return filled(config('services.auth_dev_otp'));
+    }
+
+    /**
+     * هل تبدو البيئة إنتاجيّة بمؤشّرات **مستقلّة عن APP_ENV**؟
+     *
+     * لماذا: الحارس القديم كان شرطه `! environment('local','testing')` — أي أنه يستند إلى
+     * المتغيّر نفسه الذي بُني ليحرس منه. فخادم إنتاجيّ وصله APP_ENV=local يصمت فيه الحارس
+     * ويعمل التجاوز، فيدخل أي أحد بأي رقم هويّة بالرمز الثابت. مؤشّران مستقلّان:
+     * إطفاء APP_DEBUG، أو مضيف APP_URL ليس نطاق تطوير محلّيّاً.
+     */
+    public static function productionLike(): bool
+    {
+        // الاختبارات حتميّة — لا تُستنتج بيئة من إعدادات المضيف
+        if (app()->environment('testing')) {
+            return false;
+        }
+
+        if (! config('app.debug')) {
+            return true;
+        }
+
+        $host = (string) parse_url((string) config('app.url'), PHP_URL_HOST);
+        if ($host === '') {
+            return false;
+        }
+
+        return ! Str::endsWith($host, ['.test', '.local', '.localhost', 'localhost'])
+            && ! in_array($host, ['127.0.0.1', '::1'], true);
+    }
+
+    /** تجاوز تطويريّ مؤقّت (رمز ثابت) — بيئة تطوير حقيقيّة حصراً وحين ضبط AUTH_DEV_OTP. */
     public function devBypass(): bool
     {
-        return app()->environment('local', 'testing') && filled(config('services.auth_dev_otp'));
+        return self::isDevOtpConfigured()
+            && app()->environment('local', 'testing')
+            && ! self::productionLike();
     }
 
     /** توليد معرّف عمليّة وإطلاق إرسال الرمز عبر تقنيات — يعيد بيانات الجلسة/العرض. */

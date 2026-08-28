@@ -59,7 +59,7 @@ const AdminMeetLog: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) =
       </div>
 
       <div className="card">
-        <div className="card-h"><h3>سجل الاجتماعات</h3><span className="sub">{list.length} من {ended.length} اجتماع منتهٍ</span></div>
+        <div className="card-h"><h3>أرشيف الاجتماعات</h3><span className="sub">{list.length} من {ended.length} اجتماع منتهٍ</span></div>
         <div className="card-b">
           {list.length ? list.map((m) => {
             const actual = fmtActualDuration(m.durationSec);

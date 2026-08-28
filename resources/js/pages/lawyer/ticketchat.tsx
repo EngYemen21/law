@@ -1,18 +1,19 @@
 import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useEffect, useRef, useState } from 'react';
-import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import FlowLine from '@/components/babylon/FlowLine';
 import MsgMeta from '@/components/babylon/MsgMeta';
-import TicketTalkingNotice from '@/components/babylon/TicketTalkingNotice';
 import TicketActionsPanel from '@/components/babylon/TicketActionsPanel';
 import TicketDetailsCard from '@/components/babylon/TicketDetailsCard';
+import TicketTalkingNotice from '@/components/babylon/TicketTalkingNotice';
 import { useToast } from '@/components/babylon/Toast';
+import { TKT_LIFE, tktStage  } from '@/lib/chat';
+import type {Message} from '@/lib/chat';
 import { echo } from '@/lib/echo';
-import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
+import Icon from '@/lib/icons';
+import type {SummaryData} from '@/lib/lawyer-data';
 import { useCan } from '@/lib/permissions';
-import { type SummaryData } from '@/lib/lawyer-data';
 
 // دراسة التذكرة لدى المستشار — محادثة العميل (سياق حيّ + رد مباشر) + ملخص الملف + الاعتماد
 // تُستخدم الصفحة نفسها من لوحة الإدارة؛ لذا كل الروابط تُبنى من base لا مثبّتة على /lawyer.
@@ -35,8 +36,10 @@ const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
       </div>
     );
   }
+
   const isClient = m.who === 'client' || m.who === 'me';
   const actor = isClient ? 'me' : 'ai';
+
   return (
     <div className={`msg ${actor}`}>
       <div className={`av ${actor}`}>{isClient ? 'ع' : <img src="/images/mono.jpg" alt="" />}</div>
@@ -78,19 +81,31 @@ const LawyerTicketChat: React.FC<Props> = ({ ticket, channel, messages, summary,
   useEffect(() => {
     const append = (e: { message: Message }) => {
       const m = e.message;
-      if (m.id && seen.current.has(m.id)) return;
-      if (m.id) seen.current.add(m.id);
+
+      if (m.id && seen.current.has(m.id)) {
+return;
+}
+
+      if (m.id) {
+seen.current.add(m.id);
+}
+
       setMsgs((prev) => [...prev, m]);
     };
     const ch = echo.private(channel);
     ch.listen('.message', append);
     ch.listen('.status', (e: { status: string; tone: string }) => setStatus(e));
     echo.private(`${channel}.staff`).listen('.message', append);
-    return () => { echo.leave(channel); echo.leave(`${channel}.staff`); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    return () => {
+ echo.leave(channel); echo.leave(`${channel}.staff`); 
+};
+     
   }, [channel]);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [msgs]);
+  useEffect(() => {
+ endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); 
+}, [msgs]);
 
   const no = encodeURIComponent(ticket.no);
   const fail = (fallback: string) => (errors: Record<string, string>) =>
@@ -98,7 +113,12 @@ const LawyerTicketChat: React.FC<Props> = ({ ticket, channel, messages, summary,
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    const v = body.trim(); if (!v) return;
+    const v = body.trim();
+
+ if (!v) {
+return;
+}
+
     const endpoint = mode === 'reply' ? 'reply' : 'note';
     // لا يُمسح النص إلا بعد نجاح الإرسال فعلاً — لا يضيع عند فشل (صلاحية/تحقّق/خادم)
     axios.post(`${base}/tickets/${no}/${endpoint}`, { body: v })
@@ -116,9 +136,9 @@ const LawyerTicketChat: React.FC<Props> = ({ ticket, channel, messages, summary,
     });
 
   // اعتماد نتيجة الجلسة خطوة المستشار (pending_lawyer)؛ اعتماد الإدارة النهائي في /admin/summaries.
-  // لذا يبقى المسار مسار المستشار حتى حين تفتح الإدارة الصفحة (تتجاوز حارس الدور).
+  // المسار يُبنى من base: للإدارة نظيرها admin.tickets.result (لم تعد تمرّ عبر بوابة المحامي — 2026-08-28).
   const approveResult = () =>
-    router.post(`/lawyer/tickets/${no}/result`, {}, {
+    router.post(`${base}/tickets/${no}/result`, {}, {
       onSuccess: () => toast('تم اعتماد ملخص الجلسة ورفعه للإدارة'),
       onError: fail('تعذّر اعتماد ملخص الجلسة'),
     });
@@ -179,7 +199,10 @@ const LawyerTicketChat: React.FC<Props> = ({ ticket, channel, messages, summary,
                   value={body}
                   onChange={(e) => {
                     setBody(e.target.value);
-                    if (mode === 'reply') setTypingSignal((n) => n + 1);
+
+                    if (mode === 'reply') {
+setTypingSignal((n) => n + 1);
+}
                   }}
                   placeholder={mode === 'reply' ? 'اكتب ردّك المباشر للعميل…' : 'اكتب ملاحظة داخلية لا يراها العميل…'}
                 />

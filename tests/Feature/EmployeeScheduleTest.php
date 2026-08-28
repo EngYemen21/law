@@ -55,11 +55,16 @@ class EmployeeScheduleTest extends TestCase
             'when_kind' => 'up',
         ]);
 
-        $response = $this->actingAs($employee)->get('/employee/schedule');
+        // التبويب الزمني موحّد: لوحة المواعيد صارت منظراً داخل /employee/calendar،
+        // و/employee/schedule يُحوّل إليه (روابط محفوظة وإشعارات سابقة).
+        $this->actingAs($employee)->get('/employee/schedule')->assertRedirect(route('employee.calendar'));
+
+        $response = $this->actingAs($employee)->get('/employee/calendar');
 
         $response->assertOk();
         $response->assertInertia(fn (Assert $page) => $page
-            ->component('employee/schedule')
+            ->component('employee/calendar')
+            ->has('events')
             ->has('clients')
             ->has('lawyers')
             ->has('appointments')

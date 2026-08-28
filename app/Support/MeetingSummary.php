@@ -23,7 +23,7 @@ class MeetingSummary
         }
 
         // 1. جلب تفاصيل الجلسة المنتهية (المشاركون، التسجيل المرئي والصوتي، رابط المشاركة)
-        $details = $zoom->fetchPastMeetingDetails((string) $meeting->meet_id);
+        $details = $zoom->fullPastMeetingDetails((string) $meeting->meet_id);
         if ($details) {
             $updates = [];
             if ($details['uuid'] && ! $meeting->zoom_uuid) {
@@ -61,8 +61,10 @@ class MeetingSummary
 
         // 2. جلب ملخص الذكاء الاصطناعي إن لم يكن كُتب سابقاً
         if ($meeting->zoom_summary_at === null) {
-            $summary = ZoomService::summaryFromPayload($payload)
-                ?? $zoom->meetingSummary((string) $meeting->meet_id, $meeting->zoom_uuid ?: ($details['uuid'] ?? null));
+            // الجلب الكامل أولاً (كل الانعقادات مدموجة) — حمولة الويبهوك تخصّ انعقاداً واحداً
+            // فتُترك احتياطاً حين يتعذّر الاستعلام، وإلا أسقطنا أجزاء الجلسة المنقطعة (M-26753)
+            $summary = $zoom->fullMeetingSummary((string) $meeting->meet_id, $meeting->zoom_uuid ?: ($details['uuid'] ?? null))
+                ?? ZoomService::summaryFromPayload($payload);
 
             if ($summary !== null) {
                 $updateData = [
@@ -71,6 +73,12 @@ class MeetingSummary
                     'zoom_ai_next_steps' => $summary['next_steps'] ?? [],
                     'has_summary' => true,
                 ];
+
+                // الملخص المعروض للعميل (toCard يقرأ summary لا zoom_summary): القالبي/الفارغ
+                // يُستبدل بمحتوى Zoom الحقيقي — كما تفعل الاستشارات تماماً. المكتوب فعلاً يُحترم.
+                if (ZoomSummaryText::isPlaceholderSummary($meeting->summary)) {
+                    $updateData['summary'] = ZoomSummaryText::format("ملخص الاجتماع — {$meeting->ref}", $summary);
+                }
 
                 // إذا كان المحضر فارغاً أو يحتوي نصاً قالبياً افتراضياً: استبداله بالأنصعة الحقيقية من Zoom AI
                 if (ZoomSummaryText::isPlaceholderMinutes($meeting->minutes)) {

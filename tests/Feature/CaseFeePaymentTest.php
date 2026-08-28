@@ -106,15 +106,20 @@ class CaseFeePaymentTest extends TestCase
         $this->assertSame('paid', $case->fresh()->fee_status);
     }
 
-    public function test_installments_do_not_use_gateway(): void
+    /** الأقساط تمرّ بالبوّابة كالسداد الكامل — كان هذا الاختبار يثبّت مسار «بلا بوّابة». */
+    public function test_installments_go_through_the_gateway(): void
     {
-        $this->configureMoyasar();
         $client = User::factory()->create(['role' => Role::Client]);
         $case = $this->payableCase($client);
 
-        // الأقساط ميزة مستقلّة لا تمرّ ببوّابة ميسّر (السداد الكامل فقط عبرها)
-        $this->actingAs($client)->post(route('cases.pay', $case), ['plan' => 'install'])->assertRedirect();
+        // بلا بوّابة مهيّأة لا خطّة تقسيط أصلاً (كان يُفعّل القضية مجاناً)
+        $this->actingAs($client)->post(route('cases.pay', $case), ['plan' => 'install'])->assertStatus(503);
+        $this->assertSame('pending_payment', $case->fresh()->fee_status);
+
+        $this->configureMoyasar();
+        $this->actingAs($client)->post(route('cases.pay', $case), ['plan' => 'install']);
 
         $this->assertSame('installments', $case->fresh()->fee_status);
+        $this->assertSame(0, $case->fresh()->installments_paid);
     }
 }

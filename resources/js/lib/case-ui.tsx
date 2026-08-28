@@ -30,7 +30,14 @@ export interface Hearing {
 
 /** نغمة حالة الجلسة — مصدر وحيد (يستعملها تقويم المحامي أيضاً) */
 export const hearingTone = (s: string): string =>
-  s === 'منعقدة' ? 'b-green' : s === 'مؤجلة' ? 'b-amber' : s === 'ملغاة' ? 'b-grey' : 'b-blue';
+  s === 'منعقدة' ? 'b-green'
+    : s === 'مؤجلة' ? 'b-amber'
+    : s === 'ملغاة' ? 'b-grey'
+    // حالات فائتة تُشتقّ حيّاً في App\Support\EventStatus — بلا هذين السطرين تسقط
+    // للافتراضي الأزرق فتُلوَّن جلسة فائتة كأنها عادية.
+    : s === 'فائتة — بانتظار النتيجة' ? 'b-red'
+    : s === 'لم تنعقد' ? 'b-red'
+    : 'b-blue';
 
 export const HearingsCard: React.FC<{ hearings: Hearing[] }> = ({ hearings }) => (
   <div className="card">

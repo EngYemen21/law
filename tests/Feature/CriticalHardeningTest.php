@@ -177,6 +177,8 @@ class CriticalHardeningTest extends TestCase
 
     public function test_profile_accepts_valid_phone(): void
     {
+        // تغيير الجوال صار يُرسل رمزاً للرقم الجديد؛ بلا تجاوز تطويري يفشل الإرسال
+        config(['services.auth_dev_otp' => '1234']);
         $user = User::factory()->create(['role' => Role::Client, 'phone' => '966500000003']);
 
         $this->actingAs($user)->post(route('profile.update'), [

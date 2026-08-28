@@ -53,4 +53,28 @@ class TaskController extends Controller
 
         return back()->with('flash', 'تم إسناد المهمة للمحامي.');
     }
+
+    /**
+     * إنجاز أي مهمة من شاشة الإدارة — إغلاق المحامي مقيَّد بمهامه هو، فكانت المهمة
+     * المسندة لموظف أو إداري (أو ليتيمٍ غادر) لا تُغلق أبداً من أي شاشة.
+     */
+    public function complete(Task $task): RedirectResponse
+    {
+        if ($task->status !== 'منجزة') {
+            $task->update(['status' => 'منجزة', 'tone' => 'b-green', 'completed_at' => now()]);
+        }
+
+        return back()->with('flash', 'أُنجزت المهمة.');
+    }
+
+    /** إعادة إسناد مهمة لمحامٍ آخر — لم يكن للمهمة أي إجراء بعد إنشائها. */
+    public function reassign(Request $request, Task $task): RedirectResponse
+    {
+        $data = $request->validate(['assigned_to' => ['required', 'integer', 'exists:users,id']]);
+        User::where('role', Role::Lawyer)->findOrFail($data['assigned_to']);
+
+        $task->update(['assigned_to' => $data['assigned_to']]);
+
+        return back()->with('flash', 'أُعيد إسناد المهمة.');
+    }
 }

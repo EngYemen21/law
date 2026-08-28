@@ -1,8 +1,9 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import React from 'react';
-import Icon from '@/lib/icons';
 import { ROLES, ROLE_NAV, panelRole } from '@/lib/data';
-import { canViewRoute, type PermCatalog } from '@/lib/permissions';
+import Icon from '@/lib/icons';
+import { canViewRoute  } from '@/lib/permissions';
+import type {PermCatalog} from '@/lib/permissions';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -19,7 +20,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const role = panelRole(path, user?.role);
   const roleMeta = ROLES.find((r) => r.key === role) ?? ROLES[0];
   const rawNav = ROLE_NAV[role] ?? ROLE_NAV.client;
-  const isAdmin = user?.role === 'admin';
+  // const isAdmin = user?.role === 'admin'; // كان لمبدّل اللوحات الملغى 2026-08-28
 
   // تصفية القائمة حسب صلاحيات المستخدم (isSuper يرى الكل)؛ خريطة الصلاحيات من كتالوج الخادم
   const perms: string[] = user?.permissions ?? [];
@@ -39,7 +40,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         <img src="/images/021.png" alt="النظام الإداري لمكاتب المحاماة" />
       </div>
 
-      {/* تبديل اللوحة — للإدارة فقط (إشراف على بقية الأدوار) */}
+      {/* أُلغي مبدّل «عرض اللوحات (إشراف)» بقرار المستخدم 2026-08-28 — الإدارة العليا
+          مقصورة على لوحتها ولا تتنقل للوحات الأدوار الأخرى (EnsureRole يحظرها خادميًا أيضًا).
       {isAdmin && (
         <div className="role-switch">
           <div className="gl">عرض اللوحات (إشراف)</div>
@@ -57,7 +59,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             ))}
           </div>
         </div>
-      )}
+      )} */}
 
       {/* التنقل — حسب الدور الحالي */}
       <nav className="sb-nav" id="nav">
@@ -77,6 +79,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                   // كل الشارات من الخادم: الإشعارات من unreadNotifications والباقي من navBadges.
                   // كانت مشتقّة من DATA الوهمية فيرى كل عميل الأرقام نفسها مهما كان سجلّه.
                   const badge = it.route === '/notifications' ? unreadNotifications : navBadges[it.route];
+
                   return badge ? <span className="badge">{badge}</span> : null;
                 })()}
               </Link>

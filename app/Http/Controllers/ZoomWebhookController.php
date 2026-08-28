@@ -141,7 +141,8 @@ class ZoomWebhookController extends Controller
 
         $meeting->update([
             'status' => 'منتهٍ',
-            'attend' => $meeting->attend ?: 90,
+            // لا نسبة حضور مختلقة (كانت 90 مثبّتة): 0 = غير مسجَّلة وتُخفى من العرض
+            'attend' => $meeting->attend ?: 0,
         ]);
         MeetRequest::where('meeting_id', $meeting->id)
             ->where('stage', '<', MeetRequest::STAGE_EXECUTED)

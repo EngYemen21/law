@@ -33,6 +33,34 @@ class InvoicePdfTest extends TestCase
         $this->assertStringStartsWith('%PDF', $response->getContent());
     }
 
+    /**
+     * زرّ «الفاتورة PDF» في تبويب الفواتير والمحاسبة (الإدارة) — صار له نظير admin خاص
+     * (قرار 2026-08-28: الأدمن لا يمرّ عبر بوابة دور العميل إطلاقًا)، ونفس المتحكّم يخدمه.
+     */
+    public function test_admin_downloads_any_invoice_pdf_from_accounting_tab(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $invoice = Invoice::create([
+            'user_id' => $client->id,
+            'number' => 'INV-2026-9903',
+            'amount' => 2000,
+            'description' => 'أتعاب قضية عمّالية',
+            'status' => 'مستحقة',
+            'paid' => false,
+            'due_label' => '2026-09-15',
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('admin.invoices.pdf', $invoice));
+
+        $response->assertOk();
+        $this->assertSame('application/pdf', $response->headers->get('Content-Type'));
+        $this->assertStringStartsWith('%PDF', $response->getContent());
+
+        // وبوابة دور العميل مقفلة على الأدمن حتى لهذه النقطة — النظير الإداري هو الطريق الوحيد
+        $this->actingAs($admin)->get(route('invoices.pdf', $invoice))->assertRedirect('/admin/dashboard');
+    }
+
     public function test_other_client_cannot_download_foreign_invoice_pdf(): void
     {
         $owner = User::factory()->create(['role' => Role::Client]);

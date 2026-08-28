@@ -3,8 +3,9 @@ import React, { useEffect, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
+import { CORR_FLOW  } from '@/lib/corr-ui';
+import type {CorrCard} from '@/lib/corr-ui';
 import { echo } from '@/lib/echo';
-import { CORR_FLOW, type CorrCard } from '@/lib/corr-ui';
 import Icon from '@/lib/icons';
 
 interface Props { role: string; base: string; corr: CorrCard }
@@ -25,18 +26,26 @@ const Correspondence: React.FC<Props> = ({ role, base, corr }) => {
     echo.private(c.channelName).listen('.status', (e: { status: string; tone: string }) => {
       setC((prev) => ({ ...prev, status: e.status, tone: e.tone }));
     });
-    return () => { echo.leave(c.channelName); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    return () => {
+ echo.leave(c.channelName); 
+};
+     
   }, [c.channelName]);
 
   const act = (path: string, payload: Record<string, string> = {}) => {
     router.post(`${url}/${path}`, payload, { preserveScroll: true, onError: (er) => toast(Object.values(er)[0] ?? 'تعذّر تنفيذ الإجراء') });
   };
-  const submitBrief = () => { if (note.trim()) act('brief', { note: note.trim() }); };
+  const submitBrief = () => {
+ if (note.trim()) {
+act('brief', { note: note.trim() });
+} 
+};
 
   const isAdmin = role === 'admin';
 
-  const printLetter = () => {
+  // عُلّقت: استُبدلت بـPDF خادمي (letter.pdf) — نافذة المتصفح كانت تفشل صامتاً عند حجب المنبثقات
+  /* const printLetter = () => {
     const html = `<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${c.id}</title>
       <style>body{font-family:Tahoma,Arial,sans-serif;padding:30px;color:#16245C}h2{color:#0A2A55}
       .hd{border-bottom:2px solid #16245C;padding-bottom:10px;margin-bottom:16px}
@@ -48,9 +57,16 @@ const Correspondence: React.FC<Props> = ({ role, base, corr }) => {
       ${c.reply ? `<div style="margin-top:16px"><b>ردّ الجهة:</b><div class="bd">${c.reply}</div></div>` : ''}
       <div class="sig"><span>المحامي: ${c.lawyer}</span><span>${c.extRef ? 'مرجع خارجيّ: ' + c.extRef : ''} · معتمد من الإدارة العليا</span></div></body></html>`;
     const w = window.open('', '_blank', 'width=800,height=900');
-    if (!w) return;
+
+    if (!w) {
+      // حجب المنبثقات كان يجعل الزرّ يفشل صامتاً تماماً
+      toast('المتصفح حجب نافذة الطباعة — اسمح بالنوافذ المنبثقة لهذا الموقع ثم أعد المحاولة');
+
+      return;
+    }
+
     w.document.write(html); w.document.close(); w.focus(); w.print();
-  };
+  }; */
 
   return (
     <>
@@ -142,7 +158,8 @@ const Correspondence: React.FC<Props> = ({ role, base, corr }) => {
           {c.stage >= 6 && <div className="mtg-pend"><Icon name="check" /> اكتملت رحلة المخاطبة وأُرشفت.</div>}
 
           <div style={{ marginTop: 12 }}>
-            <button className="btn soft sm" type="button" onClick={printLetter}><Icon name="download" /> طباعة المخاطبة (PDF)</button>
+            {/* PDF خادمي بدل نافذة المتصفح المرتجلة (كانت تفشل صامتاً عند حجب المنبثقات) */}
+            <a className="btn soft sm" href={`/correspondences/${encodeURIComponent(c.id)}/letter.pdf`} download><Icon name="download" /> طباعة المخاطبة (PDF)</a>
           </div>
         </div>
       </div>

@@ -30,7 +30,10 @@ class LawyerSummaryFlowTest extends TestCase
 
     private function lawyer(): User
     {
-        return User::factory()->create(['role' => Role::Lawyer, 'name' => 'أ. سارة القحطاني']);
+        // القسم مطابق لقسم التذكرة: الإسناد الأوّل يشترط التخصّص الآن (LawyerAssignmentPolicyTest)
+        return User::factory()->create([
+            'role' => Role::Lawyer, 'name' => 'أ. سارة القحطاني', 'department' => 'القسم التجاري',
+        ]);
     }
 
     /** يفتح تذكرة، يرفق مستنداً، ثم يحيلها — فيُجهَّز الملخص ويُسنَد المحامي. */

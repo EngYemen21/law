@@ -69,10 +69,34 @@ class AuthorizationHardeningTest extends TestCase
             ->assertRedirect(route('lawyer.dashboard', absolute: false));
     }
 
-    public function test_admin_bypasses_all_hardened_routes(): void
+    // انقلب العقد بقرار 2026-08-28: الإدارة مقصورة على لوحتها — صفحات اللوحات الأخرى محظورة
+    // حتى بالرابط المباشر، ويبقى الإشراف الوظيفي (الإجراءات + واجهات GET المحددة) فقط.
+    public function test_admin_blocked_from_other_role_pages(): void
     {
         $admin = User::factory()->create(['role' => Role::Admin]);
-        $this->actingAs($admin)->get('/employee/cases')->assertOk();
+
+        foreach (['/employee/dashboard', '/lawyer/dashboard', '/dashboard', '/employee/cases', '/lawyer/tickets', '/myconsults'] as $page) {
+            $this->actingAs($admin)->get($page)->assertRedirect('/admin/dashboard');
+        }
+    }
+
+    public function test_admin_oversight_runs_on_admin_routes_only(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+
+        // النظائر الإدارية الجديدة تعمل (قرار 2026-08-28: مسارات خاصة بالأدمن بلا استثناءات)
+        $this->actingAs($admin)
+            ->getJson('/admin/schedule/slots?lawyer_id='.$lawyer->id.'&date='.now()->addDay()->toDateString())
+            ->assertOk();
+        $this->actingAs($admin)->post('/admin/tickets/TK-NOPE/convert-consult')->assertNotFound(); // عبَر البوابة وسقط على الربط
+
+        // ومسارات الأدوار الأخرى مقفلة عليه حتى للإجراءات (POST) — مسار بلا مُعامِلات
+        // كي تظهر البوابة نفسها (ربط النماذج يسبقها فيحجب المعرّفات الوهمية بـ404)
+        $this->actingAs($admin)->post('/employee/schedule')->assertRedirect('/admin/dashboard');
+        $this->actingAs($admin)
+            ->getJson('/employee/schedule/slots?lawyer_id='.$lawyer->id.'&date='.now()->addDay()->toDateString())
+            ->assertForbidden();
     }
 
     // ── throttle طلب رمز الدخول ──
@@ -102,36 +126,28 @@ class AuthorizationHardeningTest extends TestCase
         $this->assertGuest();
     }
 
-    // ── الإمبرسنيشن ──
+    // ── الإمبرسنيشن — أُلغي بقرار 2026-08-28 ──
 
-    public function test_impersonation_cannot_target_admin_or_client(): void
-    {
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        $otherAdmin = User::factory()->create(['role' => Role::Admin]);
-        $client = User::factory()->create(['role' => Role::Client]);
-
-        $this->actingAs($admin)->post(route('admin.staff.preview', $otherAdmin))->assertForbidden();
-        $this->actingAs($admin)->post(route('admin.staff.preview', $client))->assertForbidden();
-    }
-
-    public function test_leave_forbidden_without_active_impersonation(): void
-    {
-        $employee = $this->restrictedEmployee();
-        // موظف عادي بلا impersonator_id في الجلسة
-        $this->actingAs($employee)->post(route('impersonate.leave'))->assertForbidden();
-    }
-
-    public function test_impersonation_round_trip_regenerates_session(): void
+    public function test_impersonation_routes_are_removed(): void
     {
         $admin = User::factory()->create(['role' => Role::Admin]);
         $staff = $this->restrictedEmployee(['إدارة التذاكر']);
 
-        $this->actingAs($admin)->post(route('admin.staff.preview', $staff))
-            ->assertRedirect(route('employee.dashboard', absolute: false));
-        $this->assertSame($staff->id, auth()->id());
-
-        $this->post(route('impersonate.leave'))->assertRedirect('/admin/staff');
+        $this->actingAs($admin)->post("/admin/staff/{$staff->id}/preview")->assertNotFound();
+        $this->post('/impersonate/leave')->assertNotFound();
         $this->assertSame($admin->id, auth()->id());
+    }
+
+    public function test_stale_impersonator_session_key_grants_nothing(): void
+    {
+        // مفتاح جلسة قديم من قبل الإلغاء لا يفتح أي باب: لا لافتة تُشارك ولا مسار خروج موجود
+        $employee = $this->restrictedEmployee(['إدارة التذاكر']);
+        $admin = User::factory()->create(['role' => Role::Admin]);
+
+        $this->actingAs($employee)
+            ->withSession(['impersonator_id' => $admin->id])
+            ->post('/impersonate/leave')->assertNotFound();
+        $this->assertSame($employee->id, auth()->id());
     }
 
     // ── toggle ──

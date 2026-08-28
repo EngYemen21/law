@@ -37,9 +37,11 @@ class SessionOutputsTest extends TestCase
 
         $meeting->refresh();
         $this->assertSame('منتهٍ', $meeting->status);
-        $this->assertNotEmpty($meeting->summary);
-        $this->assertNotEmpty($meeting->minutes);
-        // بلا مفاتيح AI في الاختبار: لا قرارات مُختلَقة (الاحتياط الأمين يُرجع قائمة فارغة)
+        // «لا قالب وهمي» (قرار صاحب المنتج 2026-08-26): إنهاء بلا ملاحظات ولا محتوى جلسة
+        // يترك الملخص والمحضر فارغَين حتى يصل ملخص Zoom الحقيقي أو يُدوَّنا يدوياً
+        // (العقد كاملاً في MeetingSummaryIntegrityTest)
+        $this->assertNull($meeting->summary);
+        $this->assertNull($meeting->minutes);
         $this->assertEmpty($meeting->decisions);
         Event::assertDispatched(MeetingStatusBroadcast::class);
     }

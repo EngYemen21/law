@@ -1,14 +1,31 @@
 import React from 'react';
-import { type CalendarEvent, CalendarPage } from '@/lib/calendar-ui';
+import { type CalendarEvent } from '@/lib/calendar-ui';
+import { TimeTab } from '@/lib/time-tab-ui';
+import EmployeeSchedule, { type AppointmentItem, type ClientItem, type LawyerItem } from '@/pages/employee/schedule';
 
-// تقويم الموظف — كل ارتباطات المكتب (جلسات وقضايا واجتماعات واستشارات) لتنسيق الجدولة.
-// كان الموظف يجدول المواعيد بلا أي نظرة زمنية على ارتباطات المكتب (عدم تماثل مع المحامي).
+// التبويب الزمني الموحّد للموظف — «الأحداث» (جلسات واجتماعات واستشارات المكتب)
+// و«المواعيد» (اللوحة نفسها التي كانت تبويب «جدولة المواعيد» المستقلّ، بحجزها كما هو).
 
-const EmployeeCalendar: React.FC<{ events: CalendarEvent[]; feedUrl?: string; webcalUrl?: string }> = (props) => (
-  <CalendarPage
-    {...props}
-    title="تقويم المكتب"
-    subtitle="جلسات القضايا والاجتماعات والاستشارات القادمة — لتنسيق الجدولة ومتابعة الارتباطات."
+interface Props {
+  events: CalendarEvent[];
+  feedUrl?: string;
+  webcalUrl?: string;
+  clients: ClientItem[];
+  lawyers: LawyerItem[];
+  appointments?: AppointmentItem[];
+  counts?: { today: number; upcoming: number; video: number; office: number };
+}
+
+const EmployeeCalendar: React.FC<Props> = ({ events, feedUrl, webcalUrl, clients, lawyers, appointments, counts }) => (
+  <TimeTab
+    events={events}
+    feedUrl={feedUrl}
+    webcalUrl={webcalUrl}
+    title="التقويم والمواعيد"
+    subtitle="ارتباطات المكتب الزمنية وحجز المواعيد — نظرة واحدة قبل الجدولة."
+    listLabel="المواعيد"
+    listCount={appointments?.length}
+    listView={<EmployeeSchedule clients={clients} lawyers={lawyers} appointments={appointments} counts={counts} />}
   />
 );
 

@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ClipsPreviewText;
+use App\Models\Concerns\PurgesDocumentFiles;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -9,6 +11,11 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class LegalCase extends Model
 {
+    use ClipsPreviewText, PurgesDocumentFiles;
+
+    /** سطر المعاينة في بطاقات القوائم — varchar(255) يستقبل نصّ المستخدم بلا سقف. */
+    protected array $previewText = ['update_text'];
+
     // Case كلمة محجوزة في PHP، لذا نستخدم LegalCase مع جدول cases
     protected $table = 'cases';
 
@@ -99,9 +106,12 @@ class LegalCase extends Model
         return $hasHearings ? '—' : ((string) $this->next_hearing ?: '—');
     }
 
-    // الشكل الذي تتوقعه الواجهة (يطابق DATA.cases مع الجلسة القادمة)
+    // الشكل الذي تتوقعه الواجهة (يطابق DATA.cases مع تفاصيل الجلسة والمستشار والمحكمة)
     public function toCard(): array
     {
+        $nextLive = $this->nextHearingLive();
+        $firstHearing = $this->relationLoaded('hearings') ? $this->hearings->first() : null;
+
         return [
             'no' => $this->number,
             'type' => $this->type,
@@ -112,6 +122,23 @@ class LegalCase extends Model
             'fee' => $this->fee,
             'feeStatus' => $this->fee_status,
             'invoice' => $this->invoice_text,
+            'department' => $this->department,
+            'assignedLawyer' => $this->assigned_lawyer ?: ($this->assignedLawyer?->name ?? 'المستشار المخصص'),
+            'court' => $nextLive?->court ?: ($firstHearing?->court ?? 'المحكمة المختصة'),
+            'nextHearing' => $nextLive ? [
+                'id' => $nextLive->id,
+                'title' => $nextLive->title,
+                'court' => $nextLive->court,
+                'day' => $nextLive->day,
+                'startsAt' => $nextLive->starts_at?->format('Y-m-d H:i'),
+                'label' => $nextLive->label(),
+            ] : null,
+            'hearingsCount' => $this->relationLoaded('hearings') ? $this->hearings->count() : $this->hearings()->count(),
+            'documentsCount' => $this->relationLoaded('documents') ? $this->documents->count() : $this->documents()->count(),
+            'installmentsTotal' => $this->installments_total,
+            'installmentsPaid' => $this->installments_paid,
+            'pleadingStatus' => $this->pleading_status,
+            'ruling' => $this->ruling,
         ];
     }
 }

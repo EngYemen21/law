@@ -91,46 +91,6 @@ class MeetInviteFormTest extends TestCase
             ->assertJson(['busy' => [['14:00', '15:30']]]);
     }
 
-    public function test_sends_invite_email_to_client(): void
-    {
-        Mail::fake();
-        $client = User::factory()->create(['role' => Role::Client, 'email' => 'cl@example.com']);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $emp = User::factory()->create(['role' => Role::Employee]);
-
-        $this->actingAs($emp)->post(route('employee.meetreqs.store'), $this->payload($client, $lawyer))->assertRedirect();
-
-        Mail::assertQueued(MeetInviteMail::class, fn ($m) => $m->hasTo('cl@example.com'));
-    }
-
-    public function test_lawyer_sender_is_forced_as_responsible_lawyer(): void
-    {
-        $client = User::factory()->create(['role' => Role::Client]);
-        $self = User::factory()->create(['role' => Role::Lawyer]);
-        $other = User::factory()->create(['role' => Role::Lawyer]);
-
-        // محامٍ يحاول إسناد محامٍ آخر → يُتجاهَل ويُسنَد هو
-        $this->actingAs($self)->post(route('lawyer.meetreqs.store'), $this->payload($client, $other))->assertRedirect();
-
-        $this->assertSame($self->id, MeetRequest::firstOrFail()->assigned_lawyer_id);
-    }
-
-    public function test_confirm_assigns_lawyer_and_duration_to_meeting(): void
-    {
-        $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $day = now()->addWeek()->format('Y-m-d');
-
-        $req = MeetRequest::create([
-            'user_id' => $client->id, 'ref' => 'MR-CONF', 'service' => 'نزاع', 'type' => 'استشارة مرئية',
-            'day' => $day, 'time' => '12:00', 'sent_by' => 'المكتب', 'stage' => MeetRequest::STAGE_SENT,
-            'assigned_lawyer_id' => $lawyer->id, 'duration_min' => 90,
-        ]);
-
-        $this->actingAs($client)->post(route('meetreqs.confirm', $req))->assertRedirect();
-
-        $meeting = Meeting::where('user_id', $client->id)->firstOrFail();
-        $this->assertSame($lawyer->id, $meeting->assigned_lawyer_id);
-        $this->assertSame('90 دقيقة', $meeting->dur);
-    }
+    // تأكيد حضور العميل أُلغي بقرار صاحب المنتج: الدعوة تُولَد مؤكَّدة ومنطق إنشاء الجلسة انتقل إلى App\Support\MeetInvitation — تغطيته في MeetInvitationConfirmedTest وZoomGapsTest.
+    // (الاختبار السابق: test_confirm_assigns_lawyer_and_duration_to_meeting) — محفوظ في تاريخ git
 }

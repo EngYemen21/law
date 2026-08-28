@@ -148,7 +148,7 @@ BROADCAST_CONNECTION=reverb
 REVERB_APP_ID=xxxxx
 REVERB_APP_KEY=xxxxx
 REVERB_APP_SECRET=xxxxx
-REVERB_HOST="DOMAIN"                 # النطاق العامّ خلف بروكسي wss
+REVERB_HOST="DOMAIN"                 # ⚠️ اقرأ التحذير أسفل الكتلة قبل ضبطه
 REVERB_PORT=443
 REVERB_SCHEME=https
 # تُبنى في الواجهة (يجب ضبطها قبل npm run build):
@@ -156,6 +156,24 @@ VITE_REVERB_APP_KEY="${REVERB_APP_KEY}"
 VITE_REVERB_HOST="${REVERB_HOST}"
 VITE_REVERB_PORT=443
 VITE_REVERB_SCHEME=https
+
+> ⚠️ **فخّ `REVERB_HOST` — سبب أعطال البثّ المتكرّرة.** المتغيّر الواحد يخدم **دورين متضادّين**:
+>
+> | المستهلك | الدور | ما يناسبه |
+> |---|---|---|
+> | `config/reverb.php` → `servers.reverb.hostname` | اسم المضيف الذي يعلنه الخادم للمتصفّح | **النطاق العامّ** |
+> | `config/reverb.php` → `apps[].options.host` و`config/broadcasting.php` → `host` | الوجهة التي **يَنشُر إليها الخادم الخلفي** أحداثه | **حلقة محلّية** (`127.0.0.1:8080`) |
+>
+> فضبطه على النطاق العامّ وحده يجعل PHP يُرسل أحداثه إلى الإنترنت ثم يعود عبر البروكسي —
+> ويفشل صامتاً إن لم يسمح البروكسي بذلك (وكثير لا يسمح). العرَض: الواجهة تتّصل بنجاح ولا
+> يصلها شيء.
+>
+> **الربط ليس المشكلة:** `servers.reverb.host` يقرأ `REVERB_SERVER_HOST` المنفصل بافتراضي
+> `0.0.0.0`.
+>
+> **التشخيص قبل التخمين:** شغّل `php artisan tinker` على الخادم وابثّ حدثاً، وراقب
+> `storage/logs/laravel.log` — فشل النشر يظهر استثناء اتصال لا صمتاً. وافحص أن
+> `curl -I http://127.0.0.1:8080` يستجيب من الخادم نفسه.
 
 # البريد (Resend)
 MAIL_MAILER=resend

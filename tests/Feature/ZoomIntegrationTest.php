@@ -98,6 +98,7 @@ class ZoomIntegrationTest extends TestCase
             ->missing('consults.0.audit'));
     }
 
+    /** تبويب الدعوات طُوي؛ رابط المضيف يُفحَص الآن في شاشة الاجتماعات. */
     public function test_host_link_never_leaks_to_client_in_meetreqs(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
@@ -109,9 +110,11 @@ class ZoomIntegrationTest extends TestCase
             'host_link' => 'https://us05web.zoom.us/s/2?zak=HOSTSECRET2',
         ]);
 
-        $this->actingAs($client)->get(route('meetreqs'))
-            ->assertOk()->assertInertia(fn ($p) => $p->component('meetreqs')
-            ->where('requests.0.meetLink', url('/meetingroom?ref=MR-7700')) // رابط Zoom الخام لا يصل العميل — غرفة المنصة فقط
-            ->missing('requests.0.hostLink'));
+        // تبويب الدعوات طُوي؛ المسار يُحوّل إلى «الاجتماعات» — وهناك يُفحص التسريب
+        $this->actingAs($client)->get(route('meetreqs'))->assertRedirect(route('meetings'));
+
+        $this->actingAs($client)->get(route('meetings'))
+            ->assertOk()->assertInertia(fn ($p) => $p->component('meetings')
+            ->missing('meetings.0.hostLink'));
     }
 }

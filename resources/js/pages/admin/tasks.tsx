@@ -1,8 +1,8 @@
 import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
-import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
+import Icon from '@/lib/icons';
 
 // مهام الإدارة — إسناد مهام حقيقية للمحامين (موديل Task)
 
@@ -19,10 +19,17 @@ const AdminTasks: React.FC<Props> = ({ tasks, lawyers }) => {
   const openCount = tasks.filter((t) => t.status !== 'منجزة').length;
 
   const add = () => {
-    if (!assignedTo || !title.trim()) { toast('اختر المحامي واكتب وصف المهمة'); return; }
+    if (!assignedTo || !title.trim()) {
+ toast('اختر المحامي واكتب وصف المهمة');
+
+ return; 
+}
+
     router.post('/admin/tasks', { assigned_to: assignedTo, title: title.trim(), ref: ref.trim(), due: due.trim() }, {
       preserveScroll: true,
-      onSuccess: () => { setTitle(''); setRef(''); setDue(''); toast('تم إسناد المهمة للمحامي'); },
+      onSuccess: () => {
+ setTitle(''); setRef(''); setDue(''); toast('تم إسناد المهمة للمحامي'); 
+},
     });
   };
 
@@ -57,7 +64,7 @@ const AdminTasks: React.FC<Props> = ({ tasks, lawyers }) => {
           {tasks.length ? (
             <table className="tbl">
               <thead>
-                <tr><th>المهمة</th><th>المرجع</th><th>المحامي</th><th>الاستحقاق</th><th>الحالة</th></tr>
+                <tr><th>المهمة</th><th>المرجع</th><th>المحامي</th><th>الاستحقاق</th><th>الحالة</th><th>إجراءات</th></tr>
               </thead>
               <tbody>
                 {tasks.map((t) => (
@@ -67,6 +74,33 @@ const AdminTasks: React.FC<Props> = ({ tasks, lawyers }) => {
                     <td className="muted">{t.owner}</td>
                     <td className="muted">{t.due}</td>
                     <td><Badge text={t.status} tone={t.tone} /></td>
+                    <td>
+                      {/* المهمة المسندة لغير محامٍ كانت لا تُغلق من أي شاشة — الإدارة تُغلق وتعيد الإسناد */}
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {t.status !== 'منجزة' && (
+                          <button className="btn sm" type="button" onClick={() => router.post(`/admin/tasks/${t.id}/complete`, {}, { preserveScroll: true, onSuccess: () => toast('أُنجزت المهمة') })}>
+                            <Icon name="check" /> إنجاز
+                          </button>
+                        )}
+                        <select
+                          className="input"
+                          style={{ width: 150, padding: '6px 8px', fontSize: 12 }}
+                          defaultValue=""
+                          onChange={(e) => {
+                            const to = Number(e.target.value);
+
+                            if (!to) {
+ return; 
+}
+
+                            router.post(`/admin/tasks/${t.id}/reassign`, { assigned_to: to }, { preserveScroll: true, onSuccess: () => toast('أُعيد إسناد المهمة') });
+                          }}
+                        >
+                          <option value="">إعادة إسناد…</option>
+                          {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                        </select>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>

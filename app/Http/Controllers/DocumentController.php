@@ -19,6 +19,9 @@ class DocumentController extends Controller
 {
     use AuthorizesRequests;
 
+    /** امتدادات المستندات المسموح رفعها من العميل — تطابق TicketController (لا تنفيذية/مضغوطة). */
+    private const ALLOWED_DOC_MIMES = 'pdf,jpg,jpeg,png,doc,docx';
+
     // مستندات العميل الحالي: تجميع كافة المستندات والملفات الصادرة له من المكتب والقضايا والتنفيذ والمخاطبات
     public function index(Request $request): Response
     {
@@ -105,9 +108,12 @@ class DocumentController extends Controller
     // رفع مستند فعلي من العميل (يخزّن الملف على القرص + سجلّ يحمل المسار)
     public function store(Request $request): RedirectResponse
     {
-        $request->validate(['file' => ['required', 'file', 'max:2048']], [
+        // قائمة السماح نفسها المعتمدة في بقيّة الرفوعات — كان هذا المسار (وإثبات السداد)
+        // يقبل أي امتداد بما فيه التنفيذيّ والمضغوط، خلافاً لسياسة المشروع المعلنة.
+        $request->validate(['file' => ['required', 'file', 'max:2048', 'mimes:'.self::ALLOWED_DOC_MIMES]], [
             'file.required' => 'يرجى اختيار ملف.',
             'file.file' => 'الملف غير صالح.',
+            'file.mimes' => 'صيغة الملف غير مسموحة (المسموح: PDF أو صورة أو مستند Word).',
             'file.max' => 'حجم الملف يتجاوز الحدّ المسموح (2 ميجابايت).',
         ]);
 
@@ -144,28 +150,33 @@ class DocumentController extends Controller
         $type = $request->query('type');
         $id = $request->query('id');
 
+        // الإدارة تصل هذا المسار عبر تجاوز EnsureRole (شاشة ملفّ العميل تبني روابطه)،
+        // وكان الاستعلام يفلتر بمعرّف **الطالب** لا مالك المستند — فكل تنزيل إداريّ 404.
+        // نُبقي حصر العميل بسجلّاته ونفتحها للإدارة صراحةً (إشراف موثّق، كـGate::before).
+        $owner = fn ($q) => $user->isAdmin() ? $q : $q->where('user_id', $user->id);
+
         if ($type === 'case') {
-            $doc = CaseDocument::whereHas('legalCase', fn ($q) => $q->where('user_id', $user->id))->findOrFail($id);
+            $doc = CaseDocument::whereHas('legalCase', $owner)->findOrFail($id);
             abort_unless($doc->path && Storage::exists($doc->path), 404, 'الملف غير موجود.');
 
             return Storage::download($doc->path, $doc->name);
         }
 
         if ($type === 'exec') {
-            $doc = ExecutionDocument::whereHas('execution', fn ($q) => $q->where('user_id', $user->id))->findOrFail($id);
+            $doc = ExecutionDocument::whereHas('execution', $owner)->findOrFail($id);
             abort_unless($doc->path && Storage::exists($doc->path), 404, 'الملف غير موجود.');
 
             return Storage::download($doc->path, $doc->label ?: basename((string) $doc->path));
         }
 
         if ($type === 'ticket') {
-            $doc = TicketDocument::whereHas('ticket', fn ($q) => $q->where('user_id', $user->id))->findOrFail($id);
+            $doc = TicketDocument::whereHas('ticket', $owner)->findOrFail($id);
             abort_unless($doc->path && Storage::exists($doc->path), 404, 'الملف غير موجود.');
 
             return Storage::download($doc->path, $doc->name);
         }
 
-        $doc = Document::where('user_id', $user->id)->findOrFail($id);
+        $doc = Document::when(! $user->isAdmin(), fn ($q) => $q->where('user_id', $user->id))->findOrFail($id);
         abort_unless($doc->path && Storage::exists($doc->path), 404, 'الملف غير موجود.');
 
         return Storage::download($doc->path, $doc->name);

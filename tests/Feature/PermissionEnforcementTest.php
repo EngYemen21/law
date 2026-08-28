@@ -57,9 +57,10 @@ class PermissionEnforcementTest extends TestCase
     public function test_admin_bypasses_all_permissions(): void
     {
         $admin = User::factory()->create(['role' => Role::Admin]);
-        // بلا أي صلاحية مسندة، ومع ذلك يمرّ (Gate::before) عبر لوحات الموظف/المحامي
-        $this->actingAs($admin)->get(route('employee.tickets'))->assertOk();
-        $this->actingAs($admin)->get(route('lawyer.assistant'))->assertOk();
+        // Gate::before ما زال يعفي الإدارة من صلاحيات spatie — على مسارات لوحتها هي
+        // (صفحات لوحات الأدوار الأخرى صارت محظورة عليها بقرار 2026-08-28 — انظر AuthorizationHardeningTest)
+        $this->actingAs($admin)->get(route('admin.staff'))->assertOk();      // permission:إدارة الموظفين
+        $this->actingAs($admin)->get(route('admin.audit-logs'))->assertOk(); // permission:سجل التدقيق الأمني
         $this->assertTrue($admin->can('إدارة الموظفين'));
     }
 
@@ -85,19 +86,16 @@ class PermissionEnforcementTest extends TestCase
         $this->assertGuest();
     }
 
-    public function test_admin_previews_staff_dashboard_and_returns(): void
+    /** أُلغيت «معاينة اللوحة» (الإمبرسنيشن) بقرار 2026-08-28 — الاختبار يوثّق زوال المسارين. */
+    public function test_staff_preview_impersonation_is_removed(): void
     {
         $admin = User::factory()->create(['role' => Role::Admin]);
         $staff = User::factory()->create(['role' => Role::Employee]);
 
-        // بدء المعاينة → يصبح المستخدم الحالي هو الموظف
-        $this->actingAs($admin)->post(route('admin.staff.preview', $staff))
-            ->assertRedirect(route('employee.dashboard', absolute: false));
-        $this->assertSame($staff->id, auth()->id());
-
-        // إنهاء المعاينة → العودة للمدير
-        $this->post(route('impersonate.leave'))->assertRedirect('/admin/staff');
+        $this->actingAs($admin)->post("/admin/staff/{$staff->id}/preview")->assertNotFound();
         $this->assertSame($admin->id, auth()->id());
+
+        $this->post('/impersonate/leave')->assertNotFound();
     }
 
     public function test_shared_permissions_exposed_to_frontend(): void

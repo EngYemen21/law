@@ -126,7 +126,7 @@ export function ticketStamp(no: string): string {
 }
 
 // ── دعوات الاجتماعات (MEET_REQUESTS) ──
-export const MR_FLOW = ['دعوة مُرسلة للعميل', 'تأكيد حضور العميل', 'تنفيذ الجلسة', 'اعتماد الإدارة'];
+export const MR_FLOW = ['بانتظار موافقة الإدارة', 'معتمدة ومنشورة للعميل', 'تنفيذ الجلسة', 'اعتماد المحضر والملخص'];
 
 export interface MeetRequest {
   id: string; client: string; service: string; type: string;

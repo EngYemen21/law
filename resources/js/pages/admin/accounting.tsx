@@ -1,15 +1,16 @@
 import { router } from '@inertiajs/react';
 import React from 'react';
-import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
-import Pagination, { type Paginated } from '@/components/babylon/Pagination';
+import Pagination from '@/components/babylon/Pagination';
+import type {Paginated} from '@/components/babylon/Pagination';
 import { useToast } from '@/components/babylon/Toast';
+import Icon from '@/lib/icons';
 
 // محاسبة الإدارة — فواتير حقيقية من قاعدة البيانات (موديل Invoice)
 
 const fmt = (n: number) => n.toLocaleString('en-US') + ' ر.س';
 
-interface Inv { no: string; client: string; desc: string; amount: number; status: string; tone: string; due: string; paid: boolean; }
+interface Inv { no: string; client: string; desc: string; amount: number; status: string; tone: string; due: string; paid: boolean; hasProof?: boolean; }
 interface Props { invoices: Paginated<Inv>; filter: string; totals: { issued: number; collected: number; due: number; overdue: number; unpaid: number }; }
 
 const TABS: [string, string][] = [['all', 'الكل'], ['مدفوعة', 'مدفوعة'], ['غير مدفوعة', 'غير المدفوعة']];
@@ -65,7 +66,29 @@ const AdminAccounting: React.FC<Props> = ({ invoices, filter, totals }) => {
                     <td className="n">{fmt(v.amount)}</td>
                     <td><Badge text={v.status} tone={v.tone} /></td>
                     <td>
-                      {!v.paid && <button className="btn sm" onClick={() => markPaid(v.no)} type="button"><Icon name="check" /> تحصيل</button>}
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {/* نفس نقطة PDF التي يستعملها العميل — حارسها يسمح للإدارة صراحةً */}
+                        <a className="btn soft sm" href={`/admin/invoices/${encodeURIComponent(v.no)}/pdf`} download>
+                          <Icon name="download" /> الفاتورة PDF
+                        </a>
+                        {/* إثبات التحويل الذي رفعه العميل — النقطة كانت موجودة بلا أي زرّ يفتحها */}
+                        {v.hasProof && (
+                          <a className="btn soft sm" href={`/admin/invoices/${encodeURIComponent(v.no)}/proof`} download>
+                            <Icon name="doc" /> إثبات التحويل
+                          </a>
+                        )}
+                        {/* رافع الملف الخاطئ كان يفقد زرّ الدفع نهائياً — الرفض يعيد الفاتورة للاستحقاق ويُشعره */}
+                        {v.hasProof && !v.paid && (
+                          <button
+                            className="btn ghost sm"
+                            type="button"
+                            onClick={() => router.post(`/admin/invoices/${encodeURIComponent(v.no)}/proof/reject`, {}, { preserveScroll: true, onSuccess: () => toast('رُفض الإثبات وأُشعر العميل') })}
+                          >
+                            <Icon name="close" /> رفض الإثبات
+                          </button>
+                        )}
+                        {!v.paid && <button className="btn sm" onClick={() => markPaid(v.no)} type="button"><Icon name="check" /> تحصيل</button>}
+                      </div>
                     </td>
                   </tr>
                 ))}

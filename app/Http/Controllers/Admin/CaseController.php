@@ -12,6 +12,7 @@ use App\Models\Ticket;
 use App\Services\MailService;
 use App\Support\CaseJourney;
 use App\Support\ExecutionCreation;
+use App\Support\InvoiceNumber;
 use App\Support\Live;
 use App\Support\Notify;
 use App\Support\Paginate;
@@ -21,7 +22,7 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * الإدارة العليا — تحديد أتعاب القضايا المحوّلة من الاستشارات وتفعيل سدادها (يطابق cfFees).
+ * الإدارة العليا — الإشراف والمتابعة على كافة القضايا القضائية وتحديد أتعابها وإغلاقها.
  */
 class CaseController extends Controller
 {
@@ -75,7 +76,7 @@ class CaseController extends Controller
         Invoice::create([
             'user_id' => $case->user_id,
             'case_id' => $case->id,
-            'number' => 'INV-'.now()->year.'-'.str_pad((string) random_int(1, 9999), 4, '0', STR_PAD_LEFT),
+            'number' => InvoiceNumber::next(),
             'description' => "أتعاب قضية {$case->number} — {$case->type}",
             'amount' => $total,
             'status' => 'مستحقة',
@@ -109,19 +110,61 @@ class CaseController extends Controller
     // إشراف الإدارة على كل القضايا
     public function index(): Response
     {
-        $cases = LegalCase::with(['user', 'hearings'])->latest('id')->get()->map(fn (LegalCase $c) => [
-            'no' => $c->number,
-            'client' => Ticket::maskClient($c->user?->name ?? ''),
-            'type' => $c->type,
-            'lawyer' => $c->assigned_lawyer ?: '—',
-            'status' => $c->status,
-            'tone' => $c->tone,
-            'canClose' => $c->status === 'صدر الحكم',
-            'canArchive' => $c->status === 'مغلقة',
-            'canExecute' => ExecutionCreation::isEligible($c),
-        ]);
+        $rawCases = LegalCase::with(['user', 'hearings', 'ticket', 'assignedLawyer'])
+            ->latest('id')
+            ->get();
 
-        return Inertia::render('admin/cases', ['cases' => $cases]);
+        $cases = $rawCases->map(function (LegalCase $c) {
+            $nextHearing = $c->nextHearingLive();
+
+            return [
+                'id' => $c->id,
+                'no' => $c->number,
+                'client' => Ticket::maskClient($c->user?->name ?? ''),
+                'realClientName' => $c->user?->name ?? 'عميل المنصة',
+                'type' => $c->type ?: 'قضية عامة',
+                'dept' => $c->department ?: ($c->ticket?->department ?: 'القسم العام'),
+                'lawyer' => $c->assigned_lawyer ?: ($c->assignedLawyer?->name ?: '—'),
+                'lawyerId' => $c->assigned_lawyer_id,
+                'status' => $c->status,
+                'tone' => $c->tone ?: 'b-blue',
+                'courtName' => $c->ticket?->court_name ?: 'المحكمة المختصة',
+                'claimAmount' => $c->ticket?->claim_amount,
+                'opponent' => $c->ticket?->opponent_name,
+                'fee' => $c->fee,
+                'feeStatus' => $c->fee_status,
+                'updateText' => $c->update_text,
+                'ruling' => $c->ruling,
+                'hearingsCount' => $c->hearings->count(),
+                'nextHearingDate' => $nextHearing ? ($nextHearing->starts_at?->format('Y-m-d H:i') ?? $nextHearing->session_date) : null,
+                'nextHearingNotes' => $nextHearing?->notes,
+                'date' => $c->created_at?->format('Y-m-d'),
+                'canClose' => $c->status === 'صدر الحكم',
+                'canArchive' => $c->status === 'مغلقة',
+                'canExecute' => ExecutionCreation::isEligible($c),
+            ];
+        });
+
+        // تصنيفات أنواع القضايا
+        $types = $cases->groupBy('type')->map(fn ($group, $name) => [
+            'name' => $name ?: 'عامة',
+            'count' => $group->count(),
+        ])->values()->all();
+
+        // مؤشرات أداء القضايا
+        $kpis = [
+            'total' => $cases->count(),
+            'active' => $cases->whereIn('status', ['قيد الترافع', 'قيد النظر', 'جلسات جارية', 'مرافعة'])->count(),
+            'judged' => $cases->where('status', 'صدر الحكم')->count(),
+            'closed' => $cases->whereIn('status', ['مغلقة', 'مؤرشفة'])->count(),
+            'pendingFee' => $cases->whereIn('status', ['بانتظار سداد الأتعاب', 'بانتظار اعتماد الأتعاب'])->count(),
+        ];
+
+        return Inertia::render('admin/cases', [
+            'cases' => $cases,
+            'types' => $types,
+            'kpis' => $kpis,
+        ]);
     }
 
     // الإغلاق بعد الحكم (يطابق cfCloseCase) — الأرشفة النهائية خطوة إدارية مستقلة لاحقة
@@ -153,33 +196,33 @@ class CaseController extends Controller
         $case->update([
             'status' => 'مؤرشفة',
             'tone' => CaseJourney::toneFor('مؤرشفة'),
-            'update_text' => 'أُرشفت القضية وحُفظ كامل الملف في الأرشيف القانوني',
+            'update_text' => 'أُودعت القضية في الأرشيف القانوني بعد استيفاء كافة المتطلبات',
         ]);
         $case->messages()->create([
             'who' => 'admin', 'name' => 'الإدارة', 'role' => 'أرشفة',
-            'body' => '<p>تمت <b>أرشفة</b> القضية نهائياً وحُفظ كامل الملف (اللوائح والجلسات والمستندات والفواتير) في الأرشيف القانوني.</p>',
+            'body' => '<p>تمت أرشفة ملف القضية نهائياً في سجلات الأرشيف القانوني الموثقة.</p>',
             'time_label' => $this->clock(),
         ]);
-        Notify::send($case->user_id, 'check', 't-green', "أُرشفت قضيتك {$case->number} وحُفظ ملفها في الأرشيف.");
         Live::push(new CaseStatusBroadcast($case));
 
         return back();
     }
 
-    // تحويل قضية محكومة إلى طلب تنفيذ (نظير Lawyer\CaseController::convertToExecution — بلا قيد إسناد، الإدارة مطلقة)
-    public function convertToExecution(Request $request, LegalCase $case): RedirectResponse
+    // التحويل للتنفيذ (يطابق cfExecute)
+    // كان معطوباً مزدوجاً: المسار يشير لاسم دالّة غير موجود (convertToExecution) فلا يصل هنا
+    // أصلاً، والجسم ينادي createFor غير المعرَّفة — الصحيح fromCase (نفس نظيرة المحامي)
+    public function execute(Request $request, LegalCase $case): RedirectResponse
     {
-        abort_unless(ExecutionCreation::isEligible($case), 422);
+        abort_unless(ExecutionCreation::isEligible($case), 422, 'التحويل للتنفيذ متاح للقضايا الصادر حكمها ولم يُفتح لها تنفيذ بعد.');
 
-        ExecutionCreation::fromCase($case, $request->user());
+        $exec = ExecutionCreation::fromCase($case, $request->user());
 
-        return redirect()->route('admin.execs');
+        // وجهة الملف المفتوح لا الصفحة السابقة — نظير مسار المحامي (lawyer.execs)، والعقد موثّق باختبار
+        return redirect()->route('admin.execs')->with('flash', "فُتح طلب التنفيذ {$exec->number} للقضية {$case->number}.");
     }
 
     private function clock(): string
     {
-        $now = now();
-
-        return $now->format('h:i').' '.($now->hour < 12 ? 'ص' : 'م');
+        return now()->locale('ar')->translatedFormat('h:i A');
     }
 }

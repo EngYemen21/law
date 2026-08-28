@@ -1,14 +1,17 @@
-import React, { useState } from 'react';
 import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
-import Icon from '@/lib/icons';
+import React, { useState } from 'react';
 import { useToast } from '@/components/babylon/Toast';
+import Icon from '@/lib/icons';
 
 interface Props {
   ticketNo: string;
   status: string;
   caseRef?: string | null;
   role: 'employee' | 'lawyer' | 'admin';
+  /** شرط إضافي على الدور: الموظف لا يحوّل قبل اعتماد المحامي للنتيجة.
+   *  المحامي هو المعتمِد والإدارة العليا هي الاعتماد النهائي، فكلاهما يمرّ بلا شرط. */
+  canConvert?: boolean;
   onRequestDocs?: () => void;
   onSchedule?: () => void;
   onTransfer?: () => void;
@@ -19,14 +22,16 @@ const TicketActionsPanel: React.FC<Props> = ({
   status,
   caseRef,
   role,
+  canConvert = true,
   onRequestDocs,
   onSchedule,
   onTransfer,
 }) => {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
-  // الخادم يرفض التحويل قبل الاكتمال — كان الزر يُعرض دائماً ورسالة الرفض تُبتلع
-  const canConvert = status === 'مكتملة';
+  // الخادم يرفض التحويل قبل الاكتمال — كان الزر يُعرض دائماً ورسالة الرفض تُبتلع.
+  // وللموظف شرط ثانٍ: اعتماد المحامي للنتيجة (canConvert) — وإلا عُرض زرّ يُرفض بـ422.
+  const mayConvert = status === 'مكتملة' && canConvert;
 
   const convertToCase = () => {
     setBusy(true);
@@ -41,11 +46,11 @@ const TicketActionsPanel: React.FC<Props> = ({
   };
 
   // تحويل التذكرة إلى طلب استشارة (يطابق convertToConsult المرجعي) — لطاقم المكتب لا للمستشار.
-  // المسار خادميّ تحت لوحة الموظف؛ الإدارة تمرّ عبره (حارس الدور يستثنيها).
+  // كل لوحة تنادي مسارها: للإدارة مسار admin خاص (لم يعد الأدمن يمرّ عبر بوابة الموظف — قرار 2026-08-28)
   const staffOps = role !== 'lawyer';
   const convertToConsult = () => {
     setBusy(true);
-    axios.post(`/employee/tickets/${encodeURIComponent(ticketNo)}/convert-consult`, {})
+    axios.post(`/${role === 'admin' ? 'admin' : 'employee'}/tickets/${encodeURIComponent(ticketNo)}/convert-consult`, {})
       .then(() => toast('✅ حُوّلت التذكرة إلى طلب استشارة وأُرسلت للتسعير'))
       .catch((err) => {
         const errors = err.response?.data?.errors;
@@ -57,8 +62,11 @@ const TicketActionsPanel: React.FC<Props> = ({
   };
 
   // لا تُعرض بطاقة فارغة حين تُخفى كل الإجراءات (حالة التذكرة أو صلاحيات المستخدم)
-  const hasAny = caseRef || canConvert || staffOps || onSchedule || onRequestDocs || onTransfer;
-  if (!hasAny) return null;
+  const hasAny = caseRef || mayConvert || staffOps || onSchedule || onRequestDocs || onTransfer;
+
+  if (!hasAny) {
+return null;
+}
 
   return (
     <div className="card">
@@ -81,7 +89,7 @@ const TicketActionsPanel: React.FC<Props> = ({
             >
               <Icon name="scale" /> عرض ملف القضية ({caseRef})
             </Link>
-          ) : canConvert && (
+          ) : mayConvert && (
             <button
               className="btn block"
               type="button"
@@ -106,12 +114,15 @@ const TicketActionsPanel: React.FC<Props> = ({
             </button>
           )}
 
-          {/* 3. تحويل إلى لائحة — عنصر عرض مرجعي (بلا حدث، بطلب صاحب المنتج) */}
+          {/* 3. تحويل إلى لائحة — عنصر عرض مرجعي (بلا حدث، بطلب صاحب المنتج)؛
+              disabled كي لا يوهم بمظهر زرّ فعّال يُنقر بلا أثر */}
           {staffOps && (
             <button
               className="btn soft block"
               type="button"
-              style={{ justifyContent: 'center' }}
+              disabled
+              title="مرحلة مرجعية ضمن الرحلة — لا إجراء مباشراً لها"
+              style={{ justifyContent: 'center', cursor: 'default', opacity: 0.7 }}
             >
               <Icon name="doc" /> تحويل إلى لائحة
             </button>

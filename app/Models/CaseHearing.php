@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\EventStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -37,6 +38,11 @@ class CaseHearing extends Model
     /** جلسة مجدولة فات موعدها ولم تُسجَّل نتيجتها — الحالة المخزّنة «مجدولة» لا تتحدّث بمرور الوقت */
     public function isLapsed(): bool
     {
+        // الموسومة فائتةً من المجدول فائتة بالتخزين لا بالاشتقاق
+        if ($this->status === EventStatus::HEARING_LAPSED) {
+            return true;
+        }
+
         return $this->status === 'مجدولة'
             && $this->starts_at !== null
             && $this->starts_at->isPast();

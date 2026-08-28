@@ -13,12 +13,11 @@ class DocumentPolicy
      */
     public function view(User $user, Document $document): bool
     {
-        // Admin, Employee, or Lawyer can view relevant documents
-        if (in_array($user->role, [Role::Admin, Role::Employee, Role::Lawyer], true)) {
-            return true;
-        }
-
-        // Client can only view their own documents
+        // كان هنا منحٌ شامل لأي محامٍ/موظف بلا تضييق، و`Document` لا يحمل أصلاً أي رابط
+        // إسناد لمحامٍ (ملف عميل مباشر). غير قابل للوصول اليوم لأن المسار داخل مجموعة
+        // role:client — لكنه كان سينفجر لحظة إضافة مسار للطاقم. أي وصول للطاقم يجب أن
+        // يأتي بمسار مقصود يحرس نطاقه صراحةً، لا من سياسة مفتوحة.
+        // (الإدارة تتجاوز عبر Gate::before في AppServiceProvider.)
         return (int) $user->id === (int) $document->user_id;
     }
 

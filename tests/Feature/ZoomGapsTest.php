@@ -87,12 +87,15 @@ class ZoomGapsTest extends TestCase
     }
 
     /**
-     * 🟠 تأكيد الدعوة يُنشئ اجتماع Zoom ثانياً ويستبدل الأول بلا حذفه.
+     * 🟠 جلسة Zoom **واحدة** لكل دعوة — الحارس نفسه، بعد أن تحرّك موضعه.
      *
-     * Staff\MeetingController::store ينشئ اجتماعاً، ثم MeetRequestController::confirm ينشئ
-     * آخر ويكتب معرّفه فوق الأول — فيبقى الأول يتيماً في حساب Zoom بتسجيل سحابي مفعّل.
+     * كان السيناريو: Staff\MeetingController::store يُنشئ اجتماعاً ثم
+     * MeetRequestController::confirm يُنشئ آخر ويكتب معرّفه فوق الأول، فيبقى الأول يتيماً
+     * في حساب Zoom بتسجيل سحابي مفعّل. تأكيد العميل أُلغي فصار السيناريو مستحيلاً بنيوياً،
+     * لكن الحارس انتقل حرفياً إلى MeetInvitation::schedule ويُفحص هنا مباشرةً: نداء ثانٍ
+     * على دعوة تحمل اجتماعاً بمعرّف Zoom يجب ألّا يُنشئ جلسة ثانية.
      */
-    public function test_invite_confirmation_does_not_leave_an_orphan_zoom_meeting(): void
+    public function test_scheduling_twice_never_creates_a_second_zoom_meeting(): void
     {
         $this->configureZoom();
         Http::fake([
@@ -104,34 +107,17 @@ class ZoomGapsTest extends TestCase
         ]);
 
         $client = User::factory()->create(['role' => Role::Client]);
-        $admin = User::factory()->create(['role' => Role::Admin]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $req = \App\Models\MeetRequest::create([
+            'user_id' => $client->id, 'ref' => 'MR-ORPHAN', 'service' => 'نزاع',
+            'type' => 'استشارة مرئية', 'day' => now()->addDays(2)->format('Y-m-d'), 'time' => '10:00',
+            'duration_min' => 60, 'assigned_lawyer_id' => $lawyer->id, 'sent_by' => 'المكتب',
+        ]);
 
-        $this->actingAs($admin)->post(route('admin.meetings.store'), [
-            'title' => 'اجتماع مراجعة العقد', 'type' => 'اجتماع مع عميل', 'priority' => 'عالية',
-            'dur' => '45 دقيقة', 'client_id' => $client->id, 'lawyer_id' => $lawyer->id,
-            'day' => '2026-07-08', 'time' => '10:00',
-        ])->assertRedirect();
+        $first = \App\Support\MeetInvitation::schedule($req, $client);
+        $second = \App\Support\MeetInvitation::schedule($req->fresh(), $client);
 
-        $req = MeetRequest::firstOrFail();
-        $this->actingAs($client)->post(route('meetreqs.confirm', $req))->assertRedirect();
-
-        $creates = 0;
-        Http::assertSent(function ($request) use (&$creates) {
-            if ($request->method() === 'POST' && str_contains($request->url(), '/users/me/meetings')) {
-                $creates++;
-            }
-
-            return true;
-        });
-
-        // إمّا اجتماع واحد لا اثنان، وإمّا حذف الأول صراحةً — لا يُترك يتيماً
-        if ($creates > 1) {
-            Http::assertSent(
-                fn ($request) => $request->method() === 'DELETE' && str_contains($request->url(), 'meetings/111111111'),
-            );
-        }
-
-        $this->assertLessThanOrEqual(1, $creates, 'أُنشئ اجتماعان لنفس الدعوة والأول لم يُحذف.');
-    }
-}
+        $this->assertSame($first->id, $second->id, 'أُنشئ اجتماع ثانٍ بدل إعادة استعمال الأول.');
+        $this->assertSame('111111111', (string) $second->fresh()->meet_id, 'كُتب معرّف Zoom جديد فوق الأول — الأول يتيم.');
+        $this->assertSame(1, \App\Models\Meeting::count());
+    }}

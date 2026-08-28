@@ -8,11 +8,17 @@ use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
 use App\Jobs\GenerateTicketSummaryJob;
 use App\Mail\SummaryApprovedMail;
+use App\Models\CaseHearing;
+use App\Models\Consult;
+use App\Models\Correspondence;
+use App\Models\Execution;
+use App\Models\LegalCase;
 use App\Models\Meeting;
 use App\Models\Task;
 use App\Models\Ticket;
 use App\Services\LegalAiService;
 use App\Services\MailService;
+use App\Support\Audit;
 use App\Support\CaseConversion;
 use App\Support\Live;
 use App\Support\Notify;
@@ -30,7 +36,7 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * لوحة المحامي (المستشار) — التذاكر المحالة وملخصاتها.
+ * لوحة المحامي (المستشار) — التذاكر المحالة وملخصاتها ومساحة العمل 360°.
  * يراجع المحامي ملخص الملف الذي جهّزه الفريق القانوني (الذكاء الاصطناعي) ويعتمده،
  * فيصل اعتماده والرأي القانوني مباشرةً إلى محادثة العميل مع الموظف + إشعار للعميل.
  */
@@ -38,40 +44,280 @@ class TicketController extends Controller
 {
     use ScopedToLawyer;
 
-    // التذاكر المحالة للمستشار (المسندة إليه) — بما فيها ما لم يُنتَج ملخصه بعد.
-    // كان whereHas('summary') يُخفيها كلياً حتى تنتهي المهمة الخلفية، فيراها الموظف ولا يراها هو.
+    // التذاكر المحالة للمستشار (المسندة إليه) — بيانات شاملة 360° مع ملخصات الذكاء الاصطناعي والعدادات
     public function index(Request $request): Response
     {
-        $tickets = Ticket::with(['user', 'summary'])->withExists('legalCase')
-            ->where('assigned_lawyer_id', $request->user()->id)->latest('id')->get()
-            ->map(fn (Ticket $t) => array_merge($t->toEmployeeCard(), [
-                'converted' => (bool) $t->legal_case_exists,
-                'awaitingSummary' => $t->summary === null,
-            ]));
+        $lawyerId = $request->user()->id;
+        $ticketsQuery = Ticket::with(['user', 'summary', 'legalCase'])
+            ->where('assigned_lawyer_id', $lawyerId)
+            ->latest('id')
+            ->get();
 
-        return Inertia::render('lawyer/tickets', ['tickets' => $tickets]);
+        $tickets = $ticketsQuery->map(fn (Ticket $t) => array_merge($t->toEmployeeCard(), [
+            'hasSummary' => $t->summary !== null,
+            'summaryStatus' => $t->summary?->status,
+            'summaryRecommendation' => $t->summary?->recommendation,
+            'summaryFacts' => $t->summary?->facts,
+            'converted' => (bool) $t->legalCase,
+            'caseRef' => $t->legalCase?->number,
+            'awaitingSummary' => $t->summary === null || $t->summary->status === 'awaiting_lawyer',
+            'priority' => $t->priority,
+            'subject' => $t->subject,
+            'updatedAgo' => $t->updated_at?->locale('ar')->diffForHumans() ?? 'الآن',
+            'createdAgo' => $t->created_at?->locale('ar')->diffForHumans() ?? 'الآن',
+        ]))->values();
+
+        $departments = $ticketsQuery->pluck('department')->filter()->unique()->values()->all();
+
+        $counts = [
+            'total' => $tickets->count(),
+            'needStudy' => $tickets->filter(fn ($t) => ! in_array($t['status'], ['مكتملة', 'مغلقة', 'محولة لقضية']))->count(),
+            'awaitingSummary' => $tickets->filter(fn ($t) => ($t['summaryStatus'] ?? '') === 'awaiting_lawyer')->count(),
+            'urgent' => $tickets->filter(fn ($t) => in_array($t['priority'] ?? '', ['عاجلة', 'طارئة', 'عاجل جداً', 'عالية']))->count(),
+            'missingDocs' => $tickets->filter(fn ($t) => $t['status'] === 'بانتظار مستندات')->count(),
+            'converted' => $tickets->filter(fn ($t) => $t['converted'])->count(),
+            'completed' => $tickets->filter(fn ($t) => in_array($t['status'], ['مكتملة', 'مغلقة']))->count(),
+        ];
+
+        return Inertia::render('lawyer/tickets', [
+            'tickets' => $tickets,
+            'counts' => $counts,
+            'departments' => $departments,
+        ]);
     }
 
-    // لوحة المحامي — مؤشرات حقيقية بالكامل
+    // لوحة المحامي 360° — مؤشرات ورادار وإحاطة تشغيلية وقضائية شاملة
     public function dashboard(Request $request): Response
     {
-        $lawyerId = $request->user()->id;
-        // التذاكر المحالة لهذا المحامي (المسندة إليه، بملخص أو بانتظاره)
-        $tickets = Ticket::with(['user', 'summary'])
-            ->where('assigned_lawyer_id', $lawyerId)->latest('id')->get();
+        $lawyer = $request->user();
+        $lawyerId = $lawyer->id;
+        $lawyerName = $lawyer->name;
+
+        // 1. التذاكر المحالة لهذا المحامي
+        $ticketsQuery = Ticket::with(['user', 'summary', 'legalCase'])
+            ->where('assigned_lawyer_id', $lawyerId)
+            ->latest('id')
+            ->get();
+
+        $tickets = $ticketsQuery->map(fn (Ticket $t) => array_merge($t->toEmployeeCard(), [
+            'hasSummary' => $t->summary !== null,
+            'summaryStatus' => $t->summary?->status,
+            'summaryRecommendation' => $t->summary?->recommendation,
+            'converted' => (bool) $t->legalCase,
+            'caseRef' => $t->legalCase?->number,
+            'priority' => $t->priority,
+            'updatedAgo' => $t->updated_at?->locale('ar')->diffForHumans() ?? 'الآن',
+        ]))->values();
+
+        // 2. قضايا المحامي النشطة
+        $casesQuery = LegalCase::with(['user', 'hearings'])
+            ->where('assigned_lawyer_id', $lawyerId)
+            ->latest('id')
+            ->get();
+
+        $cases = $casesQuery->map(function (LegalCase $c) {
+            $nextHearing = $c->nextHearingLive();
+
+            return [
+                'id' => $c->id,
+                'no' => $c->number,
+                'client' => $c->user?->name ?? '—',
+                'type' => $c->type,
+                'dept' => $c->department,
+                'status' => $c->status,
+                'tone' => $c->tone,
+                'pleadingStatus' => $c->pleading_status,
+                'ruling' => $c->ruling,
+                'nextHearing' => $c->nextHearingLabel(),
+                'nextHearingDate' => $nextHearing?->starts_at?->format('Y-m-d'),
+                'nextHearingTime' => $nextHearing?->starts_at?->locale('ar')->translatedFormat('h:i A'),
+                'court' => $nextHearing?->court ?? 'المحكمة المختصة',
+                'updatedAgo' => $c->updated_at?->locale('ar')->diffForHumans() ?? 'الآن',
+            ];
+        })->values();
+
+        // 3. جلسات المحاكم القادمة للمحامي
+        $caseIds = $casesQuery->pluck('id');
+        $upcomingHearings = CaseHearing::with('legalCase.user')
+            ->whereIn('case_id', $caseIds)
+            ->where('status', 'مجدولة')
+            ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '>=', now()->startOfDay()))
+            ->orderByRaw('starts_at IS NULL')
+            ->orderBy('starts_at')
+            ->take(8)
+            ->get()
+            ->map(fn (CaseHearing $h) => [
+                'id' => $h->id,
+                'caseNo' => $h->legalCase?->number ?? '—',
+                'caseType' => $h->legalCase?->type ?? 'قضية',
+                'client' => $h->legalCase?->user?->name ?? '—',
+                'court' => $h->court ?? 'المحكمة العامة',
+                'label' => $h->label(),
+                'startsAt' => $h->starts_at?->toIso8601String(),
+                'formattedDate' => $h->starts_at?->locale('ar')->translatedFormat('l d F Y') ?? 'قريباً',
+                'formattedTime' => $h->starts_at?->locale('ar')->translatedFormat('h:i A') ?? '—',
+                'isToday' => $h->starts_at?->isToday() ?? false,
+                'isTomorrow' => $h->starts_at?->isTomorrow() ?? false,
+            ])->values();
+
+        // 4. استشارات واجتماعات اليوم / القادمة للمحامي
+        $consultsQuery = Consult::with(['user', 'appointment'])
+            ->where(fn ($q) => $q->where('assigned_lawyer_id', $lawyerId)->orWhere('lawyer', $lawyerName))
+            ->whereNotIn('status', Consult::PRE_SESSION_STATUSES)
+            ->orderByRaw('starts_at IS NULL')
+            ->orderBy('starts_at')
+            ->take(8)
+            ->get();
+
+        $todayConsults = $consultsQuery->map(fn (Consult $c) => array_merge($c->toCard(), [
+            'joinLink' => $c->joinLink($lawyer),
+            'isToday' => $c->starts_at?->isToday() ?? false,
+        ]))->values();
+
+        $openMeetings = Meeting::where(fn ($q) => $q->where('assigned_lawyer_id', $lawyerId)
+            ->orWhere('created_by', $lawyerName))
+            ->get()->filter(fn (Meeting $m) => $m->isUpcoming());
+
+        // 5. ملفات التنفيذ القضائي
+        $executions = Execution::with('user')
+            ->where('assigned_lawyer_id', $lawyerId)
+            ->orWhere(fn ($q) => $q->whereNull('assigned_lawyer_id')->whereIn('status', ['جارٍ', 'مفتوح', 'بانتظار الإجراء']))
+            ->latest('id')
+            ->take(6)
+            ->get()
+            ->map(fn (Execution $e) => [
+                'id' => $e->id,
+                'number' => $e->number,
+                'client' => $e->user?->name ?? '—',
+                'subject' => $e->subject,
+                'court' => $e->court ?? 'محكمة التنفيذ',
+                'stage' => $e->effectiveStage(),
+                'status' => $e->status,
+                'tone' => $e->tone,
+                'amount' => (int) $e->amount,
+                'lastAction' => $e->last_action,
+            ])->values();
+
+        // 6. المهام القانونية
+        $tasks = Task::where('assigned_to', $lawyerId)
+            ->orderBy('status')
+            ->orderByRaw('due_at IS NULL')
+            ->orderBy('due_at')
+            ->take(10)
+            ->get()
+            ->map(fn (Task $t) => $t->toData())
+            ->values();
+
+        // 7. المخاطبات الرسمية
+        $correspondences = Correspondence::with('user')
+            ->where('assigned_lawyer_id', $lawyerId)
+            ->latest('id')
+            ->take(6)
+            ->get()
+            ->map(fn (Correspondence $c) => [
+                'id' => $c->id,
+                'refNo' => $c->ref_no,
+                'subject' => $c->subject,
+                'client' => $c->user?->name ?? '—',
+                'type' => $c->type,
+                'status' => $c->status,
+                'tone' => $c->tone,
+                'updatedAgo' => $c->updated_at?->locale('ar')->diffForHumans() ?? 'الآن',
+            ])->values();
+
+        // 8. مركز التنبيهات ورادار الإجراءات الذكي (Smart Lawyer Action Radar)
+        $actionAlerts = [];
+
+        // أ) جلسة محكمة اليوم أو غداً
+        $immediateHearings = $upcomingHearings->filter(fn ($h) => $h['isToday'] || $h['isTomorrow']);
+        foreach ($immediateHearings as $ih) {
+            $actionAlerts[] = [
+                'id' => 'hearing-'.$ih['id'],
+                'type' => 'hearing',
+                'title' => ($ih['isToday'] ? 'جلسة قضائية اليوم 🔴' : 'جلسة قضائية غداً ⚖️').': قضية '.$ih['caseNo'],
+                'desc' => "جلسة في {$ih['court']} للموكل {$ih['client']} ({$ih['formattedTime']})",
+                'cta' => 'فتح ملف القضية',
+                'link' => "/lawyer/cases/{$ih['caseNo']}",
+                'tone' => 'b-red',
+            ];
+        }
+
+        // ب) استشارة مرئية يمكن الانضمام لها الآن
+        foreach ($consultsQuery as $con) {
+            if ($con->canJoin()) {
+                $actionAlerts[] = [
+                    'id' => 'meet-'.$con->id,
+                    'type' => 'video_ready',
+                    'title' => 'جلستك الاستشارية جاهزة للانضمام الآن 🟢',
+                    'desc' => "استشارة «{$con->subject}» مع {$con->user?->name} ({$con->whenLabel()})",
+                    'cta' => 'دخول الجلسة الآن',
+                    'link' => $con->joinLink($lawyer),
+                    'tone' => 'b-cyan',
+                ];
+            }
+        }
+
+        // ج) ملخصات ذكاء اصطناعي بانتظار الاعتماد
+        $pendingSummariesCount = $ticketsQuery->where('summary.status', 'awaiting_lawyer')->count();
+        if ($pendingSummariesCount > 0) {
+            $actionAlerts[] = [
+                'id' => 'summaries-pending',
+                'type' => 'summaries',
+                'title' => "لديك {$pendingSummariesCount} ملخصات دراسة بانتظار اعتماد رأيك القانوني 🟡",
+                'desc' => 'أعدّ الذكاء الاصطناعي ملخصات التذاكر المحالة، بانتظار مراجعتك واعتماد التوصية.',
+                'cta' => 'مراجعة الملخصات',
+                'link' => '/lawyer/summaries',
+                'tone' => 'b-amber',
+            ];
+        }
+
+        // د) مهام متأخرة تجاوزت موعد الاستحقاق
+        $overdueTasksCount = Task::where('assigned_to', $lawyerId)->where('status', '!=', 'منجزة')
+            ->get()->filter(fn (Task $t) => $t->isOverdue())->count();
+        if ($overdueTasksCount > 0) {
+            $actionAlerts[] = [
+                'id' => 'tasks-overdue',
+                'type' => 'tasks',
+                'title' => "تنبيه: توجد {$overdueTasksCount} مهام قانونية متأخرة ⚠️",
+                'desc' => 'تجاوزت بعض المذكرات والمهام الموكلة إليك موعد الاستحقاق النهائي.',
+                'cta' => 'عرض المهام',
+                'link' => '/lawyer/tasks',
+                'tone' => 'b-red',
+            ];
+        }
+
+        // 9. العدادات الشاملة (360° Stats)
+        $stats = [
+            'assignedTickets' => $tickets->count(),
+            'activeCases' => $cases->count(),
+            'upcomingHearings' => $upcomingHearings->count(),
+            'pendingSummaries' => $pendingSummariesCount,
+            'openMeetings' => $openMeetings->count(),
+            'todayConsults' => $todayConsults->count(),
+            'openTasks' => Task::where('assigned_to', $lawyerId)->where('status', '!=', 'منجزة')->count(),
+            'overdueTasks' => $overdueTasksCount,
+            'activeExecutions' => $executions->count(),
+            'activeCorrespondences' => $correspondences->count(),
+        ];
 
         return Inertia::render('lawyer/dashboard', [
-            'tickets' => $tickets->map(fn (Ticket $t) => $t->toEmployeeCard()),
-            'pendingSummaries' => $tickets->where('summary.status', 'awaiting_lawyer')->count(),
-            // created_by عمود نصّي (اسم) — مقارنته بالمعرّف كانت تُصفّر العدّاد لكل محامٍ،
-            // والحالة المخزّنة لا تتحدّث بمرور الوقت — الاشتقاق الحي هو الفيصل
-            'openMeetings' => Meeting::where(fn ($q) => $q->where('assigned_lawyer_id', $lawyerId)
-                ->orWhere('created_by', $request->user()->name))
-                ->get()->filter(fn (Meeting $m) => $m->isUpcoming())->count(),
-            'openTasks' => Task::where('assigned_to', $lawyerId)->where('status', '!=', 'منجزة')->count(),
-            // المتأخرة وحدها (تجاوزت استحقاقها) — كانت غائبة فلا يميّز المحامي العاجل من المفتوح
-            'overdueTasks' => Task::where('assigned_to', $lawyerId)->where('status', '!=', 'منجزة')
-                ->get()->filter(fn (Task $t) => $t->isOverdue())->count(),
+            'lawyerName' => $lawyer->name,
+            'lawyerTitle' => $lawyer->title ?? 'المستشار القانوني',
+            'lawyerDept' => $lawyer->department ?? 'القسم القانوني',
+            'stats' => $stats,
+            'tickets' => $tickets,
+            'cases' => $cases,
+            'upcomingHearings' => $upcomingHearings,
+            'todayConsults' => $todayConsults,
+            'executions' => $executions,
+            'tasks' => $tasks,
+            'correspondences' => $correspondences,
+            'actionAlerts' => $actionAlerts,
+            // للتوافق مع أي شفرة قديمة تعتمد على أسماء props السابقة
+            'pendingSummaries' => $pendingSummariesCount,
+            'openMeetings' => $openMeetings->count(),
+            'openTasks' => $stats['openTasks'],
+            'overdueTasks' => $overdueTasksCount,
         ]);
     }
 
@@ -102,7 +348,7 @@ class TicketController extends Controller
     public function reply(Request $request, Ticket $ticket): HttpResponse
     {
         $this->guardAssigned($ticket);
-        $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
+        $data = $request->validate(['body' => ['required', 'string']]);
 
         $roleName = $request->user()->isAdmin() ? 'الإدارة' : 'المستشار القانوني';
         $msg = null;
@@ -119,6 +365,14 @@ class TicketController extends Controller
         });
 
         if ($msg) {
+            Audit::log(
+                action: 'رد على تذكرة',
+                description: "ردّ {$request->user()->name} ({$roleName}) على التذكرة {$ticket->number}.",
+                category: 'تذاكر',
+                auditable: $ticket,
+                auditableRef: $ticket->number,
+            );
+
             DB::afterCommit(function () use ($msg, $ticket) {
                 Live::push(new TicketMessageBroadcast($msg));
                 // بلا اسم المستشار — العميل يرى أطراف المكتب باسم موحّد (سياسة الحجب، ويطابق clientNotify المرجعي)
@@ -133,7 +387,7 @@ class TicketController extends Controller
     public function note(Request $request, Ticket $ticket): HttpResponse
     {
         $this->guardAssigned($ticket);
-        $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
+        $data = $request->validate(['body' => ['required', 'string']]);
 
         $roleName = $request->user()->isAdmin() ? 'ملاحظة إدارة' : 'ملاحظة مستشار';
         $msg = null;
@@ -383,24 +637,24 @@ class TicketController extends Controller
         return redirect()->route($request->user()->isAdmin() ? 'admin.tickets' : 'lawyer.tickets');
     }
 
-    // تحويل التذكرة المكتملة إلى قضية قانونية (يطابق cfConvert) — قرار المستشار
+    /**
+     * تحويل التذكرة المكتملة إلى قضية قانونية — قرار المستشار.
+     *
+     * لا يُشترط هنا اعتماد الملخّص عمداً: **المحامي هو المعتمِد** فاشتراط اعتماد سابق
+     * عليه دور، **والإدارة العليا هي الاعتماد النهائي** فتمرّ بلا قيد. المسار الموظفيّ
+     * وحده ينتظر اعتماد المحامي (Employee\TicketController::convertToCase).
+     * القاعدة الثلاثية مثبّتة باختبارات في CaseConversionTest كي لا تُوحَّد سهواً.
+     */
     public function convertToCase(Request $request, Ticket $ticket): RedirectResponse
     {
         $this->guardAssigned($ticket);
-        if ($ticket->status !== 'مكتملة') {
-            throw ValidationException::withMessages([
-                'ticket' => 'لا يمكن تحويل التذكرة لقضية إلا بعد اكتمالها.',
-            ]);
-        }
-        if ($ticket->legalCase()->exists()) {
-            throw ValidationException::withMessages([
-                'ticket' => 'تم تحويل هذه التذكرة لقضية مسبقاً.',
-            ]);
-        }
+        CaseConversion::assertEligible($ticket, requireApprovedSummary: false);
 
         CaseConversion::convert($ticket, $request->user());
 
-        return redirect()->route($request->user()->isAdmin() ? 'admin.tickets' : 'lawyer.tickets');
+        // البقاء على المحادثة كما يفعل مسار الموظف — كان التحويل ينقل المحامي/الإدارة
+        // إلى قائمة التذاكر فيغادران السياق وتظهر رسالة النجاح على صفحة أخرى.
+        return back();
     }
 
     // قرار المستشار: إغلاق الطلب بعد الاستشارة دون تحويله إلى قضية (يطابق cfClose)

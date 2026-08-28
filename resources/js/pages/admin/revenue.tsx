@@ -1,8 +1,8 @@
 import React from 'react';
-import Icon from '@/lib/icons';
 import { Bars } from '@/components/babylon/admin-charts';
 import type { BarDatum } from '@/lib/admin-data';
 import { PAY_METHODS } from '@/lib/admin-data';
+import Icon from '@/lib/icons';
 
 // إيرادات الإدارة — أرقام حقيقية من الاستشارات والفواتير والرواتب
 
@@ -21,6 +21,12 @@ interface Props {
 
 const AdminRevenue: React.FC<Props> = ({ bookings, bookingRevenue, issued, collected, due, byService, salaries, salaryTotal }) => (
   <>
+    {/* كانت الشاشة بطاقات بلا أي تصدير أو طباعة */}
+    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+      <a className="btn soft sm" href="/admin/revenue.pdf" download>
+        <Icon name="download" /> تصدير تقرير الإيرادات PDF
+      </a>
+    </div>
     <div className="stats" style={{ marginBottom: 14 }}>
       <div className="stat t-blue"><div className="si"><Icon name="card" /></div><div className="num">{fmt(issued)} ر.س</div><div className="lbl">إجمالي الفواتير المُصدَرة</div></div>
       <div className="stat t-green"><div className="si"><Icon name="check" /></div><div className="num">{fmt(collected)} ر.س</div><div className="lbl">المحصّل</div></div>

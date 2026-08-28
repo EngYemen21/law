@@ -16,15 +16,20 @@ use App\Models\MeetRequest;
 use App\Models\Task;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
+use App\Services\GoogleCalendarService;
 use App\Services\LegalAiService;
 use App\Services\MailService;
 use App\Services\ZoomService;
+use App\Support\Audit;
 use App\Support\ClientDirectory;
 use App\Support\DecisionTasks;
 use App\Support\Live;
+use App\Support\MeetingSummary;
 use App\Support\MeetingTime;
 use App\Support\Notify;
 use App\Support\RecordingArchive;
+use App\Support\ReferenceNumber;
+use App\Support\ZoomSummaryText;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -134,7 +139,8 @@ class MeetingController extends Controller
 
         $zoom = $this->zoom->createMeeting($data['title'], $durMinutes, ($data['conf'] ?? '') === 'سري', $startsAt);
 
-        $status = $client ? 'بانتظار التأكيد' : 'قادم';
+        // لا 'بانتظار التأكيد': تأكيد العميل أُلغي، فالاجتماع مجدول منذ إنشائه
+        $status = 'قادم';
 
         $meeting = Meeting::create([
             'user_id' => $client?->id,
@@ -157,19 +163,20 @@ class MeetingController extends Controller
             'created_by' => $request->user()->name,
             // عزل الرؤية/البثّ: المحامي المسؤول (المحامي يرى المسنَد إليه وحده)
             'assigned_lawyer_id' => $assignedLawyer?->id,
-            'before_items' => ['تحليل الموضوع', 'مراجعة المستندات', 'تجهيز جدول الأعمال'],
-            'during_items' => ['تحويل الصوت إلى نص', 'استخراج القرارات', 'تحديد المهام'],
-            'after_items' => ['إنشاء الملخص', 'تحديث القضية', 'إنشاء المهام'],
+            // عُلّق بطلب صاحب المنتج (2026-08-26): قوائم «قبل/أثناء/بعد الاجتماع» نصّ ثابت مختلق لا بيانات حقيقية
+            // 'before_items' => ['تحليل الموضوع', 'مراجعة المستندات', 'تجهيز جدول الأعمال'],
+            // 'during_items' => ['تحويل الصوت إلى نص', 'استخراج القرارات', 'تحديد المهام'],
+            // 'after_items' => ['إنشاء الملخص', 'تحديث القضية', 'إنشاء المهام'],
             'has_link' => true,
         ]);
 
         // إشعار (داخل التطبيق + بريد) بموعد الاجتماع — توجيه آمن داخل المنصّة لكل دور (لا روابط خارجية)
         if ($client) {
-            // إنشاء سجل دعوة رسمي يتيح للعميل مراجعة الدعوة وتأكيد الحضور
+            // إنشاء سجل دعوة رسمي مؤكَّد يتيح للعميل مراجعة تفاصيل الاجتماع (تأكيد الحضور مُلغى)
             $meetRequest = MeetRequest::create([
                 'user_id' => $client->id,
                 'meeting_id' => $meeting->id,
-                'ref' => 'MR-'.random_int(1000, 9999),
+                'ref' => ReferenceNumber::next(MeetRequest::class, 'ref', 'MR'),
                 'service' => $data['title'],
                 'type' => $data['type'],
                 'case_ref' => ($data['case_ref'] ?? '') ?: null,
@@ -179,21 +186,21 @@ class MeetingController extends Controller
                 'assigned_lawyer_id' => $assignedLawyer?->id,
                 'sent_by' => $request->user()->name.' ('.$request->user()->role->label().')',
                 'sent_by_id' => $request->user()->id,
-                'stage' => MeetRequest::STAGE_SENT, // 0 = بانتظار تأكيد العميل
+                'stage' => MeetRequest::STAGE_CONFIRMED, // مؤكَّدة منذ الإرسال (لا تأكيد من العميل)
                 'meet_id' => $zoom['id'] ?? null,
                 'meet_link' => $zoom['join_url'] ?? null,
                 'host_link' => $zoom['start_url'] ?? null,
             ]);
 
-            // إشعار وبريد دعوة رسمي للعميل ليؤكد حضوره من المنصة
-            Notify::send($client->id, 'video', 't-blue', "وصلتك دعوة اجتماع «{$meeting->title}» ({$when}). يُرجى تسجيل الدخول وتأكيد الحضور من «دعوات الاجتماع».");
+            // إشعار بموعد مجدول لا بطلب تأكيد
+            Notify::send($client->id, 'video', 't-blue', "اجتماع مجدول: «{$meeting->title}» ({$when}) — تجده في قسم الاجتماعات بالمنصة.");
             app(MailService::class)->send($client, new MeetInviteMail($meetRequest));
         }
 
         if ($assignedLawyer) {
             $lawyerUrl = $meeting->portalUrlFor($assignedLawyer);
             $msg = $client
-                ? "تمت جدولة اجتماع «{$meeting->title}» — {$when} بانتظار تأكيد حضور العميل."
+                ? "تمت جدولة اجتماع «{$meeting->title}» — {$when} مع العميل."
                 : "تم تكليفك باجتماع داخلي «{$meeting->title}» — {$when}.";
             Notify::send($assignedLawyer->id, 'video', 't-blue', $msg);
             app(MailService::class)->send($assignedLawyer, new MeetingScheduledMail(
@@ -202,7 +209,7 @@ class MeetingController extends Controller
                 $when,
                 $lawyerUrl,
                 'داخل لوحة المحامي (قسم طلبات الاجتماعات)',
-                $client ? 'تم إرسال الدعوة للعميل وهي بانتظار تأكيد حضوره عبر المنصة.' : 'يرجى الدخول للوحة المحامي للاطلاع على تفاصيل الجلسة.'
+                $client ? 'أُرسلت الدعوة للعميل — الاجتماع مؤكد ومنشور في منصته.' : 'يرجى الدخول للوحة المحامي للاطلاع على تفاصيل الجلسة.'
             ));
         }
 
@@ -227,6 +234,8 @@ class MeetingController extends Controller
             }
         }
 
+        GoogleCalendarService::syncMeeting($meeting);
+
         return back();
     }
 
@@ -250,10 +259,39 @@ class MeetingController extends Controller
         return back();
     }
 
+    /**
+     * استعلام يدوي من Zoom API: يسحب كل بيانات الجلسة (الحضور، المدة، التسجيل، النصّ،
+     * الملخص) ويحدّث الاجتماع فوراً — لحالات تأخّر الويبهوك/السحب الدوري أو تعثّرهما.
+     */
+    public function zoomSync(Request $request, Meeting $meeting): RedirectResponse
+    {
+        $this->guardMeeting($request, $meeting);
+        abort_if(empty($meeting->meet_id), 422, 'لا جلسة Zoom مرتبطة بهذا الاجتماع.');
+
+        $pulled = MeetingSummary::pull($meeting, $this->zoom);
+
+        return back()->with(
+            $pulled ? 'flash' : 'error',
+            $pulled
+                ? 'تم تحديث بيانات الجلسة من Zoom.'
+                : 'لا بيانات جديدة لدى Zoom بعد — الملخص يُعدّ عادةً خلال دقائق من انتهاء جلسة فعلية.'
+        );
+    }
+
     // اعتماد الاجتماع ومحضره (الإدارة — يطابق mApprove) → يظهر المحضر والملخص للعميل
     public function approve(Request $request, Meeting $meeting): RedirectResponse
     {
         if ($meeting->approve !== 'معتمد') {
+            // الاعتماد بعد اكتمال الجلسة وتوفّر مخرجات **حقيقية** فقط (ملخص Zoom أو تدوين يدوي) —
+            // النصوص القالبية («بانتظار ملخص الجلسة من Zoom») مملوءة تقنياً لكنها ليست مخرجات؛
+            // اعتمادها كان يعرض للعميل محضراً رسمياً بلا مضمون (حادثة M-26753).
+            $hasRealOutput = (filled($meeting->summary) && ! ZoomSummaryText::isPlaceholderSummary($meeting->summary))
+                || (filled($meeting->minutes) && ! ZoomSummaryText::isPlaceholderMinutes($meeting->minutes));
+            abort_unless(
+                $meeting->status === 'منتهٍ' && $hasRealOutput,
+                422,
+                'الاعتماد متاح بعد انتهاء الاجتماع ووصول ملخص Zoom أو تدوين المحضر يدوياً.'
+            );
             $meeting->update([
                 'approve' => 'معتمد',
                 'sum_approved' => true,
@@ -292,7 +330,8 @@ class MeetingController extends Controller
             $this->zoom->endMeeting((string) $meeting->meet_id);
             $meeting->update([
                 'status' => 'منتهٍ',
-                'attend' => $data['attend'] ?? $meeting->attend ?: 90,
+                // المدخل اليدوي يُحترم؛ وإلا 0 = غير مسجَّلة (كانت 90 مختلقة تُعرض كنسبة حقيقية)
+                'attend' => $data['attend'] ?? $meeting->attend ?: 0,
             ]);
             MeetRequest::where('meeting_id', $meeting->id)
                 ->where('stage', '<', MeetRequest::STAGE_EXECUTED)
@@ -370,6 +409,8 @@ class MeetingController extends Controller
             Notify::send($meeting->user_id, 'cal', 't-amber', "أُعيدت جدولة اجتماع «{$meeting->title}»: {$when}.");
         }
         $this->mailMeetingEvent($meeting, 'rescheduled');
+        // تحديث حدث تقويم Google بالموعد الجديد — بدونه يبقى التقويم على الموعد القديم
+        GoogleCalendarService::syncMeeting($meeting->refresh());
         Live::push(new MeetingStatusBroadcast($meeting));
 
         return back();
@@ -392,6 +433,14 @@ class MeetingController extends Controller
                 Notify::send($meeting->user_id, 'info', 't-red', "أُلغي اجتماع «{$meeting->title}».");
             }
             $this->mailMeetingEvent($meeting, 'cancelled');
+            GoogleCalendarService::deleteMeetingEvent($meeting);
+            Audit::log(
+                action: 'إلغاء اجتماع',
+                description: "ألغى {$request->user()->name} الاجتماع «{$meeting->title}» ({$meeting->ref}).",
+                category: 'اجتماعات',
+                severity: 'warning',
+                auditable: $meeting,
+            );
             Live::push(new MeetingStatusBroadcast($meeting));
         }
 
@@ -484,7 +533,8 @@ class MeetingController extends Controller
             'منتهٍ' => $this->scopedQuery($request)->where('status', 'منتهٍ')->count(),
             'قادم' => $this->scopedQuery($request)->where('status', 'قادم')->count(),
             'جارٍ' => $this->scopedQuery($request)->where('status', 'جارٍ')->count(),
-            'بانتظار التأكيد' => $this->scopedQuery($request)->where('status', 'بانتظار التأكيد')->count(),
+            // «بانتظار التأكيد» عُلّق: حالة يتيمة منذ إلغاء تأكيد العميل — عدّاد كان يُرجع صفراً في كل تحميل
+            // 'بانتظار التأكيد' => $this->scopedQuery($request)->where('status', 'بانتظار التأكيد')->count(),
             'لم ينعقد' => $this->scopedQuery($request)->where('status', 'لم ينعقد')->count(),
             'ملغى' => $this->scopedQuery($request)->where('status', 'ملغى')->count(),
             'مؤجل' => $this->scopedQuery($request)->where('status', 'مؤجل')->count(),

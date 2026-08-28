@@ -124,7 +124,7 @@ class RegressionGuardTest extends TestCase
 
         $path = RecordingArchive::build($meeting, 'video');
 
-        $this->assertSame("recordings/meeting-{$meeting->ref}-video.zip", $path);
+        $this->assertSame("recordings/meeting-{$meeting->ref}-video.mp4", $path);
         $this->assertTrue(Storage::disk('local')->exists($path));
         $this->assertGreaterThan(0, strlen((string) Storage::disk('local')->get($path)));
     }

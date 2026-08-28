@@ -2,11 +2,16 @@ import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import Modal from '@/components/babylon/Modal';
-import StatRow, { type StatItem } from '@/components/babylon/StatRow';
+import StatRow from '@/components/babylon/StatRow';
+import type {StatItem} from '@/components/babylon/StatRow';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { todayISO } from '@/components/SpecialistPicker';
 import Icon from '@/lib/icons';
+
+// الشاشة تُعرض داخل تقويم الموظف وتقويم الإدارة معًا — العناوين تُشتق من اللوحة الحالية
+// (لم يعد الأدمن يمرّ عبر بوابة دور الموظف — قرار 2026-08-28، له مسارات admin مطابقة)
+const apiBase = () => (window.location.pathname.startsWith('/admin') ? '/admin' : '/employee');
 
 // ============================================================
 // لوحة جدولة وإدارة مواعيد المكتب للموظف (Enterprise Scheduling Hub)
@@ -41,6 +46,7 @@ export interface AppointmentItem {
   when: string; // 'up' | 'past'
   client?: string;
   consultRef?: string;
+  consultId?: number;
   pay?: string;
   gcal?: string;
   joinLink?: string;
@@ -121,22 +127,30 @@ const EmployeeSchedule: React.FC<Props> = ({
   useEffect(() => {
     if (!bookOpen || !lawyerId || !date) {
       setSlots([]);
+
       return;
     }
+
     let cancelled = false;
     setSlotsLoading(true);
-    fetch(`/employee/schedule/slots?lawyer_id=${lawyerId}&date=${date}`, {
+    fetch(`${apiBase()}/schedule/slots?lawyer_id=${lawyerId}&date=${date}`, {
       headers: { Accept: 'application/json' },
     })
       .then((r) => r.json())
       .then((j: { slots?: { time: string; taken: boolean }[] }) => {
-        if (!cancelled) setSlots(j.slots ?? []);
+        if (!cancelled) {
+setSlots(j.slots ?? []);
+}
       })
       .catch(() => {
-        if (!cancelled) setSlots([]);
+        if (!cancelled) {
+setSlots([]);
+}
       })
       .finally(() => {
-        if (!cancelled) setSlotsLoading(false);
+        if (!cancelled) {
+setSlotsLoading(false);
+}
       });
 
     return () => {
@@ -157,8 +171,14 @@ const EmployeeSchedule: React.FC<Props> = ({
   };
 
   const openNewBooking = () => {
-    if (clients.length > 0 && clientId === '') setClientId(clients[0].id);
-    if (lawyers.length > 0 && lawyerId === '') setLawyerId(lawyers[0].id);
+    if (clients.length > 0 && clientId === '') {
+setClientId(clients[0].id);
+}
+
+    if (lawyers.length > 0 && lawyerId === '') {
+setLawyerId(lawyers[0].id);
+}
+
     setDate(todayISO());
     setTime('');
     setSubject('');
@@ -169,15 +189,19 @@ const EmployeeSchedule: React.FC<Props> = ({
   const submitBooking = () => {
     if (!clientId || !date || !time) {
       toast('يرجى اختيار العميل والتاريخ والوقت');
+
       return;
     }
+
     if (isPast) {
       toast('لا يمكن اختيار وقت ماضٍ، فضلاً اختر وقتاً لاحقاً');
+
       return;
     }
+
     setBusy(true);
     router.post(
-      '/employee/schedule',
+      `${apiBase()}/schedule`,
       {
         client_id: clientId,
         lawyer_id: lawyerId || null,
@@ -214,8 +238,10 @@ const EmployeeSchedule: React.FC<Props> = ({
   const formattedSelectedDay = useMemo(() => {
     try {
       const parts = selectedDay.split('-');
+
       if (parts.length === 3) {
         const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+
         return d.toLocaleDateString('ar-SA', {
           weekday: 'long',
           year: 'numeric',
@@ -226,13 +252,18 @@ const EmployeeSchedule: React.FC<Props> = ({
     } catch {
       // fallback
     }
+
     return selectedDay;
   }, [selectedDay]);
 
   // فلترة قائمة العملاء داخل المودال بالاسم أو الجوال
   const filteredModalClients = useMemo(() => {
-    if (!clientSearch.trim()) return clients;
+    if (!clientSearch.trim()) {
+return clients;
+}
+
     const q = clientSearch.trim().toLowerCase();
+
     return clients.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
@@ -248,17 +279,31 @@ const EmployeeSchedule: React.FC<Props> = ({
       if (filterLawyer !== 'all' && String(a.lawyerId) !== filterLawyer && a.lawyer !== filterLawyer) {
         return false;
       }
+
       // تصفية القناة
       if (filterChannel !== 'all' && (a.channel || a.type) !== filterChannel) {
         return false;
       }
+
       // تصفية الحالة
       if (filterStatus !== 'all') {
-        if (filterStatus === 'up' && a.when !== 'up') return false;
-        if (filterStatus === 'past' && a.when !== 'past') return false;
-        if (filterStatus === 'attended' && a.status !== 'تم الحضور') return false;
-        if (filterStatus === 'noshow' && a.status !== 'لم يحضر') return false;
+        if (filterStatus === 'up' && a.when !== 'up') {
+return false;
+}
+
+        if (filterStatus === 'past' && a.when !== 'past') {
+return false;
+}
+
+        if (filterStatus === 'attended' && a.status !== 'تم الحضور') {
+return false;
+}
+
+        if (filterStatus === 'noshow' && a.status !== 'لم يحضر') {
+return false;
+}
       }
+
       // البحث النصي
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase();
@@ -267,10 +312,12 @@ const EmployeeSchedule: React.FC<Props> = ({
         const subMatch = a.subject?.toLowerCase().includes(q) ?? false;
         const idMatch = a.id?.toLowerCase().includes(q) ?? false;
         const phoneMatch = a.phone?.includes(q) ?? false;
+
         if (!clientMatch && !lawyerMatch && !subMatch && !idMatch && !phoneMatch) {
           return false;
         }
       }
+
       return true;
     });
   }, [appointments, filterLawyer, filterChannel, filterStatus, searchQuery]);
@@ -299,7 +346,10 @@ const EmployeeSchedule: React.FC<Props> = ({
 
   // المحامون المعروضون في شبكة التقويم (حسب الفلتر)
   const gridLawyers = useMemo(() => {
-    if (filterLawyer === 'all') return lawyers;
+    if (filterLawyer === 'all') {
+return lawyers;
+}
+
     return lawyers.filter((l) => String(l.id) === filterLawyer || l.name === filterLawyer);
   }, [lawyers, filterLawyer]);
 
@@ -313,6 +363,7 @@ const EmployeeSchedule: React.FC<Props> = ({
         map.set(key, a);
       }
     });
+
     return map;
   }, [appointments, selectedDay]);
 
@@ -325,7 +376,7 @@ const EmployeeSchedule: React.FC<Props> = ({
           <p>لوحة العمليات التشغيلية لمتابعة تفرغ المستشارين، حجز الاستشارات، ومتابعة الحضور.</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div className="btn-group" style={{ display: 'inline-flex', background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: 10, padding: 3 }}>
+          <div style={{ display: 'inline-flex', background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: 10, padding: 3 }}>
             <button
               type="button"
               className={`btn sm ${viewMode === 'grid' ? '' : 'soft'}`}
@@ -953,6 +1004,41 @@ const EmployeeSchedule: React.FC<Props> = ({
                 </a>
               )}
             </div>
+
+            {/* كانت اللوحة بلا أي إجراء بعد الإنشاء — القدرة موجودة عبر الاستشارة المرافقة
+                (إعادة الجدولة تُلغي الموعد القديم فعلاً) لكن بلا جسر واجهة */}
+            {selectedAppt.consultId && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                <button
+                  className="btn soft sm"
+                  type="button"
+                  style={{ flex: 1 }}
+                  onClick={() => router.post(`${apiBase()}/consults/${selectedAppt.consultId}/reschedule`, {}, {
+                    preserveScroll: true,
+                    onSuccess: () => {
+ toast('أُلغي الموعد وطُلب من العميل اختيار موعد جديد'); setSelectedAppt(null); 
+},
+                    onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّرت إعادة الجدولة')),
+                  })}
+                >
+                  <Icon name="cal" /> إعادة جدولة الموعد
+                </button>
+                <button
+                  className="btn ghost sm"
+                  type="button"
+                  style={{ flex: 1 }}
+                  onClick={() => router.post(`${apiBase()}/consults/${selectedAppt.consultId}/no-show`, {}, {
+                    preserveScroll: true,
+                    onSuccess: () => {
+ toast('وُسم الموعد «لم يحضر»'); setSelectedAppt(null); 
+},
+                    onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر الوسم')),
+                  })}
+                >
+                  <Icon name="clock" /> لم يحضر
+                </button>
+              </div>
+            )}
           </div>
         </Modal>
       )}

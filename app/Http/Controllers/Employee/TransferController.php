@@ -9,6 +9,7 @@ use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
+use App\Support\Audit;
 use App\Support\TicketAssignment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -128,6 +129,16 @@ class TransferController extends Controller
             'time_label' => $this->clock(),
         ]);
 
+        Audit::log(
+            action: 'تحويل تذكرة بين المحامين',
+            description: "حوّل {$request->user()->name} التذكرة {$ticket->number} من {$from} إلى {$lawyer->name}.".(! empty($data['reason']) ? " السبب: {$data['reason']}." : ''),
+            category: 'تذاكر',
+            auditable: $ticket,
+            auditableRef: $ticket->number,
+            beforeState: ['المحامي' => $from, 'القسم' => $fromDept ?: '—'],
+            afterState: ['المحامي' => $lawyer->name, 'القسم' => $toDept ?: ($fromDept ?: '—')],
+        );
+
         if ($request->expectsJson()) {
             return response()->json(['ok' => true, 'lawyer' => $lawyer->name]);
         }
@@ -178,6 +189,14 @@ class TransferController extends Controller
         });
 
         $count = $tickets->count();
+
+        Audit::log(
+            action: 'تحويل جماعي للتذاكر',
+            description: "حوّل {$request->user()->name} {$count} تذكرة دفعة واحدة إلى {$lawyer->name} (".$tickets->pluck('number')->implode('، ').').'.(! empty($data['reason']) ? " السبب: {$data['reason']}." : ''),
+            category: 'تذاكر',
+            severity: 'warning',
+            afterState: ['المحامي' => $lawyer->name, 'التذاكر' => $tickets->pluck('number')->all()],
+        );
 
         if ($request->expectsJson()) {
             return response()->json(['ok' => true, 'count' => $count, 'lawyer' => $lawyer->name]);

@@ -1,20 +1,21 @@
 import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useEffect, useRef, useState } from 'react';
-import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
-import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import FlowLine from '@/components/babylon/FlowLine';
+import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
+import { CASE_LIFE, caseStage,  HearingsCard, CaseMsgRow } from '@/lib/case-ui';
+import type {Hearing} from '@/lib/case-ui';
+import type {Message} from '@/lib/chat';
 import { echo } from '@/lib/echo';
-import { CASE_LIFE, caseStage, type Hearing, HearingsCard, CaseMsgRow } from '@/lib/case-ui';
-import { type Message } from '@/lib/chat';
+import Icon from '@/lib/icons';
 
 interface CaseInfo {
   no: string; client: string; type: string; dept: string; lawyer: string;
   status: string; tone: string; next?: string | null; pleadingStatus: string; ruling?: string | null;
 }
-interface CaseDoc { id: number; name: string; by: string; status: string; docType: string; summary: string; date: string }
+interface CaseDoc { id: number; name: string; by: string; status: string; docType: string; summary: string; date: string; downloadUrl?: string | null }
 interface Props { case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[]; convertedExec?: boolean; }
 
 const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec }) => {
@@ -24,7 +25,11 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
   const onPickDoc = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file) return;
+
+    if (!file) {
+return;
+}
+
     router.post(`${base}/attach`, { file }, { preserveScroll: true, forceFormData: true, onSuccess: () => toast('تم رفع المستند'), onError: () => toast('تعذّر رفع المستند') });
   };
   const [h, setH] = useState({ title: '', day: '', time: '', court: '' });
@@ -41,22 +46,34 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
     const ch = echo.private(channel);
     ch.listen('.message', (e: { message: Message }) => {
       const m = e.message;
-      if (m.id && seen.current.has(m.id)) return;
-      if (m.id) seen.current.add(m.id);
+
+      if (m.id && seen.current.has(m.id)) {
+return;
+}
+
+      if (m.id) {
+seen.current.add(m.id);
+}
+
       setMsgs((prev) => [...prev, m]);
     });
     ch.listen('.status', (e: { status: string; tone: string }) => setLive({ status: e.status, tone: e.tone }));
-    return () => { echo.leave(channel); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    return () => {
+ echo.leave(channel); 
+};
+     
   }, [channel]);
 
   // ردّ المستشار على موكّله داخل الملفّ — لا يُمسح النصّ إلا بعد نجاح الإرسال
   const send = (e: React.FormEvent) => {
     e.preventDefault();
     const v = reply.trim();
+
     if (!v) {
       return;
     }
+
     axios.post(`${base}/reply`, { body: v })
       .then(() => setReply(''))
       .catch(() => toast('⚠️ تعذّر إرسال الردّ، حاول مجدداً'));
@@ -65,25 +82,50 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
   const approvePleading = () => router.post(`${base}/pleading`, {}, { preserveScroll: true, onSuccess: () => toast('تم اعتماد اللائحة') });
   const addHearing = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!h.title.trim() || !h.day.trim()) { toast('أدخل عنوان الجلسة واليوم'); return; }
-    router.post(`${base}/hearings`, h, { preserveScroll: true, onSuccess: () => { setH({ title: '', day: '', time: '', court: '' }); toast('تمت جدولة الجلسة'); } });
+
+    if (!h.title.trim() || !h.day.trim()) {
+ toast('أدخل عنوان الجلسة واليوم');
+
+ return; 
+}
+
+    router.post(`${base}/hearings`, h, { preserveScroll: true, onSuccess: () => {
+ setH({ title: '', day: '', time: '', court: '' }); toast('تمت جدولة الجلسة'); 
+} });
   };
   const recordHearing = (id: number, status: string) =>
-    router.post(`${base}/hearings/${id}`, { status, outcome: recOutcome }, { preserveScroll: true, onSuccess: () => { setRecOutcome(''); toast('تم تحديث الجلسة'); } });
+    router.post(`${base}/hearings/${id}`, { status, outcome: recOutcome }, { preserveScroll: true, onSuccess: () => {
+ setRecOutcome(''); toast('تم تحديث الجلسة'); 
+} });
   const startEdit = (hr: Hearing) => {
     setEditId(hr.id);
     setEh({ title: hr.title, day: hr.startsAt ? hr.startsAt.slice(0, 10) : '', time: hr.startsAt ? hr.startsAt.slice(11, 16) : '', court: hr.court || '' });
   };
   const submitEdit = (id: number) => {
-    if (!eh.title.trim() || !eh.day.trim()) { toast('أدخل عنوان الجلسة والتاريخ'); return; }
-    router.post(`${base}/hearings/${id}/update`, eh, { preserveScroll: true, onSuccess: () => { setEditId(null); toast('تمت إعادة جدولة الجلسة'); } });
+    if (!eh.title.trim() || !eh.day.trim()) {
+ toast('أدخل عنوان الجلسة والتاريخ');
+
+ return; 
+}
+
+    router.post(`${base}/hearings/${id}/update`, eh, { preserveScroll: true, onSuccess: () => {
+ setEditId(null); toast('تمت إعادة جدولة الجلسة'); 
+} });
   };
   const cancelHearing = (id: number) =>
     router.post(`${base}/hearings/${id}/cancel`, {}, { preserveScroll: true, onSuccess: () => toast('أُلغيت الجلسة') });
   const recordRuling = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!ruling.trim()) { toast('أدخل منطوق الحكم'); return; }
-    router.post(`${base}/ruling`, { ruling }, { preserveScroll: true, onSuccess: () => { setRuling(''); toast('تم تسجيل الحكم'); } });
+
+    if (!ruling.trim()) {
+ toast('أدخل منطوق الحكم');
+
+ return; 
+}
+
+    router.post(`${base}/ruling`, { ruling }, { preserveScroll: true, onSuccess: () => {
+ setRuling(''); toast('تم تسجيل الحكم'); 
+} });
   };
   const convertToExec = () =>
     router.post(`${base}/execute`, {}, { onSuccess: () => toast('تم فتح طلب تنفيذ الحكم') });
@@ -166,6 +208,12 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
                     <span>{d.by} · {d.date}{d.docType ? ` · ${d.docType}` : ''}</span>
                     {d.summary && <span style={{ display: 'block', marginTop: 3, fontSize: 11.5, color: 'var(--muted)' }}>{d.summary}</span>}
                   </div>
+                  {/* التنزيل للمحامي المسنَد وحده — الخادم يحدّده ويرسل null لمن سواه */}
+                  {d.downloadUrl && (
+                    <a className="btn soft sm" href={d.downloadUrl} title="تنزيل المستند">
+                      <Icon name="download" /> تنزيل
+                    </a>
+                  )}
                 </div>
               ))}
               <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style={{ display: 'none' }} onChange={onPickDoc} />
@@ -205,7 +253,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
                       )}
                     </div>
 
-                    {hr.status === 'مجدولة' && editId !== hr.id && (
+                    {(hr.status === 'مجدولة' || hr.status === 'فائتة — بانتظار النتيجة') && editId !== hr.id && (
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                         <input className="input" placeholder="نتيجة الجلسة (اختياري)" value={recOutcome} onChange={(e) => setRecOutcome(e.target.value)} style={{ flex: 1, minWidth: 150 }} />
                         <button className="btn soft sm" type="button" onClick={() => recordHearing(hr.id, 'منعقدة')}>منعقدة</button>
@@ -214,7 +262,9 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
                     )}
 
                     {editId === hr.id && (
-                      <form onSubmit={(e) => { e.preventDefault(); submitEdit(hr.id); }}>
+                      <form onSubmit={(e) => {
+ e.preventDefault(); submitEdit(hr.id); 
+}}>
                         <div className="picker-grid">
                           <div className="field"><label>عنوان الجلسة</label><input className="input" value={eh.title} onChange={(e) => setEh({ ...eh, title: e.target.value })} /></div>
                           <div className="field"><label>الدائرة</label><input className="input" value={eh.court} onChange={(e) => setEh({ ...eh, court: e.target.value })} placeholder="الدائرة التجارية الأولى" /></div>

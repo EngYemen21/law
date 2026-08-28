@@ -21,12 +21,13 @@ class Consult extends Model
         'lawyer', 'assigned_lawyer_id', 'specialty', 'employee', 'day', 'time', 'when_label', 'received_label', 'phone',
         'starts_at', 'duration_min',
         'meet_id', 'meet_link', 'host_link', 'meet_password',
-        'link_released_at', 'reminder_24h_sent_at', 'reminder_1h_sent_at', 'join_time', 'leave_time', 'duration_sec', 'transcript', 'recording_url', 'transcript_path', 'zoom_summary_at',
+        'link_released_at', 'reminder_24h_sent_at', 'reminder_30m_sent_at', 'join_time', 'leave_time', 'duration_sec', 'transcript', 'recording_url', 'transcript_path', 'zoom_summary_at',
         'zoom_uuid', 'zoom_share_url', 'zoom_audio_url', 'zoom_participants_log', 'zoom_ai_next_steps',
         'status', 'session', 'session_notes', 'summary', 'duration_label',
         'decisions', 'tasks_created',
         'price', 'vat', 'total', 'mins', 'priced_at', 'paid_at',
         'ai_done', 'ai_class', 'ai_summary', 'ai_lawyer', 'missing', 'audit',
+        'google_event_id',
     ];
 
     protected $casts = [
@@ -42,7 +43,7 @@ class Consult extends Model
         'paid_at' => 'datetime',
         'link_released_at' => 'datetime',
         'reminder_24h_sent_at' => 'datetime',
-        'reminder_1h_sent_at' => 'datetime',
+        'reminder_30m_sent_at' => 'datetime',
         'join_time' => 'datetime',
         'leave_time' => 'datetime',
         'zoom_summary_at' => 'datetime',
@@ -201,6 +202,8 @@ class Consult extends Model
             'paid' => $this->paid_at !== null,
             'paidAgo' => $this->paid_at?->locale('ar')->diffForHumans(),
             'invoiceNo' => $this->invoice?->number,
+            'decisions' => $this->decisions ?? [],
+            'startsAt' => $this->starts_at?->toIso8601String(),
             // ملاحظة: لا يُكشف للعميل رابط التسجيل ولا أنّ الجلسة مُسجّلة — داخلي للمكتب فقط
         ];
     }
@@ -213,11 +216,13 @@ class Consult extends Model
             'ref' => $this->ref,
             'client' => $this->user?->name ?? '—',
             'subject' => $this->subject,
+            'specialty' => $this->specialty ?? $this->type ?? '',
             'channel' => $this->channel,
             'lawyer' => $this->lawyer,
             'when' => $this->whenLabel(),
             'place' => $this->placeForCard(),
             'phone' => $this->phone ?? '',
+            'canJoin' => $this->canJoin(),
             // رابط اجتماع Zoom الحقيقي؛ وعند غيابه (لم تُهيّأ مفاتيح Zoom بعد) الرابط الداخلي الاحتياطي
             'slink' => $this->channel === 'مرئية' ? $this->joinLink() : '',
             'hostLink' => $this->channel === 'مرئية' ? ($this->host_link ?: null) : null,

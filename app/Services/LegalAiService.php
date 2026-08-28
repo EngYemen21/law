@@ -204,6 +204,20 @@ PROMPT;
             Log::warning('LegalAiService classifyCase failed: '.$e->getMessage());
         }
 
+        return self::fallbackClassification($ticket);
+    }
+
+    /**
+     * التصنيف الاحتياطي الحتمي — بلا أي نداء خارجي.
+     *
+     * يُستخرج كي يُنادى من موضعين بلا نسخ: من classifyCase عند تعذّر المزوّد، ومن
+     * CaseConversion التي صارت تُنشئ القضية بهذه القيم فوراً ثم تُنقّحها مهمّة مطابورة —
+     * فنداء AI متزامن كان يحبس طلب التحويل **12.3 ثانية** مقاسة، وحدّ FPM ثلاثون.
+     *
+     * @return array{type: string, department: string}
+     */
+    public static function fallbackClassification(Ticket $ticket): array
+    {
         return ['type' => $ticket->type, 'department' => $ticket->department ?: 'الاستشارات القانونية'];
     }
 
@@ -575,7 +589,18 @@ PROMPT;
      */
     public function meetingSummary(Meeting $meeting, string $notes = ''): array
     {
+        // مصدر المحتوى الفعلي الوحيد: الملاحظات المدوَّنة و/أو ملخص Zoom إن سبق وصوله.
+        // بلا أيّهما لا يُنادى الذكاء ولا يُكتب أي نصّ: التلخيص من البيانات الوصفية كان يختلق
+        // مداولات وقرارات لاجتماع لم يدخله أحد وتُعرض للعميل كمحضر رسمي (حادثة M-26753)،
+        // وقرار صاحب المنتج: لا قالب وهمي — الحقول تبقى فارغة حتى يصل ملخص Zoom أو يُدوَّن يدوياً.
+        $zoomContent = trim((string) $meeting->zoom_summary);
+        if ($notes === '' && $zoomContent === '') {
+            return self::meetingSummaryFallback($meeting, $notes);
+        }
+
         $system = 'أنت الفريق القانوني في «النظام الإداري لمكاتب المحاماة» بالسعودية. اكتب مخرجات اجتماع احترافية بالعربية الفصحى. '
+            .'لخّص **حصراً** ممّا يرد في «ملاحظات أثناء الاجتماع» و«ملخص جلسة Zoom» أدناه — '
+            .'لا تختلق وقائع أو نقاشات أو قرارات لم تُذكر صراحةً، وإن كانت المعطيات شحيحة فاكتب بقدرها فقط. '
             .'أعد JSON فقط بالحقول: "summary" (ملخص الاجتماع في فقرة أو فقرتين)، '
             .'"minutes" (محضر الاجتماع: أبرز ما دار كنقاط مفصولة بأسطر)، '
             .'"decisions" (قائمة القرارات/المهام القابلة للتنفيذ، كلٌّ عنصرٌ مستقل). لا تكتب شيئاً خارج JSON.';
@@ -583,6 +608,7 @@ PROMPT;
             .($meeting->case_ref ? "\nمرتبط بـ: {$meeting->case_ref}" : '')
             .($meeting->participants ? "\nالمشاركون: {$meeting->participants}" : '')
             .($notes !== '' ? "\nملاحظات أثناء الاجتماع:\n{$notes}" : '')
+            .($zoomContent !== '' ? "\nملخص جلسة Zoom:\n{$zoomContent}" : '')
             ."\nأعد JSON.";
 
         try {
@@ -601,13 +627,19 @@ PROMPT;
             Log::warning('LegalAiService meetingSummary failed: '.$e->getMessage());
         }
 
-        // عند تعذّر الـAI: لا محضر/قرارات مُختلَقة — نصّ أمين + قرارات فارغة (فلا تُصنع مهام وهمية)
+        return self::meetingSummaryFallback($meeting, $notes);
+    }
+
+    /**
+     * الصياغة الأمينة — **لا قالب وهمي**: بلا محتوى فعلي تُعاد nullات فلا يُكتب شيء
+     * (الحقول تبقى فارغة حتى ملخص Zoom أو التدوين اليدوي)؛ ومع ملاحظات مدوَّنة تُحفظ
+     * الملاحظات نفسها موسومة كما هي — محتوى حقيقي لا اختلاق. القرارات فارغة دائماً هنا.
+     */
+    private static function meetingSummaryFallback(Meeting $meeting, string $notes): array
+    {
         return [
-            'summary' => "ملخص اجتماع «{$meeting->title}»: تعذّر إعداد الملخّص بالذكاء الاصطناعي حالياً — بحاجة إلى تدوين المحضر يدوياً"
-                .($notes !== '' ? ". ملاحظات أثناء الاجتماع: {$notes}" : '').'.',
-            'minutes' => "محضر اجتماع: {$meeting->title}\n"
-                .($meeting->when_label ? "التاريخ: {$meeting->when_label}\n" : '')
-                .'تعذّر التوليد الذكي — يُرجى تدوين أبرز ما دار والقرارات يدوياً.',
+            'summary' => $notes !== '' ? "ملاحظات مدوَّنة أثناء اجتماع «{$meeting->title}»:\n{$notes}" : null,
+            'minutes' => null,
             'decisions' => [],
         ];
     }
@@ -809,6 +841,8 @@ PROMPT;
      *
      * @param  Collection<int, User>  $candidates
      */
+    /** ⚠️ غير مستعملة حالياً: TicketAssignment استُبدلت بترتيب حتميّ سريع (كانت تعلّق الطلب حتى 150ث
+     *  عبر WebTimeLimit::raise، وقيمتها صفر لأن المسبح مُرشَّح بالتخصّص سلفاً). محفوظة للرجوع. */
     public function chooseLawyer(Ticket $ticket, Collection $candidates): ?int
     {
         if ($candidates->isEmpty()) {

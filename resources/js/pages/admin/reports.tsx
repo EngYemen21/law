@@ -1,7 +1,7 @@
 import React from 'react';
-import Icon from '@/lib/icons';
 import { Bars } from '@/components/babylon/admin-charts';
 import type { BarDatum } from '@/lib/admin-data';
+import Icon from '@/lib/icons';
 
 // تقارير الإدارة — تجميعات حقيقية من قاعدة البيانات
 
@@ -20,6 +20,12 @@ const AdminReports: React.FC<Props> = ({ stats, byDept }) => {
 
   return (
     <>
+      {/* كانت الشاشة بطاقات بلا أي تصدير أو طباعة */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <a className="btn soft sm" href="/admin/reports.pdf" download>
+          <Icon name="download" /> تصدير التقرير PDF
+        </a>
+      </div>
       <div className="stats">
         {cards.map((s, i) => (
           <div key={i} className={`stat ${s[0]}`}>

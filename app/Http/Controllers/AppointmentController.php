@@ -6,24 +6,35 @@ use App\Models\Appointment;
 use App\Support\AppointmentCardPdf;
 use App\Support\Mask;
 use App\Support\PdfRenderer;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
-use Inertia\Response;
 use Spatie\Browsershot\Browsershot;
 
 class AppointmentController extends Controller
 {
-    // قائمة مواعيد العميل الحالي (تقسّمها الواجهة إلى قادمة/سابقة)
-    public function index(Request $request): Response
+    /**
+     * تبويب «المواعيد» طُوي في التبويب الزمني الموحّد `/calendar`، وصفحته
+     * (resources/js/pages/appointments.tsx) صارت منظراً داخله لا صفحة Inertia مستقلّة.
+     *
+     * المسار يبقى ويُحوِّل — لا يُحذف: بريد تأكيد الموعد وإشعارات سابقة تشير إلى
+     * /appointments، وحذفه يعطي 404 لكل من يفتح رسالة قديمة.
+     *
+     * لاستعادة التبويب المستقلّ: أعِد الجسم المعلّق أدناه، وأعِد عنصر التنقّل في
+     * resources/js/lib/data.ts (المدخلان المعلّقان appts في TITLES وVIEW_ROUTE).
+     *
+     * الجسم السابق (محفوظ عمداً):
+     *   $appointments = Appointment::where('user_id', $request->user()->id)
+     *       ->with(['user', 'consult'])
+     *       ->latest('id')->get()
+     *       ->map(fn (Appointment $a) => $a->toCard($request->user()));
+     *
+     *   return Inertia::render('appointments', ['appointments' => $appointments]);
+     *
+     * القائمة نفسها تُبنى الآن في CalendarController::index بنفس الاستعلام حرفياً.
+     */
+    public function index(): RedirectResponse
     {
-        $appointments = Appointment::where('user_id', $request->user()->id)
-            ->with(['user', 'consult'])
-            ->latest('id')->get()
-            ->map(fn (Appointment $a) => $a->toCard($request->user()));
-
-        return Inertia::render('appointments', [
-            'appointments' => $appointments,
-        ]);
+        return redirect()->route('calendar');
     }
 
     /**

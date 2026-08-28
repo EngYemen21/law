@@ -23,7 +23,7 @@ class ExecutionCreation
         $lawyer = $case->assignedLawyer ?? $actor;
 
         $exec = DB::transaction(function () use ($case, $lawyer) {
-            $number = 'EXE-'.now()->year.'-'.str_pad((string) random_int(1, 9999), 4, '0', STR_PAD_LEFT);
+            $number = ReferenceNumber::next(Execution::class, 'number', 'EXE');
 
             $exec = Execution::create([
                 'user_id' => $case->user_id,
@@ -54,6 +54,18 @@ class ExecutionCreation
         ]);
 
         Notify::send($case->user_id, 'exec', 't-blue', "تم فتح طلب تنفيذ الحكم {$exec->number} لقضيتك {$case->number}. تابعه من «طلبات التنفيذ».");
+
+        Audit::log(
+            action: 'تحويل قضية إلى تنفيذ',
+            description: "فتح {$actor->name} ملف التنفيذ {$exec->number} من القضية {$case->number} وأُسند إلى {$exec->assigned_lawyer}.",
+            category: 'قضايا وتنفيذ',
+            severity: 'warning',
+            auditable: $exec,
+            auditableRef: $exec->number,
+            beforeState: ['القضية' => $case->number],
+            afterState: ['ملف التنفيذ' => $exec->number, 'المحامي' => $exec->assigned_lawyer],
+            user: $actor,
+        );
 
         return $exec;
     }

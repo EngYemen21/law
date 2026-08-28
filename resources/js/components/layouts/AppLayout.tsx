@@ -1,9 +1,9 @@
 import { router, usePage } from '@inertiajs/react';
 import React, { useEffect, useState } from 'react';
+import { useToast } from '@/components/babylon/Toast';
 import Sidebar from '@/components/navigation/Sidebar';
 import Topbar from '@/components/navigation/Topbar';
-import ImpersonationBanner from '@/components/navigation/ImpersonationBanner';
-import { useToast } from '@/components/babylon/Toast';
+// import ImpersonationBanner from '@/components/navigation/ImpersonationBanner'; // أُلغيت المعاينة 2026-08-28
 import { echo } from '@/lib/echo';
 
 interface AppLayoutProps {
@@ -23,21 +23,31 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
   // إشعارات لحظية: قناة المستخدم الخاصّة — تنبيه فوريّ + تحديث نقطة الجرس وقائمة الإشعارات بلا إعادة تحميل
   useEffect(() => {
-    if (!userId) return;
+    if (!userId) {
+return;
+}
+
     echo.private(`notifications.${userId}`).listen('.notify', (e: { text: string }) => {
       toast(e.text);
       router.reload({ only: ['unreadNotifications', 'notifications'] });
     });
-    return () => { echo.leave(`notifications.${userId}`); };
+
+    return () => {
+ echo.leave(`notifications.${userId}`); 
+};
   }, [userId]);
 
   // رسائل الخادم (flash.error / flash.success) → toast — استهلاك مشاركة موجودة أصلاً في HandleInertiaRequests
   useEffect(() => {
-    if (flashError) toast(flashError);
+    if (flashError) {
+toast(flashError);
+}
   }, [flashError, toast]);
 
   useEffect(() => {
-    if (flashSuccess) toast(flashSuccess);
+    if (flashSuccess) {
+toast(flashSuccess);
+}
   }, [flashSuccess, toast]);
 
   return (
@@ -51,7 +61,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       />
 
       <div className="main">
-        <ImpersonationBanner />
+        {/* <ImpersonationBanner /> — أُلغيت معاينة اللوحات 2026-08-28 */}
         <Topbar onMenuToggle={() => setSidebarOpen(!sidebarOpen)} />
         <div className="content" id="content">
           <div className="view">{children}</div>

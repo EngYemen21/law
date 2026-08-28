@@ -13,6 +13,7 @@ use App\Models\Ticket;
 use App\Models\User;
 use App\Services\LegalAiService;
 use App\Services\MailService;
+use App\Support\Audit;
 use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
 use App\Support\Live;
@@ -33,16 +34,32 @@ class TicketController extends Controller
     // امتدادات المستندات المسموح رفعها من العميل (عقود ممسوحة/صور هوية/مستندات نصّية) — لا تنفيذية/مضغوطة
     private const ALLOWED_DOC_MIMES = 'pdf,jpg,jpeg,png,doc,docx';
 
-    public function __construct(private LegalAiService $ai) {}
+    // الحقن بلا استعمال: صفر مرجع لـ$this->ai في الملفّ كلّه (انتقل التحليل إلى
+    // TriageTicketOnOpenJob). يُعلَّق لا يُحذف — إن عاد نداء AI مباشر فهذا موضعه.
+    // public function __construct(private LegalAiService $ai) {}
 
     // قائمة تذاكر العميل الحالي
     public function index(Request $request): Response
     {
-        $tickets = $request->user()->tickets()->latest('id')->get()
-            ->map(fn (Ticket $t) => $t->toCard());
+        $ticketsRaw = $request->user()->tickets()
+            ->with(['assignedLawyer', 'documents', 'legalCase'])
+            ->latest('id')
+            ->get();
+
+        $tickets = $ticketsRaw->map(fn (Ticket $t) => $t->toCard());
+
+        $counts = [
+            'total' => $tickets->count(),
+            'active' => $tickets->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
+            'needsAction' => $tickets->whereIn('status', ['بانتظار مستندات', 'بانتظار حجز الاستشارة', 'بانتظار الدفع'])->count(),
+            'inAnalysis' => $tickets->whereIn('status', ['جديدة', 'قيد التحليل', 'محالة للقسم القانوني'])->count(),
+            'completed' => $tickets->whereIn('status', ['مكتملة', 'مغلقة'])->count(),
+        ];
 
         return Inertia::render('tickets', [
             'tickets' => $tickets,
+            'counts' => $counts,
+            'availableStatuses' => TicketJourney::statuses(),
         ]);
     }
 
@@ -53,7 +70,7 @@ class TicketController extends Controller
             'type' => ['required', 'string', 'max:120'],
             'subject' => ['nullable', 'string', 'max:190'],
             'department' => ['nullable', 'string', 'max:120'],
-            'details' => ['nullable', 'string', 'max:5000'],
+            'details' => ['nullable', 'string'],
             'opponent_name' => ['nullable', 'string', 'max:190'],
             'opponent_id' => ['nullable', 'string', 'max:60'],
             'claim_amount' => ['nullable', 'integer', 'min:0'],
@@ -112,6 +129,14 @@ class TicketController extends Controller
 
         // تنبيهات فتح التذكرة: داخلي (موظفو المكتب + الإدارة العليا) + بريد (العميل والموظفين والإدارة)
         $this->notifyTicketOpened($ticket->fresh(), $request->user());
+
+        Audit::log(
+            action: 'فتح تذكرة',
+            description: "فتح العميل {$request->user()->name} التذكرة {$ticket->number} — {$type}.",
+            category: 'تذاكر',
+            auditable: $ticket,
+            auditableRef: $ticket->number,
+        );
 
         return redirect()->route('tickets.show', $ticket);
     }
@@ -177,7 +202,7 @@ class TicketController extends Controller
         }
 
         $data = $request->validate([
-            'body' => ['required', 'string', 'max:5000'],
+            'body' => ['required', 'string'],
         ]);
 
         $clientMsg = $ticket->messages()->create([

@@ -22,21 +22,29 @@ class ArchiveController extends Controller
         // «الجلسة منتهية» هي المعيار — الحالة قد تتحوّل («محولة إلى قضية») فتسقط جلسات منعقدة من الأرشيف
         $rows = Consult::with('user')->where('session', 'منتهية')->latest('id')->get()
             ->map(function (Consult $c) {
-                $hasZoom = $c->meet_id || $c->recording_url;
+                $hasZoom = $c->meet_id || $c->recording_url || $c->zoom_share_url;
 
                 return [
+                    'id' => $c->id,
                     'ref' => $c->ref,
+                    'channel' => $c->channel,
                     'ctype' => 'استشارة '.$c->channel,
                     'client' => Ticket::maskClient($c->user?->name ?? ''),
+                    'lawyer' => $c->lawyer ?: '—',
+                    'specialty' => $c->specialty ?: ($c->type ?: 'عام'),
+                    'subject' => $c->subject,
                     'date' => $c->whenLabel(),
                     'dur' => $c->duration_label ?: '—',
-                    // رابط التسجيل الفعلي — كان meet_link (رابط الانضمام الميّت بعد الجلسة) يُعرض «تسجيلاً»
+                    'total' => $c->total,
+                    'status' => $c->status,
+                    'summary' => $c->summary,
+                    'hasSummary' => ! empty($c->summary),
+                    'decisions' => $c->decisions ?? [],
+                    // مخرجات Zoom السحابية
                     'recording' => $c->recording_url ?: $c->zoom_share_url,
-                    // تنزيلات خادمية (تحتاج معرّف اجتماع Zoom أو رابطاً مخزّناً)
                     'zip' => $hasZoom ? route('admin.consults.recording', $c, absolute: false) : null,
                     'audioZip' => ($c->meet_id || $c->zoom_audio_url) ? route('admin.consults.audio', $c, absolute: false) : null,
                     'transcript' => ($c->transcript_path || $c->meet_id) ? route('admin.consults.transcript', $c, absolute: false) : null,
-                    'hasSummary' => ! empty($c->summary),
                 ];
             });
 

@@ -36,7 +36,10 @@ class GrandTourE2ETest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $employee = User::factory()->create(['role' => Role::Employee]);
         $employee->syncPermissions(Permission::all());
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        // القسم مطابق لقسم التذكرة: الإسناد الأوّل يشترط التخصّص الآن، وبلا متخصّص يُصعَّد
+        // الأمر عبر وظيفة مطابورة — وQueue::fake() في هذا المسار يمنعها. موضوع هذا الملفّ
+        // الرحلة الكاملة لا سياسة الإسناد (LawyerAssignmentPolicyTest يغطّيها).
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $lawyer->syncPermissions(Permission::all());
         $admin = User::factory()->create(['role' => Role::Admin]);
 

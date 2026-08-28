@@ -429,6 +429,8 @@ window.open(externalFallback, '_blank', 'noopener');
             {details.rows?.map((r, i) => (
               <div key={i} className="mroom-row"><span className="k">{r.k}</span><span className="v">{r.v}</span></div>
             ))}
+            {/* عُلّق بطلب صاحب المنتج (2026-08-26): قوائم ثابتة مختلقة لا بيانات حقيقية */}
+            {/*
             {details.agenda && (
               <div className="mroom-agd">
                 {!!details.agenda.before?.length && <><h5>قبل الاجتماع</h5><ul>{details.agenda.before.map((x, i) => <li key={i}>{x}</li>)}</ul></>}
@@ -436,6 +438,7 @@ window.open(externalFallback, '_blank', 'noopener');
                 {!!details.agenda.after?.length && <><h5>بعد الاجتماع</h5><ul>{details.agenda.after.map((x, i) => <li key={i}>{x}</li>)}</ul></>}
               </div>
             )}
+            */}
           </div>
         </aside>
       </div>

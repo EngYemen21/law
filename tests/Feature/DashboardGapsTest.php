@@ -40,7 +40,7 @@ class DashboardGapsTest extends TestCase
             ->assertInertia(fn ($p) => $p
                 ->where('navBadges./tickets', 1)      // المفتوحة له وحده
                 ->where('navBadges./invoices', 1)
-                ->where('navBadges./appointments', 1));
+                ->where('navBadges./calendar', 1));
 
         // عميل بلا سجلات يرى أصفاراً — كان يرى الأرقام الوهمية نفسها
         $this->actingAs($other)->get(route('dashboard'))

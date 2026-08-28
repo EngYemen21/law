@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\Role;
 use App\Models\User;
 use App\Services\TaqnyatVerifyService;
+use App\Support\Audit;
 use App\Support\EmailOtpService;
 use App\Support\OtpService;
 use App\Support\Phone;
@@ -113,9 +114,7 @@ class AuthController extends Controller
             throw ValidationException::withMessages(['code' => 'انتهت الجلسة، يرجى إعادة إرسال الرمز.']);
         }
 
-        if (! app(OtpService::class)->verify($otp['requestId'], $otp['phone'], $data['code'])) {
-            throw ValidationException::withMessages(['code' => 'رمز التحقّق غير صحيح أو منتهٍ.']);
-        }
+        $this->assertSmsCode($request, $otp, $data['code']);
 
         // حلّ الحسابات المفعّلة التي تُثبت ملكيّةَ **نفس الجوال** الذي وصله الرمز (لا الهُويّة وحدها).
         // أمنيّ: OTP يُثبت ملكيّة جوال واحد؛ فلا يُمنَح الدخول إلا لحسابات ذلك الجوال بالضبط.
@@ -206,6 +205,15 @@ class AuthController extends Controller
         Auth::login($user);
         $request->session()->regenerate();
 
+        Audit::log(
+            action: 'تسجيل دخول للنظام',
+            description: "سجّل {$user->name} دخولاً ناجحاً بعد التحقق من رمز الجوال.",
+            category: 'أمن وحماية',
+            auditable: $user,
+            auditableRef: $user->email,
+            user: $user,
+        );
+
         return redirect()->intended($user->role->home());
     }
 
@@ -269,9 +277,7 @@ class AuthController extends Controller
             throw ValidationException::withMessages(['code' => 'انتهت الجلسة، يرجى إعادة التسجيل.']);
         }
 
-        if (! app(OtpService::class)->verify($otp['requestId'], $otp['phone'], $data['code'])) {
-            throw ValidationException::withMessages(['code' => 'رمز التحقّق غير صحيح أو منتهٍ.']);
-        }
+        $this->assertSmsCode($request, $otp, $data['code']);
 
         // الجوال مؤكَّد → أرسل رمز البريد (الخطوة 2 من 2)
         $email = app(EmailOtpService::class)->issue($reg['email'], $reg['name']);
@@ -407,6 +413,40 @@ class AuthController extends Controller
     }
 
     /** بناء بنية جلسة عمليّة تحقّق SMS (تقنيات) الموحّدة. */
+    /**
+     * يتحقّق من رمز SMS ويحرس عدد المحاولات على حمولة الجلسة نفسها.
+     *
+     * كان الفشل لا يُحصى ولا يُبطل requestId، فيُعاد استعمال نفس العمليّة بلا نهاية —
+     * ورمز من أربعة أرقام مساحته 10000 احتمال. حدّ المعدّل وحده لا يكفي: هو زمنيّ
+     * ويُستأنف بعد دقيقة. نظير MAX_ATTEMPTS في مسار البريد (EmailOtpService).
+     */
+    private function assertSmsCode(Request $request, array $otp, string $code): void
+    {
+        // الحمولة تُعطَّل ولا تُحذف: حذفها يُفقد مرساةَ حدّ المعدّل (requestId) فيُعاد
+        // للمهاجم دلوٌ جديد، ويصير إبطال الرمز طريقاً لتجديد الحصّة بدل تضييقها.
+        if ((int) ($otp['attempts'] ?? 0) >= OtpService::MAX_ATTEMPTS) {
+            throw ValidationException::withMessages([
+                'code' => 'تجاوزت عدد المحاولات المسموح — اطلب رمزاً جديداً.',
+            ]);
+        }
+
+        if (app(OtpService::class)->verify($otp['requestId'], $otp['phone'], $code)) {
+            return;
+        }
+
+        $otp['attempts'] = (int) ($otp['attempts'] ?? 0) + 1;
+        $request->session()->put('otp', $otp);
+
+        Audit::log(
+            action: 'محاولة دخول فاشلة',
+            description: 'رمز تحقق خاطئ للجوال '.($otp['masked'] ?? '—').' (المحاولة '.$otp['attempts'].' من '.OtpService::MAX_ATTEMPTS.').',
+            category: 'أمن وحماية',
+            severity: 'warning',
+        );
+
+        throw ValidationException::withMessages(['code' => 'رمز التحقّق غير صحيح أو منتهٍ.']);
+    }
+
     private function otpSession(array $res, string $purpose, ?int $userId = null, ?string $nationalId = null): array
     {
         return [
@@ -418,6 +458,7 @@ class AuthController extends Controller
             'national_id' => $nationalId,
             'masked' => $res['masked_phone'],
             'mode' => $purpose,
+            'attempts' => 0,
         ];
     }
 

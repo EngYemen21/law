@@ -9,6 +9,7 @@ use App\Mail\MeetInviteMail;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\User;
+use App\Support\MeetInvitation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
@@ -35,7 +36,7 @@ class MeetingMailTest extends TestCase
         Mail::assertQueued(MeetingScheduledMail::class, fn ($m) => $m->hasTo('lawyer@example.com'));
     }
 
-    public function test_client_confirming_invite_emails_client(): void
+    public function test_publishing_invite_emails_client(): void
     {
         Mail::fake();
         $client = User::factory()->create(['role' => Role::Client, 'email' => 'c2@example.com']);
@@ -43,8 +44,10 @@ class MeetingMailTest extends TestCase
             'user_id' => $client->id, 'ref' => 'MR-9001', 'service' => 'نزاع تجاري',
             'type' => 'استشارة مرئية', 'day' => 'الاثنين', 'time' => '11:30', 'sent_by' => 'المكتب',
         ]);
-
-        $this->actingAs($client)->post(route('meetreqs.confirm', $req))->assertRedirect();
+        // المنطق انتقل من confirm إلى MeetInvitation: الجدولة تُنشئ الاجتماع، وannounce
+        // تُرسل بريد «اجتماع مجدول» للعميل. الاختبار ينادي موضعه الجديد لا مساراً محذوفاً.
+        $meeting = MeetInvitation::schedule($req, $client);
+        MeetInvitation::announce($req->fresh(), $meeting, $client);
 
         Mail::assertQueued(MeetingScheduledMail::class, fn ($m) => $m->hasTo('c2@example.com'));
     }

@@ -5,12 +5,14 @@ namespace App\Http\Controllers;
 use App\Enums\Role;
 use App\Models\Appointment;
 use App\Models\Consult;
+use App\Models\Document;
 use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Meeting;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Services\AdminDashboardService;
 use App\Support\TicketJourney;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -28,39 +30,159 @@ class DashboardController extends Controller
 {
     private const CLOSED = ['مكتملة', 'مغلقة'];
 
-    // لوحة العميل — عدّاداته ورحلة آخر تذكرة له
+    // لوحة العميل — بوابة العميل والكونسيرج القانوني 360 درجة
     public function client(Request $request): Response
     {
-        $uid = $request->user()->id;
-        $last = Ticket::where('user_id', $uid)->latest('id')->first();
+        $user = $request->user();
+        $uid = $user->id;
 
-        // القادمة تُشتق من الزمن الحقيقي (liveState) — when_kind المخزّنة لا تتحدّث بمرور الوقت
-        $myAppts = Appointment::where('user_id', $uid)->with(['user', 'consult'])->latest('id')->get();
-        $upcoming = $myAppts->filter(fn (Appointment $a) => $a->liveState()[0] === 'up')->values();
+        // 1. التذاكر النشطة ورحلة آخر تذكرة
+        $myTickets = Ticket::where('user_id', $uid)->with(['assignedLawyer'])->latest('id')->get();
+        $activeTickets = $myTickets->filter(fn (Ticket $t) => ! in_array($t->status, self::CLOSED, true))->values();
+        $lastTicket = $myTickets->first();
 
-        // غير المدفوعة مرتّبة بالاستحقاق (الأقرب أولاً، بلا استحقاق آخراً) — كانت بالأحدث إنشاءً
-        $unpaid = Invoice::where('user_id', $uid)->where('paid', false)
+        // 2. المواعيد والاستشارات الحية
+        $myAppts = Appointment::where('user_id', $uid)->with(['user', 'consult', 'lawyerUser'])->latest('id')->get();
+        $upcomingAppts = $myAppts->filter(fn (Appointment $a) => $a->liveState()[0] === 'up')->values();
+
+        // 3. الفواتير غير المسددة
+        $unpaidInvoices = Invoice::where('user_id', $uid)->where('paid', false)
             ->orderByRaw('due_at IS NULL')->orderBy('due_at')->latest('id')->get();
 
+        // 4. القضايا الجارية وجلسات المحاكم
+        $myCases = LegalCase::where('user_id', $uid)->with(['hearings', 'assignedLawyer'])->latest('id')->get();
+        $activeCases = $myCases->filter(fn (LegalCase $c) => ! in_array($c->status, ['مغلقة', 'مؤرشفة'], true))->values();
+
+        // 5. ملفات التنفيذ القضائي
+        $myExecutions = Execution::where('user_id', $uid)->latest('id')->get();
+        $activeExecutions = $myExecutions->filter(fn (Execution $e) => $e->stage === null || $e->stage < 9)->values();
+
+        // 6. الاجتماعات
+        $myMeetings = Meeting::where('user_id', $uid)->get();
+        $upcomingMeetings = $myMeetings->filter(fn (Meeting $m) => $m->isUpcoming())->values();
+
+        // 7. المستندات والتقارير الصادرة
+        $recentDocs = Document::where('user_id', $uid)->latest('id')->take(4)->get()
+            ->map(fn (Document $d) => $d->toCard());
+
+        // 8. المستشار القانوني المخصص (من القضايا أو التذاكر الحالية)
+        $advisorUser = $activeCases->first()?->assignedLawyer
+            ?? $activeTickets->first()?->assignedLawyer
+            ?? User::where('role', Role::Lawyer)->where('status', 'active')->first();
+
+        $assignedAdvisor = $advisorUser ? [
+            'name' => $advisorUser->name,
+            'title' => $advisorUser->title ?? 'المستشار القانوني',
+            'jobTitle' => $advisorUser->job_title ?? 'مستشار ومحامٍ معتمد',
+            'department' => $advisorUser->department ?? 'الاستشارات العامة',
+            'initials' => $advisorUser->avatar_initials ?? 'مح',
+        ] : null;
+
+        // 9. مركز التنبيهات الذكي اللحظي (Smart Action Center)
+        $actionAlerts = [];
+
+        // أ) جلسة مرئية يمكن الانضمام لها أو موعد اليوم
+        foreach ($upcomingAppts as $app) {
+            $consult = $app->consult;
+            if ($consult && $consult->canJoin()) {
+                $actionAlerts[] = [
+                    'id' => 'meet-'.$app->id,
+                    'type' => 'video_ready',
+                    'title' => 'جلستك المرئية جاهزة للانضمام الآن 🔴',
+                    'desc' => "استشارة «{$consult->subject}» مع {$app->lawyer} ({$app->time})",
+                    'cta' => 'دخول الجلسة الآن',
+                    // الغرفة المضمّنة لا رابط Zoom الخام: الخام كان يقذف العميل خارج المنصّة (بلا noopener)
+                    'link' => $consult->joinLink($user) ?: route('meetings'),
+                    'tone' => 'b-red',
+                ];
+            } elseif ($app->when_kind === 'today' || ($app->starts_at && $app->starts_at->isToday())) {
+                $actionAlerts[] = [
+                    'id' => 'today-'.$app->id,
+                    'type' => 'today_appt',
+                    'title' => 'لديك موعد استشارة مجدول اليوم 📅',
+                    'desc' => "{$app->type} مع {$app->lawyer} الساعة {$app->time} ({$app->place})",
+                    'cta' => 'عرض التفاصيل',
+                    'link' => route('appointments'),
+                    'tone' => 'b-cyan',
+                ];
+            }
+        }
+
+        // ب) تذاكر بانتظار إرفاق مستندات من العميل
+        foreach ($activeTickets->where('status', 'بانتظار مستندات') as $ticket) {
+            $actionAlerts[] = [
+                'id' => 'doc-'.$ticket->id,
+                'type' => 'missing_doc',
+                'title' => 'مطلوب إرفاق مستندات للتذكرة ⚠️',
+                'desc' => "تذكرة {$ticket->number} — {$ticket->type} بانتظار تزويد الفريق بالوثائق المطلوبة",
+                'cta' => 'إرفاق المستندات',
+                'link' => "/tickets/{$ticket->number}",
+                'tone' => 'b-amber',
+            ];
+        }
+
+        // ج) فواتير متأخرة تجاوزت موعد الاستحقاق
+        $overdueInvoices = $unpaidInvoices->filter(fn (Invoice $i) => $i->isOverdue());
+        if ($overdueInvoices->isNotEmpty()) {
+            $totalOverdue = $overdueInvoices->sum('amount');
+            $actionAlerts[] = [
+                'id' => 'inv-overdue',
+                'type' => 'overdue_invoice',
+                'title' => 'تنبيه: توجد فواتير متأخرة بانتظار السداد 💳',
+                'desc' => 'إجمالي المبلغ المستحق: '.number_format($totalOverdue).' ريال سعودي',
+                'cta' => 'سداد الفواتير',
+                'link' => route('invoices'),
+                'tone' => 'b-red',
+            ];
+        }
+
         return Inertia::render('dashboard', [
-            'name' => $request->user()->name,
+            'name' => $user->name,
             'counts' => [
-                'openTickets' => Ticket::where('user_id', $uid)->whereNotIn('status', self::CLOSED)->count(),
-                'upAppts' => $upcoming->count(),
-                // الحالة المخزّنة لا تتحدّث بمرور الوقت — الاشتقاق الحي (liveState) هو الفيصل
-                'upMeet' => Meeting::where('user_id', $uid)->get()
-                    ->filter(fn (Meeting $m) => $m->isUpcoming())->count(),
-                'dueInv' => $unpaid->count(),
-                // المتأخرة وحدها (تجاوزت استحقاقها) — كانت مدموجة في «المستحقة» فلا يميّز العميل العاجل
-                'overdueInv' => $unpaid->filter(fn (Invoice $i) => $i->isOverdue())->count(),
-                'myExec' => Execution::where('user_id', $uid)
-                    ->where(fn ($q) => $q->whereNull('stage')->orWhere('stage', '<', 9))
-                    ->count(),
+                'openTickets' => $activeTickets->count(),
+                'activeCases' => $activeCases->count(),
+                'upAppts' => $upcomingAppts->count(),
+                'upMeet' => $upcomingMeetings->count(),
+                'dueInv' => $unpaidInvoices->count(),
+                'overdueInv' => $overdueInvoices->count(),
+                'myExec' => $activeExecutions->count(),
             ],
-            // أقرب 3 مواعيد قادمة و3 فواتير مستحقّة — لبطاقتَي «مواعيدك القادمة» و«فواتير بانتظار السداد»
-            'upcomingAppts' => $upcoming->take(3)->map(fn (Appointment $a) => $a->toCard($request->user()))->values(),
-            'dueInvoices' => $unpaid->take(3)->map(fn (Invoice $i) => $i->toCard())->values(),
-            'lastTicket' => $last ? ['no' => $last->number, 'step' => TicketJourney::indexOf($last->status)] : null,
+            'upcomingAppts' => $upcomingAppts->take(4)->map(fn (Appointment $a) => $a->toCard($user))->values(),
+            'dueInvoices' => $unpaidInvoices->take(4)->map(fn (Invoice $i) => $i->toCard())->values(),
+            'activeCases' => $activeCases->take(4)->map(fn (LegalCase $c) => array_merge($c->toCard(), [
+                'department' => $c->department,
+                'assignedLawyer' => $c->assigned_lawyer ?: ($c->assignedLawyer?->name ?? 'المستشار المكلف'),
+                'nextHearingLabel' => $c->nextHearingLabel(),
+            ]))->values(),
+            'activeTickets' => $activeTickets->take(4)->map(fn (Ticket $t) => [
+                'no' => $t->number,
+                'type' => $t->type,
+                'subject' => $t->subject,
+                'status' => $t->status,
+                'tone' => $t->tone,
+                'priority' => $t->priority,
+                'lawyer' => $t->assigned_lawyer ?: 'بانتظار الإسناد',
+                'updatedAgo' => $t->updated_at?->locale('ar')->diffForHumans() ?? 'الآن',
+            ])->values(),
+            'activeExecutions' => $activeExecutions->take(3)->map(fn (Execution $e) => [
+                'number' => $e->number,
+                'subject' => $e->subject,
+                'court' => $e->court,
+                'stage' => $e->stage,
+                'status' => $e->status,
+                'tone' => $e->tone,
+                'amount' => $e->amount,
+                'lastAction' => $e->last_action,
+            ])->values(),
+            'lastTicket' => $lastTicket ? [
+                'no' => $lastTicket->number,
+                'step' => TicketJourney::indexOf($lastTicket->status),
+                'status' => $lastTicket->status,
+                'type' => $lastTicket->type,
+            ] : null,
+            'actionAlerts' => $actionAlerts,
+            'assignedAdvisor' => $assignedAdvisor,
+            'recentDocs' => $recentDocs,
         ]);
     }
 
@@ -177,9 +299,12 @@ class DashboardController extends Controller
         ]);
     }
 
-    // لوحة الإدارة — نظرة شاملة حقيقية
-    public function admin(): Response
+    // لوحة الإدارة — نظرة شاملة 360 درجة حقيقية
+    public function admin(Request $request, AdminDashboardService $adminDashboardService): Response
     {
+        $bypassCache = $request->boolean('fresh');
+        $data360 = $adminDashboardService->get360Data($bypassCache);
+
         // أحدث نشاط: آخر تذاكر/قضايا/استشارات
         $activity = collect()
             ->concat(Ticket::latest('id')->take(4)->get()->map(fn ($t) => ['ico' => 'folder', 'title' => 'تذكرة جديدة '.$t->number, 'sub' => $t->type]))
@@ -187,16 +312,18 @@ class DashboardController extends Controller
             ->concat(Consult::latest('id')->take(3)->get()->map(fn ($c) => ['ico' => 'video', 'title' => 'استشارة '.$c->ref, 'sub' => $c->channel]))
             ->take(8)->values();
 
-        return Inertia::render('admin/dashboard', [
-            'stats' => [
-                'clients' => User::where('role', Role::Client)->count(),
-                'openTickets' => Ticket::whereNotIn('status', self::CLOSED)->count(),
-                'revenue' => (int) Invoice::where('paid', true)->sum('amount'),
-                // الاعتماد لا يُطلب إلا بعد انعقاد الاجتماع — كان يعدّ القادمة أيضاً فيتضخّم الرقم
-                'pendingMeetings' => Meeting::where('approve', '!=', 'معتمد')->where('status', 'منتهٍ')->count(),
-            ],
+        $stats = [
+            'clients' => User::where('role', Role::Client)->count(),
+            'openTickets' => Ticket::whereNotIn('status', self::CLOSED)->count(),
+            'revenue' => (int) Invoice::where('paid', true)->sum('amount'),
+            // الاعتماد لا يُطلب إلا بعد انعقاد الاجتماع — كان يعدّ القادمة أيضاً فيتضخّم الرقم
+            'pendingMeetings' => Meeting::where('approve', '!=', 'معتمد')->where('status', 'منتهٍ')->count(),
+        ];
+
+        return Inertia::render('admin/dashboard', array_merge($data360, [
+            'stats' => $stats,
             'activity' => $activity,
-        ]);
+        ]));
     }
 
     /**
@@ -258,9 +385,15 @@ class DashboardController extends Controller
         Schema::enableForeignKeyConstraints();
 
         // تنظيف الملفات المؤقتة للاختبار
-        Storage::disk('local')->deleteDirectory('ticket-docs');
-        Storage::disk('local')->deleteDirectory('case-docs');
-        Storage::disk('local')->deleteDirectory('executions');
+        // كانت ثلاثة من سبعة: exec-docs و client-docs و invoice-proofs و recordings تبقى
+        // على القرص بعد التصفير بلا صفوف تدلّ عليها. لاحظ الفخّ: ExecService يكتب في
+        // `executions/{id}` بينما ExecFlowController يكتب في `exec-docs/{id}` — الاثنان لازمان.
+        foreach ([
+            'ticket-docs', 'case-docs', 'executions', 'exec-docs',
+            'client-docs', 'invoice-proofs', 'recordings', 'transcripts',
+        ] as $directory) {
+            Storage::disk('local')->deleteDirectory($directory);
+        }
 
         cache()->flush();
 

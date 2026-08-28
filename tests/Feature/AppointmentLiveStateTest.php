@@ -114,9 +114,12 @@ class AppointmentLiveStateTest extends TestCase
         $missed = $this->makeAppointment($client, ['starts_at' => now()->subDays(2)]);
         $this->linkConsult($missed, 'بانتظار الجلسة');
 
-        $this->actingAs($client)->get(route('appointments'))
+        // تبويب «المواعيد» طُوي في التبويب الزمني الموحّد؛ المسار القديم يُحوّل إليه
+        $this->actingAs($client)->get(route('appointments'))->assertRedirect(route('calendar'));
+
+        $this->actingAs($client)->get(route('calendar'))
             ->assertOk()
-            ->assertInertia(fn ($p) => $p->component('appointments')
+            ->assertInertia(fn ($p) => $p->component('calendar')
                 ->has('appointments', 2)
                 ->where('appointments.0.when', fn ($v) => in_array($v, ['up', 'past'], true)));
 

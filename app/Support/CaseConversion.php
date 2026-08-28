@@ -4,13 +4,16 @@ namespace App\Support;
 
 use App\Enums\Role;
 use App\Events\TicketMessageBroadcast;
+use App\Jobs\ClassifyConvertedCaseJob;
 use App\Mail\CaseConvertedMail;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Services\LegalAiService;
 use App\Services\MailService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * تحويل تذكرة استشارة مكتملة إلى قضية قانونية (يطابق cfConvert).
@@ -24,60 +27,175 @@ class CaseConversion
         return $ticket->status === 'مكتملة' && ! $ticket->legalCase()->exists();
     }
 
+    /**
+     * الحارس الموحّد لأهليّة التحويل — نفس رسائل المتحكّمَين حرفياً وبنفس ترتيب الفحص
+     * (اكتمال ← اعتماد ← ازدواج) حتى لا تتبدّل الرسالة الظاهرة في الحالات المركّبة.
+     *
+     * الوسيط المسمّى يُبقي **القاعدة الثلاثية** ظاهرة عند موضع النداء: الموظف وحده ينتظر
+     * اعتماد المحامي للنتيجة؛ والمحامي هو المعتمِد، والإدارة العليا هي الاعتماد النهائي،
+     * فكلاهما يمرّ بلا هذا الشرط. القاعدة مثبّتة باختبارات في CaseConversionTest.
+     */
+    public static function assertEligible(Ticket $ticket, bool $requireApprovedSummary): void
+    {
+        if ($ticket->status !== 'مكتملة') {
+            throw ValidationException::withMessages([
+                'ticket' => 'لا يمكن تحويل التذكرة لقضية إلا بعد اكتمالها.',
+            ]);
+        }
+
+        if ($requireApprovedSummary && ! $ticket->summary?->isApproved()) {
+            throw ValidationException::withMessages([
+                'ticket' => 'لا يمكن تحويل التذكرة لقضية إلا بعد اعتماد النتيجة من المستشار القانوني.',
+            ]);
+        }
+
+        if ($ticket->legalCase()->exists()) {
+            throw ValidationException::withMessages([
+                'ticket' => 'تم تحويل هذه التذكرة لقضية مسبقاً.',
+            ]);
+        }
+    }
+
+    /**
+     * محامي القضية — سلسلة احتياط ثمّ منع.
+     *
+     * لماذا: createCase كان ينسخ `$ticket->assigned_lawyer_id` كما هو، وTicketAssignment::assign
+     * يُعيد null إن لم يوجد محامٍ نشط في وضع التوزيع التلقائي. ومسار الموظف لا يفحص الإسناد،
+     * ومسار المحامي يفحصه بـguardAssigned لكنّه **يعفي الإدارة** — فتُنشأ قضية بـnull تختفي من
+     * قائمة كل محامٍ (Lawyer\CaseController يرشّح بـassigned_lawyer_id) ومن عدّادات لوحته:
+     * قضيّة يتيمة لا يعمل عليها أحد.
+     *
+     * الخطوة الثالثة يبلغها **مسار الإدارة وحده** — guardAssigned يرفض المحامي غير المسنَد قبلها.
+     */
+    private static function resolveLawyer(Ticket $ticket, User $actor): User
+    {
+        if ($ticket->assignedLawyer) {
+            return $ticket->assignedLawyer;
+        }
+
+        // مُسنِد المشروع الحتمي (تخصّص ← أقلّ حملاً ← أقدم معرّفاً) — يعمل بلا AI
+        if ($picked = TicketAssignment::pickLawyer($ticket)) {
+            return $picked;
+        }
+
+        if ($actor->role === Role::Lawyer) {
+            return $actor; // نظير `$case->assignedLawyer ?? $actor` في ExecutionCreation
+        }
+
+        throw ValidationException::withMessages([
+            'ticket' => 'لا يمكن تحويل التذكرة لقضية بلا محامٍ مسند — أسند التذكرة لمحامٍ أولاً.',
+        ]);
+    }
+
     /** ينشئ القضية (مع تحليل ذكي للنوع/القسم) ويُعلم العميل. يُعيد القضية. */
     public static function convert(Ticket $ticket, User $actor): LegalCase
     {
-        // تحليل ذكي يقترح نوع القضية والقسم المختص (يطابق cfAnalysis)
-        $analysis = app(LegalAiService::class)->classifyCase($ticket);
+        // التصنيف الحتمي فوراً بلا أي نداء خارجي: نداء classifyCase هنا كان يحبس الطلب
+        // **12.3 ثانية مقاسة حيّاً** (مقابل 1.18 للنقرة المرفوضة) ومهلة FPM ثلاثون —
+        // فتعثّر المزوّد يعني 504 وإعادة نقر. ClassifyConvertedCaseJob تُنقّحه بعد الإنشاء.
+        $analysis = LegalAiService::fallbackClassification($ticket);
 
-        $case = DB::transaction(function () use ($ticket, $analysis) {
-            $number = 'CASE-'.now()->year.'-'.str_pad((string) random_int(1, 9999), 4, '0', STR_PAD_LEFT);
+        // حلّ المحامي **قبل** المعاملة: كان يجري تحت lockForUpdate، وpickLawyer كان يتضمّن
+        // نداء AI بمهلة 150 ثانية — أي قفل صفٍّ محتجَز طوال المدّة. النداء أُحيل للتقاعد فصار
+        // الحلّ استعلامات قاعدة رخيصة، لكن إبعاده عن القفل يبقى الانتظام الصحيح الذي يوثّقه
+        // AssignTicketJob نفسه («اختيار المحامي خارج أي قفل»).
+        //
+        // سلامته: الحارس الحقيقي ضدّ التحويل المزدوج هو فهرس التفرّد على cases.ticket_id مع
+        // التقاط UniqueConstraintViolationException أدناه؛ والقفل طبقة ثانية. وقد يُحلّ محامٍ
+        // لتذكرة يُرفض تحويلها — بلا ضرر: resolveLawyer قراءة محضة، والكتابة تبقى تحت القفل.
+        $lawyer = self::resolveLawyer($ticket, $actor);
 
-            $case = LegalCase::create([
-                'user_id' => $ticket->user_id,
-                'ticket_id' => $ticket->id,
-                'number' => $number,
-                'type' => $analysis['type'],
-                'assigned_lawyer' => $ticket->assigned_lawyer,
-                'assigned_lawyer_id' => $ticket->assigned_lawyer_id,
-                'department' => $analysis['department'],
-                'status' => 'بانتظار اعتماد الأتعاب',
-                'tone' => CaseJourney::toneFor('بانتظار اعتماد الأتعاب'),
-                'update_text' => 'تم تحويل الاستشارة إلى قضية، بانتظار تحديد الإدارة للأتعاب',
-                'fee_status' => 'none',
+        try {
+            $case = DB::transaction(function () use ($ticket, $analysis, $lawyer) {
+                // قفل صفّ التذكرة ثمّ إعادة الفحص: حارس المتحكّمين فحص-ثمّ-تصرّف بلا قفل،
+                // وثلاثة مسارات تشير إلى الإجراء (موظف · محامٍ · إدارة) — فنقرتان متزامنتان
+                // كانتا تُنشئان قضيّتين لتذكرة واحدة. علاقة hasOne تُظهر واحدة للطاقم بينما
+                // قائمة العميل تُظهر الاثنتين وشاشة الأتعاب تعرض صفّين للتسعير.
+                $locked = Ticket::whereKey($ticket->id)->lockForUpdate()->first();
+
+                if ($locked === null || $locked->legalCase()->exists()) {
+                    throw ValidationException::withMessages([
+                        'ticket' => 'تم تحويل هذه التذكرة لقضية مسبقاً.',
+                    ]);
+                }
+
+                // يُكتب على التذكرة أيضاً فلا يتباعد سجلّها عن قضيّتها
+                if ((int) $ticket->assigned_lawyer_id !== (int) $lawyer->id) {
+                    $ticket->forceFill(['assigned_lawyer' => $lawyer->name, 'assigned_lawyer_id' => $lawyer->id])->save();
+                }
+
+                return self::createCase($ticket, $analysis, $lawyer);
+            });
+        } catch (UniqueConstraintViolationException) {
+            // شبكة أمان تحت القفل: خرق قيد التفرّد على ticket_id = سباق فاز به طلب آخر
+            throw ValidationException::withMessages([
+                'ticket' => 'تم تحويل هذه التذكرة لقضية مسبقاً.',
             ]);
+        }
 
-            $details = [];
-            if ($ticket->opponent_name) {
-                $details[] = "الخصم: {$ticket->opponent_name}";
-            }
-            if ($ticket->court_name) {
-                $details[] = "المحكمة المختصة: {$ticket->court_name}";
-            }
-            if ($ticket->claim_amount) {
-                $details[] = 'المبلغ المطالب به: '.number_format((float) $ticket->claim_amount).' ر.س';
-            }
-            $extraChips = ! empty($details) ? implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', $details)) : '';
+        // التنقيح الذكيّ بعد المعاملة — أفضل-جهد لا يُجهض تحويلاً وقع فعلاً
+        ClassifyConvertedCaseJob::dispatch($case);
 
-            $case->messages()->create([
-                'who' => 'ai',
-                'name' => 'المساعد القانوني',
-                'role' => 'تحليل',
-                'body' => '<p>تحليل ذكي للطلب:</p><div class="doc-list"><span class="doc-chip">نوع القضية: '.e($analysis['type']).'</span><span class="doc-chip">القسم المختص: '.e($analysis['department']).'</span>'.$extraChips.'</div>',
-                'time_label' => self::clock(),
-            ]);
-            $case->messages()->create([
-                'who' => 'system',
-                'name' => 'النظام',
-                'role' => 'تحويل',
-                'body' => "<p>تم تحويل طلب الاستشارة (التذكرة {$ticket->number}) إلى قضية قانونية. تتولّى الإدارة تحديد الأتعاب لتفعيل القضية.</p>",
-                'time_label' => self::clock(),
-            ]);
-
-            return $case;
-        });
+        Audit::log(
+            action: 'تحويل تذكرة إلى قضية',
+            description: "حوّل {$actor->name} التذكرة {$ticket->number} إلى القضية {$case->number} وأُسندت للمحامي {$case->assigned_lawyer}.",
+            category: 'قضايا وتنفيذ',
+            severity: 'warning',
+            auditable: $case,
+            auditableRef: $case->number,
+            beforeState: ['التذكرة' => $ticket->number],
+            afterState: ['القضية' => $case->number, 'المحامي' => $case->assigned_lawyer],
+            user: $actor,
+        );
 
         // رسالة داخل محادثة التذكرة يراها العميل + بثّ لحظي
+        return self::announce($ticket, $case, $actor);
+    }
+
+    /** إنشاء القضية ورسالتَي تحليلها وتحويلها — يُنادى داخل المعاملة وتحت القفل. */
+    private static function createCase(Ticket $ticket, array $analysis, User $lawyer): LegalCase
+    {
+        $number = ReferenceNumber::next(LegalCase::class, 'number', 'CASE');
+
+        $case = LegalCase::create([
+            'user_id' => $ticket->user_id,
+            'ticket_id' => $ticket->id,
+            'number' => $number,
+            'type' => $analysis['type'],
+            'assigned_lawyer' => $lawyer->name,
+            'assigned_lawyer_id' => $lawyer->id,
+            'department' => $analysis['department'],
+            'status' => 'بانتظار اعتماد الأتعاب',
+            'tone' => CaseJourney::toneFor('بانتظار اعتماد الأتعاب'),
+            'update_text' => 'تم تحويل الاستشارة إلى قضية، بانتظار تحديد الإدارة للأتعاب',
+            'fee_status' => 'none',
+        ]);
+
+        $case->messages()->create([
+            'who' => 'ai',
+            'name' => 'المساعد القانوني',
+            'role' => 'تحليل',
+            // مصدر واحد للنصّ يشاركه ClassifyConvertedCaseJob عند التنقيح
+            'body' => ClassifyConvertedCaseJob::analysisBody($ticket, $analysis),
+            'time_label' => self::clock(),
+        ]);
+        $case->messages()->create([
+            'who' => 'system',
+            'name' => 'النظام',
+            'role' => 'تحويل',
+            'body' => "<p>تم تحويل طلب الاستشارة (التذكرة {$ticket->number}) إلى قضية قانونية. تتولّى الإدارة تحديد الأتعاب لتفعيل القضية.</p>",
+            'time_label' => self::clock(),
+        ]);
+
+        return $case;
+    }
+
+    /**
+     * إعلام ما بعد الإنشاء — خارج المعاملة عمداً وكلّه أفضل-جهد:
+     * Live::push وMailService يبتلعان الفشل، فلا يُجهض بثّ متعثّر قضيةً أُنشئت فعلاً.
+     */
+    private static function announce(Ticket $ticket, LegalCase $case, User $actor): LegalCase
+    {
         $who = $actor->role === Role::Lawyer ? 'lawyer' : 'staff';
         $msg = $ticket->messages()->create([
             'who' => $who,

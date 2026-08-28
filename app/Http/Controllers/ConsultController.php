@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\Role;
 use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
 use App\Models\Consult;
+use App\Models\User;
 use App\Services\LegalAiService;
 use App\Services\MoyasarService;
 use App\Support\AppointmentCard;
@@ -12,6 +14,7 @@ use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
 use App\Support\Live;
 use App\Support\Mask;
+use App\Support\Notify;
 use App\Support\PaymentReconciler;
 use App\Support\PdfRenderer;
 use App\Support\ReportPrint;
@@ -31,16 +34,35 @@ use Spatie\Browsershot\Browsershot;
  */
 class ConsultController extends Controller
 {
-    // قائمة استشارات العميل الحالي
+    // قائمة استشارات العميل الحالي مع منظور 360 درجة للجلسات
     public function index(Request $request): Response
     {
-        $consults = Consult::with(['user', 'appointment'])
-            ->where('user_id', $request->user()->id)
+        $userId = $request->user()->id;
+
+        $consults = Consult::with(['user', 'appointment', 'assignedLawyer', 'invoice'])
+            ->where('user_id', $userId)
             ->latest('id')->get()
             ->map(fn (Consult $c) => $c->toClientCard());
 
+        $upcoming = $consults->filter(fn ($c) => in_array($c['session'], ['بانتظار الجلسة', 'جلسة جارية']) && ! ($c['missed'] ?? false) && ! in_array($c['status'], ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد', 'ملغاة']))->values();
+        $completed = $consults->filter(fn ($c) => $c['session'] === 'منتهية')->values();
+        $pendingBooking = $consults->filter(fn ($c) => in_array($c['status'], ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد']))->values();
+
+        // أقرب استشارة قادمة
+        $nextConsult = $upcoming->first();
+
+        $stats = [
+            'total' => $consults->count(),
+            'upcoming' => $upcoming->count(),
+            'completed' => $completed->count(),
+            'pendingBooking' => $pendingBooking->count(),
+            'reportsCount' => $consults->filter(fn ($c) => ! in_array($c['status'], ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد', 'ملغاة']))->count(),
+        ];
+
         return Inertia::render('myconsults', [
             'consults' => $consults,
+            'stats' => $stats,
+            'nextConsult' => $nextConsult,
         ]);
     }
 
@@ -178,14 +200,17 @@ class ConsultController extends Controller
     public function report(Request $request, Consult $consult): \Symfony\Component\HttpFoundation\Response
     {
         $user = $request->user();
-        abort_unless(
-            $consult->user_id === $user->id ||
-            $consult->lawyer_id === $user->id ||
-            $user->isAdmin() ||
-            $user->isEmployee() ||
-            $user->isLawyer(),
-            403
-        );
+
+        // كان الشرط `|| isEmployee() || isLawyer()` يُلغي ما قبله، فأي موظف أو محامٍ غير مسنَد
+        // يسحب تقرير أي عميل. وشرط الإسناد كان ميتاً أصلاً: لا عمود lawyer_id على consults.
+        // نفس نمط ExecFlowController::downloadDocument: صلاحية صريحة + عزل المحامي بإسناده.
+        // الموظف يرى سجلات المكتب عمداً (مكتب واحد بعد إزالة الفروع) لكن بصلاحيته؛
+        // والمحامي معزول بإسناده وحده — وهو العزل الذي كان مكسوراً هنا.
+        $isOwner = $consult->user_id === $user->id;
+        $isAssignedLawyer = $user->isLawyer() && $consult->assigned_lawyer_id === $user->id;
+        $isPermittedEmployee = $user->isEmployee() && $user->can('استقبال الاستشارات');
+
+        abort_unless($isOwner || $isAssignedLawyer || $isPermittedEmployee || $user->isAdmin(), 403);
 
         $payLabel = $consult->paid_at !== null ? 'مدفوعة' : ($consult->priced_at !== null ? 'بانتظار السداد' : 'بانتظار التسعير من الإدارة');
         $place = $consult->placeLabel();
@@ -255,5 +280,33 @@ class ConsultController extends Controller
             'consult' => $consult->toClientCard(),
             'selfName' => $request->user()->name,
         ]);
+    }
+
+    /**
+     * طلب العميل إعادة جدولة استشارته الفائتة — كانت الواجهة تقول «تواصل مع المكتب
+     * لإعادة الجدولة» نصاً بلا أي زرّ ولا قناة. يوثَّق بسجل التدقيق ويُشعَر المحامي
+     * المسند والإدارة؛ إعادة الجدولة الفعلية تبقى قرار المكتب (consults.reschedule).
+     */
+    public function rescheduleRequest(Request $request, Consult $consult): RedirectResponse
+    {
+        abort_unless($consult->user_id === $request->user()->id, 403);
+        abort_unless(
+            $consult->isMissed() || $consult->session === 'لم تُعقد' || $consult->status === 'لم يحضر',
+            422,
+            'طلب إعادة الجدولة متاح للجلسات الفائتة فقط.'
+        );
+
+        $consult->logAudit($request->user()->name, 'طلب إعادة الجدولة', '—', 'طلب العميل موعداً جديداً');
+        $consult->save();
+
+        $message = "طلب العميل إعادة جدولة الاستشارة الفائتة ({$consult->ref}) — حدّد موعداً جديداً من شاشة الاستشارات.";
+        if ($consult->assigned_lawyer_id) {
+            Notify::send($consult->assigned_lawyer_id, 'cal', 't-amber', $message);
+        }
+        foreach (User::where('role', Role::Admin)->get() as $admin) {
+            Notify::send($admin->id, 'cal', 't-amber', $message);
+        }
+
+        return back()->with('flash', 'أُرسل طلبك للمكتب — سيتواصل معك فريقنا بموعد جديد قريباً.');
     }
 }

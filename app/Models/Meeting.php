@@ -26,6 +26,7 @@ class Meeting extends Model
         'zoom_summary', 'zoom_summary_at',
         'recording_url', 'transcript_path', 'join_time', 'leave_time', 'duration_sec',
         'zoom_uuid', 'zoom_share_url', 'zoom_audio_url', 'zoom_participants_log', 'zoom_ai_next_steps',
+        'google_event_id',
     ];
 
     protected $casts = [
@@ -117,6 +118,7 @@ class Meeting extends Model
         }
 
         // قادم / مؤجل / بانتظار التأكيد — قادمة ما لم يفت موعدها
+        // («بانتظار التأكيد» حالة تاريخية: لا يكتبها مسار حيّ منذ إلغاء تأكيد العميل — الفرع دفاع عن سجلّات قديمة)
         if (! $this->isPast()) {
             $tone = match ($status) {
                 'مؤجل' => 'b-grey',
@@ -198,7 +200,8 @@ class Meeting extends Model
             Role::Lawyer => url('/lawyer/meetreqs'),
             Role::Employee => url('/employee/meetreqs'),
             Role::Admin => url('/admin/meetmgmt'),
-            default => url('/meetreqs'),
+            // وجهة العميل المباشرة — /meetreqs صار تحويلة إلى /meetings فلا داعي للقفزة
+            default => url('/meetings'),
         };
     }
 
@@ -224,7 +227,12 @@ class Meeting extends Model
             'link' => $canJoin ? $this->joinLink() : '',
             'minutes' => $approved ? $this->minutes : null,
             'summary' => $approved ? $this->summary : null,
-            // ملاحظة: العميل يرى المحضر/الملخص البشري المعتمَد فقط — لا ملخّص AI ولا رابط تسجيل
+            'dur' => $this->dur ?: '60 دقيقة',
+            'lawyer' => $this->assignedLawyer?->name ?? 'مستشار المكتب',
+            'caseRef' => $this->case_ref,
+            'type' => $this->type ?: 'اجتماع مرئي',
+            'decisions' => $approved ? ($this->decisions ?? []) : [],
+            'startsAt' => $this->starts_at?->toIso8601String(),
         ];
     }
 

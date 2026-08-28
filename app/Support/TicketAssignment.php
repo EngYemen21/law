@@ -4,13 +4,14 @@ namespace App\Support;
 
 use App\Enums\Role;
 use App\Events\TicketStatusBroadcast;
+use App\Jobs\EscalateUnassignedTicketJob;
 use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Services\LegalAiService;
 
 /**
- * الإسناد الأول للتذكرة — الذكاء الاصطناعي هو المُسنِد الأساسي للمحامي المختص.
+ * الإسناد الأول للتذكرة — **حتميّ بالكامل، بلا أي نداء ذكاء اصطناعي**.
  * منطق حتمي بالكامل يعمل ولو كان الذكاء الاصطناعي معطّلاً (اختبارات/غياب مزوّد): يفضّل مطابقة التخصّص
  * ثم الأقل حملاً ثم الأقدم. مصدر موحّد يُستدعى عند فتح التذكرة وعند الإحالة إن لزم.
  */
@@ -19,8 +20,14 @@ class TicketAssignment
     /** يُسنِد المحامي المختص. يُعيد المحامي المسند أو null إن لا محامٍ. */
     public static function assign(Ticket $ticket): ?User
     {
-        $lawyer = self::pickLawyer($ticket);
+        // الإسناد الأوّل يشترط التخصّص: بلا متخصّص تبقى التذكرة بلا محامٍ ويُصعَّد
+        // الأمر للإدارة (قرار صاحب المنتج: الإسناد ليس ملزَماً فوراً، ويمكن أن يقع
+        // أثناء المحادثة من شاشة التوزيع أو الإحالة).
+        $lawyer = self::pickLawyer($ticket, requireSpecialty: true);
         if (! $lawyer) {
+            // مطابورة: الإشعار والبريد لا يجوز أن يُبطئا فتح التذكرة ولا أن يُسقطاه
+            EscalateUnassignedTicketJob::dispatch($ticket->id);
+
             return null;
         }
 
@@ -45,8 +52,19 @@ class TicketAssignment
         return $lawyer;
     }
 
-    /** يختار المحامي المختص: مجموعة المرشحين (تخصّص مطابق إن وُجد) مرتّبة حتمياً، ثم اختيار الذكاء الاصطناعي. */
-    public static function pickLawyer(Ticket $ticket): ?User
+    // منطق التصعيد (الإسناد للإدارة العليا + الإشعار + البريد) انتقل إلى
+    // App\Jobs\EscalateUnassignedTicketJob ليجري في الطابور لا في طلب فتح التذكرة.
+
+    /**
+     * يختار المحامي المختص حتمياً: تخصّص مطابق ← أقلّ حملاً ← أقدم معرّفاً.
+     *
+     * $requireSpecialty: يعيد null إن لم يوجد محامٍ في قسم التذكرة، بدل السقوط على كل
+     * المحامين. الافتراضي false يحفظ سلوك المنادين القائمين (AssignTicketJob ·
+     * CaseConversion::resolveLawyer · DistributeController::auto) حيث أيّ محامٍ أفضل من لا شيء.
+     * الإسناد الأوّل وحده يمرّر true: إسناد تذكرة عمالية لمحامي عقارات **صامتاً** أسوأ من
+     * تركها للإدارة تُسنِدها بوعي (escalateUnassigned).
+     */
+    public static function pickLawyer(Ticket $ticket, bool $requireSpecialty = false): ?User
     {
         // المحامون النشطون في وضع التوزيع التلقائي فقط (الـ manual يُسنَد يدوياً من Distribute)
         $lawyers = User::where('role', Role::Lawyer)
@@ -67,14 +85,28 @@ class TicketAssignment
         // اقصر المرشحين على المطابقين للتخصّص إن وُجدوا، وإلا الكل
         $dept = $ticket->department;
         $deptMatched = $dept ? $lawyers->where('department', $dept)->values() : collect();
+        // الصرامة تنطبق **فقط** حين للتذكرة قسم معروف: «لا يوجد متخصّص» تفترض تخصّصاً
+        // معلوماً. والقسم اختياري في نموذج العميل، ويضبطه TriageTicketOnOpenJob **بعد**
+        // الإسناد لا قبله — فتصعيد كل تذكرة بلا قسم يُغرق الإدارة بلا فائدة.
+        if ($requireSpecialty && $dept && $deptMatched->isEmpty()) {
+            return null; // قسم معروف ولا محامي فيه — القرار يُصعَّد لا يُفرض
+        }
+
         $pool = $deptMatched->isNotEmpty() ? $deptMatched : $lawyers;
 
         // ترتيب حتمي: الأقل حملاً ثم الأقدم معرّفاً
         $ordered = $pool->sortBy(fn ($u) => sprintf('%09d-%09d', (int) ($openCounts[$u->id] ?? 0), $u->id))->values();
 
-        $id = app(LegalAiService::class)->chooseLawyer($ticket, $ordered);
-
-        return $ordered->firstWhere('id', $id) ?? $ordered->first();
+        // ⚠️ نداء chooseLawyer أُحيل للتقاعد. ثلاثة أسباب:
+        // (1) الكلفة: run() أوّل ما يفعل WebTimeLimit::raise(150) — فطلب فتح التذكرة
+        //     قد يبقى معلّقاً دقيقتين ونصفاً والعميل بلا تذكرة.
+        // (2) القيمة صفر: كان يُسأل «اختر الأنسب تخصّصاً» من مسبح مُرشَّح بالتخصّص سلفاً.
+        // (3) السابقة: rankLawyers أسفل نفس الملفّ في LegalAiService أُحيلت للتقاعد
+        //     لنفس السبب حرفياً («كانت تعلّق الطلب حتى 150ث»).
+        // محفوظ للرجوع:
+        //   $id = app(LegalAiService::class)->chooseLawyer($ticket, $ordered);
+        //   return $ordered->firstWhere('id', $id) ?? $ordered->first();
+        return $ordered->first();
     }
 
     /**

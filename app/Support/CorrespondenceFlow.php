@@ -19,7 +19,7 @@ class CorrespondenceFlow
     public static function create(User $lawyer, User $client, array $data): Correspondence
     {
         $corr = Correspondence::create([
-            'number' => 'MKH-'.now()->year.'-'.str_pad((string) random_int(1, 9999), 4, '0', STR_PAD_LEFT),
+            'number' => ReferenceNumber::next(Correspondence::class, 'number', 'MKH'),
             'user_id' => $client->id,
             'assigned_lawyer_id' => $lawyer->id,
             'lawyer' => $lawyer->name,

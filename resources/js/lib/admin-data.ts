@@ -137,7 +137,8 @@ export const FULL_MEETINGS: FullMeeting[] = RAW_MEETINGS.map((m, i) => ({
 }));
 
 export const MEET_STATUSES: [string, string][] = [
-  ['all', 'الكل'], ['قادم', 'القادمة'], ['بانتظار التأكيد', 'بانتظار التأكيد'], ['جارٍ', 'الجارية'],
+  // «بانتظار التأكيد» عُلّقت: حالة يتيمة منذ إلغاء تأكيد العميل — خيار مرشّح بلا نتائج أبداً
+  ['all', 'الكل'], ['قادم', 'القادمة'], /* ['بانتظار التأكيد', 'بانتظار التأكيد'], */ ['جارٍ', 'الجارية'],
   ['منتهٍ', 'المنتهية'], ['لم ينعقد', 'لم تنعقد'], ['مؤجل', 'المؤجلة'], ['ملغى', 'الملغاة'],
 ];
 export const MEET_TYPES_FULL = ['اجتماع مع عميل', 'اجتماع مع محامٍ', 'اجتماع مع موظف', 'اجتماع متعدد الموظفين', 'اجتماع داخلي', 'اجتماع الإدارة العليا', 'اجتماع مرتبط بقضية', 'اجتماع مرتبط باستشارة'];
@@ -153,7 +154,7 @@ export const MEET_TEMPLATES: [string, string][] = [
 // إذ كانت هنا نسخة وثانية سطرية داخل صفحة التفاصيل تخالفها فيظهر الاجتماع نفسه بلونين.
 
 // ── دعوات الاجتماعات (MEET_REQUESTS / MR_FLOW) ──
-export const MR_FLOW = ['دعوة مُرسلة للعميل', 'تأكيد حضور العميل', 'تنفيذ الجلسة', 'اعتماد الإدارة'];
+export const MR_FLOW = ['بانتظار موافقة الإدارة', 'معتمدة ومنشورة للعميل', 'تنفيذ الجلسة', 'اعتماد المحضر والملخص'];
 export interface MeetRequest {
   id: string; client: string; service: string; type: string;
   day: string; time: string; by: string; stage: number;
@@ -190,7 +191,7 @@ export interface PriceLogEntry { who: string; ts: number; changes: string[]; }
 export interface ClientNotif { ic: string; tone: string; text: string; time: string; link?: string | null; unread: boolean; }
 export const DEMO_CLIENT_NOTIFS: Record<string, ClientNotif[]> = {
   'عبدالله محمد العتيبي': [
-    { ic: 'cal', tone: 't-blue', text: 'وصلتك دعوة اجتماع («نزاع تجاري») من المكتب يوم الاثنين 29 يونيو 11:30 ص — يرجى تأكيد حضورك.', time: 'قبل ساعة', link: null, unread: true },
+    { ic: 'cal', tone: 't-blue', text: 'اجتماع مجدول («نزاع تجاري») مع المكتب يوم الاثنين 29 يونيو 11:30 ص — تجده في قسم الاجتماعات بالمنصة.', time: 'قبل ساعة', link: null, unread: true },
     { ic: 'doc', tone: 't-cyan', text: 'تم إرسال ملخص استشارتك المعتمد (SB-2026-1042) — اطّلع عليه في ملف التذكرة/القضية.', time: 'أمس', link: null, unread: false },
     { ic: 'video', tone: 't-green', text: 'تم تأكيد ودفع حجز استشارتك (مرئية) ليوم الثلاثاء 30 يونيو 11:30 ص. رابط الجلسة: https://salaselbabel.net/CN-2026-1042.', time: 'أمس', link: 'https://salaselbabel.net/CN-2026-1042', unread: false },
   ],
@@ -198,7 +199,7 @@ export const DEMO_CLIENT_NOTIFS: Record<string, ClientNotif[]> = {
     { ic: 'folder', tone: 't-amber', text: 'المكتب يطلب استكمال مستندات استشارتك (فصل تعسفي من العمل).', time: 'قبل ساعتين', link: null, unread: true },
   ],
   'شركة الأفق التجارية': [
-    { ic: 'cal', tone: 't-green', text: 'تم تأكيد حضورك لاجتماع («مراجعة عقد») يوم الأربعاء 01 يوليو 01:00 م. معرّف الاجتماع: SLS-204517.', time: 'أمس', link: 'https://salaselbabel.net/SLS-204517', unread: false },
+    { ic: 'cal', tone: 't-green', text: 'اعتمدت الإدارة اجتماع («مراجعة عقد») يوم الأربعاء 01 يوليو 01:00 م ونُشر في منصتك. معرّف الاجتماع: SLS-204517.', time: 'أمس', link: 'https://salaselbabel.net/SLS-204517', unread: false },
   ],
   'فهد علي الشهري': [],
 };

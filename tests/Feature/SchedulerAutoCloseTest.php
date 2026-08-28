@@ -88,7 +88,8 @@ class SchedulerAutoCloseTest extends TestCase
 
         $joined->refresh();
         $this->assertSame('منتهٍ', $joined->status);
-        $this->assertSame(90, $joined->attend); // الافتراضي كما في الإنهاء اليدوي
+        // لا نسبة مختلقة (كانت 90 مثبّتة): 0 = غير مسجَّلة وتُخفى من العرض — قرار صاحب المنتج 2026-08-26
+        $this->assertSame(0, $joined->attend);
         $this->assertSame(MeetRequest::STAGE_EXECUTED, $joinedReq->fresh()->stage);
 
         $this->assertSame('لم ينعقد', $missed->fresh()->status);

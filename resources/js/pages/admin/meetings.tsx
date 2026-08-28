@@ -1,9 +1,10 @@
 import { router } from '@inertiajs/react';
 import React from 'react';
-import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
-import { fmtActualDuration, type FullMeetingCard } from '@/lib/meeting-ui';
+import Icon from '@/lib/icons';
+import { fmtActualDuration  } from '@/lib/meeting-ui';
+import type {FullMeetingCard} from '@/lib/meeting-ui';
 
 // يطابق adMeetings + mApprove في index (82).html — الاعتماد حقيقي (يصل المحضر والملخص للعميل)
 
@@ -14,6 +15,8 @@ const AdminMeetings: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) 
     router.post(`/admin/meetings/${m.dbId}/approve`, {}, {
       preserveScroll: true,
       onSuccess: () => toast('تم اعتماد الاجتماع ومحضره'),
+      // الحارس الخادمي يرفض غير المكتمل/بلا مخرجات بـ422 — بلا onError كان الفشل صامتاً تماماً
+      onError: (e) => toast(Object.values(e)[0] ?? 'الاعتماد متاح بعد انتهاء الاجتماع وتوفر الملخص أو المحضر'),
     });
 
   const pending = meetings.filter((m) => m.approve !== 'معتمد').length;
@@ -46,8 +49,11 @@ const AdminMeetings: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) 
                 </button>
                 {m.approve === 'معتمد' ? (
                   <Badge text="معتمد" tone="b-green" />
-                ) : (
+                ) : m.status === 'منتهٍ' && (m.summary || m.minutes) ? (
                   <button className="btn sm" onClick={() => approve(m)} type="button"><Icon name="check" /> اعتماد</button>
+                ) : (
+                  /* الاعتماد بعد الانتهاء وتوفر المخرجات فقط — كما تفعل صفحة التفاصيل */
+                  <span className="chip muted">بانتظار المخرجات</span>
                 )}
               </div>
             </div>

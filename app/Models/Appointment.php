@@ -11,7 +11,9 @@ class Appointment extends Model
 {
     protected $fillable = [
         'user_id', 'ticket_id', 'ext_id', 'type', 'ico', 'lawyer', 'lawyer_id', 'day', 'time',
-        'starts_at', 'duration_min', 'place', 'status', 'tone', 'when_kind',
+        // google_event_id محجوز لمزامنة تقويم Google القادمة للمواعيد — لا كاتب له بعد
+        // (الاستشارات والاجتماعات تُزامَن عبر GoogleCalendarService::syncConsult/syncMeeting)
+        'starts_at', 'duration_min', 'place', 'status', 'tone', 'when_kind', 'google_event_id',
     ];
 
     protected $casts = [
@@ -125,6 +127,8 @@ class Appointment extends Model
             // بيانات بطاقة الموعد الغنيّة (حقيقيّة)
             'client' => $this->user?->name,
             'consultRef' => $this->consult?->ref,
+            // جسر إجراءات لوحة المواعيد: إعادة الجدولة/«لم يحضر» تمرّان عبر الاستشارة المرافقة
+            'consultId' => $this->consult?->id,
             'pay' => $this->consult?->paid_at ? 'مدفوع' : 'بانتظار السداد',
             // إضافة للتقويم بتوقيت حقيقي (كان الرابط بلا dates فيفتح حدثاً فارغاً)
             'gcal' => IcalendarService::googleUrl(
@@ -135,7 +139,8 @@ class Appointment extends Model
                 locationUrl: $this->consult?->joinLink($viewer) ?: (string) $this->place,
             ),
             // رابط الجلسة المرئية الحقيقي داخل المنصّة — فارغ لغير المرئية (يُخفى الزرّ)
-            'joinLink' => $this->consult?->channel === 'مرئية' ? $this->consult->joinLink($viewer) : '',
+            // canJoin شرط لازم: بلا الحكم الزمني كان الزرّ يظهر دائماً ويردّ الخادم 403 «لم يحن الموعد»
+            'joinLink' => $this->consult?->channel === 'مرئية' && $this->consult->canJoin() ? $this->consult->joinLink($viewer) : '',
         ];
     }
 }

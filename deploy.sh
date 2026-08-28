@@ -95,6 +95,16 @@ else
     echo "✅ عامل الطابور يعمل ($QUEUE_DRIVER)"
 fi
 
+# 12. تحقّق من المجدول (cron): بدونه لا تُطلَق روابط الجلسات ولا تُرسَل التذكيرات ولا
+# تُحسم الاجتماعات الفائتة — والأعطال صامتة تماماً: لا خطأ في أي سجلّ، فقط لا شيء يحدث.
+if crontab -l 2>/dev/null | grep -q "schedule:run"; then
+    echo "✅ المجدول مسجَّل في crontab"
+elif [ -f /etc/cron.d/laravel ] && grep -q "schedule:run" /etc/cron.d/laravel 2>/dev/null; then
+    echo "✅ المجدول مسجَّل في /etc/cron.d/laravel"
+else
+    echo "⚠️  لا مدخل cron لـschedule:run — لن تُطلَق روابط الجلسات ولا التذكيرات."
+    echo "    أضِفه: * * * * * cd $(pwd) && php artisan schedule:run >> /dev/null 2>&1"
+fi
 echo "=========================================="
 echo "✅ Deployment Completed Successfully!"
 echo "=========================================="

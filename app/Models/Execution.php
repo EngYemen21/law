@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ClipsPreviewText;
+use App\Models\Concerns\PurgesDocumentFiles;
 use App\Support\CorrFlow;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -9,6 +11,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Execution extends Model
 {
+    use ClipsPreviewText, PurgesDocumentFiles;
+
+    /** سطر المعاينة في بطاقات القوائم — varchar(255) يستقبل نصّ المستخدم بلا سقف. */
+    protected array $previewText = ['last_action'];
+
     protected $fillable = [
         'user_id', 'case_id', 'number', 'subject', 'assigned_lawyer', 'assigned_lawyer_id', 'court', 'status', 'tone', 'last_action',
         // تدفّق التنفيذ التجاريّ (10 مراحل)

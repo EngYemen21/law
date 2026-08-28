@@ -89,23 +89,24 @@ class ZoomMediaBackfillTest extends TestCase
         $meeting = $this->endedMeeting();
 
         // تنفيذ البناء (كما يفعله عامل الطابور أو المجدول الاستباقي)
-        $this->assertSame("recordings/meeting-{$meeting->ref}-video.zip", RecordingArchive::build($meeting, 'video'));
-        $this->assertSame("recordings/meeting-{$meeting->ref}-audio.zip", RecordingArchive::build($meeting, 'audio'));
+        // بصيغة الوسيط الأصلية: ضغط ZIP أُلغي (كان يعطّل التنزيل)
+        $this->assertSame("recordings/meeting-{$meeting->ref}-video.mp4", RecordingArchive::build($meeting, 'video'));
+        $this->assertSame("recordings/meeting-{$meeting->ref}-audio.m4a", RecordingArchive::build($meeting, 'audio'));
         $this->assertTrue(RecordingArchive::isReady($meeting, 'video'));
 
         // الفيديو — يُخدَم من القرص فوراً بمحتوى صحيح
         $res = $this->actingAs($admin)->get(route('admin.meetings.recording', $meeting));
-        $res->assertOk()->assertDownload('recording-'.$meeting->ref.'.zip');
-        $this->assertSame('VIDEO-BYTES', $this->zipEntry($meeting, 'video', 'mp4'));
+        $res->assertOk()->assertDownload('recording-'.$meeting->ref.'.mp4');
+        $this->assertSame('VIDEO-BYTES', Storage::disk('local')->get(RecordingArchive::localPath($meeting, 'video')));
 
         // الصوت (يلتقط ملف audio_only لا الفيديو)
         $this->actingAs($admin)->get(route('admin.meetings.audio', $meeting))
-            ->assertOk()->assertDownload('audio-'.$meeting->ref.'.zip');
-        $this->assertSame('AUDIO-BYTES', $this->zipEntry($meeting, 'audio', 'm4a'));
+            ->assertOk()->assertDownload('audio-'.$meeting->ref.'.m4a');
+        $this->assertSame('AUDIO-BYTES', Storage::disk('local')->get(RecordingArchive::localPath($meeting, 'audio')));
     }
 
-    /** يقرأ محتوى مُدخل داخل الأرشيف المحفوظ محلياً. */
-    private function zipEntry(Meeting $meeting, string $type, string $ext): string|false
+    /** يقرأ محتوى مُدخل داخل الأرشيف المحفوظ محلياً — عُلّق مع إلغاء ضغط ZIP. */
+    /* private function zipEntry(Meeting $meeting, string $type, string $ext): string|false
     {
         $tmp = tempnam(sys_get_temp_dir(), 'zip');
         file_put_contents($tmp, Storage::disk('local')->get(RecordingArchive::localPath($meeting, $type)));
@@ -116,7 +117,7 @@ class ZoomMediaBackfillTest extends TestCase
         @unlink($tmp);
 
         return $content;
-    }
+    } */
 
     public function test_meeting_transcript_is_fetched_from_cloud_and_cached_locally(): void
     {
@@ -130,12 +131,13 @@ class ZoomMediaBackfillTest extends TestCase
             ->assertOk()
             ->assertDownload('transcript-'.$meeting->ref.'.txt');
 
-        // جُلب ونُظّف من ترويسة VTT وخُزّن محلياً وحُدّث السجل — التنزيل التالي محلي مباشرة
+        // جُلب **خاماً كما ورد من Zoom** (قرار صاحب المنتج: النصّ الحرفي بالتوقيت والمتحدث —
+        // التنظيف السابق كان يحذف أسطر التوقيت فيستحيل عرض «الكلام مع الوقت») وخُزّن محلياً
         $meeting->refresh();
         $this->assertSame("transcripts/meeting-{$meeting->ref}.txt", $meeting->transcript_path);
         $text = Storage::disk('local')->get($meeting->transcript_path);
         $this->assertStringContainsString('مرحباً بكم في الجلسة', $text);
-        $this->assertStringNotContainsString('WEBVTT', $text);
+        $this->assertStringContainsString('-->', $text, 'أسطر التوقيت محفوظة — شرط عرض النصّ الحرفي');
     }
 
     public function test_any_employee_may_download_meeting_media(): void

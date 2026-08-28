@@ -7,6 +7,7 @@ use App\Jobs\AnalyzeExecutionDocumentJob;
 use App\Models\Execution;
 use App\Models\ExecutionDocument;
 use App\Services\MoyasarService;
+use App\Support\Audit;
 use App\Support\ExecService;
 use App\Support\Mask;
 use App\Support\Notify;
@@ -88,7 +89,15 @@ class ExecFlowController extends Controller
         ]);
 
         $files = $request->file('files', []);
-        ExecService::submit($request->user(), $data, is_array($files) ? $files : [$files]);
+        $execution = ExecService::submit($request->user(), $data, is_array($files) ? $files : [$files]);
+
+        Audit::log(
+            action: 'فتح طلب تنفيذ',
+            description: "فتح العميل {$request->user()->name} طلب التنفيذ {$execution->number} — {$data['subject']}.",
+            category: 'قضايا وتنفيذ',
+            auditable: $execution,
+            auditableRef: $execution->number,
+        );
 
         return back();
     }
@@ -166,6 +175,18 @@ class ExecFlowController extends Controller
             'close' => ExecService::close($execution),
         };
 
+        // موزّع مركزي: قيد واحد يلتقط كل انتقالات دورة التنفيذ (إحالة/قبول/أتعاب/عرض/إجراء/إغلاق…)
+        $fresh = $execution->fresh();
+        Audit::log(
+            action: 'إجراء على ملف تنفيذ: '.$action,
+            description: "نفّذ {$user->name} إجراء «{$action}» على ملف التنفيذ {$execution->number} — حالته الآن: {$fresh->status}.",
+            category: 'قضايا وتنفيذ',
+            severity: in_array($action, ['approveFee', 'setFee', 'close', 'reject', 'rejectOffer'], true) ? 'warning' : 'info',
+            auditable: $execution,
+            auditableRef: $execution->number,
+            afterState: ['الحالة' => $fresh->status, 'المرحلة' => $fresh->effectiveStage()],
+        );
+
         return back();
     }
 
@@ -222,7 +243,7 @@ class ExecFlowController extends Controller
         abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403); // عزل المحامي بالإسناد
         abort_if(in_array($execution->status, ['مكتمل', 'مغلق'], true) || (int) $execution->stage === 9, 422, 'لا يمكن إرسال رسائل على ملفّ تنفيذ مغلق.');
 
-        $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
+        $data = $request->validate(['body' => ['required', 'string']]);
 
         // هوية المرسِل حسب دوره (العميل ↔ المكتب) — البثّ اللحظيّ تلقائيّ في ExecutionMessage::booted
         [$who, $name, $senderRole] = match (true) {
@@ -303,6 +324,16 @@ class ExecFlowController extends Controller
 
         $msg = $decision === 'accept' ? "اعتُمد مستند «{$document->label}»." : "أُعيد مستند «{$document->label}» لإعادة الرفع.";
         Notify::send($execution->user_id, 'file', $decision === 'accept' ? 't-green' : 't-amber', "$msg (ملفّ التنفيذ {$execution->number})");
+
+        Audit::log(
+            action: $decision === 'accept' ? 'اعتماد مستند تنفيذ' : 'رفض مستند تنفيذ',
+            description: "{$user->name}: {$msg} (ملف التنفيذ {$execution->number}).",
+            category: 'قضايا وتنفيذ',
+            severity: $decision === 'accept' ? 'info' : 'warning',
+            auditable: $execution,
+            auditableRef: $execution->number,
+            afterState: ['المستند' => $document->label, 'القرار' => $decision === 'accept' ? 'مقبول' : 'مرفوض'],
+        );
 
         return back()->with('success', $msg);
     }

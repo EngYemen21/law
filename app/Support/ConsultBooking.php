@@ -13,6 +13,7 @@ use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Services\GoogleCalendarService;
 use App\Services\MailService;
 use App\Services\MoyasarService;
 use App\Services\ZoomService;
@@ -146,7 +147,7 @@ class ConsultBooking
             return Invoice::create([
                 'user_id' => $consult->user_id,
                 'consult_id' => $consult->id,
-                'number' => 'INV-'.now()->format('Y').'-'.str_pad((string) random_int(1, 9999), 4, '0', STR_PAD_LEFT),
+                'number' => InvoiceNumber::next(),
                 'description' => "استشارة {$consult->ref} — {$consult->channel}",
                 'amount' => $total,
                 'status' => 'مستحقة',
@@ -158,6 +159,17 @@ class ConsultBooking
         });
 
         Notify::send($consult->user_id, 'card', 't-amber', "صدرت فاتورة استشارتك ({$consult->ref}) بمبلغ {$total} ر.س شامل الضريبة — سدّدها لاختيار الموعد.");
+
+        Audit::log(
+            action: 'تسعير استشارة',
+            description: "سعّر {$actor->name} الاستشارة {$consult->ref} بمبلغ {$price} ر.س (الإجمالي {$total} ر.س) وصدرت الفاتورة {$invoice->number}.",
+            category: 'مالية وفواتير',
+            severity: 'warning',
+            auditable: $consult,
+            beforeState: ['الحالة' => 'بانتظار التسعير'],
+            afterState: ['السعر' => $price, 'الإجمالي' => $total, 'الحالة' => 'بانتظار السداد'],
+            user: $actor,
+        );
 
         Live::push(new ConsultStatusBroadcast($consult->fresh()));
 
@@ -321,6 +333,8 @@ class ConsultBooking
 
         self::sendBookingEmails($consult);
 
+        GoogleCalendarService::syncConsult($consult);
+
         Live::push(new ConsultStatusBroadcast($consult));
 
         return $consult;
@@ -409,7 +423,7 @@ class ConsultBooking
             Invoice::create([
                 'user_id' => $client->id,
                 'consult_id' => $consult->id,
-                'number' => 'INV-'.now()->format('Y').'-'.str_pad((string) random_int(1, 9999), 4, '0', STR_PAD_LEFT),
+                'number' => InvoiceNumber::next(),
                 'description' => "استشارة {$consult->ref} — {$m['label']}",
                 'amount' => $total,
                 'status' => 'مدفوعة',
@@ -436,6 +450,8 @@ class ConsultBooking
         }
 
         self::sendBookingEmails($consult);
+
+        GoogleCalendarService::syncConsult($consult);
 
         // بثّ لحظي — شاشات المكتب المفتوحة (استقبال الاستشارات/الطلبات) كانت لا تعلم بالحجز الفوري
         Live::push(new ConsultStatusBroadcast($consult));
@@ -496,7 +512,7 @@ class ConsultBooking
         return [
             'meta' => $m,
             'type' => preg_replace('/^القسم\s+/u', '', (string) $dept) ?: 'عام',
-            'ref' => 'CN-'.now()->format('Y').'-'.random_int(1000, 9999),
+            'ref' => ReferenceNumber::next(Consult::class, 'ref', 'CN'),
             'lawyer' => $lawyer,
             'lawyerId' => $lawyerUser?->id,
             'subject' => $subject,

@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\CaseHearing;
+use App\Support\EventStatus;
 use App\Support\Notify;
 use Illuminate\Console\Command;
 
@@ -27,7 +28,9 @@ class AutoLapseHearings extends Command
             ->get();
 
         foreach ($lapsed as $hearing) {
-            $hearing->update(['status' => 'بانتظار تسجيل النتيجة']);
+            // السلسلة الموحَّدة: كانت «بانتظار تسجيل النتيجة» سلسلة ثانية لا تعرفها شروط أزرار
+            // تسجيل النتيجة (تشترط «مجدولة») ولا خريطة الألوان — فتختفي الأزرار وتزرقّ الشارة
+            $hearing->update(['status' => EventStatus::HEARING_LAPSED]);
 
             if ($case = $hearing->legalCase) {
                 // تثبيت «الجلسة القادمة» المخزّنة بعد خروج الفائتة من المجدولة

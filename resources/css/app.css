@@ -6,3 +6,172 @@
 
 /* اتجاه الصفحة من اليمين لليسار (الأصل يضبطه عبر <html dir="rtl">) */
 html { direction: rtl; }
+
+/* ============================================================
+   تنسيقات الاستجابة للشاشات الصغيرة والمتوسطة (Responsive Dashboard)
+   ============================================================ */
+
+.client-dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.dashboard-tabs-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+}
+
+.dashboard-tabs-nav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dashboard-row-item {
+  background: var(--paper-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.dashboard-row-item:hover {
+  background: var(--paper-3, rgba(0, 0, 0, 0.02));
+}
+
+@media (max-width: 1024px) {
+  .client-dashboard-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard-tabs-container {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .dashboard-tabs-nav {
+    overflow-x: auto;
+    white-space: nowrap;
+    width: 100%;
+    padding-bottom: 6px;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+  }
+  .dashboard-tabs-nav .btn {
+    flex: 0 0 auto;
+  }
+}
+
+@media (max-width: 520px) {
+  /* عالمية عمداً: .hero-cta مشترك بين اللوحات الأربع، والتمدّد بعمودين على الجوال
+     تحسين متجانس لها كلّها — لا حاصر دور في الـDOM يسمح بحصر أنظف */
+  .hero-cta {
+    width: 100%;
+  }
+  .hero-cta .hero-b {
+    flex: 1 1 calc(50% - 6px);
+    justify-content: center;
+  }
+  .dashboard-row-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .dashboard-row-item > div:first-child {
+    width: 100%;
+  }
+  .dashboard-row-item button,
+  .dashboard-row-item .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+
+/* ── شريط ترشيح التبويب الزمني ──
+   صفّان: البحث والمدى الزمني · ثم صفّ واحد يجمع الصنف والحالة والترتيب.
+   الأصناف هنا لا في style مضمّن: التنسيق المتجاوب يحتاج media query. */
+.tl-bar { display: grid; gap: 12px; }
+
+.tl-line { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+/* حقل البحث بأيقونة داخلية */
+.tl-search { position: relative; flex: 1 1 260px; min-width: 200px; }
+.tl-search .input { padding-inline-start: 38px; }
+.tl-search .tl-ic {
+  position: absolute; inset-inline-start: 12px; top: 50%;
+  transform: translateY(-50%); color: var(--faint); pointer-events: none; display: flex;
+}
+
+/* مجموعة المدى الزمني — إطار واحد يضمّ الحقلين فيُقرآن كوحدة لا كحقلين متجاورين */
+.tl-range {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: #fff; border: 1.4px solid var(--line); border-radius: var(--r-sm);
+  padding: 4px 10px; flex: 0 1 auto;
+}
+.tl-range:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(14,92,156,.12); }
+.tl-range .tl-lbl { font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.tl-range input[type="date"] {
+  width: auto; min-width: 132px; border: none; box-shadow: none;
+  padding: 6px 2px; font-size: 13px; background: transparent;
+}
+.tl-range input[type="date"]:focus { box-shadow: none; border: none; }
+.tl-range .tl-sep { width: 1px; align-self: stretch; background: var(--line-soft); }
+
+/* الصفّ الجامع: الصنف يسار، والحالة والترتيب يمين */
+.tl-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.tl-kinds { display: inline-flex; gap: 4px; background: var(--paper-2);
+  border: 1px solid var(--line-soft); border-radius: 999px; padding: 4px; flex-wrap: wrap; }
+.tl-kind {
+  display: inline-flex; align-items: center; gap: 6px; border-radius: 999px;
+  padding: 6px 13px; font-size: 12.5px; font-weight: 700; color: var(--muted);
+  background: transparent; border: none; transition: .15s; white-space: nowrap;
+}
+.tl-kind:hover { color: var(--primary); }
+.tl-kind[aria-pressed="true"] { background: #fff; color: var(--primary); box-shadow: 0 2px 6px -2px rgba(19,49,79,.18); }
+.tl-kind .tl-n { font-size: 11px; font-weight: 800; opacity: .75; }
+
+.tl-picks { display: inline-flex; gap: 8px; margin-inline-start: auto; flex-wrap: wrap; }
+.tl-picks select { width: auto; min-width: 148px; padding-block: 9px; font-size: 13px; }
+
+@media (max-width: 720px) {
+  .tl-range { width: 100%; justify-content: space-between; }
+  .tl-picks { margin-inline-start: 0; width: 100%; }
+  .tl-picks select { flex: 1 1 140px; min-width: 0; }
+  .tl-kinds { width: 100%; justify-content: center; }
+}
+
+/* ── إصلاحات تدقيق إعادة تصميم لوحة العميل (2026-08-25) ── */
+
+/* شبكة الإحصاء تتبع عدد بطاقاتها: babylon يثبّتها على 5 أعمدة فيظهر عمود فارغ مع 4 بطاقات.
+   محصور فوق 1080px كي لا يمسّ تكديس الجوال المعرَّف في babylon.css:784+ */
+@media (min-width: 1081px) {
+  .stats:has(> .stat:nth-child(4):last-child) { grid-template-columns: repeat(4, 1fr); }
+  .stats:has(> .stat:nth-child(3):last-child) { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* بحث داخل الصفحة (myconsults · meetings): الصنف .search مخصّص لبحث الشريط العلوي
+   وتُخفيه قاعدة الجوّال .search{display:none} في babylon.css:788 — فاختفى بحث الصفحتين
+   على الجوال. صنف مستقل بنفس المظهر يبقى ظاهراً في كل المقاسات. */
+.page-search{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;color:var(--faint)}
+.page-search input{border:none;outline:none;background:none;font-family:inherit;font-size:13px;width:100%;color:var(--ink)}
+.page-search .ic{width:16px;height:16px;stroke:var(--faint)}
+
+/* صنفان كانا مستعملَين بلا تعريف (يعملان بالصدفة عبر style المضمّن أو أساس .btn):
+   تعريفهما يجعل النيّة حقيقية ويصمد إن أُزيل الـstyle المضمّن لاحقاً */
+.chip.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+.btn.pri{background:var(--brand);color:#fff}

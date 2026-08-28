@@ -1,7 +1,7 @@
 import axios from 'axios';
 import React, { useState } from 'react';
-import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
+import Icon from '@/lib/icons';
 
 // مختبر التحليل والصياغة القانونية للمحامي والمستشار — Legal Analysis & Drafting Lab
 
@@ -134,13 +134,16 @@ const LawyerAssistant: React.FC<Props> = ({ refs }) => {
   const generate = async () => {
     if (!ctx.trim() && !ref) {
       toast('يرجى كتابة سياق الحالة أو اختيار مرجع تذكرة/قضية');
+
       return;
     }
 
     setBusy(true);
     const kindToSend = selectedQuick || tab;
+
     try {
-      const { data } = await axios.post('/lawyer/assistant/generate', {
+      // الصفحة تُعرض من لوحتي المحامي والإدارة — كل لوحة تنادي مسارها (قرار 2026-08-28)
+      const { data } = await axios.post(`${window.location.pathname.startsWith('/admin') ? '/admin' : '/lawyer'}/assistant/generate`, {
         kind: kindToSend,
         docType: type,
         ref,
@@ -156,7 +159,10 @@ const LawyerAssistant: React.FC<Props> = ({ refs }) => {
   };
 
   const downloadDraft = () => {
-    if (!draft) return;
+    if (!draft) {
+return;
+}
+
     const blob = new Blob([draft], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -182,6 +188,7 @@ const LawyerAssistant: React.FC<Props> = ({ refs }) => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, marginBottom: 18 }}>
         {QUICK_ACTIONS.map((qa) => {
           const isSelected = selectedQuick === qa.id;
+
           return (
             <div
               key={qa.id}
@@ -227,7 +234,9 @@ const LawyerAssistant: React.FC<Props> = ({ refs }) => {
           <div className="picker-grid" style={{ marginBottom: 14 }}>
             <div className="field">
               <label>نوع الصياغة / الوثيقة</label>
-              <select value={type} onChange={(e) => { setType(e.target.value); setSelectedQuick(null); }}>
+              <select value={type} onChange={(e) => {
+ setType(e.target.value); setSelectedQuick(null); 
+}}>
                 {(activeTab.items.includes(type) ? activeTab.items : [type, ...activeTab.items]).map((x) => (
                   <option key={x} value={x}>{x}</option>
                 ))}

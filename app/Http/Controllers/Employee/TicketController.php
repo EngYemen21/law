@@ -12,6 +12,7 @@ use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Services\LegalAiService;
+use App\Support\Audit;
 use App\Support\CaseConversion;
 use App\Support\ConsultBooking;
 use App\Support\Live;
@@ -37,12 +38,14 @@ class TicketController extends Controller
 {
     public function index(): Response
     {
-        $allTickets = Ticket::with(['user', 'assignedLawyer'])->withExists('legalCase')
+        $allTickets = Ticket::with(['user', 'assignedLawyer', 'summary'])->withExists('legalCase')
             ->latest('id')->get();
 
         $tickets = $allTickets->map(function (Ticket $t) {
             $card = $t->toEmployeeCard();
             $card['converted'] = (bool) $t->legal_case_exists;
+            // شرط زرّ «تحويل لقضية»: الخادم يشترط ملخصاً معتمداً — القائمة كانت بلا هذا الحقل فتعرض الزرّ ثم 422
+            $card['summaryApproved'] = (bool) $t->summary?->isApproved();
             $card['updatedAgo'] = $t->updated_at?->locale('ar')->diffForHumans() ?? 'الآن';
             $card['createdAgo'] = $t->created_at?->locale('ar')->diffForHumans() ?? 'الآن';
 
@@ -97,6 +100,8 @@ class TicketController extends Controller
                 'mobile' => $ticket->user?->phone,
                 'openedAt' => $ticket->created_at?->locale('ar')->translatedFormat('j F Y'),
                 'priority' => $ticket->priority ?: 'متوسطة',
+                // الموظف لا يحوّل قبل اعتماد المحامي — الزرّ يُخفى بدل أن يُعرَض ويُرفض بـ422
+                'summaryApproved' => (bool) $ticket->summary?->isApproved(),
             ]),
             'clientStats' => $clientStats,
             'channel' => 'ticket.'.$ticket->id,
@@ -112,7 +117,7 @@ class TicketController extends Controller
     // ردّ الموظف (يراه العميل ضمن نفس التذكرة) — بثّ لحظي معزول بالمعاملة
     public function reply(Request $request, Ticket $ticket): HttpResponse
     {
-        $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
+        $data = $request->validate(['body' => ['required', 'string']]);
 
         $msg = null;
         DB::transaction(function () use ($ticket, $request, $data, &$msg) {
@@ -131,6 +136,14 @@ class TicketController extends Controller
             DB::afterCommit(function () use ($msg) {
                 Live::push(new TicketMessageBroadcast($msg));
             });
+
+            Audit::log(
+                action: 'رد على تذكرة',
+                description: "ردّ {$request->user()->name} (خدمة العملاء) على التذكرة {$ticket->number}.",
+                category: 'تذاكر',
+                auditable: $ticket,
+                auditableRef: $ticket->number,
+            );
         }
 
         return response()->noContent();
@@ -175,6 +188,16 @@ class TicketController extends Controller
 
         $ticket->update(['last_message' => 'حُوّلت التذكرة إلى طلب استشارة '.$m['label'], 'date_label' => 'الآن']);
         Notify::send($ticket->user_id, 'cal', 't-blue', "حوّل المكتب تذكرتك {$ticket->number} إلى طلب استشارة ({$consult->ref}) — ستصلك الفاتورة فور التسعير.");
+
+        Audit::log(
+            action: 'تحويل تذكرة إلى استشارة',
+            description: "حوّل {$request->user()->name} التذكرة {$ticket->number} إلى طلب استشارة {$consult->ref} ({$m['label']}).",
+            category: 'تذاكر',
+            severity: 'warning',
+            auditable: $ticket,
+            auditableRef: $ticket->number,
+            afterState: ['الاستشارة' => $consult->ref, 'القناة' => $m['label']],
+        );
 
         return response()->noContent();
     }
@@ -264,7 +287,7 @@ class TicketController extends Controller
     // ملاحظة داخلية (لا يراها العميل) — تُبثّ على قناة الموظفين فقط معزولة بالمعاملة
     public function note(Request $request, Ticket $ticket): HttpResponse
     {
-        $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
+        $data = $request->validate(['body' => ['required', 'string']]);
 
         $msg = null;
         DB::transaction(function () use ($ticket, $request, $data, &$msg) {
@@ -423,21 +446,10 @@ class TicketController extends Controller
     // تحويل التذكرة المكتملة إلى قضية (يشترط اعتماد المستشار المسبق للنتيجة)
     public function convertToCase(Request $request, Ticket $ticket): RedirectResponse
     {
-        if ($ticket->status !== 'مكتملة') {
-            throw ValidationException::withMessages([
-                'ticket' => 'لا يمكن تحويل التذكرة لقضية إلا بعد اكتمالها.',
-            ]);
-        }
-        if (! $ticket->summary?->isApproved()) {
-            throw ValidationException::withMessages([
-                'ticket' => 'لا يمكن تحويل التذكرة لقضية إلا بعد اعتماد النتيجة من المستشار القانوني.',
-            ]);
-        }
-        if ($ticket->legalCase()->exists()) {
-            throw ValidationException::withMessages([
-                'ticket' => 'تم تحويل هذه التذكرة لقضية مسبقاً.',
-            ]);
-        }
+        // الموظف وحده ينتظر اعتماد المحامي للنتيجة — المحامي هو المعتمِد والإدارة
+        // العليا هي الاعتماد النهائي، فكلاهما يمرّ بـfalse. القاعدة الثلاثية مثبّتة
+        // باختبارات في CaseConversionTest كي لا تُوحَّد سهواً.
+        CaseConversion::assertEligible($ticket, requireApprovedSummary: true);
 
         CaseConversion::convert($ticket, $request->user());
 

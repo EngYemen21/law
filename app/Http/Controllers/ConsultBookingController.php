@@ -21,17 +21,35 @@ class ConsultBookingController extends Controller
 {
     public function index(Request $request): Response
     {
+        $user = $request->user();
+
         // طلبات استشارة العميل الحالية بدورة الحجز (بانتظار التسعير/السداد/تحديد الموعد)
         // تُعرض في نفس صفحة الحجز (مطابقة لدمج القائمة+النموذج بالتصميم المرجعي)
-        $pending = Consult::where('user_id', $request->user()->id)
+        $pending = Consult::where('user_id', $user->id)
             ->whereIn('status', Consult::PRE_SESSION_STATUSES)
             ->latest('id')->get()
             ->map(fn (Consult $c) => $c->toClientCard());
+
+        // stats عُلّقت (2026-08-25): الواجهة المعاد تصميمها لا تعرضها — ثلاث استعلامات
+        // كانت تُنفَّذ وتُرسَل بلا مستهلك. تُعاد بإزالة التعليق إن عادت للواجهة.
+        // $activeConsultsCount = Consult::where('user_id', $user->id)
+        //     ->whereIn('session', ['بانتظار الجلسة', 'جلسة جارية'])
+        //     ->count();
+        // $completedConsultsCount = Consult::where('user_id', $user->id)
+        //     ->where('session', 'منتهية')
+        //     ->count();
+        // $stats = [
+        //     'pendingCount' => $pending->count(),
+        //     'activeCount' => $activeConsultsCount,
+        //     'completedCount' => $completedConsultsCount,
+        //     'totalRequested' => Consult::where('user_id', $user->id)->count(),
+        // ];
 
         return Inertia::render('book', [
             'prices' => Setting::consultPrices(),
             'specialties' => Specialties::all(),
             'pending' => $pending,
+            // 'stats' => $stats,
         ]);
     }
 

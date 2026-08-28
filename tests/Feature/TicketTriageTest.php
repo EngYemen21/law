@@ -16,6 +16,7 @@ use Tests\TestCase;
 /**
  * الوكيل التشغيلي الذكي للتذاكر — الفرز الآلي وطلب المستندات والإحالة الآلية والتصعيد.
  */
+// المحامون بقسم التذكرة: الإسناد الأوّل يشترط التخصّص (LawyerAssignmentPolicyTest)
 class TicketTriageTest extends TestCase
 {
     use RefreshDatabase;
@@ -74,7 +75,7 @@ class TicketTriageTest extends TestCase
     {
         $this->enableAgent();
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client);
         $this->mockDocAnalysis(['related' => true, 'doc_type' => 'عقد توريد', 'summary' => 'عقد توريد بين الطرفين بقيمة محددة.', 'reason' => 'يوثّق العلاقة التعاقدية محل النزاع.']);
 
@@ -107,7 +108,7 @@ class TicketTriageTest extends TestCase
         // نُزيّف مهمّة الترقية فقط؛ TriageDocumentJob يعمل تزامنياً فيصل للإحالة
         Queue::fake([GenerateTicketSummaryJob::class]);
         $client = User::factory()->create(['role' => Role::Client]);
-        User::factory()->create(['role' => Role::Lawyer]);
+        User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client);
         $this->mockDocAnalysis(['related' => true, 'doc_type' => 'عقد توريد', 'summary' => 'عقد توريد.', 'reason' => 'يوثّق العلاقة.']);
 
@@ -125,7 +126,7 @@ class TicketTriageTest extends TestCase
     {
         $this->enableAgent();
         $client = User::factory()->create(['role' => Role::Client]);
-        User::factory()->create(['role' => Role::Lawyer]);
+        User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client);
         $this->mockDocAnalysis(['related' => false, 'doc_type' => 'وصفة طبية', 'summary' => 'تقرير طبي لا علاقة له بالنزاع.', 'reason' => 'المحتوى طبي ولا يخص النزاع التجاري.']);
 
@@ -151,7 +152,7 @@ class TicketTriageTest extends TestCase
         // بلا محاكاة وبلا مفاتيح AI → analyzeDocument يعيد null (تعذّر الفحص)
         $this->enableAgent();
         $client = User::factory()->create(['role' => Role::Client]);
-        User::factory()->create(['role' => Role::Lawyer]);
+        User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client);
 
         $this->actingAs($client)->post(route('tickets.attach', $ticket), [
@@ -169,7 +170,7 @@ class TicketTriageTest extends TestCase
     {
         $this->enableAgent();
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client);
         $this->mockDocAnalysis(['related' => true, 'doc_type' => 'عقد', 'summary' => 'عقد يخص النزاع.', 'reason' => 'مرتبط بالموضوع.']);
 
@@ -190,7 +191,7 @@ class TicketTriageTest extends TestCase
     {
         $this->enableAgent();
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client);
         $this->mockDocAnalysis(['related' => true, 'doc_type' => 'عقد', 'summary' => 'عقد.', 'reason' => 'مرتبط.']);
         $this->actingAs($client)->post(route('tickets.attach', $ticket), [
@@ -207,7 +208,7 @@ class TicketTriageTest extends TestCase
     {
         $this->enableAgent();
         $client = User::factory()->create(['role' => Role::Client]);
-        User::factory()->create(['role' => Role::Lawyer]);
+        User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client);
         $ticket->update(['status' => 'موعد مؤكد']);
 

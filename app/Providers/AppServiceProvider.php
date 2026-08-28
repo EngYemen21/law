@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Models\User;
+use App\Support\OtpService;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -40,7 +41,9 @@ class AppServiceProvider extends ServiceProvider
 
         // تجاوز OTP التطويري (رمز ثابت لأي هوية) مسموح في local/testing فقط.
         // خطأ في APP_ENV على خادم الإنتاج كان يكفي لفتح دخول بلا رمز حقيقي — نُفشل الإقلاع بدل الصمت.
-        if (config('services.auth_dev_otp') && ! app()->environment('local', 'testing')) {
+        // يفشل الإقلاع متى ضُبط الرمز في مكان لا يُسمح فيه بالتجاوز — بما في ذلك خادم
+        // إنتاجيّ وصله APP_ENV=local خطأً (المؤشّرات مستقلّة عن APP_ENV: راجع productionLike).
+        if (OtpService::isDevOtpConfigured() && ! app(OtpService::class)->devBypass()) {
             throw new \RuntimeException('AUTH_DEV_OTP مضبوط خارج بيئة التطوير — أزِله فوراً من ملف البيئة.');
         }
 
@@ -51,9 +54,23 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('otp-request', fn (Request $request) => Limit::perMinute(3)
             ->by((string) ($request->input('national_id') ?: $request->input('phone')).'|'.$request->ip()));
 
-        // حدّ تأكيد الرمز/التبديل (منع التخمين): 5/دقيقة بمفتاح IP — مرساة ثابتة حاضرة في كل المسارات
-        // (تحقّق الدخول/البريد، choose-account، switch-account) بلا اعتماد على requestId قد يغيب.
-        RateLimiter::for('otp-verify', fn (Request $request) => Limit::perMinute(5)->by((string) $request->ip()));
+        // حدّ تأكيد الرمز/التبديل (منع التخمين): 5/دقيقة.
+        // المرساة الجلسة أولاً لا الـIP: مع trustProxies(at:'*') يصير $request->ip() قيمةً
+        // يرسلها العميل في X-Forwarded-For، فكان تدوير الترويسة يمنح حصّة جديدة كل مرة —
+        // أي تخمين بلا حدّ لرمز من أربعة أرقام. معرّف الجلسة موقَّع بكوكي فلا يُزوَّر،
+        // ومن يدوّره يفقد session('otp') فلا يبقى ما يتحقّق منه. يُضاف الـIP للتفريق بين
+        // المهاجمين على جلسات مختلفة.
+        RateLimiter::for('otp-verify', function (Request $request) {
+            // الترتيب: المستخدم المسجَّل (switch-account) ← معرّف عمليّة الرمز المخزَّن في
+            // الجلسة (دخول/تسجيل) ← الـIP. أول اثنين خادميّان لا يبلغهما تزوير الترويسة؛
+            // ومن يدوّر جلسته يفقد payload الرمز فلا يبقى ما يخمّنه أصلاً.
+            $anchor = $request->user()?->id
+                ?? $request->session()->get('otp.requestId')
+                ?? $request->session()->get('reg.requestId')
+                ?? $request->ip();
+
+            return Limit::perMinute(5)->by('otp-verify|'.$anchor);
+        });
     }
 
     /**

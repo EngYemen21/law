@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import Icon from '@/lib/icons';
+import { Qr } from '@/components/babylon/admin-charts';
 import Badge from '@/components/babylon/Badge';
 import Modal from '@/components/babylon/Modal';
-import { Qr } from '@/components/babylon/admin-charts';
 import { useToast } from '@/components/babylon/Toast';
-import { type Appt } from '@/lib/data';
+import type {Appt} from '@/lib/data';
+import Icon from '@/lib/icons';
 import { maskLawyer } from '@/lib/utils';
 
 // يطابق viewAppts + openAppt (بطاقة .apptx) في index (21).html — ببيانات حقيقيّة
@@ -19,6 +19,7 @@ function apptPlace(a: Appt) {
     a.place.includes('بُعد');
   const addr = remote ? 'جلسة عن بُعد — يُرسل الرابط قبل الموعد' : a.place;
   const chip = remote ? 'عن بُعد' : a.place;
+
   return { remote, addr, chip };
 }
 
@@ -32,7 +33,10 @@ const ApptCard: React.FC<{ a: Appt }> = ({ a }) => {
 
   // رابط الجلسة المرئية الحقيقي بالمنصّة — كان يُنسخ رابط مختلق (salaselbabel.net/APT-…) لا مسار له
   const copyLink = () => {
-    if (!a.joinLink) return;
+    if (!a.joinLink) {
+return;
+}
+
     try {
       navigator.clipboard?.writeText(a.joinLink).then(
         () => toast('تم نسخ رابط الجلسة'),
@@ -152,11 +156,10 @@ const ApptItem: React.FC<{ a: Appt; onOpen: (a: Appt) => void }> = ({ a, onOpen 
     </div>
     <div className="iact">
       <Badge text={a.status} tone={a.tone} />
-      {a.when === 'up' && (
-        <button className="btn soft sm" type="button" onClick={() => onOpen(a)}>
-          <Icon name="ticket" /> بطاقة الموعد
-        </button>
-      )}
+      {/* الخادم يخدم البطاقة بلا شرط زمني — الماضية كانت بلا أي زرّ */}
+      <button className="btn soft sm" type="button" onClick={() => onOpen(a)}>
+        <Icon name="ticket" /> بطاقة الموعد
+      </button>
     </div>
   </div>
 );

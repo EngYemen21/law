@@ -150,14 +150,18 @@ class ZoomMeetingSummaryTest extends TestCase
         $this->assertNull(ZoomService::summaryFromPayload(['summary_overview' => '', 'summary_details' => [], 'next_steps' => []]));
     }
 
-    public function test_pull_reads_summary_from_webhook_payload_without_api_call(): void
+    public function test_pull_falls_back_to_webhook_payload_when_api_has_nothing(): void
     {
-        // الإصلاح: مسار الويبهوك يقرأ الملخّص من الحمولة، فلا يطلب API (الذي يرفض المعرّف الرقمي 400)
+        // العقد الجديد (2026-08-26): يُستعلم الـAPI أولاً — الجلب الكامل يدمج كل انعقادات
+        // الجلسة المنقطعة بينما حمولة الويبهوك تخصّ انعقاداً واحداً (حادثة M-26753 الثانية).
+        // فإن لم يكن لدى الـAPI شيء، تبقى الحمولة احتياطاً حياً فلا يضيع ملخّصها.
         $this->configureS2S();
         Event::fake([ConsultStatusBroadcast::class]);
         Http::fake([
             'zoom.us/oauth/token' => Http::response(['access_token' => 'tok', 'expires_in' => 3600]),
+            'api.zoom.us/v2/past_meetings/*/instances' => Http::response(['meetings' => []]),
             'api.zoom.us/v2/meetings/*/meeting_summary' => Http::response(['message' => 'Invalid meeting id'], 400),
+            'api.zoom.us/v2/past_meetings/*' => Http::response(['message' => 'not found'], 404),
         ]);
         $consult = $this->endedVideoConsult();
 
@@ -172,8 +176,8 @@ class ZoomMeetingSummaryTest extends TestCase
         $this->assertNotNull($consult->zoom_summary_at);
         $this->assertStringContainsString('ملخّص من الحمولة مباشرةً', (string) $consult->summary);
         $this->assertStringContainsString('متابعة المستندات', (string) $consult->summary);
-        // القراءة من الحمولة لا تنادي نقطة الملخّص إطلاقاً
-        Http::assertNotSent(fn ($req) => str_contains($req->url(), 'meeting_summary'));
+        // الـAPI استُعلم أولاً (الجلب الكامل) وسقط ⇒ الحمولة أنقذت الملخّص
+        Http::assertSent(fn ($req) => str_contains($req->url(), 'meeting_summary'));
         Event::assertDispatched(ConsultStatusBroadcast::class);
     }
 

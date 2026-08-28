@@ -49,6 +49,27 @@ class PaymentReconciler
             return false;
         }
 
+        // فاتورة مدفوعة أصلاً: التسوية تمّت. لا نطمس مرجع الدفعة الأولى — طمسه يُضيّع أثر
+        // المبلغ المحصَّل فعلاً. وإن اختلف معرّف الدفعة فهذه **شحنة ثانية حقيقية** على نفس
+        // الفاتورة (يدفع العميل ثم يعيد المحاولة قبل وصول الويبهوك)، وتلزمها تسوية بشرية.
+        // النظير الإداري settleManual يحرس بـ`if ($invoice->paid)` منذ البداية؛ هذا المسار
+        // — وهو المعرَّض للإنترنت — كان بلا حارس.
+        if ($invoice->paid) {
+            $incoming = (string) ($payment['id'] ?? '');
+
+            if ($incoming !== '' && $incoming !== (string) $invoice->gateway_payment_id) {
+                Log::error('moyasar.reconcile.duplicate_charge', [
+                    'invoice' => $invoice->number,
+                    'settled_payment_id' => $invoice->gateway_payment_id,
+                    'duplicate_payment_id' => $incoming,
+                    'amount' => $paidAmount,
+                    'channel' => $channel,
+                ]);
+            }
+
+            return true;
+        }
+
         $invoice->update(['gateway_payment_id' => (string) ($payment['id'] ?? '')]);
 
         // انتقال حالة المجال (idempotent) بحسب نوع الفاتورة: استشارة أو أتعاب قضية أو أتعاب تنفيذ.
@@ -100,7 +121,8 @@ class PaymentReconciler
         if ($invoice->consult_id && ($consult = Consult::find($invoice->consult_id))) {
             ConsultBooking::markPaid($consult, $actor, 'مدفوع عبر ميسّر');
         } elseif ($invoice->case_id && ($case = LegalCase::find($invoice->case_id))) {
-            CaseFee::markPaid($case);
+            // تعرف وحدها أهي دفعة من خطّة تقسيط أم سداد كامل
+            CaseFee::settleInvoice($case, $invoice);
         } elseif ($invoice->exec_id && ($exec = Execution::find($invoice->exec_id))) {
             ExecService::markPaid($exec);
         }

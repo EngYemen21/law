@@ -5,8 +5,9 @@ import Badge from '@/components/babylon/Badge';
 import ChatThread from '@/components/babylon/ChatThread';
 import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
+import { EXEC_FLOW, EXEC_SANADS, EXEC_PAYM, EXEC_DOC_ACCEPT, EXEC_DOC_HINT, execTone, execMoney, procTone    } from '@/lib/exec-flow';
+import type {ExecDoc, ExecReq, Role} from '@/lib/exec-flow';
 import Icon from '@/lib/icons';
-import { EXEC_FLOW, EXEC_SANADS, EXEC_PAYM, EXEC_DOC_ACCEPT, EXEC_DOC_HINT, execTone, execMoney, procTone, type ExecDoc, type ExecReq, type Role } from '@/lib/exec-flow';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // تدفّق طلب التنفيذ (المرحلة 2) — مربوط بالخادم. الحالة كلّها props من Inertia،
@@ -34,19 +35,44 @@ const CellRow: React.FC<{ cells: [string, string][] }> = ({ cells }) => (
 // الإجراء التالي المطلوب على البطاقة حسب الدور (تطابق execNextAction)
 const nextAction = (role: Role, r: ExecReq): string => {
   // الطلب المرفوض لا إجراء عليه — كان يُطبع «اقبل الطلب أو اطلب مستندات» لطلب رُفض فعلاً
-  if (r.decision === 'مرفوض') return 'مرفوض بعد الدراسة';
-  if (role === 'admin') return r.stage < 2 ? 'أحِل لقسم التنفيذ' : r.stage === 4 ? 'اعتمد الأتعاب' : '';
+  if (r.decision === 'مرفوض') {
+return 'مرفوض بعد الدراسة';
+}
+
+  if (role === 'admin') {
+return r.stage < 2 ? 'أحِل لقسم التنفيذ' : r.stage === 4 ? 'اعتمد الأتعاب' : '';
+}
+
   if (role === 'lawyer') {
-    if (r.stage <= 1) return 'بانتظار البدء بالدراسة';
-    if (r.stage === 2) return 'اقبل الطلب أو اطلب مستندات';
-    if (r.stage === 3) return 'حدّد الأتعاب';
-    if (r.stage === 4) return 'بانتظار اعتماد الإدارة';
-    if (r.stage >= 7 && !r.closed) return 'أضف إجراءات التنفيذ';
+    if (r.stage <= 1) {
+return 'بانتظار البدء بالدراسة';
+}
+
+    if (r.stage === 2) {
+return 'اقبل الطلب أو اطلب مستندات';
+}
+
+    if (r.stage === 3) {
+return 'حدّد الأتعاب';
+}
+
+    if (r.stage === 4) {
+return 'بانتظار اعتماد الإدارة';
+}
+
+    if (r.stage >= 7 && !r.closed) {
+return 'أضف إجراءات التنفيذ';
+}
   }
+
   if (role === 'employee') {
-    if (r.stage <= 1) return r.aiMissing.length ? 'اطلب المستندات الناقصة' : 'راجع وأحِل للمحامي';
+    if (r.stage <= 1) {
+return r.aiMissing.length ? 'اطلب المستندات الناقصة' : 'راجع وأحِل للمحامي';
+}
+
     return 'مُحال — بيد المحامي';
   }
+
   return '';
 };
 
@@ -128,12 +154,19 @@ const ExecNew: React.FC<{ onSubmit: (d: ExecNewPayload) => void; onBack: () => v
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const chosen = e.target.files;
-    if (!chosen || chosen.length === 0) return;
+
+    if (!chosen || chosen.length === 0) {
+return;
+}
+
     const list = Array.from(chosen);
     // حد أقصى 10 ملفات وحجم 10 ميجابايت للملف
     const valid = list.filter((f) => f.size <= 10 * 1024 * 1024);
     setFiles((prev) => [...prev, ...valid].slice(0, 10));
-    if (fileInputRef.current) fileInputRef.current.value = '';
+
+    if (fileInputRef.current) {
+fileInputRef.current.value = '';
+}
   };
 
   const removeFile = (idx: number) => {
@@ -141,7 +174,10 @@ const ExecNew: React.FC<{ onSubmit: (d: ExecNewPayload) => void; onBack: () => v
   };
 
   const submit = () => {
-    if (!subject.trim()) return;
+    if (!subject.trim()) {
+return;
+}
+
     onSubmit({
       sanad,
       subject: subject.trim(),
@@ -250,7 +286,9 @@ const ExecNew: React.FC<{ onSubmit: (d: ExecNewPayload) => void; onBack: () => v
                     </div>
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
+                      onClick={(e) => {
+ e.stopPropagation(); removeFile(idx); 
+}}
                       style={{
                         background: 'transparent',
                         border: 'none',
@@ -332,7 +370,9 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
       body = (<>
         <div className="field"><label>إضافة إجراء تنفيذ</label><input className="input" value={proc} onChange={(e) => setProc(e.target.value)} placeholder="مثال: تم الحجز على الحساب البنكي" /></div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn" type="button" onClick={() => { act('addProcedure', { title: proc }); setProc(''); }}><Icon name="plus" /> إضافة إجراء</button>
+          <button className="btn" type="button" onClick={() => {
+ act('addProcedure', { title: proc }); setProc(''); 
+}}><Icon name="plus" /> إضافة إجراء</button>
           <button className="btn soft" type="button" onClick={() => act('requestCorr')}><Icon name="office" /> طلب مخاطبة</button>
           <button className="btn soft" type="button" onClick={() => act('close')}><Icon name="check" /> إغلاق الملف</button>
         </div>
@@ -340,7 +380,11 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
     }
   } else if (role === 'admin') {
     if (r.stage < 2) {
-      body = <button className="btn" type="button" onClick={() => act('refer')}><Icon name="reply" /> إحالة لقسم التنفيذ</button>;
+      body = (<>
+        <button className="btn" type="button" onClick={() => act('refer')}><Icon name="reply" /> إحالة لقسم التنفيذ</button>
+        {/* الخادم يسمح للإدارة بطلب المستندات — الزرّ كان للمحامي والموظف فقط */}
+        <button className="btn soft" type="button" onClick={() => act('requestDocs')}><Icon name="upload" /> طلب مستندات</button>
+      </>);
     } else if (r.stage === 4) {
       body = (<>
         <div className="action-hint" style={{ marginBottom: 8 }}><Icon name="info" /> مراجعة الأتعاب واعتمادها قبل إرسال العرض. بعد الاعتماد لا تُعدَّل إلا بصلاحية الإدارة.</div>
@@ -351,7 +395,9 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
       body = (<>
         <div className="field"><label>إضافة إجراء تنفيذ</label><input className="input" value={proc} onChange={(e) => setProc(e.target.value)} /></div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn" type="button" onClick={() => { act('addProcedure', { title: proc }); setProc(''); }}><Icon name="plus" /> إضافة إجراء</button>
+          <button className="btn" type="button" onClick={() => {
+ act('addProcedure', { title: proc }); setProc(''); 
+}}><Icon name="plus" /> إضافة إجراء</button>
           <button className="btn soft" type="button" onClick={() => act('requestCorr')}><Icon name="office" /> طلب مخاطبة</button>
           <button className="btn soft" type="button" onClick={() => act('close')}><Icon name="check" /> إغلاق الملف</button>
         </div>
@@ -372,7 +418,10 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
     }
   }
 
-  if (!body) return null;
+  if (!body) {
+return null;
+}
+
   return (
     <div className="card">
       <div className="card-h"><h3>الإجراء</h3></div>
@@ -495,14 +544,22 @@ const ClientFlowCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
 const DocsPanel: React.FC<{ execId: string; docs: ExecDoc[] }> = ({ execId, docs }) => {
   const toast = useToast();
   const fileRefs = useRef<Record<number, HTMLInputElement | null>>({});
-  if (!docs.length) return null;
+
+  if (!docs.length) {
+return null;
+}
+
   const done = docs.filter((d) => d.status === 'مقبول' || d.status === 'مرفوع').length;
 
   const pick = (id: number) => fileRefs.current[id]?.click();
   const upload = (id: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file) return;
+
+    if (!file) {
+return;
+}
+
     router.post(`/exec-flow/${encodeURIComponent(execId)}/documents/${id}`, { file }, {
       forceFormData: true, preserveScroll: true,
       onError: (errs) => toast(Object.values(errs)[0] ?? 'تعذّر رفع المستند'),
@@ -526,7 +583,9 @@ const DocsPanel: React.FC<{ execId: string; docs: ExecDoc[] }> = ({ execId, docs
               {d.canUpload && (
                 <>
                   <button className="btn soft sm" type="button" onClick={() => pick(d.id)}><Icon name="upload" /> رفع المستند</button>
-                  <input ref={(el) => { fileRefs.current[d.id] = el; }} type="file" hidden onChange={(e) => upload(d.id, e)} />
+                  <input ref={(el) => {
+ fileRefs.current[d.id] = el; 
+}} type="file" hidden onChange={(e) => upload(d.id, e)} />
                 </>
               )}
             </div>
@@ -543,9 +602,13 @@ const ClientExecDetail: React.FC<{ r: ExecReq; onBack: () => void; act: ActFn }>
   const sendMsg = (text: string) => axios.post(`/exec-flow/${encodeURIComponent(r.id)}/messages`, { body: text });
   // رفع مستند فعلي من محادثة التنفيذ — يظهر رسالة في المحادثة ويُدرَج ضمن مستندات الملف
   const attachDoc = (file?: File) => {
-    if (!file) return;
+    if (!file) {
+return;
+}
+
     const fd = new FormData();
     fd.append('file', file);
+
     return axios.post(`/exec-flow/${encodeURIComponent(r.id)}/attach`, fd).then(() => router.reload({ only: ['execs'] }));
   };
 
@@ -619,7 +682,11 @@ const PricingCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
 
   const fee = mode === 'fixed' ? (parseInt(fixed || '0', 10) || 0) : Math.round((r.amount * (parseFloat(pct || '0') || 0)) / 100);
   const vat = Math.round(fee * 0.15);
-  const submit = () => { if (fee >= 1) act('setFee', { fee, duration: dur, payMethod: pay }); };
+  const submit = () => {
+ if (fee >= 1) {
+act('setFee', { fee, duration: dur, payMethod: pay });
+} 
+};
 
   return (
     <div className="card" style={{ marginBottom: 12 }}>
@@ -651,7 +718,10 @@ const PricingCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
 
 // ── مراجعة المكتب لمستندات العميل المرفوعة (اعتماد/إعادة) — تطابق exDocPanel لغير العميل ──
 const ExecDocReview: React.FC<{ execId: string; docs: ExecDoc[]; onReview: (docId: number, decision: 'accept' | 'reject') => void }> = ({ execId, docs, onReview }) => {
-  if (!docs.length) return null;
+  if (!docs.length) {
+return null;
+}
+
   return (
     <div className="card" style={{ marginBottom: 12 }}>
       <div className="card-h"><h3>مستندات العميل</h3><span className="sub">{docs.length}</span></div>
@@ -687,6 +757,7 @@ const ExecDetail: React.FC<{ role: Role; r: ExecReq; onBack: () => void; act: Ac
   const reviewDoc = (docId: number, decision: 'accept' | 'reject') => {
     router.post(`/exec-flow/${encodeURIComponent(r.id)}/documents/${docId}/review`, { decision }, { preserveScroll: true });
   };
+
   return (
     <>
       <div className="greet">
@@ -786,6 +857,7 @@ const ExecDetail: React.FC<{ role: Role; r: ExecReq; onBack: () => void; act: Ac
           <div className="card-b">
             {r.linkedCorr.map((lc) => {
               const corrBase = role === 'admin' ? '/admin/correspondences' : role === 'lawyer' ? '/lawyer/correspondences' : null;
+
               return (
                 <div className="item" key={lc.id} style={corrBase ? { cursor: 'pointer' } : undefined}
                   onClick={corrBase ? () => router.visit(`${corrBase}/${encodeURIComponent(lc.id)}`) : undefined}>
@@ -834,16 +906,24 @@ const ExecFlow: React.FC<{ role: Role; execs: ExecReq[] }> = ({ role, execs }) =
 
   const current = useMemo(() => execs.find((e) => e.id === currentId) ?? null, [execs, currentId]);
 
-  const open = (id: string) => { setCurrentId(id); setView('detail'); };
+  const open = (id: string) => {
+ setCurrentId(id); setView('detail'); 
+};
 
   const act: ActFn = (action, payload = {}) => {
-    if (!currentId) return;
+    if (!currentId) {
+return;
+}
+
     const id = encodeURIComponent(currentId);
+
     // السداد يمرّ ببوّابة ميسّر (يوجّه المتصفّح لصفحة الدفع)؛ باقي الإجراءات تُحدّث الحالة محليّاً
     if (action === 'pay') {
       router.post(`/exec-flow/${id}/pay`, {}, { onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر بدء الدفع') });
+
       return;
     }
+
     router.post(`/exec-flow/${id}/action`, { action, ...payload }, {
       preserveScroll: true,
       preserveState: true,
@@ -860,6 +940,7 @@ const ExecFlow: React.FC<{ role: Role; execs: ExecReq[] }> = ({ role, execs }) =
     formData.append('defendant', d.defendant);
     formData.append('amount', String(d.amount));
     formData.append('notes', d.notes);
+
     if (d.files && d.files.length > 0) {
       d.files.forEach((f) => formData.append('files[]', f));
     }
@@ -867,7 +948,9 @@ const ExecFlow: React.FC<{ role: Role; execs: ExecReq[] }> = ({ role, execs }) =
     router.post('/exec-flow', formData, {
       forceFormData: true,
       preserveScroll: true,
-      onSuccess: () => { setView('list'); toast('تم إرسال طلب التنفيذ وبدء التحليل الذكي للمستندات'); },
+      onSuccess: () => {
+ setView('list'); toast('تم إرسال طلب التنفيذ وبدء التحليل الذكي للمستندات'); 
+},
       onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر إرسال الطلب'),
       onFinish: () => setBusy(false),
     });

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\PurgesStoredFile;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -10,6 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class ExecutionDocument extends Model
 {
+    use PurgesStoredFile;
+
     protected $fillable = ['execution_id', 'label', 'status', 'path', 'mime', 'size', 'uploaded_at', 'doc_type', 'summary'];
 
     protected $casts = [

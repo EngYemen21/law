@@ -122,4 +122,49 @@ class MultiAccountAuthTest extends TestCase
         $this->assertFalse(app(OtpService::class)->devBypass());
         $this->assertFalse(app(EmailOtpService::class)->devBypass());
     }
+
+    /**
+     * 🔴 الثغرة التي كان الحارس أعمى عنها: شرطه كان APP_ENV نفسه، وهو المتغيّر الذي يحرس منه.
+     * خادم إنتاجيّ وصله APP_ENV=local كان يفتح الدخول بالرمز الثابت لأي رقم هويّة.
+     */
+    public function test_dev_bypass_is_refused_when_the_host_looks_like_production(): void
+    {
+        config([
+            'services.auth_dev_otp' => '1234',
+            'app.url' => 'https://salaselbabel.net',
+            'app.debug' => true,
+        ]);
+        $this->app['env'] = 'local'; // الخطأ الكلاسيكي على الخادم
+
+        $this->assertFalse(app(OtpService::class)->devBypass(), 'التجاوز انفتح على مضيف إنتاجيّ.');
+        $this->assertFalse(app(EmailOtpService::class)->devBypass(), 'تجاوز البريد انفتح على مضيف إنتاجيّ.');
+    }
+
+    /** APP_DEBUG=false وحده كافٍ لاعتبار البيئة إنتاجيّة مهما قال APP_ENV. */
+    public function test_dev_bypass_is_refused_when_debug_is_off(): void
+    {
+        config([
+            'services.auth_dev_otp' => '1234',
+            'app.url' => 'https://law-laravel-office-new.test',
+            'app.debug' => false,
+        ]);
+        $this->app['env'] = 'local';
+
+        $this->assertFalse(app(OtpService::class)->devBypass());
+    }
+
+    /** القيمة "0" مملوءة لكنها زائفة — كان الحارس يفحص truthiness والتجاوز يفحص filled(). */
+    public function test_zero_is_treated_consistently_by_guard_and_bypass(): void
+    {
+        config([
+            'services.auth_dev_otp' => '0',
+            'app.url' => 'https://law-laravel-office-new.test',
+            'app.debug' => true,
+        ]);
+        $this->app['env'] = 'local';
+
+        // مملوء ⇒ التجاوز فعّال ⇒ يجب أن يعتبره الحارس مضبوطاً أيضاً
+        $this->assertTrue(app(OtpService::class)->devBypass());
+        $this->assertTrue(OtpService::isDevOtpConfigured());
+    }
 }

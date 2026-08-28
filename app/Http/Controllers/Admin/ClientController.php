@@ -230,7 +230,7 @@ class ClientController extends Controller
                 'meta' => $d->meta ?: ($d->direction === 'up' ? 'مرفوع من العميل' : 'صادر من المكتب'),
                 'type' => $d->direction === 'up' ? 'مرفوع' : 'صادر',
                 'hasFile' => ! empty($d->path),
-                'downloadUrl' => ! empty($d->path) ? route('documents.download', $d->id) : null,
+                'downloadUrl' => ! empty($d->path) ? route('admin.documents.download', $d->id) : null,
                 'date' => $d->created_at?->format('Y-m-d') ?: '—',
             ]);
 
@@ -241,7 +241,7 @@ class ClientController extends Controller
                 'meta' => 'مستند تذكرة · '.($td->doc_type ?: ($td->ticket ? '#'.$td->ticket->number : 'تذكرة')),
                 'type' => 'تذكرة',
                 'hasFile' => ! empty($td->path),
-                'downloadUrl' => ! empty($td->path) ? route('documents.download-file', ['type' => 'ticket', 'id' => $td->id]) : null,
+                'downloadUrl' => ! empty($td->path) ? route('admin.documents.download-file', ['type' => 'ticket', 'id' => $td->id]) : null,
                 'date' => $td->created_at?->format('Y-m-d') ?: '—',
             ]);
 
@@ -252,7 +252,7 @@ class ClientController extends Controller
                 'meta' => 'مستند قضية · '.($cd->doc_type ?: ($cd->legalCase ? '#'.$cd->legalCase->number : 'قضية')),
                 'type' => 'قضية',
                 'hasFile' => ! empty($cd->path),
-                'downloadUrl' => ! empty($cd->path) ? route('documents.download-file', ['type' => 'case', 'id' => $cd->id]) : null,
+                'downloadUrl' => ! empty($cd->path) ? route('admin.documents.download-file', ['type' => 'case', 'id' => $cd->id]) : null,
                 'date' => $cd->created_at?->format('Y-m-d') ?: '—',
             ]);
 
@@ -263,7 +263,7 @@ class ClientController extends Controller
                 'meta' => 'مستند تنفيذ · '.($ed->doc_type ?: ($ed->execution ? '#'.$ed->execution->number : 'تنفيذ')),
                 'type' => 'تنفيذ',
                 'hasFile' => ! empty($ed->path),
-                'downloadUrl' => ! empty($ed->path) ? route('documents.download-file', ['type' => 'exec', 'id' => $ed->id]) : null,
+                'downloadUrl' => ! empty($ed->path) ? route('admin.documents.download-file', ['type' => 'exec', 'id' => $ed->id]) : null,
                 'date' => $ed->created_at?->format('Y-m-d') ?: '—',
             ]);
 

@@ -34,7 +34,7 @@ class ExecService
         $exec = Execution::create([
             'user_id' => $client->id,
             'client_code' => 'CL-'.str_pad((string) $client->id, 6, '0', STR_PAD_LEFT),
-            'number' => 'EXE-'.now()->year.'-'.random_int(1000, 9999),
+            'number' => ReferenceNumber::next(Execution::class, 'number', 'EXE'),
             'subject' => $data['subject'],
             'sanad' => $data['sanad'],
             'defendant' => $data['defendant'] ?? '',
@@ -219,7 +219,7 @@ class ExecService
         self::guard($exec, [5], 'لا يوجد عرض بانتظار القبول.');
         abort_unless($exec->fee_approved, 422, 'العرض غير معتمد بعد.');
 
-        $number = 'INV-'.now()->year.'-'.str_pad((string) random_int(1, 9999), 4, '0', STR_PAD_LEFT);
+        $number = InvoiceNumber::next();
         DB::transaction(function () use ($exec, $number) {
             Invoice::create([
                 'user_id' => $exec->user_id, 'exec_id' => $exec->id, 'number' => $number,
@@ -288,8 +288,11 @@ class ExecService
             if ($locked === null || $locked->paid) {
                 return false;
             }
+            // فاتورة واحدة لا كل غير المدفوعة — الشطب الجماعي كان يُصفّر أي فاتورة
+            // تكميلية على نفس الطلب بلا مقابل (نفس عطل CaseFee::markInvoicePaid).
             Invoice::where('exec_id', $locked->id)->where('paid', false)
-                ->update(['paid' => true, 'status' => 'مدفوعة', 'tone' => 'b-green']);
+                ->latest('id')->first()
+                ?->update(['paid' => true, 'status' => 'مدفوعة', 'tone' => 'b-green']);
             $locked->update([
                 'paid' => true, 'paid_at' => now(),
                 'exec_no' => random_int(70, 99).'-'.now()->year.'-تنفيذ',

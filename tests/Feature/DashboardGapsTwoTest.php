@@ -17,7 +17,10 @@ class DashboardGapsTwoTest extends TestCase
 {
     use RefreshDatabase;
 
-    // ── صفحة الحجز كانت تتجاهل prices/specialties المرسلَين، فلا يرى العميل سعر الإدارة ──
+    // ── حمولة prices تصل صفحة الحجز سليمة — والواجهة لا تعرضها **عمداً** ──
+    // قرار منتج (2026-08-25): لا سعر ثابت مُعلن للعميل؛ التسعير تحدّده الإدارة لكل طلب
+    // على حدة بعد دراسته. فعدم عرض prices في book.tsx ليس ثغرة تجاهل — لا «تُصلحه»
+    // بإظهار السعر. الاختبار يحرس سلامة الحمولة (تُستهلك في شاشة تسعير الإدارة) فقط.
 
     public function test_booking_page_receives_live_admin_prices(): void
     {

@@ -84,24 +84,33 @@ class ZoomService
      * حذف اجتماع Zoom — أفضل-جهد لتنظيف اجتماع يتيم (مثل تعارض جدولة يُلغي السجلّ بعد إنشاء الاجتماع).
      * يسجّل الفشل ولا يرمي (نظير Live::push) — التنظيف تحسينٌ لا مصدرُ حقيقة.
      */
-    public function deleteMeeting(string $meetingId): void
+    public function deleteMeeting(string $meetingId): bool
     {
         if ($meetingId === '' || ! $this->isConfigured()) {
-            return;
+            return false;
         }
 
         try {
             $token = $this->token();
             if (! $token) {
-                return;
+                return false;
             }
-            Http::withToken($token)
+            // كانت الاستجابة تُهمَل تماماً: 401 (رمز منتهٍ) و429 (تجاوز الحدّ) و404 تمرّ
+            // كأنها نجاح، فيبقى اجتماع حيّ في حساب Zoom بلا أي أثر يدلّ عليه.
+            $response = Http::withToken($token)
                 ->timeout(15)
                 ->retry(2, 500, fn ($e) => $e instanceof ConnectionException, throw: false)
                 ->delete('https://api.zoom.us/v2/meetings/'.$meetingId);
+
+            if ($response->successful() || $response->status() === 404) {
+                return true; // 404 = محذوف أصلاً، والغاية متحقّقة
+            }
+            Log::warning('ZoomService deleteMeeting failed: '.$response->status().' '.$response->body());
         } catch (\Throwable $e) {
             Log::warning('ZoomService deleteMeeting failed: '.$e->getMessage());
         }
+
+        return false;
     }
 
     /**
@@ -141,24 +150,35 @@ class ZoomService
      * إنهاء اجتماع Zoom الجاري فعليًا (action=end) — أفضل-جهد. يعمل على الاجتماع الجاري فقط؛
      * على غيره ترفض Zoom بلطف (لا يهمّ، القاعدة مصدر الحقيقة). يسجّل ولا يرمي.
      */
-    public function endMeeting(string $meetingId): void
+    public function endMeeting(string $meetingId): bool
     {
         if ($meetingId === '' || ! $this->isConfigured()) {
-            return;
+            return false;
         }
 
         try {
             $token = $this->token();
             if (! $token) {
-                return;
+                return false;
             }
-            Http::withToken($token)
+            $response = Http::withToken($token)
                 ->timeout(15)
                 ->retry(2, 500, fn ($e) => $e instanceof ConnectionException, throw: false)
                 ->put('https://api.zoom.us/v2/meetings/'.$meetingId.'/status', ['action' => 'end']);
+
+            if ($response->successful()) {
+                return true;
+            }
+            // 400 متوقّع على اجتماع غير جارٍ — يُسجَّل بمستوى أدنى كي لا يُغرق السجلّ
+            // (التوثيق أعلاه ينصّ: على غيره ترفض Zoom بلطف والقاعدة مصدر الحقيقة).
+            $response->status() === 400
+                ? Log::info('ZoomService endMeeting: الاجتماع غير جارٍ ('.$meetingId.')')
+                : Log::warning('ZoomService endMeeting failed: '.$response->status().' '.$response->body());
         } catch (\Throwable $e) {
             Log::warning('ZoomService endMeeting failed: '.$e->getMessage());
         }
+
+        return false;
     }
 
     /** هل هُيّئ Meeting SDK (تطبيق منفصل عن S2S) لتوليد توقيع التضمين داخل المنصّة؟ */
@@ -271,7 +291,9 @@ class ZoomService
                 return null;
             }
 
-            return ['url' => (string) $url, 'token' => ($resp->json('download_access_token') ?: null)];
+            // رمز التنزيل: download_access_token إن ورد، وإلا رمز S2S نفسه — بلا رمز كان
+            // Zoom يعيد صفحة HTML بـ200 فتُحفَظ باسم mp4 وتنزل «سليمة» لكنها لا تعمل
+            return ['url' => (string) $url, 'token' => ($resp->json('download_access_token') ?: $token)];
         } catch (\Throwable $e) {
             Log::warning('ZoomService recordingDownload failed: '.$e->getMessage());
 
@@ -283,7 +305,11 @@ class ZoomService
      * يجلب ملف النصّ التفريغي (VTT) من التسجيل السحابي وينظّفه إلى نصّ عربي متّصل.
      * يستخدم download_token من حدث recording.completed. يعيد null بلطف عند التعذّر.
      */
-    public function downloadTranscript(string $url, string $token): ?string
+    /**
+     * @param  bool  $clean  true: نصّ منظّف للعرض النصّي المختصر · false: **VTT خام كما ورد من Zoom**
+     *                       (يحفظ التوقيت والمتحدث — مطلوب لعرض النصّ الحرفي «الكلام مع الوقت ومن المتحدث»)
+     */
+    public function downloadTranscript(string $url, string $token, bool $clean = true): ?string
     {
         if ($url === '' || $token === '') {
             return null;
@@ -297,7 +323,7 @@ class ZoomService
                 return null;
             }
 
-            return $this->cleanVtt($response->body());
+            return $clean ? $this->cleanVtt($response->body()) : $response->body();
         } catch (\Throwable $e) {
             Log::warning('ZoomService downloadTranscript failed: '.$e->getMessage());
 
@@ -381,6 +407,146 @@ class ZoomService
      *
      * @return array{overview: string, details: array<int, array{label: string, summary: string}>, next_steps: array<int, string>, uuid: ?string}|null
      */
+    /**
+     * كل انعقادات الاجتماع (الجلسة قد تنقطع ويُعاد الدخول ⇒ عدّة uuid لنفس المعرّف)
+     * مرتّبة زمنياً تصاعدياً: [['uuid' => ..., 'start_time' => ...], ...].
+     */
+    public function meetingInstances(string $meetingId): array
+    {
+        if (! $this->isConfigured() || $meetingId === '') {
+            return [];
+        }
+
+        try {
+            $token = $this->token();
+            if (! $token) {
+                return [];
+            }
+
+            $response = Http::withToken($token)->timeout(15)
+                ->get("https://api.zoom.us/v2/past_meetings/{$meetingId}/instances");
+            if (! $response->successful()) {
+                return [];
+            }
+
+            $instances = array_values(array_filter(
+                (array) $response->json('meetings', []),
+                fn ($i) => ! empty($i['uuid']),
+            ));
+            usort($instances, fn ($a, $b) => strcmp((string) ($a['start_time'] ?? ''), (string) ($b['start_time'] ?? '')));
+
+            return array_map(fn ($i) => [
+                'uuid' => (string) $i['uuid'],
+                'start_time' => (string) ($i['start_time'] ?? ''),
+            ], $instances);
+        } catch (\Throwable $e) {
+            Log::warning('ZoomService meetingInstances failed: '.$e->getMessage());
+
+            return [];
+        }
+    }
+
+    /**
+     * الملخص الكامل للاجتماع عبر **كل** انعقاداته مدموجاً زمنياً — كما ورد من Zoom حرفياً.
+     *
+     * الجلسة المنقطعة المعاد دخولها تصير عدّة انعقادات بعدّة ملخصات، وسحب الأخير وحده
+     * كان يعرض ملخص إعادة الدخول (ثوانٍ من التحيات) ويُسقط ملخص النقاش الفعلي —
+     * فيبدو الملخص «محرَّفاً» عن بريد Zoom الذي يستلمه المضيف (حادثة M-26753).
+     */
+    public function fullMeetingSummary(string $meetingId, ?string $fallbackUuid = null): ?array
+    {
+        $instances = $this->meetingInstances($meetingId);
+
+        // انعقاد واحد أو تعذّر جلب القائمة ⇒ المسار المفرد القائم
+        if (count($instances) <= 1) {
+            return $this->meetingSummary($meetingId, $instances[0]['uuid'] ?? $fallbackUuid);
+        }
+
+        $parts = [];
+        foreach ($instances as $i) {
+            $s = $this->meetingSummary('', $i['uuid']);
+            if ($s !== null) {
+                $parts[] = ['start_time' => $i['start_time'], 'summary' => $s];
+            }
+        }
+        if ($parts === []) {
+            return null;
+        }
+        if (count($parts) === 1) {
+            return $parts[0]['summary'];
+        }
+
+        // دمج حرفي بترتيب الانعقاد: كل جزء يُعنون بوقته المحلي، والنصوص كما وردت بلا تعديل
+        $overview = '';
+        $details = [];
+        $steps = [];
+        foreach ($parts as $n => $p) {
+            $when = $p['start_time'] !== ''
+                ? Carbon::parse($p['start_time'])->timezone(config('app.timezone'))->format('H:i')
+                : '';
+            $label = 'الجزء '.($n + 1).(count($parts) > 1 && $when !== '' ? " ({$when})" : '');
+            if (trim($p['summary']['overview']) !== '') {
+                $overview .= ($overview !== '' ? "\n\n" : '')."— {$label} —\n".trim($p['summary']['overview']);
+            }
+            foreach ($p['summary']['details'] as $d) {
+                $details[] = $d;
+            }
+            foreach ($p['summary']['next_steps'] as $st) {
+                $steps[] = $st;
+            }
+        }
+
+        return [
+            'uuid' => end($parts)['summary']['uuid'] ?? null,
+            'overview' => $overview,
+            'details' => $details,
+            'next_steps' => array_values(array_unique($steps)),
+        ];
+    }
+
+    /**
+     * تفاصيل الجلسة عبر **كل** انعقاداتها مجمَّعة — الجلسة المنقطعة المعاد دخولها تصير
+     * عدّة انعقادات، وقراءة الأخير وحده كانت تعرض «دخول أول مشارك» و«المدة الفعلية»
+     * لإعادة الدخول (ثوانٍ) وتُسقط الجزء الفعلي (حادثة M-26753).
+     * التجميع: أول دخول = أقدم بداية · آخر مغادرة = أحدث نهاية · المدة = مجموع الانعقادات ·
+     * سجلّ الحضور مدموج · الروابط والرمز من أحدث انعقاد يحملها.
+     */
+    public function fullPastMeetingDetails(string $meetingId): ?array
+    {
+        $instances = $this->meetingInstances($meetingId);
+        if (count($instances) <= 1) {
+            return $this->fetchPastMeetingDetails($meetingId);
+        }
+
+        $agg = null;
+        foreach ($instances as $i) {
+            $d = $this->fetchPastMeetingDetails(urlencode(urlencode($i['uuid'])));
+            if ($d === null) {
+                continue;
+            }
+            if ($agg === null) {
+                $agg = $d;
+
+                continue;
+            }
+            if ($d['starts_at'] && (! $agg['starts_at'] || $d['starts_at']->lt($agg['starts_at']))) {
+                $agg['starts_at'] = $d['starts_at'];
+            }
+            if ($d['ends_at'] && (! $agg['ends_at'] || $d['ends_at']->gt($agg['ends_at']))) {
+                $agg['ends_at'] = $d['ends_at'];
+            }
+            $agg['duration_sec'] = (int) ($agg['duration_sec'] ?? 0) + (int) ($d['duration_sec'] ?? 0);
+            $agg['participants_log'] = array_merge((array) ($agg['participants_log'] ?? []), (array) ($d['participants_log'] ?? []));
+            foreach (['uuid', 'recording_url', 'share_url', 'audio_url', 'transcript_url', 'download_token'] as $k) {
+                if (! empty($d[$k])) {
+                    $agg[$k] = $d[$k];
+                }
+            }
+        }
+
+        return $agg;
+    }
+
     public function meetingSummary(string $meetingId, ?string $uuid = null): ?array
     {
         if (! $this->isConfigured() || ($meetingId === '' && ! $uuid)) {
@@ -512,7 +678,9 @@ class ZoomService
             if ($recResp->successful()) {
                 $recData = $recResp->json();
                 $out['share_url'] = $recData['share_url'] ?? null;
-                $out['download_token'] = $recData['download_access_token'] ?? ($recData['password'] ?? null);
+                // رمز التنزيل: download_access_token إن ورد، وإلا رمز S2S نفسه — السقوط السابق على
+                // «password» (كلمة مرور الاجتماع) كان يجعل كل تنزيلات النصّ/التسجيل تفشل بصمت
+                $out['download_token'] = $recData['download_access_token'] ?? $token;
 
                 $files = (array) ($recData['recording_files'] ?? []);
 

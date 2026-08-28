@@ -91,6 +91,9 @@ class CaseController extends Controller
             'docType' => $d->doc_type,
             'summary' => $d->summary,
             'date' => $d->created_at?->locale('ar')->translatedFormat('j M Y') ?? '—',
+            // بقرار المنتج: الموظف يرى أنّ المستند رُفع ويقرأ ملخّصه، ولا يفتحه ولا ينزّله.
+            // صريحٌ لا مصادفةً — كي لا يُضاف الرابط سهواً عند أي توحيد لاحق للشكل.
+            'downloadUrl' => null,
         ]);
 
         return Inertia::render('employee/case', [
@@ -148,7 +151,7 @@ class CaseController extends Controller
     // ردّ خدمة العملاء للعميل داخل القضية (بثّ لحظي)
     public function reply(Request $request, LegalCase $case): \Illuminate\Http\Response
     {
-        $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
+        $data = $request->validate(['body' => ['required', 'string']]);
 
         $case->messages()->create([
             'who' => 'staff', 'name' => $request->user()->name, 'role' => 'خدمة العملاء',

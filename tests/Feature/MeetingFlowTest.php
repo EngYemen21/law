@@ -14,87 +14,14 @@ use Tests\TestCase;
 
 /**
  * تحقّق من منظومة الاجتماعات:
- * دعوة المكتب ← تأكيد العميل (Zoom + اجتماع قادم) ← تنفيذ الجلسة ← المحضر والملخص ← اعتماد الإدارة.
+ * دعوة المكتب ← موافقة الإدارة (Zoom + اجتماع قادم مؤكَّد) ← تنفيذ الجلسة ← المحضر والملخص ← اعتماد الإدارة.
  */
 class MeetingFlowTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_staff_sends_invite_and_client_is_notified(): void
-    {
-        $client = User::factory()->create(['role' => Role::Client]);
-        $employee = User::factory()->create(['role' => Role::Employee, 'name' => 'منيرة الحربي']);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-
-        $this->actingAs($employee)->post(route('employee.meetreqs.store'), [
-            'client_id' => $client->id,
-            'lawyer_id' => $lawyer->id,
-            'service' => 'نزاع تجاري',
-            'type' => 'استشارة مرئية',
-            'day' => now()->addWeek()->format('Y-m-d'),
-            'time' => '11:30',
-            'duration' => 60,
-        ])->assertRedirect();
-
-        $req = MeetRequest::firstOrFail();
-        $this->assertSame($client->id, $req->user_id);
-        $this->assertSame(MeetRequest::STAGE_SENT, $req->stage);
-        $this->assertStringStartsWith('MR-', $req->ref);
-        $this->assertStringContainsString('منيرة الحربي', $req->sent_by);
-        $this->assertSame(1, UserNotification::where('user_id', $client->id)->count());
-    }
-
-    public function test_invite_rejected_for_non_client_target(): void
-    {
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $employee = User::factory()->create(['role' => Role::Employee]);
-
-        $this->actingAs($employee)->post(route('employee.meetreqs.store'), [
-            'client_id' => $lawyer->id, 'lawyer_id' => $lawyer->id, 'type' => 'استشارة مرئية',
-            'day' => now()->addWeek()->format('Y-m-d'), 'time' => '11:30', 'duration' => 60,
-        ])->assertStatus(422);
-    }
-
-    public function test_client_confirms_invite_creating_meeting_with_link(): void
-    {
-        $client = User::factory()->create(['role' => Role::Client]);
-        $req = MeetRequest::create([
-            'user_id' => $client->id, 'ref' => 'MR-7001', 'service' => 'نزاع تجاري',
-            'type' => 'استشارة مرئية', 'day' => 'الاثنين 29 يونيو', 'time' => '11:30 ص',
-            'sent_by' => 'منيرة الحربي (خدمة العملاء)',
-        ]);
-
-        $this->actingAs($client)->post(route('meetreqs.confirm', $req))->assertRedirect();
-
-        $req->refresh();
-        $this->assertSame(MeetRequest::STAGE_CONFIRMED, $req->stage);
-        $this->assertNotNull($req->meeting_id);
-
-        $meeting = $req->meeting;
-        $this->assertSame('قادم', $meeting->status);
-        $this->assertSame($client->id, $meeting->user_id);
-        // رابط داخلي آمن للغرفة المضمنة بالمنصة
-        $this->assertStringContainsString('/meetingroom?ref=', $req->fresh()->toCard()['meetLink']);
-
-        // يظهر لدى العميل في «دعوات الاجتماعات» و«الاجتماعات»
-        $this->actingAs($client)->get(route('meetreqs'))
-            ->assertInertia(fn ($p) => $p->component('meetreqs')->has('requests', 1)->where('requests.0.stage', 1));
-        $this->actingAs($client)->get(route('meetings'))
-            ->assertInertia(fn ($p) => $p->has('meetings', 1)->where('meetings.0.up', true));
-    }
-
-    public function test_foreign_client_cannot_confirm_invite(): void
-    {
-        $owner = User::factory()->create(['role' => Role::Client]);
-        $intruder = User::factory()->create(['role' => Role::Client]);
-        $req = MeetRequest::create([
-            'user_id' => $owner->id, 'ref' => 'MR-7002', 'service' => 'خدمة',
-            'type' => 'استشارة مرئية', 'day' => '—', 'time' => '—', 'sent_by' => 'المكتب',
-        ]);
-
-        $this->actingAs($intruder)->post(route('meetreqs.confirm', $req))->assertForbidden();
-        $this->assertSame(0, $req->fresh()->stage);
-    }
+    // تأكيد حضور العميل أُلغي بقرار صاحب المنتج: الدعوة تُولَد مؤكَّدة ومنطق إنشاء الجلسة انتقل إلى App\Support\MeetInvitation — تغطيته في MeetInvitationConfirmedTest وZoomGapsTest.
+    // (الاختبار السابق: test_foreign_client_cannot_confirm_invite) — محفوظ في تاريخ git
 
     public function test_staff_starts_session_then_admin_approves(): void
     {
@@ -199,18 +126,19 @@ class MeetingFlowTest extends TestCase
         ])->assertRedirect();
 
         $meeting = Meeting::firstOrFail();
-        $this->assertSame('بانتظار التأكيد', $meeting->status);
+        // «قادم» منذ الإنشاء: لا انتظار لتأكيد العميل
+        $this->assertSame('قادم', $meeting->status);
         $this->assertSame($client->id, $meeting->user_id);
         $this->assertSame('عالية', $meeting->priority);
         $this->assertSame($lawyer->id, $meeting->assigned_lawyer_id);
         $this->assertSame(1, UserNotification::where('user_id', $client->id)->count());
 
-        // تم إنشاء طلب دعوة مرتبط بانتظار تأكيد العميل
+        // تم إنشاء طلب دعوة مرتبط — مؤكَّد منذ الإنشاء (تأكيد العميل مُلغى)
         $req = MeetRequest::where('meeting_id', $meeting->id)->firstOrFail();
-        $this->assertSame(MeetRequest::STAGE_SENT, $req->stage);
+        // تُولَد مؤكَّدة: تأكيد العميل أُلغي (MeetInvitationConfirmedTest)
+        $this->assertSame(MeetRequest::STAGE_CONFIRMED, $req->stage);
 
-        // العميل يؤكد الحضور → تصبح حالة الاجتماع «قادم» وتتأكد الجلسة
-        $this->actingAs($client)->post(route('meetreqs.confirm', $req))->assertRedirect();
+        // الدعوة تُولَد مؤكَّدة والاجتماع «قادم» منذ إنشائه (تأكيد العميل مُلغى)
         $meeting->refresh();
         $this->assertSame('قادم', $meeting->status);
 
@@ -235,10 +163,12 @@ class MeetingFlowTest extends TestCase
         ])->assertRedirect();
 
         $req->refresh();
-        $this->assertSame(MeetRequest::STAGE_SENT, $req->stage); // تعود لبداية الرحلة
+        // بوّابة النشر (2026-08-25): إعادة إرسال الموظف تعود لموافقة الإدارة — لا نشر ولا إشعار للعميل
+        // (بوّابة الموافقة كاملة مغطّاة في MeetInvitationApprovalGateTest)
+        $this->assertSame(MeetRequest::STAGE_SENT, $req->stage);
         $this->assertSame($newDay, $req->day);
         $this->assertSame('10:00', $req->time);
-        $this->assertSame(1, UserNotification::where('user_id', $client->id)->count());
+        $this->assertSame(0, UserNotification::where('user_id', $client->id)->count());
     }
 
     public function test_resend_rejected_for_non_expired_or_foreign_invite(): void

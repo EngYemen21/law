@@ -10,8 +10,12 @@ use App\Jobs\FinalizeConsultJob;
 use App\Models\Consult;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
+use App\Services\GoogleCalendarService;
 use App\Services\LegalAiService;
+use App\Services\ZoomService;
+use App\Support\Audit;
 use App\Support\ConsultBooking;
+use App\Support\ConsultSummary;
 use App\Support\DecisionTasks;
 use App\Support\Live;
 use App\Support\Notify;
@@ -37,14 +41,38 @@ class ConsultController extends Controller
     public function index(Request $request): Response
     {
         // ترتيب بموعد الجلسة (الأقرب أولاً، بلا موعد آخراً) — كان بالمعرّف فتختلط الفائتة بالقادمة
-        $consults = $this->scopeForRole($request, Consult::with(['user', 'appointment']))
+        $consults = $this->scopeForRole($request, Consult::with(['user', 'appointment', 'invoice']))
             ->whereNotIn('status', Consult::PRE_SESSION_STATUSES)
             ->orderByRaw('starts_at IS NULL')->orderBy('starts_at')->latest('id')->get()
             ->map(fn (Consult $c) => $c->toCard());
 
-        return Inertia::render($this->prefix($request).'/consults', [
+        $lawyers = User::where('role', Role::Lawyer)->where('status', 'active')
+            ->orderBy('name')->get(['id', 'name', 'department'])
+            ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name, 'dept' => $u->department ?: '—'])
+            ->values()
+            ->all();
+
+        if (empty($lawyers)) {
+            $lawyers = User::where('role', Role::Lawyer)
+                ->orderBy('name')->get(['id', 'name', 'department'])
+                ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name, 'dept' => $u->department ?: '—'])
+                ->values()
+                ->all();
+        }
+
+        $props = [
             'consults' => $consults,
-        ]);
+            'lawyers' => $lawyers,
+        ];
+
+        if ($this->prefix($request) === 'admin' || $request->user()?->isAdmin()) {
+            $props['preSessionRequests'] = Consult::with(['user', 'invoice', 'appointment'])
+                ->whereIn('status', Consult::PRE_SESSION_STATUSES)
+                ->latest('id')->get()
+                ->map(fn (Consult $c) => $c->toCard());
+        }
+
+        return Inertia::render($this->prefix($request).'/consults', $props);
     }
 
     // طلبات الاستشارات وتسعيرها (الإدارة العليا فقط) — دورة الحجز قبل الجلسة + إجراء التسعير
@@ -328,6 +356,18 @@ class ConsultController extends Controller
         $consult->logAudit($request->user()->name, 'الحالة', $before, 'ملغاة');
         $consult->save();
 
+        GoogleCalendarService::deleteConsultEvent($consult);
+
+        Audit::log(
+            action: 'إلغاء طلب استشارة',
+            description: "ألغى {$request->user()->name} طلب الاستشارة {$consult->ref} (كانت «{$before}»).",
+            category: 'استشارات',
+            severity: 'warning',
+            auditable: $consult,
+            beforeState: ['الحالة' => $before],
+            afterState: ['الحالة' => 'ملغاة'],
+        );
+
         Live::push(new ConsultStatusBroadcast($consult));
         Notify::send($consult->user_id, 'info', 't-grey', "أُلغي طلب استشارتك ({$consult->ref}). إن كنت قد سددت فسيتواصل معك المكتب بشأن الاسترداد.");
 
@@ -363,6 +403,8 @@ class ConsultController extends Controller
         // إلغاء الموعد القديم (يظهر «ملغي» في تبويب المواعيد لا «لم يحضر»)
         $consult->appointment?->update(['status' => 'ملغي', 'tone' => 'b-grey', 'when_kind' => 'past']);
 
+        GoogleCalendarService::deleteConsultEvent($consult);
+
         $old = $consult->when_label ?: '—';
         $consult->status = 'بانتظار تحديد الموعد';
         $consult->session = 'بانتظار الجلسة';
@@ -374,8 +416,22 @@ class ConsultController extends Controller
         $consult->host_link = null;
         $consult->meet_password = null;
         $consult->link_released_at = null;
+        // تصفير أختام التذكير للموعد الجديد — بدونها لا يصل المؤجَّلة تذكير أبداً
+        // (نظير ما تفعله إعادة جدولة جلسات المحاكم في Lawyer\CaseController).
+        $consult->reminder_24h_sent_at = null;
+        $consult->reminder_30m_sent_at = null;
         $consult->logAudit($request->user()->name, 'إعادة الجدولة', $old, 'بانتظار اختيار موعد جديد');
         $consult->save();
+
+        Audit::log(
+            action: 'إعادة جدولة استشارة',
+            description: "أعاد {$request->user()->name} الاستشارة {$consult->ref} لاختيار موعد جديد (كان موعدها: {$old}).",
+            category: 'استشارات',
+            severity: 'warning',
+            auditable: $consult,
+            beforeState: ['الموعد' => $old],
+            afterState: ['الحالة' => 'بانتظار تحديد الموعد'],
+        );
 
         Live::push(new ConsultStatusBroadcast($consult));
         Notify::send($consult->user_id, 'cal', 't-amber', "أُعيدت استشارتك ({$consult->ref}) لاختيار موعد جديد — اختر الموعد المناسب من «استشاراتي».");
@@ -452,5 +508,24 @@ class ConsultController extends Controller
         if ($request->user()->role === Role::Lawyer) {
             $this->guardAssigned($consult);
         }
+    }
+
+    /**
+     * استعلام يدوي من Zoom API: يسحب كل بيانات الجلسة (الحضور، المدة، التسجيل، النصّ،
+     * الملخص) ويحدّث الاستشارة فوراً — لحالات تأخّر الويبهوك/السحب الدوري أو تعثّرهما.
+     */
+    public function zoomSync(Request $request, Consult $consult): RedirectResponse
+    {
+        $this->guardConsult($request, $consult);
+        abort_if(empty($consult->meet_id), 422, 'لا جلسة Zoom مرتبطة بهذه الاستشارة.');
+
+        $pulled = ConsultSummary::pull($consult, app(ZoomService::class));
+
+        return back()->with(
+            $pulled ? 'flash' : 'error',
+            $pulled
+                ? 'تم تحديث بيانات الجلسة من Zoom.'
+                : 'لا بيانات جديدة لدى Zoom بعد — الملخص يُعدّ عادةً خلال دقائق من انتهاء جلسة فعلية.'
+        );
     }
 }

@@ -103,7 +103,10 @@ class EmployeeRequestDocsTest extends TestCase
     {
         config(['services.ai_agent.enabled' => true]);
         $client = User::factory()->create(['role' => Role::Client]);
-        User::factory()->create(['role' => Role::Lawyer]);
+        // القسم مطابق لقسم التذكرة: الإسناد الأوّل يشترط التخصّص الآن، وبلا متخصّص
+        // تبقى التذكرة بلا محامٍ ويُصعَّد الأمر (LawyerAssignmentPolicyTest يغطّي ذلك).
+        // موضوع هذا الاختبار إحالة المستندات لا سياسة الإسناد.
+        User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client); // الوكيل يضعها في «بانتظار مستندات»
         $this->partialMock(LegalAiService::class, function ($mock) {
             $mock->shouldReceive('analyzeDocument')->andReturn([

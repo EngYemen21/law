@@ -1,10 +1,11 @@
 import { router, usePage } from '@inertiajs/react';
 import React, { useState, useMemo } from 'react';
-import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
-import { type Staff, DEPTS } from '@/lib/employee-data';
+import {  DEPTS } from '@/lib/employee-data';
+import type {Staff} from '@/lib/employee-data';
+import Icon from '@/lib/icons';
 import { usePermCatalog } from '@/lib/permissions';
 
 type PayType = 'salary' | 'pct' | 'both' | 'session';
@@ -36,7 +37,9 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
   // كلمة المرور المولّدة المعروضة مرة واحدة فقط
   const [cred, setCred] = useState(props.generatedPassword ?? null);
   React.useEffect(() => {
-    if (props.generatedPassword) setCred(props.generatedPassword);
+    if (props.generatedPassword) {
+setCred(props.generatedPassword);
+}
   }, [props.generatedPassword]);
 
   // التبويب النشط
@@ -75,14 +78,20 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
   const checkNid = async (value: string) => {
     if (!/^\d{10}$/.test(value)) {
       setNidHint(null);
+
       return;
     }
+
     try {
       const res = await fetch(`/admin/staff/lookup?nid=${value}`, { headers: { Accept: 'application/json' } });
       const data = await res.json();
+
       if (data?.exists) {
         setNidHint({ name: data.name, phone: data.phone, roles: data.roles ?? [] });
-        if (!name) setName(data.name);
+
+        if (!name) {
+setName(data.name);
+}
       } else {
         setNidHint(null);
       }
@@ -100,6 +109,7 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
         items: grp.items.filter((p) => {
           const matchRole = allowedPerms.includes(p);
           const matchFilter = !permSearch.trim() || p.toLowerCase().includes(permSearch.toLowerCase());
+
           return matchRole && matchFilter;
         }),
       }))
@@ -171,20 +181,28 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
   const submitStaff = () => {
     if (!name.trim()) {
       toast('يرجى إدخال اسم الموظف الكامل');
+
       return;
     }
+
     if (!nid.trim()) {
       toast('يرجى إدخال رقم الهوية الوطنية');
+
       return;
     }
+
     if (!email.trim()) {
       toast('يرجى إدخال البريد الإلكتروني');
+
       return;
     }
+
     if (!mobile.trim()) {
       toast('يرجى إدخال رقم الجوال');
+
       return;
     }
+
     setBusy(true);
     const payload = {
       name,
@@ -208,6 +226,7 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
       onError: (e: Record<string, string>) => toast((Object.values(e)[0] as string) || 'تعذّر الحفظ'),
       onFinish: () => setBusy(false),
     };
+
     if (editingId) {
       router.put(`/admin/staff/${editingId}`, payload, {
         ...opts,
@@ -239,7 +258,8 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
       }
     );
 
-  const previewStaff = (s: StaffRow) => router.post(`/admin/staff/${s.id}/preview`);
+  // أُلغيت «معاينة اللوحة» (الإمبرسنيشن) بقرار 2026-08-28 — المسار الخادمي معلَّق أيضًا
+  // const previewStaff = (s: StaffRow) => router.post(`/admin/staff/${s.id}/preview`);
 
   // إحصائيات الكادر
   const lawyersCount = staff.filter((s) => s.roleKey === 'lawyer').length;
@@ -248,9 +268,18 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
 
   // تصفية القائمة
   const filteredStaff = staff.filter((s) => {
-    if (roleFilter && s.roleKey !== roleFilter) return false;
-    if (deptFilter && s.dept !== deptFilter) return false;
-    if (statusFilter && (s.status || 'نشط') !== statusFilter) return false;
+    if (roleFilter && s.roleKey !== roleFilter) {
+return false;
+}
+
+    if (deptFilter && s.dept !== deptFilter) {
+return false;
+}
+
+    if (statusFilter && (s.status || 'نشط') !== statusFilter) {
+return false;
+}
+
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const matchName = s.name.toLowerCase().includes(q);
@@ -259,20 +288,32 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
       const matchMobile = (s.mobile || '').includes(q);
       const matchNid = (s.nid || '').includes(q);
       const matchDept = (s.dept || '').toLowerCase().includes(q);
-      if (!matchName && !matchRole && !matchEmail && !matchMobile && !matchNid && !matchDept) return false;
+
+      if (!matchName && !matchRole && !matchEmail && !matchMobile && !matchNid && !matchDept) {
+return false;
+}
     }
+
     return true;
   });
 
   // حساب ساعات العمل اليومية للعرض
   const workHoursText = useMemo(() => {
-    if (!start || !end) return '—';
+    if (!start || !end) {
+return '—';
+}
+
     const [sh, sm] = start.split(':').map(Number);
     const [eh, em] = end.split(':').map(Number);
     let diff = (eh * 60 + em) - (sh * 60 + sm);
-    if (diff < 0) diff += 24 * 60;
+
+    if (diff < 0) {
+diff += 24 * 60;
+}
+
     const hours = Math.floor(diff / 60);
     const mins = diff % 60;
+
     return `${hours} ساعة ${mins > 0 ? `و ${mins} دقيقة` : ''}`;
   }, [start, end]);
 
@@ -285,28 +326,36 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
         <div className="hero-cta" style={{ flexWrap: 'wrap', gap: 8 }}>
           <button
             className={`hero-b ${activeTab === 'list' && !roleFilter ? '' : 'ghost'}`}
-            onClick={() => { setActiveTab('list'); setRoleFilter(''); }}
+            onClick={() => {
+ setActiveTab('list'); setRoleFilter(''); 
+}}
             type="button"
           >
             <Icon name="user" /> كل الكادر ({staff.length})
           </button>
           <button
             className={`hero-b ${activeTab === 'list' && roleFilter === 'lawyer' ? '' : 'ghost'}`}
-            onClick={() => { setActiveTab('list'); setRoleFilter('lawyer'); }}
+            onClick={() => {
+ setActiveTab('list'); setRoleFilter('lawyer'); 
+}}
             type="button"
           >
             <Icon name="scale" /> المحامين ({lawyersCount})
           </button>
           <button
             className={`hero-b ${activeTab === 'list' && roleFilter === 'employee' ? '' : 'ghost'}`}
-            onClick={() => { setActiveTab('list'); setRoleFilter('employee'); }}
+            onClick={() => {
+ setActiveTab('list'); setRoleFilter('employee'); 
+}}
             type="button"
           >
             <Icon name="folder" /> الموظفين ({employeesCount})
           </button>
           <button
             className={`hero-b ${activeTab === 'list' && roleFilter === 'admin' ? '' : 'ghost'}`}
-            onClick={() => { setActiveTab('list'); setRoleFilter('admin'); }}
+            onClick={() => {
+ setActiveTab('list'); setRoleFilter('admin'); 
+}}
             type="button"
           >
             <Icon name="lock" /> الإدارة العليا ({adminsCount})
@@ -349,7 +398,10 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
               className="btn soft sm"
               style={{ marginTop: 8 }}
               onClick={() => {
-                if (navigator.clipboard) void navigator.clipboard.writeText(cred.password);
+                if (navigator.clipboard) {
+void navigator.clipboard.writeText(cred.password);
+}
+
                 toast('تم نسخ كلمة المرور بنجاح');
               }}
               type="button"
@@ -374,7 +426,10 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
           type="button"
           className={`btn sm ${activeTab === 'form' ? '' : 'soft'}`}
           onClick={() => {
-            if (activeTab !== 'form') resetForm();
+            if (activeTab !== 'form') {
+resetForm();
+}
+
             setActiveTab('form');
           }}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
@@ -464,7 +519,9 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
                 <button
                   type="button"
                   className="btn sm ghost"
-                  onClick={() => { setSearchQuery(''); setRoleFilter(''); setDeptFilter(''); setStatusFilter(''); }}
+                  onClick={() => {
+ setSearchQuery(''); setRoleFilter(''); setDeptFilter(''); setStatusFilter(''); 
+}}
                   title="إلغاء الفلاتر"
                 >
                   إلغاء الفلاتر
@@ -582,7 +639,9 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
               {editingId && (
                 <button
                   className="btn soft sm"
-                  onClick={() => { resetForm(); setActiveTab('list'); }}
+                  onClick={() => {
+ resetForm(); setActiveTab('list'); 
+}}
                   type="button"
                 >
                   <Icon name="close" /> إلغاء التعديل والعودة للقائمة
@@ -603,7 +662,10 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
                 <div
                   onClick={() => {
                     setRoleKey('lawyer');
-                    if (role === 'موظف خدمة عملاء' || role === 'إداري') setRole('محامٍ');
+
+                    if (role === 'موظف خدمة عملاء' || role === 'إداري') {
+setRole('محامٍ');
+}
                   }}
                   style={{
                     border: `1.8px solid ${roleKey === 'lawyer' ? 'var(--primary)' : 'var(--line)'}`,
@@ -629,7 +691,10 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
                 <div
                   onClick={() => {
                     setRoleKey('employee');
-                    if (role === 'محامٍ' || role === 'محامٍ مستشار') setRole('موظف خدمة عملاء');
+
+                    if (role === 'محامٍ' || role === 'محامٍ مستشار') {
+setRole('موظف خدمة عملاء');
+}
                   }}
                   style={{
                     border: `1.8px solid ${roleKey === 'employee' ? 'var(--primary)' : 'var(--line)'}`,
@@ -948,6 +1013,7 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
                     <div className="perm-grid">
                       {grp.items.map((p) => {
                         const isOn = perms.indexOf(p) >= 0;
+
                         return (
                           <div
                             key={p}
@@ -972,7 +1038,9 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
                 <button
                   type="button"
                   className="btn soft"
-                  onClick={() => { resetForm(); setActiveTab('list'); }}
+                  onClick={() => {
+ resetForm(); setActiveTab('list'); 
+}}
                 >
                   إلغاء
                 </button>
@@ -1071,11 +1139,12 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
               >
                 <Icon name="doc" /> تعديل البيانات
               </button>
+              {/* أُلغيت «معاينة اللوحة بصلاحياته» (الإمبرسنيشن) بقرار 2026-08-28
               {detail.roleKey !== 'admin' && (
                 <button className="btn sm" onClick={() => previewStaff(detail)} type="button">
                   <Icon name="out" /> معاينة اللوحة بصلاحياته
                 </button>
-              )}
+              )} */}
             </div>
 
             <div className="kv"><span className="k">الاسم الكامل</span><span className="v"><b>{detail.name}</b></span></div>
@@ -1095,7 +1164,11 @@ const AdminStaff: React.FC<Props> = ({ staff }) => {
               {detail.perms && detail.perms.length ? (
                 catalog.groups.map((grp) => {
                   const have = grp.items.filter((p) => detail.perms.indexOf(p) >= 0);
-                  if (!have.length) return null;
+
+                  if (!have.length) {
+return null;
+}
+
                   return (
                     <div key={grp.g} style={{ marginBottom: 10 }}>
                       <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--primary)', marginBottom: 5 }}>

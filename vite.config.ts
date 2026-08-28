@@ -17,7 +17,9 @@ export default defineConfig({
                 }),
             ],
         }),
-        inertia(),
+        inertia({
+            ssr: false,
+        }),
         react(),
         tailwindcss(),
         wayfinder({

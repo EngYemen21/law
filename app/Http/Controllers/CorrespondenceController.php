@@ -196,4 +196,41 @@ class CorrespondenceController extends Controller
     {
         return $request->user()->role === Role::Admin ? 'الإدارة' : $request->user()->name;
     }
+
+    /**
+     * طباعة نصّ المخاطبة نفسها PDF خادمياً — كانت الواجهة تفتح نافذة متصفح بقالب مرتجل
+     * تفشل صامتاً عند حجب المنبثقات (نفس العلّة التي أُصلحت في briefPdf).
+     */
+    public function letterPdf(Request $request, Correspondence $correspondence): \Symfony\Component\HttpFoundation\Response
+    {
+        $user = $request->user();
+        abort_unless(
+            $correspondence->user_id === $user->id
+            || $user->isAdmin()
+            || $user->isEmployee()
+            || (int) $correspondence->assigned_lawyer_id === (int) $user->id,
+            403
+        );
+
+        $html = ReportPrint::html([
+            'title' => 'مخاطبة رسمية',
+            'subtitle' => "{$correspondence->number} · {$correspondence->entity}",
+            'ref' => $correspondence->number,
+            'blocks' => array_values(array_filter([
+                [
+                    'title' => 'بيانات المخاطبة',
+                    'cellRows' => [
+                        [['رقم المخاطبة', $correspondence->number], ['الجهة', $correspondence->entity]],
+                        [['الموضوع', $correspondence->subject], ['الاتجاه', $correspondence->direction]],
+                        [['الحالة', $correspondence->status], ['التاريخ', $correspondence->date_label ?: '—']],
+                    ],
+                ],
+                $correspondence->body ? ['title' => 'نصّ المخاطبة', 'lines' => $correspondence->body] : null,
+                $correspondence->reply_body ? ['title' => 'ردّ الجهة', 'lines' => $correspondence->reply_body] : null,
+            ])),
+            'footer' => 'النظام الإداري لمكاتب المحاماة — وثيقة رسمية',
+        ]);
+
+        return PdfRenderer::render($html, $correspondence->number.'.pdf');
+    }
 }

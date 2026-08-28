@@ -16,6 +16,7 @@ use Tests\TestCase;
  * لا مرفقات → طلب المستندات؛ مرفق ذو صلة → إقرار الموظف المختص + إحالة؛ غير ذي صلة → طلب الصحيح؛
  * متعذّر الفحص → إقرار بالاستلام + مراجعة يدوية.
  */
+// المحامون بقسم التذكرة: الإسناد الأوّل يشترط التخصّص (LawyerAssignmentPolicyTest)
 class TicketOpenTriageTest extends TestCase
 {
     use RefreshDatabase;
@@ -63,7 +64,7 @@ class TicketOpenTriageTest extends TestCase
         $this->enableAgent();
         $this->mockDocAnalysis(['related' => true, 'doc_type' => 'عقد توريد', 'summary' => 'عقد توريد يوثّق العلاقة محل النزاع.', 'reason' => 'مرتبط بالموضوع.']);
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
 
         $ticket = $this->openTicket($client, [UploadedFile::fake()->create('contract.pdf', 120, 'application/pdf')]);
 
@@ -84,7 +85,7 @@ class TicketOpenTriageTest extends TestCase
         $this->enableAgent();
         $this->mockDocAnalysis(['related' => false, 'doc_type' => 'وصفة طبية', 'summary' => 'تقرير طبي لا صلة له بالنزاع.', 'reason' => 'المحتوى طبي.']);
         $client = User::factory()->create(['role' => Role::Client]);
-        User::factory()->create(['role' => Role::Lawyer]);
+        User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
 
         $ticket = $this->openTicket($client, [UploadedFile::fake()->create('report.pdf', 60, 'application/pdf')]);
 
@@ -101,7 +102,7 @@ class TicketOpenTriageTest extends TestCase
         // بلا مفاتيح AI في بيئة الاختبار → analyzeDocument يعيد null (تعذّر الفحص)
         $this->enableAgent();
         $client = User::factory()->create(['role' => Role::Client]);
-        User::factory()->create(['role' => Role::Lawyer]);
+        User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
 
         $ticket = $this->openTicket($client, [UploadedFile::fake()->create('scan.pdf', 90, 'application/pdf')]);
 

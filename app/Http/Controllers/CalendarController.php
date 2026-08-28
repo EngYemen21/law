@@ -3,137 +3,81 @@
 namespace App\Http\Controllers;
 
 use App\Models\Appointment;
-use App\Models\CaseHearing;
-use App\Models\Consult;
-use App\Models\Meeting;
 use App\Models\User;
 use App\Services\IcalendarService;
-use App\Support\MeetingTime;
+use App\Support\CalendarWindow;
+use App\Support\TimelineCard;
+use App\Support\TimelineQuery;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 
-/**
- * تقويم العميل والمكتب — عرض الأحداث المجمّعة وتوليد روابط تقويم جوجل والاشتراك الحي (Live iCal Feed).
- */
 class CalendarController extends Controller
 {
+    /** خيارات الترشيح المسموحة — تُعرض للواجهة ويُتحقّق منها خادمياً. */
+    private const SORTS = ['asc', 'desc'];
+
+    /**
+     * التبويب الزمني الموحّد — ترشيح وبحث وتصفيح **خادمية**.
+     *
+     * كانت الصفحة تُحمّل الأنواع الأربعة كاملةً في حمولة واحدة ثم تدمجها الواجهة: لا بحث ولا
+     * ترشيح، وحجم الحمولة ينمو مع عمر الحساب بلا سقف. الآن TimelineQuery يتّحد على مستوى
+     * القاعدة ويُعيد صفحة واحدة، وTimelineCard يُحمّل نماذج تلك الصفحة وحدها.
+     */
     public function index(Request $request): Response
     {
         $user = $request->user();
-        $uid = $user->id;
 
-        // 1. المواعيد الحضورية والمكتبية
-        $appts = Appointment::where('user_id', $uid)->with('consult')->latest('id')->get()
-            ->map(function (Appointment $a) {
-                $start = MeetingTime::parse($a->day, $a->time);
-                $gcal = IcalendarService::googleUrl(
-                    title: 'موعد: '.$a->type,
-                    details: 'موعد لدى النظام الإداري لمكاتب المحاماة (المحامي: '.$a->lawyer.')',
-                    startsAt: $start,
-                    durationMinutes: 30,
-                    locationUrl: $a->place ?: (string) config('office.address')
-                );
+        $filters = $request->validate([
+            'q' => ['nullable', 'string', 'max:120'],
+            'kind' => ['nullable', 'string', 'in:all,'.implode(',', TimelineQuery::KINDS)],
+            'status' => ['nullable', 'string', 'max:60'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+            'sort' => ['nullable', 'string', 'in:'.implode(',', self::SORTS)],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per' => ['nullable', 'integer', 'in:12,24,48'],
+        ]);
 
-                return [
-                    'kind' => 'موعد',
-                    'tone' => 'b-cyan',
-                    'title' => $a->type,
-                    'day' => $a->day,
-                    'time' => $a->time,
-                    'where' => $a->place,
-                    // الحالة الحيّة — كانت المخزّنة تعرض «مؤكد» لموعد لم يُحضَر
-                    'status' => $a->liveState()[1],
-                    'gcal' => $gcal,
-                ];
-            });
+        $perPage = (int) ($filters['per'] ?? 12);
+        $page = (int) ($filters['page'] ?? 1);
 
-        // 2. الاستشارات القانونية
-        $consults = Consult::with('appointment')->where('user_id', $uid)->whereNotIn('status', ['ملغاة'])->latest('id')->get()
-            ->map(function (Consult $c) use ($user) {
-                $start = $c->starts_at ?: MeetingTime::parse($c->day ?? '', $c->time ?? '');
-                $link = $c->joinLink($user);
-                $gcal = IcalendarService::googleUrl(
-                    title: 'استشارة: '.$c->subject.' ('.$c->ref.')',
-                    details: 'استشارة قانونية ('.$c->channel.') — المستشار: '.$c->lawyer,
-                    startsAt: $start,
-                    durationMinutes: $c->duration_min ?: 45,
-                    locationUrl: $link
-                );
-
-                return [
-                    'kind' => 'استشارة',
-                    'tone' => 'b-blue',
-                    'title' => $c->subject.' ('.$c->ref.')',
-                    'day' => $c->when_label ?: $c->day,
-                    'time' => $c->time,
-                    'where' => $c->channel === 'حضورية' ? $c->placeLabel() : 'جلسة مرئية بالمنصة',
-                    'status' => $c->status,
-                    'gcal' => $gcal,
-                ];
-            });
-
-        // 3. جلسات القضايا
-        $hearings = CaseHearing::whereHas('legalCase', fn ($q) => $q->where('user_id', $uid))
-            ->with('legalCase')->latest('id')->get()
-            ->map(function (CaseHearing $h) {
-                $start = MeetingTime::parse($h->day, $h->time);
-                $gcal = IcalendarService::googleUrl(
-                    title: $h->title.' (قضية '.($h->legalCase?->number ?: '—').')',
-                    details: 'جلسة قضائية بمحكمة: '.($h->court ?: 'المحكمة المختصة'),
-                    startsAt: $start,
-                    durationMinutes: 60,
-                    locationUrl: $h->court ?: 'المحكمة المختصة'
-                );
-
-                return [
-                    'kind' => 'جلسة قضية',
-                    'tone' => 'b-amber',
-                    'title' => $h->title.' (قضية '.($h->legalCase?->number ?: '—').')',
-                    'day' => $h->day,
-                    'time' => $h->time,
-                    'where' => $h->court ?: 'المحكمة',
-                    'status' => $h->isLapsed() ? 'فائتة — بانتظار النتيجة' : $h->status,
-                    'gcal' => $gcal,
-                ];
-            });
-
-        // 4. الاجتماعات الرسمية
-        $meetings = Meeting::where('user_id', $uid)->whereNotIn('status', ['ملغى'])->latest('id')->get()
-            ->map(function (Meeting $m) use ($user) {
-                $start = $m->starts_at ?: now();
-                $link = $m->joinLink($user);
-                $gcal = IcalendarService::googleUrl(
-                    title: 'اجتماع: '.$m->title.' ('.$m->ref.')',
-                    details: 'اجتماع رسمي بالمنصة — '.$m->when_label,
-                    startsAt: $start,
-                    durationMinutes: 60,
-                    locationUrl: $link
-                );
-
-                return [
-                    'kind' => 'اجتماع',
-                    'tone' => 'b-green',
-                    'title' => $m->title,
-                    'day' => $m->when_label,
-                    'time' => null,
-                    'where' => 'غرفة المنصة',
-                    'status' => $m->status,
-                    'gcal' => $gcal,
-                ];
-            });
+        $paginator = TimelineQuery::paginate($user->id, $filters, $perPage, $page);
 
         return Inertia::render('calendar', [
-            'events' => $appts->concat($consults)->concat($hearings)->concat($meetings)->values(),
+            'events' => TimelineCard::hydrate(collect($paginator->items()), $user),
+            'meta' => [
+                'total' => $paginator->total(),
+                'page' => $paginator->currentPage(),
+                'lastPage' => $paginator->lastPage(),
+                'perPage' => $perPage,
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
+            'counts' => TimelineQuery::countsByKind($user->id, $filters),
+            'statuses' => TimelineQuery::statuses($user->id),
+            'filters' => [
+                'q' => $filters['q'] ?? '',
+                'kind' => $filters['kind'] ?? 'all',
+                'status' => $filters['status'] ?? '',
+                'from' => $filters['from'] ?? '',
+                'to' => $filters['to'] ?? '',
+                'sort' => $filters['sort'] ?? 'asc',
+                'per' => $perPage,
+            ],
+            // «مواعيدي»: نوع واحد ببطاقته الغنيّة (QR · PDF · حالة السداد) — يبقى كاملاً
+            // ضمن نافذة العميل لأنه مصدر البطاقة لا قائمة تصفَّح.
+            'appointments' => Appointment::where('user_id', $user->id)->with(['user', 'consult'])
+                ->where(CalendarWindow::forClient())
+                ->orderByRaw('starts_at IS NULL')->orderBy('starts_at')
+                ->limit(CalendarWindow::LIMIT)->get()
+                ->map(fn (Appointment $a) => $a->toCard($user))->values(),
             'feedUrl' => $user->calendarFeedUrl(),
             'webcalUrl' => $user->calendarWebcalUrl(),
         ]);
     }
 
-    /**
-     * موجز التغذية الحية لتقويم جوجل (RFC 5545 Live iCal Subscription Feed).
-     */
     public function feed(User $user, string $token): HttpResponse
     {
         // التحقق من صحة رمز الأمان الثابت للمستخدم

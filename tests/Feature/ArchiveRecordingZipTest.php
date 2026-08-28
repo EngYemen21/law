@@ -50,7 +50,7 @@ class ArchiveRecordingZipTest extends TestCase
                 ->where('rows.0.zip', null));
     }
 
-    public function test_admin_downloads_recording_as_zip_via_zoom_api(): void
+    public function test_admin_downloads_recording_as_raw_mp4_via_zoom_api(): void
     {
         $this->configureS2S();
         Http::fake([
@@ -72,15 +72,16 @@ class ArchiveRecordingZipTest extends TestCase
         $consult = $this->endedConsult($client, ['meet_id' => '81823767754']);
 
         // البناء يقع في الطابور/المجدول (لا داخل طلب HTTP — كان 504 حتمياً خلف nginx)
-        $this->assertSame("recordings/consult-{$consult->ref}-video.zip", RecordingArchive::build($consult, 'video'));
+        // بصيغة الوسيط الأصلية: ضغط ZIP أُلغي (كان يعطّل التنزيل)
+        $this->assertSame("recordings/consult-{$consult->ref}-video.mp4", RecordingArchive::build($consult, 'video'));
 
         $res = $this->actingAs($admin)->get(route('admin.consults.recording', $consult));
 
         $res->assertOk();
-        $this->assertStringContainsString("recording-{$consult->ref}.zip", (string) $res->headers->get('content-disposition'));
+        $this->assertStringContainsString("recording-{$consult->ref}.mp4", (string) $res->headers->get('content-disposition'));
 
-        // ملف ZIP حقيقي يحوي فيديو الجلسة بالبايتات المجلوبة من Zoom
-        $this->assertSame('FAKE-MP4-BYTES', $this->zipEntry($consult, 'video', 'mp4'));
+        // الملف الخام كما جُلب من Zoom مباشرة — بلا أرشفة
+        $this->assertSame('FAKE-MP4-BYTES', Storage::disk('local')->get(RecordingArchive::localPath($consult, 'video')));
 
         // طلب التنزيل من Zoom حمل رمز التنزيل
         Http::assertSent(fn ($r) => str_contains($r->url(), '/rec/download/abc') && str_contains($r->url(), 'access_token=DLTOK'));
@@ -98,7 +99,7 @@ class ArchiveRecordingZipTest extends TestCase
         RecordingArchive::build($consult, 'video');
 
         $this->actingAs($admin)->get(route('admin.consults.recording', $consult))->assertOk();
-        $this->assertSame('DIRECT-BYTES', $this->zipEntry($consult, 'video', 'mp4'));
+        $this->assertSame('DIRECT-BYTES', Storage::disk('local')->get(RecordingArchive::localPath($consult, 'video')));
     }
 
     public function test_download_unavailable_returns_404(): void
@@ -119,8 +120,8 @@ class ArchiveRecordingZipTest extends TestCase
         $this->actingAs($admin)->get(route('admin.consults.recording', $notEnded))->assertNotFound();
     }
 
-    /** يقرأ محتوى مُدخل داخل الأرشيف المحفوظ محلياً. */
-    private function zipEntry(Consult $consult, string $type, string $ext): string|false
+    /** يقرأ محتوى مُدخل داخل الأرشيف المحفوظ محلياً — عُلّق مع إلغاء ضغط ZIP. */
+    /* private function zipEntry(Consult $consult, string $type, string $ext): string|false
     {
         $tmp = tempnam(sys_get_temp_dir(), 'zip');
         file_put_contents($tmp, Storage::disk('local')->get(RecordingArchive::localPath($consult, $type)));
@@ -131,7 +132,7 @@ class ArchiveRecordingZipTest extends TestCase
         @unlink($tmp);
 
         return $content;
-    }
+    } */
 
     public function test_non_admin_cannot_reach_archive_download(): void
     {

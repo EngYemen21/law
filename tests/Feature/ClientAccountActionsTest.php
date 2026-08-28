@@ -25,8 +25,10 @@ class ClientAccountActionsTest extends TestCase
 
     // ── الملف الشخصي ──
 
+    /** الجوال يُستثنى: لم يعد يُحفظ إلا بتأكيد رمز — PhoneChangeVerificationTest يغطّيه. */
     public function test_client_can_save_profile_fields(): void
     {
+        config(['services.auth_dev_otp' => '1234']);
         $client = $this->client();
 
         $this->actingAs($client)->post('/profile', [
@@ -38,7 +40,7 @@ class ClientAccountActionsTest extends TestCase
         $this->assertDatabaseHas('users', [
             'id' => $client->id,
             'name' => 'عبدالله محمد',
-            'phone' => '0551112223',
+            // الجوال غائب عمداً: معلّق بانتظار تأكيد الرمز (PhoneChangeVerificationTest)
             'email' => 'abdullah@example.com',
         ]);
     }
@@ -125,6 +127,43 @@ class ClientAccountActionsTest extends TestCase
         $this->assertNotNull($invoice->proof_uploaded_at);
         $this->assertSame('بانتظار مراجعة الإثبات', $invoice->status);
         Storage::disk('local')->assertExists($invoice->proof_path);
+    }
+
+    /**
+     * زرّ «إثبات التحويل» في تبويب الفواتير والمحاسبة: الإدارة تنزّل ما رفعه العميل.
+     * النقطة كانت موجودة بلا أي زرّ يفتحها — فحالة «بانتظار مراجعة الإثبات» طريق مسدود.
+     */
+    public function test_admin_can_download_uploaded_proof(): void
+    {
+        Storage::fake('local');
+        $client = $this->client();
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $invoice = Invoice::create([
+            'user_id' => $client->id, 'number' => 'INV-9005', 'description' => 'أتعاب',
+            'amount' => 1200, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال أسبوع', 'paid' => false,
+        ]);
+        $this->actingAs($client)->post(route('invoices.proof', $invoice), [
+            'file' => UploadedFile::fake()->create('proof.jpg', 80, 'image/jpeg'),
+        ]);
+        $invoice->refresh();
+
+        $response = $this->actingAs($admin)->get(route('admin.invoices.proof', $invoice));
+
+        $response->assertOk();
+        // نسخة ASCII الاحتياطية في Content-Disposition تُحوّل العربية صوتياً — التأكيد على الجزء الثابت
+        $this->assertStringContainsString('INV-9005.jpg', (string) $response->headers->get('Content-Disposition'));
+    }
+
+    /** فاتورة بلا إثبات مرفوع ⇒ 404 لا تنزيل فارغ. */
+    public function test_proof_download_404s_when_none_uploaded(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $invoice = Invoice::create([
+            'user_id' => $this->client()->id, 'number' => 'INV-9006', 'description' => 'أتعاب',
+            'amount' => 900, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال أسبوع', 'paid' => false,
+        ]);
+
+        $this->actingAs($admin)->get(route('admin.invoices.proof', $invoice))->assertNotFound();
     }
 
     public function test_proof_upload_requires_file(): void

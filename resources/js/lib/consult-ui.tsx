@@ -6,12 +6,12 @@ import Modal from '@/components/babylon/Modal';
 import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
+import { echo } from '@/lib/echo';
 import {
   CONSULT_CHANNELS, CONSULT_FLOW, cStage, cHasStage, cTone,
   crChannelIcon, crChannelTone, maskClient
 } from '@/lib/employee-data';
 import type {AuditEntry} from '@/lib/employee-data';
-import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
 import ZoomEmbedRoom from '@/lib/zoom-room';
 
@@ -75,6 +75,8 @@ export interface ConsultCard {
   audit: AuditEntry[];
   decisions: string[];
   tasksCreated: boolean;
+  zoomAudioUrl?: string | null;
+  zoomShareUrl?: string | null;
 }
 
 // فتح جلسة Zoom في تبويب جديد (المكالمة والتسجيل على Zoom)
@@ -149,8 +151,11 @@ export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }
           : x));
       });
     });
-    return () => { consults.forEach((c) => echo.leave(`consult.${c.id}`)); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    return () => {
+ consults.forEach((c) => echo.leave(`consult.${c.id}`)); 
+};
+     
   }, [consults]);
 
   const counts: Record<string, number> = { 'مرئية': 0, 'حضورية': 0, 'هاتفية': 0 };
@@ -193,12 +198,14 @@ counts[c.channel]++;
   // كان router.visit يُجهض طلب البدء (سباق Inertia) فيدخل الموظف والجلسة لم تبدأ رسمياً
   const enterRoom = (c: ConsultCard) => {
     const room = `${base}/videoroom?ref=${encodeURIComponent(c.ref)}`;
+
     if (c.session === 'بانتظار الجلسة') {
       router.post(`${base}/consults/${c.id}/start`, {}, {
         preserveScroll: true,
         onSuccess: () => router.visit(room),
         onError: () => toast('تعذّر بدء الجلسة'),
       });
+
       return;
     }
 
@@ -304,8 +311,13 @@ void navigator.clipboard.writeText(c.slink);
                     </>
                   ) : c.session === 'بانتظار الجلسة' ? (
                     c.startable === false ? (
-                      /* موعد مستقبلي خارج نافذة البدء (قبل 15د) — كان الزر ظاهراً لاستشارة بعد أسابيع */
-                      <Badge text="مجدولة — البدء قبل الموعد بـ15د" tone="b-grey" />
+                      /* موعد مستقبلي خارج نافذة البدء — الخادم يسمح بإعادة جدولته والزرّ كان محصوراً بالفائتة */
+                      <>
+                        <Badge text="مجدولة — البدء قبل الموعد بـ15د" tone="b-grey" />
+                        <button className="btn soft sm" onClick={() => reschedule(c)} type="button">
+                          <Icon name="cal" /> إعادة جدولة
+                        </button>
+                      </>
                     ) : c.channel === 'مرئية' ? (
                       <>
                         <button className="btn sm" onClick={() => enterRoom(c)} type="button">
@@ -445,7 +457,13 @@ export const PricingAction: React.FC<{ c: ConsultCard; base: string; toast: (m: 
 
   const save = () => {
     const val = parseInt(price, 10);
-    if (Number.isNaN(val) || val < 0) { toast('أدخل سعراً صحيحاً'); return; }
+
+    if (Number.isNaN(val) || val < 0) {
+ toast('أدخل سعراً صحيحاً');
+
+ return; 
+}
+
     setBusy(true);
     router.post(`${base}/consults/${c.id}/price`, { price: val }, {
       preserveScroll: true, onSuccess: () => toast('تم تحديد السعر وإصدار الفاتورة'), onFinish: () => setBusy(false),
@@ -655,6 +673,16 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
               <Icon name="scale" /> إحالة للمحامي ({lawyerName})
             </button>
           )}
+        </div>
+      )}
+
+      {/* استعلام يدوي من Zoom API: يسحب كل بيانات الجلسة (الحضور/المدة/التسجيل/النص/الملخص)
+          ويحدّث الاستشارة فوراً — لحالات تأخّر الويبهوك أو تعثّر السحب الدوري */}
+      {c.session === 'منتهية' && (
+        <div style={{ display: 'flex', gap: 9, margin: '0 0 16px', flexWrap: 'wrap' }}>
+          <button className="btn soft" onClick={() => post('zoom-sync', {}, 'اكتمل الاستعلام من Zoom — حُدّثت بيانات الجلسة المتوفرة')} disabled={busy} type="button">
+            <Icon name="video" /> {busy ? 'جارٍ الاستعلام من Zoom…' : 'تحديث بيانات الجلسة من Zoom'}
+          </button>
         </div>
       )}
 

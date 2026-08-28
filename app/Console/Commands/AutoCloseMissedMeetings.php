@@ -11,7 +11,7 @@ use Illuminate\Console\Command;
 
 /**
  * معالجة وحسم المواعيد والدعوات الفائتة آلياً (تثبيت للقاعدة — العرض الفوري تكفله liveState):
- * 1. الدعوات المعلقة التي مرّ موعدها بـ6 ساعات دون تأكيد → منتهية الصلاحية (STAGE_EXPIRED).
+ * 1. الدعوات المعلقة التي مرّ موعدها بـ6 ساعات دون موافقة الإدارة → منتهية الصلاحية (STAGE_EXPIRED).
  * 2. قادم/مؤجل/بانتظار التأكيد المتجاوز موعده بـ12 ساعة: دخل أحدٌ فعلاً ⇒ «منتهٍ» (لا استثناء
  *    يُبقيه قادماً للأبد كما كان قيد join_time===null)، ولم يدخل أحد ⇒ «لم ينعقد».
  * 3. «جارٍ» المتجاوز (المدة + 3 ساعات) ⇒ «منتهٍ» — كانت الجارية أبديةً لا يحسمها أحد.
@@ -40,6 +40,7 @@ class AutoCloseMissedMeetings extends Command
         // 2. حسم القادمة الفائتة (12 ساعة): منعقدة فعلاً ⇒ منتهٍ، وإلا ⇒ لم ينعقد
         $missedMeetingsCount = 0;
         $endedMeetingsCount = 0;
+        // «بانتظار التأكيد» حالة تاريخية: لا يكتبها أي مسار حيّ منذ إلغاء تأكيد العميل — تبقى دفاعاً عن سجلّات قديمة
         $overdueMeetings = Meeting::whereIn('status', ['قادم', 'مؤجل', 'بانتظار التأكيد'])->get();
 
         foreach ($overdueMeetings as $meeting) {
@@ -83,7 +84,8 @@ class AutoCloseMissedMeetings extends Command
     {
         $meeting->update([
             'status' => 'منتهٍ',
-            'attend' => $meeting->attend ?: 90,
+            // لا نسبة حضور مختلقة (كانت 90 مثبّتة): 0 = غير مسجَّلة وتُخفى من العرض
+            'attend' => $meeting->attend ?: 0,
         ]);
         MeetRequest::where('meeting_id', $meeting->id)
             ->where('stage', '<', MeetRequest::STAGE_EXECUTED)

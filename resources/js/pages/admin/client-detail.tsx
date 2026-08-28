@@ -1,9 +1,10 @@
 import { Link, router } from '@inertiajs/react';
 import React, { useState } from 'react';
-import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
-import StatRow, { type StatItem } from '@/components/babylon/StatRow';
+// import StatRow from '@/components/babylon/StatRow'; // غير مستخدم — البطاقات تُرسم محليًا بنمط الصفحة
+import type { StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
+import Icon from '@/lib/icons';
 
 interface ClientData {
   id: number;
@@ -181,9 +182,11 @@ const AdminClientDetail: React.FC<Props> = ({
   // تبديل حالة الحساب سريعاً
   const handleToggleStatus = () => {
     const action = status === 'active' ? 'إيقاف' : 'تفعيل';
+
     if (!confirm(`هل أنت متأكد من ${action} حساب العميل؟`)) {
       return;
     }
+
     router.post(
       `/admin/clients/${client.id}/toggle`,
       {},
@@ -594,7 +597,7 @@ const AdminClientDetail: React.FC<Props> = ({
                             <td className="muted mono" style={{ fontSize: 12 }}>{inv.date}</td>
                             <td style={{ textAlign: 'center' }}>
                               <a
-                                href={`/invoices/${inv.no}/pdf`}
+                                href={`/admin/invoices/${inv.no}/pdf`}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="btn sm soft"

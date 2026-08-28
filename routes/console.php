@@ -37,3 +37,9 @@ Schedule::command('hearings:auto-lapse')->hourly()->withoutOverlapping();
 
 // تذكير بسداد فواتير أتعاب التنفيذ المستحقة
 Schedule::command('exec:send-payment-reminders')->everyThirtyMinutes()->withoutOverlapping();
+
+// حسم المواعيد التي فات وقتها — الكيان الوحيد الذي كانت حالته تُشتقّ ولا تُكتب
+Schedule::command('appointments:auto-lapse')->everyFifteenMinutes()->withoutOverlapping();
+
+// شبكة أمان: تذاكر بقيت بلا محامٍ (فُتحت قبل الميزة · فشلت وظيفة التصعيد · أُلغي إسنادها)
+Schedule::command('tickets:escalate-unassigned')->everyFifteenMinutes()->withoutOverlapping();

@@ -25,7 +25,7 @@ class ConsultSummary
         }
 
         // 1. جلب تفاصيل الجلسة المنتهية (المشاركون، التسجيل المرئي والصوتي، رابط المشاركة)
-        $details = $zoom->fetchPastMeetingDetails((string) $consult->meet_id);
+        $details = $zoom->fullPastMeetingDetails((string) $consult->meet_id);
         if ($details) {
             $updates = [];
             if ($details['uuid'] && ! $consult->zoom_uuid) {
@@ -59,8 +59,10 @@ class ConsultSummary
 
         // 2. جلب ملخص الذكاء الاصطناعي إن لم يكن كُتب سابقاً
         if ($consult->zoom_summary_at === null) {
-            $summary = ZoomService::summaryFromPayload($payload)
-                ?? $zoom->meetingSummary((string) $consult->meet_id, $consult->zoom_uuid ?: ($details['uuid'] ?? null));
+            // الجلب الكامل أولاً (كل الانعقادات مدموجة) — حمولة الويبهوك تخصّ انعقاداً واحداً
+            // فتُترك احتياطاً حين يتعذّر الاستعلام، وإلا أسقطنا أجزاء الجلسة المنقطعة
+            $summary = $zoom->fullMeetingSummary((string) $consult->meet_id, $consult->zoom_uuid ?: ($details['uuid'] ?? null))
+                ?? ZoomService::summaryFromPayload($payload);
 
             if ($summary !== null) {
                 $consult->update([

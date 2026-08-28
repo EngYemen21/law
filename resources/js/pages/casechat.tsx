@@ -1,14 +1,15 @@
 import { router } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useState } from 'react';
-import DetailShell from '@/components/babylon/DetailShell';
-import ChatThread from '@/components/babylon/ChatThread';
-import FlowLine from '@/components/babylon/FlowLine';
 import Badge from '@/components/babylon/Badge';
-import Icon from '@/lib/icons';
+import ChatThread from '@/components/babylon/ChatThread';
+import DetailShell from '@/components/babylon/DetailShell';
+import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
-import { CASE_LIFE, caseStage, type Hearing, HearingsCard } from '@/lib/case-ui';
-import { type Message } from '@/lib/chat';
+import { CASE_LIFE, caseStage,  HearingsCard } from '@/lib/case-ui';
+import type {Hearing} from '@/lib/case-ui';
+import type {Message} from '@/lib/chat';
+import Icon from '@/lib/icons';
 
 // يطابق clientCaseView — مسار القضية + الجلسات + سداد الأتعاب + المحادثة (من قاعدة البيانات)
 
@@ -28,25 +29,29 @@ const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings, docum
   const chatOpen = !['مغلقة', 'مؤرشفة'].includes(status.status);
   // رفع مستند فعلي لملف القضية — تظهر رسالته لحظياً عبر البثّ، وتُحدَّث قائمة المستندات فور نجاح الرفع
   const attach = (file?: File) => {
-    if (!file) return;
+    if (!file) {
+return;
+}
+
     const fd = new FormData();
     fd.append('file', file);
+
     return axios.post(`/cases/${encodeURIComponent(c.no)}/attach`, fd)
-      .then(() => { toast('تم رفع المستند'); router.reload({ only: ['documents'] }); });
+      .then(() => {
+ toast('تم رفع المستند'); router.reload({ only: ['documents'] }); 
+});
   };
-  // «full» يحوّل المتصفّح لبوّابة ميسّر عند النجاح، فالتوست هنا كان يعني الفشل دائماً (نجاح كاذب).
-  // «install» يعود للصفحة فعلاً بعد تفعيل القضية، فالتوست فيه صحيح.
+  // الخطّتان تحوّلان المتصفّح لبوّابة ميسّر عند النجاح، فأي توست نجاح هنا يعني الفشل
+  // (نجاح كاذب). وكان التقسيط يعرض «تم استلام الدفعة الأولى» بلا أي سداد فعليّ.
   const pay = (plan: 'full' | 'install') =>
     router.post(`/cases/${encodeURIComponent(c.no)}/pay`, { plan }, {
       preserveScroll: true,
-      onSuccess: () => { if (plan === 'install') toast('تم استلام الدفعة الأولى وتفعيل القضية'); },
       onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر بدء الدفع، حاول بعد قليل'),
     });
   const payInstallment = () =>
     router.post(`/cases/${encodeURIComponent(c.no)}/pay-installment`, {}, {
       preserveScroll: true,
-      onSuccess: () => toast('تم استلام الدفعة'),
-      onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر تسجيل الدفعة'),
+      onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر بدء الدفع، حاول بعد قليل'),
     });
 
   const flowCard = (
@@ -62,7 +67,7 @@ const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings, docum
             <div style={{ marginBottom: 12 }}>{c.invoice || `أتعاب القضية: ${(c.fee || 0).toLocaleString()} ر.س`}</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button className="btn" type="button" onClick={() => pay('full')}><Icon name="card" /> سداد كامل عبر ميسّر</button>
-              <button className="btn soft" type="button" onClick={() => pay('install')}><Icon name="card" /> سداد على 3 دفعات</button>
+              <button className="btn soft" type="button" onClick={() => pay('install')}><Icon name="card" /> تقسيط على 3 دفعات</button>
             </div>
           </div>
         </div>
@@ -72,7 +77,7 @@ const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings, docum
           <div className="card-h"><h3>سداد الأقساط</h3><Badge text={`${c.installmentsPaid}/${c.installmentsTotal} مدفوعة`} tone="b-amber" /></div>
           <div className="card-b" style={{ padding: 16 }}>
             <div style={{ marginBottom: 12 }}>الأتعاب على دفعات — المتبقّي {(c.installmentsTotal || 0) - (c.installmentsPaid || 0)} دفعة.</div>
-            <button className="btn" type="button" onClick={payInstallment}><Icon name="card" /> سداد الدفعة التالية</button>
+            <button className="btn" type="button" onClick={payInstallment}><Icon name="card" /> سداد الدفعة التالية عبر ميسّر</button>
           </div>
         </div>
       )}
@@ -89,6 +94,10 @@ const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings, docum
                   <span>{d.by} · {d.date}{d.docType ? ` · ${d.docType}` : ''}</span>
                   {d.summary && <span style={{ display: 'block', marginTop: 3, fontSize: 11.5, color: 'var(--muted)' }}>{d.summary}</span>}
                 </div>
+                {/* كان الاسم يُعرض بلا أي رابط — مسار العميل القائم يخدم نفس الملف */}
+                <a className="btn soft sm" href={`/documents/download-file?type=case&id=${d.id}`}>
+                  <Icon name="download" /> تنزيل
+                </a>
               </div>
             ))}
           </div>

@@ -141,6 +141,18 @@ class MoyasarService
      */
     public function hostedUrlForInvoice(Invoice $invoice, string $callbackUrl): ?string
     {
+        // فاتورة مدفوعة لا تُعاد إلى البوّابة إطلاقاً. كانت الحالة `paid` تسقط من قائمة
+        // إعادة الاستعمال أدناه فيُنشأ **فاتورة بوّابة جديدة** ويُدهَس gateway_ref القديم —
+        // أي خصم ثانٍ حقيقي على عميل سدّد فعلاً، بلا أي أثر للأولى.
+        if ($invoice->paid) {
+            Log::warning('moyasar.hosted_url.refused_paid_invoice', [
+                'invoice' => $invoice->number,
+                'gateway_ref' => $invoice->gateway_ref,
+            ]);
+
+            return null;
+        }
+
         if (! empty($invoice->gateway_ref)) {
             $existing = $this->getInvoice((string) $invoice->gateway_ref);
             if ($existing !== null && in_array($existing['status'], ['initiated', 'pending', ''], true)) {

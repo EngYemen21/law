@@ -81,6 +81,32 @@ class ZoomSummaryText
             'تحويل الصوت إلى نص',
             'تعذّر التوليد الذكي',
             'يُرجى تدوين أبرز ما دار',
+            'بانتظار ملخص الجلسة',
+        ];
+
+        foreach ($placeholders as $ph) {
+            if (mb_strpos($text, $ph) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * فحص ما إذا كان **الملخص** نصاً قالبياً — فيستبدله ملخص Zoom الحقيقي حين يصل.
+     * يغطّي الصياغة الأمينة الحالية والنصوص القديمة الموجودة في سجلّات سابقة.
+     */
+    public static function isPlaceholderSummary(?string $text): bool
+    {
+        if (! $text || trim($text) === '') {
+            return true;
+        }
+
+        $placeholders = [
+            'بانتظار ملخص الجلسة',
+            'تعذّر إعداد الملخّص',
+            'بحاجة إلى تدوين المحضر يدوياً',
         ];
 
         foreach ($placeholders as $ph) {

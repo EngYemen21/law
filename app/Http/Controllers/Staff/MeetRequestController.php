@@ -11,9 +11,13 @@ use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\User;
 use App\Services\MailService;
+use App\Support\Audit;
 use App\Support\ClientDirectory;
+use App\Support\LawyerAvailability;
 use App\Support\Live;
+use App\Support\MeetInvitation;
 use App\Support\Notify;
+use App\Support\ReferenceNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -77,13 +81,13 @@ class MeetRequestController extends Controller
         $end = $start + (int) $data['duration'];
         foreach ($this->busy($lawyer->id, $data['day']) as [$s, $e]) {
             if ($start < $e && $s < $end) {
-                throw ValidationException::withMessages(['time' => 'هذا الموعد محجوز للمحامي — اختر وقتاً آخر.']);
+                throw ValidationException::withMessages(['time' => 'هذا الموعد محجوز للمحامي — اختر وقتاً آخر، أو أحِل الطلب للإدارة العليا لإسناد محامٍ مختصّ آخر.']);
             }
         }
 
         $req = MeetRequest::create([
             'user_id' => $client->id,
-            'ref' => 'MR-'.random_int(1000, 9999),
+            'ref' => ReferenceNumber::next(MeetRequest::class, 'ref', 'MR'),
             'service' => trim($data['service'] ?? '') ?: 'استشارة',
             'type' => $data['type'],
             'case_ref' => ($data['case_ref'] ?? '') ?: null,
@@ -95,11 +99,56 @@ class MeetRequestController extends Controller
             'sent_by_id' => $request->user()->id,
         ]);
 
-        Notify::send($client->id, 'video', 't-blue', "دعوة اجتماع جديدة ({$req->ref}): {$req->type} بشأن «{$req->service}» — {$req->day} · {$req->time}. أكّد حضورك من «دعوات الاجتماعات».");
-        // بريد دعوة للعميل (أفضل-جهد عبر الطابور)
-        app(MailService::class)->send($client, new MeetInviteMail($req));
+        // بوّابة النشر (قرار صاحب المنتج): دعوة الموظف/المحامي تمرّ بموافقة الإدارة العليا
+        // قبل النشر — لا Zoom ولا اجتماع ولا إشعار للعميل حتى الموافقة (STAGE_SENT).
+        // دعوة الإدارة نفسها تُنشر فوراً (موافقتها ضمنية).
+        // (تأكيد العميل يبقى ملغى: الموافقة تلد الدعوة مؤكَّدة مباشرة.)
+        if ($request->user()->role === Role::Admin) {
+            $meeting = MeetInvitation::schedule($req, $client);
+            MeetInvitation::announce($req, $meeting, $client);
+        } else {
+            $this->notifyAdmins("دعوة اجتماع جديدة ({$req->ref}) من {$req->sent_by} بانتظار موافقتكم — {$req->day} · {$req->time}.");
+        }
 
         return back();
+    }
+
+    /**
+     * موافقة الإدارة على دعوة معلّقة ونشرها: تُنشأ جلسة Zoom والاجتماع ويُشعر العميل.
+     * هذا هو ما كان يقع لحظة الإرسال — نُقل خلف بوّابة الاعتماد بقرار صاحب المنتج.
+     */
+    public function approve(Request $request, MeetRequest $meetRequest): RedirectResponse
+    {
+        abort_unless($meetRequest->stage === MeetRequest::STAGE_SENT, 422, 'الموافقة متاحة للدعوات المعلّقة (بانتظار موافقة الإدارة) فقط.');
+
+        $client = $meetRequest->user;
+        abort_unless($client !== null, 422, 'عميل الدعوة غير موجود.');
+
+        $meeting = MeetInvitation::schedule($meetRequest, $client);
+        MeetInvitation::announce($meetRequest, $meeting, $client);
+
+        Audit::log(
+            action: 'اعتماد دعوة اجتماع',
+            description: "اعتمدت الإدارة ({$request->user()->name}) دعوة الاجتماع {$meetRequest->ref} المرسلة من {$meetRequest->sent_by} ونُشرت للعميل {$client->name}.",
+            category: 'اجتماعات',
+            auditable: $meeting,
+            auditableRef: $meetRequest->ref,
+        );
+
+        // إشعار المُرسِل بأن دعوته اعتُمدت ونُشرت
+        if ($meetRequest->sent_by_id) {
+            Notify::send($meetRequest->sent_by_id, 'check', 't-green', "وافقت الإدارة على دعوة الاجتماع ({$meetRequest->ref}) ونُشرت للعميل.");
+        }
+
+        return back()->with('flash', "تمت الموافقة على الدعوة {$meetRequest->ref} ونشرها.");
+    }
+
+    /** إشعار كل حسابات الإدارة العليا (نفس نمط TicketController عند فتح تذكرة). */
+    private function notifyAdmins(string $message): void
+    {
+        foreach (User::where('role', Role::Admin)->get() as $admin) {
+            Notify::send($admin->id, 'video', 't-amber', $message);
+        }
     }
 
     /**
@@ -127,45 +176,18 @@ class MeetRequestController extends Controller
     }
 
     /**
-     * فترات انشغال المحامي في يوم (دقائق منذ منتصف الليل): اجتماعات + استشارات + دعوات معلّقة.
+     * فترات انشغال المحامي — تفويض للمصدر الواحد.
+     *
+     * كان هنا تنفيذ ثانٍ يقرأ Meeting + Consult + MeetRequest بينما
+     * LawyerAvailability::isBusy يقرأ Appointment وحده، فيتناقض الحارسان: موعد يُجدول
+     * فوق اجتماع لأن مودال الجدولة يقرأ المصدر الأضيق. المنطق كلّه انتقل إلى
+     * LawyerAvailability::busyIntervals ويقرأ الأربعة.
      *
      * @return array<int, array{0:int,1:int}>
      */
     private function busy(int $lawyerId, string $day): array
     {
-        $toMin = function (?string $hm): ?int {
-            if (! $hm || ! preg_match('/^(\d{1,2}):(\d{2})/', $hm, $m)) {
-                return null;
-            }
-
-            return ((int) $m[1]) * 60 + (int) $m[2];
-        };
-
-        $out = [];
-
-        foreach (Meeting::where('assigned_lawyer_id', $lawyerId)->where('status', '!=', 'ملغى')
-            ->whereDate('starts_at', $day)->get(['starts_at', 'dur']) as $m) {
-            if (($s = $toMin($m->starts_at?->format('H:i'))) !== null) {
-                $d = (int) (preg_match('/\d+/', (string) $m->dur, $mm) ? $mm[0] : 60) ?: 60;
-                $out[] = [$s, $s + $d];
-            }
-        }
-
-        foreach (Consult::where('assigned_lawyer_id', $lawyerId)->where('status', '!=', 'ملغاة')
-            ->whereDate('starts_at', $day)->get(['starts_at', 'duration_min']) as $c) {
-            if (($s = $toMin($c->starts_at?->format('H:i'))) !== null) {
-                $out[] = [$s, $s + ((int) ($c->duration_min ?: 60))];
-            }
-        }
-
-        foreach (MeetRequest::where('assigned_lawyer_id', $lawyerId)->where('day', $day)
-            ->where('stage', '<', MeetRequest::STAGE_CONFIRMED)->get(['time', 'duration_min']) as $r) {
-            if (($s = $toMin($r->time)) !== null) {
-                $out[] = [$s, $s + ((int) ($r->duration_min ?: 60))];
-            }
-        }
-
-        return $out;
+        return LawyerAvailability::busyIntervals($lawyerId, $day);
     }
 
     // إعادة إرسال دعوة منتهية الصلاحية بموعد جديد — كانت الدعوة المنتهية طريقاً مسدوداً بلا أي إجراء
@@ -189,30 +211,45 @@ class MeetRequestController extends Controller
             $end = $start + (int) ($meetRequest->duration_min ?: 60);
             foreach ($this->busy($meetRequest->assigned_lawyer_id, $data['day']) as [$s, $e]) {
                 if ($start < $e && $s < $end) {
-                    throw ValidationException::withMessages(['time' => 'هذا الموعد محجوز للمحامي — اختر وقتاً آخر.']);
+                    throw ValidationException::withMessages(['time' => 'هذا الموعد محجوز للمحامي — اختر وقتاً آخر، أو أحِل الطلب للإدارة العليا لإسناد محامٍ مختصّ آخر.']);
                 }
             }
         }
 
-        $meetRequest->update([
-            'day' => $data['day'],
-            'time' => $data['time'],
-            'stage' => MeetRequest::STAGE_SENT, // تعود لبداية الرحلة بانتظار تأكيد العميل
-        ]);
+        // نفس بوّابة الإرسال الأول: إعادة إرسال الموظف/المحامي تعود لموافقة الإدارة،
+        // وإعادة إرسال الإدارة تُنشر فوراً (وتُحدِّث موعد الاجتماع القائم عبر schedule).
+        if ($request->user()->role === Role::Admin) {
+            $meetRequest->update(['day' => $data['day'], 'time' => $data['time']]);
+            $client = $meetRequest->user;
+            abort_unless($client !== null, 422, 'عميل الدعوة غير موجود.');
+            $meeting = MeetInvitation::schedule($meetRequest, $client);
 
-        Notify::send($meetRequest->user_id, 'video', 't-blue', "أُعيد إرسال دعوة الاجتماع ({$meetRequest->ref}) بموعد جديد: {$meetRequest->day} · {$meetRequest->time}. أكّد حضورك من «دعوات الاجتماعات».");
-        if ($meetRequest->user) {
-            app(MailService::class)->send($meetRequest->user, new MeetInviteMail($meetRequest));
+            Notify::send($meetRequest->user_id, 'video', 't-blue', "أُعيد جدولة الاجتماع ({$meetRequest->ref}) بموعد جديد: {$meetRequest->day} · {$meetRequest->time} — تجده في قسم الاجتماعات.");
+            app(MailService::class)->send($client, new MeetInviteMail($meetRequest->fresh()));
+        } else {
+            $meetRequest->update([
+                'day' => $data['day'],
+                'time' => $data['time'],
+                'stage' => MeetRequest::STAGE_SENT, // معلّقة من جديد — بانتظار موافقة الإدارة
+            ]);
+            $this->notifyAdmins("دعوة اجتماع معادة ({$meetRequest->ref}) من {$meetRequest->sent_by} بانتظار موافقتكم — {$meetRequest->day} · {$meetRequest->time}.");
         }
 
         return back();
     }
 
-    // إلغاء دعوة لم تؤكَّد بعد (يطابق mrCancel) — «أُلغيت» سجلاً تاريخياً بدل الحذف الصلب
+    /**
+     * إلغاء دعوة لم تُنفَّذ بعد — «أُلغيت» سجلاً تاريخياً بدل الحذف الصلب.
+     *
+     * ⚠️ كان الشرط `=== STAGE_SENT` وحدها. وبعد أن صارت الدعوة تُولَد مؤكَّدة (stage=1)
+     * **توقّف الإلغاء صامتاً**: الزرّ يُنقر، الطلب يعود 302، ولا شيء يتغيّر. نفس صنف فخّ
+     * حارس الحجز المزدوج. `< STAGE_EXECUTED` يشمل 0 و1 ويستثني المنفَّذة والمعتمدة
+     * والمنتهية والملغاة (كلّها ≥ 2) — فلا تُلغى جلسة انعقدت فعلاً.
+     */
     public function cancel(Request $request, MeetRequest $meetRequest): RedirectResponse
     {
         $this->guardOwner($request, $meetRequest);
-        if ($meetRequest->stage === MeetRequest::STAGE_SENT) {
+        if ($meetRequest->stage < MeetRequest::STAGE_EXECUTED) {
             $meetRequest->update(['stage' => MeetRequest::STAGE_CANCELLED]);
             Notify::send($meetRequest->user_id, 'info', 't-grey', "أُلغيت دعوة الاجتماع ({$meetRequest->ref}) — «{$meetRequest->service}».");
         }

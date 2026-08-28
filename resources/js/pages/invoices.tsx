@@ -1,10 +1,11 @@
 import { router } from '@inertiajs/react';
 import React, { useRef, useState } from 'react';
-import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
-import StatRow, { type StatItem } from '@/components/babylon/StatRow';
+import StatRow from '@/components/babylon/StatRow';
+import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
-import { type Invoice } from '@/lib/data';
+import type {Invoice} from '@/lib/data';
+import Icon from '@/lib/icons';
 
 // يطابق viewInvoices في index (82).html — دفع حقيقي عبر ميسّر + رفع إثبات + PDF حقيقي (Browsershot)
 
@@ -25,19 +26,34 @@ const InvRow: React.FC<{ v: Invoice }> = ({ v }) => {
 
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+
+    if (!file) {
+return;
+}
+
     if (file.size > 2 * 1024 * 1024) {
       toast('حجم الملف يتجاوز الحدّ المسموح (2 ميجابايت)');
-      if (fileRef.current) fileRef.current.value = '';
+
+      if (fileRef.current) {
+fileRef.current.value = '';
+}
+
       return;
     }
+
     setBusy(true);
     router.post(`/invoices/${encodeURIComponent(v.no)}/proof`, { file }, {
       forceFormData: true,
       preserveScroll: true,
       onSuccess: () => toast('تم استلام إثبات التحويل وسيُراجَع'),
       onError: (err) => toast((Object.values(err)[0] as string) || 'تعذّر رفع الإثبات'),
-      onFinish: () => { setBusy(false); if (fileRef.current) fileRef.current.value = ''; },
+      onFinish: () => {
+ setBusy(false);
+
+ if (fileRef.current) {
+fileRef.current.value = '';
+} 
+},
     });
   };
 
@@ -60,10 +76,12 @@ const InvRow: React.FC<{ v: Invoice }> = ({ v }) => {
       </div>
       <div className="iact">
         <Badge text={v.status} tone={v.tone} />
+        {/* PDF لكل فاتورة: كان محجوباً عن المستحقّة وهي الأحوج إليه (تحويل بنكي) والخادم يخدمها */}
+        <a className="btn soft sm" href={`/invoices/${encodeURIComponent(v.no)}/pdf`} download>
+          <Icon name="download" /> الفاتورة PDF
+        </a>
         {v.paid ? (
-          <a className="btn soft sm" href={`/invoices/${encodeURIComponent(v.no)}/pdf`} download>
-            <Icon name="download" /> الفاتورة PDF
-          </a>
+          null
         ) : v.hasProof ? (
           <span className="action-hint" style={{ margin: 0 }}><Icon name="check" /> بانتظار المراجعة</span>
         ) : (

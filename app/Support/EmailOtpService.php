@@ -23,7 +23,10 @@ class EmailOtpService
     /** تجاوز تطويريّ مؤقّت (رمز ثابت) — بيئتا local/testing حصراً (لا staging/إنتاج) وحين ضبط AUTH_DEV_OTP. */
     public function devBypass(): bool
     {
-        return app()->environment('local', 'testing') && filled(config('services.auth_dev_otp'));
+        // مصدر واحد للقرار مع OtpService — لا يكفي APP_ENV وحده (راجع OtpService::productionLike)
+        return OtpService::isDevOtpConfigured()
+            && app()->environment('local', 'testing')
+            && ! OtpService::productionLike();
     }
 
     /** توليد رمز بريد وإرساله — يعيد حمولة الجلسة. */

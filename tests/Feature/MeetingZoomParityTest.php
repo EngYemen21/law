@@ -8,6 +8,7 @@ use App\Jobs\GenerateMeetingSummaryJob;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\User;
+use App\Support\MeetInvitation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
@@ -110,7 +111,7 @@ class MeetingZoomParityTest extends TestCase
     }
 
     // ── حفظ كلمة المرور عند التأكيد ──
-    public function test_confirm_persists_meeting_password(): void
+    public function test_schedule_persists_meeting_password(): void
     {
         $this->configureS2S();
         Http::fake([
@@ -125,8 +126,8 @@ class MeetingZoomParityTest extends TestCase
             'service' => 'استشارة', 'type' => 'استشارة مرئية', 'day' => 'اليوم', 'time' => '11:00',
             'sent_by' => 'المكتب', 'stage' => MeetRequest::STAGE_SENT,
         ]);
-
-        $this->actingAs($client)->post(route('meetreqs.confirm', $mr))->assertRedirect();
+        // حفظ كلمة المرور انتقل من confirm إلى MeetInvitation::schedule
+        MeetInvitation::schedule($mr, $client);
 
         $this->assertSame('secret9', Meeting::where('meet_id', '900900900')->first()?->meet_password);
     }

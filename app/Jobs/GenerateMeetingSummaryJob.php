@@ -28,15 +28,22 @@ class GenerateMeetingSummaryJob implements ShouldQueue
         }
 
         $out = $ai->meetingSummary($this->meeting->fresh(), $this->notes);
-        if ($out) {
-            $this->meeting->update([
-                'summary' => $this->meeting->summary ?: ($out['summary'] ?? null),
-                'minutes' => $this->meeting->minutes ?: ($out['minutes'] ?? null),
-                'decisions' => $out['decisions'] ?? [],
-                'has_summary' => true,
-                'has_minutes' => true,
-            ]);
-            Live::push(new MeetingStatusBroadcast($this->meeting));
+
+        // لا قالب وهمي: بلا محتوى فعلي تعود الدالّة بحقول فارغة — لا يُكتب شيء،
+        // وتبقى الحقول خاوية حتى يصل ملخص Zoom الحقيقي أو يُدوَّن المحضر يدوياً.
+        $summary = $this->meeting->summary ?: ($out['summary'] ?? null);
+        $minutes = $this->meeting->minutes ?: ($out['minutes'] ?? null);
+        if ($summary === null && $minutes === null) {
+            return;
         }
+
+        $this->meeting->update([
+            'summary' => $summary,
+            'minutes' => $minutes,
+            'decisions' => $out['decisions'] ?? [],
+            'has_summary' => filled($summary),
+            'has_minutes' => filled($minutes),
+        ]);
+        Live::push(new MeetingStatusBroadcast($this->meeting));
     }
 }

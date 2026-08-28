@@ -8,6 +8,8 @@ use App\Models\Consult;
 use App\Models\LegalCase;
 use App\Models\Meeting;
 use App\Services\IcalendarService;
+use App\Support\CalendarWindow;
+use App\Support\EventStatus;
 use App\Support\MeetingTime;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -26,7 +28,9 @@ class CalendarController extends Controller
 
         // 1. جلسات قضايا هذا المحامي
         $caseIds = LegalCase::where('assigned_lawyer_id', $lawyerId)->pluck('id');
-        $hearings = CaseHearing::whereIn('case_id', $caseIds)->with('legalCase')->latest('id')->get()
+        $window = CalendarWindow::forLawyer();
+
+        $hearings = CaseHearing::whereIn('case_id', $caseIds)->with('legalCase')->where($window)->orderByRaw('starts_at is null')->orderBy('starts_at')->limit(CalendarWindow::LIMIT)->get()
             ->map(function (CaseHearing $h) {
                 $start = MeetingTime::parse($h->day, $h->time);
                 $gcal = IcalendarService::googleUrl(
@@ -45,13 +49,14 @@ class CalendarController extends Controller
                     'day' => $h->day,
                     'time' => $h->time,
                     'where' => $h->court,
-                    'status' => $h->status,
+                    'status' => EventStatus::forHearing($h),
+                    'startsAt' => ($h->starts_at ?: $start)?->toIso8601String(),
                     'gcal' => $gcal,
                 ];
             });
 
         // 2. اجتماعات المحامي
-        $meetings = Meeting::where(fn ($q) => $q->where('assigned_lawyer_id', $lawyerId)->orWhere('created_by', $lawyer->name))->latest('id')->get()
+        $meetings = Meeting::where(fn ($q) => $q->where('assigned_lawyer_id', $lawyerId)->orWhere('created_by', $lawyer->name))->where($window)->orderByRaw('starts_at is null')->orderBy('starts_at')->limit(CalendarWindow::LIMIT)->get()
             ->map(function (Meeting $m) use ($lawyer) {
                 $start = $m->starts_at ?: now();
                 $link = $m->joinLink($lawyer);
@@ -71,13 +76,14 @@ class CalendarController extends Controller
                     'day' => $m->when_label,
                     'time' => null,
                     'where' => $m->client_name ?: 'داخلي',
-                    'status' => $m->status,
+                    'status' => EventStatus::forMeeting($m),
+                    'startsAt' => $m->starts_at?->toIso8601String(),
                     'gcal' => $gcal,
                 ];
             });
 
         // 3. استشارات مسندة للمحامي
-        $consults = Consult::with('appointment')->where('assigned_lawyer_id', $lawyerId)->whereNotIn('status', ['ملغاة'])->latest('id')->get()
+        $consults = Consult::with(['appointment', 'user'])->where('assigned_lawyer_id', $lawyerId)->whereNotIn('status', ['ملغاة'])->where($window)->orderByRaw('starts_at is null')->orderBy('starts_at')->limit(CalendarWindow::LIMIT)->get()
             ->map(function (Consult $c) use ($lawyer) {
                 $start = $c->starts_at ?: MeetingTime::parse($c->day ?? '', $c->time ?? '');
                 $link = $c->joinLink($lawyer);
@@ -97,13 +103,18 @@ class CalendarController extends Controller
                     'day' => $c->when_label ?: $c->day,
                     'time' => $c->time,
                     'where' => $c->channel === 'حضورية' ? $c->placeLabel() : 'جلسة مرئية بالمنصة',
-                    'status' => $c->status,
+                    'status' => EventStatus::forConsult($c),
+                    'startsAt' => $start?->toIso8601String(),
                     'gcal' => $gcal,
                 ];
             });
 
         return Inertia::render('lawyer/calendar', [
-            'events' => $hearings->concat($meetings)->concat($consults)->values(),
+            // فرز زمني **بعد** الدمج: concat وحده يعطي ثلاث قوائم مكدّسة حسب النوع
+            // لا تقويماً. و«بلا موعد» في الذيل — نفس دلالة بقيّة اللوحات.
+            'events' => $hearings->concat($meetings)->concat($consults)
+                ->sortBy(fn (array $e) => [$e['startsAt'] === null, $e['startsAt']])
+                ->values(),
             'feedUrl' => $lawyer->calendarFeedUrl(),
             'webcalUrl' => $lawyer->calendarWebcalUrl(),
         ]);

@@ -64,7 +64,9 @@ return [
         'client_id' => env('ZOOM_CLIENT_ID'),
         'client_secret' => env('ZOOM_CLIENT_SECRET'),
         // الرابط الاحتياطي (placeholder) حين لا تُهيّأ مفاتيح Zoom بعد — مصدر واحد موحّد
-        'fallback_base' => env('ZOOM_FALLBACK_BASE', 'https://salaselbabel.net/'),
+        // ميت: صفر مناد في app/ كلّه. يُعلَّق لا يُحذف كي لا يُعاد اختراعه، وكي يعرف
+        // من يجد ZOOM_FALLBACK_BASE في .env أنه بلا أثر.
+        // 'fallback_base' => env('ZOOM_FALLBACK_BASE', 'https://salaselbabel.net/'),
         // Meeting SDK (تضمين الاجتماع داخل المنصّة) — تطبيق منفصل عن S2S
         'sdk_key' => env('ZOOM_SDK_KEY'),
         'sdk_secret' => env('ZOOM_SDK_SECRET'),
@@ -92,11 +94,21 @@ return [
         // اسم المُرسِل المعتمد لدى تقنيات (Sender Name) — إلزاميّ للإرسال
         'sender' => env('TAQNYAT_SENDER'),
         'base_url' => env('TAQNYAT_BASE_URL', 'https://api.taqnyat.sa'),
+        // نقطة إرسال الرسائل النصّية (غير verify.php الخاصّة بالـOTP) — تُضبط بمتغيّر
+        // بيئة كي لا يلزم تعديل كود إن غيّرت تقنيات المسار.
+        'sms_endpoint' => env('TAQNYAT_SMS_ENDPOINT', '/v1/messages'),
     ],
 
     // تجاوز تطويريّ مؤقّت لرمز التحقّق (OTP) عند تعطّل المزوّد: رمز ثابت للدخول/التسجيل.
     // ⚠️ يعمل في غير الإنتاج فقط (يُتجاهَل تماماً حين APP_ENV=production). اتركه فارغاً لإيقافه.
     'auth_dev_otp' => env('AUTH_DEV_OTP'),
+
+    // مزامنة تقويم Google (Service Account): بيانات الاعتماد في storage/app/google-credentials.json.
+    // calendar_id = تقويم المكتب المُشارَك مع بريد حساب الخدمة بصلاحية تعديل —
+    // تركه 'primary' يعني تقويم حساب الخدمة نفسه الذي لا يفتحه أي إنسان.
+    'google_calendar' => [
+        'calendar_id' => env('GOOGLE_CALENDAR_ID', 'primary'),
+    ],
 
     // النظام الخارجيّ للمخاطبات الرسميّة (ناجز/تراسل...) — يعمل محاكاةً بلا مفاتيح
     'external_corr' => [

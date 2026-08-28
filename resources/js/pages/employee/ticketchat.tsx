@@ -24,7 +24,7 @@ const FINAL = ['مكتملة', 'مغلقة'];
 
 interface EmpTicket {
   no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string;
-  clientId?: number; lawyerId?: number; caseRef?: string | null;
+  clientId?: number; lawyerId?: number; caseRef?: string | null; summaryApproved?: boolean;
   subject?: string | null; priority?: string | null; mobile?: string | null; openedAt?: string | null;
 }
 interface StateOption { status: string; tone: string; }
@@ -441,6 +441,7 @@ const EmployeeTicketChat: React.FC<{
             status={status.status}
             caseRef={ticket.caseRef ?? null}
             role="employee"
+            canConvert={ticket.summaryApproved ?? false}
             onRequestDocs={canReply ? openReqDocs : undefined}
             onSchedule={canSchedule ? openSchedule : undefined}
             onTransfer={canTransfer ? openTransfer : undefined}

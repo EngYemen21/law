@@ -18,6 +18,7 @@
         </include>
     </source>
     <php>
+        <ini name="memory_limit" value="1024M"/>
         <env name="APP_ENV" value="testing"/>
         <env name="GLM_API_KEY" value=""/>
         <env name="AI_TICKET_AGENT" value="false"/>

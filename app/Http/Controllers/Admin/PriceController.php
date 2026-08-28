@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Setting;
+use App\Support\Audit;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -28,10 +29,21 @@ class PriceController extends Controller
             'vat' => ['required', 'integer', 'min:0', 'max:100'],
         ]);
 
+        $before = Setting::consultPrices();
+
         Setting::put('price_office', $data['office']);
         Setting::put('price_video', $data['video']);
         Setting::put('price_phone', $data['phone']);
         Setting::put('vat_rate', $data['vat']);
+
+        Audit::log(
+            action: 'تعديل أسعار الاستشارات',
+            description: "عدّل {$request->user()->name} أسعار الاستشارات المعتمدة (حضورية {$data['office']} / مرئية {$data['video']} / هاتفية {$data['phone']} / ضريبة {$data['vat']}%).",
+            category: 'مالية وفواتير',
+            severity: 'warning',
+            beforeState: $before,
+            afterState: $data,
+        );
 
         return back()->with('flash', 'تم حفظ أسعار الاستشارات، وتُطبَّق فوراً على الحجوزات الجديدة.');
     }

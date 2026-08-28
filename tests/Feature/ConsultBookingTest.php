@@ -87,8 +87,8 @@ class ConsultBookingTest extends TestCase
         $this->assertTrue($ticket->messages->contains(fn ($m) => $m->role === 'مواعيد'));
         $this->assertSame(3, UserNotification::where('user_id', $client->id)->count());
 
-        // يظهر الموعد في صفحة مواعيد العميل
-        $this->actingAs($client)->get(route('appointments'))
+        // يظهر الموعد في التبويب الزمني الموحّد (طُوي فيه تبويب «المواعيد» المستقلّ)
+        $this->actingAs($client)->get(route('calendar'))
             ->assertOk()->assertInertia(fn ($p) => $p->has('appointments', 1));
     }
 

@@ -97,7 +97,7 @@ class LawyerPanelTest extends TestCase
 
         LegalCase::create(['user_id' => $client->id, 'ticket_id' => $ticket->id, 'number' => 'CASE-A', 'type' => 'تجاري',
             'assigned_lawyer' => $mine->name, 'assigned_lawyer_id' => $mine->id, 'status' => 'منظورة', 'tone' => 'b-blue']);
-        LegalCase::create(['user_id' => $client->id, 'ticket_id' => $ticket->id, 'number' => 'CASE-B', 'type' => 'تجاري',
+        LegalCase::create(['user_id' => $client->id, 'number' => 'CASE-B', 'type' => 'تجاري',
             'assigned_lawyer' => $other->name, 'assigned_lawyer_id' => $other->id, 'status' => 'منظورة', 'tone' => 'b-blue']);
         Execution::create(['user_id' => $client->id, 'number' => 'EXE-A', 'subject' => 'تنفيذ',
             'assigned_lawyer' => $mine->name, 'assigned_lawyer_id' => $mine->id, 'status' => 'جديد', 'tone' => 'b-blue']);
@@ -120,7 +120,7 @@ class LawyerPanelTest extends TestCase
 
         $mineCase = LegalCase::create(['user_id' => $client->id, 'ticket_id' => $ticket->id, 'number' => 'CASE-M', 'type' => 'تجاري',
             'assigned_lawyer_id' => $mine->id, 'status' => 'منظورة', 'tone' => 'b-blue']);
-        $otherCase = LegalCase::create(['user_id' => $client->id, 'ticket_id' => $ticket->id, 'number' => 'CASE-O', 'type' => 'تجاري',
+        $otherCase = LegalCase::create(['user_id' => $client->id, 'number' => 'CASE-O', 'type' => 'تجاري',
             'assigned_lawyer_id' => $other->id, 'status' => 'منظورة', 'tone' => 'b-blue']);
         $mineCase->hearings()->create(['title' => 'جلسة أولى', 'day' => 'الأحد', 'time' => '10:00 ص', 'status' => 'مجدولة']);
         $otherCase->hearings()->create(['title' => 'جلسة ثانية', 'day' => 'الاثنين', 'time' => '11:00 ص', 'status' => 'مجدولة']);

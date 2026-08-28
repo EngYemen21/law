@@ -11,6 +11,7 @@ use App\Models\CaseHearing;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Services\MailService;
+use App\Support\Audit;
 use App\Support\CaseJourney;
 use App\Support\ExecutionCreation;
 use App\Support\Live;
@@ -47,7 +48,7 @@ class CaseController extends Controller
             'channel' => 'case.'.$case->id,
             'messages' => $case->messages->where('who', '!=', 'note')->values()->map->toMessage(),
             'hearings' => $case->hearings->map->toData(),
-            'documents' => $case->documents->map->toData(),
+            'documents' => $case->documents->map(fn ($d) => $d->toData(auth()->user())),
             'convertedExec' => $case->execution()->exists(),
         ]);
     }
@@ -57,7 +58,7 @@ class CaseController extends Controller
     public function reply(Request $request, LegalCase $case): \Illuminate\Http\Response
     {
         $this->guardAssigned($case);
-        $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
+        $data = $request->validate(['body' => ['required', 'string']]);
 
         $msg = $case->messages()->create([
             'who' => 'lawyer',
@@ -133,6 +134,14 @@ class CaseController extends Controller
             'time_label' => $this->clock(),
         ]);
         $this->notify($case, 'scale', 't-blue', "تم اعتماد لائحة قضيتك {$case->number} ورفع الدعوى. القضية الآن منظورة.");
+        Audit::log(
+            action: 'اعتماد لائحة دعوى',
+            description: "اعتمد {$request->user()->name} لائحة الدعوى للقضية {$case->number} — القضية الآن منظورة.",
+            category: 'قضايا وتنفيذ',
+            auditable: $case,
+            auditableRef: $case->number,
+            afterState: ['الحالة' => 'منظورة'],
+        );
         Live::push(new CaseStatusBroadcast($case));
 
         return back();
@@ -163,6 +172,14 @@ class CaseController extends Controller
         ]);
         $this->notify($case, 'cal', 't-cyan', "جلسة جديدة على قضيتك {$case->number}: {$dayLabel}.");
         $this->mailHearingEvent($case, $hearing, 'created');
+        Audit::log(
+            action: 'جدولة جلسة محكمة',
+            description: "جدول {$request->user()->name} جلسة «{$data['title']}» للقضية {$case->number} — {$dayLabel}".(isset($data['time']) ? " · {$data['time']}" : '').'.',
+            category: 'قضايا وتنفيذ',
+            auditable: $case,
+            auditableRef: $case->number,
+            afterState: ['الجلسة' => $data['title'], 'الموعد' => $dayLabel.(isset($data['time']) ? ' · '.$data['time'] : '')],
+        );
         Live::push(new CaseStatusBroadcast($case));
 
         return back();
@@ -220,6 +237,14 @@ class CaseController extends Controller
             'time_label' => $this->clock(),
         ]);
         $this->notify($case, 'cal', $data['status'] === 'منعقدة' ? 't-green' : 't-amber', "تحديث جلسة قضيتك {$case->number}: {$hearing->title} — {$data['status']}.");
+        Audit::log(
+            action: 'تسجيل نتيجة جلسة',
+            description: "سجّل {$request->user()->name} نتيجة الجلسة «{$hearing->title}» للقضية {$case->number}: {$data['status']}".($outcome !== '' ? " — {$outcome}" : '').'.',
+            category: 'قضايا وتنفيذ',
+            auditable: $case,
+            auditableRef: $case->number,
+            afterState: ['الجلسة' => $hearing->title, 'الحالة' => $data['status']],
+        );
         Live::push(new CaseStatusBroadcast($case));
 
         return back();
@@ -255,6 +280,15 @@ class CaseController extends Controller
         ]);
         $this->notify($case, 'cal', 't-cyan', "أُعيدت جدولة جلسة قضيتك {$case->number}: {$dayLabel}.");
         $this->mailHearingEvent($case, $hearing->fresh(), 'rescheduled');
+        Audit::log(
+            action: 'إعادة جدولة جلسة محكمة',
+            description: "أعاد {$request->user()->name} جدولة الجلسة «{$data['title']}» للقضية {$case->number} — {$dayLabel}".(isset($data['time']) ? " · {$data['time']}" : '').'.',
+            category: 'قضايا وتنفيذ',
+            severity: 'warning',
+            auditable: $case,
+            auditableRef: $case->number,
+            afterState: ['الجلسة' => $data['title'], 'الموعد الجديد' => $dayLabel.(isset($data['time']) ? ' · '.$data['time'] : '')],
+        );
         Live::push(new CaseStatusBroadcast($case));
 
         return back();
@@ -276,6 +310,14 @@ class CaseController extends Controller
         ]);
         $this->notify($case, 'cal', 't-amber', "أُلغيت جلسة على قضيتك {$case->number}: {$hearing->title}.");
         $this->mailHearingEvent($case, $hearing->fresh(), 'cancelled');
+        Audit::log(
+            action: 'إلغاء جلسة محكمة',
+            description: "ألغى {$request->user()->name} الجلسة «{$hearing->title}» للقضية {$case->number}.",
+            category: 'قضايا وتنفيذ',
+            severity: 'warning',
+            auditable: $case,
+            auditableRef: $case->number,
+        );
         Live::push(new CaseStatusBroadcast($case));
 
         return back();
@@ -302,6 +344,15 @@ class CaseController extends Controller
             'time_label' => $this->clock(),
         ]);
         $this->notify($case, 'scale', 't-green', "صدر الحكم في قضيتك {$case->number}. التفاصيل داخل القضية.");
+        Audit::log(
+            action: 'تسجيل حكم قضائي',
+            description: "سجّل {$request->user()->name} صدور الحكم في القضية {$case->number}.",
+            category: 'قضايا وتنفيذ',
+            severity: 'warning',
+            auditable: $case,
+            auditableRef: $case->number,
+            afterState: ['الحالة' => 'صدر الحكم'],
+        );
         Live::push(new CaseStatusBroadcast($case));
 
         return back();

@@ -2,14 +2,20 @@ import { router, usePage } from '@inertiajs/react';
 import React from 'react';
 import Icon from '@/lib/icons';
 
-// لافتة معاينة لوحة الموظف — تظهر للإدارة أثناء معاينة صلاحيات موظف (يطابق PREVIEW_NAME)
+// ⚠️ غير مستخدم — أُلغيت ميزة «معاينة اللوحة» (الإمبرسنيشن) بقرار المستخدم 2026-08-28:
+// الإدارة العليا مقصورة على لوحتها. المكوّن لم يعد يُستورد في AppLayout، والخادم لم يعد
+// يشارك prop باسم impersonating. يبقى الملف توثيقًا (الكود الميت يُعلَّق لا يُحذف).
+// لافتة معاينة لوحة الموظف — كانت تظهر للإدارة أثناء معاينة صلاحيات موظف
 
 interface Shared { impersonating?: { name: string } | null }
 
 const ImpersonationBanner: React.FC = () => {
   const { props } = usePage() as unknown as { props: Shared };
   const imp = props.impersonating;
-  if (!imp) return null;
+
+  if (!imp) {
+return null;
+}
 
   return (
     <div

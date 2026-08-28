@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\PurgesStoredFile;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Document extends Model
 {
+    use PurgesStoredFile;
+
     protected $fillable = [
         'user_id', 'name', 'meta', 'direction', 'path', 'mime', 'size',
     ];

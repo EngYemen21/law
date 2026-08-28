@@ -43,7 +43,8 @@ class HandleInertiaRequests extends Middleware
     public function share(Request $request): array
     {
         $user = $request->user();
-        $impersonatorId = $request->session()->get('impersonator_id');
+        // أُلغيت معاينة اللوحات (الإمبرسنيشن) 2026-08-28 — لا قراءة لمفتاح الجلسة القديم
+        // $impersonatorId = $request->session()->get('impersonator_id');
 
         return [
             ...parent::share($request),
@@ -71,8 +72,8 @@ class HandleInertiaRequests extends Middleware
                         : [],
                 ] : null,
             ],
-            // لافتة معاينة لوحة الموظف (إمبرسنيشن) — نشطة عند وجود مُدير أصلي في الجلسة
-            'impersonating' => ($impersonatorId && $user) ? ['name' => $user->name] : null,
+            // أُلغيت لافتة معاينة لوحة الموظف (الإمبرسنيشن) بقرار 2026-08-28
+            // 'impersonating' => ($impersonatorId && $user) ? ['name' => $user->name] : null,
             // كتالوج الصلاحيات (المصدر الوحيد من الخادم) — للتصفية وشاشة الموظفين
             'permCatalog' => $user ? Permissions::catalog() : null,
             // عدّ الإشعارات غير المقروءة الحقيقي (كسول) — يغذّي نقطة الجرس وشارة «الإشعارات»
@@ -86,7 +87,9 @@ class HandleInertiaRequests extends Middleware
                     '/tickets' => Ticket::where('user_id', $user->id)
                         ->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
                     // with('consult') إلزامي: liveState() يقرأ الاستشارة، وبدونه استعلام لكل موعد في كل عرض صفحة
-                    '/appointments' => Appointment::with('consult')->where('user_id', $user->id)
+                    // المفتاح /calendar لا /appointments: تبويب «المواعيد» طُوي في التبويب
+                    // الزمني الموحّد، وبقاء المفتاح القديم كان يُخفي الشارة تماماً.
+                    '/calendar' => Appointment::with('consult')->where('user_id', $user->id)
                         ->get()->filter(fn (Appointment $a) => $a->liveState()[0] === 'up')->count(),
                     '/invoices' => Invoice::where('user_id', $user->id)->where('paid', false)->count(),
                 ]

@@ -17,6 +17,8 @@ export interface CalendarEvent {
   time: string | null;
   where: string | null;
   status: string;
+  /** ختم ISO للفرز الزمني الخادميّ — null للأحداث بلا موعد (تُرتَّب في الذيل). */
+  startsAt?: string | null;
   gcal?: string;
 }
 
@@ -84,7 +86,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ events, feedUrl, web
               </thead>
               <tbody>
                 {events.map((e, i) => (
-                  <tr key={i}>
+                  <tr key={`${e.kindKey}-${e.startsAt ?? 'na'}-${i}`}>
                     <td><Badge text={e.kind} tone={e.tone} /></td>
                     <td><b>{e.title}</b></td>
                     <td className="muted">{e.day || '—'}</td>

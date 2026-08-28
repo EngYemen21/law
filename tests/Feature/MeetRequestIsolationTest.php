@@ -13,6 +13,8 @@ use Tests\TestCase;
  * عزل دعوات الاجتماعات بحسب المُرسِل: كلٌّ يرى دعواته فقط ولا يتصرّف في دعوة غيره؛
  * الإدارة العليا ترى الكل وتتصرّف في الكل (إشراف).
  */
+// أوقات متباعدة عمداً: حارس الحجز المزدوج صار يرفض نفس المحامي في نفس الفترة
+// (كان صامتاً — MeetInvitationConfirmedTest يحرسه). موضوع هذا الملفّ العزل لا التعارض.
 class MeetRequestIsolationTest extends TestCase
 {
     use RefreshDatabase;
@@ -28,7 +30,7 @@ class MeetRequestIsolationTest extends TestCase
         // (أ) يُرسل دعوة → يُختم بمعرّفه
         $this->actingAs($senderA)->post(route('employee.meetreqs.store'), [
             'client_id' => $client->id, 'lawyer_id' => $lawyer->id, 'type' => 'استشارة مرئية', 'service' => 'نزاع',
-            'day' => now()->addWeek()->format('Y-m-d'), 'time' => '10:00', 'duration' => 60,
+            'day' => now()->addWeek()->format('Y-m-d'), 'time' => '09:00', 'duration' => 60,
         ])->assertRedirect();
 
         $req = MeetRequest::firstOrFail();
@@ -60,7 +62,7 @@ class MeetRequestIsolationTest extends TestCase
 
         $this->actingAs($sender)->post(route('employee.meetreqs.store'), [
             'client_id' => $client->id, 'lawyer_id' => $lawyer->id, 'type' => 'استشارة مرئية', 'service' => 'نزاع',
-            'day' => now()->addWeek()->format('Y-m-d'), 'time' => '10:00', 'duration' => 60,
+            'day' => now()->addWeek()->format('Y-m-d'), 'time' => '10:30', 'duration' => 60,
         ])->assertRedirect();
         $req = MeetRequest::firstOrFail();
 

@@ -1,0 +1,101 @@
+<?php
+
+namespace App\Jobs;
+
+use App\Models\LegalCase;
+use App\Services\LegalAiService;
+use App\Support\Live;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+
+/**
+ * تنقيح تصنيف القضية بالذكاء الاصطناعي **بعد** إنشائها.
+ *
+ * لماذا: كان CaseConversion ينادي classifyCase داخل الطلب قبل فتح المعاملة، فيحبسه
+ * **12.3 ثانية مقاسة حيّاً** (مقابل 1.18 للنقرة المرفوضة). ومهلة FPM ثلاثون ثانية، فتعثّر
+ * المزوّد يعني 504 وإعادة نقر من المستخدم. القضية تُنشأ الآن فوراً بالتصنيف الاحتياطي
+ * الحتمي (LegalAiService::fallbackClassification) وهذه المهمّة تُنقّحه إن أفاد المزوّد.
+ *
+ * أفضل-جهد بالكامل: فشلها يترك القضية بتصنيف صالح لا ناقص.
+ */
+class ClassifyConvertedCaseJob implements ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    public function __construct(public LegalCase $case) {}
+
+    /** نافذة إعادة المحاولة: يوم — تتجاوز التجدّد اليومي لحصّة المزوّد (نظير GenerateTicketSummaryJob). */
+    public function retryUntil(): \DateTimeInterface
+    {
+        return now()->addDay();
+    }
+
+    public function handle(LegalAiService $ai): void
+    {
+        $case = $this->case->fresh();
+        if ($case === null || $case->ticket === null) {
+            return;
+        }
+
+        // قاطع الدائرة: المزوّد مهدّأ الآن (نفاد حصّة) ⇒ أعد المحاولة بلا استهلاك نداء
+        if ($ai->isConfigured() && ! $ai->available()) {
+            $this->release(now()->addMinutes(30));
+
+            return;
+        }
+
+        $analysis = $ai->classifyCase($case->ticket);
+        $fallback = LegalAiService::fallbackClassification($case->ticket);
+
+        // لم يُفِد المزوّد بجديد — لا تلمس القضية ولا تبثّ تحديثاً بلا محتوى
+        if ($analysis === $fallback) {
+            return;
+        }
+
+        $case->update(['type' => $analysis['type'], 'department' => $analysis['department']]);
+
+        // **تُعاد كتابة** رسالة التحليل القائمة لا تُضاف ثانية — وإلا رأى العميل تحليلين متناقضين
+        $message = $case->messages()->where('role', 'تحليل')->latest('id')->first();
+        if ($message !== null) {
+            $message->update(['body' => self::analysisBody($case->ticket, $analysis)]);
+        }
+
+        Live::push(new \App\Events\CaseStatusBroadcast($case));
+
+        Log::info('case.classification.refined', [
+            'case' => $case->number, 'type' => $analysis['type'], 'department' => $analysis['department'],
+        ]);
+    }
+
+    /**
+     * نصّ رسالة «تحليل» — مصدر واحد يُنادى من CaseConversion عند الإنشاء ومن هنا عند التنقيح،
+     * فلا تتباعد صياغتان لنفس الرسالة.
+     *
+     * @param  array{type: string, department: string}  $analysis
+     */
+    public static function analysisBody(\App\Models\Ticket $ticket, array $analysis): string
+    {
+        $details = [];
+        if ($ticket->opponent_name) {
+            $details[] = "الخصم: {$ticket->opponent_name}";
+        }
+        if ($ticket->court_name) {
+            $details[] = "المحكمة المختصة: {$ticket->court_name}";
+        }
+        if ($ticket->claim_amount) {
+            $details[] = 'المبلغ المطالب به: '.number_format((float) $ticket->claim_amount).' ر.س';
+        }
+        $extraChips = ! empty($details)
+            ? implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', $details))
+            : '';
+
+        return '<p>تحليل ذكي للطلب:</p><div class="doc-list">'
+            .'<span class="doc-chip">نوع القضية: '.e($analysis['type']).'</span>'
+            .'<span class="doc-chip">القسم المختص: '.e($analysis['department']).'</span>'
+            .$extraChips.'</div>';
+    }
+}

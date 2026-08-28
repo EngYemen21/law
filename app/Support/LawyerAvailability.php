@@ -4,6 +4,9 @@ namespace App\Support;
 
 use App\Enums\Role;
 use App\Models\Appointment;
+use App\Models\Consult;
+use App\Models\Meeting;
+use App\Models\MeetRequest;
 use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\Ticket;
@@ -157,20 +160,81 @@ class LawyerAvailability
     }
 
     /** هل المحامي مشغول في نافذة [start, start+dur)؟ (تقاطع مع مواعيده المؤكدة). */
-    public static function isBusy(int $lawyerId, Carbon $start, int $dur = self::SLOT_MIN): bool
+    /**
+     * **المصدر الواحد** لفترات انشغال المحامي في يوم — بالدقائق منذ منتصف الليل.
+     *
+     * لماذا: كان الانشغال يُحسب في موضعين مختلفين بمصادر مختلفة، فيتناقضان:
+     *   • isBusy/slotsFor هنا كانا يقرآن **Appointment وحده**.
+     *   • Staff\MeetRequestController::busy كان يقرأ Meeting + Consult + MeetRequest.
+     * فكان الموظف يجدول موعداً لمحامٍ في نفس لحظة اجتماعه أو دعوته — الفترة تظهر «متاحة»
+     * في مودال الحجز وهي مشغولة فعلاً، لأن المودال يقرأ المصدر الأضيق.
+     *
+     * الأربعة مجتمعة هنا: Appointment + Meeting + Consult + MeetRequest.
+     *
+     * @return array<int, array{0:int,1:int}> فترات [بداية، نهاية]
+     */
+    public static function busyIntervals(int $lawyerId, string $day): array
     {
-        $end = $start->copy()->addMinutes($dur);
+        $toMin = function (?string $hm): ?int {
+            if (! $hm || ! preg_match('/^(\d{1,2}):(\d{2})/', $hm, $m)) {
+                return null;
+            }
 
-        return Appointment::where('lawyer_id', $lawyerId)
-            ->whereNotNull('starts_at')
-            ->whereDate('starts_at', $start->toDateString())
-            ->get()
-            ->contains(function (Appointment $a) use ($start, $end) {
-                $aStart = $a->starts_at;
-                $aEnd = $aStart->copy()->addMinutes((int) ($a->duration_min ?: self::SLOT_MIN));
+            return ((int) $m[1]) * 60 + (int) $m[2];
+        };
 
-                return $start->lt($aEnd) && $end->gt($aStart);
-            });
+        $out = [];
+
+        // (1) المواعيد — كان المصدر الوحيد لـisBusy/slotsFor
+        foreach (Appointment::where('lawyer_id', $lawyerId)->whereNotNull('starts_at')
+            ->whereDate('starts_at', $day)->get(['starts_at', 'duration_min']) as $a) {
+            if (($m = $toMin($a->starts_at?->format('H:i'))) !== null) {
+                $out[] = [$m, $m + ((int) ($a->duration_min ?: self::SLOT_MIN))];
+            }
+        }
+
+        // (2) الاجتماعات — dur نصّي («60 دقيقة») فيُستخرج رقمه
+        foreach (Meeting::where('assigned_lawyer_id', $lawyerId)->where('status', '!=', 'ملغى')
+            ->whereDate('starts_at', $day)->get(['starts_at', 'dur']) as $mt) {
+            if (($m = $toMin($mt->starts_at?->format('H:i'))) !== null) {
+                $d = (int) (preg_match('/\d+/', (string) $mt->dur, $mm) ? $mm[0] : self::SLOT_MIN) ?: self::SLOT_MIN;
+                $out[] = [$m, $m + $d];
+            }
+        }
+
+        // (3) الاستشارات
+        foreach (Consult::where('assigned_lawyer_id', $lawyerId)->where('status', '!=', 'ملغاة')
+            ->whereDate('starts_at', $day)->get(['starts_at', 'duration_min']) as $c) {
+            if (($m = $toMin($c->starts_at?->format('H:i'))) !== null) {
+                $out[] = [$m, $m + ((int) ($c->duration_min ?: self::SLOT_MIN))];
+            }
+        }
+
+        // (4) دعوات الاجتماعات التي لم تُنفَّذ بعد.
+        // '<' STAGE_EXECUTED يشمل المُرسَلة والمؤكَّدة، ويستثني المنتهية(4) والملغاة(5) لأنهما أكبر.
+        // كان الشرط '<' STAGE_CONFIRMED فتوقّف عن المطابقة حين صارت الدعوة تُولَد مؤكَّدة.
+        foreach (MeetRequest::where('assigned_lawyer_id', $lawyerId)->where('day', $day)
+            ->where('stage', '<', MeetRequest::STAGE_EXECUTED)->get(['time', 'duration_min']) as $r) {
+            if (($m = $toMin($r->time)) !== null) {
+                $out[] = [$m, $m + ((int) ($r->duration_min ?: self::SLOT_MIN))];
+            }
+        }
+
+        return $out;
+    }
+
+    /** هل تتقاطع الفترة [start, start+dur) مع أي انشغال؟ */    public static function isBusy(int $lawyerId, Carbon $start, int $dur = self::SLOT_MIN): bool
+    {
+        $from = $start->hour * 60 + $start->minute;
+        $to = $from + $dur;
+
+        foreach (self::busyIntervals($lawyerId, $start->toDateString()) as [$s, $e]) {
+            if ($from < $e && $to > $s) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -185,19 +249,23 @@ class LawyerAvailability
             return [];
         }
 
-        // مواعيد المحامي المحجوزة ذلك اليوم (بداياتها بصيغة H:i)
-        $taken = Appointment::where('lawyer_id', $lawyerId)
-            ->whereNotNull('starts_at')
-            ->whereDate('starts_at', $day->toDateString())
-            ->get()
-            ->map(fn (Appointment $a) => $a->starts_at->format('H:i'))
-            ->all();
+        // من المصدر الموحّد: كان يقرأ Appointment وحده ويعلّم الفترة محجوزة فقط إن **بدأ**
+        // موعد عندها بالضبط — فاجتماع 90 دقيقة من 14:00 يترك 15:00 تبدو متاحة.
+        $intervals = self::busyIntervals($lawyerId, $day->toDateString());
 
         $slots = [];
         $pastHour = self::pastHourFor($day);
         for ($h = self::WORK_START; $h < self::WORK_END; $h++) {
-            $time = sprintf('%02d:00', $h);
-            $slots[] = ['time' => $time, 'taken' => in_array($time, $taken, true) || $h <= $pastHour];
+            $from = $h * 60;
+            $to = $from + self::SLOT_MIN;
+            $overlaps = false;
+            foreach ($intervals as [$s, $e]) {
+                if ($from < $e && $to > $s) {
+                    $overlaps = true;
+                    break;
+                }
+            }
+            $slots[] = ['time' => sprintf('%02d:00', $h), 'taken' => $overlaps || $h <= $pastHour];
         }
 
         return $slots;

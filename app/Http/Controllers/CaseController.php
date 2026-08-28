@@ -23,12 +23,45 @@ class CaseController extends Controller
     // قائمة قضايا العميل الحالي
     public function index(Request $request): Response
     {
-        // hearings محمّلة مسبقاً: toCard() ينادي nextHearingLabel() الذي يُطلق استعلامين لكل صفّ بدونها
-        $cases = LegalCase::with('hearings')->where('user_id', $request->user()->id)->latest('id')->get()
-            ->map(fn (LegalCase $c) => $c->toCard());
+        $casesRaw = LegalCase::with(['hearings', 'documents', 'assignedLawyer'])
+            ->where('user_id', $request->user()->id)
+            ->latest('id')
+            ->get();
+
+        $cases = $casesRaw->map(fn (LegalCase $c) => $c->toCard());
+
+        $upcomingHearingsList = $casesRaw->flatMap(function (LegalCase $c) {
+            $next = $c->nextHearingLive();
+            if (! $next) {
+                return [];
+            }
+
+            return [[
+                'id' => $next->id,
+                'caseNo' => $c->number,
+                'caseType' => $c->type,
+                'title' => $next->title,
+                'court' => $next->court,
+                'day' => $next->day,
+                'startsAt' => $next->starts_at?->format('Y-m-d H:i'),
+                'label' => $next->label(),
+                'status' => $next->status,
+                'lawyer' => $c->assigned_lawyer ?: ($c->assignedLawyer?->name ?? 'المستشار المختص'),
+            ]];
+        })->values();
+
+        $counts = [
+            'total' => $cases->count(),
+            'active' => $cases->whereIn('status', ['منظورة', 'قيد الترافع', 'جلسة قادمة', 'تحت الدراسة', 'جديدة'])->count(),
+            'upcomingHearings' => $upcomingHearingsList->count(),
+            'pendingFees' => $cases->where('feeStatus', 'pending_payment')->count(),
+            'completed' => $cases->whereIn('status', ['محكومة', 'مغلقة', 'مكتملة', 'منتهية'])->count(),
+        ];
 
         return Inertia::render('cases', [
             'cases' => $cases,
+            'counts' => $counts,
+            'upcomingHearings' => $upcomingHearingsList,
         ]);
     }
 
@@ -56,7 +89,7 @@ class CaseController extends Controller
             'channel' => 'case.'.$case->id,
             'messages' => $case->messages->where('who', '!=', 'note')->values()->map->toMessage(),
             'hearings' => $case->hearings->map->toData(),
-            'documents' => $case->documents->map->toData(),
+            'documents' => $case->documents->map(fn ($d) => $d->toData(auth()->user())),
         ]);
     }
 
@@ -105,7 +138,7 @@ class CaseController extends Controller
         );
 
         $data = $request->validate([
-            'body' => ['required', 'string', 'max:5000'],
+            'body' => ['required', 'string'],
         ]);
 
         $case->messages()->create([
@@ -130,29 +163,17 @@ class CaseController extends Controller
 
         $plan = $request->validate(['plan' => ['nullable', 'in:full,install']])['plan'] ?? 'full';
 
-        // الأقساط: ميزة مستقلّة (لا تمرّ ببوّابة الدفع) — الدفعة الأولى تُفعّل القضية
-        if ($plan === 'install') {
-            $case->update([
-                'pay_plan' => 'install',
-                'installments_total' => 3,
-                'installments_paid' => 1,
-                'fee_status' => 'installments',
-                'paid_text' => 'دفعة 1 من 3 مدفوعة',
-            ]);
-            $case->messages()->create([
-                'who' => 'system', 'name' => 'النظام', 'role' => 'سداد',
-                'body' => '<p>تم استلام الدفعة الأولى (1 من 3) من أتعاب القضية، وتفعيلها. تُسدَّد بقية الدفعات لاحقاً.</p>',
-                'time_label' => $this->clock(),
-            ]);
-            CaseFee::activate($case);
+        // كلا الخطّتين تمرّان بالبوّابة. كان التقسيط «ميزة مستقلّة» تُفعّل القضية بنقرة
+        // وتكتب «تم استلام الدفعة الأولى» بلا بوّابة ولا فاتورة ولا صفّ دفع.
+        abort_unless(app(MoyasarService::class)->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
 
-            return back();
+        // فتح الخطّة يُعيد هيكلة الفاتورة إلى دفعات حقيقية — بلا تفعيل: التفعيل بالسداد
+        if ($plan === 'install' && CaseFee::openInstallmentPlan($case) === null) {
+            return back()->with('error', 'تعذّر فتح خطّة التقسيط — لا توجد فاتورة أتعاب مستحقّة.');
         }
 
-        // السداد الكامل عبر بوّابة ميسّر → إعادة توجيه لصفحة الدفع (التأكيد عبر webhook/callback)
-        abort_unless(app(MoyasarService::class)->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
         $callback = $request->getSchemeAndHttpHost().route('cases.pay.callback', $case, absolute: false);
-        $url = CaseFee::initiatePayment($case, $callback);
+        $url = CaseFee::initiatePayment($case->fresh(), $callback);
         if ($url === null) {
             return back()->with('error', 'تعذّر بدء الدفع حالياً، حاول بعد قليل.');
         }
@@ -185,25 +206,23 @@ class CaseController extends Controller
         $this->authorizeCase($request, $case);
         abort_unless($case->fee_status === 'installments', 422);
 
-        $paid = $case->installments_paid + 1;
-        $done = $paid >= $case->installments_total;
-        $case->update([
-            'installments_paid' => $paid,
-            'fee_status' => $done ? 'paid' : 'installments',
-            'paid_text' => $done ? 'تم سداد كامل الأتعاب' : "دفعة {$paid} من {$case->installments_total} مدفوعة",
-        ]);
-        if ($done) {
-            CaseFee::markInvoicePaid($case);
-        }
-        $case->messages()->create([
-            'who' => 'system', 'name' => 'النظام', 'role' => 'سداد',
-            'body' => $done
-                ? '<p>تم سداد الدفعة الأخيرة واكتمال أتعاب القضية.</p>'
-                : "<p>تم استلام الدفعة {$paid} من {$case->installments_total}.</p>",
-            'time_label' => $this->clock(),
-        ]);
+        // كان هذا الزرّ يزيد العدّاد ويكتب «تم استلام الدفعة» بلا أي سداد. الآن يبدأ دفعة
+        // حقيقية على فاتورة القسط المستحقّ، والتقدّم يقع في PaymentReconciler عند التسوية.
+        abort_unless(app(MoyasarService::class)->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
 
-        return back();
+        $next = CaseFee::nextInstallment($case);
+        if ($next === null) {
+            return back()->with('error', 'لا توجد دفعة مستحقّة على هذه القضية.');
+        }
+
+        $callback = $request->getSchemeAndHttpHost().route('cases.pay.callback', $case, absolute: false);
+        $url = app(MoyasarService::class)->hostedUrlForInvoice($next, $callback);
+
+        if ($url === null) {
+            return back()->with('error', 'تعذّر بدء الدفع حالياً، حاول بعد قليل.');
+        }
+
+        return Inertia::location($url);
     }
 
     private function authorizeCase(Request $request, LegalCase $case): void

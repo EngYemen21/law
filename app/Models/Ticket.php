@@ -2,6 +2,9 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\ClipsPreviewText;
+use App\Models\Concerns\PurgesDocumentFiles;
+use App\Support\TicketJourney;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -9,6 +12,11 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Ticket extends Model
 {
+    use ClipsPreviewText, PurgesDocumentFiles;
+
+    /** سطر المعاينة في بطاقات القوائم — varchar(255) يستقبل نصّ المستخدم بلا سقف. */
+    protected array $previewText = ['last_message'];
+
     protected $fillable = [
         'user_id', 'number', 'type', 'subject', 'opponent_name', 'opponent_id', 'claim_amount', 'court_name', 'priority',
         'department', 'assigned_lawyer', 'assigned_lawyer_id', 'status', 'tone', 'attachments', 'last_message', 'date_label',
@@ -58,7 +66,7 @@ class Ticket extends Model
         return 'number';
     }
 
-    // الشكل الذي تتوقعه واجهة العميل (يطابق DATA.tickets)
+    // الشكل الذي تتوقعه واجهة العميل (يطابق DATA.tickets مع مؤشرات الرحلة والوثائق)
     public function toCard(): array
     {
         return [
@@ -68,10 +76,21 @@ class Ticket extends Model
             'priority' => $this->priority ?: 'متوسطة',
             'dept' => $this->department,
             'status' => $this->status,
-            'tone' => $this->tone,
+            'tone' => $this->tone ?: TicketJourney::toneFor($this->status),
             'last' => $this->last_message,
             // «الآن» المخزّنة كانت تتجمّد للأبد — الاشتقاق الحيّ من آخر تحديث (العمود يبقى للتوافق)
             'date' => $this->updated_at?->locale('ar')->diffForHumans() ?? $this->date_label,
+            'lawyer' => $this->assigned_lawyer ?: ($this->relationLoaded('assignedLawyer') && $this->assignedLawyer ? $this->assignedLawyer->name : 'المستشار المخصص'),
+            'step' => TicketJourney::indexOf($this->status),
+            'needsDoc' => $this->status === 'بانتظار مستندات',
+            'needsBooking' => $this->status === 'بانتظار حجز الاستشارة',
+            'hasCase' => $this->relationLoaded('legalCase') ? (bool) $this->legalCase : $this->legalCase()->exists(),
+            'courtName' => $this->court_name,
+            'claimAmount' => $this->claim_amount,
+            'opponentName' => $this->opponent_name,
+            'documentsCount' => $this->relationLoaded('documents') ? $this->documents->count() : $this->documents()->count(),
+            'messagesCount' => $this->relationLoaded('messages') ? $this->messages->count() : $this->messages()->count(),
+            'createdAt' => $this->created_at?->format('Y-m-d'),
         ];
     }
 
