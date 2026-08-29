@@ -52,7 +52,13 @@ class TechnicalDebtTest extends TestCase
         $declared = collect(Permissions::GROUPS)->flatten()->all();
         $routes = (string) file_get_contents(base_path('routes/web.php'));
         preg_match_all("/permission:([^']+)'/u", $routes, $m);
-        $enforced = $m[1];
+        // الوسيط يقبل عدّة صلاحيات مفصولة بفاصلة (`permission:أ,ب`) — بلا التفكيك كانت
+        // تُلتقط سلسلة واحدة فلا تطابق أيّاً منهما، فتُبلَّغ صلاحية محروسة فعلاً كأنها ميتة
+        // (وقعت على «إجراء الجلسات المرئية»: محروسة في routes/web.php ولا ترد إلا بهذه الصيغة).
+        $enforced = collect($m[1])
+            ->flatMap(fn ($group) => explode(',', $group))
+            ->map(fn ($permission) => trim($permission))
+            ->all();
 
         // ما لا يُفرض بالمسارات يجب أن يُفرض بـcan() في الكود أو الواجهة
         $code = '';

@@ -178,7 +178,10 @@ class MeetingZoomParityTest extends TestCase
 
         $meeting->refresh();
         $this->assertSame('منتهٍ', $meeting->status);
-        $this->assertSame(90, $meeting->attend); // الافتراضي كما في الإنهاء اليدوي
+        // 0 = «حضور غير مسجَّل» تماماً كالإنهاء اليدوي بلا مدخل. كان الاختبار يطالب بـ90
+        // وهي نسبة مختلقة أُزيلت عمداً من المسارين (ZoomWebhookController::endMeeting
+        // وMeetingController::end) — لا تُعاد، فالعرض لا يحمل بيانات ملفّقة.
+        $this->assertSame(0, $meeting->attend);
         $this->assertSame(MeetRequest::STAGE_EXECUTED, $mr->fresh()->stage);
         Bus::assertDispatched(GenerateMeetingSummaryJob::class, fn ($job) => $job->meeting->is($meeting));
         Event::assertDispatched(MeetingStatusBroadcast::class);

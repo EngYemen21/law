@@ -88,6 +88,9 @@ class RegressionGuardTest extends TestCase
             'user_id' => $client->id, 'appointment_id' => $appointment->id, 'ref' => 'CN-R-2',
             'subject' => 'نزاع', 'channel' => 'مرئية', 'lawyer' => 'أ. سارة',
             'session' => 'بانتظار الجلسة', 'status' => 'جديدة',
+            // إطلاق الرابط شرطٌ في Consult::canJoin، وtoCard صار يحرس الزرّ به عمداً
+            // (كان يظهر دائماً ثم يردّ الخادم 403 «لم يحن الموعد»). بدونه الرابط '' بحقّ.
+            'link_released_at' => now(),
         ]);
 
         $card = $appointment->fresh()->toCard($employee);

@@ -9,6 +9,7 @@ use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Support\EventStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -130,7 +131,10 @@ class SchedulerAutoCloseTest extends TestCase
 
         $this->artisan('hearings:auto-lapse')->assertExitCode(0);
 
-        $this->assertSame('بانتظار تسجيل النتيجة', $stale->fresh()->status);
+        // الثابت لا النصّ الحرفيّ: السلسلة وُحّدت في EventStatus::HEARING_LAPSED لأن
+        // «بانتظار تسجيل النتيجة» كانت سلسلة ثانية لا تعرفها شروط أزرار تسجيل النتيجة
+        // ولا خريطة الألوان — فتختفي الأزرار وتزرقّ الشارة.
+        $this->assertSame(EventStatus::HEARING_LAPSED, $stale->fresh()->status);
         $this->assertSame('مجدولة', $recent->fresh()->status); // لم تبلغ 24 ساعة
         $this->assertSame('مجدولة', $future->fresh()->status);
         // «الجلسة القادمة» المخزّنة ثُبّتت على القادمة الحقيقية وأُشعر المحامي

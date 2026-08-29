@@ -203,6 +203,7 @@ class CaseController extends Controller
             'body' => '<p>تمت أرشفة ملف القضية نهائياً في سجلات الأرشيف القانوني الموثقة.</p>',
             'time_label' => $this->clock(),
         ]);
+        Notify::send($case->user_id, 'check', 't-green', "أُرشفت قضيتك {$case->number} وحُفظ ملفها في الأرشيف.");
         Live::push(new CaseStatusBroadcast($case));
 
         return back();

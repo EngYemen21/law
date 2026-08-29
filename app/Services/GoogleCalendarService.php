@@ -19,7 +19,16 @@ use Illuminate\Support\Facades\Log;
  */
 class GoogleCalendarService
 {
+    /** المسار الافتراضيّ لملف الاعتماد — يُتجاوَز بـ`services.google_calendar.credentials_path`. */
     private const CREDENTIALS_PATH = 'storage/app/google-credentials.json';
+
+    /** المسار المطلق لملف الاعتماد، أو `null` حين تُفرَّغ التهيئة (الاختبارات). */
+    private static function credentialsPath(): ?string
+    {
+        $configured = (string) config('services.google_calendar.credentials_path', self::CREDENTIALS_PATH);
+
+        return $configured === '' ? null : base_path($configured);
+    }
 
     private const TOKEN_CACHE_KEY = 'google_service_account_access_token';
 
@@ -42,9 +51,9 @@ class GoogleCalendarService
      */
     public static function isConfigured(): bool
     {
-        $path = base_path(self::CREDENTIALS_PATH);
+        $path = self::credentialsPath();
 
-        return file_exists($path) && is_readable($path);
+        return $path !== null && file_exists($path) && is_readable($path);
     }
 
     /**
@@ -58,7 +67,7 @@ class GoogleCalendarService
 
         return Cache::remember(self::TOKEN_CACHE_KEY, self::TOKEN_CACHE_SECONDS, function () {
             try {
-                $path = base_path(self::CREDENTIALS_PATH);
+                $path = (string) self::credentialsPath();
                 $creds = json_decode(file_get_contents($path), true);
 
                 if (empty($creds['client_email']) || empty($creds['private_key'])) {

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Models\User;
+use App\Support\Permissions;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -202,8 +203,10 @@ class StaffManagementTest extends TestCase
             ->assertInertia(fn ($p) => $p->component('admin/staff')
                 ->has('permCatalog.rolePermissions.employee')
                 ->has('permCatalog.rolePermissions.lawyer')
-                // الإدارة العليا = كل الصلاحيات (23 بعد إسقاط «إدارة الفروع»)
-                ->has('permCatalog.rolePermissions.admin', 23));
+                // الإدارة العليا = كل الصلاحيات. العدد يُشتقّ من الكتالوج لا يُكتب رقماً
+                // ثابتاً: الرقم المكتوب يكسر الاختبار مع كل صلاحية جديدة مشروعة
+                // (كسره فعلاً إدخال «سجل التدقيق الأمني»: 24 مقابل 23 مكتوبة).
+                ->has('permCatalog.rolePermissions.admin', count(Permissions::all())));
     }
 
     public function test_toggle_suspends_and_blocks_login(): void
