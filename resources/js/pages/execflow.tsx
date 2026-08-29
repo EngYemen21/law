@@ -5,7 +5,7 @@ import Badge from '@/components/babylon/Badge';
 import ChatThread from '@/components/babylon/ChatThread';
 import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
-import { EXEC_FLOW, EXEC_SANADS, EXEC_PAYM, EXEC_DOC_ACCEPT, EXEC_DOC_HINT, execTone, execMoney, procTone    } from '@/lib/exec-flow';
+import { EXEC_FLOW, EXEC_SANADS, EXEC_PAYM, EXEC_DOC_ACCEPT, EXEC_DOC_HINT, execTone, execMoney, procTone, execAiPresentation    } from '@/lib/exec-flow';
 import type {ExecDoc, ExecReq, Role} from '@/lib/exec-flow';
 import Icon from '@/lib/icons';
 
@@ -632,15 +632,23 @@ return;
         </div>
       </div>
 
-      {r.aiDone && (
-        <div className="card" style={{ marginBottom: 14, borderInlineStart: '3px solid var(--cyan)' }}>
-          <div className="card-h"><h3>الملخّص الذكيّ</h3></div>
-          <div className="card-b" style={{ padding: '14px 16px' }}>
-            <p style={{ margin: '0 0 8px' }}>{r.aiSummary}</p>
-            {r.aiMissing.length > 0 && <div className="mtg-pend"><Icon name="info" /> نواقص مطلوبة: {r.aiMissing.join(' · ')}</div>}
+      {(() => {
+        // شاشة العميل: القالب الاحتياطيّ كان يُعرض هنا تحت «الملخّص الذكيّ» فيبدو
+        // تحليلاً وقع وهو لم يفحص مستنداً. وبسياسة المكتب لا يُعرَض للعميل أصلاً.
+        const ai = execAiPresentation(r, true);
+        if (!ai) return null;
+
+        return (
+          <div className="card" style={{ marginBottom: 14, borderInlineStart: `3px solid ${ai.accent}` }}>
+            <div className="card-h"><h3>{ai.title}</h3></div>
+            <div className="card-b" style={{ padding: '14px 16px' }}>
+              {ai.notice && <div className="mtg-pend" style={{ marginBottom: 8 }}><Icon name="info" /> {ai.notice}</div>}
+              <p style={{ margin: '0 0 8px' }}>{r.aiSummary}</p>
+              {r.aiMissing.length > 0 && <div className="mtg-pend"><Icon name="info" /> نواقص مطلوبة: {r.aiMissing.join(' · ')}</div>}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <ClientFlowCard r={r} act={act} />
 
@@ -769,20 +777,26 @@ const ExecDetail: React.FC<{ role: Role; r: ExecReq; onBack: () => void; act: Ac
         <div className="card-b" style={{ padding: 16 }}><FlowLine steps={EXEC_FLOW} cur={r.stage} /></div>
       </div>
 
-      {r.aiDone && (
-        <div className="card" style={{ marginBottom: 12, borderInlineStart: '3px solid var(--cyan)' }}>
-          <div className="card-h"><h3>الملخص الذكي</h3></div>
-          <div className="card-b" style={{ padding: '14px 16px' }}>
-            <p style={{ margin: '0 0 8px' }}>{r.aiSummary}</p>
-            {r.aiMissing.length > 0 && <div className="mtg-pend"><Icon name="info" /> نواقص مطلوبة: {r.aiMissing.join(' · ')}</div>}
-            {r.aiProcedures.length > 0 && (
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                {r.aiProcedures.map((p) => <span key={p} className="chip">{p}</span>)}
-              </div>
-            )}
+      {(() => {
+        const ai = execAiPresentation(r);
+        if (!ai) return null;
+
+        return (
+          <div className="card" style={{ marginBottom: 12, borderInlineStart: `3px solid ${ai.accent}` }}>
+            <div className="card-h"><h3>{ai.title}</h3></div>
+            <div className="card-b" style={{ padding: '14px 16px' }}>
+              {ai.notice && <div className="mtg-pend" style={{ marginBottom: 8 }}><Icon name="info" /> {ai.notice}</div>}
+              <p style={{ margin: '0 0 8px' }}>{r.aiSummary}</p>
+              {r.aiMissing.length > 0 && <div className="mtg-pend"><Icon name="info" /> نواقص مطلوبة: {r.aiMissing.join(' · ')}</div>}
+              {r.aiProcedures.length > 0 && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                  {r.aiProcedures.map((p) => <span key={p} className="chip">{p}</span>)}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="card-h"><h3>بيانات الطلب</h3></div>

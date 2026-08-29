@@ -72,8 +72,9 @@ class ConsultSummary
                 ]);
                 Live::push(new ConsultStatusBroadcast($consult->fresh()));
 
-                // القرارات → مهام تلقائية لدى المحامي المسؤول (idempotent)
-                DecisionTasks::create($consult, app(LegalAiService::class));
+                // القرارات → **اقتراحات** لا مهامّ: مخرج نموذج لا يُنشئ التزاماً على
+                // إنسان بلا اعتماد. الإنشاء الفعليّ بزرّ createTasks (P3).
+                DecisionTasks::suggest($consult, app(LegalAiService::class));
 
                 return true;
             }

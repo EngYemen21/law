@@ -1,0 +1,60 @@
+{
+  "task": "ticket.triage",
+  "note": "حالات مُصطنعة بالكامل — لا بيانات عملاء ولا أسماء حقيقية (قيد التعليمات).",
+  "cases": [
+    {
+      "id": "TR-01",
+      "difficulty": "سهلة",
+      "error_type": null,
+      "description": "طلب تجاري واضح بوصف كافٍ",
+      "input": { "details": "لدينا نزاع مع مورّد أخلّ بعقد توريد بضاعة بقيمة 150,000 ريال ونطلب فسخ العقد والتعويض عن الضرر.", "client_department": "", "ticket_type": "نزاع تجاري" },
+      "model_output": { "department": "القضايا التجارية", "priority": "عالية", "intent": "عادي" },
+      "expect": { "valid": true, "department": "القضايا التجارية", "priority": "عالية", "intent": "عادي", "confidence_min": 70, "decision": "accept" }
+    },
+    {
+      "id": "TR-02",
+      "difficulty": "متوسطة",
+      "error_type": "قيمة خارج المسموح",
+      "description": "النموذج يعيد أولوية ونيّة خارج القاموس — تُسقَطان للمسموح. ووصفٌ طوله 79 حرفاً يقع تحت عتبة «الوصف الكافي» (80) بحرفٍ واحد، فلا يُقبل آلياً رغم صحّة قسمه: ملاحظة معايرة للفريق القانونيّ، لا عطب.",
+      "input": { "details": "أحتاج استشارة بخصوص عقد إيجار تجاري ومدى نظامية شرط الزيادة السنوية الوارد فيه.", "client_department": "", "ticket_type": "استشارة" },
+      "model_output": { "department": "العقود والاتفاقيات", "priority": "حرجة جداً", "intent": "طارئ" },
+      "expect": { "valid": true, "department": "العقود والاتفاقيات", "priority": "عادية", "intent": "عادي", "confidence_max": 69, "decision": "needs_review" }
+    },
+    {
+      "id": "TR-03",
+      "difficulty": "صعبة",
+      "error_type": "قسم مخترَع",
+      "description": "قسم خارج القاموس المعتمد — يمرّ لكن ثقته تنخفض فيُصعَّد",
+      "input": { "details": "عندي مشكلة مع شريكي في الشركة ويرفض تسليمي حصتي من الأرباح منذ سنتين.", "client_department": "", "ticket_type": "نزاع" },
+      "model_output": { "department": "قسم الشراكات والأرباح", "priority": "عادية", "intent": "عادي" },
+      "expect": { "valid": true, "department": "قسم الشراكات والأرباح", "confidence_max": 69, "decision": "needs_review" }
+    },
+    {
+      "id": "TR-04",
+      "difficulty": "صعبة",
+      "error_type": "وصف شحيح",
+      "description": "وصف مقتضب لا يكفي للحكم — لا قبول آليّ",
+      "input": { "details": "مشكلة", "client_department": "", "ticket_type": "استشارة" },
+      "model_output": { "department": "الاستشارات القانونية", "priority": "عادية", "intent": "عادي" },
+      "expect": { "valid": true, "confidence_max": 69, "decision": "needs_review" }
+    },
+    {
+      "id": "TR-05",
+      "difficulty": "متوسطة",
+      "error_type": "حقل إلزاميّ ناقص",
+      "description": "لا قسم في مخرج النموذج ⇒ فشل بنيويّ",
+      "input": { "details": "نزاع عمالي بشأن فصل تعسفي ومستحقات نهاية خدمة.", "client_department": "القضايا العمالية", "ticket_type": "نزاع عمالي" },
+      "model_output": { "priority": "عالية", "intent": "شكوى" },
+      "expect": { "valid": false }
+    },
+    {
+      "id": "TR-06",
+      "difficulty": "متوسطة",
+      "error_type": "عاميّة",
+      "description": "لهجة عامية — الفرز يعمل والاتفاق مع اختيار العميل يرفع الثقة",
+      "input": { "details": "ابي احد يساعدني، صاحب العمارة رافض يرجع لي التأمين وله سنة يماطل وانا مستأجر عندهم من زمان.", "client_department": "العقارات", "ticket_type": "نزاع" },
+      "model_output": { "department": "العقارات", "priority": "عادية", "intent": "شكوى" },
+      "expect": { "valid": true, "department": "العقارات", "confidence_min": 90, "decision": "accept" }
+    }
+  ]
+}

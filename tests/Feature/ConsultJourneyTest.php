@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\AiSource;
 use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Ticket;
@@ -71,7 +72,6 @@ class ConsultJourneyTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $employee = User::factory()->create(['role' => Role::Employee, 'name' => 'منيرة الحربي']);
-        // محامٍ حقيقي في قاعدة البيانات — الاحتياط يقترح محامياً فعلياً لا اسماً مُختلَقاً
         User::factory()->create(['role' => Role::Lawyer, 'name' => 'أ. سارة القحطاني']);
         $consult = $this->makeConsult($client);
 
@@ -82,14 +82,17 @@ class ConsultJourneyTest extends TestCase
         $this->assertSame('منيرة الحربي', $consult->employee);
         $this->assertCount(1, $consult->audit);
 
-        // معالجة الفريق القانوني (قالب احتياطي بلا مفاتيح AI)
+        // معالجة الفريق القانوني بلا مفاتيح AI ⇒ القالب الاحتياطيّ.
+        // الاستشارة تنتقل إلى «بانتظار اعتماد الموظف» كما كانت (إنسانٌ يجب أن يتصرّف)،
+        // لكنها لا تُوسَم تحليلاً مكتملاً ولا تحمل محامياً «مقترحاً» بلا تحليل خلفه.
         $this->actingAs($employee)->post(route('employee.consults.analyze', $consult))->assertRedirect();
         $consult->refresh();
         $this->assertSame('بانتظار اعتماد الموظف', $consult->status);
-        $this->assertTrue($consult->ai_done);
+        $this->assertFalse((bool) $consult->ai_done);
+        $this->assertSame(AiSource::Fallback->value, $consult->ai_source);
         $this->assertSame('استشارة تجاري', $consult->ai_class);
         $this->assertStringContainsString('نزاع تجاري مع مورّد', $consult->ai_summary);
-        $this->assertSame('أ. سارة القحطاني', $consult->ai_lawyer);
+        $this->assertSame('', $consult->ai_lawyer, 'لا ترشيح محامٍ بلا تحليل — كان يقع على أوّل محامٍ أبجديّاً');
 
         // اعتماد التحليل
         $this->actingAs($employee)->post(route('employee.consults.approve', $consult))->assertRedirect();

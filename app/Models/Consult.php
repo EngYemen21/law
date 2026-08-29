@@ -24,9 +24,9 @@ class Consult extends Model
         'link_released_at', 'reminder_24h_sent_at', 'reminder_30m_sent_at', 'join_time', 'leave_time', 'duration_sec', 'transcript', 'recording_url', 'transcript_path', 'zoom_summary_at',
         'zoom_uuid', 'zoom_share_url', 'zoom_audio_url', 'zoom_participants_log', 'zoom_ai_next_steps',
         'status', 'session', 'session_notes', 'summary', 'duration_label',
-        'decisions', 'tasks_created',
+        'decisions', 'tasks_created', 'suggested_tasks',
         'price', 'vat', 'total', 'mins', 'priced_at', 'paid_at',
-        'ai_done', 'ai_class', 'ai_summary', 'ai_lawyer', 'missing', 'audit',
+        'ai_done', 'ai_source', 'ai_class', 'ai_summary', 'ai_lawyer', 'missing', 'audit',
         'google_event_id',
     ];
 
@@ -36,6 +36,7 @@ class Consult extends Model
         'missing' => 'array',
         'audit' => 'array',
         'decisions' => 'array',
+        'suggested_tasks' => 'array',
         'zoom_participants_log' => 'array',
         'zoom_ai_next_steps' => 'array',
         'starts_at' => 'datetime',
@@ -252,6 +253,8 @@ class Consult extends Model
             'employee' => $this->employee ?: '—',
             'mins' => $this->mins ?? 0,
             'aiDone' => (bool) $this->ai_done,
+            // مصدر المخرج: '' = غير معروف (صفوف ما قبل الهجرة)
+            'aiSource' => $this->ai_source ?? '',
             'aiClass' => $this->ai_class ?? '',
             'aiSummary' => $this->ai_summary ?? '',
             'aiLawyer' => $this->ai_lawyer ?? '',

@@ -49,7 +49,7 @@ class ExecFlowController extends Controller
         $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'correspondences'])
             ->where(fn ($q) => $q->where('assigned_lawyer_id', $uid)
                 ->orWhere(fn ($p) => $p->whereNull('assigned_lawyer_id')->whereNotNull('stage')->where('stage', '>=', 2)))
-            ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(true));
+            ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(true, true));
 
         return Inertia::render('execflow', ['role' => 'lawyer', 'execs' => $execs]);
     }
@@ -58,7 +58,7 @@ class ExecFlowController extends Controller
     {
         // التبويب الموحّد: كل التنفيذات (تدفّق + قديمة تُعرَض بمرحلة مشتقّة) — الإدارة ترى الكلّ
         $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'correspondences'])
-            ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(true));
+            ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(true, true));
 
         return Inertia::render('execflow', ['role' => 'admin', 'execs' => $execs]);
     }
@@ -67,7 +67,7 @@ class ExecFlowController extends Controller
     {
         // التبويب الموحّد لموظف الاستقبال: كل ملفّات التنفيذ (تدفّق + قديمة) — بوّابة الاستقبال والإحالة
         $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'correspondences'])
-            ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(true));
+            ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(true, true));
 
         return Inertia::render('execflow', ['role' => 'employee', 'execs' => $execs]);
     }

@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Models\User;
+use App\Services\Ai\AiGateway;
 use App\Support\OtpService;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -21,6 +22,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // نسخة واحدة للبوّابة داخل الطلب: غلاف المزوّد يُبلّغها بالاستهلاك عبر
+        // `recordUsage` وهي تقرؤه فور عودة النداء. بلا الربط تُنشأ نسخة لكل
+        // `app()` فيضيع الرقم بين نسختين مختلفتين.
+        $this->app->singleton(AiGateway::class);
+
         $tmpDir = storage_path('app/browsershot-tmp');
         if (! is_dir($tmpDir)) {
             @mkdir($tmpDir, 0777, true);

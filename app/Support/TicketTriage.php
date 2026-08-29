@@ -2,11 +2,14 @@
 
 namespace App\Support;
 
+use App\Enums\AiSource;
 use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
 use App\Jobs\GenerateTicketSummaryJob;
+use App\Models\AiRun;
 use App\Models\Ticket;
 use App\Models\TicketDocument;
+use App\Services\Ai\AiPolicyGate;
 use App\Services\LegalAiService;
 use Illuminate\Support\Collection;
 
@@ -34,11 +37,45 @@ class TicketTriage
             return;
         }
 
+        // idempotent: إعادة تشغيل الطابور كانت تبعث رسالة ترحيب ثانية للعميل وتُنشئ
+        // قيد فرزٍ ثانياً. قيد `ai_runs` للتذكرة هو المفتاح الدائم — ويُكتب قبل أي
+        // رسالة، فلا تبقى نافذة تعطّل يتكرّر فيها المخرج.
+        if (AiRun::alreadyRan('triage', $ticket)) {
+            return;
+        }
+
         // تصنيف صامت (لا رسائل محادثة) — يُضبط القسم داخلياً فقط
         $triage = app(LegalAiService::class)->triageTicket($ticket, $details);
         if (empty($ticket->department) && $triage['department'] !== '') {
             $ticket->update(['department' => $triage['department']]);
         }
+
+        // مصدر الفرز يُسجَّل دائماً: الاحتياطيّ يعيد قسم العميل نفسه بأولوية «عادية»
+        // ثابتة — تسجيله كأنه «فرز آليّ» كان يوهم بأن نموذجاً صنّف التذكرة.
+        $triageSource = AiSource::tryFrom((string) ($triage['source'] ?? AiSource::AiSuccess->value)) ?? AiSource::AiSuccess;
+        $meta = is_array($triage['meta'] ?? null) ? $triage['meta'] : [];
+        AiRun::record(
+            taskType: 'triage',
+            source: $triageSource,
+            entity: $ticket,
+            entityRef: (string) $ticket->ref,
+            confidence: $meta['confidence'] ?? null,
+            confidenceSignals: $meta['confidence_signals'] ?? null,
+            // الفرز متوسّط الحساسيّة: يُقبل آلياً فوق العتبة ويُصعَّد دونها أو بلا قياس
+            status: AiPolicyGate::decide(
+                taskType: $meta['prompt_id'] ?? 'ticket.triage',
+                source: $triageSource,
+                confidence: $meta['confidence'] ?? null,
+            )->status(),
+            model: $meta['model'] ?? null,
+            promptVersion: $meta['prompt_version'] ?? null,
+            traceId: $meta['trace_id'] ?? null,
+            failureCode: $triageSource->isRealAnalysis() ? null : ($meta['failure_code'] ?? null),
+            durationMs: $meta['duration_ms'] ?? null,
+            inputTokens: $meta['input_tokens'] ?? null,
+            outputTokens: $meta['output_tokens'] ?? null,
+            estimatedCost: $meta['estimated_cost'] ?? null,
+        );
 
         // إن أرفق العميل مستندات عند الفتح: تُحلَّل فعلياً أولاً فيتفرّع الردّ بحسب صلتها بالموضوع
         $docs = $ticket->documents()->get();

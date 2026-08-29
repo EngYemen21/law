@@ -18,7 +18,7 @@ class Meeting extends Model
         'status', 'priority', 'conf', 'attend', 'dur', 'approve',
         'before_items', 'during_items', 'after_items',
         'summary', 'sum_approved', 'minutes', 'participants', 'case_ref',
-        'decisions', 'tasks_created',
+        'decisions', 'tasks_created', 'suggested_tasks',
         'meet_id', 'meet_link', 'host_link', 'meet_password', 'created_by',
         'assigned_lawyer_id',
         // is_up مهجور (deprecated): «القادم» يُشتق حيّاً من liveState/isUpcoming — لم يعد يُكتب ولا يُقرأ
@@ -45,6 +45,7 @@ class Meeting extends Model
         'during_items' => 'array',
         'after_items' => 'array',
         'decisions' => 'array',
+        'suggested_tasks' => 'array',
         'zoom_participants_log' => 'array',
         'zoom_ai_next_steps' => 'array',
     ];

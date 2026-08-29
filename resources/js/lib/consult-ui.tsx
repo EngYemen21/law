@@ -68,6 +68,8 @@ export interface ConsultCard {
   employee: string;
   mins: number;
   aiDone: boolean;
+  /** App\Enums\AiSource — '' لصفوف ما قبل هجرة المصدر. */
+  aiSource: '' | 'ai_success' | 'fallback' | 'manual_required' | 'human_approved';
   aiClass: string;
   aiSummary: string;
   aiLawyer: string;
@@ -554,8 +556,9 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
   const toast = useToast();
   const [busy, setBusy] = useState(false);
 
-  // مطابقة اقتراح الذكاء الاصطناعي (اسم) بمحامٍ حقيقي، وإلا أوّل محامٍ
-  const matchLawyer = (name?: string): number | '' => lawyers.find((l) => l.name === name)?.id ?? lawyers[0]?.id ?? '';
+  // مطابقة اقتراح الذكاء الاصطناعي (اسم) بمحامٍ حقيقي — وإلّا فلا اختيار.
+  // كان يقع على أوّل محامٍ في القائمة حين لا اقتراح، فيبدو للموظّف ترشيحاً وهو ترتيب أبجديّ.
+  const matchLawyer = (name?: string): number | '' => lawyers.find((l) => l.name === name)?.id ?? '';
 
   // الحقول القابلة للتعديل لتحليل الفريق القانوني (تُزامَن مع الخادم بعد كل إجراء)
   const [aiClass, setAiClass] = useState(c.aiClass);
@@ -611,7 +614,10 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
     || c.status === 'قيد مراجعة الموظف'
     || c.status === 'بانتظار استكمال البيانات';
   const showRefer = c.status === 'جاهزة للمحامي';
-  const showAiCard = c.aiDone;
+  // البطاقة سطح تحرير الموظّف — تبقى ظاهرة عند تعذّر التحليل (فهو حينها من يكتب الرأي)،
+  // لكن بعنوان صادق: كان الاحتياطيّ يظهر تحت «تحليل الفريق القانوني» كأن تحليلاً وقع.
+  const aiFailed = c.aiSource === 'fallback';
+  const showAiCard = c.aiDone || aiFailed;
   const showApprove = c.status === 'بانتظار اعتماد الموظف';
 
   return (
@@ -691,10 +697,14 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
         <>
           <div className="ai-banner">
             <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
-            <p>نتائج تحليل الفريق القانوني — يمكن للموظف المخوّل أو الإدارة تعديلها واعتمادها. تُحفظ كل التعديلات في سجل التدقيق.</p>
+            <p>
+              {aiFailed
+                ? 'تعذّر التحليل الذكيّ لهذه الاستشارة — لم يُنتج النموذج رأياً. يلزم إعداد التصنيف والرأي القانوني واختيار المحامي يدوياً قبل الاعتماد. تُحفظ كل التعديلات في سجل التدقيق.'
+                : 'نتائج تحليل الفريق القانوني — يمكن للموظف المخوّل أو الإدارة تعديلها واعتمادها. تُحفظ كل التعديلات في سجل التدقيق.'}
+            </p>
           </div>
           <div className="card" style={{ marginBottom: 14 }}>
-            <div className="card-h"><h3>تحليل الفريق القانوني</h3></div>
+            <div className="card-h"><h3>{aiFailed ? 'إعداد يدويّ مطلوب — تعذّر التحليل الذكيّ' : 'تحليل الفريق القانوني'}</h3></div>
             <div className="card-b" style={{ padding: '16px 18px' }}>
               <div className="field">
                 <label>تصنيف الاستشارة</label>
@@ -708,6 +718,8 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                 <label>المحامي المقترح</label>
                 <select value={lawyerId} onChange={(e) => setLawyerId(Number(e.target.value))}>
                   {lawyers.length === 0 && <option value="">— لا محامون —</option>}
+                  {/* بلا اقتراح صالح: اختيار صريح مطلوب، لا محامٍ مُنتقى ضمناً */}
+                  {lawyers.length > 0 && lawyerId === '' && <option value="">— اختر المحامي المختصّ —</option>}
                   {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}</option>)}
                 </select>
               </div>
@@ -756,6 +768,8 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                 <label>المحامي المختص</label>
                 <select value={lawyerId} onChange={(e) => setLawyerId(Number(e.target.value))}>
                   {lawyers.length === 0 && <option value="">— لا محامون —</option>}
+                  {/* بلا اقتراح صالح: اختيار صريح مطلوب، لا محامٍ مُنتقى ضمناً */}
+                  {lawyers.length > 0 && lawyerId === '' && <option value="">— اختر المحامي المختصّ —</option>}
                   {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}</option>)}
                 </select>
               </div>

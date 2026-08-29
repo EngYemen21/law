@@ -1,0 +1,46 @@
+{
+  "task": "execution.analyze",
+  "note": "حالات مُصطنعة لطلبات تنفيذ.",
+  "cases": [
+    {
+      "id": "EX-01",
+      "difficulty": "سهلة",
+      "error_type": null,
+      "description": "سند مكتمل ومستندات مقروءة",
+      "input": { "documents_total": 3, "documents_readable": 3, "has_defendant": true, "has_sanad": true, "has_amount": true },
+      "model_output": {
+        "summary": "سند تنفيذيّ من نوع حكم قضائيّ مستوفٍ للشروط بعد فحص المرفقات: صورة الحكم وصك التبليغ وبيانات المنفَّذ ضده مطابقة، والمطالبة محدّدة المقدار.",
+        "missing": [],
+        "procedures": ["تقديم طلب تنفيذ إلكتروني", "الحجز على الحسابات"]
+      },
+      "expect": { "valid": true, "confidence_min": 90, "decision": "needs_review" }
+    },
+    {
+      "id": "EX-02",
+      "difficulty": "صعبة",
+      "error_type": "مستندات غير مقروءة",
+      "description": "أُرفقت مستندات لم يُستخرَج نصّها — الثقة تنهار",
+      "input": { "documents_total": 4, "documents_readable": 0, "has_defendant": true, "has_sanad": true, "has_amount": true },
+      "model_output": { "summary": "سند تنفيذيّ بقيمة المطالبة المذكورة.", "missing": [], "procedures": [] },
+      "expect": { "valid": true, "confidence_max": 60, "decision": "needs_review" }
+    },
+    {
+      "id": "EX-03",
+      "difficulty": "متوسطة",
+      "error_type": "حقل إلزاميّ ناقص",
+      "description": "بلا ملخّص ⇒ فشل بنيويّ ويسقط للاحتياطيّ",
+      "input": { "documents_total": 1, "documents_readable": 1, "has_defendant": true, "has_sanad": true, "has_amount": true },
+      "model_output": { "missing": ["صك التبليغ"], "procedures": ["تقديم طلب تنفيذ إلكتروني"] },
+      "expect": { "valid": false }
+    },
+    {
+      "id": "EX-04",
+      "difficulty": "متوسطة",
+      "error_type": "بيانات ناقصة",
+      "description": "بلا منفَّذ ضده ولا مبلغ — ثقة منخفضة",
+      "input": { "documents_total": 0, "documents_readable": 0, "has_defendant": false, "has_sanad": true, "has_amount": false },
+      "model_output": { "summary": "طلب تنفيذ بحاجة إلى استكمال بيانات المنفَّذ ضده وقيمة المطالبة قبل مباشرة الإجراءات لدى محكمة التنفيذ.", "missing": ["بيانات المنفَّذ ضده", "قيمة المطالبة"], "procedures": [] },
+      "expect": { "valid": true, "confidence_max": 55, "decision": "needs_review" }
+    }
+  ]
+}

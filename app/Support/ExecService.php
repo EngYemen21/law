@@ -2,13 +2,17 @@
 
 namespace App\Support;
 
+use App\Enums\AiSource;
+use App\Enums\Role;
 use App\Events\ExecStatusBroadcast;
 use App\Jobs\AnalyzeExecutionJob;
 use App\Mail\ExecutionEventMail;
+use App\Models\AiRun;
 use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\Ai\AiPolicyGate;
 use App\Services\MailService;
 use App\Services\MoyasarService;
 use Illuminate\Http\UploadedFile;
@@ -95,18 +99,94 @@ class ExecService
         $summary = (string) $result['summary'];
         $complete = count($missing) === 0;
 
-        $exec->update([
-            'ai_done' => true, 'ai_summary' => $summary, 'ai_missing' => $missing, 'ai_procedures' => $procedures,
-        ]);
-        self::sync($exec, $complete ? 2 : 1, $complete ? 'اكتمل التحليل الذكيّ — بانتظار الدراسة' : 'التحليل الذكيّ: نواقص مطلوبة');
+        // مصدر النتيجة يحسم كل ما يلي. الافتراض `ai_success` يحفظ التوافق مع أي منادٍ
+        // قديم لا يمرّر المفتاح، لكن `analyzeExecution` صار يمرّره في المسارين دائماً.
+        $source = AiSource::tryFrom((string) ($result['source'] ?? AiSource::AiSuccess->value)) ?? AiSource::AiSuccess;
+        $isRealAnalysis = $source->isRealAnalysis();
 
-        $exec->messages()->create([
-            'who' => 'ai', 'name' => 'المساعد القانوني', 'role' => 'تحليل',
-            'body' => '<p>'.e($summary).'</p>'.($missing ? '<p><b>نواقص مطلوبة:</b> '.e(implode(' · ', $missing)).'</p>' : ''),
+        $exec->update([
+            // القالب الاحتياطيّ لا يفحص مستنداً واحداً — وسمه «تحليل مكتمل» كان يخبر
+            // العميل والموظّف بما لم يقع. ai_done يبقى للتوافق لكنه لم يعد يعني «تمّت المعالجة»
+            // بل «تمّ تحليل فعليّ».
+            'ai_done' => $isRealAnalysis,
+            'ai_source' => $source->value,
+            'ai_summary' => $summary,
+            'ai_missing' => $missing,
+            'ai_procedures' => $procedures,
+        ]);
+
+        // القيد يُكتب قبل الآثار الجانبيّة (رسالة/إشعار/بثّ) لا بعدها: هو مفتاح منع
+        // التكرار الذي يفحصه AnalyzeExecutionJob، فكتابته بعدها تترك نافذة تعطّل
+        // تتكرّر فيها الرسالة والإشعارات عند إعادة تشغيل الطابور.
+        $meta = is_array($result['meta'] ?? null) ? $result['meta'] : [];
+        // الحالة من بوّابة السياسة لا من شرطٍ ضمنيّ: تحليل التنفيذ عالي الحساسيّة،
+        // فيُسجَّل «يتطلّب مراجعة» ولو نجح وبلغت ثقته حدّها — لا اعتماد آليّ لمخرج
+        // يغيّر مسار ملفّ قانونيّ.
+        $decision = AiPolicyGate::decide(
+            taskType: $meta['prompt_id'] ?? 'execution.analyze',
+            source: $source,
+            confidence: $meta['confidence'] ?? null,
+        );
+        AiRun::record(
+            taskType: 'execution',
+            source: $source,
+            entity: $exec,
+            entityRef: (string) $exec->number,
+            confidence: $meta['confidence'] ?? null,
+            confidenceSignals: $meta['confidence_signals'] ?? null,
+            status: $decision->status(),
+            model: $meta['model'] ?? null,
+            promptVersion: $meta['prompt_version'] ?? null,
+            traceId: $meta['trace_id'] ?? null,
+            failureCode: $isRealAnalysis ? null : ($meta['failure_code'] ?? null),
+            durationMs: $meta['duration_ms'] ?? null,
+            inputTokens: $meta['input_tokens'] ?? null,
+            outputTokens: $meta['output_tokens'] ?? null,
+            estimatedCost: $meta['estimated_cost'] ?? null,
+        );
+
+        // الاحتياطيّ لا يرفع المرحلة أبداً: القفز إلى «بانتظار الدراسة» كان يمرّر طلباً
+        // لم يُفحص سنده إلى الخطوة التالية لمجرّد أن اسم المنفَّذ ضده مذكور.
+        // ⚠️ `last_action` يظهر في لوحة العميل (dashboard.tsx) — فنصّه محايد عند التعذّر:
+        // العميل لا يُطلَع على أعطال تشغيليّة، إنما يرى أن طلبه قيد المراجعة.
+        $advance = $isRealAnalysis && $complete;
+        self::sync(
+            $exec,
+            $advance ? 2 : 1,
+            match (true) {
+                ! $isRealAnalysis => 'الطلب قيد المراجعة',
+                $complete => 'اكتمل التحليل الذكيّ — بانتظار الدراسة',
+                default => 'التحليل الذكيّ: نواقص مطلوبة',
+            }
+        );
+
+        // التحليل الفعليّ رسالة ظاهرة للعميل؛ أما التعذّر فملاحظة داخليّة (who=note)
+        // لا يراها العميل ويراها المكتب وحده — سياسة المكتب: لا تُعرَض الأعطال للعميل.
+        $exec->messages()->create($isRealAnalysis ? [
+            'who' => 'ai',
+            'name' => 'المساعد القانوني',
+            'role' => 'تحليل',
+            'body' => '<p>'.e($summary).'</p>'
+                .($missing ? '<p><b>نواقص مطلوبة:</b> '.e(implode(' · ', $missing)).'</p>' : ''),
+            'time_label' => self::clock(),
+        ] : [
+            'who' => 'note',
+            'name' => 'النظام',
+            'role' => 'تعذّر التحليل الذكيّ',
+            'body' => '<p><b>تعذّر التحليل الذكيّ لهذا الطلب — لم يُفحص أي مستند.</b> '
+                .'ما يلي تقييم أوّليّ مشتقّ من بيانات الطلب وحدها، ويلزم فحص المستندات يدوياً قبل الإحالة.</p>'
+                .'<p>'.e($summary).'</p>'
+                .($missing ? '<p><b>نواقص مطلوبة:</b> '.e(implode(' · ', $missing)).'</p>' : ''),
             'time_label' => self::clock(),
         ]);
 
-        self::notify($exec, 'exec', 't-blue', "تم تحليل طلب التنفيذ {$exec->number} بالذكاء الاصطناعي.");
+        if ($isRealAnalysis) {
+            self::notify($exec, 'exec', 't-blue', "تم تحليل طلب التنفيذ {$exec->number} بالذكاء الاصطناعي.");
+        } else {
+            // العميل: إشعار محايد بلا ذكر لأي عطل. المكتب: تنبيه صريح ليتحرّك أحد.
+            self::notify($exec, 'exec', 't-blue', "طلب التنفيذ {$exec->number} قيد المراجعة.");
+            self::alertStaff($exec, "طلب التنفيذ {$exec->number}: تعذّر التحليل الذكيّ — يلزم فحص المستندات يدوياً قبل الإحالة.");
+        }
         Live::push(new ExecStatusBroadcast($exec));
     }
 
@@ -264,6 +344,22 @@ class ExecService
     {
         if ($exec->assigned_lawyer_id !== null) {
             Notify::send($exec->assigned_lawyer_id, 'exec', $tone, $body);
+        }
+    }
+
+    /**
+     * تنبيه طاقم المكتب بعطل تشغيليّ لا يُعرَض للعميل: الموظفون والإدارة العليا
+     * (ومعهم المحامي المسند إن وُجد). نظير التصعيد في GenerateTicketSummaryJob.
+     */
+    private static function alertStaff(Execution $exec, string $body): void
+    {
+        $recipients = User::whereIn('role', [Role::Employee, Role::Admin])->pluck('id')->all();
+        if ($exec->assigned_lawyer_id !== null) {
+            $recipients[] = $exec->assigned_lawyer_id;
+        }
+
+        foreach (array_unique($recipients) as $userId) {
+            Notify::send($userId, 'exec', 't-amber', $body);
         }
     }
 

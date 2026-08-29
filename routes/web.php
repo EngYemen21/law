@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AccountingController as AdminAccountingController;
+use App\Http\Controllers\Admin\AiReviewController as AdminAiReviewController;
 use App\Http\Controllers\Admin\ArchiveController as AdminArchiveController;
 use App\Http\Controllers\Admin\AuditLogController as AdminAuditLogController;
 use App\Http\Controllers\Admin\CaseController as AdminCaseController;
@@ -189,6 +190,14 @@ Route::middleware(['auth', 'active'])->group(function () {
 Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name('employee.')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'employee'])->name('dashboard'); // عام للدور
 
+    // صندوق مراجعة مخرجات الذكاء — الشاشة نفسها لكل دور، والعزل داخل AiReviewInbox.
+    // P3 تفرض توحيد المراجعة «للمحامي والموظف»، فحصرها في لوحة الإدارة يناقضها.
+    // صلاحية الاعتماد وحدها تكفي: المراجعة فعل اعتماد لا إدارة تذاكر.
+    Route::middleware('permission:اعتماد الملخصات')->group(function () {
+        Route::get('/ai-review', [AdminAiReviewController::class, 'index'])->name('ai-review');
+        Route::post('/ai-review/{run}/decide', [AdminAiReviewController::class, 'decide'])->name('ai-review.decide');
+    });
+
     // التذاكر — إدارة التذاكر (والرد على العملاء لمسار الردّ)
     Route::middleware('permission:إدارة التذاكر')->group(function () {
         Route::get('/tickets', [EmployeeTicketController::class, 'index'])->name('tickets');
@@ -304,6 +313,11 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::post('/summary/{ticket}/rerun', [LawyerTicketController::class, 'rerunSummary'])->name('summary.rerun');
         Route::post('/summary/{ticket}/najiz', [LawyerTicketController::class, 'generateNajizDraft'])->name('summary.najiz');
         Route::get('/summary/{ticket}/print', [LawyerTicketController::class, 'printSummary'])->name('summary.print');
+        // صندوق مراجعة مخرجات الذكاء — الشاشة نفسها لكل دور، والعزل داخل
+        // AiReviewInbox: المحامي يرى ما صُعِّد إليه، والموظّف التذاكر والاستشارات.
+        // P3 تفرض توحيد المراجعة «للمحامي والموظف»، فحصرها في لوحة الإدارة يناقضها.
+        Route::get('/ai-review', [AdminAiReviewController::class, 'index'])->name('ai-review');
+        Route::post('/ai-review/{run}/decide', [AdminAiReviewController::class, 'decide'])->name('ai-review.decide');
         Route::post('/tickets/{ticket}/result', [LawyerTicketController::class, 'approveResult'])->name('result.approve');
     });
 
@@ -564,4 +578,11 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
         ->middleware('permission:سجل التدقيق الأمني')->name('audit-logs');
     Route::get('/audit-logs/export', [AdminAuditLogController::class, 'export'])
         ->middleware('permission:سجل التدقيق الأمني')->name('audit-logs.export');
+
+    // صندوق مراجعة مخرجات الذكاء (P3) — محروس بصلاحية «اعتماد الملخصات»:
+    // مراجعة مخرج قانونيّ فعلُ اعتماد، فيُحرَس بما يُحرَس به الاعتماد لا بأقلّ منه.
+    Route::get('/ai-review', [AdminAiReviewController::class, 'index'])
+        ->middleware('permission:اعتماد الملخصات')->name('ai-review');
+    Route::post('/ai-review/{run}/decide', [AdminAiReviewController::class, 'decide'])
+        ->middleware('permission:اعتماد الملخصات')->name('ai-review.decide');
 });

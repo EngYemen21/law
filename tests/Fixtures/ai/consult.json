@@ -1,0 +1,58 @@
+{
+  "task": "consult.analyze",
+  "note": "حالات مُصطنعة — أسماء المحامين رمزية تُحقَن في وقت التشغيل.",
+  "roster": ["أ. سارة القحطاني", "أ. خالد المالكي"],
+  "cases": [
+    {
+      "id": "CN-01",
+      "difficulty": "سهلة",
+      "error_type": null,
+      "description": "تحليل مكتمل الأقسام بمحامٍ من القائمة",
+      "input": { "subject": "مراجعة عقد توريد", "has_subject": true },
+      "model_output": {
+        "class": "استشارة عقود تجارية",
+        "summary": "الوقائع: أبرم الطرفان عقد توريد. التكييف القانوني: التزام عقديّ تجاريّ. الرأي/التوصية: مراجعة شرط الجزاء. المهام المقترحة: طلب نسخة موقّعة والمراسلات.",
+        "lawyer": "أ. خالد المالكي",
+        "missing": ["نسخة العقد الموقّعة"]
+      },
+      "expect": { "valid": true, "lawyer": "أ. خالد المالكي", "confidence_min": 70, "decision": "needs_review" }
+    },
+    {
+      "id": "CN-02",
+      "difficulty": "صعبة",
+      "error_type": "محامٍ خارج القائمة",
+      "description": "اسم غير موجود في المكتب — يُسقَط ولا يُستبدَل بأوّل محامٍ",
+      "input": { "subject": "نزاع عمالي", "has_subject": true },
+      "model_output": {
+        "class": "استشارة عمالية",
+        "summary": "الوقائع: فُصل الموظف. التكييف القانوني: فصل تعسفيّ محتمل. الرأي/التوصية: المطالبة بالمستحقات.",
+        "lawyer": "أ. فلان الفلاني",
+        "missing": []
+      },
+      "expect": { "valid": true, "lawyer": "", "decision": "needs_review" }
+    },
+    {
+      "id": "CN-03",
+      "difficulty": "متوسطة",
+      "error_type": "حقل إلزاميّ ناقص",
+      "description": "بلا تصنيف ⇒ فشل بنيويّ",
+      "input": { "subject": "استفسار", "has_subject": true },
+      "model_output": { "summary": "الوقائع: استفسار عام.", "lawyer": "أ. سارة القحطاني", "missing": [] },
+      "expect": { "valid": false }
+    },
+    {
+      "id": "CN-04",
+      "difficulty": "صعبة",
+      "error_type": "ملخّص بلا أقسام",
+      "description": "نصّ مسترسل لا يتبع الأقسام المطلوبة — ثقة أدنى",
+      "input": { "subject": "مطالبة مالية", "has_subject": true },
+      "model_output": {
+        "class": "استشارة مطالبات",
+        "summary": "الموضوع يتعلق بمبلغ لم يُسدَّد ويحتاج متابعة مع الطرف الآخر ثم اللجوء للقضاء إن لزم.",
+        "lawyer": "أ. سارة القحطاني",
+        "missing": []
+      },
+      "expect": { "valid": true, "confidence_max": 79, "decision": "needs_review" }
+    }
+  ]
+}

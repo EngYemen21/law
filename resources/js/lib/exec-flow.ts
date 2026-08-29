@@ -42,6 +42,8 @@ export interface ExecReq {
   docItems: ExecDoc[];
   lawyer: string;
   aiDone: boolean;
+  /** App\Enums\AiSource — '' لصفوف ما قبل هجرة المصدر (مصدر غير معروف). */
+  aiSource: '' | 'ai_success' | 'fallback' | 'manual_required' | 'human_approved';
   aiSummary: string;
   aiMissing: string[];
   aiProcedures: string[];
@@ -73,4 +75,30 @@ export function execMoney(n: number): string {
 // نغمة شارة حالة إجراء التنفيذ (منفّذ/مجدول/مؤجل)
 export function procTone(status?: string): string {
   return status === 'منفّذ' ? 'b-green' : status === 'مؤجل' ? 'b-amber' : status === 'مجدول' ? 'b-blue' : 'b-grey';
+}
+
+/**
+ * عرض بطاقة مخرج التنفيذ بحسب مصدره — لا يُعرض القالب الاحتياطيّ تحت عنوان
+ * «الملخّص الذكيّ» أبداً. `null` يعني: لا بطاقة تُعرض أصلاً.
+ *
+ * `forClient`: سياسة المكتب أن العميل لا يُطلَع على تعذّر التحليل — فالبطاقة
+ * الاحتياطيّة تختفي عنه تماماً، ويراها المكتب وحده بعنوانها الصادق.
+ */
+export function execAiPresentation(
+  r: Pick<ExecReq, 'aiSource' | 'aiSummary'>,
+  forClient = false,
+): { title: string; accent: string; notice: string } | null {
+  if (!r.aiSummary) return null;
+
+  if (r.aiSource === 'ai_success' || r.aiSource === 'human_approved') {
+    return { title: 'الملخّص الذكيّ', accent: 'var(--cyan)', notice: '' };
+  }
+
+  if (forClient) return null;
+
+  return {
+    title: 'تقييم أوّليّ — تعذّر التحليل الذكيّ',
+    accent: 'var(--amber)',
+    notice: 'لم يُفحص أي مستند. ما يلي مشتقّ من بيانات الطلب وحدها، ويلزم فحص المستندات يدوياً قبل الإحالة.',
+  };
 }

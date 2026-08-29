@@ -15,6 +15,8 @@ use App\Support\TicketJourney;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Permission;
@@ -154,8 +156,21 @@ class GrandTourE2ETest extends TestCase
 
     public function test_execution_flow_ten_stages_across_all_roles(): void
     {
-        // تدفّق التنفيذ العشري كاملاً بلا Queue::fake (التحليل الذكي يعمل باحتياطه الحتمي)
+        // تدفّق التنفيذ العشري كاملاً بلا Queue::fake. كان يمضي على الاحتياط الحتميّ،
+        // والاحتياط لم يعد يرفع المرحلة (قالب لا يفحص مستنداً لا يقرّر تقدّم طلب) —
+        // فيُحاكى تحليل فعليّ ناجح ليختبر التدفّق مساره الحقيقيّ.
         [$client, $employee, $lawyer, $admin] = $this->roles();
+        config(['services.gemini.key' => 'test-key', 'services.glm.key' => '']);
+        Cache::flush();
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => Http::response([
+                'candidates' => [['content' => ['parts' => [['text' => json_encode([
+                    'summary' => 'سند تنفيذيّ مستوفٍ بعد فحص المرفقات.',
+                    'missing' => [],
+                    'procedures' => ['تقديم طلب تنفيذ إلكتروني'],
+                ], JSON_UNESCAPED_UNICODE)]]]]],
+            ], 200),
+        ]);
 
         // 1-2: العميل يقدّم ← التحليل يكتمل ← قيد الدراسة
         $this->actingAs($client)->post('/exec-flow', [

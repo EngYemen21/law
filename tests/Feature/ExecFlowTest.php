@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Models\User;
 use App\Support\ExecService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
@@ -36,13 +37,44 @@ class ExecFlowTest extends TestCase
         return User::factory()->create(['role' => Role::Admin]);
     }
 
-    private function submit(User $client, array $over = []): Execution
+    /**
+     * تحليل ذكيّ ناجح مُحاكى. كانت هذه الاختبارات تمضي بلا مزوّد فيعود القالب
+     * الاحتياطيّ، وكان هو من يرفع المرحلة إلى «قيد الدراسة» — أي أنها كانت توثّق
+     * تقدّم الطلب بناءً على قالب لم يفحص مستنداً. المرحلة لم تعد ترتفع إلا بتحليل
+     * فعليّ (أو بإحالة إداريّة صريحة)، فيُحاكى المزوّد هنا ليختبر المسار الحقيقيّ.
+     */
+    private function fakeAiSuccess(array $payload = []): void
+    {
+        config(['services.gemini.key' => 'test-key', 'services.glm.key' => '']);
+        Cache::flush(); // لا تهدئة عالقة من اختبار سابق
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => Http::response([
+                'candidates' => [[
+                    'content' => ['parts' => [['text' => json_encode(array_merge([
+                        'summary' => 'سند تنفيذيّ مستوفٍ بعد فحص المرفقات.',
+                        'missing' => [],
+                        'procedures' => ['تقديم طلب تنفيذ إلكتروني'],
+                    ], $payload), JSON_UNESCAPED_UNICODE)]]],
+                ]],
+            ], 200),
+        ]);
+    }
+
+    /** التقديم وحده — لمن يهيّئ مزوّده بنفسه. */
+    private function postSubmit(User $client, array $over = []): Execution
     {
         $this->actingAs($client)->post('/exec-flow', array_merge([
             'sanad' => 'شيك', 'subject' => 'تحصيل قيمة شيك مرتجع', 'defendant' => 'مؤسسة الرمال', 'amount' => 85000,
         ], $over))->assertRedirect();
 
         return Execution::where('user_id', $client->id)->latest('id')->firstOrFail();
+    }
+
+    private function submit(User $client, array $over = [], array $ai = []): Execution
+    {
+        $this->fakeAiSuccess($ai);
+
+        return $this->postSubmit($client, $over);
     }
 
     private function act(User $actor, Execution $e, string $action, array $payload = []): void
@@ -83,7 +115,9 @@ class ExecFlowTest extends TestCase
     public function test_missing_defendant_holds_at_analysis_then_admin_refers(): void
     {
         $client = $this->client();
-        $exec = $this->submit($client, ['defendant' => '']);
+        // تحليل فعليّ رصد نقصاً — لا قالب احتياطيّ: المطلوب إثبات أن النواقص تحبس
+        // الطلب في مرحلة التحليل حتى يُحيله إنسان، لا إثبات ما يفعله الاحتياطيّ.
+        $exec = $this->submit($client, ['defendant' => ''], ['missing' => ['بيانات المنفَّذ ضده']]);
         $this->assertSame(1, $exec->stage);           // نواقص → تحليل ذكي
         $this->assertContains('بيانات المنفَّذ ضده', $exec->ai_missing);
 
@@ -247,7 +281,8 @@ class ExecFlowTest extends TestCase
             ], JSON_UNESCAPED_UNICODE)]]],
         ], 200)]);
 
-        $exec = $this->submit($this->client())->refresh();
+        // postSubmit لا submit: هذا الاختبار يهيّئ GLM بنفسه، وfakeAiSuccess كان سيدهس تهيئته
+        $exec = $this->postSubmit($this->client())->refresh();
 
         $this->assertTrue((bool) $exec->ai_done);
         $this->assertSame('تحليل ذكيّ حقيقيّ: السند قابل للتنفيذ لدى محكمة التنفيذ.', $exec->ai_summary);

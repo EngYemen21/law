@@ -94,8 +94,9 @@ class MeetingSummary
                 $meeting->update($updateData);
                 Live::push(new MeetingStatusBroadcast($meeting->fresh()));
 
-                // القرارات → مهام تلقائية لدى المحامي المسؤول (idempotent)
-                DecisionTasks::create($meeting, app(LegalAiService::class));
+                // القرارات → **اقتراحات** لا مهامّ: مخرج نموذج لا يُنشئ التزاماً على
+                // إنسان بلا اعتماد. الإنشاء الفعليّ بزرّ createTasks (P3).
+                DecisionTasks::suggest($meeting, app(LegalAiService::class));
 
                 return true;
             }

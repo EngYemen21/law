@@ -2,14 +2,17 @@
 
 namespace App\Http\Controllers\Staff;
 
+use App\Enums\AiSource;
 use App\Enums\Role;
 use App\Events\ConsultStatusBroadcast;
 use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
 use App\Jobs\FinalizeConsultJob;
+use App\Models\AiRun;
 use App\Models\Consult;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
+use App\Services\Ai\AiPolicyGate;
 use App\Services\GoogleCalendarService;
 use App\Services\LegalAiService;
 use App\Services\ZoomService;
@@ -167,16 +170,53 @@ class ConsultController extends Controller
         $before = $consult->status;
         $ai = $this->ai->analyzeConsult($consult);
 
+        $source = AiSource::tryFrom((string) ($ai['source'] ?? AiSource::AiSuccess->value)) ?? AiSource::AiSuccess;
+        $isRealAnalysis = $source->isRealAnalysis();
+
         $consult->ai_class = $ai['class'];
         $consult->ai_summary = $ai['summary'];
         $consult->ai_lawyer = $ai['lawyer'];
-        $consult->ai_done = true;
+        // كان `true` بلا شرط: نصّ الاحتياطيّ يقول «تعذّر إعداد التحليل» والحالة تقول «اكتمل»
+        $consult->ai_done = $isRealAnalysis;
+        $consult->ai_source = $source->value;
         $consult->missing = $ai['missing'];
         $consult->logAudit($request->user()->name, 'الحالة', $before, 'قيد معالجة الفريق القانوني');
-        $consult->logAudit('النظام', 'تحليل الفريق القانوني', '—', 'اكتمل');
+        $consult->logAudit('النظام', 'تحليل الفريق القانوني', '—', $isRealAnalysis ? 'اكتمل' : 'تعذّر — يلزم إعداد يدويّ');
         $consult->logAudit('النظام', 'الحالة', 'قيد معالجة الفريق القانوني', 'بانتظار اعتماد الموظف');
         $consult->status = 'بانتظار اعتماد الموظف';
         $consult->save();
+
+        $meta = is_array($ai['meta'] ?? null) ? $ai['meta'] : [];
+        AiRun::record(
+            taskType: 'consult',
+            source: $source,
+            entity: $consult,
+            entityRef: (string) $consult->ref,
+            confidence: $meta['confidence'] ?? null,
+            confidenceSignals: $meta['confidence_signals'] ?? null,
+            // رأيٌ قانونيّ: عالي الحساسيّة ⇒ «يتطلّب مراجعة» دائماً ولو نجح التحليل
+            status: AiPolicyGate::decide(
+                taskType: $meta['prompt_id'] ?? 'consult.analyze',
+                source: $source,
+                confidence: $meta['confidence'] ?? null,
+            )->status(),
+            model: $meta['model'] ?? null,
+            promptVersion: $meta['prompt_version'] ?? null,
+            traceId: $meta['trace_id'] ?? null,
+            failureCode: $isRealAnalysis ? null : ($meta['failure_code'] ?? null),
+            durationMs: $meta['duration_ms'] ?? null,
+            inputTokens: $meta['input_tokens'] ?? null,
+            outputTokens: $meta['output_tokens'] ?? null,
+            estimatedCost: $meta['estimated_cost'] ?? null,
+        );
+
+        // تنبيه المكتب (الموظفون + الإدارة العليا) بعطل التحليل — العميل لا يُطلَع عليه
+        if (! $isRealAnalysis) {
+            foreach (User::whereIn('role', [Role::Employee, Role::Admin])->pluck('id') as $staffId) {
+                Notify::send($staffId, 'info', 't-amber', "الاستشارة {$consult->ref}: تعذّر التحليل الذكيّ — يلزم إعداد الرأي القانوني يدوياً قبل الاعتماد.");
+            }
+        }
+
         Live::push(new ConsultStatusBroadcast($consult));
 
         return back();

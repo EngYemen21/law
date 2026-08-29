@@ -15,19 +15,61 @@ use Illuminate\Database\Eloquent\Model;
 class DecisionTasks
 {
     /** ينشئ المهام ويعيد عددها (0 إن لا قرارات/لا مسؤول/سبق الإنشاء). */
+    /**
+     * استخراج القرارات وحفظها **اقتراحاتٍ** بلا إنشاء مهامّ — مطلب المرحلة P3:
+     * «اجعل قرارات الاجتماعات suggested_tasks أولاً؛ لا تنشئ Task فعليّة إلا بعد اعتماد».
+     *
+     * كان مسارا ملخّص Zoom (الاستشارة والاجتماع) يُنشئان مهامّ لدى المحامي **تلقائياً**
+     * من نصٍّ استخرجه نموذج — أي أن مخرج نموذج كان يُنشئ التزاماً على إنسان بلا أن
+     * يقرّه أحد. الاقتراح يُحفظ وينتظر زرّ الاعتماد القائم (`createTasks`).
+     *
+     * idempotent: لا يُعاد الاستخراج بعد اقتراحٍ أو إنشاءٍ سابق، فلا تتكرّر
+     * الاقتراحات عند وصول ويبهوك ثانٍ أو إعادة تشغيل الوظيفة.
+     */
+    public static function suggest(Model $model, LegalAiService $ai): int
+    {
+        if ($model->tasks_created || ! empty($model->suggested_tasks)) {
+            return 0;
+        }
+
+        $decisions = self::extract($model, $ai);
+        if ($decisions === []) {
+            return 0;
+        }
+
+        $model->update([
+            'decisions' => array_values($decisions),
+            'suggested_tasks' => array_values($decisions),
+        ]);
+
+        return count($decisions);
+    }
+
+    /**
+     * القرارات المحفوظة، وإلا استخراجها من ملخّص Zoom.
+     *
+     * @return array<int, mixed>
+     */
+    private static function extract(Model $model, LegalAiService $ai): array
+    {
+        $decisions = $model->decisions ?? [];
+        $summaryText = (string) ($model->zoom_summary ?? $model->summary ?? '');
+        if ($decisions === [] && $summaryText !== '') {
+            $decisions = $ai->extractDecisions($summaryText);
+        }
+
+        return $decisions;
+    }
+
     public static function create(Model $model, LegalAiService $ai, ?User $ownerFallback = null): int
     {
         if ($model->tasks_created) {
             return 0;
         }
 
-        // القرارات المحفوظة، وإلا استخراجها من ملخّص Zoom
-        // (الاستشارة تحفظه في summary، الاجتماع في zoom_summary)
-        $decisions = $model->decisions ?? [];
-        $summaryText = (string) ($model->zoom_summary ?? $model->summary ?? '');
-        if ($decisions === [] && $summaryText !== '') {
-            $decisions = $ai->extractDecisions($summaryText);
-        }
+        // الاقتراحات المحفوظة أولاً (مسار الاعتماد)، وإلا الاستخراج المباشر
+        // (الاستشارة تحفظ الملخّص في summary، والاجتماع في zoom_summary)
+        $decisions = ! empty($model->suggested_tasks) ? $model->suggested_tasks : self::extract($model, $ai);
         if ($decisions === []) {
             return 0;
         }

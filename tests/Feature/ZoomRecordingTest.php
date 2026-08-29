@@ -7,7 +7,9 @@ use App\Models\Consult;
 use App\Models\Meeting;
 use App\Models\Task;
 use App\Models\User;
+use App\Services\LegalAiService;
 use App\Services\ZoomService;
+use App\Support\DecisionTasks;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -129,7 +131,14 @@ class ZoomRecordingTest extends TestCase
         $this->assertSame(1800, $consult->duration_sec); // 30 دقيقة
     }
 
-    public function test_summary_completed_auto_creates_tasks_for_assigned_lawyer(): void
+    /**
+     * الويبهوك يُنتج **اقتراحات** لا مهامّ — تغيير عقد مقصود (المرحلة P3).
+     *
+     * كان ملخّص Zoom يُنشئ مهامّ لدى المحامي تلقائياً: أي أن نصّاً استخرجه نموذج
+     * يُنشئ التزاماً على إنسان بلا أن يقرّه أحد، ملتفّاً حول زرّ الاعتماد الموجود
+     * أصلاً (`createTasks`). الاقتراح يُحفظ الآن وينتظر ذلك الزرّ.
+     */
+    public function test_summary_completed_suggests_tasks_without_creating_them(): void
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         // قرارات حقيقية مبذورة (مصدرها AI في الإنتاج) — لا اعتماد على نصّ احتياطي وهمي
@@ -147,12 +156,17 @@ class ZoomRecordingTest extends TestCase
         ])->assertOk();
 
         $consult->refresh();
-        $this->assertTrue($consult->tasks_created);
-        $this->assertSame(2, Task::where('assigned_to', $lawyer->id)->count());
+        $this->assertFalse((bool) $consult->tasks_created, 'الويبهوك لا يعتمد شيئاً نيابةً عن إنسان');
+        $this->assertSame(0, Task::count(), 'لا مهمّة تُنشأ بلا اعتماد');
+        $this->assertSame(['توجيه إنذار رسمي', 'تجهيز مذكرة الدعوى'], $consult->suggested_tasks);
 
-        // تشغيل ثانٍ لا يضاعف المهام (idempotent)
-        $before = Task::count();
+        // تشغيل ثانٍ لا يضاعف الاقتراحات (idempotent)
         $this->postSigned(['event' => 'meeting.summary_completed', 'payload' => ['object' => ['id' => '55500011122']]])->assertOk();
-        $this->assertSame($before, Task::count());
+        $this->assertCount(2, $consult->fresh()->suggested_tasks);
+
+        // والاعتماد البشريّ وحده يُنشئ المهامّ
+        DecisionTasks::create($consult->fresh(), app(LegalAiService::class), $lawyer);
+        $this->assertSame(2, Task::where('assigned_to', $lawyer->id)->count());
+        $this->assertTrue((bool) $consult->fresh()->tasks_created);
     }
 }

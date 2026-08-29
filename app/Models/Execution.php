@@ -20,7 +20,7 @@ class Execution extends Model
         'user_id', 'case_id', 'number', 'subject', 'assigned_lawyer', 'assigned_lawyer_id', 'court', 'status', 'tone', 'last_action',
         // تدفّق التنفيذ التجاريّ (10 مراحل)
         'stage', 'sanad', 'defendant', 'amount', 'notes', 'docs', 'client_code',
-        'ai_done', 'ai_summary', 'ai_missing', 'ai_procedures',
+        'ai_done', 'ai_source', 'ai_summary', 'ai_missing', 'ai_procedures',
         'decision', 'fee', 'vat', 'duration', 'pay_method', 'fee_approved', 'offer_status',
         'invoice_no', 'paid', 'paid_at', 'exec_no', 'payment_reminder_sent_at',
     ];
@@ -93,8 +93,10 @@ class Execution extends Model
     /**
      * شكل سجلّ تدفّق التنفيذ التجاريّ للواجهة (يطابق نوع ExecReq في exec-flow.ts).
      * $masked: إخفاء اسم العميل لغير مالكه (المحامي/الموظف/الإدارة).
+     * $internal: عرض الملاحظات الداخليّة (who=note) — للمكتب وحده. كانت مُرشَّحة عن
+     * الجميع بلا استثناء، فلم يكن للمكتب قناة يرى فيها ما لا يُعرَض للعميل.
      */
-    public function toFlowCard(bool $masked = false): array
+    public function toFlowCard(bool $masked = false, bool $internal = false): array
     {
         $client = $this->user?->name ?? '—';
         $stage = $this->effectiveStage();
@@ -112,13 +114,17 @@ class Execution extends Model
             'stage' => $stage,
             'channel' => 'exec.'.$this->id,
             'messages' => $this->relationLoaded('messages')
-                ? $this->messages->where('who', '!=', 'note')->values()->map->toMessage()->all()
+                ? ($internal ? $this->messages : $this->messages->where('who', '!=', 'note'))
+                    ->values()->map->toMessage()->all()
                 : [],
             'docItems' => $this->relationLoaded('documents')
                 ? $this->documents->map->toData()->all()
                 : [],
             'lawyer' => $this->assigned_lawyer ?? '',
             'aiDone' => (bool) $this->ai_done,
+            // مصدر المخرج للواجهة: '' = غير معروف (صفوف ما قبل الهجرة). الواجهة لا تعرض
+            // عنوان «الملخّص الذكيّ» إلا لتحليل فعليّ — الاحتياطيّ يظهر بعنوانه الصادق.
+            'aiSource' => $this->ai_source ?? '',
             'aiSummary' => $this->ai_summary ?? '',
             'aiMissing' => $this->ai_missing ?? [],
             'aiProcedures' => $this->ai_procedures ?? [],
