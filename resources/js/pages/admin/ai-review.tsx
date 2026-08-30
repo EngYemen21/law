@@ -12,6 +12,8 @@ interface ReviewItem {
   /** `null` = غير مقيسة — تُعرض كذلك ولا تُحوَّل صفراً */
   confidence: number | null;
   confidenceSignals: Record<string, unknown> | null;
+  /** أعدادٌ وحجم لا محتوى — دليل أن المعرّفات مُوّهت قبل مغادرة الخادم. */
+  outboundAudit: { chars: number; masked: Record<string, number> } | null;
   model: string;
   promptVersion: string;
   failureCode: string | null;
@@ -137,6 +139,16 @@ const AiReview: React.FC<{ items: ReviewItem[]; actions: ActionOption[]; reasons
                     {JSON.stringify(item.confidenceSignals, null, 2)}
                   </pre>
                 </details>
+              )}
+
+              {/* دليل تقليل البيانات: أعدادٌ وحجم لا محتوى — إثباتٌ لا نسخةٌ ثانية */}
+              {item.outboundAudit && (
+                <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 6 }}>
+                  غادر الخادم: {item.outboundAudit.chars.toLocaleString('ar')} حرفاً
+                  {Object.keys(item.outboundAudit.masked).length === 0
+                    ? ' · لا معرّفات في الحمولة'
+                    : ` · مُوّه ${Object.entries(item.outboundAudit.masked).map(([mask, n]) => `${mask}×${n}`).join('، ')}`}
+                </p>
               )}
 
               {openId === item.id ? (

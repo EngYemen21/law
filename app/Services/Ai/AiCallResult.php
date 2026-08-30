@@ -25,7 +25,27 @@ final class AiCallResult
         public readonly ?string $model = null,
         public readonly ?string $failureCode = null,
         public readonly ?AiUsage $usage = null,
+        /**
+         * @var array{chars:int,masked:array<string,int>}|null بصمة الحمولة الخارجة —
+         *                                                     دليل تقليل البيانات
+         */
+        public readonly ?array $outboundAudit = null,
     ) {}
+
+    /** نسخة تحمل بصمة الحمولة — تُضاف عند الحدّ حيث تُقاس، لا عند إنشاء الحصيلة. */
+    public function withOutboundAudit(?array $audit): self
+    {
+        return new self(
+            text: $this->text,
+            traceId: $this->traceId,
+            durationMs: $this->durationMs,
+            provider: $this->provider,
+            model: $this->model,
+            failureCode: $this->failureCode,
+            usage: $this->usage,
+            outboundAudit: $audit,
+        );
+    }
 
     /** الكلفة التقديريّة، أو `null` حين لا سعر مُهيَّأ — لا صفر مضلِّل. */
     public function estimatedCost(): ?float

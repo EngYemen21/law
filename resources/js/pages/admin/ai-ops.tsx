@@ -56,7 +56,10 @@ interface Props {
     defaultThreshold: number;
     pricing: Record<string, { input: number; output: number }>;
     retention: RetentionRow[];
+    /** `cap: null` = بلا سقف لا صفر — الصفر يمنع كل نداء. */
+    budget: { cap: number | null; warnAt: number; stop: boolean };
   };
+  spending: { thisMonth: number | null; stopped: boolean };
   evaluation: {
     last: LastEvaluation | null;
     tasks: string[];
@@ -81,8 +84,12 @@ interface EvalDiff {
 /** «غير مقيسة» لا صفر: الصفر يقول إن القياس جرى ونتيجته صفر — وهو ادّعاء مختلف. */
 const pct = (v: number | null): string => (v === null ? 'غير مقيسة' : `${Math.round(v * 100)}%`);
 
-const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejectionReasons, editRate, pendingReview, settings, evaluation }) => {
+const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejectionReasons, editRate, pendingReview, settings, spending, evaluation }) => {
   const [threshold, setThreshold] = useState(settings.threshold);
+  // السقف نصّ لا رقم: الفراغ يعني «بلا سقف» وهو معنى لا يمثّله أي رقم
+  const [cap, setCap] = useState(settings.budget.cap === null ? '' : String(settings.budget.cap));
+  const [warnAt, setWarnAt] = useState(Math.round(settings.budget.warnAt * 100));
+  const [stop, setStop] = useState(settings.budget.stop);
   const [retention, setRetention] = useState<Record<string, string>>(
     Object.fromEntries(settings.retention.map((r) => [r.value, r.days === null ? '' : String(r.days)])),
   );
@@ -192,6 +199,67 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
           <button className="btn sm" disabled={busy} type="button" onClick={() => post('/admin/ai-ops/threshold', { threshold })}>
             <Icon name="check" /> حفظ العتبة
           </button>
+        </div>
+      </div>
+
+      {/* ── الميزانيّة الشهريّة ── */}
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card-h"><h3>الميزانيّة الشهريّة</h3></div>
+        <div className="card-b" style={{ padding: '14px 16px' }}>
+          <p style={{ color: 'var(--muted)', fontSize: 12.5 }}>
+            إنفاق الشهر الجاري:{' '}
+            <b>{spending.thisMonth === null ? 'غير معلوم — لا نداء مسعَّر بعد' : `$${spending.thisMonth}`}</b>
+            {settings.budget.cap !== null && ` من $${settings.budget.cap}`}
+          </p>
+
+          {spending.stopped && (
+            <div className="mtg-pend" style={{ color: 'var(--red)' }}>
+              <Icon name="info" /> النداءات موقوفة الآن لتجاوز الميزانيّة — المخرجات احتياطيّة موسومة،
+              والعميل لا يرى شيئاً تشغيلياً.
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div className="field" style={{ maxWidth: 200 }}>
+              <label>السقف الشهريّ (اتركه فارغاً = بلا سقف)</label>
+              <input
+                className="input"
+                type="number"
+                min={0}
+                step="0.01"
+                value={cap}
+                onChange={(e) => setCap(e.target.value)}
+                placeholder="بلا سقف"
+              />
+            </div>
+            <div className="field" style={{ maxWidth: 160 }}>
+              <label>التنبيه عند (%)</label>
+              <input className="input" type="number" min={10} max={100} value={warnAt} onChange={(e) => setWarnAt(Number(e.target.value))} />
+            </div>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12.5, paddingBottom: 14 }}>
+              <input type="checkbox" checked={stop} onChange={(e) => setStop(e.target.checked)} />
+              إيقاف النداءات عند التجاوز
+            </label>
+            <button
+              className="btn sm"
+              type="button"
+              style={{ marginBottom: 14 }}
+              onClick={() => router.post('/admin/ai-ops/budget', { cap: cap === '' ? null : Number(cap), warnAt, stop }, { preserveScroll: true })}
+            >
+              <Icon name="check" /> حفظ الميزانيّة
+            </button>
+          </div>
+
+          {/* أثرٌ واسع لا يُفتَرض: تفعيله يوقف معالجة الذكاء كلّها عند التجاوز */}
+          <p style={{ color: stop ? 'var(--amber)' : 'var(--muted)', fontSize: 12 }}>
+            {stop
+              ? 'الإيقاف مفعَّل: عند تجاوز السقف تتوقّف كل نداءات الذكاء حتى بداية الشهر التالي أو رفع السقف.'
+              : 'الإيقاف مُطفأ: التجاوز يُنبِّه ولا يمنع.'}
+          </p>
+          <p style={{ color: 'var(--muted)', fontSize: 12 }}>
+            الميزانيّة تُقارَن بالكلفة <b>المعلومة</b>؛ ونموذجٌ بلا سعر لا يُحتسب صفراً، فقد يفوق
+            الإنفاق الحقيقيّ المعروضَ ما دامت التغطية ناقصة.
+          </p>
         </div>
       </div>
 

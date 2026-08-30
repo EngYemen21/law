@@ -79,6 +79,29 @@ class Setting extends Model
     }
 
     /**
+     * ميزانيّة الذكاء الشهريّة.
+     *
+     * `cap = null` يعني **بلا سقف** لا صفراً: الصفر يمنع كل نداء. و`stop` مُطفأ
+     * افتراضياً — تفعيله يوقف معالجة الذكاء عند التجاوز، وهو أثرٌ واسع لا يُفتَرض.
+     *
+     * @return array{cap:float|null, warnAt:float, stop:bool}
+     */
+    public static function aiBudget(): array
+    {
+        $stored = json_decode((string) static::get('ai_budget', ''), true);
+        $stored = is_array($stored) ? $stored : [];
+
+        $cap = $stored['cap'] ?? null;
+
+        return [
+            'cap' => $cap === null || $cap === '' ? null : (float) $cap,
+            // نسبة التنبيه: 80% افتراضاً — تحذيرٌ قبل الوقوع لا بعده
+            'warnAt' => max(0.1, min(1.0, (float) ($stored['warnAt'] ?? 0.8))),
+            'stop' => (bool) ($stored['stop'] ?? false),
+        ];
+    }
+
+    /**
      * مدد الاحتفاظ بالأيام لكل فئة بيانات. `null` لفئة = بلا حدّ.
      *
      * @return array<string, int|null>

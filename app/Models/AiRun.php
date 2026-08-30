@@ -26,7 +26,7 @@ class AiRun extends Model
 
     protected $fillable = [
         'task_type', 'entity_type', 'entity_id', 'entity_ref',
-        'source', 'status', 'confidence', 'confidence_signals',
+        'source', 'status', 'confidence', 'confidence_signals', 'outbound_audit',
         'model', 'model_version', 'prompt_version',
         'trace_id', 'failure_code', 'duration_ms',
         'input_tokens', 'output_tokens', 'estimated_cost',
@@ -38,6 +38,7 @@ class AiRun extends Model
         'source' => AiSource::class,
         'confidence' => 'integer',
         'confidence_signals' => 'array',
+        'outbound_audit' => 'array',
         'duration_ms' => 'integer',
         'input_tokens' => 'integer',
         'output_tokens' => 'integer',
@@ -105,6 +106,7 @@ class AiRun extends Model
         ?int $inputTokens = null,
         ?int $outputTokens = null,
         ?float $estimatedCost = null,
+        ?array $outboundAudit = null,
     ): ?self {
         try {
             return self::create([
@@ -117,6 +119,9 @@ class AiRun extends Model
                 // درجة مشتقّة خادمياً مع إشاراتها — الدرجة بلا أساسها غير قابلة للتدقيق
                 'confidence' => $confidence,
                 'confidence_signals' => $confidenceSignals,
+                // دليل تقليل البيانات: أعداد المعرّفات المموَّهة وحجم الحمولة التي
+                // غادرت الخادم — لا محتوى، فالسجلّ إثباتٌ لا نسخةٌ ثانية من البيانات
+                'outbound_audit' => $outboundAudit,
                 // النموذج الفعليّ المستخدم — يبقى null للاحتياطيّ لأنه لم يُستدعَ نموذج أصلاً
                 'model' => $model,
                 'prompt_version' => $promptVersion,

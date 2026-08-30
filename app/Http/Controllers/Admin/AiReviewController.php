@@ -37,6 +37,8 @@ class AiReviewController extends Controller
                 // null يُعرض «غير مقيسة» لا صفراً — لا يُدّعى قياسٌ لم يقع
                 'confidence' => $run->confidence,
                 'confidenceSignals' => $run->confidence_signals,
+                // دليل تقليل البيانات أمام المراجع: كم معرّفاً مُوّه وكم غادر الخادم
+                'outboundAudit' => $run->outbound_audit,
                 'model' => $run->model ?? '—',
                 'promptVersion' => $run->prompt_version ?? '—',
                 'failureCode' => $run->failure_code,

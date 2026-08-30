@@ -143,6 +143,7 @@ class ExecService
             inputTokens: $meta['input_tokens'] ?? null,
             outputTokens: $meta['output_tokens'] ?? null,
             estimatedCost: $meta['estimated_cost'] ?? null,
+            outboundAudit: $meta['outbound_audit'] ?? null,
         );
 
         // الاحتياطيّ لا يرفع المرحلة أبداً: القفز إلى «بانتظار الدراسة» كان يمرّر طلباً

@@ -10,6 +10,7 @@ use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Services\Ai\AiContextBuilder;
 use App\Services\Ai\AiFailure;
 use App\Services\LegalAiService;
 use App\Support\ExecService;
@@ -17,6 +18,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
@@ -227,5 +229,66 @@ class AiSecurityTest extends TestCase
         foreach ([AiFailure::QUOTA_EXHAUSTED, AiFailure::RATE_LIMITED, AiFailure::CONTENT_BLOCKED] as $code) {
             $this->assertStringNotContainsString('سرّي', $code);
         }
+    }
+    // ── دليل تقليل البيانات (P2) ──
+
+    /**
+     * الخطة تفرض «أقلّية البيانات المرسلة للمزوّد الخارجي: **يثبتها سجلّ حقول لكل
+     * مهمّة**». كان التمويه يعمل بلا أثرٍ باقٍ عليه، فيُطالَب المدقّق بتصديق الشيفرة
+     * لا بقراءة سجلّ.
+     */
+    public function test_the_outbound_audit_counts_what_was_masked(): void
+    {
+        $raw = 'هويته 1012345678 وجواله 0501234567 وبريده a@b.com';
+
+        $audit = AiContextBuilder::outboundAudit(AiContextBuilder::prepare($raw));
+
+        $this->assertSame(3, array_sum($audit['masked']), 'ثلاثة معرّفات مُوّهت');
+        $this->assertGreaterThan(0, $audit['chars'], 'وحجم الحمولة مقيس');
+    }
+
+    /** والدليل **إثباتٌ لا نسخةٌ ثانية**: لا قيمة واحدة من المعرّفات فيه. */
+    public function test_the_audit_proves_masking_without_storing_the_values(): void
+    {
+        $audit = AiContextBuilder::outboundAudit(
+            AiContextBuilder::prepare('هويته 1012345678 وجواله 0501234567')
+        );
+
+        $encoded = json_encode($audit, JSON_UNESCAPED_UNICODE);
+        $this->assertStringNotContainsString('1012345678', $encoded);
+        $this->assertStringNotContainsString('0501234567', $encoded);
+    }
+
+    /** ونصٌّ بلا معرّفات يُسجَّل بلا تمويه — لا تُختلق أعدادٌ لتبدو الحماية عاملة. */
+    public function test_a_payload_without_identifiers_records_no_masking(): void
+    {
+        $audit = AiContextBuilder::outboundAudit(AiContextBuilder::prepare('نزاع حول عقد توريد.'));
+
+        $this->assertSame([], $audit['masked']);
+    }
+
+    /**
+     * والدليل **يعمّر أطول ممّا يُثبته**: `ai:purge` يجرّد الحقول السرّية ويُبقيه،
+     * وإلّا سقط الإثبات قبل انقضاء مدّة المساءلة عنه.
+     */
+    public function test_the_audit_survives_the_stripping_of_confidential_fields(): void
+    {
+        config(['services.ai.retention' => ['confidential' => 30, 'internal' => null]]);
+
+        $run = AiRun::create([
+            'task_type' => 'consult',
+            'source' => AiSource::AiSuccess->value,
+            'status' => AiRun::STATUS_COMPLETED,
+            'trace_id' => (string) Str::uuid(),
+            'entity_ref' => 'CN-1',
+            'outbound_audit' => ['chars' => 420, 'masked' => ['[هوية]' => 2]],
+        ]);
+        $run->forceFill(['created_at' => now()->subDays(60)])->saveQuietly();
+
+        $this->artisan('ai:purge --force')->assertSuccessful();
+
+        $fresh = AiRun::first();
+        $this->assertNull($fresh->entity_ref, 'المعرّف المقروء يُجرَّد');
+        $this->assertSame(420, $fresh->outbound_audit['chars'], 'ودليل التدقيق يبقى');
     }
 }

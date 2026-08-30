@@ -9,9 +9,12 @@ use App\Jobs\TriageDocumentJob;
 use App\Jobs\TriageTicketOnOpenJob;
 use App\Models\AiRun;
 use App\Models\Execution;
+use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Services\Ai\AiCost;
+use App\Services\Ai\AiFailure;
+use App\Services\Ai\AiGateway;
 use App\Services\Ai\AiOpsMetrics;
 use App\Services\Ai\AiQueue;
 use App\Services\Ai\AiUsage;
@@ -241,5 +244,93 @@ class AiOpsTest extends TestCase
         $this->artisan('ai:report')
             ->expectsOutputToContain('لا مصدر معتمد')
             ->assertSuccessful();
+    }
+    // ── الميزانيّة الشهريّة (P6) ──
+
+    private function costedRun(float $cost, ?string $at = null): AiRun
+    {
+        $run = AiRun::create([
+            'task_type' => 'consult',
+            'source' => AiSource::AiSuccess->value,
+            'status' => AiRun::STATUS_COMPLETED,
+            'trace_id' => (string) Str::uuid(),
+            'model' => 'gemini-2.5-flash',
+            'estimated_cost' => $cost,
+        ]);
+
+        if ($at !== null) {
+            $run->forceFill(['created_at' => $at])->saveQuietly();
+        }
+
+        return $run;
+    }
+
+    /** بلا سقف: لا تنبيه ولا إيقاف — الفراغ «بلا حدّ» لا صفر يمنع كل نداء. */
+    public function test_no_cap_means_no_budget_alert_and_no_stop(): void
+    {
+        $this->costedRun(9999.0);
+
+        $this->assertSame([], AiOpsMetrics::budgetAlerts());
+        $this->assertFalse(AiOpsMetrics::budgetStopsCalls());
+    }
+
+    /** التنبيه قبل الوقوع لا بعده: 80% افتراضاً. */
+    public function test_a_warning_fires_before_the_cap_is_reached(): void
+    {
+        Setting::put('ai_budget', json_encode(['cap' => 100, 'warnAt' => 0.8, 'stop' => false]));
+        $this->costedRun(85.0);
+
+        $alerts = AiOpsMetrics::budgetAlerts();
+
+        $this->assertSame('budget_warning', $alerts[0]['code']);
+        $this->assertFalse(AiOpsMetrics::budgetStopsCalls(), 'التنبيه لا يوقف');
+    }
+
+    /**
+     * **التجاوز وحده لا يوقف**: الإيقاف مُطفأ افتراضياً لأن وقف معالجة الذكاء كلّها
+     * أثرٌ واسع لا يُفتَرض بالنيابة عن المكتب — نظير درس AI_SEPARATE_QUEUES.
+     */
+    public function test_exceeding_the_cap_alerts_but_does_not_stop_unless_enabled(): void
+    {
+        Setting::put('ai_budget', json_encode(['cap' => 10, 'warnAt' => 0.8, 'stop' => false]));
+        $this->costedRun(25.0);
+
+        $this->assertSame('budget_exceeded', AiOpsMetrics::budgetAlerts()[0]['code']);
+        $this->assertFalse(AiOpsMetrics::budgetStopsCalls());
+
+        Setting::put('ai_budget', json_encode(['cap' => 10, 'warnAt' => 0.8, 'stop' => true]));
+        $this->assertTrue(AiOpsMetrics::budgetStopsCalls(), 'يوقف بعد تفعيله صراحةً');
+    }
+
+    /** والإيقاف يُميَّز عن عطل المزوّد: يُصلَح بقرارٍ في اللوحة لا بالانتظار. */
+    public function test_a_stopped_call_reports_budget_not_a_provider_failure(): void
+    {
+        config(['services.gemini.key' => 'k']);
+        Setting::put('ai_budget', json_encode(['cap' => 1, 'warnAt' => 0.8, 'stop' => true]));
+        $this->costedRun(5.0);
+
+        $result = app(AiGateway::class)->call(fn () => 'لا ينبغي أن يُنادى');
+
+        $this->assertNull($result->text, 'لم يُرسَل نداء أصلاً');
+        $this->assertSame(AiFailure::BUDGET_EXCEEDED, $result->failureCode);
+    }
+
+    /** الشهر الجاري لا نافذة اللوحة: ميزانيّة شهريّة تُقارَن بإنفاق أسبوع تُطمئن كذباً. */
+    public function test_spending_is_measured_over_the_calendar_month(): void
+    {
+        $this->costedRun(30.0);
+        $this->costedRun(500.0, now()->subMonths(2)->toDateTimeString());
+
+        $this->assertSame(30.0, AiOpsMetrics::spentThisMonth());
+    }
+
+    /** و«لا نعرف» ليست «صفراً»: بلا نداءٍ مسعَّر لا يُبنى إيقافٌ على جهل. */
+    public function test_unknown_spending_is_null_and_never_triggers_a_stop(): void
+    {
+        Setting::put('ai_budget', json_encode(['cap' => 1, 'warnAt' => 0.8, 'stop' => true]));
+
+        $this->assertNull(AiOpsMetrics::spentThisMonth());
+        $this->assertFalse(AiOpsMetrics::budgetStopsCalls());
+        $this->assertSame([], AiOpsMetrics::budgetAlerts());
     }
 }

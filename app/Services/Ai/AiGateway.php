@@ -46,6 +46,20 @@ class AiGateway
         $traceId ??= (string) Str::uuid();
         $startedAt = microtime(true);
 
+        // الميزانيّة قبل المزوّدين: نداءٌ يتجاوز السقف لا يُرسَل أصلاً.
+        // **الإيقاف مُطفأ افتراضياً** — تجاوز السقف بلا تفعيله يُنبِّه ولا يمنع، لأن
+        // إيقاف معالجة الذكاء كلّها أثرٌ واسع لا يُفتَرض بالنيابة عن المكتب.
+        // والسقوط هنا يعود بمخرج احتياطيّ موسوم كأيّ تعذُّر: العميل لا يرى شيئاً
+        // تشغيلياً، والطاقم يقرأ السبب مميَّزاً عن عطل المزوّد.
+        if (AiOpsMetrics::budgetStopsCalls()) {
+            return new AiCallResult(
+                text: null,
+                traceId: $traceId,
+                durationMs: self::elapsed($startedAt),
+                failureCode: AiFailure::BUDGET_EXCEEDED,
+            );
+        }
+
         $available = array_values(array_filter(
             self::PROVIDERS,
             fn (string $p) => ! empty(config("services.{$p}.key")) && ! Cache::has("ai:cooldown:{$p}")

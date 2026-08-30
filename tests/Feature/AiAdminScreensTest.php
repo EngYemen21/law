@@ -12,6 +12,7 @@ use App\Services\Ai\AiCost;
 use App\Services\Ai\AiDataClass;
 use App\Services\Ai\AiDecision;
 use App\Services\Ai\AiEvaluator;
+use App\Services\Ai\AiOpsMetrics;
 use App\Services\Ai\AiPolicyGate;
 use App\Services\Ai\AiReviewAction;
 use App\Services\Ai\AiReviewReason;
@@ -347,6 +348,39 @@ class AiAdminScreensTest extends TestCase
                 ->where('evaluation.diff.0.previous', 0.95)
                 ->where('evaluation.diff.0.rate', 0.8)
             );
+    }
+    // ── الميزانيّة من الشاشة ──
+
+    public function test_the_budget_is_set_from_the_screen(): void
+    {
+        $this->actingAs($this->admin())
+            ->post(route('admin.ai-ops.budget'), ['cap' => 250, 'warnAt' => 75, 'stop' => true])
+            ->assertRedirect();
+
+        $budget = Setting::aiBudget();
+        $this->assertSame(250.0, $budget['cap']);
+        $this->assertSame(0.75, $budget['warnAt']);
+        $this->assertTrue($budget['stop']);
+    }
+
+    /** السقف الفارغ **بلا سقف** لا صفراً — والصفر يمنع كل نداء، وهو معنى مختلف تماماً. */
+    public function test_an_empty_cap_means_unlimited_not_zero(): void
+    {
+        $this->actingAs($this->admin())
+            ->post(route('admin.ai-ops.budget'), ['cap' => null, 'warnAt' => 80])
+            ->assertRedirect();
+
+        $this->assertNull(Setting::aiBudget()['cap']);
+        $this->assertFalse(AiOpsMetrics::budgetStopsCalls());
+    }
+
+    /** والإيقاف مُطفأ ما لم يُطلَب صراحةً — لا يُفتَرض بالنيابة عن المكتب. */
+    public function test_the_stop_switch_defaults_to_off_when_omitted(): void
+    {
+        $this->actingAs($this->admin())
+            ->post(route('admin.ai-ops.budget'), ['cap' => 100, 'warnAt' => 80]);
+
+        $this->assertFalse(Setting::aiBudget()['stop']);
     }
     // ── لوحة الحوكمة ──
 

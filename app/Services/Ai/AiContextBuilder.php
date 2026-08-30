@@ -88,7 +88,33 @@ final class AiContextBuilder
     }
 
     /**
-     * إحصاء ما مُوّه — للتدقيق التشغيليّ بلا كشف القيم نفسها.
+     * إحصاء المعرّفات المموَّهة **في الحمولة الخارجة فعلاً** — دليل التدقيق.
+     *
+     * تُقاس عند الحدّ لا عند المصدر: `maskCounts` أدناه تحصي ما ستموّهه في نصٍّ خام،
+     * وهذه تحصي ما **مُوّه بالفعل** في النصّ الذي غادر الخادم. الفارق جوهريّ عند
+     * التدقيق: الأولى تقول «كنّا سنموّه»، والثانية تقول «موّهنا، وهذا أثره في الحمولة
+     * نفسها». وهي أيضاً لا تلمس النصّ الخام مرّة ثانية، فلا تُعيد بناء ما أُخفي.
+     *
+     * `chars` يرافقها لأن تقليل البيانات حجمٌ أيضاً لا تمويهٌ فقط: حمولةٌ منتفخة
+     * تُرسل ما لا تحتاجه المهمّة ولو كانت خاليةً من المعرّفات.
+     *
+     * @return array{chars:int, masked:array<string,int>}
+     */
+    public static function outboundAudit(string $payload): array
+    {
+        $masked = [];
+        foreach (array_unique(array_values(self::PATTERNS)) as $mask) {
+            $found = mb_substr_count($payload, $mask);
+            if ($found > 0) {
+                $masked[$mask] = $found;
+            }
+        }
+
+        return ['chars' => mb_strlen($payload), 'masked' => $masked];
+    }
+
+    /**
+     * إحصاء ما سيُموَّه في نصٍّ خام — للفحص والاختبار.
      *
      * @return array<string,int>
      */

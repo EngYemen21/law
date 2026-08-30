@@ -75,6 +75,7 @@ class TicketTriage
             inputTokens: $meta['input_tokens'] ?? null,
             outputTokens: $meta['output_tokens'] ?? null,
             estimatedCost: $meta['estimated_cost'] ?? null,
+            outboundAudit: $meta['outbound_audit'] ?? null,
         );
 
         // إن أرفق العميل مستندات عند الفتح: تُحلَّل فعلياً أولاً فيتفرّع الردّ بحسب صلتها بالموضوع

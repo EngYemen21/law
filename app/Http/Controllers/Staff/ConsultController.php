@@ -208,6 +208,7 @@ class ConsultController extends Controller
             inputTokens: $meta['input_tokens'] ?? null,
             outputTokens: $meta['output_tokens'] ?? null,
             estimatedCost: $meta['estimated_cost'] ?? null,
+            outboundAudit: $meta['outbound_audit'] ?? null,
         );
 
         // تنبيه المكتب (الموظفون + الإدارة العليا) بعطل التحليل — العميل لا يُطلَع عليه

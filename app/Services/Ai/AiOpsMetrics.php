@@ -4,6 +4,7 @@ namespace App\Services\Ai;
 
 use App\Enums\AiSource;
 use App\Models\AiRun;
+use App\Models\Setting;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -106,7 +107,84 @@ class AiOpsMetrics
             ];
         }
 
-        return $alerts;
+        return array_merge($alerts, self::budgetAlerts());
+    }
+
+    /**
+     * تنبيهات الميزانيّة الشهريّة.
+     *
+     * تُقاس على **الشهر الجاري** لا على نافذة اللوحة: ميزانيّة شهريّة تُقارَن بإنفاق
+     * سبعة أيام تُنتج طمأنينة كاذبة.
+     *
+     * وتُقارَن **بما هو معلوم** من الكلفة: نداءٌ بنموذجٍ بلا سعر لا يُحتسب صفراً،
+     * فالإنفاق الحقيقيّ قد يفوق المعروض. لذلك يرافق التنبيهَ ذكرُ التغطية الناقصة
+     * حين توجد — سقفٌ يُقارَن بمجموعٍ جزئيّ يُطمئن بلا حقّ.
+     *
+     * @return array<int, array{code:string, message:string, value:float}>
+     */
+    public static function budgetAlerts(): array
+    {
+        $budget = Setting::aiBudget();
+        if ($budget['cap'] === null || $budget['cap'] <= 0) {
+            return []; // بلا سقف: لا شيء يُتجاوَز
+        }
+
+        $spent = self::spentThisMonth();
+        if ($spent === null) {
+            return [];
+        }
+
+        $ratio = round($spent / $budget['cap'], 3);
+
+        if ($ratio >= 1.0) {
+            return [[
+                'code' => 'budget_exceeded',
+                'message' => 'تجاوز إنفاق الشهر الميزانيّة المقرَّرة'
+                    .($budget['stop'] ? ' — والإيقاف التلقائيّ مفعَّل، فالنداءات موقوفة.' : ' — والإيقاف التلقائيّ مُطفأ، فالنداءات مستمرّة.'),
+                'value' => $ratio,
+            ]];
+        }
+
+        if ($ratio >= $budget['warnAt']) {
+            return [[
+                'code' => 'budget_warning',
+                'message' => 'إنفاق الشهر بلغ '.round($ratio * 100).'% من الميزانيّة المقرَّرة.',
+                'value' => $ratio,
+            ]];
+        }
+
+        return [];
+    }
+
+    /**
+     * الإنفاق المعلوم في الشهر الجاري، أو `null` إن لم يُسعَّر أيّ نداء.
+     *
+     * `null` ≠ صفر: الأوّل «لا نعرف»، والثاني «أنفقنا لا شيء». وبناء إيقافٍ تلقائيّ
+     * على الثاني وهو الأوّل يعني ألّا يتوقّف شيء أبداً.
+     */
+    public static function spentThisMonth(): ?float
+    {
+        $query = AiRun::query()->where('created_at', '>=', now()->startOfMonth());
+
+        if ((clone $query)->whereNotNull('estimated_cost')->doesntExist()) {
+            return null;
+        }
+
+        return round((float) $query->sum('estimated_cost'), 4);
+    }
+
+    /** هل تجاوز الإنفاق السقفَ **والإيقاف مفعَّل**؟ — شرطُ رفض النداء. */
+    public static function budgetStopsCalls(): bool
+    {
+        $budget = Setting::aiBudget();
+
+        if (! $budget['stop'] || $budget['cap'] === null || $budget['cap'] <= 0) {
+            return false;
+        }
+
+        $spent = self::spentThisMonth();
+
+        return $spent !== null && $spent >= $budget['cap'];
     }
 
     /** توزيع أسباب الفشل — يميّز عطل المزوّد عن عطل العقد. */

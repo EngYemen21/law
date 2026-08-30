@@ -87,6 +87,9 @@ enum AiDataClass: string
 
             'confidence', 'confidence_signals' => self::Internal,
 
+            // أعدادٌ وحجم لا محتوى — دليلُ تدقيقٍ يبقى بعد تجريد الحقول السرّية
+            'outbound_audit' => self::Internal,
+
             'entity_type', 'entity_id', 'entity_ref',
             'review_note', 'review_reason' => self::Confidential,
 

@@ -46,6 +46,12 @@ class AiOpsController extends Controller
                 'defaultThreshold' => AiPolicyGate::DEFAULT_THRESHOLD,
                 'pricing' => Setting::aiPricing(),
                 'retention' => $this->retentionRows(),
+                'budget' => Setting::aiBudget(),
+            ],
+            'spending' => [
+                // `null` = لم يُسعَّر نداء واحد هذا الشهر، لا «أنفقنا صفراً»
+                'thisMonth' => AiOpsMetrics::spentThisMonth(),
+                'stopped' => AiOpsMetrics::budgetStopsCalls(),
             ],
             'evaluation' => [
                 'last' => AiEvaluator::lastRun(),
@@ -123,6 +129,31 @@ class AiOpsController extends Controller
         Setting::put('ai_pricing', json_encode($map, JSON_UNESCAPED_UNICODE));
 
         return back()->with('flash', 'حُفظت أسعار '.count($map).' نموذجاً.');
+    }
+
+    /**
+     * الميزانيّة الشهريّة — قرار محاسبيّ.
+     *
+     * السقف الفارغ = **بلا سقف** لا صفراً: الصفر يمنع كل نداء. والإيقاف التلقائيّ
+     * قرارٌ صريح يُفعَّل بمعرفة أثره — تفعيله يوقف معالجة الذكاء كلّها عند التجاوز.
+     */
+    public function saveBudget(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'cap' => ['nullable', 'numeric', 'min:0'],
+            'warnAt' => ['required', 'numeric', 'min:10', 'max:100'],
+            'stop' => ['boolean'],
+        ]);
+
+        Setting::put('ai_budget', json_encode([
+            'cap' => $data['cap'] === null || $data['cap'] === '' ? null : (float) $data['cap'],
+            'warnAt' => round(((float) $data['warnAt']) / 100, 3),
+            'stop' => (bool) ($data['stop'] ?? false),
+        ]));
+
+        return back()->with('flash', $data['cap'] === null
+            ? 'أُلغي سقف الميزانيّة — لا إيقاف ولا تنبيه بالتجاوز.'
+            : 'حُفظت الميزانيّة الشهريّة.');
     }
 
     /** مدد الاحتفاظ — قرار نظاميّ: الفارغ يعني «بلا حدّ» لا صفراً. */

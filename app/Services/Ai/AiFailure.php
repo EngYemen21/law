@@ -23,6 +23,12 @@ final class AiFailure
 
     public const QUOTA_EXHAUSTED = 'quota_exhausted';
 
+    /**
+     * أوقفه المكتب لتجاوز الميزانيّة — لا عطل مزوّد.
+     * التمييز مقصود: عطلُ المزوّد يُصلَح بالانتظار، وهذا يُصلَح بقرارٍ في اللوحة.
+     */
+    public const BUDGET_EXCEEDED = 'budget_exceeded';
+
     public const RATE_LIMITED = 'rate_limited';
 
     public const UNAUTHORIZED = 'unauthorized';

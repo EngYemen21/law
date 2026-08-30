@@ -1109,11 +1109,18 @@ class LegalAiService
     {
         WebTimeLimit::raise(150); // مهلة الويب (30ث) لا تكفي سلسلة المزوّدين وإعادة محاولاتها
 
+        // بصمة الحمولة تُقاس **هنا**: آخر موضع يمرّ به النصّ قبل مغادرته الخادم.
+        // قياسها عند المصدر يقول «كنّا سنموّه»؛ وقياسها هنا يقول «ما غادر يحمل هذا
+        // العدد من المعرّفات المموَّهة وهذا الحجم» — وهو ما يسأل عنه المدقّق.
+        $audit = AiContextBuilder::outboundAudit(
+            $system."\n".implode("\n", array_column($messages, 'content'))
+        );
+
         return app(AiGateway::class)->call(fn (string $provider) => match ($provider) {
             'gemini' => $this->viaGemini($system, $messages, $json),
             'glm' => $this->viaGlm($system, $messages, $json),
             default => null,
-        });
+        })->withOutboundAudit($audit);
     }
 
     /**
@@ -1169,6 +1176,8 @@ class LegalAiService
             // `null` = لا قياس (احتياطيّ/فشل)، لا «ثقة منخفضة» — الفارق جوهريّ للمراجع
             'confidence' => $confidence['score'] ?? null,
             'confidence_signals' => $confidence['signals'] ?? null,
+            // دليل تقليل البيانات: كم معرّفاً مُوّه وكم بلغ حجم ما غادر الخادم
+            'outbound_audit' => $call->outboundAudit,
         ];
     }
 
