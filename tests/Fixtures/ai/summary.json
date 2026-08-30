@@ -1,0 +1,71 @@
+{
+  "task": "ticket.summary",
+  "note": "حالات مُصطنعة بالكامل — لا محادثات عملاء حقيقية (قيد التعليمات).",
+  "cases": [
+    {
+      "id": "SM-01",
+      "difficulty": "سهلة",
+      "error_type": null,
+      "description": "محادثة مكتملة بمرفق مفحوص — ملخّص بأقسامه",
+      "input": { "ticket_type": "نزاع تجاري", "messages": 6, "docs_examined": 1 },
+      "model_output": {
+        "case_summary": "نزاع حول عقد توريد بضاعة بقيمة 150,000 ريال، يطالب العميل بالفسخ والتعويض عن الضرر.",
+        "attachments_summary": "عقد التوريد موقّع من الطرفين ويتضمن شرط جزاء.",
+        "facts": ["أُبرم العقد بتاريخ محدَّد", "تأخّر المورّد عن التسليم"],
+        "key_points": ["شرط الجزاء قابل للتطبيق", "يلزم إثبات مقدار الضرر"]
+      },
+      "expect": { "valid": true, "has_attachments_summary": true }
+    },
+    {
+      "id": "SM-02",
+      "difficulty": "متوسطة",
+      "error_type": "قائمة مقابل نصّ",
+      "description": "النموذج يعيد الوقائع نصّاً واحداً لا قائمة — تُقبل وتُوحَّد، فالتذبذب في الشكل ليس خطأً في المضمون",
+      "input": { "ticket_type": "قضية عمالية", "messages": 4, "docs_examined": 0 },
+      "model_output": {
+        "case_summary": "مطالبة عاملٍ بمستحقات نهاية الخدمة بعد إنهاء العقد.",
+        "attachments_summary": "",
+        "facts": "انتهت العلاقة العمالية دون تسوية المستحقات.",
+        "key_points": "يلزم عقد العمل ومسير الرواتب."
+      },
+      "expect": { "valid": true, "has_attachments_summary": false }
+    },
+    {
+      "id": "SM-03",
+      "difficulty": "صعبة",
+      "error_type": "حقل إلزاميّ ناقص",
+      "description": "ملخّص بلا «case_summary» ليس ملخّصاً. قبولُه يعرض على المحامي بطاقةً فارغة يظنّها تحليلاً.",
+      "input": { "ticket_type": "استشارة", "messages": 2, "docs_examined": 0 },
+      "model_output": { "attachments_summary": "لا مرفقات.", "facts": [], "key_points": [] },
+      "expect": { "valid": false }
+    },
+    {
+      "id": "SM-04",
+      "difficulty": "صعبة",
+      "error_type": "ملفّ شبه فارغ",
+      "description": "رسالة واحدة مقتضبة — الملخّص الأمين يقرّ بقلّة المعطيات ولا يُكمل الوقائع من عنده",
+      "input": { "ticket_type": "استشارة", "messages": 1, "docs_examined": 0 },
+      "model_output": {
+        "case_summary": "طلب استشارة عامة بلا تفاصيل كافية؛ يلزم استيضاح الموضوع من العميل.",
+        "attachments_summary": "",
+        "facts": [],
+        "key_points": ["المعطيات غير كافية لتكوين رأي"]
+      },
+      "expect": { "valid": true, "has_attachments_summary": false }
+    },
+    {
+      "id": "SM-05",
+      "difficulty": "متوسطة",
+      "error_type": null,
+      "description": "مرفقات متعدّدة مفحوصة — ملخّص المرفقات يجب أن يظهر",
+      "input": { "ticket_type": "نزاع عقاري", "messages": 8, "docs_examined": 3 },
+      "model_output": {
+        "case_summary": "نزاع على ملكية عقار سكني بين ورثة.",
+        "attachments_summary": "صك الملكية وحصر الورثة ومحضر فرز.",
+        "facts": ["العقار مسجَّل باسم المورّث"],
+        "key_points": ["يلزم تحديد الأنصبة قبل القسمة"]
+      },
+      "expect": { "valid": true, "has_attachments_summary": true }
+    }
+  ]
+}

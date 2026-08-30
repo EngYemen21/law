@@ -639,7 +639,8 @@ class LegalAiService
             return [];
         }
 
-        $system = 'استخرج القرارات/المهام القابلة للتنفيذ من النص التالي بإيجاز. أعد JSON فقط: {"decisions":["..."]}. لا نص خارج JSON.';
+        // التعليمة في السجلّ لا هنا: كانت الوحيدة الباقية بلا إصدار ولا بصمة
+        $system = AiPromptRegistry::decisionsSystem();
         try {
             $json = $this->run($system, [['role' => 'user', 'content' => mb_substr($text, 0, 6000)]], json: true);
             if ($json) {

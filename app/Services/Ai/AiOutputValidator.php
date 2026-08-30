@@ -74,10 +74,83 @@ class AiOutputValidator
         ];
     }
 
+    /**
+     * نتيجة فحص مستند.
+     *
+     * `related` **إلزاميّ ولا افتراض له**: غيابه يعني أن النموذج لم يحكم بالصلة، وحمله
+     * على `false` يوسم مستنداً صحيحاً بأنه غير مرتبط، وحمله على `true` يُدخل مستنداً
+     * أجنبياً إلى الملفّ. كلاهما قرارٌ لم يتّخذه أحد — فالصواب سقوط المخرج.
+     *
+     * @return array{related:bool,doc_type:string,summary:string,reason:string}|null
+     */
+    public static function documentAnalysis(?array $data): ?array
+    {
+        if (! is_array($data) || ! array_key_exists('related', $data) || ! is_bool($data['related'])) {
+            return null;
+        }
+
+        return [
+            'related' => $data['related'],
+            'doc_type' => trim((string) ($data['doc_type'] ?? '')) ?: 'مستند',
+            'summary' => (string) ($data['summary'] ?? ''),
+            'reason' => (string) ($data['reason'] ?? ''),
+        ];
+    }
+
+    /**
+     * ملخّص ملفّ التذكرة للمحامي.
+     *
+     * `facts` و`key_points` تُقبل قائمةً أو نصّاً — النموذج يتأرجح بينهما، والتوحيد
+     * هنا لا في كل موضع عرض.
+     *
+     * @return array{case_summary:string,attachments_summary:string,facts:string,key_points:string}|null
+     */
+    public static function ticketSummary(?array $data): ?array
+    {
+        if (! is_array($data) || trim((string) ($data['case_summary'] ?? '')) === '') {
+            return null;
+        }
+
+        return [
+            'case_summary' => (string) $data['case_summary'],
+            'attachments_summary' => (string) ($data['attachments_summary'] ?? ''),
+            'facts' => self::bulletedText($data['facts'] ?? null),
+            'key_points' => self::bulletedText($data['key_points'] ?? null),
+        ];
+    }
+
+    /**
+     * القرارات المستخرَجة من محضر أو تفريغ.
+     *
+     * **مصفوفة فارغة نتيجةٌ صحيحة لا فشل**: نصٌّ بلا قرارات يجب أن يُخرج صفراً، لا أن
+     * يُختلق منه قرار. لذا يُفرَّق هنا بين «المفتاح غائب» (بنية خاطئة ⇒ `null`)
+     * و«المفتاح موجود وفارغ» (لا قرارات ⇒ قائمة فارغة).
+     *
+     * @return array{decisions:array<int,string>}|null
+     */
+    public static function decisions(?array $data): ?array
+    {
+        if (! is_array($data) || ! array_key_exists('decisions', $data) || ! is_array($data['decisions'])) {
+            return null;
+        }
+
+        return ['decisions' => self::stringList($data['decisions'])];
+    }
+
     /** قيمة من قائمة مسموحة، وإلّا البديل المعلن (لا تخمين). */
     private static function oneOf(mixed $value, array $allowed, string $default): string
     {
         return in_array($value, $allowed, true) ? (string) $value : $default;
+    }
+
+    /** نصّ نقاطٍ موحَّد سواء عاد النموذج بقائمة أو بنصٍّ واحد. */
+    private static function bulletedText(mixed $value): string
+    {
+        if (! is_array($value)) {
+            return (string) $value;
+        }
+
+        return implode("\n", array_map(fn ($item) => '• '.ltrim(trim((string) $item), '• '), $value));
     }
 
     /**

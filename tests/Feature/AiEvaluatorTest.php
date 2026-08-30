@@ -58,6 +58,60 @@ class AiEvaluatorTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
+    /** الوظائف الستّ التي تفرضها الخطة مغطّاة — لا خمسٌ ولا أربع. */
+    public function test_every_function_the_plan_requires_has_a_gate(): void
+    {
+        $required = [
+            'ticket.triage',      // فرز التذكرة
+            'document.analyze',   // تحليل المستند
+            'ticket.summary',     // تلخيص الملف
+            'consult.analyze',    // تحليل الاستشارة
+            'meeting.decisions',  // استخراج القرارات
+            'case.pleading',      // صياغة المذكرات
+        ];
+
+        foreach ($required as $task) {
+            $this->assertArrayHasKey($task, AiEvaluator::GATES, "«{$task}» بلا بوّابة عبور");
+        }
+    }
+
+    /** ولكل بوّابة حالاتٌ فعليّة — بوّابةٌ بلا حالات رقمٌ لا يقيس شيئاً. */
+    public function test_every_gate_has_cases_behind_it(): void
+    {
+        $measured = array_column((new AiEvaluator)->run(), 'task');
+
+        $this->assertSame(array_keys(AiEvaluator::GATES), $measured);
+    }
+
+    /**
+     * حالةٌ توقُّعها معلَّق بحكم النموذج (اختلاق/حقن) لا تُقاس على مخرجٍ مثبَّت:
+     * المحقِّق لا يرى النصّ الأصليّ فلا سبيل له إلى كشف ما زاده النموذج عليه.
+     * عدّها ساقطةً يجعل البوّابة غير قابلة للعبور أبداً، فيصير التحذير ضجيجاً.
+     */
+    public function test_a_model_judgment_case_is_deferred_not_failed_in_a_dry_run(): void
+    {
+        $results = array_column((new AiEvaluator)->run(), null, 'task');
+        $decisions = $results['meeting.decisions'];
+
+        $this->assertGreaterThan(0, $decisions['skipped'], 'حالات الاختلاق والحقن تُؤجَّل للتشغيل الحيّ');
+        $this->assertTrue($decisions['meets'], 'وبقيّة الحالات تعبر بوّابتها');
+    }
+
+    /** والمقام ما قِيس فعلاً: نسبةٌ مقامها حالاتٌ لم تُشغَّل تُقرأ تغطيةً كاملة وهي ناقصة. */
+    public function test_the_rate_denominator_excludes_deferred_cases(): void
+    {
+        $decisions = array_column((new AiEvaluator)->run(), null, 'task')['meeting.decisions'];
+        $fixture = array_column(AiEvaluator::fixtures(), null, 'task')['meeting.decisions'];
+
+        $this->assertSame(count($fixture['cases']) - $decisions['skipped'], $decisions['total']);
+    }
+
+    /** واستخراج القرارات أعلى البوّابات: مخرجه يُنشئ مهامّ، فاختلاقٌ واحد يُنشئ التزاماً. */
+    public function test_decision_extraction_carries_the_strictest_gate(): void
+    {
+        $this->assertSame(0.98, AiEvaluator::GATES['meeting.decisions']);
+        $this->assertGreaterThan(AiEvaluator::GATES['ticket.triage'], AiEvaluator::GATES['meeting.decisions']);
+    }
     // ── حدّ التشغيل الحيّ معلن ──
 
     /**

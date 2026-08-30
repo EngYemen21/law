@@ -40,6 +40,8 @@ class AiPolicyGate
         'case.pleading' => 'high',
         'assistant.draft' => 'high',
         'meeting.summary' => 'high',
+        // مخرجها يُنشئ مهامّ في النظام: قرارٌ مختلَق واحد يُنشئ التزاماً لم يتّفق عليه أحد
+        'meeting.decisions' => 'high',
     ];
 
     /**

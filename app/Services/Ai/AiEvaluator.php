@@ -18,11 +18,21 @@ use App\Services\LegalAiService;
  */
 class AiEvaluator
 {
-    /** بوّابات العبور من الخطة — تُعاير مع الفريق القانونيّ لاحقاً. */
+    /**
+     * بوّابات العبور من الخطة — تُعاير مع الفريق القانونيّ لاحقاً.
+     *
+     * الأرقام ليست متساوية عمداً: `meeting.decisions` تُنشئ مهامّ في النظام، فاختلاق
+     * قرارٍ واحد يُنشئ التزاماً لم يقرّره أحد — ولذلك أعلاها. والملخّص والاستشهاد
+     * يُعرضان على المحامي بوصفهما وقائع وسنداً، فهما فوق التصنيف والفرز.
+     */
     public const GATES = [
         'ticket.triage' => 0.90,
+        'document.analyze' => 0.90,
         'consult.analyze' => 0.90,
         'execution.analyze' => 0.90,
+        'ticket.summary' => 0.95,
+        'case.pleading' => 0.95,
+        'meeting.decisions' => 0.98,
     ];
 
     /**
@@ -30,7 +40,7 @@ class AiEvaluator
      * وجود سند) لا نصّاً يُرسَل لنموذج، فلا مدخل حيّاً لها. تُعلَن جافّة صراحةً بدل
      * أن يُوهم التقرير بأنها اختُبرت على النموذج.
      */
-    public const LIVE_CAPABLE = ['ticket.triage', 'consult.analyze'];
+    public const LIVE_CAPABLE = ['ticket.triage', 'consult.analyze', 'document.analyze', 'meeting.decisions'];
 
     /** آخر نتيجة تقييم محفوظة — تعرضها اللوحة. */
     public const SETTING_KEY = 'ai_last_evaluation';
@@ -87,15 +97,28 @@ class AiEvaluator
     {
         $task = (string) $set['task'];
         $roster = (array) ($set['roster'] ?? []);
+        $refs = (array) ($set['existing_refs'] ?? []);
         $failures = [];
         $passed = 0;
 
+        $skipped = 0;
+
         foreach ((array) $set['cases'] as $case) {
+            // حالةٌ توقُّعها معلَّق بحكم النموذج نفسه (اختلاق، إغفال، انسياق خلف حقن)
+            // لا تُقاس على مخرجٍ مثبَّت: المحقِّق لا يرى النصّ الأصليّ فلا سبيل له إلى
+            // كشف ما زاده النموذج عليه. عدُّها ساقطةً في الوضع الجافّ يجعل البوّابة
+            // غير قابلة للعبور أبداً، فيتحوّل التحذير إلى ضجيج يُتجاهَل.
+            if (! $live && ($case['live_only'] ?? false)) {
+                $skipped++;
+
+                continue;
+            }
+
             $output = $live
                 ? $this->callProvider($task, (array) $case['input'], $roster)
                 : ($case['model_output'] ?? null);
 
-            $valid = self::validate($task, $output, $roster);
+            $valid = self::validate($task, $output, $roster, $refs);
             $expect = (array) $case['expect'];
             $id = (string) $case['id'];
 
@@ -123,7 +146,8 @@ class AiEvaluator
             $passed++;
         }
 
-        $total = count((array) $set['cases']);
+        // المقام ما قِيس فعلاً لا ما وُجد في الملفّ — نسبةٌ مقامها حالاتٌ لم تُشغَّل كذبة
+        $total = count((array) $set['cases']) - $skipped;
         $rate = $total > 0 ? round($passed / $total, 3) : 0.0;
         $gate = self::GATES[$task] ?? 0.90;
 
@@ -131,6 +155,7 @@ class AiEvaluator
             'task' => $task,
             'total' => $total,
             'passed' => $passed,
+            'skipped' => $skipped,
             'rate' => $rate,
             'gate' => $gate,
             'meets' => $total > 0 && $rate >= $gate,
@@ -228,6 +253,17 @@ class AiEvaluator
                 'استشارة CN-EVAL — الموضوع: «'.($input['subject'] ?? '')
                     .'»، النوع: استشارة، القناة: مكتب، الأولوية: عادية. حلّل وأعد JSON.',
             ],
+            'document.analyze' => [
+                AiPromptRegistry::documentAnalyzeSystem(),
+                'نوع التذكرة: '.($input['ticket_type'] ?? '—')
+                    ."\nاسم الملف: ".($input['file_name'] ?? '—')
+                    ."\n\nمحتوى المستند:\n".($input['content'] ?? '')
+                    ."\n\nافحص المحتوى وأعد JSON.",
+            ],
+            'meeting.decisions' => [
+                AiPromptRegistry::decisionsSystem(),
+                (string) ($input['text'] ?? ''),
+            ],
             default => [null, null],
         };
 
@@ -247,8 +283,14 @@ class AiEvaluator
         return $call['data'];
     }
 
-    /** @param array<int,string> $roster */
-    private static function validate(string $task, mixed $output, array $roster): ?array
+    /**
+     * المحقِّق الخادميّ نفسه الذي يعمل في الإنتاج — لا نسخة اختبار منه، وإلّا قِيس
+     * شيءٌ لا يعمل به النظام.
+     *
+     * @param  array<int,string>  $roster
+     * @param  array<int,string>  $refs  معرّفات المصادر الموجودة (لمهمّة الصياغة)
+     */
+    private static function validate(string $task, mixed $output, array $roster, array $refs = []): ?array
     {
         if (! is_array($output)) {
             return null;
@@ -256,8 +298,12 @@ class AiEvaluator
 
         return match ($task) {
             'ticket.triage' => AiOutputValidator::ticketTriage($output),
+            'document.analyze' => AiOutputValidator::documentAnalysis($output),
             'consult.analyze' => AiOutputValidator::consultAnalysis($output, $roster),
             'execution.analyze' => AiOutputValidator::executionAnalysis($output, ['إجراء افتراضيّ']),
+            'ticket.summary' => AiOutputValidator::ticketSummary($output),
+            'meeting.decisions' => AiOutputValidator::decisions($output),
+            'case.pleading' => LegalClaims::validate($output, $refs),
             default => null,
         };
     }
@@ -265,12 +311,39 @@ class AiEvaluator
     /** أوّل حقل خالف المرجع، أو `null` إن طابق كلّه. */
     private static function firstMismatch(array $valid, array $expect): ?string
     {
-        foreach (['department', 'priority', 'intent', 'lawyer'] as $field) {
+        // حقول قيمتها نصّ أو منطق
+        foreach (['department', 'priority', 'intent', 'lawyer', 'related', 'doc_type', 'verdict'] as $field) {
             if (array_key_exists($field, $expect) && ($valid[$field] ?? null) !== $expect[$field]) {
-                return "{$field}: مرجعه «{$expect[$field]}» ونتيجته «".($valid[$field] ?: '—').'»';
+                return "{$field}: مرجعه «".self::render($expect[$field]).'» ونتيجته «'.self::render($valid[$field] ?? null).'»';
+            }
+        }
+
+        // حقول يُقاس عددها لا محتواها — أهمّها `decisions_count`: به يُكشف اختلاق
+        // قرارٍ لم يرد في المحضر، وهو ما لا تكشفه صحّة البنية
+        foreach (['decisions' => 'decisions_count', 'claims' => 'claims_count', 'unsupported_claims' => 'unsupported_count'] as $field => $key) {
+            if (array_key_exists($key, $expect) && count((array) ($valid[$field] ?? [])) !== $expect[$key]) {
+                return "{$key}: مرجعه {$expect[$key]} ونتيجته ".count((array) ($valid[$field] ?? []));
+            }
+        }
+
+        // وجودُ حقلٍ من عدمه (ملخّص المرفقات حين تُفحص مرفقات فعلاً)
+        if (array_key_exists('has_attachments_summary', $expect)) {
+            $has = trim((string) ($valid['attachments_summary'] ?? '')) !== '';
+            if ($has !== $expect['has_attachments_summary']) {
+                return 'attachments_summary: مرجعه '.($expect['has_attachments_summary'] ? 'موجود' : 'غائب').' ونتيجته '.($has ? 'موجود' : 'غائب');
             }
         }
 
         return null;
+    }
+
+    /** عرض قيمة في رسالة سقوط — المنطقيّة تُكتب كلمةً لا فراغاً. */
+    private static function render(mixed $value): string
+    {
+        return match (true) {
+            is_bool($value) => $value ? 'نعم' : 'لا',
+            $value === null, $value === '' => '—',
+            default => (string) $value,
+        };
     }
 }

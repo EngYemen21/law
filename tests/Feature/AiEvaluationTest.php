@@ -246,7 +246,7 @@ class AiEvaluationTest extends TestCase
     /** المجموعة تفقد قيمتها إن خلت من الحالات الصعبة أو العدائيّة. */
     public function test_the_fixture_set_covers_the_required_difficulty_spectrum(): void
     {
-        foreach (['triage', 'consult', 'execution'] as $name) {
+        foreach (['triage', 'consult', 'execution', 'document', 'summary', 'decisions', 'pleading'] as $name) {
             $cases = $this->fixture($name)['cases'];
             $difficulties = array_unique(array_column($cases, 'difficulty'));
 

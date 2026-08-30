@@ -21,6 +21,7 @@ interface EvalResult {
   task: string;
   total: number;
   passed: number;
+  skipped: number;
   rate: number;
   gate: number;
   meets: boolean;
@@ -300,10 +301,19 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
                       </span>
                       {r.liveSkipped && <span className="badge b-amber" style={{ marginInlineStart: 6 }}>جافّة</span>}
                     </span>
-                    <span>{r.passed}/{r.total} · بوّابة {Math.round(r.gate * 100)}%</span>
+                    <span>
+                      {r.passed}/{r.total} · بوّابة {Math.round(r.gate * 100)}%
+                      {r.skipped > 0 && ` · مؤجَّلة ${r.skipped}`}
+                    </span>
                   </div>
                   {r.liveSkipped && (
                     <p style={{ color: 'var(--muted)', fontSize: 12, margin: '2px 0 0' }}>لم تُشغَّل حيّاً — {r.liveSkipped}</p>
+                  )}
+                  {/* لا اقتطاع صامت: «100%» على مقامٍ ناقص تُقرأ تغطيةً كاملة */}
+                  {r.skipped > 0 && (
+                    <p style={{ color: 'var(--muted)', fontSize: 12, margin: '2px 0 0' }}>
+                      {r.skipped} حالة توقُّعها معلَّق بحكم النموذج — لا تُقاس على مخرجٍ مثبَّت، تحتاج تشغيلاً حيّاً.
+                    </p>
                   )}
                   {r.failures.map((f, i) => (
                     <p key={i} style={{ color: 'var(--red)', fontSize: 12, margin: '2px 0 0' }}>✗ {f}</p>

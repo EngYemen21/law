@@ -47,15 +47,23 @@ class EvaluateAi extends Command
         $this->newLine();
 
         $this->table(
-            ['المهمّة', 'ناجحة', 'النسبة', 'البوّابة', 'الحصيلة'],
+            ['المهمّة', 'ناجحة', 'مؤجَّلة', 'النسبة', 'البوّابة', 'الحصيلة'],
             array_map(fn (array $r) => [
                 $r['task'],
                 "{$r['passed']}/{$r['total']}",
+                $r['skipped'] ?: '—',
                 round($r['rate'] * 100).'%',
                 round($r['gate'] * 100).'%',
                 $r['meets'] ? 'عبرت' : 'سقطت',
             ], $results),
         );
+
+        // لا اقتطاع صامت: حالةٌ لم تُقَس تُعلَن، وإلّا قُرئت «100%» على أنها تغطية كاملة
+        $deferred = array_sum(array_column($results, 'skipped'));
+        if ($deferred > 0) {
+            $this->warn("{$deferred} حالة مؤجَّلة: توقُّعها معلَّق بحكم النموذج (اختلاق/حقن)، "
+                .'ولا تُقاس على مخرجٍ مثبَّت — تحتاج --live.');
+        }
 
         foreach ($results as $r) {
             if ($r['liveSkipped']) {

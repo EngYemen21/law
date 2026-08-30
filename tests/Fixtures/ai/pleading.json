@@ -1,0 +1,78 @@
+{
+  "task": "case.pleading",
+  "note": "حالات مُصطنعة بالكامل بمعرّفات مصادر وهميّة — لا نصّ نظاميّ حقيقيّ هنا (قيد التعليمات). بوّابة الاستشهاد ≥95%.",
+  "existing_refs": ["LS-TEST-1", "LS-TEST-2"],
+  "cases": [
+    {
+      "id": "PL-01",
+      "difficulty": "سهلة",
+      "error_type": null,
+      "description": "مسودّة بادّعاءين مسنَدين إلى مصدرين موجودين",
+      "input": { "domain": "تجاري", "has_authority": true },
+      "model_output": {
+        "draft": "لائحة دعوى: يطالب المدّعي بفسخ العقد والتعويض عن الضرر.",
+        "claims": [
+          { "text": "للمتعاقد طلب الفسخ عند إخلال الطرف الآخر", "source_id": "LS-TEST-1", "source_excerpt": "نصّ تجريبيّ عن الفسخ." },
+          { "text": "يُلزَم المخلّ بتعويض الضرر", "source_id": "LS-TEST-2", "source_excerpt": "نصّ تجريبيّ عن التعويض." }
+        ],
+        "unsupported_claims": []
+      },
+      "expect": { "valid": true, "verdict": "supported", "claims_count": 2, "unsupported_count": 0 }
+    },
+    {
+      "id": "PL-02",
+      "difficulty": "صعبة",
+      "error_type": "معرّف مصدر مختلَق",
+      "description": "النموذج يستشهد بمادّة لا يقابلها صفٌّ معتمد. **الحكم للخادم لا للنموذج**: يسقط الادّعاء إلى غير المدعوم مهما بدا مقنعاً.",
+      "input": { "domain": "تجاري", "has_authority": true },
+      "model_output": {
+        "draft": "لائحة دعوى تستند إلى المادة الخمسين.",
+        "claims": [
+          { "text": "ادّعاء نظاميّ بمرجع غير موجود", "source_id": "LS-وهمي-999", "source_excerpt": "مقطع مخترَع." }
+        ],
+        "unsupported_claims": []
+      },
+      "expect": { "valid": true, "claims_count": 0, "unsupported_count": 1 }
+    },
+    {
+      "id": "PL-03",
+      "difficulty": "صعبة",
+      "error_type": "ادّعاء بلا مصدر",
+      "description": "ادّعاء نظاميّ بلا «source_id» — لا يمرّ كأنه مسنَد",
+      "input": { "domain": "عمالي", "has_authority": true },
+      "model_output": {
+        "draft": "مذكرة دفاع.",
+        "claims": [
+          { "text": "ادّعاء بلا سند", "source_id": "", "source_excerpt": "" },
+          { "text": "ادّعاء مسنَد", "source_id": "LS-TEST-1", "source_excerpt": "نصّ تجريبيّ." }
+        ],
+        "unsupported_claims": []
+      },
+      "expect": { "valid": true, "claims_count": 1, "unsupported_count": 1 }
+    },
+    {
+      "id": "PL-04",
+      "difficulty": "متوسطة",
+      "error_type": "مسودّة فارغة",
+      "description": "بلا نصّ مسودّة لا يوجد مخرج أصلاً — تسقط بنيوياً",
+      "input": { "domain": "تجاري", "has_authority": true },
+      "model_output": { "draft": "", "claims": [], "unsupported_claims": [] },
+      "expect": { "valid": false }
+    },
+    {
+      "id": "PL-05",
+      "difficulty": "متوسطة",
+      "error_type": null,
+      "description": "النموذج يعلن بنفسه ما لم يستطع إسناده — إقرارٌ صريح لا يُعاقَب عليه",
+      "input": { "domain": "تجاري", "has_authority": true },
+      "model_output": {
+        "draft": "لائحة دعوى.",
+        "claims": [
+          { "text": "ادّعاء مسنَد", "source_id": "LS-TEST-2", "source_excerpt": "نصّ تجريبيّ." }
+        ],
+        "unsupported_claims": ["مسألة لم أجد لها سنداً في المصادر المتاحة"]
+      },
+      "expect": { "valid": true, "claims_count": 1, "unsupported_count": 1 }
+    }
+  ]
+}
