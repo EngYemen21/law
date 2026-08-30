@@ -3,6 +3,7 @@
 namespace App\Services\Ai;
 
 use App\Enums\AiSource;
+use App\Models\Setting;
 
 /**
  * بوّابة السياسة — تحوّل (المصدر + الثقة + حساسيّة المهمّة) إلى قرارٍ واحد صريح.
@@ -42,10 +43,17 @@ class AiPolicyGate
     ];
 
     /**
-     * عتبة القبول الآليّ للمهام المتوسّطة — **قيمة أوّليّة تُعاير مع الفريق القانونيّ**
-     * بعد تشغيل مجموعة التقييم (المرحلة P4)، لا رقم نهائيّ.
+     * العتبة الافتراضيّة — **قيمة أوّليّة لا نهائيّة**. المعايرة الفعليّة تجري من
+     * لوحة التحكّم (`Setting::aiAutoAcceptThreshold`) بعد تشغيل مجموعة التقييم،
+     * فقرار العتبة قانونيّ لا هندسيّ ولا يصحّ أن يمرّ عبر تعديل كود ونشر.
      */
-    public const AUTO_ACCEPT_THRESHOLD = 70;
+    public const DEFAULT_THRESHOLD = 70;
+
+    /** العتبة السارية الآن: ما ضبطته الإدارة، وإلّا الافتراضيّة. */
+    public static function threshold(): int
+    {
+        return Setting::aiAutoAcceptThreshold();
+    }
 
     /**
      * القرار في مخرجٍ واحد.
@@ -89,7 +97,7 @@ class AiPolicyGate
             return AiDecision::NeedsReview;
         }
 
-        return $confidence >= self::AUTO_ACCEPT_THRESHOLD
+        return $confidence >= self::threshold()
             ? AiDecision::Accept
             : AiDecision::NeedsReview;
     }

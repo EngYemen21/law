@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Ai\AiPolicyGate;
 use Illuminate\Database\Eloquent\Model;
 
 class Setting extends Model
@@ -49,5 +50,43 @@ class Setting extends Model
             'phone' => (int) static::get('price_phone', 350),
             'vat' => static::vatRate(),
         ];
+    }
+
+    // ── معايرة الذكاء الاصطناعي (P4) ──
+    // الخطة تفرض معايرة العتبات مع الفريق القانونيّ. كانت أرقاماً ثابتة في الشيفرة،
+    // فتصير كل معايرة تعديلَ كودٍ ونشراً — أي أن قراراً قانونياً يمرّ عبر مطوّر.
+    // مكانها هنا: تُضبط من لوحة التحكّم، والثابت في الصنف يبقى القيمة الافتراضيّة.
+
+    /** عتبة القبول الآليّ للمهام متوسّطة الحساسيّة (0–100). */
+    public static function aiAutoAcceptThreshold(): int
+    {
+        $value = (int) static::get('ai_auto_accept_threshold', AiPolicyGate::DEFAULT_THRESHOLD);
+
+        return max(0, min(100, $value));
+    }
+
+    /**
+     * أسعار النماذج لكل مليون توكن. مصفوفة فارغة = لا سعر معلوم ⇒ الكلفة `null`
+     * وتُعلن اللوحة أن المجموع جزئيّ — لا صفر يوهم بأن النداء مجّانيّ.
+     *
+     * @return array<string, array{input:float,output:float}>
+     */
+    public static function aiPricing(): array
+    {
+        $stored = json_decode((string) static::get('ai_pricing', ''), true);
+
+        return is_array($stored) && $stored !== [] ? $stored : (array) config('services.ai.pricing', []);
+    }
+
+    /**
+     * مدد الاحتفاظ بالأيام لكل فئة بيانات. `null` لفئة = بلا حدّ.
+     *
+     * @return array<string, int|null>
+     */
+    public static function aiRetention(): array
+    {
+        $stored = json_decode((string) static::get('ai_retention', ''), true);
+
+        return is_array($stored) && $stored !== [] ? $stored : (array) config('services.ai.retention', []);
     }
 }

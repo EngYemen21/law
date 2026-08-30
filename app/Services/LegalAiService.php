@@ -1116,6 +1116,28 @@ class LegalAiService
     }
 
     /**
+     * نداء تقييميّ: يشغّل تعليمةً على نصّ **مصطنَع** ويعيد المخرج المفكوك مع كلفته.
+     *
+     * وجوده لأن كل دوالّ التحليل تشترط كياناً حقيقياً (تذكرة/استشارة/تنفيذ)، والتقييم
+     * ممنوع أن يمسّ بيانات عملاء. لا يسجّل في `ai_runs` ولا يغيّر حالة أيّ كيان —
+     * قياسٌ خارج مسار العمل لا عمليّة فيه.
+     *
+     * @return array{data:?array, cost:?float, model:?string, failure:?string}
+     */
+    public function evaluationCall(string $system, string $prompt): array
+    {
+        $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], json: true);
+
+        return [
+            'data' => $call->succeeded() ? self::parseJsonResponse($call->text) : null,
+            // `null` = سعر النموذج غير مضبوط، لا نداء مجّانيّ
+            'cost' => $call->estimatedCost(),
+            'model' => $call->model,
+            'failure' => $call->failureCode,
+        ];
+    }
+
+    /**
      * طبقة توافق: تعيد النصّ وحده كما كانت. تستعملها الدوالّ التي لا تسجّل في `ai_runs`
      * بعد؛ ومن يسجّل ينادي `runCall` ليحمل القيدَ بياناتِ تتبّع حقيقيّة لا مخمَّنة.
      */

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AccountingController as AdminAccountingController;
+use App\Http\Controllers\Admin\AiOpsController as AdminAiOpsController;
 use App\Http\Controllers\Admin\AiReviewController as AdminAiReviewController;
 use App\Http\Controllers\Admin\ArchiveController as AdminArchiveController;
 use App\Http\Controllers\Admin\AuditLogController as AdminAuditLogController;
@@ -9,6 +10,7 @@ use App\Http\Controllers\Admin\ClientController as AdminClientController;
 use App\Http\Controllers\Admin\ClientNotifController as AdminClientNotifController;
 use App\Http\Controllers\Admin\DistributeController as AdminDistributeController;
 use App\Http\Controllers\Admin\LawyerController as AdminLawyerController;
+use App\Http\Controllers\Admin\LegalSourceController as AdminLegalSourceController;
 use App\Http\Controllers\Admin\PriceController as AdminPriceController;
 use App\Http\Controllers\Admin\ReportController as AdminReportController;
 use App\Http\Controllers\Admin\StaffController;
@@ -578,6 +580,27 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
         ->middleware('permission:سجل التدقيق الأمني')->name('audit-logs');
     Route::get('/audit-logs/export', [AdminAuditLogController::class, 'export'])
         ->middleware('permission:سجل التدقيق الأمني')->name('audit-logs.export');
+
+    // تشغيل الذكاء وحوكمته — المؤشّرات ومعايرة العتبة والأسعار ومدد الاحتفاظ.
+    // قرارات مكتب لا هندسة: العتبة قانونيّة والأسعار محاسبيّة والاحتفاظ نظاميّ،
+    // فلا يصحّ أن يلزمها تعديل كود ونشر.
+    Route::middleware('permission:التقارير والإيرادات')->group(function () {
+        Route::get('/ai-ops', [AdminAiOpsController::class, 'index'])->name('ai-ops');
+        Route::post('/ai-ops/threshold', [AdminAiOpsController::class, 'saveThreshold'])->name('ai-ops.threshold');
+        Route::post('/ai-ops/pricing', [AdminAiOpsController::class, 'savePricing'])->name('ai-ops.pricing');
+        Route::post('/ai-ops/retention', [AdminAiOpsController::class, 'saveRetention'])->name('ai-ops.retention');
+        // التقييم يُطلَق من الشاشة؛ الأمر ai:evaluate يبقى للجدولة وخطّ التكامل
+        Route::post('/ai-ops/evaluate', [AdminAiOpsController::class, 'evaluate'])->name('ai-ops.evaluate');
+    });
+
+    // المصادر القانونيّة المعتمدة — الاعتماد فعلٌ قانونيّ، فيُحرَس بصلاحية المساعد
+    // القانونيّ. بلا هذه الشاشة تدخل المصادر «مسودة» ولا سبيل لتفعيلها إطلاقاً.
+    Route::get('/legal-sources', [AdminLegalSourceController::class, 'index'])
+        ->middleware('permission:المساعد القانوني')->name('legal-sources');
+    Route::post('/legal-sources/{source}/approve', [AdminLegalSourceController::class, 'approve'])
+        ->middleware('permission:المساعد القانوني')->name('legal-sources.approve');
+    Route::post('/legal-sources/{source}/suspend', [AdminLegalSourceController::class, 'suspend'])
+        ->middleware('permission:المساعد القانوني')->name('legal-sources.suspend');
 
     // صندوق مراجعة مخرجات الذكاء (P3) — محروس بصلاحية «اعتماد الملخصات»:
     // مراجعة مخرج قانونيّ فعلُ اعتماد، فيُحرَس بما يُحرَس به الاعتماد لا بأقلّ منه.

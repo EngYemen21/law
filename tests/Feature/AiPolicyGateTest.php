@@ -6,6 +6,7 @@ use App\Enums\AiSource;
 use App\Services\Ai\AiDecision;
 use App\Services\Ai\AiPolicyGate;
 use App\Services\Ai\AiPromptRegistry;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
@@ -17,6 +18,9 @@ use Tests\TestCase;
  */
 class AiPolicyGateTest extends TestCase
 {
+    // البوّابة تقرأ العتبة السارية من الإعدادات (نمط Setting::vatRate القائم)
+    use RefreshDatabase;
+
     // ── القاعدة غير القابلة للتفاوض ──
 
     /** رأي قانونيّ أو مسودّة رسميّة لا تُقبل آلياً مهما بلغت ثقتها. */
@@ -70,7 +74,8 @@ class AiPolicyGateTest extends TestCase
 
     public function test_medium_sensitivity_respects_the_threshold(): void
     {
-        $above = AiPolicyGate::AUTO_ACCEPT_THRESHOLD;
+        // العتبة السارية لا الثابت: صارت تُعاير من لوحة التحكّم، والثابت افتراضٌ فقط
+        $above = AiPolicyGate::threshold();
 
         $this->assertSame(AiDecision::Accept, AiPolicyGate::decide('ticket.triage', AiSource::AiSuccess, $above));
         $this->assertSame(AiDecision::NeedsReview, AiPolicyGate::decide('ticket.triage', AiSource::AiSuccess, $above - 1));

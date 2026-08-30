@@ -2,6 +2,8 @@
 
 namespace App\Services\Ai;
 
+use App\Models\Setting;
+
 /**
  * تصنيف بيانات الذكاء الاصطناعي الأربعة — مطلب المرحلة P5.
  *
@@ -50,6 +52,13 @@ enum AiDataClass: string
     /** مدّة الاحتفاظ الفعليّة بعد التهيئة. */
     public function retentionDays(): ?int
     {
+        // الأولويّة: ما ضبطته الإدارة من لوحة التحكّم ← التهيئة ← الافتراض المحافظ.
+        // مدّة الاحتفاظ بملفّ قانونيّ قرارٌ نظاميّ، فلا يصحّ أن يلزمه نشرُ كود.
+        $stored = Setting::aiRetention();
+        if (array_key_exists($this->value, $stored)) {
+            return $stored[$this->value] === null ? null : (int) $stored[$this->value];
+        }
+
         $configured = config("services.ai.retention.{$this->value}", 'unset');
 
         return $configured === 'unset' ? $this->defaultRetentionDays() : $configured;

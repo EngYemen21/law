@@ -2,6 +2,8 @@
 
 namespace App\Services\Ai;
 
+use App\Models\Setting;
+
 /**
  * تقدير كلفة نداء — **من أسعار مُهيَّأة لا من أرقام مخترعة**.
  *
@@ -27,7 +29,8 @@ final class AiCost
             return null;
         }
 
-        $rates = config("services.ai.pricing.{$model}");
+        // الأولويّة لما تضبطه الإدارة من اللوحة، ثم التهيئة — فتعديل سعرٍ لا يلزمه نشر
+        $rates = Setting::aiPricing()[$model] ?? null;
         if (! is_array($rates) || ! isset($rates['input'], $rates['output'])) {
             return null; // لا سعر مُهيَّأ ⇒ لا كلفة مُدّعاة
         }
@@ -41,7 +44,7 @@ final class AiCost
     /** هل يعرف النظام سعر هذا النموذج أصلاً؟ — للوحة التشغيل كي تميّز «صفر» من «مجهول». */
     public static function hasRate(?string $model): bool
     {
-        $rates = $model === null ? null : config("services.ai.pricing.{$model}");
+        $rates = $model === null ? null : (Setting::aiPricing()[$model] ?? null);
 
         return is_array($rates) && isset($rates['input'], $rates['output']);
     }

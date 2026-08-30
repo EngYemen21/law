@@ -1,0 +1,326 @@
+import { router } from '@inertiajs/react';
+import React, { useState } from 'react';
+import Icon from '@/lib/icons';
+
+interface Metrics {
+  total: number;
+  fallback_rate: number | null;
+  failure_rate: number | null;
+  needs_review_rate: number | null;
+  latency_p50_ms: number | null;
+  latency_p95_ms: number | null;
+  total_tokens: number;
+  estimated_cost: number | null;
+  cost_coverage: number | null;
+}
+
+interface Reason { code: string; label: string; total: number; highRisk: boolean }
+interface RetentionRow { value: string; label: string; days: number | null; isDefault: boolean }
+
+interface EvalResult {
+  task: string;
+  total: number;
+  passed: number;
+  rate: number;
+  gate: number;
+  meets: boolean;
+  live: boolean;
+  liveSkipped: string | null;
+  failures: string[];
+}
+
+interface LastEvaluation {
+  at: string;
+  live: boolean;
+  cost: number | null;
+  by: string | null;
+  failure: string | null;
+  running: boolean;
+  results: EvalResult[];
+}
+
+/** يُرسَل كما هو إلى الخادم، فيلزمه فهرس نصّيّ ليقبله عقد Inertia. */
+interface PricingRow { [key: string]: string | number; model: string; input: number; output: number }
+
+interface Props {
+  days: number;
+  metrics: Metrics;
+  alerts: { code: string; message: string; value: number }[];
+  failureCodes: Record<string, number>;
+  rejectionReasons: Reason[];
+  editRate: number | null;
+  pendingReview: number;
+  settings: {
+    threshold: number;
+    defaultThreshold: number;
+    pricing: Record<string, { input: number; output: number }>;
+    retention: RetentionRow[];
+  };
+  evaluation: {
+    last: LastEvaluation | null;
+    tasks: string[];
+    liveCapable: string[];
+    providerReady: boolean;
+  };
+}
+
+/** «غير مقيسة» لا صفر: الصفر يقول إن القياس جرى ونتيجته صفر — وهو ادّعاء مختلف. */
+const pct = (v: number | null): string => (v === null ? 'غير مقيسة' : `${Math.round(v * 100)}%`);
+
+const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejectionReasons, editRate, pendingReview, settings, evaluation }) => {
+  const [threshold, setThreshold] = useState(settings.threshold);
+  const [retention, setRetention] = useState<Record<string, string>>(
+    Object.fromEntries(settings.retention.map((r) => [r.value, r.days === null ? '' : String(r.days)])),
+  );
+  const [pricing, setPricing] = useState<PricingRow[]>(
+    Object.entries(settings.pricing).map(([model, r]) => ({ model, input: r.input, output: r.output })),
+  );
+  const [busy, setBusy] = useState(false);
+
+  const post = (url: string, data: Parameters<typeof router.post>[1]) => {
+    setBusy(true);
+    router.post(url, data, { preserveScroll: true, onFinish: () => setBusy(false) });
+  };
+
+  return (
+    <div className="admin-ai-ops-root" style={{ paddingBottom: 60, width: '100%' }}>
+      <div className="greet">
+        <h1>تشغيل الذكاء وحوكمته</h1>
+        <p>
+          مؤشّرات آخر {days} يوماً، ومعايرة القرارات التي كانت حبيسة الشيفرة: عتبة القبول
+          الآليّ، وأسعار النماذج، ومدد الاحتفاظ.
+        </p>
+      </div>
+
+      {alerts.length > 0 && (
+        <div className="card" style={{ marginBottom: 14, borderInlineStart: '3px solid var(--amber)' }}>
+          <div className="card-b" style={{ padding: '12px 16px' }}>
+            {alerts.map((a) => (
+              <div key={a.code} className="mtg-pend"><Icon name="info" /> {a.message}</div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── المؤشّرات ── */}
+      <div className="kpi-row" style={{ marginBottom: 14 }}>
+        <div className="kpi"><span>نداءات الفترة</span><b>{metrics.total}</b></div>
+        <div className="kpi"><span>نسبة الاحتياطيّ</span><b>{pct(metrics.fallback_rate)}</b></div>
+        <div className="kpi"><span>نسبة الفشل</span><b>{pct(metrics.failure_rate)}</b></div>
+        <div className="kpi"><span>تحتاج مراجعة</span><b>{pct(metrics.needs_review_rate)}</b></div>
+        <div className="kpi"><span>احتاج تعديلاً بشرياً</span><b>{pct(editRate)}</b></div>
+        <div className="kpi"><span>بانتظار المراجعة</span><b>{pendingReview}</b></div>
+      </div>
+
+      <div className="kpi-row" style={{ marginBottom: 14 }}>
+        <div className="kpi"><span>زمن P50</span><b>{metrics.latency_p50_ms === null ? '—' : `${metrics.latency_p50_ms} م.ث`}</b></div>
+        <div className="kpi"><span>زمن P95</span><b>{metrics.latency_p95_ms === null ? '—' : `${metrics.latency_p95_ms} م.ث`}</b></div>
+        <div className="kpi"><span>التوكنات</span><b>{metrics.total_tokens.toLocaleString('en-US')}</b></div>
+        <div className="kpi">
+          <span>الكلفة التقديريّة</span>
+          <b>{metrics.estimated_cost === null ? 'غير معلومة' : metrics.estimated_cost}</b>
+          {metrics.cost_coverage !== null && metrics.cost_coverage < 1 && (
+            <small style={{ color: 'var(--amber)' }}>جزئيّة — تغطية {pct(metrics.cost_coverage)}</small>
+          )}
+        </div>
+      </div>
+
+      {/* ── أسباب الرفض: مادّة اجتماع الحوكمة ── */}
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card-h"><h3>أسباب الرفض — آخر {days} يوماً</h3></div>
+        <div className="card-b" style={{ padding: '14px 16px' }}>
+          {rejectionReasons.length === 0 ? (
+            <p>لا رفض مسجَّل في الفترة.</p>
+          ) : (
+            rejectionReasons.map((r) => (
+              <div key={r.code} className="cell-row">
+                <span>{r.label}{r.highRisk && <span className="badge b-red" style={{ marginInlineStart: 6 }}>خطورة عالية</span>}</span>
+                <span>{r.total}</span>
+              </div>
+            ))
+          )}
+          <p style={{ marginTop: 10, color: 'var(--muted)', fontSize: 12 }}>
+            تراجعُ فئة عالية الخطورة يمنع اعتماد نموذج أو تعليمة جديدة <b>ولو تحسّن المتوسّط العام</b>.
+          </p>
+        </div>
+      </div>
+
+      {Object.keys(failureCodes).length > 0 && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="card-h"><h3>أسباب التعذّر</h3></div>
+          <div className="card-b" style={{ padding: '14px 16px' }}>
+            {Object.entries(failureCodes).map(([code, total]) => (
+              <div key={code} className="cell-row"><span>{code}</span><span>{total}</span></div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── معايرة العتبة ── */}
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card-h"><h3>عتبة القبول الآليّ</h3></div>
+        <div className="card-b" style={{ padding: '14px 16px' }}>
+          <p style={{ color: 'var(--muted)', fontSize: 12.5 }}>
+            تخصّ المهام <b>متوسّطة الحساسيّة</b> وحدها (الفرز وفحص المستندات). المخرجات
+            القانونيّة لا تُقبل آلياً مهما بلغت ثقتها. الافتراضيّ {settings.defaultThreshold}%.
+          </p>
+          <div className="field" style={{ maxWidth: 220 }}>
+            <label>العتبة (0–100)</label>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              max={100}
+              value={threshold}
+              onChange={(e) => setThreshold(Number(e.target.value))}
+            />
+          </div>
+          <button className="btn sm" disabled={busy} type="button" onClick={() => post('/admin/ai-ops/threshold', { threshold })}>
+            <Icon name="check" /> حفظ العتبة
+          </button>
+        </div>
+      </div>
+
+      {/* ── الأسعار ── */}
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card-h"><h3>أسعار النماذج — لكل مليون توكن</h3></div>
+        <div className="card-b" style={{ padding: '14px 16px' }}>
+          <p style={{ color: 'var(--muted)', fontSize: 12.5 }}>
+            بلا سعر تبقى الكلفة «غير معلومة» ويُعلَن أن المجموع جزئيّ — لا صفر يوهم بأن
+            النداء مجّانيّ.
+          </p>
+          {pricing.map((row, i) => (
+            <div key={i} className="cell-row" style={{ gap: 8, alignItems: 'flex-end' }}>
+              <div className="field" style={{ margin: 0 }}>
+                <label>النموذج</label>
+                <input className="input" value={row.model}
+                  onChange={(e) => setPricing(pricing.map((p, j) => (j === i ? { ...p, model: e.target.value } : p)))} />
+              </div>
+              <div className="field" style={{ margin: 0, maxWidth: 130 }}>
+                <label>إدخال</label>
+                <input className="input" type="number" step="0.001" value={row.input}
+                  onChange={(e) => setPricing(pricing.map((p, j) => (j === i ? { ...p, input: Number(e.target.value) } : p)))} />
+              </div>
+              <div className="field" style={{ margin: 0, maxWidth: 130 }}>
+                <label>إخراج</label>
+                <input className="input" type="number" step="0.001" value={row.output}
+                  onChange={(e) => setPricing(pricing.map((p, j) => (j === i ? { ...p, output: Number(e.target.value) } : p)))} />
+              </div>
+              <button className="btn soft sm" type="button" onClick={() => setPricing(pricing.filter((_, j) => j !== i))}>حذف</button>
+            </div>
+          ))}
+          <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+            <button className="btn soft sm" type="button" onClick={() => setPricing([...pricing, { model: '', input: 0, output: 0 }])}>
+              إضافة نموذج
+            </button>
+            <button className="btn sm" disabled={busy} type="button" onClick={() => post('/admin/ai-ops/pricing', { pricing })}>
+              <Icon name="check" /> حفظ الأسعار
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── الاحتفاظ ── */}
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card-h"><h3>مدد الاحتفاظ بالأيام</h3></div>
+        <div className="card-b" style={{ padding: '14px 16px' }}>
+          <p style={{ color: 'var(--muted)', fontSize: 12.5 }}>
+            الفراغ = بلا حدّ. تُطبَّق بأمر <code>ai:purge --force</code>: تجريدُ الحقول
+            السرّية أولاً ثم حذفٌ كامل — فلا تضيع المؤشّرات بمجرّد انقضاء مدّة المحتوى.
+          </p>
+          {settings.retention.map((r) => (
+            <div key={r.value} className="field" style={{ maxWidth: 320 }}>
+              <label>
+                {r.label}
+                {r.isDefault && <span style={{ color: 'var(--muted)', fontSize: 11 }}> — افتراض لم يُعتمد بعد</span>}
+              </label>
+              <input className="input" type="number" min={1} max={3650} value={retention[r.value] ?? ''}
+                onChange={(e) => setRetention({ ...retention, [r.value]: e.target.value })} />
+            </div>
+          ))}
+          <button className="btn sm" disabled={busy} type="button" onClick={() => post('/admin/ai-ops/retention', { retention })}>
+            <Icon name="check" /> حفظ المدد
+          </button>
+        </div>
+      </div>
+
+      {/* ── مجموعة التقييم: الطبقة الثانية ── */}
+      <div className="card">
+        <div className="card-h"><h3>مجموعة التقييم</h3></div>
+        <div className="card-b" style={{ padding: '14px 16px' }}>
+          <p style={{ color: 'var(--muted)', fontSize: 12.5 }}>
+            حالات <b>مصطنعة بالكامل</b> — لا بيانات عملاء تُرسَل. شغّلها قبل أي تغيير في
+            نموذج أو تعليمة وقارن الحصيلة بالسابقة. سقوطُ مهمّة دون بوّابتها يمنع الاعتماد
+            <b> ولو تحسّن المتوسّط العام</b>.
+          </p>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '10px 0' }}>
+            <button className="btn soft sm" disabled={busy} type="button" onClick={() => post('/admin/ai-ops/evaluate', { live: false })}>
+              تشغيل جافّ — بلا نداء شبكيّ
+            </button>
+            <button
+              className="btn sm"
+              type="button"
+              disabled={busy || !evaluation.providerReady}
+              title={evaluation.providerReady ? 'يستهلك حصّة المزوّد الفعليّة' : 'لا مزوّد مهيَّأ'}
+              onClick={() => post('/admin/ai-ops/evaluate', { live: true })}
+            >
+              <Icon name="sparkles" /> تشغيل حيّ على المزوّد
+            </button>
+          </div>
+
+          {!evaluation.providerReady && (
+            <p style={{ color: 'var(--amber)', fontSize: 12 }}>لا مزوّد مهيَّأ — التشغيل الحيّ متعذّر.</p>
+          )}
+
+          {evaluation.last === null ? (
+            <p>لم تُشغَّل المجموعة بعد.</p>
+          ) : (
+            <>
+              <p style={{ fontSize: 12.5 }}>
+                آخر تشغيل: {evaluation.last.at} — {evaluation.last.live ? 'حيّ' : 'جافّ'}
+                {evaluation.last.by && ` · بأمر ${evaluation.last.by}`}
+                {evaluation.last.live && ` · الكلفة: ${evaluation.last.cost === null ? 'غير معلومة' : `$${evaluation.last.cost}`}`}
+              </p>
+
+              {evaluation.last.running && (
+                <div className="mtg-pend"><Icon name="info" /> التشغيل الحيّ جارٍ الآن — حدّث الصفحة بعد دقائق. الأرقام أدناه من تشغيلٍ سابق.</div>
+              )}
+              {evaluation.last.failure && (
+                <div className="mtg-pend" style={{ color: 'var(--red)' }}><Icon name="info" /> {evaluation.last.failure}</div>
+              )}
+
+              {evaluation.last.results.map((r) => (
+                <div key={r.task} style={{ marginTop: 10 }}>
+                  <div className="cell-row">
+                    <span>
+                      {r.task}
+                      <span className={`badge ${r.meets ? 'b-green' : 'b-red'}`} style={{ marginInlineStart: 6 }}>
+                        {r.meets ? 'عبرت' : 'سقطت'}
+                      </span>
+                      {r.liveSkipped && <span className="badge b-amber" style={{ marginInlineStart: 6 }}>جافّة</span>}
+                    </span>
+                    <span>{r.passed}/{r.total} · بوّابة {Math.round(r.gate * 100)}%</span>
+                  </div>
+                  {r.liveSkipped && (
+                    <p style={{ color: 'var(--muted)', fontSize: 12, margin: '2px 0 0' }}>لم تُشغَّل حيّاً — {r.liveSkipped}</p>
+                  )}
+                  {r.failures.map((f, i) => (
+                    <p key={i} style={{ color: 'var(--red)', fontSize: 12, margin: '2px 0 0' }}>✗ {f}</p>
+                  ))}
+                </div>
+              ))}
+            </>
+          )}
+
+          <p style={{ marginTop: 12, color: 'var(--muted)', fontSize: 12 }}>
+            هذه <b>الطبقة الثانية</b>. الثالثة مراجعةُ محامٍ لعيّنة عمياء دوريّة، وتتجمّع
+            أسبابها تلقائياً في صندوق المراجعة أعلاه. وللجدولة وخطّ التكامل: <code>ai:evaluate --live</code>.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AiOps;
