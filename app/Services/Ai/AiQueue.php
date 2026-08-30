@@ -24,6 +24,23 @@ final class AiQueue
     public const LEGAL_REVIEW = 'ai-legal-review';
 
     /**
+     * الطابور الفعليّ للمهمّة، أو `null` = الطابور الافتراضيّ.
+     *
+     * **مُطفأ افتراضياً عمداً.** الإنتاج يشغّل `queue:work --queue=default`، فنقلُ
+     * المهام إلى طوابير جديدة بلا تحديث العامل يوقف **كل** معالجة الذكاء صامتةً —
+     * لا خطأ ولا سجلّ، فقط مهامّ لا تُلتقط أبداً. يُفعَّل بـ`AI_SEPARATE_QUEUES=true`
+     * **بعد** أن يصير العامل يستمع للطوابير الثلاثة:
+     *
+     *   queue:work --queue=ai-low-risk,ai-documents,ai-legal-review,default
+     *
+     * وهذا ما تفرضه الخطة: كل مرحلة خلف مفتاح، وتبدأ بلا أثر حتى يُقرَّر تفعيلها.
+     */
+    public static function resolve(string $promptId): ?string
+    {
+        return config('services.ai.separate_queues') ? self::for($promptId) : null;
+    }
+
+    /**
      * الطابور المناسب لمعرّف التعليمة. المهمّة غير المسجَّلة تذهب إلى
      * `LEGAL_REVIEW` — الافتراض الآمن: تُعامَل كأنها قانونيّة حتى يُقرَّر غير ذلك،
      * نظير `AiPolicyGate::sensitivity` التي تعدّ المجهول عالي الحساسيّة.

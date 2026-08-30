@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Events\MeetingStatusBroadcast;
 use App\Models\Meeting;
+use App\Services\Ai\AiQueue;
 use App\Services\LegalAiService;
 use App\Support\Live;
 use Illuminate\Bus\Queueable;
@@ -16,10 +17,25 @@ class GenerateMeetingSummaryJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    /** معرّف التعليمة — منه يُشتقّ الطابور (P6): الفصل بالحساسيّة لا بالحجم. */
+    private const PROMPT_ID = 'meeting.summary';
+
+    /**
+     * الطابور يُحسم عند الإنشاء. `resolve` تُعيد `null` ما لم يُفعَّل
+     * AI_SEPARATE_QUEUES، فيبقى السلوك على الطابور الافتراضيّ كما هو —
+     * تفعيلٌ قبل تحديث أمر العامل يوقف معالجة الذكاء صامتةً.
+     */
+    private function routeToAiQueue(): void
+    {
+        $this->onQueue(AiQueue::resolve(self::PROMPT_ID));
+    }
+
     public function __construct(
         public Meeting $meeting,
         public string $notes
-    ) {}
+    ) {
+        $this->routeToAiQueue();
+    }
 
     public function handle(LegalAiService $ai): void
     {

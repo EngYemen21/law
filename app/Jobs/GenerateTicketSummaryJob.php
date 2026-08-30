@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Models\Task;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Services\Ai\AiQueue;
 use App\Services\LegalAiService;
 use App\Support\Notify;
 use Illuminate\Bus\Queueable;
@@ -26,10 +27,25 @@ class GenerateTicketSummaryJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    /** معرّف التعليمة — منه يُشتقّ الطابور (P6): الفصل بالحساسيّة لا بالحجم. */
+    private const PROMPT_ID = 'ticket.summary';
+
+    /**
+     * الطابور يُحسم عند الإنشاء. `resolve` تُعيد `null` ما لم يُفعَّل
+     * AI_SEPARATE_QUEUES، فيبقى السلوك على الطابور الافتراضيّ كما هو —
+     * تفعيلٌ قبل تحديث أمر العامل يوقف معالجة الذكاء صامتةً.
+     */
+    private function routeToAiQueue(): void
+    {
+        $this->onQueue(AiQueue::resolve(self::PROMPT_ID));
+    }
+
     public function __construct(
         public Ticket $ticket,
         public bool $force = false
-    ) {}
+    ) {
+        $this->routeToAiQueue();
+    }
 
     // نافذة إعادة المحاولة: 24 ساعة (تتجاوز التجدّد اليومي لحصّة Gemini)
     public function retryUntil(): \DateTimeInterface

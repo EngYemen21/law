@@ -233,11 +233,17 @@ INERTIA_SSR_ENABLED=false
 ## 6) العمليّات الخلفيّة الدائمة (Supervisor + cron) — ⚠️ لا غنى عنها
 
 ### أ) عامل الطابور (بدونه لا بريد اجتماعات ولا توليد ملخّصات)
+> ⚠️ **ترتيب إلزاميّ عند تفعيل فصل طوابير الذكاء:** حدِّث أمر العامل أدناه **أوّلاً**
+> (الطوابير الثلاثة قبل `default` — الترتيب أولويّة معالجة)، ثم `supervisorctl reread &&
+> supervisorctl update`، وبعدها فقط اضبط `AI_SEPARATE_QUEUES=true`. العكس يوقف **كل**
+> معالجة الذكاء صامتةً: لا خطأ ولا سجلّ، فقط مهامّ في طوابير لا يستمع لها أحد.
+> والمفتاح مُطفأ افتراضياً، فالنشر بلا تغيير آمن.
+
 `/etc/supervisor/conf.d/salasel-worker.conf`:
 ```ini
 [program:salasel-worker]
 process_name=%(program_name)s_%(process_num)02d
-command=php /var/www/salasel/artisan queue:work --queue=default --tries=3 --max-time=3600 --sleep=3
+command=php /var/www/salasel/artisan queue:work --queue=ai-low-risk,ai-documents,ai-legal-review,default --tries=3 --max-time=3600 --sleep=3
 autostart=true
 autorestart=true
 user=www-data

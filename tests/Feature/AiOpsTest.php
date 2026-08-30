@@ -3,7 +3,14 @@
 namespace Tests\Feature;
 
 use App\Enums\AiSource;
+use App\Enums\Role;
+use App\Jobs\AnalyzeExecutionJob;
+use App\Jobs\TriageDocumentJob;
+use App\Jobs\TriageTicketOnOpenJob;
 use App\Models\AiRun;
+use App\Models\Execution;
+use App\Models\Ticket;
+use App\Models\User;
 use App\Services\Ai\AiCost;
 use App\Services\Ai\AiOpsMetrics;
 use App\Services\Ai\AiQueue;
@@ -160,6 +167,48 @@ class AiOpsTest extends TestCase
         }
 
         $this->assertSame([], AiOpsMetrics::alerts());
+    }
+
+    // ── الربط الفعليّ: الطوابير موصولة بالوظائف لا معرَّفة وحدها ──
+
+    /**
+     * مُطفأ افتراضياً ⇒ الطابور الافتراضيّ.
+     *
+     * الإنتاج يشغّل `queue:work --queue=default`؛ فتفعيلُ الفصل قبل تحديث أمر
+     * العامل يوقف **كل** معالجة الذكاء صامتةً: لا خطأ ولا سجلّ، فقط مهامّ لا
+     * تُلتقط أبداً. لذا يبدأ مُطفأً ويُفعَّل بعد ضبط العامل.
+     */
+    public function test_jobs_stay_on_the_default_queue_until_separation_is_enabled(): void
+    {
+        config(['services.ai.separate_queues' => false]);
+
+        $this->assertNull((new AnalyzeExecutionJob($this->execution()))->queue);
+        $this->assertNull(AiQueue::resolve('case.pleading'));
+    }
+
+    public function test_enabling_separation_routes_each_job_to_its_own_queue(): void
+    {
+        config(['services.ai.separate_queues' => true]);
+
+        $client = User::factory()->create(['role' => Role::Client]);
+        $ticket = Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-'.uniqid(),
+            'type' => 'نزاع', 'status' => 'جديدة', 'tone' => 'b-blue',
+        ]);
+
+        $this->assertSame(AiQueue::LEGAL_REVIEW, (new AnalyzeExecutionJob($this->execution()))->queue);
+        $this->assertSame(AiQueue::LOW_RISK, (new TriageTicketOnOpenJob($ticket, 'تفاصيل', 'نزاع'))->queue);
+        $doc = $ticket->documents()->create(['name' => 'عقد.pdf', 'path' => 'x/عقد.pdf', 'status' => 'مرفوع']);
+        $this->assertSame(AiQueue::DOCUMENTS, (new TriageDocumentJob($ticket, $doc))->queue);
+    }
+
+    private function execution(): Execution
+    {
+        return Execution::create([
+            'user_id' => User::factory()->create(['role' => Role::Client])->id,
+            'number' => 'EX-'.uniqid(), 'sanad' => 'شيك', 'subject' => 'تحصيل',
+            'amount' => 1000, 'defendant' => 'خصم', 'stage' => 1,
+        ]);
     }
 
     public function test_failure_codes_distinguish_provider_faults_from_contract_faults(): void
