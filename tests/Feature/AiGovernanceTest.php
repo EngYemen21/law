@@ -154,4 +154,26 @@ class AiGovernanceTest extends TestCase
         $this->assertSame(1, AiRun::count());
         $this->assertNotNull(AiRun::first()->entity_ref);
     }
+    // ── التشفير في السكون ──
+
+    /**
+     * `review_note` هو الحقل الحرّ الوحيد في `ai_runs`: فيه يكتب المراجع لماذا رفض
+     * مخرجاً — أي وقائع ملفٍّ بلغته. بقيّة الأعمدة رموزٌ وأزمنة ومعرّفات لا محتوى،
+     * فمحلّ التشفير هذا الحقل وحده لا الجدول كلّه.
+     */
+    public function test_the_reviewer_note_is_encrypted_at_rest(): void
+    {
+        $run = AiRun::create([
+            'task_type' => 'consult',
+            'source' => AiSource::AiSuccess->value,
+            'status' => AiRun::STATUS_COMPLETED,
+            'trace_id' => (string) Str::uuid(),
+            'review_note' => 'المخرج نسب للعميل إقراراً لم يرد في المحضر.',
+        ]);
+
+        $raw = (string) \DB::table('ai_runs')->where('id', $run->id)->value('review_note');
+
+        $this->assertStringNotContainsString('المحضر', $raw, 'الملاحظة تُخزَّن مشفّرة لا خاماً');
+        $this->assertSame('المخرج نسب للعميل إقراراً لم يرد في المحضر.', $run->fresh()->review_note);
+    }
 }

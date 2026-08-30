@@ -123,6 +123,123 @@ class AiAdminScreensTest extends TestCase
         $this->actingAs($client)->getJson(route('admin.legal-sources'))->assertForbidden();
     }
 
+    // ── قاعدة بحجمها الحقيقيّ ──
+
+    /** 786 مادّة لا تُعرض في صفحة واحدة — الترقيم شرط قابليّة الاستعمال لا زينة. */
+    public function test_the_list_is_paginated_and_filterable(): void
+    {
+        for ($i = 1; $i <= 30; $i++) {
+            $this->source(['ref' => "LS-P-{$i}", 'system_name' => 'نظام الترقيم', 'text' => "نصّ المادّة {$i}."]);
+        }
+        $this->source(['ref' => 'LS-OTHER', 'system_name' => 'نظام آخر', 'text' => 'نصّ مختلف تماماً.']);
+
+        $this->actingAs($this->admin())
+            ->get(route('admin.legal-sources', ['system' => 'نظام الترقيم']))
+            ->assertInertia(fn ($page) => $page
+                ->where('pagination.total', 30)
+                ->has('sources', 25)
+                ->where('pagination.lastPage', 2)
+            );
+    }
+
+    /** المحامي يبحث عن حكمٍ لا عن ترقيم — فالبحث يمسّ نصّ المادّة نفسه. */
+    public function test_search_matches_the_article_text_not_just_its_number(): void
+    {
+        $this->source(['ref' => 'LS-A', 'text' => 'يلتزم المتعاقد بتعويض الضرر الذي أحدثه.']);
+        $this->source(['ref' => 'LS-B', 'text' => 'تحسب المدد بالتقويم الهجري.']);
+
+        $this->actingAs($this->admin())
+            ->get(route('admin.legal-sources', ['q' => 'تعويض']))
+            ->assertInertia(fn ($page) => $page
+                ->has('sources', 1)
+                ->where('sources.0.ref', 'LS-A')
+            );
+    }
+
+    // ── اعتماد نظام كامل ──
+
+    public function test_a_whole_system_can_be_approved_at_once(): void
+    {
+        foreach (range(1, 5) as $i) {
+            $this->source(['ref' => "LS-SYS-{$i}", 'system_name' => 'نظام التنفيذ']);
+        }
+        $this->source(['ref' => 'LS-KEEP', 'system_name' => 'نظام آخر']);
+
+        $this->actingAs($this->admin())
+            ->post(route('admin.legal-sources.approve-system'), [
+                'system' => 'نظام التنفيذ',
+                'confirm' => 'نظام التنفيذ',
+            ])
+            ->assertRedirect();
+
+        $this->assertSame(5, LegalSource::where('system_name', 'نظام التنفيذ')
+            ->where('status', LegalSource::STATUS_APPROVED)->count());
+        // ولا يمتدّ الاعتماد إلى نظامٍ لم يُقصد
+        $this->assertSame(LegalSource::STATUS_DRAFT, LegalSource::where('ref', 'LS-KEEP')->value('status'));
+    }
+
+    /** فعلٌ واسع الأثر لا يُترك لزرٍّ يُضغط سهواً: يلزمه كتابة اسم النظام حرفياً. */
+    public function test_approving_a_whole_system_requires_typing_its_name(): void
+    {
+        $this->source(['system_name' => 'نظام التنفيذ']);
+
+        $this->actingAs($this->admin())
+            ->post(route('admin.legal-sources.approve-system'), [
+                'system' => 'نظام التنفيذ',
+                'confirm' => 'نعم',
+            ])
+            ->assertSessionHasErrors('confirm');
+
+        $this->assertSame(0, LegalSource::where('status', LegalSource::STATUS_APPROVED)->count());
+    }
+
+    /** والاعتماد الجماعيّ يسجّل المُعتمِد على كل مادّة — لا اعتماد مجهول صاحبه. */
+    public function test_bulk_approval_still_records_the_reviewer_on_every_article(): void
+    {
+        $this->source(['ref' => 'LS-BULK', 'system_name' => 'نظام التنفيذ']);
+        $admin = $this->admin();
+
+        $this->actingAs($admin)->post(route('admin.legal-sources.approve-system'), [
+            'system' => 'نظام التنفيذ',
+            'confirm' => 'نظام التنفيذ',
+        ]);
+
+        $row = LegalSource::where('ref', 'LS-BULK')->first();
+        $this->assertSame($admin->id, $row->reviewed_by);
+        $this->assertNotNull($row->legal_review_at);
+    }
+
+    /**
+     * نظامٌ اعتُمد ولم يبدأ سريانه لا يُسترجَع في وقائع اليوم. هذه ليست حالة نظريّة:
+     * نظام التنفيذ الجديد نُشر 2026/05/01 ويُعمل به بعد (180) يوماً.
+     */
+    public function test_an_approved_but_not_yet_effective_source_is_not_retrievable(): void
+    {
+        $future = $this->source([
+            'ref' => 'LS-FUTURE',
+            'domain' => 'التنفيذ',
+            'effective_from' => now()->addMonths(2)->toDateString(),
+        ]);
+
+        $this->actingAs($this->admin())->post(route('admin.legal-sources.approve', $future));
+
+        $this->assertSame(LegalSource::STATUS_APPROVED, $future->fresh()->status);
+        $this->assertCount(0, LegalKnowledge::retrieve('التنفيذ'), 'نصٌّ لم يبدأ سريانه لا يحكم واقعة اليوم');
+    }
+
+    /** والشاشة تقول ذلك صراحةً بدل أن تعرضه «معتمداً» فيُظنّ عاملاً. */
+    public function test_the_screen_declares_a_source_that_is_not_yet_in_force(): void
+    {
+        $this->source(['ref' => 'LS-SOON', 'effective_from' => now()->addYear()->toDateString()]);
+
+        $this->actingAs($this->admin())
+            ->get(route('admin.legal-sources'))
+            ->assertInertia(fn ($page) => $page
+                ->where('sources.0.inForce', false)
+                ->where('systems.0.inForce', false)
+            );
+    }
+
     // ── معايرة العتبة من اللوحة ──
 
     /** المعايرة قرار قانونيّ — كانت تلزمها تعديل كود ونشر. */

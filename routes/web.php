@@ -599,6 +599,9 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
         ->middleware('permission:المساعد القانوني')->name('legal-sources');
     Route::post('/legal-sources/{source}/approve', [AdminLegalSourceController::class, 'approve'])
         ->middleware('permission:المساعد القانوني')->name('legal-sources.approve');
+    // اعتماد نظامٍ كامل: مئات المواد لا تُعتمد بمئات النقرات
+    Route::post('/legal-sources/approve-system', [AdminLegalSourceController::class, 'approveSystem'])
+        ->middleware('permission:المساعد القانوني')->name('legal-sources.approve-system');
     Route::post('/legal-sources/{source}/suspend', [AdminLegalSourceController::class, 'suspend'])
         ->middleware('permission:المساعد القانوني')->name('legal-sources.suspend');
 

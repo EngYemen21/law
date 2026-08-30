@@ -45,6 +45,11 @@ class AiRun extends Model
         'reviewed_at' => 'datetime',
         'review_action' => AiReviewAction::class,
         'review_reason' => AiReviewReason::class,
+        // التشفير في السكون (P5). `review_note` هو الحقل الحرّ الوحيد في هذا الجدول،
+        // وفيه يكتب المراجع لماذا رفض مخرجاً — أي وقائع ملفٍّ بلغته. وبقيّة الأعمدة
+        // رموزٌ وأزمنة ومعرّفات لا محتوى، فمحلّ التشفير هذا الحقل وحده لا الجدول كلّه.
+        // ولا يُبحَث فيه ولا يُرشَّح به في أي مسار، فالتشفير لا يكسر استعلاماً قائماً.
+        'review_note' => 'encrypted',
     ];
 
     public function entity(): MorphTo

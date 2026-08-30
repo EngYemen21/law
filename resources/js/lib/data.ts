@@ -250,6 +250,7 @@ const EMPLOYEE_NAV: SideGroup[] = [
     { icon: 'video', label: 'الاجتماعات', route: '/employee/meetings' },
     { icon: 'video', label: 'طلبات الاجتماعات', route: '/employee/meetreqs' },
     { icon: 'compass', label: 'استقبال الاستشارات', route: '/employee/consultrecv' },
+    { icon: 'sparkles', label: 'مراجعة مخرجات الذكاء', route: '/employee/ai-review' },
   ] },
 ];
 
@@ -271,6 +272,9 @@ const LAWYER_NAV: SideGroup[] = [
     { icon: 'scale', label: 'جلسات الاستشارات', route: '/lawyer/consults' },
     { icon: 'out', label: 'الملخصات', route: '/lawyer/summaries' },
     { icon: 'exec', label: 'المهام', route: '/lawyer/tasks' },
+    // صندوق المراجعة نفسه لكل دور والعزل داخل AiReviewInbox — فحصره في لوحة
+    // الإدارة يناقض P3. وبلا رابطٍ هنا لا يصل إليه المحامي أصلاً.
+    { icon: 'sparkles', label: 'مراجعة مخرجات الذكاء', route: '/lawyer/ai-review' },
   ] },
 ];
 
@@ -309,6 +313,14 @@ const ADMIN_NAV: SideGroup[] = [
     { icon: 'calgrid', label: 'التقويم والمواعيد', route: '/admin/calendar' },
     { icon: 'bell', label: 'إشعارات العملاء', route: '/admin/clientnotifs' },
     { icon: 'doc', label: 'المساعد القانوني', route: '/admin/assistant' },
+  ] },
+  // شاشات الذكاء الاصطناعي: مراجعة المخرجات، واعتماد المصادر، والحوكمة والمعايرة.
+  // كانت تُبنى بلا رابط يصل إليها — تُفتح بكتابة مسارها يدوياً وحدها، أي إنها عملياً
+  // غير موجودة لمن لا يعرف المسار. الشاشة بلا مدخل ليست شاشةً.
+  { g: 'الذكاء الاصطناعي', items: [
+    { icon: 'sparkles', label: 'مراجعة مخرجات الذكاء', route: '/admin/ai-review' },
+    { icon: 'scale', label: 'المصادر القانونيّة', route: '/admin/legal-sources' },
+    { icon: 'compass', label: 'تشغيل الذكاء وحوكمته', route: '/admin/ai-ops' },
   ] },
   { g: 'المالية والتقارير', items: [
     { icon: 'card', label: 'الإيرادات', route: '/admin/revenue' },
@@ -357,6 +369,7 @@ const EMPLOYEE_TITLES: Record<string, [string, string]> = {
   '/employee/meetingroom': ['غرفة الاجتماع', 'لوحة الموظف'],
   '/employee/consultrecv': ['استقبال الاستشارات', 'لوحة الموظف'],
   '/employee/videoroom': ['غرفة الجلسة المرئية', 'لوحة الموظف'],
+  '/employee/ai-review': ['مراجعة مخرجات الذكاء', 'لوحة الموظف'],
 };
 
 const LAWYER_TITLES: Record<string, [string, string]> = {
@@ -376,12 +389,16 @@ const LAWYER_TITLES: Record<string, [string, string]> = {
   '/lawyer/consult': ['رحلة الاستشارة', 'لوحة المحامي'],
   '/lawyer/summaries': ['الملخصات', 'لوحة المحامي'],
   '/lawyer/tasks': ['المهام', 'لوحة المحامي'],
+  '/lawyer/ai-review': ['مراجعة مخرجات الذكاء', 'لوحة المحامي'],
   '/lawyer/videoroom': ['غرفة الجلسة المرئية', 'لوحة المحامي'],
 };
 
 const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/dashboard': ['الرئيسية', 'لوحة الإدارة'],
   '/admin/audit-logs': ['سجل الرقابة والتدقيق الأمني', 'الإدارة العليا'],
+  '/admin/ai-review': ['مراجعة مخرجات الذكاء', 'الإدارة العليا'],
+  '/admin/legal-sources': ['المصادر القانونيّة المعتمدة', 'الإدارة العليا'],
+  '/admin/ai-ops': ['تشغيل الذكاء وحوكمته', 'الإدارة العليا'],
   '/admin/clients': ['العملاء', 'لوحة الإدارة'],
   '/admin/tickets': ['التذاكر', 'لوحة الإدارة'],
   '/admin/lawyers': ['المحامون', 'لوحة الإدارة'],

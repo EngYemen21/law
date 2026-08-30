@@ -222,4 +222,24 @@ class AiOpsTest extends TestCase
         $this->assertSame(2, $codes['provider_unavailable']);
         $this->assertSame(1, $codes['invalid_structure']);
     }
+    // ── تقرير الحوكمة ──
+
+    /**
+     * صفرُ نداءات ليس 'أداءً ممتازاً': لا قياس أصلاً. التقرير الذي يعرض 0% فشل
+     * على قاعدة فارغة يقود اجتماع الحوكمة إلى قرار مبنيّ على لا شيء.
+     */
+    public function test_the_report_says_there_is_nothing_to_measure_rather_than_reporting_zero(): void
+    {
+        $this->artisan('ai:report --days=30')
+            ->expectsOutputToContain('لا نداءات في الفترة')
+            ->assertSuccessful();
+    }
+
+    /** وحين لا مصدر معتمد يقولها صراحةً: الاستشهاد معطَّل لا 'يعمل بلا مصادر'. */
+    public function test_the_report_flags_an_empty_legal_corpus(): void
+    {
+        $this->artisan('ai:report')
+            ->expectsOutputToContain('لا مصدر معتمد')
+            ->assertSuccessful();
+    }
 }
