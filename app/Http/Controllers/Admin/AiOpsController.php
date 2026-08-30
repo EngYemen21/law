@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\RunAiEvaluationJob;
+use App\Models\AiEvaluationRun;
 use App\Models\Setting;
 use App\Services\Ai\AiDataClass;
 use App\Services\Ai\AiEvaluator;
@@ -52,6 +53,11 @@ class AiOpsController extends Controller
                 'liveCapable' => AiEvaluator::LIVE_CAPABLE,
                 // بلا مزوّد مهيَّأ لا معنى لزرّ «تشغيل حيّ» — يُعطَّل ويُشرح سببه
                 'providerReady' => app(LegalAiService::class)->isConfigured(),
+                // الفرق عن التشغيل السابق: النتيجة وحدها تقول «كم هي اليوم»، والسؤال
+                // الحاكم «هل تراجعت» — ولا يُجاب إلّا بمقارنة
+                'diff' => $this->evaluationDiff(),
+                'baselineAt' => AiEvaluator::previousRun()?->created_at?->toDateTimeString(),
+                'runsRecorded' => AiEvaluationRun::count(),
             ],
         ]);
     }
@@ -159,6 +165,26 @@ class AiOpsController extends Controller
         usort($rows, fn ($a, $b) => [$b['highRisk'], $b['total']] <=> [$a['highRisk'], $a['total']]);
 
         return $rows;
+    }
+
+    /**
+     * الفرق بين آخر تشغيلين مسجَّلين.
+     *
+     * يُقارَن **القيد بالقيد** لا الحالةُ الراهنة بالقيد: الحالة الراهنة قد تكون
+     * «تشغيلاً جارياً» بنتائج التشغيل الأسبق، فمقارنتها بنفسها تُظهر صفراً كاذباً.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    private function evaluationDiff(): array
+    {
+        $latest = AiEvaluator::latestRun();
+        $previous = AiEvaluator::previousRun();
+
+        if ($latest === null || $previous === null) {
+            return [];
+        }
+
+        return AiEvaluator::diff($latest->results, $previous);
     }
 
     /** @return array<int, array{value:string,label:string,days:int|null,isDefault:bool}> */

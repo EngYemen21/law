@@ -62,7 +62,20 @@ interface Props {
     tasks: string[];
     liveCapable: string[];
     providerReady: boolean;
+    diff: EvalDiff[];
+    baselineAt: string | null;
+    runsRecorded: number;
   };
+}
+
+/** فرق مهمّة عن تشغيلها السابق — «جديدة» تُميَّز عن «تراجعت». */
+interface EvalDiff {
+  task: string;
+  rate: number;
+  previous: number | null;
+  delta: number | null;
+  regressed: boolean;
+  isNew: boolean;
 }
 
 /** «غير مقيسة» لا صفر: الصفر يقول إن القياس جرى ونتيجته صفر — وهو ادّعاء مختلف. */
@@ -289,6 +302,37 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
               )}
               {evaluation.last.failure && (
                 <div className="mtg-pend" style={{ color: 'var(--red)' }}><Icon name="info" /> {evaluation.last.failure}</div>
+              )}
+
+              {/* الفرق عن السابق: النتيجة وحدها تقول «كم هي اليوم»، والسؤال الحاكم
+                  «هل تراجعت». والمتوسّط يخفي التراجع، فتُقارَن كل مهمّة على حدة. */}
+              {evaluation.diff.length === 0 ? (
+                <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>
+                  {evaluation.runsRecorded <= 1
+                    ? 'أوّل تشغيل مسجَّل — صار خطَّ الأساس، ولا سابق يُقارَن به.'
+                    : 'لا مقارنة متاحة بعد.'}
+                </p>
+              ) : (
+                <div style={{ marginTop: 10, padding: '10px 12px', borderInlineStart: `3px solid var(--${evaluation.diff.some((d) => d.regressed) ? 'red' : 'green'})` }}>
+                  <b style={{ fontSize: 12.5 }}>الفرق عن التشغيل السابق{evaluation.baselineAt && ` (${evaluation.baselineAt})`}</b>
+                  {evaluation.diff.some((d) => d.regressed) && (
+                    <p style={{ color: 'var(--red)', fontSize: 12.5, margin: '4px 0' }}>
+                      تراجعت مهمّة عن تشغيلها السابق — لا يُعتمد النموذج أو التعليمة ولو عبرت كل البوّابات.
+                    </p>
+                  )}
+                  {evaluation.diff.map((d) => (
+                    <div key={d.task} className="cell-row" style={{ fontSize: 12.5 }}>
+                      <span>{d.task}</span>
+                      <span style={{ color: d.regressed ? 'var(--red)' : undefined }}>
+                        {d.isNew
+                          ? 'مهمّة جديدة — لا سابق لها'
+                          : d.delta === 0
+                            ? 'بلا تغيّر'
+                            : `${Math.round((d.previous ?? 0) * 100)}% ← ${Math.round(d.rate * 100)}%`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               )}
 
               {evaluation.last.results.map((r) => (

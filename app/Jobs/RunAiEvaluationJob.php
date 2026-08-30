@@ -40,7 +40,7 @@ class RunAiEvaluationJob implements ShouldQueue
         $evaluator = new AiEvaluator;
         $results = $evaluator->run($this->tasks, live: true);
 
-        AiEvaluator::remember($results, true, $evaluator->cost(), $this->by);
+        AiEvaluator::remember($results, true, $evaluator->cost(), $this->by, liveCalls: $evaluator->liveCalls());
     }
 
     /** الفشل يجب أن يُقرأ في الشاشة لا في السجلّ وحده. */

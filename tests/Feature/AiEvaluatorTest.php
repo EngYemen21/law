@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Jobs\RunAiEvaluationJob;
+use App\Models\AiEvaluationRun;
 use App\Models\User;
 use App\Services\Ai\AiEvaluator;
 use App\Services\LegalAiService;
@@ -111,6 +112,104 @@ class AiEvaluatorTest extends TestCase
     {
         $this->assertSame(0.98, AiEvaluator::GATES['meeting.decisions']);
         $this->assertGreaterThan(AiEvaluator::GATES['ticket.triage'], AiEvaluator::GATES['meeting.decisions']);
+    }
+    // ── خطّ الأساس والمقارنة ──
+
+    /**
+     * كانت النتيجة تُحفَظ في مفتاح واحد يُستبدَل، فلا يبقى ما يُقارَن به: تتراجع
+     * مهمّة من 100% إلى 60% ولا يُلاحَظ. القيد الدائم هو ما يجعل السؤال قابلاً للإجابة.
+     */
+    public function test_each_completed_run_is_recorded_as_a_baseline(): void
+    {
+        (new AiEvaluator)->run();
+        AiEvaluator::remember([['task' => 'ticket.triage', 'rate' => 1.0]], false, null, 'اختبار');
+
+        $this->assertSame(1, AiEvaluationRun::count());
+        $this->assertSame('اختبار', AiEvaluationRun::first()->triggered_by);
+    }
+
+    /** والتشغيل الساقط لا يُقيَّد: حصيلته ليست قياساً بل خبرُ تعذُّر. */
+    public function test_a_failed_run_does_not_pollute_the_baseline(): void
+    {
+        AiEvaluator::remember([], true, null, 'اختبار', failure: 'تعذّر الاتصال بالمزوّد');
+
+        $this->assertSame(0, AiEvaluationRun::count());
+        // والحالة الراهنة تبقى معروضة كي يقرأ المشغّل سبب التعذّر
+        $this->assertSame('تعذّر الاتصال بالمزوّد', AiEvaluator::lastRun()['failure']);
+    }
+
+    /** ما الذي تغيّر: مقارنةٌ تقول «تراجَعَ» ولا تقول «لماذا» ملاحظةٌ لا قرار. */
+    public function test_the_baseline_records_prompt_versions_and_models(): void
+    {
+        AiEvaluator::remember([['task' => 'ticket.triage', 'rate' => 1.0]], false, null);
+
+        $run = AiEvaluationRun::first();
+        $this->assertSame('v1', $run->prompt_versions['ticket.triage']);
+        $this->assertArrayHasKey('gemini', $run->models);
+    }
+
+    /** التراجع يُرصد لكل مهمّة على حدة — **المتوسّط يخفي التراجع**. */
+    public function test_a_regression_is_detected_per_task_not_by_the_average(): void
+    {
+        AiEvaluator::remember([
+            ['task' => 'ticket.triage', 'rate' => 1.0],
+            ['task' => 'case.pleading', 'rate' => 0.6],
+        ], false, null);
+
+        // المتوسّط ارتفع (0.80 ← 0.85) بينما هبطت الصياغة القانونيّة
+        $now = [
+            ['task' => 'ticket.triage', 'rate' => 1.0],
+            ['task' => 'case.pleading', 'rate' => 0.7],
+        ];
+        $now[1]['rate'] = 0.5;
+
+        $diff = AiEvaluator::diff($now, AiEvaluator::latestRun());
+
+        $this->assertTrue(AiEvaluator::hasRegression($diff));
+        $this->assertTrue($diff[1]['regressed'], 'الصياغة القانونيّة تراجعت');
+        $this->assertFalse($diff[0]['regressed'], 'والفرز لم يتراجع');
+    }
+
+    /** ومهمّة جديدة ليست تحسّناً ولا تراجعاً — لا سابق لها فلا يصحّ الحكم. */
+    public function test_a_new_task_is_neither_progress_nor_regression(): void
+    {
+        AiEvaluator::remember([['task' => 'ticket.triage', 'rate' => 1.0]], false, null);
+
+        $diff = AiEvaluator::diff([
+            ['task' => 'ticket.triage', 'rate' => 1.0],
+            ['task' => 'meeting.decisions', 'rate' => 0.4],
+        ], AiEvaluator::latestRun());
+
+        $this->assertTrue($diff[1]['isNew']);
+        $this->assertNull($diff[1]['delta']);
+        $this->assertFalse(AiEvaluator::hasRegression($diff), 'مهمّة بلا سابق لا تُعدّ تراجعاً');
+    }
+
+    /**
+     * والتراجع يُرصد ولو عبرت كل البوّابات: مهمّة هبطت من 100% إلى 99% تعبر بوّابة
+     * 98% وهي إشارة تدهور. البوّابة حدٌّ أدنى، والمقارنة اتّجاه — وكلاهما مطلوب.
+     */
+    public function test_a_drop_is_a_regression_even_while_still_above_its_gate(): void
+    {
+        AiEvaluator::remember(array_map(
+            fn (string $task) => ['task' => $task, 'rate' => 1.0],
+            array_keys(AiEvaluator::GATES),
+        ), false, null);
+
+        // تشغيلٌ حقيقيّ: كل البوّابات تعبر، لكن meeting.decisions تهبط عن 100%
+        AiEvaluator::remember([['task' => 'meeting.decisions', 'rate' => 0.99]], false, null);
+        $diff = AiEvaluator::diff([['task' => 'meeting.decisions', 'rate' => 0.99]], AiEvaluator::previousRun());
+
+        $this->assertTrue(AiEvaluator::hasRegression($diff));
+    }
+
+    /** والأمر نفسه: ينجح ويقيّد خطّ أساس حين لا تراجع. */
+    public function test_the_command_records_a_baseline_and_succeeds_without_a_regression(): void
+    {
+        $this->artisan('ai:evaluate')->assertSuccessful();
+        $this->artisan('ai:evaluate')->assertSuccessful();
+
+        $this->assertSame(2, AiEvaluationRun::count(), 'كل تشغيل مكتمل يُقيَّد');
     }
     // ── حدّ التشغيل الحيّ معلن ──
 

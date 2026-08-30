@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\AiEvaluationRun;
 use App\Services\Ai\AiEvaluator;
 use Illuminate\Console\Command;
 
@@ -89,8 +90,57 @@ class EvaluateAi extends Command
                 .($cost === null ? 'غير معلومة (سعر النموذج غير مضبوط في اللوحة)' : '$'.$cost));
         }
 
-        AiEvaluator::remember($results, $live, $evaluator->cost(), 'أمر مجدوَل');
+        // خطّ الأساس يُلتقَط **قبل** التسجيل: بعده يصير هذا التشغيل هو الأحدث
+        $baseline = AiEvaluator::latestRun();
 
-        return $failed === [] ? self::SUCCESS : self::FAILURE;
+        AiEvaluator::remember($results, $live, $evaluator->cost(), 'أمر مجدوَل', liveCalls: $evaluator->liveCalls());
+
+        $regressed = $this->reportDiff($results, $baseline);
+
+        return $failed === [] && ! $regressed ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * الفرق عن التشغيل السابق. يُعيد `true` إن تراجعت مهمّة.
+     *
+     * التراجع يُسقط الأمر **ولو عبرت كل البوّابات**: مهمّةٌ هبطت من 100% إلى 96% تعبر
+     * بوّابة 90% وهي إشارة تدهور. وخطّ التكامل يقرأ رمز الخروج لا النصّ.
+     */
+    private function reportDiff(array $results, ?AiEvaluationRun $baseline): bool
+    {
+        if ($baseline === null) {
+            $this->newLine();
+            $this->line('أوّل تشغيل مسجَّل — صار خطَّ الأساس، ولا سابق يُقارَن به.');
+
+            return false;
+        }
+
+        $diff = AiEvaluator::diff($results, $baseline);
+
+        $this->newLine();
+        $this->line("الفرق عن التشغيل السابق ({$baseline->created_at->toDateTimeString()}):");
+
+        foreach ($diff as $d) {
+            if ($d['isNew']) {
+                $this->line("  {$d['task']}: مهمّة جديدة — لا سابق لها");
+
+                continue;
+            }
+            if ($d['delta'] == 0.0) {
+                continue;
+            }
+
+            $arrow = $d['regressed'] ? '<fg=red>▼</>' : '<fg=green>▲</>';
+            $this->line("  {$arrow} {$d['task']}: ".round($d['previous'] * 100).'% ← '.round($d['rate'] * 100).'%');
+        }
+
+        if (! AiEvaluator::hasRegression($diff)) {
+            return false;
+        }
+
+        // المتوسّط يخفي التراجع: قد يرتفع المجموع بينما تهبط مهمّة، والهابطة هي الخطر
+        $this->error('تراجعت مهمّة عن تشغيلها السابق — لا يُعتمد النموذج/التعليمة ولو عبرت كل البوّابات.');
+
+        return true;
     }
 }

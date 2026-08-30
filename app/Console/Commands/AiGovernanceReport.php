@@ -112,6 +112,29 @@ class AiGovernanceReport extends Command
                 $verdict = $r['meets'] ? 'عبرت' : 'سقطت';
                 $this->line("  {$r['task']}: {$r['passed']}/{$r['total']} — {$verdict}");
             }
+
+            // الاتّجاه لا الحالة: «90% اليوم» لا تُقرأ حتى يُعرف أهي صعودٌ أم هبوط
+            $latest = AiEvaluator::latestRun();
+            $previous = AiEvaluator::previousRun();
+
+            if ($latest !== null && $previous !== null) {
+                $diff = AiEvaluator::diff($latest->results, $previous);
+                $moved = array_values(array_filter($diff, fn ($d) => ! $d['isNew'] && $d['delta'] != 0.0));
+
+                $this->line('  الفرق عن '.$previous->created_at->toDateTimeString().':');
+                if ($moved === []) {
+                    $this->line('    بلا تغيّر في أي مهمّة.');
+                }
+                foreach ($moved as $d) {
+                    $this->line("    {$d['task']}: ".round($d['previous'] * 100).'% ← '.round($d['rate'] * 100).'%');
+                }
+
+                if (AiEvaluator::hasRegression($diff)) {
+                    $this->warn('  تراجعت مهمّة — لا يُعتمد النموذج أو التعليمة ولو عبرت كل البوّابات.');
+                }
+            } elseif ($latest !== null) {
+                $this->line('  تشغيلٌ واحد مسجَّل — لا اتّجاه يُقرأ بعد.');
+            }
         }
 
         // ── 7. التنبيهات ──

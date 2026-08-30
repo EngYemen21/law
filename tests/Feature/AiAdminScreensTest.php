@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\Ai\AiCost;
 use App\Services\Ai\AiDataClass;
 use App\Services\Ai\AiDecision;
+use App\Services\Ai\AiEvaluator;
 use App\Services\Ai\AiPolicyGate;
 use App\Services\Ai\AiReviewAction;
 use App\Services\Ai\AiReviewReason;
@@ -316,6 +317,37 @@ class AiAdminScreensTest extends TestCase
         $this->assertNull(AiDataClass::Confidential->retentionDays());
     }
 
+    // ── خطّ الأساس على الشاشة ──
+
+    /** أوّل تشغيل: تُقال حقيقتُه — «صار خطَّ الأساس» لا فرقٌ صفريّ يوهم بالثبات. */
+    public function test_the_screen_says_there_is_no_baseline_on_the_first_run(): void
+    {
+        AiEvaluator::remember([['task' => 'ticket.triage', 'rate' => 1.0]], false, null);
+
+        $this->actingAs($this->admin())
+            ->get(route('admin.ai-ops'))
+            ->assertInertia(fn ($page) => $page
+                ->where('evaluation.runsRecorded', 1)
+                ->where('evaluation.diff', [])
+                ->where('evaluation.baselineAt', null)
+            );
+    }
+
+    /** وبعد تشغيلين يظهر الفرق موسوماً بالتراجع — لا رقمٌ مجرَّد. */
+    public function test_the_screen_shows_the_diff_and_flags_a_regression(): void
+    {
+        AiEvaluator::remember([['task' => 'case.pleading', 'rate' => 0.95]], false, null);
+        AiEvaluator::remember([['task' => 'case.pleading', 'rate' => 0.8]], false, null);
+
+        $this->actingAs($this->admin())
+            ->get(route('admin.ai-ops'))
+            ->assertInertia(fn ($page) => $page
+                ->where('evaluation.diff.0.task', 'case.pleading')
+                ->where('evaluation.diff.0.regressed', true)
+                ->where('evaluation.diff.0.previous', 0.95)
+                ->where('evaluation.diff.0.rate', 0.8)
+            );
+    }
     // ── لوحة الحوكمة ──
 
     public function test_the_ops_screen_carries_the_governance_agenda(): void

@@ -2,6 +2,7 @@
 
 namespace App\Services\Ai;
 
+use App\Models\AiEvaluationRun;
 use App\Models\Setting;
 use App\Services\LegalAiService;
 
@@ -193,7 +194,7 @@ class AiEvaluator
     }
 
     /** يحفظ آخر تقييم كي تعرضه اللوحة — نتيجةٌ بلا تاريخ لا تُقارَن بشيء. */
-    public static function remember(array $results, bool $live, ?float $cost, ?string $by = null, ?string $failure = null): void
+    public static function remember(array $results, bool $live, ?float $cost, ?string $by = null, ?string $failure = null, int $liveCalls = 0): void
     {
         Setting::put(self::SETTING_KEY, json_encode([
             'at' => now()->toDateTimeString(),
@@ -204,6 +205,89 @@ class AiEvaluator
             'running' => false,
             'results' => $results,
         ], JSON_UNESCAPED_UNICODE));
+
+        // خطّ الأساس: قيدٌ دائم لكل تشغيل مكتمل. المفتاح أعلاه حالةٌ راهنة يُستبدَل،
+        // وبه وحده لا يبقى ما يُقارَن به — فتتراجع مهمّة ولا يُلاحَظ.
+        // التشغيل الساقط لا يُقيَّد: حصيلته ليست قياساً بل خبرُ تعذُّر.
+        if ($failure !== null || $results === []) {
+            return;
+        }
+
+        AiEvaluationRun::create([
+            'live' => $live,
+            'triggered_by' => $by,
+            'cost' => $cost,
+            'live_calls' => $liveCalls,
+            'results' => $results,
+            // ما الذي تغيّر: مقارنةٌ تقول «تراجَعَ» ولا تقول «لماذا» ملاحظةٌ لا قرار
+            'prompt_versions' => self::promptVersions($results),
+            'models' => [
+                'gemini' => (string) config('services.gemini.model'),
+                'glm' => (string) config('services.glm.model'),
+            ],
+        ]);
+    }
+
+    /** التشغيل المكتمل السابق — أساس المقارنة. */
+    public static function previousRun(): ?AiEvaluationRun
+    {
+        return AiEvaluationRun::query()->orderByDesc('id')->skip(1)->first();
+    }
+
+    public static function latestRun(): ?AiEvaluationRun
+    {
+        return AiEvaluationRun::query()->orderByDesc('id')->first();
+    }
+
+    /**
+     * الفرق عن التشغيل السابق لكل مهمّة.
+     *
+     * **المتوسّط يخفي التراجع**: قد يرتفع المجموع بينما تهبط مهمّةٌ بعينها، والهابطة هي
+     * الخطر. لذلك تُقارَن كل مهمّة على حدة، و«مهمّة جديدة» تُميَّز عن «تراجعت» — الأولى
+     * لا سابق لها فلا يصحّ عدّها تحسّناً ولا تراجعاً.
+     *
+     * @param  array<int,array<string,mixed>>  $results
+     * @return array<int,array{task:string,rate:float,previous:float|null,delta:float|null,regressed:bool,isNew:bool}>
+     */
+    public static function diff(array $results, ?AiEvaluationRun $previous = null): array
+    {
+        $before = $previous?->byTask() ?? [];
+
+        return array_map(function (array $r) use ($before) {
+            $task = (string) $r['task'];
+            $prev = isset($before[$task]) ? (float) $before[$task]['rate'] : null;
+
+            return [
+                'task' => $task,
+                'rate' => (float) $r['rate'],
+                'previous' => $prev,
+                'delta' => $prev === null ? null : round($r['rate'] - $prev, 3),
+                'regressed' => $prev !== null && $r['rate'] < $prev,
+                'isNew' => $prev === null,
+            ];
+        }, $results);
+    }
+
+    /** هل تراجعت مهمّة واحدة على الأقلّ؟ — البوّابة التي تمنع اعتماد نموذج أو تعليمة. */
+    public static function hasRegression(array $diff): bool
+    {
+        return array_filter($diff, fn (array $d) => $d['regressed']) !== [];
+    }
+
+    /**
+     * إصدارات التعليمات المستعملة في التشغيل.
+     *
+     * @param  array<int,array<string,mixed>>  $results
+     * @return array<string,string|null>
+     */
+    private static function promptVersions(array $results): array
+    {
+        $versions = [];
+        foreach ($results as $r) {
+            $versions[$r['task']] = AiPromptRegistry::version((string) $r['task']);
+        }
+
+        return $versions;
     }
 
     /**
