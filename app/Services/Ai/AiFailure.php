@@ -29,6 +29,12 @@ final class AiFailure
      */
     public const BUDGET_EXCEEDED = 'budget_exceeded';
 
+    /**
+     * أطفأ المكتب هذا المسار — لا عطل.
+     * التمييز مقصود: العطل يُنتظَر زواله، وهذا قرارٌ يُرفع في اللوحة.
+     */
+    public const TASK_DISABLED = 'task_disabled';
+
     public const RATE_LIMITED = 'rate_limited';
 
     public const UNAUTHORIZED = 'unauthorized';

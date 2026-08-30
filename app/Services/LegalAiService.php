@@ -10,6 +10,7 @@ use App\Models\Execution;
 use App\Models\ExecutionDocument;
 use App\Models\LegalCase;
 use App\Models\Meeting;
+use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\TicketDocument;
 use App\Models\User;
@@ -121,7 +122,7 @@ class LegalAiService
             ."\n\nالمحادثة:\n{$convo}";
 
         try {
-            $json = $this->run(AiPromptRegistry::ticketSummarySystem(), [['role' => 'user', 'content' => $prompt]], json: true);
+            $json = $this->run(AiPromptRegistry::ticketSummarySystem(), [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'ticket.summary');
 
             if ($json && ($data = self::parseJsonResponse($json))) {
                 if (! empty($data['case_summary'])) {
@@ -204,7 +205,7 @@ class LegalAiService
         $structureFailure = null;
 
         try {
-            $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], json: true);
+            $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'ticket.triage');
             if ($call->succeeded()) {
                 $data = self::parseJsonResponse($call->text);
                 $structureFailure = $data === null ? AiFailure::INVALID_JSON : AiFailure::INVALID_STRUCTURE;
@@ -269,7 +270,7 @@ class LegalAiService
             if ($text = $this->extractText($abs, $ext)) {
                 // محتوى نصي مستخرج — يمر عبر سلسلة المزوّدين المعتادة
                 $prompt = $context."\n\nمحتوى المستند:\n".mb_substr($text, 0, 20000)."\n\nافحص المحتوى وأعد JSON.";
-                $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true);
+                $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'document.analyze');
             } elseif (in_array($ext, ['pdf', 'jpg', 'jpeg', 'png', 'webp'], true) && ! empty(config('services.gemini.key'))) {
                 // ملف ثنائي — فحص متعدد الوسائط عبر Gemini
                 $mime = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'][$ext];
@@ -319,7 +320,7 @@ class LegalAiService
 
             if ($text = $this->extractText($abs, $ext)) {
                 $prompt = $context."\n\nمحتوى المستند:\n".mb_substr($text, 0, 20000)."\n\nلخّص المحتوى وصنّفه وأعد JSON.";
-                $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true);
+                $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'document.analyze');
             } elseif (in_array($ext, ['pdf', 'jpg', 'jpeg', 'png', 'webp'], true) && ! empty(config('services.gemini.key'))) {
                 $mime = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'][$ext];
                 $json = $this->viaGeminiDocument($system, $context."\n\nلخّص المستند المرفق وصنّفه وأعد JSON.", base64_encode((string) file_get_contents($abs)), $mime);
@@ -426,7 +427,7 @@ class LegalAiService
         $prompt = $context."\n\nاكتب مسودة لائحة الدعوى بناءً على ما سبق فقط.";
 
         try {
-            $text = $this->run($system, [['role' => 'user', 'content' => $prompt]]);
+            $text = $this->run($system, [['role' => 'user', 'content' => $prompt]], promptId: 'case.pleading');
             if ($text && trim($text) !== '') {
                 return trim($text);
             }
@@ -642,7 +643,7 @@ class LegalAiService
         // التعليمة في السجلّ لا هنا: كانت الوحيدة الباقية بلا إصدار ولا بصمة
         $system = AiPromptRegistry::decisionsSystem();
         try {
-            $json = $this->run($system, [['role' => 'user', 'content' => mb_substr($text, 0, 6000)]], json: true);
+            $json = $this->run($system, [['role' => 'user', 'content' => mb_substr($text, 0, 6000)]], json: true, promptId: 'meeting.decisions');
             if ($json) {
                 $data = json_decode(trim(preg_replace('/^```(?:json)?|```$/m', '', $json)), true);
                 if (is_array($data) && ! empty($data['decisions'])) {
@@ -673,7 +674,7 @@ class LegalAiService
         $structureFailure = null;
 
         try {
-            $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], true);
+            $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], true, promptId: 'consult.analyze');
             if ($call->succeeded()) {
                 $data = self::parseJsonResponse($call->text);
                 $structureFailure = $data === null ? AiFailure::INVALID_JSON : AiFailure::INVALID_STRUCTURE;
@@ -758,7 +759,7 @@ class LegalAiService
         $structureFailure = null;
 
         try {
-            $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], true);
+            $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], true, promptId: 'execution.analyze');
             if ($call->succeeded()) {
                 // التحقّق الخادميّ المستقلّ: لا يُوثَق بأن النموذج اتّبع التعليمات
                 $data = self::parseJsonResponse($call->text);
@@ -1105,8 +1106,20 @@ class LegalAiService
      * النداء عبر البوّابة الموحَّدة — يعيد الحصيلة كاملة (نصّ + مزوّد + نموذج + زمن + تتبّع).
      * ترتيب المزوّدين وقاطع الدائرة انتقلا إلى `AiGateway` بلا تغيير في المنطق.
      */
-    private function runCall(string $system, array $messages, bool $json = false): AiCallResult
+    private function runCall(string $system, array $messages, bool $json = false, ?string $promptId = null): AiCallResult
     {
+        // مسارٌ أطفأه المكتب لا يُنادى أصلاً. الإطفاء يسقط إلى الاحتياطيّ الموسوم نفسه
+        // الذي يعمل عند تعذّر المزوّد — فلا مسار جديد يُختبَر، ولا يرى العميل شيئاً
+        // تشغيلياً. ورمزٌ مميَّز كي لا يُقرأ الإطفاء المتعمَّد عطلاً يُنتظَر زواله.
+        if ($promptId !== null && ! Setting::aiTaskEnabled($promptId)) {
+            return new AiCallResult(
+                text: null,
+                traceId: (string) Str::uuid(),
+                durationMs: 0,
+                failureCode: AiFailure::TASK_DISABLED,
+            );
+        }
+
         WebTimeLimit::raise(150); // مهلة الويب (30ث) لا تكفي سلسلة المزوّدين وإعادة محاولاتها
 
         // بصمة الحمولة تُقاس **هنا**: آخر موضع يمرّ به النصّ قبل مغادرته الخادم.
@@ -1134,6 +1147,8 @@ class LegalAiService
      */
     public function evaluationCall(string $system, string $prompt): array
     {
+        // بلا `promptId` عمداً: التقييم يجب أن يعمل **حتى على مسارٍ مُطفأ**، وإلّا
+        // استحال قياسه لإعادة تفعيله — فيبقى المطفأ مطفأً لتعذُّر إثبات صلاحه.
         $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], json: true);
 
         return [
@@ -1149,9 +1164,9 @@ class LegalAiService
      * طبقة توافق: تعيد النصّ وحده كما كانت. تستعملها الدوالّ التي لا تسجّل في `ai_runs`
      * بعد؛ ومن يسجّل ينادي `runCall` ليحمل القيدَ بياناتِ تتبّع حقيقيّة لا مخمَّنة.
      */
-    private function run(string $system, array $messages, bool $json = false): ?string
+    private function run(string $system, array $messages, bool $json = false, ?string $promptId = null): ?string
     {
-        return $this->runCall($system, $messages, $json)->text;
+        return $this->runCall($system, $messages, $json, $promptId)->text;
     }
 
     /**

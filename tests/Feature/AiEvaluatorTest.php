@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Jobs\RunAiEvaluationJob;
 use App\Models\AiEvaluationRun;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\Ai\AiEvaluator;
 use App\Services\LegalAiService;
@@ -210,6 +211,22 @@ class AiEvaluatorTest extends TestCase
         $this->artisan('ai:evaluate')->assertSuccessful();
 
         $this->assertSame(2, AiEvaluationRun::count(), 'كل تشغيل مكتمل يُقيَّد');
+    }
+
+    /**
+     * التقييم يعمل **حتى على مسارٍ مُطفأ**.
+     *
+     * لولا ذلك لبقي المطفأ مطفأً أبداً: تفعيله يشترط تجاوز معياره، وقياس معياره
+     * يشترط تشغيله — حلقةٌ مغلقة تجعل كل إطفاء نهائياً بلا قصد.
+     */
+    public function test_evaluation_still_measures_a_disabled_path(): void
+    {
+        Setting::put('ai_enabled_tasks', json_encode(['ticket.triage' => false]));
+
+        $results = array_column((new AiEvaluator)->run(), null, 'task');
+
+        $this->assertArrayHasKey('ticket.triage', $results, 'المسار المطفأ يبقى مقيساً');
+        $this->assertTrue($results['ticket.triage']['meets']);
     }
     // ── حدّ التشغيل الحيّ معلن ──
 

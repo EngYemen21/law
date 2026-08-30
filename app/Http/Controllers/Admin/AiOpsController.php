@@ -65,6 +65,8 @@ class AiOpsController extends Controller
                 'baselineAt' => AiEvaluator::previousRun()?->created_at?->toDateTimeString(),
                 'runsRecorded' => AiEvaluationRun::count(),
             ],
+            // المفتاح بجانب حصيلته: مسارٌ يُفعَّل بلا قياس تفعيلٌ بالحدس
+            'taskSwitches' => $this->taskSwitches(),
         ]);
     }
 
@@ -129,6 +131,36 @@ class AiOpsController extends Controller
         Setting::put('ai_pricing', json_encode($map, JSON_UNESCAPED_UNICODE));
 
         return back()->with('flash', 'حُفظت أسعار '.count($map).' نموذجاً.');
+    }
+
+    /**
+     * مفاتيح تفعيل المسارات.
+     *
+     * الخطة تفرض «تفعيل مسارات منفردة **بعد تجاوز معيارها**». لذلك تُعرض حصيلة
+     * التقييم بجانب كل مفتاح: مسارٌ يُفعَّل بلا قياس تفعيلٌ بالحدس، وهو ما تمنعه
+     * الخطة صراحةً.
+     */
+    public function saveTasks(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'tasks' => ['present', 'array'],
+            'tasks.*' => ['boolean'],
+        ]);
+
+        $clean = [];
+        foreach ($data['tasks'] as $task => $on) {
+            if (array_key_exists($task, AiEvaluator::GATES)) {
+                $clean[$task] = (bool) $on;
+            }
+        }
+
+        Setting::put('ai_enabled_tasks', json_encode($clean));
+
+        $off = count(array_filter($clean, fn ($on) => ! $on));
+
+        return back()->with('flash', $off === 0
+            ? 'كل المسارات مفعَّلة.'
+            : "أُطفئ {$off} مساراً — مخرجاتها تسقط إلى الاحتياطيّ الموسوم.");
     }
 
     /**
@@ -216,6 +248,25 @@ class AiOpsController extends Controller
         }
 
         return AiEvaluator::diff($latest->results, $previous);
+    }
+
+    /**
+     * حالة كل مسار وحصيلة تقييمه الأخيرة.
+     *
+     * @return array<int, array{task:string,enabled:bool,gate:float,rate:float|null,meets:bool|null}>
+     */
+    private function taskSwitches(): array
+    {
+        $last = array_column(AiEvaluator::lastRun()['results'] ?? [], null, 'task');
+
+        return array_map(fn (string $task, float $gate) => [
+            'task' => $task,
+            'enabled' => Setting::aiTaskEnabled($task),
+            'gate' => $gate,
+            // `null` = لم يُقَس بعد، لا «صفر» — والفارق هو ما يمنع تفعيلاً بالحدس
+            'rate' => isset($last[$task]['rate']) ? (float) $last[$task]['rate'] : null,
+            'meets' => isset($last[$task]['meets']) ? (bool) $last[$task]['meets'] : null,
+        ], array_keys(AiEvaluator::GATES), array_values(AiEvaluator::GATES));
     }
 
     /** @return array<int, array{value:string,label:string,days:int|null,isDefault:bool}> */

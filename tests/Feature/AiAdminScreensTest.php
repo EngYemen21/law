@@ -7,17 +7,20 @@ use App\Enums\Role;
 use App\Models\AiRun;
 use App\Models\LegalSource;
 use App\Models\Setting;
+use App\Models\Ticket;
 use App\Models\User;
 use App\Services\Ai\AiCost;
 use App\Services\Ai\AiDataClass;
 use App\Services\Ai\AiDecision;
 use App\Services\Ai\AiEvaluator;
+use App\Services\Ai\AiFailure;
 use App\Services\Ai\AiOpsMetrics;
 use App\Services\Ai\AiPolicyGate;
 use App\Services\Ai\AiReviewAction;
 use App\Services\Ai\AiReviewReason;
 use App\Services\Ai\AiUsage;
 use App\Services\Ai\LegalKnowledge;
+use App\Services\LegalAiService;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -347,6 +350,68 @@ class AiAdminScreensTest extends TestCase
                 ->where('evaluation.diff.0.regressed', true)
                 ->where('evaluation.diff.0.previous', 0.95)
                 ->where('evaluation.diff.0.rate', 0.8)
+            );
+    }
+    // ── مفاتيح المسارات ──
+
+    /** الافتراض **مفعَّل**: غياب المفتاح ليس إطفاءً، وإلّا أطفأ النشرُ الأوّل كل شيء صامتاً. */
+    public function test_every_path_is_enabled_until_explicitly_switched_off(): void
+    {
+        foreach (array_keys(AiEvaluator::GATES) as $task) {
+            $this->assertTrue(Setting::aiTaskEnabled($task), "«{$task}» يجب أن يكون مفعَّلاً افتراضاً");
+        }
+    }
+
+    /** وإطفاء مسار يُسقطه إلى الاحتياطيّ الموسوم لا إلى خطأ يراه العميل. */
+    public function test_a_disabled_path_falls_back_instead_of_failing(): void
+    {
+        config(['services.gemini.key' => 'k']);
+        Setting::put('ai_enabled_tasks', json_encode(['ticket.triage' => false]));
+
+        $client = User::factory()->create(['role' => Role::Client]);
+        $ticket = Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-OFF-1',
+            'type' => 'نزاع تجاري', 'department' => 'القضايا التجارية',
+            'status' => 'جديدة', 'tone' => 'b-blue',
+        ]);
+
+        $result = app(LegalAiService::class)->triageTicket($ticket, 'تفاصيل النزاع.');
+
+        $this->assertSame(AiSource::Fallback->value, $result['source'], 'احتياطيّ موسوم');
+        $this->assertSame('القضايا التجارية', $result['department'], 'والقسم يبقى كما اختاره العميل');
+        // ورمزٌ يميّز الإطفاء المتعمَّد عن عطلٍ يُنتظَر زواله
+        $this->assertSame(AiFailure::TASK_DISABLED, $result['meta']['failure_code']);
+    }
+
+    /** المفاتيح تُحفَظ من الشاشة، ومسارٌ خارج البوّابات يُتجاهَل. */
+    public function test_switches_are_saved_and_unknown_tasks_are_ignored(): void
+    {
+        $this->actingAs($this->admin())
+            ->post(route('admin.ai-ops.tasks'), ['tasks' => [
+                'case.pleading' => false,
+                'مسار.وهميّ' => false,
+            ]])
+            ->assertRedirect();
+
+        $this->assertFalse(Setting::aiTaskEnabled('case.pleading'));
+        $this->assertSame(['case.pleading'], array_keys(Setting::aiDisabledTasks()));
+    }
+
+    /** والشاشة تعرض حصيلة التقييم بجانب كل مفتاح — لا تفعيل بالحدس. */
+    public function test_the_screen_shows_each_gate_result_beside_its_switch(): void
+    {
+        AiEvaluator::remember([[
+            'task' => 'ticket.triage', 'rate' => 0.92, 'meets' => true,
+        ]], false, null);
+
+        $this->actingAs($this->admin())
+            ->get(route('admin.ai-ops'))
+            ->assertInertia(fn ($page) => $page
+                ->where('taskSwitches.0.task', 'ticket.triage')
+                ->where('taskSwitches.0.enabled', true)
+                ->where('taskSwitches.0.rate', 0.92)
+                // مسارٌ لم يُقَس يُعلَن كذلك لا يُعرض صفراً
+                ->where('taskSwitches.1.rate', null)
             );
     }
     // ── الميزانيّة من الشاشة ──

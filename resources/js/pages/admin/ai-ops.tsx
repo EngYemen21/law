@@ -60,6 +60,7 @@ interface Props {
     budget: { cap: number | null; warnAt: number; stop: boolean };
   };
   spending: { thisMonth: number | null; stopped: boolean };
+  taskSwitches: TaskSwitch[];
   evaluation: {
     last: LastEvaluation | null;
     tasks: string[];
@@ -69,6 +70,15 @@ interface Props {
     baselineAt: string | null;
     runsRecorded: number;
   };
+}
+
+/** مفتاح مسار وحصيلة تقييمه — `rate: null` = لم يُقَس بعد، لا صفر. */
+interface TaskSwitch {
+  task: string;
+  enabled: boolean;
+  gate: number;
+  rate: number | null;
+  meets: boolean | null;
 }
 
 /** فرق مهمّة عن تشغيلها السابق — «جديدة» تُميَّز عن «تراجعت». */
@@ -84,12 +94,15 @@ interface EvalDiff {
 /** «غير مقيسة» لا صفر: الصفر يقول إن القياس جرى ونتيجته صفر — وهو ادّعاء مختلف. */
 const pct = (v: number | null): string => (v === null ? 'غير مقيسة' : `${Math.round(v * 100)}%`);
 
-const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejectionReasons, editRate, pendingReview, settings, spending, evaluation }) => {
+const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejectionReasons, editRate, pendingReview, settings, spending, taskSwitches, evaluation }) => {
   const [threshold, setThreshold] = useState(settings.threshold);
   // السقف نصّ لا رقم: الفراغ يعني «بلا سقف» وهو معنى لا يمثّله أي رقم
   const [cap, setCap] = useState(settings.budget.cap === null ? '' : String(settings.budget.cap));
   const [warnAt, setWarnAt] = useState(Math.round(settings.budget.warnAt * 100));
   const [stop, setStop] = useState(settings.budget.stop);
+  const [switches, setSwitches] = useState<Record<string, boolean>>(
+    Object.fromEntries(taskSwitches.map((t) => [t.task, t.enabled])),
+  );
   const [retention, setRetention] = useState<Record<string, string>>(
     Object.fromEntries(settings.retention.map((r) => [r.value, r.days === null ? '' : String(r.days)])),
   );
@@ -198,6 +211,50 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
           </div>
           <button className="btn sm" disabled={busy} type="button" onClick={() => post('/admin/ai-ops/threshold', { threshold })}>
             <Icon name="check" /> حفظ العتبة
+          </button>
+        </div>
+      </div>
+
+      {/* ── مفاتيح المسارات ── */}
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card-h"><h3>تفعيل المسارات</h3></div>
+        <div className="card-b" style={{ padding: '14px 16px' }}>
+          <p style={{ color: 'var(--muted)', fontSize: 12.5 }}>
+            الخطة تفرض تفعيل المسارات <b>واحداً واحداً بعد تجاوز معياره</b> لا المنظومة دفعةً
+            واحدة — فحصيلة التقييم معروضة بجانب كل مفتاح. ومسارٌ مُطفأ يسقط إلى الاحتياطيّ
+            الموسوم نفسه، فلا يرى العميل شيئاً تشغيلياً.
+          </p>
+
+          {taskSwitches.map((t) => (
+            <div key={t.task} className="cell-row" style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={switches[t.task] ?? true}
+                  onChange={(e) => setSwitches({ ...switches, [t.task]: e.target.checked })}
+                />
+                {t.task}
+              </label>
+              <span>
+                {t.rate === null ? (
+                  <span className="badge b-amber">لم يُقَس بعد</span>
+                ) : (
+                  <span className={`badge ${t.meets ? 'b-green' : 'b-red'}`}>
+                    {Math.round(t.rate * 100)}% · بوّابة {Math.round(t.gate * 100)}%
+                  </span>
+                )}
+              </span>
+            </div>
+          ))}
+
+          <button
+            className="btn sm"
+            type="button"
+            disabled={busy}
+            style={{ marginTop: 10 }}
+            onClick={() => post('/admin/ai-ops/tasks', { tasks: switches })}
+          >
+            <Icon name="check" /> حفظ المفاتيح
           </button>
         </div>
       </div>

@@ -589,6 +589,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
         Route::post('/ai-ops/threshold', [AdminAiOpsController::class, 'saveThreshold'])->name('ai-ops.threshold');
         Route::post('/ai-ops/pricing', [AdminAiOpsController::class, 'savePricing'])->name('ai-ops.pricing');
         Route::post('/ai-ops/budget', [AdminAiOpsController::class, 'saveBudget'])->name('ai-ops.budget');
+        Route::post('/ai-ops/tasks', [AdminAiOpsController::class, 'saveTasks'])->name('ai-ops.tasks');
         Route::post('/ai-ops/retention', [AdminAiOpsController::class, 'saveRetention'])->name('ai-ops.retention');
         // التقييم يُطلَق من الشاشة؛ الأمر ai:evaluate يبقى للجدولة وخطّ التكامل
         Route::post('/ai-ops/evaluate', [AdminAiOpsController::class, 'evaluate'])->name('ai-ops.evaluate');

@@ -79,6 +79,31 @@ class Setting extends Model
     }
 
     /**
+     * مفاتيح تفعيل مسارات الذكاء، لكل معرّف تعليمة.
+     *
+     * الخطة تفرض «تفعيل مسارات منفردة **بعد تجاوز معيارها**، لا المنظومة كاملة دفعة
+     * واحدة». والمفاتيح مقصورة على المسارات التي لها بوّابة تقييم: مسارٌ بلا معيار
+     * لا معنى لتفعيله «بعد تجاوزه» شيئاً.
+     *
+     * **الافتراض: مفعَّل.** غياب المفتاح لا يعني الإطفاء — وإلّا أطفأ النشرُ الأوّل
+     * كل شيء صامتاً.
+     */
+    public static function aiTaskEnabled(string $taskId): bool
+    {
+        $stored = json_decode((string) static::get('ai_enabled_tasks', ''), true);
+
+        return ! is_array($stored) || ! array_key_exists($taskId, $stored) || (bool) $stored[$taskId];
+    }
+
+    /** @return array<string,bool> ما أُطفئ صراحةً فقط */
+    public static function aiDisabledTasks(): array
+    {
+        $stored = json_decode((string) static::get('ai_enabled_tasks', ''), true);
+
+        return array_filter(is_array($stored) ? $stored : [], fn ($on) => ! $on);
+    }
+
+    /**
      * ميزانيّة الذكاء الشهريّة.
      *
      * `cap = null` يعني **بلا سقف** لا صفراً: الصفر يمنع كل نداء. و`stop` مُطفأ
