@@ -94,6 +94,85 @@ class LegalKnowledgeTest extends TestCase
 
     // ── السند الكافي ──
 
+    // ── الترجيح: ما ظهر حين امتلأت القاعدة فعلاً ──
+
+    /**
+     * أداة التعريف كانت تكسر المطابقة: `LIKE '%الشفعة%'` لا يطابق «لا شفعة في
+     * الحالات الآتية». وقع ذلك على القاعدة الحقيقيّة: سؤالٌ عن الشفعة أعاد موادّ
+     * حصّة الشريك في الشركة، لأن «الحصة» طابقت و«الشفعة» لم تطابق موادَّها.
+     */
+    public function test_a_defined_term_matches_its_undefined_form_in_the_text(): void
+    {
+        $hit = $this->source(['ref' => 'LS-SHUFA', 'domain' => null, 'title' => null,
+            'text' => 'لا شفعة في الحالات الآتية: إذا كان انتقال الملك بغير البيع.']);
+        $this->source(['ref' => 'LS-OTHER', 'domain' => null, 'title' => null,
+            'text' => 'تتحدد حصة كل شريك بالحصة التي التزم بها في عقد الشركة.']);
+
+        $refs = LegalKnowledge::retrieve('العقارات', 'الشفعة في بيع الحصة')->pluck('ref')->all();
+
+        $this->assertSame($hit->ref, $refs[0] ?? null, 'المادّة الحاكمة تسبق ما طابق كلمةً شائعة');
+    }
+
+    /**
+     * الوزن بطول الكلمة لا بعددها: الجذر الثلاثيّ يقع صدفةً داخل كلمة أخرى
+     * («بيع» داخل «الطبيعية»)، فمصادفةٌ كهذه يجب ألّا تسبق مطابقةً حقيقيّة.
+     */
+    public function test_an_accidental_substring_match_loses_to_a_real_term(): void
+    {
+        $this->source(['ref' => 'LS-ACCIDENT', 'domain' => null, 'title' => null,
+            'text' => 'تبدأ شخصية الإنسان الطبيعية بتمام ولادته حيّاً.']);
+        $real = $this->source(['ref' => 'LS-REAL', 'domain' => null, 'title' => null,
+            'text' => 'تثبت الشفعة بتمام البيع مع قيام السبب الموجب لها.']);
+
+        $refs = LegalKnowledge::retrieve('العقارات', 'الشفعة في بيع العقار')->pluck('ref')->all();
+
+        $this->assertSame($real->ref, $refs[0] ?? null);
+    }
+
+    /** والترتيب ثابت: التشغيل نفسه يعطي النتيجة نفسها، فتُقارَن المخرجات بين النسخ. */
+    public function test_ranking_is_deterministic_across_runs(): void
+    {
+        foreach (range(1, 12) as $i) {
+            $this->source(['ref' => "LS-D-{$i}", 'domain' => null, 'title' => null,
+                'text' => 'يلتزم المورّد بتسليم البضاعة وفق شروط العقد.']);
+        }
+
+        $first = LegalKnowledge::retrieve('تجاري', 'تسليم البضاعة')->pluck('ref')->all();
+        $second = LegalKnowledge::retrieve('تجاري', 'تسليم البضاعة')->pluck('ref')->all();
+
+        $this->assertSame($first, $second);
+    }
+
+    /**
+     * بلا تطابق: **صمتٌ** لا نظامٌ عامّ بلا صلة.
+     *
+     * كان الرجوع يعيد أيّ مصدر في المجال. سقطت مقدّمة ذلك حين امتلأت القاعدة: نظامٌ
+     * عامّ (`domain = null`) يحكم كل المجالات، فكانت تُعاد منه موادُّ **الشُّفعة**
+     * لاستعلامٍ عن حجزٍ تنفيذيّ — والموادّ نفسها لكل مجال. وتمريرها بوصفها «مصادر
+     * معتمدة استشهد بها حصراً» أسوأ من الصمت.
+     */
+    public function test_no_keyword_match_yields_silence_not_an_unrelated_general_law(): void
+    {
+        $this->source(['ref' => 'LS-GENERAL', 'domain' => null, 'title' => null,
+            'text' => 'الشفعة حق الشريك في أن يتملّك العقار المبيع بالثمن الذي بيع به.']);
+
+        $found = LegalKnowledge::retrieve('التأمين', 'تعويض حادث مركبة');
+
+        $this->assertTrue($found->isEmpty(), 'نظامٌ عامّ بلا صلة لا يُمرَّر كسند');
+        $this->assertFalse(LegalKnowledge::hasSufficientAuthority($found));
+    }
+
+    /** أما المخصَّص للمجال صراحةً فيبقى مقبولاً بلا تطابق: صلتُه بالبناء لا بالكلمة. */
+    public function test_a_domain_specific_source_still_backs_a_query_without_keyword_hits(): void
+    {
+        $this->source(['ref' => 'LS-INSURANCE', 'domain' => 'التأمين', 'title' => null,
+            'text' => 'تسري أحكام وثيقة التأمين على ما اتفق عليه الطرفان.']);
+
+        $found = LegalKnowledge::retrieve('التأمين', 'مطالبة لا تطابق شيئاً إطلاقاً');
+
+        $this->assertSame(['LS-INSURANCE'], $found->pluck('ref')->all());
+    }
+
     public function test_empty_corpus_means_insufficient_authority_not_invention(): void
     {
         $sources = LegalKnowledge::retrieve('تجاري');
