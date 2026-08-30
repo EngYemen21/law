@@ -70,8 +70,9 @@ class LawyerSummaryFlowTest extends TestCase
         $this->assertNotEmpty($summary->facts);
         $this->assertNotEmpty($summary->key_points);
 
-        // رسالة إحالة من خدمة العملاء ظهرت
-        $this->assertTrue($ticket->messages->contains(fn ($m) => $m->who === 'staff' && $m->role === 'إحالة'));
+        // رسالة إحالة من خدمة العملاء ظهرت — وُسِمت `ai` لا `staff`: قالبٌ آليّ لم
+        // يكتبه موظّف، ونسبتُه إلى بشرٍ تُخالف صدق المصدر
+        $this->assertTrue($ticket->messages->contains(fn ($m) => $m->who === 'ai' && $m->role === 'إحالة'));
     }
 
     public function test_employee_cannot_skip_lawyer_approval(): void

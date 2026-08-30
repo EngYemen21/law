@@ -134,7 +134,10 @@ class TicketTriage
         if ($related !== []) {
             $ack = app(LegalAiService::class)->acknowledgeDocs($ticket, $details, $related);
             $msg = $ticket->messages()->create([
-                'who' => 'staff',
+                // `ai` لا `staff`: النصّ مولَّد آلياً (`acknowledgeDocs`) ولم يكتبه موظّف.
+                // كان الوسم يجعل العميل يقرأ ردّاً آلياً منسوباً إلى فريقٍ بشريّ —
+                // وهو ما يمنعه مبدأ صدق المصدر.
+                'who' => 'ai',
                 'name' => LegalAiService::AGENT_NAME,
                 'role' => 'خدمة العملاء',
                 'body' => '<p>'.nl2br(e($ack)).'</p>',
@@ -351,7 +354,8 @@ class TicketTriage
         ]);
 
         $msg = $ticket->messages()->create([
-            'who' => 'staff',
+            // إشعارٌ آليّ بقالب ثابت — لم يكتبه موظّف، فلا يُنسب إلى فريقٍ بشريّ
+            'who' => 'ai',
             'name' => 'خدمة العملاء',
             'role' => 'إحالة',
             'body' => 'تمت إحالة طلبكم إلى '.e($dept).' لدراسة الموضوع، وجهّز الفريق القانوني ملخص الملف، وهو الآن بانتظار اعتماد المستشار القانوني.',

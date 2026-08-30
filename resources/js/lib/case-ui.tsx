@@ -68,13 +68,15 @@ export const HearingsCard: React.FC<{ hearings: Hearing[] }> = ({ hearings }) =>
 export const CaseMsgRow: React.FC<{ m: Message }> = ({ m }) => {
   const isClient = m.who === 'client' || m.who === 'me';
   const actor = isClient ? 'me' : 'ai';
+  // المخرج الآليّ يُوسَم «ردّ آليّ» كما في محادثة التذكرة — الوسم واحد أينما ظهر
+  const isAuto = m.who === 'ai';
   return (
     <div className={`msg ${actor}`}>
       <div className={`av ${actor}`}>{isClient ? 'ع' : <img src="/images/mono.jpg" alt="" />}</div>
       <div className="bubble-wrap">
         <div className="who">
-          <b>{isClient ? 'العميل' : m.name}</b>
-          {m.role && <span className={`role ${actor}`}>{m.role}</span>}
+          <b>{isClient ? 'العميل' : isAuto ? 'خدمة العملاء' : m.name}</b>
+          {(isAuto || m.role) && <span className={`role ${actor}`}>{isAuto ? 'ردّ آليّ' : m.role}</span>}
           <time>{m.time}</time>
         </div>
         <div className="bubble" dangerouslySetInnerHTML={{ __html: m.text }} />

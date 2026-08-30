@@ -7,10 +7,12 @@ use App\Enums\Role;
 use App\Models\AiRun;
 use App\Models\Consult;
 use App\Models\Execution;
+use App\Models\Ticket;
 use App\Models\User;
 use App\Models\UserNotification;
 use App\Services\LegalAiService;
 use App\Support\ExecService;
+use App\Support\TicketTriage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -24,6 +26,20 @@ use Tests\TestCase;
 class AiSourceHonestyTest extends TestCase
 {
     use RefreshDatabase;
+
+    private function ticket(): Ticket
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+
+        return Ticket::create([
+            'user_id' => $client->id,
+            'number' => 'SB-WHO-'.uniqid(),
+            'type' => 'نزاع تجاري',
+            'department' => 'القضايا التجارية',
+            'status' => 'جديدة',
+            'tone' => 'b-blue',
+        ]);
+    }
 
     private function execution(User $client, array $overrides = []): Execution
     {
@@ -252,5 +268,40 @@ class AiSourceHonestyTest extends TestCase
         $this->assertNotNull($run, 'كل فرز يُسجَّل بمصدره ولو كان احتياطياً');
         $this->assertSame(AiSource::Fallback, $run->source);
         $this->assertNull($run->model);
+    }
+    // ── هويّة المُرسِل أمام العميل (P4) ──
+
+    /**
+     * **لا يُنسب مخرجٌ آليّ إلى بشر.** كل رسالة يُنشئها المسار الآليّ توسَم `ai`، فتُعرض
+     * للعميل باسم «خدمة العملاء · ردّ آليّ» لا باسم «الفريق القانوني».
+     *
+     * كانت رسالة إقرار المستندات (`acknowledgeDocs`) وإشعار الإحالة موسومَين `staff`
+     * رغم أن لا موظّف كتبهما — فيقرأ العميل نصّاً آلياً على أنه كلام فريقٍ بشريّ.
+     */
+    public function test_no_automated_message_is_attributed_to_a_human_teammate(): void
+    {
+        $ticket = $this->ticket();
+
+        TicketTriage::referToLawyer($ticket);
+
+        $authored = $ticket->messages()->where('who', '!=', 'note')->get();
+        $this->assertTrue($authored->isNotEmpty(), 'الإحالة تُنشئ رسالة للعميل');
+
+        foreach ($authored as $m) {
+            $this->assertSame('ai', $m->who, "رسالة «{$m->role}» آليّة ولا يجوز نسبتها لموظّف");
+        }
+    }
+
+    /** والوسم لا يكشف عطلاً: يقول من يخاطب العميل فقط، وقاعدة إخفاء الأعطال باقية. */
+    public function test_the_automated_marker_reveals_no_operational_detail(): void
+    {
+        $ticket = $this->ticket();
+
+        TicketTriage::referToLawyer($ticket);
+        $body = (string) $ticket->messages()->where('who', 'ai')->first()?->body;
+
+        foreach (['تعذّر', 'فشل', 'خطأ', 'المزوّد', 'الذكاء الاصطناعي'] as $leak) {
+            $this->assertStringNotContainsString($leak, $body, "«{$leak}» تفصيلٌ تشغيليّ لا يُعرض للعميل");
+        }
     }
 }
