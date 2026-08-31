@@ -7,6 +7,7 @@ use App\Enums\Role;
 use App\Models\AiRun;
 use App\Models\User;
 use App\Services\Ai\AiReviewAction;
+use App\Services\Ai\AiReviewInbox;
 use App\Services\Ai\AiReviewReason;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -111,11 +112,15 @@ class AiReviewScreenTest extends TestCase
         $this->actingAs($employee)->getJson(route('employee.ai-review'))->assertForbidden();
     }
 
-    public function test_an_employee_with_the_approval_permission_may_open_it(): void
+    /**
+     * الحارس صار **تشغيلياً**: قالب «خدمة عملاء» — قالب الموظّف — يحوي «إدارة
+     * التذاكر» ولا يحوي «اعتماد الملخصات». فبالحارس القديم كان الفرع معطَّلاً عملياً.
+     */
+    public function test_an_employee_with_the_operational_permission_may_open_it(): void
     {
         $this->seed(PermissionSeeder::class);
         $employee = User::factory()->create(['role' => Role::Employee]);
-        $employee->syncPermissions([Permission::where('name', 'اعتماد الملخصات')->firstOrFail()]);
+        $employee->syncPermissions([Permission::where('name', 'إدارة التذاكر')->firstOrFail()]);
 
         // لوحة الإدارة مقصورة على الإدارة؛ للموظّف مساره الخاصّ بالشاشة نفسها
         $this->actingAs($employee)->get(route('employee.ai-review'))->assertOk();
@@ -182,5 +187,57 @@ class AiReviewScreenTest extends TestCase
         $this->actingAs($this->admin())
             ->post(route('admin.ai-review.decide', $run), ['action' => 'approve_everything'])
             ->assertSessionHasErrors('action');
+    }
+    // ── حارس صندوق الموظّف: تشغيليّ لا اعتماديّ (قرار المالك 2026-08-31) ──
+
+    /**
+     * **الموظّف يراجع مخرجاً تشغيلياً ولا يعتمد ملخّصاً قانونياً.**
+     *
+     * كان الحارس `اعتماد الملخصات` — صلاحيةٌ لا يملكها دور الموظّف في هذا النظام،
+     * فكان الفرع معطَّلاً عملياً: لا موظّف يفتح صندوقه رغم أن P3 تفرض مراجعته.
+     * ومنحُها له كان سيوسّع وصوله إلى اعتماد الملخّصات القانونيّة — وهو ما لا يفعله.
+     *
+     * فصار الحارس `إدارة التذاكر`: الحكم على «أهذا المستند ذو صلة؟» عملٌ تشغيليّ،
+     * والعزل داخل الصندوق يمنعه من رؤية المسودّات والملخّصات أصلاً.
+     */
+    public function test_an_employee_reviews_with_operational_permission_not_approval(): void
+    {
+        $this->seed(PermissionSeeder::class);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        // المصنع يمنح الموظّف كل الصلاحيات كي لا تتعثّر الاختبارات الوظيفيّة — فتُقيَّد هنا
+        $employee->syncPermissions(['إدارة التذاكر']);
+
+        $this->assertFalse($employee->can('اعتماد الملخصات'), 'لا يعتمد الملخّصات');
+
+        $this->actingAs($employee)->get(route('employee.ai-review'))->assertOk();
+    }
+
+    /** وبلا الصلاحية التشغيليّة لا يفتحه — الحارس قائم لا مرفوع. */
+    public function test_an_employee_without_ticket_management_cannot_reach_the_inbox(): void
+    {
+        $this->seed(PermissionSeeder::class);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $employee->syncPermissions([]);
+
+        $this->actingAs($employee)->getJson(route('employee.ai-review'))->assertForbidden();
+    }
+
+    /**
+     * والعزل هو الضمانة الحقيقيّة: الموظّف لا يرى مخرجاً قانونياً في صندوقه مهما
+     * كانت صلاحيته — فالحارس يفتح الباب، والعزل يحدّد ما خلفه.
+     */
+    public function test_a_legal_output_never_appears_in_the_employee_inbox(): void
+    {
+        $this->seed(PermissionSeeder::class);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $employee->syncPermissions(['إدارة التذاكر']);
+
+        $this->aiRun(['task_type' => 'case.pleading', 'status' => AiRun::STATUS_NEEDS_REVIEW]);
+        $this->aiRun(['task_type' => 'document.analyze', 'status' => AiRun::STATUS_NEEDS_REVIEW]);
+
+        $tasks = AiReviewInbox::forUser($employee)->pluck('task_type')->all();
+
+        $this->assertContains('document.analyze', $tasks, 'فحص المستند عملٌ تشغيليّ يخصّه');
+        $this->assertNotContains('case.pleading', $tasks, 'والمسودّة القانونيّة لا');
     }
 }

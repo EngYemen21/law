@@ -9,6 +9,7 @@ use App\Jobs\GenerateTicketSummaryJob;
 use App\Models\AiRun;
 use App\Models\Ticket;
 use App\Models\TicketDocument;
+use App\Services\Ai\AiFailure;
 use App\Services\Ai\AiPolicyGate;
 use App\Services\LegalAiService;
 use Illuminate\Support\Collection;
@@ -269,6 +270,37 @@ class TicketTriage
     private static function classifyDoc(Ticket $ticket, ?TicketDocument $doc): ?array
     {
         $analysis = $doc ? app(LegalAiService::class)->analyzeDocument($ticket, $doc) : null;
+
+        // فحص المستند **يُسجَّل كأيّ مخرج ذكاء**. كان يجري بلا قيد إطلاقاً، فلا يظهر في
+        // المؤشّرات ولا الكلفة ولا صندوق المراجعة — بينما حكمُه يوجّه الملفّ: «مرتبط»
+        // يُحيل التذكرة للمحامي، و«غير مرتبط» يطلب من العميل مستندات أخرى. قرارٌ
+        // يغيّر مسار الطلب بلا أثرٍ يُراجَع.
+        if ($doc !== null) {
+            $meta = is_array($analysis['meta'] ?? null) ? $analysis['meta'] : [];
+            $source = $analysis === null ? AiSource::ManualRequired : AiSource::AiSuccess;
+
+            AiRun::record(
+                taskType: 'document.analyze',
+                source: $source,
+                entity: $ticket,
+                entityRef: (string) $ticket->number,
+                // بلا تحليل صالح لا مخرج يُعرض — رفضٌ لا تصعيد
+                status: AiPolicyGate::decide(
+                    taskType: 'document.analyze',
+                    source: $source,
+                    hasUsableOutput: $analysis !== null,
+                )->status(),
+                model: $meta['model'] ?? null,
+                promptVersion: $meta['prompt_version'] ?? null,
+                traceId: $meta['trace_id'] ?? null,
+                failureCode: $analysis === null ? AiFailure::INVALID_STRUCTURE : null,
+                durationMs: $meta['duration_ms'] ?? null,
+                inputTokens: $meta['input_tokens'] ?? null,
+                outputTokens: $meta['output_tokens'] ?? null,
+                estimatedCost: $meta['estimated_cost'] ?? null,
+                outboundAudit: $meta['outbound_audit'] ?? null,
+            );
+        }
 
         if ($analysis === null) {
             $doc?->update(['status' => 'بحاجة لمراجعة يدوية']);

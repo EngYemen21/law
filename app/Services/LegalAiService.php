@@ -269,27 +269,40 @@ class LegalAiService
         $system = AiPromptRegistry::documentAnalyzeSystem();
         $context = "نوع التذكرة: {$ticket->type}\nالقسم: {$ticket->department}\nموضوع العميل: {$subject}\nالمستندات المطلوبة عادةً لهذا النوع: {$required}\nاسم الملف: {$doc->name}{$prevDocsInfo}";
 
+        $call = new AiCallResult(text: null, traceId: (string) Str::uuid(), durationMs: 0, failureCode: AiFailure::PROVIDER_ERROR);
+
         try {
             $ext = strtolower(pathinfo($doc->name, PATHINFO_EXTENSION));
             $json = null;
 
             if ($text = $this->extractText($abs, $ext)) {
-                // محتوى نصي مستخرج — يمر عبر سلسلة المزوّدين المعتادة
+                // محتوى نصي مستخرج — يمر عبر سلسلة المزوّدين المعتادة.
+                // `runCall` لا `run`: الأخيرة تعيد النصّ وحده فتُهدر بيانات التتبّع —
+                // وبها كان فحص المستند بلا نموذج ولا زمن ولا كلفة في السجلّ.
                 $prompt = $context."\n\nمحتوى المستند:\n".mb_substr($text, 0, 20000)."\n\nافحص المحتوى وأعد JSON.";
-                $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'document.analyze');
+                $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'document.analyze');
+                $json = $call->text;
             } elseif (in_array($ext, ['pdf', 'jpg', 'jpeg', 'png', 'webp'], true) && ! empty(config('services.gemini.key'))) {
-                // ملف ثنائي — فحص متعدد الوسائط عبر Gemini
+                // ملف ثنائي — فحص متعدد الوسائط عبر Gemini (خارج البوّابة: مسار خاصّ)
                 $mime = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'][$ext];
+                $startedAt = microtime(true);
                 $json = $this->viaGeminiDocument($system, $context."\n\nافحص المستند المرفق وأعد JSON.", base64_encode((string) file_get_contents($abs)), $mime);
+                $call = new AiCallResult(
+                    text: $json,
+                    traceId: (string) Str::uuid(),
+                    durationMs: (int) round((microtime(true) - $startedAt) * 1000),
+                    provider: 'gemini',
+                    model: AiModelRouter::modelFor('gemini', 'document.analyze'),
+                    failureCode: $json === null ? AiFailure::PROVIDER_ERROR : null,
+                );
             }
 
             if ($json && ($data = self::parseJsonResponse($json))) {
-                if (array_key_exists('related', $data)) {
-                    return [
-                        'related' => (bool) $data['related'],
-                        'doc_type' => (string) ($data['doc_type'] ?? 'مستند'),
-                        'summary' => (string) ($data['summary'] ?? ''),
-                        'reason' => (string) ($data['reason'] ?? ''),
+                $valid = AiOutputValidator::documentAnalysis($data);
+                if ($valid !== null) {
+                    return $valid + [
+                        'source' => AiSource::AiSuccess->value,
+                        'meta' => self::callMeta($call, 'document.analyze'),
                     ];
                 }
             }

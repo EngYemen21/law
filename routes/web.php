@@ -193,10 +193,15 @@ Route::middleware(['auth', 'active'])->group(function () {
 Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name('employee.')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'employee'])->name('dashboard'); // عام للدور
 
-    // صندوق مراجعة مخرجات الذكاء — الشاشة نفسها لكل دور، والعزل داخل AiReviewInbox.
-    // P3 تفرض توحيد المراجعة «للمحامي والموظف»، فحصرها في لوحة الإدارة يناقضها.
-    // صلاحية الاعتماد وحدها تكفي: المراجعة فعل اعتماد لا إدارة تذاكر.
-    Route::middleware('permission:اعتماد الملخصات')->group(function () {
+    // صندوق مراجعة مخرجات الذكاء — الشاشة نفسها لكل دور، والعزل داخل AiReviewInbox:
+    // الموظّف يرى الفرز والاستشارات وفحص المستندات، لا المسودّات ولا الملخّصات.
+    //
+    // **الحارس تشغيليّ لا اعتماديّ.** كان `اعتماد الملخصات` — وهي صلاحيةٌ لا يملكها
+    // دور الموظّف في هذا النظام، فكان الفرع معطَّلاً عملياً: لا موظّف يفتح صندوقه.
+    // ومنحُها له كان سيوسّع وصوله إلى **اعتماد الملخّصات القانونيّة** وهو ما لا يفعله.
+    // فالحكم على «أهذا المستند ذو صلة؟» عملٌ تشغيليّ من صميم إدارة التذاكر، ويختلف
+    // عن اعتماد رأيٍ قانونيّ — والعزل داخل الصندوق يمنعه من رؤية الثاني أصلاً.
+    Route::middleware('permission:إدارة التذاكر')->group(function () {
         Route::get('/ai-review', [AdminAiReviewController::class, 'index'])->name('ai-review');
         Route::post('/ai-review/{run}/decide', [AdminAiReviewController::class, 'decide'])->name('ai-review.decide');
     });
