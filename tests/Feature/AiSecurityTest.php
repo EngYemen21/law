@@ -18,6 +18,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -290,5 +291,43 @@ class AiSecurityTest extends TestCase
         $fresh = AiRun::first();
         $this->assertNull($fresh->entity_ref, 'المعرّف المقروء يُجرَّد');
         $this->assertSame(420, $fresh->outbound_audit['chars'], 'ودليل التدقيق يبقى');
+    }
+    // ── حدّ حجم المستند (AI-05) ──
+
+    /**
+     * **مستندٌ فوق حدّ الفحص لا يُرسَل أصلاً.**
+     *
+     * الحدّ قائم في ثلاثة مواضع (تذكرة · قضية · تنفيذ) وكان بلا اختبار يحرسه — وحدٌّ
+     * لا يُختبَر يُرفَع سهواً في أوّل تعديل. ورفعُه لا يُنتج خطأً ظاهراً بل حمولةً
+     * ضخمة تُرسَل للمزوّد الخارجيّ: كلفةٌ ومخاطرة خصوصيّة بلا إنذار.
+     *
+     * والمخرج `null` لا استثناء: المستند يُوسَم «بحاجة مراجعة يدويّة» — لا يُدّعى أنه
+     * فُحص، ولا يُعطَّل المسار.
+     */
+    public function test_a_document_above_the_scan_limit_is_never_sent_to_the_provider(): void
+    {
+        config(['services.gemini.key' => 'k']);
+        Http::fake(['*' => Http::response([], 200)]);
+
+        $client = User::factory()->create(['role' => Role::Client]);
+        $ticket = Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-BIG-1',
+            'type' => 'نزاع تجاري', 'status' => 'جديدة', 'tone' => 'b-blue',
+        ]);
+
+        Storage::disk('local')->put('docs/big.pdf', 'محتوى');
+        $doc = \App\Models\TicketDocument::create([
+            'ticket_id' => $ticket->id,
+            'name' => 'ملف_ضخم.pdf',
+            'path' => 'docs/big.pdf',
+            'mime' => 'application/pdf',
+            'size' => 9 * 1024 * 1024, // فوق حدّ الفحص (8م.ب)
+            'uploaded_by' => 'العميل',
+        ]);
+
+        $result = app(LegalAiService::class)->analyzeDocument($ticket, $doc);
+
+        $this->assertNull($result, 'لا تحليل مُدّعى لمستند لم يُفحص');
+        Http::assertNothingSent();
     }
 }
