@@ -98,7 +98,16 @@ final class AiContextBuilder
      * `chars` يرافقها لأن تقليل البيانات حجمٌ أيضاً لا تمويهٌ فقط: حمولةٌ منتفخة
      * تُرسل ما لا تحتاجه المهمّة ولو كانت خاليةً من المعرّفات.
      *
-     * @return array{chars:int, masked:array<string,int>}
+     * و`residual` هو الحارس: عدّ العلامات وحده **يطمئن كذباً**. الحقل كان يقول
+     * «مُوّه ثلاثة» فيقرأ المدقّق أن التمويه جرى، بينما العلامات الثلاث جاءت من
+     * سطرٍ واحد مُعدّ، وعشرون ألف حرفٍ من نصّ عقدٍ خام غادرت في الحمولة نفسها بلا
+     * أن تظهر في الدليل — لأن الدالّة تعدّ ما مُوّه ولا ترى ما لم يُموَّه. وقع هذا
+     * فعلاً في ثلاث دوالّ لتحليل المستندات، ولم يكشفه سجلّ التدقيق ولا الاختبارات.
+     *
+     * فصار الدليل يحصي الباقي أيضاً: معرّفٌ يطابق نمطاً وهو **غير** مموَّه في ما
+     * غادر. القاعدة عند القراءة: `residual` غير فارغ ⇒ تسريب، لا «تمويه جزئيّ».
+     *
+     * @return array{chars:int, masked:array<string,int>, residual:array<string,int>}
      */
     public static function outboundAudit(string $payload): array
     {
@@ -110,7 +119,16 @@ final class AiContextBuilder
             }
         }
 
-        return ['chars' => mb_strlen($payload), 'masked' => $masked];
+        // ما زال خاماً في ما غادر الخادم فعلاً — لا في النصّ قبل الإعداد.
+        $residual = [];
+        foreach (self::PATTERNS as $pattern => $mask) {
+            $found = preg_match_all($pattern, $payload);
+            if ($found) {
+                $residual[$mask] = ($residual[$mask] ?? 0) + $found;
+            }
+        }
+
+        return ['chars' => mb_strlen($payload), 'masked' => $masked, 'residual' => $residual];
     }
 
     /**

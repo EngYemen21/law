@@ -38,7 +38,7 @@ class AiPromptRegistryTest extends TestCase
             'meeting.summary' => ['4f831da512089d5b7c3ba494146f32323db7a16083fe2b48590234d60f8df439', 'v1'],
             'meeting.decisions' => ['01c2ccc915cfc7e373476f500b2e8c038050e8421cb97f5bcf2e9f9b8d9e6be0', 'v1'],
             'ticket.summary' => ['651e3f7d7ea8af142a4db4cdd8002d9ca2825828127d683725e83b673b82c317', 'v1'],
-            'case.pleading' => ['dbe3a978bad6a2e94cf77acfcabcd7b2e91082b20df0d6500fe60d8a538328b6', 'v1'],
+            'case.pleading' => ['eced92674e0dbbe744260a158c571f763d91624af645d29a7ceeef6ed833ab23', 'v2'],
             'consult.summary' => ['f2dcfb18e9013c6e93a769edfde35eb820caab9342bc783607612e0e44a8221f', 'v1'],
             'chat.reply' => ['f3d9d2baa68dc90480747c7efd7e0e6b4ed171f340bc0a00ba47c7c3780574a6', 'v1'],
         ];

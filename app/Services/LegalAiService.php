@@ -23,6 +23,7 @@ use App\Services\Ai\AiModelRouter;
 use App\Services\Ai\AiOutputValidator;
 use App\Services\Ai\AiPromptRegistry;
 use App\Services\Ai\AiUsage;
+use App\Services\Ai\LegalClaims;
 use App\Services\Ai\LegalKnowledge;
 use App\Support\ServiceDocs;
 use App\Support\WebTimeLimit;
@@ -279,7 +280,7 @@ class LegalAiService
                 // محتوى نصي مستخرج — يمر عبر سلسلة المزوّدين المعتادة.
                 // `runCall` لا `run`: الأخيرة تعيد النصّ وحده فتُهدر بيانات التتبّع —
                 // وبها كان فحص المستند بلا نموذج ولا زمن ولا كلفة في السجلّ.
-                $prompt = $context."\n\nمحتوى المستند:\n".mb_substr($text, 0, 20000)."\n\nافحص المحتوى وأعد JSON.";
+                $prompt = $context."\n\nمحتوى المستند:\n".AiContextBuilder::prepare($text, 20000)."\n\nافحص المحتوى وأعد JSON.";
                 $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'document.analyze');
                 $json = $call->text;
             } elseif (in_array($ext, ['pdf', 'jpg', 'jpeg', 'png', 'webp'], true) && ! empty(config('services.gemini.key'))) {
@@ -338,7 +339,7 @@ class LegalAiService
             $json = null;
 
             if ($text = $this->extractText($abs, $ext)) {
-                $prompt = $context."\n\nمحتوى المستند:\n".mb_substr($text, 0, 20000)."\n\nلخّص المحتوى وصنّفه وأعد JSON.";
+                $prompt = $context."\n\nمحتوى المستند:\n".AiContextBuilder::prepare($text, 20000)."\n\nلخّص المحتوى وصنّفه وأعد JSON.";
                 $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'document.analyze');
             } elseif (in_array($ext, ['pdf', 'jpg', 'jpeg', 'png', 'webp'], true) && ! empty(config('services.gemini.key'))) {
                 $mime = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'][$ext];
@@ -386,8 +387,25 @@ class LegalAiService
 
     /**
      * يصيغ مسودة «لائحة دعوى» للقضية (يطابق cfStatement) — ذكاء اصطناعي مع احتياط قالبي.
+     *
+     * غلافٌ نصّيّ فوق `draftPleadingResult` — يبقى للمستدعين الذين لا يحتاجون التتبّع.
      */
     public function draftPleading(LegalCase $case): string
+    {
+        return $this->draftPleadingResult($case)['draft'];
+    }
+
+    /**
+     * المسودّة **مع حصيلة الاستشهاد وتتبّع النداء**.
+     *
+     * فُصلت عن `draftPleading` لأن قيد `ai_runs` يُكتب في طبقة الأعمال (كما في
+     * `ExecService` و`TicketTriage`)، وهي كانت تُرجع نصّاً وحده فتضيع الحصيلة:
+     * مسودّة لائحة — أخطر مخرجٍ قانونيّ في المنظومة — كانت تُولَّد **بلا قيدٍ واحد**
+     * في سجلّ القرارات، فلا كلفتها محسوبة ولا نموذجها معروف ولا مراجعتها مطلوبة.
+     *
+     * @return array{draft:string, meta:array<string,mixed>, source:AiSource, verdict:?string}
+     */
+    public function draftPleadingResult(LegalCase $case): array
     {
         // سياق القضية الحقيقي (لا اختلاق): وقائع الملخّص المعتمد + بيانات الخصم + ملخّصات مستندات الملف
         $ticket = $case->ticket;
@@ -419,6 +437,14 @@ class LegalAiService
         $docs = $case->documents()->whereNotNull('summary')->where('summary', '!=', '')->get()
             ->map(fn ($d) => '- '.($d->doc_type ?: 'مستند').': '.$d->summary)->implode("\n");
 
+        // تمويه المعرّفات قبل مغادرة الخادم — هذا المسار كان يُرسل السياق خاماً.
+        // حقول الملخّص ليست «آمنة لأنها مولَّدة»: النموذج يردّد ما ورد في نصّ العميل،
+        // فرقمُ هويّةٍ كتبه العميل في تذكرته يعود في «الوقائع» ثم يغادر مرّةً ثانية.
+        // والقاعدة في المنظومة أن التمويه عند الحدّ لا عند المصدر.
+        $facts = array_map(fn ($f) => AiContextBuilder::prepare($f), $facts);
+        $docs = AiContextBuilder::prepare($docs);
+        $parties = array_map(fn ($f) => AiContextBuilder::prepare($f), $parties);
+
         $context = "رقم القضية: {$case->number}\nنوع القضية: {$case->type}\nالقسم: ".($case->department ?? '—');
         if ($parties !== []) {
             $context .= "\n".implode("\n", $parties);
@@ -433,9 +459,16 @@ class LegalAiService
         // استرجاع قانونيّ موثَّق — يُضيف ولا يَحجب: قاعدة فارغة ⇒ المسار كما هو تماماً،
         // فلا تتوقّف مسودّة عاملة اليوم بسبب ميزة لم يُغذَّ محتواها بعد. ووجود مصادر
         // يجعل الاستشهاد مطلوباً وقابلاً للمطابقة خادمياً.
+        // **الاستعلام من وقائع الملفّ لا من نوعه.** كان `query: $case->type` — أي كلمة
+        // واحدة مثل «تجاري» لا ترد في نصّ نظاميّ، فيعود الاسترجاع بصفر مصادر ويُخرج
+        // المسار «لا سند كافٍ» ومسودّةً فارغة: مسارُ الاستشهاد معطَّلٌ عملياً رغم 786
+        // مادّة معتمدة. أثبته القياس: «تجاري» ⇒ صفر، و«فسخ عقد توريد والتعويض» ⇒ ستّة.
+        //
+        // والمصدر الصحيح `$facts` المجموعة أعلاه (ملخّص التذكرة ووقائعها ونقاطها) —
+        // وهي نصّ الملفّ الفعليّ. والقضية نفسها لا تملك حقل موضوع أصلاً.
         $sources = LegalKnowledge::retrieve(
             domain: (string) ($case->department ?: $case->type),
-            query: (string) $case->type,
+            query: trim(implode(' ', $facts).' '.$case->type),
         );
         $authority = LegalKnowledge::asContext($sources);
         if ($authority !== '') {
@@ -445,19 +478,116 @@ class LegalAiService
         $system = AiPromptRegistry::casePleadingSystem();
         $prompt = $context."\n\nاكتب مسودة لائحة الدعوى بناءً على ما سبق فقط.";
 
+        // **لا حجب عند خلوّ السند.** جرّبتُ الحجب (إعادة `insufficientAuthority` قبل
+        // النداء) فأسقط اختبارين قائمين، وهما محقّان: مجالٌ لم تُغذَّ مصادره بعد يفقد
+        // المسودّة كلّها — ووقائعها وطلباتها وأطرافها لا تحتاج سنداً نظامياً أصلاً.
+        //
+        // والحماية لا تحتاج حجباً: `existingRefs` على قائمة فارغة تعيد فارغاً، فيسقط
+        // **كل** ادّعاءٍ نظاميّ إلى «غير مدعوم» ويظهر تحت لافتته. أي أن التحقّق نفسه
+        // يفرض الصدق بلا أن يُلغي الوظيفة.
+        $meta = [];
+
         try {
-            $text = $this->run($system, [['role' => 'user', 'content' => $prompt]], promptId: 'case.pleading');
+            $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'case.pleading');
+            $text = $call->text;
+            $meta = self::callMeta($call, 'case.pleading');
+
+            // ⚠️ الحكم للخادم: `existingRefs` تُطابق ما ادّعاه النموذج بجدول المصادر،
+            // فمعرّفٌ لا يقابله صفٌّ معتمد يسقط إلى «غير مدعوم» مهما بدا معقولاً.
+            // كان هذا العقد كلّه مبنيّاً ولا يُستدعى إلا في التقييم: اللائحة تُولَّد
+            // نصّاً حرّاً بلا مطابقة، أي أن الـ786 مادّة موصولة بالسياق ومفصولة عن
+            // التحقّق — استشهادٌ بلا تدقيق، وهو ما قامت المنظومة على منعه.
+            $validated = LegalClaims::validate(
+                self::parseJsonResponse($text),
+                LegalKnowledge::existingRefs($sources->pluck('ref')->all()),
+            );
+
+            if ($validated !== null) {
+                return [
+                    'draft' => $this->renderPleading($case, $validated),
+                    'meta' => $meta,
+                    // المصدر يتبع الحكم لا شكل المخرج: لائحةٌ سليمة البنية بلا ادّعاءٍ
+                    // مسنَدٍ واحد ليست تحليلاً اجتاز التحقّق — وبوّابة السياسة تفرض
+                    // عليها مراجعةً بشريّة بدل عرضها بوصفها مسنَدة.
+                    'source' => LegalClaims::isCitable($validated)
+                        ? AiSource::AiSuccess
+                        : AiSource::ManualRequired,
+                    'verdict' => $validated['verdict'],
+                ];
+            }
+
+            // JSON غير مفهوم: النصّ الخام أنفع من لا شيء، لكنه **بلا وسم استشهاد**
+            // فلا يُقرأ بوصفه مسنَداً.
             if ($text && trim($text) !== '') {
-                return trim($text);
+                return [
+                    'draft' => trim($text),
+                    'meta' => $meta,
+                    // مخرجٌ لم يجتز التحقّق البرمجيّ: بتعريف `AiSource` نفسه ليس `AiSuccess`.
+                    // تسميته نجاحاً تُخفي أن الاستشهاد لم يُطابَق بقاعدة المصادر.
+                    'source' => AiSource::ManualRequired,
+                    'verdict' => null,
+                ];
             }
         } catch (\Throwable $e) {
             Log::warning('LegalAiService draftPleading failed: '.$e->getMessage());
         }
 
         // عند تعذّر الـAI: لا لائحة مُختلَقة — رسالة أمينة تدفع للتحرير اليدوي
-        return "مسودّة لائحة دعوى — {$case->number}\n\n"
-            .'تعذّر توليد المسودّة بالذكاء الاصطناعي حالياً. يُرجى إعادة المحاولة لاحقاً، '
-            .'أو تحرير لائحة الدعوى يدوياً (الوقائع ثم الأسانيد النظامية ثم الطلبات) بحسب مستندات القضية.';
+        return [
+            'draft' => "مسودّة لائحة دعوى — {$case->number}\n\n"
+                .'تعذّر توليد المسودّة بالذكاء الاصطناعي حالياً. يُرجى إعادة المحاولة لاحقاً، '
+                .'أو تحرير لائحة الدعوى يدوياً (الوقائع ثم الأسانيد النظامية ثم الطلبات) بحسب مستندات القضية.',
+            'meta' => $meta,
+            'source' => AiSource::Fallback,
+            'verdict' => null,
+        ];
+    }
+
+    /**
+     * يعرض المسودّة المُتحقَّقة على المحامي **مع سند كل ادّعاء**.
+     *
+     * الخطة (P2) تفرض «إرفاق مصفوفة ادّعاء ← مصدر ← مقطع، وتحديد الجمل غير المدعومة
+     * بعلامة واضحة». والعلامة هنا **فوق النصّ لا تحته**: مسودّةٌ فيها ادّعاءٌ بلا سند
+     * تُقرأ كاملةً مسنَدة إن لم يُصرَّح بالنقص في موضعٍ لا يُتجاوَز.
+     *
+     * @param  array{draft:string,claims:array<int,array<string,string>>,unsupported_claims:array<int,string>,verdict:string}  $result
+     */
+    private function renderPleading(LegalCase $case, array $result): string
+    {
+        $out = trim((string) $result['draft']);
+
+        // «لا سند كافٍ» **لا يُلغي المسودّة**: الوقائع والأطراف والطلبات لا تحتاج
+        // مادّةً نظاميّة، وإلغاؤها يُضيّع عملاً صحيحاً. يُلغيها فقط ألّا يكون هناك نصّ.
+        if (($result['verdict'] ?? '') === LegalClaims::INSUFFICIENT_AUTHORITY) {
+            if ($out === '') {
+                return "مسودّة لائحة دعوى — {$case->number}\n\n"
+                    .'لم يُعثر في قاعدة المصادر المعتمدة على نصٍّ نظاميّ يحكم وقائع هذا الملفّ، '
+                    ."ولم يُنتج النموذج مسودّة.\n\n"
+                    .'المطلوب من المحامي: تحديد الأساس النظاميّ يدوياً، أو إضافة المصدر المعتمد '
+                    .'إلى قاعدة المصادر ثم إعادة التوليد. لم تُقترح أيّ مادّة تلقائياً — '
+                    .'اقتراحُ مادّةٍ بلا سندٍ مُتحقَّق أخطر من غيابها.';
+            }
+
+            return $out."\n\n⚠️ **لا سند نظاميّ مُتحقَّق لهذه المسودّة.** لم يُطابَق أيّ معرّف مصدرٍ "
+                .'بقاعدة المصادر المعتمدة، فالأسانيد الواردة أعلاه — إن وُجدت — غير موثَّقة. '
+                .'يلزم المحامي تحديد الأساس النظاميّ وتوثيقه قبل التقديم.';
+        }
+
+        if (! empty($result['claims'])) {
+            $out .= "\n\n— سند الادّعاءات (مُطابَق بقاعدة المصادر) —\n";
+            foreach ($result['claims'] as $c) {
+                $out .= "\n• {$c['text']}\n  [{$c['source_id']}] ".AiContextBuilder::clip((string) ($c['source_excerpt'] ?? ''), 300)."\n";
+            }
+        }
+
+        if (! empty($result['unsupported_claims'])) {
+            $out .= "\n\n⚠️ ادّعاءات **بلا سندٍ مُتحقَّق** — لا تُقدَّم للمحكمة قبل توثيقها:\n";
+            foreach ($result['unsupported_claims'] as $u) {
+                $out .= "\n• {$u}";
+            }
+        }
+
+        return $out;
     }
 
     /** قالب ملخص احتياطي عند تعذّر الذكاء الاصطناعي. */
@@ -769,10 +899,16 @@ class LegalAiService
             : "\n(لم يتم إرفاق مستندات بعد)";
 
         $system = AiPromptRegistry::executionAnalyzeSystem();
-        $prompt = "طلب تنفيذ {$exec->number} — نوع السند: {$exec->sanad}، الموضوع: «{$exec->subject}»، "
+
+        // تمويه ما كتبه العميل قبل مغادرة الخادم. كان **نصّ المستندات وحده** يُموَّه،
+        // بينما «الملاحظات» و«الموضوع» و«المنفَّذ ضده» تُرسَل خاماً — وهي حقولٌ حرّة
+        // يكتبها العميل ويضع فيها رقم هويّته وجوّاله عادةً. أثبته دليل التدقيق نفسه:
+        // طلبٌ حقيقيّ فيه «هوية 1055667788 · جوال 0553334444» سجّل `masked = []`.
+        $prompt = "طلب تنفيذ {$exec->number} — نوع السند: {$exec->sanad}، "
+            .'الموضوع: «'.AiContextBuilder::prepare((string) $exec->subject).'»، '
             .'قيمة المطالبة: '.number_format((int) $exec->amount).' ريال، '
-            .'المنفَّذ ضده: '.($exec->defendant ?: 'غير محدّد').'، '
-            .'ملاحظات: '.($exec->notes ?: '—').'.'
+            .'المنفَّذ ضده: '.($exec->defendant ? AiContextBuilder::prepare((string) $exec->defendant) : 'غير محدّد').'، '
+            .'ملاحظات: '.($exec->notes ? AiContextBuilder::prepare((string) $exec->notes) : '—').'.'
             .$docsContext
             ."\n\nحلّل الطلب والمستندات المرفقة وأعد JSON.";
 
@@ -849,7 +985,7 @@ class LegalAiService
             $json = null;
 
             if ($text = $this->extractText($abs, $ext)) {
-                $prompt = $context."\n\nمحتوى المستند:\n".mb_substr($text, 0, 20000)."\n\nلخّص المحتوى وصنّفه وأعد JSON.";
+                $prompt = $context."\n\nمحتوى المستند:\n".AiContextBuilder::prepare($text, 20000)."\n\nلخّص المحتوى وصنّفه وأعد JSON.";
                 $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true);
             } elseif (in_array($ext, ['pdf', 'jpg', 'jpeg', 'png', 'webp'], true) && ! empty(config('services.gemini.key'))) {
                 $mime = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'][$ext];
@@ -1142,6 +1278,24 @@ class LegalAiService
         }
 
         WebTimeLimit::raise(150); // مهلة الويب (30ث) لا تكفي سلسلة المزوّدين وإعادة محاولاتها
+
+        // ⚠️ التمويه **عند الحدّ** لا عند كل موضع استدعاء.
+        //
+        // كان كل مسار يُموّه سياقه بنفسه، فتكرّر العطل نفسه ثمانيَ مرّات: الفرز موّه،
+        // واللائحة لم تموّه، وتحليل التنفيذ موّه مستنداته ولا موّه ملاحظات العميل،
+        // وثلاث دوالّ للمستندات أرسلت نصّ العقد خاماً بعشرين ألف حرف. الجامع أن
+        // الحماية كانت تُطبَّق حيث تذكّرها كاتبها، ودالّةٌ جديدة تنسى فتُسرّب صامتةً.
+        //
+        // هنا آخر موضع يمرّ به النصّ قبل المزوّد، فالتمويه فيه يجعل التسريب **غير
+        // ممكن بنيوياً**: لا يلزم مستدعياً أن يتذكّر. والتمويه لا يُطبَّق مرّتين
+        // بأثرٍ ضارّ — العلامة `[هوية]` لا تطابق نمط الهويّة، فإعادته لا تُفسد شيئاً.
+        //
+        // وتُبقى `prepare` في مواضعها: تُنظّف الوسوم وتقتطع الحجم، وذانك شأنُ مصدرٍ
+        // يعرف بنية نصّه، لا شأن الحدّ.
+        $messages = array_map(
+            fn (array $m) => ['role' => $m['role'], 'content' => AiContextBuilder::mask((string) $m['content'])],
+            $messages
+        );
 
         // بصمة الحمولة تُقاس **هنا**: آخر موضع يمرّ به النصّ قبل مغادرته الخادم.
         // قياسها عند المصدر يقول «كنّا سنموّه»؛ وقياسها هنا يقول «ما غادر يحمل هذا

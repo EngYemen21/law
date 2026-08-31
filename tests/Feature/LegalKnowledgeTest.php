@@ -2,7 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Enums\AiSource;
 use App\Enums\Role;
+use App\Jobs\DraftCasePleadingJob;
+use App\Models\AiRun;
 use App\Models\LegalCase;
 use App\Models\LegalSource;
 use App\Models\User;
@@ -302,13 +305,98 @@ class LegalKnowledgeTest extends TestCase
         $this->assertStringNotContainsString('LS-DRAFT-ONLY', $this->lastRequestText());
     }
 
+    // ── العقد على مسار الإنتاج، لا في التقييم وحده ──
+
+    /**
+     * كان `LegalClaims` يُستدعى في `AiEvaluator` **فقط**: تُقاس طبقة التحقّق أمام
+     * مخرجات مثبَّتة، بينما لائحةُ قضيّةٍ حقيقيّة تُولَّد نصّاً حرّاً بلا مطابقةٍ واحدة.
+     * أي أن الـ786 مادّة كانت موصولةً بالسياق ومفصولةً عن التحقّق. هذا يحرس الوصل.
+     */
+    public function test_a_real_pleading_run_marks_its_claims_against_the_corpus(): void
+    {
+        $this->source(['ref' => 'LS-REAL', 'domain' => 'تجاري', 'text' => 'نصّ المادّة المعتمدة.']);
+        [$case] = $this->caseWithFakedProvider(department: 'تجاري', reply: json_encode([
+            'draft' => 'لائحة دعوى تجريبيّة.',
+            'claims' => [
+                ['text' => 'ادّعاء مسنَد.', 'source_id' => 'LS-REAL', 'source_excerpt' => 'نصّ المادّة المعتمدة.'],
+                // معرّف يبدو صحيح الشكل ولا يقابله صفّ — الحكم للخادم لا للنموذج
+                ['text' => 'ادّعاء بمعرّف مُختلَق.', 'source_id' => 'LS-CIVIL-9999', 'source_excerpt' => 'نصّ متخيَّل'],
+            ],
+            'unsupported_claims' => [],
+        ], JSON_UNESCAPED_UNICODE));
+
+        $result = app(LegalAiService::class)->draftPleadingResult($case);
+
+        $this->assertStringContainsString('[LS-REAL]', $result['draft'], 'المسنَد يظهر بمعرّفه');
+        $this->assertStringNotContainsString('[LS-CIVIL-9999]', $result['draft'], 'المُختلَق لا يُعرض سنداً');
+        $this->assertStringContainsString('ادّعاء بمعرّف مُختلَق.', $result['draft']);
+        $this->assertStringContainsString('بلا سندٍ مُتحقَّق', $result['draft'], 'النقص يُعلَن فوق النصّ');
+        $this->assertSame(LegalClaims::UNSUPPORTED, $result['verdict']);
+        // ادّعاءٌ واحد بلا سند يكفي لإسقاط الوسم عن «تحليل اجتاز التحقّق»
+        $this->assertSame(AiSource::ManualRequired, $result['source']);
+    }
+
+    /** كل الادّعاءات مسنَدة ⇒ وحدها الحالة التي تُوسم `AiSuccess`. */
+    public function test_a_fully_supported_pleading_is_the_only_ai_success(): void
+    {
+        $this->source(['ref' => 'LS-REAL', 'domain' => 'تجاري', 'text' => 'نصّ المادّة المعتمدة.']);
+        [$case] = $this->caseWithFakedProvider(department: 'تجاري', reply: json_encode([
+            'draft' => 'لائحة دعوى تجريبيّة.',
+            'claims' => [['text' => 'ادّعاء مسنَد.', 'source_id' => 'LS-REAL', 'source_excerpt' => 'نصّ']],
+            'unsupported_claims' => [],
+        ], JSON_UNESCAPED_UNICODE));
+
+        $result = app(LegalAiService::class)->draftPleadingResult($case);
+
+        $this->assertSame(LegalClaims::SUPPORTED, $result['verdict']);
+        $this->assertSame(AiSource::AiSuccess, $result['source']);
+        $this->assertStringNotContainsString('بلا سندٍ مُتحقَّق', $result['draft']);
+    }
+
+    /**
+     * قاعدة فارغة ⇒ المسودّة تبقى **ويظهر أنها بلا سند**. حجبُها كان الخيار الأوّل
+     * وأسقط اختبارين محقّين: وقائع الملفّ وطلباته لا تحتاج مادّةً نظاميّة.
+     */
+    public function test_an_empty_corpus_yields_a_draft_flagged_as_unsupported(): void
+    {
+        [$case] = $this->caseWithFakedProvider(reply: json_encode([
+            'draft' => 'لائحة بلا سند.',
+            'claims' => [],
+            'unsupported_claims' => [],
+        ], JSON_UNESCAPED_UNICODE));
+
+        $result = app(LegalAiService::class)->draftPleadingResult($case);
+
+        $this->assertStringContainsString('لائحة بلا سند.', $result['draft'], 'المسودّة لا تُلغى');
+        $this->assertStringContainsString('لا سند نظاميّ مُتحقَّق', $result['draft']);
+        $this->assertSame(AiSource::ManualRequired, $result['source']);
+    }
+
+    /** مسودّة اللائحة تُقيَّد في سجلّ القرارات — كانت تُنتَج بلا أثرٍ واحد. */
+    public function test_a_pleading_run_is_recorded_in_the_decision_log(): void
+    {
+        $this->source(['ref' => 'LS-REAL', 'domain' => 'تجاري']);
+        [$case] = $this->caseWithFakedProvider(department: 'تجاري', reply: json_encode([
+            'draft' => 'لائحة.',
+            'claims' => [['text' => 'ادّعاء.', 'source_id' => 'LS-REAL', 'source_excerpt' => 'نصّ']],
+            'unsupported_claims' => [],
+        ], JSON_UNESCAPED_UNICODE));
+
+        (new DraftCasePleadingJob($case))->handle(app(LegalAiService::class));
+
+        $run = AiRun::where('task_type', 'case.pleading')->latest('id')->first();
+        $this->assertNotNull($run, 'أخطر مخرجٍ قانونيّ لا يجوز أن يُنتَج بلا قيد');
+        $this->assertSame($case->number, $run->entity_ref);
+        $this->assertSame('v2', $run->prompt_version);
+    }
+
     /** @return array{0:LegalCase} */
-    private function caseWithFakedProvider(string $department = 'تجاري'): array
+    private function caseWithFakedProvider(string $department = 'تجاري', ?string $reply = null): array
     {
         config(['services.gemini.key' => 'test-key', 'services.glm.key' => '']);
         Cache::flush();
         Http::fake(['generativelanguage.googleapis.com/*' => Http::response([
-            'candidates' => [['content' => ['parts' => [['text' => 'مسودّة لائحة دعوى تجريبيّة.']]]]],
+            'candidates' => [['content' => ['parts' => [['text' => $reply ?? 'مسودّة لائحة دعوى تجريبيّة.']]]]],
         ], 200)]);
 
         $client = User::factory()->create(['role' => Role::Client]);

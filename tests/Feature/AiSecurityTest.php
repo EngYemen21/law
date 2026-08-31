@@ -261,6 +261,87 @@ class AiSecurityTest extends TestCase
         $this->assertStringNotContainsString('0501234567', $encoded);
     }
 
+    /**
+     * **التمويه عند الحدّ: مسارٌ ينساه لا يستطيع التسريب.**
+     *
+     * الحراسة على `runCall` نفسها لا على مستدعٍ بعينه. تكرّر العطل ثمانيَ مرّات
+     * لأن كل دالّة كانت تُموّه سياقها بنفسها، فدالّةٌ جديدة تنسى فتُسرّب صامتةً.
+     * هنا تُمرَّر رسالةٌ **خام تماماً** إلى البوّابة، ويُفحص ما وصل المزوّد فعلاً.
+     */
+    public function test_nothing_leaves_the_gateway_unmasked_even_if_the_caller_forgot(): void
+    {
+        $this->fakeGemini();
+
+        // نداءٌ مباشر بنصٍّ لم يمرّ بأيّ إعداد — يحاكي مساراً نسي `prepare`
+        $call = (new \ReflectionMethod(LegalAiService::class, 'runCall'))
+            ->invoke(app(LegalAiService::class), 'تعليمة.', [
+                ['role' => 'user', 'content' => 'هويته 1012345678 وجواله 0501234567 وبريده a@b.com'],
+            ]);
+
+        $sent = json_encode(
+            json_decode((string) Http::recorded()[0][0]->body(), true),
+            JSON_UNESCAPED_UNICODE
+        );
+
+        $this->assertStringNotContainsString('1012345678', $sent, 'الهويّة لا تغادر');
+        $this->assertStringNotContainsString('0501234567', $sent, 'الجوال لا يغادر');
+        $this->assertStringNotContainsString('a@b.com', $sent, 'البريد لا يغادر');
+        $this->assertStringContainsString('[هوية]', $sent, 'بل تغادر معلّمةً');
+
+        $this->assertSame([], $call->outboundAudit['residual'] ?? null, 'ولا بقيّة في الدليل');
+        $this->assertSame(3, array_sum($call->outboundAudit['masked']), 'وثلاثتها محصاة');
+    }
+
+    /**
+     * **الدليل يكشف ما لم يُموَّه، لا ما مُوّه وحده.**
+     *
+     * عدّ العلامات وحده يطمئن كذباً: حمولةٌ فيها سطرٌ مُعدّ وعشرون ألف حرفٍ خام
+     * تُسجَّل «مُوّه ثلاثة» فيقرؤها المدقّق نجاحاً. وقع هذا في ثلاث دوالّ لتحليل
+     * المستندات — أكثف ما في المنظومة بياناتٍ شخصيّة — ولم يكشفه سجلّ ولا اختبار.
+     */
+    public function test_the_audit_flags_identifiers_that_left_unmasked(): void
+    {
+        $audit = AiContextBuilder::outboundAudit(
+            AiContextBuilder::prepare('هويته 1012345678').' ثم نصّ خام: جواله 0501234567'
+        );
+
+        $this->assertSame(['[هوية]' => 1], $audit['masked'], 'المُعدّ مُوّه');
+        $this->assertSame(['[جوال]' => 1], $audit['residual'], 'والخام يُفضَح لا يُبتلع');
+    }
+
+    /** وحمولةٌ مُعدّة بالكامل لا بقيّة فيها — وإلّا فالحارس نفسه يُنذر كذباً. */
+    public function test_a_fully_prepared_payload_leaves_no_residual(): void
+    {
+        $audit = AiContextBuilder::outboundAudit(
+            AiContextBuilder::prepare('هويته 1012345678 وجواله 0501234567 وبريده a@b.com')
+        );
+
+        $this->assertSame([], $audit['residual']);
+    }
+
+    /**
+     * مسارات تحليل المستندات تُعدّ نصّها قبل الإرسال.
+     *
+     * كانت الثلاث تُرسل `mb_substr($text, 0, 20000)` — نصّ العقد أو الصكّ خاماً،
+     * وفيه كلّ هويّة وحساب ورقم في المستند. حراسةٌ على النصّ المصدريّ لأن إثباتها
+     * حيّاً يلزمه نداءٌ لكل دالّة بمستندٍ حقيقيّ، وهذا يمنع عودة النمط أصلاً.
+     */
+    public function test_document_analysis_paths_prepare_their_text(): void
+    {
+        $src = file_get_contents(app_path('Services/LegalAiService.php'));
+
+        $this->assertStringNotContainsString(
+            'mb_substr($text, 0, 20000)',
+            $src,
+            'نصّ المستند لا يغادر الخادم خاماً'
+        );
+        $this->assertSame(
+            3,
+            substr_count($src, 'AiContextBuilder::prepare($text, 20000)'),
+            'الدوالّ الثلاث (تذكرة/قضية/تنفيذ) تُعدّ نصّها'
+        );
+    }
+
     /** ونصٌّ بلا معرّفات يُسجَّل بلا تمويه — لا تُختلق أعدادٌ لتبدو الحماية عاملة. */
     public function test_a_payload_without_identifiers_records_no_masking(): void
     {
