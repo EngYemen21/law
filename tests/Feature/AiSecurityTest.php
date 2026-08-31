@@ -9,6 +9,7 @@ use App\Models\AiRun;
 use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\Ticket;
+use App\Models\TicketDocument;
 use App\Models\User;
 use App\Services\Ai\AiContextBuilder;
 use App\Services\Ai\AiFailure;
@@ -316,7 +317,7 @@ class AiSecurityTest extends TestCase
         ]);
 
         Storage::disk('local')->put('docs/big.pdf', 'محتوى');
-        $doc = \App\Models\TicketDocument::create([
+        $doc = TicketDocument::create([
             'ticket_id' => $ticket->id,
             'name' => 'ملف_ضخم.pdf',
             'path' => 'docs/big.pdf',
