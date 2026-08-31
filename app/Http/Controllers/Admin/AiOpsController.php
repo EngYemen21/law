@@ -12,7 +12,9 @@ use App\Services\Ai\AiOpsMetrics;
 use App\Services\Ai\AiPolicyGate;
 use App\Services\Ai\AiReviewInbox;
 use App\Services\Ai\AiReviewReason;
+use App\Services\Ai\AiThresholdCalibration;
 use App\Services\LegalAiService;
+use App\Support\Audit;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -46,6 +48,8 @@ class AiOpsController extends Controller
                 'defaultThreshold' => AiPolicyGate::DEFAULT_THRESHOLD,
                 'pricing' => Setting::aiPricing(),
                 'retention' => $this->retentionRows(),
+                'retentionApproval' => Setting::aiRetentionApproval(),
+                'retentionApproved' => Setting::aiRetentionApproved(),
                 'budget' => Setting::aiBudget(),
             ],
             'spending' => [
@@ -67,6 +71,8 @@ class AiOpsController extends Controller
             ],
             // المفتاح بجانب حصيلته: مسارٌ يُفعَّل بلا قياس تفعيلٌ بالحدس
             'taskSwitches' => $this->taskSwitches(),
+            // معايرة العتبة بالأرقام: كان القرار مطلوباً والأداة غائبة
+            'calibration' => AiThresholdCalibration::analyse(),
         ]);
     }
 
@@ -194,6 +200,8 @@ class AiOpsController extends Controller
         $data = $request->validate([
             'retention' => ['present', 'array'],
             'retention.*' => ['nullable', 'integer', 'min:1', 'max:3650'],
+            'approve' => ['boolean'],
+            'basis' => ['nullable', 'string', 'max:500'],
         ]);
 
         $clean = [];
@@ -204,6 +212,26 @@ class AiOpsController extends Controller
         }
 
         Setting::put('ai_retention', json_encode($clean));
+
+        // الاعتماد واقعةٌ تُسجَّل: من قرّر ومتى وعلى أيّ سند. بدونه تبقى الأرقام
+        // «افتراضاً» في الشاشة مهما حُفظت — ولا يُعرف عند التدقيق من قرّر.
+        if ($data['approve'] ?? false) {
+            Setting::put('ai_retention_approval', json_encode([
+                'by' => $request->user()->name,
+                'at' => now()->toDateTimeString(),
+                'basis' => $data['basis'] ?? null,
+            ], JSON_UNESCAPED_UNICODE));
+
+            Audit::log(
+                action: 'اعتماد سياسة الاحتفاظ',
+                description: 'اعتُمدت مدد الاحتفاظ بمخرجات الذكاء: '.json_encode($clean).'.'
+                    .($data['basis'] ? ' السند: '.$data['basis'] : ''),
+                category: 'الإدارة العليا',
+                severity: 'warning',
+            );
+
+            return back()->with('flash', 'اعتُمدت مدد الاحتفاظ باسمك وتاريخ اليوم.');
+        }
 
         return back()->with('flash', 'حُفظت مدد الاحتفاظ — تُطبَّق بأمر ai:purge.');
     }

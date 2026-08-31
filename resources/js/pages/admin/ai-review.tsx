@@ -1,5 +1,6 @@
-import { router } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
 import React, { useState } from 'react';
+import { panelBase } from '@/lib/data';
 import Icon from '@/lib/icons';
 
 /** مخرج ينتظر قرار إنسان. */
@@ -55,6 +56,9 @@ const AiReview: React.FC<{ items: ReviewItem[]; actions: ActionOption[]; reasons
   reasons,
   metrics,
 }) => {
+  // بادئة لوحة الدور: الشاشة مشتركة بين الإدارة والمحامي، وتثبيت `/admin` في
+  // الإرسال يجعلها تُعرض للمحامي ثم تُمنع عند الحفظ بـ403 — شاشةٌ لا تعمل.
+  const base = panelBase((usePage().url as string).split('?')[0]);
   const [openId, setOpenId] = useState<number | null>(null);
   const [action, setAction] = useState('');
   const [reason, setReason] = useState('');
@@ -66,7 +70,7 @@ const AiReview: React.FC<{ items: ReviewItem[]; actions: ActionOption[]; reasons
   const submit = (id: number) => {
     setBusy(true);
     router.post(
-      `/admin/ai-review/${id}/decide`,
+      `${base}/ai-review/${id}/decide`,
       { action, reason: reason || null, note: note || null },
       {
         preserveScroll: true,

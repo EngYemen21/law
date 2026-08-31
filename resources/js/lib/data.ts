@@ -213,6 +213,19 @@ export const SHARED_ACCOUNT_ROUTES = ['/notifications', '/profile'];
 // لوحة العرض الصحيحة: للصفحات المشتركة نعتمد دور المستخدم الفعليّ (auth.user.role)،
 // ولغيرها نشتقّ الدور من المسار. (مبدّل لوحات الإدارة أُلغي 2026-08-28 — الدالة باقية
 // لأنها تحدد شريط التنقل حسب مسار الصفحة المعروضة.)
+/**
+ * بادئة لوحة الدور من المسار الحاليّ — لبناء وجهات الإرسال.
+ *
+ * الشاشات المشتركة بين الأدوار (صندوق المراجعة، المراجعة العمياء، المصادر) لها
+ * مسارٌ لكل دور. وتثبيت `/admin` في الإرسال يجعل المحامي يفتح الشاشة ثم يُمنع
+ * عند الحفظ بـ403 — أي شاشةٌ تُعرض ولا تعمل، وهو أسوأ من غيابها.
+ */
+export function panelBase(path: string): string {
+  const role = roleOfPath(path);
+
+  return role === 'client' ? '' : `/${role}`;
+}
+
 export function panelRole(path: string, userRole?: string): string {
   if (userRole && SHARED_ACCOUNT_ROUTES.includes(path)) {
     return userRole;
@@ -275,6 +288,9 @@ const LAWYER_NAV: SideGroup[] = [
     // صندوق المراجعة نفسه لكل دور والعزل داخل AiReviewInbox — فحصره في لوحة
     // الإدارة يناقض P3. وبلا رابطٍ هنا لا يصل إليه المحامي أصلاً.
     { icon: 'sparkles', label: 'مراجعة مخرجات الذكاء', route: '/lawyer/ai-review' },
+    // الخطة تفرض أن **المحامي** يراجع العيّنة العمياء ويعتمد المصادر — فبابهما هنا
+    { icon: 'doc', label: 'المراجعة العمياء', route: '/lawyer/ai-blind-review' },
+    { icon: 'scale', label: 'المصادر القانونيّة', route: '/lawyer/legal-sources' },
   ] },
 ];
 
@@ -320,6 +336,7 @@ const ADMIN_NAV: SideGroup[] = [
   { g: 'الذكاء الاصطناعي', items: [
     { icon: 'sparkles', label: 'مراجعة مخرجات الذكاء', route: '/admin/ai-review' },
     { icon: 'scale', label: 'المصادر القانونيّة', route: '/admin/legal-sources' },
+    { icon: 'doc', label: 'المراجعة العمياء', route: '/admin/ai-blind-review' },
     { icon: 'compass', label: 'تشغيل الذكاء وحوكمته', route: '/admin/ai-ops' },
   ] },
   { g: 'المالية والتقارير', items: [
@@ -390,6 +407,8 @@ const LAWYER_TITLES: Record<string, [string, string]> = {
   '/lawyer/summaries': ['الملخصات', 'لوحة المحامي'],
   '/lawyer/tasks': ['المهام', 'لوحة المحامي'],
   '/lawyer/ai-review': ['مراجعة مخرجات الذكاء', 'لوحة المحامي'],
+  '/lawyer/ai-blind-review': ['المراجعة العمياء', 'لوحة المحامي'],
+  '/lawyer/legal-sources': ['المصادر القانونيّة المعتمدة', 'لوحة المحامي'],
   '/lawyer/videoroom': ['غرفة الجلسة المرئية', 'لوحة المحامي'],
 };
 
@@ -397,6 +416,7 @@ const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/dashboard': ['الرئيسية', 'لوحة الإدارة'],
   '/admin/audit-logs': ['سجل الرقابة والتدقيق الأمني', 'الإدارة العليا'],
   '/admin/ai-review': ['مراجعة مخرجات الذكاء', 'الإدارة العليا'],
+  '/admin/ai-blind-review': ['المراجعة العمياء', 'الإدارة العليا'],
   '/admin/legal-sources': ['المصادر القانونيّة المعتمدة', 'الإدارة العليا'],
   '/admin/ai-ops': ['تشغيل الذكاء وحوكمته', 'الإدارة العليا'],
   '/admin/clients': ['العملاء', 'لوحة الإدارة'],

@@ -127,6 +127,35 @@ class Setting extends Model
     }
 
     /**
+     * اعتماد مدد الاحتفاظ: من اعتمدها ومتى وبأيّ سند.
+     *
+     * كانت المدد تُحفَظ بلا اعتماد، فتُقرأ في الشاشة «افتراض لم يُعتمد» إلى الأبد ولو
+     * أقرّها المكتب. **الاعتماد واقعةٌ تُسجَّل** — وبدونها لا يُعرف عند التدقيق من قرّر
+     * ولا على أيّ أساس، وهو أوّل ما يُسأل عنه في سياسة احتفاظ.
+     *
+     * @return array{by:string|null, at:string|null, basis:string|null}
+     */
+    public static function aiRetentionApproval(): array
+    {
+        $stored = json_decode((string) static::get('ai_retention_approval', ''), true);
+        $stored = is_array($stored) ? $stored : [];
+
+        return [
+            'by' => $stored['by'] ?? null,
+            'at' => $stored['at'] ?? null,
+            'basis' => $stored['basis'] ?? null,
+        ];
+    }
+
+    /** هل اعتُمدت المدد فعلاً؟ — لا «معتمد» بلا معتمِدٍ وتاريخ. */
+    public static function aiRetentionApproved(): bool
+    {
+        $approval = static::aiRetentionApproval();
+
+        return $approval['by'] !== null && $approval['at'] !== null;
+    }
+
+    /**
      * مدد الاحتفاظ بالأيام لكل فئة بيانات. `null` لفئة = بلا حدّ.
      *
      * @return array<string, int|null>

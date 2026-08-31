@@ -19,6 +19,7 @@ use App\Services\Ai\AiConfidence;
 use App\Services\Ai\AiContextBuilder;
 use App\Services\Ai\AiFailure;
 use App\Services\Ai\AiGateway;
+use App\Services\Ai\AiModelRouter;
 use App\Services\Ai\AiOutputValidator;
 use App\Services\Ai\AiPromptRegistry;
 use App\Services\Ai\AiUsage;
@@ -1130,8 +1131,8 @@ class LegalAiService
         );
 
         return app(AiGateway::class)->call(fn (string $provider) => match ($provider) {
-            'gemini' => $this->viaGemini($system, $messages, $json),
-            'glm' => $this->viaGlm($system, $messages, $json),
+            'gemini' => $this->viaGemini($system, $messages, $json, $promptId),
+            'glm' => $this->viaGlm($system, $messages, $json, $promptId),
             default => null,
         })->withOutboundAudit($audit);
     }
@@ -1145,8 +1146,27 @@ class LegalAiService
      *
      * @return array{data:?array, cost:?float, model:?string, failure:?string}
      */
-    public function evaluationCall(string $system, string $prompt): array
+    public function evaluationCall(string $system, string $prompt, ?string $forceProvider = null): array
     {
+        // مزوّدٌ بعينه: **بلا تراجع إلى غيره**. البوّابة تنتقل للمزوّد التالي عند
+        // التعثّر، ولو فعلت هنا لَحكم على المخرج نموذجُ منتِجه صامتاً — فتسقط
+        // استقلاليّة الحَكَم بلا أن يظهر ذلك في النتيجة.
+        if ($forceProvider !== null) {
+            $messages = [['role' => 'user', 'content' => $prompt]];
+            $text = match ($forceProvider) {
+                'gemini' => $this->viaGemini($system, $messages, true),
+                'glm' => $this->viaGlm($system, $messages, true),
+                default => null,
+            };
+
+            return [
+                'data' => $text ? self::parseJsonResponse($text) : null,
+                'cost' => null, // لا استهلاك مقروء خارج البوّابة — و`null` أصدق من صفر
+                'model' => AiModelRouter::modelFor($forceProvider),
+                'failure' => $text ? null : AiFailure::PROVIDER_ERROR,
+            ];
+        }
+
         // بلا `promptId` عمداً: التقييم يجب أن يعمل **حتى على مسارٍ مُطفأ**، وإلّا
         // استحال قياسه لإعادة تفعيله — فيبقى المطفأ مطفأً لتعذُّر إثبات صلاحه.
         $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], json: true);
@@ -1197,7 +1217,7 @@ class LegalAiService
     }
 
     /** الردّ عبر GLM (z.ai) — واجهة متوافقة مع OpenAI. */
-    private function viaGlm(string $system, array $messages, bool $json = false): ?string
+    private function viaGlm(string $system, array $messages, bool $json = false, ?string $promptId = null): ?string
     {
         $msgs = array_merge(
             [['role' => 'system', 'content' => $system]],
@@ -1205,7 +1225,7 @@ class LegalAiService
         );
 
         $body = [
-            'model' => config('services.glm.model', 'glm-4.6'),
+            'model' => AiModelRouter::modelFor('glm', $promptId),
             'messages' => $msgs,
             'max_tokens' => 2048,
             'temperature' => $json ? 0.3 : 0.7,
@@ -1276,9 +1296,10 @@ class LegalAiService
     }
 
     /** الردّ عبر Gemini (Google Generative Language REST API). */
-    private function viaGemini(string $system, array $messages, bool $json = false): ?string
+    private function viaGemini(string $system, array $messages, bool $json = false, ?string $promptId = null): ?string
     {
-        $model = config('services.gemini.model', 'gemini-2.5-flash');
+        // الموجّه لا الثابت: يقع على النموذج المهيَّأ ما لم يُضبط تجاوزٌ للمهمّة
+        $model = AiModelRouter::modelFor('gemini', $promptId);
 
         // Gemini يستخدم الدور "model" بدل "assistant"
         $contents = array_map(fn ($m) => [

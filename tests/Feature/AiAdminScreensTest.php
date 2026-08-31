@@ -447,6 +447,59 @@ class AiAdminScreensTest extends TestCase
 
         $this->assertFalse(Setting::aiBudget()['stop']);
     }
+    // ── اعتماد سياسة الاحتفاظ ──
+
+    /** الحفظ وحده لا يعتمد: الأرقام تبقى «اقتراحاً هندسياً» حتى يقرّرها المكتب. */
+    public function test_saving_retention_does_not_by_itself_approve_it(): void
+    {
+        $this->actingAs($this->admin())->post(route('admin.ai-ops.retention'), [
+            'retention' => [AiDataClass::Restricted->value => 60],
+        ]);
+
+        $this->assertFalse(Setting::aiRetentionApproved());
+        $this->assertNull(Setting::aiRetentionApproval()['by']);
+    }
+
+    /** والاعتماد **واقعةٌ تُسجَّل**: من قرّر ومتى وعلى أيّ سند. */
+    public function test_approval_records_who_decided_and_on_what_basis(): void
+    {
+        $admin = $this->admin();
+
+        $this->actingAs($admin)->post(route('admin.ai-ops.retention'), [
+            'retention' => [AiDataClass::Restricted->value => 60],
+            'approve' => true,
+            'basis' => 'قرار اجتماع الحوكمة',
+        ])->assertRedirect();
+
+        $approval = Setting::aiRetentionApproval();
+        $this->assertTrue(Setting::aiRetentionApproved());
+        $this->assertSame($admin->name, $approval['by']);
+        $this->assertSame('قرار اجتماع الحوكمة', $approval['basis']);
+        $this->assertNotNull($approval['at']);
+    }
+
+    /** والشاشة تقول أيّهما: معتمدة باسم صاحبها، أو اقتراحٌ لم يُقرَّر. */
+    public function test_the_screen_declares_whether_retention_was_approved(): void
+    {
+        $admin = $this->admin();
+
+        $this->actingAs($admin)
+            ->get(route('admin.ai-ops'))
+            ->assertInertia(fn ($page) => $page->where('settings.retentionApproved', false));
+
+        $this->actingAs($admin)->post(route('admin.ai-ops.retention'), [
+            'retention' => [AiDataClass::Restricted->value => 60],
+            'approve' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.ai-ops'))
+            ->assertInertia(fn ($page) => $page
+                ->where('settings.retentionApproved', true)
+                ->where('settings.retentionApproval.by', $admin->name)
+            );
+    }
+
     // ── لوحة الحوكمة ──
 
     public function test_the_ops_screen_carries_the_governance_agenda(): void

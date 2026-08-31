@@ -56,11 +56,14 @@ interface Props {
     defaultThreshold: number;
     pricing: Record<string, { input: number; output: number }>;
     retention: RetentionRow[];
+    retentionApproval: { by: string | null; at: string | null; basis: string | null };
+    retentionApproved: boolean;
     /** `cap: null` = بلا سقف لا صفر — الصفر يمنع كل نداء. */
     budget: { cap: number | null; warnAt: number; stop: boolean };
   };
   spending: { thisMonth: number | null; stopped: boolean };
   taskSwitches: TaskSwitch[];
+  calibration: Calibration;
   evaluation: {
     last: LastEvaluation | null;
     tasks: string[];
@@ -70,6 +73,20 @@ interface Props {
     baselineAt: string | null;
     runsRecorded: number;
   };
+}
+
+/**
+ * معايرة العتبة بالأرقام. `recommended: null` = العيّنة لا تكفي أو تعذّر تصفير
+ * القبول الخاطئ — والصمت أصدق من رقمٍ مبنيّ على ثلاث مراجعات.
+ */
+interface Calibration {
+  sample: number;
+  threshold: number;
+  wrongAccepts: number;
+  wrongEscalations: number;
+  recommended: number | null;
+  reason: string;
+  curve: { threshold: number; wrongAccepts: number; wrongEscalations: number }[];
 }
 
 /** مفتاح مسار وحصيلة تقييمه — `rate: null` = لم يُقَس بعد، لا صفر. */
@@ -94,12 +111,13 @@ interface EvalDiff {
 /** «غير مقيسة» لا صفر: الصفر يقول إن القياس جرى ونتيجته صفر — وهو ادّعاء مختلف. */
 const pct = (v: number | null): string => (v === null ? 'غير مقيسة' : `${Math.round(v * 100)}%`);
 
-const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejectionReasons, editRate, pendingReview, settings, spending, taskSwitches, evaluation }) => {
+const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejectionReasons, editRate, pendingReview, settings, spending, taskSwitches, calibration, evaluation }) => {
   const [threshold, setThreshold] = useState(settings.threshold);
   // السقف نصّ لا رقم: الفراغ يعني «بلا سقف» وهو معنى لا يمثّله أي رقم
   const [cap, setCap] = useState(settings.budget.cap === null ? '' : String(settings.budget.cap));
   const [warnAt, setWarnAt] = useState(Math.round(settings.budget.warnAt * 100));
   const [stop, setStop] = useState(settings.budget.stop);
+  const [basis, setBasis] = useState(settings.retentionApproval.basis ?? '');
   const [switches, setSwitches] = useState<Record<string, boolean>>(
     Object.fromEntries(taskSwitches.map((t) => [t.task, t.enabled])),
   );
@@ -212,6 +230,59 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
           <button className="btn sm" disabled={busy} type="button" onClick={() => post('/admin/ai-ops/threshold', { threshold })}>
             <Icon name="check" /> حفظ العتبة
           </button>
+
+          {/* ── المعايرة بالأرقام ──
+              الخطة تفرض المعايرة «بعد قياس لا بالحدس»، وكان القرار مطلوباً والأداة
+              غائبة. والخطآن ليسا متساويين: قبولٌ آليّ رفضه إنسان يصل الملفَّ بلا
+              مراجعة، وتصعيدٌ قَبِله إنسان يكلّف وقتاً فقط. */}
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+            <b style={{ fontSize: 12.5 }}>المعايرة على آخر 90 يوماً</b>
+
+            {calibration.sample === 0 ? (
+              <p style={{ color: 'var(--muted)', fontSize: 12.5 }}>{calibration.reason}</p>
+            ) : (
+              <>
+                <div className="cell-row" style={{ fontSize: 12.5, marginTop: 6 }}>
+                  <span>العيّنة: {calibration.sample} مراجعة مكتملة بثقة مقيسة</span>
+                  <span style={{ color: calibration.wrongAccepts > 0 ? 'var(--red)' : undefined }}>
+                    قُبل آلياً ثم رُفض: <b>{calibration.wrongAccepts}</b> · صُعِّد ثم قُبل: {calibration.wrongEscalations}
+                  </span>
+                </div>
+
+                <p style={{ fontSize: 12.5, margin: '6px 0' }}>{calibration.reason}</p>
+
+                {calibration.recommended !== null && (
+                  <button
+                    className="btn soft sm"
+                    type="button"
+                    disabled={busy || calibration.recommended === threshold}
+                    onClick={() => setThreshold(calibration.recommended as number)}
+                  >
+                    العتبة الموصى بها: {calibration.recommended}% — املأ الحقل
+                  </button>
+                )}
+
+                <details style={{ marginTop: 8 }}>
+                  <summary style={{ fontSize: 12.5 }}>ثمن كل عتبة</summary>
+                  <div style={{ marginTop: 6 }}>
+                    {calibration.curve
+                      .filter((p) => p.wrongAccepts > 0 || p.wrongEscalations > 0)
+                      .map((p) => (
+                        <div key={p.threshold} className="cell-row" style={{ fontSize: 12 }}>
+                          <span>{p.threshold}%</span>
+                          <span>
+                            <span style={{ color: p.wrongAccepts > 0 ? 'var(--red)' : undefined }}>
+                              قبول خاطئ {p.wrongAccepts}
+                            </span>
+                            {' · '}تصعيد زائد {p.wrongEscalations}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </details>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -377,9 +448,58 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
                 onChange={(e) => setRetention({ ...retention, [r.value]: e.target.value })} />
             </div>
           ))}
-          <button className="btn sm" disabled={busy} type="button" onClick={() => post('/admin/ai-ops/retention', { retention })}>
-            <Icon name="check" /> حفظ المدد
-          </button>
+          {/* السند النظاميّ أمام من يقرّر — القرار بلا سنده حدسٌ آخر */}
+          <details style={{ marginTop: 6 }}>
+            <summary style={{ fontSize: 12.5 }}>السند النظاميّ لهذا القرار</summary>
+            <div style={{ fontSize: 12.5, marginTop: 6, lineHeight: 1.9 }}>
+              <p>
+                <b>الحدّ الأعلى المرجعيّ — نظام المحاماة:</b> لا تُسمع دعوى الموكّل في مطالبة
+                محاميه بالأوراق والمستندات المودعة لديه بعد مضيّ <b>خمس سنوات</b> من انتهاء
+                مهمّته. فمسؤوليّة المكتب عن الملفّ تمتدّ هذه المدّة.
+              </p>
+              <p>
+                <b>الحدّ الأدنى المبدئيّ — نظام حماية البيانات الشخصيّة (م/148):</b> تُتلَف
+                البيانات الشخصيّة بعد انتهاء الغرض من جمعها <b>دون تأخير</b>؛ وإن وُجد مسوّغ
+                نظاميّ للاحتفاظ مدّةً محدّدة، فتُتلَف بعد أطول المدّتين.
+              </p>
+              <p style={{ color: 'var(--amber)' }}>
+                المدد الحاليّة أقصر بكثير من خمس سنوات. وهذا اختيارٌ مشروع — قيود الذكاء
+                <b> لا تحوي محتوى</b> (رموز وأزمنة وأعداد)، والملفّ نفسه محفوظ في مكانه.
+                لكنّ أثره أن نزاعاً في السنة الثالثة لن يجد قيداً يشرح كيف عولج الطلب.
+              </p>
+              <p style={{ color: 'var(--muted)' }}>
+                هذه إحالات للاسترشاد لا فتوى؛ الاعتماد قرارُ المكتب.
+              </p>
+            </div>
+          </details>
+
+          <div className="field" style={{ marginTop: 8 }}>
+            <label>سند القرار (يُحفظ مع الاعتماد)</label>
+            <input className="input" value={basis} onChange={(e) => setBasis(e.target.value)}
+              placeholder="مثل: قرار اجتماع الحوكمة بتاريخ… استناداً إلى نظام حماية البيانات" />
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn soft sm" disabled={busy} type="button" onClick={() => post('/admin/ai-ops/retention', { retention })}>
+              <Icon name="check" /> حفظ المدد
+            </button>
+            {/* الاعتماد واقعةٌ تُسجَّل باسم من اتّخذها — لا وسمٌ يُرفع */}
+            <button className="btn sm" disabled={busy} type="button"
+              onClick={() => post('/admin/ai-ops/retention', { retention, approve: true, basis: basis || null })}>
+              <Icon name="check" /> اعتمِد هذه المدد باسمي
+            </button>
+          </div>
+
+          {settings.retentionApproved ? (
+            <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>
+              معتمدة من <b>{settings.retentionApproval.by}</b> بتاريخ {settings.retentionApproval.at}
+              {settings.retentionApproval.basis && ` — ${settings.retentionApproval.basis}`}
+            </p>
+          ) : (
+            <p style={{ color: 'var(--amber)', fontSize: 12, marginTop: 8 }}>
+              لم تُعتمد بعد: الأرقام الحاليّة اقتراحٌ هندسيّ لا قرارُ مكتب.
+            </p>
+          )}
         </div>
       </div>
 

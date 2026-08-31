@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AccountingController as AdminAccountingController;
+use App\Http\Controllers\Admin\AiBlindReviewController as AdminAiBlindReviewController;
 use App\Http\Controllers\Admin\AiOpsController as AdminAiOpsController;
 use App\Http\Controllers\Admin\AiReviewController as AdminAiReviewController;
 use App\Http\Controllers\Admin\ArchiveController as AdminArchiveController;
@@ -320,6 +321,13 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         // P3 تفرض توحيد المراجعة «للمحامي والموظف»، فحصرها في لوحة الإدارة يناقضها.
         Route::get('/ai-review', [AdminAiReviewController::class, 'index'])->name('ai-review');
         Route::post('/ai-review/{run}/decide', [AdminAiReviewController::class, 'decide'])->name('ai-review.decide');
+
+        // الطبقة الثالثة: **المحامي** هو من تفرض الخطة أن يراجع العيّنة العمياء،
+        // فحصرُها في لوحة الإدارة يجعل الفعل الموصوف مستحيلاً على صاحبه.
+        Route::get('/ai-blind-review', [AdminAiBlindReviewController::class, 'index'])->name('ai-blind-review');
+        Route::post('/ai-blind-review/draw', [AdminAiBlindReviewController::class, 'draw'])->name('ai-blind-review.draw');
+        Route::post('/ai-blind-review/{review}/judge', [AdminAiBlindReviewController::class, 'judge'])->name('ai-blind-review.judge');
+
         Route::post('/tickets/{ticket}/result', [LawyerTicketController::class, 'approveResult'])->name('result.approve');
     });
 
@@ -388,6 +396,14 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
     Route::middleware('permission:المساعد القانوني')->group(function () {
         Route::get('/assistant', [LawyerAssistantController::class, 'index'])->name('assistant');
         Route::post('/assistant/generate', [LawyerAssistantController::class, 'generate'])->name('assistant.generate');
+
+        // اعتماد المصادر القانونيّة: **المحامي المسؤول** هو من يعتمد كما تنصّ الخطة.
+        // حصرُه في لوحة الإدارة يجعل الفعل القانونيّ بيد غير أهله — والاعتماد يُسجَّل
+        // باسم من ضغط الزرّ، فلا يصحّ أن يكون غير المحامي.
+        Route::get('/legal-sources', [AdminLegalSourceController::class, 'index'])->name('legal-sources');
+        Route::post('/legal-sources/{source}/approve', [AdminLegalSourceController::class, 'approve'])->name('legal-sources.approve');
+        Route::post('/legal-sources/approve-system', [AdminLegalSourceController::class, 'approveSystem'])->name('legal-sources.approve-system');
+        Route::post('/legal-sources/{source}/suspend', [AdminLegalSourceController::class, 'suspend'])->name('legal-sources.suspend');
     });
 
     // المخاطبات الرسميّة (المحامي بمخاطباته المسندة)
@@ -613,4 +629,12 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
         ->middleware('permission:اعتماد الملخصات')->name('ai-review');
     Route::post('/ai-review/{run}/decide', [AdminAiReviewController::class, 'decide'])
         ->middleware('permission:اعتماد الملخصات')->name('ai-review.decide');
+
+    // الطبقة الثالثة: عيّنة عمياء يحكم عليها محامٍ قبل كشف مصدرها
+    Route::get('/ai-blind-review', [AdminAiBlindReviewController::class, 'index'])
+        ->middleware('permission:اعتماد الملخصات')->name('ai-blind-review');
+    Route::post('/ai-blind-review/draw', [AdminAiBlindReviewController::class, 'draw'])
+        ->middleware('permission:اعتماد الملخصات')->name('ai-blind-review.draw');
+    Route::post('/ai-blind-review/{review}/judge', [AdminAiBlindReviewController::class, 'judge'])
+        ->middleware('permission:اعتماد الملخصات')->name('ai-blind-review.judge');
 });

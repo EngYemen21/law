@@ -1,5 +1,6 @@
-import { router } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
 import React, { useState } from 'react';
+import { panelBase } from '@/lib/data';
 import Icon from '@/lib/icons';
 
 /** مصدر قانونيّ ببياناته الحاكمة — يُعرض نصّه كاملاً كي يعتمد المحامي ما قرأه. */
@@ -54,6 +55,9 @@ const STATUS_TONE: Record<string, string> = {
 };
 
 const LegalSources: React.FC<Props> = ({ sources, systems, stats, filters, pagination }) => {
+  // بادئة لوحة الدور: الشاشة مشتركة بين الإدارة والمحامي، وتثبيت `/admin` في
+  // الإرسال يجعلها تُعرض للمحامي ثم تُمنع عند الحفظ بـ403 — شاشةٌ لا تعمل.
+  const base = panelBase((usePage().url as string).split('?')[0]);
   const [openId, setOpenId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState(filters.q);
@@ -62,19 +66,19 @@ const LegalSources: React.FC<Props> = ({ sources, systems, stats, filters, pagin
 
   const act = (id: number, action: 'approve' | 'suspend') => {
     setBusy(true);
-    router.post(`/admin/legal-sources/${id}/${action}`, {}, {
+    router.post(`${base}/legal-sources/${id}/${action}`, {}, {
       preserveScroll: true,
       onFinish: () => setBusy(false),
     });
   };
 
   const browse = (next: Partial<Filters & { page: number }>) => {
-    router.get('/admin/legal-sources', { ...filters, q, ...next }, { preserveState: true, preserveScroll: true });
+    router.get(`${base}/legal-sources`, { ...filters, q, ...next }, { preserveState: true, preserveScroll: true });
   };
 
   const approveSystem = (system: string) => {
     setBusy(true);
-    router.post('/admin/legal-sources/approve-system', { system, confirm: typed }, {
+    router.post(`${base}/legal-sources/approve-system`, { system, confirm: typed }, {
       preserveScroll: true,
       onFinish: () => { setBusy(false); setConfirmSystem(null); setTyped(''); },
     });
