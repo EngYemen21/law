@@ -136,7 +136,7 @@ const AiBlindReview: React.FC<Props> = ({ items, summary, actions, reasons, defa
         items.map((item) => (
           <div key={item.id} className="card" style={{ marginBottom: 12 }}>
             <div className="card-h">
-              <h3>{item.taskType} · {item.entityRef}</h3>
+              <h3>{item.taskType}{item.entityRef !== '—' && ` · ${item.entityRef}`}</h3>
               {item.judged ? (
                 <span className={`badge ${item.agrees ? 'b-green' : 'b-amber'}`}>
                   {item.agrees ? 'اتّفقتما' : 'اختلفتما'}

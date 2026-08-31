@@ -50,8 +50,10 @@ class AiBlindReviewController extends Controller
                     'reasonLabel' => $review->reason?->label(),
 
                     // ── ما لا يُكشف قبل الحكم ──
-                    // يُحجب في الخادم لا في الواجهة: حجبٌ بـCSS يُبقيه في الحمولة
-                    'machineStatus' => $judged ? $review->machine_status : null,
+                    // يُحجب في الخادم لا في الواجهة: حجبٌ بـCSS يُبقيه في الحمولة.
+                    // وبعد الكشف يُعرض حكم الآلة **بلغة المراجع** لا برمزٍ تقنيّ —
+                    // فهو الطرف الذي تُقارَن به شهادته، والمقارنة لا تصحّ بما لا يُفهم.
+                    'machineStatus' => $judged ? $review->machineVerdict() : null,
                     'machineConfidence' => $judged ? $review->machine_confidence : null,
                     'agrees' => $judged ? $review->agrees() : null,
                     'wasBlind' => $judged ? $review->wasBlind() : null,

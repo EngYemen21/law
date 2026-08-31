@@ -331,4 +331,77 @@ class AiSecurityTest extends TestCase
         $this->assertNull($result, 'لا تحليل مُدّعى لمستند لم يُفحص');
         Http::assertNothingSent();
     }
+    // ── ما يغادر الخادم فعلاً (كشفه أوّل تشغيل حقيقيّ) ──
+
+    /**
+     * **لا معرّف يغادر في تعليمة الفرز.**
+     *
+     * كان `triageTicket` يُدرج نصّ العميل خاماً كما وصله من المتحكّم — فيغادر رقمُ
+     * الهويّة والجوّال إلى المزوّد الخارجيّ. ومرّ العيب لأن الاختبارات كانت تفحص
+     * **دالّة التمويه** لا **الحمولة الخارجة**: `AiContextBuilder` سليمة، لكن أحداً
+     * لم يستدعِها في هذا المسار.
+     *
+     * كشفه أوّل تشغيل حقيقيّ حين عاد دليل الحمولة بـ`masked: []` على نصٍّ يحوي
+     * هويّةً وجوّالاً — والدرس: يُفحص ما يُرسَل، لا ما نظنّ أننا نرسله.
+     */
+    public function test_no_identifier_leaves_in_the_triage_prompt(): void
+    {
+        config(['services.gemini.key' => 'k']);
+
+        $sent = null;
+        Http::fake(function ($request) use (&$sent) {
+            $sent = $request->body();
+
+            return Http::response(['candidates' => [['content' => ['parts' => [[
+                'text' => json_encode(['department' => 'القضايا التجارية', 'priority' => 'عالية', 'intent' => 'عادي']),
+            ]]]]]], 200);
+        });
+
+        $client = User::factory()->create(['role' => Role::Client]);
+        $ticket = Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-LEAK-1',
+            'type' => 'نزاع تجاري', 'status' => 'جديدة', 'tone' => 'b-blue',
+        ]);
+
+        app(LegalAiService::class)->triageTicket(
+            $ticket,
+            'نزاع عقد توريد. رقم هويتي 1012345678 وجوالي 0501234567 وبريدي a@b.com'
+        );
+
+        $this->assertNotNull($sent, 'جرى نداء فعلاً');
+
+        // جسم الطلب يُرمّز العربيّة بـ\uXXXX — يُفكّ ترميزه قبل الفحص وإلّا مرّ
+        // تسريبٌ عربيّ بلا أن يُرصد
+        $readable = json_encode(json_decode($sent, true), JSON_UNESCAPED_UNICODE);
+        foreach (['1012345678', '0501234567', 'a@b.com'] as $identifier) {
+            $this->assertStringNotContainsString($identifier, $readable, "المعرّف «{$identifier}» غادر الخادم خاماً");
+        }
+        // والموضوع يبقى: التمويه يحجب المعرّف لا المعنى
+        $this->assertStringContainsString('توريد', $readable);
+    }
+
+    /** والترحيب كذلك — يصوغ ردّاً لا يحتاج هويّة العميل. */
+    public function test_no_identifier_leaves_in_the_greeting_prompt(): void
+    {
+        config(['services.gemini.key' => 'k']);
+
+        $sent = null;
+        Http::fake(function ($request) use (&$sent) {
+            $sent = $request->body();
+
+            return Http::response(['candidates' => [['content' => ['parts' => [['text' => 'أهلاً بك']]]]]], 200);
+        });
+
+        $client = User::factory()->create(['role' => Role::Client]);
+        $ticket = Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-LEAK-2',
+            'type' => 'نزاع تجاري', 'status' => 'جديدة', 'tone' => 'b-blue',
+        ]);
+
+        app(LegalAiService::class)->greet($ticket, 'هويتي 1012345678 وجوالي 0501234567', ['عقد']);
+
+        $readable = json_encode(json_decode((string) $sent, true), JSON_UNESCAPED_UNICODE);
+        $this->assertStringNotContainsString('1012345678', $readable);
+        $this->assertStringNotContainsString('0501234567', $readable);
+    }
 }

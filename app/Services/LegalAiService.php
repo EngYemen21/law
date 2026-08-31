@@ -200,7 +200,12 @@ class LegalAiService
     public function triageTicket(Ticket $ticket, string $details): array
     {
         $system = AiPromptRegistry::ticketTriageSystem();
-        $prompt = "نوع التذكرة: {$ticket->type}\nالقسم الذي اختاره العميل: ".($ticket->department ?: '—')."\nتفاصيل الطلب:\n{$details}";
+        // **التمويه قبل المغادرة.** نصّ العميل يصل هنا خاماً من المتحكّم، وكان يُدرَج
+        // في التعليمة كما هو — فيغادر رقمُ الهويّة والجوّال إلى المزوّد الخارجيّ.
+        // كشفه أوّل تشغيل حقيقيّ: دليل الحمولة عاد بـ`masked: []` على نصٍّ يحوي هويّةً
+        // وجوّالاً. والفرز لا يحتاج معرّفاً أصلاً — يحتاج موضوع الطلب.
+        $safeDetails = AiContextBuilder::prepare($details);
+        $prompt = "نوع التذكرة: {$ticket->type}\nالقسم الذي اختاره العميل: ".($ticket->department ?: '—')."\nتفاصيل الطلب:\n{$safeDetails}";
 
         $call = new AiCallResult(text: null, traceId: (string) Str::uuid(), durationMs: 0, failureCode: AiFailure::PROVIDER_ERROR);
         $structureFailure = null;
@@ -478,7 +483,8 @@ class LegalAiService
             .'مهمتك الآن: هذه أول رسالة للعميل بعد فتح تذكرته. رحّب به باسم المكتب بإيجاز وودّ، '
             .'وأظهر أنك فهمت طلبه بإعادة صياغة موجزة له، ثم اطلب منه بلطف إرفاق المستندات التالية لبدء الدراسة: '
             ."«{$docList}». رسالة واحدة قصيرة بنبرة إنسانية طبيعية، دون ذكر قوائم المستندات كتعداد آلي جاف ودون سرد خطوات داخلية.";
-        $prompt = "نوع الطلب: {$ticket->type}\nما كتبه العميل:\n{$details}";
+        // نصّ العميل مموَّهاً: صياغة الترحيب لا تحتاج هويّته ولا جوّاله
+        $prompt = "نوع الطلب: {$ticket->type}\nما كتبه العميل:\n".AiContextBuilder::prepare($details);
 
         try {
             $text = $this->run($system, [['role' => 'user', 'content' => $prompt]]);
@@ -515,7 +521,8 @@ class LegalAiService
             .'رحّب به باسم المكتب بإيجاز، وأظهر أنك فهمت طلبه بإعادة صياغة موجزة، '
             .'ثم أقرّ باستلام مستنداته المرفقة وأنه تمّت مراجعتها، وطمئنه أن طلبه يُحال الآن إلى القسم المختص لدراسته. '
             .'رسالة واحدة قصيرة بنبرة إنسانية طبيعية، دون تعداد آلي جاف ودون ذكر خطوات داخلية.';
-        $prompt = "نوع الطلب: {$ticket->type}\nما كتبه العميل:\n{$details}\nالمستندات المرفقة ذات الصلة:\n{$docLines}";
+        $prompt = "نوع الطلب: {$ticket->type}\nما كتبه العميل:\n".AiContextBuilder::prepare($details)
+            ."\nالمستندات المرفقة ذات الصلة:\n{$docLines}";
 
         try {
             $text = $this->run($system, [['role' => 'user', 'content' => $prompt]]);

@@ -50,6 +50,22 @@ class AiBlindReview extends Model
     }
 
     /**
+     * حكم الآلة بلغة المراجع.
+     *
+     * كان يُعرض خاماً (`completed`) أمام محامٍ — مصطلحٌ تقنيّ لا يقول له شيئاً، وهو
+     * الطرف الذي تُقارَن به شهادته. والمقارنة لا تصحّ إن لم يفهم ما يُقارَن.
+     */
+    public function machineVerdict(): string
+    {
+        return match ($this->machine_status) {
+            AiRun::STATUS_COMPLETED => 'قَبِله النظام آلياً',
+            AiRun::STATUS_NEEDS_REVIEW => 'صعّده النظام للمراجعة',
+            AiRun::STATUS_FAILED => 'رفضه النظام',
+            default => (string) $this->machine_status,
+        };
+    }
+
+    /**
      * هل بقي الحكم أعمى فعلاً؟
      *
      * الحكم قبل الكشف أعمى؛ وحكمٌ سُجِّل بعده ليس شهادةً مستقلّة مهما سُمّي.

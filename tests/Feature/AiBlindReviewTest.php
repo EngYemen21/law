@@ -7,12 +7,15 @@ use App\Enums\Role;
 use App\Models\AiBlindReview;
 use App\Models\AiRun;
 use App\Models\LegalSource;
+use App\Models\Ticket;
 use App\Models\User;
 use App\Services\Ai\AiBlindSample;
 use App\Services\Ai\AiReviewAction;
 use App\Services\Ai\AiReviewReason;
+use App\Support\TicketTriage;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -289,5 +292,89 @@ class AiBlindReviewTest extends TestCase
         $this->assertSame(LegalSource::STATUS_APPROVED, $source->status);
         // والاعتماد يُسجَّل باسم المحامي — وهو أهل الفعل
         $this->assertSame($lawyer->id, $source->reviewed_by);
+    }
+    // ── حدود الدور: قرار المالك 2026-08-31 ──
+
+    /**
+     * **الموظّف لا يعتمد مصدراً ولا يحكم في عيّنة عمياء** — قرار المالك صراحةً.
+     *
+     * السبب: الفعلان **شهادةٌ مهنيّة تُسجَّل باسم صاحبها**، لا رأيٌ في عمل. الاعتماد
+     * يبقى مكتوباً على المادّة ويُقرأ عند أي مساءلة عن مسودّة استُشهد فيها بها؛ وحكم
+     * العيّنة العمياء يُعاير عتبة النظام كلّه، فحكمٌ من غير أهله يضبطها على معيار خاطئ.
+     *
+     * والحارس هنا لأن القرار كان قائماً بغياب المسار وحده — ويكفي نسخُ سطرٍ لفتحه
+     * صامتاً. أمّا صندوق المراجعة فيبقى للموظّف: حكمٌ تشغيليّ على الفرز والاستشارات.
+     */
+    public function test_an_employee_has_no_route_to_sign_a_legal_judgement(): void
+    {
+        $this->seed(PermissionSeeder::class);
+
+        foreach (['employee.ai-blind-review', 'employee.legal-sources'] as $name) {
+            $this->assertFalse(
+                Route::has($name),
+                "المسار «{$name}» يفتح للموظّف فعلاً قانونياً — قرار المالك حصرُه بالمحامي والإدارة"
+            );
+        }
+
+        // وصندوق المراجعة يبقى له: حكمٌ تشغيليّ لا شهادة مهنيّة
+        $this->assertTrue(Route::has('employee.ai-review'));
+    }
+
+    /** ولو بلغه المسار بطريقةٍ ما، فالدور نفسه يمنعه. */
+    public function test_an_employee_is_blocked_from_the_lawyer_and_admin_screens(): void
+    {
+        $this->seed(PermissionSeeder::class);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+
+        $this->actingAs($employee)->getJson(route('lawyer.ai-blind-review'))->assertForbidden();
+        $this->actingAs($employee)->getJson(route('admin.legal-sources'))->assertForbidden();
+    }
+    // ── ما كشفه التشغيل على الشاشة ──
+
+    /**
+     * **مرجعُ التذكرة يُحفظ فعلاً.**
+     *
+     * كان `TicketTriage` يمرّر حقل `ref` — وهو **لا وجود له** على التذكرة
+     * (اسمه `number`) — فيُحفظ كل قيد ذكاء بمرجعٍ فارغ. والمراجع يرى «—» فلا يعرف
+     * أيّ تذكرة يراجع، وهو جوهر الصندوق. كشفه النظر إلى الشاشة لا الاختبارات:
+     * `(string) null` تساوي `''` بلا خطأ ولا إنذار.
+     */
+    public function test_a_ticket_run_records_its_readable_number(): void
+    {
+        // الوكيل مُطفأ في بيئة الاختبار عمداً، ولا مزوّد: الفرز يقع على الاحتياطيّ
+        // والقيد يُسجَّل بمرجعه — وهو ما يُفحص هنا
+        config(['services.ai_agent.enabled' => true, 'services.gemini.key' => null, 'services.glm.key' => null]);
+
+        $client = User::factory()->create(['role' => Role::Client]);
+        $ticket = Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-2026-4242',
+            'type' => 'نزاع تجاري', 'status' => 'جديدة', 'tone' => 'b-blue',
+        ]);
+
+        TicketTriage::onOpened($ticket, 'تفاصيل النزاع.');
+
+        $this->assertSame('SB-2026-4242', AiRun::where('task_type', 'triage')->value('entity_ref'));
+    }
+
+    /** وحكم الآلة يُعرض بلغة المراجع لا برمزٍ تقنيّ — المقارنة لا تصحّ بما لا يُفهم. */
+    public function test_the_machine_verdict_is_shown_in_the_reviewers_language(): void
+    {
+        $lawyer = $this->lawyer();
+        $this->aiRun(['status' => AiRun::STATUS_COMPLETED]);
+        AiBlindSample::draw($lawyer, 1);
+        $review = AiBlindReview::firstOrFail();
+
+        $this->actingAs($lawyer)->post(route('admin.ai-blind-review.judge', $review), [
+            'verdict' => AiReviewAction::Accept->value,
+        ]);
+
+        $this->actingAs($lawyer)
+            ->get(route('admin.ai-blind-review'))
+            ->assertInertia(fn ($page) => $page
+                ->where('items.0.machineStatus', 'قَبِله النظام آلياً')
+            );
+
+        $review->update(['machine_status' => AiRun::STATUS_NEEDS_REVIEW]);
+        $this->assertSame('صعّده النظام للمراجعة', $review->fresh()->machineVerdict());
     }
 }

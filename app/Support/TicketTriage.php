@@ -58,7 +58,10 @@ class TicketTriage
             taskType: 'triage',
             source: $triageSource,
             entity: $ticket,
-            entityRef: (string) $ticket->ref,
+            // `number` لا `ref`: التذكرة لا تملك `ref` أصلاً، فكان القيد يُحفظ بمرجعٍ
+            // فارغ — والمراجع يرى «—» فلا يعرف أيّ تذكرة يراجع. (الاستشارة والتنفيذ
+            // يملكان `ref` و`number` فعلاً، فالعطب كان في التذاكر وحدها.)
+            entityRef: (string) $ticket->number,
             confidence: $meta['confidence'] ?? null,
             confidenceSignals: $meta['confidence_signals'] ?? null,
             // الفرز متوسّط الحساسيّة: يُقبل آلياً فوق العتبة ويُصعَّد دونها أو بلا قياس
