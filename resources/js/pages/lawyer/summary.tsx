@@ -33,6 +33,10 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
   });
 
   const [najizDraft, setNajizDraft] = useState<string | null>(null);
+  // وسم المصدر يرافق المسودّة: الخادم يرسل source/sourceLabel/verdict منذ أن صار
+  // `najiz.statement` يُطابق استشهاده بقاعدة المصادر — وكانت الواجهة تقرأ draft وحده،
+  // فتُعرض صحيفةٌ حكمها `unsupported` كأيّ مسودّة سليمة.
+  const [najizMeta, setNajizMeta] = useState<{ source?: string; label?: string; verdict?: string | null } | null>(null);
   const [busyNajiz, setBusyNajiz] = useState(false);
 
   const val = (key: keyof SummaryData) =>
@@ -63,9 +67,12 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
   // توليد مسودة لائحة ناجز عبر الذكاء الاصطناعي
   const generateNajiz = async () => {
     setBusyNajiz(true);
+    // تصفير الوسم مع بدء التوليد: وسمُ مسودّةٍ سابقة فوق مسودّة جديدة أسوأ من غيابه
+    setNajizMeta(null);
     try {
       const { data } = await axios.post(`${base}/summary/${encodeURIComponent(ticket.no)}/najiz`);
       setNajizDraft(data.draft);
+      setNajizMeta({ source: data.source, label: data.sourceLabel, verdict: data.verdict });
       toast('✨ تم توليد مسودة صحيفة دعوى مطابقة لمعايير ناجز');
     } catch {
       toast('تعذّر توليد مسودة ناجز حالياً');
@@ -170,6 +177,30 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
             </div>
           </div>
           <div className="card-b" style={{ padding: 16 }}>
+            {/* اللافتة **فوق** النصّ: مسودّةٌ يُقرأ نصّها أوّلاً تُصدَّق قبل بلوغ تحذيرٍ أسفلها */}
+            {najizMeta && (najizMeta.verdict === 'unsupported' || najizMeta.verdict === 'insufficient_authority') && (
+              <div
+                style={{
+                  marginBottom: 14,
+                  padding: '11px 14px',
+                  borderRadius: 10,
+                  background: '#FFF7E6',
+                  border: '1.4px solid #E8B14C',
+                  color: '#7A5200',
+                  fontSize: '13.2px',
+                  lineHeight: 1.9,
+                }}
+              >
+                <b>⚠️ استشهاد هذه الصحيفة غير مُطابَق بقاعدة المصادر المعتمدة.</b>{' '}
+                يلزم توثيق الأساس النظاميّ قبل التقديم — المعرّفات الواردة أدناه لم يقابلها صفٌّ معتمد.
+              </div>
+            )}
+            {najizMeta?.source && najizMeta.source !== 'ai_success' && najizMeta.verdict !== 'unsupported'
+              && najizMeta.verdict !== 'insufficient_authority' && (
+              <div style={{ marginBottom: 12, fontSize: '12.6px', color: 'var(--muted)' }}>
+                مصدر المخرج: <b>{najizMeta.label || najizMeta.source}</b>
+              </div>
+            )}
             <textarea
               value={najizDraft}
               onChange={(e) => setNajizDraft(e.target.value)}

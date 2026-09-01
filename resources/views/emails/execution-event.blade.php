@@ -22,7 +22,7 @@
         'rows' => [
             'رقم الطلب' => $execution->number,
             'موضوع التنفيذ' => $execution->subject,
-            'رقم ملف التنفيذ' => $execution->exec_no,
+            'الرقم المرجعيّ الداخليّ لملفّ التنفيذ' => $execution->exec_no,
             'أتعاب التنفيذ' => $execution->fee > 0 ? $total.' ر.س (شامل ضريبة القيمة المضافة)' : null,
             'حالة الإجراء' => $subject,
         ]

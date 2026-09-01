@@ -8,6 +8,7 @@ use App\Jobs\DraftCasePleadingJob;
 use App\Models\AiRun;
 use App\Models\LegalCase;
 use App\Models\LegalSource;
+use App\Models\Ticket;
 use App\Models\User;
 use App\Services\Ai\LegalClaims;
 use App\Services\Ai\LegalKnowledge;
@@ -388,6 +389,64 @@ class LegalKnowledgeTest extends TestCase
         $this->assertNotNull($run, 'أخطر مخرجٍ قانونيّ لا يجوز أن يُنتَج بلا قيد');
         $this->assertSame($case->number, $run->entity_ref);
         $this->assertSame('v2', $run->prompt_version);
+    }
+
+    // ── صحيفة ناجز: العقد نفسه، فهي تُقدَّم للمحكمة ──
+
+    /**
+     * كانت تُنتَج نصّاً حرّاً بلا استرجاعٍ ولا مطابقة: قيست حيّاً صحيفةٌ من 5541 حرفاً
+     * تستشهد بستّ موادّ بأرقامها (108، 94، 100، 178، 138، 101) ولا معرّف مصدرٍ واحد
+     * فيها. أرقامٌ من ذاكرة النموذج في وثيقةٍ تُقدَّم للقضاء.
+     */
+    public function test_a_najiz_statement_marks_its_claims_against_the_corpus(): void
+    {
+        $this->source(['ref' => 'LS-NAJIZ', 'domain' => 'تجاري', 'text' => 'نصّ المادّة المعتمدة.']);
+        $ticket = $this->ticketWithFakedProvider(reply: json_encode([
+            'draft' => 'صحيفة دعوى تجريبيّة.',
+            'claims' => [
+                ['text' => 'ادّعاء مسنَد.', 'source_id' => 'LS-NAJIZ', 'source_excerpt' => 'نصّ المادّة المعتمدة.'],
+                ['text' => 'ادّعاء بمعرّف مُختلَق.', 'source_id' => 'LS-CIVIL-9999', 'source_excerpt' => 'متخيَّل'],
+            ],
+            'unsupported_claims' => [],
+        ], JSON_UNESCAPED_UNICODE));
+
+        $result = app(LegalAiService::class)->najizStatementResult($ticket);
+
+        $this->assertStringContainsString('[LS-NAJIZ]', $result['draft']);
+        $this->assertStringNotContainsString('[LS-CIVIL-9999]', $result['draft'], 'المُختلَق لا يُعرض سنداً');
+        $this->assertStringContainsString('بلا سندٍ مُتحقَّق', $result['draft']);
+        $this->assertSame(AiSource::ManualRequired, $result['source'], 'لا تُوسم نجاحاً وفيها ادّعاء بلا سند');
+    }
+
+    /** والمصادر المعتمدة تُمرَّر للنموذج بمعرّفاتها — الاسترجاع لم يكن قائماً أصلاً. */
+    public function test_a_najiz_statement_receives_the_approved_corpus(): void
+    {
+        $this->source(['ref' => 'LS-NAJIZ', 'domain' => 'تجاري', 'system_name' => 'نظام تجريبيّ']);
+        $ticket = $this->ticketWithFakedProvider();
+
+        app(LegalAiService::class)->najizStatementResult($ticket);
+
+        $sent = $this->lastRequestText();
+        $this->assertStringContainsString('مصادر نظاميّة معتمدة', $sent);
+        $this->assertStringContainsString('[LS-NAJIZ]', $sent);
+        $this->assertStringContainsString('لا تذكر رقم مادّةٍ من ذاكرتك', $sent, 'المنع عن الاستدعاء من الذاكرة صريح');
+    }
+
+    private function ticketWithFakedProvider(?string $reply = null): Ticket
+    {
+        config(['services.gemini.key' => 'test-key', 'services.glm.key' => '']);
+        Cache::flush();
+        Http::fake(['generativelanguage.googleapis.com/*' => Http::response([
+            'candidates' => [['content' => ['parts' => [['text' => $reply ?? 'صحيفة تجريبيّة.']]]]],
+        ], 200)]);
+
+        $client = User::factory()->create(['role' => Role::Client]);
+
+        return Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-'.uniqid(), 'type' => 'نزاع تجاري',
+            'department' => 'تجاري', 'subject' => 'فسخ عقد توريد والتعويض',
+            'status' => 'جديدة', 'tone' => 'b-blue',
+        ]);
     }
 
     /** @return array{0:LegalCase} */

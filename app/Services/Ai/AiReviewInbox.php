@@ -4,6 +4,10 @@ namespace App\Services\Ai;
 
 use App\Enums\Role;
 use App\Models\AiRun;
+use App\Models\Consult;
+use App\Models\Execution;
+use App\Models\LegalCase;
+use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -109,11 +113,45 @@ class AiReviewInbox
         return match ($user->role) {
             Role::Admin => $query,
             Role::Employee => $query->whereIn('task_type', self::EMPLOYEE_TASKS),
-            // المحامي: ما صُعِّد إليه، وما راجعه سابقاً — لا مخرجات ملفّات زملائه
+            // المحامي: **مخرجات ملفّاته** أوّلاً، ثم ما صُعِّد إليه.
+            //
+            // كان الشرط `escalated_to = me OR reviewed_by = me` وحده، والاستعلام الأساس
+            // فيه `whereNull('review_action')` — فشقّه الثاني ميّتٌ عملياً (ما راجعه
+            // فُصل بالفعل). أي أن المحامي لا يرى إلا ما صُعِّد إليه صراحةً.
+            //
+            // وأثره قيس حيّاً: مسودّة لائحةٍ على قضيّةٍ **مُسنَدة إليه هو**، حالتها
+            // `needs_review`، لم تظهر في صندوقه (صفوف = 0)؛ والموظّف لا يراها لأنها
+            // خارج `EMPLOYEE_TASKS`. فأخطر مخرجٍ قانونيّ في المنظومة لا يصل مراجعاً
+            // مختصّاً أبداً — تراه الإدارة وحدها. وهذا نقضٌ لصندوق P4 من أصله:
+            // التعليق أعلاه يقول «المحامي يرى ما أُسند إليه» والشيفرة تُنفّذ غيره.
             Role::Lawyer => $query->where(fn (Builder $q) => $q
                 ->where('escalated_to', $user->id)
-                ->orWhere('reviewed_by', $user->id)),
+                ->orWhere(fn (Builder $inner) => self::ownedByLawyer($inner, $user->id))),
             default => $query->whereRaw('1 = 0'), // العميل لا يرى صندوق المراجعة إطلاقاً
         };
+    }
+
+    /**
+     * القيود المرتبطة بكيانٍ مُسنَدٍ إلى هذا المحامي.
+     *
+     * الكيانات الأربعة تحمل `assigned_lawyer_id`، و`entity_type` يخزّن اسم الصنف
+     * كاملاً (`$entity::class` في `AiRun::record`) فالمطابقة به مباشرة. وقيدٌ بلا
+     * كيان (`entity_type = null`) لا يُنسب لأحد — يبقى للإدارة، ولا يُفترض أنه له.
+     */
+    private static function ownedByLawyer(Builder $query, int $lawyerId): Builder
+    {
+        $entities = [Ticket::class, LegalCase::class, Execution::class, Consult::class];
+
+        foreach ($entities as $i => $class) {
+            $clause = fn (Builder $q) => $q
+                ->where('entity_type', $class)
+                ->whereIn('entity_id', $class::query()
+                    ->where('assigned_lawyer_id', $lawyerId)
+                    ->select('id'));
+
+            $i === 0 ? $query->where($clause) : $query->orWhere($clause);
+        }
+
+        return $query;
     }
 }

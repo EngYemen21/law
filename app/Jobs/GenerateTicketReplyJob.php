@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Events\TicketMessageBroadcast;
 use App\Models\Ticket;
 use App\Services\Ai\AiQueue;
+use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use App\Support\Live;
 use App\Support\Notify;
@@ -56,7 +57,10 @@ class GenerateTicketReplyJob implements ShouldQueue
             return;
         }
 
-        $aiText = $ai->reply($ticket, $this->body)
+        $replyRun = $ai->replyResult($ticket, $this->body);
+        AiRunLogger::log('chat.reply', $replyRun['source'], $replyRun['meta'], $ticket, (string) $ticket->number);
+
+        $aiText = $replyRun['text']
             ?? 'تم استلام رسالتك، وسيوافيك المختص بالرد في أقرب وقت.';
 
         $aiMsg = $ticket->messages()->create([

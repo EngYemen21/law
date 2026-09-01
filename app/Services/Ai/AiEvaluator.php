@@ -384,7 +384,7 @@ class AiEvaluator
             'ticket.triage' => AiOutputValidator::ticketTriage($output),
             'document.analyze' => AiOutputValidator::documentAnalysis($output),
             'consult.analyze' => AiOutputValidator::consultAnalysis($output, $roster),
-            'execution.analyze' => AiOutputValidator::executionAnalysis($output, ['إجراء افتراضيّ']),
+            'execution.analyze' => AiOutputValidator::executionAnalysis($output),
             'ticket.summary' => AiOutputValidator::ticketSummary($output),
             'meeting.decisions' => AiOutputValidator::decisions($output),
             'case.pleading' => LegalClaims::validate($output, $refs),

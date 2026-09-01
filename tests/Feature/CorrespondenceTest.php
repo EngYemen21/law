@@ -116,7 +116,7 @@ class CorrespondenceTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         // تنفيذ بمرحلة قيد التنفيذ مسند للمحامي
-        $exec = Execution::create(['user_id' => $client->id, 'number' => 'EXE-C', 'subject' => 'تنفيذ حكم', 'status' => 'قيد التنفيذ', 'tone' => 'b-green', 'stage' => 8, 'exec_no' => '77-2026-تنفيذ', 'assigned_lawyer_id' => $lawyer->id, 'assigned_lawyer' => $lawyer->name]);
+        $exec = Execution::create(['user_id' => $client->id, 'number' => 'EXE-C', 'subject' => 'تنفيذ حكم', 'status' => 'قيد التنفيذ', 'tone' => 'b-green', 'stage' => 8, 'exec_no' => 'EXE-TN-2026-0077', 'assigned_lawyer_id' => $lawyer->id, 'assigned_lawyer' => $lawyer->name]);
 
         $this->actingAs($lawyer)->post(route('exec-flow.act', $exec), ['action' => 'requestCorr'])->assertRedirect();
 

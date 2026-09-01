@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\AiSource;
 use App\Enums\Role;
 use App\Models\AiRun;
+use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Services\Ai\AiReviewAction;
@@ -111,6 +112,74 @@ class AiReviewInboxTest extends TestCase
         $refs = AiReviewInbox::forUser($lawyer)->pluck('entity_ref')->all();
 
         $this->assertSame(['MINE'], $refs, 'المحامي لا يرى مخرجات ملفّات زملائه');
+    }
+
+    /**
+     * **المحامي يرى مخرجات ملفّاته** — لا ما صُعِّد إليه وحده.
+     *
+     * كان الشرط `escalated_to = me OR reviewed_by = me`، والاستعلام الأساس يستبعد ما
+     * بُتّ فيه، فشقّه الثاني ميّت: لا يرى المحامي إلا المُصعَّد. وقيس حيّاً — مسودّة
+     * لائحةٍ على قضيّةٍ **مُسنَدة إليه**، حالتها `needs_review`، لم تظهر في صندوقه؛
+     * والموظّف لا يراها لأنها خارج مهامّه. فأخطر مخرجٍ قانونيّ لا يبلغ مراجعاً مختصّاً.
+     */
+    public function test_the_lawyer_sees_outputs_of_files_assigned_to_them(): void
+    {
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $other = User::factory()->create(['role' => Role::Lawyer]);
+        $client = User::factory()->create(['role' => Role::Client]);
+
+        $mine = LegalCase::create([
+            'user_id' => $client->id, 'number' => 'CASE-MINE', 'type' => 'تجاري',
+            'status' => 'منظورة', 'tone' => 'b-blue', 'assigned_lawyer_id' => $lawyer->id,
+        ]);
+        $theirs = LegalCase::create([
+            'user_id' => $client->id, 'number' => 'CASE-THEIRS', 'type' => 'تجاري',
+            'status' => 'منظورة', 'tone' => 'b-blue', 'assigned_lawyer_id' => $other->id,
+        ]);
+
+        foreach ([$mine, $theirs] as $case) {
+            AiRun::create([
+                'task_type' => 'case.pleading',
+                'entity_type' => $case::class,
+                'entity_id' => $case->id,
+                'entity_ref' => $case->number,
+                'source' => AiSource::ManualRequired->value,
+                'status' => AiRun::STATUS_NEEDS_REVIEW,
+                'trace_id' => (string) Str::uuid(),
+            ]);
+        }
+
+        $refs = AiReviewInbox::forUser($lawyer)->pluck('entity_ref')->all();
+
+        $this->assertContains('CASE-MINE', $refs, 'لائحة قضيّته تبلغ صندوقه');
+        $this->assertNotContains('CASE-THEIRS', $refs, 'ولا يرى قضايا زملائه');
+    }
+
+    /** والتصعيد يبقى مساراً ثانياً قائماً بجانب الإسناد. */
+    public function test_escalation_still_reaches_a_lawyer_with_no_assigned_file(): void
+    {
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+
+        $this->aiRun(['entity_ref' => 'ESCALATED', 'escalated_to' => $lawyer->id]);
+        $this->aiRun(['entity_ref' => 'UNRELATED']);
+
+        $this->assertSame(['ESCALATED'], AiReviewInbox::forUser($lawyer)->pluck('entity_ref')->all());
+    }
+
+    /** وقيدٌ بلا كيان لا يُنسب لمحامٍ — يبقى للإدارة. */
+    public function test_an_entityless_run_is_not_attributed_to_any_lawyer(): void
+    {
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+
+        AiRun::create([
+            'task_type' => 'case.pleading',
+            'entity_ref' => 'NO-ENTITY',
+            'source' => AiSource::ManualRequired->value,
+            'status' => AiRun::STATUS_NEEDS_REVIEW,
+            'trace_id' => (string) Str::uuid(),
+        ]);
+
+        $this->assertSame([], AiReviewInbox::forUser($lawyer)->pluck('entity_ref')->all());
     }
 
     public function test_the_admin_sees_everything(): void

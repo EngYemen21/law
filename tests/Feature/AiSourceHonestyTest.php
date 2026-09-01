@@ -14,6 +14,8 @@ use App\Services\LegalAiService;
 use App\Support\ExecService;
 use App\Support\TicketTriage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
@@ -55,6 +57,48 @@ class AiSourceHonestyTest extends TestCase
     }
 
     // ── المزوّد غائب (phpunit يفرّغ المفاتيح) ⇒ القالب الاحتياطيّ هو ما يعود ──
+
+    /**
+     * **تحليلٌ ناجح لا يحمل إجراءات لم يُنتجها النموذج.**
+     *
+     * أخطر أشكال الكذب في المنظومة: مخرجٌ وسمُه صحيح (`ai_success` — النموذج ردّ فعلاً)
+     * ومحتواه مُلفَّق جزئياً. لا `AiSource` ولا صندوق المراجعة ولا `execAiPresentation`
+     * يملك ما يميّزه، لأن كلّها تقرأ الوسم لا المحتوى.
+     */
+    public function test_a_successful_analysis_never_carries_procedures_the_model_did_not_produce(): void
+    {
+        $this->fakeGeminiJson(['summary' => 'حكم قضائيّ قطعيّ مستوفٍ للشروط التنفيذيّة.', 'missing' => []]);
+        $exec = $this->execution(User::factory()->create(['role' => Role::Client]));
+
+        $result = app(LegalAiService::class)->analyzeExecution($exec);
+
+        $this->assertSame(AiSource::AiSuccess->value, $result['source'], 'النموذج ردّ فعلاً');
+        $this->assertSame([], $result['procedures'], 'ولا إجراءات مُختلَقة معه');
+    }
+
+    /** والاحتياطيّ **وحده** مصدر الإجراءات القالبيّة — وهو موسوم بها. */
+    public function test_the_fallback_template_is_the_only_source_of_default_procedures(): void
+    {
+        config(['services.gemini.key' => '', 'services.glm.key' => '']);
+        $exec = $this->execution(User::factory()->create(['role' => Role::Client]));
+
+        $result = app(LegalAiService::class)->analyzeExecution($exec);
+
+        $this->assertSame(AiSource::Fallback->value, $result['source']);
+        $this->assertContains('تقديم طلب تنفيذ إلكتروني', $result['procedures'],
+            'لا يُفرَّغ الاحتياطيّ من محتواه — إصلاحٌ مفرط يُفقده قيمته');
+    }
+
+    private function fakeGeminiJson(array $payload): void
+    {
+        config(['services.gemini.key' => 'test-key', 'services.glm.key' => '']);
+        Cache::flush();
+        Http::fake(['generativelanguage.googleapis.com/*' => Http::response([
+            'candidates' => [['content' => ['parts' => [
+                ['text' => json_encode($payload, JSON_UNESCAPED_UNICODE)],
+            ]]]],
+        ], 200)]);
+    }
 
     public function test_execution_analysis_without_provider_is_marked_fallback(): void
     {

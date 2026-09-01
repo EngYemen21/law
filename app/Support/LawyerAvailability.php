@@ -5,10 +5,10 @@ namespace App\Support;
 use App\Enums\Role;
 use App\Models\Appointment;
 use App\Models\Consult;
-use App\Models\Meeting;
-use App\Models\MeetRequest;
 use App\Models\Execution;
 use App\Models\LegalCase;
+use App\Models\Meeting;
+use App\Models\MeetRequest;
 use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Support\Carbon;
@@ -32,7 +32,17 @@ class LawyerAvailability
 
     private const SLOT_MIN = 60;    // كل استشارة ساعة واحدة
 
-    /** حالات «مغلق/منجز» لكل نوع — تُغذّي سجلّ النجاح. */
+    /**
+     * حالات «مغلق» لكل نوع — تُغذّي **معدّل الإغلاق** لا معدّل النجاح.
+     *
+     * ⚠️ الفارق ليس لفظياً: `'صدر الحكم'` حالةُ إغلاقٍ إجرائيّة تُحتسب **بصرف النظر
+     * عن اتّجاه الحكم** — لصالح الموكّل أو ضدّه. فالنسبة تقيس «كم ملفّاً أُغلق»
+     * لا «كم ملفّاً كُسب». وكانت تُعرض للعميل بعنوان «معدّل الإنجاز» وهو يختار
+     * محاميه بناءً عليها، فيقرؤها سجلَّ كفاءةٍ قضائيّة وهي مقياسٌ تشغيليّ.
+     *
+     * ولا يُشتقّ معدّل كسبٍ حقيقيّ من البيانات القائمة: لا حقل يسجّل لمن صدر الحكم.
+     * فالصدق أن تُسمّى بما تقيس، لا أن تُخمَّن نسبةٌ لا تُحسب.
+     */
     private const CLOSED_TICKETS = ['مكتملة', 'مغلقة'];
 
     private const CLOSED_CASES = ['صدر الحكم', 'مغلقة', 'مؤرشفة'];
@@ -223,7 +233,8 @@ class LawyerAvailability
         return $out;
     }
 
-    /** هل تتقاطع الفترة [start, start+dur) مع أي انشغال؟ */    public static function isBusy(int $lawyerId, Carbon $start, int $dur = self::SLOT_MIN): bool
+    /** هل تتقاطع الفترة [start, start+dur) مع أي انشغال؟ */
+    public static function isBusy(int $lawyerId, Carbon $start, int $dur = self::SLOT_MIN): bool
     {
         $from = $start->hour * 60 + $start->minute;
         $to = $from + $dur;

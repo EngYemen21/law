@@ -7,6 +7,7 @@ use App\Events\CorrStatusBroadcast;
 use App\Models\Correspondence;
 use App\Models\User;
 use App\Services\ExternalSystemService;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -55,9 +56,22 @@ class CorrespondenceFlow
 
         if ($stage === 3) {
             $ext = app(ExternalSystemService::class)->send($corr);
-            $corr->update(['channel' => 'النظام الخارجيّ', 'ext_ref' => $ext['ref'], 'ext_status' => $ext['status'], 'ext_synced_at' => now()]);
-            self::notifyClient($corr, 'office', 't-blue', "تم إرسال مخاطبة بخصوص ملفّك ({$corr->subject}) إلى {$corr->entity} عبر النظام الخارجيّ.");
-            $corr->refresh();
+
+            // ⚠️ **لا إشعار إرسالٍ بلا إرسال.** كانت الخدمة تُعيد مرجعاً مُختلَقاً عند
+            // فشل النداء الحقيقيّ، فيُخزَّن على المخاطبة ويُشعَر العميل بأنها «أُرسلت
+            // إلى الجهة» — عطلٌ شبكيّ يتحوّل إلى إثبات إرسال في سجلّ الملفّ.
+            //
+            // والآن `null` تعني «لم تُرسل»: تبقى المرحلة كما قدّمها المكتب (فالإجراء
+            // الداخليّ وقع فعلاً)، ولا مرجع يُخزَّن ولا إشعار يُرسل، ويُسجَّل الأثر
+            // للطاقم. وإعادة المحاولة تعمل لأن `ext_ref` ما زال فارغاً.
+            if ($ext === null) {
+                $corr->logAudit('تعذّر الإرسال إلى النظام الخارجيّ — يلزم إعادة المحاولة', 'النظام');
+                Log::warning('corr.external.send.unavailable', ['corr' => $corr->number, 'entity' => $corr->entity]);
+            } else {
+                $corr->update(['channel' => 'النظام الخارجيّ', 'ext_ref' => $ext['ref'], 'ext_status' => $ext['status'], 'ext_synced_at' => now()]);
+                self::notifyClient($corr, 'office', 't-blue', "تم إرسال مخاطبة بخصوص ملفّك ({$corr->subject}) إلى {$corr->entity} عبر النظام الخارجيّ.");
+                $corr->refresh();
+            }
         }
 
         Live::push(new CorrStatusBroadcast($corr));

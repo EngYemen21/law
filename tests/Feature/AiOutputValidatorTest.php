@@ -20,6 +20,33 @@ class AiOutputValidatorTest extends TestCase
      * `related` بلا افتراض: حملُه على `false` يوسم مستنداً صحيحاً بأنه أجنبيّ، وحملُه
      * على `true` يُدخل مستنداً أجنبياً إلى ملفّ قضية. كلاهما حكمٌ لم يتّخذه أحد.
      */
+    /**
+     * **القائمة الافتراضيّة لا تُحقَن — ولو أغفلها النموذج.**
+     *
+     * كان المعامل `$defaultProcedures` يملأ `procedures` عند إغفالها، فتخرج إجراءات
+     * تنفيذٍ قضائيّة مكتوبة في الشيفرة داخل مخرجٍ يُوسم `ai_success`. أي أن القالب
+     * يلتفّ على `AiSource` من داخله. والتعليمة تطلب الحقل صراحةً، فإغفاله معلومةٌ.
+     */
+    public function test_missing_procedures_stay_empty_and_are_never_filled_from_a_template(): void
+    {
+        $valid = AiOutputValidator::executionAnalysis(['summary' => 'سند تنفيذيّ مستوفٍ.']);
+
+        $this->assertNotNull($valid, 'المخرج صالح: الملخّص وحده يكفي');
+        $this->assertSame([], $valid['procedures'], 'ولا تُملأ الإجراءات من قالب');
+
+        foreach (['تقديم طلب تنفيذ إلكتروني', 'طلب الإفصاح عن الأصول', 'الحجز على الحسابات'] as $canned) {
+            $this->assertNotContains($canned, $valid['procedures']);
+        }
+    }
+
+    /** وقائمةٌ فارغة صراحةً تبقى فارغة — لا تُقرأ «غياباً» يُملأ. */
+    public function test_an_explicitly_empty_procedure_list_is_respected(): void
+    {
+        $valid = AiOutputValidator::executionAnalysis(['summary' => 'ملخّص.', 'procedures' => []]);
+
+        $this->assertSame([], $valid['procedures']);
+    }
+
     public function test_a_document_verdict_is_never_assumed_when_missing(): void
     {
         $this->assertNull(AiOutputValidator::documentAnalysis([

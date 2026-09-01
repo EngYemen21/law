@@ -7,6 +7,7 @@ use App\Models\AiRun;
 use App\Services\Ai\AiOpsMetrics;
 use App\Services\Ai\AiReviewAction;
 use App\Services\Ai\AiReviewInbox;
+use App\Services\Ai\AiReviewOutcome;
 use App\Services\Ai\AiReviewReason;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -85,6 +86,10 @@ class AiReviewController extends Controller
             'reviewed_by' => $request->user()->id,
             'reviewed_at' => now(),
         ]);
+
+        // أثر القرار في الملفّ — لا في `ai_runs` وحده. القبول على مخرجٍ محجوبٍ عن
+        // العميل بانتظار اعتماد يجب أن يُطلقه، وإلّا بقي محجوباً وإن اعتُمد.
+        AiReviewOutcome::apply($run->fresh(), $action, $request->user());
 
         return back()->with('flash', "سُجّل القرار: {$action->label()}");
     }

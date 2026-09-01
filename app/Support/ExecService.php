@@ -7,12 +7,11 @@ use App\Enums\Role;
 use App\Events\ExecStatusBroadcast;
 use App\Jobs\AnalyzeExecutionJob;
 use App\Mail\ExecutionEventMail;
-use App\Models\AiRun;
 use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\User;
-use App\Services\Ai\AiPolicyGate;
+use App\Services\Ai\AiRunLogger;
 use App\Services\MailService;
 use App\Services\MoyasarService;
 use Illuminate\Http\UploadedFile;
@@ -122,29 +121,10 @@ class ExecService
         // الحالة من بوّابة السياسة لا من شرطٍ ضمنيّ: تحليل التنفيذ عالي الحساسيّة،
         // فيُسجَّل «يتطلّب مراجعة» ولو نجح وبلغت ثقته حدّها — لا اعتماد آليّ لمخرج
         // يغيّر مسار ملفّ قانونيّ.
-        $decision = AiPolicyGate::decide(
-            taskType: $meta['prompt_id'] ?? 'execution.analyze',
-            source: $source,
-            confidence: $meta['confidence'] ?? null,
-        );
-        AiRun::record(
-            taskType: 'execution',
-            source: $source,
-            entity: $exec,
-            entityRef: (string) $exec->number,
-            confidence: $meta['confidence'] ?? null,
-            confidenceSignals: $meta['confidence_signals'] ?? null,
-            status: $decision->status(),
-            model: $meta['model'] ?? null,
-            promptVersion: $meta['prompt_version'] ?? null,
-            traceId: $meta['trace_id'] ?? null,
-            failureCode: $isRealAnalysis ? null : ($meta['failure_code'] ?? null),
-            durationMs: $meta['duration_ms'] ?? null,
-            inputTokens: $meta['input_tokens'] ?? null,
-            outputTokens: $meta['output_tokens'] ?? null,
-            estimatedCost: $meta['estimated_cost'] ?? null,
-            outboundAudit: $meta['outbound_audit'] ?? null,
-        );
+        // اسم القيد `execution` وتعليمته `execution.analyze` — يُمرَّر صراحةً كي لا
+        // تُقرأ الحساسيّة من اسمٍ غير مسجَّل عند خلوّ `meta` (لا فرق في المخرج اليوم،
+        // لكن الاعتماد على السقوط الافتراضيّ يجعل السلوك عرضةً لتغيّر صامت).
+        AiRunLogger::log('execution', $source, $meta, $exec, (string) $exec->number, policyTask: 'execution.analyze');
 
         // الاحتياطيّ لا يرفع المرحلة أبداً: القفز إلى «بانتظار الدراسة» كان يمرّر طلباً
         // لم يُفحص سنده إلى الخطوة التالية لمجرّد أن اسم المنفَّذ ضده مذكور.
@@ -257,13 +237,18 @@ class ExecService
         // الاستقبال (0‑1) أو الدراسة (2) — قبل فتح الملفّ
         self::guard($exec, [0, 1, 2], 'لا يمكن طلب مستندات في مرحلته الحالية.');
 
-        // مستندات مطلوبة من العميل: النواقص من التحليل الذكيّ إن وُجدت، وإلا قائمة افتراضيّة
-        $labels = ! empty($exec->ai_missing) ? array_values($exec->ai_missing) : ['السند التنفيذي', 'الهوية الوطنية', 'مستند داعم'];
+        // النواقص من تحليل الملفّ إن وُجدت، وإلّا قائمة الاستقبال العامّة.
+        // **والفارق يُبلَّغ للعميل**: قائمةٌ خرجت من فحص مستنداته يقرؤها حكماً على
+        // ملفّه، وقائمة الاستقبال تُبنى من نوع الطلب قبل أن يُفحص شيء.
+        $fromAnalysis = ! empty($exec->ai_missing);
+        $labels = $fromAnalysis ? array_values($exec->ai_missing) : ['السند التنفيذي', 'الهوية الوطنية', 'مستند داعم'];
         foreach ($labels as $label) {
             $exec->documents()->firstOrCreate(['label' => (string) $label], ['status' => 'مطلوب']);
         }
 
-        self::lawyerMsg($exec, 'نواقص', 'يرجى تزويدنا بمستندات إضافية لاستكمال دراسة الطلب.');
+        self::lawyerMsg($exec, 'نواقص', $fromAnalysis
+            ? 'بعد دراسة الطلب ومستنداته، يرجى تزويدنا بالمستندات المذكورة لاستكمال الملفّ.'
+            : 'يرجى تزويدنا بمستندات الاستقبال الأساسيّة لاستكمال دراسة الطلب (قائمة عامّة بحسب نوع السند).');
         self::notify($exec, 'upload', 't-amber', "طلب قسم التنفيذ مستندات إضافية على طلبك {$exec->number}.");
     }
 
@@ -392,7 +377,16 @@ class ExecService
                 ?->update(['paid' => true, 'status' => 'مدفوعة', 'tone' => 'b-green']);
             $locked->update([
                 'paid' => true, 'paid_at' => now(),
-                'exec_no' => random_int(70, 99).'-'.now()->year.'-تنفيذ',
+                // ⚠️ **رقمٌ داخليّ لا صادرٌ عن جهة قضائيّة.**
+                //
+                // كان `random_int(70, 99).'-'.year.'-تنفيذ'` — ثلاثون قيمة في السنة
+                // على عمودٍ بلا فحص تفرّد، فملفّان لعميلين يحملان الرقم نفسه بعد
+                // ثلاثين طلباً. ويُعرض في PDF والبريد وأربعة إشعارات باسم «رقم ملفّ
+                // التنفيذ»، فيُقرأ رقماً رسمياً من وزارة العدل — ولا تكامل مع ناجز.
+                //
+                // والمولّد القائم يفحص التفرّد بحلقة ويُوسّع المدى عند الامتلاء،
+                // وهو المستعمل لبقيّة أرقام المنظومة — فلا نمط ثانٍ.
+                'exec_no' => ReferenceNumber::next(Execution::class, 'exec_no', 'EXE-TN'),
                 'offer_status' => 'مقبول',
             ]);
 
@@ -411,10 +405,10 @@ class ExecService
         self::sync($exec, 8, 'فُتح ملف التنفيذ وبدأت الإجراءات');
         $exec->messages()->create([
             'who' => 'system', 'name' => 'النظام', 'role' => 'سداد',
-            'body' => '<p>تم سداد أتعاب التنفيذ وفتح ملف التنفيذ رقم <b>'.e((string) $exec->exec_no).'</b>.</p>',
+            'body' => '<p>تم سداد أتعاب التنفيذ وفتح ملف التنفيذ، ورقمه المرجعيّ الداخليّ <b>'.e((string) $exec->exec_no).'</b>.</p>',
             'time_label' => self::clock(),
         ]);
-        self::notify($exec, 'check', 't-green', "سُدّدت أتعاب التنفيذ وفُتح ملف التنفيذ {$exec->exec_no} لطلبك {$exec->number}.");
+        self::notify($exec, 'check', 't-green', "سُدّدت أتعاب التنفيذ وفُتح ملف التنفيذ لطلبك {$exec->number} — رقمه المرجعيّ الداخليّ {$exec->exec_no}.");
         self::mail($exec, 'paid');
         Live::push(new ExecStatusBroadcast($exec));
     }
@@ -429,7 +423,7 @@ class ExecService
         $exec->procedures()->create(['title' => $t, 'type' => 'إجراء', 'detail' => '', 'status' => 'منفّذ']);
         $exec->update(['last_action' => $t]);
         self::lawyerMsg($exec, 'إجراء', 'إجراء تنفيذ جديد: '.$t.'.');
-        self::notify($exec, 'exec', 't-blue', "تحديث على ملف تنفيذك {$exec->exec_no}: {$t}.");
+        self::notify($exec, 'exec', 't-blue', "تحديث على ملف تنفيذك (المرجع الداخليّ {$exec->exec_no}): {$t}.");
         Live::push(new ExecStatusBroadcast($exec));
     }
 
@@ -461,7 +455,7 @@ class ExecService
         self::guard($exec, [7, 8], 'لا يمكن إغلاق الملف في مرحلته الحالية.');
         self::sync($exec, 9, 'أُغلق ملف التنفيذ وأُرشف');
         self::adminMsg($exec, 'إغلاق', 'أُغلق ملف التنفيذ بعد استكمال الإجراءات وأُرشف.');
-        self::notify($exec, 'check', 't-green', "أُغلق ملف التنفيذ {$exec->exec_no} لطلبك {$exec->number}.");
+        self::notify($exec, 'check', 't-green', "أُغلق ملف التنفيذ لطلبك {$exec->number} — المرجع الداخليّ {$exec->exec_no}.");
         self::mail($exec, 'closed');
         Live::push(new ExecStatusBroadcast($exec));
     }

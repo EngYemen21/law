@@ -105,6 +105,9 @@ const LawyerAssistant: React.FC<Props> = ({ refs }) => {
   const [ref, setRef] = useState(refs[0] || '');
   const [ctx, setCtx] = useState('');
   const [draft, setDraft] = useState<string | null>(null);
+  // مصدر المسودّة: مخرجُ نموذج أم قالبٌ ثابت. كان الاثنان يصلان المحامي بالشكل نفسه
+  // تماماً، وتحتهما ادّعاءٌ واحد بأنها «مستندة للأنظمة والقضاء السعودي».
+  const [draftSource, setDraftSource] = useState<{ source?: string; label?: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const activeTab = ASSIST_TABS.find((a) => a.key === tab) || ASSIST_TABS[0];
@@ -141,6 +144,7 @@ const LawyerAssistant: React.FC<Props> = ({ refs }) => {
     setBusy(true);
     const kindToSend = selectedQuick || tab;
 
+    setDraftSource(null); // وسمُ مسودّةٍ سابقة فوق مسودّة جديدة أسوأ من غيابه
     try {
       // الصفحة تُعرض من لوحتي المحامي والإدارة — كل لوحة تنادي مسارها (قرار 2026-08-28)
       const { data } = await axios.post(`${window.location.pathname.startsWith('/admin') ? '/admin' : '/lawyer'}/assistant/generate`, {
@@ -150,6 +154,7 @@ const LawyerAssistant: React.FC<Props> = ({ refs }) => {
         context: ctx,
       });
       setDraft(data.draft);
+      setDraftSource({ source: data.source, label: data.sourceLabel });
       toast('✨ تم توليد الصياغة القانونية بنجاح — يمكنك مراجعتها وتعديلها');
     } catch {
       toast('تعذّر توليد المسودة حالياً، يرجى المحاولة لاحقاً');
@@ -282,7 +287,11 @@ return;
           <div className="card-h" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
             <div>
               <h3 style={{ margin: 0 }}>المسودة والتحليل القانوني — {type}</h3>
-              <span className="crumb" style={{ fontSize: 11.5, color: 'var(--muted)' }}>مستندة للأنظمة والقضاء السعودي · قابلة للمراجعة والتحرير</span>
+              <span className="crumb" style={{ fontSize: 11.5, color: draftSource?.source === 'fallback' ? '#7A5200' : 'var(--muted)' }}>
+                {draftSource?.source === 'fallback'
+                  ? '⚠️ قالب استرشاديّ ثابت — لم يُجرَ تحليل · تحقّق من الموادّ والمُهَل قبل الاستعمال'
+                  : 'مخرج نموذج — لم يُطابَق استشهاده بقاعدة المصادر · للمراجعة والتحرير'}
+              </span>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button

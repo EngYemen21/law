@@ -108,6 +108,20 @@ class LegalAiService
      */
     public function summarize(Ticket $ticket): array
     {
+        return $this->summarizeResult($ticket)['summary'];
+    }
+
+    /**
+     * ملخّص الملفّ **مع تتبّع النداء ومصدره** — ليُقيَّد في `ai_runs`.
+     *
+     * `ticket.summary` مصنَّفة `high` في `AiPolicyGate`، ومخرجها رأيٌ قانونيّ رباعيّ
+     * يصل المحامي ثم العميل بعد الاعتماد — وكان يُنتَج **بلا قيدٍ واحد**: لا كلفة
+     * محسوبة ولا نموذج معروف ولا وجودَ له في صندوق المراجعة الذي يفرضه P4.
+     *
+     * @return array{summary:array<string,mixed>, meta:array<string,mixed>, source:AiSource}
+     */
+    public function summarizeResult(Ticket $ticket): array
+    {
         $convo = $ticket->messages()
             ->where('who', '!=', 'note')
             ->orderBy('id')->get()
@@ -123,26 +137,34 @@ class LegalAiService
             .($docs !== '' ? "\n\nالمستندات المفحوصة:\n{$docs}" : '')
             ."\n\nالمحادثة:\n{$convo}";
 
-        try {
-            $json = $this->run(AiPromptRegistry::ticketSummarySystem(), [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'ticket.summary');
+        $meta = [];
 
-            if ($json && ($data = self::parseJsonResponse($json))) {
-                if (! empty($data['case_summary'])) {
-                    return [
-                        'case_summary' => (string) ($data['case_summary'] ?? ''),
-                        'attachments_summary' => (string) ($data['attachments_summary'] ?? ''),
-                        'facts' => is_array($data['facts'] ?? null) ? implode("\n", array_map(fn ($x) => '• '.ltrim($x, '• '), $data['facts'])) : (string) ($data['facts'] ?? ''),
-                        'key_points' => is_array($data['key_points'] ?? null) ? implode("\n", array_map(fn ($x) => '• '.ltrim($x, '• '), $data['key_points'])) : (string) ($data['key_points'] ?? ''),
-                        'ai_generated' => true, // تحليل ذكاء اصطناعي حقيقي
-                    ];
-                }
+        try {
+            $call = $this->runCall(AiPromptRegistry::ticketSummarySystem(), [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'ticket.summary');
+            $meta = self::callMeta($call, 'ticket.summary');
+
+            // `AiOutputValidator::ticketSummary` بدل التحقّق اليدويّ: كان هذا الموضع
+            // يعيد بناء ما يفعله المحقّق (تنقيط القوائم وسقوط `case_summary` الفارغ)
+            // بنسخةٍ ثانية تتباعد عنه عند أي تعديل.
+            $valid = AiOutputValidator::ticketSummary(self::parseJsonResponse($call->text));
+
+            if ($valid !== null) {
+                return [
+                    'summary' => $valid + ['ai_generated' => true], // تحليل ذكاء اصطناعي حقيقي
+                    'meta' => $meta,
+                    'source' => AiSource::AiSuccess,
+                ];
             }
         } catch (\Throwable $e) {
             Log::warning('LegalAiService summarize failed: '.$e->getMessage());
         }
 
         // تعذّر الـAI: قالب احتياطي مع علَم صريح أنه ليس تحليلاً حقيقياً
-        return $this->fallbackSummary($ticket) + ['ai_generated' => false];
+        return [
+            'summary' => $this->fallbackSummary($ticket) + ['ai_generated' => false],
+            'meta' => $meta,
+            'source' => AiSource::Fallback,
+        ];
     }
 
     /**
@@ -153,6 +175,20 @@ class LegalAiService
      */
     public function classifyCase(Ticket $ticket): array
     {
+        return $this->classifyCaseResult($ticket)['classification'];
+    }
+
+    /**
+     * التصنيف **مع تتبّع النداء** — ليُقيَّد في `ai_runs` كبقيّة المخرجات.
+     *
+     * كان `ClassifyConvertedCaseJob` يخرج مبكراً حين يطابق مخرجُ النموذج الاحتياطيَّ،
+     * فلا يُكتب قيدٌ ولا تُحصى كلفة: نداءٌ جرى ودُفع ثمنه ولا أثر له. وقيس حيّاً —
+     * قضيّةٌ محوَّلة بلا قيد ذكاء واحد. و«لم يُفِد بجديد» معلومةٌ تقييميّة لا سبب صمت.
+     *
+     * @return array{classification:array{type:string,department:string}, meta:array<string,mixed>, source:AiSource}
+     */
+    public function classifyCaseResult(Ticket $ticket): array
+    {
         $convo = $ticket->messages()->where('who', '!=', 'note')->orderBy('id')->get()
             ->map(fn ($m) => ($m->who === 'client' ? 'العميل: ' : 'الفريق: ').AiContextBuilder::prepare((string) $m->body))
             ->implode("\n");
@@ -160,14 +196,21 @@ class LegalAiService
         $system = AiPromptRegistry::caseClassifySystem();
         $prompt = "نوع التذكرة: {$ticket->type}\nالقسم الحالي: {$ticket->department}\n\nالمحادثة:\n{$convo}";
 
+        $meta = [];
+
         try {
-            $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true);
-            if ($json) {
-                $data = json_decode(trim(preg_replace('/^```(?:json)?|```$/m', '', $json)), true);
+            $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'case.classify');
+            $meta = self::callMeta($call, 'case.classify');
+            if ($call->text) {
+                $data = self::parseJsonResponse($call->text);
                 if (is_array($data) && ! empty($data['type'])) {
                     return [
-                        'type' => (string) $data['type'],
-                        'department' => (string) ($data['department'] ?? $ticket->department),
+                        'classification' => [
+                            'type' => (string) $data['type'],
+                            'department' => (string) ($data['department'] ?? $ticket->department),
+                        ],
+                        'meta' => $meta,
+                        'source' => AiSource::AiSuccess,
                     ];
                 }
             }
@@ -175,7 +218,11 @@ class LegalAiService
             Log::warning('LegalAiService classifyCase failed: '.$e->getMessage());
         }
 
-        return self::fallbackClassification($ticket);
+        return [
+            'classification' => self::fallbackClassification($ticket),
+            'meta' => $meta,
+            'source' => AiSource::Fallback,
+        ];
     }
 
     /**
@@ -504,7 +551,7 @@ class LegalAiService
 
             if ($validated !== null) {
                 return [
-                    'draft' => $this->renderPleading($case, $validated),
+                    'draft' => $this->renderPleading((string) $case->number, $validated),
                     'meta' => $meta,
                     // المصدر يتبع الحكم لا شكل المخرج: لائحةٌ سليمة البنية بلا ادّعاءٍ
                     // مسنَدٍ واحد ليست تحليلاً اجتاز التحقّق — وبوّابة السياسة تفرض
@@ -552,7 +599,7 @@ class LegalAiService
      *
      * @param  array{draft:string,claims:array<int,array<string,string>>,unsupported_claims:array<int,string>,verdict:string}  $result
      */
-    private function renderPleading(LegalCase $case, array $result): string
+    private function renderPleading(string $ref, array $result, string $kind = 'مسودّة لائحة دعوى'): string
     {
         $out = trim((string) $result['draft']);
 
@@ -560,7 +607,7 @@ class LegalAiService
         // مادّةً نظاميّة، وإلغاؤها يُضيّع عملاً صحيحاً. يُلغيها فقط ألّا يكون هناك نصّ.
         if (($result['verdict'] ?? '') === LegalClaims::INSUFFICIENT_AUTHORITY) {
             if ($out === '') {
-                return "مسودّة لائحة دعوى — {$case->number}\n\n"
+                return "{$kind} — {$ref}\n\n"
                     .'لم يُعثر في قاعدة المصادر المعتمدة على نصٍّ نظاميّ يحكم وقائع هذا الملفّ، '
                     ."ولم يُنتج النموذج مسودّة.\n\n"
                     .'المطلوب من المحامي: تحديد الأساس النظاميّ يدوياً، أو إضافة المصدر المعتمد '
@@ -610,9 +657,22 @@ class LegalAiService
      */
     public function reply(Ticket $ticket, string $clientMessage): ?string
     {
+        return $this->replyResult($ticket, $clientMessage)['text'];
+    }
+
+    /**
+     * الردّ **مع تتبّعه** — يصل العميل مباشرةً، فلا يجوز أن يُنتَج بلا أثر.
+     *
+     * حساسيّته `low` ⇒ `AiPolicyGate` يقبله بلا عتبة، فالقيد هنا **إحصاءٌ وكلفةٌ
+     * وتتبّع** لا إثقالٌ لصندوق المراجعة. وتغييرُ الحساسيّة قرارٌ منفصل.
+     *
+     * @return array{text:?string, meta:array<string,mixed>, source:AiSource}
+     */
+    public function replyResult(Ticket $ticket, string $clientMessage): array
+    {
         $system = AiPromptRegistry::chatReplySystem()."\n\n".$this->context($ticket);
 
-        return $this->run($system, $this->history($ticket, $clientMessage));
+        return self::chatOutcome($this->runCall($system, $this->history($ticket, $clientMessage), promptId: 'chat.reply'));
     }
 
     /**
@@ -630,9 +690,10 @@ class LegalAiService
         $prompt = "نوع الطلب: {$ticket->type}\nما كتبه العميل:\n".AiContextBuilder::prepare($details);
 
         try {
-            $text = $this->run($system, [['role' => 'user', 'content' => $prompt]]);
-            if ($text && trim($text) !== '') {
-                return trim($text);
+            $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], promptId: 'chat.reply');
+            $this->lastChatOutcome = self::chatOutcome($call);
+            if ($this->lastChatOutcome['text'] !== null) {
+                return $this->lastChatOutcome['text'];
             }
         } catch (\Throwable $e) {
             Log::warning('LegalAiService greet failed: '.$e->getMessage());
@@ -668,9 +729,10 @@ class LegalAiService
             ."\nالمستندات المرفقة ذات الصلة:\n{$docLines}";
 
         try {
-            $text = $this->run($system, [['role' => 'user', 'content' => $prompt]]);
-            if ($text && trim($text) !== '') {
-                return trim($text);
+            $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], promptId: 'chat.reply');
+            $this->lastChatOutcome = self::chatOutcome($call);
+            if ($this->lastChatOutcome['text'] !== null) {
+                return $this->lastChatOutcome['text'];
             }
         } catch (\Throwable $e) {
             Log::warning('LegalAiService acknowledgeDocs failed: '.$e->getMessage());
@@ -687,13 +749,66 @@ class LegalAiService
      */
     public function caseReply(LegalCase $case, string $clientMessage): ?string
     {
+        return $this->caseReplyResult($case, $clientMessage)['text'];
+    }
+
+    /**
+     * ردّ محادثة القضية **مع تتبّعه** — نظير `replyResult`.
+     *
+     * @return array{text:?string, meta:array<string,mixed>, source:AiSource}
+     */
+    public function caseReplyResult(LegalCase $case, string $clientMessage): array
+    {
         $nextLabel = $case->nextHearingLabel();
         $next = $nextLabel !== '—' ? "؛ الجلسة القادمة: {$nextLabel}" : '';
         $system = AiPromptRegistry::chatReplySystem()."\n\n"
             ."سياق القضية — رقم: {$case->number}؛ النوع: {$case->type}؛ القسم: {$case->department}؛ الحالة: {$case->status}{$next}. "
             .'أنت تتابع قضية قانونية نشطة لهذا العميل؛ أجب عن استفساراته حول سير القضية والجلسات والإجراءات بدقّة وطمأنة.';
 
-        return $this->run($system, $this->history($case, $clientMessage));
+        return self::chatOutcome($this->runCall($system, $this->history($case, $clientMessage), promptId: 'chat.reply'));
+    }
+
+    /**
+     * حصيلة آخر نداء محادثة — لـ`greet` و`acknowledgeDocs` وحدهما.
+     *
+     * هاتان تُعيدان **نصّاً دائماً** (لهما احتياطٌ داخليّ)، فلا يمكن تغيير توقيعهما
+     * بلا كسر مستدعيهما. والمستدعي يقرأ التتبّع من هنا فوراً بعد النداء —
+     * حدٌّ معلَن: لا تُقرأ إلا مباشرةً، ولا يُعوَّل عليها عبر نداءين.
+     *
+     * @var array{text:?string, meta:array<string,mixed>, source:AiSource}|null
+     */
+    private ?array $lastChatOutcome = null;
+
+    /**
+     * تتبّع آخر ترحيب/إقرار مستندات — يُستهلك مرّةً ثم يُصفَّر.
+     *
+     * @return array{text:?string, meta:array<string,mixed>, source:AiSource}
+     */
+    public function takeLastChatOutcome(): array
+    {
+        $outcome = $this->lastChatOutcome ?? ['text' => null, 'meta' => [], 'source' => AiSource::Fallback];
+        $this->lastChatOutcome = null;
+
+        return $outcome;
+    }
+
+    /**
+     * حصيلة نداء محادثة: نصٌّ ومصدرٌ وتتبّع — مصدرٌ واحد لمداخل المحادثة الأربعة.
+     *
+     * الردّ الفارغ **ليس نجاحاً**: المستدعي يسقط عندها إلى نصٍّ ثابت، فوسمُه
+     * `AiSuccess` كان سيسجّل نجاحاً لمخرجٍ لم يصل العميل منه حرف.
+     *
+     * @return array{text:?string, meta:array<string,mixed>, source:AiSource}
+     */
+    private static function chatOutcome(AiCallResult $call): array
+    {
+        $text = $call->text !== null && trim($call->text) !== '' ? trim($call->text) : null;
+
+        return [
+            'text' => $text,
+            'meta' => self::callMeta($call, 'chat.reply'),
+            'source' => $text !== null ? AiSource::AiSuccess : AiSource::Fallback,
+        ];
     }
 
     /**
@@ -702,25 +817,45 @@ class LegalAiService
      */
     public function consultSummary(Consult $consult, string $notes = ''): string
     {
+        return $this->consultSummaryResult($consult, $notes)['summary'];
+    }
+
+    /**
+     * ملخّص الاستشارة **مع تتبّعه ومصدره**.
+     *
+     * مخرجٌ مصنَّف `high`، ويحمل «الرأي القانوني» بنصّ تعليمته، ويصل العميل. وكان
+     * يُنتَج بلا قيد: لا كلفة ولا نموذج ولا مراجعة مطلوبة.
+     *
+     * @return array{summary:string, meta:array<string,mixed>, source:AiSource}
+     */
+    public function consultSummaryResult(Consult $consult, string $notes = ''): array
+    {
         $system = AiPromptRegistry::consultSummarySystem();
         $prompt = "استشارة {$consult->channel} رقم {$consult->ref} بموضوع «{$consult->subject}» مع المستشار {$consult->lawyer}."
             .($notes !== '' ? "\nملاحظات المستشار أثناء الجلسة:\n{$notes}" : '')
             ."\nاكتب ملخص الاستشارة.";
 
+        $meta = [];
+
         try {
-            $text = $this->run($system, [['role' => 'user', 'content' => $prompt]]);
-            if ($text && trim($text) !== '') {
-                return trim($text);
+            $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], promptId: 'consult.summary');
+            $meta = self::callMeta($call, 'consult.summary');
+            if ($call->text && trim($call->text) !== '') {
+                return ['summary' => trim($call->text), 'meta' => $meta, 'source' => AiSource::AiSuccess];
             }
         } catch (\Throwable $e) {
             Log::warning('LegalAiService consultSummary failed: '.$e->getMessage());
         }
 
         // عند تعذّر الـAI: لا رأي قانوني مُختلَق يصل للعميل — نصّ أمين بانتظار الإعداد اليدوي
-        return "ملخص استشارة — {$consult->ref}\n\n"
-            ."تعذّر إعداد ملخّص الاستشارة بالذكاء الاصطناعي حالياً. الاستشارة بشأن «{$consult->subject}» "
-            .'بحاجة إلى إعداد الملخّص والرأي القانوني يدوياً من الفريق القانوني قبل اعتماده'
-            .($notes !== '' ? "، وقد دوّن المستشار أثناء الجلسة: {$notes}" : '').'.';
+        return [
+            'summary' => "ملخص استشارة — {$consult->ref}\n\n"
+                ."تعذّر إعداد ملخّص الاستشارة بالذكاء الاصطناعي حالياً. الاستشارة بشأن «{$consult->subject}» "
+                .'بحاجة إلى إعداد الملخّص والرأي القانوني يدوياً من الفريق القانوني قبل اعتماده'
+                .($notes !== '' ? "، وقد دوّن المستشار أثناء الجلسة: {$notes}" : '').'.',
+            'meta' => $meta,
+            'source' => AiSource::Fallback,
+        ];
     }
 
     /**
@@ -730,13 +865,31 @@ class LegalAiService
      */
     public function meetingSummary(Meeting $meeting, string $notes = ''): array
     {
+        return $this->meetingSummaryResult($meeting, $notes)['parts'];
+    }
+
+    /**
+     * مخرجات الاجتماع **مع تتبّعها**.
+     *
+     * `meta` فارغة حين لا يُنادى النموذج أصلاً (بلا ملاحظات ولا Zoom) — وقيدٌ بلا نداء
+     * يُفسد إحصاء الكلفة، فلا يُكتب هناك.
+     *
+     * @return array{parts:array{summary:?string,minutes:?string,decisions:array<int,string>}, meta:array<string,mixed>, source:AiSource, called:bool}
+     */
+    public function meetingSummaryResult(Meeting $meeting, string $notes = ''): array
+    {
         // مصدر المحتوى الفعلي الوحيد: الملاحظات المدوَّنة و/أو ملخص Zoom إن سبق وصوله.
         // بلا أيّهما لا يُنادى الذكاء ولا يُكتب أي نصّ: التلخيص من البيانات الوصفية كان يختلق
         // مداولات وقرارات لاجتماع لم يدخله أحد وتُعرض للعميل كمحضر رسمي (حادثة M-26753)،
         // وقرار صاحب المنتج: لا قالب وهمي — الحقول تبقى فارغة حتى يصل ملخص Zoom أو يُدوَّن يدوياً.
         $zoomContent = trim((string) $meeting->zoom_summary);
         if ($notes === '' && $zoomContent === '') {
-            return self::meetingSummaryFallback($meeting, $notes);
+            return [
+                'parts' => self::meetingSummaryFallback($meeting, $notes),
+                'meta' => [],
+                'source' => AiSource::Fallback,
+                'called' => false, // لا نداء ⇒ لا قيد: قيدٌ بلا نداء يُفسد إحصاء الكلفة
+            ];
         }
 
         $system = AiPromptRegistry::meetingSummarySystem();
@@ -747,23 +900,34 @@ class LegalAiService
             .($zoomContent !== '' ? "\nملخص جلسة Zoom:\n{$zoomContent}" : '')
             ."\nأعد JSON.";
 
+        $meta = [];
+
         try {
-            $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true);
-            if ($json) {
-                $data = json_decode(trim(preg_replace('/^```(?:json)?|```$/m', '', $json)), true);
-                if (is_array($data) && ! empty($data['summary'])) {
-                    return [
+            $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'meeting.summary');
+            $meta = self::callMeta($call, 'meeting.summary');
+            $data = self::parseJsonResponse($call->text);
+            if (is_array($data) && ! empty($data['summary'])) {
+                return [
+                    'parts' => [
                         'summary' => (string) $data['summary'],
                         'minutes' => is_array($data['minutes'] ?? null) ? implode("\n", array_map('strval', $data['minutes'])) : (string) ($data['minutes'] ?? ''),
                         'decisions' => array_values(array_filter(array_map('strval', (array) ($data['decisions'] ?? [])))),
-                    ];
-                }
+                    ],
+                    'meta' => $meta,
+                    'source' => AiSource::AiSuccess,
+                    'called' => true,
+                ];
             }
         } catch (\Throwable $e) {
             Log::warning('LegalAiService meetingSummary failed: '.$e->getMessage());
         }
 
-        return self::meetingSummaryFallback($meeting, $notes);
+        return [
+            'parts' => self::meetingSummaryFallback($meeting, $notes),
+            'meta' => $meta,
+            'source' => AiSource::Fallback,
+            'called' => true,
+        ];
     }
 
     /**
@@ -787,26 +951,48 @@ class LegalAiService
      */
     public function extractDecisions(string $text): array
     {
+        return $this->extractDecisionsResult($text)['decisions'];
+    }
+
+    /**
+     * القرارات **مع تتبّعها**.
+     *
+     * أعلى بوّابة تقييم في المنظومة (0.98) لأن مخرجها يُنشئ التزامات في النظام —
+     * وكان يُنتَج بلا قيدٍ يُحصي كلفته أو يُخضعه لمراجعة.
+     *
+     * @return array{decisions:array<int,string>, meta:array<string,mixed>, source:AiSource, called:bool}
+     */
+    public function extractDecisionsResult(string $text): array
+    {
         if (trim($text) === '') {
-            return [];
+            return ['decisions' => [], 'meta' => [], 'source' => AiSource::Fallback, 'called' => false];
         }
 
         // التعليمة في السجلّ لا هنا: كانت الوحيدة الباقية بلا إصدار ولا بصمة
         $system = AiPromptRegistry::decisionsSystem();
+        $meta = [];
+
         try {
-            $json = $this->run($system, [['role' => 'user', 'content' => mb_substr($text, 0, 6000)]], json: true, promptId: 'meeting.decisions');
-            if ($json) {
-                $data = json_decode(trim(preg_replace('/^```(?:json)?|```$/m', '', $json)), true);
-                if (is_array($data) && ! empty($data['decisions'])) {
-                    return array_values(array_filter(array_map('strval', (array) $data['decisions'])));
-                }
+            $call = $this->runCall($system, [['role' => 'user', 'content' => mb_substr($text, 0, 6000)]], json: true, promptId: 'meeting.decisions');
+            $meta = self::callMeta($call, 'meeting.decisions');
+
+            // `decisions()` يُفرّق بين «المفتاح غائب» (بنية خاطئة) و«موجود وفارغ»
+            // (لا قرارات) — والفارق جوهريّ: نصٌّ بلا قرارات يجب أن يُخرج صفراً.
+            $valid = AiOutputValidator::decisions(self::parseJsonResponse($call->text));
+            if ($valid !== null) {
+                return [
+                    'decisions' => $valid['decisions'],
+                    'meta' => $meta,
+                    'source' => AiSource::AiSuccess,
+                    'called' => true,
+                ];
             }
         } catch (\Throwable $e) {
             Log::warning('LegalAiService extractDecisions failed: '.$e->getMessage());
         }
 
         // عند تعذّر الـAI: لا مهام أفضل من مهام وهمية — كان الاحتياط يحقن 3 مهام ثابتة كسجلّات حقيقية
-        return [];
+        return ['decisions' => [], 'meta' => $meta, 'source' => AiSource::Fallback, 'called' => true];
     }
 
     /**
@@ -870,8 +1056,6 @@ class LegalAiService
      */
     public function analyzeExecution(Execution $exec): array
     {
-        $defaultProcs = ['تقديم طلب تنفيذ إلكتروني', 'طلب الإفصاح عن الأصول', 'الحجز على الحسابات'];
-
         // قراءة وتلخيص كافة المستندات المرفقة مع الطلب
         $exec->loadMissing('documents');
         $docSnippets = [];
@@ -921,7 +1105,7 @@ class LegalAiService
                 // التحقّق الخادميّ المستقلّ: لا يُوثَق بأن النموذج اتّبع التعليمات
                 $data = self::parseJsonResponse($call->text);
                 $structureFailure = $data === null ? AiFailure::INVALID_JSON : AiFailure::INVALID_STRUCTURE;
-                $valid = AiOutputValidator::executionAnalysis($data, $defaultProcs);
+                $valid = AiOutputValidator::executionAnalysis($data);
                 if ($valid !== null) {
                     return $valid + [
                         'source' => AiSource::AiSuccess->value,
@@ -950,10 +1134,15 @@ class LegalAiService
             .($exec->defendant ? ' بحق '.$exec->defendant : '').'، '
             .($complete ? 'مؤهّل للإحالة إلى قسم التنفيذ ومباشرة الإجراءات' : 'ويلزم استكمال النواقص قبل الإحالة').'.';
 
+        // الإجراءات الافتراضيّة **هنا وحدها**: هذا الفرع موسوم `Fallback` صراحةً، فالقالب
+        // فيه مُعلَن لا مُتنكّر. كانت القائمة تُبنى في رأس الدالّة فتُغري بحقنها في مسار
+        // النجاح أيضاً — وقد فعلت.
+        $fallbackProcs = ['تقديم طلب تنفيذ إلكتروني', 'طلب الإفصاح عن الأصول', 'الحجز على الحسابات'];
+
         return [
             'summary' => $summary,
             'missing' => $missing,
-            'procedures' => $defaultProcs,
+            'procedures' => $fallbackProcs,
             'source' => AiSource::Fallback->value,
             'meta' => self::callMeta($call, 'execution.analyze', $structureFailure),
         ];
@@ -986,7 +1175,7 @@ class LegalAiService
 
             if ($text = $this->extractText($abs, $ext)) {
                 $prompt = $context."\n\nمحتوى المستند:\n".AiContextBuilder::prepare($text, 20000)."\n\nلخّص المحتوى وصنّفه وأعد JSON.";
-                $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true);
+                $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'document.analyze');
             } elseif (in_array($ext, ['pdf', 'jpg', 'jpeg', 'png', 'webp'], true) && ! empty(config('services.gemini.key'))) {
                 $mime = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'][$ext];
                 $json = $this->viaGeminiDocument($system, $context."\n\nلخّص المستند المرفق وصنّفه وأعد JSON.", base64_encode((string) file_get_contents($abs)), $mime);
@@ -1028,7 +1217,7 @@ class LegalAiService
         $prompt = "نوع التذكرة: {$ticket->type}\nالقسم: ".($ticket->department ?: '—')."\n\nالمحامون المتاحون:\n{$list}";
 
         try {
-            $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true);
+            $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'lawyer.match');
             if ($json) {
                 $data = json_decode(trim(preg_replace('/^```(?:json)?|```$/m', '', $json)), true);
                 $id = (int) ($data['lawyer_id'] ?? 0);
@@ -1063,17 +1252,20 @@ class LegalAiService
             $s = $c['success'] ?? [];
 
             return "- id={$c['id']} | {$c['name']} | التخصّص: ".($c['dept'] ?? '—')
-                .' | معدّل الإنجاز: '.($s['rate'] ?? 0).'% ('.($s['closed'] ?? 0).'/'.($s['total'] ?? 0).')'
+                // «إغلاق» لا «إنجاز»: النسبة تعدّ الملفّات المغلقة، و«صدر الحكم» تُحتسب
+                // مهما كان اتّجاه الحكم. وتسميتها «إنجازاً» للنموذج تجعله يرجّح محامياً
+                // على سجلّ كسبٍ لا يقيسه أحد.
+                .' | معدّل إغلاق الملفّات: '.($s['rate'] ?? 0).'% ('.($s['closed'] ?? 0).'/'.($s['total'] ?? 0).')'
                 .' | الحمل المفتوح: '.($c['load'] ?? 0);
         })->implode("\n");
 
         $system = 'أنت منسّق إسناد في «النظام الإداري لمكاتب المحاماة». رتّب المحامين حسب الأنسب لاستشارة العميل: '
-            .'الأعلى تخصّصاً وسجلّ نجاح أولاً ثم الأقل حملاً. '
+            .'الأعلى تخصّصاً أولاً، ثم الأعلى معدّل إغلاقٍ للملفّات، ثم الأقل حملاً. '
             .'أعد JSON فقط: {"order":[معرّفات المحامين مرتّبة من الأنسب]}. أدرِج كل المعرّفات مرة واحدة فقط. لا نص خارج JSON.';
         $prompt = "تخصّص الاستشارة: {$specialty}\nموضوع الاستشارة: {$subject}\n\nالمحامون المتاحون:\n{$list}";
 
         try {
-            $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true);
+            $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'lawyer.match');
             if ($json) {
                 $data = json_decode(trim(preg_replace('/^```(?:json)?|```$/m', '', $json)), true);
                 $order = array_map(fn ($i) => (int) $i, (array) ($data['order'] ?? []));
@@ -1096,13 +1288,45 @@ class LegalAiService
     }
 
     /**
+     * أنواع المساعدة التي يُمرَّر لها سند نظاميّ.
+     *
+     * وُسِّعت لتشمل `reply_memo` و`defense` و`strengths_weaknesses` و`mems`: تعليماتها
+     * تطلب «الأسانيد… نظام المعاملات المدنية، نظام الإثبات، نظام المرافعات» صراحةً،
+     * فحرمانها من المصادر لا يمنع الاستشهاد — يجعله من ذاكرة النموذج وحدها.
+     *
+     * والتوسيع آمنٌ على الغطاء: قاعدة المصادر مجالان (721 عامّة و65 للتنفيذ)،
+     * وفلتر `retrieve` يقبل «المجال **أو** العامّ» — فكل قسمٍ يصله الـ721.
+     *
+     * @var array<int,string>
+     */
+    private const RETRIEVAL_KINDS = ['qualification', 'contract_check', 'analyze', 'lawahe', 'reply_memo', 'defense', 'strengths_weaknesses', 'mems'];
+
+    /**
      * المساعد القانوني الذكي للمحامي — يولد اللوائح، مذكرات الرد، فحص العقود،
      * استخراج نقاط القوة والضعف، وتكييف النزاع وفق الأنظمة السعودية.
      */
     public function assist(string $kind, string $docType, ?string $ref = null, string $context = ''): string
     {
+        return $this->assistResult($kind, $docType, $ref, $context)['draft'];
+    }
+
+    /**
+     * مسودّة المساعد **مع تتبّع النداء ومصدرها**.
+     *
+     * كانت `assist()` تُرجع نصّاً وحده، فيستلم المحامي مخرجَ النموذج ومخرجَ القالب
+     * بالشكل نفسه تماماً — والقالب فيه «(م/191)» و«العقد شريعة المتعاقدين» و«مهلة
+     * إخطار كتابي (15 يوماً)» و«المحكمة المختصة بمدينة الرياض»، وتحته في الشاشة
+     * «مستندة للأنظمة والقضاء السعودي». ولا قيد في `ai_runs` رغم حساسيّتها `high`.
+     *
+     * @return array{draft:string, meta:array<string,mixed>, source:AiSource}
+     */
+    public function assistResult(string $kind, string $docType, ?string $ref = null, string $context = ''): array
+    {
         $refText = $ref ? "المرجع: {$ref}\n" : '';
         $refContext = '';
+        // يُحتفظ به خارج الشرط: منه يُشتقّ مجال الاسترجاع أدناه
+        $ticket = null;
+        $refFacts = '';
 
         if ($ref) {
             $ticket = Ticket::where('number', $ref)->with(['summary', 'documents'])->first();
@@ -1111,15 +1335,42 @@ class LegalAiService
                 if ($ticket->summary) {
                     $refContext .= "ملخص الوقائع: {$ticket->summary->facts}\nالتوصيات: {$ticket->summary->key_points}\n";
                 }
+                // **المضمون بلا ترويسات** لاستعلام الاسترجاع — انظر تعليل بنائه أدناه
+                $refFacts = implode(' ', array_filter([
+                    (string) $ticket->type,
+                    (string) $ticket->subject,
+                    (string) $ticket->details,
+                    (string) ($ticket->summary?->facts ?? ''),
+                    (string) ($ticket->summary?->key_points ?? ''),
+                ]));
             }
         }
 
         $fullContext = trim($refText.$refContext."\nالسياق والمستندات:\n".$context);
 
-        // المسارات الثلاثة التي تفرضها الخطة للاسترجاع المحدود: التكييف، ومسودات
-        // اللوائح، وتحليل العقد. غيرها لا يُمرَّر له سند كي لا يتوسّع النطاق بلا قياس.
-        if (in_array($kind, ['qualification', 'contract_check', 'analyze', 'lawahe'], true)) {
-            $authority = LegalKnowledge::asContext(LegalKnowledge::retrieve(domain: '', query: $docType));
+        // المسارات التي يُمرَّر لها سند — انظر `RETRIEVAL_KINDS`.
+        if (in_array($kind, self::RETRIEVAL_KINDS, true)) {
+            // ⚠️ **المجال والاستعلام كلاهما كان معطَّلاً.**
+            //
+            // `domain: ''` يُسقط فلتر المجال بالكامل، فتُمرَّر موادّ من مجالٍ أجنبيّ
+            // تحت لافتة «معتمدة، استشهد بمعرّفاتها حصراً» — وهو العطل نفسه المعالَج
+            // داخل `retrieve` وعائدٌ من باب المستدعي.
+            //
+            // و`query: $docType` أشدّ: سطرٌ كـ«مذكرة رد» لا يُنتج كلمةً مفتاحيّة
+            // تطابق نصّاً نظامياً — قيس حيّاً: «مذكرة رد» ⇒ **صفر مصدر**، ومع وقائع
+            // الملفّ ⇒ ستّة. أي أن الاسترجاع كان معطَّلاً عملياً لا ناقصاً.
+            //
+            // والاستعلام من الملفّ هو نمط `draftPleadingResult` نفسه (وقائع لا نوع).
+            $authority = LegalKnowledge::asContext(LegalKnowledge::retrieve(
+                domain: (string) ($ticket?->department ?: ($ticket?->type ?: '')),
+                // ⚠️ **المضمون لا الكتلة المُنسّقة.** بناء الاستعلام من $refContext
+                // يُدخل ترويساته («بيانات التذكرة» · «تفاصيل» · «السياق والمستندات»)،
+                // وهي كلماتٌ طويلة تتصدّر الانتقاء بالطول فتُزيح المصطلحات القانونيّة.
+                // قيس: بالترويسات ⇒ [مستندات، بيانات، تفاصيل، مطالبة، تذكرة، تجاري]،
+                // وبلا ترويسات ⇒ [مطالبة، تجاري، توريد، تسليم، بضاعة، تعويض].
+                // أربعةٌ من ستّة كانت حشواً — وهو عطل الحشو نفسه الموثَّق في `keywords`.
+                query: trim($docType.' '.AiContextBuilder::clip($refFacts.' '.$context, 2000)),
+            ));
             if ($authority !== '') {
                 $fullContext .= "\n\nمصادر نظاميّة معتمدة (استشهد بمعرّفاتها حصراً، ولا تذكر مادّة خارجها):\n".$authority;
             }
@@ -1130,23 +1381,50 @@ class LegalAiService
 
         $prompt = "نوع المستند المطلوب: {$docType}\n\n{$fullContext}\n\nيرجى إعداد المسودة باحترافية عالية وبلفظ قانوني سعودي رصين.";
 
+        $meta = [];
+
         try {
-            $output = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: false);
-            if ($output && trim($output) !== '') {
-                return trim($output);
+            $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], json: false, promptId: 'assistant.draft');
+            $meta = self::callMeta($call, 'assistant.draft');
+            if ($call->text && trim($call->text) !== '') {
+                return [
+                    'draft' => trim($call->text),
+                    'meta' => $meta,
+                    'source' => AiSource::AiSuccess,
+                ];
             }
         } catch (\Throwable $e) {
             Log::warning('LegalAiService assist failed: '.$e->getMessage());
         }
 
-        // احتياط منظم وفاخر عند عدم اتصال الـ AI
-        return $this->fallbackAssistantDraft($kind, $docType, $ref, $context);
+        // احتياط منظم عند تعذّر النموذج — **موسوم** كي لا يُقرأ تحليلاً
+        return [
+            'draft' => $this->fallbackAssistantDraft($kind, $docType, $ref, $context),
+            'meta' => $meta,
+            'source' => AiSource::Fallback,
+        ];
     }
 
     /**
      * توليد مسودة صحيفة دعوى / لائحة مطابقة لمعايير منصة «ناجز».
+     *
+     * غلافٌ نصّيّ فوق `najizStatementResult` — للمستدعين الذين لا يحتاجون التتبّع.
      */
     public function generateNajizDraft(Ticket $ticket): string
+    {
+        return $this->najizStatementResult($ticket)['draft'];
+    }
+
+    /**
+     * الصحيفة **مع حصيلة الاستشهاد وتتبّع النداء**.
+     *
+     * كانت تُنتَج نصّاً حرّاً: بلا `promptId` فبلا إصدارٍ في السجلّ، وبلا قيدٍ في
+     * `ai_runs` أصلاً (قيس: 22 قيداً قبل النداء و22 بعده)، وبلا استرجاعٍ فتُذكر
+     * الموادّ من ذاكرة النموذج. وهي **تُقدَّم للمحكمة**.
+     *
+     * @return array{draft:string, meta:array<string,mixed>, source:AiSource, verdict:?string}
+     */
+    public function najizStatementResult(Ticket $ticket): array
     {
         $ticket->loadMissing(['user', 'summary', 'documents']);
         $clientName = $ticket->user?->name ?? 'المدعي';
@@ -1164,28 +1442,63 @@ class LegalAiService
                 ."الأسانيد والتوصيات:\n{$summary->key_points}\n";
         }
 
-        $system = 'أنت محامٍ مرخص ومختص في صياغة صحائف الدعوى واللوائح المعتمدة لمنصة «ناجز» بوزارة العدل السعودية. '
-            .'قم بصياغة صحيفة دعوى متكاملة الأركان وفق متطلبات القضاء السعودي تتضمن: '
-            .'1. بيانات المحكمة المختصة '
-            .'2. بيانات المدعي والمدعى عليه '
-            .'3. موضوع الدعوى '
-            .'4. وقائع الدعوى (سرد زمني مرتب) '
-            .'5. الأسانيد الشرعية والنظامية (مع ذكر نصوص المواد من نظام المعاملات المدنية أو نظام الإثبات أو النظام التجاري) '
-            .'6. الطلبات الختامية المحددة بدقة.';
+        // استرجاع قانونيّ موثَّق — كان هذا المسار **بلا استرجاع أصلاً**، والتعليمة
+        // تطلب من النموذج «ذكر نصوص المواد»، فيستدعيها من ذاكرته. قيس حيّاً: صحيفة
+        // من 5541 حرفاً فيها ستّ موادّ بأرقامها ولا معرّف مصدرٍ واحد يقابله صفّ.
+        // وهذه صحيفةٌ تُقدَّم للمحكمة.
+        $sources = LegalKnowledge::retrieve(
+            domain: (string) ($ticket->department ?: $ticket->type),
+            query: trim(implode(' ', array_filter([
+                (string) $ticket->subject,
+                (string) ($summary?->facts ?? ''),
+                (string) ($summary?->key_points ?? ''),
+            ]))),
+        );
+        $authority = LegalKnowledge::asContext($sources);
+        if ($authority !== '') {
+            $context .= "\n\nمصادر نظاميّة معتمدة (استشهد بمعرّفاتها حصراً، ولا تذكر مادّة خارجها):\n".$authority;
+        }
 
+        $system = AiPromptRegistry::najizStatementSystem();
+        $meta = [];
         $prompt = "بيانات ملف التذكرة:\n{$context}\n\nصغ صحيفة الدعوى لمعايير ناجز بشكل نهائي وجاهز للمراجعة.";
 
         try {
-            $output = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: false);
-            if ($output && trim($output) !== '') {
-                return trim($output);
+            $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'najiz.statement');
+            $meta = self::callMeta($call, 'najiz.statement');
+
+            // الحكم للخادم: معرّفٌ لا يقابله صفٌّ معتمد يسقط إلى «غير مدعوم»
+            $validated = LegalClaims::validate(
+                self::parseJsonResponse($call->text),
+                LegalKnowledge::existingRefs($sources->pluck('ref')->all()),
+            );
+
+            if ($validated !== null) {
+                return [
+                    'draft' => $this->renderPleading((string) $ticket->number, $validated, 'صحيفة دعوى'),
+                    'meta' => $meta,
+                    'source' => LegalClaims::isCitable($validated)
+                        ? AiSource::AiSuccess
+                        : AiSource::ManualRequired,
+                    'verdict' => $validated['verdict'],
+                ];
+            }
+
+            if ($call->text && trim($call->text) !== '') {
+                // لم يجتز التحقّق البرمجيّ ⇒ ليس نجاحاً، ويلزمه مراجع
+                return [
+                    'draft' => trim($call->text),
+                    'meta' => $meta,
+                    'source' => AiSource::ManualRequired,
+                    'verdict' => null,
+                ];
             }
         } catch (\Throwable $e) {
             Log::warning('LegalAiService generateNajizDraft failed: '.$e->getMessage());
         }
 
         // مسودة ناجز احتياطية منظمة
-        return "المملكة العربية السعودية\nوزارة العدل — منصة ناجز الإلكترونية\nصحيفة دعوى إلكترونية\n\n"
+        return ['draft' => "المملكة العربية السعودية\nوزارة العدل — منصة ناجز الإلكترونية\nصحيفة دعوى إلكترونية\n\n"
             .'لدى المحكمة المختصة بمدينة: '.config('office.city')."\n\n"
             ."المدعي: {$clientName}\n"
             ."المدعى عليه: (يُحدد حسب بيانات الخصم)\n"
@@ -1201,15 +1514,27 @@ class LegalAiService
             ."1. إلزام المدعى عليه بالوفاء بالحق والالتزام محل النزاع.\n"
             ."2. إلزام المدعى عليه بالتعويض عن الأضرار الناشئة عن المماطلة.\n"
             ."3. إلزام المدعى عليه بأتعاب المحاماة ومصاريف الدعوى.\n\n"
-            ."وتفضلوا بقبول وافر الاحترام والتقدير،،\nوكيل المدعي / النظام الإداري لمكاتب المحاماة";
+            ."وتفضلوا بقبول وافر الاحترام والتقدير،،\nوكيل المدعي / النظام الإداري لمكاتب المحاماة",
+            'meta' => $meta ?? [],
+            'source' => AiSource::Fallback,
+            'verdict' => null,
+        ];
     }
 
     /** مسودة احتياطية منظمة للمساعد القانوني */
+    /** وسمُ القالب — **فوق النصّ** كما في `renderPleading`، لا في حقلٍ جانبيّ يُتجاوَز. */
+    private const TEMPLATE_BANNER = "⚠️ قالب استرشاديّ ثابت — لم يُجرَ تحليل.\n"
+        ."الموادّ والمُهَل والاختصاص الواردة أدناه **أمثلةٌ لا أسانيد**؛ تحقّق منها قبل الاستعمال.\n\n";
+
     private function fallbackAssistantDraft(string $kind, string $docType, ?string $ref, string $context): string
     {
         $refHeader = $ref ? "المرجع القضائي: {$ref}\n\n" : '';
 
-        return match ($kind) {
+        // القوالب الخمسة تحمل ادّعاءات نظاميّة صريحة: «(م/191)» و«العقد شريعة
+        // المتعاقدين» و«البينة على المدعي» و«مهلة إخطار كتابي (15 يوماً)» و«المحكمة
+        // المختصة بمدينة الرياض». وكان المحامي يستلمها كما يستلم مخرج النموذج تماماً.
+        // لا تُحذف — قيمتها الاسترشاديّة قائمة — لكنها تُعرّف نفسها قبل أن تُقرأ.
+        return self::TEMPLATE_BANNER.match ($kind) {
             'reply_memo', 'mems' => "بسم الله الرحمن الرحيم\n\n{$refHeader}"
                 ."لدى فضيلة رئيس وأعضاء الدائرة القضائية الموقرة\n"
                 ."السلام عليكم ورحمة الله وبركاته،، وبعد:\n\n"

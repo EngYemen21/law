@@ -76,7 +76,10 @@ class AppointmentCardPdf
             .'<div class="apptx-chips"><span class="apptx-chip">'.self::icon('cal').' '.e($a['day']).'</span><span class="apptx-chip">'.self::icon('clock').' '.e($a['time']).'</span><span class="apptx-chip">'.self::icon('pin').' '.e($a['place']).'</span></div>'
             .'</div>'
             .'<div class="apptx-body">'
-            .'<div class="apptx-qr"><div class="qrbox">'.Qr::svg($a['qrSeed']).'</div><p>امسح لتأكيد الحضور<br>وبدء الجلسة</p></div>'
+            // الرمز **زخرفيّ** (انظر توثيق `Qr`) — ولا يُمسح. وكان النصّ تحته يقول «امسح
+            // لتأكيد الحضور وبدء الجلسة»، فيحاول العميل مسحه فلا شيء، أو يظنّ حضوره
+            // مؤكَّداً وهو لم يُؤكَّد. فصار يحمل المرجع نفسه مكتوباً — وهو ما ينفع فعلاً.
+            .'<div class="apptx-qr"><div class="qrbox">'.Qr::svg($a['qrSeed']).'</div><p>مرجع الموعد<br>'.e($a['qrSeed']).'</p></div>'
             .'<div class="apptx-rows">'
             .'<div class="apptx-row"><div class="ri">'.self::icon('user').'</div><div class="rc"><div class="rl">العميل</div><div class="rv">'.e($a['client']).'</div></div></div>'
             .'<div class="apptx-row"><div class="ri">'.self::icon('scale').'</div><div class="rc"><div class="rl">المحامي المكلّف</div><div class="rv">'.e($a['lawyer']).'</div></div></div>'

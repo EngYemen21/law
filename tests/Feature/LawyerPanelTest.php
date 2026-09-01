@@ -82,10 +82,15 @@ class LawyerPanelTest extends TestCase
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
 
-        // بلا مفاتيح AI (phpunit يصفّرها) → يعود الاحتياط القالبي
+        // بلا مفاتيح AI (phpunit يصفّرها) → يعود الاحتياط القالبي **موسوماً**:
+        // الاستجابة تحمل المصدر كي لا يُقرأ القالب الثابت مخرجَ تحليل.
         $this->actingAs($lawyer)->postJson(route('lawyer.assistant.generate'), [
             'kind' => 'lawahe', 'docType' => 'لائحة دعوى', 'ref' => 'SB-1', 'context' => 'وقائع النزاع.',
-        ])->assertOk()->assertJson(fn ($j) => $j->has('draft'));
+        ])->assertOk()->assertJson(fn ($j) => $j
+            ->has('draft')
+            ->where('source', 'fallback')
+            ->has('sourceLabel')
+        );
     }
 
     public function test_case_and_exec_lists_filter_by_lawyer(): void

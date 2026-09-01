@@ -39,8 +39,9 @@ class AiPromptRegistryTest extends TestCase
             'meeting.decisions' => ['01c2ccc915cfc7e373476f500b2e8c038050e8421cb97f5bcf2e9f9b8d9e6be0', 'v1'],
             'ticket.summary' => ['651e3f7d7ea8af142a4db4cdd8002d9ca2825828127d683725e83b673b82c317', 'v1'],
             'case.pleading' => ['eced92674e0dbbe744260a158c571f763d91624af645d29a7ceeef6ed833ab23', 'v2'],
+            'najiz.statement' => ['c6fdc79cf653fc37d3657734b8b83288f640c8a02196fb5414eb55aef03d42d0', 'v1'],
             'consult.summary' => ['f2dcfb18e9013c6e93a769edfde35eb820caab9342bc783607612e0e44a8221f', 'v1'],
-            'chat.reply' => ['f3d9d2baa68dc90480747c7efd7e0e6b4ed171f340bc0a00ba47c7c3780574a6', 'v1'],
+            'chat.reply' => ['1d1d3cfaa0bc14a8d7b44edac4ce4bad7740011ea85e2026f5894570070c4594', 'v2'],
         ];
     }
 
@@ -73,9 +74,60 @@ class AiPromptRegistryTest extends TestCase
             'meeting.decisions' => AiPromptRegistry::decisionsSystem(),
             'ticket.summary' => AiPromptRegistry::ticketSummarySystem(),
             'case.pleading' => AiPromptRegistry::casePleadingSystem(),
+            'najiz.statement' => AiPromptRegistry::najizStatementSystem(),
             'consult.summary' => AiPromptRegistry::consultSummarySystem(),
             'chat.reply' => AiPromptRegistry::chatReplySystem(),
         };
+    }
+
+    /**
+     * **كلّ معرّف مسجَّل يصل النموذج فعلاً.**
+     *
+     * كان السجلّ يَعِد بتغطيةٍ لا يملكها: خمسة معرّفات — `case.classify` و`chat.reply`
+     * و`consult.summary` و`meeting.summary` و`assistant.draft` — لها مُلّاك وإصدارات
+     * وبصمات مجمَّدة، ولا تُمرَّر إلى نداءٍ واحد. فيبقى `ai_runs.prompt_version` فارغاً
+     * في مساراتها، ويصير السجلّ — بعبارة توثيقه نفسه — يكذب. كشفه تشغيل حيّ لا اختبار.
+     *
+     * الفحص مصدريّ لأن إثباته حيّاً يلزمه نداءٌ لكل دالّة بمزوّدٍ حقيقيّ.
+     */
+    public function test_every_registered_prompt_id_reaches_a_real_call(): void
+    {
+        $src = file_get_contents(app_path('Services/LegalAiService.php'));
+
+        foreach (array_keys(AiPromptRegistry::PROMPTS) as $id) {
+            $this->assertStringContainsString(
+                "promptId: '{$id}'",
+                $src,
+                "المعرّف «{$id}» مسجَّل بإصدارٍ ومالك ولا يُمرَّر لأيّ نداء — السجلّ يَعِد بما لا يملك."
+            );
+        }
+    }
+
+    /**
+     * ولا نداء إنتاج بلا معرّف — الاتجاه المعاكس.
+     * `evaluationCall` وحدها مستثناة بقرارٍ موثَّق: التقييم يجب أن يعمل على مسارٍ مُطفأ.
+     */
+    public function test_no_production_call_runs_without_a_prompt_id(): void
+    {
+        $lines = file(app_path('Services/LegalAiService.php'));
+        $orphans = [];
+
+        foreach ($lines as $i => $line) {
+            if (! preg_match('/->run(?:Call)?\(/', $line) || str_contains($line, 'promptId')) {
+                continue;
+            }
+            // اسم الدالّة الحاوية
+            for ($j = $i; $j >= 0; $j--) {
+                if (preg_match('/(?:public|private|protected)\s+function\s+(\w+)/', $lines[$j], $m)) {
+                    if (! in_array($m[1], ['evaluationCall', 'run'], true)) {
+                        $orphans[] = $m[1].' (سطر '.($i + 1).')';
+                    }
+                    break;
+                }
+            }
+        }
+
+        $this->assertSame([], $orphans, 'نداءات بلا معرّف تعليمة: '.implode('، ', $orphans));
     }
 
     public function test_prompt_texts_match_their_frozen_fingerprints(): void
@@ -178,6 +230,50 @@ class AiPromptRegistryTest extends TestCase
 
         $this->assertStringContainsString('لا تذكر أبداً أنك ذكاء اصطناعي', $text);
         $this->assertStringContainsString('لا تَعِد بنتيجة مضمونة', $text);
+    }
+
+    /**
+     * **لا تُسمَّى الأنظمة سنداً في ردٍّ يصل العميل بلا مراجعة.**
+     *
+     * كانت v1 تُعدّد ستّة أنظمة سعوديّة بالاسم وتطلب «توجيهاً استناداً» إليها — بلا
+     * مصدرٍ مُمرَّر وبلا مطابقة. وحساسيّة `chat.reply` هي `low` ⇒ قبولٌ آليّ بلا
+     * عتبة، فالمخرج يصل العميل فوراً. الاستشهاد المُتحقَّق مسارُه `case.pleading`
+     * و`najiz.statement` — لا محادثةُ تذكرة.
+     */
+    public function test_the_client_facing_prompt_does_not_present_statutes_as_authority(): void
+    {
+        $text = AiPromptRegistry::chatReplySystem();
+
+        foreach (['نظام المعاملات المدنية', 'نظام الشركات', 'نظام العمل', 'نظام الإثبات', 'نظام المرافعات'] as $statute) {
+            $this->assertStringNotContainsString(
+                $statute,
+                $text,
+                "التعليمة تُسمّي «{$statute}» — والردّ يصل العميل بلا مراجعة ولا مصدر مُطابَق"
+            );
+        }
+
+        $this->assertStringContainsString('لا تذكر رقم مادّة', $text, 'المنع صريح لا ضمنيّ');
+    }
+
+    /** ولا يُقيَّم دليلٌ ولا تُرجَّح نتيجة — ذاك عملُ محامٍ يراجعه إنسان. */
+    public function test_the_client_facing_prompt_does_not_ask_the_model_to_weigh_evidence(): void
+    {
+        $text = AiPromptRegistry::chatReplySystem();
+
+        $this->assertStringContainsString('لا تُقيّم قوّة الأدلة', $text);
+        $this->assertStringContainsString('ولا ترجّح نتيجة', $text);
+        $this->assertStringContainsString('دليل قويّ', $text, 'الوصف الممنوع مذكورٌ صراحةً ليُتجنَّب');
+    }
+
+    /** وما ينفع العميل يبقى: أين وصل طلبه، وما الجهة، وما المستندات. */
+    public function test_the_client_facing_prompt_keeps_its_procedural_value(): void
+    {
+        $text = AiPromptRegistry::chatReplySystem();
+
+        $this->assertStringContainsString('المسار الإجرائيّ', $text);
+        $this->assertStringContainsString('الجهة القضائية/الإدارية المختصة', $text);
+        $this->assertStringContainsString('المستندات اللازمة', $text);
+        $this->assertStringContainsString('اشرح المرحلة الحالية والخطوة القادمة', $text);
     }
 
     /** حاجز عدم اختلاق وقائع الاجتماع — لا يجوز أن يسقط من التعليمة بلا قرار. */

@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Events\MeetingStatusBroadcast;
 use App\Models\Meeting;
 use App\Services\Ai\AiQueue;
+use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use App\Support\Live;
 use Illuminate\Bus\Queueable;
@@ -43,7 +44,14 @@ class GenerateMeetingSummaryJob implements ShouldQueue
             return;
         }
 
-        $out = $ai->meetingSummary($this->meeting->fresh(), $this->notes);
+        $result = $ai->meetingSummaryResult($this->meeting->fresh(), $this->notes);
+        $out = $result['parts'];
+
+        // `called=false` ⇒ لم يُنادَ النموذج أصلاً (بلا ملاحظات ولا Zoom): قيدٌ بلا
+        // نداء يُفسد إحصاء الكلفة ويُظهر مخرجاً لم يُنتَج.
+        if ($result['called']) {
+            AiRunLogger::log('meeting.summary', $result['source'], $result['meta'], $this->meeting, (string) $this->meeting->id);
+        }
 
         // لا قالب وهمي: بلا محتوى فعلي تعود الدالّة بحقول فارغة — لا يُكتب شيء،
         // وتبقى الحقول خاوية حتى يصل ملخص Zoom الحقيقي أو يُدوَّن المحضر يدوياً.

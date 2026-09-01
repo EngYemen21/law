@@ -16,6 +16,7 @@ use App\Models\LegalCase;
 use App\Models\Meeting;
 use App\Models\Task;
 use App\Models\Ticket;
+use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use App\Services\MailService;
 use App\Support\Audit;
@@ -25,6 +26,7 @@ use App\Support\Notify;
 use App\Support\PdfRenderer;
 use App\Support\ReportPrint;
 use App\Support\ServiceDocs;
+use App\Support\SummaryReport;
 use App\Support\TicketJourney;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -545,9 +547,22 @@ class TicketController extends Controller
     public function generateNajizDraft(Request $request, Ticket $ticket, LegalAiService $ai): JsonResponse
     {
         $this->guardAssigned($ticket);
-        $draft = $ai->generateNajizDraft($ticket);
+        $result = $ai->najizStatementResult($ticket);
+        $meta = $result['meta'];
 
-        return response()->json(['draft' => $draft]);
+        // قيدٌ في سجلّ القرارات — صحيفة الدعوى تُقدَّم للمحكمة وكانت تُنتَج بلا أثر:
+        // لا كلفة ولا نموذج ولا إصدار تعليمة ولا مراجعة مطلوبة. وP0 يفرض أن **كل**
+        // مخرج له حالة مصدر قابلة للعرض والتدقيق.
+
+        AiRunLogger::log('najiz.statement', $result['source'], $meta, $ticket, (string) $ticket->number);
+
+        return response()->json([
+            'draft' => $result['draft'],
+            // المصدر يصل الواجهة: مسودّةٌ لم يُطابَق استشهادها لا تُعرض كأنها مسنَدة
+            'source' => $result['source']->value,
+            'sourceLabel' => $result['source']->label(),
+            'verdict' => $result['verdict'],
+        ]);
     }
 
     // تصدير وطباعة تقرير دراسة الملف والرأي القانوني كـ PDF رسمي
@@ -561,47 +576,7 @@ class TicketController extends Controller
         $clientName = $ticket->user?->name ?? 'العميل';
         $lawyerName = $ticket->assigned_lawyer ?: ($request->user()->name ?: 'المستشار القانوني');
 
-        $doc = [
-            'title' => 'تقرير دراسة الملف والرأي القانوني المبدئي',
-            'subtitle' => "التذكرة: {$ticket->number} · {$ticket->type}",
-            'ref' => "REF-{$ticket->number}",
-            'blocks' => [
-                [
-                    'title' => 'بيانات القضية والموكل',
-                    'cellRows' => [
-                        [['رقم التذكرة', $ticket->number], ['اسم العميل', $clientName]],
-                        [['نوع القضية', $ticket->type], ['القسم', $ticket->department ?: '—']],
-                        [['المستشار المسؤول', $lawyerName], ['حالة الدراسة', $summary->isApproved() ? 'معتمد رسمياً' : 'قيد الدراسة']],
-                    ],
-                ],
-                [
-                    'title' => 'أولاً: ملخص موضوع النزاع',
-                    'lines' => $summary->case_summary ?: ($ticket->details ?: '—'),
-                ],
-                [
-                    'title' => 'ثانياً: فحص المرفقات والمستندات الثبوتية',
-                    'lines' => $summary->attachments_summary ?: 'تم فحص المرفقات ومطابقتها وفق نظام الإثبات السعودي.',
-                ],
-                [
-                    'title' => 'ثالثاً: سرد الوقائع التعاقدية والإجرائية',
-                    'lines' => $summary->facts ?: '—',
-                ],
-                [
-                    'title' => 'رابعاً: الرأي القانوني المعتمد والتوصيات',
-                    'lines' => $summary->key_points ?: 'تم اعتماد الدراسة وإصدار التوصية بالمتابعة.',
-                ],
-            ],
-            'approval' => [
-                'qrSeed' => "https://salaselbabel.net/verify?ref={$ticket->number}&approved=1",
-                'rows' => [
-                    ['المستشار المعتمد', $lawyerName],
-                    ['تاريخ الاعتماد', $summary->approved_at ? $summary->approved_at->format('Y-m-d H:i') : date('Y-m-d H:i')],
-                    ['الاعتماد الإلكتروني', 'موثق ومعتمد برقم مرجعي'],
-                ],
-            ],
-            'note' => 'إشعار سرية: هذا التقرير صادر إلكترونياً من النظام الإداري لمكاتب المحاماة ويخضع للسرية المهنية والمصادقة المعتمدة.',
-            'footer' => 'النظام الإداري لمكاتب المحاماة — منظومة المحاماة والاستشارات القانونية بالمملكة العربية السعودية',
-        ];
+        $doc = SummaryReport::doc($ticket, $summary, $clientName, $lawyerName);
 
         $html = ReportPrint::html($doc);
 
@@ -691,7 +666,8 @@ class TicketController extends Controller
         $chips = implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', ServiceDocs::for($ticket->type)));
         $msg = $ticket->messages()->create([
             'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'نواقص',
-            'body' => '<p>لاستكمال تقييم الطلب قبل اتخاذ القرار، نأمل تزويدنا بالمستندات الإضافية التالية:</p><div class="doc-list">'.$chips.'</div>',
+            'body' => '<p>لاستكمال تقييم الطلب قبل اتخاذ القرار، نأمل تزويدنا بالمستندات الإضافية التالية:</p><div class="doc-list">'.$chips.'</div>'
+                .'<p class="muted">'.ServiceDocs::NOTE.'</p>',
             'time_label' => $this->clock(),
         ]);
         Live::push(new TicketMessageBroadcast($msg));

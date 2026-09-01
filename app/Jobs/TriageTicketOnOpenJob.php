@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Events\TicketMessageBroadcast;
 use App\Models\Ticket;
 use App\Services\Ai\AiQueue;
+use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use App\Support\Live;
 use App\Support\TicketTriage;
@@ -47,7 +48,12 @@ class TriageTicketOnOpenJob implements ShouldQueue
             return;
         }
 
-        $opening = $ai->reply($this->ticket, $this->details)
+        $replyRun = $ai->replyResult($this->ticket, $this->details);
+        // ردٌّ يصل العميل مباشرةً — يُقيَّد للإحصاء والكلفة والتتبّع.
+        // حساسيّته `low` ⇒ `completed` لا `needs_review`: لا يُثقَل الصندوق.
+        AiRunLogger::log('chat.reply', $replyRun['source'], $replyRun['meta'], $this->ticket, (string) $this->ticket->number);
+
+        $opening = $replyRun['text']
             ?? 'مرحباً بك، تم استلام طلبك بخصوص «'.$this->type.'» وإحالته إلى القسم المختص. سنتابع معك خطوة بخطوة، ويمكنك الكتابة هنا في أي وقت.';
 
         $m2 = $this->ticket->messages()->create([

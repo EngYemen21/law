@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Events\ConsultStatusBroadcast;
 use App\Models\Consult;
 use App\Services\Ai\AiQueue;
+use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use App\Support\Live;
 use App\Support\Notify;
@@ -49,13 +50,27 @@ class FinalizeConsultJob implements ShouldQueue
             return; // أُنجز مسبقاً
         }
 
-        $summary = $ai->consultSummary($consult, $this->notes);
+        $result = $ai->consultSummaryResult($consult, $this->notes);
+        $summary = $result['summary'];
+
+        // القيد **قبل** الكتابة والإشعار: ملخّص الاستشارة رأيٌ قانونيّ مصنَّف `high`
+        // ويصل العميل، وكان يُنتَج بلا أثرٍ واحد — ولا يبلغ صندوق المراجعة أصلاً.
+        AiRunLogger::log('consult.summary', $result['source'], $result['meta'], $consult, (string) $consult->ref);
+
+        $decisions = $ai->extractDecisionsResult($summary);
+        if ($decisions['called']) {
+            AiRunLogger::log('meeting.decisions', $decisions['source'], $decisions['meta'], $consult, (string) $consult->ref);
+        }
+
         $consult->update([
             'summary' => $summary,
-            'decisions' => $ai->extractDecisions($summary),
+            'ai_source' => $result['source']->value,
+            'decisions' => $decisions['decisions'],
         ]);
         Live::push(new ConsultStatusBroadcast($consult));
 
-        Notify::send($consult->user_id, 'doc', 't-green', "انتهت جلسة استشارتك ({$consult->ref}) — ملخص الاستشارة متاح الآن في «استشاراتي».");
+        // **لا يُقال «متاح الآن»** لمخرجٍ لم يعتمده أحد. الإشعار بالإتاحة انتقل إلى
+        // `AiReviewOutcome` ليتبع اعتماد المحامي؛ وهذا إشعارٌ بانتهاء الجلسة وحده.
+        Notify::send($consult->user_id, 'doc', 't-blue', "انتهت جلسة استشارتك ({$consult->ref}) — يُعدّ ملخّصها لاعتماد المستشار، وسيصلك إشعار فور اعتماده.");
     }
 }

@@ -8,11 +8,10 @@ use App\Events\ConsultStatusBroadcast;
 use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
 use App\Jobs\FinalizeConsultJob;
-use App\Models\AiRun;
 use App\Models\Consult;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
-use App\Services\Ai\AiPolicyGate;
+use App\Services\Ai\AiRunLogger;
 use App\Services\GoogleCalendarService;
 use App\Services\LegalAiService;
 use App\Services\ZoomService;
@@ -187,29 +186,9 @@ class ConsultController extends Controller
         $consult->save();
 
         $meta = is_array($ai['meta'] ?? null) ? $ai['meta'] : [];
-        AiRun::record(
-            taskType: 'consult',
-            source: $source,
-            entity: $consult,
-            entityRef: (string) $consult->ref,
-            confidence: $meta['confidence'] ?? null,
-            confidenceSignals: $meta['confidence_signals'] ?? null,
-            // رأيٌ قانونيّ: عالي الحساسيّة ⇒ «يتطلّب مراجعة» دائماً ولو نجح التحليل
-            status: AiPolicyGate::decide(
-                taskType: $meta['prompt_id'] ?? 'consult.analyze',
-                source: $source,
-                confidence: $meta['confidence'] ?? null,
-            )->status(),
-            model: $meta['model'] ?? null,
-            promptVersion: $meta['prompt_version'] ?? null,
-            traceId: $meta['trace_id'] ?? null,
-            failureCode: $isRealAnalysis ? null : ($meta['failure_code'] ?? null),
-            durationMs: $meta['duration_ms'] ?? null,
-            inputTokens: $meta['input_tokens'] ?? null,
-            outputTokens: $meta['output_tokens'] ?? null,
-            estimatedCost: $meta['estimated_cost'] ?? null,
-            outboundAudit: $meta['outbound_audit'] ?? null,
-        );
+        // رأيٌ قانونيّ: عالي الحساسيّة ⇒ «يتطلّب مراجعة» دائماً ولو نجح التحليل.
+        // واسم القيد `consult` وتعليمته `consult.analyze`.
+        AiRunLogger::log('consult', $source, $meta, $consult, (string) $consult->ref, policyTask: 'consult.analyze');
 
         // تنبيه المكتب (الموظفون + الإدارة العليا) بعطل التحليل — العميل لا يُطلَع عليه
         if (! $isRealAnalysis) {

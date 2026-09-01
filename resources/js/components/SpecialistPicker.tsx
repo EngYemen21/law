@@ -145,7 +145,12 @@ const SpecialistPicker: React.FC<Props> = ({
                 <b>{i === 0 && !busyDay ? '⭐ ' : ''}{l.name}</b>
                 <div className="sub">{l.dept}</div>
                 <div style={{ marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <span className="chip">معدّل الإنجاز {l.success.rate}% · {l.success.closed} مغلقة</span>
+                  {/* «معدّل الإغلاق» لا «الإنجاز»: النسبة تعدّ الملفّات المغلقة، و«صدر الحكم»
+                      حالةُ إغلاقٍ تُحتسب مهما كان اتّجاه الحكم. والعميل يختار محاميه بها،
+                      فتسميتُها «إنجازاً» تجعلها سجلَّ كفاءةٍ قضائيّة وهي مقياس تشغيليّ. */}
+                  <span className="chip" title="نسبة الملفّات المغلقة من إجمالي ملفّات المحامي — مقياس تشغيليّ لا سجلّ كسب قضايا">
+                    معدّل إغلاق الملفّات {l.success.rate}% · {l.success.closed} مغلقة
+                  </span>
                   <span className="chip">{busyDay ? 'مشغول هذا اليوم' : `${l.freeCount} فترة متاحة`}</span>
                 </div>
               </div>

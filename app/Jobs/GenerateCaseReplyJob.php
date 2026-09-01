@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\LegalCase;
 use App\Services\Ai\AiQueue;
+use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -41,7 +42,10 @@ class GenerateCaseReplyJob implements ShouldQueue
             return;
         }
 
-        $aiText = $ai->caseReply($this->case, $this->body)
+        $replyRun = $ai->caseReplyResult($this->case, $this->body);
+        AiRunLogger::log('chat.reply', $replyRun['source'], $replyRun['meta'], $this->case, (string) $this->case->number);
+
+        $aiText = $replyRun['text']
             ?? 'تم استلام رسالتك بخصوص القضية، وسيوافيك المختص بالرد في أقرب وقت.';
 
         $this->case->messages()->create([

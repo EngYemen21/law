@@ -51,6 +51,9 @@ export interface ConsultCard {
   session: string; // بانتظار الجلسة / جلسة جارية / منتهية
   status: string;
   summary: string | null;
+  /** الملخّص محجوبٌ عن العميل حتى يعتمده محامٍ — انظر `Consult::toClientCard`. */
+  summaryPending?: boolean;
+  summaryApproved?: boolean;
   duration: string | null;
   recording?: string | null; // رابط التسجيل السحابي (بعد الجلسة)
   total: number;

@@ -6,6 +6,7 @@ use App\Events\CaseStatusBroadcast;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Services\Ai\AiQueue;
+use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use App\Support\Live;
 use Illuminate\Bus\Queueable;
@@ -67,8 +68,16 @@ class ClassifyConvertedCaseJob implements ShouldQueue
             return;
         }
 
-        $analysis = $ai->classifyCase($case->ticket);
+        $result = $ai->classifyCaseResult($case->ticket);
+        $analysis = $result['classification'];
+        $meta = $result['meta'];
         $fallback = LegalAiService::fallbackClassification($case->ticket);
+
+        // القيد **قبل** الخروج المبكر: كانت القضية تُصنَّف بلا أثرٍ واحد في سجلّ
+        // القرارات حين يطابق مخرجُ النموذج الاحتياطيَّ — نداءٌ جرى ودُفع ثمنه ولا
+        // كلفة محصاة ولا إصدار تعليمة مسجَّل. و«لم يُفِد بجديد» معلومةٌ تقييميّة.
+
+        AiRunLogger::log('case.classify', $result['source'], $meta, $case, (string) $case->number);
 
         // لم يُفِد المزوّد بجديد — لا تلمس القضية ولا تبثّ تحديثاً بلا محتوى
         if ($analysis === $fallback) {
@@ -80,7 +89,7 @@ class ClassifyConvertedCaseJob implements ShouldQueue
         // **تُعاد كتابة** رسالة التحليل القائمة لا تُضاف ثانية — وإلا رأى العميل تحليلين متناقضين
         $message = $case->messages()->where('role', 'تحليل')->latest('id')->first();
         if ($message !== null) {
-            $message->update(['body' => self::analysisBody($case->ticket, $analysis)]);
+            $message->update(['body' => self::analysisBody($case->ticket, $analysis, refined: true)]);
         }
 
         Live::push(new CaseStatusBroadcast($case));
@@ -96,7 +105,7 @@ class ClassifyConvertedCaseJob implements ShouldQueue
      *
      * @param  array{type: string, department: string}  $analysis
      */
-    public static function analysisBody(Ticket $ticket, array $analysis): string
+    public static function analysisBody(Ticket $ticket, array $analysis, bool $refined = false): string
     {
         $details = [];
         if ($ticket->opponent_name) {
@@ -112,7 +121,12 @@ class ClassifyConvertedCaseJob implements ShouldQueue
             ? implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', $details))
             : '';
 
-        return '<p>تحليل ذكي للطلب:</p><div class="doc-list">'
+        // **العنوان يتبع المصدر.** تُنادى هذه من موضعين: `CaseConversion` عند
+        // الإنشاء بمخرج `fallbackClassification` (نسخُ نوع التذكرة وقسمها — بلا أي
+        // نداء نموذج)، ومن هذه الوظيفة بعد تنقيحٍ حقيقيّ. وكان العنوان «تحليل ذكي»
+        // في الحالتين، فيقرأ العميل نسخاً حرفياً تحليلاً. والوظيفة تخرج مبكراً حين
+        // يوافق النموذجُ القالبَ، فيبقى العنوان كاذباً بلا تصحيح.
+        return '<p>'.($refined ? 'تحليل ذكي للطلب:' : 'بيانات الطلب:').'</p><div class="doc-list">'
             .'<span class="doc-chip">نوع القضية: '.e($analysis['type']).'</span>'
             .'<span class="doc-chip">القسم المختص: '.e($analysis['department']).'</span>'
             .$extraChips.'</div>';

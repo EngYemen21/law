@@ -2,10 +2,9 @@
 
 namespace App\Jobs;
 
-use App\Models\AiRun;
 use App\Models\LegalCase;
-use App\Services\Ai\AiPolicyGate;
 use App\Services\Ai\AiQueue;
+use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -44,30 +43,8 @@ class DraftCasePleadingJob implements ShouldQueue
 
         // قيدٌ في سجلّ القرارات — مسودّة اللائحة كانت المخرج القانونيّ الوحيد الذي
         // يُنتَج بلا أثر: لا كلفة ولا نموذج ولا مراجعة مطلوبة. وهي أخطرها أثراً.
-        $decision = AiPolicyGate::decide(
-            taskType: 'case.pleading',
-            source: $result['source'],
-            confidence: $meta['confidence'] ?? null,
-        );
 
-        AiRun::record(
-            taskType: 'case.pleading',
-            source: $result['source'],
-            entity: $this->case,
-            entityRef: (string) $this->case->number,
-            status: $decision->status(),
-            confidence: $meta['confidence'] ?? null,
-            confidenceSignals: $meta['confidence_signals'] ?? null,
-            model: $meta['model'] ?? null,
-            promptVersion: $meta['prompt_version'] ?? null,
-            traceId: $meta['trace_id'] ?? null,
-            failureCode: $meta['failure_code'] ?? null,
-            durationMs: $meta['duration_ms'] ?? null,
-            inputTokens: $meta['input_tokens'] ?? null,
-            outputTokens: $meta['output_tokens'] ?? null,
-            estimatedCost: $meta['estimated_cost'] ?? null,
-            outboundAudit: $meta['outbound_audit'] ?? null,
-        );
+        AiRunLogger::log('case.pleading', $result['source'], $meta, $this->case, (string) $this->case->number);
 
         $this->case->messages()->create([
             'who' => 'ai',

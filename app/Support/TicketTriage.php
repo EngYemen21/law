@@ -9,8 +9,7 @@ use App\Jobs\GenerateTicketSummaryJob;
 use App\Models\AiRun;
 use App\Models\Ticket;
 use App\Models\TicketDocument;
-use App\Services\Ai\AiFailure;
-use App\Services\Ai\AiPolicyGate;
+use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use Illuminate\Support\Collection;
 
@@ -55,32 +54,11 @@ class TicketTriage
         // ثابتة — تسجيله كأنه «فرز آليّ» كان يوهم بأن نموذجاً صنّف التذكرة.
         $triageSource = AiSource::tryFrom((string) ($triage['source'] ?? AiSource::AiSuccess->value)) ?? AiSource::AiSuccess;
         $meta = is_array($triage['meta'] ?? null) ? $triage['meta'] : [];
-        AiRun::record(
-            taskType: 'triage',
-            source: $triageSource,
-            entity: $ticket,
-            // `number` لا `ref`: التذكرة لا تملك `ref` أصلاً، فكان القيد يُحفظ بمرجعٍ
-            // فارغ — والمراجع يرى «—» فلا يعرف أيّ تذكرة يراجع. (الاستشارة والتنفيذ
-            // يملكان `ref` و`number` فعلاً، فالعطب كان في التذاكر وحدها.)
-            entityRef: (string) $ticket->number,
-            confidence: $meta['confidence'] ?? null,
-            confidenceSignals: $meta['confidence_signals'] ?? null,
-            // الفرز متوسّط الحساسيّة: يُقبل آلياً فوق العتبة ويُصعَّد دونها أو بلا قياس
-            status: AiPolicyGate::decide(
-                taskType: $meta['prompt_id'] ?? 'ticket.triage',
-                source: $triageSource,
-                confidence: $meta['confidence'] ?? null,
-            )->status(),
-            model: $meta['model'] ?? null,
-            promptVersion: $meta['prompt_version'] ?? null,
-            traceId: $meta['trace_id'] ?? null,
-            failureCode: $triageSource->isRealAnalysis() ? null : ($meta['failure_code'] ?? null),
-            durationMs: $meta['duration_ms'] ?? null,
-            inputTokens: $meta['input_tokens'] ?? null,
-            outputTokens: $meta['output_tokens'] ?? null,
-            estimatedCost: $meta['estimated_cost'] ?? null,
-            outboundAudit: $meta['outbound_audit'] ?? null,
-        );
+        // `number` لا `ref`: التذكرة لا تملك `ref` أصلاً، فكان القيد يُحفظ بمرجعٍ فارغ
+        // والمراجع يرى «—» فلا يعرف أيّ تذكرة يراجع. (الاستشارة والتنفيذ يملكان
+        // الحقلين فعلاً، فالعطب كان في التذاكر وحدها.)
+        // والفرز متوسّط الحساسيّة: يُقبل آلياً فوق العتبة ويُصعَّد دونها أو بلا قياس.
+        AiRunLogger::log('triage', $triageSource, $meta, $ticket, (string) $ticket->number, policyTask: 'ticket.triage');
 
         // إن أرفق العميل مستندات عند الفتح: تُحلَّل فعلياً أولاً فيتفرّع الردّ بحسب صلتها بالموضوع
         $docs = $ticket->documents()->get();
@@ -92,7 +70,11 @@ class TicketTriage
 
         // لا مرفقات — رسالة ترحيب واحدة إنسانية تجمع الترحيب + إعادة الصياغة + طلب المستندات
         $svcDocs = ServiceDocs::for($ticket->type);
-        $greeting = app(LegalAiService::class)->greet($ticket, $details, $svcDocs);
+        $ai = app(LegalAiService::class);
+        $greeting = $ai->greet($ticket, $details, $svcDocs);
+        // ترحيبٌ يصل العميل: يُقيَّد كبقيّة مخرجات المحادثة (حساسيّته `low` ⇒ `completed`)
+        $greetRun = $ai->takeLastChatOutcome();
+        AiRunLogger::log('chat.reply', $greetRun['source'], $greetRun['meta'], $ticket, (string) $ticket->number);
         $chips = implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', $svcDocs));
 
         $ticket->update(['status' => 'بانتظار مستندات', 'tone' => TicketJourney::toneFor('بانتظار مستندات'), 'last_message' => 'بانتظار إرفاق المستندات المطلوبة', 'date_label' => 'الآن']);
@@ -100,7 +82,8 @@ class TicketTriage
             'who' => 'ai',
             'name' => LegalAiService::AGENT_NAME,
             'role' => LegalAiService::AGENT_ROLE,
-            'body' => '<p>'.nl2br(e($greeting)).'</p><div class="doc-list">'.$chips.'</div>',
+            'body' => '<p>'.nl2br(e($greeting)).'</p><div class="doc-list">'.$chips.'</div>'
+                .'<p class="muted">'.ServiceDocs::NOTE.'</p>',
             'time_label' => self::clock(),
         ]);
         Live::push(new TicketMessageBroadcast($msg));
@@ -136,7 +119,10 @@ class TicketTriage
 
         // (أ) مستند ذو صلة على الأقل — إقرار الموظف المختص + إحالة تلقائية
         if ($related !== []) {
-            $ack = app(LegalAiService::class)->acknowledgeDocs($ticket, $details, $related);
+            $ackAi = app(LegalAiService::class);
+            $ack = $ackAi->acknowledgeDocs($ticket, $details, $related);
+            $ackRun = $ackAi->takeLastChatOutcome();
+            AiRunLogger::log('chat.reply', $ackRun['source'], $ackRun['meta'], $ticket, (string) $ticket->number);
             $msg = $ticket->messages()->create([
                 // `ai` لا `staff`: النصّ مولَّد آلياً (`acknowledgeDocs`) ولم يكتبه موظّف.
                 // كان الوسم يجعل العميل يقرأ ردّاً آلياً منسوباً إلى فريقٍ بشريّ —
@@ -165,7 +151,8 @@ class TicketTriage
                 'name' => LegalAiService::AGENT_NAME,
                 'role' => 'نواقص',
                 'body' => '<p>شكراً لك، اطّلعنا على المستندات المرفقة إلا أنها لا تخصّ موضوع تذكرتك مباشرةً.</p>'
-                    .'<p>لبدء الدراسة، نأمل إرفاق المستندات التالية:</p><div class="doc-list">'.$chips.'</div>',
+                    .'<p>لبدء الدراسة، نأمل إرفاق المستندات التالية:</p><div class="doc-list">'.$chips.'</div>'
+                    .'<p class="muted">'.ServiceDocs::NOTE.'</p>',
                 'time_label' => self::clock(),
             ]);
             Live::push(new TicketMessageBroadcast($msg));
@@ -244,7 +231,8 @@ class TicketTriage
                 'role' => 'نواقص',
                 'body' => '<p>فحصنا المستند «'.e($doc->name).'» وتبيّن أنه <b>غير مرتبط بموضوع تذكرتك</b>'
                     .($analysis['reason'] !== '' ? ' — '.e($analysis['reason']) : '.')
-                    .'</p><p>نأمل إرفاق المستندات الصحيحة التالية:</p><div class="doc-list">'.$chips.'</div>',
+                    .'</p><p>نأمل إرفاق المستندات الصحيحة التالية:</p><div class="doc-list">'.$chips.'</div>'
+                    .'<p class="muted">'.ServiceDocs::NOTE.'</p>',
                 'time_label' => self::clock(),
             ]);
             Live::push(new TicketMessageBroadcast($msg));
@@ -279,27 +267,7 @@ class TicketTriage
             $meta = is_array($analysis['meta'] ?? null) ? $analysis['meta'] : [];
             $source = $analysis === null ? AiSource::ManualRequired : AiSource::AiSuccess;
 
-            AiRun::record(
-                taskType: 'document.analyze',
-                source: $source,
-                entity: $ticket,
-                entityRef: (string) $ticket->number,
-                // بلا تحليل صالح لا مخرج يُعرض — رفضٌ لا تصعيد
-                status: AiPolicyGate::decide(
-                    taskType: 'document.analyze',
-                    source: $source,
-                    hasUsableOutput: $analysis !== null,
-                )->status(),
-                model: $meta['model'] ?? null,
-                promptVersion: $meta['prompt_version'] ?? null,
-                traceId: $meta['trace_id'] ?? null,
-                failureCode: $analysis === null ? AiFailure::INVALID_STRUCTURE : null,
-                durationMs: $meta['duration_ms'] ?? null,
-                inputTokens: $meta['input_tokens'] ?? null,
-                outputTokens: $meta['output_tokens'] ?? null,
-                estimatedCost: $meta['estimated_cost'] ?? null,
-                outboundAudit: $meta['outbound_audit'] ?? null,
-            );
+            AiRunLogger::log('document.analyze', $source, $meta, $ticket, (string) $ticket->number);
         }
 
         if ($analysis === null) {
@@ -384,7 +352,7 @@ class TicketTriage
             'assigned_lawyer_id' => $lawyer?->id ?: $ticket->assigned_lawyer_id,
             'status' => 'بانتظار اعتماد المستشار',
             'tone' => TicketJourney::toneFor('بانتظار اعتماد المستشار'),
-            'last_message' => 'تمت الإحالة، وجارٍ اعتماد ملخص الملف من المستشار',
+            'last_message' => 'تمت الإحالة، ويُعدّ ملخص الملف لاعتماد المستشار',
             'date_label' => 'الآن',
         ]);
 
@@ -393,7 +361,11 @@ class TicketTriage
             'who' => 'ai',
             'name' => 'خدمة العملاء',
             'role' => 'إحالة',
-            'body' => 'تمت إحالة طلبكم إلى '.e($dept).' لدراسة الموضوع، وجهّز الفريق القانوني ملخص الملف، وهو الآن بانتظار اعتماد المستشار القانوني.',
+            // **لا يُنسب إلى الفريق ما لم يكتبه.** ما حُفظ للتوّ (السطر 336) قالبٌ
+            // حتميّ بـ`ai_generated = false`، والتلخيص الحقيقيّ في الطابور بعدُ.
+            // فقولُ «جهّز الفريق القانوني ملخص الملف» يُخبر العميل بعملٍ لم يقع،
+            // ويُنسب إلى بشرٍ ما كتبه قالب.
+            'body' => 'تمت إحالة طلبكم إلى '.e($dept).' لدراسة الموضوع، وهو الآن قيد الإعداد بانتظار اعتماد المستشار القانوني.',
             'time_label' => self::clock(),
         ]);
         Live::push(new TicketMessageBroadcast($msg));

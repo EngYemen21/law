@@ -159,7 +159,7 @@ class AiEvaluationTest extends TestCase
         $passed = 0;
 
         foreach ($set['cases'] as $case) {
-            $valid = AiOutputValidator::executionAnalysis($case['model_output'], ['إجراء افتراضيّ']);
+            $valid = AiOutputValidator::executionAnalysis($case['model_output']);
             $expect = $case['expect'];
             $id = $case['id'];
 

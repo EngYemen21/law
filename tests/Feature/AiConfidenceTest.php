@@ -2,11 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Enums\AiSource;
 use App\Enums\Role;
 use App\Models\AiRun;
 use App\Models\Execution;
 use App\Models\User;
 use App\Services\Ai\AiConfidence;
+use App\Services\Ai\AiPolicyGate;
 use App\Services\Ai\AiPromptRegistry;
 use App\Services\LegalAiService;
 use App\Support\ExecService;
@@ -178,5 +180,44 @@ class AiConfidenceTest extends TestCase
         $first = trim(explode('،', AiPromptRegistry::DEPARTMENTS)[0]);
 
         $this->assertTrue(AiConfidence::forTicketTriage($first, 'تفاصيل', '', 'نوع')['signals']['department_in_catalogue']);
+    }
+
+    /**
+     * **التأجيل مرصود**: الدرجة تحكم قبولاً في مهمّةٍ واحدة فقط.
+     *
+     * أوزان `AiConfidence` أرقامٌ اجتهاديّة غير مُعايَرة، وأُجّلت معايرتها بقرارٍ مُعلَن
+     * لأن `AiPolicyGate` لا يقبل `high` آلياً مهما بلغت الثقة ويقبل `low` بلا عتبة —
+     * فالعتبة تحكم `medium` وحدها، و`forExecution`/`forConsult` تخدمان مهامّ `high`.
+     *
+     * هذا الاختبار يجعل التأجيل قابلاً للرصد: أوّل مهمّة `medium` تُشتقّ لها ثقة
+     * يُسقطه، فيُعاد فتح ملفّ المعايرة بدل أن يمرّ صامتاً.
+     */
+    public function test_the_score_only_gates_a_single_medium_task(): void
+    {
+        $gated = [];
+        foreach (AiPolicyGate::SENSITIVITY as $task => $level) {
+            if ($level === 'medium') {
+                $gated[] = $task;
+            }
+        }
+
+        // المهامّ متوسّطة الحساسيّة — هي وحدها التي تُقارَن درجتُها بالعتبة
+        $this->assertSame(['ticket.triage', 'document.analyze', 'lawyer.match'], $gated);
+
+        // ودوالّ الاشتقاق الثلاث: `forTicketTriage` وحدها تخدم مهمّةً متوسّطة —
+        // و`forExecution`/`forConsult` تخدمان `execution.analyze` و`consult.analyze`
+        // وكلتاهما `high`، فدرجتاهما تُخزَّن وتُرتّب الصندوق ولا تقرّران قبولاً.
+        foreach (['forTicketTriage', 'forExecution', 'forConsult'] as $fn) {
+            $this->assertTrue(method_exists(AiConfidence::class, $fn), "دالّة الاشتقاق {$fn}");
+        }
+        $this->assertSame('high', AiPolicyGate::SENSITIVITY['execution.analyze']);
+        $this->assertSame('high', AiPolicyGate::SENSITIVITY['consult.analyze']);
+
+        // وما لا تُقاس ثقته يُصعَّد لا يُقبل — ولو كان المصدر تحليلاً ناجحاً
+        $this->assertSame(
+            AiRun::STATUS_NEEDS_REVIEW,
+            AiPolicyGate::decide('document.analyze', AiSource::AiSuccess, null)->status(),
+            'ثقةٌ غير مقيسة ليست ثقةً كافية'
+        );
     }
 }

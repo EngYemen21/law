@@ -7,6 +7,7 @@ use App\Models\Task;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Services\Ai\AiQueue;
+use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use App\Support\Notify;
 use Illuminate\Bus\Queueable;
@@ -77,7 +78,13 @@ class GenerateTicketSummaryJob implements ShouldQueue
         }
 
         // summarize() يبني على تحليلات المستندات الفعلية + المحادثة
-        $parts = $ai->summarize($ticket);
+        $result = $ai->summarizeResult($ticket);
+        $parts = $result['summary'];
+        $meta = $result['meta'];
+
+        // القيد **قبل** الكتابة: مخرجٌ مصنَّف `high` كان يُنتَج بلا أثرٍ واحد — لا كلفة
+        // ولا نموذج ولا وجودَ له في صندوق المراجعة الذي تفرضه الخطة.
+        AiRunLogger::log('ticket.summary', $result['source'], $meta, $ticket, (string) $ticket->number);
 
         if ($parts['ai_generated'] ?? false) {
             // نجح التحليل الحقيقي — شفاء تمّ

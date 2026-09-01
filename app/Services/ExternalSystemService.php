@@ -20,13 +20,28 @@ class ExternalSystemService
         return ! empty(config('services.external_corr.base_url')) && ! empty(config('services.external_corr.api_key'));
     }
 
-    /** إرسال المخاطبة للجهة عبر النظام الخارجيّ — يعيد ['ref'=>..., 'status'=>...]. */
-    public function send(Correspondence $corr): array
-    {
-        $simulated = ['ref' => $this->refPrefix().'-'.now()->year.'-'.random_int(10000, 99999), 'status' => CorrFlow::EXT_STAGES[0]];
+    /** سابقة المرجع المحاكى — تُميّزه عمّا يصدر عن جهةٍ حقيقيّة. */
+    public const SIMULATED_PREFIX = 'محاكاة';
 
+    /**
+     * إرسال المخاطبة للجهة عبر النظام الخارجيّ — يعيد `['ref'=>…, 'status'=>…]`
+     * أو `null` حين يتعذّر الإرسال فعلاً.
+     *
+     * ⚠️ **فشل النداء الحقيقيّ لا يُنتج مرجعاً.** كان `catch` ثم `return $simulated`:
+     * تُضبط قناة المخاطبة على «النظام الخارجيّ»، ويُخزَّن مرجعٌ مُختلَق، ويُشعَر العميل
+     * بأن مخاطبته «أُرسلت إلى محكمة التنفيذ» — ولم تُرسل. أي أن العطل الشبكيّ يتحوّل
+     * إلى إثبات إرسالٍ في سجلّ الملفّ، وهو أسوأ من الفشل الظاهر بمراحل.
+     *
+     * والمحاكاة **بلا مفاتيح** تبقى (وضع تطوير معلَن في توثيق الصنف)، لكن مرجعها
+     * يُوسم بسابقة `محاكاة-` فلا يُقرأ رقماً صادراً عن جهة.
+     */
+    public function send(Correspondence $corr): ?array
+    {
         if (! $this->isConfigured()) {
-            return $simulated;
+            return [
+                'ref' => self::SIMULATED_PREFIX.'-'.$this->refPrefix().'-'.now()->year.'-'.random_int(10000, 99999),
+                'status' => CorrFlow::EXT_STAGES[0],
+            ];
         }
 
         try {
@@ -42,7 +57,7 @@ class ExternalSystemService
             Log::warning('external_corr.send.exception', ['corr' => $corr->number, 'message' => $e->getMessage()]);
         }
 
-        return $simulated;
+        return null;
     }
 
     /** يقدّم حالة النظام الخارجيّ خطوةً (محاكاة: التالية في EXT_STAGES). */

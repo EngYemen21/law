@@ -35,10 +35,18 @@ class AiOutputValidator
     /**
      * نتيجة تحليل طلب تنفيذ.
      *
-     * @param  array<int,string>  $defaultProcedures
+     * **لا حقن لقائمة افتراضيّة.** كان المعامل `$defaultProcedures` يملأ `procedures`
+     * حين يُغفلها النموذج، فتخرج إجراءات تنفيذٍ قضائيّة **مكتوبة في الشيفرة** داخل
+     * مخرجٍ يُوسم `AiSource::AiSuccess`، ويضبط `ExecService` علم `ai_done`، ويُشعر
+     * العميل بأن طلبه «حُلّل بالذكاء الاصطناعي». أي أن القالب يلتفّ على آليّة التمييز
+     * بين الذكاء والقالب من داخلها — وهي الآليّة التي وُضع `AiSource` كلّه لأجلها.
+     *
+     * والتعليمة تطلب `procedures` صراحةً، فإغفال النموذج لها **معلومةٌ عن المخرج لا
+     * فجوةٌ تُملأ** — وهو المبدأ نفسه المطبَّق في `decisions()` أدناه.
+     *
      * @return array{summary:string,missing:array<int,string>,procedures:array<int,string>}|null
      */
-    public static function executionAnalysis(?array $data, array $defaultProcedures = []): ?array
+    public static function executionAnalysis(?array $data): ?array
     {
         if (! is_array($data) || trim((string) ($data['summary'] ?? '')) === '') {
             return null;
@@ -47,7 +55,7 @@ class AiOutputValidator
         return [
             'summary' => (string) $data['summary'],
             'missing' => self::stringList($data['missing'] ?? null),
-            'procedures' => self::stringList($data['procedures'] ?? null) ?: $defaultProcedures,
+            'procedures' => self::stringList($data['procedures'] ?? null),
         ];
     }
 

@@ -261,6 +261,8 @@ class TicketController extends Controller
                 'who' => 'staff',
                 'name' => $request->user()->name,
                 'role' => 'نواقص',
+                // **لا تنويه هنا**: هذه القائمة يكتبها الموظّف بنفسه لهذا الملفّ
+                // ($data['docs'] من الطلب)، فوسمُها «عامّة بحسب النوع» يكذب عكسياً.
                 'body' => '<p>للتمكن من دراسة طلبكم وإكمال الإجراءات، نأمل تزويدنا بالمستندات التالية:</p><div class="doc-list">'.$chips.'</div>',
                 'time_label' => $this->clock(),
             ]);
@@ -382,7 +384,8 @@ class TicketController extends Controller
                 'who' => 'ai',
                 'name' => LegalAiService::AGENT_NAME,
                 'role' => 'نواقص',
-                'body' => '<p>لمساعدتنا في دراسة الطلب بشكل أدق، يرجى إرفاق المستندات التالية (حسب نوع القضية):</p><div class="doc-list">'.$chips.'</div>',
+                'body' => '<p>لمساعدتنا في دراسة الطلب بشكل أدق، يرجى إرفاق المستندات التالية:</p><div class="doc-list">'.$chips.'</div>'
+                    .'<p class="muted">'.ServiceDocs::NOTE.'</p>',
                 'time_label' => $this->clock(),
             ]);
             Live::push(new TicketMessageBroadcast($msg));

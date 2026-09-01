@@ -23,7 +23,7 @@ class Consult extends Model
         'meet_id', 'meet_link', 'host_link', 'meet_password',
         'link_released_at', 'reminder_24h_sent_at', 'reminder_30m_sent_at', 'join_time', 'leave_time', 'duration_sec', 'transcript', 'recording_url', 'transcript_path', 'zoom_summary_at',
         'zoom_uuid', 'zoom_share_url', 'zoom_audio_url', 'zoom_participants_log', 'zoom_ai_next_steps',
-        'status', 'session', 'session_notes', 'summary', 'duration_label',
+        'status', 'session', 'session_notes', 'summary', 'summary_approved_at', 'summary_approved_by', 'duration_label',
         'decisions', 'tasks_created', 'suggested_tasks',
         'price', 'vat', 'total', 'mins', 'priced_at', 'paid_at',
         'ai_done', 'ai_source', 'ai_class', 'ai_summary', 'ai_lawyer', 'missing', 'audit',
@@ -41,6 +41,7 @@ class Consult extends Model
         'zoom_ai_next_steps' => 'array',
         'starts_at' => 'datetime',
         'priced_at' => 'datetime',
+        'summary_approved_at' => 'datetime',
         'paid_at' => 'datetime',
         'link_released_at' => 'datetime',
         'reminder_24h_sent_at' => 'datetime',
@@ -177,6 +178,12 @@ class Consult extends Model
      * تستثني عمداً: host_link (رابط المضيف/ZAK)، تحليل الذكاء الاصطناعي، سجل التدقيق،
      * الموظف المسند، والمستندات الناقصة — فهذه بيانات داخلية لا تخصّ العميل.
      */
+    /** هل اعتمد إنسانٌ مفوَّض ملخّص هذه الاستشارة؟ */
+    public function summaryApproved(): bool
+    {
+        return $this->summary_approved_at !== null;
+    }
+
     public function toClientCard(): array
     {
         return [
@@ -193,7 +200,13 @@ class Consult extends Model
             'missed' => $this->isMissed(), // فات موعدها بلا جلسة — كانت «بانتظار الجلسة» أبدية متناقضة مع «لم يحضر» في المواعيد
             'session' => $this->session,
             'status' => $this->status,
-            'summary' => $this->summary,
+            // **لا رأي قانونيّ يصل العميل قبل أن يعتمده محامٍ.** كان الملخّص يُكتب
+            // بالنموذج ويُعرض فوراً تحت شارة «معتمد رسمياً» بلا مرور إنسان به.
+            // والحجب هنا لا في الواجهة: حجبٌ واجهيّ يبقى النصّ فيه في حمولة
+            // المتصفّح، فيُقرأ بأدوات المطوّر ويصل من لا يجوز أن يصله.
+            'summary' => $this->summaryApproved() ? $this->summary : null,
+            'summaryPending' => $this->summary !== null && ! $this->summaryApproved(),
+            'summaryApproved' => $this->summaryApproved(),
             'duration' => $this->duration_label,
             // دورة الحجز/الدفع (تسعير الإدارة → فاتورة → دفع ميسّر → اختيار الموعد)
             'price' => $this->price,

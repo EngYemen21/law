@@ -668,9 +668,18 @@ return list;
                   القناة: {summaryOf.channel} · المرجع: {summaryOf.ref}
                 </span>
               </div>
-              <span className="badge-s b-green">
-                <span className="d" /> معتمد رسمياً
-              </span>
+              {/* الشارة تتبع الاعتماد الفعليّ. كانت «معتمد رسمياً» ثابتةً فوق نصّ
+                  ولّده نموذج ولم يمرّ به إنسان — وهي أخطر كذبةٍ في الواجهة لأن
+                  العميل يبني عليها قراراً قانونياً. */}
+              {summaryOf.summaryApproved ? (
+                <span className="badge-s b-green">
+                  <span className="d" /> معتمد
+                </span>
+              ) : (
+                <span className="badge-s b-amber">
+                  <span className="d" /> بانتظار اعتماد المستشار
+                </span>
+              )}
             </div>
 
             {/* نص التقرير */}
@@ -689,7 +698,10 @@ return list;
                 marginBottom: 16,
               }}
             >
-              {summaryOf.summary || 'انتهت الجلسة — يُعدّ الملخص حالياً وسيصلك إشعار فور جاهزيته.'}
+              {summaryOf.summary
+                || (summaryOf.summaryPending
+                  ? 'انتهت الجلسة، ويُراجع المستشار ملخّصها الآن. سيصلك إشعار فور اعتماده.'
+                  : 'انتهت الجلسة — يُعدّ الملخص حالياً وسيصلك إشعار فور جاهزيته.')}
             </div>
 
             {/* أزرار الإجراءات */}
