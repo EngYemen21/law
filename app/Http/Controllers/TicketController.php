@@ -267,7 +267,7 @@ class TicketController extends Controller
     public function availability(Request $request, Ticket $ticket): JsonResponse
     {
         $this->authorizeTicket($request, $ticket);
-        $data = $request->validate(['date' => ['nullable', 'date']]);
+        $data = $request->validate(['date' => ['nullable', 'date_format:Y-m-d']]);
 
         $day = LawyerAvailability::resolveDate($data['date'] ?? null);
         // التخصّص من قسم التذكرة (مصدر الخادم، لا تلاعب) — يجسر Specialties::normalize صياغات SVC

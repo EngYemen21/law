@@ -43,3 +43,14 @@ Schedule::command('appointments:auto-lapse')->everyFifteenMinutes()->withoutOver
 
 // شبكة أمان: تذاكر بقيت بلا محامٍ (فُتحت قبل الميزة · فشلت وظيفة التصعيد · أُلغي إسنادها)
 Schedule::command('tickets:escalate-unassigned')->everyFifteenMinutes()->withoutOverlapping();
+
+// تقرير حوكمة الذكاء الأسبوعيّ — يُحفظ ملفّاً مؤرَّخاً.
+//
+// كان `ai:report` غير مجدول رغم أن توثيقه يَعِد بـ«تشغيلٍ مجدول يصل بالبريد أو
+// يُحفظ ملفّاً»، فلا تُقرأ مؤشّرات الحوكمة ولا أسباب الرفض ولا إنذارات الميزانيّة
+// إلّا إن فتح مسؤولٌ الشاشة مصادفةً — ويُكتشَف تجاوزُ السقف أو تراجعُ الجودة بالحظّ.
+// (ولا يُرسَل بريد: مُستقبِلُه قرارُ المكتب لا افتراضُ الشيفرة.)
+Schedule::command('ai:report --days=7')
+    ->weeklyOn(7, '07:00')
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/ai-governance.log'));

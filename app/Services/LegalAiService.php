@@ -376,6 +376,8 @@ class LegalAiService
             return null; // ملف مفقود أو أكبر من حد الفحص
         }
 
+        $call = new AiCallResult(text: null, traceId: (string) Str::uuid(), durationMs: 0, failureCode: AiFailure::PROVIDER_ERROR);
+
         $system = 'أنت مساعد قانوني في «النظام الإداري لمكاتب المحاماة» بالسعودية. اقرأ محتوى المستند المرفق بملف القضية كاملاً، '
             .'صنّف نوعه ولخّص محتواه بإيجاز مفيد للمحامي. أعد JSON فقط: '
             .'{"doc_type":"نوع المستند كما فهمته من محتواه","summary":"ملخّص محتوى المستند في سطر أو سطرين"}. لا نص خارج JSON.';
@@ -387,7 +389,11 @@ class LegalAiService
 
             if ($text = $this->extractText($abs, $ext)) {
                 $prompt = $context."\n\nمحتوى المستند:\n".AiContextBuilder::prepare($text, 20000)."\n\nلخّص المحتوى وصنّفه وأعد JSON.";
-                $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'document.analyze');
+                // `runCall` لا `run`: الأخيرة تعيد النصّ وحده فتُهدر النموذج والزمن
+                // والكلفة — وبها كان فحص مستند القضيّة يجري **بلا قيدٍ في `ai_runs`**،
+                // نظير ما أُصلح في فحص مستند التذكرة.
+                $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'document.analyze');
+                $json = $call->text;
             } elseif (in_array($ext, ['pdf', 'jpg', 'jpeg', 'png', 'webp'], true) && ! empty(config('services.gemini.key'))) {
                 $mime = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'][$ext];
                 $json = $this->viaGeminiDocument($system, $context."\n\nلخّص المستند المرفق وصنّفه وأعد JSON.", base64_encode((string) file_get_contents($abs)), $mime);
@@ -397,6 +403,7 @@ class LegalAiService
                 return [
                     'doc_type' => (string) ($data['doc_type'] ?? 'مستند'),
                     'summary' => (string) ($data['summary'] ?? ''),
+                    'meta' => self::callMeta($call, 'document.analyze'),
                 ];
             }
         } catch (\Throwable $e) {
@@ -812,24 +819,36 @@ class LegalAiService
     }
 
     /**
-     * يولّد ملخص جلسة الاستشارة بعد إنهائها (يطابق cRunAIFromSession) — ذكاء اصطناعي مع احتياط قالبي.
-     * يعتمد على ملاحظات المستشار المدوّنة أثناء الجلسة إن وُجدت.
-     */
-    public function consultSummary(Consult $consult, string $notes = ''): string
-    {
-        return $this->consultSummaryResult($consult, $notes)['summary'];
-    }
-
-    /**
      * ملخّص الاستشارة **مع تتبّعه ومصدره**.
      *
      * مخرجٌ مصنَّف `high`، ويحمل «الرأي القانوني» بنصّ تعليمته، ويصل العميل. وكان
      * يُنتَج بلا قيد: لا كلفة ولا نموذج ولا مراجعة مطلوبة.
      *
-     * @return array{summary:string, meta:array<string,mixed>, source:AiSource}
+     * **ولا يُنادى النموذج بلا مادّة.** المُمرَّر إليه خمسة حقول وصفيّة — القناة
+     * والمرجع والموضوع واسم المحامي والملاحظات — فحين تخلو الملاحظات لا يبقى إلّا
+     * عنوانُ موضوع، والتعليمة تأمره بكتابة «الوقائع ثم الرأي القانوني ثم الإجراءات».
+     * فكتب في `CN-2026-4622` (موضوع «عقود المقاولات»، ملاحظات فارغة): «تمّ خلال
+     * الاستشارة عرض تفاصيل تعاقدية… تضمّنت بنود العقد، التزامات الأطراف، جدول زمنيّ
+     * للتنفيذ، وآلية الدفع» — **محضر جلسة مختلَق** يقرؤه العميل سجلّاً لاستشارته.
+     *
+     * وهو عين ما وقع للاجتماعات في `M-26753` ومُنِع هناك بهذا الحارس نفسه. وقياسُ
+     * `consult.summary` v2 أثبت أن التعليمة وحدها لا تكفي: قلّ الاختلاق ولم ينقطع.
+     *
+     * @return array{summary:?string, meta:array<string,mixed>, source:AiSource, called:bool}
      */
     public function consultSummaryResult(Consult $consult, string $notes = ''): array
     {
+        // مصدر المحتوى الفعليّ الوحيد: ما دوّنه المستشار في الطلب أو ما حُفظ سابقاً
+        // في الملفّ. بلا أيّهما لا يُنادى النموذج ولا يُكتب نصّ — و`summary` يبقى
+        // `null` لا رسالةَ انتظار: هو حقلُ العميل، وأيّ نصٍّ فيه يصير سلسلةً تُطابَق
+        // نصّياً في كل موضع لاحق. ورسالة الانتظار موضعها الواجهة والتنبيه.
+        $material = $notes !== '' ? $notes : trim((string) $consult->session_notes);
+
+        if ($material === '') {
+            return ['summary' => null, 'meta' => [], 'source' => AiSource::ManualRequired, 'called' => false];
+        }
+
+        $notes = $material;
         $system = AiPromptRegistry::consultSummarySystem();
         $prompt = "استشارة {$consult->channel} رقم {$consult->ref} بموضوع «{$consult->subject}» مع المستشار {$consult->lawyer}."
             .($notes !== '' ? "\nملاحظات المستشار أثناء الجلسة:\n{$notes}" : '')
@@ -840,8 +859,11 @@ class LegalAiService
         try {
             $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], promptId: 'consult.summary');
             $meta = self::callMeta($call, 'consult.summary');
-            if ($call->text && trim($call->text) !== '') {
-                return ['summary' => trim($call->text), 'meta' => $meta, 'source' => AiSource::AiSuccess];
+            // الحقول النائبة تُرفع خادميّاً: التعليمة v2 تنهى عنها والقياس أظهر أنها
+            // تعود («[أدخل التاريخ]») — والعميل يقرأ هذا النصّ في تقريره الرسميّ.
+            $text = AiOutputValidator::stripPlaceholders(trim((string) $call->text));
+            if ($text !== '') {
+                return ['summary' => $text, 'meta' => $meta, 'source' => AiSource::AiSuccess, 'called' => true];
             }
         } catch (\Throwable $e) {
             Log::warning('LegalAiService consultSummary failed: '.$e->getMessage());
@@ -855,6 +877,7 @@ class LegalAiService
                 .($notes !== '' ? "، وقد دوّن المستشار أثناء الجلسة: {$notes}" : '').'.',
             'meta' => $meta,
             'source' => AiSource::Fallback,
+            'called' => true,
         ];
     }
 
@@ -1161,6 +1184,8 @@ class LegalAiService
             return null; // ملف مفقود أو أكبر من حد الفحص
         }
 
+        $call = new AiCallResult(text: null, traceId: (string) Str::uuid(), durationMs: 0, failureCode: AiFailure::PROVIDER_ERROR);
+
         $fileName = basename((string) $doc->path);
         $system = 'أنت مساعد قانوني في قسم التنفيذ في «النظام الإداري لمكاتب المحاماة» بالسعودية. اقرأ محتوى المستند المرفق على طلب تنفيذ كاملاً، '
             .'صنّف نوعه، ولخّص محتواه موضحاً مدى توافقه مع بيانات الطلب (نوع السند/قيمة المطالبة/المنفَّذ ضده) إن أمكن. أعد JSON فقط: '
@@ -1175,7 +1200,10 @@ class LegalAiService
 
             if ($text = $this->extractText($abs, $ext)) {
                 $prompt = $context."\n\nمحتوى المستند:\n".AiContextBuilder::prepare($text, 20000)."\n\nلخّص المحتوى وصنّفه وأعد JSON.";
-                $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'document.analyze');
+                // `runCall` لا `run` — فحص مستند التنفيذ كان يجري بلا قيدٍ في `ai_runs`
+                // أيضاً، فلا يظهر في الكلفة ولا التغطية ولا صندوق المراجعة.
+                $call = $this->runCall($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'document.analyze');
+                $json = $call->text;
             } elseif (in_array($ext, ['pdf', 'jpg', 'jpeg', 'png', 'webp'], true) && ! empty(config('services.gemini.key'))) {
                 $mime = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'][$ext];
                 $json = $this->viaGeminiDocument($system, $context."\n\nلخّص المستند المرفق وصنّفه وأعد JSON.", base64_encode((string) file_get_contents($abs)), $mime);
@@ -1185,6 +1213,7 @@ class LegalAiService
                 return [
                     'doc_type' => (string) ($data['doc_type'] ?? 'مستند'),
                     'summary' => (string) ($data['summary'] ?? ''),
+                    'meta' => self::callMeta($call, 'document.analyze'),
                 ];
             }
         } catch (\Throwable $e) {
@@ -1348,6 +1377,9 @@ class LegalAiService
 
         $fullContext = trim($refText.$refContext."\nالسياق والمستندات:\n".$context);
 
+        /** @var array<int,string> معرّفات المصادر المُمرَّرة — فارغة حين لا استرجاع لهذا النوع */
+        $sourceRefs = [];
+
         // المسارات التي يُمرَّر لها سند — انظر `RETRIEVAL_KINDS`.
         if (in_array($kind, self::RETRIEVAL_KINDS, true)) {
             // ⚠️ **المجال والاستعلام كلاهما كان معطَّلاً.**
@@ -1361,7 +1393,7 @@ class LegalAiService
             // الملفّ ⇒ ستّة. أي أن الاسترجاع كان معطَّلاً عملياً لا ناقصاً.
             //
             // والاستعلام من الملفّ هو نمط `draftPleadingResult` نفسه (وقائع لا نوع).
-            $authority = LegalKnowledge::asContext(LegalKnowledge::retrieve(
+            $retrieved = LegalKnowledge::retrieve(
                 domain: (string) ($ticket?->department ?: ($ticket?->type ?: '')),
                 // ⚠️ **المضمون لا الكتلة المُنسّقة.** بناء الاستعلام من $refContext
                 // يُدخل ترويساته («بيانات التذكرة» · «تفاصيل» · «السياق والمستندات»)،
@@ -1370,7 +1402,10 @@ class LegalAiService
                 // وبلا ترويسات ⇒ [مطالبة، تجاري، توريد، تسليم، بضاعة، تعويض].
                 // أربعةٌ من ستّة كانت حشواً — وهو عطل الحشو نفسه الموثَّق في `keywords`.
                 query: trim($docType.' '.AiContextBuilder::clip($refFacts.' '.$context, 2000)),
-            ));
+            );
+            $sourceRefs = $retrieved->pluck('ref')->map(fn ($r) => (string) $r)->all();
+            $authority = LegalKnowledge::asContext($retrieved);
+
             if ($authority !== '') {
                 $fullContext .= "\n\nمصادر نظاميّة معتمدة (استشهد بمعرّفاتها حصراً، ولا تذكر مادّة خارجها):\n".$authority;
             }
@@ -1388,7 +1423,8 @@ class LegalAiService
             $meta = self::callMeta($call, 'assistant.draft');
             if ($call->text && trim($call->text) !== '') {
                 return [
-                    'draft' => trim($call->text),
+                    // الاستشهادات تُطابَق خادميّاً قبل أن تصل المحامي — انظر أدناه
+                    'draft' => self::flagUnmatchedCitations(trim($call->text), $sourceRefs),
                     'meta' => $meta,
                     'source' => AiSource::AiSuccess,
                 ];
@@ -1521,6 +1557,48 @@ class LegalAiService
         ];
     }
 
+    /**
+     * وسمُ الاستشهادات التي لا يقابلها مصدرٌ مُمرَّر — في مسودّة المساعد القانونيّ.
+     *
+     * **العلّة:** التعليمة تُحقن بمصادر معتمدة وتأمر «استشهد بمعرّفاتها حصراً، ولا
+     * تذكر مادّة خارجها»، ثم **لا يُطابَق شيء**. و`LegalClaims::validate` تُنادى في
+     * `case.pleading` و`najiz.statement` وحدهما، لأنهما تُعيدان JSON بادّعاءاتٍ
+     * مبنيّة. أمّا هذه فتُعيد نصّاً حرّاً، فلا بنية تُطابَق.
+     *
+     * فالمطابقة هنا على ما يُذكر في النصّ نفسه: كل معرّف `[LS-…]` يُقارَن بالمُمرَّر،
+     * وكل «المادة (N)» بلا معرّفٍ بجوارها استشهادٌ من ذاكرة النموذج. والنتيجة
+     * **تُوسَم ولا تُحذف**: القارئ محامٍ، وحذفُ نصٍّ من مذكّرته أشدّ من تنبيهه.
+     * (ولهذا يختلف عن `stripPlaceholders` التي تحذف: قارئها العميل.)
+     *
+     * @param  array<int,string>  $sourceRefs  معرّفات المصادر المعتمدة المُمرَّرة
+     */
+    private static function flagUnmatchedCitations(string $draft, array $sourceRefs): string
+    {
+        // معرّفات ذُكرت في النصّ ولا وجود لها في المُمرَّر — اختلاقُ معرّف
+        preg_match_all('/\[(LS-[A-Z0-9\-]+)\]/u', $draft, $cited);
+        $invented = array_values(array_unique(array_diff($cited[1] ?? [], $sourceRefs)));
+
+        // أرقام موادّ بلا أيّ معرّف مصدرٍ في النصّ — استشهادٌ من الذاكرة
+        // بلا أداة تعريف ملزمة: «للمادة» و«وفق مادة» لا تحملان «الماد» حرفيّاً
+        preg_match_all('/ماد[ةه]\s*\(?\s*[\d٠-٩]+/u', $draft, $articles);
+        $bare = ($cited[1] ?? []) === [] ? count($articles[0] ?? []) : 0;
+
+        if ($invented === [] && $bare === 0) {
+            return $draft;
+        }
+
+        $notes = [];
+        if ($invented !== []) {
+            $notes[] = 'معرّفات لا تقابل مصدراً معتمداً: '.implode('، ', $invented);
+        }
+        if ($bare > 0) {
+            $notes[] = "ذُكرت {$bare} مادّة بلا معرّف مصدرٍ واحد";
+        }
+
+        return "⚠️ استشهادات غير مُطابَقة — تحقّق منها قبل الاعتماد.\n"
+            .'('.implode(' · ', $notes).")\n\n".$draft;
+    }
+
     /** مسودة احتياطية منظمة للمساعد القانوني */
     /** وسمُ القالب — **فوق النصّ** كما في `renderPleading`، لا في حقلٍ جانبيّ يُتجاوَز. */
     private const TEMPLATE_BANNER = "⚠️ قالب استرشاديّ ثابت — لم يُجرَ تحليل.\n"
@@ -1633,7 +1711,7 @@ class LegalAiService
             'gemini' => $this->viaGemini($system, $messages, $json, $promptId),
             'glm' => $this->viaGlm($system, $messages, $json, $promptId),
             default => null,
-        })->withOutboundAudit($audit);
+        }, promptId: $promptId)->withOutboundAudit($audit);
     }
 
     /**

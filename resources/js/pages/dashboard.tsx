@@ -147,7 +147,9 @@ const Dashboard: React.FC<Props> = ({
           <div style={{ minWidth: 260, flex: '1 1 auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
               <h2 style={{ margin: 0, fontWeight: 800 }}>مرحباً بك، {name} 👋</h2>
-              <Badge text="عميل موثق 🛡️" tone="b-green" />
+              {/* كانت «عميل موثق 🛡️» ثابتةً لكل مستخدم بلا أيّ عمود توثيق —
+                  شارةٌ تدّعي تحقّقاً لم يجرِ. والحالة الفعليّة هي العضويّة. */}
+              <Badge text="حساب نشط" tone="b-green" />
             </div>
             <p style={{ margin: 0, opacity: 0.9 }}>
               بوابتك القانونية الموحدة لمتابعة القضايا، حجز الجلسات، واستعراض الرأي والمستندات المعتمدة.

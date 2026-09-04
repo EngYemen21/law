@@ -240,7 +240,12 @@ class ExecService
         // النواقص من تحليل الملفّ إن وُجدت، وإلّا قائمة الاستقبال العامّة.
         // **والفارق يُبلَّغ للعميل**: قائمةٌ خرجت من فحص مستنداته يقرؤها حكماً على
         // ملفّه، وقائمة الاستقبال تُبنى من نوع الطلب قبل أن يُفحص شيء.
-        $fromAnalysis = ! empty($exec->ai_missing);
+        // **الشرط على المصدر لا على امتلاء القائمة.** الاحتياطيّ يملأ `ai_missing`
+        // أيضاً بقالبٍ حتميّ لا يقرأ مستنداً واحداً (سطرٌ يفحص خلوّ `defendant`)،
+        // فيُقال للعميل «بعد دراسة الطلب ومستنداته» ولم يُقرأ منها شيء. والمصدر
+        // وحده يفصل فحصاً وقع من قالبٍ ملأ الفراغ.
+        $fromAnalysis = ! empty($exec->ai_missing)
+            && (AiSource::tryFrom((string) $exec->ai_source)?->isRealAnalysis() ?? false);
         $labels = $fromAnalysis ? array_values($exec->ai_missing) : ['السند التنفيذي', 'الهوية الوطنية', 'مستند داعم'];
         foreach ($labels as $label) {
             $exec->documents()->firstOrCreate(['label' => (string) $label], ['status' => 'مطلوب']);

@@ -807,6 +807,14 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
 },
         });
     };
+    // «أجّل بلا موعد» — نيّةٌ صريحة. كان التأجيل يقع بكتابة نصٍّ لا يُفكّ في
+    // حقل التاريخ، وبعد تشديد الصيغة لم يبقَ للحالة «مؤجل» بابٌ رغم تبويبها في اللوحة.
+    const submitPostpone = () =>
+        router.post(`${base}/meetings/${m.dbId}/reschedule`, { postpone: true }, {
+            preserveScroll: true, onSuccess: () => {
+ setLcMode(null); toast('أُجّل الاجتماع بلا موعد'); 
+},
+        });
     const submitEnd = () =>
         router.post(`${base}/meetings/${m.dbId}/end`, { attend: Number(endAttend) || 0, notes: endNotes }, {
             preserveScroll: true, onSuccess: () => {
@@ -1051,10 +1059,14 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                                     date={reDay}
                                     label="الوقت الجديد للاجتماع"
                                     required
-                                />
+                                  allowCustom={false}
+/>
                                 <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
                                     <button className="btn sm" type="button" onClick={submitReschedule} disabled={!reDay || !reTime}>
                                         <Icon name="cal" /> حفظ الموعد الجديد
+                                    </button>
+                                    <button className="btn soft sm" type="button" onClick={submitPostpone}>
+                                        <Icon name="clock" /> أجّل بلا موعد
                                     </button>
                                     <button className="btn soft sm" type="button" onClick={() => setLcMode(null)}>إلغاء</button>
                                 </div>

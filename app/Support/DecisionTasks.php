@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\Task;
 use App\Models\User;
+use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use Illuminate\Database\Eloquent\Model;
 
@@ -54,8 +55,26 @@ class DecisionTasks
     {
         $decisions = $model->decisions ?? [];
         $summaryText = (string) ($model->zoom_summary ?? $model->summary ?? '');
+
         if ($decisions === [] && $summaryText !== '') {
-            $decisions = $ai->extractDecisions($summaryText);
+            // **الغلاف الرفيع `extractDecisions` يُهدر التتبّع.** كان يُنادى هنا فيقع
+            // نداءٌ لا قيد له، ومخرجُه **يُنشئ التزامات على بشر** (مهامّ بمسؤولين
+            // ومواعيد) — أعلى بوّابة تقييم في المنظومة (0.98) بلا أثرٍ يُحصي كلفتها
+            // أو يُخضعها لمراجعة. والنسخة الكاملة موجودة أصلاً.
+            $result = $ai->extractDecisionsResult($summaryText);
+            $decisions = $result['decisions'];
+
+            // القيد **عند وقوع النداء وحده** — «قيدٌ بلا نداء» يُفسد إحصاء الكلفة
+            // والتغطية (نظير `FinalizeConsultJob`).
+            if ($result['called'] !== false) {
+                AiRunLogger::log(
+                    'meeting.decisions',
+                    $result['source'],
+                    $result['meta'],
+                    $model,
+                    (string) ($model->ref ?? $model->number ?? ''),
+                );
+            }
         }
 
         return $decisions;

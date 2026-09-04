@@ -2,9 +2,11 @@
 
 namespace App\Jobs;
 
+use App\Enums\AiSource;
 use App\Models\AiRun;
 use App\Models\Execution;
 use App\Services\Ai\AiQueue;
+use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use App\Support\ExecService;
 use Illuminate\Bus\Queueable;
@@ -55,6 +57,17 @@ class AnalyzeExecutionJob implements ShouldQueue
             if (empty($doc->summary)) {
                 $docAnalysis = $ai->analyzeExecutionDocument($exec, $doc);
                 if ($docAnalysis) {
+                    // **قيدٌ لكلّ مستند.** الحلقة كانت تُنادي النموذج مرّةً لكلّ مرفق
+                    // بلا قيدٍ واحد، فطلبٌ بخمسة مستندات = خمسة نداءات لا أثر لها في
+                    // الكلفة ولا التغطية — وهو أكبر مصدرٍ منفردٍ للنداءات غير المحسوبة.
+                    AiRunLogger::log(
+                        'document.analyze',
+                        AiSource::AiSuccess,
+                        is_array($docAnalysis['meta'] ?? null) ? $docAnalysis['meta'] : [],
+                        $exec,
+                        (string) $exec->number,
+                    );
+
                     $doc->update([
                         'doc_type' => $docAnalysis['doc_type'],
                         'summary' => $docAnalysis['summary'],

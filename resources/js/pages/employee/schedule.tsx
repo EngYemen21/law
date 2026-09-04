@@ -906,7 +906,8 @@ return lawyers;
             label="الوقت المتاح للموعد"
             helperText={slotsLoading ? 'جارٍ فحص الأوقات المتاحة لدى المستشار…' : undefined}
             required
-          />
+            allowCustom={false}
+/>
 
           {isPast && (
             <div style={{ color: 'var(--red)', fontSize: 12.5, margin: '4px 0 10px' }}>

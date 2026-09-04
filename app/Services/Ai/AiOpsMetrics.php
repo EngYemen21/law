@@ -43,7 +43,22 @@ class AiOpsMetrics
         }
 
         $fallback = (clone $base())->where('source', AiSource::Fallback->value)->count();
-        $failed = (clone $base())->where('status', AiRun::STATUS_FAILED)->count();
+        // **الفشل يُقاس بما يقع، لا بحالةٍ لا تُكتب.**
+        //
+        // كان يَعُدّ `STATUS_FAILED`، وهي تُشتقّ من `AiDecision::Reject` التي لا تصدر
+        // إلّا حين `hasUsableOutput === false` — ولا مُنادٍ في الإنتاج يمرّرها `false`
+        // (كل مسار له احتياطيّ قالبيّ). فالحالة **غير قابلة للوصول بنيوياً**، والنسبة
+        // صفرٌ دائماً، وإنذار `high_failure_rate` أدناه لا يُطلق مهما تعثّر المزوّد.
+        // (البيانات على قاعدة التطوير: صفر صفٍّ بحالة `failed` من خمسين قيداً.)
+        //
+        // والفشل الحقيقيّ مسجَّلٌ فعلاً في `failure_code`: تعثّر مزوّد، أو نفاد حصّة،
+        // أو مخرجٌ لا يُفكّ. ويُستثنى `TASK_DISABLED` و`BUDGET_EXCEEDED`: هذان قراران
+        // إداريّان اتُّخذا عمداً، وعدُّهما فشلاً يُنذر المكتب بما فعله بنفسه.
+        $deliberate = [AiFailure::TASK_DISABLED, AiFailure::BUDGET_EXCEEDED];
+        $failed = (clone $base())
+            ->where(fn ($q) => $q->where('status', AiRun::STATUS_FAILED)
+                ->orWhere(fn ($f) => $f->whereNotNull('failure_code')->whereNotIn('failure_code', $deliberate)))
+            ->count();
         $needsReview = (clone $base())->where('status', AiRun::STATUS_NEEDS_REVIEW)->count();
 
         $durations = (clone $base())->whereNotNull('duration_ms')->orderBy('duration_ms')->pluck('duration_ms')->all();

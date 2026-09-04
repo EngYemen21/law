@@ -61,7 +61,7 @@ class ConsultBookingController extends Controller
         $data = $request->validate([
             'specialty' => ['nullable', 'string', 'max:80'],
             'subject' => ['nullable', 'string', 'max:120'],
-            'date' => ['nullable', 'date'],
+            'date' => ['nullable', 'date_format:Y-m-d'],
         ]);
 
         $day = LawyerAvailability::resolveDate($data['date'] ?? null);

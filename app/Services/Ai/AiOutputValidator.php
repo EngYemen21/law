@@ -145,6 +145,50 @@ class AiOutputValidator
         return ['decisions' => self::stringList($data['decisions'])];
     }
 
+    /**
+     * إزالة الحقول النائبة من نصٍّ يصل الإنسان — «[أدخل التاريخ]» و«[اسم العميل]».
+     *
+     * **لماذا خادميّاً وقد نهت التعليمة عنها؟** لأن القياس على مزوّدٍ حقيقيّ أظهر أن
+     * النهي لا يُطاع: نُهي في `consult.summary` v2 صراحةً («ولا تكتب حقلاً نائباً
+     * بين قوسين معقوفين»)، فعاد النموذج في القياس نفسه بـ`**تاريخ الاستشارة:**
+     * [أدخل التاريخ]`. والتعليمة رجاءٌ، وهذه قاعدة.
+     *
+     * وما تُبقيه عمداً: علامات التمويه (`[هوية]` · `[جوال]` …) — فهي من صنعنا لا
+     * من النموذج، وحذفها يُخفي أن معرّفاً كان هناك.
+     *
+     * والسطر يُحذف كاملاً حين لا يبقى فيه بعد الحذف إلّا عنوانٌ مُعلَّق («**التاريخ:**»)،
+     * ويبقى حين فيه مضمون — فلا يُفقَد كلامٌ لأجل حقلٍ نائبٍ في آخره.
+     */
+    public static function stripPlaceholders(string $text): string
+    {
+        $keep = [AiContextBuilder::ID_MASK, AiContextBuilder::PHONE_MASK,
+            AiContextBuilder::IBAN_MASK, AiContextBuilder::EMAIL_MASK, AiContextBuilder::CARD_MASK];
+
+        $lines = [];
+        foreach (preg_split('/\R/u', $text) ?: [] as $line) {
+            $stripped = (string) preg_replace_callback(
+                '/\[[^\]\n]*[\x{0600}-\x{06FF}][^\]\n]*\]/u',
+                fn (array $m) => in_array($m[0], $keep, true) ? $m[0] : '',
+                $line
+            );
+
+            if ($stripped === $line) {
+                $lines[] = $line;
+
+                continue;
+            }
+
+            // ما بقي بعد رفع الترقيم والتوكيد: مضمونٌ أم عنوانٌ مُعلَّق؟
+            $bare = trim((string) preg_replace('/[*_#:،.\-–—\s]+/u', '', $stripped));
+
+            if (mb_strlen($bare) >= 12) {
+                $lines[] = rtrim($stripped);
+            }
+        }
+
+        return trim(implode("\n", $lines));
+    }
+
     /** قيمة من قائمة مسموحة، وإلّا البديل المعلن (لا تخمين). */
     private static function oneOf(mixed $value, array $allowed, string $default): string
     {

@@ -51,7 +51,31 @@ class FinalizeConsultJob implements ShouldQueue
         }
 
         $result = $ai->consultSummaryResult($consult, $this->notes);
-        $summary = $result['summary'];
+
+        // **إشعار العميل بختم الجلسة لا يتبع نجاح التوليد.** انتهاء جلسته واقعةٌ
+        // تخصّه سواء كُتب الملخّص أم انتظر تدوين المستشار، فكان حصرُه في مسار
+        // التوليد يعني أن جلسةً انتهت بلا تدوين تمرّ عليه صامتةً تماماً.
+        $firstFinalize = $consult->session_finalized_at === null;
+
+        if ($firstFinalize) {
+            $consult->update(['session_finalized_at' => now()]);
+
+            // **لا يُقال «متاح الآن»** لمخرجٍ لم يعتمده أحد. الإشعار بالإتاحة في
+            // `AiReviewOutcome` يتبع اعتماد المحامي؛ وهذا إشعارٌ بانتهاء الجلسة وحده.
+            Notify::send($consult->user_id, 'doc', 't-blue',
+                "انتهت جلسة استشارتك ({$consult->ref}) — يُعدّ المستشار ملخّصها، وسيصلك إشعار فور اعتماده.");
+        }
+
+        // بلا مادّة: لا نداء ⇒ **لا قيد** (قيدٌ بلا نداء يُفسد إحصاء الكلفة والتغطية)،
+        // ولا كتابة في `summary` — النصّ الذي يصل العميل لا يُملأ من عنوان موضوعه.
+        // والمحامي يُنبَّه ليدوّن؛ فبعد التدوين تُستدعى هذه الوظيفة ثانيةً فتولّد.
+        if ($result['called'] === false) {
+            $this->promptForNotes($consult, $firstFinalize);
+
+            return;
+        }
+
+        $summary = (string) $result['summary'];
 
         // القيد **قبل** الكتابة والإشعار: ملخّص الاستشارة رأيٌ قانونيّ مصنَّف `high`
         // ويصل العميل، وكان يُنتَج بلا أثرٍ واحد — ولا يبلغ صندوق المراجعة أصلاً.
@@ -64,13 +88,41 @@ class FinalizeConsultJob implements ShouldQueue
 
         $consult->update([
             'summary' => $summary,
-            'ai_source' => $result['source']->value,
+            // **عمود الملخّص وحده.** `ai_source` عمودٌ يكتبه `consult.analyze` أيضاً،
+            // فكان تعثّرُ الملخّص يدهس مصدر تحليلٍ سابق **نجح**، فتعنون الواجهة
+            // «تعذّر التحليل الذكيّ» لتحليلٍ لم يتعثّر. مصدران ⇒ عمودان.
+            'summary_ai_source' => $result['source']->value,
             'decisions' => $decisions['decisions'],
         ]);
         Live::push(new ConsultStatusBroadcast($consult));
+    }
 
-        // **لا يُقال «متاح الآن»** لمخرجٍ لم يعتمده أحد. الإشعار بالإتاحة انتقل إلى
-        // `AiReviewOutcome` ليتبع اعتماد المحامي؛ وهذا إشعارٌ بانتهاء الجلسة وحده.
-        Notify::send($consult->user_id, 'doc', 't-blue', "انتهت جلسة استشارتك ({$consult->ref}) — يُعدّ ملخّصها لاعتماد المستشار، وسيصلك إشعار فور اعتماده.");
+    /**
+     * لا مادّة ⇒ تنبيه المحامي ليدوّن، وقيدُ تدقيق يشهد أن التوليد لم يقع ولماذا.
+     *
+     * `$first` يحرس التكرار: الجلسة تُختَم من مسارين — زرّ «إنهاء» وويبهوك Zoom — وقد
+     * يصلان معاً، وثلاثة تنبيهات عن جلسةٍ واحدة تُقرأ ثلاث جلسات فيُهمَل التنبيه كضجيج.
+     *
+     * والعميل لا يُقال له إن التدوين ناقص: ذاك شأنُ المكتب، وإخبارُه بعطلٍ تشغيليّ لا
+     * يملك له فعلاً يُقلقه بلا فائدة. يُقال له إن الجلسة انتهت وإن المستشار يُعدّ الملخّص
+     * — وهو صادقٌ في الحالين.
+     */
+    private function promptForNotes(Consult $consult, bool $first): void
+    {
+        $consult->logAudit('النظام', 'ملخص الجلسة', '—', 'لم يُولَّد: لا ملاحظات مدوَّنة');
+        $consult->save();
+
+        $lawyerId = $consult->assigned_lawyer_id;
+        if (! $first || $lawyerId === null) {
+            return;
+        }
+
+        Notify::send(
+            $lawyerId,
+            'doc',
+            't-amber',
+            "انتهت جلسة الاستشارة ({$consult->ref}) بلا ملاحظات مدوَّنة، فلم يُعدّ لها ملخّص. "
+            .'دوّن ما دار في الجلسة من صفحة الاستشارة ليُبنى الملخّص عليه.'
+        );
     }
 }

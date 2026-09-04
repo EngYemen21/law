@@ -40,7 +40,7 @@ class AiPromptRegistryTest extends TestCase
             'ticket.summary' => ['651e3f7d7ea8af142a4db4cdd8002d9ca2825828127d683725e83b673b82c317', 'v1'],
             'case.pleading' => ['eced92674e0dbbe744260a158c571f763d91624af645d29a7ceeef6ed833ab23', 'v2'],
             'najiz.statement' => ['c6fdc79cf653fc37d3657734b8b83288f640c8a02196fb5414eb55aef03d42d0', 'v1'],
-            'consult.summary' => ['f2dcfb18e9013c6e93a769edfde35eb820caab9342bc783607612e0e44a8221f', 'v1'],
+            'consult.summary' => ['671e32d1ba033b36c726d914301399e0dded122081336e93003f25ff0923e307', 'v2'],
             'chat.reply' => ['1d1d3cfaa0bc14a8d7b44edac4ce4bad7740011ea85e2026f5894570070c4594', 'v2'],
         ];
     }

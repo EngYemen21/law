@@ -153,7 +153,7 @@ class AiRunCoverageTest extends TestCase
             'tone' => 'b-green', 'assigned_lawyer_id' => $lawyer->id, 'lawyer' => $lawyer->name,
         ]);
 
-        (new FinalizeConsultJob($consult, ''))->handle(app(LegalAiService::class));
+        (new FinalizeConsultJob($consult, 'دوّن المستشار: نزاع على مستخلصات مقاولة غير مصروفة.'))->handle(app(LegalAiService::class));
 
         $run = AiRun::where('task_type', 'consult.summary')->latest('id')->first();
         $this->assertNotNull($run);

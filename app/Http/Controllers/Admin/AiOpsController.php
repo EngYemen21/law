@@ -10,6 +10,7 @@ use App\Services\Ai\AiDataClass;
 use App\Services\Ai\AiEvaluator;
 use App\Services\Ai\AiOpsMetrics;
 use App\Services\Ai\AiPolicyGate;
+use App\Services\Ai\AiPromptRegistry;
 use App\Services\Ai\AiReviewInbox;
 use App\Services\Ai\AiReviewReason;
 use App\Services\Ai\AiThresholdCalibration;
@@ -153,9 +154,15 @@ class AiOpsController extends Controller
             'tasks.*' => ['boolean'],
         ]);
 
+        // **المرجع سجلّ التعليمات لا جدولُ بوّابات التقييم.** كان الترشيح على
+        // `AiEvaluator::GATES` (سبعة معرّفات لها حالات تقييم حيّة)، فسبعةٌ أخرى
+        // بلا مفتاح إطفاءٍ إطلاقاً — منها **خمسٌ عالية الحساسيّة**: `consult.summary`
+        // و`najiz.statement` و`assistant.draft` و`meeting.summary` و`case.classify`.
+        // أي أن مولّد صحيفة الدعوى ومساعد المحامي لا يمكن إيقافهما إلّا بنشر شيفرة.
+        // ووجودُ حالات تقييمٍ شرطٌ لقياس المسار، لا لامتلاك القدرة على إطفائه.
         $clean = [];
         foreach ($data['tasks'] as $task => $on) {
-            if (array_key_exists($task, AiEvaluator::GATES)) {
+            if (array_key_exists($task, self::switchableTasks())) {
                 $clean[$task] = (bool) $on;
             }
         }
@@ -283,18 +290,34 @@ class AiOpsController extends Controller
      *
      * @return array<int, array{task:string,enabled:bool,gate:float,rate:float|null,meets:bool|null}>
      */
+    /**
+     * المسارات التي لإطفائها معنى — المتقاعدة مستثناة.
+     *
+     * مفتاح إطفاءٍ لمسارٍ لا يعمل يوهم بأمرين كاذبين معاً: أنّ المسار يعمل،
+     * وأنّ إطفاءه فعلٌ ذو أثر.
+     *
+     * @return array<string, array<string,mixed>>
+     */
+    private static function switchableTasks(): array
+    {
+        return array_filter(AiPromptRegistry::PROMPTS, fn (array $p) => ($p['retired'] ?? false) === false);
+    }
+
     private function taskSwitches(): array
     {
         $last = array_column(AiEvaluator::lastRun()['results'] ?? [], null, 'task');
 
-        return array_map(fn (string $task, float $gate) => [
+        // كل تعليمة مسجَّلة لها مفتاح — لا المقيَّسة وحدها. و`gate = null` تعني
+        // «لا حالات تقييم لهذا المسار»، وهو وصفٌ لحال القياس لا مبرّرٌ لحجب المفتاح.
+        return array_map(fn (string $task) => [
             'task' => $task,
             'enabled' => Setting::aiTaskEnabled($task),
-            'gate' => $gate,
+            'sensitivity' => AiPolicyGate::sensitivity($task),
+            'gate' => AiEvaluator::GATES[$task] ?? null,
             // `null` = لم يُقَس بعد، لا «صفر» — والفارق هو ما يمنع تفعيلاً بالحدس
             'rate' => isset($last[$task]['rate']) ? (float) $last[$task]['rate'] : null,
             'meets' => isset($last[$task]['meets']) ? (bool) $last[$task]['meets'] : null,
-        ], array_keys(AiEvaluator::GATES), array_values(AiEvaluator::GATES));
+        ], array_keys(self::switchableTasks()));
     }
 
     /** @return array<int, array{value:string,label:string,days:int|null,isDefault:bool}> */

@@ -31,7 +31,7 @@ class AiRun extends Model
         'trace_id', 'failure_code', 'duration_ms',
         'input_tokens', 'output_tokens', 'estimated_cost',
         'reviewed_by', 'reviewed_at',
-        'review_action', 'review_reason', 'review_note', 'escalated_to',
+        'review_action', 'review_reason', 'review_note', 'review_edit_distance', 'escalated_to',
     ];
 
     protected $casts = [

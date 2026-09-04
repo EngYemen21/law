@@ -11,9 +11,9 @@ use App\Services\LegalAiService;
 use App\Services\MoyasarService;
 use App\Support\AppointmentCard;
 use App\Support\ConsultBooking;
+use App\Support\ConsultReport;
 use App\Support\LawyerAvailability;
 use App\Support\Live;
-use App\Support\Mask;
 use App\Support\Notify;
 use App\Support\PaymentReconciler;
 use App\Support\PdfRenderer;
@@ -126,8 +126,8 @@ class ConsultController extends Controller
         abort_unless($consult->user_id === $request->user()->id, 403);
 
         $data = $request->validate([
-            'date' => ['required', 'date', 'after_or_equal:today'],
-            'time' => ['required', 'string', 'regex:/^\d{2}:\d{2}$/'],
+            'date' => ['required', 'date_format:Y-m-d', 'after_or_equal:today'],
+            'time' => ['required', 'string', 'date_format:H:i'],
         ]);
 
         $startsAt = Carbon::parse($data['date'].' '.$data['time']);
@@ -212,60 +212,7 @@ class ConsultController extends Controller
 
         abort_unless($isOwner || $isAssignedLawyer || $isPermittedEmployee || $user->isAdmin(), 403);
 
-        $payLabel = $consult->paid_at !== null ? 'مدفوعة' : ($consult->priced_at !== null ? 'بانتظار السداد' : 'بانتظار التسعير من الإدارة');
-        $place = $consult->placeLabel();
-
-        $nextStep = match (true) {
-            $consult->priced_at === null => 'بانتظار تحديد السعر من الإدارة',
-            $consult->paid_at === null => 'سداد الفاتورة عبر ميسّر',
-            $consult->session === 'منتهية' => $consult->summary ? 'راجع ملخص الاستشارة أعلاه' : 'بانتظار إصدار ملخص الاستشارة',
-            $consult->session === 'جلسة جارية' => 'الجلسة قائمة الآن',
-            default => 'حضور الجلسة في الموعد المحدّد',
-        };
-
-        $html = ReportPrint::html([
-            'title' => 'تقرير الاستشارة القانونية',
-            'subtitle' => 'نسخة العميل',
-            'ref' => $consult->ref,
-            'blocks' => [
-                [
-                    'title' => '١. بيانات الاستشارة',
-                    'cellRows' => [
-                        [['رقم الاستشارة', $consult->ref], ['نوع الاستشارة', $consult->channel], ['التخصّص', $consult->specialty ?: '—'], ['الموعد', $consult->when_label ?: '—']],
-                        [['المكان', $place], ['حالة الجلسة', $consult->session ?: '—'], ['حالة السداد', $payLabel], ['رقم الفاتورة', $consult->invoice?->number ?: '—']],
-                    ],
-                ],
-                [
-                    ['title' => '٢. بياناتك', 'cellRows' => [[['اسم العميل', $request->user()->name], ['الحالة', 'عميل نشط']]]],
-                    ['title' => '٣. مقدّم الخدمة', 'cellRows' => [[['الجهة', 'المكتب القانوني'], ['المحامي المسؤول', Mask::lawyer($consult->lawyer)]]]],
-                ],
-                // التقرير كان يقول «سيصلك فور اعتماده» **ويعرض الملخّص فيه** — تناقضٌ
-                // داخل الوثيقة الواحدة. الآن يتبع الاعتماد الفعليّ.
-                ['title' => '٤. ملخص الاستشارة', 'lines' => $consult->summaryApproved()
-                    ? $consult->summary
-                    : 'يُعدّ الفريق القانوني ملخص استشارتك، وسيصلك فور اعتماده من المستشار.'],
-                [
-                    'title' => '٥. الفاتورة والسداد',
-                    'cellRows' => [[
-                        ['رسوم الاستشارة', $consult->price ? $consult->price.' ر.س' : '—'],
-                        ['الضريبة (١٥٪)', $consult->vat ? $consult->vat.' ر.س' : '—'],
-                        ['الإجمالي', $consult->total ? $consult->total.' ر.س' : '—'],
-                        ['حالة السداد', $payLabel],
-                    ]],
-                ],
-                ['title' => '٦. الإجراء القادم', 'chips' => [$nextStep]],
-            ],
-            'approval' => [
-                'qrSeed' => $consult->ref,
-                'rows' => [
-                    ['الجهة', 'النظام الإداري لمكاتب المحاماة'],
-                    ['حالة الاستشارة', $consult->status],
-                    ['تاريخ الطباعة', now()->format('Y-m-d')],
-                ],
-            ],
-            'note' => 'هذا التقرير يلخّص استشارتك القانونية ولا يُعدّ بذاته مرافعة أو مستنداً قضائياً. للاستفسار يمكنك فتح تذكرة من بوابتك.',
-            'footer' => 'النظام الإداري لمكاتب المحاماة — نسخة العميل · صادرة إلكترونياً',
-        ]);
+        $html = ReportPrint::html(ConsultReport::doc($consult, $request->user()->name));
 
         return PdfRenderer::render($html, $consult->ref.'.pdf');
     }

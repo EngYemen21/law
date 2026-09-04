@@ -12,7 +12,6 @@ use App\Models\MeetRequest;
 use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Collection;
 
 /**
  * محرّك التفرّغ والاقتراح لحجز الاستشارة:
@@ -71,13 +70,14 @@ class LawyerAvailability
         $cases = LegalCase::whereIn('assigned_lawyer_id', $ids)->get(['assigned_lawyer_id', 'status'])->groupBy('assigned_lawyer_id');
         $execs = Execution::whereIn('assigned_lawyer_id', $ids)->get(['assigned_lawyer_id', 'status'])->groupBy('assigned_lawyer_id');
 
-        // مواعيد اليوم المطلوب لكل الپول دفعة واحدة (بدل استعلام لكل محامٍ)
+        // انشغال اليوم لكل الپول **دفعةً واحدة** — من المصدر الموحّد نفسه
+        // الذي يقرأ منه `slotsFor`. وكان يقرأ المواعيد وحدها، فتعرض شبكة
+        // العميل ساعةً يحجبها المحرّك — وهو أخطر موضعٍ للتباين لأنّه الذي يراه العميل.
         $day = self::resolveDate($date);
         $isWorkDay = in_array($day->dayOfWeek, self::WORK_DAYS, true);
-        $apptsByLawyer = $isWorkDay
-            ? Appointment::whereIn('lawyer_id', $ids)->whereNotNull('starts_at')->whereDate('starts_at', $day->toDateString())
-                ->get(['lawyer_id', 'starts_at'])->groupBy('lawyer_id')
-            : collect();
+        $intervalsByLawyer = $isWorkDay
+            ? self::busyIntervalsForMany($ids, $day->toDateString())
+            : [];
 
         // وسم كل مرشّح بسجلّ النجاح والحمل من البيانات المجمّعة (بلا استعلام لكل محامٍ)
         $rows = $pool->map(function ($u) use ($tickets, $cases, $execs) {
@@ -107,8 +107,10 @@ class LawyerAvailability
 
         // ترتيب حتميّ فوري (الأكثر إنجازاً ← الأقل حملاً) — بلا نداء AI متزامن على نقطة تفاعلية
         // (كان rankLawyers يعلّق طلب اختيار الموعد حتى 150ث؛ الترتيب الحتميّ سريع وسليم).
-        return $rows->map(function (array $row) use ($apptsByLawyer, $isWorkDay, $day) {
-            $slots = self::slotsFromAppointments($apptsByLawyer->get($row['id'], collect()), $isWorkDay, $day);
+        return $rows->map(function (array $row) use ($intervalsByLawyer, $isWorkDay, $day) {
+            $slots = $isWorkDay
+                ? self::slotsFromIntervals($intervalsByLawyer[$row['id']] ?? [], $day)
+                : [];
             $row['slots'] = $slots;
             $row['freeCount'] = count(array_filter($slots, fn ($s) => ! $s['taken']));
 
@@ -185,6 +187,31 @@ class LawyerAvailability
      */
     public static function busyIntervals(int $lawyerId, string $day): array
     {
+        return self::busyIntervalsForMany([$lawyerId], $day)[$lawyerId] ?? [];
+    }
+
+    /**
+     * الفترات المشغولة **لمجموعة محامين دفعةً واحدة** — أربعة استعلامات لا أربعة لكلّ محامٍ.
+     *
+     * وُجدت لأن `rankedSpecialists` كان يستعمل مصدراً ثانياً أضيق (`slotsFromAppointments`)
+     * حفاظاً على ميزانيّة الاستعلامات، فافترق جوابُ «هل هذه الساعة متاحة؟» عن جواب
+     * `slotsFor`: شبكة العميل تعرض ساعةً يحجبها المحرّك. فصار المصدر واحداً والميزانيّة محفوظة.
+     *
+     * **و`whereBetween` لا `whereDate`:** دالّةٌ على العمود تُبطل الفهرس
+     * `['lawyer_id','starts_at']` فيُمسح الجدول كاملاً — ومع `lockForUpdate` في الحارس
+     * يصير قفلاً يتّسع بنموّ البيانات.
+     *
+     * @param  array<int,int>  $lawyerIds
+     * @return array<int, array<int, array{0:int,1:int}>> مفتاحه معرّف المحامي
+     */
+    public static function busyIntervalsForMany(array $lawyerIds, string $day): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $lawyerIds)));
+
+        if ($ids === []) {
+            return [];
+        }
+
         $toMin = function (?string $hm): ?int {
             if (! $hm || ! preg_match('/^(\d{1,2}):(\d{2})/', $hm, $m)) {
                 return null;
@@ -193,44 +220,76 @@ class LawyerAvailability
             return ((int) $m[1]) * 60 + (int) $m[2];
         };
 
-        $out = [];
+        $dayStart = Carbon::parse($day)->startOfDay();
+        $dayEnd = $dayStart->copy()->endOfDay();
+        $out = array_fill_keys($ids, []);
 
-        // (1) المواعيد — كان المصدر الوحيد لـisBusy/slotsFor
-        foreach (Appointment::where('lawyer_id', $lawyerId)->whereNotNull('starts_at')
-            ->whereDate('starts_at', $day)->get(['starts_at', 'duration_min']) as $a) {
-            if (($m = $toMin($a->starts_at?->format('H:i'))) !== null) {
-                $out[] = [$m, $m + ((int) ($a->duration_min ?: self::SLOT_MIN))];
+        $add = function (int $lawyerId, ?int $from, int $dur) use (&$out) {
+            if ($from !== null && isset($out[$lawyerId])) {
+                $out[$lawyerId][] = [$from, $from + ($dur ?: self::SLOT_MIN)];
             }
+        };
+
+        // (1) المواعيد
+        foreach (Appointment::whereIn('lawyer_id', $ids)->whereNotNull('starts_at')
+            ->whereBetween('starts_at', [$dayStart, $dayEnd])->get(['lawyer_id', 'starts_at', 'duration_min']) as $a) {
+            $add((int) $a->lawyer_id, $toMin($a->starts_at?->format('H:i')), (int) $a->duration_min);
         }
 
-        // (2) الاجتماعات — dur نصّي («60 دقيقة») فيُستخرج رقمه
-        foreach (Meeting::where('assigned_lawyer_id', $lawyerId)->where('status', '!=', 'ملغى')
-            ->whereDate('starts_at', $day)->get(['starts_at', 'dur']) as $mt) {
-            if (($m = $toMin($mt->starts_at?->format('H:i'))) !== null) {
-                $d = (int) (preg_match('/\d+/', (string) $mt->dur, $mm) ? $mm[0] : self::SLOT_MIN) ?: self::SLOT_MIN;
-                $out[] = [$m, $m + $d];
-            }
+        // (2) الاجتماعات — `dur` نصّيّ («60 دقيقة») فيُستخرج رقمه
+        foreach (Meeting::whereIn('assigned_lawyer_id', $ids)->where('status', '!=', 'ملغى')
+            ->whereBetween('starts_at', [$dayStart, $dayEnd])->get(['assigned_lawyer_id', 'starts_at', 'dur']) as $mt) {
+            $d = (int) (preg_match('/\d+/', (string) $mt->dur, $mm) ? $mm[0] : self::SLOT_MIN);
+            $add((int) $mt->assigned_lawyer_id, $toMin($mt->starts_at?->format('H:i')), $d);
         }
 
         // (3) الاستشارات
-        foreach (Consult::where('assigned_lawyer_id', $lawyerId)->where('status', '!=', 'ملغاة')
-            ->whereDate('starts_at', $day)->get(['starts_at', 'duration_min']) as $c) {
-            if (($m = $toMin($c->starts_at?->format('H:i'))) !== null) {
-                $out[] = [$m, $m + ((int) ($c->duration_min ?: self::SLOT_MIN))];
-            }
+        foreach (Consult::whereIn('assigned_lawyer_id', $ids)->where('status', '!=', 'ملغاة')
+            ->whereBetween('starts_at', [$dayStart, $dayEnd])->get(['assigned_lawyer_id', 'starts_at', 'duration_min']) as $c) {
+            $add((int) $c->assigned_lawyer_id, $toMin($c->starts_at?->format('H:i')), (int) $c->duration_min);
         }
 
         // (4) دعوات الاجتماعات التي لم تُنفَّذ بعد.
-        // '<' STAGE_EXECUTED يشمل المُرسَلة والمؤكَّدة، ويستثني المنتهية(4) والملغاة(5) لأنهما أكبر.
-        // كان الشرط '<' STAGE_CONFIRMED فتوقّف عن المطابقة حين صارت الدعوة تُولَد مؤكَّدة.
-        foreach (MeetRequest::where('assigned_lawyer_id', $lawyerId)->where('day', $day)
-            ->where('stage', '<', MeetRequest::STAGE_EXECUTED)->get(['time', 'duration_min']) as $r) {
-            if (($m = $toMin($r->time)) !== null) {
-                $out[] = [$m, $m + ((int) ($r->duration_min ?: self::SLOT_MIN))];
-            }
+        // '<' STAGE_EXECUTED يشمل المُرسَلة والمؤكَّدة، ويستثني المنتهية(4) والملغاة(5).
+        // (`meet_requests` بلا `starts_at`، فالمطابقة على سلسلة `day` — تُوحَّد في الدفعة ٦.)
+        foreach (MeetRequest::whereIn('assigned_lawyer_id', $ids)->where('day', $day)
+            ->where('stage', '<', MeetRequest::STAGE_EXECUTED)->get(['assigned_lawyer_id', 'time', 'duration_min']) as $r) {
+            $add((int) $r->assigned_lawyer_id, $toMin($r->time), (int) $r->duration_min);
         }
 
         return $out;
+    }
+
+    /**
+     * شرائح اليوم من فتراتٍ محسوبة — المولّد **الوحيد**.
+     *
+     * كان في المشروع مولّدان: هذا (بحساب تداخلٍ صحيح) و`slotsFromAppointments`
+     * (بمطابقة ساعة البداية على المواعيد وحدها) — والثاني هو ما يغذّي شبكة العميل.
+     *
+     * @param  array<int, array{0:int,1:int}>  $intervals
+     * @return array<int, array{time:string,taken:bool}>
+     */
+    private static function slotsFromIntervals(array $intervals, Carbon $day): array
+    {
+        $slots = [];
+        $pastHour = self::pastHourFor($day);
+
+        for ($h = self::WORK_START; $h < self::WORK_END; $h++) {
+            $from = $h * 60;
+            $to = $from + self::SLOT_MIN;
+            $overlaps = false;
+
+            foreach ($intervals as [$s, $e]) {
+                if ($from < $e && $to > $s) {
+                    $overlaps = true;
+                    break;
+                }
+            }
+
+            $slots[] = ['time' => sprintf('%02d:00', $h), 'taken' => $overlaps || $h <= $pastHour];
+        }
+
+        return $slots;
     }
 
     /** هل تتقاطع الفترة [start, start+dur) مع أي انشغال؟ */
@@ -256,52 +315,12 @@ class LawyerAvailability
     public static function slotsFor(int $lawyerId, ?string $date): array
     {
         $day = self::resolveDate($date);
+
         if (! in_array($day->dayOfWeek, self::WORK_DAYS, true)) {
             return [];
         }
 
-        // من المصدر الموحّد: كان يقرأ Appointment وحده ويعلّم الفترة محجوزة فقط إن **بدأ**
-        // موعد عندها بالضبط — فاجتماع 90 دقيقة من 14:00 يترك 15:00 تبدو متاحة.
-        $intervals = self::busyIntervals($lawyerId, $day->toDateString());
-
-        $slots = [];
-        $pastHour = self::pastHourFor($day);
-        for ($h = self::WORK_START; $h < self::WORK_END; $h++) {
-            $from = $h * 60;
-            $to = $from + self::SLOT_MIN;
-            $overlaps = false;
-            foreach ($intervals as [$s, $e]) {
-                if ($from < $e && $to > $s) {
-                    $overlaps = true;
-                    break;
-                }
-            }
-            $slots[] = ['time' => sprintf('%02d:00', $h), 'taken' => $overlaps || $h <= $pastHour];
-        }
-
-        return $slots;
-    }
-
-    /**
-     * يبني فترات اليوم من مواعيد المحامي المُحمّلة مسبقاً (بلا استعلام) — يخدم المسار المجمّع.
-     *
-     * @param  Collection<int, Appointment>  $appts
-     * @return array<int, array{time:string,taken:bool}>
-     */
-    private static function slotsFromAppointments($appts, bool $isWorkDay, Carbon $day): array
-    {
-        if (! $isWorkDay) {
-            return [];
-        }
-        $taken = $appts->map(fn (Appointment $a) => $a->starts_at->format('H:i'))->all();
-        $slots = [];
-        $pastHour = self::pastHourFor($day);
-        for ($h = self::WORK_START; $h < self::WORK_END; $h++) {
-            $time = sprintf('%02d:00', $h);
-            $slots[] = ['time' => $time, 'taken' => in_array($time, $taken, true) || $h <= $pastHour];
-        }
-
-        return $slots;
+        return self::slotsFromIntervals(self::busyIntervals($lawyerId, $day->toDateString()), $day);
     }
 
     /**

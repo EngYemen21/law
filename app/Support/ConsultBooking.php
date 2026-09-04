@@ -331,11 +331,19 @@ class ConsultBooking
             Live::push(new TicketStatusBroadcast($consult->ticket));
         }
 
-        self::sendBookingEmails($consult);
-
-        GoogleCalendarService::syncConsult($consult);
-
-        Live::push(new ConsultStatusBroadcast($consult));
+        // **الآثار الخارجيّة بعد الالتزام لا داخله.**
+        //
+        // `ConsultController::schedule` يلفّ هذه الدالّة في `DB::transaction`، فكان
+        // البريد والتقويم يُرسَلان **داخل معاملةٍ مفتوحة**: تراجُعُها لأيّ سبب يعني أن
+        // العميل والمحامي تلقّيا تأكيد موعدٍ **لا وجود له** في قاعدة البيانات. ونداءُ
+        // شبكةٍ بطيء داخل المعاملة يُبقي أقفالها مفتوحةً طوال مهلته.
+        //
+        // و`afterCommit` صحيحةٌ سواء أوُجدت معاملة خارجيّة أم لا: بلا معاملة تُنفَّذ فوراً.
+        DB::afterCommit(function () use ($consult) {
+            self::sendBookingEmails($consult);
+            GoogleCalendarService::syncConsult($consult);
+            Live::push(new ConsultStatusBroadcast($consult));
+        });
 
         return $consult;
     }
@@ -449,12 +457,13 @@ class ConsultBooking
             Live::push(new TicketStatusBroadcast($ticket));
         }
 
-        self::sendBookingEmails($consult);
-
-        GoogleCalendarService::syncConsult($consult);
-
-        // بثّ لحظي — شاشات المكتب المفتوحة (استقبال الاستشارات/الطلبات) كانت لا تعلم بالحجز الفوري
-        Live::push(new ConsultStatusBroadcast($consult));
+        // الآثار الخارجيّة بعد الالتزام — نظير `schedule()`؛ التعليل هناك.
+        // والبثّ معها: شاشات المكتب لا تُخبَر بحجزٍ قد يتراجع.
+        DB::afterCommit(function () use ($consult) {
+            self::sendBookingEmails($consult);
+            GoogleCalendarService::syncConsult($consult);
+            Live::push(new ConsultStatusBroadcast($consult));
+        });
 
         return $consult;
     }
@@ -523,23 +532,29 @@ class ConsultBooking
     }
 
     /** يرمي خطأ تحقّق إن كان الموعد يتعارض مع موعد مؤكد آخر للمحامي (مع قفل السجلات). */
+    /**
+     * الحارس داخل المعاملة — **المصدر نفسه** الذي يفحصه ما قبله.
+     *
+     * كان يقرأ `appointments` وحده بينما الفحص الأوّليّ (`isBusy`) يقرأ أربعة جداول،
+     * فهو أضيق من الحاجز الذي سبقه: اجتماعٌ أو دعوةٌ في الوقت نفسه لا يمنعانه.
+     * وهو خطّ الدفاع الأخير في السباق، فضِيقُه يعني أن سباقاً بين حجزٍ واجتماع يمرّ.
+     *
+     * والآن يستعمل `LawyerAvailability::isBusy` نفسها — فلا يمكن للحاجزين أن يفترقا
+     * مستقبلاً لأنهما صارا شيفرةً واحدة.
+     *
+     * ويبقى القفل: `lockForUpdate` على مواعيد اليوم يُسلسل المتسابقين على المحامي
+     * نفسه. (توسيع القفل ليشمل الجداول الأربعة شأنُ الدفعة ٧ — قفلُ صفّ المحامي.)
+     */
     private static function guardNoConflict(int $lawyerId, Carbon $start, int $duration): void
     {
-        $end = $start->copy()->addMinutes($duration);
-
-        $conflict = Appointment::where('lawyer_id', $lawyerId)
+        // القفل أوّلاً: يُسلسل الحجوزات المتزامنة على هذا المحامي في هذا اليوم
+        Appointment::where('lawyer_id', $lawyerId)
             ->whereNotNull('starts_at')
-            ->whereDate('starts_at', $start->toDateString())
+            ->whereBetween('starts_at', [$start->copy()->startOfDay(), $start->copy()->endOfDay()])
             ->lockForUpdate()
-            ->get()
-            ->contains(function (Appointment $a) use ($start, $end) {
-                $aStart = $a->starts_at;
-                $aEnd = $aStart->copy()->addMinutes((int) ($a->duration_min ?: 60));
+            ->get(['id']);
 
-                return $start->lt($aEnd) && $end->gt($aStart);
-            });
-
-        if ($conflict) {
+        if (LawyerAvailability::isBusy($lawyerId, $start, $duration)) {
             throw ValidationException::withMessages([
                 'starts_at' => 'هذا الموعد محجوز لدى المستشار، فضلاً اختر موعداً آخر.',
             ]);

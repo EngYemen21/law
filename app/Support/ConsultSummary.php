@@ -24,10 +24,14 @@ class ConsultSummary
             return false;
         }
 
+        // يُهيَّأ خارج الشرط: `return ! empty($updates)` في الذيل يقرؤه ولو لم يُرجع
+        // Zoom تفاصيل — فيرمي «Undefined variable» في PHP 8، ويُقيَّم `false` صامتاً
+        // في اختبارٍ لا يرفع التحذيرات.
+        $updates = [];
+
         // 1. جلب تفاصيل الجلسة المنتهية (المشاركون، التسجيل المرئي والصوتي، رابط المشاركة)
         $details = $zoom->fullPastMeetingDetails((string) $consult->meet_id);
         if ($details) {
-            $updates = [];
             if ($details['uuid'] && ! $consult->zoom_uuid) {
                 $updates['zoom_uuid'] = $details['uuid'];
             }
@@ -65,11 +69,26 @@ class ConsultSummary
                 ?? ZoomService::summaryFromPayload($payload);
 
             if ($summary !== null) {
-                $consult->update([
-                    'summary' => ZoomSummaryText::format("ملخص الاستشارة — {$consult->ref}", $summary),
+                $text = ZoomSummaryText::format("ملخص الاستشارة — {$consult->ref}", $summary);
+
+                $updateData = [
+                    // مادّة الجلسة تُحفظ **دائماً** في عمودها — نظير `meetings.zoom_summary`
+                    'zoom_summary' => $text,
                     'zoom_summary_at' => now(),
                     'zoom_ai_next_steps' => $summary['next_steps'] ?? [],
-                ]);
+                ];
+
+                // أمّا حقل العميل فلا يُلمس إلّا إن كان قالبياً أو فارغاً. كان يُكتب
+                // مباشرةً، فمع مسار الاعتماد صار ذلك يستبدل صامتاً نصّاً اعتمده محامٍ
+                // وقرأه العميل بمخرج نموذجٍ لم يمرّ به أحد. والقاعدة منقولة من
+                // `MeetingSummary`. وأثرٌ نافع: حالة «انتهت بلا تدوين» تترك `summary`
+                // فارغاً، و`isPlaceholderSummary(null) === true` — فيصير Zoom موردَ
+                // المادّة التلقائيّ لتلك الحالة بلا شرطٍ خاصّ.
+                if (ZoomSummaryText::isPlaceholderSummary($consult->summary)) {
+                    $updateData['summary'] = $text;
+                }
+
+                $consult->update($updateData);
                 Live::push(new ConsultStatusBroadcast($consult->fresh()));
 
                 // القرارات → **اقتراحات** لا مهامّ: مخرج نموذج لا يُنشئ التزاماً على

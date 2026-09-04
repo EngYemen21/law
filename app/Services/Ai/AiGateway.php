@@ -39,7 +39,15 @@ class AiGateway
         $this->lastUsage = $usage;
     }
 
-    public function call(callable $caller, ?string $traceId = null): AiCallResult
+    /**
+     * @param  string|null  $promptId  معرّف التعليمة — **يُسجَّل به النموذج المُستعمَل فعلاً**.
+     *                                 كان القيد يكتب نموذج الإعداد
+     *                                 (`config("services.{$p}.model")`) بينما الطلب
+     *                                 يُرسَل بـ`AiModelRouter::modelFor($p, $promptId)`.
+     *                                 فمتى ضُبط تجاوزٌ لمهمّة بعينها سجّل التدقيق نموذجاً
+     *                                 **لم يُنادَ** — وهو عين ما وُضع الموجِّه ليمنعه.
+     */
+    public function call(callable $caller, ?string $traceId = null, ?string $promptId = null): AiCallResult
     {
         $this->lastUsage = null;
 
@@ -84,7 +92,7 @@ class AiGateway
                         traceId: $traceId,
                         durationMs: self::elapsed($startedAt),
                         provider: $provider,
-                        model: (string) config("services.{$provider}.model"),
+                        model: AiModelRouter::modelFor($provider, $promptId),
                         usage: $this->lastUsage,
                     );
                 }

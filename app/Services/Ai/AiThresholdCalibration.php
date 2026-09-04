@@ -82,13 +82,25 @@ class AiThresholdCalibration
      */
     private static function sample(int $days): array
     {
+        // **الأسماء كما تُخزَّن في `task_type` لا كما تُسجَّل في `SENSITIVITY`.**
+        //
+        // مفاتيح `SENSITIVITY` معرّفاتُ تعليمات (`ticket.triage`)، والمخزَّن في العمود
+        // اسمٌ قصير (`triage`) لأن `TicketTriage` تمرّر المعرّف في `policyTask`. فكانت
+        // `whereIn` تُطابق ما لا يُكتب: **العيّنة صفرٌ أبداً**، والشاشة تُظهر
+        // «recommended: null» دائماً، ولا تُعايَر العتبة من قرارٍ بشريّ واحد مهما
+        // راجع المكتب. وقد قِيس على قاعدة التطوير: ١٥ قيد `triage` بثقةٍ مقيسة،
+        // ولا واحد منها يدخل العيّنة.
         $medium = array_keys(array_filter(AiPolicyGate::SENSITIVITY, fn ($s) => $s === 'medium'));
+        $stored = array_values(array_unique(array_map(
+            fn (string $promptId) => AiRunLogger::storedTaskType($promptId),
+            $medium
+        )));
 
         return AiRun::query()
             ->where('created_at', '>=', now()->subDays($days))
             ->whereNotNull('confidence')
             ->whereNotNull('review_action')
-            ->whereIn('task_type', $medium)
+            ->whereIn('task_type', $stored)
             ->get(['confidence', 'review_action'])
             ->map(fn (AiRun $run) => [
                 'confidence' => (int) $run->confidence,

@@ -5,7 +5,7 @@ import BookingActions from '@/components/babylon/BookingActions';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { lawyerFirst } from '@/lib/consult-ui';
-import type { ConsultCard } from '@/lib/consult-ui';
+import type { ClientConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { CONSULT_BOOKING_STATUSES, crChannelIcon, crChannelTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
@@ -24,9 +24,9 @@ export interface ConsultStats {
 }
 
 interface Props {
-  consults: ConsultCard[];
+  consults: ClientConsultCard[];
   stats?: ConsultStats;
-  nextConsult?: ConsultCard | null;
+  nextConsult?: ClientConsultCard | null;
 }
 
 const MyConsults: React.FC<Props> = ({
@@ -35,14 +35,14 @@ const MyConsults: React.FC<Props> = ({
   nextConsult: initialNextConsult,
 }) => {
   const toast = useToast();
-  const [items, setItems] = useState<ConsultCard[]>(consults);
+  const [items, setItems] = useState<ClientConsultCard[]>(consults);
   // الافتراضي يُشتق من البيانات: القادم من /book حالته «بانتظار التسعير/السداد» — فتح
   // upcoming دائماً كان يخفي طلبه الجديد وزرّ الدفع خلف تبويب آخر ويريه «لا توجد استشارات»
   const [activeTab, setActiveTab] = useState<'upcoming' | 'pending' | 'completed' | 'all'>(
     () => (consults.some((c) => CONSULT_BOOKING_STATUSES.includes(c.status)) ? 'pending' : 'upcoming'),
   );
   const [searchQuery, setSearchQuery] = useState('');
-  const [summaryOf, setSummaryOf] = useState<ConsultCard | null>(null);
+  const [summaryOf, setSummaryOf] = useState<ClientConsultCard | null>(null);
 
   // تحديث القائمة عند تغير props
   useEffect(() => {
@@ -64,6 +64,8 @@ return;
             session: string;
             status: string;
             summary: string | null;
+            summaryPending?: boolean;
+            summaryApproved?: boolean;
             duration: string | null;
             canJoin?: boolean;
             price?: number;
@@ -81,7 +83,11 @@ return;
                       ...x,
                       session: e.session ?? x.session,
                       status: e.status ?? x.status,
-                      summary: e.summary ?? x.summary,
+                      // `??` يُبقي القيمة البائتة: لو بُثّ سحبُ الاعتماد (summary=null)
+                      // بقي النصّ المعروض في المتصفّح. الحضور في الحمولة هو الحكم.
+                      summary: 'summary' in e ? e.summary : x.summary,
+                      summaryPending: e.summaryPending ?? x.summaryPending,
+                      summaryApproved: e.summaryApproved ?? x.summaryApproved,
                       duration: e.duration ?? x.duration,
                       canJoin: e.canJoin ?? x.canJoin,
                       price: e.price ?? x.price,
@@ -106,9 +112,9 @@ return;
   }, [consults]);
 
   // الانضمام يفتح غرفة الجلسة المضمّنة داخل المنصّة (Zoom Meeting SDK)
-  const enterRoom = (c: ConsultCard) => router.visit(`/consults/room?ref=${encodeURIComponent(c.ref)}`);
+  const enterRoom = (c: ClientConsultCard) => router.visit(`/consults/room?ref=${encodeURIComponent(c.ref)}`);
 
-  const copyLink = (c: ConsultCard) => {
+  const copyLink = (c: ClientConsultCard) => {
     if (navigator.clipboard && c.slink) {
       navigator.clipboard.writeText(c.slink);
       toast('تم نسخ رابط الجلسة للحافظة بنجاح');
@@ -184,7 +190,7 @@ return list;
                 <Icon name="scale" cls="ic" /> منظومة الاستشارات القانونية 360°
               </span>
               <span style={{ fontSize: 12, color: '#e0f2fe' }}>
-                جلسات معتمدة وموثقة
+                جلساتك ومواعيدها
               </span>
             </div>
             <h2>مركز إدارة الاستشارات والجلسات القانونية 🏛️</h2>
@@ -535,7 +541,10 @@ return list;
                       ) : isCompleted ? (
                         <>
                           <Badge text="منتهية ومعتمدة" tone="b-green" />
-                          {c.summary && (
+                          {/* الشرط على حالة الاعتماد لا على وجود النصّ: النصّ قد يصل
+                              المتصفّح بائتاً، والحالة هي ما يقرّره الخادم. والمعلّق
+                              يفتح النافذة أيضاً ليقرأ العميل سبب الانتظار. */}
+                          {(c.summaryApproved || c.summaryPending) && (
                             <button
                               className="btn soft sm"
                               onClick={() => setSummaryOf(c)}

@@ -109,7 +109,11 @@ class CorrespondenceFlow
             throw ValidationException::withMessages(['stage' => 'لا يمكن استقبال ردّ قبل إرسال المخاطبة.']);
         }
 
+        // **لا تُسجَّل واقعةُ ورود ردٍّ بلا ردّ.** `reply()` يعيد `null` حين يتعذّر
+        // جلبه فعلاً، وكان يعيد نصّاً مُختلَقاً فيُقفَل الملفّ على «موافقة» لم تصدر.
         $reply = $corr->reply_body ?: app(ExternalSystemService::class)->reply($corr);
+        abort_if($reply === null, 422, 'تعذّر جلب ردّ الجهة من النظام الخارجيّ — لم تُسجَّل واقعة الاستلام. أعد المحاولة أو دوّن الردّ يدوياً.');
+
         $corr->logAudit('استقبال الردّ من النظام الخارجيّ', $corr->channel ?: 'النظام الخارجيّ');
         self::setStage($corr, 5, ['reply_body' => $reply, 'ext_status' => 'صدر الرد من الجهة', 'ext_synced_at' => now()]);
 

@@ -46,7 +46,7 @@ class ScheduleController extends Controller
     {
         $data = $request->validate([
             'lawyer_id' => ['required', 'integer', 'exists:users,id'],
-            'date' => ['required', 'date', 'after_or_equal:today'],
+            'date' => ['required', 'date_format:Y-m-d', 'after_or_equal:today'],
         ]);
 
         $slots = LawyerAvailability::slotsFor((int) $data['lawyer_id'], $data['date']);
@@ -59,8 +59,8 @@ class ScheduleController extends Controller
         $data = $request->validate([
             'client_id' => ['required', 'integer', 'exists:users,id'],
             'type' => ['required', 'string', 'in:office,video,phone'],
-            'date' => ['required', 'date', 'after_or_equal:today'],
-            'time' => ['required', 'string', 'regex:/^\d{2}:\d{2}$/'],
+            'date' => ['required', 'date_format:Y-m-d', 'after_or_equal:today'],
+            'time' => ['required', 'string', 'date_format:H:i'],
             // المحامي اختياري؛ إن اختير يجب أن يكون نشطاً (يمنع تمرير عميل/موظف/إداري).
             'lawyer_id' => ['nullable', 'integer', new ActiveLawyer],
             'subject' => ['nullable', 'string', 'max:120'],

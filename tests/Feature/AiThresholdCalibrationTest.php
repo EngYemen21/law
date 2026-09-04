@@ -22,7 +22,15 @@ class AiThresholdCalibrationTest extends TestCase
     use RefreshDatabase;
 
     /** @param  array<int, array{0:int,1:AiReviewAction}>  $rows [الثقة، قرار المراجع] */
-    private function reviews(array $rows, string $task = 'ticket.triage'): void
+    /**
+     * القيمة الافتراضيّة `triage` **لا `ticket.triage`**.
+     *
+     * `TicketTriage` تكتب الاسم القصير في `task_type` وتمرّر معرّف التعليمة
+     * في `policyTask`. وكان هذا الملفّ يكتب المعرّف، فيطابق فلترً **معطوباً
+     * بالعطب نفسه**: الاختبار يمرّ والأداة عمياء أمام بيانات الإنتاج.
+     * وهذا أسوأ من غياب اختبارٍ: الخضرة تُقرأ ضماناً.
+     */
+    private function reviews(array $rows, string $task = 'triage'): void
     {
         foreach ($rows as [$confidence, $action]) {
             AiRun::create([
@@ -154,7 +162,7 @@ class AiThresholdCalibrationTest extends TestCase
     public function test_unmeasured_confidence_is_not_part_of_the_sample(): void
     {
         AiRun::create([
-            'task_type' => 'ticket.triage',
+            'task_type' => 'triage',
             'source' => AiSource::AiSuccess->value,
             'status' => AiRun::STATUS_COMPLETED,
             'trace_id' => (string) Str::uuid(),
@@ -169,7 +177,7 @@ class AiThresholdCalibrationTest extends TestCase
     public function test_an_unreviewed_run_is_not_evidence(): void
     {
         AiRun::create([
-            'task_type' => 'ticket.triage',
+            'task_type' => 'triage',
             'source' => AiSource::AiSuccess->value,
             'status' => AiRun::STATUS_COMPLETED,
             'trace_id' => (string) Str::uuid(),

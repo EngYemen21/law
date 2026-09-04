@@ -31,3 +31,5 @@ yarn-error.log
 /scratch
 __pycache__/
 *.pyc
+# أثر أداة التحرير المحلّية — اسمٌ عشوائيّ يتغيّر بكل جلسة
+/storage/framework/lsp-*.php

@@ -66,12 +66,23 @@ class CaseLifecycleTest extends TestCase
         $case = $this->caseFor($client, ['status' => 'منظورة', 'pleading_status' => 'approved', 'assigned_lawyer_id' => $lawyer->id]);
 
         $this->actingAs($lawyer)->post(route('lawyer.cases.hearings.add', $case), [
-            'title' => 'الجلسة الأولى', 'day' => 'الخميس 02 يوليو', 'time' => '10:00 ص', 'court' => 'الدائرة التجارية',
+            // ما ترسله الواجهة فعلاً: `<input type="date">` و`TimeSlotPicker` يُخرجان `Y-m-d` و`H:i`.
+            // وكان القيد يكتب «الخميس 02 يوليو» و«10:00 ص» — مدخلٌ لا ينتجه زرّ،
+            // فيختبر مساراً لا يسلكه مستخدم، ويُثبّت التساهل الذي يُنتج `starts_at = null`.
+            'title' => 'الجلسة الأولى', 'day' => now()->addDays(20)->toDateString(), 'time' => '10:00', 'court' => 'الدائرة التجارية',
         ])->assertRedirect();
 
         $case->refresh();
         $hearing = $case->hearings()->firstOrFail();
-        $this->assertSame('الخميس 02 يوليو · 10:00 ص', $case->next_hearing);
+        // التسمية **مشتقّة من اللحظة** لا منسوخة من المدخل — فلا تقول الواجهة
+        // شيئاً و`starts_at` شيئاً آخر (أو لا تقول شيئاً).
+        $this->assertNotNull($hearing->starts_at, 'بلا طابع زمنيّ لا يصل تذكير');
+        $this->assertStringContainsString('10:00', (string) $case->next_hearing);
+        $this->assertStringContainsString(
+            $hearing->starts_at->locale('ar')->translatedFormat('d F Y'),
+            (string) $case->next_hearing,
+            'التسمية تتبع الطابع الزمنيّ'
+        );
         $this->assertSame('مجدولة', $hearing->status);
 
         // العميل يرى الجلسة

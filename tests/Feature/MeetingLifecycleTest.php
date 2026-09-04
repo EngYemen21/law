@@ -102,7 +102,33 @@ class MeetingLifecycleTest extends TestCase
         Mail::assertQueued(MeetingEventMail::class, fn ($m) => $m->hasTo('lw@example.com'));
     }
 
-    public function test_reschedule_without_time_marks_postponed_and_skips_zoom(): void
+    /**
+     * **التأجيل بلا موعد يبقى ممكناً — لكن بنيّةٍ صريحة.**
+     *
+     * كان يقع بكتابة أيّ نصٍّ لا يُفكّ في حقل التاريخ: تأجيلٌ بالمصادفة لا بالقصد.
+     * وتشديدُ الصيغة وحده كان سيجعل الحالة «مؤجل» **غير قابلة للبلوغ** رغم أن لها
+     * تبويباً وعدّاداً في لوحة الاجتماعات — عدّادٌ يتجمّد فيبدو أنه لا تأجيل في المكتب.
+     */
+    public function test_an_explicit_postpone_marks_postponed_and_skips_zoom(): void
+    {
+        $this->configureS2S();
+        $this->fakeZoom();
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $meeting = $this->meeting($lawyer);
+
+        $this->actingAs($lawyer)
+            ->post(route('lawyer.meetings.reschedule', $meeting), ['postpone' => true])
+            ->assertRedirect();
+
+        $fresh = $meeting->fresh();
+        $this->assertSame('مؤجل', $fresh->status);
+        $this->assertNull($fresh->starts_at, 'التأجيل بلا موعد — ولا يُخترع له طابع زمنيّ');
+        // ولا يُمسّ اجتماع Zoom: التأجيل ليس إلغاءً، والخلط بينهما يحذف الغرفة.
+        Http::assertNothingSent();
+    }
+
+    /** **والنصّ الحرّ لم يعد باباً خلفياً إليها:** يُرفض برسالة، ولا يُؤجّل صامتاً. */
+    public function test_unparseable_text_no_longer_postpones_by_accident(): void
     {
         $this->configureS2S();
         $this->fakeZoom();
@@ -111,10 +137,9 @@ class MeetingLifecycleTest extends TestCase
 
         $this->actingAs($lawyer)
             ->post(route('lawyer.meetings.reschedule', $meeting), ['day' => 'يُحدَّد لاحقًا'])
-            ->assertRedirect();
+            ->assertSessionHasErrors('day');
 
-        $this->assertSame('مؤجل', $meeting->fresh()->status);
-        $this->assertNull($meeting->fresh()->starts_at);
+        $this->assertSame('قادم', $meeting->fresh()->status, 'نصٌّ لا يُفكّ لا يُغيّر الحالة');
         Http::assertNothingSent();
     }
 

@@ -9,7 +9,11 @@ import Icon from '@/lib/icons';
 // إجراءات دورة الحجز (تسعير → دفع الفاتورة الحقيقي عبر ميسّر → اختيار الموعد بعد السداد)
 // مشتركة بين «احجز استشارة» و«استشاراتي» — نفس المنطق، بلا تكرار.
 // اختيار الموعد يُعرض داخل نافذة منبثقة (تطابق bkSlots بالتصميم المرجعي) بدل تمديد صفّ القائمة.
-const BookingActions: React.FC<{ c: ConsultCard; toast: (m: string) => void }> = ({ c, toast }) => {
+// يقرأ خمسة حقول لا غير، فيطلبها وحدها — فيخدم بطاقة الطاقم وبطاقة العميل معاً
+// بلا أن يدّعي حاجةً إلى حقولٍ لا تصل صفحة العميل أصلاً.
+type BookingCard = Pick<ConsultCard, 'id' | 'specialty' | 'status' | 'subject' | 'total'>;
+
+const BookingActions: React.FC<{ c: BookingCard; toast: (m: string) => void }> = ({ c, toast }) => {
   const [open, setOpen] = useState(false);
   const [date, setDate] = useState(todayISO());
   const [lawyerId, setLawyerId] = useState<number | null>(null);

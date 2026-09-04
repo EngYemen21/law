@@ -93,7 +93,10 @@ interface Calibration {
 interface TaskSwitch {
   task: string;
   enabled: boolean;
-  gate: number;
+  /** حساسيّة `AiPolicyGate` — العالية أولى ما يُطفَأ عند تراجع الجودة. */
+  sensitivity: string;
+  /** `null` = لا حالات تقييم لهذا المسار — وذلك لا يمنع إطفاءه. */
+  gate: number | null;
   rate: number | null;
   meets: boolean | null;
 }
@@ -305,10 +308,11 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
                   onChange={(e) => setSwitches({ ...switches, [t.task]: e.target.checked })}
                 />
                 {t.task}
+                {t.sensitivity === 'high' && <span className="badge b-red">عالية</span>}
               </label>
               <span>
-                {t.rate === null ? (
-                  <span className="badge b-amber">لم يُقَس بعد</span>
+                {t.rate === null || t.gate === null ? (
+                  <span className="badge b-amber">{t.gate === null ? 'لا حالات تقييم' : 'لم يُقَس بعد'}</span>
                 ) : (
                   <span className={`badge ${t.meets ? 'b-green' : 'b-red'}`}>
                     {Math.round(t.rate * 100)}% · بوّابة {Math.round(t.gate * 100)}%

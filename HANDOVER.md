@@ -255,10 +255,18 @@ npm install && npm run build
   حقول Zoom (`meet_id, meet_link(500), host_link(1000), meet_password, link_released_at, join_time,
   leave_time, duration_sec, transcript(longText), transcript_path, recording_url, zoom_summary_at`),
   `status`(index), `session`(index: بانتظار الجلسة/جلسة جارية/منتهية), `session_notes`, `summary`,
-  `decisions`(json), `tasks_created`(bool), دورة الحجز (`price/vat/total, priced_at, paid_at`), تحليل AI
-  (`ai_done, ai_class, ai_summary, ai_lawyer, missing(json), audit(json)`).
-  - ثابت النموذج `PRE_SESSION_STATUSES=['بانتظار التسعير','بانتظار السداد','بانتظار تحديد الموعد']`؛
-    دوال `canJoin/joinLink/toClientCard/toCard/logAudit`.
+  `decisions`(json), `suggested_tasks`(json — اقتراحات لا التزامات), `tasks_created`(bool),
+  دورة الحجز (`price/vat/total, priced_at, paid_at`), تحليل AI
+  (`ai_done, ai_class, ai_summary, ai_lawyer, ai_source, missing(json), audit(json)`).
+  - **حوكمة الملخّص** (أعمدة أُضيفت في 2026-09): `summary_approved_at/_by` (بوّابة وصوله العميل)،
+    `summary_ai_original` (مخرج النموذج مجمَّداً عند أوّل تحرير)، `summary_edited_at/_by`،
+    **`summary_ai_source`** (مصدر **الملخّص** — غير `ai_source` الذي يصف تحليل ما قبل الجلسة؛
+    خلطُهما كان يُعيد وسم تحليلٍ نجح بأنه فاشل)، `session_finalized_at` (حارس تكرار الإشعار)،
+    `zoom_summary` (مادّة Zoom مفصولة عن نصّ العميل).
+  - ثابتا النموذج: `PRE_SESSION_STATUSES` (ثلاث حالات ما قبل الجلسة) و**`STATUSES`**
+    (كتالوج الحالات الأربع عشرة — كلّ قيمةٍ فيه يكتبها مسارٌ حيّ، ويحرسه
+    `ConsultStatusCatalogueTest`)؛ ودوالّ `canJoin/isStartable/isMissed/joinLink/
+    toClientCard/toCard/summaryApproved/logAudit`.
 
 ### 8.5 المواعيد والاجتماعات (المجال هـ)
 - **`appointments`**: `user_id`, `ticket_id`(nullOnDelete), `ext_id`, `type`, `lawyer(_id)`, `day`, `time`,
@@ -531,14 +539,24 @@ ALIASES: بانتظار مستندات(1) · بانتظار اعتماد الم�
 - **الإحالة:** `referToLawyer` يكتب ملخّصاً رباعيّاً قالبيّاً فوراً ثم `GenerateTicketSummaryJob` يُرقّيه
   بتحليل AI حقيقيّ (شفاء ذاتيّ حتى 24 ساعة، ثم تصعيد بشريّ عند الفشل).
 - **الاعتماد:** المحامي `approveSummary` → «الرأي القانوني»؛ الجلسة → `approveResult` → «بانتظار اعتماد الإدارة»
-  → اعتماد الإدارة → «مكتملة» → `CaseConversion::convert` (اختياريّ) لإنشاء قضية بحالة «بانتظار اعتماد الأتعاب».
+  → اعتماد الإدارة → «مكتملة» → `CaseConversion::convert` لإنشاء قضية بحالة «بانتظار اعتماد الأتعاب».
 - **بوّابة الموظف:** `Employee\TicketController::advance` تحرس البوابات (مستندات، إحالة، انعقاد جلسة)
   و`status` تحرس الانتقالات (`TicketJourney::canTransition` — لا تقدّم للأمام عبر القائمة اليدويّة).
 
 ### 11.2 رحلة الاستشارة (Consult) — دورة الحجز
 `TicketController::book` (طلب نوع) → تسعير الإدارة (`Staff\ConsultController::setPrice`) → دفع
 (`ConsultController::pay`→ميسّر→`payCallback`) → اختيار موعد (`ConsultController::schedule`، إسناد ذكيّ
-بأقفال تزامن، يضبط التذكرة «موعد مؤكد») → جلسة (`start`/`end`) → `FinalizeConsultJob` (ملخّص + قرارات).
+بأقفال تزامن، يضبط التذكرة «موعد مؤكد») → إطلاق الرابط (`zoom:release-links`، قبل الموعد بـ٥د) →
+جلسة (`start` داخل نافذة ربع الساعة يفرضها الخادم / `end` **يُنهي اجتماع Zoom أيضاً**) →
+`FinalizeConsultJob` (ملخّص + قرارات) → **اعتماد بشريّ** → وصولُه العميل.
+
+**والاعتماد خطوةٌ لازمة لا تفصيل:** الملخّص المولَّد **محجوبٌ عن العميل** حتى يعتمده محامٍ
+(`Consult::toClientCard` يُرجع `null` قبل الاعتماد، والقرارات تتبعه). ويقع الاعتماد من بابين
+بكاتبٍ واحد (`AiReviewOutcome::approveConsultSummary`): صندوق المراجعة `/{role}/ai-review`،
+أو شاشة الملفّ `POST /{role}/consults/{id}/summary/approve`. والباب الثاني لازم لأن ملخّصاً
+يكتبه المحامي بيده — حين تنتهي الجلسة بلا تدوين — لا قيد له في `ai_runs` فلا يبلغ الصندوق أبداً.
+وصلاحيّة التحرير/الاعتماد `اعتماد/تعديل ملخص الاستشارة`: **البوّابة صلاحيّة لا دور**، فالموظّف
+يقرأ ولا يحرّر إلّا أن تمنحه الإدارة العليا إيّاها.
 
 ### 11.3 القضايا (Case Lifecycle) — `CaseJourney`
 تُنشأ القضية من تذكرة مكتملة عبر `CaseConversion::convert` بحالة **«بانتظار اعتماد الأتعاب»**

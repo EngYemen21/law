@@ -2,9 +2,11 @@
 
 namespace App\Jobs;
 
+use App\Enums\AiSource;
 use App\Models\CaseDocument;
 use App\Models\LegalCase;
 use App\Services\Ai\AiQueue;
+use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -72,6 +74,18 @@ class AnalyzeCaseDocumentJob implements ShouldQueue
 
             return;
         }
+
+        // **فحصُ المستند يُسجَّل كأيّ مخرج ذكاء.** كان يجري بلا قيدٍ إطلاقاً، فلا يظهر
+        // في المؤشّرات ولا الكلفة ولا صندوق المراجعة — بينما حكمُه يُكتب في الملفّ
+        // (`doc_type` و`summary`) ويقرؤه المحامي كأنّه واقعة. نظير ما أُصلح في فحص
+        // مستند التذكرة (`TicketTriage::classifyDoc`).
+        AiRunLogger::log(
+            'document.analyze',
+            AiSource::AiSuccess,
+            is_array($analysis['meta'] ?? null) ? $analysis['meta'] : [],
+            $this->case,
+            (string) $this->case->number,
+        );
 
         $doc->update([
             'status' => 'محلَّل',

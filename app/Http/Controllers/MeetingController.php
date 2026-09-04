@@ -46,7 +46,9 @@ class MeetingController extends Controller
                 'joinLink' => $c->joinLink($request->user()),
                 'status' => $c->status,
                 'session' => $c->session,
-                'lawyer' => $c->lawyer ?: 'مستشار معتمد',
+                // البديل يصف الغياب: «مستشار معتمد» كانت تُستعمل مكان **لا محامي
+                // مُسنَد**، فتقرأ اعتماداً حيث لا إسناد أصلاً.
+                'lawyer' => $c->lawyer ?: 'لم يُسنَد بعد',
             ]);
 
         $stats = [

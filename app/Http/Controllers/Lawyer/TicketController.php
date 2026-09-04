@@ -16,6 +16,7 @@ use App\Models\LegalCase;
 use App\Models\Meeting;
 use App\Models\Task;
 use App\Models\Ticket;
+use App\Services\Ai\AiReviewOutcome;
 use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use App\Services\MailService;
@@ -28,6 +29,7 @@ use App\Support\ReportPrint;
 use App\Support\ServiceDocs;
 use App\Support\SummaryReport;
 use App\Support\TicketJourney;
+use App\Support\TicketResult;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -163,7 +165,7 @@ class TicketController extends Controller
             ])->values();
 
         // 4. استشارات واجتماعات اليوم / القادمة للمحامي
-        $consultsQuery = Consult::with(['user', 'appointment'])
+        $consultsQuery = Consult::with(['user', 'appointment', 'ticket:id,number', 'ticket.legalCase:id,ticket_id,number'])
             ->where(fn ($q) => $q->where('assigned_lawyer_id', $lawyerId)->orWhere('lawyer', $lawyerName))
             ->whereNotIn('status', Consult::PRE_SESSION_STATUSES)
             ->orderByRaw('starts_at IS NULL')
@@ -499,18 +501,33 @@ class TicketController extends Controller
             ]);
         }
 
-        if ($summary->status !== 'approved') {
+        $firstApproval = $summary->status !== 'approved';
+        if ($firstApproval) {
             $summary->status = 'approved';
             $summary->approved_at = now();
             $summary->lawyer_id = $request->user()->id;
         }
         $summary->save();
 
+        // **الاعتماد هنا قرارُ مراجعةٍ أيضاً.** كان يُسجَّل في `ticket_summaries`
+        // وحدها، فيبقى قيد `ai_runs` بلا قرارٍ وبحالة «تحتاج مراجعة» أبداً —
+        // فيعرضه الصندوق معلَّقاً، ولا يعدّه `humanEditRate`، ويقول تقرير الحوكمة
+        // «لم يُراجَع» لمخرجٍ اعتمده محامٍ وأُرسل للعميل. و`$edited` محسوبٌ أعلاه،
+        // فيُميَّز «قبول» من «تعديل ثم قبول» بلا تخمين.
+        if ($firstApproval) {
+            AiReviewOutcome::recordFileApproval('ticket.summary', $ticket->number, $request->user(), $edited);
+        }
+
         // الرأي القانوني المبدئي يظهر للعميل (من النقاط المهمة المعتمدة)
-        $opinion = trim((string) $summary->key_points) !== ''
+        // الغياب يُعلَن ولا يُملأ: كان يُكتب «تمت الدراسة المبدئية للملف» تحت
+        // عنوان «وفيما يلي الرأي القانوني المبدئي» حين لا توصيات أصلاً — فيقرأ
+        // العميل دراسةً مكان رأيٍ خالٍ. والنمط من `TicketResult::NO_RECOMMENDATIONS`.
+        $hasOpinion = trim((string) $summary->key_points) !== '';
+        $opinion = $hasOpinion
             ? nl2br(e($summary->key_points))
-            : 'تمت الدراسة المبدئية للملف.';
-        $body = '<p>تم اعتماد ملخص ملفكم من المستشار القانوني، وفيما يلي الرأي القانوني المبدئي:</p>'
+            : e(TicketResult::NO_RECOMMENDATIONS);
+        $body = '<p>تم اعتماد ملخص ملفكم من المستشار القانوني'
+            .($hasOpinion ? '، وفيما يلي الرأي القانوني المبدئي:' : ':').'</p>'
             .'<div class="doc-list" style="flex-direction:column">'.$opinion.'</div>'
             .'<p>ولإبداء الرأي الكامل ومناقشة التفاصيل نأمل حجز استشارة قانونية من قسم «حجز استشارة».</p>';
 

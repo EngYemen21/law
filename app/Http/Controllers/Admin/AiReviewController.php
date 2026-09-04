@@ -8,6 +8,7 @@ use App\Services\Ai\AiOpsMetrics;
 use App\Services\Ai\AiReviewAction;
 use App\Services\Ai\AiReviewInbox;
 use App\Services\Ai\AiReviewOutcome;
+use App\Services\Ai\AiReviewPreview;
 use App\Services\Ai\AiReviewReason;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -44,6 +45,9 @@ class AiReviewController extends Controller
                 'promptVersion' => $run->prompt_version ?? '—',
                 'failureCode' => $run->failure_code,
                 'traceId' => $run->trace_id,
+                // **النصّ نفسه** لا بياناته وحدها: كان الاعتماد يقع على المصدر
+                // والثقة والنموذج بلا رؤية ما سيقرؤه الإنسان. `null` = لا مخرج محفوظ.
+                'preview' => AiReviewPreview::for($run, $request->user()),
                 'createdAt' => $run->created_at?->locale('ar')->translatedFormat('d F Y · h:i A'),
             ])->values(),
             'actions' => AiReviewAction::options(),
@@ -61,6 +65,12 @@ class AiReviewController extends Controller
     /** تسجيل قرار المراجع — الرفض يلزمه سبب منظَّم، والتصعيد يلزمه مُصعَّدٌ إليه. */
     public function decide(Request $request, AiRun $run): RedirectResponse
     {
+        // **العزل يسبق كلّ شيء.** كان الصندوق يعزل العرض وحده، وهذه الدالّة تستقبل
+        // القيد بربط النموذج فتُحدّثه بلا سؤال — فمعرّفٌ رقميّ يكفي لاعتماد ملخّص
+        // استشارةٍ غير مسندة إلى المُقرِّر وإطلاقه إلى عميلها. وقبل `validate` كي لا
+        // تُسرّب رسائلُ التحقّق شيئاً عن قيدٍ لا يملك صاحبُ الطلب رؤيته أصلاً.
+        abort_unless(AiReviewInbox::mayDecide($request->user(), $run), 403);
+
         $data = $request->validate([
             'action' => ['required', Rule::in(array_column(AiReviewAction::cases(), 'value'))],
             'reason' => ['nullable', Rule::in(array_column(AiReviewReason::cases(), 'value'))],
@@ -78,10 +88,15 @@ class AiReviewController extends Controller
             return back()->withErrors(['escalated_to' => 'التصعيد يلزمه مُصعَّدٌ إليه.']);
         }
 
+        // القرار كما وقع لا كما أُعلن: «قبول» على نصٍّ حرّره المراجع **تعديلٌ**.
+        // بهذا يصير `humanEditRate` قياساً لعملٍ لا استفتاءً على نيّة.
+        [$action, $editDistance] = AiReviewOutcome::effectiveAction($run, $action);
+
         $run->update([
             'review_action' => $action->value,
             'review_reason' => $data['reason'] ?? null,
             'review_note' => $data['note'] ?? null,
+            'review_edit_distance' => $editDistance,
             'escalated_to' => $data['escalated_to'] ?? null,
             'reviewed_by' => $request->user()->id,
             'reviewed_at' => now(),

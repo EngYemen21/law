@@ -102,7 +102,11 @@ class SessionOutputsTest extends TestCase
             'when_label' => 'الأحد', 'session' => 'جلسة جارية', 'status' => 'قيد الاستشارة',
         ]);
 
-        $this->actingAs($lawyer)->post(route('lawyer.consults.end', $consult), ['duration' => '30 دقيقة'])->assertRedirect();
+        // التدوين شرط التوليد: بلا مادّة لا يُنادى النموذج (ConsultNoMaterialTest)
+        $this->actingAs($lawyer)->post(route('lawyer.consults.end', $consult), [
+            'duration' => '30 دقيقة',
+            'notes' => 'دوّن المستشار: نوقش النزاع واتّفق الطرفان على توجيه إنذار رسميّ ثمّ تجهيز مذكرة الدعوى.',
+        ])->assertRedirect();
         $consult->refresh();
         $this->assertNotEmpty($consult->summary);
         $this->assertNotEmpty($consult->decisions);

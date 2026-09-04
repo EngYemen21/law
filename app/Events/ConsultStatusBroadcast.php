@@ -34,7 +34,18 @@ class ConsultStatusBroadcast implements ShouldBroadcastNow
         return [
             'session' => $this->consult->session,
             'status' => $this->consult->status,
-            'summary' => $this->consult->summary,
+            // **الملخّص المعتمَد فقط** — نظير `MeetingStatusBroadcast`. القناة
+            // `consult.{id}` مخوَّلٌ عليها العميل، فبثُّ الملخّص بلا شرط كان يتجاوز
+            // الحجب الخادميّ في `Consult::toClientCard`: يُحجب في الحمولة الأولى
+            // ثم يصل عبر البثّ لحظة كتابته بالنموذج قبل أن يمرّ به إنسان.
+            'summary' => $this->consult->summaryApproved() ? $this->consult->summary : null,
+            'summaryPending' => $this->consult->summary !== null && ! $this->consult->summaryApproved(),
+            'summaryApproved' => $this->consult->summaryApproved(),
+            'summaryEdited' => $this->consult->summary_edited_at !== null,
+            // مشتقّاتٌ كانت البطاقة تحملها والبثّ لا — فتبقى بائتةً حتى إعادة التحميل:
+            // موعدٌ فات يبقى «قابلاً للبدء»، وجلسةٌ فائتة لا تُعلَن فائتة.
+            'missed' => $this->consult->isMissed(),
+            'startable' => $this->consult->isStartable(),
             'duration' => $this->consult->duration_label,
             'canJoin' => $this->consult->canJoin(),
             // دورة الحجز/الدفع — تُمكّن الواجهة من التقدّم لحظياً (فاتورة → دفع → موعد)
@@ -44,7 +55,10 @@ class ConsultStatusBroadcast implements ShouldBroadcastNow
             'priced' => $this->consult->priced_at !== null,
             'paid' => $this->consult->paid_at !== null,
             'invoiceNo' => $this->consult->invoice?->number,
-            'when' => $this->consult->when_label,
+            // **الصيغة نفسها التي ترسلها البطاقة.** كان يُبثّ العمود الخام
+            // `when_label` بينما `toCard()` يشتقّ `whenLabel()`؛ والشاشة تنسخ حمولة
+            // البثّ فوق البطاقة، فيتبدّل عمود الموعد صيغةً عند أوّل بثّ.
+            'when' => $this->consult->whenLabel(),
             'channel' => $this->consult->channel,
         ];
     }

@@ -21,6 +21,31 @@ use Illuminate\Database\Eloquent\Model;
 class AiRunLogger
 {
     /**
+     * معرّف التعليمة ⇦ الاسم المخزَّن في `ai_runs.task_type`.
+     *
+     * ثلاثة مسارات تكتب اسماً قصيراً وتمرّر معرّف التعليمة في `policyTask`، فلا
+     * يتطابق العمودُ مع `AiPromptRegistry::PROMPTS`. وأيّ شيفرة تُطابق على المعرّف
+     * وهي تقرأ العمود **تفشل صامتةً**: `match` يقع على `default`، و`whereIn` تعود
+     * فارغة، بلا استثناء ولا خطأ. وقد أوقع هذا عطلين مقيسين — صندوق مراجعة بلا
+     * معاينةٍ واحدة، وعيّنةَ معايرةٍ صفرٌ أبداً رغم خمسة عشر قيداً صالحاً.
+     *
+     * فالخريطة هنا: في الصنف الذي **يكتب** العمود، لا في كل قارئٍ له.
+     *
+     * @var array<string,string>
+     */
+    public const STORED_TASK_TYPE = [
+        'ticket.triage' => 'triage',
+        'consult.analyze' => 'consult',
+        'execution.analyze' => 'execution',
+    ];
+
+    /** الاسم المخزَّن لمعرّف تعليمة — وهو المعرّف نفسه ما لم يُسجَّل خلافه. */
+    public static function storedTaskType(string $promptId): string
+    {
+        return self::STORED_TASK_TYPE[$promptId] ?? $promptId;
+    }
+
+    /**
      * @param  string  $taskType  اسم المهمّة كما يُخزَّن في `ai_runs`
      * @param  array<string,mixed>  $meta  مخرج `LegalAiService::callMeta`
      * @param  string|null  $policyTask  معرّف التعليمة لبوّابة السياسة إن خالف `$taskType`

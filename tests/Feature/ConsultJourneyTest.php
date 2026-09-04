@@ -199,4 +199,82 @@ class ConsultJourneyTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($p) => $p->component('admin/consult')->where('consult.status', 'جديدة'));
     }
+
+    /**
+     * **لا تُحال استشارةٌ ما زالت في دورة الحجز** — وإلّا سقطت من طابور التسعير.
+     *
+     * للاستشارة دورتان: حجزٌ (تسعير ← سداد ← موعد) وتحليلٌ ينتهي بالإحالة. وكان
+     * `refer` بلا شرطٍ واحد، فإحالةٌ على طلبٍ في الأولى تنقله إلى «محالة للمحامي»
+     * وهي خارج `PRE_SESSION_STATUSES` التي يُبنى منها طابور التسعير. فلا يُسعَّر،
+     * ولا تصل الفاتورة، ولا يدفع العميل، ولا يختار موعداً — وينتظر بلا أن يعلم.
+     *
+     * وقع في `CN-2026-4504`: أُحيلت وهي «بانتظار التسعير»، فظهرت في شاشة استقبال
+     * الجلسات بموعدٍ فارغ وزرِّ «بدء الجلسة» مُفعَّلاً.
+     */
+    public function test_a_consult_still_in_the_booking_cycle_cannot_be_referred(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+
+        foreach (Consult::PRE_SESSION_STATUSES as $status) {
+            $consult = Consult::create([
+                'user_id' => $client->id, 'ref' => 'CN-REF-'.uniqid(), 'subject' => 'استشارة',
+                'type' => 'استشارة', 'channel' => 'مرئية', 'status' => $status,
+                'tone' => 'b-amber', 'lawyer' => 'مستشار المكتب',
+            ]);
+
+            $this->actingAs($admin)
+                ->post("/admin/consults/{$consult->id}/refer", ['lawyer_id' => $lawyer->id])
+                ->assertStatus(422);
+
+            $this->assertSame($status, $consult->fresh()->status, "«{$status}» تبقى في طابورها");
+            $this->assertContains(
+                $consult->fresh()->status,
+                Consult::PRE_SESSION_STATUSES,
+                'ولا تسقط من قائمة التسعير لدى الإدارة'
+            );
+        }
+    }
+
+    /** ومَن أكمل الحجز تُحال كالمعتاد — المنع مشروطٌ لا دائم. */
+    public function test_a_booked_consult_is_still_referable(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+
+        $consult = Consult::create([
+            'user_id' => $client->id, 'ref' => 'CN-OK-'.uniqid(), 'subject' => 'استشارة',
+            'type' => 'استشارة', 'channel' => 'مرئية', 'status' => 'جاهزة للمحامي',
+            'tone' => 'b-green', 'lawyer' => 'مستشار المكتب',
+            'priced_at' => now(), 'paid_at' => now(), 'starts_at' => now()->addDay(),
+        ]);
+
+        $this->actingAs($admin)
+            ->post("/admin/consults/{$consult->id}/refer", ['lawyer_id' => $lawyer->id])
+            ->assertRedirect();
+
+        $this->assertSame('محالة للمحامي', $consult->fresh()->status);
+    }
+
+    /** والإشعار لا يَعِد بموعدٍ لم يُحجز. */
+    public function test_the_referral_notice_promises_no_unscheduled_appointment(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+
+        $consult = Consult::create([
+            'user_id' => $client->id, 'ref' => 'CN-NOAPPT-'.uniqid(), 'subject' => 'استشارة',
+            'type' => 'استشارة', 'channel' => 'مرئية', 'status' => 'جاهزة للمحامي',
+            'tone' => 'b-green', 'lawyer' => 'مستشار المكتب',
+        ]);
+
+        $this->actingAs($admin)->post("/admin/consults/{$consult->id}/refer", ['lawyer_id' => $lawyer->id]);
+
+        $body = UserNotification::where('user_id', $client->id)->latest('id')->first()?->body ?? '';
+        $this->assertStringNotContainsString('في موعدها', $body, 'لا موعد يُوعَد به');
+        $this->assertStringContainsString('سنوافيك بموعد الجلسة', $body);
+    }
 }

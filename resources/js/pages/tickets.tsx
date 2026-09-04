@@ -211,7 +211,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
               <Badge text={`${tickets.length} تذكرة مسجلة`} tone="b-blue" />
             </div>
             <p style={{ margin: 0, opacity: 0.9 }}>
-              بوابة متابعة الاستشارات المكتوبة، طلبات العقود واللوائح، والردود القانونية المعتمدة.
+              بوابة متابعة الاستشارات المكتوبة، طلبات العقود واللوائح، وردود الفريق القانوني.
             </p>
           </div>
 

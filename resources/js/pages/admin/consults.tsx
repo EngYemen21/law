@@ -17,6 +17,8 @@ import {
   cTone,
   crChannelIcon,
   crChannelTone,
+  CONSULT_TERMINAL_STATUSES,
+  CONSULT_BOOKING_STATUSES,
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 
@@ -74,10 +76,19 @@ export const AdminConsults: React.FC<AdminConsultsProps> = ({
     const allConsults = [...initialConsults, ...initialRequests];
     allConsults.forEach((c) => {
       echo.private(`consult.${c.id}`).listen('.status', (e: Partial<ConsultCard>) => {
+        // `summary` **يُستبعد من الدمج**: الحمولة تُبثّ للعميل أيضاً، فلا تحمل إلّا
+        // المعتمَد — والنشر الكامل كان يمسح النصّ المعروض للإدارة لحظة إنهاء الجلسة.
+        const rest = { ...e };
+
+        delete rest.summary;
         const updater = (prev: ConsultCard[]) =>
-          prev.map((x) => (x.id === c.id ? { ...x, ...e } : x));
+          prev.map((x) => (x.id === c.id ? { ...x, ...rest } : x));
         setInFlightItems(updater);
         setRequestItems(updater);
+
+        if (e.session === 'منتهية') {
+          router.reload({ only: ['consults', 'preSessionRequests'] });
+        }
       });
     });
 
@@ -157,17 +168,17 @@ return;
     ).length;
     const needsPricing = allItems.filter((c) => c.status === 'بانتظار التسعير').length;
     const readyForLawyer = allItems.filter((c) => c.status === 'جاهزة للمحامي').length;
-    const completed = allItems.filter((c) => c.status === 'منتهية' || c.status === 'محولة إلى قضية').length;
-    const toCase = allItems.filter((c) => c.status === 'محولة إلى قضية').length;
+    const completed = allItems.filter((c) => CONSULT_TERMINAL_STATUSES.includes(c.status)).length;
+    const toCase = allItems.filter((c) => !!c.caseNo).length;
     const conversionRate = total > 0 ? Math.round((toCase / total) * 100) : 0;
 
     const late = allItems.filter(
-      (c) => (c.mins || 0) > 100 && !['جاهزة للمحامي', 'منتهية', 'محولة إلى قضية', 'مغلقة'].includes(c.status)
+      (c) => (c.mins || 0) > 100 && !['جاهزة للمحامي', ...CONSULT_TERMINAL_STATUSES].includes(c.status)
     ).length;
 
     // Financial calculations
     const paidRevenue = allItems
-      .filter((c) => c.paid || c.status === 'منتهية' || c.status === 'محولة إلى قضية')
+      .filter((c) => c.paid || CONSULT_TERMINAL_STATUSES.includes(c.status))
       .reduce((sum, c) => sum + (Number(c.total) || 0), 0);
 
     const pendingRevenue = allItems
@@ -230,16 +241,16 @@ return false;
 return false;
 }
 
-      if (categoryFilter === 'in_flight' && (['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد', 'منتهية', 'محولة إلى قضية'].includes(c.status))) {
+      if (categoryFilter === 'in_flight' && ([...CONSULT_BOOKING_STATUSES, ...CONSULT_TERMINAL_STATUSES].includes(c.status))) {
 return false;
 }
 
-      if (categoryFilter === 'completed' && !['منتهية', 'محولة إلى قضية', 'مغلقة'].includes(c.status)) {
+      if (categoryFilter === 'completed' && !CONSULT_TERMINAL_STATUSES.includes(c.status)) {
 return false;
 }
 
       if (categoryFilter === 'late') {
-        const isLate = (c.mins || 0) > 100 && !['جاهزة للمحامي', 'منتهية', 'محولة إلى قضية'].includes(c.status);
+        const isLate = (c.mins || 0) > 100 && !['جاهزة للمحامي', ...CONSULT_TERMINAL_STATUSES].includes(c.status);
 
         if (!isLate) {
 return false;
@@ -432,7 +443,9 @@ return;
       {},
       {
         preserveScroll: true,
-        onSuccess: () => toast('✨ تم تشغيل التحليل الذكي بنجاح'),
+        // «بنجاح» حكمٌ لا تحمله الاستجابة: المتحكّم يعيد `back()` ولو سقط
+        // إلى الاحتياطيّ. والنتيجة تُقرأ من البطاقة لا من التوست.
+        onSuccess: () => toast('انتهت المعالجة — راجع نتيجتها في بطاقة الاستشارة'),
         onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذر تشغيل التحليل'}`),
       }
     );
@@ -1034,7 +1047,6 @@ return;
             style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.15)', fontSize: 13, width: '100%' }}
           >
             <option value="all">جميع الأولويات</option>
-            <option value="عاجلة">عاجلة</option>
             <option value="عالية">عالية</option>
             <option value="متوسطة">متوسطة</option>
             <option value="عادية">عادية</option>
@@ -1350,13 +1362,13 @@ return;
                 id: 'active_sessions',
                 title: '4. جلسات جارية وقادمة',
                 tone: '#1E9D6B',
-                items: filteredItems.filter((c) => c.session === 'جلسة جارية' || (c.startsAt && !['منتهية', 'محولة إلى قضية'].includes(c.status))),
+                items: filteredItems.filter((c) => c.session === 'جلسة جارية' || (c.startsAt && !CONSULT_TERMINAL_STATUSES.includes(c.status))),
               },
               {
                 id: 'completed',
                 title: '5. منتهية ومحولة لقضايا',
                 tone: '#13314F',
-                items: filteredItems.filter((c) => ['منتهية', 'محولة إلى قضية', 'مغلقة'].includes(c.status)),
+                items: filteredItems.filter((c) => CONSULT_TERMINAL_STATUSES.includes(c.status)),
               },
             ] as const
           ).map((col) => (
@@ -1519,7 +1531,7 @@ return;
             <div className="card-b">
               {assignedLawyersList.map((law) => {
                 const count = allItems.filter((c) => c.lawyer === law).length;
-                const active = allItems.filter((c) => c.lawyer === law && !['منتهية', 'محولة إلى قضية'].includes(c.status)).length;
+                const active = allItems.filter((c) => c.lawyer === law && !CONSULT_TERMINAL_STATUSES.includes(c.status)).length;
                 const pct = allItems.length > 0 ? Math.round((count / allItems.length) * 100) : 0;
 
                 return (
@@ -1877,7 +1889,7 @@ return;
                   <div className="card" style={{ margin: 0, padding: 14 }}>
                     <b>تعديل درجة الأولوية:</b>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginTop: 10 }}>
-                      {(['عاجلة', 'عالية', 'متوسطة', 'عادية'] as const).map((p) => (
+                      {(['عالية', 'متوسطة', 'منخفضة'] as const).map((p) => (
                         <button
                           key={p}
                           type="button"

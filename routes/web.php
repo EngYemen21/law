@@ -247,6 +247,12 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
         Route::post('/consults/{consult}/approve', [StaffConsultController::class, 'approveAnalysis'])->name('consults.approve');
         Route::post('/consults/{consult}/zoom-sync', [StaffConsultController::class, 'zoomSync'])->name('consults.zoomsync');
         Route::post('/consults/{consult}/refer', [StaffConsultController::class, 'refer'])->name('consults.refer');
+        // **قرار المالك: قراءةٌ فقط للموظّف إلّا بصلاحيّة تمنحها الإدارة العليا.**
+        // كان المسار غير مسجَّل بتاتاً بينما تعرض الشاشة المشتركة محرّره، فيقع ٤٠٤
+        // صامت. والصلاحيّة هي البوّابة الآن لا الدور — فمن لا يملكها يُصدّ ٤٠٣،
+        // ومن منحته الإدارة إيّاها يحرّر. والاعتماد يبقى فعلاً قانونياً بالصلاحيّة نفسها.
+        Route::post('/consults/{consult}/summary', [StaffConsultController::class, 'saveSummary'])->name('consults.summary')->middleware('permission:اعتماد/تعديل ملخص الاستشارة');
+        Route::post('/consults/{consult}/summary/approve', [StaffConsultController::class, 'approveSummary'])->name('consults.summary.approve')->middleware('permission:اعتماد/تعديل ملخص الاستشارة');
         Route::get('/consultrecv', [StaffConsultController::class, 'recv'])->name('consultrecv');
         Route::post('/consults/{consult}/start', [StaffConsultController::class, 'start'])->name('consults.start');
         Route::post('/consults/{consult}/end', [StaffConsultController::class, 'end'])->name('consults.end');
@@ -436,6 +442,10 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::post('/consults/{consult}/reqdocs', [StaffConsultController::class, 'requestDocs'])->name('consults.reqdocs');
         Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze');
         Route::post('/consults/{consult}/analysis', [StaffConsultController::class, 'saveAnalysis'])->name('consults.analysis');
+        // تحرير ملخّص الجلسة قبل اعتماده — «تعديل واعتماد» كان خياراً بلا حقلٍ يستقبله
+        Route::post('/consults/{consult}/summary', [StaffConsultController::class, 'saveSummary'])->name('consults.summary')->middleware('permission:اعتماد/تعديل ملخص الاستشارة');
+        // الاعتماد من شاشة الملفّ — لملخّصٍ لا قيد له في `ai_runs` فلا يبلغ الصندوق أبداً.
+        Route::post('/consults/{consult}/summary/approve', [StaffConsultController::class, 'approveSummary'])->name('consults.summary.approve')->middleware('permission:اعتماد/تعديل ملخص الاستشارة');
         Route::post('/consults/{consult}/approve', [StaffConsultController::class, 'approveAnalysis'])->name('consults.approve');
         Route::post('/consults/{consult}/zoom-sync', [StaffConsultController::class, 'zoomSync'])->name('consults.zoomsync');
         Route::post('/consults/{consult}/refer', [StaffConsultController::class, 'refer'])->name('consults.refer');
@@ -498,6 +508,9 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/consults/{consult}/reqdocs', [StaffConsultController::class, 'requestDocs'])->name('consults.reqdocs');
     Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware('permission:تشغيل تلخيص الفريق القانوني');
     Route::post('/consults/{consult}/analysis', [StaffConsultController::class, 'saveAnalysis'])->name('consults.analysis')->middleware('permission:اعتماد/تعديل ملخص الاستشارة');
+    Route::post('/consults/{consult}/summary', [StaffConsultController::class, 'saveSummary'])->name('consults.summary')->middleware('permission:اعتماد/تعديل ملخص الاستشارة');
+    // الاعتماد من شاشة الملفّ — لملخّصٍ لا قيد له في `ai_runs` فلا يبلغ الصندوق أبداً.
+    Route::post('/consults/{consult}/summary/approve', [StaffConsultController::class, 'approveSummary'])->name('consults.summary.approve')->middleware('permission:اعتماد/تعديل ملخص الاستشارة');
     Route::post('/consults/{consult}/approve', [StaffConsultController::class, 'approveAnalysis'])->name('consults.approve')->middleware('permission:اعتماد/تعديل ملخص الاستشارة');
     Route::post('/consults/{consult}/zoom-sync', [StaffConsultController::class, 'zoomSync'])->name('consults.zoomsync');
     Route::post('/consults/{consult}/refer', [StaffConsultController::class, 'refer'])->name('consults.refer');

@@ -115,6 +115,8 @@ class ConsultSessionTest extends TestCase
         $employee = User::factory()->create(['role' => Role::Employee]);
         $consult = $this->makeConsult($client, ['session' => 'جلسة جارية']);
 
+        // إشعار الختم يقع مرّةً واحدة ولا يتبع نجاح التوليد — انتهاء الجلسة
+        // واقعةٌ تخصّ العميل سواء كُتب الملخّص أم انتظر تدوين المستشار.
         $this->actingAs($employee)->post(route('employee.consults.end', $consult))->assertRedirect();
         $this->actingAs($employee)->post(route('employee.consults.end', $consult))->assertRedirect();
 

@@ -7,6 +7,7 @@ use App\Models\AiRun;
 use App\Models\Consult;
 use App\Models\Execution;
 use App\Models\LegalCase;
+use App\Models\Meeting;
 use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
@@ -44,7 +45,9 @@ class AiReviewInbox
     public static function forUser(User $user, int $limit = 50): Collection
     {
         return self::query($user)
-            ->with('reviewer')
+            // `entity` تُحمَّل مسبقاً: `AiReviewPreview` تقرؤها لكل صفّ لتعرض نصّ
+            // المخرج، فبلا تحميلٍ مسبق خمسون صفّاً = خمسون استعلاماً إضافياً
+            ->with(['reviewer', 'entity'])
             ->orderByRaw('confidence IS NULL DESC') // ما لا يُقاس أولاً: لا يُعرف خطره
             ->orderBy('confidence')                  // ثم الأدنى ثقة
             ->orderByDesc('created_at')
@@ -103,13 +106,41 @@ class AiReviewInbox
         return round((clone $query)->where('review_action', AiReviewAction::Edit->value)->count() / $total, 3);
     }
 
+    /**
+     * **هل يحقّ لهذا المستخدم أن يبتّ في هذا القيد؟**
+     *
+     * كان الصندوق يعزل **العرض** وحده: `query()` تُستعمل في `forUser`/`countFor` فقط،
+     * بينما `AiReviewController::decide` يستقبل `AiRun` بربط النموذج ويُحدّثه مباشرةً.
+     * فمحامٍ يحمل «اعتماد الملخصات» يعتمد بمعرّفٍ رقميّ ملخّصَ استشارةٍ **ليست مسندة
+     * إليه** فيُطلقه لعميلها ويُشعره — وهو رأيٌ قانونيّ عن ملفٍّ لم يره.
+     *
+     * والسؤال هنا سؤال **سلطة** لا **حالة**: قيدٌ بُتّ فيه أو خرج من الصندوق يبقى
+     * البتّ فيه حقّاً لصاحبه — فلا تُقحَم مرشّحات `query()` الزمنيّة في الحكم.
+     */
+    public static function mayDecide(User $user, AiRun $run): bool
+    {
+        return self::scopeToAuthority(AiRun::query()->whereKey($run->getKey()), $user)->exists();
+    }
+
     /** الاستعلام الأساس: منتظِر للبتّ، منظوراً بعين الدور. */
     private static function query(User $user): Builder
     {
-        $query = AiRun::query()
-            ->where('status', AiRun::STATUS_NEEDS_REVIEW)
-            ->whereNull('review_action'); // لم يُبتّ فيه بعد
+        return self::scopeToAuthority(
+            AiRun::query()
+                ->where('status', AiRun::STATUS_NEEDS_REVIEW)
+                ->whereNull('review_action'), // لم يُبتّ فيه بعد
+            $user
+        );
+    }
 
+    /**
+     * حدّ سلطة الدور — **الموضع الوحيد** الذي يقرّر «قيدُ مَن هذا».
+     *
+     * يقرؤه العرض (`query`) والبتّ (`mayDecide`) معاً، فلا يفترق الرأيان: صندوقٌ
+     * يُخفي قيداً ومتحكّمٌ يقبل البتّ فيه هو بالضبط الثغرة التي وقعت.
+     */
+    private static function scopeToAuthority(Builder $query, User $user): Builder
+    {
         return match ($user->role) {
             Role::Admin => $query,
             Role::Employee => $query->whereIn('task_type', self::EMPLOYEE_TASKS),
@@ -140,7 +171,11 @@ class AiReviewInbox
      */
     private static function ownedByLawyer(Builder $query, int $lawyerId): Builder
     {
-        $entities = [Ticket::class, LegalCase::class, Execution::class, Consult::class];
+        // `Meeting` كان غائباً: قيود `meeting.summary` و`meeting.decisions` تحمل
+        // `entity_type = Meeting` (`GenerateMeetingSummaryJob`)، فلا يطابقها شرطٌ
+        // واحد — تبقى للإدارة وحدها ولا تبلغ محامي الاجتماع. وهو عين العطل
+        // الموصوف أعلاه لمسودّات اللوائح. و`meeting.decisions` تُنشئ مهامّ على بشر.
+        $entities = [Ticket::class, LegalCase::class, Execution::class, Consult::class, Meeting::class];
 
         foreach ($entities as $i => $class) {
             $clause = fn (Builder $q) => $q

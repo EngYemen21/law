@@ -189,6 +189,21 @@ class TicketTriage
 
         if ($ticket->status !== 'بانتظار مستندات') {
             $analysis = $doc ? app(LegalAiService::class)->analyzeDocument($ticket, $doc) : null;
+
+            // **الفرع الشائع كان بلا قيد.** نظيرُه المقيَّد (`classifyDoc`) هو
+            // الاستثناء: يقع حين تكون التذكرة «بانتظار مستندات» وحدها. أمّا هذا —
+            // إرفاق مستندٍ في أيّ وقتٍ آخر — فيكتب حكماً يوجّه الملفّ («مرتبط»
+            // يُحيله للمحامي، و«غير مرتبط» يطلب من العميل غيره) بلا أثرٍ يُراجَع.
+            if ($doc !== null) {
+                AiRunLogger::log(
+                    'document.analyze',
+                    $analysis === null ? AiSource::ManualRequired : AiSource::AiSuccess,
+                    is_array($analysis['meta'] ?? null) ? $analysis['meta'] : [],
+                    $ticket,
+                    (string) $ticket->number,
+                );
+            }
+
             if ($analysis === null) {
                 $doc?->update(['status' => 'بحاجة لمراجعة يدوية']);
                 self::audit($ticket, 'تنبيه: تم إرفاق مستند جديد «'.($doc->name ?? '—').'» وتعذر فحصه آلياً — يحتاج مراجعة يدوية.');

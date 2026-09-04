@@ -46,7 +46,8 @@ class CaseController extends Controller
         return Inertia::render('lawyer/case', [
             'case' => $this->card($case),
             'channel' => 'case.'.$case->id,
-            'messages' => $case->messages->where('who', '!=', 'note')->values()->map->toMessage(),
+            // المكتب يرى المحجوب ليراجعه — وهو الفاصل الذي لم يكن موجوداً
+            'messages' => $case->messages()->visibleTo(true)->get()->map->toMessage(),
             'hearings' => $case->hearings->map->toData(),
             'documents' => $case->documents->map(fn ($d) => $d->toData(auth()->user())),
             'convertedExec' => $case->execution()->exists(),
@@ -153,8 +154,8 @@ class CaseController extends Controller
         $this->guardAssigned($case);
         $data = $request->validate([
             'title' => ['required', 'string', 'max:120'],
-            'day' => ['required', 'string', 'max:60'],
-            'time' => ['nullable', 'string', 'max:32'],
+            'day' => ['required', 'date_format:Y-m-d'],
+            'time' => ['nullable', 'date_format:H:i'],
             'court' => ['nullable', 'string', 'max:120'],
         ]);
 
@@ -257,8 +258,8 @@ class CaseController extends Controller
         abort_unless($hearing->case_id === $case->id, 404);
         $data = $request->validate([
             'title' => ['required', 'string', 'max:120'],
-            'day' => ['required', 'string', 'max:60'],
-            'time' => ['nullable', 'string', 'max:32'],
+            'day' => ['required', 'date_format:Y-m-d'],
+            'time' => ['nullable', 'date_format:H:i'],
             'court' => ['nullable', 'string', 'max:120'],
         ]);
 

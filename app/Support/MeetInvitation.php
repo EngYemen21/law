@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\GoogleCalendarService;
 use App\Services\MailService;
 use App\Services\ZoomService;
+use App\Support\Booking\BookingMoved;
 
 /**
  * تجسيد دعوة الاجتماع: جلسة Zoom + اجتماع «قادم» في اجتماعات العميل.
@@ -49,6 +50,12 @@ class MeetInvitation
                 'meet_password' => $zoom['password'] ?? $meeting->meet_password,
                 'has_link' => true,
             ]);
+
+            // **Zoom يتبع الموعد.** كان هذا الفرع يُحدّث `starts_at` و`when_label`
+            // ويُبقي `meet_id`، و`$zoom` فارغةٌ هنا — فلا يُنادى `updateMeeting`
+            // إطلاقاً: قاعدة البيانات والبريد والبوّابة على الموعد الجديد، وZoom على
+            // القديم. والتعليق أعلاه يشهد أن نصف العطل أُصلح وظُنّ تامّاً.
+            BookingMoved::apply($meeting, $startsAt);
         } else {
             $meeting = Meeting::create([
                 'user_id' => $req->user_id,

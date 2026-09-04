@@ -87,7 +87,8 @@ class CaseController extends Controller
                 'installmentsTotal' => $case->installments_total,
             ],
             'channel' => 'case.'.$case->id,
-            'messages' => $case->messages->where('who', '!=', 'note')->values()->map->toMessage(),
+            // العميل: بلا ملاحظات داخليّة وبلا مخرجٍ محجوب بانتظار اعتماد محامٍ
+            'messages' => $case->messages()->visibleTo(false)->get()->map->toMessage(),
             'hearings' => $case->hearings->map->toData(),
             'documents' => $case->documents->map(fn ($d) => $d->toData(auth()->user())),
         ]);

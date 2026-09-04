@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Events\ConsultStatusBroadcast;
 use App\Events\MeetingStatusBroadcast;
+use App\Jobs\FinalizeConsultJob;
 use App\Jobs\GenerateMeetingSummaryJob;
 use App\Jobs\ProcessZoomRecordingJob;
 use App\Jobs\ProcessZoomSummaryJob;
@@ -62,7 +63,7 @@ class ZoomWebhookController extends Controller
     {
         match ($event) {
             'meeting.started' => $this->setConsultSession($consult, 'جلسة جارية', 'قيد الاستشارة'),
-            'meeting.ended' => $this->setConsultSession($consult, 'منتهية', 'منتهية'),
+            'meeting.ended' => $this->endConsult($consult),
             'meeting.summary_completed' => ProcessZoomSummaryJob::dispatch($consult, (array) $request->input('payload.object')),
             'recording.completed' => $this->recording($consult, $request),
             'meeting.participant_joined' => $this->participantJoined($consult, $request),
@@ -127,6 +128,32 @@ class ZoomWebhookController extends Controller
 
         $consult->update(['session' => $session, 'status' => $status]);
         Live::push(new ConsultStatusBroadcast($consult));
+    }
+
+    /**
+     * إنهاء الاستشارة من الويبهوك — يُكمل نفس دورة الإنهاء اليدويّ، نظير `endMeeting`.
+     *
+     * كان يكتفي بضبط الحالة، و`FinalizeConsultJob` يُطلَق من موضعٍ واحد: زرّ «إنهاء»
+     * لدى الطاقم. فجلسةٌ خرج منها الطرفان بلا أن يضغط أحدٌ الزرّ تُختَم بلا ملخّص
+     * ولا تنبيه — سكوتٌ تامّ.
+     *
+     * **ويُطلق التوليد مباشرةً لا «ينبّه فقط»:** بعد حارس «بلا مادّة ⇒ لا نداء» صارت
+     * الوظيفةُ نقطةَ القرار الوحيدة — تجد مادّةً فتولّد، أو لا تجد فتنبّه المحامي.
+     * ولو قرّر الويبهوك لتكرّرت قاعدة «ما هي المادّة؟» في موضعٍ ثانٍ فتباعدت الصياغتان.
+     *
+     * وثلاث طبقات تمنع التكرار: الفرع المحروس أدناه · `filled($summary)` في الوظيفة ·
+     * `session_finalized_at` للتنبيه.
+     */
+    private function endConsult(Consult $consult): void
+    {
+        if ($consult->session === 'منتهية') {
+            return; // حدثٌ متأخّر/مكرّر — أو ختمه الطاقم بالفعل
+        }
+
+        $consult->update(['session' => 'منتهية', 'status' => 'منتهية']);
+        Live::push(new ConsultStatusBroadcast($consult));
+
+        FinalizeConsultJob::dispatch($consult->fresh(), '');
     }
 
     /**

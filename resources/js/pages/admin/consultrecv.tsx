@@ -2,7 +2,7 @@ import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
-import { useBodyScrollLock } from '@/components/babylon/Modal';
+import Modal, { useBodyScrollLock } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
 import type {ConsultCard} from '@/lib/consult-ui';
@@ -34,6 +34,10 @@ export const AdminConsultRecv: React.FC<Props> = ({ consults = [] }) => {
   const [drawerTab, setDrawerTab] = useState<DrawerTab>('actions');
 
   // Confirmation Modal state for Rescheduling
+  // نافذة التدوين عند إنهاء الجلسة — مادّة الملخّص الوحيدة
+  const [endingOf, setEndingOf] = useState<ConsultCard | null>(null);
+  const [endNotes, setEndNotes] = useState('');
+
   const [rescheduleTarget, setRescheduleTarget] = useState<ConsultCard | null>(null);
   const [isRescheduling, setIsRescheduling] = useState(false);
 
@@ -43,7 +47,7 @@ export const AdminConsultRecv: React.FC<Props> = ({ consults = [] }) => {
     consults.forEach((c) => {
       echo.private(`consult.${c.id}`).listen(
         '.status',
-        (e: { session?: string; status?: string; canJoin?: boolean; summary?: string | null }) => {
+        (e: { session?: string; status?: string; canJoin?: boolean }) => {
           setItems((prev) =>
             prev.map((x) =>
               x.id === c.id
@@ -52,11 +56,16 @@ export const AdminConsultRecv: React.FC<Props> = ({ consults = [] }) => {
                     session: e.session ?? x.session,
                     status: e.status ?? x.status,
                     canJoin: e.canJoin ?? x.canJoin,
-                    summary: e.summary ?? x.summary,
                   }
                 : x
             )
           );
+
+          // الملخّص لا يُؤخذ من البثّ: الحمولة نفسها تُبثّ للعميل فلا تحمل إلّا
+          // المعتمَد. والإدارة تحتاج غير المعتمَد لتراجعه — فيُجلب بصلاحيّتها.
+          if (e.session === 'منتهية') {
+            router.reload({ only: ['consults'] });
+          }
         }
       );
     });
@@ -225,14 +234,35 @@ return false;
     );
   };
 
+  // كان يُرسل حمولةً فارغة `{}` ويُقال «تم توليد وتوثيق ملخص الاستشارة».
+  // وبعد حارس «بلا مادّة ⇒ لا نداء» صار ذاك الفرع **مضموناً ألّا يعمل**: الخادم
+  // يحسب `notes = ''` فيُكتب في سجلّ التدقيق «لم يُولَّد» والتوست يقول عكسه.
+  // والتوأم في `consult-ui.tsx` أُصلح وفات هذا — فيُنسخ حلّه حرفياً.
   const handleEnd = (c: ConsultCard, e?: React.MouseEvent) => {
     e?.stopPropagation();
+    setEndingOf(c);
+    setEndNotes('');
+  };
+
+  const submitEnd = () => {
+    if (endingOf === null) {
+      return;
+    }
+
+    const notes = endNotes.trim();
+
     router.post(
-      `/admin/consults/${c.id}/end`,
-      {},
+      `/admin/consults/${endingOf.id}/end`,
+      { notes },
       {
         preserveScroll: true,
-        onSuccess: () => toast('انتهت الجلسة — تم توليد وتوثيق ملخص الاستشارة'),
+        onSuccess: () => {
+          setEndingOf(null);
+          setEndNotes('');
+          toast(notes === ''
+            ? 'خُتمت الجلسة بلا تدوين — لا ملخّص حتّى تُدوّن ما دار فيها'
+            : 'خُتمت الجلسة وحُفظ تدوينك — يُعدّ الملخّص لاعتماد المستشار');
+        },
       }
     );
   };
@@ -1590,6 +1620,34 @@ return;
         </div>,
         document.body
       )}
+
+      {/* نافذة التدوين — مادّة الملخّص الوحيدة (نظير `ConsultRecvPage`) */}
+      <Modal
+        title={`إنهاء الجلسة وتدوين ما دار — ${endingOf?.ref ?? ''}`}
+        open={!!endingOf}
+        onClose={() => setEndingOf(null)}
+      >
+        <div className="field">
+          <label>ما دار في الجلسة (وقائع العميل، ما طُلب، ما تقرّر)</label>
+          <textarea
+            className="input"
+            rows={9}
+            value={endNotes}
+            onChange={(ev) => setEndNotes(ev.target.value)}
+          />
+        </div>
+        <p className="action-hint">
+          <Icon name="info" /> الملخّص يُبنى على التدوين وحده — وبلا تدوين لا يُكتب شيء، لأنّ ما يُكتب من عنوان الموضوع وحده محضرٌ مختلَق.
+        </p>
+        <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
+          <button className="btn" onClick={submitEnd} disabled={endNotes.trim() === ''} type="button">
+            <Icon name="doc" /> إنهاء وحفظ التدوين
+          </button>
+          <button className="btn soft" onClick={submitEnd} type="button">
+            <Icon name="check" /> إنهاء بلا تدوين
+          </button>
+        </div>
+      </Modal>
 
       {/* ── 6. نافذة تأكيد إعادة الجدولة المنبثقة (Confirmation Modal Portal) ── */}
       {rescheduleTarget && typeof document !== 'undefined' && createPortal(

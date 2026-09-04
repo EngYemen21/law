@@ -174,7 +174,8 @@ seen.current.add(m.id);
                     date={h.day}
                     label="وقت الجلسة"
                     required
-                  />
+                    allowCustom={false}
+/>
                   <button className="btn" type="submit" disabled={!h.time}><Icon name="cal" /> جدولة الجلسة</button>
                 </form>
               </div>
@@ -276,7 +277,8 @@ seen.current.add(m.id);
                           date={eh.day}
                           label="الوقت الجديد للجلسة"
                           required
-                        />
+                          allowCustom={false}
+/>
                         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                           <button className="btn sm" type="submit" disabled={!eh.time}><Icon name="cal" /> حفظ إعادة الجدولة</button>
                           <button className="btn soft sm" type="button" onClick={() => setEditId(null)}>إلغاء التعديل</button>

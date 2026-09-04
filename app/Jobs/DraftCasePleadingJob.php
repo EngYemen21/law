@@ -6,6 +6,7 @@ use App\Models\LegalCase;
 use App\Services\Ai\AiQueue;
 use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
+use App\Support\Notify;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -52,7 +53,23 @@ class DraftCasePleadingJob implements ShouldQueue
             'role' => 'مسودة اللائحة',
             'body' => '<div class="draft" style="white-space:pre-line">'.e($draft).'</div>',
             'time_label' => $this->clock(),
+            // **محجوبة عن العميل حتى يعتمدها محامٍ.** لائحة الدعوى وثيقةٌ قضائيّة
+            // رسميّة، وقد تحمل وسم «لا سند نظاميّ مُتحقَّق» حين يخفق `LegalClaims`
+            // في مطابقة ادّعاءاتها — وكانت تصل صاحب القضية قبل أن يقرأها أحد.
+            // يُطلقها `AiReviewOutcome::releaseCasePleading` عند القبول أو التعديل.
+            'withheld_at' => now(),
         ]);
+
+        // والمحامي يُنبَّه أن مسودّةً تنتظره — وإلّا بقيت محجوبةً إلى الأبد بلا مَن يعلم
+        if ($this->case->assigned_lawyer_id !== null) {
+            Notify::send(
+                $this->case->assigned_lawyer_id,
+                'doc',
+                't-amber',
+                "أُعدّت مسودّة لائحة الدعوى في القضية ({$this->case->number}) وهي محجوبة عن العميل "
+                .'بانتظار مراجعتك واعتمادها من صندوق مراجعة مخرجات الذكاء.'
+            );
+        }
     }
 
     private function clock(): string

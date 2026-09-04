@@ -108,8 +108,10 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
           <Icon name="reply" /> رجوع للملخصات
         </Link>
         <div style={{ display: 'flex', gap: 8 }}>
+          {/* الوصف يتبع حالة الملفّ: كان يقول «PDF معتمد» بلا شرط،
+              والملخّص قد يكون قيد الدراسة — فيُطبَع ما لم يعتمده أحد بوصفه معتمداً. */}
           <button className="btn soft sm" onClick={exportPdf} type="button">
-            <Icon name="upload" /> تصدير وطباعة PDF معتمد
+            <Icon name="upload" /> {approved ? 'تصدير وطباعة PDF معتمد' : 'تصدير المسودّة (غير معتمدة)'}
           </button>
           <button className="btn soft sm" onClick={generateNajiz} type="button" disabled={busyNajiz}>
             <Icon name="sparkles" /> {busyNajiz ? 'جارٍ توليد مسودة ناجز…' : '✨ توليد مسودة لائحة ناجز'}

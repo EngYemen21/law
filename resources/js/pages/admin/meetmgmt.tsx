@@ -562,7 +562,8 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
               date={day}
               label="وقت بدء الجلسة / الاجتماع"
               required
-            />
+              allowCustom={false}
+/>
           </div>
 
           {/* 👥 القسم 3: الربط بالعميل والقضايا والكادر */}

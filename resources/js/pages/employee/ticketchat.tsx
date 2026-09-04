@@ -280,7 +280,8 @@ const EmployeeTicketChat: React.FC<{
           label={schedLawyerId ? 'الوقت المتاح للمستشار' : 'وقت الموعد المقترح'}
           helperText={slotsLoading ? 'جاري التحقق من أوقات المستشار المتاحة...' : undefined}
           required
-        />
+          allowCustom={false}
+/>
         <button className="btn block" type="button" onClick={submitSchedule} disabled={schedBusy || !schedTime}>
           <Icon name="calplus" /> {schedBusy ? 'جاري الحجز…' : 'تأكيد الجدولة'}
         </button>

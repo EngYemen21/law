@@ -63,7 +63,10 @@ const TimeSlotPicker: React.FC<Props> = ({
   disabled = false,
   showPeriodFilter = true,
   minTime,
-  allowCustom = true,
+  // **الافتراضيّ `false`.** كان `true`، فيظهر حقل وقتٍ حرّ في كلّ منتقٍ
+  // لم يُمرّر له شيء — ومنه تدخل أوقاتٌ خارج شبكة الشرائح إلى مسارات
+  // تحسب التوفّر بالساعة. ومن أراده فليُعلنه صراحةً عند نقطة الاستدعاء.
+  allowCustom = false,
   helperText,
 }) => {
   const [period, setPeriod] = useState<'all' | 'am' | 'pm'>('all');

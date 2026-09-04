@@ -113,7 +113,16 @@ class ReportPrint
     }
 
     /**
-     * @param  array{qrSeed:string,rows:array<int,ReportCell>}  $a
+     * كتلة ذيل الوثيقة — **عنوانها يتبع مضمونها**.
+     *
+     * كان العنوان «اعتماد وتوقيع الإدارة العليا» مثبَّتاً في كل وثيقةٍ لها كتلةُ ذيل،
+     * وأكثرها لا اعتماد فيه: تقرير الاستشارة صفوفه (الجهة · الحالة · تاريخ الطباعة)،
+     * وعرض التنفيذ مثله، وتقرير الملخّص يُطبع قبل الاعتماد أصلاً. فيقرأ المتلقّي
+     * توقيعَ إدارةٍ عليا تحت بياناتِ إصدارٍ لا توقيع فيها.
+     *
+     * والتقصير هو الصادق: من يملك اعتماداً فعلياً يُعلنه بـ`title`.
+     *
+     * @param  array{qrSeed:string,rows:array<int,ReportCell>,title?:string}  $a
      */
     private static function renderApproval(array $a): string
     {
@@ -122,7 +131,9 @@ class ReportPrint
             $a['rows']
         ));
 
-        return '<div class="cf-sec"><div class="sh">اعتماد وتوقيع الإدارة العليا</div><div class="sb"><div class="cf-appr"><div class="qr">'.Qr::svg($a['qrSeed']).'</div><div class="rows">'.$rows.'</div></div></div></div>';
+        $title = trim((string) ($a['title'] ?? '')) ?: 'بيانات إصدار الوثيقة';
+
+        return '<div class="cf-sec"><div class="sh">'.e($title).'</div><div class="sb"><div class="cf-appr"><div class="qr">'.Qr::svg($a['qrSeed']).'</div><div class="rows">'.$rows.'</div></div></div></div>';
     }
 
     /** يضمّن شعار المكتب كـdata URI حتى يظهر داخل PDF المُصيَّر بمعزل عن الخادم المحلي (بلا طلب شبكة). */

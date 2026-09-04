@@ -21,11 +21,12 @@ use App\Services\LegalAiService;
 use App\Services\MailService;
 use App\Services\ZoomService;
 use App\Support\Audit;
+use App\Support\Booking\BookingMoment;
+use App\Support\Booking\BookingMoved;
 use App\Support\ClientDirectory;
 use App\Support\DecisionTasks;
 use App\Support\Live;
 use App\Support\MeetingSummary;
-use App\Support\MeetingTime;
 use App\Support\Notify;
 use App\Support\RecordingArchive;
 use App\Support\ReferenceNumber;
@@ -114,15 +115,15 @@ class MeetingController extends Controller
     // إنشاء اجتماع جديد (يطابق submitMeeting) — مع جلسة Zoom ودعوة العميل إن رُبط
     public function store(Request $request): RedirectResponse
     {
-        $data = $request->validate([
+        // **التاريخ مطلوب.** كان `day`/`time` سلسلتين حرّتين اختياريّتين،
+        // وحين تُتركان يُخترَع «اليوم · 10:00» — اجتماعٌ بموعدٍ لم يختره أحد.
+        $data = $request->validate(BookingMoment::rules() + [
             'title' => ['required', 'string', 'max:160'],
             'type' => ['required', 'string', 'max:60'],
             'priority' => ['nullable', 'string', 'in:عالية,متوسطة,عادية'],
             'conf' => ['nullable', 'string', 'in:سري,عادي'],
             'dur' => ['nullable', 'string', 'max:30'],
             'participants' => ['nullable', 'string', 'max:300'],
-            'day' => ['nullable', 'string', 'max:40'],
-            'time' => ['nullable', 'string', 'max:20'],
             'client_id' => ['nullable', 'integer', 'exists:users,id'],
             'case_ref' => ['nullable', 'string', 'max:120'],
             'lawyer_id' => ['nullable', 'integer', new ActiveLawyer],
@@ -133,9 +134,12 @@ class MeetingController extends Controller
         $assignedLawyer = ! empty($data['lawyer_id'])
             ? User::where('role', Role::Lawyer)->find((int) $data['lawyer_id'])
             : ($request->user()->role === Role::Lawyer ? $request->user() : null);
-        $when = trim(($data['day'] ?? '') !== '' ? $data['day'].' · '.($data['time'] ?? '') : 'اليوم · 10:00');
-        $startsAt = MeetingTime::parse($data['day'] ?? null, $data['time'] ?? null);
         $durMinutes = (int) ($data['dur'] ?? 60) ?: 60;
+        // اللحظة مصدر الوقت **والعرض** معاً — فلا يقول `when_label` شيئاً
+        // و`starts_at` شيئاً آخر (أو لا يقول شيئاً).
+        $moment = BookingMoment::from($data['day'], $data['time'], $durMinutes);
+        $startsAt = $moment->startsAt;
+        $when = $moment->label();
 
         $zoom = $this->zoom->createMeeting($data['title'], $durMinutes, ($data['conf'] ?? '') === 'سري', $startsAt);
 
@@ -369,22 +373,19 @@ class MeetingController extends Controller
         $this->guardMeeting($request, $meeting);
         // حارس خادمي: النهائية لا تُعاد جدولتها (إخفاء الزر في الواجهة وحده يُلتفّ عليه)
         abort_if(in_array($meeting->status, ['منتهٍ', 'ملغى'], true), 422, 'الاجتماع منتهٍ أو ملغى — أنشئ اجتماعاً جديداً بدل إعادة جدولته.');
-        $data = $request->validate([
-            'day' => ['required', 'string', 'max:40'],
-            'time' => ['nullable', 'string', 'max:20'],
-        ]);
+        // **موعدٌ مفهوم لا سلسلة حرّة.** كانت إعادة الجدولة تقبل أيّ نصّ،
+        // فتُنتج `starts_at = null` وحالةً «مؤجّل» — واجتماعٌ بلا طابع زمنيّ
+        // لا يصله تذكيرٌ أبداً (`meetings:send-reminders` يشترطه).
+        // **و«أُجِّل بلا موعد» نيّةٌ صريحة لا حصيلةُ نصٍّ لا يُفكّ.** كانت الحالة
+        // «مؤجل» تُبلَغ بكتابة أيّ نصٍّ غير مفهوم في حقل التاريخ، فيقع التأجيل
+        // بالمصادفة؛ وتشديدُ الصيغة وحده كان سيجعلها **غير قابلة للبلوغ** رغم أن
+        // لها تبويباً وعدّاداً في اللوحة — وهو مصير «بانتظار التأكيد» المعلّق أدناه.
+        $postpone = $request->boolean('postpone');
+        $data = $request->validate($postpone ? [] : BookingMoment::rules());
 
-        $startsAt = MeetingTime::parse($data['day'], $data['time'] ?? null);
-        $when = trim($data['day'].(($data['time'] ?? '') !== '' ? ' · '.$data['time'] : ''));
-
-        // مزامنة Zoom: تحديث موعد الاجتماع (إن كان له موعد قابل للتحليل)
-        if ($startsAt) {
-            $this->zoom->updateMeeting((string) $meeting->meet_id, [
-                'start_time' => $startsAt->format('Y-m-d\TH:i:s'),
-                'duration' => 60,
-                'topic' => $meeting->title,
-            ]);
-        }
+        $moment = $postpone ? null : BookingMoment::from($data['day'], $data['time'], $meeting->durationMinutes() ?: 60);
+        $startsAt = $moment?->startsAt;
+        $when = $moment?->label() ?? 'يُحدَّد لاحقاً';
 
         $meeting->update([
             'status' => $startsAt ? 'قادم' : 'مؤجل',
@@ -398,13 +399,22 @@ class MeetingController extends Controller
             'recording_url' => null,
             'attend' => 0, // العمود غير قابل لـnull — صفر يعني «لم يُسجَّل حضور بعد»
         ]);
+
+        // **Zoom يتبع الموعد بمدّته الحقيقيّة.** كانت المزامنة تُرسل `duration => 60`
+        // مثبَّتة، فاجتماعٌ مدّته ٩٠ أو ١٢٠ يُخفَّض إلى ٦٠ على Zoom في كلّ إعادة جدولة
+        // بينما `Meeting::durationMinutes()` ما زال يقول ٩٠ — فتتباعد الجهتان صامتتين.
+        // **فقط عند موعدٍ مفهوم.** تاريخٌ لا يُفكّ يعني «أُجّل بلا موعد»
+        // لا «أُلغي» — والخلط بينهما كان سيحذف اجتماع Zoom.
+        if ($startsAt) {
+            BookingMoved::apply($meeting->fresh(), $startsAt);
+        }
         // دعوة نُفّذت جلستها أو انتهت صلاحيتها تعود «مؤكدة» بالموعد الجديد (المرسلة تبقى بانتظار العميل)
         MeetRequest::where('meeting_id', $meeting->id)
             ->whereIn('stage', [MeetRequest::STAGE_EXECUTED, MeetRequest::STAGE_EXPIRED])
             ->update(['stage' => MeetRequest::STAGE_CONFIRMED]);
         MeetRequest::where('meeting_id', $meeting->id)
             ->where('stage', '!=', MeetRequest::STAGE_CANCELLED)
-            ->update(['day' => $data['day'], 'time' => ($data['time'] ?? '') ?: '—']);
+            ->update(['day' => $data['day'] ?? $when, 'time' => ($data['time'] ?? '') ?: '—']);
         if ($meeting->user_id) {
             Notify::send($meeting->user_id, 'cal', 't-amber', "أُعيدت جدولة اجتماع «{$meeting->title}»: {$when}.");
         }

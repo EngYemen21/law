@@ -60,7 +60,15 @@ class ExternalSystemService
         return null;
     }
 
-    /** يقدّم حالة النظام الخارجيّ خطوةً (محاكاة: التالية في EXT_STAGES). */
+    /**
+     * حالة النظام الخارجيّ.
+     *
+     * ⚠️ **تعثّر النداء الحقيقيّ لا يُقدّم المرحلة.** كان `catch` ثم `return $next`:
+     * فينقلب انقطاعُ الشبكة تقدّماً في ملفّ العميل، وقد يبلغ «صدر الرد من الجهة»
+     * فيُشعَر العميل بردٍّ لم يصدر. والصادق أن تبقى الحالة كما هي حتى تُجيب الجهة.
+     *
+     * والمحاكاة **بلا مفاتيح** تبقى (وضع تطوير معلَن): تتقدّم خطوةً في كل مزامنة.
+     */
     public function status(Correspondence $corr): string
     {
         $current = (string) ($corr->ext_status ?? '');
@@ -76,21 +84,32 @@ class ExternalSystemService
             if ($res->successful() && ($s = $res->json('status'))) {
                 return (string) $s;
             }
+            Log::warning('external_corr.status.failed', ['corr' => $corr->number, 'status' => $res->status()]);
         } catch (\Throwable $e) {
             Log::warning('external_corr.status.exception', ['corr' => $corr->number, 'message' => $e->getMessage()]);
         }
 
-        return $next;
+        // تعثّر النداء ⇒ لا تقدّم: الحالة تبقى على ما هي
+        return $current !== '' ? $current : CorrFlow::EXT_STAGES[0];
     }
 
-    /** يجلب نصّ ردّ الجهة (محاكاة: نصّ قالبيّ رسميّ). */
-    public function reply(Correspondence $corr): string
+    /**
+     * نصّ ردّ الجهة — أو `null` حين يتعذّر جلبه فعلاً (نظير `send`).
+     *
+     * ⚠️ **العطل لا يُنتج ردّ جهةٍ حكوميّة.** كان `catch` ثم `return $simulated`،
+     * والنصّ المُختلَق: «تفيدكم {الجهة} **بالموافقة على الإجراء المطلوب**». فيُخزَّن
+     * في `reply_body`، وتُضبط الحالة «صدر الرد من الجهة»، ويُشعَر العميل، ويُطبع
+     * في PDF بعنوان «ردّ الجهة» داخل «إفادة العميل عن المخاطبة الرسميّة» — أي أن
+     * انقطاع الشبكة يتحوّل إلى **موافقة حكوميّة موثَّقة** في ملفّ العميل.
+     *
+     * و`send` أُصلح بهذا المبدأ نفسه ووُسم مرجعُه المحاكى بسابقة «محاكاة»، وبقي
+     * هذا وحده يختلق. والمحاكاة بلا مفاتيح تبقى، لكنها **تُعلن نفسها في النصّ**.
+     */
+    public function reply(Correspondence $corr): ?string
     {
-        $simulated = 'بالإشارة إلى مخاطبتكم رقم '.($corr->ext_ref ?: $corr->number).'، تفيدكم '.$corr->entity
-            .' بالموافقة على الإجراء المطلوب واستكمال متطلّباته وفق الأنظمة.';
-
         if (! $this->isConfigured() || ! $corr->ext_ref) {
-            return $simulated;
+            return '['.self::SIMULATED_PREFIX.' — لا ردّ حقيقيّ من الجهة؛ النظام الخارجيّ غير مُهيّأ] '
+                .'بالإشارة إلى مخاطبتكم رقم '.($corr->ext_ref ?: $corr->number).'.';
         }
 
         try {
@@ -98,11 +117,12 @@ class ExternalSystemService
             if ($res->successful() && ($body = $res->json('replyBody'))) {
                 return (string) $body;
             }
+            Log::warning('external_corr.reply.failed', ['corr' => $corr->number, 'status' => $res->status()]);
         } catch (\Throwable $e) {
             Log::warning('external_corr.reply.exception', ['corr' => $corr->number, 'message' => $e->getMessage()]);
         }
 
-        return $simulated;
+        return null;
     }
 
     private function client()

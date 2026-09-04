@@ -130,4 +130,44 @@ class AiOutputValidatorTest extends TestCase
 
         $this->assertSame(['مراجعة المسودة'], $valid['decisions']);
     }
+    // ── الحقول النائبة لا تصل الإنسان ──
+
+    /**
+     * «[أدخل التاريخ]» لا يصل العميل — ولو نُهي عنه في التعليمة.
+     *
+     * نُهي في `consult.summary` v2 صراحةً، وعاد في القياس على مزوّدٍ حقيقيّ. فالنهيُ
+     * رجاء، وهذا حكم. والسطر المُعلَّق يسقط كلّه: «**التاريخ:**» وحده أسوأ من غيابه.
+     */
+    public function test_a_placeholder_field_never_reaches_the_reader(): void
+    {
+        $out = AiOutputValidator::stripPlaceholders(
+            '**ملخص استشارة**
+**التاريخ:** [أدخل التاريخ]
+**الوقائع**
+أنجز العميل سبعين بالمئة من الأعمال.'
+        );
+
+        $this->assertStringNotContainsString('[أدخل التاريخ]', $out);
+        $this->assertStringNotContainsString('**التاريخ:**', $out, 'لا عنوانٌ مُعلَّق بلا قيمته');
+        $this->assertStringContainsString('أنجز العميل سبعين بالمئة', $out, 'والمضمون يبقى');
+    }
+
+    /** والسطر ذو المضمون يبقى وإن حمل حقلاً نائباً في طرفه. */
+    public function test_a_line_with_real_content_survives_its_placeholder(): void
+    {
+        $out = AiOutputValidator::stripPlaceholders(
+            'طالب العميل بصرف مستخلصين بقيمة 240 ألف ريال منذ أربعة أشهر [أدخل رقم العقد]'
+        );
+
+        $this->assertStringNotContainsString('[أدخل رقم العقد]', $out);
+        $this->assertStringContainsString('240 ألف ريال', $out);
+    }
+
+    /** وعلامات التمويه تبقى — من صنعنا لا من النموذج، وحذفها يُخفي أن معرّفاً كان هناك. */
+    public function test_masking_markers_are_not_mistaken_for_placeholders(): void
+    {
+        $line = 'تواصل العميل على [جوال] وهويته [هوية].';
+
+        $this->assertSame($line, AiOutputValidator::stripPlaceholders($line));
+    }
 }

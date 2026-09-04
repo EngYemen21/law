@@ -2,9 +2,11 @@
 
 namespace App\Jobs;
 
+use App\Enums\AiSource;
 use App\Models\Execution;
 use App\Models\ExecutionDocument;
 use App\Services\Ai\AiQueue;
+use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -68,6 +70,16 @@ class AnalyzeExecutionDocumentJob implements ShouldQueue
 
             return;
         }
+
+        // يُسجَّل كأيّ مخرج ذكاء — كان يجري بلا قيدٍ في `ai_runs`، فيُكتب حكمُه في
+        // ملفّ التنفيذ ولا يظهر في الكلفة ولا التغطية ولا صندوق المراجعة.
+        AiRunLogger::log(
+            'document.analyze',
+            AiSource::AiSuccess,
+            is_array($analysis['meta'] ?? null) ? $analysis['meta'] : [],
+            $this->execution,
+            (string) $this->execution->number,
+        );
 
         $doc->update([
             'doc_type' => $analysis['doc_type'],

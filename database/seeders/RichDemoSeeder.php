@@ -244,7 +244,14 @@ class RichDemoSeeder extends Seeder
                 'phone' => $channel === 'هاتفية' ? $cl->phone : null,
                 'meet_link' => $channel === 'مرئية' && $at ? 'https://zoom.us/j/demo'.$i : null,
                 'status' => $status, 'session' => $session,
+                // **ملخّصٌ مبذور معتمَدٌ مبذور.** كان يُبذر نصٌّ يقول «وأُرسل الملخص
+                // للعميل» بلا `summary_approved_at` — وهي حالةٌ **لا يبلغها أيّ مسار**:
+                // محجوبةٌ عن العميل، وبلا قيدٍ في `ai_runs` فلا تظهر في صندوق المراجعة.
+                // فكانت البذرة تُولّد ثلاث استشارات في مأزقٍ لا مخرج منه، ونصُّها يدّعي
+                // إرسالاً لم يقع.
                 'summary' => $session === 'منتهية' ? 'تمت الجلسة وقُدّمت التوصيات النظامية، وأُرسل الملخص للعميل.' : null,
+                'summary_approved_at' => $session === 'منتهية' ? now()->subDays(max(abs($days ?? 1) - 1, 0)) : null,
+                'summary_approved_by' => $session === 'منتهية' ? $lw->id : null,
                 'priced_at' => $priced ? now()->subDays(abs($days ?? 2) + 1) : null,
                 'paid_at' => $paid ? now()->subDays(abs($days ?? 2)) : null,
             ] + ($priced ? [

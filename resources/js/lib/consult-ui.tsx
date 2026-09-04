@@ -13,6 +13,7 @@ import {
 } from '@/lib/employee-data';
 import type {AuditEntry} from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { useCan } from '@/lib/permissions';
 import ZoomEmbedRoom from '@/lib/zoom-room';
 
 // ============================================================
@@ -54,6 +55,27 @@ export interface ConsultCard {
   /** الملخّص محجوبٌ عن العميل حتى يعتمده محامٍ — انظر `Consult::toClientCard`. */
   summaryPending?: boolean;
   summaryApproved?: boolean;
+  /** حُرّر الملخّص بيد إنسان قبل الاعتماد (بطاقة المكتب وحدها). */
+  summaryEdited?: boolean;
+  /** ختم الاعتماد (ISO) — `null` يعني لم يُعتمد بعد. */
+  summaryApprovedAt?: string | null;
+  /**
+   * مصدر **الملخّص** وحده — غير `aiSource` الذي يصف تحليل ما قبل الجلسة.
+   * خلطُهما كان يُعيد وسم تحليلٍ نجح بأنّه فاشل. و`null` = لم يُقَس.
+   */
+  summaryAiSource?: '' | 'ai_success' | 'fallback' | 'manual_required' | 'human_approved' | null;
+  /** مادّة جلسة Zoom كما وردت — مفصولة عن الملخّص الذي يصل العميل. */
+  zoomSummary?: string | null;
+  /** رقم التذكرة الأمّ — **رقماً لا معرّفاً**: مسار التحويل يربط بـ`number`. */
+  ticketNo?: string | null;
+  /**
+   * رقم القضيّة إن تحوّلت التذكرة — **إشارةُ التحويل الحقيقيّة**.
+   * كانت الشاشات تعدّ حالةً `'محولة إلى قضية'` لا يكتبها أيّ مسار، فمؤشّر
+   * «استشارة أصبحت قضية» صفرٌ أبداً. والتحويل يقع على التذكرة لا الاستشارة.
+   */
+  caseNo?: string | null;
+  /** تدوين الجلسة (بطاقة المكتب وحدها). */
+  sessionNotes?: string | null;
   duration: string | null;
   recording?: string | null; // رابط التسجيل السحابي (بعد الجلسة)
   total: number;
@@ -82,6 +104,49 @@ export interface ConsultCard {
   tasksCreated: boolean;
   zoomAudioUrl?: string | null;
   zoomShareUrl?: string | null;
+}
+
+/**
+ * **بطاقة العميل — ما يرسله `Consult::toClientCard` فعلاً، لا أكثر.**
+ *
+ * كانت صفحة «استشاراتي» تعلن `ConsultCard[]` بينما الخادم يمرّر `toClientCard()`
+ * (٢٦ مفتاحاً من ٥٥): فحقولٌ **إلزاميّة** في النوع — `client`, `phone`, `hostLink`,
+ * `type`, `priority`, `employee`, `mins`, `aiSummary`, `audit`, `missing` وغيرها —
+ * لا تصل صفحة العميل أبداً. لا عطلَ اليوم لأنها لا تُقرأ، **لكنّ TypeScript يضمن
+ * وجودها كذباً**: أوّل سطرٍ يقرأ `c.priority` يمرّ الفحص وينكسر في المتصفّح صامتاً.
+ *
+ * وحجبُ التحليل والمستندات الناقصة وسجلّ التدقيق عن العميل **مقصود** — فالنوع هنا
+ * يصف قراراً لا نقصاً.
+ */
+export interface ClientConsultCard {
+  id: number;
+  ref: string;
+  subject: string;
+  specialty?: string;
+  channel: string;
+  lawyer: string;
+  when: string;
+  place: string;
+  slink: string;
+  canJoin?: boolean;
+  missed?: boolean;
+  session: string;
+  status: string;
+  /** `null` ما لم يعتمده محامٍ — الحجب في الخادم لا في الواجهة. */
+  summary: string | null;
+  summaryPending?: boolean;
+  summaryApproved?: boolean;
+  duration: string | null;
+  price?: number;
+  vat?: number;
+  total: number;
+  priced?: boolean;
+  paid?: boolean;
+  paidAgo?: string | null;
+  invoiceNo?: string | null;
+  /** تتبع الملخّص في الحجب — كانت تصل قبله. */
+  decisions: string[];
+  startsAt?: string | null;
 }
 
 // فتح جلسة Zoom في تبويب جديد (المكالمة والتسجيل على Zoom)
@@ -124,8 +189,72 @@ return '؟';
 export const sessTone = (s: string) =>
   s === 'جلسة جارية' ? 'b-amber' : s === 'منتهية' ? 'b-green' : 'b-grey';
 
+// ============================================================
+// حالة ملخّص الجلسة — مصدرٌ واحد تقرؤه الشاشات الثلاث
+// ============================================================
+
+export type SummaryState = 'none' | 'pending' | 'approved';
+
+/**
+ * حالةُ الملخّص كما يقرّرها الخادم — لا كما تشتقّها كلّ شاشة على حدة.
+ *
+ * كانت شاشة الموظّف تعرض النصّ **بلا أيّ إشارة** إلى أنه غير معتمَد، فيقرأ رأياً
+ * قانونياً محجوباً عن الموكّل ويحسبه نهائياً.
+ */
+export function summaryState(c: Pick<ConsultCard, 'summary' | 'summaryApproved' | 'summaryPending'>): SummaryState {
+  if (c.summaryApproved) {
+return 'approved';
+}
+
+  if (c.summaryPending || c.summary) {
+return 'pending';
+}
+
+  return 'none';
+}
+
+/** وصفُ مصدر النصّ — و«لم يُسجَّل» لا «فشل»: `null` تعني لم يُقَس. */
+export function summarySourceLabel(c: Pick<ConsultCard, 'summaryAiSource' | 'summaryEdited'>): string | null {
+  if (c.summaryEdited) {
+return 'حُرّر بيد محامٍ';
+}
+
+  switch (c.summaryAiSource) {
+    case 'ai_success': return 'صياغة آليّة';
+    case 'fallback': return 'تعذّرت الصياغة الآليّة';
+    case 'manual_required': return 'يلزمه تحريرٌ بشريّ';
+    case 'human_approved': return 'بصياغة بشريّة';
+    default: return null; // لم يُقَس — لا يُدّعى مصدر
+  }
+}
+
+/** شارةُ حالة الملخّص — تُغني عن اشتقاقٍ محلّي في كل شاشة. */
+export const SummaryStateBadge: React.FC<{ consult: ConsultCard }> = ({ consult }) => {
+  const state = summaryState(consult);
+
+  if (state === 'none') {
+return null;
+}
+
+  const source = summarySourceLabel(consult);
+
+  return (
+    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+      <Badge
+        tone={state === 'approved' ? 'b-green' : 'b-amber'}
+        text={state === 'approved' ? 'معتمَد — وصل الموكّل' : 'غير معتمَد — محجوب عن الموكّل'}
+      />
+      {source && <Badge tone="b-grey" text={source} />}
+    </span>
+  );
+};
+
 // نافذة ملخص الاستشارة (تُستخدم لدى العميل والمكتب)
-export const SummaryModal: React.FC<{ consult: ConsultCard | null; onClose: () => void }> = ({ consult, onClose }) => (
+// يقرأ المرجع والنصّ وحدهما — فيصلح للبطاقتين
+export const SummaryModal: React.FC<{
+  consult: Pick<ConsultCard, 'ref' | 'summary'> | null;
+  onClose: () => void;
+}> = ({ consult, onClose }) => (
   <Modal title={`ملخص الاستشارة — ${consult?.ref ?? ''}`} open={!!consult} onClose={onClose}>
     {consult && (
       <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: '13.5px' }}>
@@ -150,10 +279,17 @@ export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }
   useEffect(() => {
     setItems(consults);
     consults.forEach((c) => {
-      echo.private(`consult.${c.id}`).listen('.status', (e: { session?: string; status?: string; canJoin?: boolean; summary?: string | null }) => {
+      echo.private(`consult.${c.id}`).listen('.status', (e: { session?: string; status?: string; canJoin?: boolean }) => {
         setItems((prev) => prev.map((x) => x.id === c.id
-          ? { ...x, session: e.session ?? x.session, status: e.status ?? x.status, canJoin: e.canJoin ?? x.canJoin, summary: e.summary ?? x.summary }
+          ? { ...x, session: e.session ?? x.session, status: e.status ?? x.status, canJoin: e.canJoin ?? x.canJoin }
           : x));
+
+        // الملخّص **لا يُؤخذ من البثّ**: الحمولة نفسها تُبثّ للعميل، فما يراه الطاقم
+        // منها هو ما يجوز للعميل رؤيته — أي المعتمَد وحده. والطاقم يحتاج النصّ غير
+        // المعتمَد ليراجعه، فيُجلب من الخادم بصلاحيّة الطاقم لا من قناةٍ مشتركة.
+        if (e.session === 'منتهية') {
+          router.reload({ only: ['consults'] });
+        }
       });
     });
 
@@ -191,11 +327,31 @@ counts[c.channel]++;
     });
   };
 
-  // يطابق crEnd — إنهاء وتوليد الملخص
-  const end = (c: ConsultCard) => {
-    router.post(`${base}/consults/${c.id}/end`, {}, {
+  // يطابق crEnd — إنهاء الجلسة مع تدوين ما دار فيها.
+  //
+  // كان يُرسل حمولةً فارغة `{}` ويُقال «ولّد الفريق القانوني ملخص الاستشارة»
+  // ولم يُرسل حرفاً — وحقلُ الملاحظات موجود في الغرفة المرئية وحدها، فالحضورية
+  // والهاتفية تنتهيان دائماً بلا مادّة. وبعد حارس «بلا مادّة ⇒ لا نداء» صارت
+  // النافذة شرطاً لا تحسيناً: بلا تدوين لا ملخّص أصلاً.
+  const [endingOf, setEndingOf] = useState<ConsultCard | null>(null);
+  const [endNotes, setEndNotes] = useState('');
+
+  const end = () => {
+    if (endingOf === null) {
+      return;
+    }
+
+    const notes = endNotes.trim();
+
+    router.post(`${base}/consults/${endingOf.id}/end`, { notes }, {
       preserveScroll: true,
-      onSuccess: () => toast('انتهت الجلسة — ولّد الفريق القانوني ملخص الاستشارة'),
+      onSuccess: () => {
+        setEndingOf(null);
+        setEndNotes('');
+        toast(notes === ''
+          ? 'خُتمت الجلسة بلا تدوين — لا ملخّص حتّى تُدوّن ما دار فيها'
+          : 'خُتمت الجلسة وحُفظ تدوينك — يُعدّ الملخّص لاعتمادك');
+      },
     });
   };
 
@@ -208,7 +364,8 @@ counts[c.channel]++;
       router.post(`${base}/consults/${c.id}/start`, {}, {
         preserveScroll: true,
         onSuccess: () => router.visit(room),
-        onError: () => toast('تعذّر بدء الجلسة'),
+        // سبب الرفض من الخادم: «فات الموعد» و«قبل الموعد بربع ساعة» فعلان مختلفان.
+        onError: (errors) => toast(Object.values(errors)[0] || 'تعذّر بدء الجلسة'),
       });
 
       return;
@@ -349,7 +506,7 @@ void navigator.clipboard.writeText(c.slink);
                           <Icon name="video" /> دخول جلسة Zoom
                         </button>
                       )}
-                      <button className="btn sm" onClick={() => end(c)} type="button">
+                      <button className="btn sm" onClick={() => { setEndingOf(c); setEndNotes(''); }} type="button">
                         <Icon name="doc" /> إنهاء وكتابة الملخص
                       </button>
                     </>
@@ -369,6 +526,35 @@ void navigator.clipboard.writeText(c.slink);
           )}
         </div>
       </div>
+
+      {/* نافذة التدوين — مادّة الملخّص الوحيدة للقنوات غير المرئية */}
+      <Modal
+        title={`إنهاء الجلسة وتدوين ما دار — ${endingOf?.ref ?? ''}`}
+        open={!!endingOf}
+        onClose={() => setEndingOf(null)}
+      >
+        <div className="field">
+          <label>ما دار في الجلسة (وقائع العميل، ما طُلب، ما تقرّر)</label>
+          <textarea
+            className="input"
+            rows={9}
+            value={endNotes}
+            onChange={(ev) => setEndNotes(ev.target.value)}
+            placeholder="مثال: العميل مقاول من الباطن، لم يُصرَف له مستخلصان منذ أربعة أشهر، ويريد وقف العمل والمطالبة…"
+          />
+        </div>
+        <p className="action-hint">
+          <Icon name="info" /> الملخّص يُبنى على تدوينك وحده — وبلا تدوين لا يُكتب شيء، لأنّ ما يُكتب من عنوان الموضوع وحده محضرٌ مختلَق.
+        </p>
+        <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
+          <button className="btn" onClick={end} disabled={endNotes.trim() === ''} type="button">
+            <Icon name="doc" /> إنهاء وحفظ التدوين
+          </button>
+          <button className="btn soft" onClick={end} type="button">
+            <Icon name="check" /> إنهاء بلا تدوين
+          </button>
+        </div>
+      </Modal>
 
       <SummaryModal consult={summaryOf} onClose={() => setSummaryOf(null)} />
     </>
@@ -588,11 +774,24 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
   };
 
   const take = () => post('take', {}, 'تم استلام الاستشارة لدى الموظف');
-  const requestDocs = () => post('reqdocs', {}, 'تم طلب استكمال البيانات وإشعار العميل');
-  const runAI = () => post('analyze', {}, 'اكتمل تحليل الفريق القانوني');
+  // كانت ترسل حمولةً فارغة، فيصل العميلَ «مستند إضافي مطلوب» بلا بيان — طلبٌ
+  // يعلق به ملفّه بانتظار شيءٍ مجهول. والخادم صار يشترط النصّ.
+  const requestDocs = () => {
+    const what = window.prompt('ما المستند المطلوب من العميل؟')?.trim();
+
+    if (!what) {
+      return;
+    }
+
+    post('reqdocs', { docs: what }, 'تم طلب استكمال البيانات وإشعار العميل');
+  };
+  // «اكتمل» تدّعي نجاحاً لا يضمنه الردّ: `Staff\ConsultController::analyze`
+  // يعيد `back()` في الحالين، ويكتب في سجلّ التدقيق «تعذّر — يلزم إعداد يدويّ»
+  // عند الاحتياطيّ. والعنوان في البطاقة أُصلح ليتبع `aiSource` ولم يُصلح التوست.
+  const runAI = () => post('analyze', {}, 'انتهت المعالجة — راجع نتيجتها في البطاقة أدناه');
   const saveAI = () => post('analysis', { aiClass, aiSummary, aiLawyer: lawyerName }, 'تم حفظ التعديلات في سجل التدقيق');
   const approveAI = () => post('approve', {}, 'تم اعتماد التحليل — الاستشارة جاهزة للمحامي');
-  const rerun = () => post('analyze', {}, 'تمت إعادة التحليل');
+  const rerun = () => post('analyze', {}, 'أُعيدت المعالجة — راجع نتيجتها في البطاقة أدناه');
   const refer = () => post('refer', { lawyer_id: String(lawyerId) }, `تمت إحالة الاستشارة إلى المحامي: ${lawyerName}`);
 
   // تحويل قرارات الاستشارة إلى مهام حقيقية (تُستخرج عند إنهاء الجلسة) — لمرة واحدة
@@ -612,6 +811,20 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
     });
   };
   const savePriority = () => post('priority', { priority }, 'تم تحديث الأولوية');
+
+  // محرّر ملخّص الجلسة — النصّ الذي سيصل العميل. كان «تعديل واعتماد» خياراً في
+  // صندوق المراجعة **بلا حقلٍ يستقبله**، فيُسجّل «عدّل» والمنشور نصّ النموذج حرفياً.
+  const [sessionSummary, setSessionSummary] = useState(c.summary ?? '');
+
+  // نصّ الموكّل يحرّره ويعتمده **من يملك الصلاحيّة** — لا من يفتح الصفحة.
+  const mayEditSummary = useCan()('اعتماد/تعديل ملخص الاستشارة');
+
+  useEffect(() => {
+    setSessionSummary(c.summary ?? '');
+  }, [c.summary]);
+
+  const saveSessionSummary = () => post('summary', { summary: sessionSummary }, 'حُفظ الملخّص المحرّر — يصل العميل بعد اعتماده');
+  const approveSessionSummary = () => post('summary/approve', {}, 'اعتُمد الملخّص وأُرسل إلى العميل');
 
   const showEmpActions = c.status === 'جديدة'
     || c.status === 'قيد مراجعة الموظف'
@@ -780,6 +993,68 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                 <Icon name="scale" /> تعيين المحامي واعتماد الإحالة
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ملخّص الجلسة — ما سيقرؤه العميل، يُحرّر قبل الاعتماد ويُقفَل بعده */}
+      {c.session === 'منتهية' && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="card-h">
+            <h3>ملخّص الجلسة (نسخة العميل)</h3>
+            <SummaryStateBadge consult={c} />
+          </div>
+          <div className="card-b" style={{ padding: '16px 18px' }}>
+            {c.summaryApproved ? (
+              <>
+                <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: '13.5px' }}>{c.summary}</div>
+                <p className="action-hint" style={{ marginTop: 10 }}>
+                  <Icon name="info" /> اعتُمد هذا النصّ وقرأه العميل — تعديله الآن سحبٌ لا حفظ، فهو قرارٌ مستقلّ يُشعَر به صاحبه.
+                </p>
+              </>
+            ) : c.summary ? (
+              <>
+                {/*
+                  **المحرّر خلف الصلاحيّة لا خلف الدور.** كان يُعرض للجميع، ومسار
+                  الموظّف غير مسجَّل — فيحرّر نصّه ويضغط الحفظ فيسقط الطلب صامتاً.
+                  ومن لا صلاحيّة له يقرأ النصّ وحالته ولا يلمسه، إلّا أن تمنحه
+                  الإدارة العليا الصلاحيّة صراحةً.
+                */}
+                {mayEditSummary ? (
+                  <>
+                    <div className="field">
+                      <label>النصّ الذي سيصل العميل بعد اعتمادك</label>
+                      <textarea className="input" rows={10} value={sessionSummary} onChange={(ev) => setSessionSummary(ev.target.value)} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
+                      <button className="btn soft sm" onClick={saveSessionSummary} disabled={busy || sessionSummary.trim() === ''} type="button">
+                        <Icon name="check" /> حفظ الملخّص المحرّر
+                      </button>
+                      <button className="btn sm" onClick={approveSessionSummary} disabled={busy} type="button">
+                        <Icon name="scale" /> اعتماد وإرسال للعميل
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: '13.5px' }}>{c.summary}</div>
+                )}
+                {c.zoomSummary && (
+                  <details style={{ marginTop: 12 }}>
+                    <summary style={{ cursor: 'pointer', fontWeight: 700 }}>مادّة من جلسة Zoom (للبناء عليها)</summary>
+                    <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: '13px', marginTop: 8, padding: 10, border: '1px solid var(--line-soft)', borderRadius: 8 }}>
+                      {c.zoomSummary}
+                    </div>
+                  </details>
+                )}
+                <p className="action-hint" style={{ marginTop: 10 }}>
+                  <Icon name="info" /> {mayEditSummary
+                    ? 'الحفظ لا يُطلق الملخّص — الإطلاق بالاعتماد.'
+                    : 'هذا النصّ محجوب عن العميل حتى يعتمده محامٍ مختصّ.'}
+                </p>
+              </>
+            ) : (
+              <div className="empty"><Icon name="info" /><b>لا ملخّص بعد</b></div>
+            )}
           </div>
         </div>
       )}

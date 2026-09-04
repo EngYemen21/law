@@ -14,6 +14,41 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Consult extends Model
 {
     // حالات دورة الحجز قبل الجلسة (تسعير → سداد → اختيار موعد) — تُستثنى من شاشة استقبال الجلسات
+    /**
+     * **كتالوج حالات الاستشارة — كلّ قيمةٍ هنا يكتبها مسارٌ حيّ.**
+     *
+     * وُجدت في الواجهة حالةٌ ثالثة `'محولة إلى قضية'` تُغذّي عدّاداً وتبويباً في ثلاث
+     * شاشات، **ولا يكتبها أيّ مسارٍ في `app/`** (صفر ملفّات). وزرّ «تحويل إلى قضية»
+     * يُحوّل **التذكرة** ولا يمسّ `consults.status` — فالحالة يتيمةٌ بالتصميم لا
+     * بالسهو، وعدّادُها صفرٌ أبداً فيبدو أن المكتب لا يُحوّل استشارةً قطّ.
+     *
+     * وهذه سابقةٌ ثالثة في المشروع: `'بانتظار التأكيد'` عُلّق في
+     * `Staff\MeetingController` للعلّة نفسها، و«جلسات اليوم» كان صفراً أبداً لحقلٍ
+     * لا يُرسَل. ولذلك صار الكتالوج **مصدراً واحداً** يحرسه اختبار.
+     *
+     * ملاحظة: `'مغلقة'` حالةُ **قضيّة** لا استشارة — ذكرُها في تبويبات الاستشارات
+     * كان خلطاً بين كيانين.
+     */
+    public const STATUSES = [
+        // ما قبل الجلسة (دورة الحجز — `ConsultBooking`)
+        'بانتظار التسعير',
+        'بانتظار السداد',
+        'بانتظار تحديد الموعد',
+        'مؤكد',
+        // رحلة المعالجة (`Staff\ConsultController`)
+        'جديدة',
+        'قيد مراجعة الموظف',
+        'بانتظار استكمال البيانات',
+        'بانتظار اعتماد الموظف',
+        'جاهزة للمحامي',
+        'محالة للمحامي',
+        'قيد الاستشارة',
+        // النهايات
+        'منتهية',
+        'لم يحضر',
+        'ملغاة',
+    ];
+
     public const PRE_SESSION_STATUSES = ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'];
 
     protected $fillable = [
@@ -23,7 +58,8 @@ class Consult extends Model
         'meet_id', 'meet_link', 'host_link', 'meet_password',
         'link_released_at', 'reminder_24h_sent_at', 'reminder_30m_sent_at', 'join_time', 'leave_time', 'duration_sec', 'transcript', 'recording_url', 'transcript_path', 'zoom_summary_at',
         'zoom_uuid', 'zoom_share_url', 'zoom_audio_url', 'zoom_participants_log', 'zoom_ai_next_steps',
-        'status', 'session', 'session_notes', 'summary', 'summary_approved_at', 'summary_approved_by', 'duration_label',
+        'status', 'session', 'session_notes', 'summary', 'summary_ai_original', 'summary_approved_at', 'summary_approved_by',
+        'summary_edited_at', 'summary_edited_by', 'summary_ai_source', 'session_finalized_at', 'zoom_summary', 'duration_label',
         'decisions', 'tasks_created', 'suggested_tasks',
         'price', 'vat', 'total', 'mins', 'priced_at', 'paid_at',
         'ai_done', 'ai_source', 'ai_class', 'ai_summary', 'ai_lawyer', 'missing', 'audit',
@@ -42,6 +78,8 @@ class Consult extends Model
         'starts_at' => 'datetime',
         'priced_at' => 'datetime',
         'summary_approved_at' => 'datetime',
+        'summary_edited_at' => 'datetime',
+        'session_finalized_at' => 'datetime',
         'paid_at' => 'datetime',
         'link_released_at' => 'datetime',
         'reminder_24h_sent_at' => 'datetime',
@@ -216,13 +254,34 @@ class Consult extends Model
             'paid' => $this->paid_at !== null,
             'paidAgo' => $this->paid_at?->locale('ar')->diffForHumans(),
             'invoiceNo' => $this->invoice?->number,
-            'decisions' => $this->decisions ?? [],
+            // **القرارات تتبع الملخّص في الحجب.** استُخرجت منه بـ`meeting.decisions`
+            // (`FinalizeConsultJob`)، فكانت تصل العميل بينما مصدرُها محجوبٌ فوقها
+            // بسطرين بانتظار اعتماد محامٍ — يقرأ التزاماتٍ استنبطها نموذج من رأيٍ
+            // لم يُقرّه أحد. والنظير `Meeting::toClientCard` يحرسها بـ`$approved`.
+            'decisions' => $this->summaryApproved() ? ($this->decisions ?? []) : [],
             'startsAt' => $this->starts_at?->toIso8601String(),
             // ملاحظة: لا يُكشف للعميل رابط التسجيل ولا أنّ الجلسة مُسجّلة — داخلي للمكتب فقط
         ];
     }
 
     // الشكل الذي تتوقعه الواجهة (ConsultCard في lib/consult-ui.tsx)
+    /**
+     * **نافذة بدء الجلسة — مصدرٌ واحد.** (قبل الموعد بـ١٥د فأقرب)
+     *
+     * كان الزرّ ظاهراً لاستشارةٍ بعد ثلاثة أسابيع أو فائتةٍ منذ شهر. واستُخرج من
+     * `toCard()` لأن البثّ يحتاجه، ولأن الخادم يجب أن **يفرض** ما تُعلنه البطاقة:
+     * حقلٌ يُرسَل ولا يُفرَض توصيةٌ تتجاهلها الواجهة لا قيد.
+     *
+     * و`starts_at === null` يبقى مسموحاً: استشارةٌ بلا موعد تُبدأ يدوياً — وإسقاط
+     * هذا الفرع يُعطّل كلّ استشارةٍ لم يُحدَّد موعدها.
+     */
+    public function isStartable(): bool
+    {
+        return ! $this->isMissed()
+            && $this->session === 'بانتظار الجلسة'
+            && ($this->starts_at === null || now()->greaterThanOrEqualTo($this->starts_at->copy()->subMinutes(15)));
+    }
+
     public function toCard(): array
     {
         return [
@@ -242,13 +301,40 @@ class Consult extends Model
             'hostLink' => $this->channel === 'مرئية' ? ($this->host_link ?: null) : null,
             'session' => $this->session,
             'missed' => $this->isMissed(), // فات موعدها بلا جلسة — تبويب «فائتة» وإجراءا لم يحضر/إعادة الجدولة
-            // «بدء الجلسة» ضمن نافذة الموعد فقط (قبل 15د فأقرب) — كان الزر ظاهراً لاستشارة بعد 3 أسابيع أو فائتة منذ شهر
-            'startable' => ! $this->isMissed()
-                && $this->session === 'بانتظار الجلسة'
-                && ($this->starts_at === null || now()->greaterThanOrEqualTo($this->starts_at->copy()->subMinutes(15))),
+            'startable' => $this->isStartable(),
             'startsAt' => $this->starts_at?->toIso8601String(),
             'status' => $this->status,
             'summary' => $this->summary,
+            // الطاقم يرى النصّ قبل الاعتماد ليراجعه — ويرى **أنّه** غير معتمَد
+            'summaryApproved' => $this->summaryApproved(),
+            'summaryPending' => $this->summary !== null && ! $this->summaryApproved(),
+            'summaryEdited' => $this->summary_edited_at !== null,
+            'summaryApprovedAt' => $this->summary_approved_at?->toIso8601String(),
+            // **مصدرُ الملخّص غيرُ مصدرِ التحليل.** أُنشئ العمودان منفصلين لأن تعثّر
+            // الملخّص كان يدهس `ai_source` فيُعيد وسم تحليلٍ سابق **نجح** بأنه فاشل.
+            // ثمّ فُصلا في الخادم ولم يصل الثاني الواجهة قطّ — فصار تعثّر الملخّص
+            // **غير مرئيّ تماماً**: لا شارة ولا عنوان. و`null` تعني «لم يُقَس»
+            // (صفوف ما قبل الهجرة) لا «نجح».
+            'summaryAiSource' => $this->summary_ai_source,
+            // مادّة Zoom مفصولة عن الملخّص — تُعرض للطاقم ليبني عليها تحريره
+            'zoomSummary' => $this->zoom_summary,
+            // **رقم التذكرة لا معرّفها:** زرّ «تحويل إلى قضية» في شاشة المحامي
+            // كان يقرأ `ticket_id` ولا تُرسله البطاقة، فبقي **معطّلاً دائماً**.
+            // والمسار `tickets/{ticket}/convert` يربط بـ`number` (`getRouteKeyName`)،
+            // فتمرير المعرّف الرقميّ كان سيُعطي ٤٠٤ لو أُرسل.
+            'ticketNo' => $this->ticket?->number,
+            /*
+             * **رقم القضيّة إن تحوّلت — إشارةٌ حقيقيّة بدل حالةٍ ميتة.**
+             *
+             * كانت الشاشات تعدّ `status === 'محولة إلى قضية'` ولا يكتبها أيّ مسار،
+             * فمؤشّر «استشارة أصبحت قضية» ونسبتُه صفرٌ أبداً في لوحة الإدارة. والتحويل
+             * يقع على **التذكرة** لا الاستشارة، فالإشارة الصادقة وجودُ قضيّةٍ لتذكرتها.
+             */
+            'caseNo' => $this->ticket?->legalCase?->number,
+            // تدوين الجلسة — درج المحامي يملأ حقله منها؛ وكان يقرأ `notes`
+            // التي لا تُرسل، فيفتح المحامي الدرج فيرى حقلاً فارغاً وتدوينه محفوظ.
+            // (داخليّة للمكتب — لا وجود لها في `toClientCard`.)
+            'sessionNotes' => $this->session_notes,
             'duration' => $this->duration_label,
             'recording' => $this->recording_url,
             'price' => $this->price,

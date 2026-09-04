@@ -59,8 +59,8 @@ class MeetRequestController extends Controller
             'service' => ['nullable', 'string', 'max:120'],
             'type' => ['required', 'string', 'in:استشارة مرئية,استشارة حضورية,استشارة هاتفية'],
             'case_ref' => ['nullable', 'string', 'max:120'],
-            'day' => ['required', 'date', 'after_or_equal:today'],
-            'time' => ['required', 'string', 'regex:/^\d{2}:\d{2}$/'],
+            'day' => ['required', 'date_format:Y-m-d', 'after_or_equal:today'],
+            'time' => ['required', 'string', 'date_format:H:i'],
             'duration' => ['required', 'integer', 'in:30,45,60,90,120'],
         ]);
 
@@ -159,7 +159,7 @@ class MeetRequestController extends Controller
     {
         $data = $request->validate([
             'lawyer_id' => ['required', 'integer', 'exists:users,id'],
-            'day' => ['required', 'date'],
+            'day' => ['required', 'date_format:Y-m-d'],
         ]);
 
         $fmt = fn (int $min) => sprintf('%02d:%02d', intdiv($min, 60), $min % 60);
@@ -197,8 +197,8 @@ class MeetRequestController extends Controller
         abort_unless($meetRequest->stage === MeetRequest::STAGE_EXPIRED, 422, 'إعادة الإرسال متاحة للدعوات المنتهية الصلاحية فقط.');
 
         $data = $request->validate([
-            'day' => ['required', 'date', 'after_or_equal:today'],
-            'time' => ['required', 'string', 'regex:/^\d{2}:\d{2}$/'],
+            'day' => ['required', 'date_format:Y-m-d', 'after_or_equal:today'],
+            'time' => ['required', 'string', 'date_format:H:i'],
         ]);
 
         // نفس حراس الإرسال الأول: موعد مستقبلي + منع تعارض حجوزات المحامي

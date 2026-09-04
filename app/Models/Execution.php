@@ -20,7 +20,7 @@ class Execution extends Model
         'user_id', 'case_id', 'number', 'subject', 'assigned_lawyer', 'assigned_lawyer_id', 'court', 'status', 'tone', 'last_action',
         // تدفّق التنفيذ التجاريّ (10 مراحل)
         'stage', 'sanad', 'defendant', 'amount', 'notes', 'docs', 'client_code',
-        'ai_done', 'ai_source', 'ai_summary', 'ai_missing', 'ai_procedures',
+        'ai_done', 'ai_source', 'ai_summary', 'ai_missing', 'ai_procedures', 'ai_approved_at', 'ai_approved_by',
         'decision', 'fee', 'vat', 'duration', 'pay_method', 'fee_approved', 'offer_status',
         'invoice_no', 'paid', 'paid_at', 'exec_no', 'payment_reminder_sent_at',
     ];
@@ -33,6 +33,7 @@ class Execution extends Model
         'docs' => 'array',
         'ai_done' => 'boolean',
         'ai_missing' => 'array',
+        'ai_approved_at' => 'datetime',
         'ai_procedures' => 'array',
         'fee_approved' => 'boolean',
         'paid' => 'boolean',
@@ -90,6 +91,12 @@ class Execution extends Model
         return 'number';
     }
 
+    /** هل اعتمد إنسانٌ مفوَّض تحليلَ هذا الطلب؟ (نظير `Consult::summaryApproved`) */
+    public function aiApproved(): bool
+    {
+        return $this->ai_approved_at !== null;
+    }
+
     /**
      * شكل سجلّ تدفّق التنفيذ التجاريّ للواجهة (يطابق نوع ExecReq في exec-flow.ts).
      * $masked: إخفاء اسم العميل لغير مالكه (المحامي/الموظف/الإدارة).
@@ -100,6 +107,7 @@ class Execution extends Model
     {
         $client = $this->user?->name ?? '—';
         $stage = $this->effectiveStage();
+        $showAi = $internal || $this->aiApproved();
 
         return [
             'id' => $this->number,
@@ -125,9 +133,16 @@ class Execution extends Model
             // مصدر المخرج للواجهة: '' = غير معروف (صفوف ما قبل الهجرة). الواجهة لا تعرض
             // عنوان «الملخّص الذكيّ» إلا لتحليل فعليّ — الاحتياطيّ يظهر بعنوانه الصادق.
             'aiSource' => $this->ai_source ?? '',
-            'aiSummary' => $this->ai_summary ?? '',
-            'aiMissing' => $this->ai_missing ?? [],
-            'aiProcedures' => $this->ai_procedures ?? [],
+            // **لا يصل العميل تحليلٌ لم يعتمده محامٍ.** و`ai_success` تعني أن النموذج
+            // أعاد JSON صالحاً لا أكثر — بلا استرجاع ولا مطابقة سند ولا مرورِ إنسان،
+            // بينما `ExecService::applyAnalysis` يسجّل القيد «يتطلّب مراجعة» صراحةً.
+            // والحجب هنا لا في الواجهة: حجبٌ واجهيّ يُبقي النصّ في حمولة المتصفّح.
+            // و`$internal` هو فاصل المكتب/العميل القائم في هذه الدالّة أصلاً.
+            'aiSummary' => $showAi ? ($this->ai_summary ?? '') : '',
+            'aiMissing' => $showAi ? ($this->ai_missing ?? []) : [],
+            'aiProcedures' => $showAi ? ($this->ai_procedures ?? []) : [],
+            'aiApproved' => $this->aiApproved(),
+            'aiPending' => filled($this->ai_summary) && ! $this->aiApproved(),
             'decision' => $this->decision ?? '',
             'fee' => (int) $this->fee,
             'vat' => (int) $this->vat,

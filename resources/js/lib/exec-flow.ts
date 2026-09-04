@@ -47,6 +47,10 @@ export interface ExecReq {
   aiSummary: string;
   aiMissing: string[];
   aiProcedures: string[];
+  /** اعتمده محامٍ؟ — وقبله تصل الحقول الثلاثة فارغة (`Execution::toFlowCard`). */
+  aiApproved?: boolean;
+  /** أُنتج وينتظر اعتماداً — يُعلَم العميل أن ملفّه تحت الدراسة لا مهمَل. */
+  aiPending?: boolean;
   decision: string;
   fee: number;
   vat: number;

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\AiSource;
 use App\Enums\Role;
 use App\Jobs\ClassifyConvertedCaseJob;
 use App\Models\Execution;
@@ -152,6 +153,10 @@ class DocumentAndMetricHonestyTest extends TestCase
         $analysed = Execution::create([
             'user_id' => $client->id, 'number' => 'EXE-AN-'.uniqid(), 'subject' => 'تنفيذ',
             'sanad' => 'حكم قضائي', 'status' => 'قيد الدراسة', 'tone' => 'b-blue', 'stage' => 2,
+            // المصدر جزءٌ من الحالة لا زينة: صياغة «بعد دراسة الطلب ومستنداته»
+            // صارت تتبع `ai_source` لا امتلاء `ai_missing` — لأنّ الاحتياطيّ يملأ القائمة
+            // أيضاً بقالبٍ لا يقرأ مستنداً. فتحليلٌ فعليّ يلزمه مصدرٌ فعليّ.
+            'ai_source' => AiSource::AiSuccess->value,
             'ai_missing' => ['صك الحكم مكتملاً', 'ما يثبت اكتساب القطعية'],
         ]);
         ExecService::requestDocs($analysed);

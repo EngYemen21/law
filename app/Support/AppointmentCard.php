@@ -63,7 +63,15 @@ class AppointmentCard
             .'<div class="appt-top"><div><b>بطاقة موعد استشارة</b><span>'.e($consult->ref).'</span></div>'
             .'<div style="font-weight:800;font-size:13px">'.e($meta['label']).'</div></div>'
             .'<div class="appt-body"><div class="appt-meta">'.$rows.'</div></div>'
-            .'<div class="email-note">'.self::icon('mail').' تم إرسال إشعار التأكيد إلى بريدك الإلكتروني.</div>'
+            // **لا يُدَّعى إرسالٌ إلى بريدٍ لا وجود له.** كان السطر ثابتاً في كل بطاقة،
+            // و`ConsultBooking::sendBookingEmails` لا يرسل أصلاً حين لا بريد للعميل،
+            // ويبتلع الفشل في `catch` مكتفياً بالسجلّ. فالبطاقة تُثبت تسليماً لم يقع.
+            // والبطاقة نفسها هي الإشعار المضمون — وهي داخل المنصّة بين يدي صاحبها.
+            .'<div class="email-note">'.self::icon('mail').' '
+            .($consult->user?->email
+                ? 'وأُرسل إشعار التأكيد إلى بريدك المسجّل، وهذه البطاقة نسختك داخل المنصّة.'
+                : 'هذه البطاقة نسختك داخل المنصّة — ولا بريد مسجَّل لإرسال إشعارٍ إليه.')
+            .'</div>'
             .'</div>';
     }
 }

@@ -635,7 +635,22 @@ return;
       {(() => {
         // شاشة العميل: القالب الاحتياطيّ كان يُعرض هنا تحت «الملخّص الذكيّ» فيبدو
         // تحليلاً وقع وهو لم يفحص مستنداً. وبسياسة المكتب لا يُعرَض للعميل أصلاً.
+        // محجوبٌ بانتظار اعتماد محامٍ: الخادم يُفرّغ الحقول، والصمت وحده
+        // يترك صاحب الطلب يظنّ ملفّه مهمَلاً — فيُقال له ما يقع فعلاً.
+        if (r.aiPending) {
+          return (
+            <div className="card" style={{ marginBottom: 14 }}>
+              <div className="card-b" style={{ padding: '14px 16px' }}>
+                <div className="mtg-pend">
+                  <Icon name="info" /> دراسة طلبك قيد مراجعة المستشار، وستصلك فور اعتمادها.
+                </div>
+              </div>
+            </div>
+          );
+        }
+
         const ai = execAiPresentation(r, true);
+
         if (!ai) return null;
 
         return (

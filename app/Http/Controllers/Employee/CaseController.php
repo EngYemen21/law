@@ -110,7 +110,8 @@ class CaseController extends Controller
             ],
             'clientStats' => $clientStats,
             'channel' => 'case.'.$case->id,
-            'messages' => $case->messages->where('who', '!=', 'note')->values()->map->toMessage(),
+            // المكتب يرى المحجوب ليراجعه — وهو الفاصل الذي لم يكن موجوداً
+            'messages' => $case->messages()->visibleTo(true)->get()->map->toMessage(),
             'hearings' => $case->hearings->map->toData(),
             'documents' => $documents,
         ]);

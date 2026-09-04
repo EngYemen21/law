@@ -9,13 +9,16 @@ use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
 use App\Jobs\FinalizeConsultJob;
 use App\Models\Consult;
+use App\Models\Ticket;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
+use App\Services\Ai\AiReviewOutcome;
 use App\Services\Ai\AiRunLogger;
 use App\Services\GoogleCalendarService;
 use App\Services\LegalAiService;
 use App\Services\ZoomService;
 use App\Support\Audit;
+use App\Support\Booking\BookingMoved;
 use App\Support\ConsultBooking;
 use App\Support\ConsultSummary;
 use App\Support\DecisionTasks;
@@ -43,7 +46,7 @@ class ConsultController extends Controller
     public function index(Request $request): Response
     {
         // ترتيب بموعد الجلسة (الأقرب أولاً، بلا موعد آخراً) — كان بالمعرّف فتختلط الفائتة بالقادمة
-        $consults = $this->scopeForRole($request, Consult::with(['user', 'appointment', 'invoice']))
+        $consults = $this->scopeForRole($request, Consult::with(['user', 'appointment', 'invoice', 'ticket:id,number', 'ticket.legalCase:id,ticket_id,number']))
             ->whereNotIn('status', Consult::PRE_SESSION_STATUSES)
             ->orderByRaw('starts_at IS NULL')->orderBy('starts_at')->latest('id')->get()
             ->map(fn (Consult $c) => $c->toCard());
@@ -67,7 +70,7 @@ class ConsultController extends Controller
             'lawyers' => $lawyers,
         ];
 
-        if ($this->prefix($request) === 'admin' || $request->user()?->isAdmin()) {
+        if ($this->prefix($request) === 'admin' || $this->prefix($request) === 'employee' || $request->user()?->isAdmin() || $request->user()?->isEmployee()) {
             $props['preSessionRequests'] = Consult::with(['user', 'invoice', 'appointment'])
                 ->whereIn('status', Consult::PRE_SESSION_STATUSES)
                 ->latest('id')->get()
@@ -93,7 +96,7 @@ class ConsultController extends Controller
     // رحلة الاستشارة (يطابق consultView) — التفاصيل والإجراءات وسجل التدقيق
     public function show(Request $request): Response
     {
-        $consult = Consult::with(['user', 'appointment'])
+        $consult = Consult::with(['user', 'appointment', 'ticket:id,number', 'ticket.legalCase:id,ticket_id,number'])
             ->where('ref', (string) $request->query('ref'))
             ->firstOrFail();
         $this->guardConsult($request, $consult);
@@ -147,10 +150,15 @@ class ConsultController extends Controller
     public function requestDocs(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
-        $data = $request->validate(['docs' => ['nullable', 'string', 'max:300']]);
+        // **النصّ مطلوب.** كان `nullable` بافتراضيّ «مستند إضافي مطلوب»، فيصل العميلَ
+        // طلبٌ **لا يقول ما المطلوب** باسم المكتب — ويعلق ملفّه بانتظار شيءٍ مجهول.
+        // وصفحةُ رحلة الاستشارة كانت ترسل حمولةً فارغة أصلاً، فهذا حالُها الغالب.
+        $data = $request->validate([
+            'docs' => ['required', 'string', 'min:3', 'max:300'],
+        ], [], ['docs' => 'المستند المطلوب']);
 
         $missing = $consult->missing ?? [];
-        $missing[] = trim($data['docs'] ?? '') ?: 'مستند إضافي مطلوب';
+        $missing[] = trim($data['docs']);
         $consult->missing = array_values(array_unique($missing));
         $consult->logAudit($request->user()->name, 'الحالة', $consult->status, 'بانتظار استكمال البيانات');
         $consult->status = 'بانتظار استكمال البيانات';
@@ -227,6 +235,76 @@ class ConsultController extends Controller
         return back();
     }
 
+    /**
+     * تحرير **ملخّص الجلسة** قبل اعتماده — نظير `MeetingController::saveSummary`.
+     *
+     * غيرُ `saveAnalysis` أعلاه: تلك تحرّر تحليل **ما قبل** الجلسة (`ai_summary`)
+     * الذي لا يراه العميل؛ وهذه تحرّر النصّ الذي سيصل العميل في تقريره الرسميّ.
+     *
+     * ولم يكن له محرِّر: «تعديل واعتماد» خيارٌ في صندوق المراجعة بلا حقلٍ يستقبله،
+     * فيُسجَّل «عدّل» والمنشور نصُّ النموذج حرفياً. ومخرج النموذج يُحفظ في
+     * `summary_ai_original` عند أوّل تحرير، فيبقى الفرق مقيساً لا مُدَّعى.
+     *
+     * **والتحرير بعد الاعتماد مرفوض (422):** العميل قرأ النصّ وأُشعر باعتماده،
+     * فتبديله صامتاً سحبٌ لا حفظ. سحبُه فعلٌ آخر يُشعِر صاحبه.
+     */
+    public function saveSummary(Request $request, Consult $consult): RedirectResponse
+    {
+        $this->guardConsult($request, $consult);
+        abort_if($consult->summaryApproved(), 422, 'اعتُمد هذا الملخّص ووصل العميل — تعديله بعد الاعتماد يقتضي سحبه أوّلاً.');
+
+        $data = $request->validate(['summary' => ['required', 'string', 'max:8000']]);
+        $summary = trim($data['summary']);
+
+        if ($summary === (string) $consult->summary) {
+            return back();
+        }
+
+        $consult->update([
+            // أوّل تحرير يُجمّد مخرج النموذج؛ وما بعده تحريرٌ على تحرير فلا يدهسه
+            'summary_ai_original' => $consult->summary_ai_original ?? $consult->summary,
+            'summary' => $summary,
+            'summary_edited_at' => now(),
+            'summary_edited_by' => $request->user()->id,
+        ]);
+
+        $consult->logAudit($request->user()->name, 'ملخص الجلسة', '(نص النموذج)', '(نص محرَّر)');
+        $consult->save();
+
+        return back()->with('flash', 'حُفظ الملخّص المحرَّر — يصل العميل بعد اعتماده.');
+    }
+
+    /**
+     * **اعتماد ملخّص الجلسة من شاشة الملفّ — بابٌ ثانٍ بكاتبٍ واحد.**
+     *
+     * كان الاعتماد لا يقع إلّا من صندوق المراجعة، والصندوق لا يعرض إلّا ما له قيدٌ
+     * في `ai_runs`، والقيد لا يُنشأ إلّا بنداءٍ ناجح للنموذج. فملخّصٌ كتبه المحامي
+     * بيده — وهو ما يقع كلّما انتهت جلسةٌ بلا تدوين — كان **محجوباً عن العميل
+     * للأبد**: لا في الصندوق فلا يُعتمد، ولا يصل فلا يُقرأ.
+     *
+     * ولا يُزوَّر له قيد: «قيدٌ بلا نداء» يُفسد إحصاء الكلفة والتغطية (انظر
+     * `FinalizeConsultJob` و`ConsultNoMaterialTest`). فالاعتماد فعلٌ على الملفّ،
+     * و`recordFileApproval` تسجّله في القيد **إن وُجد** وتصمت إن لم يوجد.
+     */
+    public function approveSummary(Request $request, Consult $consult): RedirectResponse
+    {
+        $this->guardConsult($request, $consult);
+        abort_if($consult->summaryApproved(), 422, 'اعتُمد هذا الملخّص ووصل العميل.');
+        abort_if(blank($consult->summary), 422, 'لا ملخّص ليُعتمد — دوّن محضر الجلسة أو اكتب التقرير أوّلاً.');
+
+        // **لا تُنادَ `AiReviewOutcome::apply()` هنا**: مسار الصندوق يُشعِر العميل،
+        // فمناداته من هنا تُشعره مرّتين بالاعتماد الواحد.
+        AiReviewOutcome::approveConsultSummary($consult, $request->user());
+        AiReviewOutcome::recordFileApproval(
+            'consult.summary',
+            $consult->ref,
+            $request->user(),
+            edited: $consult->summary_edited_at !== null,
+        );
+
+        return back()->with('flash', 'اعتُمد الملخّص وأُرسل إلى الموكّل.');
+    }
+
     // اعتماد التحليل (يطابق cApproveAI) → جاهزة للمحامي
     public function approveAnalysis(Request $request, Consult $consult): RedirectResponse
     {
@@ -236,6 +314,15 @@ class ConsultController extends Controller
             $consult->status = 'جاهزة للمحامي';
             $consult->save();
             Live::push(new ConsultStatusBroadcast($consult));
+
+            // ويُسجَّل قرار المراجعة كما يُسجَّل من الصندوق — وإلّا بقي القيد معلَّقاً
+            // أبداً لمخرجٍ اعتمده إنسان. و«حُرّر» يُشتقّ من سجلّ التدقيق: `saveAnalysis`
+            // تكتب فيه قيد «الملخص» عند كل تحرير، فهو أثرُ فعلٍ لا إعلانُ نيّة.
+            $edited = collect((array) ($consult->audit ?? []))
+                ->contains(fn ($entry) => ($entry['field'] ?? '') === 'الملخص');
+
+            // اسم القيد `consult` لا `consult.analyze` — انظر `AiRunLogger::STORED_TASK_TYPE`
+            AiReviewOutcome::recordFileApproval('consult', $consult->ref, $request->user(), $edited);
         }
 
         return back();
@@ -245,6 +332,26 @@ class ConsultController extends Controller
     public function refer(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
+
+        // **لا تُحال استشارةٌ ما زالت في دورة الحجز.**
+        //
+        // للاستشارة دورتان: دورةُ حجزٍ (تسعير ← سداد ← اختيار موعد) ودورةُ تحليلٍ
+        // تنتهي بـ«جاهزة للمحامي» ثم الإحالة. وهذا الإجراء من الثانية، وكان بلا
+        // شرطٍ واحد — فإحالةٌ على طلبٍ في الأولى تنقل حالته إلى «محالة للمحامي»،
+        // وهي **خارج** `PRE_SESSION_STATUSES` التي يُبنى منها طابور التسعير لدى
+        // الإدارة. فيسقط الطلب من الطابور: لا يُسعَّر، ولا تصل الفاتورة، ولا يدفع
+        // العميل، ولا يختار موعداً، ولا تُعقد جلسة — وهو ينتظر بلا أن يعلم.
+        //
+        // وقع فعلاً في `CN-2026-4504` (٢٠٢٦-٠٩-٠٣): أُحيلت وهي «بانتظار التسعير»،
+        // فظهرت في شاشة استقبال الجلسات بموعدٍ فارغ وزرِّ «بدء الجلسة» مُفعَّلاً.
+        abort_if(
+            in_array($consult->status, Consult::PRE_SESSION_STATUSES, true),
+            422,
+            "الاستشارة ({$consult->ref}) ما زالت في دورة الحجز — حالتها «{$consult->status}». "
+            .'إحالتها الآن تُخرجها من طابور التسعير فلا تُسعَّر ولا تصل الفاتورة العميلَ. '
+            .'أكمل التسعير والسداد واختيار الموعد أوّلاً.'
+        );
+
         $data = $request->validate([
             // مشترك بين الموظف/المحامي/الإدارة (كل بدوره عبر route مستقل) — Rule موحَّد يرفض غير المحامين والموقوفين.
             'lawyer_id' => ['nullable', 'integer', new ActiveLawyer],
@@ -274,7 +381,16 @@ class ConsultController extends Controller
         $consult->save();
         Live::push(new ConsultStatusBroadcast($consult));
 
-        Notify::send($consult->user_id, 'scale', 't-green', "أُحيلت استشارتك ({$consult->ref}) إلى المستشار المختص وستُعقد الجلسة في موعدها.");
+        // مزامنة إسناد المحامي إلى التذكرة المرتبطة إن وجدت
+        if ($consult->ticket_id && $lawyerUser) {
+            Ticket::where('id', $consult->ticket_id)->update(['assigned_lawyer_id' => $lawyerUser->id]);
+        }
+
+        // النصّ يتبع وجود الموعد: «ستُعقد الجلسة في موعدها» طُمأنينةٌ إلى موعدٍ قد لا
+        // يكون حُجز أصلاً — وصلت العميل مرّتين في `CN-2026-4504` ولا موعد لها.
+        Notify::send($consult->user_id, 'scale', 't-green', $consult->starts_at !== null
+            ? "أُحيلت استشارتك ({$consult->ref}) إلى المستشار المختص وستُعقد الجلسة في موعدها المحدَّد."
+            : "أُحيلت استشارتك ({$consult->ref}) إلى المستشار المختص، وسنوافيك بموعد الجلسة.");
 
         return back();
     }
@@ -282,7 +398,14 @@ class ConsultController extends Controller
     // تحديث الأولوية (الإدارة العليا — يطابق adConsult priority)
     public function priority(Request $request, Consult $consult): RedirectResponse
     {
-        $data = $request->validate(['priority' => ['required', 'string', 'in:عالية,متوسطة,عادية']]);
+        // الدالّة المُعدِّلة الوحيدة التي كانت بلا حارس — مسارها إداريّ اليوم، لكنّ
+        // استثناءً بلا علّة يصير ثغرةً يوم يُفتح المسار لدورٍ آخر.
+        $this->guardConsult($request, $consult);
+
+        // **قاموسُ الاستشارات لا التذاكر.** كان يقبل `'عادية'` — وهي أولويّةُ فرز
+        // **التذكرة** يكتبها الذكاء — ويرفض `'منخفضة'` التي تحملها استشاراتٌ قائمة
+        // في القاعدة فعلاً: أي أن صفّاً لا يستطيع أحدٌ إعادة ضبطه على قيمته نفسها.
+        $data = $request->validate(['priority' => ['required', 'string', 'in:عالية,متوسطة,منخفضة']]);
 
         if ($data['priority'] !== $consult->priority) {
             $consult->logAudit($request->user()->name, 'الأولوية', $consult->priority, $data['priority']);
@@ -298,7 +421,7 @@ class ConsultController extends Controller
     public function recv(Request $request): Response
     {
         // ترتيب بموعد الجلسة (الأقرب أولاً، بلا موعد آخراً) — كان بالمعرّف فتختلط الفائتة بالقادمة
-        $consults = $this->scopeForRole($request, Consult::with(['user', 'appointment']))
+        $consults = $this->scopeForRole($request, Consult::with(['user', 'appointment', 'ticket:id,number', 'ticket.legalCase:id,ticket_id,number']))
             ->whereNotIn('status', Consult::PRE_SESSION_STATUSES)
             ->orderByRaw('starts_at IS NULL')->orderBy('starts_at')->latest('id')->get()
             ->map(fn (Consult $c) => $c->toCard());
@@ -312,6 +435,24 @@ class ConsultController extends Controller
     public function start(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
+
+        // بدأها ويبهوك Zoom أو زميلٌ قبل ثوانٍ — تكرارُ الفعل ليس خطأً.
+        if ($consult->session === 'جلسة جارية') {
+            return back();
+        }
+
+        // **ما تُعلنه البطاقة يفرضه الخادم.** كان `startable` (نافذة ١٥د) يُرسَل
+        // إلى الواجهة ولا يُفرض هنا، فصار توصيةً تتجاهلها شاشةٌ لا تقرؤه: تُبدأ
+        // استشارةٌ موعدها بعد ثلاثة أسابيع، أو فائتةٌ منذ شهر، فتُشعَر صاحبتُها
+        // بأن جلستها «بدأت» ولا أحد هناك.
+        abort_unless(
+            $consult->isStartable(),
+            422,
+            $consult->isMissed()
+                ? 'فات موعد هذه الجلسة — سجّل «لم يحضر» أو أعد جدولتها.'
+                : 'الجلسة تُبدأ قبل موعدها بربع ساعة فأقرب.'
+        );
+
         if ($consult->session === 'بانتظار الجلسة') {
             $consult->update(['session' => 'جلسة جارية', 'status' => 'قيد الاستشارة']);
             Live::push(new ConsultStatusBroadcast($consult));
@@ -330,23 +471,50 @@ class ConsultController extends Controller
     // إنهاء الجلسة وتوليد الملخص (يطابق vrEnd/crEnd + cRunAIFromSession)
     public function end(Request $request, Consult $consult): RedirectResponse
     {
+        // الحارس قبل التصديق: غيرُ المسنَد يستحقّ ٤٠٣ لا رسائلَ تحقّقٍ تصف ملفّاً لا يراه.
+        $this->guardConsult($request, $consult);
+
         $data = $request->validate([
             'notes' => ['nullable', 'string', 'max:4000'],
             'duration' => ['nullable', 'string', 'max:20'],
         ]);
 
-        $this->guardConsult($request, $consult);
-        if ($consult->session !== 'منتهية') {
-            $notes = trim($data['notes'] ?? '');
-            // ختم الجلسة فوراً (بلا AI)، ثم توليد الملخّص/القرارات في الخلفية (يصل لحظياً عند جهوزه)
-            $consult->update([
+        $notes = trim($data['notes'] ?? '');
+        $alreadyEnded = $consult->session === 'منتهية';
+
+        // **ختمُ الجلسة وحفظُ الملاحظات فعلان منفصلان.** كانا ملفوفين بشرطٍ واحد
+        // (`session !== 'منتهية'`)، وويبهوك Zoom يختم الجلسة قبل أن يضغط المحامي
+        // «إنهاء» — فتُصادَق ملاحظاته في الطلب ثمّ تُلقى صامتةً لأن الجلسة مختومة.
+        $payload = $notes !== '' ? ['session_notes' => $notes] : [];
+
+        if (! $alreadyEnded) {
+            $payload += [
                 'session' => 'منتهية',
                 'status' => 'منتهية',
-                'session_notes' => $notes !== '' ? $notes : $consult->session_notes,
                 'duration_label' => $data['duration'] ?? $consult->duration_label,
-            ]);
+            ];
+        }
+
+        if ($payload !== []) {
+            $consult->update($payload);
             Live::push(new ConsultStatusBroadcast($consult));
-            FinalizeConsultJob::dispatch($consult, $notes);
+        }
+
+        // **وتُغلق غرفة Zoom فعلاً.** كان «إنهاء الجلسة» يختم السجلّ وحده ولا يُنهي
+        // الاجتماع — يبقى حيّاً حتى يخرج آخر مشارك، فيستطيع الموكّل (أو من بلغه
+        // الرابط) البقاء فيه أو العودة إليه بعد أن أُعلنت الجلسة منتهية. ونظيرُه
+        // في الاجتماعات يُنهيه منذ البداية (`Staff\MeetingController`).
+        // الإنهاء **عند الختم وحده** لا عند حفظ تدوينٍ لجلسةٍ مختومة، وفشلُه
+        // مُبتلَعٌ داخل `endMeeting` فلا يُسقط ختم الجلسة على المكتب.
+        if (! $alreadyEnded && filled($consult->meet_id)) {
+            app(ZoomService::class)->endMeeting((string) $consult->meet_id);
+        }
+
+        // التوليد عند الختم، **أو** عند وصول ملاحظاتٍ لجلسةٍ خُتمت بلا ملخّص — وهي
+        // حال «انتهت بلا تدوين»: الوظيفة لا تُنادي النموذج بلا مادّة، فتُنبّه المحامي،
+        // ثمّ يدوّن فتُستدعى ثانيةً وتولّد. وبلا هذا الفرع يبقى تدوينُه بلا أثر.
+        if (! $alreadyEnded || ($notes !== '' && blank($consult->summary))) {
+            FinalizeConsultJob::dispatch($consult->fresh(), $notes);
         }
 
         return back();
@@ -430,7 +598,12 @@ class ConsultController extends Controller
         $consult->session = 'بانتظار الجلسة';
         $consult->starts_at = null;
         $consult->when_label = 'بانتظار اختيار موعد جديد';
-        // بيانات جلسة Zoom القديمة لم تعد صالحة للموعد الجديد
+        // **يُحذف اجتماع Zoom قبل تصفير مرجعه.** كانت الأعمدة تُصفَّر بلا حذف،
+        // فيبقى اجتماعٌ يتيم على الحساب وتسجيله السحابيّ مُفعَّل، وأيّ ويبهوك متأخّر
+        // عنه يصير غير قابلٍ للتوجيه (التوجيه بـ`meet_id`). والنظير في الاجتماعات
+        // (`MeetingController::cancel`) يحذف — فافترق المساران بلا سبب.
+        BookingMoved::cancelled($consult);
+
         $consult->meet_id = null;
         $consult->meet_link = null;
         $consult->host_link = null;
