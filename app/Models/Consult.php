@@ -34,7 +34,11 @@ class Consult extends Model
         'بانتظار التسعير',
         'بانتظار السداد',
         'بانتظار تحديد الموعد',
-        'مؤكد',
+        // **`'مؤكد'` مطويّة — تُكتب على `Appointment` لا على `Consult`.**
+        // `ConsultBooking` يكتبها على الموعد المرافق، والاستشارة تُضبط «جديدة». فكانت
+        // حالةً ميتةً رابعة يقارنها عمودٌ في الكانبان ويحملها صفٌّ مبذور وحده. ونظيرتها
+        // `'بانتظار التأكيد'` مطويّةٌ في `Staff\MeetingController` للعلّة نفسها.
+        // 'مؤكد',
         // رحلة المعالجة (`Staff\ConsultController`)
         'جديدة',
         'قيد مراجعة الموظف',
@@ -50,6 +54,25 @@ class Consult extends Model
     ];
 
     public const PRE_SESSION_STATUSES = ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'];
+
+    /**
+     * **النهايات — للعرض والتبويب.** يطابق `CONSULT_TERMINAL_STATUSES` في الواجهة:
+     * ثلاثتها خرجت من طابور العمل، فتُجمع في تبويبٍ واحد.
+     */
+    public const TERMINAL_STATUSES = ['منتهية', 'لم يحضر', 'ملغاة'];
+
+    /**
+     * **المغلقة — لا فعلَ يبعثها.** وهي غير النهايات الثلاث عمداً.
+     *
+     * `'لم يحضر'` **حالةُ تعافٍ لا نهاية**: العميل دفع ولم يحضر، فمسارُ إنقاذه
+     * إعادةُ الجدولة — وهي الدورة التي كُتبت خصّيصاً لأن الفائتة «كانت تعلق بانتظار
+     * الجلسة للأبد» (`ConsultNoShowRescheduleTest`). فمنعُها منه يُعيد ذلك العطل.
+     *
+     * أمّا «ملغاة» و«منتهية» فلا يُبعثان: طلبٌ أُلغي وأُشعر صاحبُه بإلغائه، وجلسةٌ
+     * انعقدت وانتهت. وكان كلّ حارسٍ يمنع دورة الحجز وحدها — فتُحال استشارةٌ ملغاة
+     * إلى محامٍ ويصل صاحبَها «سنوافيك بموعد الجلسة».
+     */
+    public const CLOSED_STATUSES = ['منتهية', 'ملغاة'];
 
     protected $fillable = [
         'user_id', 'ticket_id', 'appointment_id', 'ref', 'subject', 'type', 'priority', 'channel',
@@ -278,6 +301,11 @@ class Consult extends Model
     public function isStartable(): bool
     {
         return ! $this->isMissed()
+            // **النهاية لا تُبدأ.** `cancelRequest` يكتب «ملغاة» ولا يمسّ `session`،
+            // فتبقى «بانتظار الجلسة» و`starts_at` فارغاً (الإلغاء لما قبل الجلسة)
+            // — والفرع الذي يسمح بالبدء بلا موعد كان يجعلها **قابلةً للبدء**، فيصل
+            // العميلَ «بدأت جلسة استشارتك» لطلبٍ ألغاه المكتب.
+            && ! in_array($this->status, self::CLOSED_STATUSES, true)
             && $this->session === 'بانتظار الجلسة'
             && ($this->starts_at === null || now()->greaterThanOrEqualTo($this->starts_at->copy()->subMinutes(15)));
     }
@@ -292,6 +320,16 @@ class Consult extends Model
             'specialty' => $this->specialty ?? $this->type ?? '',
             'channel' => $this->channel,
             'lawyer' => $this->lawyer,
+            /*
+             * **معرّف المحامي — لتمييز النائب من الشخص.**
+             *
+             * `ConsultBooking::resolveContext` يضمن قيمةً نصّيّة دائماً
+             * (`?: 'المستشار القانوني'`)، فشرط `!lawyer` في الواجهة **لا يتحقّق أبداً**:
+             * زرّ «+ إسناد محامٍ» لا يظهر، ومؤشّر «بانتظار إسناد» ينكمش، والنائب يظهر
+             * كاسم شخصٍ في مرشّح المستشارين وله شريط حملٍ في «أحمال المحامين».
+             * والمعيار الصادق هو الإسناد نفسه لا نصُّه.
+             */
+            'lawyerId' => $this->assigned_lawyer_id,
             'when' => $this->whenLabel(),
             'place' => $this->placeForCard(),
             'phone' => $this->phone ?? '',

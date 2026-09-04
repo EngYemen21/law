@@ -188,12 +188,15 @@ class RichDemoSeeder extends Seeder
             ['CN-2026-903', 'حضورية', 'بانتظار التسعير', 'بانتظار الجلسة', null, false, false],
             ['CN-2026-904', 'مرئية', 'بانتظار السداد', 'بانتظار الجلسة', null, true, false],
             ['CN-2026-905', 'حضورية', 'بانتظار السداد', 'بانتظار الجلسة', null, true, false],
-            ['CN-2026-906', 'مرئية', 'مؤكد', 'بانتظار الجلسة', 2, true, true],
-            ['CN-2026-907', 'حضورية', 'مؤكد', 'بانتظار الجلسة', 5, true, true],
-            ['CN-2026-908', 'هاتفية', 'مؤكد', 'بانتظار الجلسة', 9, true, true],
+            // **`'مؤكد'` لا يكتبها أيّ مسارٍ على الاستشارة** — تُكتب على الموعد
+            // المرافق، والاستشارة تُضبط «جديدة» (`ConsultBooking:308`). فكانت البذرة
+            // تُولّد حالةً ميتةً يقارنها الكانبان ولا تصل إليها المنظومة أبداً.
+            ['CN-2026-906', 'مرئية', 'جاهزة للمحامي', 'بانتظار الجلسة', 2, true, true],
+            ['CN-2026-907', 'حضورية', 'محالة للمحامي', 'بانتظار الجلسة', 5, true, true],
+            ['CN-2026-908', 'هاتفية', 'محالة للمحامي', 'بانتظار الجلسة', 9, true, true],
             ['CN-2026-909', 'مرئية', 'منتهية', 'منتهية', -6, true, true],
             ['CN-2026-910', 'حضورية', 'منتهية', 'منتهية', -14, true, true],
-            ['CN-2026-911', 'مرئية', 'مؤكد', 'بانتظار الجلسة', -1, true, true], // فائتة — تُشتق «لم يحضر» حيّاً
+            ['CN-2026-911', 'مرئية', 'محالة للمحامي', 'بانتظار الجلسة', -1, true, true], // فائتة — تُشتق «لم يحضر» حيّاً
             ['CN-2026-912', 'هاتفية', 'ملغاة', 'بانتظار الجلسة', null, false, false],
         ];
         $subjects = [
@@ -242,6 +245,10 @@ class RichDemoSeeder extends Seeder
                 'when_label' => $at ? $at->format('Y-m-d').' · '.$at->format('h:i A') : null,
                 'starts_at' => $at, 'duration_min' => 45,
                 'phone' => $channel === 'هاتفية' ? $cl->phone : null,
+                // **المعرّف مع الرابط.** كان الرابط وحده يُبذَر، وويبهوك Zoom يُوجَّه
+                // بـ`meet_id` — فصفٌّ يحمل رابطاً لا يصله حدثٌ قطّ، وهي حالةٌ لا
+                // ينتجها أيّ مسار (العمودان يُكتبان معاً من مخرج `createMeeting`).
+                'meet_id' => $channel === 'مرئية' && $at ? '8'.str_pad((string) (100000000 + $i), 10, '0', STR_PAD_LEFT) : null,
                 'meet_link' => $channel === 'مرئية' && $at ? 'https://zoom.us/j/demo'.$i : null,
                 'status' => $status, 'session' => $session,
                 // **ملخّصٌ مبذور معتمَدٌ مبذور.** كان يُبذر نصٌّ يقول «وأُرسل الملخص
@@ -252,14 +259,44 @@ class RichDemoSeeder extends Seeder
                 'summary' => $session === 'منتهية' ? 'تمت الجلسة وقُدّمت التوصيات النظامية، وأُرسل الملخص للعميل.' : null,
                 'summary_approved_at' => $session === 'منتهية' ? now()->subDays(max(abs($days ?? 1) - 1, 0)) : null,
                 'summary_approved_by' => $session === 'منتهية' ? $lw->id : null,
-                'priced_at' => $priced ? now()->subDays(abs($days ?? 2) + 1) : null,
+                // **التسعير يسبق السداد دائماً.** `markPaid()` لا يُبلَغ إلّا بعد
+                // `setPrice()` الذي يختم `priced_at`؛ فصفٌّ مدفوعٌ بلا تسعير يعرض
+                // للعميل رحلةً مقلوبة: «سُدِّد» مضيء و«سُعِّر» مطفأ.
+                'priced_at' => ($priced || $paid) ? now()->subDays(abs($days ?? 2) + 1) : null,
                 'paid_at' => $paid ? now()->subDays(abs($days ?? 2)) : null,
-            ] + ($priced ? [
+            ] + (($priced || $paid) ? [
                 // الأعمدة NOT NULL بافتراضي 0 — تُترك على الافتراضي قبل التسعير (لا NULL صريح)
                 'price' => $price,
                 'vat' => (int) round($price * 0.15),
                 'total' => $price + (int) round($price * 0.15),
             ] : []));
+
+            /*
+             * **فاتورةٌ لكلّ مسعَّرة — كما يفعل المسار الحيّ.**
+             *
+             * `ConsultBooking::setPrice` يُنشئ الفاتورة **داخل المعاملة نفسها** التي
+             * تكتب `priced_at`، وكذلك `create()`. فلا يقع صفٌّ مسعَّرٌ بلا فاتورة.
+             * وكانت البذرة لا تُنشئ فاتورةً قطّ: عشرُ استشاراتٍ «مدفوعة» بلا فاتورة
+             * يفتحها العميل، وأيّ تقرير إيرادٍ مبنيٍّ على `invoices` يُسقطها.
+             */
+            if ($priced || $paid) {
+                $consult = Consult::where('ref', $ref)->first();
+                $total = $price + (int) round($price * 0.15);
+
+                if ($consult) {
+                    Invoice::updateOrCreate(['consult_id' => $consult->id], [
+                        'user_id' => $cl->id,
+                        'number' => 'INV-DEMO-'.substr($ref, -4),
+                        'description' => "استشارة {$ref} — {$channel}",
+                        'amount' => $total,
+                        'status' => $paid ? 'مدفوعة' : 'مستحقة',
+                        'tone' => $paid ? 'b-green' : 'b-amber',
+                        'due_label' => $paid ? '—' : 'خلال 3 أيام',
+                        'due_at' => $paid ? null : now()->addDays(3)->toDateString(),
+                        'paid' => $paid,
+                    ]);
+                }
+            }
         }
 
         // ── 5. مواعيد مستقلّة (بلا استشارة): 6 ──

@@ -4,7 +4,11 @@ import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
 import { useBodyScrollLock } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
-import { maskClient } from '@/lib/admin-data';
+// **النسخة التي تُخفي فعلاً.** `admin-data` يصدّر `maskClient` وهي
+// `return name || '—'` — لا تُخفي شيئاً. وشاشات الموظّف الأخرى
+// (`consult-ui`) تستعمل نسخة `employee-data` المُخفية. فالشاشة كانت
+// تنادي دالّةً باسمٍ يَعِد بما لا يفعل، في ستّة مواضع.
+import { maskClient } from '@/lib/employee-data';
 import { sessTone, SummaryStateBadge } from '@/lib/consult-ui';
 import type { ConsultCard, LawyerOpt } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
@@ -23,7 +27,7 @@ interface EmployeeConsultsProps {
 }
 
 type ViewMode = 'table' | 'pipeline' | 'calendar' | 'analytics';
-type CategoryFilter = 'all' | 'live' | 'new' | 'missing_docs' | 'ready_assign' | 'pre_session' | 'completed';
+type CategoryFilter = 'all' | 'live' | 'new' | 'missing_docs' | 'in_progress' | 'ready_assign' | 'pre_session' | 'completed';
 type DrawerTab = 'details' | 'documents' | 'scheduling' | 'audit';
 
 export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
@@ -145,7 +149,7 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
       (c) => c.status === 'بانتظار استكمال البيانات' || (c.missing && c.missing.length > 0)
     ).length;
     const readyForLawyer = allItems.filter(
-      (c) => c.status === 'جاهزة للمحامي' || (!c.lawyer || c.lawyer === '—')
+      (c) => c.status === 'جاهزة للمحامي' || ! hasLawyer(c)
     ).length;
     // **العدّاد كان صفراً أبداً.** كان يبدأ بـ`if (!c.day) return false` و`day` لا
     // تُرسله البطاقة إطلاقاً — فيخرج قبل أن يصل إلى شرط «جلسة جارية». والمصدر
@@ -161,10 +165,18 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
     const completed = allItems.filter(
       (c) => CONSULT_TERMINAL_STATUSES.includes(c.status)
     ).length;
-    const toCase = allItems.filter((c) => !!c.caseNo).length;
-    const late = allItems.filter(
-      (c) => (c.mins || 0) > 100 && !['جاهزة للمحامي', ...CONSULT_TERMINAL_STATUSES].includes(c.status)
+    // **ثلاث حالاتٍ كانت بلا تبويب** — وهي مربطُ عمل الموظّف: بين استلامه الطلب
+    // وإحالته للمحامي. كانت الشاشة تعطي حبّةً لطلبات ما قبل الجلسة (وهي شغل الإدارة)
+    // ولا تعطي حبّةً لما يشتغل عليه الموظّف نفسه، فلا يجد ملفّاته إلا في «الكل».
+    const inProgress = allItems.filter((c) =>
+      ['قيد مراجعة الموظف', 'بانتظار اعتماد الموظف', 'محالة للمحامي'].includes(c.status)
     ).length;
+    const toCase = allItems.filter((c) => !!c.caseNo).length;
+
+    // **حُذف عدّاد «المتأخّرة».** كان `(c.mins || 0) > 100`، و`mins` **لا كاتبَ له في
+    // `app/` كلّه** (عمود `default(0)` في هجرة، ثمّ `toCard` — ولا شيء بينهما).
+    // فالشرط كاذبٌ أبداً. ولم يكن يُعرض أصلاً، فبقي العطل مخفيّاً — وهذا أسوأ من
+    // عدّادٍ يكذب علناً. إعادتُه تلزمها كتابة `mins` أوّلاً.
 
     return {
       total,
@@ -175,14 +187,17 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
       todaySessions,
       preSession,
       completed,
+      inProgress,
       toCase,
-      late,
     };
   }, [allItems]);
 
   // رادار الجلسات المنعقدة الحية
   const liveSessions = useMemo(() => {
-    return allItems.filter((c) => c.session === 'جلسة جارية' || (c.channel === 'مرئية' && c.startable));
+    // **«المنعقدة الآن» تعني المنعقدة الآن.** كان الشرط يضمّ `startable` — وهي
+    // «لم تبدأ بعدُ وموعدها قريب» — ثمّ تُوسَم كلّ بطاقةٍ «جلسة جارية» نصّاً مكتوباً
+    // بيدٍ. فيقرأ الموظّف أن جلساتٍ تنعقد ولا أحد فيها.
+    return allItems.filter((c) => c.session === 'جلسة جارية');
   }, [allItems]);
 
   // القوائم المنسدلة للفرز
@@ -195,10 +210,21 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
     return Array.from(set);
   }, [allItems]);
 
+  /**
+   * **هل أُسند محامٍ فعلاً؟** المعيار الإسناد لا نصُّه.
+   *
+   * `ConsultBooking::resolveContext` يضمن قيمةً نصّيّة دائماً («المستشار القانوني»
+   * عند غياب المحامي)، فشرط `!c.lawyer || c.lawyer === '—'` **كاذبٌ أبداً**: زرّ
+   * «+ إسناد محامٍ» لا يظهر، ومؤشّر «بانتظار إسناد» ينكمش إلى «جاهزة للمحامي»
+   * وحدها، والنائب يظهر كاسم شخصٍ في المرشّح وله شريط حملٍ في الأحمال.
+   */
+  const hasLawyer = (c: ConsultCard) => c.lawyerId != null;
+
   const assignedLawyersList = useMemo(() => {
     const set = new Set<string>();
     allItems.forEach((c) => {
-      if (c.lawyer && c.lawyer !== '—') set.add(c.lawyer.trim());
+      // النائب ليس شخصاً: إدراجه يجعله خياراً في المرشّح وصاحبَ أثقل حملٍ في الأحمال
+      if (hasLawyer(c) && c.lawyer?.trim()) set.add(c.lawyer.trim());
     });
     return Array.from(set);
   }, [allItems]);
@@ -214,9 +240,16 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
         (!c.missing || c.missing.length === 0)
       ) return false;
       if (
+        categoryFilter === 'in_progress' &&
+        ! ['قيد مراجعة الموظف', 'بانتظار اعتماد الموظف', 'محالة للمحامي'].includes(c.status)
+      ) {
+        return false;
+      }
+
+      if (
         categoryFilter === 'ready_assign' &&
         c.status !== 'جاهزة للمحامي' &&
-        (c.lawyer && c.lawyer !== '—')
+        hasLawyer(c)
       ) return false;
       if (
         categoryFilter === 'pre_session' &&
@@ -251,6 +284,25 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
       return true;
     });
   }, [allItems, categoryFilter, channelFilter, specialtyFilter, lawyerFilter, priorityFilter, searchQuery]);
+
+  /**
+   * **الأجندة تَعِد بترتيبٍ زمنيّ فلتفرز.**
+   *
+   * كانت تعتمد ترتيب `allItems` — وهو دمجُ قائمتين: الاستشارات مرتّبةً بـ`starts_at`
+   * ثمّ طلبات ما قبل الجلسة تُلحَق بعدها بترتيب المعرّف. فالوعد في العنوان («مرتبة
+   * زمنياً») مكسورٌ بنيويّاً.
+   *
+   * والفرز على `startsAt` (ISO) لا على `when` النصّيّ. وما لا موعد له يُستبعد: كان
+   * `whenLabel()` يُرجع `when_label` عند غياب `starts_at`، وقيمتُه قد تكون «بانتظار
+   * اختيار موعد جديد» — فتدخل الأجندة استشارةٌ **بلا موعد** كأنّها مجدولة.
+   */
+  const agendaItems = useMemo(
+    () =>
+      filteredItems
+        .filter((c) => !!c.startsAt)
+        .sort((a, b) => new Date(a.startsAt!).getTime() - new Date(b.startsAt!).getTime()),
+    [filteredItems]
+  );
 
   // ── الإجراءات الميدانية للموظف ──
 
@@ -632,6 +684,22 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           </div>
           <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2 }}>تسعير وسداد ومواعيد</div>
         </div>
+
+        {/*
+          **مؤشّرٌ صادقٌ كان يُحسب ولا يُعرض.** حلّ `caseNo` محلّ الحالة الميتة
+          `'محولة إلى قضية'` (لا كاتبَ لها)، فصار العدّاد حقيقياً — ثمّ بقي مشتقّاً
+          بلا بطاقة. والتحويل يقع على **التذكرة**، فدليلُه وجود قضيّةٍ لها.
+        */}
+        <div className="card" style={{ padding: '12px 14px', margin: 0, borderRight: '4px solid #0E5C9C' }}>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>تحوّلت إلى قضايا</span>
+            <Icon name="folder" />
+          </div>
+          <div style={{ fontSize: 'clamp(20px, 3vw, 24px)', fontWeight: 800, color: '#0E5C9C', marginTop: 4 }}>
+            {telemetry.toCase}
+          </div>
+          <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2 }}>فُتح لها ملفّ قضيّة</div>
+        </div>
       </div>
 
       {/* ── 3. رادار الجلسات المنعقدة الحية (Live Radar) ── */}
@@ -681,7 +749,7 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
               >
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Badge text="جلسة جارية" tone="b-amber" />
+                    <Badge text={c.session} tone={sessTone(c.session)} />
                     <b>{c.ref}</b>
                   </div>
                   <div style={{ fontSize: 13, marginTop: 4 }}>
@@ -727,9 +795,10 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                 ['live', 'جلسات جارية', telemetry.liveNow],
                 ['new', 'جديدة', telemetry.newIntake],
                 ['missing_docs', 'نواقص الأوراق', telemetry.missingDocs],
+                ['in_progress', 'قيد المعالجة', telemetry.inProgress],
                 ['ready_assign', 'جاهزة للإسناد', telemetry.readyForLawyer],
                 ['pre_session', 'طلبات ما قبل الجلسة', telemetry.preSession],
-                ['completed', 'منتهية ومحولة', telemetry.completed],
+                ['completed', 'منتهية ومغلقة', telemetry.completed],
               ] as const
             ).map(([key, label, count]) => (
               <button
@@ -917,16 +986,24 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                       >
                         <td style={{ padding: '12px 16px' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                            <span
+                            {/* `<button>` لا `<span>`: كان المرجع يفتح الدرج بالنقر
+                                وحده، فلا يبلغه من يتنقّل بلوحة المفاتيح. */}
+                            <button
+                              type="button"
                               style={{
                                 fontWeight: 800,
                                 color: 'var(--primary)',
                                 cursor: 'pointer',
+                                background: 'none',
+                                border: 0,
+                                padding: 0,
+                                font: 'inherit',
+                                textAlign: 'start',
                               }}
                               onClick={() => openDrawer(c.ref, 'details')}
                             >
                               {c.ref}
-                            </span>
+                            </button>
                             <span style={{ fontSize: 12.5, fontWeight: 600, maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={c.subject}>
                               {c.subject || 'استشارة عامة'}
                             </span>
@@ -957,7 +1034,7 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                         </td>
 
                         <td style={{ padding: '12px 14px' }}>
-                          {c.lawyer && c.lawyer !== '—' ? (
+                          {hasLawyer(c) ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                               <span>⚖️</span>
                               <b>{c.lawyer}</b>
@@ -1060,13 +1137,22 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
             {filteredItems.map((c) => (
               <div
                 key={c.id}
+                role="button"
+                tabIndex={0}
                 style={{
                   padding: 12,
                   border: '1px solid rgba(0,0,0,0.08)',
                   borderRadius: 10,
                   background: '#fff',
+                  cursor: 'pointer',
                 }}
                 onClick={() => openDrawer(c.ref, 'details')}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    openDrawer(c.ref, 'details');
+                  }
+                }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <b style={{ color: 'var(--primary)' }}>{c.ref}</b>
@@ -1109,7 +1195,7 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                 tone: '#7e22ce',
                 items: filteredItems.filter(
                   (c) =>
-                    c.status === 'جاهزة للمحامي' || (!c.lawyer || c.lawyer === '—')
+                    c.status === 'جاهزة للمحامي' || ! hasLawyer(c)
                 ),
               },
               {
@@ -1117,16 +1203,19 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                 title: '4. جلسات جارية وقادمة',
                 tone: '#1E9D6B',
                 items: filteredItems.filter(
+                  // **`'مؤكد'` أُزيلت:** لا تُكتب على الاستشارة إطلاقاً (تُكتب على
+                  // الموعد المرافق) فكان الشرط ميّتاً. و**النهايات تُستبعد**: العمود
+                  // كان يلتقط `session === 'بانتظار الجلسة'` وهي القيمة الافتراضيّة
+                  // لكلّ استشارة — فتدخله الملغاة والجديدة، أي كلّ شيء تقريباً.
                   (c) =>
                     c.session === 'جلسة جارية' ||
-                    c.session === 'بانتظار الجلسة' ||
-                    c.status === 'محالة للمحامي' ||
-                    c.status === 'مؤكد'
+                    (! CONSULT_TERMINAL_STATUSES.includes(c.status) &&
+                      (c.session === 'بانتظار الجلسة' || c.status === 'محالة للمحامي'))
                 ),
               },
               {
                 id: 'completed',
-                title: '5. منتهية ومحولة لقضايا',
+                title: '5. منتهية ومغلقة',
                 tone: '#13314F',
                 items: filteredItems.filter((c) =>
                   CONSULT_TERMINAL_STATUSES.includes(c.status)
@@ -1166,6 +1255,8 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                   col.items.map((c) => (
                     <div
                       key={c.id}
+                      role="button"
+                      tabIndex={0}
                       style={{
                         padding: 12,
                         background: '#fff',
@@ -1176,6 +1267,12 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                         boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
                       }}
                       onClick={() => openDrawer(c.ref, 'details')}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          openDrawer(c.ref, 'details');
+                        }
+                      }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                         <b style={{ color: 'var(--primary)', fontSize: 12.5 }}>{c.ref}</b>
@@ -1216,9 +1313,8 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
             <span className="sub">مرتبة زمنياً حسب توقيت الانعقاد ومتابعة المنسق</span>
           </div>
           <div className="card-b" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {filteredItems.filter((c) => c.when && c.when !== '—').length > 0 ? (
-              filteredItems
-                .filter((c) => c.when && c.when !== '—')
+            {agendaItems.length > 0 ? (
+              agendaItems
                 .map((c) => (
                   <div
                     key={c.id}
@@ -1278,9 +1374,11 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
             </div>
             <div className="card-b">
               {assignedLawyersList.map((law) => {
-                const count = allItems.filter((c) => c.lawyer === law).length;
-                const active = allItems.filter((c) => c.lawyer === law && !CONSULT_TERMINAL_STATUSES.includes(c.status)).length;
-                const pct = allItems.length > 0 ? Math.round((count / allItems.length) * 100) : 0;
+                // **تتبع المرشّحات كبقيّة العروض.** كانت وحدها تقرأ `allItems`، فيُصفّي
+                // الموظّف على تخصّصٍ أو قناة ثمّ يرى أحمالاً لا تصف ما أمامه.
+                const count = filteredItems.filter((c) => c.lawyer === law).length;
+                const active = filteredItems.filter((c) => c.lawyer === law && ! CONSULT_TERMINAL_STATUSES.includes(c.status)).length;
+                const pct = filteredItems.length > 0 ? Math.round((count / filteredItems.length) * 100) : 0;
 
                 return (
                   <div key={law} style={{ marginBottom: 14 }}>
@@ -1307,7 +1405,7 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
             </div>
             <div className="card-b" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {(['مرئية', 'حضورية', 'هاتفية'] as const).map((ch) => {
-                const count = allItems.filter((c) => c.channel === ch).length;
+                const count = filteredItems.filter((c) => c.channel === ch).length;
 
                 return (
                   <div

@@ -62,10 +62,20 @@ class AiReviewPreviewTest extends TestCase
         }
     }
 
-    /** ولا مخرج ⇒ `null` — لا نصٌّ يُختلق ليُملأ الفراغ. */
+    /**
+     * ولا مخرج ⇒ `null` — لا نصٌّ يُختلق ليُملأ الفراغ.
+     *
+     * **و`najiz.statement` لا `triage`:** كانت هذه الحالة تُختبَر بـ`triage` لأنها
+     * وقتَها بلا فرع معاينة. ثمّ صارت تُعايَن (حكمُ الفرز يُكتب في التذكرة ويوجّهها،
+     * فاعتمادُه على بياناتٍ وصفيّة اعتمادٌ على مخرجٍ لم يُقرأ). وبقي الاختبار يصف
+     * حالاً زالت — فسقط بـ«no such table» لأن الصنف بلا `RefreshDatabase` عمداً.
+     *
+     * و`najiz.statement` هي **الوحيدة الباقية بلا مخرجٍ محفوظ**: تعود JSON للمتصفّح
+     * ولا تُخزَّن. فتبقى نيّة الاختبار وتبقى بلا قاعدة بيانات.
+     */
     public function test_a_task_without_stored_output_previews_as_null(): void
     {
-        $run = new AiRun(['task_type' => 'triage', 'entity_ref' => 'SB-NONE']);
+        $run = new AiRun(['task_type' => 'najiz.statement', 'entity_ref' => 'SB-NONE']);
 
         $this->assertNull(AiReviewPreview::for($run));
     }

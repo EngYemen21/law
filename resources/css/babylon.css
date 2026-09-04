@@ -137,6 +137,10 @@ svg{display:block}
 .card-b{padding:6px 18px 14px}
 .badge-s{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;white-space:nowrap}
 .badge-s .d{width:6px;height:6px;border-radius:50%}
+/* وسمُ قناة الاستشارة — يستعمله جدولا الموظّف والمحامي وكانبانهما مع أصناف النغمة
+   (b-blue/b-amber/b-green) أدناه، وكان بلا تعريفٍ إطلاقاً فيُصيَّر نصّاً عارياً
+   بلا حشوٍ ولا استدارة بينما تُلوّنه النغمة — وسمٌ نصفُ مرسوم. */
+.emp-channel-tag{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap;line-height:1.6}
 .b-grey{background:#eef2f5;color:var(--muted)}.b-grey .d{background:var(--faint)}
 .b-blue{background:rgba(14,92,156,.1);color:var(--primary)}.b-blue .d{background:var(--primary)}
 .b-amber{background:var(--amber-bg);color:var(--amber)}.b-amber .d{background:var(--amber)}

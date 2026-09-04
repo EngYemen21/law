@@ -116,7 +116,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
     }).length;
     const liveNow = items.filter((c) => c.session === 'جلسة جارية').length;
     const upcoming = items.filter(
-      (c) => c.session === 'بانتظار الجلسة' || c.status === 'محالة للمحامي' || c.status === 'مؤكد'
+      (c) => c.session === 'بانتظار الجلسة' || c.status === 'محالة للمحامي' 
     ).length;
     const needsSummary = items.filter(
       (c) => c.session === 'منتهية' && !c.summaryApproved
@@ -148,7 +148,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
       }
       if (filterMode === 'upcoming') {
         const isUpcoming =
-          c.session === 'بانتظار الجلسة' || c.status === 'محالة للمحامي' || c.status === 'مؤكد';
+          c.session === 'بانتظار الجلسة' || c.status === 'محالة للمحامي';
         if (!isUpcoming) return false;
       }
       if (filterMode === 'needs_summary') {

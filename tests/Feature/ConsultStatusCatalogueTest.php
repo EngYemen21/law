@@ -37,25 +37,87 @@ class ConsultStatusCatalogueTest extends TestCase
         ));
     }
 
-    /** لا حالةَ في الكتالوج بلا كاتبٍ حيّ. */
+    /**
+     * لا حالةَ في الكتالوج بلا كاتبٍ حيّ **على الاستشارة نفسها**.
+     *
+     * **الثغرة التي وقع فيها هذا الحارس:** كان يبحث نصّياً في الملفّ كلّه، فوجد
+     * `'status' => 'مؤكد'` في `ConsultBooking.php` — وهي داخل `Appointment::create`
+     * لا على الاستشارة. فالاختبار المكتوب ليمنع **ولادة حالةٍ ميتةٍ رابعة، شهد
+     * لواحدةٍ قائمة**. والعلاج تقييدُ المدى بكتلة الاستشارة لا بالملفّ.
+     */
     public function test_every_catalogued_status_is_written_by_some_path(): void
     {
-        $source = $this->serverSource();
         $orphans = [];
 
         foreach (Consult::STATUSES as $status) {
-            // إسنادٌ فعليّ لا ذكرٌ في رسالة: `'status' => '…'` أو `->status = '…'`
-            $written = str_contains($source, "'status' => '{$status}'")
-                || str_contains($source, "status = '{$status}'")
-                || str_contains($source, "'{$status}', ") // وسائط `setConsultSession`
-                || str_contains($source, ", '{$status}'");
-
-            if (! $written) {
+            if (! $this->writtenOnAConsult($status)) {
                 $orphans[] = $status;
             }
         }
 
         $this->assertSame([], $orphans, "حالةٌ في الكتالوج لا يكتبها مسار:\n".implode("\n", $orphans));
+    }
+
+    /**
+     * هل تُسنَد هذه الحالة إلى **استشارة**؟
+     *
+     * تُفحص كلّ إسنادٍ بالنظر إلى ما سبقه: أيّ كيانٍ ذُكر آخراً — الاستشارة أم غيرها؟
+     * فلا تُحتسب حالةُ موعدٍ أو فاتورةٍ كُتبت في الملفّ نفسه.
+     */
+    private function writtenOnAConsult(string $status): bool
+    {
+        $needles = [
+            "'status' => '{$status}'",
+            "status = '{$status}'",
+            "'{$status}', ",   // وسائط `setConsultSession`
+            ", '{$status}'",
+        ];
+
+        $foreign = ['Appointment::', 'Invoice::', 'Ticket::', 'Payment::', 'MeetRequest::', 'Meeting::'];
+        $own = ['Consult::', '$consult->', 'consults()->'];
+
+        foreach ($this->consultWriters() as $file) {
+            $src = (string) file_get_contents($file);
+
+            foreach ($needles as $needle) {
+                $at = 0;
+                while (($at = strpos($src, $needle, $at)) !== false) {
+                    $before = substr($src, 0, $at);
+
+                    $lastForeign = 0;
+                    foreach ($foreign as $f) {
+                        $lastForeign = max($lastForeign, (int) strrpos($before, $f));
+                    }
+
+                    $lastOwn = 0;
+                    foreach ($own as $c) {
+                        $lastOwn = max($lastOwn, (int) strrpos($before, $c));
+                    }
+
+                    if ($lastOwn > $lastForeign) {
+                        return true;
+                    }
+
+                    $at += strlen($needle);
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /** @return array<int,string> */
+    private function consultWriters(): array
+    {
+        return array_values(array_filter([
+            app_path('Http/Controllers/Staff/ConsultController.php'),
+            app_path('Http/Controllers/ConsultController.php'),
+            app_path('Http/Controllers/ConsultBookingController.php'),
+            app_path('Http/Controllers/ZoomWebhookController.php'),
+            app_path('Support/ConsultBooking.php'),
+            app_path('Support/ConsultSummary.php'),
+            app_path('Console/Commands/AutoCloseMissedConsults.php'),
+        ], 'is_file'));
     }
 
     /** والحالة الميتة لم تعد فيه — ولا عادت إليه. */
@@ -127,9 +189,20 @@ class ConsultStatusCatalogueTest extends TestCase
             // نُسقط تعليقات الشرح: تذكر العطل بنصّه فتُشعل الحارس على نفسه
             $src = (string) preg_replace('#/\*.*?\*/|//[^\n]*#su', '', $src);
 
+            // **`===` وحدها لا تكفي.** حالات ما قبل الجلسة والنهايات تُكتب في هذه
+            // الشاشات بصيغة `[...].includes(c.status)` — ستّ مرّاتٍ في ملفّ الموظّف
+            // وحده. فلو ماتت واحدةٌ منها لما كشفها حارسٌ يفحص المساواة فقط.
             preg_match_all("/status\s*===\s*'([^']+)'/u", $src, $m);
+            $found = $m[1];
 
-            foreach (array_unique($m[1]) as $status) {
+            // ثمّ قوائم `[ … ].includes(c.status)`: تُلتقط الأقواس أوّلاً ثمّ ما فيها
+            preg_match_all("/\[([^\[\]]*)\]\s*\.includes\(\s*c\.status/u", $src, $lists);
+            foreach ($lists[1] as $list) {
+                preg_match_all("/'([^']+)'/u", $list, $literals);
+                $found = array_merge($found, $literals[1]);
+            }
+
+            foreach (array_unique($found) as $status) {
                 if (! in_array($status, Consult::STATUSES, true)) {
                     $offenders[] = basename($file).": «{$status}»";
                 }

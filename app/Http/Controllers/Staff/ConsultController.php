@@ -71,7 +71,9 @@ class ConsultController extends Controller
         ];
 
         if ($this->prefix($request) === 'admin' || $this->prefix($request) === 'employee' || $request->user()?->isAdmin() || $request->user()?->isEmployee()) {
-            $props['preSessionRequests'] = Consult::with(['user', 'invoice', 'appointment'])
+            // `ticket.legalCase` مثل القائمة الأولى: `toCard()` يقرأ `caseNo` منها،
+            // وبلا تحميلٍ مسبق يُصبح استعلامين لكلّ صفّ.
+            $props['preSessionRequests'] = Consult::with(['user', 'invoice', 'appointment', 'ticket:id,number', 'ticket.legalCase:id,ticket_id,number'])
                 ->whereIn('status', Consult::PRE_SESSION_STATUSES)
                 ->latest('id')->get()
                 ->map(fn (Consult $c) => $c->toCard());
@@ -150,6 +152,22 @@ class ConsultController extends Controller
     public function requestDocs(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
+        // **طلبُ المستند لا يُخرج الطلب من طابور التسعير.** كانت الدالّة بلا حارس
+        // حالةٍ إطلاقاً: طلبُ مستندٍ على استشارةٍ «بانتظار السداد» يكتب «بانتظار
+        // استكمال البيانات» — وهي خارج `PRE_SESSION_STATUSES` — فتسقط من طابور
+        // `requests()` ولا تُسعَّر أبداً. وهو **عين العطل** الذي وُضع له حارسٌ في
+        // `refer` (حادثة CN-2026-4504) ولم يوضع هنا، والشاشة تفتح البابين معاً.
+        abort_if(
+            in_array($consult->status, Consult::PRE_SESSION_STATUSES, true),
+            422,
+            'الطلب ما زال في دورة الحجز — أكمل التسعير والسداد قبل طلب المستندات.'
+        );
+        abort_if(
+            in_array($consult->status, Consult::CLOSED_STATUSES, true),
+            422,
+            'الاستشارة انتهت أو أُلغيت — لا تُطلب لها مستندات.'
+        );
+
         // **النصّ مطلوب.** كان `nullable` بافتراضيّ «مستند إضافي مطلوب»، فيصل العميلَ
         // طلبٌ **لا يقول ما المطلوب** باسم المكتب — ويعلق ملفّه بانتظار شيءٍ مجهول.
         // وصفحةُ رحلة الاستشارة كانت ترسل حمولةً فارغة أصلاً، فهذا حالُها الغالب.
@@ -174,6 +192,15 @@ class ConsultController extends Controller
     public function analyze(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
+
+        // **لا يُعاد تحليل ملفٍّ انتهى.** زرّ «إعادة التحليل» في الشاشة بلا شرط حالة،
+        // فاستشارةٌ منتهية أو ملغاة تعود بضغطة إلى «بانتظار اعتماد الموظف» — انتقالٌ
+        // للخلف يُفقدها وسمها ويُخرجها من صفّ المحامي.
+        abort_if(
+            in_array($consult->status, Consult::CLOSED_STATUSES, true),
+            422,
+            'الاستشارة انتهت أو أُلغيت — لا يُعاد تحليلها.'
+        );
         $before = $consult->status;
         $ai = $this->ai->analyzeConsult($consult);
 
@@ -186,7 +213,11 @@ class ConsultController extends Controller
         // كان `true` بلا شرط: نصّ الاحتياطيّ يقول «تعذّر إعداد التحليل» والحالة تقول «اكتمل»
         $consult->ai_done = $isRealAnalysis;
         $consult->ai_source = $source->value;
-        $consult->missing = $ai['missing'];
+        // **دمجٌ لا استبدال.** كان يدهس النواقص التي كتبها الموظّف يدوياً في
+        // `requestDocs` وأُشعر بها العميل — فيُطالَب بمستندٍ لم يعد في ملفّ المكتب.
+        $consult->missing = array_values(array_unique(
+            array_merge($consult->missing ?? [], $ai['missing'] ?? [])
+        ));
         $consult->logAudit($request->user()->name, 'الحالة', $before, 'قيد معالجة الفريق القانوني');
         $consult->logAudit('النظام', 'تحليل الفريق القانوني', '—', $isRealAnalysis ? 'اكتمل' : 'تعذّر — يلزم إعداد يدويّ');
         $consult->logAudit('النظام', 'الحالة', 'قيد معالجة الفريق القانوني', 'بانتظار اعتماد الموظف');
@@ -344,6 +375,12 @@ class ConsultController extends Controller
         //
         // وقع فعلاً في `CN-2026-4504` (٢٠٢٦-٠٩-٠٣): أُحيلت وهي «بانتظار التسعير»،
         // فظهرت في شاشة استقبال الجلسات بموعدٍ فارغ وزرِّ «بدء الجلسة» مُفعَّلاً.
+        abort_if(
+            in_array($consult->status, Consult::CLOSED_STATUSES, true),
+            422,
+            'الاستشارة انتهت أو أُلغيت — لا تُحال إلى محامٍ.'
+        );
+
         abort_if(
             in_array($consult->status, Consult::PRE_SESSION_STATUSES, true),
             422,
@@ -585,6 +622,12 @@ class ConsultController extends Controller
     public function reschedule(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
+        abort_if(
+            in_array($consult->status, Consult::CLOSED_STATUSES, true),
+            422,
+            'الاستشارة انتهت أو أُلغيت — أنشئ طلباً جديداً بدل إعادة جدولتها.'
+        );
+
         abort_if($consult->session === 'منتهية', 422, 'الجلسة انتهت — لا يمكن إعادة جدولتها.');
         abort_if(in_array($consult->status, Consult::PRE_SESSION_STATUSES, true), 422, 'الاستشارة لم تُجدول بعد أصلاً.');
 
