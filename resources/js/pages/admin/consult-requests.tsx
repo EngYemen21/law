@@ -7,28 +7,38 @@ import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { crChannelIcon, crChannelTone } from '@/lib/employee-data';
+import { CONSULT_BOOKING_STATUSES, crChannelIcon, crChannelTone, cTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 
 interface AdminConsultRequestsProps {
   consults: ConsultCard[];
+  /** نسبة الضريبة من إعدادات المكتب — كانت مصلَّبة 0.15 في الحاسبة. */
+  vatRate?: number;
+  /** الأسعار المعتمدة لكلّ قناة — بديل «الباقات المعياريّة» المكتوبة بيد. */
+  suggestedPrices?: Record<string, number>;
 }
 
 type ViewMode = 'pipeline' | 'table';
 type CategoryFilter = 'all' | 'pricing' | 'payment' | 'scheduling' | 'late';
+
+/** حدُّ التأخّر بالدقائق منذ الاستقبال — ساعتان. */
+const LATE_AFTER_MINS = 120;
 type DrawerTab = 'pricing' | 'details' | 'actions' | 'audit';
 
-const STATUS_TONE: Record<string, string> = {
-  'بانتظار التسعير': 'b-amber',
-  'بانتظار السداد': 'b-blue',
-  'بانتظار تحديد الموعد': 'b-cyan',
-};
-
-const PRE_SESSION_STATUSES = ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'];
-
-const PRICING_PRESETS = [300, 500, 750, 1000, 1500, 2000];
-
-export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({ consults: initialConsults = [] }) => {
+/*
+ * **خريطة النغمات المحلّيّة أُزيلت.** كانت تعطي «بانتظار السداد» أزرقَ و«بانتظار تحديد
+ * الموعد» سماويّاً، بينما `cTone` المشترك يعطيهما كهرمانيّاً — فالطلب الواحد يُعرض
+ * بلونين بين هذه الشاشة وشاشة «إدارة الاستشارات» التي تعرض الطلبات نفسها.
+ *
+ * و`PRE_SESSION_STATUSES` كانت **نسخةً ثالثة** يدويّة من قائمةٍ يحملها النموذج
+ * (`Consult::PRE_SESSION_STATUSES`) ويصدّرها `employee-data` — فأوّل تعديلٍ خادميّ
+ * يُفرّقها بصمت وتختفي طلباتٌ ماليّة من الشاشة بلا رسالة.
+ */
+export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
+  consults: initialConsults = [],
+  vatRate = 15,
+  suggestedPrices = {},
+}) => {
   const toast = useToast();
 
   // State Management
@@ -100,7 +110,7 @@ export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({ cons
 
   // Live active pre-session intake requests
   const liveItems = useMemo(() => {
-    return items.filter((c) => PRE_SESSION_STATUSES.includes(c.status));
+    return items.filter((c) => CONSULT_BOOKING_STATUSES.includes(c.status));
   }, [items]);
 
   // Currently active consult in the slide-over drawer
@@ -164,9 +174,18 @@ return;
       .filter((c) => c.status === 'بانتظار تحديد الموعد' || c.paid)
       .reduce((sum, c) => sum + (Number(c.total) || 0), 0);
 
-    // Queue time calculation
-    const late = liveItems.filter((c) => (c.mins || 0) > 120).length;
-    const avgMins = total > 0 ? Math.round(liveItems.reduce((acc, c) => acc + (c.mins || 0), 0) / total) : 0;
+    /*
+     * **الانتظار مقيسٌ من وقت الاستقبال — و`null` تعني «لم يُقَس».**
+     *
+     * كان الحسابان مبنيّين على `c.mins`، وهو عمودٌ **بلا كاتبٍ في المشروع كلّه**: فالمتوسّط
+     * صفرٌ أبداً تحت عنوان «متوسط زمن المعالجة»، والعدّاد صفرٌ أبداً فتبويب «متأخرة» يُفرغ
+     * الجدول. والعنوان نفسه كان كاذباً مرّتين: لا يقيس **المعالجة** بل عمرَ الطلب المفتوح.
+     */
+    const measured = liveItems.map((c) => c.ageMins).filter((m): m is number => m != null);
+    const late = measured.filter((m) => m > LATE_AFTER_MINS).length;
+    const avgMins = measured.length > 0
+      ? Math.round(measured.reduce((acc, m) => acc + m, 0) / measured.length)
+      : null;
 
     return {
       total,
@@ -210,7 +229,8 @@ return false;
 return false;
 }
 
-        if (categoryFilter === 'late' && (c.mins || 0) <= 120) {
+        // غيرُ المقيس ليس «في الوقت» — فلا يدخل تبويب المتأخّرة ولا يُنفى منه بصفرٍ مصطنع
+        if (categoryFilter === 'late' && !(c.ageMins != null && c.ageMins > LATE_AFTER_MINS)) {
 return false;
 }
 
@@ -266,8 +286,10 @@ return (a.total || 0) - (b.total || 0);
   const handlePricingSubmit = (consult: ConsultCard, priceStr: string) => {
     const priceNum = parseInt(priceStr, 10);
 
-    if (isNaN(priceNum) || priceNum < 0) {
-      toast('⚠️ يرجى إدخال مبلغ تسعير صحيح');
+    // **الصفر ممنوع.** كان `< 0` يسمح به، ومودال الجدول يفحص `isProcessing` وحده —
+    // فتُنشأ فاتورة ٠ ر.س «مستحقّة» ويعلق الطلب بلا مخرج (الخادم يمنعه الآن أيضاً).
+    if (isNaN(priceNum) || priceNum < 1) {
+      toast('⚠️ أقلّ سعرٍ للاستشارة ريالٌ واحد');
 
       return;
     }
@@ -293,15 +315,50 @@ return (a.total || 0) - (b.total || 0);
 
   // Submit Reminder for slot scheduling
   const handleRemindSchedule = (consult: ConsultCard) => {
+    // نقرتان متتاليتان كانتا تُرسلان إشعارين للعميل وقيدَي تدقيق — لا تعطيل ولا حالة
+    if (isProcessing) {
+      return;
+    }
+
+    setIsProcessingAction(true);
     router.post(
       `/admin/consults/${consult.id}/remind-schedule`,
       {},
       {
         preserveScroll: true,
+        onFinish: () => setIsProcessingAction(false),
         onSuccess: () => toast('🔔 تم إرسال تذكير الموعد للعميل بنجاح'),
         onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذر الإرسال'}`),
       }
     );
+  };
+
+  /**
+   * **تصحيح تسعيرٍ خاطئ.**
+   *
+   * كان زرّ «تعديل السعر» يفتح درج التسعير الذي يرتدّ ٤٢٢ دائماً — `setPrice` يشترط
+   * «بانتظار التسعير» وأوّلُ تسعيرٍ يقفلها. فرقمٌ خاطئ في فاتورةٍ وصلت عميلاً لم يكن
+   * له مخرجٌ إلّا إلغاء الطلب كلّه.
+   */
+  const handleReprice = (consult: ConsultCard) => {
+    if (isProcessing) {
+      return;
+    }
+
+    if (!window.confirm(`ستُلغى فاتورة (${consult.ref}) ويُشعَر العميل، ويعود الطلب إلى التسعير. متابعة؟`)) {
+      return;
+    }
+
+    setIsProcessingAction(true);
+    router.post(`/admin/consults/${consult.id}/reprice`, {}, {
+      preserveScroll: true,
+      onSuccess: () => {
+        toast('أُلغيت الفاتورة — الطلب عاد إلى التسعير');
+        openDrawer(consult.ref, 'pricing');
+      },
+      onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذّر تصحيح السعر'}`),
+      onFinish: () => setIsProcessingAction(false),
+    });
   };
 
   // Submit Cancel Request
@@ -310,11 +367,17 @@ return (a.total || 0) - (b.total || 0);
 return;
 }
 
+    if (isProcessing) {
+      return;
+    }
+
+    setIsProcessingAction(true);
     router.post(
       `/admin/consults/${cancelTargetConsult.id}/cancel-request`,
       {},
       {
         preserveScroll: true,
+        onFinish: () => setIsProcessingAction(false),
         onSuccess: () => {
           toast('✅ تم إلغاء طلب الاستشارة وإشعار العميل');
           setCancelTargetConsult(null);
@@ -328,8 +391,26 @@ return;
   };
 
   // Helper VAT computations for the pricing engine
+  /*
+   * **نسبة الضريبة من الخادم لا مصلَّبة.**
+   *
+   * كانت `0.15` مكتوبةً في الشيفرة والعنوان «(15%)» نصّاً — بينما النسبة إعدادٌ إداريّ
+   * حيّ (`Setting::vatRate()`) له شاشةُ ضبطٍ في اللوحة نفسها. فلو ضُبطت على ٥٪ لعرضت
+   * الحاسبةُ على المسعّر إجمالاً غير الذي سيُفوتَر ويُطالَب به العميل.
+   */
+  /*
+   * **الأسعار المعتمدة لا «باقاتٌ معياريّة».** كانت ستّة أرقامٍ مكتوبةٍ بيد
+   * (`[300,500,750,1000,1500,2000]`) موسومةً «معياريّة» — **ولا واحدٌ منها يطابق سعراً
+   * معتمداً** في `Setting::consultPrices()`، ولا تتغيّر بتغيير الإعدادات، ولا تفرّق
+   * بين القنوات الثلاث. فاللافتة تعطي الرقم سلطةً لا يملكها.
+   */
+  const pricePresets = useMemo(
+    () => Array.from(new Set(Object.values(suggestedPrices).filter((n) => n > 0))).sort((a, b) => a - b),
+    [suggestedPrices]
+  );
+
   const parsedDrawerPrice = parseInt(inputPrice, 10) || 0;
-  const drawerVatAmount = Math.round(parsedDrawerPrice * 0.15);
+  const drawerVatAmount = Math.round((parsedDrawerPrice * vatRate) / 100);
   const drawerTotalAmount = parsedDrawerPrice + drawerVatAmount;
 
   return (
@@ -460,10 +541,6 @@ return;
           white-space: nowrap;
         }
 
-        /* ضمان بقاء النوافذ المنبثقة العامة (Modals) في أعلى طبقة دوماً */
-        .modal-bg {
-          z-index: 100000 !important;
-        }
 
         /* ── استجابة الشاشات المتوسطة والتابلت (Max 1180px) ── */
         @media (max-width: 1180px) {
@@ -627,14 +704,18 @@ return;
         {/* متوسط زمن المعالجة والتأخر */}
         <div className="card" style={{ padding: '12px 14px', margin: 0, borderRight: '4px solid #11A0C8' }}>
           <div style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>متوسط زمن المعالجة</span>
+            <span>متوسط انتظار الطلبات المفتوحة</span>
             <Icon name="clock" />
           </div>
           <div style={{ fontSize: 'clamp(20px, 3vw, 24px)', fontWeight: 800, color: '#11A0C8', marginTop: 4 }}>
-            {telemetry.avgMins} <span style={{ fontSize: 12 }}>دقيقة</span>
+            {telemetry.avgMins == null ? '—' : telemetry.avgMins} <span style={{ fontSize: 12 }}>دقيقة</span>
           </div>
           <div style={{ fontSize: 10.5, color: telemetry.late > 0 ? '#C0392B' : 'var(--muted)', marginTop: 2 }}>
-            {telemetry.late > 0 ? `${telemetry.late} طلب متأخر > ساعتين` : 'المعالجة ضمن المعدل'}
+            {telemetry.avgMins == null
+              ? 'لا طلبات مفتوحة'
+              : telemetry.late > 0
+                ? `${telemetry.late} طلب تجاوز ${LATE_AFTER_MINS / 60} ساعة`
+                : 'الانتظار ضمن المعدل'}
           </div>
         </div>
       </div>
@@ -860,9 +941,9 @@ return;
 
                       <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                         <Badge text={c.specialty || c.type || 'عام'} tone="b-grey" />
-                        {c.mins ? (
-                          <span style={{ fontSize: 10.5, color: c.mins > 120 ? '#C0392B' : 'var(--muted)', alignSelf: 'center' }}>
-                            منذ {c.mins} دقيقة
+                        {c.ageMins != null ? (
+                          <span style={{ fontSize: 10.5, color: c.ageMins > LATE_AFTER_MINS ? '#C0392B' : 'var(--muted)', alignSelf: 'center' }}>
+                            {c.received}
                           </span>
                         ) : null}
                       </div>
@@ -1007,12 +1088,13 @@ return;
                           className="btn soft sm"
                           type="button"
                           style={{ flex: 1, justifyContent: 'center' }}
+                          disabled={isProcessing || c.paid}
                           onClick={(e) => {
                             e.stopPropagation();
-                            openDrawer(c.ref, 'pricing');
+                            handleReprice(c);
                           }}
                         >
-                          <Icon name="card" /> تعديل السعر
+                          <Icon name="card" /> تصحيح السعر
                         </button>
                         <button
                           className="btn soft sm"
@@ -1257,7 +1339,12 @@ return;
 
                       {/* الرسوم والفاتورة */}
                       <td style={{ padding: '12px 14px' }}>
-                        {c.total ? (
+                        {/* **المقترح غير المقرَّر.** `request()` يكتب `price/vat/total`
+                            من الإعدادات كاقتراح و`priced_at` تبقى فارغة — فالشرط على
+                            `total` وحده كان يعرض «450 ر.س — بانتظار السداد» لطلبٍ لم
+                            يُسعَّر، بينما عمود الحالة في الصفّ نفسه يقول «بانتظار
+                            التسعير». والمعيار الصادق `priced`. */}
+                        {c.priced && c.total ? (
                           <div>
                             <b style={{ color: c.paid ? '#1E9D6B' : 'inherit' }}>
                               {c.total} ر.س
@@ -1265,6 +1352,11 @@ return;
                             <div style={{ fontSize: 11, color: 'var(--muted)' }}>
                               {c.invoiceNo ? `فاتورة: ${c.invoiceNo}` : c.paid ? 'مُسددة' : 'بانتظار السداد'}
                             </div>
+                          </div>
+                        ) : c.total ? (
+                          <div>
+                            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{c.total} ر.س</span>
+                            <div style={{ fontSize: 11, color: '#C0832B', fontWeight: 600 }}>سعرٌ مقترح — لم يُعتمد</div>
                           </div>
                         ) : (
                           <span style={{ fontSize: 11.5, color: '#C0832B', fontWeight: 600 }}>
@@ -1275,7 +1367,7 @@ return;
 
                       {/* الحالة */}
                       <td style={{ padding: '12px 14px' }}>
-                        <Badge text={c.status} tone={STATUS_TONE[c.status] ?? 'b-grey'} />
+                        <Badge text={c.status} tone={cTone(c.status)} />
                         {c.paidAgo && (
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
                             دُفع {c.paidAgo}
@@ -1369,7 +1461,7 @@ return;
                         <div style={{ fontSize: 12, color: 'var(--muted)' }}>{maskClient(c.client)}</div>
                       </div>
                     </div>
-                    <Badge text={c.status} tone={STATUS_TONE[c.status] ?? 'b-grey'} />
+                    <Badge text={c.status} tone={cTone(c.status)} />
                   </div>
 
                   <div style={{ fontSize: 12.5, margin: '8px 0', lineHeight: 1.5, color: '#333' }}>
@@ -1402,10 +1494,14 @@ return;
                     }}
                   >
                     <div>
-                      {c.total ? (
+                      {c.priced && c.total ? (
                         <b style={{ color: c.paid ? '#1E9D6B' : 'inherit', fontSize: 13 }}>
                           {c.total} ر.س ({c.paid ? 'مسددة' : 'بانتظار السداد'})
                         </b>
+                      ) : c.total ? (
+                        <span style={{ fontSize: 12, color: '#C0832B', fontWeight: 600 }}>
+                          {c.total} ر.س — سعرٌ مقترح
+                        </span>
                       ) : (
                         <span style={{ fontSize: 11.5, color: '#C0832B', fontWeight: 700 }}>
                           بانتظار التسعير
@@ -1468,7 +1564,7 @@ return;
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <h3 style={{ margin: 0, color: 'var(--primary)', fontSize: 17 }}>{drawerConsult.ref}</h3>
                   <Badge text={`استشارة ${drawerConsult.channel}`} tone={crChannelTone(drawerConsult.channel)} />
-                  <Badge text={drawerConsult.status} tone={STATUS_TONE[drawerConsult.status] ?? 'b-grey'} />
+                  <Badge text={drawerConsult.status} tone={cTone(drawerConsult.status)} />
                 </div>
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                   العميل: {maskClient(drawerConsult.client)}
@@ -1543,7 +1639,7 @@ return;
             </div>
 
             {/* محتوى لسان التبويب */}
-            <div style={{ padding: 20, flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="c360-drawer-body" style={{ padding: 20, flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
               {/* Tab 1: حاسبة التسعير والفاتورة الذكية */}
               {drawerTab === 'pricing' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1566,10 +1662,10 @@ return;
                   {/* أزرار التسعير السريع الموصى بها */}
                   <div>
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 8 }}>
-                      خيارات التسعير السريعة (باقات معيارية):
+                      الأسعار المعتمدة لكلّ قناة:
                     </label>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                      {PRICING_PRESETS.map((p) => (
+                      {pricePresets.map((p) => (
                         <button
                           key={p}
                           type="button"
@@ -1600,7 +1696,7 @@ return;
                     <div style={{ position: 'relative' }}>
                       <input
                         type="number"
-                        min="0"
+                        min="1"
                         step="50"
                         value={inputPrice}
                         onChange={(e) => setInputPrice(e.target.value)}
@@ -1693,7 +1789,7 @@ return;
                     <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                       <Badge text={drawerConsult.specialty || drawerConsult.type} tone="b-blue" />
                       <Badge text={`قناة ${drawerConsult.channel}`} tone={crChannelTone(drawerConsult.channel)} />
-                      <Badge text={drawerConsult.status} tone={STATUS_TONE[drawerConsult.status] ?? 'b-grey'} />
+                      <Badge text={drawerConsult.status} tone={cTone(drawerConsult.status)} />
                     </div>
                   </div>
 
@@ -1717,7 +1813,11 @@ return;
                     <div>
                       <span style={{ fontSize: 11, color: 'var(--muted)' }}>إجمالي المبلغ:</span>
                       <div style={{ fontWeight: 600, fontSize: 13, marginTop: 2, color: drawerConsult.paid ? '#1E9D6B' : 'inherit' }}>
-                        {drawerConsult.total ? `${drawerConsult.total} ر.س` : 'غير محدد'}
+                        {drawerConsult.priced && drawerConsult.total
+                          ? `${drawerConsult.total} ر.س`
+                          : drawerConsult.total
+                            ? `${drawerConsult.total} ر.س — مقترح لم يُعتمد`
+                            : 'غير محدد'}
                       </div>
                     </div>
                     <div>
@@ -1857,7 +1957,7 @@ return;
               </label>
               <input
                 type="number"
-                min="0"
+                min="1"
                 step="50"
                 value={modalPrice}
                 onChange={(e) => setModalPrice(e.target.value)}

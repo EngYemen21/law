@@ -9,13 +9,14 @@ import { useToast } from '@/components/babylon/Toast';
 // (`consult-ui`) تستعمل نسخة `employee-data` المُخفية. فالشاشة كانت
 // تنادي دالّةً باسمٍ يَعِد بما لا يفعل، في ستّة مواضع.
 import { maskClient } from '@/lib/employee-data';
-import { sessTone, SummaryStateBadge } from '@/lib/consult-ui';
+import { RichText, sessTone, SummaryStateBadge } from '@/lib/consult-ui';
 import type { ConsultCard, LawyerOpt } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import {
   cTone,
   crChannelIcon,
   crChannelTone,
+  CONSULT_CLOSED_STATUSES,
   CONSULT_TERMINAL_STATUSES,
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
@@ -29,6 +30,26 @@ interface EmployeeConsultsProps {
 type ViewMode = 'table' | 'pipeline' | 'calendar' | 'analytics';
 type CategoryFilter = 'all' | 'live' | 'new' | 'missing_docs' | 'in_progress' | 'ready_assign' | 'pre_session' | 'completed';
 type DrawerTab = 'details' | 'documents' | 'scheduling' | 'audit';
+
+/**
+ * **هل أُسند محامٍ فعلاً؟** المعيار الإسناد لا نصُّه.
+ *
+ * `ConsultBooking::resolveContext` يضمن قيمةً نصّيّة دائماً («المستشار القانوني»
+ * عند غياب المحامي)، فشرط `!c.lawyer || c.lawyer === '—'` **كاذبٌ أبداً**: زرّ
+ * «+ إسناد محامٍ» لا يظهر، ومؤشّر «بانتظار إسناد» ينكمش إلى «جاهزة للمحامي»
+ * وحدها، والنائب يظهر كاسم شخصٍ في المرشّح وله شريط حملٍ في الأحمال.
+ *
+ * **ولماذا في نطاق الوحدة `function` لا `const` داخل المكوّن؟**
+ *
+ * كانت `const hasLawyer` تُعرَّف **بعد** `telemetry`، و`useMemo` يُنفّذ دالّته أثناء
+ * التصيير — فتُنادى قبل تهيئتها وتُلقي `ReferenceError: Cannot access 'hasLawyer'
+ * before initialization`، فتنهار الشاشة كلّها بيضاء. و`tsc` لا يمسكها: الاستعمال داخل
+ * دالّة ردٍّ، ولا سبيل إلى معرفة أنها تُنفَّذ فوراً. والدالّة المرفوعة لا يحكمها ترتيب
+ * السطور أصلاً — وهي خالصةٌ لا تُغلِق على شيء.
+ */
+function hasLawyer(c: ConsultCard): boolean {
+  return c.lawyerId != null;
+}
 
 export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
   consults: initialConsults = [],
@@ -97,6 +118,18 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
     if (!drawerRef) return null;
     return allItems.find((c) => c.ref === drawerRef || String(c.id) === drawerRef) || null;
   }, [allItems, drawerRef]);
+
+  /*
+   * **الملفّ المقفل لا تُعرض عليه أفعالٌ يرفضها الخادم.**
+   *
+   * `refer` و`requestDocs` يمنعان `Consult::CLOSED_STATUSES` — والدرج كان يعرض زرّ
+   * الإسناد ونموذجَ طلب المستندات على استشارةٍ «منتهية»، فالضغط يعود ٤٢٢ حتماً. والحارس
+   * على الخادم من عملنا، وهذا نظيرُه في الواجهة كي لا يُدعى المستخدم إلى ما يُصدّ عنه.
+   *
+   * `CLOSED` لا `TERMINAL`: «لم يحضر» نهايةٌ في التبويب لكنّها **حالة إنقاذ** تُعاد
+   * جدولتها — فحجبُ أفعالها يسدّ باب الإنقاذ.
+   */
+  const isClosed = drawerConsult != null && CONSULT_CLOSED_STATUSES.includes(drawerConsult.status);
 
   // قائمة المحامين المعتمدين
   const lawyersList = useMemo(() => {
@@ -209,16 +242,6 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
     });
     return Array.from(set);
   }, [allItems]);
-
-  /**
-   * **هل أُسند محامٍ فعلاً؟** المعيار الإسناد لا نصُّه.
-   *
-   * `ConsultBooking::resolveContext` يضمن قيمةً نصّيّة دائماً («المستشار القانوني»
-   * عند غياب المحامي)، فشرط `!c.lawyer || c.lawyer === '—'` **كاذبٌ أبداً**: زرّ
-   * «+ إسناد محامٍ» لا يظهر، ومؤشّر «بانتظار إسناد» ينكمش إلى «جاهزة للمحامي»
-   * وحدها، والنائب يظهر كاسم شخصٍ في المرشّح وله شريط حملٍ في الأحمال.
-   */
-  const hasLawyer = (c: ConsultCard) => c.lawyerId != null;
 
   const assignedLawyersList = useMemo(() => {
     const set = new Set<string>();
@@ -504,9 +527,6 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           border-bottom: 1px solid rgba(0,0,0,0.08);
           background: #fafafa;
           white-space: nowrap;
-        }
-        .modal-bg {
-          z-index: 100000 !important;
         }
         @media (max-width: 1180px) {
           .c360-kpi-grid {
@@ -1537,7 +1557,13 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
             </div>
 
             {/* محتوى لسان التبويب */}
-            <div style={{ padding: 20, flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/*
+              * `minHeight: 0` ليس زينةً: العنصر المرن افتراضُه `min-height: auto`، فلا
+              * ينكمش دون حجم محتواه مهما كتبتَ `overflow-y: auto`. فيتمدّد داخل درجٍ
+              * ارتفاعُه `100vh` ويُقصّ ما زاد **بلا شريط تمرير** — فسجلُّ تدقيقٍ طويل
+              * يُقرأ نصفُه ولا سبيل إلى بقيّته. قِيس ذلك على `CN-2026-7173`.
+              */}
+            <div className="c360-drawer-body" style={{ padding: 20, flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
               {/* Tab 1: التفاصيل والبيانات */}
               {drawerTab === 'details' && (
                 <>
@@ -1626,7 +1652,7 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                         <SummaryStateBadge consult={drawerConsult} />
                       </div>
                       <div style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap', color: '#334155' }}>
-                        {drawerConsult.summary}
+                        <RichText text={drawerConsult.summary} />
                       </div>
                     </div>
                   )}
@@ -1637,7 +1663,7 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                         تحليل الفريق القانوني (داخليّ — لا يصل الموكّل):
                       </div>
                       <div style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap', color: '#334155' }}>
-                        {drawerConsult.aiSummary}
+                        <RichText text={drawerConsult.aiSummary} />
                       </div>
                     </div>
                   )}
@@ -1670,6 +1696,17 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                       </div>
                     )}
 
+                    {/*
+                      * **لا يُدعى المستخدم إلى فعلٍ يُصدّ عنه.**
+                      *
+                      * `requestDocs` يمنع `CLOSED_STATUSES` على الخادم، فطلبُ مستندٍ على ملفٍّ
+                      * منتهٍ يعود ٤٢٢ حتماً. وكان النموذج يُعرض كاملاً على استشارةٍ «منتهية».
+                      */}
+                    {isClosed ? (
+                      <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: 14, fontSize: 12.5, color: 'var(--muted)' }}>
+                        الملفّ مقفل — لا تُطلب مستنداتٌ بعد انتهاء الجلسة.
+                      </div>
+                    ) : (
                     <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: 14 }}>
                       <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>
                         طلب مستند إضافي من العميل:
@@ -1698,6 +1735,7 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                         </button>
                       </div>
                     </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1753,7 +1791,7 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                           fontSize: 13.5,
                           background: '#fff',
                         }}
-                        disabled={['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'].includes(drawerConsult.status)}
+                        disabled={isClosed || ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'].includes(drawerConsult.status)}
                       >
                         <option value="">-- اختر مستشاراً قانونياً --</option>
                         {lawyersList.map((l) => (
@@ -1769,6 +1807,8 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                         disabled={
                           isProcessingAction ||
                           !selectedLawyerId ||
+                          // `refer` يمنع النهايات المُقفَلة على الخادم — فلا يُعرض الزرّ فاعلاً
+                          isClosed ||
                           ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'].includes(drawerConsult.status)
                         }
                         onClick={() => handleRefer(drawerConsult)}
@@ -1776,6 +1816,11 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                       >
                         تأكيد الإسناد وإشعار العميل والمحامي
                       </button>
+                      {isClosed && (
+                        <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
+                          الملفّ مقفل — لا يُعاد الإسناد بعد انتهاء الجلسة أو إلغائها.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>

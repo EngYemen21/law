@@ -396,51 +396,53 @@ const AdminClients: React.FC<Props> = ({ clients, filters = {}, summaryStats }) 
               )}
             </div>
           ) : (
-            <table className="tbl" style={{ minWidth: 720 }}>
-              <thead>
-                <tr>
-                  <th style={{ minWidth: 160 }}>العميل</th>
-                  <th style={{ minWidth: 110 }}>الهوية</th>
-                  <th style={{ minWidth: 120 }}>الجوال</th>
-                  <th style={{ minWidth: 160 }}>البريد الإلكتروني</th>
-                  <th style={{ minWidth: 170 }}>النشاط</th>
-                  <th style={{ minWidth: 90 }}>الحالة</th>
-                  <th style={{ minWidth: 100 }}>تاريخ التسجيل</th>
-                  <th style={{ minWidth: 90, textAlign: 'center' }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {clients.data.map((c) => (
-                  <tr
-                    key={c.id}
-                    onClick={() => router.get(`/admin/clients/${c.id}`)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <td>
-                      <b>{c.name}</b>
-                      <div className="mono muted" style={{ fontSize: 11 }}>CL-{String(c.id).padStart(5, '0')}</div>
-                    </td>
-                    <td className="mono">{c.nid}</td>
-                    <td className="mono" style={{ direction: 'ltr', textAlign: 'right' }}>{c.mobile}</td>
-                    <td className="muted">{c.email}</td>
-                    <td>{renderActivity(c)}</td>
-                    <td>
-                      <Badge text={c.status} tone={c.status === 'نشط' ? 'b-green' : 'b-grey'} />
-                    </td>
-                    <td className="muted" style={{ fontSize: 12 }}>{c.createdAt}</td>
-                    <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-                      <Link
-                        href={`/admin/clients/${c.id}`}
-                        className="btn sm soft"
-                        style={{ whiteSpace: 'nowrap' }}
-                      >
-                        <Icon name="out" /> فتح وتعديل
-                      </Link>
-                    </td>
+            <div className="t-wrap">
+              <table className="tbl" style={{ minWidth: 720 }}>
+                <thead>
+                  <tr>
+                    <th style={{ minWidth: 160 }}>العميل</th>
+                    <th style={{ minWidth: 110 }}>الهوية</th>
+                    <th style={{ minWidth: 120 }}>الجوال</th>
+                    <th style={{ minWidth: 160 }}>البريد الإلكتروني</th>
+                    <th style={{ minWidth: 170 }}>النشاط</th>
+                    <th style={{ minWidth: 90 }}>الحالة</th>
+                    <th style={{ minWidth: 100 }}>تاريخ التسجيل</th>
+                    <th style={{ minWidth: 90, textAlign: 'center' }}></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {clients.data.map((c) => (
+                    <tr
+                      key={c.id}
+                      onClick={() => router.get(`/admin/clients/${c.id}`)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <td>
+                        <b>{c.name}</b>
+                        <div className="mono muted" style={{ fontSize: 11 }}>CL-{String(c.id).padStart(5, '0')}</div>
+                      </td>
+                      <td className="mono">{c.nid}</td>
+                      <td className="mono" style={{ direction: 'ltr', textAlign: 'right' }}>{c.mobile}</td>
+                      <td className="muted">{c.email}</td>
+                      <td>{renderActivity(c)}</td>
+                      <td>
+                        <Badge text={c.status} tone={c.status === 'نشط' ? 'b-green' : 'b-grey'} />
+                      </td>
+                      <td className="muted" style={{ fontSize: 12 }}>{c.createdAt}</td>
+                      <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                        <Link
+                          href={`/admin/clients/${c.id}`}
+                          className="btn sm soft"
+                          style={{ whiteSpace: 'nowrap' }}
+                        >
+                          <Icon name="out" /> فتح وتعديل
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           <Pagination meta={clients.meta} only={['clients']} />
         </div>

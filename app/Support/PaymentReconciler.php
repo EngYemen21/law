@@ -119,7 +119,19 @@ class PaymentReconciler
         $invoice->update(['paid' => true, 'status' => 'مدفوعة', 'tone' => 'b-green']);
 
         if ($invoice->consult_id && ($consult = Consult::find($invoice->consult_id))) {
-            ConsultBooking::markPaid($consult, $actor, 'مدفوع عبر ميسّر');
+            /*
+             * **السجلّ يصف القناة التي وقع بها التحصيل.**
+             *
+             * كان النصّ ثابتاً «مدفوع عبر ميسّر» أيّاً كان المسار — وتحصيلُ الإدارة
+             * اليدويّ (`settleManual`, `gateway=manual`) يُقيَّد به. فيضيع التمييز بين
+             * ما حصّلته البوّابة وما استلمه المكتب نقداً أو تحويلاً، وهو تمييزٌ تحتاجه
+             * المطابقة والمراجعة الماليّة.
+             */
+            $channel = $invoice->payments()->where('gateway', 'manual')->exists()
+                ? 'مدفوع — تحصيل يدويّ بقيد الإدارة'
+                : 'مدفوع عبر ميسّر';
+
+            ConsultBooking::markPaid($consult, $actor, $channel);
         } elseif ($invoice->case_id && ($case = LegalCase::find($invoice->case_id))) {
             // تعرف وحدها أهي دفعة من خطّة تقسيط أم سداد كامل
             CaseFee::settleInvoice($case, $invoice);

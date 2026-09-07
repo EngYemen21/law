@@ -3,8 +3,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
+import { RichText } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { crSessionTone } from '@/lib/employee-data';
+import { sessTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 
 // ============================================================
@@ -588,7 +589,7 @@ return;
                       </div>
 
                       <div className="iact">
-                        <Badge text={c.session || c.status} tone={crSessionTone(c.session || '')} />
+                        <Badge text={c.session || c.status} tone={sessTone(c.session || '')} />
                         {c.canJoin ? (
                           <button
                             className="btn sm"
@@ -784,13 +785,13 @@ return;
                 fontSize: 14,
                 lineHeight: 1.8,
                 color: '#1e293b',
-                whiteSpace: 'pre-wrap',
                 maxHeight: 340,
                 overflowY: 'auto',
                 marginBottom: 16,
               }}
             >
-              {activeDoc.body}
+              {/* المحضر/الملخص نصّ نموذجٍ توليديّ بنجوم Markdown — RichText يصيّرها بلا حقن HTML */}
+              <RichText text={activeDoc.body} />
             </div>
 
             {/* القرارات المستخلصة إن وجدت */}

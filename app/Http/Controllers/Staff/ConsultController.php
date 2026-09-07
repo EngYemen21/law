@@ -5,10 +5,12 @@ namespace App\Http\Controllers\Staff;
 use App\Enums\AiSource;
 use App\Enums\Role;
 use App\Events\ConsultStatusBroadcast;
+use App\Events\TicketStatusBroadcast;
 use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
 use App\Jobs\FinalizeConsultJob;
 use App\Models\Consult;
+use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
@@ -25,9 +27,11 @@ use App\Support\DecisionTasks;
 use App\Support\Live;
 use App\Support\Notify;
 use App\Support\Specialties;
+use App\Support\TicketJourney;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -90,8 +94,23 @@ class ConsultController extends Controller
             ->latest('id')->get()
             ->map(fn (Consult $c) => $c->toCard());
 
+        /*
+         * **الأسعار والضريبة من الإعدادات لا من الشاشة.**
+         *
+         * كانت الشاشة تحسب الضريبة بـ`0.15` مصلَّبة وتعرض «باقات معياريّة» من ستّة
+         * أرقامٍ مكتوبةٍ بيدٍ لا يطابق واحدٌ منها سعراً معتمداً. والنسبة والأسعار
+         * إعداداتٌ إداريّة حيّة لها شاشةُ ضبطٍ في اللوحة نفسها — فتُمرَّر.
+         */
+        $prices = Setting::consultPrices();
+
         return Inertia::render('admin/consult-requests', [
             'consults' => $consults,
+            'vatRate' => (int) ($prices['vat'] ?? 15),
+            'suggestedPrices' => [
+                'مرئية' => (int) ($prices['video'] ?? 0),
+                'حضورية' => (int) ($prices['office'] ?? 0),
+                'هاتفية' => (int) ($prices['phone'] ?? 0),
+            ],
         ]);
     }
 
@@ -126,11 +145,43 @@ class ConsultController extends Controller
     public function setPrice(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
-        $data = $request->validate(['price' => ['required', 'integer', 'min:0', 'max:100000']]);
+        // `min:1` لا `min:0` — الصفر كان يُنشئ فاتورةً ميتة ويعلّق الطلب (انظر `ConsultBooking::setPrice`)
+        $data = $request->validate(['price' => ['required', 'integer', 'min:1', 'max:100000']]);
 
         ConsultBooking::setPrice($consult, (int) $data['price'], $request->user());
 
         return back()->with('flash', 'تم تحديد سعر الاستشارة وإصدار الفاتورة.');
+    }
+
+    /**
+     * **تصحيح تسعيرٍ خاطئ — قبل السداد.**
+     *
+     * لم يكن في المشروع مسارٌ لإعادة التسعير إطلاقاً: `setPrice` يشترط «بانتظار
+     * التسعير»، وأوّلُ تسعيرٍ ينقل الحالة إلى «بانتظار السداد» فتُقفل. وشاشة الطلبات
+     * تعرض زرّ «تعديل السعر» مصيرُه ٤٢٢ دائماً. فالخطأ في رقمٍ يُرسَل إلى عميلٍ في
+     * فاتورة **لا مخرج منه إلّا إلغاء الطلب كلّه**.
+     *
+     * والتصحيح **قبل السداد وحده**: بعده يصير استرداداً ماليّاً لا تسعيراً، وذاك فعلٌ
+     * محاسبيّ خارج هذا المسار. والفاتورة القديمة تُلغى ولا تُحذف — أثرُها يبقى.
+     */
+    public function reprice(Request $request, Consult $consult): RedirectResponse
+    {
+        $this->guardConsult($request, $consult);
+
+        abort_unless(
+            $consult->status === 'بانتظار السداد',
+            422,
+            'التصحيح متاحٌ للطلبات المسعَّرة التي لم تُسدَّد بعد.'
+        );
+        abort_if(
+            $consult->paid_at !== null,
+            422,
+            'سُدِّدت هذه الفاتورة — تصحيحُها بعد السداد استردادٌ ماليّ لا إعادة تسعير.'
+        );
+
+        ConsultBooking::reprice($consult, $request->user());
+
+        return back()->with('flash', 'أُلغيت الفاتورة وعاد الطلب إلى التسعير.');
     }
 
     // استلام الاستشارة (يطابق cTake)
@@ -375,6 +426,18 @@ class ConsultController extends Controller
         //
         // وقع فعلاً في `CN-2026-4504` (٢٠٢٦-٠٩-٠٣): أُحيلت وهي «بانتظار التسعير»،
         // فظهرت في شاشة استقبال الجلسات بموعدٍ فارغ وزرِّ «بدء الجلسة» مُفعَّلاً.
+        /*
+         * **ولا تُحال جلسةٌ منعقدة.** كان الحارس يمنع النهايات ودورة الحجز ولا يمنع
+         * `'قيد الاستشارة'` — فالضغط على «إعادة إسناد المستشار» أثناء جلسةٍ جارية
+         * يُرجع الحالة إلى «محالة للمحامي» ويبثّها، ويصل صاحبَ الجلسة إشعارٌ يقول
+         * «أُحيلت استشارتك… وسنوافيك بموعد الجلسة» — وهو فيها الآن.
+         */
+        abort_if(
+            $consult->session === 'جلسة جارية',
+            422,
+            'الجلسة منعقدة الآن — أنهِها قبل تغيير المستشار.'
+        );
+
         abort_if(
             in_array($consult->status, Consult::CLOSED_STATUSES, true),
             422,
@@ -442,7 +505,7 @@ class ConsultController extends Controller
         // **قاموسُ الاستشارات لا التذاكر.** كان يقبل `'عادية'` — وهي أولويّةُ فرز
         // **التذكرة** يكتبها الذكاء — ويرفض `'منخفضة'` التي تحملها استشاراتٌ قائمة
         // في القاعدة فعلاً: أي أن صفّاً لا يستطيع أحدٌ إعادة ضبطه على قيمته نفسها.
-        $data = $request->validate(['priority' => ['required', 'string', 'in:عالية,متوسطة,منخفضة']]);
+        $data = $request->validate(['priority' => ['required', 'string', Rule::in(Consult::PRIORITIES)]]);
 
         if ($data['priority'] !== $consult->priority) {
             $consult->logAudit($request->user()->name, 'الأولوية', $consult->priority, $data['priority']);
@@ -510,6 +573,26 @@ class ConsultController extends Controller
     {
         // الحارس قبل التصديق: غيرُ المسنَد يستحقّ ٤٠٣ لا رسائلَ تحقّقٍ تصف ملفّاً لا يراه.
         $this->guardConsult($request, $consult);
+
+        /*
+         * **لا تُختَم جلسةٌ لم تنعقد.**
+         *
+         * كانت الدالّة بلا حارس حالةٍ إطلاقاً — وحدها بين أخواتها. فمن يفتح
+         * `/{role}/videoroom?ref=…` مباشرةً ويضغط «إنهاء» يكتب «منتهية» ويُشعر
+         * الموكّل **«انتهت جلسة استشارتك»** ويُنهي اجتماع Zoom — لجلسةٍ لم تبدأ قطّ.
+         *
+         * وهذا حرفيّاً التزوير الذي كُتب `noShow()` لمنعه: تعليقُه يصف «بدء+إنهاء
+         * فوري» بأنه «يزوّر السجل جلسةً منعقدة». وسُدَّ نصفُه بحارس `isStartable`
+         * على `start`، وبقي البابُ الأوسع: لا حاجة إلى `start` أصلاً.
+         *
+         * و«منتهية» تبقى مقبولة: التدوين المتأخّر مسارٌ مقصود — الويبهوك يختم الجلسة
+         * قبل أن يضغط المحامي، فيُحفظ تدوينه بعدها ويُستدعى التوليد ثانيةً.
+         */
+        abort_unless(
+            in_array($consult->session, ['جلسة جارية', 'منتهية'], true),
+            422,
+            'الجلسة لم تبدأ — لا تُختَم إلّا جلسةٌ انعقدت. سجّل «لم يحضر» إن فات موعدها.'
+        );
 
         $data = $request->validate([
             'notes' => ['nullable', 'string', 'max:4000'],
@@ -658,6 +741,26 @@ class ConsultController extends Controller
         $consult->reminder_30m_sent_at = null;
         $consult->logAudit($request->user()->name, 'إعادة الجدولة', $old, 'بانتظار اختيار موعد جديد');
         $consult->save();
+
+        /*
+         * **والتذكرة ترتدّ مع استشارتها.**
+         *
+         * `ConsultBooking::schedule` يدفع التذكرة إلى «موعد مؤكد»، وإعادةُ الجدولة تُلغي
+         * الموعد وتُصفّر `starts_at` — **ولا تمسّ التذكرة**. فتبقى تقول «موعد مؤكد»
+         * لملفٍّ لا موعد له، وتصير مؤهَّلةً لـ`advance` الذي يعقد جلسةً لم تُحدَّد بعد.
+         *
+         * قِيس على `SB-2026-8077`: أُعيدت جدولة `CN-2026-7173` الساعة 01:57 وبقيت
+         * التذكرة «موعد مؤكد».
+         */
+        if ($consult->ticket && $consult->ticket->status === 'موعد مؤكد') {
+            $consult->ticket->update([
+                'status' => 'بانتظار حجز الاستشارة',
+                'tone' => TicketJourney::toneFor('بانتظار حجز الاستشارة'),
+                'last_message' => 'أُعيدت جدولة الجلسة — بانتظار اختيار موعد جديد',
+                'date_label' => 'الآن',
+            ]);
+            Live::push(new TicketStatusBroadcast($consult->ticket));
+        }
 
         Audit::log(
             action: 'إعادة جدولة استشارة',

@@ -8,7 +8,7 @@ import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { todayISO } from '@/components/SpecialistPicker';
 import { nowClock, todayDate } from '@/lib/chat';
-import { openMeeting } from '@/lib/consult-ui';
+import { openMeeting, RichText } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { MR_FLOW, maskClient } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
@@ -35,6 +35,31 @@ export function meetStatusTone(status: string): string {
 }
 
 // مدة الحضور الفعلية من Zoom (duration_sec) — دقائق، أو null إن لم تُسجَّل بعد
+/**
+ * وصفُ الحضور من سجلّ Zoom — أو null إن لم يُقَس.
+ *
+ * كان يُعرض `حضور {m.attend || 0}%` فيُعلَن «حضور ٠٪» لاجتماعٍ لم يُسجَّل حضورُه:
+ * رقمٌ يدّعي قياساً لم يقع. والعمود `attend` لم يُكتب من Zoom قطّ — يُملأ يدوياً أو يُصفَّر.
+ * المصدر الآن سجلّ Zoom (attendedCount/invitedCount/presenceRate)، والمُدخَل اليدويّ
+ * يُعرض موسوماً بذلك، وما لا مصدر له لا يُعرض.
+ */
+export function attendanceLabel(m: {
+    attend: number;
+    attendedCount: number | null;
+    invitedCount: number | null;
+    presenceRate: number | null;
+}): string | null {
+    if (m.attendedCount !== null) {
+        const head = m.invitedCount !== null
+            ? `حضر ${m.attendedCount} من ${m.invitedCount}`
+            : `حضر ${m.attendedCount}`;
+
+        return m.presenceRate !== null ? `${head} · متوسّط البقاء ${m.presenceRate}%` : head;
+    }
+
+    return m.attend ? `حضور ${m.attend}% (مُدخَل يدوياً)` : null;
+}
+
 export function fmtActualDuration(sec: number | null): string | null {
     return sec && sec > 0 ? `${Math.round(sec / 60)} د` : null;
 }
@@ -66,6 +91,10 @@ export interface FullMeetingCard {
     priority: string;
     conf: string;
     attend: number;
+    // القياس من سجلّ Zoom — null تعني «لم يُقَس» لا صفراً
+    attendedCount: number | null;
+    invitedCount: number | null;
+    presenceRate: number | null;
     link: string;
     meetId: string;
     meetLink: string;
@@ -118,7 +147,9 @@ export interface MeetReqCard {
     canJoin?: boolean; // زر الدخول يُفعَّل قبل الموعد بـ5 دقائق (يرسله MeetRequest::toCard)
 }
 
-export interface ClientDirEntry { id: number; name: string; items: string[] }
+/** خيارُ ملفٍّ للعميل: `subject` هو موضوعه في القاعدة — null إن لم يُسجَّل. */
+export interface ClientFileOption { ref: string; label: string; subject: string | null }
+export interface ClientDirEntry { id: number; name: string; items: ClientFileOption[] }
 
 // غرفة الاجتماع المضمّنة لدور المكتب — فيديو Zoom داخل الموقع + إنهاء الجلسة بملاحظاتها
 // (كانت بلا زرّ إنهاء ولا ملاحظات بخلاف غرفة الاستشارة — فيغادر الموظف ويُنهي من صفحة أخرى)
@@ -213,6 +244,8 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
     const [miLawyer, setMiLawyer] = useState<number | ''>(selfLawyerId ?? '');
     const [miCase, setMiCase] = useState('');
     const [miService, setMiService] = useState('');
+    // هل كتب المستخدم الموضوع بيده؟ التعبئة التلقائية لا تطمس كتابةً بشرية
+    const [serviceTyped, setServiceTyped] = useState(false);
     const [miType, setMiType] = useState('استشارة مرئية');
     const [miDuration, setMiDuration] = useState(60);
     const [miDay, setMiDay] = useState(todayISO());
@@ -539,14 +572,31 @@ setMiTime('');
                 <div className="picker-grid">
                     <div className="field">
                         <label>قضية / استشارة العميل</label>
-                        <select value={miCase} onChange={(e) => setMiCase(e.target.value)}>
+                        <select value={miCase} onChange={(e) => {
+                            const label = e.target.value;
+                            setMiCase(label);
+                            // الموضوع من عنوان الملفّ في القاعدة — وما لم يُسجَّل له موضوع لا يُملأ بشيء
+                            const subject = caseOptions.find((o) => o.label === label)?.subject;
+
+                            if (subject && !serviceTyped) {
+                                setMiService(subject);
+                            }
+                        }}>
                             <option value="">— اختر قضية/استشارة —</option>
-                            {caseOptions.map((i) => <option key={i} value={i}>{i}</option>)}
+                            {caseOptions.map((o) => <option key={o.label} value={o.label}>{o.label}</option>)}
                         </select>
                     </div>
                     <div className="field">
                         <label>الموضوع/الخدمة</label>
-                        <input className="input" value={miService} onChange={(e) => setMiService(e.target.value)} placeholder="مثال: نزاع تجاري" />
+                        <input
+                            className="input"
+                            value={miService}
+                            onChange={(e) => {
+                                setMiService(e.target.value);
+                                setServiceTyped(true);
+                            }}
+                            placeholder="يُملأ من عنوان الملفّ — أو اكتبه"
+                        />
                     </div>
                 </div>
 
@@ -567,7 +617,9 @@ setMiTime('');
                         slots={allSlotsWithStatus}
                         label="الموعد المتاح"
                         required
-                        allowCustom={false}
+                        // وقتٌ بدقّة الدقيقة خارج الفترات الجاهزة — والخادم يبقى الحكم:
+                        // يرفض الماضي ويرفض التعارض مع حجوزات المحامي
+                        allowCustom
                         helperText={availableSlots.length === 0 ? 'لا مواعيد متاحة لهذا المحامي في هذا اليوم — جرّب يوماً آخر أو مدّة أقصر.' : undefined}
                     />
                 )}
@@ -627,6 +679,12 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
     const [status, setStatus] = useState(m.status);
     const [approve, setApprove] = useState(m.approve);
     const approved = approve === 'معتمد';
+    /**
+     * الاعتماد نهائيّ: ما اعتمدته الإدارة وصل العميل بشهادتها، فتعديله بعدها يجعل
+     * الشهادة تصف نصّاً لا وجود له. الخادم يردّ ٤٢٢، والواجهة لا تدعو لفعلٍ مردود.
+     * وقبل الاعتماد النصّ **مسوّدة** تُحفظ وتُعدَّل بحرّية — الحفظ ليس اعتماداً.
+     */
+    const locked = approved || m.sumApproved;
 
     // لا قالب وهمي (قرار صاحب المنتج): الحقول تبدأ بمحتواها الفعلي أو فارغة —
     // التلميح في placeholder لا في القيمة، فلا يُحفَظ نصّ مركَّب لم يكتبه أحد
@@ -1136,8 +1194,15 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                                 { label: 'دخول أول مشارك', value: m.joinTime, ltr: true },
                                 { label: 'آخر مغادرة', value: m.leaveTime, ltr: true },
                                 { label: 'مدة الحضور الفعلية', value: fmtActualDuration(m.durationSec) },
-                                // تُعرض فقط إن سُجّلت فعلاً (يدوياً) — الصفر يعني «غير مسجَّلة» لا نسبة حقيقية
-                                { label: 'نسبة الحضور', value: status === 'منتهٍ' && m.attend ? `${m.attend}%` : null },
+                                // الحضور من سجلّ Zoom — وما لم يُقَس لا يُعرض. الصفر كان يُقرأ
+                                // «لم يحضر أحد» والحقيقة «لم يُقَس».
+                                {
+                                    label: 'الحضور',
+                                    value: m.attendedCount !== null
+                                        ? `${m.attendedCount}${m.invitedCount !== null ? ` من ${m.invitedCount}` : ''}`
+                                        : (status === 'منتهٍ' && m.attend ? `${m.attend}% (مُدخَل يدوياً)` : null),
+                                },
+                                { label: 'متوسّط البقاء', value: m.presenceRate !== null ? `${m.presenceRate}%` : null },
                             ].filter(r => r.value).map((row, i) => (
                                 <div key={i} style={{
                                     background: 'var(--paper)',
@@ -1250,9 +1315,10 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                                 <div style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--deep)', marginBottom: 6 }}>
                                     🤖 ملخّص Zoom AI {m.zoomSummaryAt && <span style={{ fontWeight: 400, color: 'var(--muted)' }}>— {m.zoomSummaryAt}</span>}
                                 </div>
-                                <p style={{ color: 'var(--muted)', fontSize: '12.5px', lineHeight: 1.7, whiteSpace: 'pre-wrap', margin: 0 }}>
-                                    {m.zoomSummary}
-                                </p>
+                                {/* نصّ نموذجٍ توليديّ: يأتي بنجوم Markdown — RichText يصيّرها بلا حقن HTML */}
+                                <div style={{ color: 'var(--muted)', fontSize: '12.5px', lineHeight: 1.7 }}>
+                                    <RichText text={m.zoomSummary} />
+                                </div>
                             </div>
                         )}
 
@@ -1342,29 +1408,38 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                         <span style={{
                             fontSize: '11px', fontWeight: 700, padding: '2px 8px',
                             borderRadius: 6,
-                            background: m.sumApproved ? 'var(--success-bg)' : 'var(--amber-bg)',
-                            color: m.sumApproved ? 'var(--success)' : 'var(--amber)',
+                            background: locked ? 'var(--success-bg)' : 'var(--amber-bg)',
+                            color: locked ? 'var(--success)' : 'var(--amber)',
                         }}>
-                            {m.sumApproved ? '✓ معتمد' : 'مسودة'}
+                            {locked ? '✓ معتمد' : 'مسودة'}
                         </span>
                     </div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        {m.sumApproved && <Badge text="الملخص معتمد ومُرسل للعميل" tone="b-green" />}
-                        <button
-                            className="btn soft sm" onClick={saveSummary} type="button"
-                            style={{ fontSize: '12px' }}
-                        >
-                            حفظ الملخص
-                        </button>
+                        {locked && <Badge text="الملخص معتمد ومُرسل للعميل" tone="b-green" />}
+                        {locked ? (
+                            <span style={{ fontSize: '11.5px', color: 'var(--muted)' }}>
+                                اعتمدت الإدارة هذا النصّ ووصل العميل — لا يُعدَّل
+                            </span>
+                        ) : (
+                            <button
+                                className="btn soft sm" onClick={saveSummary} type="button"
+                                style={{ fontSize: '12px' }}
+                            >
+                                حفظ المسودّة
+                            </button>
+                        )}
                     </div>
                 </div>
                 <div style={{ padding: '14px 18px' }}>
                     <textarea
                         value={summary}
+                        readOnly={locked}
                         placeholder="بانتظار ملخص الجلسة من Zoom — أو دوّن الملخص يدوياً هنا"
                         onChange={(e) => setSummary(e.target.value)}
                         style={{
                             width: '100%', minHeight: 120,
+                            opacity: locked ? 0.75 : 1,
+                            cursor: locked ? 'not-allowed' : 'auto',
                             border: '1px solid var(--line-soft)',
                             borderRadius: 10, padding: '10px 14px',
                             fontSize: '13.5px', lineHeight: 1.7,
@@ -1410,21 +1485,39 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                         }}>
                             {m.id}
                         </span>
+                        {/* الاعتماد يشمل المحضر كما يشمل الملخّص — وكان بلا وسم فيُظنّ مسوّدةً دائمة */}
+                        <span style={{
+                            fontSize: '11px', fontWeight: 700, padding: '2px 8px',
+                            borderRadius: 6,
+                            background: locked ? 'var(--success-bg)' : 'var(--amber-bg)',
+                            color: locked ? 'var(--success)' : 'var(--amber)',
+                        }}>
+                            {locked ? '✓ معتمد' : 'مسودة'}
+                        </span>
                     </div>
-                    <button
-                        className="btn soft sm" onClick={saveMinutes} type="button"
-                        style={{ fontSize: '12px' }}
-                    >
-                        حفظ المحضر
-                    </button>
+                        {locked ? (
+                            <span style={{ fontSize: '11.5px', color: 'var(--muted)' }}>
+                                اعتمدت الإدارة هذا النصّ ووصل العميل — لا يُعدَّل
+                            </span>
+                        ) : (
+                        <button
+                            className="btn soft sm" onClick={saveMinutes} type="button"
+                            style={{ fontSize: '12px' }}
+                        >
+                            حفظ المسودّة
+                        </button>
+                    )}
                 </div>
                 <div style={{ padding: '14px 18px' }}>
                     <textarea
                         value={minutes}
+                        readOnly={locked}
                         placeholder="بانتظار ملخص الجلسة من Zoom — أو دوّن أبرز ما دار والقرارات يدوياً هنا"
                         onChange={(e) => setMinutes(e.target.value)}
                         style={{
                             width: '100%', minHeight: 160,
+                            opacity: locked ? 0.75 : 1,
+                            cursor: locked ? 'not-allowed' : 'auto',
                             border: '1px solid var(--line-soft)',
                             borderRadius: 10, padding: '10px 14px',
                             fontSize: '13.5px', lineHeight: 1.7,
@@ -1596,7 +1689,8 @@ export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: str
                             </div>
                         </div>}
                         <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-                            {/* «لم ينعقد» فات موعده — الدخول بلا معنى ويصدّه الخادم أصلاً */}
+                            {/* «لم ينعقد» فات موعده — الدخول بلا معنى، و`room()` يردّه بـ٤٢٢
+                                على الحالة المشتقّة فلا يُلتَفّ على الإخفاء بالرابط المباشر */}
                             {m.meetLink && !['منتهٍ', 'ملغى', 'لم ينعقد'].includes(m.status) && (
                                 <button className="btn sm" onClick={() => router.visit(`${base}/meetingroom?ref=${encodeURIComponent(m.id)}`)} type="button">
                                     <Icon name="video" /> دخول اجتماع Zoom

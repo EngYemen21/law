@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
+use App\Jobs\EscalateUnassignedTicketJob;
 use App\Models\Appointment;
 use App\Models\Consult;
 use App\Models\Ticket;
@@ -92,7 +93,16 @@ class SmartBookingTest extends TestCase
         ]);
     }
 
-    public function test_taken_slot_is_flagged_and_double_booking_is_rejected(): void
+    /**
+     * **الفترة المحجوزة تُوسَم، والمحامي لا يُحجز مرّتين.**
+     *
+     * كان الشقّ الثاني يُقاس بآليّة **الرفض**، وقد تغيّرت بقرار المالك (2026-09-05):
+     * الحجز المتعذّر يُرفع إلى الإدارة بدل أن يُرفض — لأنّ العميل الثاني **سدّد
+     * الفاتورة** قبل أن يبلغ اختيار الموعد، فردُّه خاويَ اليدين أسوأ من تصعيده.
+     *
+     * والثابتُ نفسه محفوظ ويُفحص هنا مباشرةً: موعدٌ واحدٌ للمحامي.
+     */
+    public function test_taken_slot_is_flagged_and_the_lawyer_is_never_double_booked(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $other = User::factory()->create(['role' => Role::Client]);
@@ -109,9 +119,19 @@ class SmartBookingTest extends TestCase
         $ten = collect($slots)->firstWhere('time', '10:00');
         $this->assertTrue($ten['taken']);
 
-        // محاولة حجز عميل آخر لنفس الفترة تُرفض: المختصّ الوحيد مشغول، فلا يوجد بديل متاح
-        $this->directBookAndSchedule($other, $lawyer, $date, '10:00')->assertSessionHasErrors('time');
+        // عميلٌ آخر يطلب الفترة نفسها: المختصّ الوحيد مشغول ⇒ يُحجز ويُرفع إلى الإدارة
+        $this->directBookAndSchedule($other, $lawyer, $date, '10:00')->assertRedirect();
+
+        // **الثابت:** موعدٌ واحدٌ للمحامي مهما تعدّد الطالبون
         $this->assertSame(1, Appointment::where('lawyer_id', $lawyer->id)->count());
+
+        $second = Consult::where('user_id', $other->id)->latest('id')->firstOrFail();
+        $this->assertNotSame($lawyer->id, $second->assigned_lawyer_id, 'ولا يُسنَد المشغول');
+        $this->assertSame(
+            EscalateUnassignedTicketJob::SENIOR_LABEL,
+            $second->lawyer,
+            'بل يُرفع إلى الإدارة لتوزّعه — لا يُردّ من سدّد'
+        );
     }
 
     public function test_schedule_auto_assigns_top_specialist_ignoring_client(): void

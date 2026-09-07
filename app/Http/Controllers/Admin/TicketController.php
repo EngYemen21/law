@@ -184,13 +184,27 @@ class TicketController extends Controller
         $summary = $ticket->summary;
         abort_unless($summary && $summary->result_status === 'pending_admin', 404);
 
+        // نظير حارس المحامي: نتيجةٌ خاوية لا تُعتمد ولا تُرسَل للعميل
+        abort_if(
+            ! TicketResult::hasSubstance($summary),
+            422,
+            'النتيجة بلا وقائع أو توصيات — استكملها قبل الاعتماد.'
+        );
+
         $summary->update(['result_status' => 'approved']);
 
         $ack = $ticket->messages()->create([
             'who' => 'admin',
             'name' => 'الإدارة',
             'role' => 'اعتماد',
-            'body' => '<p>تم اعتماد ملخص الاستشارة ومحضر الجلسة من الإدارة. تُرسل النتيجة النهائية الآن.</p>',
+            /*
+             * **لا تُذكر «محضر الجلسة» إلّا حين يكون معتمَداً فعلاً.**
+             * مسارُ الإدارة هذا لا يمسّ ملخّص الاستشارة إطلاقاً — اعتمادُه مسارٌ منفصل
+             * (`consults/{consult}/summary/approve`). فكان يدّعي اعتماد ما لم يلمسه.
+             */
+            'body' => $ticket->consults()->whereNotNull('summary_approved_at')->exists()
+                ? '<p>تم اعتماد نتيجة الملف ومحضر الجلسة من الإدارة. تُرسل النتيجة النهائية الآن.</p>'
+                : '<p>تم اعتماد نتيجة الملف من الإدارة. تُرسل النتيجة النهائية الآن.</p>',
             'time_label' => $this->clock(),
         ]);
         Live::push(new TicketMessageBroadcast($ack));

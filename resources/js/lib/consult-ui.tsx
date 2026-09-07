@@ -8,8 +8,8 @@ import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import { echo } from '@/lib/echo';
 import {
-  CONSULT_CHANNELS, CONSULT_FLOW, cStage, cHasStage, cTone,
-  crChannelIcon, crChannelTone, maskClient
+  CONSULT_CHANNELS, CONSULT_FLOW, CONSULT_BOOKING_FLOW, cBookingStage, cStage, cHasStage, cTone,
+  crChannelIcon, crChannelTone, maskClient, sessTone
 } from '@/lib/employee-data';
 import type {AuditEntry} from '@/lib/employee-data';
 import Icon from '@/lib/icons';
@@ -66,6 +66,10 @@ export interface ConsultCard {
   summaryAiSource?: '' | 'ai_success' | 'fallback' | 'manual_required' | 'human_approved' | null;
   /** مادّة جلسة Zoom كما وردت — مفصولة عن الملخّص الذي يصل العميل. */
   zoomSummary?: string | null;
+  /** سجلّ الحضور من Zoom — من دخل ومتى وكم مكث. يُرسله `toCard` ولم يكن في العقد. */
+  zoomParticipantsLog?: Array<{ name?: string; join_time?: string; leave_time?: string; duration_sec?: number }> | null;
+  /** خطوات Zoom AI المقترحة — مادّةٌ للبناء لا قرارات معتمدة. */
+  zoomAiNextSteps?: string[] | null;
   /** رقم التذكرة الأمّ — **رقماً لا معرّفاً**: مسار التحويل يربط بـ`number`. */
   /**
    * معرّف المحامي المسنَد — `null` يعني **لا إسناد**.
@@ -97,7 +101,8 @@ export interface ConsultCard {
   priority: string;
   received: string;
   employee: string;
-  mins: number;
+  /** دقائقُ منذ الاستقبال — `null` تعني «لم تُقَس»، ولا تُقرأ صفراً. */
+  ageMins: number | null;
   aiDone: boolean;
   /** App\Enums\AiSource — '' لصفوف ما قبل هجرة المصدر. */
   aiSource: '' | 'ai_success' | 'fallback' | 'manual_required' | 'human_approved';
@@ -117,7 +122,7 @@ export interface ConsultCard {
  *
  * كانت صفحة «استشاراتي» تعلن `ConsultCard[]` بينما الخادم يمرّر `toClientCard()`
  * (٢٦ مفتاحاً من ٥٥): فحقولٌ **إلزاميّة** في النوع — `client`, `phone`, `hostLink`,
- * `type`, `priority`, `employee`, `mins`, `aiSummary`, `audit`, `missing` وغيرها —
+ * `type`, `priority`, `employee`, `ageMins`, `aiSummary`, `audit`, `missing` وغيرها —
  * لا تصل صفحة العميل أبداً. لا عطلَ اليوم لأنها لا تُقرأ، **لكنّ TypeScript يضمن
  * وجودها كذباً**: أوّل سطرٍ يقرأ `c.priority` يمرّ الفحص وينكسر في المتصفّح صامتاً.
  *
@@ -192,8 +197,8 @@ return '؟';
   return (p[0] ? p[0][0] : '') + (p[1] ? ` ${p[1][0]}` : '');
 }
 
-export const sessTone = (s: string) =>
-  s === 'جلسة جارية' ? 'b-amber' : s === 'منتهية' ? 'b-green' : 'b-grey';
+// النغمة تُعرَّف مرّةً في مكتبة الكتالوجات وتُعاد هنا للمستوردين القدامى
+export { sessTone } from '@/lib/employee-data';
 
 // ============================================================
 // حالة ملخّص الجلسة — مصدرٌ واحد تقرؤه الشاشات الثلاث
@@ -235,6 +240,42 @@ return 'حُرّر بيد محامٍ';
 }
 
 /** شارةُ حالة الملخّص — تُغني عن اشتقاقٍ محلّي في كل شاشة. */
+/**
+ * **نصُّ نموذجٍ توليديّ يُعرض منسَّقاً لا بنجومه.**
+ *
+ * تعليمة `consultSummarySystem` مكتوبةٌ هي نفسها بـMarkdown (`**حصراً**`)، فالنموذج
+ * يحاكي أسلوبها ويردّ بـ`**ملخص استشارة قانونية**`. والمشروع بلا مُصيِّر Markdown، وكلّ
+ * مواضع العرض `white-space: pre-wrap` وحدها — فالنجوم تصل الشاشة حرفيّاً، **وشاشة
+ * العميل منها** (`myconsults`).
+ *
+ * **ولا `dangerouslySetInnerHTML` هنا بحال:** المصدر نموذجٌ توليديّ، وإدراج مخرجه
+ * HTML خامّاً بابُ حقنٍ لا يُفتح. React يُهرِّب النصّ تلقائياً، والتوكيد يُبنى عقداً
+ * (`<strong>`) لا وسماً مُلصقاً.
+ */
+export const RichText: React.FC<{ text?: string | null; fallback?: string }> = ({ text, fallback }) => {
+  const raw = (text ?? '').trim();
+
+  if (raw === '') {
+    return <>{fallback ?? ''}</>;
+  }
+
+  return (
+    <>
+      {raw.split('\n').map((line, li) => (
+        <React.Fragment key={li}>
+          {li > 0 && '\n'}
+          {/* `#` البادئة عنوانٌ في Markdown ولا معنى له هنا — يُسقط ويبقى نصّه */}
+          {line.replace(/^#{1,6}\s*/, '').split(/(\*\*[^*]+\*\*)/g).map((part, pi) =>
+            /^\*\*[^*]+\*\*$/.test(part)
+              ? <strong key={pi}>{part.slice(2, -2)}</strong>
+              : <React.Fragment key={pi}>{part}</React.Fragment>
+          )}
+        </React.Fragment>
+      ))}
+    </>
+  );
+};
+
 export const SummaryStateBadge: React.FC<{ consult: ConsultCard }> = ({ consult }) => {
   const state = summaryState(consult);
 
@@ -264,7 +305,7 @@ export const SummaryModal: React.FC<{
   <Modal title={`ملخص الاستشارة — ${consult?.ref ?? ''}`} open={!!consult} onClose={onClose}>
     {consult && (
       <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: '13.5px' }}>
-        {consult.summary || 'انتهت الجلسة — يُعدّ الملخص حالياً وسيصلك إشعار فور جاهزيته.'}
+        <RichText text={consult.summary} fallback="انتهت الجلسة — يُعدّ الملخص حالياً وسيصلك إشعار فور جاهزيته." />
       </div>
     )}
   </Modal>
@@ -285,10 +326,25 @@ export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }
   useEffect(() => {
     setItems(consults);
     consults.forEach((c) => {
-      echo.private(`consult.${c.id}`).listen('.status', (e: { session?: string; status?: string; canJoin?: boolean }) => {
-        setItems((prev) => prev.map((x) => x.id === c.id
-          ? { ...x, session: e.session ?? x.session, status: e.status ?? x.status, canJoin: e.canJoin ?? x.canJoin }
-          : x));
+      echo.private(`consult.${c.id}`).listen('.status', (e: Partial<ConsultCard>) => {
+        /*
+         * **الحمولة كاملةً — لا ثلاثة مفاتيح.**
+         *
+         * كان يُلتقط `session` و`status` و`canJoin` وحدها، ويُهمَل `missed`
+         * و`startable` — وهما **أُضيفا إلى البثّ خصّيصاً لهذا** (انظر تعليق
+         * `ConsultStatusBroadcast`). فالخادم أُصلح ولم يُوصَل به المستهلك:
+         *
+         * - بعد «لم يحضر» من شاشةٍ أخرى تبقى البطاقة في فرع «فائتة» بزرّيها، فيُضغط
+         *   «لم يحضر» ثانيةً ويردّ الخادم ٤٢٢.
+         * - وبعد إعادة الجدولة تبقى «فائتة» بموعدها القديم معروضاً.
+         *
+         * والنمط الصحيح مطبَّقٌ في شاشة الموظّف: تنسخ الحمولة كلّها وتستثني
+         * `summary` بالحذف الصريح — فتلتقط أيّ مفتاحٍ يُضاف مستقبلاً.
+         */
+        const rest = { ...e };
+        delete rest.summary;
+
+        setItems((prev) => prev.map((x) => (x.id === c.id ? { ...x, ...rest } : x)));
 
         // الملخّص **لا يُؤخذ من البثّ**: الحمولة نفسها تُبثّ للعميل، فما يراه الطاقم
         // منها هو ما يجوز للعميل رؤيته — أي المعتمَد وحده. والطاقم يحتاج النصّ غير
@@ -330,6 +386,11 @@ counts[c.channel]++;
     router.post(`${base}/consults/${c.id}/start`, {}, {
       preserveScroll: true,
       onSuccess: () => toast(msg),
+      // **كان بلا `onError`.** ومنذ صار الخادم يرفض البدء خارج النافذة، كان زرّا
+      // «بدء المكالمة» و«تسجيل وصول العميل» يفشلان بصمتٍ تامّ: لا جلسة، ولا توست،
+      // ولا رسالة. ونظيرُه في `enterRoom` أدناه كان معالَجاً — أُصلح مسارٌ وتُرك
+      // نظيرُه في الملفّ نفسه.
+      onError: (errors) => toast(Object.values(errors)[0] || 'تعذّر بدء الجلسة'),
     });
   };
 
@@ -516,12 +577,29 @@ void navigator.clipboard.writeText(c.slink);
                         <Icon name="doc" /> إنهاء وكتابة الملخص
                       </button>
                     </>
-                  ) : (
+                  ) : c.session === 'منتهية' ? (
                     <>
                       <Badge text="منتهية" tone="b-green" />
                       <button className="btn soft sm" onClick={() => setSummaryOf(c)} type="button">
                         <Icon name="out" /> الملخص
                       </button>
+                    </>
+                  ) : (
+                    /*
+                     * **ولا تُوسَم جلسةٌ لم تُعقد بوسمِ النجاح.**
+                     *
+                     * كان هذا فرعاً جامعاً: أيُّ `session` خارج الاثنتين أعلاه تُعرض
+                     * **«منتهية» خضراء** — و`AutoCloseMissedConsults` يكتب «لم تُعقد».
+                     * فجلسةٌ فاتت العميلَ تُعرض جلسةً تمّت بنجاح، وزرُّ «الملخص» يفتح
+                     * فراغاً. صار الفرع صريحاً يعرض ما هو كائن بنغمته.
+                     */
+                    <>
+                      <Badge text={c.session || 'بانتظار الجلسة'} tone={sessTone(c.session)} />
+                      {c.session === 'لم تُعقد' && (
+                        <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>
+                          لم يُسجَّل حضور — تُعاد جدولتها من صفحة الاستشارة
+                        </span>
+                      )}
                     </>
                   )}
                 </div>
@@ -582,21 +660,31 @@ export interface StaffRoomProps {
 const StaffZoomRoom: React.FC<{ consult: ConsultCard; base: string }> = ({ consult, base }) => {
   const toast = useToast();
   const [notes, setNotes] = useState('');
-  const [seconds, setSeconds] = useState(0);
-
-  useEffect(() => {
-    const t = setInterval(() => setSeconds((s) => s + 1), 1000);
-
-    return () => clearInterval(t);
-  }, []);
+  /*
+   * **ولا عدّادَ بلا قارئ.** بقي `seconds` ومؤقّتُه بعد حذف المدّة المختلَقة: مؤقّتٌ
+   * يعيد تصيير الغرفة **كلّ ثانية** طوال انعقاد الجلسة لقيمةٍ لا يقرؤها أحد. حُذف
+   * الاثنان — والمدّة تأتي من ويبهوك Zoom كما هو مشروح أدناه.
+   */
+  const running = consult.session === 'جلسة جارية';
 
   const end = () => {
-    const dur = fmtDur(seconds);
-    router.post(`${base}/consults/${consult.id}/end`, { notes, duration: dur }, {
+    /*
+     * **المدّة لا تُختلق.** كان `seconds` عدّاداً يبدأ عند **فتح الصفحة** لا عند
+     * الانضمام، ويُكتب في `duration_label` مدّةً رسميّة للجلسة — ففتحُ الغرفة عشر
+     * ثوانٍ يُثبت «00:10» في السجلّ. والخادم يشتقّ المدّة من ويبهوك Zoom
+     * (`join_time`/`leave_time`)، وهو المصدر الذي رآها فعلاً.
+     */
+    router.post(`${base}/consults/${consult.id}/end`, { notes: notes.trim() }, {
       onSuccess: () => {
-        toast(`انتهت الجلسة (${dur}) — ولّد الفريق القانوني ملخص الاستشارة`);
+        // كان يقول «ولّد الفريق القانوني ملخص الاستشارة» — و`FinalizeConsultJob`
+        // **لا ينادي النموذج بلا مادّة**، بل يُنبّه المحامي ليدوّن. وهي عين الكذبة
+        // التي أُصلحت في نافذة الاستقبال وتُركت هنا.
+        toast(notes.trim() === ''
+          ? 'خُتمت الجلسة بلا تدوين — لا ملخّص حتّى تُدوّن'
+          : 'خُتمت الجلسة وحُفظ التدوين — يُعدّ الملخّص الآن');
         router.visit(`${base}/consultrecv`);
       },
+      onError: (errors) => toast(Object.values(errors)[0] || 'تعذّر إنهاء الجلسة'),
     });
   };
 
@@ -612,7 +700,9 @@ const StaffZoomRoom: React.FC<{ consult: ConsultCard; base: string }> = ({ consu
       <div className="card" style={{ marginTop: 16, maxWidth: 900, marginInline: 'auto' }}>
         <div className="card-h">
           <h3>ملاحظات الجلسة</h3>
-          <button className="btn sm" onClick={end} type="button">
+          {/* الزرّ كان بلا شرطٍ ولا تعطيل، فيُختَم به ما لم ينعقد. والخادم يمنعه
+              الآن — وإظهارُه مفعّلاً وعداً بما يُرفض. */}
+          <button className="btn sm" onClick={end} type="button" disabled={!running}>
             <Icon name="doc" /> إنهاء وكتابة الملخص
           </button>
         </div>
@@ -678,68 +768,16 @@ export const PricingAction: React.FC<{ c: ConsultCard; base: string; toast: (m: 
   );
 };
 
-export const ConsultsListPage: React.FC<{ consults: ConsultCard[]; base: string }> = ({ consults, base }) => {
-  const by = (s: string) => consults.filter((c) => c.status === s).length;
-  const done = consults.filter((c) =>
-    c.status === 'منتهية' || c.status === 'محولة إلى قضية' || c.status === 'محالة للمحامي'
-  ).length;
-  const avg = consults.length ? Math.round(consults.reduce((a, c) => a + (c.mins || 0), 0) / consults.length) : 0;
-
-  const stats: StatItem[] = [
-    ['t-blue', 'folder', by('جديدة'), 'جديدة'],
-    ['t-cyan', 'user', by('قيد مراجعة الموظف'), 'قيد المراجعة'],
-    ['t-amber', 'clock', by('بانتظار استكمال البيانات'), 'بانتظار البيانات'],
-    ['t-amber', 'check', by('بانتظار اعتماد الموظف'), 'بانتظار الاعتماد'],
-    ['t-green', 'scale', by('جاهزة للمحامي'), 'جاهزة للمحامي'],
-    ['t-blue', 'exec', done, 'منجزة'],
-    ['t-grey', 'clock', `${avg} د`, 'متوسط الزمن'],
-  ];
-
-  return (
-    <>
-      <div className="greet">
-        <h2>إدارة الاستشارات</h2>
-        <p>لوحة استقبال ومعالجة الاستشارات: المراجعة، الفريق القانوني، الاعتماد، والإحالة للمحامي.</p>
-      </div>
-
-      <StatRow items={stats} />
-
-      <div className="card">
-        <div className="card-h">
-          <h3>الاستشارات</h3>
-          <span className="sub">{consults.length} استشارة</span>
-        </div>
-        <div className="card-b">
-          {consults.length ? consults.map((c) => (
-            <div key={c.ref} className="item">
-              <div className="iico"><Icon name="folder" /></div>
-              <div className="imeta">
-                <b>{c.ref} — {maskClient(c.client)}</b>
-                <span style={{ display: 'block', margin: '3px 0' }}>
-                  {c.subject} · {c.type} · {c.received}
-                </span>
-                {cHasStage(c.status) && <span><FlowLine steps={CONSULT_FLOW} cur={cStage(c.status)} /></span>}
-              </div>
-              <div className="iact">
-                <span className={`mq-priority ${c.priority}`}>{c.priority}</span>
-                <Badge text={c.status} tone={cTone(c.status)} />
-                <button
-                  className="btn soft sm"
-                  onClick={() => router.visit(`${base}/consult?ref=${encodeURIComponent(c.ref)}`)}
-                  type="button"
-                >
-                  <Icon name="out" /> فتح
-                </button>
-              </div>
-            </div>
-          )) : (
-            <div className="empty"><Icon name="folder" /><b>لا استشارات بعد</b></div>
-          )}
-        </div>
-      </div>
-    </>
-  );
-};
+/*
+ * **حُذف `ConsultsListPage`.**
+ *
+ * مكوّنٌ مُصدَّرٌ بستّين سطراً **لا يستورده ملفٌّ واحد** في المشروع، وفيه كذبتان
+ * ورثهما من نسخةٍ قديمة: مؤشّر «متوسط الزمن» مبنيٌّ على `mins` (عمودٌ بلا كاتب،
+ * فصفرٌ أبداً)، وعدّاد «منجزة» يحسب `'محولة إلى قضية'` — وهي حالةٌ **لا يكتبها أيّ
+ * مسار**، أُخرجت من الكتالوج ولم تُخرَج من هنا.
+ *
+ * وهو خطرُ الشيفرة الميتة: لا أحد يراها فتُصحَّح، ثمّ يستوردها أحدٌ يوماً فيرث كذبتين.
+ */
 
 // ============================================================
 // رحلة الاستشارة (يطابق consultView + cTake/cRequestDocs/cRunAI/cSaveAI/cApproveAI/cRerun/cRefer)
@@ -825,6 +863,20 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
   // نصّ الموكّل يحرّره ويعتمده **من يملك الصلاحيّة** — لا من يفتح الصفحة.
   const mayEditSummary = useCan()('اعتماد/تعديل ملخص الاستشارة');
 
+  /*
+   * **زرُّ التحليل يُخفى لمن لا يملك إطلاقه — لا يُترك ليفشل.**
+   *
+   * صار مسارا `analyze` للموظّف والمحامي محروسَين بـ«تشغيل تلخيص الفريق القانوني»
+   * بعد أن كانا يمرّان بـ«استقبال الاستشارات» وحدها. و`EnsurePermission` **لا يردّ
+   * ٤٠٣ لطلبات Inertia** بل يعيد التوجيه إلى لوحة المستخدم مع رسالة خطأ — فتركُ
+   * الزرّ ظاهراً يعني أنّ الموظّف يضغطه فيجد نفسه مقذوفاً خارج صفحة الاستشارة.
+   *
+   * **ولا يُخفى عرضُ النتيجة**: الموظّف يظلّ يقرأ التحليل ويحرّره ويعتمده — إنّما
+   * لا يُطلقه. ومن يُطلقه هو المحامي المسنَد (الأزرار مشروطةٌ بالحالة لا بالدور)،
+   * أو الإدارة (`isSuper` يتجاوز في `useCan` كما في `Gate::before`).
+   */
+  const mayAnalyze = useCan()('تشغيل تلخيص الفريق القانوني');
+
   useEffect(() => {
     setSessionSummary(c.summary ?? '');
   }, [c.summary]);
@@ -842,6 +894,13 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
   const showAiCard = c.aiDone || aiFailed;
   const showApprove = c.status === 'بانتظار اعتماد الموظف';
 
+  /** حجزٌ من تذكرة؟ — يُميَّز بوجود رقم التذكرة في البطاقة. */
+  const isBooking = !!c.ticketNo;
+
+  /** هل للجلسة مخرجاتٌ فعليّة؟ — لا يُعرض قسمٌ فارغ يُوهم بجلسةٍ لم تُسجَّل. */
+  const attendees = c.zoomParticipantsLog ?? [];
+  const hasSessionOutputs = !!(c.duration || c.recording || c.zoomShareUrl || c.zoomAudioUrl || attendees.length);
+
   return (
     <div className="detail-wrap" style={{ maxWidth: 920 }}>
       <div style={{ marginBottom: 14 }}>
@@ -850,33 +909,55 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
         </Link>
       </div>
 
-      {/* info */}
-      <div className="card">
-        <div className="card-h">
-          <h3>{c.ref}</h3>
-          <Badge text={c.status} tone={cTone(c.status)} />
-        </div>
-        <div className="card-b" style={{ padding: '14px 18px' }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <span className="chip muted">{maskClient(c.client)}</span>
-            <span className="chip muted">{c.subject}</span>
-            <span className="chip muted">{c.type}</span>
-            <span className={`mq-priority ${c.priority}`}>{c.priority}</span>
-            <span className="chip muted">استُلمت: {c.received}</span>
-            <span className="chip muted">الموظف: {c.employee}</span>
-            <span className="chip muted">المحامي: {c.lawyer}</span>
+      {/*
+        * **رأسٌ يصف الملفّ قبل أن يُطلب منك فعلٌ فيه** — على نمط صفحة تفاصيل الاجتماع.
+        * كان صفَّ رقائقَ رماديّة متساوية، فلا يبرز منه المرجع ولا الحالة ولا القناة.
+        */}
+      <div className="card cj-hero">
+        <div className="cj-hero-top">
+          <div>
+            <div className="cj-ref">{c.ref}</div>
+            <div className="cj-subject">{c.subject}</div>
           </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Badge text={c.status} tone={cTone(c.status)} />
+            {c.session ? <Badge text={c.session} tone={sessTone(c.session)} /> : null}
+            {c.channel ? <Badge text={c.channel} tone={crChannelTone(c.channel)} /> : null}
+          </div>
+        </div>
+
+        <div className="cj-facts">
+          <div><span>الموكّل</span><b>{maskClient(c.client)}</b></div>
+          <div><span>التخصّص</span><b>{c.specialty || c.type}</b></div>
+          <div><span>الأولويّة</span><b className={`mq-priority ${c.priority}`}>{c.priority}</b></div>
+          <div><span>استُلمت</span><b>{c.received}</b></div>
+          <div><span>الموظّف</span><b>{c.employee || '—'}</b></div>
+          <div><span>المستشار</span><b>{c.lawyer}</b></div>
+          {c.when ? <div><span>الموعد</span><b>{c.when}</b></div> : null}
+          {c.ticketNo ? <div><span>التذكرة</span><b>{c.ticketNo}</b></div> : null}
         </div>
       </div>
 
-      {/* stage */}
-      {cHasStage(c.status) && (
+      {/*
+        * **خطُّ الرحلة يصف الرحلة التي سلكها هذا الملفّ.**
+        *
+        * استشارةٌ قادمةٌ من حجزٍ على تذكرة لا تدخل رحلة الاستقبال قطّ — رحلتُها تسعيرٌ
+        * وسدادٌ وموعدٌ وجلسة. وكان الخطّ الأوّل يُعرض لها فتُبرَز «جاهزة/محالة للمحامي»
+        * لجلسةٍ **انتهت واعتُمد ملخّصها**. المصدر يُميَّز بـ`ticketNo`.
+        */}
+      {isBooking ? (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-b" style={{ padding: '16px 18px' }}>
+            <FlowLine steps={CONSULT_BOOKING_FLOW} cur={cBookingStage(c.status, c.session)} />
+          </div>
+        </div>
+      ) : cHasStage(c.status) ? (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-b" style={{ padding: '16px 18px' }}>
             <FlowLine steps={CONSULT_FLOW} cur={cStage(c.status)} />
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* action bar */}
       {(showEmpActions || showRefer) && (
@@ -891,9 +972,11 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
               <button className="btn soft" onClick={requestDocs} disabled={busy} type="button">
                 <Icon name="upload" /> طلب استكمال مستندات
               </button>
-              <button className="btn" onClick={runAI} disabled={busy} type="button">
-                <Icon name="info" /> {busy ? 'جارٍ التحليل…' : 'بدء معالجة الفريق القانوني'}
-              </button>
+              {mayAnalyze && (
+                <button className="btn" onClick={runAI} disabled={busy} type="button">
+                  <Icon name="info" /> {busy ? 'جارٍ التحليل…' : 'بدء معالجة الفريق القانوني'}
+                </button>
+              )}
             </>
           )}
           {showRefer && (
@@ -962,9 +1045,11 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                 <a className="btn soft sm" href={`/consults/${c.id}/report.pdf`} target="_blank" rel="noopener">
                   <Icon name="download" /> طباعة الملخص (PDF)
                 </a>
-                <button className="btn soft sm" onClick={rerun} disabled={busy} type="button">
-                  <Icon name="info" /> إعادة التحليل
-                </button>
+                {mayAnalyze && (
+                  <button className="btn soft sm" onClick={rerun} disabled={busy} type="button">
+                    <Icon name="info" /> إعادة التحليل
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1013,7 +1098,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
           <div className="card-b" style={{ padding: '16px 18px' }}>
             {c.summaryApproved ? (
               <>
-                <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: '13.5px' }}>{c.summary}</div>
+                <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: '13.5px' }}><RichText text={c.summary} /></div>
                 <p className="action-hint" style={{ marginTop: 10 }}>
                   <Icon name="info" /> اعتُمد هذا النصّ وقرأه العميل — تعديله الآن سحبٌ لا حفظ، فهو قرارٌ مستقلّ يُشعَر به صاحبه.
                 </p>
@@ -1042,13 +1127,13 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                     </div>
                   </>
                 ) : (
-                  <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: '13.5px' }}>{c.summary}</div>
+                  <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: '13.5px' }}><RichText text={c.summary} /></div>
                 )}
                 {c.zoomSummary && (
                   <details style={{ marginTop: 12 }}>
                     <summary style={{ cursor: 'pointer', fontWeight: 700 }}>مادّة من جلسة Zoom (للبناء عليها)</summary>
                     <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: '13px', marginTop: 8, padding: 10, border: '1px solid var(--line-soft)', borderRadius: 8 }}>
-                      {c.zoomSummary}
+                      <RichText text={c.zoomSummary} />
                     </div>
                   </details>
                 )}
@@ -1061,6 +1146,88 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
             ) : (
               <div className="empty"><Icon name="info" /><b>لا ملخّص بعد</b></div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/*
+        * **مخرجات الجلسة — كانت في القاعدة ولا تُعرض.**
+        *
+        * قِيس على `CN-2026-7173`: المدّة والدخول والخروج والتسجيل والصوت والتفريغ
+        * **ستّتها محفوظة** بعد `zoom-sync`، والصفحة لا تعرض منها إلّا ملخّص Zoom.
+        * وصفحة تفاصيل الاجتماع تعرضها كلَّها — فهذا نظيرُها.
+        *
+        * ولا يُعرض القسم إلّا حين توجد مادّة: بطاقةٌ فارغةٌ تُوهم بجلسةٍ لم تُسجَّل.
+        */}
+      {hasSessionOutputs && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-h">
+            <h3>مخرجات الجلسة</h3>
+            {c.duration ? <span className="sub">مدّة الحضور: {c.duration}</span> : null}
+          </div>
+          <div className="card-b" style={{ padding: '14px 18px' }}>
+            <div className="cj-outputs">
+              {c.duration ? <div><span>مدّة الحضور الفعليّة</span><b>{c.duration}</b></div> : null}
+              {c.when ? <div><span>موعد الانعقاد</span><b>{c.when}</b></div> : null}
+              {attendees.length > 0 ? <div><span>الحضور</span><b>{attendees.length}</b></div> : null}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+              {c.recording ? (
+                <a className="btn soft sm" href={c.recording} target="_blank" rel="noopener noreferrer">
+                  <Icon name="video" /> التسجيل المرئيّ
+                </a>
+              ) : null}
+              {c.zoomAudioUrl ? (
+                <a className="btn soft sm" href={c.zoomAudioUrl} target="_blank" rel="noopener noreferrer">
+                  <Icon name="mic" /> الصوت
+                </a>
+              ) : null}
+              {c.zoomShareUrl ? (
+                <a className="btn soft sm" href={c.zoomShareUrl} target="_blank" rel="noopener noreferrer">
+                  <Icon name="out" /> رابط المشاركة
+                </a>
+              ) : null}
+            </div>
+
+            {attendees.length > 0 && (
+              <details style={{ marginTop: 12 }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 700 }}>سجلّ الحضور ({attendees.length})</summary>
+                <div className="t-wrap" style={{ marginTop: 8 }}>
+                  <table className="tbl">
+                    <thead>
+                      <tr><th>المشارك</th><th>الدخول</th><th>الخروج</th><th>المدّة</th></tr>
+                    </thead>
+                    <tbody>
+                      {attendees.map((a, i) => (
+                        <tr key={i}>
+                          <td>{a.name || '—'}</td>
+                          <td className="mono">{a.join_time || '—'}</td>
+                          <td className="mono">{a.leave_time || '—'}</td>
+                          <td>{a.duration_sec != null ? `${Math.round(a.duration_sec / 60)} د` : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            )}
+
+            {/* خطوات Zoom AI — **مادّةٌ للبناء لا قرارات**: القرارات المعتمدة أدناه */}
+            {c.zoomAiNextSteps && c.zoomAiNextSteps.length > 0 && (
+              <details style={{ marginTop: 10 }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 700 }}>
+                  خطواتٌ اقترحها Zoom ({c.zoomAiNextSteps.length}) — لم تُعتمد
+                </summary>
+                <ul style={{ margin: '8px 0 0', paddingInlineStart: 20, fontSize: 13, lineHeight: 1.9 }}>
+                  {c.zoomAiNextSteps.map((t, i) => <li key={i}>{t}</li>)}
+                </ul>
+              </details>
+            )}
+
+            <p className="action-hint" style={{ marginTop: 10 }}>
+              <Icon name="info" /> هذه المخرجات تُسحب من Zoom بزرّ «تحديث بيانات الجلسة» أعلاه، أو بالمجدول إن كان يعمل.
+            </p>
           </div>
         </div>
       )}

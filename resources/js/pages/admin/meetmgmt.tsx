@@ -7,7 +7,7 @@ import Modal from '@/components/babylon/Modal';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { MEET_STATUSES, MEET_TYPES_FULL, MEET_TEMPLATES, STAFF_DIR } from '@/lib/admin-data';
-import { meetStatusTone, fmtActualDuration, type ClientDirEntry, type FullMeetingCard } from '@/lib/meeting-ui';
+import { meetStatusTone, attendanceLabel, fmtActualDuration, type ClientDirEntry, type FullMeetingCard } from '@/lib/meeting-ui';
 
 // واجهة إدارة الاجتماعات الحديثة — التصميم الفاخر والمطور 2026
 interface Props {
@@ -15,7 +15,8 @@ interface Props {
   clients: ClientDirEntry[];
   lawyers: { id: number; name: string }[];
   staff?: { id: number; name: string; role?: string; label: string }[];
-  kpis: { decisionRate: number; avgMinutes: number };
+  // null = لم يُقَس — تُعرض «—» لا صفراً
+  kpis: { decisionRate: number | null; avgMinutes: number | null };
 }
 
 const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = [], kpis }) => {
@@ -51,14 +52,18 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
   const live = meetings.filter((m) => m.status === 'جارٍ').length;
   const done = meetings.filter((m) => m.status === 'منتهٍ');
   const missed = meetings.filter((m) => m.status === 'لم ينعقد').length;
-  const att = done.length ? Math.round(done.reduce((a, m) => a + (m.attend || 0), 0) / done.length) : 0;
+  // المتوسّط على المقيس وحده: طيُّ غير المقيس صفراً كان يجرّ نسبة المكتب للأسفل ببياناتٍ ليست بيانات
+  const measured = done.filter((m) => m.presenceRate !== null);
+  const att = measured.length
+    ? Math.round(measured.reduce((a, m) => a + (m.presenceRate ?? 0), 0) / measured.length)
+    : null;
 
   const stats: StatItem[] = [
     ['t-blue', 'video', up, 'اجتماعات قادمة'],
     ['t-amber', 'video', live, 'جارية الآن'],
-    ['t-green', 'user', `${att}%`, 'نسبة الحضور'],
-    ['t-green', 'check', `${kpis.decisionRate}%`, 'تنفيذ القرارات'],
-    ['t-grey', 'clock', `${kpis.avgMinutes} د`, 'متوسط المدة'],
+    ['t-green', 'user', att !== null ? `${att}%` : '—', 'متوسّط البقاء'],
+    ['t-green', 'check', kpis.decisionRate !== null ? `${kpis.decisionRate}%` : '—', 'تنفيذ القرارات'],
+    ['t-grey', 'clock', kpis.avgMinutes !== null ? `${kpis.avgMinutes} د` : '—', 'متوسط المدة'],
     ['t-red', 'out', missed, 'لم تنعقد'],
     ['t-blue', 'folder', meetings.length, 'إجمالي الاجتماعات'],
   ];
@@ -296,9 +301,9 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
 
                   <div style={{ fontSize: '12px', color: 'var(--ink-soft, #475569)' }}>
                     <b>العميل:</b> {m.client} · <b>المحامي:</b> {m.lawyer !== '—' ? m.lawyer : 'غير مسند'}
-                    {m.status === 'منتهٍ' && (
+                    {m.status === 'منتهٍ' && (attendanceLabel(m) || fmtActualDuration(m.durationSec)) && (
                       <span style={{ color: 'var(--primary)', fontWeight: 700, marginRight: 8 }}>
-                        · نسبة الحضور: {m.attend || 0}%
+                        · {attendanceLabel(m) ?? ''}
                         {fmtActualDuration(m.durationSec) ? ` (${fmtActualDuration(m.durationSec)} مدة فعلية)` : ''}
                       </span>
                     )}
@@ -595,7 +600,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                   style={{ borderRadius: 9, padding: '9px 12px', fontSize: '13px', border: '1px solid var(--line-soft, #cbd5e1)', background: '#fff' }}
                 >
                   <option value="">— اختر ملف القضية / الاستشارة —</option>
-                  {caseOptions.map((i) => <option key={i} value={i}>{i}</option>)}
+                  {caseOptions.map((o) => <option key={o.label} value={o.label}>{o.label}</option>)}
                 </select>
               </div>
             </div>

@@ -168,7 +168,11 @@ class ClientTicketJourneyTest extends TestCase
         ])->assertRedirect();
         $this->assertSame('موعد مؤكد', $ticket->fresh()->status);
 
-        // الموظف يعقد الجلسة → بانتظار اعتماد النتيجة
+        // **الجلسة تُختَم قبل أن تُعلَن** — كان الاختبار يقفز من «موعد مؤكد» إلى
+        // `advance` مباشرةً، أي يصف السلوك الذي ثبت عطلُه (محضرٌ لجلسةٍ لم تنعقد).
+        $consult->fresh()->forceFill(['session' => 'منتهية', 'status' => 'منتهية'])->save();
+
+        // الموظف يوثّق نتيجة الجلسة → بانتظار اعتماد النتيجة
         $this->actingAs($employee)->post(route('employee.tickets.advance', $ticket))->assertNoContent();
         $this->assertSame('بانتظار اعتماد النتيجة', $ticket->fresh()->status);
 

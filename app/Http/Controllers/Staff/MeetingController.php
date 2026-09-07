@@ -70,6 +70,9 @@ class MeetingController extends Controller
     {
         $meeting = Meeting::where('ref', (string) $request->query('ref'))->firstOrFail();
         $this->guardMeeting($request, $meeting);
+        // الحالة المشتقّة لا المخزّنة: «قادم» الفائت يُصَدّ كما يُصَدّ المنتهي — وإخفاء
+        // الزرّ في الواجهة وحده يُلتفّ عليه بالرابط المباشر.
+        abort_if(in_array($meeting->liveState()[1], ['منتهٍ', 'ملغى', 'لم ينعقد'], true), 422, 'انتهت هذه الجلسة أو فات موعدها — لا يمكن دخول غرفتها.');
 
         return Inertia::render($this->prefix($request).'/meetingroom', [
             'meeting' => $meeting->toFullCard(),
@@ -107,8 +110,9 @@ class MeetingController extends Controller
         $durations = Meeting::where('status', 'منتهٍ')->whereNotNull('duration_sec')->pluck('duration_sec');
 
         return [
-            'decisionRate' => $totalTasks > 0 ? (int) round($doneTasks / $totalTasks * 100) : 0,
-            'avgMinutes' => $durations->count() ? (int) round(((float) $durations->avg()) / 60) : 0,
+            // null = لا مقياس بعد (لا مهامّ / لا مدد فعلية) — الصفر يدّعي قياساً وقع
+            'decisionRate' => $totalTasks > 0 ? (int) round($doneTasks / $totalTasks * 100) : null,
+            'avgMinutes' => $durations->count() ? (int) round(((float) $durations->avg()) / 60) : null,
         ];
     }
 
@@ -247,6 +251,9 @@ class MeetingController extends Controller
     public function saveSummary(Request $request, Meeting $meeting): RedirectResponse
     {
         $this->guardMeeting($request, $meeting);
+        // الاعتماد نهائيّ: المعتمد وصل العميل بشهادة الإدارة، فتعديله بعدها
+        // يجعل الشهادة تصف نصّاً لا وجود له. والحفظ قبل الاعتماد مسوّدة تُعدَّل بحرّية.
+        abort_if($meeting->approve === 'معتمد', 422, 'المحضر والملخص معتمدان نهائيًّا من الإدارة — لا يُعدَّلان بعد الاعتماد.');
         $data = $request->validate(['summary' => ['required', 'string', 'max:6000']]);
         $meeting->update(['summary' => $data['summary']]);
 
@@ -257,6 +264,9 @@ class MeetingController extends Controller
     public function saveMinutes(Request $request, Meeting $meeting): RedirectResponse
     {
         $this->guardMeeting($request, $meeting);
+        // الاعتماد نهائيّ: المعتمد وصل العميل بشهادة الإدارة، فتعديله بعدها
+        // يجعل الشهادة تصف نصّاً لا وجود له. والحفظ قبل الاعتماد مسوّدة تُعدَّل بحرّية.
+        abort_if($meeting->approve === 'معتمد', 422, 'المحضر والملخص معتمدان نهائيًّا من الإدارة — لا يُعدَّلان بعد الاعتماد.');
         $data = $request->validate(['minutes' => ['required', 'string', 'max:8000']]);
         $meeting->update(['minutes' => $data['minutes']]);
 
@@ -538,34 +548,48 @@ class MeetingController extends Controller
             ];
         }
 
-        // 2. توزيع الحالات
+        // 2. توزيع الحالات — **بالحالة المشتقّة لا المخزّنة**.
+        // كل بطاقة على الشاشة تعرض liveState()، والعدّ كان على العمود المخزّن: و«لم ينعقد»
+        // لا يكتبها إلا أمرٌ مجدول. فكانت الشاشة تعرض اجتماعات «لم ينعقد» وعدّادها صفر،
+        // و«قادم» منتفخاً بما فات موعده. الجلب مرّة واحدة يُسقط ستّ استعلامات أيضاً.
+        $scoped = $this->scopedQuery($request)->get();
+        $liveOf = $scoped->mapWithKeys(fn (Meeting $m) => [$m->id => $m->liveState()[1]]);
+
         $statusCounts = [
-            'منتهٍ' => $this->scopedQuery($request)->where('status', 'منتهٍ')->count(),
-            'قادم' => $this->scopedQuery($request)->where('status', 'قادم')->count(),
-            'جارٍ' => $this->scopedQuery($request)->where('status', 'جارٍ')->count(),
+            'منتهٍ' => 0,
+            'قادم' => 0,
+            'جارٍ' => 0,
             // «بانتظار التأكيد» عُلّق: حالة يتيمة منذ إلغاء تأكيد العميل — عدّاد كان يُرجع صفراً في كل تحميل
-            // 'بانتظار التأكيد' => $this->scopedQuery($request)->where('status', 'بانتظار التأكيد')->count(),
-            'لم ينعقد' => $this->scopedQuery($request)->where('status', 'لم ينعقد')->count(),
-            'ملغى' => $this->scopedQuery($request)->where('status', 'ملغى')->count(),
-            'مؤجل' => $this->scopedQuery($request)->where('status', 'مؤجل')->count(),
+            'لم ينعقد' => 0,
+            'ملغى' => 0,
+            'مؤجل' => 0,
         ];
+        foreach ($liveOf as $live) {
+            if (array_key_exists($live, $statusCounts)) {
+                $statusCounts[$live]++;
+            }
+        }
 
-        // 3. تغطية Zoom والذكاء الاصطناعي للمنتهية
-        $totalEnded = $statusCounts['منتهٍ'];
-        $aiSummaryCount = $this->scopedQuery($request)->where('status', 'منتهٍ')->whereNotNull('zoom_summary_at')->count();
-        $recordingCount = $this->scopedQuery($request)->where('status', 'منتهٍ')->where(fn ($q) => $q->whereNotNull('recording_url')->orWhereNotNull('zoom_share_url'))->count();
-        $audioCount = $this->scopedQuery($request)->where('status', 'منتهٍ')->whereNotNull('zoom_audio_url')->count();
+        // 3. تغطية Zoom والذكاء الاصطناعي للمنتهية — على المجموعة المشتقّة نفسها
+        $endedIds = $liveOf->filter(fn ($live) => $live === 'منتهٍ')->keys()->all();
+        $totalEnded = count($endedIds);
+        $ended = fn () => $this->scopedQuery($request)->whereIn('id', $endedIds ?: [0]);
 
-        $aiRate = $totalEnded > 0 ? (int) round($aiSummaryCount / $totalEnded * 100) : 0;
-        $recRate = $totalEnded > 0 ? (int) round($recordingCount / $totalEnded * 100) : 0;
+        $aiSummaryCount = $ended()->whereNotNull('zoom_summary_at')->count();
+        $recordingCount = $ended()->where(fn ($q) => $q->whereNotNull('recording_url')->orWhereNotNull('zoom_share_url'))->count();
+        $audioCount = $ended()->whereNotNull('zoom_audio_url')->count();
+
+        // null = لا مقياس (لا اجتماع منتهياً بعد) — الصفر يدّعي تغطيةً معدومة وقد قيست
+        $aiRate = $totalEnded > 0 ? (int) round($aiSummaryCount / $totalEnded * 100) : null;
+        $recRate = $totalEnded > 0 ? (int) round($recordingCount / $totalEnded * 100) : null;
 
         // 4. الساعات الإجمالية لجميع المكالمات والاجتماعات المنتهية
-        $totalDurationSec = (float) $this->scopedQuery($request)->where('status', 'منتهٍ')->sum('duration_sec');
+        $totalDurationSec = (float) $ended()->sum('duration_sec');
         $totalZoomHours = round($totalDurationSec / 3600, 1);
 
         // 5. متوسط مدة الحضور الفعلية (دقائق) حسب المحامي
-        $byLawyer = $this->scopedQuery($request)
-            ->where('status', 'منتهٍ')->whereNotNull('duration_sec')->whereNotNull('assigned_lawyer_id')
+        $byLawyer = $ended()
+            ->whereNotNull('duration_sec')->whereNotNull('assigned_lawyer_id')
             ->selectRaw('assigned_lawyer_id, AVG(duration_sec) as avg_sec')
             ->groupBy('assigned_lawyer_id')->get();
         $names = User::whereIn('id', $byLawyer->pluck('assigned_lawyer_id'))->pluck('name', 'id');
@@ -573,7 +597,7 @@ class MeetingController extends Controller
             ->map(fn ($r) => [(string) ($names[$r->assigned_lawyer_id] ?? '—'), (int) round(((float) $r->avg_sec) / 60)])
             ->values()->all();
 
-        $avgSec = (float) $this->scopedQuery($request)->where('status', 'منتهٍ')->whereNotNull('duration_sec')->avg('duration_sec');
+        $avgSec = (float) $ended()->whereNotNull('duration_sec')->avg('duration_sec');
 
         // 6. معدل تنفيذ القرارات وتحويلها لمهام
         $refs = $this->scopedQuery($request)->pluck('ref')->all();
@@ -584,8 +608,9 @@ class MeetingController extends Controller
             'monthlyTrend' => $months,
             'statusCounts' => $statusCounts,
             'attendanceByLawyer' => $attendanceByLawyer,
-            'avgActualMinutes' => $avgSec ? (int) round($avgSec / 60) : 0,
-            'decisionRate' => $totalTasks > 0 ? (int) round($doneTasks / $totalTasks * 100) : 0,
+            // null = لم يُقَس (لا مدد فعلية / لا مهامّ) — لا صفراً يُقرأ إخفاقاً
+            'avgActualMinutes' => $avgSec ? (int) round($avgSec / 60) : null,
+            'decisionRate' => $totalTasks > 0 ? (int) round($doneTasks / $totalTasks * 100) : null,
             'tasksFromDecisions' => $totalTasks,
             'doneTasksCount' => $doneTasks,
             'totalZoomHours' => $totalZoomHours,

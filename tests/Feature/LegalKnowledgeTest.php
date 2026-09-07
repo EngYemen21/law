@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\Ai\LegalClaims;
 use App\Services\Ai\LegalKnowledge;
 use App\Services\LegalAiService;
+use App\Support\Specialties;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -164,6 +165,83 @@ class LegalKnowledgeTest extends TestCase
 
         $this->assertTrue($found->isEmpty(), 'نظامٌ عامّ بلا صلة لا يُمرَّر كسند');
         $this->assertFalse(LegalKnowledge::hasSufficientAuthority($found));
+    }
+
+    /**
+     * **وتطابقٌ عارضٌ على كلمةٍ مشتركة لا يجعل العامَّ حاكماً.**
+     *
+     * الحارس السابق يمسك حالة **انعدام** التطابق. وهذا يمسك ما هو أخطر: أن يطابق
+     * النظامُ العامّ كلمةً واردةً في الاستعلام فيُمرَّر سنداً في مجالٍ له نظامُه الخاصّ.
+     *
+     * وقع ذلك حرفيّاً على القاعدة الحيّة: «فصل تعسفي ومكافأة نهاية الخدمة وأجور
+     * متأخرة» في «القضايا العمالية» أعاد **موادّ الإيجار والمضاربة** من نظام
+     * المعاملات المدنيّة. ثمّ `existingRefs` تُصدّقها لأنّ الصفَّ موجود — فالتحقّق
+     * يُثبت أنّ المصدر **كائن** لا أنّه **حاكم**، ويخرج رأيٌ في فصلٍ تعسّفيّ مسنَدٌ
+     * إلى عقد إيجار وموسومٌ «مدعوم».
+     */
+    public function test_a_general_law_never_backs_a_domain_that_has_its_own(): void
+    {
+        // نظامٌ عامّ يحوي كلمةً ترد في نزاعٍ عمّاليّ («أجر»)
+        $this->source([
+            'ref' => 'LS-GENERAL-RENT', 'domain' => null, 'title' => 'إنشاء عقد الإيجار',
+            'text' => 'يلتزم المؤجّر بتمكين المستأجر من العين المؤجّرة مقابل الأجرة المتفق عليها.',
+        ]);
+
+        $found = LegalKnowledge::retrieve('القضايا العمالية', 'فصل تعسفي ومطالبة بالأجرة المتأخرة');
+
+        $this->assertTrue(
+            $found->isEmpty(),
+            'موادُّ الإيجار لا تحكم فصلاً تعسّفياً مهما اشتركت الألفاظ'
+        );
+        $this->assertFalse(LegalKnowledge::hasSufficientAuthority($found));
+    }
+
+    /** فإذا وُجد النظام الخاصّ حكَم وحدَه — ولا يُخلط بالعامّ. */
+    public function test_the_specific_law_governs_alone_once_present(): void
+    {
+        $this->source([
+            'ref' => 'LS-GENERAL-RENT', 'domain' => null, 'title' => 'إنشاء عقد الإيجار',
+            'text' => 'يلتزم المؤجّر بتمكين المستأجر من العين المؤجّرة مقابل الأجرة المتفق عليها.',
+        ]);
+        $this->source([
+            'ref' => 'LS-LABOUR-77', 'domain' => 'القضايا العمالية', 'title' => 'إنهاء العقد',
+            'text' => 'إذا أُنهي العقد لسبب غير مشروع استحقّ العامل تعويضاً عن الفصل والأجرة المتأخرة.',
+        ]);
+
+        $found = LegalKnowledge::retrieve('القضايا العمالية', 'فصل تعسفي ومطالبة بالأجرة المتأخرة');
+
+        $this->assertSame(['LS-LABOUR-77'], $found->pluck('ref')->all(), 'الخاصُّ وحده');
+    }
+
+    /**
+     * **وما يحكمه العامُّ فعلاً يبقى عاملاً** — الإصلاح ليس تعطيلاً شاملاً.
+     *
+     * العقود والالتزامات والقضايا التجارية والعقارات أبوابٌ في نظام المعاملات
+     * المدنيّة نفسه، فلا يُشترط لها نصٌّ «مخصَّص» لا وجود له.
+     */
+    public function test_domains_the_general_law_truly_governs_still_retrieve(): void
+    {
+        $this->source([
+            'ref' => 'LS-GENERAL-SUPPLY', 'domain' => null, 'title' => 'آثار العقد',
+            'text' => 'يلتزم المتعاقدان بتنفيذ ما تضمّنه العقد من التزامات وفق حسن النيّة.',
+        ]);
+
+        foreach (['العقود والاتفاقيات', 'القضايا التجارية'] as $domain) {
+            $found = LegalKnowledge::retrieve($domain, 'إخلال بتنفيذ التزامات العقد');
+            $this->assertSame(['LS-GENERAL-SUPPLY'], $found->pluck('ref')->all(), $domain);
+        }
+    }
+
+    /** والقائمة تُطابق تخصّصات المكتب — لا اسمٌ فيها خارج الكتالوج. */
+    public function test_every_guarded_domain_is_a_real_specialty(): void
+    {
+        foreach (LegalKnowledge::REQUIRES_SPECIFIC_AUTHORITY as $domain) {
+            $this->assertContains(
+                $domain,
+                Specialties::ALL,
+                "«{$domain}» ليس تخصّصاً معتمداً — فالحارس يحرس اسماً لا يصل"
+            );
+        }
     }
 
     /** أما المخصَّص للمجال صراحةً فيبقى مقبولاً بلا تطابق: صلتُه بالبناء لا بالكلمة. */

@@ -45,6 +45,19 @@ class ArchiveController extends Controller
                     'zip' => $hasZoom ? route('admin.consults.recording', $c, absolute: false) : null,
                     'audioZip' => ($c->meet_id || $c->zoom_audio_url) ? route('admin.consults.audio', $c, absolute: false) : null,
                     'transcript' => ($c->transcript_path || $c->meet_id) ? route('admin.consults.transcript', $c, absolute: false) : null,
+                    /*
+                     * **جاهزٌ يعني موجودٌ على القرص.**
+                     *
+                     * كانت الروابط تُرسَل لمجرّد وجود `meet_id`، والزرّ `<a href>` عاديّ.
+                     * فإن لم يكن الملفّ مبنيّاً ردّ `RecordingArchive::download` بـ`back()`
+                     * — فتُعيد النقرةُ تحميلَ الصفحة **ولا يُنزَّل شيء**، والمستخدم يعيد
+                     * النقر ظنّاً أنّ الأولى ضاعت فتُجدوَل مهمّةُ بناءٍ في كلّ مرّة.
+                     *
+                     * `RecordingArchive::isReady` كانت قائمةً ولا يستدعيها الأرشيف.
+                     */
+                    'videoReady' => $hasZoom && RecordingArchive::isReady($c, 'video'),
+                    'audioReady' => ($c->meet_id || $c->zoom_audio_url) && RecordingArchive::isReady($c, 'audio'),
+                    'transcriptReady' => (bool) $c->transcript_path,
                 ];
             });
 

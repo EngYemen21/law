@@ -129,6 +129,18 @@ class ConsultBooking
     {
         abort_unless($consult->status === 'بانتظار التسعير', 422, 'لا يمكن تسعير هذا الطلب في حالته الحالية.');
 
+        /*
+         * **لا فاتورةَ بصفر.** كان التحقّق `min:0` والواجهة تسمح بالصفر من مودال
+         * الجدول، فتُنشأ فاتورةٌ بـ٠ ر.س حالتُها «مستحقّة» وتنتقل الاستشارة إلى
+         * «بانتظار السداد» — فلا تعود قابلةً للتسعير (الحارس أعلاه)، ولا يستطيع
+         * العميل سداد صفر، **وتعرضها الشاشة «لم تُسعر بعد»** لأن `total` صفرٌ falsy.
+         * طلبٌ عالقٌ بلا مخرجٍ إلّا الإلغاء.
+         *
+         * والحدّ هنا لا في التحقّق وحده: `setPrice` مدخلٌ عامّ، والحارس عند الكاتب
+         * لا عند أحد نداءاته.
+         */
+        abort_if($price < 1, 422, 'أقلّ سعرٍ للاستشارة ريالٌ واحد — استعمل الإلغاء إن كانت بلا مقابل.');
+
         $prices = Setting::consultPrices();
         $vat = (int) round($price * $prices['vat'] / 100);
         $total = $price + $vat;
@@ -174,6 +186,53 @@ class ConsultBooking
         Live::push(new ConsultStatusBroadcast($consult->fresh()));
 
         return $invoice;
+    }
+
+    /**
+     * **إلغاء تسعيرٍ خاطئ وإعادة الطلب إلى الطابور.**
+     *
+     * الفاتورة تُلغى ولا تُحذف: صفٌّ صدر باسم عميلٍ وأُشعر به، فمحوُه يُخفي ما وقع.
+     * وتُصفَّر `priced_at` وحدها — لا `price`/`total`، فيرى المسعّر رقمه السابق
+     * ويصحّحه بدل أن يبدأ من فراغ. والحالة تعود «بانتظار التسعير» فيُقبل `setPrice`.
+     *
+     * والإشعار لازم: العميل تلقّى فاتورةً وقد يكون في طريقه إلى سدادها.
+     */
+    public static function reprice(Consult $consult, User $actor): void
+    {
+        $before = (string) $consult->total;
+
+        DB::transaction(function () use ($consult, $actor, $before) {
+            Invoice::where('consult_id', $consult->id)
+                ->where('paid', false)
+                ->update(['status' => 'ملغاة', 'tone' => 'b-red']);
+
+            $consult->logAudit($actor->name, 'إلغاء التسعير', $before, '(بانتظار تسعيرٍ جديد)');
+            $consult->update([
+                'priced_at' => null,
+                'status' => 'بانتظار التسعير',
+                'audit' => $consult->audit,
+            ]);
+        });
+
+        Notify::send(
+            $consult->user_id,
+            'card',
+            't-amber',
+            "أُلغيت فاتورة استشارتك ({$consult->ref}) لمراجعة السعر — تصلك فاتورةٌ محدَّثة قريباً."
+        );
+
+        Audit::log(
+            action: 'إلغاء تسعير استشارة',
+            description: "ألغى {$actor->name} تسعير الاستشارة {$consult->ref} (كان الإجمالي {$before} ر.س) وأعادها إلى التسعير.",
+            category: 'مالية وفواتير',
+            severity: 'warning',
+            auditable: $consult,
+            beforeState: ['الإجمالي' => $before, 'الحالة' => 'بانتظار السداد'],
+            afterState: ['الحالة' => 'بانتظار التسعير'],
+            user: $actor,
+        );
+
+        Live::push(new ConsultStatusBroadcast($consult->fresh()));
     }
 
     /**

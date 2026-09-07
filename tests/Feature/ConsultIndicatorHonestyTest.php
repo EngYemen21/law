@@ -16,6 +16,8 @@ use Tests\TestCase;
  * أبداً. ولم يكن يُعرض، فبقي مخفيّاً — وهذا أسوأ من عدّادٍ يكذب علناً: لا أحد يراه
  * ليشكّ فيه.
  *
+ * والحارسُ يمسح **شاشات الاستشارات كلَّها** ومكتبتَيها — لا شاشةً واحدة.
+ *
  * وهو خامسُ عطلٍ من نوعه في المشروع بعد `'محولة إلى قضية'` و`'بانتظار التأكيد'`
  * و«جلسات اليوم» و`'مؤكدة'`. فالحارس **يمسح الشاشة آلياً** بدل إصلاح واحدٍ بعد واحد.
  */
@@ -30,25 +32,63 @@ class ConsultIndicatorHonestyTest extends TestCase
      */
     private const UNWRITTEN = ['mins' => 'mins'];
 
+    /** الشاشة التي وُلد الحارس منها — تُبقيها الفحوصُ القديمة مقصودةً بعينها. */
     private function screen(): string
     {
-        // تُسقط التعليقات: بعضها يشرح العطل باقتباس شيفرته فيُشعل الحارس على شرحه
-        return (string) preg_replace(
-            '#/\*.*?\*/|//[^\n]*#su',
-            '',
-            (string) file_get_contents(resource_path('js/pages/employee/consults.tsx'))
-        );
+        return $this->screens()['employee/consults.tsx'];
+    }
+
+    /**
+     * **كلّ شاشةٍ تعرض استشارة — لا شاشةٌ واحدة.**
+     *
+     * كان الحارس يمسح `employee/consults.tsx` وحدها، فمرّت من تحته **خمسة مؤشّرات**
+     * مبنيّة على `mins` في شاشتَي الإدارة: «استشارات متأخرة» بشريطه الأحمر، وتبويبٌ
+     * كامل، و«متوسط زمن المعالجة»، و«{n} طلب متأخر»، و«منذ {n} دقيقة». حارسٌ يحرس
+     * بيتاً من سبعة يُطمئن أكثر ممّا يحمي.
+     *
+     * @return array<string,string> مسارٌ نسبيّ => شيفرتُه بلا تعليقات
+     */
+    private function screens(): array
+    {
+        $files = [
+            'employee/consults.tsx' => 'js/pages/employee/consults.tsx',
+            'lawyer/consults.tsx' => 'js/pages/lawyer/consults.tsx',
+            'admin/consults.tsx' => 'js/pages/admin/consults.tsx',
+            'admin/consult-requests.tsx' => 'js/pages/admin/consult-requests.tsx',
+            'admin/consultrecv.tsx' => 'js/pages/admin/consultrecv.tsx',
+            'myconsults.tsx' => 'js/pages/myconsults.tsx',
+            'lib/consult-ui.tsx' => 'js/lib/consult-ui.tsx',
+            'lib/employee-data.ts' => 'js/lib/employee-data.ts',
+        ];
+
+        $out = [];
+        foreach ($files as $name => $rel) {
+            $path = resource_path($rel);
+            if (! is_file($path)) {
+                continue;
+            }
+
+            // تُسقط التعليقات: بعضها يشرح العطل باقتباس شيفرته فيُشعل الحارس على شرحه
+            $out[$name] = (string) preg_replace(
+                '#/\*.*?\*/|//[^\n]*#su',
+                '',
+                (string) file_get_contents($path)
+            );
+        }
+
+        return $out;
     }
 
     /** **الحارس الأثمن:** لا مؤشّر مبنيٌّ على حقلٍ ميت. */
     public function test_no_indicator_depends_on_a_field_no_path_writes(): void
     {
-        $code = $this->screen();
         $offenders = [];
 
-        foreach (array_keys(self::UNWRITTEN) as $field) {
-            if (str_contains($code, "c.{$field}")) {
-                $offenders[] = "«{$field}» يُقرأ في الشاشة ولا يكتبه أيّ مسار";
+        foreach ($this->screens() as $name => $code) {
+            foreach (array_keys(self::UNWRITTEN) as $field) {
+                if (preg_match('/\bc\.'.preg_quote($field, '/').'\b/u', $code)) {
+                    $offenders[] = "{$name}: «{$field}» يُقرأ ولا يكتبه أيّ مسار";
+                }
             }
         }
 
@@ -142,6 +182,59 @@ class ConsultIndicatorHonestyTest extends TestCase
         $this->assertSame($lawyer->id, $assigned->toCard()['lawyerId']);
         $this->assertNull($unassigned->toCard()['lawyerId'], 'النائب النصّيّ لا يُعدّ إسناداً');
         $this->assertNotEmpty($unassigned->toCard()['lawyer'], 'ومع ذلك لا يخلو النصّ — وهذه علّة العطل');
+    }
+
+    /**
+     * **والبديل مقيسٌ فعلاً — لا كذبةٌ محلَّ كذبة.**
+     *
+     * حذفُ مؤشّرٍ ميت سهل؛ والأصعبُ ألّا يُستبدل بحقلٍ ثانٍ يصل صفراً. `ageMins` يُشتقّ
+     * من `created_at` عند كلّ قراءة، فيتحرّك مع الزمن ويُميّز «لم يُقَس» بـ`null`.
+     */
+    public function test_the_replacement_age_is_actually_measured(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+
+        $fresh = Consult::create([
+            'user_id' => $client->id, 'ref' => 'CN-AGE-'.uniqid(), 'subject' => 'نزاع',
+            'type' => 'استشارة', 'channel' => 'مرئية', 'status' => 'بانتظار التسعير',
+            'session' => 'بانتظار الجلسة', 'tone' => 'b-amber', 'lawyer' => 'مستشار',
+        ]);
+
+        $old = Consult::create([
+            'user_id' => $client->id, 'ref' => 'CN-AGE-'.uniqid(), 'subject' => 'نزاع',
+            'type' => 'استشارة', 'channel' => 'مرئية', 'status' => 'بانتظار التسعير',
+            'session' => 'بانتظار الجلسة', 'tone' => 'b-amber', 'lawyer' => 'مستشار',
+        ]);
+        $old->forceFill(['created_at' => now()->subMinutes(300)])->saveQuietly();
+
+        $this->assertLessThanOrEqual(1, $fresh->toCard()['ageMins'], 'الطلب الآن عمرُه دقائقُ لا أكثر');
+        $this->assertSame(300, $old->fresh()->toCard()['ageMins'], 'والقديم يُقاس بعمره الحقيقيّ');
+
+        // والحقل القديم لم يعد يصل أصلاً — فلا يُبنى عليه ثانية
+        $this->assertArrayNotHasKey('mins', $fresh->toCard());
+    }
+
+    /** **ولا يُقرأ «لم يُقَس» صفراً**: العمر يقبل `null` في العقد لا `number` وحده. */
+    public function test_the_contract_admits_unmeasured(): void
+    {
+        $this->assertStringContainsString(
+            'ageMins: number | null;',
+            (string) file_get_contents(resource_path('js/lib/consult-ui.tsx')),
+            'صفرٌ لغيرِ المقيس هو العطل نفسه في ثوبٍ جديد'
+        );
+
+        foreach (['admin/consults.tsx', 'admin/consult-requests.tsx'] as $name) {
+            $this->assertStringContainsString(
+                'ageMins != null',
+                $this->screens()[$name],
+                "{$name}: يجب أن يُفحص «قِيس» قبل المقارنة"
+            );
+            $this->assertStringNotContainsString(
+                'c.ageMins || 0',
+                $this->screens()[$name],
+                "{$name}: `|| 0` يُعيد الكذبة"
+            );
+        }
     }
 
     /** @return array<int,string> */

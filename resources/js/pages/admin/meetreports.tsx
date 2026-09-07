@@ -5,20 +5,24 @@ import { Bars, BarChart } from '@/components/babylon/admin-charts';
 import type { BarDatum } from '@/lib/admin-data';
 import { type FullMeetingCard } from '@/lib/meeting-ui';
 
+// «—» لا صفر: القياس الغائب لا يُعرض رقماً يدّعي أنّه وقع
+const pct = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${v}%`);
+
 // تحليلات وتغطية Zoom وقاعدة البيانات لصفحة تقارير الاجتماعات
 interface Analytics {
   monthlyTrend: (BarDatum & { hours?: number })[];
   statusCounts?: Record<string, number>;
   attendanceByLawyer: [string, number][];
-  avgActualMinutes: number;
-  decisionRate: number;
+  // null = لم يُقَس (لا مدد فعلية / لا مهامّ) — يُعرض «—»
+  avgActualMinutes: number | null;
+  decisionRate: number | null;
   tasksFromDecisions: number;
   doneTasksCount?: number;
   totalZoomHours?: number;
   aiSummaryCount?: number;
-  aiCoverageRate?: number;
+  aiCoverageRate?: number | null;
   recordingCount?: number;
-  recordingCoverageRate?: number;
+  recordingCoverageRate?: number | null;
   audioCount?: number;
 }
 
@@ -44,7 +48,11 @@ const AdminMeetReports: React.FC<{ meetings: FullMeetingCard[]; analytics: Analy
     : [['—', 0]];
 
   const done = meetings.filter((m) => m.status === 'منتهٍ');
-  const att = done.length ? Math.round(done.reduce((a, m) => a + (m.attend || 0), 0) / done.length) : 0;
+  // المتوسّط على المقيس وحده — طيُّ غير المقيس صفراً كان يجرّ النسبة للأسفل ببياناتٍ ليست بيانات
+  const measured = done.filter((m) => m.presenceRate !== null);
+  const att = measured.length
+    ? Math.round(measured.reduce((a, m) => a + (m.presenceRate ?? 0), 0) / measured.length)
+    : null;
   const cancelled = meetings.filter((m) => m.status === 'ملغى').length;
   const missed = meetings.filter((m) => m.status === 'لم ينعقد').length;
   const postponed = meetings.filter((m) => m.status === 'مؤجل').length;
@@ -57,7 +65,7 @@ const AdminMeetReports: React.FC<{ meetings: FullMeetingCard[]; analytics: Analy
     ['t-blue', 'video', meetings.length, 'إجمالي الاجتماعات'],
     ['t-cyan', 'video', up, 'قادمة'],
     // ['t-amber', 'clock', pendingConfirm, 'بانتظار التأكيد'],
-    ['t-green', 'user', `${att}%`, 'نسبة الحضور'],
+    ['t-green', 'user', att !== null ? `${att}%` : '—', 'متوسّط البقاء'],
     ['t-green', 'check', approved, 'معتمدة'],
     ['t-grey', 'clock', done.length, 'منتهية'],
     ['t-blue', 'doc', done.filter((m) => m.minutes).length, 'بمحضر موثّق'],
@@ -84,7 +92,7 @@ const AdminMeetReports: React.FC<{ meetings: FullMeetingCard[]; analytics: Analy
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
             <div style={{ background: 'var(--surface-soft, #f8fafc)', padding: 14, borderRadius: 10, border: '1px solid var(--line-soft, #e2e8f0)' }}>
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}><Icon name="doc" /> تغطية ملخصات AI Companion</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--primary)' }}>{analytics.aiCoverageRate ?? 0}%</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--primary)' }}>{pct(analytics.aiCoverageRate)}</div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
                 تم استخراج {analytics.aiSummaryCount ?? 0} ملخص ذكي تلقائيًا
               </div>
@@ -92,7 +100,7 @@ const AdminMeetReports: React.FC<{ meetings: FullMeetingCard[]; analytics: Analy
 
             <div style={{ background: 'var(--surface-soft, #f8fafc)', padding: 14, borderRadius: 10, border: '1px solid var(--line-soft, #e2e8f0)' }}>
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}><Icon name="video" /> أرشيف الفيديو والمرئيات</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#10B981' }}>{analytics.recordingCoverageRate ?? 0}%</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: '#10B981' }}>{pct(analytics.recordingCoverageRate)}</div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
                 {analytics.recordingCount ?? 0} اجتماع بدعم تسجيل سحابي
               </div>
@@ -108,7 +116,7 @@ const AdminMeetReports: React.FC<{ meetings: FullMeetingCard[]; analytics: Analy
 
             <div style={{ background: 'var(--surface-soft, #f8fafc)', padding: 14, borderRadius: 10, border: '1px solid var(--line-soft, #e2e8f0)' }}>
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}><Icon name="check" /> معدل إنجاز المهام المشتقة</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#F59E0B' }}>{analytics.decisionRate}%</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: '#F59E0B' }}>{pct(analytics.decisionRate)}</div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
                 {analytics.doneTasksCount ?? 0} من {analytics.tasksFromDecisions} مهام مُنجزة
               </div>
@@ -126,7 +134,7 @@ const AdminMeetReports: React.FC<{ meetings: FullMeetingCard[]; analytics: Analy
         <div className="card-b" style={{ padding: 16 }}>
           <div className="kpi-row">
             <span className="t">متوسط مدة الحضور الفعلية للجلسة (من Zoom)</span>
-            <span className="v">{analytics.avgActualMinutes} دقيقة</span>
+            <span className="v">{analytics.avgActualMinutes !== null ? `${analytics.avgActualMinutes} دقيقة` : '—'}</span>
           </div>
           <div className="kpi-row">
             <span className="t">إجمالي التسجيلات الصوتية (M4A Audio Archive)</span>
@@ -134,7 +142,7 @@ const AdminMeetReports: React.FC<{ meetings: FullMeetingCard[]; analytics: Analy
           </div>
           <div className="kpi-row">
             <span className="t">معدل تحويل قرارات الجلسات إلى مهام عملية</span>
-            <span className="v">{analytics.decisionRate}%</span>
+            <span className="v">{pct(analytics.decisionRate)}</span>
           </div>
           <div className="kpi-row">
             <span className="t">عدد المهام المشتقة تلقائيًا من قرارات الجلسات</span>

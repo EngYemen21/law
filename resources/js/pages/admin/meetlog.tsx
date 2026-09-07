@@ -1,7 +1,7 @@
 import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Icon from '@/lib/icons';
-import { fmtActualDuration, type FullMeetingCard } from '@/lib/meeting-ui';
+import { attendanceLabel, fmtActualDuration, type FullMeetingCard } from '@/lib/meeting-ui';
 
 // يطابق meetLogView في index (82).html — الأرشيف حقيقي من الخادم (بيانات Zoom/الويبهوك فقط)
 
@@ -85,7 +85,9 @@ const AdminMeetLog: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) =
                     {m.decisions.length
                       ? <a className="chip" onClick={() => router.visit(`/admin/meeting?id=${encodeURIComponent(m.id)}`)} style={{ cursor: 'pointer' }}><Icon name="check" /> القرارات ({m.decisions.length})</a>
                       : <span className="chip" style={{ opacity: 0.5 }}>بلا قرارات</span>}
-                    <span className="chip"><Icon name="user" /> حضور {m.attend || 0}%{actual ? ` · ${actual}` : ''}</span>
+                    {(attendanceLabel(m) || actual) && (
+                      <span className="chip"><Icon name="user" /> {[attendanceLabel(m), actual].filter(Boolean).join(' · ')}</span>
+                    )}
                     {/* شارة الاعتماد — يعرف المدقّق أيّ السجلات لم تُعتمد محاضرها بعد */}
                     <span className="chip" style={m.approve === 'معتمد' ? undefined : { color: 'var(--amber, #b45309)' }}>
                       <Icon name="check" /> {m.approve === 'معتمد' ? 'معتمد' : 'بانتظار الاعتماد'}

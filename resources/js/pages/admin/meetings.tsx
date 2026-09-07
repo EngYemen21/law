@@ -3,7 +3,7 @@ import React from 'react';
 import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
-import { fmtActualDuration  } from '@/lib/meeting-ui';
+import { attendanceLabel, fmtActualDuration  } from '@/lib/meeting-ui';
 import type {FullMeetingCard} from '@/lib/meeting-ui';
 
 // يطابق adMeetings + mApprove في index (82).html — الاعتماد حقيقي (يصل المحضر والملخص للعميل)
@@ -40,7 +40,11 @@ const AdminMeetings: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) 
                   <span className="chip" style={{ opacity: m.summary ? 1 : 0.5 }}>{m.summary ? '✓ ملخّص' : 'بلا ملخّص'}</span>
                   <span className="chip" style={{ opacity: m.minutes ? 1 : 0.5 }}>{m.minutes ? '✓ محضر' : 'بلا محضر'}</span>
                   <span className="chip" style={{ opacity: m.decisions.length ? 1 : 0.5 }}>{m.decisions.length ? `✓ قرارات (${m.decisions.length})` : 'بلا قرارات'}</span>
-                  {m.status === 'منتهٍ' && <span className="chip">حضور {m.attend || 0}%{fmtActualDuration(m.durationSec) ? ` · ${fmtActualDuration(m.durationSec)}` : ''}</span>}
+                  {m.status === 'منتهٍ' && (attendanceLabel(m) || fmtActualDuration(m.durationSec)) && (
+                    <span className="chip">
+                      {[attendanceLabel(m), fmtActualDuration(m.durationSec)].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="iact">

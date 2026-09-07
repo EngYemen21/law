@@ -242,7 +242,19 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
         Route::get('/consult', [StaffConsultController::class, 'show'])->name('consult');
         Route::post('/consults/{consult}/take', [StaffConsultController::class, 'take'])->name('consults.take');
         Route::post('/consults/{consult}/reqdocs', [StaffConsultController::class, 'requestDocs'])->name('consults.reqdocs');
-        Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze');
+        /*
+         * **الصلاحيّة التي كانت تُعرض ولا تحرس.**
+         *
+         * كان هذا المسار داخل مجموعة «استقبال الاستشارات» وحدها، بينما نسخة الإدارة
+         * (أدناه) محروسةٌ بـ«تشغيل تلخيص الفريق القانوني». فالصلاحيّة تعمل في اللوحة
+         * التي **لا تحتاجها** (الأدمن يتجاوز عبر `Gate::before`) وتُهمَل في اللوحتين
+         * اللتين تحتاجانها: نزعُها عن محامٍ لا يمنعه، والموظّف يشغّل التلخيص وهو لا
+         * يملكها أصلاً. مربّعٌ في شاشة الصلاحيّات لا يفعل شيئاً.
+         *
+         * والوسيط تجميعيّ، فالشرط الآن الصلاحيّتان معاً — لا يحلّل إلّا من يصل
+         * الاستشارة أصلاً.
+         */
+        Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware('permission:تشغيل تلخيص الفريق القانوني');
         Route::post('/consults/{consult}/analysis', [StaffConsultController::class, 'saveAnalysis'])->name('consults.analysis');
         Route::post('/consults/{consult}/approve', [StaffConsultController::class, 'approveAnalysis'])->name('consults.approve');
         Route::post('/consults/{consult}/zoom-sync', [StaffConsultController::class, 'zoomSync'])->name('consults.zoomsync');
@@ -440,7 +452,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::post('/consults/{consult}/reschedule', [StaffConsultController::class, 'reschedule'])->name('consults.reschedule');
         Route::post('/consults/{consult}/take', [StaffConsultController::class, 'take'])->name('consults.take');
         Route::post('/consults/{consult}/reqdocs', [StaffConsultController::class, 'requestDocs'])->name('consults.reqdocs');
-        Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze');
+        Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware('permission:تشغيل تلخيص الفريق القانوني'); // انظر شرح النسخة أعلاه
         Route::post('/consults/{consult}/analysis', [StaffConsultController::class, 'saveAnalysis'])->name('consults.analysis');
         // تحرير ملخّص الجلسة قبل اعتماده — «تعديل واعتماد» كان خياراً بلا حقلٍ يستقبله
         Route::post('/consults/{consult}/summary', [StaffConsultController::class, 'saveSummary'])->name('consults.summary')->middleware('permission:اعتماد/تعديل ملخص الاستشارة');
@@ -504,6 +516,8 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/consults/{consult}/remind-schedule', [StaffConsultController::class, 'remindSchedule'])->name('consults.remind-schedule')->middleware('permission:إدارة المواعيد والحجوزات');
     Route::post('/consults/{consult}/cancel-request', [StaffConsultController::class, 'cancelRequest'])->name('consults.cancel-request')->middleware('permission:إدارة المواعيد والحجوزات');
     Route::post('/consults/{consult}/price', [StaffConsultController::class, 'setPrice'])->name('consults.price')->middleware('permission:إدارة المواعيد والحجوزات');
+    // تصحيح تسعيرٍ خاطئ قبل السداد — لم يكن للمشروع مخرجٌ منه إلّا إلغاء الطلب كلّه
+    Route::post('/consults/{consult}/reprice', [StaffConsultController::class, 'reprice'])->name('consults.reprice')->middleware('permission:إدارة المواعيد والحجوزات');
     Route::post('/consults/{consult}/take', [StaffConsultController::class, 'take'])->name('consults.take');
     Route::post('/consults/{consult}/reqdocs', [StaffConsultController::class, 'requestDocs'])->name('consults.reqdocs');
     Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware('permission:تشغيل تلخيص الفريق القانوني');

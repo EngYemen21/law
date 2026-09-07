@@ -60,8 +60,15 @@ class DatabaseSeeder extends Seeder
             'national_id' => '1000000003', 'phone' => '+966537434000',
         ]);
         $employee->syncRoles(['خدمة عملاء']);
+        // **سقفُ الموظّف ليس منحَه.** `ROLE_PERMISSIONS['employee']` يضمّ «تشغيل تلخيص
+        // الفريق القانوني» **حدّاً** لما تستطيع الإدارة منحَه لا منحاً تلقائياً — فتُستثنى
+        // هنا كي تبقى القاعدة المزروعة مطابقةً للسياسة: التلخيص للمحامي، وللإدارة أن
+        // تمنحه موظّفاً بعينه استثناءً.
         $employee->syncPermissions(
-            Permission::whereIn('name', Permissions::ROLE_PERMISSIONS['employee'])->get()
+            Permission::whereIn('name', array_values(array_diff(
+                Permissions::ROLE_PERMISSIONS['employee'],
+                ['تشغيل تلخيص الفريق القانوني'],
+            )))->get()
         );
 
         // 4) العميل — دخول: 1000000004

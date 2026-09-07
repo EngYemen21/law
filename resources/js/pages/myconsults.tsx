@@ -4,7 +4,7 @@ import Badge from '@/components/babylon/Badge';
 import BookingActions from '@/components/babylon/BookingActions';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
-import { lawyerFirst } from '@/lib/consult-ui';
+import { lawyerFirst, RichText } from '@/lib/consult-ui';
 import type { ClientConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { CONSULT_BOOKING_STATUSES, crChannelIcon, crChannelTone } from '@/lib/employee-data';
@@ -707,10 +707,12 @@ return list;
                 marginBottom: 16,
               }}
             >
-              {summaryOf.summary
-                || (summaryOf.summaryPending
+              <RichText
+                text={summaryOf.summary}
+                fallback={summaryOf.summaryPending
                   ? 'انتهت الجلسة، ويُراجع المستشار ملخّصها الآن. سيصلك إشعار فور اعتماده.'
-                  : 'انتهت الجلسة — يُعدّ الملخص حالياً وسيصلك إشعار فور جاهزيته.')}
+                  : 'انتهت الجلسة — يُعدّ الملخص حالياً وسيصلك إشعار فور جاهزيته.'}
+              />
             </div>
 
             {/* أزرار الإجراءات */}

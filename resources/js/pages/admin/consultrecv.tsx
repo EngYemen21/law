@@ -7,7 +7,7 @@ import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { crChannelIcon, crChannelTone } from '@/lib/employee-data';
+import { crChannelIcon, crChannelTone, sessTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 
 interface Props {
@@ -692,7 +692,7 @@ return;
             {(
               [
                 ['all', 'جميع الجلسات', items.length],
-                ['_live', '🟢 جارية الآن', telemetry.liveNow],
+                ['_live', '🟢 جلسة جارية', telemetry.liveNow],
                 ['مرئية', '📹 مرئية Zoom', telemetry.videoCount],
                 ['حضورية', '🏛️ حضورية بالمكتب', telemetry.officeCount],
                 ['هاتفية', '📞 هاتفية', telemetry.phoneCount],
@@ -867,9 +867,16 @@ return;
 
                       <div style={{ display: 'flex', gap: 4 }}>
                         <Badge text={c.channel} tone={crChannelTone(c.channel)} />
-                        {isLive && <Badge text="جارية الآن" tone="b-green" />}
+                        {/*
+                          * **الحالةُ الواحدة بلونٍ ونصٍّ واحدين في الشاشات كلّها.**
+                          *
+                          * كانت هذه الشاشة تكتب تسمياتها بيدها: «جارية الآن» **خضراء**
+                          * بينما الكتالوج كهرمانيّ، و«منتهية» **رماديّة** بينما هي خضراء
+                          * في كلّ شاشةٍ أخرى. فالمدير يرى الحالة بلونٍ، والموظّف يراها
+                          * بلونٍ آخر، ولا أحد يعلم أيّهما المقصود.
+                          */}
+                        {!isMissed && c.session ? <Badge text={c.session} tone={sessTone(c.session)} /> : null}
                         {isMissed && <Badge text="فائتة" tone="b-red" />}
-                        {isEnded && <Badge text="منتهية" tone="b-grey" />}
                       </div>
                     </div>
 
@@ -1085,14 +1092,12 @@ return;
 
                       {/* الحالة */}
                       <td style={{ padding: '12px 14px' }}>
-                        {c.session === 'جلسة جارية' ? (
-                          <span style={{ color: '#1E9D6B', fontWeight: 700, fontSize: 12 }}>🟢 جارية الآن</span>
-                        ) : c.missed ? (
+                        {c.missed ? (
                           <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 12 }}>⚠️ فائتة</span>
-                        ) : c.session === 'منتهية' ? (
-                          <span style={{ color: 'var(--muted)', fontSize: 12 }}>منتهية</span>
                         ) : (
-                          <span style={{ color: 'var(--primary)', fontSize: 12 }}>بانتظار الجلسة</span>
+                          // والفرعُ الجامع كان يعرض **«لم تُعقد» بانتظارَ الجلسة** — فجلسةٌ
+                          // أُغلقت آلياً تُعرض قادمةً، ويُنتظر عميلٌ لن يأتي.
+                          <Badge text={c.session || 'بانتظار الجلسة'} tone={sessTone(c.session)} />
                         )}
                       </td>
 
@@ -1266,7 +1271,7 @@ return;
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <h3 style={{ margin: 0, color: 'var(--primary)', fontSize: 17 }}>{drawerItem.ref}</h3>
                   <Badge text={drawerItem.channel} tone={crChannelTone(drawerItem.channel)} />
-                  {drawerItem.session === 'جلسة جارية' && <Badge text="جارية الآن" tone="b-green" />}
+                  {drawerItem.session && <Badge text={drawerItem.session} tone={sessTone(drawerItem.session)} />}
                   {drawerItem.missed && <Badge text="فائتة" tone="b-red" />}
                 </div>
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
@@ -1342,7 +1347,7 @@ return;
             </div>
 
             {/* محتوى لسان التبويب */}
-            <div style={{ padding: 20, flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="c360-drawer-body" style={{ padding: 20, flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
               {/* Tab 1: التحكم والإجراءات المباشرة */}
               {drawerTab === 'actions' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

@@ -127,6 +127,23 @@ export default [
         rules: {
             curly: ['error', 'all'],
             '@stylistic/brace-style': ['error', '1tbs', { allowSingleLine: false }],
+            /*
+             * **ثابتٌ يُستعمل قبل تعريفه يُبيّض الشاشة، و`tsc` لا يمسكه.**
+             *
+             * `const hasLawyer` كان يُعرَّف بعد `telemetry` في شاشة استشارات الموظّف،
+             * وينادى داخل دالّة `useMemo` — وهي تُنفَّذ **أثناء التصيير**. فتُرمى
+             * `ReferenceError: Cannot access 'hasLawyer' before initialization` وتنهار
+             * الصفحة كلّها. والمدقّق النوعيّ صامت: الاستعمال داخل دالّة ردٍّ فلا يعلم
+             * أنّها فوريّة.
+             *
+             * `functions: false` لأنّ تصريحات الدوالّ مرفوعةٌ فعلاً فلا خطر منها —
+             * وهي العلاج الموصى به هنا.
+             */
+            'no-use-before-define': 'off',
+            '@typescript-eslint/no-use-before-define': [
+                'error',
+                { functions: false, classes: true, variables: true, typedefs: false, enums: true },
+            ],
         },
     },
 ];

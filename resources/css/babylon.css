@@ -129,6 +129,30 @@ svg{display:block}
 .jstep.cur .jdot{border-color:var(--primary);color:var(--primary);box-shadow:0 0 0 4px rgba(14,92,156,.13)}
 .jstep.cur .jt{color:var(--primary);font-weight:700}
 
+/* ── رأس صفحة رحلة الاستشارة ── (نظير رأس تفاصيل الاجتماع)
+   كان صفَّ رقائقَ رماديّة متساوية: المرجع والموضوع والأولويّة والمحامي بوزنٍ واحد،
+   فلا يبرز منها شيء. صار المرجع عنواناً، والحقائق شبكةً بعناوينَ صغيرة. */
+.cj-hero{margin-bottom:16px;padding:18px 20px;background:linear-gradient(135deg,#f8fbff,#fff);border-inline-start:4px solid var(--primary)}
+.cj-hero-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.cj-ref{font-size:19px;font-weight:800;color:var(--primary);letter-spacing:.4px}
+.cj-subject{font-size:13.5px;color:var(--muted);margin-top:3px;max-width:52ch}
+.cj-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 16px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line-soft)}
+.cj-facts>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.cj-facts span{font-size:10.5px;font-weight:700;color:var(--faint);letter-spacing:.2px}
+.cj-facts b{font-size:13px;color:#2b4a68;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* شبكة مؤشّرات الجلسة */
+.cj-outputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.cj-outputs>div{display:flex;flex-direction:column;gap:3px;padding:10px 12px;background:#f8fafc;border:1px solid var(--line-soft);border-radius:8px}
+.cj-outputs span{font-size:10.5px;font-weight:700;color:var(--faint)}
+.cj-outputs b{font-size:14px;color:var(--primary)}
+@media (max-width:520px){.cj-hero{padding:14px}.cj-ref{font-size:17px}}
+
+/* **أبناء جسم الدرج لا تنكمش دون محتواها.**
+   جسم درج 360° عمودٌ مرن، وأبناؤه بطاقاتٌ افتراضُها `flex-shrink: 1` — فتنكمش حين
+   يضيق الارتفاع، و`.card` فيه `overflow:hidden` (لاستدارة الحوافّ) فيُبتلع ما زاد
+   **داخل البطاقة**. والأسوأ أنّ الجسم عندئذٍ لا يفيض أصلاً، فلا يظهر شريط تمرير
+   ولا سبيل إلى المحتوى. قيس: ملخّصٌ خُبِّئ منه 378 بكسلاً في درج `CN-2026-7173`. */
+.c360-drawer-body > *{flex-shrink:0}
 .card{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
 .card+.card{margin-top:18px}
 .card-h{padding:15px 18px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -431,7 +455,9 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 .tflow .result-sec li{font-size:13.5px;color:#2b4a68;padding-inline-start:18px;position:relative}
 .tflow .result-sec li::before{content:"";position:absolute;inset-inline-start:2px;top:9px;width:6px;height:6px;border-radius:50%;background:var(--cyan)}
 
-.modal-bg{position:fixed;inset:0;background:rgba(10,42,85,.45);backdrop-filter:blur(3px);z-index:80;display:grid;place-items:center;padding:20px;opacity:0;pointer-events:none;transition:.2s}
+/* z-index 100000: النوافذ فوق أدراج الشاشات (كانت ثلاث شاشات تحقن القاعدة نفسها
+   في <style> عامّ، فتسري على التطبيق كلّه متى مُوِّنت إحداها وتختفي متى غادرها) */
+.modal-bg{position:fixed;inset:0;background:rgba(10,42,85,.45);backdrop-filter:blur(3px);z-index:100000;display:grid;place-items:center;padding:20px;opacity:0;pointer-events:none;transition:.2s}
 .modal-bg.show{opacity:1;pointer-events:auto}
 .modal{background:#fff;border-radius:var(--r);max-width:560px;width:100%;max-height:88vh;overflow:auto;box-shadow:var(--shadow-lg);transform:translateY(14px);transition:.25s;scrollbar-width:none}
 .modal::-webkit-scrollbar{display:none}

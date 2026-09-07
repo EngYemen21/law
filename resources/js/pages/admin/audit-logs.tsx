@@ -802,7 +802,7 @@ setActiveLogId(null);
             </div>
 
             {/* محتوى تبويبات الدرج */}
-            <div style={{ padding: 22, flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div className="c360-drawer-body" style={{ padding: 22, flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
               {/* Tab 1: تفاصيل العملية */}
               {drawerTab === 'overview' && (
                 <>

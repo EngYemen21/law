@@ -136,6 +136,96 @@ class Meeting extends Model
             : ['past', 'لم ينعقد', 'b-grey'];
     }
 
+    /**
+     * الحضور من Zoom لا من إدخالٍ بشريّ.
+     *
+     * العمود `attend` لم يُكتب من Zoom قطّ — يُملأ يدوياً أو يُصفَّر، ثمّ يُعرض «حضور 0%»
+     * فيقرأه القارئ «لم يحضر أحد» والحقيقة «لم يُقَس». وسجلّ Zoom المفصّل مخزّنٌ فعلاً في
+     * `zoom_participants_log` (اسم/بريد/دخول/خروج/مدة لكلّ مشارك) ولم يكن أحدٌ يقرؤه.
+     *
+     * الثلاثة تُرجع null عند تعذّر القياس — لا صفراً. والصفر رقمٌ يدّعي قياساً.
+     */
+
+    /** عدد من دخل الجلسة فعلاً — موحَّداً بالبريد ثمّ الاسم (Zoom يكرّر الصفّ عند انقطاع الشبكة). */
+    public function attendedCount(): ?int
+    {
+        $log = $this->zoom_participants_log;
+        if (! is_array($log) || $log === []) {
+            return null;
+        }
+
+        $seen = [];
+        foreach ($log as $p) {
+            if (empty($p['join_time'])) {
+                continue; // مدعوٌّ ظهر في السجلّ ولم يدخل
+            }
+            $key = mb_strtolower(trim((string) ($p['email'] ?? ''))) ?: mb_strtolower(trim((string) ($p['name'] ?? '')));
+            if ($key !== '') {
+                $seen[$key] = true;
+            }
+        }
+
+        return count($seen);
+    }
+
+    /**
+     * عدد المدعوّين: العميل + المحامي المسند + أسماء حقل «المشاركون»، موحَّدةً.
+     * التطبيع نفسه المستعمل في إشعارات الدعوة (Staff\MeetingController::store).
+     */
+    public function invitedCount(): ?int
+    {
+        $names = [];
+
+        if ($this->user_id && $this->user) {
+            $names[] = $this->user->name;
+        }
+        if ($this->assigned_lawyer_id && $this->assignedLawyer) {
+            $names[] = $this->assignedLawyer->name;
+        }
+        foreach (preg_split('/[،,]/u', (string) $this->participants, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $raw) {
+            $names[] = (string) preg_replace('/\s*\([^)]*\)\s*$/u', '', trim($raw));
+        }
+
+        $uniq = [];
+        foreach ($names as $n) {
+            $n = mb_strtolower(trim($n));
+            if ($n !== '') {
+                $uniq[$n] = true;
+            }
+        }
+
+        return $uniq === [] ? null : count($uniq);
+    }
+
+    /** متوسّط بقاء الحاضرين من مدّة الجلسة الفعلية (٪) — null إن غابت المدّة أو السجلّ. */
+    public function presenceRate(): ?int
+    {
+        $log = $this->zoom_participants_log;
+        $total = (int) ($this->duration_sec ?? 0);
+        if (! is_array($log) || $log === [] || $total <= 0) {
+            return null;
+        }
+
+        // المدد تُجمَع لكلّ مشارك (الانقطاع يولّد صفوفاً متعدّدة للشخص نفسه)
+        $per = [];
+        foreach ($log as $p) {
+            if (empty($p['join_time'])) {
+                continue;
+            }
+            $key = mb_strtolower(trim((string) ($p['email'] ?? ''))) ?: mb_strtolower(trim((string) ($p['name'] ?? '')));
+            if ($key === '') {
+                continue;
+            }
+            $per[$key] = ($per[$key] ?? 0) + (int) ($p['duration_sec'] ?? 0);
+        }
+
+        if ($per === []) {
+            return null;
+        }
+
+        return min(100, (int) round(array_sum($per) / count($per) / $total * 100));
+    }
+
     public function isUpcoming(): bool
     {
         return $this->liveState()[0] === 'up';
@@ -256,7 +346,13 @@ class Meeting extends Model
             'status' => $this->liveState()[1],
             'priority' => $this->priority,
             'conf' => $this->conf,
+            // المُدخَل يدوياً — يبقى للتعبئة المسبقة في نافذة الإنهاء ولعرضه موسوماً
+            // «مُدخَل يدوياً» حين لا سجلّ Zoom. ليس قياساً ولا يُعرض كأنّه قياس.
             'attend' => $this->attend,
+            // القياس الحقيقي من سجلّ Zoom — null تعني «لم يُقَس» لا صفراً
+            'attendedCount' => $this->attendedCount(),
+            'invitedCount' => $this->invitedCount(),
+            'presenceRate' => $this->presenceRate(),
             'link' => $this->case_ref ?: ($this->client_name ?: '—'),
             'meetId' => $this->meet_id ?: ($this->ref ?: 'M-'.$this->id),
             'meetLink' => $this->joinLink(),

@@ -84,7 +84,20 @@ class TicketAssignment
 
         // اقصر المرشحين على المطابقين للتخصّص إن وُجدوا، وإلا الكل
         $dept = $ticket->department;
-        $deptMatched = $dept ? $lawyers->where('department', $dept)->values() : collect();
+        /*
+         * **«كل الأقسام» تُطابق كلَّ قسم.**
+         *
+         * كانت المقارنة نصّيّةً حرفيّة (`->where('department', $dept)`)، فمحامٍ قسمُه
+         * `Specialties::ALL_DEPARTMENTS` — وهي قيمةٌ شاملةٌ مقصودة — **لا يطابق أيّ
+         * قسم**. وأثرُه أنّ مكتباً محاموه عامّون لا يُسنِد تذكرةً واحدة تلقائيّاً:
+         * كلُّها تُصعَّد إلى الإدارة. قِيس على `SB-2026-1530`.
+         *
+         * و`Specialties::matches` موجودةٌ لهذا الغرض بالضبط وتُكرّم الشمول، ويستعملها
+         * `LawyerAvailability` و`Staff\ConsultController` — وكان هذا المسار وحده يتجاهلها.
+         */
+        $deptMatched = $dept
+            ? $lawyers->filter(fn (User $u) => Specialties::matches($u->department, $dept))->values()
+            : collect();
         // الصرامة تنطبق **فقط** حين للتذكرة قسم معروف: «لا يوجد متخصّص» تفترض تخصّصاً
         // معلوماً. والقسم اختياري في نموذج العميل، ويضبطه TriageTicketOnOpenJob **بعد**
         // الإسناد لا قبله — فتصعيد كل تذكرة بلا قسم يُغرق الإدارة بلا فائدة.

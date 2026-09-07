@@ -424,42 +424,44 @@ const AdminClientDetail: React.FC<Props> = ({
                   tickets.length === 0 ? (
                     <div className="empty"><Icon name="ticket" /><b>لا توجد تذاكر مسجلة لهذا العميل</b></div>
                   ) : (
-                    <table className="tbl" style={{ minWidth: 720 }}>
-                      <thead>
-                        <tr>
-                          <th>رقم التذكرة</th>
-                          <th>النوع</th>
-                          <th>الموضوع</th>
-                          <th>القسم</th>
-                          <th>المحامي</th>
-                          <th>الحالة</th>
-                          <th>التاريخ</th>
-                          <th style={{ textAlign: 'center' }}>الإجراء</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {tickets.map((t) => (
-                          <tr key={t.id}>
-                            <td className="mono"><b>{t.no}</b></td>
-                            <td>{t.type}</td>
-                            <td>{t.subject}</td>
-                            <td>
-                              <span className="badge-s b-blue" style={{ fontSize: 11.5, padding: '3px 8px' }}>
-                                <Icon name="folder" cls="ic sm" /> {t.dept || 'القسم العام'}
-                              </span>
-                            </td>
-                            <td className="muted">{t.lawyer}</td>
-                            <td><Badge text={t.status} tone={t.tone} /></td>
-                            <td className="muted mono" style={{ fontSize: 12 }}>{t.date}</td>
-                            <td style={{ textAlign: 'center' }}>
-                              <Link href={`/admin/tickets/${t.no || t.id}`} className="btn sm soft">
-                                فتح التذكرة
-                              </Link>
-                            </td>
+                    <div className="t-wrap">
+                      <table className="tbl" style={{ minWidth: 720 }}>
+                        <thead>
+                          <tr>
+                            <th>رقم التذكرة</th>
+                            <th>النوع</th>
+                            <th>الموضوع</th>
+                            <th>القسم</th>
+                            <th>المحامي</th>
+                            <th>الحالة</th>
+                            <th>التاريخ</th>
+                            <th style={{ textAlign: 'center' }}>الإجراء</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {tickets.map((t) => (
+                            <tr key={t.id}>
+                              <td className="mono"><b>{t.no}</b></td>
+                              <td>{t.type}</td>
+                              <td>{t.subject}</td>
+                              <td>
+                                <span className="badge-s b-blue" style={{ fontSize: 11.5, padding: '3px 8px' }}>
+                                  <Icon name="folder" cls="ic sm" /> {t.dept || 'القسم العام'}
+                                </span>
+                              </td>
+                              <td className="muted">{t.lawyer}</td>
+                              <td><Badge text={t.status} tone={t.tone} /></td>
+                              <td className="muted mono" style={{ fontSize: 12 }}>{t.date}</td>
+                              <td style={{ textAlign: 'center' }}>
+                                <Link href={`/admin/tickets/${t.no || t.id}`} className="btn sm soft">
+                                  فتح التذكرة
+                                </Link>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )
                 )}
 
@@ -468,34 +470,36 @@ const AdminClientDetail: React.FC<Props> = ({
                   cases.length === 0 ? (
                     <div className="empty"><Icon name="scale" /><b>لا توجد قضايا مسجلة لهذا العميل</b></div>
                   ) : (
-                    <table className="tbl" style={{ minWidth: 720 }}>
-                      <thead>
-                        <tr>
-                          <th>رقم القضية</th>
-                          <th>النوع</th>
-                          <th>المحكمة</th>
-                          <th>المحامي</th>
-                          <th>الجلسات</th>
-                          <th>الأتعاب</th>
-                          <th>الحالة</th>
-                          <th>التاريخ</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {cases.map((c) => (
-                          <tr key={c.id}>
-                            <td className="mono"><b>{c.no}</b></td>
-                            <td>{c.type}</td>
-                            <td className="muted">{c.court}</td>
-                            <td className="muted">{c.lawyer}</td>
-                            <td><span className="chip">{c.hearingsCount} جلسات</span></td>
-                            <td className="mono">{c.fee}</td>
-                            <td><Badge text={c.status} tone={c.tone} /></td>
-                            <td className="muted mono" style={{ fontSize: 12 }}>{c.date}</td>
+                    <div className="t-wrap">
+                      <table className="tbl" style={{ minWidth: 720 }}>
+                        <thead>
+                          <tr>
+                            <th>رقم القضية</th>
+                            <th>النوع</th>
+                            <th>المحكمة</th>
+                            <th>المحامي</th>
+                            <th>الجلسات</th>
+                            <th>الأتعاب</th>
+                            <th>الحالة</th>
+                            <th>التاريخ</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {cases.map((c) => (
+                            <tr key={c.id}>
+                              <td className="mono"><b>{c.no}</b></td>
+                              <td>{c.type}</td>
+                              <td className="muted">{c.court}</td>
+                              <td className="muted">{c.lawyer}</td>
+                              <td><span className="chip">{c.hearingsCount} جلسات</span></td>
+                              <td className="mono">{c.fee}</td>
+                              <td><Badge text={c.status} tone={c.tone} /></td>
+                              <td className="muted mono" style={{ fontSize: 12 }}>{c.date}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )
                 )}
 
@@ -504,34 +508,36 @@ const AdminClientDetail: React.FC<Props> = ({
                   consults.length === 0 ? (
                     <div className="empty"><Icon name="video" /><b>لا توجد استشارات مسجلة لهذا العميل</b></div>
                   ) : (
-                    <table className="tbl" style={{ minWidth: 720 }}>
-                      <thead>
-                        <tr>
-                          <th>المرجع</th>
-                          <th>الموضوع</th>
-                          <th>القناة</th>
-                          <th>المستشار</th>
-                          <th>الموعد</th>
-                          <th>المبلغ</th>
-                          <th>السداد</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {consults.map((cn) => (
-                          <tr key={cn.id}>
-                            <td className="mono"><b>{cn.ref}</b></td>
-                            <td>{cn.subject}</td>
-                            <td><Badge text={cn.channel} tone="b-blue" /></td>
-                            <td className="muted">{cn.lawyer}</td>
-                            <td className="muted mono" style={{ fontSize: 12 }}>{cn.when}</td>
-                            <td className="mono">{cn.total}</td>
-                            <td>
-                              <Badge text={cn.isPaid ? 'مدفوعة' : 'غير مسددة'} tone={cn.isPaid ? 'b-green' : 'b-amber'} />
-                            </td>
+                    <div className="t-wrap">
+                      <table className="tbl" style={{ minWidth: 720 }}>
+                        <thead>
+                          <tr>
+                            <th>المرجع</th>
+                            <th>الموضوع</th>
+                            <th>القناة</th>
+                            <th>المستشار</th>
+                            <th>الموعد</th>
+                            <th>المبلغ</th>
+                            <th>السداد</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {consults.map((cn) => (
+                            <tr key={cn.id}>
+                              <td className="mono"><b>{cn.ref}</b></td>
+                              <td>{cn.subject}</td>
+                              <td><Badge text={cn.channel} tone="b-blue" /></td>
+                              <td className="muted">{cn.lawyer}</td>
+                              <td className="muted mono" style={{ fontSize: 12 }}>{cn.when}</td>
+                              <td className="mono">{cn.total}</td>
+                              <td>
+                                <Badge text={cn.isPaid ? 'مدفوعة' : 'غير مسددة'} tone={cn.isPaid ? 'b-green' : 'b-amber'} />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )
                 )}
 
@@ -540,32 +546,34 @@ const AdminClientDetail: React.FC<Props> = ({
                   executions.length === 0 ? (
                     <div className="empty"><Icon name="exec" /><b>لا توجد طلبات تنفيذ مسجلة لهذا العميل</b></div>
                   ) : (
-                    <table className="tbl" style={{ minWidth: 720 }}>
-                      <thead>
-                        <tr>
-                          <th>رقم الطلب</th>
-                          <th>نوع السند</th>
-                          <th>الموضوع</th>
-                          <th>المنفذ ضده</th>
-                          <th>المبلغ</th>
-                          <th>المرحلة</th>
-                          <th>الحالة</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {executions.map((ex) => (
-                          <tr key={ex.id}>
-                            <td className="mono"><b>{ex.no}</b></td>
-                            <td><span className="chip">{ex.sanad}</span></td>
-                            <td>{ex.subject}</td>
-                            <td className="muted">{ex.defendant}</td>
-                            <td className="mono">{ex.amount}</td>
-                            <td><span className="chip">مرحلة {ex.stage}/10</span></td>
-                            <td><Badge text={ex.status} tone={ex.tone} /></td>
+                    <div className="t-wrap">
+                      <table className="tbl" style={{ minWidth: 720 }}>
+                        <thead>
+                          <tr>
+                            <th>رقم الطلب</th>
+                            <th>نوع السند</th>
+                            <th>الموضوع</th>
+                            <th>المنفذ ضده</th>
+                            <th>المبلغ</th>
+                            <th>المرحلة</th>
+                            <th>الحالة</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {executions.map((ex) => (
+                            <tr key={ex.id}>
+                              <td className="mono"><b>{ex.no}</b></td>
+                              <td><span className="chip">{ex.sanad}</span></td>
+                              <td>{ex.subject}</td>
+                              <td className="muted">{ex.defendant}</td>
+                              <td className="mono">{ex.amount}</td>
+                              <td><span className="chip">مرحلة {ex.stage}/10</span></td>
+                              <td><Badge text={ex.status} tone={ex.tone} /></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )
                 )}
 
@@ -574,41 +582,43 @@ const AdminClientDetail: React.FC<Props> = ({
                   invoices.length === 0 ? (
                     <div className="empty"><Icon name="card" /><b>لا توجد فواتير مسجلة لهذا العميل</b></div>
                   ) : (
-                    <table className="tbl" style={{ minWidth: 720 }}>
-                      <thead>
-                        <tr>
-                          <th>رقم الفاتورة</th>
-                          <th>الوصف</th>
-                          <th>المبلغ</th>
-                          <th>الحالة</th>
-                          <th>الاستحقاق</th>
-                          <th>الإصدار</th>
-                          <th style={{ textAlign: 'center' }}>الإجراء</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {invoices.map((inv) => (
-                          <tr key={inv.id}>
-                            <td className="mono"><b>{inv.no}</b></td>
-                            <td>{inv.desc}</td>
-                            <td className="mono"><b>{inv.amount}</b></td>
-                            <td><Badge text={inv.status} tone={inv.tone} /></td>
-                            <td className="muted mono" style={{ fontSize: 12 }}>{inv.dueAt}</td>
-                            <td className="muted mono" style={{ fontSize: 12 }}>{inv.date}</td>
-                            <td style={{ textAlign: 'center' }}>
-                              <a
-                                href={`/admin/invoices/${inv.no}/pdf`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="btn sm soft"
-                              >
-                                <Icon name="download" /> PDF
-                              </a>
-                            </td>
+                    <div className="t-wrap">
+                      <table className="tbl" style={{ minWidth: 720 }}>
+                        <thead>
+                          <tr>
+                            <th>رقم الفاتورة</th>
+                            <th>الوصف</th>
+                            <th>المبلغ</th>
+                            <th>الحالة</th>
+                            <th>الاستحقاق</th>
+                            <th>الإصدار</th>
+                            <th style={{ textAlign: 'center' }}>الإجراء</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {invoices.map((inv) => (
+                            <tr key={inv.id}>
+                              <td className="mono"><b>{inv.no}</b></td>
+                              <td>{inv.desc}</td>
+                              <td className="mono"><b>{inv.amount}</b></td>
+                              <td><Badge text={inv.status} tone={inv.tone} /></td>
+                              <td className="muted mono" style={{ fontSize: 12 }}>{inv.dueAt}</td>
+                              <td className="muted mono" style={{ fontSize: 12 }}>{inv.date}</td>
+                              <td style={{ textAlign: 'center' }}>
+                                <a
+                                  href={`/admin/invoices/${inv.no}/pdf`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="btn sm soft"
+                                >
+                                  <Icon name="download" /> PDF
+                                </a>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )
                 )}
 
@@ -617,44 +627,46 @@ const AdminClientDetail: React.FC<Props> = ({
                   documents.length === 0 ? (
                     <div className="empty"><Icon name="doc" /><b>لا توجد مستندات مسجلة لهذا العميل</b></div>
                   ) : (
-                    <table className="tbl" style={{ minWidth: 600 }}>
-                      <thead>
-                        <tr>
-                          <th>اسم المستند</th>
-                          <th>التصنيف</th>
-                          <th>تاريخ الرفع</th>
-                          <th style={{ textAlign: 'center' }}>الإجراء</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {documents.map((d) => (
-                          <tr key={d.id}>
-                            <td>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <Icon name="doc" />
-                                <b>{d.name}</b>
-                              </div>
-                            </td>
-                            <td><span className="chip">{d.meta}</span></td>
-                            <td className="muted mono" style={{ fontSize: 12 }}>{d.date}</td>
-                            <td style={{ textAlign: 'center' }}>
-                              {d.downloadUrl ? (
-                                <a
-                                  href={d.downloadUrl}
-                                  className="btn sm soft"
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  <Icon name="download" /> تنزيل
-                                </a>
-                              ) : (
-                                <span className="muted">—</span>
-                              )}
-                            </td>
+                    <div className="t-wrap">
+                      <table className="tbl" style={{ minWidth: 600 }}>
+                        <thead>
+                          <tr>
+                            <th>اسم المستند</th>
+                            <th>التصنيف</th>
+                            <th>تاريخ الرفع</th>
+                            <th style={{ textAlign: 'center' }}>الإجراء</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {documents.map((d) => (
+                            <tr key={d.id}>
+                              <td>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <Icon name="doc" />
+                                  <b>{d.name}</b>
+                                </div>
+                              </td>
+                              <td><span className="chip">{d.meta}</span></td>
+                              <td className="muted mono" style={{ fontSize: 12 }}>{d.date}</td>
+                              <td style={{ textAlign: 'center' }}>
+                                {d.downloadUrl ? (
+                                  <a
+                                    href={d.downloadUrl}
+                                    className="btn sm soft"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    <Icon name="download" /> تنزيل
+                                  </a>
+                                ) : (
+                                  <span className="muted">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )
                 )}
 

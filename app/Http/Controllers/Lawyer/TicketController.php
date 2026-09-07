@@ -607,6 +607,20 @@ class TicketController extends Controller
         $summary = $ticket->summary;
         abort_unless($summary && $summary->result_status === 'pending_lawyer', 404);
 
+        /*
+         * **لا اعتمادَ لنتيجةٍ خاوية.**
+         *
+         * كان الشرط الوحيد `result_status`، ثمّ تُكتب باسم المحامي «راجعتُ ملخص الجلسة
+         * والتوصيات… وهي معتمدة» — قولٌ بضمير المتكلّم عن مراجعةٍ لا يستطيع النظام أن
+         * يعلم أنّها وقعت. والنمط مقرَّرٌ في هذا الملفّ نفسه: `approveSummary` يمنع
+         * اعتماد قالبٍ لم يُحرَّر.
+         */
+        abort_if(
+            ! TicketResult::hasSubstance($summary),
+            422,
+            'النتيجة بلا وقائع أو توصيات — استكملها قبل الاعتماد.'
+        );
+
         $summary->update(['result_status' => 'pending_admin']);
 
         $ticket->update([
@@ -620,7 +634,8 @@ class TicketController extends Controller
             'who' => 'lawyer',
             'name' => $request->user()->name,
             'role' => 'اعتماد',
-            'body' => '<p>راجعتُ ملخص الجلسة والتوصيات والإجراءات المقترحة، وهي معتمدة ومرفوعة إلى الإدارة للاعتماد النهائي.</p>',
+            // **لا ادّعاءَ بضمير المتكلّم**: النظام يشهد بالاعتماد لا بالمراجعة
+            'body' => '<p>اعتُمدت نتيجة الملف ورُفعت إلى الإدارة للاعتماد النهائي.</p>',
             'time_label' => $this->clock(),
         ]);
         Live::push(new TicketMessageBroadcast($msg));

@@ -4,8 +4,11 @@ import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
 import { useBodyScrollLock } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
-import { maskClient } from '@/lib/admin-data';
-import { SummaryStateBadge } from '@/lib/consult-ui';
+// **النسخة التي تُخفي فعلاً.** `admin-data` يصدّر `maskClient` وهي `return name`
+// — لا تُخفي شيئاً — بينما `employee-data` تحمل الإخفاء الحقيقيّ الذي تستعمله
+// بقيّة شاشات الطاقم. فكانت الشاشة تنادي دالّةً باسمٍ يَعِد بما لا يفعل.
+import { maskClient } from '@/lib/employee-data';
+import { RichText, SummaryStateBadge } from '@/lib/consult-ui';
 import type { ConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import {
@@ -15,6 +18,7 @@ import {
   CONSULT_TERMINAL_STATUSES,
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { useCan } from '@/lib/permissions';
 
 interface LawyerConsultsProps {
   consults: ConsultCard[];
@@ -42,6 +46,9 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   const [sessionNotes, setSessionNotes] = useState<string>('');
   const [clientReport, setClientReport] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // نصّ الموكّل يحرّره ويعتمده **من يملك الصلاحيّة** — لا من يفتح الصفحة.
+  const mayEditSummary = useCan()('اعتماد/تعديل ملخص الاستشارة');
 
   // مزامنة فورية عبر Laravel Echo
   useEffect(() => {
@@ -202,7 +209,12 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
       {
         preserveScroll: true,
         onSuccess: () => {
-          toast(`تم إنهاء الجلسة بنجاح، وجارٍ استخراج مسودة التقرير`);
+          // «وجارٍ استخراج مسودة التقرير» ليست مضمونة: `FinalizeConsultJob` **لا
+          // ينادي النموذج بلا مادّة** — بل يُنبّه المحامي ليدوّن. والوعد يقع في
+          // الحالة التي كُتب لها ذلك الفرع أصلاً.
+          toast(sessionNotes.trim() === ''
+            ? 'خُتمت الجلسة بلا تدوين — لا ملخّص حتّى تُدوّن'
+            : 'خُتمت الجلسة وحُفظ التدوين — تُعدّ المسودّة الآن');
           setDrawerTab('report');
         },
         onError: (errors) => toast(Object.values(errors)[0] || 'تعذر إنهاء الجلسة'),
@@ -220,7 +232,8 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
       {},
       {
         preserveScroll: true,
-        onSuccess: () => toast('تم تسجيل حالة عدم الحضور وإشعار الإدارة'),
+        // `noShow()` يُشعر **العميل وحده** — لا إشعار إدارةٍ في المسار.
+        onSuccess: () => toast('سُجّل عدم الحضور وأُشعر الموكّل — يمكنك إعادة الجدولة'),
         onError: (errors) => toast(Object.values(errors)[0] || 'تعذر تسجيل عدم الحضور'),
         onFinish: () => setIsProcessing(false),
       }
@@ -255,6 +268,19 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   // الاعتماد من شاشة الملفّ — لا من الصندوق وحده. ملخّصٌ بلا قيد `ai_runs` لا يبلغ
   // الصندوق أبداً، فكان يبقى محجوباً عن الموكّل مهما طال.
   const handleApproveReport = (consult: ConsultCard) => {
+    /*
+     * **يُعتمد المحفوظ لا المعروض.** الخادم يعتمد `$consult->summary` المخزَّن،
+     * والمحرّر قد يحمل تحريراً لم يُحفظ — فمن يُحرّر ثمّ يضغط «اعتماد» يُرسل إلى
+     * الموكّل النصّ **القديم** وهو يقرأ الجديد على الشاشة. فيُنبَّه صراحةً.
+     */
+    const unsaved = clientReport.trim() !== (consult.summary ?? '').trim();
+
+    if (unsaved) {
+      toast('لديك تحريرٌ لم يُحفظ — احفظ المسودّة أوّلاً، فالاعتماد يُرسل النصّ المحفوظ');
+
+      return;
+    }
+
     if (!window.confirm('سيصل الملخّص إلى الموكّل فور الاعتماد. متابعة؟')) {
       return;
     }
@@ -264,6 +290,29 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
       preserveScroll: true,
       onSuccess: () => toast('اعتُمد الملخّص وأُرسل إلى الموكّل'),
       onError: (errors) => toast(Object.values(errors)[0] || 'تعذّر اعتماد الملخّص'),
+      onFinish: () => setIsProcessing(false),
+    });
+  };
+
+  /**
+   * إعادة الجدولة — مسارُ إنقاذ الفائتة.
+   *
+   * فعلٌ مُدمِّر: يحذف اجتماع Zoom ويصفّر الموعد وأختام التذكير ويُشعر الموكّل.
+   * فيُستأذَن قبله.
+   */
+  const handleReschedule = (consult: ConsultCard) => {
+    if (!window.confirm('سيُلغى الموعد الحاليّ وغرفة Zoom، ويُطلب من الموكّل اختيار موعدٍ جديد. متابعة؟')) {
+      return;
+    }
+
+    setIsProcessing(true);
+    router.post(`/lawyer/consults/${consult.id}/reschedule`, {}, {
+      preserveScroll: true,
+      onSuccess: () => {
+        toast('أُعيدت الجدولة — الموكّل يختار موعداً جديداً');
+        closeDrawer();
+      },
+      onError: (errors) => toast(Object.values(errors)[0] || 'تعذّرت إعادة الجدولة'),
       onFinish: () => setIsProcessing(false),
     });
   };
@@ -300,10 +349,15 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
       {
         preserveScroll: true,
         onSuccess: () => {
-          toast('تم تحويل الاستشارة إلى ملف قضية بنجاح، وفتح ملف القضية الجديد');
+          // كان يقول «وفتح ملف القضية الجديد» — و`convertToCase` يُعيد `back()`
+          // بتعليقٍ صريح أنّه **لا ينقل** المستخدم. فالوعد لا يقع، والدرج يُغلق
+          // بعده فلا يبقى للمحامي شيء.
+          toast('حُوّلت إلى قضية — تجدها في «القضايا»');
           closeDrawer();
         },
-        onError: () => toast('تعذر تحويل الاستشارة إلى قضية'),
+        // نصّ الرفض من الخادم: «تم تحويل هذه التذكرة لقضية مسبقاً» و«التذكرة غير
+        // مكتملة» سببان مختلفان، وابتلاعُهما يترك المحامي يعيد المحاولة بلا فهم.
+        onError: (errors) => toast(Object.values(errors)[0] || 'تعذر تحويل الاستشارة إلى قضية'),
         onFinish: () => setIsProcessing(false),
       }
     );
@@ -593,7 +647,12 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
 
                     <td style={{ textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                        {c.channel === 'مرئية' && (c.hostLink || c.slink) && (
+                        {/* **`canJoin` يُحترم هنا كما يُحترم في الدرج.** كان صفّ
+                            الجدول يعرض الرابط بلا التفاتٍ إليه — و`hostLink` هو
+                            `start_url` خارجيّ لا يمرّ بحارس `sdkSignature`، فيُفتح
+                            قبل إطلاق الرابط وبعد انتهاء الجلسة سواء. القاعدة كانت
+                            تُطبَّق في موضعٍ وتُخرَق في آخر من الملفّ نفسه. */}
+                        {c.channel === 'مرئية' && c.canJoin !== false && (c.hostLink || c.slink) && (
                           <a
                             href={c.hostLink || c.slink}
                             target="_blank"
@@ -740,9 +799,17 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
           </div>
 
           {/* عمود 4: مكتملة ومعتمدة */}
+          {/*
+            **عمودٌ كان يُسلّم ما لم يُسلَّم.** عنوانه «مكتملة ومعتمدة» وشرطُه
+            `TERMINAL_STATUSES` — أي أنه يضمّ **الملغاة** و**من لم يحضر**. وكان يُلوّن
+            كلّ بطاقةٍ أخضرَ مصلَّباً (فيُلغي تمييزاً كتبه `cTone` عمداً: الملغاة حمراء
+            ولم‑يحضر كهرمانيّة)، ويكتب تحتها **«✓ تم التسليم للموكل»** بلا قراءة
+            `summaryApproved` — فوق ملفٍّ أُلغي، أو لم تنعقد جلسته، أو ملخّصُه محجوبٌ
+            بانتظار الاعتماد.
+          */}
           <div className="lawyer-kanban-col">
             <div className="col-head gray">
-              <span>مكتملة ومعتمدة</span>
+              <span>منتهية ومغلقة</span>
               <span className="count">
                 {filteredItems.filter((c) => CONSULT_TERMINAL_STATUSES.includes(c.status)).length}
               </span>
@@ -758,12 +825,12 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                   >
                     <div className="card-top">
                       <b>{c.ref}</b>
-                      <Badge text={c.status} tone="b-green" />
+                      <Badge text={c.status} tone={cTone(c.status)} />
                     </div>
                     <div className="card-subj">{c.subject}</div>
                     <div className="card-client">👤 {maskClient(c.client)}</div>
                     <div className="card-foot">
-                      <span className="lawyer-summary-badge approved">✓ تم التسليم للموكل</span>
+                      <SummaryStateBadge consult={c} />
                     </div>
                   </div>
                 ))}
@@ -842,9 +909,10 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         {drawerConsult.subject || 'استشارة قانونية'}
                       </div>
                       <div className="emp-box-desc">
-                        {drawerConsult.summary ||
-                          drawerConsult.aiSummary ||
-                          'تم قيد الاستشارة بناءً على مستندات العميل وطلبه، بانتظار استعراض تفاصيل الدفوع والوقائع في الجلسة.'}
+                        <RichText
+                          text={drawerConsult.summary || drawerConsult.aiSummary}
+                          fallback="تم قيد الاستشارة بناءً على مستندات العميل وطلبه، بانتظار استعراض تفاصيل الدفوع والوقائع في الجلسة."
+                        />
                       </div>
                       <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <span className="emp-chip">
@@ -966,6 +1034,23 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         >
                           تسجيل عدم حضور العميل
                         </button>
+
+                        {/*
+                          **مسار التعافي كان مفقوداً.** `'لم يحضر'` حالةُ تعافٍ لا نهاية
+                          (انظر `Consult::CLOSED_STATUSES`) ومخرجُها إعادة الجدولة —
+                          والمسار مسجَّل للمحامي ويقبله الخادم، ولا زرّ له في الشاشة
+                          كلّها. فيسِم المحامي «لم يحضر» ثمّ لا يجد ما يُنقذ به الملفّ.
+                        */}
+                        {(drawerConsult.missed || drawerConsult.session === 'لم تُعقد') && (
+                          <button
+                            type="button"
+                            className="btn soft sm"
+                            disabled={isProcessing}
+                            onClick={() => handleReschedule(drawerConsult)}
+                          >
+                            <Icon name="cal" /> إعادة الجدولة
+                          </button>
+                        )}
                       </div>
 
                       <div>
@@ -1015,16 +1100,32 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                           : 'مسودّة لم تصل الموكل بعد — تظهر له فور الاعتماد.'}
                       </p>
 
-                      <textarea
-                        rows={10}
-                        value={clientReport}
-                        onChange={(e) => setClientReport(e.target.value)}
-                        placeholder="اكتب هنا التكييف النظامي، الرأي القانوني المعتمد، والتوصيات للموكل..."
-                        className="emp-search-input"
-                        style={{ width: '100%', lineHeight: 1.8, fontSize: 13.5, resize: 'vertical' }}
-                      />
+                      {/*
+                        **المحرّر خلف الصلاحيّة، ويُقفل بعد الاعتماد.**
+                        مسارا الحفظ والاعتماد محروسان بـ`permission:اعتماد/تعديل ملخص
+                        الاستشارة`، وهذه الشاشة لم تكن تفحصها إطلاقاً — فمن لا يملكها
+                        يحرّر ويضغط الحفظ فيسقط الطلب. والنظير المشترك في
+                        `consult-ui.tsx` عولج بـ`useCan` وتُرك هذا.
+                        والنصّ المعتمَد **لا يُحرَّر**: الخادم يردّ «اعتُمد هذا الملخّص
+                        ووصل العميل»، والفقرة أعلاه تقول إنّه المعتمَد ثمّ تدعو لحفظه.
+                      */}
+                      {mayEditSummary && ! drawerConsult.summaryApproved ? (
+                        <textarea
+                          rows={10}
+                          value={clientReport}
+                          onChange={(e) => setClientReport(e.target.value)}
+                          placeholder="اكتب هنا التكييف النظامي، الرأي القانوني المعتمد، والتوصيات للموكل..."
+                          className="emp-search-input"
+                          style={{ width: '100%', lineHeight: 1.8, fontSize: 13.5, resize: 'vertical' }}
+                        />
+                      ) : (
+                        <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: 13.5 }}>
+                          <RichText text={drawerConsult.summary} fallback="— لا مسودّة بعد —" />
+                        </div>
+                      )}
 
                       <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {mayEditSummary && ! drawerConsult.summaryApproved && (
                         <button
                           type="button"
                           className="btn primary sm"
@@ -1033,7 +1134,9 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         >
                           <Icon name="check" /> حفظ مسودة التقرير
                         </button>
+                        )}
 
+                        {mayEditSummary && (
                         <button
                           type="button"
                           className="btn sm"
@@ -1042,6 +1145,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         >
                           <Icon name="scale" /> {drawerConsult.summaryApproved ? 'معتمَد وواصل للموكّل' : 'اعتماد وإرسال للموكّل'}
                         </button>
+                        )}
 
                         <a
                           href="/lawyer/ai-review"
@@ -1060,7 +1164,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                               💡 تفريغ الذكاء الاصطناعي من جلسة Zoom (للاستئناس والبناء)
                             </summary>
                             <div style={{ fontSize: 12.5, lineHeight: 1.8, marginTop: 8, padding: 10, background: '#f8fafc', borderRadius: 6 }}>
-                              {drawerConsult.zoomSummary}
+                              <RichText text={drawerConsult.zoomSummary} />
                             </div>
                           </details>
                         </div>
@@ -1079,11 +1183,20 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                       <p style={{ margin: '0 0 12px', fontSize: 13, color: '#166534' }}>
                         في حال اتفق الموكل معكم على رفع دعوى أمام المحكمة أو تمثيل قضائي، يمكنك تحويل هذا الملف مباشرة إلى قضية رسمية لفتح ملف القضية وتعيين الأتعاب.
                       </p>
+                      {/* **الملفّ المحوَّل لا يُحوَّل مرّتين.** `caseNo` أُضيف إلى البطاقة
+                          ليكون الإشارة الصادقة على التحويل، ولم يكن يُقرأ هنا —
+                          فيبقى الزرّ أخضرَ مفعّلاً على ملفٍّ حُوِّل أمس، والخادم يردّ
+                          «تم تحويل هذه التذكرة لقضية مسبقاً». */}
+                      {drawerConsult.caseNo && (
+                        <p className="action-hint" style={{ margin: '0 0 10px' }}>
+                          <Icon name="check" /> حُوّلت إلى القضية <b>{drawerConsult.caseNo}</b>.
+                        </p>
+                      )}
                       <button
                         type="button"
                         className="btn sm"
                         style={{ background: '#16a34a', borderColor: '#16a34a', color: '#fff' }}
-                        disabled={isProcessing || !drawerConsult.ticketNo}
+                        disabled={isProcessing || !drawerConsult.ticketNo || !!drawerConsult.caseNo}
                         onClick={() => handleConvertToCase(drawerConsult)}
                       >
                         <Icon name="scale" /> تحويل الاستشارة إلى قضية تمثيل قضائي فوراً

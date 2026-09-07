@@ -143,6 +143,50 @@ export const MEET_REQUESTS: MeetRequest[] = [
 // ── الاستشارات (CONSULTS) ──
 export const CONSULT_FLOW = ['استقبال الاستشارة', 'مراجعة الموظف', 'معالجة الفريق القانوني', 'اعتماد الموظف', 'جاهزة/محالة للمحامي'];
 
+/**
+ * **رحلةُ الحجز والجلسة — الرحلة الثانية التي لم تكن.**
+ *
+ * `CONSULT_FLOW` أعلاه رحلةُ **الاستقبال**: استشارةٌ تُفتح عند الموظّف فيراجعها ويحلّلها
+ * ويعتمدها ويُحيلها. أمّا الاستشارة القادمة من **حجزٍ على تذكرة** (`ConsultBooking::request`)
+ * فلا تدخل هذا المسار قطّ — رحلتُها تسعيرٌ وسدادٌ وموعدٌ وجلسةٌ وملخّص.
+ *
+ * وكانت صفحة الرحلة تعرض لها الخطّ الأوّل، فتُبرَز «جاهزة/محالة للمحامي» لجلسةٍ
+ * **انتهت واعتُمد ملخّصها وسُدّد ثمنها**. قِيس على `CN-2026-7173`: سجلّ تدقيقها يقول
+ * تسعير ← سداد ← موعد ← جلسة، والشاشة تقول «معالجة الفريق القانوني».
+ */
+export const CONSULT_BOOKING_FLOW = ['طلب الاستشارة', 'التسعير والسداد', 'تحديد الموعد', 'انعقاد الجلسة', 'الملخّص والاعتماد'];
+
+/**
+ * مرحلةُ الاستشارة في رحلة الحجز — تُقاس بالحالة **وحالة الجلسة معاً**.
+ *
+ * الحالة وحدها لا تكفي: «منتهية» حالةُ استشارةٍ و«منتهية» حالةُ جلسة، والفرق بينهما
+ * أنّ الأولى نهايةُ الملفّ والثانية نهايةُ الانعقاد.
+ */
+export function cBookingStage(status: string, session?: string): number {
+  if (status === 'بانتظار التسعير') {
+    return 0;
+  }
+
+  if (status === 'بانتظار السداد') {
+    return 1;
+  }
+
+  if (status === 'بانتظار تحديد الموعد') {
+    return 2;
+  }
+
+  if (session === 'جلسة جارية' || status === 'قيد الاستشارة') {
+    return 3;
+  }
+
+  if (session === 'منتهية' || status === 'منتهية' || session === 'لم تُعقد' || status === 'لم يحضر') {
+    return 4;
+  }
+
+  // موعدٌ مؤكَّدٌ لم تبدأ جلستُه بعد
+  return 3;
+}
+
 export interface AuditEntry { user: string; field: string; before: string; after: string; time: string; }
 export interface Consult {
   ref: string; client: string; subject: string; type: string;
@@ -214,6 +258,33 @@ export const CONSULT_BOOKING_STATUSES = ['بانتظار التسعير', 'با�
  * الملغاة في «الكل» وحده.
  */
 export const CONSULT_TERMINAL_STATUSES = ['منتهية', 'لم يحضر', 'ملغاة'];
+
+/**
+ * **النهاياتُ المُقفَلة** — يطابق `Consult::CLOSED_STATUSES`.
+ *
+ * التمييزُ بين «نهايةٍ تُعرض» و«نهايةٍ تُقفل» كان على الخادم وحده بلا نظيرٍ في الواجهة:
+ * `'لم يحضر'` نهايةٌ في التبويب لكنّها **حالةُ إنقاذ** — إعادةُ الجدولة مسارُها المقصود.
+ * فبناءُ تعطيل الأزرار على `CONSULT_TERMINAL_STATUSES` يسدّ بابَ الإنقاذ.
+ */
+export const CONSULT_CLOSED_STATUSES = ['منتهية', 'ملغاة'];
+
+/**
+ * **حالاتُ الجلسة** — يطابق `Consult::SESSIONS`.
+ *
+ * `'لم تُعقد'` يكتبها `AutoCloseMissedConsults` ولم تكن تعرفها شاشةٌ واحدة.
+ */
+export const CONSULT_SESSIONS = ['بانتظار الجلسة', 'جلسة جارية', 'منتهية', 'لم تُعقد'];
+
+/** نهاياتُ الجلسة — لا فعلَ بعدها في الغرفة. يطابق `Consult::SESSION_ENDED`. */
+export const CONSULT_SESSION_ENDED = ['منتهية', 'لم تُعقد'];
+
+/**
+ * **قاموس الأولويّة** — يطابق `Consult::PRIORITIES`.
+ *
+ * «عادية» أولويّةُ **تذكرة** لا استشارة: كان المرشِّح يعرضها ويُغفل «منخفضة» التي
+ * تكتبها أزرار الدرج في الشاشة نفسها.
+ */
+export const CONSULT_PRIORITIES = ['عالية', 'متوسطة', 'منخفضة'];
 export function cHasStage(s: string): boolean {
   return s !== 'ملغاة' && !CONSULT_BOOKING_STATUSES.includes(s);
 }
@@ -235,8 +306,30 @@ export function crChannelIcon(ch: string): string {
 export function crChannelTone(ch: string): string {
   return ch === 'مرئية' ? 'b-blue' : ch === 'هاتفية' ? 'b-amber' : 'b-green';
 }
-export function crSessionTone(s: string): string {
-  return s === 'جلسة جارية' ? 'b-amber' : s === 'منتهية' ? 'b-green' : 'b-grey';
+/**
+ * **نغمةُ حالة الجلسة — مصدرٌ واحد.**
+ *
+ * كانت نسختان متطابقتان حرفيّاً (`crSessionTone` هنا و`sessTone` في `consult-ui`)،
+ * وثالثةٌ مكتوبةٌ بيدٍ في شاشة استقبال الإدارة تُخالفهما: «جارية الآن» **خضراء** بدل
+ * الكهرمانيّ، و«منتهية» **رماديّة** بدل الأخضر. فالحالة الواحدة بثلاثة ألوان.
+ *
+ * و**«لم تُعقد» لم تكن في أيّها**، فتسقط في الفرع الجامع «رماديّة» — أو أسوأ: «منتهية
+ * خضراء» في `consult-ui`. وهي فوتٌ لا نجاح.
+ */
+export function sessTone(s: string): string {
+  if (s === 'جلسة جارية') {
+    return 'b-amber';
+  }
+
+  if (s === 'منتهية') {
+    return 'b-green';
+  }
+
+  if (s === 'لم تُعقد') {
+    return 'b-red';
+  }
+
+  return 'b-grey';
 }
 
 // إخفاء أسماء العملاء للموظف — يطابق maskClient (دور الموظف)

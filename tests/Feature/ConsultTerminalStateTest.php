@@ -150,6 +150,36 @@ class ConsultTerminalStateTest extends TestCase
         $this->actingAs($lawyer)->post("/lawyer/consults/{$consult->id}/start")->assertStatus(422);
     }
 
+    /**
+     * **ولا تُحال جلسةٌ منعقدة.**
+     *
+     * كان الحارس يمنع النهايات ودورة الحجز ولا يمنع «قيد الاستشارة» — فزرّ «إعادة
+     * إسناد المستشار» في لوحة الإدارة يُرجع الحالة أثناء الجلسة، ويصل صاحبَها إشعارٌ
+     * يقول «سنوافيك بموعد الجلسة» وهو فيها الآن.
+     */
+    public function test_a_running_session_cannot_be_referred_away(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $other = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+
+        $consult = Consult::create([
+            'user_id' => $client->id, 'ref' => 'CN-RUN-'.uniqid(), 'subject' => 'نزاع تجاري',
+            'type' => 'استشارة', 'channel' => 'مرئية', 'status' => 'قيد الاستشارة',
+            'session' => 'جلسة جارية', 'tone' => 'b-amber',
+            'lawyer' => $lawyer->name, 'assigned_lawyer_id' => $lawyer->id,
+        ]);
+
+        $this->actingAs($lawyer)
+            ->post("/lawyer/consults/{$consult->id}/refer", ['lawyer_id' => $other->id])
+            ->assertStatus(422);
+
+        $fresh = $consult->fresh();
+        $this->assertSame('قيد الاستشارة', $fresh->status, 'ولا ترتدّ الحالة للخلف');
+        $this->assertSame($lawyer->id, $fresh->assigned_lawyer_id);
+        $this->assertSame(0, UserNotification::where('user_id', $client->id)->count(), 'ولا يُشعَر من هو في الجلسة');
+    }
+
     /** **ولا يتحوّل المنع إلى شلل:** ملفٌّ حيّ ما زال يقبل الأفعال. */
     public function test_a_live_consult_still_accepts_the_same_actions(): void
     {

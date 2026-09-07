@@ -98,7 +98,16 @@ class TicketJourneyWalkTest extends TestCase
         $this->assertSame('موعد مؤكد', $ticket->fresh()->status, 'حالة التذكرة تُحفظ رغم أي تعثّر في البثّ');
         $this->assertSame(5, $this->stageOf($ticket));
 
-        // ── المرحلة 6: الموظف يعقد الجلسة ← تُرفع النتيجة للمستشار ──
+        /*
+         * **الجلسة تُعقد قبل أن تُعلَن.**
+         *
+         * كان الاختبار يقفز من «موعد مؤكد» إلى `advance` مباشرةً — أي يصف السلوك الذي
+         * ثبت عطلُه: `conductSession` يكتب محضراً ويُخبر العميل «انعقدت الجلسة» بلا أن
+         * ينظر إلى الاستشارة. صار المسار يمرّ بالختم كما يقع فعلاً.
+         */
+        $consult->fresh()->forceFill(['session' => 'منتهية', 'status' => 'منتهية'])->save();
+
+        // ── المرحلة 6: الموظف يوثّق نتيجة الجلسة ← تُرفع للمستشار ──
         $this->actingAs($employee)->post(route('employee.tickets.advance', $ticket))->assertNoContent();
         $this->assertSame('بانتظار اعتماد النتيجة', $ticket->fresh()->status);
         $this->assertSame(5, $this->stageOf($ticket), 'ما زال عند الجلسة حتى يعتمد المستشار');

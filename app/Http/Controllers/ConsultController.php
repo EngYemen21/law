@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\Role;
 use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
+use App\Jobs\EscalateUnassignedTicketJob;
 use App\Models\Consult;
 use App\Models\User;
 use App\Services\LegalAiService;
@@ -138,16 +139,48 @@ class ConsultController extends Controller
         $subject = $consult->subject ?: ($consult->ticket?->type ?? null);
 
         $eventsToBroadcast = [];
+        $escalatedTo = null;
 
-        DB::transaction(function () use ($consult, $startsAt, $specialty, $subject, $data, &$eventsToBroadcast) {
+        DB::transaction(function () use ($consult, $startsAt, $specialty, $subject, $data, &$eventsToBroadcast, &$escalatedTo) {
             // إسناد ذكيّ خادميّ مع أقفال حماية التزامن لمنع الحجز المزدوج
             $lawyer = LawyerAvailability::assignLawyer($specialty, $subject, $startsAt, LawyerAvailability::slotMinutes());
+
+            /*
+             * **الحجز المتعذّر يُرفع إلى الإدارة — لا يُرفض.**
+             *
+             * كان الإخفاق يرمي خطأ تحقّقٍ للعميل وينتهي: عميلٌ **سدّد** ثمّ صُدّ،
+             * والإدارة لا تعلم أنّ أحداً حاول. ورسالتُه كاذبة فوق ذلك — تقول «لا يوجد
+             * مستشار **مختصّ**» بينما `rankedSpecialists` يسقط إلى **كلّ** المحامين
+             * النشطين حين لا يطابق أحدٌ التخصّص. فالسبب الحقيقيّ أنّ الجميع مشغولون
+             * في تلك الساعة (أو لا محاميَ نشطاً)، والتخصّص لا دخل له.
+             *
+             * فيُحجز الموعد ويُرفع الملفّ إلى أقدم إداريّ ليوزّعه — احتذاءً بسابقة
+             * `EscalateUnassignedTicketJob` في التذاكر، بالوسم نفسه «الإدارة العليا».
+             *
+             * و`ConsultBooking::schedule` يحتمل غياب المحامي أصلاً: `guardNoConflict`
+             * مشروطٌ به، والموعد يُنشأ بـ`lawyer_id = null`.
+             */
             if ($lawyer === null) {
-                throw ValidationException::withMessages(['time' => 'لا يوجد مستشار مختصّ متاح في هذا الوقت، فضلاً اختر وقتاً آخر.']);
+                $escalatedTo = User::where('role', Role::Admin)->orderBy('id')->first();
+
+                // ولا إدارةَ بعد (تثبيتٌ جديد) ⇒ يبقى الرفض: لا يُترك ملفٌّ بلا مالك
+                if ($escalatedTo === null) {
+                    throw ValidationException::withMessages([
+                        'time' => 'هذا الوقت لم يعد متاحاً، فضلاً اختر وقتاً آخر.',
+                    ]);
+                }
+
+                $consult->logAudit(
+                    'النظام',
+                    'الإسناد',
+                    '—',
+                    'تعذّر الإسناد التلقائيّ — رُفع إلى الإدارة للتوزيع'
+                );
+                $consult->save();
             }
 
             $consultScheduled = ConsultBooking::schedule($consult, [
-                'lawyer_id' => $lawyer->id,
+                'lawyer_id' => $lawyer?->id,
                 'starts_at' => $startsAt->toDateTimeString(),
                 'duration' => LawyerAvailability::slotMinutes(),
                 'day' => $startsAt->format('Y-m-d'),
@@ -188,6 +221,46 @@ class ConsultController extends Controller
                     Live::push($ev);
                 }
             });
+        }
+
+        /*
+         * **التصعيد يُوسَم ويُشعَر بعد الالتزام — لا داخله.**
+         *
+         * الوسم بعد `schedule` لأنّها تكتب `lawyer` النائب النصّيّ (`المستشار القانوني`)
+         * و`assigned_lawyer_id = null`؛ فالوسم هنا يجعل الملفّ **مملوكاً** لأقدم إداريّ
+         * كما تفعل `EscalateUnassignedTicketJob` بالتذاكر — فلا يبقى بلا صاحبٍ يتصرّف.
+         *
+         * وبقفلٍ قصيرٍ وإعادة فحص: لو أُسنِد يدويّاً في اللحظة نفسها فلا يُكتب فوقه.
+         */
+        if ($escalatedTo !== null) {
+            DB::transaction(function () use ($consult, $escalatedTo) {
+                $locked = Consult::whereKey($consult->id)->lockForUpdate()->first();
+                if ($locked === null || $locked->assigned_lawyer_id) {
+                    return;
+                }
+
+                $locked->update([
+                    'lawyer' => EscalateUnassignedTicketJob::SENIOR_LABEL,
+                    'assigned_lawyer_id' => $escalatedTo->id,
+                ]);
+            });
+
+            $consult->refresh();
+
+            $notice = "استشارة ({$consult->ref}) حُجزت {$consult->when_label} ولم يتوفّر محامٍ في هذا الوقت — وزّعها على مستشارٍ من شاشة الاستشارات.";
+            foreach (User::where('role', Role::Admin)->get() as $admin) {
+                Notify::send($admin->id, 'cal', 't-amber', $notice);
+            }
+
+            // **والعميل لا يُوعَد بما لم يقع:** موعدُه مؤكَّد، ومستشارُه لم يُسنَد بعد.
+            Notify::send(
+                $consult->user_id,
+                'cal',
+                't-amber',
+                "تم تأكيد موعد استشارتك ({$consult->ref}) {$consult->when_label} — ويُسنَد مستشارك قبل الجلسة ويصلك إشعار."
+            );
+
+            return back()->with('flash', 'تم تأكيد موعدك — ويُسنَد مستشارك قبل الجلسة ويصلك إشعار.');
         }
 
         return back()->with('flash', 'تم تأكيد موعد استشارتك.');

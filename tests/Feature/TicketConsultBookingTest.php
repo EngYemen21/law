@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
+use App\Jobs\EscalateUnassignedTicketJob;
 use App\Models\Appointment;
 use App\Models\Consult;
 use App\Models\Ticket;
@@ -125,7 +126,16 @@ class TicketConsultBookingTest extends TestCase
         $this->assertSame('موعد مؤكد', $ticket->fresh()->status);
     }
 
-    public function test_double_booking_same_lawyer_slot_is_rejected(): void
+    /**
+     * **لا يُحجز المحامي مرّتين — والعميل الثاني لا يُردّ خاويَ اليدين.**
+     *
+     * كان الاختبار يقيس الثابت («لا ازدواج») بآليّة **الرفض**. وقد تغيّرت الآليّة بقرار
+     * المالك (2026-09-05): الحجز المتعذّر يُرفع إلى الإدارة بدل أن يُرفض — لأنّ العميل
+     * الثاني **سدّد الفاتورة** قبل أن يصل إلى اختيار الموعد.
+     *
+     * فالثابتُ نفسه يُفحص هنا مباشرةً: موعدٌ واحدٌ للمحامي، والثاني في يد الإدارة.
+     */
+    public function test_a_second_booking_never_double_books_the_lawyer(): void
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
         $date = LawyerAvailability::resolveDate(null)->toDateString();
@@ -137,14 +147,26 @@ class TicketConsultBookingTest extends TestCase
             'lawyer_id' => $lawyer->id, 'date' => $date, 'time' => '11:00',
         ])->assertRedirect();
 
-        // عميل آخر يحاول نفس الفترة → المختصّ الوحيد مشغول، فلا بديل متاح ويُرفض
+        // عميلٌ آخر يطلب الفترة نفسها → المحامي الوحيد مشغول ⇒ يُحجز ويُرفع إلى الإدارة
         $c2 = User::factory()->create(['role' => Role::Client]);
         $t2 = $this->ticketFor($c2);
         $consult2 = $this->driveToPaid($c2, $t2);
         $this->actingAs($c2)->post(route('consults.schedule', $consult2), [
             'lawyer_id' => $lawyer->id, 'date' => $date, 'time' => '11:00',
-        ])->assertSessionHasErrors('time');
+        ])->assertRedirect();
 
+        // **الثابت:** موعدٌ واحدٌ للمحامي مهما تعدّد الطالبون
         $this->assertSame(1, Appointment::where('lawyer_id', $lawyer->id)->count());
+        $this->assertNotSame(
+            $lawyer->id,
+            $consult2->fresh()->assigned_lawyer_id,
+            'ولا يُسنَد المحامي المشغول'
+        );
+
+        // والملفّ الثاني في يد الإدارة لتوزّعه — لا ضائعٌ ولا مرفوض
+        $this->assertSame(
+            EscalateUnassignedTicketJob::SENIOR_LABEL,
+            $consult2->fresh()->lawyer
+        );
     }
 }

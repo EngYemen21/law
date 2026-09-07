@@ -27,6 +27,10 @@ interface ArchiveRow {
   zip: string | null;
   audioZip: string | null;
   transcript: string | null;
+  /** هل الملفّ مبنيٌّ على القرص؟ `false` تعني «يُحضَّر عند الطلب» لا «غير متاح». */
+  videoReady: boolean;
+  audioReady: boolean;
+  transcriptReady: boolean;
 }
 
 interface AdminArchiveProps {
@@ -36,6 +40,51 @@ interface AdminArchiveProps {
 type ViewMode = 'grid' | 'table';
 type MediaFilter = 'all' | 'video' | 'audio' | 'transcript' | 'summary';
 type DrawerTab = 'summary' | 'decisions' | 'media' | 'details';
+
+/**
+ * **زرُّ وسيطٍ يقول ما سيفعله.**
+ *
+ * حين يكون الملفّ مبنيّاً فهو رابط تنزيلٍ عاديّ. وحين لا يكون، كان الزرّ نفسه يَعِد
+ * بالتنزيل ثمّ يردّ الخادم `back()` — فتومض الصفحة ولا ينزل شيء، ويُعيد المستخدم
+ * النقر ظنّاً أنّ الأولى ضاعت، فتُجدوَل مهمّةُ بناءٍ في كلّ نقرة.
+ *
+ * صار غيرُ الجاهز طلبَ تحضيرٍ صريحاً: نصُّه «تحضير» لا «تنزيل»، ويُرسل مرّةً واحدة
+ * (`preserved` يمنع التكرار)، ويعرض ردَّ الخادم بدل ابتلاعه.
+ */
+const MediaButton: React.FC<{
+  href: string;
+  ready: boolean;
+  icon: string;
+  label: string;
+  grow?: boolean;
+}> = ({ href, ready, icon, label, grow }) => {
+  const [asked, setAsked] = useState(false);
+  const style = grow ? { flex: 1, justifyContent: 'center' } : undefined;
+
+  if (ready) {
+    return (
+      <a className="btn soft sm" style={style} href={href} title={`تنزيل ${label}`}>
+        <Icon name={icon} /> {label}
+      </a>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="btn soft sm"
+      style={{ ...style, opacity: asked ? 0.6 : 1 }}
+      disabled={asked}
+      title={`${label} — يُحضَّر من سحابة Zoom ثمّ يصلك إشعار`}
+      onClick={() => {
+        setAsked(true);
+        router.visit(href, { preserveScroll: true, preserveState: true });
+      }}
+    >
+      <Icon name={asked ? 'clock' : icon} /> {asked ? 'قيد التحضير' : `تحضير ${label}`}
+    </button>
+  );
+};
 
 export const AdminArchive: React.FC<AdminArchiveProps> = ({ rows = [] }) => {
   // State Management
@@ -692,25 +741,20 @@ return false;
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {/* تنزيل الفيديو MP4 */}
+                    {/*
+                      * **زرُّ التنزيل ينزّل، وزرُّ التحضير يُحضّر.**
+                      *
+                      * كانا زرّاً واحداً: `<a href>` عاديّ يعِد بملفٍّ قد لا يكون مبنيّاً،
+                      * فيردّ الخادم `back()` وتُعيد النقرةُ تحميلَ الصفحة بلا تنزيل.
+                      */}
                     {a.zip && (
-                      <a className="btn soft sm" style={{ flex: 1, justifyContent: 'center' }} href={a.zip}>
-                        <Icon name="video" /> فيديو MP4
-                      </a>
+                      <MediaButton href={a.zip} ready={a.videoReady} icon="video" label="فيديو MP4" grow />
                     )}
-
-                    {/* تنزيل الصوت M4A */}
                     {a.audioZip && (
-                      <a className="btn soft sm" style={{ flex: 1, justifyContent: 'center' }} href={a.audioZip}>
-                        <Icon name="mic" /> صوت M4A
-                      </a>
+                      <MediaButton href={a.audioZip} ready={a.audioReady} icon="mic" label="صوت M4A" grow />
                     )}
-
-                    {/* تنزيل النص التفريغي TXT */}
                     {a.transcript && (
-                      <a className="btn soft sm" style={{ flex: 1, justifyContent: 'center' }} href={a.transcript}>
-                        <Icon name="doc" /> النص TXT
-                      </a>
+                      <MediaButton href={a.transcript} ready={a.transcriptReady} icon="doc" label="النص TXT" grow />
                     )}
                   </div>
 
@@ -825,20 +869,10 @@ return false;
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                          {a.zip && (
-                            <a className="btn soft sm" href={a.zip} title="تنزيل الفيديو MP4">
-                              <Icon name="video" /> MP4
-                            </a>
-                          )}
-                          {a.audioZip && (
-                            <a className="btn soft sm" href={a.audioZip} title="تنزيل الصوت M4A">
-                              <Icon name="mic" /> M4A
-                            </a>
-                          )}
+                          {a.zip && <MediaButton href={a.zip} ready={a.videoReady} icon="video" label="MP4" />}
+                          {a.audioZip && <MediaButton href={a.audioZip} ready={a.audioReady} icon="mic" label="M4A" />}
                           {a.transcript && (
-                            <a className="btn soft sm" href={a.transcript} title="تنزيل النص التفريغي TXT">
-                              <Icon name="doc" /> نص
-                            </a>
+                            <MediaButton href={a.transcript} ready={a.transcriptReady} icon="doc" label="نص" />
                           )}
                           {a.recording && (
                             <a
@@ -1061,7 +1095,7 @@ return false;
             </div>
 
             {/* محتوى لسان التبويب */}
-            <div style={{ padding: 20, flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="c360-drawer-body" style={{ padding: 20, flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
               {/* Tab 1: الملخص القانوني والتوصيات */}
               {drawerTab === 'summary' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

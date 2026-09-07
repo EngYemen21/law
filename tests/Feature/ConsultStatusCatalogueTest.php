@@ -156,12 +156,13 @@ class ConsultStatusCatalogueTest extends TestCase
     {
         $rules = (string) file_get_contents(app_path('Http/Controllers/Staff/ConsultController.php'));
 
-        $this->assertStringContainsString('in:عالية,متوسطة,منخفضة', $rules);
-        $this->assertStringNotContainsString(
-            'in:عالية,متوسطة,عادية',
-            $rules,
-            '«عادية» أولويّةُ تذكرة لا استشارة'
-        );
+        // والقاعدة تقرأ الكتالوج بدل قائمةٍ حرفيّة: كانت الشاشة تحمل قاموساً ثالثاً
+        // يعرض «عادية» ويُغفل «منخفضة» — فالنصّ المكرّر هو ما سمح بالانحراف.
+        $this->assertStringContainsString('Rule::in(Consult::PRIORITIES)', $rules);
+        $this->assertStringNotContainsString('in:عالية,متوسطة', $rules, 'لا قائمةَ حرفيّةٌ ثانية');
+
+        $this->assertSame(['عالية', 'متوسطة', 'منخفضة'], Consult::PRIORITIES);
+        $this->assertNotContains('عادية', Consult::PRIORITIES, '«عادية» أولويّةُ تذكرة لا استشارة');
     }
 
     /**
@@ -172,22 +173,10 @@ class ConsultStatusCatalogueTest extends TestCase
      */
     public function test_no_screen_counts_a_status_the_server_never_writes(): void
     {
-        $screens = [
-            resource_path('js/pages/employee/consults.tsx'),
-            resource_path('js/pages/lawyer/consults.tsx'),
-            resource_path('js/pages/admin/consults.tsx'),
-        ];
-
         $offenders = [];
 
-        foreach ($screens as $file) {
-            if (! is_file($file)) {
-                continue;
-            }
-
-            $src = (string) file_get_contents($file);
-            // نُسقط تعليقات الشرح: تذكر العطل بنصّه فتُشعل الحارس على نفسه
-            $src = (string) preg_replace('#/\*.*?\*/|//[^\n]*#su', '', $src);
+        foreach ($this->screens() as $name => $src) {
+            $file = $name;
 
             // **`===` وحدها لا تكفي.** حالات ما قبل الجلسة والنهايات تُكتب في هذه
             // الشاشات بصيغة `[...].includes(c.status)` — ستّ مرّاتٍ في ملفّ الموظّف
@@ -204,11 +193,134 @@ class ConsultStatusCatalogueTest extends TestCase
 
             foreach (array_unique($found) as $status) {
                 if (! in_array($status, Consult::STATUSES, true)) {
-                    $offenders[] = basename($file).": «{$status}»";
+                    $offenders[] = "{$file}: «{$status}»";
                 }
             }
         }
 
         $this->assertSame([], $offenders, "شاشةٌ تعدّ حالةً لا يكتبها الخادم:\n".implode("\n", $offenders));
+    }
+
+    /**
+     * **وحالةُ الجلسة كذلك — وهي التي لم تكن مفحوصةً قطّ.**
+     *
+     * `session` عمودٌ نصّيّ حرّ بلا كتالوج، فلم يكن لحارسٍ سبيلٌ إليه. وثمرةُ ذلك أنّ
+     * `AutoCloseMissedConsults` يكتب **«لم تُعقد»** ولا تعرفها شاشةٌ واحدة: الفرع
+     * الجامع في `consult-ui` يعرضها **«منتهية» خضراء** وزرَّ ملخّصٍ فارغ، وشاشة
+     * استقبال الإدارة تعرضها **«بانتظار الجلسة»** — فتُنتظر جلسةٌ أُغلقت آلياً.
+     */
+    public function test_no_screen_compares_a_session_the_server_never_writes(): void
+    {
+        $offenders = [];
+
+        foreach ($this->screens() as $name => $src) {
+            preg_match_all("/session\s*[!=]==\s*'([^']+)'/u", $src, $m);
+
+            preg_match_all("/\[([^\[\]]*)\]\s*\.includes\(\s*c\.session/u", $src, $lists);
+            $found = $m[1];
+            foreach ($lists[1] as $list) {
+                preg_match_all("/'([^']+)'/u", $list, $literals);
+                $found = array_merge($found, $literals[1]);
+            }
+
+            foreach (array_unique($found) as $session) {
+                if (! in_array($session, Consult::SESSIONS, true)) {
+                    $offenders[] = "{$name}: «{$session}»";
+                }
+            }
+        }
+
+        $this->assertSame([], $offenders, "شاشةٌ تقارن حالةَ جلسةٍ لا يكتبها الخادم:\n".implode("\n", $offenders));
+    }
+
+    /** وكتالوج الجلسة يطابق ما تكتبه المسارات فعلاً — لا قيمةَ زائدة ولا ناقصة. */
+    public function test_the_session_catalogue_matches_what_the_server_writes(): void
+    {
+        $src = implode("\n", array_map(
+            fn ($f) => (string) file_get_contents($f),
+            $this->consultWriters()
+        ));
+
+        foreach (Consult::SESSIONS as $session) {
+            $this->assertTrue(
+                str_contains($src, "'{$session}'"),
+                "«{$session}» في كتالوج الجلسة ولا يكتبها مسار"
+            );
+        }
+
+        // و«لم تُعقد» تحديداً — النهايةُ التي كانت تُعرض نجاحاً
+        $this->assertContains('لم تُعقد', Consult::SESSIONS);
+        $this->assertContains('لم تُعقد', Consult::SESSION_ENDED);
+        $this->assertNotContains('لم تُعقد', Consult::STATUSES, 'حالةُ جلسةٍ لا حالةُ استشارة');
+    }
+
+    /**
+     * **ولا نغمةَ ثانية.**
+     *
+     * كانت `sessTone` معرَّفةً مرّتين حرفيّاً (في `consult-ui` وفي `employee-data`
+     * باسم `crSessionTone`)، وثالثةً مكتوبةً بيدٍ في استقبال الإدارة تُخالفهما:
+     * «جارية الآن» خضراء بدل الكهرمانيّ، و«منتهية» رماديّة بدل الأخضر. فالحالة
+     * الواحدة بثلاثة ألوان في ثلاث شاشات.
+     */
+    public function test_session_colour_has_a_single_source(): void
+    {
+        $defs = 0;
+        foreach ($this->screens() as $name => $src) {
+            if (preg_match('/(export\s+)?(function|const)\s+\w*[Ss]essionTone|export\s+function\s+sessTone/u', $src)) {
+                $defs++;
+            }
+
+            $this->assertStringNotContainsString(
+                'text="جارية الآن"',
+                $src,
+                "{$name}: تسميةٌ مخترَعة خارج الكتالوج"
+            );
+        }
+
+        $this->assertSame(1, $defs, 'نغمةُ الجلسة تُعرَّف مرّةً واحدة');
+        $this->assertStringNotContainsString(
+            'crSessionTone',
+            implode("\n", $this->screens()),
+            'النسخة المكرّرة أُزيلت'
+        );
+    }
+
+    /**
+     * الشاشاتُ السبعُ ومكتبتُها، بلا تعليقات.
+     *
+     * كان المسحُ على ثلاثِ شاشاتٍ فقط، ومنها سقطت `admin/consultrecv.tsx` — وهي
+     * **١٨٦١ سطراً تكتب تسمياتها ونغماتها بنفسها** ولا تستورد المكوّن المشترك.
+     *
+     * @return array<string,string>
+     */
+    private function screens(): array
+    {
+        $files = [
+            'employee/consults.tsx' => 'js/pages/employee/consults.tsx',
+            'lawyer/consults.tsx' => 'js/pages/lawyer/consults.tsx',
+            'admin/consults.tsx' => 'js/pages/admin/consults.tsx',
+            'admin/consult-requests.tsx' => 'js/pages/admin/consult-requests.tsx',
+            'admin/consultrecv.tsx' => 'js/pages/admin/consultrecv.tsx',
+            'myconsults.tsx' => 'js/pages/myconsults.tsx',
+            'lib/consult-ui.tsx' => 'js/lib/consult-ui.tsx',
+            'lib/employee-data.ts' => 'js/lib/employee-data.ts',
+        ];
+
+        $out = [];
+        foreach ($files as $name => $rel) {
+            $path = resource_path($rel);
+            if (! is_file($path)) {
+                continue;
+            }
+
+            // نُسقط تعليقات الشرح: تذكر العطل بنصّه فتُشعل الحارس على نفسه
+            $out[$name] = (string) preg_replace(
+                '#/\*.*?\*/|//[^\n]*#su',
+                '',
+                (string) file_get_contents($path)
+            );
+        }
+
+        return $out;
     }
 }
