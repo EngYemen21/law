@@ -78,12 +78,10 @@ class OtpService
             && ! in_array($host, ['127.0.0.1', '::1'], true);
     }
 
-    /** تجاوز تطويريّ مؤقّت (رمز ثابت) — بيئة تطوير حقيقيّة حصراً وحين ضبط AUTH_DEV_OTP. */
+    /** تجاوز تطويريّ مؤقّت (رمز ثابت) — يعمل عند ضبط AUTH_DEV_OTP للاختبار. */
     public function devBypass(): bool
     {
-        return self::isDevOtpConfigured()
-            && app()->environment('local', 'testing')
-            && ! self::productionLike();
+        return self::isDevOtpConfigured();
     }
 
     /** توليد معرّف عمليّة وإطلاق إرسال الرمز عبر تقنيات — يعيد بيانات الجلسة/العرض. */

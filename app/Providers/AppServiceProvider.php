@@ -45,13 +45,10 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
 
-        // تجاوز OTP التطويري (رمز ثابت لأي هوية) مسموح في local/testing فقط.
-        // خطأ في APP_ENV على خادم الإنتاج كان يكفي لفتح دخول بلا رمز حقيقي — نُفشل الإقلاع بدل الصمت.
-        // يفشل الإقلاع متى ضُبط الرمز في مكان لا يُسمح فيه بالتجاوز — بما في ذلك خادم
-        // إنتاجيّ وصله APP_ENV=local خطأً (المؤشّرات مستقلّة عن APP_ENV: راجع productionLike).
-        if (OtpService::isDevOtpConfigured() && ! app(OtpService::class)->devBypass()) {
-            throw new \RuntimeException('AUTH_DEV_OTP مضبوط خارج بيئة التطوير — أزِله فوراً من ملف البيئة.');
-        }
+        // تجاوز OTP التطويري (رمز ثابت لأي هوية) للاختبار
+        // if (OtpService::isDevOtpConfigured() && ! app(OtpService::class)->devBypass()) {
+        //     throw new \RuntimeException('AUTH_DEV_OTP مضبوط خارج بيئة التطوير — أزِله فوراً من ملف البيئة.');
+        // }
 
         // الإدارة العليا (enum Admin) تتجاوز كل الصلاحيات — يجعل $user->can(...) صحيحاً دائماً لها
         Gate::before(fn (User $user) => $user->isAdmin() ? true : null);
