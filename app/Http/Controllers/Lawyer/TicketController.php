@@ -447,6 +447,21 @@ class TicketController extends Controller
     {
         $this->guardAssigned($ticket);
         abort_unless($ticket->summary, 404);
+
+        /*
+         * **الاعتماد نهائيّ — والحفظ قبله مسوّدة.**
+         *
+         * `rerunSummary` كان محروساً بـ`isApproved()` و`updateSummary` مكشوفاً: أي أنّ
+         * إعادةَ التوليد ممنوعةٌ بعد الاعتماد والكتابةَ اليدويّة مسموحة — وهي الأخطر،
+         * لأنّها تُبدّل نصّاً اعتُمد رسميّاً ووصل صاحبَه بلا أثرٍ ولا إعادة اعتماد.
+         * (قاعدة المالك 2026-09-08: كلُّ حقلٍ له اعتمادٌ نهائيّ يُقفَل بعده.)
+         */
+        abort_if(
+            (bool) $ticket->summary->isApproved(),
+            422,
+            'اعتُمد هذا الملخّص رسميًّا — لا يُعدَّل بعد الاعتماد.'
+        );
+
         $data = $request->validate([
             'case_summary' => ['nullable', 'string', 'max:5000'],
             'attachments_summary' => ['nullable', 'string', 'max:5000'],

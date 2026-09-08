@@ -4,13 +4,16 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import FlowLine from '@/components/babylon/FlowLine';
 import Modal from '@/components/babylon/Modal';
+import StatRow from '@/components/babylon/StatRow';
+import type {StatItem} from '@/components/babylon/StatRow';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { todayISO } from '@/components/SpecialistPicker';
 import { nowClock, todayDate } from '@/lib/chat';
 import { openMeeting, RichText } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { MR_FLOW, maskClient } from '@/lib/employee-data';
+import { MR_FLOW } from '@/lib/employee-data';
+import { useMasker } from '@/lib/permissions';
 import Icon from '@/lib/icons';
 import ZoomEmbedRoom from '@/lib/zoom-room';
 
@@ -105,6 +108,9 @@ export interface FullMeetingCard {
     recording: string | null;
     transcript: boolean;
     startsAt: string | null;
+    // شقّا الحالة الحيّة من الخادم: قادم أم ماضٍ، وهل نافذة الدخول مفتوحة الآن
+    up: boolean;
+    canJoin: boolean;
     joinTime: string | null;
     leaveTime: string | null;
     durationSec: number | null;
@@ -235,6 +241,7 @@ const hmToMin = (hm: string) => {
 
 export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDirEntry[]; lawyers: { id: number; name: string }[]; selfLawyerId?: number | null; base: string }> = ({ requests, clients, lawyers, selfLawyerId, base }) => {
     const toast = useToast();
+    const mask = useMasker();
     const [open, setOpen] = useState(false);
     // إن كان المُنشئ محاميًا فهو المحامي المسؤول حصراً (لا يختار غيره)
     const selfLawyerName = selfLawyerId ? lawyers.find((l) => l.id === selfLawyerId)?.name : null;
@@ -341,12 +348,22 @@ setMiTime('');
         });
     };
 
+    // onError في الاثنين: الحارس الخادميّ يردّ ٤٢٢ (دعوة غير معلّقة / ليست لك)
+    // وكان الردّ يسقط صامتاً — فتُنقر الموافقة مرّتين ولا يظهر شيء.
     const cancel = (r: MeetReqCard) =>
-        router.post(`${base}/meetreqs/${r.dbId}/cancel`, {}, { preserveScroll: true, onSuccess: () => toast('تم إلغاء الدعوة') });
+        router.post(`${base}/meetreqs/${r.dbId}/cancel`, {}, {
+            preserveScroll: true,
+            onSuccess: () => toast('تم إلغاء الدعوة'),
+            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر إلغاء الدعوة'),
+        });
 
     // موافقة الإدارة على دعوة معلّقة ونشرها للعميل (الزرّ يظهر في لوحة الإدارة فقط)
     const approveReq = (r: MeetReqCard) =>
-        router.post(`${base}/meetreqs/${r.dbId}/approve`, {}, { preserveScroll: true, onSuccess: () => toast('تمت الموافقة على الدعوة ونشرها للعميل') });
+        router.post(`${base}/meetreqs/${r.dbId}/approve`, {}, {
+            preserveScroll: true,
+            onSuccess: () => toast('تمت الموافقة على الدعوة ونشرها للعميل'),
+            onError: (e) => toast(Object.values(e)[0] ?? 'الموافقة متاحة للدعوات المعلّقة فقط'),
+        });
 
     // دخول الغرفة المضمّنة كمضيف ويعلّم «تنفيذ الجلسة»
     const enterRoom = (r: MeetReqCard) => {
@@ -461,7 +478,7 @@ setMiTime('');
                         <div key={r.id} className="item">
                             <div className="iico"><Icon name="video" /></div>
                             <div className="imeta">
-                                <b>{r.id} — {maskClient(r.client)}</b>
+                                <b>{r.id} — {mask(r.client)}</b>
                                 <span style={{ display: 'block', margin: '3px 0' }}>
                                     {r.type} · {r.service} · {r.day} {r.time} · أرسلها: {r.by || 'المكتب'}
                                 </span>
@@ -485,7 +502,7 @@ setMiTime('');
                                     </>
                                 ) : r.stage >= 3 ? (
                                     <Badge text="معتمد" tone="b-green" />
-                                ) : r.stage < 2 ? (
+                                ) : r.stage === 0 ? (
                                     <>
                                         <span className="chip muted">بانتظار موافقة الإدارة</span>
                                         {/* بوّابة النشر: الإدارة وحدها توافق فتُنشأ الجلسة ويُشعر العميل */}
@@ -494,6 +511,20 @@ setMiTime('');
                                                 <Icon name="check" /> موافقة ونشر
                                             </button>
                                         )}
+                                        <button className="btn soft sm" onClick={() => cancel(r)} type="button">
+                                            <Icon name="out" /> إلغاء
+                                        </button>
+                                    </>
+                                ) : r.stage === 1 ? (
+                                    /*
+                                     * **المرحلة ١ نجاحٌ لا انتظار.** كان الشرط `stage < 2` يبتلعها،
+                                     * فبعد الموافقة تُعاد البطاقة «بانتظار موافقة الإدارة» وزرُّ
+                                     * «موافقة ونشر» قائم — فتُنقر ثانيةً ويردّ الخادم ٤٢٢ صامتاً.
+                                     * و`MR_FLOW[1]` نفسها تقول: «معتمدة ومنشورة للعميل».
+                                     */
+                                    <>
+                                        <Badge text={MR_FLOW[1]} tone="b-green" />
+                                        {/* الإلغاء يبقى متاحاً قبل الانعقاد — والخادم يشترط stage < 2 */}
                                         <button className="btn soft sm" onClick={() => cancel(r)} type="button">
                                             <Icon name="out" /> إلغاء
                                         </button>
@@ -1288,7 +1319,8 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                                     🗣️ النص الحرفي للجلسة (المتحدث والوقت)
                                 </button>
                             )}
-                            {status === 'منتهٍ' && (
+                            {/* المزامنة تُغيّر القرارات والمشاركين، وهما ممّا يشمله الاعتماد — فتُمنع بعده */}
+                            {status === 'منتهٍ' && !locked && (
                                 <button type="button" onClick={syncFromZoom} disabled={syncing}
                                     style={{
                                         display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -1331,54 +1363,6 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                 </div>
             )}
 
-            {/* عُلّق بطلب صاحب المنتج (2026-08-26): قوائم ثابتة مختلقة لا بيانات حقيقية */}
-            {false && <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                gap: 12,
-                marginBottom: 18,
-            }}>
-                {[
-                    { label: 'قبل الاجتماع', icon: '📝', items: m.before, cssColor: 'var(--primary)', cssBg: 'rgba(14,92,156,0.08)', cssBorder: 'rgba(14,92,156,0.18)' },
-                    { label: 'أثناء الاجتماع', icon: '🎙️', items: m.during, cssColor: 'var(--amber)', cssBg: 'var(--amber-bg)', cssBorder: 'rgba(192,131,43,0.2)' },
-                    { label: 'بعد الاجتماع', icon: '✅', items: m.after, cssColor: 'var(--success)', cssBg: 'var(--success-bg)', cssBorder: 'rgba(30,157,107,0.2)' },
-                ].map((col) => (
-                    <div key={col.label} style={{
-                        background: 'var(--paper)',
-                        border: `1px solid ${col.cssBorder}`,
-                        borderRadius: 14,
-                        overflow: 'hidden',
-                        boxShadow: 'var(--shadow)',
-                    }}>
-                        <div style={{
-                            padding: '10px 14px',
-                            background: col.cssBg,
-                            borderBottom: `1px solid ${col.cssBorder}`,
-                            display: 'flex', alignItems: 'center', gap: 7,
-                            fontWeight: 700, fontSize: '13px', color: col.cssColor,
-                        }}>
-                            <span>{col.icon}</span> {col.label}
-                        </div>
-                        <ul style={{ margin: 0, padding: '10px 18px', listStyle: 'none' }}>
-                            {col.items.map((x, i) => (
-                                <li key={i} style={{
-                                    padding: '6px 0',
-                                    fontSize: '13px',
-                                    color: 'var(--ink)',
-                                    borderBottom: i < col.items.length - 1 ? '1px solid var(--line-soft)' : 'none',
-                                    display: 'flex', alignItems: 'flex-start', gap: 8,
-                                }}>
-                                    <span style={{ color: col.cssColor, flexShrink: 0, marginTop: 2 }}>•</span>
-                                    {x}
-                                </li>
-                            ))}
-                            {col.items.length === 0 && (
-                                <li style={{ padding: '10px 0', color: 'var(--muted)', fontSize: '12.5px' }}>لا بنود بعد</li>
-                            )}
-                        </ul>
-                    </div>
-                ))}
-            </div>}
 
             {/* ═══════════════════════════════════════
                 📄  ملخص الاجتماع
@@ -1646,18 +1630,153 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
 // قائمة اجتماعات المكتب — مشتركة للمحامي والموظف (يطابق lwMeetings)
 // ============================================================
 
+/**
+ * قائمة اجتماعات المكتب — مشتركة بين لوحتَي الموظّف والمحامي.
+ *
+ * كانت قائمةً مسطّحة بترتيب الإنشاء (`cards()` يفرز `latest('id')`)، فاجتماعُ الأسبوع
+ * القادم يقع أسفل اجتماعِ الشهر الماضي، ولا فصلَ بين قادمةٍ ومنتهية. والبطاقة تحمل
+ * الملخّص والمحضر والقرارات والنصّ الحرفيّ ولا تعرض منها شيئاً — والموظّف **هو من
+ * يُعدّها**، فلا يعرف أيَّها ناقصٌ إلا بفتح كلّ اجتماعٍ على حدة.
+ *
+ * الفرزُ هنا لا في SQL لأنّه باتّجاهين: القادمةُ تصاعديّاً والماضيةُ تنازليّاً.
+ * و`up`/`canJoin` يأتيان من الخادم (`Meeting::liveState()`/`canJoin()`) فلا تُعاد
+ * كتابةُ القاعدتين في JS.
+ */
+type MeetTab = 'up' | 'past' | 'needsOutput' | 'needsApproval' | 'missed';
+
+// ينتظر عملَ الموظّف: انعقد ولم يكتمل توثيقه
+const needsOutput = (m: FullMeetingCard) => m.status === 'منتهٍ' && (!m.summary || !m.minutes);
+// اكتمل توثيقه وينتظر شهادة الإدارة — وبالاعتماد يصل الموكّل
+const needsApproval = (m: FullMeetingCard) =>
+    m.status === 'منتهٍ' && m.approve !== 'معتمد' && !!(m.summary || m.minutes);
+
 export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: string }> = ({ meetings, base }) => {
-    const toast = useToast();
     const openPage = (id: string) => router.visit(`${base}/meeting?id=${encodeURIComponent(id)}`);
+    // يُفتح على «قادمة»، وإن لم يكن ثمّة قادمٌ فعلى «المنتهية» — لا شاشةٍ فارغةٍ
+    // والقائمةُ مليئة. (تهيئةٌ كسولة لا تأثيرٌ جانبيّ: بلا إعادة تصيير.)
+    const [tab, setTab] = useState<MeetTab>(() => (meetings.some((m) => m.up) ? 'up' : 'past'));
+    const [q, setQ] = useState('');
+
+    const counts = useMemo(() => {
+        const today = new Date().toDateString();
+
+        return {
+            today: meetings.filter((m) => !!m.startsAt && new Date(m.startsAt).toDateString() === today).length,
+            up: meetings.filter((m) => m.up).length,
+            needsOutput: meetings.filter(needsOutput).length,
+            needsApproval: meetings.filter(needsApproval).length,
+            missed: meetings.filter((m) => m.status === 'لم ينعقد').length,
+            past: meetings.filter((m) => !m.up).length,
+        };
+    }, [meetings]);
+
+    // الصفر هنا قياسٌ صادق (لا اجتماعَ ينتظر محضراً) لا ادّعاءَ قياسٍ لم يقع
+    const stats: StatItem[] = [
+        ['t-cyan', 'clock', counts.today, 'اجتماعات اليوم'],
+        ['t-blue', 'video', counts.up, 'قادمة'],
+        ['t-amber', 'doc', counts.needsOutput, 'تنتظر محضراً أو ملخّصاً'],
+        ['t-green', 'check', counts.needsApproval, 'تنتظر اعتماد الإدارة'],
+        ['t-grey', 'alert', counts.missed, 'لم تنعقد'],
+    ];
+    const STAT_TABS: MeetTab[] = ['up', 'up', 'needsOutput', 'needsApproval', 'missed'];
+
+    const shown = useMemo(() => {
+        const bucket = meetings.filter((m) => {
+            if (tab === 'up') {
+                return m.up;
+            }
+
+            if (tab === 'past') {
+                return !m.up;
+            }
+
+            if (tab === 'needsOutput') {
+                return needsOutput(m);
+            }
+
+            if (tab === 'needsApproval') {
+                return needsApproval(m);
+            }
+
+            return m.status === 'لم ينعقد';
+        });
+
+        const needle = q.trim().toLowerCase();
+        const matched = needle === '' ? bucket : bucket.filter((m) =>
+            [m.title, m.client, m.lawyer, m.id, m.caseRef ?? '', m.type]
+                .some((f) => String(f).toLowerCase().includes(needle)));
+
+        // القادمةُ الأقربُ أوّلاً، والماضيةُ الأحدثُ أوّلاً، وما لا موعدَ له في الذيل
+        const asc = tab === 'up';
+
+        return [...matched].sort((a, b) => {
+            if (!a.startsAt && !b.startsAt) {
+                return 0;
+            }
+
+            if (!a.startsAt) {
+                return 1;
+            }
+
+            if (!b.startsAt) {
+                return -1;
+            }
+
+            const d = new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime();
+
+            return asc ? d : -d;
+        });
+    }, [meetings, tab, q]);
+
+    const TABS: [MeetTab, string, string, number][] = [
+        ['up', 'video', 'قادمة', counts.up],
+        ['needsOutput', 'doc', 'تنتظر توثيقاً', counts.needsOutput],
+        ['needsApproval', 'check', 'تنتظر الاعتماد', counts.needsApproval],
+        ['missed', 'alert', 'لم تنعقد', counts.missed],
+        ['past', 'folder', 'المنتهية والسابقة', counts.past],
+    ];
 
     return (
         <>
             <div className="ai-banner">
                 <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
-                <p>الفريق القانوني يجهّز الاجتماع قبله، يوثّقه أثناءه، ويستخرج المحضر والمهام والقرارات بعده.</p>
+                <p>تابع جدول اجتماعات المكتب، وأعِدّ محاضرها وملخّصاتها، واعرضها على الإدارة لاعتمادها — وبالاعتماد تصل الموكّل.</p>
             </div>
 
-            {meetings.length ? meetings.map((m) => (
+            <StatRow items={stats} onSelect={(i) => setTab(STAT_TABS[i])} />
+
+            <div className="card" style={{ marginBottom: 18 }}>
+                <div className="card-b" style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderBottom: '1px solid var(--line-soft)', paddingBottom: 12 }}>
+                        {TABS.map(([key, icon, label, n]) => (
+                            <button
+                                key={key}
+                                type="button"
+                                className={`btn sm ${tab === key ? '' : 'soft'}`}
+                                style={{ boxShadow: tab === key ? undefined : 'none' }}
+                                onClick={() => setTab(key)}
+                            >
+                                <Icon name={icon} /> {label} ({n})
+                            </button>
+                        ))}
+                    </div>
+                    <div className="search" style={{ maxWidth: 320, padding: '7px 12px' }}>
+                        <Icon name="search" />
+                        <input
+                            placeholder="بحث بالعنوان أو الموكّل أو المستشار أو المرجع…"
+                            value={q}
+                            onChange={(e) => setQ(e.target.value)}
+                        />
+                        {q && (
+                            <button type="button" onClick={() => setQ('')} style={{ color: 'var(--faint)' }}>
+                                <Icon name="close" />
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {shown.length ? shown.map((m) => (
                 <div key={m.id} className="card">
                     <div className="card-h">
                         <h3>{m.title}</h3>
@@ -1668,50 +1787,59 @@ export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: str
                         </div>
                     </div>
                     <div className="card-b" style={{ padding: '14px 18px' }}>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 13 }}>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
                             <span className="chip muted">{m.type}</span>
                             <span className="chip muted">{m.client}</span>
                             <span className="chip muted">{m.when}</span>
+                            {m.lawyer !== '—' && <span className="chip muted"><Icon name="user" /> {m.lawyer}</span>}
+                            {m.caseRef && <span className="chip muted"><Icon name="scale" /> {m.caseRef}</span>}
                         </div>
-                        {/* عُلّق بطلب صاحب المنتج (2026-08-26): قوائم ثابتة مختلقة لا بيانات حقيقية */}
-                        {false && <div className="mpanel">
-                            <div className="mbox">
-                                <div className="h">قبل الاجتماع</div>
-                                <ul>{m.before.map((x, i) => <li key={i}>{x}</li>)}</ul>
-                            </div>
-                            <div className="mbox">
-                                <div className="h">أثناء الاجتماع</div>
-                                <ul>{m.during.map((x, i) => <li key={i}>{x}</li>)}</ul>
-                            </div>
-                            <div className="mbox">
-                                <div className="h">بعد الاجتماع</div>
-                                <ul>{m.after.map((x, i) => <li key={i}>{x}</li>)}</ul>
-                            </div>
-                        </div>}
-                        <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-                            {/* «لم ينعقد» فات موعده — الدخول بلا معنى، و`room()` يردّه بـ٤٢٢
-                                على الحالة المشتقّة فلا يُلتَفّ على الإخفاء بالرابط المباشر */}
-                            {m.meetLink && !['منتهٍ', 'ملغى', 'لم ينعقد'].includes(m.status) && (
+
+                        {/* ما لدى الاجتماع من مخرجات — يُعرف الناقصُ بلا فتح كلّ ملفّ */}
+                        <div className="prot-list" style={{ marginBottom: 12 }}>
+                            <span className="chip" style={{ opacity: m.summary ? 1 : 0.5 }}>{m.summary ? '✓ ملخّص' : 'بلا ملخّص'}</span>
+                            <span className="chip" style={{ opacity: m.minutes ? 1 : 0.5 }}>{m.minutes ? '✓ محضر' : 'بلا محضر'}</span>
+                            <span className="chip" style={{ opacity: m.decisions.length ? 1 : 0.5 }}>
+                                {m.decisions.length ? `✓ قرارات (${m.decisions.length})` : 'بلا قرارات'}
+                            </span>
+                            {m.transcript && <span className="chip">✓ نصّ حرفيّ</span>}
+                            {m.recording && <span className="chip">✓ تسجيل</span>}
+                            {/* الحضور من سجلّ Zoom — وما لم يُقَس لا يُذكر */}
+                            {attendanceLabel(m) && <span className="chip"><Icon name="user" /> {attendanceLabel(m)}</span>}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                            {/* نافذة الدخول من الخادم (canJoin) — كما تحترمها بطاقة الموكّل تماماً */}
+                            {m.canJoin ? (
                                 <button className="btn sm" onClick={() => router.visit(`${base}/meetingroom?ref=${encodeURIComponent(m.id)}`)} type="button">
                                     <Icon name="video" /> دخول اجتماع Zoom
                                 </button>
-                            )}
+                            ) : m.up ? (
+                                <span className="chip muted"><Icon name="clock" /> يُفتح الدخول قبل الموعد بخمس دقائق</span>
+                            ) : null}
                             <button className="btn soft sm" onClick={() => openPage(m.id)} type="button">
                                 <Icon name="doc" /> فتح الصفحة
                             </button>
-                            <button
-                                className="btn soft sm"
-                                onClick={() => (m.summary ? openPage(m.id) : toast('لم يُحفظ ملخص بعد — افتح الصفحة لإعداده'))}
-                                type="button"
-                            >
-                                <Icon name="out" /> الملخص
-                            </button>
+                            {m.status === 'لم ينعقد' && (
+                                <span className="chip" style={{ color: 'var(--amber)' }}>
+                                    <Icon name="calplus" /> فات موعده — أعِد جدولته من صفحته
+                                </span>
+                            )}
                         </div>
                     </div>
                 </div>
             )) : (
                 <div className="card"><div className="card-b">
-                    <div className="empty"><Icon name="video" /><b>لا اجتماعات بعد</b></div>
+                    <div className="empty">
+                        <Icon name="video" />
+                        <b>{meetings.length ? 'لا اجتماع يطابق هذا الترشيح' : 'لا اجتماعات بعد'}</b>
+                        {!meetings.length && (
+                            <button className="btn sm" style={{ marginTop: 12 }} type="button"
+                                onClick={() => router.visit(`${base}/meetreqs`)}>
+                                <Icon name="send" /> أرسِل دعوة اجتماع لموكّل
+                            </button>
+                        )}
+                    </div>
                 </div></div>
             )}
         </>

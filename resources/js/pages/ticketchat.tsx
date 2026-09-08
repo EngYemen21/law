@@ -153,8 +153,10 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
               lawyerId={lawyerId} onLawyerChange={setLawyerId}
               time={time} onTimeChange={setTime}
             />
-            <button className="btn block" type="button" style={{ marginTop: 15, opacity: lawyerId && time && !busy ? 1 : 0.5 }}
-              disabled={!lawyerId || !time || busy} onClick={confirmSlot}>
+            {/* الشرط على الوقت وحده: lawyer_id لا يُرسَل والإسناد خادميّ — واشتراطُه
+                كان يقفل الدقيقة المخصّصة (تُختار ولا تُؤكَّد) */}
+            <button className="btn block" type="button" style={{ marginTop: 15, opacity: time && !busy ? 1 : 0.5 }}
+              disabled={!time || busy} onClick={confirmSlot}>
               <Icon name="cal" /> تأكيد الموعد
             </button>
           </>

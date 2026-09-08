@@ -187,7 +187,8 @@ export function cBookingStage(status: string, session?: string): number {
   return 3;
 }
 
-export interface AuditEntry { user: string; field: string; before: string; after: string; time: string; }
+/** `time` نصٌّ للعرض (١٢ ساعة + ص/م)، و`at` طابعٌ ISO للفرز — والقيود القديمة بلا `at`. */
+export interface AuditEntry { user: string; field: string; before: string; after: string; time: string; at?: string | null; }
 export interface Consult {
   ref: string; client: string; subject: string; type: string;
   priority: string; status: string; received: string; employee: string;

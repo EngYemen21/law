@@ -169,7 +169,10 @@ class ConsultAnalyzePermissionTest extends TestCase
             'الشرط يُقرأ من الكتالوج نفسه'
         );
 
-        $this->assertSame(2, substr_count($code, '{mayAnalyze && ('), 'زرّا الإطلاق والإعادة كلاهما');
+        // **الصلاحيّة تحرس الزرّين معاً** — وقد يُضاف إلى أحدهما شرطُ حالةٍ فوقها
+        // (`!analyzeBlocked`: `analyze` يردّ ٤٢٢ على المنتهية والملغاة)، فالفحص على
+        // بداية الشرط لا على صيغته كاملةً كي يقيس النيّة لا الحرف.
+        $this->assertSame(2, substr_count($code, '{mayAnalyze &&'), 'زرّا الإطلاق والإعادة كلاهما');
 
         // ولا يُخفى عرضُ النتيجة ولا اعتمادُها — الموظّف يقرأ ويحرّر ويعتمد
         $this->assertStringContainsString('onClick={approveAI}', $code);

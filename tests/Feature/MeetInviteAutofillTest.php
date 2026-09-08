@@ -159,4 +159,46 @@ class MeetInviteAutofillTest extends TestCase
 
         $this->assertSame(1, MeetRequest::count());
     }
+
+    // ————— ٣ · الشاشة تعترف بالموافقة —————
+
+    public function test_an_approved_invitation_leaves_the_pending_stage(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
+
+        $this->actingAs($employee)->post(route('employee.meetreqs.store'), [
+            'client_id' => $client->id, 'lawyer_id' => $lawyer->id,
+            'type' => 'استشارة مرئية', 'service' => 'تحقّق الموافقة',
+            'day' => now()->addWeek()->format('Y-m-d'), 'time' => '13:00', 'duration' => 60,
+        ])->assertRedirect();
+
+        $req = MeetRequest::firstOrFail();
+        $this->assertSame(MeetRequest::STAGE_SENT, $req->stage);
+
+        $this->actingAs($admin)->post(route('admin.meetreqs.approve', $req))->assertRedirect();
+
+        // **المرحلة تغادر «المعلّقة»** — والشاشة كانت تبتلعها بشرط `stage < 2`
+        $req->refresh();
+        $this->assertSame(MeetRequest::STAGE_CONFIRMED, $req->stage);
+        $this->assertNotSame(MeetRequest::STAGE_SENT, $req->stage);
+
+        // والموافقة الثانية مرفوضة — فالزرّ لا يجوز أن يبقى معروضاً
+        $this->actingAs($admin)->post(route('admin.meetreqs.approve', $req))->assertStatus(422);
+    }
+
+    public function test_the_screen_shows_a_published_invitation_as_published(): void
+    {
+        $ui = file_get_contents(resource_path('js/lib/meeting-ui.tsx'));
+
+        // المرحلة ١ لها فرعُها: نجاحٌ لا انتظار
+        $this->assertStringNotContainsString(') : r.stage < 2 ? (', $ui, 'المرحلة ١ ما زالت تُعرض «بانتظار موافقة الإدارة»');
+        $this->assertStringContainsString(') : r.stage === 1 ? (', $ui);
+        $this->assertStringContainsString('<Badge text={MR_FLOW[1]} tone="b-green" />', $ui);
+
+        // والرفض يُسمَع: كان يسقط صامتاً فتُنقر الموافقة مرّتين بلا أثر
+        $this->assertStringContainsString("onError: (e) => toast(Object.values(e)[0] ?? 'الموافقة متاحة للدعوات المعلّقة فقط')", $ui);
+    }
 }

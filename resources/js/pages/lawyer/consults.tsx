@@ -15,10 +15,41 @@ import {
   cTone,
   crChannelIcon,
   crChannelTone,
+  CONSULT_BOOKING_STATUSES,
+  CONSULT_CLOSED_STATUSES,
   CONSULT_TERMINAL_STATUSES,
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+
+export type LawyerKanbanCol = 'waiting' | 'live' | 'drafting' | 'completed';
+
+/**
+ * عمودٌ واحدٌ لكلّ بطاقة في كانبان المستشار — نظير `empKanbanColumnOf` عند الموظف و`kanbanColumnOf` عند الإدارة.
+ *
+ * يمنع ظهور البطاقة في عمودين معاً (كالاستشارة الملغاة أو التي لم تنعقد
+ * التي كانت تدخل عمود «بانتظار الانعقاد» وعمود «منتهية ومغلقة» معاً لأن cancelRequest لا يمس session).
+ */
+export function lawyerKanbanColumnOf(c: ConsultCard): LawyerKanbanCol {
+  if (CONSULT_TERMINAL_STATUSES.includes(c.status) || c.session === 'لم تُعقد') {
+    return 'completed';
+  }
+
+  if (c.session === 'جلسة جارية' || c.status === 'قيد الاستشارة') {
+    return 'live';
+  }
+
+  if (c.session === 'منتهية') {
+    return c.summaryApproved ? 'completed' : 'drafting';
+  }
+
+  // دورة الحجز لا تدخل جلسات الانعقاد عند المحامي
+  if (CONSULT_BOOKING_STATUSES.includes(c.status)) {
+    return 'completed';
+  }
+
+  return 'waiting';
+}
 
 interface LawyerConsultsProps {
   consults: ConsultCard[];
@@ -613,10 +644,21 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                     </td>
 
                     <td>
+                      {/*
+                        * **الفرعُ الجامع كان يبتلع نهايتين.** `session === 'لم تُعقد'`
+                        * (يكتبها `AutoCloseMissedConsults` و`noShow`) و`status === 'ملغاة'`
+                        * (و`cancelRequest` **لا يمسّ `session`** فتبقى «بانتظار الجلسة»)
+                        * كانتا تُعرضان «بانتظار الانعقاد» — فيحضّر المحامي لجلسةٍ أُلغيت
+                        * أو ينتظر جلسةً فاتت.
+                        */}
                       {isLive ? (
                         <span className="lawyer-status-pill live">🔴 جلسة جارية الآن</span>
+                      ) : CONSULT_CLOSED_STATUSES.includes(c.status) && c.status === 'ملغاة' ? (
+                        <span className="lawyer-status-pill cancelled">✕ ملغاة</span>
                       ) : c.session === 'منتهية' ? (
                         <span className="lawyer-status-pill ended">✓ الجلسة انتهت</span>
+                      ) : c.session === 'لم تُعقد' ? (
+                        <span className="lawyer-status-pill missed">✕ لم تنعقد</span>
                       ) : (
                         <span className="lawyer-status-pill wait">⏳ بانتظار الانعقاد</span>
                       )}
@@ -687,12 +729,12 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
             <div className="col-head blue">
               <span>بانتظار الانعقاد</span>
               <span className="count">
-                {filteredItems.filter((c) => c.session === 'بانتظار الجلسة').length}
+                {filteredItems.filter((c) => lawyerKanbanColumnOf(c) === 'waiting').length}
               </span>
             </div>
             <div className="col-body">
               {filteredItems
-                .filter((c) => c.session === 'بانتظار الجلسة')
+                .filter((c) => lawyerKanbanColumnOf(c) === 'waiting')
                 .map((c) => (
                   <div
                     key={c.id}
@@ -725,12 +767,12 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
             <div className="col-head green">
               <span>جلسات جارية الآن</span>
               <span className="count">
-                {filteredItems.filter((c) => c.session === 'جلسة جارية').length}
+                {filteredItems.filter((c) => lawyerKanbanColumnOf(c) === 'live').length}
               </span>
             </div>
             <div className="col-body">
               {filteredItems
-                .filter((c) => c.session === 'جلسة جارية')
+                .filter((c) => lawyerKanbanColumnOf(c) === 'live')
                 .map((c) => (
                   <div
                     key={c.id}
@@ -769,12 +811,12 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
             <div className="col-head amber">
               <span>بانتظار إعداد التقرير</span>
               <span className="count">
-                {filteredItems.filter((c) => c.session === 'منتهية' && !c.summaryApproved).length}
+                {filteredItems.filter((c) => lawyerKanbanColumnOf(c) === 'drafting').length}
               </span>
             </div>
             <div className="col-body">
               {filteredItems
-                .filter((c) => c.session === 'منتهية' && !c.summaryApproved)
+                .filter((c) => lawyerKanbanColumnOf(c) === 'drafting')
                 .map((c) => (
                   <div
                     key={c.id}
@@ -798,25 +840,17 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
             </div>
           </div>
 
-          {/* عمود 4: مكتملة ومعتمدة */}
-          {/*
-            **عمودٌ كان يُسلّم ما لم يُسلَّم.** عنوانه «مكتملة ومعتمدة» وشرطُه
-            `TERMINAL_STATUSES` — أي أنه يضمّ **الملغاة** و**من لم يحضر**. وكان يُلوّن
-            كلّ بطاقةٍ أخضرَ مصلَّباً (فيُلغي تمييزاً كتبه `cTone` عمداً: الملغاة حمراء
-            ولم‑يحضر كهرمانيّة)، ويكتب تحتها **«✓ تم التسليم للموكل»** بلا قراءة
-            `summaryApproved` — فوق ملفٍّ أُلغي، أو لم تنعقد جلسته، أو ملخّصُه محجوبٌ
-            بانتظار الاعتماد.
-          */}
+          {/* عمود 4: منتهية ومغلقة */}
           <div className="lawyer-kanban-col">
             <div className="col-head gray">
               <span>منتهية ومغلقة</span>
               <span className="count">
-                {filteredItems.filter((c) => CONSULT_TERMINAL_STATUSES.includes(c.status)).length}
+                {filteredItems.filter((c) => lawyerKanbanColumnOf(c) === 'completed').length}
               </span>
             </div>
             <div className="col-body">
               {filteredItems
-                .filter((c) => CONSULT_TERMINAL_STATUSES.includes(c.status))
+                .filter((c) => lawyerKanbanColumnOf(c) === 'completed')
                 .map((c) => (
                   <div
                     key={c.id}
@@ -1459,6 +1493,8 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
         }
         .lawyer-status-pill.live { background: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; }
         .lawyer-status-pill.ended { background: #f0fdf4; color: #15803d; }
+        .lawyer-status-pill.cancelled { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+        .lawyer-status-pill.missed { background: #fff1f2; color: #e11d48; border: 1px solid #fecdd3; }
         .lawyer-status-pill.wait { background: #f8fafc; color: #475569; }
         .lawyer-summary-badge {
           display: inline-block;

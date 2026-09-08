@@ -84,7 +84,13 @@ class ConsultSummary
                 // `MeetingSummary`. وأثرٌ نافع: حالة «انتهت بلا تدوين» تترك `summary`
                 // فارغاً، و`isPlaceholderSummary(null) === true` — فيصير Zoom موردَ
                 // المادّة التلقائيّ لتلك الحالة بلا شرطٍ خاصّ.
-                if (ZoomSummaryText::isPlaceholderSummary($consult->summary)) {
+                // **والاعتماد نهائيّ.** الحارس القالبيّ وحده لا يكفي: `approveSummary`
+                // يشترط `filled($summary)` ولا يشترط ألّا يكون قالبياً، فنصٌّ قالبيٌّ
+                // اعتُمد ووصل العميل يبقى قابلاً للاستبدال صامتاً. والقاعدة نفسها
+                // المطبَّقة في `MeetingSummary::pull` بعد قرار «الاعتماد نهائيّ».
+                $approved = $consult->summary_approved_at !== null;
+
+                if (! $approved && ZoomSummaryText::isPlaceholderSummary($consult->summary)) {
                     $updateData['summary'] = $text;
                 }
 
@@ -93,7 +99,11 @@ class ConsultSummary
 
                 // القرارات → **اقتراحات** لا مهامّ: مخرج نموذج لا يُنشئ التزاماً على
                 // إنسان بلا اعتماد. الإنشاء الفعليّ بزرّ createTasks (P3).
-                DecisionTasks::suggest($consult, app(LegalAiService::class));
+                // ولا تُقترح على معتمد: `toClientCard` يُرسل القرارات للعميل بعد
+                // الاعتماد، فاقتراحٌ لاحق يُبلغه ما لم تعتمده الإدارة.
+                if (! $approved) {
+                    DecisionTasks::suggest($consult, app(LegalAiService::class));
+                }
 
                 return true;
             }

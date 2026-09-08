@@ -45,9 +45,15 @@ class ConsultController extends Controller
             ->latest('id')->get()
             ->map(fn (Consult $c) => $c->toClientCard());
 
-        $upcoming = $consults->filter(fn ($c) => in_array($c['session'], ['بانتظار الجلسة', 'جلسة جارية']) && ! ($c['missed'] ?? false) && ! in_array($c['status'], ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد', 'ملغاة']))->values();
+        $upcoming = $consults->filter(fn ($c) => in_array($c['session'], ['بانتظار الجلسة', 'جلسة جارية'])
+            && ! ($c['missed'] ?? false)
+            && ! in_array($c['status'], ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد', 'بانتظار استكمال البيانات', 'ملغاة'])
+        )->values();
         $completed = $consults->filter(fn ($c) => $c['session'] === 'منتهية')->values();
-        $pendingBooking = $consults->filter(fn ($c) => in_array($c['status'], ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد']))->values();
+        $pendingBooking = $consults->filter(fn ($c) => in_array($c['status'], ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد', 'بانتظار استكمال البيانات'])
+            || ($c['missed'] ?? false)
+            || ($c['session'] ?? '') === 'لم تُعقد'
+        )->values();
 
         // أقرب استشارة قادمة
         $nextConsult = $upcoming->first();

@@ -14,9 +14,39 @@ import {
   crChannelTone,
   CONSULT_TERMINAL_STATUSES,
   CONSULT_BOOKING_STATUSES,
+  CONSULT_CLOSED_STATUSES,
+  CONSULT_SESSION_ENDED,
   CONSULT_PRIORITIES,
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+
+/**
+ * سببُ تعذّر إعادة الإسناد — أو null إن كانت متاحة.
+ *
+ * يطابق حرفاً بحرفٍ حرّاس `Staff\ConsultController::refer` الثلاثة، فلا تُعرض دعوةٌ
+ * إلى فعلٍ يردّه الخادم. و**دالّةٌ مُعلَنةٌ في نطاق الوحدة لا ثابتٌ داخل المكوّن**:
+ * الثابتُ يُستعمل في `useMemo` أعلى تعريفه فيقع في المنطقة الميّتة (TDZ) وتبيضّ
+ * الشاشة كلّها — وقع هذا فعلاً في شاشة استشارات الموظّف.
+ */
+function referBlockReason(c: ConsultCard | null): string | null {
+    if (!c) {
+        return null;
+    }
+
+    if (c.session === 'جلسة جارية') {
+        return 'الجلسة منعقدة الآن — أنهِها قبل تغيير المستشار.';
+    }
+
+    if (CONSULT_CLOSED_STATUSES.includes(c.status)) {
+        return 'الاستشارة انتهت أو أُلغيت — لا تُحال إلى محامٍ.';
+    }
+
+    if (CONSULT_BOOKING_STATUSES.includes(c.status)) {
+        return `ما زالت في دورة الحجز — حالتها «${c.status}». أكمل التسعير والسداد واختيار الموعد أوّلاً.`;
+    }
+
+    return null;
+}
 
 interface AdminConsultsProps {
   consults: ConsultCard[];
@@ -191,6 +221,9 @@ return null;
     return allItems.find((c) => c.ref === drawerRef) || null;
   }, [allItems, drawerRef]);
 
+  // سببُ تعذّر إعادة الإسناد على الملفّ المفتوح — null إن كانت متاحة
+  const referBlocked = referBlockReason(drawerConsult);
+
   // Comprehensive Lawyer List (From backend props + fallback from active database records)
   const lawyersList = useMemo(() => {
     if (initialLawyers && initialLawyers.length > 0) {
@@ -255,9 +288,8 @@ return;
   const telemetry = useMemo(() => {
     const total = allItems.length;
     const liveNow = allItems.filter((c) => c.session === 'جلسة جارية').length;
-    const preSession = allItems.filter((c) =>
-      ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'].includes(c.status)
-    ).length;
+    // من الكتالوج المشترك لا من نسخةٍ مكتوبةٍ بيد — تُخالف عند أوّل تعديل
+    const preSession = allItems.filter((c) => CONSULT_BOOKING_STATUSES.includes(c.status)).length;
     const needsPricing = allItems.filter((c) => c.status === 'بانتظار التسعير').length;
     const readyForLawyer = allItems.filter((c) => c.status === 'جاهزة للمحامي').length;
     const completed = allItems.filter((c) => CONSULT_TERMINAL_STATUSES.includes(c.status)).length;
@@ -344,7 +376,7 @@ set.add(c.lawyer.trim());
 return false;
 }
 
-      if (categoryFilter === 'pre_session' && !['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'].includes(c.status)) {
+      if (categoryFilter === 'pre_session' && !CONSULT_BOOKING_STATUSES.includes(c.status)) {
 return false;
 }
 
@@ -587,6 +619,41 @@ return;
         },
         // الحارس الخادميّ يمنع إلغاء ما سُدِّد أو انتهى — ورسالته تصل بدل صمتٍ
         onError: (err) => toast(String(Object.values(err)[0] ?? 'تعذّر إلغاء الطلب')),
+        onFinish: () => setIsProcessingAction(false),
+      }
+    );
+  };
+
+  /**
+   * **ما بعد الجلسة: اعتمادُ الملخّص وتحويلُ القرارات مهامّ.**
+   *
+   * كان تبويب «الإجراءات» يخلو من كلّ فعلٍ على ملفٍّ منتهٍ — والإدارة هي صاحبة
+   * الاعتماد: `CN-2026-4754` كانت واقفةً عند `summaryPending` ولا سبيل إلى اعتمادها
+   * من هذه الشاشة. فبإخفاء أزرار دورة الحجز وحدها يبدو التبويب معطَّلاً لا مُحكَماً.
+   */
+  const triggerApproveSummary = (consult: ConsultCard) => {
+    setIsProcessingAction(true);
+    router.post(
+      `/admin/consults/${consult.id}/summary/approve`,
+      {},
+      {
+        preserveScroll: true,
+        onSuccess: () => toast('✅ اعتُمد الملخّص ووصل العميل'),
+        onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذّر اعتماد الملخّص'}`),
+        onFinish: () => setIsProcessingAction(false),
+      }
+    );
+  };
+
+  const triggerCreateTasks = (consult: ConsultCard) => {
+    setIsProcessingAction(true);
+    router.post(
+      `/admin/consults/${consult.id}/tasks`,
+      {},
+      {
+        preserveScroll: true,
+        onSuccess: () => toast('✅ أُنشئت المهامّ من قرارات الجلسة'),
+        onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذّر إنشاء المهامّ'}`),
         onFinish: () => setIsProcessingAction(false),
       }
     );
@@ -1046,7 +1113,7 @@ return;
                 ['live', 'جلسات جارية', telemetry.liveNow],
                 ['pre_session', 'طلبات ما قبل الجلسة', telemetry.preSession],
                 ['in_flight', 'قيد المعالجة', telemetry.total - telemetry.preSession - telemetry.completed],
-                ['completed', 'منتهية ومحولة', telemetry.completed],
+                ['completed', 'منتهية ومغلقة', telemetry.completed],
                 ['late', 'متأخرة', telemetry.late],
                 ['unassigned', 'بانتظار إسناد مستشار', telemetry.unassigned],
               ] as const
@@ -1573,6 +1640,28 @@ return;
             {filteredItems.filter((c) => c.when && c.when !== '—').length > 0 ? (
               filteredItems
                 .filter((c) => c.when && c.when !== '—')
+                /*
+                 * **الفرز على `startsAt` لا على `when`.** كان العنوان يقول «مرتبة
+                 * زمنياً حسب موعد الانعقاد» و`filteredItems` **يرشّح ولا يفرز** —
+                 * فالترتيب ترتيبُ الاستعلام. و`when` نصٌّ («اليوم · 09:00») لا يُفرز،
+                 * والبطاقة تحمل `startsAt` بصيغة ISO. وما لا موعد له يسقط للذيل.
+                 */
+                .slice()
+                .sort((a, b) => {
+                  if (!a.startsAt && !b.startsAt) {
+                    return 0;
+                  }
+
+                  if (!a.startsAt) {
+                    return 1;
+                  }
+
+                  if (!b.startsAt) {
+                    return -1;
+                  }
+
+                  return new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime();
+                })
                 .map((c) => (
                   <div
                     key={c.id}
@@ -1706,8 +1795,13 @@ return;
                 .flatMap((c) => c.audit.map((a) => ({ ref: c.ref, ...a })))
                 // **«أحدث عشرة» كانت أوّل عشرة.** بلا فرزٍ يُقتطع من ترتيب الاستعلام
                 // (`starts_at` ثمّ المعرّف) — فالمعروض سجلّ أوّل استشارةٍ أو اثنتين لا
-                // أحدث ما جرى في المكتب. و`logAudit` يختم `Y/m/d h:i` فيُفرز لفظياً.
-                .sort((a, b) => String(b.time ?? '').localeCompare(String(a.time ?? '')))
+                // أحدث ما جرى في المكتب.
+                //
+                // **والفرز على `at` لا على `time`:** الأخيرة نصٌّ بصيغة ١٢ ساعة
+                // (`h:i` + ص/م) فلا تُفرز لفظياً — «١١:٠٠ ص» تسبق «٠١:٠٠ م» حرفياً
+                // وهي بعدها زمنياً، فكان «الأحدث» مقلوباً. والقيود القديمة بلا `at`
+                // تسقط إلى الذيل بدل أن تتصدّر بترتيبٍ عشوائيّ.
+                .sort((a, b) => new Date(b.at ?? 0).getTime() - new Date(a.at ?? 0).getTime())
                 .slice(0, 10)
                 .map((a, idx) => (
                   <div key={idx} className="item">
@@ -1903,7 +1997,18 @@ return;
               {/* Tab 2: التحكم والإجراءات الإدارية المباشرة */}
               {drawerTab === 'actions' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {/* 1. إعادة إسناد المحامي المباشر */}
+                  {/*
+                    * 1. إعادة إسناد المحامي — **مشروطةٌ بحرّاس `refer` الثلاثة نفسها**.
+                    * كانت الكتلة بلا شرطٍ إطلاقاً، فتُعرض على استشارةٍ منتهيةٍ أو في
+                    * دورة الحجز أو وجلستُها منعقدة — والخادم يردّ ٤٢٢ في الثلاث.
+                    * (مقيسٌ حيّاً: اثنتان من ثلاث استشاراتٍ في القاعدة تردّان ٤٢٢.)
+                    */}
+                  {referBlocked ? (
+                    <div className="card" style={{ margin: 0, padding: 16 }}>
+                      <b>إعادة إسناد المستشار القانوني:</b>
+                      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 0' }}>{referBlocked}</p>
+                    </div>
+                  ) : (
                   <div className="card" style={{ margin: 0, padding: 16 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       <b>إعادة إسناد المستشار القانوني:</b>
@@ -1949,6 +2054,7 @@ return;
                       </button>
                     </div>
                   </div>
+                  )}
 
                   {/* 2. التسعير المباشر وإصدار الفاتورة */}
                   {drawerConsult.status === 'بانتظار التسعير' && (
@@ -2012,7 +2118,7 @@ return;
                     * فالمدير يرى طلباً معطَّلاً ولا سبيل له إلى إنهائه إلّا الانتقال
                     * إلى شاشة الطلبات. والمسار قائمٌ ومحروسٌ على الخادم.
                     */}
-                  {!CONSULT_TERMINAL_STATUSES.includes(drawerConsult.status) && !drawerConsult.paid && (
+                  {CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && !drawerConsult.paid && (
                     <div className="card" style={{ margin: 0, padding: 14 }}>
                       <b>إلغاء الطلب:</b>
                       <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
@@ -2025,7 +2131,7 @@ return;
                         disabled={isProcessingAction}
                         onClick={() => setCancelTarget(drawerConsult)}
                       >
-                        <Icon name="x" /> إلغاء الطلب
+                        <Icon name="close" /> إلغاء الطلب
                       </button>
                     </div>
                   )}
@@ -2048,7 +2154,8 @@ return;
                     </div>
                   </div>
 
-                  {/* 5. تشغيل الذكاء الاصطناعي */}
+                  {/* 5. تشغيل الذكاء الاصطناعي — لا يُعاد تحليل ملفٍّ انتهى (حارس `analyze`) */}
+                  {!CONSULT_CLOSED_STATUSES.includes(drawerConsult.status) && (
                   <div className="card" style={{ margin: 0, padding: 14 }}>
                     <b>تحليل الفريق القانوني الذكي:</b>
                     <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
@@ -2075,6 +2182,60 @@ return;
                       )}
                     </div>
                   </div>
+                  )}
+
+                  {/*
+                    * 6. **ما بعد الجلسة.** يظهر حين تُختم الجلسة — وهو حيث تقع أفعال
+                    * الإدارة الحقيقيّة على ملفٍّ منتهٍ. وكلُّ زرٍّ مشروطٌ بحارسه الخادميّ:
+                    * `approveSummary` يردّ ٤٢٢ على المعتمد وعلى الفارغ، و`createTasks`
+                    * يردّ ٤٠٩ على ما أُنشئت مهامُّه و٤٢٢ على ما لا قرارات له.
+                    */}
+                  {(CONSULT_SESSION_ENDED.includes(drawerConsult.session)
+                    || CONSULT_CLOSED_STATUSES.includes(drawerConsult.status)) && (
+                    <div className="card" style={{ margin: 0, padding: 14, borderRight: '4px solid #1E9D6B' }}>
+                      <b>حصيلة الجلسة:</b>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+                        {/* الملخّص */}
+                        {drawerConsult.summaryApproved ? (
+                          <Badge text="✓ الملخّص معتمد ووصل العميل" tone="b-green" />
+                        ) : drawerConsult.summary ? (
+                          <button
+                            className="btn primary sm"
+                            style={{ width: '100%', justifyContent: 'center' }}
+                            type="button"
+                            disabled={isProcessingAction}
+                            onClick={() => triggerApproveSummary(drawerConsult)}
+                          >
+                            <Icon name="check" /> اعتماد الملخّص وإرساله للعميل
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                            لا ملخّص بعد — يُدوّنه المستشار في صفحة الاستشارة، ثمّ يُعتمد من هنا.
+                          </span>
+                        )}
+
+                        {/* القرارات → مهامّ */}
+                        {drawerConsult.tasksCreated ? (
+                          <Badge text="✓ أُنشئت المهامّ من قرارات الجلسة" tone="b-green" />
+                        ) : drawerConsult.decisions && drawerConsult.decisions.length > 0 ? (
+                          <button
+                            className="btn soft sm"
+                            style={{ width: '100%', justifyContent: 'center' }}
+                            type="button"
+                            disabled={isProcessingAction}
+                            onClick={() => triggerCreateTasks(drawerConsult)}
+                          >
+                            <Icon name="check" /> إنشاء المهامّ من القرارات ({drawerConsult.decisions.length})
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                            لا قرارات مستخرَجة من الجلسة — لا مهامّ تُنشأ.
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* الانتقال للتفاصيل الكاملة */}
                   <button
@@ -2100,6 +2261,53 @@ return;
                       <div style={{ marginTop: 8, fontSize: 12.5, lineHeight: 1.7, color: '#333' }}>
                         <RichText text={drawerConsult.aiSummary} />
                       </div>
+                    </div>
+                  )}
+
+                  {/* ملخّص Zoom AI — مادّة الجلسة كما وردت، بجوار الملخّص المعتمد لا بدلاً منه */}
+                  {drawerConsult.zoomSummary && (
+                    <div className="card" style={{ margin: 0, padding: 14 }}>
+                      <b>🤖 ملخّص Zoom AI:</b>
+                      <div style={{ marginTop: 8, fontSize: 12.5, lineHeight: 1.7, color: '#333' }}>
+                        <RichText text={drawerConsult.zoomSummary} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* سجلّ الحضور من Zoom — وما لم يُسجَّل لا يُعرض */}
+                  {drawerConsult.zoomParticipantsLog && drawerConsult.zoomParticipantsLog.length > 0 && (
+                    <div className="card" style={{ margin: 0, padding: 14 }}>
+                      <b>سجلّ حضور الجلسة:</b>
+                      <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {drawerConsult.zoomParticipantsLog.map((a, i) => (
+                          <div
+                            key={i}
+                            style={{
+                              display: 'flex', justifyContent: 'space-between', gap: 8,
+                              fontSize: 12, padding: '6px 8px',
+                              border: '1px solid rgba(0,0,0,0.06)', borderRadius: 6,
+                            }}
+                          >
+                            <b>{a.name || '—'}</b>
+                            <span style={{ color: 'var(--muted)', direction: 'ltr' }}>
+                              {a.join_time ? `${a.join_time}${a.leave_time ? ` ← ${a.leave_time}` : ''}` : 'لم يدخل'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* خطوات Zoom AI المقترحة — اقتراحاتٌ لا التزامات */}
+                  {drawerConsult.zoomAiNextSteps && drawerConsult.zoomAiNextSteps.length > 0 && (
+                    <div className="card" style={{ margin: 0, padding: 14 }}>
+                      <b>خطوات مقترَحة من Zoom AI:</b>
+                      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '4px 0 0' }}>
+                        اقتراحاتُ نموذج — لا تُنشئ التزاماً حتى تعتمدها الإدارة كمهامّ.
+                      </p>
+                      <ul style={{ margin: '8px 0 0', paddingRight: 20, fontSize: 12.5, lineHeight: 1.8 }}>
+                        {drawerConsult.zoomAiNextSteps.map((st, i) => <li key={i}>{st}</li>)}
+                      </ul>
                     </div>
                   )}
 

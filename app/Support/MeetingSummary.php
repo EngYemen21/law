@@ -74,14 +74,19 @@ class MeetingSummary
                     'has_summary' => true,
                 ];
 
+                // **الاعتماد نهائيّ.** ما شهدت به الإدارة لا تُغيّره مزامنةٌ لاحقة — لا نصّاً
+                // ولا قرارات. والبيانات الوصفية أعلاه (التسجيل، المدّة، سجلّ الحضور،
+                // zoom_summary) تبقى تُحدَّث: وقائعُ لا يشملها الاعتماد.
+                $approved = $meeting->approve === 'معتمد';
+
                 // الملخص المعروض للعميل (toCard يقرأ summary لا zoom_summary): القالبي/الفارغ
                 // يُستبدل بمحتوى Zoom الحقيقي — كما تفعل الاستشارات تماماً. المكتوب فعلاً يُحترم.
-                if (ZoomSummaryText::isPlaceholderSummary($meeting->summary)) {
+                if (! $approved && ZoomSummaryText::isPlaceholderSummary($meeting->summary)) {
                     $updateData['summary'] = ZoomSummaryText::format("ملخص الاجتماع — {$meeting->ref}", $summary);
                 }
 
                 // إذا كان المحضر فارغاً أو يحتوي نصاً قالبياً افتراضياً: استبداله بالأنصعة الحقيقية من Zoom AI
-                if (ZoomSummaryText::isPlaceholderMinutes($meeting->minutes)) {
+                if (! $approved && ZoomSummaryText::isPlaceholderMinutes($meeting->minutes)) {
                     $updateData['minutes'] = ZoomSummaryText::formatMinutes(
                         $meeting->title,
                         $meeting->when_label ?: $meeting->starts_at?->format('Y-m-d H:i'),
@@ -96,7 +101,11 @@ class MeetingSummary
 
                 // القرارات → **اقتراحات** لا مهامّ: مخرج نموذج لا يُنشئ التزاماً على
                 // إنسان بلا اعتماد. الإنشاء الفعليّ بزرّ createTasks (P3).
-                DecisionTasks::suggest($meeting, app(LegalAiService::class));
+                // ولا تُقترح على معتمد: toCard يُرسل `decisions` للعميل متى كان معتمداً،
+                // فاقتراحٌ بعد الاعتماد يُبلغه قراراتٍ لم تعتمدها الإدارة.
+                if (! $approved) {
+                    DecisionTasks::suggest($meeting, app(LegalAiService::class));
+                }
 
                 return true;
             }

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 
 // مُنتقي مشترك للمستشارين المتخصّصين + الفترات المتاحة — يستخدمه /book وحجز التذكرة.
 // يجلب التفرّغ من نقطة الخادم (مرتّب بالذكاء الاصطناعي + سجلّ النجاح)، ويُصدر الاختيار للأب.
@@ -79,6 +80,8 @@ const SpecialistPicker: React.FC<Props> = ({
   const times = lawyers[0]?.slots ?? [];
   const freeAt = (t: string) => lawyers.filter((l) => l.slots.some((s) => s.time === t && !s.taken));
   const assigned = time ? (freeAt(time)[0] ?? null) : null;
+  // وقتٌ اختاره المستخدم بدقّة الدقيقة خارج شبكة الفترات — لا مرشّح له في الشبكة
+  const outOfGrid = !!time && !times.some((s) => s.time === time);
 
   // الاسم الأول فقط (لقب + أول اسم) — لا يُظهَر الاسم الكامل للعميل
   const firstName = (n: string) => {
@@ -95,32 +98,27 @@ const SpecialistPicker: React.FC<Props> = ({
         {!loading && !failed && times.length === 0 && <p className="sub">لا يوجد مستشارون متاحون في هذا اليوم — غيّر التاريخ.</p>}
         {!loading && !failed && times.length > 0 && (
           <>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)', margin: '4px 0 6px' }}>
-              اختر الوقت المتاح
-            </label>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {times.map((s) => {
-                const past = isPastSlot(date, s.time);
-                const free = !past && freeAt(s.time).length > 0;
-                return (
-                  <button
-                    key={s.time}
-                    type="button"
-                    className={`btn ${time === s.time ? '' : 'soft'} sm`}
-                    disabled={!free}
-                    title={past ? 'انقضى الوقت' : free ? 'متاح' : 'محجوز'}
-                    style={!free ? { opacity: 0.4, textDecoration: 'line-through' } : undefined}
-                    onClick={() => { onTimeChange(s.time); onLawyerChange(freeAt(s.time)[0]?.id ?? null); }}
-                  >
-                    {s.time}
-                  </button>
-                );
-              })}
-            </div>
+            {/* المنتقي المشترك نفسه المستعمل في دعوات الاجتماعات: شرائح صباحاً/مساءً،
+                وعرضٌ مزدوج (١١:٠٠ ص فوق 11:00)، ودقيقةٌ مخصّصة. و«محجوز» يُشتقّ من
+                التوفّر الحقيقيّ (freeAt) لا من s.taken الخام: الفترة مأخوذةٌ حين لا
+                يخلو لها أحد. والماضي يحسمه المنتقي بنفسه. */}
+            <TimeSlotPicker
+              value={time}
+              onChange={(t) => { onTimeChange(t); onLawyerChange(freeAt(t)[0]?.id ?? null); }}
+              date={date}
+              slots={times.map((s) => ({ time: s.time, taken: freeAt(s.time).length === 0 }))}
+              label="اختر الوقت المتاح"
+              required
+              allowCustom
+            />
             {/* الإسناد النهائيّ خادميّ لحظة الحجز — لا نَعِد العميل باسم قد يتغيّر */}
             {assigned
               ? <p className="sub" style={{ marginTop: 10 }}>المتاح الآن لهذا الوقت: <b>{firstName(assigned.name)}</b> — يُعتمد الإسناد بعد تأكيد الحجز.</p>
-              : <p className="sub" style={{ marginTop: 10 }}>يُسند النظام المستشار المختصّ تلقائيّاً حسب نوع طلبك.</p>}
+              : outOfGrid
+                // وصفٌ حرفيّ لما يفعله الخادم: يحجز الموعد ويرفع الملفّ للإدارة للتوزيع
+                // (ConsultController::schedule) — لا رفضَ لعميلٍ سدّد، ولا وعدَ بما لم يقع.
+                ? <p className="sub" style={{ marginTop: 10, color: 'var(--amber)' }}>وقتٌ خارج الفترات المتاحة — يُثبَّت موعدُك، ويُسنَد مستشارُك قبل الجلسة ويصلك إشعار.</p>
+                : <p className="sub" style={{ marginTop: 10 }}>يُسند النظام المستشار المختصّ تلقائيّاً حسب نوع طلبك.</p>}
           </>
         )}
       </>

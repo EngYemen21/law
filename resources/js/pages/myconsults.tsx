@@ -128,13 +128,17 @@ return;
         in_array_sessions(c.session) &&
         !c.missed &&
         !CONSULT_BOOKING_STATUSES.includes(c.status) &&
+        // ما ينتظر مستنداً من الموكّل ليس «قادماً مؤكداً» — هو موقوفٌ عليه
+        c.status !== 'بانتظار استكمال البيانات' &&
         c.status !== 'ملغاة'
     );
   }, [items]);
 
   const pendingBookingConsults = useMemo(() => {
     // الفائتة تحتاج إجراءً (طلب إعادة جدولة) — كانت لا تظهر إلا في «الكل» فتضيع
-    return items.filter((c) => CONSULT_BOOKING_STATUSES.includes(c.status) || c.missed || c.session === 'لم تُعقد');
+    return items.filter((c) => CONSULT_BOOKING_STATUSES.includes(c.status)
+      || c.status === 'بانتظار استكمال البيانات'
+      || c.missed || c.session === 'لم تُعقد');
   }, [items]);
 
   const completedConsults = useMemo(() => {
@@ -217,29 +221,29 @@ return list;
       <div className="stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 22 }}>
         <div className="stat t-blue" onClick={() => setActiveTab('upcoming')}>
           <div className="si"><Icon name="video" /></div>
-          <div className="num">{stats?.upcoming ?? upcomingConsults.length}</div>
+          <div className="num">{upcomingConsults.length}</div>
           <div className="lbl">استشارات قادمة مؤكدة</div>
           <div className="go"><Icon name="out" /></div>
         </div>
 
         <div className="stat t-amber" onClick={() => setActiveTab('pending')}>
           <div className="si"><Icon name="card" /></div>
-          <div className="num">{stats?.pendingBooking ?? pendingBookingConsults.length}</div>
+          <div className="num">{pendingBookingConsults.length}</div>
           <div className="lbl">طلبات بانتظار الإجراء/السداد</div>
           <div className="go"><Icon name="out" /></div>
         </div>
 
         <div className="stat t-green" onClick={() => setActiveTab('completed')}>
           <div className="si"><Icon name="doc" /></div>
-          <div className="num">{stats?.completed ?? completedConsults.length}</div>
-          <div className="lbl">استشارات منتهية معتمدة</div>
+          <div className="num">{completedConsults.length}</div>
+          <div className="lbl">استشارات منتهية</div>
           <div className="go"><Icon name="out" /></div>
         </div>
 
         <div className="stat t-cyan" onClick={() => setActiveTab('all')}>
           <div className="si"><Icon name="download" /></div>
-          <div className="num">{stats?.reportsCount ?? items.length}</div>
-          <div className="lbl">تقارير قانونية صادرة</div>
+          <div className="num">{items.length}</div>
+          <div className="lbl">إجمالي الاستشارات والتقارير</div>
           <div className="go"><Icon name="out" /></div>
         </div>
       </div>
@@ -498,6 +502,25 @@ return list;
                         <BookingActions c={c} toast={toast} />
                       ) : c.status === 'ملغاة' ? (
                         <Badge text="ملغاة" tone="b-red" />
+                      ) : c.status === 'بانتظار استكمال البيانات' ? (
+                        /* **الفعلُ على الموكّل — فليَقُله له النظام.** كانت تسقط في الفرع
+                           الجامع فتُعرض «بانتظار الجلسة»، فيقرأ أنّ لا شيء عليه وملفُّه
+                           موقوفٌ به. و`missing` يحمل ما طلبه المكتب بالنصّ. */
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+                          <Badge text="بانتظار مستنداتك" tone="b-amber" />
+                          {(c.missing?.length ?? 0) > 0 && (
+                            <span style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'left' }}>
+                              المطلوب: {c.missing!.join('، ')}
+                            </span>
+                          )}
+                          <button
+                            className="btn sm"
+                            type="button"
+                            onClick={() => router.visit(`/tickets?consult=${encodeURIComponent(c.ref)}`)}
+                          >
+                            <Icon name="upload" /> رفع المستندات
+                          </button>
+                        </div>
                       ) : isLive ? (
                         c.channel === 'مرئية' ? (
                           <>
@@ -540,7 +563,12 @@ return list;
                         )
                       ) : isCompleted ? (
                         <>
-                          <Badge text="منتهية ومعتمدة" tone="b-green" />
+                          {/* **الشارة تتبع الاعتماد لا انتهاء الجلسة.** كانت مشروطةً
+                              بـ`session === 'منتهية'` وحدها، بينما `toClientCard` يحجب
+                              النصّ حتى يعتمده محامٍ — فيقرأ الموكّل «معتمدة» ولا نصَّ تحتها. */}
+                          {c.summaryApproved
+                            ? <Badge text="منتهية ومعتمدة" tone="b-green" />
+                            : <Badge text="منتهية — بانتظار اعتماد الملخّص" tone="b-amber" />}
                           {/* الشرط على حالة الاعتماد لا على وجود النصّ: النصّ قد يصل
                               المتصفّح بائتاً، والحالة هي ما يقرّره الخادم. والمعلّق
                               يفتح النافذة أيضاً ليقرأ العميل سبب الانتظار. */}

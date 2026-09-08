@@ -57,7 +57,7 @@ class ClientConsultCardContractTest extends TestCase
     {
         $card = $this->card();
 
-        foreach (['aiSummary', 'aiClass', 'aiLawyer', 'audit', 'employee', 'missing', 'hostLink', 'sessionNotes', 'ticketNo', 'zoomSummary'] as $internal) {
+        foreach (['aiSummary', 'aiClass', 'aiLawyer', 'audit', 'employee', 'hostLink', 'sessionNotes', 'ticketNo', 'zoomSummary'] as $internal) {
             $this->assertArrayNotHasKey($internal, $card, "«{$internal}» داخليّ ولا يصل العميل");
         }
     }

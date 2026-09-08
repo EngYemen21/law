@@ -306,6 +306,16 @@ class Consult extends Model
             'missed' => $this->isMissed(), // فات موعدها بلا جلسة — كانت «بانتظار الجلسة» أبدية متناقضة مع «لم يحضر» في المواعيد
             'session' => $this->session,
             'status' => $this->status,
+            /*
+             * **ما ينتظره المكتبُ من الموكّل يصل الموكّل.**
+             *
+             * `requestDocs` يكتب «بانتظار استكمال البيانات» ويضع المطلوب في `missing`،
+             * وسببُ الوقوف **فعلٌ على الموكّل**. وكانت البطاقة تُغفل `missing` فتسقط
+             * الحالةُ في الفرع الجامع وتُعرض «بانتظار الجلسة» وتُحسب «قادمة مؤكدة» —
+             * فيقرأ: «لا شيء عليك». والإشعارُ قناتُه الوحيدة، فإن مرّ عَلِق الملفّ بلا
+             * خطأٍ في أيّ سجلّ.
+             */
+            'missing' => $this->missing ?? [],
             // **لا رأي قانونيّ يصل العميل قبل أن يعتمده محامٍ.** كان الملخّص يُكتب
             // بالنموذج ويُعرض فوراً تحت شارة «معتمد رسمياً» بلا مرور إنسان به.
             // والحجب هنا لا في الواجهة: حجبٌ واجهيّ يبقى النصّ فيه في حمولة
@@ -314,6 +324,11 @@ class Consult extends Model
             'summaryPending' => $this->summary !== null && ! $this->summaryApproved(),
             'summaryApproved' => $this->summaryApproved(),
             'duration' => $this->duration_label,
+            // **المقيسُ من Zoom** — نظير `Meeting::toFullCard()['durationSec']`. و`duration`
+            // أعلاه نصٌّ في `duration_label` **بلا كاتبٍ حيّ**: كاتبُه الوحيد يقرأ معامل
+            // طلبٍ اسمُه `duration` ولا شاشةَ ترسله، فالعمود لا يتغيّر بعد البذر — ومع ذلك
+            // تعرضه الشاشة «مدّة الحضور الفعليّة». و`null` تعني «لم تُقَس» لا صفراً.
+            'durationSec' => $this->duration_sec !== null ? (int) $this->duration_sec : null,
             // دورة الحجز/الدفع (تسعير الإدارة → فاتورة → دفع ميسّر → اختيار الموعد)
             'price' => $this->price,
             'vat' => $this->vat,
@@ -419,6 +434,11 @@ class Consult extends Model
             // (داخليّة للمكتب — لا وجود لها في `toClientCard`.)
             'sessionNotes' => $this->session_notes,
             'duration' => $this->duration_label,
+            // **المقيسُ من Zoom** — نظير `Meeting::toFullCard()['durationSec']`. و`duration`
+            // أعلاه نصٌّ في `duration_label` **بلا كاتبٍ حيّ**: كاتبُه الوحيد يقرأ معامل
+            // طلبٍ اسمُه `duration` ولا شاشةَ ترسله، فالعمود لا يتغيّر بعد البذر — ومع ذلك
+            // تعرضه الشاشة «مدّة الحضور الفعليّة». و`null` تعني «لم تُقَس» لا صفراً.
+            'durationSec' => $this->duration_sec !== null ? (int) $this->duration_sec : null,
             'recording' => $this->recording_url,
             'price' => $this->price,
             'vat' => $this->vat,
@@ -475,7 +495,10 @@ class Consult extends Model
          */
         $now = now();
         $stamp = $now->format('Y/m/d h:i').' '.($now->hour < 12 ? 'ص' : 'م');
-        $entry = ['user' => $user, 'field' => $field, 'before' => $before, 'after' => $after, 'time' => $stamp];
+        // `time` للعرض بصيغة ١٢ ساعة، و`at` للفرز: الأولى لا تُفرز لفظياً
+        // («١١:٠٠ ص» تسبق «٠١:٠٠ م» حرفياً وهي بعدها زمنياً) — وشاشة الإدارة
+        // كانت تفرز عليها فتعرض «أحدث عشرة» بترتيبٍ مقلوب.
+        $entry = ['user' => $user, 'field' => $field, 'before' => $before, 'after' => $after, 'time' => $stamp, 'at' => $now->toIso8601String()];
         $this->audit = array_merge([$entry], $this->audit ?? []);
     }
 }

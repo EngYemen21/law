@@ -303,6 +303,11 @@ class ConsultBooking
      */
     public static function schedule(Consult $consult, array $slot): Consult
     {
+        // **مسارُ حجزٍ يخرج إلى الشبكة ثلاث مرّات** (رمز Zoom ٨ث + إنشاء الجلسة ١٥ث
+        // + تقويم Google) — ومهلةُ الويب ٣٠ث. فيبلغها الطلب فيرى المستخدم خطأً
+        // **والحجزُ وقع فعلاً** (الالتزام يسبق النداء). رُصد حيّاً 2026-09-08.
+        // والرفعُ نمطُ المشروع المقرَّر لكلّ مسارٍ بطيء (PdfRenderer · LegalAiService).
+        WebTimeLimit::raise(90);
         abort_unless($consult->status === 'بانتظار تحديد الموعد', 422, 'يلزم سداد الاستشارة قبل اختيار الموعد.');
 
         $type = array_search($consult->channel, array_map(fn ($x) => $x['label'], self::map()), true) ?: 'office';
@@ -415,6 +420,10 @@ class ConsultBooking
      */
     public static function create(User $client, array $data, ?Ticket $ticket = null): Consult
     {
+        // **مسارٌ يخرج إلى الشبكة مراراً** (رمز Zoom ٨ث + إنشاء الجلسة ١٥ث
+        // + تقويم Google + بريد) ومهلةُ الويب ٣٠ث — فتُبلَغ فيرى المستخدم خطأً
+        // **والسجلّ كُتب فعلاً** (الالتزام يسبق النداء). رُصد حيّاً 2026-09-08.
+        WebTimeLimit::raise(90);
         $ctx = self::resolveContext($client, $data, $ticket);
         $m = $ctx['meta'];
         $place = ($data['type'] === 'office' && ! empty($data['place'])) ? $data['place'] : $m['place'];

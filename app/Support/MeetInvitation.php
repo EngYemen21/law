@@ -27,6 +27,11 @@ class MeetInvitation
     /** يُنشئ (أو يُكمل) اجتماع الدعوة ويرفعها إلى STAGE_CONFIRMED. يُعيد الاجتماع. */
     public static function schedule(MeetRequest $req, User $client): Meeting
     {
+        // **مسارُ حجزٍ يخرج إلى الشبكة ثلاث مرّات** (رمز Zoom ٨ث + إنشاء الجلسة ١٥ث
+        // + تقويم Google) — ومهلةُ الويب ٣٠ث. فيبلغها الطلب فيرى المستخدم خطأً
+        // **والحجزُ وقع فعلاً** (الالتزام يسبق النداء). رُصد حيّاً 2026-09-08.
+        // والرفعُ نمطُ المشروع المقرَّر لكلّ مسارٍ بطيء (PdfRenderer · LegalAiService).
+        WebTimeLimit::raise(90);
         $startsAt = MeetingTime::parse($req->day, $req->time);
         $durMinutes = $req->duration_min ?: 60;
         $existing = $req->meeting_id ? Meeting::find($req->meeting_id) : null;

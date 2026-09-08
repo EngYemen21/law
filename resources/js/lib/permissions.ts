@@ -1,4 +1,5 @@
 import { usePage } from '@inertiajs/react';
+import { maskClient } from '@/lib/employee-data';
 
 // ============================================================
 // كتالوج الصلاحيات — مصدره الوحيد الخادم (App\Support\Permissions::catalog)
@@ -53,4 +54,22 @@ export function canViewRoute(
     }
   }
   return needed === null || permissions.includes(needed);
+}
+
+/**
+ * **الإدارة العليا ترى الأسماء كما هي.**
+ *
+ * `maskClient` في `employee-data` يُقنّع بلا شرطٍ («ع••••ه (مشفّر)»)، والمكوّنات
+ * المشتركة (رحلة الاستشارة · دعوات الاجتماعات) تستوردها — فالمديرُ الذي يملك الملفّ
+ * كلَّه ويُنزّل نصّه التفريغيّ باسمٍ صريح يقرأ في الشاشة اسماً مقنَّعاً. تقنيعٌ لا يحمي
+ * أحداً ويُعمي صاحب القرار. (قرار المالك 2026-09-08: لا تقنيع للإدارة إطلاقاً.)
+ *
+ * تُعيد دالّةَ تقنيعٍ تحترم الدور: هُويّةً للإدارة، والمُقنِّعةَ لمن سواها.
+ */
+export function useMasker(): (name: string) => string {
+  const { props } = usePage() as unknown as {
+    props: { auth?: { user?: { isSuper?: boolean } | null } };
+  };
+
+  return props.auth?.user?.isSuper ? (n: string) => n || '—' : maskClient;
 }

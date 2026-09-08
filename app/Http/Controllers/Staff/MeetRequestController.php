@@ -249,10 +249,18 @@ class MeetRequestController extends Controller
     public function cancel(Request $request, MeetRequest $meetRequest): RedirectResponse
     {
         $this->guardOwner($request, $meetRequest);
-        if ($meetRequest->stage < MeetRequest::STAGE_EXECUTED) {
-            $meetRequest->update(['stage' => MeetRequest::STAGE_CANCELLED]);
-            Notify::send($meetRequest->user_id, 'info', 't-grey', "أُلغيت دعوة الاجتماع ({$meetRequest->ref}) — «{$meetRequest->service}».");
-        }
+
+        // **رسالةُ النجاح كانت تُرسَل ولو لم يقع إلغاء.** كان الشرط يلفّ الفعل وحده
+        // ثمّ يعود `back()` في الحالين، فينقر المستخدم «إلغاء» على دعوةٍ انعقدت
+        // فيقرأ «تم إلغاء الدعوة» وهي كما كانت. الحارس صريحٌ الآن ورسالتُه تصل.
+        abort_if(
+            $meetRequest->stage >= MeetRequest::STAGE_EXECUTED,
+            422,
+            'انعقدت هذه الجلسة أو تجاوزت مرحلة الإلغاء — لا تُلغى بعد انعقادها.'
+        );
+
+        $meetRequest->update(['stage' => MeetRequest::STAGE_CANCELLED]);
+        Notify::send($meetRequest->user_id, 'info', 't-grey', "أُلغيت دعوة الاجتماع ({$meetRequest->ref}) — «{$meetRequest->service}».");
 
         return back();
     }

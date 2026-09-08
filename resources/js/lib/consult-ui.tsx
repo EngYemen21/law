@@ -8,12 +8,13 @@ import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import { echo } from '@/lib/echo';
 import {
-  CONSULT_CHANNELS, CONSULT_FLOW, CONSULT_BOOKING_FLOW, cBookingStage, cStage, cHasStage, cTone,
+  CONSULT_CHANNELS, CONSULT_FLOW, CONSULT_BOOKING_FLOW, CONSULT_BOOKING_STATUSES,
+  CONSULT_CLOSED_STATUSES, CONSULT_PRIORITIES, cBookingStage, cStage, cHasStage, cTone,
   crChannelIcon, crChannelTone, maskClient, sessTone
 } from '@/lib/employee-data';
 import type {AuditEntry} from '@/lib/employee-data';
 import Icon from '@/lib/icons';
-import { useCan } from '@/lib/permissions';
+import { useCan, useMasker } from '@/lib/permissions';
 import ZoomEmbedRoom from '@/lib/zoom-room';
 
 // ============================================================
@@ -87,6 +88,8 @@ export interface ConsultCard {
   /** تدوين الجلسة (بطاقة المكتب وحدها). */
   sessionNotes?: string | null;
   duration: string | null;
+  /** المدّة المقيسة من Zoom بالثواني — null تعني «لم تُقَس». */
+  durationSec?: number | null;
   recording?: string | null; // رابط التسجيل السحابي (بعد الجلسة)
   total: number;
   // دورة الحجز/الدفع (تسعير → فاتورة → دفع محاكى → اختيار الموعد)
@@ -143,6 +146,8 @@ export interface ClientConsultCard {
   missed?: boolean;
   session: string;
   status: string;
+  /** ما ينتظره المكتب من الموكّل — يُملأ حين تُطلب مستندات. */
+  missing?: string[];
   /** `null` ما لم يعتمده محامٍ — الحجب في الخادم لا في الواجهة. */
   summary: string | null;
   summaryPending?: boolean;
@@ -179,6 +184,31 @@ export function lawyerFirst(name: string): string {
 }
 
 // يطابق fmtDur
+/**
+ * طابعُ قيدِ التدقيق للعرض.
+ *
+ * `logAudit` يكتب مفتاحين بقصد: `time` نصٌّ عربيٌّ بصيغة ١٢ ساعة، و`at` بصيغة ISO
+ * للفرز والحساب. والشاشة كانت تعرض `time` وحده — وقيودُ ما قبل هجرة ص/م تُكتب
+ * «2026/09/06 12:48» فتُقرأ ظهراً وهي **00:48 فجراً**، فيبدو ترتيب السجلّ مقلوباً
+ * وهو سليم. فحين يتوفّر `at` يُشتقّ منه طابعٌ لا يلتبس.
+ */
+function fmtAuditTime(a: AuditEntry): string {
+    if (!a.at) {
+        return a.time;
+    }
+
+    const d = new Date(a.at);
+    if (Number.isNaN(d.getTime())) {
+        return a.time;
+    }
+
+    const p = (n: number) => String(n).padStart(2, '0');
+    const h = d.getHours();
+
+    return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} `
+        + `${p(h % 12 === 0 ? 12 : h % 12)}:${p(d.getMinutes())} ${h < 12 ? 'ص' : 'م'}`;
+}
+
 export function fmtDur(s: number): string {
   const m = Math.floor(s / 60);
   const ss = s % 60;
@@ -690,12 +720,41 @@ const StaffZoomRoom: React.FC<{ consult: ConsultCard; base: string }> = ({ consu
 
   return (
     <>
+      {/*
+        * **الغرفة نفسها التي يراها الاجتماع.** `ZoomEmbedRoom` فيه مساران:
+        * بلا `details` يُصيَّر عمودٌ بسيط، ومعها تُصيَّر الغرفة الكاملة (مسرحُ فيديو
+        * + جانبيّة + مؤقّت + شارة تسجيل + مغادرة + علامة مائيّة). وكانت الاستشارة
+        * لا تمرّرها فتحرم نفسها من التصميم بلا سبب — والأنماط `mroom-*` مشتركةٌ أصلاً.
+        *
+        * وكلُّ صفٍّ مشروطٌ بقيمته: حقلٌ فارغٌ لا يُعرض بدل أن يظهر بشرطةٍ أبداً.
+        */}
       <ZoomEmbedRoom
         cref={consult.ref}
-        label={`${consult.ref} · استشارة مرئية`}
+        kind="consult"
+        label={`${consult.ref} · ${consult.subject || 'استشارة مرئية'}`}
         back={`${base}/consultrecv`}
         fallbackUrl={consult.hostLink || consult.slink}
         viewer="staff"
+        details={{
+          title: consult.subject || `استشارة ${consult.ref}`,
+          // حالةُ **الجلسة** لا حالةُ الملفّ — نظيرُ ما يعرضه الاجتماع، وما يعني
+          // من هو داخل الغرفة الآن (قرار المالك).
+          status: consult.session,
+          rows: [
+            ...(consult.client ? [{ k: 'العميل', v: consult.client }] : []),
+            ...(consult.lawyer ? [{ k: 'المستشار', v: consult.lawyer }] : []),
+            ...(consult.when ? [{ k: 'الموعد', v: consult.when }] : []),
+            ...(consult.duration ? [{ k: 'المدة', v: consult.duration }] : []),
+            ...(consult.channel ? [{ k: 'القناة', v: consult.channel }] : []),
+            ...(consult.channel === 'حضورية' && consult.place ? [{ k: 'المكان', v: consult.place }] : []),
+            ...(consult.specialty ? [{ k: 'التخصّص', v: consult.specialty }] : []),
+            ...(consult.caseNo || consult.ticketNo
+              ? [{ k: 'المرجع', v: (consult.caseNo || consult.ticketNo) as string }]
+              : []),
+          ],
+          // شاشةُ النهاية تقود إلى صفحة الاستشارة — مسجَّلةٌ للأدوار الثلاثة
+          summaryHref: `${base}/consult?ref=${encodeURIComponent(consult.ref)}`,
+        }}
       />
       <div className="card" style={{ marginTop: 16, maxWidth: 900, marginInline: 'auto' }}>
         <div className="card-h">
@@ -808,16 +867,23 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
 
   const lawyerName = lawyers.find((l) => l.id === lawyerId)?.name ?? '';
 
+  /**
+   * **الرفضُ يُسمَع.** كان هذا المُساعِد بلا `onError`، وتمرّ به أحدَ عشرَ فعلاً —
+   * فكلُّ حارسٍ خادميّ (تسعُ رسائلَ عربيّةٍ مكتوبةٍ بعناية) يسقط **صامتاً تماماً**:
+   * الزرّ يومض ثمّ يعود، ولا توست ولا تغيّر. قيسَ في المتصفّح 2026-09-08 على
+   * «تحديث بيانات الجلسة من Zoom»: ٤٢٢ ولا أثرَ على الشاشة.
+   * والملفُّ نفسه يعالج `onError` في خمسة مواضع أخرى — أُصلحت الشاشة المجاورة وتُرك هذا.
+   */
   const post = (action: string, data: Record<string, string>, msg: string) => {
     setBusy(true);
     router.post(`${base}/consults/${c.id}/${action}`, data, {
       preserveScroll: true,
       onSuccess: () => toast(msg),
+      onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر تنفيذ الإجراء')),
       onFinish: () => setBusy(false),
     });
   };
 
-  const take = () => post('take', {}, 'تم استلام الاستشارة لدى الموظف');
   // كانت ترسل حمولةً فارغة، فيصل العميلَ «مستند إضافي مطلوب» بلا بيان — طلبٌ
   // يعلق به ملفّه بانتظار شيءٍ مجهول. والخادم صار يشترط النصّ.
   const requestDocs = () => {
@@ -851,6 +917,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
       onSuccess: () => {
  setTasksDone(true); toast(`تم تحويل ${c.decisions.length} قرار إلى مهام`); 
 },
+      onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر إنشاء المهامّ')),
       onFinish: () => setBusy(false),
     });
   };
@@ -888,6 +955,19 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
     || c.status === 'قيد مراجعة الموظف'
     || c.status === 'بانتظار استكمال البيانات';
   const showRefer = c.status === 'جاهزة للمحامي';
+  /**
+   * سببُ تعذّر الإحالة — يطابق حرّاس `Staff\ConsultController::refer` الثلاثة.
+   * كان الزرّان معروضَين بلا شرط حالة، فيُعرضان على استشارةٍ منتهيةٍ يردّها الخادم ٤٢٢.
+   */
+  const referBlocked = c.session === 'جلسة جارية'
+    ? 'الجلسة منعقدة الآن — أنهِها قبل تغيير المستشار.'
+    : CONSULT_CLOSED_STATUSES.includes(c.status)
+      ? 'الاستشارة انتهت أو أُلغيت — لا تُحال إلى محامٍ.'
+      : CONSULT_BOOKING_STATUSES.includes(c.status)
+        ? `ما زالت في دورة الحجز — حالتها «${c.status}». أكمل التسعير والسداد واختيار الموعد أوّلاً.`
+        : null;
+  /** «إعادة التحليل» يردّها الخادم على المنتهية والملغاة (`analyze`). */
+  const analyzeBlocked = CONSULT_CLOSED_STATUSES.includes(c.status);
   // البطاقة سطح تحرير الموظّف — تبقى ظاهرة عند تعذّر التحليل (فهو حينها من يكتب الرأي)،
   // لكن بعنوان صادق: كان الاحتياطيّ يظهر تحت «تحليل الفريق القانوني» كأن تحليلاً وقع.
   const aiFailed = c.aiSource === 'fallback';
@@ -898,7 +978,10 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
   const isBooking = !!c.ticketNo;
 
   /** هل للجلسة مخرجاتٌ فعليّة؟ — لا يُعرض قسمٌ فارغ يُوهم بجلسةٍ لم تُسجَّل. */
+  const mask = useMasker();
   const attendees = c.zoomParticipantsLog ?? [];
+  /** المدّة المقيسة وحدها — `fmtDur` معرّفةٌ في هذا الملفّ. */
+  const measured = c.durationSec != null && c.durationSec > 0 ? fmtDur(c.durationSec) : null;
   const hasSessionOutputs = !!(c.duration || c.recording || c.zoomShareUrl || c.zoomAudioUrl || attendees.length);
 
   return (
@@ -927,8 +1010,9 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
         </div>
 
         <div className="cj-facts">
-          <div><span>الموكّل</span><b>{maskClient(c.client)}</b></div>
-          <div><span>التخصّص</span><b>{c.specialty || c.type}</b></div>
+          <div><span>الموكّل</span><b>{mask(c.client)}</b></div>
+          {/* «كل الأقسام» قيمةُ «لا تخصيص» لا تخصّصاً — ونصٌّ غيرُ فارغٍ فتحجب `type` الحقيقيّ */}
+          <div><span>التخصّص</span><b>{(c.specialty && c.specialty !== 'كل الأقسام') ? c.specialty : c.type}</b></div>
           <div><span>الأولويّة</span><b className={`mq-priority ${c.priority}`}>{c.priority}</b></div>
           <div><span>استُلمت</span><b>{c.received}</b></div>
           <div><span>الموظّف</span><b>{c.employee || '—'}</b></div>
@@ -962,12 +1046,16 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
       {/* action bar */}
       {(showEmpActions || showRefer) && (
         <div style={{ display: 'flex', gap: 9, margin: '0 0 16px', flexWrap: 'wrap' }}>
-          {c.status === 'جديدة' && (
-            <button className="btn" onClick={take} disabled={busy} type="button">
-              <Icon name="check" /> استلام الاستشارة
-            </button>
-          )}
-          {(c.status === 'قيد مراجعة الموظف' || c.status === 'بانتظار استكمال البيانات') && (
+          {/*
+            * **شرطُ الجسم = شرطُ الشريط.** خطوةُ الاستلام اليدويّة أُزيلت بقرار المالك
+            * 2026-09-08، وكان جسمُ الشريط يشترط حالتين بينما `showEmpActions` يشمل
+            * ثلاثاً — فصارت كلُّ استشارةٍ «جديدة» تُصيّر **حاويةَ أزرارٍ فارغة**، ولا
+            * يملك الموظّف من هذه الصفحة أيَّ سبيلٍ لتحريك الملفّ.
+            *
+            * والخادمُ يقبل الفعلين على «جديدة» أصلاً: `requestDocs` يمنع دورةَ الحجز
+            * والنهايات وحدها، و`analyze` يمنع المُقفَلة وحدها.
+            */}
+          {showEmpActions && (
             <>
               <button className="btn soft" onClick={requestDocs} disabled={busy} type="button">
                 <Icon name="upload" /> طلب استكمال مستندات
@@ -979,9 +1067,10 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
               )}
             </>
           )}
-          {showRefer && (
-            <button className="btn" onClick={refer} disabled={busy} type="button">
-              <Icon name="scale" /> إحالة للمحامي ({lawyerName})
+          {showRefer && !referBlocked && (
+            <button className="btn" onClick={refer} disabled={busy || !lawyerId} type="button">
+              {/* بلا اسمٍ مطابق كان يُصيَّر «إحالة للمحامي ()» — قوسان فارغان */}
+              <Icon name="scale" /> {lawyerName ? `إحالة للمحامي (${lawyerName})` : 'إحالة للمحامي — اختر مستشاراً أوّلاً'}
             </button>
           )}
         </div>
@@ -989,7 +1078,10 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
 
       {/* استعلام يدوي من Zoom API: يسحب كل بيانات الجلسة (الحضور/المدة/التسجيل/النص/الملخص)
           ويحدّث الاستشارة فوراً — لحالات تأخّر الويبهوك أو تعثّر السحب الدوري */}
-      {c.session === 'منتهية' && (
+      {/* حارسا الخادم: لا جلسةَ Zoom مرتبطة (غيرُ المرئيّة)، والاعتماد نهائيّ فلا
+          تُحدَّث بياناتُ ملخّصٍ وصل الموكّل. كان الشرطُ `session==='منتهية'` وحده،
+          فكلُّ منتهيةٍ معتمدةٍ تعرض زرّاً مصيرُه ٤٢٢. */}
+      {c.session === 'منتهية' && c.channel === 'مرئية' && !c.summaryApproved && (
         <div style={{ display: 'flex', gap: 9, margin: '0 0 16px', flexWrap: 'wrap' }}>
           <button className="btn soft" onClick={() => post('zoom-sync', {}, 'اكتمل الاستعلام من Zoom — حُدّثت بيانات الجلسة المتوفرة')} disabled={busy} type="button">
             <Icon name="video" /> {busy ? 'جارٍ الاستعلام من Zoom…' : 'تحديث بيانات الجلسة من Zoom'}
@@ -1034,7 +1126,9 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                 </div>
               )}
               <div style={{ display: 'flex', gap: 9, marginTop: 6, flexWrap: 'wrap' }}>
-                <button className="btn soft sm" onClick={saveAI} disabled={busy} type="button">
+                {/* `saveAnalysis` يفرض `aiLawyer` مطلوباً، و`lawyerName` فارغٌ ما لم
+                    يُطابَق الاقتراح — فالحفظ بلا اختيارٍ مصيرُه ٤٢٢ */}
+                <button className="btn soft sm" onClick={saveAI} disabled={busy || !lawyerName} type="button">
                   <Icon name="check" /> حفظ التعديلات
                 </button>
                 {showApprove && (
@@ -1045,7 +1139,9 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                 <a className="btn soft sm" href={`/consults/${c.id}/report.pdf`} target="_blank" rel="noopener">
                   <Icon name="download" /> طباعة الملخص (PDF)
                 </a>
-                {mayAnalyze && (
+                {/* `analyze` يردّ ٤٢٢ على CLOSED_STATUSES — وتعليقُه في المتحكّم يسمّي
+                    هذا الزرّ بعينه: «زرّ إعادة التحليل في الشاشة بلا شرط حالة» */}
+                {mayAnalyze && !analyzeBlocked && (
                   <button className="btn soft sm" onClick={rerun} disabled={busy} type="button">
                     <Icon name="info" /> إعادة التحليل
                   </button>
@@ -1065,10 +1161,25 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
               <div className="field" style={{ minWidth: 160, margin: 0 }}>
                 <label>الأولوية</label>
                 <select value={priority} onChange={(e) => setPriority(e.target.value)}>
-                  {['عالية', 'متوسطة', 'عادية'].map((p) => <option key={p}>{p}</option>)}
+                  {/*
+                    * **من الكتالوج لا من نسخةٍ بيد.** كانت `['عالية','متوسطة','عادية']`
+                    * و«عادية» أولويّةُ **تذكرة** لا استشارة — يردّها الخادم بـ٤٢٢
+                    * (`Rule::in(Consult::PRIORITIES)`)، و«منخفضة» غائبة. فاستشارةٌ
+                    * أولويّتُها «منخفضة» لا تجد قيمتَها فيسقط المتصفّح على أوّل خيار:
+                    * الرأس يقول «منخفضة» والمنتقي يقول «عالية» — وأيُّ حفظٍ يكتب الخطأ.
+                    * قيسَ في المتصفّح على CN-2026-7173 يوم 2026-09-08.
+                    */}
+                  {CONSULT_PRIORITIES.map((p) => <option key={p}>{p}</option>)}
                 </select>
               </div>
-              <button className="btn soft sm" onClick={savePriority} disabled={busy} type="button">
+              {/* **لا فرزَ لملفٍّ خرج من الطابور.** الأولويّة أداةُ ترتيبِ عملٍ قائم،
+                  وتغييرُها على منتهيةٍ أو ملغاةٍ فعلٌ بلا أثر — والشاشة لا تدعو إليه. */}
+              <button
+                className="btn soft sm"
+                onClick={savePriority}
+                disabled={busy || CONSULT_CLOSED_STATUSES.includes(c.status)}
+                type="button"
+              >
                 <Icon name="check" /> تحديث الأولوية
               </button>
               <div className="field" style={{ minWidth: 200, margin: 0 }}>
@@ -1080,9 +1191,15 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                   {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}</option>)}
                 </select>
               </div>
-              <button className="btn sm" onClick={refer} disabled={busy} type="button">
+              {/* `lawyerId` فارغٌ ⇒ الخادم يسقط إلى النائب النصّيّ «المستشار القانوني»
+                  ويكتب «محالة للمحامي» ويُشعر الموكّل — والتوست يقول «إلى المحامي: »
+                  بلا اسم. الاختيارُ الصريح شرطٌ، وحرّاسُ `refer` الثلاثة تُشرَط بها. */}
+              <button className="btn sm" onClick={refer} disabled={busy || !lawyerId || !!referBlocked} type="button">
                 <Icon name="scale" /> تعيين المحامي واعتماد الإحالة
               </button>
+              {referBlocked && (
+                <span style={{ fontSize: 12, color: 'var(--muted)', alignSelf: 'center' }}>{referBlocked}</span>
+              )}
             </div>
           </div>
         </div>
@@ -1163,11 +1280,14 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-h">
             <h3>مخرجات الجلسة</h3>
-            {c.duration ? <span className="sub">مدّة الحضور: {c.duration}</span> : null}
+            {measured ? <span className="sub">مدّة الحضور: {measured}</span> : null}
           </div>
           <div className="card-b" style={{ padding: '14px 18px' }}>
             <div className="cj-outputs">
-              {c.duration ? <div><span>مدّة الحضور الفعليّة</span><b>{c.duration}</b></div> : null}
+              {/* **«الفعليّة» تعني مقيسة.** كانت تعرض `duration` النصّيّ وهو عمودٌ بلا
+                  كاتبٍ حيّ — رقمٌ من البذر يُقدَّم قياساً. المقيسُ `durationSec` من ويبهوك
+                  Zoom، وما لم يُقَس لا يُعرض. */}
+              {measured ? <div><span>مدّة الحضور الفعليّة</span><b>{measured}</b></div> : null}
               {c.when ? <div><span>موعد الانعقاد</span><b>{c.when}</b></div> : null}
               {attendees.length > 0 ? <div><span>الحضور</span><b>{attendees.length}</b></div> : null}
             </div>
@@ -1262,7 +1382,9 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
               <div className="imeta">
                 <b>{a.field}</b>
                 <span style={{ display: 'block', marginTop: 2 }}>{a.user} · {a.before} ← {a.after}</span>
-                <span style={{ color: 'var(--muted)', fontSize: 11 }}>{a.time}</span>
+                {/* `at` (ISO) حين وُجد: `time` نصٌّ بصيغة ١٢ ساعة، وقيودُ ما قبل الهجرة
+                    بلا ص/م فتُقرأ «12:48» ظهراً وهي فجراً. */}
+                <span style={{ color: 'var(--muted)', fontSize: 11 }} dir="auto">{fmtAuditTime(a)}</span>
               </div>
             </div>
           )) : (

@@ -372,7 +372,7 @@ class ConsultController extends Controller
     {
         $this->guardConsult($request, $consult);
         abort_if($consult->summaryApproved(), 422, 'اعتُمد هذا الملخّص ووصل العميل.');
-        abort_if(blank($consult->summary), 422, 'لا ملخّص ليُعتمد — دوّن محضر الجلسة أو اكتب التقرير أوّلاً.');
+        abort_if(blank($consult->summary), 422, 'لا ملخّص ليُعتمد — دوّن تدوين الجلسة أو اكتب التقرير أوّلاً.');
 
         // **لا تُنادَ `AiReviewOutcome::apply()` هنا**: مسار الصندوق يُشعِر العميل،
         // فمناداته من هنا تُشعره مرّتين بالاعتماد الواحد.
@@ -857,6 +857,9 @@ class ConsultController extends Controller
     {
         $this->guardConsult($request, $consult);
         abort_if(empty($consult->meet_id), 422, 'لا جلسة Zoom مرتبطة بهذه الاستشارة.');
+        // الاعتماد نهائيّ: المزامنة تكتب القرارات، و`toClientCard` يُرسلها للعميل
+        // بعد الاعتماد — فمزامنةٌ لاحقة تُبلغه ما لم تعتمده الإدارة.
+        abort_if($consult->summary_approved_at !== null, 422, 'اعتُمد ملخّص هذه الاستشارة ووصل العميل — لا تُحدَّث بياناتها من Zoom بعد الاعتماد.');
 
         $pulled = ConsultSummary::pull($consult, app(ZoomService::class));
 

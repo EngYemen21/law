@@ -55,7 +55,8 @@ const BookingActions: React.FC<{ c: BookingCard; toast: (m: string) => void }> =
         </div>
         <SpecialistPicker fetchUrl="/book/availability" fetchParams={{ subject: c.subject, specialty: c.specialty || '' }} enabled autoAssign
           date={date} onDateSnap={setDate} lawyerId={lawyerId} onLawyerChange={setLawyerId} time={time} onTimeChange={setTime} />
-        <button className="btn block" type="button" style={{ marginTop: 14 }} disabled={!lawyerId || !time || busy} onClick={confirm}>
+        {/* الشرط على الوقت وحده: الإسناد خادميّ ولا يُرسَل lawyer_id */}
+        <button className="btn block" type="button" style={{ marginTop: 14 }} disabled={!time || busy} onClick={confirm}>
           <Icon name="cal" /> {busy ? 'جارٍ التأكيد…' : 'تأكيد الموعد'}
         </button>
       </Modal>

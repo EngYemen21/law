@@ -106,6 +106,7 @@ return;
             canJoin?: boolean;
             summary: string | null;
             minutes: string | null;
+            approve?: string;
           }) => {
             setItems((prev) =>
               prev.map((x) =>
@@ -118,7 +119,13 @@ return;
                       status: e.liveStatus ?? x.status,
                       tone: e.tone ?? x.tone,
                       canJoin: e.canJoin ?? x.canJoin,
-                      approved: !!(e.minutes || e.summary || x.approved),
+                      /*
+                       * **الاعتماد يُقرأ من البثّ لا يُستنتَج من وجود نصّ.** كان
+                       * `!!(minutes || summary)` — سليمٌ اليوم لأنّ البثّ يحجب النصّ
+                       * قبل الاعتماد، لكنّه يربط حقيقةً بأثرها: يوم يُبثّ نصٌّ غير
+                       * معتمد لسببٍ آخر تصير الشارة كاذبة. والحمولة تحمل `approve`.
+                       */
+                      approved: e.approve !== undefined ? e.approve === 'معتمد' : x.approved,
                     }
                   : x
               )

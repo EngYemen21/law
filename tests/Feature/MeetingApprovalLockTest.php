@@ -5,7 +5,10 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Models\Meeting;
 use App\Models\User;
+use App\Services\ZoomService;
+use App\Support\MeetingSummary;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
@@ -241,5 +244,117 @@ class MeetingApprovalLockTest extends TestCase
                 "{$file}: «حضور 0%» رقمٌ يدّعي قياساً لم يقع"
             );
         }
+    }
+
+    // ————— ٦ · المزامنة من Zoom لا تمسّ معتمداً —————
+
+    public function test_zoom_sync_button_is_refused_after_final_approval(): void
+    {
+        $meeting = $this->meeting([
+            'approve' => 'معتمد', 'sum_approved' => true,
+            'meet_id' => '91234567890',
+            'summary' => 'الملخص المعتمد.', 'minutes' => 'المحضر المعتمد.',
+        ]);
+
+        // المزامنة تكتب decisions، وtoCard يُرسلها للعميل متى كان الاجتماع معتمداً
+        $this->actingAs($this->employee())
+            ->post("/employee/meetings/{$meeting->id}/zoom-sync")
+            ->assertStatus(422);
+
+        $meeting->refresh();
+        $this->assertSame('الملخص المعتمد.', $meeting->summary);
+        $this->assertNull($meeting->zoom_summary_at);
+    }
+
+    public function test_zoom_sync_still_works_before_approval(): void
+    {
+        $meeting = $this->meeting(['meet_id' => '91234567891']);
+
+        // لا 422: الباب مفتوح ما لم تعتمد الإدارة (والرسالة صادقة حين لا بيانات لدى Zoom)
+        $this->actingAs($this->employee())
+            ->post("/employee/meetings/{$meeting->id}/zoom-sync")
+            ->assertRedirect();
+    }
+
+    public function test_an_automatic_pull_freezes_the_attested_fields_only(): void
+    {
+        config(['services.glm.key' => 'test-key']);
+        Http::fake();
+
+        $meeting = $this->meeting([
+            'approve' => 'معتمد', 'sum_approved' => true,
+            'meet_id' => '91234567892',
+            'summary' => 'الملخص المعتمد الذي وصل العميل.',
+            'minutes' => 'المحضر المعتمد الذي وصل العميل.',
+            'decisions' => [],
+        ]);
+
+        // الويبهوك والأمر المجدول يسلكان هذا الطريق نفسه — لا الزرّ وحده
+        MeetingSummary::pull($meeting, app(ZoomService::class), [
+            'summary_overview' => 'ناقش الطرفان مستجدات العقد.',
+            'next_steps' => ['صياغة ملحق تعديل العقد'],
+        ]);
+
+        $meeting->refresh();
+        $this->assertSame('الملخص المعتمد الذي وصل العميل.', $meeting->summary);
+        $this->assertSame('المحضر المعتمد الذي وصل العميل.', $meeting->minutes);
+        $this->assertSame([], $meeting->decisions ?? []);
+        // ولا نداء ذكاءٍ لاستخلاص قرارات على معتمد
+        Http::assertNothingSent();
+
+        // والوقائع تبقى تُحدَّث: zoom_summary ليس ممّا شهدت به الإدارة
+        $this->assertNotNull($meeting->zoom_summary_at);
+        $this->assertStringContainsString('مستجدات العقد', (string) $meeting->zoom_summary);
+    }
+
+    public function test_the_screen_hides_the_sync_button_after_approval(): void
+    {
+        $ui = file_get_contents(resource_path('js/lib/meeting-ui.tsx'));
+
+        $this->assertStringContainsString("{status === 'منتهٍ' && !locked && (", $ui);
+    }
+
+    // ————— ٧ · القائمة تفرز بالموعد وتحترم نافذة الدخول —————
+
+    public function test_the_card_carries_the_two_other_halves_of_the_live_state(): void
+    {
+        // بعد أسبوع: قادمٌ، ولا يُدعى للدخول قبل أوانه
+        $far = $this->meeting([
+            'status' => 'قادم', 'starts_at' => now()->addWeek()->setTime(11, 0),
+            'when_label' => 'بعد أسبوع · 11:00', 'dur' => '60 دقيقة',
+        ])->toFullCard();
+        $this->assertTrue($far['up']);
+        $this->assertFalse($far['canJoin'], 'نافذة الدخول تُفتح قبل الموعد بخمس دقائق لا قبل أسبوع');
+
+        // بعد دقيقتين: داخل النافذة
+        $near = $this->meeting([
+            'status' => 'قادم', 'starts_at' => now()->addMinutes(2),
+            'when_label' => 'اليوم', 'dur' => '60 دقيقة',
+        ])->toFullCard();
+        $this->assertTrue($near['up']);
+        $this->assertTrue($near['canJoin']);
+
+        // فات ولم يدخله أحد: ليس قادماً ولا يُدخَل
+        $missed = $this->meeting([
+            'status' => 'قادم', 'starts_at' => now()->subDays(2),
+            'when_label' => 'قبل يومين · 09:00', 'dur' => '60 دقيقة',
+        ])->toFullCard();
+        $this->assertFalse($missed['up']);
+        $this->assertFalse($missed['canJoin']);
+        $this->assertSame('لم ينعقد', $missed['status']);
+    }
+
+    public function test_the_list_screen_reuses_the_server_rules_and_drops_the_dead_code(): void
+    {
+        $ui = file_get_contents(resource_path('js/lib/meeting-ui.tsx'));
+
+        // قاعدةُ النافذة لا تُعاد كتابتها في JS — تُقرأ من البطاقة
+        $this->assertStringContainsString('{m.canJoin ? (', $ui);
+        // والفرز بالموعد لا بترتيب الإنشاء
+        $this->assertStringContainsString('new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime()', $ui);
+        // شيفرةٌ ميّتة لا تعود: قوائم «قبل/أثناء/بعد» المختلقة عُلّقت 2026-08-26 وبقيت سنةً
+        $this->assertStringNotContainsString('{false &&', $ui);
+        // وزرّ «الملخص» كان خيارَ وهم: كلا فرعيه يفتح الصفحة نفسها
+        $this->assertStringNotContainsString('لم يُحفظ ملخص بعد', $ui);
     }
 }

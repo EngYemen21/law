@@ -30,6 +30,7 @@ use App\Support\MeetingSummary;
 use App\Support\Notify;
 use App\Support\RecordingArchive;
 use App\Support\ReferenceNumber;
+use App\Support\WebTimeLimit;
 use App\Support\ZoomSummaryText;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -119,6 +120,10 @@ class MeetingController extends Controller
     // إنشاء اجتماع جديد (يطابق submitMeeting) — مع جلسة Zoom ودعوة العميل إن رُبط
     public function store(Request $request): RedirectResponse
     {
+        // **مسارٌ يخرج إلى الشبكة مراراً** (رمز Zoom ٨ث + إنشاء الجلسة ١٥ث
+        // + تقويم Google + بريد) ومهلةُ الويب ٣٠ث — فتُبلَغ فيرى المستخدم خطأً
+        // **والسجلّ كُتب فعلاً** (الالتزام يسبق النداء). رُصد حيّاً 2026-09-08.
+        WebTimeLimit::raise(90);
         // **التاريخ مطلوب.** كان `day`/`time` سلسلتين حرّتين اختياريّتين،
         // وحين تُتركان يُخترَع «اليوم · 10:00» — اجتماعٌ بموعدٍ لم يختره أحد.
         $data = $request->validate(BookingMoment::rules() + [
@@ -281,6 +286,10 @@ class MeetingController extends Controller
     {
         $this->guardMeeting($request, $meeting);
         abort_if(empty($meeting->meet_id), 422, 'لا جلسة Zoom مرتبطة بهذا الاجتماع.');
+        // الاعتماد نهائيّ: المزامنة تكتب `decisions` عبر DecisionTasks::suggest، وtoCard
+        // يُرسل القرارات للعميل متى كان الاجتماع معتمداً — فمزامنةٌ بعد الاعتماد تُبلغه
+        // قراراتٍ لم تعتمدها الإدارة. وتُعيد كتابة `participants` الذي يُبنى عليه عدد المدعوّين.
+        abort_if($meeting->approve === 'معتمد', 422, 'الاجتماع معتمد نهائيًّا — لا تُحدَّث بياناته من Zoom بعد الاعتماد.');
 
         $pulled = MeetingSummary::pull($meeting, $this->zoom);
 

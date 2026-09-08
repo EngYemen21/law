@@ -344,6 +344,16 @@ window.open(externalFallback, '_blank', 'noopener');
   // ── الغرفة المخصّصة (اجتماعات المكتب) — إطار هوية + لوحة جانبية + شاشات الحالة ──
   const recording = kind === 'meeting'; // اجتماعات المكتب تُسجَّل سحابيًّا تلقائياً
 
+  /*
+   * **مفرداتُ الغرفة تتبع نوعَ الجلسة.** الغرفة الكاملة كُتبت للاجتماعات، فنصوص
+   * شاشة النهاية تقول «صفحة الاجتماع» و«رجوع للاجتماعات» و«المحضر والملخّص». وحين
+   * لبستها الاستشارةُ صارت تُحيل الموكّلَ إلى «اجتماع» لا وجود له — و«المحضر» ليس
+   * من مخرجاتها أصلاً (لها ملخّصٌ وتدوينُ جلسة). فالاسم يُشتقّ من `kind` لا يُكتب مرّة.
+   */
+  const noun = kind === 'meeting' ? 'الاجتماع' : 'الاستشارة';
+  const backLabel = kind === 'meeting' ? 'رجوع للاجتماعات' : 'رجوع للاستشارات';
+  const outputs = kind === 'meeting' ? 'المحضر والملخّص' : 'الملخّص';
+
   const overlay = (() => {
     if (phase === 'loading' || phase === 'joining') {
       return (
@@ -359,12 +369,12 @@ window.open(externalFallback, '_blank', 'noopener');
         <div className="mroom-overlay"><div>
           <div className="oi"><Icon name="check" /></div>
           <b>انتهت الجلسة</b>
-          <div className="os">شكراً لك.{details.summaryHref ? ' يمكنك الاطّلاع على المحضر والملخّص من صفحة الاجتماع.' : ''}</div>
+          <div className="os">شكراً لك.{details.summaryHref ? ` يمكنك الاطّلاع على ${outputs} من صفحة ${noun}.` : ''}</div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 }}>
             <button className="btn sm" onClick={() => router.visit(details.summaryHref || back)} type="button">
-              <Icon name={details.summaryHref ? 'doc' : 'reply'} /> {details.summaryHref ? 'صفحة الاجتماع' : 'رجوع'}
+              <Icon name={details.summaryHref ? 'doc' : 'reply'} /> {details.summaryHref ? `صفحة ${noun}` : 'رجوع'}
             </button>
-            {details.summaryHref && <button className="btn soft sm" onClick={() => router.visit(back)} type="button">رجوع للاجتماعات</button>}
+            {details.summaryHref && <button className="btn soft sm" onClick={() => router.visit(back)} type="button">{backLabel}</button>}
           </div>
         </div></div>
       );

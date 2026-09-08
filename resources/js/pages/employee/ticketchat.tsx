@@ -265,6 +265,7 @@ const EmployeeTicketChat: React.FC<{
         <div className="field">
           <label>تاريخ الموعد</label>
           <input
+            className="input"
             type="date"
             value={schedDate}
             min={new Date().toISOString().split('T')[0]}
@@ -280,8 +281,8 @@ const EmployeeTicketChat: React.FC<{
           label={schedLawyerId ? 'الوقت المتاح للمستشار' : 'وقت الموعد المقترح'}
           helperText={slotsLoading ? 'جاري التحقق من أوقات المستشار المتاحة...' : undefined}
           required
-          allowCustom={false}
-/>
+          allowCustom
+        />
         <button className="btn block" type="button" onClick={submitSchedule} disabled={schedBusy || !schedTime}>
           <Icon name="calplus" /> {schedBusy ? 'جاري الحجز…' : 'تأكيد الجدولة'}
         </button>

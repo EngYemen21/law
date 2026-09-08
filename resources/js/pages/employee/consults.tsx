@@ -17,6 +17,7 @@ import {
   crChannelIcon,
   crChannelTone,
   CONSULT_CLOSED_STATUSES,
+  CONSULT_BOOKING_STATUSES,
   CONSULT_TERMINAL_STATUSES,
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
@@ -51,7 +52,51 @@ function hasLawyer(c: ConsultCard): boolean {
   return c.lawyerId != null;
 }
 
-export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
+export type EmpKanbanCol = 'new_intake' | 'docs_check' | 'scheduling' | 'active_sessions' | 'completed';
+
+/**
+ * **عمودٌ واحدٌ لكلّ بطاقة — نظير `kanbanColumnOf` في لوحة الإدارة.**
+ *
+ * كانت الأعمدة الخمسة مرشِّحاتٍ **مستقلّة**، فبطاقةٌ «جديدة» بلا محامٍ وجلستُها
+ * الافتراضيّة «بانتظار الجلسة» تقع في ثلاثة أعمدة معاً (١ و٣ و٤)، ومجموعُ العدّادات
+ * يتجاوز «إجمالي الاستشارات» المكتوب فوق الشاشة.
+ *
+ * وأسوأ من العدّ: **حالات دورة الحجز كانت تدخل «جلسات جارية وقادمة»** لأنّ
+ * `session === 'بانتظار الجلسة'` هي القيمة الافتراضيّة لكلّ استشارة — فطلبٌ لم
+ * يُسعَّر بعدُ يُعرض جلسةً قادمة.
+ *
+ * القسمةُ بأولويّة، والفرعُ الأخير جامعٌ فلا تسقط بطاقةٌ مهما استُحدثت حالة.
+ */
+function empKanbanColumnOf(c: ConsultCard): EmpKanbanCol {
+  if (CONSULT_TERMINAL_STATUSES.includes(c.status)) {
+    return 'completed';
+  }
+
+  if (c.session === 'جلسة جارية' || c.status === 'قيد الاستشارة') {
+    return 'active_sessions';
+  }
+
+  // دورةُ الحجز ليست جلسةً قادمة — تُعرض حيث يُنتظر فيها فعل
+  if (CONSULT_BOOKING_STATUSES.includes(c.status)) {
+    return 'scheduling';
+  }
+
+  if (c.status === 'بانتظار استكمال البيانات' || (c.missing && c.missing.length > 0)) {
+    return 'docs_check';
+  }
+
+  if (c.status === 'جديدة') {
+    return 'new_intake';
+  }
+
+  if (c.status === 'محالة للمحامي') {
+    return 'active_sessions';
+  }
+
+  return 'scheduling';
+}
+
+const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
   consults: initialConsults = [],
   preSessionRequests: initialRequests = [],
   lawyers: initialLawyers = [],
@@ -328,20 +373,6 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
   );
 
   // ── الإجراءات الميدانية للموظف ──
-
-  const handleTake = (consult: ConsultCard) => {
-    setIsProcessingAction(true);
-    router.post(
-      `/employee/consults/${consult.id}/take`,
-      {},
-      {
-        preserveScroll: true,
-        onSuccess: () => toast(`تم استلام الاستشارة (${consult.ref}) بنجاح`),
-        onError: () => toast('تعذر استلام الاستشارة'),
-        onFinish: () => setIsProcessingAction(false),
-      }
-    );
-  };
 
   const handleRequestDocs = (consult: ConsultCard) => {
     if (!missingDocInput.trim()) {
@@ -1117,17 +1148,6 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
 
                         <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                           <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                            {c.status === 'جديدة' && (
-                              <button
-                                type="button"
-                                className="btn primary sm"
-                                style={{ padding: '3px 8px', fontSize: 11.5 }}
-                                disabled={isProcessingAction}
-                                onClick={() => handleTake(c)}
-                              >
-                                استلام
-                              </button>
-                            )}
                             <button
                               type="button"
                               className="btn soft sm"
@@ -1197,49 +1217,31 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                 id: 'new_intake',
                 title: '1. طلبات جديدة للاستلام',
                 tone: '#11A0C8',
-                items: filteredItems.filter((c) => c.status === 'جديدة'),
+                items: filteredItems.filter((c) => empKanbanColumnOf(c) === 'new_intake'),
               },
               {
                 id: 'docs_check',
                 title: '2. تدقيق الأوراق والنواقص',
                 tone: '#C0832B',
-                items: filteredItems.filter(
-                  (c) =>
-                    c.status === 'بانتظار استكمال البيانات' ||
-                    (c.missing && c.missing.length > 0)
-                ),
+                items: filteredItems.filter((c) => empKanbanColumnOf(c) === 'docs_check'),
               },
               {
                 id: 'scheduling',
-                title: '3. جاهزة لإسناد المحامي',
+                title: '3. الحجز والإسناد',
                 tone: '#7e22ce',
-                items: filteredItems.filter(
-                  (c) =>
-                    c.status === 'جاهزة للمحامي' || ! hasLawyer(c)
-                ),
+                items: filteredItems.filter((c) => empKanbanColumnOf(c) === 'scheduling'),
               },
               {
                 id: 'active_sessions',
                 title: '4. جلسات جارية وقادمة',
                 tone: '#1E9D6B',
-                items: filteredItems.filter(
-                  // **`'مؤكد'` أُزيلت:** لا تُكتب على الاستشارة إطلاقاً (تُكتب على
-                  // الموعد المرافق) فكان الشرط ميّتاً. و**النهايات تُستبعد**: العمود
-                  // كان يلتقط `session === 'بانتظار الجلسة'` وهي القيمة الافتراضيّة
-                  // لكلّ استشارة — فتدخله الملغاة والجديدة، أي كلّ شيء تقريباً.
-                  (c) =>
-                    c.session === 'جلسة جارية' ||
-                    (! CONSULT_TERMINAL_STATUSES.includes(c.status) &&
-                      (c.session === 'بانتظار الجلسة' || c.status === 'محالة للمحامي'))
-                ),
+                items: filteredItems.filter((c) => empKanbanColumnOf(c) === 'active_sessions'),
               },
               {
                 id: 'completed',
                 title: '5. منتهية ومغلقة',
                 tone: '#13314F',
-                items: filteredItems.filter((c) =>
-                  CONSULT_TERMINAL_STATUSES.includes(c.status)
-                ),
+                items: filteredItems.filter((c) => empKanbanColumnOf(c) === 'completed'),
               },
             ] as const
           ).map((col) => (
@@ -1567,24 +1569,7 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
               {/* Tab 1: التفاصيل والبيانات */}
               {drawerTab === 'details' && (
                 <>
-                  {drawerConsult.status === 'جديدة' && (
-                    <div style={{ padding: '12px 16px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <b style={{ color: '#1e40af' }}>الاستشارة جديدة وبانتظار استلام منسق المكتب</b>
-                        <div style={{ fontSize: 12, color: '#3b82f6', marginTop: 2 }}>
-                          استلام الملف ينقله لمرحلة تدقيق الأوراق.
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn primary sm"
-                        disabled={isProcessingAction}
-                        onClick={() => handleTake(drawerConsult)}
-                      >
-                        استلام الاستشارة
-                      </button>
-                    </div>
-                  )}
+                  {/* خطوةُ الاستلام اليدويّة أُزيلت بقرار المالك 2026-09-08. */}
 
                   {/*
                     **صفحة رحلة الاستشارة كانت يتيمة:** لا رابط إليها من أيّ شاشة
@@ -1606,7 +1591,7 @@ export const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                     <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.6 }}>{drawerConsult.subject}</div>
                     <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                       <Badge text={drawerConsult.specialty || drawerConsult.type || 'عام'} tone="b-blue" />
-                      <Badge text={`أولوية ${drawerConsult.priority || 'عادية'}`} tone="b-grey" />
+                      <Badge text={`أولوية ${drawerConsult.priority || 'متوسطة'}`} tone="b-grey" />
                     </div>
                   </div>
 
