@@ -31,12 +31,11 @@ enum TicketStatus: string
     case ConvertedToCase = 'محولة إلى قضية';
     case Closed = 'مغلقة';
 
-    // ── قديمة / انتقالية: مكتملة (تنتقل لقرار المآل) وحالات مقروءة ──
+    // ── انتقاليّة: مكتملة (تنتقل لقرار المآل) ──
+    // حُذفت القديمة الأربع (2026-09-19): «بانتظار الدفع»، «قيد التنفيذ»، «بانتظار اعتماد النتيجة»،
+    // «بانتظار اعتماد الإدارة» — لا يكتبها أيّ كود، والخادم بيئة تطوير فلا صفوف قديمة تُحمى.
+    // وحارسها `RetiredStatusesStayGoneTest` يُسقط الاختبارات إن عادت.
     case Completed = 'مكتملة';
-    case LegacyAwaitingPayment = 'بانتظار الدفع';
-    case LegacyInExecution = 'قيد التنفيذ';
-    case LegacyAwaitingResult = 'بانتظار اعتماد النتيجة';
-    case LegacyAwaitingAdminResult = 'بانتظار اعتماد الإدارة';
 
     /** هل الحالة نهائية قطعية؟ (يُجمد السجل معها) */
     public function isTerminal(): bool
@@ -47,14 +46,6 @@ enum TicketStatus: string
     public function isFinal(): bool
     {
         return $this->isTerminal() || $this === self::Completed;
-    }
-
-    public function isLegacy(): bool
-    {
-        return in_array($this, [
-            self::LegacyAwaitingPayment, self::LegacyInExecution,
-            self::LegacyAwaitingResult, self::LegacyAwaitingAdminResult,
-        ], true);
     }
 
     /** ما يقرؤه العميل — الحالات الداخليّة للاعتماد لا تُسمّى له. */
@@ -78,20 +69,13 @@ enum TicketStatus: string
     }
 
     /**
-     * خيارات «الحالة» التي تُعرض للعميل: تسمياته بلا تكرار، والقديمة المطويّة خارجها.
+     * خيارات «الحالة» التي تُعرض للعميل: تسمياته بلا تكرار.
      *
      * @return list<string>
      */
     public static function clientLabels(): array
     {
-        $labels = [];
-        foreach (self::cases() as $case) {
-            if (! $case->isLegacy()) {
-                $labels[] = $case->clientLabel();
-            }
-        }
-
-        return array_values(array_unique($labels));
+        return array_values(array_unique(array_map(fn (self $case) => $case->clientLabel(), self::cases())));
     }
 
     /** @return list<string> */

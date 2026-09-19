@@ -24,11 +24,8 @@ use Illuminate\Support\Facades\DB;
  */
 final class ConsultSessionOutcome
 {
-    /** حالاتٌ تنتظر فيها التذكرة نتيجة جلستها (والقديمة منها مقروءة للصفوف القائمة). */
-    private const AWAITING_OUTCOME = [
-        'موعد مؤكد', 'بانتظار ملخّص الجلسة',
-        'قيد التنفيذ', 'بانتظار اعتماد النتيجة', 'بانتظار اعتماد الإدارة',
-    ];
+    /** حالاتٌ تنتظر فيها التذكرة نتيجة جلستها. */
+    private const AWAITING_OUTCOME = ['موعد مؤكد', 'بانتظار ملخّص الجلسة'];
 
     /** انعقدت الجلسة وانتهت ⇒ التذكرة «بانتظار ملخّص الجلسة» — بلا زرّ للموظّف. */
     public static function sessionEnded(Consult $consult): void

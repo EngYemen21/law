@@ -81,7 +81,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
     [
       't-amber',
       'alert',
-      counts?.needsAction ?? tickets.filter((t) => ['بانتظار مستندات', 'بانتظار حجز الاستشارة', 'بانتظار الدفع'].includes(t.status)).length,
+      counts?.needsAction ?? tickets.filter((t) => ['بانتظار مستندات', 'بانتظار حجز الاستشارة'].includes(t.status)).length,
       'تتطلب إجراءً منك',
     ],
     [
@@ -100,7 +100,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
 
   // التذاكر العاجلة التي تتطلب تدخل العميل
   const actionRequiredTickets = useMemo(() => {
-    return tickets.filter((t) => t.needsDoc || t.needsBooking || t.status === 'بانتظار الدفع');
+    return tickets.filter((t) => t.needsDoc || t.needsBooking);
   }, [tickets]);
 
   // استخراج الأقسام الفريدة
@@ -181,7 +181,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
       if (statusFilter === 'active') {
         if (TERMINAL_STATUSES.includes(t.status)) return false;
       } else if (statusFilter === 'action') {
-        if (!t.needsDoc && !t.needsBooking && t.status !== 'بانتظار الدفع') return false;
+        if (!t.needsDoc && !t.needsBooking) return false;
       } else if (statusFilter === 'analysis') {
         // مجموعة الخادم لا قائمةٌ يدويّة — كانت تُسقط حالتَي الاعتماد فلا تظهر التذكرة إلا في «الكل»
         if (!(t.phase === 'analysis')) return false;
@@ -285,9 +285,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
                   <div style={{ fontSize: 12.5, color: 'var(--ink)', fontWeight: 600, marginTop: 2 }}>
                     {t.needsDoc
                       ? 'مطلوب تزويد المستشار بالوثائق والمستندات لاستكمال الدراسة'
-                      : t.needsBooking
-                      ? 'تمت الدراسة المبدئية، يرجى حجز موعد الاستشارة لمناقشة الرأي القانوني'
-                      : 'بانتظار استكمال سداد رسوم الاستشارة'}
+                      : 'تمت الدراسة المبدئية، يرجى حجز موعد الاستشارة لمناقشة الرأي القانوني'}
                   </div>
                 </div>
               </div>
@@ -298,7 +296,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
                 onClick={() => router.visit(t.needsBooking ? '/book' : `/tickets/${encodeURIComponent(t.no)}`)}
                 type="button"
               >
-                {t.needsDoc ? '📎 إرفاق المستندات' : t.needsBooking ? '📅 حجز الموعد الآن' : 'سداد الرسوم'}
+                {t.needsDoc ? '📎 إرفاق المستندات' : '📅 حجز الموعد الآن'}
               </button>
             </div>
           ))}

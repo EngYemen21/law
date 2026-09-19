@@ -59,7 +59,7 @@ class TicketController extends Controller
         $counts = [
             'total' => $tickets->count(),
             'active' => $tickets->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
-            'needsAction' => $tickets->whereIn('status', ['بانتظار مستندات', 'بانتظار حجز الاستشارة', 'بانتظار الدفع'])->count(),
+            'needsAction' => $tickets->whereIn('status', ['بانتظار مستندات', 'بانتظار حجز الاستشارة'])->count(),
             // من مجموعة التبويب نفسها (`TicketJourney::CLIENT_PHASES`) — العدّاد يعدّ ما يعرضه تبويبه
             'inAnalysis' => $tickets->where('phase', 'analysis')->count(),
             'inOpinion' => $tickets->where('phase', 'opinion')->count(),

@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Model;
  *
  * يناديه `ConsultSessionOutcome::sessionEnded` من زرّ الإنهاء ومن webhook Zoom (فاعلٌ آليّ `null`).
  * كان يكتب الحالة مباشرةً خارج المحرّك وخارج قائمة الحارس. `from()` هي الحالتان اللتان كان
- * يقبلهما بالضبط (والقديمة «قيد التنفيذ» لصفوفٍ قائمة)، وغيرهما يُتجاوز بصمتٍ كما كان —
+ * يقبلها بالضبط («قيد التنفيذ» القديمة حُذفت 2026-09-19)، وغيرها يُتجاوز بصمتٍ كما كان —
  * يفحصه المنادي بـ`accepts()` قبل النداء، فلا يصير صمتُ الأمس خطأً 422 اليوم.
  *
  * @extends Transition<Ticket>
@@ -29,7 +29,7 @@ final class SessionEnded extends Transition
 
     public function from(): array
     {
-        return [TicketStatus::Scheduled->value, TicketStatus::LegacyInExecution->value];
+        return [TicketStatus::Scheduled->value];
     }
 
     public function to(Model $entity, array $payload): string

@@ -164,7 +164,7 @@ class TicketController extends Controller
     private static function awaitingAdmin(Builder $query): Builder
     {
         return $query->where(function (Builder $q) {
-            $q->whereIn('status', ['بانتظار اعتماد الإدارة للملخّص', 'بانتظار اعتماد الإدارة'])
+            $q->where('status', 'بانتظار اعتماد الإدارة للملخّص')
                 ->orWhereHas('summary', fn (Builder $sq) => $sq->where(
                     fn (Builder $w) => $w->where('status', 'awaiting_admin')->orWhere('result_status', 'pending_admin')
                 ))

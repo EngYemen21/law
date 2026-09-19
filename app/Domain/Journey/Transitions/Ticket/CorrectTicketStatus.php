@@ -53,7 +53,7 @@ final class CorrectTicketStatus extends Transition
         $target = TicketStatus::tryFrom((string) $payload['status']);
 
         return match (true) {
-            $target === null || $target->isLegacy() => 'الحالة المطلوبة ليست من مراحل الرحلة.',
+            $target === null => 'الحالة المطلوبة ليست من مراحل الرحلة.',
             $target->value === $entity->status => 'التذكرة في هذه الحالة أصلاً.',
             blank($payload['reason'] ?? null) => 'اذكر سبب التصحيح — يُحفظ في سجلّ التذكرة.',
             default => null,

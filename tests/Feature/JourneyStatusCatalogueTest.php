@@ -33,13 +33,13 @@ class JourneyStatusCatalogueTest extends TestCase
         $this->assertFalse(TicketStatus::Scheduled->isFinal());
     }
 
-    /** الحالات القديمة مقروءة ومعلَّمة — لا تُعرض خياراً ولا يكتبها انتقال. */
-    public function test_retired_ticket_statuses_are_marked_legacy(): void
+    /** الحالات القديمة الأربع حُذفت من الكتالوج (2026-09-19) — لا يكتبها شيء ولا تُقبل تصحيحاً. */
+    public function test_retired_ticket_statuses_are_no_longer_in_the_catalogue(): void
     {
         foreach (['بانتظار الدفع', 'قيد التنفيذ', 'بانتظار اعتماد النتيجة', 'بانتظار اعتماد الإدارة'] as $status) {
-            $this->assertTrue(TicketStatus::from($status)->isLegacy(), "«{$status}» يُفترض أن تكون قديمة");
+            $this->assertNull(TicketStatus::tryFrom($status), "«{$status}» حُذفت ولا تعود");
         }
-        $this->assertFalse(TicketStatus::AwaitingSessionSummary->isLegacy());
+        $this->assertNotNull(TicketStatus::tryFrom('بانتظار اعتماد الإدارة للملخّص'), 'الحالة الحيّة الأطول باقية');
     }
 
     /** العميل لا يرى أسماء الاعتماد الداخليّة. */

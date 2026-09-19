@@ -38,7 +38,7 @@ class AdminApprovalCountersTest extends TestCase
         ], $extra));
     }
 
-    public function test_pending_admin_tab_and_count_include_the_two_stage_states_and_legacy_rows(): void
+    public function test_pending_admin_tab_and_count_include_the_two_stage_states(): void
     {
         $admin = User::factory()->create(['role' => Role::Admin]);
         $client = User::factory()->create(['role' => Role::Client]);
@@ -55,8 +55,7 @@ class AdminApprovalCountersTest extends TestCase
             'summary' => 'ملخّص', 'summary_lawyer_approved_at' => now(),
         ]);
 
-        // (ج) صفٌّ قديم بالحالة المطويّة
-        $this->ticket($client, 'بانتظار اعتماد الإدارة');
+        // (ج) الحالة القديمة «بانتظار اعتماد الإدارة» حُذفت (2026-09-19) — لا صفّ لها يُعدّ
 
         // (د) ما زال عند المحامي — لا ينتظر الإدارة
         $atLawyer = $this->ticket($client, 'بانتظار اعتماد المستشار');
@@ -73,8 +72,8 @@ class AdminApprovalCountersTest extends TestCase
         $this->actingAs($admin)->get(route('admin.tickets', ['status' => 'pending_admin']))
             ->assertOk()
             ->assertInertia(fn ($p) => $p
-                ->where('tickets.meta.total', 3)
-                ->where('summaryStats.pending_admin', 3));
+                ->where('tickets.meta.total', 2)
+                ->where('summaryStats.pending_admin', 2));
     }
 
     public function test_dashboard_summary_radar_counts_only_summaries_awaiting_admin(): void

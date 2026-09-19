@@ -32,9 +32,6 @@ final class ReadyForOutcome extends Transition
             TicketStatus::Scheduled->value,
             TicketStatus::AwaitingSessionSummary->value,
             TicketStatus::Completed->value,
-            'بانتظار اعتماد الإدارة',
-            'بانتظار اعتماد النتيجة',
-            'قيد التنفيذ',
         ];
     }
 

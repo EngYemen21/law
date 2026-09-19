@@ -179,7 +179,8 @@ class StageIntegrityTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         Ticket::create([
             'user_id' => $client->id, 'number' => 'SB-S-9', 'type' => 'تجاري',
-            'status' => 'بانتظار اعتماد الإدارة', 'tone' => 'b-amber',
+            // ما يكتبه الخادم اليوم (`AwaitAdminSummaryApproval`) — «بانتظار اعتماد الإدارة» القديمة حُذفت
+            'status' => 'بانتظار اعتماد الإدارة للملخّص', 'tone' => 'b-amber',
         ]);
 
         $this->actingAs($admin)->get(route('admin.tickets', ['status' => 'pending_admin']))
