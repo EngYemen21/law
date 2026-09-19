@@ -7,12 +7,16 @@ use App\Domain\Journey\Transition;
 use App\Domain\Journey\TransitionDenied;
 use App\Domain\Journey\Workflow;
 use App\Enums\Role;
+use App\Events\ConsultStatusBroadcast;
 use App\Events\Journey\TransitionCompleted;
 use App\Models\Consult;
 use App\Models\JourneyTransition;
 use App\Models\User;
+use Illuminate\Broadcasting\BroadcastException;
+use Illuminate\Contracts\Broadcasting\Broadcaster;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use RuntimeException;
@@ -221,5 +225,56 @@ class JourneyWorkflowEngineTest extends TestCase
             ['file' => 'C:\\srv\\law\\app\\Http\\Controllers\\Staff\\ConsultController.php'],
         ];
         $this->assertNull(StateWriteGuard::writer($fromTest, $base), 'الاختبارات والبذور تُهيّئ حالاتٍ ولا تنتقل بها');
+    }
+
+    /**
+     * تعذُّر Reverb بعد الحفظ لا يُجهض الطلب: الحالة محفوظة، والانتقال يعود سليماً، ومستمعو
+     * الأحداث العاديّة يُطلَقون. قبل هذا كان `event()` يرمي فيضيع ما يليه عند المنادي (مهمّة ختم
+     * الجلسة من خطّاف Zoom مثلاً) ويعود 500 على تغييرٍ تمّ — والاختبارات لا تراه لأنّ البثّ فيها `null`.
+     */
+    public function test_an_unreachable_broadcaster_does_not_abort_a_committed_transition(): void
+    {
+        Broadcast::extend('down', fn () => new class implements Broadcaster
+        {
+            public function auth($request) {}
+
+            public function validAuthenticationResponse($request, $result) {}
+
+            public function broadcast(array $channels, $event, array $payload = []): void
+            {
+                throw new BroadcastException('Reverb غير متاح');
+            }
+        });
+        config(['broadcasting.default' => 'down', 'broadcasting.connections.down' => ['driver' => 'down']]);
+        Event::fake([TransitionCompleted::class]);
+
+        $consult = $this->consult();
+        $broadcasting = new class extends Transition
+        {
+            public function name(): string
+            {
+                return 'test.broadcast';
+            }
+
+            public function from(): array
+            {
+                return ['بانتظار التسعير'];
+            }
+
+            public function to(Model $entity, array $payload): string
+            {
+                return 'ملغاة';
+            }
+
+            public function events(Model $entity, string $from, ?User $actor, array $payload): array
+            {
+                return [new ConsultStatusBroadcast($entity)];
+            }
+        };
+
+        Workflow::run($broadcasting, $consult);
+
+        $this->assertSame('ملغاة', $consult->fresh()->status);
+        Event::assertDispatched(TransitionCompleted::class);
     }
 }

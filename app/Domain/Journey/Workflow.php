@@ -5,6 +5,8 @@ namespace App\Domain\Journey;
 use App\Events\Journey\TransitionCompleted;
 use App\Models\JourneyTransition;
 use App\Models\User;
+use App\Support\Live;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
@@ -87,11 +89,7 @@ final class Workflow
             return $locked;
         });
 
-        DB::afterCommit(function () use ($events) {
-            foreach ($events as $event) {
-                event($event);
-            }
-        });
+        DB::afterCommit(fn () => self::dispatch($events));
 
         $entity->setRawAttributes($locked->getAttributes(), true);
 
@@ -159,6 +157,27 @@ final class Workflow
         }
 
         return $names;
+    }
+
+    /**
+     * إطلاق أحداث الانتقال بعد الحفظ — والبثّ اللحظيّ منها عبر `Live::push` لا `event()`.
+     *
+     * أحداث البثّ من نوع ShouldBroadcastNow: `event()` يرسلها شبكيّاً في الطلب نفسه ويرمي إن
+     * تعذّر Reverb. والرمي هنا يقع بعد أن حُفظت الحالة، فيُجهض ما بعد الانتقال عند المنادي
+     * (إطلاق مهمّة ختم الجلسة من خطّاف Zoom، وإغلاق الغرفة، والرسالة للعميل) ويعيد 500 على تغييرٍ
+     * تمّ فعلاً. البثّ تحسينٌ للتجربة لا مصدرٌ للحقيقة، و`Live` يبتلع فشله بقاطع دائرة.
+     *
+     * @param  list<object>  $events
+     */
+    private static function dispatch(array $events): void
+    {
+        foreach ($events as $event) {
+            if ($event instanceof ShouldBroadcast) {
+                Live::push($event);
+            } else {
+                event($event);
+            }
+        }
     }
 
     private static function refOf(Model $entity): ?string
