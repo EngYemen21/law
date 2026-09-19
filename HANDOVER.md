@@ -933,9 +933,12 @@ node scripts/ui-inventory.mjs diff before.json after.json allow.json   # «نا�
   نهائي وإرسال النتيجة» في «سجلّ المعتمد والنتائج»، و`Admin\TicketController::approveResult` ومساره
   `admin.tickets.result`، والانتقال `AdminApprovePendingResult`؛ و`RejectTicketResult` يقبل «approved» وحدها.
   التحقّق قبلها: لا كاتب لها (الحارس)، وصفر صفوف في قاعدة التطوير. جرد الواجهة: 11 عنصراً ناقصاً كلّها منها.
-- 🔴 **عطلٌ قائم (وُجد أثناء التحقّق، لم يُمسّ):** نوافذ «تأكيد الموافقة» و«تأكيد الرفض» في مركز الاعتمادات بلا زرّ
-  تنفيذ — `handleApprove`/`handleReject` في `admin/approvals.tsx` معرَّفتان ولا يناديهما شيء، منذ أوّل حفظٍ للملفّ
-  في git. أزرار ✓ و✗ في كلّ التبويبات تفتح نافذةً لا تُنفّذ شيئاً. ينتظر قرار المالك.
+- ✅ **أُصلح (2026-09-20، بموافقة المالك):** نافذتا «تأكيد الموافقة» و«تأكيد الرفض» في مركز الاعتمادات كانتا بلا زرّ
+  تنفيذ — `handleApprove`/`handleReject` معرَّفتان ولا يناديهما شيء منذ أوّل حفظٍ للملفّ. أُضيف «تأكيد الاعتماد»
+  و«تأكيد الرفض والإعادة» (معطَّلٌ حتى يُكتب السبب؛ ٣ أحرف كشرط الخادم) و«إلغاء». جُرّب في المتصفّح على تذكرتَي تجربة
+  (اعتمادٌ ورفض لمقترح مسار، عبر المحرّك وسجلّه) ثمّ حُذفتا. يحرسه
+  `AdminApprovalsOperationsTest::test_the_approve_and_reject_dialogs_have_their_confirm_buttons`.
+  وكانت للإدارة طرقٌ بديلة تعمل: صفحة التذكرة (المسار والملخّص)، وصفحة الاستشارات (ملخّص الجلسة)، وطلبات الاستشارة (الموعد).
 - أصناف ألوان بلا CSS: `b-purple`/`b-teal` (`admin/distribute.tsx`، `lawyer/editor.tsx`)، `b-muted` (`lawyer/editor-index.tsx`).
 - `pages/ticketchat.tsx`: رابط `/executions` والمسار `/execs`، والتمرير إلى `.book-consult` غير الموجود.
 - `lawyer/case.tsx` يقرأ `c.status` لا `live.status`؛ عدّاد «بحاجة لملخّص» في `lawyer/consults.tsx` يخالف قائمته.

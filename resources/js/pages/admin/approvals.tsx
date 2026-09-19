@@ -274,8 +274,9 @@ const AdminApprovals: React.FC<Props> = ({
         const { item, category } = modalState;
         const ref = item.no || item.ref;
 
-        if (!rejectReason.trim()) {
-            toast('يرجى كتابة سبب الرفض أو التوجيهات للمستشار/الموظف');
+        // الخادم يشترط ٣ أحرف على الأقلّ (`ApprovalsController::reject`) — يُفحص هنا برسالةٍ واضحة لا خطأٍ عامّ
+        if (rejectReason.trim().length < 3) {
+            toast('يرجى كتابة سبب الرفض أو التوجيهات للمستشار/الموظف (ثلاثة أحرف على الأقلّ)');
             return;
         }
 
@@ -1437,6 +1438,34 @@ const AdminApprovals: React.FC<Props> = ({
                                             boxShadow: 'none',
                                         }}
                                     />
+                                </div>
+                            )}
+
+                            {/*
+                              * **زرّ التنفيذ في نافذتَي الموافقة والرفض.** كانت النافذتان تحملان العنوان والشرح وحقل
+                              * السبب بلا زرٍّ ينادي handleApprove/handleReject — فأزرار ✓ و✗ في كلّ التبويبات تفتح
+                              * نافذةً لا تُنفّذ شيئاً، ولا يبقى للإدارة إلّا الإغلاق (وُجد 2026-09-20).
+                              */}
+                            {(modalState.action === 'approve' || modalState.action === 'reject') && (
+                                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16, flexWrap: 'wrap' }}>
+                                    <button type="button" className="btn sm soft" onClick={closeModal} disabled={isProcessing}>
+                                        إلغاء
+                                    </button>
+                                    {modalState.action === 'approve' ? (
+                                        <button type="button" className="btn sm" onClick={handleApprove} disabled={isProcessing}>
+                                            <Icon name="check" /> {isProcessing ? 'جارٍ الاعتماد…' : 'تأكيد الاعتماد'}
+                                        </button>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            className="btn sm"
+                                            style={{ background: '#dc2626', boxShadow: 'none' }}
+                                            onClick={handleReject}
+                                            disabled={isProcessing || !rejectReason.trim()}
+                                        >
+                                            <Icon name="close" /> {isProcessing ? 'جارٍ الإرسال…' : 'تأكيد الرفض والإعادة'}
+                                        </button>
+                                    )}
                                 </div>
                             )}
 

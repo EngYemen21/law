@@ -246,6 +246,21 @@ class AdminApprovalsOperationsTest extends TestCase
         $this->assertDatabaseMissing('appointments', ['id' => $appointment->id]);
     }
 
+    /**
+     * **نافذتا الموافقة والرفض تحملان زرّ التنفيذ.** كانت الدالّتان معرَّفتين ولا يناديهما شيء: أزرار
+     * ✓ و✗ في كلّ التبويبات تفتح نافذةً بلا زرّ إلّا الإغلاق (وُجد 2026-09-20). الخادم تحرسه الاختبارات
+     * أعلاه؛ وهذا يحرس الوصلة بين الواجهة وبينه.
+     */
+    public function test_the_approve_and_reject_dialogs_have_their_confirm_buttons(): void
+    {
+        $ui = (string) file_get_contents(resource_path('js/pages/admin/approvals.tsx'));
+
+        $this->assertStringContainsString('onClick={handleApprove}', $ui);
+        $this->assertStringContainsString('onClick={handleReject}', $ui);
+        $this->assertStringContainsString('تأكيد الاعتماد', $ui);
+        $this->assertStringContainsString('تأكيد الرفض والإعادة', $ui);
+    }
+
     public function test_admin_can_reject_history_result(): void
     {
         $ticket = Ticket::create([
