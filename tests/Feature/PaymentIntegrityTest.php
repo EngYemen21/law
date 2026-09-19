@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
+use App\Models\AuditLog;
 use App\Models\Consult;
 use App\Models\Invoice;
 use App\Models\LegalCase;
@@ -183,5 +184,35 @@ class PaymentIntegrityTest extends TestCase
 
         $this->assertTrue($target->fresh()->paid);
         $this->assertFalse($extra->fresh()->paid, 'فاتورة ثانية شُطبت بلا سداد.');
+    }
+
+    /**
+     * **سباق الخطّاف والعودة على فاتورة الاستشارة:** كلاهما قرأ الفاتورة غير مدفوعة، فسدّد الأوّل
+     * وانتقل بالاستشارة، ورُفض انتقال الثاني. كان الثاني يكتب قيداً حرجاً «تتطلّب استرداداً» ويُنبّه
+     * الإدارة على دفعةٍ سليمة. هنا: نسخةٌ قديمة من الفاتورة (قبل التسوية) تُسوّى بعد أن سُدّدت.
+     */
+    public function test_the_losing_side_of_a_webhook_callback_race_is_not_a_refund(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        User::factory()->create(['role' => Role::Admin]);
+        $consult = Consult::create([
+            'user_id' => $client->id, 'ref' => 'CN-RACE-1', 'subject' => 'نزاع', 'channel' => 'مرئية',
+            'lawyer' => 'مستشار', 'status' => 'بانتظار السداد', 'price' => 450, 'vat' => 68, 'total' => 518,
+        ]);
+        $stale = $consult->invoice()->create([
+            'user_id' => $client->id, 'number' => 'INV-RACE-1', 'description' => 'استشارة',
+            'amount' => 518, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال 3 أيام', 'paid' => false,
+        ]);
+
+        PaymentReconciler::settle([
+            'id' => 'pay_race', 'status' => 'paid', 'amount' => 51800, 'currency' => 'SAR',
+            'metadata' => ['invoice_number' => 'INV-RACE-1'],
+        ], 'webhook');
+        $this->assertTrue($stale->fresh()->paid);
+
+        $settleConsult = new \ReflectionMethod(PaymentReconciler::class, 'settleConsult');
+        $this->assertTrue($settleConsult->invoke(null, $stale, $consult->fresh(), 'callback'), 'الخاسر في السباق نجاحٌ مكرّر');
+
+        $this->assertSame(0, AuditLog::where('action', 'دفعة على فاتورة لا تقبل السداد')->count(), 'لا قيد استردادٍ على دفعةٍ سليمة');
     }
 }

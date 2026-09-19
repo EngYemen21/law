@@ -105,7 +105,9 @@ class ConsultController extends Controller
             return $back()->with('success', 'تم تأكيد الدفع — سوف يتم تحديد موعد جلستك مع المستشار المختص ويصلك إشعار به.');
         }
 
-        // إن كانت الفاتورة عُلّمت كمدفوعة أصلًا (تسوّت عبر الـwebhook أو التحصيل الإداري):
+        // إن كانت الفاتورة عُلّمت كمدفوعة أصلًا (تسوّت عبر الـwebhook أو التحصيل الإداري) —
+        // تُقرأ من جديد: المحمَّلة أعلاه سبقت التسوية فتبقى «غير مدفوعة» ولو سدّدها الخطّاف للتوّ
+        $consult->load('invoice');
         if ($consult->invoice?->paid) {
             PaymentReconciler::settleDomain($consult->invoice, $request->user()->name);
 
