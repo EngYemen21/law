@@ -312,7 +312,8 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
 
             {approved === 'execution' && (executionNumber || hasExecution) && (
               <Link
-                href={`${base}/executions`}
+                // مسار التنفيذ المسجَّل لكلّ دورٍ هو `<base>/execs`؛ وكان هنا اسمٌ أطول لا وجود له في المسارات ⇒ 404
+                href={`${base}/execs`}
                 className="btn soft sm block"
                 style={{ justifyContent: 'center' }}
               >

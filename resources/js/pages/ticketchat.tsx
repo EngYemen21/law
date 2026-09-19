@@ -93,8 +93,9 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
     : status === 'بانتظار التسعير' ? 'بانتظار التسعير'
       : status === 'بانتظار السداد' ? 'بانتظار السداد' : 'قيد تحديد الموعد';
 
+  // المعرّف book-consult هو هدف تمرير زرّ «حجز موعد الاستشارة» في بطاقة قرار الإدارة أعلى الصفحة
   return (
-    <div className="card" ref={cardRef} style={{ marginBottom: 16 }}>
+    <div className="card" id="book-consult" ref={cardRef} style={{ marginBottom: 16 }}>
       <div className="card-h">
         <h3>حجز موعد الاستشارة</h3>
         <Badge text={badge} tone="b-amber" />
@@ -201,7 +202,8 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
                 </span>
               </div>
             </div>
-            <a href="/executions" className="btn sm" style={{ whiteSpace: 'nowrap', background: '#d97706', color: '#fff', border: 'none' }}>
+            {/* المسار الصحيح /execs — كان /executions يعطي صفحة غير موجودة (404) */}
+            <a href="/execs" className="btn sm" style={{ whiteSpace: 'nowrap', background: '#d97706', color: '#fff', border: 'none' }}>
               الانتقال لملف التنفيذ
             </a>
           </div>
@@ -248,7 +250,16 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
               className="btn sm"
               style={{ whiteSpace: 'nowrap', background: '#2563eb', color: '#fff', border: 'none' }}
               onClick={() => {
-                document.querySelector('.book-consult')?.scrollIntoView({ behavior: 'smooth' });
+                // المحدّد القديم (صنف book-consult) كان ميّتاً — لا عنصر يحمله فلا يفعل الزرّ شيئاً؛
+                // الهدف الصحيح بطاقة الحجز ذات المعرّف book-consult في هذه الصفحة، وإن لم تكن
+                // معروضة ننتقل لصفحة الحجز /book كما تفعل صفحة «طلباتي».
+                const card = document.getElementById('book-consult');
+
+                if (card) {
+                  card.scrollIntoView({ behavior: 'smooth' });
+                } else {
+                  router.visit('/book');
+                }
               }}
             >
               حجز موعد الاستشارة
