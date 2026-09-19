@@ -25,7 +25,6 @@ use App\Support\LawyerName;
 use App\Support\LegalCatalogue;
 use App\Support\Live;
 use App\Support\Notify;
-use App\Support\TicketAssignment;
 use App\Support\TicketJourney;
 use App\Support\TicketTriage;
 use Illuminate\Http\JsonResponse;
@@ -141,9 +140,14 @@ class TicketController extends Controller
             'date_label' => 'الآن',
         ]), $request->user());
 
-        // الإسناد الأول (حتمي وفوري): الذكاء الاصطناعي يختار المحامي المختص،
-        // فيراها الموظفون منذ الاستقبال، ويبقى العزل على العميل ومحاميه المسنَد.
-        TicketAssignment::assign($ticket);
+        /*
+         * **لا إسناد تلقائيّ عند الفتح** (قرار المالك 2026-09-20): الإسناد قرارٌ بشريّ — الموظّف من
+         * شاشة «تحويل التذاكر»، أو الإدارة من شاشة «توزيع التذاكر». كان النظام يختار المحامي المختصّ
+         * لحظة الفتح، فيصل الملفّ محاميّاً لم يره أحد.
+         *
+         * ولا تُنسى تذكرة: إشعار الفتح أدناه يصل كلّ الموظّفين والإدارة، ومهمّة التصعيد الدوريّة
+         * تُسندها للإدارة العليا إن بقيت بلا محامٍ بعد المهلة المضبوطة في الإعدادات (ساعتان).
+         */
 
         // الرسالة الأولى من العميل
         $m1 = $ticket->messages()->create(['who' => 'client', 'name' => 'أنت', 'role' => 'العميل', 'body' => nl2br(e($details)), 'time_label' => $this->clock()]);

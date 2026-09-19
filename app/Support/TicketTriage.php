@@ -10,6 +10,7 @@ use App\Domain\Journey\Workflow;
 use App\Enums\AiSource;
 use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
+use App\Jobs\EscalateUnassignedTicketJob;
 use App\Jobs\GenerateTicketSummaryJob;
 use App\Models\AiRun;
 use App\Models\Ticket;
@@ -381,7 +382,19 @@ class TicketTriage
         if (! $ticket->relationLoaded('assignedLawyer') && $ticket->assigned_lawyer_id) {
             $ticket->load('assignedLawyer');
         }
-        $lawyer = $ticket->assignedLawyer ?? TicketAssignment::assign($ticket);
+
+        /*
+         * **لا اختيارَ صامتاً لمحامٍ** (قرار المالك 2026-09-20): الإسناد بشريّ — من شاشة «تحويل
+         * التذاكر» أو «توزيع التذاكر». وكان هذا السطر يختار المختصّ عند الإحالة إن لم يكن مسنَداً.
+         * وإن أحال الموظّف ولا محامي عليها، تُصعَّد للإدارة العليا وتُسنَد لها (مباشرةً لا في
+         * الطابور: الإحالة تحتاج صاحبَ ملفٍّ الآن)، فلا تبقى بلا صاحب ولا تُختار لها جهةٌ بالصدفة.
+         */
+        if ($ticket->assignedLawyer === null) {
+            EscalateUnassignedTicketJob::dispatchSync($ticket->id);
+            $ticket->refresh()->load('assignedLawyer');
+        }
+
+        $lawyer = $ticket->assignedLawyer;
 
         $existing = $ticket->summary;
 

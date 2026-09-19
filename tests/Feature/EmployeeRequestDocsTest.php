@@ -103,11 +103,12 @@ class EmployeeRequestDocsTest extends TestCase
     {
         config(['services.ai_agent.enabled' => true]);
         $client = User::factory()->create(['role' => Role::Client]);
-        // القسم مطابق لقسم التذكرة: الإسناد الأوّل يشترط التخصّص الآن، وبلا متخصّص
-        // تبقى التذكرة بلا محامٍ ويُصعَّد الأمر (LawyerAssignmentPolicyTest يغطّي ذلك).
-        // موضوع هذا الاختبار إحالة المستندات لا سياسة الإسناد.
-        User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
+        // الإسناد بيد الطاقم (قرار المالك 2026-09-20)، فيُسنَد هنا كما يفعل الموظّف من شاشة
+        // التحويل — موضوع هذا الاختبار إحالة المستندات لا سياسة الإسناد
+        // (يغطّيها `LawyerAssignmentPolicyTest`).
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client); // الوكيل يضعها في «بانتظار مستندات»
+        $ticket->update(['assigned_lawyer_id' => $lawyer->id, 'assigned_lawyer' => $lawyer->name]);
         $this->partialMock(LegalAiService::class, function ($mock) {
             $mock->shouldReceive('analyzeDocument')->andReturn([
                 'related' => true, 'doc_type' => 'عقد', 'summary' => 'عقد يخص النزاع.', 'reason' => 'مرتبط بالموضوع.',

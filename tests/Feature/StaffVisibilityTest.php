@@ -100,27 +100,40 @@ class StaffVisibilityTest extends TestCase
         $this->actingAs($other)->get(route('lawyer.cases.show', $case))->assertOk();
     }
 
-    public function test_new_ticket_is_assigned_to_matching_lawyer(): void
+    /**
+     * الفتح لا يُسنِد (قرار المالك 2026-09-20)؛ ومن يُسنِد هو الطاقم — وزرّ «التوزيع التلقائيّ»
+     * لدى الإدارة يُسنِد محامي القسم المطابق.
+     */
+    public function test_a_new_ticket_waits_unassigned_until_staff_distributes_it(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'department' => 'القضايا التجارية']);
+        $admin = User::factory()->create(['role' => Role::Admin]);
 
         $this->actingAs($client)->post(route('tickets.store'), [
             'type' => 'نزاع تجاري', 'department' => 'القضايا التجارية', 'details' => 'تفاصيل الطلب',
         ])->assertRedirect();
 
-        $this->assertSame($lawyer->id, Ticket::where('user_id', $client->id)->firstOrFail()->assigned_lawyer_id);
+        $ticket = Ticket::where('user_id', $client->id)->firstOrFail();
+        $this->assertNull($ticket->assigned_lawyer_id, 'أُسنِدت تلقائيّاً عند الفتح.');
+
+        $this->actingAs($admin)->post(route('admin.distribute.auto'))->assertRedirect();
+
+        $this->assertSame($lawyer->id, $ticket->fresh()->assigned_lawyer_id);
     }
 
-    public function test_assignment_prefers_department_match(): void
+    public function test_distribution_prefers_department_match(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         User::factory()->create(['role' => Role::Lawyer, 'department' => 'العقارات']);
         $commercial = User::factory()->create(['role' => Role::Lawyer, 'department' => 'القضايا التجارية']);
+        $admin = User::factory()->create(['role' => Role::Admin]);
 
         $this->actingAs($client)->post(route('tickets.store'), [
             'type' => 'نزاع تجاري', 'department' => 'القضايا التجارية', 'details' => 'خلاف تجاري',
         ])->assertRedirect();
+
+        $this->actingAs($admin)->post(route('admin.distribute.auto'))->assertRedirect();
 
         $this->assertSame($commercial->id, Ticket::where('user_id', $client->id)->firstOrFail()->assigned_lawyer_id);
     }

@@ -37,9 +37,10 @@ class TicketOpenSequenceTest extends TestCase
 
         $ticket = $this->openTicket($client);
 
-        // لا قفزة «محالة» قبل الترحيب — الاستقبال يطلب المستندات أولاً والإسناد صامت للعزل فقط
+        // لا قفزة «محالة» قبل الترحيب — الاستقبال يطلب المستندات أوّلاً
         $this->assertSame('بانتظار مستندات', $ticket->status);
-        $this->assertNotNull($ticket->assigned_lawyer_id);
+        // ولا محامي: الإسناد بيد الطاقم (قرار المالك 2026-09-20)
+        $this->assertNull($ticket->assigned_lawyer_id);
         $this->assertStringNotContainsString('تمت إحالة', (string) $ticket->last_message);
 
         // رسالة العميل في نافذة استكمال المستندات تحصل على ردّ آلي
@@ -48,17 +49,21 @@ class TicketOpenSequenceTest extends TestCase
         $this->assertGreaterThan($aiBefore, $ticket->messages()->where('who', 'ai')->count());
     }
 
-    public function test_human_mode_open_still_refers_immediately(): void
+    /**
+     * الوضع البشريّ (الوكيل معطّل): الفتح لا يُسنِد ولا يُحيل — الإسناد قرارٌ بشريّ
+     * (قرار المالك 2026-09-20). والقفزة إلى «محالة للقسم القانوني» تقع مع الإسناد نفسه
+     * حين يقع من الطاقم أو من التصعيد (يحرسها `LawyerAssignmentPolicyTest`).
+     */
+    public function test_human_mode_open_assigns_nobody_either(): void
     {
-        // الوكيل معطّل (الوضع البشري) — القفزة الفورية تبقى كي لا تعلق التذكرة بلا مستقبِل
         config(['services.ai_agent.enabled' => false]);
         $client = User::factory()->create(['role' => Role::Client]);
         User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
 
         $ticket = $this->openTicket($client);
 
-        $this->assertSame('محالة للقسم القانوني', $ticket->status);
-        $this->assertNotNull($ticket->assigned_lawyer_id);
+        $this->assertNull($ticket->assigned_lawyer_id);
+        $this->assertNotSame('محالة للقسم القانوني', $ticket->status);
     }
 
     public function test_client_message_after_referral_hands_off_to_lawyer(): void

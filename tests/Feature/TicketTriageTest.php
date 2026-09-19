@@ -37,6 +37,15 @@ class TicketTriageTest extends TestCase
         return Ticket::latest('id')->firstOrFail();
     }
 
+    /**
+     * إسناد المحامي كما يفعل الطاقم من «تحويل التذاكر»/«توزيع التذاكر».
+     * الفتح لم يعد يُسنِد (قرار المالك 2026-09-20)، وموضوع هذا الملفّ الوكيلُ لا سياسةُ الإسناد.
+     */
+    private function assignTo(Ticket $ticket, User $lawyer): void
+    {
+        $ticket->update(['assigned_lawyer_id' => $lawyer->id, 'assigned_lawyer' => $lawyer->name]);
+    }
+
     /** محاكاة نتيجة فحص المستند (بقية دوال الخدمة تعمل بالاحتياط القالبي الحقيقي). */
     private function mockDocAnalysis(?array $result): void
     {
@@ -78,6 +87,7 @@ class TicketTriageTest extends TestCase
         $employee = User::factory()->create(['role' => Role::Employee]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client);
+        $this->assignTo($ticket, $lawyer);
         $this->mockDocAnalysis(['related' => true, 'doc_type' => 'عقد توريد', 'summary' => 'عقد توريد بين الطرفين بقيمة محددة.', 'reason' => 'يوثّق العلاقة التعاقدية محل النزاع.']);
 
         $this->actingAs($client)->post(route('tickets.attach', $ticket), [
@@ -117,8 +127,9 @@ class TicketTriageTest extends TestCase
         Queue::fake([GenerateTicketSummaryJob::class]);
         $client = User::factory()->create(['role' => Role::Client]);
         $employee = User::factory()->create(['role' => Role::Employee]);
-        User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client);
+        $this->assignTo($ticket, $lawyer);
         $this->mockDocAnalysis(['related' => true, 'doc_type' => 'عقد توريد', 'summary' => 'عقد توريد.', 'reason' => 'يوثّق العلاقة.']);
 
         $this->actingAs($client)->post(route('tickets.attach', $ticket), [
@@ -142,8 +153,9 @@ class TicketTriageTest extends TestCase
     {
         $this->enableAgent();
         $client = User::factory()->create(['role' => Role::Client]);
-        User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client);
+        $this->assignTo($ticket, $lawyer);
         $this->mockDocAnalysis(['related' => false, 'doc_type' => 'وصفة طبية', 'summary' => 'تقرير طبي لا علاقة له بالنزاع.', 'reason' => 'المحتوى طبي ولا يخص النزاع التجاري.']);
 
         $this->actingAs($client)->post(route('tickets.attach', $ticket), [
@@ -189,6 +201,7 @@ class TicketTriageTest extends TestCase
         $employee = User::factory()->create(['role' => Role::Employee]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client);
+        $this->assignTo($ticket, $lawyer);
         $this->mockDocAnalysis(['related' => true, 'doc_type' => 'عقد', 'summary' => 'عقد يخص النزاع.', 'reason' => 'مرتبط بالموضوع.']);
 
         $this->actingAs($client)->post(route('tickets.attach', $ticket), [
@@ -219,6 +232,7 @@ class TicketTriageTest extends TestCase
         $employee = User::factory()->create(['role' => Role::Employee]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client);
+        $this->assignTo($ticket, $lawyer);
         $this->mockDocAnalysis(['related' => true, 'doc_type' => 'عقد', 'summary' => 'عقد.', 'reason' => 'مرتبط.']);
         $this->actingAs($client)->post(route('tickets.attach', $ticket), [
             'file' => UploadedFile::fake()->create('contract.pdf', 100),

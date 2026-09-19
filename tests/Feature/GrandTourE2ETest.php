@@ -64,10 +64,10 @@ class GrandTourE2ETest extends TestCase
             'files' => [UploadedFile::fake()->create('contract.pdf', 300, 'application/pdf')],
         ])->assertRedirect();
         $ticket = Ticket::where('user_id', $client->id)->firstOrFail();
-        // وكيل الاستقبال معطّل في بيئة الاختبار (الوضع البشري) ⇒ الإسناد الفوري يحيلها مباشرةً؛
-        // ومع الوكيل المفعّل يقود الترحيب المسار («بانتظار مستندات» أولاً) — يغطّيه TicketOpenSequenceTest
-        $this->assertSame('محالة للقسم القانوني', $ticket->status);
-        $this->assertNotNull($ticket->assigned_lawyer_id);
+        // الفتح لا يُسنِد ولا يُحيل (قرار المالك 2026-09-20): التذكرة تنتظر قرار الطاقم، ويقع
+        // إسنادها في المرحلة 3 أدناه بزرّ التحويل عند الموظّف — يغطّي السياسةَ LawyerAssignmentPolicyTest
+        $this->assertSame('قيد التحليل', $ticket->status);
+        $this->assertNull($ticket->assigned_lawyer_id);
         $this->assertLessThan(TicketJourney::indexOf('مكتملة'), TicketJourney::indexOf($ticket->status));
 
         // العميل يفتح المحادثة ويرسل رسالة (زر الإرسال) — وردّ AI مُسلَّم للطابور

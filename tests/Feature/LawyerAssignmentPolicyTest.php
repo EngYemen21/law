@@ -3,11 +3,12 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
+use App\Jobs\EscalateUnassignedTicketJob;
+use App\Mail\TicketEscalatedMail;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Models\UserNotification;
-use App\Jobs\EscalateUnassignedTicketJob;
-use App\Mail\TicketEscalatedMail;
+use App\Services\MailService;
 use App\Support\TicketAssignment;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -25,6 +26,10 @@ use Tests\TestCase;
  *
  * القرار: الاختيار حتميّ (تخصّص ← أقلّ حملاً ← أقدم)، وبلا متخصّص تبقى التذكرة بلا محامٍ
  * ويُصعَّد الأمر للإدارة ولحاملي «توزيع التذاكر» ليُسنِدوا بوعي.
+ *
+ * **وقرار المالك 2026-09-20 ألغى الإسناد التلقائيّ عند الفتح:** التذكرة تُفتح بلا محامٍ، والإسناد
+ * بيد الموظّف («تحويل التذاكر») أو الإدارة («توزيع التذاكر»). والسياسة أعلاه صارت سياسةَ اختيارٍ
+ * لمن ينادي `pickLawyer` (زرّ التوزيع الجماعيّ)، والتصعيد يقع بالكنس المجدول بعد مهلة الإعدادات.
  */
 class LawyerAssignmentPolicyTest extends TestCase
 {
@@ -74,30 +79,35 @@ class LawyerAssignmentPolicyTest extends TestCase
             'department' => self::DEPT, 'status' => 'قيد التحليل', 'tone' => 'b-blue',
         ]);
 
-        // النداء المباشر يعزل مسار الإسناد عن مسار الفرز (TriageTicketOnOpenJob) الذي
+        // النداء المباشر يعزل سياسة الاختيار عن مسار الفرز (TriageTicketOnOpenJob) الذي
         // يُجري نداءات AI مشروعة — فلو فُحص عبر HTTP لسقط الاختبار بسبب غير المقصود.
-        $picked = TicketAssignment::assign($ticket);
+        $picked = TicketAssignment::pickLawyer($ticket, requireSpecialty: true);
 
         $this->assertSame($match->id, $picked?->id);
         Http::assertNothingSent();
     }
 
-    /** متخصّص موجود ⇒ يُسنَد في نفس الطلب (الإسناد الفوري محفوظ). */
-    public function test_a_specialty_match_is_assigned_immediately(): void
+    /**
+     * **الفتح لا يُسنِد أحداً** (قرار المالك 2026-09-20) — ولو وُجد متخصّص فارغ الحمل.
+     * الإسناد بيد الطاقم، وهذا الحارس يُسقط عودة الإسناد التلقائيّ من أيّ باب.
+     */
+    public function test_opening_a_ticket_assigns_nobody(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $match = $this->lawyer(self::DEPT);
+        $this->lawyer(self::DEPT);
+        User::factory()->create(['role' => Role::Admin]);
 
         $ticket = $this->openTicket($client);
 
-        $this->assertSame($match->id, $ticket->assigned_lawyer_id);
+        $this->assertNull($ticket->assigned_lawyer_id, 'عاد الإسناد التلقائيّ عند فتح التذكرة.');
+        $this->assertNotSame('محالة للقسم القانوني', $ticket->status, 'التذكرة أُحيلت بلا قرارٍ بشريّ.');
     }
 
     /**
-     * لا متخصّص ⇒ **تُسنَد للإدارة العليا** (لا تبقى يتيمة)، ولا يُفرَض غير المتخصّص،
-     * ويصل إشعار داخليّ وبريد لكل من يملك قرار الإسناد.
+     * بقيت بلا إسنادٍ بشريّ حتى انقضت المهلة ⇒ **تُسنَد للإدارة العليا** (لا تبقى يتيمة)،
+     * ولا يُفرَض محامٍ غير متخصّص، ويصل إشعار داخليّ وبريد لكلّ من يملك قرار الإسناد.
      */
-    public function test_no_specialty_match_escalates_to_senior_management(): void
+    public function test_an_unassigned_ticket_escalates_to_senior_management(): void
     {
         Mail::fake();
         $client = User::factory()->create(['role' => Role::Client]);
@@ -107,7 +117,10 @@ class LawyerAssignmentPolicyTest extends TestCase
 
         $outsider = $this->lawyer('العقارات'); // قسم مختلف
 
-        $ticket = $this->openTicket($client)->fresh();
+        $this->openTicket($client);
+        // الكنس المجدول بعد انقضاء المهلة (الإعداد الحيّ ساعتان؛ صفرٌ هنا لاختصار الانتظار)
+        $this->artisan('tickets:escalate-unassigned', ['--minutes' => 0])->assertSuccessful();
+        $ticket = Ticket::firstOrFail()->fresh();
 
         // أُسنِدت للإدارة العليا لا لمحامٍ غير متخصّص
         $this->assertSame($admin->id, $ticket->assigned_lawyer_id, 'لم تُسنَد للإدارة العليا.');
@@ -139,12 +152,14 @@ class LawyerAssignmentPolicyTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         User::factory()->create(['role' => Role::Admin]);
-        $this->lawyer('العقارات'); // قسم مختلف ⇒ تصعيد
+        $this->lawyer('العقارات'); // قسم مختلف ⇒ لا متخصّص
 
-        $ticket = $this->openTicket($client)->fresh();
+        $this->openTicket($client);
+        $this->artisan('tickets:escalate-unassigned', ['--minutes' => 0])->assertSuccessful();
 
-        $this->assertSame('محالة للقسم القانوني', $ticket->status, 'التذكرة بقيت عالقة عند حالتها الأولى.');
+        $this->assertSame('محالة للقسم القانوني', Ticket::firstOrFail()->fresh()->status, 'التذكرة بقيت عالقة عند حالتها الأولى.');
     }
+
     /** إسناد يدويّ سبق تنفيذ الوظيفة ⇒ لا تُكتب الإدارة فوقه (سباق مشروع). */
     public function test_escalation_never_overwrites_a_manual_assignment(): void
     {
@@ -158,7 +173,7 @@ class LawyerAssignmentPolicyTest extends TestCase
             'assigned_lawyer' => $manual->name, 'assigned_lawyer_id' => $manual->id,
         ]);
 
-        (new EscalateUnassignedTicketJob($ticket->id))->handle(app(\App\Services\MailService::class));
+        (new EscalateUnassignedTicketJob($ticket->id))->handle(app(MailService::class));
 
         $this->assertSame($manual->id, $ticket->fresh()->assigned_lawyer_id, 'التصعيد داس إسناداً يدوياً.');
     }
@@ -203,21 +218,18 @@ class LawyerAssignmentPolicyTest extends TestCase
     }
 
     /**
-     * تذكرة **بلا قسم** لا تُصعَّد: «لا يوجد متخصّص» تفترض تخصّصاً معلوماً.
-     *
-     * والقسم اختياري في نموذج العميل، ويضبطه TriageTicketOnOpenJob **بعد** الإسناد لا قبله —
-     * فلولا هذا الشرط لصُعّدت كل تذكرة لم يختر صاحبها قسماً، وأُغرقت الإدارة بلا فائدة.
+     * تذكرة **بلا قسم** يقبلها الاختيار الصارم: «لا يوجد متخصّص» تفترض تخصّصاً معلوماً.
+     * فلولا هذا الشرط لعاد التوزيع الجماعيّ فارغاً على كلّ تذكرة لم يختر صاحبها قسماً.
      */
-    public function test_a_ticket_without_a_department_is_still_assigned(): void
+    public function test_a_ticket_without_a_department_is_still_pickable(): void
     {
-        $client = User::factory()->create(['role' => Role::Client]);
         $any = $this->lawyer('العقارات');
 
-        $this->actingAs($client)->post('/tickets', ['type' => 'نزاع تجاري'])->assertRedirect();
-        $ticket = Ticket::firstOrFail();
+        $picked = TicketAssignment::pickLawyer(Ticket::make(['type' => 'نزاع تجاري']), requireSpecialty: true);
 
-        $this->assertSame($any->id, $ticket->assigned_lawyer_id, 'تذكرة بلا قسم صُعّدت بدل أن تُسنَد.');
+        $this->assertSame($any->id, $picked?->id, 'تذكرة بلا قسم رُدّت بلا مرشَّح.');
     }
+
     /** الوضع غير الصارم (المنادون القائمون) يبقى كما هو: أيّ محامٍ أفضل من لا شيء. */
     public function test_permissive_mode_still_falls_back_to_any_lawyer(): void
     {
