@@ -9,8 +9,9 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * **الإدارة تعتمد نتيجةً رفعها المستشار** — عمود `ticket_summaries.result_status` من «بانتظار
- * الإدارة» إلى «approved» (المسار القديم: `Admin\TicketController::approveResult`، بعد
- * `LawyerApproveTicketResult`). ثمّ تنتقل التذكرة بـ`ReadyForOutcome` عند المنادي.
+ * الإدارة» إلى «approved» (المسار القديم: `Admin\TicketController::approveResult`). ثمّ تنتقل
+ * التذكرة بـ`ReadyForOutcome` عند المنادي. كان «بانتظار الإدارة» يُكتب من اعتماد المحامي للنتيجة،
+ * وحُذف ذلك المسار (2026-09-19) لأنّ `pending_lawyer` لا يكتبه شيء — فلا يبلغ هذا إلّا صفٌّ قديم.
  *
  * كان يكتب مباشرةً. ولا يُعاد استعمال `ApproveTicketResult` هنا: ذاك يكتب نصّ النتيجة المركَّب
  * من ملخّص الجلسة، وهذا المسار لا يمسّ النصّ. `from()` القيمة الوحيدة التي يقبلها المنادي

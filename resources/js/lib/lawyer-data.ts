@@ -127,11 +127,11 @@ export interface SummaryData {
   lawyerApproved?: boolean;
   aiGenerated?: boolean; // false = قالب مبدئي لم يكتمل تحليله الذكي
   result?: string;
-  resultStatus?: string; // none | pending_lawyer | pending_admin | approved
+  resultStatus?: string; // none | pending_admin | approved | rejected
 }
 
-// موضع الملخص على مسار SUM_FLOW — يقرأ resultStatus (none|pending_lawyer|pending_admin|approved)
-// لا summary.status الذي قيمه awaiting_lawyer|approved فقط، فكانت مرحلة «اعتماد الإدارة» لا تُعرض أبداً
+// موضع الملخص على مسار SUM_FLOW — من اعتماده نفسه (`lawyerApproved` ثمّ `approved`)،
+// لا من `summary.status` الذي قيمه awaiting_lawyer|approved فقط فكانت مرحلة «اعتماد الإدارة» لا تُعرض
 export function sumStage(s?: Pick<SummaryData, 'approved' | 'lawyerApproved'>): number {
   // المسار يُقرأ من اعتماد الملخّص نفسه: إنشاء ← اعتماد المحامي ← اعتماد الإدارة وإرساله للعميل
   if (s?.approved) {

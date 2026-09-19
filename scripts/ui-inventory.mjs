@@ -20,8 +20,10 @@
  *   node scripts/ui-inventory.mjs snapshot <out.json>
  *   node scripts/ui-inventory.mjs diff <before.json> <after.json> [allow.json]
  *
- * `allow.json` (اختياريّ): `{ "file/path.tsx": { "text": ["…"], "route": ["…"] } }` — ما أُعلن
- * حذفه عمداً بقرار. أيّ نقصٍ خارجه يُطبع «ناقص» ويخرج الأمر برمز 1 فيوقف العمل.
+ * `allow.json` (اختياريّ): ما أُعلن حذفه عمداً بقرار، لكلّ ملفٍّ وفئة إمّا قائمة قيم (أيّ نقص)
+ * أو كائن `{ "القيمة": أقصى عددٍ يُحذف }` للعناصر المشتركة:
+ *   `{ "file.tsx": { "text": ["نتيجة الجلسة"], "tone": { "b-amber": 1 } } }`
+ * أيّ نقصٍ خارجه يُطبع «ناقص» ويخرج الأمر برمز 1 فيوقف العمل.
  * المجلّدات المولَّدة (`resources/js/actions`، `resources/js/routes`) مستثناة.
  */
 import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -185,7 +187,12 @@ function diff(beforePath, afterPath, allowPath) {
             for (const [value, count] of Object.entries(values)) {
                 const now = after[file]?.[kind]?.[value] ?? 0;
                 if (now >= count) continue;
-                const ok = (allow[file]?.[kind] ?? []).includes(value);
+                // السماح إمّا قائمة (أيّ نقص) أو كائن { القيمة: أقصى نقصٍ مسموح } — الأدقّ للعناصر المشتركة
+                // («btn sm» يبقى منه في الملفّ غيرُ المحذوف، فيُسمح بنقص واحدٍ لا بزواله)
+                const rule = allow[file]?.[kind];
+                const ok = Array.isArray(rule)
+                    ? rule.includes(value)
+                    : rule !== undefined && value in rule && count - now <= rule[value];
                 if (ok) allowed++;
                 else missing++;
                 console.log(`${ok ? 'محذوفٌ بقرار' : 'ناقص'}  ${file}  [${kind}]  «${value}»  ${count} ← ${now}`);

@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Models\UserNotification;
 use App\Services\Ai\AiReviewOutcome;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 /**
@@ -108,19 +109,17 @@ class SessionResultFlowTest extends TestCase
 
     // ── المسار القديم: للصفوف القائمة قبل إعادة البناء ──
 
-    public function test_lawyer_raises_a_legacy_result_to_admin(): void
+    /**
+     * **اعتماد المحامي للنتيجة حُذف (2026-09-19)** — `pending_lawyer` لا يكتبه أيّ كود منذ صار ملخّص
+     * الجلسة يُعتمد من الاستشارة (قرار 2026-09-14)، فكانت بطاقته وزرّه ومساره لا يظهرون لأحد.
+     */
+    public function test_the_lawyer_result_approval_path_is_gone(): void
     {
-        $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        [$ticket] = $this->confirmedTicket($client, $lawyer);
-        $ticket->summary->update(['result_status' => 'pending_lawyer', 'result' => 'نتيجة الجلسة']);
+        $this->assertFalse(Route::has('lawyer.result.approve'));
 
-        $this->actingAs($lawyer)->post(route('lawyer.result.approve', $ticket))->assertRedirect();
-
-        $ticket->refresh();
-        $this->assertSame('بانتظار اعتماد الإدارة', $ticket->status);
-        $this->assertSame('pending_admin', $ticket->summary->result_status);
-        $this->assertTrue($ticket->messages->contains(fn ($m) => $m->who === 'lawyer' && $m->role === 'اعتماد'));
+        $ui = (string) file_get_contents(resource_path('js/pages/lawyer/ticketchat.tsx'));
+        $this->assertStringNotContainsString("resultStatus === 'pending_lawyer'", $ui);
+        $this->assertStringNotContainsString('اعتماد ملخص الجلسة ورفعه للإدارة', $ui);
     }
 
     public function test_admin_final_approval_delivers_a_legacy_result_to_client(): void

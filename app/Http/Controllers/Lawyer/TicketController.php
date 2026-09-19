@@ -5,12 +5,10 @@ namespace App\Http\Controllers\Lawyer;
 use App\Domain\Journey\Enums\ClosureReasonCode;
 use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Domain\Journey\Enums\TicketStatus;
-use App\Domain\Journey\Transitions\Ticket\AwaitAdminResultApproval;
 use App\Domain\Journey\Transitions\Ticket\AwaitAdminSummaryApproval;
 use App\Domain\Journey\Transitions\Ticket\AwaitTicketDocuments;
 use App\Domain\Journey\Transitions\Ticket\CloseTicketJustified;
 use App\Domain\Journey\Transitions\Ticket\FinalApproveTicketSummary;
-use App\Domain\Journey\Transitions\Ticket\LawyerApproveTicketResult;
 use App\Domain\Journey\Transitions\Ticket\LawyerApproveTicketSummary;
 use App\Domain\Journey\Transitions\Ticket\ProposeOutcomeTrack;
 use App\Domain\Journey\Transitions\Ticket\PublishLegalOpinion;
@@ -675,44 +673,6 @@ class TicketController extends Controller
         $html = ReportPrint::html($doc);
 
         return PdfRenderer::render($html, 'Summary-'.$ticket->number.'.pdf');
-    }
-
-    // اعتماد المستشار لنتيجة الجلسة → ترفع للإدارة للاعتماد النهائي (يطابق tfLawyerReview)
-    public function approveResult(Request $request, Ticket $ticket): RedirectResponse
-    {
-        $this->guardAssigned($ticket);
-        $summary = $ticket->summary;
-        abort_unless($summary && $summary->result_status === 'pending_lawyer', 404);
-
-        /*
-         * **لا اعتمادَ لنتيجةٍ خاوية.**
-         *
-         * كان الشرط الوحيد `result_status`، ثمّ تُكتب باسم المحامي «راجعتُ ملخص الجلسة
-         * والتوصيات… وهي معتمدة» — قولٌ بضمير المتكلّم عن مراجعةٍ لا يستطيع النظام أن
-         * يعلم أنّها وقعت. والنمط مقرَّرٌ في هذا الملفّ نفسه: `approveSummary` يمنع
-         * اعتماد قالبٍ لم يُحرَّر.
-         */
-        abort_if(
-            ! TicketResult::hasSubstance($summary),
-            422,
-            'النتيجة بلا وقائع أو توصيات — استكملها قبل الاعتماد.'
-        );
-
-        Workflow::run(new LawyerApproveTicketResult, $summary, $request->user());
-        Workflow::run(new AwaitAdminResultApproval, $ticket, $request->user());
-
-        $msg = $ticket->messages()->create([
-            'who' => 'lawyer',
-            'name' => $request->user()->name,
-            'role' => 'اعتماد',
-            // **لا ادّعاءَ بضمير المتكلّم**: النظام يشهد بالاعتماد لا بالمراجعة
-            'body' => '<p>اعتُمدت نتيجة الملف ورُفعت إلى الإدارة للاعتماد النهائي.</p>',
-            'time_label' => $this->clock(),
-        ]);
-        Live::push(new TicketMessageBroadcast($msg));
-        Live::push(new TicketStatusBroadcast($ticket));
-
-        return redirect()->route($request->user()->isAdmin() ? 'admin.tickets' : 'lawyer.tickets');
     }
 
     /**

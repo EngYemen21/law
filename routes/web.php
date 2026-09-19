@@ -385,8 +385,6 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::get('/ai-blind-review', [AdminAiBlindReviewController::class, 'index'])->name('ai-blind-review');
         Route::post('/ai-blind-review/draw', [AdminAiBlindReviewController::class, 'draw'])->name('ai-blind-review.draw');
         Route::post('/ai-blind-review/{review}/judge', [AdminAiBlindReviewController::class, 'judge'])->name('ai-blind-review.judge');
-
-        Route::post('/tickets/{ticket}/result', [LawyerTicketController::class, 'approveResult'])->name('result.approve');
     });
 
     // التحويل لقضية + دورة القضية + التنفيذ + المهام — إدارة القضايا والأتعاب

@@ -98,17 +98,10 @@ class TicketSummaryApprovalThroughWorkflowTest extends TestCase
         $this->assertSame(0, JourneyTransition::where('entity_type', 'Ticket')->count());
     }
 
-    public function test_the_legacy_result_path_is_recorded_on_both_rows(): void
+    /** نتيجةٌ قديمة «بانتظار الإدارة» تُعتمد من سجلّ الاعتمادات — والخطوة مسجَّلة بفاعلها. */
+    public function test_a_legacy_pending_admin_result_is_approved_through_the_engine(): void
     {
-        $ticket = $this->ticket('موعد مؤكد', ['status' => 'approved', 'result_status' => 'pending_lawyer', 'result' => 'نتيجة الجلسة']);
-
-        $this->actingAs($this->lawyer)->post(route('lawyer.result.approve', $ticket))->assertRedirect();
-
-        $ticket->refresh();
-        $this->assertSame('pending_admin', $ticket->summary->result_status);
-        $this->assertSame('بانتظار اعتماد الإدارة', $ticket->status);
-        $this->assertSame('pending_lawyer', $this->row('ticket_summary.lawyer_approved_result')->from_state);
-        $this->assertSame('موعد مؤكد', $this->row('ticket.awaiting_admin_result_approval')->from_state);
+        $ticket = $this->ticket('موعد مؤكد', ['status' => 'approved', 'result_status' => 'pending_admin', 'result' => 'نتيجة الجلسة']);
 
         $this->actingAs($this->admin)->post(route('admin.tickets.result', $ticket))->assertRedirect();
 

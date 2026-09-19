@@ -200,14 +200,6 @@ return;
       onError: fail('لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — حرّره يدوياً أولاً.'),
     });
 
-  // اعتماد نتيجة الجلسة خطوة المستشار (pending_lawyer)؛ اعتماد الإدارة النهائي في /admin/summaries.
-  // المسار يُبنى من base: للإدارة نظيرها admin.tickets.result (لم تعد تمرّ عبر بوابة المحامي — 2026-08-28).
-  const approveResult = () =>
-    router.post(`${base}/tickets/${no}/result`, {}, {
-      onSuccess: () => toast('تم اعتماد ملخص الجلسة ورفعه للإدارة'),
-      onError: fail('تعذّر اعتماد ملخص الجلسة'),
-    });
-
   const [showCloseModal, setShowCloseModal] = useState(false);
 
   const convertToCase = () =>
@@ -336,18 +328,6 @@ setTypingSignal((n) => n + 1);
               )}
             </div>
           </div>
-
-          {summary?.resultStatus === 'pending_lawyer' && canApproveSummaries && (
-            <div className="card">
-              <div className="card-h"><h3>نتيجة الجلسة</h3><Badge text="بانتظار اعتمادك" tone="b-amber" /></div>
-              <div className="card-b" style={{ padding: 14 }}>
-                <div style={{ fontSize: 13, whiteSpace: 'pre-line', marginBottom: 12 }}>{summary.result || '—'}</div>
-                <button className="btn sm" onClick={approveResult} type="button">
-                  <Icon name="check" /> اعتماد ملخص الجلسة ورفعه للإدارة
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* تصحيح الحالة استثناءٌ إداريّ مسبَّب — لا قائمة حالات بيد الموظّف (قرار المالك 2026-09-14) */}
           {base === '/admin' && <CorrectStatusCard ticketNo={ticket.no} current={status.status} />}
