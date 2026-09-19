@@ -52,7 +52,7 @@ class ExecutionLifecycleTransitionsTest extends TestCase
 
         $this->assertFalse(ExecutionStatus::NewRequest->isClosed());
         $this->assertTrue(ExecutionStatus::Closed->isClosed());
-        $this->assertTrue(ExecutionStatus::Completed->isClosed());
+        $this->assertNull(ExecutionStatus::tryFrom('مكتمل'), '«مكتمل» القديمة حُذفت (2026-09-19)');
 
         $this->assertSame(ExecutionStatus::NewRequest, ExecutionStatus::fromStage(0));
         $this->assertSame(ExecutionStatus::InProgress, ExecutionStatus::fromStage(8));

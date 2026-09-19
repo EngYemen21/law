@@ -48,7 +48,7 @@ class LawyerAvailability
 
     private const CLOSED_CASES = ['صدر الحكم', 'مغلقة', 'مؤرشفة'];
 
-    /** من مصدرٍ واحد: «مكتمل» لا يكتبها شيء اليوم وتبقى للصفوف القديمة (`Execution::CLOSED_STATUSES`). */
+    /** من مصدرٍ واحد: الحالات المغلقة للتنفيذ (`Execution::CLOSED_STATUSES`). */
     private const CLOSED_EXECS = Execution::CLOSED_STATUSES;
 
     /**

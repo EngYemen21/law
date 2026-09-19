@@ -23,8 +23,8 @@ class ExecFlowClientMergeTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $other = User::factory()->create(['role' => Role::Client]);
 
-        // قديم قيد التنفيذ (stage=null) → مرحلة مشتقّة 8 (مكتمل يبقى 8 قابلاً للإغلاق)
-        Execution::create(['user_id' => $client->id, 'number' => 'EXE-OLD', 'subject' => 'تنفيذ حكم', 'status' => 'مكتمل', 'tone' => 'b-green', 'last_action' => 'إجراء']);
+        // قديم قيد التنفيذ (stage=null) → مرحلة مشتقّة 8 (غير المغلق يبقى 8 قابلاً للإغلاق)
+        Execution::create(['user_id' => $client->id, 'number' => 'EXE-OLD', 'subject' => 'تنفيذ حكم', 'status' => 'جارٍ', 'tone' => 'b-blue', 'last_action' => 'إجراء']);
         // قديم مغلق/مؤرشف → مرحلة مشتقّة 9
         Execution::create(['user_id' => $client->id, 'number' => 'EXE-DONE', 'subject' => 'تنفيذ سند', 'status' => 'مغلق', 'tone' => 'b-grey', 'last_action' => 'أُرشف']);
         // تدفّق فعليّ

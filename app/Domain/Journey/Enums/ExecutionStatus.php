@@ -21,7 +21,7 @@ enum ExecutionStatus: string
     case PendingNajiz = 'بانتظار الرفع في ناجز';
     case InProgress = 'قيد التنفيذ';
     case Closed = 'مغلق';
-    case Completed = 'مكتمل'; // صفوف الإغلاق التراثية
+    // «مكتمل» (صفوف الإغلاق القديمة) حُذفت 2026-09-19 — لا يكتبها شيء، والخادم بيئة تطوير
 
     /** مرحلة الحالة على خط تدفق التنفيذ (0 إلى 9) */
     public function stage(): int
@@ -36,7 +36,7 @@ enum ExecutionStatus: string
             self::Payment => 6,
             self::PendingNajiz => 7,
             self::InProgress => 8,
-            self::Closed, self::Completed => 9,
+            self::Closed => 9,
         };
     }
 
@@ -60,14 +60,13 @@ enum ExecutionStatus: string
             self::PendingNajiz => 'بانتظار الرفع في ناجز',
             self::InProgress => 'قيد التنفيذ القضائي',
             self::Closed => 'مغلق',
-            self::Completed => 'مكتمل',
         };
     }
 
     /** هل الملف منتهٍ/مغلق؟ */
     public function isClosed(): bool
     {
-        return in_array($this, [self::Closed, self::Completed], true);
+        return $this === self::Closed;
     }
 
     /** هل الحالة نهائية؟ */

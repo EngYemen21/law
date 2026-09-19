@@ -147,8 +147,8 @@ class ExecutionGuardsTest extends TestCase
     public function test_a_closed_file_refuses_uploads_and_messages_as_the_screen_shows(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        // صفٌّ قديم: بلا `stage` وحالته «مكتمل» — كانت الشاشة تعرضه مفتوحاً والخادم يرفضه
-        $exec = $this->exec($client, ['stage' => null, 'status' => 'مكتمل']);
+        // صفٌّ قديم: بلا `stage` وحالته «مغلق» — كانت الشاشة تعرضه مفتوحاً والخادم يرفضه
+        $exec = $this->exec($client, ['stage' => null, 'status' => 'مغلق']);
         $doc = $exec->documents()->create(['label' => 'الهوية', 'status' => 'مطلوب']);
 
         $this->assertTrue($exec->toFlowCard(false, false)['closed'], 'الشاشة تقرأ ما يقرؤه الخادم');

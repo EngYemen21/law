@@ -101,7 +101,7 @@ class ReportController extends Controller
         $activeExecutions = Execution::where('stage', 8)->count(); // قيد الإجراءات بمحكمة التنفيذ
         $pendingNajizExecutions = Execution::where('stage', 7)->count(); // بانتظار الرفع في ناجز
         $underStudyExecutions = Execution::whereIn('stage', [0, 1, 2, 3, 4, 5, 6])->count();
-        $completedExecutions = Execution::where('stage', 9)->orWhereIn('status', ['مغلق', 'مكتمل'])->count();
+        $completedExecutions = Execution::where('stage', 9)->orWhereIn('status', Execution::CLOSED_STATUSES)->count();
 
         $totalDebtEnforced = (int) Execution::sum('amount');
         $totalCollectedDebts = (int) Execution::sum('collected');

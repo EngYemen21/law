@@ -369,7 +369,7 @@ class DistributionTest extends TestCase
             'user_id' => $client->id,
             'number'  => 'EX-'.uniqid(),
             'subject' => 'سند لأمر',
-            'status'  => 'مكتمل',
+            'status'  => 'مغلق',
             'tone'    => 'b-grey',
         ]);
         $this->actingAs($admin)

@@ -66,7 +66,7 @@ class AdminExecFlowTest extends TestCase
     public function test_admin_closes_legacy_execution_via_flow(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $exec = Execution::create(['user_id' => $client->id, 'number' => 'EXE-OLD', 'subject' => 'قديم', 'status' => 'مكتمل', 'tone' => 'b-green']); // stage=null → مشتقّة 8
+        $exec = Execution::create(['user_id' => $client->id, 'number' => 'EXE-OLD', 'subject' => 'قديم', 'status' => 'جارٍ', 'tone' => 'b-blue']); // stage=null وحالةٌ غير مغلقة → مشتقّة 8
 
         $this->actingAs($this->admin())->post(route('exec-flow.act', $exec), ['action' => 'close'])->assertRedirect();
         $this->assertSame('مغلق', $exec->fresh()->status);
