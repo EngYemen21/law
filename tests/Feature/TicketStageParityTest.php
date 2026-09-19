@@ -63,6 +63,25 @@ class TicketStageParityTest extends TestCase
         }
     }
 
+    /**
+     * **الاتّجاه المعاكس:** كلُّ تسمية عميلٍ في الخريطة بمرحلة حالتها الداخليّة نفسها. كانت
+     * «اكتملت الدراسة — بانتظار القرار النهائي» و«تم تحويل الطلب إلى قضية رسمية» و«طلب مكتمل
+     * ومغلق» غائبةً، فيرتدّ شريط العميل إلى المرحلة الأولى على حالاته الأخيرة — بصمت.
+     */
+    public function test_every_client_label_sits_at_its_status_stage(): void
+    {
+        $frontend = $this->frontendMap();
+
+        foreach (TicketStatus::cases() as $status) {
+            $label = $status->clientLabel();
+            if ($label === $status->value) {
+                continue; // التسمية هي الحالة نفسها — يغطّيها الاختبار الأوّل
+            }
+            $this->assertArrayHasKey($label, $frontend, "تسمية العميل «{$label}» غائبة عن tktStage — يرتدّ شريطه إلى الصفر");
+            $this->assertSame(TicketJourney::indexOf($status->value), $frontend[$label], "مرحلة «{$label}» تخالف حالتها «{$status->value}»");
+        }
+    }
+
     public function test_stage_count_matches_flow_line_labels(): void
     {
         $src = (string) file_get_contents(base_path('resources/js/lib/chat.ts'));
