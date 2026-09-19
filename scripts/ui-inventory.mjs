@@ -29,7 +29,8 @@
 import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 
-const ROOT = process.cwd();
+// جذر المشروع: الحاليّ، أو مجلّدٌ مُستخرَج من commit سابق (`snapshot <out> <root>`) لبناء خطّ أساسٍ منه
+const ROOT = process.argv[2] === 'snapshot' && process.argv[4] ? process.argv[4] : process.cwd();
 const SRC = join(ROOT, 'resources', 'js');
 const SKIP = [join(SRC, 'actions'), join(SRC, 'routes'), join(SRC, 'wayfinder')];
 
@@ -72,7 +73,8 @@ function lex(src) {
     while (i < n) {
         const ch = src[i];
         const next = src[i + 1];
-        if (ch === '/' && next === '/') { // تعليق سطر
+        // تعليق سطر — إلّا بعد «:» (https:// في نصّ JSX ليس تعليقاً)
+        if (ch === '/' && next === '/' && src[i - 1] !== ':') {
             while (i < n && src[i] !== '\n') i++;
             continue;
         }
@@ -98,14 +100,20 @@ function lex(src) {
             let s = '';
             while (j < n && src[j] !== '`') {
                 if (src[j] === '\\') { s += src[j + 1] ?? ''; j += 2; continue; }
-                if (src[j] === '$' && src[j + 1] === '{') { // ${…} بأقواسٍ متداخلة
+                if (src[j] === '$' && src[j + 1] === '{') {
+                    // ${…}: تعبيرٌ بأقواسٍ متداخلة وسلاسلَ داخله — يُقرأ بالقارئ نفسه فتُجرد نصوصه
+                    // (رسائل احتياطيّة مثل ${x ?? 'تعذّر…'})، ولا تُحسب أقواسٌ داخل سلاسله
+                    const start = j + 2;
                     let depth = 1;
-                    j += 2;
+                    j = start;
                     while (j < n && depth > 0) {
-                        if (src[j] === '{') depth++;
-                        else if (src[j] === '}') depth--;
+                        const c = src[j];
+                        if (c === "'" || c === '"' || c === '`') { j = skipString(src, j); continue; }
+                        if (c === '{') depth++;
+                        else if (c === '}') depth--;
                         j++;
                     }
+                    strings.push(...lex(src.slice(start, j - 1)).strings);
                     s += '*';
                     continue;
                 }
@@ -120,6 +128,44 @@ function lex(src) {
         i++;
     }
     return { strings, masked };
+}
+
+/** موضع ما بعد سلسلةٍ تبدأ عند `i` (مع قوالب `${}` المتداخلة) — لعدّ الأقواس خارج السلاسل وحدها. */
+function skipString(src, i) {
+    const q = src[i];
+    let j = i + 1;
+    while (j < src.length && src[j] !== q) {
+        if (src[j] === '\\') { j += 2; continue; }
+        if (q === '`' && src[j] === '$' && src[j + 1] === '{') {
+            let depth = 1;
+            j += 2;
+            while (j < src.length && depth > 0) {
+                const c = src[j];
+                if (c === "'" || c === '"' || c === '`') { j = skipString(src, j); continue; }
+                if (c === '{') depth++;
+                else if (c === '}') depth--;
+                j++;
+            }
+            continue;
+        }
+        if (q !== '`' && src[j] === '\n') break;
+        j++;
+    }
+    return j + 1;
+}
+
+/** نهاية تعبير `{…}` يبدأ عند `i` (موضع القوس) — متوازن الأقواس، متجاوزٌ السلاسل. */
+function balancedEnd(src, i) {
+    let depth = 0;
+    let j = i;
+    while (j < src.length) {
+        const c = src[j];
+        if (c === "'" || c === '"' || c === '`') { j = skipString(src, j); continue; }
+        if (c === '{') depth++;
+        else if (c === '}') { depth--; if (depth === 0) return j + 1; }
+        j++;
+    }
+    return src.length;
 }
 
 /** جرد ملفٍّ واحد: الغرض ضمّ كلّ ما يُرى أو يحدّد شكله، لا تحليلُ JSX كاملاً. */
@@ -139,23 +185,45 @@ function scan(src) {
             continue;
         }
         if (ARABIC.test(s)) bump(bag, 'text', s);
-        if (/^\/[a-z][\w\-/{}.:?=&*]*$/i.test(s.trim())) bump(bag, 'route', s.trim());
+        // المسار حرفيّاً أو بقالبٍ يبدأ بمتغيّر (`${base}/tickets/${no}/result` ⇐ */tickets/*/result)
+        if (/^\*?\/[a-z*][\w\-/{}.:?=&*]*$/i.test(s.trim())) bump(bag, 'route', s.trim());
     }
-    // عُقد JSX النصّيّة: >نصّ< خارج الأقواس — من الكود بعد محو السلاسل والتعليقات؛
-    // و(?<![=>]) كي لا يُعدّ سهمُ دالّة `=>` بدايةَ عقدة
-    for (const m of masked.matchAll(/(?<![=>-])>([^<>{}]*[؀-ۿ][^<>{}]*)</g)) {
-        bump(bag, 'text', m[1]);
+    // عُقد JSX النصّيّة: >نصّ< — ومعها ما فيه قيمةٌ مُدرجة («الكل ({n})» ⇐ «الكل (*)»)؛
+    // من الكود بعد محو السلاسل والتعليقات، و(?<![=>-]) كي لا يُعدّ سهمُ دالّة `=>` بدايةَ عقدة
+    for (const m of masked.matchAll(/(?<![=>-])>([^<>]*[؀-ۿ][^<>]*)</g)) {
+        let t = m[1];
+        for (let k = 0; k < 5 && /\{[^{}]*\}/.test(t); k++) t = t.replace(/\{[^{}]*\}/g, '*');
+        if (ARABIC.test(t)) bump(bag, 'text', t);
     }
+    // عناصر الواجهة نفسها بعددها: زرٌّ أو شارةٌ حُذفت بلا نصٍّ عربيّ تُرى هنا
+    for (const m of masked.matchAll(/<(button|Badge|Icon|Modal|select|option|input|textarea|a|StatRow|FlowLine)\b|\b(onClick|onSubmit|onChange|disabled)\s*=/g)) {
+        bump(bag, 'element', m[1] ? `<${m[1]}>` : `${m[2]}=`);
+    }
+    // قيم الشروط: ما تُقارَن به الحالات (=== 'pending_admin') — تغيُّر شرط إظهار زرٍّ يُرى هنا
+    for (const m of src.matchAll(/(?:===|!==)\s*(['"])([^'"\n]{1,80})\1/g)) bump(bag, 'cond', m[2]);
+
     const code = src; // الأصناف والأيقونات والألوان تُقرأ من النصّ كما كُتب
-    // أصناف الألوان والمكوّنات أينما وردت (className، tone=، قيم props)
+    // أصناف الألوان والمكوّنات أينما وردت (className، tone=، قيم props)، والمبنيّة بقالب (`t-${tone}`)
     for (const m of code.matchAll(/\b([bt]-(?:grey|gray|blue|amber|green|red|cyan|purple|teal|muted|[a-z]+))\b/g)) {
         bump(bag, 'tone', m[1]);
     }
-    for (const m of code.matchAll(/className\s*=\s*(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\})/g)) {
-        const cls = (m[1] ?? m[2] ?? m[3] ?? '').replace(/\$\{[^}]*\}/g, '*');
-        if (/\bbtn\b|\bbadge|\bchip\b|\bpill\b|\btab/.test(cls)) bump(bag, 'class', cls);
+    for (const m of code.matchAll(/\b([bt])-\$\{/g)) bump(bag, 'tone', `${m[1]}-*`);
+    // className بأيّ صورة: حرفيّة، أو قالب، أو تعبير {cond ? 'a' : 'b'} — كلّ سلسلةٍ داخله صنفٌ مُجرد
+    for (const m of code.matchAll(/className\s*=\s*/g)) {
+        const at = m.index + m[0].length;
+        const head = code[at];
+        let chunk = '';
+        if (head === '"' || head === "'") chunk = code.slice(at, skipString(code, at));
+        else if (head === '{') chunk = code.slice(at, balancedEnd(code, at));
+        else continue;
+        const lits = lex(chunk).strings;
+        for (const cls of head === '{' ? lits : [chunk.slice(1, -1)]) {
+            const c = cls.replace(/\s+/g, ' ').trim();
+            if (c) bump(bag, 'class', c);
+        }
     }
     for (const m of code.matchAll(/<Icon\b[^>]*\bname\s*=\s*["']([\w-]+)["']/g)) bump(bag, 'icon', m[1]);
+    for (const m of code.matchAll(/<Icon\b[^>]*\bname\s*=\s*\{/g)) bump(bag, 'icon', '{expr}');
     for (const m of code.matchAll(/(#[0-9a-fA-F]{3,8})\b|var\(--([\w-]+)\)/g)) bump(bag, 'color', m[1] ?? `var(--${m[2]})`);
 
     return bag;
