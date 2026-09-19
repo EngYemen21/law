@@ -70,7 +70,9 @@ class TicketEndToEndFlowTest extends TestCase
         $ticket = Ticket::where('user_id', $client->id)->first();
         $this->assertNotNull($ticket);
         $this->assertEquals('نزاع تجاري', $ticket->type);
-        $this->assertEquals('القسم التجاري', $ticket->department);
+        // الصياغة القديمة تُحفظ باسمها المعتمد في الكتالوج، مع معرّفه
+        $this->assertEquals('القضايا التجارية', $ticket->department);
+        $this->assertNotNull($ticket->legal_department_id);
         $this->assertEquals('شركة توريد الخليج', $ticket->opponent_name);
         $this->assertEquals(150000, $ticket->claim_amount);
         $this->assertEquals('المحكمة التجارية بالرياض', $ticket->court_name);

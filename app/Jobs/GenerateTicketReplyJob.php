@@ -47,6 +47,12 @@ class GenerateTicketReplyJob implements ShouldQueue
             return;
         }
 
+        // منع AI تماماً من الرد على الموظف أو المحامي أو الإدارة العليا — الرد الآلي للعميل فقط
+        $lastMsg = $ticket->messages()->reorder('id', 'desc')->first();
+        if ($lastMsg && $lastMsg->who !== 'client') {
+            return;
+        }
+
         // يتوقّف الردّ التلقائيّ لـ AI بمجرّد إحالة التذكرة للقسم القانوني أو تحويلها للتعامل البشري —
         // ويُسلَّم عصا المتابعة للمستشار المسند بإشعار، فلا تضيع رسالة العميل بصمت إن لم تكن شاشته مفتوحة
         if (TicketJourney::indexOf($ticket->status) >= TicketJourney::indexOf('محالة للقسم القانوني')) {

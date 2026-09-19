@@ -204,8 +204,8 @@ class DocumentStorageTest extends TestCase
 
     /**
      * 🔴 لم يكن للطاقم مسار تنزيل إطلاقاً: المحامي المسنَد يرى أنّ مستنداً رُفع على قضيّته
-     * ويقرأ ملخّصه ولا يستطيع فتحه. القرار: **المحامي المسنَد وحده** (والإدارة إشرافاً)،
-     * والموظف لا يفتح ولا ينزّل مستندات القضايا والتذاكر.
+     * ويقرأ ملخّصه ولا يستطيع فتحه. القرار: **المحامي المسنَد** (والإدارة إشرافاً). وحجبُ الموظّف
+     * نُقض بقرار المالك 2026-09-11 — قاعدته في `ConversationFileDownloadTest`.
      */
     public function test_assigned_lawyer_can_download_a_case_document(): void
     {
@@ -227,32 +227,37 @@ class DocumentStorageTest extends TestCase
             ->assertForbidden();
     }
 
-    /** 🔒 قرار المنتج: الموظف لا يفتح ولا ينزّل مستندات القضايا. */
-    public function test_employee_cannot_download_a_case_document(): void
+    /**
+     * 🔓 **قرار المالك 2026-09-11 (ينقض السابق):** الموظّف يُنزّل مرفقات القضيّة التي يفتحها —
+     * عبر المسار الموحّد. ومسار المحامي يبقى للمحامي: الموظّف يُحوَّل عنه كما كان.
+     */
+    public function test_employee_downloads_a_case_document_through_the_shared_route(): void
     {
         [, $doc] = $this->caseWithDoc();
         $employee = User::factory()->create(['role' => Role::Employee]);
 
-        // زيارة الصفحة بدور خاطئ تُحوَّل للوحته (سلوك EnsureRole المقصود)، والطلب البرمجيّ يُرفض 403
+        $this->actingAs($employee)
+            ->get(route('files.download', ['type' => 'case', 'id' => $doc->id]))
+            ->assertOk();
+
         $this->actingAs($employee)
             ->get(route('lawyer.documents.download', ['type' => 'case', 'id' => $doc->id]))
             ->assertRedirect(Role::Employee->home());
-
-        $this->actingAs($employee)
-            ->getJson(route('lawyer.documents.download', ['type' => 'case', 'id' => $doc->id]))
-            ->assertForbidden();
     }
 
-    /** ولا يظهر له رابط تنزيل أصلاً في بيانات الشاشة. */
-    public function test_employee_case_screen_exposes_no_download_url(): void
+    /** ويظهر له رابط التنزيل في بيانات الشاشة. */
+    public function test_employee_case_screen_exposes_the_download_url(): void
     {
-        [$case] = $this->caseWithDoc();
+        [$case, $doc] = $this->caseWithDoc();
         $employee = User::factory()->create(['role' => Role::Employee]);
 
         $this->actingAs($employee)
             ->get(route('employee.cases.show', $case))
             ->assertOk()
-            ->assertInertia(fn ($p) => $p->where('documents.0.downloadUrl', null));
+            ->assertInertia(fn ($p) => $p->where(
+                'documents.0.downloadUrl',
+                route('files.download', ['type' => 'case', 'id' => $doc->id]),
+            ));
     }
 
     /** والمحامي المسنَد يظهر له الرابط. */
@@ -265,7 +270,7 @@ class DocumentStorageTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($p) => $p->where(
                 'documents.0.downloadUrl',
-                route('lawyer.documents.download', ['type' => 'case', 'id' => $doc->id]),
+                route('files.download', ['type' => 'case', 'id' => $doc->id]),
             ));
     }
 

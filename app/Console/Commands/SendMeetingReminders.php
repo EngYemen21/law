@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Mail\MeetingReminderMail;
 use App\Models\Meeting;
 use App\Services\MailService;
+use App\Support\SettingsRegistry;
 use Illuminate\Console\Command;
 
 /**
@@ -14,13 +15,15 @@ use Illuminate\Console\Command;
  */
 class SendMeetingReminders extends Command
 {
-    protected $signature = 'meetings:send-reminders {--lead=60 : فترة التذكير قبل الموعد بالدقائق}';
+    // بلا افتراضٍ في التوقيع: الافتراض من الإعدادات كي تضبطه الإدارة بلا نشر كود
+    protected $signature = 'meetings:send-reminders {--lead= : فترة التذكير قبل الموعد بالدقائق (الافتراض من الإعدادات)}';
 
     protected $description = 'إرسال تذكير بالاجتماعات القادمة المستحقّة عبر البريد';
 
     public function handle(): int
     {
-        $lead = max(1, (int) $this->option('lead'));
+        $option = $this->option('lead');
+        $lead = max(1, $option === null || $option === '' ? SettingsRegistry::int('meeting_reminder_lead') : (int) $option);
 
         $due = Meeting::with(['user', 'assignedLawyer'])
             ->where('status', 'قادم')

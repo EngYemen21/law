@@ -70,9 +70,17 @@ class TechnicalDebtTest extends TestCase
             }
         }
 
+        // والصلاحيّة المسمّاة بثابتٍ في الكتالوج تُفحص باسمه: `can(Permissions::DOWNLOAD_FILES)`
+        $constants = array_flip(array_filter(
+            (new \ReflectionClass(Permissions::class))->getConstants(),
+            'is_string'
+        ));
+
         $dead = array_values(array_filter(
             $declared,
-            fn ($p) => ! in_array($p, $enforced, true) && ! str_contains($code, "can('{$p}')")
+            fn ($p) => ! in_array($p, $enforced, true)
+                && ! str_contains($code, "can('{$p}')")
+                && ! (isset($constants[$p]) && str_contains($code, "can(Permissions::{$constants[$p]})"))
         ));
 
         $this->assertSame([], $dead, 'صلاحيات معرَّفة لا تحرس شيئاً — تُربط أو تُحذف.');

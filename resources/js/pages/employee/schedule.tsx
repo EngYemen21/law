@@ -7,11 +7,16 @@ import type {StatItem} from '@/components/babylon/StatRow';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { todayISO } from '@/components/SpecialistPicker';
+import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 
 // الشاشة تُعرض داخل تقويم الموظف وتقويم الإدارة معًا — العناوين تُشتق من اللوحة الحالية
 // (لم يعد الأدمن يمرّ عبر بوابة دور الموظف — قرار 2026-08-28، له مسارات admin مطابقة)
 const apiBase = () => (window.location.pathname.startsWith('/admin') ? '/admin' : '/employee');
+
+// موعدٌ اقترحه موظّف ولم تعتمده الإدارة بعد (`AppointmentStatus::PendingApproval`) — لا يُعاد جدولته
+// ولا يُوسم «لم يحضر» (الخادم يرفضهما لطلبٍ في دورة الحجز)، وله خيار ترشيحٍ مستقلّ
+const APPT_PENDING = 'بانتظار الاعتماد';
 
 // ============================================================
 // لوحة جدولة وإدارة مواعيد المكتب للموظف (Enterprise Scheduling Hub)
@@ -65,11 +70,24 @@ interface Counts {
   office?: number;
 }
 
+/** استشارةٌ مدفوعة بانتظار موعدها — ما يُحجز له الموعد فعلاً (AppointmentBoard::data). */
+export interface AwaitingConsultItem {
+  id: number;
+  ref: string;
+  clientId: number;
+  subject: string;
+  type: 'office' | 'video' | 'phone';
+  specialty?: string | null;
+  lawyerId?: number | null;
+  ticketNo?: string | null;
+}
+
 interface Props {
   clients: ClientItem[];
   lawyers: LawyerItem[];
   appointments?: AppointmentItem[];
   counts?: Counts;
+  awaitingConsults?: AwaitingConsultItem[];
 }
 
 const TYPES: [string, string, string][] = [
@@ -90,6 +108,7 @@ const EmployeeSchedule: React.FC<Props> = ({
   lawyers = [],
   appointments = [],
   counts,
+  awaitingConsults = [],
 }) => {
   const toast = useToast();
 
@@ -118,6 +137,38 @@ const EmployeeSchedule: React.FC<Props> = ({
   const [date, setDate] = useState(todayISO());
   const [time, setTime] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // الاستشارة المدفوعة التي يُحجز لها الموعد — يُرسَل معرّفها فلا يختار الخادم أقدمها صامتاً
+  const [consultId, setConsultId] = useState<number | ''>('');
+  const clientConsults = useMemo(
+    () => awaitingConsults.filter((c) => c.clientId === clientId),
+    [awaitingConsults, clientId],
+  );
+
+  /** يختار استشارةً ويملأ قناتها، ومحاميها حين يُطلب (لا حين يُفتح النموذج من خانة محامٍ في الشبكة). */
+  const selectConsult = (consult: AwaitingConsultItem | undefined, withLawyer: boolean) => {
+    setConsultId(consult?.id ?? '');
+
+    if (!consult) {
+      return;
+    }
+
+    setType(consult.type);
+
+    if (withLawyer && consult.lawyerId) {
+      setLawyerId(consult.lawyerId);
+      setTime('');
+    }
+  };
+
+  /** يختار العميل وأوّل استشارةٍ مدفوعة له بانتظار موعد. */
+  const pickClient = (id: number, withLawyer: boolean) => {
+    setClientId(id);
+    selectConsult(awaitingConsults.find((c) => c.clientId === id), withLawyer);
+  };
+
+  /** العميل المبدئيّ: أوّل من له استشارة بانتظار موعد، وإلّا أوّل عميل. */
+  const defaultClientId = (): number | '' => awaitingConsults[0]?.clientId ?? clients[0]?.id ?? '';
 
   // الفترات المتاحة للمستشار في المودال
   const [slots, setSlots] = useState<{ time: string; taken: boolean }[]>([]);
@@ -164,6 +215,13 @@ setSlotsLoading(false);
 
   // فتح نافذة الحجز مع تحديد المحامي واليوم والوقت مسبقاً من الشبكة
   const openBookingForSlot = (targetLawyerId: number, targetDate: string, targetTime: string) => {
+    // المحامي والوقت من خانة الشبكة — الاستشارة لا تغيّر المحامي هنا
+    const initialClient = clientId === '' ? defaultClientId() : clientId;
+
+    if (initialClient !== '') {
+      pickClient(initialClient, false);
+    }
+
     setLawyerId(targetLawyerId);
     setDate(targetDate);
     setTime(targetTime);
@@ -171,13 +229,15 @@ setSlotsLoading(false);
   };
 
   const openNewBooking = () => {
-    if (clients.length > 0 && clientId === '') {
-setClientId(clients[0].id);
-}
+    const initialClient = clientId === '' ? defaultClientId() : clientId;
 
     if (lawyers.length > 0 && lawyerId === '') {
-setLawyerId(lawyers[0].id);
-}
+      setLawyerId(lawyers[0].id);
+    }
+
+    if (initialClient !== '') {
+      pickClient(initialClient, true);
+    }
 
     setDate(todayISO());
     setTime('');
@@ -193,6 +253,12 @@ setLawyerId(lawyers[0].id);
       return;
     }
 
+    if (!consultId) {
+      toast('لا توجد لهذا العميل استشارة مدفوعة بانتظار موعد — تُطلب الاستشارة وتُسعَّر وتُسدَّد أوّلاً');
+
+      return;
+    }
+
     if (isPast) {
       toast('لا يمكن اختيار وقت ماضٍ، فضلاً اختر وقتاً لاحقاً');
 
@@ -204,6 +270,7 @@ setLawyerId(lawyers[0].id);
       `${apiBase()}/schedule`,
       {
         client_id: clientId,
+        consult_id: consultId,
         lawyer_id: lawyerId || null,
         type,
         subject: subject.trim(),
@@ -214,12 +281,13 @@ setLawyerId(lawyers[0].id);
         preserveScroll: true,
         onFinish: () => setBusy(false),
         onSuccess: () => {
-          toast('✅ تم إنشاء وحفظ الموعد بنجاح');
+          // الموظّف يقترح والإدارة تعتمد قبل أن يصل العميل؛ حجزُ الإدارة يُرسل مباشرةً
+          toast(apiBase() === '/admin' ? '✅ تم تحديد الموعد وإرساله للعميل' : '✅ أُرسل الموعد لاعتماد الإدارة قبل إرساله للعميل');
           setBookOpen(false);
           setSubject('');
           setTime('');
         },
-        onError: (e) => toast(e.starts_at || e.time || e.date || 'تعذّر إنشاء الموعد'),
+        onError: (e) => toast(e.consult_id || e.client_id || e.lawyer_id || e.starts_at || e.time || e.date || e.message || 'تعذّر حفظ الموعد'),
       }
     );
   };
@@ -262,13 +330,13 @@ setLawyerId(lawyers[0].id);
 return clients;
 }
 
-    const q = clientSearch.trim().toLowerCase();
+    const q = foldSearch(clientSearch);
 
     return clients.filter(
       (c) =>
-        c.name.toLowerCase().includes(q) ||
+        foldSearch(c.name).includes(q) ||
         (c.phone && c.phone.includes(q)) ||
-        (c.email && c.email.toLowerCase().includes(q))
+        (c.email && foldSearch(c.email).includes(q))
     );
   }, [clients, clientSearch]);
 
@@ -295,6 +363,10 @@ return false;
 return false;
 }
 
+        if (filterStatus === 'pending' && a.status !== APPT_PENDING) {
+return false;
+}
+
         if (filterStatus === 'attended' && a.status !== 'تم الحضور') {
 return false;
 }
@@ -306,7 +378,7 @@ return false;
 
       // البحث النصي
       if (searchQuery.trim()) {
-        const q = searchQuery.trim().toLowerCase();
+        const q = foldSearch(searchQuery);
         const clientMatch = a.client?.toLowerCase().includes(q) ?? false;
         const lawyerMatch = a.lawyer?.toLowerCase().includes(q) ?? false;
         const subMatch = a.subject?.toLowerCase().includes(q) ?? false;
@@ -495,6 +567,7 @@ return lawyers;
                   >
                     <option value="all">كل الحالات</option>
                     <option value="up">مواعيد قادمة</option>
+                    <option value="pending">بانتظار اعتماد الإدارة</option>
                     <option value="attended">تم الحضور</option>
                     <option value="noshow">لم يحضر</option>
                     <option value="past">مواعيد سابقة</option>
@@ -767,7 +840,7 @@ return lawyers;
             ) : (
               <div className="empty">
                 <Icon name="cal" />
-                <b>لا توجد مواعيد مطابقة لخيارات البحث والتصفية</b>
+                <b>{appointments.length === 0 ? 'لا توجد مواعيد في هذه النافذة' : 'لا توجد مواعيد مطابقة لخيارات البحث والتصفية'}</b>
                 {(searchQuery || filterLawyer !== 'all' || filterChannel !== 'all' || filterStatus !== 'all') && (
                   <button
                     className="btn soft sm"
@@ -821,7 +894,7 @@ return lawyers;
             </div>
             <select
               value={clientId}
-              onChange={(e) => setClientId(Number(e.target.value))}
+              onChange={(e) => pickClient(Number(e.target.value), true)}
             >
               <option value="" disabled>-- اختر العميل --</option>
               {filteredModalClients.map((c) => (
@@ -830,6 +903,27 @@ return lawyers;
                 </option>
               ))}
             </select>
+          </div>
+
+          {/* الاستشارة المدفوعة التي يُحجز لها الموعد — الخادم لا يخمّنها */}
+          <div className="field">
+            <label>الاستشارة المدفوعة <span className="req">*</span></label>
+            {clientConsults.length > 0 ? (
+              <select
+                value={consultId}
+                onChange={(e) => selectConsult(clientConsults.find((c) => c.id === Number(e.target.value)), true)}
+              >
+                {clientConsults.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.ref} — {c.subject || 'بلا موضوع'}{c.ticketNo ? ` (تذكرة ${c.ticketNo})` : ''}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div style={{ color: 'var(--red)', fontSize: 12.5 }}>
+                ⚠️ لا توجد لهذا العميل استشارة مدفوعة بانتظار موعد — تُطلب الاستشارة وتُسعَّر وتُسدَّد أوّلاً.
+              </div>
+            )}
           </div>
 
           {/* المستشار ونوع الاستشارة */}
@@ -928,7 +1022,7 @@ return lawyers;
               className="btn block"
               type="button"
               onClick={submitBooking}
-              disabled={busy || isPast || !clientId || !date || !time}
+              disabled={busy || isPast || !clientId || !consultId || !date || !time}
             >
               <Icon name="calplus" /> {busy ? 'جارٍ الحفظ…' : 'تأكيد الجدولة وحفظ الموعد'}
             </button>
@@ -1008,7 +1102,7 @@ return lawyers;
 
             {/* كانت اللوحة بلا أي إجراء بعد الإنشاء — القدرة موجودة عبر الاستشارة المرافقة
                 (إعادة الجدولة تُلغي الموعد القديم فعلاً) لكن بلا جسر واجهة */}
-            {selectedAppt.consultId && (
+            {selectedAppt.consultId && selectedAppt.status !== APPT_PENDING && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
                 <button
                   className="btn soft sm"

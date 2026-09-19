@@ -2,28 +2,44 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\Enums\InvoiceStatus;
+use App\Domain\Journey\GuardsJourneyState;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Invoice extends Model
 {
+    use GuardsJourneyState;
+
     protected $fillable = [
-        'user_id', 'case_id', 'consult_id', 'exec_id', 'number', 'description', 'amount', 'status', 'tone', 'due_label', 'due_at', 'paid',
+        'user_id', 'case_id', 'consult_id', 'exec_id', 'installment_no', 'number', 'description', 'amount', 'status', 'tone', 'due_label', 'due_at', 'reminder_sent_at', 'paid',
         'gateway_ref', 'gateway_payment_id', 'proof_path', 'proof_uploaded_at',
     ];
 
     protected $casts = [
         'amount' => 'integer',
+        'installment_no' => 'integer',
         'paid' => 'boolean',
         'due_at' => 'date',
+        'reminder_sent_at' => 'datetime',
         'proof_uploaded_at' => 'datetime',
     ];
 
-    /** تجاوزت استحقاقها دون سداد — يوم الاستحقاق نفسه ليس تأخّراً (حتى نهايته) */
+    /**
+     * تجاوزت استحقاقها دون سداد — يوم الاستحقاق نفسه ليس تأخّراً (حتى نهايته).
+     * والملغاة لا تتأخّر: لا يُطالَب بها أحد، وكانت تُعرض «متأخرة» حمراء بعد استحقاقها
+     * فيُخفى إلغاؤها عن العميل ويُحسب مبلغها ديناً في المحاسبة.
+     */
     public function isOverdue(): bool
     {
-        return ! $this->paid && $this->due_at !== null && $this->due_at->copy()->endOfDay()->isPast();
+        return ! $this->paid && ! $this->isCancelled() && $this->due_at !== null && $this->due_at->copy()->endOfDay()->isPast();
+    }
+
+    /** أُلغيت (إعادة تسعير أو إلغاء طلب) — لا تُسدَّد ولا يُرفع لها إثبات ولا تُحصَّل. */
+    public function isCancelled(): bool
+    {
+        return $this->status === InvoiceStatus::Cancelled->value;
     }
 
     /**
@@ -59,6 +75,20 @@ class Invoice extends Model
         return 'number';
     }
 
+    /**
+     * **تاريخ الاستحقاق كما يُقرأ** — المصدر الواحد للبطاقة والفاتورة المطبوعة.
+     *
+     * `due_label` نصٌّ نسبيّ مجمَّد لحظة الإصدار («خلال 3 أيام»)، فيبقى كذلك بعد أسابيع: كانت
+     * الفاتورة المطبوعة تطبعه كما هو تحت «تاريخ الاستحقاق». التاريخ الحقيقيّ `due_at` أوّلاً،
+     * والنصّ احتياطٌ للسجلّات القديمة التي لا تاريخ لها.
+     */
+    public function dueDateText(): ?string
+    {
+        return $this->due_at !== null
+            ? $this->due_at->locale('ar')->translatedFormat('d F Y')
+            : ($this->due_label ?: null);
+    }
+
     // الشكل الذي تتوقعه الواجهة (يطابق DATA.invoices)
     public function toCard(): array
     {
@@ -70,13 +100,15 @@ class Invoice extends Model
             'amount' => $this->amount,
             'status' => $status,
             'tone' => $tone,
-            // تاريخ استحقاق حقيقي إن وُجد — النص القديم («خلال 3 أيام» الأبدية) احتياط للسجلات القديمة
             'due' => $this->due_at
-                ? ($this->isOverdue() ? 'استُحقّت في ' : 'تستحق قبل ').$this->due_at->locale('ar')->translatedFormat('d F Y')
-                : $this->due_label,
+                ? ($this->isOverdue() ? 'استُحقّت في ' : 'تستحق قبل ').$this->dueDateText()
+                : $this->dueDateText(),
             'overdue' => $this->isOverdue(),
             'paid' => $this->paid,
+            // الشاشة تُخفي الدفع ورفع الإثبات عن الملغاة — والخادم يرفضهما (`SubmitPaymentProof`)
+            'cancelled' => $this->isCancelled(),
             'hasProof' => $this->proof_path !== null,   // رُفع إثبات تحويل بانتظار المراجعة
+            'installmentNo' => $this->installment_no,   // موضعها من خطّة التقسيط — null لغيرها
         ];
     }
 }

@@ -58,9 +58,12 @@
 <body style="margin:0;padding:0;background-color:#EEF2F6;font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;text-align:right;-webkit-font-smoothing:antialiased;">
 
     @php
-        $appUrl = rtrim((string) config('app.url', 'https://salaselbabel.net'), '/');
+        // موقع المكتب واسمه من الإعدادات لا منقوشين هنا — نقلُ المكتب نطاقَه كان يحتاج نشرَ كود
+        $officeUrl = rtrim(\App\Support\SettingsRegistry::str('office_url'), '/');
+        $officeName = \App\Support\SettingsRegistry::str('office_name');
+        $appUrl = rtrim((string) config('app.url', $officeUrl), '/');
         if (str_contains($appUrl, 'localhost') || str_contains($appUrl, '.test') || str_contains($appUrl, '127.0.0.1')) {
-            $appUrl = 'https://salaselbabel.net';
+            $appUrl = $officeUrl;
         }
         $logoSrc = $appUrl.'/images/021.png';
     @endphp
@@ -136,7 +139,7 @@
                                 🔒 <b>إشعار سرية:</b> هذه المراسلة موجهة خصيصاً للمستلم المعني وتحتوي على بيانات قانونية خاصة. يُرجى عدم الرد على هذه الرسالة الآلية.
                             </div>
                             <div style="color:#F1F5F9;font-weight:bold;font-size:13px;margin-bottom:3px;">
-                                النظام الإداري لمكاتب المحاماة
+                                {{ $officeName }}
                             </div>
                             <div style="color:#94A3B8;font-size:11px;">
                                 المملكة العربية السعودية · جميع الحقوق محفوظة © {{ date('Y') }}

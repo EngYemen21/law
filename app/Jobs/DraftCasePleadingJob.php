@@ -2,10 +2,12 @@
 
 namespace App\Jobs;
 
+use App\Events\CaseStatusBroadcast;
 use App\Models\LegalCase;
 use App\Services\Ai\AiQueue;
 use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
+use App\Support\Live;
 use App\Support\Notify;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -67,9 +69,14 @@ class DraftCasePleadingJob implements ShouldQueue
                 'doc',
                 't-amber',
                 "أُعدّت مسودّة لائحة الدعوى في القضية ({$this->case->number}) وهي محجوبة عن العميل "
-                .'بانتظار مراجعتك واعتمادها من صندوق مراجعة مخرجات الذكاء.'
+                .'بانتظار مراجعتك في محرّر اللائحة بصفحة القضية.'
             );
         }
+
+        // **إشارةٌ لشاشة المكتب أنّ المسودّة جهزت.** المحجوب لا يُبثّ (القناة يسمعها العميل)،
+        // والتوليد بالطابور — فكان المحرّر لا يعلم، ويراها المحامي فقط بإعادة التحميل.
+        // الحالة وحدها في الحمولة (`CaseStatusBroadcast::broadcastWith`) — لا نصّ.
+        Live::push(new CaseStatusBroadcast($this->case->fresh()));
     }
 
     private function clock(): string

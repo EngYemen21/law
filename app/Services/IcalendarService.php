@@ -243,7 +243,7 @@ class IcalendarService
         }
 
         // 4. المواعيد الحضورية/المكتبية
-        $appts = Appointment::where('user_id', $user->id)->get();
+        $appts = Appointment::where('user_id', $user->id)->where('status', '!=', 'بانتظار الاعتماد')->get(); // الاقتراح غير المعتمد لا يدخل تقويم العميل
         foreach ($appts as $a) {
             $start = MeetingTime::parse($a->day, $a->time);
             if (! $start) {

@@ -60,7 +60,7 @@ class ConsultSummaryApprovalTest extends TestCase
 
         $consult = Consult::create([
             'user_id' => $client->id, 'ref' => 'CN-APR-'.uniqid(), 'subject' => 'نزاع تجاري',
-            'type' => 'استشارة', 'channel' => 'video', 'status' => 'منتهية', 'tone' => 'b-green',
+            'type' => 'استشارة', 'channel' => 'video', 'status' => 'منتهية', 'session' => 'منتهية', 'tone' => 'b-green',
             'assigned_lawyer_id' => $lawyer->id, 'lawyer' => $lawyer->name,
         ]);
 
@@ -127,7 +127,8 @@ class ConsultSummaryApprovalTest extends TestCase
         $doc = ConsultReport::doc($consult->fresh(), $client->name);
         $next = collect($doc['blocks'])->first(fn ($b) => ($b['title'] ?? '') === '٦. الإجراء القادم');
 
-        $this->assertSame(['بانتظار اعتماد ملخص الاستشارة من المستشار'], $next['chips']);
+        // بلا «من المستشار»: الاعتماد مرحلتان، والنصّ نفسه يُطبع قبل اعتماد المستشار وبعده
+        $this->assertSame(['بانتظار اعتماد ملخص الاستشارة'], $next['chips']);
     }
 
     /** وإشعار الإتاحة لا يُرسل عند الإنتاج — يتبع الاعتماد. */
@@ -141,10 +142,11 @@ class ConsultSummaryApprovalTest extends TestCase
         $this->assertStringContainsString('فور اعتماده', $texts, 'بل يُخبَر بأنه قيد الاعتماد');
     }
 
-    /** واعتماد المحامي في صندوق المراجعة يُطلقه ويُشعر العميل. */
+    /** اعتماد المحامي في الصندوق يرفعه، واعتماد الإدارة يُطلقه ويُشعر العميل (2026-09-14). */
     public function test_approving_the_run_releases_the_summary_and_notifies_the_client(): void
     {
         [$consult, $lawyer, $client] = $this->finishedConsult();
+        $admin = User::factory()->create(['role' => Role::Admin]);
 
         $run = AiRun::where('task_type', 'consult.summary')->latest('id')->firstOrFail();
 
@@ -153,8 +155,19 @@ class ConsultSummaryApprovalTest extends TestCase
             ->assertRedirect();
 
         $consult->refresh();
-        $this->assertTrue($consult->summaryApproved(), 'الاعتماد يُسجَّل في الملفّ لا في السجلّ وحده');
-        $this->assertSame($lawyer->id, $consult->summary_approved_by);
+        $this->assertNotNull($consult->summary_lawyer_approved_at, 'الاعتماد يُسجَّل في الملفّ لا في السجلّ وحده');
+        $this->assertSame($lawyer->id, $consult->summary_lawyer_approved_by);
+        $this->assertFalse($consult->summaryApproved(), 'واعتماد المحامي لا يُطلق');
+        $this->assertNull($consult->toClientCard()['summary']);
+
+        $this->actingAs($admin)
+            ->post("/admin/ai-review/{$run->id}/decide", ['action' => 'accept'])
+            ->assertRedirect();
+
+        $consult->refresh();
+        $this->assertTrue($consult->summaryApproved());
+        $this->assertSame($admin->id, $consult->summary_approved_by);
+        $this->assertSame($lawyer->id, $consult->summary_lawyer_approved_by, 'وختم المحامي يبقى');
         $this->assertNotNull($consult->toClientCard()['summary'], 'ويصل العميل بعدها');
 
         $texts = UserNotification::where('user_id', $client->id)->pluck('body')->implode(' | ');
@@ -230,10 +243,14 @@ class ConsultSummaryApprovalTest extends TestCase
     public function test_approving_twice_notifies_once(): void
     {
         [$consult, $lawyer, $client] = $this->finishedConsult();
+        $admin = User::factory()->create(['role' => Role::Admin]);
         $run = AiRun::where('task_type', 'consult.summary')->latest('id')->firstOrFail();
 
         foreach ([1, 2] as $_) {
             $this->actingAs($lawyer)->post("/lawyer/ai-review/{$run->id}/decide", ['action' => 'accept']);
+        }
+        foreach ([1, 2] as $_) {
+            $this->actingAs($admin)->post("/admin/ai-review/{$run->id}/decide", ['action' => 'accept']);
         }
 
         $count = UserNotification::where('user_id', $client->id)
@@ -297,7 +314,7 @@ class ConsultSummaryApprovalTest extends TestCase
         $run->refresh();
         $this->assertSame(AiReviewAction::Edit, $run->review_action, 'القرار يتبع ما وقع لا ما أُعلن');
         $this->assertGreaterThan(0, $run->review_edit_distance, 'وحجم التحرير مقيسٌ لا مُدَّعى');
-        $this->assertTrue($consult->fresh()->summaryApproved(), 'والاعتماد يقع كما هو');
+        $this->assertNotNull($consult->fresh()->summary_lawyer_approved_at, 'والاعتماد الأوّل يقع كما هو');
     }
 
     /** ونقيضه: قبولٌ على نصٍّ لم يُمسّ يبقى قبولاً بمسافة صفر. */

@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import Badge from '@/components/babylon/Badge';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
-import {  DEPTS } from '@/lib/employee-data';
+import { foldSearch } from '@/lib/employee-data';
 import type {Staff} from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { usePermCatalog } from '@/lib/permissions';
@@ -16,17 +16,23 @@ type StaffRow = Staff & {
   payType?: PayType | null;
   pct?: number | null;
   sessionFee?: number | null;
+  specialtyIds?: number[]; // تخصّصات المحامي في كتالوج الأقسام
+  coversAll?: boolean; // محامٍ عامّ يغطّي كلّ الأقسام
 };
+
+interface LegalDepartmentOption { id: number; name: string }
 
 interface Props {
   staff: StaffRow[];
+  legalDepartments: LegalDepartmentOption[]; // تخصّصات المحامي (كتالوج الأقسام القانونيّة)
+  staffDepartments: string[]; // أقسام الموظّفين الإداريّة
 }
 
 interface Shared {
   generatedPassword?: { email: string; password: string } | null;
 }
 
-const AdminStaff: React.FC<Props> = ({ staff }) => {
+const AdminStaff: React.FC<Props> = ({ staff, legalDepartments = [], staffDepartments = [] }) => {
   const toast = useToast();
   const { props } = usePage() as unknown as { props: Shared };
   const formRef = React.useRef<HTMLDivElement>(null);
@@ -59,7 +65,12 @@ setCred(props.generatedPassword);
   const [mobile, setMobile] = useState('');
   const [nid, setNid] = useState('');
   const [nidHint, setNidHint] = useState<{ name: string; phone: string; roles: string[] } | null>(null);
-  const [dept, setDept] = useState(DEPTS[0]);
+  // قسم الموظّف الإداريّ، وتخصّصات المحامي من الكتالوج (أو «كل الأقسام»)
+  const [dept, setDept] = useState(staffDepartments[0] ?? '');
+  const [specialtyIds, setSpecialtyIds] = useState<number[]>([]);
+  const [coversAll, setCoversAll] = useState(false);
+  const toggleSpecialty = (id: number) =>
+    setSpecialtyIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   const [join, setJoin] = useState('');
   const [start, setStart] = useState('08:00');
   const [end, setEnd] = useState('16:00');
@@ -142,7 +153,9 @@ setName(data.name);
     setMobile('');
     setNid('');
     setNidHint(null);
-    setDept(DEPTS[0]);
+    setDept(staffDepartments[0] ?? '');
+    setSpecialtyIds([]);
+    setCoversAll(false);
     setJoin('');
     setStart('08:00');
     setEnd('16:00');
@@ -163,7 +176,10 @@ setName(data.name);
     setEmail(s.email === '—' ? '' : s.email);
     setMobile(s.mobile === '—' ? '' : s.mobile);
     setNid(s.nid === '—' ? '' : s.nid);
-    setDept(s.dept && s.dept !== '—' ? s.dept : DEPTS[0]);
+    // الموظّف: قسمه الإداريّ كما هو (ولو قديماً)؛ المحامي: تخصّصاته في الكتالوج
+    setDept(s.roleKey !== 'lawyer' && s.dept && s.dept !== '—' ? s.dept : (staffDepartments[0] ?? ''));
+    setSpecialtyIds([...(s.specialtyIds ?? [])]);
+    setCoversAll(Boolean(s.coversAll));
     setJoin(s.join === '—' ? '' : s.join);
     setStart(s.start && s.start !== '—' ? s.start : '08:00');
     setEnd(s.end && s.end !== '—' ? s.end : '16:00');
@@ -211,7 +227,10 @@ setName(data.name);
       email,
       mobile,
       nid,
+      // الخادم يأخذ القسم الإداريّ لغير المحامي، والتخصّصات للمحامي
       dept,
+      specialties: roleKey === 'lawyer' && !coversAll ? specialtyIds : [],
+      coversAll: roleKey === 'lawyer' && coversAll,
       join,
       start,
       end,
@@ -272,7 +291,8 @@ setName(data.name);
 return false;
 }
 
-    if (deptFilter && s.dept !== deptFilter) {
+    // المحامي قد يحمل عدّة تخصّصات مفصولة بـ«، » — يطابق الفلترُ أيّاً منها
+    if (deptFilter && s.dept !== deptFilter && !(s.dept || '').split('، ').includes(deptFilter)) {
 return false;
 }
 
@@ -281,9 +301,9 @@ return false;
 }
 
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchName = s.name.toLowerCase().includes(q);
-      const matchRole = s.role.toLowerCase().includes(q);
+      const q = foldSearch(searchQuery);
+      const matchName = foldSearch(s.name).includes(q);
+      const matchRole = foldSearch(s.role).includes(q);
       const matchEmail = (s.email || '').toLowerCase().includes(q);
       const matchMobile = (s.mobile || '').includes(q);
       const matchNid = (s.nid || '').includes(q);
@@ -499,7 +519,7 @@ resetForm();
                 style={{ width: 140, fontSize: 12.5, padding: '7px 10px' }}
               >
                 <option value="">جميع الأقسام</option>
-                {DEPTS.map((d) => (
+                {Array.from(new Set([...staffDepartments, ...legalDepartments.map((d) => d.name)])).map((d) => (
                   <option key={d} value={d}>{d}</option>
                 ))}
               </select>
@@ -534,7 +554,7 @@ resetForm();
             {filteredStaff.length === 0 ? (
               <div className="empty">
                 <Icon name="user" />
-                <b>لا يوجد موظفون يطابقون معايير البحث والفلترة</b>
+                <b>{staff.length === 0 ? 'لا يوجد موظفون بعد' : 'لا يوجد موظفون يطابقون معايير البحث والفلترة'}</b>
               </div>
             ) : (
               <table className="tbl" style={{ minWidth: 780 }}>
@@ -813,14 +833,44 @@ setRole('موظف خدمة عملاء');
                   />
                 </div>
 
-                <div className="field">
-                  <label>القسم المختص <span style={{ color: 'var(--red)' }}>*</span></label>
-                  <select value={dept} onChange={(e) => setDept(e.target.value)}>
-                    {DEPTS.map((d) => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                </div>
+                {roleKey === 'lawyer' ? (
+                  // المحامي: تخصّصاتٌ متعدّدة من كتالوج الأقسام — تُسنَد إليه تذاكر أيٍّ منها تلقائيّاً
+                  <div className="field">
+                    <label>تخصّصات المحامي</label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
+                      <input id="staff-covers-all" type="checkbox" checked={coversAll} onChange={(e) => setCoversAll(e.target.checked)} />
+                      يغطّي كلّ الأقسام (محامٍ عام)
+                    </label>
+                    {!coversAll && (
+                      <div style={{ maxHeight: 190, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 10, padding: '6px 10px', display: 'grid', gap: 2 }}>
+                        {legalDepartments.map((d) => (
+                          <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '3px 0' }}>
+                            <input
+                              id={`staff-specialty-${d.id}`}
+                              type="checkbox"
+                              checked={specialtyIds.includes(d.id)}
+                              onChange={() => toggleSpecialty(d.id)}
+                            />
+                            {d.name}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    {!coversAll && specialtyIds.length === 0 && (
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>بلا تخصّص لا تُسنَد إليه تذاكر تلقائيّاً.</span>
+                    )}
+                  </div>
+                ) : (
+                  // الموظّف والإدارة: قسمٌ إداريّ؛ والقيمة القديمة خارج القائمة تبقى ظاهرة كي لا تُستبدل صامتةً
+                  <div className="field">
+                    <label htmlFor="staff-dept">القسم الإداريّ <span style={{ color: 'var(--red)' }}>*</span></label>
+                    <select id="staff-dept" value={dept} onChange={(e) => setDept(e.target.value)}>
+                      {Array.from(new Set([...(dept ? [dept] : []), ...staffDepartments])).map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* ------------------------------------------------------------- */}

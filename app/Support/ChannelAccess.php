@@ -3,6 +3,10 @@
 namespace App\Support;
 
 use App\Enums\Role;
+use App\Models\Consult;
+use App\Models\Execution;
+use App\Models\LegalCase;
+use App\Models\Ticket;
 use App\Models\User;
 
 /**
@@ -14,14 +18,32 @@ class ChannelAccess
     /** الموظف المخوّل: الإدارة وموظف المكتب مطلقاً، والمحامي لسجلّه المسند وحده. */
     public static function staffCanSee(User $user, object $model): bool
     {
-        if ($user->isAdmin() || $user->role === Role::Employee) {
+        if ($user->isAdmin()) {
             return true;
+        }
+        // الموظّف يرى كلّ الملفّات (قرار إزالة الفروع) — **بصلاحيّة الكيان** التي تفتح له صفحته.
+        // كان أيّ موظّفٍ يشترك في بثّ كلّ المحادثات ولو لم يملك صلاحيّة شاشتها.
+        if ($user->role === Role::Employee) {
+            $permission = self::employeePermissionFor($model);
+
+            return $permission === null || $user->can($permission);
         }
         if ($user->role === Role::Lawyer) {
             return (int) ($model->assigned_lawyer_id ?? 0) === (int) $user->id;
         }
 
         return false;
+    }
+
+    /** الصلاحيّة التي تفتح للموظّف شاشة هذا الكيان — نفسُها في `routes/web.php`. */
+    private static function employeePermissionFor(object $model): ?string
+    {
+        return match (true) {
+            $model instanceof Ticket => 'إدارة التذاكر',
+            $model instanceof LegalCase, $model instanceof Execution => 'إدارة القضايا والأتعاب',
+            $model instanceof Consult => 'استقبال الاستشارات',
+            default => null,
+        };
     }
 
     /** العميل المالك أو موظف مخوّل — للقنوات المشتركة بين العميل وفريقه. */

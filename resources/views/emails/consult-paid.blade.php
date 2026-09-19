@@ -26,12 +26,12 @@
     @include('emails.partials.alert', [
         'type' => 'success',
         'title' => '🗓️ الخطوة التالية المطلوبة',
-        'slot' => 'يمكنك الآن اختيار وتحديد موعد جلستك القانونية المناسب مع المستشار من خلال حسابك.'
+        'slot' => 'سوف يتم تحديد موعد جلسة استشارية مع المستشار المختص، وتزويدك بالموعد المحدد عبر إشعار وبريد إلكتروني.'
     ])
 
     @include('emails.partials.button', [
         'url' => rtrim((string) config('app.url'), '/').'/myconsults',
-        'label' => 'اختيار موعد الجلسة الآن',
+        'label' => 'متابعة استشاراتي',
         'variant' => 'success'
     ])
 @endsection

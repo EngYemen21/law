@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\ConsultStatus;
 use App\Models\Appointment;
 use App\Models\CaseHearing;
 use App\Models\Consult;
@@ -114,7 +115,10 @@ class TimelineQuery
     {
         return self::outer(self::union($userId, []), [])
             ->select('status')->distinct()->orderBy('status')
-            ->pluck('status')->filter()->values()->all();
+            // تسميات العميل: «بانتظار اعتماد الموعد» حالةٌ داخليّة يقرؤها «بانتظار تحديد الموعد»
+            ->pluck('status')->filter()
+            ->map(fn ($status) => ConsultStatus::tryFrom((string) $status)?->clientLabel() ?? $status)
+            ->unique()->values()->all();
     }
 
     /** اتحاد المصادر الأربعة بأعمدة موحّدة. */
@@ -161,7 +165,12 @@ class TimelineQuery
     private static function applyCommon(Builder $q, array $filters): void
     {
         if (filled($filters['status'] ?? null)) {
-            $q->where('status', $filters['status']);
+            // تسمية العميل «بانتظار تحديد الموعد» تجمع الحالة الداخليّة المخفيّة عنه («بانتظار اعتماد الموعد»)
+            // — فتطابق النتيجةُ القائمةَ التي يختار منها (`statuses`)
+            $status = (string) $filters['status'];
+            $q->whereIn('status', $status === ConsultStatus::AwaitingSchedule->value
+                ? [ConsultStatus::AwaitingSchedule->value, ConsultStatus::AwaitingAppointmentApproval->value]
+                : [$status]);
         }
 
         // whereNull محفوظ: سجلّ بلا موعد محدَّد يجب ألّا يختفي عند تحديد مدى

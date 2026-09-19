@@ -38,7 +38,14 @@ class GenerateCaseReplyJob implements ShouldQueue
 
     public function handle(LegalAiService $ai): void
     {
-        if (in_array($this->case->fresh()->status, ['مغلقة', 'مؤرشفة'], true)) {
+        $case = $this->case->fresh();
+        if (! $case || in_array($case->status, ['مغلقة', 'مؤرشفة'], true)) {
+            return;
+        }
+
+        // منع AI من الرد على الموظف أو المحامي أو الإدارة — الرد الآلي للعميل فقط
+        $lastMsg = $case->messages()->reorder('id', 'desc')->first();
+        if ($lastMsg && $lastMsg->who !== 'client') {
             return;
         }
 

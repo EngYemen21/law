@@ -78,8 +78,10 @@ class NotificationController extends Controller
 
         return match (true) {
             (bool) preg_match('/تذكرة|SB-\d/u', $t) => 'tickets',
+            // التنفيذ قبل القضايا: «أتعاب التنفيذ» و«فاتورة أتعاب التنفيذ» كانت تفتح صفحة القضايا
+            // لمجرّد ورود كلمة «أتعاب» فيها. و`EX-` لم يكن يطابق أرقامنا الحقيقيّة (EXE-…).
+            (bool) preg_match('/تنفيذ|EXE?-\d/u', $t) => 'execs',
             (bool) preg_match('/قضية|CASE-|أتعاب/u', $t) => 'cases',
-            (bool) preg_match('/تنفيذ|EX-\d/u', $t) => 'execs',
             (bool) preg_match('/استشار|CN-\d|تسعير/u', $t) => 'consults',
             (bool) preg_match('/اجتماع|MR-\d/u', $t) => 'meetreqs',
             (bool) preg_match('/موعد|حجز/u', $t) => 'appointments',

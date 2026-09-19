@@ -2,8 +2,12 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\Enums\TicketStatus;
+use App\Domain\Journey\GuardsJourneyState;
 use App\Models\Concerns\ClipsPreviewText;
+use App\Models\Concerns\LinksLegalDepartment;
 use App\Models\Concerns\PurgesDocumentFiles;
+use App\Support\LawyerName;
 use App\Support\TicketJourney;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,6 +17,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Ticket extends Model
 {
     use ClipsPreviewText, PurgesDocumentFiles;
+    use GuardsJourneyState;
+    use LinksLegalDepartment;
 
     /** سطر المعاينة في بطاقات القوائم — varchar(255) يستقبل نصّ المستخدم بلا سقف. */
     protected array $previewText = ['last_message'];
@@ -20,7 +26,33 @@ class Ticket extends Model
     protected $fillable = [
         'user_id', 'number', 'type', 'subject', 'opponent_name', 'opponent_id', 'claim_amount', 'court_name', 'priority',
         'department', 'assigned_lawyer', 'assigned_lawyer_id', 'status', 'tone', 'attachments', 'last_message', 'date_label',
+        'legal_department_id', 'legal_service_id',
+        'closure_reason_code', 'closure_notes', 'closed_by_id', 'is_frozen', 'outcome_decision_at',
+        'ai_suggested_track', 'ai_suggested_reason',
+        'proposed_track', 'proposed_track_reason', 'proposed_by_id', 'proposed_at',
+        'approved_track', 'approved_track_reason', 'approved_by_id', 'approved_track_at',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'is_frozen' => 'boolean',
+            'outcome_decision_at' => 'datetime',
+            'proposed_at' => 'datetime',
+            'approved_track_at' => 'datetime',
+        ];
+    }
+
+    /** القسم في `department` والخدمة في `type` — يُربطان بالكتالوج عند الحفظ. */
+    protected function legalDepartmentSource(): string
+    {
+        return 'department';
+    }
+
+    protected function legalServiceSource(): ?string
+    {
+        return 'type';
+    }
 
     public function user(): BelongsTo
     {
@@ -54,6 +86,11 @@ class Ticket extends Model
         return $this->hasOne(LegalCase::class);
     }
 
+    public function execution(): HasOne
+    {
+        return $this->hasOne(Execution::class);
+    }
+
     // استشارات هذه التذكرة (تُنشأ عند طلب حجز استشارة من داخل المحادثة)
     public function consults(): HasMany
     {
@@ -66,37 +103,83 @@ class Ticket extends Model
         return 'number';
     }
 
+    public function proposedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'proposed_by_id');
+    }
+
+    public function approvedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by_id');
+    }
+
+    /** حزمة حوكمة مآل التذكرة ومقترح الذكاء للواجهات */
+    public function trackGovernance(): array
+    {
+        return [
+            'aiSuggestedTrack' => $this->ai_suggested_track,
+            'aiSuggestedReason' => $this->ai_suggested_reason,
+            'proposedTrack' => $this->proposed_track,
+            'proposedTrackReason' => $this->proposed_track_reason,
+            'proposedBy' => $this->relationLoaded('proposedBy') ? $this->proposedBy?->name : $this->proposedBy()->value('name'),
+            'proposedAt' => $this->proposed_at?->format('Y-m-d H:i'),
+            'approvedTrack' => $this->approved_track,
+            'approvedTrackReason' => $this->approved_track_reason,
+            'approvedBy' => $this->relationLoaded('approvedBy') ? $this->approvedBy?->name : $this->approvedBy()->value('name'),
+            'approvedTrackAt' => $this->approved_track_at?->format('Y-m-d H:i'),
+        ];
+    }
+
     // الشكل الذي تتوقعه واجهة العميل (يطابق DATA.tickets مع مؤشرات الرحلة والوثائق)
     public function toCard(): array
     {
+        $hasCase = $this->relationLoaded('legalCase') ? (bool) $this->legalCase : $this->legalCase()->exists();
+        $caseNo = $hasCase ? ($this->relationLoaded('legalCase') ? $this->legalCase?->number : $this->legalCase()->value('number')) : null;
+        $hasExec = $this->relationLoaded('execution') ? (bool) $this->execution : $this->execution()->exists();
+        $execNo = $hasExec ? ($this->relationLoaded('execution') ? $this->execution?->number : $this->execution()->value('number')) : null;
+
         return [
             'no' => $this->number,
             'type' => $this->type,
             'subject' => $this->subject,
             'priority' => $this->priority ?: 'متوسطة',
             'dept' => $this->department,
-            'status' => $this->status,
+            // بطاقة العميل وحده (`TicketController`): تسميته لا حالة الاعتماد الداخليّة
+            'status' => TicketStatus::labelForClient($this->status),
+            'phase' => TicketJourney::clientPhase((string) $this->status),
             'tone' => $this->tone ?: TicketJourney::toneFor($this->status),
             'last' => $this->last_message,
             // «الآن» المخزّنة كانت تتجمّد للأبد — الاشتقاق الحيّ من آخر تحديث (العمود يبقى للتوافق)
             'date' => $this->updated_at?->locale('ar')->diffForHumans() ?? $this->date_label,
-            'lawyer' => $this->assigned_lawyer ?: ($this->relationLoaded('assignedLawyer') && $this->assignedLawyer ? $this->assignedLawyer->name : 'المستشار المخصص'),
+            // بطاقة العميل: «الاسم. الحرف» لمحامٍ مسنَد، والنائبُ كما هو (LawyerName)
+            'lawyer' => LawyerName::forClient($this->assigned_lawyer_id ? $this->assignedLawyer : null, $this->assigned_lawyer, 'المستشار المخصص'),
             'step' => TicketJourney::indexOf($this->status),
             'needsDoc' => $this->status === 'بانتظار مستندات',
             'needsBooking' => $this->status === 'بانتظار حجز الاستشارة',
-            'hasCase' => $this->relationLoaded('legalCase') ? (bool) $this->legalCase : $this->legalCase()->exists(),
+            'hasCase' => $hasCase,
+            'caseNumber' => $caseNo,
+            'hasExecution' => $hasExec,
+            'executionNumber' => $execNo,
             'courtName' => $this->court_name,
             'claimAmount' => $this->claim_amount,
             'opponentName' => $this->opponent_name,
             'documentsCount' => $this->relationLoaded('documents') ? $this->documents->count() : $this->documents()->count(),
             'messagesCount' => $this->relationLoaded('messages') ? $this->messages->count() : $this->messages()->count(),
             'createdAt' => $this->created_at?->format('Y-m-d'),
+            'isFrozen' => (bool) $this->is_frozen,
+            'isTerminal' => in_array($this->status, [TicketStatus::ConvertedToCase->value, TicketStatus::Closed->value], true),
+            'trackGovernance' => $this->trackGovernance(),
         ];
     }
 
-    // الشكل الذي تتوقعه واجهة الموظف (يطابق SYS_TICKETS) — اسم العميل مُقنّع
+    // الشكل الذي تتوقعه واجهة الموظف (يطابق SYS_TICKETS) — اسم العميل صريح (قرار 2026-09-11)
     public function toEmployeeCard(): array
     {
+        $hasCase = $this->relationLoaded('legalCase') ? (bool) $this->legalCase : $this->legalCase()->exists();
+        $caseNo = $hasCase ? ($this->relationLoaded('legalCase') ? $this->legalCase?->number : $this->legalCase()->value('number')) : null;
+        $hasExec = $this->relationLoaded('execution') ? (bool) $this->execution : $this->execution()->exists();
+        $execNo = $hasExec ? ($this->relationLoaded('execution') ? $this->execution?->number : $this->execution()->value('number')) : null;
+
         return [
             'no' => $this->number,
             'client' => self::maskClient($this->user?->name ?? ''),
@@ -109,10 +192,20 @@ class Ticket extends Model
             'lawyerId' => $this->assigned_lawyer_id,
             'status' => $this->status,
             'tone' => $this->tone,
+            'isFrozen' => (bool) $this->is_frozen,
+            'hasCase' => $hasCase,
+            'caseNumber' => $caseNo,
+            'hasExecution' => $hasExec,
+            'executionNumber' => $execNo,
+            'closureReason' => $this->closure_reason_code,
+            'closureNotes' => $this->closure_notes,
+            'canDecideOutcome' => in_array($this->status, [TicketStatus::ReadyForOutcome->value, TicketStatus::Completed->value], true) && ! $hasCase && ! $hasExec,
+            'isTerminal' => in_array($this->status, [TicketStatus::ConvertedToCase->value, TicketStatus::Closed->value], true),
+            'trackGovernance' => $this->trackGovernance(),
         ];
     }
 
-    // إخفاء اسم العميل للموظف — يطابق maskClient في الواجهة
+    // اسم العميل للعرض — صريحٌ للإدارة والمحامي والموظّف (قرار المالك 2026-09-11)
     public static function maskClient(string $name): string
     {
         $name = trim($name);
@@ -130,7 +223,11 @@ class Ticket extends Model
          *
          * والحارس هنا لا في نقاط النداء: الموضعُ الواحد يمنع أن يُنسى أحدُها.
          */
-        if (auth()->user()?->isAdmin()) {
+        // **ولا تقنيعَ على المحامي والموظّف كذلك** (قرار المالك 2026-09-11): ثلاثتُهم يعملون
+        // على ملفّ العميل نفسه، والاسمُ المقنَّع لا يحمي أحداً ويُعطّل العمل. يبقى التقنيع لغير
+        // الطاقم احتياطاً — ولا شاشةَ عميلٍ تعرض اسمَ عميلٍ غيره أصلاً.
+        $viewer = auth()->user();
+        if ($viewer !== null && ($viewer->isAdmin() || $viewer->isLawyer() || $viewer->isEmployee())) {
             return $name;
         }
         $parts = preg_split('/\s+/', $name);

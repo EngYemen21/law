@@ -71,10 +71,11 @@ class TicketTriageTest extends TestCase
             ->assertInertia(fn ($p) => $p->where('messages', fn ($msgs) => collect($msgs)->every(fn ($m) => $m['who'] !== 'note')));
     }
 
-    public function test_attaching_related_document_auto_refers_to_lawyer(): void
+    public function test_attaching_related_document_moves_to_in_analysis_and_employee_advances_to_lawyer(): void
     {
         $this->enableAgent();
         $client = User::factory()->create(['role' => Role::Client]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client);
         $this->mockDocAnalysis(['related' => true, 'doc_type' => 'عقد توريد', 'summary' => 'عقد توريد بين الطرفين بقيمة محددة.', 'reason' => 'يوثّق العلاقة التعاقدية محل النزاع.']);
@@ -84,30 +85,38 @@ class TicketTriageTest extends TestCase
         ])->assertNoContent();
 
         $ticket->refresh();
-        // إحالة آلية كاملة: ملخص رباعي + إسناد محامٍ حقيقي (FK) + انتظار اعتماد المستشار
-        $this->assertSame('بانتظار اعتماد المستشار', $ticket->status);
-        $this->assertSame($lawyer->id, $ticket->assigned_lawyer_id);
-        $summary = TicketSummary::where('ticket_id', $ticket->id)->firstOrFail();
-        $this->assertSame('awaiting_lawyer', $summary->status);
-        $this->assertNotEmpty($summary->case_summary);
+        // الذكاء الاصطناعي لا يُحيل تلقائياً للمستشار — ينقلها لـ«قيد التحليل» بانتظار إحالة الموظف
+        $this->assertSame('قيد التحليل', $ticket->status);
+        $this->assertNull(TicketSummary::where('ticket_id', $ticket->id)->first());
 
         // سجل المستند: محفوظ بمساره ونتيجة فحصه + ملخصه أُرسل للعميل مباشرة (أُلغي اعتماد الموظف)
         $doc = $ticket->documents()->firstOrFail();
         $this->assertSame('مرتبط', $doc->status);
         $this->assertSame('عقد توريد', $doc->doc_type);
         $this->assertNotEmpty($doc->path);
-        // الملخص رسالة ai مرئية للعميل (لا ملاحظة داخلية بانتظار الاعتماد)
+        // الملخص رسالة ai مرئية للعميل
         $this->assertTrue($ticket->messages->contains(fn ($m) => $m->who === 'ai' && $m->role === 'تحليل المستند'));
         $this->assertFalse($ticket->messages->contains(fn ($m) => $m->role === 'ملخص بانتظار الاعتماد'));
-        $this->assertTrue((bool) $doc->summary_approved); // يُرسل مباشرة دون اعتماد
+        $this->assertTrue((bool) $doc->summary_approved);
+
+        // الآن الموظف ينقر زر «إحالة للمستشار» — هنا فقط تقع الإحالة ويُسند المستشار
+        $this->actingAs($employee)->post(route('employee.tickets.advance', $ticket))->assertNoContent();
+
+        $ticket->refresh();
+        $this->assertSame('بانتظار اعتماد المستشار', $ticket->status);
+        $this->assertSame($lawyer->id, $ticket->assigned_lawyer_id);
+        $summary = TicketSummary::where('ticket_id', $ticket->id)->firstOrFail();
+        $this->assertSame('awaiting_lawyer', $summary->status);
+        $this->assertNotEmpty($summary->case_summary);
     }
 
     public function test_referral_dispatches_ai_summary_upgrade_job(): void
     {
         $this->enableAgent();
-        // نُزيّف مهمّة الترقية فقط؛ TriageDocumentJob يعمل تزامنياً فيصل للإحالة
+        // نُزيّف مهمّة الترقية فقط؛ عند إحالة الموظف تُطلق مهمّة الترقية
         Queue::fake([GenerateTicketSummaryJob::class]);
         $client = User::factory()->create(['role' => Role::Client]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client);
         $this->mockDocAnalysis(['related' => true, 'doc_type' => 'عقد توريد', 'summary' => 'عقد توريد.', 'reason' => 'يوثّق العلاقة.']);
@@ -115,6 +124,13 @@ class TicketTriageTest extends TestCase
         $this->actingAs($client)->post(route('tickets.attach', $ticket), [
             'file' => UploadedFile::fake()->create('contract.pdf', 100),
         ])->assertNoContent();
+
+        // قبل إحالة الموظف: التذكرة قيد التحليل
+        $this->assertSame('قيد التحليل', $ticket->fresh()->status);
+        Queue::assertNothingPushed();
+
+        // الموظف يُحيل للمستشار
+        $this->actingAs($employee)->post(route('employee.tickets.advance', $ticket))->assertNoContent();
 
         // الإحالة كتبت الملخّص القالبي فوراً ثم أرسلت مهمّة ترقيته بتحليل حقيقي
         $this->assertSame('بانتظار اعتماد المستشار', $ticket->fresh()->status);
@@ -166,10 +182,11 @@ class TicketTriageTest extends TestCase
         $this->assertTrue($ticket->messages->contains(fn ($m) => $m->who === 'note' && str_contains($m->body, 'تعذّر الفحص الآلي')));
     }
 
-    public function test_lawyer_approval_works_after_auto_referral(): void
+    public function test_lawyer_approval_works_after_employee_referral(): void
     {
         $this->enableAgent();
         $client = User::factory()->create(['role' => Role::Client]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client);
         $this->mockDocAnalysis(['related' => true, 'doc_type' => 'عقد', 'summary' => 'عقد يخص النزاع.', 'reason' => 'مرتبط بالموضوع.']);
@@ -178,12 +195,20 @@ class TicketTriageTest extends TestCase
             'file' => UploadedFile::fake()->create('contract.pdf', 100),
         ]);
 
+        // الموظف يُحيل التذكرة للمستشار
+        $this->actingAs($employee)->post(route('employee.tickets.advance', $ticket))->assertNoContent();
+
         // الاعتماد القانوني يبقى بشرياً: المستشار يراجع ويحرّر الملخّص ثم يعتمده فيتقدم المسار
         // (حارس الصدق يمنع اعتماد قالب لم يُحلَّل بالـAI ما لم يحرّره المحامي)
         $this->actingAs($lawyer)->post(route('lawyer.summary.approve', $ticket), [
             'case_summary' => 'ملخّص محرّر من المستشار بعد مراجعة الملف.',
             'key_points' => '• توجيه إنذار رسمي ثم دعوى عند التعذّر.',
         ])->assertRedirect();
+        $this->assertSame('بانتظار اعتماد الإدارة للملخّص', $ticket->fresh()->status);
+
+        // والإدارة تعتمد نهائيّاً فيصدر الرأي القانوني للعميل (قرار المالك 2026-09-14)
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $this->actingAs($admin)->post(route('admin.summary.approve', $ticket))->assertRedirect();
         $this->assertSame('الرأي القانوني', $ticket->fresh()->status);
     }
 
@@ -191,6 +216,7 @@ class TicketTriageTest extends TestCase
     {
         $this->enableAgent();
         $client = User::factory()->create(['role' => Role::Client]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'department' => 'القسم التجاري']);
         $ticket = $this->openTicket($client);
         $this->mockDocAnalysis(['related' => true, 'doc_type' => 'عقد', 'summary' => 'عقد.', 'reason' => 'مرتبط.']);
@@ -198,10 +224,42 @@ class TicketTriageTest extends TestCase
             'file' => UploadedFile::fake()->create('contract.pdf', 100),
         ]);
 
+        // الموظف يُحيل التذكرة للمستشار
+        $this->actingAs($employee)->post(route('employee.tickets.advance', $ticket))->assertNoContent();
+
         // ملخّص قالبي (ai_generated=false، بلا مفاتيح AI) — اعتماده بلا تحرير مرفوض حمايةً للعميل
         $this->assertFalse((bool) $ticket->summary->fresh()->ai_generated);
         $this->actingAs($lawyer)->post(route('lawyer.summary.approve', $ticket))->assertSessionHasErrors('case_summary');
         $this->assertNotSame('الرأي القانوني', $ticket->fresh()->status);
+    }
+
+    public function test_staff_attachment_or_message_does_not_trigger_ai_reply_or_auto_referral(): void
+    {
+        $this->enableAgent();
+        $client = User::factory()->create(['role' => Role::Client]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $ticket = $this->openTicket($client);
+        $this->assertSame('بانتظار مستندات', $ticket->status);
+
+        // إرفاق مستند من الموظف
+        $this->actingAs($employee)->post(route('employee.tickets.attach', $ticket), [
+            'file' => UploadedFile::fake()->create('staff_doc.pdf', 100),
+        ])->assertNoContent();
+
+        $ticket->refresh();
+        // الحالة تصبح قيد التحليل وتنتظر إحالة الموظف — لا إحالة تلقائية للمستشار
+        $this->assertSame('قيد التحليل', $ticket->status);
+        $this->assertNull(TicketSummary::where('ticket_id', $ticket->id)->first());
+
+        // إرسال رد من الموظف — لا يؤدي لرد آلي من الذكاء الاصطناعي
+        $this->actingAs($employee)->post(route('employee.tickets.reply', $ticket), [
+            'body' => 'تم استلام الملف وجارٍ الاطلاع عليه.',
+        ])->assertNoContent();
+
+        $latestMsg = $ticket->messages()->reorder('id', 'desc')->first();
+        // آخر رسالة هي رسالة الموظف نفسه — لم يقم الـ AI بالرد عليها
+        $this->assertSame('staff', $latestMsg->who);
+        $this->assertStringContainsString('تم استلام الملف', $latestMsg->body);
     }
 
     public function test_attach_outside_documents_gate_does_nothing(): void

@@ -112,18 +112,13 @@ class ApprovalLocksEveryEditorTest extends TestCase
 
     // ————— ٣ · لا تقنيعَ على الإدارة العليا —————
 
-    public function test_the_admin_sees_names_unmasked_while_staff_do_not(): void
+    /** وتوسّع القرار (2026-09-11): لا تقنيع على المحامي والموظّف كذلك. */
+    public function test_no_staff_role_sees_a_masked_client_name(): void
     {
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        $employee = User::factory()->create(['role' => Role::Employee]);
-
-        $this->actingAs($admin);
-        $this->assertSame('شركة الأفق للتجارة', Ticket::maskClient('شركة الأفق للتجارة'));
-
-        $this->actingAs($employee);
-        $masked = Ticket::maskClient('شركة الأفق للتجارة');
-        $this->assertStringContainsString('مشفّر', $masked);
-        $this->assertNotSame('شركة الأفق للتجارة', $masked);
+        foreach ([Role::Admin, Role::Lawyer, Role::Employee] as $role) {
+            $this->actingAs(User::factory()->create(['role' => $role]));
+            $this->assertSame('شركة الأفق للتجارة', Ticket::maskClient('شركة الأفق للتجارة'), $role->value);
+        }
     }
 
     public function test_the_shared_screens_mask_by_role_not_unconditionally(): void

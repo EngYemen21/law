@@ -4,21 +4,24 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Models\Consult;
+use App\Models\Meeting;
 use App\Models\MeetRequest;
-use App\Models\Ticket;
 use App\Models\User;
-use App\Support\ConsultBooking;
+use App\Support\ConsultAppointments;
+use App\Support\MeetInvitation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
- * فجوات تكامل Zoom في مسارات الفشل — المسار السعيد مغطّى بـ77 اختباراً قائماً وكلّها خضراء.
+ * فجوات تكامل Zoom في مسارات الفشل — المسار السعيد مغطّى باختباراتٍ قائمة.
  * هذه تُثبت ما لا تكشفه: ما يحدث حين يخفق Zoom أو حين يُنشأ اجتماعان لنفس الموعد.
  */
 class ZoomGapsTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     private function configureZoom(): void
@@ -33,25 +36,17 @@ class ZoomGapsTest extends TestCase
     /** استشارة مرئية وصلت إلى «بانتظار تحديد الموعد» عبر الدورة الطبيعية (تذكرة → تسعير → سداد). */
     private function paidVideoConsult(User $client, string $ticketNo): Consult
     {
-        $ticket = Ticket::create([
-            'user_id' => $client->id, 'number' => $ticketNo, 'type' => 'نزاع تجاري',
-            'department' => 'القسم التجاري', 'status' => 'بانتظار حجز الاستشارة', 'tone' => 'b-amber',
+        $ticket = $this->ticketWithApprovedOpinion($client, [
+            'number' => $ticketNo, 'department' => 'القسم التجاري', 'status' => 'بانتظار حجز الاستشارة',
         ]);
-        $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'video'])->assertNoContent();
-        $consult = $ticket->consults()->latest('id')->firstOrFail();
 
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        $this->actingAs($admin)->post(route('admin.consults.price', $consult), ['price' => 450])->assertRedirect();
-        ConsultBooking::markPaid($consult->fresh());
-
-        return $consult->fresh();
+        return $this->requestPricedAndPaid($client, $ticket, 'video');
     }
 
     /**
      * 🔴 فشل إنشاء اجتماع Zoom يُبتلع صامتاً.
      *
-     * الاستشارة تُجدوَل وتُؤكَّد ويُرسَل بريدها بـmeet_id فارغ، ولا يوجد في المنظومة أي
-     * استعلام whereNull('meet_id') يستدركها لاحقاً — فالعميل يصل الغرفة ويحصل على 422 أبداً.
+     * الاستشارة تُنشر بـmeet_id فارغ، ولا يوجد في المنظومة أي استعلام يستدركها لاحقاً.
      * المطلوب: تسجيل خطأ صريح على مستوى العمل (لا تحذير داخل الخدمة وحده) ليُمكن الاستدراك.
      */
     public function test_failed_zoom_creation_is_reported_not_swallowed(): void
@@ -69,18 +64,17 @@ class ZoomGapsTest extends TestCase
         Log::spy();
 
         $startsAt = now()->addDay()->setTime(11, 30);
-        ConsultBooking::schedule($consult, [
-            'lawyer_id' => $lawyer->id, 'day' => 'غد', 'time' => '11:30',
-            'starts_at' => $startsAt->toDateTimeString(), 'duration' => 30,
+        ConsultAppointments::publish($consult, $this->journeyAdmin(), [
+            'lawyer_id' => $lawyer->id, 'date' => $startsAt->toDateString(), 'time' => '11:30',
         ]);
 
         $consult->refresh();
 
-        // الضرر الواقع: الاستشارة مجدولة ومؤكّدة بلا اجتماع
+        // الضرر الواقع: الاستشارة منشورة بلا اجتماع
         $this->assertSame('جديدة', $consult->status);
         $this->assertNull($consult->meet_id, 'المفترض ألّا يُنشأ اجتماع — Zoom مُعطَّل في هذا الاختبار');
 
-        // المطلوب: خطأ صريح يُمكّن من الاستدراك (اليوم لا يُسجَّل شيء على مستوى العمل)
+        // المطلوب: خطأ صريح يُمكّن من الاستدراك
         Log::shouldHaveReceived('error')
             ->withArgs(fn ($message, $context = []) => str_contains((string) $message, 'Zoom'))
             ->atLeast()->once();
@@ -89,11 +83,9 @@ class ZoomGapsTest extends TestCase
     /**
      * 🟠 جلسة Zoom **واحدة** لكل دعوة — الحارس نفسه، بعد أن تحرّك موضعه.
      *
-     * كان السيناريو: Staff\MeetingController::store يُنشئ اجتماعاً ثم
-     * MeetRequestController::confirm يُنشئ آخر ويكتب معرّفه فوق الأول، فيبقى الأول يتيماً
-     * في حساب Zoom بتسجيل سحابي مفعّل. تأكيد العميل أُلغي فصار السيناريو مستحيلاً بنيوياً،
-     * لكن الحارس انتقل حرفياً إلى MeetInvitation::schedule ويُفحص هنا مباشرةً: نداء ثانٍ
-     * على دعوة تحمل اجتماعاً بمعرّف Zoom يجب ألّا يُنشئ جلسة ثانية.
+     * تأكيد العميل أُلغي فصار السيناريو القديم مستحيلاً بنيوياً، لكن الحارس انتقل حرفياً إلى
+     * MeetInvitation::schedule ويُفحص هنا مباشرةً: نداء ثانٍ على دعوة تحمل اجتماعاً بمعرّف Zoom
+     * يجب ألّا يُنشئ جلسة ثانية.
      */
     public function test_scheduling_twice_never_creates_a_second_zoom_meeting(): void
     {
@@ -108,16 +100,17 @@ class ZoomGapsTest extends TestCase
 
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $req = \App\Models\MeetRequest::create([
+        $req = MeetRequest::create([
             'user_id' => $client->id, 'ref' => 'MR-ORPHAN', 'service' => 'نزاع',
             'type' => 'استشارة مرئية', 'day' => now()->addDays(2)->format('Y-m-d'), 'time' => '10:00',
             'duration_min' => 60, 'assigned_lawyer_id' => $lawyer->id, 'sent_by' => 'المكتب',
         ]);
 
-        $first = \App\Support\MeetInvitation::schedule($req, $client);
-        $second = \App\Support\MeetInvitation::schedule($req->fresh(), $client);
+        $first = MeetInvitation::schedule($req, $client);
+        $second = MeetInvitation::schedule($req->fresh(), $client);
 
         $this->assertSame($first->id, $second->id, 'أُنشئ اجتماع ثانٍ بدل إعادة استعمال الأول.');
         $this->assertSame('111111111', (string) $second->fresh()->meet_id, 'كُتب معرّف Zoom جديد فوق الأول — الأول يتيم.');
-        $this->assertSame(1, \App\Models\Meeting::count());
-    }}
+        $this->assertSame(1, Meeting::count());
+    }
+}

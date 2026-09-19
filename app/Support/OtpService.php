@@ -19,6 +19,13 @@ class OtpService
     /** سقف محاولات الرمز على حمولة الجلسة الواحدة — نظير EmailOtpService::MAX_ATTEMPTS. */
     public const MAX_ATTEMPTS = 5;
 
+    /**
+     * سقف إصدارات رمز الجوال في عمليّة دخول/تسجيل واحدة (الأوّل + ثلاث إعادات) — نظير
+     * EmailOtpService::MAX_ISSUES. كلّ إعادة تُصفّر المحاولات الخمس، فبلا سقفٍ كان التخمين
+     * التراكميّ وقصف الجوال بالرسائل مفتوحين بلا نهاية.
+     */
+    public const MAX_ISSUES = 4;
+
     /** طلب رمز دخول لمستخدم قائم — يرسله لجواله المسجّل عبر تقنيات. */
     public function request(User $user): array
     {

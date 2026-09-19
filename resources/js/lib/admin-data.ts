@@ -14,12 +14,11 @@ import {
   SYS_TICKETS,
   LAWYERS,
   STAFF,
-  DEPTS,
   CONSULTS,
   type Consult,
 } from '@/lib/employee-data';
 
-export { CLIENTS, SYS_TICKETS, LAWYERS, STAFF, DEPTS, CONSULTS };
+export { CLIENTS, SYS_TICKETS, LAWYERS, STAFF, CONSULTS };
 export type { Consult };
 
 // ── إخفاء الأسماء في دور الإدارة: لا يُخفى شيء (تمرير مباشر) ──

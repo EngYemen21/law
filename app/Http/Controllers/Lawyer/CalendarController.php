@@ -56,7 +56,8 @@ class CalendarController extends Controller
             });
 
         // 2. اجتماعات المحامي
-        $meetings = Meeting::where(fn ($q) => $q->where('assigned_lawyer_id', $lawyerId)->orWhere('created_by', $lawyer->name))->where($window)->orderByRaw('starts_at is null')->orderBy('starts_at')->limit(CalendarWindow::LIMIT)->get()
+        // بالإسناد وحده: `created_by` نصُّ اسمٍ يشاركه الزملاء فيُدخل اجتماعات غيره
+        $meetings = Meeting::where('assigned_lawyer_id', $lawyerId)->where($window)->orderByRaw('starts_at is null')->orderBy('starts_at')->limit(CalendarWindow::LIMIT)->get()
             ->map(function (Meeting $m) use ($lawyer) {
                 $start = $m->starts_at ?: now();
                 $link = $m->joinLink($lawyer);

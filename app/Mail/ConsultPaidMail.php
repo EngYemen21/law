@@ -12,7 +12,7 @@ use Illuminate\Queue\SerializesModels;
 
 /**
  * تأكيد سداد فاتورة الاستشارة (بريد) — يُرسَل للعميل عند نجاح الدفع عبر ميسّر،
- * ويدعوه لاختيار موعد الجلسة.
+ * ويُبلغه أنّ المكتب سيحدّد موعد جلسته ويُخطره به (قرار المالك 2026-09-14).
  */
 class ConsultPaidMail extends Mailable implements ShouldQueue
 {

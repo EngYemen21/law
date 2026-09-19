@@ -5,6 +5,7 @@ import Modal from '@/components/babylon/Modal';
 import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
+import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
 
@@ -230,15 +231,15 @@ const LawyerDashboard: React.FC<Props> = ({
 return tickets;
 }
 
-    const q = searchQuery.trim().toLowerCase();
+    const q = foldSearch(searchQuery);
 
     return tickets.filter(
       (t) =>
-        t.no.toLowerCase().includes(q) ||
-        t.client.toLowerCase().includes(q) ||
-        t.type.toLowerCase().includes(q) ||
-        t.status.toLowerCase().includes(q) ||
-        (t.dept && t.dept.toLowerCase().includes(q))
+        foldSearch(t.no).includes(q) ||
+        foldSearch(t.client).includes(q) ||
+        foldSearch(t.type).includes(q) ||
+        foldSearch(t.status).includes(q) ||
+        (t.dept && foldSearch(t.dept).includes(q))
     );
   }, [tickets, searchQuery]);
 
@@ -247,15 +248,15 @@ return tickets;
 return cases;
 }
 
-    const q = searchQuery.trim().toLowerCase();
+    const q = foldSearch(searchQuery);
 
     return cases.filter(
       (c) =>
-        c.no.toLowerCase().includes(q) ||
-        c.client.toLowerCase().includes(q) ||
-        c.type.toLowerCase().includes(q) ||
-        c.status.toLowerCase().includes(q) ||
-        (c.court && c.court.toLowerCase().includes(q))
+        foldSearch(c.no).includes(q) ||
+        foldSearch(c.client).includes(q) ||
+        foldSearch(c.type).includes(q) ||
+        foldSearch(c.status).includes(q) ||
+        (c.court && foldSearch(c.court).includes(q))
     );
   }, [cases, searchQuery]);
 
@@ -264,14 +265,14 @@ return cases;
 return upcomingHearings;
 }
 
-    const q = searchQuery.trim().toLowerCase();
+    const q = foldSearch(searchQuery);
 
     return upcomingHearings.filter(
       (h) =>
-        h.caseNo.toLowerCase().includes(q) ||
-        h.client.toLowerCase().includes(q) ||
-        h.court.toLowerCase().includes(q) ||
-        h.caseType.toLowerCase().includes(q)
+        foldSearch(h.caseNo).includes(q) ||
+        foldSearch(h.client).includes(q) ||
+        foldSearch(h.court).includes(q) ||
+        foldSearch(h.caseType).includes(q)
     );
   }, [upcomingHearings, searchQuery]);
 
@@ -280,14 +281,14 @@ return upcomingHearings;
 return todayConsults;
 }
 
-    const q = searchQuery.trim().toLowerCase();
+    const q = foldSearch(searchQuery);
 
     return todayConsults.filter(
       (c) =>
-        c.ref.toLowerCase().includes(q) ||
-        c.client.toLowerCase().includes(q) ||
-        c.subject.toLowerCase().includes(q) ||
-        c.channel.toLowerCase().includes(q)
+        foldSearch(c.ref).includes(q) ||
+        foldSearch(c.client).includes(q) ||
+        foldSearch(c.subject).includes(q) ||
+        foldSearch(c.channel).includes(q)
     );
   }, [todayConsults, searchQuery]);
 
@@ -296,14 +297,14 @@ return todayConsults;
 return executions;
 }
 
-    const q = searchQuery.trim().toLowerCase();
+    const q = foldSearch(searchQuery);
 
     return executions.filter(
       (e) =>
-        e.number.toLowerCase().includes(q) ||
-        e.client.toLowerCase().includes(q) ||
-        e.subject.toLowerCase().includes(q) ||
-        e.court.toLowerCase().includes(q)
+        foldSearch(e.number).includes(q) ||
+        foldSearch(e.client).includes(q) ||
+        foldSearch(e.subject).includes(q) ||
+        foldSearch(e.court).includes(q)
     );
   }, [executions, searchQuery]);
 
@@ -312,13 +313,13 @@ return executions;
 return tasks;
 }
 
-    const q = searchQuery.trim().toLowerCase();
+    const q = foldSearch(searchQuery);
 
     return tasks.filter(
       (t) =>
-        t.title.toLowerCase().includes(q) ||
-        t.ref.toLowerCase().includes(q) ||
-        t.status.toLowerCase().includes(q)
+        foldSearch(t.title).includes(q) ||
+        foldSearch(t.ref).includes(q) ||
+        foldSearch(t.status).includes(q)
     );
   }, [tasks, searchQuery]);
 
@@ -327,14 +328,14 @@ return tasks;
 return correspondences;
 }
 
-    const q = searchQuery.trim().toLowerCase();
+    const q = foldSearch(searchQuery);
 
     return correspondences.filter(
       (c) =>
-        (c.refNo && c.refNo.toLowerCase().includes(q)) ||
-        c.client.toLowerCase().includes(q) ||
-        c.subject.toLowerCase().includes(q) ||
-        c.type.toLowerCase().includes(q)
+        (c.refNo && foldSearch(c.refNo).includes(q)) ||
+        foldSearch(c.client).includes(q) ||
+        foldSearch(c.subject).includes(q) ||
+        foldSearch(c.type).includes(q)
     );
   }, [correspondences, searchQuery]);
 
@@ -624,6 +625,18 @@ setActiveTab('tasks');
             </div>
 
             {/* محتوى مساحة العمل حسب التبويب */}
+            {/* **البحث السريع يرشّح المعاينة لا القائمة.** الجلسات والاستشارات والتنفيذ والمهامّ
+                والمخاطبات مقصوصةٌ في الخادم (‏`take(6..10)`)، فبحثٌ لا يجد هنا قد يجد في القائمة
+                الكاملة — ويُقال ذلك صراحةً بدل «لا نتائج» صامتة. */}
+            {searchQuery.trim() !== '' && activeTab !== 'tickets' && activeTab !== 'cases' && (
+              <div className="action-hint" style={{ margin: '8px 14px 0' }}>
+                <Icon name="info" /> البحث هنا في أحدث العناصر المعروضة فقط.{' '}
+                <a href={({ hearings: '/lawyer/calendar', consults: '/lawyer/consults', executions: '/lawyer/execs', tasks: '/lawyer/tasks', correspondences: '/correspondences' } as Record<string, string>)[activeTab]}>
+                  ابحث في القائمة الكاملة
+                </a>
+              </div>
+            )}
+
             <div className="card-b t-wrap" style={{ padding: 0 }}>
               {/* تبويب التذاكر */}
               {activeTab === 'tickets' && (
@@ -902,7 +915,8 @@ setActiveTab('tasks');
                           <td className="muted">{e.court}</td>
                           <td>
                             <span className="chip" style={{ fontWeight: 700 }}>
-                              المرحلة {e.stage} من 9
+                              {/* المراحل عشر (0‑9) — «من 9» كانت تنقص واحدة، وصفحة الإدارة تقول «/10» */}
+                              المرحلة {e.stage + 1} من 10
                             </span>
                           </td>
                           <td className="mono" style={{ fontWeight: 800, color: '#0A2A55' }}>

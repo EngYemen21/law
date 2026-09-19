@@ -7,19 +7,19 @@ use App\Models\Appointment;
 use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
-use App\Support\ConsultBooking;
-use App\Support\LawyerAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
  * Rule موحَّد (ActiveLawyer) يحمي كل مسارات اختيار المحامي من تمرير
- * عميل/موظف/إداري أو محامٍ موقوف أو محامٍ خارج الفرع المسموح.
+ * عميل/موظف/إداري أو محامٍ موقوف.
  *
- * يغطّي أربعة مسارات: tickets.book، book.store، employee.schedule.store، employee.transfer.do.
+ * يغطّي: حجز الطاقم (الإدارة والموظّف)، وتحويل التذكرة، والتوزيع، والإحالة، والاجتماعات.
  */
 class LawyerValidationTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     private function activeLawyer(): User
@@ -30,78 +30,51 @@ class LawyerValidationTest extends TestCase
         ]);
     }
 
-    private function ticketReadyToBook(User $client): Ticket
-    {
-        return Ticket::create([
-            'user_id' => $client->id, 'number' => 'SB-'.uniqid(),
-            'type' => 'نزاع تجاري', 'department' => 'القضايا التجارية',
-            'status' => 'بانتظار حجز الاستشارة', 'tone' => 'b-amber',
-        ]);
-    }
-
-    // اختيار المحامي انتقل إلى خطوة الجدولة (بعد السداد)؛ فالتحقّق من المحامي يُفحص هناك.
-    // يقود التذكرة/الحجز المباشر إلى «بانتظار تحديد الموعد» ليُختبر المحامي عند consults.schedule.
+    /** اختيار المحامي بيد الطاقم بعد السداد (2026-09-14) — فالتحقّق يُفحص عند حجز الموعد. */
     private function paidConsultForTicket(User $client): Consult
     {
-        $ticket = $this->ticketReadyToBook($client);
-        $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'video'])->assertNoContent();
-        $consult = $ticket->consults()->latest('id')->firstOrFail();
-
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        $this->actingAs($admin)->post(route('admin.consults.price', $consult), ['price' => 450])->assertRedirect();
-        ConsultBooking::markPaid($consult->fresh());
-
-        return $consult->fresh();
-    }
-
-    private function paidConsultDirect(User $client): Consult
-    {
-        $this->actingAs($client)->post(route('book.store'), ['type' => 'phone', 'specialty' => 'القضايا التجارية'])->assertRedirect();
-        $consult = Consult::where('user_id', $client->id)->latest('id')->firstOrFail();
-
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        $this->actingAs($admin)->post(route('admin.consults.price', $consult), ['price' => 350])->assertRedirect();
-        ConsultBooking::markPaid($consult->fresh());
-
-        return $consult->fresh();
-    }
-
-    private function scheduleWith(User $client, Consult $consult, int $lawyerId)
-    {
-        return $this->actingAs($client)->post(route('consults.schedule', $consult), [
-            'lawyer_id' => $lawyerId,
-            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '11:00',
+        $ticket = $this->ticketWithApprovedOpinion($client, [
+            'number' => 'SB-'.uniqid(), 'status' => 'بانتظار حجز الاستشارة',
         ]);
+
+        return $this->requestPricedAndPaid($client, $ticket, 'video');
     }
 
-    // ── consults.schedule (اختيار المستشار من التذكرة) ──
+    private function slotDate(): string
+    {
+        return now()->addDays(2)->toDateString();
+    }
 
-    public function test_book_accepts_active_lawyer(): void
+    // ── admin.schedule.store (الإدارة تحجز الموعد) ──
+
+    public function test_staff_booking_accepts_active_lawyer(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
+        $lawyer = $this->activeLawyer();
 
         $consult = $this->paidConsultForTicket($client);
-        $this->scheduleWith($client, $consult, $lawyer->id)->assertRedirect();
+        $this->adminPublishes($consult, ['lawyer_id' => $lawyer->id, 'date' => $this->slotDate(), 'time' => '11:00'])
+            ->assertOk();
+
+        $this->assertSame($lawyer->id, $consult->fresh()->assigned_lawyer_id);
     }
 
-    // العميل لم يعد يختار المحامي عند الجدولة؛ النظام يُسند أعلى مختصّ متاح ويتجاهل أيّ lawyer_id وارد.
-    // فحقن عميل/موظف/محامٍ موقوف مستحيل الأثر بنيويّاً — يُسنَد المختصّ النشط لا المحقون.
-    public function test_schedule_ignores_client_lawyer_id_and_auto_assigns_specialist(): void
+    // المحامي الموقوف لا يُحجز له موعد — يُردّ بالتحقّق، ولا يُكتب شيء.
+    public function test_staff_booking_rejects_a_suspended_lawyer(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $specialist = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
+        $this->activeLawyer();
         $suspended = User::factory()->create(['role' => Role::Lawyer, 'status' => 'suspended']);
 
         $consult = $this->paidConsultForTicket($client);
-        // حقن معرّف محامٍ موقوف — يُتجاهَل، ويُسنَد المختصّ النشط
-        $this->scheduleWith($client, $consult, $suspended->id)->assertRedirect();
+        $this->adminPublishes($consult, ['lawyer_id' => $suspended->id, 'date' => $this->slotDate(), 'time' => '11:00'])
+            ->assertJsonValidationErrors('lawyer_id');
 
-        $appt = Appointment::where('user_id', $client->id)->latest('id')->firstOrFail();
-        $this->assertSame($specialist->id, $appt->lawyer_id);
+        $this->assertSame(0, Appointment::where('user_id', $client->id)->count());
+        $this->assertSame('بانتظار تحديد الموعد', $consult->fresh()->status);
     }
 
-    // ── employee.schedule.store (الموظف نيابةً عن عميل — محامٍ نشط فقط) ──
+    // ── employee.schedule.store (الموظف يقترح — محامٍ نشط فقط) ──
 
     public function test_employee_schedule_rejects_non_lawyer_as_lawyer(): void
     {
@@ -111,22 +84,25 @@ class LawyerValidationTest extends TestCase
 
         $this->actingAs($employee)->post(route('employee.schedule.store'), [
             'client_id' => $client->id, 'type' => 'office',
-            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '13:00',
+            'date' => $this->slotDate(), 'time' => '13:00',
             'lawyer_id' => $anotherEmployee->id,
         ])->assertSessionHasErrors('lawyer_id');
     }
 
     public function test_employee_schedule_accepts_active_lawyer(): void
     {
-        $employee = User::factory()->create(['role' => Role::Employee]);
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = $this->activeLawyer();
+        $this->paidConsultForTicket($client);
 
-        $this->actingAs($employee)->post(route('employee.schedule.store'), [
+        // ردّ الرفض تحويلٌ أيضاً — فلا يكفي `assertRedirect` وحده دليلاً على القبول
+        $this->actingAs($this->schedulingEmployee())->post(route('employee.schedule.store'), [
             'client_id' => $client->id, 'type' => 'office',
-            'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '13:00',
+            'date' => $this->slotDate(), 'time' => '13:00',
             'lawyer_id' => $lawyer->id,
-        ])->assertRedirect();
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('appointments', ['user_id' => $client->id, 'lawyer_id' => $lawyer->id]);
     }
 
     // ── employee.transfer.do (تحويل تذكرة — محامي الوجهة نشط) ──

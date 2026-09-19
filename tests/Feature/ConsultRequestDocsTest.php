@@ -29,7 +29,7 @@ class ConsultRequestDocsTest extends TestCase
 
         $consult = Consult::create([
             'user_id' => $client->id, 'ref' => 'CN-DOC-'.uniqid(), 'subject' => 'نزاع تجاري',
-            'type' => 'استشارة', 'channel' => 'مرئية', 'status' => 'قيد مراجعة الموظف',
+            'type' => 'استشارة', 'channel' => 'مرئية', 'status' => 'جديدة',
             'session' => 'بانتظار الجلسة', 'tone' => 'b-blue',
             'lawyer' => $lawyer->name, 'assigned_lawyer_id' => $lawyer->id,
         ]);
@@ -47,7 +47,7 @@ class ConsultRequestDocsTest extends TestCase
             ->assertSessionHasErrors('docs');
 
         $fresh = $consult->fresh();
-        $this->assertSame('قيد مراجعة الموظف', $fresh->status, 'ولا تُعلَّق الاستشارة');
+        $this->assertSame('جديدة', $fresh->status, 'ولا تُعلَّق الاستشارة');
         $this->assertEmpty($fresh->missing ?? [], 'ولا يُضاف مطلوبٌ مجهول');
         $this->assertSame(0, UserNotification::where('user_id', $client->id)->count(), 'ولا يُشعَر العميل بشيء');
     }

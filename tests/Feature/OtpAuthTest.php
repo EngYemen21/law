@@ -4,9 +4,11 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Models\User;
+use App\Support\OtpService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Http;
+use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 class OtpAuthTest extends TestCase
@@ -56,13 +58,85 @@ class OtpAuthTest extends TestCase
         $this->assertGuest();
     }
 
-    public function test_unknown_national_id_is_rejected(): void
+    /**
+     * 🔴 كانت ثلاث رسائل مختلفة («لا يوجد حساب» · «موقوف» · «لا جوال») تكشف أيّ أرقام الهويّة
+     * مسجّلة ومن منها موقوف. الآن: الردّ نفسه، وشاشة الرمز نفسها، ورسالة الرمز الخاطئ نفسها — بلا إرسال.
+     */
+    public function test_unknown_suspended_and_phoneless_identities_get_the_same_response_as_a_real_one(): void
     {
-        $this->fakeTaqnyatVerify();
+        $this->withoutMiddleware(ThrottleRequests::class);
+        $this->fakeTaqnyatVerify('1234');
+        User::factory()->create(['role' => Role::Employee, 'national_id' => '2000000011', 'phone' => '0590000011', 'status' => 'suspended']);
+        User::factory()->create(['role' => Role::Client, 'national_id' => '2000000012', 'phone' => null]);
 
-        $this->post('/auth/otp/request', ['national_id' => '9999999999'])
-            ->assertSessionHasErrors('national_id');
-        $this->assertGuest();
+        foreach (['9999999999', '2000000011', '2000000012'] as $nid) {
+            $this->flushSession();
+
+            $this->post('/auth/otp/request', ['national_id' => $nid])
+                ->assertRedirect(route('login'))
+                ->assertSessionHasNoErrors();
+
+            $this->get('/login')->assertInertia(fn (Assert $page) => $page
+                ->where('authState.step', 'otp')
+                ->where('authState.mode', 'login')
+                ->where('authState.maskedTarget', null));
+
+            $this->post('/auth/otp/verify', ['code' => '1234'])
+                ->assertSessionHasErrors(['code' => 'رمز التحقّق غير صحيح أو منتهٍ.']);
+            $this->assertGuest();
+        }
+
+        Http::assertNothingSent();
+    }
+
+    /** الحساب الحقيقيّ لا يُعرض له آخر أرقام الجوال في الدخول — عرضها وحده يُثبت وجود الحساب. */
+    public function test_a_real_identity_does_not_reveal_its_phone_digits(): void
+    {
+        $this->client();
+        $this->fakeTaqnyatVerify('1234');
+
+        $this->post('/auth/otp/request', ['national_id' => '1122334455'])
+            ->assertRedirect(route('login'))
+            ->assertSessionHasNoErrors();
+
+        $this->get('/login')->assertInertia(fn (Assert $page) => $page
+            ->where('authState.step', 'otp')
+            ->where('authState.maskedTarget', null));
+    }
+
+    /** 🔴 كلّ إعادة إرسال كانت تُصفّر المحاولات الخمس بلا سقف ⇒ تخمين تراكميّ وقصف الجوال. */
+    public function test_login_code_resend_is_capped_per_operation(): void
+    {
+        $this->client();
+        $this->fakeTaqnyatVerify('1234');
+
+        $this->post('/auth/otp/request', ['national_id' => '1122334455']); // الإصدار الأوّل
+        for ($i = 2; $i <= OtpService::MAX_ISSUES; $i++) {
+            $this->travel(61)->seconds();
+            $this->post('/auth/otp/resend')->assertSessionHasNoErrors();
+        }
+
+        $this->travel(61)->seconds();
+        $this->post('/auth/otp/resend')->assertSessionHasErrors('code');
+
+        $generated = Http::recorded(fn ($req) => ! isset(($req->data()[0] ?? [])['activeKey']))->count();
+        $this->assertSame(OtpService::MAX_ISSUES, $generated, 'أُرسلت رسائل بعد بلوغ السقف.');
+    }
+
+    /** الهويّة غير المسجّلة تُعامَل في إعادة الإرسال كالمسجّلة: السقف نفسه، ولا رسالة تُرسل. */
+    public function test_unknown_identity_resend_is_capped_the_same_way_and_sends_nothing(): void
+    {
+        $this->fakeTaqnyatVerify('1234');
+
+        $this->post('/auth/otp/request', ['national_id' => '9999999999']);
+        for ($i = 2; $i <= OtpService::MAX_ISSUES; $i++) {
+            $this->travel(61)->seconds();
+            $this->post('/auth/otp/resend')->assertSessionHasNoErrors();
+        }
+
+        $this->travel(61)->seconds();
+        $this->post('/auth/otp/resend')->assertSessionHasErrors('code');
+        Http::assertNothingSent();
     }
 
     public function test_malformed_national_id_is_rejected(): void

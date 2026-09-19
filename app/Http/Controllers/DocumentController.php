@@ -37,6 +37,7 @@ class DocumentController extends Controller
                 'meta' => $d->meta,
                 'canDownload' => $d->path !== null,
                 'downloadUrl' => $d->path ? route('documents.download', $d->id) : null,
+                'at' => $d->created_at?->getTimestamp() ?? 0,
             ]);
 
         // 2. مستندات القضايا التي أرفقها/أصدرها المكتب للعميل
@@ -48,6 +49,7 @@ class DocumentController extends Controller
                 'meta' => 'مستند قضية · '.($cd->doc_type ?: 'معتمد من المكتب'),
                 'canDownload' => ! empty($cd->path),
                 'downloadUrl' => ! empty($cd->path) ? route('documents.download-file', ['type' => 'case', 'id' => $cd->id]) : null,
+                'at' => $cd->created_at?->getTimestamp() ?? 0,
             ]);
 
         // 3. مستندات وسندات التنفيذ التي أصدرها/أرفقها المكتب للعميل
@@ -60,6 +62,7 @@ class DocumentController extends Controller
                 'meta' => 'مستند تنفيذ · '.($ed->doc_type ?: 'قرار 34/46'),
                 'canDownload' => true,
                 'downloadUrl' => route('documents.download-file', ['type' => 'exec', 'id' => $ed->id]),
+                'at' => $ed->created_at?->getTimestamp() ?? 0,
             ]);
 
         // 4. مستندات التذاكر والاستشارات المرفقة من المحامي/الإدارة للعميل
@@ -72,6 +75,7 @@ class DocumentController extends Controller
                 'meta' => 'مستند استشارة · '.($td->doc_type ?: 'معتمد من المكتب'),
                 'canDownload' => true,
                 'downloadUrl' => route('documents.download-file', ['type' => 'ticket', 'id' => $td->id]),
+                'at' => $td->created_at?->getTimestamp() ?? 0,
             ]);
 
         // 5. المخاطبات والخطابات الرسمية الصادرة للعميل
@@ -83,13 +87,17 @@ class DocumentController extends Controller
                 'meta' => 'مخاطبة رسمية · رقم '.$c->number,
                 'canDownload' => false,
                 'downloadUrl' => null,
+                'at' => $c->created_at?->getTimestamp() ?? 0,
             ]);
 
+        // **دمجٌ زمنيّ لا رصٌّ تِباعاً.** كلّ مصدرٍ مرتَّبٌ وحده ثمّ `concat` يضعه خلف سابقه،
+        // فالمخاطبة الصادرة الآن تظهر بعد **كلّ** مستندات القضايا والتنفيذ والتذاكر.
         $docsOut = $directOutDocs
             ->concat($caseDocs)
             ->concat($execDocs)
             ->concat($ticketDocs)
             ->concat($correspondences)
+            ->sortByDesc('at')
             ->values();
 
         $docsUp = Document::where('user_id', $user->id)

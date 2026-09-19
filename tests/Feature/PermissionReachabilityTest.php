@@ -188,6 +188,7 @@ class PermissionReachabilityTest extends TestCase
             $this->assertNotContains('lawyer', $allowed, 'ولا يبلغها المحامي');
         }
 
-        $this->assertSame(4, $found, 'المسارات الأربعة: الفهرس والفيديو والصوت والتفريغ');
+        // والتشغيل داخل النظام مسارٌ خامس بالصلاحيّة نفسها (قرار المالك 2026-09-15: لا رابط Zoom خارجيّ)
+        $this->assertSame(5, $found, 'المسارات الخمسة: الفهرس والفيديو والصوت والتفريغ والتشغيل');
     }
 }

@@ -2,6 +2,8 @@
 
 namespace App\Console\Commands;
 
+use App\Domain\Journey\Transitions\Consult\LapseAppointment;
+use App\Domain\Journey\Workflow;
 use App\Models\Appointment;
 use Illuminate\Console\Command;
 
@@ -30,6 +32,8 @@ class AutoLapseAppointments extends Command
         // الحدّ 500 لكل تشغيل: الأمر يعمل كل ربع ساعة فلا حاجة لكنس الأرشيف كلّه دفعة واحدة.
         Appointment::with('consult')
             ->whereIn('when_kind', ['up', 'today'])
+            // الاقتراح غير المعتمد ليس موعداً فات — يُعتمد بوقتٍ لاحق أو يُعدَّل
+            ->where('status', '!=', 'بانتظار الاعتماد')
             ->whereNotNull('starts_at')
             ->where('starts_at', '<', now())
             ->orderBy('starts_at')
@@ -43,7 +47,13 @@ class AutoLapseAppointments extends Command
                     return;
                 }
 
-                $a->update(['when_kind' => 'past', 'status' => $status, 'tone' => $tone]);
+                // تغيّر الحالة انتقالُ رحلةٍ يمرّ بالمحرّك ويُقيَّد؛ أمّا الملغى المخزَّن فحالته
+                // باقية كما هي، وحسمه تحديثُ عمودَي العرض وحدهما — لا سطرَ «ملغي ← ملغي» في السجلّ.
+                if ($status !== $a->status) {
+                    Workflow::run(new LapseAppointment, $a, null, ['status' => $status, 'tone' => $tone]);
+                } else {
+                    $a->update(['when_kind' => 'past', 'tone' => $tone]);
+                }
                 $settled++;
             });
 

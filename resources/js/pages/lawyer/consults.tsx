@@ -4,9 +4,7 @@ import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
 import { useBodyScrollLock } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
-// **النسخة التي تُخفي فعلاً.** `admin-data` يصدّر `maskClient` وهي `return name`
-// — لا تُخفي شيئاً — بينما `employee-data` تحمل الإخفاء الحقيقيّ الذي تستعمله
-// بقيّة شاشات الطاقم. فكانت الشاشة تنادي دالّةً باسمٍ يَعِد بما لا يفعل.
+// اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
 import { maskClient } from '@/lib/employee-data';
 import { RichText, SummaryStateBadge } from '@/lib/consult-ui';
 import type { ConsultCard } from '@/lib/consult-ui';
@@ -40,7 +38,8 @@ export function lawyerKanbanColumnOf(c: ConsultCard): LawyerKanbanCol {
   }
 
   if (c.session === 'منتهية') {
-    return c.summaryApproved ? 'completed' : 'drafting';
+    // اعتمده المحامي ورفعه للإدارة — انتهى عمله عليه، فلا يبقى «بانتظار إعداد التقرير»
+    return c.summaryApproved || c.summaryLawyerApproved ? 'completed' : 'drafting';
   }
 
   // دورة الحجز لا تدخل جلسات الانعقاد عند المحامي
@@ -153,9 +152,9 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
       return new Date(c.startsAt).toDateString() === new Date().toDateString();
     }).length;
     const liveNow = items.filter((c) => c.session === 'جلسة جارية').length;
-    const upcoming = items.filter(
-      (c) => c.session === 'بانتظار الجلسة' || c.status === 'محالة للمحامي' 
-    ).length;
+    // **«قادمة» = عمود «بانتظار الانعقاد» نفسه.** كان `session === 'بانتظار الجلسة'`،
+    // و`cancelRequest` لا يمسّ `session` — فالملغاة تُعدّ قادمة، وتُعدّ مرّتين مع «منتهية».
+    const upcoming = items.filter((c) => lawyerKanbanColumnOf(c) === 'waiting').length;
     const needsSummary = items.filter(
       (c) => c.session === 'منتهية' && !c.summaryApproved
     ).length;
@@ -185,12 +184,10 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
         if (!isToday) return false;
       }
       if (filterMode === 'upcoming') {
-        const isUpcoming =
-          c.session === 'بانتظار الجلسة' || c.status === 'محالة للمحامي';
-        if (!isUpcoming) return false;
+        if (lawyerKanbanColumnOf(c) !== 'waiting') return false;
       }
       if (filterMode === 'needs_summary') {
-        if (c.session !== 'منتهية' || c.summaryApproved) return false;
+        if (c.session !== 'منتهية' || c.summaryApproved || c.summaryLawyerApproved) return false;
       }
       if (filterMode === 'completed') {
         if (!CONSULT_TERMINAL_STATUSES.includes(c.status)) return false;
@@ -312,14 +309,14 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
       return;
     }
 
-    if (!window.confirm('سيصل الملخّص إلى الموكّل فور الاعتماد. متابعة؟')) {
+    if (!window.confirm('سيُرفع الملخّص للإدارة لاعتماده النهائيّ، ولا يُعدَّل من جهتك بعدها. متابعة؟')) {
       return;
     }
 
     setIsProcessing(true);
     router.post(`/lawyer/consults/${consult.id}/summary/approve`, {}, {
       preserveScroll: true,
-      onSuccess: () => toast('اعتُمد الملخّص وأُرسل إلى الموكّل'),
+      onSuccess: () => toast('اعتُمد الملخّص ورُفع للإدارة لاعتماده النهائيّ'),
       onError: (errors) => toast(Object.values(errors)[0] || 'تعذّر اعتماد الملخّص'),
       onFinish: () => setIsProcessing(false),
     });
@@ -1174,10 +1171,10 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         <button
                           type="button"
                           className="btn sm"
-                          disabled={isProcessing || !drawerConsult.summary || drawerConsult.summaryApproved}
+                          disabled={isProcessing || !drawerConsult.summary || drawerConsult.summaryApproved || drawerConsult.summaryLawyerApproved}
                           onClick={() => handleApproveReport(drawerConsult)}
                         >
-                          <Icon name="scale" /> {drawerConsult.summaryApproved ? 'معتمَد وواصل للموكّل' : 'اعتماد وإرسال للموكّل'}
+                          <Icon name="scale" /> {drawerConsult.summaryApproved ? 'معتمَد وواصل للموكّل' : drawerConsult.summaryLawyerApproved ? 'بانتظار اعتماد الإدارة' : 'اعتماد ورفع للإدارة'}
                         </button>
                         )}
 

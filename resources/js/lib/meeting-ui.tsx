@@ -15,6 +15,8 @@ import { echo } from '@/lib/echo';
 import { MR_FLOW } from '@/lib/employee-data';
 import { useMasker } from '@/lib/permissions';
 import Icon from '@/lib/icons';
+import { meetingMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
+import type { SessionMedia } from '@/lib/recording-ui';
 import ZoomEmbedRoom from '@/lib/zoom-room';
 
 // ============================================================
@@ -105,8 +107,11 @@ export interface FullMeetingCard {
     dur: string;
     summary: string | null;
     zoomSummary: string | null;
-    recording: string | null;
+    /** هل للاجتماع تسجيلٌ مرئيّ؟ علَمٌ لا رابط — رابط سحابة Zoom لا يغادر الخادم. */
+    recording: boolean;
     transcript: boolean;
+    /** مخرجات الجلسة للتشغيل والتنزيل عبر الخادم (`RecordingArchive::availability`). */
+    media: SessionMedia;
     startsAt: string | null;
     // شقّا الحالة الحيّة من الخادم: قادم أم ماضٍ، وهل نافذة الدخول مفتوحة الآن
     up: boolean;
@@ -125,8 +130,6 @@ export interface FullMeetingCard {
     tasksCreated: boolean;
     // بيانات جلسة Zoom الإضافية (يرسلها toFullCard — كانت غائبة عن الواجهة النوعية)
     zoomUuid?: string | null;
-    zoomShareUrl?: string | null;
-    zoomAudioUrl?: string | null;
     zoomParticipantsLog?: unknown[];
     zoomAiNextSteps?: unknown[];
 }
@@ -739,59 +742,8 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
 
     // النصّ الحرفي للجلسة (VTT من Zoom): المتحدث + الوقت + الكلام — يُعرض كما ورد بلا أي تعديل
     const [transcriptOpen, setTranscriptOpen] = useState(false);
-    const [transcriptRows, setTranscriptRows] = useState<{ time: string; speaker: string; text: string }[] | null>(null);
-    const openTranscript = () => {
-        setTranscriptOpen(true);
-
-        if (transcriptRows !== null) {
- return; 
-}
-
-        fetch(`${base}/meetings/${m.dbId}/transcript`, { credentials: 'same-origin' })
-            .then((r) => {
- if (!r.ok) {
- throw new Error(String(r.status)); 
-}
-
- return r.text(); 
-})
-            .then((vtt) => {
-                const rows: { time: string; speaker: string; text: string }[] = [];
-
-                for (const block of vtt.replace(/^WEBVTT[^\n]*\n?/u, '').split(/\n\s*\n/)) {
-                    const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
-                    const ti = lines.findIndex((l) => l.includes('-->'));
-
-                    if (ti === -1) {
- continue; 
-}
-
-                    const time = (lines[ti].split('-->')[0] ?? '').trim().replace(/\.\d+$/u, '');
-                    const speech = lines.slice(ti + 1).join(' ');
-
-                    if (!speech) {
- continue; 
-}
-
-                    // سطر فاصل الجزء («— الجزء N (01:11) —») ليس متحدثاً — النقطتان فيه من الوقت
-                    const mSp = speech.startsWith('—') ? null : speech.match(/^([^:]{1,60}):\s*(.*)$/u);
-                    rows.push({ time, speaker: mSp ? mSp[1] : '—', text: mSp ? mSp[2] : speech });
-                }
-
-                // ملفّ قديم نُظّف من أسطر التوقيت: تُعرض أسطره كما هي (المتحدث: الكلام) بلا وقت
-                if (rows.length === 0 && vtt.trim() !== '') {
-                    for (const line of vtt.split('\n').map((l) => l.trim()).filter(Boolean)) {
-                        const mSp = line.match(/^([^:]{1,60}):\s*(.*)$/u);
-                        rows.push({ time: '', speaker: mSp ? mSp[1] : '—', text: mSp ? mSp[2] : line });
-                    }
-                }
-
-                setTranscriptRows(rows);
-            })
-            .catch(() => {
- setTranscriptRows([]); toast('تعذّر جلب النص — تأكد من توفره لدى Zoom ثم أعد المحاولة'); 
-});
-    };
+    // الجلب والتحليل في `TranscriptModal` (recording-ui) — مصدرٌ واحد للاجتماع والاستشارة
+    const openTranscript = () => setTranscriptOpen(true);
     useEffect(() => {
         setSummary(m.summary || ''); setMinutes(m.minutes || '');
         setDecisions(m.decisions ?? []); setTasksDone(m.tasksCreated); setStatus(m.status); setApprove(m.approve);
@@ -1248,66 +1200,11 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                             ))}
                         </div>
 
-                        {/* روابط التسجيل والتنزيل */}
-                        <div style={{ padding: '12px 16px', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                            {m.recording ? (
-                                <>
-                                    <a
-                                        href={m.recording} target="_blank" rel="noopener noreferrer"
-                                        style={{
-                                            display: 'inline-flex', alignItems: 'center', gap: 5,
-                                            padding: '7px 14px', borderRadius: 9,
-                                            background: 'var(--primary)', color: '#fff',
-                                            fontSize: '12px', fontWeight: 700,
-                                        }}
-                                    >
-                                        <Icon name="video" /> مشاهدة التسجيل
-                                    </a>
-                                    <a
-                                        href={`${base}/meetings/${m.dbId}/recording.zip`}
-                                        style={{
-                                            display: 'inline-flex', alignItems: 'center', gap: 5,
-                                            padding: '7px 14px', borderRadius: 9,
-                                            border: '1px solid var(--line-soft)',
-                                            background: 'var(--paper-2)',
-                                            fontSize: '12px', fontWeight: 600,
-                                        }}
-                                    >
-                                        تنزيل الفيديو (MP4)
-                                    </a>
-                                </>
-                            ) : (
-                                <span style={{ fontSize: '12.5px', color: 'var(--muted)' }}>لا يوجد تسجيل مرئي بعد</span>
-                            )}
-                            {m.zoomAudioUrl && (
-                                <a
-                                    href={`${base}/meetings/${m.dbId}/audio.zip`}
-                                    style={{
-                                        display: 'inline-flex', alignItems: 'center', gap: 5,
-                                        padding: '7px 14px', borderRadius: 9,
-                                        border: '1px solid var(--line-soft)',
-                                        background: 'var(--paper-2)',
-                                        fontSize: '12px', fontWeight: 600,
-                                    }}
-                                >
-                                    🎵 تسجيل صوتي (M4A)
-                                </a>
-                            )}
-                            {(m.transcript || m.recording) && (
-                                <a
-                                    href={`${base}/meetings/${m.dbId}/transcript`}
-                                    style={{
-                                        display: 'inline-flex', alignItems: 'center', gap: 5,
-                                        padding: '7px 14px', borderRadius: 9,
-                                        border: '1px solid var(--line-soft)',
-                                        background: 'var(--paper-2)',
-                                        fontSize: '12px', fontWeight: 600,
-                                    }}
-                                >
-                                    📄 تنزيل النص الكامل
-                                </a>
-                            )}
-                            {(m.transcript || status === 'منتهٍ') && (
+                        {/* مخرجات الجلسة عبر الخادم — تشغيلٌ وتنزيلٌ داخل النظام، لا نافذةَ سحابة Zoom */}
+                        <div style={{ padding: '12px 16px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                            <SessionMediaPanel media={m.media} urls={meetingMediaUrls(base, m.dbId)} />
+                            {/* النصّ يُجلب من مسار التسجيلات نفسه — يُخفى عمّن لا يملك «تشغيل تسجيلات الجلسات» */}
+                            {(m.transcript || status === 'منتهٍ') && !m.media?.locked && (
                                 <button type="button" onClick={openTranscript}
                                     style={{
                                         display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -1605,23 +1502,12 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
             </div>
 
             {/* النصّ الحرفي الراجع من Zoom — يُعرض كما ورد حرفياً: المتحدث والوقت والكلام، بلا أي تعديل */}
-            <Modal title={`النص الحرفي للجلسة — ${m.id}`} open={transcriptOpen} onClose={() => setTranscriptOpen(false)}>
-                <div style={{ maxHeight: '60vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {transcriptRows === null ? (
-                        <p style={{ color: 'var(--muted)', fontSize: 13 }}>جارٍ جلب النص من الخادم…</p>
-                    ) : transcriptRows.length === 0 ? (
-                        <p style={{ color: 'var(--muted)', fontSize: 13 }}>لا نصّ متاحاً لهذه الجلسة — يتوفر بعد جلسة فعلية مسجَّلة لدى Zoom.</p>
-                    ) : transcriptRows.map((r, i) => (
-                        <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 10px', background: 'var(--paper-2)', borderRadius: 8 }}>
-                            <span style={{ fontFamily: 'monospace', fontSize: 11.5, color: 'var(--faint)', whiteSpace: 'nowrap', paddingTop: 2 }}>{r.time}</span>
-                            <div style={{ minWidth: 0 }}>
-                                <b style={{ fontSize: 12.5, color: 'var(--primary)', display: 'block' }}>{r.speaker}</b>
-                                <span style={{ fontSize: 13, lineHeight: 1.7, wordBreak: 'break-word' }}>{r.text}</span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </Modal>
+            <TranscriptModal
+                title={`النص الحرفي للجلسة — ${m.id}`}
+                url={meetingMediaUrls(base, m.dbId).transcript}
+                open={transcriptOpen}
+                onClose={() => setTranscriptOpen(false)}
+            />
         </div>
     );
 };

@@ -13,7 +13,7 @@ use App\Models\User;
 use App\Services\Ai\LegalClaims;
 use App\Services\Ai\LegalKnowledge;
 use App\Services\LegalAiService;
-use App\Support\Specialties;
+use App\Support\LegalCatalogue;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -232,15 +232,26 @@ class LegalKnowledgeTest extends TestCase
         }
     }
 
-    /** والقائمة تُطابق تخصّصات المكتب — لا اسمٌ فيها خارج الكتالوج. */
-    public function test_every_guarded_domain_is_a_real_specialty(): void
+    /**
+     * العلامة في الكتالوج تحرس المجالات العشرة نفسها التي كانت في القائمة الثابتة — لا أكثر ولا أقلّ —
+     * وتصل إليها صياغاتها القديمة والمختصرة.
+     */
+    public function test_the_catalogue_guards_exactly_the_specific_authority_domains(): void
     {
-        foreach (LegalKnowledge::REQUIRES_SPECIFIC_AUTHORITY as $domain) {
-            $this->assertContains(
-                $domain,
-                Specialties::ALL,
-                "«{$domain}» ليس تخصّصاً معتمداً — فالحارس يحرس اسماً لا يصل"
-            );
+        $guarded = LegalCatalogue::departments(activeOnly: false)
+            ->filter(fn ($d) => $d->requires_specific_authority)
+            ->pluck('code')->sort()->values()->all();
+
+        $this->assertSame(
+            ['banking', 'corporate', 'criminal', 'cybercrime', 'enforcement', 'inheritance', 'insurance', 'intellectual_property', 'labor', 'personal_status'],
+            $guarded
+        );
+
+        foreach (['القضايا العمالية', 'عمالي', 'الأحوال الشخصية', 'البنوك والتمويل', 'القضايا الجنائية', 'التركات والأوقاف'] as $domain) {
+            $this->assertTrue(LegalKnowledge::requiresSpecificAuthority($domain), "«{$domain}» يحكمه نظامٌ خاصّ.");
+        }
+        foreach (['تجاري', 'العقود والاتفاقيات', 'العقارات', 'الاستشارات القانونية'] as $domain) {
+            $this->assertFalse(LegalKnowledge::requiresSpecificAuthority($domain), "«{$domain}» يحكمه العامّ.");
         }
     }
 
@@ -406,7 +417,9 @@ class LegalKnowledgeTest extends TestCase
 
         $result = app(LegalAiService::class)->draftPleadingResult($case);
 
-        $this->assertStringContainsString('[LS-REAL]', $result['draft'], 'المسنَد يظهر بمعرّفه');
+        // لا معرّفات داخليّة ولا ملحق تدقيق في نصٍّ يُقدَّم للمحكمة (2026-09-11) — والمطابقة في القيد
+        $this->assertStringNotContainsString('LS-REAL', $result['draft'], 'لا معرّف داخليّ في النصّ');
+        $this->assertStringNotContainsString('سند الادّعاءات', $result['draft']);
         $this->assertStringNotContainsString('[LS-CIVIL-9999]', $result['draft'], 'المُختلَق لا يُعرض سنداً');
         $this->assertStringContainsString('ادّعاء بمعرّف مُختلَق.', $result['draft']);
         $this->assertStringContainsString('بلا سندٍ مُتحقَّق', $result['draft'], 'النقص يُعلَن فوق النصّ');
@@ -466,7 +479,8 @@ class LegalKnowledgeTest extends TestCase
         $run = AiRun::where('task_type', 'case.pleading')->latest('id')->first();
         $this->assertNotNull($run, 'أخطر مخرجٍ قانونيّ لا يجوز أن يُنتَج بلا قيد');
         $this->assertSame($case->number, $run->entity_ref);
-        $this->assertSame('v2', $run->prompt_version);
+        // v3 منذ 2026-09-11: عنوان «لائحة دعوى» ونصٌّ بلا Markdown ولا معرّفات مصادر في المتن
+        $this->assertSame('v3', $run->prompt_version);
     }
 
     // ── صحيفة ناجز: العقد نفسه، فهي تُقدَّم للمحكمة ──
@@ -490,7 +504,7 @@ class LegalKnowledgeTest extends TestCase
 
         $result = app(LegalAiService::class)->najizStatementResult($ticket);
 
-        $this->assertStringContainsString('[LS-NAJIZ]', $result['draft']);
+        $this->assertStringNotContainsString('LS-NAJIZ', $result['draft'], 'لا معرّف داخليّ في الصحيفة');
         $this->assertStringNotContainsString('[LS-CIVIL-9999]', $result['draft'], 'المُختلَق لا يُعرض سنداً');
         $this->assertStringContainsString('بلا سندٍ مُتحقَّق', $result['draft']);
         $this->assertSame(AiSource::ManualRequired, $result['source'], 'لا تُوسم نجاحاً وفيها ادّعاء بلا سند');

@@ -123,6 +123,8 @@ export interface SummaryData {
   keyPoints?: string;
   status: string; // awaiting_lawyer | approved
   approved: boolean;
+  /** اعتمده المحامي ويُنتظر اعتماد الإدارة (قرار المالك 2026-09-14) */
+  lawyerApproved?: boolean;
   aiGenerated?: boolean; // false = قالب مبدئي لم يكتمل تحليله الذكي
   result?: string;
   resultStatus?: string; // none | pending_lawyer | pending_admin | approved
@@ -130,9 +132,13 @@ export interface SummaryData {
 
 // موضع الملخص على مسار SUM_FLOW — يقرأ resultStatus (none|pending_lawyer|pending_admin|approved)
 // لا summary.status الذي قيمه awaiting_lawyer|approved فقط، فكانت مرحلة «اعتماد الإدارة» لا تُعرض أبداً
-export function sumStage(resultStatus?: string): number {
-  const m: Record<string, number> = { none: 0, pending_lawyer: 1, pending_admin: 2, approved: 3 };
-  return resultStatus && resultStatus in m ? m[resultStatus] : 0;
+export function sumStage(s?: Pick<SummaryData, 'approved' | 'lawyerApproved'>): number {
+  // المسار يُقرأ من اعتماد الملخّص نفسه: إنشاء ← اعتماد المحامي ← اعتماد الإدارة وإرساله للعميل
+  if (s?.approved) {
+    return 3;
+  }
+
+  return s?.lawyerApproved ? 2 : 1;
 }
 
 // نص ملخص افتراضي — يطابق defaultSummaryText (مُستخرج من summaryView)

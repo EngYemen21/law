@@ -8,8 +8,8 @@ use App\Models\Consult;
 use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\User;
-use App\Support\LawyerAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
@@ -17,6 +17,7 @@ use Tests\TestCase;
  */
 class DirectBookingTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     public function test_client_direct_booking_creates_pricing_request(): void
@@ -50,20 +51,36 @@ class DirectBookingTest extends TestCase
         $this->assertSame('القضايا العمالية', Consult::firstOrFail()->specialty);
     }
 
+    /**
+     * **الموظّف يقترح والإدارة تعتمد** (قرار المالك 2026-09-14) — على الاستشارة المدفوعة نفسها،
+     * لا حجزٌ «مدفوع مسبقاً» جديد.
+     */
     public function test_employee_books_on_behalf_of_client(): void
     {
-        $employee = User::factory()->create(['role' => Role::Employee]);
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'أ. سارة القحطاني']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'name' => 'أ. سارة القحطاني']);
 
-        $date = LawyerAvailability::resolveDate(null)->toDateString();
-        $this->actingAs($employee)->post(route('employee.schedule.store'), [
+        $this->actingAs($client)->post(route('book.store'), [
+            'type' => 'office', 'specialty' => 'القضايا التجارية', 'subject' => 'عقد',
+        ])->assertRedirect(route('myconsults'));
+        $consult = $this->priceAndPay(Consult::firstOrFail(), 600);
+
+        $date = now()->addDays(2)->toDateString();
+        $this->actingAs($this->schedulingEmployee())->post(route('employee.schedule.store'), [
             'client_id' => $client->id, 'type' => 'office', 'date' => $date, 'time' => '13:00',
-            'lawyer_id' => $lawyer->id, 'subject' => 'عقد',
-        ])->assertRedirect();
+            'lawyer_id' => $lawyer->id,
+        ])->assertRedirect()->assertSessionHasNoErrors();
 
-        $consult = Consult::firstOrFail();
+        // الاقتراح لا يصل العميل: لا وقتَ على الاستشارة حتى تعتمد الإدارة
+        $this->assertSame('بانتظار اعتماد الموعد', $consult->fresh()->status);
+        $this->assertNull($consult->fresh()->starts_at);
+        $this->assertSame(1, Consult::count(), 'ولا تُنشأ استشارةٌ ثانية');
+
+        $this->adminApprovesAppointment($consult->fresh())->assertRedirect()->assertSessionHasNoErrors();
+
+        $consult->refresh();
         $this->assertSame($client->id, $consult->user_id);
+        $this->assertSame('جديدة', $consult->status);
         $this->assertSame('حضورية', $consult->channel);
         $this->assertSame('أ. سارة القحطاني', $consult->lawyer);
         $this->assertSame($lawyer->id, $consult->assigned_lawyer_id); // مربوط بالمعرّف لا بالاسم

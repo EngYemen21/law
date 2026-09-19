@@ -3,28 +3,17 @@
 namespace App\Http\Controllers;
 
 use App\Enums\Role;
-use App\Events\TicketMessageBroadcast;
-use App\Events\TicketStatusBroadcast;
-use App\Jobs\EscalateUnassignedTicketJob;
 use App\Models\Consult;
 use App\Models\User;
-use App\Services\LegalAiService;
 use App\Services\MoyasarService;
-use App\Support\AppointmentCard;
 use App\Support\ConsultBooking;
 use App\Support\ConsultReport;
-use App\Support\LawyerAvailability;
-use App\Support\Live;
 use App\Support\Notify;
 use App\Support\PaymentReconciler;
 use App\Support\PdfRenderer;
 use App\Support\ReportPrint;
-use App\Support\TicketJourney;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Spatie\Browsershot\Browsershot;
@@ -113,14 +102,14 @@ class ConsultController extends Controller
         );
 
         if ($belongs && PaymentReconciler::settle($payment, 'callback')) {
-            return $back()->with('success', 'تم تأكيد الدفع — اختر الآن موعد الجلسة.');
+            return $back()->with('success', 'تم تأكيد الدفع — سوف يتم تحديد موعد جلستك مع المستشار المختص ويصلك إشعار به.');
         }
 
         // إن كانت الفاتورة عُلّمت كمدفوعة أصلًا (تسوّت عبر الـwebhook أو التحصيل الإداري):
         if ($consult->invoice?->paid) {
             PaymentReconciler::settleDomain($consult->invoice, $request->user()->name);
 
-            return $back()->with('success', 'تم تأكيد الدفع — اختر الآن موعد الجلسة.');
+            return $back()->with('success', 'تم تأكيد الدفع — سوف يتم تحديد موعد جلستك مع المستشار المختص ويصلك إشعار به.');
         }
 
         // الـwebhook مصدر الحقيقة؛ إن خُصم المبلغ سيُحدَّث تلقائياً
@@ -132,144 +121,9 @@ class ConsultController extends Controller
     {
         abort_unless($consult->user_id === $request->user()->id, 403);
 
-        $data = $request->validate([
-            'date' => ['required', 'date_format:Y-m-d', 'after_or_equal:today'],
-            'time' => ['required', 'string', 'date_format:H:i'],
-        ]);
-
-        $startsAt = Carbon::parse($data['date'].' '.$data['time']);
-        if ($startsAt->isPast()) {
-            throw ValidationException::withMessages(['time' => 'لا يمكن اختيار موعد في الماضي، فضلاً اختر وقتاً لاحقاً.']);
-        }
-        $specialty = $consult->specialty ?: (string) ($consult->ticket?->department ?? '');
-        $subject = $consult->subject ?: ($consult->ticket?->type ?? null);
-
-        $eventsToBroadcast = [];
-        $escalatedTo = null;
-
-        DB::transaction(function () use ($consult, $startsAt, $specialty, $subject, $data, &$eventsToBroadcast, &$escalatedTo) {
-            // إسناد ذكيّ خادميّ مع أقفال حماية التزامن لمنع الحجز المزدوج
-            $lawyer = LawyerAvailability::assignLawyer($specialty, $subject, $startsAt, LawyerAvailability::slotMinutes());
-
-            /*
-             * **الحجز المتعذّر يُرفع إلى الإدارة — لا يُرفض.**
-             *
-             * كان الإخفاق يرمي خطأ تحقّقٍ للعميل وينتهي: عميلٌ **سدّد** ثمّ صُدّ،
-             * والإدارة لا تعلم أنّ أحداً حاول. ورسالتُه كاذبة فوق ذلك — تقول «لا يوجد
-             * مستشار **مختصّ**» بينما `rankedSpecialists` يسقط إلى **كلّ** المحامين
-             * النشطين حين لا يطابق أحدٌ التخصّص. فالسبب الحقيقيّ أنّ الجميع مشغولون
-             * في تلك الساعة (أو لا محاميَ نشطاً)، والتخصّص لا دخل له.
-             *
-             * فيُحجز الموعد ويُرفع الملفّ إلى أقدم إداريّ ليوزّعه — احتذاءً بسابقة
-             * `EscalateUnassignedTicketJob` في التذاكر، بالوسم نفسه «الإدارة العليا».
-             *
-             * و`ConsultBooking::schedule` يحتمل غياب المحامي أصلاً: `guardNoConflict`
-             * مشروطٌ به، والموعد يُنشأ بـ`lawyer_id = null`.
-             */
-            if ($lawyer === null) {
-                $escalatedTo = User::where('role', Role::Admin)->orderBy('id')->first();
-
-                // ولا إدارةَ بعد (تثبيتٌ جديد) ⇒ يبقى الرفض: لا يُترك ملفٌّ بلا مالك
-                if ($escalatedTo === null) {
-                    throw ValidationException::withMessages([
-                        'time' => 'هذا الوقت لم يعد متاحاً، فضلاً اختر وقتاً آخر.',
-                    ]);
-                }
-
-                $consult->logAudit(
-                    'النظام',
-                    'الإسناد',
-                    '—',
-                    'تعذّر الإسناد التلقائيّ — رُفع إلى الإدارة للتوزيع'
-                );
-                $consult->save();
-            }
-
-            $consultScheduled = ConsultBooking::schedule($consult, [
-                'lawyer_id' => $lawyer?->id,
-                'starts_at' => $startsAt->toDateTimeString(),
-                'duration' => LawyerAvailability::slotMinutes(),
-                'day' => $startsAt->format('Y-m-d'),
-                'time' => $data['time'],
-            ]);
-
-            if ($consultScheduled->ticket_id && ($ticket = $consultScheduled->ticket)) {
-                $type = match ($consultScheduled->channel) {
-                    'مرئية' => 'video',
-                    'هاتفية' => 'phone',
-                    default => 'office',
-                };
-                $card = AppointmentCard::render($consultScheduled, ConsultBooking::meta($type));
-
-                $msg = $ticket->messages()->create([
-                    'who' => 'ai',
-                    'name' => LegalAiService::AGENT_NAME,
-                    'role' => 'مواعيد',
-                    'body' => $card,
-                    'time_label' => now()->format('h:i').' '.(now()->hour < 12 ? 'ص' : 'م'),
-                ]);
-
-                $ticket->update([
-                    'status' => 'موعد مؤكد',
-                    'tone' => TicketJourney::toneFor('موعد مؤكد'),
-                    'last_message' => 'تم تأكيد موعد الاستشارة: '.$consultScheduled->day.' · '.$consultScheduled->time,
-                    'date_label' => 'الآن',
-                ]);
-
-                $eventsToBroadcast[] = new TicketMessageBroadcast($msg);
-                $eventsToBroadcast[] = new TicketStatusBroadcast($ticket);
-            }
-        });
-
-        if (! empty($eventsToBroadcast)) {
-            DB::afterCommit(function () use ($eventsToBroadcast) {
-                foreach ($eventsToBroadcast as $ev) {
-                    Live::push($ev);
-                }
-            });
-        }
-
-        /*
-         * **التصعيد يُوسَم ويُشعَر بعد الالتزام — لا داخله.**
-         *
-         * الوسم بعد `schedule` لأنّها تكتب `lawyer` النائب النصّيّ (`المستشار القانوني`)
-         * و`assigned_lawyer_id = null`؛ فالوسم هنا يجعل الملفّ **مملوكاً** لأقدم إداريّ
-         * كما تفعل `EscalateUnassignedTicketJob` بالتذاكر — فلا يبقى بلا صاحبٍ يتصرّف.
-         *
-         * وبقفلٍ قصيرٍ وإعادة فحص: لو أُسنِد يدويّاً في اللحظة نفسها فلا يُكتب فوقه.
-         */
-        if ($escalatedTo !== null) {
-            DB::transaction(function () use ($consult, $escalatedTo) {
-                $locked = Consult::whereKey($consult->id)->lockForUpdate()->first();
-                if ($locked === null || $locked->assigned_lawyer_id) {
-                    return;
-                }
-
-                $locked->update([
-                    'lawyer' => EscalateUnassignedTicketJob::SENIOR_LABEL,
-                    'assigned_lawyer_id' => $escalatedTo->id,
-                ]);
-            });
-
-            $consult->refresh();
-
-            $notice = "استشارة ({$consult->ref}) حُجزت {$consult->when_label} ولم يتوفّر محامٍ في هذا الوقت — وزّعها على مستشارٍ من شاشة الاستشارات.";
-            foreach (User::where('role', Role::Admin)->get() as $admin) {
-                Notify::send($admin->id, 'cal', 't-amber', $notice);
-            }
-
-            // **والعميل لا يُوعَد بما لم يقع:** موعدُه مؤكَّد، ومستشارُه لم يُسنَد بعد.
-            Notify::send(
-                $consult->user_id,
-                'cal',
-                't-amber',
-                "تم تأكيد موعد استشارتك ({$consult->ref}) {$consult->when_label} — ويُسنَد مستشارك قبل الجلسة ويصلك إشعار."
-            );
-
-            return back()->with('flash', 'تم تأكيد موعدك — ويُسنَد مستشارك قبل الجلسة ويصلك إشعار.');
-        }
-
-        return back()->with('flash', 'تم تأكيد موعد استشارتك.');
+        // **العميل لا يختار موعد جلسته** (قرار المالك 2026-09-14): يحدّده المكتب ويصله إشعارٌ به.
+        // المسار باقٍ ليتلقّى من فتح صفحةً قديمة ردّاً مفهوماً لا خطأً مجهولاً.
+        abort(422, 'يحدّد المكتب موعد جلستك مع المستشار المختص، ويصلك إشعارٌ وبريد بالموعد فور تحديده.');
     }
 
     /**
@@ -338,5 +192,23 @@ class ConsultController extends Controller
         }
 
         return back()->with('flash', 'أُرسل طلبك للمكتب — سيتواصل معك فريقنا بموعد جديد قريباً.');
+    }
+
+    /**
+     * **بابُ رفع ما طلبه المكتب.** حين تقف الاستشارة عند «بانتظار استكمال البيانات»
+     * يُطالَب الموكّل بمستندات، ومكانُ رفعها محادثةُ تذكرته (`tickets.attach`) حيث
+     * يراها الفريق. ورقمُ التذكرة لا يُرسَل في بطاقة العميل (عقدُ
+     * `ClientConsultCardContractTest`)، فيحلّه الخادم هنا بعد التحقّق من الملكيّة.
+     * وما لا تذكرة له يذهب إلى «مستنداتي» — لا طريقَ مسدود.
+     */
+    public function documents(Request $request, Consult $consult): RedirectResponse
+    {
+        abort_unless($consult->user_id === $request->user()->id, 403);
+
+        $ticket = $consult->ticket;
+
+        return $ticket
+            ? redirect()->route('tickets.show', $ticket)
+            : redirect()->route('documents');
     }
 }

@@ -9,6 +9,9 @@ use App\Models\LegalCase;
 use App\Services\LegalAiService;
 use App\Services\MoyasarService;
 use App\Support\CaseFee;
+use App\Support\CaseJourney;
+use App\Support\ConversationFiles;
+use App\Support\LawyerName;
 use App\Support\PaymentReconciler;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -46,21 +49,25 @@ class CaseController extends Controller
                 'startsAt' => $next->starts_at?->format('Y-m-d H:i'),
                 'label' => $next->label(),
                 'status' => $next->status,
-                'lawyer' => $c->assigned_lawyer ?: ($c->assignedLawyer?->name ?? 'المستشار المختص'),
+                'lawyer' => LawyerName::forClient($c->assigned_lawyer_id ? $c->assignedLawyer : null, $c->assigned_lawyer, 'المستشار المختص'),
             ]];
         })->values();
 
+        // من `CaseJourney` لا من قائمةٍ باليد: كانت تعدّ «قيد الترافع» و«محكومة» ولا يكتبهما مسار،
+        // وتُسقط «قيد التحضير» و«صدر الحكم» و«مؤرشفة» من كلّ تبويب
+        $tabs = CaseJourney::clientTabs();
         $counts = [
             'total' => $cases->count(),
-            'active' => $cases->whereIn('status', ['منظورة', 'قيد الترافع', 'جلسة قادمة', 'تحت الدراسة', 'جديدة'])->count(),
+            'active' => $cases->whereIn('status', $tabs['active'])->count(),
             'upcomingHearings' => $upcomingHearingsList->count(),
-            'pendingFees' => $cases->where('feeStatus', 'pending_payment')->count(),
-            'completed' => $cases->whereIn('status', ['محكومة', 'مغلقة', 'مكتملة', 'منتهية'])->count(),
+            'pendingFees' => $cases->whereIn('status', $tabs['fees'])->count(),
+            'completed' => $cases->whereIn('status', $tabs['completed'])->count(),
         ];
 
         return Inertia::render('cases', [
             'cases' => $cases,
             'counts' => $counts,
+            'tabs' => $tabs,
             'upcomingHearings' => $upcomingHearingsList,
         ]);
     }
@@ -85,10 +92,13 @@ class CaseController extends Controller
                 'feeStatus' => $case->fee_status,
                 'installmentsPaid' => $case->installments_paid,
                 'installmentsTotal' => $case->installments_total,
+                // بيانات الرفع والقيد في ناجز (الخطّة ب) — رقم القضيّة يصل العميل بعد القيد
+                'najiz' => $case->najizCard(),
+                'appeal' => $case->appealCard(),
             ],
             'channel' => 'case.'.$case->id,
             // العميل: بلا ملاحظات داخليّة وبلا مخرجٍ محجوب بانتظار اعتماد محامٍ
-            'messages' => $case->messages()->visibleTo(false)->get()->map->toMessage(),
+            'messages' => LawyerName::inMessages(ConversationFiles::linkLegacyChips($case->messages()->visibleTo(false)->get()->map->toMessage()->all(), 'case', $case->documents)),
             'hearings' => $case->hearings->map->toData(),
             'documents' => $case->documents->map(fn ($d) => $d->toData(auth()->user())),
         ]);
@@ -116,7 +126,7 @@ class CaseController extends Controller
         // رسالة في محادثة القضية (تُبثّ لحظياً تلقائياً عبر CaseMessage::booted)
         $case->messages()->create([
             'who' => 'client', 'name' => 'أنت', 'role' => 'العميل',
-            'body' => '<p>تم إرفاق مستند:</p><div class="doc-list"><span class="doc-chip">📎 '.e($name).'</span></div>',
+            'body' => '<p>تم إرفاق مستند:</p><div class="doc-list">'.ConversationFiles::chip('case', $doc).'</div>',
             'time_label' => $this->clock(),
         ]);
         $case->update(['update_text' => 'أرفق العميل مستنداً: '.$name]);
@@ -151,7 +161,9 @@ class CaseController extends Controller
         ]);
 
         $body = $data['body'];
-        GenerateCaseReplyJob::dispatch($case, $body);
+        if ($request->user()->isClient()) {
+            GenerateCaseReplyJob::dispatch($case, $body);
+        }
 
         return response()->noContent();
     }
@@ -190,9 +202,14 @@ class CaseController extends Controller
         $paymentId = (string) $request->query('id', '');
         $payment = $paymentId !== '' ? app(MoyasarService::class)->fetchPayment($paymentId) : null;
 
-        // اربط الدفعة بفاتورة هذه القضية تحديدًا (لا تسوية دفعة تخصّ فاتورة أخرى)
-        $ref = Invoice::where('case_id', $case->id)->latest('id')->value('gateway_ref');
-        $belongs = $payment !== null && $ref !== null && (string) ($payment['invoice_id'] ?? '') === (string) $ref;
+        // اربط الدفعة بفاتورة هذه القضية تحديدًا (لا تسوية دفعة تخصّ فاتورة أخرى).
+        // **والمطابقة بأيّ فاتورةٍ لهذه القضيّة لا بأحدثها**: بعد فتح خطّة التقسيط صارت
+        // للقضيّة ثلاث فواتير، فيعود العميل من سداد الدفعة الأولى ومرجعُ البوّابة على
+        // فاتورتها بينما `latest('id')` هي الثالثة — فلا يُطابَق، ويُقال له «تعذّر تأكيد
+        // الدفع» على مالٍ خُصم فعلاً.
+        $gatewayRef = (string) ($payment['invoice_id'] ?? '');
+        $belongs = $payment !== null && $gatewayRef !== ''
+            && Invoice::where('case_id', $case->id)->where('gateway_ref', $gatewayRef)->exists();
 
         if ($belongs && PaymentReconciler::settle($payment, 'callback')) {
             return redirect()->route('cases.show', $case)->with('success', 'تم تأكيد سداد الأتعاب وتفعيل القضية.');

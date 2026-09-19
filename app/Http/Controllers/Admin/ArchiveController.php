@@ -6,10 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Consult;
 use App\Models\Ticket;
 use App\Support\RecordingArchive;
-use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * أرشيف الاستشارات — الاستشارات المنتهية الحقيقية (تسجيلاتها وملخصاتها) بدل مصفوفة ARCHIVE،
@@ -40,8 +38,9 @@ class ArchiveController extends Controller
                     'summary' => $c->summary,
                     'hasSummary' => ! empty($c->summary),
                     'decisions' => $c->decisions ?? [],
-                    // مخرجات Zoom السحابية
-                    'recording' => $c->recording_url ?: $c->zoom_share_url,
+                    // مخرجات الجلسة عبر الخادم — رابط سحابة Zoom لا يُرسل (كان زرّ «مشاهدة السحابة» يفتحه خارج النظام)
+                    'stream' => $hasZoom ? route('admin.consults.stream', ['consult' => $c, 'type' => 'video'], absolute: false) : null,
+                    'audioStream' => ($c->meet_id || $c->zoom_audio_url) ? route('admin.consults.stream', ['consult' => $c, 'type' => 'audio'], absolute: false) : null,
                     'zip' => $hasZoom ? route('admin.consults.recording', $c, absolute: false) : null,
                     'audioZip' => ($c->meet_id || $c->zoom_audio_url) ? route('admin.consults.audio', $c, absolute: false) : null,
                     'transcript' => ($c->transcript_path || $c->meet_id) ? route('admin.consults.transcript', $c, absolute: false) : null,
@@ -64,27 +63,5 @@ class ArchiveController extends Controller
         return Inertia::render('admin/archive', ['rows' => $rows]);
     }
 
-    // فيديو جلسة الاستشارة مضغوطاً ZIP (جلب خادمي من سحابة Zoom)
-    public function recording(Consult $consult): StreamedResponse|RedirectResponse
-    {
-        abort_unless($consult->session === 'منتهية', 404, 'لا تسجيل لهذه الاستشارة — جلستها لم تنعقد.');
-
-        return RecordingArchive::download($consult, 'video');
-    }
-
-    // صوت الجلسة (M4A) مضغوطاً ZIP
-    public function audio(Consult $consult): StreamedResponse|RedirectResponse
-    {
-        abort_unless($consult->session === 'منتهية', 404, 'لا تسجيل لهذه الاستشارة — جلستها لم تنعقد.');
-
-        return RecordingArchive::download($consult, 'audio');
-    }
-
-    // النصّ التفريغي للجلسة (txt) — المحلي إن وُجد وإلا يُجلب من السحابة ويُحفظ
-    public function transcript(Consult $consult): StreamedResponse
-    {
-        abort_unless($consult->session === 'منتهية', 404, 'لا نصّ لهذه الاستشارة — جلستها لم تنعقد.');
-
-        return RecordingArchive::transcript($consult);
-    }
+    // تنزيل مخرجات الجلسة وتشغيلها انتقل إلى Staff\ConsultRecordingController — مصدرٌ واحد لأدوار المكتب الثلاثة
 }

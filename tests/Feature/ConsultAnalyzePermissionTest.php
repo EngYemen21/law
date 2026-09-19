@@ -55,7 +55,7 @@ class ConsultAnalyzePermissionTest extends TestCase
     {
         return Consult::create([
             'user_id' => $client->id, 'ref' => 'CN-ANL-'.uniqid(), 'subject' => 'نزاع تجاري مع مورّد',
-            'type' => 'تجاري', 'channel' => 'مرئية', 'status' => 'قيد مراجعة الموظف',
+            'type' => 'تجاري', 'channel' => 'مرئية', 'status' => 'جديدة',
             'session' => 'بانتظار الجلسة', 'tone' => 'b-cyan',
             'lawyer' => $lawyer?->name ?: 'المستشار القانوني',
             'assigned_lawyer_id' => $lawyer?->id,
@@ -75,7 +75,7 @@ class ConsultAnalyzePermissionTest extends TestCase
         $this->actingAs($employee)->post(route('employee.consults.analyze', $consult));
 
         $fresh = $consult->fresh();
-        $this->assertSame('قيد مراجعة الموظف', $fresh->status, 'ولا تتقدّم الحالة');
+        $this->assertSame('جديدة', $fresh->status, 'ولا تتقدّم الحالة');
         $this->assertFalse((bool) $fresh->ai_done);
         $this->assertSame('', (string) $fresh->ai_summary, 'ولا يُكتب تحليل');
         $this->assertSame($runsBefore, AiRun::count(), 'ولا نداءَ للنموذج');

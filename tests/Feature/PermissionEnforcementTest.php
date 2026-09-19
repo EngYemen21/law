@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
@@ -79,10 +80,14 @@ class PermissionEnforcementTest extends TestCase
             'role' => Role::Employee, 'national_id' => '2000000002', 'phone' => '0590000002', 'status' => 'suspended',
         ]);
 
-        // الموقوف يُرفض عند طلب رمز الدخول (مع تهيئة تقنيات كي نصل لفحص الإيقاف)
-        $this->fakeTaqnyatVerify();
+        // الموقوف لا يصله رمز ولا يقبل منه رمز (مع تهيئة تقنيات كي نصل لفحص الإيقاف) —
+        // والردّ نفسه ردّ أيّ هويّة كي لا يكشف طلب الرمز أنّ الحساب موجود وموقوف
+        $this->fakeTaqnyatVerify('1234');
         $this->post('/auth/otp/request', ['national_id' => '2000000002'])
-            ->assertSessionHasErrors('national_id');
+            ->assertRedirect(route('login'))
+            ->assertSessionHasNoErrors();
+        Http::assertNothingSent();
+        $this->post('/auth/otp/verify', ['code' => '1234'])->assertSessionHasErrors('code');
         $this->assertGuest();
     }
 

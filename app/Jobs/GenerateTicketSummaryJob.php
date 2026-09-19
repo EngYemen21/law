@@ -65,6 +65,9 @@ class GenerateTicketSummaryJob implements ShouldQueue
         // لا نكتب فوق ملخّص اعتمده المحامي، ولا على تذكرة منتهية
         if ($summary === null
             || $summary->approved_at !== null
+            // اعتمده المستشار (بانتظار الإدارة)، أو حرّره بيده — لا يُكتب فوقه (ع٢٦)
+            || $summary->status !== 'awaiting_lawyer'
+            || $summary->edited_at !== null
             || ($summary->ai_generated && ! $this->force)
             || in_array($ticket->status, ['مكتملة', 'مغلقة'], true)) {
             return;
@@ -96,7 +99,21 @@ class GenerateTicketSummaryJob implements ShouldQueue
                 'ai_generated' => true,
             ]);
 
+            $suggestion = $ai->suggestTicketTrack($ticket, $parts);
+            $ticket->update([
+                'ai_suggested_track' => $suggestion['track'],
+                'ai_suggested_reason' => $suggestion['reason'],
+            ]);
+
             return;
+        }
+
+        if (! $ticket->ai_suggested_track) {
+            $suggestion = $ai->suggestTicketTrack($ticket, $parts);
+            $ticket->update([
+                'ai_suggested_track' => $suggestion['track'],
+                'ai_suggested_reason' => $suggestion['reason'],
+            ]);
         }
 
         // فشل الآن وأصبح المزوّد مهدّأً (السبب حصّة) → أعد المحاولة لاحقاً (النائب «بانتظار» يبقى)

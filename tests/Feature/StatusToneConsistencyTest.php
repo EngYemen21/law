@@ -3,7 +3,7 @@
 namespace Tests\Feature;
 
 use App\Support\CaseJourney;
-use App\Support\ExecJourney;
+use App\Support\ExecFlow;
 use App\Support\TicketJourney;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -44,13 +44,20 @@ class StatusToneConsistencyTest extends TestCase
         }
     }
 
+    /**
+     * حالات التنفيذ التي يكتبها الخادم فعلاً هي أسماء مراحل `ExecFlow` وحدها: `ExecService::sync`
+     * يكتب `label($stage)` و`tone($stage)` معاً من الفهرس نفسه، فلا قائمتان تتباعدان أصلاً.
+     *
+     * وكان هذا الاختبار يقيس كتالوج `ExecJourney` — حالاتٌ («جارٍ»، «تجهيز السند التنفيذي»،
+     * «مكتمل»…) **لا يكتبها أيّ مسار في المنظومة**، فكان يحرس قائمةً ميتة ويُعطي ثقةً كاذبة
+     * بأن حالات التنفيذ محروسة. حُذف الكتالوج، وصار القياس على ما يُكتب حقاً.
+     */
     public function test_every_exec_status_the_server_writes_has_a_declared_tone(): void
     {
-        $written = ['جديد', 'تجهيز السند التنفيذي', 'مقيّد لدى محكمة التنفيذ', 'جارٍ', 'مكتمل', 'مغلق'];
-
-        foreach ($written as $status) {
-            $this->assertArrayHasKey($status, ExecJourney::STATUSES, "حالة «{$status}» غير معرّفة في ExecJourney");
-            $this->assertStringStartsWith('b-', ExecJourney::toneFor($status));
+        foreach (ExecFlow::FLOW as $stage => $status) {
+            $this->assertNotEmpty($status);
+            $this->assertSame($status, ExecFlow::label($stage), "المرحلة {$stage} تُسمّى «{$status}»");
+            $this->assertStringStartsWith('b-', ExecFlow::tone($stage), "نغمة «{$status}» يجب أن تكون من مفردات الشارات");
         }
     }
 
@@ -61,11 +68,6 @@ class StatusToneConsistencyTest extends TestCase
             $this->assertSame($meta['at'], CaseJourney::stage($status));
             $this->assertSame($meta['tone'], CaseJourney::toneFor($status));
         }
-
-        foreach (ExecJourney::STATUSES as $status => $meta) {
-            $this->assertSame($meta['at'], ExecJourney::stage($status));
-            $this->assertSame($meta['tone'], ExecJourney::toneFor($status));
-        }
     }
 
     public function test_journey_stages_stay_within_their_flowline_bounds(): void
@@ -75,9 +77,9 @@ class StatusToneConsistencyTest extends TestCase
             $this->assertLessThan(count(CaseJourney::LIFE), $meta['at'], "مرحلة «{$status}» خارج CASE_LIFE");
         }
 
-        foreach (ExecJourney::STATUSES as $status => $meta) {
-            $this->assertLessThan(count(ExecJourney::LIFE), $meta['at'], "مرحلة «{$status}» خارج EXEC_LIFE");
-        }
+        // ومسار التنفيذ: «مغلق» آخر خطوةٍ معروضة، والفهرس الخارج يسقط على الأولى لا على فراغ
+        $this->assertSame('مغلق', ExecFlow::FLOW[count(ExecFlow::FLOW) - 1]);
+        $this->assertSame(ExecFlow::FLOW[0], ExecFlow::label(count(ExecFlow::FLOW)));
 
         foreach (TicketJourney::statuses() as $status) {
             $this->assertLessThan(count(TicketJourney::STAGES), TicketJourney::indexOf($status));

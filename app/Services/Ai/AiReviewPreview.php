@@ -135,10 +135,15 @@ class AiReviewPreview
             return null;
         }
 
+        // المقترح بجوار الحاليّ — يُعتمد ما يُقرأ، ويطبّقه `AiReviewOutcome` عند القبول
+        $proposal = is_array($case->ai_classification) ? $case->ai_classification : [];
+
         return collect([
             'القضيّة' => $case->number,
             'النوع' => $case->type,
             'القسم' => $case->department,
+            'النوع المقترح' => $proposal['type'] ?? null,
+            'القسم المقترح' => $proposal['department'] ?? null,
         ])->filter(fn ($v) => filled($v))->map(fn ($v, $k) => "【{$k}】 {$v}")->implode('
 ');
     }

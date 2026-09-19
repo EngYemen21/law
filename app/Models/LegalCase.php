@@ -2,8 +2,11 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\GuardsJourneyState;
 use App\Models\Concerns\ClipsPreviewText;
+use App\Models\Concerns\LinksLegalDepartment;
 use App\Models\Concerns\PurgesDocumentFiles;
+use App\Support\LawyerName;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -12,6 +15,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class LegalCase extends Model
 {
     use ClipsPreviewText, PurgesDocumentFiles;
+    use GuardsJourneyState;
+    use LinksLegalDepartment;
 
     /** سطر المعاينة في بطاقات القوائم — varchar(255) يستقبل نصّ المستخدم بلا سقف. */
     protected array $previewText = ['update_text'];
@@ -21,10 +26,36 @@ class LegalCase extends Model
 
     protected $fillable = [
         'user_id', 'ticket_id', 'number', 'type', 'assigned_lawyer', 'assigned_lawyer_id', 'department', 'status', 'tone',
+        'legal_department_id',
         'update_text', 'next_hearing', 'invoice_text', 'paid_text', 'fee', 'fee_status',
         'lawyer_fee', 'lawyer_pct', 'pleading_status', 'ruling',
         'pay_plan', 'installments_total', 'installments_paid',
+        // مقترح `case.classify` بانتظار المراجعة — يطبّقه `AiReviewOutcome` عند القبول
+        'ai_classification',
+        // بيانات الرفع والقيد في ناجز (الخطّة ب — 2026-09-11)
+        'najiz_request_no', 'filed_at', 'najiz_case_no', 'court', 'circuit', 'registered_at',
+        // تسبيب الإغلاق (المرحلة ب — 2026-09-16)
+        'closure_reason', 'closure_notes', 'closed_at',
+        // مسار الاستئناف والاعتراض (المرحلة د — 2026-09-16)
+        'appeal_status', 'appeal_deadline_at', 'appeal_request_no', 'appeal_court', 'appeal_circuit',
+        'appeal_ruling', 'appeal_filed_at', 'appeal_judged_at',
     ];
+
+    protected $casts = [
+        'ai_classification' => 'array',
+        'filed_at' => 'date',
+        'registered_at' => 'date',
+        'closed_at' => 'datetime',
+        'appeal_deadline_at' => 'date',
+        'appeal_filed_at' => 'date',
+        'appeal_judged_at' => 'date',
+    ];
+
+    /** قسم القضيّة في `department` — يُربط بالكتالوج عند الحفظ (ومنه اعتماد تصنيف الذكاء). */
+    protected function legalDepartmentSource(): string
+    {
+        return 'department';
+    }
 
     public function user(): BelongsTo
     {
@@ -54,7 +85,10 @@ class LegalCase extends Model
 
     public function documents(): HasMany
     {
-        return $this->hasMany(CaseDocument::class, 'case_id')->orderBy('id');
+        // **الأحدث أوّلاً.** كانت تصاعديّةً فيظهر المستند المرفوع الآن في ذيل القائمة —
+        // وشاشة المحامي وحدها كانت تفرزها في المتصفّح، فترى ثلاثُ شاشاتٍ تعرض العلاقة
+        // نفسها ترتيبين مختلفين. والإجراءات والرسائل تبقى تصاعديّةً لأنّها خطٌّ زمنيّ.
+        return $this->hasMany(CaseDocument::class, 'case_id')->orderByDesc('id');
     }
 
     public function execution(): HasOne
@@ -106,6 +140,63 @@ class LegalCase extends Model
         return $hasHearings ? '—' : ((string) $this->next_hearing ?: '—');
     }
 
+    /**
+     * بيانات الرفع والقيد في ناجز للعرض — `null` ما لم تُرفع. رقم الطلب يُسجَّل عند الرفع،
+     * ورقم القضيّة والمحكمة والدائرة عند القيد (`CaseFiling`).
+     *
+     * @return array{requestNo: ?string, filedAt: ?string, caseNo: ?string, court: ?string, circuit: ?string, registeredAt: ?string}|null
+     */
+    public function najizCard(): ?array
+    {
+        if ($this->najiz_request_no === null && $this->najiz_case_no === null) {
+            return null;
+        }
+
+        $date = fn ($d) => $d?->locale('ar')->translatedFormat('d F Y');
+
+        return [
+            'requestNo' => $this->najiz_request_no,
+            'filedAt' => $date($this->filed_at),
+            'caseNo' => $this->najiz_case_no,
+            'court' => $this->court,
+            'circuit' => $this->circuit,
+            'registeredAt' => $date($this->registered_at),
+        ];
+    }
+
+    /**
+     * بيانات مسار الاستئناف إن وُجدت.
+     *
+     * @return array{status: string, statusLabel: string, deadlineAt: ?string, daysRemaining: ?int, isDeadlineOver: bool, requestNo: ?string, court: ?string, circuit: ?string, ruling: ?string, filedAt: ?string, judgedAt: ?string}|null
+     */
+    public function appealCard(): ?array
+    {
+        if ($this->appeal_status === null) {
+            return null;
+        }
+
+        $date = fn ($d) => $d?->locale('ar')->translatedFormat('d F Y');
+
+        return [
+            'status' => $this->appeal_status,
+            'statusLabel' => match ($this->appeal_status) {
+                'pending_appeal' => 'بانتظار الاستئناف / مهلة الاعتراض',
+                'appeal_filed' => 'تم قيد الاستئناف',
+                'appeal_judged' => 'صدر حكم الاستئناف',
+                default => $this->appeal_status,
+            },
+            'deadlineAt' => $date($this->appeal_deadline_at),
+            'daysRemaining' => $this->appeal_deadline_at ? max(0, (int) now()->diffInDays($this->appeal_deadline_at, false)) : null,
+            'isDeadlineOver' => $this->appeal_deadline_at ? now()->greaterThan($this->appeal_deadline_at) : false,
+            'requestNo' => $this->appeal_request_no,
+            'court' => $this->appeal_court,
+            'circuit' => $this->appeal_circuit,
+            'ruling' => $this->appeal_ruling,
+            'filedAt' => $date($this->appeal_filed_at),
+            'judgedAt' => $date($this->appeal_judged_at),
+        ];
+    }
+
     // الشكل الذي تتوقعه الواجهة (يطابق DATA.cases مع تفاصيل الجلسة والمستشار والمحكمة)
     public function toCard(): array
     {
@@ -123,8 +214,10 @@ class LegalCase extends Model
             'feeStatus' => $this->fee_status,
             'invoice' => $this->invoice_text,
             'department' => $this->department,
-            'assignedLawyer' => $this->assigned_lawyer ?: ($this->assignedLawyer?->name ?? 'المستشار المخصص'),
-            'court' => $nextLive?->court ?: ($firstHearing?->court ?? 'المحكمة المختصة'),
+            'assignedLawyer' => LawyerName::forClient($this->assigned_lawyer_id ? $this->assignedLawyer : null, $this->assigned_lawyer, 'المستشار المخصص'),
+            'court' => $this->court ?: ($nextLive?->court ?: ($firstHearing?->court ?? 'المحكمة المختصة')),
+            'najiz' => $this->najizCard(),
+            'appeal' => $this->appealCard(),
             'nextHearing' => $nextLive ? [
                 'id' => $nextLive->id,
                 'title' => $nextLive->title,

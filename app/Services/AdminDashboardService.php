@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\Role;
 use App\Models\CaseHearing;
 use App\Models\Consult;
+use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Meeting;
@@ -17,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 class AdminDashboardService
 {
     private const CLOSED_TICKETS = ['مكتملة', 'مغلقة'];
+
     private const CLOSED_CASES = ['مغلقة', 'مؤرشفة'];
 
     public function get360Data(bool $bypassCache = false): array
@@ -32,11 +34,6 @@ class AdminDashboardService
         return Cache::remember($cacheKey, 180, fn () => $this->compute360Metrics());
     }
 
-    public static function flushCache(): void
-    {
-        Cache::forget('admin:dashboard:360:metrics_v1');
-    }
-
     private function compute360Metrics(): array
     {
         $now = now();
@@ -46,14 +43,14 @@ class AdminDashboardService
 
         // 1. المالية (Invoices)
         $invoiceStats = DB::table('invoices')
-            ->selectRaw("
+            ->selectRaw('
                 COALESCE(SUM(amount), 0) as total_billed,
                 COALESCE(SUM(CASE WHEN paid = 1 THEN amount ELSE 0 END), 0) as total_collected,
                 COALESCE(SUM(CASE WHEN paid = 0 THEN amount ELSE 0 END), 0) as total_unpaid,
                 COUNT(CASE WHEN paid = 0 AND due_at IS NOT NULL AND due_at < ? THEN 1 END) as overdue_count,
                 COALESCE(SUM(CASE WHEN paid = 1 AND updated_at >= ? THEN amount ELSE 0 END), 0) as current_month_collected,
                 COALESCE(SUM(CASE WHEN paid = 1 AND updated_at >= ? AND updated_at <= ? THEN amount ELSE 0 END), 0) as prev_month_collected
-            ", [$now->toDateString(), $startOfMonth, $startOfPrevMonth, $endOfPrevMonth])
+            ', [$now->toDateString(), $startOfMonth, $startOfPrevMonth, $endOfPrevMonth])
             ->first();
 
         $totalBilled = (int) ($invoiceStats->total_billed ?? 0);
@@ -82,33 +79,52 @@ class AdminDashboardService
             ->selectRaw("
                 COUNT(*) as total_cases,
                 COUNT(CASE WHEN status NOT IN ('مغلقة', 'مؤرشفة') THEN 1 END) as active_cases,
-                COUNT(CASE WHEN status IN ('مكتملة', 'مغلقة') THEN 1 END) as closed_cases
+                COUNT(CASE WHEN status IN ('مغلقة', 'مؤرشفة') THEN 1 END) as closed_cases
             ")
             ->first();
 
         // 4. التنفيذ
+        // **الطلب المرفوض ليس ملفّاً نشطاً.** `ExecService::reject` يكتب القرار ولا ينقل المرحلة
+        // عمداً (المرفوض ليس مغلقاً)، فكان يُعَدّ في «التنفيذات النشطة» وتُجمع قيمة مطالبته في
+        // المبلغ النشط — رقمٌ ماليّ في لوحة الإدارة يضمّ طلباتٍ لن تُنفَّذ. و`decision` تقبل NULL،
+        // فالمقارنة تُكتب NULL-safe وإلّا أسقطت كلّ طلبٍ لم يُبتّ فيه بعد.
+        // والشرط مرّةً واحدة (كان مكرّراً حرفياً في العدّ والمجموع)، وحالتا الإنهاء من `Execution`.
+        $closedExecs = "'".implode("','", Execution::CLOSED_STATUSES)."'";
+        $activeExec = "(stage IS NULL OR stage < 9) AND status NOT IN ({$closedExecs}) AND (decision IS NULL OR decision <> 'مرفوض')";
+
         $execStats = DB::table('executions')
             ->selectRaw("
                 COUNT(*) as total_execs,
-                COUNT(CASE WHEN stage IS NULL OR stage < 9 THEN 1 END) as active_execs,
-                COALESCE(SUM(CASE WHEN stage IS NULL OR stage < 9 THEN amount ELSE 0 END), 0) as active_amount
+                COUNT(CASE WHEN {$activeExec} THEN 1 END) as active_execs,
+                COALESCE(SUM(CASE WHEN {$activeExec} THEN amount ELSE 0 END), 0) as active_amount
             ")
             ->first();
 
-        // 5. الاستشارات والاجتماعات
+        /*
+         * 5. الاستشارات والاجتماعات
+         *
+         * **«قادمة» تعني قادمةً فعلاً.** كان العدّاد `status IN ('جديدة','بانتظار الجلسة')`
+         * بلا أيّ قيدٍ زمنيّ ولا قيدِ قناة، والشاشة تعرضه «{n} استشارة **مرئية قادمة**»:
+         * فاستشارةٌ حالتُها «جديدة» منذ ثلاثة أسابيع فات موعدها تُعدّ موعداً آتياً. وفيه
+         * خللٌ ثانٍ: `'بانتظار الجلسة'` قيمةٌ من عمود `session` لا من `status`
+         * (‏`Consult::SESSIONS` مقابل `Consult::STATUSES`)، فنصف الشرط ميّتٌ لا يطابق صفّاً.
+         * القياس الآن يطابق ما تقوله الشاشة: مرئيّةٌ، جلستُها لم تنتهِ، وموعدُها آتٍ.
+         */
         $consultStats = DB::table('consults')
             ->selectRaw("
                 COUNT(*) as total_consults,
                 COUNT(CASE WHEN status = 'بانتظار التسعير' THEN 1 END) as pending_price,
-                COUNT(CASE WHEN status IN ('جديدة', 'بانتظار الجلسة') THEN 1 END) as upcoming_sessions
-            ")
+                COUNT(CASE WHEN channel = 'مرئية' AND session NOT IN ('منتهية', 'لم تُعقد')
+                    AND starts_at IS NOT NULL AND starts_at > ? THEN 1 END) as upcoming_sessions
+            ", [now()])
             ->first();
 
         $pendingMeetingApprovals = Meeting::where('approve', '!=', 'معتمد')
             ->where('status', 'منتهٍ')
             ->count();
 
-        $pendingSummaryApprovals = TicketSummary::whereNull('approved_at')->count();
+        // ما ينتظر الإدارة وحدها — كان `whereNull('approved_at')` يعدّ ما لم يعتمده المحامي بعد أيضاً
+        $pendingSummaryApprovals = TicketSummary::where('status', 'awaiting_admin')->count();
 
         // 6. رادار الإجراءات العاجلة
         $actionRadar = [];
@@ -211,11 +227,14 @@ class AdminDashboardService
                     ->whereNotIn('status', self::CLOSED_TICKETS)
                     ->count();
 
-                $upcomingConsults = Consult::where('assigned_lawyer_id', $lawyer->id)
-                    ->whereIn('status', ['جديدة', 'بانتظار الجلسة'])
+                // **حملٌ لا إعلان.** يُقاس بالاستشارات المفتوحة على المحامي — والمفتوحُ عملٌ
+                // قائمٌ مهما طال، فلا قيدَ زمنيّ هنا (بخلاف عدّاد «قادمة» أعلاه). وأُسقطت
+                // `'بانتظار الجلسة'`: قيمةُ عمود `session` لا `status`، فلم تكن تطابق شيئاً.
+                $openConsults = Consult::where('assigned_lawyer_id', $lawyer->id)
+                    ->whereNotIn('status', Consult::CLOSED_STATUSES)
                     ->count();
 
-                $workloadScore = ($activeCases * 3) + ($activeTickets * 1.5) + ($upcomingConsults * 2);
+                $workloadScore = ($activeCases * 3) + ($activeTickets * 1.5) + ($openConsults * 2);
                 $status = $workloadScore < 8 ? 'available' : ($workloadScore <= 20 ? 'moderate' : 'high');
 
                 return [
@@ -226,7 +245,7 @@ class AdminDashboardService
                     'initials' => $lawyer->avatar_initials ?: 'مح',
                     'activeCases' => $activeCases,
                     'activeTickets' => $activeTickets,
-                    'upcomingConsults' => $upcomingConsults,
+                    'upcomingConsults' => $openConsults,
                     'status' => $status,
                 ];
             });
@@ -271,6 +290,8 @@ class AdminDashboardService
                 'title' => 'تذكرة جديدة #'.$t->number,
                 'sub' => ($t->user?->name ?? 'عميل').' · '.($t->type ?: 'طلب عام'),
                 'time' => $t->created_at?->locale('ar')->diffForHumans() ?? 'الآن',
+                // مرساةٌ زمنيّة للفرز — `time` نصٌّ مقروء لا يصلح مفتاحاً، و`id` نصٌّ ببادئة
+                'at' => $t->created_at?->getTimestamp() ?? 0,
                 'tag' => 'تذاكر',
                 'tone' => 'cyan',
             ]))
@@ -280,6 +301,8 @@ class AdminDashboardService
                 'title' => 'قضية #'.$c->number,
                 'sub' => ($c->user?->name ?? 'عميل').' · '.($c->type ?: 'دعوى قضائية'),
                 'time' => $c->created_at?->locale('ar')->diffForHumans() ?? 'الآن',
+                // مرساةٌ زمنيّة للفرز — `time` نصٌّ مقروء لا يصلح مفتاحاً، و`id` نصٌّ ببادئة
+                'at' => $c->created_at?->getTimestamp() ?? 0,
                 'tag' => 'قضايا',
                 'tone' => 'blue',
             ]))
@@ -289,10 +312,14 @@ class AdminDashboardService
                 'title' => 'استشارة #'.$cn->ref,
                 'sub' => ($cn->user?->name ?? 'عميل').' · '.($cn->channel ?: 'مرئية'),
                 'time' => $cn->created_at?->locale('ar')->diffForHumans() ?? 'الآن',
+                // مرساةٌ زمنيّة للفرز — `time` نصٌّ مقروء لا يصلح مفتاحاً، و`id` نصٌّ ببادئة
+                'at' => $cn->created_at?->getTimestamp() ?? 0,
                 'tag' => 'استشارات',
                 'tone' => 'green',
             ]))
-            ->sortByDesc(fn ($item) => $item['id'])
+            // **الفرز بالزمن لا بالنصّ.** كان `$item['id']` نصّاً ببادئة (`'t-12'`/`'c-3'`)،
+            // فيفرز معجميّاً: كلّ التذاكر أوّلاً ثمّ الاستشارات ثمّ القضايا، و`t-9` فوق `t-10`.
+            ->sortByDesc('at')
             ->take(8)
             ->values();
 

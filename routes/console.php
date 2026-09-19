@@ -38,6 +38,12 @@ Schedule::command('hearings:auto-lapse')->hourly()->withoutOverlapping();
 // تذكير بسداد فواتير أتعاب التنفيذ المستحقة
 Schedule::command('exec:send-payment-reminders')->everyThirtyMinutes()->withoutOverlapping();
 
+// تنبيه المكتب بانقضاء مهلة الوفاء (أمر التنفيذ) على ملفّات بلا إجراءات عدم وفاء
+Schedule::command('exec:send-paydue-alerts')->hourly()->withoutOverlapping();
+
+// إعادة جدولة دراسة التنفيذ المتعذّرة — لا قالب يملأ فراغ الذكاء، والمحاولة تُعاد
+Schedule::command('exec:retry-study')->hourly()->withoutOverlapping();
+
 // حسم المواعيد التي فات وقتها — الكيان الوحيد الذي كانت حالته تُشتقّ ولا تُكتب
 Schedule::command('appointments:auto-lapse')->everyFifteenMinutes()->withoutOverlapping();
 

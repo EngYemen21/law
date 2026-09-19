@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\PurgesStoredFile;
+use App\Support\ConversationFiles;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -34,10 +35,20 @@ class ExecutionDocument extends Model
             'status' => $this->status,
             'tone' => self::statusTone($this->status),
             'fileName' => $this->path ? basename((string) $this->path) : null,
+            // الموظّف بلا «تنزيل مرفقات الملفات» يرى الاسم بلا رابطٍ يردّه الخادم (`downloadDocument`)
+            'canDownload' => $this->path !== null && self::viewerMayDownload(),
             'canUpload' => in_array($this->status, ['مطلوب', 'مرفوض'], true),
             'docType' => $this->doc_type ?? '',
             'summary' => $this->summary ?? '',
         ];
+    }
+
+    /** الشرط الإضافيّ على الموظّف وحده؛ بقيّة الأدوار كما يحرسها `ExecFlowController::downloadDocument`. */
+    private static function viewerMayDownload(): bool
+    {
+        $viewer = auth()->user();
+
+        return $viewer === null || ! $viewer->isEmployee() || ConversationFiles::employeeMayDownload($viewer);
     }
 
     // نغمة حالة المستند (يطابق exDocStatusTone)

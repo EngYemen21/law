@@ -4,10 +4,7 @@ import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
 import { useBodyScrollLock } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
-// **النسخة التي تُخفي فعلاً.** `admin-data` يصدّر `maskClient` وهي
-// `return name || '—'` — لا تُخفي شيئاً. وشاشات الموظّف الأخرى
-// (`consult-ui`) تستعمل نسخة `employee-data` المُخفية. فالشاشة كانت
-// تنادي دالّةً باسمٍ يَعِد بما لا يفعل، في ستّة مواضع.
+// اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
 import { maskClient } from '@/lib/employee-data';
 import { RichText, sessTone, SummaryStateBadge } from '@/lib/consult-ui';
 import type { ConsultCard, LawyerOpt } from '@/lib/consult-ui';
@@ -238,7 +235,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
       return new Date(c.startsAt).toDateString() === new Date().toDateString();
     }).length;
     const preSession = allItems.filter((c) =>
-      ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'].includes(c.status)
+      CONSULT_BOOKING_STATUSES.includes(c.status)
     ).length;
     const completed = allItems.filter(
       (c) => CONSULT_TERMINAL_STATUSES.includes(c.status)
@@ -247,7 +244,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
     // وإحالته للمحامي. كانت الشاشة تعطي حبّةً لطلبات ما قبل الجلسة (وهي شغل الإدارة)
     // ولا تعطي حبّةً لما يشتغل عليه الموظّف نفسه، فلا يجد ملفّاته إلا في «الكل».
     const inProgress = allItems.filter((c) =>
-      ['قيد مراجعة الموظف', 'بانتظار اعتماد الموظف', 'محالة للمحامي'].includes(c.status)
+      ['بانتظار اعتماد الموظف', 'محالة للمحامي'].includes(c.status)
     ).length;
     const toCase = allItems.filter((c) => !!c.caseNo).length;
 
@@ -309,7 +306,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
       ) return false;
       if (
         categoryFilter === 'in_progress' &&
-        ! ['قيد مراجعة الموظف', 'بانتظار اعتماد الموظف', 'محالة للمحامي'].includes(c.status)
+        ! ['بانتظار اعتماد الموظف', 'محالة للمحامي'].includes(c.status)
       ) {
         return false;
       }
@@ -321,7 +318,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
       ) return false;
       if (
         categoryFilter === 'pre_session' &&
-        !['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'].includes(c.status)
+        !CONSULT_BOOKING_STATUSES.includes(c.status)
       ) return false;
       if (
         categoryFilter === 'completed' &&
@@ -402,7 +399,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
       return;
     }
 
-    if (['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'].includes(consult.status)) {
+    if (CONSULT_BOOKING_STATUSES.includes(consult.status)) {
       toast('لا يمكن إسناد الاستشارة وهي في مرحلة ما قبل الجلسة حتى يكتمل التسعير والسداد وحجز الموعد');
       return;
     }
@@ -1164,7 +1161,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                 ) : (
                   <tr>
                     <td colSpan={8} style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}>
-                      لا توجد استشارات مطابقة لمعايير الفرز
+                      {allItems.length === 0 ? 'لا توجد استشارات بعد' : 'لا توجد استشارات مطابقة لمعايير الفرز'}
                     </td>
                   </tr>
                 )}
@@ -1758,7 +1755,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                       اختر المستشار القانوني المطابق للتخصص ثم اضغط تأكيد لتحديث الإسناد ومزامنة التذكرة المرتبطة.
                     </p>
 
-                    {['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'].includes(drawerConsult.status) && (
+                    {CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && (
                       <div style={{ padding: '10px 14px', background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: 8, color: '#b45309', fontSize: 12.5, marginBottom: 12 }}>
                         ⚠️ الاستشارة ما زالت في دورة الحجز والفوترة (<b>{drawerConsult.status}</b>) — لا يمكن إسناد المحامي إلا بعد اكتمال التسعير والسداد وتحديد الموعد.
                       </div>
@@ -1776,7 +1773,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                           fontSize: 13.5,
                           background: '#fff',
                         }}
-                        disabled={isClosed || ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'].includes(drawerConsult.status)}
+                        disabled={isClosed || CONSULT_BOOKING_STATUSES.includes(drawerConsult.status)}
                       >
                         <option value="">-- اختر مستشاراً قانونياً --</option>
                         {lawyersList.map((l) => (
@@ -1794,7 +1791,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                           !selectedLawyerId ||
                           // `refer` يمنع النهايات المُقفَلة على الخادم — فلا يُعرض الزرّ فاعلاً
                           isClosed ||
-                          ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'].includes(drawerConsult.status)
+                          CONSULT_BOOKING_STATUSES.includes(drawerConsult.status)
                         }
                         onClick={() => handleRefer(drawerConsult)}
                         style={{ padding: '9px 16px', fontSize: 13, justifyContent: 'center' }}

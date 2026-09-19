@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Journey\Transitions\Invoice\SubmitPaymentProof;
+use App\Domain\Journey\Workflow;
 use App\Models\Invoice;
 use App\Services\MoyasarService;
 use App\Support\PaymentReconciler;
@@ -31,6 +33,9 @@ class InvoiceController extends Controller
     public function uploadProof(Request $request, Invoice $invoice): RedirectResponse
     {
         abort_unless($invoice->user_id === $request->user()->id, 403);
+        // قبل تخزين الملفّ لا بعده: الرفض بعد التخزين يترك على القرص إثباتاً بلا فاتورة
+        abort_if($invoice->paid, 422, SubmitPaymentProof::PAID);
+        abort_if($invoice->isCancelled(), 422, SubmitPaymentProof::CANCELLED);
 
         // قائمة السماح نفسها المعتمدة في بقيّة الرفوعات — كان يقبل أي امتداد
         $request->validate(['file' => ['required', 'file', 'max:2048', 'mimes:pdf,jpg,jpeg,png,doc,docx']], [ // حتى 2MB (يطابق upload_max_filesize)
@@ -42,12 +47,7 @@ class InvoiceController extends Controller
 
         $path = $request->file('file')->store("invoice-proofs/{$request->user()->id}");
 
-        $invoice->update([
-            'proof_path' => $path,
-            'proof_uploaded_at' => now(),
-            'status' => 'بانتظار مراجعة الإثبات',
-            'tone' => 'b-blue',
-        ]);
+        Workflow::run(new SubmitPaymentProof, $invoice, $request->user(), ['proof_path' => $path]);
 
         return back()->with('success', 'تم استلام إثبات التحويل وسيُراجَع.');
     }
@@ -58,6 +58,8 @@ class InvoiceController extends Controller
     {
         abort_unless($invoice->user_id === $request->user()->id, 403);
         abort_if($invoice->paid, 422, 'الفاتورة مدفوعة بالفعل.');
+        // الملغاة لا تُسدَّد — كان سدادُها يُحيي الاستشارة التي أُلغيت معها (ع١)
+        abort_if($invoice->status === 'ملغاة', 422, 'أُلغيت هذه الفاتورة ولا تُسدَّد.');
         abort_unless(app(MoyasarService::class)->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
 
         $callback = $request->getSchemeAndHttpHost().route('invoices.checkout.callback', $invoice, absolute: false);
@@ -120,7 +122,8 @@ class InvoiceController extends Controller
                     'cellRows' => [[
                         ['رقم الفاتورة', $invoice->number],
                         ['الوصف', $invoice->description],
-                        ['تاريخ الاستحقاق', $invoice->due_label ?: '—'],
+                        // التاريخ الحقيقيّ لا «خلال 3 أيام» المجمَّدة لحظة الإصدار — `Invoice::dueDateText`
+                        ['تاريخ الاستحقاق', $invoice->dueDateText() ?? '—'],
                         ['حالة السداد', $invoice->paid ? 'مدفوعة' : $invoice->status],
                     ]],
                 ],

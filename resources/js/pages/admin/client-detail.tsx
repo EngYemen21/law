@@ -4,6 +4,7 @@ import Badge from '@/components/babylon/Badge';
 // import StatRow from '@/components/babylon/StatRow'; // غير مستخدم — البطاقات تُرسم محليًا بنمط الصفحة
 import type { StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
+import { EXEC_FLOW } from '@/lib/exec-flow';
 import Icon from '@/lib/icons';
 
 interface ClientData {
@@ -567,7 +568,8 @@ const AdminClientDetail: React.FC<Props> = ({
                               <td>{ex.subject}</td>
                               <td className="muted">{ex.defendant}</td>
                               <td className="mono">{ex.amount}</td>
-                              <td><span className="chip">مرحلة {ex.stage}/10</span></td>
+                              {/* اسم المرحلة كشاشة التنفيذ — «مرحلة 8/10» هنا مقابل «قيد التنفيذ» هناك: رقمان لملفٍّ واحد */}
+                              <td><span className="chip">{EXEC_FLOW[ex.stage] ?? '—'}</span></td>
                               <td><Badge text={ex.status} tone={ex.tone} /></td>
                             </tr>
                           ))}

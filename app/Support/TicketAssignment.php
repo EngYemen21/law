@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Transitions\Ticket\ReferOnAssignment;
+use App\Domain\Journey\Workflow;
 use App\Enums\Role;
 use App\Events\TicketStatusBroadcast;
 use App\Jobs\EscalateUnassignedTicketJob;
@@ -31,25 +33,38 @@ class TicketAssignment
             return null;
         }
 
-        $updates = [
-            'assigned_lawyer' => $lawyer->name,
-            'assigned_lawyer_id' => $lawyer->id,
-        ];
-
-        // قفزة «محالة للقسم القانوني» للوضع البشري فقط (وكيل الاستقبال معطّل — كي لا تعلق التذكرة).
-        // مع الوكيل المفعّل كانت تسبق الترحيب فيرتدّ المسار للخلف (محالة ← بانتظار مستندات)،
-        // ويقرأ العميل «تمت الإحالة» قبل أن تُطلب مستنداته، ويُقفَل ردّ AI في فجوة الطابور.
-        if (! TicketTriage::enabled() && in_array($ticket->status, ['جديدة', 'قيد التحليل'], true)) {
-            $updates['status'] = 'محالة للقسم القانوني';
-            $updates['tone'] = TicketJourney::toneFor('محالة للقسم القانوني');
-            $updates['last_message'] = 'تمت إحالة طلبكم إلى القسم القانوني المختص لدراسة الموضوع.';
-            $updates['date_label'] = 'الآن';
-        }
-
-        $ticket->update($updates);
+        self::write($ticket, $lawyer->id, $lawyer->name);
         Live::push(new TicketStatusBroadcast($ticket));
 
         return $lawyer;
+    }
+
+    /**
+     * **كتابة الإسناد — مصدرٌ واحد للمنادين الأربعة** (الإسناد الأوّل · التوزيع الآليّ · التصعيد ·
+     * الإسناد اليدويّ). كان كلٌّ منهم ينسخ الشرط والحقول نفسها ويكتب الحالة مباشرةً.
+     *
+     * قفزة «محالة للقسم القانوني» للوضع البشري فقط (وكيل الاستقبال معطّل — كي لا تعلق التذكرة)،
+     * وتمرّ بالمحرّك (`ReferOnAssignment`). مع الوكيل المفعّل كانت تسبق الترحيب فيرتدّ المسار
+     * للخلف (محالة ← بانتظار مستندات)، ويقرأ العميل «تمت الإحالة» قبل أن تُطلب مستنداته،
+     * ويُقفَل ردّ AI في فجوة الطابور. وفي غير الحالتين يُكتب الإسناد وحده كما كان.
+     *
+     * $lawyerName: الاسم المعروض — للتصعيد «الإدارة العليا» لا اسم الإداريّ.
+     * $actor: من أسند يدوياً؛ `null` لقرار النظام.
+     */
+    public static function write(Ticket $ticket, int $lawyerId, string $lawyerName, ?User $actor = null): void
+    {
+        $refer = new ReferOnAssignment;
+
+        if (! TicketTriage::enabled() && $refer->accepts((string) $ticket->status)) {
+            Workflow::run($refer, $ticket, $actor, ['lawyer_id' => $lawyerId, 'lawyer_name' => $lawyerName]);
+
+            return;
+        }
+
+        $ticket->update([
+            'assigned_lawyer' => $lawyerName,
+            'assigned_lawyer_id' => $lawyerId,
+        ]);
     }
 
     // منطق التصعيد (الإسناد للإدارة العليا + الإشعار + البريد) انتقل إلى
@@ -70,6 +85,7 @@ class TicketAssignment
         $lawyers = User::where('role', Role::Lawyer)
             ->where('status', 'active')
             ->where('distribution_mode', 'auto')
+            ->with('specialties')
             ->get();
         if ($lawyers->isEmpty()) {
             return null;
@@ -95,13 +111,17 @@ class TicketAssignment
          * و`Specialties::matches` موجودةٌ لهذا الغرض بالضبط وتُكرّم الشمول، ويستعملها
          * `LawyerAvailability` و`Staff\ConsultController` — وكان هذا المسار وحده يتجاهلها.
          */
-        $deptMatched = $dept
-            ? $lawyers->filter(fn (User $u) => Specialties::matches($u->department, $dept))->values()
+        // المطابقة بمعرّف القسم في الكتالوج وتخصّصات المحامي المتعدّدة (LawyerSpecialties) —
+        // والنصّ القديم احتياطٌ لتذكرةٍ بلا معرّف
+        $deptId = $ticket->legal_department_id;
+        $deptKnown = $deptId !== null || filled($dept);
+        $deptMatched = $deptKnown
+            ? $lawyers->filter(fn (User $u) => LawyerSpecialties::covers($u, $deptId, $dept))->values()
             : collect();
         // الصرامة تنطبق **فقط** حين للتذكرة قسم معروف: «لا يوجد متخصّص» تفترض تخصّصاً
         // معلوماً. والقسم اختياري في نموذج العميل، ويضبطه TriageTicketOnOpenJob **بعد**
         // الإسناد لا قبله — فتصعيد كل تذكرة بلا قسم يُغرق الإدارة بلا فائدة.
-        if ($requireSpecialty && $dept && $deptMatched->isEmpty()) {
+        if ($requireSpecialty && $deptKnown && $deptMatched->isEmpty()) {
             return null; // قسم معروف ولا محامي فيه — القرار يُصعَّد لا يُفرض
         }
 

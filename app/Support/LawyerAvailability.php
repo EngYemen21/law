@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\AppointmentStatus;
+use App\Domain\Journey\Enums\ConsultStatus;
 use App\Enums\Role;
 use App\Models\Appointment;
 use App\Models\Consult;
@@ -46,7 +48,8 @@ class LawyerAvailability
 
     private const CLOSED_CASES = ['صدر الحكم', 'مغلقة', 'مؤرشفة'];
 
-    private const CLOSED_EXECS = ['مكتمل', 'مغلق'];
+    /** من مصدرٍ واحد: «مكتمل» لا يكتبها شيء اليوم وتبقى للصفوف القديمة (`Execution::CLOSED_STATUSES`). */
+    private const CLOSED_EXECS = Execution::CLOSED_STATUSES;
 
     /**
      * المحامون المتخصّصون مرتّبون بأولوية الذكاء الاصطناعي، مع سجلّ النجاح والتفرّغ ليوم مُعطى.
@@ -55,13 +58,13 @@ class LawyerAvailability
      */
     public static function rankedSpecialists(string $specialty, ?string $subject, ?string $date = null): array
     {
-        $lawyers = User::where('role', Role::Lawyer)->where('status', 'active')->get();
+        $lawyers = User::where('role', Role::Lawyer)->where('status', 'active')->with('specialties')->get();
         if ($lawyers->isEmpty()) {
             return [];
         }
 
-        // مطابقة التخصّص إن وُجد مطابقون، وإلا فكل المحامين
-        $matched = $lawyers->filter(fn ($u) => Specialties::matches($u->department, $specialty))->values();
+        // مطابقة التخصّص إن وُجد مطابقون، وإلا فكل المحامين — تخصّصاته في الكتالوج لا نصّ قسمه وحده
+        $matched = $lawyers->filter(fn (User $u) => LawyerSpecialties::covers($u, null, $specialty))->values();
         $pool = $matched->isNotEmpty() ? $matched : $lawyers;
         $ids = $pool->pluck('id')->map(fn ($i) => (int) $i)->all();
 
@@ -133,44 +136,6 @@ class LawyerAvailability
         return null;
     }
 
-    /**
-     * سجلّ النجاح: نسبة/عدد المغلق من تذاكر وقضايا وتنفيذات المحامي.
-     *
-     * @return array{rate:int,closed:int,total:int}
-     */
-    /** ⚠️ غير مستعملة حالياً: بقيت من مسار الترتيب بالذكاء الاصطناعي المُستبدَل. */
-    public static function successScore(User $lawyer): array
-    {
-        $id = (int) $lawyer->id;
-
-        $tTotal = Ticket::where('assigned_lawyer_id', $id)->count();
-        $tClosed = Ticket::where('assigned_lawyer_id', $id)->whereIn('status', self::CLOSED_TICKETS)->count();
-
-        $cTotal = LegalCase::where('assigned_lawyer_id', $id)->count();
-        $cClosed = LegalCase::where('assigned_lawyer_id', $id)->whereIn('status', self::CLOSED_CASES)->count();
-
-        $eTotal = Execution::where('assigned_lawyer_id', $id)->count();
-        $eClosed = Execution::where('assigned_lawyer_id', $id)->whereIn('status', self::CLOSED_EXECS)->count();
-
-        $total = $tTotal + $cTotal + $eTotal;
-        $closed = $tClosed + $cClosed + $eClosed;
-
-        return [
-            'rate' => $total > 0 ? (int) round($closed / $total * 100) : 0,
-            'closed' => $closed,
-            'total' => $total,
-        ];
-    }
-
-    /** الحمل المفتوح (تذاكر غير مغلقة) لموازنة الترتيب عند تعادل النجاح. */
-    /** ⚠️ غير مستعملة حالياً: بقيت من مسار الترتيب بالذكاء الاصطناعي المُستبدَل. */
-    public static function openLoad(int $lawyerId): int
-    {
-        return Ticket::where('assigned_lawyer_id', $lawyerId)
-            ->whereNotIn('status', self::CLOSED_TICKETS)
-            ->count();
-    }
-
     /** هل المحامي مشغول في نافذة [start, start+dur)؟ (تقاطع مع مواعيده المؤكدة). */
     /**
      * **المصدر الواحد** لفترات انشغال المحامي في يوم — بالدقائق منذ منتصف الليل.
@@ -230,21 +195,25 @@ class LawyerAvailability
             }
         };
 
-        // (1) المواعيد
-        foreach (Appointment::whereIn('lawyer_id', $ids)->whereNotNull('starts_at')
+        // (1) المواعيد (استبعاد الملغاة لتحرير تفرّغ المحامي فور الإلغاء)
+        foreach (Appointment::whereIn('lawyer_id', $ids)
+            ->whereNotIn('status', [AppointmentStatus::Cancelled->value, 'ملغى', 'ملغي'])
+            ->whereNotNull('starts_at')
             ->whereBetween('starts_at', [$dayStart, $dayEnd])->get(['lawyer_id', 'starts_at', 'duration_min']) as $a) {
             $add((int) $a->lawyer_id, $toMin($a->starts_at?->format('H:i')), (int) $a->duration_min);
         }
 
         // (2) الاجتماعات — `dur` نصّيّ («60 دقيقة») فيُستخرج رقمه
-        foreach (Meeting::whereIn('assigned_lawyer_id', $ids)->where('status', '!=', 'ملغى')
+        foreach (Meeting::whereIn('assigned_lawyer_id', $ids)
+            ->whereNotIn('status', ['ملغى', 'ملغي', 'ملغاة'])
             ->whereBetween('starts_at', [$dayStart, $dayEnd])->get(['assigned_lawyer_id', 'starts_at', 'dur']) as $mt) {
             $d = (int) (preg_match('/\d+/', (string) $mt->dur, $mm) ? $mm[0] : self::SLOT_MIN);
             $add((int) $mt->assigned_lawyer_id, $toMin($mt->starts_at?->format('H:i')), $d);
         }
 
-        // (3) الاستشارات
-        foreach (Consult::whereIn('assigned_lawyer_id', $ids)->where('status', '!=', 'ملغاة')
+        // (3) الاستشارات (استبعاد الملغاة لتحرير تفرّغ المحامي فور الإلغاء)
+        foreach (Consult::whereIn('assigned_lawyer_id', $ids)
+            ->whereNotIn('status', [ConsultStatus::Cancelled->value, 'ملغاة', 'ملغى', 'ملغي'])
             ->whereBetween('starts_at', [$dayStart, $dayEnd])->get(['assigned_lawyer_id', 'starts_at', 'duration_min']) as $c) {
             $add((int) $c->assigned_lawyer_id, $toMin($c->starts_at?->format('H:i')), (int) $c->duration_min);
         }

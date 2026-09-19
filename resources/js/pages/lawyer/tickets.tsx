@@ -4,6 +4,7 @@ import Badge from '@/components/babylon/Badge';
 import QuickTicketModal, { type TicketPreviewData } from '@/components/babylon/QuickTicketModal';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
+import { TICKET_PRIORITIES, TICKET_PRIORITY_DEFAULT, foldSearch, isUrgentTicket } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
 
@@ -93,14 +94,15 @@ const LawyerTickets: React.FC<Props> = ({
   // حساب الإحصائيات إذا لم تُمرر من الخادم
   const calculatedCounts: Counts = useMemo(() => {
     if (counts) return counts;
+    const terminalList = ['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة لقضية'];
     return {
       total: tickets.length,
-      needStudy: tickets.filter((t) => !['مكتملة', 'مغلقة', 'محولة لقضية'].includes(t.status)).length,
+      needStudy: tickets.filter((t) => !terminalList.includes(t.status)).length,
       awaitingSummary: tickets.filter((t) => t.summaryStatus === 'awaiting_lawyer').length,
-      urgent: tickets.filter((t) => ['عاجلة', 'طارئة', 'عاجل جداً', 'عالية'].includes(t.priority || '')).length,
+      urgent: tickets.filter((t) => isUrgentTicket(t.priority)).length,
       missingDocs: tickets.filter((t) => t.status === 'بانتظار مستندات').length,
       converted: tickets.filter((t) => t.converted).length,
-      completed: tickets.filter((t) => ['مكتملة', 'مغلقة'].includes(t.status)).length,
+      completed: tickets.filter((t) => terminalList.includes(t.status)).length,
     };
   }, [tickets, counts]);
 
@@ -112,36 +114,43 @@ const LawyerTickets: React.FC<Props> = ({
 
   // تصفية التذاكر بناءً على التبويب والبحث والفلاتر
   const filteredTickets = useMemo(() => {
+    const terminalList = ['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة لقضية'];
     return tickets.filter((t) => {
       // 1. تصفية التبويب
-      if (activeTab === 'needStudy' && ['مكتملة', 'مغلقة', 'محولة لقضية'].includes(t.status)) return false;
+      if (activeTab === 'needStudy' && terminalList.includes(t.status)) return false;
       if (activeTab === 'awaitingSummary' && t.summaryStatus !== 'awaiting_lawyer') return false;
-      if (activeTab === 'urgent' && !['عاجلة', 'طارئة', 'عاجل جداً', 'عالية'].includes(t.priority || '')) return false;
+      if (activeTab === 'urgent' && !isUrgentTicket(t.priority)) return false;
       if (activeTab === 'missingDocs' && t.status !== 'بانتظار مستندات') return false;
       if (activeTab === 'converted' && !t.converted) return false;
-      if (activeTab === 'completed' && !['مكتملة', 'مغلقة'].includes(t.status)) return false;
+      if (activeTab === 'completed' && !terminalList.includes(t.status)) return false;
 
       // 2. فلتر القسم
       if (filterDept !== 'all' && t.dept !== filterDept) return false;
 
       // 3. فلتر الأولوية
-      if (filterPriority !== 'all' && (t.priority || 'عادية') !== filterPriority) return false;
+      if (filterPriority !== 'all' && (t.priority || TICKET_PRIORITY_DEFAULT) !== filterPriority) return false;
 
       // 4. فلتر حالة دراسة الذكاء الاصطناعي
       if (filterAi === 'awaiting' && t.summaryStatus !== 'awaiting_lawyer') return false;
+
+      // اعتمده المحامي ورفعه للإدارة (قرار المالك 2026-09-14) — لا «بانتظار اعتمادي» ولا «معتمدة»
+      if (filterAi === 'awaiting_admin' && t.summaryStatus !== 'awaiting_admin') {
+        return false;
+      }
+
       if (filterAi === 'approved' && t.summaryStatus !== 'approved') return false;
       if (filterAi === 'none' && t.hasSummary) return false;
 
       // 5. البحث بالكلمات المفتاحية
       if (searchQuery.trim()) {
-        const q = searchQuery.trim().toLowerCase();
+        const q = foldSearch(searchQuery);
         const matches =
-          t.no.toLowerCase().includes(q) ||
-          t.client.toLowerCase().includes(q) ||
-          t.type.toLowerCase().includes(q) ||
-          t.dept.toLowerCase().includes(q) ||
-          t.status.toLowerCase().includes(q) ||
-          (t.subject && t.subject.toLowerCase().includes(q));
+          foldSearch(t.no).includes(q) ||
+          foldSearch(t.client).includes(q) ||
+          foldSearch(t.type).includes(q) ||
+          foldSearch(t.dept).includes(q) ||
+          foldSearch(t.status).includes(q) ||
+          (t.subject && foldSearch(t.subject).includes(q));
         if (!matches) return false;
       }
 
@@ -376,9 +385,9 @@ const LawyerTickets: React.FC<Props> = ({
               }}
             >
               <option value="all">كل الأولويات</option>
-              <option value="عاجلة">عاجلة / طارئة</option>
-              <option value="عادية">عادية</option>
-              <option value="منخفضة">منخفضة</option>
+              {/* من الكتالوج لا مكتوبةً بيد: كانت «عاجلة/عادية/منخفضة» ولا واحدةَ منها في
+                  القاعدة، والقيمتان الغالبتان (عالية، متوسطة) غير معروضتين إطلاقاً */}
+              {TICKET_PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
 
             {/* فلتر الذكاء الاصطناعي */}
@@ -398,6 +407,7 @@ const LawyerTickets: React.FC<Props> = ({
             >
               <option value="all">دراسة الذكاء الاصطناعي (الكل)</option>
               <option value="awaiting">بانتظار اعتمادي 🟡</option>
+              <option value="awaiting_admin">بانتظار اعتماد الإدارة</option>
               <option value="approved">معتمدة ✅</option>
               <option value="none">بدون ملخص</option>
             </select>
@@ -454,13 +464,13 @@ const LawyerTickets: React.FC<Props> = ({
                         <div className="muted" style={{ fontSize: 11.5 }}>{t.dept || 'القسم القانوني'}</div>
                       </td>
                       <td>
-                        {['عاجلة', 'طارئة', 'عاجل جداً', 'عالية'].includes(t.priority || '') ? (
+                        {isUrgentTicket(t.priority) ? (
                           <span className="badge-s b-red" style={{ fontSize: 11 }}>
                             <span className="d" /> عاجلة ⚡
                           </span>
                         ) : (
                           <span className="chip" style={{ fontSize: 11 }}>
-                            {t.priority || 'عادية'}
+                            {t.priority || TICKET_PRIORITY_DEFAULT}
                           </span>
                         )}
                       </td>
@@ -472,6 +482,10 @@ const LawyerTickets: React.FC<Props> = ({
                         ) : t.summaryStatus === 'approved' ? (
                           <span className="badge-s b-green" style={{ fontSize: 11 }}>
                             <span className="d" /> معتمد ومغلق ✅
+                          </span>
+                        ) : t.summaryStatus === 'awaiting_admin' ? (
+                          <span className="badge-s b-amber" style={{ fontSize: 11 }}>
+                            <span className="d" /> بانتظار اعتماد الإدارة
                           </span>
                         ) : t.hasSummary ? (
                           <span className="badge-s b-cyan" style={{ fontSize: 11 }}>
@@ -548,7 +562,7 @@ const LawyerTickets: React.FC<Props> = ({
                         <span className="mono" style={{ fontWeight: 800, fontSize: 13, color: '#0E5C9C' }}>
                           {t.no}
                         </span>
-                        {['عاجلة', 'طارئة', 'عاجل جداً', 'عالية'].includes(t.priority || '') && (
+                        {isUrgentTicket(t.priority) && (
                           <span className="badge-s b-red" style={{ fontSize: 10, padding: '2px 6px' }}>عاجلة ⚡</span>
                         )}
                       </div>
@@ -610,7 +624,7 @@ const LawyerTickets: React.FC<Props> = ({
             <div className="empty" style={{ padding: '50px 20px', textAlign: 'center' }}>
               <Icon name="folder" />
               <b style={{ display: 'block', marginTop: 12, fontSize: 15, color: '#13314F' }}>
-                لا توجد تذاكر مطابقة لخيارات الفلترة أو البحث
+                {tickets.length === 0 ? 'لا توجد تذاكر مسندة إليك بعد' : 'لا توجد تذاكر مطابقة لخيارات الفلترة أو البحث'}
               </b>
               <p style={{ fontSize: 13, color: '#607689', marginTop: 4 }}>
                 جرّب تصفير الفلاتر أو البحث بكلمة مفتاحية مختلفة.

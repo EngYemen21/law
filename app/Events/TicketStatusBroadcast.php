@@ -2,6 +2,7 @@
 
 namespace App\Events;
 
+use App\Domain\Journey\Enums\TicketStatus;
 use App\Models\Ticket;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
@@ -30,6 +31,11 @@ class TicketStatusBroadcast implements ShouldBroadcastNow
 
     public function broadcastWith(): array
     {
-        return ['status' => $this->ticket->status, 'tone' => $this->ticket->tone];
+        return [
+            'status' => $this->ticket->status,
+            'tone' => $this->ticket->tone,
+            // القناة مشتركة بين العميل والطاقم: `status` داخليّ يبقى، وتسمية العميل بجواره يقرؤها العميل
+            'clientStatus' => TicketStatus::labelForClient($this->ticket->status),
+        ];
     }
 }

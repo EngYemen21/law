@@ -5,12 +5,10 @@ namespace Tests\Feature;
 use App\Enums\AiSource;
 use App\Enums\Role;
 use App\Models\Consult;
-use App\Models\Ticket;
 use App\Models\User;
 use App\Models\UserNotification;
-use App\Support\ConsultBooking;
-use App\Support\LawyerAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
@@ -19,6 +17,7 @@ use Tests\TestCase;
  */
 class ConsultJourneyTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     private function makeConsult(User $client, array $extra = []): Consult
@@ -40,26 +39,20 @@ class ConsultJourneyTest extends TestCase
     public function test_booking_enters_journey_as_new(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $ticket = Ticket::create([
-            'user_id' => $client->id,
+        $ticket = $this->ticketWithApprovedOpinion($client, [
             'number' => 'SB-2026-8888',
-            'type' => 'نزاع تجاري',
             'department' => 'القسم التجاري',
+            'subject' => null,
             'status' => 'بانتظار حجز الاستشارة',
-            'tone' => 'b-amber',
         ]);
 
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
 
-        // الدورة الكاملة: طلب → تسعير الإدارة → دفع محاكى → اختيار الموعد → دخول الرحلة «جديدة»
-        $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'video'])->assertNoContent();
-        $consult = Consult::where('ticket_id', $ticket->id)->firstOrFail();
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        $this->actingAs($admin)->post(route('admin.consults.price', $consult), ['price' => 450])->assertRedirect();
-        ConsultBooking::markPaid($consult->fresh());
-        $this->actingAs($client)->post(route('consults.schedule', $consult), [
-            'lawyer_id' => $lawyer->id, 'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '11:30',
-        ])->assertRedirect();
+        // الدورة الكاملة: طلب → تسعير الإدارة → سداد → الإدارة تحدّد الموعد → دخول الرحلة «جديدة»
+        $consult = $this->requestPricedAndPaid($client, $ticket, 'video');
+        $this->adminPublishes($consult, [
+            'lawyer_id' => $lawyer->id, 'date' => now()->addDays(2)->toDateString(), 'time' => '11:30',
+        ])->assertOk();
 
         $consult->refresh();
         $this->assertSame('جديدة', $consult->status);
@@ -68,19 +61,15 @@ class ConsultJourneyTest extends TestCase
         $this->assertNotEmpty($consult->audit);
     }
 
-    public function test_full_journey_take_analyze_approve_refer(): void
+    public function test_full_journey_analyze_approve_refer(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $employee = User::factory()->create(['role' => Role::Employee, 'name' => 'منيرة الحربي']);
         User::factory()->create(['role' => Role::Lawyer, 'name' => 'أ. سارة القحطاني']);
         $consult = $this->makeConsult($client);
 
-        // استلام
-        $this->actingAs($employee)->post(route('employee.consults.take', $consult))->assertRedirect();
-        $consult->refresh();
-        $this->assertSame('قيد مراجعة الموظف', $consult->status);
-        $this->assertSame('منيرة الحربي', $consult->employee);
-        $this->assertCount(1, $consult->audit);
+        // لا «استلام»: أُزيل الزرّ ومساره بقرار المالك وطُويت حالته — المعالجة تبدأ من «جديدة»
+        $this->assertSame('جديدة', $consult->status);
 
         // معالجة الفريق القانوني بلا مفاتيح AI ⇒ القالب الاحتياطيّ.
         // الاستشارة تنتقل إلى «بانتظار اعتماد الموظف» كما كانت (إنسانٌ يجب أن يتصرّف)،
@@ -112,7 +101,7 @@ class ConsultJourneyTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $employee = User::factory()->create(['role' => Role::Employee]);
-        $consult = $this->makeConsult($client, ['status' => 'قيد مراجعة الموظف']);
+        $consult = $this->makeConsult($client, ['status' => 'جديدة']);
 
         $this->actingAs($employee)->post(route('employee.consults.reqdocs', $consult), [
             'docs' => 'نسخة العقد الموقّعة',

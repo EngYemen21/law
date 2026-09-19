@@ -13,6 +13,7 @@ export function caseStage(status: string): number {
     case 'بانتظار اعتماد الأتعاب':
     case 'بانتظار سداد الأتعاب': return 0;
     case 'قيد التحضير': return 1;
+    case 'بانتظار القيد':
     case 'منظورة': return 2;
     case 'صدر الحكم': return 3;
     case 'مغلقة':
@@ -39,25 +40,63 @@ export const hearingTone = (s: string): string =>
     : s === 'لم تنعقد' ? 'b-red'
     : 'b-blue';
 
-export const HearingsCard: React.FC<{ hearings: Hearing[] }> = ({ hearings }) => (
+export interface HearingDoc {
+  id: number;
+  name: string;
+  hearingId?: number | null;
+  downloadUrl?: string | null;
+}
+
+export const HearingsCard: React.FC<{ hearings: Hearing[]; documents?: HearingDoc[] }> = ({ hearings, documents = [] }) => (
   <div className="card">
     <div className="card-h"><h3>الجلسات</h3><span className="sub">{hearings.length}</span></div>
     <div className="card-b">
-      {hearings.length ? hearings.map((h) => (
-        <div key={h.id} className="item">
-          <div className="iico"><Icon name="cal" /></div>
-          <div className="imeta">
-            <b>{h.title}</b>
-            <span>{h.day}{h.time ? ` · ${h.time}` : ''}{h.court ? ` · ${h.court}` : ''}</span>
-            {h.outcome && <span style={{ display: 'block', color: 'var(--muted)', marginTop: 3 }}>{h.outcome}</span>}
+      {hearings.length ? hearings.map((h) => {
+        const linkedDocs = documents.filter((d) => d.hearingId === h.id);
+
+        return (
+          <div key={h.id} className="item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div className="iico"><Icon name="cal" /></div>
+                <div className="imeta">
+                  <b>{h.title}</b>
+                  <span>{h.day}{h.time ? ` · ${h.time}` : ''}{h.court ? ` · ${h.court}` : ''}</span>
+                  {h.outcome && <span style={{ display: 'block', color: 'var(--muted)', marginTop: 3 }}>{h.outcome}</span>}
+                </div>
+              </div>
+              <div className="iact">
+                {h.lapsed
+                  ? <Badge text="فائتة — بانتظار النتيجة" tone="b-amber" />
+                  : <Badge text={h.status} tone={hearingTone(h.status)} />}
+              </div>
+            </div>
+
+            {linkedDocs.length > 0 && (
+              <div style={{ paddingRight: 38, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>المذكرات والمرفقات:</span>
+                {linkedDocs.map((ld) => (
+                  <span
+                    key={ld.id}
+                    style={{
+                      fontSize: 11,
+                      background: 'var(--paper-2)',
+                      padding: '2px 8px',
+                      borderRadius: 4,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      border: '1px solid var(--line-soft)',
+                    }}
+                  >
+                    <Icon name="doc" /> {ld.name}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="iact">
-            {h.lapsed
-              ? <Badge text="فائتة — بانتظار النتيجة" tone="b-amber" />
-              : <Badge text={h.status} tone={hearingTone(h.status)} />}
-          </div>
-        </div>
-      )) : (
+        );
+      }) : (
         <div className="empty"><Icon name="cal" /><b>لا جلسات بعد</b></div>
       )}
     </div>

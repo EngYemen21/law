@@ -3,10 +3,11 @@ import React, { useEffect, useState } from 'react';
 import Icon from '@/lib/icons';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
-import { DEPTS, REQ_DOCS } from '@/lib/employee-data';
+import { REQ_DOCS } from '@/lib/employee-data';
 
 // مودالا «تحويل التذكرة» و«طلب النواقص» — نسخة واحدة عاملة تُصيب المسارات الحقيقية،
 // تحلّ محلّ النسخة المكرّرة في محادثة الموظف والنسخة الديكورية القديمة في قائمة التذاكر.
+// أقسام التحويل من كتالوج الخادم (الفعّال) — الخادم يرفض أيّ قسمٍ ليس فيه.
 
 export interface LawyerOption { id: number; name: string }
 export type TicketOpsKind = 'transfer' | 'reqdocs' | null;
@@ -17,15 +18,20 @@ interface Props {
   dept?: string;
   lawyerId?: number | null;
   lawyers: LawyerOption[];
+  departments: string[]; // أسماء الأقسام الفعّالة من الكتالوج
   onClose: () => void;
   onDone?: () => void; // إعادة تحميل/تحديث بعد نجاح فعلي
 }
 
-const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawyers, onClose, onDone }) => {
+/** القسم المبدئيّ: قسم التذكرة إن كان في الكتالوج، وإلّا أوّل قسم. */
+const initialDept = (dept: string | undefined, departments: string[]) =>
+  (dept && departments.includes(dept) ? dept : departments[0]) ?? '';
+
+const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawyers, departments, onClose, onDone }) => {
   const toast = useToast();
 
   // ── تحويل التذكرة ──
-  const [trDept, setTrDept] = useState(dept || DEPTS[0]);
+  const [trDept, setTrDept] = useState(initialDept(dept, departments));
   const [trLawyerId, setTrLawyerId] = useState<string>(lawyerId ? String(lawyerId) : '');
   const [trReason, setTrReason] = useState('');
   const [trBusy, setTrBusy] = useState(false);
@@ -38,7 +44,7 @@ const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawy
   // إعادة الضبط عند فتح مودال لتذكرة أخرى (القائمة تفتح تذاكر مختلفة بنفس المكوّن)
   useEffect(() => {
     if (kind === 'transfer') {
-      setTrDept(dept || DEPTS[0]);
+      setTrDept(initialDept(dept, departments));
       setTrLawyerId(lawyerId ? String(lawyerId) : '');
       setTrReason('');
       setTrBusy(false);
@@ -48,7 +54,7 @@ const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawy
       setReqExtra('');
       setReqBusy(false);
     }
-  }, [kind, ticketNo, dept, lawyerId]);
+  }, [kind, ticketNo, dept, lawyerId, departments]);
 
   const submitTransfer = () => {
     if (!trLawyerId) { toast('يرجى اختيار المستشار'); return; }
@@ -93,7 +99,7 @@ const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawy
         <div className="field">
           <label>القسم المختص</label>
           <select value={trDept} onChange={(e) => setTrDept(e.target.value)}>
-            {DEPTS.map((d) => <option key={d} value={d}>{d}</option>)}
+            {departments.map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
         </div>
         <div className="field">

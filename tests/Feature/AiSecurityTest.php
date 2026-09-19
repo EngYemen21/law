@@ -121,7 +121,12 @@ class AiSecurityTest extends TestCase
             'source' => AiSource::AiSuccess->value,
         ]);
 
-        $stored = (string) $exec->fresh()->messages()->where('who', 'ai')->latest('id')->first()?->body;
+        // الدراسة تُخزَّن ملاحظةً داخليّة (`who=note`) حتى يعتمدها محامٍ — والهروب يقع عند التخزين
+        // لا عند النشر، فيُقاس على الصفّ نفسه أيّاً كان جمهوره.
+        $message = $exec->fresh()->messages()->where('who', 'note')->latest('id')->first();
+        $stored = (string) $message?->body;
+
+        $this->assertSame('note', $message?->who, 'مخرجٌ لم يعتمده إنسان لا يصل العميل');
 
         $this->assertStringNotContainsString('<script', $stored, 'وسم script مخزَّن ⇒ تنفيذ عند العرض');
         $this->assertStringNotContainsString('<img', $stored, 'وسم img مخزَّن ⇒ معالج onerror يُنفَّذ');

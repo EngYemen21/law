@@ -61,7 +61,7 @@ class AiReviewIsolationTest extends TestCase
 
         $consult = Consult::create([
             'user_id' => $client->id, 'ref' => 'CN-ISO-'.uniqid(), 'subject' => 'نزاع تجاري',
-            'type' => 'استشارة', 'channel' => 'video', 'status' => 'منتهية', 'tone' => 'b-green',
+            'type' => 'استشارة', 'channel' => 'video', 'status' => 'منتهية', 'session' => 'منتهية', 'tone' => 'b-green',
             'assigned_lawyer_id' => $owner->id, 'lawyer' => $owner->name,
         ]);
 
@@ -132,8 +132,9 @@ class AiReviewIsolationTest extends TestCase
             ->post("/lawyer/ai-review/{$run->id}/decide", ['action' => 'accept'])
             ->assertRedirect();
 
-        $this->assertNotNull($consult->fresh()->summary_approved_at);
-        $this->assertNotNull($consult->fresh()->toClientCard()['summary'], 'ويصل العميل');
+        // قبول المحامي = المرحلة الأولى (2026-09-14): يُسجَّل ويُرفع للإدارة، ولا يصل العميل بعد
+        $this->assertNotNull($consult->fresh()->summary_lawyer_approved_at);
+        $this->assertNull($consult->fresh()->toClientCard()['summary'], 'ولا يصل العميل قبل الإدارة');
     }
 
     /** والمُصعَّد إليه كذلك — وهو مسارٌ لا يمرّ بالإسناد أصلاً. */
@@ -149,7 +150,7 @@ class AiReviewIsolationTest extends TestCase
             ->post("/lawyer/ai-review/{$run->id}/decide", ['action' => 'accept'])
             ->assertRedirect();
 
-        $this->assertNotNull($consult->fresh()->summary_approved_at);
+        $this->assertNotNull($consult->fresh()->summary_lawyer_approved_at);
     }
 
     /** والإدارة تبقى فوق العزل — نظير `ScopedToLawyer` في بقيّة المشروع. */
@@ -162,6 +163,8 @@ class AiReviewIsolationTest extends TestCase
             ->post("/admin/ai-review/{$run->id}/decide", ['action' => 'accept'])
             ->assertRedirect();
 
+        // قبول الإدارة هو الاعتماد النهائيّ — يُطلق للعميل
         $this->assertNotNull($consult->fresh()->summary_approved_at);
+        $this->assertNotNull($consult->fresh()->toClientCard()['summary'], 'ويصل العميل');
     }
 }

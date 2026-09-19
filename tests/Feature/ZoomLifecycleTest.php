@@ -8,20 +8,21 @@ use App\Mail\ConsultBooked;
 use App\Mail\MeetingLinkReady;
 use App\Models\Consult;
 use App\Models\User;
-use App\Support\ConsultBooking;
-use App\Support\LawyerAvailability;
+use App\Support\ConsultAppointments;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
- * دورة الاستشارة المرئية مع Zoom — المرحلة 1 (جدولة بالوقت + بريد + زر معطّل)
+ * دورة الاستشارة المرئية مع Zoom — المرحلة 1 (نشر الموعد بالوقت + بريد + زر معطّل)
  * والمرحلة 2 (إطلاق الرابط قبل 5د + تفعيل الدخول + إشعار).
  */
 class ZoomLifecycleTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     public function test_booking_schedules_zoom_with_start_time_and_queues_confirmation(): void
@@ -34,13 +35,20 @@ class ZoomLifecycleTest extends TestCase
         Mail::fake();
 
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $starts = LawyerAvailability::resolveDate(null)->setTime(11, 0);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $starts = now()->addDays(2)->setTime(11, 0);
 
-        $consult = ConsultBooking::create($client, [
+        // استشارة مرئيّة مدفوعة بانتظار أن تحدّد الإدارة موعدها
+        $consult = Consult::create([
+            'user_id' => $client->id, 'ref' => 'CN-ZL-'.uniqid(), 'subject' => 'نزاع', 'type' => 'استشارة',
+            'channel' => 'مرئية', 'status' => 'بانتظار تحديد الموعد', 'session' => 'بانتظار الجلسة',
+            'tone' => 'b-amber', 'lawyer' => 'المستشار القانوني',
+            'price' => 450, 'vat' => 68, 'total' => 518, 'priced_at' => now(), 'paid_at' => now(),
+        ]);
+
+        $consult = ConsultAppointments::publish($consult, $this->journeyAdmin(), [
             'type' => 'video', 'lawyer_id' => $lawyer->id,
-            'starts_at' => $starts->toDateTimeString(), 'duration' => 60,
-            'day' => $starts->toDateString(), 'time' => '11:00',
+            'date' => $starts->toDateString(), 'time' => '11:00',
         ]);
 
         $this->assertSame('987654321', $consult->meet_id);

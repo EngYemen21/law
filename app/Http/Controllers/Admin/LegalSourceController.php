@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\LegalSource;
 use App\Support\Audit;
+use App\Support\SearchText;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -48,12 +49,7 @@ class LegalSourceController extends Controller
 
         // البحث في النصّ نفسه لا في عنوانه وحده: المحامي يبحث عن حكمٍ لا عن ترقيم
         if ($filters['q'] !== '') {
-            $needle = '%'.$filters['q'].'%';
-            $query->where(fn ($q) => $q
-                ->where('text', 'like', $needle)
-                ->orWhere('ref', 'like', $needle)
-                ->orWhere('article_no', 'like', $needle)
-                ->orWhere('title', 'like', $needle));
+            SearchText::apply($query, ['text', 'ref', 'article_no', 'title'], (string) $filters['q']);
         }
 
         $page = $query->paginate(self::PER_PAGE)->withQueryString();

@@ -89,7 +89,9 @@ class HandleInertiaRequests extends Middleware
                     // with('consult') إلزامي: liveState() يقرأ الاستشارة، وبدونه استعلام لكل موعد في كل عرض صفحة
                     // المفتاح /calendar لا /appointments: تبويب «المواعيد» طُوي في التبويب
                     // الزمني الموحّد، وبقاء المفتاح القديم كان يُخفي الشارة تماماً.
+                    // والموعد «بانتظار الاعتماد» شأنٌ داخليّ لم يُنشر — عدُّه يُعلن للعميل موعداً لا يجده
                     '/calendar' => Appointment::with('consult')->where('user_id', $user->id)
+                        ->where('status', '!=', 'بانتظار الاعتماد')
                         ->get()->filter(fn (Appointment $a) => $a->liveState()[0] === 'up')->count(),
                     '/invoices' => Invoice::where('user_id', $user->id)->where('paid', false)->count(),
                 ]

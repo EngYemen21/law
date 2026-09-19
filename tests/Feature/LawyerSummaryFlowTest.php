@@ -12,7 +12,8 @@ use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /**
- * تحقّق من رحلة الإحالة → تجهيز ملخص الملف للمستشار → اعتماد المحامي → وصوله لمحادثة العميل.
+ * تحقّق من رحلة الإحالة → تجهيز ملخص الملف للمستشار → اعتماد المستشار → اعتماد الإدارة
+ * → وصوله لمحادثة العميل (قرار المالك 2026-09-14: المستشار ثمّ الإدارة ثمّ العميل).
  */
 class LawyerSummaryFlowTest extends TestCase
 {
@@ -79,8 +80,8 @@ class LawyerSummaryFlowTest extends TestCase
     {
         $ticket = $this->referredTicket($this->client(), $this->employee(), $this->lawyer());
 
-        // محاولة الموظف التقدّم بينما الدور على المحامي → لا تغيير
-        $this->actingAs($this->employee())->post(route('employee.tickets.advance', $ticket))->assertNoContent();
+        // محاولة الموظف التقدّم بينما الدور على المحامي → رفضٌ صريح بلا تغيير
+        $this->actingAs($this->employee())->post(route('employee.tickets.advance', $ticket))->assertStatus(422);
         $this->assertSame('بانتظار اعتماد المستشار', $ticket->fresh()->status);
     }
 
@@ -99,15 +100,48 @@ class LawyerSummaryFlowTest extends TestCase
             ->assertOk()->assertInertia(fn ($p) => $p->component('lawyer/summary')->where('summary.status', 'awaiting_lawyer'));
     }
 
-    public function test_lawyer_approval_reaches_client_conversation(): void
+    /** **الحارس الأثمن:** اعتماد المستشار لا يُنتج للعميل رسالةً ولا إشعاراً — يُرفع للإدارة. */
+    public function test_lawyer_approval_is_raised_to_admin_and_reaches_nobody_yet(): void
     {
         $lawyer = $this->lawyer();
         $client = $this->client();
+        $admin = User::factory()->create(['role' => Role::Admin]);
         $ticket = $this->referredTicket($client, $this->employee(), $lawyer);
 
         $this->actingAs($lawyer)
             ->post(route('lawyer.summary.approve', $ticket), ['key_points' => '• توجيه إنذار رسمي.'])
             ->assertRedirect(route('lawyer.summaries'));
+
+        $ticket->refresh();
+        $this->assertSame('awaiting_admin', $ticket->summary->status);
+        $this->assertNotNull($ticket->summary->lawyer_approved_at);
+        $this->assertNull($ticket->summary->approved_at);
+        $this->assertSame('بانتظار اعتماد الإدارة للملخّص', $ticket->status);
+
+        $this->assertFalse($ticket->messages->contains(fn ($m) => $m->who === 'lawyer'), 'لا رأي في المحادثة');
+        $this->assertSame(0, UserNotification::where('user_id', $client->id)->count(), 'ولا إشعار للعميل');
+        $this->assertSame(
+            1,
+            UserNotification::where('user_id', $admin->id)->where('body', 'like', '%بانتظار اعتمادكم النهائيّ%')->count(),
+            'والإدارة تُنبَّه مرّةً واحدة'
+        );
+
+        // والمستشار لا يعدّل ما رفعه ولا يعيد اعتماده
+        $this->actingAs($lawyer)->post(route('lawyer.summary.approve', $ticket))->assertStatus(422);
+    }
+
+    public function test_admin_approval_reaches_client_conversation(): void
+    {
+        $lawyer = $this->lawyer();
+        $client = $this->client();
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $ticket = $this->referredTicket($client, $this->employee(), $lawyer);
+
+        $this->actingAs($lawyer)
+            ->post(route('lawyer.summary.approve', $ticket), ['key_points' => '• توجيه إنذار رسمي.'])
+            ->assertRedirect();
+
+        $this->actingAs($admin)->post(route('admin.summary.approve', $ticket))->assertRedirect();
 
         $ticket->refresh();
         $this->assertSame('approved', $ticket->summary->status);
@@ -117,11 +151,16 @@ class LawyerSummaryFlowTest extends TestCase
         // رسالة المحامي ظهرت في المحادثة ويراها العميل
         $lawyerMsg = $ticket->messages()->where('who', 'lawyer')->first();
         $this->assertNotNull($lawyerMsg);
+        $this->assertStringContainsString('توجيه إنذار رسمي', $lawyerMsg->body);
         $this->actingAs($client)->get(route('tickets.show', $ticket))
             ->assertInertia(fn ($p) => $p->where('messages', fn ($m) => collect($m)->contains(fn ($x) => $x['who'] === 'lawyer')));
 
-        // إشعار وصل العميل
+        // إشعارٌ واحد وصل العميل
         $this->assertSame(1, UserNotification::where('user_id', $client->id)->count());
+
+        // والاعتماد نهائيّ — لا يُعاد
+        $this->actingAs($admin)->post(route('admin.summary.approve', $ticket))->assertStatus(422);
+        $this->assertSame(1, $ticket->messages()->where('who', 'lawyer')->count());
     }
 
     public function test_admin_oversees_all_tickets_and_summaries(): void

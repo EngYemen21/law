@@ -4,7 +4,12 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\Role;
 use App\Http\Controllers\Controller;
+use App\Models\LegalDepartment;
+use App\Models\StaffDepartment;
 use App\Models\User;
+use App\Support\Audit;
+use App\Support\LawyerSpecialties;
+use App\Support\LegalCatalogue;
 use App\Support\Permissions;
 use App\Support\Phone;
 use Illuminate\Http\JsonResponse;
@@ -29,11 +34,16 @@ class StaffController extends Controller
     {
         $staff = User::query()
             ->whereIn('role', [Role::Employee, Role::Lawyer, Role::Admin])
+            ->with('specialties')
             ->orderByDesc('id')->get()
             ->map(fn (User $u) => $u->staffCard());
 
         return Inertia::render('admin/staff', [
             'staff' => $staff,
+            // تخصّصات المحامي من كتالوج الأقسام القانونيّة، وقسم الموظّف من الأقسام الإداريّة —
+            // قائمتان منفصلتان (قرار المالك 2026-09-14) بدل قائمةٍ ثابتة تخلطهما
+            'legalDepartments' => LegalCatalogue::departments()->map(fn ($d) => ['id' => $d->id, 'name' => $d->name])->values(),
+            'staffDepartments' => StaffDepartment::active()->orderBy('sort_order')->pluck('name'),
         ]);
     }
 
@@ -52,6 +62,7 @@ class StaffController extends Controller
         ]);
 
         $user->syncPermissions(Permission::whereIn('name', $this->permsForRole($data['role'], $data['perms'] ?? []))->get());
+        $this->syncSpecialties($request->user(), $user, $data);
 
         // تُعرض كلمة المرور المولّدة للإدارة مرة واحدة (flash) لتسليمها للموظف
         return back()
@@ -69,8 +80,39 @@ class StaffController extends Controller
 
         $user->update($this->attributes($data) + ['avatar_initials' => self::initials($data['name'])]);
         $user->syncPermissions(Permission::whereIn('name', $this->permsForRole($data['role'], $data['perms'] ?? []))->get());
+        $this->syncSpecialties($request->user(), $user, $data);
 
         return back()->with('success', 'تم تحديث بيانات الموظف');
+    }
+
+    /**
+     * تخصّصات المحامي بعد الحفظ: تُكتب له ويُسجَّل تغيّرها؛ ومن لم يعد محامياً تُفرَغ تخصّصاته
+     * كي لا يبقى في مسبح الإسناد بقسمٍ قديم.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function syncSpecialties(User $actor, User $user, array $data): void
+    {
+        if ($data['role'] !== Role::Lawyer->value) {
+            LawyerSpecialties::clear($user);
+
+            return;
+        }
+
+        $change = LawyerSpecialties::sync($user, $data['specialties'] ?? [], (bool) ($data['coversAll'] ?? false));
+
+        if ($change['before'] !== $change['after']) {
+            Audit::log(
+                action: 'تعديل تخصّصات محامٍ',
+                description: "عدّل {$actor->name} تخصّصات {$user->name}: {$change['after']}.",
+                category: 'موظفون وصلاحيات',
+                auditable: $user,
+                auditableRef: $user->email,
+                beforeState: ['التخصّصات' => $change['before']],
+                afterState: ['التخصّصات' => $change['after']],
+                user: $actor,
+            );
+        }
     }
 
     // يقصر الصلاحيات على المسموح لدور الموظف (دفاع خادمي حتى لو تلاعب أحد بالطلب)
@@ -97,7 +139,13 @@ class StaffController extends Controller
             'email' => ['required', 'email', 'max:150', Rule::unique('users', 'email')->ignore($ignore?->id)],
             'mobile' => ['required', Phone::RULE, Rule::unique('users', 'phone')->where('role', $role)->ignore($ignore?->id)],
             'nid' => ['required', 'regex:/^\d{10}$/', Rule::unique('users', 'national_id')->where('role', $role)->ignore($ignore?->id)],
-            'dept' => ['nullable', 'string', 'max:120'],
+            // قسم الموظّف/الإداريّ من الأقسام الإداريّة (أو قيمته الحاليّة كي يبقى القديم قابلاً للتعديل)؛
+            // المحامي لا قسم إداريّاً له — تخصّصاته أدناه
+            'dept' => array_merge(['nullable', 'string', 'max:120'], $role === 'lawyer' ? [] : [Rule::in($this->staffDepartmentNames($ignore))]),
+            // المحامي: تخصّصاتٌ متعدّدة من كتالوج الأقسام الفعّال، أو «يغطّي كلّ الأقسام»
+            'specialties' => ['nullable', 'array'],
+            'specialties.*' => ['integer', Rule::exists('legal_departments', 'id')->where('status', LegalDepartment::STATUS_ACTIVE)],
+            'coversAll' => ['nullable', 'boolean'],
             'join' => ['nullable', 'date'],
             'start' => ['nullable', 'string', 'max:8'],
             'end' => ['nullable', 'string', 'max:8'],
@@ -121,7 +169,26 @@ class StaffController extends Controller
             'mobile.regex' => 'رقم الجوال غير صالح — محليّ 05XXXXXXXX أو دوليّ ‎+9665XXXXXXXX.',
             'mobile.unique' => 'يوجد حساب بهذا الدور لنفس الجوال. اختر دوراً مختلفاً.',
             'email.unique' => 'البريد الإلكتروني مستخدم في حساب آخر (لكل حساب بريد مختلف).',
+            'dept.in' => 'اختر القسم الإداريّ من القائمة.',
+            'specialties.*.exists' => 'أحد التخصّصات المختارة غير متاح حالياً، يُرجى اختيار تخصّصٍ من القائمة.',
         ];
+    }
+
+    /**
+     * الأقسام الإداريّة المقبولة للموظّف: الفعّالة، وقيمته الحاليّة إن كانت قديمةً خارجها —
+     * فتعديل موظّفٍ قديم لا يُجبر الإدارة على تغيير قسمه في الحفظ نفسه.
+     *
+     * @return list<string>
+     */
+    private function staffDepartmentNames(?User $ignore): array
+    {
+        $names = StaffDepartment::active()->orderBy('sort_order')->pluck('name')->all();
+
+        if (filled($ignore?->department) && ! $ignore->isLawyer()) {
+            $names[] = $ignore->department;
+        }
+
+        return array_values(array_unique($names));
     }
 
     // بحث عن شخص بالهُويّة — لتلميح «إضافة دور آخر» في نموذج الموظف (الإدارة)
@@ -142,7 +209,7 @@ class StaffController extends Controller
         return response()->json([
             'exists' => true,
             'name' => $users->first()->name,
-            'phone' => Phone::mask((string) $users->first()->phone), // مُقنَّع — لا يُكشف الجوال كاملاً
+            'phone' => (string) $users->first()->phone, // صريحٌ للإدارة العليا (قرار المالك 2026-09-11: لا تقنيع في لوحتها)
             'roles' => $users->map(fn (User $u) => $u->role->label())->unique()->values(),
         ]);
     }
@@ -157,7 +224,6 @@ class StaffController extends Controller
             'job_title' => $data['job_title'],
             'phone' => $data['mobile'] ?? null,
             'national_id' => $data['nid'] ?? null,
-            'department' => $data['dept'] ?? null,
             'join_date' => $data['join'] ?? null,
             'work_start' => $data['start'] ?? null,
             'work_end' => $data['end'] ?? null,
@@ -165,7 +231,9 @@ class StaffController extends Controller
             'salary' => in_array($data['payType'], ['salary', 'both'], true) ? ($data['salary'] ?? 0) : 0,
             'pay_pct' => in_array($data['payType'], ['pct', 'both'], true) ? ($data['pct'] ?? null) : null,
             'session_fee' => $data['payType'] === 'session' ? ($data['session'] ?? null) : null,
-        ];
+        ]
+            // قسم المحامي تكتبه مزامنة تخصّصاته (syncSpecialties)، ولغيره قسمه الإداريّ
+            + ($data['role'] === Role::Lawyer->value ? [] : ['department' => $data['dept'] ?? null]);
     }
 
     // تفعيل/إيقاف الموظف (يطابق toggleStaff) — للموظفين فقط (لا عملاء ولا إدارة)

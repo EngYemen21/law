@@ -2,6 +2,8 @@ import { router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
+import Pagination from '@/components/babylon/Pagination';
+import type { Paginated } from '@/components/babylon/Pagination';
 // import { useToast } from '@/components/babylon/Toast'; // لا إشعارات توست في الصفحة بعد — يُعاد تفعيله عند الحاجة
 import Icon from '@/lib/icons';
 
@@ -25,7 +27,7 @@ export interface AuditLogCard {
 }
 
 interface Props {
-  logs: AuditLogCard[];
+  logs: Paginated<AuditLogCard>;
   stats: {
     total: number;
     today: number;
@@ -51,7 +53,7 @@ type ViewMode = 'table' | 'timeline';
 type DrawerTab = 'overview' | 'diff' | 'security';
 
 export const AdminAuditLogs: React.FC<Props> = ({
-  logs = [],
+  logs,
   stats,
   categories = [],
   actors = [],
@@ -73,48 +75,22 @@ export const AdminAuditLogs: React.FC<Props> = ({
   const [activeLogId, setActiveLogId] = useState<number | null>(null);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>('overview');
 
+  // الصفحة الحاليّة من الخادم — لا ترشيحَ ثانٍ في المتصفّح
+  const rows = useMemo(() => logs?.data ?? [], [logs]);
+  const meta = logs?.meta ?? { current_page: 1, last_page: 1, per_page: 50, total: 0 };
+
   const activeLog = useMemo(
-    () => (activeLogId !== null ? logs.find((l) => l.id === activeLogId) ?? null : null),
-    [activeLogId, logs]
+    () => (activeLogId !== null ? rows.find((l) => l.id === activeLogId) ?? null : null),
+    [activeLogId, rows]
   );
 
-  // Client-side quick filter for fast response
-  const filteredLogs = useMemo(() => {
-    return logs.filter((l) => {
-      if (selectedCategory !== 'all' && l.category !== selectedCategory) {
-return false;
-}
-
-      if (selectedSeverity !== 'all' && l.severity !== selectedSeverity) {
-return false;
-}
-
-      if (selectedUser !== 'all' && l.userName !== selectedUser) {
-return false;
-}
-
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const hay = `${l.action} ${l.description} ${l.userName} ${l.auditableRef} ${l.ipAddress}`.toLowerCase();
-
-        if (!hay.includes(q)) {
-return false;
-}
-      }
-
-      if (fromDate && l.time < fromDate) {
-return false;
-}
-
-      if (toDate && l.time.slice(0, 10) > toDate) {
-return false;
-}
-
-      return true;
-    });
-  }, [logs, selectedCategory, selectedSeverity, selectedUser, searchQuery, fromDate, toDate]);
-
-  const handleApplyServerFilter = () => {
+  /*
+   * **مرشِّحٌ واحد في الخادم.** كانت الشاشة تُعيد ترشيح أحدث ٢٠٠ قيدٍ في المتصفّح لحظياً
+   * بينما الترشيح الخادميّ ينتظر «تطبيق» — مرشّحان على مجموعتين مختلفتين، والقيد المبحوث
+   * عنه قد يكون خارج الـ٢٠٠. الآن كلّ تغييرٍ في القوائم يُطبَّق على القاعدة كلّها، والبحث
+   * النصّيّ عند Enter أو «تطبيق»، والترقيم يحمل المرشّحات.
+   */
+  const applyFilters = (over: Partial<Props['filters']> = {}) => {
     router.get(
       '/admin/audit-logs',
       {
@@ -124,10 +100,17 @@ return false;
         user: selectedUser,
         from_date: fromDate,
         to_date: toDate,
+        ...over,
       },
-      { preserveState: true, preserveScroll: true }
+      { preserveState: true, preserveScroll: true, only: ['logs', 'filters'] }
     );
   };
+
+  const handleApplyServerFilter = () => applyFilters();
+
+  const hasFilters = (filters.search || '') !== '' || (filters.category || 'all') !== 'all'
+    || (filters.severity || 'all') !== 'all' || (filters.user || 'all') !== 'all'
+    || (filters.from_date || '') !== '' || (filters.to_date || '') !== '';
 
   const handleResetFilters = () => {
     setSearchQuery('');
@@ -337,7 +320,7 @@ return false;
           {/* فئة السجل */}
           <select
             value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
+            onChange={(e) => { setSelectedCategory(e.target.value); applyFilters({ category: e.target.value }); }}
             style={{ padding: '9px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.15)', fontSize: 12.5 }}
           >
             <option value="all">جميع الفئات</option>
@@ -351,7 +334,7 @@ return false;
           {/* الأهمية */}
           <select
             value={selectedSeverity}
-            onChange={(e) => setSelectedSeverity(e.target.value)}
+            onChange={(e) => { setSelectedSeverity(e.target.value); applyFilters({ severity: e.target.value }); }}
             style={{ padding: '9px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.15)', fontSize: 12.5 }}
           >
             <option value="all">كافة مستويات الأهمية</option>
@@ -363,7 +346,7 @@ return false;
           {/* المستخدم / الفاعل */}
           <select
             value={selectedUser}
-            onChange={(e) => setSelectedUser(e.target.value)}
+            onChange={(e) => { setSelectedUser(e.target.value); applyFilters({ user: e.target.value }); }}
             style={{ padding: '9px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.15)', fontSize: 12.5 }}
           >
             <option value="all">جميع المستخدمين</option>
@@ -378,7 +361,7 @@ return false;
           <input
             type="date"
             value={fromDate}
-            onChange={(e) => setFromDate(e.target.value)}
+            onChange={(e) => { setFromDate(e.target.value); applyFilters({ from_date: e.target.value }); }}
             style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.15)', fontSize: 12 }}
             title="من تاريخ"
           />
@@ -387,7 +370,7 @@ return false;
           <input
             type="date"
             value={toDate}
-            onChange={(e) => setToDate(e.target.value)}
+            onChange={(e) => { setToDate(e.target.value); applyFilters({ to_date: e.target.value }); }}
             style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.15)', fontSize: 12 }}
             title="إلى تاريخ"
           />
@@ -422,22 +405,21 @@ return false;
             type="button"
             className={`btn sm ${selectedCategory === 'all' ? 'primary' : 'soft'}`}
             style={{ padding: '4px 12px', fontSize: 11.5 }}
-            onClick={() => setSelectedCategory('all')}
+            onClick={() => { setSelectedCategory('all'); applyFilters({ category: 'all' }); }}
           >
-            الكل ({logs.length})
+            الكل ({stats.total})
           </button>
+          {/* بلا عدٍّ لكلّ فئة: كان يُحسب على الصفّ المحمَّل فيصير أصفاراً بمجرّد اختيار فئة */}
           {categories.map((cat) => {
-            const count = logs.filter((l) => l.category === cat).length;
-
             return (
               <button
                 key={cat}
                 type="button"
                 className={`btn sm ${selectedCategory === cat ? 'primary' : 'soft'}`}
                 style={{ padding: '4px 12px', fontSize: 11.5 }}
-                onClick={() => setSelectedCategory(cat)}
+                onClick={() => { setSelectedCategory(cat); applyFilters({ category: cat }); }}
               >
-                {cat} ({count})
+                {cat}
               </button>
             );
           })}
@@ -453,13 +435,13 @@ return false;
                 مصفوفة سجلات التدقيق الأمني
               </h3>
               <span className="sub" style={{ fontSize: 12 }}>
-                عرض {filteredLogs.length} من أصل {logs.length} قيد مسجل
+                {hasFilters ? `${meta.total} قيداً مطابقاً من أصل ${stats.total}` : `${stats.total} قيد مسجّل`}
               </span>
             </div>
           </div>
 
           <div style={{ overflowX: 'auto' }}>
-            {filteredLogs.length > 0 ? (
+            {rows.length > 0 ? (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, textAlign: 'right' }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '1.5px solid rgba(0,0,0,0.08)', color: '#475569' }}>
@@ -473,7 +455,7 @@ return false;
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredLogs.map((log) => {
+                  {rows.map((log) => {
                     const isWarning = log.severity === 'warning';
                     const isCritical = log.severity === 'critical';
 
@@ -605,11 +587,15 @@ return false;
             ) : (
               <div style={{ textAlign: 'center', padding: 50, color: 'var(--muted)' }}>
                 <Icon name="clock" />
-                <b style={{ display: 'block', marginTop: 8, fontSize: 15 }}>لا توجد سجلات تدقيق مطابقة للفلاتر</b>
-                <p style={{ margin: '4px 0 12px', fontSize: 12.5 }}>جرّب مسح الفلاتر أو تغيير شروط البحث</p>
-                <button type="button" className="btn soft sm" onClick={handleResetFilters}>
-                  إعادة ضبط الفلاتر
-                </button>
+                {hasFilters ? (<>
+                  <b style={{ display: 'block', marginTop: 8, fontSize: 15 }}>لا توجد سجلات تدقيق مطابقة للفلاتر</b>
+                  <p style={{ margin: '4px 0 12px', fontSize: 12.5 }}>جرّب مسح الفلاتر أو تغيير شروط البحث</p>
+                  <button type="button" className="btn soft sm" onClick={handleResetFilters}>
+                    إعادة ضبط الفلاتر
+                  </button>
+                </>) : (
+                  <b style={{ display: 'block', marginTop: 8, fontSize: 15 }}>لا توجد سجلات تدقيق بعد</b>
+                )}
               </div>
             )}
           </div>
@@ -617,8 +603,8 @@ return false;
       ) : (
         /* ── عرض الخط الزمني (Timeline View) ── */
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {filteredLogs.length > 0 ? (
-            filteredLogs.map((log) => (
+          {rows.length > 0 ? (
+            rows.map((log) => (
               <div
                 key={log.id}
                 className="card"
@@ -702,11 +688,14 @@ return false;
           ) : (
             <div className="card" style={{ padding: 40, textAlign: 'center' }}>
               <Icon name="clock" />
-              <b style={{ display: 'block', marginTop: 8 }}>لا توجد أنشطة مطابقة</b>
+              <b style={{ display: 'block', marginTop: 8 }}>{hasFilters ? 'لا توجد أنشطة مطابقة للفلاتر' : 'لا توجد أنشطة مسجّلة بعد'}</b>
             </div>
           )}
         </div>
       )}
+
+      {/* الترقيم يحمل المرشّحات من الرابط — بدل سقف ٢٠٠ صامتٍ بلا صفحات */}
+      <Pagination meta={meta} only={['logs', 'filters']} />
 
       {/* ── 5. الدرج السحابي لفحص السجل 360° (Portal Slide-Over Drawer) ── */}
       {activeLog && typeof document !== 'undefined' && createPortal(

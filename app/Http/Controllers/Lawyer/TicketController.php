@@ -2,6 +2,20 @@
 
 namespace App\Http\Controllers\Lawyer;
 
+use App\Domain\Journey\Enums\ClosureReasonCode;
+use App\Domain\Journey\Enums\TicketOutcomeTrack;
+use App\Domain\Journey\Enums\TicketStatus;
+use App\Domain\Journey\Transitions\Ticket\AwaitAdminResultApproval;
+use App\Domain\Journey\Transitions\Ticket\AwaitAdminSummaryApproval;
+use App\Domain\Journey\Transitions\Ticket\AwaitTicketDocuments;
+use App\Domain\Journey\Transitions\Ticket\CloseTicketJustified;
+use App\Domain\Journey\Transitions\Ticket\FinalApproveTicketSummary;
+use App\Domain\Journey\Transitions\Ticket\LawyerApproveTicketResult;
+use App\Domain\Journey\Transitions\Ticket\LawyerApproveTicketSummary;
+use App\Domain\Journey\Transitions\Ticket\ProposeOutcomeTrack;
+use App\Domain\Journey\Transitions\Ticket\PublishLegalOpinion;
+use App\Domain\Journey\Workflow;
+use App\Enums\Role;
 use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
 use App\Http\Controllers\Concerns\ScopedToLawyer;
@@ -16,12 +30,14 @@ use App\Models\LegalCase;
 use App\Models\Meeting;
 use App\Models\Task;
 use App\Models\Ticket;
+use App\Models\User;
 use App\Services\Ai\AiReviewOutcome;
 use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use App\Services\MailService;
 use App\Support\Audit;
 use App\Support\CaseConversion;
+use App\Support\ConversationFiles;
 use App\Support\Live;
 use App\Support\Notify;
 use App\Support\PdfRenderer;
@@ -35,6 +51,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -95,7 +112,6 @@ class TicketController extends Controller
     {
         $lawyer = $request->user();
         $lawyerId = $lawyer->id;
-        $lawyerName = $lawyer->name;
 
         // 1. التذاكر المحالة لهذا المحامي
         $ticketsQuery = Ticket::with(['user', 'summary', 'legalCase'])
@@ -145,7 +161,11 @@ class TicketController extends Controller
         $upcomingHearings = CaseHearing::with('legalCase.user')
             ->whereIn('case_id', $caseIds)
             ->where('status', 'مجدولة')
-            ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '>=', now()->startOfDay()))
+            // **`now()` لا `startOfDay()`.** الحدّ القديم يُبقي جلسةً انتهت التاسعة صباحاً
+            // «قادمةً» حتى منتصف الليل، فيُعلَن عليها بنرٌ أحمر «جلسة قضائية اليوم 🔴»
+            // مساءً وتُعدّ في مؤشّر «جلسات محاكم قادمة». ونظيرُها في لوحة الإدارة
+            // (`AdminDashboardService`) يقيس بـ`now()` منذ البداية — فاتّسقت اللوحتان.
+            ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '>=', now()))
             ->orderByRaw('starts_at IS NULL')
             ->orderBy('starts_at')
             ->take(8)
@@ -166,7 +186,8 @@ class TicketController extends Controller
 
         // 4. استشارات واجتماعات اليوم / القادمة للمحامي
         $consultsQuery = Consult::with(['user', 'appointment', 'ticket:id,number', 'ticket.legalCase:id,ticket_id,number'])
-            ->where(fn ($q) => $q->where('assigned_lawyer_id', $lawyerId)->orWhere('lawyer', $lawyerName))
+            // العزل بالإسناد وحده — مطابقة الاسم النصّيّ كانت تُدخل استشارة زميلٍ يشاركه الاسم
+            ->where('assigned_lawyer_id', $lawyerId)
             ->whereNotIn('status', Consult::PRE_SESSION_STATUSES)
             ->orderByRaw('starts_at IS NULL')
             ->orderBy('starts_at')
@@ -178,14 +199,20 @@ class TicketController extends Controller
             'isToday' => $c->starts_at?->isToday() ?? false,
         ]))->values();
 
-        $openMeetings = Meeting::where(fn ($q) => $q->where('assigned_lawyer_id', $lawyerId)
-            ->orWhere('created_by', $lawyerName))
+        $openMeetings = Meeting::where('assigned_lawyer_id', $lawyerId)
             ->get()->filter(fn (Meeting $m) => $m->isUpcoming());
 
         // 5. ملفات التنفيذ القضائي
-        $executions = Execution::with('user')
+        // **ما يحرسه المسار تحرسه الحمولة.** `/lawyer/execs` يشترط «إدارة القضايا والأتعاب»،
+        // ولوحةُ المحامي بلا وسيط صلاحيّة (عامّة للدور) كانت تشحن صفوف التنفيذ — أسماء موكّلين
+        // ومواضيع ملفّاتهم — لكلّ محامٍ ولو نُزعت عنه الصلاحيّة. الحجب في الخادم لا في الشاشة.
+        $canExecs = $lawyer->can('إدارة القضايا والأتعاب');
+
+        $executions = ! $canExecs ? collect() : Execution::with('user')
             ->where('assigned_lawyer_id', $lawyerId)
-            ->orWhere(fn ($q) => $q->whereNull('assigned_lawyer_id')->whereIn('status', ['جارٍ', 'مفتوح', 'بانتظار الإجراء']))
+            // قاعدة الالتقاط نفسها التي في تبويب التنفيذ (ExecFlowController::lawyer): غير مسنَد وبلغ
+            // الدراسة. والحالات الثلاث السابقة («جارٍ»/«مفتوح»/«بانتظار الإجراء») لا يكتبها أيّ مسار.
+            ->orWhere(fn ($q) => $q->whereNull('assigned_lawyer_id')->whereNotNull('stage')->where('stage', '>=', 2))
             ->latest('id')
             ->take(6)
             ->get()
@@ -340,7 +367,7 @@ class TicketController extends Controller
                 'openedAt' => $ticket->created_at?->locale('ar')->translatedFormat('j F Y'),
             ]),
             'channel' => 'ticket.'.$ticket->id,
-            'messages' => $ticket->messages->map->toMessage(),
+            'messages' => ConversationFiles::linkLegacyChips($ticket->messages->map->toMessage()->all(), 'ticket', $ticket->documents),
             'summary' => $ticket->summary?->toData(),
             'converted' => (bool) $ticket->legalCase,
             // الإدارة تفتح نفس الصفحة من مسارها — الروابط تُبنى من base لا مثبّتة على /lawyer
@@ -461,6 +488,12 @@ class TicketController extends Controller
             422,
             'اعتُمد هذا الملخّص رسميًّا — لا يُعدَّل بعد الاعتماد.'
         );
+        // اعتمده المحامي ورُفع للإدارة — يُقفل عليه، والإدارة تعدّله إن لزم عند اعتمادها
+        abort_if(
+            ! $request->user()->isAdmin() && $ticket->summary->isLawyerApproved(),
+            422,
+            'اعتمدتَ هذا الملخّص ورُفع للإدارة لاعتماده النهائيّ — لا يُعدَّل من جهتك.'
+        );
 
         $data = $request->validate([
             'case_summary' => ['nullable', 'string', 'max:5000'],
@@ -468,7 +501,8 @@ class TicketController extends Controller
             'facts' => ['nullable', 'string', 'max:5000'],
             'key_points' => ['nullable', 'string', 'max:5000'],
         ]);
-        $ticket->summary->update($data);
+        // «حُرّر بيد المستشار» — فلا تكتب فوقه إعادة التوليد الآليّة (ع٢٦)
+        $ticket->summary->update($data + ['edited_at' => now()]);
 
         return back();
     }
@@ -484,6 +518,8 @@ class TicketController extends Controller
             ]);
         }
 
+        abort_if($ticket->summary->isLawyerApproved(), 422, 'اعتُمد هذا الملخّص من المستشار — لا يُعاد توليده.');
+
         GenerateTicketSummaryJob::dispatch($ticket, force: true);
 
         return back()->with('flash', 'تمت إعادة تشغيل التحليل الذكي للملخّص.');
@@ -495,8 +531,13 @@ class TicketController extends Controller
         $this->guardAssigned($ticket);
         $summary = $ticket->summary;
         abort_unless($summary, 404);
+        $actor = $request->user();
+        $isAdmin = $actor->isAdmin();
 
-        // حفظ أي تعديلات مُرسلة مع الاعتماد
+        // **الاعتماد نهائيّ** — كان يُقبل على ملخّصٍ معتمد فيعدّل نصّه ويُرجع التذكرة ويُعيد الرسالة للعميل (ع٧)
+        abort_if($summary->isApproved(), 422, 'اعتُمد هذا الملخّص ونُشر للعميل — لا يُعاد اعتماده.');
+        abort_if(! $isAdmin && $summary->isLawyerApproved(), 422, 'اعتمدتَ هذا الملخّص ورُفع للإدارة لاعتماده النهائيّ.');
+
         $request->validate([
             'case_summary' => ['nullable', 'string', 'max:5000'],
             'attachments_summary' => ['nullable', 'string', 'max:5000'],
@@ -504,58 +545,77 @@ class TicketController extends Controller
             'key_points' => ['nullable', 'string', 'max:5000'],
         ]);
 
-        // حارس الصدق: لا يُعتمَد ملخّص قالبي لم يُحلَّل بالـAI ما لم يحرّره المحامي يدوياً —
-        // فلا يُرسَل رأي أجوف للعميل (يمنع تكرار اعتماد القالب كما في SB-2026-1451).
         $fields = ['case_summary', 'attachments_summary', 'facts', 'key_points'];
         $before = $summary->only($fields);
         $summary->fill($request->only($fields));
         $edited = $summary->only($fields) != $before;
-        if (! $summary->ai_generated && ! $summary->isApproved() && ! $edited) {
+
+        // حارس الصدق: لا يُعتمد قالبٌ لم يُحلَّل ولم يحرّره أحد (SB-2026-1451)
+        if (! $summary->ai_generated && ! $edited && $summary->edited_at === null && ! $summary->isLawyerApproved()) {
             throw ValidationException::withMessages([
                 'case_summary' => 'لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — يُرجى انتظار التحليل الذكي أو تحرير الملخّص يدوياً قبل الاعتماد.',
             ]);
         }
 
-        $firstApproval = $summary->status !== 'approved';
-        if ($firstApproval) {
-            $summary->status = 'approved';
-            $summary->approved_at = now();
-            $summary->lawyer_id = $request->user()->id;
-        }
-        $summary->save();
-
-        // **الاعتماد هنا قرارُ مراجعةٍ أيضاً.** كان يُسجَّل في `ticket_summaries`
-        // وحدها، فيبقى قيد `ai_runs` بلا قرارٍ وبحالة «تحتاج مراجعة» أبداً —
-        // فيعرضه الصندوق معلَّقاً، ولا يعدّه `humanEditRate`، ويقول تقرير الحوكمة
-        // «لم يُراجَع» لمخرجٍ اعتمده محامٍ وأُرسل للعميل. و`$edited` محسوبٌ أعلاه،
-        // فيُميَّز «قبول» من «تعديل ثم قبول» بلا تخمين.
-        if ($firstApproval) {
-            AiReviewOutcome::recordFileApproval('ticket.summary', $ticket->number, $request->user(), $edited);
+        // **ولا يُعتمد ملخّصٌ سيعلق:** بلا وقائع أو بلا توصيات لا تُعتمد نتيجته لاحقاً أبداً (ع١٤)
+        if (! TicketResult::hasSubstance($summary)) {
+            throw ValidationException::withMessages([
+                'key_points' => 'أكمل الوقائع والتوصيات قبل الاعتماد — ملخّصٌ بلا أحدهما لا يُبنى عليه رأي.',
+            ]);
         }
 
-        // الرأي القانوني المبدئي يظهر للعميل (من النقاط المهمة المعتمدة)
-        // الغياب يُعلَن ولا يُملأ: كان يُكتب «تمت الدراسة المبدئية للملف» تحت
-        // عنوان «وفيما يلي الرأي القانوني المبدئي» حين لا توصيات أصلاً — فيقرأ
-        // العميل دراسةً مكان رأيٍ خالٍ. والنمط من `TicketResult::NO_RECOMMENDATIONS`.
-        $hasOpinion = trim((string) $summary->key_points) !== '';
-        $opinion = $hasOpinion
-            ? nl2br(e($summary->key_points))
-            : e(TicketResult::NO_RECOMMENDATIONS);
-        $body = '<p>تم اعتماد ملخص ملفكم من المستشار القانوني'
-            .($hasOpinion ? '، وفيما يلي الرأي القانوني المبدئي:' : ':').'</p>'
-            .'<div class="doc-list" style="flex-direction:column">'.$opinion.'</div>'
-            .'<p>ولإبداء الرأي الكامل ومناقشة التفاصيل نأمل حجز استشارة قانونية من قسم «حجز استشارة».</p>';
+        // النصّ والأختام تُحفظ داخل انتقال الملخّص — المحرّك يعيد قراءة الصفّ مقفولاً، فما مُلئ
+        // هنا لقياس «هل حُرّر؟» يصله في الحمولة لا على هذه النسخة
+        $approval = ['fields' => $request->only($fields), 'edited' => $edited];
 
-        $ticket->update([
-            'status' => 'الرأي القانوني',
-            'tone' => TicketJourney::toneFor('الرأي القانوني'),
-            'last_message' => 'اعتمد المستشار ملخص الملف وأصدر الرأي القانوني المبدئي',
-            'date_label' => 'الآن',
-        ]);
+        // ── المرحلة الأولى: المستشار يعتمد ويرفع للإدارة — لا يصل العميلَ شيء ──
+        if (! $isAdmin) {
+            Workflow::run(new LawyerApproveTicketSummary, $summary, $actor, $approval);
+
+            AiReviewOutcome::recordFileApproval('ticket.summary', $ticket->number, $actor, $edited);
+
+            // التذكرة التي تقدّمت لا ترتدّ — وغير المقبول يُتجاوز بصمتٍ كما كان
+            $awaitAdmin = new AwaitAdminSummaryApproval;
+            if ($awaitAdmin->accepts((string) $ticket->status)) {
+                Workflow::run($awaitAdmin, $ticket, $actor);
+                Live::push(new TicketStatusBroadcast($ticket));
+            }
+
+            foreach (User::where('role', Role::Admin)->pluck('id') as $adminId) {
+                Notify::send($adminId, 'scale', 't-amber', "اعتمد المستشار {$actor->name} ملخّص التذكرة {$ticket->number} — بانتظار اعتمادكم النهائيّ قبل إرساله للعميل.");
+            }
+
+            Audit::log(
+                action: 'اعتماد المستشار لملخّص تذكرة',
+                description: "اعتمد {$actor->name} ملخّص التذكرة {$ticket->number} ورفعه للإدارة.",
+                category: 'تذاكر',
+                auditable: $ticket,
+                auditableRef: $ticket->number,
+            );
+
+            return redirect()->route('lawyer.summaries')->with('flash', 'اعتُمد الملخّص ورُفع للإدارة لاعتماده النهائيّ قبل إرساله للعميل.');
+        }
+
+        // ── المرحلة الثانية: الإدارة تعتمد (وتعدّل إن لزم) فيُنشر للعميل ──
+        // وإن كتبته الإدارة واعتمدته بنفسها يُعدّ اعتمادها للمرحلتين معاً.
+        Workflow::run(new FinalApproveTicketSummary, $summary, $actor, $approval);
+
+        AiReviewOutcome::recordFileApproval('ticket.summary', $ticket->number, $actor, $edited);
+
+        // الغياب يُعلَن ولا يُملأ — والنمط من `TicketResult::NO_RECOMMENDATIONS`
+        $body = '<p>تم اعتماد ملخص ملفكم، وفيما يلي الرأي القانوني المبدئي:</p>'
+            .'<div class="doc-list" style="flex-direction:column">'.nl2br(e($summary->key_points)).'</div>'
+            .'<p>ولإبداء الرأي الكامل ومناقشة التفاصيل نأمل طلب استشارة قانونية من داخل التذكرة.</p>';
+
+        // **لا ترتدّ التذكرة** — كان يكتب «الرأي القانوني» بلا شرط فوق موعدٍ قائم (ج٩)
+        $opinion = new PublishLegalOpinion;
+        if ($opinion->accepts((string) $ticket->status)) {
+            Workflow::run($opinion, $ticket, $actor);
+        }
 
         $msg = $ticket->messages()->create([
             'who' => 'lawyer',
-            'name' => $request->user()->name,
+            'name' => $summary->lawyer?->name ?? 'المستشار القانوني',
             'role' => 'مستشار قانوني',
             'body' => $body,
             'time_label' => $this->clock(),
@@ -563,16 +623,18 @@ class TicketController extends Controller
         Live::push(new TicketMessageBroadcast($msg));
         Live::push(new TicketStatusBroadcast($ticket));
 
-        // إشعار للعميل
-        Notify::send($ticket->user_id, 'scale', 't-cyan', "اعتمد المستشار ملخص ملفك وأصدر الرأي القانوني المبدئي على تذكرتك {$ticket->number}.");
+        Notify::send($ticket->user_id, 'scale', 't-cyan', "اعتُمد ملخص ملفك وصدر الرأي القانوني المبدئي على تذكرتك {$ticket->number}.");
 
-        // بريد للعميل باعتماد الملخّص والرأي القانونيّ (أفضل-جهد — لا يعطّل الطلب إن فشل)
         $ticket->loadMissing('user');
         if ($ticket->user?->email) {
             app(MailService::class)->send($ticket->user, new SummaryApprovedMail($ticket, $summary->key_points));
         }
 
-        return redirect()->route($request->user()->isAdmin() ? 'admin.summaries' : 'lawyer.summaries');
+        if ($summary->lawyer_approved_by && $summary->lawyer_approved_by !== $actor->id) {
+            Notify::send($summary->lawyer_approved_by, 'check', 't-green', "اعتمدت الإدارة ملخّص التذكرة {$ticket->number} وأُرسل الرأي القانوني للعميل.");
+        }
+
+        return redirect()->route('admin.summaries')->with('flash', 'اعتُمد الملخّص وأُرسل الرأي القانوني للعميل.');
     }
 
     // توليد مسودة لائحة دعوى لمعايير منصة ناجز
@@ -636,14 +698,8 @@ class TicketController extends Controller
             'النتيجة بلا وقائع أو توصيات — استكملها قبل الاعتماد.'
         );
 
-        $summary->update(['result_status' => 'pending_admin']);
-
-        $ticket->update([
-            'status' => 'بانتظار اعتماد الإدارة',
-            'tone' => TicketJourney::toneFor('بانتظار اعتماد الإدارة'),
-            'last_message' => 'اعتمد المستشار ملخص الجلسة ورفعه للإدارة',
-            'date_label' => 'الآن',
-        ]);
+        Workflow::run(new LawyerApproveTicketResult, $summary, $request->user());
+        Workflow::run(new AwaitAdminResultApproval, $ticket, $request->user());
 
         $msg = $ticket->messages()->create([
             'who' => 'lawyer',
@@ -683,7 +739,7 @@ class TicketController extends Controller
     public function closeWithoutCase(Request $request, Ticket $ticket): RedirectResponse
     {
         $this->guardAssigned($ticket);
-        if ($ticket->status !== 'مكتملة') {
+        if (! in_array($ticket->status, [TicketStatus::ReadyForOutcome->value, TicketStatus::Completed->value], true)) {
             throw ValidationException::withMessages([
                 'ticket' => 'لا يمكن إغلاق التذكرة إلا بعد اكتمالها.',
             ]);
@@ -694,14 +750,38 @@ class TicketController extends Controller
             ]);
         }
 
-        $ticket->update(['status' => 'مغلقة', 'tone' => TicketJourney::toneFor('مغلقة'), 'last_message' => 'أُغلق الطلب بعد الاستشارة دون تحويله إلى قضية', 'date_label' => 'الآن']);
+        $data = $request->validate([
+            'closure_reason_code' => ['nullable', 'string', Rule::in(ClosureReasonCode::values())],
+            'closure_notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $reasonCode = $data['closure_reason_code'] ?? ClosureReasonCode::OpinionSatisfied->value;
+        $reasonEnum = ClosureReasonCode::tryFrom($reasonCode) ?? ClosureReasonCode::OpinionSatisfied;
+        $notes = trim($data['closure_notes'] ?? '') ?: $reasonEnum->label();
+
+        Workflow::run(new CloseTicketJustified, $ticket, $request->user(), [
+            'closure_reason_code' => $reasonCode,
+            'closure_notes' => $notes,
+        ]);
+
         $msg = $ticket->messages()->create([
             'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'إغلاق',
-            'body' => '<p>تم إغلاق الطلب بعد الاستشارة دون تحويله إلى قضية، وحُفظت كامل المخرجات داخل التذكرة.</p>',
+            'body' => '<p>تم إغلاق الطلب بعد دراسة الملف وتحديد الموقف القانوني. سبب الإغلاق: <b>'.e($reasonEnum->label()).'</b>.</p><p>'.nl2br(e($notes)).'</p>',
             'time_label' => $this->clock(),
         ]);
+
+        // قرارٌ نهائيّ على الملفّ — إشعار وسجل تدقيق
+        Notify::send($ticket->user_id, 'check', 't-grey', "أُغلقت تذكرتك {$ticket->number} بعد الاستشارة دون تحويلها إلى قضية، ومخرجاتها محفوظة داخلها.");
+        Audit::log(
+            action: 'إغلاق تذكرة دون قضية',
+            description: "أغلق {$request->user()->name} التذكرة {$ticket->number} بسبب «{$reasonEnum->label()}».",
+            category: 'تذاكر',
+            auditable: $ticket,
+            auditableRef: $ticket->number,
+            beforeState: ['الحالة' => 'مكتملة'],
+            afterState: ['الحالة' => 'مغلقة', 'سبب_الإغلاق' => $reasonCode],
+        );
         Live::push(new TicketMessageBroadcast($msg));
-        Live::push(new TicketStatusBroadcast($ticket));
 
         return redirect()->route($request->user()->isAdmin() ? 'admin.tickets' : 'lawyer.tickets');
     }
@@ -718,11 +798,36 @@ class TicketController extends Controller
             'time_label' => $this->clock(),
         ]);
         Live::push(new TicketMessageBroadcast($msg));
-        $ticket->update(['last_message' => 'طلب المستشار مستندات إضافية', 'date_label' => 'الآن']);
+        // **الطلب يُتابَع:** قبل اعتماد الملخّص تنتقل التذكرة إلى «بانتظار مستندات» (ج٨)؛
+        // وبعده تبقى حيث هي — لا يُمحى اعتمادٌ وقع بطلب مستند.
+        $early = in_array($ticket->status, TicketJourney::BEFORE_LAWYER_APPROVAL, true);
+        if ($early) {
+            Workflow::run(new AwaitTicketDocuments, $ticket, $request->user(), [
+                'last_message' => 'طلب المستشار مستندات إضافية',
+                'via' => 'lawyer.request_docs',
+            ]);
+            Live::push(new TicketStatusBroadcast($ticket));
+        } else {
+            $ticket->update(['last_message' => 'طلب المستشار مستندات إضافية', 'date_label' => 'الآن']);
+        }
 
         Notify::send($ticket->user_id, 'upload', 't-amber', "طلب المستشار مستندات إضافية على تذكرتك {$ticket->number}.");
 
         return back();
+    }
+
+    // مقترح المستشار لمسار مآل التذكرة (أحد المسارات الأربعة) مرفوعاً للإدارة العليا
+    public function proposeTrack(Request $request, Ticket $ticket): RedirectResponse
+    {
+        $this->guardAssigned($ticket);
+        $data = $request->validate([
+            'track' => ['required', 'string', Rule::in(TicketOutcomeTrack::values())],
+            'reason' => ['required', 'string', 'min:10', 'max:2000'],
+        ]);
+
+        Workflow::run(new ProposeOutcomeTrack, $ticket, $request->user(), $data);
+
+        return back()->with('flash', 'تم رفع مقترح المسار للإدارة العليا للاعتماد بنجاح.');
     }
 
     private function clock(): string

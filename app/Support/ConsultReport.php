@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\ConsultStatus;
 use App\Models\Consult;
 
 /**
@@ -32,6 +33,9 @@ class ConsultReport
      */
     public static function doc(Consult $consult, string $clientName): array
     {
+        // العميل يقرأ تسمياته، ولا يُطبع له مكانُ موعدٍ مقترح قبل اعتماد الإدارة؛ والطاقم يرى الداخليّ
+        $forClient = auth()->user()?->isClient() === true;
+
         $payLabel = $consult->paid_at !== null
             ? 'مدفوعة'
             : ($consult->priced_at !== null ? 'بانتظار السداد' : 'بانتظار التسعير من الإدارة');
@@ -45,7 +49,8 @@ class ConsultReport
                 $consult->summaryApproved() => 'راجع ملخص الاستشارة أعلاه',
                 // لا نصّ بعد ⇒ لا اعتماد يُنتظَر: الخطوة على المستشار أن يُعدّه
                 blank($consult->summary) => 'بانتظار إعداد ملخص الاستشارة من المستشار',
-                default => 'بانتظار اعتماد ملخص الاستشارة من المستشار',
+                // بلا «من المستشار»: الاعتماد مرحلتان (المستشار ثمّ الإدارة)، وكانت تُطبع بعد اعتماده
+                default => 'بانتظار اعتماد ملخص الاستشارة',
             },
             $consult->session === 'جلسة جارية' => 'الجلسة قائمة الآن',
             default => 'حضور الجلسة في الموعد المحدّد',
@@ -60,12 +65,12 @@ class ConsultReport
                     'title' => '١. بيانات الاستشارة',
                     'cellRows' => [
                         [['رقم الاستشارة', $consult->ref], ['نوع الاستشارة', $consult->channel], ['التخصّص', $consult->specialty ?: '—'], ['الموعد', $consult->when_label ?: '—']],
-                        [['المكان', $consult->placeLabel()], ['حالة الجلسة', $consult->session ?: '—'], ['حالة السداد', $payLabel], ['رقم الفاتورة', $consult->invoice?->number ?: '—']],
+                        [['المكان', $forClient && $consult->appointmentAwaitingApproval() ? '—' : $consult->placeLabel()], ['حالة الجلسة', $consult->session ?: '—'], ['حالة السداد', $payLabel], ['رقم الفاتورة', $consult->invoice?->number ?: '—']],
                     ],
                 ],
                 [
                     ['title' => '٢. بياناتك', 'cellRows' => [[['اسم العميل', $clientName], ['الحالة', 'عميل نشط']]]],
-                    ['title' => '٣. مقدّم الخدمة', 'cellRows' => [[['الجهة', 'المكتب القانوني'], ['المحامي المسؤول', Mask::lawyer($consult->lawyer)]]]],
+                    ['title' => '٣. مقدّم الخدمة', 'cellRows' => [[['الجهة', 'المكتب القانوني'], ['المحامي المسؤول', auth()->user()?->isClient() ? LawyerName::forClient($consult->assigned_lawyer_id ? $consult->assignedLawyer : null, $consult->lawyer, '—') : ($consult->lawyer ?: '—')]]]],
                 ],
                 ['title' => '٤. ملخص الاستشارة', 'lines' => match (true) {
                     $consult->summaryApproved() => $consult->summary,
@@ -87,7 +92,8 @@ class ConsultReport
                 'qrSeed' => $consult->ref,
                 'rows' => [
                     ['الجهة', 'النظام الإداري لمكاتب المحاماة'],
-                    ['حالة الاستشارة', $consult->status],
+                    // للعميل تسميته — «بانتظار اعتماد الموعد» شأنٌ داخليّ يقرؤه «بانتظار تحديد الموعد»
+                    ['حالة الاستشارة', $forClient ? (ConsultStatus::tryFrom((string) $consult->status)?->clientLabel() ?? $consult->status) : $consult->status],
                     ['تاريخ الطباعة', now()->format('Y-m-d')],
                 ],
             ],

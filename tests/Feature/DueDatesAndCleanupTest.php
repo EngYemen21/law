@@ -184,11 +184,16 @@ class DueDatesAndCleanupTest extends TestCase
             'session' => 'بانتظار الجلسة', 'status' => 'جديدة',
         ]);
 
+        $recorded = Consult::where('ref', 'CN-2026-8801')->firstOrFail();
+
         $this->actingAs($admin)->get(route('admin.archive'))
             ->assertInertia(fn ($p) => $p
                 ->has('rows', 1)
                 ->where('rows.0.ref', 'CN-2026-8801')
-                // التسجيل الفعلي لا رابط الانضمام الميّت
-                ->where('rows.0.recording', 'https://zoom.us/rec/real-recording'));
+                // التسجيل الفعلي يُشغَّل وينزَّل عبر الخادم — لا رابط الانضمام الميّت ولا رابط سحابة Zoom
+                // (قرار المالك 2026-09-15: لا زرَّ يفتح صفحةً خارج النظام)
+                ->where('rows.0.stream', route('admin.consults.stream', ['consult' => $recorded, 'type' => 'video'], absolute: false))
+                ->where('rows.0.zip', route('admin.consults.recording', $recorded, absolute: false))
+                ->missing('rows.0.recording'));
     }
 }

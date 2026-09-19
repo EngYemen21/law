@@ -2,6 +2,8 @@
 
 namespace App\Services\Ai;
 
+use App\Support\LegalCatalogue;
+
 /**
  * ثقة مشتقّة **خادمياً** من إشارات موضوعيّة — لا من ادّعاء النموذج عن مخرجه.
  *
@@ -97,15 +99,22 @@ final class AiConfidence
         string $clientChosenDepartment,
         string $ticketType,
     ): array {
-        $catalogue = array_map('trim', explode('،', AiPromptRegistry::DEPARTMENTS));
-        $inCatalogue = in_array(trim($department), $catalogue, true);
+        // «من القاموس المعتمد» = اسم قسمٍ فعّال في الكتالوج أو اسمٌ بديل له — بلا مطابقةٍ احتوائيّة
+        $inCatalogue = LegalCatalogue::isDepartmentName($department);
         $clientChose = trim($clientChosenDepartment) !== '';
+
+        // الاتفاق بالقسم لا بالصياغة: «القسم التجاري» و«القضايا التجارية» اتّفاق
+        $agreed = LegalCatalogue::resolveDepartment($department)?->id;
+        $chosen = LegalCatalogue::resolveDepartment($clientChosenDepartment)?->id;
+        $agrees = $clientChose && ($agreed !== null && $chosen !== null
+            ? $agreed === $chosen
+            : trim($department) === trim($clientChosenDepartment));
 
         $signals = [
             // المحقِّق يقبل أي قسم غير فارغ؛ كونه من القاموس المعتمد إشارة جودة لا شرط قبول
             'department_in_catalogue' => $inCatalogue,
             'client_chose_department' => $clientChose,
-            'agrees_with_client' => $clientChose && trim($department) === trim($clientChosenDepartment),
+            'agrees_with_client' => $agrees,
             'details_length' => mb_strlen(trim($details)),
             'details_substantial' => mb_strlen(trim($details)) >= self::SUBSTANTIAL_DETAILS,
             'ticket_type_present' => trim($ticketType) !== '',

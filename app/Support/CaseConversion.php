@@ -2,6 +2,9 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\TicketStatus;
+use App\Domain\Journey\Transitions\Ticket\ConvertToCase;
+use App\Domain\Journey\Workflow;
 use App\Enums\Role;
 use App\Events\TicketMessageBroadcast;
 use App\Jobs\ClassifyConvertedCaseJob;
@@ -24,7 +27,7 @@ class CaseConversion
     /** هل يمكن تحويل هذه التذكرة الآن؟ */
     public static function isEligible(Ticket $ticket): bool
     {
-        return $ticket->status === 'مكتملة' && ! $ticket->legalCase()->exists();
+        return in_array($ticket->status, [TicketStatus::ReadyForOutcome->value, TicketStatus::Completed->value], true) && ! $ticket->legalCase()->exists();
     }
 
     /**
@@ -37,7 +40,7 @@ class CaseConversion
      */
     public static function assertEligible(Ticket $ticket, bool $requireApprovedSummary): void
     {
-        if ($ticket->status !== 'مكتملة') {
+        if (! in_array($ticket->status, [TicketStatus::ReadyForOutcome->value, TicketStatus::Completed->value], true)) {
             throw ValidationException::withMessages([
                 'ticket' => 'لا يمكن تحويل التذكرة لقضية إلا بعد اكتمالها.',
             ]);
@@ -87,6 +90,37 @@ class CaseConversion
         ]);
     }
 
+    /**
+     * إنشاء القضية مباشرة من التذكرة عند اعتماد مسار القضية دون استدعاء انتقال متداخل.
+     */
+    public static function fromTicket(Ticket $ticket, User $actor, ?string $reason = null): LegalCase
+    {
+        $analysis = LegalAiService::fallbackClassification($ticket);
+        $lawyer = self::resolveLawyer($ticket, $actor);
+
+        if ((int) $ticket->assigned_lawyer_id !== (int) $lawyer->id) {
+            $ticket->forceFill(['assigned_lawyer' => $lawyer->name, 'assigned_lawyer_id' => $lawyer->id])->save();
+        }
+
+        $case = self::createCase($ticket, $analysis, $lawyer, $actor, 'case.open_from_outcome');
+
+        ClassifyConvertedCaseJob::dispatch($case);
+
+        Audit::log(
+            action: 'تحويل تذكرة إلى قضية',
+            description: "حوّل {$actor->name} التذكرة {$ticket->number} إلى القضية {$case->number} وأُسندت للمحامي {$case->assigned_lawyer}.",
+            category: 'قضايا وتنفيذ',
+            severity: 'warning',
+            auditable: $case,
+            auditableRef: $case->number,
+            beforeState: ['التذكرة' => $ticket->number],
+            afterState: ['القضية' => $case->number, 'المحامي' => $case->assigned_lawyer],
+            user: $actor,
+        );
+
+        return $case;
+    }
+
     /** ينشئ القضية (مع تحليل ذكي للنوع/القسم) ويُعلم العميل. يُعيد القضية. */
     public static function convert(Ticket $ticket, User $actor): LegalCase
     {
@@ -106,7 +140,7 @@ class CaseConversion
         $lawyer = self::resolveLawyer($ticket, $actor);
 
         try {
-            $case = DB::transaction(function () use ($ticket, $analysis, $lawyer) {
+            $case = DB::transaction(function () use ($ticket, $analysis, $lawyer, $actor) {
                 // قفل صفّ التذكرة ثمّ إعادة الفحص: حارس المتحكّمين فحص-ثمّ-تصرّف بلا قفل،
                 // وثلاثة مسارات تشير إلى الإجراء (موظف · محامٍ · إدارة) — فنقرتان متزامنتان
                 // كانتا تُنشئان قضيّتين لتذكرة واحدة. علاقة hasOne تُظهر واحدة للطاقم بينما
@@ -124,7 +158,11 @@ class CaseConversion
                     $ticket->forceFill(['assigned_lawyer' => $lawyer->name, 'assigned_lawyer_id' => $lawyer->id])->save();
                 }
 
-                return self::createCase($ticket, $analysis, $lawyer);
+                $createdCase = self::createCase($ticket, $analysis, $lawyer, $actor, 'case.open_from_ticket');
+
+                Workflow::run(new ConvertToCase, $ticket, $actor, ['case_id' => $createdCase->id]);
+
+                return $createdCase;
             });
         } catch (UniqueConstraintViolationException) {
             // شبكة أمان تحت القفل: خرق قيد التفرّد على ticket_id = سباق فاز به طلب آخر
@@ -152,12 +190,18 @@ class CaseConversion
         return self::announce($ticket, $case, $actor);
     }
 
-    /** إنشاء القضية ورسالتَي تحليلها وتحويلها — يُنادى داخل المعاملة وتحت القفل. */
-    private static function createCase(Ticket $ticket, array $analysis, User $lawyer): LegalCase
+    /**
+     * إنشاء القضية ورسالتَي تحليلها وتحويلها — يُنادى داخل المعاملة وتحت القفل.
+     *
+     * تُفتح القضيّة **داخل المحرّك** (`Workflow::open`): الحالة الأولى سطرُ فتحٍ في سجلّ الانتقالات
+     * بالفاعل ومصدره، لا كتابةً مجهولة. و`$openedAs` يميّز المسارين: زرّ التحويل من التذكرة،
+     * واعتماد مسار القضيّة من قرار المآل (`ApproveOutcomeTrack`).
+     */
+    private static function createCase(Ticket $ticket, array $analysis, User $lawyer, User $actor, string $openedAs): LegalCase
     {
         $number = ReferenceNumber::next(LegalCase::class, 'number', 'CASE');
 
-        $case = LegalCase::create([
+        $case = Workflow::open($openedAs, fn () => LegalCase::create([
             'user_id' => $ticket->user_id,
             'ticket_id' => $ticket->id,
             'number' => $number,
@@ -169,7 +213,7 @@ class CaseConversion
             'tone' => CaseJourney::toneFor('بانتظار اعتماد الأتعاب'),
             'update_text' => 'تم تحويل الاستشارة إلى قضية، بانتظار تحديد الإدارة للأتعاب',
             'fee_status' => 'none',
-        ]);
+        ]), $actor, ['ticket' => $ticket->number]);
 
         $case->messages()->create([
             'who' => 'ai',

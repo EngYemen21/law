@@ -1,0 +1,86 @@
+<?php
+
+namespace App\Support;
+
+use App\Models\User;
+
+/**
+ * **اسمُ المحامي كما يراه العميل: «الاسمُ الأوّل. الحرفُ الأوّل من الثاني».** (قرار المالك 2026-09-11)
+ *
+ * كانت شاشاتُ العميل تعرضه على ثلاثة أوجه: صريحاً كاملاً (بطاقات الاستشارة والتذاكر والقضايا)،
+ * ومقنَّعاً «أ. م••••د ب••• (مشفّر)» (المواعيد وملفّات PDF)، ومقنَّعاً مرّتين في موضعٍ واحد (الخادم
+ * يقنّع ثمّ الواجهة تقنّع ما قنّعه). فالصيغةُ الآن واحدة: «محمد. ب».
+ *
+ * **ولا يُختصر إلا اسمُ محامٍ حقيقيّ.** الحقلُ نفسه يحمل نوائبَ نصّيّة («المستشار المختصّ»،
+ * «لم يُسنَد بعد»، و`EscalateUnassignedTicketJob::SENIOR_LABEL` حين يُرفع الملفّ للإدارة) —
+ * واختصارُ أيٍّ منها يُنتج كلاماً بلا معنى. فالمصدرُ هو المستخدمُ المسنَد بدور محامٍ، وما سواه
+ * يمرّ كما هو.
+ */
+final class LawyerName
+{
+    /** ألقابٌ تسبق الاسم ولا تُعدّ منه. */
+    private const TITLES = [
+        'أ.', 'أ', 'د.', 'د', 'المحامي', 'المحامية', 'المستشار', 'المستشارة',
+        'الأستاذ', 'الأستاذة', 'الدكتور', 'الدكتورة', 'الشيخ',
+    ];
+
+    /** «محمد بندر» ⇐ «محمد. ب» · «المحامي محمد بندر» ⇐ «محمد. ب» · «سارة القحطاني» ⇐ «سارة. ق». */
+    public static function short(string $name): string
+    {
+        // «أ.محمد» الملتصقة تُفصل ليُعرف اللقب
+        $name = trim((string) preg_replace('/^أ\.(?=\S)/u', 'أ. ', trim($name)));
+        $words = preg_split('/\s+/u', $name, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        while (count($words) > 1 && in_array($words[0], self::TITLES, true)) {
+            array_shift($words);
+        }
+
+        if ($words === []) {
+            return $name;
+        }
+        if (count($words) === 1) {
+            return $words[0];
+        }
+
+        // «ال» التعريف ليست من الاسم: «القحطاني» ⇐ «ق» لا «ا»
+        $second = $words[1];
+        if (mb_strlen($second) > 2 && mb_substr($second, 0, 2) === 'ال') {
+            $second = mb_substr($second, 2);
+        }
+
+        return $words[0].'. '.mb_substr($second, 0, 1);
+    }
+
+    /**
+     * ما يُعرض للعميل في خانة المحامي: المسنَدُ بدور محامٍ يُختصر، وما سواه (نائبٌ نصّيّ، أو ملفٌّ
+     * مرفوعٌ للإدارة) يمرّ كما خُزِّن، والفراغُ يأخذ البديل.
+     */
+    public static function forClient(?User $assigned, ?string $stored, string $fallback): string
+    {
+        if ($assigned !== null && $assigned->isLawyer() && trim((string) $assigned->name) !== '') {
+            return self::short((string) $assigned->name);
+        }
+
+        $stored = trim((string) $stored);
+
+        return $stored !== '' ? $stored : $fallback;
+    }
+
+    /**
+     * رسائلُ المحادثة كما تصل العميل: اسمُ المحامي المرسِل بالصيغة نفسها. يُكتب في الرسالة من
+     * `$request->user()->name` لحظةَ الإرسال — اسمٌ حقيقيّ لا نائب.
+     *
+     * @param  array<int, array<string, mixed>>  $messages
+     * @return array<int, array<string, mixed>>
+     */
+    public static function inMessages(array $messages): array
+    {
+        foreach ($messages as $i => $message) {
+            if (($message['who'] ?? null) === 'lawyer' && trim((string) ($message['name'] ?? '')) !== '') {
+                $messages[$i]['name'] = self::short((string) $message['name']);
+            }
+        }
+
+        return $messages;
+    }
+}

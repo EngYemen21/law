@@ -40,6 +40,24 @@ class ClientNotificationLinkTest extends TestCase
         $this->assertSame(['/tickets', '/invoices', null], $links);
     }
 
+    /**
+     * **إشعار التنفيذ يفتح التنفيذ ولو ذُكرت فيه «أتعاب».** كان نمط القضايا يُفحص أوّلاً فتلتقط
+     * كلمةُ «أتعاب» إشعارَ فاتورة أتعاب التنفيذ فيُفتح على القضايا. و`EX-` لم يطابق أرقامنا (EXE-…).
+     */
+    public function test_execution_fee_notifications_open_the_executions_screen(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+
+        $this->notify($client, 'صدرت فاتورة أتعاب التنفيذ لطلبك EXE-2026-0007 — بانتظار السداد.', 'card');
+
+        $link = collect(
+            $this->actingAs($client)->get('/notifications')
+                ->viewData('page')['props']['notifications']
+        )->first()['link'];
+
+        $this->assertSame('/execs', $link);
+    }
+
     public function test_icon_fallback_maps_link(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);

@@ -11,8 +11,12 @@ use App\Models\LegalCase;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Services\AdminDashboardService;
+use App\Support\ExecFlow;
 use App\Support\ExecService;
+use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 /**
@@ -62,12 +66,16 @@ class DashboardDefectsTest extends TestCase
     {
         Setting::put('vat_rate', 5);
         $client = User::factory()->create(['role' => Role::Client]);
+        // التسعير يلزمه محامٍ مسنَد (قرار المالك 2026-09-12) — والمقيس هنا نسبة الضريبة لا الحارس
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $execution = Execution::create([
             'user_id' => $client->id, 'number' => 'EXE-VAT-1', 'subject' => 'تنفيذ',
-            'status' => 'جديد', 'tone' => 'b-blue', 'last_action' => 'فتح', 'stage' => 3,
+            // الحالة من المرحلة كما يكتبها النظام — «جديد» لم يكتبها أيّ كودٍ قطّ
+            'status' => ExecFlow::label(3), 'tone' => 'b-blue', 'last_action' => 'فتح', 'stage' => 3,
+            'assigned_lawyer_id' => $lawyer->id, 'assigned_lawyer' => $lawyer->name,
         ]);
 
-        ExecService::setFee($execution, 10000, '30 يوم', 'تحويل');
+        ExecService::setFee($execution, 10000, '30 يوم', 'fixed');
 
         $this->assertSame(500, (int) $execution->fresh()->vat);
     }
@@ -106,6 +114,69 @@ class DashboardDefectsTest extends TestCase
 
         $this->actingAs($lawyer)->get(route('consults.report.plain', $consult))->assertOk();
         $this->actingAs($client)->get(route('consults.report.plain', $consult))->assertOk();
+    }
+
+    // ── عدّادات التنفيذ: المرفوض ليس نشطاً، والعدّاد يقرأ القاعدة لا الصفحة ──
+
+    private function exec(User $client, string $number, array $over = []): Execution
+    {
+        return Execution::create(array_merge([
+            'user_id' => $client->id, 'number' => $number, 'subject' => 'تنفيذ',
+            'status' => 'قيد الدراسة', 'tone' => 'b-blue', 'stage' => 2, 'amount' => 50000,
+        ], $over));
+    }
+
+    /**
+     * `reject` يكتب القرار ولا ينقل المرحلة عمداً (المرفوض ليس مغلقاً)، فكان الطلب المرفوض
+     * يُعَدّ «تنفيذاً نشطاً» وتُجمع قيمة مطالبته في المبلغ النشط — رقمٌ ماليّ يضمّ ما لن يُنفَّذ.
+     */
+    public function test_rejected_executions_leave_the_admin_active_counters(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $this->exec($client, 'EXE-ACT-1');                            // بلا قرار بعد (decision = null)
+        $this->exec($client, 'EXE-ACT-2', ['decision' => 'مقبول']);
+        $this->exec($client, 'EXE-REJ-1', ['decision' => 'مرفوض']);
+
+        $overview = app(AdminDashboardService::class)->get360Data(true)['overview'];
+
+        $this->assertSame(2, $overview['activeExecutions'], 'المرفوض يخرج، وغير المبتوت فيه يبقى');
+        $this->assertSame(100000, $overview['activeExecAmount']);
+    }
+
+    /** عدّاد لوحة الموظّف كان يعدّ مجموعةً مقصوصة بـtake(5): «٥ نشطة» والمكتب فيه أكثر. */
+    public function test_employee_active_execution_counter_counts_the_database_not_the_page(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        foreach (range(1, 7) as $i) {
+            $this->exec($client, "EXE-E-{$i}");
+        }
+        $this->exec($client, 'EXE-E-CLOSED', ['stage' => 9, 'status' => 'مغلق']); // المنتهي ليس نشطاً
+
+        $this->actingAs($employee)->get(route('employee.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($p) => $p->has('execs', 5)->where('counts.activeExecs', 7));
+    }
+
+    /**
+     * `/lawyer/execs` يشترط «إدارة القضايا والأتعاب»، ولوحةُ المحامي بلا وسيط صلاحيّة كانت
+     * تشحن صفوف التنفيذ (أسماء الموكّلين ومواضيعهم) لكلّ محامٍ ولو نُزعت عنه الصلاحيّة.
+     */
+    public function test_lawyer_dashboard_ships_executions_only_behind_the_permission(): void
+    {
+        $this->seed(PermissionSeeder::class);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $this->exec($client, 'EXE-L-1', ['assigned_lawyer_id' => $lawyer->id]);
+
+        $lawyer->syncPermissions([]);
+        $this->actingAs($lawyer)->get(route('lawyer.dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($p) => $p->has('executions', 0)->where('stats.activeExecutions', 0));
+
+        $lawyer->syncPermissions(Permission::whereIn('name', ['إدارة القضايا والأتعاب'])->get());
+        $this->actingAs($lawyer)->get(route('lawyer.dashboard'))
+            ->assertInertia(fn ($p) => $p->has('executions', 1));
     }
 
     // ── بطاقة الموعد: رابط تقويم بتواريخ حقيقية ورابط جلسة حقيقي ──

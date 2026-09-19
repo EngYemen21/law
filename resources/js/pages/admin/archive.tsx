@@ -6,6 +6,7 @@ import { useBodyScrollLock } from '@/components/babylon/Modal';
 import { maskClient } from '@/lib/admin-data';
 import { crChannelIcon, crChannelTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { InlinePlayer, MediaButton } from '@/lib/recording-ui';
 
 interface ArchiveRow {
   id: number;
@@ -23,7 +24,9 @@ interface ArchiveRow {
   summary: string | null;
   hasSummary: boolean;
   decisions: string[];
-  recording: string | null;
+  /** تشغيل الفيديو/الصوت داخل الصفحة عبر الخادم — بديل رابط سحابة Zoom الذي كان يُرسل هنا. */
+  stream: string | null;
+  audioStream: string | null;
   zip: string | null;
   audioZip: string | null;
   transcript: string | null;
@@ -41,50 +44,7 @@ type ViewMode = 'grid' | 'table';
 type MediaFilter = 'all' | 'video' | 'audio' | 'transcript' | 'summary';
 type DrawerTab = 'summary' | 'decisions' | 'media' | 'details';
 
-/**
- * **زرُّ وسيطٍ يقول ما سيفعله.**
- *
- * حين يكون الملفّ مبنيّاً فهو رابط تنزيلٍ عاديّ. وحين لا يكون، كان الزرّ نفسه يَعِد
- * بالتنزيل ثمّ يردّ الخادم `back()` — فتومض الصفحة ولا ينزل شيء، ويُعيد المستخدم
- * النقر ظنّاً أنّ الأولى ضاعت، فتُجدوَل مهمّةُ بناءٍ في كلّ نقرة.
- *
- * صار غيرُ الجاهز طلبَ تحضيرٍ صريحاً: نصُّه «تحضير» لا «تنزيل»، ويُرسل مرّةً واحدة
- * (`preserved` يمنع التكرار)، ويعرض ردَّ الخادم بدل ابتلاعه.
- */
-const MediaButton: React.FC<{
-  href: string;
-  ready: boolean;
-  icon: string;
-  label: string;
-  grow?: boolean;
-}> = ({ href, ready, icon, label, grow }) => {
-  const [asked, setAsked] = useState(false);
-  const style = grow ? { flex: 1, justifyContent: 'center' } : undefined;
-
-  if (ready) {
-    return (
-      <a className="btn soft sm" style={style} href={href} title={`تنزيل ${label}`}>
-        <Icon name={icon} /> {label}
-      </a>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      className="btn soft sm"
-      style={{ ...style, opacity: asked ? 0.6 : 1 }}
-      disabled={asked}
-      title={`${label} — يُحضَّر من سحابة Zoom ثمّ يصلك إشعار`}
-      onClick={() => {
-        setAsked(true);
-        router.visit(href, { preserveScroll: true, preserveState: true });
-      }}
-    >
-      <Icon name={asked ? 'clock' : icon} /> {asked ? 'قيد التحضير' : `تحضير ${label}`}
-    </button>
-  );
-};
+// `MediaButton` (زرُّ وسيطٍ يقول ما سيفعله: تنزيل أو تحضير) انتقل إلى recording-ui — مصدرٌ واحد لكلّ الشاشات
 
 export const AdminArchive: React.FC<AdminArchiveProps> = ({ rows = [] }) => {
   // State Management
@@ -140,7 +100,7 @@ return;
   // Telemetry & KPI Computations
   const telemetry = useMemo(() => {
     const total = rows.length;
-    const videoCount = rows.filter((r) => r.recording || r.zip).length;
+    const videoCount = rows.filter((r) => r.zip).length;
     const audioCount = rows.filter((r) => r.audioZip).length;
     const transcriptCount = rows.filter((r) => r.transcript).length;
     const summaryCount = rows.filter((r) => r.hasSummary).length;
@@ -180,7 +140,7 @@ set.add(r.lawyer.trim());
   // Filtered dataset
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
-      if (mediaFilter === 'video' && !r.recording && !r.zip) {
+      if (mediaFilter === 'video' && !r.zip) {
 return false;
 }
 
@@ -759,24 +719,23 @@ return false;
                   </div>
 
                   <div style={{ display: 'flex', gap: 6 }}>
-                    {/* رابط المشاهدة السحابي المباشر */}
-                    {a.recording && (
-                      <a
+                    {/* المشاهدة داخل النظام من تبويب «الوسائط» — كان هنا رابطٌ يفتح سحابة Zoom خارجه */}
+                    {a.videoReady && (
+                      <button
                         className="btn primary sm"
+                        type="button"
                         style={{ flex: 1, justifyContent: 'center' }}
-                        href={a.recording}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                        onClick={() => openDrawer(a.ref, 'media')}
                       >
-                        <Icon name="video" /> مشاهدة السحابة
-                      </a>
+                        <Icon name="video" /> مشاهدة
+                      </button>
                     )}
 
                     {/* قراءة الملخص */}
                     <button
                       className="btn soft sm"
                       type="button"
-                      style={{ flex: a.recording ? 1 : 2, justifyContent: 'center' }}
+                      style={{ flex: a.videoReady ? 1 : 2, justifyContent: 'center' }}
                       onClick={() => openDrawer(a.ref, 'summary')}
                     >
                       <Icon name="out" /> {a.hasSummary ? 'الملخص والقرارات' : 'عرض السجل'}
@@ -874,16 +833,15 @@ return false;
                           {a.transcript && (
                             <MediaButton href={a.transcript} ready={a.transcriptReady} icon="doc" label="نص" />
                           )}
-                          {a.recording && (
-                            <a
+                          {a.videoReady && (
+                            <button
                               className="btn primary sm"
-                              href={a.recording}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              title="مشاهدة على سحابة Zoom"
+                              type="button"
+                              onClick={() => openDrawer(a.ref, 'media')}
+                              title="مشاهدة التسجيل داخل النظام"
                             >
                               <Icon name="video" /> مشاهدة
-                            </a>
+                            </button>
                           )}
                           <button
                             className="btn soft sm"
@@ -1243,22 +1201,18 @@ return false;
                     )}
                   </div>
 
-                  {/* رابط السحابة */}
-                  {drawerItem.recording && (
-                    <div className="card" style={{ margin: 0, padding: 14 }}>
-                      <b>مشاهدة التسجيل على سحابة Zoom مباشرة:</b>
-                      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
-                        يمكنك فتح التسجيل السحابي المشترك في نافذة جديدة.
-                      </p>
-                      <a
-                        className="btn primary sm"
-                        style={{ width: '100%', justifyContent: 'center' }}
-                        href={drawerItem.recording}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <Icon name="video" /> فتح التسجيل السحابي
-                      </a>
+                  {/* المشاهدة والاستماع داخل النظام — من الملفّ المحفوظ على الخادم، لا سحابة Zoom */}
+                  {((drawerItem.stream && drawerItem.videoReady) || (drawerItem.audioStream && drawerItem.audioReady)) && (
+                    <div className="card" style={{ margin: 0, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <b>تشغيل الجلسة داخل النظام:</b>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {drawerItem.stream && drawerItem.videoReady && (
+                          <InlinePlayer key={`v-${drawerItem.ref}`} src={drawerItem.stream} kind="video" label="تشغيل التسجيل المرئيّ" />
+                        )}
+                        {drawerItem.audioStream && drawerItem.audioReady && (
+                          <InlinePlayer key={`a-${drawerItem.ref}`} src={drawerItem.audioStream} kind="audio" label="تشغيل الصوت" />
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

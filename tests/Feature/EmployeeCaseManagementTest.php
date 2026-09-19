@@ -110,4 +110,47 @@ class EmployeeCaseManagementTest extends TestCase
             ->has('documents')
         );
     }
+
+    /**
+     * الخطّة ب: القضيّة المرفوعة في ناجز «بانتظار القيد» لها عدّادها عند الموظّف، وبيانات القيد
+     * (الرقم والمحكمة والدائرة) تظهر للموظّف والإدارة للاطّلاع — من العمود لا من الجلسة.
+     */
+    public function test_najiz_filing_is_visible_to_the_employee_and_the_admin(): void
+    {
+        $employee = User::factory()->create(['role' => Role::Employee, 'status' => 'active']);
+        $employee->syncPermissions(Permission::whereIn('name', ['إدارة القضايا والأتعاب'])->get());
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $client = User::factory()->create(['role' => Role::Client]);
+
+        LegalCase::create([
+            'user_id' => $client->id, 'number' => 'CASE-2026-7001', 'type' => 'تجاري',
+            'status' => 'بانتظار القيد', 'tone' => 'b-amber',
+            'najiz_request_no' => 'NJ-5501', 'filed_at' => now()->toDateString(),
+        ]);
+        $registered = LegalCase::create([
+            'user_id' => $client->id, 'number' => 'CASE-2026-7002', 'type' => 'تجاري',
+            'status' => 'منظورة', 'tone' => 'b-cyan',
+            'najiz_request_no' => 'NJ-5502', 'najiz_case_no' => '4700999888',
+            'court' => 'المحكمة التجارية بجدة', 'circuit' => 'الدائرة الثانية', 'registered_at' => now()->toDateString(),
+        ]);
+
+        $this->actingAs($employee)->get('/employee/cases')->assertInertia(fn (Assert $page) => $page
+            ->where('counts.awaiting', 1)
+            ->where('counts.inCourt', 1)
+            ->where('counts.active', 2)
+            ->where('cases.0.court', 'المحكمة التجارية بجدة')
+            ->where('cases.0.najizCaseNo', '4700999888')
+        );
+
+        $this->actingAs($employee)->get("/employee/cases/{$registered->number}")->assertInertia(fn (Assert $page) => $page
+            ->where('case.court', 'المحكمة التجارية بجدة')
+            ->where('case.najiz.caseNo', '4700999888')
+            ->where('case.najiz.circuit', 'الدائرة الثانية')
+            ->where('case.najiz.requestNo', 'NJ-5502')
+        );
+
+        $this->actingAs($admin)->get(route('admin.cases.show', $registered))->assertInertia(fn (Assert $page) => $page
+            ->where('case.najiz.caseNo', '4700999888')
+        );
+    }
 }

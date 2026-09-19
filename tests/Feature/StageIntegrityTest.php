@@ -10,10 +10,12 @@ use App\Models\MeetRequest;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Support\CorrespondenceFlow;
+use App\Support\ExecFee;
+use App\Support\ExecFlow;
 use App\Support\ExecService;
-use App\Support\LawyerAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
@@ -22,33 +24,42 @@ use Tests\TestCase;
  */
 class StageIntegrityTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     // ── التذكرة: جدولة الموظف من شاشة المحادثة كانت تتركها عالقة أبدًا ──
 
-    public function test_employee_scheduling_from_ticket_advances_the_ticket(): void
+    /**
+     * اقتراح الموظّف لا يُعلن للعميل شيئاً، واعتماد الإدارة ينقل التذكرة إلى «موعد مؤكد»
+     * (قرار المالك 2026-09-14) — فلا تبقى عالقة في حالة انتظار بلا مخرج.
+     */
+    public function test_employee_scheduling_from_ticket_advances_the_ticket_once_approved(): void
     {
-        $employee = User::factory()->create(['role' => Role::Employee]);
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = Ticket::create([
-            'user_id' => $client->id, 'number' => 'SB-S-1', 'type' => 'تجاري',
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $ticket = $this->ticketWithApprovedOpinion($client, [
+            'number' => 'SB-S-1', 'type' => 'تجاري',
             'assigned_lawyer_id' => $lawyer->id,
-            'status' => 'بانتظار حجز الاستشارة', 'tone' => 'b-amber',
+            'status' => 'بانتظار حجز الاستشارة',
         ]);
+        $consult = $this->requestPricedAndPaid($client, $ticket, 'office');
+        $this->assertSame('بانتظار تحديد الموعد', $ticket->fresh()->status);
 
-        $this->actingAs($employee)->post(route('employee.schedule.store'), [
+        $this->actingAs($this->schedulingEmployee())->post(route('employee.schedule.store'), [
             'client_id' => $client->id,
             'type' => 'office',
-            'date' => LawyerAvailability::resolveDate(null)->toDateString(),
+            'date' => now()->addDays(2)->toDateString(),
             'time' => '13:00',
             'lawyer_id' => $lawyer->id,
             'ticket_no' => $ticket->number,
-        ])->assertRedirect();
+        ])->assertRedirect()->assertSessionHasNoErrors();
 
-        // كانت الاستشارة تُنشأ بلا ticket_id والتذكرة تبقى في حالة انتظار بلا مخرج
+        $this->assertSame('بانتظار تحديد الموعد', $ticket->fresh()->status, 'الاقتراح لا يُعلن موعداً');
+
+        $this->adminApprovesAppointment($consult->fresh())->assertRedirect()->assertSessionHasNoErrors();
+
         $this->assertSame('موعد مؤكد', $ticket->fresh()->status);
-        $this->assertDatabaseHas('consults', ['ticket_id' => $ticket->id]);
+        $this->assertDatabaseHas('consults', ['ticket_id' => $ticket->id, 'status' => 'جديدة']);
     }
 
     // ── التنفيذ: المرحلة 7 «ملف تنفيذ» كانت بلا مُدخل (قفز 6 ← 8) ──
@@ -58,7 +69,9 @@ class StageIntegrityTest extends TestCase
         return Execution::create(array_merge([
             'user_id' => User::factory()->create(['role' => Role::Client])->id,
             'number' => 'EXE-S-'.random_int(1000, 9999), 'subject' => 'تنفيذ حكم',
-            'status' => 'جديد', 'tone' => 'b-blue', 'last_action' => 'فتح',
+            // الحالة من المرحلة كما يكتبها النظام (`ExecFlow::label`) — «جديد» لم يكتبها أيّ كودٍ قطّ،
+            // فكانت انتقالات المحرّك ترفض ملفّاً لا يوجد إلا في هذا المُثبِّت
+            'status' => ExecFlow::label((int) ($extra['stage'] ?? 0)), 'tone' => 'b-blue', 'last_action' => 'فتح',
         ], $extra));
     }
 
@@ -66,10 +79,11 @@ class StageIntegrityTest extends TestCase
     {
         $execution = $this->execution(['stage' => 6, 'fee' => 3000, 'vat' => 450, 'fee_approved' => true]);
 
-        ExecService::markPaid($execution);
+        ExecFee::settleInvoice($execution);
 
         $fresh = $execution->fresh();
-        $this->assertSame(8, (int) $fresh->stage);
+        // السداد يفتح الملفّ لدى المكتب ويقف عند 7 «بانتظار الرفع في ناجز» — الرفع خطوةٌ تُسجَّل
+        $this->assertSame(7, (int) $fresh->stage);
         $this->assertTrue((bool) $fresh->paid);
         $this->assertNotNull($fresh->exec_no);
     }

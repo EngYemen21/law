@@ -7,26 +7,27 @@ use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
- * «تحويل التذكرة إلى استشارة» (يطابق convertToConsult المرجعي) — الموظف يُنشئ طلب تسعير
- * نيابةً عن العميل بنفس حرّاس مسار حجز العميل (لا حالة نهائية، لا ازدواج طلب).
+ * «تحويل التذكرة إلى استشارة» — الموظف يُنشئ طلب تسعير نيابةً عن العميل بنفس حرّاس مسار
+ * حجز العميل: رأيٌ قانونيّ اعتمدته الإدارة (2026-09-14)، ولا حالة نهائية، ولا ازدواج طلب.
  */
 class EmployeeConvertToConsultTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
-    private function ticketWithEmployee(string $status = 'قيد التحليل'): array
+    /** @return array{0: Ticket, 1: User, 2: User} */
+    private function ticketWithEmployee(string $status = 'الرأي القانوني'): array
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $ticket = Ticket::create([
-            'user_id' => $client->id,
+        $ticket = $this->ticketWithApprovedOpinion($client, [
             'number' => 'SB-2026-7100',
             'type' => 'استشارة قانونية',
             'department' => 'القانون التجاري',
             'status' => $status,
-            'tone' => 'b-blue',
         ]);
         $employee = User::factory()->create(['role' => Role::Employee]);
 
@@ -54,6 +55,23 @@ class EmployeeConvertToConsultTest extends TestCase
     public function test_rejects_conversion_on_completed_ticket(): void
     {
         [$ticket, $employee] = $this->ticketWithEmployee('مكتملة');
+
+        $this->actingAs($employee)
+            ->postJson(route('employee.tickets.convert-consult', $ticket))
+            ->assertStatus(422);
+
+        $this->assertSame(0, Consult::where('ticket_id', $ticket->id)->count());
+    }
+
+    /** **لا تحويلَ قبل اعتماد الرأي المبدئيّ** — تذكرةٌ قيد التحليل لم يكتمل ملخّصها. */
+    public function test_rejects_conversion_before_the_opinion_is_approved(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $ticket = Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-2026-7101', 'type' => 'استشارة قانونية',
+            'status' => 'قيد التحليل', 'tone' => 'b-blue',
+        ]);
+        $employee = User::factory()->create(['role' => Role::Employee]);
 
         $this->actingAs($employee)
             ->postJson(route('employee.tickets.convert-consult', $ticket))

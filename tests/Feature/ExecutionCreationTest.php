@@ -42,7 +42,11 @@ class ExecutionCreationTest extends TestCase
         $exec = Execution::where('case_id', $case->id)->first();
         $this->assertNotNull($exec);
         $this->assertSame($client->id, $exec->user_id);
-        $this->assertSame('جديد', $exec->status);
+        // قرار المالك 2026-09-12: يبدأ من **الأتعاب** لا من «قيد التنفيذ» — والحكم سندٌ مقبول سلفاً
+        $this->assertSame('تحديد الأتعاب', $exec->status);
+        $this->assertSame(3, (int) $exec->stage);
+        $this->assertSame('مقبول', $exec->decision);
+        $this->assertSame('حكم قضائي', $exec->sanad);
         $this->assertMatchesRegularExpression('/^EXE-\d{4}-\d{4}$/', $exec->number);
         // القضية مسندة للمحامي الذي فتح التنفيذ → يرث الطلب محاميها (حساب حقيقي لا اسم مثبّت)
         $this->assertSame($lawyer->name, $exec->assigned_lawyer);
@@ -53,6 +57,28 @@ class ExecutionCreationTest extends TestCase
         $this->assertTrue($case->messages->contains(fn ($m) => $m->role === 'تنفيذ'));
         $this->actingAs($client)->get(route('execs'))
             ->assertOk()->assertInertia(fn ($p) => $p->has('execs', 1));
+    }
+
+    /**
+     * **الأتعاب أوّل مرحلة** (قرار المالك 2026-09-12): المحامي يحدّدها ثمّ تعتمدها الإدارة،
+     * فيصل العميلَ العرض ويسدّد — كطلب العميل تماماً، بلا استقبالٍ ولا تحليلٍ ولا دراسة.
+     */
+    public function test_the_office_is_told_to_price_the_new_execution(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $case = $this->ruledCase($client, $lawyer);
+
+        $this->actingAs($admin)->post(route('admin.cases.execute', $case))->assertRedirect();
+
+        $exec = Execution::where('case_id', $case->id)->firstOrFail();
+        $this->assertSame(3, (int) $exec->stage);
+        // المحامي المسنَد يُبلَّغ بأنّ عليه التسعير، والإدارة بأنّها ستعتمده
+        $this->assertTrue(UserNotification::where('user_id', $lawyer->id)->where('body', 'like', '%بانتظار تحديد الأتعاب%')->exists());
+        $this->assertTrue(UserNotification::where('user_id', $admin->id)->where('body', 'like', '%بانتظار تحديد الأتعاب واعتمادها%')->exists());
+        // والعميل يُبلَّغ أنّ عرض الأتعاب قادم — لا أنّ التنفيذ جارٍ
+        $this->assertTrue(UserNotification::where('user_id', $client->id)->where('body', 'like', '%عرض أتعاب التنفيذ%')->exists());
     }
 
     public function test_execution_inherits_case_lawyer_when_linked(): void

@@ -8,17 +8,18 @@ import Modal from '@/components/babylon/Modal';
 import MsgMeta from '@/components/babylon/MsgMeta';
 import TicketTalkingNotice from '@/components/babylon/TicketTalkingNotice';
 import TicketActionsPanel from '@/components/babylon/TicketActionsPanel';
-import TicketOpsModals, { type TicketOpsKind } from '@/components/babylon/TicketOpsModals';
 import TicketDetailsCard from '@/components/babylon/TicketDetailsCard';
+import TicketOpsModals, { type TicketOpsKind } from '@/components/babylon/TicketOpsModals';
+import TicketTrackDecisionCard, { TrackGovernanceData } from '@/components/babylon/TicketTrackDecisionCard';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
-import { echo } from '@/lib/echo';
 import { ALLOWED_DOC_ACCEPT, TKT_LIFE, nowClock, tktStage, type Message } from '@/lib/chat';
+import { echo } from '@/lib/echo';
 import { useCan } from '@/lib/permissions';
 import { isPastSlot, todayISO } from '@/components/SpecialistPicker';
 
-// حالتان نهائيّتان — الخادم يمنع الخروج منهما لأي حالة أخرى (Employee\TicketController::status)
-const FINAL = ['مكتملة', 'مغلقة'];
+// الموظّف يُحيل الملفّ إلى المستشار في هذه المراحل وحدها (Employee\TicketController::advance)
+const REFERRABLE = ['جديدة', 'قيد التحليل', 'محالة للقسم القانوني', 'بانتظار مستندات'];
 
 // محادثة التذكرة (لوحة الموظف) — مزامنة لحظية مع العميل (Reverb) بلا إعادة تحميل
 
@@ -26,6 +27,14 @@ interface EmpTicket {
   no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string;
   clientId?: number; lawyerId?: number; caseRef?: string | null; summaryApproved?: boolean;
   subject?: string | null; priority?: string | null; mobile?: string | null; openedAt?: string | null;
+  isFrozen?: boolean; isTerminal?: boolean;
+  hasCase?: boolean;
+  caseNumber?: string | null;
+  hasExecution?: boolean;
+  executionNumber?: string | null;
+  closureReasonCode?: string | null;
+  closureNotes?: string | null;
+  trackGovernance?: TrackGovernanceData | null;
 }
 interface StateOption { status: string; tone: string; }
 interface LawyerOption { id: number; name: string; }
@@ -73,7 +82,8 @@ const EmployeeTicketChat: React.FC<{
   states: StateOption[];
   lawyers: LawyerOption[];
   clientStats?: ClientStats | null;
-}> = ({ ticket, channel, messages, states, lawyers, clientStats }) => {
+  catalogueDepartments?: string[]; // أقسام مودال التحويل من الكتالوج الفعّال
+}> = ({ ticket, channel, messages, lawyers, clientStats, catalogueDepartments = [] }) => {
   const toast = useToast();
   const can = useCan();
   // الأزرار تُخفى بحسب الصلاحية التفصيلية — كانت تُعرض للجميع ثم يُبتلع رفض الخادم
@@ -140,8 +150,9 @@ const EmployeeTicketChat: React.FC<{
       time: schedTime,
       // بدونه تبقى التذكرة عالقة في «بانتظار حجز الاستشارة» بلا مخرج رغم رسالة النجاح
       ticket_no: ticket.no,
-    }).then(() => {
-      toast('✅ تم إنشاء موعد الاستشارة بنجاح');
+    }).then((res) => {
+      // الموظّف يقترح والإدارة تعتمد قبل أن يصل العميل — الرسالة من الخادم
+      toast(`✅ ${res.data?.message ?? 'حُفظ الموعد'}`);
       setSchedOpen(false);
     }).catch((err) => {
       const msg = err.response?.data?.message || 'تعذّر إنشاء الموعد، تحقق من البيانات';
@@ -204,18 +215,10 @@ const EmployeeTicketChat: React.FC<{
         toast(`⚠️ ${msg}`);
       });
   };
-  const changeStatus = (s: string) => {
-    // النغمة يشتقّها الخادم من TicketJourney — لا تُرسل من هنا كي لا تُلوَّن الحالة نفسها لونين
-    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/status`, { status: s })
-      .catch((err) => {
-        const msg = err.response?.data?.message || 'تعذّر تغيير الحالة';
-        toast(`⚠️ ${msg}`);
-      });
-  };
   const advance = () => {
     axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/advance`)
       .catch((err) => {
-        const msg = err.response?.data?.message || 'تعذّر تنفيذ المرحلة التالية';
+        const msg = err.response?.data?.message || 'تعذّرت الإحالة للمستشار';
         toast(`⚠️ ${msg}`);
       });
   };
@@ -225,18 +228,19 @@ const EmployeeTicketChat: React.FC<{
   // يطابق TicketJourney::AWAITING_OTHERS على الخادم
   const WAITING: Record<string, string> = {
     'بانتظار اعتماد المستشار': 'بانتظار اعتماد المستشار',
-    'بانتظار حجز الاستشارة': 'بانتظار حجز العميل',
+    'بانتظار اعتماد الإدارة للملخّص': 'بانتظار اعتماد الإدارة',
+    'الرأي القانوني': 'الخطوة التالية: طلب استشارة',
+    'بانتظار حجز الاستشارة': 'بانتظار تسعير الاستشارة وسدادها',
+    'بانتظار تحديد الموعد': 'بانتظار حجز الموعد',
+    'موعد مؤكد': 'الجلسة في موعدها',
+    'بانتظار ملخّص الجلسة': 'بانتظار اعتماد ملخّص الجلسة',
     'بانتظار الدفع': 'بانتظار سداد العميل',
     'بانتظار اعتماد النتيجة': 'بانتظار اعتماد المستشار',
     'بانتظار اعتماد الإدارة': 'بانتظار اعتماد الإدارة',
   };
   const waiting = WAITING[status.status];
-  // يطابق TicketJourney::SESSION_READY — الإجراء هنا عقد الجلسة، لا القفز إلى «النتيجة».
-  const SESSION_ACTION: Record<string, string> = {
-    'موعد مؤكد': 'عقد الجلسة وتوثيق المحضر',
-    'قيد التنفيذ': 'عقد الجلسة وتوثيق المحضر',
-  };
-  const sessionAction = SESSION_ACTION[status.status];
+  // الإحالة وحدها بيد الموظّف؛ وإكمال التذكرة باعتماد الإدارة لملخّص الجلسة (قرار المالك 2026-09-14)
+  const canRefer = REFERRABLE.includes(status.status);
 
   return (
     <div className="tflow">
@@ -295,6 +299,7 @@ const EmployeeTicketChat: React.FC<{
         dept={ticket.dept}
         lawyerId={ticket.lawyerId ?? null}
         lawyers={lawyers}
+        departments={catalogueDepartments}
         onClose={() => setOpsKind(null)}
         onDone={() => router.reload({ only: ['ticket', 'messages'] })}
       />
@@ -308,11 +313,11 @@ const EmployeeTicketChat: React.FC<{
         <div className="card-h">
           <h3>مسار المعالجة</h3>
           {/* الانتظار يُفحص أولاً: «بانتظار اعتماد الإدارة» فهرسها 6 فكانت تُعرض «مكتملة» خضراء خطأً */}
-          {waiting
-            ? <Badge text={waiting} tone="b-amber" />
-            : isLast
-              ? <Badge text={status.status} tone={status.tone} />
-              : <button className="btn sm" type="button" onClick={advance}><Icon name="check" /> {sessionAction ?? `تنفيذ المرحلة التالية: ${TKT_LIFE[cur + 1]}`}</button>}
+          {canRefer
+            ? <button className="btn sm" type="button" onClick={advance}><Icon name="check" /> إحالة للمستشار</button>
+            : waiting
+              ? <Badge text={waiting} tone="b-amber" />
+              : <Badge text={status.status} tone={status.tone} />}
         </div>
         <div className="card-b" style={{ padding: '16px 18px' }}>
           <FlowLine steps={TKT_LIFE} cur={cur} />
@@ -334,54 +339,63 @@ const EmployeeTicketChat: React.FC<{
               <div ref={endRef} />
             </div>
 
-            <div className="composer">
-              {/* مبدّل الوضع (يطابق التصميم .cmode): ردّ للعميل ⇄ ملاحظة داخلية */}
-              <div className="cmode">
-                {canReply && (
-                  <button type="button" className={mode === 'reply' ? 'on' : ''} onClick={() => setMode('reply')}>
-                    <Icon name="reply" /> رد على العميل
-                  </button>
-                )}
-                <button type="button" className={mode === 'note' ? 'on note-on' : ''} onClick={() => setMode('note')}>
-                  <Icon name="lock" /> ملاحظة داخلية
-                </button>
-              </div>
-
-              <form onSubmit={submit}>
-                <textarea
-                  value={body}
-                  onChange={(e) => {
-                    setBody(e.target.value);
-                    if (mode === 'reply') setTypingSignal((n) => n + 1); // الهمس في وضع الردّ فقط
-                  }}
-                  placeholder={mode === 'reply' ? 'اكتب ردك للعميل…' : 'اكتب ملاحظة داخلية لا تظهر للعميل…'}
-                />
-                <div className="crow">
-                  <button className={mode === 'reply' ? 'btn' : 'btn soft'} type="submit">
-                    <Icon name={mode === 'reply' ? 'send' : 'doc'} /> {mode === 'reply' ? 'إرسال الرد' : 'حفظ الملاحظة'}
-                  </button>
-                  {/* إرفاق مستند من المكتب (يطابق زر «إرفاق» المرجعي) — بصلاحية الرد على العملاء */}
-                  {canReply && (
-                    <>
-                      <button className="btn soft" type="button" onClick={() => fileRef.current?.click()} disabled={attachBusy}>
-                        <Icon name="upload" /> {attachBusy ? 'جاري الرفع…' : 'إرفاق'}
-                      </button>
-                      <input
-                        ref={fileRef}
-                        type="file"
-                        hidden
-                        accept={ALLOWED_DOC_ACCEPT}
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) attachFile(f);
-                          e.target.value = '';
-                        }}
-                      />
-                    </>
-                  )}
+            {ticket.isFrozen || ['محولة إلى قضية', 'مغلقة'].includes(status.status) ? (
+              <div style={{ margin: 14, padding: '14px 18px', textAlign: 'center', background: 'var(--subtle, #f8fafc)', border: '1px solid var(--line, #e2e8f0)', borderRadius: 10 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--muted, #64748b)', fontWeight: 600, fontSize: 13 }}>
+                  <Icon name="lock" />
+                  <span>تم حسم قرار مآل التذكرة واكتمال الملف (أرشيف للقراءة فقط)</span>
                 </div>
-              </form>
-            </div>
+              </div>
+            ) : (
+              <div className="composer">
+                {/* مبدّل الوضع (يطابق التصميم .cmode): ردّ للعميل ⇄ ملاحظة داخلية */}
+                <div className="cmode">
+                  {canReply && (
+                    <button type="button" className={mode === 'reply' ? 'on' : ''} onClick={() => setMode('reply')}>
+                      <Icon name="reply" /> رد على العميل
+                    </button>
+                  )}
+                  <button type="button" className={mode === 'note' ? 'on note-on' : ''} onClick={() => setMode('note')}>
+                    <Icon name="lock" /> ملاحظة داخلية
+                  </button>
+                </div>
+
+                <form onSubmit={submit}>
+                  <textarea
+                    value={body}
+                    onChange={(e) => {
+                      setBody(e.target.value);
+                      if (mode === 'reply') setTypingSignal((n) => n + 1); // الهمس في وضع الردّ فقط
+                    }}
+                    placeholder={mode === 'reply' ? 'اكتب ردك للعميل…' : 'اكتب ملاحظة داخلية لا تظهر للعميل…'}
+                  />
+                  <div className="crow">
+                    <button className={mode === 'reply' ? 'btn' : 'btn soft'} type="submit">
+                      <Icon name={mode === 'reply' ? 'send' : 'doc'} /> {mode === 'reply' ? 'إرسال الرد' : 'حفظ الملاحظة'}
+                    </button>
+                    {/* إرفاق مستند من المكتب (يطابق زر «إرفاق» المرجعي) — بصلاحية الرد على العملاء */}
+                    {canReply && (
+                      <>
+                        <button className="btn soft" type="button" onClick={() => fileRef.current?.click()} disabled={attachBusy}>
+                          <Icon name="upload" /> {attachBusy ? 'جاري الرفع…' : 'إرفاق'}
+                        </button>
+                        <input
+                          ref={fileRef}
+                          type="file"
+                          hidden
+                          accept={ALLOWED_DOC_ACCEPT}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) attachFile(f);
+                            e.target.value = '';
+                          }}
+                        />
+                      </>
+                    )}
+                  </div>
+                </form>
+              </div>
+            )}
           </div>
         </div>
 
@@ -437,6 +451,22 @@ const EmployeeTicketChat: React.FC<{
             </div>
           )}
 
+          {/* حوكمة وتحديد مسار المآل (القرارات الأربعة ومقترح الذكاء الاصطناعي) */}
+          <TicketTrackDecisionCard
+            ticketNo={ticket.no}
+            status={status.status}
+            role="employee"
+            base="/employee"
+            governance={ticket.trackGovernance}
+            isFrozen={Boolean(ticket.isFrozen)}
+            hasCase={ticket.hasCase || Boolean(ticket.caseRef)}
+            caseNumber={ticket.caseNumber || ticket.caseRef}
+            hasExecution={ticket.hasExecution}
+            executionNumber={ticket.executionNumber}
+            closureReasonCode={ticket.closureReasonCode}
+            closureNotes={ticket.closureNotes}
+          />
+
           {/* لوحة إجراءات وتحويلات التذكرة الموحدة (المطابقة للتصميم المرجعي) */}
           <TicketActionsPanel
             ticketNo={ticket.no}
@@ -452,21 +482,9 @@ const EmployeeTicketChat: React.FC<{
           <div className="card">
             <div className="card-h"><h3>الحالة والتحكم الإداري</h3></div>
             <div className="card-b" style={{ padding: 14 }}>
-              {/* القائمة للتصحيح بنفس المرحلة فقط. الخيارات من مراحل أخرى معطّلة 🔒 */}
-              <div className="field" style={{ marginBottom: 11 }}>
-                <label>تغيير الحالة</label>
-                <select value={status.status} onChange={(e) => changeStatus(e.target.value)}>
-                  {states.map((o) => {
-                    // نفس حرّاس الخادم: نفس المرحلة، وإن كانت التذكرة نهائية فلا خروج عن النهائيّتين
-                    const locked = tktStage(o.status) !== cur
-                      || (FINAL.includes(status.status) && !FINAL.includes(o.status));
-                    return (
-                      <option key={o.status} value={o.status} disabled={locked}>
-                        {o.status}{locked ? ' 🔒' : ''}
-                      </option>
-                    );
-                  })}
-                </select>
+              {/* لا قائمة «تغيير الحالة»: الرحلة تتقدّم بأفعالٍ صريحة، والتصحيح للإدارة مع سببٍ مكتوب */}
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>
+                الحالة الحاليّة: <b>{status.status}</b> — تتقدّم التذكرة بالإجراءات، وتصحيحها الاستثنائيّ للإدارة.
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <button className="btn soft sm" type="button" onClick={rerunAi}><Icon name="sparkles" /> إعادة التحليل الذكي للملخص</button>

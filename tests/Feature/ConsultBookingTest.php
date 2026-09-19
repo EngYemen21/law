@@ -10,43 +10,34 @@ use App\Models\Ticket;
 use App\Models\User;
 use App\Models\UserNotification;
 use App\Support\ConsultBooking;
-use App\Support\LawyerAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
- * دورة حجز الاستشارة من داخل محادثة التذكرة (مطابقة للتصميم):
- * طلب («بانتظار التسعير») → تسعير الإدارة + فاتورة («بانتظار السداد») → دفع محاكى
- * («بانتظار تحديد الموعد») → اختيار الموعد → موعد + استشارة («جديدة») وتقدّم التذكرة.
+ * دورة حجز الاستشارة من داخل محادثة التذكرة (قرار المالك 2026-09-14):
+ * رأيٌ قانونيّ معتمد ← طلب («بانتظار التسعير») ← تسعير الإدارة + فاتورة («بانتظار السداد»)
+ * ← سداد («بانتظار تحديد الموعد») ← **الطاقم يحدّد الموعد** ← موعد + استشارة («جديدة»)
+ * والتذكرة «موعد مؤكد». العميل لا يختار موعداً.
  */
 class ConsultBookingTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     private function ticketReadyToBook(User $client): Ticket
     {
-        return Ticket::create([
-            'user_id' => $client->id,
+        return $this->ticketWithApprovedOpinion($client, [
             'number' => 'SB-2026-7777',
-            'type' => 'نزاع تجاري',
             'department' => 'القسم التجاري',
             'assigned_lawyer' => 'أ. سارة القحطاني',
             'status' => 'بانتظار حجز الاستشارة',
-            'tone' => 'b-amber',
         ]);
     }
 
-    /** يقود التذكرة عبر الطلب → التسعير → الدفع، فتصبح جاهزة لاختيار الموعد. */
-    private function driveToPaid(User $client, Ticket $ticket, string $type = 'video', int $price = 450): Consult
+    private function slotDate(): string
     {
-        $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => $type])->assertNoContent();
-        $consult = $ticket->consults()->latest('id')->firstOrFail();
-
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        $this->actingAs($admin)->post(route('admin.consults.price', $consult), ['price' => $price])->assertRedirect();
-        ConsultBooking::markPaid($consult->fresh());
-
-        return $consult->fresh();
+        return now()->addDays(2)->toDateString();
     }
 
     public function test_full_booking_flow_creates_appointment_and_consult(): void
@@ -54,13 +45,12 @@ class ConsultBookingTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'name' => 'أ. سارة القحطاني', 'department' => 'القضايا التجارية']);
         $ticket = $this->ticketReadyToBook($client);
-        $date = LawyerAvailability::resolveDate(null)->toDateString();
 
-        $consult = $this->driveToPaid($client, $ticket, 'video');
+        $consult = $this->requestPricedAndPaid($client, $ticket, 'video');
 
-        $this->actingAs($client)->post(route('consults.schedule', $consult), [
-            'lawyer_id' => $lawyer->id, 'date' => $date, 'time' => '11:30',
-        ])->assertRedirect();
+        $this->adminPublishes($consult, [
+            'lawyer_id' => $lawyer->id, 'date' => $this->slotDate(), 'time' => '11:30',
+        ])->assertOk();
 
         // أُنشئ موعد حقيقي مرتبط بالتذكرة
         $appt = Appointment::where('ticket_id', $ticket->id)->firstOrFail();
@@ -69,6 +59,7 @@ class ConsultBookingTest extends TestCase
         $this->assertSame('11:30', $appt->time);
         $this->assertSame('أ. سارة القحطاني', $appt->lawyer);
         $this->assertSame($lawyer->id, $appt->lawyer_id);
+        $this->assertSame('مؤكد', $appt->status);
 
         // سجلّ الاستشارة (CN-) مرتبط بالتذكرة والموعد + مُسعّر ومدفوع
         $consult->refresh();
@@ -81,13 +72,13 @@ class ConsultBookingTest extends TestCase
         $this->assertSame('جديدة', $consult->status);
         $this->assertNotNull($consult->paid_at);
 
-        // تقدّمت التذكرة إلى «موعد مؤكد» + رسالة بطاقة الموعد + إشعارات (تسعير/دفع/تأكيد)
+        // تقدّمت التذكرة إلى «موعد مؤكد» + رسالة بطاقة الموعد + إشعارات (تسعير/سداد/الموعد)
         $ticket->refresh();
         $this->assertSame('موعد مؤكد', $ticket->status);
         $this->assertTrue($ticket->messages->contains(fn ($m) => $m->role === 'مواعيد'));
         $this->assertSame(3, UserNotification::where('user_id', $client->id)->count());
 
-        // يظهر الموعد في التبويب الزمني الموحّد (طُوي فيه تبويب «المواعيد» المستقلّ)
+        // يظهر الموعد في التبويب الزمني الموحّد
         $this->actingAs($client)->get(route('calendar'))
             ->assertOk()->assertInertia(fn ($p) => $p->has('appointments', 1));
     }
@@ -120,25 +111,40 @@ class ConsultBookingTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
         $ticket = $this->ticketReadyToBook($client);
-        $date = LawyerAvailability::resolveDate(null)->toDateString();
 
         $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'video'])->assertNoContent();
         $consult = $ticket->consults()->latest('id')->firstOrFail();
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        $this->actingAs($admin)->post(route('admin.consults.price', $consult), ['price' => 450])->assertRedirect();
+        $this->actingAs($this->journeyAdmin())->post(route('admin.consults.price', $consult), ['price' => 450])->assertRedirect();
 
-        // قبل السداد: اختيار الموعد مرفوض
-        $this->actingAs($client)->post(route('consults.schedule', $consult), [
-            'lawyer_id' => $lawyer->id, 'date' => $date, 'time' => '10:00',
+        // قبل السداد: لا يحجز الطاقم موعداً لاستشارةٍ لم تُسدَّد
+        $this->adminPublishes($consult, [
+            'lawyer_id' => $lawyer->id, 'date' => $this->slotDate(), 'time' => '10:00',
         ])->assertStatus(422);
         $this->assertSame(0, Appointment::count());
 
-        // السداد المحاكى
-        ConsultBooking::markPaid($consult->fresh());
+        // السداد المُسوّى
+        $this->assertTrue(ConsultBooking::markPaid($consult->fresh()));
         $consult->refresh();
         $this->assertSame('بانتظار تحديد الموعد', $consult->status);
         $this->assertNotNull($consult->paid_at);
         $this->assertTrue(Invoice::where('consult_id', $consult->id)->firstOrFail()->paid);
+        // والتذكرة تنتظر حجز الطاقم لا حجز العميل
+        $this->assertSame('بانتظار تحديد الموعد', $ticket->fresh()->status);
+    }
+
+    /** **العميل لا يختار موعده** — حتى بعد السداد. */
+    public function test_the_client_cannot_schedule_a_paid_consult(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $consult = $this->requestPricedAndPaid($client, $this->ticketReadyToBook($client));
+
+        $this->actingAs($client)->post(route('consults.schedule', $consult), [
+            'lawyer_id' => $lawyer->id, 'date' => $this->slotDate(), 'time' => '10:00',
+        ])->assertStatus(422);
+
+        $this->assertSame('بانتظار تحديد الموعد', $consult->fresh()->status);
+        $this->assertSame(0, Appointment::count());
     }
 
     public function test_office_booking_creates_appointment_with_real_time(): void
@@ -146,12 +152,11 @@ class ConsultBookingTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
         $ticket = $this->ticketReadyToBook($client);
-        $date = LawyerAvailability::resolveDate(null)->toDateString();
 
-        $consult = $this->driveToPaid($client, $ticket, 'office', 600);
-        $this->actingAs($client)->post(route('consults.schedule', $consult), [
-            'lawyer_id' => $lawyer->id, 'date' => $date, 'time' => '13:00',
-        ])->assertRedirect();
+        $consult = $this->requestPricedAndPaid($client, $ticket, 'office', 600);
+        $this->adminPublishes($consult, [
+            'lawyer_id' => $lawyer->id, 'date' => $this->slotDate(), 'time' => '13:00',
+        ])->assertOk();
 
         $appt = Appointment::where('ticket_id', $ticket->id)->firstOrFail();
         $this->assertSame('استشارة حضورية', $appt->type);
@@ -189,6 +194,20 @@ class ConsultBookingTest extends TestCase
         $this->assertSame(1, Consult::where('ticket_id', $ticket->id)->count());
     }
 
+    /** **لا طلبَ استشارة قبل اعتماد الإدارة للرأي المبدئيّ** (ع١٣، ع١٧). */
+    public function test_booking_is_refused_before_the_opinion_is_approved(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $ticket = Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-2026-7778', 'type' => 'نزاع تجاري',
+            'status' => 'بانتظار حجز الاستشارة', 'tone' => 'b-amber',
+        ]);
+
+        $this->actingAs($client)->postJson(route('tickets.book', $ticket), ['type' => 'video'])->assertStatus(422);
+
+        $this->assertSame(0, Consult::where('ticket_id', $ticket->id)->count());
+    }
+
     /**
      * الحارسة على الطلب: لا يُطلب حجز على تذكرة في مرحلة نهائية
      * (مكتملة/مغلقة/بانتظار اعتماد النتيجة/بانتظار اعتماد الإدارة).
@@ -199,8 +218,7 @@ class ConsultBookingTest extends TestCase
         $ticket = $this->ticketReadyToBook($client);
         $ticket->update(['status' => $status]);
 
-        // الواجهة تنادي هذه النقطة بـaxios (Accept: application/json) فيصل الرفض 422 بجسم أخطاء،
-        // بينما طلب HTML عاديّ يُعاد توجيهه بأخطاء الجلسة — الاختبار يحاكي نداء الواجهة الفعليّ.
+        // الواجهة تنادي هذه النقطة بـaxios (Accept: application/json) فيصل الرفض 422 بجسم أخطاء
         $this->actingAs($client)->postJson(route('tickets.book', $ticket), ['type' => 'video'])->assertStatus(422);
 
         $this->assertSame(0, Consult::where('ticket_id', $ticket->id)->count());

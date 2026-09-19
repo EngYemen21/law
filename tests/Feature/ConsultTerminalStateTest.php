@@ -188,7 +188,7 @@ class ConsultTerminalStateTest extends TestCase
 
         $consult = Consult::create([
             'user_id' => $client->id, 'ref' => 'CN-LIVE-'.uniqid(), 'subject' => 'نزاع تجاري',
-            'type' => 'استشارة', 'channel' => 'مرئية', 'status' => 'قيد مراجعة الموظف',
+            'type' => 'استشارة', 'channel' => 'مرئية', 'status' => 'جديدة',
             'session' => 'بانتظار الجلسة', 'tone' => 'b-blue',
             'lawyer' => $lawyer->name, 'assigned_lawyer_id' => $lawyer->id,
         ]);

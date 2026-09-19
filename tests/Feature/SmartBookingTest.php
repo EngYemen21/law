@@ -3,14 +3,14 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
-use App\Jobs\EscalateUnassignedTicketJob;
 use App\Models\Appointment;
 use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
-use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
@@ -19,6 +19,7 @@ use Tests\TestCase;
  */
 class SmartBookingTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     private function lawyer(string $dept): User
@@ -76,41 +77,34 @@ class SmartBookingTest extends TestCase
         $this->assertSame($strong->id, $ids->first());
     }
 
-    /** يقود الحجز المباشر عبر الدورة الكاملة (طلب → تسعير → دفع → اختيار موعد)؛ يُرجع استجابة الجدولة. */
-    private function directBookAndSchedule(User $client, User $lawyer, string $date, string $time)
+    /** الحجز المباشر عبر الدورة الكاملة (طلب → تسعير → سداد → الإدارة تحدّد الموعد). */
+    private function directBookAndSchedule(User $client, ?User $lawyer, string $date, string $time): TestResponse
     {
         $this->actingAs($client)->post(route('book.store'), [
             'type' => 'office', 'specialty' => 'القضايا التجارية',
         ])->assertRedirect(route('myconsults'));
-        $consult = Consult::where('user_id', $client->id)->latest('id')->firstOrFail();
+        $consult = $this->priceAndPay(Consult::where('user_id', $client->id)->latest('id')->firstOrFail(), 500);
 
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        $this->actingAs($admin)->post(route('admin.consults.price', $consult), ['price' => 500])->assertRedirect();
-        ConsultBooking::markPaid($consult->fresh());
-
-        return $this->actingAs($client)->post(route('consults.schedule', $consult), [
-            'lawyer_id' => $lawyer->id, 'date' => $date, 'time' => $time,
-        ]);
+        return $this->adminPublishes($consult, array_filter([
+            'lawyer_id' => $lawyer?->id, 'date' => $date, 'time' => $time,
+        ]));
     }
 
     /**
      * **الفترة المحجوزة تُوسَم، والمحامي لا يُحجز مرّتين.**
      *
-     * كان الشقّ الثاني يُقاس بآليّة **الرفض**، وقد تغيّرت بقرار المالك (2026-09-05):
-     * الحجز المتعذّر يُرفع إلى الإدارة بدل أن يُرفض — لأنّ العميل الثاني **سدّد
-     * الفاتورة** قبل أن يبلغ اختيار الموعد، فردُّه خاويَ اليدين أسوأ من تصعيده.
-     *
-     * والثابتُ نفسه محفوظ ويُفحص هنا مباشرةً: موعدٌ واحدٌ للمحامي.
+     * الحجز بيد الطاقم (2026-09-14): الحجز الثاني على الخانة نفسها يُردّ ليُختار وقتٌ آخر،
+     * وتبقى الاستشارة الثانية مدفوعةً بانتظار موعدها.
      */
     public function test_taken_slot_is_flagged_and_the_lawyer_is_never_double_booked(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $other = User::factory()->create(['role' => Role::Client]);
         $lawyer = $this->lawyer('القضايا التجارية');
-        $date = LawyerAvailability::resolveDate(null)->toDateString();
+        $date = now()->addDays(2)->toDateString();
 
         // حجز أول ناجح (عبر الدورة الكاملة)
-        $this->directBookAndSchedule($client, $lawyer, $date, '10:00')->assertRedirect();
+        $this->directBookAndSchedule($client, $lawyer, $date, '10:00')->assertOk();
         $this->assertSame(1, Appointment::where('lawyer_id', $lawyer->id)->count());
 
         // الفترة تظهر محجوزة في التفرّغ
@@ -119,32 +113,26 @@ class SmartBookingTest extends TestCase
         $ten = collect($slots)->firstWhere('time', '10:00');
         $this->assertTrue($ten['taken']);
 
-        // عميلٌ آخر يطلب الفترة نفسها: المختصّ الوحيد مشغول ⇒ يُحجز ويُرفع إلى الإدارة
-        $this->directBookAndSchedule($other, $lawyer, $date, '10:00')->assertRedirect();
+        // حجزٌ ثانٍ على الفترة نفسها للمحامي نفسه ⇒ يُردّ
+        $this->directBookAndSchedule($other, $lawyer, $date, '10:00')->assertStatus(422);
 
         // **الثابت:** موعدٌ واحدٌ للمحامي مهما تعدّد الطالبون
         $this->assertSame(1, Appointment::where('lawyer_id', $lawyer->id)->count());
 
         $second = Consult::where('user_id', $other->id)->latest('id')->firstOrFail();
         $this->assertNotSame($lawyer->id, $second->assigned_lawyer_id, 'ولا يُسنَد المشغول');
-        $this->assertSame(
-            EscalateUnassignedTicketJob::SENIOR_LABEL,
-            $second->lawyer,
-            'بل يُرفع إلى الإدارة لتوزّعه — لا يُردّ من سدّد'
-        );
+        $this->assertSame('بانتظار تحديد الموعد', $second->status, 'والثانية تنتظر وقتاً آخر');
     }
 
-    public function test_schedule_auto_assigns_top_specialist_ignoring_client(): void
+    public function test_schedule_auto_assigns_top_specialist_when_staff_leave_the_lawyer_open(): void
     {
-        // العميل لا يختار المحامي؛ يُسنَد أعلى مختصّ (تخصّص + سجلّ إنجاز) متاح، ويُتجاهَل أيّ lawyer_id وارد
+        // الطاقم لم يختر محامياً ⇒ يُسنَد أعلى مختصّ (تخصّص + سجلّ إنجاز) متاح
         $client = User::factory()->create(['role' => Role::Client]);
         $strong = $this->lawyer('القضايا التجارية');
-        $weak = $this->lawyer('القضايا التجارية');
+        $this->lawyer('القضايا التجارية');
         $this->closeTickets($strong, $client, 3); // الأقوى سجلّ إنجاز
 
-        $date = LawyerAvailability::resolveDate(null)->toDateString();
-        // نحقن الأضعف عمداً — يجب أن يُتجاهَل ويُسنَد الأقوى
-        $this->directBookAndSchedule($client, $weak, $date, '09:00')->assertRedirect();
+        $this->directBookAndSchedule($client, null, now()->addDays(2)->toDateString(), '09:00')->assertOk();
 
         $appt = Appointment::latest('id')->firstOrFail();
         $this->assertSame($strong->id, $appt->lawyer_id);

@@ -3,18 +3,19 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
+use App\Mail\ConsultBooked;
 use App\Models\Appointment;
 use App\Models\Consult;
 use App\Models\Meeting;
-use App\Models\Ticket;
 use App\Models\User;
-use App\Support\ConsultBooking;
+use App\Support\ConsultAppointments;
 use App\Support\LawyerAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
@@ -27,29 +28,21 @@ use Tests\TestCase;
  * وبالدفعة التي ستقلبه — فحين تسقط هذه الاختبارات في الدفعة المعنيّة يكون سقوطها
  * **هو الدليل** على أن الإصلاح وقع، لا إشارةَ انكسار.
  *
- * ولا يُحذف منها شيء إلّا بعد أن يحلّ محلّه حارسٌ يُثبت السلوك الصحيح.
+ * ومنذ 2026-09-14 يحدّد **الطاقم** الموعد بعد السداد (`ConsultAppointments`)، لا العميل.
  */
 class BookingContractTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
-    /** استشارةٌ مدفوعة بانتظار اختيار الموعد — نقطة انطلاق مسار العميل. */
+    /** استشارةٌ مدفوعة بانتظار تحديد الموعد — نقطة انطلاق حجز الطاقم. */
     private function payableConsult(User $client): Consult
     {
-        $ticket = Ticket::create([
-            'user_id' => $client->id, 'number' => 'SB-BC-'.uniqid(), 'type' => 'نزاع تجاري',
-            'department' => 'القضايا التجارية', 'subject' => 'مطالبة',
-            'status' => 'بانتظار حجز الاستشارة', 'tone' => 'b-amber',
+        $ticket = $this->ticketWithApprovedOpinion($client, [
+            'number' => 'SB-BC-'.uniqid(), 'status' => 'بانتظار حجز الاستشارة',
         ]);
 
-        $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'video'])->assertNoContent();
-        $consult = $ticket->consults()->latest('id')->firstOrFail();
-
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        $this->actingAs($admin)->post(route('admin.consults.price', $consult), ['price' => 450])->assertRedirect();
-        ConsultBooking::markPaid($consult->fresh());
-
-        return $consult->fresh();
+        return $this->requestPricedAndPaid($client, $ticket, 'video');
     }
 
     private function lawyer(string $dept = 'القضايا التجارية'): User
@@ -61,8 +54,8 @@ class BookingContractTest extends TestCase
 
     /**
      * **قُلِب في الدفعة ١.** كان `regex:/^\d{2}:\d{2}$/` يقبل `99:99` و`25:00`، ثم
-     * `Carbon::parse` غير المُحاط يرمي فيرى العميل **خطأ ٥٠٠**. صار `date_format:H:i`
-     * يرفضه في طبقة التحقّق برسالةٍ يفهمها.
+     * `Carbon::parse` غير المُحاط يرمي فيُرى **خطأ ٥٠٠**. صار `date_format:H:i`
+     * يرفضه في طبقة التحقّق برسالةٍ مفهومة.
      */
     public function test_an_impossible_time_is_rejected_with_a_validation_message(): void
     {
@@ -72,9 +65,8 @@ class BookingContractTest extends TestCase
         $date = now()->addDays(2)->toDateString();
 
         foreach (['99:99', '25:00', '12:60', '7:00', ''] as $time) {
-            $this->actingAs($client)
-                ->post(route('consults.schedule', $consult), ['date' => $date, 'time' => $time])
-                ->assertSessionHasErrors('time');
+            $this->adminPublishes($consult, ['date' => $date, 'time' => $time])
+                ->assertJsonValidationErrors('time');
         }
 
         $this->assertNull($consult->fresh()->starts_at, 'ولا يُحجز شيء');
@@ -88,9 +80,7 @@ class BookingContractTest extends TestCase
         $consult = $this->payableConsult($client);
         $date = now()->addDays(2)->toDateString();
 
-        $this->actingAs($client)
-            ->post(route('consults.schedule', $consult), ['date' => $date, 'time' => '10:00'])
-            ->assertRedirect();
+        $this->adminPublishes($consult, ['date' => $date, 'time' => '10:00'])->assertOk();
 
         $consult->refresh();
         $this->assertNotNull($consult->starts_at);
@@ -106,9 +96,7 @@ class BookingContractTest extends TestCase
         $consult = $this->payableConsult($client);
 
         // @wrong الدفعة ٥ تُضيف أفقاً. اليوم لا يمنعه إلّا ألّا يجد الخادم محامياً.
-        $this->actingAs($client)
-            ->post(route('consults.schedule', $consult), ['date' => '2099-01-01', 'time' => '10:00'])
-            ->assertRedirect();
+        $this->adminPublishes($consult, ['date' => '2099-01-01', 'time' => '10:00'])->assertOk();
 
         $this->assertSame('2099-01-01', $consult->fresh()->starts_at?->toDateString());
     }
@@ -145,11 +133,8 @@ class BookingContractTest extends TestCase
      * **قُلِب في الدفعة ١ — المولّد صار واحداً.**
      *
      * كان `slotsFor` يحسب التداخل صحيحاً، و`rankedSpecialists` — الذي يغذّي **شبكة
-     * العميل** — يستعمل مولّداً ثانياً يطابق ساعة البداية على المواعيد وحدها. فاجتماعٌ
-     * ٩٠د من ١٤:٠٠ يترك ١٥:٠٠ تبدو متاحة للعميل بينما المحرّك يحجبها.
-     *
-     * **وهذا الحارس هو الأثمن في الدفعة:** يقارن المخرجين مباشرةً، فيمنع افتراقهما
-     * ثانيةً مهما أُضيف من مصادر انشغال.
+     * الحجز** — يستعمل مولّداً ثانياً يطابق ساعة البداية على المواعيد وحدها. فاجتماعٌ
+     * ٩٠د من ١٤:٠٠ يترك ١٥:٠٠ تبدو متاحة بينما المحرّك يحجبها.
      */
     public function test_the_client_grid_and_the_engine_give_the_same_answer(): void
     {
@@ -175,24 +160,14 @@ class BookingContractTest extends TestCase
             $this->assertSame(
                 $slot['taken'],
                 $grid[$time]['taken'],
-                "الساعة {$time}: المحرّك وشبكة العميل يجب أن يتّفقا"
+                "الساعة {$time}: المحرّك وشبكة الحجز يجب أن يتّفقا"
             );
         }
     }
 
     /**
-     * **الفحص الأوّليّ يمنع، والحارس النهائيّ لا يرى.**
-     *
-     * صحّح هذا الاختبارُ اعتقاداً خاطئاً عندي: ظننتُ أن اجتماعاً في الوقت نفسه لا
-     * يمنع حجز العميل. وهو **يمنعه** — لكن عبر `assignLawyer` الذي يستعمل
-     * `isBusy()` العريض (أربعة جداول)، فلا يجد محامياً متاحاً.
-     *
-     * ويُقاس على `assignLawyer` مباشرةً لا عبر الطلب: الرفض يقع داخل
-     * `DB::transaction`، وتراجُعُه المتداخل مع معاملة `RefreshDatabase` يُفسد
-     * الاختبار بخطأٍ لا علاقة له بما نقيس.
-     *
-     * وضِيقُ `guardNoConflict` (يقرأ `appointments` وحده) مُثبَتٌ بقراءة الشيفرة،
-     * وحارسُه السلوكيّ يأتي في الدفعة ١ حين يتوحّد المصدران.
+     * **الفحص الأوّليّ يمنع:** اجتماعٌ في الوقت نفسه يجعل `assignLawyer` لا يجد محامياً،
+     * لأنّه يستعمل `isBusy()` العريض (أربعة جداول).
      */
     public function test_a_meeting_blocks_assignment_so_no_lawyer_is_offered(): void
     {
@@ -221,25 +196,20 @@ class BookingContractTest extends TestCase
     // ══ الطبقة الحرّة ══
     //
     // حارسان كانا هنا يُثبّتان قبولَ «الاثنين القادم» واختراعَ «اليوم · 10:00»، وقد
-    // **قُلِبا في الدفعة ٣**: انتقلا إلى `BookingValidationContractTest` مصفوفةً
-    // (سطحٌ × حمولة) تُثبت أن كل سطحٍ يرفض المدخل غير المفهوم — فلا يبقى صفٌّ
-    // بـ`starts_at = null` تُسكِته التذكيرات.
+    // **قُلِبا في الدفعة ٣**: انتقلا إلى `BookingValidationContractTest` مصفوفةً.
 
     // ══ Zoom يتبع الموعد ══
     //
-    // ثلاثة حراسٍ كانت هنا تُثبّت أعطال Zoom الثلاثة (`@wrong`)، وقد **قُلِبت في
-    // الدفعة ٢**: انتقلت إلى `BookingZoomSyncTest` حارساتٍ موجبة تُثبت أن كل مسارٍ
-    // يُحرّك موعداً يُخبر Zoom بوقته ومدّته، وأن الإلغاء يحذف اجتماعه.
+    // ثلاثة حراسٍ انتقلت إلى `BookingZoomSyncTest` حارساتٍ موجبة.
 
     // ══ حراسات الدفعة ١ ══
 
     /**
      * **الحارس الأثمن في الدفعة:** تراجُعُ المعاملة لا يُرسل بريد تأكيد.
      *
-     * كان `ConsultBooking` يُرسل البريد ويُزامن التقويم **داخل** `DB::transaction`
-     * التي يفتحها `ConsultController::schedule`. فتراجُعُها لأيّ سبب — تعارضٌ، أو
-     * فشل تحديث التذكرة، أو انتهاء مهلة قفل — يعني أن العميل والمحامي تلقّيا
-     * تأكيد موعدٍ **لا وجود له** في قاعدة البيانات.
+     * البريد والتقويم والإشعار أحداثٌ تُطلق **بعد التزام** انتقال النشر
+     * (`Workflow` ⇐ `HandleAppointmentPublished`). فتراجُعُ المعاملة المحيطة لأيّ سبب
+     * لا يُخبر العميل والمحامي بموعدٍ **لا وجود له**.
      */
     public function test_a_rolled_back_booking_sends_no_confirmation_mail(): void
     {
@@ -252,12 +222,8 @@ class BookingContractTest extends TestCase
 
         try {
             DB::transaction(function () use ($consult, $lawyer, $day) {
-                ConsultBooking::schedule($consult->fresh(), [
-                    'lawyer_id' => $lawyer->id,
-                    'starts_at' => $day.' 10:00:00',
-                    'duration' => 60,
-                    'day' => $day,
-                    'time' => '10:00',
+                ConsultAppointments::publish($consult->fresh(), $this->journeyAdmin(), [
+                    'lawyer_id' => $lawyer->id, 'date' => $day, 'time' => '10:00',
                 ]);
 
                 throw new \RuntimeException('تعثّرٌ بعد الحجز');
@@ -267,22 +233,13 @@ class BookingContractTest extends TestCase
         }
 
         $this->assertNull($consult->fresh()->starts_at, 'الحجز تراجع');
+        // بريد السداد يُصفّ في تهيئة الحالة قبل الحجز — والمقيس بريد تأكيد الموعد وحده
         Mail::assertNothingSent();
+        Mail::assertNotQueued(ConsultBooked::class);
         $this->assertSame(0, Appointment::count());
     }
 
-    /**
-     * والبريد **مؤجَّل** لا ملغى — يُسجَّل ولا يُرسَل ما دامت المعاملة مفتوحة.
-     *
-     * **قيدٌ مُعلَن:** لا يمكن إثبات وصوله بعد الالتزام في هذه الحزمة.
-     * `RefreshDatabase` تفتح معاملةً جذراً لا تُلتزم أبداً، و`DatabaseTransactionsManager`
-     * ينفّذ نداءات `afterCommit` عند التزام **الجذر** وحده. فسكوتُها هنا أثرُ الحزمة
-     * لا سلوكُ الإنتاج.
-     *
-     * وقد تحقّقتُ من الإنتاج بتشغيلٍ مباشر على قاعدة التطوير: `afterCommit` تُنفَّذ
-     * فوراً بلا معاملة، وعند الالتزام (ولو متداخلاً)، **ولا تُنفَّذ عند التراجع**.
-     * وهو بالضبط ما يعتمد عليه هذا التغيير.
-     */
+    /** والبريد **لا يُرسَل داخل الطلب** — يُصفّ بعد الالتزام. */
     public function test_the_confirmation_mail_is_deferred_not_sent_inline(): void
     {
         Mail::fake();
@@ -291,15 +248,15 @@ class BookingContractTest extends TestCase
         $this->lawyer();
         $consult = $this->payableConsult($client);
 
-        $this->actingAs($client)->post(route('consults.schedule', $consult), [
+        $this->adminPublishes($consult, [
             'date' => now()->addDays(2)->toDateString(), 'time' => '10:00',
-        ])->assertRedirect();
+        ])->assertOk();
 
         // الحجز وقع فعلاً...
         $this->assertNotNull($consult->fresh()->starts_at);
         $this->assertSame(1, Appointment::count());
 
-        // ...والبريد لم يُرسَل داخل المعاملة. هذا **هو** التأجيل المطلوب.
+        // ...والبريد لم يُرسَل متزامناً داخل الطلب.
         Mail::assertNothingSent();
     }
 
@@ -322,15 +279,11 @@ class BookingContractTest extends TestCase
             'assigned_lawyer_id' => $lawyer->id, 'starts_at' => $day.' 11:00:00', 'dur' => '60 دقيقة',
         ]);
 
-        // يُتجاوَز الإسناد بتمرير المحامي صراحةً، فيصل الحارس النهائيّ وحده
+        // المحامي مُمرَّر صراحةً فلا فحصَ أوّليّ — يصل الحارس النهائيّ وحده
         $this->expectException(ValidationException::class);
 
-        ConsultBooking::schedule($consult->fresh(), [
-            'lawyer_id' => $lawyer->id,
-            'starts_at' => $day.' 11:00:00',
-            'duration' => 60,
-            'day' => $day,
-            'time' => '11:00',
+        ConsultAppointments::publish($consult->fresh(), $this->journeyAdmin(), [
+            'lawyer_id' => $lawyer->id, 'date' => $day, 'time' => '11:00',
         ]);
     }
 }

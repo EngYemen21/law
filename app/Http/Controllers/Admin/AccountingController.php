@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domain\Journey\Enums\InvoiceStatus;
+use App\Domain\Journey\Transitions\Invoice\RejectPaymentProof;
+use App\Domain\Journey\Workflow;
 use App\Http\Controllers\Controller;
 use App\Models\Invoice;
 use App\Models\Ticket;
@@ -48,8 +51,9 @@ class AccountingController extends Controller
                 'collected' => $collected,
                 'due' => $issued - $collected,
                 // كانت «متأخرة» تعدّ كل غير المدفوع (فاتورة صدرت قبل ساعة تُحسب متأخرة) — الفيصل تجاوز الاستحقاق
-                'overdue' => Invoice::where('paid', false)->whereNotNull('due_at')
-                    ->whereDate('due_at', '<', now()->toDateString())->count(),
+                // والملغاة لا تتأخّر — الشرط نفسه في `Invoice::isOverdue` فيتطابق العدّ والبطاقة
+                'overdue' => Invoice::where('paid', false)->where('status', '!=', InvoiceStatus::Cancelled->value)
+                    ->whereNotNull('due_at')->whereDate('due_at', '<', now()->toDateString())->count(),
                 // غير المدفوعة (شاملة ما لم يحن استحقاقه) — كانت البطاقة تعرض «المتأخرة» بهذه التسمية
                 'unpaid' => Invoice::where('paid', false)->count(),
             ],
@@ -95,17 +99,15 @@ class AccountingController extends Controller
 
         $data = $request->validate(['reason' => ['nullable', 'string', 'max:300']]);
 
-        if (Storage::exists($invoice->proof_path)) {
-            Storage::delete($invoice->proof_path);
-        }
-        $invoice->update([
-            'proof_path' => null,
-            'proof_uploaded_at' => null,
-            'status' => 'مستحقة',
-            'tone' => 'b-amber',
-        ]);
-
         $reason = trim($data['reason'] ?? '');
+
+        // الملفّ يُحذف بعد نجاح الانتقال لا قبله: رفضٌ تعثّر (تحصيلٌ سبقه) لا يُضيّع إثباتاً قائماً
+        $proofPath = $invoice->proof_path;
+        Workflow::run(new RejectPaymentProof, $invoice, $request->user(), ['reason' => $reason]);
+
+        if (Storage::exists($proofPath)) {
+            Storage::delete($proofPath);
+        }
         Notify::send(
             $invoice->user_id,
             'card',

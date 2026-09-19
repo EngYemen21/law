@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Journey\Enums\TicketStatus;
+use App\Domain\Journey\Workflow;
 use App\Enums\Role;
 use App\Events\TicketMessageBroadcast;
 use App\Jobs\GenerateTicketReplyJob;
@@ -11,11 +13,16 @@ use App\Mail\TicketOpenedMail;
 use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Rules\ActiveLegalDepartment;
+use App\Rules\ServiceOfDepartment;
 use App\Services\LegalAiService;
 use App\Services\MailService;
 use App\Support\Audit;
 use App\Support\ConsultBooking;
+use App\Support\ConversationFiles;
 use App\Support\LawyerAvailability;
+use App\Support\LawyerName;
+use App\Support\LegalCatalogue;
 use App\Support\Live;
 use App\Support\Notify;
 use App\Support\TicketAssignment;
@@ -25,6 +32,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -52,33 +60,61 @@ class TicketController extends Controller
             'total' => $tickets->count(),
             'active' => $tickets->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
             'needsAction' => $tickets->whereIn('status', ['بانتظار مستندات', 'بانتظار حجز الاستشارة', 'بانتظار الدفع'])->count(),
-            'inAnalysis' => $tickets->whereIn('status', ['جديدة', 'قيد التحليل', 'محالة للقسم القانوني'])->count(),
+            // من مجموعة التبويب نفسها (`TicketJourney::CLIENT_PHASES`) — العدّاد يعدّ ما يعرضه تبويبه
+            'inAnalysis' => $tickets->where('phase', 'analysis')->count(),
+            'inOpinion' => $tickets->where('phase', 'opinion')->count(),
             'completed' => $tickets->whereIn('status', ['مكتملة', 'مغلقة'])->count(),
         ];
 
         return Inertia::render('tickets', [
             'tickets' => $tickets,
             'counts' => $counts,
-            'availableStatuses' => TicketJourney::statuses(),
+            // تسميات العميل لا كتالوج المكتب؛ وحالةُ صفٍّ قديم لديه تبقى خياراً فلا يتعذّر ترشيحه
+            'availableStatuses' => array_values(array_unique(array_merge(
+                TicketStatus::clientLabels(),
+                $tickets->pluck('status')->all()
+            ))),
         ]);
     }
 
     // فتح تذكرة جديدة (تُخزَّن وتظهر للعميل والموظف)
+    /** نموذج فتح تذكرة — الأقسام والخدمات الفعّالة من الكتالوج (لا قائمة ثابتة في الواجهة). */
+    public function create(): Response
+    {
+        return Inertia::render('newticket', [
+            'catalogue' => LegalCatalogue::forSelect(),
+        ]);
+    }
+
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'type' => ['required', 'string', 'max:120'],
+            // القسم والخدمة من كتالوج الأقسام: النموذج يرسل المعرّفين، والخادم يتحقّق أنّ الخدمة
+            // تتبع قسمها وأنّ كليهما فعّال. الاسم النصّيّ مقبولٌ لمن يرسله بشرط أن يطابق قسماً فعّالاً —
+            // كان يُقبل أيّ نصٍّ فيُحفظ قسمٌ لا يعرفه الإسناد ولا المرشّحات.
+            'department_id' => ['nullable', 'integer', new ActiveLegalDepartment],
+            'service_id' => ['nullable', 'integer', 'required_with:department_id', new ServiceOfDepartment($request->input('department_id'))],
+            'type' => ['required_without:service_id', 'nullable', 'string', 'max:120'],
             'subject' => ['nullable', 'string', 'max:190'],
-            'department' => ['nullable', 'string', 'max:120'],
+            'department' => ['nullable', 'string', 'max:120', new ActiveLegalDepartment],
             'details' => ['nullable', 'string'],
             'opponent_name' => ['nullable', 'string', 'max:190'],
             'opponent_id' => ['nullable', 'string', 'max:60'],
             'claim_amount' => ['nullable', 'integer', 'min:0'],
             'court_name' => ['nullable', 'string', 'max:190'],
-            'priority' => ['nullable', 'string', 'max:20'],
+            // من الكتالوج لا نصّاً حرّاً: `max:20` كان يقبل أيّ مفردة فتدخل القاعدة قيمةٌ لا يعرفها مرشّح
+            'priority' => ['nullable', 'string', Rule::in(TicketJourney::PRIORITIES)],
             'files' => ['nullable', 'array', 'max:10'],
             'files.*' => ['file', 'max:10240', 'mimes:'.self::ALLOWED_DOC_MIMES], // حتى 10MB لكل ملف
+        ], [
+            'service_id.required_with' => 'اختر الخدمة المتعلقة بالتذكرة.',
+            'type.required_without' => 'اختر الخدمة المتعلقة بالتذكرة.',
         ]);
+
+        // الاسم المعتمد في الكتالوج يُحفظ نصّاً مع معرّفه — فتعرض البطاقات والمرشّحات قسماً واحداً بصياغةٍ واحدة
+        $department = LegalCatalogue::fromInput($data['department_id'] ?? $data['department'] ?? null);
+        $service = LegalCatalogue::service(isset($data['service_id']) ? (int) $data['service_id'] : null);
+        $data['type'] = $service !== null ? $service->name : $data['type'];
 
         $details = trim($data['details'] ?? '') ?: ('طلب جديد بخصوص: '.$data['type']);
         $year = now()->year;
@@ -86,11 +122,14 @@ class TicketController extends Controller
             $number = "SB-{$year}-".random_int(1000, 9999);
         } while (Ticket::where('number', $number)->exists());
 
-        $ticket = $request->user()->tickets()->create([
+        // ميلاد التذكرة أوّل سطرٍ في رحلتها — يُفتح بالمحرّك بحالته الأولى وباسم العميل الفاتح
+        $ticket = Workflow::open('ticket.opened', fn () => $request->user()->tickets()->create([
             'number' => $number,
             'type' => $data['type'],
             'subject' => $data['subject'] ?? null,
-            'department' => $data['department'] ?? null,
+            'department' => $department?->name,
+            'legal_department_id' => $department?->id,
+            'legal_service_id' => $service?->id,
             'opponent_name' => $data['opponent_name'] ?? null,
             'opponent_id' => $data['opponent_id'] ?? null,
             'claim_amount' => $data['claim_amount'] ?? null,
@@ -100,7 +139,7 @@ class TicketController extends Controller
             'tone' => TicketJourney::toneFor('قيد التحليل'),
             'last_message' => $details,
             'date_label' => 'الآن',
-        ]);
+        ]), $request->user());
 
         // الإسناد الأول (حتمي وفوري): الذكاء الاصطناعي يختار المحامي المختص،
         // فيراها الموظفون منذ الاستقبال، ويبقى العزل على العميل ومحاميه المسنَد.
@@ -185,7 +224,7 @@ class TicketController extends Controller
         return Inertia::render('ticketchat', [
             'ticket' => $ticket->toCard(),
             'channel' => 'ticket.'.$ticket->id,
-            'messages' => $messages->map->toMessage(),
+            'messages' => LawyerName::inMessages(ConversationFiles::linkLegacyChips($messages->map->toMessage()->all(), 'ticket', $ticket->documents)),
             'consult' => $consult?->toClientCard(),
         ]);
     }
@@ -219,9 +258,11 @@ class TicketController extends Controller
         // الوكيل التشغيلي: كشف الشكوى/الاستعجال (حتمي وسريع) → تصعيد داخلي للموظفين
         TicketTriage::onClientMessage($ticket, $data['body']);
 
-        // ردّ «الدعم الفني» عبر AI بعد إرسال الاستجابة (يصل للعميل بالبث اللحظي)
-        $body = $data['body'];
-        GenerateTicketReplyJob::dispatch($ticket, $body);
+        // ردّ «الدعم الفني» عبر AI بعد إرسال الاستجابة (للعميل فقط — يمنع الرد على موظف أو محامٍ أو إدارة)
+        if ($request->user()->isClient()) {
+            $body = $data['body'];
+            GenerateTicketReplyJob::dispatch($ticket, $body);
+        }
 
         return response()->noContent();
     }
@@ -251,14 +292,16 @@ class TicketController extends Controller
             'who' => 'client',
             'name' => 'أنت',
             'role' => 'العميل',
-            'body' => '<p>تم إرفاق مستند:</p><div class="doc-list"><span class="doc-chip">📎 '.e($name).'</span></div>',
+            'body' => '<p>تم إرفاق مستند:</p><div class="doc-list">'.ConversationFiles::chip('ticket', $doc).'</div>',
             'time_label' => $this->clock(),
         ]);
         Live::push(new TicketMessageBroadcast($msg));
 
         $ticket->update(['last_message' => 'تم إرفاق مستند: '.$name, 'date_label' => 'الآن']);
 
-        TriageDocumentJob::dispatch($ticket, $doc);
+        if ($request->user()->isClient()) {
+            TriageDocumentJob::dispatch($ticket, $doc);
+        }
 
         return response()->noContent();
     }
@@ -287,11 +330,9 @@ class TicketController extends Controller
         ]);
 
         // حارسة الرحلة: لا يُطلب حجز على تذكرة اكتملت/أُغلقت أو في مرحلة اعتماد نهائية.
-        if (TicketJourney::indexOf($ticket->status) > TicketJourney::indexOf('موعد مؤكد')
-            || in_array($ticket->status, ['مكتملة', 'مغلقة', 'بانتظار اعتماد النتيجة', 'بانتظار اعتماد الإدارة'], true)) {
-            throw ValidationException::withMessages([
-                'type' => 'لا يمكن طلب الحجز من الحالة الحالية.',
-            ]);
+        // مصدرٌ واحد لكلّ مداخل طلب الاستشارة (ع١٣، ع١٧)
+        if ($why = TicketJourney::consultRequestBlocker($ticket)) {
+            throw ValidationException::withMessages(['type' => $why]);
         }
 
         // منع طلبات التسعير المتكرّرة: طلب واحد قائم لكل تذكرة يكفي حتى يكتمل أو يُلغى
@@ -309,7 +350,7 @@ class TicketController extends Controller
             'who' => 'system',
             'name' => 'النظام',
             'role' => 'نظام',
-            'body' => "تم إرسال طلب استشارة ({$m['label']}) للمكتب لتحديد السعر. ستصلك الفاتورة لسدادها ثم اختيار الموعد.",
+            'body' => "تم إرسال طلب استشارة ({$m['label']}) للمكتب لتحديد السعر. ستصلك الفاتورة لسدادها، ثمّ يُحدَّد موعد جلستك ويصلك إشعار به.",
             'time_label' => $this->clock(),
         ]);
 

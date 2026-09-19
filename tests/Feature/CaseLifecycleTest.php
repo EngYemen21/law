@@ -33,6 +33,15 @@ class CaseLifecycleTest extends TestCase
         ], $attrs));
     }
 
+    /** مسودّة لائحةٍ محجوبة كما يكتبها `DraftCasePleadingJob` — الاعتماد يشترطها منذ 2026-09-11. */
+    private function withDraft(LegalCase $case): void
+    {
+        $case->messages()->create([
+            'who' => 'ai', 'name' => 'المساعد القانوني', 'role' => 'مسودة اللائحة',
+            'body' => '<div class="draft">نصّ المسودّة</div>', 'withheld_at' => now(),
+        ]);
+    }
+
     public function test_payment_activates_case_with_plan_and_pleading(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
@@ -51,11 +60,13 @@ class CaseLifecycleTest extends TestCase
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $case = $this->caseFor(User::factory()->create(['role' => Role::Client]), ['assigned_lawyer_id' => $lawyer->id]);
+        $this->withDraft($case);
 
         $this->actingAs($lawyer)->post(route('lawyer.cases.pleading', $case))->assertRedirect();
 
         $case->refresh();
-        $this->assertSame('منظورة', $case->status);
+        // الاعتماد يقفل النصّ ولا يرفع الدعوى — الرفع والقيد في ناجز خطوتان تاليتان (الخطّة ب)
+        $this->assertSame('قيد التحضير', $case->status);
         $this->assertSame('approved', $case->pleading_status);
     }
 
@@ -144,6 +155,7 @@ class CaseLifecycleTest extends TestCase
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $case = $this->caseFor(User::factory()->create(['role' => Role::Client]), ['assigned_lawyer_id' => $lawyer->id]);
+        $this->withDraft($case);
 
         $this->actingAs($lawyer)->post(route('lawyer.cases.pleading', $case))->assertRedirect();
         $this->actingAs($lawyer)->post(route('lawyer.cases.pleading', $case))->assertStatus(422);

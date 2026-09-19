@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\EscalateUnassignedTicketJob;
 use App\Models\Ticket;
+use App\Support\SettingsRegistry;
 use Illuminate\Console\Command;
 
 /**
@@ -18,7 +19,9 @@ use Illuminate\Console\Command;
  */
 class EscalateUnassignedTickets extends Command
 {
-    protected $signature = 'tickets:escalate-unassigned {--minutes=15 : عمر التذكرة بالدقائق قبل التصعيد}';
+    // المعامل بلا قيمة افتراضيّة في التوقيع: افتراضه من الإعدادات كي تضبطه الإدارة بلا نشر
+    // كود، ويبقى تمريره صريحاً ممكناً (الجدولة والاختبارات).
+    protected $signature = 'tickets:escalate-unassigned {--minutes= : عمر التذكرة بالدقائق قبل التصعيد (الافتراض من الإعدادات)}';
 
     protected $description = 'تصعيد التذاكر المفتوحة التي بقيت بلا محامٍ مسنَد إلى الإدارة العليا';
 
@@ -28,7 +31,9 @@ class EscalateUnassignedTickets extends Command
     public function handle(): int
     {
         // مهلة قبل التصعيد: تمنع سباقاً مع الوظيفة المُرسَلة لحظة الفتح (وقد تكون في الطابور بعد)
-        $cutoff = now()->subMinutes((int) $this->option('minutes'));
+        $option = $this->option('minutes');
+        $minutes = $option === null || $option === '' ? SettingsRegistry::int('ticket_escalate_minutes') : (int) $option;
+        $cutoff = now()->subMinutes($minutes);
 
         $tickets = Ticket::whereNull('assigned_lawyer_id')
             ->whereNotIn('status', self::CLOSED)

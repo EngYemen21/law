@@ -28,13 +28,12 @@ class AiReviewPreviewTest extends TestCase
     {
         // ما يُنتج نصّاً محفوظاً يُعايَن
         $previewed = ['consult.summary', 'consult', 'ticket.summary', 'document.analyze',
-            'execution', 'case.pleading', 'meeting.decisions'];
+            'execution', 'case.pleading', 'meeting.decisions', 'case.classify'];
 
         // وما لا مخرج نصّيّ محفوظ له — بسببٍ معلَن لكلٍّ
         $excluded = [
             'najiz.statement' => 'تعود JSON للمتصفّح بلا تخزين',
             'triage' => 'قسمٌ وأولويّة — حقول وصفيّة تُعرض أصلاً',
-            'case.classify' => 'نوعٌ وقسم — حقول وصفيّة تُعرض أصلاً',
             'meeting.summary' => 'يُراجَع في شاشة الاجتماع بمحضره وقراراته',
             'chat.reply' => 'الردّ معروضٌ في المحادثة نفسها',
             'assistant.draft' => 'مسودّة المساعد تُعرض في شاشته لحظة توليدها',

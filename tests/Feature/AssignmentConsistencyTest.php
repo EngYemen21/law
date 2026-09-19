@@ -6,8 +6,9 @@ use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
-use App\Support\ConsultBooking;
+use App\Support\ConsultAppointments;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
@@ -16,21 +17,31 @@ use Tests\TestCase;
  */
 class AssignmentConsistencyTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     public function test_booking_derives_lawyer_from_ticket_when_no_lawyer_id(): void
     {
-        // يختبر الاشتقاق في ConsultBooking مباشرةً: أي مسار يمرّر تذكرة دون lawyer_id
-        // يجب أن يرث المحامي المسند من التذكرة (لا اسماً فقط).
+        // حجز الطاقم دون اختيار محامٍ يرث محامي التذكرة المسند (ع٢٧) — لا أوّلَ متفرّغٍ غريب.
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']); // متفرّغٌ آخر لا يُختار
         $ticket = Ticket::create([
-            'user_id' => $client->id, 'number' => 'SB-900', 'type' => 'نزاع', 'status' => 'قيد المعالجة',
+            'user_id' => $client->id, 'number' => 'SB-900', 'type' => 'نزاع', 'status' => 'بانتظار تحديد الموعد',
             'assigned_lawyer' => $lawyer->name, 'assigned_lawyer_id' => $lawyer->id, ]);
+        $consult = Consult::create([
+            'user_id' => $client->id, 'ticket_id' => $ticket->id, 'ref' => 'CN-AC-900', 'subject' => 'نزاع',
+            'type' => 'استشارة', 'channel' => 'هاتفية', 'status' => 'بانتظار تحديد الموعد',
+            'session' => 'بانتظار الجلسة', 'tone' => 'b-amber', 'lawyer' => 'المستشار القانوني',
+            'priced_at' => now(), 'paid_at' => now(),
+        ]);
 
-        $consult = ConsultBooking::create($client, ['type' => 'phone', 'day' => '2026-07-20', 'time' => '11:00'], $ticket);
+        $consult = ConsultAppointments::publish($consult, $this->journeyAdmin(), [
+            'type' => 'phone', 'date' => now()->addDays(2)->toDateString(), 'time' => '11:00',
+        ]);
 
         $this->assertSame($lawyer->id, $consult->assigned_lawyer_id); // مشتقّ من التذكرة رغم غياب lawyer_id
+        $this->assertSame($lawyer->name, $consult->lawyer);
     }
 
     public function test_refer_binds_assigned_lawyer_id(): void

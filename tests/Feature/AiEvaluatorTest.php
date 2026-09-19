@@ -145,7 +145,8 @@ class AiEvaluatorTest extends TestCase
         AiEvaluator::remember([['task' => 'ticket.triage', 'rate' => 1.0]], false, null);
 
         $run = AiEvaluationRun::first();
-        $this->assertSame('v1', $run->prompt_versions['ticket.triage']);
+        // v2 منذ صارت قائمة الأقسام من كتالوج الأقسام (2026-09-15)
+        $this->assertSame('v2', $run->prompt_versions['ticket.triage']);
         $this->assertArrayHasKey('gemini', $run->models);
     }
 

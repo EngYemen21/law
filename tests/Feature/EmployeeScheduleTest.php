@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Models\Appointment;
+use App\Models\Consult;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -76,7 +77,7 @@ class EmployeeScheduleTest extends TestCase
         );
     }
 
-    public function test_employee_can_fetch_slots_and_create_schedule(): void
+    public function test_employee_can_fetch_slots_and_propose_a_schedule(): void
     {
         $employee = User::factory()->create(['role' => Role::Employee]);
         $employee->syncPermissions(Permission::whereIn('name', ['جدولة المواعيد'])->get());
@@ -92,6 +93,14 @@ class EmployeeScheduleTest extends TestCase
             'status' => 'active',
         ]);
 
+        // استشارة العميل مدفوعة وتنتظر موعدها — الحجز عليها لا حجزٌ جديد
+        $consult = Consult::create([
+            'user_id' => $client->id, 'ref' => 'CN-SCH-1', 'subject' => 'استشارة جديدة', 'type' => 'استشارة',
+            'channel' => 'حضورية', 'status' => 'بانتظار تحديد الموعد', 'session' => 'بانتظار الجلسة',
+            'tone' => 'b-amber', 'lawyer' => 'المستشار القانوني',
+            'price' => 500, 'vat' => 75, 'total' => 575, 'priced_at' => now(), 'paid_at' => now(),
+        ]);
+
         $tomorrow = now()->addDay()->format('Y-m-d');
 
         // فحص الفترات
@@ -99,24 +108,25 @@ class EmployeeScheduleTest extends TestCase
         $slotsRes->assertOk();
         $slotsRes->assertJsonStructure(['slots']);
 
-        // إنشاء حجز استشارة
+        // اقتراح موعد الاستشارة
         $postRes = $this->actingAs($employee)->post('/employee/schedule', [
             'client_id' => $client->id,
             'lawyer_id' => $lawyer->id,
             'type' => 'office',
-            'subject' => 'استشارة جديدة',
             'date' => $tomorrow,
             'time' => '11:00',
         ]);
 
         $postRes->assertSessionHasNoErrors();
+        // الخانة محجوزة بانتظار اعتماد الإدارة — لا شيء للعميل بعد
         $this->assertDatabaseHas('appointments', [
             'user_id' => $client->id,
             'lawyer_id' => $lawyer->id,
+            'status' => 'بانتظار الاعتماد',
         ]);
         $this->assertDatabaseHas('consults', [
-            'user_id' => $client->id,
-            'assigned_lawyer_id' => $lawyer->id,
+            'id' => $consult->id,
+            'status' => 'بانتظار اعتماد الموعد',
             'channel' => 'حضورية',
         ]);
     }

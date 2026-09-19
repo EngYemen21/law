@@ -5,7 +5,6 @@ import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import type {Appt} from '@/lib/data';
 import Icon from '@/lib/icons';
-import { maskLawyer } from '@/lib/utils';
 
 // يطابق viewAppts + openAppt (بطاقة .apptx) في index (21).html — ببيانات حقيقيّة
 
@@ -83,7 +82,7 @@ return;
               <div className="ri"><Icon name="scale" /></div>
               <div className="rc">
                 <div className="rl">المحامي المكلّف</div>
-                <div className="rv">{maskLawyer(a.lawyer)}</div>
+                <div className="rv">{a.lawyer || '—'}</div>
               </div>
             </div>
             <div className="apptx-row">
@@ -149,7 +148,7 @@ const ApptItem: React.FC<{ a: Appt; onOpen: (a: Appt) => void }> = ({ a, onOpen 
         <b>{a.type}</b>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
           <span style={{ color: 'var(--ink)', fontWeight: 600, fontSize: 12 }}>{a.day} · {a.time}</span>
-          <span style={{ color: 'var(--muted)', fontSize: 12 }}>· {maskLawyer(a.lawyer)}</span>
+          <span style={{ color: 'var(--muted)', fontSize: 12 }}>· {a.lawyer || '—'}</span>
           <span style={{ color: 'var(--muted)', fontSize: 12 }}>· {a.place}</span>
         </div>
       </div>

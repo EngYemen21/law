@@ -16,6 +16,7 @@ use App\Models\TicketDocument;
 use App\Models\User;
 use App\Support\Paginate;
 use App\Support\Phone;
+use App\Support\SearchText;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -42,10 +43,7 @@ class ClientController extends Controller
         // 1. البحث النصي
         if ($search !== '') {
             $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('national_id', 'like', "%{$search}%")
-                    ->orWhere('phone', 'like', "%{$search}%")
-                    ->orWhere('email', 'like', "%{$search}%");
+                SearchText::apply($q, ['name', 'national_id', 'phone', 'email'], $search);
             });
         }
 
@@ -232,6 +230,7 @@ class ClientController extends Controller
                 'hasFile' => ! empty($d->path),
                 'downloadUrl' => ! empty($d->path) ? route('admin.documents.download', $d->id) : null,
                 'date' => $d->created_at?->format('Y-m-d') ?: '—',
+                'at' => $d->created_at?->getTimestamp() ?? 0,
             ]);
 
         $ticketDocs = TicketDocument::whereHas('ticket', fn ($q) => $q->where('user_id', $client->id))->latest('id')->get()
@@ -243,6 +242,7 @@ class ClientController extends Controller
                 'hasFile' => ! empty($td->path),
                 'downloadUrl' => ! empty($td->path) ? route('admin.documents.download-file', ['type' => 'ticket', 'id' => $td->id]) : null,
                 'date' => $td->created_at?->format('Y-m-d') ?: '—',
+                'at' => $td->created_at?->getTimestamp() ?? 0,
             ]);
 
         $caseDocs = CaseDocument::whereHas('legalCase', fn ($q) => $q->where('user_id', $client->id))->latest('id')->get()
@@ -254,6 +254,7 @@ class ClientController extends Controller
                 'hasFile' => ! empty($cd->path),
                 'downloadUrl' => ! empty($cd->path) ? route('admin.documents.download-file', ['type' => 'case', 'id' => $cd->id]) : null,
                 'date' => $cd->created_at?->format('Y-m-d') ?: '—',
+                'at' => $cd->created_at?->getTimestamp() ?? 0,
             ]);
 
         $execDocs = ExecutionDocument::whereHas('execution', fn ($q) => $q->where('user_id', $client->id))->latest('id')->get()
@@ -265,9 +266,13 @@ class ClientController extends Controller
                 'hasFile' => ! empty($ed->path),
                 'downloadUrl' => ! empty($ed->path) ? route('admin.documents.download-file', ['type' => 'exec', 'id' => $ed->id]) : null,
                 'date' => $ed->created_at?->format('Y-m-d') ?: '—',
+                'at' => $ed->created_at?->getTimestamp() ?? 0,
             ]);
 
-        $allDocs = $directDocs->concat($ticketDocs)->concat($caseDocs)->concat($execDocs)->values();
+        // **دمجٌ زمنيّ لا رصٌّ تِباعاً.** كلّ مصدرٍ مرتَّبٌ وحده ثمّ `concat` يضعه خلف
+        // سابقه، فالمستند المرفوع الآن يظهر بعد **كلّ** مستندات المصادر التي تسبقه.
+        $allDocs = $directDocs->concat($ticketDocs)->concat($caseDocs)->concat($execDocs)
+            ->sortByDesc('at')->values();
 
         // 7. الحسابات والإحصائيات
         $totalInvoiced = (int) Invoice::where('user_id', $client->id)->sum('amount');

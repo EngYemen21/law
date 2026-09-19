@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Journey\Enums\TicketStatus;
 use App\Enums\Role;
 use App\Models\Appointment;
 use App\Models\Consult;
@@ -13,6 +14,7 @@ use App\Models\Meeting;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Services\AdminDashboardService;
+use App\Support\LawyerName;
 use App\Support\TicketJourney;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -42,7 +44,8 @@ class DashboardController extends Controller
         $lastTicket = $myTickets->first();
 
         // 2. المواعيد والاستشارات الحية
-        $myAppts = Appointment::where('user_id', $uid)->with(['user', 'consult', 'lawyerUser'])->latest('id')->get();
+        // الموعد «بانتظار الاعتماد» شأنٌ داخليّ للمكتب — لا يُعرض للعميل قبل نشره
+        $myAppts = Appointment::where('user_id', $uid)->where('status', '!=', 'بانتظار الاعتماد')->with(['user', 'consult', 'lawyerUser'])->latest('id')->get();
         $upcomingAppts = $myAppts->filter(fn (Appointment $a) => $a->liveState()[0] === 'up')->values();
 
         // 3. الفواتير غير المسددة
@@ -55,7 +58,8 @@ class DashboardController extends Controller
 
         // 5. ملفات التنفيذ القضائي
         $myExecutions = Execution::where('user_id', $uid)->latest('id')->get();
-        $activeExecutions = $myExecutions->filter(fn (Execution $e) => $e->stage === null || $e->stage < 9)->values();
+        // المغلق القديم (stage=null وحالته «مغلق»/«مكتمل») كان يُعدّ نشطاً — المصدر الواحد يفصل
+        $activeExecutions = $myExecutions->filter(fn (Execution $e) => ! $e->isClosed())->values();
 
         // 6. الاجتماعات
         $myMeetings = Meeting::where('user_id', $uid)->get();
@@ -84,7 +88,11 @@ class DashboardController extends Controller
         // أ) جلسة مرئية يمكن الانضمام لها أو موعد اليوم
         foreach ($upcomingAppts as $app) {
             $consult = $app->consult;
-            if ($consult && $consult->canJoin()) {
+            // **البنر لا يقوم إلا على موعدٍ محلَّل.** `canJoin` حارسٌ متساهل عمداً: جلسةٌ بلا
+            // موعد تُبدأ يدوياً وتبقى قابلة للدخول (‏`Consult::isStartable`) — وهو صواب
+            // للحارس. أمّا **الإعلان** «جاهزة للانضمام الآن» فيَعِد بحاضرٍ لا يعرفه: بلا
+            // `starts_at` لا سقف زمنيّ يُنهيه، فيبقى أحمر عاجلاً إلى الأبد.
+            if ($consult && $consult->starts_at !== null && $consult->canJoin()) {
                 $actionAlerts[] = [
                     'id' => 'meet-'.$app->id,
                     'type' => 'video_ready',
@@ -95,7 +103,10 @@ class DashboardController extends Controller
                     'link' => $consult->joinLink($user) ?: route('meetings'),
                     'tone' => 'b-red',
                 ];
-            } elseif ($app->when_kind === 'today' || ($app->starts_at && $app->starts_at->isToday())) {
+                // و«اليوم» تُقاس بالساعة لا بعمودٍ مخزَّن: `when_kind` لا يكتبه مسارٌ حيّ بقيمة
+                // `'today'` أصلاً (البذر وحده)، وهو لا يتحدّث بمرور الوقت — فموعدٌ وُسم «اليوم»
+                // مرّةً كان يُعلَن «اليوم» كلّ يوم. والموعد بلا `starts_at` ليس مجدولاً فلا يُعلَن.
+            } elseif ($app->starts_at && $app->starts_at->isToday()) {
                 $actionAlerts[] = [
                     'id' => 'today-'.$app->id,
                     'type' => 'today_appt',
@@ -151,24 +162,26 @@ class DashboardController extends Controller
             'dueInvoices' => $unpaidInvoices->take(4)->map(fn (Invoice $i) => $i->toCard())->values(),
             'activeCases' => $activeCases->take(4)->map(fn (LegalCase $c) => array_merge($c->toCard(), [
                 'department' => $c->department,
-                'assignedLawyer' => $c->assigned_lawyer ?: ($c->assignedLawyer?->name ?? 'المستشار المكلف'),
+                'assignedLawyer' => LawyerName::forClient($c->assigned_lawyer_id ? $c->assignedLawyer : null, $c->assigned_lawyer, 'المستشار المكلف'),
                 'nextHearingLabel' => $c->nextHearingLabel(),
             ]))->values(),
             'activeTickets' => $activeTickets->take(4)->map(fn (Ticket $t) => [
                 'no' => $t->number,
                 'type' => $t->type,
                 'subject' => $t->subject,
-                'status' => $t->status,
+                // لوحة العميل: تسميته لا حالة الاعتماد الداخليّة
+                'status' => TicketStatus::labelForClient($t->status),
                 'tone' => $t->tone,
                 'priority' => $t->priority,
-                'lawyer' => $t->assigned_lawyer ?: 'بانتظار الإسناد',
+                'lawyer' => LawyerName::forClient($t->assigned_lawyer_id ? $t->assignedLawyer : null, $t->assigned_lawyer, 'بانتظار الإسناد'),
                 'updatedAgo' => $t->updated_at?->locale('ar')->diffForHumans() ?? 'الآن',
             ])->values(),
             'activeExecutions' => $activeExecutions->take(3)->map(fn (Execution $e) => [
                 'number' => $e->number,
                 'subject' => $e->subject,
                 'court' => $e->court,
-                'stage' => $e->stage,
+                // المرحلة الفعّالة كبقيّة الشاشات — كان العميل يرى `null` للملفّات المفتوحة من قضية
+                'stage' => $e->effectiveStage(),
                 'status' => $e->status,
                 'tone' => $e->tone,
                 'amount' => $e->amount,
@@ -177,7 +190,7 @@ class DashboardController extends Controller
             'lastTicket' => $lastTicket ? [
                 'no' => $lastTicket->number,
                 'step' => TicketJourney::indexOf($lastTicket->status),
-                'status' => $lastTicket->status,
+                'status' => TicketStatus::labelForClient($lastTicket->status),
                 'type' => $lastTicket->type,
             ] : null,
             'actionAlerts' => $actionAlerts,
@@ -231,9 +244,16 @@ class DashboardController extends Controller
                 ];
             });
 
-        // 4. ملفات التنفيذ النشطة
-        $execs = Execution::with('user')
+        // 4. ملفات التنفيذ النشطة — استعلامٌ واحد يغذّي القائمة والعدّاد فلا يتباعدان
+        $activeExecs = Execution::query()
             ->where(fn ($q) => $q->whereNull('stage')->orWhere('stage', '<', 9))
+            ->whereNotIn('status', Execution::CLOSED_STATUSES); // المنتهي القديم ليس نشطاً
+
+        // العدّاد يقرأ القاعدة لا الصفحة: كان `$execs->count()` على مجموعةٍ مقصوصة بـtake(5)،
+        // فيُعرض «٥ ملفّات نشطة» للمكتب وفيه عشرون — سقفٌ يُقرأ حقيقة.
+        $activeExecsCount = (clone $activeExecs)->count();
+
+        $execs = $activeExecs->with('user')
             ->latest('id')
             ->take(5)
             ->get()
@@ -269,6 +289,7 @@ class DashboardController extends Controller
                 'title' => 'تذكرة جديدة #'.$t->number,
                 'sub' => $t->type.' · '.($t->user?->name ?? 'عميل'),
                 'time' => $t->created_at?->diffForHumans() ?? 'الآن',
+                'at' => $t->created_at?->getTimestamp() ?? 0,
             ]))
             ->concat(Consult::latest('id')->take(3)->get()->map(fn ($c) => [
                 'ico' => 'video',
@@ -276,8 +297,12 @@ class DashboardController extends Controller
                 'title' => 'استشارة '.$c->ref,
                 'sub' => $c->channel.' · '.($c->subject ?: 'استشارة قانونية'),
                 'time' => $c->created_at?->diffForHumans() ?? 'الآن',
+                'at' => $c->created_at?->getTimestamp() ?? 0,
             ]))
-            ->sortByDesc('time')->take(5)->values();
+            // **الفرز بالزمن لا بنصّه.** كان `sortByDesc('time')` و`time` نصٌّ عربيّ من
+            // `diffForHumans()` («منذ ٣ دقائق») — فرزٌ أبجديّ، ثمّ `take(5)` يقتطع عليه
+            // فيسقط أحدثُ عنصرٍ أحياناً.
+            ->sortByDesc('at')->take(5)->values();
 
         return Inertia::render('employee/dashboard', [
             'name' => $request->user()->name,
@@ -294,7 +319,7 @@ class DashboardController extends Controller
                 'todayAppts' => $todayAppts->count(),
                 'referred' => Ticket::where('status', 'محالة للقسم القانوني')->count(),
                 'activeCases' => LegalCase::whereNotIn('status', ['مغلقة', 'مؤرشفة', 'صدر الحكم'])->count(),
-                'activeExecs' => $execs->count(),
+                'activeExecs' => $activeExecsCount,
             ],
         ]);
     }
@@ -306,11 +331,14 @@ class DashboardController extends Controller
         $data360 = $adminDashboardService->get360Data($bypassCache);
 
         // أحدث نشاط: آخر تذاكر/قضايا/استشارات
+        // **يُدمج زمنيّاً قبل الاقتطاع.** كان `concat` بلا أيّ فرز ثمّ `take(8)` على عشرة
+        // عناصر: آخر استشارتين تسقطان **دائماً**، والاستشارة الجديدة لا تبلغ الصدارة ولو
+        // كانت أحدث شيءٍ في النظام — لأنّ ترتيب الظهور ترتيبُ الضمّ لا ترتيبُ الزمن.
         $activity = collect()
-            ->concat(Ticket::latest('id')->take(4)->get()->map(fn ($t) => ['ico' => 'folder', 'title' => 'تذكرة جديدة '.$t->number, 'sub' => $t->type]))
-            ->concat(LegalCase::latest('id')->take(3)->get()->map(fn ($c) => ['ico' => 'scale', 'title' => 'قضية '.$c->number, 'sub' => $c->status]))
-            ->concat(Consult::latest('id')->take(3)->get()->map(fn ($c) => ['ico' => 'video', 'title' => 'استشارة '.$c->ref, 'sub' => $c->channel]))
-            ->take(8)->values();
+            ->concat(Ticket::latest('id')->take(4)->get()->map(fn ($t) => ['ico' => 'folder', 'title' => 'تذكرة جديدة '.$t->number, 'sub' => $t->type, 'at' => $t->created_at?->getTimestamp() ?? 0]))
+            ->concat(LegalCase::latest('id')->take(3)->get()->map(fn ($c) => ['ico' => 'scale', 'title' => 'قضية '.$c->number, 'sub' => $c->status, 'at' => $c->created_at?->getTimestamp() ?? 0]))
+            ->concat(Consult::latest('id')->take(3)->get()->map(fn ($c) => ['ico' => 'video', 'title' => 'استشارة '.$c->ref, 'sub' => $c->channel, 'at' => $c->created_at?->getTimestamp() ?? 0]))
+            ->sortByDesc('at')->take(8)->values();
 
         $stats = [
             'clients' => User::where('role', Role::Client)->count(),

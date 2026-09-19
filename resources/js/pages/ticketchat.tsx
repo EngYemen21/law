@@ -9,12 +9,31 @@ import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
 import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
-import SpecialistPicker, { todayISO } from '@/components/SpecialistPicker';
 
 // يطابق clientTicketView + خطوات حجز الاستشارة (tfChooseConsult→tfInvoice→tfPaid→tfChooseSlot→tfConfirm)
 // دورة الحجز مقودة من الخادم عبر حالة الاستشارة المرتبطة (consult): تسعير الإدارة → فاتورة → دفع محاكى → موعد.
 
-interface TicketCard { no: string; type: string; status: string; tone: string; }
+interface TicketCard {
+  no: string;
+  type: string;
+  status: string;
+  tone: string;
+  isFrozen?: boolean;
+  hasCase?: boolean;
+  caseNumber?: string | null;
+  hasExecution?: boolean;
+  executionNumber?: string | null;
+  trackGovernance?: {
+    aiSuggestedTrack?: string | null;
+    aiSuggestedReason?: string | null;
+    proposedTrack?: string | null;
+    proposedTrackReason?: string | null;
+    approvedTrack?: string | null;
+    approvedTrackReason?: string | null;
+    approvedBy?: string | null;
+    approvedTrackAt?: string | null;
+  };
+}
 interface ConsultLink {
   id: number; ref: string; status: string; channel: string;
   price?: number; vat?: number; total?: number; priced?: boolean; paid?: boolean; invoiceNo?: string | null;
@@ -30,9 +49,6 @@ const TYPES: { key: string; label: string; ico: string; sub: string }[] = [
 const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ no, consult }) => {
   const toast = useToast();
   const [type, setType] = useState('');
-  const [date, setDate] = useState(todayISO());
-  const [lawyerId, setLawyerId] = useState<number | null>(null);
-  const [time, setTime] = useState('');
   const [busy, setBusy] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -73,21 +89,9 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
     });
   };
 
-  const confirmSlot = () => {
-    if (!consult || !time) { toast('اختر موعداً متاحاً'); return; }
-    setBusy(true);
-    // الإسناد خادميّ (LawyerAvailability::assignLawyer) — لا يُرسل lawyer_id لأنه كان يُهمَل بالكامل
-    router.post(`/consults/${consult.id}/schedule`, { date, time }, {
-      preserveScroll: true,
-      onSuccess: () => toast('تم تأكيد موعد الاستشارة'),
-      onError: () => toast('تعذّر تأكيد الموعد، جرّب فترة أخرى'),
-      onFinish: () => setBusy(false),
-    });
-  };
-
   const badge = !status ? 'اختر النوع'
     : status === 'بانتظار التسعير' ? 'بانتظار التسعير'
-      : status === 'بانتظار السداد' ? 'بانتظار السداد' : 'اختر الموعد';
+      : status === 'بانتظار السداد' ? 'بانتظار السداد' : 'قيد تحديد الموعد';
 
   return (
     <div className="card" ref={cardRef} style={{ marginBottom: 16 }}>
@@ -139,27 +143,11 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
           </>
         )}
 
-        {/* اختيار الموعد بعد السداد */}
+        {/* بعد السداد: المكتب يحدّد الموعد (قرار المالك 2026-09-14) — لا جدول حجز للعميل */}
         {status === 'بانتظار تحديد الموعد' && (
-          <>
-            <div className="field" style={{ marginBottom: 8 }}>
-              <label>تاريخ الموعد</label>
-              <input className="input" type="date" min={todayISO()} value={date}
-                onChange={(e) => { setDate(e.target.value); setLawyerId(null); setTime(''); }} />
-            </div>
-            <SpecialistPicker
-              fetchUrl={`/tickets/${encodeURIComponent(no)}/availability`}
-              enabled autoAssign date={date} onDateSnap={setDate}
-              lawyerId={lawyerId} onLawyerChange={setLawyerId}
-              time={time} onTimeChange={setTime}
-            />
-            {/* الشرط على الوقت وحده: lawyer_id لا يُرسَل والإسناد خادميّ — واشتراطُه
-                كان يقفل الدقيقة المخصّصة (تُختار ولا تُؤكَّد) */}
-            <button className="btn block" type="button" style={{ marginTop: 15, opacity: time && !busy ? 1 : 0.5 }}
-              disabled={!time || busy} onClick={confirmSlot}>
-              <Icon name="cal" /> تأكيد الموعد
-            </button>
-          </>
+          <div className="action-hint" style={{ textAlign: 'center', padding: 14 }}>
+            <Icon name="clock" /> سوف يتم تحديد موعد جلسة استشارية مع المستشار المختص وثمّ تزويدك بالموعد المحدد
+          </div>
         )}
 
       </div>
@@ -173,14 +161,20 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
 
   // عند بثّ حالة التذكرة (تقدّم المسار خادميّاً) نعيد جلب الاستشارة المرتبطة أيضاً — فتصل حقول
   // الفاتورة/السداد لحظياً ويُفعَّل زر «الدفع عبر ميسّر» دون إعادة تحميل يدوي للصفحة.
-  const onStatus = (s: { status: string; tone: string }) => {
-    setStatus(s);
+  // القناة مشتركة مع الطاقم: `status` داخليّ، والعميل يقرأ `clientStatus` (قيد إعداد الرأي القانوني…)
+  const onStatus = (s: { status: string; tone: string; clientStatus?: string }) => {
+    setStatus({ status: s.clientStatus ?? s.status, tone: s.tone });
     router.reload({ only: ['consult'] });
   };
 
-  // تُعرض لوحة الحجز عند مرحلة الحجز، أو ما دامت هناك استشارة قيد الحجز/الدفع/الجدولة
+  // تُعرض لوحة الحجز بعد نشر الرأي القانونيّ المبدئيّ (يُطلب منها)، أو ما دامت هناك استشارة قيد
+  // التسعير/السداد/تحديد الموعد — «المرحلة التالية» لم تعد تنقل التذكرة إلى «بانتظار حجز الاستشارة».
   const bookingActive = consult && ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'].includes(consult.status);
-  const showBooking = status.status === 'بانتظار حجز الاستشارة' || !!bookingActive;
+  const canRequest = ['الرأي القانوني', 'بانتظار حجز الاستشارة'].includes(status.status)
+    && (!consult || ['منتهية', 'ملغاة', 'لم يحضر'].includes(consult.status));
+  const showBooking = canRequest || !!bookingActive;
+
+  const isTerminal = ['مكتملة', 'مغلقة', 'محولة إلى قضية'].includes(status.status) || !!ticket.isFrozen;
 
   const topExtra = (
     <>
@@ -193,6 +187,94 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
           <FlowLine steps={TKT_LIFE} cur={tktStage(status.status)} />
         </div>
       </div>
+
+      {/* ── بطاقات توجيه وقرارات الإدارة العليا المعتمدة للعميل مع بيان السبب الحقيقي ── */}
+      {(ticket.trackGovernance?.approvedTrack === 'execution' || ticket.hasExecution) && (
+        <div className="card" style={{ marginBottom: 16, borderInlineStart: '4px solid var(--amber, #d97706)', background: '#fffbeb' }}>
+          <div className="card-b" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Icon name="card" />
+              <div>
+                <b style={{ fontSize: 13.5, display: 'block', color: '#92400e' }}>قرار الإدارة العليا: تحويل الطلب إلى ملف تنفيذ قضائي</b>
+                <span style={{ fontSize: 12.5, color: '#78350f', display: 'block', marginTop: 2 }}>
+                  <strong>السبب والمبرر النظامي:</strong> {ticket.trackGovernance?.approvedTrackReason || 'تبيّن حيازة سند تنفيذي مكتمل الأركان لمباشرة التنفيذ عبر منصة ناجز.'}
+                </span>
+              </div>
+            </div>
+            <a href="/executions" className="btn sm" style={{ whiteSpace: 'nowrap', background: '#d97706', color: '#fff', border: 'none' }}>
+              الانتقال لملف التنفيذ
+            </a>
+          </div>
+        </div>
+      )}
+
+      {(status.status === 'محولة إلى قضية' || ticket.trackGovernance?.approvedTrack === 'case') && !ticket.hasExecution && (
+        <div className="card" style={{ marginBottom: 16, borderInlineStart: '4px solid var(--primary, #0e5c9c)' }}>
+          <div className="card-b" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Icon name="scale" />
+              <div>
+                <b style={{ fontSize: 13.5, display: 'block' }}>قرار الإدارة العليا: تحويل الطلب إلى قضية رسمية</b>
+                {ticket.trackGovernance?.approvedTrackReason ? (
+                  <span style={{ fontSize: 12.5, color: 'var(--text-soft, #475569)', display: 'block', marginTop: 2 }}>
+                    <strong>السبب والمبرر النظامي:</strong> {ticket.trackGovernance.approvedTrackReason}
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>تم فتح ملف قضية لمتابعة الإجراءات القضائية، يمكنك متابعة المستجدات في قائمة القضايا.</span>
+                )}
+              </div>
+            </div>
+            <a href="/cases" className="btn soft sm" style={{ whiteSpace: 'nowrap' }}>
+              الانتقال للقضايا
+            </a>
+          </div>
+        </div>
+      )}
+
+      {ticket.trackGovernance?.approvedTrack === 'consultation' && ticket.trackGovernance?.approvedTrackReason && (
+        <div className="card" style={{ marginBottom: 16, borderInlineStart: '4px solid #2563eb', background: '#eff6ff' }}>
+          <div className="card-b" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Icon name="chat" />
+              <div>
+                <b style={{ fontSize: 13.5, display: 'block', color: '#1d4ed8' }}>قرار الإدارة العليا: توجيه بطلب استشارة قانونية</b>
+                <span style={{ fontSize: 12.5, color: '#1e3a8a', display: 'block', marginTop: 2 }}>
+                  <strong>السبب والمبرر النظامي:</strong> {ticket.trackGovernance.approvedTrackReason}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn sm"
+              style={{ whiteSpace: 'nowrap', background: '#2563eb', color: '#fff', border: 'none' }}
+              onClick={() => {
+                document.querySelector('.book-consult')?.scrollIntoView({ behavior: 'smooth' });
+              }}
+            >
+              حجز موعد الاستشارة
+            </button>
+          </div>
+        </div>
+      )}
+
+      {(status.status === 'مغلقة' || ticket.trackGovernance?.approvedTrack === 'close') && (
+        <div className="card" style={{ marginBottom: 16, borderInlineStart: '4px solid var(--muted, #64748b)' }}>
+          <div className="card-b" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Icon name="check" />
+            <div>
+              <b style={{ fontSize: 13.5, display: 'block' }}>اكتملت المعالجة وحُفظ الطلب بقرار مسبّب</b>
+              <span style={{ fontSize: 12.5, color: 'var(--muted)', display: 'block', marginTop: 2 }}>
+                {ticket.trackGovernance?.approvedTrackReason ? (
+                  <><strong>المبرر النظامي:</strong> {ticket.trackGovernance.approvedTrackReason}</>
+                ) : (
+                  'تم تقديم المشورة القانونية وإغلاق التذكرة بنجاح. السجل متاح للاطلاع في أي وقت.'
+                )}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showBooking && <BookConsult no={ticket.no} consult={consult} />}
     </>
   );
@@ -225,8 +307,8 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
         onSend={send}
         onAttach={attach}
         onStatus={onStatus}
-        readOnly={['مكتملة', 'مغلقة'].includes(status.status)}
-        placeholder="اكتب رسالتك للفريق القانوني…"
+        readOnly={isTerminal}
+        placeholder={isTerminal ? 'التذكرة مكتملة وأرشيفها للقراءة فقط' : 'اكتب رسالتك للفريق القانوني…'}
         composerLabel="اكتب في التذكرة:"
       />
     </DetailShell>

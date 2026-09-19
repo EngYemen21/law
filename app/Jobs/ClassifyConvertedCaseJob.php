@@ -84,17 +84,15 @@ class ClassifyConvertedCaseJob implements ShouldQueue
             return;
         }
 
-        $case->update(['type' => $analysis['type'], 'department' => $analysis['department']]);
-
-        // **تُعاد كتابة** رسالة التحليل القائمة لا تُضاف ثانية — وإلا رأى العميل تحليلين متناقضين
-        $message = $case->messages()->where('role', 'تحليل')->latest('id')->first();
-        if ($message !== null) {
-            $message->update(['body' => self::analysisBody($case->ticket, $analysis, refined: true)]);
-        }
+        // **مقترحٌ لا حكم.** سياسة `case.classify` «عالية» (`AiPolicyGate`): مراجعةٌ بشريّة
+        // إلزاميّة. وكانت هذه الوظيفة تكتب النوع والقسم وتعيد كتابة رسالة «التحليل» التي يراها
+        // العميل — فالمخرج يصل صاحبَه والقيدُ يقول «بانتظار المراجعة». يُحفظ هنا ويطبّقه
+        // `AiReviewOutcome::releaseCaseClassification` عند القبول أو التعديل.
+        $case->update(['ai_classification' => ['type' => $analysis['type'], 'department' => $analysis['department']]]);
 
         Live::push(new CaseStatusBroadcast($case));
 
-        Log::info('case.classification.refined', [
+        Log::info('case.classification.proposed', [
             'case' => $case->number, 'type' => $analysis['type'], 'department' => $analysis['department'],
         ]);
     }

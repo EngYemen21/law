@@ -2,6 +2,8 @@
 
 namespace App\Services\Ai;
 
+use App\Support\LegalCatalogue;
+
 /**
  * التحقّق الخادميّ المستقلّ من مخرجات النموذج — **لا يُوثَق بأن النموذج اتّبع التعليمات**.
  *
@@ -17,7 +19,10 @@ class AiOutputValidator
     /**
      * نتيجة فرز تذكرة.
      *
-     * @return array{department:string,priority:string,intent:string}|null
+     * القسم يبقى كما أعاده النموذج (إشارة الجودة تقيس خروجه عن القائمة)، ومعه معرّفه في
+     * الكتالوج إن طابق — null حين لا يُطابَق، فلا يُكتب قسمٌ خارج الكتالوج.
+     *
+     * @return array{department:string,department_id:int|null,priority:string,intent:string}|null
      */
     public static function ticketTriage(?array $data, string $fallbackDepartment = ''): ?array
     {
@@ -27,6 +32,7 @@ class AiOutputValidator
 
         return [
             'department' => (string) $data['department'],
+            'department_id' => LegalCatalogue::resolveDepartment((string) $data['department'])?->id,
             'priority' => self::oneOf($data['priority'] ?? null, ['عادية', 'عالية'], 'عادية'),
             'intent' => self::oneOf($data['intent'] ?? null, ['عادي', 'شكوى', 'استعجال'], 'عادي'),
         ];
@@ -44,7 +50,12 @@ class AiOutputValidator
      * والتعليمة تطلب `procedures` صراحةً، فإغفال النموذج لها **معلومةٌ عن المخرج لا
      * فجوةٌ تُملأ** — وهو المبدأ نفسه المطبَّق في `decisions()` أدناه.
      *
-     * @return array{summary:string,missing:array<int,string>,procedures:array<int,string>}|null
+     * **مدخلات التسعير الستّة إضافيّة لا إلزاميّة** (v2): الحقل الإلزاميّ الوحيد يبقى
+     * `summary` — فمخرجُ نموذجٍ قديمٍ أو مقتضبٍ يظلّ صالحاً، ويسقط الناقص إلى قيمةٍ
+     * فارغة معلنة لا إلى تخمين. و`difficulty` وحدها من قائمة مغلقة: لفظٌ خارجها
+     * («متوسط إلى معقّد») يُسقَط ولا يُقرَّب، فالواجهة تُلوّنه ودرجةٌ مخترَعة تكذب.
+     *
+     * @return array{summary:string,missing:array<int,string>,procedures:array<int,string>,readiness:string,difficulty:string,expected_procedures_count:int,duration_estimate:string,recovery_indicators:array<int,string>,risks:array<int,string>}|null
      */
     public static function executionAnalysis(?array $data): ?array
     {
@@ -56,6 +67,16 @@ class AiOutputValidator
             'summary' => (string) $data['summary'],
             'missing' => self::stringList($data['missing'] ?? null),
             'procedures' => self::stringList($data['procedures'] ?? null),
+            'readiness' => trim((string) ($data['readiness'] ?? '')),
+            'difficulty' => self::oneOf(
+                is_string($data['difficulty'] ?? null) ? trim($data['difficulty']) : null,
+                ['بسيط', 'متوسط', 'معقّد'],
+                ''
+            ),
+            'expected_procedures_count' => self::wholeNumber($data['expected_procedures_count'] ?? null),
+            'duration_estimate' => trim((string) ($data['duration_estimate'] ?? '')),
+            'recovery_indicators' => self::stringList($data['recovery_indicators'] ?? null),
+            'risks' => self::stringList($data['risks'] ?? null),
         ];
     }
 
@@ -193,6 +214,17 @@ class AiOutputValidator
     private static function oneOf(mixed $value, array $allowed, string $default): string
     {
         return in_array($value, $allowed, true) ? (string) $value : $default;
+    }
+
+    /**
+     * عددٌ صحيح غير سالب، و`0` لما ليس عدداً.
+     *
+     * النموذج يعيد العدد نصّاً أحياناً («٥» أو "5")، وسالبٌ أو كسرٌ لا معنى له في عدّ
+     * إجراءات — فيُقصّ إلى صفرٍ معلن (= «لم يُقدَّر») لا يُخمَّن.
+     */
+    private static function wholeNumber(mixed $value): int
+    {
+        return is_numeric($value) ? max(0, (int) $value) : 0;
     }
 
     /** نصّ نقاطٍ موحَّد سواء عاد النموذج بقائمة أو بنصٍّ واحد. */

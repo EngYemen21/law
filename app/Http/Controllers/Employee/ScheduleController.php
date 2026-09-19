@@ -2,17 +2,22 @@
 
 namespace App\Http\Controllers\Employee;
 
+use App\Domain\Journey\Enums\ConsultStatus;
 use App\Enums\Role;
 use App\Http\Controllers\Controller;
+use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
+use App\Support\ConsultAppointments;
 use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
+use App\Support\TicketJourney;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\ValidationException;
 
 /**
  * جدولة/حجز استشارة من الموظف نيابةً عن عميل — يحفظ حجزاً حقيقياً.
@@ -58,70 +63,137 @@ class ScheduleController extends Controller
     {
         $data = $request->validate([
             'client_id' => ['required', 'integer', 'exists:users,id'],
-            'type' => ['required', 'string', 'in:office,video,phone'],
+            'consult_id' => ['nullable', 'integer'],
+            'type' => ['nullable', 'string', 'in:office,video,phone'],
             'date' => ['required', 'date_format:Y-m-d', 'after_or_equal:today'],
             'time' => ['required', 'string', 'date_format:H:i'],
             // المحامي اختياري؛ إن اختير يجب أن يكون نشطاً (يمنع تمرير عميل/موظف/إداري).
             'lawyer_id' => ['nullable', 'integer', new ActiveLawyer],
-            'subject' => ['nullable', 'string', 'max:120'],
-            // رقم التذكرة حين تُجدول من شاشة المحادثة — بدونه تبقى التذكرة عالقة في
-            // «بانتظار حجز الاستشارة» بلا مخرج، ويرى الموظف رسالة نجاح كاذبة.
+            // رقم التذكرة حين تُجدول من شاشة المحادثة — يحدّد استشارتها المدفوعة
             'ticket_no' => ['nullable', 'string', 'max:60'],
         ]);
 
-        $client = User::where('role', Role::Client)->findOrFail($data['client_id']);
+        $client = User::where('role', Role::Client)->whereKey($data['client_id'])->firstOrFail();
         $startsAt = Carbon::parse($data['date'].' '.$data['time']);
 
+        // أخطاء المُدخل قبل حالة الملفّ — كما كانت: وقتٌ مضى، أو محامٍ مختارٌ مشغول
         if ($startsAt->isPast()) {
-            $msg = 'لا يمكن اختيار موعد في الماضي، فضلاً اختر وقتاً لاحقاً.';
-
-            if ($request->expectsJson()) {
-                return response()->json(['message' => $msg], 422);
-            }
-
-            return back()->withErrors(['time' => $msg]);
+            throw ValidationException::withMessages(['time' => 'لا يمكن اختيار موعد في الماضي، فضلاً اختر وقتاً لاحقاً.']);
+        }
+        if (! empty($data['lawyer_id'])
+            && LawyerAvailability::isBusy((int) $data['lawyer_id'], $startsAt, LawyerAvailability::slotMinutes())) {
+            // نفس صياغة حارس دعوات الاجتماعات (قرار صاحب المنتج) — والإدارة نفسها لا تُحال إلى نفسها
+            throw ValidationException::withMessages(['time' => $request->user()->isAdmin()
+                ? 'المحامي مشغول في هذا الوقت — اختر وقتاً آخر أو محامياً مختلفاً.'
+                : 'المحامي مشغول في هذا الوقت — اختر وقتاً آخر أو محامياً مختلفاً، أو أحِل الطلب للإدارة العليا لإسناد محامٍ مختصّ آخر.']);
         }
 
-        // ── فحص التعارض: هل المحامي مشغول في هذه الفترة؟ ──
-        if (! empty($data['lawyer_id'])) {
-            $busy = LawyerAvailability::isBusy(
-                (int) $data['lawyer_id'],
-                $startsAt,
-                LawyerAvailability::slotMinutes()
-            );
+        /*
+         * **الحجز على استشارةٍ مدفوعة لا حجزٌ «مدفوع مسبقاً»** (قرار المالك 2026-09-14).
+         *
+         * كان هذا المسار يُنشئ استشارةً جديدة بفاتورةٍ «مدفوعة» بلا دفعة ولا قيدٍ في الدفتر،
+         * ويؤكّد الموعد ويرسله للعميل فوراً، ويعيد فتح تذكرةٍ مغلقة، وينشئ طلباً ثانياً فوق
+         * طلبٍ قائم (ع٣، ع١٦، ع١٨). الآن: السداد أوّلاً، ثمّ يحجز الطاقم على الاستشارة المدفوعة
+         * — الموظّف يقترح والإدارة تعتمد، والإدارة تنشر مباشرةً.
+         */
+        $consult = $this->payableConsult($client, $data['consult_id'] ?? null, $data['ticket_no'] ?? null);
 
-            if ($busy) {
-                // نفس صياغة حارس دعوات الاجتماعات: مصدر الانشغال واحد الآن
-                // (LawyerAvailability::busyIntervals) فلتكن الرسالة واحدة والمخرج واحداً.
-                $msg = 'المحامي مشغول في هذا الوقت — اختر وقتاً آخر أو محامياً مختلفاً، أو أحِل الطلب للإدارة العليا لإسناد محامٍ مختصّ آخر.';
+        $input = [
+            'date' => $data['date'],
+            'time' => $data['time'],
+            'lawyer_id' => $data['lawyer_id'] ?? null,
+            'type' => $data['type'] ?? null,
+        ];
 
-                // طلبات AJAX (من المودال) ← JSON 422
-                if ($request->expectsJson()) {
-                    return response()->json(['message' => $msg], 422);
-                }
+        $isAdmin = $request->user()->isAdmin();
+        $isAdmin
+            ? ConsultAppointments::publish($consult, $request->user(), $input)
+            : ConsultAppointments::propose($consult, $request->user(), $input);
 
-                return back()->withErrors(['time' => $msg]);
-            }
+        $message = $isAdmin
+            ? "تم تحديد موعد الاستشارة {$consult->ref} وإرساله للعميل {$client->name}."
+            : "أُرسل موعد الاستشارة {$consult->ref} لاعتماد الإدارة قبل إرساله للعميل.";
+
+        if ($request->expectsJson()) {
+            return response()->json(['ref' => $consult->ref, 'message' => $message]);
         }
 
+        return back()->with('flash', $message);
+    }
+
+    /**
+     * **طلب استشارة نيابةً عن العميل** — لعميل المكتب الحاضر أو المتّصل.
+     *
+     * يسلك الرحلة نفسها: تسعير ← سداد (أو تحصيل يدويّ مقيَّد) ← حجز الطاقم. لا اختصار.
+     */
+    public function requestFor(Request $request): RedirectResponse|JsonResponse
+    {
+        $data = $request->validate([
+            'client_id' => ['required', 'integer', 'exists:users,id'],
+            'type' => ['required', 'string', 'in:office,video,phone'],
+            'subject' => ['nullable', 'string', 'max:120'],
+            'ticket_no' => ['nullable', 'string', 'max:60'],
+        ]);
+
+        $client = User::where('role', Role::Client)->whereKey($data['client_id'])->firstOrFail();
         $ticket = ! empty($data['ticket_no'])
             ? Ticket::where('number', $data['ticket_no'])->where('user_id', $client->id)->first()
             : null;
 
-        $consult = ConsultBooking::create($client, [
-            'type' => $data['type'],
-            'subject' => $data['subject'] ?? null,
-            'lawyer_id' => $data['lawyer_id'] ?? null,
-            'starts_at' => $startsAt->toDateTimeString(),
-            'duration' => LawyerAvailability::slotMinutes(),
-            'day' => $startsAt->format('Y-m-d'),
-            'time' => $data['time'],
-        ], $ticket);
+        if ($ticket !== null && ($why = TicketJourney::consultRequestBlocker($ticket))) {
+            abort(422, $why);
+        }
+        abort_if(
+            Consult::where('user_id', $client->id)
+                ->when($ticket, fn ($q) => $q->where('ticket_id', $ticket->id))
+                ->whereIn('status', Consult::PRE_SESSION_STATUSES)
+                ->exists(),
+            422,
+            'يوجد طلب استشارة قائم لهذا العميل لم يكتمل حجزه.'
+        );
 
-        if ($request->expectsJson()) {
-            return response()->json(['ref' => $consult->ref]);
+        // النوع إلزاميّ دائماً، والموضوع يُمرَّر حين يُكتب فقط
+        $consult = ConsultBooking::request(
+            $client,
+            ['type' => $data['type']] + (filled($data['subject'] ?? null) ? ['subject' => $data['subject']] : []),
+            $ticket
+        );
+
+        $message = "أُنشئ طلب الاستشارة {$consult->ref} للعميل {$client->name} — بانتظار التسعير.";
+
+        return $request->expectsJson()
+            ? response()->json(['ref' => $consult->ref, 'message' => $message])
+            : back()->with('flash', $message);
+    }
+
+    /**
+     * الاستشارة المدفوعة بانتظار موعدها — المحدَّدة، أو استشارة التذكرة، أو الوحيدة للعميل.
+     *
+     * لا تخمين: إن كان للعميل أكثر من استشارةٍ مدفوعة ولم يُحدَّد أيّها، يُرفض الطلب بدل حجز
+     * الموعد لأقدمها صامتاً — كان الموظّف يقصد الثانية فيُحجز للأولى.
+     */
+    private function payableConsult(User $client, ?int $consultId, ?string $ticketNo): Consult
+    {
+        $query = Consult::where('user_id', $client->id)->where('status', ConsultStatus::AwaitingSchedule->value);
+
+        if ($consultId) {
+            $query->whereKey($consultId);
+        } elseif (! empty($ticketNo)) {
+            $query->whereHas('ticket', fn ($q) => $q->where('number', $ticketNo));
+        } elseif ((clone $query)->count() > 1) {
+            throw ValidationException::withMessages([
+                'consult_id' => 'للعميل أكثر من استشارة مدفوعة بانتظار موعد — اختر الاستشارة.',
+            ]);
         }
 
-        return back()->with('flash', "تم إنشاء حجز الاستشارة {$consult->ref} للعميل {$client->name}.");
+        $consult = $query->orderBy('id')->first();
+
+        if ($consult === null) {
+            throw ValidationException::withMessages([
+                'client_id' => 'لا توجد استشارة مدفوعة بانتظار موعدها لهذا العميل — يُطلب الحجز ويُسعَّر ويُسدَّد أوّلاً.',
+            ]);
+        }
+
+        return $consult;
     }
 }

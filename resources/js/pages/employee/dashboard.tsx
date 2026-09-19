@@ -2,6 +2,7 @@ import { router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
+import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 
 // ============================================================
@@ -134,52 +135,52 @@ const EmployeeDashboard: React.FC<Props> = ({
   // فلترة العناصر حسب البحث
   const filteredTickets = useMemo(() => {
     if (!searchQuery.trim()) return tickets;
-    const q = searchQuery.trim().toLowerCase();
+    const q = foldSearch(searchQuery);
     return tickets.filter(
       (t) =>
-        t.no.toLowerCase().includes(q) ||
-        t.client.toLowerCase().includes(q) ||
-        t.type.toLowerCase().includes(q) ||
-        t.lawyer.toLowerCase().includes(q) ||
-        t.status.toLowerCase().includes(q)
+        foldSearch(t.no).includes(q) ||
+        foldSearch(t.client).includes(q) ||
+        foldSearch(t.type).includes(q) ||
+        foldSearch(t.lawyer).includes(q) ||
+        foldSearch(t.status).includes(q)
     );
   }, [tickets, searchQuery]);
 
   const filteredAppts = useMemo(() => {
     if (!searchQuery.trim()) return todayAppts;
-    const q = searchQuery.trim().toLowerCase();
+    const q = foldSearch(searchQuery);
     return todayAppts.filter(
       (a) =>
-        a.id.toLowerCase().includes(q) ||
-        (a.client && a.client.toLowerCase().includes(q)) ||
-        a.lawyer.toLowerCase().includes(q) ||
-        (a.consultRef && a.consultRef.toLowerCase().includes(q)) ||
-        a.type.toLowerCase().includes(q)
+        foldSearch(a.id).includes(q) ||
+        (a.client && foldSearch(a.client).includes(q)) ||
+        foldSearch(a.lawyer).includes(q) ||
+        (a.consultRef && foldSearch(a.consultRef).includes(q)) ||
+        foldSearch(a.type).includes(q)
     );
   }, [todayAppts, searchQuery]);
 
   const filteredCases = useMemo(() => {
     if (!searchQuery.trim()) return cases;
-    const q = searchQuery.trim().toLowerCase();
+    const q = foldSearch(searchQuery);
     return cases.filter(
       (c) =>
-        c.no.toLowerCase().includes(q) ||
-        c.client.toLowerCase().includes(q) ||
-        c.lawyer.toLowerCase().includes(q) ||
-        c.type.toLowerCase().includes(q) ||
-        c.status.toLowerCase().includes(q)
+        foldSearch(c.no).includes(q) ||
+        foldSearch(c.client).includes(q) ||
+        foldSearch(c.lawyer).includes(q) ||
+        foldSearch(c.type).includes(q) ||
+        foldSearch(c.status).includes(q)
     );
   }, [cases, searchQuery]);
 
   const filteredExecs = useMemo(() => {
     if (!searchQuery.trim()) return execs;
-    const q = searchQuery.trim().toLowerCase();
+    const q = foldSearch(searchQuery);
     return execs.filter(
       (e) =>
-        e.no.toLowerCase().includes(q) ||
-        e.client.toLowerCase().includes(q) ||
-        e.subject.toLowerCase().includes(q) ||
-        e.court.toLowerCase().includes(q)
+        foldSearch(e.no).includes(q) ||
+        foldSearch(e.client).includes(q) ||
+        foldSearch(e.subject).includes(q) ||
+        foldSearch(e.court).includes(q)
     );
   }, [execs, searchQuery]);
 
@@ -264,6 +265,17 @@ const EmployeeDashboard: React.FC<Props> = ({
             </div>
 
             {/* ── التبويب 1: جدول التذاكر ── */}
+            {/* البحث السريع يرشّح المعاينة: القضايا والتنفيذ مقصوصةٌ في الخادم (‏`take(6)`/`take(5)`)،
+                ومواعيد اليوم جدولُ يومٍ لا أرشيف — فيُقال ذلك صراحةً بدل «لا نتائج» صامتة. */}
+            {searchQuery.trim() !== '' && activeTab !== 'tickets' && (
+              <div className="action-hint" style={{ margin: '8px 14px 0' }}>
+                <Icon name="info" /> البحث هنا في المعاينة المعروضة فقط.{' '}
+                <a href={({ consults: '/employee/calendar', cases: '/employee/cases', execs: '/employee/execs' } as Record<string, string>)[activeTab]}>
+                  ابحث في القائمة الكاملة
+                </a>
+              </div>
+            )}
+
             {activeTab === 'tickets' && (
               <div className="card-b t-wrap" style={{ padding: 0 }}>
                 {filteredTickets.length ? (

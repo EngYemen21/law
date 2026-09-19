@@ -7,7 +7,7 @@ use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\User;
 use App\Models\UserNotification;
-use App\Support\ExecService;
+use App\Support\ExecFee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -42,7 +42,7 @@ class ExecReferenceTest extends TestCase
             'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال أسبوع', 'paid' => false,
         ]);
 
-        ExecService::markPaid($exec);
+        ExecFee::settleInvoice($exec);
 
         return $exec->fresh();
     }
@@ -74,7 +74,7 @@ class ExecReferenceTest extends TestCase
 
         // وفي إشعار العميل
         $notice = UserNotification::where('user_id', $exec->user_id)
-            ->where('body', 'like', '%فُتح ملف التنفيذ%')->latest('id')->first()?->body ?? '';
+            ->where('body', 'like', '%سُدّدت أتعاب التنفيذ%')->latest('id')->first()?->body ?? '';
         $this->assertStringContainsString('المرجعيّ الداخليّ', $notice);
 
         // ونصّ العرض في PDF والبريد
@@ -94,7 +94,7 @@ class ExecReferenceTest extends TestCase
         $exec = $this->paidExecution(1);
         $before = $exec->exec_no;
 
-        ExecService::markPaid($exec);
+        ExecFee::settleInvoice($exec);
 
         $this->assertSame($before, $exec->fresh()->exec_no);
     }

@@ -1,3 +1,4 @@
+import { Link } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useState } from 'react';
 import { useToast } from '@/components/babylon/Toast';
@@ -293,7 +294,15 @@ return;
                   : 'مخرج نموذج — لم يُطابَق استشهاده بقاعدة المصادر · للمراجعة والتحرير'}
               </span>
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Link
+                href={`/lawyer/editor/create?draft=${encodeURIComponent(draft)}`}
+                className="btn primary sm"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                title="فتح المسودة في محرر الصياغة للتنسيق والطباعة كـ Word"
+              >
+                <Icon name="doc" /> فتح في محرر الصياغة
+              </Link>
               <button
                 className="btn soft sm"
                 onClick={() => {

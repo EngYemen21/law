@@ -266,8 +266,11 @@ class ConsultSummaryRenderTest extends TestCase
     /**
      * **ومخرجات الجلسة تُعرض بعد أن كانت محفوظةً ومخفيّة.**
      *
-     * قِيس على `CN-2026-7173` بعد `zoom-sync`: المدّة والتسجيل والصوت والمشاركة وسجلّ
-     * الحضور **خمستها في البطاقة**، والصفحة لا تعرض منها إلّا ملخّص Zoom.
+     * قِيس على `CN-2026-7173` بعد `zoom-sync`: المدّة والتسجيل والصوت وسجلّ الحضور في
+     * البطاقة، والصفحة لا تعرض منها إلّا ملخّص Zoom.
+     *
+     * والتسجيل والصوت صارا **أعلام `media`** تُشغَّل وتُنزَّل عبر الخادم (قرار المالك 2026-09-15)،
+     * و«رابط المشاركة» أُزيل — فلا يُطلب هنا رابطٌ يفتح سحابة Zoom خارج النظام.
      */
     public function test_session_outputs_are_displayed(): void
     {
@@ -277,8 +280,12 @@ class ConsultSummaryRenderTest extends TestCase
             (string) file_get_contents(resource_path('js/lib/consult-ui.tsx'))
         );
 
-        foreach (['c.duration', 'c.recording', 'c.zoomAudioUrl', 'c.zoomShareUrl', 'zoomParticipantsLog'] as $field) {
+        foreach (['c.duration', 'c.media', 'SessionMediaPanel', 'zoomParticipantsLog'] as $field) {
             $this->assertStringContainsString($field, $lib, "«{$field}» يصل البطاقة ولا يُعرض");
+        }
+
+        foreach (['c.recording', 'c.zoomAudioUrl', 'c.zoomShareUrl'] as $external) {
+            $this->assertStringNotContainsString($external, $lib, "«{$external}» رابطُ سحابة Zoom — لا يُعرض");
         }
 
         // ولا يُعرض قسمٌ فارغ يُوهم بجلسةٍ لم تُسجَّل

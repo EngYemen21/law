@@ -3,7 +3,9 @@
 namespace App\Models;
 
 use App\Enums\Role;
+use App\Support\LawyerName;
 use App\Support\MeetingTime;
+use App\Support\RecordingArchive;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
@@ -319,7 +321,7 @@ class Meeting extends Model
             'minutes' => $approved ? $this->minutes : null,
             'summary' => $approved ? $this->summary : null,
             'dur' => $this->dur ?: '60 دقيقة',
-            'lawyer' => $this->assignedLawyer?->name ?? 'مستشار المكتب',
+            'lawyer' => LawyerName::forClient($this->assignedLawyer, $this->assignedLawyer?->name, 'مستشار المكتب'),
             'caseRef' => $this->case_ref,
             'type' => $this->type ?: 'اجتماع مرئي',
             'decisions' => $approved ? ($this->decisions ?? []) : [],
@@ -364,8 +366,11 @@ class Meeting extends Model
             'dur' => $this->dur ?: '60 دقيقة',
             'summary' => $this->summary,
             'zoomSummary' => $this->zoom_summary,
-            'recording' => $this->recording_url,
+            // هل للاجتماع تسجيلٌ مرئيّ؟ علَمٌ لا رابط — الرابط السحابيّ لا يغادر الخادم
+            'recording' => filled($this->recording_url),
             'transcript' => (bool) $this->transcript_path,
+            // مخرجات الجلسة للتشغيل والتنزيل عبر مسارات المكتب الداخليّة (نظير `Consult::toCard`)
+            'media' => RecordingArchive::availability($this),
             // بيانات جلسة Zoom الفعلية (تُملأ عبر الويبهوك) — للإدارة العليا
             'startsAt' => $this->starts_at?->toIso8601String(),
             'joinTime' => $this->join_time?->format('Y-m-d H:i'),
@@ -381,8 +386,6 @@ class Meeting extends Model
             'decisions' => $this->decisions ?? [],
             'tasksCreated' => (bool) $this->tasks_created,
             'zoomUuid' => $this->zoom_uuid,
-            'zoomShareUrl' => $this->zoom_share_url,
-            'zoomAudioUrl' => $this->zoom_audio_url,
             'zoomParticipantsLog' => $this->zoom_participants_log ?? [],
             'zoomAiNextSteps' => $this->zoom_ai_next_steps ?? [],
         ];

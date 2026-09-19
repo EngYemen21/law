@@ -2,23 +2,24 @@
 
 namespace App\Support;
 
-use App\Enums\Role;
+use App\Domain\Journey\Enums\InvoiceStatus;
+use App\Domain\Journey\TransitionDenied;
+use App\Domain\Journey\Transitions\Consult\PriceConsult;
+use App\Domain\Journey\Transitions\Consult\RepriceConsult;
+use App\Domain\Journey\Transitions\Consult\SettlePayment;
+use App\Domain\Journey\Transitions\Ticket\RequestConsultBooking;
+use App\Domain\Journey\Workflow;
 use App\Events\ConsultStatusBroadcast;
-use App\Events\TicketStatusBroadcast;
 use App\Mail\ConsultBooked;
-use App\Mail\ConsultPaidMail;
 use App\Models\Appointment;
 use App\Models\Consult;
 use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\User;
-use App\Services\GoogleCalendarService;
-use App\Services\MailService;
 use App\Services\MoyasarService;
 use App\Services\ZoomService;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
@@ -80,7 +81,8 @@ class ConsultBooking
         $ctx = self::resolveContext($client, $data, $ticket);
         $m = $ctx['meta'];
 
-        $consult = Consult::create([
+        // تُفتح داخل المحرّك: سطرُ فتحٍ في سجلّ رحلتها بالطالب ونوع الجلسة
+        $consult = Workflow::open('consult.request', fn () => Consult::create([
             'user_id' => $client->id,
             'ticket_id' => $ticket?->id,
             'ref' => $ctx['ref'],
@@ -100,7 +102,7 @@ class ConsultBooking
             'vat' => $ctx['vat'],
             'total' => $ctx['price'] + $ctx['vat'],
             'audit' => [['user' => 'النظام', 'field' => 'الاستقبال', 'before' => '—', 'after' => 'طلب تسعير — '.$m['label'], 'time' => now()->format('Y/m/d h:i')]],
-        ]);
+        ]), $client, array_filter(['type' => $data['type'], 'ticket' => $ticket?->number]));
 
         // إشعار المحامي المسند (إن وُجد) بطلب تسعير جديد — قائمة التسعير تغطّي بقية الموظفين
         if ($ctx['lawyerId']) {
@@ -108,13 +110,8 @@ class ConsultBooking
         }
 
         if ($ticket) {
-            $ticket->update([
-                'status' => 'بانتظار حجز الاستشارة',
-                'tone' => TicketJourney::toneFor('بانتظار حجز الاستشارة'),
-                'last_message' => 'تم فتح طلب حجز استشارة بانتظار استكمال الخطوات.',
-                'date_label' => 'الآن',
-            ]);
-            Live::push(new TicketStatusBroadcast($ticket));
+            // المنادون جميعاً فحصوا `consultRequestBlocker` قبل الطلب؛ والانتقال يضمنه لغيرهم
+            Workflow::run(new RequestConsultBooking, $ticket, $client, ['consult' => $consult->ref]);
         }
 
         Live::push(new ConsultStatusBroadcast($consult));
@@ -145,32 +142,12 @@ class ConsultBooking
         $vat = (int) round($price * $prices['vat'] / 100);
         $total = $price + $vat;
 
-        $invoice = DB::transaction(function () use ($consult, $actor, $price, $vat, $total) {
-            $consult->logAudit($actor->name, 'التسعير', (string) $consult->total, (string) $total);
-            $consult->update([
-                'price' => $price,
-                'vat' => $vat,
-                'total' => $total,
-                'priced_at' => now(),
-                'status' => 'بانتظار السداد',
-                'audit' => $consult->audit,
-            ]);
+        // السعر والفاتورة والحالة في معاملة المحرّك الواحدة — انظر `PriceConsult`
+        $pricing = new PriceConsult;
+        Workflow::run($pricing, $consult, $actor, ['price' => $price, 'vat' => $vat, 'total' => $total]);
+        $invoice = $pricing->invoice();
 
-            return Invoice::create([
-                'user_id' => $consult->user_id,
-                'consult_id' => $consult->id,
-                'number' => InvoiceNumber::next(),
-                'description' => "استشارة {$consult->ref} — {$consult->channel}",
-                'amount' => $total,
-                'status' => 'مستحقة',
-                'tone' => 'b-amber',
-                'due_label' => 'خلال 3 أيام',
-                'due_at' => now()->addDays(3)->toDateString(),
-                'paid' => false,
-            ]);
-        });
-
-        Notify::send($consult->user_id, 'card', 't-amber', "صدرت فاتورة استشارتك ({$consult->ref}) بمبلغ {$total} ر.س شامل الضريبة — سدّدها لاختيار الموعد.");
+        Notify::send($consult->user_id, 'card', 't-amber', "صدرت فاتورة استشارتك ({$consult->ref}) بمبلغ {$total} ر.س شامل الضريبة — سدّدها ليُحدَّد موعد جلستك.");
 
         Audit::log(
             action: 'تسعير استشارة',
@@ -201,18 +178,8 @@ class ConsultBooking
     {
         $before = (string) $consult->total;
 
-        DB::transaction(function () use ($consult, $actor, $before) {
-            Invoice::where('consult_id', $consult->id)
-                ->where('paid', false)
-                ->update(['status' => 'ملغاة', 'tone' => 'b-red']);
-
-            $consult->logAudit($actor->name, 'إلغاء التسعير', $before, '(بانتظار تسعيرٍ جديد)');
-            $consult->update([
-                'priced_at' => null,
-                'status' => 'بانتظار التسعير',
-                'audit' => $consult->audit,
-            ]);
-        });
+        // الفاتورة تُلغى والحالة تعود داخل المحرّك في معاملةٍ واحدة — انظر `RepriceConsult`
+        Workflow::run(new RepriceConsult, $consult, $actor, ['before' => $before]);
 
         Notify::send(
             $consult->user_id,
@@ -239,50 +206,32 @@ class ConsultBooking
      * يعلّم الاستشارة مدفوعة وينقلها لاختيار الموعد — **idempotent** (يخدم الـwebhook والـcallback).
      * يعود فورًا إن كانت مدفوعة أصلًا (تكرار إشعار ميسّر لا يُحدث أثرًا مزدوجًا).
      */
-    public static function markPaid(Consult $consult, string $actor = 'النظام', string $auditNote = 'مدفوع'): void
+    public static function markPaid(Consult $consult, string $actor = 'النظام', string $auditNote = 'مدفوع', ?Invoice $invoice = null): bool
     {
-        // قفل الصفّ داخل المعاملة ثم إعادة فحص paid_at — يمنع تسابق webhook+callback (لا إشعار مزدوج)
-        $didPay = DB::transaction(function () use ($consult, $actor, $auditNote) {
-            $locked = Consult::whereKey($consult->id)->lockForUpdate()->first();
-            if ($locked === null || $locked->paid_at !== null) {
-                return false; // مدفوعة مسبقًا أو تسابق — لا تكرار
-            }
+        // **الفاتورة التي دُفعت بعينها** — كانت `$consult->invoice` (أحدث فاتورة) فتُعلَّم الجديدة
+        // مدفوعةً بدفعة القديمة الملغاة (ع٢)؛ والانتقال لا يقع إلا من «بانتظار السداد» فلا يُحيي ملغاةً (ع١).
+        // `false` حين لا يقبل الملفّ السداد — والمتّصل يقرّر ماذا يفعل بمبلغٍ حُصّل.
+        $invoice ??= Invoice::where('consult_id', $consult->id)
+            ->where('paid', false)
+            ->whereIn('status', [InvoiceStatus::Due->value, InvoiceStatus::ProofReview->value])
+            ->latest('id')
+            ->first();
 
-            $locked->logAudit($actor, 'السداد', 'بانتظار السداد', $auditNote);
-            $locked->update([
-                'paid_at' => now(),
-                'status' => 'بانتظار تحديد الموعد',
-                'audit' => $locked->audit,
+        if ($invoice === null) {
+            return false;
+        }
+
+        try {
+            Workflow::run(new SettlePayment, $consult, null, [
+                'invoice_id' => $invoice->id,
+                'note' => $auditNote,
+                'actor_name' => $actor,
             ]);
-            $locked->invoice?->update(['paid' => true, 'status' => 'مدفوعة', 'tone' => 'b-green']);
-
-            return true;
-        });
-
-        if (! $didPay) {
-            return;
+        } catch (TransitionDenied) {
+            return false;
         }
 
-        $consult->refresh();
-
-        // إشعار العميل بنجاح الدفع (لحظيّ)
-        $icon = $consult->channel === 'مرئية' ? 'video' : ($consult->channel === 'هاتفية' ? 'phone' : 'office');
-        Notify::send($consult->user_id, $icon, 't-green', "تمّت عملية الدفع بنجاح — استشارتك ({$consult->ref}). اختر الآن موعد الجلسة.");
-
-        // بريد تأكيد الدفع للعميل (أفضل-جهد — لا يعطّل مسار الدفع إن فشل)
-        if (! $consult->relationLoaded('user') && $consult->user_id) {
-            $consult->load('user');
-        }
-        if ($consult->user?->email) {
-            app(MailService::class)->send($consult->user, new ConsultPaidMail($consult));
-        }
-
-        // إشعار الإدارة العليا بعملية الدفع (لحظيّ)
-        foreach (User::where('role', Role::Admin)->get() as $admin) {
-            Notify::send($admin->id, 'card', 't-green', "تمّت عملية دفع استشارة {$consult->ref} بمبلغ {$consult->total} ر.س من العميل.");
-        }
-
-        Live::push(new ConsultStatusBroadcast($consult));
+        return true;
     }
 
     /**
@@ -294,246 +243,6 @@ class ConsultBooking
         $invoice = $consult->invoice;
 
         return $invoice ? app(MoyasarService::class)->hostedUrlForInvoice($invoice, $callbackUrl) : null;
-    }
-
-    /**
-     * الخطوة 4 — اختيار الموعد (يُحظر قبل السداد). يُنشئ Appointment + Zoom + حارس التعارض.
-     *
-     * @param  array{lawyer_id?:int,day:string,time:string,starts_at?:string,duration?:int,place?:string}  $slot
-     */
-    public static function schedule(Consult $consult, array $slot): Consult
-    {
-        // **مسارُ حجزٍ يخرج إلى الشبكة ثلاث مرّات** (رمز Zoom ٨ث + إنشاء الجلسة ١٥ث
-        // + تقويم Google) — ومهلةُ الويب ٣٠ث. فيبلغها الطلب فيرى المستخدم خطأً
-        // **والحجزُ وقع فعلاً** (الالتزام يسبق النداء). رُصد حيّاً 2026-09-08.
-        // والرفعُ نمطُ المشروع المقرَّر لكلّ مسارٍ بطيء (PdfRenderer · LegalAiService).
-        WebTimeLimit::raise(90);
-        abort_unless($consult->status === 'بانتظار تحديد الموعد', 422, 'يلزم سداد الاستشارة قبل اختيار الموعد.');
-
-        $type = array_search($consult->channel, array_map(fn ($x) => $x['label'], self::map()), true) ?: 'office';
-        $m = self::map()[$type];
-
-        // المحامي المختار عند الجدولة (يُحدّث الإسناد ويمنع الحجز المزدوج)
-        $lawyerUser = ! empty($slot['lawyer_id']) ? User::find((int) $slot['lawyer_id']) : ($consult->assigned_lawyer_id ? User::find($consult->assigned_lawyer_id) : null);
-        $lawyer = $lawyerUser?->name ?: ($consult->lawyer ?: 'المستشار القانوني');
-        $lawyerId = $lawyerUser?->id;
-        $place = ($type === 'office' && ! empty($slot['place'])) ? $slot['place'] : $m['place'];
-        $startsAt = ! empty($slot['starts_at']) ? Carbon::parse($slot['starts_at']) : null;
-        $duration = (int) ($slot['duration'] ?? LawyerAvailability::slotMinutes());
-
-        // إنشاء اجتماع Zoom (للمرئية) خارج المعاملة تفادياً لحبس القفل أثناء نداء الشبكة
-        $zoom = $consult->channel === 'مرئية'
-            ? app(ZoomService::class)->createMeeting("استشارة {$consult->ref} — {$consult->subject}", $duration, false, $startsAt)
-            : null;
-
-        // إخفاق Zoom لا يوقف الحجز (العميل سدّد، والجلسة قد تُدار يدوياً) — لكنه لا يُبتلع:
-        // بلا هذا السطر تُجدوَل الاستشارة وتُفوتَر ويُرسَل بريدها بـmeet_id فارغ، ولا أثر في
-        // السجلّ يدلّ على السبب، فيصل العميل الغرفة ويحصل على 422 بلا تفسير ولا استدراك.
-        self::logMissingMeeting($consult->channel === 'مرئية', $zoom, $consult->ref);
-
-        try {
-            DB::transaction(function () use ($consult, $slot, $m, $place, $lawyer, $lawyerId, $startsAt, $duration, $zoom) {
-                if ($lawyerId && $startsAt) {
-                    self::guardNoConflict($lawyerId, $startsAt, $duration);
-                }
-
-                $appt = Appointment::create([
-                    'user_id' => $consult->user_id,
-                    'ticket_id' => $consult->ticket_id,
-                    'ext_id' => 'AP-'.now()->format('y').'-'.random_int(1000, 9999),
-                    'type' => 'استشارة '.$m['label'],
-                    'ico' => $m['ico'],
-                    'lawyer' => $lawyer,
-                    'lawyer_id' => $lawyerId,
-                    'day' => $slot['day'],
-                    'time' => $slot['time'],
-                    'starts_at' => $startsAt,
-                    'duration_min' => $duration,
-                    'place' => $place,
-                    'status' => 'مؤكد',
-                    'tone' => 'b-green',
-                    'when_kind' => 'up',
-                ]);
-
-                $consult->logAudit($consult->user?->name ?? 'العميل', 'الموعد', '—', $slot['day'].' · '.$slot['time']);
-                $consult->update([
-                    'appointment_id' => $appt->id,
-                    'lawyer' => $lawyer,
-                    'assigned_lawyer_id' => $lawyerId,
-                    'day' => $slot['day'],
-                    'time' => $slot['time'],
-                    'starts_at' => $startsAt,
-                    'duration_min' => $duration,
-                    'when_label' => $slot['day'].' · '.$slot['time'],
-                    'meet_id' => $zoom['id'] ?? null,
-                    'meet_link' => $zoom['join_url'] ?? null,
-                    'host_link' => $zoom['start_url'] ?? null,
-                    'meet_password' => $zoom['password'] ?? null,
-                    'status' => 'جديدة',
-                    'audit' => $consult->audit,
-                ]);
-
-                Notify::send($consult->user_id, $m['ico'], 't-green', "تم تأكيد موعد استشارتك ({$m['label']}) {$slot['day']} الساعة {$slot['time']} — رقم الاستشارة {$consult->ref}.");
-            });
-        } catch (\Throwable $e) {
-            // تنظيف اجتماع Zoom اليتيم إن أُنشئ ثمّ فشلت المعاملة (تعارض موعد مثلاً)
-            if (! empty($zoom['id'])) {
-                app(ZoomService::class)->deleteMeeting((string) $zoom['id']);
-            }
-            throw $e;
-        }
-
-        $consult->refresh();
-
-        if ($consult->ticket) {
-            $consult->ticket->update([
-                'status' => 'موعد مؤكد',
-                'tone' => TicketJourney::toneFor('موعد مؤكد'),
-                'last_message' => "تم تأكيد موعد الجلسة: {$consult->when_label}",
-                'date_label' => 'الآن',
-            ]);
-            Live::push(new TicketStatusBroadcast($consult->ticket));
-        }
-
-        // **الآثار الخارجيّة بعد الالتزام لا داخله.**
-        //
-        // `ConsultController::schedule` يلفّ هذه الدالّة في `DB::transaction`، فكان
-        // البريد والتقويم يُرسَلان **داخل معاملةٍ مفتوحة**: تراجُعُها لأيّ سبب يعني أن
-        // العميل والمحامي تلقّيا تأكيد موعدٍ **لا وجود له** في قاعدة البيانات. ونداءُ
-        // شبكةٍ بطيء داخل المعاملة يُبقي أقفالها مفتوحةً طوال مهلته.
-        //
-        // و`afterCommit` صحيحةٌ سواء أوُجدت معاملة خارجيّة أم لا: بلا معاملة تُنفَّذ فوراً.
-        DB::afterCommit(function () use ($consult) {
-            self::sendBookingEmails($consult);
-            GoogleCalendarService::syncConsult($consult);
-            Live::push(new ConsultStatusBroadcast($consult));
-        });
-
-        return $consult;
-    }
-
-    /**
-     * مسار فوري «مدفوع مسبقاً» لحجز الموظف نيابةً عن العميل (بلا بوّابة دفع) — يُنشئ الحجز
-     * كاملاً (Appointment + Consult + Zoom + فاتورة مدفوعة) بحالة «جديدة» مباشرةً.
-     *
-     * @param  array{type:string,day:string,time:string,place?:string,lawyer?:string,lawyer_id?:int,specialty?:string,starts_at?:string,duration?:int,subject?:string,department?:string}  $data
-     */
-    public static function create(User $client, array $data, ?Ticket $ticket = null): Consult
-    {
-        // **مسارٌ يخرج إلى الشبكة مراراً** (رمز Zoom ٨ث + إنشاء الجلسة ١٥ث
-        // + تقويم Google + بريد) ومهلةُ الويب ٣٠ث — فتُبلَغ فيرى المستخدم خطأً
-        // **والسجلّ كُتب فعلاً** (الالتزام يسبق النداء). رُصد حيّاً 2026-09-08.
-        WebTimeLimit::raise(90);
-        $ctx = self::resolveContext($client, $data, $ticket);
-        $m = $ctx['meta'];
-        $place = ($data['type'] === 'office' && ! empty($data['place'])) ? $data['place'] : $m['place'];
-        $startsAt = ! empty($data['starts_at']) ? Carbon::parse($data['starts_at']) : null;
-        $duration = (int) ($data['duration'] ?? LawyerAvailability::slotMinutes());
-        $total = $ctx['price'] + $ctx['vat'];
-
-        $zoom = $data['type'] === 'video'
-            ? app(ZoomService::class)->createMeeting("استشارة {$ctx['ref']} — {$ctx['subject']}", $duration, false, $startsAt)
-            : null;
-
-        self::logMissingMeeting($data['type'] === 'video', $zoom, (string) $ctx['ref']);
-
-        $consult = DB::transaction(function () use (
-            $client, $ticket, $data, $ctx, $m, $place, $startsAt, $duration, $total, $zoom
-        ) {
-            if ($ctx['lawyerId'] && $startsAt) {
-                self::guardNoConflict($ctx['lawyerId'], $startsAt, $duration);
-            }
-
-            $appt = Appointment::create([
-                'user_id' => $client->id,
-                'ticket_id' => $ticket?->id,
-                'ext_id' => 'AP-'.now()->format('y').'-'.random_int(1000, 9999),
-                'type' => 'استشارة '.$m['label'],
-                'ico' => $m['ico'],
-                'lawyer' => $ctx['lawyer'],
-                'lawyer_id' => $ctx['lawyerId'],
-                'day' => $data['day'],
-                'time' => $data['time'],
-                'starts_at' => $startsAt,
-                'duration_min' => $duration,
-                'place' => $place,
-                'status' => 'مؤكد',
-                'tone' => 'b-green',
-                'when_kind' => 'up',
-            ]);
-
-            $consult = Consult::create([
-                'user_id' => $client->id,
-                'ticket_id' => $ticket?->id,
-                'appointment_id' => $appt->id,
-                'ref' => $ctx['ref'],
-                'subject' => $ctx['subject'],
-                'status' => 'جديدة',
-                'session' => 'بانتظار الجلسة',
-                'type' => $ctx['type'],
-                'specialty' => $ctx['specialty'],
-                'priority' => 'متوسطة',
-                'received_label' => 'الآن',
-                'audit' => [['user' => 'النظام', 'field' => 'الاستقبال', 'before' => '—', 'after' => 'حجز مدفوع — '.$m['label'], 'time' => now()->format('Y/m/d h:i')]],
-                'meet_id' => $zoom['id'] ?? null,
-                'meet_link' => $zoom['join_url'] ?? null,
-                'host_link' => $zoom['start_url'] ?? null,
-                'meet_password' => $zoom['password'] ?? null,
-                'channel' => $m['label'],
-                'lawyer' => $ctx['lawyer'],
-                'assigned_lawyer_id' => $ctx['lawyerId'],
-                'day' => $data['day'],
-                'time' => $data['time'],
-                'starts_at' => $startsAt,
-                'duration_min' => $duration,
-                'when_label' => $data['day'].' · '.$data['time'],
-                'phone' => $data['type'] === 'phone' ? $client->phone : null,
-                'price' => $ctx['price'],
-                'vat' => $ctx['vat'],
-                'total' => $total,
-                'priced_at' => now(),
-                'paid_at' => now(),
-            ]);
-
-            // فاتورة مدفوعة للحجز الفوري (اتساقاً مع احتساب الإيراد ومسار الفواتير)
-            Invoice::create([
-                'user_id' => $client->id,
-                'consult_id' => $consult->id,
-                'number' => InvoiceNumber::next(),
-                'description' => "استشارة {$consult->ref} — {$m['label']}",
-                'amount' => $total,
-                'status' => 'مدفوعة',
-                'tone' => 'b-green',
-                'due_label' => '—',
-                'paid' => true,
-            ]);
-
-            Notify::send($client->id, $m['ico'], 't-green', "تم تأكيد موعد استشارتك ({$m['label']}) {$data['day']} الساعة {$data['time']} — رقم الاستشارة {$consult->ref}.");
-
-            return $consult;
-        });
-
-        // تقديم حالة التذكرة كما تفعل schedule() — بدونها تبقى «بانتظار حجز الاستشارة»
-        // وهي ضمن AWAITING_OTHERS فلا يتقدّم بها الموظف، ومخرجها الوحيد مشروط بـticket_id.
-        if ($ticket) {
-            $ticket->update([
-                'status' => 'موعد مؤكد',
-                'tone' => TicketJourney::toneFor('موعد مؤكد'),
-                'last_message' => "تم تأكيد موعد الجلسة: {$consult->when_label}",
-                'date_label' => 'الآن',
-            ]);
-            Live::push(new TicketStatusBroadcast($ticket));
-        }
-
-        // الآثار الخارجيّة بعد الالتزام — نظير `schedule()`؛ التعليل هناك.
-        // والبثّ معها: شاشات المكتب لا تُخبَر بحجزٍ قد يتراجع.
-        DB::afterCommit(function () use ($consult) {
-            self::sendBookingEmails($consult);
-            GoogleCalendarService::syncConsult($consult);
-            Live::push(new ConsultStatusBroadcast($consult));
-        });
-
-        return $consult;
     }
 
     /** إرسال إشعارات البريد الإلكتروني لتأكيد الموعد للعميل والمحامي المسند */
@@ -613,7 +322,7 @@ class ConsultBooking
      * ويبقى القفل: `lockForUpdate` على مواعيد اليوم يُسلسل المتسابقين على المحامي
      * نفسه. (توسيع القفل ليشمل الجداول الأربعة شأنُ الدفعة ٧ — قفلُ صفّ المحامي.)
      */
-    private static function guardNoConflict(int $lawyerId, Carbon $start, int $duration): void
+    public static function guardNoConflict(int $lawyerId, Carbon $start, int $duration): void
     {
         // القفل أوّلاً: يُسلسل الحجوزات المتزامنة على هذا المحامي في هذا اليوم
         Appointment::where('lawyer_id', $lawyerId)
@@ -627,6 +336,21 @@ class ConsultBooking
                 'starts_at' => 'هذا الموعد محجوز لدى المستشار، فضلاً اختر موعداً آخر.',
             ]);
         }
+    }
+
+    /**
+     * مفتاح النوع (office/video/phone) من القناة المكتوبة على الاستشارة («حضورية»…) —
+     * عكس meta() من الخريطة نفسها، فلا تتباعد التسميتان. القناة المجهولة تُعامل «حضورية».
+     */
+    public static function typeOfChannel(?string $channel): string
+    {
+        foreach (self::map() as $type => $meta) {
+            if ($meta['label'] === $channel) {
+                return $type;
+            }
+        }
+
+        return 'office';
     }
 
     /** بيانات العرض للنوع (label/ico/place الافتراضي). */

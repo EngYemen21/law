@@ -45,17 +45,20 @@ export const ICON_PATHS: Record<string, string> = {
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   trash: '<path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/>',
   alert: '<circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/>',
+  eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
 };
 
 interface IconProps {
   name: string;
   cls?: string;
+  style?: React.CSSProperties;
 }
 
 // يطابق: const svg=(k,cls='ic')=>'<svg class="'+cls+'" viewBox="0 0 24 24">'+(I[k]||'')+'</svg>';
-export const Icon: React.FC<IconProps> = ({ name, cls = 'ic' }) => (
+export const Icon: React.FC<IconProps> = ({ name, cls = 'ic', style }) => (
   <svg
     className={cls}
+    style={style}
     viewBox="0 0 24 24"
     dangerouslySetInnerHTML={{ __html: ICON_PATHS[name] || '' }}
   />

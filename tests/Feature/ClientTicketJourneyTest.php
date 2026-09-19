@@ -5,19 +5,21 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Models\Ticket;
 use App\Models\User;
-use App\Support\ConsultBooking;
-use App\Support\LawyerAvailability;
+use App\Services\Ai\AiReviewOutcome;
+use App\Support\ConsultSessionOutcome;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
  * تحقّق شامل من رحلة فتح التذكرة للعميل من البداية للنهاية:
- * فتح → قائمة → محادثة → رسالة + ردّ → إرفاق → بوابة المستندات → رحلة المعالجة السبعية.
+ * فتح → قائمة → محادثة → رسالة + ردّ → إرفاق → بوابة المستندات → رحلة المعالجة.
  */
 class ClientTicketJourneyTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     private function client(): User
@@ -126,12 +128,13 @@ class ClientTicketJourneyTest extends TestCase
         $this->assertNotNull($ticket->fresh()->summary);
     }
 
-    public function test_full_journey_completes_with_lawyer_approval(): void
+    public function test_full_journey_completes_with_lawyer_then_admin_approval(): void
     {
         Storage::fake('local');
         $client = $this->client();
         $employee = $this->employee();
-        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'أ. سارة القحطاني']);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'name' => 'أ. سارة القحطاني']);
+        $admin = $this->journeyAdmin();
 
         $this->actingAs($client)->post('/tickets', ['type' => 'نزاع تجاري']);
         $ticket = Ticket::firstOrFail();
@@ -145,49 +148,44 @@ class ClientTicketJourneyTest extends TestCase
         $this->actingAs($employee)->post(route('employee.tickets.advance', $ticket))->assertNoContent();
         $this->assertSame('بانتظار اعتماد المستشار', $ticket->fresh()->status);
 
-        // اعتماد المستشار للملخص → الرأي القانوني
-        // المستشار يحرّر الملخّص القالبي ثم يعتمده (حارس الصدق يمنع اعتماد القالب كما هو)
+        // اعتماد المستشار → بانتظار اعتماد الإدارة (لا يصل العميل شيء)
         $this->actingAs($lawyer)->post(route('lawyer.summary.approve', $ticket), [
             'case_summary' => 'ملخّص محرّر من المستشار بعد مراجعة الملف.',
             'key_points' => '• الرأي القانوني المبدئي بعد المراجعة.',
         ])->assertRedirect();
+        $this->assertSame('بانتظار اعتماد الإدارة للملخّص', $ticket->fresh()->status);
+
+        // اعتماد الإدارة → الرأي القانوني
+        $this->actingAs($admin)->post(route('admin.summary.approve', $ticket))->assertRedirect();
         $this->assertSame('الرأي القانوني', $ticket->fresh()->status);
 
-        // الموظف يتقدّم → بانتظار حجز الاستشارة
-        $this->actingAs($employee)->post(route('employee.tickets.advance', $ticket))->assertNoContent();
-        $this->assertSame('بانتظار حجز الاستشارة', $ticket->fresh()->status);
-
-        // العميل يحجز الاستشارة: طلب → تسعير الإدارة → دفع محاكى → اختيار الموعد → موعد مؤكد
-        $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'video'])->assertNoContent();
-        $consult = $ticket->consults()->latest('id')->firstOrFail();
-        $pricingAdmin = User::factory()->create(['role' => Role::Admin]);
-        $this->actingAs($pricingAdmin)->post(route('admin.consults.price', $consult), ['price' => 450])->assertRedirect();
-        ConsultBooking::markPaid($consult->fresh());
-        $this->actingAs($client)->post(route('consults.schedule', $consult), [
-            'lawyer_id' => $lawyer->id, 'date' => LawyerAvailability::resolveDate(null)->toDateString(), 'time' => '11:30',
-        ])->assertRedirect();
+        // العميل يطلب الاستشارة: طلب → تسعير → سداد → الإدارة تحدّد الموعد → موعد مؤكد
+        $consult = $this->requestPricedAndPaid($client, $ticket->fresh(), 'video');
+        $this->assertSame('بانتظار تحديد الموعد', $ticket->fresh()->status);
+        $this->adminPublishes($consult, [
+            'lawyer_id' => $lawyer->id, 'date' => now()->addDays(2)->toDateString(), 'time' => '11:30',
+        ])->assertOk();
         $this->assertSame('موعد مؤكد', $ticket->fresh()->status);
 
-        // **الجلسة تُختَم قبل أن تُعلَن** — كان الاختبار يقفز من «موعد مؤكد» إلى
-        // `advance` مباشرةً، أي يصف السلوك الذي ثبت عطلُه (محضرٌ لجلسةٍ لم تنعقد).
-        $consult->fresh()->forceFill(['session' => 'منتهية', 'status' => 'منتهية'])->save();
+        // الجلسة تنعقد وتُختم ⇒ بانتظار ملخّص الجلسة
+        $consult->refresh()->forceFill([
+            'session' => 'منتهية', 'status' => 'منتهية',
+            'summary' => 'ملخّص الجلسة: يُرسل إنذارٌ خطّيّ ثمّ تُرفع الدعوى عند التعذّر.',
+        ])->save();
+        ConsultSessionOutcome::sessionEnded($consult->fresh());
+        $this->assertSame('بانتظار ملخّص الجلسة', $ticket->fresh()->status);
 
-        // الموظف يوثّق نتيجة الجلسة → بانتظار اعتماد النتيجة
-        $this->actingAs($employee)->post(route('employee.tickets.advance', $ticket))->assertNoContent();
-        $this->assertSame('بانتظار اعتماد النتيجة', $ticket->fresh()->status);
+        // المستشار يعتمد الملخّص → لا يكتمل شيء بعد
+        $this->assertTrue(AiReviewOutcome::lawyerApproveConsultSummary($consult->fresh(), $lawyer));
+        $this->assertSame('بانتظار ملخّص الجلسة', $ticket->fresh()->status);
 
-        // المستشار يعتمد النتيجة → بانتظار اعتماد الإدارة
-        $this->actingAs($lawyer)->post(route('lawyer.result.approve', $ticket))->assertRedirect();
-        $this->assertSame('بانتظار اعتماد الإدارة', $ticket->fresh()->status);
+        // الإدارة تعتمد نهائياً → بانتظار قرار المآل
+        $this->actingAs($admin)->post("/admin/consults/{$consult->id}/summary/approve")->assertRedirect();
+        $this->assertSame('بانتظار قرار المآل', $ticket->fresh()->status);
 
-        // الإدارة تعتمد نهائياً → مكتملة
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        $this->actingAs($admin)->post(route('admin.tickets.result', $ticket))->assertRedirect();
-        $this->assertSame('مكتملة', $ticket->fresh()->status);
-
-        // بعد الاكتمال لا تتغيّر الحالة
-        $this->actingAs($employee)->post(route('employee.tickets.advance', $ticket))->assertNoContent();
-        $this->assertSame('مكتملة', $ticket->fresh()->status);
+        // بعد الوصول لقرار المآل لا تتغيّر الحالة عبر الإحالة اليدوية
+        $this->actingAs($employee)->post(route('employee.tickets.advance', $ticket))->assertStatus(422);
+        $this->assertSame('بانتظار قرار المآل', $ticket->fresh()->status);
     }
 
     public function test_client_cannot_access_another_clients_ticket(): void

@@ -31,10 +31,11 @@ class LawyerPanelTest extends TestCase
 
         Task::create(['assigned_to' => $lawyer->id, 'title' => 'مهمة مفتوحة', 'status' => 'مفتوحة', 'tone' => 'b-amber']);
         Task::create(['assigned_to' => $lawyer->id, 'title' => 'مهمة منجزة', 'status' => 'منجزة', 'tone' => 'b-green']);
-        // created_by عمود نصّي يخزّن الاسم (كما يكتبه Staff\MeetingController فعلاً) — كان الاختبار
-        // يضع معرّفاً رقمياً فيطابق العدّاد المعطوب القديم الذي قارن الاسم بالمعرّف
+        // الاجتماع يُعدّ للمحامي بإسناده (`assigned_lawyer_id`) لا بنصّ اسمه في `created_by` —
+        // مطابقة الاسم أُزيلت لأنها تُدخل اجتماعات زميلٍ يشاركه الاسم (LawyerIsolationByAssignmentTest)
         Meeting::create(['user_id' => $client->id, 'ref' => 'MTG-1', 'title' => 'اجتماع', 'type' => 'اجتماع عميل',
-            'when_label' => 'الأحد', 'status' => 'قادم', 'approve' => 'معتمد', 'created_by' => $lawyer->name]);
+            'when_label' => 'الأحد', 'status' => 'قادم', 'approve' => 'معتمد', 'created_by' => $lawyer->name,
+            'assigned_lawyer_id' => $lawyer->id]);
 
         $this->actingAs($lawyer)->get(route('lawyer.dashboard'))
             ->assertOk()

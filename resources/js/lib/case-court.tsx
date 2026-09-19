@@ -1,0 +1,669 @@
+import { router } from '@inertiajs/react';
+import React, { useState } from 'react';
+import Badge from '@/components/babylon/Badge';
+import Modal from '@/components/babylon/Modal';
+import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
+import { useToast } from '@/components/babylon/Toast';
+import type { Hearing } from '@/lib/case-ui';
+import Icon from '@/lib/icons';
+
+// ============================================================
+// إجراءات المحكمة على القضيّة — رفعها في ناجز وقيدها، وجدولة جلساتها وتحديثها، وتسجيل الحكم.
+// بطاقاتٌ واحدة يعرضها المحامي المسنَد والموظّف (قرار المالك 2026-09-11)؛ يختلف `base` وحده،
+// والخادم يحرس كلّ إجراءٍ بالحرّاس نفسها ويردّ السبب إن رفض.
+// ============================================================
+
+export interface NajizData { requestNo?: string | null; filedAt?: string | null; caseNo?: string | null; court?: string | null; circuit?: string | null; registeredAt?: string | null }
+export interface Filing { canFile: boolean; canRegister: boolean; data: NajizData | null }
+
+export interface AppealData {
+  status: string;
+  statusLabel: string;
+  deadlineAt?: string | null;
+  daysRemaining?: number | null;
+  isDeadlineOver: boolean;
+  requestNo?: string | null;
+  court?: string | null;
+  circuit?: string | null;
+  ruling?: string | null;
+  filedAt?: string | null;
+  judgedAt?: string | null;
+}
+
+const reason = (e: Record<string, string>) => String(Object.values(e)[0] ?? 'تعذّر تنفيذ الإجراء');
+
+/** رفع الدعوى في ناجز ثمّ قيدها — ما يجوز يحدّده الخادم (الخطّة ب). لا تُعرض إن لم يجز شيءٌ ولا بيانات. */
+export const NajizFilingCard: React.FC<{ base: string; filing: Filing; defaultCourt?: string }> = ({ base, filing, defaultCourt = '' }) => {
+  const toast = useToast();
+  const [nf, setNf] = useState({ request_no: '', filed_at: '' });
+  const [nr, setNr] = useState({ case_no: '', court: defaultCourt, circuit: '', registered_at: '', hearing_day: '', hearing_time: '', hearing_mode: 'حضورية' });
+  const [nrFile, setNrFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (!filing.canFile && !filing.canRegister && !filing.data) {
+    return null;
+  }
+
+  const post = (path: string, data: Record<string, string | File>, ok: string) => {
+    setBusy(true);
+    router.post(`${base}/najiz/${path}`, data, {
+      preserveScroll: true,
+      forceFormData: true,
+      onSuccess: () => toast(ok),
+      onError: (e) => toast(reason(e)),
+      onFinish: () => setBusy(false),
+    });
+  };
+  const fileNajiz = (e: React.FormEvent) => {
+    e.preventDefault();
+    post('file', nf, 'سُجّل رفع الدعوى في ناجز — بانتظار القيد');
+  };
+  const registerNajiz = (e: React.FormEvent) => {
+    e.preventDefault();
+    post('register', nrFile ? { ...nr, file: nrFile } : nr, 'سُجّل قيد الدعوى وجُدولت الجلسة الأولى');
+  };
+  const d = filing.data;
+
+  return (
+    <div className="card">
+      <div className="card-h">
+        <h3>رفع الدعوى في ناجز</h3>
+        <Badge text={d?.caseNo ? 'مقيّدة' : d?.requestNo ? 'بانتظار القيد' : 'لم تُرفع بعد'} tone={d?.caseNo ? 'b-green' : 'b-amber'} />
+      </div>
+      <div className="card-b" style={{ padding: 14 }}>
+        {d && (
+          <div className="tc-body" style={{ padding: 0, marginBottom: 10 }}>
+            {d.requestNo && <div className="tc-row"><span className="k">رقم الطلب</span><span className="v">{d.requestNo}</span></div>}
+            {d.filedAt && <div className="tc-row"><span className="k">تاريخ الرفع</span><span className="v">{d.filedAt}</span></div>}
+            {d.caseNo && <div className="tc-row"><span className="k">رقم القضية</span><span className="v">{d.caseNo}</span></div>}
+            {d.court && <div className="tc-row"><span className="k">المحكمة</span><span className="v">{d.court}</span></div>}
+            {d.circuit && <div className="tc-row"><span className="k">الدائرة</span><span className="v">{d.circuit}</span></div>}
+            {d.registeredAt && <div className="tc-row"><span className="k">تاريخ القيد</span><span className="v">{d.registeredAt}</span></div>}
+          </div>
+        )}
+
+        {filing.canFile && (
+          <form onSubmit={fileNajiz}>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 8 }}>ارفع الصحيفة في منصّة ناجز، ثم سجّل رقم الطلب الذي صدر.</div>
+            <div className="field"><label>رقم الطلب في ناجز</label><input className="input" value={nf.request_no} onChange={(e) => setNf({ ...nf, request_no: e.target.value })} /></div>
+            <div className="field"><label>تاريخ الرفع</label><input className="input" type="date" value={nf.filed_at} onChange={(e) => setNf({ ...nf, filed_at: e.target.value })} /></div>
+            <button className="btn sm" type="submit" disabled={busy || !nf.request_no.trim() || !nf.filed_at}><Icon name="send" /> تسجيل الرفع في ناجز</button>
+          </form>
+        )}
+
+        {filing.canRegister && (
+          <form onSubmit={registerNajiz}>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 8 }}>حين تقبل المحكمة الدعوى وتقيّدها، سجّل ما وصل: رقم القضية والدائرة والجلسة الأولى.</div>
+            <div className="field"><label>رقم القضية</label><input className="input" value={nr.case_no} onChange={(e) => setNr({ ...nr, case_no: e.target.value })} /></div>
+            <div className="field"><label>المحكمة</label><input className="input" value={nr.court} onChange={(e) => setNr({ ...nr, court: e.target.value })} /></div>
+            <div className="field"><label>الدائرة</label><input className="input" value={nr.circuit} onChange={(e) => setNr({ ...nr, circuit: e.target.value })} placeholder="الدائرة التجارية الأولى" /></div>
+            <div className="field"><label>تاريخ القيد</label><input className="input" type="date" value={nr.registered_at} onChange={(e) => setNr({ ...nr, registered_at: e.target.value })} /></div>
+            <div className="picker-grid">
+              <div className="field"><label>موعد الجلسة الأولى</label><input className="input" type="date" value={nr.hearing_day} onChange={(e) => setNr({ ...nr, hearing_day: e.target.value })} /></div>
+              <div className="field"><label>الوقت</label><input className="input" type="time" value={nr.hearing_time} onChange={(e) => setNr({ ...nr, hearing_time: e.target.value })} /></div>
+            </div>
+            <div className="field">
+              <label>طريقة الانعقاد</label>
+              <select className="input" value={nr.hearing_mode} onChange={(e) => setNr({ ...nr, hearing_mode: e.target.value })}>
+                <option value="حضورية">حضورية في المحكمة</option>
+                <option value="عن بُعد">عن بُعد</option>
+              </select>
+            </div>
+            <div className="field"><label>صورة الصحيفة المقيّدة (اختياري)</label><input className="input" type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setNrFile(e.target.files?.[0] ?? null)} /></div>
+            <button className="btn sm" type="submit" disabled={busy || !nr.case_no.trim() || !nr.court.trim() || !nr.circuit.trim() || !nr.registered_at || !nr.hearing_day || !nr.hearing_time}>
+              <Icon name="check" /> تسجيل القيد وجدولة الجلسة الأولى
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/** جدولة جلسة — والقضيّة منظورة (يقرّر المُنادي متى تُعرض، والخادم يرفض خارجها). */
+export const ScheduleHearingCard: React.FC<{ base: string }> = ({ base }) => {
+  const toast = useToast();
+  const [h, setH] = useState({ title: '', day: '', time: '', court: '' });
+
+  const addHearing = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!h.title.trim() || !h.day.trim()) {
+      toast('أدخل عنوان الجلسة واليوم');
+
+      return;
+    }
+
+    router.post(`${base}/hearings`, h, {
+      preserveScroll: true,
+      onSuccess: () => {
+        setH({ title: '', day: '', time: '', court: '' });
+        toast('تمت جدولة الجلسة');
+      },
+      onError: (err) => toast(reason(err)),
+    });
+  };
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="card-h"><h3>جدولة جلسة</h3></div>
+      <div className="card-b" style={{ padding: 16 }}>
+        <form onSubmit={addHearing}>
+          <div className="picker-grid">
+            <div className="field"><label>عنوان الجلسة</label><input className="input" value={h.title} onChange={(e) => setH({ ...h, title: e.target.value })} placeholder="الجلسة الأولى" /></div>
+            <div className="field"><label>التاريخ</label><input className="input" type="date" value={h.day} onChange={(e) => setH({ ...h, day: e.target.value })} /></div>
+          </div>
+          <div className="field"><label>الدائرة</label><input className="input" value={h.court} onChange={(e) => setH({ ...h, court: e.target.value })} placeholder="الدائرة التجارية الأولى" /></div>
+          <TimeSlotPicker value={h.time} onChange={(t) => setH({ ...h, time: t })} date={h.day} label="وقت الجلسة" required allowCustom={false} />
+          <button className="btn" type="submit" disabled={!h.time}><Icon name="cal" /> جدولة الجلسة</button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * تسجيل الحكم — أو عرضه مع إتاحة التصحيح المسبّب للأخطاء المادية.
+ *
+ * `canRecord`: الموظّف يلزمه «تسجيل الأحكام» فوق إجراءات المحكمة (قرار المالك 2026-09-18) —
+ * فيُعرض له سببُ الغياب بدل نموذجٍ يردّه الخادم. والمحامي المسنَد يبقى على الأصل (`true`).
+ */
+export const RulingCard: React.FC<{ base: string; ruling?: string | null; canCorrect?: boolean; canRecord?: boolean }> = ({ base, ruling: initialRuling, canCorrect = false, canRecord = true }) => {
+  const toast = useToast();
+  const [ruling, setRuling] = useState('');
+  const [correcting, setCorrecting] = useState(false);
+  const [newRuling, setNewRuling] = useState(initialRuling ?? '');
+  const [reasonText, setReasonText] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const recordRuling = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!ruling.trim()) {
+      toast('أدخل منطوق الحكم');
+      return;
+    }
+
+    if (!window.confirm('تسجيل الحكم ينقل القضيّة إلى «صدر الحكم» ويفتح مسار الاستئناف ومهلة الاعتراض النظامية (30 يوماً). متابعة؟')) {
+      return;
+    }
+
+    router.post(`${base}/ruling`, { ruling }, {
+      preserveScroll: true,
+      onSuccess: () => {
+        setRuling('');
+        toast('تم تسجيل الحكم وتفعيل مهلة الاعتراض');
+      },
+      onError: (err) => toast(reason(err)),
+    });
+  };
+
+  const submitCorrection = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newRuling.trim() || !reasonText.trim()) {
+      toast('أدخل المنطوق المصحح وسبب التصحيح');
+      return;
+    }
+    setBusy(true);
+    router.post(`${base}/ruling/correct`, { ruling: newRuling, reason: reasonText }, {
+      preserveScroll: true,
+      onSuccess: () => {
+        setCorrecting(false);
+        setReasonText('');
+        toast('تم تصحيح منطوق الحكم بنجاح وتوثيقه');
+      },
+      onError: (err) => toast(reason(err)),
+      onFinish: () => setBusy(false),
+    });
+  };
+
+  if (initialRuling) {
+    return (
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-h">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="scale" />
+            <h3>منطوق الحكم القضائي</h3>
+          </div>
+          <Badge text="صدر الحكم" tone="b-cyan" />
+        </div>
+        <div className="card-b" style={{ padding: 16 }}>
+          {!correcting ? (
+            <>
+              <div style={{ padding: '12px 14px', background: 'var(--paper-2)', borderRadius: 8, whiteSpace: 'pre-line', lineHeight: 1.8, fontSize: 13.5, marginBottom: 12 }}>
+                {initialRuling}
+              </div>
+              {canCorrect && (
+                <button className="btn soft sm" type="button" onClick={() => { setCorrecting(true); setNewRuling(initialRuling); }}>
+                  <Icon name="edit" /> تصحيح خطأ مادي في الحكم
+                </button>
+              )}
+            </>
+          ) : (
+            <form onSubmit={submitCorrection}>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>
+                يُتاح تصحيح الأخطاء المادية أو الحسابية في منطوق الحكم مع توثيق سبب التصحيح في سجل التدقيق والمحادثة.
+              </div>
+              <div className="field">
+                <label>المنطوق المصحح</label>
+                <textarea rows={4} value={newRuling} onChange={(e) => setNewRuling(e.target.value)} required />
+              </div>
+              <div className="field">
+                <label>سبب التصحيح (إلزامي للتوثيق)</label>
+                <input className="input" value={reasonText} onChange={(e) => setReasonText(e.target.value)} placeholder="مثال: تصحيح خطأ كتابي في رقم الهوية أو المبلغ المقضي به" required />
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button className="btn sm" type="submit" disabled={busy || !newRuling.trim() || !reasonText.trim()}>
+                  حفظ التصحيح
+                </button>
+                <button className="btn soft sm" type="button" disabled={busy} onClick={() => setCorrecting(false)}>
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (!canRecord) {
+    return (
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-h"><h3>تسجيل الحكم</h3></div>
+        <div className="card-b" style={{ padding: 16, fontSize: 12.5, color: 'var(--muted)' }}>
+          يسجّل الحكمَ المحامي المسنَد أو الإدارة، أو من منحته الإدارة صلاحيّة «تسجيل الأحكام».
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="card-h"><h3>تسجيل الحكم</h3></div>
+      <div className="card-b" style={{ padding: 16 }}>
+        <form onSubmit={recordRuling}>
+          <textarea value={ruling} onChange={(e) => setRuling(e.target.value)} placeholder="منطوق الحكم…" aria-label="منطوق الحكم" />
+          <div className="crow"><button className="btn" type="submit"><Icon name="scale" /> تسجيل الحكم</button></div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * بطاقة مسار الاستئناف والاعتراض — تعرض مهلة الاعتراض وعداد الأيام وقيد الاستئناف وقرار محكمة الاستئناف.
+ * `canRule` يفصل تسجيل حكم الاستئناف عن قيده — للموظّف صلاحيّة «تسجيل الأحكام»؛ وغيابه = `canAct`.
+ */
+export const AppealCard: React.FC<{
+  base: string;
+  appeal?: AppealData | null;
+  canAct?: boolean;
+  canRule?: boolean;
+  defaultCourt?: string;
+}> = ({ base, appeal, canAct = false, canRule: canRuleProp, defaultCourt = '' }) => {
+  const canRule = canRuleProp ?? canAct;
+  const toast = useToast();
+  const [showFilingForm, setShowFilingForm] = useState(false);
+  const [showRulingForm, setShowRulingForm] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // Form for filing appeal
+  const [af, setAf] = useState({
+    appeal_request_no: '',
+    appeal_court: defaultCourt ? `محكمة الاستئناف (${defaultCourt})` : 'محكمة الاستئناف',
+    appeal_circuit: '',
+    appeal_filed_at: new Date().toISOString().slice(0, 10),
+  });
+
+  // Form for appeal ruling
+  const [ar, setAr] = useState({
+    appeal_outcome: 'تأييد الحكم الابتدائي',
+    appeal_ruling: '',
+    appeal_judged_at: new Date().toISOString().slice(0, 10),
+  });
+
+  if (!appeal) {
+    return null;
+  }
+
+  const fileAppeal = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!af.appeal_request_no.trim() || !af.appeal_court.trim() || !af.appeal_circuit.trim()) {
+      toast('أكمل جميع بيانات قيد الاستئناف');
+      return;
+    }
+    setBusy(true);
+    router.post(`${base}/appeal`, af, {
+      preserveScroll: true,
+      onSuccess: () => {
+        setShowFilingForm(false);
+        toast('تم تسجيل قيد الاستئناف بنجاح');
+      },
+      onError: (err) => toast(reason(err)),
+      onFinish: () => setBusy(false),
+    });
+  };
+
+  const recordAppealRuling = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ar.appeal_ruling.trim() || !ar.appeal_outcome.trim()) {
+      toast('أدخل منطوق حكم الاستئناف والنتيجة');
+      return;
+    }
+    setBusy(true);
+    router.post(`${base}/appeal/ruling`, ar, {
+      preserveScroll: true,
+      onSuccess: () => {
+        setShowRulingForm(false);
+        toast('تم تسجيل حكم الاستئناف بنجاح');
+      },
+      onError: (err) => toast(reason(err)),
+      onFinish: () => setBusy(false),
+    });
+  };
+
+  const tone = appeal.status === 'appeal_judged' ? 'b-green' : appeal.status === 'appeal_filed' ? 'b-blue' : 'b-amber';
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="card-h">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="scale" />
+          <h3>مسار الاستئناف والاعتراض</h3>
+        </div>
+        <Badge text={appeal.statusLabel} tone={tone} />
+      </div>
+      <div className="card-b" style={{ padding: 16 }}>
+        {/* Stage 1: Pending Appeal */}
+        {appeal.status === 'pending_appeal' && (
+          <div>
+            <div style={{ padding: '12px 14px', background: appeal.isDeadlineOver ? 'var(--red-soft, #fee2e2)' : 'var(--amber-soft, #fef3c7)', borderRadius: 8, marginBottom: 12, border: '1px solid var(--line-soft)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <b style={{ color: appeal.isDeadlineOver ? 'var(--red)' : 'var(--ink)' }}>مهلة الاعتراض النظامية (30 يوماً):</b>
+                <Badge
+                  text={appeal.isDeadlineOver ? 'انقضت المهلة' : `متبقّي ${appeal.daysRemaining} يوم`}
+                  tone={appeal.isDeadlineOver ? 'b-red' : 'b-amber'}
+                />
+              </div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+                تنتهي مهلة تقديم لائحة الاعتراض بالاستئناف بتاريخ: <b>{appeal.deadlineAt ?? '—'}</b>
+              </div>
+            </div>
+
+            {canAct && !showFilingForm && (
+              <button className="btn sm" type="button" onClick={() => setShowFilingForm(true)}>
+                <Icon name="send" /> قيد لائحة الاستئناف
+              </button>
+            )}
+
+            {canAct && showFilingForm && (
+              <form onSubmit={fileAppeal} style={{ background: 'var(--paper-2)', padding: 14, borderRadius: 8, marginTop: 10 }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: 14 }}>تسجيل قيد الاستئناف</h4>
+                <div className="field">
+                  <label>رقم طلب الاستئناف (ناجز)</label>
+                  <input className="input" value={af.appeal_request_no} onChange={(e) => setAf({ ...af, appeal_request_no: e.target.value })} required />
+                </div>
+                <div className="field">
+                  <label>محكمة الاستئناف</label>
+                  <input className="input" value={af.appeal_court} onChange={(e) => setAf({ ...af, appeal_court: e.target.value })} required />
+                </div>
+                <div className="field">
+                  <label>دائرة الاستئناف</label>
+                  <input className="input" value={af.appeal_circuit} onChange={(e) => setAf({ ...af, appeal_circuit: e.target.value })} placeholder="دائرة الاستئناف الحقوقية الأولى" required />
+                </div>
+                <div className="field">
+                  <label>تاريخ التقديم</label>
+                  <input className="input" type="date" value={af.appeal_filed_at} onChange={(e) => setAf({ ...af, appeal_filed_at: e.target.value })} required />
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <button className="btn sm" type="submit" disabled={busy}><Icon name="check" /> حفظ قيد الاستئناف</button>
+                  <button className="btn soft sm" type="button" disabled={busy} onClick={() => setShowFilingForm(false)}>إلغاء</button>
+                </div>
+              </form>
+            )}
+          </div>
+        )}
+
+        {/* Stage 2: Appeal Filed */}
+        {appeal.status === 'appeal_filed' && (
+          <div>
+            <div className="tc-body" style={{ padding: 0, marginBottom: 12 }}>
+              <div className="tc-row"><span className="k">رقم طلب الاستئناف</span><span className="v">{appeal.requestNo}</span></div>
+              <div className="tc-row"><span className="k">محكمة الاستئناف</span><span className="v">{appeal.court}</span></div>
+              <div className="tc-row"><span className="k">الدائرة</span><span className="v">{appeal.circuit}</span></div>
+              <div className="tc-row"><span className="k">تاريخ القيد</span><span className="v">{appeal.filedAt}</span></div>
+            </div>
+
+            {canRule && !showRulingForm && (
+              <button className="btn sm" type="button" onClick={() => setShowRulingForm(true)}>
+                <Icon name="scale" /> تسجيل حكم الاستئناف
+              </button>
+            )}
+
+            {canRule && showRulingForm && (
+              <form onSubmit={recordAppealRuling} style={{ background: 'var(--paper-2)', padding: 14, borderRadius: 8, marginTop: 10 }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: 14 }}>تسجيل قرار/حكم الاستئناف</h4>
+                <div className="field">
+                  <label>نتيجة الاستئناف</label>
+                  <select className="input" value={ar.appeal_outcome} onChange={(e) => setAr({ ...ar, appeal_outcome: e.target.value })}>
+                    <option value="تأييد الحكم الابتدائي">تأييد الحكم الابتدائي</option>
+                    <option value="تعديل الحكم">تعديل الحكم</option>
+                    <option value="نقض الحكم">نقض الحكم</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label>منطوق حكم/قرار الاستئناف</label>
+                  <textarea rows={4} value={ar.appeal_ruling} onChange={(e) => setAr({ ...ar, appeal_ruling: e.target.value })} required placeholder="حكمت المحكمة بتأييد الحكم الابتدائي..." />
+                </div>
+                <div className="field">
+                  <label>تاريخ صدور القرار</label>
+                  <input className="input" type="date" value={ar.appeal_judged_at} onChange={(e) => setAr({ ...ar, appeal_judged_at: e.target.value })} required />
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <button className="btn sm" type="submit" disabled={busy}><Icon name="check" /> حفظ حكم الاستئناف</button>
+                  <button className="btn soft sm" type="button" disabled={busy} onClick={() => setShowRulingForm(false)}>إلغاء</button>
+                </div>
+              </form>
+            )}
+          </div>
+        )}
+
+        {/* Stage 3: Appeal Judged */}
+        {appeal.status === 'appeal_judged' && (
+          <div>
+            <div className="tc-body" style={{ padding: 0, marginBottom: 10 }}>
+              <div className="tc-row"><span className="k">رقم طلب الاستئناف</span><span className="v">{appeal.requestNo}</span></div>
+              <div className="tc-row"><span className="k">محكمة الاستئناف</span><span className="v">{appeal.court}</span></div>
+              <div className="tc-row"><span className="k">تاريخ صدور الحكم</span><span className="v">{appeal.judgedAt}</span></div>
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <b style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>منطوق حكم الاستئناف:</b>
+              <div style={{ padding: '12px 14px', background: 'var(--paper-2)', borderRadius: 8, whiteSpace: 'pre-line', lineHeight: 1.8, fontSize: 13.5 }}>
+                {appeal.ruling}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/** تحديث الجلسات — تسجيل النتيجة، وإعادة الجدولة، والإلغاء. المغلقة والمؤرشفة لا يعرضها المُنادي. */
+export const HearingUpdatesCard: React.FC<{ base: string; hearings: Hearing[] }> = ({ base, hearings }) => {
+  const toast = useToast();
+  const [editId, setEditId] = useState<number | null>(null);
+  const [eh, setEh] = useState({ title: '', day: '', time: '', court: '' });
+  const [recOutcome, setRecOutcome] = useState('');
+
+  const recordHearing = (id: number, status: string) =>
+    router.post(`${base}/hearings/${id}`, { status, outcome: recOutcome }, {
+      preserveScroll: true,
+      onSuccess: () => {
+        setRecOutcome('');
+        toast('تم تحديث الجلسة');
+      },
+      onError: (err) => toast(reason(err)),
+    });
+  const startEdit = (hr: Hearing) => {
+    setEditId(hr.id);
+    setEh({ title: hr.title, day: hr.startsAt ? hr.startsAt.slice(0, 10) : '', time: hr.startsAt ? hr.startsAt.slice(11, 16) : '', court: hr.court || '' });
+  };
+  const submitEdit = (id: number) => {
+    if (!eh.title.trim() || !eh.day.trim()) {
+      toast('أدخل عنوان الجلسة والتاريخ');
+
+      return;
+    }
+
+    router.post(`${base}/hearings/${id}/update`, eh, {
+      preserveScroll: true,
+      onSuccess: () => {
+        setEditId(null);
+        toast('تمت إعادة جدولة الجلسة');
+      },
+      onError: (err) => toast(reason(err)),
+    });
+  };
+  const cancelHearing = (id: number) => {
+    if (!window.confirm('إلغاء الجلسة يُبلَّغ به العميل ولا يُتراجع عنه. متابعة؟')) {
+      return;
+    }
+
+    router.post(`${base}/hearings/${id}/cancel`, {}, { preserveScroll: true, onSuccess: () => toast('أُلغيت الجلسة'), onError: (err) => toast(reason(err)) });
+  };
+
+  return (
+    <div className="card">
+      <div className="card-h"><h3>تحديث الجلسات</h3></div>
+      <div className="card-b">
+        {hearings.map((hr) => (
+          <div key={hr.id} className="item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div className="imeta"><b>{hr.title}</b><span>{hr.day}{hr.time ? ` · ${hr.time}` : ''} · {hr.lapsed ? 'فائتة — سجّل نتيجتها' : hr.status}</span></div>
+              {hr.status !== 'ملغاة' && hr.status !== 'منعقدة' && (
+                <div className="iact" style={{ gap: 6 }}>
+                  <button className="btn soft sm" type="button" onClick={() => (editId === hr.id ? setEditId(null) : startEdit(hr))}>تعديل</button>
+                  <button className="btn soft sm" type="button" onClick={() => cancelHearing(hr.id)}>إلغاء</button>
+                </div>
+              )}
+            </div>
+
+            {(hr.status === 'مجدولة' || hr.status === 'فائتة — بانتظار النتيجة') && editId !== hr.id && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <input className="input" placeholder="نتيجة الجلسة (اختياري)" value={recOutcome} onChange={(e) => setRecOutcome(e.target.value)} style={{ flex: 1, minWidth: 150 }} />
+                <button className="btn soft sm" type="button" onClick={() => recordHearing(hr.id, 'منعقدة')}>منعقدة</button>
+                <button className="btn soft sm" type="button" onClick={() => recordHearing(hr.id, 'مؤجلة')}>مؤجلة</button>
+              </div>
+            )}
+
+            {editId === hr.id && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  submitEdit(hr.id);
+                }}
+              >
+                <div className="picker-grid">
+                  <div className="field"><label>عنوان الجلسة</label><input className="input" value={eh.title} onChange={(e) => setEh({ ...eh, title: e.target.value })} /></div>
+                  <div className="field"><label>الدائرة</label><input className="input" value={eh.court} onChange={(e) => setEh({ ...eh, court: e.target.value })} placeholder="الدائرة التجارية الأولى" /></div>
+                </div>
+                <div className="field"><label>التاريخ</label><input className="input" type="date" value={eh.day} onChange={(e) => setEh({ ...eh, day: e.target.value })} /></div>
+                <TimeSlotPicker value={eh.time} onChange={(t) => setEh({ ...eh, time: t })} date={eh.day} label="الوقت الجديد للجلسة" required allowCustom={false} />
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <button className="btn sm" type="submit" disabled={!eh.time}><Icon name="cal" /> حفظ إعادة الجدولة</button>
+                  <button className="btn soft sm" type="button" onClick={() => setEditId(null)}>إلغاء التعديل</button>
+                </div>
+              </form>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/** نافذة إرفاق مستند أو مذكرة مع إمكانية ربطها بجلسة محددة */
+export const AttachDocModal: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  base: string;
+  hearings: Hearing[];
+}> = ({ open, onClose, base, hearings }) => {
+  const toast = useToast();
+  const [file, setFile] = useState<File | null>(null);
+  const [hearingId, setHearingId] = useState<string>('');
+  const [busy, setBusy] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!file) {
+      toast('اختر ملفاً للإرفاق');
+      return;
+    }
+
+    setBusy(true);
+    const data: Record<string, any> = { file };
+    if (hearingId) {
+      data.hearing_id = hearingId;
+    }
+
+    router.post(`${base}/attach`, data, {
+      preserveScroll: true,
+      forceFormData: true,
+      onSuccess: () => {
+        toast('تم رفع وإرفاق المستند بنجاح');
+        setFile(null);
+        setHearingId('');
+        onClose();
+      },
+      onError: (err) => toast(reason(err)),
+      onFinish: () => setBusy(false),
+    });
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="إرفاق مستند أو مذكرة" maxWidth={500}>
+      <form onSubmit={handleSubmit} style={{ padding: 4 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
+          يمكنك إرفاق لوائح جوابية، مذكرات دفاع، أو أدلة وإثباتات وربطها بجلسة قضائية معينة لتسهيل تتبعها.
+        </div>
+
+        <div className="field">
+          <label>الملف المرفق (PDF, Word, صور)</label>
+          <input
+            className="input"
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            required
+          />
+        </div>
+
+        {hearings.length > 0 && (
+          <div className="field">
+            <label>ربط بجلسة قضائية (اختياري)</label>
+            <select className="input" value={hearingId} onChange={(e) => setHearingId(e.target.value)}>
+              <option value="">— مستند عام لملف القضية (غير مرتبط بجلسة) —</option>
+              {hearings.map((h) => (
+                <option key={h.id} value={h.id}>
+                  {h.title} ({h.day}{h.court ? ` · ${h.court}` : ''})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
+          <button className="btn soft sm" type="button" disabled={busy} onClick={onClose}>
+            إلغاء
+          </button>
+          <button className="btn sm" type="submit" disabled={busy || !file}>
+            <Icon name="upload" /> رفع وإرفاق المستند
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+};

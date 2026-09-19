@@ -10,7 +10,7 @@ use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Support\CaseFee;
-use App\Support\ExecService;
+use App\Support\ExecFee;
 use App\Support\TicketJourney;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -123,7 +123,19 @@ class GrandTourE2ETest extends TestCase
 
         // اللائحة جاهزة لاعتماد المحامي (توليدها الخلفي خارج النطاق مع Queue::fake) → اعتماد → منظورة
         $case->update(['pleading_status' => 'pending_lawyer']);
+        // الاعتماد يُطلق المسودّة فيشترط وجودها (توليدها الخلفيّ مُعطَّل بـQueue::fake)
+        $case->messages()->create(['who' => 'ai', 'name' => 'المساعد القانوني', 'role' => 'مسودة اللائحة', 'body' => 'نصّ المسودّة', 'withheld_at' => now()]);
         $this->actingAs($lawyer)->post(route('lawyer.cases.pleading', $case))->assertRedirect();
+        $this->assertSame('قيد التحضير', $case->fresh()->status, 'الاعتماد يقفل النصّ ولا يرفع الدعوى');
+
+        // رفع الصحيفة في ناجز ⇐ «بانتظار القيد»، ثمّ القيد ⇐ «منظورة» وتُجدوَل الجلسة الأولى
+        $this->actingAs($lawyer)->post(route('lawyer.cases.najiz.file', $case), ['request_no' => 'NJ-REQ-0001', 'filed_at' => now()->toDateString()])->assertRedirect();
+        $this->assertSame('بانتظار القيد', $case->fresh()->status);
+        $this->actingAs($lawyer)->post(route('lawyer.cases.najiz.register', $case), [
+            'case_no' => '4700123456', 'court' => 'المحكمة التجارية بالرياض', 'circuit' => 'الدائرة التجارية الأولى',
+            'registered_at' => now()->toDateString(), 'hearing_day' => now()->addDays(10)->toDateString(),
+            'hearing_time' => '09:00', 'hearing_mode' => 'حضورية',
+        ])->assertRedirect();
         $this->assertSame('منظورة', $case->fresh()->status);
 
         // ── المرحلة 5: الجلسات — جدولة ← انعقاد ← حكم ──
@@ -197,21 +209,22 @@ class GrandTourE2ETest extends TestCase
         $act($admin, 'approveFee');
         $this->assertSame(5, $exec->fresh()->stage);
 
-        // 6-8: العميل يقبل العرض ← فاتورة ← السداد يفتح ملف التنفيذ
+        // 6-7: العميل يقبل العرض ← فاتورة ← السداد يفتح الملفّ لدى المكتب (والرفع في ناجز يليه)
         $act($client, 'acceptOffer');
         $this->assertSame(6, $exec->fresh()->stage);
         $this->assertSame(6900, Invoice::where('exec_id', $exec->id)->firstOrFail()->amount);
 
-        ExecService::markPaid($exec->fresh()); // تسوية بوّابة ميسّر تُحاكى كما في ExecFlowTest
+        ExecFee::settleInvoice($exec->fresh()); // تسوية بوّابة ميسّر تُحاكى كما في ExecFlowTest
         $exec->refresh();
-        $this->assertSame(8, $exec->stage);
+        $this->assertSame(7, $exec->stage); // «بانتظار الرفع في ناجز» — لا يقفز إلى «قيد التنفيذ»
         $this->assertNotEmpty($exec->exec_no);
 
-        // 9: المحامي يوثّق إجراءً ← الإدارة تغلق الملف
+        // 9: المحامي يوثّق إجراءً ← الإدارة تغلق الملف بسببه
         $act($lawyer, 'addProcedure', ['title' => 'حجز تحفظي على الحسابات']);
         $this->assertSame(2, $exec->fresh()->procedures()->count());
-        $act($admin, 'close');
+        $act($admin, 'close', ['reason' => 'سداد كامل']);
         $this->assertSame(9, $exec->fresh()->stage);
+        $this->assertSame('سداد كامل', $exec->fresh()->closed_reason);
 
         // الرؤية الختامية: كل دور يرى الملف في تبويبه الموحّد
         $this->actingAs($client)->get(route('execs'))->assertInertia(fn ($p) => $p->has('execs', 1));

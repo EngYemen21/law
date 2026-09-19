@@ -94,16 +94,18 @@ class AiRunCoverageTest extends TestCase
     }
 
     /**
-     * الاستثناء يبقى صادقاً: `lawyer.match` معفىً لأن دالّتيه متقاعدتان.
-     * فإن أُعيدتا إلى الخدمة بلا قيد، سقط هذا الاختبار وأُعيد فتح الملفّ.
+     * الاستثناء يبقى صادقاً: `lawyer.match` معفىً لأنّ مطابقة المحامي بالذكاء متقاعدة.
+     * `rankLawyers` حُذفت (كودٌ ميّت، 2026-09-19)، و`chooseLawyer` باقيةٌ موسومةً للرجوع إليها.
+     * فإن عادت إحداهما إلى الخدمة بلا قيد، سقط هذا الاختبار وأُعيد فتح الملفّ.
      */
     public function test_the_retired_lawyer_match_exemption_stays_true(): void
     {
         $service = file_get_contents(app_path('Services/LegalAiService.php'));
         $assignment = file_get_contents(app_path('Support/TicketAssignment.php'));
 
-        $this->assertSame(2, substr_count($service, 'غير مستعملة حالياً'), 'الدالّتان ما زالتا موسومتين بالتقاعد');
-        $this->assertStringContainsString('أُحيل للتقاعد', $assignment, 'ونداؤهما ما زال معطَّلاً');
+        $this->assertStringNotContainsString('function rankLawyers', $service, 'المحذوفة لا تعود بلا قيد');
+        $this->assertSame(1, substr_count($service, 'غير مستعملة حالياً'), 'chooseLawyer ما زالت موسومةً بالتقاعد');
+        $this->assertStringContainsString('أُحيل للتقاعد', $assignment, 'ونداؤها ما زال معطَّلاً');
     }
 
     /** ملخّص الملفّ يُقيَّد بنموذجه وإصداره وأثره. */

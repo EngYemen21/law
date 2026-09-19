@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import Icon from '@/lib/icons';
 import Pagination, { type Paginated } from '@/components/babylon/Pagination';
 import Badge from '@/components/babylon/Badge';
+import { TICKET_PRIORITIES, isUrgentTicket } from '@/lib/employee-data';
 
 interface EmpTicket {
   no: string;
@@ -383,9 +384,8 @@ const AdminTickets: React.FC<Props> = ({
                 style={{ fontSize: 12.5, padding: '8px 10px' }}
               >
                 <option value="">جميع الأولويات</option>
-                <option value="عاجلة">عاجلة 🔴</option>
-                <option value="متوسطة">متوسطة 🟡</option>
-                <option value="منخفضة">منخفضة 🟢</option>
+                {/* من الكتالوج: كانت «عاجلة» أوّلَ خيارٍ ولا وجود لها في القاعدة، و«عالية» مفقودة */}
+                {TICKET_PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
               </select>
             </div>
 
@@ -439,7 +439,7 @@ const AdminTickets: React.FC<Props> = ({
               >
                 <option value="latest">الأحدث أولاً</option>
                 <option value="oldest">الأقدم أولاً</option>
-                <option value="priority">حسب الأولوية (العاجلة أولاً)</option>
+                <option value="priority">حسب الأولوية (الأعلى أولاً)</option>
               </select>
             </div>
           </div>
@@ -466,7 +466,7 @@ const AdminTickets: React.FC<Props> = ({
                   <tr key={t.no} className="click" onClick={() => openTicket(t.no)}>
                     <td>
                       <b className="mono">{t.no}</b>
-                      {t.priority === 'عاجلة' && (
+                      {isUrgentTicket(t.priority) && (
                         <span className="badge-s b-red" style={{ fontSize: 10, padding: '1px 5px', marginRight: 6 }}>
                           عاجلة
                         </span>
@@ -499,7 +499,7 @@ const AdminTickets: React.FC<Props> = ({
           ) : (
             <div className="empty">
               <Icon name="ticket" />
-              <b>لا توجد تذاكر تطابق معايير البحث والفلترة</b>
+              <b>{tickets.meta.total === 0 && !(filters.q || filters.status || filters.dept || filters.lawyer_id || filters.priority || filters.date_from || filters.date_to) ? 'لا توجد تذاكر بعد' : 'لا توجد تذاكر تطابق معايير البحث والفلترة'}</b>
               {(activeFiltersCount > 0 || search || status) && (
                 <div style={{ marginTop: 8 }}>
                   <button type="button" onClick={resetAllFilters} className="btn sm soft">

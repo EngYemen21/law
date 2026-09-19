@@ -10,6 +10,7 @@ use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\Meeting;
 use App\Models\User;
+use App\Support\ExecFlow;
 use App\Support\RecordingArchive;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -27,11 +28,17 @@ class RegressionGuardTest extends TestCase
 
     private function executionAtStage(int $stage, int $fee = 3000): Execution
     {
+        // محامٍ مسنَد: `ExecService::approveFee` صارت تحرس الإسناد كأختيها `setFee`/`saveFee`
+        // (عرضٌ بمبلغٍ على ملفٍّ لا محاميَ له)، وهذا المُثبِّت يقيس مُدخل الأتعاب لا الإسناد.
+        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+
         return Execution::create([
             'user_id' => User::factory()->create(['role' => Role::Client])->id,
             'number' => 'EXE-R-'.random_int(1000, 9999), 'subject' => 'تنفيذ حكم',
-            'status' => 'جديد', 'tone' => 'b-blue', 'last_action' => 'فتح',
+            // الحالة من المرحلة كما يكتبها النظام — «جديد» لم يكتبها أيّ كودٍ قطّ
+            'status' => ExecFlow::label($stage), 'tone' => 'b-blue', 'last_action' => 'فتح',
             'stage' => $stage, 'fee' => $fee,
+            'assigned_lawyer_id' => $lawyer->id, 'assigned_lawyer' => $lawyer->name,
         ]);
     }
 

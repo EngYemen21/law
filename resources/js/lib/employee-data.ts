@@ -29,8 +29,9 @@ export const SYS_TICKETS: SysTicket[] = [
   { no: 'SB-2026-0950', client: 'عبدالله العتيبي', type: 'استفسار قانوني', dept: 'الاستشارات القانونية', lawyer: 'أ. ريم الزهراني', status: 'بانتظار حجز الاستشارة', tone: 'b-amber' },
 ];
 
-// ── الأدلة (DEPTS / LAWYERS / CLIENTS / TICKET_STATES) ──
-export const DEPTS = ['الاستشارات القانونية', 'العقود والاتفاقيات', 'القضايا التجارية', 'القضايا العمالية', 'الأحوال الشخصية', 'التنفيذ', 'الشركات', 'الملكية الفكرية', 'العقارات', 'البنوك والتمويل', 'التأمين', 'الجرائم المعلوماتية', 'القضايا الجنائية', 'التركات والأوقاف', 'خدمة العملاء', 'الإدارة المالية'];
+// ── الأدلة (LAWYERS / CLIENTS / TICKET_STATES) ──
+// DEPTS أُزيلت (2026-09-14): أقسام المحامين والتحويل من كتالوج الأقسام في قاعدة البيانات،
+// وأقسام الموظّفين الإداريّة من جدول staff_departments — يمرّرها الخادم.
 
 // مفردات حالة التذكرة ونغماتها تأتي من App\Support\TicketJourney::options() كخاصية من الخادم.
 // كانت مكتوبة هنا يدوياً فأسقطت 9 من 13 حالة حقيقية — منها «قيد التحليل» حالة كل تذكرة جديدة.
@@ -171,7 +172,7 @@ export function cBookingStage(status: string, session?: string): number {
     return 1;
   }
 
-  if (status === 'بانتظار تحديد الموعد') {
+  if (status === 'بانتظار تحديد الموعد' || status === 'بانتظار اعتماد الموعد') {
     return 2;
   }
 
@@ -200,7 +201,6 @@ export interface Consult {
 
 const RAW_CONSULTS: Omit<Consult, 'channel' | 'session' | 'when' | 'place' | 'phone' | 'slink'>[] = [
   { ref: 'CN-2026-1042', client: 'عبدالله محمد العتيبي', subject: 'نزاع تجاري مع مورّد', type: 'تجاري', priority: 'عالية', status: 'جديدة', received: 'اليوم 09:14 ص', employee: '—', lawyer: '—', mins: 6, aiDone: false, aiClass: '', aiSummary: '', aiLawyer: '', missing: [], audit: [] },
-  { ref: 'CN-2026-1039', client: 'نورة سعد الدوسري', subject: 'فصل تعسفي من العمل', type: 'عمالي', priority: 'متوسطة', status: 'قيد مراجعة الموظف', received: 'اليوم 08:40 ص', employee: 'منيرة الحربي', lawyer: '—', mins: 35, aiDone: false, aiClass: '', aiSummary: '', aiLawyer: '', missing: [], audit: [{ user: 'منيرة الحربي', field: 'الحالة', before: 'جديدة', after: 'قيد مراجعة الموظف', time: 'اليوم 08:42 ص' }] },
   { ref: 'CN-2026-1035', client: 'شركة الأفق التجارية', subject: 'مراجعة عقد توريد', type: 'تجاري', priority: 'عادية', status: 'بانتظار اعتماد الموظف', received: 'أمس 02:10 م', employee: 'منيرة الحربي', lawyer: '—', mins: 120, aiDone: true, aiClass: 'استشارة عقود تجارية', aiSummary: 'مراجعة بنود التوريد وتقييم مخاطر الإخلال واقتراح تعديلات تحمي الطرف.', aiLawyer: 'أ. سارة القحطاني', missing: ['نسخة العقد الموقّعة'], audit: [{ user: 'النظام', field: 'تحليل الفريق القانوني', before: '—', after: 'اكتمل', time: 'أمس 02:30 م' }] },
   { ref: 'CN-2026-1028', client: 'فهد علي الشهري', subject: 'طلب تنفيذ حكم', type: 'تنفيذ', priority: 'عالية', status: 'جاهزة للمحامي', received: 'أمس 11:00 ص', employee: 'منيرة الحربي', lawyer: '—', mins: 90, aiDone: true, aiClass: 'طلب تنفيذ حكم', aiSummary: 'تجهيز ملف التنفيذ ومتابعة الإجراءات لدى محكمة التنفيذ.', aiLawyer: 'أ. خالد المالكي', missing: [], audit: [{ user: 'منيرة الحربي', field: 'اعتماد التحليل', before: 'بانتظار اعتماد الموظف', after: 'جاهزة للمحامي', time: 'أمس 11:50 ص' }] },
   { ref: 'CN-2026-1020', client: 'نورة سعد الدوسري', subject: 'مطالبة مالية', type: 'تجاري', priority: 'عادية', status: 'محولة إلى قضية', received: 'قبل يومين', employee: 'منيرة الحربي', lawyer: 'أ. سارة القحطاني', mins: 140, aiDone: true, aiClass: 'مطالبة مالية', aiSummary: 'تحويلها إلى قضية مطالبة بعد تعذّر الحل الودي.', aiLawyer: 'أ. سارة القحطاني', missing: [], audit: [] },
@@ -229,7 +229,7 @@ export const CONSULT_CHANNELS: [string, string][] = [
 // ── دوال مساعدة للاستشارات ──
 export function cStage(s: string): number {
   const m: Record<string, number> = {
-    'جديدة': 0, 'قيد مراجعة الموظف': 1, 'بانتظار استكمال البيانات': 1,
+    'جديدة': 0, 'بانتظار استكمال البيانات': 1,
     // المرحلة 2 («معالجة الفريق القانوني») **لا تكون الحاليّة أبداً**: `analyze`
     // يسجّل «قيد معالجة الفريق القانوني» في سجلّ التدقيق ولا يكتبها في العمود، ثمّ
     // يكتب «بانتظار اعتماد الموظف» مباشرةً. فالخريطة كانت تحمل مفتاحاً لا يُطابَق،
@@ -238,7 +238,7 @@ export function cStage(s: string): number {
     'بانتظار اعتماد الموظف': 3,
     'جاهزة للمحامي': 4, 'محالة للمحامي': 4,
     // حالات دورة الجلسة: الاستشارة تجاوزت رحلة الاستقبال كاملةً، فتُعرض عند نهايتها
-    // (كانت غائبة فترتدّ إلى 1، فتظهر استشارة منتهية وكأنها ما زالت قيد مراجعة الموظف)
+    // (كانت غائبة فترتدّ إلى 1، فتظهر استشارة منتهية وكأنها ما زالت في مرحلة المراجعة)
     'قيد الاستشارة': 4, 'منتهية': 4,
     // **«لم يحضر» كانت ترتدّ إلى صفر** — فتُعرض جلسةٌ لم تُعقد عند «استقبال
     // الاستشارة»، أي عند بداية رحلةٍ قطعتها كاملة. وهي نهايةُ مسارٍ لا بدايته.
@@ -248,7 +248,7 @@ export function cStage(s: string): number {
 }
 
 /** حالات ما قبل الجلسة (تسعير/سداد/اختيار موعد) والملغاة خارج مسار المعالجة — لا تُعرض لها رحلة */
-export const CONSULT_BOOKING_STATUSES = ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'];
+export const CONSULT_BOOKING_STATUSES = ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد', 'بانتظار اعتماد الموعد'];
 
 /**
  * نهاياتُ الاستشارة الحقيقيّة — يطابق `Consult::STATUSES` على الخادم.
@@ -286,6 +286,68 @@ export const CONSULT_SESSION_ENDED = ['منتهية', 'لم تُعقد'];
  * تكتبها أزرار الدرج في الشاشة نفسها.
  */
 export const CONSULT_PRIORITIES = ['عالية', 'متوسطة', 'منخفضة'];
+
+/**
+ * **تطبيع نصّ البحث — توأم `App\Support\SearchText::fold`** ويحرس تطابقهما `ArabicSearchTest`.
+ *
+ * كلّ ترشيحٍ في المتصفّح كان يقوم على `toLowerCase().includes(q)`، و`toLowerCase` لا أثر
+ * لها على العربيّة: «احمد» لا يجد «أحمد»، و«محكمه» لا تجد «محكمة»، ومن يكتب `٢٠٢٦` —
+ * وهو ما تكتبه لوحة المفاتيح العربيّة — لا يجد `SB-2026-1042`.
+ */
+const SEARCH_FOLD: Record<string, string> = {
+  'أ': 'ا', 'إ': 'ا', 'آ': 'ا', 'ٱ': 'ا',
+  'ة': 'ه',
+  'ى': 'ي', 'ئ': 'ي',
+  'ؤ': 'و',
+  'ـ': '',
+  '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+  '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+  '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',
+  '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
+};
+
+/** يطبّع نصّاً للبحث: أرقاماً عربيّةً وهمزاتٍ وتاءً مربوطة وتطويلاً، مع خفض حالة الأحرف. */
+export function foldSearch(raw: string): string {
+  return (raw ?? '').replace(/[أإآٱةىئؤـ٠-٩۰-۹]/g, (c) => SEARCH_FOLD[c] ?? c).toLowerCase().trim();
+}
+
+/** أيطابق أيٌّ من الحقول نصَّ البحث؟ — نقطة الدخول الوحيدة للترشيح في المتصفّح. */
+export function matchesSearch(query: string, ...fields: (string | null | undefined)[]): boolean {
+  const q = foldSearch(query);
+  if (q === '') {
+    return true;
+  }
+
+  return fields.some((f) => foldSearch(String(f ?? '')).includes(q));
+}
+
+/**
+ * **أولويّة التذكرة — نسخةٌ تطابق `App\Support\TicketJourney::PRIORITIES` حرفاً**،
+ * ويحرس تطابقَهما `TicketPriorityCatalogueTest`.
+ *
+ * كانت كلّ شاشةٍ تكتب مفرداتها بيدها فتفرّقت: مرشّح المحامي «عاجلة/عادية/منخفضة» ولا
+ * واحدةَ منها في القاعدة، وعدّادات الموظّف تفحص «حرجة/urgent/high»، والإدارة «عاجلة جداً».
+ * خمس مفرداتٍ ميّتة، والكاتب الوحيد `'عالية'`.
+ */
+export const TICKET_PRIORITIES = ['عالية', 'متوسطة', 'منخفضة'];
+
+/** الأولويّة الافتراضيّة — تطابق `TicketJourney::PRIORITY_DEFAULT` و`default` في الهجرة. */
+export const TICKET_PRIORITY_DEFAULT = 'متوسطة';
+
+/** الأولويّة العليا — تُقرأ في العدّادات والشارات بدل قوائم مفرداتٍ متفرّقة. */
+export const TICKET_PRIORITY_URGENT = TICKET_PRIORITIES[0];
+
+/** أهي عاجلة؟ نظير `TicketJourney::isUrgent` — مصدرٌ واحد للشارة والعدّاد والتبويب. */
+export function isUrgentTicket(priority?: string | null): boolean {
+  return (priority ?? '') === TICKET_PRIORITY_URGENT;
+}
+
+/** رتبة الفرز «الأعلى أولاً» — تطابق `TicketJourney::PRIORITY_RANK`. */
+export function ticketPriorityRank(priority?: string | null): number {
+  const i = TICKET_PRIORITIES.indexOf(priority ?? '');
+
+  return i === -1 ? TICKET_PRIORITIES.length : i;
+}
 export function cHasStage(s: string): boolean {
   return s !== 'ملغاة' && !CONSULT_BOOKING_STATUSES.includes(s);
 }
@@ -333,13 +395,11 @@ export function sessTone(s: string): string {
   return 'b-grey';
 }
 
-// إخفاء أسماء العملاء للموظف — يطابق maskClient (دور الموظف)
+// اسم العميل في لوحات الطاقم — صريح (يطابق Ticket::maskClient على الخادم)
 export function maskClient(name: string): string {
-  if (!name || name === '—') return name || '—';
-  const parts = String(name).trim().split(/\s+/);
-  const f = parts[0] || '';
-  const masked = (f.slice(0, 1) || '') + '••••' + (f.slice(-1) || '');
-  return masked + (parts[1] ? ' ' + (parts[1].slice(0, 1) + '•••') : '') + ' (مشفّر)';
+  // **لا تقنيع على الإدارة والمحامي والموظّف** (قرار المالك 2026-09-11). الاسمُ باقٍ لأنّ
+  // الشاشات تناديه في مواضع كثيرة؛ تغييرُ السلوك هنا يغطّيها كلَّها دون أن يُنسى أحدُها.
+  return name || '—';
 }
 
 // إخفاء أسماء المحامين — في دور الموظف لا يُخفى (يطابق maskLawyer: ROLE!=='client')

@@ -62,22 +62,23 @@ class TicketResult
      */
     public static function card(Ticket $ticket, ?TicketSummary $summary): string
     {
-        $facts = self::list($summary?->facts ?: self::NO_FACTS);
-        $recs = self::list($summary?->key_points ?: self::NO_RECOMMENDATIONS);
-
-        $head = self::hasSubstance($summary)
-            ? '<p>تم الانتهاء من دراسة الموضوع. ملخص الاستشارة والإجراءات المقترحة متاحة داخل التذكرة.</p>'
-            : '<p>اكتملت معالجة طلبك. <b>لم تكتمل الدراسة</b> — يلزم استكمال ما هو مبيَّن أدناه.</p>';
-
-        $session = '';
+        /*
+         * **عناوين صادقة لنصّين مختلفين** (قرار المالك 2026-09-14).
+         *
+         * كانت البطاقة تُعنوَن «ملخص الاستشارة» وتعرض الوقائع والتوصيات من دراسة **ما قبل**
+         * الجلسة، بينما «استشاراتي» تعرض ملخّص الجلسة نفسها — فيقرأ العميل نصّين مختلفين بعنوانٍ
+         * واحد. الآن: ملخّص الجلسة المعتمد وقراراته أوّلاً (بالنصّ نفسه الذي في «استشاراتي»)،
+         * ثمّ «دراسة ما قبل الجلسة» في قسمٍ مستقلّ.
+         */
         $consult = $ticket->consults()
             ->whereNotNull('summary_approved_at')
             ->whereNotNull('summary')
             ->latest('id')
             ->first();
 
+        $session = '';
         if ($consult) {
-            $session = '<div class="result-sec"><div class="t">ما دار في الجلسة</div>'
+            $session = '<div class="result-sec"><div class="t">ملخّص الجلسة</div>'
                 .self::list((string) $consult->summary).'</div>';
 
             $decisions = array_values(array_filter((array) ($consult->decisions ?? [])));
@@ -88,11 +89,17 @@ class TicketResult
             }
         }
 
+        $head = $consult !== null || self::hasSubstance($summary)
+            ? '<p>تم الانتهاء من دراسة الموضوع. ملخّص الجلسة والإجراءات المقترحة متاحة داخل التذكرة.</p>'
+            : '<p>اكتملت معالجة طلبك. <b>لم تكتمل الدراسة</b> — يلزم استكمال ما هو مبيَّن أدناه.</p>';
+
+        $study = '<div class="result-sec"><div class="t">دراسة ما قبل الجلسة — الوقائع</div>'.self::list($summary?->facts ?: self::NO_FACTS).'</div>'
+            .'<div class="result-sec"><div class="t">دراسة ما قبل الجلسة — التوصيات</div>'.self::list($summary?->key_points ?: self::NO_RECOMMENDATIONS).'</div>';
+
         return $head
-            .'<div class="result-card"><h3>ملخص الاستشارة</h3>'
-            .'<div class="result-sec"><div class="t">الوقائع</div>'.$facts.'</div>'
-            .'<div class="result-sec"><div class="t">التوصيات</div>'.$recs.'</div>'
+            .'<div class="result-card"><h3>نتيجة الملف</h3>'
             .$session
+            .$study
             .'</div>';
     }
 

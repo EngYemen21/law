@@ -76,8 +76,13 @@ class AiSourceHonestyTest extends TestCase
         $this->assertSame([], $result['procedures'], 'ولا إجراءات مُختلَقة معه');
     }
 
-    /** والاحتياطيّ **وحده** مصدر الإجراءات القالبيّة — وهو موسوم بها. */
-    public function test_the_fallback_template_is_the_only_source_of_default_procedures(): void
+    /**
+     * **والاحتياطيّ لا يخترع شيئاً** (قرار المالك 2026-09-12: «لا تستخدم قوالب وهمية»).
+     * كان هذا الاختبار يفرض بقاء إجراءاتٍ قالبيّة في الفرع الاحتياطيّ بحجّة ألّا يُفرَّغ من
+     * محتواه — والقرار نقضه: قائمةٌ حتميّة لم تقرأ مستنداً تُقرأ توصيةً درسها أحد. التعذّر
+     * يبقى تعذّراً، ويُعاد جدولته (`ExecStudyRetryTest`).
+     */
+    public function test_the_fallback_invents_no_procedures(): void
     {
         config(['services.gemini.key' => '', 'services.glm.key' => '']);
         $exec = $this->execution(User::factory()->create(['role' => Role::Client]));
@@ -85,8 +90,8 @@ class AiSourceHonestyTest extends TestCase
         $result = app(LegalAiService::class)->analyzeExecution($exec);
 
         $this->assertSame(AiSource::Fallback->value, $result['source']);
-        $this->assertContains('تقديم طلب تنفيذ إلكتروني', $result['procedures'],
-            'لا يُفرَّغ الاحتياطيّ من محتواه — إصلاحٌ مفرط يُفقده قيمته');
+        $this->assertSame([], $result['procedures'], 'لا إجراءات قالبيّة تُقرأ توصيةً');
+        $this->assertSame('', $result['summary'], 'ولا ملخّصاً يزعم فحصاً لم يقع');
     }
 
     private function fakeGeminiJson(array $payload): void
@@ -189,9 +194,9 @@ class AiSourceHonestyTest extends TestCase
         }
     }
 
-    // ── نجاح فعليّ: العقد القديم يبقى كما هو بحذافيره ──
+    // ── نجاح فعليّ: الحقول والمرحلة كما هي، والإشعار محايد حتى يعتمد المحامي ──
 
-    public function test_real_analysis_keeps_the_previous_behaviour(): void
+    public function test_real_analysis_advances_the_stage_and_tells_the_client_it_is_under_study(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $exec = $this->execution($client);
@@ -208,8 +213,10 @@ class AiSourceHonestyTest extends TestCase
         $this->assertSame(AiSource::AiSuccess->value, $fresh->ai_source);
         $this->assertSame(2, (int) $fresh->stage);
 
+        // الإشعار محايد: المخرج لم يعتمده محامٍ بعد، فلا يُقال للعميل «حُلّل طلبك» ثمّ لا يجد شيئاً
         $notification = UserNotification::where('user_id', $client->id)->latest('id')->first();
-        $this->assertStringContainsString('بالذكاء الاصطناعي', (string) $notification->body);
+        $this->assertStringContainsString('قيد الدراسة', (string) $notification->body);
+        $this->assertStringNotContainsString('بالذكاء الاصطناعي', (string) $notification->body);
     }
 
     /** منادٍ قديم لا يمرّر `source` — لا ينكسر ويُعامَل كما كان (توافق خلفيّ). */
@@ -257,7 +264,7 @@ class AiSourceHonestyTest extends TestCase
         $consult = Consult::create([
             'user_id' => $client->id, 'ref' => 'CN-2026-9100', 'subject' => 'نزاع تجاري',
             'type' => 'تجاري', 'channel' => 'مرئية', 'lawyer' => 'أ. سارة القحطاني',
-            'status' => 'قيد مراجعة الموظف',
+            'status' => 'جديدة',
         ]);
 
         $this->actingAs($employee)->post(route('employee.consults.analyze', $consult))->assertRedirect();
@@ -280,7 +287,7 @@ class AiSourceHonestyTest extends TestCase
         $admin = User::factory()->create(['role' => Role::Admin]);
         $consult = Consult::create([
             'user_id' => $client->id, 'ref' => 'CN-2026-9101', 'subject' => 'نزاع',
-            'type' => 'تجاري', 'channel' => 'مرئية', 'lawyer' => '—', 'status' => 'قيد مراجعة الموظف',
+            'type' => 'تجاري', 'channel' => 'مرئية', 'lawyer' => '—', 'status' => 'جديدة',
         ]);
 
         $this->actingAs($employee)->post(route('employee.consults.analyze', $consult))->assertRedirect();

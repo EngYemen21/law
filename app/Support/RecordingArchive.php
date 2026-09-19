@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Jobs\BuildRecordingArchive;
 use App\Models\Meeting;
+use App\Models\User;
 use App\Services\ZoomService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
@@ -11,6 +12,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -50,6 +52,87 @@ class RecordingArchive
     {
         return Storage::disk('local')->exists(self::localPath($model, $type))
             || Storage::disk('local')->exists(self::legacyZipPath($model, $type));
+    }
+
+    /**
+     * **ما يتوفّر من مخرجات الجلسة — أعلامٌ لا روابط.**
+     *
+     * لماذا: كانت البطاقات ترسل روابط سحابة Zoom (`recording_url` · `zoom_audio_url` ·
+     * `zoom_share_url`) فتفتحها الأزرار في نافذةٍ خارج النظام، وتصل المتصفّحَ روابطُ
+     * مشاهدةٍ قد تحمل رموز وصول. الآن تعرف الشاشة **ماذا** يتوفّر و**هل هو جاهزٌ** على
+     * القرص، وتبني روابطها الداخليّة بمسار دورها — ولا يغادر رابطُ Zoom الخادم.
+     *
+     * «متاح» = لدى Zoom مصدرٌ أو الملفّ محفوظٌ محلياً. «جاهز» = على القرص فيُشغَّل ويُنزَّل فوراً.
+     *
+     * `locked`: الموظّف بلا «تشغيل تسجيلات الجلسات» — كلّ الأعلام `false` فلا يُعرض زرٌّ يردّه
+     * الخادم، والشاشة تقول لماذا بدل «لا تسجيل» (قرار المالك 2026-09-18).
+     *
+     * @return array{video: bool, audio: bool, transcript: bool, videoReady: bool, audioReady: bool, transcriptReady: bool, locked: bool}
+     */
+    public static function availability(Model $model, ?User $viewer = null): array
+    {
+        if (! self::viewerMayAccess($viewer ?? auth()->user())) {
+            return [
+                'video' => false, 'audio' => false, 'transcript' => false,
+                'videoReady' => false, 'audioReady' => false, 'transcriptReady' => false,
+                'locked' => true,
+            ];
+        }
+
+        $videoReady = self::isReady($model, 'video');
+        $audioReady = self::isReady($model, 'audio');
+        $video = $videoReady || filled($model->recording_url) || filled($model->zoom_share_url);
+        $transcriptReady = filled($model->transcript_path);
+
+        return [
+            'video' => $video,
+            'audio' => $audioReady || filled($model->zoom_audio_url),
+            // النصّ يُجلب عند الطلب من الجلسة المسجَّلة ذاتها — كما يفعل زرّ «النص الكامل» في الاجتماعات
+            'transcript' => $transcriptReady || $video,
+            'videoReady' => $videoReady,
+            'audioReady' => $audioReady,
+            'transcriptReady' => $transcriptReady,
+            'locked' => false,
+        ];
+    }
+
+    /**
+     * **مَن يشغّل التسجيلات وينزّلها ويقرأ نصّها.** الموظّف بصلاحيّة «تشغيل تسجيلات الجلسات»
+     * (قرار المالك 2026-09-18) — كانت صلاحيّة القسم وحدها تفتح تسجيلات المكتب كلّه. والمحامي
+     * بإسناده والإدارة بمسارها كما كانا: حرّاسهما في المتحكّمات لا هنا.
+     */
+    public static function viewerMayAccess(?User $viewer): bool
+    {
+        return $viewer === null || ! $viewer->isEmployee() || $viewer->can(Permissions::PLAY_RECORDINGS);
+    }
+
+    /** يُنادى أوّل كلّ مسارِ تسجيلٍ للطاقم — ردٌّ عربيّ صريح بدل ٤٠٣ صامت. */
+    public static function guardViewer(?User $viewer): void
+    {
+        abort_unless(self::viewerMayAccess($viewer), 403, 'لا تملك صلاحيّة تشغيل تسجيلات الجلسات — تمنحها الإدارة من تبويب الموظّفين.');
+    }
+
+    /**
+     * **تشغيلٌ داخل النظام** — يبثّ الوسيط المحفوظ محلياً للمشغّل المضمَّن في الصفحة.
+     *
+     * `BinaryFileResponse` يدعم طلبات المدى (Range) فيعمل التقديم والتأخير في المشغّل،
+     * و`inline` لا `attachment` فيُشغَّل ولا يُنزَّل. غيرُ المحفوظ يُجدوَل بناؤه ويُردّ ٤٠٤
+     * صريحاً — **لا تحويل إلى سحابة Zoom**. والشاشة لا تعرض المشغّل إلا لما هو جاهز.
+     */
+    public static function stream(Model $model, string $type): BinaryFileResponse
+    {
+        $path = self::localPath($model, $type);
+
+        if (! Storage::disk('local')->exists($path)) {
+            BuildRecordingArchive::for($model, $type);
+            abort(404, 'التسجيل قيد التحضير — يصلك إشعار فور جهوزيته.');
+        }
+
+        return response()->file(Storage::disk('local')->path($path), [
+            'Content-Type' => $type === 'audio' ? 'audio/mp4' : 'video/mp4',
+            'Content-Disposition' => 'inline; filename="'.self::fileName($model, $type).'"',
+            'Cache-Control' => 'private, no-store',
+        ]);
     }
 
     /** اسم الملف المعروض للمستخدم. */

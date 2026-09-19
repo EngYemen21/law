@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Support\EventStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * جلسة قضية — يجدولها المحامي ويسجّل نتيجتها، ويتابعها العميل.
@@ -25,6 +26,11 @@ class CaseHearing extends Model
     public function legalCase(): BelongsTo
     {
         return $this->belongsTo(LegalCase::class, 'case_id');
+    }
+
+    public function documents(): HasMany
+    {
+        return $this->hasMany(CaseDocument::class, 'hearing_id');
     }
 
     /** صياغة الموعد الموحّدة (اليوم · الوقت) — من starts_at الحقيقي وإلا النصوص المخزّنة */

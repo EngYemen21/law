@@ -8,6 +8,7 @@ use App\Support\Permissions;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
@@ -217,11 +218,15 @@ class StaffManagementTest extends TestCase
         $this->actingAs($admin)->post(route('admin.staff.toggle', $staff))->assertRedirect();
         $this->assertSame('suspended', $staff->fresh()->status);
 
-        // الموقوف يُرفض في الدخول (بعد إنهاء جلسة الإدارة)
+        // الموقوف لا يصله رمز ولا يدخل (بعد إنهاء جلسة الإدارة) — والردّ نفسه ردّ أيّ هويّة
+        // كي لا يكشف طلب الرمز أنّ الحساب موجود وموقوف
         $this->post('/logout');
-        $this->fakeTaqnyatVerify();
+        $this->fakeTaqnyatVerify('1234');
         $this->post('/auth/otp/request', ['national_id' => '2000000004'])
-            ->assertSessionHasErrors('national_id');
+            ->assertRedirect(route('login'))
+            ->assertSessionHasNoErrors();
+        Http::assertNothingSent();
+        $this->post('/auth/otp/verify', ['code' => '1234'])->assertSessionHasErrors('code');
         $this->assertGuest();
 
         // إعادة التفعيل تسمح بالدخول

@@ -216,35 +216,6 @@ class PdfRenderer
     }
 
     /**
-     * اكتشاف مسار NPM التنفيذي على مختلف بيئات التشغيل.
-     */
-    /** ⚠️ غير مستعملة حالياً: اكتشاف كروم صار عبر مسارات صريحة (راجع pdf:diagnose). */
-    public static function resolveNpmPath(): ?string
-    {
-        $explicit = env('NPM_BINARY') ?: env('NPM_PATH');
-        if ($explicit && (is_executable($explicit) || file_exists($explicit))) {
-            return $explicit;
-        }
-
-        $isWindows = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
-
-        $candidates = $isWindows ? [
-            'C:\\Program Files\\nodejs\\npm.cmd',
-            'C:\\Program Files (x86)\\nodejs\\npm.cmd',
-            (getenv('LOCALAPPDATA') ?: '').'\\Programs\\nodejs\\npm.cmd',
-            (getenv('APPDATA') ?: '').'\\npm\\npm.cmd',
-        ] : [
-            '/usr/bin/npm',
-            '/usr/local/bin/npm',
-            '/opt/homebrew/bin/npm',
-            '/home/*/.nvm/versions/node/*/bin/npm',
-            '/root/.nvm/versions/node/*/bin/npm',
-        ];
-
-        return static::findFirstExisting($candidates);
-    }
-
-    /**
      * اكتشاف مسار متصفح Chromium / Google Chrome / Microsoft Edge على مختلف بيئات التشغيل.
      */
     public static function resolveChromePath(): ?string

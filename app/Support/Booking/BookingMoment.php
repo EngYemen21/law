@@ -51,15 +51,6 @@ final class BookingMoment
         ];
     }
 
-    /** ونظيرها حين يُسمّى الحقل `date` (مسار العميل). */
-    public static function dateRules(): array
-    {
-        return [
-            'date' => ['required', 'date_format:Y-m-d', 'after_or_equal:today'],
-            'time' => ['required', 'date_format:H:i'],
-        ];
-    }
-
     /**
      * يبني اللحظة من يومٍ ووقت — ويرمي رسالةً عربيّة إن تعذّر.
      *
@@ -89,11 +80,6 @@ final class BookingMoment
         }
 
         return new self(Carbon::instance($parsed->toDateTime()), max(1, $durationMin));
-    }
-
-    public function endsAt(): Carbon
-    {
-        return $this->startsAt->copy()->addMinutes($this->durationMin);
     }
 
     /** `Y-m-d` — الصيغة التي تُخزَّن في أعمدة `day`. */

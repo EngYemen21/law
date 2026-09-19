@@ -3,49 +3,37 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
-use App\Jobs\EscalateUnassignedTicketJob;
+use App\Models\Appointment;
 use App\Models\Consult;
-use App\Models\Ticket;
 use App\Models\User;
-use App\Support\ConsultBooking;
-use App\Support\LawyerAvailability;
+use App\Models\UserNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
  * حجزُ موعد الاستشارة بدقّة الدقيقة — وشاشةٌ لا تَعِد بما لا يقع.
  *
- * كان منتقي وقت العميل صفَّ أزرارٍ على شبكةٍ نصف ساعيّة، بينما الخادم يقبل أيّ `H:i`
- * صالحٍ غير ماضٍ. فمن أراد ١١:٠٧ لم يجد سبيلاً، ومَن اختار وقتاً بلا محامٍ متفرّغ
- * كان زرُّ التأكيد يُقفَل عليه رغم أنّ `lawyer_id` **لا يُرسَل أصلاً** والإسنادُ خادميّ.
- *
- * والقاعدة المحكِمة (قرار 2026-09-05): الحجزُ المتعذّر **يُرفع للإدارة لا يُرفض** —
- * فالعميل قد سدّد، ورفضُه بعد السداد ظلمٌ وصمتٌ عن الإدارة معاً.
+ * الخادم يقبل أيّ `H:i` صالحٍ غير ماضٍ، لا شبكةً نصف ساعيّة. ومنذ 2026-09-14 يحدّد
+ * **الطاقم** الموعد بعد السداد: فمن تعذّر عليه محامٍ في الدقيقة المختارة يُقال له ذلك بصدق
+ * ليختار وقتاً أو محامياً آخر — ولا يُحجز موعدٌ بلا مستشار ولا يُوعد العميل بشيء.
  */
 class ConsultBookingCustomTimeTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     /** استشارةٌ مسدَّدةٌ واقفةٌ عند «بانتظار تحديد الموعد». */
     private function paidConsult(User $client): Consult
     {
-        $ticket = Ticket::create([
-            'user_id' => $client->id, 'number' => 'TK-CT-'.random_int(100, 999),
-            'type' => 'استشارة', 'subject' => 'نزاع تجاري', 'status' => 'جديدة',
+        $ticket = $this->ticketWithApprovedOpinion($client, [
+            'number' => 'TK-CT-'.random_int(100, 999), 'type' => 'استشارة', 'subject' => 'نزاع تجاري',
         ]);
 
-        $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'video'])->assertNoContent();
-        $consult = $ticket->consults()->latest('id')->firstOrFail();
-
-        $pricing = User::factory()->create(['role' => Role::Admin]);
-        $this->actingAs($pricing)->post(route('admin.consults.price', $consult), ['price' => 450])->assertRedirect();
-        ConsultBooking::markPaid($consult->fresh());
-
-        return $consult->fresh();
+        return $this->requestPricedAndPaid($client, $ticket, 'video');
     }
 
-    // ————— ١ · الدقيقة المخصّصة تُثبَّت كما اختارها العميل —————
+    // ————— ١ · الدقيقة المخصّصة تُثبَّت كما اختارها الطاقم —————
 
     public function test_a_custom_minute_is_booked_exactly_and_assigned_when_someone_is_free(): void
     {
@@ -53,62 +41,51 @@ class ConsultBookingCustomTimeTest extends TestCase
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $consult = $this->paidConsult($client);
 
-        $day = LawyerAvailability::resolveDate(null)->toDateString();
+        $day = now()->addDays(2)->toDateString();
 
         // 11:07 ليست من شبكة الفترات — والخادم لا يقيّد الوقت بها
-        $this->actingAs($client)->post(route('consults.schedule', $consult), [
-            'date' => $day, 'time' => '11:07',
-        ])->assertRedirect();
+        $this->adminPublishes($consult, ['date' => $day, 'time' => '11:07'])->assertOk();
 
         $consult->refresh();
-        $this->assertSame('11:07', $consult->time, 'الموعد يُثبَّت بالدقيقة التي اختارها العميل');
+        $this->assertSame('11:07', $consult->time, 'الموعد يُثبَّت بالدقيقة المختارة');
         $this->assertSame($day, $consult->day);
         $this->assertSame($lawyer->id, $consult->assigned_lawyer_id, 'ومحامٍ متفرّغ يُسنَد تلقائيّاً');
     }
 
-    public function test_a_custom_minute_with_nobody_free_is_still_booked_and_escalated(): void
+    public function test_a_custom_minute_with_nobody_free_is_refused_and_promises_nothing(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $admin = User::factory()->create(['role' => Role::Admin]);
         $consult = $this->paidConsult($client);
+        $before = UserNotification::where('user_id', $client->id)->count();
 
         // لا محاميَ في المكتب إطلاقاً ⇒ يتعذّر الإسناد
-        $day = LawyerAvailability::resolveDate(null)->toDateString();
-        $this->actingAs($client)->post(route('consults.schedule', $consult), [
-            'date' => $day, 'time' => '11:07',
-        ])->assertRedirect();
+        $this->adminPublishes($consult, ['date' => now()->addDays(2)->toDateString(), 'time' => '11:07'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('lawyer_id');
 
         $consult->refresh();
-        // **يُحجز ولا يُرفض**: العميل سدّد
-        $this->assertSame('11:07', $consult->time);
-        $this->assertSame($admin->id, $consult->assigned_lawyer_id, 'ويُرفع الملفّ للإدارة لتوزّعه');
-        $this->assertSame(EscalateUnassignedTicketJob::SENIOR_LABEL, $consult->lawyer);
-
-        // **والعميل لا يُوعَد بما لم يقع**: موعدُه مؤكَّد، ومستشارُه لم يُسنَد بعد
-        $notice = (string) DB::table('user_notifications')
-            ->where('user_id', $client->id)->orderByDesc('id')->value('body');
-        $this->assertStringContainsString('يُسنَد مستشارك قبل الجلسة', $notice);
+        $this->assertSame('بانتظار تحديد الموعد', $consult->status, 'لا موعدَ بلا مستشار');
+        $this->assertNull($consult->starts_at);
+        $this->assertSame(0, Appointment::count());
+        $this->assertSame($before, UserNotification::where('user_id', $client->id)->count(), 'ولا يُوعَد العميل بشيء');
     }
 
     public function test_staff_can_schedule_a_custom_minute_too(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $employee = User::factory()->create(['role' => Role::Employee]);
-        $ticket = Ticket::create([
-            'user_id' => $client->id, 'number' => 'TK-CT-STAFF',
-            'type' => 'استشارة', 'subject' => 'نزاع تجاري', 'status' => 'بانتظار حجز الاستشارة',
-        ]);
+        User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $consult = $this->paidConsult($client);
 
-        $this->actingAs($employee)->postJson('/employee/schedule', [
+        $this->actingAs($this->schedulingEmployee())->postJson('/employee/schedule', [
             'client_id' => $client->id,
             'type' => 'video',
-            'subject' => 'نزاع تجاري',
             'date' => now()->addDays(2)->format('Y-m-d'),
             'time' => '11:07',
-            'ticket_no' => $ticket->number,
+            'ticket_no' => $consult->ticket->number,
         ])->assertSuccessful();
 
-        $this->assertDatabaseHas('appointments', ['time' => '11:07']);
+        // اقتراح الموظّف يحجز الخانة بالدقيقة نفسها — بانتظار اعتماد الإدارة
+        $this->assertDatabaseHas('appointments', ['time' => '11:07', 'status' => 'بانتظار الاعتماد']);
     }
 
     // ————— ٢ · الشاشة تعرض المنتقي المشترك ولا تقفل التأكيد —————

@@ -7,7 +7,6 @@ import type { ConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { crChannelIcon, crChannelTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
-import { SVC, SVC_GROUPS } from '@/lib/newticket-data';
 
 // ============================================================
 // بوابة حجز الاستشارات القانونية 360 درجة (360° Consultations Booking Command Center)
@@ -121,9 +120,9 @@ const Book: React.FC<Props> = ({
       return;
     }
 
-    const svc = caseType !== OTHER ? SVC[caseType] : null;
-    const caseLabel = svc ? svc.label : otherType.trim();
-    const specialty = svc ? svc.dept : otherType.trim();
+    // المجال: قسمٌ من الكتالوج أو نصٌّ حرّ في «مجال آخر» — الخادم يطابقه بالكتالوج في الحالتين
+    const specialty = caseType !== OTHER ? caseType : otherType.trim();
+    const caseLabel = specialty;
     // حدّ الخادم subject: max:120 — بلا قصّ كان أي حجز بملاحظات حقيقية يسقط بـ422
     const composedSubject = (notes.trim()
       ? `${subject.trim()} (${caseLabel}) — ${notes.trim()}`
@@ -402,14 +401,9 @@ const Book: React.FC<Props> = ({
                 style={{ padding: '10px 14px', fontSize: 13.5 }}
               >
                 <option value="">— اختر المجال القضائي —</option>
-                {SVC_GROUPS.map(([group, keys]) => (
-                  <optgroup key={group} label={group}>
-                    {keys.map((k) => (
-                      <option key={k} value={k}>
-                        {SVC[k].label} ({SVC[k].dept})
-                      </option>
-                    ))}
-                  </optgroup>
+                {/* الأقسام الفعّالة من كتالوج الأقسام — يمرّرها الخادم */}
+                {specialties.map((s) => (
+                  <option key={s} value={s}>{s}</option>
                 ))}
                 <option value={OTHER}>مجال آخر / تخصص إضافي</option>
               </select>

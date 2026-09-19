@@ -40,14 +40,14 @@ return;
   // رسائل الخادم (flash.error / flash.success) → toast — استهلاك مشاركة موجودة أصلاً في HandleInertiaRequests
   useEffect(() => {
     if (flashError) {
-toast(flashError);
-}
+      toast(flashError, 'error');
+    }
   }, [flashError, toast]);
 
   useEffect(() => {
     if (flashSuccess) {
-toast(flashSuccess);
-}
+      toast(flashSuccess, 'success');
+    }
   }, [flashSuccess, toast]);
 
   return (

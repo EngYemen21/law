@@ -1,8 +1,9 @@
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
+import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 
 /* ─────────────────────────────────────────────────────────────
@@ -54,9 +55,13 @@ interface Props {
   cases: CaseRow[];
   types?: TypeFilter[];
   kpis?: CaseKPIs;
+  /** مجموعات الحالات من `CaseJourney::adminTabs` — لا قوائم باليد في الشاشة */
+  tabs?: { pendingFee: string[]; active: string[]; judged: string[]; closed: string[] };
 }
 
-export const AdminCases: React.FC<Props> = ({ cases = [], types = [], kpis }) => {
+const NO_TABS = { pendingFee: [] as string[], active: [] as string[], judged: [] as string[], closed: [] as string[] };
+
+export const AdminCases: React.FC<Props> = ({ cases = [], types = [], kpis, tabs = NO_TABS }) => {
   const toast = useToast();
 
   // State
@@ -140,25 +145,25 @@ setPreviewCase(null);
   // KPIs
   const totalCases = cases.length;
   const activeCases = useMemo(
-    () => cases.filter((c) => ['قيد الترافع', 'قيد النظر', 'جلسات جارية', 'مرافعة'].includes(c.status)).length,
-    [cases]
+    () => cases.filter((c) => tabs.active.includes(c.status)).length,
+    [cases, tabs]
   );
-  const judgedCases = useMemo(() => cases.filter((c) => c.status === 'صدر الحكم').length, [cases]);
-  const closedCases = useMemo(() => cases.filter((c) => ['مغلقة', 'مؤرشفة'].includes(c.status)).length, [cases]);
+  const judgedCases = useMemo(() => cases.filter((c) => tabs.judged.includes(c.status)).length, [cases, tabs]);
+  const closedCases = useMemo(() => cases.filter((c) => tabs.closed.includes(c.status)).length, [cases, tabs]);
 
   // Filtered Cases
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = foldSearch(search);
 
     return cases
       .filter((c) => {
         if (q) {
           const hit =
-            c.no.toLowerCase().includes(q) ||
-            c.client.toLowerCase().includes(q) ||
+            foldSearch(c.no).includes(q) ||
+            foldSearch(c.client).includes(q) ||
             (c.realClientName || '').toLowerCase().includes(q) ||
-            c.type.toLowerCase().includes(q) ||
-            c.lawyer.toLowerCase().includes(q) ||
+            foldSearch(c.type).includes(q) ||
+            foldSearch(c.lawyer).includes(q) ||
             (c.courtName || '').toLowerCase().includes(q) ||
             (c.opponent || '').toLowerCase().includes(q);
 
@@ -168,19 +173,19 @@ return false;
         }
 
         // Status tab
-        if (statusTab === 'active' && !['قيد الترافع', 'قيد النظر', 'جلسات جارية', 'مرافعة'].includes(c.status)) {
+        if (statusTab === 'active' && !tabs.active.includes(c.status)) {
           return false;
         }
 
-        if (statusTab === 'judged' && c.status !== 'صدر الحكم') {
+        if (statusTab === 'judged' && !tabs.judged.includes(c.status)) {
           return false;
         }
 
-        if (statusTab === 'closed' && !['مغلقة', 'مؤرشفة'].includes(c.status)) {
+        if (statusTab === 'closed' && !tabs.closed.includes(c.status)) {
           return false;
         }
 
-        if (statusTab === 'pendingFee' && !['بانتظار سداد الأتعاب', 'بانتظار اعتماد الأتعاب'].includes(c.status)) {
+        if (statusTab === 'pendingFee' && !tabs.pendingFee.includes(c.status)) {
           return false;
         }
 
@@ -202,7 +207,7 @@ return false;
 
         return (b.id || 0) - (a.id || 0);
       });
-  }, [cases, search, statusTab, selectedType, sortBy]);
+  }, [tabs, cases, search, statusTab, selectedType, sortBy]);
 
   return (
     <>
@@ -226,7 +231,9 @@ return false;
           <button
             className="hero-b ghost"
             type="button"
-            onClick={() => router.visit(window.location.pathname)}
+            // `reload` لا `visit(pathname)`: `reload` تحفظ الحالة افتراضاً، والثانية زيارةٌ جديدة
+            // فيُعاد تركيب المكوّن ويضيع البحث والتبويب والفرز، وتُحذف معها معطيات الرابط.
+            onClick={() => router.reload()}
           >
             <Icon name="cal" /> تحديث السجل
           </button>
@@ -252,7 +259,7 @@ return false;
         >
           <div className="si"><Icon name="scale" /></div>
           <div className="num">{activeCases}</div>
-          <div className="lbl">قضايا قيد الترافع والنظر</div>
+          <div className="lbl">قضايا قيد العمل (تحضير ونظر)</div>
         </div>
 
         <div
@@ -310,7 +317,7 @@ return false;
                 type="button"
                 onClick={() => setStatusTab('active')}
               >
-                قيد الترافع ({activeCases})
+                قيد العمل ({activeCases})
               </button>
               <button
                 className={`tab${statusTab === 'judged' ? ' on' : ''}`}
@@ -502,6 +509,13 @@ return false;
                               <Icon name="folder" /> {isBusy ? '…' : 'أرشفة'}
                             </button>
                           )}
+                          <Link
+                            className="btn sm ghost"
+                            href={`/admin/cases/${encodeURIComponent(c.no)}`}
+                            title="فتح ملف القضية كاملاً: المحادثة والجلسات والمستندات"
+                          >
+                            <Icon name="folder" /> الملف
+                          </Link>
                           <button
                             className="btn sm ghost"
                             type="button"
@@ -520,7 +534,7 @@ return false;
           ) : (
             <div className="empty">
               <Icon name="scale" />
-              <b>لا توجد قضايا مطابقة لخيارات الفلترة المحددة</b>
+              <b>{cases.length === 0 ? 'لا توجد قضايا بعد' : 'لا توجد قضايا مطابقة لخيارات الفلترة المحددة'}</b>
               <button
                 type="button"
                 className="btn ghost sm"

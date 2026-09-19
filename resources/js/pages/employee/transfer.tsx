@@ -4,6 +4,7 @@ import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
+import { foldSearch, isUrgentTicket } from '@/lib/employee-data';
 
 // ============================================================
 // لوحة تحويل التذاكر وتوزيع أعباء العمل للموظف (Smart Re-assignment Hub)
@@ -92,7 +93,7 @@ const EmployeeTransfer: React.FC<Props> = ({
   const calculatedCounts = useMemo(() => {
     const unassigned = tickets.filter((t) => t.isUnassigned || !t.lawyerId || t.lawyer === '—').length;
     const assigned = tickets.filter((t) => !t.isUnassigned && t.lawyerId && t.lawyer !== '—').length;
-    const urgent = tickets.filter((t) => ['عالية', 'حرجة', 'urgent', 'high'].includes(t.priority?.toLowerCase() ?? '')).length;
+    const urgent = tickets.filter((t) => isUrgentTicket(t.priority)).length;
 
     return {
       total: counts?.total ?? tickets.length,
@@ -116,7 +117,7 @@ const EmployeeTransfer: React.FC<Props> = ({
 
       // فلترة التبويب
       if (activeTab === 'unassigned' && !isUn) return false;
-      if (activeTab === 'urgent' && !['عالية', 'حرجة', 'urgent', 'high'].includes(t.priority?.toLowerCase() ?? '')) return false;
+      if (activeTab === 'urgent' && !isUrgentTicket(t.priority)) return false;
 
       // فلترة القسم
       if (filterDept !== 'all' && t.dept !== filterDept) return false;
@@ -126,12 +127,12 @@ const EmployeeTransfer: React.FC<Props> = ({
 
       // البحث النصي
       if (searchQuery.trim()) {
-        const q = searchQuery.trim().toLowerCase();
-        const noMatch = t.no.toLowerCase().includes(q);
-        const clientMatch = t.client.toLowerCase().includes(q);
-        const typeMatch = t.type.toLowerCase().includes(q);
-        const deptMatch = t.dept.toLowerCase().includes(q);
-        const lawyerMatch = t.lawyer.toLowerCase().includes(q);
+        const q = foldSearch(searchQuery);
+        const noMatch = foldSearch(t.no).includes(q);
+        const clientMatch = foldSearch(t.client).includes(q);
+        const typeMatch = foldSearch(t.type).includes(q);
+        const deptMatch = foldSearch(t.dept).includes(q);
+        const lawyerMatch = foldSearch(t.lawyer).includes(q);
         const subMatch = t.subject?.toLowerCase().includes(q) ?? false;
         if (!noMatch && !clientMatch && !typeMatch && !deptMatch && !lawyerMatch && !subMatch) {
           return false;
@@ -331,7 +332,7 @@ const EmployeeTransfer: React.FC<Props> = ({
               style={{ boxShadow: activeTab === 'urgent' ? undefined : 'none' }}
               onClick={() => setActiveTab('urgent')}
             >
-              <Icon name="sparkles" /> عاجلة وحرجة ({calculatedCounts.urgent})
+              <Icon name="sparkles" /> عاجلة ({calculatedCounts.urgent})
             </button>
             <button
               type="button"
@@ -562,7 +563,7 @@ const EmployeeTransfer: React.FC<Props> = ({
             ) : (
               <div className="empty">
                 <Icon name="folder" />
-                <b>لا توجد تذاكر تطابق خيارات العرض المحددة</b>
+                <b>{tickets.length === 0 ? 'لا توجد تذاكر بعد' : 'لا توجد تذاكر تطابق خيارات العرض المحددة'}</b>
               </div>
             )}
           </div>

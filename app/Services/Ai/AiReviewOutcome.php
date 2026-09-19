@@ -2,16 +2,25 @@
 
 namespace App\Services\Ai;
 
-use App\Events\CaseMessageBroadcast;
+use App\Domain\Journey\Transitions\Consult\ApproveConsultSummary;
+use App\Domain\Journey\Workflow;
+use App\Enums\AiSource;
+use App\Enums\Role;
 use App\Events\CaseStatusBroadcast;
 use App\Events\ConsultStatusBroadcast;
+use App\Jobs\ClassifyConvertedCaseJob;
 use App\Models\AiRun;
 use App\Models\Consult;
 use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\User;
+use App\Support\Audit;
+use App\Support\CasePleading;
+use App\Support\ConsultSessionOutcome;
+use App\Support\LegalCatalogue;
 use App\Support\Live;
 use App\Support\Notify;
+use Illuminate\Support\Facades\DB;
 
 /**
  * أثر قرار المراجعة في الملفّ — لا في `ai_runs` وحده.
@@ -164,9 +173,12 @@ class AiReviewOutcome
             'consult.summary' => self::releaseConsultSummary($run, $reviewer),
             'execution' => self::releaseExecutionAnalysis($run, $reviewer),
             // بقيّة المهامّ العالية بلا أثرٍ هنا **عمداً**: مخرجها معروضٌ للمكتب
-            // وحده أصلاً (`ticket.summary` · `case.classify` · `meeting.*`)، أو
+            // وحده أصلاً (`ticket.summary` · `meeting.*`)، أو
             // يعود للمتصفّح بلا تخزين (`najiz.statement` · `assistant.draft`).
             // و`case.pleading` يُطلَق في `releaseCasePleading` — انظر أدناه.
+            // `case.classify` كان هنا «معروضاً للمكتب وحده» — وهو يعيد كتابة رسالةٍ يراها العميل.
+            // صار مقترحاً محفوظاً يُطبَّق عند القبول.
+            'case.classify' => self::releaseCaseClassification($run, $reviewer),
             'case.pleading' => self::releaseCasePleading($run, $reviewer),
             default => null,
         };
@@ -184,7 +196,10 @@ class AiReviewOutcome
         $consult = self::consultOf($run);
 
         if ($consult !== null) {
-            self::approveConsultSummary($consult, $reviewer);
+            // قبول المحامي في الصندوق = المرحلة الأولى؛ قبول الإدارة = الاعتماد النهائيّ والنشر
+            $reviewer->isAdmin()
+                ? self::approveConsultSummary($consult, $reviewer)
+                : self::lawyerApproveConsultSummary($consult, $reviewer);
         }
     }
 
@@ -205,23 +220,68 @@ class AiReviewOutcome
      */
     public static function approveConsultSummary(Consult $consult, User $reviewer): bool
     {
-        if ($consult->summaryApproved() || blank($consult->summary)) {
+        /*
+         * **كلّه أو لا شيء.** اعتماد الملخّص ونشر نتيجة التذكرة ونقل حالتها في معاملةٍ واحدة:
+         * كان الاعتماد يُحفظ ويُشعَر العميل، ثمّ يرفض المحرّك نقل التذكرة — فتبقى «بانتظار
+         * ملخّص الجلسة» والملخّص «معتمد» فتُرفض كلّ إعادة محاولة، ولا زرّ يُخرجها.
+         *
+         * القفل على الاستشارة يجعل الاعتمادين المتزامنين متتابعَين: الثاني يقرأ الاعتماد
+         * الأوّل فيعود بـ`false` بدل أن يكرّر الرسالتين والإشعار.
+         */
+        return DB::transaction(function () use ($consult, $reviewer) {
+            $consult = Consult::whereKey($consult->getKey())->lockForUpdate()->firstOrFail();
+
+            // والجلسة المنعقدة وحدها لها ملخّص — الصندوق وشاشة الملفّ يلتزمان الحارس نفسه (ع٢٢)
+            if ($consult->summaryApproved() || blank($consult->summary) || $consult->session !== 'منتهية') {
+                return false;
+            }
+
+            // الكتابة وقيد التدقيق في الانتقال — انظر `ApproveConsultSummary`
+            Workflow::run(new ApproveConsultSummary, $consult, $reviewer);
+
+            // ما يخرج من النظام بعد الحفظ فقط — ويسقط إن ألغى رفضُ المحرّك المعاملة
+            DB::afterCommit(function () use ($consult) {
+                Notify::send(
+                    $consult->user_id,
+                    'doc',
+                    't-green',
+                    "اعتُمد ملخّص استشارتك ({$consult->ref}) وهو متاح الآن في «استشاراتي»."
+                );
+
+                Live::push(new ConsultStatusBroadcast($consult->fresh()));
+            });
+
+            // **واعتماد الإدارة لملخّص الجلسة هو نفسه اعتماد نتيجة التذكرة** — بطاقةٌ واحدة بالنصّ نفسه
+            ConsultSessionOutcome::publish($consult->fresh(), $reviewer);
+
+            return true;
+        });
+    }
+
+    /**
+     * **المرحلة الأولى: المحامي يعتمد ملخّص الجلسة ويرفعه للإدارة** (قرار المالك 2026-09-14).
+     *
+     * لا يصل العميلَ شيء، ويُقفل التحرير على المحامي؛ والإدارة تُنبَّه لتعتمده نهائيّاً.
+     *
+     * @return bool هل وقع الاعتماد الآن؟
+     */
+    public static function lawyerApproveConsultSummary(Consult $consult, User $lawyer): bool
+    {
+        if ($consult->summaryApproved() || $consult->summary_lawyer_approved_at !== null
+            || blank($consult->summary) || $consult->session !== 'منتهية') {
             return false;
         }
 
         $consult->update([
-            'summary_approved_at' => now(),
-            'summary_approved_by' => $reviewer->id,
+            'summary_lawyer_approved_at' => now(),
+            'summary_lawyer_approved_by' => $lawyer->id,
         ]);
+        $consult->logAudit($lawyer->name, 'اعتماد ملخّص الاستشارة', 'مبدئيّ', 'اعتمده المستشار — بانتظار الإدارة');
+        $consult->save();
 
-        $consult->logAudit($reviewer->name, 'اعتماد ملخّص الاستشارة', 'مبدئيّ', 'معتمد');
-
-        Notify::send(
-            $consult->user_id,
-            'doc',
-            't-green',
-            "اعتُمد ملخّص استشارتك ({$consult->ref}) وهو متاح الآن في «استشاراتي»."
-        );
+        foreach (User::where('role', Role::Admin)->pluck('id') as $adminId) {
+            Notify::send($adminId, 'doc', 't-amber', "اعتمد المستشار {$lawyer->name} ملخّص جلسة الاستشارة ({$consult->ref}) — بانتظار اعتمادكم النهائيّ قبل إرساله للعميل.");
+        }
 
         Live::push(new ConsultStatusBroadcast($consult->fresh()));
 
@@ -245,7 +305,26 @@ class AiReviewOutcome
             return;
         }
 
+        // **الاحتياطيّ لا يُنشر للعميل وسمُه «دراسة معتمدة».** القالب الاحتياطيّ لا يفحص مستنداً
+        // واحداً (`ExecService::applyAnalysis`)، والبطاقة ترفض عرضه للعميل أصلاً — فاعتمادُه
+        // إقرارٌ بمراجعةٍ بشريّة للملفّ لا نشرٌ لنصٍّ آليّ. نظير الحارس في `releaseCasePleading`.
+        if ($run->source === AiSource::Fallback) {
+            return;
+        }
+
         $exec->update(['ai_approved_at' => now(), 'ai_approved_by' => $reviewer->id]);
+
+        // الدراسة تُكتب ملاحظةً داخليّة عند إنتاجها (`ExecService::applyAnalysis`)، فالاعتماد هو
+        // الذي ينشرها في المحادثة — كما يُطلق اعتمادُ اللائحة مسودّتَها للعميل.
+        $missing = is_array($exec->ai_missing) ? array_values($exec->ai_missing) : [];
+        $exec->messages()->create([
+            'who' => 'ai',
+            'name' => 'المساعد القانوني',
+            'role' => 'دراسة معتمدة',
+            'body' => '<p>'.e((string) $exec->ai_summary).'</p>'
+                .($missing ? '<p><b>نواقص مطلوبة:</b> '.e(implode(' · ', $missing)).'</p>' : ''),
+            'time_label' => now()->format('h:i').' '.(now()->hour < 12 ? 'ص' : 'م'),
+        ]);
 
         Notify::send(
             $exec->user_id,
@@ -271,28 +350,61 @@ class AiReviewOutcome
             ? $run->entity
             : LegalCase::where('number', $run->entity_ref)->first();
 
-        // `reorder` قبل الترتيب: العلاقة مرتّبة تصاعدياً في تعريفها، و`latest` تُلحق
-        // ترتيباً ثانياً لا تستبدل الأوّل — فتعود أقدم رسالة لا أحدثها.
-        $draft = $case?->messages()
-            ->where('role', 'مسودة اللائحة')
-            ->reorder('id', 'desc')
-            ->first();
-
-        if ($draft === null || $draft->withheld_at === null) {
+        // **لا يُطلَق نصٌّ احتياطيّ لائحةً.** حين يتعذّر المزوّد تُكتب «تعذّر توليد المسودّة…»
+        // بدور المسودّة نفسه، وقبولُه هنا كان يرسله للعميل بوصفه لائحة الدعوى.
+        if ($run->source === AiSource::Fallback) {
             return;
         }
 
-        $draft->update(['withheld_at' => null]);
+        // **اعتمادٌ واحد** (قرار المالك 2026-09-11): الإطلاقُ ورفعُ الدعوى في مصدرٍ يناديه
+        // زرُّ المحامي أيضاً. كان القبول هنا يُطلق النصّ ويترك القضيّة «قيد التحضير»،
+        // والزرُّ ينقلها إلى «منظورة» ويترك النصّ محجوباً.
+        // ولا نصٌّ يحمل تنبيهاً داخلياً (أسانيد غير مُتحقَّقة…) — يُعالَج في محرّر اللائحة أوّلاً
+        if ($case !== null && ! CasePleading::hasWarnings($case)) {
+            CasePleading::approve($case, $reviewer);
+        }
+    }
 
-        // البثّ **هنا** لا عند الإنشاء: `CaseMessage::booted` يتخطّى المحجوبة لأن
-        // قناة `case.{id}` يُخوَّل عليها العميل. فتصله لحظة الاعتماد لا لحظة الكتابة.
-        Live::push(new CaseMessageBroadcast($draft->fresh()));
+    /**
+     * تطبيق تصنيف القضيّة المقترح بعد اعتماده.
+     *
+     * النوع والقسم يوجّهان الملفّ كلّه، ورسالة «التحليل» يراها العميل — فلا يُكتب شيءٌ منها
+     * قبل أن يقرأ المراجع المقترح بجوار الحاليّ (`AiReviewPreview::caseClassification`).
+     */
+    private static function releaseCaseClassification(AiRun $run, User $reviewer): void
+    {
+        $case = $run->entity instanceof LegalCase
+            ? $run->entity
+            : LegalCase::where('number', $run->entity_ref)->first();
 
-        Notify::send(
-            $case->user_id,
-            'doc',
-            't-green',
-            "اعتمد المستشار مسودّة لائحة الدعوى في قضيتك ({$case->number}) وهي متاحة الآن في ملفّ القضية."
+        $proposal = $case?->ai_classification;
+        if ($case === null || ! is_array($proposal) || blank($proposal['type'] ?? null) || blank($proposal['department'] ?? null)) {
+            return;
+        }
+
+        $before = ['النوع' => $case->type, 'القسم' => $case->department];
+        // الاسم المعتمد في الكتالوج إن طابق المقترح قسماً — فلا تدخل القضيّةَ صياغةٌ ثانية لقسمٍ واحد
+        $department = LegalCatalogue::resolveDepartment($proposal['department']);
+        $case->update([
+            'type' => $proposal['type'],
+            'department' => $department !== null ? $department->name : $proposal['department'],
+            'ai_classification' => null,
+        ]);
+
+        // تُعاد كتابة رسالة «التحليل» القائمة لا تُضاف ثانية — وإلا رأى العميل تحليلين متناقضين
+        $message = $case->messages()->where('role', 'تحليل')->reorder('id', 'desc')->first();
+        if ($message !== null && $case->ticket !== null) {
+            $message->update(['body' => ClassifyConvertedCaseJob::analysisBody($case->ticket, $proposal, refined: true)]);
+        }
+
+        Audit::log(
+            action: 'اعتماد تصنيف القضية',
+            description: "اعتمد {$reviewer->name} التصنيف المقترح للقضية {$case->number}: {$proposal['type']} — {$proposal['department']}.",
+            category: 'قضايا وتنفيذ',
+            auditable: $case,
+            auditableRef: $case->number,
+            beforeState: $before,
+            afterState: ['النوع' => $proposal['type'], 'القسم' => $proposal['department']],
         );
 
         Live::push(new CaseStatusBroadcast($case->fresh()));

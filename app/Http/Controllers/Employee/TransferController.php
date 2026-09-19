@@ -9,8 +9,11 @@ use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
+use App\Rules\ActiveLegalDepartment;
 use App\Support\Audit;
+use App\Support\LegalCatalogue;
 use App\Support\TicketAssignment;
+use App\Support\TicketJourney;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -70,7 +73,7 @@ class TransferController extends Controller
             'total' => $allTickets->count(),
             'unassigned' => $allTickets->filter(fn (Ticket $t) => ! $t->assigned_lawyer_id || in_array($t->assigned_lawyer, ['', '—', null], true))->count(),
             'assigned' => $allTickets->filter(fn (Ticket $t) => (bool) $t->assigned_lawyer_id && ! in_array($t->assigned_lawyer, ['', '—', null], true))->count(),
-            'urgent' => $allTickets->filter(fn (Ticket $t) => in_array($t->priority, ['عالية', 'حرجة', 'urgent', 'high']))->count(),
+            'urgent' => $allTickets->filter(fn (Ticket $t) => TicketJourney::isUrgent($t->priority))->count(),
         ];
 
         $departments = $allTickets->pluck('department')->filter()->unique()->values();
@@ -103,13 +106,14 @@ class TransferController extends Controller
         $data = $request->validate([
             'lawyer_id' => ['required', 'integer', new ActiveLawyer],
             'reason' => ['nullable', 'string', 'max:200'],
-            'department' => ['nullable', 'string', 'max:190'],
+            // قسمٌ فعّال من الكتالوج فقط — كان يُقبل أيّ نصٍّ، ومنه أقسامٌ إداريّة كـ«خدمة العملاء»
+            'department' => ['nullable', 'string', 'max:190', new ActiveLegalDepartment],
         ]);
 
         $lawyer = User::findOrFail($data['lawyer_id']);
         $from = $ticket->assigned_lawyer ?: '—';
         $fromDept = $ticket->department;
-        $toDept = $data['department'] ?? null;
+        $toDept = LegalCatalogue::fromInput($data['department'] ?? null)?->name;
 
         $ticket->update(array_filter([
             'assigned_lawyer' => $lawyer->name,
@@ -156,11 +160,12 @@ class TransferController extends Controller
             'tickets.*' => ['required', 'string'],
             'lawyer_id' => ['required', 'integer', new ActiveLawyer],
             'reason' => ['nullable', 'string', 'max:200'],
-            'department' => ['nullable', 'string', 'max:190'],
+            'department' => ['nullable', 'string', 'max:190', new ActiveLegalDepartment],
         ]);
 
         $lawyer = User::findOrFail($data['lawyer_id']);
         $tickets = Ticket::whereIn('number', $data['tickets'])->get();
+        $data['department'] = LegalCatalogue::fromInput($data['department'] ?? null)?->name;
 
         DB::transaction(function () use ($tickets, $lawyer, $data, $request) {
             foreach ($tickets as $ticket) {

@@ -9,9 +9,9 @@ use App\Models\Execution;
 use App\Models\User;
 use App\Services\Ai\AiConfidence;
 use App\Services\Ai\AiPolicyGate;
-use App\Services\Ai\AiPromptRegistry;
 use App\Services\LegalAiService;
 use App\Support\ExecService;
+use App\Support\LegalCatalogue;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -177,7 +177,7 @@ class AiConfidenceTest extends TestCase
     /** القاموس مصدره السجلّ لا نسخة ثانية في المقياس. */
     public function test_catalogue_signal_reads_from_the_registry(): void
     {
-        $first = trim(explode('،', AiPromptRegistry::DEPARTMENTS)[0]);
+        $first = LegalCatalogue::departments()->first()->name;
 
         $this->assertTrue(AiConfidence::forTicketTriage($first, 'تفاصيل', '', 'نوع')['signals']['department_in_catalogue']);
     }

@@ -45,7 +45,9 @@ class AuthController extends Controller
                 'step' => 'otp',
                 'mode' => $otp['mode'] ?? 'login',
                 'channel' => $otp['channel'] ?? 'sms', // sms (تقنيات) | email (Resend)
-                'maskedTarget' => $otp['masked'] ?? null,
+                // الدخول لا يعرض أرقام الجوال: عرضها يُثبت أنّ للهويّة حساباً مفعّلاً.
+                // التسجيل يعرضها لأنّ الجوال أدخله صاحبه بنفسه.
+                'maskedTarget' => ($otp['purpose'] ?? 'login') === 'login' ? null : ($otp['masked'] ?? null),
                 'resendSeconds' => OtpService::RESEND_SECONDS,
                 // يتغيّر مع كل إصدار — لإعادة ضبط مؤقّت الإرسال في الواجهة
                 'nonce' => $otp['requestId'] ?? ($otp['expires_at'] ?? null),
@@ -73,23 +75,15 @@ class AuthController extends Controller
 
         $this->ensureConfigured('national_id');
 
-        // كل حسابات هذه الهُويّة (قد يملك الشخص أكثر من دور) — تتشارك الجوال نفسه
-        $accounts = User::where('national_id', $data['national_id'])->get();
-
-        if ($accounts->isEmpty()) {
-            throw ValidationException::withMessages(['national_id' => 'لا يوجد حساب بهذه الهوية.']);
-        }
-
-        $active = $accounts->filter->isActive();
-
-        if ($active->isEmpty()) {
-            throw ValidationException::withMessages(['national_id' => 'الحساب موقوف حالياً، يرجى مراجعة الإدارة.']);
-        }
-
-        $sender = $active->first(fn (User $u) => filled($u->phone));
+        // **الردّ واحدٌ لكلّ هويّة.** لا حساب، أو موقوف، أو بلا جوال ⇒ شاشة الرمز نفسها بلا إرسال،
+        // وأيّ رمزٍ يُرفض برسالة الرمز الخاطئ نفسها. كانت ثلاث رسائل مختلفة («لا يوجد حساب» ·
+        // «موقوف» · «لا جوال») تكشف أيّ أرقام الهويّة مسجّلة لدى المكتب ومن منها موقوف.
+        $sender = $this->smsSenderFor($data['national_id']);
 
         if (! $sender) {
-            throw ValidationException::withMessages(['national_id' => 'لا يوجد جوال مسجّل لهذا الحساب، يرجى مراجعة الإدارة.']);
+            $request->session()->put('otp', $this->decoyOtpSession($data['national_id']));
+
+            return redirect()->route('login');
         }
 
         // رمز واحد للجوال المشترك — اختيار الحساب يتمّ بعد التحقّق (إن تعدّدت الحسابات)
@@ -260,7 +254,7 @@ class AuthController extends Controller
             throw ValidationException::withMessages(['phone' => 'تعذّر إرسال رمز التحقّق حالياً، يرجى المحاولة لاحقاً.']);
         }
 
-        $request->session()->put('reg', $data);
+        $request->session()->put('reg', $data + ['sms_issues' => 1]);
         $request->session()->put('otp', $this->otpSession($res, 'register'));
 
         return redirect()->route('login');
@@ -343,16 +337,16 @@ class AuthController extends Controller
             return redirect()->route('login');
         }
 
-        // دخول: إعادة رمز SMS للجوال المشترك (بالهُويّة)
+        // دخول: إعادة رمز SMS للجوال المشترك (بالهُويّة) — بسقف إصدارات، والهويّة غير
+        // المسجّلة تُعامَل بالمسار نفسه تماماً (السقف نفسه، بلا إرسال) كي لا تكشف الإعادةُ شيئاً
         if (($otp['purpose'] ?? null) === 'login') {
-            $nid = $otp['national_id'] ?? null;
-            $sender = $nid
-                ? User::where('national_id', $nid)->get()->filter->isActive()->first(fn (User $u) => filled($u->phone))
-                : User::find($otp['user_id'] ?? null);
+            $issues = $this->nextSmsIssue((int) ($otp['issues'] ?? 1));
+            $nid = (string) ($otp['national_id'] ?? '');
+            $sender = $nid !== '' ? $this->smsSenderFor($nid) : null;
 
-            if ($sender) {
-                $request->session()->put('otp', $this->otpSession(app(OtpService::class)->request($sender), 'login', $sender->id, $nid));
-            }
+            $request->session()->put('otp', $sender
+                ? $this->otpSession(app(OtpService::class)->request($sender), 'login', $sender->id, $nid, $issues)
+                : $this->decoyOtpSession($nid, $issues));
 
             return redirect()->route('login');
         }
@@ -371,6 +365,10 @@ class AuthController extends Controller
                 $email = app(EmailOtpService::class)->issue($reg['email'], $reg['name']);
                 $request->session()->put('otp', $email + ['purpose' => 'register', 'mode' => 'register', 'phone_verified' => true]);
             } else {
+                // سقف إصدارات رمز الجوال (نظير رمز البريد أعلاه)
+                $reg['sms_issues'] = $this->nextSmsIssue((int) ($reg['sms_issues'] ?? 1));
+                $request->session()->put('reg', $reg);
+
                 $request->session()->put('otp', $this->otpSession(app(OtpService::class)->requestForRegistration($reg['phone']), 'register'));
             }
         }
@@ -430,7 +428,8 @@ class AuthController extends Controller
             ]);
         }
 
-        if (app(OtpService::class)->verify($otp['requestId'], $otp['phone'], $code)) {
+        // عمليّة هويّةٍ بلا حسابٍ صالح (decoy) لا تنجح أبداً — وتمرّ بعدّاد المحاولات والرسالة نفسيهما
+        if (empty($otp['decoy']) && app(OtpService::class)->verify($otp['requestId'], (string) $otp['phone'], $code)) {
             return;
         }
 
@@ -447,7 +446,11 @@ class AuthController extends Controller
         throw ValidationException::withMessages(['code' => 'رمز التحقّق غير صحيح أو منتهٍ.']);
     }
 
-    private function otpSession(array $res, string $purpose, ?int $userId = null, ?string $nationalId = null): array
+    /**
+     * @param  array<string, mixed>  $res
+     * @return array<string, mixed>
+     */
+    private function otpSession(array $res, string $purpose, ?int $userId = null, ?string $nationalId = null, int $issues = 1): array
     {
         return [
             'channel' => 'sms',
@@ -459,7 +462,53 @@ class AuthController extends Controller
             'masked' => $res['masked_phone'],
             'mode' => $purpose,
             'attempts' => 0,
+            'issues' => $issues,
         ];
+    }
+
+    /** الحساب المفعّل ذو الجوال لهذه الهويّة (مُرسِل الرمز) — أو null: لا حساب أو موقوف أو بلا جوال. */
+    private function smsSenderFor(string $nationalId): ?User
+    {
+        return User::where('national_id', $nationalId)->get()
+            ->filter->isActive()
+            ->first(fn (User $u) => filled($u->phone));
+    }
+
+    /**
+     * عمليّة دخولٍ شكليّة لهويّةٍ بلا حسابٍ صالح: البنية نفسها بلا إرسال ولا جوال، ولا تنجح أبداً.
+     * `decoy` لا يغادر الخادم (الجلسة لا تُرسَل للواجهة إلا عبر show()، وهي لا تقرؤه).
+     *
+     * @return array<string, mixed>
+     */
+    private function decoyOtpSession(string $nationalId, int $issues = 1): array
+    {
+        return [
+            'channel' => 'sms',
+            'requestId' => 'none-'.Str::uuid(),
+            'phone' => null,
+            'purpose' => 'login',
+            'user_id' => null,
+            'national_id' => $nationalId,
+            'masked' => null,
+            'mode' => 'login',
+            'attempts' => 0,
+            'issues' => $issues,
+            'decoy' => true,
+        ];
+    }
+
+    /** رقم الإصدار التالي لرمز الجوال — أو رفضٌ عند تجاوز OtpService::MAX_ISSUES. */
+    private function nextSmsIssue(int $current): int
+    {
+        $next = $current + 1;
+
+        if ($next > OtpService::MAX_ISSUES) {
+            throw ValidationException::withMessages([
+                'code' => 'تجاوزت حدّ إعادة إرسال الرمز — ابدأ من جديد بعد قليل.',
+            ]);
+        }
+
+        return $next;
     }
 
     /** الأحرف الأولى من أوّل كلمتين للأفاتار (مثل «ع ع»). */

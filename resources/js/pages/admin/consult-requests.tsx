@@ -16,10 +16,16 @@ interface AdminConsultRequestsProps {
   vatRate?: number;
   /** الأسعار المعتمدة لكلّ قناة — بديل «الباقات المعياريّة» المكتوبة بيد. */
   suggestedPrices?: Record<string, number>;
+  /** محامو المكتب النشطون — لتعديل المحامي عند اعتماد موعدٍ اقترحه موظّف. */
+  lawyers?: { id: number; name: string }[];
 }
 
 type ViewMode = 'pipeline' | 'table';
-type CategoryFilter = 'all' | 'pricing' | 'payment' | 'scheduling' | 'late';
+type CategoryFilter = 'all' | 'pricing' | 'payment' | 'scheduling' | 'approval' | 'late';
+
+/** مرحلة الحجز بعد السداد: لم يُحجز الموعد، أو حجزه موظّفٌ وينتظر اعتماد الإدارة (قرار المالك 2026-09-14). */
+const SCHEDULE_STAGE = ['بانتظار تحديد الموعد', 'بانتظار اعتماد الموعد'];
+const CHANNEL_KEY: Record<string, string> = { 'حضورية': 'office', 'مرئية': 'video', 'هاتفية': 'phone' };
 
 /** حدُّ التأخّر بالدقائق منذ الاستقبال — ساعتان. */
 const LATE_AFTER_MINS = 120;
@@ -34,10 +40,21 @@ type DrawerTab = 'pricing' | 'details' | 'actions' | 'audit';
  * (`Consult::PRE_SESSION_STATUSES`) ويصدّرها `employee-data` — فأوّل تعديلٍ خادميّ
  * يُفرّقها بصمت وتختفي طلباتٌ ماليّة من الشاشة بلا رسالة.
  */
+export const CANCEL_REASONS = [
+  'طلب العميل الإلغاء',
+  'عدم توفر موعد مناسب أو تعذر التنسيق',
+  'عدم سداد الرسوم أو انتهاء مهلة السداد',
+  'بيانات الطلب غير مكتملة أو غير واضحة',
+  'استشارة خارج اختصاص المكتب',
+  'طلب مكرر أو أُرسل بالخطأ',
+  'أخرى (توضيح في الملاحظات)',
+];
+
 export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
   consults: initialConsults = [],
   vatRate = 15,
   suggestedPrices = {},
+  lawyers = [],
 }) => {
   const toast = useToast();
 
@@ -51,8 +68,11 @@ export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
   const [sortBy, setSortBy] = useState<'latest' | 'oldest' | 'price_desc' | 'price_asc'>('latest');
 
   // Quick Action Drawer (Controlled by Ref String)
-  const [drawerRef, setDrawerRef] = useState<string | null>(null);
-  const [drawerTab, setDrawerTab] = useState<DrawerTab>('pricing');
+  // رابطٌ يحمل مرجع الطلب (`?ref=` من «بانتظار اعتمادك») يفتح درجه مباشرةً على تبويب الإجراءات حيث الاعتماد
+  const refFromUrl = (): string | null =>
+    typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('ref');
+  const [drawerRef, setDrawerRef] = useState<string | null>(refFromUrl);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>(() => (refFromUrl() ? 'actions' : 'pricing'));
 
   // Inline Drawer Pricing Input & Action State
   const [inputPrice, setInputPrice] = useState<string>('600');
@@ -64,6 +84,8 @@ export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
 
   // Cancel Confirmation Modal State
   const [cancelTargetConsult, setCancelTargetConsult] = useState<ConsultCard | null>(null);
+  const [cancelReason, setCancelReason] = useState<string>('');
+  const [cancelNotes, setCancelNotes] = useState<string>('');
 
   // Realtime synchronization via Echo
   useEffect(() => {
@@ -164,6 +186,7 @@ return;
     const pendingPricing = liveItems.filter((c) => c.status === 'بانتظار التسعير').length;
     const awaitingPayment = liveItems.filter((c) => c.status === 'بانتظار السداد').length;
     const awaitingSchedule = liveItems.filter((c) => c.status === 'بانتظار تحديد الموعد').length;
+    const awaitingApproval = liveItems.filter((c) => c.status === 'بانتظار اعتماد الموعد').length;
 
     // Financial volume calculations
     const pendingPaymentAmount = liveItems
@@ -192,6 +215,7 @@ return;
       pendingPricing,
       awaitingPayment,
       awaitingSchedule,
+      awaitingApproval,
       pendingPaymentAmount,
       paidCollectedAmount,
       late,
@@ -226,6 +250,10 @@ return false;
 }
 
         if (categoryFilter === 'scheduling' && c.status !== 'بانتظار تحديد الموعد') {
+return false;
+}
+
+        if (categoryFilter === 'approval' && c.status !== 'بانتظار اعتماد الموعد') {
 return false;
 }
 
@@ -327,8 +355,52 @@ return (a.total || 0) - (b.total || 0);
       {
         preserveScroll: true,
         onFinish: () => setIsProcessingAction(false),
-        onSuccess: () => toast('🔔 تم إرسال تذكير الموعد للعميل بنجاح'),
+        onSuccess: () => toast('🔔 تم تذكير فريق المواعيد بحجز الموعد'),
         onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذر الإرسال'}`),
+      }
+    );
+  };
+
+  // **اعتماد موعدٍ اقترحه موظّف — كما هو أو بعد تعديله** (قرار المالك 2026-09-14):
+  // الإدارة لا ترفض الاقتراح، تعدّله إن لزم ثمّ تعتمده فيُرسل للعميل ويُشعَر الموظّف بما تغيّر.
+  // القيم تُشتقّ من الاقتراح، ويُحفظ ما عدّلته الإدارة وحده مربوطاً بالطلب المفتوح —
+  // فلا تُنسخ الحالة داخل أثرٍ جانبيّ، ولا يتسرّب تعديلُ طلبٍ إلى طلبٍ آخر يُفتح بعده.
+  const [approvalEdits, setApprovalEdits] = useState<{ ref: string | null; date?: string; time?: string; lawyerId?: string; type?: string }>({ ref: null });
+  const proposal = drawerConsult?.proposal;
+  const ownEdits = approvalEdits.ref !== null && approvalEdits.ref === drawerConsult?.ref ? approvalEdits : {};
+  const approval = {
+    date: proposal?.date ?? '',
+    time: proposal?.time ?? '',
+    lawyerId: proposal?.lawyerId ? String(proposal.lawyerId) : '',
+    type: proposal ? (CHANNEL_KEY[proposal.channel] ?? '') : '',
+    ...ownEdits,
+  };
+  const editApproval = (change: { date?: string; time?: string; lawyerId?: string; type?: string }) => {
+    setApprovalEdits((prev) => ({
+      ...(prev.ref === drawerConsult?.ref ? prev : { ref: drawerConsult?.ref ?? null }),
+      ...change,
+    }));
+  };
+
+  const handleApproveAppointment = (consult: ConsultCard) => {
+    if (isProcessing) {
+      return;
+    }
+
+    setIsProcessingAction(true);
+    router.post(
+      `/admin/consults/${consult.id}/appointment/approve`,
+      {
+        date: approval.date || null,
+        time: approval.time || null,
+        lawyer_id: approval.lawyerId ? Number(approval.lawyerId) : null,
+        type: approval.type || null,
+      },
+      {
+        preserveScroll: true,
+        onFinish: () => setIsProcessingAction(false),
+        onSuccess: () => toast('✅ اعتُمد الموعد وأُرسل للعميل'),
+        onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذّر اعتماد الموعد'}`),
       }
     );
   };
@@ -364,23 +436,36 @@ return (a.total || 0) - (b.total || 0);
   // Submit Cancel Request
   const handleCancelRequest = () => {
     if (!cancelTargetConsult) {
-return;
-}
+      return;
+    }
+
+    if (!cancelReason) {
+      toast('⚠️ يُرجى اختيار سبب الإلغاء');
+
+      return;
+    }
 
     if (isProcessing) {
       return;
     }
 
     setIsProcessingAction(true);
+    const finalReason = cancelReason === 'أخرى (توضيح في الملاحظات)'
+      ? (cancelNotes.trim() || 'أخرى')
+      : (cancelNotes.trim() ? `${cancelReason} — ${cancelNotes.trim()}` : cancelReason);
+
     router.post(
       `/admin/consults/${cancelTargetConsult.id}/cancel-request`,
-      {},
+      { reason: finalReason },
       {
         preserveScroll: true,
         onFinish: () => setIsProcessingAction(false),
         onSuccess: () => {
-          toast('✅ تم إلغاء طلب الاستشارة وإشعار العميل');
+          // يخرج من هذه الشاشة (طابورُ ما قبل الجلسة) — فلتقل أين ذهب لا أن يختفي
+          toast('✅ أُلغي الطلب وأُشعر العميل — تجده في «الاستشارات» ضمن «منتهية ومغلقة»');
           setCancelTargetConsult(null);
+          setCancelReason('');
+          setCancelNotes('');
           closeDrawer();
         },
         onError: (err) => {
@@ -741,6 +826,7 @@ return;
                 ['pricing', '1. بانتظار التسعير', telemetry.pendingPricing],
                 ['payment', '2. بانتظار السداد', telemetry.awaitingPayment],
                 ['scheduling', '3. بانتظار تحديد الموعد', telemetry.awaitingSchedule],
+                ['approval', '4. بانتظار اعتماد الموعد', telemetry.awaitingApproval],
                 ['late', 'متأخرة (> ساعتين)', telemetry.late],
               ] as const
             ).map(([key, label, count]) => (
@@ -959,17 +1045,31 @@ return;
                           alignItems: 'center',
                         }}
                       >
-                        <button
-                          className="btn primary sm"
-                          type="button"
-                          style={{ width: '100%', justifyContent: 'center', fontWeight: 700 }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openDrawer(c.ref, 'pricing');
-                          }}
-                        >
-                          <Icon name="card" /> تسعير الطلب الآن 360°
-                        </button>
+                        <div style={{ display: 'flex', gap: 6, width: '100%' }}>
+                          <button
+                            className="btn primary sm"
+                            type="button"
+                            style={{ flex: 1, justifyContent: 'center', fontWeight: 700 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openDrawer(c.ref, 'pricing');
+                            }}
+                          >
+                            <Icon name="card" /> تسعير الطلب الآن 360°
+                          </button>
+                          <button
+                            className="btn soft sm"
+                            type="button"
+                            style={{ color: '#C0392B' }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCancelTargetConsult(c);
+                            }}
+                            title="إلغاء الطلب"
+                          >
+                            <Icon name="close" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))
@@ -1099,6 +1199,18 @@ return;
                         <button
                           className="btn soft sm"
                           type="button"
+                          style={{ color: '#C0392B' }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCancelTargetConsult(c);
+                          }}
+                          title="إلغاء الطلب"
+                        >
+                          <Icon name="close" />
+                        </button>
+                        <button
+                          className="btn soft sm"
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             openDrawer(c.ref, 'details');
@@ -1133,7 +1245,7 @@ return;
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
               <div>
                 <b style={{ fontSize: 14, color: '#1E9D6B' }}>3. مسددة / بانتظار الموعد</b>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>سدد الرسوم ولم يحدد موعداً</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>سُدّدت — يُحجز الموعد ثمّ تعتمده الإدارة</div>
               </div>
               <span
                 style={{
@@ -1145,14 +1257,14 @@ return;
                   fontWeight: 800,
                 }}
               >
-                {filteredItems.filter((c) => c.status === 'بانتظار تحديد الموعد').length}
+                {filteredItems.filter((c) => SCHEDULE_STAGE.includes(c.status)).length}
               </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {filteredItems.filter((c) => c.status === 'بانتظار تحديد الموعد').length > 0 ? (
+              {filteredItems.filter((c) => SCHEDULE_STAGE.includes(c.status)).length > 0 ? (
                 filteredItems
-                  .filter((c) => c.status === 'بانتظار تحديد الموعد')
+                  .filter((c) => SCHEDULE_STAGE.includes(c.status))
                   .map((c) => (
                     <div
                       key={c.id}
@@ -1180,7 +1292,7 @@ return;
                           <Icon name={crChannelIcon(c.channel)} />
                           <b style={{ color: 'var(--primary)', fontSize: 13.5 }}>{c.ref}</b>
                         </div>
-                        <Badge text="مُسددة" tone="b-green" />
+                        <Badge text={c.status === 'بانتظار اعتماد الموعد' ? 'بانتظار اعتماد الموعد' : 'مُسددة'} tone={c.status === 'بانتظار اعتماد الموعد' ? 'b-amber' : 'b-green'} />
                       </div>
 
                       <div style={{ fontSize: 13, fontWeight: 700, marginTop: 6, color: '#13314F' }}>
@@ -1402,6 +1514,11 @@ return;
                               <Icon name="bell" /> تذكير
                             </button>
                           )}
+                          {c.status === 'بانتظار اعتماد الموعد' && (
+                            <button className="btn sm" type="button" onClick={() => openDrawer(c.ref, 'actions')}>
+                              <Icon name="check" /> اعتماد الموعد
+                            </button>
+                          )}
                           <button
                             className="btn soft sm"
                             type="button"
@@ -1508,17 +1625,31 @@ return;
                         </span>
                       )}
                     </div>
-                    <button
-                      className="btn primary sm"
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openDrawer(c.ref, 'pricing');
-                      }}
-                      style={{ fontSize: 11.5, padding: '5px 10px' }}
-                    >
-                      <Icon name="card" /> تسعير وتحكم
-                    </button>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        className="btn primary sm"
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDrawer(c.ref, 'pricing');
+                        }}
+                        style={{ fontSize: 11.5, padding: '5px 10px' }}
+                      >
+                        <Icon name="card" /> تسعير وتحكم
+                      </button>
+                      <button
+                        className="btn soft sm"
+                        type="button"
+                        style={{ color: '#C0392B', padding: '5px 8px' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCancelTargetConsult(c);
+                        }}
+                        title="إلغاء الطلب"
+                      >
+                        <Icon name="close" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))
@@ -1774,6 +1905,18 @@ return;
                       <Icon name="card" />
                       {isProcessing ? 'جاري إصدار الفاتورة...' : 'إصدار الفاتورة وتأكيد السعر وإشعار العميل'}
                     </button>
+
+                    {CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && (
+                      <button
+                        className="btn soft sm"
+                        style={{ width: '100%', justifyContent: 'center', color: '#C0392B', marginTop: 8 }}
+                        type="button"
+                        disabled={isProcessing}
+                        onClick={() => setCancelTargetConsult(drawerConsult)}
+                      >
+                        <Icon name="close" /> إلغاء الطلب
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -1836,9 +1979,9 @@ return;
                   {/* تذكير السداد أو حجز الموعد */}
                   {drawerConsult.status === 'بانتظار تحديد الموعد' && (
                     <div className="card" style={{ margin: 0, padding: 14 }}>
-                      <b>تذكير العميل باختيار موعد الجلسة:</b>
+                      <b>الاستشارة مدفوعة ولم يُحجز موعدها:</b>
                       <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
-                        العميل سدد رسوم الاستشارة بالكامل ولم يختر موعداً بعد.
+                        يحجز الموظّف الموعد من التقويم ثمّ تعتمده الإدارة، أو تحجزه الإدارة مباشرةً. ذكّر فريق المواعيد:
                       </p>
                       <button
                         className="btn primary sm"
@@ -1846,26 +1989,76 @@ return;
                         type="button"
                         onClick={() => handleRemindSchedule(drawerConsult)}
                       >
-                        <Icon name="bell" /> إرسال إشعار تذكير فوري
+                        <Icon name="bell" /> تذكير فريق المواعيد
+                      </button>
+                    </div>
+                  )}
+
+                  {drawerConsult.status === 'بانتظار اعتماد الموعد' && (
+                    <div className="card" style={{ margin: 0, padding: 14, borderRight: '4px solid #1E9D6B' }}>
+                      <b>اعتماد الموعد المقترح من الموظّف:</b>
+                      <p style={{ fontSize: 12.5, margin: '6px 0 4px' }}>
+                        {drawerConsult.proposal
+                          ? `المقترح: ${drawerConsult.proposal.date ?? '—'} · ${drawerConsult.proposal.time ?? '—'} — ${drawerConsult.proposal.lawyer} (${drawerConsult.proposal.channel})`
+                          : 'تعذّر قراءة تفاصيل الاقتراح — حدّد الموعد ثمّ اعتمده.'}
+                      </p>
+                      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
+                        عدّل ما يلزم ثمّ اعتمد — يُرسل الموعد للعميل ويُشعَر الموظّف بما تغيّر.
+                      </p>
+                      <div className="field">
+                        <label>التاريخ</label>
+                        <input className="input" type="date" value={approval.date} onChange={(e) => editApproval({ date: e.target.value })} />
+                      </div>
+                      <div className="field">
+                        <label>الوقت</label>
+                        <input className="input" type="time" value={approval.time} onChange={(e) => editApproval({ time: e.target.value })} />
+                      </div>
+                      <div className="field">
+                        <label>المستشار</label>
+                        <select value={approval.lawyerId} onChange={(e) => editApproval({ lawyerId: e.target.value })}>
+                          {lawyers.map((l) => (
+                            <option key={l.id} value={String(l.id)}>{l.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label>نوع الجلسة</label>
+                        <select value={approval.type} onChange={(e) => editApproval({ type: e.target.value })}>
+                          <option value="office">حضورية</option>
+                          <option value="video">مرئية</option>
+                          <option value="phone">هاتفية</option>
+                        </select>
+                      </div>
+                      <button
+                        className="btn primary sm"
+                        style={{ width: '100%', justifyContent: 'center' }}
+                        type="button"
+                        disabled={isProcessing || !approval.date || !approval.time}
+                        onClick={() => handleApproveAppointment(drawerConsult)}
+                      >
+                        <Icon name="check" /> اعتماد وإرسال للعميل
                       </button>
                     </div>
                   )}
 
                   {/* إلغاء الطلب */}
-                  <div className="card" style={{ margin: 0, padding: 14, borderRight: '4px solid #C0392B' }}>
-                    <b style={{ color: '#C0392B' }}>إلغاء طلب الاستشارة:</b>
-                    <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
-                      سيتم إلغاء الطلب وإشعار العميل. إذا تم سداد رسوم مسبقاً، يتم تنسيق الاسترداد المالي يدوياً.
-                    </p>
-                    <button
-                      className="btn soft sm"
-                      style={{ width: '100%', justifyContent: 'center', color: '#C0392B' }}
-                      type="button"
-                      onClick={() => setCancelTargetConsult(drawerConsult)}
-                    >
-                      <Icon name="close" /> إلغاء هذا الطلب
-                    </button>
-                  </div>
+                  {CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && (
+                    <div className="card" style={{ margin: 0, padding: 14, borderRight: '4px solid #C0392B' }}>
+                      <b style={{ color: '#C0392B' }}>إلغاء طلب الاستشارة:</b>
+                      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
+                        يُشعَر العميل بالإلغاء، وتُلغى الفاتورة القائمة أو يُنسَّق الاسترداد إن سُدِّدت مسبقاً.
+                      </p>
+                      <button
+                        className="btn soft sm"
+                        style={{ width: '100%', justifyContent: 'center', color: '#C0392B' }}
+                        type="button"
+                        disabled={isProcessing}
+                        onClick={() => setCancelTargetConsult(drawerConsult)}
+                      >
+                        <Icon name="close" /> إلغاء الطلب
+                      </button>
+                    </div>
+                  )}
 
                   {/* الانتقال لصفحة التفاصيل الكاملة */}
                   <button
@@ -1985,31 +2178,79 @@ return;
         </Modal>
       )}
 
-      {/* ── 7. نافذة تأكيد الإلغاء المنبثقة ── */}
+      {/* ── 7. نافذة تأكيد الإلغاء المنبثقة مع تسجيل السبب ── */}
       {cancelTargetConsult && (
         <Modal
           title={`تأكيد إلغاء الطلب — ${cancelTargetConsult.ref}`}
           open={!!cancelTargetConsult}
-          onClose={() => setCancelTargetConsult(null)}
+          onClose={() => {
+            setCancelTargetConsult(null);
+            setCancelReason('');
+            setCancelNotes('');
+          }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <p style={{ fontSize: 13.5, color: '#333', margin: 0, lineHeight: 1.6 }}>
               هل أنت متأكد من رغبتك في إلغاء طلب الاستشارة <b>{cancelTargetConsult.ref}</b> للعميل <b>{maskClient(cancelTargetConsult.client)}</b>؟
             </p>
-            <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
-              سيتم إشعار العميل بالإلغاء فوراً، وفي حال وجود مبالغ محصلة يتم التنسيق للاسترداد.
-            </p>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
-              <button type="button" className="btn soft" onClick={() => setCancelTargetConsult(null)}>
+
+            <div style={{ background: '#FDF2E9', border: '1px solid #FADBD8', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: '#78281F', lineHeight: 1.5 }}>
+              ⚠️ سيتم إشعار العميل بالإلغاء فوراً، وإلغاء الفواتير غير المسددة، وتوثيق سبب الإلغاء في سجل التدقيق. وفي حال وجود مبالغ محصلة يتم التنسيق للاسترداد.
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>
+                سبب الإلغاء: <span style={{ color: '#C0392B' }}>*</span>
+              </label>
+              <select
+                className="form-control"
+                style={{ width: '100%', fontSize: 13, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)' }}
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+              >
+                <option value="">— اختر سبب الإلغاء —</option>
+                {CANCEL_REASONS.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>
+                ملاحظات إضافية / تفاصيل (اختياري):
+              </label>
+              <textarea
+                className="form-control"
+                rows={2}
+                style={{ width: '100%', fontSize: 12.5, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', resize: 'vertical' }}
+                placeholder="اكتب تفاصيل إضافية لتوضيح السبب في سجل التدقيق والإشعار..."
+                value={cancelNotes}
+                maxLength={400} // السبب المختار + الملاحظة لا يتجاوزان حدّ الخادم (500)
+                onChange={(e) => setCancelNotes(e.target.value)}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
+              <button
+                type="button"
+                className="btn soft"
+                disabled={isProcessing}
+                onClick={() => {
+                  setCancelTargetConsult(null);
+                  setCancelReason('');
+                  setCancelNotes('');
+                }}
+              >
                 تراجع
               </button>
               <button
                 type="button"
                 className="btn primary"
                 style={{ background: '#C0392B', borderColor: '#C0392B' }}
+                disabled={isProcessing || !cancelReason}
                 onClick={handleCancelRequest}
               >
-                تأكيد الإلغاء
+                {isProcessing ? 'جارٍ الإلغاء...' : 'تأكيد الإلغاء'}
               </button>
             </div>
           </div>

@@ -48,8 +48,9 @@ class StaffVisibilityTest extends TestCase
         $ticket = $this->ticket('SB-3');
 
         $this->actingAs($employee)->get(route('employee.tickets.show', $ticket))->assertOk();
-        $this->actingAs($employee)->post(route('employee.tickets.status', $ticket), ['status' => 'مكتملة', 'tone' => 'b-green'])
-            ->assertRedirect();
+        // قائمة «تغيير الحالة» أُغلقت للموظّف (2026-09-14) — والتصرّف ملاحظةٌ داخليّة على أيّ تذكرة
+        $this->actingAs($employee)->post(route('employee.tickets.note', $ticket), ['body' => 'متابعة داخلية للملف'])
+            ->assertNoContent();
     }
 
     public function test_employee_can_open_any_case_and_execution(): void

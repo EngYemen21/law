@@ -26,10 +26,23 @@ const AdminCaseFees: React.FC<Props> = ({ cases }) => {
   const setFee = (no: string) => {
     const fee = parseInt(vals[no]?.fee || '0', 10) || 0;
     const lawyer_pct = parseInt(vals[no]?.pct || '0', 10) || 0;
-    if (!fee) { toast('أدخل قيمة الأتعاب'); return; }
+    // الصفر قرارٌ صريح (قضية بلا أتعاب) لا خانةٌ فارغة — قرار المالك 2026-09-11
+    const raw = vals[no]?.fee;
+
+    if (raw === undefined || raw === '') {
+      toast('أدخل قيمة الأتعاب');
+
+      return;
+    }
+
+    if (fee === 0 && !window.confirm('الأتعاب صفر: تُفعَّل القضية مباشرةً بلا أتعاب ولا فاتورة. متابعة؟')) {
+      return;
+    }
+
     router.post(`/admin/cases/${encodeURIComponent(no)}/fee`, { fee, lawyer_pct }, {
       preserveScroll: true,
-      onSuccess: () => toast('تم اعتماد الأتعاب وإصدار الفاتورة للعميل'),
+      onSuccess: () => toast(fee === 0 ? 'فُعّلت القضية بلا أتعاب' : 'تم اعتماد الأتعاب وإصدار الفاتورة للعميل'),
+      onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر اعتماد الأتعاب')),
     });
   };
 
@@ -74,6 +87,11 @@ const AdminCaseFees: React.FC<Props> = ({ cases }) => {
                 {!!c.lawyerFee && <div className="kv"><span className="k">نصيب المحامي</span><span className="v">{c.lawyerFee.toLocaleString()} ر.س ({c.lawyerPct}%)</span></div>}
                 <div className="action-hint" style={{ marginTop: 10 }}>القضية مغلقة حتى يسدّد العميل الفاتورة.</div>
               </>
+            ) : c.feeStatus === 'waived' ? (
+              <div className="gov-note" style={{ marginTop: 4 }}>
+                <Icon name="check" />
+                <div>قضية بلا أتعاب — فُعّلت دون فاتورة.</div>
+              </div>
             ) : c.feeStatus === 'paid' ? (
               <div className="gov-note" style={{ marginTop: 4 }}>
                 <Icon name="check" />
@@ -85,7 +103,7 @@ const AdminCaseFees: React.FC<Props> = ({ cases }) => {
           </div>
         </div>
       )) : (
-        <div className="card"><div className="card-b"><div className="empty"><Icon name="scale" /><b>لا قضايا بانتظار تحديد الأتعاب</b></div></div></div>
+        <div className="card"><div className="card-b"><div className="empty"><Icon name="scale" /><b>لا توجد قضايا</b></div></div></div>
       )}
       <Pagination meta={cases.meta} only={['cases']} />
     </>

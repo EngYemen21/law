@@ -5,6 +5,7 @@ import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import Icon from '@/lib/icons';
 import { TILES, VIEW_ROUTE } from '@/lib/data';
 import type { Appt, Invoice } from '@/lib/data';
+import { EXEC_FLOW } from '@/lib/exec-flow';
 
 // ============================================================
 // لوحة العميل الرقمية والكونسيرج القانوني 360 درجة
@@ -429,9 +430,14 @@ const Dashboard: React.FC<Props> = ({
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                             <span className="mono" style={{ fontWeight: 800, fontSize: 13.5 }}>{e.number}</span>
                             <Badge text={e.status} tone={e.tone} />
+                            {/* المرحلة والمحكمة يرسلهما الخادم وكانت الشاشة تُسقطهما — والمرحلة لا تُعاد إن كانت هي الحالة نفسها */}
+                            {typeof e.stage === 'number' && EXEC_FLOW[e.stage] && EXEC_FLOW[e.stage] !== e.status && (
+                              <span className="chip">{EXEC_FLOW[e.stage]}</span>
+                            )}
                             {e.amount && <b style={{ fontSize: 12.5, color: 'var(--ink)' }}>{e.amount.toLocaleString('en-US')} ريال</b>}
                           </div>
                           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, wordBreak: 'break-word' }}>{e.subject}</div>
+                          {e.court && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>🏛️ {e.court}</div>}
                           {e.lastAction && <div style={{ fontSize: 11.5, color: 'var(--primary)', marginTop: 2 }}>{e.lastAction}</div>}
                         </div>
 

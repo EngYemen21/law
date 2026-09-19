@@ -224,7 +224,7 @@ const AdminDashboard: React.FC<Props> = ({
         {/* أزرار الانتقال السريع */}
         <div className="hero-cta" style={{ marginTop: 20 }}>
           <button className="hero-b" onClick={() => router.visit('/admin/distribute')} type="button">
-            <Icon name="reply" /> توزيع التذاكر
+            <Icon name="reply" /> توزيع وإسناد الأعمال
           </button>
           <button className="hero-b" onClick={() => router.visit('/admin/consult-requests')} type="button">
             <Icon name="card" /> تسعير الاستشارات

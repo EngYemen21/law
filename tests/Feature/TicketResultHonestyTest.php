@@ -7,6 +7,7 @@ use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\TicketSummary;
 use App\Models\User;
+use App\Support\ConsultSessionOutcome;
 use App\Support\Specialties;
 use App\Support\TicketAssignment;
 use App\Support\TicketResult;
@@ -44,29 +45,36 @@ class TicketResultHonestyTest extends TestCase
     }
 
     /**
-     * **الحارس الأثمن: لا محضرَ لجلسةٍ لم تُختَم.**
+     * **الحارس الأثمن: لا نتيجةَ لجلسةٍ لم تُختَم.**
      *
      * وقع حرفيّاً: التذكرة انتقلت إلى «بانتظار اعتماد النتيجة» ووصل العميلَ «انعقدت
      * الجلسة»، واستشارتُه ما زالت «بانتظار الجلسة» وموعدُها بعد ثلاث ساعات — وقد سُدّد
-     * ثمنها ١٠٬٣٥٠ ريالاً.
+     * ثمنها ١٠٬٣٥٠ ريالاً. فلا زرَّ للموظّف يُعلن الجلسة، ولا يُعتمد ملخّصٌ لجلسةٍ لم تنعقد.
      */
     public function test_a_session_that_never_ended_cannot_be_reported(): void
     {
         [$ticket, $consult] = $this->bookedTicket();
         $employee = User::factory()->create(['role' => Role::Employee]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $consult->update(['summary' => 'ملخّصٌ مكتوبٌ مسبقاً قبل الجلسة.']);
 
         $this->actingAs($employee)
             ->post(route('employee.tickets.advance', $ticket))
             ->assertStatus(422);
 
+        $this->actingAs($admin)
+            ->post("/admin/consults/{$consult->id}/summary/approve")
+            ->assertStatus(422);
+
         $fresh = $ticket->fresh();
         $this->assertSame('موعد مؤكد', $fresh->status, 'ولا تتقدّم التذكرة');
         $this->assertSame(0, $fresh->messages()->where('body', 'like', '%انعقدت الجلسة%')->count(), 'ولا يُخبَر العميل');
+        $this->assertNull($consult->fresh()->summary_approved_at);
 
-        // وبعد ختمها فعلاً يمضي المسار
+        // وبعد ختمها فعلاً يمضي المسار: التذكرة بانتظار ملخّص الجلسة
         $consult->forceFill(['session' => 'منتهية', 'status' => 'منتهية'])->save();
-        $this->actingAs($employee)->post(route('employee.tickets.advance', $ticket))->assertNoContent();
-        $this->assertSame('بانتظار اعتماد النتيجة', $ticket->fresh()->status);
+        ConsultSessionOutcome::sessionEnded($consult->fresh());
+        $this->assertSame('بانتظار ملخّص الجلسة', $ticket->fresh()->status);
     }
 
     /** **ولا اكتمالَ يُعلَن فوق متنٍ يقول إنّ الدراسة لم تقع.** */
@@ -92,7 +100,7 @@ class TicketResultHonestyTest extends TestCase
     /**
      * **وحصيلةُ الجلسة تصل العميل** — كانت البطاقة تُبنى من دراسة ما قبلها وحدها.
      *
-     * ويُحترم الحجب: ملخّصٌ لم يعتمده محامٍ لا يُسرَّب في بطاقة نتيجة.
+     * ويُحترم الحجب: ملخّصٌ لم تعتمده الإدارة لا يُسرَّب في بطاقة نتيجة.
      */
     public function test_the_session_outcome_reaches_the_client_once_approved(): void
     {

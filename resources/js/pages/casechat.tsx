@@ -17,8 +17,25 @@ interface CaseDetail {
   no: string; type: string; status: string; tone: string; update: string; next: string;
   invoice: string; paid: string; fee?: number | null; feeStatus?: string;
   installmentsPaid?: number; installmentsTotal?: number;
+  najiz?: { requestNo?: string | null; caseNo?: string | null; court?: string | null; circuit?: string | null } | null;
+  appeal?: {
+    status: string;
+    statusLabel: string;
+    deadlineAt?: string | null;
+    daysRemaining?: number | null;
+    isDeadlineOver: boolean;
+    requestNo?: string | null;
+    court?: string | null;
+    circuit?: string | null;
+    ruling?: string | null;
+    filedAt?: string | null;
+    judgedAt?: string | null;
+  } | null;
 }
-interface CaseDoc { id: number; name: string; by: string; status: string; docType: string; summary: string; date: string }
+interface CaseDoc {
+  id: number; name: string; by: string; status: string; docType: string; summary: string; date: string;
+  hearingId?: number | null; hearingTitle?: string | null;
+}
 interface Props { case: CaseDetail; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[]; }
 
 const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings, documents }) => {
@@ -81,7 +98,60 @@ return;
           </div>
         </div>
       )}
-      {hearings.length > 0 && <div style={{ marginBottom: 16 }}><HearingsCard hearings={hearings} /></div>}
+      {c.appeal && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-h">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="scale" />
+              <h3>مسار الاستئناف والاعتراض</h3>
+            </div>
+            <Badge
+              text={c.appeal.statusLabel}
+              tone={c.appeal.status === 'appeal_judged' ? 'b-green' : c.appeal.status === 'appeal_filed' ? 'b-blue' : 'b-amber'}
+            />
+          </div>
+          <div className="card-b" style={{ padding: 16 }}>
+            {c.appeal.status === 'pending_appeal' && (
+              <div style={{ padding: '12px 14px', background: c.appeal.isDeadlineOver ? 'var(--red-soft, #fee2e2)' : 'var(--amber-soft, #fef3c7)', borderRadius: 8 }}>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                  مهلة الاعتراض النظامية على الحكم الابتدائي:
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+                  {c.appeal.isDeadlineOver
+                    ? `انقضت مهلة الاعتراض بتاريخ ${c.appeal.deadlineAt} ويصبح الحكم مكتسباً للقطعية.`
+                    : `متبقّي ${c.appeal.daysRemaining} يوم لتقديم لائحة الاستئناف (تنتهي بتاريخ: ${c.appeal.deadlineAt}).`}
+                </div>
+              </div>
+            )}
+
+            {c.appeal.status === 'appeal_filed' && (
+              <div>
+                <div style={{ fontSize: 13, marginBottom: 8, color: 'var(--ink)' }}>
+                  تم قيد لائحة الاستئناف لدى محكمة الاستئناف:
+                </div>
+                <div className="tc-body" style={{ padding: 0 }}>
+                  {c.appeal.requestNo && <div className="tc-row"><span className="k">رقم طلب الاستئناف</span><span className="v">{c.appeal.requestNo}</span></div>}
+                  {c.appeal.court && <div className="tc-row"><span className="k">المحكمة</span><span className="v">{c.appeal.court}</span></div>}
+                  {c.appeal.circuit && <div className="tc-row"><span className="k">الدائرة</span><span className="v">{c.appeal.circuit}</span></div>}
+                  {c.appeal.filedAt && <div className="tc-row"><span className="k">تاريخ القيد</span><span className="v">{c.appeal.filedAt}</span></div>}
+                </div>
+              </div>
+            )}
+
+            {c.appeal.status === 'appeal_judged' && (
+              <div>
+                <div style={{ fontSize: 13, marginBottom: 8, color: 'var(--ink)' }}>
+                  صدر حكم محكمة الاستئناف بتاريخ {c.appeal.judgedAt}:
+                </div>
+                <div style={{ padding: '12px 14px', background: 'var(--paper-2)', borderRadius: 8, lineHeight: 1.8, fontSize: 13.5 }}>
+                  {c.appeal.ruling}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {hearings.length > 0 && <div style={{ marginBottom: 16 }}><HearingsCard hearings={hearings} documents={documents} /></div>}
       {documents.length > 0 && (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-h"><h3>مستندات القضية</h3><span className="sub">{documents.length} مستند</span></div>
@@ -92,6 +162,11 @@ return;
                 <div className="imeta">
                   <b>{d.name}</b>
                   <span>{d.by} · {d.date}{d.docType ? ` · ${d.docType}` : ''}</span>
+                  {d.hearingTitle && (
+                    <div style={{ marginTop: 4 }}>
+                      <Badge text={`جلسة: ${d.hearingTitle}`} tone="b-blue" />
+                    </div>
+                  )}
                   {d.summary && <span style={{ display: 'block', marginTop: 3, fontSize: 11.5, color: 'var(--muted)' }}>{d.summary}</span>}
                 </div>
                 {/* كان الاسم يُعرض بلا أي رابط — مسار العميل القائم يخدم نفس الملف */}
@@ -118,6 +193,9 @@ return;
         ['الحالة', status.status],
         ['النوع', c.type],
         ['الجلسة القادمة', c.next || '—'],
+        ...(c.najiz?.caseNo
+          ? [['رقم القضية', c.najiz.caseNo], ['المحكمة والدائرة', [c.najiz.court, c.najiz.circuit].filter(Boolean).join(' — ')]] as [string, string][]
+          : c.najiz?.requestNo ? [['رقم طلب ناجز', `${c.najiz.requestNo} — بانتظار القيد`]] as [string, string][] : []),
         ['آخر تحديث', c.update],
         ['الفواتير المستحقة', c.invoice || '—'],
         ['المدفوعات', c.paid || '—'],

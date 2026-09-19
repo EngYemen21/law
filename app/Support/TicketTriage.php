@@ -2,6 +2,11 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Transition;
+use App\Domain\Journey\Transitions\Ticket\AwaitTicketDocuments;
+use App\Domain\Journey\Transitions\Ticket\ReferTicketToLawyer;
+use App\Domain\Journey\Transitions\Ticket\TicketDocumentsReceived;
+use App\Domain\Journey\Workflow;
 use App\Enums\AiSource;
 use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
@@ -9,6 +14,7 @@ use App\Jobs\GenerateTicketSummaryJob;
 use App\Models\AiRun;
 use App\Models\Ticket;
 use App\Models\TicketDocument;
+use App\Models\User;
 use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use Illuminate\Support\Collection;
@@ -46,8 +52,11 @@ class TicketTriage
 
         // تصنيف صامت (لا رسائل محادثة) — يُضبط القسم داخلياً فقط
         $triage = app(LegalAiService::class)->triageTicket($ticket, $details);
-        if (empty($ticket->department) && $triage['department'] !== '') {
-            $ticket->update(['department' => $triage['department']]);
+        // يُكتب قسم الذكاء فقط إن طابق قسماً في الكتالوج — كان يكتب أيّ اسمٍ يُرجعه النموذج،
+        // فيدخل البياناتِ قسمٌ لا يعرفه الإسناد ولا المرشّحات
+        $department = empty($ticket->department) ? LegalCatalogue::resolveDepartment($triage['department']) : null;
+        if ($department !== null) {
+            $ticket->update(['department' => $department->name, 'legal_department_id' => $department->id]);
         }
 
         // مصدر الفرز يُسجَّل دائماً: الاحتياطيّ يعيد قسم العميل نفسه بأولوية «عادية»
@@ -77,7 +86,7 @@ class TicketTriage
         AiRunLogger::log('chat.reply', $greetRun['source'], $greetRun['meta'], $ticket, (string) $ticket->number);
         $chips = implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', $svcDocs));
 
-        $ticket->update(['status' => 'بانتظار مستندات', 'tone' => TicketJourney::toneFor('بانتظار مستندات'), 'last_message' => 'بانتظار إرفاق المستندات المطلوبة', 'date_label' => 'الآن']);
+        self::move(new AwaitTicketDocuments, $ticket, 'بانتظار إرفاق المستندات المطلوبة', 'triage.greeting');
         $msg = $ticket->messages()->create([
             'who' => 'ai',
             'name' => LegalAiService::AGENT_NAME,
@@ -135,9 +144,12 @@ class TicketTriage
             ]);
             Live::push(new TicketMessageBroadcast($msg));
 
-            self::referToLawyer($ticket); // يولّد الملخّص + «بانتظار اعتماد المستشار» + بثّ + إشعار المستشار
+            // نُقلت إلى «قيد التحليل» لتظهر للموظف ويقوم هو بالإحالة يدوياً عبر زر الإحالة (منع الإحالة التلقائية للـ AI)
+            self::move(new TicketDocumentsReceived, $ticket, 'تم استلام المستندات والتحقق منها، وهي بانتظار مراجعة الموظف وإحالتها للمستشار', 'triage.opened_with_documents');
+            Live::push(new TicketStatusBroadcast($ticket));
+
             self::audit($ticket, sprintf(TicketTexts::AUDIT_AUTO_TRIAGE, $ticket->department ?: 'غير محدد', $triage['priority']));
-            self::audit($ticket, 'فُتحت التذكرة بمستندات ذات صلة ('.count($related).') — أُقرّ باستلامها وأُحيلت التذكرة تلقائياً.');
+            self::audit($ticket, 'فُتحت التذكرة بمستندات ذات صلة ('.count($related).') — تم التحقق منها ونُقلت إلى «قيد التحليل» بانتظار إحالة الموظف للمستشار.');
 
             return;
         }
@@ -145,7 +157,7 @@ class TicketTriage
         // (ب) مرفقات فُحصت لكن لا شيء ذو صلة — طلب المستندات الصحيحة
         if ($analyzedAny) {
             $chips = implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', ServiceDocs::for($ticket->type)));
-            $ticket->update(['status' => 'بانتظار مستندات', 'tone' => TicketJourney::toneFor('بانتظار مستندات'), 'last_message' => 'بانتظار إرفاق المستندات الصحيحة', 'date_label' => 'الآن']);
+            self::move(new AwaitTicketDocuments, $ticket, 'بانتظار إرفاق المستندات الصحيحة', 'triage.unrelated_documents');
             $msg = $ticket->messages()->create([
                 'who' => 'ai',
                 'name' => LegalAiService::AGENT_NAME,
@@ -163,7 +175,7 @@ class TicketTriage
         }
 
         // (ج) تعذّر فحص كل المرفقات — إقرار بالاستلام (دون إعادة طلب بجفاء) + مراجعة يدوية
-        $ticket->update(['status' => 'بانتظار مستندات', 'tone' => TicketJourney::toneFor('بانتظار مستندات'), 'last_message' => 'المستندات المرفقة قيد المراجعة', 'date_label' => 'الآن']);
+        self::move(new AwaitTicketDocuments, $ticket, 'المستندات المرفقة قيد المراجعة', 'triage.unreadable_documents');
         $msg = $ticket->messages()->create([
             'who' => 'ai',
             'name' => LegalAiService::AGENT_NAME,
@@ -184,6 +196,16 @@ class TicketTriage
     public static function onDocumentAttached(Ticket $ticket, ?TicketDocument $doc = null): void
     {
         if (! self::enabled()) {
+            return;
+        }
+
+        // المستندات المرفقة من المكتب أو غير المرفوعة من العميل لا تخضع لإجراءات AI
+        if ($doc && $doc->status === 'مرفق من المكتب') {
+            return;
+        }
+
+        // لا تحليلَ على ملفٍّ منتهٍ — كان يُحلَّل ويُرسل ملخّصه على تذكرةٍ مغلقة (ع٢٤)
+        if (in_array($ticket->status, ['مكتملة', 'مغلقة'], true)) {
             return;
         }
 
@@ -219,9 +241,15 @@ class TicketTriage
                 'summary_approved' => true, // يُرسل للعميل مباشرة (أُلغي اعتماد الموظف)
             ]);
 
-            self::sendDocSummary($ticket, $doc);
+            // **ملخّص المستند المرتبط وحده يصل العميل** — كان يُرسل حتى لغير المرتبط (ع٢٤)
+            if ($analysis['related']) {
+                self::sendDocSummary($ticket, $doc);
+            }
 
-            if ($analysis['related'] && $ticket->summary && ! $ticket->summary->approved_at) {
+            // ولا يُعاد توليد ملخّصٍ اعتُمد أو حرّره المستشار بيده (ع٢٦)
+            if ($analysis['related'] && $ticket->summary
+                && $ticket->summary->status === 'awaiting_lawyer'
+                && $ticket->summary->edited_at === null) {
                 GenerateTicketSummaryJob::dispatch($ticket, force: true);
             }
 
@@ -256,11 +284,13 @@ class TicketTriage
             return;
         }
 
-        // مستند مفهوم ومرتبط — يُرسل الملخص للعميل مباشرة (أُلغي اعتماد الموظف) ثم الإحالة الآلية
+        // مستند مفهوم ومرتبط — يُرسل الملخص للعميل ونقل التذكرة إلى «قيد التحليل» بانتظار إحالة الموظف (منع الإحالة التلقائية للـ AI)
         self::sendDocSummary($ticket, $doc);
 
-        self::referToLawyer($ticket);
-        self::audit($ticket, 'فُحص المستند «'.$doc->name.'» ('.$analysis['doc_type'].') وثبت ارتباطه — أُرسل ملخصه للعميل وأُحيلت التذكرة.');
+        self::move(new TicketDocumentsReceived, $ticket, 'تم استلام المستند المطلوب، والتذكرة بانتظار مراجعة الموظف وإحالتها للمستشار', 'triage.document_attached');
+        Live::push(new TicketStatusBroadcast($ticket));
+
+        self::audit($ticket, 'فُحص المستند «'.$doc->name.'» ('.$analysis['doc_type'].') وثبت ارتباطه — أُرسل ملخصه للعميل ونُقلت التذكرة إلى «قيد التحليل» بانتظار إحالة الموظف للمستشار.');
     }
 
     /**
@@ -326,6 +356,11 @@ class TicketTriage
             return;
         }
 
+        // التأكد من أن الحدث لرسالة عميل فقط (منع التفاعل مع رسائل الموظف أو المحامي أو الإدارة)
+        if (auth()->check() && ! auth()->user()->isClient()) {
+            return;
+        }
+
         foreach (TicketTexts::ESCALATION_WORDS as $word) {
             if (mb_stripos($message, $word) !== false) {
                 self::requestHuman($ticket, "رسالة العميل تتضمن ما يشير إلى شكوى/استعجال («{$word}») — متابعة بشرية عاجلة.");
@@ -338,37 +373,61 @@ class TicketTriage
     /**
      * الإحالة للقسم القانوني: إسناد محامٍ حقيقي (FK) + ملخص الملف الرباعي + انتظار اعتماد المستشار.
      * مشتركة بين مسار الموظف اليدوي (advance) والوكيل الآلي.
+     *
+     * $actor: من أحال (يُقيَّد في سجلّ الانتقالات)؛ `null` لقرار النظام.
      */
-    public static function referToLawyer(Ticket $ticket): void
+    public static function referToLawyer(Ticket $ticket, ?User $actor = null): void
     {
         if (! $ticket->relationLoaded('assignedLawyer') && $ticket->assigned_lawyer_id) {
             $ticket->load('assignedLawyer');
         }
         $lawyer = $ticket->assignedLawyer ?? TicketAssignment::assign($ticket);
 
-        // نائب فوري: ملخّص قالبي حتمي يظهر لحظياً كي تبقى الإحالة سريعة بيد الموظف،
-        // ثم تُرقّيه GenerateTicketSummaryJob لتحليل ذكاء اصطناعي حقيقي مبنيّ على المستندات.
-        $parts = app(LegalAiService::class)->fallbackSummary($ticket);
-        $ticket->summary()->updateOrCreate([], [
-            'lawyer_id' => $lawyer?->id,
-            'case_summary' => $parts['case_summary'],
-            'attachments_summary' => $parts['attachments_summary'],
-            'facts' => $parts['facts'],
-            'key_points' => $parts['key_points'],
-            'status' => 'awaiting_lawyer',
-            'approved_at' => null,
-            'ai_generated' => false, // نائب قالبي — تُرقّيه المهمّة لتحليل حقيقي
-        ]);
-        GenerateTicketSummaryJob::dispatch($ticket);
+        $existing = $ticket->summary;
+
+        // **لا تُمحى مراجعةٌ وقعت** — ملخّصٌ اعتمده المستشار أو الإدارة لا يُستبدل بقالب ولا تُعاد
+        // التذكرة خلفه (ع١١). الإحالة المكرّرة على ملفٍّ معتمد لا تفعل شيئاً.
+        if ($existing !== null && $existing->status !== 'awaiting_lawyer') {
+            self::audit($ticket, 'إحالة مكرّرة على ملخّصٍ اعتُمد — لم يُمسّ الملخّص ولا الحالة.');
+
+            return;
+        }
+
+        if ($existing !== null && ($existing->ai_generated || $existing->edited_at !== null)) {
+            // مسوّدةٌ حقيقيّة (تحليلٌ أو تحرير المستشار) لا يدهسها قالب
+            $existing->update(['lawyer_id' => $lawyer?->id ?? $existing->lawyer_id]);
+        } else {
+            // نائب فوري: ملخّص قالبي حتمي يظهر لحظياً كي تبقى الإحالة سريعة بيد الموظف،
+            // ثم تُرقّيه GenerateTicketSummaryJob لتحليل ذكاء اصطناعي حقيقي مبنيّ على المستندات.
+            $parts = app(LegalAiService::class)->fallbackSummary($ticket);
+            $draft = [
+                'lawyer_id' => $lawyer?->id,
+                'case_summary' => $parts['case_summary'],
+                'attachments_summary' => $parts['attachments_summary'],
+                'facts' => $parts['facts'],
+                'key_points' => $parts['key_points'],
+                'approved_at' => null,
+                'ai_generated' => false, // نائب قالبي — تُرقّيه المهمّة لتحليل حقيقي
+            ];
+
+            if ($existing === null) {
+                // ميلاد الملخّص أوّل سطرٍ في رحلته — يُفتح بالمحرّك بحالته الأولى
+                Workflow::open(
+                    'ticket_summary.opened',
+                    fn () => $ticket->summary()->create($draft + ['status' => 'awaiting_lawyer']),
+                    $actor,
+                );
+            } else {
+                // قائمٌ «بانتظار المستشار» أصلاً (ما سواه عاد أعلاه) — يُستبدل نصّه والحالة كما هي
+                $existing->update($draft);
+            }
+            GenerateTicketSummaryJob::dispatch($ticket);
+        }
 
         $dept = $ticket->department ?: 'القسم القانوني المختص';
-        $ticket->update([
-            'assigned_lawyer' => $lawyer?->name ?: $ticket->assigned_lawyer,
-            'assigned_lawyer_id' => $lawyer?->id ?: $ticket->assigned_lawyer_id,
-            'status' => 'بانتظار اعتماد المستشار',
-            'tone' => TicketJourney::toneFor('بانتظار اعتماد المستشار'),
-            'last_message' => 'تمت الإحالة، ويُعدّ ملخص الملف لاعتماد المستشار',
-            'date_label' => 'الآن',
+        Workflow::run(new ReferTicketToLawyer, $ticket, $actor, [
+            'lawyer_id' => $lawyer?->id,
+            'lawyer_name' => $lawyer?->name,
         ]);
 
         $msg = $ticket->messages()->create([
@@ -401,6 +460,24 @@ class TicketTriage
         self::audit($ticket, sprintf(TicketTexts::AUDIT_HUMAN_REQUIRED, $reason));
 
         Notify::send($ticket->user_id, 'user', 't-amber', sprintf(TicketTexts::NOTIFICATION_HUMAN_REQUIRED, $ticket->number));
+    }
+
+    /**
+     * خطوة الوكيل الآليّ في الرحلة — بالمحرّك، وبصمتٍ حيث لا يقبل الانتقالُ الحالة.
+     *
+     * كان الوكيل يكتب الحالة مباشرةً **بلا أيّ فحص** من مهمّةٍ في الطابور. `from()` في انتقاليه
+     * واسعةٌ لتقبل كلّ ما كان ينجح؛ وما خارجها (ملفٌّ حُسم مآله قبل وصول المهمّة) يُتجاوز هنا بصمت
+     * لا برفضٍ 422 يُسقط المهمّة ويعيدها — الوكيل لا يُحيي ملفّاً مغلقاً أو محوّلاً لقضيّة.
+     *
+     * $via: أيّ فرعٍ من فروع الوكيل كتب الخطوة — يُحفظ في سجلّ الانتقال للمراجعة.
+     */
+    private static function move(Transition $transition, Ticket $ticket, string $lastMessage, string $via): void
+    {
+        if (! $transition->accepts((string) $ticket->status)) {
+            return;
+        }
+
+        Workflow::run($transition, $ticket, null, ['last_message' => $lastMessage, 'via' => $via]);
     }
 
     /** توثيق إجراء آلي كملاحظة داخلية (لا يراها العميل — تُستثنى who=note من صفحته). */

@@ -2,20 +2,33 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Transitions\Execution\ApplyExecutionAnalysis;
+use App\Domain\Journey\Transitions\Execution\ApplyExecutionMeasures;
+use App\Domain\Journey\Transitions\Execution\ApproveExecutionFee;
+use App\Domain\Journey\Transitions\Execution\AssignExecutionLawyer;
+use App\Domain\Journey\Transitions\Execution\CloseExecution;
+use App\Domain\Journey\Transitions\Execution\FileExecutionNajiz;
+use App\Domain\Journey\Transitions\Execution\NotifyExecutionDebtor;
+use App\Domain\Journey\Transitions\Execution\RecordExecutionCollection;
+use App\Domain\Journey\Transitions\Execution\ReferExecution;
+use App\Domain\Journey\Transitions\Execution\RegisterExecutionNajiz;
+use App\Domain\Journey\Transitions\Execution\RejectExecutionOffer;
+use App\Domain\Journey\Transitions\Execution\SetExecutionFee;
+use App\Domain\Journey\Transitions\Execution\StudyExecution;
+use App\Domain\Journey\Workflow;
 use App\Enums\AiSource;
 use App\Enums\Role;
 use App\Events\ExecStatusBroadcast;
 use App\Jobs\AnalyzeExecutionJob;
 use App\Mail\ExecutionEventMail;
 use App\Models\Execution;
-use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\Ai\AiRunLogger;
 use App\Services\MailService;
 use App\Services\MoyasarService;
+use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -34,7 +47,8 @@ class ExecService
             $docs[] = 'مستند داعم';
         }
 
-        $exec = Execution::create([
+        // يُفتح داخل المحرّك: سطرُ فتحٍ في سجلّ الانتقالات بصاحب الطلب — نظير `ExecutionCreation`
+        $exec = Workflow::open('exec.submit', fn () => Execution::create([
             'user_id' => $client->id,
             'client_code' => 'CL-'.str_pad((string) $client->id, 6, '0', STR_PAD_LEFT),
             'number' => ReferenceNumber::next(Execution::class, 'number', 'EXE'),
@@ -49,7 +63,7 @@ class ExecService
             'tone' => ExecFlow::tone(1),
             'ai_done' => false,
             'last_action' => 'فتح الطلب — جارٍ التحليل الذكيّ للمستندات',
-        ]);
+        ]), $client, ['sanad' => $data['sanad']]);
 
         // حفظ الملفات المرفقة كمستندات رسمية لطلب التنفيذ
         $attachedNames = [];
@@ -82,14 +96,24 @@ class ExecService
         // التحليل الذكيّ يجري بالخلفية (لا يُحبَس طلب التقديم) — LegalAiService::analyzeExecution
         AnalyzeExecutionJob::dispatch($exec);
 
+        // تأكيدٌ لصاحب الطلب، وإخطارٌ للمكتب: كان الطلب الجديد لا يُنبّه أحداً فيبقى بلا فاحص
+        self::mail($exec, 'submitted');
+        self::mailStaff($exec, 'newRequest', ['admin', 'employee']);
+        foreach (User::whereIn('role', [Role::Admin, Role::Employee])->pluck('id') as $staffId) {
+            Notify::send($staffId, 'exec', 't-blue', "طلب تنفيذ جديد {$exec->number} بانتظار الدراسة والإحالة.");
+        }
+
         return $exec->refresh();
     }
 
     /**
-     * يطبّق نتيجة التحليل الذكيّ (من LegalAiService::analyzeExecution): يحدّث الحقول، يقدّم المرحلة
+     * يطبّق نتيجة الدراسة الذكيّة (من LegalAiService::analyzeExecution): يحدّث الحقول، يقدّم المرحلة
      * (2 عند الاكتمال / 1 عند وجود نواقص)، يضيف رسالة، يُشعر العميل، ويبثّ. يستدعيها AnalyzeExecutionJob.
      *
-     * @param  array{summary:string,missing:array<int,string>,procedures:array<int,string>}  $result
+     * المفاتيح الستّة الجديدة (v2) **اختياريّة**: منادٍ قديم يمرّر الثلاثة وحدها فتُخزَّن
+     * القيم الفارغة المعلنة — لا تخمين ولا انكسار.
+     *
+     * @param  array{summary:string,missing:array<int,string>,procedures:array<int,string>,readiness?:string,difficulty?:string,expected_procedures_count?:int,duration_estimate?:string,recovery_indicators?:array<int,string>,risks?:array<int,string>}  $result
      */
     public static function applyAnalysis(Execution $exec, array $result): void
     {
@@ -103,15 +127,29 @@ class ExecService
         $source = AiSource::tryFrom((string) ($result['source'] ?? AiSource::AiSuccess->value)) ?? AiSource::AiSuccess;
         $isRealAnalysis = $source->isRealAnalysis();
 
-        $exec->update([
-            // القالب الاحتياطيّ لا يفحص مستنداً واحداً — وسمه «تحليل مكتمل» كان يخبر
-            // العميل والموظّف بما لم يقع. ai_done يبقى للتوافق لكنه لم يعد يعني «تمّت المعالجة»
-            // بل «تمّ تحليل فعليّ».
+        $advance = $isRealAnalysis && $complete;
+        $movable = $exec->effectiveStage() < 2;
+
+        Workflow::run(new ApplyExecutionAnalysis, $exec, null, [
             'ai_done' => $isRealAnalysis,
             'ai_source' => $source->value,
             'ai_summary' => $summary,
             'ai_missing' => $missing,
             'ai_procedures' => $procedures,
+            'ai_study' => [
+                'readiness' => (string) ($result['readiness'] ?? ''),
+                'difficulty' => (string) ($result['difficulty'] ?? ''),
+                'expected_procedures_count' => (int) ($result['expected_procedures_count'] ?? 0),
+                'duration_estimate' => (string) ($result['duration_estimate'] ?? ''),
+                'recovery_indicators' => array_values((array) ($result['recovery_indicators'] ?? [])),
+                'risks' => array_values((array) ($result['risks'] ?? [])),
+            ],
+            'advance' => $advance,
+            'last_action' => match (true) {
+                ! $isRealAnalysis => 'الطلب قيد المراجعة',
+                $complete => 'اكتمل التحليل الذكيّ — بانتظار الدراسة',
+                default => 'التحليل الذكيّ: نواقص مطلوبة',
+            },
         ]);
 
         // القيد يُكتب قبل الآثار الجانبيّة (رسالة/إشعار/بثّ) لا بعدها: هو مفتاح منع
@@ -121,32 +159,17 @@ class ExecService
         // الحالة من بوّابة السياسة لا من شرطٍ ضمنيّ: تحليل التنفيذ عالي الحساسيّة،
         // فيُسجَّل «يتطلّب مراجعة» ولو نجح وبلغت ثقته حدّها — لا اعتماد آليّ لمخرج
         // يغيّر مسار ملفّ قانونيّ.
-        // اسم القيد `execution` وتعليمته `execution.analyze` — يُمرَّر صراحةً كي لا
-        // تُقرأ الحساسيّة من اسمٍ غير مسجَّل عند خلوّ `meta` (لا فرق في المخرج اليوم،
-        // لكن الاعتماد على السقوط الافتراضيّ يجعل السلوك عرضةً لتغيّر صامت).
         AiRunLogger::log('execution', $source, $meta, $exec, (string) $exec->number, policyTask: 'execution.analyze');
 
-        // الاحتياطيّ لا يرفع المرحلة أبداً: القفز إلى «بانتظار الدراسة» كان يمرّر طلباً
-        // لم يُفحص سنده إلى الخطوة التالية لمجرّد أن اسم المنفَّذ ضده مذكور.
-        // ⚠️ `last_action` يظهر في لوحة العميل (dashboard.tsx) — فنصّه محايد عند التعذّر:
-        // العميل لا يُطلَع على أعطال تشغيليّة، إنما يرى أن طلبه قيد المراجعة.
-        $advance = $isRealAnalysis && $complete;
-        self::sync(
-            $exec,
-            $advance ? 2 : 1,
-            match (true) {
-                ! $isRealAnalysis => 'الطلب قيد المراجعة',
-                $complete => 'اكتمل التحليل الذكيّ — بانتظار الدراسة',
-                default => 'التحليل الذكيّ: نواقص مطلوبة',
-            }
-        );
-
-        // التحليل الفعليّ رسالة ظاهرة للعميل؛ أما التعذّر فملاحظة داخليّة (who=note)
-        // لا يراها العميل ويراها المكتب وحده — سياسة المكتب: لا تُعرَض الأعطال للعميل.
+        // **لا يصل العميل تحليلٌ لم يعتمده محامٍ.** البطاقة تحجب `aiSummary` حتى الاعتماد، وكانت
+        // الرسالة نفسها تُكتب ظاهرةً للعميل (`who=ai`) فيقرأ في المحادثة ما حجبته البطاقة — والقيد
+        // مسجَّلٌ «يتطلّب مراجعة». فتبقى ملاحظةً داخليّة، ويُطلقها الاعتماد في
+        // `AiReviewOutcome::releaseExecutionAnalysis` كما تُطلق مسودّة اللائحة.
+        // والتعذّر ملاحظة داخليّة أيضاً — سياسة المكتب: لا تُعرَض الأعطال للعميل.
         $exec->messages()->create($isRealAnalysis ? [
-            'who' => 'ai',
+            'who' => 'note',
             'name' => 'المساعد القانوني',
-            'role' => 'تحليل',
+            'role' => 'تحليل — بانتظار اعتماد المحامي',
             'body' => '<p>'.e($summary).'</p>'
                 .($missing ? '<p><b>نواقص مطلوبة:</b> '.e(implode(' · ', $missing)).'</p>' : ''),
             'time_label' => self::clock(),
@@ -154,43 +177,114 @@ class ExecService
             'who' => 'note',
             'name' => 'النظام',
             'role' => 'تعذّر التحليل الذكيّ',
-            'body' => '<p><b>تعذّر التحليل الذكيّ لهذا الطلب — لم يُفحص أي مستند.</b> '
-                .'ما يلي تقييم أوّليّ مشتقّ من بيانات الطلب وحدها، ويلزم فحص المستندات يدوياً قبل الإحالة.</p>'
-                .'<p>'.e($summary).'</p>'
-                .($missing ? '<p><b>نواقص مطلوبة:</b> '.e(implode(' · ', $missing)).'</p>' : ''),
+            // لا تقييم مُصطنَع: المحاولة تُعاد بالطابور، وإلى أن تنجح يبقى الفحص يدويّاً
+            'body' => '<p><b>تعذّرت الدراسة الذكيّة لهذا الطلب — لم يُفحص أي مستند.</b> '
+                .'أُعيدت جدولة المحاولة تلقائياً، ويلزم فحص المستندات يدوياً قبل الإحالة إن تأخّرت.</p>'
+                .($missing ? '<p><b>نواقص في بيانات الطلب:</b> '.e(implode(' · ', $missing)).'</p>' : ''),
             'time_label' => self::clock(),
         ]);
 
         if ($isRealAnalysis) {
-            self::notify($exec, 'exec', 't-blue', "تم تحليل طلب التنفيذ {$exec->number} بالذكاء الاصطناعي.");
+            // الإشعار محايد: المخرج لم يُعتمد بعد، فلا يُقال للعميل «تمّ تحليل طلبك» ثم لا يجد شيئاً
+            // — ولا يُرسَل أصلاً لملفٍّ تجاوز الاستقبال: عميلٌ أُشعر بأنّ عرض الأتعاب قادم
+            // لا يُقال له بعدها «طلبك قيد الدراسة»، فتتراجع حالته في عينه بلا سبب.
+            if ($movable) {
+                self::notify($exec, 'exec', 't-blue', "طلب التنفيذ {$exec->number} قيد الدراسة.");
+            }
+            self::alertStaff($exec, "طلب التنفيذ {$exec->number}: جهزت الدراسة الذكيّة — تنتظر اعتماد محامٍ قبل إطلاقها للعميل.");
         } else {
             // العميل: إشعار محايد بلا ذكر لأي عطل. المكتب: تنبيه صريح ليتحرّك أحد.
-            self::notify($exec, 'exec', 't-blue', "طلب التنفيذ {$exec->number} قيد المراجعة.");
+            if ($movable) {
+                self::notify($exec, 'exec', 't-blue', "طلب التنفيذ {$exec->number} قيد المراجعة.");
+            }
             self::alertStaff($exec, "طلب التنفيذ {$exec->number}: تعذّر التحليل الذكيّ — يلزم فحص المستندات يدوياً قبل الإحالة.");
         }
         Live::push(new ExecStatusBroadcast($exec));
+
+        if ($advance) {
+            self::alertUnassigned($exec);
+        }
     }
 
     // ── الإدارة ──
 
-    public static function refer(Execution $exec): void
+    public static function refer(Execution $exec, ?User $actor = null): void
     {
         self::guard($exec, [0, 1, 2], 'لا يمكن إحالة هذا الطلب في مرحلته الحالية.');
-        self::sync($exec, 2, 'أُحيل الطلب لقسم التنفيذ');
-        self::adminMsg($exec, 'إحالة', 'أُحيل الطلب إلى قسم التنفيذ للدراسة.');
+        self::guardNotRejected($exec, 'هذا الطلب مرفوض بعد الدراسة — لا يُعاد إحالته لقسم التنفيذ.');
+        Workflow::run(new ReferExecution, $exec, $actor);
+        self::officeMsg($exec, $actor, 'إحالة', 'أُحيل الطلب إلى قسم التنفيذ للدراسة.');
+        self::alertUnassigned($exec);
         Live::push(new ExecStatusBroadcast($exec));
     }
 
-    public static function approveFee(Execution $exec, ?int $adjustedFee = null): void
+    /**
+     * **الملفّ غير المسنَد عند بلوغ «قيد الدراسة» ملكُ الإدارة تُوجّهه** (قرار المالك).
+     *
+     * الالتقاط الأوّل يبقى كما هو — أوّل محامٍ يضغط «قبول» يملك الملفّ. لكنّ ملفّاً لم
+     * يلتقطه أحد كان يظلّ معلّقاً في قائمة المحامين بلا صاحبٍ ولا من يُنبَّه إليه، فلا
+     * أحدَ مسؤولٌ عن تأخّره. والمرحلة 2 أوّل لحظةٍ يصير فيها الملفّ قابلاً للإسناد
+     * (`ExecFlowController::lawyer` يعرض غير المسنَد من `stage >= 2`)، فعندها يُرفع.
+     *
+     * مصدرٌ واحد لطريقَي بلوغها: الإحالة الإداريّة (`refer`) واكتمالُ الدراسة الذكيّة
+     * (`applyAnalysis`) — فلا تتباعد صيغةُ التنبيه ولا شرطُه.
+     */
+    private static function alertUnassigned(Execution $exec): void
+    {
+        if ($exec->assigned_lawyer_id !== null) {
+            return;
+        }
+
+        self::notifyAdmins($exec, 't-amber', "طلب التنفيذ {$exec->number} بلغ «قيد الدراسة» وبلا محامٍ مسنَد — بانتظار إسناد الإدارة.");
+    }
+
+    /**
+     * **إسناد محامٍ لملفّ التنفيذ** (قرار المالك): الإدارة تُوجّه، والموظّف يُوجّه بصلاحيّة
+     * «إجراءات المحكمة والجلسات» — والحرّاس في `ExecFlowController::act` لا هنا، كبقيّة الإجراءات.
+     *
+     * إعادة الإسناد **للإدارة وحدها** (يفرضها الحارس): تحويل ملفٍّ من محامٍ إلى آخر ينزع
+     * ملفّاً من يد من يعمل عليه ويكسر عزلَه عنه (`assigned_lawyer_id` هو ما يحجب الملفّ عن
+     * زملائه)، وهو قرار توزيعٍ إداريّ لا خطوةُ استقبال — بينما إسنادُ ملفٍّ بلا صاحب توجيهٌ
+     * لا نزع. والملفّ المنتهي لا يُسنَد أصلاً: إسنادٌ بعد الإقفال يُحمّل محامياً مسؤوليّة
+     * ملفٍّ لا إجراء فيه.
+     */
+    public static function assignLawyer(Execution $exec, User $lawyer, ?User $actor = null): void
+    {
+        abort_if($exec->isClosed(), 422, 'ملفّ التنفيذ منتهٍ — لا يُسنَد بعد إغلاقه.');
+        self::guardNotRejected($exec, 'هذا الطلب مرفوض بعد الدراسة — لا يُسنَد إليه محامٍ.');
+
+        $before = $exec->assigned_lawyer ?: '—';
+        Workflow::run(new AssignExecutionLawyer, $exec, $actor, [
+            'lawyer_id' => $lawyer->id,
+            'lawyer_name' => $lawyer->name,
+        ]);
+
+        // `officeMsg` تكتب الرسالة **باسم الفاعل** (حقل `name`) — فلا يُكرَّر الاسم في النصّ
+        self::officeMsg($exec, $actor, 'إسناد', $before === '—'
+            ? 'أُسند ملفّ التنفيذ إلى '.$lawyer->name.'.'
+            : 'أُعيد إسناد ملفّ التنفيذ من '.$before.' إلى '.$lawyer->name.'.');
+
+        // من أُسند إليه الملفّ يُبلَّغ بالإشعار وبالبريد معاً — نظير `ExecutionCreation::fromCase`
+        Notify::send($lawyer->id, 'exec', 't-blue', "أُسند إليك ملفّ التنفيذ {$exec->number} — {$exec->subject}.");
+        self::mailAssignedLawyer($exec->fresh());
+
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
+    }
+
+    public static function approveFee(Execution $exec, ?int $adjustedFee = null, ?User $actor = null): void
     {
         self::guard($exec, self::feeStages($exec), 'لا توجد أتعاب بانتظار الاعتماد.');
-        $fee = $adjustedFee && $adjustedFee > 0 ? $adjustedFee : (int) $exec->fee;
-        $exec->update(['fee' => $fee, 'vat' => Setting::vatOn($fee), 'fee_approved' => true, 'offer_status' => null]);
-        self::sync($exec, 5, 'اعتمدت الإدارة الأتعاب وأُرسل العرض');
-        self::adminMsg($exec, 'اعتماد', 'اعتمدت الإدارة أتعاب التنفيذ وأُرسل العرض للعميل.');
+        self::guardNotRejected($exec);
+        self::guardAssigned($exec);
+
+        Workflow::run(new ApproveExecutionFee, $exec, $actor, [
+            'adjusted_fee' => $adjustedFee,
+        ]);
+
+        self::officeMsg($exec, $actor, 'اعتماد', 'اعتمدت الإدارة أتعاب التنفيذ وأُرسل العرض للعميل.');
         self::notify($exec, 'card', 't-blue', "عرض خدمة التنفيذ لطلبك {$exec->number} جاهز — بانتظار قبولك.");
         self::mail($exec, 'feeApproved');
-        Live::push(new ExecStatusBroadcast($exec));
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
     }
 
     /**
@@ -198,20 +292,24 @@ class ExecService
      * (المراحل 2‑4 قبل الاعتماد، أو 5 لإعادة تسعير عرض رفضه/استفسر عنه العميل). الأتعاب النهائيّة
      * تُحسب في الواجهة (ثابت/نسبة) وتُمرَّر رقماً.
      */
-    public static function setFee(Execution $exec, int $fee, string $duration, string $payMethod): void
+    public static function setFee(Execution $exec, int $fee, string $duration, string $feeMode = 'fixed', ?float $feePct = null, ?User $actor = null): void
     {
         self::guard($exec, self::feeStages($exec), 'لا يمكن تسعير الطلب في مرحلته الحالية.');
-        $exec->update([
-            'fee' => $fee, 'vat' => Setting::vatOn($fee),
-            'duration' => $duration ?: '30-45 يوم',
-            'pay_method' => in_array($payMethod, ExecFlow::PAYM, true) ? $payMethod : ExecFlow::PAYM[0],
-            'fee_approved' => true, 'offer_status' => null,
+        self::guardNotRejected($exec);
+        self::guardAssigned($exec);
+
+        Workflow::run(new SetExecutionFee, $exec, $actor, [
+            'fee' => $fee,
+            'duration' => $duration,
+            'fee_mode' => $feeMode,
+            'collection_fee_pct' => $feePct,
+            'is_admin' => true,
         ]);
-        self::sync($exec, 5, 'حدّدت الإدارة الأتعاب واعتمدتها وأُرسل العرض');
-        self::adminMsg($exec, 'تسعير', 'حدّدت الإدارة أتعاب التنفيذ واعتمدتها وأُرسل العرض للعميل.');
+
+        self::officeMsg($exec, $actor, 'تسعير', 'حدّدت الإدارة أتعاب التنفيذ واعتمدتها وأُرسل العرض للعميل.');
         self::notify($exec, 'card', 't-blue', "عرض خدمة التنفيذ لطلبك {$exec->number} جاهز — بانتظار قبولك.");
         self::mail($exec, 'feeApproved');
-        Live::push(new ExecStatusBroadcast($exec));
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
     }
 
     /** مراحل التسعير المسموحة: 2‑4 عادةً، وتضمّ 5 أيضاً إن رفض العميل العرض أو استفسر عنه (لإعادة العرض). */
@@ -220,22 +318,59 @@ class ExecService
         return in_array($exec->offer_status, ['مرفوض', 'استفسار'], true) ? [2, 3, 4, 5] : [2, 3, 4];
     }
 
+    /**
+     * **الطلب المرفوض لا يُسعَّر ولا يُعرَض.** `reject` يكتب القرار ولا ينقل المرحلة (المرفوض ليس
+     * مغلقاً)، فبقيت مراحل التسعير مفتوحةً على طلبٍ رفضه المحامي بعد الدراسة — وكان `saveFee` وحده
+     * يفحص القرار، فتمرّ الإدارة من فوقه بـ`setFee`/`approveFee` ويصل العميلَ عرضٌ على طلبٍ مرفوض.
+     *
+     * **والقاعدة أوسع من التسعير**: مراحل المرفوض تبقى 2 أو 3، فكلّ إجراءٍ محروسٍ بها كان يعمل
+     * عليه — الإحالة تمحو «رُفض الطلب بعد الدراسة» وتُنبّه الإدارة، وطلبُ المستندات يطالب عميلاً
+     * وصله بريدُ الرفض، والإسنادُ يُراسل محامياً على ملفٍّ لا عمل فيه. فالرسالة وسيطٌ ليصف كلُّ
+     * حارسٍ بابَه، ولا يُقال «لا يُسعَّر» لمن ضغط «إحالة».
+     */
+    private static function guardNotRejected(Execution $exec, string $message = 'هذا الطلب مرفوض بعد الدراسة — لا يُسعَّر ولا يُعرَض.'): void
+    {
+        abort_if($exec->decision === 'مرفوض', 422, $message);
+    }
+
+    /**
+     * **لا تسعير لملفٍّ بلا صاحب.** كان `setFee` الإداريّ و`saveFee` المحاميّ يقبلان ملفّاً
+     * `assigned_lawyer_id = null`: فيصل العميلَ عرضٌ بمبلغٍ ومدّةٍ على ملفٍّ لا محاميَ له
+     * ولا من يُسأل عن تقدير المدّة، ويسدّد فيبقى الملفّ بلا منفِّذ. والمُسعِّر يقدّر جهداً —
+     * فمَن سيبذله يجب أن يكون معروفاً قبل الرقم. (`saveFee` يمرّ بحارس الالتقاط فيُختم
+     * الملفّ باسم المحامي بعده، لكنّه يبقى مفتوحاً للإدارة عبر `setFee` وللملفّات القديمة.)
+     */
+    private static function guardAssigned(Execution $exec): void
+    {
+        abort_if(
+            $exec->assigned_lawyer_id === null,
+            422,
+            'يلزم إسناد محامٍ لملفّ التنفيذ قبل تحديد الأتعاب — الإسناد من الإدارة أو من الموظّف المخوَّل.'
+        );
+    }
+
     // ── المحامي ──
 
-    public static function accept(Execution $exec): void
+    public static function accept(Execution $exec, ?User $actor = null): void
     {
         self::guard($exec, [2], 'لا يمكن قبول هذا الطلب في مرحلته الحالية.');
         abort_if($exec->decision === 'مرفوض', 422, 'هذا الطلب مرفوض بالفعل.');
-        $exec->update(['decision' => 'مقبول']);
-        self::sync($exec, 3, 'قبل المحامي الطلب — بانتظار تحديد الأتعاب');
-        self::lawyerMsg($exec, 'قبول', 'قُبل الطلب، ويجري تحديد أتعاب التنفيذ.');
-        Live::push(new ExecStatusBroadcast($exec));
+
+        Workflow::run(new StudyExecution, $exec, $actor, ['action' => 'accept']);
+
+        self::officeMsg($exec, $actor, 'قبول', 'قُبل الطلب، ويجري تحديد أتعاب التنفيذ.');
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
     }
 
-    public static function requestDocs(Execution $exec): void
+    public static function requestDocs(Execution $exec, ?User $actor = null): void
     {
         // الاستقبال (0‑1) أو الدراسة (2) — قبل فتح الملفّ
         self::guard($exec, [0, 1, 2], 'لا يمكن طلب مستندات في مرحلته الحالية.');
+        // ولا تُطلب مستنداتٌ على ملفٍّ أُغلق قرارُه: العميل وصله بريد الرفض، فطلبُ نواقصَ بعده
+        // يَعِده باستكمالٍ لا يقع — ويُنشئ صفوف مستنداتٍ «مطلوبة» على ملفٍّ لا إجراء فيه.
+        self::guardNotRejected($exec, 'هذا الطلب مرفوض بعد الدراسة — لا تُطلب عليه مستندات.');
+
+        Workflow::run(new StudyExecution, $exec, $actor, ['action' => 'requestDocs']);
 
         // النواقص من تحليل الملفّ إن وُجدت، وإلّا قائمة الاستقبال العامّة.
         // **والفارق يُبلَّغ للعميل**: قائمةٌ خرجت من فحص مستنداته يقرؤها حكماً على
@@ -251,58 +386,93 @@ class ExecService
             $exec->documents()->firstOrCreate(['label' => (string) $label], ['status' => 'مطلوب']);
         }
 
-        self::lawyerMsg($exec, 'نواقص', $fromAnalysis
+        self::officeMsg($exec, $actor, 'نواقص', $fromAnalysis
             ? 'بعد دراسة الطلب ومستنداته، يرجى تزويدنا بالمستندات المذكورة لاستكمال الملفّ.'
             : 'يرجى تزويدنا بمستندات الاستقبال الأساسيّة لاستكمال دراسة الطلب (قائمة عامّة بحسب نوع السند).');
         self::notify($exec, 'upload', 't-amber', "طلب قسم التنفيذ مستندات إضافية على طلبك {$exec->number}.");
     }
 
-    public static function reject(Execution $exec): void
+    public static function reject(Execution $exec, ?User $actor = null): void
     {
         self::guard($exec, [2, 3], 'لا يمكن رفض هذا الطلب في مرحلته الحالية.');
-        $exec->update(['decision' => 'مرفوض']);
-        self::lawyerMsg($exec, 'رفض', 'تعذّر قبول الطلب بعد الدراسة.');
+
+        Workflow::run(new StudyExecution, $exec, $actor, ['action' => 'reject']);
+
+        self::officeMsg($exec, $actor, 'رفض', 'تعذّر قبول الطلب بعد الدراسة.');
         self::notify($exec, 'exec', 't-red', "تعذّر قبول طلب التنفيذ {$exec->number} بعد الدراسة.");
-        // لا تُنقل المرحلة إلى 9: المرحلة 9 «مغلق» تعني مؤرشفاً بعد استكمال الإجراءات،
-        // والمرفوض ليس كذلك. الحالة تُقرأ من decision، والقوائم تحترمه في العرض.
-        $exec->update(['last_action' => 'رُفض الطلب بعد الدراسة']);
-        Live::push(new ExecStatusBroadcast($exec));
+        self::mail($exec, 'rejected');
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
     }
 
-    public static function saveFee(Execution $exec, int $fee, string $duration, string $payMethod): void
+    /**
+     * **كتابة التسعير — النموذج والعنوان معاً فلا يتناقضان.** كان `pay_method` نصّاً حرّاً
+     * يُخزَّن ويُعرض ولا يقرؤه محرّك: يختار المكتب «دفعات» فتصدر فاتورةٌ واحدة كاملة، فتَعِد
+     * الشاشةُ العميلَ بما لا يقع. الآن النموذج عمودٌ يقرؤه `ExecFee`، والعنوان مشتقٌّ منه.
+     *
+     * وفي النموذج النسبيّ لا مبلغ ولا ضريبة على العرض: الأتعاب تُحسب مع كلّ تحصيل.
+     */
+    private static function writeFee(Execution $exec, int $fee, string $duration, string $feeMode, ?float $feePct): void
+    {
+        $percent = $feeMode === 'percent';
+        $exec->update([
+            'fee' => $percent ? 0 : $fee,
+            'vat' => $percent ? 0 : Setting::vatOn($fee),
+            'fee_mode' => $percent ? 'percent' : 'fixed',
+            'collection_fee_pct' => $percent ? $feePct : null,
+            // الخطّة قرارُ العميل عند السداد؛ وتغييرُ النموذج يُسقط خطّةً اختيرت على عرضٍ سابق
+            'pay_plan' => null,
+            'duration' => $duration ?: '30-45 يوم',
+        ]);
+        $exec->update(['pay_method' => ExecFee::payMethodLabel($exec->fresh())]);
+    }
+
+    public static function saveFee(Execution $exec, int $fee, string $duration, string $feeMode = 'fixed', ?float $feePct = null, ?User $actor = null): void
     {
         self::guard($exec, [3], 'لا يمكن تحديد الأتعاب في مرحلته الحالية.');
         abort_if($exec->decision === 'مرفوض', 422, 'هذا الطلب مرفوض بالفعل.');
-        $exec->update([
-            'fee' => $fee, 'vat' => Setting::vatOn($fee),
-            'duration' => $duration ?: '30-45 يوم',
-            'pay_method' => in_array($payMethod, ExecFlow::PAYM, true) ? $payMethod : ExecFlow::PAYM[0],
+        self::guardAssigned($exec);
+
+        Workflow::run(new SetExecutionFee, $exec, $actor, [
+            'fee' => $fee,
+            'duration' => $duration,
+            'fee_mode' => $feeMode,
+            'collection_fee_pct' => $feePct,
+            'is_admin' => false,
         ]);
-        self::sync($exec, 4, 'أُرسلت الأتعاب لاعتماد الإدارة');
-        self::lawyerMsg($exec, 'أتعاب', 'حُدّدت أتعاب التنفيذ وأُرسلت لاعتماد الإدارة.');
-        Live::push(new ExecStatusBroadcast($exec));
+
+        self::officeMsg($exec, $actor, 'أتعاب', 'حُدّدت أتعاب التنفيذ وأُرسلت لاعتماد الإدارة.');
+        // الاعتماد قرار الإدارة — وكان الملفّ ينتظر في المرحلة 4 بلا أن يعلم أحدٌ به
+        self::notifyAdmins($exec, 't-amber', "أتعاب التنفيذ للطلب {$exec->number} بانتظار اعتماد الإدارة.");
+        self::mailStaff($exec, 'feeAwaitingApproval');
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
     }
 
     // ── العميل ──
 
+    /**
+     * **قبول العرض** — أثره يتبع نموذج الأتعاب، و`ExecFee::openOnAcceptance` تملكه:
+     * الثابت تصدر له فاتورة وينتظر السداد، والنسبيّ لا مبلغ مستحقّاً فيه اليوم فيُفتح
+     * ملفّه بالقبول نفسه (قرار المالك 2026-09-12: لا مقدَّم). والخبرُ هنا يصف ما وقع فعلاً
+     * لا فاتورةً في كلّ حال — كان يُقال «صدرت الفاتورة» أيّاً كان النموذج.
+     */
     public static function acceptOffer(Execution $exec): void
     {
         self::guard($exec, [5], 'لا يوجد عرض بانتظار القبول.');
         abort_unless($exec->fee_approved, 422, 'العرض غير معتمد بعد.');
 
-        $number = InvoiceNumber::next();
-        DB::transaction(function () use ($exec, $number) {
-            Invoice::create([
-                'user_id' => $exec->user_id, 'exec_id' => $exec->id, 'number' => $number,
-                'description' => 'أتعاب تنفيذ · '.$exec->number,
-                'amount' => (int) $exec->fee + (int) $exec->vat,
-                'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال 3 أيام',
-                'due_at' => now()->addDays(3)->toDateString(), 'paid' => false,
-            ]);
-            $exec->update(['offer_status' => 'مقبول', 'invoice_no' => $number]);
-        });
-        self::sync($exec, 6, 'قبل العميل العرض وصدرت الفاتورة');
+        ExecFee::openOnAcceptance($exec);
+        $exec->refresh();
+
+        if ($exec->feeMode() === 'percent') {
+            // فتحُ الملفّ أشعر الطرفين بنفسه؛ الباقي وصف النموذج كي لا ينتظر العميل فاتورة
+            self::notify($exec, 'card', 't-blue', "قُبل عرض التنفيذ {$exec->number} — لا مبلغ مقدَّم، وتُصدَر فاتورة أتعاب مع كلّ مبلغ يُحصَّل.");
+            self::notifyOffice($exec, 't-green', "قبل العميل عرض التنفيذ {$exec->number} بنموذج نسبة من المحصّل — فُتح الملفّ بلا فاتورة.");
+
+            return;
+        }
+
         self::notify($exec, 'card', 't-blue', "صدرت فاتورة أتعاب التنفيذ لطلبك {$exec->number} — بانتظار السداد.");
+        self::notifyOffice($exec, 't-green', "قبل العميل عرض التنفيذ {$exec->number} وصدرت الفاتورة — بانتظار السداد.");
         Live::push(new ExecStatusBroadcast($exec));
     }
 
@@ -315,26 +485,59 @@ class ExecService
             'body' => '<p>لديّ استفسار حول عرض خدمة التنفيذ.</p>', 'time_label' => self::clock(),
         ]);
         self::notifyOffice($exec, 't-amber', "استفسار العميل حول عرض التنفيذ {$exec->number}.");
+        self::mailStaff($exec, 'offerInquiry');
         Live::push(new ExecStatusBroadcast($exec));
     }
 
     public static function rejectOffer(Execution $exec): void
     {
         self::guard($exec, [5], 'لا يوجد عرض للرفض.');
-        $exec->update(['offer_status' => 'مرفوض']);
+
+        Workflow::run(new RejectExecutionOffer, $exec);
+
         $exec->messages()->create([
             'who' => 'client', 'name' => 'أنت', 'role' => 'العميل',
             'body' => '<p>رفضتُ عرض خدمة التنفيذ.</p>', 'time_label' => self::clock(),
         ]);
         self::notifyOffice($exec, 't-red', "رفض العميل عرض خدمة التنفيذ {$exec->number}.");
-        Live::push(new ExecStatusBroadcast($exec));
+        self::mailStaff($exec, 'offerRejected');
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
     }
 
-    /** يُشعر المحامي المسنَد بحدث من العميل يخصّ العرض؛ بلا إسناد يبقى مرئياً للإدارة عبر القائمة فقط. */
-    private static function notifyOffice(Execution $exec, string $tone, string $body): void
+    /**
+     * يُشعر المكتب بحدثٍ من العميل يخصّ العرض: المحامي المسنَد **والإدارة**.
+     * كان الإشعار للمحامي وحده، وإعادةُ التسعير بعد الاستفسار أو الرفض من صلاحيّة الإدارة
+     * (`setFee`/`approveFee`) — فيصل الخبرُ من لا يملك الإجراء، ولا يصل من يملكه.
+     */
+    public static function notifyOffice(Execution $exec, string $tone, string $body, ?User $actor = null): void
     {
-        if ($exec->assigned_lawyer_id !== null) {
+        // الفاعل لا يُشعَر بفعله (نظير `ManagesCourtProceedings::tellLawyer`). و`$actor=null`
+        // يبقي السلوك السابق كما هو: أحداث العميل تصل المحامي دائماً.
+        if ($exec->assigned_lawyer_id !== null && (int) $exec->assigned_lawyer_id !== (int) ($actor?->id ?? 0)) {
             Notify::send($exec->assigned_lawyer_id, 'exec', $tone, $body);
+        }
+
+        self::notifyAdmins($exec, $tone, $body);
+    }
+
+    /**
+     * **خطوةُ ناجز يسجّلها أحدهم فيعلمها من يملك الملفّ.** نظير `tellLawyer` في القضايا:
+     * كانت الخطوات الخمس تُشعر العميل وحده، فيسجّل الموظّف أو الإدارة قيداً أو حجزاً على
+     * ملفٍّ مسنَدٍ لمحامٍ ولا يعلم به. العميل يُشعَر برسالته الخاصّة قبلها — فلا تكرار عليه.
+     */
+    private static function tellOffice(Execution $exec, ?User $actor, string $what): void
+    {
+        $actor ??= auth()->user();
+        $by = $actor?->name ?? 'المكتب';
+
+        self::notifyOffice($exec, 't-blue', "{$what} على ملفّ التنفيذ {$exec->number} — سجّله {$by}.", $actor);
+    }
+
+    /** إشعار الإدارة العليا — قرارات الأتعاب والعرض عندها (يناديه أيضاً فتحُ التنفيذ من قضيّة). */
+    public static function notifyAdmins(Execution $exec, string $tone, string $body): void
+    {
+        foreach (User::where('role', Role::Admin)->pluck('id') as $id) {
+            Notify::send((int) $id, 'exec', $tone, $body);
         }
     }
 
@@ -362,77 +565,28 @@ class ExecService
     {
         self::guard($exec, [6], 'لا يمكن السداد قبل قبول العرض.');
 
-        $invoice = Invoice::where('exec_id', $exec->id)->where('paid', false)->latest('id')->first();
+        // **الأقدم لا الأحدث.** بعد تقسيم الأتعاب إلى ثلاث دفعات كانت `latest('id')` هي
+        // الدفعة الثالثة: يسدّدها العميل ويبقى الأوّل مستحقّاً والملفّ مغلقاً.
+        $invoice = ExecFee::nextPayable($exec);
 
         return $invoice ? app(MoyasarService::class)->hostedUrlForInvoice($invoice, $callbackUrl) : null;
     }
 
-    /** تسوية سداد الأتعاب وفتح ملف التنفيذ (idempotent) — يستدعيها PaymentReconciler عند تأكيد ميسّر. */
-    public static function markPaid(Execution $exec): void
-    {
-        $didPay = DB::transaction(function () use ($exec) {
-            $locked = Execution::whereKey($exec->id)->lockForUpdate()->first();
-            if ($locked === null || $locked->paid) {
-                return false;
-            }
-            // فاتورة واحدة لا كل غير المدفوعة — الشطب الجماعي كان يُصفّر أي فاتورة
-            // تكميلية على نفس الطلب بلا مقابل (نفس عطل CaseFee::markInvoicePaid).
-            Invoice::where('exec_id', $locked->id)->where('paid', false)
-                ->latest('id')->first()
-                ?->update(['paid' => true, 'status' => 'مدفوعة', 'tone' => 'b-green']);
-            $locked->update([
-                'paid' => true, 'paid_at' => now(),
-                // ⚠️ **رقمٌ داخليّ لا صادرٌ عن جهة قضائيّة.**
-                //
-                // كان `random_int(70, 99).'-'.year.'-تنفيذ'` — ثلاثون قيمة في السنة
-                // على عمودٍ بلا فحص تفرّد، فملفّان لعميلين يحملان الرقم نفسه بعد
-                // ثلاثين طلباً. ويُعرض في PDF والبريد وأربعة إشعارات باسم «رقم ملفّ
-                // التنفيذ»، فيُقرأ رقماً رسمياً من وزارة العدل — ولا تكامل مع ناجز.
-                //
-                // والمولّد القائم يفحص التفرّد بحلقة ويُوسّع المدى عند الامتلاء،
-                // وهو المستعمل لبقيّة أرقام المنظومة — فلا نمط ثانٍ.
-                'exec_no' => ReferenceNumber::next(Execution::class, 'exec_no', 'EXE-TN'),
-                'offer_status' => 'مقبول',
-            ]);
-
-            return true;
-        });
-
-        if (! $didPay) {
-            return;
-        }
-
-        $exec->refresh();
-        // المرور بالمرحلة 7 «ملف تنفيذ» بدل القفز 6 ← 8: كانت مرحلة معلَنة في FLOW
-        // بلا أي كاتب، فيمرّ شريط المراحل فوقها ولا تُعرض للعميل قط.
-        self::sync($exec, 7, 'سُدّدت الأتعاب — يُفتح ملف التنفيذ');
-        $exec->procedures()->create(['title' => 'فتح ملف التنفيذ وتقديم الطلب إلكترونياً', 'type' => 'إجراء', 'detail' => '', 'status' => 'منفّذ']);
-        self::sync($exec, 8, 'فُتح ملف التنفيذ وبدأت الإجراءات');
-        $exec->messages()->create([
-            'who' => 'system', 'name' => 'النظام', 'role' => 'سداد',
-            'body' => '<p>تم سداد أتعاب التنفيذ وفتح ملف التنفيذ، ورقمه المرجعيّ الداخليّ <b>'.e((string) $exec->exec_no).'</b>.</p>',
-            'time_label' => self::clock(),
-        ]);
-        self::notify($exec, 'check', 't-green', "سُدّدت أتعاب التنفيذ وفُتح ملف التنفيذ لطلبك {$exec->number} — رقمه المرجعيّ الداخليّ {$exec->exec_no}.");
-        self::mail($exec, 'paid');
-        Live::push(new ExecStatusBroadcast($exec));
-    }
-
     // ── إجراءات ما بعد فتح الملف (محامي/إدارة) ──
 
-    public static function addProcedure(Execution $exec, string $title): void
+    public static function addProcedure(Execution $exec, string $title, ?User $actor = null): void
     {
         self::guard($exec, [7, 8], 'يلزم فتح ملف التنفيذ أولاً.');
         $t = trim($title);
         abort_if($t === '', 422, 'أدخل وصف الإجراء.');
         $exec->procedures()->create(['title' => $t, 'type' => 'إجراء', 'detail' => '', 'status' => 'منفّذ']);
         $exec->update(['last_action' => $t]);
-        self::lawyerMsg($exec, 'إجراء', 'إجراء تنفيذ جديد: '.$t.'.');
-        self::notify($exec, 'exec', 't-blue', "تحديث على ملف تنفيذك (المرجع الداخليّ {$exec->exec_no}): {$t}.");
+        self::officeMsg($exec, $actor, 'إجراء', 'إجراء تنفيذ جديد: '.$t.'.');
+        self::notify($exec, 'exec', 't-blue', 'تحديث على ملف تنفيذك ('.self::ref($exec).'): '.$t.'.');
         Live::push(new ExecStatusBroadcast($exec));
     }
 
-    public static function requestCorr(Execution $exec): void
+    public static function requestCorr(Execution $exec, ?User $actor = null): void
     {
         self::guard($exec, [7, 8], 'يلزم فتح ملف التنفيذ أولاً.');
         abort_if($exec->assigned_lawyer_id === null, 422, 'يلزم إسناد محامٍ للملف قبل طلب مخاطبة.');
@@ -451,18 +605,167 @@ class ExecService
         }
 
         $exec->procedures()->create(['title' => 'إنشاء مخاطبة رسميّة لمحكمة التنفيذ مرتبطة بالملفّ', 'type' => 'إجراء', 'detail' => '', 'status' => 'منفّذ']);
-        self::lawyerMsg($exec, 'مخاطبة', 'أُنشئت مخاطبة رسميّة لمحكمة التنفيذ مرتبطة بالملف.');
+        self::officeMsg($exec, $actor, 'مخاطبة', 'أُنشئت مخاطبة رسميّة لمحكمة التنفيذ مرتبطة بالملف.');
         $exec->update(['last_action' => 'طلب مخاطبة محكمة التنفيذ']);
     }
 
-    public static function close(Execution $exec): void
+    /**
+     * **إنهاء الملفّ** — بابان لا باب:
+     *
+     * 1. الملفّ العامل (7‑8): يُنهيه المحامي المسنَد أو الإدارة كما كان.
+     * 2. **الملفّ المرفوض (2‑3) — للإدارة وحدها** (قرار المالك 2026-09-13): الرفض يكتب
+     *    القرار ولا ينقل المرحلة، فالمرفوض يبقى مفتوحاً بلا مخرج — لا يُسعَّر ولا يُحال ولا
+     *    يُسنَد ولا يُغلق، فيتراكم في القوائم أبداً. والمالك قرّر ألّا يُغلق تلقائيّاً بل بزرٍّ
+     *    إداريّ صريح، فيبقى الرفضُ قابلاً للمراجعة حتى تحسم الإدارةُ أرشفتَه.
+     *
+     * والفحص هنا لا في المتحكّم: حارس `act` يقيس **الدور** لكلّ إجراء، وهذا شرطٌ يقرأ حالة
+     * الصفّ (`decision` والمرحلة) مع الدور معاً — فمحلّه مع بقيّة حرّاس الحالة، ولا يُنسخ
+     * في مسارٍ ثانٍ يتباعد عنه. والفاعل يصل صراحةً من المتحكّم، ويسقط على الجلسة لمن يناديها
+     * برمجيّاً (نظير `officeMsg`).
+     */
+    public static function close(Execution $exec, string $reason = 'أخرى', ?User $actor = null): void
     {
-        self::guard($exec, [7, 8], 'لا يمكن إغلاق الملف في مرحلته الحالية.');
-        self::sync($exec, 9, 'أُغلق ملف التنفيذ وأُرشف');
-        self::adminMsg($exec, 'إغلاق', 'أُغلق ملف التنفيذ بعد استكمال الإجراءات وأُرشف.');
-        self::notify($exec, 'check', 't-green', "أُغلق ملف التنفيذ لطلبك {$exec->number} — المرجع الداخليّ {$exec->exec_no}.");
+        $actor ??= auth()->user();
+
+        if ($exec->decision === 'مرفوض' && in_array($exec->effectiveStage(), [2, 3], true)) {
+            abort_unless(
+                $actor?->role === Role::Admin,
+                403,
+                'إنهاء الملفّ المرفوض وأرشفته من صلاحيّة الإدارة وحدها.'
+            );
+        } else {
+            self::guard($exec, [7, 8], 'لا يمكن إغلاق الملف في مرحلته الحالية.');
+        }
+
+        $reason = in_array($reason, ExecFlow::CLOSE_REASONS, true) ? $reason : 'أخرى';
+
+        Workflow::run(new CloseExecution, $exec, $actor, [
+            'reason' => $reason,
+        ]);
+
+        self::officeMsg($exec, $actor, 'إغلاق', "أُغلق ملف التنفيذ وأُرشف — السبب: {$reason}.");
+        self::notify($exec, 'check', 't-green', "أُغلق ملف التنفيذ لطلبك {$exec->number} ({$reason}) — ".self::ref($exec).'.');
         self::mail($exec, 'closed');
-        Live::push(new ExecStatusBroadcast($exec));
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
+    }
+
+    // ── مسار ناجز داخل ملفّ التنفيذ (المرحلتان 7 و8) ──
+
+    /** رفع الطلب في ناجز ⇐ «قيد التنفيذ» (8) برقم الطلب وتاريخه. */
+    public static function fileNajiz(Execution $exec, string $requestNo, string $filedAt, ?User $actor = null): void
+    {
+        self::guard($exec, [7], 'يُسجَّل الرفع في ناجز بعد سداد الأتعاب وفتح الملفّ.');
+
+        Workflow::run(new FileExecutionNajiz, $exec, $actor, [
+            'request_no' => $requestNo,
+            'filed_at' => $filedAt,
+        ]);
+
+        self::officeMsg($exec, $actor, 'ناجز', "رُفع طلب التنفيذ في منصّة ناجز برقم {$requestNo}.");
+        self::notify($exec, 'exec', 't-blue', "رُفع طلب تنفيذك {$exec->number} في منصّة ناجز برقم الطلب {$requestNo}.");
+        self::tellOffice($exec, $actor, "سُجّل رفع الطلب في ناجز برقم {$requestNo}");
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
+    }
+
+    /** قيد الطلب لدى محكمة التنفيذ: المحكمة والدائرة وتاريخ القيد. */
+    public static function registerNajiz(Execution $exec, string $court, string $circuit, string $registeredAt, ?User $actor = null): void
+    {
+        self::guard($exec, [8], 'يُسجَّل القيد بعد رفع الطلب في ناجز.');
+        abort_if(blank($exec->najiz_request_no), 422, 'سجّل رقم الطلب في ناجز أوّلاً.');
+
+        Workflow::run(new RegisterExecutionNajiz, $exec, $actor, [
+            'court' => $court,
+            'circuit' => $circuit,
+            'registered_at' => $registeredAt,
+        ]);
+
+        self::officeMsg($exec, $actor, 'ناجز', "قُيّد طلب التنفيذ لدى {$court} — {$circuit}.");
+        self::notify($exec, 'scale', 't-green', "قُيّد طلب تنفيذك {$exec->number} لدى {$court} — {$circuit}.");
+        self::tellOffice($exec, $actor, "قُيّد الطلب لدى {$court} — {$circuit}");
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
+    }
+
+    /** الإبلاغ بأمر التنفيذ — منه تبدأ مهلة الوفاء، ويحسبها `ExecFlow::payDueAfter`. */
+    public static function notifyDebtor(Execution $exec, string $notifiedAt, ?User $actor = null): void
+    {
+        self::guard($exec, [8], 'يُسجَّل الإبلاغ بعد القيد لدى محكمة التنفيذ.');
+        abort_if($exec->registered_at === null, 422, 'سجّل قيد الطلب لدى محكمة التنفيذ أوّلاً.');
+
+        Workflow::run(new NotifyExecutionDebtor, $exec, $actor, [
+            'notified_at' => $notifiedAt,
+        ]);
+
+        $due = ExecFlow::payDueAfter(Carbon::parse($notifiedAt));
+        $label = $due->locale('ar')->translatedFormat('j F Y');
+        self::officeMsg($exec, $actor, 'ناجز', "أُبلغ المنفَّذ ضدّه بأمر التنفيذ، ومهلة الوفاء حتى {$label}.");
+        self::notify($exec, 'cal', 't-amber', "أُبلغ المنفَّذ ضدّه بأمر التنفيذ على طلبك {$exec->number} — مهلة الوفاء حتى {$label}.");
+        self::tellOffice($exec, $actor, "أُبلغ المنفَّذ ضدّه بأمر التنفيذ ومهلة الوفاء حتى {$label}");
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
+    }
+
+    /**
+     * إجراءات عدم الوفاء بعد انقضاء المهلة (منع سفر، إيقاف خدمات، حجز…) — تُسجَّل كما اتُّخذت
+     * في ناجز، ويُبلَّغ بها العميل. القائمة تحلّ محلّ سابقتها فتُسحب المرفوعة بإزالتها.
+     *
+     * @param  array<int, string>  $measures
+     */
+    public static function applyMeasures(Execution $exec, array $measures, ?User $actor = null): void
+    {
+        self::guard($exec, [8], 'تُتّخذ الإجراءات بعد الإبلاغ بأمر التنفيذ.');
+        abort_if($exec->notified_at === null, 422, 'سجّل الإبلاغ بأمر التنفيذ أوّلاً.');
+        $picked = array_values(array_intersect(ExecFlow::MEASURES, $measures));
+
+        Workflow::run(new ApplyExecutionMeasures, $exec, $actor, [
+            'measures' => $picked,
+        ]);
+
+        $text = $picked ? 'سُجّلت إجراءات عدم الوفاء: '.implode(' · ', $picked).'.' : 'رُفعت إجراءات عدم الوفاء عن المنفَّذ ضدّه.';
+        self::officeMsg($exec, $actor, 'ناجز', $text);
+        self::notify($exec, 'exec', 't-blue', "تحديث على طلب تنفيذك {$exec->number}: {$text}");
+        self::tellOffice($exec, $actor, rtrim($text, '.'));
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
+    }
+
+    /** تحصيلٌ جزئيّ أو كامل من المنفَّذ ضدّه — يُراكَم ويُقاس عليه المتبقّي، وأثره في سجلّ الإجراءات. */
+    public static function addCollection(Execution $exec, int $amount, string $note = '', ?User $actor = null): void
+    {
+        self::guard($exec, [8], 'التحصيل بعد قيد الطلب وبدء التنفيذ.');
+        // الرسالة تَعِد بالقيد والحارس يفحص المرحلة وحدها: فيُسجَّل تحصيلٌ و`registered_at` فارغ —
+        // مبلغٌ محصَّل على ملفٍّ لم يُقيَّد لدى محكمة التنفيذ بعد. الحارس الآن يطابق ما تقوله الرسالة.
+        abort_if($exec->registered_at === null, 422, 'سجّل قيد الطلب لدى محكمة التنفيذ أوّلاً.');
+        abort_if($amount < 1, 422, 'أدخل مبلغاً صحيحاً.');
+
+        Workflow::run(new RecordExecutionCollection, $exec, $actor, [
+            'amount' => $amount,
+            'note' => $note,
+        ]);
+
+        $total = (int) $exec->fresh()->collected;
+        $exec->procedures()->create([
+            'title' => 'تحصيل '.number_format($amount).' ريال'.($note !== '' ? ' — '.$note : ''),
+            'type' => 'تحصيل', 'detail' => '', 'status' => 'منفّذ',
+        ]);
+        $remaining = max(0, (int) $exec->amount - $total);
+        self::officeMsg($exec, $actor, 'تحصيل', 'حُصّل '.number_format($amount).' ريال'.($note !== '' ? " ({$note})" : '').'، والمتبقّي '.number_format($remaining).' ريال.');
+        self::notify($exec, 'card', 't-green', 'حُصّل '.number_format($amount)." ريال على طلب تنفيذك {$exec->number} — المتبقّي ".number_format($remaining).' ريال.');
+        self::mail($exec->fresh(), 'collection');
+        self::tellOffice($exec, $actor, 'حُصّل '.number_format($amount).' ريال، والمتبقّي '.number_format($remaining).' ريال');
+
+        // **النموذج النسبيّ يُفوتَر مع التحصيل** (قرار المالك: لا مقدَّم، والأتعاب نسبةٌ من
+        // كلّ مبلغ يُحصَّل). وملفٌّ بنموذجٍ ثابت يُسجَّل تحصيله ولا يُفوتَر — كما كان.
+        if (($invoice = ExecFee::issueCollectionFee($exec->fresh(), $amount, $note)) !== null) {
+            $pct = ExecFee::pctLabel((float) $exec->collection_fee_pct);
+            $exec->messages()->create([
+                'who' => 'system', 'name' => 'النظام', 'role' => 'أتعاب',
+                'body' => '<p>صدرت فاتورة أتعاب التنفيذ <b>'.e((string) $invoice->number).'</b> — '.e($pct).'% من '
+                    .number_format($amount).' ريال، بإجمالي '.number_format((int) $invoice->amount).' ريال شاملاً الضريبة.</p>',
+                'time_label' => self::clock(),
+            ]);
+            self::notify($exec, 'card', 't-amber', "صدرت فاتورة أتعاب التنفيذ {$invoice->number} ({$pct}% من المبلغ المحصَّل) بقيمة ".number_format((int) $invoice->amount).' ريال — بانتظار السداد.');
+            self::mail($exec->fresh(), 'feeInvoice');
+        }
+
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
     }
 
     // ── مساعدات ──
@@ -480,40 +783,113 @@ class ExecService
         }
     }
 
-    private static function sync(Execution $exec, int $stage, string $lastAction): void
+    /**
+     * **رسالة الإجراء باسم من قام به.** كانت ثابتة بحسب الدالّة لا بحسب الفاعل: إغلاق المحامي
+     * يظهر باسم «الإدارة العليا»، وطلب الموظّف للنواقص يظهر باسم المحامي المسنَد — والمحادثة
+     * سجلٌّ يقرأه العميل والمكتب. الفاعل من الوسيط إن مُرِّر، وإلّا من الجلسة.
+     */
+    private static function officeMsg(Execution $exec, ?User $actor, string $role, string $text): void
     {
-        $exec->update([
-            'stage' => $stage,
-            'status' => ExecFlow::label($stage),
-            'tone' => ExecFlow::tone($stage),
-            'last_action' => $lastAction,
-        ]);
+        $actor ??= auth()->user();
+
+        [$who, $name] = match ($actor?->role) {
+            Role::Lawyer => ['lawyer', $actor->name],
+            Role::Admin => ['admin', $actor->name],
+            Role::Employee => ['staff', $actor->name],
+            // بلا جلسة (طابور/أمر مجدول): باسم القسم لا باسم شخصٍ لم يفعل شيئاً
+            default => ['lawyer', $exec->assigned_lawyer ?: 'قسم التنفيذ'],
+        };
+
+        $exec->messages()->create(['who' => $who, 'name' => $name, 'role' => $role, 'body' => '<p>'.e($text).'</p>', 'time_label' => self::clock()]);
     }
 
-    private static function adminMsg(Execution $exec, string $role, string $text): void
+    /** المرجع المعروض للعميل: رقم ملفّ التنفيذ الداخليّ، وإلّا رقم الطلب — لا فراغ. */
+    private static function ref(Execution $exec): string
     {
-        $exec->messages()->create(['who' => 'admin', 'name' => 'الإدارة العليا', 'role' => $role, 'body' => '<p>'.e($text).'</p>', 'time_label' => self::clock()]);
+        return $exec->exec_no ? "الرقم المرجعيّ الداخليّ {$exec->exec_no}" : "رقم الطلب {$exec->number}";
     }
 
-    private static function lawyerMsg(Execution $exec, string $role, string $text): void
-    {
-        $exec->messages()->create(['who' => 'lawyer', 'name' => $exec->assigned_lawyer ?: 'قسم التنفيذ', 'role' => $role, 'body' => '<p>'.e($text).'</p>', 'time_label' => self::clock()]);
-    }
-
-    private static function notify(Execution $exec, string $icon, string $tone, string $body): void
+    /** إشعار صاحب الطلب — عامّ لأن `ExecFee` يشارك في الإخبار عن السداد وفتح الملفّ. */
+    public static function notify(Execution $exec, string $icon, string $tone, string $body): void
     {
         Notify::send($exec->user_id, $icon, $tone, $body);
     }
 
-    /** بريد أفضل-جهد لحدث على طلب/ملف التنفيذ — بجانب إشعار النظام، لا بدلاً عنه. */
-    private static function mail(Execution $exec, string $event): void
+    /**
+     * **إعادة جدولة الدراسة** (قرار المالك 2026-09-12): تعذّر الذكاء لا يُملأ بقالب ولا يُترك.
+     * التأخير ساعة: تهدئة المزوّد عند 429 تُقاس بالدقائق والساعات، فالإعادة الفوريّة تُهدر.
+     */
+    public static function scheduleStudyRetry(Execution $exec): void
+    {
+        if ($exec->ai_done || $exec->isClosed() || (int) $exec->ai_attempts >= AnalyzeExecutionJob::MAX_ATTEMPTS) {
+            return;
+        }
+
+        AnalyzeExecutionJob::dispatch($exec)->delay(now()->addHour());
+    }
+
+    /**
+     * ماتت مهمّة الدراسة (مهلة/استنفاد محاولات) — تُسجَّل الحقيقة على الملفّ: ملاحظةٌ داخليّة
+     * لا يراها العميل، وتنبيهٌ للمكتب، وإعادة جدولة ما لم يُبلَغ السقف. **ولا مخرجَ مصطنَع**.
+     */
+    public static function studyUnavailable(Execution $exec, string $reason = ''): void
+    {
+        if ($exec->ai_done || $exec->isClosed()) {
+            return;
+        }
+
+        $capped = (int) $exec->ai_attempts >= AnalyzeExecutionJob::MAX_ATTEMPTS;
+        $exec->messages()->create([
+            'who' => 'note', 'name' => 'النظام', 'role' => 'تعذّر التحليل الذكيّ',
+            'body' => '<p><b>تعذّرت الدراسة الذكيّة لهذا الطلب — لم يُفحص أي مستند.</b> '
+                .($capped
+                    ? 'استُنفدت المحاولات التلقائيّة، ويلزم فحص المستندات يدوياً.'
+                    : 'أُعيدت جدولة المحاولة تلقائياً.').'</p>',
+            'time_label' => self::clock(),
+        ]);
+
+        self::alertStaff($exec, $capped
+            ? "تعذّرت دراسة طلب التنفيذ {$exec->number} بعد استنفاد المحاولات — يلزم فحص المستندات يدوياً."
+            : "تعذّرت دراسة طلب التنفيذ {$exec->number} — أُعيدت جدولة المحاولة تلقائياً.");
+
+        self::scheduleStudyRetry($exec);
+    }
+
+    /** بريد أفضل-جهد لصاحب الطلب — بجانب إشعار النظام، لا بدلاً عنه. عامّ لـ`ExecFee`. */
+    public static function mail(Execution $exec, string $event): void
     {
         if ($exec->user) {
-            app(MailService::class)->send($exec->user, new ExecutionEventMail($exec, $event));
+            app(MailService::class)->send($exec->user, new ExecutionEventMail($exec, $event, 'client'));
         }
     }
 
-    private static function clock(): string
+    /**
+     * بريد المكتب (قرار المالك 2026-09-12) — كان التنفيذ كلّه يراسل العميل وحده، فيبقى الطلب
+     * الجديد والأتعاب المنتظِرة بلا علم أحد. ولكلّ فئةٍ رابطُ لوحتها في الرسالة.
+     *
+     * @param  array<int, 'admin'|'employee'>  $audiences
+     */
+    private static function mailStaff(Execution $exec, string $event, array $audiences = ['admin']): void
+    {
+        foreach ($audiences as $audience) {
+            $users = User::where('role', $audience === 'admin' ? Role::Admin : Role::Employee)->get()->all();
+
+            if ($users !== []) {
+                app(MailService::class)->send($users, new ExecutionEventMail($exec, $event, $audience));
+            }
+        }
+    }
+
+    /** بريدُ إسنادٍ للمحامي — يناديه التقاطُ الملفّ وفتحُ التنفيذ من قضية. */
+    public static function mailAssignedLawyer(Execution $exec): void
+    {
+        if ($exec->assignedLawyer) {
+            app(MailService::class)->send($exec->assignedLawyer, new ExecutionEventMail($exec, 'assigned', 'lawyer'));
+        }
+    }
+
+    /** ختم الوقت في رسائل المحادثة — عامّ لأن `ExecFee` يكتب رسائل على المحادثة نفسها. */
+    public static function clock(): string
     {
         $now = now();
 

@@ -4,11 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\Appointment;
 use App\Support\AppointmentCardPdf;
-use App\Support\Mask;
+use App\Support\LawyerName;
 use App\Support\PdfRenderer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Spatie\Browsershot\Browsershot;
+use Symfony\Component\HttpFoundation\Response;
 
 class AppointmentController extends Controller
 {
@@ -41,7 +42,7 @@ class AppointmentController extends Controller
      * بطاقة الموعد PDF — بنفس تصميم .apptx المعروض في الواجهة، مُصيَّرة فعلياً عبر Browsershot
      * (كروم مخفي حقيقي) لا تحويل صورة/محاكاة. ببيانات حقيقية من سجلّ الموعد فقط.
      */
-    public function card(Request $request, Appointment $appointment): \Symfony\Component\HttpFoundation\Response
+    public function card(Request $request, Appointment $appointment): Response
     {
         $user = $request->user();
         abort_unless(
@@ -52,6 +53,9 @@ class AppointmentController extends Controller
             $user->isLawyer(),
             403
         );
+
+        // لم تعتمده الإدارة بعد — لا بطاقةَ لموعدٍ لم يُرسَل للعميل
+        abort_if($user->isClient() && $appointment->status === 'بانتظار الاعتماد', 404);
 
         $remote = $appointment->type === 'استشارة مرئية'
             || str_contains((string) $appointment->place, 'إلكتروني')
@@ -69,7 +73,7 @@ class AppointmentController extends Controller
             'time' => $appointment->timeLabel(),
             'place' => $place,
             'client' => $appointment->user?->name ?: '—',
-            'lawyer' => Mask::lawyer($appointment->lawyer),
+            'lawyer' => $user->isClient() ? LawyerName::forClient($appointment->lawyer_id ? $appointment->lawyerUser : null, $appointment->lawyer, '—') : ($appointment->lawyer ?: '—'),
             'consultRef' => $consult?->ref ?: '—',
             'address' => $address,
             'paid' => $paid,

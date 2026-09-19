@@ -70,12 +70,13 @@ const AdminMeetLog: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) =
                   <b>{m.title}</b>
                   <span style={{ display: 'block', margin: '3px 0' }}>{m.type} · {m.when} · {m.client} · {m.lawyer !== '—' ? m.lawyer : 'بلا محامٍ'}</span>
                   <div className="prot-list" style={{ marginTop: 6 }}>
+                    {/* «مشاهدة» تفتح صفحة الاجتماع ومشغّلها الداخليّ — كانت تفتح سحابة Zoom خارج النظام */}
                     {m.recording
-                      ? <a className="chip" href={m.recording} target="_blank" rel="noopener noreferrer"><Icon name="video" /> مشاهدة</a>
+                      ? <a className="chip" onClick={() => router.visit(`/admin/meeting?id=${encodeURIComponent(m.id)}`)} style={{ cursor: 'pointer' }}><Icon name="video" /> مشاهدة</a>
                       : <span className="chip" style={{ opacity: 0.5 }}>لا تسجيل</span>}
-                    {/* تنزيلات خادمية مضغوطة — روابط Zoom السحابية صفحات مشاهدة لا ملفات */}
-                    {m.recording && <a className="chip" href={`/admin/meetings/${m.dbId}/recording.zip`}><Icon name="download" /> الفيديو ZIP</a>}
-                    {m.zoomAudioUrl && <a className="chip" href={`/admin/meetings/${m.dbId}/audio.zip`}><Icon name="download" /> الصوت ZIP</a>}
+                    {/* تنزيلات عبر الخادم — روابط Zoom السحابية صفحات مشاهدة لا ملفات */}
+                    {m.media.video && <a className="chip" href={`/admin/meetings/${m.dbId}/recording.zip`}><Icon name="download" /> الفيديو</a>}
+                    {m.media.audio && <a className="chip" href={`/admin/meetings/${m.dbId}/audio.zip`}><Icon name="download" /> الصوت</a>}
                     {(m.transcript || m.recording)
                       ? <a className="chip" href={`/admin/meetings/${m.dbId}/transcript`}><Icon name="doc" /> النص الكامل</a>
                       : <span className="chip" style={{ opacity: 0.5 }}>لا نصّ</span>}

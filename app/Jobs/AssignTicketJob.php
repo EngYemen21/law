@@ -6,7 +6,6 @@ use App\Events\TicketStatusBroadcast;
 use App\Models\Ticket;
 use App\Support\Live;
 use App\Support\TicketAssignment;
-use App\Support\TicketJourney;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -54,19 +53,9 @@ class AssignTicketJob implements ShouldQueue
                 return;
             }
 
-            $updates = [
-                'assigned_lawyer' => $lawyer->name,
-                'assigned_lawyer_id' => $lawyer->id,
-            ];
-
-            if (in_array($locked->status, ['جديدة', 'قيد التحليل'], true)) {
-                $updates['status'] = 'محالة للقسم القانوني';
-                $updates['tone'] = TicketJourney::toneFor('محالة للقسم القانوني');
-                $updates['last_message'] = 'تمت إحالة طلبكم إلى القسم القانوني المختص لدراسة الموضوع.';
-                $updates['date_label'] = 'الآن';
-            }
-
-            $locked->update($updates);
+            // الإسناد وقفزة «محالة» (والوكيل مفعّل يترك الحالة لمهمّة الفرز — ع٢٠) من مصدرٍ واحد
+            // مع الإسناد الأوّل، وتمرّ القفزة بالمحرّك
+            TicketAssignment::write($locked, $lawyer->id, $lawyer->name);
             TicketAssignment::syncRelatedConsults($locked->fresh());
             Live::push(new TicketStatusBroadcast($locked));
             $locked->messages()->create([

@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Journey\Enums\ConsultStatus;
 use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Meeting;
 use App\Models\User;
+use App\Support\LawyerName;
 use App\Support\Notify;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -35,6 +37,8 @@ class MeetingController extends Controller
             // مرئية فعلاً: التبويب اسمه «الاستشارات المرئية» وكان يعرض الهاتفية والحضورية أيضاً
             ->where('channel', 'مرئية')
             ->whereIn('session', ['بانتظار الجلسة', 'جلسة جارية'])
+            // طلبٌ في دورة الحجز (تسعير/سداد/موعدٌ لم يُنشر) ليس جلسةً قادمة — جلسته «بانتظار الجلسة» منذ إنشائه
+            ->whereNotIn('status', Consult::PRE_SESSION_STATUSES)
             ->latest('id')->take(4)->get()
             ->map(fn (Consult $c) => [
                 'id' => $c->id,
@@ -44,11 +48,11 @@ class MeetingController extends Controller
                 'when' => $c->when_label ?: 'بانتظار تحديد الموعد',
                 'canJoin' => $c->canJoin(),
                 'joinLink' => $c->joinLink($request->user()),
-                'status' => $c->status,
+                'status' => ConsultStatus::tryFrom((string) $c->status)?->clientLabel() ?? $c->status,
                 'session' => $c->session,
                 // البديل يصف الغياب: «مستشار معتمد» كانت تُستعمل مكان **لا محامي
                 // مُسنَد**، فتقرأ اعتماداً حيث لا إسناد أصلاً.
-                'lawyer' => $c->lawyer ?: 'لم يُسنَد بعد',
+                'lawyer' => LawyerName::forClient($c->assigned_lawyer_id ? $c->assignedLawyer : null, $c->lawyer, 'لم يُسنَد بعد'),
             ]);
 
         $stats = [

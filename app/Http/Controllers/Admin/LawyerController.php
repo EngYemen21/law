@@ -5,6 +5,9 @@ namespace App\Http\Controllers\Admin;
 use App\Enums\Role;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Support\LawyerSpecialties;
+use App\Support\LegalCatalogue;
+use App\Support\Specialties;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -22,11 +25,16 @@ class LawyerController extends Controller
         // withCount بدل COUNT لكل محامٍ (N+1 → استعلام واحد)
         $lawyers = User::where('role', Role::Lawyer)
             ->withCount(['assignedTickets as active' => fn ($q) => $q->where('status', '!=', 'مكتملة')])
-            ->orderBy('id')->get()
+            // الأحدث أوّلاً كجدول الموظّفين المجاور (`StaffController`) — كان تصاعديّاً
+            // فيظهر المحامي المضاف حديثاً في آخر صفّ، وشاشتان متجاورتان بسلوكين متعاكسين.
+            ->orderByDesc('id')->get()
             ->map(fn (User $u) => [
                 'id' => $u->id,
                 'name' => $u->name,
-                'depts' => $u->department ? [$u->department] : [],
+                // تخصّصات المحامي في الكتالوج (قد تكون عدّة)، أو «كل الأقسام»
+                'depts' => LawyerSpecialties::coversAll($u)
+                    ? [Specialties::ALL_DEPARTMENTS]
+                    : LegalCatalogue::departments(activeOnly: false)->whereIn('id', LawyerSpecialties::departmentIds($u))->pluck('name')->values()->all(),
                 'active' => $u->active,
                 'mode' => $u->distribution_mode === 'manual' ? 'يدوي' : 'تلقائي',
             ]);

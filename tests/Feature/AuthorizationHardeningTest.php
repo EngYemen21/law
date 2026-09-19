@@ -105,12 +105,67 @@ class AuthorizationHardeningTest extends TestCase
     {
         User::factory()->create(['national_id' => '2000000001', 'phone' => '0590000001']);
 
-        // الحدّ 3 طلبات/دقيقة بمفتاح الهوية + IP
+        // الحدّ 3 طلبات/دقيقة لكلّ هويّة (والجلسة والجوال) — لا عنوان الجهاز
         for ($i = 0; $i < 3; $i++) {
             $this->post('/auth/otp/request', ['national_id' => '2000000001'])->assertStatus(302);
         }
         // الطلب الرابع يُحظر (429)
         $this->post('/auth/otp/request', ['national_id' => '2000000001'])->assertStatus(429);
+    }
+
+    /**
+     * 🔴 المفتاح كان الهويّة + $request->ip()، و trustProxies(at:'*') يجعل الـIP قيمةً يرسلها
+     * الطرف الآخر في X-Forwarded-For — فتدويرها كان يمنح حصّة جديدة ⇒ قصف جوال صاحب الهويّة بلا حدّ.
+     */
+    public function test_forged_forwarded_for_does_not_reset_the_request_quota(): void
+    {
+        User::factory()->create(['national_id' => '2000000001', 'phone' => '0590000001']);
+        $this->fakeTaqnyatVerify();
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->post('/auth/otp/request', ['national_id' => '2000000001'], ['X-Forwarded-For' => '203.0.113.'.$i])
+                ->assertStatus(302);
+        }
+
+        $blocked = $this->post('/auth/otp/request', ['national_id' => '2000000001'], ['X-Forwarded-For' => '198.51.100.7']);
+        $this->assertSame(429, $blocked->getStatusCode(), 'تدوير X-Forwarded-For جدّد حصّة طلب الرمز.');
+    }
+
+    /** البدء من جديد (جلسة جديدة كلّ مرّة) لا يفلت من سقف الساعة للهويّة الواحدة. */
+    public function test_starting_over_cannot_escape_the_hourly_quota_of_an_identity(): void
+    {
+        User::factory()->create(['national_id' => '2000000001', 'phone' => '0590000001']);
+        $this->fakeTaqnyatVerify();
+
+        // 21 ثانية بين الطلبات: لا يُبلغ حدّ الدقيقة (3) أبداً، فالسقف المقيس هنا سقف الساعة وحده
+        for ($i = 0; $i < 10; $i++) {
+            $this->flushSession();
+            $this->travel(21)->seconds();
+            $this->post('/auth/otp/request', ['national_id' => '2000000001'])->assertStatus(302);
+        }
+
+        $this->flushSession();
+        $this->travel(21)->seconds();
+        $this->post('/auth/otp/request', ['national_id' => '2000000001'])->assertStatus(429);
+    }
+
+    /** سقف الساعة يحرس الجوال المُرسَل إليه أيضاً — تدوير الهويّة في التسجيل لا يقصف جوالاً واحداً. */
+    public function test_rotating_national_ids_cannot_bomb_one_phone_during_registration(): void
+    {
+        $this->fakeTaqnyatVerify();
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->flushSession();
+            $this->post('/auth/register', [
+                'name' => 'عميل تجريبي', 'national_id' => '108845220'.$i, 'phone' => '0555555545', 'email' => "c{$i}@example.com",
+            ])->assertStatus(302);
+        }
+
+        $this->flushSession();
+        $blocked = $this->post('/auth/register', [
+            'name' => 'عميل تجريبي', 'national_id' => '1088452209', 'phone' => '+966555555545', 'email' => 'c9@example.com',
+        ]);
+        $this->assertSame(429, $blocked->getStatusCode(), 'الجوال نفسه بصيغة دوليّة جدّد الحصّة.');
     }
 
     // ── الإيقاف الفوري ──

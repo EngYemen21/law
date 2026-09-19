@@ -3,11 +3,19 @@ import React, { useMemo, useRef, useState } from 'react';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
 import { ALLOWED_DOC_ACCEPT } from '@/lib/chat';
-import { LEGAL_CATS, legalCatServices } from '@/lib/newticket-data';
 
 // نموذج «فتح تذكرة جديدة» — يطابق ticketFormView في التصميم المرجعي (babel-system.html).
 // بطاقة واحدة بسيطة: بيانات العميل (readonly) + موضوع + قسم→خدمة + أهمية + رسالة + مستندات.
-// الإرسال حقيقي: يُنشئ التذكرة في قاعدة البيانات ثم يُعيد التوجيه لصفحة محادثتها.
+// الأقسام والخدمات من كتالوج الخادم (TicketController::create) — لا قائمة ثابتة في الواجهة؛
+// ويُرسَل معرّفا القسم والخدمة فيتحقّق الخادم أنّ الخدمة تتبع قسمها وأنّ كليهما متاح.
+
+interface CatalogueService { id: number; name: string }
+interface CatalogueDepartment { id: number; name: string; services: CatalogueService[] }
+
+interface PageProps {
+  auth?: { user?: { name?: string; email?: string; phone?: string } };
+  catalogue?: CatalogueDepartment[];
+}
 
 const fld: React.CSSProperties = {
   background: '#fff', border: '1.5px solid #d5dbe2', borderRadius: 9,
@@ -16,24 +24,30 @@ const fld: React.CSSProperties = {
 const fldRO: React.CSSProperties = { ...fld, background: '#eef1f4', color: '#555' };
 const lbl: React.CSSProperties = { fontSize: 14, fontWeight: 800, color: '#1f2937', marginBottom: 7, display: 'block' };
 const rowStyle: React.CSSProperties = { display: 'flex', gap: 18, marginBottom: 16, flexWrap: 'wrap' };
+const fieldErr: React.CSSProperties = { color: '#C0392B', fontSize: 12.5, marginTop: 5 };
 const Req = () => <span style={{ color: '#C0392B' }}>*</span>;
 
 const NewTicket: React.FC = () => {
   const toast = useToast();
-  const { props } = usePage() as { props: { auth?: { user?: { name?: string; email?: string; phone?: string } } } };
+  const { props } = usePage() as unknown as { props: PageProps };
   const u = props?.auth?.user ?? {};
+  const catalogue = props?.catalogue ?? [];
 
   const [subject, setSubject] = useState('');
-  const [cat, setCat] = useState('');
-  const [svc, setSvc] = useState('');
+  const [departmentId, setDepartmentId] = useState('');
+  const [serviceId, setServiceId] = useState('');
   const [priority, setPriority] = useState('متوسطة');
   const [body, setBody] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [err, setErr] = useState('');
+  const [serverErrors, setServerErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const services = useMemo(() => legalCatServices(cat), [cat]);
+  const services = useMemo(
+    () => catalogue.find((d) => String(d.id) === departmentId)?.services ?? [],
+    [catalogue, departmentId],
+  );
 
   const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files || []);
@@ -42,30 +56,40 @@ const NewTicket: React.FC = () => {
   };
   const removeFile = (i: number) => setFiles((prev) => prev.filter((_, x) => x !== i));
 
-  const reset = () => { setSubject(''); setCat(''); setSvc(''); setPriority('متوسطة'); setBody(''); setFiles([]); setErr(''); };
+  const reset = () => {
+    setSubject(''); setDepartmentId(''); setServiceId(''); setPriority('متوسطة');
+    setBody(''); setFiles([]); setErr(''); setServerErrors({});
+  };
 
   // إنشاء التذكرة فعلياً في قاعدة البيانات (مع مرفقاتها) ثم الانتقال إليها
   const submit = () => {
     if (submitting) return; // منع الإرسال المزدوج
-    if (!subject.trim() || !cat || !svc || !body.trim()) {
+    if (!subject.trim() || !departmentId || !serviceId || !body.trim()) {
       setErr('يرجى تعبئة: موضوع التذكرة، القسم، الخدمة، ونص الرسالة.');
       return;
     }
     setErr('');
+    setServerErrors({});
     setSubmitting(true);
     router.post('/tickets', {
-      type: svc,            // الخدمة المحدّدة
+      department_id: departmentId,
+      service_id: serviceId,
       subject: subject.trim(),
-      department: cat,      // القسم
-      details: body.trim(), // نص الرسالة
+      details: body.trim(),
       priority,
       files,
     }, {
       forceFormData: true,
-      onError: () => { setSubmitting(false); toast('تعذّر إرسال التذكرة، تحقّق من البيانات والمرفقات'); },
+      onError: (errors) => {
+        setServerErrors(errors as Record<string, string>);
+        toast('تعذّر إرسال التذكرة، تحقّق من البيانات والمرفقات');
+      },
       onFinish: () => setSubmitting(false),
     });
   };
+
+  const departmentError = serverErrors.department_id;
+  const serviceError = serverErrors.service_id || serverErrors.type;
 
   return (
     <>
@@ -85,25 +109,33 @@ const NewTicket: React.FC = () => {
           {/* صف 2: رقم الجوال + موضوع التذكرة */}
           <div style={rowStyle}>
             <div style={{ flex: 1, minWidth: 240 }}><label style={lbl}>رقم الجوال</label><input style={{ ...fldRO, direction: 'ltr', textAlign: 'right' }} value={u.phone || ''} readOnly /></div>
-            <div style={{ flex: 2, minWidth: 240 }}><label style={lbl}>موضوع التذكرة <Req /></label><input style={fld} value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="اكتب موضوع التذكرة باختصار…" /></div>
+            <div style={{ flex: 2, minWidth: 240 }}><label style={lbl} htmlFor="nt-subject">موضوع التذكرة <Req /></label><input id="nt-subject" style={fld} value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="اكتب موضوع التذكرة باختصار…" /></div>
           </div>
 
           {/* صف 3: القسم + الخدمة + الأهمية */}
           <div style={rowStyle}>
-            <div style={{ flex: 1, minWidth: 220 }}><label style={lbl}>القسم <Req /></label>
-              <select style={fld} value={cat} onChange={(e) => { setCat(e.target.value); setSvc(''); }}>
-                <option value="">اختر القسم…</option>
-                {LEGAL_CATS.map((x) => <option key={x.c} value={x.c}>{x.c}</option>)}
+            <div style={{ flex: 1, minWidth: 220 }}><label style={lbl} htmlFor="nt-department">القسم <Req /></label>
+              <select
+                id="nt-department"
+                style={fld}
+                value={departmentId}
+                disabled={catalogue.length === 0}
+                onChange={(e) => { setDepartmentId(e.target.value); setServiceId(''); }}
+              >
+                <option value="">{catalogue.length ? 'اختر القسم…' : 'لا توجد أقسام متاحة حالياً'}</option>
+                {catalogue.map((d) => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
               </select>
+              {departmentError && <div style={fieldErr}>{departmentError}</div>}
             </div>
-            <div style={{ flex: 2, minWidth: 240 }}><label style={lbl}>الخدمة المتعلقة بالتذكرة <Req /></label>
-              <select style={fld} value={svc} onChange={(e) => setSvc(e.target.value)} disabled={!cat}>
-                <option value="">{cat ? 'اختر الخدمة…' : '— اختر القسم أولاً —'}</option>
-                {services.map((s) => <option key={s} value={s}>{s}</option>)}
+            <div style={{ flex: 2, minWidth: 240 }}><label style={lbl} htmlFor="nt-service">الخدمة المتعلقة بالتذكرة <Req /></label>
+              <select id="nt-service" style={fld} value={serviceId} onChange={(e) => setServiceId(e.target.value)} disabled={!departmentId}>
+                <option value="">{departmentId ? 'اختر الخدمة…' : '— اختر القسم أولاً —'}</option>
+                {services.map((s) => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
               </select>
+              {serviceError && <div style={fieldErr}>{serviceError}</div>}
             </div>
-            <div style={{ flex: 1, minWidth: 160 }}><label style={lbl}>الأهمية</label>
-              <select style={fld} value={priority} onChange={(e) => setPriority(e.target.value)}>
+            <div style={{ flex: 1, minWidth: 160 }}><label style={lbl} htmlFor="nt-priority">الأهمية</label>
+              <select id="nt-priority" style={fld} value={priority} onChange={(e) => setPriority(e.target.value)}>
                 <option value="عالية">عالية</option>
                 <option value="متوسطة">متوسطة</option>
                 <option value="منخفضة">منخفضة</option>
@@ -112,8 +144,8 @@ const NewTicket: React.FC = () => {
           </div>
 
           {/* صف 4: نص الرسالة */}
-          <div style={{ marginBottom: 8 }}><label style={lbl}>نص الرسالة <Req /></label>
-            <textarea style={{ ...fld, minHeight: 150, lineHeight: 1.9, resize: 'vertical' }} value={body} onChange={(e) => setBody(e.target.value)} placeholder="اشرح موضوع طلبك، الوقائع الأساسية، والأطراف ذات العلاقة…" />
+          <div style={{ marginBottom: 8 }}><label style={lbl} htmlFor="nt-body">نص الرسالة <Req /></label>
+            <textarea id="nt-body" style={{ ...fld, minHeight: 150, lineHeight: 1.9, resize: 'vertical' }} value={body} onChange={(e) => setBody(e.target.value)} placeholder="اشرح موضوع طلبك، الوقائع الأساسية، والأطراف ذات العلاقة…" />
           </div>
 
           {/* المستندات الداعمة */}
@@ -135,7 +167,7 @@ const NewTicket: React.FC = () => {
 
           {/* أزرار */}
           <div style={{ display: 'flex', gap: 10 }}>
-            <button className="btn" style={{ background: '#0E5C9C' }} onClick={submit} disabled={submitting} type="button">
+            <button className="btn" style={{ background: '#0E5C9C' }} onClick={submit} disabled={submitting || catalogue.length === 0} type="button">
               {submitting ? <><span className="spin" /> جارٍ الإرسال…</> : <><Icon name="send" /> إرسال التذكرة</>}
             </button>
             <button className="btn soft" onClick={reset} type="button"><Icon name="close" /> مسح</button>

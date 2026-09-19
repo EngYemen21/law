@@ -3,30 +3,30 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
-use App\Jobs\EscalateUnassignedTicketJob;
 use App\Models\Appointment;
 use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
-use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
- * حجز الاستشارة الذكي من داخل صفحة التذكرة: تفرّغ المتخصّصين بقسم التذكرة (مرتّب) + حجز حقيقي
+ * حجز الاستشارة من داخل صفحة التذكرة: تفرّغ المتخصّصين بقسم التذكرة (مرتّب) + حجز حقيقي
  * بالمعرّف ووقت فعلي (assigned_lawyer_id + starts_at) + منع الحجز المزدوج.
+ *
+ * منذ 2026-09-14 يحدّد **الطاقم** الموعد بعد السداد، لا العميل.
  */
 class TicketConsultBookingTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     private function ticketFor(User $client, string $dept = 'القضايا التجارية'): Ticket
     {
-        return Ticket::create([
-            'user_id' => $client->id,
+        return $this->ticketWithApprovedOpinion($client, [
             'number' => 'SB-'.random_int(1000, 9999),
-            'type' => 'نزاع تجاري',
             'department' => $dept,
             'status' => 'بانتظار حجز الاستشارة',
         ]);
@@ -57,19 +57,6 @@ class TicketConsultBookingTest extends TestCase
         $this->actingAs($intruder)->getJson(route('tickets.availability', $ticket))->assertForbidden();
     }
 
-    /** يقود التذكرة عبر الدورة الكاملة حتى تصبح جاهزة لاختيار الموعد (طلب → تسعير → دفع). */
-    private function driveToPaid(User $client, Ticket $ticket, string $type = 'phone'): Consult
-    {
-        $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => $type])->assertSuccessful();
-        $consult = $ticket->consults()->latest('id')->firstOrFail();
-
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        $this->actingAs($admin)->post(route('admin.consults.price', $consult), ['price' => 450])->assertRedirect();
-        ConsultBooking::markPaid($consult->fresh());
-
-        return $consult->fresh();
-    }
-
     public function test_request_creates_unpriced_pending_consult_with_no_appointment(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
@@ -92,13 +79,13 @@ class TicketConsultBookingTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
         $ticket = $this->ticketFor($client);
-        $date = LawyerAvailability::resolveDate(null)->toDateString();
+        $date = now()->addDays(2)->toDateString();
 
         $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'phone'])->assertSuccessful();
         $consult = $ticket->consults()->latest('id')->firstOrFail();
 
-        // اختيار الموعد قبل السداد → مرفوض، ولا يُنشأ أي موعد
-        $this->actingAs($client)->post(route('consults.schedule', $consult), [
+        // حجز الطاقم قبل السداد → مرفوض، ولا يُنشأ أي موعد
+        $this->adminPublishes($consult, [
             'lawyer_id' => $lawyer->id, 'date' => $date, 'time' => '10:00',
         ])->assertStatus(422);
         $this->assertSame(0, Appointment::count());
@@ -109,14 +96,14 @@ class TicketConsultBookingTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
         $ticket = $this->ticketFor($client);
-        $date = LawyerAvailability::resolveDate(null)->toDateString();
+        $date = now()->addDays(2)->toDateString();
 
-        $consult = $this->driveToPaid($client, $ticket);
+        $consult = $this->requestPricedAndPaid($client, $ticket, 'phone');
         $this->assertSame('بانتظار تحديد الموعد', $consult->status);
 
-        $this->actingAs($client)->post(route('consults.schedule', $consult), [
+        $this->adminPublishes($consult, [
             'lawyer_id' => $lawyer->id, 'date' => $date, 'time' => '10:00',
-        ])->assertRedirect();
+        ])->assertOk();
 
         $consult->refresh();
         $this->assertSame($lawyer->id, $consult->assigned_lawyer_id);   // المستشار المختار
@@ -127,46 +114,31 @@ class TicketConsultBookingTest extends TestCase
     }
 
     /**
-     * **لا يُحجز المحامي مرّتين — والعميل الثاني لا يُردّ خاويَ اليدين.**
+     * **لا يُحجز المحامي مرّتين.**
      *
-     * كان الاختبار يقيس الثابت («لا ازدواج») بآليّة **الرفض**. وقد تغيّرت الآليّة بقرار
-     * المالك (2026-09-05): الحجز المتعذّر يُرفع إلى الإدارة بدل أن يُرفض — لأنّ العميل
-     * الثاني **سدّد الفاتورة** قبل أن يصل إلى اختيار الموعد.
-     *
-     * فالثابتُ نفسه يُفحص هنا مباشرةً: موعدٌ واحدٌ للمحامي، والثاني في يد الإدارة.
+     * الحجز بيد الطاقم (2026-09-14): الحجز الثاني على الخانة نفسها يُردّ برسالةٍ تطلب وقتاً آخر،
+     * وتبقى الاستشارة الثانية مدفوعةً بانتظار موعدها — لا تُسنَد لمحامٍ مشغول ولا لإداريّ.
      */
     public function test_a_second_booking_never_double_books_the_lawyer(): void
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
-        $date = LawyerAvailability::resolveDate(null)->toDateString();
+        $date = now()->addDays(2)->toDateString();
 
         $c1 = User::factory()->create(['role' => Role::Client]);
-        $t1 = $this->ticketFor($c1);
-        $consult1 = $this->driveToPaid($c1, $t1);
-        $this->actingAs($c1)->post(route('consults.schedule', $consult1), [
+        $consult1 = $this->requestPricedAndPaid($c1, $this->ticketFor($c1), 'phone');
+        $this->adminPublishes($consult1, [
             'lawyer_id' => $lawyer->id, 'date' => $date, 'time' => '11:00',
-        ])->assertRedirect();
+        ])->assertOk();
 
-        // عميلٌ آخر يطلب الفترة نفسها → المحامي الوحيد مشغول ⇒ يُحجز ويُرفع إلى الإدارة
         $c2 = User::factory()->create(['role' => Role::Client]);
-        $t2 = $this->ticketFor($c2);
-        $consult2 = $this->driveToPaid($c2, $t2);
-        $this->actingAs($c2)->post(route('consults.schedule', $consult2), [
+        $consult2 = $this->requestPricedAndPaid($c2, $this->ticketFor($c2), 'phone');
+        $this->adminPublishes($consult2, [
             'lawyer_id' => $lawyer->id, 'date' => $date, 'time' => '11:00',
-        ])->assertRedirect();
+        ])->assertStatus(422);
 
         // **الثابت:** موعدٌ واحدٌ للمحامي مهما تعدّد الطالبون
         $this->assertSame(1, Appointment::where('lawyer_id', $lawyer->id)->count());
-        $this->assertNotSame(
-            $lawyer->id,
-            $consult2->fresh()->assigned_lawyer_id,
-            'ولا يُسنَد المحامي المشغول'
-        );
-
-        // والملفّ الثاني في يد الإدارة لتوزّعه — لا ضائعٌ ولا مرفوض
-        $this->assertSame(
-            EscalateUnassignedTicketJob::SENIOR_LABEL,
-            $consult2->fresh()->lawyer
-        );
+        $this->assertNotSame($lawyer->id, $consult2->fresh()->assigned_lawyer_id, 'ولا يُسنَد المحامي المشغول');
+        $this->assertSame('بانتظار تحديد الموعد', $consult2->fresh()->status, 'والثانية تنتظر موعداً آخر');
     }
 }

@@ -2,13 +2,17 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\GuardsJourneyState;
 use App\Services\IcalendarService;
+use App\Support\LawyerName;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Appointment extends Model
 {
+    use GuardsJourneyState;
+
     protected $fillable = [
         'user_id', 'ticket_id', 'ext_id', 'type', 'ico', 'lawyer', 'lawyer_id', 'day', 'time',
         // google_event_id محجوز لمزامنة تقويم Google القادمة للمواعيد — لا كاتب له بعد
@@ -92,16 +96,21 @@ class Appointment extends Model
                 : ['past', 'تم الحضور', 'b-green'];
         }
 
-        if (! $this->isPast()) {
-            return ['up', $this->status, $this->tone];
+        // **الجلسة المختومة ماضيةٌ مهما تكن الساعة** — وكان هذا الفحص **بعد** فحص الساعة،
+        // فجلسةٌ مدّتها ساعة انتهت في دقيقتها العشرين تبقى «قادمة» أربعين دقيقة: يُعلن بنر
+        // «لديك موعد استشارة مجدول اليوم» على العميل بعد أن ودّع محاميه. المقياس هو
+        // انتهاء الجلسة لا انقضاء الخانة المحجوزة لها.
+        if ($session === 'منتهية') {
+            return ['past', 'تم الحضور', 'b-green'];
         }
 
+        // والإلغاء المخزَّن كذلك: موعدٌ أُلغي قبل وقته ليس «قادماً» حتى تحلّ ساعته
         if (in_array($this->status, ['ملغي', 'ملغى', 'ملغاة'], true)) {
             return ['past', $this->status, 'b-grey'];
         }
 
-        if ($session === 'منتهية') {
-            return ['past', 'تم الحضور', 'b-green'];
+        if (! $this->isPast()) {
+            return ['up', $this->status, $this->tone];
         }
 
         return ['past', 'لم يحضر', 'b-red'];
@@ -117,7 +126,8 @@ class Appointment extends Model
             'id' => $this->ext_id,
             'type' => $this->type,
             'ico' => $this->ico,
-            'lawyer' => $this->lawyer,
+            // العميل يرى «الاسم. الحرف»؛ والطاقم الاسمَ كاملاً
+            'lawyer' => $viewer?->isClient() ? LawyerName::forClient($this->lawyer_id ? $this->lawyerUser : null, $this->lawyer, '—') : $this->lawyer,
             'day' => $this->dayLabel(),
             'time' => $this->timeLabel(),
             'place' => $this->place,

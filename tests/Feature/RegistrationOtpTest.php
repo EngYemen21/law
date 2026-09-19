@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Mail\VerificationCodeMail;
 use App\Models\User;
+use App\Support\OtpService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
@@ -75,6 +76,23 @@ class RegistrationOtpTest extends TestCase
 
         $this->assertDatabaseMissing('users', ['email' => 'newclient@example.com']);
         $this->assertGuest();
+    }
+
+    /** إعادة إرسال رمز الجوال في التسجيل لها السقف نفسه (نظير سقف رمز البريد). */
+    public function test_phone_code_resend_is_capped_during_registration(): void
+    {
+        Mail::fake();
+        $this->fakeTaqnyatVerify('1234');
+
+        $this->post('/auth/register', $this->valid); // الإصدار الأوّل
+        for ($i = 2; $i <= OtpService::MAX_ISSUES; $i++) {
+            $this->travel(61)->seconds();
+            $this->post('/auth/otp/resend')->assertSessionHasNoErrors();
+        }
+
+        $this->travel(61)->seconds();
+        $this->post('/auth/otp/resend')->assertSessionHasErrors('code');
+        $this->assertDatabaseMissing('users', ['email' => 'newclient@example.com']);
     }
 
     public function test_registration_blocked_without_taqnyat_keys(): void

@@ -33,12 +33,26 @@ class AdminExecFlowTest extends TestCase
             ->has('execs', 2));
     }
 
+    /**
+     * التسعير المباشر — **بعد إسناد الملفّ**. عقدٌ تغيّر عمداً: كان يُقبل على ملفٍّ
+     * `assigned_lawyer_id = null` فيصل العميلَ عرضٌ بمدّةٍ ومبلغٍ على ملفٍّ لا محاميَ له
+     * ولا من يُسأل عن تقديرهما. والإسناد صار إجراءً في الموزّع نفسه (`assignLawyer`).
+     */
     public function test_admin_sets_and_approves_fee_directly(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
         $exec = Execution::create(['user_id' => $client->id, 'number' => 'EXE-P', 'subject' => 'تسعير', 'status' => 'قيد الدراسة', 'tone' => 'b-blue', 'stage' => 2, 'amount' => 80000]);
+        $admin = $this->admin();
 
-        $this->actingAs($this->admin())->post(route('exec-flow.act', $exec), [
+        // بلا محامٍ: مردودٌ برسالةٍ صريحة
+        $this->actingAs($admin)->post(route('exec-flow.act', $exec), [
+            'action' => 'setFee', 'fee' => 6000, 'duration' => '30-45 يوم', 'payMethod' => 'دفعة واحدة',
+        ])->assertStatus(422);
+
+        $this->actingAs($admin)->post(route('exec-flow.act', $exec), ['action' => 'assignLawyer', 'lawyer_id' => $lawyer->id])->assertRedirect();
+
+        $this->actingAs($admin)->post(route('exec-flow.act', $exec), [
             'action' => 'setFee', 'fee' => 6000, 'duration' => '30-45 يوم', 'payMethod' => 'دفعة واحدة',
         ])->assertRedirect();
 

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Invoice;
+use App\Models\JourneyTransition;
 use App\Models\User;
 use App\Models\UserNotification;
 use App\Support\ConsultBooking;
@@ -81,6 +82,13 @@ class ConsultPricingCorrectionTest extends TestCase
         // الفاتورة تُلغى ولا تُحذف — صفٌّ صدر باسم عميلٍ وأُشعر به
         $this->assertSame(0, Invoice::where('consult_id', $consult->id)->where('status', 'مستحقة')->count());
         $this->assertSame(1, Invoice::where('consult_id', $consult->id)->where('status', 'ملغاة')->count());
+
+        // وإلغاء التسعير خطوةٌ في رحلة الاستشارة: من «بانتظار السداد»، بالفاعل والمبلغ السابق
+        $row = JourneyTransition::where('transition', 'consult.reprice')->where('entity_id', $consult->id)->sole();
+        $this->assertSame('بانتظار السداد', $row->from_state);
+        $this->assertSame('بانتظار التسعير', $row->to_state);
+        $this->assertSame($admin->id, $row->actor_id);
+        $this->assertSame((string) $fresh->total, (string) $row->payload['previous_total']);
 
         // (٤) وتسعيرٌ ثانٍ يُقبل — وفاتورةٌ فعّالةٌ واحدة
         $this->actingAs($admin)

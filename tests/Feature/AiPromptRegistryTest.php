@@ -30,15 +30,22 @@ class AiPromptRegistryTest extends TestCase
     public static function frozenPrompts(): array
     {
         return [
-            'ticket.triage' => ['8ba02438ee2218f209b5954906d9e1a129ef87a07a83f370b4084aec0f904ab2', 'v1'],
+            // v2: قائمة الأقسام من كتالوج الأقسام لا قائمة ثابتة — البصمة بقائمة DEPARTMENTS_FIXTURE (2026-09-15)
+            'ticket.triage' => ['85c1e3340804f997422942b59e428af7a7d7e82920aca5ca0d8e233a9ebba927', 'v2'],
             'consult.analyze' => ['745613f2d3a6808accaf2c276d4115352c49ed0b53bf5adc049ede546d601c29', 'v1'],
-            'execution.analyze' => ['f1da9567fec1a2f819f7de98ab5740d819ee9130af1e60f3edaae303ce6e4528', 'v1'],
-            'case.classify' => ['7bf6069110db9a23ffe87e8f20ffadcb2f830468d85eb49d38e139425cc0ff9e', 'v1'],
+            // v2: الدراسة تسبق الأتعاب فصارت تُغذّيها — ستّة مدخلات تسعير (جاهزيّة السند ·
+            // درجة التعقيد · عدد الإجراءات المتوقَّع · مدّة تقديريّة · مؤشّرات التحصيل ·
+            // المخاطر)، مع **منعٍ صريح لذكر سعر**: رقمٌ يقترحه نموذجٌ يصير مرساةً للقرار
+            // البشريّ، والتسعير قرار محامٍ تعتمده الإدارة. (2026-09-12)
+            'execution.analyze' => ['31553bf14fcb9886690909c2a10bac9dc68d12989036cb0b4835a4fd95c5af43', 'v2'],
+            // v2: كالفرز — القائمة من الكتالوج، والبصمة بالقائمة الثابتة نفسها (2026-09-15)
+            'case.classify' => ['45759aaa2465fb041bf7119bc36d83c93d601e0dd91e6a919c5b4c61595f03f5', 'v2'],
             'document.analyze' => ['e7723156ba39cc4c03ed5464df50da4cf088e990cd9792a4a11c9f1aa5a02662', 'v1'],
             'meeting.summary' => ['4f831da512089d5b7c3ba494146f32323db7a16083fe2b48590234d60f8df439', 'v1'],
             'meeting.decisions' => ['01c2ccc915cfc7e373476f500b2e8c038050e8421cb97f5bcf2e9f9b8d9e6be0', 'v1'],
             'ticket.summary' => ['651e3f7d7ea8af142a4db4cdd8002d9ca2825828127d683725e83b673b82c317', 'v1'],
-            'case.pleading' => ['eced92674e0dbbe744260a158c571f763d91624af645d29a7ceeef6ed833ab23', 'v2'],
+            // v3: عنوان «لائحة دعوى»، ورقم الدعوى (يُستكمل)، ونصٌّ بلا Markdown ولا معرّفات مصادر في المتن (2026-09-11)
+            'case.pleading' => ['79f054f55325fcf3cf6316b014917de1454c1d3b748106abb75c5d302aa0d72c', 'v3'],
             'najiz.statement' => ['c6fdc79cf653fc37d3657734b8b83288f640c8a02196fb5414eb55aef03d42d0', 'v1'],
             // v3: نهيٌ صريح عن رموز التنسيق. كانت التعليمة نفسها مكتوبةً بـMarkdown، فيحاكيها
             // النموذج ويردّ بـ`**ملخص استشارة قانونية**` — والمشروع بلا مُصيِّر Markdown،
@@ -65,13 +72,19 @@ class AiPromptRegistryTest extends TestCase
         ];
     }
 
+    /**
+     * قائمة أقسام ثابتة لبصمتي الفرز وتصنيف القضيّة: القائمة الحيّة يملكها كتالوج الأقسام وتتغيّر
+     * من شاشة الإدارة، والبصمة تجمّد **القالب** — فتعديل التعليمة يُسقط الاختبار وتعديل الكتالوج لا يُسقطه.
+     */
+    private const DEPARTMENTS_FIXTURE = ['القضايا العمالية', 'القضايا التجارية', 'الاستشارات والأعمال القانونية العامة'];
+
     private function textFor(string $id): string
     {
         return match ($id) {
-            'ticket.triage' => AiPromptRegistry::ticketTriageSystem(),
+            'ticket.triage' => AiPromptRegistry::ticketTriageSystem(self::DEPARTMENTS_FIXTURE),
             'consult.analyze' => AiPromptRegistry::consultAnalyzeSystem(self::ROSTER),
             'execution.analyze' => AiPromptRegistry::executionAnalyzeSystem(),
-            'case.classify' => AiPromptRegistry::caseClassifySystem(),
+            'case.classify' => AiPromptRegistry::caseClassifySystem(self::DEPARTMENTS_FIXTURE),
             'document.analyze' => AiPromptRegistry::documentAnalyzeSystem(),
             'meeting.summary' => AiPromptRegistry::meetingSummarySystem(),
             'meeting.decisions' => AiPromptRegistry::decisionsSystem(),
@@ -170,8 +183,12 @@ class AiPromptRegistryTest extends TestCase
      */
     public function test_department_catalogue_is_shared_by_triage_and_case_classification(): void
     {
-        $this->assertStringContainsString(AiPromptRegistry::DEPARTMENTS, AiPromptRegistry::ticketTriageSystem());
-        $this->assertStringContainsString(AiPromptRegistry::DEPARTMENTS, AiPromptRegistry::caseClassifySystem());
+        // القائمة الحيّة من الكتالوج يختبرها LegalCatalogueTest؛ هنا أنّ التعليمتين تعرضان القائمة نفسها
+        $departments = AiPromptRegistry::departments(self::DEPARTMENTS_FIXTURE);
+
+        $this->assertSame(implode('، ', self::DEPARTMENTS_FIXTURE), $departments);
+        $this->assertStringContainsString($departments, AiPromptRegistry::ticketTriageSystem(self::DEPARTMENTS_FIXTURE));
+        $this->assertStringContainsString($departments, AiPromptRegistry::caseClassifySystem(self::DEPARTMENTS_FIXTURE));
     }
 
     public function test_assistant_draft_branches_match_their_frozen_fingerprints(): void

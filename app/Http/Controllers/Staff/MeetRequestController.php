@@ -34,10 +34,11 @@ class MeetRequestController extends Controller
 {
     public function index(Request $request): Response
     {
-        // عزل بحسب المُرسِل (المحامي/الموظف): كلٌّ يرى دعواته التي أرسلها؛ الإدارة العليا ترى الكل للإشراف.
+        // الموظّف يرى كلّ دعوات المكتب (قرار المالك 2026-09-14)، والمحامي ما أُسند إليه، والإدارة الكل.
+        // (الإجراءات — إلغاء/بدء/إعادة إرسال — ما زالت محروسةً بالمُرسِل في `guardOwner`.)
         $query = MeetRequest::with('user')->latest('id');
-        if ($request->user()->role !== Role::Admin) {
-            $query->where('sent_by_id', $request->user()->id);
+        if ($request->user()->role === Role::Lawyer) {
+            $query->where('assigned_lawyer_id', $request->user()->id);
         }
 
         return Inertia::render($this->prefix($request).'/meetreqs', [

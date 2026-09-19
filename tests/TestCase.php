@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 
 abstract class TestCase extends BaseTestCase
@@ -19,6 +20,12 @@ abstract class TestCase extends BaseTestCase
     {
         parent::setUp();
         Carbon::setTestNow(Carbon::today()->setTime(0, 30));
+
+        // **لا يلمس اختبارٌ قرصَ التطوير.** كان `AdminResetDatabaseTest` ينادي «تصفير البيانات» على
+        // القرص الحقيقيّ، فيحذف `ticket-docs` و`case-docs` و`recordings` كاملةً مع كلّ تشغيلٍ للحزمة —
+        // وقيسَ أثره: مرفقات قضيّةٍ تجريبيّة اختفت من القرص فصار تنزيلها ٤٠٤. الاختبار الذي يحتاج
+        // القرص يزيّفه هو أيضاً، والتزييف هنا شبكةُ أمانٍ لمن نسي.
+        Storage::fake('local');
     }
 
     protected function tearDown(): void

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\PurgesStoredFile;
+use App\Support\ConversationFiles;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -11,7 +12,7 @@ class CaseDocument extends Model
     use PurgesStoredFile;
 
     protected $fillable = [
-        'case_id', 'name', 'path', 'mime', 'size', 'uploaded_by', 'status', 'doc_type', 'summary',
+        'case_id', 'hearing_id', 'name', 'path', 'mime', 'size', 'uploaded_by', 'status', 'doc_type', 'summary',
     ];
 
     protected $casts = [
@@ -23,18 +24,20 @@ class CaseDocument extends Model
         return $this->belongsTo(LegalCase::class, 'case_id');
     }
 
-    /** رابط التنزيل للمحامي المسنَد أو الإدارة — و`null` لكل من سواهما (بمن فيهم الموظف). */
+    public function hearing(): BelongsTo
+    {
+        return $this->belongsTo(CaseHearing::class, 'hearing_id');
+    }
+
+    /** رابط التنزيل لمن تُجيزه `ConversationFiles` (العميل صاحبه، المحامي المسنَد، الموظّف بصلاحيّته، الإدارة) — و`null` لغيرهم. */
     private function downloadUrlFor(?User $viewer): ?string
     {
         if ($viewer === null || $this->path === null) {
             return null;
         }
 
-        $assigned = $this->legalCase?->assigned_lawyer_id;
-        $allowed = $viewer->isAdmin() || ($viewer->isLawyer() && $assigned === $viewer->id);
-
-        return $allowed
-            ? route('lawyer.documents.download', ['type' => 'case', 'id' => $this->id])
+        return ConversationFiles::canDownload($viewer, $this)
+            ? ConversationFiles::url('case', $this->id)
             : null;
     }
 
@@ -42,13 +45,15 @@ class CaseDocument extends Model
      * الشكل الذي تتوقعه الواجهة (بطاقة مستندات القضية).
      *
      * `$viewer` يحدّد إظهار رابط التنزيل — نمط Consult::toCard($viewer) المعتمد.
-     * السياسة: المحامي المسنَد وحده (والإدارة إشرافاً)؛ الموظف لا يفتح ولا ينزّل.
+     * السياسة: `ConversationFiles::canDownload` — ونُقض حجبُ الموظّف بقرار المالك 2026-09-11.
      */
     public function toData(?User $viewer = null): array
     {
         return [
             'id' => $this->id,
             'name' => $this->name,
+            'hearingId' => $this->hearing_id,
+            'hearingTitle' => $this->hearing?->title,
             // 'staff' أضيف حين صار الموظف يرفع مستندات القضية — كان يُعرض «العميل»
             'by' => match ($this->uploaded_by) {
                 'lawyer' => 'المحامي',

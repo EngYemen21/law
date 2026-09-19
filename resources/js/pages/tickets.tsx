@@ -2,6 +2,7 @@ import { router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
+import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 
 // ============================================================
@@ -19,6 +20,8 @@ const JOURNEY_STEPS = [
   'النتيجة والاعتماد',
 ];
 
+export const TERMINAL_STATUSES = ['مكتملة', 'مغلقة', 'محولة إلى قضية', 'طلب مكتمل ومغلق', 'تم تحويل الطلب إلى قضية رسمية'];
+
 export interface TicketCard {
   no: string;
   type: string;
@@ -27,6 +30,7 @@ export interface TicketCard {
   dept?: string;
   status: string;
   tone: string;
+  isFrozen?: boolean;
   last?: string;
   date: string;
   lawyer?: string;
@@ -40,6 +44,8 @@ export interface TicketCard {
   documentsCount?: number;
   messagesCount?: number;
   createdAt?: string;
+  /** تبويب العميل الذي تقع فيه التذكرة — يحسبه الخادم من الحالة الداخليّة (`TicketJourney::CLIENT_PHASES`) */
+  phase?: 'analysis' | 'opinion' | null;
 }
 
 interface Props {
@@ -50,6 +56,7 @@ interface Props {
     active: number;
     needsAction: number;
     inAnalysis: number;
+    inOpinion?: number;
     completed: number;
   };
 }
@@ -68,7 +75,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
     [
       't-blue',
       'folder',
-      counts?.active ?? tickets.filter((t) => !['مكتملة', 'مغلقة'].includes(t.status)).length,
+      counts?.active ?? tickets.filter((t) => !TERMINAL_STATUSES.includes(t.status)).length,
       'تذاكر جارية ونشطة',
     ],
     [
@@ -80,13 +87,13 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
     [
       't-cyan',
       'sparkles',
-      counts?.inAnalysis ?? tickets.filter((t) => ['جديدة', 'قيد التحليل', 'محالة للقسم القانوني'].includes(t.status)).length,
+      counts?.inAnalysis ?? tickets.filter((t) => t.phase === 'analysis').length,
       'قيد الفرز والدراسة',
     ],
     [
       't-green',
       'check',
-      counts?.completed ?? tickets.filter((t) => ['مكتملة', 'مغلقة'].includes(t.status)).length,
+      counts?.completed ?? tickets.filter((t) => TERMINAL_STATUSES.includes(t.status)).length,
       'تذاكر مكتملة ومنجزة',
     ],
   ];
@@ -153,15 +160,15 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
   // تصفية التذاكر
   const filteredTickets = useMemo(() => {
     return tickets.filter((t) => {
-      const q = search.trim().toLowerCase();
+      const q = foldSearch(search);
       const matchQuery =
         !q ||
-        t.no.toLowerCase().includes(q) ||
-        t.type.toLowerCase().includes(q) ||
-        (t.subject && t.subject.toLowerCase().includes(q)) ||
-        (t.lawyer && t.lawyer.toLowerCase().includes(q)) ||
-        (t.dept && t.dept.toLowerCase().includes(q)) ||
-        (t.opponentName && t.opponentName.toLowerCase().includes(q));
+        foldSearch(t.no).includes(q) ||
+        foldSearch(t.type).includes(q) ||
+        (t.subject && foldSearch(t.subject).includes(q)) ||
+        (t.lawyer && foldSearch(t.lawyer).includes(q)) ||
+        (t.dept && foldSearch(t.dept).includes(q)) ||
+        (t.opponentName && foldSearch(t.opponentName).includes(q));
 
       if (!matchQuery) return false;
 
@@ -172,15 +179,16 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
 
       // تصفية التبويب العام
       if (statusFilter === 'active') {
-        if (['مكتملة', 'مغلقة'].includes(t.status)) return false;
+        if (TERMINAL_STATUSES.includes(t.status)) return false;
       } else if (statusFilter === 'action') {
         if (!t.needsDoc && !t.needsBooking && t.status !== 'بانتظار الدفع') return false;
       } else if (statusFilter === 'analysis') {
-        if (!['جديدة', 'قيد التحليل', 'محالة للقسم القانوني'].includes(t.status)) return false;
+        // مجموعة الخادم لا قائمةٌ يدويّة — كانت تُسقط حالتَي الاعتماد فلا تظهر التذكرة إلا في «الكل»
+        if (!(t.phase === 'analysis')) return false;
       } else if (statusFilter === 'opinion') {
-        if (!['الرأي القانوني', 'بانتظار حجز الاستشارة', 'موعد مؤكد'].includes(t.status)) return false;
+        if (!(t.phase === 'opinion')) return false;
       } else if (statusFilter === 'completed') {
-        if (!['مكتملة', 'مغلقة'].includes(t.status)) return false;
+        if (!TERMINAL_STATUSES.includes(t.status)) return false;
       }
 
       // تصفية القسم
@@ -300,10 +308,10 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
       {/* ── شريط البحث والفلترة الشامل (بما في ذلك الحالة والتاريخ من - إلى) ── */}
       <div className="card" style={{ marginBottom: 18 }}>
         <div className="card-b" style={{ padding: '14px 16px' }}>
-          
+
           {/* الصف الأول: البحث + القوائم المنسدلة + طريقة العرض */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-            
+
             {/* حقل البحث السريع */}
             <div style={{ flex: '1 1 240px', position: 'relative' }}>
               <input
@@ -519,7 +527,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
               }}
               onClick={() => { setStatusFilter('opinion'); setSpecificStatus('all'); }}
             >
-              📜 الرأي والاستشارة
+              📜 الرأي والاستشارة ({counts?.inOpinion ?? tickets.filter((t) => t.phase === 'opinion').length})
             </button>
             <button
               type="button"
@@ -543,7 +551,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
         <div className="card">
           <div className="card-b" style={{ padding: '48px 16px', textAlign: 'center' }}>
             <Icon name="folder" />
-            <b style={{ display: 'block', margin: '12px 0 6px', fontSize: 16 }}>لا توجد تذاكر مطابقة لمعايير البحث المحددة</b>
+            <b style={{ display: 'block', margin: '12px 0 6px', fontSize: 16 }}>{tickets.length === 0 ? 'لا توجد تذاكر بعد' : 'لا توجد تذاكر مطابقة لمعايير البحث المحددة'}</b>
             <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
               جرب تغيير معايير البحث أو فتح تذكرة جديدة.
             </p>

@@ -9,6 +9,7 @@ use App\Models\Consult;
 use App\Models\Execution;
 use App\Models\ExecutionDocument;
 use App\Models\LegalCase;
+use App\Models\LegalSource;
 use App\Models\Meeting;
 use App\Models\Setting;
 use App\Models\Ticket;
@@ -25,6 +26,7 @@ use App\Services\Ai\AiPromptRegistry;
 use App\Services\Ai\AiUsage;
 use App\Services\Ai\LegalClaims;
 use App\Services\Ai\LegalKnowledge;
+use App\Support\LegalCatalogue;
 use App\Support\ServiceDocs;
 use App\Support\WebTimeLimit;
 use Illuminate\Http\Client\ConnectionException;
@@ -73,6 +75,102 @@ class LegalAiService
     {
         Cache::put("ai:cooldown:{$provider}", true, now()->addMinutes($minutes));
         Log::warning("AI circuit breaker: {$provider} on cooldown for {$minutes}m (quota/overload).");
+    }
+
+    /**
+     * **سقف المخرج لكلّ مهمّة.** كان 2048 لكلّ نداء، ولائحةُ دعوى عربيّة بأسانيدها تتجاوزه:
+     * قيسَ في المتصفّح (2026-09-11) مخرجٌ يُبتر داخل حقل `source_excerpt` بعد نحو ستّة آلاف
+     * حرف، فيفشل `json_decode` ويُحفظ JSON خامٌ مسودّةً. تُرفع اللائحة وحدها — لا إنفاق كلّ نداء.
+     */
+    public static function maxTokensFor(?string $promptId): int
+    {
+        return match ($promptId) {
+            'case.pleading' => 8192,
+            default => 2048,
+        };
+    }
+
+    /** مهلة الطلب — مخرجٌ أطول يحتاج وقتاً أطول، وإلا انقطع قبل أن يكتمل. */
+    public static function timeoutFor(?string $promptId, int $default): int
+    {
+        return $promptId === 'case.pleading' ? max($default, 120) : $default;
+    }
+
+    /**
+     * معرّف المصدر ⇐ استشهادٌ يُقرأ: «المادة … من نظام …». المعرّف (`LS-CIVIL-281`) مفتاحُ
+     * مطابقةٍ خادميّ في `claims` — لا يعني شيئاً للمحكمة ولا للعميل.
+     *
+     * @param  iterable<LegalSource>  $sources
+     * @return array<string, string>
+     */
+    public static function citationMap(iterable $sources): array
+    {
+        $map = [];
+        foreach ($sources as $s) {
+            $map[(string) $s->ref] = $s->article_no
+                ? "المادة {$s->article_no} من {$s->system_name}"
+                : trim("{$s->system_name} — {$s->title}", ' —');
+        }
+
+        return $map;
+    }
+
+    /**
+     * **نصٌّ يُقدَّم للمحكمة بلا رموزٍ داخليّة.** (قيسَ في المتصفّح 2026-09-11)
+     *
+     * - معرّف مصدرٍ معتمد ⇐ استشهاده المقروء؛ ومعرّفٌ لا يقابله مصدر ⇐ «(سندٌ غير مُتحقَّق)».
+     * - رموز Markdown تُزال: المحرّر والمحادثة نصٌّ عاديّ، فكانت النجوم تظهر حرفيّاً.
+     *
+     * @param  array<string, string>  $citations  من `citationMap`
+     */
+    public static function humanizeDraft(string $text, array $citations): string
+    {
+        // كياناتٌ مرمَّزة (&quot;) وهروبات JSON بقيت حرفيّة (\n \t \uXXXX) — لا مكان لها في لائحة
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = (string) preg_replace_callback('/\\\\u([0-9a-fA-F]{4})/', fn (array $m) => mb_chr((int) hexdec($m[1]), 'UTF-8'), $text);
+        $text = str_replace(['\\n', '\\t', '\\"'], ["\n", ' ', '"'], $text);
+        // أسوار الشيفرة وعلامات الشيفرة، ونقاطُ Markdown بالنجمة ⇐ «•»
+        $text = (string) preg_replace('/^```[a-zA-Z]*\s*$/mu', '', $text);
+        $text = str_replace(['```', '`'], '', $text);
+        $text = (string) preg_replace('/^(\s*)\*\s+/mu', '$1• ', $text);
+
+        $text = (string) preg_replace_callback(
+            '/[(\[]?\s*\b(LS-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)\b\s*[)\]]?/u',
+            fn (array $m) => isset($citations[$m[1]]) ? '('.$citations[$m[1]].')' : '(سندٌ غير مُتحقَّق)',
+            $text
+        );
+        $text = (string) preg_replace('/\*\*(.+?)\*\*/su', '$1', $text);
+        $text = str_replace(['**', '__'], '', $text);
+
+        return (string) preg_replace('/^#{1,6}\s*/mu', '', $text);
+    }
+
+    /**
+     * **استخلاص نصّ المسودّة من JSON مبتور.** حقلُ `draft` يسبق الأسانيد في المخرج، فيكتمل
+     * غالباً وإن بُتر ما بعده. يُفكّ بوصفه سلسلةَ JSON (الأسطر `\n` تصير أسطراً) — لا يُحفظ
+     * JSON خامٌ في المحرّر ولا في المحادثة.
+     *
+     * @return array{draft: string, complete: bool}|null `complete` = أُغلقت سلسلة `draft` نفسها
+     */
+    public static function salvageDraft(?string $raw): ?array
+    {
+        if ($raw === null || ! preg_match('/"draft"\s*:\s*"((?:[^"\\\\]|\\\\.)*)(")?/su', $raw, $m)) {
+            return null;
+        }
+
+        $body = $m[1];
+        $complete = ($m[2] ?? '') === '"';
+        if (! $complete) {
+            // هروبٌ مبتور في الذيل (`\` أو `\u12`) يُفسد فكّ السلسلة كلّها
+            $body = (string) preg_replace('/\\\\(u[0-9a-fA-F]{0,3})?$/', '', $body);
+        }
+
+        $text = json_decode('"'.$body.'"');
+        if (! is_string($text) || trim($text) === '') {
+            return null;
+        }
+
+        return ['draft' => trim($text), 'complete' => $complete];
     }
 
     /**
@@ -168,14 +266,62 @@ class LegalAiService
     }
 
     /**
-     * تحليل ذكي للتذكرة عند التحويل (يطابق cfAnalysis): يقترح نوع القضية والقسم المختص.
-     * يُعيد دائماً مصفوفة صالحة (يقع على نوع/قسم التذكرة عند التعذّر).
+     * اقتراح الذكاء الاصطناعي لمسار مآل التذكرة مع بيان السبب الحقيقي (القرارات الأربعة).
      *
-     * @return array{type: string, department: string}
+     * @return array{track: string, reason: string}
      */
-    public function classifyCase(Ticket $ticket): array
+    public function suggestTicketTrack(Ticket $ticket, ?array $summaryParts = null): array
     {
-        return $this->classifyCaseResult($ticket)['classification'];
+        $subject = (string) $ticket->subject;
+        $type = (string) $ticket->type;
+        $dept = (string) $ticket->department;
+        $claimAmount = (int) $ticket->claim_amount;
+        $courtName = (string) $ticket->court_name;
+        $convoText = $ticket->messages()->where('who', '!=', 'note')->pluck('body')->implode(' ');
+        $docNames = $ticket->documents()->pluck('name')->implode(' ');
+        $docTypes = $ticket->documents()->pluck('doc_type')->implode(' ');
+        $docSummaries = $ticket->documents()->pluck('summary')->implode(' ');
+
+        $allText = $subject.' '.$type.' '.$dept.' '.$convoText.' '.$docNames.' '.$docTypes.' '.$docSummaries;
+        if ($summaryParts) {
+            $allText .= ' '.($summaryParts['case_summary'] ?? '').' '.($summaryParts['key_points'] ?? '').' '.($summaryParts['facts'] ?? '');
+        }
+
+        // 1. مسار التنفيذ القضائي: وجود سند تنفيذي (سند لأمر / شيك / حكم قطعي / عقد إيجار موحد / محضر صلح)
+        $execKeywords = ['سند لأمر', 'شيك', 'محكمة التنفيذ', 'سند تنفيذي', 'حكم قطعي', 'حكم نهائي', 'عقد إيجار موحد', 'محضر صلح', 'قرار تحكيم', 'سند تنفيذ'];
+        foreach ($execKeywords as $kw) {
+            if (mb_stripos($allText, $kw) !== false) {
+                return [
+                    'track' => 'execution',
+                    'reason' => "تبيّن حيازة المستفيد لسند تنفيذي مكتمل الأركان والنفاذ («{$kw}»)، مما يتيح التقدم المباشر إلى محكمة التنفيذ عبر منصة ناجز دون حاجة لرفع دعوى موضوعية جديدة.",
+                ];
+            }
+        }
+
+        // 2. مسار الإلغاء / الحفظ المسبب: خروج عن الاختصاص أو تقادم أو انعدام صفة
+        $dropKeywords = ['خارج الاختصاص', 'انقضاء بالتقادم', 'فوات الميعاد', 'عدم صحة السند', 'بلا اختصاص'];
+        foreach ($dropKeywords as $kw) {
+            if (mb_stripos($allText, $kw) !== false) {
+                return [
+                    'track' => 'close',
+                    'reason' => "الموضوع ينطوي على مانع نظامي أو يخرج عن نطاق اختصاص المكتب القضائي («{$kw}»)، مما يقتضي حفظ الملف بقرار مسبب صريح تلافياً لاستنزاف أتعاب العميل.",
+                ];
+            }
+        }
+
+        // 3. مسار القضية والترافع: نزاع قضائي موضوعي أو مطالبة مالية أو محكمة محددة
+        if ($claimAmount > 0 || ! empty($courtName) || mb_stripos($allText, 'دعوى') !== false || mb_stripos($allText, 'محكمة') !== false || mb_stripos($allText, 'مطالبة مالية') !== false || mb_stripos($allText, 'فسخ') !== false || mb_stripos($allText, 'تعويض') !== false) {
+            return [
+                'track' => 'case',
+                'reason' => 'الوقائع والمستندات تُظهر نزاعاً قضائياً موضوعياً مكتمل الأركان وتوافر صفة الخصومة، مما يستوجب قيد صحيفة دعوى رسمية والترافع أمام المحكمة المختصة لصيانة الحقوق.',
+            ];
+        }
+
+        // 4. مسار الاستشارة القانونية: استيضاح المسألة وجلسة المشورة
+        return [
+            'track' => 'consultation',
+            'reason' => 'الموضوع يتطلب دراسة تفصيلية وبحثاً للخيارات والبدائل النظامية، ويستلزم عقد جلسة استشارية متخصصة مع المستشار لبناء الرأي القانوني والمشورة المناسبة.',
+        ];
     }
 
     /**
@@ -228,7 +374,7 @@ class LegalAiService
     /**
      * التصنيف الاحتياطي الحتمي — بلا أي نداء خارجي.
      *
-     * يُستخرج كي يُنادى من موضعين بلا نسخ: من classifyCase عند تعذّر المزوّد، ومن
+     * يُستخرج كي يُنادى من موضعين بلا نسخ: من classifyCaseResult عند تعذّر المزوّد، ومن
      * CaseConversion التي صارت تُنشئ القضية بهذه القيم فوراً ثم تُنقّحها مهمّة مطابورة —
      * فنداء AI متزامن كان يحبس طلب التحويل **12.3 ثانية** مقاسة، وحدّ FPM ثلاثون.
      *
@@ -236,7 +382,11 @@ class LegalAiService
      */
     public static function fallbackClassification(Ticket $ticket): array
     {
-        return ['type' => $ticket->type, 'department' => $ticket->department ?: 'الاستشارات القانونية'];
+        // بلا قسم: القسم العامّ في الكتالوج (دُمجت فيه الاستشارات والترافع والصياغة)
+        $general = LegalCatalogue::general();
+        $fallback = $general !== null ? $general->name : 'الاستشارات القانونية';
+
+        return ['type' => $ticket->type, 'department' => $ticket->department ?: $fallback];
     }
 
     /**
@@ -461,7 +611,23 @@ class LegalAiService
      */
     public function draftPleadingResult(LegalCase $case): array
     {
-        // سياق القضية الحقيقي (لا اختلاق): وقائع الملخّص المعتمد + بيانات الخصم + ملخّصات مستندات الملف
+        $notes = [];
+        $result = $this->composePleading($case, $notes);
+
+        // تنبيهات نقص الملفّ تُلحق بالنصّ — و⚠️ يمنع اعتماده حتى يعالجها المحامي
+        // (`CasePleading::hasWarnings`). والاحتياطيّ ممنوعُ الاعتماد أصلاً فلا يُثقَل بها.
+        if ($notes !== [] && $result['source'] !== AiSource::Fallback) {
+            $result['draft'] = rtrim((string) $result['draft'])."\n\n"
+                .implode("\n", array_map(fn (string $n) => '⚠️ '.$n, $notes));
+        }
+
+        return $result;
+    }
+
+    /** @param  array<int, string>  $notes  تنبيهاتٌ عن نقص الملفّ تُلحق بالمسودّة */
+    private function composePleading(LegalCase $case, array &$notes): array
+    {
+        // سياق القضية الحقيقي (لا اختلاق): وقائع الملخّص + بيانات الخصم + مستندات الملفّ كلّه + ما كتبه العميل
         $ticket = $case->ticket;
         $summary = $ticket?->summary;
 
@@ -488,8 +654,28 @@ class LegalAiService
             }
         }
 
-        $docs = $case->documents()->whereNotNull('summary')->where('summary', '!=', '')->get()
-            ->map(fn ($d) => '- '.($d->doc_type ?: 'مستند').': '.$d->summary)->implode("\n");
+        // **كلّ مستندات الملفّ منذ بدايته** — مرفقات الطلب قبل التحويل (`ticket_documents`) ومستندات
+        // القضيّة بعده. كانت الأولى تُسقَط كلّها، والثانية تُسقَط صامتةً ما لم يكتمل تحليلها.
+        $ticketDocs = $ticket ? $ticket->documents()->get() : collect();
+        $caseDocs = $case->documents()->get();
+        $analysed = fn ($d) => trim((string) $d->summary) !== '';
+        $docs = $ticketDocs->filter($analysed)
+            ->map(fn ($d) => '- (مرفق الطلب) '.($d->doc_type ?: 'مستند').': '.$d->summary)
+            ->merge($caseDocs->filter($analysed)->map(fn ($d) => '- (مستند القضية) '.($d->doc_type ?: 'مستند').': '.$d->summary))
+            ->implode("\n");
+        $pendingDocs = $ticketDocs->reject($analysed)->count() + $caseDocs->reject($analysed)->count();
+
+        // **ما كتبه العميل بيده** — في محادثة القضيّة بعد التحويل، وفي طلبه حين لا ملخّص له.
+        // رسائل الإرفاق وحدها تُستبعد: المستند نفسه حاضرٌ بملخّصه أعلاه.
+        $clientText = fn ($messages) => $messages
+            ->map(fn ($m) => trim(html_entity_decode(strip_tags((string) $m->body), ENT_QUOTES | ENT_HTML5, 'UTF-8')))
+            ->reject(fn (string $t) => $t === '' || str_starts_with($t, 'تم إرفاق مستند'))
+            ->map(fn (string $t) => '- '.AiContextBuilder::clip($t, 600))
+            ->implode("\n");
+        $caseClientMsgs = $clientText($case->messages()->where('who', 'client')->reorder('id', 'desc')->limit(8)->get()->reverse());
+        $ticketClientMsgs = ($summary === null && $ticket !== null)
+            ? $clientText($ticket->messages()->where('who', 'client')->reorder('id')->limit(8)->get())
+            : '';
 
         // تمويه المعرّفات قبل مغادرة الخادم — هذا المسار كان يُرسل السياق خاماً.
         // حقول الملخّص ليست «آمنة لأنها مولَّدة»: النموذج يردّد ما ورد في نصّ العميل،
@@ -498,16 +684,46 @@ class LegalAiService
         $facts = array_map(fn ($f) => AiContextBuilder::prepare($f), $facts);
         $docs = AiContextBuilder::prepare($docs);
         $parties = array_map(fn ($f) => AiContextBuilder::prepare($f), $parties);
+        $caseClientMsgs = AiContextBuilder::prepare($caseClientMsgs, 4000);
+        $ticketClientMsgs = AiContextBuilder::prepare($ticketClientMsgs, 4000);
+        $subject = AiContextBuilder::prepare((string) ($ticket?->subject ?? ''), 500);
 
-        $context = "رقم القضية: {$case->number}\nنوع القضية: {$case->type}\nالقسم: ".($case->department ?? '—');
+        // بلا رقم ملفّ المكتب: كان النموذج يكتبه «القضية رقم CASE-…» — ورقم الدعوى يصدر من المحكمة عند القيد
+        $context = "نوع القضية: {$case->type}\nالقسم: ".($case->department ?? '—');
         if ($parties !== []) {
             $context .= "\n".implode("\n", $parties);
         }
+        if ($subject !== '') {
+            $context .= "\nموضوع الطلب: {$subject}";
+        }
         if ($facts !== []) {
-            $context .= "\n\nوقائع وبيانات الملف (المعتمدة):\n".implode("\n", $facts);
+            // الوسم يتبع الحالة: «المعتمدة» كان يُكتب لكلّ ملخّص، معتمداً كان أم مسودّةً آليّة
+            $context .= "\n\n".($summary?->isApproved()
+                ? 'وقائع وبيانات الملف (المعتمدة):'
+                : 'وقائع الملف (ملخّصٌ لم يُعتمد بعد — يُراجَع قبل الاعتماد):')."\n".implode("\n", $facts);
+        }
+        if ($ticketClientMsgs !== '') {
+            $context .= "\n\nما كتبه العميل في طلبه:\n".$ticketClientMsgs;
         }
         if ($docs !== '') {
-            $context .= "\n\nملخّصات مستندات الملف:\n".$docs;
+            $context .= "\n\nملخّصات مستندات الملف (مرفقات الطلب ومستندات القضية):\n".$docs;
+        }
+        if ($caseClientMsgs !== '') {
+            $context .= "\n\nما كتبه العميل في محادثة القضية:\n".$caseClientMsgs;
+        }
+        if ($pendingDocs > 0) {
+            $context .= "\n\nمستندات لم يكتمل تحليلها بعد: {$pendingDocs} — لا تفترض محتواها.";
+        }
+
+        // **ملفٌّ بلا وقائع لا يُسرَد له نزاعٌ متخيَّل** — قيسَ على قضيّة تجربة بلا وقائع: كتب النموذج
+        // «عقد شراكة» و«محاولات حلٍّ وديّ» من عنده. يُقال له صراحةً، وتُوسم المسودّة.
+        $hasFacts = $facts !== [] || $docs !== '' || $caseClientMsgs !== '' || $ticketClientMsgs !== '';
+        if (! $hasFacts) {
+            $context .= "\n\nلا وقائع مسجّلة في الملف بعد: اكتب الأقسام قالباً بعبارة (يُستكمل) دون أيّ سردٍ للوقائع.";
+            $notes[] = 'الملف بلا وقائع مسجّلة — المسودّة قالبٌ عامّ، ولا تُعتمد قبل استكمال الوقائع من المستندات.';
+        }
+        if ($pendingDocs > 0) {
+            $notes[] = "{$pendingDocs} من مستندات الملف لم يكتمل تحليلها وقت التوليد — أعد التوليد بعد اكتماله أو راجِعها يدوياً.";
         }
 
         // استرجاع قانونيّ موثَّق — يُضيف ولا يَحجب: قاعدة فارغة ⇒ المسار كما هو تماماً،
@@ -522,7 +738,7 @@ class LegalAiService
         // وهي نصّ الملفّ الفعليّ. والقضية نفسها لا تملك حقل موضوع أصلاً.
         $sources = LegalKnowledge::retrieve(
             domain: (string) ($case->department ?: $case->type),
-            query: trim(implode(' ', $facts).' '.$case->type),
+            query: AiContextBuilder::clip(trim(implode(' ', $facts).' '.$subject.' '.$docs.' '.$case->type), 3000),
         );
         $authority = LegalKnowledge::asContext($sources);
         if ($authority !== '') {
@@ -558,7 +774,7 @@ class LegalAiService
 
             if ($validated !== null) {
                 return [
-                    'draft' => $this->renderPleading((string) $case->number, $validated),
+                    'draft' => $this->renderPleading((string) $case->number, $validated, 'مسودّة لائحة دعوى', self::citationMap($sources)),
                     'meta' => $meta,
                     // المصدر يتبع الحكم لا شكل المخرج: لائحةٌ سليمة البنية بلا ادّعاءٍ
                     // مسنَدٍ واحد ليست تحليلاً اجتاز التحقّق — وبوّابة السياسة تفرض
@@ -570,11 +786,25 @@ class LegalAiService
                 ];
             }
 
+            // **JSON مبتور** — حقلُ `draft` يسبق الأسانيد فيكتمل غالباً. يُستخلص نصّاً لا JSON
+            // خاماً، ويُوسم في النصّ نفسه أنّ أسانيده لم تُطابَق (الوسم في `ai_runs` وحده لا يراه المحامي).
+            $salvaged = self::salvageDraft($text);
+            if ($salvaged !== null) {
+                return [
+                    'draft' => self::humanizeDraft($salvaged['draft'], self::citationMap($sources))."\n\n⚠️ ".($salvaged['complete']
+                        ? 'انقطع مخرج النموذج قبل سند الادّعاءات — لم يُتحقَّق من أسانيد هذه المسودّة، فراجِعها قبل الاعتماد.'
+                        : 'انقطع نصّ المسودّة قبل اكتماله — أكمله في المحرّر، ولم يُتحقَّق من أسانيد هذه المسودّة.'),
+                    'meta' => $meta,
+                    'source' => AiSource::ManualRequired,
+                    'verdict' => null,
+                ];
+            }
+
             // JSON غير مفهوم: النصّ الخام أنفع من لا شيء، لكنه **بلا وسم استشهاد**
-            // فلا يُقرأ بوصفه مسنَداً.
+            // فلا يُقرأ بوصفه مسنَداً — ويُقال ذلك في النصّ نفسه.
             if ($text && trim($text) !== '') {
                 return [
-                    'draft' => trim($text),
+                    'draft' => self::humanizeDraft(trim($text), self::citationMap($sources))."\n\n⚠️ تعذّر فهم بنية مخرج النموذج — لم يُتحقَّق من أسانيد هذه المسودّة.",
                     'meta' => $meta,
                     // مخرجٌ لم يجتز التحقّق البرمجيّ: بتعريف `AiSource` نفسه ليس `AiSuccess`.
                     // تسميته نجاحاً تُخفي أن الاستشهاد لم يُطابَق بقاعدة المصادر.
@@ -606,15 +836,16 @@ class LegalAiService
      *
      * @param  array{draft:string,claims:array<int,array<string,string>>,unsupported_claims:array<int,string>,verdict:string}  $result
      */
-    private function renderPleading(string $ref, array $result, string $kind = 'مسودّة لائحة دعوى'): string
+    private function renderPleading(string $ref, array $result, string $kind = 'مسودّة لائحة دعوى', array $citations = []): string
     {
-        $out = trim((string) $result['draft']);
+        $out = self::humanizeDraft(trim((string) $result['draft']), $citations);
 
         // «لا سند كافٍ» **لا يُلغي المسودّة**: الوقائع والأطراف والطلبات لا تحتاج
         // مادّةً نظاميّة، وإلغاؤها يُضيّع عملاً صحيحاً. يُلغيها فقط ألّا يكون هناك نصّ.
         if (($result['verdict'] ?? '') === LegalClaims::INSUFFICIENT_AUTHORITY) {
             if ($out === '') {
-                return "{$kind} — {$ref}\n\n"
+                // ⚠️ في أوّله: ليست لائحةً تُعتمد — `CasePleading::blockReason` يمنع اعتمادها
+                return "⚠️ {$kind} — لم تُنتَج\n\n"
                     .'لم يُعثر في قاعدة المصادر المعتمدة على نصٍّ نظاميّ يحكم وقائع هذا الملفّ، '
                     ."ولم يُنتج النموذج مسودّة.\n\n"
                     .'المطلوب من المحامي: تحديد الأساس النظاميّ يدوياً، أو إضافة المصدر المعتمد '
@@ -622,22 +853,19 @@ class LegalAiService
                     .'اقتراحُ مادّةٍ بلا سندٍ مُتحقَّق أخطر من غيابها.';
             }
 
-            return $out."\n\n⚠️ **لا سند نظاميّ مُتحقَّق لهذه المسودّة.** لم يُطابَق أيّ معرّف مصدرٍ "
+            return $out."\n\n⚠️ لا سند نظاميّ مُتحقَّق لهذه المسودّة. لم تُطابَق أيّ مادّةٍ "
                 .'بقاعدة المصادر المعتمدة، فالأسانيد الواردة أعلاه — إن وُجدت — غير موثَّقة. '
                 .'يلزم المحامي تحديد الأساس النظاميّ وتوثيقه قبل التقديم.';
         }
 
-        if (! empty($result['claims'])) {
-            $out .= "\n\n— سند الادّعاءات (مُطابَق بقاعدة المصادر) —\n";
-            foreach ($result['claims'] as $c) {
-                $out .= "\n• {$c['text']}\n  [{$c['source_id']}] ".AiContextBuilder::clip((string) ($c['source_excerpt'] ?? ''), 300)."\n";
-            }
-        }
+        // **لا ملحقَ «سند الادّعاءات» في النصّ.** كان يُلحق كلَّ ادّعاءٍ بمعرّفه ومقطعه
+        // (`[LS-CIVIL-281] …`) — بياناتُ مراجعةٍ لا فقرةٌ من لائحة، فتصل المحكمةَ والعميل
+        // رموزاً. المطابقة نفسها باقية: `claims` و`verdict` في القيد، والاستشهاد مقروءٌ في المتن.
 
         if (! empty($result['unsupported_claims'])) {
-            $out .= "\n\n⚠️ ادّعاءات **بلا سندٍ مُتحقَّق** — لا تُقدَّم للمحكمة قبل توثيقها:\n";
+            $out .= "\n\n⚠️ ادّعاءات بلا سندٍ مُتحقَّق — لا تُقدَّم للمحكمة قبل توثيقها (وثّقها ثم احذف هذا التنبيه):\n";
             foreach ($result['unsupported_claims'] as $u) {
-                $out .= "\n• {$u}";
+                $out .= "\n• ".self::humanizeDraft((string) $u, $citations);
             }
         }
 
@@ -1072,38 +1300,48 @@ class LegalAiService
     }
 
     /**
-     * التحليل الذكيّ لطلب التنفيذ (تدفّق البطاقات): ملخّص قانونيّ + نواقص + إجراءات مقترحة.
-     * يُعيد JSON من الـAI؛ وعند تعذّره يسقط لقالب أمين (فحص المنفَّذ ضده + إجراءات افتراضيّة).
+     * الدراسة الذكيّة لطلب التنفيذ (تدفّق البطاقات): ملخّص قانونيّ + نواقص + إجراءات مقترحة
+     * + مدخلات التسعير الستّة (v2). يُعيد JSON من الـAI؛ وعند تعذّره يسقط لقالب أمين
+     * (فحص المنفَّذ ضده + إجراءات افتراضيّة) **بلا مدخلات تسعير** — القالب لا يقدّر تعقيداً.
      *
-     * @return array{summary:string,missing:array<int,string>,procedures:array<int,string>,source:string}
+     * @return array{summary:string,missing:array<int,string>,procedures:array<int,string>,readiness:string,difficulty:string,expected_procedures_count:int,duration_estimate:string,recovery_indicators:array<int,string>,risks:array<int,string>,source:string}
      */
     public function analyzeExecution(Execution $exec): array
     {
-        // قراءة وتلخيص كافة المستندات المرفقة مع الطلب
-        $exec->loadMissing('documents');
-        $docSnippets = [];
-        $readableDocs = 0; // ما أمكن استخراج محتواه فعلاً — إشارة ثقة موضوعيّة
-        foreach ($exec->documents as $doc) {
-            $abs = Storage::disk('local')->path((string) $doc->path);
-            $fileName = basename((string) $doc->path);
-            $docContent = '';
-            if (is_file($abs)) {
-                $ext = strtolower(pathinfo((string) $doc->path, PATHINFO_EXTENSION));
-                if ($text = $this->extractText($abs, $ext)) {
-                    $docContent = AiContextBuilder::prepare($text, 3000);
-                } elseif (! empty($doc->summary)) {
-                    $docContent = $doc->summary;
-                }
-            } elseif (! empty($doc->summary)) {
-                $docContent = $doc->summary;
-            }
-            $readableDocs += $docContent !== '' ? 1 : 0;
-            $docSnippets[] = "- ملف: {$fileName} (التصنيف: {$doc->label})".($docContent ? " — محتواه:\n{$docContent}" : '');
-        }
+        // قراءة وتلخيص كافة المستندات المرفقة مع الطلب (ومستندات قضيّته المصدر إن وُجدت)
+        $exec->loadMissing(['documents', 'legalCase.documents']);
+        [$docSnippets, $readableDocs] = $this->documentSnippets(
+            $exec->documents->map(fn (ExecutionDocument $d) => ['path' => $d->path, 'label' => (string) $d->label, 'summary' => $d->summary])->all()
+        );
 
         $docsContext = ! empty($docSnippets)
             ? "\n\nالمستندات المرفقة مع الطلب:\n".implode("\n", $docSnippets)
             : "\n(لم يتم إرفاق مستندات بعد)";
+
+        /*
+         * **مستندات القضيّة المصدر سياقُ دراسةٍ لا نسخةٌ ثانية.**
+         *
+         * التنفيذ المفتوح من قضيّة (`ExecutionCreation::fromCase`) يصل بلا مستندٍ واحد،
+         * فتُدرَس مطالبةٌ بلا صكّ حكمٍ ولا صحيفة دعوى. والبديل — إنشاء صفوف
+         * `ExecutionDocument` تشير إلى **مسارات ملفّات القضيّة نفسها** — فخّ: الحذف عبر
+         * `PurgesDocumentFiles`/`PurgesStoredFile` يمحو الملفّ من القرص، فحذفُ ملفّ تنفيذ
+         * يمحو صكّ الحكم من القضيّة. ونسخُ الملفّات يضاعف التخزين ويُنشئ نسختين تتباعدان.
+         * فالمستندات تُقرأ سياقاً هنا، وأسماؤها تُعرض في `docs` على البطاقة.
+         */
+        $caseDocsContext = '';
+        if (($case = $exec->legalCase) !== null) {
+            [$caseSnippets, $caseReadable] = $this->documentSnippets(
+                $case->documents->map(fn (CaseDocument $d) => [
+                    'path' => $d->path,
+                    'label' => (string) ($d->doc_type ?: $d->name),
+                    'summary' => $d->summary,
+                ])->all()
+            );
+            $readableDocs += $caseReadable;
+            $caseDocsContext = ! empty($caseSnippets)
+                ? "\n\nمستندات القضيّة {$case->number} التي صدر فيها الحكم (سياقٌ للدراسة):\n".implode("\n", $caseSnippets)
+                : '';
+        }
 
         $system = AiPromptRegistry::executionAnalyzeSystem();
 
@@ -1117,6 +1355,7 @@ class LegalAiService
             .'المنفَّذ ضده: '.($exec->defendant ? AiContextBuilder::prepare((string) $exec->defendant) : 'غير محدّد').'، '
             .'ملاحظات: '.($exec->notes ? AiContextBuilder::prepare((string) $exec->notes) : '—').'.'
             .$docsContext
+            .$caseDocsContext
             ."\n\nحلّل الطلب والمستندات المرفقة وأعد JSON.";
 
         $call = new AiCallResult(text: null, traceId: (string) Str::uuid(), durationMs: 0, failureCode: AiFailure::PROVIDER_ERROR);
@@ -1134,7 +1373,10 @@ class LegalAiService
                         'source' => AiSource::AiSuccess->value,
                         'meta' => self::callMeta($call, 'execution.analyze', null, AiConfidence::forExecution(
                             summary: $valid['summary'],
-                            documentsTotal: $exec->documents->count(),
+                            // مستندات القضيّة تُعدّ في الثقة كما تُقرأ في السياق: ملفٌّ مفتوحٌ
+                            // من قضيّةٍ يصل بلا مرفقٍ خاصّ به، فعدّ مرفقاته وحدها يخفض ثقة
+                            // دراسةٍ قرأت صكّ الحكم فعلاً.
+                            documentsTotal: $exec->documents->count() + (int) $exec->legalCase?->documents->count(),
                             documentsReadable: $readableDocs,
                             hasDefendant: trim((string) $exec->defendant) !== '',
                             hasSanad: trim((string) $exec->sanad) !== '',
@@ -1151,24 +1393,64 @@ class LegalAiService
         // ⚠️ هذا قالب حتميّ لا يقرأ مستنداً واحداً: يفحص وجود اسم المنفَّذ ضده فقط.
         // `source` إلزاميّ هنا — بدونه كان المستهلك يضبط ai_done=true ويُشعر العميل
         // بأن «الذكاء الاصطناعي حلّل الطلب» وهو لم يُستدعَ أصلاً.
+        // **لا قالب يملأ فراغ الذكاء** (قرار المالك 2026-09-12). كان هذا الفرع يكتب حكماً
+        // قانونيّاً — «سندٌ … مؤهّل للإحالة ومباشرة الإجراءات» — بلا قراءة مستندٍ واحد، ويضيف
+        // ثلاثة إجراءات مثبّتة. فيقرأ المسعِّر تقديراً لم يقع. التعذّر يبقى تعذّراً، وتُعاد
+        // جدولة الدراسة (`AnalyzeExecutionJob::failed` و`exec:retry-study`).
+        // و«النواقص» تبقى: نقصُ بيانات المنفَّذ ضده حقيقةٌ في سجلّنا لا حكمٌ على مستند.
         $missing = trim((string) $exec->defendant) === '' ? ['بيانات المنفَّذ ضده'] : [];
-        $complete = count($missing) === 0;
-        $summary = 'سند تنفيذي من نوع '.$exec->sanad.' بقيمة '.number_format((int) $exec->amount).' ريال'
-            .($exec->defendant ? ' بحق '.$exec->defendant : '').'، '
-            .($complete ? 'مؤهّل للإحالة إلى قسم التنفيذ ومباشرة الإجراءات' : 'ويلزم استكمال النواقص قبل الإحالة').'.';
-
-        // الإجراءات الافتراضيّة **هنا وحدها**: هذا الفرع موسوم `Fallback` صراحةً، فالقالب
-        // فيه مُعلَن لا مُتنكّر. كانت القائمة تُبنى في رأس الدالّة فتُغري بحقنها في مسار
-        // النجاح أيضاً — وقد فعلت.
-        $fallbackProcs = ['تقديم طلب تنفيذ إلكتروني', 'طلب الإفصاح عن الأصول', 'الحجز على الحسابات'];
 
         return [
-            'summary' => $summary,
+            'summary' => '',
             'missing' => $missing,
-            'procedures' => $fallbackProcs,
+            'procedures' => [],
+            // **مدخلات التسعير فارغةٌ في الاحتياطيّ.** جاهزيّةُ سندٍ ودرجةُ تعقيدٍ ومؤشّراتُ
+            // تحصيلٍ أحكامٌ على مستندات، وهذا الفرع لم يقرأ مستنداً واحداً — فقيمةٌ هنا
+            // تكون مخترَعةً يسعّر عليها المحامي. الفراغ معلومةٌ صادقة: «لا دراسة بعد».
+            'readiness' => '',
+            'difficulty' => '',
+            'expected_procedures_count' => 0,
+            'duration_estimate' => '',
+            'recovery_indicators' => [],
+            'risks' => [],
             'source' => AiSource::Fallback->value,
             'meta' => self::callMeta($call, 'execution.analyze', $structureFailure),
         ];
+    }
+
+    /**
+     * مقتطفات مستندات للتحليل — مصدرٌ واحد لمرفقات الطلب ولمستندات القضيّة المصدر.
+     * كانت الحلقة مكتوبةً داخل `analyzeExecution`، فقراءةُ مستندات القضيّة كانت ستنسخها.
+     *
+     * @param  array<int, array{path:?string, label:string, summary:?string}>  $docs
+     * @return array{0:array<int,string>, 1:int} المقتطفات، وعددُ ما أمكن قراءة محتواه فعلاً
+     */
+    private function documentSnippets(array $docs): array
+    {
+        $snippets = [];
+        $readable = 0; // ما أمكن استخراج محتواه فعلاً — إشارة ثقة موضوعيّة
+
+        foreach ($docs as $doc) {
+            $path = (string) ($doc['path'] ?? '');
+            $abs = $path !== '' ? Storage::disk('local')->path($path) : '';
+            $content = '';
+
+            if ($abs !== '' && is_file($abs)) {
+                $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+                if ($text = $this->extractText($abs, $ext)) {
+                    $content = AiContextBuilder::prepare($text, 3000);
+                } elseif (! empty($doc['summary'])) {
+                    $content = (string) $doc['summary'];
+                }
+            } elseif (! empty($doc['summary'])) {
+                $content = (string) $doc['summary'];
+            }
+
+            $readable += $content !== '' ? 1 : 0;
+            $snippets[] = '- ملف: '.basename($path)." (التصنيف: {$doc['label']})".($content ? " — محتواه:\n{$content}" : '');
+        }
+
+        return [$snippets, $readable];
     }
 
     /**
@@ -1259,61 +1541,6 @@ class LegalAiService
         }
 
         return $default;
-    }
-
-    /**
-     * ترتيب المحامين المتخصّصين بأولوية الذكاء الاصطناعي لعرضهم على العميل عند حجز الاستشارة.
-     * المرشّحون مُرتّبون حتمياً مسبقاً (الأكثر إنجازاً أولاً)؛ يعيد الذكاء ترتيبهم حسب الأنسب،
-     * وعند التعذّر يعود الترتيب الحتميّ كما هو — فلا يفشل أبداً.
-     *
-     * @param  array<int, array{id:int,name:string,dept:string,success:array,load:int}>  $candidates
-     * @return array<int, int> معرّفات المحامين مرتّبة بالأولوية
-     */
-    /** ⚠️ غير مستعملة حالياً: LawyerAvailability استُبدلت بترتيب حتميّ سريع (كانت تعلّق الطلب حتى 150ث). محفوظة للرجوع. */
-    public function rankLawyers(string $specialty, string $subject, array $candidates): array
-    {
-        $ids = array_map(fn ($c) => (int) $c['id'], $candidates);
-        if (count($ids) <= 1) {
-            return $ids;
-        }
-
-        $list = collect($candidates)->map(function ($c) {
-            $s = $c['success'] ?? [];
-
-            return "- id={$c['id']} | {$c['name']} | التخصّص: ".($c['dept'] ?? '—')
-                // «إغلاق» لا «إنجاز»: النسبة تعدّ الملفّات المغلقة، و«صدر الحكم» تُحتسب
-                // مهما كان اتّجاه الحكم. وتسميتها «إنجازاً» للنموذج تجعله يرجّح محامياً
-                // على سجلّ كسبٍ لا يقيسه أحد.
-                .' | معدّل إغلاق الملفّات: '.($s['rate'] ?? 0).'% ('.($s['closed'] ?? 0).'/'.($s['total'] ?? 0).')'
-                .' | الحمل المفتوح: '.($c['load'] ?? 0);
-        })->implode("\n");
-
-        $system = 'أنت منسّق إسناد في «النظام الإداري لمكاتب المحاماة». رتّب المحامين حسب الأنسب لاستشارة العميل: '
-            .'الأعلى تخصّصاً أولاً، ثم الأعلى معدّل إغلاقٍ للملفّات، ثم الأقل حملاً. '
-            .'أعد JSON فقط: {"order":[معرّفات المحامين مرتّبة من الأنسب]}. أدرِج كل المعرّفات مرة واحدة فقط. لا نص خارج JSON.';
-        $prompt = "تخصّص الاستشارة: {$specialty}\nموضوع الاستشارة: {$subject}\n\nالمحامون المتاحون:\n{$list}";
-
-        try {
-            $json = $this->run($system, [['role' => 'user', 'content' => $prompt]], json: true, promptId: 'lawyer.match');
-            if ($json) {
-                $data = json_decode(trim(preg_replace('/^```(?:json)?|```$/m', '', $json)), true);
-                $order = array_map(fn ($i) => (int) $i, (array) ($data['order'] ?? []));
-                // اقبل المعرّفات المعروفة فقط، ثم ألحق أي مفقود بترتيبه الحتميّ الأصلي
-                $valid = array_values(array_unique(array_filter($order, fn ($id) => in_array($id, $ids, true))));
-                foreach ($ids as $id) {
-                    if (! in_array($id, $valid, true)) {
-                        $valid[] = $id;
-                    }
-                }
-                if (count($valid) === count($ids)) {
-                    return $valid;
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning('LegalAiService rankLawyers failed: '.$e->getMessage());
-        }
-
-        return $ids;
     }
 
     /**
@@ -1511,7 +1738,7 @@ class LegalAiService
 
             if ($validated !== null) {
                 return [
-                    'draft' => $this->renderPleading((string) $ticket->number, $validated, 'صحيفة دعوى'),
+                    'draft' => $this->renderPleading((string) $ticket->number, $validated, 'صحيفة دعوى', self::citationMap($sources)),
                     'meta' => $meta,
                     'source' => LegalClaims::isCitable($validated)
                         ? AiSource::AiSuccess
@@ -1804,7 +2031,7 @@ class LegalAiService
         $body = [
             'model' => AiModelRouter::modelFor('glm', $promptId),
             'messages' => $msgs,
-            'max_tokens' => 2048,
+            'max_tokens' => self::maxTokensFor($promptId),
             'temperature' => $json ? 0.3 : 0.7,
         ];
         if ($json) {
@@ -1812,7 +2039,7 @@ class LegalAiService
         }
 
         $base = rtrim((string) config('services.glm.base', 'https://api.z.ai/api/paas/v4'), '/');
-        $response = Http::timeout(30)
+        $response = Http::timeout(self::timeoutFor($promptId, 30))
             ->withToken(config('services.glm.key'))
             ->retry(2, 700, fn ($e) => $e instanceof ConnectionException, throw: false)
             ->post("{$base}/chat/completions", $body);
@@ -1885,7 +2112,7 @@ class LegalAiService
         ], $messages);
 
         $generationConfig = [
-            'maxOutputTokens' => $json ? 2048 : 2048,
+            'maxOutputTokens' => self::maxTokensFor($promptId),
             'temperature' => $json ? 0.4 : 0.7,
             // تعطيل «التفكير» في نماذج 2.5 — وإلا التهم ميزانية المخرجات وعاد الردّ فارغاً
             'thinkingConfig' => ['thinkingBudget' => 0],
@@ -1902,7 +2129,7 @@ class LegalAiService
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent";
 
         // إعادة محاولة عند الازدحام المؤقت (503/500/429) — حتى 3 محاولات بمهلة متصاعدة
-        $response = Http::timeout(40)
+        $response = Http::timeout(self::timeoutFor($promptId, 40))
             ->withHeaders(['x-goog-api-key' => config('services.gemini.key')])
             ->retry(3, 700, fn ($e, $req) => $e instanceof ConnectionException, throw: false)
             ->post($url, $payload);

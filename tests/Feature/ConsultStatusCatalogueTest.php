@@ -66,6 +66,18 @@ class ConsultStatusCatalogueTest extends TestCase
      */
     private function writtenOnAConsult(string $status): bool
     {
+        // **الانتقالات تكتب الحالة عبر تعداد الكتالوج** (خطّة الرحلة 2026-09-14): `to()` يُرجعها،
+        // أو `apply()` يضبطها على الاستشارة. وكلُّ صفٍّ في `Transitions/Consult` كاتبٌ لاستشارة.
+        $case = \App\Domain\Journey\Enums\ConsultStatus::tryFrom($status)?->name;
+        if ($case !== null) {
+            foreach (glob(app_path('Domain/Journey/Transitions/Consult/*.php')) ?: [] as $transition) {
+                $src = (string) file_get_contents($transition);
+                if (preg_match('/(return ConsultStatus::'.$case.'->value;|->status = ConsultStatus::'.$case.'->value)/', $src)) {
+                    return true;
+                }
+            }
+        }
+
         $needles = [
             "'status' => '{$status}'",
             "status = '{$status}'",

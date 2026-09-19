@@ -30,6 +30,9 @@ class DatabaseSeeder extends Seeder
         $this->call(PermissionSeeder::class);
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
+        // كتالوج الأقسام والخدمات (إضافيّ — تزرعه الهجرة أيضاً، ولا يكتب فوق تعديلات الإدارة)
+        $this->call(LegalCatalogueSeeder::class);
+
         // 1) الإدارة العليا (تتجاوز الصلاحيات عبر Gate::before) — دخول: 1000000001
         $this->makeUser([
             'name' => 'الإدارة العليا', 'email' => 'kfykfy2020@gmail.com', 'role' => Role::Admin,

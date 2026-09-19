@@ -68,7 +68,7 @@ class CalendarController extends Controller
             ],
             // «مواعيدي»: نوع واحد ببطاقته الغنيّة (QR · PDF · حالة السداد) — يبقى كاملاً
             // ضمن نافذة العميل لأنه مصدر البطاقة لا قائمة تصفَّح.
-            'appointments' => Appointment::where('user_id', $user->id)->with(['user', 'consult'])
+            'appointments' => Appointment::where('user_id', $user->id)->where('status', '!=', 'بانتظار الاعتماد')->with(['user', 'consult'])
                 ->where(CalendarWindow::forClient())
                 ->orderByRaw('starts_at IS NULL')->orderBy('starts_at')
                 ->limit(CalendarWindow::LIMIT)->get()

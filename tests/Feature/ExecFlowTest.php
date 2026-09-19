@@ -7,7 +7,7 @@ use App\Jobs\AnalyzeExecutionJob;
 use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\User;
-use App\Support\ExecService;
+use App\Support\ExecFee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -156,9 +156,9 @@ class ExecFlowTest extends TestCase
         $this->assertFalse((bool) $invoice->paid);
 
         // السداد يمرّ بميسّر؛ نحاكي تسوية البوّابة باستدعاء markPaid مباشرةً (phpunit بلا مفاتيح)
-        ExecService::markPaid($exec->refresh());
+        ExecFee::settleInvoice($exec->refresh());
         $exec->refresh();
-        $this->assertSame(8, $exec->stage);           // فتح ملف التنفيذ
+        $this->assertSame(7, $exec->stage);           // سُدّدت الأتعاب — بانتظار الرفع في ناجز
         $this->assertTrue((bool) $exec->paid);
         $this->assertNotEmpty($exec->exec_no);
         $this->assertTrue((bool) Invoice::where('exec_id', $exec->id)->first()->paid);
@@ -167,8 +167,9 @@ class ExecFlowTest extends TestCase
         $this->act($lawyer, $exec, 'addProcedure', ['title' => 'تم الحجز على الحساب البنكي']);
         $this->assertSame(2, $exec->refresh()->procedures()->count());
 
-        $this->act($admin, $exec, 'close');
+        $this->act($admin, $exec, 'close', ['reason' => 'سداد كامل']);
         $this->assertSame(9, $exec->refresh()->stage);
+        $this->assertSame('سداد كامل', $exec->refresh()->closed_reason); // كيف انتهى الحقّ يُسجَّل
     }
 
     public function test_markpaid_is_idempotent(): void
@@ -177,12 +178,12 @@ class ExecFlowTest extends TestCase
         $exec = $this->reachOffer($client);
         $this->act($client, $exec, 'acceptOffer');
 
-        ExecService::markPaid($exec->refresh());
+        ExecFee::settleInvoice($exec->refresh());
         $execNo = $exec->refresh()->exec_no;
-        ExecService::markPaid($exec->refresh()); // تكرار (نظير webhook+callback)
+        ExecFee::settleInvoice($exec->refresh()); // تكرار (نظير webhook+callback)
 
         $this->assertSame($execNo, $exec->refresh()->exec_no); // لم يتغيّر
-        $this->assertSame(8, $exec->refresh()->stage);
+        $this->assertSame(7, $exec->refresh()->stage);
         $this->assertSame(1, $exec->procedures()->count());    // إجراء فتح الملف مرّة واحدة
     }
 
@@ -247,7 +248,7 @@ class ExecFlowTest extends TestCase
 
         $exec->refresh();
         $this->assertTrue((bool) $exec->paid);
-        $this->assertSame(8, $exec->stage);
+        $this->assertSame(7, $exec->stage); // السداد يقف عند «بانتظار الرفع في ناجز»
         $this->assertTrue((bool) $invoice->fresh()->paid);
     }
 

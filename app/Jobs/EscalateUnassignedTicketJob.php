@@ -9,8 +9,7 @@ use App\Models\User;
 use App\Services\MailService;
 use App\Support\Audit;
 use App\Support\Notify;
-use App\Support\TicketJourney;
-use App\Support\TicketTriage;
+use App\Support\TicketAssignment;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -60,21 +59,9 @@ class EscalateUnassignedTicketJob implements ShouldQueue
             if ($locked === null || $locked->assigned_lawyer_id) {
                 return;
             }
-            $updates = [
-                'assigned_lawyer' => self::SENIOR_LABEL,
-                'assigned_lawyer_id' => $senior->id,
-            ];
-
-            // نفس قفزة الحالة في TicketAssignment::assign: التذكرة أُحيلت فعلاً (للإدارة
-            // بدل محامٍ)، وبقاؤها عند «قيد التحليل» يجعلها تبدو عالقة للعميل إلى الأبد.
-            if (! TicketTriage::enabled() && in_array($locked->status, ['جديدة', 'قيد التحليل'], true)) {
-                $updates['status'] = 'محالة للقسم القانوني';
-                $updates['tone'] = TicketJourney::toneFor('محالة للقسم القانوني');
-                $updates['last_message'] = 'تمت إحالة طلبكم إلى القسم القانوني المختص لدراسة الموضوع.';
-                $updates['date_label'] = 'الآن';
-            }
-
-            $locked->update($updates);
+            // نفس قفزة الحالة في TicketAssignment::assign (ومن مصدرها نفسه): التذكرة أُحيلت فعلاً
+            // (للإدارة بدل محامٍ)، وبقاؤها عند «قيد التحليل» يجعلها تبدو عالقة للعميل إلى الأبد.
+            TicketAssignment::write($locked, $senior->id, self::SENIOR_LABEL);
         });
 
         if ($ticket->fresh()?->assigned_lawyer_id !== $senior->id) {

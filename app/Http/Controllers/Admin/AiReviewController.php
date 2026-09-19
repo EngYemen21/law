@@ -12,6 +12,7 @@ use App\Services\Ai\AiReviewPreview;
 use App\Services\Ai\AiReviewReason;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -92,19 +93,23 @@ class AiReviewController extends Controller
         // بهذا يصير `humanEditRate` قياساً لعملٍ لا استفتاءً على نيّة.
         [$action, $editDistance] = AiReviewOutcome::effectiveAction($run, $action);
 
-        $run->update([
-            'review_action' => $action->value,
-            'review_reason' => $data['reason'] ?? null,
-            'review_note' => $data['note'] ?? null,
-            'review_edit_distance' => $editDistance,
-            'escalated_to' => $data['escalated_to'] ?? null,
-            'reviewed_by' => $request->user()->id,
-            'reviewed_at' => now(),
-        ]);
+        // القرار وأثره معاً أو لا شيء: إن رفض المحرّك الأثر (نشر نتيجة جلسةٍ لتذكرةٍ حُوّلت
+        // قضيّةً مثلاً) لا يبقى القيد «مقبولاً» ويغيب من الصندوق والملفُّ لم يُطلَق.
+        DB::transaction(function () use ($run, $action, $data, $editDistance, $request) {
+            $run->update([
+                'review_action' => $action->value,
+                'review_reason' => $data['reason'] ?? null,
+                'review_note' => $data['note'] ?? null,
+                'review_edit_distance' => $editDistance,
+                'escalated_to' => $data['escalated_to'] ?? null,
+                'reviewed_by' => $request->user()->id,
+                'reviewed_at' => now(),
+            ]);
 
-        // أثر القرار في الملفّ — لا في `ai_runs` وحده. القبول على مخرجٍ محجوبٍ عن
-        // العميل بانتظار اعتماد يجب أن يُطلقه، وإلّا بقي محجوباً وإن اعتُمد.
-        AiReviewOutcome::apply($run->fresh(), $action, $request->user());
+            // أثر القرار في الملفّ — لا في `ai_runs` وحده. القبول على مخرجٍ محجوبٍ عن
+            // العميل بانتظار اعتماد يجب أن يُطلقه، وإلّا بقي محجوباً وإن اعتُمد.
+            AiReviewOutcome::apply($run->fresh(), $action, $request->user());
+        });
 
         return back()->with('flash', "سُجّل القرار: {$action->label()}");
     }

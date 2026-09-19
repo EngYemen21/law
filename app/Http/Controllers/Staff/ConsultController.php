@@ -2,12 +2,23 @@
 
 namespace App\Http\Controllers\Staff;
 
+use App\Domain\Journey\TransitionDenied;
+use App\Domain\Journey\Transitions\Consult\AnalyzeConsult;
+use App\Domain\Journey\Transitions\Consult\ApproveConsultAnalysis;
+use App\Domain\Journey\Transitions\Consult\CancelRequest;
+use App\Domain\Journey\Transitions\Consult\EndSession;
+use App\Domain\Journey\Transitions\Consult\MarkNoShow;
+use App\Domain\Journey\Transitions\Consult\ReferConsult;
+use App\Domain\Journey\Transitions\Consult\RequestConsultDocs;
+use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
+use App\Domain\Journey\Transitions\Consult\StartSession;
+use App\Domain\Journey\Workflow;
 use App\Enums\AiSource;
 use App\Enums\Role;
 use App\Events\ConsultStatusBroadcast;
-use App\Events\TicketStatusBroadcast;
 use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
+use App\Jobs\ExtractConsultDecisionsJob;
 use App\Jobs\FinalizeConsultJob;
 use App\Models\Consult;
 use App\Models\Setting;
@@ -16,18 +27,16 @@ use App\Models\User;
 use App\Rules\ActiveLawyer;
 use App\Services\Ai\AiReviewOutcome;
 use App\Services\Ai\AiRunLogger;
-use App\Services\GoogleCalendarService;
 use App\Services\LegalAiService;
 use App\Services\ZoomService;
-use App\Support\Audit;
-use App\Support\Booking\BookingMoved;
+use App\Support\ConsultAppointments;
 use App\Support\ConsultBooking;
+use App\Support\ConsultSessionOutcome;
 use App\Support\ConsultSummary;
 use App\Support\DecisionTasks;
+use App\Support\LawyerSpecialties;
 use App\Support\Live;
 use App\Support\Notify;
-use App\Support\Specialties;
-use App\Support\TicketJourney;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -106,6 +115,8 @@ class ConsultController extends Controller
         return Inertia::render('admin/consult-requests', [
             'consults' => $consults,
             'vatRate' => (int) ($prices['vat'] ?? 15),
+            // محامو المكتب النشطون — لتعديل المحامي عند اعتماد موعدٍ اقترحه موظّف
+            'lawyers' => User::where('role', Role::Lawyer)->where('status', 'active')->orderBy('name')->get(['id', 'name']),
             'suggestedPrices' => [
                 'مرئية' => (int) ($prices['video'] ?? 0),
                 'حضورية' => (int) ($prices['office'] ?? 0),
@@ -134,8 +145,9 @@ class ConsultController extends Controller
         $specialty = $consult->specialty ?: $consult->type;
 
         return User::where('role', Role::Lawyer)->where('status', 'active')
-            ->orderBy('name')->get(['id', 'name', 'department'])
-            ->sortByDesc(fn ($u) => Specialties::matches($u->department, $specialty) ? 1 : 0)
+            ->with('specialties')
+            ->orderBy('name')->get(['id', 'name', 'department', 'covers_all_departments'])
+            ->sortByDesc(fn (User $u) => LawyerSpecialties::covers($u, $consult->legal_department_id, $specialty) ? 1 : 0)
             ->values()
             ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name, 'dept' => $u->department ?: '—'])
             ->all();
@@ -184,21 +196,6 @@ class ConsultController extends Controller
         return back()->with('flash', 'أُلغيت الفاتورة وعاد الطلب إلى التسعير.');
     }
 
-    // استلام الاستشارة (يطابق cTake)
-    public function take(Request $request, Consult $consult): RedirectResponse
-    {
-        $this->guardConsult($request, $consult);
-        if ($consult->status === 'جديدة') {
-            $consult->employee = $request->user()->name;
-            $consult->logAudit($request->user()->name, 'الحالة', $consult->status, 'قيد مراجعة الموظف');
-            $consult->status = 'قيد مراجعة الموظف';
-            $consult->save();
-            Live::push(new ConsultStatusBroadcast($consult));
-        }
-
-        return back();
-    }
-
     // طلب استكمال مستندات (يطابق cRequestDocs) — يُشعر العميل
     public function requestDocs(Request $request, Consult $consult): RedirectResponse
     {
@@ -226,12 +223,7 @@ class ConsultController extends Controller
             'docs' => ['required', 'string', 'min:3', 'max:300'],
         ], [], ['docs' => 'المستند المطلوب']);
 
-        $missing = $consult->missing ?? [];
-        $missing[] = trim($data['docs']);
-        $consult->missing = array_values(array_unique($missing));
-        $consult->logAudit($request->user()->name, 'الحالة', $consult->status, 'بانتظار استكمال البيانات');
-        $consult->status = 'بانتظار استكمال البيانات';
-        $consult->save();
+        Workflow::run(new RequestConsultDocs, $consult, $request->user(), ['docs' => $data['docs']]);
         Live::push(new ConsultStatusBroadcast($consult));
 
         Notify::send($consult->user_id, 'upload', 't-amber', "نحتاج استكمال مستندات لاستشارتك ({$consult->ref}): ".implode('، ', $consult->missing).'.');
@@ -244,36 +236,25 @@ class ConsultController extends Controller
     {
         $this->guardConsult($request, $consult);
 
-        // **لا يُعاد تحليل ملفٍّ انتهى.** زرّ «إعادة التحليل» في الشاشة بلا شرط حالة،
-        // فاستشارةٌ منتهية أو ملغاة تعود بضغطة إلى «بانتظار اعتماد الموظف» — انتقالٌ
-        // للخلف يُفقدها وسمها ويُخرجها من صفّ المحامي.
-        abort_if(
-            in_array($consult->status, Consult::CLOSED_STATUSES, true),
-            422,
-            'الاستشارة انتهت أو أُلغيت — لا يُعاد تحليلها.'
-        );
-        $before = $consult->status;
+        // **الحارس قبل نداء النموذج** — لا يُنفَق نداءٌ على ملفٍّ سيُرفض انتقاله (ع١٩).
+        $transition = new AnalyzeConsult;
+        $why = $transition->guard($consult, []);
+        abort_if($why !== null, 422, (string) $why);
+
         $ai = $this->ai->analyzeConsult($consult);
 
         $source = AiSource::tryFrom((string) ($ai['source'] ?? AiSource::AiSuccess->value)) ?? AiSource::AiSuccess;
         $isRealAnalysis = $source->isRealAnalysis();
 
-        $consult->ai_class = $ai['class'];
-        $consult->ai_summary = $ai['summary'];
-        $consult->ai_lawyer = $ai['lawyer'];
-        // كان `true` بلا شرط: نصّ الاحتياطيّ يقول «تعذّر إعداد التحليل» والحالة تقول «اكتمل»
-        $consult->ai_done = $isRealAnalysis;
-        $consult->ai_source = $source->value;
-        // **دمجٌ لا استبدال.** كان يدهس النواقص التي كتبها الموظّف يدوياً في
-        // `requestDocs` وأُشعر بها العميل — فيُطالَب بمستندٍ لم يعد في ملفّ المكتب.
-        $consult->missing = array_values(array_unique(
-            array_merge($consult->missing ?? [], $ai['missing'] ?? [])
-        ));
-        $consult->logAudit($request->user()->name, 'الحالة', $before, 'قيد معالجة الفريق القانوني');
-        $consult->logAudit('النظام', 'تحليل الفريق القانوني', '—', $isRealAnalysis ? 'اكتمل' : 'تعذّر — يلزم إعداد يدويّ');
-        $consult->logAudit('النظام', 'الحالة', 'قيد معالجة الفريق القانوني', 'بانتظار اعتماد الموظف');
-        $consult->status = 'بانتظار اعتماد الموظف';
-        $consult->save();
+        Workflow::run($transition, $consult, $request->user(), [
+            'class' => $ai['class'],
+            'summary' => $ai['summary'],
+            'lawyer' => $ai['lawyer'],
+            // كان `true` بلا شرط: نصّ الاحتياطيّ يقول «تعذّر إعداد التحليل» والحالة تقول «اكتمل»
+            'done' => $isRealAnalysis,
+            'source' => $source->value,
+            'missing' => $ai['missing'] ?? [],
+        ]);
 
         $meta = is_array($ai['meta'] ?? null) ? $ai['meta'] : [];
         // رأيٌ قانونيّ: عالي الحساسيّة ⇒ «يتطلّب مراجعة» دائماً ولو نجح التحليل.
@@ -334,6 +315,12 @@ class ConsultController extends Controller
     {
         $this->guardConsult($request, $consult);
         abort_if($consult->summaryApproved(), 422, 'اعتُمد هذا الملخّص ووصل العميل — تعديله بعد الاعتماد يقتضي سحبه أوّلاً.');
+        // اعتمده المستشار ورُفع للإدارة — يُقفل عليه، والإدارة تعدّله إن لزم
+        abort_if(
+            ! $request->user()->isAdmin() && $consult->summary_lawyer_approved_at !== null,
+            422,
+            'اعتمدتَ هذا الملخّص ورُفع للإدارة لاعتماده النهائيّ — لا يُعدَّل من جهتك.'
+        );
 
         $data = $request->validate(['summary' => ['required', 'string', 'max:8000']]);
         $summary = trim($data['summary']);
@@ -348,10 +335,14 @@ class ConsultController extends Controller
             'summary' => $summary,
             'summary_edited_at' => now(),
             'summary_edited_by' => $request->user()->id,
+            // قرارات النصّ القديم لا تبقى تحت نصٍّ جديد — تُستخرج من المحرَّر (ع٢٣)
+            'decisions' => [],
         ]);
 
         $consult->logAudit($request->user()->name, 'ملخص الجلسة', '(نص النموذج)', '(نص محرَّر)');
         $consult->save();
+
+        ExtractConsultDecisionsJob::dispatch($consult->fresh(), $summary);
 
         return back()->with('flash', 'حُفظ الملخّص المحرَّر — يصل العميل بعد اعتماده.');
     }
@@ -373,28 +364,42 @@ class ConsultController extends Controller
         $this->guardConsult($request, $consult);
         abort_if($consult->summaryApproved(), 422, 'اعتُمد هذا الملخّص ووصل العميل.');
         abort_if(blank($consult->summary), 422, 'لا ملخّص ليُعتمد — دوّن تدوين الجلسة أو اكتب التقرير أوّلاً.');
+        // **لا «ملخّص جلسة» لجلسةٍ لم تنعقد** — كان يُعتمد لاستشارةٍ «جديدة» ويصل العميل (ع٢٢)
+        abort_unless($consult->session === 'منتهية', 422, 'لم تنعقد هذه الجلسة — لا يُعتمد لها ملخّص جلسة.');
 
-        // **لا تُنادَ `AiReviewOutcome::apply()` هنا**: مسار الصندوق يُشعِر العميل،
-        // فمناداته من هنا تُشعره مرّتين بالاعتماد الواحد.
-        AiReviewOutcome::approveConsultSummary($consult, $request->user());
-        AiReviewOutcome::recordFileApproval(
-            'consult.summary',
-            $consult->ref,
-            $request->user(),
-            edited: $consult->summary_edited_at !== null,
-        );
+        $user = $request->user();
+        $edited = $consult->summary_edited_at !== null;
 
-        return back()->with('flash', 'اعتُمد الملخّص وأُرسل إلى الموكّل.');
+        // ── المرحلة الأولى: المستشار يعتمد ويرفع للإدارة — لا يصل الموكّلَ شيء ──
+        if (! $user->isAdmin()) {
+            abort_if($consult->summary_lawyer_approved_at !== null, 422, 'اعتمدتَ هذا الملخّص ورُفع للإدارة لاعتماده النهائيّ.');
+
+            AiReviewOutcome::lawyerApproveConsultSummary($consult, $user);
+            AiReviewOutcome::recordFileApproval('consult.summary', $consult->ref, $user, edited: $edited);
+
+            return back()->with('flash', 'اعتُمد الملخّص ورُفع للإدارة لاعتماده النهائيّ قبل إرساله للموكّل.');
+        }
+
+        // ── المرحلة الثانية: الإدارة تعتمد فيُنشر للموكّل وتكتمل تذكرته ──
+        // **لا تُنادَ `AiReviewOutcome::apply()` هنا**: مسار الصندوق يُشعِر العميل، فمناداته تُشعره مرّتين.
+        AiReviewOutcome::approveConsultSummary($consult, $user);
+        AiReviewOutcome::recordFileApproval('consult.summary', $consult->ref, $user, edited: $edited);
+
+        return back()->with('flash', 'اعتُمد الملخّص وأُرسل إلى الموكّل، ونُشرت نتيجة التذكرة.');
     }
 
     // اعتماد التحليل (يطابق cApproveAI) → جاهزة للمحامي
     public function approveAnalysis(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
-        if ($consult->status === 'بانتظار اعتماد الموظف') {
-            $consult->logAudit($request->user()->name, 'اعتماد التحليل', $consult->status, 'جاهزة للمحامي');
-            $consult->status = 'جاهزة للمحامي';
-            $consult->save();
+        // ما ليس «بانتظار اعتماد الموظف» يُتجاوز بصمتٍ كما كان — ومنه نقرةٌ ثانية سبقتها الأولى إلى القفل
+        $transition = new ApproveConsultAnalysis;
+        if ($transition->accepts((string) $consult->status)) {
+            try {
+                Workflow::run($transition, $consult, $request->user());
+            } catch (TransitionDenied) {
+                return back();
+            }
             Live::push(new ConsultStatusBroadcast($consult));
 
             // ويُسجَّل قرار المراجعة كما يُسجَّل من الصندوق — وإلّا بقي القيد معلَّقاً
@@ -415,42 +420,11 @@ class ConsultController extends Controller
     {
         $this->guardConsult($request, $consult);
 
-        // **لا تُحال استشارةٌ ما زالت في دورة الحجز.**
-        //
-        // للاستشارة دورتان: دورةُ حجزٍ (تسعير ← سداد ← اختيار موعد) ودورةُ تحليلٍ
-        // تنتهي بـ«جاهزة للمحامي» ثم الإحالة. وهذا الإجراء من الثانية، وكان بلا
-        // شرطٍ واحد — فإحالةٌ على طلبٍ في الأولى تنقل حالته إلى «محالة للمحامي»،
-        // وهي **خارج** `PRE_SESSION_STATUSES` التي يُبنى منها طابور التسعير لدى
-        // الإدارة. فيسقط الطلب من الطابور: لا يُسعَّر، ولا تصل الفاتورة، ولا يدفع
-        // العميل، ولا يختار موعداً، ولا تُعقد جلسة — وهو ينتظر بلا أن يعلم.
-        //
-        // وقع فعلاً في `CN-2026-4504` (٢٠٢٦-٠٩-٠٣): أُحيلت وهي «بانتظار التسعير»،
-        // فظهرت في شاشة استقبال الجلسات بموعدٍ فارغ وزرِّ «بدء الجلسة» مُفعَّلاً.
-        /*
-         * **ولا تُحال جلسةٌ منعقدة.** كان الحارس يمنع النهايات ودورة الحجز ولا يمنع
-         * `'قيد الاستشارة'` — فالضغط على «إعادة إسناد المستشار» أثناء جلسةٍ جارية
-         * يُرجع الحالة إلى «محالة للمحامي» ويبثّها، ويصل صاحبَ الجلسة إشعارٌ يقول
-         * «أُحيلت استشارتك… وسنوافيك بموعد الجلسة» — وهو فيها الآن.
-         */
-        abort_if(
-            $consult->session === 'جلسة جارية',
-            422,
-            'الجلسة منعقدة الآن — أنهِها قبل تغيير المستشار.'
-        );
-
-        abort_if(
-            in_array($consult->status, Consult::CLOSED_STATUSES, true),
-            422,
-            'الاستشارة انتهت أو أُلغيت — لا تُحال إلى محامٍ.'
-        );
-
-        abort_if(
-            in_array($consult->status, Consult::PRE_SESSION_STATUSES, true),
-            422,
-            "الاستشارة ({$consult->ref}) ما زالت في دورة الحجز — حالتها «{$consult->status}». "
-            .'إحالتها الآن تُخرجها من طابور التسعير فلا تُسعَّر ولا تصل الفاتورة العميلَ. '
-            .'أكمل التسعير والسداد واختيار الموعد أوّلاً.'
-        );
+        // الحرّاس في `ReferConsult` (الجلسة الجارية · النهايات · دورة الحجز · التحليل غير المعتمد)،
+        // وتُفحص قبل التصديق: لا يُسأل عن محامٍ لملفٍّ لا يُحال.
+        $transition = new ReferConsult;
+        $why = $transition->guard($consult, []);
+        abort_if($why !== null, 422, (string) $why);
 
         $data = $request->validate([
             // مشترك بين الموظف/المحامي/الإدارة (كل بدوره عبر route مستقل) — Rule موحَّد يرفض غير المحامين والموقوفين.
@@ -458,39 +432,16 @@ class ConsultController extends Controller
             'lawyer' => ['nullable', 'string', 'max:80'],
         ]);
 
-        // حلّ المحامي المختص إلى مستخدم حقيقي: بالمعرّف إن مُرّر، وإلا بمطابقة الاسم المقترح
-        $name = trim($data['lawyer'] ?? '') ?: ($consult->ai_lawyer ?: $consult->lawyer);
+        // **المحامي بالمعرّف، أو بالاسم مطابقةً تامّة** — كان يسقط إلى `LIKE` غير مهرَّب على اقتراح الذكاء (ع٩).
+        $name = trim($data['lawyer'] ?? '') ?: (string) ($consult->ai_lawyer ?: $consult->lawyer);
         $lawyerUser = ! empty($data['lawyer_id'])
             ? User::where('role', Role::Lawyer)->find((int) $data['lawyer_id'])
-            : User::where('role', Role::Lawyer)->where('name', $name)->first();
-        if (! $lawyerUser && $name !== '') {
-            $lawyerUser = User::where('role', Role::Lawyer)->where('name', 'like', '%'.$name.'%')->first();
-        }
-        $lawyer = $lawyerUser?->name ?: $name;
+            : ($name !== '' ? User::where('role', Role::Lawyer)->where('name', $name)->first() : null);
 
-        $consult->logAudit($request->user()->name, 'الحالة', $consult->status, 'محالة للمحامي');
-        if ($lawyer !== $consult->lawyer) {
-            $consult->logAudit($request->user()->name, 'المحامي', $consult->lawyer, $lawyer);
-        }
-        $consult->lawyer = $lawyer;
-        // ربط المحامي بالمعرّف (مصدر عزل رؤية المحامي والبثّ)
-        if ($lawyerUser) {
-            $consult->assigned_lawyer_id = $lawyerUser->id;
-        }
-        $consult->status = 'محالة للمحامي';
-        $consult->save();
-        Live::push(new ConsultStatusBroadcast($consult));
-
-        // مزامنة إسناد المحامي إلى التذكرة المرتبطة إن وجدت
-        if ($consult->ticket_id && $lawyerUser) {
-            Ticket::where('id', $consult->ticket_id)->update(['assigned_lawyer_id' => $lawyerUser->id]);
-        }
-
-        // النصّ يتبع وجود الموعد: «ستُعقد الجلسة في موعدها» طُمأنينةٌ إلى موعدٍ قد لا
-        // يكون حُجز أصلاً — وصلت العميل مرّتين في `CN-2026-4504` ولا موعد لها.
-        Notify::send($consult->user_id, 'scale', 't-green', $consult->starts_at !== null
-            ? "أُحيلت استشارتك ({$consult->ref}) إلى المستشار المختص وستُعقد الجلسة في موعدها المحدَّد."
-            : "أُحيلت استشارتك ({$consult->ref}) إلى المستشار المختص، وسنوافيك بموعد الجلسة.");
+        Workflow::run($transition, $consult, $request->user(), [
+            'lawyer_id' => $lawyerUser?->id,
+            'lawyer' => $lawyerUser?->name ?: $name,
+        ]);
 
         return back();
     }
@@ -541,29 +492,8 @@ class ConsultController extends Controller
             return back();
         }
 
-        // **ما تُعلنه البطاقة يفرضه الخادم.** كان `startable` (نافذة ١٥د) يُرسَل
-        // إلى الواجهة ولا يُفرض هنا، فصار توصيةً تتجاهلها شاشةٌ لا تقرؤه: تُبدأ
-        // استشارةٌ موعدها بعد ثلاثة أسابيع، أو فائتةٌ منذ شهر، فتُشعَر صاحبتُها
-        // بأن جلستها «بدأت» ولا أحد هناك.
-        abort_unless(
-            $consult->isStartable(),
-            422,
-            $consult->isMissed()
-                ? 'فات موعد هذه الجلسة — سجّل «لم يحضر» أو أعد جدولتها.'
-                : 'الجلسة تُبدأ قبل موعدها بربع ساعة فأقرب.'
-        );
-
-        if ($consult->session === 'بانتظار الجلسة') {
-            $consult->update(['session' => 'جلسة جارية', 'status' => 'قيد الاستشارة']);
-            Live::push(new ConsultStatusBroadcast($consult));
-
-            $verb = match ($consult->channel) {
-                'مرئية' => 'بدأت جلسة استشارتك المرئية — يمكنك الانضمام الآن من صفحة «استشاراتي»',
-                'هاتفية' => 'بدأت مكالمة استشارتك الهاتفية',
-                default => 'بدأت جلسة استشارتك الحضورية',
-            };
-            Notify::send($consult->user_id, $consult->channel === 'مرئية' ? 'video' : ($consult->channel === 'هاتفية' ? 'phone' : 'office'), 't-blue', "{$verb} ({$consult->ref}).");
-        }
+        // الحارس في الانتقال: نافذة الموعد ودورة الحجز والنهايات — مصدرٌ واحد مع البطاقة (`isStartable`).
+        Workflow::run(new StartSession, $consult, $request->user());
 
         return back();
     }
@@ -605,19 +535,25 @@ class ConsultController extends Controller
         // **ختمُ الجلسة وحفظُ الملاحظات فعلان منفصلان.** كانا ملفوفين بشرطٍ واحد
         // (`session !== 'منتهية'`)، وويبهوك Zoom يختم الجلسة قبل أن يضغط المحامي
         // «إنهاء» — فتُصادَق ملاحظاته في الطلب ثمّ تُلقى صامتةً لأن الجلسة مختومة.
-        $payload = $notes !== '' ? ['session_notes' => $notes] : [];
+        $notesPayload = $notes !== '' ? ['session_notes' => $notes] : [];
 
         if (! $alreadyEnded) {
-            $payload += [
-                'session' => 'منتهية',
-                'status' => 'منتهية',
+            // **وختمُ الجلسة يحسم موعدها** («تم الحضور») في الانتقال نفسه — انظر `EndSession`.
+            // كان الإنهاء لا يحسمه، فيبقى صفّ الموعد `when_kind='up'` و`status='مؤكد'` يقرؤه كلّ
+            // تقريرٍ أو ترشيح يعتمد العمود الخام قبل أن يحسمه `appointments:auto-lapse`.
+            Workflow::run(new EndSession, $consult, $request->user(), $notesPayload + [
                 'duration_label' => $data['duration'] ?? $consult->duration_label,
-            ];
+            ]);
+            Live::push(new ConsultStatusBroadcast($consult));
+        } elseif ($notesPayload !== []) {
+            // تدوينٌ متأخّر لجلسةٍ مختومة — ليس انتقالاً، عمودٌ خارج الحالة
+            $consult->update($notesPayload);
+            Live::push(new ConsultStatusBroadcast($consult));
         }
 
-        if ($payload !== []) {
-            $consult->update($payload);
-            Live::push(new ConsultStatusBroadcast($consult));
+        if (! $alreadyEnded) {
+            // انعقدت الجلسة وانتهت ⇒ التذكرة «بانتظار ملخّص الجلسة» بلا زرٍّ للموظّف
+            ConsultSessionOutcome::sessionEnded($consult);
         }
 
         // **وتُغلق غرفة Zoom فعلاً.** كان «إنهاء الجلسة» يختم السجلّ وحده ولا يُنهي
@@ -644,40 +580,65 @@ class ConsultController extends Controller
     public function remindSchedule(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
-        abort_unless($consult->status === 'بانتظار تحديد الموعد', 422, 'التذكير متاح للطلبات المدفوعة بانتظار اختيار الموعد فقط.');
+        abort_unless($consult->status === 'بانتظار تحديد الموعد', 422, 'التذكير متاح للاستشارات المدفوعة التي لم يُحجز موعدها بعد.');
 
-        Notify::send($consult->user_id, 'cal', 't-amber', "تذكير: استشارتك ({$consult->ref}) مدفوعة وبانتظار اختيارك موعد الجلسة من «استشاراتي».");
-        $consult->logAudit($request->user()->name, 'تذكير', '—', 'تذكير باختيار الموعد');
+        // **الحجز بيد الطاقم لا العميل** (قرار المالك 2026-09-14) — التذكير لمن يحجز.
+        $staff = User::whereIn('role', [Role::Employee, Role::Admin])->get()
+            ->filter(fn (User $u) => $u->isAdmin() || $u->can('جدولة المواعيد'));
+        foreach ($staff as $member) {
+            Notify::send($member->id, 'cal', 't-amber', "تذكير: الاستشارة ({$consult->ref}) مدفوعة ولم يُحدَّد موعدها بعد — احجزه من شاشة المواعيد.");
+        }
+
+        $consult->logAudit($request->user()->name, 'تذكير', '—', 'تذكير الطاقم بحجز الموعد');
         $consult->save();
 
-        return back()->with('flash', 'أُرسل التذكير للعميل.');
+        return back()->with('flash', 'أُرسل التذكير لفريق المواعيد.');
+    }
+
+    /**
+     * **اعتماد موعدٍ اقترحه موظّف — كما هو أو بعد تعديله** (قرار المالك 2026-09-14).
+     *
+     * الإدارة لا ترفض الاقتراح: تعدّل الوقت أو المحامي أو نوع الجلسة إن لزم، ثمّ يُنشر للعميل
+     * ويُشعَر الموظّف بما تغيّر.
+     */
+    public function approveAppointment(Request $request, Consult $consult): RedirectResponse
+    {
+        abort_unless($consult->status === 'بانتظار اعتماد الموعد', 422, 'لا موعد مقترح بانتظار الاعتماد لهذه الاستشارة.');
+
+        $data = $request->validate([
+            'date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:today'],
+            'time' => ['nullable', 'string', 'date_format:H:i'],
+            'lawyer_id' => ['nullable', 'integer', new ActiveLawyer],
+            'type' => ['nullable', 'string', 'in:office,video,phone'],
+        ]);
+
+        ConsultAppointments::publish($consult, $request->user(), array_filter($data, fn ($v) => $v !== null && $v !== ''));
+
+        return back()->with('flash', "اعتُمد موعد الاستشارة {$consult->ref} وأُرسل للعميل.");
     }
 
     // إلغاء طلب معلّق قبل الجلسة — يُحيي حالة «ملغاة» التي لم يكن لها كاتب في النظام
     public function cancelRequest(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
-        abort_unless(in_array($consult->status, Consult::PRE_SESSION_STATUSES, true), 422, 'الإلغاء متاح لطلبات ما قبل الجلسة فقط.');
 
-        $before = $consult->status;
-        $consult->status = 'ملغاة';
-        $consult->logAudit($request->user()->name, 'الحالة', $before, 'ملغاة');
-        $consult->save();
+        // رسالة عربيّة صريحة: لغة التطبيق الافتراضيّة إنجليزيّة ولا ملفّ ترجمة للتحقّق
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:500'],
+        ], [
+            'reason.max' => 'سبب الإلغاء أطول من 500 حرف — اختصره ثم أعد المحاولة.',
+            'reason.string' => 'سبب الإلغاء غير صالح.',
+        ]);
 
-        GoogleCalendarService::deleteConsultEvent($consult);
+        $reason = trim((string) ($validated['reason'] ?? ''));
 
-        Audit::log(
-            action: 'إلغاء طلب استشارة',
-            description: "ألغى {$request->user()->name} طلب الاستشارة {$consult->ref} (كانت «{$before}»).",
-            category: 'استشارات',
-            severity: 'warning',
-            auditable: $consult,
-            beforeState: ['الحالة' => $before],
-            afterState: ['الحالة' => 'ملغاة'],
+        // الإلغاء يُلغي فواتيره غير المدفوعة ويُرجع التذكرة (ع١، ع١٠) — انظر `CancelRequest`.
+        Workflow::run(
+            new CancelRequest,
+            $consult,
+            $request->user(),
+            array_filter(['reason' => $reason !== '' ? $reason : null])
         );
-
-        Live::push(new ConsultStatusBroadcast($consult));
-        Notify::send($consult->user_id, 'info', 't-grey', "أُلغي طلب استشارتك ({$consult->ref}). إن كنت قد سددت فسيتواصل معك المكتب بشأن الاسترداد.");
 
         return back()->with('flash', 'أُلغي الطلب وأُشعر العميل.');
     }
@@ -688,15 +649,8 @@ class ConsultController extends Controller
     {
         $this->guardConsult($request, $consult);
         abort_if($consult->session !== 'بانتظار الجلسة', 422, 'الجلسة بدأت أو انتهت — لا يصحّ وسمها «لم يحضر».');
-        abort_unless($consult->isMissed(), 422, 'لم يحن موعد الاستشارة بعد.');
 
-        $consult->session = 'لم تُعقد';
-        $consult->status = 'لم يحضر';
-        $consult->logAudit($request->user()->name, 'الجلسة', 'بانتظار الجلسة', 'لم يحضر');
-        $consult->save();
-
-        Live::push(new ConsultStatusBroadcast($consult));
-        Notify::send($consult->user_id, 'clock', 't-red', "لم تُعقد جلسة استشارتك ({$consult->ref}) في موعدها. يمكنك التواصل مع المكتب لإعادة الجدولة.");
+        Workflow::run(new MarkNoShow, $consult, $request->user());
 
         return back();
     }
@@ -705,75 +659,9 @@ class ConsultController extends Controller
     public function reschedule(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
-        abort_if(
-            in_array($consult->status, Consult::CLOSED_STATUSES, true),
-            422,
-            'الاستشارة انتهت أو أُلغيت — أنشئ طلباً جديداً بدل إعادة جدولتها.'
-        );
 
-        abort_if($consult->session === 'منتهية', 422, 'الجلسة انتهت — لا يمكن إعادة جدولتها.');
-        abort_if(in_array($consult->status, Consult::PRE_SESSION_STATUSES, true), 422, 'الاستشارة لم تُجدول بعد أصلاً.');
-
-        // إلغاء الموعد القديم (يظهر «ملغي» في تبويب المواعيد لا «لم يحضر»)
-        $consult->appointment?->update(['status' => 'ملغي', 'tone' => 'b-grey', 'when_kind' => 'past']);
-
-        GoogleCalendarService::deleteConsultEvent($consult);
-
-        $old = $consult->when_label ?: '—';
-        $consult->status = 'بانتظار تحديد الموعد';
-        $consult->session = 'بانتظار الجلسة';
-        $consult->starts_at = null;
-        $consult->when_label = 'بانتظار اختيار موعد جديد';
-        // **يُحذف اجتماع Zoom قبل تصفير مرجعه.** كانت الأعمدة تُصفَّر بلا حذف،
-        // فيبقى اجتماعٌ يتيم على الحساب وتسجيله السحابيّ مُفعَّل، وأيّ ويبهوك متأخّر
-        // عنه يصير غير قابلٍ للتوجيه (التوجيه بـ`meet_id`). والنظير في الاجتماعات
-        // (`MeetingController::cancel`) يحذف — فافترق المساران بلا سبب.
-        BookingMoved::cancelled($consult);
-
-        $consult->meet_id = null;
-        $consult->meet_link = null;
-        $consult->host_link = null;
-        $consult->meet_password = null;
-        $consult->link_released_at = null;
-        // تصفير أختام التذكير للموعد الجديد — بدونها لا يصل المؤجَّلة تذكير أبداً
-        // (نظير ما تفعله إعادة جدولة جلسات المحاكم في Lawyer\CaseController).
-        $consult->reminder_24h_sent_at = null;
-        $consult->reminder_30m_sent_at = null;
-        $consult->logAudit($request->user()->name, 'إعادة الجدولة', $old, 'بانتظار اختيار موعد جديد');
-        $consult->save();
-
-        /*
-         * **والتذكرة ترتدّ مع استشارتها.**
-         *
-         * `ConsultBooking::schedule` يدفع التذكرة إلى «موعد مؤكد»، وإعادةُ الجدولة تُلغي
-         * الموعد وتُصفّر `starts_at` — **ولا تمسّ التذكرة**. فتبقى تقول «موعد مؤكد»
-         * لملفٍّ لا موعد له، وتصير مؤهَّلةً لـ`advance` الذي يعقد جلسةً لم تُحدَّد بعد.
-         *
-         * قِيس على `SB-2026-8077`: أُعيدت جدولة `CN-2026-7173` الساعة 01:57 وبقيت
-         * التذكرة «موعد مؤكد».
-         */
-        if ($consult->ticket && $consult->ticket->status === 'موعد مؤكد') {
-            $consult->ticket->update([
-                'status' => 'بانتظار حجز الاستشارة',
-                'tone' => TicketJourney::toneFor('بانتظار حجز الاستشارة'),
-                'last_message' => 'أُعيدت جدولة الجلسة — بانتظار اختيار موعد جديد',
-                'date_label' => 'الآن',
-            ]);
-            Live::push(new TicketStatusBroadcast($consult->ticket));
-        }
-
-        Audit::log(
-            action: 'إعادة جدولة استشارة',
-            description: "أعاد {$request->user()->name} الاستشارة {$consult->ref} لاختيار موعد جديد (كان موعدها: {$old}).",
-            category: 'استشارات',
-            severity: 'warning',
-            auditable: $consult,
-            beforeState: ['الموعد' => $old],
-            afterState: ['الحالة' => 'بانتظار تحديد الموعد'],
-        );
-
-        Live::push(new ConsultStatusBroadcast($consult));
-        Notify::send($consult->user_id, 'cal', 't-amber', "أُعيدت استشارتك ({$consult->ref}) لاختيار موعد جديد — اختر الموعد المناسب من «استشاراتي».");
+        // لا إعادة جدولة أثناء جلسةٍ منعقدة (ع١٥)؛ وحذف Zoom وGoogle بعد الالتزام — انظر `RescheduleConsult`.
+        Workflow::run(new RescheduleConsult, $consult, $request->user());
 
         return back();
     }

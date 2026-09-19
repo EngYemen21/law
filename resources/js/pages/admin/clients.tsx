@@ -386,7 +386,7 @@ const AdminClients: React.FC<Props> = ({ clients, filters = {}, summaryStats }) 
           {clients.data.length === 0 ? (
             <div className="empty">
               <Icon name="user" />
-              <b>لا يوجد عملاء يطابقون معايير البحث والفلترة</b>
+              <b>{clients.meta.total === 0 && !(filters.q || filters.status || filters.activity || filters.date_from || filters.date_to) ? 'لا يوجد عملاء بعد' : 'لا يوجد عملاء يطابقون معايير البحث والفلترة'}</b>
               {(activeFiltersCount > 0 || search) && (
                 <div style={{ marginTop: 8 }}>
                   <button type="button" onClick={resetAllFilters} className="btn sm soft">

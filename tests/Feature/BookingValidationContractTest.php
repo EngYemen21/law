@@ -5,12 +5,11 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Models\LegalCase;
 use App\Models\Meeting;
-use App\Models\Ticket;
 use App\Models\User;
-use App\Support\ConsultBooking;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
@@ -26,6 +25,7 @@ use Tests\TestCase;
  */
 class BookingValidationContractTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     /** الحمولات التي يجب أن يرفضها **كل** سطح. */
@@ -135,7 +135,8 @@ class BookingValidationContractTest extends TestCase
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
         $case = LegalCase::create([
             'user_id' => $client->id, 'number' => 'CS-V-'.uniqid(), 'type' => 'نزاع تجاري',
-            'department' => 'القضايا التجارية', 'status' => 'نشطة', 'tone' => 'b-blue',
+            // «منظورة»: الجلسات تُضاف بعد رفع الدعوى وحدها (حارس 2026-09-11) — «نشطة» ليست حالةَ قضيّة
+            'department' => 'القضايا التجارية', 'status' => 'منظورة', 'tone' => 'b-blue',
             'assigned_lawyer_id' => $lawyer->id,
         ]);
 
@@ -148,7 +149,7 @@ class BookingValidationContractTest extends TestCase
         $this->assertSame(0, $case->hearings()->count(), "«{$day}» جدول جلسة");
     }
 
-    // ══ السطح ٤: اختيار موعد الاستشارة (العميل) ══
+    // ══ السطح ٤: تحديد موعد الاستشارة (الطاقم بعد السداد — قرار المالك 2026-09-14) ══
 
     #[DataProvider('invalidMoments')]
     public function test_consult_scheduling_rejects_an_unparseable_time(string $time): void
@@ -157,21 +158,14 @@ class BookingValidationContractTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
 
-        $ticket = Ticket::create([
-            'user_id' => $client->id, 'number' => 'SB-V-'.uniqid(), 'type' => 'نزاع تجاري',
-            'department' => 'القضايا التجارية', 'subject' => 'مطالبة',
-            'status' => 'بانتظار حجز الاستشارة', 'tone' => 'b-amber',
+        $ticket = $this->ticketWithApprovedOpinion($client, [
+            'number' => 'SB-V-'.uniqid(), 'status' => 'بانتظار حجز الاستشارة',
         ]);
-        $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'video']);
-        $consult = $ticket->consults()->latest('id')->firstOrFail();
-        $this->actingAs($this->admin())->post(route('admin.consults.price', $consult), ['price' => 450]);
-        ConsultBooking::markPaid($consult->fresh());
+        $consult = $this->requestPricedAndPaid($client, $ticket, 'video');
 
-        $this->actingAs($client)
-            ->post(route('consults.schedule', $consult), [
-                'date' => now()->addDays(2)->toDateString(), 'time' => $time,
-            ])
-            ->assertSessionHasErrors('time');
+        $this->adminPublishes($consult, [
+            'date' => now()->addDays(2)->toDateString(), 'time' => $time,
+        ])->assertJsonValidationErrors('time');
 
         $this->assertNull($consult->fresh()->starts_at);
     }

@@ -2,6 +2,7 @@
 
 namespace App\Events;
 
+use App\Domain\Journey\Enums\ConsultStatus;
 use App\Models\Consult;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
@@ -33,7 +34,8 @@ class ConsultStatusBroadcast implements ShouldBroadcastNow
     {
         return [
             'session' => $this->consult->session,
-            'status' => $this->consult->status,
+            // القناة يستمع لها العميل — لا تُسمّى له مرحلة الاعتماد الداخليّة
+            'status' => ConsultStatus::tryFrom((string) $this->consult->status)?->clientLabel() ?? $this->consult->status,
             // **الملخّص المعتمَد فقط** — نظير `MeetingStatusBroadcast`. القناة
             // `consult.{id}` مخوَّلٌ عليها العميل، فبثُّ الملخّص بلا شرط كان يتجاوز
             // الحجب الخادميّ في `Consult::toClientCard`: يُحجب في الحمولة الأولى

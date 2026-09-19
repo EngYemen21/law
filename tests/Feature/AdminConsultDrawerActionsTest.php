@@ -98,13 +98,19 @@ class AdminConsultDrawerActionsTest extends TestCase
             $ui
         );
 
-        // والإلغاء بشرط الخادم حرفيّاً لا بشرطٍ مجاور
+        // والإلغاء بشرط الخادم حرفيّاً لا بشرطٍ مجاور: `CancelRequest::from()` = حالات ما قبل الجلسة.
+        // والمدفوعة منها تُلغى أيضاً (قرار 2026-09-18) وتُنبَّه الإدارة لاستردادها — `HandleConsultCancelled`.
         $this->assertStringNotContainsString(
             '{!CONSULT_TERMINAL_STATUSES.includes(drawerConsult.status) && !drawerConsult.paid && (',
             $ui
         );
-        $this->assertStringContainsString(
+        $this->assertStringNotContainsString(
             '{CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && !drawerConsult.paid && (',
+            $ui,
+            'حجبُ الإلغاء عن المدفوعة يخالف الخادم الذي يقبله'
+        );
+        $this->assertStringContainsString(
+            '{CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && (',
             $ui
         );
     }

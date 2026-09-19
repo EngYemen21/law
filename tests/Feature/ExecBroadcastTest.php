@@ -48,7 +48,9 @@ class ExecBroadcastTest extends TestCase
         Event::fake([ExecStatusBroadcast::class]);
         $client = User::factory()->create(['role' => Role::Client]);
         $admin = User::factory()->create(['role' => Role::Admin]);
-        $exec = Execution::create(['user_id' => $client->id, 'number' => 'EXE-B3', 'subject' => 'بثّ', 'status' => 'قيد الدراسة', 'tone' => 'b-blue', 'stage' => 2, 'amount' => 50000]);
+        // الملفّ مسنَدٌ: التسعير صار مشروطاً بوجود محامٍ مسؤول عنه (`ExecService::guardAssigned`)
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $exec = Execution::create(['user_id' => $client->id, 'number' => 'EXE-B3', 'subject' => 'بثّ', 'status' => 'قيد الدراسة', 'tone' => 'b-blue', 'stage' => 2, 'amount' => 50000, 'assigned_lawyer' => $lawyer->name, 'assigned_lawyer_id' => $lawyer->id]);
 
         $this->actingAs($admin)->post(route('exec-flow.act', $exec), ['action' => 'setFee', 'fee' => 5000, 'duration' => '30 يوم', 'payMethod' => 'دفعة واحدة'])->assertRedirect();
 

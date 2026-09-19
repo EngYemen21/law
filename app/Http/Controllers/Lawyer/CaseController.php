@@ -2,20 +2,19 @@
 
 namespace App\Http\Controllers\Lawyer;
 
-use App\Events\CaseStatusBroadcast;
+use App\Http\Controllers\Concerns\ManagesCourtProceedings;
 use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
 use App\Jobs\AnalyzeCaseDocumentJob;
-use App\Mail\HearingEventMail;
-use App\Models\CaseHearing;
+use App\Jobs\DraftCasePleadingJob;
 use App\Models\LegalCase;
 use App\Models\Ticket;
-use App\Services\MailService;
+use App\Services\Ai\AiReviewOutcome;
 use App\Support\Audit;
-use App\Support\CaseJourney;
+use App\Support\CaseFiling;
+use App\Support\CasePleading;
+use App\Support\ConversationFiles;
 use App\Support\ExecutionCreation;
-use App\Support\Live;
-use App\Support\MeetingTime;
 use App\Support\Notify;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -27,11 +26,20 @@ use Inertia\Response;
  */
 class CaseController extends Controller
 {
+    use ManagesCourtProceedings;
     use ScopedToLawyer;
+
+    /** إجراءات المحكمة (ناجز والجلسات والحكم) للمحامي المسنَد — والإدارة كما في `guardAssigned`. */
+    protected function guardCourtAccess(LegalCase $case): void
+    {
+        $this->guardAssigned($case);
+    }
 
     public function index(Request $request): Response
     {
-        $cases = LegalCase::with('user')->whereNotNull('ticket_id')
+        // بلا شرط التذكرة: كان يُخفي قضايا المحامي التي انفصلت عن تذكرتها (تنظيف التكرار
+        // يُفرغ `ticket_id`، وحذف التذكرة كذلك) — وصفحتها نفسها تبقى متاحة له
+        $cases = LegalCase::with('user')
             ->where('assigned_lawyer_id', $request->user()->id)->latest('id')->get()
             ->map(fn (LegalCase $c) => $this->card($c));
 
@@ -41,16 +49,66 @@ class CaseController extends Controller
     public function show(LegalCase $case): Response
     {
         $this->guardAssigned($case);
-        $case->load(['user', 'hearings']);
+        $case->load(['user', 'hearings', 'documents', 'ticket.summary', 'ticket.documents']);
+
+        $viewer = auth()->user();
+        $ticket = $case->ticket;
+        $summary = $ticket?->summary;
+
+        // **مرفقات الطلب قبل التحويل** — كانت غائبةً عن شاشة القضيّة كلّها، والمحامي يحتاجها لإعداد اللائحة
+        $ticketDocs = ($ticket?->documents ?? collect())->sortByDesc('id')->values()->map(fn ($d) => [
+            'id' => $d->id,
+            'name' => $d->name,
+            'by' => $d->status === 'مرفق من المكتب' ? 'المكتب' : 'العميل',
+            'status' => (string) $d->status,
+            'docType' => (string) ($d->doc_type ?? ''),
+            'summary' => (string) ($d->summary ?? ''),
+            'date' => $d->created_at?->locale('ar')->translatedFormat('d F Y') ?: '',
+            'downloadUrl' => $d->path && ConversationFiles::canDownload($viewer, $d) ? ConversationFiles::url('ticket', $d->id) : null,
+        ]);
+
+        // **جاهزية اللائحة** — ما يلزم قبل الاعتماد النهائيّ، من الحرّاس نفسها لا من تقديرٍ في الشاشة
+        $pending = $ticketDocs->where('summary', '')->count()
+            + $case->documents->filter(fn ($d) => trim((string) $d->summary) === '')->count();
+        $draft = CasePleading::latestDraft($case);
+        $readiness = $case->pleading_status !== 'pending_lawyer' ? [] : [
+            ['label' => 'ملخّص وقائع الطلب معتمد', 'ok' => (bool) $summary?->isApproved(), 'hint' => $summary ? null : 'لا ملخّص للطلب'],
+            ['label' => 'مستندات الملف محلَّلة', 'ok' => $pending === 0, 'hint' => $pending > 0 ? "{$pending} بانتظار التحليل" : null],
+            ['label' => 'مسودّة اللائحة جاهزة', 'ok' => $draft !== null, 'hint' => null],
+            ['label' => 'لا تنبيهات معلّقة في المسودّة', 'ok' => $draft !== null && ! CasePleading::hasWarnings($case), 'hint' => null],
+        ];
 
         return Inertia::render('lawyer/case', [
+            // رفع الدعوى في ناجز ثمّ قيدها (الخطّة ب) — ما يجوز الآن من الحرّاس نفسها
+            'filing' => CaseFiling::panel($case),
+            'ticketDocuments' => $ticketDocs,
+            'fileInfo' => [
+                'ticketNo' => $ticket?->number,
+                'subject' => $ticket?->subject,
+                'opponent' => $ticket?->opponent_name,
+                'claim' => $ticket?->claim_amount ? number_format((int) $ticket->claim_amount).' ر.س' : null,
+                'court' => $ticket?->court_name,
+            ],
+            'fileFacts' => $summary ? [
+                'summary' => $summary->case_summary,
+                'facts' => $summary->facts,
+                'keyPoints' => $summary->key_points,
+                'approved' => $summary->isApproved(),
+            ] : null,
+            'readiness' => $readiness,
             'case' => $this->card($case),
             'channel' => 'case.'.$case->id,
             // المكتب يرى المحجوب ليراجعه — وهو الفاصل الذي لم يكن موجوداً
-            'messages' => $case->messages()->visibleTo(true)->get()->map->toMessage(),
+            'messages' => ConversationFiles::linkLegacyChips($case->messages()->visibleTo(true)->get()->map->toMessage()->all(), 'case', $case->documents),
             'hearings' => $case->hearings->map->toData(),
             'documents' => $case->documents->map(fn ($d) => $d->toData(auth()->user())),
             'convertedExec' => $case->execution()->exists(),
+            // زرّ الاعتماد يُعرض حين يجوز، وإلا فسببُ تعذّره — والخادم يرفض بالسبب نفسه
+            'pleadingBlock' => CasePleading::blockReason($case),
+            // نصّ أحدث مسودّة للمحرّر، ومن كتبها (آلة أم إنسان)
+            'pleadingDraft' => CasePleading::draftText(CasePleading::latestDraft($case)),
+            // من الخادم لا من مقارنةٍ باليد: التنفيذ صار يُفتح من «مغلقة» أيضاً
+            'canExecute' => ExecutionCreation::isEligible($case),
         ]);
     }
 
@@ -59,6 +117,8 @@ class CaseController extends Controller
     public function reply(Request $request, LegalCase $case): \Illuminate\Http\Response
     {
         $this->guardAssigned($case);
+        // الأرشيف للقراءة — كان الإرفاق يُرفض عليه والردّ يمرّ
+        abort_if($case->status === 'مؤرشفة', 422, 'القضية مؤرشفة — ملفها للقراءة فقط.');
         $data = $request->validate(['body' => ['required', 'string']]);
 
         $msg = $case->messages()->create([
@@ -79,11 +139,17 @@ class CaseController extends Controller
         $this->guardAssigned($case);
         abort_if($case->status === 'مؤرشفة', 422, 'لا يمكن إرفاق مستندات على قضية مؤرشفة.');
 
-        $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx']]); // حتى 10MB
+        $data = $request->validate([
+            'file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx'],
+            'hearing_id' => ['nullable', 'integer', 'exists:case_hearings,id'],
+        ]);
 
         $file = $request->file('file');
         $name = $file->getClientOriginalName();
+        $hearingId = $data['hearing_id'] ?? null;
         $doc = $case->documents()->create([
+            'case_id' => $case->id,
+            'hearing_id' => $hearingId,
             'name' => $name,
             'path' => $file->store("case-docs/{$case->id}"),
             'mime' => $file->getClientMimeType(),
@@ -92,9 +158,14 @@ class CaseController extends Controller
             'status' => 'قيد الفحص',
         ]);
 
+        $hearingNote = '';
+        if ($hearingId && ($h = $case->hearings()->find($hearingId))) {
+            $hearingNote = ' — مرتبط بـ: <b>'.e($h->title).'</b>';
+        }
+
         $case->messages()->create([
             'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'مستند',
-            'body' => '<p>أرفق المحامي مستنداً بملف القضية:</p><div class="doc-list"><span class="doc-chip">📎 '.e($name).'</span></div>',
+            'body' => '<p>أرفق المحامي مستنداً بملف القضية'.$hearingNote.':</p><div class="doc-list">'.ConversationFiles::chip('case', $doc).'</div>',
             'time_label' => $this->clock(),
         ]);
         $case->update(['update_text' => 'أرفق المحامي مستنداً: '.$name]);
@@ -122,242 +193,73 @@ class CaseController extends Controller
     {
         $this->guardAssigned($case);
         abort_unless($case->pleading_status === 'pending_lawyer', 422);
+        // لا يُبلَّغ العميل باعتماد لائحةٍ لا نصَّ لها
+        // بلا مسودّة، أو بنصٍّ احتياطيّ، أو بعد رفضها في الصندوق — لا اعتماد
+        $blocked = CasePleading::blockReason($case);
+        abort_if($blocked !== null, 422, (string) $blocked);
 
-        $case->update([
-            'pleading_status' => 'approved',
-            'status' => 'منظورة',
-            'tone' => CaseJourney::toneFor('منظورة'),
-            'update_text' => 'اعتماد اللائحة ورفع الدعوى — القضية منظورة',
-        ]);
-        $case->messages()->create([
-            'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'اعتماد اللائحة',
-            'body' => '<p>تم اعتماد لائحة الدعوى، وهي جاهزة لرفع الدعوى ومتابعة الجلسات.</p>',
-            'time_label' => $this->clock(),
-        ]);
-        $this->notify($case, 'scale', 't-blue', "تم اعتماد لائحة قضيتك {$case->number} ورفع الدعوى. القضية الآن منظورة.");
-        Audit::log(
-            action: 'اعتماد لائحة دعوى',
-            description: "اعتمد {$request->user()->name} لائحة الدعوى للقضية {$case->number} — القضية الآن منظورة.",
-            category: 'قضايا وتنفيذ',
-            auditable: $case,
-            auditableRef: $case->number,
-            afterState: ['الحالة' => 'منظورة'],
-        );
-        Live::push(new CaseStatusBroadcast($case));
+        // نصٌّ حرّره المحامي يُسجَّل «تعديلاً» لا «قبولاً» — يُقاس ما وقع لا ما أُعلن
+        $edited = CasePleading::isHumanAuthored(CasePleading::latestDraft($case));
+
+        // الإطلاق ورفع الدعوى معاً — المصدر نفسه الذي يناديه قبول صندوق المراجعة
+        CasePleading::approve($case, $request->user());
+        // والقرار يُسجَّل على قيد الذكاء، وإلا بقي «بانتظار المراجعة» لمخرجٍ اعتُمد وأُطلق
+        AiReviewOutcome::recordFileApproval('case.pleading', $case->number, $request->user(), $edited);
 
         return back();
     }
 
-    // جدولة جلسة جديدة (يراها العميل في «الجلسة القادمة»)
-    public function addHearing(Request $request, LegalCase $case): RedirectResponse
+    /**
+     * **حفظ مسودّة اللائحة** (قرار المالك 2026-09-11): المحامي يكتب اللائحة أو يحرّر مسودّة الآلة.
+     * كانت وثيقةٌ قضائيّة تصل العميل بصياغة النموذج حرفياً، و«تعديل واعتماد» في الصندوق لا يحفظ
+     * نصّاً. الحفظ مسودّةٌ محجوبة قابلة للتعديل؛ والاعتماد النهائيّ وحده يُطلقها ويقفلها.
+     */
+    public function savePleading(Request $request, LegalCase $case): RedirectResponse
     {
         $this->guardAssigned($case);
-        $data = $request->validate([
-            'title' => ['required', 'string', 'max:120'],
-            'day' => ['required', 'date_format:Y-m-d'],
-            'time' => ['nullable', 'date_format:H:i'],
-            'court' => ['nullable', 'string', 'max:120'],
+        abort_unless($case->pleading_status === 'pending_lawyer', 422, 'اعتُمدت اللائحة نهائياً — لا تُعدَّل بعد الاعتماد.');
+
+        $data = $request->validate(['body' => ['required', 'string', 'min:20', 'max:30000']], [
+            'body.required' => 'اكتب نصّ اللائحة قبل الحفظ.',
+            'body.min' => 'نصّ اللائحة أقصر من أن يكون لائحة دعوى.',
         ]);
 
-        // موعد حقيقي للجلسة (يمكّن التذكير) — يبقى null إذا كان اليوم نصًّا عربيًّا غير قابل للتحليل
-        $startsAt = MeetingTime::parse($data['day'], $data['time'] ?? null);
-        $dayLabel = $startsAt ? $startsAt->locale('ar')->translatedFormat('l d F Y') : $data['day'];
+        CasePleading::save($case, $request->user(), $data['body']);
 
-        $hearing = $case->hearings()->create($data + ['status' => 'مجدولة', 'starts_at' => $startsAt]);
-        $case->update(['update_text' => 'تم جدولة جلسة: '.$data['title']]);
-        $this->refreshNextHearing($case);
-        $case->messages()->create([
-            'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'جلسة',
-            'body' => '<p>تم تحديد موعد جلسة: <b>'.e($data['title']).'</b> — '.e($dayLabel).(isset($data['time']) ? ' · '.e($data['time']) : '').'.</p>',
-            'time_label' => $this->clock(),
-        ]);
-        $this->notify($case, 'cal', 't-cyan', "جلسة جديدة على قضيتك {$case->number}: {$dayLabel}.");
-        $this->mailHearingEvent($case, $hearing, 'created');
         Audit::log(
-            action: 'جدولة جلسة محكمة',
-            description: "جدول {$request->user()->name} جلسة «{$data['title']}» للقضية {$case->number} — {$dayLabel}".(isset($data['time']) ? " · {$data['time']}" : '').'.',
+            action: 'حفظ مسودة لائحة',
+            description: "حفظ {$request->user()->name} مسودّة لائحة الدعوى للقضية {$case->number} — محجوبة حتى الاعتماد النهائيّ.",
             category: 'قضايا وتنفيذ',
             auditable: $case,
             auditableRef: $case->number,
-            afterState: ['الجلسة' => $data['title'], 'الموعد' => $dayLabel.(isset($data['time']) ? ' · '.$data['time'] : '')],
         );
-        Live::push(new CaseStatusBroadcast($case));
 
-        return back();
+        return back()->with('flash', 'حُفظت المسودّة — تبقى محجوبة عن العميل حتى الاعتماد النهائيّ.');
     }
 
-    /** يعيد اشتقاق «الجلسة القادمة» من أقرب جلسة مجدولة (بالموعد الحقيقي إن وُجد، وإلا نصّها). */
-    private function refreshNextHearing(LegalCase $case): void
-    {
-        // الفائتة (starts_at ماضٍ) ليست «قادمة» — كانت جلسة الشهر الماضي تبقى معروضة قادمةً
-        $next = $case->hearings()->where('status', 'مجدولة')
-            ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '>=', now()))
-            ->orderByRaw('starts_at IS NULL')
-            ->orderBy('starts_at')->orderBy('id')
-            ->first();
-
-        $label = '—';
-        if ($next) {
-            $label = $next->starts_at
-                ? trim($next->starts_at->locale('ar')->translatedFormat('l d F Y').($next->time ? ' · '.$next->time : ''))
-                : trim((string) $next->day.($next->time ? ' · '.$next->time : ''));
-        }
-
-        $case->update(['next_hearing' => $label ?: '—']);
-    }
-
-    /** بريد بحدث الجلسة (إنشاء/إعادة جدولة/إلغاء) للعميل والمحامي — best-effort عبر MailService. */
-    private function mailHearingEvent(LegalCase $case, CaseHearing $hearing, string $event): void
-    {
-        $mail = app(MailService::class);
-        if ($case->user) {
-            $mail->send($case->user, new HearingEventMail($hearing, $event));
-        }
-        if ($case->assignedLawyer) {
-            $mail->send($case->assignedLawyer, new HearingEventMail($hearing, $event));
-        }
-    }
-
-    // تسجيل نتيجة جلسة
-    public function recordHearing(Request $request, LegalCase $case, CaseHearing $hearing): RedirectResponse
+    /**
+     * **إعادة توليد المسودّة** — لم يكن لها مسار: «إعادة تشغيل» في الصندوق تسجّل القرار ولا تُعيد
+     * شيئاً. تُنشئ مسودّةً آليّة جديدةً محجوبة (الأحدث)، وما حرّره المحامي يبقى في السجلّ.
+     */
+    public function regeneratePleading(Request $request, LegalCase $case): RedirectResponse
     {
         $this->guardAssigned($case);
-        abort_unless($hearing->case_id === $case->id, 404);
-        $data = $request->validate([
-            'status' => ['required', 'string', 'in:منعقدة,مؤجلة'],
-            'outcome' => ['nullable', 'string', 'max:2000'],
-        ]);
-        $hearing->update($data);
-        $case->update(['update_text' => 'تحديث جلسة: '.$hearing->title.' — '.$data['status']]);
-        $this->refreshNextHearing($case); // المنعقدة/المؤجلة تخرج من «القادمة»
+        abort_unless($case->pleading_status === 'pending_lawyer', 422, 'اعتُمدت اللائحة نهائياً — لا يُعاد توليدها.');
 
-        $outcome = trim((string) ($data['outcome'] ?? ''));
-        $case->messages()->create([
-            'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'جلسة',
-            'body' => '<p>تحديث الجلسة «'.e($hearing->title).'»: <b>'.e($data['status']).'</b>'.($outcome !== '' ? ' — '.e($outcome) : '').'.</p>',
-            'time_label' => $this->clock(),
-        ]);
-        $this->notify($case, 'cal', $data['status'] === 'منعقدة' ? 't-green' : 't-amber', "تحديث جلسة قضيتك {$case->number}: {$hearing->title} — {$data['status']}.");
+        DraftCasePleadingJob::dispatch($case);
+
         Audit::log(
-            action: 'تسجيل نتيجة جلسة',
-            description: "سجّل {$request->user()->name} نتيجة الجلسة «{$hearing->title}» للقضية {$case->number}: {$data['status']}".($outcome !== '' ? " — {$outcome}" : '').'.',
+            action: 'إعادة توليد لائحة',
+            description: "طلب {$request->user()->name} إعادة توليد مسودّة لائحة الدعوى للقضية {$case->number}.",
             category: 'قضايا وتنفيذ',
             auditable: $case,
             auditableRef: $case->number,
-            afterState: ['الجلسة' => $hearing->title, 'الحالة' => $data['status']],
         );
-        Live::push(new CaseStatusBroadcast($case));
 
-        return back();
+        return back()->with('flash', 'جارٍ إعادة التوليد — تظهر المسودّة الجديدة في المحادثة وفي المحرّر حين تجهز.');
     }
 
-    // تعديل/إعادة جدولة جلسة (نفس السجلّ) — يعيد ضبط الموعد ويصفّر أختام التذكير فتُعاد التذكيرات
-    public function updateHearing(Request $request, LegalCase $case, CaseHearing $hearing): RedirectResponse
-    {
-        $this->guardAssigned($case);
-        abort_unless($hearing->case_id === $case->id, 404);
-        $data = $request->validate([
-            'title' => ['required', 'string', 'max:120'],
-            'day' => ['required', 'date_format:Y-m-d'],
-            'time' => ['nullable', 'date_format:H:i'],
-            'court' => ['nullable', 'string', 'max:120'],
-        ]);
-
-        $startsAt = MeetingTime::parse($data['day'], $data['time'] ?? null);
-        $dayLabel = $startsAt ? $startsAt->locale('ar')->translatedFormat('l d F Y') : $data['day'];
-
-        $hearing->update($data + [
-            'status' => 'مجدولة', // إعادة الجدولة تعيد الجلسة لحالة مجدولة
-            'starts_at' => $startsAt,
-            'reminder_24h_sent_at' => null, // تصفير الأختام لإعادة التذكير للموعد الجديد
-            'reminder_1h_sent_at' => null,
-        ]);
-        $case->update(['update_text' => 'إعادة جدولة جلسة: '.$data['title']]);
-        $this->refreshNextHearing($case);
-        $case->messages()->create([
-            'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'جلسة',
-            'body' => '<p>أُعيدت جدولة الجلسة: <b>'.e($data['title']).'</b> — '.e($dayLabel).(isset($data['time']) ? ' · '.e($data['time']) : '').'.</p>',
-            'time_label' => $this->clock(),
-        ]);
-        $this->notify($case, 'cal', 't-cyan', "أُعيدت جدولة جلسة قضيتك {$case->number}: {$dayLabel}.");
-        $this->mailHearingEvent($case, $hearing->fresh(), 'rescheduled');
-        Audit::log(
-            action: 'إعادة جدولة جلسة محكمة',
-            description: "أعاد {$request->user()->name} جدولة الجلسة «{$data['title']}» للقضية {$case->number} — {$dayLabel}".(isset($data['time']) ? " · {$data['time']}" : '').'.',
-            category: 'قضايا وتنفيذ',
-            severity: 'warning',
-            auditable: $case,
-            auditableRef: $case->number,
-            afterState: ['الجلسة' => $data['title'], 'الموعد الجديد' => $dayLabel.(isset($data['time']) ? ' · '.$data['time'] : '')],
-        );
-        Live::push(new CaseStatusBroadcast($case));
-
-        return back();
-    }
-
-    // إلغاء جلسة (سجلّ تاريخيّ بحالة «ملغاة») — تخرج من «القادمة» ولا تُذكَّر
-    public function cancelHearing(Request $request, LegalCase $case, CaseHearing $hearing): RedirectResponse
-    {
-        $this->guardAssigned($case);
-        abort_unless($hearing->case_id === $case->id, 404);
-
-        $hearing->update(['status' => 'ملغاة']);
-        $case->update(['update_text' => 'إلغاء جلسة: '.$hearing->title]);
-        $this->refreshNextHearing($case);
-        $case->messages()->create([
-            'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'جلسة',
-            'body' => '<p>أُلغيت الجلسة: <b>'.e($hearing->title).'</b>.</p>',
-            'time_label' => $this->clock(),
-        ]);
-        $this->notify($case, 'cal', 't-amber', "أُلغيت جلسة على قضيتك {$case->number}: {$hearing->title}.");
-        $this->mailHearingEvent($case, $hearing->fresh(), 'cancelled');
-        Audit::log(
-            action: 'إلغاء جلسة محكمة',
-            description: "ألغى {$request->user()->name} الجلسة «{$hearing->title}» للقضية {$case->number}.",
-            category: 'قضايا وتنفيذ',
-            severity: 'warning',
-            auditable: $case,
-            auditableRef: $case->number,
-        );
-        Live::push(new CaseStatusBroadcast($case));
-
-        return back();
-    }
-
-    // تسجيل الحكم → بانتظار إغلاق الإدارة (يطابق ما قبل cfCloseCase)
-    public function recordRuling(Request $request, LegalCase $case): RedirectResponse
-    {
-        $this->guardAssigned($case);
-        // لا يُسجَّل حكم إلا وقضية منظورة (بعد اعتماد اللائحة ورفع الدعوى)، ولا يُسجَّل مرتين
-        abort_unless($case->status === 'منظورة', 422);
-
-        $data = $request->validate(['ruling' => ['required', 'string', 'max:3000']]);
-
-        $case->update([
-            'status' => 'صدر الحكم',
-            'tone' => CaseJourney::toneFor('صدر الحكم'),
-            'ruling' => $data['ruling'],
-            'update_text' => 'صدر الحكم في القضية — بانتظار الإغلاق والأرشفة',
-        ]);
-        $case->messages()->create([
-            'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'الحكم',
-            'body' => '<p>صدر الحكم في القضية:</p><div class="result-card"><div class="result-sec"><div class="t">منطوق الحكم</div><div style="white-space:pre-line">'.e($data['ruling']).'</div></div></div>',
-            'time_label' => $this->clock(),
-        ]);
-        $this->notify($case, 'scale', 't-green', "صدر الحكم في قضيتك {$case->number}. التفاصيل داخل القضية.");
-        Audit::log(
-            action: 'تسجيل حكم قضائي',
-            description: "سجّل {$request->user()->name} صدور الحكم في القضية {$case->number}.",
-            category: 'قضايا وتنفيذ',
-            severity: 'warning',
-            auditable: $case,
-            auditableRef: $case->number,
-            afterState: ['الحالة' => 'صدر الحكم'],
-        );
-        Live::push(new CaseStatusBroadcast($case));
-
-        return back();
-    }
+    // الرفع في ناجز والقيد والجلسات والحكم: `ManagesCourtProceedings` — مصدرٌ واحد مع الموظّف
 
     private function card(LegalCase $c): array
     {
@@ -372,6 +274,7 @@ class CaseController extends Controller
             'next' => $c->nextHearingLabel(),
             'pleadingStatus' => $c->pleading_status,
             'ruling' => $c->ruling,
+            'appeal' => $c->appealCard(),
         ];
     }
 

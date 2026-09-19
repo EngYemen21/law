@@ -3,7 +3,7 @@
 namespace App\Services\Ai;
 
 use App\Models\LegalSource;
-use App\Support\Specialties;
+use App\Support\LegalCatalogue;
 use Illuminate\Support\Collection;
 
 /**
@@ -53,26 +53,14 @@ class LegalKnowledge
      * فارغة تُسقط كلّ ادّعاءٍ نظاميّ إلى «غير مدعوم» فيظهر تحت لافتته — عطبٌ **مرئيّ**
      * بدل استشهادٍ خاطئٍ يبدو سليماً.
      *
-     * وما ليس في القائمة يحكمه العامُّ فعلاً: الاستشارات العامّة، والعقود
+     * وما لا يحمل العلامة يحكمه العامُّ فعلاً: الاستشارات العامّة، والعقود
      * والاتفاقيات، والقضايا التجارية (التزاماتٌ وعقود)، والعقارات (ملكيّةٌ وإيجارٌ
      * وشفعة — وكلُّها أبوابٌ في نظام المعاملات المدنيّة).
      *
-     * @var list<string>
+     * **العلامة على القسم في كتالوج الأقسام** (`legal_departments.requires_specific_authority`)
+     * لا قائمةٌ ثابتة هنا: تُزرع من الملف المعتمد ولا تُحرَّر من الشاشة — حارسُ دقّةٍ قانونيّة
+     * لا إعدادُ عرض. والمجال يُطابَق بصياغاته المختصرة («عمالي» · «تجاري») احتوائيّاً.
      */
-    public const REQUIRES_SPECIFIC_AUTHORITY = [
-        'القضايا العمالية',
-        'الأحوال الشخصية',
-        'الشركات',
-        'الملكية الفكرية',
-        'البنوك والتمويل',
-        'التأمين',
-        'الجرائم المعلوماتية',
-        'القضايا الجنائية',
-        'التركات والأوقاف',
-        'التنفيذ',
-    ];
-
-    /** هل يشترط هذا المجال نصّاً مخصَّصاً له؟ (يقبل المرادفات عبر `Specialties`) */
     public static function requiresSpecificAuthority(string $domain): bool
     {
         $domain = trim($domain);
@@ -80,8 +68,20 @@ class LegalKnowledge
             return false;
         }
 
-        return in_array($domain, self::REQUIRES_SPECIFIC_AUTHORITY, true)
-            || in_array(Specialties::normalize($domain), self::REQUIRES_SPECIFIC_AUTHORITY, true);
+        return LegalCatalogue::resolveDepartment($domain, loose: true)?->requires_specific_authority === true;
+    }
+
+    /**
+     * صياغات المجال التي تُطابَق في المصادر: النصّ نفسه، واسم قسمه في الكتالوج وأسماؤه البديلة —
+     * فمصدرٌ مجاله «القضايا العمالية» يُسترجع لاستعلامٍ مجاله «العمالي»، ولا يُحصر في صياغةٍ واحدة.
+     *
+     * @return list<string>
+     */
+    private static function domainNames(string $domain): array
+    {
+        $department = LegalCatalogue::resolveDepartment($domain, loose: true);
+
+        return array_values(array_unique([trim($domain), ...($department !== null ? LegalCatalogue::namesFor($department) : [])]));
     }
 
     /**
@@ -109,9 +109,10 @@ class LegalKnowledge
 
         if (trim($domain) !== '') {
             // مجالٌ له نظامُه الخاصّ لا يقبل العامَّ بديلاً — انظر `REQUIRES_SPECIFIC_AUTHORITY`
+            $domains = self::domainNames($domain);
             self::requiresSpecificAuthority($domain)
-                ? $builder->where('domain', $domain)
-                : $builder->where(fn ($q) => $q->where('domain', $domain)->orWhereNull('domain'));
+                ? $builder->whereIn('domain', $domains)
+                : $builder->where(fn ($q) => $q->whereIn('domain', $domains)->orWhereNull('domain'));
         }
 
         // الفلاتر القانونيّة (اعتماد/ولاية/سريان/مجال) **صارمة**، أما الكلمات المفتاحيّة
@@ -158,7 +159,7 @@ class LegalKnowledge
         }
 
         return $builder->clone()
-            ->where('domain', $domain) // المخصَّص صراحةً لا العامّ
+            ->whereIn('domain', self::domainNames($domain)) // المخصَّص صراحةً لا العامّ
             ->orderByDesc('effective_from')
             ->limit($limit)
             ->get();

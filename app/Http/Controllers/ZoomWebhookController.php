@@ -2,6 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Journey\TransitionDenied;
+use App\Domain\Journey\Transitions\Consult\EndSession;
+use App\Domain\Journey\Transitions\Consult\ZoomSessionStarted;
+use App\Domain\Journey\Workflow;
+use App\Enums\Role;
 use App\Events\ConsultStatusBroadcast;
 use App\Events\MeetingStatusBroadcast;
 use App\Jobs\FinalizeConsultJob;
@@ -11,7 +16,11 @@ use App\Jobs\ProcessZoomSummaryJob;
 use App\Models\Consult;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
+use App\Models\User;
+use App\Support\Audit;
+use App\Support\ConsultSessionOutcome;
 use App\Support\Live;
+use App\Support\Notify;
 use App\Support\ZoomWebhook;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
@@ -62,7 +71,7 @@ class ZoomWebhookController extends Controller
     private function routeConsult(string $event, Consult $consult, Request $request): void
     {
         match ($event) {
-            'meeting.started' => $this->setConsultSession($consult, 'جلسة جارية', 'قيد الاستشارة'),
+            'meeting.started' => $this->startConsultSession($consult),
             'meeting.ended' => $this->endConsult($consult),
             'meeting.summary_completed' => ProcessZoomSummaryJob::dispatch($consult, (array) $request->input('payload.object')),
             'recording.completed' => $this->recording($consult, $request),
@@ -120,14 +129,36 @@ class ZoomWebhookController extends Controller
     }
 
     // لا نتراجع عن جلسة منتهية (الحدث قد يصل متأخّراً/مكرّراً)
-    private function setConsultSession(Consult $consult, string $session, string $status): void
+    private function startConsultSession(Consult $consult): void
     {
-        if ($consult->session === 'منتهية' || $consult->session === $session) {
+        if ($consult->session === 'منتهية' || $consult->session === 'جلسة جارية') {
             return;
         }
 
-        $consult->update(['session' => $session, 'status' => $status]);
+        $revived = $consult->status === 'لم يحضر';
+        // الحارسان أعلاه يُقرآن قبل القفل؛ فإن ختمها الطاقم بينهما يرفض المحرّك — والويبهوك
+        // يبقى صامتاً كما كان (Zoom يعيد إرسال ما لم يُجَب بـ200)
+        try {
+            Workflow::run(new ZoomSessionStarted, $consult);
+        } catch (TransitionDenied) {
+            return;
+        }
         Live::push(new ConsultStatusBroadcast($consult));
+
+        // **انعقادٌ بعد «لم يحضر» لا يمرّ صامتاً** — Zoom دليلُ انعقادٍ فيُقبل، لكنّ الإدارة تعلم
+        // أنّ ملفّاً وُسم غائباً عاد إلى الجلسة (ربّما وُسم مبكّراً أو حضر العميل متأخّراً).
+        if ($revived) {
+            Audit::log(
+                action: 'انعقاد جلسة بعد وسم «لم يحضر»',
+                description: "بدأ اجتماع Zoom للاستشارة {$consult->ref} بعد وسمها «لم يحضر» — عادت إلى الجلسة.",
+                category: 'استشارات',
+                severity: 'warning',
+                auditable: $consult,
+            );
+            foreach (User::where('role', Role::Admin)->pluck('id') as $adminId) {
+                Notify::send($adminId, 'video', 't-amber', "الاستشارة ({$consult->ref}) وُسمت «لم يحضر» ثمّ بدأ اجتماعها على Zoom — عادت إلى الجلسة.");
+            }
+        }
     }
 
     /**
@@ -150,7 +181,13 @@ class ZoomWebhookController extends Controller
             return; // حدثٌ متأخّر/مكرّر — أو ختمه الطاقم بالفعل
         }
 
-        $consult->update(['session' => 'منتهية', 'status' => 'منتهية']);
+        // الختم وحسم الموعد في انتقالٍ واحد مع زرّ الطاقم (`Staff\ConsultController::end`) — انظر `EndSession`
+        try {
+            Workflow::run(new EndSession, $consult, null, ['source' => 'zoom']);
+        } catch (TransitionDenied) {
+            return; // ختمه الطاقم بين القراءة والقفل
+        }
+        ConsultSessionOutcome::sessionEnded($consult);
         Live::push(new ConsultStatusBroadcast($consult));
 
         FinalizeConsultJob::dispatch($consult->fresh(), '');

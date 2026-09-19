@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Events\TicketStatusBroadcast;
+use App\Models\JourneyTransition;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Support\TicketJourney;
@@ -15,8 +16,10 @@ use Tests\TestCase;
 /**
  * سلامة رحلة معالجة التذكرة:
  * - مفردات الحالة مصدرها TicketJourney وحده، وتشمل الحالة الافتراضية لكل تذكرة جديدة.
- * - نقطة تغيير الحالة ترفض ما هو خارج المفردات (كانت تقبل أي نصّ فيُبثّ ويُعرض عند مرحلة خاطئة).
- * - الموظف لا يقفز فوق بوّابات الجلسة والاعتماد وحجز العميل.
+ * - **لا قائمة «تغيير الحالة» بيد الموظّف** (قرار المالك 2026-09-14): كانت تقبل أيّ تبديلٍ
+ *   داخل رقم المرحلة فتُكمل التذكرة متخطّيةً الإدارة (ع٥) وتنقض الإغلاق (ع٦).
+ * - التصحيح الاستثنائيّ للإدارة العليا وحدها، بسببٍ مكتوبٍ يُسجَّل.
+ * - فعل الموظّف الوحيد «إحالة للمستشار» — ولا يقفز فوق الجلسة ولا الاعتماد ولا الحجز.
  */
 class TicketJourneyIntegrityTest extends TestCase
 {
@@ -26,7 +29,7 @@ class TicketJourneyIntegrityTest extends TestCase
     {
         return Ticket::create([
             'user_id' => User::factory()->create(['role' => Role::Client])->id,
-            'number' => 'SB-2026-7001', 'type' => 'تجاري', 'department' => 'القضايا التجارية',
+            'number' => 'SB-2026-'.random_int(7000, 7999), 'type' => 'تجاري', 'department' => 'القضايا التجارية',
             'status' => $status, 'tone' => $tone, 'attachments' => 2,
         ]);
     }
@@ -34,6 +37,11 @@ class TicketJourneyIntegrityTest extends TestCase
     private function employee(): User
     {
         return User::factory()->create(['role' => Role::Employee]);
+    }
+
+    private function admin(): User
+    {
+        return User::factory()->create(['role' => Role::Admin]);
     }
 
     public function test_vocabulary_covers_every_status_the_server_produces(): void
@@ -48,8 +56,11 @@ class TicketJourneyIntegrityTest extends TestCase
             $this->assertContains($stage['status'], $statuses);
         }
 
-        // حالات تكتبها المتحكّمات ودوال الدعم
-        foreach (['بانتظار مستندات', 'بانتظار اعتماد المستشار', 'بانتظار اعتماد النتيجة', 'بانتظار اعتماد الإدارة', 'مغلقة'] as $s) {
+        // حالات تكتبها المتحكّمات ودوال الدعم — ومنها حالات إعادة البناء
+        foreach ([
+            'بانتظار مستندات', 'بانتظار اعتماد المستشار', 'بانتظار اعتماد الإدارة للملخّص',
+            'بانتظار تحديد الموعد', 'بانتظار ملخّص الجلسة', 'مغلقة',
+        ] as $s) {
             $this->assertContains($s, $statuses);
         }
 
@@ -65,162 +76,39 @@ class TicketJourneyIntegrityTest extends TestCase
         $this->assertSame(0, TicketJourney::indexOf('حالة لا وجود لها'));
     }
 
-    public function test_status_endpoint_rejects_status_outside_vocabulary(): void
+    // ── الموظّف: لا تغيير يدويّ للحالة ──
+
+    /** **الحارس الأثمن:** كلّ تبديلٍ كان بابًا خلفيًّا — فالمسار مغلقٌ للموظّف أيًّا كانت الحالة. */
+    public function test_employee_status_endpoint_is_closed_for_every_move(): void
     {
-        $ticket = $this->ticket('قيد التحليل');
-
-        $this->actingAs($this->employee())
-            ->post(route('employee.tickets.status', $ticket), ['status' => 'حالة مخترعة', 'tone' => 'b-blue'])
-            ->assertSessionHasErrors('status');
-
-        $this->assertSame('قيد التحليل', $ticket->fresh()->status);
-    }
-
-    public function test_status_endpoint_accepts_a_real_journey_status(): void
-    {
-        $ticket = $this->ticket('قيد التحليل');
-
-        $this->actingAs($this->employee())
-            ->post(route('employee.tickets.status', $ticket), ['status' => 'قيد التحليل', 'tone' => 'b-blue'])
-            ->assertNoContent();
-
-        $this->assertSame('قيد التحليل', $ticket->fresh()->status);
-    }
-
-    public function test_advance_does_not_skip_session_gate_from_in_progress(): void
-    {
-        // قيد التنفيذ في المرحلة نفسها التي فيها «موعد مؤكد» — كانت تقفز إلى «مكتملة» بلا محضر جلسة
-        $ticket = $this->ticket('قيد التنفيذ');
-
-        $this->actingAs($this->employee())
-            ->post(route('employee.tickets.advance', $ticket))->assertNoContent();
-
-        $this->assertNotSame('مكتملة', $ticket->fresh()->status);
-    }
-
-    public function test_same_status_always_gets_the_same_tone_whoever_writes_it(): void
-    {
-        // كانت الحالة نفسها تُلوَّن لونين باختلاف كاتبها: المستشار يغلق التذكرة رمادياً
-        // بينما قائمة الموظف ترسل أخضر، فيظهر لونان لـ«مغلقة» في الجدول نفسه.
-        // الاختبار عن النغمة لا الترتيب: نكتفي بالتبديل بين الحالات النهائية المسموح بها
-        // (مكتملة ⇄ مغلقة) بعد حارسة منع إعادة الفتح.
-        $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-
-        foreach (['مغلقة', 'مكتملة'] as $status) {
-            $ticket = Ticket::create([
-                'user_id' => $client->id, 'number' => 'SB-T-'.crc32($status),
-                'type' => 'تجاري', 'assigned_lawyer_id' => $lawyer->id,
-                'status' => 'مكتملة', 'tone' => 'b-green',
-            ]);
+        foreach ([
+            ['قيد التحليل', 'قيد التحليل'],       // لا تغيير
+            ['قيد التحليل', 'بانتظار مستندات'],   // داخل المرحلة
+            ['قيد التحليل', 'مكتملة'],             // تخطٍّ
+            ['بانتظار اعتماد الإدارة', 'مكتملة'],  // ع٥
+            ['مغلقة', 'مكتملة'],                  // ع٦
+            ['مكتملة', 'قيد التحليل'],             // إعادة فتح
+        ] as [$from, $to]) {
+            $ticket = $this->ticket($from);
 
             $this->actingAs($this->employee())
-                ->post(route('employee.tickets.status', $ticket), ['status' => $status])
-                ->assertNoContent();
+                ->post(route('employee.tickets.status', $ticket), ['status' => $to, 'tone' => 'b-green'])
+                ->assertForbidden();
 
-            $this->assertSame(TicketJourney::toneFor($status), $ticket->fresh()->tone);
+            $this->assertSame($from, $ticket->fresh()->status, "«{$from}» ← «{$to}» مرّت من الموظّف");
             $ticket->delete();
         }
     }
 
-    public function test_status_endpoint_ignores_any_tone_sent_by_the_client(): void
-    {
-        // «مكتملة» → «مغلقة» (كلاهما مرحلة 6): انتقال مشروع، فالاختبار عن تجاهل النغمة المرسلة
-        $ticket = $this->ticket('مكتملة', 'b-green');
-
-        $this->actingAs($this->employee())
-            ->post(route('employee.tickets.status', $ticket), ['status' => 'مغلقة', 'tone' => 'b-red'])
-            ->assertNoContent();
-
-        $this->assertSame(TicketJourney::toneFor('مغلقة'), $ticket->fresh()->tone, 'النغمة تُشتقّ لا تُقبل');
-    }
-
-    public function test_broadcast_failure_does_not_abort_the_state_change(): void
-    {
-        // كان فشل الوصول إلى Reverb يرمي داخل الطلب فيُجهض ما بعده من كتابات:
-        // اكتمل حجز فعلي (استشارة + Zoom + بطاقة) وبقيت التذكرة «بانتظار حجز الاستشارة».
-        Event::listen(TicketStatusBroadcast::class, function () {
-            throw new BroadcastException('Reverb unreachable');
-        });
-
-        $ticket = $this->ticket('قيد التحليل');
-
-        $this->actingAs($this->employee())
-            ->post(route('employee.tickets.status', $ticket), ['status' => 'قيد التحليل', 'tone' => 'b-blue'])
-            ->assertNoContent();
-
-        $this->assertSame('قيد التحليل', $ticket->fresh()->status);
-    }
-
-    public function test_advance_is_blocked_while_awaiting_client_booking_or_payment(): void
-    {
-        foreach (['بانتظار حجز الاستشارة', 'بانتظار الدفع'] as $status) {
-            $ticket = $this->ticket($status, 'b-amber');
-
-            $this->actingAs($this->employee())
-                ->post(route('employee.tickets.advance', $ticket))->assertNoContent();
-
-            $this->assertSame($status, $ticket->fresh()->status);
-            $ticket->delete();
-        }
-    }
-
-    // ── حارس ترتيب الانتقال: المفردات وحدها كانت تسمح بتخطّي الرحلة كلّها ──
-
-    public function test_status_endpoint_rejects_forward_skip(): void
-    {
-        $ticket = $this->ticket('قيد التحليل'); // مرحلة 1
-
-        $this->actingAs($this->employee())
-            ->post(route('employee.tickets.status', $ticket), ['status' => 'مكتملة']) // مرحلة 6
-            ->assertSessionHasErrors('status'); // ValidationException (تخطّي مرفوض)
-
-        $this->assertSame('قيد التحليل', $ticket->fresh()->status);
-    }
-
-    public function test_status_endpoint_rejects_even_single_step_forward(): void
-    {
-        // القائمة للتصحيح فقط — التقدّم (ولو خطوة) حصراً بزرّ «تنفيذ المرحلة التالية»
-        $ticket = $this->ticket('قيد التحليل'); // 1
-
-        $this->actingAs($this->employee())
-            ->post(route('employee.tickets.status', $ticket), ['status' => 'محالة للقسم القانوني']) // 2
-            ->assertSessionHasErrors('status');
-
-        $this->assertSame('قيد التحليل', $ticket->fresh()->status);
-    }
-
-    public function test_status_endpoint_allows_same_stage_alias_switch(): void
-    {
-        $ticket = $this->ticket('قيد التحليل'); // 1
-
-        $this->actingAs($this->employee())
-            ->post(route('employee.tickets.status', $ticket), ['status' => 'بانتظار مستندات']) // 1
-            ->assertNoContent();
-
-        $this->assertSame('بانتظار مستندات', $ticket->fresh()->status);
-    }
-
-    public function test_status_endpoint_rejects_backward_stage_jump(): void
-    {
-        $ticket = $this->ticket('الرأي القانوني'); // 3
-
-        $this->actingAs($this->employee())
-            ->post(route('employee.tickets.status', $ticket), ['status' => 'قيد التحليل']) // 1
-            ->assertSessionHasErrors('status');
-
-        $this->assertSame('الرأي القانوني', $ticket->fresh()->status);
-    }
-
-    public function test_forward_skip_cannot_unlock_convert_to_case(): void
+    public function test_a_closed_status_menu_cannot_unlock_convert_to_case(): void
     {
         $ticket = $this->ticket('قيد التحليل');
         $employee = $this->employee();
 
-        // محاولة القفز إلى «مكتملة» تُرفض…
+        // محاولة القفز إلى «مكتملة» تُصدّ…
         $this->actingAs($employee)
             ->post(route('employee.tickets.status', $ticket), ['status' => 'مكتملة'])
-            ->assertSessionHasErrors('status');
+            ->assertForbidden();
 
         // …فيبقى تحويل التذكرة إلى قضية مقفلاً (يشترط «مكتملة»)
         $this->actingAs($employee)
@@ -228,52 +116,134 @@ class TicketJourneyIntegrityTest extends TestCase
             ->assertSessionHasErrors('ticket');
     }
 
-    // ── منع إعادة فتح التذاكر المكتملة/المغلقة ──
-    // التذكرة المنصرفة نهائية: لا يمكن للموظف إعادتها لمرحلة سابقة عبر قائمة الحالة
-    // (كان canTransition يسمح بأي تراجع فيُعاد تنفيذ referToLawyer فيمسح اعتماد المحامي).
+    // ── الإدارة: تصحيحٌ مسبَّب ──
 
-    public function test_status_endpoint_rejects_reopen_from_completed(): void
+    public function test_admin_correction_requires_a_written_reason(): void
     {
         $ticket = $this->ticket('مكتملة', 'b-green');
 
-        $this->actingAs($this->employee())
-            ->post(route('employee.tickets.status', $ticket), ['status' => 'قيد التحليل'])
-            ->assertSessionHasErrors('status');
+        $this->actingAs($this->admin())
+            ->post(route('admin.tickets.correct-status', $ticket), ['status' => 'مغلقة'])
+            ->assertSessionHasErrors('reason');
 
         $this->assertSame('مكتملة', $ticket->fresh()->status);
     }
 
-    public function test_status_endpoint_rejects_reopen_from_closed(): void
+    public function test_admin_correction_rejects_a_status_outside_the_journey(): void
+    {
+        foreach (['حالة مخترعة', 'بانتظار اعتماد النتيجة'] as $target) { // مخترعة، وقديمةٌ مطويّة
+            $ticket = $this->ticket('قيد التحليل');
+
+            $this->actingAs($this->admin())
+                ->post(route('admin.tickets.correct-status', $ticket), ['status' => $target, 'reason' => 'تصحيح خطأ إدخال سابق'])
+                ->assertStatus(422);
+
+            $this->assertSame('قيد التحليل', $ticket->fresh()->status, "«{$target}» قُبلت");
+            $ticket->delete();
+        }
+    }
+
+    public function test_admin_correction_rejects_the_same_status(): void
+    {
+        $ticket = $this->ticket('مكتملة', 'b-green');
+
+        $this->actingAs($this->admin())
+            ->post(route('admin.tickets.correct-status', $ticket), ['status' => 'مكتملة', 'reason' => 'لا تغيير فعلي هنا'])
+            ->assertStatus(422);
+
+        $this->assertSame(0, JourneyTransition::count(), 'ولا يُسجَّل انتقالٌ لم يقع');
+    }
+
+    public function test_employee_cannot_reach_the_admin_correction(): void
+    {
+        $ticket = $this->ticket('مكتملة', 'b-green');
+
+        // وسيط الدور يُعيد توجيه غير الإداريّ (عُرف المشروع) — والحارس على الأثر: لا تصحيح
+        $this->actingAs($this->employee())
+            ->post(route('admin.tickets.correct-status', $ticket), ['status' => 'مغلقة', 'reason' => 'محاولة من الموظّف'])
+            ->assertRedirect();
+
+        $this->assertSame('مكتملة', $ticket->fresh()->status);
+        $this->assertSame(0, JourneyTransition::count());
+    }
+
+    public function test_admin_correction_is_recorded_with_its_reason(): void
     {
         $ticket = $this->ticket('مغلقة', 'b-grey');
 
-        $this->actingAs($this->employee())
-            ->post(route('employee.tickets.status', $ticket), ['status' => 'قيد التحليل'])
-            ->assertSessionHasErrors('status');
+        $this->actingAs($this->admin())
+            ->post(route('admin.tickets.correct-status', $ticket), ['status' => 'مكتملة', 'reason' => 'أُغلقت خطأً قبل نشر النتيجة'])
+            ->assertRedirect();
 
-        $this->assertSame('مغلقة', $ticket->fresh()->status);
+        $this->assertSame('مكتملة', $ticket->fresh()->status);
+
+        // سجلّ الانتقال بالسبب، وملاحظةٌ داخليّة لا يراها العميل
+        $row = JourneyTransition::where('transition', 'ticket.correct-status')->sole();
+        $this->assertSame('مغلقة', $row->from_state);
+        $this->assertSame('أُغلقت خطأً قبل نشر النتيجة', $row->reason);
+        $this->assertTrue($ticket->fresh()->messages->contains(
+            fn ($m) => $m->who === 'note' && str_contains($m->body, 'أُغلقت خطأً قبل نشر النتيجة')
+        ));
     }
 
-    public function test_status_endpoint_allows_same_terminal_status_noop(): void
+    public function test_same_status_always_gets_the_same_tone_whoever_writes_it(): void
     {
-        // البقاء على نفس الحالة النهائية مسموح (no-op): «مكتملة» ← «مكتملة»
-        $ticket = $this->ticket('مكتملة', 'b-green');
+        // كانت الحالة نفسها تُلوَّن لونين باختلاف كاتبها — النغمة تُشتقّ من الحالة لا تُرسَل
+        foreach (['مغلقة', 'مكتملة'] as $status) {
+            $ticket = $this->ticket('قيد التحليل');
 
-        $this->actingAs($this->employee())
-            ->post(route('employee.tickets.status', $ticket), ['status' => 'مكتملة'])
-            ->assertNoContent();
+            $this->actingAs($this->admin())
+                ->post(route('admin.tickets.correct-status', $ticket), ['status' => $status, 'reason' => 'تصحيح لاختبار النغمة', 'tone' => 'b-red'])
+                ->assertRedirect();
+
+            $this->assertSame(TicketJourney::toneFor($status), $ticket->fresh()->tone, 'النغمة تُشتقّ لا تُقبل');
+            $ticket->delete();
+        }
+    }
+
+    public function test_broadcast_failure_does_not_abort_the_state_change(): void
+    {
+        // كان فشل الوصول إلى Reverb يرمي داخل الطلب فيُجهض ما بعده من كتابات
+        Event::listen(TicketStatusBroadcast::class, function () {
+            throw new BroadcastException('Reverb unreachable');
+        });
+
+        $ticket = $this->ticket('مغلقة', 'b-grey');
+
+        $this->actingAs($this->admin())
+            ->post(route('admin.tickets.correct-status', $ticket), ['status' => 'مكتملة', 'reason' => 'تصحيح رغم تعطّل البثّ'])
+            ->assertRedirect();
 
         $this->assertSame('مكتملة', $ticket->fresh()->status);
     }
 
-    public function test_advance_is_noop_on_completed_ticket(): void
+    // ── «إحالة للمستشار»: فعل الموظّف الوحيد ──
+
+    public function test_advance_does_not_skip_session_gate_from_in_progress(): void
     {
-        // دفاع بالعمق: حتى لو تُرِكَت الحالة أو رجعت لأي سبب، advance لا يعيد تنفيذ البوابات.
-        $ticket = $this->ticket('مكتملة', 'b-green');
+        // «قيد التنفيذ» حالةٌ قديمة في مرحلة الجلسة — كانت تقفز إلى «مكتملة» بلا محضر (ع٢١)
+        $ticket = $this->ticket('قيد التنفيذ');
 
         $this->actingAs($this->employee())
-            ->post(route('employee.tickets.advance', $ticket))->assertNoContent();
+            ->post(route('employee.tickets.advance', $ticket))->assertStatus(422);
 
-        $this->assertSame('مكتملة', $ticket->fresh()->status);
+        $this->assertNotSame('مكتملة', $ticket->fresh()->status);
+    }
+
+    public function test_advance_is_refused_once_the_file_left_the_referral_stages(): void
+    {
+        foreach ([
+            'بانتظار اعتماد المستشار', 'بانتظار اعتماد الإدارة للملخّص', 'الرأي القانوني',
+            'بانتظار حجز الاستشارة', 'بانتظار الدفع', 'بانتظار تحديد الموعد',
+            'موعد مؤكد', 'بانتظار ملخّص الجلسة', 'مكتملة', 'مغلقة',
+        ] as $status) {
+            $ticket = $this->ticket($status, 'b-amber');
+
+            $this->actingAs($this->employee())
+                ->post(route('employee.tickets.advance', $ticket))->assertStatus(422);
+
+            $this->assertSame($status, $ticket->fresh()->status, "«{$status}» تحرّكت بإحالة الموظّف");
+            $ticket->delete();
+        }
     }
 }

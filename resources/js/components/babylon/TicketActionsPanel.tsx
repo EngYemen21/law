@@ -1,6 +1,7 @@
 import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useState } from 'react';
+import CloseTicketModal from '@/components/babylon/CloseTicketModal';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
 
@@ -15,6 +16,7 @@ interface Props {
   onRequestDocs?: () => void;
   onSchedule?: () => void;
   onTransfer?: () => void;
+  onCloseJustified?: () => void;
 }
 
 const TicketActionsPanel: React.FC<Props> = ({
@@ -26,12 +28,15 @@ const TicketActionsPanel: React.FC<Props> = ({
   onRequestDocs,
   onSchedule,
   onTransfer,
+  onCloseJustified,
 }) => {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const [showCloseModal, setShowCloseModal] = useState(false);
   // الخادم يرفض التحويل قبل الاكتمال — كان الزر يُعرض دائماً ورسالة الرفض تُبتلع.
   // وللموظف شرط ثانٍ: اعتماد المحامي للنتيجة (canConvert) — وإلا عُرض زرّ يُرفض بـ422.
-  const mayConvert = status === 'مكتملة' && canConvert;
+  const mayConvert = (status === 'مكتملة' || status === 'بانتظار قرار المآل') && canConvert;
+  const mayCloseJustified = (role === 'lawyer' || role === 'admin') && (status === 'مكتملة' || status === 'بانتظار قرار المآل') && !caseRef;
 
   const convertToCase = () => {
     setBusy(true);
@@ -48,6 +53,8 @@ const TicketActionsPanel: React.FC<Props> = ({
   // تحويل التذكرة إلى طلب استشارة (يطابق convertToConsult المرجعي) — لطاقم المكتب لا للمستشار.
   // كل لوحة تنادي مسارها: للإدارة مسار admin خاص (لم يعد الأدمن يمرّ عبر بوابة الموظف — قرار 2026-08-28)
   const staffOps = role !== 'lawyer';
+  // يطابق `TicketJourney::consultRequestBlocker`: بعد نشر الرأي القانونيّ المبدئيّ — كان ظاهراً في كلّ حالة
+  const mayRequestConsult = staffOps && ['الرأي القانوني', 'بانتظار حجز الاستشارة'].includes(status);
   const convertToConsult = () => {
     setBusy(true);
     axios.post(`/${role === 'admin' ? 'admin' : 'employee'}/tickets/${encodeURIComponent(ticketNo)}/convert-consult`, {})
@@ -89,20 +96,35 @@ return null;
             >
               <Icon name="scale" /> عرض ملف القضية ({caseRef})
             </Link>
-          ) : mayConvert && (
-            <button
-              className="btn block"
-              type="button"
-              onClick={convertToCase}
-              disabled={busy}
-              style={{ justifyContent: 'center' }}
-            >
-              <Icon name="scale" /> تحويل إلى قضية رسمية
-            </button>
+          ) : (
+            <>
+              {mayConvert && (
+                <button
+                  className="btn block"
+                  type="button"
+                  onClick={convertToCase}
+                  disabled={busy}
+                  style={{ justifyContent: 'center' }}
+                >
+                  <Icon name="scale" /> تحويل إلى قضية رسمية
+                </button>
+              )}
+              {mayCloseJustified && (
+                <button
+                  className="btn soft block"
+                  type="button"
+                  onClick={() => (onCloseJustified ? onCloseJustified() : setShowCloseModal(true))}
+                  disabled={busy}
+                  style={{ justifyContent: 'center' }}
+                >
+                  <Icon name="check" /> إغلاق مسبب للملف
+                </button>
+              )}
+            </>
           )}
 
           {/* 2. تحويل إلى طلب استشارة — يُنشئ طلب تسعير نيابةً عن العميل */}
-          {staffOps && (
+          {mayRequestConsult && (
             <button
               className="btn soft block"
               type="button"
@@ -165,6 +187,14 @@ return null;
           )}
         </div>
       </div>
+      {showCloseModal && (
+        <CloseTicketModal
+          open={showCloseModal}
+          ticketNo={ticketNo}
+          role={role}
+          onClose={() => setShowCloseModal(false)}
+        />
+      )}
     </div>
   );
 };

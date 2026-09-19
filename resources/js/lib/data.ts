@@ -13,7 +13,11 @@ export interface Exec { no: string; subject: string; status: string; tone: strin
 export interface Appt { id: string; type: string; ico: string; lawyer: string; day: string; time: string; place: string; status: string; tone: string; when: 'up' | 'past'; client?: string; consultRef?: string; pay?: string; gcal?: string; joinLink?: string; }
 export interface Meeting { id?: number; ref: string; title: string; when: string; up: boolean; status?: string; tone?: string; canJoin?: boolean; approved?: boolean; link: string; minutes: string | null; summary: string | null; }
 export interface DocItem { id?: number; name: string; meta: string; canDownload?: boolean; downloadUrl?: string; }
-export interface Invoice { no: string; desc: string; amount: number; status: string; tone: string; due: string; overdue?: boolean; paid: boolean; hasProof?: boolean; }
+export interface Invoice {
+  no: string; desc: string; amount: number; status: string; tone: string; due: string; overdue?: boolean; paid: boolean; hasProof?: boolean;
+  /** ملغاة — لا دفع ولا إثبات (يطابق `Invoice::isCancelled`). */
+  cancelled?: boolean;
+}
 export interface Notif { ic: string; tone: string; text: string; time: string; unread: boolean; }
 
 export const DATA = {
@@ -281,6 +285,7 @@ const LAWYER_NAV: SideGroup[] = [
   ] },
   { g: 'الأدوات', items: [
     { icon: 'doc', label: 'المساعد القانوني', route: '/lawyer/assistant' },
+    { icon: 'office', label: 'محرر الصياغة', route: '/lawyer/editor' },
     { icon: 'compass', label: 'استقبال الاستشارات', route: '/lawyer/consultrecv' },
     { icon: 'scale', label: 'جلسات الاستشارات', route: '/lawyer/consults' },
     { icon: 'out', label: 'الملخصات', route: '/lawyer/summaries' },
@@ -318,17 +323,22 @@ const ADMIN_NAV: SideGroup[] = [
     { icon: 'video', label: 'طلبات الاجتماعات', route: '/admin/meetreqs' },
     { icon: 'video', label: 'اعتماد الاجتماعات', route: '/admin/meetings' },
     { icon: 'folder', label: 'أرشيف الاجتماعات', route: '/admin/meetlog' },
-    { icon: 'out', label: 'اعتماد الملخصات', route: '/admin/summaries' },
     { icon: 'cal', label: 'تقارير الاجتماعات', route: '/admin/meetreports' },
   ] },
   { g: 'الإدارة العليا والعمليات', items: [
+    { icon: 'check', label: 'مركز الاعتمادات والقرارات', route: '/admin/approvals' },
     { icon: 'user', label: 'تسجيل الموظفين', route: '/admin/staff' },
-    { icon: 'reply', label: 'توزيع التذاكر', route: '/admin/distribute' },
+    { icon: 'reply', label: 'توزيع وإسناد الأعمال', route: '/admin/distribute' },
     { icon: 'card', label: 'أتعاب القضايا', route: '/admin/casefees' },
     { icon: 'exec', label: 'مهام العمل', route: '/admin/tasks' },
     { icon: 'calgrid', label: 'التقويم والمواعيد', route: '/admin/calendar' },
     { icon: 'bell', label: 'إشعارات العملاء', route: '/admin/clientnotifs' },
     { icon: 'doc', label: 'المساعد القانوني', route: '/admin/assistant' },
+    { icon: 'office', label: 'محرر الصياغة', route: '/admin/editor' },
+    // متغيّرات النظام: مهل التنفيذ والتنبيهات وبيانات المكتب — كانت ثوابتَ في الشيفرة
+    { icon: 'compass', label: 'إعدادات النظام', route: '/admin/settings' },
+    // كتالوج الأقسام القانونيّة وخدماتها والأقسام الإداريّة — كان قوائم ثابتة في الواجهة
+    { icon: 'folder', label: 'الأقسام والخدمات', route: '/admin/catalogue' },
   ] },
   // شاشات الذكاء الاصطناعي: مراجعة المخرجات، واعتماد المصادر، والحوكمة والمعايرة.
   // كانت تُبنى بلا رابط يصل إليها — تُفتح بكتابة مسارها يدوياً وحدها، أي إنها عملياً
@@ -409,6 +419,7 @@ const LAWYER_TITLES: Record<string, [string, string]> = {
   '/lawyer/ai-review': ['مراجعة مخرجات الذكاء', 'لوحة المحامي'],
   '/lawyer/ai-blind-review': ['المراجعة العمياء', 'لوحة المحامي'],
   '/lawyer/legal-sources': ['المصادر القانونيّة المعتمدة', 'لوحة المحامي'],
+  '/lawyer/editor': ['محرر الصياغة القانونية', 'لوحة المحامي'],
   '/lawyer/videoroom': ['غرفة الجلسة المرئية', 'لوحة المحامي'],
 };
 
@@ -427,7 +438,7 @@ const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/consult': ['رحلة الاستشارة', 'الإدارة العليا'],
   '/admin/staff': ['تسجيل الموظفين', 'الإدارة العليا'],
   '/admin/archive': ['أرشيف الاستشارات', 'الإدارة العليا'],
-  '/admin/distribute': ['توزيع التذاكر', 'الإدارة العليا'],
+  '/admin/distribute': ['توزيع وإسناد الأعمال', 'الإدارة العليا'],
   '/admin/casefees': ['أتعاب القضايا', 'الإدارة العليا'],
   '/admin/cases': ['كل القضايا', 'لوحة الإدارة'],
   '/admin/execs': ['التنفيذ', 'لوحة الإدارة'],
@@ -441,12 +452,16 @@ const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/meeting': ['تفاصيل الاجتماع', 'لوحة الإدارة'],
   '/admin/meetingroom': ['غرفة الاجتماع', 'لوحة الإدارة'],
   '/admin/assistant': ['المساعد القانوني الذكي', 'الإدارة العليا'],
-  '/admin/summaries': ['اعتماد الملخصات', 'لوحة الإدارة'],
+  '/admin/summaries': ['مركز الاعتمادات والقرارات', 'لوحة الإدارة'],
+  '/admin/approvals': ['مركز الاعتمادات والقرارات', 'لوحة الإدارة'],
   '/admin/revenue': ['الإيرادات', 'لوحة الإدارة'],
   '/admin/prices': ['أسعار الاستشارات', 'الإدارة العليا'],
+  '/admin/settings': ['إعدادات النظام', 'الإدارة العليا'],
+  '/admin/catalogue': ['الأقسام والخدمات', 'الإدارة العليا'],
   '/admin/accounting': ['الفواتير والمحاسبة', 'الإدارة العليا'],
   '/admin/meetreports': ['تقارير الاجتماعات', 'الإدارة العليا'],
   '/admin/reports': ['التقارير', 'لوحة الإدارة'],
+  '/admin/editor': ['محرر الصياغة القانونية', 'لوحة الإدارة'],
   '/admin/calendar': ['التقويم والمواعيد', 'لوحة الإدارة'],
   '/admin/consultrecv': ['استقبال الاستشارات', 'لوحة الإدارة'],
   '/admin/videoroom': ['غرفة الجلسة المرئية', 'لوحة الإدارة'],

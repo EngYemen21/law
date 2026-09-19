@@ -2,11 +2,14 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\InvoiceStatus;
+use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Payment;
+use App\Models\User;
 use App\Services\MoyasarService;
 use Illuminate\Support\Facades\Log;
 
@@ -73,7 +76,11 @@ class PaymentReconciler
         $invoice->update(['gateway_payment_id' => (string) ($payment['id'] ?? '')]);
 
         // انتقال حالة المجال (idempotent) بحسب نوع الفاتورة: استشارة أو أتعاب قضية أو أتعاب تنفيذ.
-        self::settleDomain($invoice, 'ميسّر');
+        // **وقد يرفض:** دفعةٌ على فاتورة استشارةٍ لا تقبل السداد لا تُحيي شيئاً — تبقى في الدفتر
+        // بلا تسوية وتُنبَّه الإدارة للاسترداد (ع١، ع٢).
+        if (! self::settleDomain($invoice, 'ميسّر')) {
+            return false;
+        }
 
         // اختم أوّل تسوية للدفتر (لا تُدهَس عند تكرار webhook/callback).
         if ($ledger !== null && $ledger->reconciled_at === null) {
@@ -94,6 +101,11 @@ class PaymentReconciler
             return false; // مدفوعة أصلاً — لا تُقيَّد مرّتين
         }
 
+        // الملغاة لا تُحصَّل — كانت تُسوّى فتُحيي الاستشارة التي أُلغيت معها (ع١)
+        if ($invoice->status === InvoiceStatus::Cancelled->value) {
+            return false;
+        }
+
         Payment::updateOrCreate(
             ['gateway_payment_id' => 'manual-'.$invoice->id],
             [
@@ -108,36 +120,75 @@ class PaymentReconciler
             ]
         );
 
-        self::settleDomain($invoice, $actor);
+        if (! self::settleDomain($invoice, $actor)) {
+            // لم يقبل الملفّ السداد — لا قيدَ لتحصيلٍ لم يُطبَّق
+            Payment::where('gateway_payment_id', 'manual-'.$invoice->id)->delete();
+
+            return false;
+        }
 
         return true;
     }
 
     /** تسوية كائن المجال والمرتبطة بالفاتورة (استشارة/قضية/تنفيذ) */
-    public static function settleDomain(Invoice $invoice, string $actor = 'ميسّر'): void
+    public static function settleDomain(Invoice $invoice, string $actor = 'ميسّر'): bool
     {
+        if ($invoice->consult_id && ($consult = Consult::find($invoice->consult_id))) {
+            return self::settleConsult($invoice, $consult, $actor);
+        }
+
         $invoice->update(['paid' => true, 'status' => 'مدفوعة', 'tone' => 'b-green']);
 
-        if ($invoice->consult_id && ($consult = Consult::find($invoice->consult_id))) {
-            /*
-             * **السجلّ يصف القناة التي وقع بها التحصيل.**
-             *
-             * كان النصّ ثابتاً «مدفوع عبر ميسّر» أيّاً كان المسار — وتحصيلُ الإدارة
-             * اليدويّ (`settleManual`, `gateway=manual`) يُقيَّد به. فيضيع التمييز بين
-             * ما حصّلته البوّابة وما استلمه المكتب نقداً أو تحويلاً، وهو تمييزٌ تحتاجه
-             * المطابقة والمراجعة الماليّة.
-             */
-            $channel = $invoice->payments()->where('gateway', 'manual')->exists()
-                ? 'مدفوع — تحصيل يدويّ بقيد الإدارة'
-                : 'مدفوع عبر ميسّر';
-
-            ConsultBooking::markPaid($consult, $actor, $channel);
-        } elseif ($invoice->case_id && ($case = LegalCase::find($invoice->case_id))) {
+        if ($invoice->case_id && ($case = LegalCase::find($invoice->case_id))) {
             // تعرف وحدها أهي دفعة من خطّة تقسيط أم سداد كامل
             CaseFee::settleInvoice($case, $invoice);
         } elseif ($invoice->exec_id && ($exec = Execution::find($invoice->exec_id))) {
-            ExecService::markPaid($exec);
+            // تعرف وحدها أهي دفعة من خطّة تقسيط، أم سداد كامل، أم فاتورة أتعابٍ عن تحصيل
+            ExecFee::settleInvoice($exec, $invoice);
         }
+
+        return true;
+    }
+
+    /**
+     * **فاتورة الاستشارة تُسوّى عبر `SettlePayment` — أو لا تُسوّى.**
+     *
+     * كانت الفاتورة تُعلَّم مدفوعةً قبل النظر في الاستشارة، ثمّ `markPaid` يُحيي ما أُلغي.
+     * الآن: فاتورةٌ مسوّاة ⇒ لا شيء؛ ملفٌّ يقبل السداد ⇒ يُسوّى؛ وإلّا ⇒ المبلغ حُصّل ولم يُطبَّق،
+     * فتُنبَّه الإدارة لتردّه ويبقى الأثر في سجلّ التدقيق.
+     */
+    private static function settleConsult(Invoice $invoice, Consult $consult, string $actor): bool
+    {
+        if ($invoice->paid) {
+            return true;
+        }
+
+        // السجلّ يصف قناة التحصيل: اليدويّ (`gateway=manual`) غيرُ البوّابة — والمطابقة تحتاج التمييز
+        $channel = $invoice->payments()->where('gateway', 'manual')->exists()
+            ? 'مدفوع — تحصيل يدويّ بقيد الإدارة'
+            : 'مدفوع عبر ميسّر';
+
+        if (ConsultBooking::markPaid($consult, $actor, $channel, $invoice)) {
+            return true;
+        }
+
+        if ($channel !== 'مدفوع عبر ميسّر') {
+            return false; // تحصيلٌ يدويّ رُفض قبل أن يقع — لا مبلغ يُردّ
+        }
+
+        Audit::log(
+            action: 'دفعة على فاتورة لا تقبل السداد',
+            description: "وصلت دفعة على الفاتورة {$invoice->number} للاستشارة {$consult->ref} وحالتها «{$consult->status}» والفاتورة «{$invoice->status}» — لم تُطبَّق وتتطلّب استرداداً.",
+            category: 'مالية وفواتير',
+            severity: 'critical',
+            auditable: $consult,
+        );
+
+        foreach (User::where('role', Role::Admin)->pluck('id') as $adminId) {
+            Notify::send($adminId, 'card', 't-red', "دفعة وصلت على الفاتورة {$invoice->number} ({$consult->ref}) وهي لا تقبل السداد — لم تُطبَّق، وتتطلّب استرداداً للعميل.");
+        }
+
+        return false;
     }
 
     /**

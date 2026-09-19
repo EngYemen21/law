@@ -4,10 +4,10 @@ import Badge from '@/components/babylon/Badge';
 import BookingActions from '@/components/babylon/BookingActions';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
-import { lawyerFirst, RichText } from '@/lib/consult-ui';
+import { RichText } from '@/lib/consult-ui';
 import type { ClientConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { CONSULT_BOOKING_STATUSES, crChannelIcon, crChannelTone } from '@/lib/employee-data';
+import { CONSULT_BOOKING_STATUSES, crChannelIcon, crChannelTone, foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 
 // ============================================================
@@ -170,16 +170,16 @@ list = completedConsults;
 return list;
 }
 
-    const q = searchQuery.toLowerCase();
+    const q = foldSearch(searchQuery);
 
     return list.filter(
       (c) =>
-        c.ref.toLowerCase().includes(q) ||
-        c.subject.toLowerCase().includes(q) ||
-        (c.lawyer && c.lawyer.toLowerCase().includes(q)) ||
-        (c.channel && c.channel.toLowerCase().includes(q)) ||
-        (c.specialty && c.specialty.toLowerCase().includes(q)) ||
-        (c.when && c.when.toLowerCase().includes(q))
+        foldSearch(c.ref).includes(q) ||
+        foldSearch(c.subject).includes(q) ||
+        (c.lawyer && foldSearch(c.lawyer).includes(q)) ||
+        (c.channel && foldSearch(c.channel).includes(q)) ||
+        (c.specialty && foldSearch(c.specialty).includes(q)) ||
+        (c.when && foldSearch(c.when).includes(q))
     );
   }, [items, activeTab, upcomingConsults, pendingBookingConsults, completedConsults, searchQuery]);
 
@@ -301,7 +301,7 @@ return list;
                   </span>
                   <span>·</span>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    <Icon name="user" /> المستشار: {lawyerFirst(nextUp.lawyer || 'مستشار المكتب')}
+                    <Icon name="user" /> المستشار: {nextUp.lawyer || 'مستشار المكتب'}
                   </span>
                   {nextUp.place && (
                     <>
@@ -477,7 +477,7 @@ return list;
                             <Icon name="cal" /> {c.when}
                           </span>
                           <span>·</span>
-                          <span>المستشار: {lawyerFirst(c.lawyer || 'مستشار المكتب')}</span>
+                          <span>المستشار: {c.lawyer || 'مستشار المكتب'}</span>
                           {c.place && (
                             <>
                               <span>·</span>
@@ -516,7 +516,7 @@ return list;
                           <button
                             className="btn sm"
                             type="button"
-                            onClick={() => router.visit(`/tickets?consult=${encodeURIComponent(c.ref)}`)}
+                            onClick={() => router.visit(`/consults/${c.id}/documents`)}
                           >
                             <Icon name="upload" /> رفع المستندات
                           </button>
@@ -657,7 +657,7 @@ return list;
           ) : (
             <div className="empty" style={{ padding: '36px 16px' }}>
               <Icon name="scale" />
-              <b>لا توجد استشارات مطابقة</b>
+              <b>{items.length === 0 ? 'لا توجد استشارات بعد' : 'لا توجد استشارات مطابقة'}</b>
               <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
                 يمكنك حجز موعد استشارة جديدة فوراً بضغطة زر.
               </p>

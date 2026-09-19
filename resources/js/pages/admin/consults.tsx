@@ -19,6 +19,7 @@ import {
   CONSULT_PRIORITIES,
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { consultMediaUrls, SessionMediaPanel } from '@/lib/recording-ui';
 
 /**
  * سببُ تعذّر إعادة الإسناد — أو null إن كانت متاحة.
@@ -94,6 +95,16 @@ function isLate(c: ConsultCard): boolean {
   );
 }
 
+const CANCEL_REASONS = [
+  'طلب العميل الإلغاء',
+  'عدم توفر موعد مناسب أو تعذر التنسيق',
+  'عدم سداد الرسوم أو انتهاء مهلة السداد',
+  'بيانات الطلب غير مكتملة أو غير واضحة',
+  'استشارة خارج اختصاص المكتب',
+  'طلب مكرر أو أُرسل بالخطأ',
+  'أخرى (توضيح في الملاحظات)',
+];
+
 type KanbanCol = 'pre_session' | 'scheduling' | 'review' | 'active_sessions' | 'completed';
 
 /**
@@ -158,6 +169,8 @@ export const AdminConsults: React.FC<AdminConsultsProps> = ({
   const [lawyerFilter, setLawyerFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [cancelTarget, setCancelTarget] = useState<ConsultCard | null>(null);
+  const [cancelReason, setCancelReason] = useState<string>('');
+  const [cancelNotes, setCancelNotes] = useState<string>('');
 
   // Quick Action Drawer (Controlled by Ref String for rock-solid stability)
   const [drawerRef, setDrawerRef] = useState<string | null>(null);
@@ -606,18 +619,31 @@ return;
   };
 
   const triggerCancelRequest = (consult: ConsultCard) => {
+    if (!cancelReason) {
+      toast('⚠️ يُرجى اختيار سبب الإلغاء');
+
+      return;
+    }
+
     setIsProcessingAction(true);
+    const finalReason = cancelReason === 'أخرى (توضيح في الملاحظات)'
+      ? (cancelNotes.trim() || 'أخرى')
+      : (cancelNotes.trim() ? `${cancelReason} — ${cancelNotes.trim()}` : cancelReason);
+
     router.post(
       `/admin/consults/${consult.id}/cancel-request`,
-      {},
+      { reason: finalReason },
       {
         preserveScroll: true,
         onSuccess: () => {
           setCancelTarget(null);
+          setCancelReason('');
+          setCancelNotes('');
           setDrawerRef(null);
           toast('أُلغي الطلب وأُشعر العميل');
         },
-        // الحارس الخادميّ يمنع إلغاء ما سُدِّد أو انتهى — ورسالته تصل بدل صمتٍ
+        // الخادم يرفض ما تجاوز مرحلة الحجز أو السبب الطويل — ورسالته تصل بدل صمتٍ.
+        // (المسدَّد قبل الجلسة يُلغى، ويُنبَّه الإدارة لاسترداده — انظر `HandleConsultCancelled`.)
         onError: (err) => toast(String(Object.values(err)[0] ?? 'تعذّر إلغاء الطلب')),
         onFinish: () => setIsProcessingAction(false),
       }
@@ -638,7 +664,7 @@ return;
       {},
       {
         preserveScroll: true,
-        onSuccess: () => toast('✅ اعتُمد الملخّص ووصل العميل'),
+        onSuccess: () => toast('✅ اعتُمد الملخّص ووصل العميل، ونُشرت نتيجة التذكرة'),
         onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذّر اعتماد الملخّص'}`),
         onFinish: () => setIsProcessingAction(false),
       }
@@ -1395,6 +1421,17 @@ return;
                               <Icon name="bell" /> تذكير
                             </button>
                           )}
+                          {CONSULT_BOOKING_STATUSES.includes(c.status) && (
+                            <button
+                              className="btn soft sm"
+                              type="button"
+                              style={{ color: '#C0392B' }}
+                              onClick={() => setCancelTarget(c)}
+                              title="إلغاء الطلب"
+                            >
+                              <Icon name="close" />
+                            </button>
+                          )}
                           {c.session === 'جلسة جارية' && (
                             <button
                               className="btn primary sm"
@@ -2118,11 +2155,11 @@ return;
                     * فالمدير يرى طلباً معطَّلاً ولا سبيل له إلى إنهائه إلّا الانتقال
                     * إلى شاشة الطلبات. والمسار قائمٌ ومحروسٌ على الخادم.
                     */}
-                  {CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && !drawerConsult.paid && (
-                    <div className="card" style={{ margin: 0, padding: 14 }}>
-                      <b>إلغاء الطلب:</b>
+                  {CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && (
+                    <div className="card" style={{ margin: 0, padding: 14, borderRight: '4px solid #C0392B' }}>
+                      <b style={{ color: '#C0392B' }}>إلغاء طلب الاستشارة:</b>
                       <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
-                        يُشعَر العميل بالإلغاء، وتُلغى الفاتورة القائمة إن وُجدت.
+                        يُشعَر العميل بالإلغاء، وتُلغى الفاتورة القائمة أو يُنسَّق الاسترداد إن سُدِّدت مسبقاً.
                       </p>
                       <button
                         className="btn soft sm"
@@ -2314,33 +2351,12 @@ return;
                   {/* مخرجات Zoom */}
                   <div className="card" style={{ margin: 0, padding: 14 }}>
                     <b>مخرجات جلسة Zoom:</b>
-                    <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {drawerConsult.recording ? (
-                        <a
-                          href={drawerConsult.recording}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="btn soft sm"
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}
-                        >
-                          <Icon name="video" /> مشاهدة التسجيل السحابي
-                        </a>
+                    {/* تشغيلٌ وتنزيلٌ عبر الخادم — كانا زرّين يفتحان سحابة Zoom خارج النظام */}
+                    <div style={{ marginTop: 10 }}>
+                      {drawerConsult.media ? (
+                        <SessionMediaPanel media={drawerConsult.media} urls={consultMediaUrls('/admin', drawerConsult.id)} />
                       ) : (
-                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                          لا يوجد تسجيل سحابي متاح لهذه الجلسة
-                        </span>
-                      )}
-
-                      {drawerConsult.zoomAudioUrl && (
-                        <a
-                          href={drawerConsult.zoomAudioUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="btn soft sm"
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}
-                        >
-                          <Icon name="mic" /> تنزيل التسجيل الصوتي
-                        </a>
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>لا يوجد تسجيل لهذه الجلسة بعد</span>
                       )}
                     </div>
                   </div>
@@ -2506,29 +2522,80 @@ return;
         </Modal>
       )}
 
-      {/* ── 9. تأكيد إلغاء الطلب ── */}
+      {/* ── 9. تأكيد إلغاء الطلب مع تسجيل السبب ── */}
       <Modal
         title={`تأكيد إلغاء الطلب — ${cancelTarget?.ref ?? ''}`}
         open={!!cancelTarget}
-        onClose={() => setCancelTarget(null)}
+        onClose={() => {
+          setCancelTarget(null);
+          setCancelReason('');
+          setCancelNotes('');
+        }}
       >
-        <p style={{ fontSize: 13.5, lineHeight: 1.7 }}>
-          إلغاء طلب الاستشارة <b>{cancelTarget?.ref}</b> للعميل <b>{maskClient(cancelTarget?.client ?? '')}</b>؟
-          <br />
-          يُشعَر العميل بالإلغاء، وتُلغى الفاتورة القائمة إن وُجدت. ولا يمكن التراجع.
-        </p>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
-          <button type="button" className="btn soft" onClick={() => setCancelTarget(null)}>
-            تراجع
-          </button>
-          <button
-            type="button"
-            className="btn primary"
-            disabled={isProcessingAction}
-            onClick={() => cancelTarget && triggerCancelRequest(cancelTarget)}
-          >
-            {isProcessingAction ? 'جارٍ الإلغاء...' : 'تأكيد الإلغاء'}
-          </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: 0 }}>
+            هل أنت متأكد من إلغاء طلب الاستشارة <b>{cancelTarget?.ref}</b> للعميل <b>{maskClient(cancelTarget?.client ?? '')}</b>؟
+          </p>
+
+          <div style={{ background: '#FDF2E9', border: '1px solid #FADBD8', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: '#78281F', lineHeight: 1.5 }}>
+            ⚠️ سيتم إشعار العميل بالإلغاء فوراً، وإلغاء الفواتير غير المسددة، وتوثيق سبب الإلغاء في سجل التدقيق. وفي حال وجود مبالغ محصلة يتم التنسيق للاسترداد.
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>
+              سبب الإلغاء: <span style={{ color: '#C0392B' }}>*</span>
+            </label>
+            <select
+              className="form-control"
+              style={{ width: '100%', fontSize: 13, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)' }}
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+            >
+              <option value="">— اختر سبب الإلغاء —</option>
+              {CANCEL_REASONS.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>
+              ملاحظات إضافية / تفاصيل (اختياري):
+            </label>
+            <textarea
+              className="form-control"
+              rows={2}
+              style={{ width: '100%', fontSize: 12.5, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', resize: 'vertical' }}
+              placeholder="اكتب تفاصيل إضافية لتوضيح السبب في سجل التدقيق والإشعار..."
+              value={cancelNotes}
+              maxLength={400} // السبب المختار + الملاحظة لا يتجاوزان حدّ الخادم (500)
+              onChange={(e) => setCancelNotes(e.target.value)}
+            />
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
+            <button
+              type="button"
+              className="btn soft"
+              disabled={isProcessingAction}
+              onClick={() => {
+                setCancelTarget(null);
+                setCancelReason('');
+                setCancelNotes('');
+              }}
+            >
+              تراجع
+            </button>
+            <button
+              type="button"
+              className="btn primary"
+              style={{ background: '#C0392B', borderColor: '#C0392B' }}
+              disabled={isProcessingAction || !cancelReason}
+              onClick={() => cancelTarget && triggerCancelRequest(cancelTarget)}
+            >
+              {isProcessingAction ? 'جارٍ الإلغاء...' : 'تأكيد الإلغاء'}
+            </button>
+          </div>
         </div>
       </Modal>
 

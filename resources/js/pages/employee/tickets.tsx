@@ -6,6 +6,7 @@ import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import TicketOpsModals, { type LawyerOption, type TicketOpsKind } from '@/components/babylon/TicketOpsModals';
 import QuickTicketModal, { type TicketPreviewData } from '@/components/babylon/QuickTicketModal';
+import { foldSearch, isUrgentTicket } from '@/lib/employee-data';
 import { useCan } from '@/lib/permissions';
 
 // ============================================================
@@ -43,7 +44,12 @@ interface Props {
   lawyers: LawyerOption[];
   counts?: Counts;
   departments?: string[];
+  catalogueDepartments?: string[]; // أقسام مودال التحويل من الكتالوج الفعّال
+  /** ما ينتظر فيه الموظّف طرفاً آخر — `TicketJourney::AWAITING_OTHERS` من الخادم، فيعدّ العدّاد ما يعرضه التبويب */
+  awaitingOthers?: string[];
 }
+
+const NO_STATUSES: string[] = [];
 
 const openTicket = (no: string) => router.visit(`/employee/tickets/${encodeURIComponent(no)}`);
 
@@ -52,6 +58,8 @@ const EmployeeTickets: React.FC<Props> = ({
   lawyers = [],
   counts,
   departments = [],
+  catalogueDepartments = [],
+  awaitingOthers = NO_STATUSES,
 }) => {
   const toast = useToast();
   const can = useCan();
@@ -95,11 +103,12 @@ const EmployeeTickets: React.FC<Props> = ({
 
   // حساب الإحصائيات
   const calculatedCounts = useMemo(() => {
-    const needAction = tickets.filter((t) => !['مكتملة', 'مغلقة', 'بانتظار اعتماد المستشار', 'بانتظار اعتماد الإدارة'].includes(t.status)).length;
+    const terminalList = ['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة لقضية'];
+    const needAction = tickets.filter((t) => !terminalList.includes(t.status) && !awaitingOthers.includes(t.status)).length;
     const missingDocs = tickets.filter((t) => t.status === 'بانتظار مستندات').length;
     const referred = tickets.filter((t) => t.status === 'محالة للقسم القانوني').length;
-    const urgent = tickets.filter((t) => ['عالية', 'حرجة', 'urgent', 'high'].includes(t.priority?.toLowerCase() ?? '')).length;
-    const completed = tickets.filter((t) => ['مكتملة', 'مغلقة'].includes(t.status)).length;
+    const urgent = tickets.filter((t) => isUrgentTicket(t.priority)).length;
+    const completed = tickets.filter((t) => terminalList.includes(t.status)).length;
 
     return {
       total: counts?.total ?? tickets.length,
@@ -109,7 +118,7 @@ const EmployeeTickets: React.FC<Props> = ({
       urgent: counts?.urgent ?? urgent,
       completed: counts?.completed ?? completed,
     };
-  }, [tickets, counts]);
+  }, [tickets, counts, awaitingOthers]);
 
   const stats: StatItem[] = [
     ['t-blue', 'folder', calculatedCounts.needAction, 'تذاكر بانتظار إجراء'],
@@ -121,14 +130,15 @@ const EmployeeTickets: React.FC<Props> = ({
 
   // تصفية التذاكر بحسب التبويب والفلاتر والبحث
   const filteredTickets = useMemo(() => {
+    const terminalList = ['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة لقضية'];
     return tickets.filter((t) => {
       // فلترة التبويب
-      if (activeTab === 'active' && ['مكتملة', 'مغلقة'].includes(t.status)) return false;
-      if (activeTab === 'urgent' && !['عالية', 'حرجة', 'urgent', 'high'].includes(t.priority?.toLowerCase() ?? '')) return false;
-      if (activeTab === 'needAction' && ['مكتملة', 'مغلقة', 'بانتظار اعتماد المستشار', 'بانتظار اعتماد الإدارة'].includes(t.status)) return false;
+      if (activeTab === 'active' && terminalList.includes(t.status)) return false;
+      if (activeTab === 'urgent' && !isUrgentTicket(t.priority)) return false;
+      if (activeTab === 'needAction' && (terminalList.includes(t.status) || awaitingOthers.includes(t.status))) return false;
       if (activeTab === 'missingDocs' && t.status !== 'بانتظار مستندات') return false;
       if (activeTab === 'referred' && t.status !== 'محالة للقسم القانوني') return false;
-      if (activeTab === 'completed' && !['مكتملة', 'مغلقة'].includes(t.status)) return false;
+      if (activeTab === 'completed' && !terminalList.includes(t.status)) return false;
 
       // فلترة القسم
       if (filterDept !== 'all' && t.dept !== filterDept) return false;
@@ -141,12 +151,12 @@ const EmployeeTickets: React.FC<Props> = ({
 
       // البحث النصي
       if (searchQuery.trim()) {
-        const q = searchQuery.trim().toLowerCase();
-        const noMatch = t.no.toLowerCase().includes(q);
-        const clientMatch = t.client.toLowerCase().includes(q);
-        const typeMatch = t.type.toLowerCase().includes(q);
-        const deptMatch = t.dept.toLowerCase().includes(q);
-        const lawyerMatch = t.lawyer.toLowerCase().includes(q);
+        const q = foldSearch(searchQuery);
+        const noMatch = foldSearch(t.no).includes(q);
+        const clientMatch = foldSearch(t.client).includes(q);
+        const typeMatch = foldSearch(t.type).includes(q);
+        const deptMatch = foldSearch(t.dept).includes(q);
+        const lawyerMatch = foldSearch(t.lawyer).includes(q);
         const subMatch = t.subject?.toLowerCase().includes(q) ?? false;
         if (!noMatch && !clientMatch && !typeMatch && !deptMatch && !lawyerMatch && !subMatch) {
           return false;
@@ -155,7 +165,7 @@ const EmployeeTickets: React.FC<Props> = ({
 
       return true;
     });
-  }, [tickets, activeTab, filterDept, filterLawyer, filterPriority, searchQuery]);
+  }, [tickets, activeTab, filterDept, filterLawyer, filterPriority, searchQuery, awaitingOthers]);
 
   return (
     <>
@@ -189,7 +199,7 @@ const EmployeeTickets: React.FC<Props> = ({
               style={{ boxShadow: activeTab === 'active' ? undefined : 'none' }}
               onClick={() => setActiveTab('active')}
             >
-              <Icon name="folder" /> كل النشطة ({tickets.filter((t) => !['مكتملة', 'مغلقة'].includes(t.status)).length})
+              <Icon name="folder" /> كل النشطة ({tickets.filter((t) => !['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة لقضية'].includes(t.status)).length})
             </button>
             <button
               type="button"
@@ -324,7 +334,7 @@ const EmployeeTickets: React.FC<Props> = ({
               </thead>
               <tbody>
                 {filteredTickets.map((t) => {
-                  const isUrgent = ['عالية', 'حرجة', 'urgent', 'high'].includes(t.priority?.toLowerCase() ?? '');
+                  const isUrgent = isUrgentTicket(t.priority);
                   const pTone = isUrgent ? 'b-red' : t.priority === 'منخفضة' ? 'b-green' : 'b-amber';
 
                   return (
@@ -419,7 +429,7 @@ const EmployeeTickets: React.FC<Props> = ({
           ) : (
             <div className="empty">
               <Icon name="folder" />
-              <b>لا توجد تذاكر مطابقة لخيارات البحث والتصفية</b>
+              <b>{tickets.length === 0 ? 'لا توجد تذاكر بعد' : 'لا توجد تذاكر مطابقة لخيارات البحث والتصفية'}</b>
               {(searchQuery || filterDept !== 'all' || filterLawyer !== 'all' || filterPriority !== 'all' || activeTab !== 'active') && (
                 <button
                   className="btn soft sm"
@@ -463,6 +473,7 @@ const EmployeeTickets: React.FC<Props> = ({
         dept={opsTicket?.dept}
         lawyerId={opsTicket?.lawyerId ?? null}
         lawyers={lawyers}
+        departments={catalogueDepartments}
         onClose={() => setOpsKind(null)}
         onDone={() => router.reload({ only: ['tickets', 'counts'] })}
       />

@@ -15,6 +15,8 @@ import {
 import type {AuditEntry} from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
+import { consultMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
+import type { SessionMedia } from '@/lib/recording-ui';
 import ZoomEmbedRoom from '@/lib/zoom-room';
 
 // ============================================================
@@ -60,6 +62,10 @@ export interface ConsultCard {
   summaryEdited?: boolean;
   /** ختم الاعتماد (ISO) — `null` يعني لم يُعتمد بعد. */
   summaryApprovedAt?: string | null;
+  /** اعتمده المستشار ويُنتظر اعتماد الإدارة */
+  summaryLawyerApproved?: boolean;
+  /** اقتراح الموظّف بانتظار اعتماد الإدارة (قرار المالك 2026-09-14) */
+  proposal?: { date: string | null; time: string | null; lawyer: string; lawyerId: number | null; channel: string } | null;
   /**
    * مصدر **الملخّص** وحده — غير `aiSource` الذي يصف تحليل ما قبل الجلسة.
    * خلطُهما كان يُعيد وسم تحليلٍ نجح بأنّه فاشل. و`null` = لم يُقَس.
@@ -90,7 +96,8 @@ export interface ConsultCard {
   duration: string | null;
   /** المدّة المقيسة من Zoom بالثواني — null تعني «لم تُقَس». */
   durationSec?: number | null;
-  recording?: string | null; // رابط التسجيل السحابي (بعد الجلسة)
+  /** مخرجات الجلسة للتشغيل والتنزيل عبر الخادم — أعلامٌ لا روابط Zoom (`RecordingArchive::availability`). */
+  media?: SessionMedia;
   total: number;
   // دورة الحجز/الدفع (تسعير → فاتورة → دفع محاكى → اختيار الموعد)
   price?: number;
@@ -116,8 +123,6 @@ export interface ConsultCard {
   audit: AuditEntry[];
   decisions: string[];
   tasksCreated: boolean;
-  zoomAudioUrl?: string | null;
-  zoomShareUrl?: string | null;
 }
 
 /**
@@ -172,16 +177,8 @@ window.open(url, '_blank', 'noopener');
 }
 }
 
-// «أ. سارة القحطاني» → «أ. سارة» (لدور العميل)
-export function lawyerFirst(name: string): string {
-  const parts = name.trim().split(/\s+/);
-
-  if (/^(أ|د|م|الأستاذ|الأستاذة|المحامي|المحامية)\.?$/.test(parts[0]) && parts.length > 1) {
-    return `${parts[0]} ${parts[1]}`;
-  }
-
-  return parts[0] || name;
-}
+// `lawyerFirst` أُزيلت (2026-09-11): كانت تقصّ اسم المحامي لكلمته الأولى في شاشة العميل،
+// فتبتر «محمد. ب» إلى «محمد.» و«مستشار المكتب» إلى «مستشار». الخادمُ يقرّر الصيغة الآن (LawyerName).
 
 // يطابق fmtDur
 /**
@@ -207,6 +204,19 @@ function fmtAuditTime(a: AuditEntry): string {
 
     return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} `
         + `${p(h % 12 === 0 ? 12 : h % 12)}:${p(d.getMinutes())} ${h < 12 ? 'ص' : 'م'}`;
+}
+
+/**
+ * تاريخ الموعد المقترح بالعربية («15 سبتمبر · 03:00») — الوقت كما اختاره الموظّف بلا تحويل منطقة.
+ * التاريخ غير الصالح يُعرض كما ورد بدل «Invalid Date».
+ */
+export function proposalWhen(p: { date: string | null; time: string | null }): string {
+  const d = p.date ? new Date(`${p.date}T00:00:00`) : null;
+  const day = d && !Number.isNaN(d.getTime())
+    ? d.toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { day: 'numeric', month: 'long' })
+    : (p.date ?? '—');
+
+  return `${day} · ${p.time ?? '—'}`;
 }
 
 export function fmtDur(s: number): string {
@@ -839,7 +849,7 @@ export const PricingAction: React.FC<{ c: ConsultCard; base: string; toast: (m: 
  */
 
 // ============================================================
-// رحلة الاستشارة (يطابق consultView + cTake/cRequestDocs/cRunAI/cSaveAI/cApproveAI/cRerun/cRefer)
+// رحلة الاستشارة (يطابق consultView + cRequestDocs/cRunAI/cSaveAI/cApproveAI/cRerun/cRefer)
 // ============================================================
 
 export interface LawyerOpt { id: number; name: string; dept: string; }
@@ -847,6 +857,11 @@ export interface LawyerOpt { id: number; name: string; dept: string; }
 export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; isAdmin?: boolean; lawyers: LawyerOpt[] }> = ({ consult: c, base, isAdmin, lawyers }) => {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  /**
+   * أيُّ فعلٍ يجري الآن — `busy` مشتركٌ بين الأفعال كلّها، فكان زرُّ المعالجة يقول
+   * «جارٍ التحليل…» أثناء طلب المستندات أو تغيير الأولويّة (قيسَ في المتصفّح 2026-09-10).
+   */
+  const [running, setRunning] = useState<string | null>(null);
 
   // مطابقة اقتراح الذكاء الاصطناعي (اسم) بمحامٍ حقيقي — وإلّا فلا اختيار.
   // كان يقع على أوّل محامٍ في القائمة حين لا اقتراح، فيبدو للموظّف ترشيحاً وهو ترتيب أبجديّ.
@@ -876,11 +891,15 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
    */
   const post = (action: string, data: Record<string, string>, msg: string) => {
     setBusy(true);
+    setRunning(action);
     router.post(`${base}/consults/${c.id}/${action}`, data, {
       preserveScroll: true,
       onSuccess: () => toast(msg),
       onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر تنفيذ الإجراء')),
-      onFinish: () => setBusy(false),
+      onFinish: () => {
+        setBusy(false);
+        setRunning(null);
+      },
     });
   };
 
@@ -949,10 +968,10 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
   }, [c.summary]);
 
   const saveSessionSummary = () => post('summary', { summary: sessionSummary }, 'حُفظ الملخّص المحرّر — يصل العميل بعد اعتماده');
-  const approveSessionSummary = () => post('summary/approve', {}, 'اعتُمد الملخّص وأُرسل إلى العميل');
+  // المستشار يعتمد ويرفع للإدارة؛ والإدارة تعتمد فيُنشر للعميل وتكتمل التذكرة (قرار المالك 2026-09-14)
+  const approveSessionSummary = () => post('summary/approve', {}, 'اعتُمد الملخّص');
 
   const showEmpActions = c.status === 'جديدة'
-    || c.status === 'قيد مراجعة الموظف'
     || c.status === 'بانتظار استكمال البيانات';
   const showRefer = c.status === 'جاهزة للمحامي';
   /**
@@ -982,7 +1001,10 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
   const attendees = c.zoomParticipantsLog ?? [];
   /** المدّة المقيسة وحدها — `fmtDur` معرّفةٌ في هذا الملفّ. */
   const measured = c.durationSec != null && c.durationSec > 0 ? fmtDur(c.durationSec) : null;
-  const hasSessionOutputs = !!(c.duration || c.recording || c.zoomShareUrl || c.zoomAudioUrl || attendees.length);
+  const media = c.media;
+  const hasMedia = !!(media && (media.video || media.audio || media.transcript));
+  const hasSessionOutputs = !!(c.duration || hasMedia || attendees.length);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
 
   return (
     <div className="detail-wrap" style={{ maxWidth: 920 }}>
@@ -1021,6 +1043,30 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
           {c.ticketNo ? <div><span>التذكرة</span><b>{c.ticketNo}</b></div> : null}
         </div>
       </div>
+
+      {/*
+        * **الموعد المقترح يُرى حيث يُبحث عنه.**
+        *
+        * الموظّف يقترح فيُكتب الموعد على «الموعد» لا على الاستشارة حتى تعتمده الإدارة
+        * (`ProposeAppointment`)، فكانت الصفحة تبقى بلا تاريخٍ ولا وقتٍ ولا محامٍ — ويبدو
+        * الحجز كأنّه لم يُحفظ. والاقتراح كان يظهر في درج الإدارة وحده.
+        */}
+      {c.proposal ? (
+        <div className="card" role="status" style={{ marginBottom: 16, borderInlineStart: '4px solid #d97706', background: '#fffbeb' }}>
+          <div className="card-b" style={{ padding: '12px 18px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Icon name="clock" />
+            <b>موعد مقترح: {proposalWhen(c.proposal)} مع {c.proposal.lawyer}</b>
+            <span style={{ color: 'var(--muted)', fontSize: 12.5 }}>
+              ({c.proposal.channel}) — بانتظار اعتماد الإدارة
+            </span>
+            {isAdmin ? (
+              <Link href="/admin/approvals" className="btn soft sm" style={{ marginInlineStart: 'auto' }}>
+                <Icon name="check" /> اعتماد من «بانتظار اعتمادك»
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {/*
         * **خطُّ الرحلة يصف الرحلة التي سلكها هذا الملفّ.**
@@ -1062,7 +1108,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
               </button>
               {mayAnalyze && (
                 <button className="btn" onClick={runAI} disabled={busy} type="button">
-                  <Icon name="info" /> {busy ? 'جارٍ التحليل…' : 'بدء معالجة الفريق القانوني'}
+                  <Icon name="info" /> {running === 'analyze' ? 'جارٍ التحليل…' : 'بدء معالجة الفريق القانوني'}
                 </button>
               )}
             </>
@@ -1292,23 +1338,24 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
               {attendees.length > 0 ? <div><span>الحضور</span><b>{attendees.length}</b></div> : null}
             </div>
 
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-              {c.recording ? (
-                <a className="btn soft sm" href={c.recording} target="_blank" rel="noopener noreferrer">
-                  <Icon name="video" /> التسجيل المرئيّ
-                </a>
-              ) : null}
-              {c.zoomAudioUrl ? (
-                <a className="btn soft sm" href={c.zoomAudioUrl} target="_blank" rel="noopener noreferrer">
-                  <Icon name="mic" /> الصوت
-                </a>
-              ) : null}
-              {c.zoomShareUrl ? (
-                <a className="btn soft sm" href={c.zoomShareUrl} target="_blank" rel="noopener noreferrer">
-                  <Icon name="out" /> رابط المشاركة
-                </a>
-              ) : null}
-            </div>
+            {/* التسجيل والصوت والنصّ عبر الخادم — تشغيلٌ وتنزيلٌ داخل النظام. «رابط المشاركة»
+                أُزيل (قرار المالك 2026-09-15): كان يفتح سحابة Zoom لكلّ من يملك الرابط. */}
+            {/* المقفل يُعرض بسببه (اللوحة تقول لماذا) لا يُخفى كأنّ الجلسة بلا تسجيل */}
+            {media && (hasMedia || media.locked) ? (
+              <div style={{ marginTop: 12 }}>
+                <SessionMediaPanel
+                  media={media}
+                  urls={consultMediaUrls(base, c.id)}
+                  onViewTranscript={() => setTranscriptOpen(true)}
+                />
+                <TranscriptModal
+                  title={`النص الحرفي للجلسة — ${c.ref}`}
+                  url={consultMediaUrls(base, c.id).transcript}
+                  open={transcriptOpen}
+                  onClose={() => setTranscriptOpen(false)}
+                />
+              </div>
+            ) : null}
 
             {attendees.length > 0 && (
               <details style={{ marginTop: 12 }}>

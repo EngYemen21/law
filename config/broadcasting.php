@@ -43,6 +43,10 @@ return [
             ],
             'client_options' => [
                 // Guzzle client options: https://docs.guzzlephp.org/en/stable/request-options.html
+                // **مهلةٌ قصيرة:** البثّ داخل طلب المستخدم (ShouldBroadcastNow)، وReverb المتوقّف كان
+                // يُبقي كلّ حدثٍ ~٢٫٣ث حتى يفشل — فتسجيلُ قيدٍ بستّة بثوث تجاوز مهلة الـ٣٠ث (قيسَ 2026-09-11).
+                'connect_timeout' => (float) env('REVERB_CONNECT_TIMEOUT', 1),
+                'timeout' => (float) env('REVERB_TIMEOUT', 3),
             ],
         ],
 

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\TicketStatus;
 use App\Support\TicketJourney;
 use Tests\TestCase;
 
@@ -48,9 +49,14 @@ class TicketStageParityTest extends TestCase
         }
     }
 
+    /**
+     * كلّ مفتاحٍ في خريطة الواجهة حالةٌ يكتبها الخادم **أو تسميةُ عميلٍ يرسلها** (`TicketStatus::clientLabels`):
+     * شاشة العميل تقرأ «قيد إعداد الرأي القانوني» بدل الحالة الداخليّة، فمعرفةُ الخريطة بها
+     * تمنع ارتداد مسار الرحلة إلى الصفر (يحرسها `ClientTicketStatusLabelsTest`).
+     */
     public function test_frontend_has_no_status_the_server_rejects(): void
     {
-        $accepted = TicketJourney::statuses();
+        $accepted = array_merge(TicketJourney::statuses(), TicketStatus::clientLabels());
 
         foreach (array_keys($this->frontendMap()) as $status) {
             $this->assertContains($status, $accepted, "الواجهة تعرف حالة «{$status}» يرفضها الخادم");

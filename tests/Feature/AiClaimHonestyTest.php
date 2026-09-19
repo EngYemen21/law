@@ -117,7 +117,9 @@ class AiClaimHonestyTest extends TestCase
         $src = $this->codeOnly('app/Http/Controllers/Lawyer/TicketController.php');
 
         $this->assertStringNotContainsString("'تمت الدراسة المبدئية للملف.'", $src);
-        $this->assertStringContainsString('TicketResult::NO_RECOMMENDATIONS', $src);
+        // (2026-09-14) أقوى من إعلان الغياب: ملخّصٌ بلا وقائع أو توصيات **لا يُعتمد أصلاً**،
+        // فلا رأيَ خالٍ يصل العميل تحت عنوان «الرأي القانوني المبدئي».
+        $this->assertStringContainsString('TicketResult::hasSubstance($summary)', $src);
         $this->assertNotEmpty(TicketResult::NO_RECOMMENDATIONS);
     }
 

@@ -72,12 +72,17 @@ class ReportPrint
 
         $approvalHtml = isset($doc['approval']) ? self::renderApproval($doc['approval']) : '';
         $noteHtml = isset($doc['note']) ? '<div class="cf-note">'.e($doc['note']).'</div>' : '';
-        $footerHtml = '<div class="cf-foot">'.e($doc['footer'] ?? 'النظام الإداري لمكاتب المحاماة — صادر إلكترونياً').'</div>';
         $logo = self::logoDataUri();
+
+        // بيانات المكتب من الإعدادات لا منقوشةً هنا: تغييرُ رقم هاتفٍ كان يحتاج نشرَ كود.
+        $officeName = SettingsRegistry::str('office_name');
+        $officeUrl = SettingsRegistry::str('office_url');
+        $officePhone = SettingsRegistry::str('office_phone');
+        $footerHtml = '<div class="cf-foot">'.e($doc['footer'] ?? $officeName.' — صادر إلكترونياً').'</div>';
 
         return '<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>'.e($doc['ref']).'</title><style>'.self::STYLE.'</style></head><body>'
             .'<div class="cf">'
-            .'<div class="cf-hd">'.($logo ? '<img src="'.$logo.'" alt="">' : '').'<div class="t"><b>النظام الإداري لمكاتب المحاماة</b><span>LEGAL OFFICE MANAGEMENT SYSTEM</span></div><div class="meta">https://salaselbabel.net/<br>011 462 2277</div></div>'
+            .'<div class="cf-hd">'.($logo ? '<img src="'.$logo.'" alt="">' : '').'<div class="t"><b>'.e($officeName).'</b><span>LEGAL OFFICE MANAGEMENT SYSTEM</span></div><div class="meta">'.e($officeUrl).'<br>'.e($officePhone).'</div></div>'
             .'<div class="cf-title"><div><b>'.e($doc['title']).'</b><span class="s">'.e($doc['subtitle']).'</span></div><div class="rf">'.e($doc['ref']).'</div></div>'
             .$blocksHtml.$approvalHtml.$noteHtml.$footerHtml
             .'</div></body></html>';

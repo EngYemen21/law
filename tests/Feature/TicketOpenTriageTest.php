@@ -68,17 +68,12 @@ class TicketOpenTriageTest extends TestCase
 
         $ticket = $this->openTicket($client, [UploadedFile::fake()->create('contract.pdf', 120, 'application/pdf')]);
 
-        // إقرار بنبرة خدمة العملاء ثم إحالة تلقائية كاملة. الوسم `ai` لا `staff`:
-        // النصّ يولّده `acknowledgeDocs` ولم يكتبه موظّف
+        // إقرار بنبرة خدمة العملاء ونقل التذكرة إلى «قيد التحليل» بانتظار إحالة الموظف للمستشار
         $ack = $ticket->messages->where('who', 'ai')->firstWhere('role', 'خدمة العملاء');
         $this->assertNotNull($ack);
-        $this->assertSame('بانتظار اعتماد المستشار', $ticket->status);
-        $this->assertSame('awaiting_lawyer', TicketSummary::where('ticket_id', $ticket->id)->firstOrFail()->status);
+        $this->assertSame('قيد التحليل', $ticket->status);
         $this->assertSame('مرتبط', $ticket->documents()->firstOrFail()->status);
-
-        // إشعار المستشار المسند بمراجعة الملخّص
-        $this->assertNotNull($ticket->assigned_lawyer_id);
-        $this->assertDatabaseHas('user_notifications', ['user_id' => $ticket->assigned_lawyer_id]);
+        $this->assertNull(TicketSummary::where('ticket_id', $ticket->id)->first());
     }
 
     public function test_open_with_unrelated_document_requests_correct_docs(): void

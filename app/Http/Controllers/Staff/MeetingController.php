@@ -36,6 +36,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -661,6 +662,7 @@ class MeetingController extends Controller
     public function transcript(Request $request, Meeting $meeting): StreamedResponse
     {
         $this->guardMeeting($request, $meeting);
+        RecordingArchive::guardViewer($request->user());
 
         return RecordingArchive::transcript($meeting);
     }
@@ -669,6 +671,7 @@ class MeetingController extends Controller
     public function recordingZip(Request $request, Meeting $meeting): StreamedResponse|RedirectResponse
     {
         $this->guardMeeting($request, $meeting);
+        RecordingArchive::guardViewer($request->user());
 
         return RecordingArchive::download($meeting, 'video');
     }
@@ -677,8 +680,18 @@ class MeetingController extends Controller
     public function audioZip(Request $request, Meeting $meeting): StreamedResponse|RedirectResponse
     {
         $this->guardMeeting($request, $meeting);
+        RecordingArchive::guardViewer($request->user());
 
         return RecordingArchive::download($meeting, 'audio');
+    }
+
+    // تشغيل فيديو الاجتماع أو صوته داخل الصفحة من الملفّ المحفوظ — بديلُ فتح سحابة Zoom خارج النظام
+    public function stream(Request $request, Meeting $meeting, string $type): BinaryFileResponse
+    {
+        $this->guardMeeting($request, $meeting);
+        RecordingArchive::guardViewer($request->user());
+
+        return RecordingArchive::stream($meeting, $type);
     }
 
     private function guardMeeting(Request $request, Meeting $meeting): void

@@ -82,6 +82,9 @@ fileRef.current.value = '';
         </a>
         {v.paid ? (
           null
+        ) : v.cancelled ? (
+          // لا دفع ولا إثبات لملغاة — كان الزرّان ظاهرين والخادم يرفض الدفع ويقبل الإثبات فيُحيي الإلغاء
+          <span className="action-hint" style={{ margin: 0 }}>أُلغيت ولا تُسدَّد — ادفع الفاتورة المحدَّثة</span>
         ) : v.hasProof ? (
           <span className="action-hint" style={{ margin: 0 }}><Icon name="check" /> بانتظار المراجعة</span>
         ) : (

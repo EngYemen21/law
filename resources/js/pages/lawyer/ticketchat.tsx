@@ -2,11 +2,13 @@ import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useEffect, useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import CloseTicketModal, { CLOSURE_REASONS } from '@/components/babylon/CloseTicketModal';
 import FlowLine from '@/components/babylon/FlowLine';
 import MsgMeta from '@/components/babylon/MsgMeta';
 import TicketActionsPanel from '@/components/babylon/TicketActionsPanel';
 import TicketDetailsCard from '@/components/babylon/TicketDetailsCard';
 import TicketTalkingNotice from '@/components/babylon/TicketTalkingNotice';
+import TicketTrackDecisionCard, { TrackGovernanceData } from '@/components/babylon/TicketTrackDecisionCard';
 import { useToast } from '@/components/babylon/Toast';
 import { TKT_LIFE, tktStage  } from '@/lib/chat';
 import type {Message} from '@/lib/chat';
@@ -21,6 +23,16 @@ import { useCan } from '@/lib/permissions';
 interface EmpTicket {
   no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string;
   caseRef?: string | null; subject?: string | null; priority?: string | null; mobile?: string | null; openedAt?: string | null;
+  isFrozen?: boolean;
+  canDecideOutcome?: boolean;
+  isTerminal?: boolean;
+  closureReasonCode?: string | null;
+  closureNotes?: string | null;
+  hasCase?: boolean;
+  caseNumber?: string | null;
+  hasExecution?: boolean;
+  executionNumber?: string | null;
+  trackGovernance?: TrackGovernanceData | null;
 }
 interface Props { ticket: EmpTicket; channel: string; messages: Message[]; summary: SummaryData | null; converted?: boolean; base?: string }
 
@@ -51,6 +63,59 @@ const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
         </div>
         <div className="bubble" dangerouslySetInnerHTML={{ __html: m.text }} />
         <MsgMeta m={m} />
+      </div>
+    </div>
+  );
+};
+
+// مراحل الرحلة التي يصحّح إليها المدير — الحالات القديمة المطويّة لا تُعرض
+const CORRECTABLE = [
+  'جديدة', 'قيد التحليل', 'بانتظار مستندات', 'محالة للقسم القانوني', 'بانتظار اعتماد المستشار',
+  'بانتظار اعتماد الإدارة للملخّص', 'الرأي القانوني', 'بانتظار حجز الاستشارة', 'بانتظار تحديد الموعد',
+  'موعد مؤكد', 'بانتظار ملخّص الجلسة', 'مكتملة', 'مغلقة',
+];
+
+const CorrectStatusCard: React.FC<{ ticketNo: string; current: string }> = ({ ticketNo, current }) => {
+  const toast = useToast();
+  const [target, setTarget] = useState('');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = () => {
+    setBusy(true);
+    router.post(`/admin/tickets/${encodeURIComponent(ticketNo)}/correct-status`, { status: target, reason }, {
+      preserveScroll: true,
+      onSuccess: () => {
+        toast('صُحّحت حالة التذكرة وسُجّل السبب');
+        setTarget('');
+        setReason('');
+      },
+      onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تصحيح الحالة'}`),
+      onFinish: () => setBusy(false),
+    });
+  };
+
+  return (
+    <div className="card">
+      <div className="card-h"><h3>تصحيح الحالة</h3></div>
+      <div className="card-b" style={{ padding: 14 }}>
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>
+          استثناءٌ للإدارة فقط — يُسجَّل السبب في ملاحظة داخليّة وفي سجلّ التدقيق.
+        </div>
+        <div className="field">
+          <label>الحالة الصحيحة</label>
+          <select value={target} onChange={(e) => setTarget(e.target.value)}>
+            <option value="">— اختر —</option>
+            {CORRECTABLE.filter((s) => s !== current).map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label>السبب</label>
+          <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="لماذا تُصحَّح الحالة؟" />
+        </div>
+        <button className="btn soft sm" type="button" disabled={busy || !target || reason.trim().length < 5} onClick={submit}>
+          <Icon name="check" /> تصحيح الحالة
+        </button>
       </div>
     </div>
   );
@@ -131,7 +196,7 @@ return;
 
   const approve = () =>
     router.post(`${base}/summary/${no}/approve`, {}, {
-      onSuccess: () => toast('تم اعتماد الملخص وإرساله لمحادثة العميل'),
+      onSuccess: () => toast(base === '/admin' ? 'اعتُمد الملخّص وأُرسل الرأي القانوني للعميل' : 'اعتُمد الملخّص ورُفع للإدارة'),
       onError: fail('لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — حرّره يدوياً أولاً.'),
     });
 
@@ -143,10 +208,12 @@ return;
       onError: fail('تعذّر اعتماد ملخص الجلسة'),
     });
 
-  const closeTicket = () =>
-    router.post(`${base}/tickets/${no}/close`, {}, {
-      onSuccess: () => toast('تم إغلاق الطلب دون تحويله إلى قضية'),
-      onError: fail('تعذّر إغلاق الطلب'),
+  const [showCloseModal, setShowCloseModal] = useState(false);
+
+  const convertToCase = () =>
+    router.post(`${base}/tickets/${no}/convert`, {}, {
+      onSuccess: () => toast('✅ تم تحويل التذكرة إلى قضية بنجاح'),
+      onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تحويل التذكرة لقضية'}`),
     });
 
   const requestDocs = () =>
@@ -157,7 +224,10 @@ return;
     });
 
   const cur = tktStage(status.status);
-  const canConvert = status.status === 'مكتملة' && !converted;
+  const isTerminal = ['محولة إلى قضية', 'مغلقة'].includes(status.status) || !!ticket.isTerminal;
+  const isFrozen = !!ticket.isFrozen || isTerminal;
+  const canDecideOutcome = !isFrozen && !ticket.caseRef && !converted && (status.status === 'بانتظار قرار المآل' || status.status === 'مكتملة');
+  const canConvert = canDecideOutcome;
 
   return (
     <div className="tflow">
@@ -183,36 +253,45 @@ return;
               <div ref={endRef} />
             </div>
 
-            <div className="composer">
-              {/* مبدّل الوضع: ردّ للعميل ⇄ ملاحظة داخلية */}
-              <div className="cmode">
-                <button type="button" className={mode === 'reply' ? 'on' : ''} onClick={() => setMode('reply')}>
-                  <Icon name="reply" /> رد على العميل
-                </button>
-                <button type="button" className={mode === 'note' ? 'on note-on' : ''} onClick={() => setMode('note')}>
-                  <Icon name="lock" /> {base === '/admin' ? 'ملاحظة إدارية' : 'ملاحظة داخلية'}
-                </button>
+            {isFrozen ? (
+              <div style={{ margin: 14, padding: '14px 18px', textAlign: 'center', background: 'var(--subtle, #f8fafc)', border: '1px solid var(--line, #e2e8f0)', borderRadius: 10 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--muted, #64748b)', fontWeight: 600, fontSize: 13 }}>
+                  <Icon name="lock" />
+                  <span>تم حسم قرار مآل التذكرة واكتمال الملف (أرشيف للقراءة فقط)</span>
+                </div>
               </div>
-
-              <form onSubmit={submit}>
-                <textarea
-                  value={body}
-                  onChange={(e) => {
-                    setBody(e.target.value);
-
-                    if (mode === 'reply') {
-setTypingSignal((n) => n + 1);
-}
-                  }}
-                  placeholder={mode === 'reply' ? 'اكتب ردّك المباشر للعميل…' : 'اكتب ملاحظة داخلية لا يراها العميل…'}
-                />
-                <div className="crow">
-                  <button className={mode === 'reply' ? 'btn' : 'btn soft'} type="submit">
-                    <Icon name={mode === 'reply' ? 'send' : 'doc'} /> {mode === 'reply' ? 'إرسال الرد' : 'حفظ الملاحظة'}
+            ) : (
+              <div className="composer">
+                {/* مبدّل الوضع: ردّ للعميل ⇄ ملاحظة داخلية */}
+                <div className="cmode">
+                  <button type="button" className={mode === 'reply' ? 'on' : ''} onClick={() => setMode('reply')}>
+                    <Icon name="reply" /> رد على العميل
+                  </button>
+                  <button type="button" className={mode === 'note' ? 'on note-on' : ''} onClick={() => setMode('note')}>
+                    <Icon name="lock" /> {base === '/admin' ? 'ملاحظة إدارية' : 'ملاحظة داخلية'}
                   </button>
                 </div>
-              </form>
-            </div>
+
+                <form onSubmit={submit}>
+                  <textarea
+                    value={body}
+                    onChange={(e) => {
+                      setBody(e.target.value);
+
+                      if (mode === 'reply') {
+setTypingSignal((n) => n + 1);
+}
+                    }}
+                    placeholder={mode === 'reply' ? 'اكتب ردّك المباشر للعميل…' : 'اكتب ملاحظة داخلية لا يراها العميل…'}
+                  />
+                  <div className="crow">
+                    <button className={mode === 'reply' ? 'btn' : 'btn soft'} type="submit">
+                      <Icon name={mode === 'reply' ? 'send' : 'doc'} /> {mode === 'reply' ? 'إرسال الرد' : 'حفظ الملاحظة'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
           </div>
         </div>
 
@@ -228,7 +307,7 @@ setTypingSignal((n) => n + 1);
           <div className="card">
             <div className="card-h">
               <h3>ملخص الملف</h3>
-              {summary && <Badge text={summary.approved ? 'معتمد' : 'بانتظار اعتمادك'} tone={summary.approved ? 'b-green' : 'b-amber'} />}
+              {summary && <Badge text={summary.approved ? 'معتمد' : summary.lawyerApproved ? 'بانتظار اعتماد الإدارة' : 'بانتظار اعتماد المستشار'} tone={summary.approved ? 'b-green' : 'b-amber'} />}
             </div>
             <div className="card-b" style={{ padding: 14 }}>
               {summary ? (
@@ -244,9 +323,9 @@ setTypingSignal((n) => n + 1);
                       <Link href={`${base}/summary/${no}`} className="btn soft sm">
                         <Icon name="doc" /> تعديل الملخص
                       </Link>
-                      {!summary.approved && (
+                      {!summary.approved && (base === '/admin' || !summary.lawyerApproved) && (
                         <button className="btn sm" onClick={approve} type="button">
-                          <Icon name="check" /> اعتماد وإرسال للعميل
+                          <Icon name="check" /> {base === '/admin' ? 'اعتماد نهائي وإرسال للعميل' : 'اعتماد ورفع للإدارة'}
                         </button>
                       )}
                     </div>
@@ -270,26 +349,24 @@ setTypingSignal((n) => n + 1);
             </div>
           )}
 
-          {/* قرار المستشار: الإغلاق دون تحويل فقط — التحويل لقضية وطلب المستندات في لوحة الإجراءات أدناه (بلا ازدواج) */}
-          {(canConvert || converted) && canManageCases && (
-            <div className="card">
-              <div className="card-h"><h3>قرار المستشار</h3>{converted && <Badge text="محوّلة لقضية" tone="b-cyan" />}</div>
-              <div className="card-b" style={{ padding: 14 }}>
-                {converted ? (
-                  <div className="empty"><Icon name="scale" /><b>تم تحويل هذه التذكرة إلى قضية</b></div>
-                ) : (
-                  <>
-                    <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
-                      اكتملت الاستشارة. إن لم تكن بحاجة لفتح قضية رسمية يمكنك إغلاق الطلب:
-                    </div>
-                    <button className="btn soft sm" onClick={closeTicket} type="button">
-                      <Icon name="check" /> إغلاق دون تحويل
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
+          {/* تصحيح الحالة استثناءٌ إداريّ مسبَّب — لا قائمة حالات بيد الموظّف (قرار المالك 2026-09-14) */}
+          {base === '/admin' && <CorrectStatusCard ticketNo={ticket.no} current={status.status} />}
+
+          {/* حوكمة وتحديد مسار المآل (القرارات الأربعة ومقترح الذكاء الاصطناعي) */}
+          <TicketTrackDecisionCard
+            ticketNo={ticket.no}
+            status={status.status}
+            role={base === '/admin' ? 'admin' : 'lawyer'}
+            base={base}
+            governance={ticket.trackGovernance}
+            isFrozen={isFrozen}
+            hasCase={ticket.hasCase || Boolean(ticket.caseRef)}
+            caseNumber={ticket.caseNumber || ticket.caseRef}
+            hasExecution={ticket.hasExecution}
+            executionNumber={ticket.executionNumber}
+            closureReasonCode={ticket.closureReasonCode}
+            closureNotes={ticket.closureNotes}
+          />
 
           {/* لوحة إجراءات وتحويلات التذكرة الموحدة (مطابقة للتصميم المرجعي) */}
           {canManageCases && (
@@ -299,6 +376,7 @@ setTypingSignal((n) => n + 1);
               caseRef={ticket.caseRef ?? null}
               role={base === '/admin' ? 'admin' : 'lawyer'}
               onRequestDocs={requestDocs}
+              onCloseJustified={() => setShowCloseModal(true)}
             />
           )}
 
@@ -312,6 +390,15 @@ setTypingSignal((n) => n + 1);
           </div>
         </aside>
       </div>
+
+      {showCloseModal && (
+        <CloseTicketModal
+          open={showCloseModal}
+          ticketNo={ticket.no}
+          role={base === '/admin' ? 'admin' : 'lawyer'}
+          onClose={() => setShowCloseModal(false)}
+        />
+      )}
     </div>
   );
 };

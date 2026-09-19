@@ -4,10 +4,12 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\Role;
+use App\Support\LawyerSpecialties;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -24,6 +26,7 @@ use Spatie\Permission\Traits\HasRoles;
  * @property string|null $phone
  * @property string $status
  * @property string|null $department
+ * @property bool $covers_all_departments
  * @property string $distribution_mode // auto | manual
  * @property string|null $job_title
  * @property string|null $pay_type
@@ -45,6 +48,7 @@ use Spatie\Permission\Traits\HasRoles;
     'status', 'department', 'distribution_mode', 'job_title',
     'pay_type', 'salary', 'pay_pct', 'session_fee',
     'national_id', 'join_date', 'work_start', 'work_end',
+    'covers_all_departments',
 ])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
@@ -65,7 +69,19 @@ class User extends Authenticatable
             'password' => 'hashed',
             'role' => Role::class,
             'join_date' => 'date',
+            'covers_all_departments' => 'boolean',
         ];
+    }
+
+    /**
+     * أقسام المحامي في الكتالوج — له أكثر من تخصّص (قرار المالك 2026-09-14).
+     * المطابقة تمرّ عبر `App\Support\LawyerSpecialties` لا بالقراءة المباشرة.
+     *
+     * @return BelongsToMany<LegalDepartment, $this>
+     */
+    public function specialties(): BelongsToMany
+    {
+        return $this->belongsToMany(LegalDepartment::class, 'lawyer_specialties')->withTimestamps();
     }
 
     public function isAdmin(): bool
@@ -113,7 +129,10 @@ class User extends Authenticatable
             'id' => $this->id,
             'name' => $this->name,
             'role' => $this->job_title ?? $this->role->label(),
-            'dept' => $this->department ?? '—',
+            // للمحامي: تخصّصاته في الكتالوج (قد تكون عدّة)؛ لغيره: قسمه الإداريّ
+            'dept' => $this->isLawyer() ? LawyerSpecialties::label($this) : ($this->department ?? '—'),
+            'specialtyIds' => $this->isLawyer() ? LawyerSpecialties::departmentIds($this) : [],
+            'coversAll' => $this->isLawyer() && LawyerSpecialties::coversAll($this),
             'pay' => $this->payLabel(),
             'salary' => $this->salary,
             'status' => $this->isActive() ? 'نشط' : 'موقوف',

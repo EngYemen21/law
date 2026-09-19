@@ -7,6 +7,8 @@ use App\Models\AuditLog;
 use App\Models\Consult;
 use App\Models\Correspondence;
 use App\Models\User;
+use App\Support\Paginate;
+use App\Support\SearchText;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Response as FacadeResponse;
@@ -25,11 +27,7 @@ class AuditLogController extends Controller
         // فلترة بالبحث
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
-                $q->where('action', 'like', "%{$search}%")
-                    ->orWhere('description', 'like', "%{$search}%")
-                    ->orWhere('user_name', 'like', "%{$search}%")
-                    ->orWhere('auditable_ref', 'like', "%{$search}%")
-                    ->orWhere('ip_address', 'like', "%{$search}%");
+                SearchText::apply($q, ['action', 'description', 'user_name', 'auditable_ref', 'ip_address'], $search);
             });
         }
 
@@ -64,7 +62,11 @@ class AuditLogController extends Controller
             $query->whereDate('created_at', '<=', $toDate);
         }
 
-        $allLogs = $query->limit(200)->get();
+        // **تصفيحٌ حقيقيّ لا سقفٌ صامت.** كان `limit(200)` بلا مؤشّرٍ ولا صفحات: يرشّح
+        // المدير فيرى نتيجةً تبدو تامّة، والقيد الذي يبحث عنه في الصفّ الخمسمئة. والشاشة
+        // كانت تُعيد ترشيح الـ٢٠٠ في المتصفّح لحظياً بينما الترشيح الخادميّ ينتظر «تطبيق»،
+        // فمرشّحان على مجموعتين مختلفتين. الآن الخادم وحده يرشّح، والترقيم يحمل المرشّحات.
+        $logs = $query->paginate(50)->withQueryString();
 
         // إحصائيات لوحة القيادة الحية
         $today = Carbon::today();
@@ -79,15 +81,14 @@ class AuditLogController extends Controller
         ];
 
         // قوائم الفلاتر الديناميكية
+        // **الخيارات من الصفوف لا مكتوبةً باليد.** كان الجدولُ الفارغ يُحقن بسبع فئاتٍ ثابتة،
+        // فتُعرض سبعةُ خيارات لا يطابق أيٌّ منها صفّاً — وهو بعينه ما أُصلح في مرشّح الأولويّة.
         $categories = AuditLog::distinct('category')->pluck('category')->filter()->values()->all();
-        if (empty($categories)) {
-            $categories = ['استشارات', 'مالية وفواتير', 'أمن وحماية', 'قضايا وتنفيذ', 'تذاكر', 'اجتماعات', 'نظام'];
-        }
 
         $actors = AuditLog::distinct('user_name')->pluck('user_name')->filter()->values()->all();
 
         return Inertia::render('admin/audit-logs', [
-            'logs' => $allLogs->map(fn (AuditLog $log) => $log->toCard())->values()->all(),
+            'logs' => Paginate::shape($logs, fn (AuditLog $log) => $log->toCard()),
             'stats' => $stats,
             'categories' => $categories,
             'actors' => $actors,

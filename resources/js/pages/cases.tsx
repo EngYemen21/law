@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
+import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 
 // ============================================================
@@ -62,9 +63,13 @@ interface Props {
     completed: number;
   };
   upcomingHearings?: UpcomingHearingItem[];
+  /** مجموعات الحالات من `CaseJourney::clientTabs` — لا قوائم باليد في الشاشة */
+  tabs?: { active: string[]; fees: string[]; completed: string[] };
 }
 
-const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [] }) => {
+const NO_TABS = { active: [] as string[], fees: [] as string[], completed: [] as string[] };
+
+const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tabs = NO_TABS }) => {
   const toast = useToast();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -87,8 +92,8 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [] }) =
     [
       't-cyan',
       'scale',
-      counts?.active ?? cases.filter((c) => ['منظورة', 'قيد الترافع', 'جلسة قادمة', 'تحت الدراسة', 'جديدة'].includes(c.status)).length,
-      'قضايا منظورة ونشطة',
+      counts?.active ?? cases.filter((c) => tabs.active.includes(c.status)).length,
+      'قضايا نشطة',
     ],
     [
       't-green',
@@ -99,14 +104,14 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [] }) =
     [
       't-amber',
       'card',
-      counts?.pendingFees ?? cases.filter((c) => c.feeStatus === 'pending_payment').length,
-      'بانتظار سداد الأتعاب',
+      counts?.pendingFees ?? cases.filter((c) => tabs.fees.includes(c.status)).length,
+      'بانتظار الأتعاب',
     ],
     [
       't-blue',
       'check',
-      counts?.completed ?? cases.filter((c) => ['محكومة', 'مغلقة', 'مكتملة', 'منتهية'].includes(c.status)).length,
-      'أحكام وقضايا مكتملة',
+      counts?.completed ?? cases.filter((c) => tabs.completed.includes(c.status)).length,
+      'قضايا مغلقة ومؤرشفة',
     ],
   ];
 
@@ -122,26 +127,26 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [] }) =
   // تصفية القضايا
   const filteredCases = useMemo(() => {
     return cases.filter((c) => {
-      const q = search.trim().toLowerCase();
+      const q = foldSearch(search);
       const matchQuery =
         !q ||
-        c.no.toLowerCase().includes(q) ||
-        c.type.toLowerCase().includes(q) ||
-        (c.court && c.court.toLowerCase().includes(q)) ||
-        (c.assignedLawyer && c.assignedLawyer.toLowerCase().includes(q)) ||
-        (c.department && c.department.toLowerCase().includes(q));
+        foldSearch(c.no).includes(q) ||
+        foldSearch(c.type).includes(q) ||
+        (c.court && foldSearch(c.court).includes(q)) ||
+        (c.assignedLawyer && foldSearch(c.assignedLawyer).includes(q)) ||
+        (c.department && foldSearch(c.department).includes(q));
 
       if (!matchQuery) return false;
 
       // تصفية الحالة
       if (statusFilter === 'active') {
-        if (!['منظورة', 'قيد الترافع', 'جلسة قادمة', 'تحت الدراسة', 'جديدة'].includes(c.status)) return false;
+        if (!tabs.active.includes(c.status)) return false;
       } else if (statusFilter === 'hearings') {
         if (!c.next || c.next === '—') return false;
       } else if (statusFilter === 'fees') {
-        if (c.feeStatus !== 'pending_payment') return false;
+        if (!tabs.fees.includes(c.status)) return false;
       } else if (statusFilter === 'completed') {
-        if (!['محكومة', 'مغلقة', 'مكتملة', 'منتهية'].includes(c.status)) return false;
+        if (!tabs.completed.includes(c.status)) return false;
       }
 
       // تصفية القسم
@@ -151,7 +156,7 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [] }) =
 
       return true;
     });
-  }, [cases, search, statusFilter, deptFilter]);
+  }, [tabs, cases, search, statusFilter, deptFilter]);
 
   return (
     <>
@@ -382,7 +387,7 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [] }) =
         <div className="card">
           <div className="card-b" style={{ padding: '48px 16px', textAlign: 'center' }}>
             <Icon name="scale" />
-            <b style={{ display: 'block', margin: '12px 0 6px', fontSize: 16 }}>لا توجد قضايا مطابقة للبحث أو الفلتر المحدد</b>
+            <b style={{ display: 'block', margin: '12px 0 6px', fontSize: 16 }}>{cases.length === 0 ? 'لا توجد قضايا بعد' : 'لا توجد قضايا مطابقة للبحث أو الفلتر المحدد'}</b>
             <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
               جرب تغيير معايير البحث أو استعراض كافة القضايا المسجلة.
             </p>

@@ -10,7 +10,7 @@ import Icon from '@/lib/icons';
 
 const fmt = (n: number) => n.toLocaleString('en-US') + ' ر.س';
 
-interface Inv { no: string; client: string; desc: string; amount: number; status: string; tone: string; due: string; paid: boolean; hasProof?: boolean; }
+interface Inv { no: string; client: string; desc: string; amount: number; status: string; tone: string; due: string; paid: boolean; hasProof?: boolean; cancelled?: boolean; }
 interface Props { invoices: Paginated<Inv>; filter: string; totals: { issued: number; collected: number; due: number; overdue: number; unpaid: number }; }
 
 const TABS: [string, string][] = [['all', 'الكل'], ['مدفوعة', 'مدفوعة'], ['غير مدفوعة', 'غير المدفوعة']];
@@ -87,7 +87,8 @@ const AdminAccounting: React.FC<Props> = ({ invoices, filter, totals }) => {
                             <Icon name="close" /> رفض الإثبات
                           </button>
                         )}
-                        {!v.paid && <button className="btn sm" onClick={() => markPaid(v.no)} type="button"><Icon name="check" /> تحصيل</button>}
+                        {/* الملغاة لا تُحصَّل (`PaymentReconciler::settleManual` يردّها) — فلا زرّ يَعِد بما لا يقع */}
+                        {!v.paid && !v.cancelled && <button className="btn sm" onClick={() => markPaid(v.no)} type="button"><Icon name="check" /> تحصيل</button>}
                       </div>
                     </td>
                   </tr>

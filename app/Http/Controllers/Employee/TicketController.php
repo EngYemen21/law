@@ -2,6 +2,11 @@
 
 namespace App\Http\Controllers\Employee;
 
+use App\Domain\Journey\Enums\TicketOutcomeTrack;
+use App\Domain\Journey\Transitions\Ticket\AwaitTicketDocuments;
+use App\Domain\Journey\Transitions\Ticket\ProposeOutcomeTrack;
+use App\Domain\Journey\Transitions\Ticket\TicketDocumentsReceived;
+use App\Domain\Journey\Workflow;
 use App\Enums\Role;
 use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
@@ -15,11 +20,12 @@ use App\Services\LegalAiService;
 use App\Support\Audit;
 use App\Support\CaseConversion;
 use App\Support\ConsultBooking;
+use App\Support\ConversationFiles;
+use App\Support\LegalCatalogue;
 use App\Support\Live;
 use App\Support\Notify;
 use App\Support\ServiceDocs;
 use App\Support\TicketJourney;
-use App\Support\TicketResult;
 use App\Support\TicketTriage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -57,7 +63,8 @@ class TicketController extends Controller
             'needAction' => $allTickets->whereNotIn('status', TicketJourney::AWAITING_OTHERS)->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
             'missingDocs' => $allTickets->where('status', 'بانتظار مستندات')->count(),
             'referred' => $allTickets->where('status', 'محالة للقسم القانوني')->count(),
-            'urgent' => $allTickets->filter(fn ($t) => in_array($t->priority, ['عالية', 'حرجة', 'urgent', 'high']))->count(),
+            // من الكتالوج: «حرجة/urgent/high» ثلاثُ مفرداتٍ لا كاتب لها، والكاتب الوحيد «عالية»
+            'urgent' => $allTickets->filter(fn ($t) => TicketJourney::isUrgent($t->priority))->count(),
             'completed' => $allTickets->whereIn('status', ['مكتملة', 'مغلقة'])->count(),
         ];
 
@@ -66,7 +73,11 @@ class TicketController extends Controller
         return Inertia::render('employee/tickets', [
             'tickets' => $tickets,
             'counts' => $counts,
+            // مجموعة «ينتظر طرفاً آخر» نفسها التي يعدّ بها الخادم — تبني الواجهة تبويبها عليها لا على نسخةٍ يدويّة
+            'awaitingOthers' => TicketJourney::AWAITING_OTHERS,
             'departments' => $departments,
+            // أقسام مودال التحويل من الكتالوج الفعّال — لا قائمة ثابتة تخلط الإداريّ بالقانونيّ
+            'catalogueDepartments' => LegalCatalogue::departments()->pluck('name')->values(),
             // محامو المكتب — مودال التحويل في القائمة يحتاج القائمة الحقيقية لا بيانات ثابتة
             'lawyers' => User::where('role', Role::Lawyer)
                 ->orderBy('name')
@@ -106,11 +117,13 @@ class TicketController extends Controller
             'clientStats' => $clientStats,
             'channel' => 'ticket.'.$ticket->id,
             // الموظف يرى كل الرسائل بما فيها الملاحظات الداخلية
-            'messages' => $ticket->messages->map->toMessage(),
+            'messages' => ConversationFiles::linkLegacyChips($ticket->messages->map->toMessage()->all(), 'ticket', $ticket->documents),
             // مفردات الحالة من مصدر الرحلة — قائمة مكتوبة يدوياً كانت تُسقط حالات حقيقية
             'states' => TicketJourney::options(),
             // محامو المكتب لمودال جدولة الموعد المضمّن
             'lawyers' => $lawyers,
+            // أقسام مودال التحويل من الكتالوج الفعّال
+            'catalogueDepartments' => LegalCatalogue::departments()->pluck('name')->values(),
         ]);
     }
 
@@ -159,11 +172,9 @@ class TicketController extends Controller
         ]);
         $type = $data['type'] ?? 'office';
 
-        if (TicketJourney::indexOf($ticket->status) > TicketJourney::indexOf('موعد مؤكد')
-            || in_array($ticket->status, ['مكتملة', 'مغلقة', 'بانتظار اعتماد النتيجة', 'بانتظار اعتماد الإدارة'], true)) {
-            throw ValidationException::withMessages([
-                'type' => 'لا يمكن تحويل التذكرة لاستشارة من الحالة الحالية.',
-            ]);
+        // مصدرٌ واحد لكلّ مداخل طلب الاستشارة (ع١٣، ع١٧)
+        if ($why = TicketJourney::consultRequestBlocker($ticket)) {
+            throw ValidationException::withMessages(['type' => $why]);
         }
         if ($ticket->consults()->whereIn('status', Consult::PRE_SESSION_STATUSES)->exists()) {
             throw ValidationException::withMessages([
@@ -181,7 +192,7 @@ class TicketController extends Controller
             'who' => 'staff',
             'name' => $request->user()->name,
             'role' => 'خدمة العملاء',
-            'body' => "<p>تم تحويل التذكرة إلى طلب استشارة ({$m['label']}) وإرساله للتسعير. ستصل العميل الفاتورة لسدادها ثم اختيار الموعد.</p>",
+            'body' => "<p>تم تحويل التذكرة إلى طلب استشارة ({$m['label']}) وإرساله للتسعير. ستصل العميل الفاتورة لسدادها، ثمّ يُحدَّد موعد الجلسة.</p>",
             'time_label' => $this->clock(),
         ]);
         Live::push(new TicketMessageBroadcast($msg));
@@ -213,7 +224,7 @@ class TicketController extends Controller
         $path = $file->store("ticket-docs/{$ticket->id}");
         $ticket->increment('attachments');
 
-        $ticket->documents()->create([
+        $doc = $ticket->documents()->create([
             'name' => $name,
             'path' => $path,
             'mime' => $file->getClientMimeType(),
@@ -225,12 +236,20 @@ class TicketController extends Controller
             'who' => 'staff',
             'name' => $request->user()->name,
             'role' => 'خدمة العملاء',
-            'body' => '<p>تم إرفاق مستند من المكتب:</p><div class="doc-list"><span class="doc-chip">📎 '.e($name).'</span></div>',
+            'body' => '<p>تم إرفاق مستند من المكتب:</p><div class="doc-list">'.ConversationFiles::chip('ticket', $doc).'</div>',
             'time_label' => $this->clock(),
         ]);
         Live::push(new TicketMessageBroadcast($msg));
 
-        $ticket->update(['last_message' => 'تم إرفاق مستند: '.$name, 'date_label' => 'الآن']);
+        if ($ticket->status === 'بانتظار مستندات') {
+            Workflow::run(new TicketDocumentsReceived, $ticket, $request->user(), [
+                'last_message' => 'تم إرفاق مستند من المكتب: '.$name,
+                'via' => 'employee.attach',
+            ]);
+            Live::push(new TicketStatusBroadcast($ticket));
+        } else {
+            $ticket->update(['last_message' => 'تم إرفاق مستند: '.$name, 'date_label' => 'الآن']);
+        }
 
         return response()->noContent();
     }
@@ -240,10 +259,11 @@ class TicketController extends Controller
     public function requestDocs(Request $request, Ticket $ticket): HttpResponse
     {
 
-        // التذاكر المكتملة/المغلقة نهائية — لا تُعاد لطلب نواقص (يبقى الحجب النهائي تصميماً)
-        if (in_array($ticket->status, ['مكتملة', 'مغلقة'], true)) {
+        // **النواقص قبل اعتماد المستشار وحده** — كان يُقبل في أيّ مرحلة غير نهائيّة، فيُرجع تذكرةً
+        // معتمدةً إلى «بانتظار مستندات» ثمّ يمحو رفعُ العميل اعتماد المستشار (ع١١).
+        if (! in_array($ticket->status, TicketJourney::BEFORE_LAWYER_APPROVAL, true)) {
             throw ValidationException::withMessages([
-                'docs' => 'التذكرة مكتملة/مغلقة ولا يمكن طلب نواقص عليها.',
+                'docs' => 'طلب النواقص قبل اعتماد المستشار للملخّص — بعده يطلبها المستشار من التذكرة.',
             ]);
         }
 
@@ -267,11 +287,9 @@ class TicketController extends Controller
                 'time_label' => $this->clock(),
             ]);
 
-            $ticket->update([
-                'status' => 'بانتظار مستندات',
-                'tone' => TicketJourney::toneFor('بانتظار مستندات'),
+            Workflow::run(new AwaitTicketDocuments, $ticket, $request->user(), [
                 'last_message' => 'طلب نواقص من خدمة العملاء',
-                'date_label' => 'الآن',
+                'via' => 'employee.request_docs',
             ]);
         });
 
@@ -314,94 +332,44 @@ class TicketController extends Controller
     // تغيير حالة التذكرة (بثّ لحظي — يتقدّم المسار لدى الطرفين)
     public function status(Request $request, Ticket $ticket): HttpResponse
     {
-        // الحالة مقيّدة بمفردات الرحلة — نصّ حرّ كان يُحفظ ويُبثّ ثم يُعرض عند مرحلة خاطئة.
-        // والنغمة تُشتقّ هنا ولا تُقبل من العميل: كانت أي نغمة تُقبل مع أي حالة.
-        $data = $request->validate([
-            'status' => ['required', 'string', Rule::in(TicketJourney::statuses())],
-        ]);
-
-        // التذاكر المكتملة/المغلقة نهائية — لا تُعاد لمرحلة سابقة (تمنع مسح اعتماد
-        // المحامي/الإدارة عبر إعادة تنفيذ referToLawyer على تذكرة منصرفة). يُسمح بالتبديل
-        // بين الحالات النهائية فقط (مكتملة ⇄ مغلقة)، لا التراجع لمراحل المعالجة.
-        if (in_array($ticket->status, ['مكتملة', 'مغلقة'], true) && ! in_array($data['status'], ['مكتملة', 'مغلقة'], true)) {
-            throw ValidationException::withMessages([
-                'status' => 'التذكرة مكتملة/مغلقة ولا يمكن إعادة فتحها. أنشئ تذكرة جديدة إن لزم.',
-            ]);
-        }
-
-        // الترتيب محروس أيضاً: المفردات وحدها كانت تسمح بالقفز إلى «مكتملة» فيُتخطّى
-        // مسار الرحلة كلّه ويُفتح تحويل التذكرة إلى قضية — باب خلفي يلتفّ على advance.
-        if (! TicketJourney::canTransition($ticket->status, $data['status'])) {
-            throw ValidationException::withMessages([
-                'status' => 'انتقال غير مسموح: لا يمكن تخطّي مراحل الرحلة.',
-            ]);
-        }
-
-        $ticket->update(['status' => $data['status'], 'tone' => TicketJourney::toneFor($data['status'])]);
-        Live::push(new TicketStatusBroadcast($ticket));
-
-        return response()->noContent();
+        /*
+         * **لا تغيير يدويّ للحالة من الموظّف** (قرار المالك 2026-09-14).
+         *
+         * كانت القائمة تقبل أيّ تبديلٍ داخل رقم المرحلة: «مكتملة» من «بانتظار اعتماد الإدارة»
+         * (ع٥)، و«مكتملة» من «مغلقة» فتعود أهليّة التحويل لقضيّة (ع٦)، والتبديل داخل مرحلة
+         * الجلسة يكرّر «انعقدت الجلسة» (ع١٢). الرحلة تتقدّم بأفعالٍ صريحة، والتصحيح
+         * الاستثنائيّ للإدارة العليا مع سببٍ مكتوب.
+         */
+        abort(403, 'تغيير الحالة يدوياً للإدارة العليا فقط مع ذكر السبب — استعمل إجراءات التذكرة.');
     }
 
     // تنفيذ المرحلة التالية من رحلة المعالجة (تحديث الحالة + رسالة + بثّ)
     public function advance(Request $request, Ticket $ticket): HttpResponse
     {
-
-        // التذاكر المكتملة/المغلقة نهائية — advance لا يفعل شيئاً (ولا يعيد تنفيذ البوابات).
-        // دفاع بالعمق: حتى لو تراجعت status لأي سبب، يبقى advance no-op آمناً.
-        if (in_array($ticket->status, ['مكتملة', 'مغلقة'], true)) {
-            return response()->noContent();
+        /*
+         * **فعلٌ واحد صريح للموظّف: الإحالة إلى المستشار.**
+         *
+         * كان «تنفيذ المرحلة التالية» يمشي بالتذكرة على أرقام المراحل: يكتب «بانتظار حجز
+         * الاستشارة» بعد الرأي القانونيّ، و«انعقدت الجلسة» بعد الموعد — ولو لم يحضر العميل
+         * (ع٢١) أو أُلغيت الاستشارة (ع١٠). الآن: طلب الاستشارة زرٌّ مستقلّ، وإكمال التذكرة
+         * باعتماد الإدارة لملخّص الجلسة (`ConsultSessionOutcome`).
+         */
+        if (! in_array($ticket->status, ['جديدة', 'قيد التحليل', 'محالة للقسم القانوني', 'بانتظار مستندات'], true)) {
+            abort(422, match ($ticket->status) {
+                'موعد مؤكد', 'بانتظار ملخّص الجلسة' => 'تكتمل التذكرة بعد الجلسة باعتماد الإدارة لملخّصها — لا إجراء للموظّف هنا.',
+                'الرأي القانوني' => 'الخطوة التالية طلب استشارة من «خيارات التذكرة».',
+                default => 'لا إجراء للموظّف في هذه المرحلة.',
+            });
         }
 
-        // مراحل بيد المحامي/الإدارة/العميل — لا يتقدّم الموظف فيها (يشمل انتظار حجز العميل والسداد)
-        if (in_array($ticket->status, TicketJourney::AWAITING_OTHERS, true)) {
-            return response()->noContent();
-        }
+        // **بوابة المستندات تعدّ ما يخصّ الملفّ** — كان العدّاد يزيد مع كلّ مرفق ولو رُفض (ع٢٥)
+        $usable = $ticket->documents()->where('status', '!=', 'غير مرتبط')->exists();
 
-        // الموعد قائم: يعقد الموظف الجلسة ويوثّق محضرها، ثم تُرفع النتيجة للمستشار
-        if (in_array($ticket->status, TicketJourney::SESSION_READY, true)) {
-            /*
-             * **لا يُعلَن انعقادُ جلسةٍ لم تُختَم.**
-             *
-             * كان `conductSession` يُنادى بمجرّد أن تكون التذكرة في «موعد مؤكد» — **بلا
-             * أن ينظر إلى الاستشارة أصلاً**. فيكتب محضراً، ويرفع نتيجةً للاعتماد، ويصل
-             * صاحبَ الملفّ «**انعقدت الجلسة**» — وجلستُه لم تبدأ بعد.
-             *
-             * وقع ذلك حرفيّاً على `SB-2026-8077`: التذكرة انتقلت إلى «بانتظار اعتماد
-             * النتيجة» والاستشارة `CN-2026-7173` ما زالت «بانتظار الجلسة»، وموعدُها بعد
-             * ثلاث ساعات، وقد سُدّد ثمنها ١٠٬٣٥٠ ريالاً. والنتيجة المرفوعة مبنيّةٌ على
-             * دراسة ما **قبل** الجلسة لأنّ ملخّصها لم يُولَّد.
-             *
-             * والدليل على أنّ المعرفة كانت متاحة: `Consult::session` يقول الحقيقة،
-             * وويبهوك Zoom يكتبها. فالعطل ترْكُ السؤال لا تعذُّرُ الجواب.
-             */
-            $unfinished = $ticket->consults()
-                ->whereNotIn('session', Consult::SESSION_ENDED)
-                ->latest('id')
-                ->first();
-
-            if ($unfinished) {
-                abort(422, "جلسة الاستشارة {$unfinished->ref} لم تُختَم بعد ({$unfinished->session}) — اختمها وسجّل ما دار فيها قبل رفع النتيجة.");
-            }
-
-            $this->conductSession($ticket);
-
-            return response()->noContent();
-        }
-
-        $stage = TicketJourney::next($ticket->status);
-        if (! $stage) {
-            return response()->noContent(); // اكتملت الرحلة
-        }
-
-        // «محالة للقسم القانوني» مرحلة عبور تُفضي دائماً إلى المستشار: سواء ننتقل إليها الآن أو
-        // كانت التذكرة واقفة عليها (وصلتها مثلاً عبر فتحٍ بلا تحليل ذكي) — الوجهة «بانتظار اعتماد
-        // المستشار» لا «الرأي القانوني»؛ فاعتماد المستشار وحده يفتح «الرأي القانوني».
-        $referring = $stage['status'] === 'محالة للقسم القانوني' || $ticket->status === 'محالة للقسم القانوني';
-
-        // بوابة المستندات: لا تُحال للقسم قبل التأكد من إرفاق المستندات
-        if ($referring && $ticket->attachments < 1) {
-            $ticket->update(['status' => 'بانتظار مستندات', 'tone' => TicketJourney::toneFor('بانتظار مستندات'), 'last_message' => 'بانتظار إرفاق المستندات المطلوبة', 'date_label' => 'الآن']);
+        if (! $usable) {
+            Workflow::run(new AwaitTicketDocuments, $ticket, $request->user(), [
+                'last_message' => 'بانتظار إرفاق المستندات المطلوبة',
+                'via' => 'employee.advance',
+            ]);
 
             $chips = implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', ServiceDocs::for($ticket->type)));
             $msg = $ticket->messages()->create([
@@ -418,35 +386,7 @@ class TicketController extends Controller
             return response()->noContent();
         }
 
-        // الإحالة للقسم القانوني: تقدّم فوري بيد الموظف (بلا نداء AI)، ثم انتظار اعتماد المستشار
-        if ($referring) {
-            TicketTriage::referToLawyer($ticket);
-
-            return response()->noContent();
-        }
-
-        $ticket->update([
-            'status' => $stage['status'],
-            'tone' => $stage['tone'],
-            'last_message' => $stage['msg'],
-            'date_label' => 'الآن',
-        ]);
-
-        $name = match ($stage['who']) {
-            'lawyer' => 'المستشار القانوني',
-            'staff' => $request->user()->name,
-            default => LegalAiService::AGENT_NAME,
-        };
-        $msg = $ticket->messages()->create([
-            'who' => $stage['who'],
-            'name' => $name,
-            'role' => $stage['role'],
-            'body' => nl2br(e($stage['msg'])),
-            'time_label' => $this->clock(),
-        ]);
-
-        Live::push(new TicketMessageBroadcast($msg));
-        Live::push(new TicketStatusBroadcast($ticket));
+        TicketTriage::referToLawyer($ticket, $request->user());
 
         return response()->noContent();
     }
@@ -483,35 +423,22 @@ class TicketController extends Controller
         return back();
     }
 
+    // مقترح الموظف لمسار مآل التذكرة مرفوعاً للإدارة العليا
+    public function proposeTrack(Request $request, Ticket $ticket): RedirectResponse
+    {
+        $data = $request->validate([
+            'track' => ['required', 'string', Rule::in(TicketOutcomeTrack::values())],
+            'reason' => ['required', 'string', 'min:10', 'max:2000'],
+        ]);
+
+        Workflow::run(new ProposeOutcomeTrack, $ticket, $request->user(), $data);
+
+        return back()->with('flash', 'تم رفع مقترح المسار للإدارة العليا للاعتماد بنجاح.');
+    }
+
     /**
      * عقد الجلسة وتوثيق محضرها (يطابق tfSession)، ثم رفع النتيجة لاعتماد المستشار.
      */
-    private function conductSession(Ticket $ticket): void
-    {
-        $msg = $ticket->messages()->create([
-            'who' => 'ai',
-            'name' => LegalAiService::AGENT_NAME,
-            'role' => 'محضر الجلسة',
-            'body' => '<p>انعقدت الجلسة، يعمل فريقنا على مراجعة ملخصها وإعداد التوصيات والمخرجات النهائية — ستصلكم النتيجة فور اعتمادها من المستشار القانوني.</p>',
-            'time_label' => $this->clock(),
-        ]);
-        Live::push(new TicketMessageBroadcast($msg));
-
-        // تجهيز نتيجة الجلسة من الملخص المعتمد، ورفعها لمراجعة المستشار
-        $ticket->summary?->update([
-            'result' => TicketResult::compose($ticket, $ticket->summary),
-            'result_status' => 'pending_lawyer',
-        ]);
-
-        $ticket->update([
-            'status' => 'بانتظار اعتماد النتيجة',
-            'tone' => TicketJourney::toneFor('بانتظار اعتماد النتيجة'),
-            'last_message' => 'انتهت الجلسة، وملخصها بانتظار اعتماد المستشار',
-            'date_label' => 'الآن',
-        ]);
-        Live::push(new TicketStatusBroadcast($ticket));
-    }
-
     private function clock(): string
     {
         $now = now();

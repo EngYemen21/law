@@ -119,11 +119,19 @@ class EmployeeRequestDocsTest extends TestCase
         ])->assertNoContent();
 
         $ticket->refresh();
+        // عند رفع العميل للنواقص: تنتقل لـ«قيد التحليل» بانتظار مراجعة الموظف (لا إحالة تلقائية من الذكاء الاصطناعي)
+        $this->assertSame('قيد التحليل', $ticket->status);
+
+        // الموظف ينقر زر «إحالة للمستشار»
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $this->actingAs($employee)->post(route('employee.tickets.advance', $ticket))->assertNoContent();
+
+        $ticket->refresh();
         // إعادة الإحالة للمستشار مع تحديث الملخّص
         $this->assertSame('بانتظار اعتماد المستشار', $ticket->status);
         $this->assertSame('awaiting_lawyer', TicketSummary::where('ticket_id', $ticket->id)->firstOrFail()->status);
 
-        // إشعار المستشار المسند بمراجعة الملخّص (البق: لم يكن يُشعَر سابقاً)
+        // إشعار المستشار المسند بمراجعة الملخّص
         $this->assertNotNull($ticket->assigned_lawyer_id);
         $this->assertDatabaseHas('user_notifications', ['user_id' => $ticket->assigned_lawyer_id]);
     }

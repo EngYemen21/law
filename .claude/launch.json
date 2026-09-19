@@ -6,6 +6,12 @@
       "runtimeExecutable": "C:/Users/a/.config/herd/bin/php83/php.exe",
       "runtimeArgs": ["artisan", "serve", "--port=8000"],
       "port": 8000
+    },
+    {
+      "name": "vite",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set VITE_DEV_SERVER_KEY=C:/Users/a/.config/herd/config/valet/Certificates/law-laravel-office-new.test.key&& set VITE_DEV_SERVER_CERT=C:/Users/a/.config/herd/config/valet/Certificates/law-laravel-office-new.test.crt&& npm run dev"],
+      "port": 5173
     }
   ]
 }

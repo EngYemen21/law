@@ -1,8 +1,10 @@
 import { router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
-import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
-import StatRow, { type StatItem } from '@/components/babylon/StatRow';
+import StatRow from '@/components/babylon/StatRow';
+import type { StatItem } from '@/components/babylon/StatRow';
+import { foldSearch } from '@/lib/employee-data';
+import Icon from '@/lib/icons';
 
 // ============================================================
 // لوحة متابعة وتنسيق القضايا للموظف (Legal Case Management Desk)
@@ -23,6 +25,7 @@ export interface EmpCaseRow {
   next?: string | null;
   hasNextHearing?: boolean;
   updatedAgo?: string;
+  najizCaseNo?: string | null;
 }
 
 interface Counts {
@@ -30,6 +33,7 @@ interface Counts {
   active?: number;
   withHearings?: number;
   preparing?: number;
+  awaiting?: number;
   inCourt?: number;
   ruled?: number;
   closed?: number;
@@ -58,7 +62,7 @@ const EmployeeCases: React.FC<Props> = ({
   lawyers = [],
 }) => {
   // التبويب النشط
-  const [activeTab, setActiveTab] = useState<'active' | 'hearings' | 'preparing' | 'inCourt' | 'ruled' | 'closed'>('active');
+  const [activeTab, setActiveTab] = useState<'active' | 'hearings' | 'preparing' | 'awaiting' | 'inCourt' | 'ruled' | 'closed'>('active');
 
   // البحث والفلاتر
   const [searchQuery, setSearchQuery] = useState('');
@@ -70,6 +74,7 @@ const EmployeeCases: React.FC<Props> = ({
     const active = cases.filter((c) => !['مغلقة', 'مؤرشفة'].includes(c.status)).length;
     const withHearings = cases.filter((c) => c.hasNextHearing || (c.next && c.next !== '—')).length;
     const preparing = cases.filter((c) => c.status === 'قيد التحضير').length;
+    const awaiting = cases.filter((c) => c.status === 'بانتظار القيد').length;
     const inCourt = cases.filter((c) => c.status === 'منظورة').length;
     const ruled = cases.filter((c) => c.status === 'صدر الحكم').length;
     const closed = cases.filter((c) => ['مغلقة', 'مؤرشفة'].includes(c.status)).length;
@@ -79,6 +84,7 @@ const EmployeeCases: React.FC<Props> = ({
       active: counts?.active ?? active,
       withHearings: counts?.withHearings ?? withHearings,
       preparing: counts?.preparing ?? preparing,
+      awaiting: counts?.awaiting ?? awaiting,
       inCourt: counts?.inCourt ?? inCourt,
       ruled: counts?.ruled ?? ruled,
       closed: counts?.closed ?? closed,
@@ -89,6 +95,7 @@ const EmployeeCases: React.FC<Props> = ({
     ['t-blue', 'scale', calculatedCounts.active, 'قضايا جارية بالمكتب'],
     ['t-red', 'cal', calculatedCounts.withHearings, 'بجلسات محكمة قادمة'],
     ['t-amber', 'folder', calculatedCounts.preparing, 'قيد التحضير واللوائح'],
+    ['t-grey', 'send', calculatedCounts.awaiting, 'مرفوعة بانتظار القيد'],
     ['t-cyan', 'doc', calculatedCounts.inCourt, 'منظورة بالمحاكم'],
     ['t-green', 'check', calculatedCounts.ruled, 'صدر فيها حكم'],
   ];
@@ -97,28 +104,55 @@ const EmployeeCases: React.FC<Props> = ({
   const filteredCases = useMemo(() => {
     return cases.filter((c) => {
       // فلترة التبويب
-      if (activeTab === 'active' && ['مغلقة', 'مؤرشفة'].includes(c.status)) return false;
-      if (activeTab === 'hearings' && !(c.hasNextHearing || (c.next && c.next !== '—'))) return false;
-      if (activeTab === 'preparing' && c.status !== 'قيد التحضير') return false;
-      if (activeTab === 'inCourt' && c.status !== 'منظورة') return false;
-      if (activeTab === 'ruled' && c.status !== 'صدر الحكم') return false;
-      if (activeTab === 'closed' && !['مغلقة', 'مؤرشفة'].includes(c.status)) return false;
+      if (activeTab === 'active' && ['مغلقة', 'مؤرشفة'].includes(c.status)) {
+        return false;
+      }
+
+      if (activeTab === 'hearings' && !(c.hasNextHearing || (c.next && c.next !== '—'))) {
+        return false;
+      }
+
+      if (activeTab === 'preparing' && c.status !== 'قيد التحضير') {
+        return false;
+      }
+
+      if (activeTab === 'awaiting' && c.status !== 'بانتظار القيد') {
+        return false;
+      }
+
+      if (activeTab === 'inCourt' && c.status !== 'منظورة') {
+        return false;
+      }
+
+      if (activeTab === 'ruled' && c.status !== 'صدر الحكم') {
+        return false;
+      }
+
+      if (activeTab === 'closed' && !['مغلقة', 'مؤرشفة'].includes(c.status)) {
+        return false;
+      }
 
       // فلترة نوع القضية / القسم
-      if (filterType !== 'all' && c.type !== filterType && c.dept !== filterType) return false;
+      if (filterType !== 'all' && c.type !== filterType && c.dept !== filterType) {
+        return false;
+      }
 
       // فلترة المستشار
-      if (filterLawyer !== 'all' && String(c.lawyerId) !== filterLawyer && c.lawyer !== filterLawyer) return false;
+      if (filterLawyer !== 'all' && String(c.lawyerId) !== filterLawyer && c.lawyer !== filterLawyer) {
+        return false;
+      }
 
       // البحث النصي
       if (searchQuery.trim()) {
-        const q = searchQuery.trim().toLowerCase();
-        const noMatch = c.no.toLowerCase().includes(q);
-        const clientMatch = c.client.toLowerCase().includes(q);
-        const typeMatch = c.type.toLowerCase().includes(q);
-        const lawyerMatch = c.lawyer.toLowerCase().includes(q);
+        const q = foldSearch(searchQuery);
+        const noMatch = foldSearch(c.no).includes(q);
+        const clientMatch = foldSearch(c.client).includes(q);
+        const typeMatch = foldSearch(c.type).includes(q);
+        const lawyerMatch = foldSearch(c.lawyer).includes(q);
         const courtMatch = c.court?.toLowerCase().includes(q) ?? false;
-        if (!noMatch && !clientMatch && !typeMatch && !lawyerMatch && !courtMatch) {
+        const najizMatch = c.najizCaseNo?.toLowerCase().includes(q) ?? false;
+
+        if (!noMatch && !clientMatch && !typeMatch && !lawyerMatch && !courtMatch && !najizMatch) {
           return false;
         }
       }
@@ -176,6 +210,14 @@ const EmployeeCases: React.FC<Props> = ({
               onClick={() => setActiveTab('preparing')}
             >
               <Icon name="folder" /> قيد التحضير ({calculatedCounts.preparing})
+            </button>
+            <button
+              type="button"
+              className={`btn sm ${activeTab === 'awaiting' ? '' : 'soft'}`}
+              style={{ boxShadow: activeTab === 'awaiting' ? undefined : 'none' }}
+              onClick={() => setActiveTab('awaiting')}
+            >
+              <Icon name="send" /> بانتظار القيد ({calculatedCounts.awaiting})
             </button>
             <button
               type="button"
@@ -332,7 +374,7 @@ const EmployeeCases: React.FC<Props> = ({
           ) : (
             <div className="empty">
               <Icon name="scale" />
-              <b>لا توجد قضايا مطابقة لخيارات البحث والتصفية</b>
+              <b>{cases.length === 0 ? 'لا توجد قضايا بعد' : 'لا توجد قضايا مطابقة لخيارات البحث والتصفية'}</b>
               {(searchQuery || filterType !== 'all' || filterLawyer !== 'all' || activeTab !== 'active') && (
                 <button
                   className="btn soft sm"

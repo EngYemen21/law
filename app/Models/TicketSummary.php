@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\GuardsJourneyState;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -12,13 +13,18 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class TicketSummary extends Model
 {
+    use GuardsJourneyState;
+
     protected $fillable = [
         'ticket_id', 'lawyer_id', 'case_summary', 'attachments_summary', 'facts', 'key_points', 'status', 'approved_at',
+        'lawyer_approved_at', 'lawyer_approved_by', 'edited_at',
         'result', 'result_status', 'ai_generated',
     ];
 
     protected $casts = [
         'approved_at' => 'datetime',
+        'lawyer_approved_at' => 'datetime',
+        'edited_at' => 'datetime',
         'ai_generated' => 'boolean',
     ];
 
@@ -32,9 +38,16 @@ class TicketSummary extends Model
         return $this->belongsTo(User::class, 'lawyer_id');
     }
 
+    /** اعتمدته الإدارة ونُشر للعميل (المرحلة الثانية). */
     public function isApproved(): bool
     {
         return $this->status === 'approved';
+    }
+
+    /** اعتمده المحامي (المرحلة الأولى) — لا يصل العميلَ شيءٌ به (قرار المالك 2026-09-14). */
+    public function isLawyerApproved(): bool
+    {
+        return $this->lawyer_approved_at !== null;
     }
 
     // الشكل الذي تتوقعه واجهة المحامي/الإدارة
@@ -49,6 +62,7 @@ class TicketSummary extends Model
             'keyPoints' => $this->key_points,
             'status' => $this->status,
             'approved' => $this->isApproved(),
+            'lawyerApproved' => $this->isLawyerApproved(),
             'aiGenerated' => (bool) $this->ai_generated,
             'result' => $this->result,
             'resultStatus' => $this->result_status,
