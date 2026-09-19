@@ -210,7 +210,7 @@ class ConsultBookingTest extends TestCase
 
     /**
      * الحارسة على الطلب: لا يُطلب حجز على تذكرة في مرحلة نهائية
-     * (مكتملة/مغلقة/بانتظار اعتماد النتيجة/بانتظار اعتماد الإدارة).
+     * (مكتملة/مغلقة/محولة إلى قضية/بانتظار اعتماد الإدارة للمسار).
      */
     private function assertBookRejectedForStatus(string $status): void
     {
@@ -236,13 +236,13 @@ class ConsultBookingTest extends TestCase
         $this->assertBookRejectedForStatus('مغلقة');
     }
 
-    public function test_book_rejects_pending_result_approval_ticket(): void
+    public function test_book_rejects_converted_to_case_ticket(): void
     {
-        $this->assertBookRejectedForStatus('بانتظار اعتماد النتيجة');
+        $this->assertBookRejectedForStatus('محولة إلى قضية');
     }
 
-    public function test_book_rejects_pending_admin_approval_ticket(): void
+    public function test_book_rejects_ticket_awaiting_admin_outcome_approval(): void
     {
-        $this->assertBookRejectedForStatus('بانتظار اعتماد الإدارة');
+        $this->assertBookRejectedForStatus('بانتظار اعتماد الإدارة للمسار');
     }
 }

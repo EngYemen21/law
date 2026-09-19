@@ -156,7 +156,8 @@ class TicketController extends Controller
      *
      * الرحلة الجديدة: ملخّص ملفٍّ اعتمده المحامي (`summary.status = awaiting_admin` وحالة
      * «بانتظار اعتماد الإدارة للملخّص»)، أو ملخّص جلسةٍ اعتمده المحامي ولم تعتمده الإدارة.
-     * والشرطان القديمان باقيان لصفوفٍ قائمة («بانتظار اعتماد الإدارة» و`result_status = pending_admin`).
+     * و`result_status = pending_admin` باقٍ لصفوفٍ قائمة قبل حذف مسار اعتماد المحامي للنتيجة
+     * (2026-09-19)؛ الحالة القديمة «بانتظار اعتماد الإدارة» حُذفت.
      *
      * @param  Builder<Ticket>  $query
      * @return Builder<Ticket>

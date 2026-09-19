@@ -17,7 +17,9 @@ class AdminApprovalsOperationsTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $client;
+
     private User $lawyer;
 
     protected function setUp(): void
@@ -300,7 +302,7 @@ class AdminApprovalsOperationsTest extends TestCase
             'user_id' => $this->client->id,
             'number' => 'TK-SUM-OLDTKT-'.uniqid(),
             'type' => 'استشارة عقارية',
-            'status' => 'بانتظار اعتماد الإدارة',
+            'status' => 'بانتظار اعتماد الإدارة للملخّص',
             'created_at' => now()->subDays(10),
         ]);
         TicketSummary::create([
@@ -315,7 +317,7 @@ class AdminApprovalsOperationsTest extends TestCase
             'user_id' => $this->client->id,
             'number' => 'TK-SUM-NEWTKT-'.uniqid(),
             'type' => 'استشارة تجارية',
-            'status' => 'بانتظار اعتماد الإدارة',
+            'status' => 'بانتظار اعتماد الإدارة للملخّص',
             'created_at' => now()->subHours(1),
         ]);
         TicketSummary::create([

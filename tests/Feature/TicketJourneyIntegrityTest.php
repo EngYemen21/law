@@ -85,7 +85,7 @@ class TicketJourneyIntegrityTest extends TestCase
             ['قيد التحليل', 'قيد التحليل'],       // لا تغيير
             ['قيد التحليل', 'بانتظار مستندات'],   // داخل المرحلة
             ['قيد التحليل', 'مكتملة'],             // تخطٍّ
-            ['بانتظار اعتماد الإدارة', 'مكتملة'],  // ع٥
+            ['بانتظار اعتماد الإدارة للملخّص', 'مكتملة'],  // ع٥
             ['مغلقة', 'مكتملة'],                  // ع٦
             ['مكتملة', 'قيد التحليل'],             // إعادة فتح
         ] as [$from, $to]) {
@@ -131,7 +131,7 @@ class TicketJourneyIntegrityTest extends TestCase
 
     public function test_admin_correction_rejects_a_status_outside_the_journey(): void
     {
-        foreach (['حالة مخترعة', 'بانتظار اعتماد النتيجة'] as $target) { // مخترعة، وقديمةٌ مطويّة
+        foreach (['حالة مخترعة', 'بانتظار اعتماد النتيجة'] as $target) { // مخترعة، وقديمةٌ محذوفة (2026-09-19)
             $ticket = $this->ticket('قيد التحليل');
 
             $this->actingAs($this->admin())
@@ -221,8 +221,8 @@ class TicketJourneyIntegrityTest extends TestCase
 
     public function test_advance_does_not_skip_session_gate_from_in_progress(): void
     {
-        // «قيد التنفيذ» حالةٌ قديمة في مرحلة الجلسة — كانت تقفز إلى «مكتملة» بلا محضر (ع٢١)
-        $ticket = $this->ticket('قيد التنفيذ');
+        // مرحلة الجلسة — كانت «قيد التنفيذ» (حُذفت) تقفز إلى «مكتملة» بلا محضر (ع٢١)
+        $ticket = $this->ticket('بانتظار ملخّص الجلسة');
 
         $this->actingAs($this->employee())
             ->post(route('employee.tickets.advance', $ticket))->assertStatus(422);
@@ -234,7 +234,7 @@ class TicketJourneyIntegrityTest extends TestCase
     {
         foreach ([
             'بانتظار اعتماد المستشار', 'بانتظار اعتماد الإدارة للملخّص', 'الرأي القانوني',
-            'بانتظار حجز الاستشارة', 'بانتظار الدفع', 'بانتظار تحديد الموعد',
+            'بانتظار حجز الاستشارة', 'بانتظار تحديد الموعد',
             'موعد مؤكد', 'بانتظار ملخّص الجلسة', 'مكتملة', 'مغلقة',
         ] as $status) {
             $ticket = $this->ticket($status, 'b-amber');
