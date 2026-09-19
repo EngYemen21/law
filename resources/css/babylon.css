@@ -172,6 +172,12 @@ svg{display:block}
 .b-red{background:var(--red-bg);color:var(--red)}.b-red .d{background:var(--red)}
 /* نغمة مرحلة «الرأي القانوني» الرسمية (TicketJourney::STAGES) — كانت غير معرّفة فتظهر الشارة بيضاء بلا لون */
 .b-cyan{background:rgba(17,160,200,.12);color:var(--cyan)}.b-cyan .d{background:var(--cyan)}
+/* كانت الأصناف b-purple/b-teal/b-muted مستعملة (التوزيع، محرّر المستندات، لوحة الإدارة) بلا قاعدة فتظهر الشارة بلا لون.
+   البنفسجيّ والأخضر المزرقّ بنفس تشبّع وإضاءة بقيّة النغمات؛ والخافتة أهدأ من الرماديّة: خلفيّة الورق الثانية ونصّ باهت. */
+.b-purple{background:rgba(124,77,176,.1);color:#7C4DB0}.b-purple .d{background:#7C4DB0}
+.b-teal{background:rgba(20,142,128,.11);color:#148E80}.b-teal .d{background:#148E80}
+/* النصّ `--muted` لا `--faint`: الأبهت على الورق الثاني تباينه ٢٫٤:١ — لا يُقرأ. والخلفيّة تميّزها عن b-grey */
+.b-muted{background:var(--paper-2);color:var(--muted)}.b-muted .d{background:var(--faint)}
 .chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:6px;background:var(--paper-2);color:var(--ink);border:1px solid var(--line-soft);white-space:nowrap}
 
 .tbl{width:100%;border-collapse:collapse;font-size:13.5px}
