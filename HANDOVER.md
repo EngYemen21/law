@@ -231,7 +231,8 @@ npm install && npm run build
   `name`, `role`, `body`, `time_label`.
 - **`ticket_summaries`** (الملخّص الرباعيّ): `ticket_id`, `lawyer_id`(FK nullOnDelete), `case_summary`,
   `attachments_summary`, `facts`, `key_points`, `ai_generated`(bool), `result`, `result_status`(20:
-  none→pending_lawyer→pending_admin→approved), `status`(24، default `awaiting_lawyer`), `approved_at`.
+  none/pending_admin/approved — `pending_lawyer` حُذف 2026-09-19 مع مسار اعتماد المحامي للنتيجة؛
+  و`pending_admin` لا يكتبه اليوم شيء ويبقى لصفوفٍ قائمة), `status`(24، default `awaiting_lawyer`), `approved_at`.
 - **`ticket_documents`**: `ticket_id`, `name`, `path`, `mime`, `size`, `status`(40، default `قيد الفحص`),
   `doc_type`, `summary`, `reason`, `summary_approved`(bool).
 
@@ -387,7 +388,8 @@ enum نصّيّ: `Client/Employee/Lawyer/Admin`؛ دوال `label()` (العمي
 
 ### 9.5 لوحة المحامي (`role:lawyer`, prefix `lawyer`)
 - **التذاكر/الملخّصات — `Lawyer\TicketController` («اعتماد الملخصات»):** `dashboard/index/show/summaries/
-  showSummary/updateSummary/approveSummary/approveResult` (+`convert/close/requestDocs` بصلاحيّة القضايا).
+  showSummary/updateSummary/approveSummary` (+`convert/close/requestDocs` بصلاحيّة القضايا). ‏`approveResult`
+  ومساره حُذفا 2026-09-19 (لا يكتب شيءٌ `pending_lawyer`).
 - **القضايا — `Lawyer\CaseController`:** `index/show/approvePleading/addHearing/recordHearing/recordRuling/
   convertToExecution`.
 - **التنفيذ/المهام/التقويم:** `ExecFlowController@lawyer`، `Lawyer\TaskController`(`index/store/complete`)،
@@ -400,7 +402,7 @@ enum نصّيّ: `Client/Employee/Lawyer/Admin`؛ دوال `label()` (العمي
 
 ### 9.6 لوحة الإدارة (`role:admin`, prefix `admin`) — الحماية بالدور فقط (تتجاوز spatie عبر `Gate::before`)
 - **الإشراف:** `DashboardController@admin`، `Admin\ClientController@index` (PII مُقنّع)، `Admin\TicketController`
-  (`index/show/`**`approveResult`** الاعتماد النهائيّ/`summaries`)، `Admin\LawyerController`(`index/toggleMode`).
+  (`index/show/`**`approveResult`** الاعتماد النهائيّ لصفوف `pending_admin` القائمة — لا مصدرَ جديد لها/`summaries`)، `Admin\LawyerController`(`index/toggleMode`).
 - **الاستشارات — `Staff\ConsultController`:** `index/requests/`**`setPrice`**`/take/…/refer/priority/…`.
 - **الإدارة العليا:** `Admin\StaffController` (`index/lookup`(جوال مُقنّع)/`store`/`update`/`toggle`/**`preview`**
   إمبرسنيشن)، `Admin\ArchiveController@index`،
@@ -528,9 +530,13 @@ enum نصّيّ: `Client/Employee/Lawyer/Admin`؛ دوال `label()` (العمي
 ```
 جديدة(0) → قيد التحليل(1) → محالة للقسم القانوني(2) → الرأي القانوني(3)
 → بانتظار حجز الاستشارة(4) → موعد مؤكد(5) → مكتملة(6)
-ALIASES: بانتظار مستندات(1) · بانتظار اعتماد المستشار(2) · بانتظار الدفع(4)
-         قيد التنفيذ(5) · بانتظار اعتماد النتيجة(5) · بانتظار اعتماد الإدارة(6) · مغلقة(6)
+ALIASES: بانتظار مستندات(1) · بانتظار اعتماد المستشار(2) · بانتظار اعتماد الإدارة للملخّص(2)
+         بانتظار تحديد الموعد(4) · بانتظار ملخّص الجلسة(5) · بانتظار قرار المآل(6)
+         بانتظار اعتماد الإدارة للمسار(6) · محولة إلى قضية(6) · مغلقة(6)
 ```
+> **حُذفت 2026-09-19** (لا يكتبها أيّ كود): «بانتظار الدفع»، «قيد التنفيذ» (للتذكرة؛ باقيةٌ حالةَ تنفيذ)،
+> «بانتظار اعتماد النتيجة»، «بانتظار اعتماد الإدارة». يحرسها `RetiredStatusesStayGoneTest`. المصدر
+> الواحد للحالات `App\Domain\Journey\Enums\TicketStatus`، وتسميات العميل `clientLabel()`.
 - **الفتح:** `TicketController::store` (يجمع type/department/details فقط) → إسناد آليّ فوريّ
   (`TicketAssignment::assign`) → `TriageTicketOnOpenJob` → (إن كان الوكيل مفعّلاً) `TicketTriage::onOpened`
   ينقلها إلى **«بانتظار مستندات»** ويعرض `ServiceDocs::for($type)`.
@@ -538,8 +544,12 @@ ALIASES: بانتظار مستندات(1) · بانتظار اعتماد الم�
   المرتبط يُحيل آليّاً عبر `referToLawyer`، غير المرتبط يُرفض، المتعذّر يُترك لمراجعة يدويّة).
 - **الإحالة:** `referToLawyer` يكتب ملخّصاً رباعيّاً قالبيّاً فوراً ثم `GenerateTicketSummaryJob` يُرقّيه
   بتحليل AI حقيقيّ (شفاء ذاتيّ حتى 24 ساعة، ثم تصعيد بشريّ عند الفشل).
-- **الاعتماد:** المحامي `approveSummary` → «الرأي القانوني»؛ الجلسة → `approveResult` → «بانتظار اعتماد الإدارة»
-  → اعتماد الإدارة → «مكتملة» → `CaseConversion::convert` لإنشاء قضية بحالة «بانتظار اعتماد الأتعاب».
+- **الاعتماد (كلّه عبر `Workflow::run`):** ملخّص الملفّ (عمود `ticket_summaries.status`): المحامي
+  (`LawyerApproveTicketSummary` → `awaiting_admin`، والتذكرة بـ`AwaitAdminSummaryApproval` → «بانتظار اعتماد الإدارة
+  للملخّص») ثمّ الإدارة (`FinalApproveTicketSummary` → `approved`، والتذكرة بـ`PublishLegalOpinion` → «الرأي القانوني»). الجلسة:
+  `SessionEnded` → «بانتظار ملخّص الجلسة» → `ReadyForOutcome` → «بانتظار قرار المآل» → اقتراح المسار
+  (`ProposeOutcomeTrack`) → «بانتظار اعتماد الإدارة للمسار» → `ApproveOutcomeTrack` (قضية/تنفيذ/إغلاق) أو
+  `RejectOutcomeTrack`. التحويل لقضية ينشئها بـ`CaseConversion` بحالة «بانتظار اعتماد الأتعاب».
 - **بوّابة الموظف:** `Employee\TicketController::advance` تحرس البوابات (مستندات، إحالة، انعقاد جلسة)
   و`status` تحرس الانتقالات (`TicketJourney::canTransition` — لا تقدّم للأمام عبر القائمة اليدويّة).
 
@@ -867,7 +877,69 @@ idempotent → فتح ملف التنفيذ). المستندات (`execution_doc
   6. **تغطية الاختبارات الآلية الشاملة:** إضافة اختبارات متقدمة في `JourneyConsultLifecycleTest` للتأكد من حفظ السبب في سجلات الانتقالات والتدقيق، وإشعار العميل والمحامي بإلغاء موعد الجلسة، وإطلاق تنبيه الاسترداد المالي للإدارة عند إلغاء استشارة مدفوعة، وتحرير فترات انشغال المحامي فوراً (17 اختباراً و84 تأكيداً بنجاح 100%).
 
 ---
+
+## 18. محرّك الحالات: الكاتب الوحيد، وحذف الحالات القديمة (2026-09-18 → 19)
+
+> العمل على الفرع `refactor/journey-engine-2026-09-19` (غير مدموج في `main` — الدمج بإذن المالك).
+> كلّ خطوةٍ commit مستقلّ قابل لـ`git revert`.
+
+### 18.1 المحرّك (`app/Domain/Journey/Workflow.php`)
+- **`Workflow::run(Transition, Model, ?User, payload)`:** قفل الصفّ ← `accepts(from)` (رفض 422) ← `deny` (403)
+  ← `guard` (422) ← `apply` ← كتابة العمود ← سطرٌ في `journey_transitions` (الفاعل، والسبب، و`record()`).
+  الأحداث تُطلق **بعد الالتزام** (`DB::afterCommit`)، وأحداث البثّ منها عبر `Live::push` (قاطع دائرة) لا
+  `event()`: تعذُّر Reverb بعد الحفظ كان يُجهض ما بعد الانتقال ويعيد 500 على تغييرٍ تمّ.
+- **`Workflow::open($name, $create, ...)`:** إنشاء الكيان بحالته الأولى داخل المحرّك، وأوّل سطرٍ في سجلّه
+  (`from_state = null`).
+- **`StateWriteGuard`** يراقب: `Ticket.status`، و`Consult.status/session/summary_approved_at`،
+  و`Appointment.status`، و`Invoice.status/paid` (فواتير الاستشارة)، و`TicketSummary.status/result_status`،
+  و`LegalCase.status`، و`Execution.status/stage`. **`LEGACY_WRITERS` فارغة** — لا كاتب خارج المحرّك،
+  ويحرس فراغها `LegacyWritersListTest`. الاختبارات تعمل بـ`JOURNEY_GUARD=throw` (أيّ كاتبٍ جديد يُسقطها)؛
+  الإنتاج `off` حتى قرار المالك (`record` ثمّ `throw`).
+
+### 18.2 الحالات المحذوفة (قرار المالك 2026-09-19)
+- **التذكرة:** «بانتظار الدفع»، «قيد التنفيذ»، «بانتظار اعتماد النتيجة»، «بانتظار اعتماد الإدارة».
+- **التنفيذ:** «مكتمل» (`Execution::CLOSED_STATUSES = ['مغلق']`).
+- **نتيجة الملخّص:** `pending_lawyer` مع مسار «اعتماد المحامي لنتيجة الجلسة» كلّه (المتحكّم والمسار والانتقالان).
+- **الواجهة (بموافقة المالك):** زرّ «سداد الرسوم» في تذاكر العميل، وبطاقة «نتيجة الجلسة» وزرّها للمحامي — كانا
+  لا يظهران مع بياناتٍ حيّة.
+- **الحارس:** `RetiredStatusesStayGoneTest` — الكتالوج، وكود الخادم والبذور والمسارات والإعدادات بأيّ علامة
+  اقتباس، وكلّ مقارنة (`===`/`case`) في الواجهة، والمواضع السابقة.
+
+### 18.3 ضمانة الواجهة: `scripts/ui-inventory.mjs`
+أداةٌ تجرد من كلّ `.ts/.tsx` ما يُرى أو يحدّد شكله: النصوص (ومعها ما فيه قيمة مُدرجة «الكل (*)»)، وأصناف الألوان
+`b-*/t-*`، والأصناف (ومنها الشرطيّة)، والأيقونات، والألوان، والمسارات (ومنها المبنيّة من متغيّر)، وعدد العناصر
+(`<button>`/`<Badge>`/`onClick=`…)، وقيم شروط الإظهار، وقواعد CSS.
+```bash
+node scripts/ui-inventory.mjs snapshot before.json            # الشجرة الحاليّة
+node scripts/ui-inventory.mjs snapshot base.json <dir>        # نسخة مستخرجة من commit (git archive)
+node scripts/ui-inventory.mjs diff before.json after.json allow.json   # «ناقص» خارج قائمة السماح = توقّف
+```
+نتيجة هذه الخطوة من `259f6d8` إلى نهاية الفرع: **ناقص 0** خارج قائمة السماح (30 عنصراً كلّها من العنصرين المحذوفين
+بقرار المالك ونصوص الحالات المحذوفة)، و`resources/css` لم يُمسّ، و`tsc` نظيف، و`eslint` مطابق لما قبل.
+
+### 18.4 إصلاحاتٌ وجدها مراجعان مستقلّان
+- **البثّ بعد الحفظ** (أعلاه) — `JourneyWorkflowEngineTest::test_an_unreachable_broadcaster_…`.
+- **سباق خطّاف ميسّر والعودة:** الخاسر كان يكتب قيداً حرجاً «تتطلّب استرداداً» على دفعةٍ سليمة؛ الآن تُعاد قراءة
+  الفاتورة (`PaymentReconciler::settleConsult`، و`ConsultController::payCallback`).
+- **شريط رحلة العميل:** ثلاث تسميات عميل غابت عن `tktStage` فارتدّ الشريط إلى الصفر على الحالات الأخيرة؛
+  `TicketStageParityTest` يفحص الاتّجاهين الآن.
+
+### 18.5 الحزمة الكاملة (2026-09-19، بعد كلّ ما سبق، على 32 دفعة و`JOURNEY_GUARD=throw`)
+**2136 اختباراً — نجح 2133، وفشل 3 معروفة** (`MultiAccountAuthTest::test_dev_bypass_*`، تجاوز رمز الدخول في
+التطوير — متروكة بقرار المالك). لا إخفاق جديد، وملفّات قرص التطوير الحقيقيّة سليمة بعد التشغيل.
+
+### 18.6 ما ينتظر قرار المالك (وُجد ولم يُعدَّل)
+- سلسلة `pending_admin` (زرّ الاعتماد وشارتها في «الاعتمادات») بلا مصدرٍ جديد — تُحذف أم تبقى للصفوف القائمة؟
+- أصناف ألوان بلا CSS: `b-purple`/`b-teal` (`admin/distribute.tsx`، `lawyer/editor.tsx`)، `b-muted` (`lawyer/editor-index.tsx`).
+- `pages/ticketchat.tsx`: رابط `/executions` والمسار `/execs`، والتمرير إلى `.book-consult` غير الموجود.
+- `lawyer/case.tsx` يقرأ `c.status` لا `live.status`؛ عدّاد «بحاجة لملخّص» في `lawyer/consults.tsx` يخالف قائمته.
+- إسناد التذكرة يدويّاً والوكيل الذكيّ مفعّل لم يعد ينقلها إلى «محالة للقسم القانوني» (`TicketAssignment::write`) — مقصود؟
+- **تصميميّ (أكبر):** إشعاراتٌ تُرسل داخل معاملة الانتقال (`ApproveOutcomeTrack`، `ProposeOutcomeTrack::events`)؛
+  وكتاباتٌ لكيانٍ ثانٍ داخل `apply()` (تذكرة/فاتورة/موعد) بلا سطر سجلٍّ ولا قفل؛ و`ConsultBooking::request`
+  و`ExecFee::openOnAcceptance` خطوتان في معاملتين. تُعالَج في مرحلة «فكّ الحلقات» بخطّةٍ مستقلّة.
+
+---
 ---
 _نهاية الوثيقة — كل الأقسام مُجمّعة من قراءة فعليّة للكود. للتحقّق: شغّل `artisan test` + `queue:work` +
-`schedule:run`، واستخدم `AUTH_DEV_OTP` للدخول الحيّ. آخر تحديث: **2026-09-18**._
+`schedule:run`، واستخدم `AUTH_DEV_OTP` للدخول الحيّ. آخر تحديث: **2026-09-19**._
 
