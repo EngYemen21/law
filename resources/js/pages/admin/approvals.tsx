@@ -266,23 +266,6 @@ const AdminApprovals: React.FC<Props> = ({
             router.visit(`/admin/consult-requests?ref=${encodeURIComponent(item.ref)}`);
             return;
         }
-
-        if (category === 'history') {
-            const ref = item.ref || item.no;
-            router.post(
-                `/admin/tickets/${encodeURIComponent(ref)}/result`,
-                {},
-                {
-                    onSuccess: () => {
-                        toast(`تم الاعتماد النهائي للنتيجة للتذكرة ${ref} وإرسالها للعميل`);
-                        closeModal();
-                    },
-                    onError: () => toast('تعذر اعتماد النتيجة'),
-                    onFinish: () => setIsProcessing(false),
-                },
-            );
-            return;
-        }
     };
 
     // تنفيذ الرفض مع تدوين السبب
@@ -407,13 +390,9 @@ const AdminApprovals: React.FC<Props> = ({
 
     // رندر أزرار الإجراءات الموحدة
     const renderRowActions = (item: any, category: ItemCategory) => {
-        // في سجل النتائج والملخصات التاريخية:
-        // إذا كان البند معتمداً ومكتملاً مسبقاً، لا داعي لإظهار أزرار الموافقة والرفض، بل زر المعاينة والاستعراض فقط
-        const isHistory = category === 'history';
-        const isAwaitingResultApproval = isHistory && item.resultStatus === 'pending_admin';
-        const isAlreadyApproved = isHistory && !isAwaitingResultApproval;
-
-        if (isAlreadyApproved) {
+        // سجلّ النتائج والملخّصات للاطّلاع وحده: المعاينة والاستعراض بلا موافقة ولا رفض.
+        // كان فيه اعتمادٌ لنتيجةٍ «بانتظار الإدارة» (pending_admin) — مصدرها الوحيد اعتماد المحامي للنتيجة، وحُذف (2026-09-19)
+        if (category === 'history') {
             return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
                     <button
@@ -497,8 +476,8 @@ const AdminApprovals: React.FC<Props> = ({
                         e.stopPropagation();
                         openModal('approve', item, category);
                     }}
-                    title={category === 'history' ? 'اعتماد نهائي وإرسال النتيجة' : 'موافقة واعتماد'}
-                    aria-label={category === 'history' ? 'اعتماد نهائي وإرسال النتيجة' : 'موافقة واعتماد'}
+                    title="موافقة واعتماد"
+                    aria-label="موافقة واعتماد"
                 >
                     <Icon name="check" />
                 </button>
@@ -1213,9 +1192,7 @@ const AdminApprovals: React.FC<Props> = ({
                                                 </td>
 
                                                 <td style={{ padding: '12px 14px' }}>
-                                                    {s.resultStatus === 'pending_admin' ? (
-                                                        <Badge text="بانتظار اعتماد النتيجة" tone="b-amber" />
-                                                    ) : s.resultStatus === 'approved' ? (
+                                                    {s.resultStatus === 'approved' ? (
                                                         <Badge text="مكتملة — أُرسلت النتيجة" tone="b-green" />
                                                     ) : s.approved ? (
                                                         <Badge text="الملخص معتمد" tone="b-cyan" />
@@ -1433,22 +1410,6 @@ const AdminApprovals: React.FC<Props> = ({
                                             }}
                                         >
                                             سيتم اعتماد وتثبيت موعد الاستشارة المقترح رسمياً، وإشعار العميل والمستشار بالموعد النهائي.
-                                        </div>
-                                    )}
-
-                                    {modalState.category === 'history' && (
-                                        <div
-                                            style={{
-                                                background: 'rgba(16, 185, 129, 0.08)',
-                                                border: '1px solid rgba(16, 185, 129, 0.25)',
-                                                borderRadius: 6,
-                                                padding: '10px 12px',
-                                                fontSize: 12,
-                                                color: '#065f46',
-                                                lineHeight: 1.5,
-                                            }}
-                                        >
-                                            سيتم اعتماد النتيجة النهائية للتذكرة/الملخص وإرسال إشعار فوري للعميل باكتمال العمل القانوني.
                                         </div>
                                     )}
                                 </div>

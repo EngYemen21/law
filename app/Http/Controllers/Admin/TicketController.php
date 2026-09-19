@@ -4,26 +4,19 @@ namespace App\Http\Controllers\Admin;
 
 use App\Domain\Journey\Enums\ClosureReasonCode;
 use App\Domain\Journey\Enums\TicketOutcomeTrack;
-use App\Domain\Journey\Transitions\Ticket\AdminApprovePendingResult;
 use App\Domain\Journey\Transitions\Ticket\ApproveOutcomeTrack;
 use App\Domain\Journey\Transitions\Ticket\CorrectTicketStatus;
 use App\Domain\Journey\Transitions\Ticket\ProposeOutcomeTrack;
-use App\Domain\Journey\Transitions\Ticket\ReadyForOutcome;
 use App\Domain\Journey\Workflow;
 use App\Enums\Role;
-use App\Events\TicketMessageBroadcast;
 use App\Http\Controllers\Controller;
 use App\Models\Ticket;
 use App\Models\TicketSummary;
 use App\Models\User;
-use App\Services\LegalAiService;
 use App\Support\ConversationFiles;
-use App\Support\Live;
-use App\Support\Notify;
 use App\Support\Paginate;
 use App\Support\SearchText;
 use App\Support\TicketJourney;
-use App\Support\TicketResult;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -156,8 +149,8 @@ class TicketController extends Controller
      *
      * الرحلة الجديدة: ملخّص ملفٍّ اعتمده المحامي (`summary.status = awaiting_admin` وحالة
      * «بانتظار اعتماد الإدارة للملخّص»)، أو ملخّص جلسةٍ اعتمده المحامي ولم تعتمده الإدارة.
-     * و`result_status = pending_admin` باقٍ لصفوفٍ قائمة قبل حذف مسار اعتماد المحامي للنتيجة
-     * (2026-09-19)؛ الحالة القديمة «بانتظار اعتماد الإدارة» حُذفت.
+     * حُذف 2026-09-19 الشرطان القديمان: الحالة «بانتظار اعتماد الإدارة» و`result_status = pending_admin`
+     * (مصدره الوحيد اعتماد المحامي للنتيجة، وحُذف) — لا يكتبهما شيء.
      *
      * @param  Builder<Ticket>  $query
      * @return Builder<Ticket>
@@ -166,9 +159,7 @@ class TicketController extends Controller
     {
         return $query->where(function (Builder $q) {
             $q->where('status', 'بانتظار اعتماد الإدارة للملخّص')
-                ->orWhereHas('summary', fn (Builder $sq) => $sq->where(
-                    fn (Builder $w) => $w->where('status', 'awaiting_admin')->orWhere('result_status', 'pending_admin')
-                ))
+                ->orWhereHas('summary', fn (Builder $sq) => $sq->where('status', 'awaiting_admin'))
                 ->orWhereHas('consults', fn (Builder $cq) => $cq
                     ->whereNotNull('summary_lawyer_approved_at')
                     ->whereNull('summary_approved_at'));
@@ -208,59 +199,6 @@ class TicketController extends Controller
             ]))->values();
 
         return Inertia::render('admin/summaries', ['summaries' => $summaries]);
-    }
-
-    // الاعتماد النهائي للإدارة → بطاقة النتيجة تصل العميل وتكتمل التذكرة (يطابق tfAdminReview→tfResult)
-    public function approveResult(Request $request, Ticket $ticket): RedirectResponse
-    {
-        $summary = $ticket->summary;
-        abort_unless($summary && $summary->result_status === 'pending_admin', 404);
-        // مسارٌ قديم للصفوف القائمة — لا يُعيد «مكتملة» على تذكرةٍ أُغلقت أو حُوّلت لقضيّة (ع٨)
-        abort_if(
-            in_array($ticket->status, ['مكتملة', 'مغلقة'], true) || $ticket->legalCase()->exists(),
-            422,
-            'التذكرة مكتملة أو مغلقة أو محوّلة لقضيّة — لا يُعاد اعتماد نتيجتها.'
-        );
-
-        // نظير حارس المحامي: نتيجةٌ خاوية لا تُعتمد ولا تُرسَل للعميل
-        abort_if(
-            ! TicketResult::hasSubstance($summary),
-            422,
-            'النتيجة بلا وقائع أو توصيات — استكملها قبل الاعتماد.'
-        );
-
-        Workflow::run(new AdminApprovePendingResult, $summary, $request->user());
-
-        $ack = $ticket->messages()->create([
-            'who' => 'admin',
-            'name' => 'الإدارة',
-            'role' => 'اعتماد',
-            /*
-             * **لا تُذكر «محضر الجلسة» إلّا حين يكون معتمَداً فعلاً.**
-             * مسارُ الإدارة هذا لا يمسّ ملخّص الاستشارة إطلاقاً — اعتمادُه مسارٌ منفصل
-             * (`consults/{consult}/summary/approve`). فكان يدّعي اعتماد ما لم يلمسه.
-             */
-            'body' => $ticket->consults()->whereNotNull('summary_approved_at')->exists()
-                ? '<p>تم اعتماد نتيجة الملف ومحضر الجلسة من الإدارة. تُرسل النتيجة النهائية الآن.</p>'
-                : '<p>تم اعتماد نتيجة الملف من الإدارة. تُرسل النتيجة النهائية الآن.</p>',
-            'time_label' => $this->clock(),
-        ]);
-        Live::push(new TicketMessageBroadcast($ack));
-
-        $result = $ticket->messages()->create([
-            'who' => 'ai',
-            'name' => LegalAiService::AGENT_NAME,
-            'role' => 'النتيجة',
-            'body' => TicketResult::card($ticket, $summary),
-            'time_label' => $this->clock(),
-        ]);
-        Live::push(new TicketMessageBroadcast($result));
-
-        Workflow::run(new ReadyForOutcome, $ticket, $request->user());
-
-        Notify::send($ticket->user_id, 'check', 't-green', "اكتملت معالجة تذكرتك {$ticket->number}، والنتيجة النهائية والتوصيات متاحة داخل التذكرة.");
-
-        return redirect()->route('admin.tickets');
     }
 
     /**
@@ -305,12 +243,5 @@ class TicketController extends Controller
         $trackEnum = TicketOutcomeTrack::from($data['track']);
 
         return back()->with('flash', "تم اعتماد مسار ({$trackEnum->label()}) بنجاح ونُشر القرار والتسبيب للعميل.");
-    }
-
-    private function clock(): string
-    {
-        $now = now();
-
-        return $now->format('h:i').' '.($now->hour < 12 ? 'ص' : 'م');
     }
 }

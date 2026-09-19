@@ -231,8 +231,8 @@ npm install && npm run build
   `name`, `role`, `body`, `time_label`.
 - **`ticket_summaries`** (الملخّص الرباعيّ): `ticket_id`, `lawyer_id`(FK nullOnDelete), `case_summary`,
   `attachments_summary`, `facts`, `key_points`, `ai_generated`(bool), `result`, `result_status`(20:
-  none/pending_admin/approved — `pending_lawyer` حُذف 2026-09-19 مع مسار اعتماد المحامي للنتيجة؛
-  و`pending_admin` لا يكتبه اليوم شيء ويبقى لصفوفٍ قائمة), `status`(24، default `awaiting_lawyer`), `approved_at`.
+  none/approved/rejected — `pending_lawyer` و`pending_admin` حُذفتا 2026-09-19 مع مسار اعتماد النتيجة القديم
+  كلّه؛ النتيجة تُعتمد اليوم مع ملخّص الجلسة), `status`(24، default `awaiting_lawyer`), `approved_at`.
 - **`ticket_documents`**: `ticket_id`, `name`, `path`, `mime`, `size`, `status`(40، default `قيد الفحص`),
   `doc_type`, `summary`, `reason`, `summary_approved`(bool).
 
@@ -402,7 +402,7 @@ enum نصّيّ: `Client/Employee/Lawyer/Admin`؛ دوال `label()` (العمي
 
 ### 9.6 لوحة الإدارة (`role:admin`, prefix `admin`) — الحماية بالدور فقط (تتجاوز spatie عبر `Gate::before`)
 - **الإشراف:** `DashboardController@admin`، `Admin\ClientController@index` (PII مُقنّع)، `Admin\TicketController`
-  (`index/show/`**`approveResult`** الاعتماد النهائيّ لصفوف `pending_admin` القائمة — لا مصدرَ جديد لها/`summaries`)، `Admin\LawyerController`(`index/toggleMode`).
+  (`index/show/summaries/correctStatus/proposeTrack/approveTrack`؛ `approveResult` حُذف 2026-09-19)، `Admin\LawyerController`(`index/toggleMode`).
 - **الاستشارات — `Staff\ConsultController`:** `index/requests/`**`setPrice`**`/take/…/refer/priority/…`.
 - **الإدارة العليا:** `Admin\StaffController` (`index/lookup`(جوال مُقنّع)/`store`/`update`/`toggle`/**`preview`**
   إمبرسنيشن)، `Admin\ArchiveController@index`،
@@ -929,7 +929,13 @@ node scripts/ui-inventory.mjs diff before.json after.json allow.json   # «نا�
 التطوير — متروكة بقرار المالك). لا إخفاق جديد، وملفّات قرص التطوير الحقيقيّة سليمة بعد التشغيل.
 
 ### 18.6 ما ينتظر قرار المالك (وُجد ولم يُعدَّل)
-- سلسلة `pending_admin` (زرّ الاعتماد وشارتها في «الاعتمادات») بلا مصدرٍ جديد — تُحذف أم تبقى للصفوف القائمة؟
+- ✅ **حُسم (2026-09-19):** سلسلة `pending_admin` حُذفت بقرار المالك — شارة «بانتظار اعتماد النتيجة» وزرّ «اعتماد
+  نهائي وإرسال النتيجة» في «سجلّ المعتمد والنتائج»، و`Admin\TicketController::approveResult` ومساره
+  `admin.tickets.result`، والانتقال `AdminApprovePendingResult`؛ و`RejectTicketResult` يقبل «approved» وحدها.
+  التحقّق قبلها: لا كاتب لها (الحارس)، وصفر صفوف في قاعدة التطوير. جرد الواجهة: 11 عنصراً ناقصاً كلّها منها.
+- 🔴 **عطلٌ قائم (وُجد أثناء التحقّق، لم يُمسّ):** نوافذ «تأكيد الموافقة» و«تأكيد الرفض» في مركز الاعتمادات بلا زرّ
+  تنفيذ — `handleApprove`/`handleReject` في `admin/approvals.tsx` معرَّفتان ولا يناديهما شيء، منذ أوّل حفظٍ للملفّ
+  في git. أزرار ✓ و✗ في كلّ التبويبات تفتح نافذةً لا تُنفّذ شيئاً. ينتظر قرار المالك.
 - أصناف ألوان بلا CSS: `b-purple`/`b-teal` (`admin/distribute.tsx`، `lawyer/editor.tsx`)، `b-muted` (`lawyer/editor-index.tsx`).
 - `pages/ticketchat.tsx`: رابط `/executions` والمسار `/execs`، والتمرير إلى `.book-consult` غير الموجود.
 - `lawyer/case.tsx` يقرأ `c.status` لا `live.status`؛ عدّاد «بحاجة لملخّص» في `lawyer/consults.tsx` يخالف قائمته.

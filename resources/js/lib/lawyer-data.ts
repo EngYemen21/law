@@ -127,7 +127,7 @@ export interface SummaryData {
   lawyerApproved?: boolean;
   aiGenerated?: boolean; // false = قالب مبدئي لم يكتمل تحليله الذكي
   result?: string;
-  resultStatus?: string; // none | pending_admin | approved | rejected
+  resultStatus?: string; // none | approved | rejected (pending_admin وpending_lawyer حُذفتا 2026-09-19)
 }
 
 // موضع الملخص على مسار SUM_FLOW — من اعتماده نفسه (`lawyerApproved` ثمّ `approved`)،

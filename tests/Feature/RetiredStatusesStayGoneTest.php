@@ -10,7 +10,7 @@ use Tests\TestCase;
  * **الحالات المحذوفة لا تعود** (قرار المالك 2026-09-19).
  *
  * حُذفت من التذكرة «بانتظار الدفع» و«قيد التنفيذ» و«بانتظار اعتماد النتيجة» و«بانتظار اعتماد
- * الإدارة»، ومن التنفيذ «مكتمل»، ونتيجة الملخّص `pending_lawyer` — لا يكتبها أيّ كود. هذا الحارس
+ * الإدارة»، ومن التنفيذ «مكتمل»، ونتيجة الملخّص `pending_lawyer` و`pending_admin` — لا يكتبها أيّ كود. هذا الحارس
  * يُسقط الاختبارات إن عادت إلى الكتالوج، أو إلى كود الخادم والبذور والمسارات والإعدادات، أو إلى
  * مقارنةٍ في أيّ شاشة، أو إلى مواضعها السابقة في الواجهة.
  *
@@ -22,6 +22,9 @@ class RetiredStatusesStayGoneTest extends TestCase
 {
     /** أيّ علامة اقتباس — مفردة أو مزدوجة أو قالب — كي لا يفلت نصٌّ بتغيير علامته. */
     private const QUOTE = '[\'"`]';
+
+    /** نتيجة ملخّص الجلسة: `pending_lawyer` ثمّ `pending_admin` (مسار اعتماد النتيجة القديم كلّه). */
+    private const RETIRED_RESULT = ['pending_lawyer', 'pending_admin'];
 
     private const RETIRED_TICKET = ['بانتظار الدفع', 'قيد التنفيذ', 'بانتظار اعتماد النتيجة', 'بانتظار اعتماد الإدارة'];
 
@@ -62,15 +65,16 @@ class RetiredStatusesStayGoneTest extends TestCase
                     continue;
                 }
                 $code = $this->withoutComments((string) file_get_contents($path));
-                foreach ([...self::RETIRED_TICKET, 'مكتمل', 'pending_lawyer'] as $value) {
+                foreach ([...self::RETIRED_TICKET, 'مكتمل', ...self::RETIRED_RESULT] as $value) {
                     if (! preg_match('/'.self::QUOTE.preg_quote($value, '/').self::QUOTE.'/u', $code)) {
                         continue;
                     }
                     if (in_array($rel, $allowed[$value] ?? [], true)) {
                         continue;
                     }
-                    // pending_lawyer حيّةٌ في حقلٍ آخر: pleading_status (مسودّة اللائحة) — ليست نتيجة الملخّص
-                    if ($value === 'pending_lawyer' && ! preg_match('/result_status'.self::QUOTE.'?\s*(?:=>|===|==|,)\s*'.self::QUOTE.'pending_lawyer/', $code)) {
+                    // الاسمان حيّان في غير نتيجة الملخّص: pending_lawyer في pleading_status (مسودّة اللائحة)،
+                    // وpending_admin مفتاح فلتر «بانتظار الاعتماد» في تذاكر الإدارة — فالمفحوص سياق result_status وحده
+                    if (in_array($value, self::RETIRED_RESULT, true) && ! preg_match('/result_status'.self::QUOTE.'?\s*(?:=>|===|==|,)\s*'.self::QUOTE.$value.'/', $code)) {
                         continue;
                     }
                     $offenders[] = "{$rel} ← «{$value}»";
@@ -85,7 +89,7 @@ class RetiredStatusesStayGoneTest extends TestCase
      * **الواجهة كلّها لا تقارن بها.** التسميات الوصفيّة باقية (شارة «بانتظار اعتماد الإدارة» في
      * سجلّ الاعتمادات وصفٌ لا حالة)؛ المفحوص هو المقارنة وحدها — `=== '…'` أو `case '…':` —
      * لأنّها ما يُظهر زرّاً أو يخفيه. «قيد التنفيذ» حيّةٌ في التنفيذ فلا تُفحص هنا، و`pending_lawyer`
-     * حيّةٌ في `pleadingStatus` فلا يُفحص إلّا ما قورن بنتيجة الملخّص.
+     * حيّةٌ في `pleadingStatus` و`pending_admin` مفتاح فلتر — فلا يُفحص منهما إلّا ما قورن بنتيجة الملخّص.
      */
     public function test_no_screen_compares_against_them(): void
     {
@@ -96,8 +100,8 @@ class RetiredStatusesStayGoneTest extends TestCase
             if (preg_match('/(?:===|!==|\bcase)\s*'.self::QUOTE.'('.$values.')'.self::QUOTE.'/u', $code, $m)) {
                 $offenders[] = $this->relative($path)." ← «{$m[1]}»";
             }
-            if (preg_match('/result\w*\s*(?:===|!==)\s*'.self::QUOTE.'pending_lawyer/i', $code)) {
-                $offenders[] = $this->relative($path).' ← «pending_lawyer»';
+            if (preg_match('/result\w*\s*(?:===|!==)\s*'.self::QUOTE.'(pending_lawyer|pending_admin)/i', $code, $m)) {
+                $offenders[] = $this->relative($path)." ← «{$m[1]}»";
             }
         }
 
@@ -112,6 +116,7 @@ class RetiredStatusesStayGoneTest extends TestCase
             'js/pages/employee/ticketchat.tsx' => ['بانتظار الدفع', 'بانتظار اعتماد النتيجة', 'بانتظار سداد العميل'],
             'js/pages/tickets.tsx' => ['بانتظار الدفع', 'سداد الرسوم'],
             'js/pages/lawyer/ticketchat.tsx' => ['pending_lawyer', 'اعتماد ملخص الجلسة ورفعه للإدارة'],
+            'js/pages/admin/approvals.tsx' => ['pending_admin', 'بانتظار اعتماد النتيجة', 'اعتماد نهائي وإرسال النتيجة'],
         ];
 
         foreach ($spots as $file => $values) {

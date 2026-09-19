@@ -12,8 +12,8 @@ use Illuminate\Database\Eloquent\Model;
  * (سجلّ «النتائج المعتمدة» في شاشة «بانتظار اعتمادك»).
  *
  * كان `ApprovalsController` يكتب «rejected» مباشرةً بلا قيد. يبقى الأثر كما هو — النتيجة وحدها،
- * لا حالة التذكرة — ويُسجَّل الانتقال وسببه. يُقبل من «بانتظار الإدارة» ومن «معتمدة»: السجلّ
- * يعرض المعتمدة للمراجعة اللاحقة، والمعلّقة قد تُردّ قبل اعتمادها.
+ * لا حالة التذكرة — ويُسجَّل الانتقال وسببه. يُقبل من «معتمدة» وحدها (مراجعةٌ لاحقة)؛ و«بانتظار
+ * الإدارة» (`pending_admin`) حُذفت 2026-09-19 مع مصدرها الوحيد، اعتماد المحامي للنتيجة.
  *
  * @extends Transition<TicketSummary>
  */
@@ -31,7 +31,7 @@ final class RejectTicketResult extends Transition
 
     public function from(): array
     {
-        return ['pending_admin', 'approved'];
+        return ['approved'];
     }
 
     public function to(Model $entity, array $payload): string

@@ -150,13 +150,14 @@ class AdminTicketManagementTest extends TestCase
             'user_id' => $client->id,
             'number' => 'TICK-PENDING',
             'type' => 'استشارة',
-            'status' => 'بانتظار الإدارة',
+            'status' => 'بانتظار اعتماد الإدارة للملخّص',
             'tone' => 'b-amber',
         ]);
 
+        // ما ينتظر الإدارة في الرحلة الحيّة: ملخّصٌ اعتمده المحامي (`pending_admin` حُذفت 2026-09-19)
         TicketSummary::create([
             'ticket_id' => $ticket->id,
-            'result_status' => 'pending_admin',
+            'status' => 'awaiting_admin',
             'summary' => 'ملخص الاستشارة بانتظار الاعتماد',
         ]);
 

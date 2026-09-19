@@ -122,34 +122,19 @@ class SessionResultFlowTest extends TestCase
         $this->assertStringNotContainsString('اعتماد ملخص الجلسة ورفعه للإدارة', $ui);
     }
 
-    public function test_admin_final_approval_delivers_a_legacy_result_to_client(): void
+    /**
+     * **ومسار الإدارة لتلك النتيجة حُذف أيضاً** (قرار المالك 2026-09-19): مصدر «pending_admin»
+     * الوحيد كان اعتماد المحامي أعلاه، فبقي زرّ «اعتماد نهائي وإرسال النتيجة» وشارته في سجلّ
+     * الاعتمادات بلا ما يُظهرهما. النتيجة تصل العميل من اعتماد ملخّص الجلسة (الاختبار أعلاه).
+     */
+    public function test_the_admin_pending_result_path_is_gone(): void
     {
-        $client = User::factory()->create(['role' => Role::Client]);
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        [$ticket] = $this->confirmedTicket($client);
-        $ticket->summary->update(['result_status' => 'pending_admin', 'result' => 'نتيجة الجلسة']);
+        $this->assertFalse(Route::has('admin.tickets.result'));
+        $this->assertFalse(class_exists('App\Domain\Journey\Transitions\Ticket\AdminApprovePendingResult'));
 
-        $this->actingAs($admin)->post(route('admin.tickets.result', $ticket))->assertRedirect();
-
-        $ticket->refresh();
-        $this->assertSame(TicketStatus::ReadyForOutcome->value, $ticket->status);
-        $this->assertSame('approved', $ticket->summary->result_status);
-
-        // بطاقة النتيجة + اعتماد الإدارة في المحادثة، وإشعار للعميل
-        $this->assertTrue($ticket->messages->contains(fn ($m) => $m->role === 'النتيجة'));
-        $this->assertTrue($ticket->messages->contains(fn ($m) => $m->who === 'admin'));
-        $this->assertSame(1, UserNotification::where('user_id', $client->id)->count());
-
-        // العميل يرى بطاقة النتيجة
-        $this->actingAs($client)->get(route('tickets.show', $ticket))
-            ->assertInertia(fn ($p) => $p->where('messages', fn ($m) => collect($m)->contains(fn ($x) => $x['role'] === 'النتيجة')));
-    }
-
-    public function test_admin_cannot_approve_before_lawyer(): void
-    {
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        [$ticket] = $this->confirmedTicket(User::factory()->create(['role' => Role::Client]));
-        // result_status still 'none' → admin approval rejected
-        $this->actingAs($admin)->post(route('admin.tickets.result', $ticket))->assertNotFound();
+        $ui = (string) file_get_contents(resource_path('js/pages/admin/approvals.tsx'));
+        $this->assertStringNotContainsString("'pending_admin'", $ui);
+        $this->assertStringNotContainsString('اعتماد نهائي وإرسال النتيجة', $ui);
+        $this->assertStringNotContainsString('/result', $ui);
     }
 }

@@ -555,7 +555,6 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/consults/{consult}/appointment/approve', [StaffConsultController::class, 'approveAppointment'])->name('consults.appointment.approve');
     Route::get('/tickets', [AdminTicketController::class, 'index'])->name('tickets');
     Route::get('/tickets/{ticket}', [AdminTicketController::class, 'show'])->name('tickets.show');
-    Route::post('/tickets/{ticket}/result', [AdminTicketController::class, 'approveResult'])->name('tickets.result');
     // تصحيح الحالة استثناءٌ إداريّ مسبَّب — لا قائمة حالات بيد الموظّف (قرار المالك 2026-09-14)
     Route::post('/tickets/{ticket}/correct-status', [AdminTicketController::class, 'correctStatus'])->name('tickets.correct-status');
     // صفحة تذكرة الإدارة تعيد استخدام شاشة المستشار — فتحتاج نظائر admin.* لإجراءاتها (كانت مثبّتة على /lawyer)

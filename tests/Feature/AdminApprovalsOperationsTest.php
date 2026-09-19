@@ -259,7 +259,8 @@ class AdminApprovalsOperationsTest extends TestCase
             'facts' => 'وقائع العقد',
             'key_points' => 'التوصيات',
             'status' => 'approved',
-            'result_status' => 'pending_admin',
+            // مراجعةٌ لاحقة لنتيجةٍ معتمدة — المصدر الوحيد الباقي للرفض (`pending_admin` حُذفت 2026-09-19)
+            'result_status' => 'approved',
         ]);
 
         $response = $this->actingAs($this->admin)->post('/admin/approvals/reject', [
