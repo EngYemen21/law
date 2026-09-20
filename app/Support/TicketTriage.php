@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * الوكيل التشغيلي الذكي للتذاكر — يؤتمت المراحل المبكرة (تصنيف، طلب مستندات، إحالة)
@@ -28,6 +29,13 @@ use Illuminate\Support\Collection;
 class TicketTriage
 {
     public const AGENT = 'الوكيل الذكي';
+
+    /**
+     * **المراحل التي تُقبل فيها إحالة الموظّف — مصدرٌ واحد.** يقرأها حارس المتحكّم
+     * (`Employee\TicketController::advance`) وإعادةُ الفحص تحت القفل في `referToLawyer`،
+     * وتطابقها `REFERRABLE` في `pages/employee/ticketchat.tsx` (إظهار الزرّ).
+     */
+    public const REFERRABLE = ['جديدة', 'قيد التحليل', 'محالة للقسم القانوني', 'بانتظار مستندات'];
 
     public static function enabled(): bool
     {
@@ -396,65 +404,97 @@ class TicketTriage
 
         $lawyer = $ticket->assignedLawyer;
 
-        $existing = $ticket->summary;
+        /*
+         * **الإحالة خطوةٌ واحدة لا تنقسم.** كانت تكتب الملخّص ثمّ تنقل الحالة بلا قفلٍ ولا معاملة:
+         * نقرتان متسارعتان على الزرّ تمرّان معاً من بوّابة المتحكّم (تُفحص قبل أيّ قفل)، فتريان
+         * الملفّ بلا ملخّص فتُنشئان ملخّصَين ورسالتَي إحالة للعميل؛ وفشلُ نقل الحالة كان يترك
+         * الملخّص مكتوباً. الآن: قفل الصفّ ← إعادة فحص المرحلة تحت القفل ← الكتابات كلّها في معاملة.
+         *
+         * والآثار الخارجيّة خارج المعاملة عمداً: التصعيد أعلاه (بريد وإشعارات)، والبثّ والإشعار
+         * والمهمّة أدناه — فلا يُشعَر أحدٌ بما قد يُلغى، ولا يُحتجَز القفل في انتظار الشبكة.
+         */
+        $upgrade = false; // كُتب ملخّصٌ قالبيّ ⇒ تُطلق مهمّة ترقيته بعد الالتزام
+        $msg = DB::transaction(function () use ($ticket, $actor, $lawyer, &$upgrade) {
+            $locked = Ticket::whereKey($ticket->id)->lockForUpdate()->first();
+            if ($locked === null) {
+                return null;
+            }
 
-        // **لا تُمحى مراجعةٌ وقعت** — ملخّصٌ اعتمده المستشار أو الإدارة لا يُستبدل بقالب ولا تُعاد
-        // التذكرة خلفه (ع١١). الإحالة المكرّرة على ملفٍّ معتمد لا تفعل شيئاً.
-        if ($existing !== null && $existing->status !== 'awaiting_lawyer') {
-            self::audit($ticket, 'إحالة مكرّرة على ملخّصٍ اعتُمد — لم يُمسّ الملخّص ولا الحالة.');
+            // نقرةٌ ثانية انتظرت القفل: الأولى أحالت فعلاً وغادرت التذكرة مراحلَ الإحالة
+            if (! in_array((string) $locked->status, self::REFERRABLE, true)) {
+                self::audit($locked, 'إحالة مكرّرة — أُحيل الملفّ فعلاً، فلم يُكتب ملخّصٌ ثانٍ ولا رسالةٌ ثانية.');
 
-            return;
+                return null;
+            }
+
+            $existing = $locked->summary()->first();
+
+            // **لا تُمحى مراجعةٌ وقعت** — ملخّصٌ اعتمده المستشار أو الإدارة لا يُستبدل بقالب ولا تُعاد
+            // التذكرة خلفه (ع١١). الإحالة المكرّرة على ملفٍّ معتمد لا تفعل شيئاً.
+            if ($existing !== null && $existing->status !== 'awaiting_lawyer') {
+                self::audit($locked, 'إحالة مكرّرة على ملخّصٍ اعتُمد — لم يُمسّ الملخّص ولا الحالة.');
+
+                return null;
+            }
+
+            if ($existing !== null && ($existing->ai_generated || $existing->edited_at !== null)) {
+                // مسوّدةٌ حقيقيّة (تحليلٌ أو تحرير المستشار) لا يدهسها قالب
+                $existing->update(['lawyer_id' => $lawyer?->id ?? $existing->lawyer_id]);
+            } else {
+                // نائب فوري: ملخّص قالبي حتمي يظهر لحظياً كي تبقى الإحالة سريعة بيد الموظف،
+                // ثم تُرقّيه GenerateTicketSummaryJob لتحليل ذكاء اصطناعي حقيقي مبنيّ على المستندات.
+                $parts = app(LegalAiService::class)->fallbackSummary($locked);
+                $draft = [
+                    'lawyer_id' => $lawyer?->id,
+                    'case_summary' => $parts['case_summary'],
+                    'attachments_summary' => $parts['attachments_summary'],
+                    'facts' => $parts['facts'],
+                    'key_points' => $parts['key_points'],
+                    'approved_at' => null,
+                    'ai_generated' => false, // نائب قالبي — تُرقّيه المهمّة لتحليل حقيقي
+                ];
+
+                if ($existing === null) {
+                    // ميلاد الملخّص أوّل سطرٍ في رحلته — يُفتح بالمحرّك بحالته الأولى
+                    Workflow::open(
+                        'ticket_summary.opened',
+                        fn () => $locked->summary()->create($draft + ['status' => 'awaiting_lawyer']),
+                        $actor,
+                    );
+                } else {
+                    // قائمٌ «بانتظار المستشار» أصلاً (ما سواه عاد أعلاه) — يُستبدل نصّه والحالة كما هي
+                    $existing->update($draft);
+                }
+                $upgrade = true;
+            }
+
+            $dept = $locked->department ?: 'القسم القانوني المختص';
+            Workflow::run(new ReferTicketToLawyer, $locked, $actor, [
+                'lawyer_id' => $lawyer?->id,
+                'lawyer_name' => $lawyer?->name,
+            ]);
+
+            return $locked->messages()->create([
+                // إشعارٌ آليّ بقالب ثابت — لم يكتبه موظّف، فلا يُنسب إلى فريقٍ بشريّ
+                'who' => 'ai',
+                'name' => 'خدمة العملاء',
+                'role' => 'إحالة',
+                // **لا يُنسب إلى الفريق ما لم يكتبه.** ما حُفظ للتوّ قالبٌ حتميّ بـ`ai_generated = false`،
+                // والتلخيص الحقيقيّ في الطابور بعدُ. فقولُ «جهّز الفريق القانوني ملخص الملف» يُخبر
+                // العميل بعملٍ لم يقع، ويُنسب إلى بشرٍ ما كتبه قالب.
+                'body' => 'تمت إحالة طلبكم إلى '.e($dept).' لدراسة الموضوع، وهو الآن قيد الإعداد بانتظار اعتماد المستشار القانوني.',
+                'time_label' => self::clock(),
+            ]);
+        });
+
+        if ($msg === null) {
+            return; // مكرّرة أو معتمدة — لا أثر خارجيّ
         }
 
-        if ($existing !== null && ($existing->ai_generated || $existing->edited_at !== null)) {
-            // مسوّدةٌ حقيقيّة (تحليلٌ أو تحرير المستشار) لا يدهسها قالب
-            $existing->update(['lawyer_id' => $lawyer?->id ?? $existing->lawyer_id]);
-        } else {
-            // نائب فوري: ملخّص قالبي حتمي يظهر لحظياً كي تبقى الإحالة سريعة بيد الموظف،
-            // ثم تُرقّيه GenerateTicketSummaryJob لتحليل ذكاء اصطناعي حقيقي مبنيّ على المستندات.
-            $parts = app(LegalAiService::class)->fallbackSummary($ticket);
-            $draft = [
-                'lawyer_id' => $lawyer?->id,
-                'case_summary' => $parts['case_summary'],
-                'attachments_summary' => $parts['attachments_summary'],
-                'facts' => $parts['facts'],
-                'key_points' => $parts['key_points'],
-                'approved_at' => null,
-                'ai_generated' => false, // نائب قالبي — تُرقّيه المهمّة لتحليل حقيقي
-            ];
-
-            if ($existing === null) {
-                // ميلاد الملخّص أوّل سطرٍ في رحلته — يُفتح بالمحرّك بحالته الأولى
-                Workflow::open(
-                    'ticket_summary.opened',
-                    fn () => $ticket->summary()->create($draft + ['status' => 'awaiting_lawyer']),
-                    $actor,
-                );
-            } else {
-                // قائمٌ «بانتظار المستشار» أصلاً (ما سواه عاد أعلاه) — يُستبدل نصّه والحالة كما هي
-                $existing->update($draft);
-            }
+        $ticket->refresh();
+        if ($upgrade) {
             GenerateTicketSummaryJob::dispatch($ticket);
         }
-
-        $dept = $ticket->department ?: 'القسم القانوني المختص';
-        Workflow::run(new ReferTicketToLawyer, $ticket, $actor, [
-            'lawyer_id' => $lawyer?->id,
-            'lawyer_name' => $lawyer?->name,
-        ]);
-
-        $msg = $ticket->messages()->create([
-            // إشعارٌ آليّ بقالب ثابت — لم يكتبه موظّف، فلا يُنسب إلى فريقٍ بشريّ
-            'who' => 'ai',
-            'name' => 'خدمة العملاء',
-            'role' => 'إحالة',
-            // **لا يُنسب إلى الفريق ما لم يكتبه.** ما حُفظ للتوّ (السطر 336) قالبٌ
-            // حتميّ بـ`ai_generated = false`، والتلخيص الحقيقيّ في الطابور بعدُ.
-            // فقولُ «جهّز الفريق القانوني ملخص الملف» يُخبر العميل بعملٍ لم يقع،
-            // ويُنسب إلى بشرٍ ما كتبه قالب.
-            'body' => 'تمت إحالة طلبكم إلى '.e($dept).' لدراسة الموضوع، وهو الآن قيد الإعداد بانتظار اعتماد المستشار القانوني.',
-            'time_label' => self::clock(),
-        ]);
         Live::push(new TicketMessageBroadcast($msg));
         Live::push(new TicketStatusBroadcast($ticket));
 

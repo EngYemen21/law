@@ -354,7 +354,8 @@ class TicketController extends Controller
          * (ع٢١) أو أُلغيت الاستشارة (ع١٠). الآن: طلب الاستشارة زرٌّ مستقلّ، وإكمال التذكرة
          * باعتماد الإدارة لملخّص الجلسة (`ConsultSessionOutcome`).
          */
-        if (! in_array($ticket->status, ['جديدة', 'قيد التحليل', 'محالة للقسم القانوني', 'بانتظار مستندات'], true)) {
+        // القائمة من `TicketTriage::REFERRABLE` — مصدرٌ واحد مع إعادة الفحص تحت القفل في `referToLawyer`
+        if (! in_array($ticket->status, TicketTriage::REFERRABLE, true)) {
             abort(422, match ($ticket->status) {
                 'موعد مؤكد', 'بانتظار ملخّص الجلسة' => 'تكتمل التذكرة بعد الجلسة باعتماد الإدارة لملخّصها — لا إجراء للموظّف هنا.',
                 'الرأي القانوني' => 'الخطوة التالية طلب استشارة من «خيارات التذكرة».',
