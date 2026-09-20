@@ -104,7 +104,7 @@ class CaseConversion
 
         $case = self::createCase($ticket, $analysis, $lawyer, $actor, 'case.open_from_outcome');
 
-        ClassifyConvertedCaseJob::dispatch($case);
+        ClassifyConvertedCaseJob::dispatch($case)->afterCommit();
 
         Audit::log(
             action: 'تحويل تذكرة إلى قضية',
@@ -172,7 +172,7 @@ class CaseConversion
         }
 
         // التنقيح الذكيّ بعد المعاملة — أفضل-جهد لا يُجهض تحويلاً وقع فعلاً
-        ClassifyConvertedCaseJob::dispatch($case);
+        ClassifyConvertedCaseJob::dispatch($case)->afterCommit();
 
         Audit::log(
             action: 'تحويل تذكرة إلى قضية',

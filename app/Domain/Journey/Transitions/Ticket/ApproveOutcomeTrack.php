@@ -17,6 +17,7 @@ use App\Support\Live;
 use App\Support\Notify;
 use App\Support\TicketJourney;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 /**
  * **اعتماد الإدارة العليا لمسار مآل التذكرة النهائي (أحد المسارات الأربعة).**
@@ -142,9 +143,9 @@ final class ApproveOutcomeTrack extends Transition
             'body' => $body,
             'time_label' => self::clock(),
         ]);
-        Live::push(new TicketMessageBroadcast($msg));
+        DB::afterCommit(fn () => Live::push(new TicketMessageBroadcast($msg)));
 
-        Notify::send(
+        self::notifyAfterCommit(
             $entity->user_id,
             'scale',
             't-blue',
@@ -180,9 +181,9 @@ final class ApproveOutcomeTrack extends Transition
             'body' => $body,
             'time_label' => self::clock(),
         ]);
-        Live::push(new TicketMessageBroadcast($msg));
+        DB::afterCommit(fn () => Live::push(new TicketMessageBroadcast($msg)));
 
-        Notify::send(
+        self::notifyAfterCommit(
             $entity->user_id,
             'scale',
             't-cyan',
@@ -216,7 +217,7 @@ final class ApproveOutcomeTrack extends Transition
             'body' => $body,
             'time_label' => self::clock(),
         ]);
-        Live::push(new TicketMessageBroadcast($msg));
+        DB::afterCommit(fn () => Live::push(new TicketMessageBroadcast($msg)));
     }
 
     private function applyClose(Ticket $entity, ?User $actor, array $payload, string $reason): void
@@ -249,14 +250,25 @@ final class ApproveOutcomeTrack extends Transition
             'body' => $body,
             'time_label' => self::clock(),
         ]);
-        Live::push(new TicketMessageBroadcast($msg));
+        DB::afterCommit(fn () => Live::push(new TicketMessageBroadcast($msg)));
 
-        Notify::send(
+        self::notifyAfterCommit(
             $entity->user_id,
             'check',
             't-grey',
             "أُغلقت تذكرتك {$entity->number} بقرار مسبّب من الإدارة العليا. مخرجات ومبررات القرار محفوظة داخل التذكرة."
         );
+    }
+
+    /**
+     * **لا يخرج إشعارٌ ولا بثٌّ قبل أن يُختم الحفظ.** هذا الانتقال يجري داخل معاملة المحرّك،
+     * وكان يبثّ ويُشعر من داخلها: البثّ يغادر إلى الشاشات ولا يُلغى مع المعاملة، فيقرأ العميل
+     * قراراً قد يُمحى ويختفي عند أوّل تحديث. والقفل يبقى محجوزاً طوال انتظار الشبكة.
+     * `DB::afterCommit` ينفّذ فوراً إن لم تكن ثمّة معاملة، وبعد ختمها إن وُجدت، ويسقط مع إلغائها.
+     */
+    private static function notifyAfterCommit(int $userId, string $icon, string $tone, string $body): void
+    {
+        DB::afterCommit(fn () => Notify::send($userId, $icon, $tone, $body));
     }
 
     public function events(Model $entity, string $from, ?User $actor, array $payload): array

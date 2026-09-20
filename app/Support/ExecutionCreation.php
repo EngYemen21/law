@@ -79,7 +79,7 @@ class ExecutionCreation
             return $exec;
         });
 
-        AnalyzeExecutionJob::dispatch($exec);
+        AnalyzeExecutionJob::dispatch($exec)->afterCommit();
 
         // رسالة داخل محادثة القضية يراها العميل (بثّ تلقائي عبر CaseMessage)
         $case->messages()->create([
@@ -155,15 +155,22 @@ class ExecutionCreation
             return $exec;
         });
 
-        AnalyzeExecutionJob::dispatch($exec);
+        AnalyzeExecutionJob::dispatch($exec)->afterCommit();
 
-        Notify::send($ticket->user_id, 'exec', 't-amber', "تم فتح ملف تنفيذ قضائي برقم {$exec->number} لطلبك {$ticket->number}، وسيتم تحديد الأتعاب وإشعارك.");
+        /*
+         * **الإعلام بعد ختم الحفظ.** هذا المسار يُنادى من داخل معاملة المحرّك
+         * (`ApproveOutcomeTrack::applyExecution`)، وكان الإشعار **والبريد للمحامي** يخرجان قبل
+         * ختمها: لو أُلغيت، يبقى بريدٌ عن ملفّ تنفيذٍ لا وجود له. والبريد لا يُسترجع.
+         */
+        DB::afterCommit(function () use ($ticket, $exec, $lawyer, $actor) {
+            Notify::send($ticket->user_id, 'exec', 't-amber', "تم فتح ملف تنفيذ قضائي برقم {$exec->number} لطلبك {$ticket->number}، وسيتم تحديد الأتعاب وإشعارك.");
 
-        if ((int) $lawyer->id !== (int) $actor->id) {
-            Notify::send($lawyer->id, 'exec', 't-amber', "أُسند إليك ملف التنفيذ {$exec->number} (محال من التذكرة {$ticket->number}) — بانتظار تحديد الأتعاب.");
-            ExecService::mailAssignedLawyer($exec);
-        }
-        ExecService::notifyAdmins($exec, 't-amber', "فُتح ملف التنفيذ {$exec->number} من التذكرة {$ticket->number} — بانتظار تحديد الأتعاب.");
+            if ((int) $lawyer->id !== (int) $actor->id) {
+                Notify::send($lawyer->id, 'exec', 't-amber', "أُسند إليك ملف التنفيذ {$exec->number} (محال من التذكرة {$ticket->number}) — بانتظار تحديد الأتعاب.");
+                ExecService::mailAssignedLawyer($exec);
+            }
+            ExecService::notifyAdmins($exec, 't-amber', "فُتح ملف التنفيذ {$exec->number} من التذكرة {$ticket->number} — بانتظار تحديد الأتعاب.");
+        });
 
         Audit::log(
             action: 'تحويل تذكرة إلى تنفيذ',
