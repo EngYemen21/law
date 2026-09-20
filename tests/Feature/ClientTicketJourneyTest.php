@@ -138,6 +138,8 @@ class ClientTicketJourneyTest extends TestCase
 
         $this->actingAs($client)->post('/tickets', ['type' => 'نزاع تجاري']);
         $ticket = Ticket::firstOrFail();
+        // الإسناد بيد الطاقم (قرار المالك 2026-09-20) — كما يفعل الموظّف من شاشة التحويل
+        $ticket->update(['assigned_lawyer_id' => $lawyer->id, 'assigned_lawyer' => $lawyer->name]);
 
         // تجاوز بوابة المستندات بإرفاق ملف
         $this->actingAs($client)->post(route('tickets.attach', $ticket), [

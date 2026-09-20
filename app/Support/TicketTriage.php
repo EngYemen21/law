@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\TicketStatus;
 use App\Domain\Journey\Transition;
 use App\Domain\Journey\Transitions\Ticket\AwaitTicketDocuments;
 use App\Domain\Journey\Transitions\Ticket\ReferTicketToLawyer;
@@ -32,8 +33,9 @@ class TicketTriage
 
     /**
      * **المراحل التي تُقبل فيها إحالة الموظّف — مصدرٌ واحد.** يقرأها حارس المتحكّم
-     * (`Employee\TicketController::advance`) وإعادةُ الفحص تحت القفل في `referToLawyer`،
-     * وتطابقها `REFERRABLE` في `pages/employee/ticketchat.tsx` (إظهار الزرّ).
+     * (`Employee\TicketController::advance`)، وتطابقها `REFERRABLE` في
+     * `pages/employee/ticketchat.tsx` (إظهار الزرّ). و`referToLawyer` نفسها أوسع: تُنادى من
+     * حالاتٍ أخرى ومنها نصوصٌ قديمة، فحارسها ضدّ التكرار لا ضدّ المرحلة.
      */
     public const REFERRABLE = ['جديدة', 'قيد التحليل', 'محالة للقسم القانوني', 'بانتظار مستندات'];
 
@@ -420,14 +422,18 @@ class TicketTriage
                 return null;
             }
 
-            // نقرةٌ ثانية انتظرت القفل: الأولى أحالت فعلاً وغادرت التذكرة مراحلَ الإحالة
-            if (! in_array((string) $locked->status, self::REFERRABLE, true)) {
+            $existing = $locked->summary()->first();
+
+            /*
+             * نقرةٌ ثانية انتظرت القفل: الأولى أحالت فعلاً (الحالة «بانتظار اعتماد المستشار» ومعها
+             * ملخّص). ولا يُقاس على قائمة مراحل الزرّ: `referToLawyer` عامّة تُنادى من حالاتٍ أخرى
+             * ومنها نصوصٌ قديمة، و`from()` في الانتقال مفتوحةٌ عمداً لذلك — فالمقيس هو التكرار نفسه.
+             */
+            if ((string) $locked->status === TicketStatus::AwaitingLawyerApproval->value && $existing !== null) {
                 self::audit($locked, 'إحالة مكرّرة — أُحيل الملفّ فعلاً، فلم يُكتب ملخّصٌ ثانٍ ولا رسالةٌ ثانية.');
 
                 return null;
             }
-
-            $existing = $locked->summary()->first();
 
             // **لا تُمحى مراجعةٌ وقعت** — ملخّصٌ اعتمده المستشار أو الإدارة لا يُستبدل بقالب ولا تُعاد
             // التذكرة خلفه (ع١١). الإحالة المكرّرة على ملفٍّ معتمد لا تفعل شيئاً.
