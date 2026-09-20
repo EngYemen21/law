@@ -82,7 +82,7 @@ class CancelledInvoiceProofTest extends TestCase
         $this->assertSame('ملغاة', $card['status'], 'لا «متأخرة» حمراء لما أُلغي');
 
         $admin = User::factory()->create(['role' => Role::Admin]);
-        $this->actingAs($admin)->get(route('admin.accounting'))->assertInertia(fn ($p) => $p->where('totals.overdue', 0));
+        $this->actingAs($admin)->get(route('admin.finance'))->assertInertia(fn ($p) => $p->where('dashboard.overdueCount', 0));
     }
 
     /** المستحقّة العاديّة كما كانت: الرفع يُقبل. */

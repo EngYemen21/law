@@ -346,7 +346,7 @@ const ADMIN_NAV: SideGroup[] = [
   ] },
   { g: 'المالية والتقارير', items: [
     { icon: 'card', label: 'الإيرادات', route: '/admin/revenue' },
-    { icon: 'card', label: 'الفواتير والمحاسبة', route: '/admin/accounting' },
+    { icon: 'card', label: 'المالية والمحاسبة', route: '/admin/finance' },
     { icon: 'calgrid', label: 'التقارير', route: '/admin/reports' },
   ] },
 ];
@@ -451,7 +451,7 @@ const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/prices': ['أسعار الاستشارات', 'الإدارة العليا'],
   '/admin/settings': ['إعدادات النظام', 'الإدارة العليا'],
   '/admin/catalogue': ['الأقسام والخدمات', 'الإدارة العليا'],
-  '/admin/accounting': ['الفواتير والمحاسبة', 'الإدارة العليا'],
+  '/admin/finance': ['المالية والمحاسبة', 'الإدارة العليا'],
   '/admin/meetreports': ['تقارير الاجتماعات', 'الإدارة العليا'],
   '/admin/reports': ['التقارير', 'لوحة الإدارة'],
   '/admin/editor': ['محرر الصياغة القانونية', 'لوحة الإدارة'],

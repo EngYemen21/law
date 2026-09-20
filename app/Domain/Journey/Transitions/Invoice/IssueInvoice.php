@@ -45,6 +45,6 @@ final class IssueInvoice extends Transition
     {
         /** @var Invoice $entity */
         $entity->issued_at = now();
-        $entity->tone = 'b-amber';
+        $entity->tone = InvoiceStatus::Due->tone();
     }
 }

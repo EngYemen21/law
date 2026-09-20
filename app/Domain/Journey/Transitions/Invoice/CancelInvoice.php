@@ -57,7 +57,7 @@ final class CancelInvoice extends Transition
     {
         /** @var Invoice $entity */
         $entity->cancelled_at = now();
-        $entity->tone = 'b-red';
+        $entity->tone = InvoiceStatus::Cancelled->tone();
     }
 
     public function record(array $payload): array

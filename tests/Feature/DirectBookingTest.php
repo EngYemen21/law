@@ -127,16 +127,19 @@ class DirectBookingTest extends TestCase
         $this->assertSame(400, Consult::firstOrFail()->price); // السعر الجديد انعكس على الطلب
     }
 
-    public function test_admin_accounting_shows_real_invoices_and_marks_paid(): void
+    public function test_admin_finance_shows_real_invoices_and_marks_paid(): void
     {
         $admin = User::factory()->create(['role' => Role::Admin]);
         $client = User::factory()->create(['role' => Role::Client]);
         $inv = Invoice::create(['user_id' => $client->id, 'number' => 'INV-9', 'description' => 'أتعاب',
             'amount' => 11500, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال 14 يوماً', 'paid' => false]);
 
-        $this->actingAs($admin)->get(route('admin.accounting'))
-            ->assertOk()->assertInertia(fn ($p) => $p->component('admin/accounting')
-            ->where('totals.issued', 11500)->where('totals.collected', 0)->has('invoices.data', 1));
+        $this->actingAs($admin)->get(route('admin.finance'))
+            ->assertOk()->assertInertia(fn ($p) => $p->component('admin/finance')
+            ->where('dashboard.issued', 11500)->where('dashboard.collected', 0));
+
+        $this->actingAs($admin)->get(route('admin.finance', ['tab' => 'invoices']))
+            ->assertOk()->assertInertia(fn ($p) => $p->has('invoices.data', 1));
 
         $this->actingAs($admin)->post(route('admin.invoices.pay', $inv))->assertRedirect();
         $this->assertTrue($inv->fresh()->paid);

@@ -77,8 +77,8 @@ class DueDatesAndCleanupTest extends TestCase
         $this->invoice($client, ['due_at' => now()->subDay()->toDateString()]);
         $this->invoice($client, ['due_at' => now()->addDays(3)->toDateString()]); // صدرت للتوّ — ليست متأخرة
 
-        $this->actingAs($admin)->get(route('admin.accounting'))
-            ->assertInertia(fn ($p) => $p->where('totals.overdue', 1));
+        $this->actingAs($admin)->get(route('admin.finance'))
+            ->assertInertia(fn ($p) => $p->where('dashboard.overdueCount', 1));
     }
 
     public function test_new_invoices_carry_real_due_dates(): void

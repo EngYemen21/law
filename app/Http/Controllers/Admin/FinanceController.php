@@ -1,0 +1,305 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Domain\Journey\Transitions\Invoice\CancelInvoice;
+use App\Domain\Journey\Transitions\Invoice\IssueInvoice;
+use App\Domain\Journey\Transitions\Invoice\RejectPaymentProof;
+use App\Domain\Journey\Transitions\Invoice\SettleInvoice;
+use App\Domain\Journey\Transitions\Invoice\WriteOffInvoice;
+use App\Domain\Journey\Workflow;
+use App\Http\Controllers\Controller;
+use App\Models\Invoice;
+use App\Models\Payment;
+use App\Support\Audit;
+use App\Support\Finance\FinanceBoard;
+use App\Support\Notify;
+use App\Support\Paginate;
+use App\Support\PaymentReconciler;
+use Carbon\CarbonInterface;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Inertia\Inertia;
+use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+
+/**
+ * **شاشة «المالية والمحاسبة» `/admin/finance`** — م٣ من خطّة النظام الماليّ.
+ *
+ * تخلف `/admin/accounting` (شاشة الفواتير وحدها). والمسار القديم **يبقى مسجَّلاً ويُعيد
+ * التوجيه** إلى `?tab=invoices`: روابطُه محفوظةٌ في إشارات المستخدمين وفي إشعاراتٍ مُرسَلة.
+ *
+ * ── **التبويب خادميٌّ عبر `?tab=`** ──────────────────────────────────────────────────
+ *
+ * كما هي `?filter=` في الشاشة القديمة، وللسبب نفسه: **الترقيم**. تبويبٌ يُرشَّح في المتصفّح
+ * يرشّح **الصفحة الحاليّة وحدها** — فيُظهر «المدفوعة» من الخمسين المعروضة ويُخفي الباقي،
+ * ويعرض عدّاداً كاذباً. والخادم يرشّح الجدول كلَّه ويرقّم النتيجة.
+ *
+ * **ولا يُحسب إلّا التبويب المطلوب**: حمولةُ كلّ تبويبٍ استعلاماتُها هي، فلا تُنفَّذ استعلامات
+ * الأعمار والضريبة على من فتح الفواتير.
+ *
+ * ── **الصلاحيّة: حراسةُ الدور وحدها، عن قصد** ───────────────────────────────────────
+ *
+ * لم تُستحدث صلاحيّة «المالية والمحاسبة» — انظر تعليل المسار في `routes/web.php` والقسم ٢٤
+ * في `HANDOVER.md`. مختصرُه: كلّ مسارات `/admin/*` داخل `role:admin`، والأدمن يتجاوز كلّ
+ * صلاحيّة بـ`Gate::before`، وغيرُ الأدمن لا يبلغ المجموعة أصلاً — فالصلاحيّة تظهر في شاشة
+ * الصلاحيّات ولا تفتح باباً. وهي سابقةٌ وقعت مع «أرشيف الاستشارات» ويحرسها
+ * `PermissionReachabilityTest`.
+ *
+ * ── **والحالات تُكتب بالانتقالات لا مباشرةً** ────────────────────────────────────────
+ *
+ * كلُّ إجراءٍ هنا ينادي انتقالاً في `Domain/Journey/Transitions/Invoice`، فيُسجَّل صفٌّ في
+ * `journey_transitions` ويُرفَض ما لا يجوز بحارسه هو. و`StateWriteGuard` يردّ أيّ كتابةٍ
+ * مباشرة على `status`/`paid` منذ م٢.
+ */
+class FinanceController extends Controller
+{
+    public function index(Request $request): Response
+    {
+        $tab = FinanceBoard::tab($request->query('tab'));
+        $period = FinanceBoard::period(
+            $request->query('period'),
+            $request->query('from'),
+            $request->query('to'),
+        );
+
+        $status = (string) $request->query('status', 'all');
+        $kind = (string) $request->query('kind', 'all');
+        $kind = isset(FinanceBoard::KINDS[$kind]) ? $kind : 'all';
+
+        return Inertia::render('admin/finance', [
+            'tab' => $tab,
+            'tabs' => self::asList(FinanceBoard::TABS),
+            'periods' => self::asList(FinanceBoard::PERIODS),
+            'period' => [
+                'key' => $period['key'],
+                'label' => $period['label'],
+                'from' => $period['fromDate'],
+                'to' => $period['toDate'],
+            ],
+            'status' => $status,
+            'kind' => $kind,
+            'statuses' => FinanceBoard::statusFilters(),
+            'kinds' => self::asList(FinanceBoard::KINDS),
+            'buckets' => FinanceBoard::AGING_BUCKETS,
+        ] + $this->payloadFor($tab, $request, $period, $status, $kind));
+    }
+
+    /**
+     * حمولة التبويب المطلوب وحده — البقيّة `null` فلا تُنفَّذ استعلاماتُها.
+     *
+     * @param  array{from:CarbonInterface, to:CarbonInterface, ...}  $period
+     */
+    private function payloadFor(string $tab, Request $request, array $period, string $status, string $kind): array
+    {
+        $payload = match ($tab) {
+            'invoices' => ['invoices' => $this->invoicesPayload($request, $period, $status, $kind)],
+            'receipts' => ['receipts' => [
+                'rows' => Paginate::shape(
+                    FinanceBoard::receipts($period),
+                    fn (Payment $p) => FinanceBoard::receiptRow($p),
+                ),
+                'total' => FinanceBoard::receiptsTotal($period),
+            ]],
+            'aging' => ['aging' => ['rows' => FinanceBoard::debtorsByClient()]],
+            'vat' => ['vat' => FinanceBoard::vat($period) + [
+                'invoices' => Paginate::shape(
+                    FinanceBoard::vatInvoices($period),
+                    fn (Invoice $v) => FinanceBoard::invoiceRow($v),
+                ),
+            ]],
+            // «التقارير» روابطُ نقلٍ إلى الشاشتين القائمتين — لا تكرارَ لحسابٍ يعيش هناك
+            'reports' => [],
+            default => ['dashboard' => FinanceBoard::dashboard($period)],
+        };
+
+        // المفاتيح الباقية `null` صراحةً: الواجهة تقرؤها كلَّها، وغيابُ مفتاحٍ يعني `undefined`
+        // لا «لا حمولة». و`+` يُبقي ما في الطرف الأيسر، فالمحسوب أوّلاً والفراغ بعده.
+        return $payload + ['dashboard' => null, 'invoices' => null, 'receipts' => null, 'aging' => null, 'vat' => null];
+    }
+
+    /**
+     * جدول الفواتير + الأزرار المتاحة لكلّ صفّ.
+     *
+     * **الأزرار من `Workflow::allowed` لا من شروطٍ في الواجهة**: الحارس الذي يقبل الإجراء هو
+     * نفسه الذي يقرّر ظهور زرّه، فلا يَعِد زرٌّ بما يردّه الخادم. والانتقالات تُنشأ مرّةً لا
+     * لكلّ صفّ.
+     *
+     * @param  array{from:CarbonInterface, to:CarbonInterface, ...}  $period
+     */
+    private function invoicesPayload(Request $request, array $period, string $status, string $kind): array
+    {
+        $transitions = [new IssueInvoice, new SettleInvoice, new CancelInvoice, new WriteOffInvoice];
+        $actor = $request->user();
+
+        return Paginate::shape(
+            FinanceBoard::invoices($period, $status, $kind),
+            fn (Invoice $v) => FinanceBoard::invoiceRow($v, Workflow::allowed($v, $actor, $transitions)),
+        );
+    }
+
+    /** @param  array<string,string>  $map */
+    private static function asList(array $map): array
+    {
+        $out = [];
+        foreach ($map as $k => $label) {
+            $out[] = ['k' => $k, 'label' => $label];
+        }
+
+        return $out;
+    }
+
+    /**
+     * **المسار القديم `/admin/accounting` — توجيهٌ لا حذف.**
+     *
+     * روابطُه محفوظةٌ عند المستخدمين ومكتوبةٌ في إشعاراتٍ أُرسلت، و٤٠٤ عليها كسرٌ لا ترقية
+     * (خ٨ في الخطّة).
+     */
+    public function legacyAccounting(): RedirectResponse
+    {
+        return redirect()->route('admin.finance', ['tab' => 'invoices']);
+    }
+
+    // ─────────────────────────────── إجراءات تبويب الفواتير ───────────────────────────────
+
+    /** تحصيل يدويّ (نقد/تحويل خارج البوّابة) — يقيّد الدفتر ويمنع التحصيل المكرّر. */
+    public function pay(Request $request, Invoice $invoice): RedirectResponse
+    {
+        if (! PaymentReconciler::settleManual($invoice, $request->user()->name)) {
+            return back()->with('error', "الفاتورة {$invoice->number} محصّلة مسبقاً.");
+        }
+
+        return back()->with('flash', "تم تسجيل تحصيل الفاتورة {$invoice->number}.");
+    }
+
+    /**
+     * **إصدار المسوّدة** ⇐ «مستحقة» — اللحظة التي تصير فيها الفاتورة مطالبةً يراها العميل.
+     *
+     * حالة «مسوّدة» أُضيفت في م٢ بلا شاشةٍ تُخرجها منها، فكانت طريقاً مسدوداً. وهذا بابُها.
+     */
+    public function issue(Request $request, Invoice $invoice): RedirectResponse
+    {
+        Workflow::run(new IssueInvoice, $invoice, $request->user());
+
+        Audit::log(
+            action: 'إصدار فاتورة',
+            description: "أصدر {$request->user()->name} الفاتورة {$invoice->number} للعميل.",
+            category: 'مالية وفواتير',
+            auditable: $invoice,
+            auditableRef: $invoice->number,
+        );
+
+        Notify::send($invoice->user_id, 'card', 't-blue', "صدرت لك الفاتورة {$invoice->number} بمبلغ ".number_format((int) $invoice->amount).' ر.س.');
+
+        return back()->with('flash', "أُصدرت الفاتورة {$invoice->number} وأُشعر العميل.");
+    }
+
+    /** إلغاء الفاتورة — والسبب اختياريّ (قد يكون إعادة تسعيرٍ لا خطأً). */
+    public function cancel(Request $request, Invoice $invoice): RedirectResponse
+    {
+        $data = $request->validate(['reason' => ['nullable', 'string', 'max:300']]);
+        $reason = trim($data['reason'] ?? '');
+
+        Workflow::run(new CancelInvoice, $invoice, $request->user(), ['reason' => $reason]);
+
+        Audit::log(
+            action: 'إلغاء فاتورة',
+            description: "ألغى {$request->user()->name} الفاتورة {$invoice->number}".($reason !== '' ? " — السبب: {$reason}" : '').'.',
+            category: 'مالية وفواتير',
+            severity: 'warning',
+            auditable: $invoice,
+            auditableRef: $invoice->number,
+        );
+
+        Notify::send($invoice->user_id, 'card', 't-grey', "أُلغيت الفاتورة {$invoice->number}".($reason !== '' ? " — السبب: {$reason}" : '').'.');
+
+        return back()->with('flash', "أُلغيت الفاتورة {$invoice->number}.");
+    }
+
+    /**
+     * **شطب الدين** ⇐ «دين معدوم» — **والسبب إلزاميّ**.
+     *
+     * إسقاطُ مالٍ للمكتب حقٌّ فيه، وقيدٌ بلا تعليل لا يُدافَع عنه عند مراجعة. والانتقال يرفضه
+     * كذلك (‏`WriteOffInvoice::guard`) — والتحقّق هنا يعطي رسالة حقلٍ بدل صفحة ٤٢٢.
+     *
+     * **ولا يُشعَر العميل**: الشطب قرارٌ محاسبيٌّ داخليّ بإسقاط المطالبة، وإخبارُ المدين بأنّ
+     * دينه أُسقط قرارُ مكتبٍ لا أثرٌ تقنيّ — ولم يُطلب.
+     */
+    public function writeOff(Request $request, Invoice $invoice): RedirectResponse
+    {
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:300'],
+        ], [], ['reason' => 'سبب شطب الدين']);
+
+        Workflow::run(new WriteOffInvoice, $invoice, $request->user(), ['reason' => trim($data['reason'])]);
+
+        Audit::log(
+            action: 'شطب دين معدوم',
+            description: "شطب {$request->user()->name} الفاتورة {$invoice->number} ديناً معدوماً — السبب: ".trim($data['reason']).'.',
+            category: 'مالية وفواتير',
+            severity: 'warning',
+            auditable: $invoice,
+            auditableRef: $invoice->number,
+        );
+
+        return back()->with('flash', "شُطبت الفاتورة {$invoice->number} ديناً معدوماً.");
+    }
+
+    /**
+     * تنزيل إثبات التحويل اليدويّ الذي رفعه العميل.
+     *
+     * كان `proof_path` يُكتب ولا يقرؤه شيء في المشروع كلّه — لا مسار ولا مكوّن — فحالة
+     * «بانتظار مراجعة الإثبات» طريق مسدود: المراجع يرى أن إثباتاً رُفع ولا يستطيع فتحه
+     * ليقرّر التحصيل. للإدارة وحدها (المجموعة محروسة بـrole:admin).
+     */
+    public function proof(Invoice $invoice): StreamedResponse
+    {
+        abort_if($invoice->proof_path === null, 404, 'لا يوجد إثبات مرفوع لهذه الفاتورة.');
+        abort_unless(Storage::exists($invoice->proof_path), 404, 'ملف الإثبات غير موجود على الخادم.');
+
+        return Storage::download(
+            $invoice->proof_path,
+            'اثبات-'.$invoice->number.'.'.pathinfo($invoice->proof_path, PATHINFO_EXTENSION),
+        );
+    }
+
+    /**
+     * رفض إثبات التحويل — عميلٌ رفع ملفاً خاطئاً كان يفقد زرّ الدفع نهائياً:
+     * لا مسار يعيد proof_path إلى الفراغ فتبقى «بانتظار مراجعة الإثبات» للأبد.
+     */
+    public function rejectProof(Request $request, Invoice $invoice): RedirectResponse
+    {
+        abort_if($invoice->proof_path === null, 404, 'لا يوجد إثبات مرفوع لهذه الفاتورة.');
+        abort_if($invoice->paid, 422, 'الفاتورة محصَّلة — لا معنى لرفض إثباتها.');
+
+        $data = $request->validate(['reason' => ['nullable', 'string', 'max:300']]);
+
+        $reason = trim($data['reason'] ?? '');
+
+        // الملفّ يُحذف بعد نجاح الانتقال لا قبله: رفضٌ تعثّر (تحصيلٌ سبقه) لا يُضيّع إثباتاً قائماً
+        $proofPath = $invoice->proof_path;
+        Workflow::run(new RejectPaymentProof, $invoice, $request->user(), ['reason' => $reason]);
+
+        if (Storage::exists($proofPath)) {
+            Storage::delete($proofPath);
+        }
+        Notify::send(
+            $invoice->user_id,
+            'card',
+            't-amber',
+            "لم يُقبل إثبات التحويل للفاتورة {$invoice->number}".($reason !== '' ? " — السبب: {$reason}" : '').'. يمكنك الدفع عبر ميسّر أو رفع إثبات صحيح.'
+        );
+
+        Audit::log(
+            action: 'رفض إثبات تحويل',
+            description: "رفض {$request->user()->name} إثبات التحويل للفاتورة {$invoice->number}".($reason !== '' ? " — السبب: {$reason}" : '').'.',
+            category: 'مالية وفواتير',
+            severity: 'warning',
+            auditable: $invoice,
+            auditableRef: $invoice->number,
+        );
+
+        return back()->with('flash', 'رُفض الإثبات وأُعيدت الفاتورة للاستحقاق وأُشعر العميل.');
+    }
+}

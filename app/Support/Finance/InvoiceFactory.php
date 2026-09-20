@@ -142,7 +142,9 @@ final class InvoiceFactory
         $row = array_merge([
             'number' => null,
             'status' => InvoiceStatus::Due->value,
-            'tone' => 'b-amber',
+            // اللون من الحالة نفسها (`InvoiceStatus::tone`) لا نصّاً هنا: كان مكتوباً حرفاً في
+            // تسعة مواضع، فمن يغيّر لون «مستحقة» كان عليه أن يجدها كلّها
+            'tone' => InvoiceStatus::Due->tone(),
             'paid' => false,
         ], $attributes, $money);
 

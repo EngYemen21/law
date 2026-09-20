@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 /**
  * **الإدارة ترفض إثبات التحويل ⇐ «مستحقة» من جديد** — نقيض `SubmitPaymentProof`.
  *
- * كان `AccountingController::rejectProof` يكتب الحالة مباشرةً. حذف الملفّ من القرص والإشعار
+ * كان متحكّم المحاسبة (اليوم `Admin\FinanceController::rejectProof`) يكتب الحالة مباشرةً. حذف الملفّ من القرص والإشعار
  * والتدقيق تبقى عند المتحكّم كما كانت؛ هنا تفريغ الإثبات وإعادة الاستحقاق في معاملةٍ واحدة.
  *
  * `from()` مفتوح كما كان المتحكّم: حارساه «إثباتٌ مرفوع» و«غير محصّلة» — وهما هنا شبكةُ أمان
@@ -56,7 +56,7 @@ final class RejectPaymentProof extends Transition
         /** @var Invoice $entity */
         $entity->proof_path = null;
         $entity->proof_uploaded_at = null;
-        $entity->tone = 'b-amber';
+        $entity->tone = InvoiceStatus::Due->tone();
     }
 
     public function record(array $payload): array

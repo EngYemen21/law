@@ -232,7 +232,7 @@ const AdminDashboard: React.FC<Props> = ({
           <button className="hero-b ghost" onClick={() => router.visit('/admin/cases')} type="button">
             <Icon name="scale" /> ملفات القضايا
           </button>
-          <button className="hero-b ghost" onClick={() => router.visit('/admin/accounting')} type="button">
+          <button className="hero-b ghost" onClick={() => router.visit('/admin/finance')} type="button">
             <Icon name="doc" /> المحاسبة والإيرادات
           </button>
           <button className="hero-b ghost" onClick={() => router.visit('/admin/staff')} type="button">
@@ -244,7 +244,7 @@ const AdminDashboard: React.FC<Props> = ({
       {/* 2. شريط مؤشرات الأداء المالي والتشغيلي الكبرى (Executive KPI Cockpit) */}
       <div className="stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', marginBottom: 22 }}>
         {/* بطاقة الإيرادات والتحصيل */}
-        <div className="stat t-green" onClick={() => router.visit('/admin/accounting')} title="عرض المحاسبة">
+        <div className="stat t-green" onClick={() => router.visit('/admin/finance')} title="عرض المحاسبة">
           <div className="si"><Icon name="card" /></div>
           <div className="num" style={{ fontSize: 25 }}>{fmt(finalOverview.totalRevenue)} <span style={{ fontSize: 13, fontWeight: 600 }}>ر.س</span></div>
           <div className="lbl">الإيراد المحصّل</div>

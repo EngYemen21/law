@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\Admin\AccountingController as AdminAccountingController;
 use App\Http\Controllers\Admin\AiBlindReviewController as AdminAiBlindReviewController;
 use App\Http\Controllers\Admin\AiOpsController as AdminAiOpsController;
 use App\Http\Controllers\Admin\AiReviewController as AdminAiReviewController;
@@ -12,6 +11,7 @@ use App\Http\Controllers\Admin\CatalogueController as AdminCatalogueController;
 use App\Http\Controllers\Admin\ClientController as AdminClientController;
 use App\Http\Controllers\Admin\ClientNotifController as AdminClientNotifController;
 use App\Http\Controllers\Admin\DistributeController as AdminDistributeController;
+use App\Http\Controllers\Admin\FinanceController as AdminFinanceController;
 use App\Http\Controllers\Admin\LawyerController as AdminLawyerController;
 use App\Http\Controllers\Admin\LegalSourceController as AdminLegalSourceController;
 use App\Http\Controllers\Admin\PriceController as AdminPriceController;
@@ -686,11 +686,26 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/catalogue/staff-departments', [AdminCatalogueController::class, 'storeStaffDepartment'])->name('catalogue.staff-departments.store');
     Route::put('/catalogue/staff-departments/{staffDepartment}', [AdminCatalogueController::class, 'updateStaffDepartment'])->name('catalogue.staff-departments.update');
     Route::post('/catalogue/staff-departments/{staffDepartment}/toggle', [AdminCatalogueController::class, 'toggleStaffDepartment'])->name('catalogue.staff-departments.toggle');
-    Route::get('/accounting', [AdminAccountingController::class, 'index'])->name('accounting');
-    Route::post('/invoices/{invoice}/pay', [AdminAccountingController::class, 'pay'])->name('invoices.pay');
-    Route::get('/invoices/{invoice}/proof', [AdminAccountingController::class, 'proof'])->name('invoices.proof');
+    // «المالية والمحاسبة» — الشاشة الواحدة بتبويباتها الستّة خادميّةً عبر `?tab=` (م٣).
+    //
+    // **بلا صلاحيّة مستحدثة، بقرارٍ موثَّق** (خ٦ في `docs/finance-plan.md`، والقسم ٢٤ في
+    // `HANDOVER.md`): كلّ مسارات `/admin/*` داخل `role:admin`، والأدمن يتجاوز كلّ `permission:`
+    // بـ`Gate::before`، وغيرُ الأدمن لا يبلغ المجموعة أصلاً بلا استثناء (`EnsureRole`).
+    // فصلاحيّة «المالية والمحاسبة» كانت ستظهر مؤشَّرةً في شاشة الصلاحيّات ولا تفتح باباً —
+    // سابقةُ «أرشيف الاستشارات» الموثّقة في `Permissions.php` ويحرسها `PermissionReachabilityTest`.
+    // ومتى حُسم ق٩ (هل يرى المحامي أرقام موكّلي غيره؟) تُستحدث الصلاحيّة **مع** مسارٍ خارج
+    // `role:admin` يقابلها، لا قبله.
+    Route::get('/finance', [AdminFinanceController::class, 'index'])->name('finance');
+    // المسار القديم يبقى مسجَّلاً ويُعيد التوجيه — روابطُه محفوظةٌ ومكتوبةٌ في إشعاراتٍ أُرسلت (خ٨)
+    Route::get('/accounting', [AdminFinanceController::class, 'legacyAccounting'])->name('accounting');
+    Route::post('/invoices/{invoice}/pay', [AdminFinanceController::class, 'pay'])->name('invoices.pay');
+    // دورة حياة الفاتورة من الشاشة — كلٌّ ينادي انتقاله فيُسجَّل في `journey_transitions` (م٢)
+    Route::post('/invoices/{invoice}/issue', [AdminFinanceController::class, 'issue'])->name('invoices.issue');
+    Route::post('/invoices/{invoice}/cancel', [AdminFinanceController::class, 'cancel'])->name('invoices.cancel');
+    Route::post('/invoices/{invoice}/write-off', [AdminFinanceController::class, 'writeOff'])->name('invoices.write-off');
+    Route::get('/invoices/{invoice}/proof', [AdminFinanceController::class, 'proof'])->name('invoices.proof');
     // رفض الإثبات يعيد الفاتورة للاستحقاق — رافع الملف الخاطئ كان يفقد زرّ الدفع نهائياً
-    Route::post('/invoices/{invoice}/proof/reject', [AdminAccountingController::class, 'rejectProof'])->name('invoices.proof.reject');
+    Route::post('/invoices/{invoice}/proof/reject', [AdminFinanceController::class, 'rejectProof'])->name('invoices.proof.reject');
     Route::get('/meetreports', [StaffMeetingController::class, 'reports'])->name('meetreports');
     Route::get('/reports', [AdminReportController::class, 'reports'])->name('reports');
     // استقبال الاستشارات وغرفة الجلسة (مربوطة بقاعدة البيانات)

@@ -32,7 +32,7 @@ class NotificationController extends Controller
         'admin' => [
             'tickets' => '/admin/tickets', 'cases' => '/admin/cases', 'execs' => '/admin/execs',
             'consults' => '/admin/consults', 'meetreqs' => '/admin/meetreqs',
-            'invoices' => '/admin/accounting',
+            'invoices' => '/admin/finance?tab=invoices',
         ],
     ];
 

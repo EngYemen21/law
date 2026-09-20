@@ -45,7 +45,8 @@ class AdminPaginationTest extends TestCase
             ->assertInertia(fn ($p) => $p->has('clients.data', 5)->where('clients.meta.current_page', 2));
     }
 
-    public function test_accounting_totals_cover_all_invoices_not_just_the_page(): void
+    /** الشاشة صارت `/admin/finance?tab=invoices` (م٣)، والقاعدة نفسها: الإجماليات على الجدول لا على الصفحة. */
+    public function test_finance_totals_cover_all_invoices_not_just_the_page(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         foreach (range(1, 55) as $i) {
@@ -55,17 +56,21 @@ class AdminPaginationTest extends TestCase
             ]);
         }
 
-        $this->actingAs($this->admin())->get(route('admin.accounting'))
+        $this->actingAs($this->admin())->get(route('admin.finance', ['tab' => 'invoices']))
             ->assertOk()
             ->assertInertia(fn ($p) => $p
                 ->has('invoices.data', 50)
-                ->where('invoices.meta.total', 55)
-                // الإجماليات على كل الفواتير لا على الصفحة
-                ->where('totals.issued', 5500)
-                ->where('totals.unpaid', 55));
+                ->where('invoices.meta.total', 55));
+
+        // والبطاقات على كل الفواتير لا على صفحةٍ منها
+        $this->actingAs($this->admin())->get(route('admin.finance'))
+            ->assertOk()
+            ->assertInertia(fn ($p) => $p
+                ->where('dashboard.issued', 5500)
+                ->where('dashboard.receivablesCount', 55));
     }
 
-    public function test_accounting_filter_is_applied_server_side(): void
+    public function test_finance_status_filter_is_applied_server_side(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         Invoice::create([
@@ -77,11 +82,11 @@ class AdminPaginationTest extends TestCase
             'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'اليوم', 'paid' => false,
         ]);
 
-        $this->actingAs($this->admin())->get(route('admin.accounting', ['filter' => 'مدفوعة']))
+        $this->actingAs($this->admin())->get(route('admin.finance', ['tab' => 'invoices', 'status' => 'مدفوعة']))
             ->assertOk()
             ->assertInertia(fn ($p) => $p->has('invoices.data', 1)
                 ->where('invoices.data.0.no', 'INV-PAID')
-                ->where('filter', 'مدفوعة'));
+                ->where('status', 'مدفوعة'));
     }
 
     public function test_admin_tickets_are_paginated(): void

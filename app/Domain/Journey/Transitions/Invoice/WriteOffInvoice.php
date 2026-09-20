@@ -73,7 +73,7 @@ final class WriteOffInvoice extends Transition
         $entity->written_off_at = now();
         // 300 حرفاً هو حدّ العمود — والقصّ هنا أصدق من استثناءٍ يُجهض قراراً إداريّاً وقع
         $entity->written_off_reason = mb_substr(trim((string) ($payload['reason'] ?? '')), 0, 300);
-        $entity->tone = 'b-grey';
+        $entity->tone = InvoiceStatus::WrittenOff->tone();
     }
 
     public function record(array $payload): array

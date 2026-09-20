@@ -188,7 +188,7 @@ class AdminDashboardService
                 'count' => $overdueCount,
                 'desc' => "يوجد {$overdueCount} فاتورة مستحقة متأخرة السداد",
                 'cta' => 'متابعة المحاسبة',
-                'link' => route('admin.accounting'),
+                'link' => route('admin.finance', ['tab' => 'aging']),
                 'tone' => 'red',
                 'icon' => 'alert',
             ];

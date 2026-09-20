@@ -65,12 +65,12 @@ final class RefundInvoice extends Transition
 
         if (! empty($payload['cancel'])) {
             $entity->cancelled_at = now();
-            $entity->tone = 'b-red';
+            $entity->tone = InvoiceStatus::Cancelled->tone();
 
             return;
         }
 
-        $entity->tone = 'b-amber';
+        $entity->tone = InvoiceStatus::Due->tone();
     }
 
     public function record(array $payload): array

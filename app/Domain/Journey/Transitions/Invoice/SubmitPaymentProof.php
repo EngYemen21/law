@@ -59,6 +59,6 @@ final class SubmitPaymentProof extends Transition
         /** @var Invoice $entity */
         $entity->proof_path = (string) $payload['proof_path'];
         $entity->proof_uploaded_at = now();
-        $entity->tone = 'b-blue';
+        $entity->tone = InvoiceStatus::ProofReview->tone();
     }
 }

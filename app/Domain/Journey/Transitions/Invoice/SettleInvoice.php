@@ -58,7 +58,7 @@ final class SettleInvoice extends Transition
         /** @var Invoice $entity */
         $entity->paid = true;
         $entity->paid_at = now();
-        $entity->tone = 'b-green';
+        $entity->tone = InvoiceStatus::Paid->tone();
     }
 
     public function record(array $payload): array

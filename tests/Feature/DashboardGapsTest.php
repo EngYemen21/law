@@ -113,8 +113,8 @@ class DashboardGapsTest extends TestCase
             'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال أسبوع', 'paid' => false, 'due_at' => now()->addWeek()->toDateString(),
         ]);
 
-        $this->actingAs($admin)->get(route('admin.accounting'))
+        $this->actingAs($admin)->get(route('admin.finance'))
             ->assertOk()
-            ->assertInertia(fn ($p) => $p->where('totals.overdue', 0)->where('totals.unpaid', 1));
+            ->assertInertia(fn ($p) => $p->where('dashboard.overdueCount', 0)->where('dashboard.receivablesCount', 1));
     }
 }

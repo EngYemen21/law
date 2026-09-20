@@ -35,6 +35,28 @@ enum InvoiceStatus: string
         return $this === self::Due || $this === self::ProofReview || $this === self::PartiallyPaid;
     }
 
+    /**
+     * **لون شارة الحالة — المصدر الواحد** (نمط `TicketJourney::toneFor` و`CaseJourney::toneFor`).
+     *
+     * كان اللون مكتوباً حرفاً في تسعة مواضع: `Finance\InvoiceFactory` والانتقالات الثمانية.
+     * فشاشةٌ جديدة تحتاج لون حالةٍ لم تُكتب بعد (زرُّ ترشيحٍ بالحالة مثلاً) كانت ستنسخ عاشرةً
+     * تتباعد عند أوّل تعديل. الحالة تعرف لونَها، والكاتب يسأل.
+     *
+     * **و«متأخرة» ليست هنا**: حالةٌ مشتقّةٌ عند القراءة لا مخزَّنة — لونها في `Invoice::liveStatus`.
+     */
+    public function tone(): string
+    {
+        return match ($this) {
+            self::Draft => 'b-grey',          // لم تُرسَل بعد — لا مطالبةَ تُلوَّن
+            self::Due => 'b-amber',           // مطالبةٌ قائمة
+            self::ProofReview => 'b-blue',    // الكرةُ في ملعب المراجع لا العميل
+            self::PartiallyPaid => 'b-amber', // بقيّتُها مطالبةٌ قائمة، فلونُ المستحقّة
+            self::Paid => 'b-green',
+            self::Cancelled => 'b-red',
+            self::WrittenOff => 'b-grey',     // أُسقطت المطالبة — تخرج من الذمم فتخرج من الألوان الحيّة
+        };
+    }
+
     /** @return list<string> */
     public static function values(): array
     {

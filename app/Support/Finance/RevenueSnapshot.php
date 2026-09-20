@@ -72,7 +72,7 @@ final class RevenueSnapshot
         // بكامل مبلغها ديناً على العميل إلى الأبد. والذمّة تُقاس مباشرةً — غيرُ ملغاةٍ وغير
         // مدفوعة — لا بطرح مجموعٍ من مجموع، فلا تصير سالبةً إن سُدّدت فاتورةٌ ثمّ أُلغيت.
         $issued = (int) self::notCancelled()->sum('amount');
-        $due = (int) self::notCancelled()->where('paid', false)->sum('amount');
+        $due = (int) self::receivables()->sum('amount');
 
         $paidConsults = Consult::whereNotNull('paid_at');
 
@@ -259,5 +259,27 @@ final class RevenueSnapshot
     private static function notCancelled(): Builder
     {
         return Invoice::where('status', '!=', InvoiceStatus::Cancelled->value);
+    }
+
+    /**
+     * **تعريف «الذمّة» — المصدر الواحد** الذي تقرؤه هذه اللقطة وشاشة `/admin/finance`
+     * (‏`Finance\FinanceBoard`: بطاقتا الذمم والمتأخّر، وتبويب الأعمار، وأعلى المدينين).
+     *
+     * ذمّةٌ = مبلغٌ ما زال المكتب يطالب به: **غير مدفوع، ولا ملغىً، ولا معدوم**.
+     *
+     * - **الملغاة** ليست ذمّةً على أحد — كانت تظهر بكامل مبلغها ديناً إلى الأبد.
+     * - **المعدومة** أُسقطت مطالبتُها بقرارٍ إداريّ مسبَّب (`WriteOffInvoice`)، وهذا بعينه
+     *   سببُ وجود الحالة: «كان المكتب يطالب بديونٍ لا تُحصَّل وتبقى منفوخةً في المستحقّ»
+     *   (ب٦). وم٢ أضافت الحالة ولم تُخرجها من هذا الحساب، فبقيت منفوخةً بها — وهنا تخرج.
+     *
+     * ولذلك هو **مرشّحٌ مشترك** لا نسختان: رقمُ «الذمم» في `/admin/revenue` ورقمُه في
+     * `/admin/finance` من تعريفٍ واحد، فلا يفترقان.
+     *
+     * @return Builder<Invoice>
+     */
+    public static function receivables(): Builder
+    {
+        return Invoice::where('paid', false)
+            ->whereNotIn('status', [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value]);
     }
 }

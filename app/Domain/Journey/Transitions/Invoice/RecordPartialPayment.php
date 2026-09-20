@@ -66,7 +66,7 @@ final class RecordPartialPayment extends Transition
     public function apply(Model $entity, ?User $actor, array $payload): void
     {
         /** @var Invoice $entity */
-        $entity->tone = 'b-amber';
+        $entity->tone = InvoiceStatus::PartiallyPaid->tone();
     }
 
     public function record(array $payload): array
