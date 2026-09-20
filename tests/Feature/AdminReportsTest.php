@@ -49,13 +49,16 @@ class AdminReportsTest extends TestCase
         Consult::create(['user_id' => $client->id, 'ref' => 'CN-2', 'subject' => 'استشارة', 'type' => 'عام', 'channel' => 'هاتفية',
             'lawyer' => 'أ. خالد', 'status' => 'بانتظار السداد', 'price' => 350, 'vat' => 53, 'total' => 403, 'priced_at' => now()]);
 
+        // `collected` صار `totalIncome` و`bookingRevenue` صار `consultIncome`: الدخل هو الفاتورة
+        // المدفوعة وحدها، فالاستشارة المسدَّدة بلا فاتورة تُعَدّ ولا تُحسب مالاً.
         $this->actingAs($admin)->get(route('admin.revenue'))
             ->assertOk()
             ->assertInertia(fn ($p) => $p->component('admin/revenue')
                 ->where('issued', 16500)
-                ->where('collected', 11500)
+                ->where('totalIncome', 11500)
                 ->where('due', 5000)
                 ->where('bookings', 1)
-                ->where('bookingRevenue', 518));
+                ->where('consultIncome', 0)
+                ->where('unbilledPaidConsults', 1));
     }
 }

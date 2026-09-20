@@ -3,24 +3,17 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Domain\Journey\Enums\CaseStatus;
-use App\Domain\Journey\Enums\ClosureCaseReasonCode;
-use App\Domain\Journey\Enums\ClosureExecReasonCode;
 use App\Domain\Journey\Enums\ClosureReasonCode;
-use App\Domain\Journey\Enums\ExecutionStatus;
 use App\Domain\Journey\Enums\TicketStatus;
-use App\Enums\Role;
 use App\Http\Controllers\Controller;
-use App\Models\Consult;
 use App\Models\Execution;
-use App\Models\Invoice;
 use App\Models\JourneyTransition;
 use App\Models\LegalCase;
 use App\Models\Meeting;
 use App\Models\Ticket;
-use App\Models\User;
+use App\Support\Finance\RevenueSnapshot;
 use App\Support\PdfRenderer;
 use App\Support\ReportPrint;
-use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -178,63 +171,13 @@ class ReportController extends Controller
         ]);
     }
 
+    /**
+     * شاشة الإيرادات — كلّ أرقامها من `RevenueSnapshot` وحدها.
+     * كان الحساب مكتوباً هنا وفي `revenuePdf()` حرفيّاً، فيُصلَح أحدهما ويبقى الآخر يكذب.
+     */
     public function revenue(): Response
     {
-        // 1. إيرادات الاستشارات المدفوعة فقط (بعد السداد)
-        $paid = Consult::whereNotNull('paid_at');
-        $bookings = (clone $paid)->count();
-        $bookingRevenue = (int) (clone $paid)->sum('total');
-
-        // 2. الفواتير الحقيقية (أتعاب القضايا)
-        $issued = (int) Invoice::sum('amount');
-        $collected = (int) Invoice::where('paid', true)->sum('amount');
-        $due = $issued - $collected;
-
-        // 3. أتعاب ومتحصلات التنفيذ القضائي (ExecFlow)
-        $execFixedFees = (int) Execution::where('paid', true)->where('fee_mode', 'fixed')->sum('fee');
-        $execPercentFees = (int) Execution::where('fee_mode', 'percent')
-            ->selectRaw('SUM(collected * COALESCE(collection_fee_pct, 0) / 100) as pct_fee')
-            ->value('pct_fee');
-        $totalExecFees = $execFixedFees + $execPercentFees;
-
-        $totalDebtEnforced = (int) Execution::sum('amount');
-        $totalCollectedDebts = (int) Execution::sum('collected');
-        $collectionRate = $totalDebtEnforced > 0 ? (int) round($totalCollectedDebts / $totalDebtEnforced * 100) : 0;
-
-        // 4. إجمالي التدفق والدخل المحصل للمكتب
-        $totalFirmGross = $bookingRevenue + $collected + $totalExecFees;
-
-        // 5. الإيراد حسب نوع الاستشارة (شامل الضريبة)
-        $byService = (clone $paid)->selectRaw('channel, SUM(total) AS revenue')
-            ->groupBy('channel')->get()
-            ->map(fn ($row) => ['m' => $row->channel ?: 'أخرى', 'v' => (int) $row->revenue])
-            ->values();
-
-        // 6. رواتب الموظفين الثابتة (الموظفون النشطون فعلاً)
-        $staff = User::whereIn('role', [Role::Employee, Role::Lawyer])
-            ->where('status', '!=', 'suspended')->where('salary', '>', 0)
-            ->orderByDesc('salary')->get(['name', 'salary']);
-        $salaryTotal = (int) $staff->sum('salary');
-        $netCashFlow = $totalFirmGross - $salaryTotal;
-
-        return Inertia::render('admin/revenue', [
-            'bookings' => $bookings,
-            'bookingRevenue' => $bookingRevenue,
-            'issued' => $issued,
-            'collected' => $collected,
-            'due' => $due,
-            'execFixedFees' => $execFixedFees,
-            'execPercentFees' => $execPercentFees,
-            'totalExecFees' => $totalExecFees,
-            'totalDebtEnforced' => $totalDebtEnforced,
-            'totalCollectedDebts' => $totalCollectedDebts,
-            'collectionRate' => $collectionRate,
-            'totalFirmGross' => $totalFirmGross,
-            'netCashFlow' => $netCashFlow,
-            'byService' => $byService,
-            'salaries' => $staff->map(fn ($u) => ['name' => $u->name, 'salary' => (int) $u->salary])->values(),
-            'salaryTotal' => $salaryTotal,
-        ]);
+        return Inertia::render('admin/revenue', RevenueSnapshot::build()->toArray());
     }
 
     /** تصدير تقرير الأداء ومؤشرات الإنجاز PDF. */
@@ -301,28 +244,8 @@ class ReportController extends Controller
     /** تصدير تقرير الإيرادات والتدفق المالي PDF. */
     public function revenuePdf(): \Symfony\Component\HttpFoundation\Response
     {
-        $paid = Consult::whereNotNull('paid_at');
-        $bookingRevenue = (int) (clone $paid)->sum('total');
-        $issued = (int) Invoice::sum('amount');
-        $collected = (int) Invoice::where('paid', true)->sum('amount');
-
-        $execFixedFees = (int) Execution::where('paid', true)->where('fee_mode', 'fixed')->sum('fee');
-        $execPercentFees = (int) Execution::where('fee_mode', 'percent')
-            ->selectRaw('SUM(collected * COALESCE(collection_fee_pct, 0) / 100) as pct_fee')
-            ->value('pct_fee');
-        $totalExecFees = $execFixedFees + $execPercentFees;
-
-        $totalDebtEnforced = (int) Execution::sum('amount');
-        $totalCollectedDebts = (int) Execution::sum('collected');
-        $collectionRate = $totalDebtEnforced > 0 ? (int) round($totalCollectedDebts / $totalDebtEnforced * 100) : 0;
-
-        $totalFirmGross = $bookingRevenue + $collected + $totalExecFees;
-
-        $byService = (clone $paid)->selectRaw('channel, SUM(total) AS revenue')->groupBy('channel')->get();
-        $staff = User::whereIn('role', [Role::Employee, Role::Lawyer])
-            ->where('status', '!=', 'suspended')->where('salary', '>', 0)
-            ->orderByDesc('salary')->get(['name', 'salary']);
-        $salaryTotal = (int) $staff->sum('salary');
+        // نفس اللقطة التي تقرؤها الشاشة — لا حسابَ ثانياً هنا
+        $snap = RevenueSnapshot::build();
 
         $html = ReportPrint::html([
             'title' => 'تقرير الإيرادات ومؤشرات التدفق المالي والتحصيل',
@@ -331,28 +254,24 @@ class ReportController extends Controller
             'blocks' => [
                 [
                     'title' => '١. الإيرادات والتدفق النقدي للمكتب',
-                    'cellRows' => [
-                        [['إجمالي الدخل المحصل للمكتب', number_format($totalFirmGross).' ر.س'], ['صافي التدفق بعد الرواتب', number_format($totalFirmGross - $salaryTotal).' ر.س']],
-                        [['إيراد الاستشارات المدفوعة', number_format($bookingRevenue).' ر.س'], ['أتعاب القضايا المحصلة', number_format($collected).' ر.س']],
-                        [['أتعاب التنفيذ القضائي', number_format($totalExecFees).' ر.س'], ['الذمم المستحقة (فواتير)', number_format($issued - $collected).' ر.س']],
-                    ],
+                    'cellRows' => $snap->printCellRows(),
                 ],
                 [
                     'title' => '٢. التحصيل المالي في قضايا التنفيذ',
                     'cellRows' => [
-                        [['إجمالي المبالغ المنفذ بها', number_format($totalDebtEnforced).' ر.س'], ['المبالغ المحصلة للعملاء', number_format($totalCollectedDebts).' ر.س']],
-                        [['نسبة نجاح التحصيل', $collectionRate.'%'], ['أتعاب نسبة التحصيل', number_format($execPercentFees).' ر.س']],
+                        [['إجمالي المبالغ المنفذ بها', number_format($snap->totalDebtEnforced).' ر.س'], ['المبالغ المحصلة للعملاء', number_format($snap->totalCollectedDebts).' ر.س']],
+                        [['نسبة نجاح التحصيل', $snap->collectionRate.'%'], ['أتعاب نسبة التحصيل', number_format($snap->execPercentFees).' ر.س']],
                     ],
                 ],
                 [
                     'title' => '٣. الإيراد حسب قناة الاستشارة',
-                    'cellRows' => $byService->map(fn ($r) => [[$r->channel ?: 'أخرى', number_format((int) $r->revenue).' ر.س']])->all(),
+                    'cellRows' => array_map(fn (array $r) => [[$r['m'], number_format($r['v']).' ر.س']], $snap->byService),
                 ],
                 [
                     'title' => '٤. الرواتب الثابتة الشهرية',
                     'cellRows' => array_merge(
-                        [[['إجمالي الرواتب', number_format($salaryTotal).' ر.س'], ['عدد الموظفين', (string) $staff->count().' موظف']]],
-                        $staff->map(fn ($u) => [[$u->name, number_format((int) $u->salary).' ر.س']])->all()
+                        [[['إجمالي الرواتب', number_format($snap->salaryTotal).' ر.س'], ['عدد الموظفين', (string) count($snap->salaries).' موظف']]],
+                        array_map(fn (array $u) => [[$u['name'], number_format($u['salary']).' ر.س']], $snap->salaries)
                     ),
                 ],
             ],
@@ -362,4 +281,3 @@ class ReportController extends Controller
         return PdfRenderer::render($html, 'revenue-'.now()->format('Y-m-d').'.pdf');
     }
 }
-

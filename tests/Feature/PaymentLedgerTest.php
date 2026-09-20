@@ -4,8 +4,10 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Models\Consult;
+use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\User;
+use App\Support\PaymentReconciler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -106,6 +108,60 @@ class PaymentLedgerTest extends TestCase
         $this->assertSame('webhook', $payment->source_channel);
         $this->assertNull($payment->reconciled_at); // لم تُسوَّ
         $this->assertNull($consult->fresh()->paid_at); // المجال لم يُدفع
+    }
+
+    /**
+     * **العمود الذي يُجمَع: `amount_halalas` بالهللة دائماً.**
+     *
+     * `amount` يخلط وحدتين — البوّابة بالهللة والتحصيل اليدويّ بالريال — فصفٌّ بـ`51800` وصفٌّ
+     * بـ`518` يعنيان المبلغ نفسه ولا يُجمعان. هنا فاتورتان **بالمبلغ نفسه** (518 ر.س)، واحدة
+     * عبر البوّابة وأخرى بتحصيلٍ يدويّ: الوحدة الموحّدة تتساوى في الصفّين، والقديم يبقى كما كان.
+     */
+    public function test_manual_and_gateway_rows_agree_in_halalas_for_the_same_amount(): void
+    {
+        $this->configureMoyasar();
+        $client = User::factory()->create(['role' => Role::Client]);
+
+        // (أ) فاتورة استشارة تُسوّى عبر البوّابة — 518 ر.س = 51800 هللة
+        $gatewayConsult = $this->pendingConsult($client);
+        $this->fakePayment($gatewayConsult);
+        $this->postJson(route('webhooks.moyasar'), [
+            'secret_token' => 'whsec_1', 'data' => ['id' => 'pay_led_1'],
+        ])->assertOk();
+
+        // (ب) فاتورةٌ بالمبلغ نفسه تُحصَّل يدويّاً من الإدارة
+        $manualInvoice = Invoice::create([
+            'user_id' => $client->id, 'number' => 'INV-LEDGER-MAN', 'description' => 'أتعاب',
+            'amount' => 518, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => '—', 'paid' => false,
+        ]);
+        $this->assertTrue(PaymentReconciler::settleManual($manualInvoice, 'الإدارة'));
+
+        $gatewayRow = Payment::where('gateway', 'moyasar')->firstOrFail();
+        $manualRow = Payment::where('gateway', 'manual')->firstOrFail();
+
+        // القديم كما كان حرفاً — وحدتان في عمودٍ واحد، وهو سبب وجود العمود الجديد
+        $this->assertSame(51800, $gatewayRow->amount);
+        $this->assertSame(518, $manualRow->amount);
+
+        // والجديد موحَّد: مبلغٌ واحد ⇒ رقمٌ واحد، فالعمود يُجمع ويُطابَق
+        $this->assertSame(51800, $gatewayRow->amount_halalas);
+        $this->assertSame($gatewayRow->amount_halalas, $manualRow->amount_halalas);
+        $this->assertSame(103600, (int) Payment::sum('amount_halalas'));
+    }
+
+    /** وحتى الدفعة المرفوضة تحمل وحدتها — الدفتر يلتقط المحاولة كما وردت. */
+    public function test_rejected_gateway_row_also_carries_halalas(): void
+    {
+        $this->configureMoyasar();
+        $client = User::factory()->create(['role' => Role::Client]);
+        $consult = $this->pendingConsult($client);
+        $this->fakePayment($consult, ['amount' => 10000]);
+
+        $this->postJson(route('webhooks.moyasar'), [
+            'secret_token' => 'whsec_1', 'data' => ['id' => 'pay_led_1'],
+        ])->assertOk();
+
+        $this->assertSame(10000, Payment::first()->amount_halalas);
     }
 
     public function test_ledger_is_idempotent_across_webhook_and_callback(): void

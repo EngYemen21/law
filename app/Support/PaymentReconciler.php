@@ -112,7 +112,10 @@ class PaymentReconciler
                 'invoice_id' => $invoice->id,
                 'gateway' => 'manual',
                 'status' => 'paid',
+                // `amount` يبقى بالريال حرفاً كما كان (لقطةُ ما قُيّد، ومرجعُ اختباراتٍ قائمة)،
+                // و`amount_halalas` **بالهللة دائماً** فيصير العمود قابلاً للجمع مع صفوف البوّابة.
                 'amount' => (int) $invoice->amount,
+                'amount_halalas' => (int) round($invoice->amount * 100),
                 'currency' => 'SAR',
                 'source_channel' => 'admin',
                 'raw' => ['actor' => $actor, 'settled_at' => now()->toIso8601String()],
@@ -217,7 +220,10 @@ class PaymentReconciler
                 'gateway' => 'moyasar',
                 'gateway_invoice_id' => ((string) ($payment['invoice_id'] ?? '')) ?: null,
                 'status' => (string) ($payment['status'] ?? 'unknown'),
+                // ميسّر تردّ المبلغ بالهللة، فالعمودان متطابقان هنا — والتطابق مقصود: `amount`
+                // لقطةُ البوّابة كما وردت، و`amount_halalas` الوحدةُ الموحّدة للجمع (انظر settleManual).
                 'amount' => (int) ($payment['amount'] ?? 0),
+                'amount_halalas' => (int) ($payment['amount'] ?? 0),
                 'currency' => (string) ($payment['currency'] ?? 'SAR'),
                 'source_channel' => $channel,
                 'raw' => $payment,

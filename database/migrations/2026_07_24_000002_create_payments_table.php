@@ -17,7 +17,10 @@ return new class extends Migration
             $table->string('gateway_invoice_id')->nullable();           // = invoices.gateway_ref (payment.invoice_id)
             $table->string('gateway_payment_id')->nullable()->unique(); // معرّف دفعة ميسّر — idempotency على مستوى الدفتر
             $table->string('status');                                   // paid | failed | ... (كما وردت من ميسّر)
-            $table->integer('amount');                                 // بالهللة (كما في invoices)
+            // تصحيح تعليقٍ خاطئ (2026-09-20): كان مكتوباً «بالهللة (كما في invoices)» — و`invoices.amount`
+            // بالريال. والعمود نفسه مختلط الوحدة: البوّابة بالهللة والتحصيل اليدويّ بالريال. الوحدة
+            // الموثوقة في `amount_halalas` (مهاجرة 2026_09_20_000004)، وهذا العمود لقطةٌ كما وردت.
+            $table->integer('amount');
             $table->string('currency', 3)->default('SAR');
             $table->string('source_channel', 16);                      // webhook | callback | backfill
             $table->json('raw')->nullable();                           // لقطة حمولة الدفعة الكاملة (تدقيق)

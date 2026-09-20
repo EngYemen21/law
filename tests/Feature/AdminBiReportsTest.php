@@ -15,6 +15,7 @@ use App\Models\JourneyTransition;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\Finance\RevenueSnapshot;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -136,7 +137,169 @@ class AdminBiReportsTest extends TestCase
             ->has('recentTransitions', 1));
     }
 
-    public function test_bi_revenue_calculates_firm_wide_gross_and_net_flow(): void
+    /**
+     * **الحارس الذي كان سيكشف العطل: إجمالي الدخل = مجموع الفواتير المدفوعة بالضبط.**
+     *
+     * استشارةٌ مسدَّدة وقضيّةٌ مسدَّدة وتنفيذٌ مسدَّد معاً — وكان `totalFirmGross` يجمع
+     * إيراد الاستشارات من `consults` + كلّ فاتورةٍ مدفوعة + أتعاب التنفيذ من `executions`،
+     * وهي مجموعاتٌ متقاطعة: فالاستشارة تُعَدّ مرّتين والتنفيذ مرّتين، ونسبةُ التحصيل تُحسب
+     * حساباً بلا فاتورةٍ ولا سداد. الرقم قبل الإصلاح 16,336 والفواتير المدفوعة 11,818.
+     */
+    public function test_total_income_equals_the_sum_of_paid_invoices_exactly(): void
+    {
+        $admin = $this->admin();
+        $client = $this->client();
+
+        // ١) استشارة مسدَّدة بفاتورتها
+        $consult = Consult::create([
+            'user_id' => $client->id, 'ref' => 'CN-INC-1', 'subject' => 'استشارة تجارية',
+            'type' => 'عام', 'channel' => 'مرئية', 'lawyer' => 'أ. سعد',
+            'price' => 450, 'vat' => 68, 'total' => 518, 'paid_at' => now(),
+        ]);
+        Invoice::create([
+            'user_id' => $client->id, 'consult_id' => $consult->id, 'number' => 'INV-INC-C',
+            'description' => 'استشارة', 'amount' => 518, 'status' => 'مدفوعة', 'tone' => 'b-green',
+            'due_label' => '—', 'paid' => true,
+        ]);
+
+        // ٢) قضيّة مسدَّدة أتعابها
+        $case = LegalCase::create([
+            'user_id' => $client->id, 'number' => 'C-INC-1', 'title' => 'قضية', 'court' => 'المحكمة',
+            'type' => 'قضية تجارية', 'status' => 'قيد التحضير', 'tone' => 'b-blue', 'fee_status' => 'paid',
+        ]);
+        Invoice::create([
+            'user_id' => $client->id, 'case_id' => $case->id, 'number' => 'INV-INC-L',
+            'description' => 'أتعاب قضية', 'amount' => 9000, 'status' => 'مدفوعة', 'tone' => 'b-green',
+            'due_label' => '—', 'paid' => true,
+        ]);
+
+        // ٣) تنفيذٌ بأتعابٍ ثابتة مسدَّدة — الفاتورة والمبلغ على `executions` وجهان لمالٍ واحد
+        $exec = Execution::create([
+            'user_id' => $client->id, 'number' => 'EXE-INC-1', 'subject' => 'حكم تجاري',
+            'fee_mode' => 'fixed', 'fee' => 2000, 'vat' => 300, 'paid' => true,
+            'amount' => 100000, 'collected' => 40000,
+        ]);
+        Invoice::create([
+            'user_id' => $client->id, 'exec_id' => $exec->id, 'number' => 'INV-INC-E',
+            'description' => 'أتعاب تنفيذ', 'amount' => 2300, 'status' => 'مدفوعة', 'tone' => 'b-green',
+            'due_label' => '—', 'paid' => true,
+        ]);
+
+        // ٤) تنفيذٌ بنسبةٍ من المحصَّل بلا فاتورةٍ ولا سداد — كان يدخل الدخل حساباً (20000×10%)
+        Execution::create([
+            'user_id' => $client->id, 'number' => 'EXE-INC-2', 'subject' => 'سند لأمر',
+            'fee_mode' => 'percent', 'collection_fee_pct' => 10.0, 'amount' => 50000, 'collected' => 20000,
+        ]);
+
+        $paidInvoices = (int) Invoice::where('paid', true)->sum('amount');
+        $this->assertSame(11818, $paidInvoices);
+
+        $this->actingAs($admin)->get(route('admin.revenue'))
+            ->assertOk()
+            ->assertInertia(fn ($p) => $p->component('admin/revenue')
+                // لا أكثر ولا أقلّ — كان 16,336 (518 + 11,818 + 4,000)
+                ->where('totalIncome', $paidInvoices)
+                // والتصنيف تقسيمٌ للمجموع نفسه لا مصادرُ تُجمَع
+                ->where('consultIncome', 518)
+                ->where('caseIncome', 9000)
+                ->where('execIncome', 2300)
+                ->where('otherIncome', 0)
+                // ومؤشّرات التنفيذ باقية خارج الدخل: محسوبةٌ لا محصَّلة
+                ->where('execFixedFees', 2000)
+                ->where('execPercentFees', 2000)
+                ->where('totalDebtEnforced', 150000)
+                ->where('totalCollectedDebts', 60000)
+                ->where('collectionRate', 40));
+    }
+
+    /** ومجموع الأقسام يساوي الإجمالي بحكم البناء — حتى مع فاتورةٍ لا ترتبط بملفّ. */
+    public function test_income_split_always_adds_up_to_the_total(): void
+    {
+        $client = $this->client();
+        Invoice::create([
+            'user_id' => $client->id, 'number' => 'INV-ORPH', 'description' => 'رسوم متفرّقة',
+            'amount' => 700, 'status' => 'مدفوعة', 'tone' => 'b-green', 'due_label' => '—', 'paid' => true,
+        ]);
+
+        $snap = RevenueSnapshot::build();
+
+        $this->assertSame(700, $snap->totalIncome);
+        $this->assertSame(700, $snap->otherIncome);
+        $this->assertSame(
+            $snap->totalIncome,
+            $snap->consultIncome + $snap->caseIncome + $snap->execIncome + $snap->otherIncome
+        );
+    }
+
+    /**
+     * **الفاتورة الملغاة ليست ذمّةً على أحد.**
+     * كان «الصادر» يجمعها و«الذمم» = الصادر − المحصَّل، فتبقى منفوخةً بمبلغ كلّ ملغاة.
+     */
+    public function test_cancelled_invoices_leave_both_issued_and_due_untouched(): void
+    {
+        $admin = $this->admin();
+        $client = $this->client();
+
+        Invoice::create([
+            'user_id' => $client->id, 'number' => 'INV-CNL-PAID', 'description' => 'أتعاب',
+            'amount' => 4000, 'status' => 'مدفوعة', 'tone' => 'b-green', 'due_label' => '—', 'paid' => true,
+        ]);
+        Invoice::create([
+            'user_id' => $client->id, 'number' => 'INV-CNL-DUE', 'description' => 'أتعاب',
+            'amount' => 1000, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => '—', 'paid' => false,
+        ]);
+        Invoice::create([
+            'user_id' => $client->id, 'number' => 'INV-CNL-X', 'description' => 'أتعاب أُلغيت بإعادة التسعير',
+            'amount' => 6516, 'status' => 'ملغاة', 'tone' => 'b-grey', 'due_label' => '—', 'paid' => false,
+        ]);
+
+        $this->actingAs($admin)->get(route('admin.revenue'))
+            ->assertOk()
+            ->assertInertia(fn ($p) => $p->component('admin/revenue')
+                ->where('issued', 5000)   // كان 11,516
+                ->where('due', 1000)      // كان 7,516
+                ->where('totalIncome', 4000));
+    }
+
+    /**
+     * **حارس المصدر الواحد:** الشاشة وتقرير PDF يقرآن اللقطة نفسها، فلا يفترقان.
+     * كان الحساب مكتوباً مرّتين حرفيّاً — فإصلاح أحدهما يترك الآخر يكذب.
+     */
+    public function test_screen_and_pdf_report_show_the_same_income_figure(): void
+    {
+        $admin = $this->admin();
+        $client = $this->client();
+        Invoice::create([
+            'user_id' => $client->id, 'number' => 'INV-PDF-1', 'description' => 'أتعاب',
+            'amount' => 12345, 'status' => 'مدفوعة', 'tone' => 'b-green', 'due_label' => '—', 'paid' => true,
+        ]);
+        // تنفيذٌ بأتعاب محسوبة بلا فاتورة — كان التقرير يضيفها للدخل وحده دون الشاشة (أو العكس)،
+        // فلولا وجودُه لَما كشف الحارسُ افتراقَ الحسابين
+        Execution::create([
+            'user_id' => $client->id, 'number' => 'EXE-PDF-1', 'subject' => 'سند',
+            'fee_mode' => 'percent', 'collection_fee_pct' => 10.0, 'amount' => 50000, 'collected' => 20000,
+        ]);
+
+        $screen = null;
+        $this->actingAs($admin)->get(route('admin.revenue'))
+            ->assertOk()
+            ->assertInertia(function ($p) use (&$screen) {
+                $screen = $p->toArray()['props']['totalIncome'];
+            });
+
+        $printed = RevenueSnapshot::build()->printCellRows()[0][0][1];
+
+        $this->assertSame(12345, $screen);
+        $this->assertSame(number_format($screen).' ر.س', $printed);
+
+        // والتقرير نفسه يخرج PDF سليماً بهذه الأرقام
+        $pdf = $this->actingAs($admin)->get(route('admin.revenue.pdf'));
+        $pdf->assertOk();
+        $this->assertStringStartsWith('%PDF', $pdf->getContent());
+    }
+
+    /** المشهد التاريخيّ للعطل كما كان مكتوباً — بأرقامه الصحيحة الآن. */
+    public function test_bi_revenue_counts_each_riyal_once(): void
     {
         $admin = $this->admin();
         $client = $this->client();
@@ -201,28 +364,26 @@ class AdminBiReportsTest extends TestCase
             'status' => 'active',
         ]);
 
-        // الإجمالي المتوقع:
-        // bookingRevenue = 1000
-        // collected = 3000
-        // totalExecFees = 4000 + 2000 = 6000
-        // totalFirmGross = 1000 + 3000 + 6000 = 10000
-        // salaryTotal = 5000
-        // netCashFlow = 10000 - 5000 = 5000
+        // **كان المتوقَّع:** totalFirmGross = 1000 (استشارة) + 3000 (فواتير) + 6000 (تنفيذ) = 10,000،
+        // وnetCashFlow = 10,000 − 5,000. والفواتير المدفوعة في هذا المشهد **3,000 فقط**.
+        // والاستشارة هنا مسدَّدة بلا فاتورة: خللُ بياناتٍ يُعلَن بعدده ولا يُحسب مالاً.
 
         $res = $this->actingAs($admin)->get(route('admin.revenue'));
         $res->assertOk();
         $res->assertInertia(fn ($p) => $p->component('admin/revenue')
-            ->where('bookingRevenue', 1000)
-            ->where('collected', 3000)
+            ->where('totalIncome', 3000)
+            ->where('consultIncome', 0)
+            ->where('otherIncome', 3000)
+            ->where('bookings', 1)
+            ->where('unbilledPaidConsults', 1)
+            ->where('issued', 5000)
             ->where('due', 2000)
             ->where('execFixedFees', 4000)
             ->where('execPercentFees', 2000)
-            ->where('totalExecFees', 6000)
             ->where('totalDebtEnforced', 150000)
             ->where('totalCollectedDebts', 60000)
             ->where('collectionRate', 40) // 60000 / 150000 = 40%
-            ->where('totalFirmGross', 10000)
-            ->where('netCashFlow', 5000)
-            ->where('salaryTotal', 5000));
+            ->where('salaryTotal', 5000)
+            ->missing('netCashFlow'));   // حُذف: رواتب شهرٍ من إيراد العمر كلّه
     }
 }

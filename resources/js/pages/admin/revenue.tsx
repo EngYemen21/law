@@ -5,48 +5,54 @@ import { PAY_METHODS } from '@/lib/admin-data';
 import Icon from '@/lib/icons';
 
 // إيرادات الإدارة — تجميعات ومؤشرات مالية متكاملة للاستشارات والقضايا والتنفيذ القضائي والرواتب
+//
+// **الدخل هنا هو الفاتورة المدفوعة وحدها** (App\Support\Finance\RevenueSnapshot): لا تجمع هذه
+// الشاشة مصدرين ولا تحسب رقماً بنفسها. كانت تجمع إيراد الاستشارات + كلّ فاتورة مدفوعة + أتعاب
+// التنفيذ، وهي متقاطعة، فيُعَدّ المال مرّتين وثلاثاً.
 
 const fmt = (n?: number) => (n ?? 0).toLocaleString('en-US');
 
 interface Props {
-  bookings: number;
-  bookingRevenue: number;
+  totalIncome: number;
+  consultIncome: number;
+  caseIncome: number;
+  execIncome: number;
+  otherIncome: number;
   issued: number;
-  collected: number;
   due: number;
+  bookings: number;
+  unbilledPaidConsults: number;
   execFixedFees?: number;
   execPercentFees?: number;
-  totalExecFees?: number;
   totalDebtEnforced?: number;
   totalCollectedDebts?: number;
   collectionRate?: number;
-  totalFirmGross?: number;
-  netCashFlow?: number;
   byService: BarDatum[];
   salaries: { name: string; salary: number }[];
   salaryTotal: number;
 }
 
 const AdminRevenue: React.FC<Props> = ({
-  bookings,
-  bookingRevenue,
+  totalIncome,
+  consultIncome,
+  caseIncome,
+  execIncome,
+  otherIncome,
   issued,
-  collected,
   due,
+  bookings,
+  unbilledPaidConsults,
   execFixedFees = 0,
   execPercentFees = 0,
-  totalExecFees = 0,
   totalDebtEnforced = 0,
   totalCollectedDebts = 0,
   collectionRate = 0,
-  totalFirmGross,
-  netCashFlow,
   byService,
   salaries,
   salaryTotal,
 }) => {
-  const firmGross = totalFirmGross ?? (bookingRevenue + collected + totalExecFees);
-  const netFlow = netCashFlow ?? (firmGross - salaryTotal);
+  // نسبة التحصيل من الصادر غير الملغى — مشتقّة من الرقمين المعروضين، بلا مصدر ثالث
+  const collectedOfIssued = issued > 0 ? Math.round(((issued - due) / issued) * 100) : 0;
 
   return (
     <>
@@ -66,35 +72,60 @@ const AdminRevenue: React.FC<Props> = ({
       </div>
 
       {/* ── لوحة المؤشرات المالية الكبرى للمكتب ── */}
+      {/* حُذفت بطاقة «صافي التدفق بعد الرواتب»: كانت تطرح رواتب شهرٍ واحد من إيراد العمر كلّه
+          (لا تصفية بالفترة في النظام حتى يحمل الفواتيرَ تاريخُ سداد). تعود بعد م١. */}
       <div className="stats" style={{ marginBottom: 16 }}>
         <div className="stat t-blue">
           <div className="si"><Icon name="card" /></div>
-          <div className="num">{fmt(firmGross)} ر.س</div>
+          <div className="num">{fmt(totalIncome)} ر.س</div>
           <div className="lbl">إجمالي الدخل المحصل للمكتب</div>
-          <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>استشارات + قضايا + تنفيذ</div>
-        </div>
-
-        <div className="stat t-green">
-          <div className="si"><Icon name="check" /></div>
-          <div className="num" style={{ color: netFlow >= 0 ? undefined : 'var(--c-red, #ef4444)' }}>
-            {fmt(netFlow)} ر.س
-          </div>
-          <div className="lbl">صافي التدفق بعد الرواتب</div>
-          <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>الدخل المحصل مطروحاً منه الرواتب</div>
+          <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>مجموع الفواتير المدفوعة</div>
         </div>
 
         <div className="stat t-amber">
           <div className="si"><Icon name="exec" /></div>
-          <div className="num">{fmt(totalExecFees)} ر.س</div>
+          <div className="num">{fmt(execIncome)} ر.س</div>
           <div className="lbl">أتعاب التنفيذ القضائي</div>
-          <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>ثابتة + نسب التحصيل</div>
+          <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>من فواتير التنفيذ المدفوعة</div>
         </div>
 
         <div className="stat t-cyan">
           <div className="si"><Icon name="folder" /></div>
           <div className="num">{fmt(due)} ر.س</div>
           <div className="lbl">الذمم المستحقة (فواتير)</div>
-          <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>من إجمالي {fmt(issued)} ر.س مُصدَر</div>
+          <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>من إجمالي {fmt(issued)} ر.س مُصدَر (بلا الملغاة)</div>
+        </div>
+      </div>
+
+      {/* تقسيم الدخل — مجموع الأقسام يساوي الإجمالي أعلاه دائماً (قسمة الفواتير المدفوعة نفسها) */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-h">
+          <h3>تقسيم الدخل المحصل</h3>
+          <span className="sub">مجموع الفواتير المدفوعة موزّعاً على ملفّاتها</span>
+        </div>
+        <div className="card-b" style={{ padding: 16 }}>
+          <div className="kpi-row">
+            <span className="t">دخل الاستشارات المحصَّل</span>
+            <span className="v">{fmt(consultIncome)} ر.س</span>
+          </div>
+          <div className="kpi-row">
+            <span className="t">دخل أتعاب القضايا المحصَّل</span>
+            <span className="v">{fmt(caseIncome)} ر.س</span>
+          </div>
+          <div className="kpi-row">
+            <span className="t">دخل التنفيذ المحصَّل</span>
+            <span className="v">{fmt(execIncome)} ر.س</span>
+          </div>
+          {otherIncome !== 0 && (
+            <div className="kpi-row">
+              <span className="t">فواتير غير مرتبطة بملفّ</span>
+              <span className="v">{fmt(otherIncome)} ر.س</span>
+            </div>
+          )}
+          <div className="kpi-row">
+            <span className="t">الإجمالي</span>
+            <span className="v" style={{ fontWeight: 800, color: 'var(--c-green, #10b981)' }}>{fmt(totalIncome)} ر.س</span>
+          </div>
         </div>
       </div>
 
@@ -104,17 +135,23 @@ const AdminRevenue: React.FC<Props> = ({
         <div className="card">
           <div className="card-h">
             <h3>إيرادات الاستشارات المحجوزة</h3>
-            <span className="sub">{bookings} استشارة مدفوعة · {fmt(bookingRevenue)} ر.س</span>
+            <span className="sub">{bookings} استشارة مدفوعة · {fmt(consultIncome)} ر.س</span>
           </div>
           <div className="card-b" style={{ padding: 16 }}>
             <div className="kpi-row">
               <span className="t">إجمالي إيراد الاستشارات (شامل الضريبة)</span>
-              <span className="v" style={{ fontWeight: 800, color: 'var(--c-green, #10b981)' }}>{fmt(bookingRevenue)} ر.س</span>
+              <span className="v" style={{ fontWeight: 800, color: 'var(--c-green, #10b981)' }}>{fmt(consultIncome)} ر.س</span>
             </div>
             <div className="kpi-row">
               <span className="t">عدد الاستشارات المدفوعة</span>
               <span className="v">{bookings} حجز</span>
             </div>
+            {/* لا يُخفى النقص ولا يُحسب مالاً: استشارة عليها سداد بلا فاتورة مدفوعة خللُ بيانات */}
+            {unbilledPaidConsults > 0 && (
+              <div className="action-hint" style={{ marginTop: 10 }}>
+                {unbilledPaidConsults} استشارة مسجَّلة مسدَّدة بلا فاتورة مدفوعة — خارج الدخل أعلاه وتحتاج مراجعة.
+              </div>
+            )}
             <div style={{ marginTop: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 8 }}>الإيراد حسب نوع القناة:</div>
               {byService.length ? <Bars data={byService} /> : <div className="empty"><Icon name="card" /><b>لا بيانات بعد</b></div>}
@@ -129,13 +166,14 @@ const AdminRevenue: React.FC<Props> = ({
             <span className="sub">الفواتير وسندات القبض</span>
           </div>
           <div className="card-b" style={{ padding: 16 }}>
+            {/* «للقضايا» و«من القضايا» كانتا كاذبتين: الرقم كان كلّ الفواتير لا فواتير القضايا */}
             <div className="kpi-row">
-              <span className="t">إجمالي الفواتير الصادرة للقضايا</span>
+              <span className="t">إجمالي الفواتير الصادرة (بلا الملغاة)</span>
               <span className="v">{fmt(issued)} ر.س</span>
             </div>
             <div className="kpi-row">
-              <span className="t">المبالغ المحصلة فعلياً من القضايا</span>
-              <span className="v" style={{ color: 'var(--c-green, #10b981)', fontWeight: 800 }}>{fmt(collected)} ر.س</span>
+              <span className="t">المبالغ المحصلة فعلياً من فواتير القضايا</span>
+              <span className="v" style={{ color: 'var(--c-green, #10b981)', fontWeight: 800 }}>{fmt(caseIncome)} ر.س</span>
             </div>
             <div className="kpi-row">
               <span className="t">الذمم والمستحقات المتبقية بالسوق</span>
@@ -143,7 +181,7 @@ const AdminRevenue: React.FC<Props> = ({
             </div>
             <div className="kpi-row">
               <span className="t">نسبة تحصيل الفواتير الصادرة</span>
-              <span className="v">{issued > 0 ? Math.round((collected / issued) * 100) : 0}%</span>
+              <span className="v">{collectedOfIssued}%</span>
             </div>
           </div>
         </div>
@@ -190,12 +228,8 @@ const AdminRevenue: React.FC<Props> = ({
             <span className="t">إجمالي الرواتب الثابتة الشهرية</span>
             <span className="v" style={{ fontWeight: 800 }}>{fmt(salaryTotal)} ر.س</span>
           </div>
-          <div className="kpi-row">
-            <span className="t">تغطية الرواتب من الدخل المحصل</span>
-            <span className="v" style={{ color: salaryTotal > 0 && firmGross >= salaryTotal ? 'var(--c-green, #10b981)' : 'var(--c-amber, #f59e0b)', fontWeight: 800 }}>
-              {salaryTotal > 0 ? Math.round((firmGross / salaryTotal) * 100) : 0}%
-            </span>
-          </div>
+          {/* حُذفت «تغطية الرواتب من الدخل المحصل»: نسبةُ إيرادِ العمر كلّه إلى رواتب شهرٍ واحد —
+              هي عين عطل «صافي التدفق» بصيغة مئويّة. تعود مع التصفية بالفترة (م١). */}
           <div style={{ marginTop: 12 }}>
             {salaries.map((s) => (
               <div key={s.name} className="kpi-row">
