@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\GuardsJourneyState;
+use App\Support\Finance\InvoiceFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -15,6 +16,9 @@ class Invoice extends Model
     protected $fillable = [
         'user_id', 'case_id', 'consult_id', 'exec_id', 'installment_no', 'number', 'description', 'amount', 'status', 'tone', 'due_label', 'due_at', 'reminder_sent_at', 'paid',
         'gateway_ref', 'gateway_payment_id', 'proof_path', 'proof_uploaded_at',
+        // م١: الضريبة ومحطّات دورة الحياة — `vat_rate` مجمَّدةٌ يوم الإصدار (`Finance\InvoiceFactory`)
+        'paid_at', 'subtotal', 'vat_rate', 'vat_amount',
+        'issued_at', 'cancelled_at', 'written_off_at', 'written_off_reason',
     ];
 
     protected $casts = [
@@ -24,6 +28,13 @@ class Invoice extends Model
         'due_at' => 'date',
         'reminder_sent_at' => 'datetime',
         'proof_uploaded_at' => 'datetime',
+        'subtotal' => 'integer',
+        'vat_rate' => 'integer',
+        'vat_amount' => 'integer',
+        'paid_at' => 'datetime',
+        'issued_at' => 'datetime',
+        'cancelled_at' => 'datetime',
+        'written_off_at' => 'datetime',
     ];
 
     /**
@@ -51,6 +62,32 @@ class Invoice extends Model
     public function liveStatus(): array
     {
         return $this->isOverdue() ? ['متأخرة', 'b-red'] : [(string) $this->status, (string) $this->tone];
+    }
+
+    /**
+     * **تفصيل المال كما يُطبع على المستند الضريبيّ** — الأساس والنسبة والضريبة والإجماليّ.
+     *
+     * المصدر هو أعمدة الصفّ نفسه: النسبة **مجمَّدةٌ يوم الإصدار** فلا تتبع الإعداد، وهذا
+     * بالضبط ما يجعل فاتورةً سلّمها المكتب قبل سنةٍ تُطبع اليوم بأرقامها هي.
+     *
+     * **والاحتياط لصفوفٍ بلا أعمدة**: الأعمدة أُضيفت في م١ ومُلئت رجعيّاً، لكنّ صفّاً يُنشأ
+     * خارج `Finance\InvoiceFactory` (بذرةٌ أو تهيئة اختبار) قد يصل بلا ضريبة. وعكسُ الحساب
+     * أصدق من طباعة صفرٍ يوهم بأنّ الفاتورة بلا ضريبة — وهو عينُ ما فعلته المهاجرة.
+     *
+     * @return array{amount:int, subtotal:int, vat_rate:int, vat_amount:int}
+     */
+    public function taxBreakdown(): array
+    {
+        if ($this->subtotal === null || $this->vat_amount === null) {
+            return InvoiceFactory::taxFromTotal((int) $this->amount);
+        }
+
+        return [
+            'amount' => (int) $this->amount,
+            'subtotal' => (int) $this->subtotal,
+            'vat_rate' => (int) ($this->vat_rate ?? 0),
+            'vat_amount' => (int) $this->vat_amount,
+        ];
     }
 
     public function user(): BelongsTo

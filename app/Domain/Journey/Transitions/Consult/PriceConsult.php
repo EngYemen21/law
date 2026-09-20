@@ -7,7 +7,7 @@ use App\Domain\Journey\Transition;
 use App\Models\Consult;
 use App\Models\Invoice;
 use App\Models\User;
-use App\Support\InvoiceNumber;
+use App\Support\Finance\InvoiceFactory;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -73,18 +73,15 @@ final class PriceConsult extends Transition
             }
         }
 
-        $this->invoice = Invoice::create([
+        // الأساس والضريبة **كما سعّرهما المسعِّر في هذه الحمولة نفسها** لا كما تُحسب من الإعداد
+        // ثانيةً — والفاتورة والاستشارة تحملان الرقم عينه (`InvoiceFactory::fromFrozen`).
+        $this->invoice = InvoiceFactory::fromFrozen((int) $payload['price'], (int) $payload['vat'], [
             'user_id' => $entity->user_id,
             'consult_id' => $entity->id,
-            'number' => InvoiceNumber::next(),
             'description' => "استشارة {$entity->ref} — {$entity->channel}",
-            'amount' => $total,
-            'status' => 'مستحقة',
-            'tone' => 'b-amber',
             'due_label' => 'خلال 3 أيام',
             'due_at' => now()->addDays(3)->toDateString(),
-            'paid' => false,
-        ]);
+        ], $actor);
     }
 
     public function record(array $payload): array

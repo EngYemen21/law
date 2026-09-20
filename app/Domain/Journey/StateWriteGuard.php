@@ -23,6 +23,13 @@ use LogicException;
  *
  * **حدٌّ معلَن:** التحديث الجماعيّ عبر الاستعلام (`Model::where()->update()`) لا يُطلق أحداث
  * النموذج فلا يُرى هنا — ولذلك تُنقل تلك المواضع إلى المحرّك بالاسم في مراحلها.
+ *
+ * **واستثناءٌ رُفع في م٢ (2026-09-20).** كان هنا سطرٌ يعفي **كلّ فاتورةٍ ليست فاتورة استشارة**:
+ * `if ($model instanceof Invoice && $model->consult_id === null) { return; }`. فسدادُ فواتير
+ * القضايا والتنفيذ — وهي أكبر مبالغ المكتب — لم يكن يُسجَّل في `journey_transitions` أصلاً،
+ * ولا أثرَ انتقالٍ له ولا تدقيق (ع٣ في خطّة النظام الماليّ). ولم يَعُد له موضع: كلُّ إصدارٍ
+ * يمرّ بـ`Finance\InvoiceFactory` (‏`Workflow::open`)، وكلُّ سدادٍ وإلغاءٍ بانتقالٍ في
+ * `Transitions/Invoice`.
  */
 final class StateWriteGuard
 {
@@ -59,11 +66,6 @@ final class StateWriteGuard
 
         $dirty = array_values(array_intersect(array_keys($model->getDirty()), self::WATCHED[$model::class] ?? []));
         if ($dirty === []) {
-            return;
-        }
-
-        // فواتير القضايا والتنفيذ خارج رحلة التذكرة
-        if ($model instanceof Invoice && $model->consult_id === null) {
             return;
         }
 

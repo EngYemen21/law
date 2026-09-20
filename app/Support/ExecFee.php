@@ -5,11 +5,12 @@ namespace App\Support;
 use App\Domain\Journey\TransitionDenied;
 use App\Domain\Journey\Transitions\Execution\AcceptExecutionOffer;
 use App\Domain\Journey\Transitions\Execution\ActivateExecution;
+use App\Domain\Journey\Transitions\Invoice\SettleInvoice;
 use App\Domain\Journey\Workflow;
 use App\Events\ExecStatusBroadcast;
 use App\Models\Execution;
 use App\Models\Invoice;
-use App\Models\Setting;
+use App\Support\Finance\InvoiceFactory;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 
@@ -97,14 +98,16 @@ class ExecFee
                 return false;
             }
 
+            // الأساس والضريبة **من صفّ الطلب** لا محسوبين من نسبة اليوم: العرض اعتُمد ثمّ قَبِله
+            // العميل بعد أيّام، فإعادةُ الحساب تُصدر فاتورةً بغير المبلغ الذي قَبِله إن عُدّلت
+            // النسبة بينهما (`InvoiceFactory::fromFrozen`).
             $number = InvoiceNumber::next();
-            Invoice::create([
+            InvoiceFactory::fromFrozen((int) $locked->fee, (int) $locked->vat, [
                 'user_id' => $locked->user_id, 'exec_id' => $locked->id, 'number' => $number,
                 'installment_no' => 1,
                 'description' => 'أتعاب تنفيذ · '.$locked->number,
-                'amount' => (int) $locked->fee + (int) $locked->vat,
-                'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال 3 أيام',
-                'due_at' => now()->addDays(3)->toDateString(), 'paid' => false,
+                'due_label' => 'خلال 3 أيام',
+                'due_at' => now()->addDays(3)->toDateString(),
             ]);
             // الخطّة تبقى معلّقة حتى يختارها العميل عند السداد؛ والمجموع 1 حتى يُقسَّط
             $locked->update(['offer_status' => 'مقبول', 'invoice_no' => $number, 'installments_total' => 1]);
@@ -150,27 +153,23 @@ class ExecFee
             $share = intdiv($total, $count);
             $first = $total - ($share * ($count - 1));
 
-            $master->update([
-                'amount' => $first,
+            // الضريبة تُقسَّم مع المبلغ — نظير `CaseFee::openInstallmentPlan`: الأمّ كانت تحمل
+            // ضريبة الأتعاب كاملةً، فتقليصُ `amount` وحده يكسر `subtotal + vat_amount = amount`.
+            $master->update(array_merge(InvoiceFactory::taxFromTotal($first), [
                 'installment_no' => 1,
                 'description' => self::installmentLabel($locked, 1, $count),
                 'due_label' => 'خلال 3 أيام',
                 'due_at' => now()->addDays(3)->toDateString(),
-            ]);
+            ]));
 
             for ($n = 2; $n <= $count; $n++) {
-                Invoice::create([
+                InvoiceFactory::fromTotal($share, [
                     'user_id' => $locked->user_id,
                     'exec_id' => $locked->id,
                     'installment_no' => $n,
-                    'number' => InvoiceNumber::next(),
                     'description' => self::installmentLabel($locked, $n, $count),
-                    'amount' => $share,
-                    'status' => 'مستحقة',
-                    'tone' => 'b-amber',
                     'due_label' => 'خلال '.(($n - 1) * 30).' يوماً',
                     'due_at' => now()->addDays(($n - 1) * 30)->toDateString(),
-                    'paid' => false,
                 ]);
             }
 
@@ -217,8 +216,14 @@ class ExecFee
     {
         $invoice ??= self::nextPayable($exec);
 
+        // **السداد بالمحرّك** (م٢) — نظير `CaseFee::markInvoicePaid`: كاتبٌ واحد لـ`paid`
+        // و`paid_at` و«مدفوعة»، وسطرٌ في `journey_transitions` لم يكن يُكتب لفواتير التنفيذ.
         if ($invoice !== null && ! $invoice->paid) {
-            $invoice->update(['paid' => true, 'status' => 'مدفوعة', 'tone' => 'b-green']);
+            try {
+                Workflow::run(new SettleInvoice, $invoice, null, ['channel' => 'أتعاب تنفيذ']);
+            } catch (TransitionDenied) {
+                // لا تقبل السداد (ملغاة مثلاً) — لا تُعلَّم مدفوعةً، وبقيّة الأثر تتبع حالها
+            }
         }
 
         // فاتورةُ أتعابٍ عن تحصيل: مالٌ للمكتب لا يفتح ملفّاً ولا يقدّم خطّة
@@ -356,16 +361,15 @@ class ExecFee
             return null; // نسبةٌ لم تُحدَّد، أو أتعابٌ دون الريال — فاتورةٌ بصفر لا تُصدَر
         }
 
-        $vat = Setting::vatOn($base);
-
-        return Invoice::create([
-            'user_id' => $exec->user_id, 'exec_id' => $exec->id, 'number' => InvoiceNumber::next(),
+        // الأساس يُقرَّر **الآن** (نسبةٌ من محصَّلٍ وقع للتوّ)، فالضريبة بنسبة اليوم — وهي
+        // تُجمَّد على الصفّ لحظةَ الإصدار (`InvoiceFactory::fromBase`).
+        return InvoiceFactory::fromBase($base, [
+            'user_id' => $exec->user_id, 'exec_id' => $exec->id,
             'installment_no' => null,
             'description' => 'أتعاب تنفيذ '.self::pctLabel($pct).'% من تحصيل '.number_format($collected).' ريال · '.$exec->number
                 .($note !== '' ? ' — '.$note : ''),
-            'amount' => $base + $vat,
-            'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال 7 أيام',
-            'due_at' => now()->addDays(7)->toDateString(), 'paid' => false,
+            'due_label' => 'خلال 7 أيام',
+            'due_at' => now()->addDays(7)->toDateString(),
         ]);
     }
 

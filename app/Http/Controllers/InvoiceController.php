@@ -2,18 +2,18 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\Transitions\Invoice\SubmitPaymentProof;
 use App\Domain\Journey\Workflow;
 use App\Models\Invoice;
 use App\Services\MoyasarService;
+use App\Support\Finance\TaxInvoiceDocument;
 use App\Support\PaymentReconciler;
 use App\Support\PdfRenderer;
-use App\Support\ReportPrint;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
-use Spatie\Browsershot\Browsershot;
 
 class InvoiceController extends Controller
 {
@@ -58,8 +58,13 @@ class InvoiceController extends Controller
     {
         abort_unless($invoice->user_id === $request->user()->id, 403);
         abort_if($invoice->paid, 422, 'الفاتورة مدفوعة بالفعل.');
-        // الملغاة لا تُسدَّد — كان سدادُها يُحيي الاستشارة التي أُلغيت معها (ع١)
-        abort_if($invoice->status === 'ملغاة', 422, 'أُلغيت هذه الفاتورة ولا تُسدَّد.');
+        // الملغاة لا تُسدَّد — كان سدادُها يُحيي الاستشارة التي أُلغيت معها (ع١).
+        // **والكتالوج مصدرُ الحكم لا نصٌّ منقوش**: `isPayable` يردّ المسوّدةَ (لم تُرسَل بعد)
+        // والمعدومةَ (أُسقطت مطالبتُها) كما يردّ الملغاة — والمقارنة النصّيّة كانت تمرّرهما.
+        $status = InvoiceStatus::tryFrom((string) $invoice->status);
+        abort_if($status === null || ! $status->isPayable(), 422, $invoice->isCancelled()
+            ? 'أُلغيت هذه الفاتورة ولا تُسدَّد.'
+            : 'هذه الفاتورة لا تقبل السداد في حالتها الحاليّة.');
         abort_unless(app(MoyasarService::class)->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
 
         $callback = $request->getSchemeAndHttpHost().route('invoices.checkout.callback', $invoice, absolute: false);
@@ -101,7 +106,16 @@ class InvoiceController extends Controller
         return $back()->with('error', 'تعذّر تأكيد الدفع. إن كان قد خُصم فسيُحدَّث تلقائياً، أو حاول مجدداً.');
     }
 
-    // فاتورة PDF حقيقية — بنفس تصميم بطاقة .cf المستخدَم لتقرير الاستشارة، مُصيَّرة فعلياً عبر Browsershot.
+    /**
+     * **الفاتورة الضريبيّة** — مستندٌ مقروء، لا سطرَ «إجمالي» واحداً.
+     *
+     * كان المطبوع سطراً واحداً بالإجماليّ الشامل: لا أساسَ قبل الضريبة، ولا ضريبةً بنسبتها،
+     * ولا رقماً ضريبيّاً للمكتب — فما يصدره النظام لم يكن فاتورةً ضريبيّة (ب٢).
+     *
+     * **ولا رمز استجابةٍ سريعاً هنا.** في المشروع مولّد رمزٍ **زخرفيّ** يعترف تعليقه بأنّه لا
+     * يشفّر شيئاً (`Support\AppointmentCard`)، ورمزٌ كاذب على مستندٍ ضريبيّ أسوأ من غيابه.
+     * والرمز النظاميّ جزءٌ من الفوترة الإلكترونيّة المؤجَّلة بقرار المالك (ق١).
+     */
     public function pdf(Request $request, Invoice $invoice): \Symfony\Component\HttpFoundation\Response
     {
         $user = $request->user();
@@ -112,26 +126,6 @@ class InvoiceController extends Controller
             403
         );
 
-        $html = ReportPrint::html([
-            'title' => 'فاتورة',
-            'subtitle' => $invoice->paid ? 'مدفوعة' : 'مستحقة',
-            'ref' => $invoice->number,
-            'blocks' => [
-                [
-                    'title' => '١. بيانات الفاتورة',
-                    'cellRows' => [[
-                        ['رقم الفاتورة', $invoice->number],
-                        ['الوصف', $invoice->description],
-                        // التاريخ الحقيقيّ لا «خلال 3 أيام» المجمَّدة لحظة الإصدار — `Invoice::dueDateText`
-                        ['تاريخ الاستحقاق', $invoice->dueDateText() ?? '—'],
-                        ['حالة السداد', $invoice->paid ? 'مدفوعة' : $invoice->status],
-                    ]],
-                ],
-                ['title' => '٢. المبلغ الإجمالي', 'cellRows' => [[['الإجمالي', number_format($invoice->amount).' ر.س']]]],
-            ],
-            'footer' => 'النظام الإداري لمكاتب المحاماة — شكراً لتعاملكم معنا',
-        ]);
-
-        return PdfRenderer::render($html, $invoice->number.'.pdf');
+        return PdfRenderer::render(TaxInvoiceDocument::html($invoice), $invoice->number.'.pdf');
     }
 }

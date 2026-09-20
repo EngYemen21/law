@@ -4,6 +4,8 @@ namespace App\Domain\Journey\Transitions\Consult;
 
 use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Transition;
+use App\Domain\Journey\Transitions\Invoice\CancelInvoice;
+use App\Domain\Journey\Workflow;
 use App\Models\Consult;
 use App\Models\Invoice;
 use App\Models\User;
@@ -55,11 +57,18 @@ final class RepriceConsult extends Transition
     public function apply(Model $entity, ?User $actor, array $payload): void
     {
         /** @var Consult $entity */
-        // صفّاً صفّاً لا تحديثاً جماعيّاً: كلُّ فاتورةٍ تمرّ بحدث الحفظ فيراها الحارس
+        // صفّاً صفّاً لا تحديثاً جماعيّاً: كلُّ فاتورةٍ تمرّ بانتقالها هي (`CancelInvoice`)،
+        // فيُختم `cancelled_at` ويُسجَّل الإلغاء في `journey_transitions` — والتحديث الجماعيّ
+        // القديم لم يكن يُنتج شيئاً من ذلك، ولا حتى تاريخاً يُعرف منه متى خرجت من الذمم.
+        // والحصر بالحالات التي يقبلها `CancelInvoice` مصدراً: إعادة تسعيرٍ ثانية تجد فواتير
+        // الأولى **ملغاةً أصلاً**، ومحاولةُ إلغائها ثانيةً كانت سترمي فتُجهض إعادة التسعير كلّها.
         Invoice::where('consult_id', $entity->id)
             ->where('paid', false)
+            ->whereIn('status', (new CancelInvoice)->from())
             ->get()
-            ->each(fn (Invoice $invoice) => $invoice->update(['status' => 'ملغاة', 'tone' => 'b-red']));
+            ->each(fn (Invoice $invoice) => Workflow::run(new CancelInvoice, $invoice, $actor, [
+                'reason' => 'إعادة تسعير الاستشارة '.$entity->ref,
+            ]));
 
         $entity->logAudit($actor->name ?? 'النظام', 'إلغاء التسعير', (string) ($payload['before'] ?? ''), '(بانتظار تسعيرٍ جديد)');
         $entity->priced_at = null;

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Models\Consult;
+use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Setting;
 use App\Models\User;
@@ -42,10 +43,20 @@ class DashboardGapsTwoTest extends TestCase
     {
         $admin = User::factory()->create(['role' => Role::Admin]);
         $client = User::factory()->create(['role' => Role::Client]);
-        Consult::create([
+        $consult = Consult::create([
             'user_id' => $client->id, 'ref' => 'CN-R-1', 'subject' => 'نزاع', 'channel' => 'هاتفية',
             'lawyer' => 'أ. سارة', 'session' => 'منتهية', 'status' => 'مكتملة',
             'price' => 350, 'vat' => 52, 'total' => 402, 'paid_at' => now(),
+        ]);
+
+        // **والفاتورة المدفوعة هي الدخل** (م٠ — `Finance\RevenueSnapshot`): كان المصدر
+        // `SUM(consults.total)` فيكفي `paid_at` على الاستشارة. الآن استشارةٌ مسدَّدة بلا فاتورة
+        // مدفوعة **خللُ بيانات** تُعلَن بعددها ولا تدخل الدخل — فالتهيئة تُصدر فاتورتها.
+        Invoice::create([
+            'user_id' => $client->id, 'consult_id' => $consult->id, 'number' => 'INV-R-1',
+            'description' => 'استشارة هاتفية', 'amount' => 402, 'subtotal' => 350, 'vat_rate' => 15,
+            'vat_amount' => 52, 'status' => 'مدفوعة', 'tone' => 'b-green', 'due_label' => '—',
+            'paid' => true, 'paid_at' => now(),
         ]);
 
         // 402 ر.س كانت تُقرّب إلى 0 فيظهر العمود فارغاً

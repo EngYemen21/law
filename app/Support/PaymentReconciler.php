@@ -3,6 +3,9 @@
 namespace App\Support;
 
 use App\Domain\Journey\Enums\InvoiceStatus;
+use App\Domain\Journey\TransitionDenied;
+use App\Domain\Journey\Transitions\Invoice\SettleInvoice;
+use App\Domain\Journey\Workflow;
 use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Execution;
@@ -133,14 +136,32 @@ class PaymentReconciler
         return true;
     }
 
-    /** تسوية كائن المجال والمرتبطة بالفاتورة (استشارة/قضية/تنفيذ) */
+    /**
+     * تسوية كائن المجال والمرتبطة بالفاتورة (استشارة/قضية/تنفيذ).
+     *
+     * **والفاتورة تُسوّى بالمحرّك لا بكتابةٍ مباشرة** (م٢): كان السطر
+     * `$invoice->update(['paid' => true, 'status' => 'مدفوعة'])` يمرّ من فتحة
+     * `StateWriteGuard` التي تعفي كلّ فاتورةٍ ليست فاتورة استشارة — فسدادُ فواتير القضايا
+     * والتنفيذ، وهي أكبر مبالغ المكتب، لم يكن يترك أثراً في `journey_transitions` (ع٣).
+     *
+     * **ورفضُ الانتقال رفضٌ للتسوية كلّها**: دفعةٌ تصل على فاتورةٍ لا تقبل السداد (ملغاة
+     * مثلاً) كانت تُعلَّم مدفوعةً فتُحيي ما أُلغي — وهو عينُ ما عولج في فرع الاستشارات.
+     */
     public static function settleDomain(Invoice $invoice, string $actor = 'ميسّر'): bool
     {
         if ($invoice->consult_id && ($consult = Consult::find($invoice->consult_id))) {
             return self::settleConsult($invoice, $consult, $actor);
         }
 
-        $invoice->update(['paid' => true, 'status' => 'مدفوعة', 'tone' => 'b-green']);
+        try {
+            Workflow::run(new SettleInvoice, $invoice, null, ['channel' => $actor]);
+        } catch (TransitionDenied $denied) {
+            Log::warning('invoice.settle.denied', [
+                'invoice' => $invoice->number, 'status' => $invoice->status, 'reason' => $denied->getMessage(),
+            ]);
+
+            return false;
+        }
 
         if ($invoice->case_id && ($case = LegalCase::find($invoice->case_id))) {
             // تعرف وحدها أهي دفعة من خطّة تقسيط أم سداد كامل

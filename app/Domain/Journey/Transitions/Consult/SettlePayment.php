@@ -6,6 +6,8 @@ use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\Enums\TicketStatus;
 use App\Domain\Journey\Transition;
+use App\Domain\Journey\Transitions\Invoice\SettleInvoice;
+use App\Domain\Journey\Workflow;
 use App\Events\Journey\ConsultPaid;
 use App\Models\Consult;
 use App\Models\Invoice;
@@ -70,7 +72,11 @@ final class SettlePayment extends Transition
         $entity->logAudit((string) ($payload['actor_name'] ?? $actor->name ?? 'النظام'), 'السداد', ConsultStatus::AwaitingPayment->value, (string) ($payload['note'] ?? 'مدفوع'));
         $entity->paid_at = now();
 
-        $invoice->update(['paid' => true, 'status' => InvoiceStatus::Paid->value, 'tone' => 'b-green']);
+        // **الفاتورة تُسوّى بانتقالها هي** لا بكتابةٍ من انتقال الاستشارة (م٢): كاتبٌ واحد
+        // لـ`paid` و`paid_at` والحالة في النظام كلّه، وسطرٌ في `journey_transitions` لسداد
+        // فاتورة الاستشارة كما لفاتورتَي القضيّة والتنفيذ. والنداء داخل معاملة المحرّك الجارية
+        // فيلتزمان معاً أو يتراجعان معاً.
+        Workflow::run(new SettleInvoice, $invoice, $actor, ['channel' => (string) ($payload['note'] ?? 'مدفوع')]);
 
         // سُدّدت الاستشارة ⇒ الخطوة التالية حجز الطاقم للموعد، لا حجز العميل (قرار المالك 2026-09-14)
         $ticket = $entity->ticket;

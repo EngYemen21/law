@@ -6,7 +6,6 @@ use App\Enums\Role;
 use App\Events\CaseStatusBroadcast;
 use App\Http\Controllers\Controller;
 use App\Mail\CaseFeeSetMail;
-use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Setting;
 use App\Models\Ticket;
@@ -24,7 +23,7 @@ use App\Support\CaseFee;
 use App\Support\CaseJourney;
 use App\Support\ConversationFiles;
 use App\Support\ExecutionCreation;
-use App\Support\InvoiceNumber;
+use App\Support\Finance\InvoiceFactory;
 use App\Support\Live;
 use App\Support\Notify;
 use App\Support\Paginate;
@@ -110,19 +109,15 @@ class CaseController extends Controller
             'total' => $total,
         ]);
 
-        // فاتورة أتعاب حقيقية للعميل (يطابق cfInvoice)
-        Invoice::create([
+        // فاتورة أتعاب حقيقية للعميل (يطابق cfInvoice) — بالأساس والضريبة اللذين اعتُمدا للتوّ
+        // على صفّ القضيّة نفسه، فلا يُحسب الرقم مرّتين ولا يتباعد الاثنان.
+        InvoiceFactory::fromFrozen((int) $data['fee'], $vat, [
             'user_id' => $case->user_id,
             'case_id' => $case->id,
-            'number' => InvoiceNumber::next(),
             'description' => "أتعاب قضية {$case->number} — {$case->type}",
-            'amount' => $total,
-            'status' => 'مستحقة',
-            'tone' => 'b-amber',
             'due_label' => 'خلال 14 يوماً',
             'due_at' => now()->addDays(14)->toDateString(),
-            'paid' => false,
-        ]);
+        ], $request->user());
 
         $case->messages()->create([
             'who' => 'admin',

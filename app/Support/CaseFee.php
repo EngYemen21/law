@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\TransitionDenied;
+use App\Domain\Journey\Transitions\Invoice\SettleInvoice;
 use App\Domain\Journey\Transitions\LegalCase\ActivateCase as ActivateCaseTransition;
 use App\Domain\Journey\Workflow;
 use App\Events\CaseStatusBroadcast;
@@ -12,6 +14,7 @@ use App\Models\LegalCase;
 use App\Services\MailService;
 use App\Services\MoyasarService;
 use App\Support\Audit;
+use App\Support\Finance\InvoiceFactory;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -66,27 +69,24 @@ class CaseFee
             // **ووسمُ موضعها من الخطّة** (`installment_no`) — العمود أُضيف على `invoices` ووسمته
             // فواتيرُ التنفيذ وحدها، فبقي فرعُ القضايا يعدّ كلَّ مدفوعةٍ على القضيّة دفعةً:
             // فاتورةٌ تكميليّة تُسدَّد فتقدّم الخطّة بلا دفعةٍ منها. الوسم هو ما يفصل النوعين.
-            $master->update([
-                'amount' => $first,
+            // **والضريبة تُقسَّم مع المبلغ.** الأمّ كانت تحمل ضريبة الأتعاب كاملةً، فتقليصُ
+            // `amount` وحده يترك `subtotal + vat_amount` أكبر من الإجماليّ — أي فاتورةً
+            // ضريبيّةً لا تتوازن. والحصّة إجماليٌّ معلومٌ لا أساس، فتُعكَس حساباً.
+            $master->update(array_merge(InvoiceFactory::taxFromTotal($first), [
                 'installment_no' => 1,
                 'description' => self::installmentLabel($case, 1, $count),
                 'due_label' => 'خلال 3 أيام',
                 'due_at' => now()->addDays(3)->toDateString(),
-            ]);
+            ]));
 
             for ($n = 2; $n <= $count; $n++) {
-                Invoice::create([
+                InvoiceFactory::fromTotal($share, [
                     'user_id' => $locked->user_id,
                     'case_id' => $locked->id,
                     'installment_no' => $n,
-                    'number' => InvoiceNumber::next(),
                     'description' => self::installmentLabel($case, $n, $count),
-                    'amount' => $share,
-                    'status' => 'مستحقة',
-                    'tone' => 'b-amber',
                     'due_label' => 'خلال '.(($n - 1) * 30).' يوماً',
                     'due_at' => now()->addDays(($n - 1) * 30)->toDateString(),
-                    'paid' => false,
                 ]);
             }
 
@@ -299,7 +299,18 @@ class CaseFee
         $target = $invoice ?: Invoice::where('case_id', $case->id)
             ->where('paid', false)->orderBy('id')->first();
 
-        $target?->update(['paid' => true, 'status' => 'مدفوعة', 'tone' => 'b-green']);
+        if ($target === null) {
+            return;
+        }
+
+        // **السداد بالمحرّك** (م٢): هو الكاتب الوحيد لـ`paid` و`paid_at` و«مدفوعة»، فلا ينزلق
+        // أحدها عن الآخر. والرفض متوقَّعٌ ومبتلَعٌ عمداً: يصل هذا الموضع من `PaymentReconciler`
+        // بفاتورةٍ **سُوّيت قبل سطرين** (نظير `if ($invoice->paid)` الذي كان يحرسه ضمناً).
+        try {
+            Workflow::run(new SettleInvoice, $target, null, ['channel' => 'أتعاب قضيّة']);
+        } catch (TransitionDenied) {
+            // مسوّاةٌ أصلاً أو لا تقبل السداد — لا شيء يُكتب، ولا خطأَ يُرفع على تسويةٍ تمّت
+        }
     }
 
     /** تفعيل القضية: خطة العمل + مسودة اللائحة (مرّة واحدة عند أول سداد). */

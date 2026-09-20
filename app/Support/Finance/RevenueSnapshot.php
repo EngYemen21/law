@@ -9,6 +9,7 @@ use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 
 /**
  * **لقطة الإيرادات — المصدر الواحد لشاشة `/admin/revenue` ولتقريرها PDF.**
@@ -32,10 +33,10 @@ use Illuminate\Database\Eloquent\Builder;
  * مبالغ ديونٍ تُحصَّل **لصالح الموكّلين**، لا مالَ المكتب. و`execFixedFees`/`execPercentFees`
  * مؤشّرا أداءٍ للتنفيذ (مستحَقٌّ محسوب) لا يدخلان الدخل — دخلُ التنفيذ هو `execIncome` وحده.
  *
- * **ولا تصفية بالتاريخ هنا** لأنّ `invoices` لا تحمل `paid_at` (ب١ في خطّة النظام الماليّ).
- * فكلّ رقمٍ في هذه اللقطة «منذ البداية». وهذا سببُ حذف مؤشّر «صافي التدفّق بعد الرواتب»:
- * كان يطرح رواتب **شهرٍ واحد** من إيراد **العمر كلّه**، ولا معنى للرقم بأيّ تفسير. يعود
- * حين يتوفّر `paid_at` فتصير التصفية بالفترة ممكنة (م١).
+ * **و`build()` بلا تصفيةٍ بالتاريخ**: كلّ رقمٍ في هذه اللقطة «منذ البداية». وهذا سببُ حذف
+ * مؤشّر «صافي التدفّق بعد الرواتب» في م٠: كان يطرح رواتب **شهرٍ واحد** من إيراد **العمر
+ * كلّه**، ولا معنى للرقم بأيّ تفسير. و`collectedBetween()` أدناه هي الفترةُ التي صارت ممكنة
+ * بعد أن حملت `invoices` عمود `paid_at` (م١) — ومنها تُبنى مؤشّرات الفترة حين تعود.
  */
 final class RevenueSnapshot
 {
@@ -217,6 +218,41 @@ final class RevenueSnapshot
         return Consult::whereNotNull('paid_at')
             ->whereNotIn('id', Invoice::whereNotNull('consult_id')->where('paid', true)->select('consult_id'))
             ->count();
+    }
+
+    /**
+     * **الدخل المحصَّل في فترة** — أوّل رقمٍ ماليٍّ بفترةٍ يصير ممكناً في النظام (م١).
+     *
+     * قبل عمود `paid_at` كان البديل الوحيد `updated_at`، وهو يتحرّك مع كلّ تعديلٍ غير ذي صلة
+     * (تذكير، رفع إثبات، تصحيح وصف) — فـ«إيراد سبتمبر» لم يكن له جوابٌ صادق. وهذا سببُ غياب
+     * التصفية بالتاريخ من `ReportController` كلّه: البيانات لم تكن تسمح بها.
+     *
+     * **والمعيار تاريخُ التحصيل لا تاريخُ الإصدار** — الاعتراف بالإيراد **عند التحصيل**
+     * (ق٧ في الخطّة). و`vat` مجموعُ الضريبة المحصَّلة في الفترة نفسها، وهو أساس إقرار الربع
+     * (م٩). والملغاة والمعدومة خارجه بحكم البناء: `paid` لا يكون صحيحاً عليهما.
+     *
+     * **ولا شاشة تقرؤه بعد** — التبويبات في م٩ وم١٠. وهو هنا لأنّ المصدر الواحد للدخل هو
+     * هذا الصنف، ولأنّ رقماً بفترةٍ يُحسب في شاشةٍ سيصير رقماً ثانياً يخالف هذا.
+     *
+     * @param  string|\DateTimeInterface  $from  بداية الفترة (مشمولة)
+     * @param  string|\DateTimeInterface  $to  نهايتها (مشمولة بكامل يومها)
+     * @return array{total:int, vat:int, subtotal:int, count:int}
+     */
+    public static function collectedBetween(string|\DateTimeInterface $from, string|\DateTimeInterface $to): array
+    {
+        $row = Invoice::where('paid', true)
+            ->whereBetween('paid_at', [Carbon::parse($from)->startOfDay(), Carbon::parse($to)->endOfDay()])
+            ->selectRaw('COALESCE(SUM(amount), 0) AS total')
+            ->selectRaw('COALESCE(SUM(vat_amount), 0) AS vat')
+            ->selectRaw('COUNT(*) AS invoices')
+            ->first();
+
+        $total = (int) ($row->total ?? 0);
+        $vat = (int) ($row->vat ?? 0);
+
+        // الأساس بالطرح لا بجمعٍ ثانٍ: `subtotal + vat_amount = amount` على كلّ صفّ، فمجموعها
+        // كذلك — والطرح يضمن ألّا يفترق الثلاثة إن بقي صفٌّ قديم بلا أعمدة ضريبة.
+        return ['total' => $total, 'vat' => $vat, 'subtotal' => $total - $vat, 'count' => (int) ($row->invoices ?? 0)];
     }
 
     /** @return Builder<Invoice> */
