@@ -470,7 +470,6 @@ const EmployeeTicketChat: React.FC<{
             status={status.status}
             caseRef={ticket.caseRef ?? null}
             role="employee"
-            canConvert={ticket.summaryApproved ?? false}
             onRequestDocs={canReply ? openReqDocs : undefined}
             onSchedule={canSchedule ? openSchedule : undefined}
             onTransfer={canTransfer ? openTransfer : undefined}

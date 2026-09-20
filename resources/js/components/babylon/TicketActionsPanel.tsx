@@ -1,4 +1,3 @@
-import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useState } from 'react';
 import CloseTicketModal from '@/components/babylon/CloseTicketModal';
@@ -10,9 +9,6 @@ interface Props {
   status: string;
   caseRef?: string | null;
   role: 'employee' | 'lawyer' | 'admin';
-  /** شرط إضافي على الدور: الموظف لا يحوّل قبل اعتماد المحامي للنتيجة.
-   *  المحامي هو المعتمِد والإدارة العليا هي الاعتماد النهائي، فكلاهما يمرّ بلا شرط. */
-  canConvert?: boolean;
   onRequestDocs?: () => void;
   onSchedule?: () => void;
   onTransfer?: () => void;
@@ -24,7 +20,6 @@ const TicketActionsPanel: React.FC<Props> = ({
   status,
   caseRef,
   role,
-  canConvert = true,
   onRequestDocs,
   onSchedule,
   onTransfer,
@@ -33,22 +28,7 @@ const TicketActionsPanel: React.FC<Props> = ({
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [showCloseModal, setShowCloseModal] = useState(false);
-  // الخادم يرفض التحويل قبل الاكتمال — كان الزر يُعرض دائماً ورسالة الرفض تُبتلع.
-  // وللموظف شرط ثانٍ: اعتماد المحامي للنتيجة (canConvert) — وإلا عُرض زرّ يُرفض بـ422.
-  const mayConvert = (status === 'مكتملة' || status === 'بانتظار قرار المآل') && canConvert;
   const mayCloseJustified = (role === 'lawyer' || role === 'admin') && (status === 'مكتملة' || status === 'بانتظار قرار المآل') && !caseRef;
-
-  const convertToCase = () => {
-    setBusy(true);
-    const endpoint = `/${role}/tickets/${encodeURIComponent(ticketNo)}/convert`;
-
-    router.post(endpoint, {}, {
-      onSuccess: () => toast('✅ تم تحويل التذكرة إلى قضية بنجاح'),
-      // أخطاء Inertia كائن مفاتيحه أسماء الحقول (ticket) — err.message لا وجود له
-      onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تحويل التذكرة لقضية (تأكد من اعتماد النتيجة)'}`),
-      onFinish: () => setBusy(false),
-    });
-  };
 
   // تحويل التذكرة إلى طلب استشارة (يطابق convertToConsult المرجعي) — لطاقم المكتب لا للمستشار.
   // كل لوحة تنادي مسارها: للإدارة مسار admin خاص (لم يعد الأدمن يمرّ عبر بوابة الموظف — قرار 2026-08-28)
@@ -68,8 +48,10 @@ const TicketActionsPanel: React.FC<Props> = ({
       .finally(() => setBusy(false));
   };
 
-  // لا تُعرض بطاقة فارغة حين تُخفى كل الإجراءات (حالة التذكرة أو صلاحيات المستخدم)
-  const hasAny = caseRef || mayConvert || staffOps || onSchedule || onRequestDocs || onTransfer;
+  // لا تُعرض بطاقة فارغة حين تُخفى كل الإجراءات (حالة التذكرة أو صلاحيات المستخدم).
+  // `staffOps` لم يعد شرطاً بذاته: كان زرّ «تحويل إلى لائحة» يظهر لكلّ موظّفٍ دائماً فيُبقي
+  // البطاقة قائمة، وقد حُذف — فصار الشرط على الإجراءات الفعليّة وحدها.
+  const hasAny = mayCloseJustified || mayRequestConsult || onSchedule || onRequestDocs || onTransfer;
 
   if (!hasAny) {
 return null;
@@ -83,44 +65,28 @@ return null;
       <div className="card-b" style={{ padding: '14px 16px' }}>
         <div className="action-hint">
           <Icon name="info" />
-          <span>حوّل التذكرة إلى قضية أو اطلب مستندات من العميل.</span>
+          <span>أغلق الملف بتسبيب، أو اطلب مستندات من العميل.</span>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {/* 1. تحويل إلى قضية — بعد التحويل يصير رابطاً لملف القضية */}
-          {caseRef ? (
-            <Link
-              href={`/${role}/cases`}
+          {/* زرّان أُزيلا من هنا (2026-09-20، تشخيصٌ من استعمال المالك):
+              • «عرض ملف القضية» كان مكرّراً حرفاً — النصّ نفسه والوجهة نفسها في
+                TicketTrackDecisionCard المعروض فوق هذه البطاقة مباشرةً، فيظهر زرّان متلاصقان.
+                أُبقي في البطاقة لأنّها تعرض نظيره للتنفيذ أيضاً، فتبقى المعالجتان في مكانٍ واحد.
+              • «تحويل إلى قضية رسمية» كان يحوّل مباشرةً بلا تسبيبٍ ولا اعتماد إدارة، فيلتفّ على
+                حوكمة المسارات الأربعة (ApproveOutcomeTrack) التي تشترط تسبيباً واعتماداً.
+                ⚠️ أُخفي من الواجهة بقرار المالك، **ومساره في الخادم باقٍ عامداً** إلى أن يُحذف
+                في خطوةٍ مستقلّة — فالاستعمال اليوميّ توقّف والباب لم يُغلق بعد. */}
+          {mayCloseJustified && (
+            <button
               className="btn soft block"
+              type="button"
+              onClick={() => (onCloseJustified ? onCloseJustified() : setShowCloseModal(true))}
+              disabled={busy}
               style={{ justifyContent: 'center' }}
             >
-              <Icon name="scale" /> عرض ملف القضية ({caseRef})
-            </Link>
-          ) : (
-            <>
-              {mayConvert && (
-                <button
-                  className="btn block"
-                  type="button"
-                  onClick={convertToCase}
-                  disabled={busy}
-                  style={{ justifyContent: 'center' }}
-                >
-                  <Icon name="scale" /> تحويل إلى قضية رسمية
-                </button>
-              )}
-              {mayCloseJustified && (
-                <button
-                  className="btn soft block"
-                  type="button"
-                  onClick={() => (onCloseJustified ? onCloseJustified() : setShowCloseModal(true))}
-                  disabled={busy}
-                  style={{ justifyContent: 'center' }}
-                >
-                  <Icon name="check" /> إغلاق مسبب للملف
-                </button>
-              )}
-            </>
+              <Icon name="check" /> إغلاق مسبب للملف
+            </button>
           )}
 
           {/* 2. تحويل إلى طلب استشارة — يُنشئ طلب تسعير نيابةً عن العميل */}
@@ -136,19 +102,9 @@ return null;
             </button>
           )}
 
-          {/* 3. تحويل إلى لائحة — عنصر عرض مرجعي (بلا حدث، بطلب صاحب المنتج)؛
-              disabled كي لا يوهم بمظهر زرّ فعّال يُنقر بلا أثر */}
-          {staffOps && (
-            <button
-              className="btn soft block"
-              type="button"
-              disabled
-              title="مرحلة مرجعية ضمن الرحلة — لا إجراء مباشراً لها"
-              style={{ justifyContent: 'center', cursor: 'default', opacity: 0.7 }}
-            >
-              <Icon name="doc" /> تحويل إلى لائحة
-            </button>
-          )}
+          {/* «تحويل إلى لائحة» حُذف (2026-09-20، قرار المالك): كان معطَّلاً بلا معالج، ولا مسار
+              له في الخادم ولا متحكّم ولا انتقال — عنصرُ عرضٍ مرجعيّ لا يفتح وظيفة. ولائحة
+              الدعوى وظيفةٌ قائمة مستقلّة تُدار من شاشة القضية (CasePleading)، لا من هنا. */}
 
           {/* 4. جدولة موعد استشارة */}
           {onSchedule && (

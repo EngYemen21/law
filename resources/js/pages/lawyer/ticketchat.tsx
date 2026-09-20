@@ -219,7 +219,6 @@ return;
   const isTerminal = ['محولة إلى قضية', 'مغلقة'].includes(status.status) || !!ticket.isTerminal;
   const isFrozen = !!ticket.isFrozen || isTerminal;
   const canDecideOutcome = !isFrozen && !ticket.caseRef && !converted && (status.status === 'بانتظار قرار المآل' || status.status === 'مكتملة');
-  const canConvert = canDecideOutcome;
 
   return (
     <div className="tflow">
@@ -312,8 +311,12 @@ setTypingSignal((n) => n + 1);
                   ))}
                   {canApproveSummaries && (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                      {/* الخادم يرفض تعديل الملخّص بعد الاعتماد (`updateSummary` يقذف 422 —
+                          قاعدة المالك: كلّ حقلٍ له اعتمادٌ نهائيّ يُقفَل بعده). فزرُّ «تعديل» بعد
+                          الاعتماد وعدٌ كاذب. والصفحة تبقى مفيدةً قراءةً وطباعةً معتمدة، فيُبدَّل
+                          النصّ ولا يُخفى الزرّ — وإلّا ضاع المدخل الوحيد إليها من هذه الشاشة. */}
                       <Link href={`${base}/summary/${no}`} className="btn soft sm">
-                        <Icon name="doc" /> تعديل الملخص
+                        <Icon name="doc" /> {summary.approved ? 'عرض الملخّص المعتمد' : 'تعديل الملخص'}
                       </Link>
                       {!summary.approved && (base === '/admin' || !summary.lawyerApproved) && (
                         <button className="btn sm" onClick={approve} type="button">

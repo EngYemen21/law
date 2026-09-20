@@ -405,7 +405,9 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
                   type="button"
                   className="btn soft"
                   onClick={save}
-                  disabled={isSaving}
+                  // الحقول تصير للقراءة بعد الاعتماد (`readOnly={!canEdit}`) وكان زرّ الحفظ
+                  // يبقى فعّالاً فيعطي 422 — وعدٌ كاذب ثانٍ. يُعطَّل مع الحقول لا بعدها.
+                  disabled={isSaving || !canEdit}
                   style={{ height: 36, fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}
                 >
                   <Icon name="check" /> {isSaving ? 'جارٍ الحفظ…' : 'حفظ المسودة'}
@@ -1062,7 +1064,8 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
                     type="button"
                     className="btn soft"
                     onClick={save}
-                    disabled={isSaving}
+                    // نظير زرّ الحفظ الأعلى — يُعطَّل بعد الاعتماد بدل أن يعطي 422
+                    disabled={isSaving || !canEdit}
                     style={{ width: '100%', height: 36, fontSize: 12.5, justifyContent: 'center' }}
                   >
                     <Icon name="check" /> {isSaving ? 'جارٍ الحفظ…' : 'حفظ التعديلات كمسودة'}
