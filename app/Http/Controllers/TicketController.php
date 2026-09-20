@@ -155,16 +155,39 @@ class TicketController extends Controller
 
         // المستندات الداعمة المرفوعة مع الطلب (إن وُجدت) — تُخزَّن فقط هنا؛ تحليلها يتولّاه
         // مسار الفتح (TicketTriage::onOpened) ضمن قرار واحد واعٍ بالمرفقات (لا فحص منفصل يسبق الترحيب).
+        $opened = [];
         foreach ($data['files'] ?? [] as $file) {
             $path = $file->store("ticket-docs/{$ticket->id}");
             $ticket->increment('attachments');
-            $ticket->documents()->create([
+            $opened[] = $ticket->documents()->create([
                 'name' => $file->getClientOriginalName(),
                 'path' => $path,
                 'mime' => $file->getClientMimeType(),
                 'size' => (int) $file->getSize(),
                 'status' => 'قيد الفحص',
             ]);
+        }
+
+        /*
+         * **ما أرفقه العميل عند الفتح يظهر في محادثته** — كان يُخزَّن صفّاً في `ticket_documents`
+         * بلا رسالة، فلا يراه أحد في المحادثة: لا العميل ولا الموظّف ولا المستشار (ولا شاشة
+         * للطاقم تعرضه أصلاً)، فيُطلب من العميل مستندٌ أرسله فعلاً.
+         *
+         * رسالةٌ واحدة تجمع المرفقات بشاراتٍ قابلة للتنزيل — نظير `attach()` للإرفاق اللاحق،
+         * وبالرابط نفسه الذي يحكم إذنه `ConversationFiles`. وموضعها هنا مقصود: **بعد** رسالة
+         * العميل و**قبل** ترحيب الوكيل (يكتبه `TriageTicketOnOpenJob` المُرسَل أدناه)، فيقرأ
+         * الترحيبُ سياقَ ما أرسله العميل وأرفقه قبله.
+         */
+        if ($opened !== []) {
+            $chips = implode('', array_map(fn ($doc) => ConversationFiles::chip('ticket', $doc), $opened));
+            $attached = $ticket->messages()->create([
+                'who' => 'client',
+                'name' => 'أنت',
+                'role' => 'العميل',
+                'body' => '<p>'.(count($opened) > 1 ? 'تم إرفاق المستندات:' : 'تم إرفاق مستند:').'</p><div class="doc-list">'.$chips.'</div>',
+                'time_label' => $this->clock(),
+            ]);
+            Live::push(new TicketMessageBroadcast($attached));
         }
 
         $type = $data['type'];

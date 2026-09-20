@@ -40,13 +40,14 @@ class DocumentController extends Controller
                 'at' => $d->created_at?->getTimestamp() ?? 0,
             ]);
 
-        // 2. مستندات القضايا التي أرفقها/أصدرها المكتب للعميل
+        // 2. مستندات القضايا: ما أرفقه/أصدره المكتب، وما رفعه العميل بنفسه
         $caseDocs = CaseDocument::whereHas('legalCase', fn ($q) => $q->where('user_id', $user->id))
             ->latest('id')->get()
             ->map(fn (CaseDocument $cd) => [
                 'id' => 'case-'.$cd->id,
                 'name' => $cd->name,
-                'meta' => 'مستند قضية · '.($cd->doc_type ?: 'معتمد من المكتب'),
+                // المصدر من `uploaded_by` الذي يكتبه رافعُه — لا وسمَ «معتمد من المكتب» على مستند العميل
+                'meta' => 'مستند قضية · '.($cd->doc_type ?: ($cd->uploaded_by === 'client' ? 'مرفوع منك' : 'معتمد من المكتب')),
                 'canDownload' => ! empty($cd->path),
                 'downloadUrl' => ! empty($cd->path) ? route('documents.download-file', ['type' => 'case', 'id' => $cd->id]) : null,
                 'at' => $cd->created_at?->getTimestamp() ?? 0,
@@ -65,14 +66,16 @@ class DocumentController extends Controller
                 'at' => $ed->created_at?->getTimestamp() ?? 0,
             ]);
 
-        // 4. مستندات التذاكر والاستشارات المرفقة من المحامي/الإدارة للعميل
+        // 4. مستندات التذاكر والاستشارات: ما أرفقه المكتب للعميل، وما رفعه هو بنفسه
         $ticketDocs = TicketDocument::whereHas('ticket', fn ($q) => $q->where('user_id', $user->id))
             ->whereNotNull('path')
             ->latest('id')->get()
             ->map(fn (TicketDocument $td) => [
                 'id' => 'ticket-'.$td->id,
                 'name' => $td->name,
-                'meta' => 'مستند استشارة · '.($td->doc_type ?: 'معتمد من المكتب'),
+                // مصدر المستند بحالته كما في `Lawyer\CaseController` — كان مستندُ العميل نفسه
+                // يُعرض عليه «معتمد من المكتب»، وهو وصفٌ لمصدرٍ لم يُصدره
+                'meta' => 'مستند استشارة · '.($td->doc_type ?: ($td->status === 'مرفق من المكتب' ? 'مرفق من المكتب' : 'مرفوع منك')),
                 'canDownload' => true,
                 'downloadUrl' => route('documents.download-file', ['type' => 'ticket', 'id' => $td->id]),
                 'at' => $td->created_at?->getTimestamp() ?? 0,
