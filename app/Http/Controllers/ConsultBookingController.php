@@ -54,7 +54,7 @@ class ConsultBookingController extends Controller
     }
 
     /**
-     * تفرّغ المحامين المتخصّصين ليوم مُعطى (JSON) — يغذّي القائمة المنسدلة وشبكة الفترات والبدائل.
+     * أوقات التفرّغ ليوم مُعطى (JSON) للعميل — شبكة الفترات وحدها؛ والمحامي يُسنَد بعد التأكيد.
      */
     public function availability(Request $request): JsonResponse
     {
@@ -65,16 +65,12 @@ class ConsultBookingController extends Controller
         ]);
 
         $day = LawyerAvailability::resolveDate($data['date'] ?? null);
-        $lawyers = LawyerAvailability::rankedSpecialists(
-            $data['specialty'] ?? '',
-            $data['subject'] ?? null,
-            $day->toDateString(),
-        );
 
-        return response()->json([
-            'date' => $day->toDateString(),
-            'lawyers' => $lawyers,
-        ]);
+        // الأوقات وحدها — لا أسماء ولا أقسام ولا أحمال ولا نسب إنجاز (انظر `clientSlots`)
+        return response()->json(array_merge(
+            ['date' => $day->toDateString()],
+            LawyerAvailability::clientSlots($data['specialty'] ?? '', $data['subject'] ?? null, $day->toDateString()),
+        ));
     }
 
     // الخطوة 1: طلب استشارة (النوع/التخصّص فقط) — يُرسل للتسعير، ثم تُكمل الرحلة في «استشاراتي»

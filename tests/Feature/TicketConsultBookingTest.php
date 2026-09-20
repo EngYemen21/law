@@ -32,20 +32,32 @@ class TicketConsultBookingTest extends TestCase
         ]);
     }
 
-    public function test_ticket_availability_lists_specialists_of_ticket_department(): void
+    /**
+     * تفرّغ قسم التذكرة: المتخصّص وحده يُحتسب — والعميل يرى **الأوقات لا الهويّات**
+     * (قرار المالك 2026-09-11: لا يُعرض للعميل اسم محامٍ كاملاً؛ وهو لا يختار المحامي أصلاً).
+     */
+    public function test_ticket_availability_returns_times_without_identities(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $match = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
+        $match = User::factory()->create(['role' => Role::Lawyer, 'name' => 'سارة القحطاني', 'status' => 'active', 'department' => 'القضايا التجارية']);
         $other = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'العقارات']);
         $ticket = $this->ticketFor($client, 'القضايا التجارية');
         $date = LawyerAvailability::resolveDate(null)->toDateString();
 
         $res = $this->actingAs($client)->getJson(route('tickets.availability', $ticket).'?date='.$date);
 
-        $res->assertOk();
-        $ids = collect($res->json('lawyers'))->pluck('id');
-        $this->assertTrue($ids->contains($match->id));   // المتخصّص التجاري حاضر
-        $this->assertFalse($ids->contains($other->id));  // العقاري مستبعَد
+        $res->assertOk()
+            ->assertJsonMissingPath('lawyers')
+            ->assertJsonStructure(['date', 'advisors', 'slots' => [['time', 'taken']]]);
+        $body = $res->getContent();
+        foreach (['سارة القحطاني', 'القضايا التجارية', 'success', 'load'] as $leak) {
+            $this->assertStringNotContainsString($leak, $body, "تسرّب «{$leak}» إلى العميل.");
+        }
+
+        // والمنطق نفسه محفوظ داخلياً: المتخصّص وحده يُحتسب
+        $ids = collect(LawyerAvailability::rankedSpecialists('القضايا التجارية', $ticket->type, $date))->pluck('id');
+        $this->assertTrue($ids->contains($match->id));
+        $this->assertFalse($ids->contains($other->id));
     }
 
     public function test_foreign_client_cannot_read_ticket_availability(): void

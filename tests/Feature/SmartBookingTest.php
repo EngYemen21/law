@@ -67,10 +67,8 @@ class SmartBookingTest extends TestCase
         $this->closeTickets($strong, $client, 3);
 
         $date = LawyerAvailability::resolveDate(null)->toDateString();
-        $res = $this->actingAs($client)->getJson(route('book.availability', ['specialty' => 'القضايا التجارية', 'date' => $date]));
-
-        $res->assertOk();
-        $ids = collect($res->json('lawyers'))->pluck('id');
+        // المصدر الداخليّ: واجهة العميل لم تعد تُرجع هويّات (`clientSlots`) — الترتيب يخصّ الطاقم والإسناد
+        $ids = collect(LawyerAvailability::rankedSpecialists('القضايا التجارية', null, $date))->pluck('id');
         // فقط المتخصّصان التجاريان (لا العقاري)
         $this->assertEqualsCanonicalizing([$strong->id, $weak->id], $ids->all());
         // الأعلى سجلّ نجاح أولاً
@@ -107,9 +105,9 @@ class SmartBookingTest extends TestCase
         $this->directBookAndSchedule($client, $lawyer, $date, '10:00')->assertOk();
         $this->assertSame(1, Appointment::where('lawyer_id', $lawyer->id)->count());
 
-        // الفترة تظهر محجوزة في التفرّغ
+        // الفترة تظهر محجوزة في التفرّغ الذي يصل العميل (المحامي الوحيد هنا مشغول فيها)
         $res = $this->actingAs($other)->getJson(route('book.availability', ['specialty' => 'القضايا التجارية', 'date' => $date]));
-        $slots = collect($res->json('lawyers'))->firstWhere('id', $lawyer->id)['slots'];
+        $slots = $res->json('slots');
         $ten = collect($slots)->firstWhere('time', '10:00');
         $this->assertTrue($ten['taken']);
 
@@ -150,12 +148,17 @@ class SmartBookingTest extends TestCase
             $this->bookSlot($busy, $client, $date, sprintf('%02d:00', $h));
         }
 
-        $res = $this->actingAs($client)->getJson(route('book.availability', ['specialty' => 'القضايا التجارية', 'date' => $date]));
-        $lawyers = collect($res->json('lawyers'));
+        $lawyers = collect(LawyerAvailability::rankedSpecialists('القضايا التجارية', null, $date));
 
         $this->assertSame(0, $lawyers->firstWhere('id', $busy->id)['freeCount']);
         // البديل بنفس التخصّص متاح
         $alt = $lawyers->firstWhere('id', $free->id);
         $this->assertGreaterThan(0, $alt['freeCount']);
+
+        // وما يصل العميل: الساعة متاحةٌ ما دام البديل متاحاً، بلا هويّة أحد
+        $res = $this->actingAs($client)->getJson(route('book.availability', ['specialty' => 'القضايا التجارية', 'date' => $date]));
+        $res->assertOk()->assertJsonMissingPath('lawyers');
+        $this->assertSame(1, $res->json('advisors'));
+        $this->assertTrue(collect($res->json('slots'))->contains(fn (array $slot) => $slot['taken'] === false));
     }
 }

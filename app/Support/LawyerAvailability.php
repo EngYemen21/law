@@ -122,6 +122,42 @@ class LawyerAvailability
     }
 
     /**
+     * **ما يراه العميل من التفرّغ: الأوقات وحدها.**
+     *
+     * `rankedSpecialists` مخرَجٌ داخليّ: اسم كلّ محامٍ وقسمه وحمله ونسبة إنجاز ملفّاته. وكان
+     * يُرسَل كما هو إلى واجهتَي العميل (`/book/availability` و`/tickets/{ticket}/availability`)،
+     * فيقرأ أيّ عميلٍ أداءَ المكتب وأسماء محاميه كاملةً — والعميل **لا يختار المحامي أصلاً**
+     * (`assignLawyer` تُسنده بعد تأكيد الحجز)، فالبيانات كلّها زائدة عن حاجته.
+     *
+     * فالمخرَج هنا: ساعات اليوم، وكلّ ساعةٍ متاحةٌ إن كان فيها مختصٌّ واحد على الأقلّ غير مشغول،
+     * و`advisors` عددُ المتاحين في اليوم — عددٌ لا هويّات.
+     *
+     * @return array{slots: array<int, array{time:string, taken:bool}>, advisors: int}
+     */
+    public static function clientSlots(string $specialty, ?string $subject, ?string $date = null): array
+    {
+        $ranked = self::rankedSpecialists($specialty, $subject, $date);
+
+        $byTime = [];
+        foreach ($ranked as $lawyer) {
+            foreach ($lawyer['slots'] as $slot) {
+                $time = (string) $slot['time'];
+                // الساعة متاحةٌ إن أتاحها أحدهم — والعميل لا يعرف مَن
+                $byTime[$time] = ($byTime[$time] ?? false) || ! $slot['taken'];
+            }
+        }
+        ksort($byTime);
+
+        return [
+            'slots' => array_values(array_map(
+                fn (string $time) => ['time' => $time, 'taken' => ! $byTime[$time]],
+                array_keys($byTime)
+            )),
+            'advisors' => count(array_filter($ranked, fn (array $l) => $l['freeCount'] > 0)),
+        ];
+    }
+
+    /**
      * الإسناد التلقائيّ (العميل لا يختار): أعلى مختصّ في نوع المشكلة (تخصّص + سجلّ إنجاز)
      * غير مشغول في الوقت المطلوب. يعيد المحامي، أو null إن لم يتوفّر أيّ مختصّ في تلك الفترة.
      */
