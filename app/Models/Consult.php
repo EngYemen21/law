@@ -265,6 +265,18 @@ class Consult extends Model
             && $appointment->status === AppointmentStatus::PendingApproval->value;
     }
 
+    /**
+     * **اسم المستشار كما يراه العميل: «محمد. ب»** (قرار المالك 2026-09-11).
+     *
+     * بطاقة العميل تقنّعه، وقوالب البريد كانت تطبع `$consult->lawyer` الخام فيصله الاسم كاملاً.
+     * دالّةٌ واحدة هنا يقرؤها القالب — لا تتكرّر قاعدة التقنيع في كلّ قالب، والنائبُ النصّيّ
+     * («الإدارة العليا»، «المستشار المختص») يمرّ كما هو (انظر `LawyerName::forClient`).
+     */
+    public function lawyerForClient(string $fallback = '—'): string
+    {
+        return LawyerName::forClient($this->assigned_lawyer_id ? $this->assignedLawyer : null, $this->lawyer, $fallback);
+    }
+
     /** مكان بطاقة العميل: لا يُكشف مكان موعدٍ مقترح قبل اعتماده (الطاقم يراه في `toCard`). */
     public function placeForClient(): string
     {
@@ -356,7 +368,7 @@ class Consult extends Model
             'specialty' => $this->specialty ?? '',
             'channel' => $this->channel,
             // «الاسم. الحرف» لمحامٍ مسنَد؛ والملفّ المرفوع للإدارة يبقى بنائبه (LawyerName)
-            'lawyer' => LawyerName::forClient($this->assigned_lawyer_id ? $this->assignedLawyer : null, $this->lawyer, '—'),
+            'lawyer' => $this->lawyerForClient(),
             'when' => $this->whenLabel(),
             // مكان الموعد المقترح لا يصل العميل قبل اعتماد الإدارة (`toCard` للطاقم يعرضه)
             'place' => $this->placeForClient(),

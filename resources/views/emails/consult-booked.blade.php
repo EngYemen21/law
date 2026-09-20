@@ -43,7 +43,8 @@
                 'رقم المرجع' => $consult->ref,
                 'الموضوع' => $consult->subject,
                 'الموعد المحدد' => $consult->when_label,
-                'المستشار القانوني' => $consult->lawyer,
+                {{-- فرعُ العميل: «محمد. ب» لا الاسم الكامل (قرار المالك 2026-09-11) --}}
+                'المستشار القانوني' => $consult->lawyerForClient(),
                 'قناة الاستشارة' => $consult->channel,
             ]
         ])

@@ -6,7 +6,8 @@
 @section('content')
     @php
         $when = trim(($req->day ?? '').(($req->time ?? '') !== '' ? ' · '.$req->time : ''));
-        $lawyer = $req->assignedLawyer?->name;
+        // بريدُ العميل وحده (MeetingController/MeetRequestController) — «محمد. ب» لا الاسم الكامل
+        $lawyer = App\Support\LawyerName::forClient($req->assignedLawyer, $req->assignedLawyer?->name, '—');
         $baseUrl = rtrim((string) config('app.url'), '/');
     @endphp
 
