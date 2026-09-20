@@ -64,6 +64,15 @@ final class PriceConsult extends Transition
         $entity->total = $total;
         $entity->priced_at = now();
 
+        // تصحيح القناة عند التسعير (الطلب قد يصل بقناةٍ يغيّرها الاتّفاق مع العميل) — قبل إنشاء
+        // الفاتورة كي يحمل وصفُها القناةَ المعتمدة. الكتالوج واحد: `Consult::CHANNELS`
+        if (! empty($payload['channel']) && in_array($payload['channel'], Consult::CHANNELS, true)) {
+            $entity->channel = $payload['channel'];
+            if ($payload['channel'] === 'هاتفية' && empty($entity->phone) && $entity->user?->phone) {
+                $entity->phone = $entity->user->phone;
+            }
+        }
+
         $this->invoice = Invoice::create([
             'user_id' => $entity->user_id,
             'consult_id' => $entity->id,
@@ -80,7 +89,12 @@ final class PriceConsult extends Transition
 
     public function record(array $payload): array
     {
-        return ['price' => $payload['price'] ?? null, 'total' => $payload['total'] ?? null, 'invoice' => $this->invoice?->number];
+        return [
+            'price' => $payload['price'] ?? null,
+            'total' => $payload['total'] ?? null,
+            'invoice' => $this->invoice?->number,
+            'channel' => $payload['channel'] ?? null,
+        ];
     }
 
     /** الفاتورة التي صدرت في هذا النداء — `null` قبل النداء أو إن رُفض. */

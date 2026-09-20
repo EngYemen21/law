@@ -226,6 +226,18 @@ export const CONSULT_CHANNELS: [string, string][] = [
   ['all', 'الكل'], ['مرئية', 'مرئية (فيديو)'], ['حضورية', 'حضورية'], ['هاتفية', 'هاتفية'],
 ];
 
+/**
+ * **قنوات الاستشارة الثلاث — مصدرٌ واحد للمنتقيات** (نظير `Consult::CHANNELS` في الخادم،
+ * ويحرس تطابقَهما `ConsultChannelCatalogueTest`). غيرُ `CONSULT_CHANNELS` أعلاه: تلك تبويباتُ
+ * ترشيحٍ تبدأ بـ«الكل». وأيقونةُ كلّ قناة من `crChannelIcon` — لا تُكتب بجانبها مرّةً أخرى.
+ */
+export const CONSULT_CHANNEL_OPTIONS = ['حضورية', 'مرئية', 'هاتفية'] as const;
+
+export type ConsultChannel = (typeof CONSULT_CHANNEL_OPTIONS)[number];
+
+/** ما تُفتح عليه منتقيات القناة حين لا تحمل الاستشارة قناةً بعد. */
+export const DEFAULT_CONSULT_CHANNEL: ConsultChannel = CONSULT_CHANNEL_OPTIONS[0];
+
 // ── دوال مساعدة للاستشارات ──
 export function cStage(s: string): number {
   const m: Record<string, number> = {

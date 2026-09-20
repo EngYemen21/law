@@ -144,4 +144,31 @@ class ConsultPricingCorrectionTest extends TestCase
         $this->expectException(HttpException::class);
         ConsultBooking::setPrice($consult, 0, $admin);
     }
+
+    /** تسعير الاستشارة يتيح تعديل القناة وتوثيقها في الفاتورة وسجل الرحلة. */
+    public function test_pricing_can_change_consult_channel_and_populate_phone(): void
+    {
+        [$consult, $admin, $client] = $this->pendingRequest();
+        $client->update(['phone' => '0501234567']);
+        $this->assertSame('مرئية', $consult->channel);
+
+        // تعديل القناة إلى هاتفية أثناء التسعير
+        $this->actingAs($admin)
+            ->post("/admin/consults/{$consult->id}/price", [
+                'price' => 350,
+                'channel' => 'هاتفية',
+            ])
+            ->assertRedirect();
+
+        $fresh = $consult->fresh();
+        $this->assertSame('هاتفية', $fresh->channel);
+        $this->assertSame('0501234567', $fresh->phone);
+
+        $invoice = Invoice::where('consult_id', $consult->id)->where('status', 'مستحقة')->first();
+        $this->assertNotNull($invoice);
+        $this->assertStringContainsString('هاتفية', $invoice->description);
+
+        $row = JourneyTransition::where('transition', 'consult.price')->where('entity_id', $consult->id)->sole();
+        $this->assertSame('هاتفية', $row->payload['channel']);
+    }
 }

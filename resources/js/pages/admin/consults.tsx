@@ -17,6 +17,8 @@ import {
   CONSULT_CLOSED_STATUSES,
   CONSULT_SESSION_ENDED,
   CONSULT_PRIORITIES,
+  CONSULT_CHANNEL_OPTIONS,
+  DEFAULT_CONSULT_CHANNEL,
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { consultMediaUrls, SessionMediaPanel } from '@/lib/recording-ui';
@@ -183,6 +185,7 @@ export const AdminConsults: React.FC<AdminConsultsProps> = ({
 
   // Standalone Table Modals State
   const [pricingConsult, setPricingConsult] = useState<ConsultCard | null>(null);
+  const [pricingChannel, setPricingChannel] = useState<string>(DEFAULT_CONSULT_CHANNEL);
   const [inputPrice, setInputPrice] = useState<string>('600');
   const [reassignConsult, setReassignConsult] = useState<ConsultCard | null>(null);
   const [selectedLawyerId, setSelectedLawyerId] = useState<number | ''>('');
@@ -513,6 +516,7 @@ return false;
   // Table Modals Handlers
   const handleOpenPricingModal = (consult: ConsultCard) => {
     setPricingConsult(consult);
+    setPricingChannel(consult.channel || DEFAULT_CONSULT_CHANNEL);
     setInputPrice(String(consult.price || 600));
   };
 
@@ -533,7 +537,7 @@ return;
 
     router.post(
       `/admin/consults/${pricingConsult.id}/price`,
-      { price: priceNum },
+      { price: priceNum, channel: pricingChannel },
       {
         preserveScroll: true,
         onSuccess: () => {
@@ -2439,8 +2443,48 @@ return;
         >
           <form onSubmit={submitPricingModal} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
-              العميل: <b>{maskClient(pricingConsult.client)}</b> · القناة: <b>{pricingConsult.channel}</b>
+              العميل: <b>{maskClient(pricingConsult.client)}</b>
             </p>
+
+            {/* منتقى قناة الاستشارة */}
+            <div>
+              <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>
+                قناة الاستشارة:
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                {CONSULT_CHANNEL_OPTIONS.map((label) => {
+                  const icon = crChannelIcon(label);
+                  const isSelected = pricingChannel === label;
+
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setPricingChannel(label)}
+                      style={{
+                        padding: '8px',
+                        borderRadius: 8,
+                        border: isSelected ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,0.15)',
+                        background: isSelected ? 'rgba(14, 92, 156, 0.08)' : '#fff',
+                        color: isSelected ? 'var(--primary)' : 'inherit',
+                        fontWeight: 700,
+                        fontSize: 12.5,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <Icon name={icon} />
+                      <span>{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div>
               <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>
                 سعر الاستشارة (ريال سعودي غير شامل الضريبة):

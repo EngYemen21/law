@@ -122,7 +122,7 @@ class ConsultBooking
     /**
      * الخطوة 2 — الإدارة/المكتب تُسعّر الطلب وتُصدر فاتورة الاستشارة.
      */
-    public static function setPrice(Consult $consult, int $price, User $actor): Invoice
+    public static function setPrice(Consult $consult, int $price, User $actor, ?string $channel = null): Invoice
     {
         abort_unless($consult->status === 'بانتظار التسعير', 422, 'لا يمكن تسعير هذا الطلب في حالته الحالية.');
 
@@ -144,23 +144,29 @@ class ConsultBooking
 
         // السعر والفاتورة والحالة في معاملة المحرّك الواحدة — انظر `PriceConsult`
         $pricing = new PriceConsult;
-        Workflow::run($pricing, $consult, $actor, ['price' => $price, 'vat' => $vat, 'total' => $total]);
+        Workflow::run($pricing, $consult, $actor, array_filter([
+            'price' => $price,
+            'vat' => $vat,
+            'total' => $total,
+            'channel' => $channel,
+        ], fn ($v) => $v !== null));
         $invoice = $pricing->invoice();
 
+        $fresh = $consult->fresh();
         Notify::send($consult->user_id, 'card', 't-amber', "صدرت فاتورة استشارتك ({$consult->ref}) بمبلغ {$total} ر.س شامل الضريبة — سدّدها ليُحدَّد موعد جلستك.");
 
         Audit::log(
             action: 'تسعير استشارة',
-            description: "سعّر {$actor->name} الاستشارة {$consult->ref} بمبلغ {$price} ر.س (الإجمالي {$total} ر.س) وصدرت الفاتورة {$invoice->number}.",
+            description: "سعّر {$actor->name} الاستشارة {$fresh->ref} ({$fresh->channel}) بمبلغ {$price} ر.س (الإجمالي {$total} ر.س) وصدرت الفاتورة {$invoice->number}.",
             category: 'مالية وفواتير',
             severity: 'warning',
-            auditable: $consult,
+            auditable: $fresh,
             beforeState: ['الحالة' => 'بانتظار التسعير'],
-            afterState: ['السعر' => $price, 'الإجمالي' => $total, 'الحالة' => 'بانتظار السداد'],
+            afterState: ['السعر' => $price, 'الإجمالي' => $total, 'القناة' => $fresh->channel, 'الحالة' => 'بانتظار السداد'],
             user: $actor,
         );
 
-        Live::push(new ConsultStatusBroadcast($consult->fresh()));
+        Live::push(new ConsultStatusBroadcast($fresh));
 
         return $invoice;
     }

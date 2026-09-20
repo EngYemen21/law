@@ -7,7 +7,7 @@ import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { CONSULT_BOOKING_STATUSES, crChannelIcon, crChannelTone, cTone } from '@/lib/employee-data';
+import { CONSULT_BOOKING_STATUSES, CONSULT_CHANNEL_OPTIONS, crChannelIcon, crChannelTone, cTone, DEFAULT_CONSULT_CHANNEL } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 
 interface AdminConsultRequestsProps {
@@ -80,6 +80,9 @@ export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
 
   // Fast Pricing Modal (for Table view quick clicks)
   const [pricingModalConsult, setPricingModalConsult] = useState<ConsultCard | null>(null);
+  // قناة الاستشارة في نافذة التسعير السريع وفي درج التفاصيل — تُهيّأ من قناة الطلب عند فتحه
+  const [modalChannel, setModalChannel] = useState<string>(DEFAULT_CONSULT_CHANNEL);
+  const [drawerChannel, setDrawerChannel] = useState<string>(DEFAULT_CONSULT_CHANNEL);
   const [modalPrice, setModalPrice] = useState<string>('600');
 
   // Cancel Confirmation Modal State
@@ -166,9 +169,11 @@ return;
   // Synchronize inline drawer fields when drawerConsult changes
   useEffect(() => {
     if (drawerConsult) {
-      setInputPrice(String(drawerConsult.price || 600));
+      const ch = drawerConsult.channel || DEFAULT_CONSULT_CHANNEL;
+      setDrawerChannel(ch);
+      setInputPrice(String(drawerConsult.price || suggestedPrices[ch] || 600));
     }
-  }, [drawerConsult]);
+  }, [drawerConsult, suggestedPrices]);
 
   // Open & Close Drawer Actions
   const openDrawer = (ref: string, initialTab: DrawerTab = 'pricing') => {
@@ -310,8 +315,8 @@ return (a.total || 0) - (b.total || 0);
       });
   }, [liveItems, categoryFilter, channelFilter, specialtyFilter, searchQuery, sortBy]);
 
-  // Submit Pricing Action (Base + VAT)
-  const handlePricingSubmit = (consult: ConsultCard, priceStr: string) => {
+  // Submit Pricing Action (Base + VAT + Channel)
+  const handlePricingSubmit = (consult: ConsultCard, priceStr: string, channelToSet?: string) => {
     const priceNum = parseInt(priceStr, 10);
 
     // **الصفر ممنوع.** كان `< 0` يسمح به، ومودال الجدول يفحص `isProcessing` وحده —
@@ -325,7 +330,7 @@ return (a.total || 0) - (b.total || 0);
     setIsProcessingAction(true);
     router.post(
       `/admin/consults/${consult.id}/price`,
-      { price: priceNum },
+      { price: priceNum, channel: channelToSet },
       {
         preserveScroll: true,
         onSuccess: () => {
@@ -489,11 +494,6 @@ return (a.total || 0) - (b.total || 0);
    * معتمداً** في `Setting::consultPrices()`، ولا تتغيّر بتغيير الإعدادات، ولا تفرّق
    * بين القنوات الثلاث. فاللافتة تعطي الرقم سلطةً لا يملكها.
    */
-  const pricePresets = useMemo(
-    () => Array.from(new Set(Object.values(suggestedPrices).filter((n) => n > 0))).sort((a, b) => a - b),
-    [suggestedPrices]
-  );
-
   const parsedDrawerPrice = parseInt(inputPrice, 10) || 0;
   const drawerVatAmount = Math.round((parsedDrawerPrice * vatRate) / 100);
   const drawerTotalAmount = parsedDrawerPrice + drawerVatAmount;
@@ -1499,7 +1499,9 @@ return (a.total || 0) - (b.total || 0);
                               type="button"
                               onClick={() => {
                                 setPricingModalConsult(c);
-                                setModalPrice(String(c.price || 600));
+                                const ch = c.channel || DEFAULT_CONSULT_CHANNEL;
+                                setModalChannel(ch);
+                                setModalPrice(String(c.price || suggestedPrices[ch] || 600));
                               }}
                             >
                               <Icon name="card" /> تسعير
@@ -1790,32 +1792,56 @@ return (a.total || 0) - (b.total || 0);
                     </p>
                   </div>
 
-                  {/* أزرار التسعير السريع الموصى بها */}
+                  {/* تحديد وتعديل قناة الاستشارة مع السعر المعتمد */}
                   <div>
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 8 }}>
-                      الأسعار المعتمدة لكلّ قناة:
+                      قناة الاستشارة المعتمدة للتسعير:
                     </label>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                      {pricePresets.map((p) => (
-                        <button
-                          key={p}
-                          type="button"
-                          onClick={() => setInputPrice(String(p))}
-                          style={{
-                            padding: '9px 8px',
-                            borderRadius: 8,
-                            border: inputPrice === String(p) ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,0.15)',
-                            background: inputPrice === String(p) ? 'rgba(14, 92, 156, 0.08)' : '#fff',
-                            color: inputPrice === String(p) ? 'var(--primary)' : 'inherit',
-                            fontWeight: 700,
-                            fontSize: 13,
-                            cursor: 'pointer',
-                            transition: 'all 0.15s',
-                          }}
-                        >
-                          {p} ر.س
-                        </button>
-                      ))}
+                      {CONSULT_CHANNEL_OPTIONS.map((label) => {
+                        const icon = crChannelIcon(label);
+                        const isSelected = drawerChannel === label;
+                        const suggested = suggestedPrices[label];
+
+                        return (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => {
+                              setDrawerChannel(label);
+
+                              if (suggested) {
+                                setInputPrice(String(suggested));
+                              }
+                            }}
+                            style={{
+                              padding: '10px 8px',
+                              borderRadius: 8,
+                              border: isSelected ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,0.15)',
+                              background: isSelected ? 'rgba(14, 92, 156, 0.08)' : '#fff',
+                              color: isSelected ? 'var(--primary)' : 'inherit',
+                              fontWeight: 700,
+                              fontSize: 13,
+                              cursor: 'pointer',
+                              transition: 'all 0.15s',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <Icon name={icon} />
+                              <span>{label}</span>
+                            </div>
+                            {suggested ? (
+                              <span style={{ fontSize: 11, fontWeight: 500, color: isSelected ? 'var(--primary)' : 'var(--muted)' }}>
+                                ({suggested} ر.س)
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -1900,7 +1926,7 @@ return (a.total || 0) - (b.total || 0);
                       style={{ width: '100%', justifyContent: 'center', marginTop: 14, minHeight: 44, fontSize: 14 }}
                       type="button"
                       disabled={isProcessing || parsedDrawerPrice <= 0}
-                      onClick={() => handlePricingSubmit(drawerConsult, inputPrice)}
+                      onClick={() => handlePricingSubmit(drawerConsult, inputPrice, drawerChannel)}
                     >
                       <Icon name="card" />
                       {isProcessing ? 'جاري إصدار الفاتورة...' : 'إصدار الفاتورة وتأكيد السعر وإشعار العميل'}
@@ -2137,13 +2163,66 @@ return (a.total || 0) - (b.total || 0);
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              handlePricingSubmit(pricingModalConsult, modalPrice);
+              handlePricingSubmit(pricingModalConsult, modalPrice, modalChannel);
             }}
             style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
           >
             <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
-              العميل: <b>{maskClient(pricingModalConsult.client)}</b> · القناة: <b>{pricingModalConsult.channel}</b>
+              العميل: <b>{maskClient(pricingModalConsult.client)}</b>
             </p>
+
+            {/* منتقى قناة الاستشارة */}
+            <div>
+              <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>
+                قناة الاستشارة:
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                {CONSULT_CHANNEL_OPTIONS.map((label) => {
+                  const icon = crChannelIcon(label);
+                  const isSelected = modalChannel === label;
+                  const suggested = suggestedPrices[label];
+
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => {
+                        setModalChannel(label);
+
+                        if (suggested) {
+                          setModalPrice(String(suggested));
+                        }
+                      }}
+                      style={{
+                        padding: '8px',
+                        borderRadius: 8,
+                        border: isSelected ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,0.15)',
+                        background: isSelected ? 'rgba(14, 92, 156, 0.08)' : '#fff',
+                        color: isSelected ? 'var(--primary)' : 'inherit',
+                        fontWeight: 700,
+                        fontSize: 12.5,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 3,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name={icon} />
+                        <span>{label}</span>
+                      </div>
+                      {suggested ? (
+                        <span style={{ fontSize: 11, fontWeight: 500, color: isSelected ? 'var(--primary)' : 'var(--muted)' }}>
+                          ({suggested} ر.س)
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <div>
               <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>
                 سعر الاستشارة (ريال سعودي غير شامل الضريبة):

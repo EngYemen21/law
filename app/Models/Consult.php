@@ -121,6 +121,15 @@ class Consult extends Model
      */
     public const PRIORITIES = ['عالية', 'متوسطة', 'منخفضة'];
 
+    /**
+     * **قنوات الاستشارة — الكتالوج الواحد.** يقرؤه التحقّق من المدخلات (`Staff\ConsultController`)
+     * وانتقال التسعير (`PriceConsult`) الذي يسمح بتصحيح القناة، والواجهةُ نظيرُه في
+     * `lib/consult-ui.tsx`. كانت القائمة مكرّرةً نصّاً في كلّ موضع، فتتفرّق مفرداتها عند أوّل تعديل.
+     *
+     * @var list<string>
+     */
+    public const CHANNELS = ['حضورية', 'مرئية', 'هاتفية'];
+
     protected $fillable = [
         'user_id', 'ticket_id', 'appointment_id', 'ref', 'subject', 'type', 'priority', 'channel',
         'lawyer', 'assigned_lawyer_id', 'specialty', 'employee', 'day', 'time', 'when_label', 'received_label', 'phone',

@@ -158,9 +158,13 @@ class ConsultController extends Controller
     {
         $this->guardConsult($request, $consult);
         // `min:1` لا `min:0` — الصفر كان يُنشئ فاتورةً ميتة ويعلّق الطلب (انظر `ConsultBooking::setPrice`)
-        $data = $request->validate(['price' => ['required', 'integer', 'min:1', 'max:100000']]);
+        $data = $request->validate([
+            'price' => ['required', 'integer', 'min:1', 'max:100000'],
+            // تصحيح القناة عند التسعير — من كتالوج القنوات الواحد لا نصّاً مكرّراً
+            'channel' => ['nullable', 'string', Rule::in(Consult::CHANNELS)],
+        ]);
 
-        ConsultBooking::setPrice($consult, (int) $data['price'], $request->user());
+        ConsultBooking::setPrice($consult, (int) $data['price'], $request->user(), $data['channel'] ?? null);
 
         return back()->with('flash', 'تم تحديد سعر الاستشارة وإصدار الفاتورة.');
     }
