@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\CaseDocument;
-use App\Models\Correspondence;
 use App\Models\Document;
 use App\Models\ExecutionDocument;
 use App\Models\TicketDocument;
@@ -22,7 +21,7 @@ class DocumentController extends Controller
     /** امتدادات المستندات المسموح رفعها من العميل — تطابق TicketController (لا تنفيذية/مضغوطة). */
     private const ALLOWED_DOC_MIMES = 'pdf,jpg,jpeg,png,doc,docx';
 
-    // مستندات العميل الحالي: تجميع كافة المستندات والملفات الصادرة له من المكتب والقضايا والتنفيذ والمخاطبات
+    // مستندات العميل الحالي: تجميع كافة المستندات والملفات الصادرة له من المكتب والقضايا والتنفيذ والتذاكر
     public function index(Request $request): Response
     {
         $user = $request->user();
@@ -81,25 +80,12 @@ class DocumentController extends Controller
                 'at' => $td->created_at?->getTimestamp() ?? 0,
             ]);
 
-        // 5. المخاطبات والخطابات الرسمية الصادرة للعميل
-        $correspondences = Correspondence::where('user_id', $user->id)
-            ->latest('id')->get()
-            ->map(fn (Correspondence $c) => [
-                'id' => 'corr-'.$c->id,
-                'name' => 'خطاب رسمي — '.$c->subject,
-                'meta' => 'مخاطبة رسمية · رقم '.$c->number,
-                'canDownload' => false,
-                'downloadUrl' => null,
-                'at' => $c->created_at?->getTimestamp() ?? 0,
-            ]);
-
         // **دمجٌ زمنيّ لا رصٌّ تِباعاً.** كلّ مصدرٍ مرتَّبٌ وحده ثمّ `concat` يضعه خلف سابقه،
-        // فالمخاطبة الصادرة الآن تظهر بعد **كلّ** مستندات القضايا والتنفيذ والتذاكر.
+        // فمستندُ التذكرة الصادر الآن يظهر بعد **كلّ** مستندات القضايا والتنفيذ.
         $docsOut = $directOutDocs
             ->concat($caseDocs)
             ->concat($execDocs)
             ->concat($ticketDocs)
-            ->concat($correspondences)
             ->sortByDesc('at')
             ->values();
 

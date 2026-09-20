@@ -115,7 +115,6 @@ npm install && npm run build
 | `AI_COOLDOWN_MINUTES` | تهدئة مزوّد الـAI بعد نفاد الحصّة (قاطع دائرة) | افتراضيّ 30 |
 | `MOYASAR_SECRET_KEY` / `_PUBLISHABLE_KEY` / `_WEBHOOK_SECRET` | بوّابة الدفع ميسّر | بلا مفاتيح يبقى الدفع محاكى/ممنوع |
 | `ZOOM_ACCOUNT_ID`/`_CLIENT_ID`/`_CLIENT_SECRET` + `_SDK_KEY`/`_SDK_SECRET` + `_WEBHOOK_SECRET` | اجتماعات مرئيّة (S2S OAuth + Meeting SDK) | رابط احتياطيّ `ZOOM_FALLBACK_BASE` |
-| `EXTCORR_*` | نظام المخاطبات الرسميّة الخارجيّ (ناجز/تراسل) | يعمل محاكاةً بلا مفاتيح |
 
 **ملاحظة أمنيّة:** `taqnyat.api_key`, `moyasar.secret_key` خادميّة فقط — لا تُسرَّب في props/الواجهة/اللوقات.
 
@@ -146,7 +145,6 @@ npm install && npm run build
    يُستخدم `ZOOM_FALLBACK_BASE`. مسار الويب‑هوك `webhooks/zoom` مُستثنى من CSRF (محميّ بالتوقيع).
 6. **Reverb — البثّ اللحظي:** أحداث `*Broadcast` عبر `app/Support/Live.php`؛ القنوات في
    `routes/channels.php` + `app/Support/ChannelAccess.php`. راجع القسم 13.
-7. **المخاطبات الخارجيّة (external_corr):** إعداد `services.external_corr` (ناجز/تراسل) — محاكاة بلا مفاتيح.
 
 ---
 
@@ -294,11 +292,7 @@ npm install && npm run build
 - **`execution_messages`** (`booted()` يبثّ `ExecMessageBroadcast`), **`execution_procedures`** (title/type:
   حجز/تحصيل/إخطار/إجراء، status: مجدول/منفّذ/مؤجل), **`execution_documents`** (label/status/path/mime/size).
 
-### 8.7 المخاطبات والفواتير والمدفوعات والمهام (المجالات ز/ح/ط)
-- **`correspondences`** (مفتاح=`number` MKH-…): دورة 7 مراحل، `user_id`,
-  `assigned_lawyer_id`, `case_id`, `execution_id`, `direction`(صادرة/واردة), `entity`, `subject`, `body`,
-  `stage`(0..6), `status`, `ext_ref/ext_status/ext_synced_at`(النظام الخارجيّ), `reply_body`, `briefed`,
-  `audit`(json). دوال `toCard/toClientCard`(عبر `CorrFlow::clientStage`).
+### 8.7 الفواتير والمدفوعات والمهام (المجالان ح/ط)
 - **`invoices`** (مفتاح=`number`): `user_id`, `case_id`, `consult_id`, `exec_id` (كلّها nullOnDelete —
   الفاتورة تخصّ أحد المجالات), `number`(unique), `description`, `amount`(صحيح), `status`(default `مستحقة`),
   `tone`, `due_label`, `paid`(bool), `gateway_ref`, `gateway_payment_id`, `proof_path/proof_uploaded_at`
@@ -316,11 +310,11 @@ users (client/employee/lawyer/admin)
  ├─< tickets ─< messages/documents/summary(1:1)
  │      ├─< consults ─1:1─ invoice ;  └─ cases(1:1 عبر ticket)
  ├─< cases ─< case_messages/case_hearings ; ─< invoices ; ─1:1─ execution
- │      └─< executions ─< exec_messages/procedures/documents ; ─< correspondences ; ─< invoices(exec_id)
+ │      └─< executions ─< exec_messages/procedures/documents ; ─< invoices(exec_id)
  ├─< appointments ─1:1─ consults ;  ├─< meetings ─< meet_requests
  ├─< invoices ─< payments ;  └─< documents / user_notifications / tasks
- (assigned_lawyer_id على tickets/cases/executions/correspondences/consults/meetings)
-سلسلة التحويل: ticket → consult / case → execution → correspondence → invoices → payments
+ (assigned_lawyer_id على tickets/cases/executions/consults/meetings)
+سلسلة التحويل: ticket → consult / case → execution → invoices → payments
 ```
 > ملاحظة: `consults.assigned_lawyer_id`, `appointments.lawyer_id`, `meetings.assigned_lawyer_id` أعمدة
 > بلا قيد FK صريح (توافقاً مع SQLite بالاختبارات) لكن علاقاتها معرّفة في النماذج.
@@ -369,8 +363,7 @@ enum نصّيّ: `Client/Employee/Lawyer/Admin`؛ دوال `label()` (العمي
   `GET /consults/room`).
 - **المواعيد/الاجتماعات:** `AppointmentController@index`، `MeetingController`(`index/room`)،
   `MeetRequestController`(`index`، `POST .../confirm` — ينشئ جلسة Zoom+اجتماع+بريد)، `CalendarController@index`.
-- **المخاطبات/المستندات/الفواتير:** `CorrespondenceController`(`mine`، `POST .../request-brief`)،
-  `DocumentController`(`index/store`(≤2MB)/`download` عبر Policy)، `InvoiceController`(`index`، `.../proof`(≤2MB)).
+- **المستندات/الفواتير:** `DocumentController`(`index/store`(≤2MB)/`download` عبر Policy)، `InvoiceController`(`index`، `.../proof`(≤2MB)).
 - **التنفيذ المشترك (`auth,active`، الحراسة داخليّة):** `ExecFlowController` — `POST /exec-flow`(`store`)،
   `.../action`(`act` موزّع إجراءات مركزيّ بخرائط صلاحية)، `.../pay`(+`callback`)، `.../messages`،
   `.../documents/{document}`(رفع)، `.../review`.
@@ -394,9 +387,8 @@ enum نصّيّ: `Client/Employee/Lawyer/Admin`؛ دوال `label()` (العمي
   convertToExecution`.
 - **التنفيذ/المهام/التقويم:** `ExecFlowController@lawyer`، `Lawyer\TaskController`(`index/store/complete`)،
   `Lawyer\CalendarController@index`.
-- **الاجتماعات/المخاطبات/المساعد — `Staff\MeetingController` («إدارة الاجتماعات»):** `index/show/room/
-  saveSummary/saveMinutes/end/createTasks`؛ `Staff\MeetRequestController`؛ `CorrespondenceController`
-  (`index/store/show/advance/sync/receive/brief/close` — «المخاطبات»)؛ `Lawyer\AssistantController`(`index/
+- **الاجتماعات/المساعد — `Staff\MeetingController` («إدارة الاجتماعات»):** `index/show/room/
+  saveSummary/saveMinutes/end/createTasks`؛ `Staff\MeetRequestController`؛ `Lawyer\AssistantController`(`index/
   generate` — «المساعد القانوني»).
 - **الاستشارات:** `Staff\ConsultController` (`recv/show/start/end/take/requestDocs/analyze/…/refer/tasks/room`).
 
@@ -428,7 +420,7 @@ enum نصّيّ: `Client/Employee/Lawyer/Admin`؛ دوال `label()` (العمي
 
 ### 9.8 نقاط التحقّق الأمنيّة البارزة
 - **IDOR/403 (ملكيّة):** `authorizeTicket/authorizeCase`, `Consult::pay/schedule/room`, `Meeting::room`,
-  `MeetRequest::confirm`, `Invoice::uploadProof`, `Correspondence::requestBrief`, `Task::complete` —
+  `MeetRequest::confirm`, `Invoice::uploadProof`, `Task::complete` —
   كلّها `abort_unless(model->user_id === auth id)`. و`ZoomController::sdkSignature` عبر `ChannelAccess::ownerOrStaff`.
   و`DocumentController::download` عبر `DocumentPolicy` (الطاقم يرى الكلّ، العميل مستنداته فقط).
 - **حراسة انتقالات الحالة:** `Employee\TicketController::status` (`abort_if` إعادة فتح + `abort_unless
@@ -448,7 +440,7 @@ enum نصّيّ: `Client/Employee/Lawyer/Admin`؛ دوال `label()` (العمي
 
 **النمط المعماريّ السائد عبر كل التكاملات: أفضل-جهد (best-effort)** — كل نداء خارجيّ داخل
 `try/catch` يسجّل ولا يرمي، **ومصدر الحقيقة قاعدة البيانات لا الشبكة**. بلا مفاتيح: التكامل إمّا
-يعمل محاكاةً (ميسّر، المخاطبات الخارجيّة، Zoom) أو يُعطّل بأمان (تقنيات، الذكاء الاصطناعي).
+يعمل محاكاةً (ميسّر، Zoom) أو يُعطّل بأمان (تقنيات، الذكاء الاصطناعي).
 
 ### 10.1 الخدمات (`app/Services/*`)
 - **`LegalAiService.php` — الذكاء الاصطناعي القانونيّ.** مزوّدان بسلسلة احتياط:
@@ -469,12 +461,10 @@ enum نصّيّ: `Client/Employee/Lawyer/Admin`؛ دوال `label()` (العمي
   `createMeeting` (تسجيل سحابيّ + ملخّص AI Companion + غرفة انتظار)، `deleteMeeting`, `sdkSignature`
   (JWT HS256، دور مضيف/مشارك)، `zakToken`, `downloadTranscript/cleanVtt`, `meetingSummary`,
   `summaryFromPayload`. تخبئة مع كبح فشل (تهدئة 60ث عند الفشل).
-- **`ExternalSystemService.php` — المخاطبات الرسميّة:** `send/status/reply/isConfigured` (محاكاة كاملة بلا مفاتيح).
 > لا تكامل Slack فعليّ (مفاتيح `slack/postmark/ses` قياسيّة فقط في `config/services.php`).
 
 ### 10.2 صفوف الدعم المحوريّة (`app/Support/*`)
-- **صفوف الرحلة (مصدر وحيد للحالات/النغمات/الانتقالات):** `TicketJourney`, `CaseJourney`, `ExecJourney`,
-  وتدفّق المخاطبات `CorrFlow`.
+- **صفوف الرحلة (مصدر وحيد للحالات/النغمات/الانتقالات):** `TicketJourney`, `CaseJourney`, `ExecJourney`.
 - **التذاكر:** `TicketTriage` (الوكيل التشغيليّ: `onOpened/onDocumentAttached/onClientMessage/referToLawyer/
   requestHuman`؛ كل إجراء آليّ يُوثّق `who=note`)، `TicketTexts` (كلمات التصعيد)، `ServiceDocs`.
 - **الإسناد والتفرّغ:** `TicketAssignment` (`pickLawyer` تصفية بالتخصّص + ترتيب حتميّ بالحمل/الأقدميّة +
@@ -483,9 +473,9 @@ enum نصّيّ: `Client/Employee/Lawyer/Admin`؛ دوال `label()` (العمي
 - **الاستشارات:** `ConsultBooking` (`request→setPrice→markPaid (idempotent)→schedule` بعد الدفع فقط،
   Zoom خارج المعاملة + `guardNoConflict` + تنظيف Zoom اليتيم)، `ConsultSummary`, `DecisionTasks`
   (قرارات→مهام `Task`، idempotent)، `AppointmentCard`, `TicketResult`.
-- **القضايا/التنفيذ/المخاطبات:** `CaseConversion`, `CaseFee` (سداد+تفعيل idempotent → `DraftCasePleadingJob`),
+- **القضايا/التنفيذ:** `CaseConversion`, `CaseFee` (سداد+تفعيل idempotent → `DraftCasePleadingJob`),
   `ExecService` (تدفّق 10 مراحل: `submit→AnalyzeExecutionJob→applyAnalysis→…→markPaid`)، `ExecFlow`,
-  `ExecutionCreation` (فتح تنفيذ من قضية «صدر الحكم»)، `CorrespondenceFlow`.
+  `ExecutionCreation` (فتح تنفيذ من قضية «صدر الحكم»).
 - **بنية تحتيّة:** `Live` (غلاف البثّ)، `Notify` (إشعارات المستخدم)، `AfterResponse` (تأجيل الأعمال الثقيلة
   لما بعد الاستجابة — يتفادى مهلة 30ث؛ فوريّ في الطرفية/الاختبار)، `Phone`, `OtpService`, `EmailOtpService`,
   `MoyasarWebhook`, `ZoomWebhook`, `ZoomRecording`, `ZoomSummaryText`, `ChannelAccess`, `Permissions`
@@ -611,8 +601,8 @@ idempotent → فتح ملف التنفيذ). المستندات (`execution_doc
 الدور يُشتقّ من المسار عبر `roleOfPath()` (بلا بادئة = client).
 - **مصادقة/عامّة:** `auth/login.tsx` (دخول بالهويّة+OTP، تسجيل ذاتي، اختيار حساب، أنماط `.lgn`)، `welcome.tsx` (هبوط).
 - **العميل (جذر `pages/*`):** `dashboard`, `tickets`, `newticket`, `ticketchat`, `cases`, `casechat`,
-  `execflow`, `mycorr`, `book`, `myconsults`, `appointments`, `meetings`, `meetreqs`, `meetingroom`,
-  `videoroom`, `calendar`, `documents`, `invoices`, `notifications`, `profile`, `correspondence(s)`.
+  `execflow`, `book`, `myconsults`, `appointments`, `meetings`, `meetreqs`, `meetingroom`,
+  `videoroom`, `calendar`, `documents`, `invoices`, `notifications`, `profile`.
 - **الموظف (`pages/employee/`, بادئة `/employee`):** `dashboard`, `tickets`, `ticketchat`, `cases`, `case`,
   `consults`, `consult`, `consultrecv`, `schedule` (جدولة نيابةً)، `transfer` (تحويل بين المحامين)،
   `meetreqs`, `meetingroom`, `videoroom`.
@@ -621,7 +611,7 @@ idempotent → فتح ملف التنفيذ). المستندات (`execution_doc
   `assistant` (المساعد الذكيّ لتوليد المسودّات)، `summaries`, `summary` (اعتماد الملخّص→الرأي القانونيّ)،
   `tasks`, `videoroom`.
 - **الإدارة (`pages/admin/`, بادئة `/admin` — ~28 صفحة):** إشراف (`dashboard, clients, tickets, cases,
-  execs, correspondences, lawyers, consults, consult-requests, consult, consultrecv`)، إدارة عليا
+  execs, lawyers, consults, consult-requests, consult, consultrecv`)، إدارة عليا
   (`staff` تسجيل + صلاحيّات spatie، `archive, distribute, casefees, tasks`)، عمليّات/اجتماعات
   (`meetmgmt, meetreqs, meetlog, meeting, meetings, meetingroom, videoroom, clientnotifs, summaries`)،
   ماليّة/تقارير (`revenue, prices, accounting, meetreports, reports`).
@@ -642,7 +632,7 @@ idempotent → فتح ملف التنفيذ). المستندات (`execution_doc
 - `data.ts` (مصدر التنقّل: `ROLES, ROLE_NAV, ROLE_TITLES, roleOfPath, NAV/TILES/VIEW_ROUTE`)، `icons.tsx`
   (~45 أيقونة SVG)، `chat.ts` (أنواع الرسائل + `TKT_LIFE`)، `echo.ts` (عميل Echo/Reverb + CSRF لـ axios)،
   `permissions.ts` (`usePermCatalog/canViewRoute`)، `newticket-data.ts` (`SVC` 31 خدمة، الأسعار، QR)،
-  `admin/employee/lawyer-data.ts`، طبقات UI: `consult-ui, meeting-ui, zoom-room, case-ui, exec-ui, corr-ui`،
+  `admin/employee/lawyer-data.ts`، طبقات UI: `consult-ui, meeting-ui, zoom-room, case-ui, exec-ui`،
   `utils.ts` (`cn` + `maskLawyer`).
 - **مولَّد بـ Wayfinder (لا يُحرَّر يدويّاً):** `resources/js/actions/**`, `resources/js/routes/**`, `wayfinder/index.ts`.
 
@@ -685,7 +675,6 @@ idempotent → فتح ملف التنفيذ). المستندات (`execution_doc
 | `ExecMessageBroadcast` / `ExecStatusBroadcast` | `exec.{id}` | التنفيذ |
 | `ConsultStatusBroadcast` | `consult.{id}` | الاستشارة/الجلسة/الملخّص |
 | `MeetingStatusBroadcast` | `meeting.{id}` | الاجتماعات |
-| `CorrStatusBroadcast` | `corr.{id}` | المخاطبات |
 | `UserNotificationBroadcast` | `notifications.{userId}` | `broadcastAs('notify')` — غلاف `Notify` |
 
 - **التفويض:** `routes/channels.php` عبر قاعدة موحّدة `app/Support/ChannelAccess.php`: العميل المالك، أو
@@ -741,7 +730,7 @@ idempotent → فتح ملف التنفيذ). المستندات (`execution_doc
 - ✅ **رابط الجلسة يطرد الموظف:** `Consult::joinLink($user)` صار `match` لكل الأدوار، و`toCard()` يمرّر المشاهد.
 - ✅ **أرشيف Zoom يستنزف الذاكرة:** `writeStream` بدل `File::get()`؛ و`ShouldBeUnique` + كابح 6 ساعات
   للفاشل يمنع 96 إعادة صفّ يوميّاً.
-- ✅ **مراحل بلا مُطلِق:** التنفيذ 7 (`markPaid` يمرّ بها)، والمخاطبة 4 (`CorrespondenceFlow::sync`).
+- ✅ **مراحل بلا مُطلِق:** التنفيذ 7 (`markPaid` يمرّ بها).
 - ✅ **التذكرة تعلق عند جدولة الموظف:** `ticket_no` يُمرَّر و`ConsultBooking::create()` يُقدّم الحالة.
 - ✅ **تضارب البذور:** `DatabaseSeeder` صار متكرّر الاستدعاء بأربعة حسابات (القسم 17)؛ السيدرات
   المذكورة سابقاً (`StaffSeeder`/`TicketSeeder`/…) **لم تعد موجودة**.
@@ -980,6 +969,69 @@ node scripts/ui-inventory.mjs diff before.json after.json allow.json   # «نا�
 - **قياس:** متوسّط زمن الإسناد · عدد المُصعَّد أسبوعيّاً · أقدم تذكرة منتظِرة — بدونها لا يُعرف إن كانت
   الساعتان مهلةً مناسبة.
 - **الإشعارات بعد اكتمال الحفظ** (البند البنيويّ نفسه في 18.6): إشعارٌ يسبق نجاح الحفظ يُخبر العميل بما لم يقع.
+
+---
+
+## 20. إزالة تكامل تقويم Google (2026-09-20)
+
+**بقرار المالك أُزيل تكامل تقويم Google من المشروع كاملاً.** ما حُذف:
+
+- `App\Services\GoogleCalendarService` وكلّ ندائه (`syncConsult` · `syncMeeting` ·
+  `deleteConsultEvent` · `deleteMeetingEvent` · `deleteEvent`) من `Staff\MeetingController`
+  و`Support\MeetInvitation` ومستمعي الرحلة الثلاثة.
+- مفاتيح `services.google_calendar` و`GOOGLE_CALENDAR_ID`/`GOOGLE_CALENDAR_CREDENTIALS`
+  (من `config/services.php` و`.env.example` و`phpunit.xml`). لم يعد للمشروع حساب خدمة جوجل
+  ولا ملفّ اعتماد، ولا خطوة إعداد له في النشر.
+- عمود `google_event_id` من `consults` و`meetings` و`appointments` — بمهاجرة
+  `2026_09_20_000003_drop_google_event_id_from_calendared_models` لها `down()` يعيده.
+  المهاجرة الأصليّة `2026_08_27_000002` باقية كما هي (المهاجرات تراكميّة).
+- خاصّيّة `oldGoogleEventId` من حدث `ConsultRescheduled` ومن انتقال `RescheduleConsult`.
+- `IcalendarService::googleUrl()` و`googleSchemaJsonLd()`، ومعها مفتاح `gcal` من كلّ حمولة
+  (التقاويم الثلاثة · `TimelineCard` · `Appointment::toCard`) وزرّ «أضف إلى تقويم جوجل»
+  من الواجهة كلّها.
+
+**ما بقي عمداً:** بقيّة `IcalendarService` — توليد ملفّات `.ics` (`generate`) وتغذية الاشتراك
+الحيّة (`feedForUser`) ومسار `calendar.feed` — معيار مفتوح (RFC 5545) يقرؤه أيّ برنامج تقويم،
+ولا صلة له بجوجل. والتقاويم الداخليّة للأدوار الأربعة تعمل كما هي. وكذلك مفاتيح Gemini
+(نموذج لغة من جوجل، لا تقويم) ومسارات متصفّح Chrome في مُصيِّر الـPDF.
+
+---
+
+## 21. إزالة وحدة «المخاطبات» (2026-09-20)
+
+**بقرار المالك أُزيلت وحدة المخاطبات الرسميّة من المشروع كاملاً** — لا كوداً ولا واجهةً ولا
+مساراً ولا صلاحيّةً ولا جدولاً ولا اختباراً. ما حُذف:
+
+- الصفوف: `App\Models\Correspondence` · `CorrespondenceController` · `Support\CorrespondenceFlow`
+  · `Support\CorrFlow` · `Events\CorrStatusBroadcast` · `Services\ExternalSystemService`
+  (محوّل «النظام الخارجيّ» لم يكن له مستهلكٌ سواها).
+- المسارات الـ21 (`/correspondences/*` للمحامي والإدارة، و`/mycorr` و`request-brief`
+  و`brief.pdf` و`letter.pdf` للعميل)، وقناة البثّ `corr.{id}` من `routes/channels.php`.
+- الواجهة: `pages/correspondence(s).tsx` · `pages/mycorr.tsx` · `lib/corr-ui.ts`، وبنودها من
+  `lib/data.ts` (التنقّل والعناوين وخريطة المسارات) وتبويب المخاطبات في لوحة المحامي وبطاقة
+  «المخاطبات المرتبطة بالملفّ» في `execflow.tsx`. وملفّات Wayfinder المولَّدة أُعيد توليدها
+  بـ`php artisan wayfinder:generate` (لا تُحرَّر يدويّاً).
+- زرّ «طلب مخاطبة» في ملفّ التنفيذ مع `ExecService::requestCorr` وإجراء `requestCorr` في
+  `ExecFlowController::act` وعلاقة `Execution::correspondences()` وحمولة `linkedCorr`.
+  **ولم تُمسّ مصفوفات مراحل التنفيذ:** المخاطبة لم تكن مرحلةً مرقّمة بل إجراءً مفتوحاً على
+  الملفّ العامل (7‑8)، فلم يُزَح ترقيمُ شيء.
+- صلاحيّة «المخاطبات» من `Support\Permissions` (المجموعات و`ROLE_PERMISSIONS` والقوالب —
+  صارت 27 صلاحيّة)، ومن القاعدة بمهاجرة `2026_09_20_000002_drop_correspondence_permission`
+  (spatie تخزّن الإسناد، و`PermissionSeeder` يُنشئ ولا يحذف).
+- الجدول `correspondences` بمهاجرة `2026_09_20_000001_drop_correspondences_table` لها `down()`
+  يعيد بناءه. المهاجرة الأصليّة `2026_07_31_000001` باقية كما هي (المهاجرات تراكميّة).
+- مفاتيح `services.external_corr` و`EXTCORR_*` من `config/services.php` و`.env.example`،
+  وبادئة `MKH` من توثيق `Support\ReferenceNumber`، وبذرة المخاطبات الستّ من `RichDemoSeeder`.
+- الاختبارات: `CorrespondenceTest` كاملاً، وشقّ «إثبات الإرسال» من
+  `ResultAndDispatchHonestyTest`، وقسم «ردّ الجهة الحكوميّة» من `AiClaimHonestyTest`، وحالاتٌ
+  مفردة من `StageIntegrityTest` و`ReferenceNumberTest` و`AdminProductGapsTest`
+  و`EmployeeParityTest` و`EmployeeSeesEverythingTest` و`ExecFlowFixesTest`.
+- نصّ التسويق المعلِن لميزةٍ لم تعد موجودة: بطاقة «مخاطباتي» و«المخاطبات الرسمية» من
+  `components/landing/content.ts` و`pages/auth/login.tsx`.
+
+**ما بقي عمداً:** الخدمة القانونيّة **«مخاطبة الجهات الحكومية»** في
+`database/data/legal_catalogue.php` — خدمةٌ يبيعها المكتب في كتالوج الخدمات، لا علاقة لها
+بالوحدة البرمجيّة المحذوفة.
 
 ---
 ---

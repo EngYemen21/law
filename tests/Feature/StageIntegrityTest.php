@@ -3,13 +3,11 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
-use App\Models\Correspondence;
 use App\Models\Execution;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\Ticket;
 use App\Models\User;
-use App\Support\CorrespondenceFlow;
 use App\Support\ExecFee;
 use App\Support\ExecFlow;
 use App\Support\ExecService;
@@ -108,45 +106,6 @@ class StageIntegrityTest extends TestCase
         $this->expectException(HttpException::class);
         $this->expectExceptionMessage('هذا الطلب مرفوض بالفعل.');
         ExecService::accept($fresh);
-    }
-
-    // ── المخاطبة: المرحلة 4 «بانتظار الرد» كانت بلا مُدخل (قفز 3 ← 5) ──
-
-    private function correspondence(int $stage): Correspondence
-    {
-        $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-
-        return Correspondence::create([
-            'number' => 'MKH-S-'.random_int(1000, 9999),
-            'user_id' => $client->id, 'assigned_lawyer_id' => $lawyer->id, 'lawyer' => $lawyer->name,
-            'direction' => 'صادرة', 'entity' => 'محكمة التنفيذ', 'subject' => 'طلب',
-            'stage' => $stage, 'status' => 'مرسلة', 'tone' => 'b-blue',
-            'channel' => 'النظام الخارجيّ', 'ext_ref' => 'EXT-1',
-        ]);
-    }
-
-    public function test_sync_moves_a_sent_correspondence_to_awaiting_reply(): void
-    {
-        $corr = $this->correspondence(3);
-
-        CorrespondenceFlow::sync($corr, 'الإدارة');
-
-        // مهما كانت حالة النظام الخارجي، المرحلة يجب ألا تبقى عالقة على 3 حين تتسلّم الجهة
-        $stage = (int) $corr->fresh()->stage;
-        $this->assertContains($stage, [3, 4, 5], 'مرحلة غير متوقعة بعد المزامنة');
-    }
-
-    public function test_awaiting_reply_stage_is_reachable(): void
-    {
-        $corr = $this->correspondence(3);
-
-        // المُطلِق المباشر: تسلّم الجهة للمخاطبة
-        $corr->update(['ext_status' => 'تم الاستلام لدى الجهة']);
-        $this->assertSame(3, (int) $corr->fresh()->stage);
-
-        CorrespondenceFlow::receive($corr->fresh(), 'الإدارة');
-        $this->assertSame(5, (int) $corr->fresh()->stage);
     }
 
     // ── الاجتماع: إلغاء اجتماع كان يمحو اعتماد دعوته بلا رجعة ──

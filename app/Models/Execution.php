@@ -7,7 +7,6 @@ use App\Enums\Role;
 use App\Models\Concerns\ClipsPreviewText;
 use App\Models\Concerns\PurgesDocumentFiles;
 use App\Support\ConversationFiles;
-use App\Support\CorrFlow;
 use App\Support\ExecFlow;
 use App\Support\LawyerName;
 use Illuminate\Database\Eloquent\Model;
@@ -110,12 +109,6 @@ class Execution extends Model
     {
         // الأحدث أوّلاً — بخلاف الإجراءات (خطّ زمنيّ) ودفعات التقسيط (بترتيب الخطّة)
         return $this->hasMany(ExecutionDocument::class)->orderByDesc('id');
-    }
-
-    // المخاطبات الرسميّة المرتبطة بملفّ التنفيذ
-    public function correspondences(): HasMany
-    {
-        return $this->hasMany(Correspondence::class)->latest('id');
     }
 
     // فواتير أتعاب التنفيذ (المفتاح exec_id) — لدفع العرض عبر ميسّر
@@ -248,13 +241,6 @@ class Execution extends Model
             ])->values()->all(),
             'najiz' => $this->najizCard(),
             'closed' => $this->isClosed(),
-            'linkedCorr' => $this->relationLoaded('correspondences')
-                ? $this->correspondences->map(fn (Correspondence $c) => [
-                    'id' => $c->number,
-                    'entity' => $c->entity,
-                    'stageLabel' => CorrFlow::label((int) $c->stage).($c->reply_body ? ' · ورد الرد' : ''),
-                ])->values()->all()
-                : [],
         ];
     }
 

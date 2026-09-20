@@ -586,29 +586,6 @@ class ExecService
         Live::push(new ExecStatusBroadcast($exec));
     }
 
-    public static function requestCorr(Execution $exec, ?User $actor = null): void
-    {
-        self::guard($exec, [7, 8], 'يلزم فتح ملف التنفيذ أولاً.');
-        abort_if($exec->assigned_lawyer_id === null, 422, 'يلزم إسناد محامٍ للملف قبل طلب مخاطبة.');
-
-        // إنشاء مخاطبة رسميّة حقيقيّة مرتبطة بملفّ التنفيذ (تُتابَع في وحدة المخاطبات)
-        $client = $exec->user;
-        $lawyer = $exec->assignedLawyer;
-        if ($client) {
-            $no = $exec->exec_no ?: $exec->number;
-            CorrespondenceFlow::create($lawyer, $client, [
-                'entity' => 'محكمة التنفيذ',
-                'subject' => 'مخاطبة بخصوص ملفّ التنفيذ '.$no.' — '.$exec->subject,
-                'body' => 'بالإشارة إلى ملفّ التنفيذ رقم '.$no.'، نطلب من الجهة اتّخاذ اللازم بخصوص: '.$exec->subject.'.',
-                'execution_id' => $exec->id,
-            ]);
-        }
-
-        $exec->procedures()->create(['title' => 'إنشاء مخاطبة رسميّة لمحكمة التنفيذ مرتبطة بالملفّ', 'type' => 'إجراء', 'detail' => '', 'status' => 'منفّذ']);
-        self::officeMsg($exec, $actor, 'مخاطبة', 'أُنشئت مخاطبة رسميّة لمحكمة التنفيذ مرتبطة بالملف.');
-        $exec->update(['last_action' => 'طلب مخاطبة محكمة التنفيذ']);
-    }
-
     /**
      * **إنهاء الملفّ** — بابان لا باب:
      *
@@ -774,7 +751,7 @@ class ExecService
      * @param  array<int>  $allowed
      *
      * يستخدم المرحلة الفعّالة: التنفيذات القديمة (stage=null) تُعامَل كملفّات مفتوحة (8) أو مغلقة (9)
-     * وفق حالتها، فتقبل إجراءات ما بعد فتح الملف (إجراء/مخاطبة/إغلاق) دون أن تلتبس بالمراحل المبكّرة.
+     * وفق حالتها، فتقبل إجراءات ما بعد فتح الملف (إجراء/إغلاق) دون أن تلتبس بالمراحل المبكّرة.
      */
     private static function guard(Execution $exec, array $allowed, string $message): void
     {

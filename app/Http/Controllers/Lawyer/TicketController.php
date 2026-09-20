@@ -22,7 +22,6 @@ use App\Jobs\GenerateTicketSummaryJob;
 use App\Mail\SummaryApprovedMail;
 use App\Models\CaseHearing;
 use App\Models\Consult;
-use App\Models\Correspondence;
 use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\Meeting;
@@ -237,24 +236,7 @@ class TicketController extends Controller
             ->map(fn (Task $t) => $t->toData())
             ->values();
 
-        // 7. المخاطبات الرسمية
-        $correspondences = Correspondence::with('user')
-            ->where('assigned_lawyer_id', $lawyerId)
-            ->latest('id')
-            ->take(6)
-            ->get()
-            ->map(fn (Correspondence $c) => [
-                'id' => $c->id,
-                'refNo' => $c->ref_no,
-                'subject' => $c->subject,
-                'client' => $c->user?->name ?? '—',
-                'type' => $c->type,
-                'status' => $c->status,
-                'tone' => $c->tone,
-                'updatedAgo' => $c->updated_at?->locale('ar')->diffForHumans() ?? 'الآن',
-            ])->values();
-
-        // 8. مركز التنبيهات ورادار الإجراءات الذكي (Smart Lawyer Action Radar)
+        // 7. مركز التنبيهات ورادار الإجراءات الذكي (Smart Lawyer Action Radar)
         $actionAlerts = [];
 
         // أ) جلسة محكمة اليوم أو غداً
@@ -326,7 +308,6 @@ class TicketController extends Controller
             'openTasks' => Task::where('assigned_to', $lawyerId)->where('status', '!=', 'منجزة')->count(),
             'overdueTasks' => $overdueTasksCount,
             'activeExecutions' => $executions->count(),
-            'activeCorrespondences' => $correspondences->count(),
         ];
 
         return Inertia::render('lawyer/dashboard', [
@@ -340,7 +321,6 @@ class TicketController extends Controller
             'todayConsults' => $todayConsults,
             'executions' => $executions,
             'tasks' => $tasks,
-            'correspondences' => $correspondences,
             'actionAlerts' => $actionAlerts,
             // للتوافق مع أي شفرة قديمة تعتمد على أسماء props السابقة
             'pendingSummaries' => $pendingSummariesCount,

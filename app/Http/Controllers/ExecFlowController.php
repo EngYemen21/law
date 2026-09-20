@@ -42,7 +42,7 @@ class ExecFlowController extends Controller
     public function client(Request $request): Response
     {
         // التبويب الموحّد: كل تنفيذات العميل — التدفّق (stage≠null) والقديمة (stage=null، تُعرَض بمرحلة مشتقّة)
-        $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'correspondences', 'invoices'])
+        $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'invoices'])
             ->where('user_id', $request->user()->id)
             ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(false));
 
@@ -53,7 +53,7 @@ class ExecFlowController extends Controller
     {
         // التبويب الموحّد: المسند إليه (تدفّق + قديم) أو غير المسند القابل للالتقاط (تدفّق stage≥2) — عزل المحامي محفوظ
         $uid = $request->user()->id;
-        $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'correspondences', 'invoices'])
+        $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'invoices'])
             ->where(fn ($q) => $q->where('assigned_lawyer_id', $uid)
                 ->orWhere(fn ($p) => $p->whereNull('assigned_lawyer_id')->whereNotNull('stage')->where('stage', '>=', 2)))
             ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(false, true));
@@ -64,7 +64,7 @@ class ExecFlowController extends Controller
     public function admin(): Response
     {
         // التبويب الموحّد: كل التنفيذات (تدفّق + قديمة تُعرَض بمرحلة مشتقّة) — الإدارة ترى الكلّ
-        $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'correspondences', 'invoices'])
+        $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'invoices'])
             ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(false, true));
 
         return Inertia::render('execflow', ['role' => 'admin', 'execs' => $execs, 'lawyers' => self::assignableLawyers()]);
@@ -73,7 +73,7 @@ class ExecFlowController extends Controller
     public function employee(Request $request): Response
     {
         // التبويب الموحّد لموظف الاستقبال: كل ملفّات التنفيذ (تدفّق + قديمة) — بوّابة الاستقبال والإحالة
-        $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'correspondences', 'invoices'])
+        $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'invoices'])
             ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(false, true));
 
         // قائمة الإسناد **لمن يُسند وحده**: موظّفٌ بلا «إجراءات المحكمة والجلسات» لا يفتح
@@ -144,8 +144,8 @@ class ExecFlowController extends Controller
         $adminOnly = ['approveFee', 'setFee'];               // قرار ماليّ — الإدارة وحدها
         $intakeActions = ['refer', 'requestDocs'];            // الاستقبال — الموظف أو المكتب
         $lawyerPickup = ['accept', 'reject', 'saveFee'];     // المحامي (التقاط/عزل)
-        // محامي أو إدارة وحدهما — إغلاق الملفّ وتوثيق الإجراء وطلب المخاطبة تبقى لهما
-        $staffProcActions = ['addProcedure', 'requestCorr', 'close'];
+        // محامي أو إدارة وحدهما — إغلاق الملفّ وتوثيق الإجراء يبقيان لهما
+        $staffProcActions = ['addProcedure', 'close'];
         // خطوات ناجز (الرفع/القيد/الإبلاغ/الإجراءات/التحصيل) — يسجّلها الموظّف أيضاً بصلاحيّتها
         $najizActions = ['fileNajiz', 'registerNajiz', 'notifyDebtor', 'applyMeasures', 'addCollection'];
         // الإسناد — الإدارة وحدها تُعيد، والموظّف المخوَّل يُسند غير المسنَد (تفصيله في حارسه أدناه)
@@ -242,7 +242,6 @@ class ExecFlowController extends Controller
                 $execution,
                 (string) $request->validate(['title' => ['required', 'string', 'max:200']])['title'],
             ),
-            'requestCorr' => ExecService::requestCorr($execution),
             // المحامي يُقاس بقاعدة `ActiveLawyer` نفسها المستعملة في التحويل والاستشارات —
             // فلا يمرّ عميلٌ ولا موظّفٌ ولا محامٍ موقوف كـ`lawyer_id`
             'assignLawyer' => ExecService::assignLawyer(

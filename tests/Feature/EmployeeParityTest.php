@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Models\CaseHearing;
-use App\Models\Correspondence;
 use App\Models\LegalCase;
 use App\Models\Meeting;
 use App\Models\User;
@@ -14,8 +13,7 @@ use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /**
- * تماثل لوحة الموظف مع بقية الأدوار (الدفعة ب): تقويم المكتب، ومستندات القضية،
- * وإفادة المخاطبة كـPDF خادميّ بدل طباعة متصفح مرتجلة.
+ * تماثل لوحة الموظف مع بقية الأدوار (الدفعة ب): تقويم المكتب، ومستندات القضية.
  */
 class EmployeeParityTest extends TestCase
 {
@@ -93,36 +91,5 @@ class EmployeeParityTest extends TestCase
         $this->actingAs($employee)->post(route('employee.cases.attach', $case), [
             'file' => UploadedFile::fake()->create('x.pdf', 10, 'application/pdf'),
         ])->assertStatus(422);
-    }
-
-    // ── إفادة المخاطبة: كانت طباعة متصفح مرتجلة تفشل صامتاً عند حجب المنبثقة ──
-
-    public function test_client_brief_pdf_requires_an_issued_brief(): void
-    {
-        $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $corr = Correspondence::create([
-            'number' => 'MKH-P-1', 'user_id' => $client->id, 'assigned_lawyer_id' => $lawyer->id,
-            'lawyer' => $lawyer->name, 'direction' => 'صادرة', 'entity' => 'محكمة', 'subject' => 'طلب',
-            'stage' => 1, 'status' => 'مسودة', 'tone' => 'b-grey',
-        ]);
-
-        // لا إفادة بعد ⇒ 404 صريح بدل صفحة طباعة فارغة
-        $this->actingAs($client)->get(route('correspondences.brief.pdf', $corr))->assertNotFound();
-    }
-
-    public function test_other_client_cannot_open_brief_pdf(): void
-    {
-        $owner = User::factory()->create(['role' => Role::Client]);
-        $intruder = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $corr = Correspondence::create([
-            'number' => 'MKH-P-2', 'user_id' => $owner->id, 'assigned_lawyer_id' => $lawyer->id,
-            'lawyer' => $lawyer->name, 'direction' => 'صادرة', 'entity' => 'محكمة', 'subject' => 'طلب',
-            'stage' => 1, 'status' => 'مسودة', 'tone' => 'b-grey',
-            'briefed' => true, 'brief_note' => 'تمت المخاطبة وردّت الجهة.',
-        ]);
-
-        $this->actingAs($intruder)->get(route('correspondences.brief.pdf', $corr))->assertForbidden();
     }
 }

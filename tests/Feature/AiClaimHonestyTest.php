@@ -5,22 +5,16 @@ namespace Tests\Feature;
 use App\Enums\AiSource;
 use App\Enums\Role;
 use App\Models\Consult;
-use App\Models\Correspondence;
 use App\Models\Execution;
 use App\Models\Ticket;
 use App\Models\TicketSummary;
 use App\Models\User;
-use App\Services\ExternalSystemService;
 use App\Support\AppointmentCard;
-use App\Support\CorrespondenceFlow;
-use App\Support\CorrFlow;
 use App\Support\ExecService;
 use App\Support\ReportPrint;
 use App\Support\SummaryReport;
 use App\Support\TicketResult;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Http;
-use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 /**
@@ -166,80 +160,6 @@ class AiClaimHonestyTest extends TestCase
         $msgReal = $real->messages()->where('role', 'نواقص')->latest('id')->first()?->body ?? '';
 
         $this->assertStringContainsString('بعد دراسة الطلب ومستنداته', $msgReal, 'والفحص الفعليّ يُقال');
-    }
-
-    // ── ردّ الجهة الحكوميّة ──
-
-    /**
-     * **العطل لا يُنتج موافقةً حكوميّة.**
-     *
-     * كان `reply()` يعيد «تفيدكم {الجهة} بالموافقة على الإجراء المطلوب» عند كل تعذّر،
-     * فيُخزَّن في `reply_body` ويُطبع للعميل بعنوان «ردّ الجهة» في وثيقة رسميّة.
-     */
-    public function test_a_failed_lookup_never_fabricates_a_government_approval(): void
-    {
-        config([
-            'services.external_corr.base_url' => 'https://ext.example.test',
-            'services.external_corr.api_key' => 'k',
-        ]);
-        Http::fake(['ext.example.test/*' => Http::response([], 500)]);
-
-        $client = User::factory()->create(['role' => Role::Client]);
-        $corr = Correspondence::create([
-            'user_id' => $client->id, 'number' => 'CORR-FAIL-'.uniqid(),
-            'subject' => 'طلب إفراغ', 'entity' => 'محكمة التنفيذ', 'body' => 'نصّ.',
-            'status' => 'مرسلة', 'stage' => 3, 'ext_ref' => 'EXT-9',
-        ]);
-
-        // العطل يعيد `null` ولا يُنتج نصّاً — نظير `send` تماماً
-        $this->assertNull(app(ExternalSystemService::class)->reply($corr));
-
-        // ولا تُسجَّل واقعة الاستلام على لا شيء
-        $this->expectException(HttpException::class);
-        CorrespondenceFlow::receive($corr->fresh(), 'المحامي');
-    }
-
-    /** وتعثّر الاستعلام لا يُقدّم مرحلة الملفّ — انقطاعُ الشبكة ليس تقدّماً. */
-    public function test_a_failed_status_lookup_does_not_advance_the_stage(): void
-    {
-        config([
-            'services.external_corr.base_url' => 'https://ext.example.test',
-            'services.external_corr.api_key' => 'k',
-        ]);
-        Http::fake(['ext.example.test/*' => Http::response([], 500)]);
-
-        $client = User::factory()->create(['role' => Role::Client]);
-        $corr = Correspondence::create([
-            'user_id' => $client->id, 'number' => 'CORR-ST-'.uniqid(),
-            'subject' => 'طلب', 'entity' => 'محكمة التنفيذ', 'body' => 'نصّ.',
-            'status' => 'مرسلة', 'stage' => 3, 'ext_ref' => 'EXT-9',
-            'ext_status' => CorrFlow::EXT_STAGES[0],
-        ]);
-
-        $this->assertSame(
-            CorrFlow::EXT_STAGES[0],
-            app(ExternalSystemService::class)->status($corr),
-            'الحالة تبقى كما هي حتى تُجيب الجهة'
-        );
-    }
-
-    /** والمحاكاة تُعلن نفسها في النصّ — نظير وسم «محاكاة» في المرجع. */
-    public function test_the_simulated_reply_announces_itself(): void
-    {
-        config(['services.external_corr.base_url' => '', 'services.external_corr.api_key' => '']);
-
-        $client = User::factory()->create(['role' => Role::Client]);
-        $corr = Correspondence::create([
-            'user_id' => $client->id, 'number' => 'CORR-SIM-'.uniqid(),
-            'subject' => 'طلب إفراغ', 'entity' => 'محكمة التنفيذ', 'body' => 'نصّ المخاطبة.',
-            'status' => 'مرسلة', 'stage' => 3,
-        ]);
-
-        $reply = app(ExternalSystemService::class)->reply($corr);
-
-        $this->assertNotNull($reply);
-        $this->assertStringContainsString(ExternalSystemService::SIMULATED_PREFIX, (string) $reply);
-        $this->assertStringNotContainsString('الموافقة', (string) $reply);
     }
 
     // ── بطاقة الموعد ──

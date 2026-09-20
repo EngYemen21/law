@@ -36,7 +36,7 @@ git rev-list --count origin/main..HEAD           # يجب أن يكون 0
 
 1. **كل موظف يرى كل شيء** — التذاكر والقضايا والتنفيذ والاجتماعات والاستشارات والتسجيلات، بلا حصر (أُزيل كيان «الفرع»).
 2. **كل موظف نشط يصله إشعار داخليّ وبريد عند فتح أيّ تذكرة** ([TicketController.php:131](app/Http/Controllers/TicketController.php:131)) — حجم بريد ملموس في مكتب كثير التذاكر.
-3. **المحامي معزول بإسناده** — لا يرى مخاطبات زملائه ولا السجلات غير المسنَدة إليه.
+3. **المحامي معزول بإسناده** — لا يرى السجلات غير المسنَدة إليه.
 4. **التنفيذ المُنشأ من قضية يبدأ بالمرحلة 8 عمداً** — قرار عمل قائم، ليس عطلاً.
 
 ---
@@ -215,12 +215,6 @@ PDF_TIMEOUT=20
 # عند فشل اكتشاف المسارات على السيرفر (راجع `php artisan pdf:diagnose`):
 # NODE_BINARY=/usr/bin/node
 # CHROME_PATH=/root/.cache/puppeteer/chrome/linux-*/chrome-linux64/chrome
-
-# النظام الخارجيّ للمخاطبات — بلا BASE_URL تبقى المخاطبات داخليّة بلا مزامنة
-EXTCORR_BASE_URL=
-EXTCORR_API_KEY=
-EXTCORR_AUTH_TYPE=Bearer
-EXTCORR_REF_PREFIX=EXT
 
 # تصيير الخادم لإنيرشيا — معطّل عمداً (لا عمليّة SSR دائمة في هذا النشر)
 INERTIA_SSR_ENABLED=false

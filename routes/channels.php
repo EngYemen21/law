@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\Consult;
-use App\Models\Correspondence;
 use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\Meeting;
@@ -66,11 +65,4 @@ Broadcast::channel('meeting.{meetingId}', function (User $user, int $meetingId) 
     $meeting = Meeting::find($meetingId);
 
     return $meeting ? ChannelAccess::ownerOrStaff($user, $meeting) : false;
-});
-
-// قناة المخاطبة — العميل صاحبها أو موظف مخوّل (تقدّم الرحلة والإفادة)
-Broadcast::channel('corr.{corrId}', function (User $user, int $corrId) {
-    $corr = Correspondence::find($corrId);
-
-    return $corr ? ChannelAccess::ownerOrStaff($user, $corr) : false;
 });

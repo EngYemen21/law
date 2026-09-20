@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\Consult;
-use App\Models\Correspondence;
 use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\LegalCase;
@@ -94,19 +93,6 @@ class ReferenceNumberTest extends TestCase
         }
 
         $this->assertCount(40, array_unique($seen));
-    }
-
-    public function test_correspondence_number_never_collides(): void
-    {
-        $client = User::factory()->create();
-        $this->reserve('correspondences', 'number', 'MKH', [
-            'user_id' => $client->id, 'subject' => 'مخاطبة', 'entity' => 'جهة',
-        ]);
-
-        $number = ReferenceNumber::next(Correspondence::class, 'number', 'MKH');
-
-        $this->assertFalse(Correspondence::where('number', $number)->exists());
-        $this->assertStringStartsWith('MKH-', $number);
     }
 
     public function test_consult_ref_never_collides(): void

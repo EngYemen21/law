@@ -10,7 +10,7 @@
 export interface Ticket { no: string; type: string; dept: string; status: string; tone: string; last: string; date: string; }
 export interface Case { no: string; type: string; status: string; tone: string; update: string; }
 export interface Exec { no: string; subject: string; status: string; tone: string; last: string; }
-export interface Appt { id: string; type: string; ico: string; lawyer: string; day: string; time: string; place: string; status: string; tone: string; when: 'up' | 'past'; client?: string; consultRef?: string; pay?: string; gcal?: string; joinLink?: string; }
+export interface Appt { id: string; type: string; ico: string; lawyer: string; day: string; time: string; place: string; status: string; tone: string; when: 'up' | 'past'; client?: string; consultRef?: string; pay?: string; joinLink?: string; }
 export interface Meeting { id?: number; ref: string; title: string; when: string; up: boolean; status?: string; tone?: string; canJoin?: boolean; approved?: boolean; link: string; minutes: string | null; summary: string | null; }
 export interface DocItem { id?: number; name: string; meta: string; canDownload?: boolean; downloadUrl?: string; }
 export interface Invoice {
@@ -104,7 +104,6 @@ export const NAV: NavGroup[] = [
     { icon: 'folder', label: 'متابعة التذاكر', view: 'tickets' },
     { icon: 'scale', label: 'القضايا النشطة', view: 'cases' },
     { icon: 'exec', label: 'التنفيذ', view: 'execs' },
-    { icon: 'office', label: 'مخاطباتي', view: 'mycorr' },
   ] },
   { g: 'الاستشارات', items: [
     { icon: 'calplus', label: 'حجز استشارة', view: 'book' },
@@ -145,7 +144,6 @@ export const TITLES: Record<string, [string, string]> = {
   tickets: ['متابعة التذاكر', 'طلباتي'],
   cases: ['القضايا النشطة', 'طلباتي'],
   execs: ['التنفيذ', 'طلباتي'],
-  mycorr: ['مخاطباتي', 'طلباتي'],
   book: ['حجز استشارة', 'الاستشارات'],
   // appts: طُوي في calendar (التبويب الزمني الموحّد) — يُعلَّق لا يُحذف كي يعرف
   // من يصادف مرجعاً قديماً لـview: 'appts' أين ذهب.
@@ -168,7 +166,6 @@ export const VIEW_ROUTE: Record<string, string> = {
   tickets: '/tickets',
   cases: '/cases',
   execs: '/execs',
-  mycorr: '/mycorr',
   book: '/book',
   myconsults: '/myconsults',
   // appts: '/appointments',  ← طُوي في calendar؛ المسار نفسه ما زال حيّاً ويُحوّل إليه
@@ -278,7 +275,6 @@ const LAWYER_NAV: SideGroup[] = [
     { icon: 'folder', label: 'التذاكر', route: '/lawyer/tickets' },
     { icon: 'scale', label: 'قضاياي', route: '/lawyer/cases' },
     { icon: 'exec', label: 'التنفيذ', route: '/lawyer/execs' },
-    { icon: 'office', label: 'المخاطبات', route: '/lawyer/correspondences' },
     { icon: 'video', label: 'الاجتماعات', route: '/lawyer/meetings' },
     { icon: 'video', label: 'طلبات الاجتماعات', route: '/lawyer/meetreqs' },
     { icon: 'calgrid', label: 'التقويم والمواعيد', route: '/lawyer/calendar' },
@@ -308,7 +304,6 @@ const ADMIN_NAV: SideGroup[] = [
     { icon: 'folder', label: 'التذاكر', route: '/admin/tickets' },
     { icon: 'scale', label: 'كل القضايا', route: '/admin/cases' },
     { icon: 'exec', label: 'التنفيذ', route: '/admin/execs' },
-    { icon: 'office', label: 'المخاطبات', route: '/admin/correspondences' },
     { icon: 'scale', label: 'المحامون', route: '/admin/lawyers' },
   ] },
   { g: 'الاستشارات', items: [
@@ -404,7 +399,6 @@ const LAWYER_TITLES: Record<string, [string, string]> = {
   '/lawyer/tickets': ['التذاكر', 'لوحة المحامي'],
   '/lawyer/cases': ['قضاياي', 'لوحة المحامي'],
   '/lawyer/execs': ['التنفيذ', 'لوحة المحامي'],
-  '/lawyer/correspondences': ['المخاطبات', 'لوحة المحامي'],
   '/lawyer/meetings': ['الاجتماعات', 'لوحة المحامي'],
   '/lawyer/meetreqs': ['طلبات الاجتماعات', 'لوحة المحامي'],
   '/lawyer/calendar': ['التقويم والمواعيد', 'لوحة المحامي'],
@@ -442,7 +436,6 @@ const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/casefees': ['أتعاب القضايا', 'الإدارة العليا'],
   '/admin/cases': ['كل القضايا', 'لوحة الإدارة'],
   '/admin/execs': ['التنفيذ', 'لوحة الإدارة'],
-  '/admin/correspondences': ['المخاطبات', 'لوحة الإدارة'],
   '/admin/tasks': ['مهام العمل', 'الإدارة العليا'],
   '/admin/meetmgmt': ['إدارة الاجتماعات', 'الإدارة العليا'],
   '/admin/meetreqs': ['طلبات الاجتماعات', 'لوحة الإدارة'],

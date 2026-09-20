@@ -27,7 +27,6 @@ use App\Http\Controllers\CaseController;
 use App\Http\Controllers\ConsultBookingController;
 use App\Http\Controllers\ConsultController;
 use App\Http\Controllers\ConversationFileController;
-use App\Http\Controllers\CorrespondenceController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\Employee\CalendarController as EmployeeCalendarController;
@@ -108,8 +107,6 @@ Route::middleware(['auth', 'active'])->group(function () {
         ->whereIn('type', array_keys(ConversationFiles::TYPES))->whereNumber('id')->name('files.download');
     Route::get('/exec-flow/{execution}/offer.pdf', [ExecFlowController::class, 'offerPdf'])->name('exec-flow.offer.pdf');
     // تقرير/ملخص الاستشارة — متاح للعميل صاحبها ولأدوار المكتب (الحارس داخل ConsultController::report)
-    // طباعة نصّ المخاطبة PDF (الحارس داخل letterPdf: المالك/الطاقم/المحامي المسند)
-    Route::get('/correspondences/{correspondence}/letter.pdf', [CorrespondenceController::class, 'letterPdf'])->name('correspondences.letter.pdf');
     Route::get('/consults/{consult}/report.pdf', [ConsultController::class, 'report'])->name('consults.report');
     Route::get('/consults/{consult}/report', [ConsultController::class, 'report'])->name('consults.report.plain');
 });
@@ -167,12 +164,6 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
     Route::post('/consults/{consult}/reschedule-request', [ConsultController::class, 'rescheduleRequest'])->name('consults.reschedule-request');
     Route::post('/meetings/{meeting}/change-request', [MeetingController::class, 'changeRequest'])->name('meetings.change-request');
     Route::get('/calendar', [CalendarController::class, 'index'])->name('calendar');
-    // مخاطباتي — رحلة المخاطبة المبسّطة + طلب إفادة رسميّة
-    Route::get('/mycorr', [CorrespondenceController::class, 'mine'])->name('mycorr');
-    Route::post('/correspondences/{correspondence}/request-brief', [CorrespondenceController::class, 'requestBrief'])->name('correspondences.request-brief');
-    // إفادة العميل PDF — رسمية ومُصيَّرة خادمياً (بدل طباعة متصفح مرتجلة تفشل صامتاً)
-    Route::get('/correspondences/{correspondence}/brief.pdf', [CorrespondenceController::class, 'briefPdf'])->name('correspondences.brief.pdf');
-
     // الملفات والمالية (مربوطة بقاعدة البيانات)
     Route::get('/documents', [DocumentController::class, 'index'])->name('documents');
     Route::post('/documents', [DocumentController::class, 'store'])->name('documents.store');
@@ -487,18 +478,6 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::post('/editor/ai-assist', [LawyerDocumentEditorController::class, 'aiAssist'])->name('editor.ai-assist');
     });
 
-    // المخاطبات الرسميّة (المحامي بمخاطباته المسندة)
-    Route::middleware('permission:المخاطبات')->group(function () {
-        Route::get('/correspondences', [CorrespondenceController::class, 'index'])->name('correspondences');
-        Route::post('/correspondences', [CorrespondenceController::class, 'store'])->name('correspondences.store');
-        Route::get('/correspondences/{correspondence}', [CorrespondenceController::class, 'show'])->name('correspondences.show');
-        Route::post('/correspondences/{correspondence}/advance', [CorrespondenceController::class, 'advance'])->name('correspondences.advance');
-        Route::post('/correspondences/{correspondence}/sync', [CorrespondenceController::class, 'sync'])->name('correspondences.sync');
-        Route::post('/correspondences/{correspondence}/receive', [CorrespondenceController::class, 'receive'])->name('correspondences.receive');
-        Route::post('/correspondences/{correspondence}/brief', [CorrespondenceController::class, 'brief'])->name('correspondences.brief');
-        Route::post('/correspondences/{correspondence}/close', [CorrespondenceController::class, 'close'])->name('correspondences.close');
-    });
-
     // استقبال الاستشارات + رحلة الاستشارة + الغرفة — استقبال الاستشارات (والغرفة تحتاج إجراء الجلسات)
     Route::middleware('permission:استقبال الاستشارات')->group(function () {
         Route::get('/consults', [StaffConsultController::class, 'index'])->name('consults');
@@ -569,15 +548,6 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/tickets/{ticket}/track/approve', [AdminTicketController::class, 'approveTrack'])->name('tickets.track.approve');
     Route::get('/lawyers', [AdminLawyerController::class, 'index'])->name('lawyers');
     Route::post('/lawyers/{user}/mode', [AdminLawyerController::class, 'toggleMode'])->name('lawyers.mode');
-    // المخاطبات الرسميّة (الإدارة ترى الكلّ + الاعتماد/الإرسال/الإغلاق)
-    Route::get('/correspondences', [CorrespondenceController::class, 'index'])->name('correspondences');
-    Route::post('/correspondences', [CorrespondenceController::class, 'store'])->name('correspondences.store');
-    Route::get('/correspondences/{correspondence}', [CorrespondenceController::class, 'show'])->name('correspondences.show');
-    Route::post('/correspondences/{correspondence}/advance', [CorrespondenceController::class, 'advance'])->name('correspondences.advance');
-    Route::post('/correspondences/{correspondence}/sync', [CorrespondenceController::class, 'sync'])->name('correspondences.sync');
-    Route::post('/correspondences/{correspondence}/receive', [CorrespondenceController::class, 'receive'])->name('correspondences.receive');
-    Route::post('/correspondences/{correspondence}/brief', [CorrespondenceController::class, 'brief'])->name('correspondences.brief');
-    Route::post('/correspondences/{correspondence}/close', [CorrespondenceController::class, 'close'])->name('correspondences.close');
     // رحلة الاستشارة — مربوطة بقاعدة البيانات (+ صلاحيات الإدارة: الأولوية)
     Route::get('/consults', [StaffConsultController::class, 'index'])->name('consults');
     Route::get('/consult-requests', [StaffConsultController::class, 'requests'])->name('consult-requests')->middleware('permission:إدارة المواعيد والحجوزات');

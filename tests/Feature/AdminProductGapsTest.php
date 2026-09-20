@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
-use App\Models\Correspondence;
 use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Task;
@@ -16,7 +15,7 @@ use Tests\TestCase;
 
 /**
  * قرارات المنتج المعلّقة من فحص الأزرار (نُفّذت 2026-08-26):
- * إغلاق/إعادة إسناد مهام الإدارة · رفض إثبات التحويل · تصدير التقارير · PDF المخاطبة.
+ * إغلاق/إعادة إسناد مهام الإدارة · رفض إثبات التحويل · تصدير التقارير.
  */
 class AdminProductGapsTest extends TestCase
 {
@@ -113,35 +112,5 @@ class AdminProductGapsTest extends TestCase
             $this->assertSame('application/pdf', $res->headers->get('Content-Type'), $route);
             $this->assertStringStartsWith('%PDF', $res->getContent(), $route);
         }
-    }
-
-    /** طباعة نصّ المخاطبة PDF خادمياً — بدل نافذة المتصفح التي تفشل صامتاً عند حجب المنبثقات. */
-    public function test_correspondence_letter_pdf_downloads(): void
-    {
-        $admin = $this->admin();
-        $client = User::factory()->create(['role' => Role::Client]);
-        $corr = Correspondence::create([
-            'number' => 'MKH-PG-1', 'user_id' => $client->id, 'direction' => 'صادرة',
-            'entity' => 'المحكمة التجارية', 'subject' => 'طلب صورة ضبط',
-            'body' => 'نصّ المخاطبة الرسمية كاملاً.', 'stage' => 3, 'status' => 'مرسلة', 'tone' => 'b-blue',
-        ]);
-
-        $res = $this->actingAs($admin)->get(route('correspondences.letter.pdf', $corr));
-
-        $res->assertOk();
-        $this->assertStringStartsWith('%PDF', $res->getContent());
-    }
-
-    /** غير المخوَّل لا يطبع مخاطبة غيره. */
-    public function test_foreign_client_cannot_print_others_letter(): void
-    {
-        $client = User::factory()->create(['role' => Role::Client]);
-        $intruder = User::factory()->create(['role' => Role::Client]);
-        $corr = Correspondence::create([
-            'number' => 'MKH-PG-2', 'user_id' => $client->id, 'direction' => 'صادرة',
-            'entity' => 'جهة', 'subject' => 'موضوع', 'stage' => 1, 'status' => 'قيد الإعداد', 'tone' => 'b-amber',
-        ]);
-
-        $this->actingAs($intruder)->get(route('correspondences.letter.pdf', $corr))->assertForbidden();
     }
 }

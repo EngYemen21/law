@@ -109,17 +109,6 @@ export interface LawyerTaskItem {
   tone: string;
 }
 
-export interface LawyerCorrespondenceItem {
-  id: number;
-  refNo?: string;
-  subject: string;
-  client: string;
-  type: string;
-  status: string;
-  tone: string;
-  updatedAgo?: string;
-}
-
 export interface ActionAlert {
   id: string;
   type: string;
@@ -140,7 +129,6 @@ export interface StatsData {
   openTasks: number;
   overdueTasks: number;
   activeExecutions: number;
-  activeCorrespondences: number;
 }
 
 interface Props {
@@ -154,7 +142,6 @@ interface Props {
   todayConsults?: LawyerConsultItem[];
   executions?: LawyerExecItem[];
   tasks?: LawyerTaskItem[];
-  correspondences?: LawyerCorrespondenceItem[];
   actionAlerts?: ActionAlert[];
   // للتوافق التراجعي
   pendingSummaries?: number;
@@ -174,7 +161,6 @@ const LawyerDashboard: React.FC<Props> = ({
   todayConsults = [],
   executions = [],
   tasks = [],
-  correspondences = [],
   actionAlerts = [],
   pendingSummaries: legacyPendingSummaries,
   // openMeetings: legacyOpenMeetings,   ← مع finalOpenMeetings المعلّق
@@ -185,7 +171,7 @@ const LawyerDashboard: React.FC<Props> = ({
   const toast = useToast();
 
   // الحالة للتبويب النشط والبحث
-  const [activeTab, setActiveTab] = useState<'tickets' | 'cases' | 'hearings' | 'consults' | 'executions' | 'tasks' | 'correspondences'>('tickets');
+  const [activeTab, setActiveTab] = useState<'tickets' | 'cases' | 'hearings' | 'consults' | 'executions' | 'tasks'>('tickets');
   const [searchQuery, setSearchQuery] = useState('');
 
   // نافذة إضافة مهمة سريعة
@@ -323,22 +309,6 @@ return tasks;
     );
   }, [tasks, searchQuery]);
 
-  const filteredCorrespondences = useMemo(() => {
-    if (!searchQuery.trim()) {
-return correspondences;
-}
-
-    const q = foldSearch(searchQuery);
-
-    return correspondences.filter(
-      (c) =>
-        (c.refNo && foldSearch(c.refNo).includes(q)) ||
-        foldSearch(c.client).includes(q) ||
-        foldSearch(c.subject).includes(q) ||
-        foldSearch(c.type).includes(q)
-    );
-  }, [correspondences, searchQuery]);
-
   // إضافة مهمة سريعة
   const handleCreateTask = () => {
     if (!taskTitle.trim()) {
@@ -447,11 +417,6 @@ return correspondences;
           {can('استقبال الاستشارات') && (
             <button className="hero-b ghost" onClick={openConsults} type="button">
               <Icon name="compass" /> جلسات الاستشارات
-            </button>
-          )}
-          {can('المخاطبات') && (
-            <button className="hero-b ghost" onClick={() => router.visit('/lawyer/correspondences')} type="button">
-              <Icon name="office" /> المخاطبات الرسمية
             </button>
           )}
           <button className="hero-b ghost" onClick={openCalendar} type="button">
@@ -599,13 +564,6 @@ setActiveTab('tasks');
                 >
                   <Icon name="check" /> المهام ({tasks.length})
                 </button>
-                <button
-                  className={`btn sm ${activeTab === 'correspondences' ? '' : 'soft'}`}
-                  onClick={() => setActiveTab('correspondences')}
-                  type="button"
-                >
-                  <Icon name="office" /> المخاطبات ({correspondences.length})
-                </button>
               </div>
 
               {/* البحث السريع داخل الجدول النشط */}
@@ -626,12 +584,12 @@ setActiveTab('tasks');
 
             {/* محتوى مساحة العمل حسب التبويب */}
             {/* **البحث السريع يرشّح المعاينة لا القائمة.** الجلسات والاستشارات والتنفيذ والمهامّ
-                والمخاطبات مقصوصةٌ في الخادم (‏`take(6..10)`)، فبحثٌ لا يجد هنا قد يجد في القائمة
+                مقصوصةٌ في الخادم (‏`take(6..10)`)، فبحثٌ لا يجد هنا قد يجد في القائمة
                 الكاملة — ويُقال ذلك صراحةً بدل «لا نتائج» صامتة. */}
             {searchQuery.trim() !== '' && activeTab !== 'tickets' && activeTab !== 'cases' && (
               <div className="action-hint" style={{ margin: '8px 14px 0' }}>
                 <Icon name="info" /> البحث هنا في أحدث العناصر المعروضة فقط.{' '}
-                <a href={({ hearings: '/lawyer/calendar', consults: '/lawyer/consults', executions: '/lawyer/execs', tasks: '/lawyer/tasks', correspondences: '/correspondences' } as Record<string, string>)[activeTab]}>
+                <a href={({ hearings: '/lawyer/calendar', consults: '/lawyer/consults', executions: '/lawyer/execs', tasks: '/lawyer/tasks' } as Record<string, string>)[activeTab]}>
                   ابحث في القائمة الكاملة
                 </a>
               </div>
@@ -998,54 +956,6 @@ setActiveTab('tasks');
                   <div className="empty" style={{ padding: '40px 20px', textAlign: 'center' }}>
                     <Icon name="check" />
                     <b style={{ display: 'block', marginTop: 10 }}>لا توجد مهام حالية</b>
-                  </div>
-                )
-              )}
-
-              {/* تبويب المخاطبات */}
-              {activeTab === 'correspondences' && (
-                filteredCorrespondences.length > 0 ? (
-                  <table className="tbl">
-                    <thead>
-                      <tr>
-                        <th>رقم القيد</th>
-                        <th>الموكل / الجهة</th>
-                        <th>الموضوع</th>
-                        <th>النوع</th>
-                        <th>الحالة</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredCorrespondences.map((c) => (
-                        <tr key={c.id} className="click" onClick={() => router.visit(`/lawyer/correspondences/${c.id}`)}>
-                          <td className="mono" style={{ fontWeight: 800 }}>{c.refNo || `COR-${c.id}`}</td>
-                          <td style={{ fontWeight: 700 }}>{c.client}</td>
-                          <td>{c.subject}</td>
-                          <td className="muted">{c.type}</td>
-                          <td>
-                            <Badge text={c.status} tone={c.tone} />
-                          </td>
-                          <td style={{ textAlign: 'end', paddingInlineEnd: 16 }}>
-                            <button
-                              className="btn soft sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                router.visit(`/lawyer/correspondences/${c.id}`);
-                              }}
-                              type="button"
-                            >
-                              <Icon name="office" /> فتح
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="empty" style={{ padding: '40px 20px', textAlign: 'center' }}>
-                    <Icon name="office" />
-                    <b style={{ display: 'block', marginTop: 10 }}>لا توجد مخاطبات رسمية</b>
                   </div>
                 )
               )}

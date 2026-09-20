@@ -135,26 +135,4 @@ return [
     // ⚠️ يعمل في غير الإنتاج فقط (يُتجاهَل تماماً حين APP_ENV=production). اتركه فارغاً لإيقافه.
     'auth_dev_otp' => env('AUTH_DEV_OTP'),
 
-    // مزامنة تقويم Google (Service Account): بيانات الاعتماد في storage/app/google-credentials.json.
-    // calendar_id = تقويم المكتب المُشارَك مع بريد حساب الخدمة بصلاحية تعديل —
-    // تركه 'primary' يعني تقويم حساب الخدمة نفسه الذي لا يفتحه أي إنسان.
-    'google_calendar' => [
-        'calendar_id' => env('GOOGLE_CALENDAR_ID', 'primary'),
-        // مسار ملف الاعتماد — مضبوط بالبيئة لا ثابتاً في الصنف، كي يُحيَّد المزوّد في الاختبارات
-        // بتفريغه في phpunit.xml مثل بقيّة المزوّدين. الملف مستثنى من git، فبقاؤه ثابتاً كان
-        // يجعل الاختبارات تتصرّف بحسب وجوده على الجهاز: حيّة هنا ومعطّلة على جهاز نظيف.
-        'credentials_path' => env('GOOGLE_CALENDAR_CREDENTIALS', 'storage/app/google-credentials.json'),
-    ],
-
-    // النظام الخارجيّ للمخاطبات الرسميّة (ناجز/تراسل...) — يعمل محاكاةً بلا مفاتيح
-    'external_corr' => [
-        'base_url' => env('EXTCORR_BASE_URL'),
-        'api_key' => env('EXTCORR_API_KEY'),
-        'auth_type' => env('EXTCORR_AUTH_TYPE', 'Bearer'),
-        'ref_prefix' => env('EXTCORR_REF_PREFIX', 'EXT'),
-        'ep_send' => env('EXTCORR_EP_SEND', '/v1/correspondence/send'),
-        'ep_status' => env('EXTCORR_EP_STATUS', '/v1/correspondence/{ref}/status'),
-        'ep_reply' => env('EXTCORR_EP_REPLY', '/v1/correspondence/{ref}/reply'),
-    ],
-
 ];

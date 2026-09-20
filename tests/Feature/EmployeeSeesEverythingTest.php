@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Models\Consult;
-use App\Models\Correspondence;
 use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\Meeting;
@@ -118,14 +117,8 @@ class EmployeeSeesEverythingTest extends TestCase
             'user_id' => $this->client->id, 'number' => 'SB-E', 'type' => 'تجاري',
             'assigned_lawyer_id' => $this->lawyer->id, 'status' => 'بانتظار اعتماد المستشار', 'tone' => 'b-amber',
         ]);
-        $corr = Correspondence::create([
-            'number' => 'MKH-9100', 'user_id' => $this->client->id, 'assigned_lawyer_id' => $this->lawyer->id,
-            'lawyer' => $this->lawyer->name, 'direction' => 'صادرة', 'entity' => 'محكمة', 'subject' => 'طلب',
-            'stage' => 1, 'status' => 'مسودة', 'tone' => 'b-grey',
-        ]);
 
         $this->actingAs($stranger)->get(route('lawyer.tickets.show', $ticket))->assertForbidden();
-        $this->actingAs($stranger)->get(route('lawyer.correspondences.show', $corr))->assertForbidden();
         $this->assertFalse(ChannelAccess::staffCanSee($stranger, $ticket));
     }
 

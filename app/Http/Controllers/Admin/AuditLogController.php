@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\Consult;
-use App\Models\Correspondence;
 use App\Models\User;
 use App\Support\Paginate;
 use App\Support\SearchText;
@@ -19,7 +18,7 @@ class AuditLogController extends Controller
 {
     public function index(Request $request): Response
     {
-        // إذا كان الجدول جديداً، نملأه بقيود التدقيق الفعلية الموجودة مسبقاً في الاستشارات والمخاطبات
+        // إذا كان الجدول جديداً، نملأه بقيود التدقيق الفعلية الموجودة مسبقاً في الاستشارات
         $this->ensureInitialHistoricalLogs();
 
         $query = AuditLog::query()->with('user')->latest('id');
@@ -186,34 +185,6 @@ class AuditLogController extends Controller
                     'severity' => $sev,
                     'created_at' => $consult->created_at ?? now(),
                     'updated_at' => $consult->created_at ?? now(),
-                ]);
-            }
-        }
-
-        // 2) استيراد سجلات المخاطبات — نفس مبدأ «لا اختلاق»: الدور من القاعدة والحقول المجهولة فارغة
-        $corrs = Correspondence::whereNotNull('audit')->get();
-        foreach ($corrs as $corr) {
-            if (! is_array($corr->audit)) {
-                continue;
-            }
-            foreach ($corr->audit as $entry) {
-                $userName = $entry['by'] ?? 'النظام';
-                $action = $entry['a'] ?? 'تحديث مخاطبة';
-
-                AuditLog::create([
-                    'user_name' => $userName,
-                    'user_role' => $rolesByName[$userName] ?? 'system',
-                    'action' => 'إجراء مخاطبة: '.$action.' (مستورد من سجل المخاطبة)',
-                    'category' => 'قضايا وتنفيذ',
-                    'auditable_type' => Correspondence::class,
-                    'auditable_id' => $corr->id,
-                    'auditable_ref' => $corr->ref,
-                    'description' => "تم توثيق إجراء «{$action}» على المخاطبة {$corr->ref} للجهة {$corr->dept}.",
-                    'ip_address' => null,
-                    'user_agent' => null,
-                    'severity' => 'info',
-                    'created_at' => $corr->created_at ?? now(),
-                    'updated_at' => $corr->created_at ?? now(),
                 ]);
             }
         }

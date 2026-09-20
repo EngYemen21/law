@@ -66,7 +66,6 @@ export interface ExecInvoice {
   /** موضعها من خطّة التقسيط — `null` لفاتورة أتعابٍ عن تحصيل. */
   installmentNo?: number | null;
 }
-export interface LinkedCorr { id: string; entity: string; stageLabel: string }
 
 // مستند مطلوب من العميل (يطابق exDocPanel)
 export interface ExecDoc {
@@ -173,7 +172,6 @@ export interface ExecReq {
   /** خطوات ناجز — تصل بعد فتح الملفّ (المرحلة 7)، وقبلها `null`. */
   najiz?: ExecNajiz | null;
   closed: boolean;
-  linkedCorr: LinkedCorr[];
   /** دراسة التنفيذ — تصل للمكتب وحده؛ `null` قبل جاهزيّتها. */
   study?: ExecStudy | null;
   /** هل يملك الناظر إسناد محامٍ؟ (إدارةٌ دائماً، وموظّفٌ بصلاحيّة «إجراءات المحكمة والجلسات») */

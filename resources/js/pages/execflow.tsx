@@ -47,7 +47,7 @@ return 'مرفوض بعد الدراسة';
 return '';
 }
 
-  // ملفٌّ بلا محامٍ بعد الإحالة عالقٌ فعلاً: التسعير والمخاطبة يردّهما الخادم بلا إسناد.
+  // ملفٌّ بلا محامٍ بعد الإحالة عالقٌ فعلاً: التسعير يردّه الخادم بلا إسناد.
   // يُقال ذلك لمن يملك الإسناد وحده — ومن لا يملكه لا يُؤمَر بما لا يقدر عليه.
   if (r.canAssign && execUnassigned(r) && r.stage >= 2) {
 return 'بانتظار إسناد محامٍ';
@@ -424,8 +424,6 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
           <button className="btn" type="button" onClick={() => {
  act('addProcedure', { title: proc }); setProc(''); 
 }}><Icon name="plus" /> إضافة إجراء</button>
-          {/* المخاطبة تلزمها إسناد محامٍ — الخادم يردّ 422 بدونه، فلا يُعرض الزرّ على ملفٍّ بلا محامٍ */}
-          {r.lawyer && <button className="btn soft" type="button" onClick={() => act('requestCorr')}><Icon name="office" /> طلب مخاطبة</button>}
         </div>
       </>);
     }
@@ -474,8 +472,6 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
           <button className="btn" type="button" onClick={() => {
  act('addProcedure', { title: proc }); setProc(''); 
 }}><Icon name="plus" /> إضافة إجراء</button>
-          {/* المخاطبة تلزمها إسناد محامٍ — الخادم يردّ 422 بدونه، فلا يُعرض الزرّ على ملفٍّ بلا محامٍ */}
-          {r.lawyer && <button className="btn soft" type="button" onClick={() => act('requestCorr')}><Icon name="office" /> طلب مخاطبة</button>}
         </div>
       </>);
     }
@@ -933,7 +929,7 @@ const ExecStudyCard: React.FC<{ r: ExecReq }> = ({ r }) => {
 };
 
 // ── إسناد ملفّ التنفيذ إلى محامٍ (قرار المالك 2026-09-12) ──
-// ملفٌّ بلا محامٍ حالةٌ يصلحها المكتب لا يتعايش معها: الخادم يردّ التسعير والمخاطبة عليه.
+// ملفٌّ بلا محامٍ حالةٌ يصلحها المكتب لا يتعايش معها: الخادم يردّ التسعير عليه.
 // يُعرض لمن يملك `canAssign` وحده (إدارةٌ دائماً، وموظّفٌ بصلاحيّة «إجراءات المحكمة والجلسات»).
 const ExecAssignCard: React.FC<{ r: ExecReq; lawyers: ExecLawyerOpt[]; act: ActFn }> = ({ r, lawyers, act }) => {
   const unassigned = execUnassigned(r);
@@ -946,7 +942,7 @@ const ExecAssignCard: React.FC<{ r: ExecReq; lawyers: ExecLawyerOpt[]; act: ActF
         {unassigned ? <Badge text="ملفّ بلا محامٍ" tone="b-amber" /> : <Badge text={r.lawyer || '—'} tone="b-blue" />}
       </div>
       <div className="card-b" style={{ padding: 16 }}>
-        {unassigned && <div className="mtg-pend" style={{ marginBottom: 8 }}><Icon name="info" /> لا محامي لهذا الملفّ — التسعير والمخاطبة موقوفان حتى يُسنَد.</div>}
+        {unassigned && <div className="mtg-pend" style={{ marginBottom: 8 }}><Icon name="info" /> لا محامي لهذا الملفّ — التسعير موقوفٌ حتى يُسنَد.</div>}
         {lawyers.length ? (
           <div style={{ display: 'flex', gap: 6 }}>
             <select className="input" value={sel} onChange={(e) => setSel(e.target.value)} style={{ flex: 1 }}>
@@ -1134,7 +1130,7 @@ const ExecDetail: React.FC<{ role: Role; r: ExecReq; lawyers: ExecLawyerOpt[]; o
         </div>
       )}
 
-      {/* بطاقة الإجراء المباشر: تظهر فور طلب أي قرار (إحالة، تسعير، اعتماد، مخاطبة) */}
+      {/* بطاقة الإجراء المباشر: تظهر فور طلب أي قرار (إحالة، تسعير، اعتماد) */}
       <ActionCard role={role} r={r} act={act} />
 
       {/* مساحة العمل التنفيذية (Grid ثنائي الأعمدة) */}
@@ -1342,27 +1338,6 @@ const ExecDetail: React.FC<{ role: Role; r: ExecReq; lawyers: ExecLawyerOpt[]; o
 
           {/* الإسناد: للمكتب المصرَّح له وحده، ولا يُعرض على ملفٍّ أُغلق (الخادم يردّ الإجراء عليه) */}
           {role !== 'client' && r.canAssign && !r.closed && <ExecAssignCard r={r} lawyers={lawyers} act={act} />}
-
-          {/* المخاطبات المرتبطة بالملف */}
-          {r.linkedCorr.length > 0 && (
-            <div className="card" style={{ marginBottom: 14 }}>
-              <div className="card-h"><h3>المخاطبات المرتبطة بالملفّ</h3><span className="sub">{r.linkedCorr.length}</span></div>
-              <div className="card-b">
-                {r.linkedCorr.map((lc) => {
-                  const corrBase = role === 'admin' ? '/admin/correspondences' : role === 'lawyer' ? '/lawyer/correspondences' : null;
-
-                  return (
-                    <div className="item" key={lc.id} style={corrBase ? { cursor: 'pointer' } : undefined}
-                      onClick={corrBase ? () => router.visit(`${corrBase}/${encodeURIComponent(lc.id)}`) : undefined}>
-                      <div className="iico"><Icon name="office" /></div>
-                      <div className="imeta"><b>{lc.id} — {lc.entity}</b><span>{lc.stageLabel}</span></div>
-                      {corrBase && <div className="iact"><Icon name="link" /></div>}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
 
           {/* ملخص الأتعاب وطباعة PDF السريعة */}
           {r.feeApproved && (

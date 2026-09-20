@@ -383,7 +383,6 @@ class DashboardController extends Controller
             'case_messages',
             'cases',
             'consults',
-            'correspondences',
             'documents',
             'execution_documents',
             'execution_messages',

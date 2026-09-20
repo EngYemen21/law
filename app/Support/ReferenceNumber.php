@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
  * مولّد الأرقام المرجعية — مصدر واحد بحلقة إعادة محاولة لكل كيانات المنظومة.
  *
  * لماذا: ستّة مواضع كانت تولّد `PREFIX-YYYY-` + random_int(1,9999) مباشرةً على أعمدة
- * مُعرَّفة `unique()` (القضايا · التنفيذ مرّتين · المخاطبات · الاستشارات · طلبات الاجتماع)
+ * مُعرَّفة `unique()` (القضايا · التنفيذ مرّتين · الاستشارات · طلبات الاجتماع)
  * بلا أي إعادة محاولة. المساحة 9999 رقماً في السنة، وحدّ عيد الميلاد يجعل احتمال تصادم
  * واحد على الأقل ~50% بعد ~118 سجلاً و~99% بعد ~350.
  *
@@ -30,7 +30,7 @@ class ReferenceNumber
      *
      * @param  class-string<Model>  $model  النموذج الذي يُفحص فيه التفرّد
      * @param  string  $column  عمود الرقم (number / ref)
-     * @param  string  $prefix  السابقة بلا شرطة (CASE / EXE / MKH / CN / MR / INV)
+     * @param  string  $prefix  السابقة بلا شرطة (CASE / EXE / CN / MR / INV)
      */
     public static function next(string $model, string $column, string $prefix): string
     {

@@ -7,7 +7,6 @@ use App\Models\Appointment;
 use App\Models\CaseHearing;
 use App\Models\CaseMessage;
 use App\Models\Consult;
-use App\Models\Correspondence;
 use App\Models\Document;
 use App\Models\Execution;
 use App\Models\Invoice;
@@ -496,28 +495,6 @@ class RichDemoSeeder extends Seeder
                     'completed_at' => $d[2] === 'مكتملة' ? now()->addDays($d[1])->subHours(5) : null,
                 ]
             );
-        }
-
-        // ── 13. المخاطبات: 6 عبر المراحل ──
-        $corrDefs = [
-            // [الاتجاه، الجهة، الموضوع، المرحلة، الحالة، النغمة]
-            ['صادرة', 'المحكمة التجارية بالرياض', 'طلب تزويد بصورة ضبط الجلسة', 1, 'بانتظار الإرسال', 'b-amber'],
-            ['صادرة', 'كتابة العدل الأولى بالرياض', 'طلب توثيق اتفاقية قسمة رضائية', 3, 'مرسلة — بانتظار الرد', 'b-blue'],
-            ['صادرة', 'اللجنة العمالية بجدة', 'اعتراض على قرار اللجنة رقم 552', 5, 'ورد الرد', 'b-cyan'],
-            ['واردة', 'محكمة التنفيذ بالرياض', 'إشعار بصدور قرار المادة 46', 6, 'مؤرشفة', 'b-green'],
-            ['واردة', 'النيابة العامة', 'طلب استكمال مستندات بلاغ تجاري', 2, 'قيد الإعداد', 'b-amber'],
-            ['صادرة', 'أمانة منطقة الرياض', 'استفسار عن اشتراطات رخصة نشاط', 4, 'مرسلة — بانتظار الرد', 'b-blue'],
-        ];
-        foreach ($corrDefs as $i => $d) {
-            Correspondence::updateOrCreate(['number' => sprintf('MKH-2026-4%02d', $i + 1)], [
-                'user_id' => $C($i + 1)->id,
-                'assigned_lawyer_id' => $L($i)->id, 'lawyer' => $L($i)->name,
-                'direction' => $d[0], 'entity' => $d[1], 'subject' => $d[2],
-                'channel' => 'ناجز', 'body' => 'نصّ المخاطبة: '.$d[2].' — مرفق بها المستندات المؤيدة.',
-                'stage' => $d[3], 'status' => $d[4], 'tone' => $d[5],
-                'date_label' => now()->subDays($i * 3)->format('Y-m-d'),
-                'due_label' => now()->addDays(7 - $i)->format('Y-m-d'),
-            ]);
         }
 
         $this->command?->info('RichDemoSeeder: اكتملت البذرة الغزيرة لكل التبويبات.');

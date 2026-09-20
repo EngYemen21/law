@@ -158,17 +158,6 @@ class ExecFlowFixesTest extends TestCase
         $this->assertSame(1, UserNotification::where('user_id', $lawyer->id)->count());
     }
 
-    // ── 2.5: requestCorr يمنع بلا محامٍ مُسنَد ──
-
-    public function test_request_corr_blocked_without_assigned_lawyer(): void
-    {
-        $client = User::factory()->create(['role' => Role::Client]);
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        $exec = $this->execFor($client, ['stage' => 8]);
-
-        $this->actingAs($admin)->post(route('exec-flow.act', $exec), ['action' => 'requestCorr'])->assertStatus(422);
-    }
-
     // ── 3.1: تنزيل المستند محروس ──
 
     public function test_document_download_is_guarded_and_works_for_owner(): void

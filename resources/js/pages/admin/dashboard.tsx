@@ -751,7 +751,7 @@ const AdminDashboard: React.FC<Props> = ({
               <ul style={{ margin: '6px 0 0', paddingRight: 20 }}>
                 <li>التذاكر ومحادثاتها ومستنداتها والملخصات.</li>
                 <li>القضايا والجلسات ومذكراتها وفواتيرها.</li>
-                <li>ملفات التنفيذ وإجراءاتها والمخاطبات.</li>
+                <li>ملفات التنفيذ وإجراءاتها.</li>
                 <li>الاستشارات ومواعيدها والاجتماعات والمهام.</li>
               </ul>
               <div style={{ marginTop: 8, color: '#15803d', fontWeight: 700 }}>
