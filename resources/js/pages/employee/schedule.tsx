@@ -990,8 +990,13 @@ return lawyers;
             </div>
           </div>
 
-          {/* منتقي الفترات الزمنية التفاعلية الحقيقية */}
-          {/* اختيار الوقت المتاح */}
+          {/*
+            منتقي الفترات الزمنية التفاعلية الحقيقية — ومعه الدقيقة المخصّصة (`allowCustom`).
+            الخادم يقبل أيّ دقيقة صالحة لا شبكةً ساعيّة (`Employee\ScheduleController` ⇐ `date_format:H:i`،
+            ويحرسه `ConsultBookingCustomTimeTest`)، وكان المنتقي يحصر الموظّف في الفترات المعروضة فيتعذّر
+            موعدٌ اتُّفق عليه مع العميل في 11:20 مثلاً. والحارسان باقيان: الماضي مرفوضٌ هنا، والتعارض مع
+            موعدٍ آخر يردّه الخادم برسالة صريحة. (قرار المالك 2026-09-20)
+          */}
           <TimeSlotPicker
             value={time}
             onChange={setTime}
@@ -1000,7 +1005,7 @@ return lawyers;
             label="الوقت المتاح للموعد"
             helperText={slotsLoading ? 'جارٍ فحص الأوقات المتاحة لدى المستشار…' : undefined}
             required
-            allowCustom={false}
+            allowCustom
 />
 
           {isPast && (

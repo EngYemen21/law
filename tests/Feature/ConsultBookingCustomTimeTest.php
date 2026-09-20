@@ -124,4 +124,34 @@ class ConsultBookingCustomTimeTest extends TestCase
         // وحقل التاريخ منسَّق كنظائره
         $this->assertStringContainsString('className="input"'.chr(10).'            type="date"', $src);
     }
+
+    /**
+     * **وشاشة «جدولة المواعيد» عند الموظّف كذلك** (قرار المالك 2026-09-20).
+     *
+     * وهي الشاشة الأساسيّة لتحديد موعد الاستشارة بعد السداد، وكانت تمرّر `allowCustom={false}`
+     * فتحصر الموظّف في الفترات المعروضة — والخادم يقبل أيّ دقيقة (الاختبار الأوّل أعلاه)، فيتعذّر
+     * موعدٌ اتُّفق عليه مع العميل في 11:20.
+     */
+    public function test_the_staff_schedule_screen_opens_custom_minutes(): void
+    {
+        $lines = array_map('trim', explode(chr(10), str_replace(chr(13), '', (string) file_get_contents(resource_path('js/pages/employee/schedule.tsx')))));
+
+        $this->assertContains('allowCustom', $lines, 'الدقيقة المخصّصة مغلقة في شاشة جدولة المواعيد');
+        $this->assertNotContains('allowCustom={false}', $lines, 'عاد إغلاق الدقيقة المخصّصة في شاشة جدولة المواعيد');
+    }
+
+    /**
+     * **ونوافذ الاجتماعات الثلاث** (قرار المالك 2026-09-20): دعوةٌ جديدة، وإعادةُ إرسالٍ بموعد
+     * جديد، وإعادةُ جدولة. الخوادم الثلاثة تقبل أيّ دقيقة (`MeetRequestController::store`
+     * و`::resend`، و`MeetingController::reschedule` ⇐ `BookingMoment::rules`)، وكانت الأخيرتان
+     * تحصران الطاقم في الفترات المعروضة.
+     */
+    public function test_the_meeting_dialogs_open_custom_minutes(): void
+    {
+        $src = (string) file_get_contents(resource_path('js/lib/meeting-ui.tsx'));
+        $lines = array_map('trim', explode(chr(10), str_replace(chr(13), '', $src)));
+
+        $this->assertSame(3, count(array_filter($lines, fn (string $l) => $l === 'allowCustom')), 'نوافذ الاجتماعات الثلاث لا تفتح الدقيقة المخصّصة');
+        $this->assertNotContains('allowCustom={false}', $lines, 'عاد إغلاق الدقيقة المخصّصة في نوافذ الاجتماعات');
+    }
 }

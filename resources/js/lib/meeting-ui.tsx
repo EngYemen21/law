@@ -673,6 +673,7 @@ setMiTime('');
                     <label>اليوم الجديد <span className="req">*</span></label>
                     <input className="input" type="date" min={todayISO()} value={rsDay} onChange={(e) => setRsDay(e.target.value)} />
                 </div>
+                {/* الدقيقة المخصّصة متاحة: الخادم يقبل أيّ `H:i` (`MeetRequestController::resend`) */}
                 <TimeSlotPicker
                     value={rsTime}
                     onChange={setRsTime}
@@ -680,7 +681,7 @@ setMiTime('');
                     slots={rsSlotsWithStatus}
                     label="وقت الاجتماع الجديد"
                     required
-                    allowCustom={false}
+                    allowCustom
                 />
                 <button className="btn block" onClick={submitResend} type="button" disabled={!rsDay || !rsTime}>
                     <Icon name="send" /> إعادة الإرسال للعميل
@@ -1094,14 +1095,15 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                                     <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>التاريخ الجديد</label>
                                     <input className="input" type="date" min={todayISO()} value={reDay} onChange={(e) => setReDay(e.target.value)} style={{ borderRadius: 9 }} />
                                 </div>
+                                {/* الدقيقة المخصّصة متاحة: الخادم يقبل أيّ `H:i` (`MeetingController::reschedule` ⇐ `BookingMoment::rules`) */}
                                 <TimeSlotPicker
                                     value={reTime}
                                     onChange={setReTime}
                                     date={reDay}
                                     label="الوقت الجديد للاجتماع"
                                     required
-                                  allowCustom={false}
-/>
+                                    allowCustom
+                                />
                                 <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
                                     <button className="btn sm" type="button" onClick={submitReschedule} disabled={!reDay || !reTime}>
                                         <Icon name="cal" /> حفظ الموعد الجديد
