@@ -28,7 +28,6 @@
         <env name="ZOOM_ACCOUNT_ID" value=""/>
         <env name="ZOOM_CLIENT_ID" value=""/>
         <env name="ZOOM_CLIENT_SECRET" value=""/>
-        <env name="GOOGLE_CALENDAR_CREDENTIALS" value=""/>
         <env name="MOYASAR_SECRET_KEY" value=""/>
         <env name="MOYASAR_PUBLISHABLE_KEY" value=""/>
         <env name="MOYASAR_WEBHOOK_SECRET" value=""/>

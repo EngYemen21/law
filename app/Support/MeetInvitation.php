@@ -6,7 +6,6 @@ use App\Mail\MeetingScheduledMail;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\User;
-use App\Services\GoogleCalendarService;
 use App\Services\MailService;
 use App\Services\ZoomService;
 use App\Support\Booking\BookingMoved;
@@ -27,8 +26,8 @@ class MeetInvitation
     /** يُنشئ (أو يُكمل) اجتماع الدعوة ويرفعها إلى STAGE_CONFIRMED. يُعيد الاجتماع. */
     public static function schedule(MeetRequest $req, User $client): Meeting
     {
-        // **مسارُ حجزٍ يخرج إلى الشبكة ثلاث مرّات** (رمز Zoom ٨ث + إنشاء الجلسة ١٥ث
-        // + تقويم Google) — ومهلةُ الويب ٣٠ث. فيبلغها الطلب فيرى المستخدم خطأً
+        // **مسارُ حجزٍ يخرج إلى الشبكة مرّتين** (رمز Zoom ٨ث + إنشاء الجلسة ١٥ث)
+        // — ومهلةُ الويب ٣٠ث. فيبلغها الطلب فيرى المستخدم خطأً
         // **والحجزُ وقع فعلاً** (الالتزام يسبق النداء). رُصد حيّاً 2026-09-08.
         // والرفعُ نمطُ المشروع المقرَّر لكلّ مسارٍ بطيء (PdfRenderer · LegalAiService).
         WebTimeLimit::raise(90);
@@ -94,9 +93,6 @@ class MeetInvitation
             'meet_link' => $zoom['join_url'] ?? $req->meet_link,
             'host_link' => $zoom['start_url'] ?? $req->host_link,
         ]);
-
-        // مزامنة تقويم Google — النشر (بعد موافقة الإدارة/دعوة الإدارة) هو لحظة اعتماد الموعد
-        GoogleCalendarService::syncMeeting($meeting);
 
         return $meeting;
     }

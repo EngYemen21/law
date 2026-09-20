@@ -53,7 +53,6 @@ export interface AppointmentItem {
   consultRef?: string;
   consultId?: number;
   pay?: string;
-  gcal?: string;
   joinLink?: string;
   rawStartsAt?: string | null;
   rawDate?: string | null;
@@ -1090,17 +1089,6 @@ return lawyers;
                   style={{ flex: 1 }}
                 >
                   <Icon name="video" /> دخول غرفة الجلسة المرئية
-                </a>
-              )}
-              {selectedAppt.gcal && (
-                <a
-                  className="btn soft sm"
-                  href={selectedAppt.gcal}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ flex: 1 }}
-                >
-                  <Icon name="calplus" /> إضافة لتقويم جوجل
                 </a>
               )}
             </div>

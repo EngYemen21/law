@@ -34,7 +34,6 @@ export interface TodayAppt {
   client?: string;
   consultRef?: string;
   pay?: string;
-  gcal?: string;
   joinLink?: string;
   channel?: string;
   rawStartsAt?: string | null;

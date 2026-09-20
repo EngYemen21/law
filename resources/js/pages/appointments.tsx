@@ -27,9 +27,6 @@ const ApptCard: React.FC<{ a: Appt }> = ({ a }) => {
   const toast = useToast();
   const p = apptPlace(a);
   const paid = a.pay === 'مدفوع';
-  // يبنيه الخادم عبر IcalendarService::googleUrl بتوقيت حقيقي — كان الرابط هنا بلا dates
-  const calHref = a.gcal;
-
   // رابط الجلسة المرئية الحقيقي بالمنصّة — كان يُنسخ رابط مختلق (salaselbabel.net/APT-…) لا مسار له
   const copyLink = () => {
     if (!a.joinLink) {
@@ -118,9 +115,6 @@ return;
         </div>
       </div>
       <div className="apptx-actions">
-        <a className="btn" target="_blank" rel="noopener" href={calHref}>
-          <Icon name="calplus" /> أضف إلى Google Calendar
-        </a>
         {a.joinLink && (
           <button className="btn soft" type="button" onClick={copyLink}>
             <Icon name="link" /> نسخ رابط الجلسة

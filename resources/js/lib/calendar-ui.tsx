@@ -19,7 +19,6 @@ export interface CalendarEvent {
   status: string;
   /** ختم ISO للفرز الزمني الخادميّ — null للأحداث بلا موعد (تُرتَّب في الذيل). */
   startsAt?: string | null;
-  gcal?: string;
 }
 
 export interface CalendarPageProps {
@@ -41,7 +40,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ events, feedUrl, web
     if (navigator.clipboard) {
       void navigator.clipboard.writeText(feedUrl);
     }
-    toast('تم نسخ رابط الاشتراك الحي لتقويم جوجل بنجاح');
+    toast('تم نسخ رابط الاشتراك الحي بتقويمك بنجاح');
   };
 
   return (
@@ -58,7 +57,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ events, feedUrl, web
             </a>
           )}
           {feedUrl && (
-            <button className="btn soft sm" type="button" onClick={copyFeed} title="مزامنة تلقائية دائمة مع تقويم جوجل أو جوالك">
+            <button className="btn soft sm" type="button" onClick={copyFeed} title="مزامنة تلقائية دائمة مع تقويمك على الحاسوب أو الجوال (ICS)">
               <Icon name="link" /> نسخ رابط Live Feed
             </button>
           )}
@@ -81,7 +80,6 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ events, feedUrl, web
                   <th>الوقت</th>
                   <th>المكان / الجهة</th>
                   <th>الحالة</th>
-                  <th>تقويم جوجل</th>
                 </tr>
               </thead>
               <tbody>
@@ -93,13 +91,6 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ events, feedUrl, web
                     <td className="muted">{e.time || '—'}</td>
                     <td className="muted">{e.where || '—'}</td>
                     <td><Badge text={e.status} tone={statusTone(e)} /></td>
-                    <td>
-                      {e.gcal && (
-                        <a className="btn soft sm" href={e.gcal} target="_blank" rel="noopener noreferrer" title="إضافة للتقويم">
-                          <Icon name="calplus" /> أضف لجوجل
-                        </a>
-                      )}
-                    </td>
                   </tr>
                 ))}
               </tbody>

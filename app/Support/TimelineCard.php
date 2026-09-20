@@ -7,7 +7,6 @@ use App\Models\CaseHearing;
 use App\Models\Consult;
 use App\Models\Meeting;
 use App\Models\User;
-use App\Services\IcalendarService;
 use Illuminate\Support\Collection;
 
 /**
@@ -47,7 +46,7 @@ class TimelineCard
 
             return $m === null ? null : match ($r->kind) {
                 'appointment' => self::appointment($m, $viewer),
-                'consult' => self::consult($m, $viewer),
+                'consult' => self::consult($m),
                 'hearing' => self::hearing($m),
                 'meeting' => self::meeting($m, $viewer),
                 default => null,
@@ -65,7 +64,6 @@ class TimelineCard
             'id' => $c['id'], 'title' => 'موعد: '.$c['type'],
             'day' => $c['day'], 'time' => $c['time'], 'where' => $c['place'],
             'status' => $c['status'], 'statusTone' => $c['tone'], 'when' => $c['when'],
-            'gcal' => $c['gcal'],
             // joinLink من البانِي: فارغ لغير المرئية فيُخفى الزرّ بدل أن يُعرض ويفشل
             'joinLink' => $c['joinLink'],
             'cardUrl' => '/appointments/'.rawurlencode((string) $c['id']).'/card.pdf',
@@ -73,7 +71,7 @@ class TimelineCard
     }
 
     /** المصدر: Consult::toClientCard — فيه canJoin وmissed وsession الحيّة. */
-    private static function consult(Consult $co, User $viewer): array
+    private static function consult(Consult $co): array
     {
         $c = $co->toClientCard();
 
@@ -86,13 +84,6 @@ class TimelineCard
             'day' => $c['when'], 'time' => null, 'where' => $c['place'],
             'status' => $status, 'statusTone' => EventStatus::toneFor($status),
             'when' => ($co->starts_at && $co->starts_at->isFuture()) ? 'up' : 'past',
-            'gcal' => IcalendarService::googleUrl(
-                title: 'استشارة: '.$c['subject'].' ('.$c['ref'].')',
-                details: 'استشارة قانونية ('.$c['channel'].')',
-                startsAt: $co->starts_at ?: MeetingTime::parse($co->day ?? '', $co->time ?? ''),
-                durationMinutes: $co->duration_min ?: 45,
-                locationUrl: $co->joinLink($viewer),
-            ),
             // canJoin من البانِي: الرابط لا يُعرض قبل إطلاقه (‏5 دقائق قبل الموعد)
             'joinLink' => $c['canJoin'] ? $c['slink'] : '',
         ];
@@ -112,13 +103,6 @@ class TimelineCard
             'status' => EventStatus::forHearing($h),
             'statusTone' => $d['lapsed'] ? 'b-red' : 'b-amber',
             'when' => ($h->starts_at && $h->starts_at->isFuture()) ? 'up' : 'past',
-            'gcal' => IcalendarService::googleUrl(
-                title: $d['title'],
-                details: 'جلسة محكمة: '.($d['court'] ?: 'المحكمة المختصة'),
-                startsAt: $h->starts_at ?: MeetingTime::parse((string) $h->day, (string) $h->time),
-                durationMinutes: 60,
-                locationUrl: $d['court'] ?: 'المحكمة',
-            ),
             'joinLink' => '',
         ];
     }
@@ -134,13 +118,6 @@ class TimelineCard
             'day' => $c['when'], 'time' => null, 'where' => 'غرفة المنصة',
             'status' => $c['status'], 'statusTone' => $c['tone'],
             'when' => $c['up'] ? 'up' : 'past',
-            'gcal' => IcalendarService::googleUrl(
-                title: 'اجتماع: '.$c['title'],
-                details: 'اجتماع عمل بالمنصة — '.$c['when'],
-                startsAt: $mt->startsAtResolved() ?: now(),
-                durationMinutes: $mt->durationMinutes(),
-                locationUrl: $mt->joinLink($viewer),
-            ),
             // canJoin من البانِي: كان الرابط يُعرض دائماً فيُدعى المستخدم لجلسة تردّه بـ403
             'joinLink' => $c['canJoin'] ? $mt->joinLink($viewer) : '',
         ];

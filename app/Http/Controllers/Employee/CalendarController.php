@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\CaseHearing;
 use App\Models\Consult;
 use App\Models\Meeting;
-use App\Services\IcalendarService;
 use App\Support\AppointmentBoard;
 use App\Support\CalendarWindow;
 use App\Support\EventStatus;
@@ -45,13 +44,6 @@ class CalendarController extends Controller
                 'where' => $h->court,
                 'status' => EventStatus::forHearing($h),
                 'startsAt' => ($h->starts_at ?: MeetingTime::parse($h->day, $h->time))?->toIso8601String(),
-                'gcal' => IcalendarService::googleUrl(
-                    title: $h->title.' — قضية '.($h->legalCase?->number ?? ''),
-                    details: 'جلسة محكمة: '.($h->court ?: 'المحكمة المختصة'),
-                    startsAt: MeetingTime::parse($h->day, $h->time),
-                    durationMinutes: 60,
-                    locationUrl: $h->court ?: 'المحكمة'
-                ),
             ]);
 
         $meetings = Meeting::where($window)
@@ -65,16 +57,8 @@ class CalendarController extends Controller
                 'time' => null,
                 'where' => $m->client_name ?: 'داخلي',
                 'status' => EventStatus::forMeeting($m),
-                // المفتاح الخام لا بديل gcal أدناه: `?: now()` يصلح لرابط تقويم جوجل
-                // لكنه يرفع اجتماعاً بلا موعد إلى وسط القائمة بدل الذيل.
+                // الخام لا المُبدَّل: `?: now()` كان يرفع اجتماعاً بلا موعد إلى وسط القائمة بدل الذيل.
                 'startsAt' => $m->starts_at?->toIso8601String(),
-                'gcal' => IcalendarService::googleUrl(
-                    title: 'اجتماع: '.$m->title,
-                    details: 'اجتماع عمل بالمنصة — '.$m->when_label,
-                    startsAt: $m->starts_at ?: now(),
-                    durationMinutes: 60,
-                    locationUrl: $m->joinLink($user)
-                ),
             ]);
 
         $consults = Consult::with(['appointment', 'user'])->whereNotIn('status', ['ملغاة'])
@@ -90,13 +74,6 @@ class CalendarController extends Controller
                 'where' => $c->channel === 'حضورية' ? $c->placeLabel() : 'جلسة مرئية بالمنصة',
                 'status' => EventStatus::forConsult($c),
                 'startsAt' => ($c->starts_at ?: MeetingTime::parse($c->day ?? '', $c->time ?? ''))?->toIso8601String(),
-                'gcal' => IcalendarService::googleUrl(
-                    title: 'استشارة: '.$c->subject.' ('.$c->ref.')',
-                    details: 'استشارة قانونية ('.$c->channel.') — العميل: '.($c->user?->name ?? 'عميل المنصة'),
-                    startsAt: $c->starts_at ?: MeetingTime::parse($c->day ?? '', $c->time ?? ''),
-                    durationMinutes: $c->duration_min ?: 45,
-                    locationUrl: $c->joinLink($user)
-                ),
             ]);
 
         // التبويب الزمني موحّد: منظر «الأحداث» (أعلاه) ومنظر «المواعيد» (اللوحة نفسها

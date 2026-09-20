@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use App\Domain\Journey\GuardsJourneyState;
-use App\Services\IcalendarService;
 use App\Support\LawyerName;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,9 +14,7 @@ class Appointment extends Model
 
     protected $fillable = [
         'user_id', 'ticket_id', 'ext_id', 'type', 'ico', 'lawyer', 'lawyer_id', 'day', 'time',
-        // google_event_id محجوز لمزامنة تقويم Google القادمة للمواعيد — لا كاتب له بعد
-        // (الاستشارات والاجتماعات تُزامَن عبر GoogleCalendarService::syncConsult/syncMeeting)
-        'starts_at', 'duration_min', 'place', 'status', 'tone', 'when_kind', 'google_event_id',
+        'starts_at', 'duration_min', 'place', 'status', 'tone', 'when_kind',
     ];
 
     protected $casts = [
@@ -140,14 +137,6 @@ class Appointment extends Model
             // جسر إجراءات لوحة المواعيد: إعادة الجدولة/«لم يحضر» تمرّان عبر الاستشارة المرافقة
             'consultId' => $this->consult?->id,
             'pay' => $this->consult?->paid_at ? 'مدفوع' : 'بانتظار السداد',
-            // إضافة للتقويم بتوقيت حقيقي (كان الرابط بلا dates فيفتح حدثاً فارغاً)
-            'gcal' => IcalendarService::googleUrl(
-                title: $this->type,
-                details: 'موعد لدى مكتب المحاماة — المحامي: '.$this->lawyer,
-                startsAt: $this->starts_at,
-                durationMinutes: $this->duration_min ?: 60,
-                locationUrl: $this->consult?->joinLink($viewer) ?: (string) $this->place,
-            ),
             // رابط الجلسة المرئية الحقيقي داخل المنصّة — فارغ لغير المرئية (يُخفى الزرّ)
             // canJoin شرط لازم: بلا الحكم الزمني كان الزرّ يظهر دائماً ويردّ الخادم 403 «لم يحن الموعد»
             'joinLink' => $this->consult?->channel === 'مرئية' && $this->consult->canJoin() ? $this->consult->joinLink($viewer) : '',

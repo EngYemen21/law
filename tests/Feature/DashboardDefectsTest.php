@@ -179,9 +179,9 @@ class DashboardDefectsTest extends TestCase
             ->assertInertia(fn ($p) => $p->has('executions', 1));
     }
 
-    // ── بطاقة الموعد: رابط تقويم بتواريخ حقيقية ورابط جلسة حقيقي ──
+    // ── بطاقة الموعد: رابط جلسة حقيقي داخل المنصّة لا رابط مختلق ──
 
-    public function test_appointment_card_carries_real_calendar_and_session_links(): void
+    public function test_appointment_card_carries_real_session_link(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $ticket = Ticket::create([
@@ -197,7 +197,6 @@ class DashboardDefectsTest extends TestCase
             'tone' => 'b-green', 'when_kind' => 'up',
         ])->toCard();
 
-        $this->assertStringContainsString('dates=', $card['gcal']);
         $this->assertStringNotContainsString('salaselbabel.net/APT-', (string) $card['joinLink']);
     }
 }

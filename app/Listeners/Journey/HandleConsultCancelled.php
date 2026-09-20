@@ -9,7 +9,6 @@ use App\Events\Journey\ConsultCancelled;
 use App\Events\TicketStatusBroadcast;
 use App\Models\Invoice;
 use App\Models\User;
-use App\Services\GoogleCalendarService;
 use App\Support\Audit;
 use App\Support\Live;
 use App\Support\Notify;
@@ -20,8 +19,6 @@ final class HandleConsultCancelled
     public function handle(ConsultCancelled $event): void
     {
         $consult = $event->consult;
-
-        GoogleCalendarService::deleteConsultEvent($consult);
 
         $reason = $event->reason !== null && trim($event->reason) !== '' ? trim($event->reason) : null;
         $description = "ألغى {$event->actorName} طلب الاستشارة {$consult->ref} (كانت «{$event->from}»)";
@@ -92,5 +89,3 @@ final class HandleConsultCancelled
         }
     }
 }
-
-

@@ -6,14 +6,13 @@ use App\Events\ConsultStatusBroadcast;
 use App\Events\Journey\AppointmentPublished;
 use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
-use App\Services\GoogleCalendarService;
 use App\Support\Audit;
 use App\Support\ConsultBooking;
 use App\Support\Live;
 use App\Support\Notify;
 
 /**
- * نشر الموعد بعد التزامه: بريد الحجز للعميل والمحامي، وتقويم Google، وإشعار العميل، وإشعار
+ * نشر الموعد بعد التزامه: بريد الحجز للعميل والمحامي، وإشعار العميل، وإشعار
  * الموظّف صاحب الاقتراح بما اعتُمد أو عُدّل، والبثّ اللحظيّ، وأثر التدقيق.
  */
 final class HandleAppointmentPublished
@@ -24,7 +23,6 @@ final class HandleAppointmentPublished
         $label = $consult->channel ?: 'استشارة';
 
         ConsultBooking::sendBookingEmails($consult);
-        GoogleCalendarService::syncConsult($consult);
 
         Notify::send(
             $consult->user_id,

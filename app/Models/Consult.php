@@ -143,7 +143,6 @@ class Consult extends Model
         'decisions', 'tasks_created', 'suggested_tasks',
         'price', 'vat', 'total', 'mins', 'priced_at', 'paid_at',
         'ai_done', 'ai_source', 'ai_class', 'ai_summary', 'ai_lawyer', 'missing', 'audit',
-        'google_event_id',
         'legal_department_id',
     ];
 

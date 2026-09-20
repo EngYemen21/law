@@ -14,8 +14,10 @@ use DateTimeInterface;
 use Illuminate\Support\Carbon;
 
 /**
- * خدمة معمارية نظيفة لتوليد ملفات iCalendar (RFC 5545)
- * وروابط المزامنة الفورية مع Google Calendar واشتراكات التقويم الحي (Live Feed).
+ * خدمة معمارية نظيفة لتوليد ملفات iCalendar (RFC 5545) واشتراكات التقويم الحي (Live Feed).
+ *
+ * معيار مفتوح لا يخصّ مزوّداً بعينه: أيّ برنامج تقويم يقرأ الناتج. أُزيل منها ما كان
+ * خاصّاً بجوجل (رابط الإضافة السريع وترميز الأحداث للبريد) بقرار المالك 2026-09-20.
  */
 class IcalendarService
 {
@@ -28,47 +30,6 @@ class IcalendarService
     private const FEED_FUTURE_DAYS = 90;
 
     private const FEED_MAX_EVENTS = 300;
-
-    /**
-     * ترميز Google Schema.org JSON-LD المعتمد للأحداث (للإدراج التلقائي الصامت في تقويم جوجل فور وصول البريد).
-     */
-    public static function googleSchemaJsonLd(
-        string $reservationNumber,
-        string $recipientName,
-        string $title,
-        string $description,
-        DateTimeInterface|CarbonInterface $startsAt,
-        int $durationMinutes,
-        string $locationUrl
-    ): string {
-        $start = Carbon::parse($startsAt)->toIso8601String();
-        $end = Carbon::parse($startsAt)->copy()->addMinutes(max(15, $durationMinutes))->toIso8601String();
-
-        $data = [
-            '@context' => 'http://schema.org',
-            '@type' => 'EventReservation',
-            'reservationNumber' => $reservationNumber,
-            'reservationStatus' => 'http://schema.org/Confirmed',
-            'underName' => [
-                '@type' => 'Person',
-                'name' => $recipientName,
-            ],
-            'reservationFor' => [
-                '@type' => 'Event',
-                'name' => $title,
-                'startDate' => $start,
-                'endDate' => $end,
-                'description' => $description,
-                'location' => [
-                    '@type' => 'VirtualLocation',
-                    'name' => 'غرفة الاجتماعات بالمنصة',
-                    'url' => $locationUrl,
-                ],
-            ],
-        ];
-
-        return '<script type="application/ld+json">'.json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES).'</script>';
-    }
 
     /**
      * توليد ملف VCALENDAR لحدث فردي (مرفق البريد الإلكتروني).
@@ -115,31 +76,6 @@ class IcalendarService
             ."END:VALARM\r\n"
             ."END:VEVENT\r\n"
             ."END:VCALENDAR\r\n";
-    }
-
-    /**
-     * رابط إضافة فوري لتقويم جوجل (بتوقيت ISO دقيق بالـ UTC).
-     */
-    public static function googleUrl(
-        string $title,
-        string $details,
-        DateTimeInterface|CarbonInterface|null $startsAt,
-        int $durationMinutes,
-        string $locationUrl
-    ): string {
-        $startCarbon = Carbon::parse($startsAt ?: now())->utc();
-        $start = $startCarbon->format('Ymd\THis\Z');
-        $end = $startCarbon->copy()->addMinutes(max(15, $durationMinutes))->format('Ymd\THis\Z');
-
-        $fullDetails = trim($details."\n\nرابط الجلسة بالمنصة: ".$locationUrl);
-
-        return 'https://calendar.google.com/calendar/render?'.http_build_query([
-            'action' => 'TEMPLATE',
-            'text' => $title,
-            'dates' => "{$start}/{$end}",
-            'details' => $fullDetails,
-            'location' => $locationUrl,
-        ]);
     }
 
     /**

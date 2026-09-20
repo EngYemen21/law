@@ -103,7 +103,7 @@ class DashboardsTest extends TestCase
             ->has('activity'));
     }
 
-    public function test_client_calendar_shows_events_with_gcal_links(): void
+    public function test_client_calendar_shows_events(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         Appointment::create(['user_id' => $client->id, 'ext_id' => 'AP1', 'type' => 'استشارة حضورية', 'ico' => 'office', 'lawyer' => 'أ. سارة القحطاني', 'day' => 'الأحد 12 يوليو', 'time' => '11ص', 'place' => 'الرياض', 'status' => 'مؤكد', 'tone' => 'b-green', 'when_kind' => 'up']);
@@ -111,6 +111,6 @@ class DashboardsTest extends TestCase
         $this->actingAs($client)->get(route('calendar'))
             ->assertOk()->assertInertia(fn ($p) => $p->component('calendar')
             ->has('events', 1)
-            ->where('events.0.gcal', fn ($url) => str_contains($url, 'calendar.google.com')));
+            ->where('events.0.title', 'موعد: استشارة حضورية'));
     }
 }

@@ -11,7 +11,7 @@ use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
 /**
- * بريد دعوة اجتماع للعميل — مع ترميز Google Schema JSON-LD.
+ * بريد دعوة اجتماع للعميل.
  */
 class MeetInviteMail extends Mailable implements ShouldQueue
 {
@@ -36,8 +36,8 @@ class MeetInviteMail extends Mailable implements ShouldQueue
 
     /**
      * بلا مرفقات عمداً (fe55756): مرفق ‎.ics كان يُحجب أو يُعرض ملفّاً غامضاً لدى عملاء
-     * بريد كثيرين. البديل الحيّ هو زرّ «أضِف إلى تقويمك» وتغذية Webcal في شاشة التقويم
-     * (IcalendarService::googleUrl / feedForUser). لا تُعِدها إلا بقرار صريح.
+     * بريد كثيرين. البديل الحيّ هو تغذية Webcal للاشتراك من شاشة التقويم
+     * (IcalendarService::feedForUser). لا تُعِدها إلا بقرار صريح.
      */
     public function attachments(): array
     {

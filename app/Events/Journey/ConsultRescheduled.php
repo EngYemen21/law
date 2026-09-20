@@ -13,7 +13,6 @@ final class ConsultRescheduled
         public readonly Consult $consult,
         public readonly string $oldWhen,
         public readonly ?string $oldMeetId,
-        public readonly ?string $oldGoogleEventId,
         public readonly string $actorName,
         public readonly bool $ticketReverted,
     ) {}

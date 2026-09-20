@@ -16,7 +16,6 @@ use App\Models\MeetRequest;
 use App\Models\Task;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
-use App\Services\GoogleCalendarService;
 use App\Services\LegalAiService;
 use App\Services\MailService;
 use App\Services\ZoomService;
@@ -122,7 +121,7 @@ class MeetingController extends Controller
     public function store(Request $request): RedirectResponse
     {
         // **مسارٌ يخرج إلى الشبكة مراراً** (رمز Zoom ٨ث + إنشاء الجلسة ١٥ث
-        // + تقويم Google + بريد) ومهلةُ الويب ٣٠ث — فتُبلَغ فيرى المستخدم خطأً
+        // + بريد) ومهلةُ الويب ٣٠ث — فتُبلَغ فيرى المستخدم خطأً
         // **والسجلّ كُتب فعلاً** (الالتزام يسبق النداء). رُصد حيّاً 2026-09-08.
         WebTimeLimit::raise(90);
         // **التاريخ مطلوب.** كان `day`/`time` سلسلتين حرّتين اختياريّتين،
@@ -247,8 +246,6 @@ class MeetingController extends Controller
                 ));
             }
         }
-
-        GoogleCalendarService::syncMeeting($meeting);
 
         return back();
     }
@@ -439,8 +436,6 @@ class MeetingController extends Controller
             Notify::send($meeting->user_id, 'cal', 't-amber', "أُعيدت جدولة اجتماع «{$meeting->title}»: {$when}.");
         }
         $this->mailMeetingEvent($meeting, 'rescheduled');
-        // تحديث حدث تقويم Google بالموعد الجديد — بدونه يبقى التقويم على الموعد القديم
-        GoogleCalendarService::syncMeeting($meeting->refresh());
         Live::push(new MeetingStatusBroadcast($meeting));
 
         return back();
@@ -463,7 +458,6 @@ class MeetingController extends Controller
                 Notify::send($meeting->user_id, 'info', 't-red', "أُلغي اجتماع «{$meeting->title}».");
             }
             $this->mailMeetingEvent($meeting, 'cancelled');
-            GoogleCalendarService::deleteMeetingEvent($meeting);
             Audit::log(
                 action: 'إلغاء اجتماع',
                 description: "ألغى {$request->user()->name} الاجتماع «{$meeting->title}» ({$meeting->ref}).",

@@ -12,7 +12,7 @@ export interface TimelineEvent {
   id: string; title: string;
   day: string | null; time: string | null; where: string | null;
   status: string; statusTone: string; when: string;
-  gcal?: string; joinLink?: string; cardUrl?: string;
+  joinLink?: string; cardUrl?: string;
 }
 
 export interface TimelineFilters {
@@ -249,11 +249,6 @@ export const TimelineTable: React.FC<{ events: TimelineEvent[] }> = ({ events })
               <td><Badge text={e.status} tone={e.statusTone} /></td>
               <td>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {e.gcal && (
-                    <a className="btn soft sm" href={e.gcal} target="_blank" rel="noopener noreferrer" title="إضافة لتقويم جوجل">
-                      <Icon name="calplus" /> جوجل
-                    </a>
-                  )}
                   {e.joinLink && <a className="btn sm" href={e.joinLink}><Icon name="video" /> دخول</a>}
                   {e.cardUrl && <a className="btn soft sm" href={e.cardUrl}><Icon name="doc" /> البطاقة</a>}
                 </div>

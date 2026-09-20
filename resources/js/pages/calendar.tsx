@@ -35,7 +35,7 @@ const ClientCalendar: React.FC<Props> = ({
   const copyFeed = () => {
     if (!feedUrl) return;
     if (navigator.clipboard) void navigator.clipboard.writeText(feedUrl);
-    toast('تم نسخ رابط الاشتراك الحي لتقويم جوجل بنجاح');
+    toast('تم نسخ رابط الاشتراك الحي بتقويمك بنجاح');
   };
 
   return (
@@ -52,7 +52,7 @@ const ClientCalendar: React.FC<Props> = ({
             </a>
           )}
           {feedUrl && (
-            <button className="btn soft sm" type="button" onClick={copyFeed} title="مزامنة دائمة مع تقويم جوجل أو جوالك">
+            <button className="btn soft sm" type="button" onClick={copyFeed} title="مزامنة دائمة مع تقويمك على الحاسوب أو الجوال (ICS)">
               <Icon name="link" /> نسخ رابط Live Feed
             </button>
           )}

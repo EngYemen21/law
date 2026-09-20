@@ -5,13 +5,12 @@ namespace App\Listeners\Journey;
 use App\Events\ConsultStatusBroadcast;
 use App\Events\Journey\ConsultRescheduled;
 use App\Events\TicketStatusBroadcast;
-use App\Services\GoogleCalendarService;
 use App\Services\ZoomService;
 use App\Support\Audit;
 use App\Support\Live;
 use App\Support\Notify;
 
-/** آثار إعادة الجدولة: حذف اجتماع Zoom القديم وحدث Google، والتدقيق، والبثّ، وإشعار العميل. */
+/** آثار إعادة الجدولة: حذف اجتماع Zoom القديم، والتدقيق، والبثّ، وإشعار العميل. */
 final class HandleConsultRescheduled
 {
     public function handle(ConsultRescheduled $event): void
@@ -20,9 +19,6 @@ final class HandleConsultRescheduled
 
         if ($event->oldMeetId !== null) {
             app(ZoomService::class)->deleteMeeting($event->oldMeetId);
-        }
-        if ($event->oldGoogleEventId !== null) {
-            GoogleCalendarService::deleteEvent($event->oldGoogleEventId);
         }
 
         if ($event->ticketReverted && $consult->ticket !== null) {

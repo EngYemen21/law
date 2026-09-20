@@ -19,7 +19,7 @@ class CalendarSyncTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_icalendar_service_generates_valid_ics_and_google_url(): void
+    public function test_icalendar_service_generates_valid_ics(): void
     {
         $startsAt = now()->addDay()->setHour(10)->setMinute(0);
         $ics = IcalendarService::generate(
@@ -37,17 +37,6 @@ class CalendarSyncTest extends TestCase
         $this->assertStringContainsString('SUMMARY:جلسة استشارة تجارية', $ics);
         $this->assertStringContainsString('TRIGGER:-PT15M', $ics);
         $this->assertStringContainsString('END:VCALENDAR', $ics);
-
-        $gcalUrl = IcalendarService::googleUrl(
-            title: 'جلسة استشارة',
-            details: 'تفاصيل الموعد',
-            startsAt: $startsAt,
-            durationMinutes: 45,
-            locationUrl: 'https://law-office.test/room'
-        );
-
-        $this->assertStringContainsString('https://calendar.google.com/calendar/render', $gcalUrl);
-        $this->assertStringContainsString('action=TEMPLATE', $gcalUrl);
     }
 
     public function test_live_calendar_feed_returns_valid_response(): void
@@ -141,26 +130,6 @@ class CalendarSyncTest extends TestCase
         $this->actingAs($lawyer)->get(route('lawyer.calendar'))
             ->assertOk()
             ->assertInertia(fn ($p) => $p->component('lawyer/calendar')->has('events')->has('feedUrl')->has('webcalUrl'));
-    }
-
-    public function test_google_schema_json_ld_generates_valid_script_tag(): void
-    {
-        $startsAt = now()->addDays(2)->setHour(16)->setMinute(0);
-        $schema = IcalendarService::googleSchemaJsonLd(
-            reservationNumber: 'RSV-999',
-            recipientName: 'خالد عبدالله',
-            title: 'استشارة تجارية',
-            description: 'تفاصيل الاستشارة',
-            startsAt: $startsAt,
-            durationMinutes: 45,
-            locationUrl: 'https://law-office.test/room'
-        );
-
-        $this->assertStringStartsWith('<script type="application/ld+json">', $schema);
-        $this->assertStringEndsWith('</script>', $schema);
-        $this->assertStringContainsString('EventReservation', $schema);
-        $this->assertStringContainsString('RSV-999', $schema);
-        $this->assertStringContainsString('خالد عبدالله', $schema);
     }
 
     /**

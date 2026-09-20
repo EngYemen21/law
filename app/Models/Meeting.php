@@ -28,7 +28,6 @@ class Meeting extends Model
         'zoom_summary', 'zoom_summary_at',
         'recording_url', 'transcript_path', 'join_time', 'leave_time', 'duration_sec',
         'zoom_uuid', 'zoom_share_url', 'zoom_audio_url', 'zoom_participants_log', 'zoom_ai_next_steps',
-        'google_event_id',
     ];
 
     protected $casts = [

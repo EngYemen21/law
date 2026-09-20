@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\Model;
  * **إعادة جدولة استشارة لم تنعقد** — تعود إلى «بانتظار تحديد الموعد».
  *
  * كان الحارس لا يمنع الجلسة الجارية: ضغطةٌ أثناء الجلسة تحذف اجتماع Zoom وتُرجع الحالة
- * (ع١٥). وحذفُ Zoom وGoogle كان يقع قبل الحفظ داخل الطلب؛ صار حدثاً بعد الالتزام
+ * (ع١٥). وحذفُ اجتماع Zoom كان يقع قبل الحفظ داخل الطلب؛ صار حدثاً بعد الالتزام
  * بمعرّفاتٍ محفوظة قبل التصفير.
  *
  * @extends Transition<Consult>
@@ -25,8 +25,6 @@ use Illuminate\Database\Eloquent\Model;
 final class RescheduleConsult extends Transition
 {
     private ?string $oldMeetId = null;
-
-    private ?string $oldGoogleEventId = null;
 
     private string $oldWhen = '—';
 
@@ -63,13 +61,12 @@ final class RescheduleConsult extends Transition
     public function apply(Model $entity, ?User $actor, array $payload): void
     {
         $this->oldMeetId = filled($entity->meet_id) ? (string) $entity->meet_id : null;
-        $this->oldGoogleEventId = filled($entity->google_event_id) ? (string) $entity->google_event_id : null;
         $this->oldWhen = $entity->when_label ?: '—';
 
         $entity->appointment?->update(['status' => AppointmentStatus::Cancelled->value, 'tone' => 'b-grey', 'when_kind' => 'past']);
 
         /*
-         * **لا يبقى تاريخٌ قديم يُعاد بناؤه.** التقاويم الثلاثة وملفّ الاشتراك (ICS) ومزامنة Google
+         * **لا يبقى تاريخٌ قديم يُعاد بناؤه.** التقاويم الثلاثة وملفّ الاشتراك (ICS)
          * تبني الموعد من `day`/`time` حين يغيب `starts_at` — فكان مسحُ `starts_at` وحده يُبقي
          * الاستشارة على موعدها الملغى في كلّ تقويم (قيسَ على CN-2026-0336).
          * ويبقى `appointment_id`: لوحة المواعيد وسجلّ العميل يقرآن تفاصيل الموعد الملغى من خلاله.
@@ -84,7 +81,6 @@ final class RescheduleConsult extends Transition
             'meet_link' => null,
             'host_link' => null,
             'meet_password' => null,
-            'google_event_id' => null,
             'link_released_at' => null,
             'reminder_24h_sent_at' => null,
             'reminder_30m_sent_at' => null,
@@ -107,7 +103,7 @@ final class RescheduleConsult extends Transition
     public function events(Model $entity, string $from, ?User $actor, array $payload): array
     {
         return [new ConsultRescheduled(
-            $entity, $this->oldWhen, $this->oldMeetId, $this->oldGoogleEventId,
+            $entity, $this->oldWhen, $this->oldMeetId,
             $actor->name ?? 'النظام', $this->ticketReverted,
         )];
     }
