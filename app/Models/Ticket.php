@@ -4,11 +4,13 @@ namespace App\Models;
 
 use App\Domain\Journey\Enums\TicketStatus;
 use App\Domain\Journey\GuardsJourneyState;
+use App\Infrastructure\Repositories\EloquentTicketRepository;
 use App\Models\Concerns\ClipsPreviewText;
 use App\Models\Concerns\LinksLegalDepartment;
 use App\Models\Concerns\PurgesDocumentFiles;
 use App\Support\LawyerName;
 use App\Support\TicketJourney;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -138,6 +140,9 @@ class Ticket extends Model
         $hasExec = $this->relationLoaded('execution') ? (bool) $this->execution : $this->execution()->exists();
         $execNo = $hasExec ? ($this->relationLoaded('execution') ? $this->execution?->number : $this->execution()->value('number')) : null;
 
+        $entity = app(EloquentTicketRepository::class)->toEntity($this);
+        $actions = $entity->actionsMatrix($hasCase, $hasExec);
+
         return [
             'no' => $this->number,
             'type' => $this->type,
@@ -146,6 +151,8 @@ class Ticket extends Model
             'dept' => $this->department,
             // بطاقة العميل وحده (`TicketController`): تسميته لا حالة الاعتماد الداخليّة
             'status' => TicketStatus::labelForClient($this->status),
+            'statusCode' => $entity->status()->name,
+            'actions' => $actions,
             'phase' => TicketJourney::clientPhase((string) $this->status),
             'tone' => $this->tone ?: TicketJourney::toneFor($this->status),
             'last' => $this->last_message,
@@ -154,8 +161,8 @@ class Ticket extends Model
             // بطاقة العميل: «الاسم. الحرف» لمحامٍ مسنَد، والنائبُ كما هو (LawyerName)
             'lawyer' => LawyerName::forClient($this->assigned_lawyer_id ? $this->assignedLawyer : null, $this->assigned_lawyer, 'المستشار المخصص'),
             'step' => TicketJourney::indexOf($this->status),
-            'needsDoc' => $this->status === 'بانتظار مستندات',
-            'needsBooking' => $this->status === 'بانتظار حجز الاستشارة',
+            'needsDoc' => in_array($this->status, ['بانتظار مستندات', TicketStatus::AwaitingDocs->value], true),
+            'needsBooking' => in_array($this->status, ['بانتظار حجز الاستشارة', TicketStatus::AwaitingBooking->value], true),
             'hasCase' => $hasCase,
             'caseNumber' => $caseNo,
             'hasExecution' => $hasExec,
@@ -167,7 +174,7 @@ class Ticket extends Model
             'messagesCount' => $this->relationLoaded('messages') ? $this->messages->count() : $this->messages()->count(),
             'createdAt' => $this->created_at?->format('Y-m-d'),
             'isFrozen' => (bool) $this->is_frozen,
-            'isTerminal' => in_array($this->status, [TicketStatus::ConvertedToCase->value, TicketStatus::Closed->value], true),
+            'isTerminal' => $entity->isTerminal(),
             'trackGovernance' => $this->trackGovernance(),
         ];
     }
@@ -180,6 +187,9 @@ class Ticket extends Model
         $hasExec = $this->relationLoaded('execution') ? (bool) $this->execution : $this->execution()->exists();
         $execNo = $hasExec ? ($this->relationLoaded('execution') ? $this->execution?->number : $this->execution()->value('number')) : null;
 
+        $entity = app(EloquentTicketRepository::class)->toEntity($this);
+        $actions = $entity->actionsMatrix($hasCase, $hasExec);
+
         return [
             'no' => $this->number,
             'client' => self::maskClient($this->user?->name ?? ''),
@@ -191,6 +201,8 @@ class Ticket extends Model
             'lawyer' => $this->assigned_lawyer ?: '—',
             'lawyerId' => $this->assigned_lawyer_id,
             'status' => $this->status,
+            'statusCode' => $entity->status()->name,
+            'actions' => $actions,
             'tone' => $this->tone,
             'isFrozen' => (bool) $this->is_frozen,
             'hasCase' => $hasCase,
@@ -200,7 +212,7 @@ class Ticket extends Model
             'closureReason' => $this->closure_reason_code,
             'closureNotes' => $this->closure_notes,
             'canDecideOutcome' => in_array($this->status, [TicketStatus::ReadyForOutcome->value, TicketStatus::Completed->value], true) && ! $hasCase && ! $hasExec,
-            'isTerminal' => in_array($this->status, [TicketStatus::ConvertedToCase->value, TicketStatus::Closed->value], true),
+            'isTerminal' => $entity->isTerminal(),
             'trackGovernance' => $this->trackGovernance(),
         ];
     }
@@ -236,5 +248,28 @@ class Ticket extends Model
         $second = isset($parts[1]) ? ' '.mb_substr($parts[1], 0, 1).'•••' : '';
 
         return $masked.$second.' (مشفّر)';
+    }
+
+    /** النطاق المفتوح: التذاكر النشطة التي لم تبلغ حالة نهائية قطعية */
+    public function scopeOpen(Builder $query): Builder
+    {
+        return $query->whereNotIn('status', TicketStatus::finals());
+    }
+
+    /** النطاق النهائي: التذاكر المكتملة أو المغلقة أو المحولة */
+    public function scopeTerminal(Builder $query): Builder
+    {
+        return $query->whereIn('status', TicketStatus::finals());
+    }
+
+    /** هل التذكرة في حالة نهائية استناداً إلى كائن الدومين الصافي */
+    public function isTerminal(): bool
+    {
+        return app(EloquentTicketRepository::class)->toEntity($this)->isTerminal();
+    }
+
+    public function isClosed(): bool
+    {
+        return $this->isTerminal();
     }
 }

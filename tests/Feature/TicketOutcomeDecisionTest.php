@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Domain\Journey\Enums\ClosureReasonCode;
+use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Domain\Journey\Enums\TicketStatus;
 use App\Enums\Role;
 use App\Models\LegalCase;
@@ -37,10 +38,21 @@ class TicketOutcomeDecisionTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'أ. سارة القحطاني']);
+        $admin = User::factory()->create(['role' => Role::Admin]);
         $ticket = $this->readyForOutcomeTicket($client, $lawyer);
 
         $this->actingAs($lawyer)
-            ->post(route('lawyer.tickets.convert', $ticket))
+            ->post(route('lawyer.tickets.track.propose', $ticket), [
+                'track' => TicketOutcomeTrack::Case->value,
+                'reason' => 'النزاع التجاري يتطلب إقامة دعوى قضائية أمام المحكمة التجارية.',
+            ])
+            ->assertRedirect();
+
+        $this->actingAs($admin)
+            ->post(route('admin.tickets.track.approve', $ticket), [
+                'track' => TicketOutcomeTrack::Case->value,
+                'reason' => 'اعتماد الإدارة العليا لمسار القضية وإحالتها للفريق القضائي.',
+            ])
             ->assertRedirect();
 
         $ticket->refresh();
@@ -57,12 +69,21 @@ class TicketOutcomeDecisionTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'أ. سارة القحطاني']);
+        $admin = User::factory()->create(['role' => Role::Admin]);
         $ticket = $this->readyForOutcomeTicket($client, $lawyer);
 
         $this->actingAs($lawyer)
-            ->post(route('lawyer.tickets.close', $ticket), [
+            ->post(route('lawyer.tickets.track.propose', $ticket), [
+                'track' => TicketOutcomeTrack::Close->value,
+                'reason' => 'تم تقديم الرأي والمشورة القانونية واكتفاء المستفيد بما ورد فيه.',
+            ])
+            ->assertRedirect();
+
+        $this->actingAs($admin)
+            ->post(route('admin.tickets.track.approve', $ticket), [
+                'track' => TicketOutcomeTrack::Close->value,
                 'closure_reason_code' => ClosureReasonCode::OpinionSatisfied->value,
-                'closure_notes' => 'تم تقديم الرأي والمشورة القانونية واكتفاء المستفيد بما ورد فيه.',
+                'reason' => 'تم تقديم الرأي والمشورة القانونية واكتفاء المستفيد بما ورد فيه.',
             ])
             ->assertRedirect();
 
@@ -70,7 +91,7 @@ class TicketOutcomeDecisionTest extends TestCase
         $this->assertSame(TicketStatus::Closed->value, $ticket->status);
         $this->assertSame(ClosureReasonCode::OpinionSatisfied->value, $ticket->closure_reason_code);
         $this->assertSame('تم تقديم الرأي والمشورة القانونية واكتفاء المستفيد بما ورد فيه.', $ticket->closure_notes);
-        $this->assertSame($lawyer->id, $ticket->closed_by_id);
+        $this->assertSame($admin->id, $ticket->approved_by_id);
         $this->assertTrue($ticket->is_frozen);
         $this->assertNotNull($ticket->outcome_decision_at);
     }
@@ -82,9 +103,10 @@ class TicketOutcomeDecisionTest extends TestCase
         $ticket = $this->readyForOutcomeTicket($client);
 
         $this->actingAs($admin)
-            ->post(route('admin.tickets.close', $ticket), [
+            ->post(route('admin.tickets.track.approve', $ticket), [
+                'track' => TicketOutcomeTrack::Close->value,
                 'closure_reason_code' => ClosureReasonCode::SettledAmicably->value,
-                'closure_notes' => 'تم التوصل إلى تسوية ودية بين الطرفين.',
+                'reason' => 'تم التوصل إلى تسوية ودية بين الطرفين ولا حاجة لإجراء إضافي.',
             ])
             ->assertRedirect();
 
@@ -92,52 +114,48 @@ class TicketOutcomeDecisionTest extends TestCase
         $this->assertSame(TicketStatus::Closed->value, $ticket->status);
         $this->assertSame(ClosureReasonCode::SettledAmicably->value, $ticket->closure_reason_code);
         $this->assertTrue($ticket->is_frozen);
-        $this->assertSame($admin->id, $ticket->closed_by_id);
+        $this->assertSame($admin->id, $ticket->approved_by_id);
     }
 
     public function test_frozen_ticket_cannot_be_converted_or_closed_again(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = $this->readyForOutcomeTicket($client, $lawyer);
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $ticket = $this->readyForOutcomeTicket($client);
 
-        // إغلاق التذكرة
-        $this->actingAs($lawyer)
-            ->post(route('lawyer.tickets.close', $ticket), [
+        // إغلاق التذكرة عبر مسار الحوكمة
+        $this->actingAs($admin)
+            ->post(route('admin.tickets.track.approve', $ticket), [
+                'track' => TicketOutcomeTrack::Close->value,
                 'closure_reason_code' => ClosureReasonCode::OpinionSatisfied->value,
+                'reason' => 'تم تقديم الرأي والمشورة القانونية للعميل.',
             ])
             ->assertRedirect();
 
         $ticket->refresh();
         $this->assertTrue($ticket->is_frozen);
 
-        // محاولة إغلاق مرة أخرى تفشل
-        $this->actingAs($lawyer)
-            ->post(route('lawyer.tickets.close', $ticket), [
-                'closure_reason_code' => ClosureReasonCode::SettledAmicably->value,
+        // محاولة اعتماد مسار مرة أخرى على تذكرة مجمدة تفشل بالحارس برمز 422
+        $this->actingAs($admin)
+            ->post(route('admin.tickets.track.approve', $ticket), [
+                'track' => TicketOutcomeTrack::Case->value,
+                'reason' => 'محاولة تحويل بعد التجميد النهائي للطلب.',
             ])
-            ->assertSessionHasErrors('ticket');
-
-        // محاولة تحويل التذكرة المغلقة تفشل
-        $this->actingAs($lawyer)
-            ->post(route('lawyer.tickets.convert', $ticket))
-            ->assertSessionHasErrors('ticket');
+            ->assertStatus(422);
     }
 
-    /** العميل ليس له صلاحية «إدارة القضايا والأتعاب» — الميدلوير يعيد التوجيه لا 403 */
+    /** العميل ليس له صلاحية اعتماد المسار — الميدلوير يعيد التوجيه لا 403 */
     public function test_client_cannot_convert_or_close_ticket(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $ticket = $this->readyForOutcomeTicket($client);
 
-        // الميدلوير permission: يعيد التوجيه (302) لا يُرجع 403 — العميل ليس لديه الدور أصلاً
-        $convertResponse = $this->actingAs($client)
-            ->post(route('lawyer.tickets.convert', $ticket));
-        $this->assertTrue(in_array($convertResponse->status(), [302, 403]));
-
-        $closeResponse = $this->actingAs($client)
-            ->post(route('lawyer.tickets.close', $ticket));
-        $this->assertTrue(in_array($closeResponse->status(), [302, 403]));
+        $response = $this->actingAs($client)
+            ->post(route('admin.tickets.track.approve', $ticket), [
+                'track' => TicketOutcomeTrack::Case->value,
+                'reason' => 'محاولة اعتماد غير مصرحة للعميل.',
+            ]);
+        $this->assertTrue(in_array($response->status(), [302, 403]));
 
         // التذكرة لم تتغير — لا تحويل ولا إغلاق
         $ticket->refresh();

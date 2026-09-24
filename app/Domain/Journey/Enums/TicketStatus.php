@@ -29,6 +29,7 @@ enum TicketStatus: string
 
     // ── الحالات النهائية (Terminal Decisions) ──
     case ConvertedToCase = 'محولة إلى قضية';
+    case ConvertedToExecution = 'محولة إلى تنفيذ';
     case Closed = 'مغلقة';
 
     // ── انتقاليّة: مكتملة (تنتقل لقرار المآل) ──
@@ -40,7 +41,7 @@ enum TicketStatus: string
     /** هل الحالة نهائية قطعية؟ (يُجمد السجل معها) */
     public function isTerminal(): bool
     {
-        return in_array($this, [self::ConvertedToCase, self::Closed], true);
+        return in_array($this, [self::ConvertedToCase, self::ConvertedToExecution, self::Closed], true);
     }
 
     public function isFinal(): bool
@@ -57,6 +58,7 @@ enum TicketStatus: string
             self::ReadyForOutcome => 'اكتملت الدراسة — بانتظار القرار النهائي',
             self::AwaitingAdminOutcomeApproval => 'قيد دراسة وتوجيه الإدارة العليا',
             self::ConvertedToCase => 'تم تحويل الطلب إلى قضية رسمية',
+            self::ConvertedToExecution => 'تم تحويل الطلب إلى ملف تنفيذ قضائي',
             self::Closed => 'طلب مكتمل ومغلق',
             default => $this->value,
         };
@@ -81,7 +83,7 @@ enum TicketStatus: string
     /** @return list<string> */
     public static function finals(): array
     {
-        return [self::ConvertedToCase->value, self::Closed->value, self::Completed->value];
+        return [self::ConvertedToCase->value, self::ConvertedToExecution->value, self::Closed->value, self::Completed->value];
     }
 
     /** @return list<string> */

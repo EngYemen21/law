@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Enums\Role;
 use App\Models\LegalCase;
 use App\Models\Ticket;
@@ -139,8 +140,24 @@ class TicketEndToEndFlowTest extends TestCase
         // 9. اكتمال دراسة الملف وتحويل التذكرة لحالة مكتملة
         $ticket->update(['status' => 'مكتملة', 'tone' => 'b-green']);
 
-        // 10. تحويل التذكرة إلى قضية رسمية عبر TicketActionsPanel (POST /lawyer/tickets/{ticket}/convert)
-        $convertRes = $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket));
+        $admin = User::factory()->create([
+            'role' => Role::Admin,
+            'name' => 'مدير النظام',
+            'national_id' => '1000000004',
+            'phone' => '0500000004',
+        ]);
+        $admin->syncPermissions(Permission::all());
+
+        // 10. اقتراح المستشار لمسار القضية ثم اعتماد الإدارة العليا للمسار الرسمي عبر حوكمة المسارات
+        $this->actingAs($lawyer)->post(route('lawyer.tickets.track.propose', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'النزاع التجاري يتطلب إقامة دعوى قضائية أمام المحكمة التجارية.',
+        ])->assertRedirect();
+
+        $convertRes = $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'اعتماد الإدارة العليا لتحويل التذكرة إلى ملف قضية رسمي ومباشرة الترافع.',
+        ]);
         $convertRes->assertRedirect();
 
         $ticket->refresh();

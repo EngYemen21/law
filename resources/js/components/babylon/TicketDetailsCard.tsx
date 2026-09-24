@@ -15,11 +15,20 @@ interface Props {
 const rowStyle: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
+  alignItems: 'flex-start',
+  gap: '12px',
   padding: '7px 0',
   borderBottom: '1px solid #eef1f4',
 };
-const keyStyle: React.CSSProperties = { color: '#667', fontSize: 13 };
-const valStyle: React.CSSProperties = { fontWeight: 600, fontSize: 13 };
+const keyStyle: React.CSSProperties = { color: '#667', fontSize: 13, flexShrink: 0, whiteSpace: 'nowrap' };
+const valStyle: React.CSSProperties = {
+  fontWeight: 600,
+  fontSize: 13,
+  textAlign: 'left',
+  wordBreak: 'break-word',
+  overflowWrap: 'break-word',
+  minWidth: 0,
+};
 
 const TicketDetailsCard: React.FC<Props> = ({ subject, dept, service, mobile, priority }) => {
   const rows: [string, string][] = [];

@@ -54,11 +54,11 @@ class TicketController extends Controller
 
         // 2. الفلترة بحسب الحالة
         if ($status === 'open') {
-            $query->whereNotIn('status', ['مكتملة', 'مغلقة']);
+            $query->open();
         } elseif ($status === 'pending_admin') {
             self::awaitingAdmin($query);
         } elseif ($status === 'completed') {
-            $query->where('status', 'مكتملة');
+            $query->terminal();
         } elseif ($status !== '') {
             $query->where('status', $status);
         }
@@ -136,10 +136,10 @@ class TicketController extends Controller
             'lawyers' => $lawyers,
             'summaryStats' => [
                 'total' => Ticket::count(),
-                'open' => Ticket::whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
+                'open' => Ticket::open()->count(),
                 // الشرط نفسه الذي يرشّح به التبويب — فالعدّاد يعدّ ما يعرضه
                 'pending_admin' => self::awaitingAdmin(Ticket::query())->count(),
-                'completed' => Ticket::where('status', 'مكتملة')->count(),
+                'completed' => Ticket::terminal()->count(),
             ],
         ]);
     }
@@ -168,11 +168,12 @@ class TicketController extends Controller
 
     public function show(Ticket $ticket): Response
     {
-        $ticket->load(['user', 'summary', 'legalCase']);
+        $ticket->load(['user', 'summary', 'legalCase', 'execution']);
 
         return Inertia::render('lawyer/ticketchat', [
             'ticket' => array_merge($ticket->toEmployeeCard(), [
                 'caseRef' => $ticket->legalCase?->number,
+                'execRef' => $ticket->execution?->number,
                 // الإدارة ترى الاسم الكامل + الجوال (بطاقة «تفاصيل الطلب»)
                 'client' => $ticket->user?->name ?? '—',
                 'mobile' => $ticket->user?->phone,
@@ -182,7 +183,8 @@ class TicketController extends Controller
             'messages' => ConversationFiles::linkLegacyChips($ticket->messages->map->toMessage()->all(), 'ticket', $ticket->documents),
             'summary' => $ticket->summary?->toData(),
             // كانت مفقودة ⇒ canConvert صحيح دائماً فيظهر زر التحويل حتى بعد التحويل
-            'converted' => (bool) $ticket->legalCase,
+            'converted' => (bool) ($ticket->legalCase || $ticket->execution),
+            'convertedType' => $ticket->execution ? 'execution' : ($ticket->legalCase ? 'case' : null),
             'base' => '/admin',
         ]);
     }

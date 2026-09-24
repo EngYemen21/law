@@ -2,12 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Enums\Role;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\TicketSummary;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 /**
@@ -21,12 +23,6 @@ use Tests\TestCase;
  * ويثبّت أيضاً شكل المسار المركَّب من **رقم** التذكرة لا معرّفها — وهو يعمل لأن
  * Ticket::getRouteKeyName() يعيد 'number'. تغيير مفتاح الربط إلى id يكسره بـ404 بلا أن
  * يسقط أي اختبار خادميّ.
- *
- * ⚠️ **تحديث 2026-09-20:** زرُّ «تحويل إلى قضية رسمية» **أُخفي من `TicketActionsPanel`**
- * لأنّه كان يحوّل بلا تسبيبٍ ولا اعتماد إدارة، فيلتفّ على حوكمة المسارات الأربعة. والمسار
- * الذي يفحصه هذا الملفّ **باقٍ في الخادم عامداً** إلى أن يُحذف في خطوةٍ مستقلّة بقرار المالك.
- * فما يحرسه هذا الملفّ اليوم هو **المسار الخادميّ ورايات الحمولة**، لا زرٌّ في الواجهة.
- * ويحرس `TicketPanelCleanupTest` بقاء الزرّ مخفيّاً.
  */
 class TicketConvertContractTest extends TestCase
 {
@@ -54,17 +50,20 @@ class TicketConvertContractTest extends TestCase
         ]);
     }
 
-    /** المسار الذي تركّبه الواجهة من رقم التذكرة يصل فعلاً إلى المتحكّم (ربط بـnumber لا id). */
+    /** المسار الحوكمي الرسمي الذي تركّبه الواجهة من رقم التذكرة يصل فعلاً إلى المتحكّم (ربط بـnumber لا id). */
     public function test_the_url_the_frontend_builds_from_the_ticket_number_converts(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
         $ticket = $this->completedTicket($client, $lawyer);
 
-        // نفس التركيب الحرفي في TicketActionsPanel.convertToCase (encodeURIComponent ≈ rawurlencode)
-        $endpoint = '/lawyer/tickets/'.rawurlencode($ticket->number).'/convert';
+        $endpoint = '/admin/tickets/'.rawurlencode($ticket->number).'/track/approve';
 
-        $this->actingAs($lawyer)->post($endpoint)->assertRedirect();
+        $this->actingAs($admin)->post($endpoint, [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'اعتماد المسار برقم التذكرة المرمّز.',
+        ])->assertRedirect();
 
         $this->assertSame(1, LegalCase::where('ticket_id', $ticket->id)->count());
     }
@@ -74,6 +73,7 @@ class TicketConvertContractTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
         $ticket = $this->completedTicket($client, $lawyer);
 
         // قبل التحويل: canConvert في الواجهة = status==='مكتملة' && !converted
@@ -85,7 +85,10 @@ class TicketConvertContractTest extends TestCase
                 ->where('converted', false)
                 ->where('base', '/lawyer'));
 
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
+        $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'اعتماد الإدارة لمسار القضية.',
+        ])->assertRedirect();
         $case = LegalCase::where('ticket_id', $ticket->id)->firstOrFail();
 
         // بعد التحويل: caseRef يحمل رقم القضية فيصير الزرّ رابط «عرض ملف القضية»
@@ -100,6 +103,7 @@ class TicketConvertContractTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $employee = User::factory()->create(['role' => Role::Employee]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
         $ticket = $this->completedTicket($client, $lawyer);
 
         // بلا اعتماد: الراية false ⇒ mayConvert=false ⇒ لا زرّ (بدل زرّ يرتدّ برسالة رفض)
@@ -113,9 +117,11 @@ class TicketConvertContractTest extends TestCase
         $this->actingAs($employee)->get(route('employee.tickets.show', $ticket))
             ->assertInertia(fn ($p) => $p->where('ticket.summaryApproved', true));
 
-        // والزرّ الظاهر الآن ينجح فعلاً على المسار الذي تبنيه الواجهة لدور employee
-        $this->actingAs($employee)->post('/employee/tickets/'.rawurlencode($ticket->number).'/convert')
-            ->assertRedirect();
+        // والتحويل الحوكمي الرسمي ينجح عبر مسار الإدارة برقم التذكرة
+        $this->actingAs($admin)->post('/admin/tickets/'.rawurlencode($ticket->number).'/track/approve', [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'اعتماد الإدارة العليا لمسار القضية.',
+        ])->assertRedirect();
         $this->assertSame(1, LegalCase::where('ticket_id', $ticket->id)->count());
     }
 
@@ -133,23 +139,19 @@ class TicketConvertContractTest extends TestCase
         $this->actingAs($admin)->get(route('admin.tickets.show', $ticket))
             ->assertInertia(fn ($p) => $p->where('base', '/admin'));
 
-        $this->actingAs($admin)->post('/admin/tickets/'.rawurlencode($ticket->number).'/convert')
-            ->assertRedirect();
+        $this->actingAs($admin)->post('/admin/tickets/'.rawurlencode($ticket->number).'/track/approve', [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'اعتماد الإدارة العليا لمسار القضية.',
+        ])->assertRedirect();
         $this->assertSame(1, LegalCase::where('ticket_id', $ticket->id)->count());
     }
 
-    /** ورسالة الرفض تصل الواجهة تحت المفتاح 'ticket' الذي يقرأه onError في اللوحة. */
-    public function test_rejection_reaches_the_panel_under_the_ticket_key(): void
+    /** تأكيد غياب مسارات التحويل المباشر القديمة نهائياً من سجل المسارات (ADR-009). */
+    public function test_legacy_convert_routes_are_completely_absent(): void
     {
-        $client = User::factory()->create(['role' => Role::Client]);
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = $this->completedTicket($client, $lawyer);
-        $ticket->update(['status' => 'الرأي القانوني']);
-
-        // Object.values(errors)[0] في onError يقرأ أوّل قيمة — فالمفتاح لا بدّ أن يكون 'ticket'
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))
-            ->assertSessionHasErrors(['ticket' => 'لا يمكن تحويل التذكرة لقضية إلا بعد اكتمالها.']);
-
-        $this->assertSame(0, LegalCase::where('ticket_id', $ticket->id)->count());
+        $this->assertFalse(Route::has('lawyer.tickets.convert'));
+        $this->assertFalse(Route::has('employee.tickets.convert'));
+        $this->assertFalse(Route::has('admin.tickets.convert'));
+        $this->assertFalse(Route::has('tickets.convert'));
     }
 }

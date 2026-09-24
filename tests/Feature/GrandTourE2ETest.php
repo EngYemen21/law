@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Enums\Role;
 use App\Jobs\GenerateTicketReplyJob;
 use App\Models\Execution;
@@ -102,9 +103,12 @@ class GrandTourE2ETest extends TestCase
             $this->assertTrue($ticket->messages()->where('body', 'like', "%{$body}%")->exists(), "رسالة {$who} مفقودة");
         }
 
-        // اكتمال الدراسة (تختصر مراحل advance المغطّاة في TicketJourneyWalkTest) ثم زر «تحويل لقضية»
+        // اكتمال الدراسة ثم اعتماد الإدارة العليا لمسار القضية عبر حوكمة المسارات
         $ticket->update(['status' => 'مكتملة', 'tone' => 'b-green']);
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
+        $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'اعتماد الإدارة العليا لتحويل التذكرة إلى قضية رسمية مباشرة.',
+        ])->assertRedirect();
         $case = LegalCase::where('ticket_id', $ticket->id)->firstOrFail();
         $this->assertSame('بانتظار اعتماد الأتعاب', $case->status);
 

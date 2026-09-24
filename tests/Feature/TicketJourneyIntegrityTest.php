@@ -2,15 +2,18 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Enums\Role;
 use App\Events\TicketStatusBroadcast;
 use App\Models\JourneyTransition;
+use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Support\TicketJourney;
 use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 /**
@@ -110,10 +113,22 @@ class TicketJourneyIntegrityTest extends TestCase
             ->post(route('employee.tickets.status', $ticket), ['status' => 'مكتملة'])
             ->assertForbidden();
 
-        // …فيبقى تحويل التذكرة إلى قضية مقفلاً (يشترط «مكتملة»)
+        // المسار المباشر القديم محذوف نهائياً (ADR-009)
+        $this->assertFalse(
+            Route::has('employee.tickets.convert'),
+            'مسار employee.tickets.convert لا يزال مسجلاً.'
+        );
+
+        // مقترح الحوكمة يقبل من حالة «قيد التحليل» لكن ينتقل لـ«بانتظار اعتماد النتيجة» — لا تحويل مباشر
         $this->actingAs($employee)
-            ->post(route('employee.tickets.convert', $ticket))
-            ->assertSessionHasErrors('ticket');
+            ->post(route('employee.tickets.track.propose', $ticket), [
+                'track' => TicketOutcomeTrack::Case->value,
+                'reason' => 'رفع مقترح مسار — يحتاج اعتماد الإدارة العليا.',
+            ])
+            ->assertRedirect();
+
+        $this->assertSame('بانتظار اعتماد الإدارة للمسار', $ticket->fresh()->status);
+        $this->assertSame(0, LegalCase::where('ticket_id', $ticket->id)->count());
     }
 
     // ── الإدارة: تصحيحٌ مسبَّب ──

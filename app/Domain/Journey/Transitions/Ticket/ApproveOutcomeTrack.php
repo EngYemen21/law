@@ -64,7 +64,7 @@ final class ApproveOutcomeTrack extends Transition
         return match ($track) {
             TicketOutcomeTrack::Consultation => TicketStatus::AwaitingBooking->value,
             TicketOutcomeTrack::Case => TicketStatus::ConvertedToCase->value,
-            TicketOutcomeTrack::Execution => TicketStatus::ConvertedToCase->value,
+            TicketOutcomeTrack::Execution => TicketStatus::ConvertedToExecution->value,
             TicketOutcomeTrack::Close => TicketStatus::Closed->value,
             default => TicketStatus::Closed->value,
         };
@@ -193,7 +193,7 @@ final class ApproveOutcomeTrack extends Transition
 
     private function applyExecution(Ticket $entity, ?User $actor, string $reason): void
     {
-        $entity->status = TicketStatus::ConvertedToCase->value;
+        $entity->status = TicketStatus::ConvertedToExecution->value;
         $entity->tone = 'b-amber';
         $entity->is_frozen = true;
         $entity->last_message = 'اعتمدت الإدارة العليا مسار التحويل لملف تنفيذ قضائي.';
@@ -218,6 +218,13 @@ final class ApproveOutcomeTrack extends Transition
             'time_label' => self::clock(),
         ]);
         DB::afterCommit(fn () => Live::push(new TicketMessageBroadcast($msg)));
+
+        self::notifyAfterCommit(
+            $entity->user_id,
+            'card',
+            't-amber',
+            "اعتمدت الإدارة العليا مسار تذكرتك {$entity->number}: تحويل لملف تنفيذ قضائي".($execRef ? " برقم {$execRef}" : '').'. تابعه من «طلبات التنفيذ».'
+        );
     }
 
     private function applyClose(Ticket $entity, ?User $actor, array $payload, string $reason): void

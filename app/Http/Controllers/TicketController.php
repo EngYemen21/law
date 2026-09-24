@@ -57,12 +57,12 @@ class TicketController extends Controller
 
         $counts = [
             'total' => $tickets->count(),
-            'active' => $tickets->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
-            'needsAction' => $tickets->whereIn('status', ['بانتظار مستندات', 'بانتظار حجز الاستشارة'])->count(),
+            'active' => $tickets->where('isTerminal', false)->count(),
+            'needsAction' => $tickets->filter(fn ($t) => ! empty($t['needsDoc']) || ! empty($t['needsBooking']))->count(),
             // من مجموعة التبويب نفسها (`TicketJourney::CLIENT_PHASES`) — العدّاد يعدّ ما يعرضه تبويبه
             'inAnalysis' => $tickets->where('phase', 'analysis')->count(),
             'inOpinion' => $tickets->where('phase', 'opinion')->count(),
-            'completed' => $tickets->whereIn('status', ['مكتملة', 'مغلقة'])->count(),
+            'completed' => $tickets->where('isTerminal', true)->count(),
         ];
 
         return Inertia::render('tickets', [
@@ -261,7 +261,7 @@ class TicketController extends Controller
     {
         $this->authorizeTicket($request, $ticket);
 
-        if (in_array($ticket->status, ['مكتملة', 'مغلقة'], true)) {
+        if ($ticket->isTerminal() || $ticket->is_frozen) {
             throw ValidationException::withMessages([
                 'body' => 'لا يمكن إرسال رسائل على تذكرة مكتملة أو مغلقة.',
             ]);
@@ -298,6 +298,12 @@ class TicketController extends Controller
     public function attach(Request $request, Ticket $ticket): HttpResponse
     {
         $this->authorizeTicket($request, $ticket);
+
+        if ($ticket->isTerminal() || $ticket->is_frozen) {
+            throw ValidationException::withMessages([
+                'file' => 'لا يمكن إرفاق مستندات على تذكرة مكتملة أو مغلقة.',
+            ]);
+        }
 
         $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:'.self::ALLOWED_DOC_MIMES]]); // حتى 10MB
 

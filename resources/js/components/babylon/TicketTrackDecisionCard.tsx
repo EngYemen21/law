@@ -93,7 +93,7 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
   const toast = useToast();
   const isAdmin = role === 'admin';
 
-  const approved = governance?.approvedTrack || (status === 'محولة إلى قضية' ? (hasExecution ? 'execution' : 'case') : status === 'مغلقة' ? 'close' : null);
+  const approved = governance?.approvedTrack || (status === 'محولة إلى تنفيذ' ? 'execution' : status === 'محولة إلى قضية' ? (hasExecution ? 'execution' : 'case') : status === 'مغلقة' ? 'close' : null);
   const proposed = governance?.proposedTrack;
 
   // Selected track state defaults to proposed or AI suggested or consultation
@@ -266,7 +266,7 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
                 </button>
               )}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-soft, #334155)', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-soft, #334155)', lineHeight: 1.5, whiteSpace: 'pre-line', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
               <strong>السبب الحقيقي:</strong> {governance.aiSuggestedReason}
             </div>
           </div>
@@ -289,7 +289,7 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
                   {currentTrackMeta?.label}
                 </b>
               </div>
-              <div style={{ fontSize: 12.5, color: '#1e293b', marginBottom: 8, lineHeight: 1.5, whiteSpace: 'pre-line' }}>
+              <div style={{ fontSize: 12.5, color: '#1e293b', marginBottom: 8, lineHeight: 1.5, whiteSpace: 'pre-line', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                 <strong>السبب والمبرر المعتمد:</strong> {governance?.approvedTrackReason || closureNotes || '—'}
               </div>
               {governance?.approvedBy && (
@@ -359,7 +359,7 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
                   {currentTrackMeta?.label}
                 </span>
               </div>
-              <div style={{ fontSize: 12.5, color: '#451a03', marginBottom: 8, lineHeight: 1.5, whiteSpace: 'pre-line' }}>
+              <div style={{ fontSize: 12.5, color: '#451a03', marginBottom: 8, lineHeight: 1.5, whiteSpace: 'pre-line', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                 <strong>تسبيب المقترح:</strong> {governance?.proposedTrackReason || '—'}
               </div>
               {governance?.proposedBy && (
@@ -436,7 +436,7 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
                         style={{ cursor: 'pointer' }}
                       />
                     </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', paddingRight: 22 }}>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', paddingInlineStart: 22 }}>
                       {t.desc}
                     </div>
                   </div>

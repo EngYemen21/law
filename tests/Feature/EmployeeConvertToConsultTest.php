@@ -2,8 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\TicketOutcomeTrack;
+use App\Domain\Journey\Enums\TicketStatus;
 use App\Enums\Role;
-use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -11,16 +12,19 @@ use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
- * «تحويل التذكرة إلى استشارة» — الموظف يُنشئ طلب تسعير نيابةً عن العميل بنفس حرّاس مسار
- * حجز العميل: رأيٌ قانونيّ اعتمدته الإدارة (2026-09-14)، ولا حالة نهائية، ولا ازدواج طلب.
+ * حوكمة مسار الاستشارة القانونية (ADR-009: Single Source of Truth & Zero Bypass).
+ *
+ * أُزيل زرّ الالتفاف السريع ومسار convert-consult؛ وصار توجيه التذكرة لمسار الاستشارة
+ * يمرّ حصراً عبر دورة الحوكمة المعتمدة:
+ * اقتراح مسار مسبّب ➔ اعتماد الإدارة العليا المشروط بالتسبيب ➔ انتقال الدومين عبر ApproveOutcomeTrack.
  */
 class EmployeeConvertToConsultTest extends TestCase
 {
     use BuildsConsultJourney;
     use RefreshDatabase;
 
-    /** @return array{0: Ticket, 1: User, 2: User} */
-    private function ticketWithEmployee(string $status = 'الرأي القانوني'): array
+    /** @return array{0: Ticket, 1: User, 2: User, 3: User} */
+    private function ticketFixture(string $status = 'الرأي القانوني'): array
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $ticket = $this->ticketWithApprovedOpinion($client, [
@@ -30,65 +34,98 @@ class EmployeeConvertToConsultTest extends TestCase
             'status' => $status,
         ]);
         $employee = User::factory()->create(['role' => Role::Employee]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
 
-        return [$ticket, $employee, $client];
+        return [$ticket, $employee, $admin, $client];
     }
 
-    public function test_employee_converts_ticket_to_consult_pricing_request(): void
+    public function test_employee_proposes_consultation_track_with_reason(): void
     {
-        [$ticket, $employee, $client] = $this->ticketWithEmployee();
+        [$ticket, $employee] = $this->ticketFixture();
 
-        $this->actingAs($employee)
-            ->post(route('employee.tickets.convert-consult', $ticket))
-            ->assertNoContent();
+        $response = $this->actingAs($employee)
+            ->post(route('employee.tickets.track.propose', $ticket), [
+                'track' => TicketOutcomeTrack::Consultation->value,
+                'reason' => 'المسألة تتطلب عقد جلسة استشارية متخصصة لدراسة بنود عقد الشراكة.',
+            ]);
 
-        $consult = Consult::where('ticket_id', $ticket->id)->first();
-        $this->assertNotNull($consult);
-        $this->assertSame('بانتظار التسعير', $consult->status);
-        $this->assertSame($client->id, $consult->user_id);
-        $this->assertTrue($ticket->fresh()->messages->contains(
-            fn ($m) => $m->who === 'staff' && str_contains($m->body, 'تحويل التذكرة إلى طلب استشارة')
+        $response->assertRedirect();
+        $ticket->refresh();
+        $this->assertSame(TicketOutcomeTrack::Consultation->value, $ticket->proposed_track);
+        $this->assertNotNull($ticket->proposed_at);
+        $this->assertSame($employee->id, $ticket->proposed_by_id);
+    }
+
+    public function test_admin_approves_consultation_track_and_transitions_ticket(): void
+    {
+        [$ticket, , $admin, $client] = $this->ticketFixture();
+
+        $response = $this->actingAs($admin)
+            ->post(route('admin.tickets.track.approve', $ticket), [
+                'track' => TicketOutcomeTrack::Consultation->value,
+                'reason' => 'نوافق على الرأي ونوجّه بعقد جلسة استشارية مع المستشار المختص.',
+            ]);
+
+        $response->assertRedirect();
+        $ticket->refresh();
+
+        // انتقال الحالة الرسمي في الدومين
+        $this->assertSame(TicketStatus::AwaitingBooking->value, $ticket->status);
+        $this->assertSame(TicketOutcomeTrack::Consultation->value, $ticket->approved_track);
+        $this->assertSame($admin->id, $ticket->approved_by_id);
+        $this->assertNotNull($ticket->approved_track_at);
+
+        // نشر قرار الإدارة والتسبيب في رسائل المحادثة للعميل
+        $this->assertTrue($ticket->messages->contains(
+            fn ($m) => $m->who === 'admin' && str_contains($m->body, 'قرار الإدارة العليا: توجيه بطلب استشارة قانونية')
         ));
-        $this->assertDatabaseHas('user_notifications', ['user_id' => $client->id, 'icon' => 'cal']);
     }
 
-    public function test_rejects_conversion_on_completed_ticket(): void
+    public function test_rejects_track_approval_with_short_reason(): void
     {
-        [$ticket, $employee] = $this->ticketWithEmployee('مكتملة');
+        [$ticket, , $admin] = $this->ticketFixture();
 
-        $this->actingAs($employee)
-            ->postJson(route('employee.tickets.convert-consult', $ticket))
-            ->assertStatus(422);
+        $this->actingAs($admin)
+            ->post(route('admin.tickets.track.approve', $ticket), [
+                'track' => TicketOutcomeTrack::Consultation->value,
+                'reason' => 'قصير', // أقل من 10 أحرف
+            ])
+            ->assertSessionHasErrors('reason');
 
-        $this->assertSame(0, Consult::where('ticket_id', $ticket->id)->count());
+        $this->assertNotSame(TicketStatus::AwaitingBooking->value, $ticket->fresh()->status);
     }
 
-    /** **لا تحويلَ قبل اعتماد الرأي المبدئيّ** — تذكرةٌ قيد التحليل لم يكتمل ملخّصها. */
-    public function test_rejects_conversion_before_the_opinion_is_approved(): void
+    public function test_rejects_track_approval_on_frozen_ticket(): void
     {
-        $client = User::factory()->create(['role' => Role::Client]);
-        $ticket = Ticket::create([
-            'user_id' => $client->id, 'number' => 'SB-2026-7101', 'type' => 'استشارة قانونية',
-            'status' => 'قيد التحليل', 'tone' => 'b-blue',
-        ]);
-        $employee = User::factory()->create(['role' => Role::Employee]);
+        [$ticket, , $admin] = $this->ticketFixture();
+        $ticket->update(['is_frozen' => true]);
 
-        $this->actingAs($employee)
-            ->postJson(route('employee.tickets.convert-consult', $ticket))
-            ->assertStatus(422);
+        $this->actingAs($admin)
+            ->post(route('admin.tickets.track.approve', $ticket), [
+                'track' => TicketOutcomeTrack::Consultation->value,
+                'reason' => 'محاولة اعتماد مسار على تذكرة مجمّدة مسبقاً.',
+            ]);
 
-        $this->assertSame(0, Consult::where('ticket_id', $ticket->id)->count());
+        // الحارس يمنع التعديل على التذكرة المجمدة
+        $this->assertNull($ticket->fresh()->approved_track);
     }
 
-    public function test_rejects_duplicate_pending_consult(): void
+    public function test_non_admin_cannot_approve_outcome_track(): void
     {
-        [$ticket, $employee] = $this->ticketWithEmployee();
+        [$ticket, $employee] = $this->ticketFixture();
 
-        $this->actingAs($employee)->post(route('employee.tickets.convert-consult', $ticket))->assertNoContent();
         $this->actingAs($employee)
-            ->postJson(route('employee.tickets.convert-consult', $ticket))
-            ->assertStatus(422);
+            ->post(route('admin.tickets.track.approve', $ticket), [
+                'track' => TicketOutcomeTrack::Consultation->value,
+                'reason' => 'محاولة اعتماد غير مصرحة من موظف عادي.',
+            ])
+            ->assertRedirect('/employee/dashboard');
 
-        $this->assertSame(1, Consult::where('ticket_id', $ticket->id)->count());
+        $this->actingAs($employee)
+            ->postJson(route('admin.tickets.track.approve', $ticket), [
+                'track' => TicketOutcomeTrack::Consultation->value,
+                'reason' => 'محاولة اعتماد غير مصرحة من موظف عادي.',
+            ])
+            ->assertForbidden();
     }
 }

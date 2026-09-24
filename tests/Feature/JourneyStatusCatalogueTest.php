@@ -27,9 +27,10 @@ class JourneyStatusCatalogueTest extends TestCase
 
     public function test_the_ticket_finals_are_exactly_completed_and_closed(): void
     {
-        $this->assertSame([TicketStatus::ConvertedToCase->value, TicketStatus::Closed->value, TicketStatus::Completed->value], TicketStatus::finals());
+        $this->assertSame([TicketStatus::ConvertedToCase->value, TicketStatus::ConvertedToExecution->value, TicketStatus::Closed->value, TicketStatus::Completed->value], TicketStatus::finals());
         $this->assertTrue(TicketStatus::Closed->isFinal());
         $this->assertTrue(TicketStatus::ConvertedToCase->isFinal());
+        $this->assertTrue(TicketStatus::ConvertedToExecution->isFinal());
         $this->assertFalse(TicketStatus::Scheduled->isFinal());
     }
 

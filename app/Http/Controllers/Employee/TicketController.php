@@ -12,14 +12,11 @@ use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
 use App\Http\Controllers\Controller;
 use App\Jobs\GenerateTicketSummaryJob;
-use App\Models\Consult;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Services\LegalAiService;
 use App\Support\Audit;
-use App\Support\CaseConversion;
-use App\Support\ConsultBooking;
 use App\Support\ConversationFiles;
 use App\Support\LegalCatalogue;
 use App\Support\Live;
@@ -27,6 +24,7 @@ use App\Support\Notify;
 use App\Support\ServiceDocs;
 use App\Support\TicketJourney;
 use App\Support\TicketTriage;
+use App\Support\TicketWritePolicy;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -44,12 +42,13 @@ class TicketController extends Controller
 {
     public function index(): Response
     {
-        $allTickets = Ticket::with(['user', 'assignedLawyer', 'summary'])->withExists('legalCase')
+        $allTickets = Ticket::with(['user', 'assignedLawyer', 'summary'])->withExists(['legalCase', 'execution'])
             ->latest('id')->get();
 
         $tickets = $allTickets->map(function (Ticket $t) {
             $card = $t->toEmployeeCard();
-            $card['converted'] = (bool) $t->legal_case_exists;
+            $card['converted'] = (bool) $t->legal_case_exists || (bool) $t->execution_exists;
+            $card['convertedType'] = $t->execution_exists ? 'execution' : ($t->legal_case_exists ? 'case' : null);
             // شرط زرّ «تحويل لقضية»: الخادم يشترط ملخصاً معتمداً — القائمة كانت بلا هذا الحقل فتعرض الزرّ ثم 422
             $card['summaryApproved'] = (bool) $t->summary?->isApproved();
             $card['updatedAgo'] = $t->updated_at?->locale('ar')->diffForHumans() ?? 'الآن';
@@ -130,6 +129,8 @@ class TicketController extends Controller
     // ردّ الموظف (يراه العميل ضمن نفس التذكرة) — بثّ لحظي معزول بالمعاملة
     public function reply(Request $request, Ticket $ticket): HttpResponse
     {
+        TicketWritePolicy::assertWritable($ticket);
+
         $data = $request->validate(['body' => ['required', 'string']]);
 
         $msg = null;
@@ -162,60 +163,10 @@ class TicketController extends Controller
         return response()->noContent();
     }
 
-    // تحويل التذكرة إلى استشارة (يطابق convertToConsult المرجعي) — ينشئ طلب تسعير نيابةً عن العميل
-    // بنفس حرّاس مسار العميل (book): لا على حالة نهائية، ولا مع طلب استشارة قائم.
-    public function convertToConsult(Request $request, Ticket $ticket): HttpResponse
-    {
-
-        $data = $request->validate([
-            'type' => ['nullable', 'string', 'in:office,video,phone'],
-        ]);
-        $type = $data['type'] ?? 'office';
-
-        // مصدرٌ واحد لكلّ مداخل طلب الاستشارة (ع١٣، ع١٧)
-        if ($why = TicketJourney::consultRequestBlocker($ticket)) {
-            throw ValidationException::withMessages(['type' => $why]);
-        }
-        if ($ticket->consults()->whereIn('status', Consult::PRE_SESSION_STATUSES)->exists()) {
-            throw ValidationException::withMessages([
-                'type' => 'يوجد طلب استشارة قائم لهذه التذكرة.',
-            ]);
-        }
-
-        $ticket->loadMissing('user');
-        abort_unless($ticket->user, 404);
-
-        $m = ConsultBooking::meta($type);
-        $consult = ConsultBooking::request($ticket->user, ['type' => $type], $ticket);
-
-        $msg = $ticket->messages()->create([
-            'who' => 'staff',
-            'name' => $request->user()->name,
-            'role' => 'خدمة العملاء',
-            'body' => "<p>تم تحويل التذكرة إلى طلب استشارة ({$m['label']}) وإرساله للتسعير. ستصل العميل الفاتورة لسدادها، ثمّ يُحدَّد موعد الجلسة.</p>",
-            'time_label' => $this->clock(),
-        ]);
-        Live::push(new TicketMessageBroadcast($msg));
-
-        $ticket->update(['last_message' => 'حُوّلت التذكرة إلى طلب استشارة '.$m['label'], 'date_label' => 'الآن']);
-        Notify::send($ticket->user_id, 'cal', 't-blue', "حوّل المكتب تذكرتك {$ticket->number} إلى طلب استشارة ({$consult->ref}) — ستصلك الفاتورة فور التسعير.");
-
-        Audit::log(
-            action: 'تحويل تذكرة إلى استشارة',
-            description: "حوّل {$request->user()->name} التذكرة {$ticket->number} إلى طلب استشارة {$consult->ref} ({$m['label']}).",
-            category: 'تذاكر',
-            severity: 'warning',
-            auditable: $ticket,
-            auditableRef: $ticket->number,
-            afterState: ['الاستشارة' => $consult->ref, 'القناة' => $m['label']],
-        );
-
-        return response()->noContent();
-    }
-
     // إرفاق مستند من الموظف بالتذكرة (يراه العميل) — نفس قيود رفع العميل (10MB + الصيغ المسموحة)
     public function attach(Request $request, Ticket $ticket): HttpResponse
     {
+        TicketWritePolicy::assertWritable($ticket);
 
         $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx']]);
 
@@ -307,6 +258,8 @@ class TicketController extends Controller
     // ملاحظة داخلية (لا يراها العميل) — تُبثّ على قناة الموظفين فقط معزولة بالمعاملة
     public function note(Request $request, Ticket $ticket): HttpResponse
     {
+        TicketWritePolicy::assertWritable($ticket);
+
         $data = $request->validate(['body' => ['required', 'string']]);
 
         $msg = null;
@@ -409,19 +362,6 @@ class TicketController extends Controller
         GenerateTicketSummaryJob::dispatch($ticket, force: true);
 
         return back()->with('flash', 'تمت إعادة تشغيل التحليل الذكي للملخّص.');
-    }
-
-    // تحويل التذكرة المكتملة إلى قضية (يشترط اعتماد المستشار المسبق للنتيجة)
-    public function convertToCase(Request $request, Ticket $ticket): RedirectResponse
-    {
-        // الموظف وحده ينتظر اعتماد المحامي للنتيجة — المحامي هو المعتمِد والإدارة
-        // العليا هي الاعتماد النهائي، فكلاهما يمرّ بـfalse. القاعدة الثلاثية مثبّتة
-        // باختبارات في CaseConversionTest كي لا تُوحَّد سهواً.
-        CaseConversion::assertEligible($ticket, requireApprovedSummary: true);
-
-        CaseConversion::convert($ticket, $request->user());
-
-        return back();
     }
 
     // مقترح الموظف لمسار مآل التذكرة مرفوعاً للإدارة العليا

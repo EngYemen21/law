@@ -2,12 +2,9 @@
 
 namespace App\Http\Controllers\Lawyer;
 
-use App\Domain\Journey\Enums\ClosureReasonCode;
 use App\Domain\Journey\Enums\TicketOutcomeTrack;
-use App\Domain\Journey\Enums\TicketStatus;
 use App\Domain\Journey\Transitions\Ticket\AwaitAdminSummaryApproval;
 use App\Domain\Journey\Transitions\Ticket\AwaitTicketDocuments;
-use App\Domain\Journey\Transitions\Ticket\CloseTicketJustified;
 use App\Domain\Journey\Transitions\Ticket\FinalApproveTicketSummary;
 use App\Domain\Journey\Transitions\Ticket\LawyerApproveTicketSummary;
 use App\Domain\Journey\Transitions\Ticket\ProposeOutcomeTrack;
@@ -33,7 +30,6 @@ use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
 use App\Services\MailService;
 use App\Support\Audit;
-use App\Support\CaseConversion;
 use App\Support\ConversationFiles;
 use App\Support\Live;
 use App\Support\Notify;
@@ -43,6 +39,7 @@ use App\Support\ServiceDocs;
 use App\Support\SummaryReport;
 use App\Support\TicketJourney;
 use App\Support\TicketResult;
+use App\Support\TicketWritePolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -66,7 +63,7 @@ class TicketController extends Controller
     public function index(Request $request): Response
     {
         $lawyerId = $request->user()->id;
-        $ticketsQuery = Ticket::with(['user', 'summary', 'legalCase'])
+        $ticketsQuery = Ticket::with(['user', 'summary', 'legalCase', 'execution'])
             ->where('assigned_lawyer_id', $lawyerId)
             ->latest('id')
             ->get();
@@ -76,8 +73,10 @@ class TicketController extends Controller
             'summaryStatus' => $t->summary?->status,
             'summaryRecommendation' => $t->summary?->recommendation,
             'summaryFacts' => $t->summary?->facts,
-            'converted' => (bool) $t->legalCase,
+            'converted' => (bool) $t->legalCase || (bool) $t->execution,
+            'convertedType' => $t->execution ? 'execution' : ($t->legalCase ? 'case' : null),
             'caseRef' => $t->legalCase?->number,
+            'execRef' => $t->execution?->number,
             'awaitingSummary' => $t->summary === null || $t->summary->status === 'awaiting_lawyer',
             'priority' => $t->priority,
             'subject' => $t->subject,
@@ -334,20 +333,22 @@ class TicketController extends Controller
     public function show(Request $request, Ticket $ticket): Response
     {
         $this->guardAssigned($ticket);
-        $ticket->load(['user', 'summary', 'legalCase']);
+        $ticket->load(['user', 'summary', 'legalCase', 'execution']);
 
         return Inertia::render('lawyer/ticketchat', [
             // رقم القضية الحقيقي — كانت الواجهة تطبع نصّاً ثابتاً مكان الرقم
             // mobile/openedAt لبطاقة «تفاصيل الطلب» (يطابق tkDetailsCard المرجعي)
             'ticket' => array_merge($ticket->toEmployeeCard(), [
                 'caseRef' => $ticket->legalCase?->number,
+                'execRef' => $ticket->execution?->number,
                 'mobile' => $ticket->user?->phone,
                 'openedAt' => $ticket->created_at?->locale('ar')->translatedFormat('j F Y'),
             ]),
             'channel' => 'ticket.'.$ticket->id,
             'messages' => ConversationFiles::linkLegacyChips($ticket->messages->map->toMessage()->all(), 'ticket', $ticket->documents),
             'summary' => $ticket->summary?->toData(),
-            'converted' => (bool) $ticket->legalCase,
+            'converted' => (bool) $ticket->legalCase || (bool) $ticket->execution,
+            'convertedType' => $ticket->execution ? 'execution' : ($ticket->legalCase ? 'case' : null),
             // الإدارة تفتح نفس الصفحة من مسارها — الروابط تُبنى من base لا مثبّتة على /lawyer
             'base' => $request->user()->isAdmin() ? '/admin' : '/lawyer',
         ]);
@@ -357,6 +358,8 @@ class TicketController extends Controller
     public function reply(Request $request, Ticket $ticket): HttpResponse
     {
         $this->guardAssigned($ticket);
+        TicketWritePolicy::assertWritable($ticket);
+
         $data = $request->validate(['body' => ['required', 'string']]);
 
         $roleName = $request->user()->isAdmin() ? 'الإدارة' : 'المستشار القانوني';
@@ -396,6 +399,8 @@ class TicketController extends Controller
     public function note(Request $request, Ticket $ticket): HttpResponse
     {
         $this->guardAssigned($ticket);
+        TicketWritePolicy::assertWritable($ticket);
+
         $data = $request->validate(['body' => ['required', 'string']]);
 
         $roleName = $request->user()->isAdmin() ? 'ملاحظة إدارة' : 'ملاحظة مستشار';
@@ -653,77 +658,6 @@ class TicketController extends Controller
         $html = ReportPrint::html($doc);
 
         return PdfRenderer::render($html, 'Summary-'.$ticket->number.'.pdf');
-    }
-
-    /**
-     * تحويل التذكرة المكتملة إلى قضية قانونية — قرار المستشار.
-     *
-     * لا يُشترط هنا اعتماد الملخّص عمداً: **المحامي هو المعتمِد** فاشتراط اعتماد سابق
-     * عليه دور، **والإدارة العليا هي الاعتماد النهائي** فتمرّ بلا قيد. المسار الموظفيّ
-     * وحده ينتظر اعتماد المحامي (Employee\TicketController::convertToCase).
-     * القاعدة الثلاثية مثبّتة باختبارات في CaseConversionTest كي لا تُوحَّد سهواً.
-     */
-    public function convertToCase(Request $request, Ticket $ticket): RedirectResponse
-    {
-        $this->guardAssigned($ticket);
-        CaseConversion::assertEligible($ticket, requireApprovedSummary: false);
-
-        CaseConversion::convert($ticket, $request->user());
-
-        // البقاء على المحادثة كما يفعل مسار الموظف — كان التحويل ينقل المحامي/الإدارة
-        // إلى قائمة التذاكر فيغادران السياق وتظهر رسالة النجاح على صفحة أخرى.
-        return back();
-    }
-
-    // قرار المستشار: إغلاق الطلب بعد الاستشارة دون تحويله إلى قضية (يطابق cfClose)
-    public function closeWithoutCase(Request $request, Ticket $ticket): RedirectResponse
-    {
-        $this->guardAssigned($ticket);
-        if (! in_array($ticket->status, [TicketStatus::ReadyForOutcome->value, TicketStatus::Completed->value], true)) {
-            throw ValidationException::withMessages([
-                'ticket' => 'لا يمكن إغلاق التذكرة إلا بعد اكتمالها.',
-            ]);
-        }
-        if ($ticket->legalCase()->exists()) {
-            throw ValidationException::withMessages([
-                'ticket' => 'تم تحويل هذه التذكرة لقضية مسبقاً ولا يمكن إغلاقها.',
-            ]);
-        }
-
-        $data = $request->validate([
-            'closure_reason_code' => ['nullable', 'string', Rule::in(ClosureReasonCode::values())],
-            'closure_notes' => ['nullable', 'string', 'max:2000'],
-        ]);
-
-        $reasonCode = $data['closure_reason_code'] ?? ClosureReasonCode::OpinionSatisfied->value;
-        $reasonEnum = ClosureReasonCode::tryFrom($reasonCode) ?? ClosureReasonCode::OpinionSatisfied;
-        $notes = trim($data['closure_notes'] ?? '') ?: $reasonEnum->label();
-
-        Workflow::run(new CloseTicketJustified, $ticket, $request->user(), [
-            'closure_reason_code' => $reasonCode,
-            'closure_notes' => $notes,
-        ]);
-
-        $msg = $ticket->messages()->create([
-            'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'إغلاق',
-            'body' => '<p>تم إغلاق الطلب بعد دراسة الملف وتحديد الموقف القانوني. سبب الإغلاق: <b>'.e($reasonEnum->label()).'</b>.</p><p>'.nl2br(e($notes)).'</p>',
-            'time_label' => $this->clock(),
-        ]);
-
-        // قرارٌ نهائيّ على الملفّ — إشعار وسجل تدقيق
-        Notify::send($ticket->user_id, 'check', 't-grey', "أُغلقت تذكرتك {$ticket->number} بعد الاستشارة دون تحويلها إلى قضية، ومخرجاتها محفوظة داخلها.");
-        Audit::log(
-            action: 'إغلاق تذكرة دون قضية',
-            description: "أغلق {$request->user()->name} التذكرة {$ticket->number} بسبب «{$reasonEnum->label()}».",
-            category: 'تذاكر',
-            auditable: $ticket,
-            auditableRef: $ticket->number,
-            beforeState: ['الحالة' => 'مكتملة'],
-            afterState: ['الحالة' => 'مغلقة', 'سبب_الإغلاق' => $reasonCode],
-        );
-        Live::push(new TicketMessageBroadcast($msg));
-
-        return redirect()->route($request->user()->isAdmin() ? 'admin.tickets' : 'lawyer.tickets');
     }
 
     // قرار المستشار: طلب مستندات إضافية قبل اتخاذ القرار (يطابق cfReqDocs)

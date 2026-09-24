@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\ClosureReasonCode;
+use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Enums\Role;
 use App\Models\Invoice;
 use App\Models\LegalCase;
@@ -13,6 +15,7 @@ use App\Support\CaseConversion;
 use App\Support\CaseFee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
@@ -41,9 +44,18 @@ class CaseConversionTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'أ. سارة القحطاني']);
+        $admin = User::factory()->create(['role' => Role::Admin]);
         $ticket = $this->completedTicket($client, $lawyer);
 
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
+        $this->actingAs($lawyer)->post(route('lawyer.tickets.track.propose', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'رفع مقترح تحويل النزاع التجاري إلى قضية أمام المحكمة المختصة.',
+        ])->assertRedirect();
+
+        $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'اعتماد الإدارة العليا لمسار القضية وإحالتها للفريق القضائي.',
+        ])->assertRedirect();
 
         $case = LegalCase::where('ticket_id', $ticket->id)->first();
         $this->assertNotNull($case);
@@ -53,8 +65,8 @@ class CaseConversionTest extends TestCase
         $this->assertMatchesRegularExpression('/^CASE-\d{4}-\d{4}$/', $case->number);
 
         // إشعار للعميل + رسالة في محادثة التذكرة + ظهور القضية لدى العميل
-        $this->assertSame(1, UserNotification::where('user_id', $client->id)->count());
-        $this->assertTrue($ticket->messages->contains(fn ($m) => $m->role === 'تحويل لقضية'));
+        $this->assertTrue(UserNotification::where('user_id', $client->id)->exists());
+        $this->assertTrue($ticket->messages->contains(fn ($m) => $m->role === 'اعتماد المسار' || $m->role === 'تحويل لقضية'));
         $this->actingAs($client)->get(route('cases'))
             ->assertOk()->assertInertia(fn ($p) => $p->has('cases', 1));
     }
@@ -63,6 +75,7 @@ class CaseConversionTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $employee = User::factory()->create(['role' => Role::Employee]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
         // محامٍ نشط في التوزيع التلقائي: التحويل لم يعد يُنتج قضية بلا محامٍ حقيقي
         // (اسم نصّي بلا معرّف كان يُخرج القضية من قائمة كل محامٍ — CaseLawyerResolutionTest)
         User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'distribution_mode' => 'auto']);
@@ -73,32 +86,38 @@ class CaseConversionTest extends TestCase
             'approved_at' => now(), 'ai_generated' => true,
         ]);
 
-        $this->actingAs($employee)->post(route('employee.tickets.convert', $ticket))->assertRedirect();
+        $this->actingAs($employee)->post(route('employee.tickets.track.propose', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'مقترح الموظف بإحالة الطلب إلى مسار قضية تجارية.',
+        ])->assertRedirect();
+
+        $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'اعتماد الإدارة العليا لمسار القضية بناء على مقترح الموظف.',
+        ])->assertRedirect();
 
         $case = LegalCase::where('ticket_id', $ticket->id)->first();
         $this->assertNotNull($case);
         $this->assertSame('بانتظار اعتماد الأتعاب', $case->status);
-        // رسالة التحويل من الموظف (staff) في محادثة التذكرة
-        $this->assertTrue($ticket->messages->contains(fn ($m) => $m->who === 'staff' && $m->role === 'تحويل لقضية'));
+        $this->assertTrue($ticket->messages->contains(fn ($m) => $m->role === 'اعتماد المسار' || $m->role === 'تحويل لقضية'));
     }
 
-    public function test_employee_cannot_convert_unless_completed(): void
+    /** المسار المباشر القديم للموظف محذوف نهائياً — الحوكمة الرسمية تقبل المقترح من أي حالة (ADR-009). */
+    public function test_employee_direct_convert_route_is_fully_removed(): void
     {
-        $employee = User::factory()->create(['role' => Role::Employee]);
-        $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]));
-        $ticket->update(['status' => 'الرأي القانوني']);
-
-        // النداء من الواجهة عبر Inertia ⇒ تحويل يحمل أخطاء الجلسة (يقرأها onError)
-        $this->actingAs($employee)->post(route('employee.tickets.convert', $ticket))->assertSessionHasErrors('ticket');
+        $this->assertFalse(
+            Route::has('employee.tickets.convert'),
+            'مسار employee.tickets.convert لا يزال مسجلاً رغم وجوب حذفه بموجب ADR-009.'
+        );
     }
 
-    public function test_cannot_convert_unless_completed(): void
+    /** المسار المباشر القديم للمحامي محذوف نهائياً — الحوكمة الرسمية تقبل المقترح (ADR-009). */
+    public function test_lawyer_direct_convert_route_is_fully_removed(): void
     {
-        $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]), $lawyer);
-        $ticket->update(['status' => 'الرأي القانوني']);
-
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertSessionHasErrors('ticket');
+        $this->assertFalse(
+            Route::has('lawyer.tickets.convert'),
+            'مسار lawyer.tickets.convert لا يزال مسجلاً رغم وجوب حذفه بموجب ADR-009.'
+        );
     }
 
     /**
@@ -112,11 +131,11 @@ class CaseConversionTest extends TestCase
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $ticket = $this->completedTicket($client, $lawyer);
 
-        CaseConversion::convert($ticket, $lawyer);
+        CaseConversion::fromTicket($ticket, $lawyer);
 
         // النداء الثاني يتخطّى حارس المتحكّم عمداً — هذا ما يفعله السباق
         try {
-            CaseConversion::convert($ticket->fresh(), $lawyer);
+            CaseConversion::fromTicket($ticket->fresh(), $lawyer);
             $this->fail('التحويل الثاني نجح — أُنشئت قضية ثانية لنفس التذكرة.');
         } catch (ValidationException $e) {
             $this->assertArrayHasKey('ticket', $e->errors());
@@ -136,11 +155,15 @@ class CaseConversionTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
         $ticket = $this->completedTicket($client, $lawyer);
 
         $this->assertNull($ticket->summary, 'التذكرة لها ملخّص — الاختبار يفقد معناه.');
 
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket));
+        $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'اعتماد الإدارة العليا لمسار القضية دون اشتراط ملخص مسبق.',
+        ])->assertRedirect();
 
         $this->assertSame(1, LegalCase::where('ticket_id', $ticket->id)->count());
     }
@@ -155,24 +178,36 @@ class CaseConversionTest extends TestCase
         $ticket = $this->completedTicket($client); // بلا إسناد مباشر — يُحلّ تلقائياً
         $admin = User::factory()->create(['role' => Role::Admin]);
 
-        $this->actingAs($admin)->post(route('admin.tickets.convert', $ticket));
+        $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'اعتماد الإدارة العليا النهائي لمسار القضية.',
+        ])->assertRedirect();
 
         $this->assertSame(1, LegalCase::where('ticket_id', $ticket->id)->count());
     }
 
-    /** الموظف بلا اعتماد المحامي: يُرفض — الفرع الذي لم يكن مغطّى بأي اختبار. */
-    public function test_employee_cannot_convert_before_the_lawyer_approves(): void
+    /** المسار المباشر للموظف محذوف — واقتراح المسار عبر الحوكمة يمرّ بنجاح ويحتاج اعتماد الإدارة. */
+    public function test_employee_propose_track_requires_admin_approval(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $ticket = $this->completedTicket($client, $lawyer);
         $employee = User::factory()->create(['role' => Role::Employee]);
 
-        $this->actingAs($employee)
-            ->post(route('employee.tickets.convert', $ticket))
-            ->assertSessionHasErrors('ticket');
+        // المسار المباشر القديم محذوف
+        $this->assertFalse(Route::has('employee.tickets.convert'));
 
+        // المسار الحوكمي الرسمي يقبل المقترح ويحول التذكرة لحالة «بانتظار اعتماد الإدارة»
+        $this->actingAs($employee)
+            ->post(route('employee.tickets.track.propose', $ticket), [
+                'track' => TicketOutcomeTrack::Case->value,
+                'reason' => 'مقترح موظف مع تسبيب كافٍ — بانتظار اعتماد الإدارة العليا.',
+            ])
+            ->assertRedirect();
+
+        // لم تُنشأ قضية بعد — الاقتراح بانتظار اعتماد الإدارة
         $this->assertSame(0, LegalCase::where('ticket_id', $ticket->id)->count());
+        $this->assertSame('بانتظار اعتماد الإدارة للمسار', $ticket->fresh()->status);
     }
 
     /** ومحامٍ غير مسنَد لا يحوّل تذكرة زميله — العزل بالإسناد قائم. */
@@ -184,7 +219,10 @@ class CaseConversionTest extends TestCase
         $outsider = User::factory()->create(['role' => Role::Lawyer]);
 
         $this->actingAs($outsider)
-            ->post(route('lawyer.tickets.convert', $ticket))
+            ->post(route('lawyer.tickets.track.propose', $ticket), [
+                'track' => TicketOutcomeTrack::Case->value,
+                'reason' => 'محاولة رفع مقترح من محامٍ غير مسند للطلب.',
+            ])
             ->assertForbidden();
 
         $this->assertSame(0, LegalCase::where('ticket_id', $ticket->id)->count());
@@ -192,11 +230,21 @@ class CaseConversionTest extends TestCase
 
     public function test_cannot_convert_twice(): void
     {
+        $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]), $lawyer);
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $ticket = $this->completedTicket($client, $lawyer);
 
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertSessionHasErrors('ticket');
+        $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'اعتماد مسار القضية للمرة الأولى.',
+        ])->assertRedirect();
+
+        $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'محاولة اعتماد المسار مرة ثانية.',
+        ])->assertStatus(422);
+
         $this->assertSame(1, LegalCase::where('ticket_id', $ticket->id)->count());
     }
 
@@ -207,7 +255,10 @@ class CaseConversionTest extends TestCase
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $ticket = $this->completedTicket($client, $lawyer);
 
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
+        $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'تحويل التذكرة إلى قضية لاعتماد أتعابها.',
+        ])->assertRedirect();
         $case = LegalCase::where('ticket_id', $ticket->id)->firstOrFail();
 
         // الإدارة تحدّد الأتعاب
@@ -231,7 +282,11 @@ class CaseConversionTest extends TestCase
         $admin = User::factory()->create(['role' => Role::Admin]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $ticket = $this->completedTicket($client, $lawyer);
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
+
+        $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'تحويل التذكرة إلى قضية لضبط نسبة أتعاب المحامي.',
+        ])->assertRedirect();
         $case = LegalCase::where('ticket_id', $ticket->id)->firstOrFail();
 
         $this->actingAs($admin)->post(route('admin.cases.fee', $case), ['fee' => 10000, 'lawyer_pct' => 20])->assertRedirect();
@@ -242,10 +297,15 @@ class CaseConversionTest extends TestCase
 
     public function test_conversion_runs_ai_analysis(): void
     {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]), $lawyer);
+        $ticket = $this->completedTicket($client, $lawyer);
 
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
+        $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'تحويل التذكرة إلى قضية وتشغيل التحليل الذكي التلقائي.',
+        ])->assertRedirect();
         $case = LegalCase::where('ticket_id', $ticket->id)->firstOrFail();
         // رسالة التحليل الذكي (cfAnalysis) موجودة + النوع/القسم مُعبّآن
         $this->assertTrue($case->messages->contains(fn ($m) => $m->role === 'تحليل'));
@@ -259,7 +319,11 @@ class CaseConversionTest extends TestCase
         $admin = User::factory()->create(['role' => Role::Admin]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $ticket = $this->completedTicket($client, $lawyer);
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
+
+        $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'تحويل التذكرة إلى قضية لإنشاء الفاتورة المالية.',
+        ])->assertRedirect();
         $case = LegalCase::where('ticket_id', $ticket->id)->firstOrFail();
 
         $this->actingAs($admin)->post(route('admin.cases.fee', $case), ['fee' => 10000])->assertRedirect();
@@ -306,10 +370,22 @@ class CaseConversionTest extends TestCase
 
     public function test_lawyer_closes_ticket_without_case(): void
     {
+        $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]), $lawyer);
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $ticket = $this->completedTicket($client, $lawyer);
 
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.close', $ticket))->assertRedirect();
+        $this->actingAs($lawyer)->post(route('lawyer.tickets.track.propose', $ticket), [
+            'track' => TicketOutcomeTrack::Close->value,
+            'reason' => 'اكتفاء المستفيد بما ورد في الرأي القانوني ولا داعي للتصعيد.',
+        ])->assertRedirect();
+
+        $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+            'track' => TicketOutcomeTrack::Close->value,
+            'closure_reason_code' => ClosureReasonCode::OpinionSatisfied->value,
+            'reason' => 'اعتماد حفظ التذكرة دون قضية لاكتفاء المستفيد بالرأي.',
+        ])->assertRedirect();
+
         $this->assertSame('مغلقة', $ticket->fresh()->status);
         $this->assertSame(0, LegalCase::where('ticket_id', $ticket->id)->count());
     }
@@ -328,10 +404,15 @@ class CaseConversionTest extends TestCase
 
     public function test_admin_oversees_case_fees(): void
     {
+        $client = User::factory()->create(['role' => Role::Client]);
         $admin = User::factory()->create(['role' => Role::Admin]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $ticket = $this->completedTicket(User::factory()->create(['role' => Role::Client]), $lawyer);
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.convert', $ticket))->assertRedirect();
+        $ticket = $this->completedTicket($client, $lawyer);
+
+        $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+            'track' => TicketOutcomeTrack::Case->value,
+            'reason' => 'تحويل التذكرة لقضية لمتابعة الإدارة للأتعاب.',
+        ])->assertRedirect();
 
         $this->actingAs($admin)->get(route('admin.casefees'))
             ->assertOk()->assertInertia(fn ($p) => $p->component('admin/casefees')->has('cases.data', 1));

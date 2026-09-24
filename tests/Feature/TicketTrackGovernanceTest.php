@@ -9,7 +9,6 @@ use App\Enums\Role;
 use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\Ticket;
-use App\Models\TicketDocument;
 use App\Models\User;
 use App\Services\LegalAiService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -221,7 +220,7 @@ class TicketTrackGovernanceTest extends TestCase
         $response->assertRedirect();
         $ticket->refresh();
 
-        $this->assertSame(TicketStatus::ConvertedToCase->value, $ticket->status);
+        $this->assertSame(TicketStatus::ConvertedToExecution->value, $ticket->status);
         $this->assertSame(TicketOutcomeTrack::Execution->value, $ticket->approved_track);
         $this->assertTrue($ticket->is_frozen);
 

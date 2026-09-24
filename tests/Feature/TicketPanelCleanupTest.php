@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 /**
@@ -14,9 +15,9 @@ use Tests\TestCase;
  * 2. **«عرض ملف القضية»** — كان مكرّراً حرفاً: النصّ نفسه والوجهة نفسها في
  *    `TicketTrackDecisionCard` المعروض فوق اللوحة مباشرةً، فيظهر زرّان متلاصقان.
  * 3. **«تحويل إلى قضية رسمية»** — كان يحوّل مباشرةً بلا تسبيبٍ ولا اعتماد إدارة، فيلتفّ على
- *    حوكمة المسارات الأربعة (`ApproveOutcomeTrack`). **أُخفي من الواجهة بقرار المالك
- *    ومساره في الخادم باقٍ عامداً** إلى أن يُحذف في خطوةٍ مستقلّة — ولذلك يحرس هذا الملفّ
- *    الواجهة وحدها، ولا يؤكّد غياب المسار.
+ *    حوكمة المسارات الأربعة (`ApproveOutcomeTrack`). أُخفي من الواجهة أوّلاً بقرار المالك،
+ *    **ثمّ حُذف مساره في الخادم نهائيّاً** (ADR-009) — وغيابَه يؤكّده
+ *    `TicketConvertContractTest::test_legacy_convert_routes_are_completely_absent`.
  *
  * وزرّ «تعديل الملخص» يصير «عرض الملخّص المعتمد» بعد الاعتماد: الخادم يرفض التعديل بعده
  * (`Lawyer\TicketController::updateSummary` يقذف 422)، فالنصّ القديم وعدٌ كاذب.
@@ -73,6 +74,16 @@ class TicketPanelCleanupTest extends TestCase
 
         $this->assertStringNotContainsString('تحويل إلى قضية رسمية', $panel, 'عاد الزرّ الذي يلتفّ على حوكمة المسارات.');
         $this->assertStringNotContainsString('/convert`', $panel, 'عاد بناء مسار التحويل المباشر في اللوحة.');
+    }
+
+    /** حظر التفاف التحويل إلى استشارة (ADR-009): مآل الاستشارة يمر حصراً عبر بطاقة حوكمة المسارات */
+    public function test_the_duplicate_convert_to_consult_button_stays_out_of_the_panel(): void
+    {
+        $panel = $this->source(self::PANEL);
+
+        $this->assertStringNotContainsString('تحويل التذكرة إلى استشارة', $panel, 'عاد زر تحويل التذكرة إلى استشارة الالتفافي في اللوحة.');
+        $this->assertStringNotContainsString('convert-consult', $panel, 'عاد استدعاء مسار convert-consult في اللوحة.');
+        $this->assertFalse(Route::has('tickets.convert-consult'), 'مسار tickets.convert-consult ما زال مسجلاً.');
     }
 
     /** الحوكمة نفسها تبقى مدخلاً قائماً — الإخفاء لا يُلغي طريقاً مشروعاً. */

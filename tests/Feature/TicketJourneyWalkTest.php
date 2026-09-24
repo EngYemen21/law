@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Domain\Journey\Enums\ClosureReasonCode;
+use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Domain\Journey\Enums\TicketStatus;
 use App\Enums\Role;
 use App\Models\Ticket;
@@ -159,10 +160,16 @@ class TicketJourneyWalkTest extends TestCase
         $this->assertStringContainsString($text, $card->body);
         $this->assertSame($text, $consult->fresh()->toClientCard()['summary'], 'و«استشاراتي» بالنصّ نفسه');
 
-        // ── اتخاذ قرار المآل: المحامي يغلق التذكرة بسبب نظامي مبرر ──
-        $this->actingAs($lawyer)->post(route('lawyer.tickets.close', $ticket), [
+        // ── اتخاذ قرار المآل: المحامي يقترح إغلاق التذكرة بسبب مبرر وتعتمدها الإدارة ──
+        $this->actingAs($lawyer)->post(route('lawyer.tickets.track.propose', $ticket), [
+            'track' => TicketOutcomeTrack::Close->value,
+            'reason' => 'تم تقديم الرأي القانوني الوافي ولا حاجة لإجراء قضائي إضافي.',
+        ])->assertRedirect();
+
+        $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+            'track' => TicketOutcomeTrack::Close->value,
             'closure_reason_code' => ClosureReasonCode::OpinionSatisfied->value,
-            'closure_notes' => 'تم تقديم الرأي القانوني الوافي ولا حاجة لإجراء قضائي.',
+            'reason' => 'تم تقديم الرأي القانوني الوافي ولا حاجة لإجراء قضائي إضافي.',
         ])->assertRedirect();
         $this->assertSame(TicketStatus::Closed->value, $ticket->fresh()->status);
         $this->assertTrue(TicketJourney::isLast($ticket->fresh()->status), 'الرحلة اكتملت وأُغلقت');
