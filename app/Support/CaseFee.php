@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\TransitionDenied;
 use App\Domain\Journey\Transitions\Invoice\SettleInvoice;
 use App\Domain\Journey\Transitions\LegalCase\ActivateCase as ActivateCaseTransition;
@@ -13,7 +14,6 @@ use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Services\MailService;
 use App\Services\MoyasarService;
-use App\Support\Audit;
 use App\Support\Finance\InvoiceFactory;
 use Illuminate\Support\Facades\DB;
 
@@ -51,7 +51,10 @@ class CaseFee
             // **الأمّ هي الأقدم لا الأحدث.** فرعُ التنفيذ هاجر إلى `orderBy('id')` وبقي هذا على
             // `latest('id')`: فقضيّةٌ عليها فاتورةٌ تكميليّة أُصدرت بعد فاتورة الأتعاب كانت
             // التكميليّةُ هي ما يُقسَّم، وتبقى الأتعاب كاملةً مستحقّةً خارج الخطّة.
-            $master = Invoice::where('case_id', $locked->id)->where('paid', false)->orderBy('id')->first();
+            $master = Invoice::where('case_id', $locked->id)
+                ->where('paid', false)
+                ->whereNotIn('status', [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value])
+                ->orderBy('id')->first();
             if ($master === null) {
                 return null;
             }
@@ -114,7 +117,9 @@ class CaseFee
     public static function nextInstallment(LegalCase $case): ?Invoice
     {
         return Invoice::where('case_id', $case->id)->whereNotNull('installment_no')
-            ->where('paid', false)->orderBy('installment_no')->orderBy('id')->first();
+            ->where('paid', false)
+            ->whereNotIn('status', [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value])
+            ->orderBy('installment_no')->orderBy('id')->first();
     }
 
     /**
@@ -127,7 +132,10 @@ class CaseFee
     public static function nextPayable(LegalCase $case): ?Invoice
     {
         return self::nextInstallment($case)
-            ?: Invoice::where('case_id', $case->id)->where('paid', false)->orderBy('id')->first();
+            ?: Invoice::where('case_id', $case->id)
+                ->where('paid', false)
+                ->whereNotIn('status', [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value])
+                ->orderBy('id')->first();
     }
 
     /**

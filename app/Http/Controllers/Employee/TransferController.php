@@ -26,12 +26,10 @@ use Inertia\Response;
  */
 class TransferController extends Controller
 {
-    private const CLOSED = ['مكتملة', 'مغلقة'];
-
     public function index(): Response
     {
         $allTickets = Ticket::with(['user', 'assignedLawyer'])
-            ->whereNotIn('status', self::CLOSED)
+            ->open()
             ->latest('id')->get();
 
         $tickets = $allTickets->map(function (Ticket $t) {
@@ -52,7 +50,7 @@ class TransferController extends Controller
             ->get()
             ->map(function (User $u) {
                 $ticketsCount = Ticket::where('assigned_lawyer_id', $u->id)
-                    ->whereNotIn('status', self::CLOSED)
+                    ->open()
                     ->count();
                 $casesCount = LegalCase::where('assigned_lawyer_id', $u->id)
                     ->whereNotIn('status', ['مغلقة', 'مؤرشفة'])

@@ -336,7 +336,7 @@ const EmployeeTicketChat: React.FC<{
               <div ref={endRef} />
             </div>
 
-            {ticket.isFrozen || ['محولة إلى قضية', 'مغلقة'].includes(status.status) ? (
+            {ticket.isFrozen || ['محولة إلى قضية', 'محولة إلى تنفيذ', 'مغلقة'].includes(status.status) ? (
               <div style={{ margin: 14, padding: '14px 18px', textAlign: 'center', background: 'var(--subtle, #f8fafc)', border: '1px solid var(--line, #e2e8f0)', borderRadius: 10 }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--muted, #64748b)', fontWeight: 600, fontSize: 13 }}>
                   <Icon name="lock" />

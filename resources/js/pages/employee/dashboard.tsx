@@ -185,6 +185,86 @@ const EmployeeDashboard: React.FC<Props> = ({
 
   return (
     <>
+      <style>{`
+        .emp-dash-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 12px;
+          padding: 14px 18px;
+        }
+        .emp-dash-tabs {
+          display: flex;
+          gap: 6px;
+          flex-wrap: wrap;
+          align-items: center;
+        }
+        .emp-dash-search {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          background: #ffffff;
+          border: 1px solid var(--line, #cbd5e1);
+          border-radius: 10px;
+          padding: 6px 12px;
+          width: 220px;
+          color: var(--faint, #94a3b8);
+        }
+        .emp-dash-search input {
+          border: none;
+          outline: none;
+          background: none;
+          font-family: inherit;
+          font-size: 12.5px;
+          width: 100%;
+          color: var(--ink, #0f172a);
+        }
+        .emp-tab-full { display: inline; }
+        .emp-tab-short { display: none; }
+
+        @media (max-width: 860px) {
+          .emp-dash-header {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 10px !important;
+            padding: 12px 14px !important;
+          }
+          .emp-dash-tabs {
+            display: flex !important;
+            gap: 6px !important;
+            overflow-x: auto !important;
+            flex-wrap: nowrap !important;
+            -webkit-overflow-scrolling: touch !important;
+            padding-bottom: 6px !important;
+            width: 100% !important;
+          }
+          .emp-dash-tabs .btn {
+            flex: 0 0 auto !important;
+            white-space: nowrap !important;
+          }
+          .emp-tab-full { display: none !important; }
+          .emp-tab-short { display: inline !important; }
+          .emp-dash-search {
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+        }
+        @media (max-width: 520px) {
+          .hero-cta {
+            display: grid !important;
+            grid-template-columns: 1fr 1fr !important;
+            gap: 8px !important;
+            width: 100% !important;
+          }
+          .hero-cta .hero-b {
+            width: 100% !important;
+            padding: 8px 10px !important;
+            font-size: 12px !important;
+            justify-content: center !important;
+          }
+        }
+      `}</style>
       {/* ── الترويسة الرئيسية والإجراءات السريعة (360° Header) ── */}
       <div className="hero">
         <h2>غرفة العمليات التشغيلية والإدارية 💼 {name ? `· ${name}` : ''}</h2>
@@ -211,20 +291,22 @@ const EmployeeDashboard: React.FC<Props> = ({
       <StatRow items={stats} />
 
       {/* ── التقسيم الرئيسي: مساحة العمل التشغيلية + اللوحة الجانبية ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 320px', gap: 20, alignItems: 'start' }}>
+      <div className="dashboard-layout-grid">
         {/* العمود الرئيسي: مساحة العمل الموحدة متعددة التبويبات */}
         <div style={{ minWidth: 0 }}>
           <div className="card">
             {/* رأس التبويبات مع البحث السريع */}
-            <div className="card-h" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div className="card-h emp-dash-header">
+              <div className="emp-dash-tabs">
                 <button
                   type="button"
                   className={`btn sm ${activeTab === 'tickets' ? '' : 'soft'}`}
                   style={{ boxShadow: activeTab === 'tickets' ? undefined : 'none' }}
                   onClick={() => setActiveTab('tickets')}
                 >
-                  <Icon name="folder" /> التذاكر بانتظار إجراء ({tickets.length})
+                  <Icon name="folder" />{' '}
+                  <span className="emp-tab-full">التذاكر بانتظار إجراء</span>
+                  <span className="emp-tab-short">التذاكر</span> ({tickets.length})
                 </button>
                 <button
                   type="button"
@@ -232,7 +314,9 @@ const EmployeeDashboard: React.FC<Props> = ({
                   style={{ boxShadow: activeTab === 'consults' ? undefined : 'none' }}
                   onClick={() => setActiveTab('consults')}
                 >
-                  <Icon name="cal" /> جلسات اليوم ({todayAppts.length})
+                  <Icon name="cal" />{' '}
+                  <span className="emp-tab-full">جلسات اليوم</span>
+                  <span className="emp-tab-short">الجلسات</span> ({todayAppts.length})
                 </button>
                 <button
                   type="button"
@@ -240,7 +324,9 @@ const EmployeeDashboard: React.FC<Props> = ({
                   style={{ boxShadow: activeTab === 'cases' ? undefined : 'none' }}
                   onClick={() => setActiveTab('cases')}
                 >
-                  <Icon name="scale" /> جلسات المحاكم ({cases.length})
+                  <Icon name="scale" />{' '}
+                  <span className="emp-tab-full">جلسات المحاكم</span>
+                  <span className="emp-tab-short">المحاكم</span> ({cases.length})
                 </button>
                 <button
                   type="button"
@@ -252,7 +338,7 @@ const EmployeeDashboard: React.FC<Props> = ({
                 </button>
               </div>
 
-              <div className="search" style={{ width: 220, padding: '6px 10px' }}>
+              <div className="emp-dash-search">
                 <Icon name="search" />
                 <input
                   placeholder="بحث سريع..."
@@ -278,7 +364,7 @@ const EmployeeDashboard: React.FC<Props> = ({
             {activeTab === 'tickets' && (
               <div className="card-b t-wrap" style={{ padding: 0 }}>
                 {filteredTickets.length ? (
-                  <table className="tbl">
+                  <table className="tbl" style={{ minWidth: 680 }}>
                     <thead>
                       <tr>
                         <th>رقم التذكرة</th>
@@ -326,7 +412,7 @@ const EmployeeDashboard: React.FC<Props> = ({
             {activeTab === 'consults' && (
               <div className="card-b t-wrap" style={{ padding: 0 }}>
                 {filteredAppts.length ? (
-                  <table className="tbl">
+                  <table className="tbl" style={{ minWidth: 680 }}>
                     <thead>
                       <tr>
                         <th>النوع والقناة</th>
@@ -396,7 +482,7 @@ const EmployeeDashboard: React.FC<Props> = ({
             {activeTab === 'cases' && (
               <div className="card-b t-wrap" style={{ padding: 0 }}>
                 {filteredCases.length ? (
-                  <table className="tbl">
+                  <table className="tbl" style={{ minWidth: 680 }}>
                     <thead>
                       <tr>
                         <th>رقم القضية</th>
@@ -451,7 +537,7 @@ const EmployeeDashboard: React.FC<Props> = ({
             {activeTab === 'execs' && (
               <div className="card-b t-wrap" style={{ padding: 0 }}>
                 {filteredExecs.length ? (
-                  <table className="tbl">
+                  <table className="tbl" style={{ minWidth: 680 }}>
                     <thead>
                       <tr>
                         <th>رقم طلب التنفيذ</th>

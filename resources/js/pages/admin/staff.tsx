@@ -84,6 +84,7 @@ setCred(props.generatedPassword);
   const [editingId, setEditingId] = useState<number | null>(null);
 
   const [detail, setDetail] = useState<StaffRow | null>(null);
+  const [modalPermSearch, setModalPermSearch] = useState('');
 
   // التحقق الفوري من الهوية الوطنية
   const checkNid = async (value: string) => {
@@ -337,6 +338,115 @@ diff += 24 * 60;
     return `${hours} ساعة ${mins > 0 ? `و ${mins} دقيقة` : ''}`;
   }, [start, end]);
 
+  // دالة مساعدة لتنسيق وعرض خلية القسم المختص بأناقة ومنع التمدد الأفقي مهما تعددت التخصصات
+  const renderDeptCell = (s: StaffRow) => {
+    if (s.coversAll || s.dept === 'كل الأقسام' || s.dept === 'يغطي كل الأقسام') {
+      return (
+        <span
+          className="badge-s b-green"
+          style={{
+            fontSize: 11.5,
+            padding: '3px 9px',
+            background: 'rgba(16, 185, 129, 0.1)',
+            color: '#047857',
+            border: '1px solid rgba(16, 185, 129, 0.25)',
+            fontWeight: 700,
+            whiteSpace: 'nowrap',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+          }}
+          title="يغطي كافة الأقسام القانونية (محامٍ عام)"
+        >
+          <Icon name="check" cls="ic sm" /> كل الأقسام (شامل)
+        </span>
+      );
+    }
+
+    const depts = (s.dept || '')
+      .split(/[،,]\s*/)
+      .map((d) => d.trim())
+      .filter(Boolean);
+
+    if (depts.length === 0 || s.dept === '—') {
+      return <span className="muted" style={{ fontSize: 12 }}>القسم العام</span>;
+    }
+
+    if (depts.length === 1) {
+      return (
+        <span
+          className="badge-s b-blue"
+          style={{
+            fontSize: 11.5,
+            padding: '3px 8px',
+            maxWidth: 180,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+          }}
+          title={depts[0]}
+        >
+          <Icon name="folder" cls="ic sm" /> {depts[0]}
+        </span>
+      );
+    }
+
+    // أقسام متعددة: نعرض القسم الأول مع شارة عدّاد الأقسام الإضافية وتلميح تفصيلي
+    const firstDept = depts[0];
+    const extraCount = depts.length - 1;
+    const allDeptsTooltip = `الأقسام المتخصصة (${depts.length}):\n• ` + depts.join('\n• ');
+
+    return (
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 5,
+          maxWidth: 220,
+          flexWrap: 'nowrap',
+        }}
+      >
+        <span
+          className="badge-s b-blue"
+          style={{
+            fontSize: 11.5,
+            padding: '3px 8px',
+            maxWidth: 130,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+          }}
+          title={`القسم الأساسي: ${firstDept}`}
+        >
+          <Icon name="folder" cls="ic sm" /> {firstDept}
+        </span>
+        <span
+          className="badge-s"
+          style={{
+            fontSize: 11,
+            padding: '2px 7px',
+            cursor: 'help',
+            background: 'rgba(14, 92, 156, 0.08)',
+            border: '1px solid rgba(14, 92, 156, 0.22)',
+            color: 'var(--primary)',
+            fontWeight: 800,
+            whiteSpace: 'nowrap',
+            borderRadius: 999,
+          }}
+          title={allDeptsTooltip}
+        >
+          +{extraCount} أقسام
+        </span>
+      </div>
+    );
+  };
+
   return (
     <>
       {/* البانر الرئيسي المتناسق مع لوحة التحكم */}
@@ -463,13 +573,13 @@ resetForm();
       {/* ========================================================================= */}
       {activeTab === 'list' && (
         <div className="card">
-          <div className="card-h" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div className="card-h staff-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <h3>الكادر الوظيفي</h3>
               <span className="sub">({filteredStaff.length} من {staff.length})</span>
             </div>
 
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div className="staff-filters" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ position: 'relative', width: 220 }}>
                 <input
                   type="text"
@@ -557,16 +667,16 @@ resetForm();
                 <b>{staff.length === 0 ? 'لا يوجد موظفون بعد' : 'لا يوجد موظفون يطابقون معايير البحث والفلترة'}</b>
               </div>
             ) : (
-              <table className="tbl" style={{ minWidth: 780 }}>
+              <table className="tbl" style={{ minWidth: 840 }}>
                 <thead>
                   <tr>
-                    <th style={{ minWidth: 180 }}>الموظف والصفة</th>
-                    <th style={{ minWidth: 130 }}>القسم المختص</th>
+                    <th style={{ minWidth: 200 }}>الموظف والصفة</th>
+                    <th style={{ minWidth: 170, maxWidth: 240 }}>القسم المختص</th>
                     <th style={{ minWidth: 120 }}>آلية الأجر</th>
-                    <th style={{ minWidth: 120 }}>أوقات الدوام</th>
+                    <th style={{ minWidth: 130 }}>أوقات الدوام</th>
                     <th style={{ minWidth: 110 }}>الصلاحيات</th>
                     <th style={{ minWidth: 90 }}>الحالة</th>
-                    <th style={{ minWidth: 150, textAlign: 'center' }}>الإجراءات</th>
+                    <th style={{ minWidth: 160, textAlign: 'center' }}>الإجراءات</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -574,39 +684,105 @@ resetForm();
                     <tr key={s.id}>
                       <td>
                         <div className="staff-name">
-                          <div className="staff-av">
+                          <div
+                            className="staff-av"
+                            style={{
+                              background:
+                                s.roleKey === 'admin'
+                                  ? 'linear-gradient(135deg, #4f46e5 0%, #0A2A55 100%)'
+                                  : s.roleKey === 'lawyer'
+                                  ? 'linear-gradient(135deg, #0A2A55 0%, #11A0C8 100%)'
+                                  : 'linear-gradient(135deg, #0e5c9c 0%, #10b981 100%)',
+                              boxShadow: '0 2px 6px -1px rgba(0,0,0,0.12)',
+                            }}
+                          >
                             {s.name.replace(/^أ\.?\s*/, '').slice(0, 1)}
                           </div>
-                          <div>
-                            <div className="sn-b">{s.name}</div>
-                            <div className="sn-s" style={{ color: 'var(--muted)', fontSize: 11.5 }}>
-                              {s.role} {s.roleKey === 'lawyer' ? '⚖️' : s.roleKey === 'admin' ? '🏛️' : '💼'}
+                          <div style={{ minWidth: 0 }}>
+                            <div className="sn-b" style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>
+                              {s.name}
+                            </div>
+                            <div className="sn-s" style={{ color: 'var(--muted)', fontSize: 11.5, display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }}>
+                              <span>{s.role}</span>
+                              <span style={{ fontSize: 11 }}>
+                                {s.roleKey === 'lawyer' ? '⚖️' : s.roleKey === 'admin' ? '🏛️' : '💼'}
+                              </span>
                             </div>
                           </div>
                         </div>
                       </td>
-                      <td>
-                        <span className="badge-s b-blue" style={{ fontSize: 11.5, padding: '3px 8px' }}>
-                          <Icon name="folder" cls="ic sm" /> {s.dept || 'القسم العام'}
-                        </span>
+                      <td style={{ maxWidth: 240, overflow: 'hidden' }}>
+                        {renderDeptCell(s)}
                       </td>
-                      <td className="muted mono" style={{ fontSize: 12.5 }}>{s.pay || '—'}</td>
-                      <td className="muted mono" style={{ direction: 'ltr', textAlign: 'right', fontSize: 12 }}>
-                        {s.start && s.end && s.start !== '—' ? `${s.start} – ${s.end}` : '—'}
+                      <td style={{ fontSize: 12 }}>
+                        {s.pay && s.pay !== '—' ? (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 600, color: 'var(--ink)' }}>
+                            <span style={{ fontSize: 12 }}>
+                              {s.pay.includes('نسبة') ? '📊' : s.pay.includes('جلسة') ? '⚖️' : '💵'}
+                            </span>
+                            <span>{s.pay}</span>
+                          </div>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
+                      <td style={{ fontSize: 12 }}>
+                        {s.start && s.end && s.start !== '—' ? (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--ink)' }}>
+                            <Icon name="clock" cls="ic sm" style={{ color: 'var(--faint)' }} />
+                            <span dir="ltr" style={{ fontWeight: 600 }}>
+                              {s.start} – {s.end}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
                       </td>
                       <td>
-                        <span className="perm-count">{(s.perms && s.perms.length) || 0} صلاحية</span>
+                        {s.roleKey === 'admin' ? (
+                          <span
+                            className="perm-count"
+                            style={{
+                              background: 'rgba(99, 102, 241, 0.08)',
+                              color: '#4f46e5',
+                              borderColor: 'rgba(99, 102, 241, 0.22)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              fontWeight: 700,
+                            }}
+                            title="كامل صلاحيات الإدارة العليا والتحكم بالمنصة"
+                          >
+                            <Icon name="lock" cls="ic sm" /> إدارة شاملة
+                          </span>
+                        ) : s.perms && s.perms.length > 0 ? (
+                          <span
+                            className="perm-count"
+                            style={{
+                              cursor: 'help',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                            title={`الصلاحيات الممنوحة (${s.perms.length}):\n• ` + s.perms.join('\n• ')}
+                          >
+                            <Icon name="lock" cls="ic sm" /> {s.perms.length} صلاحية
+                          </span>
+                        ) : (
+                          <span className="muted" style={{ fontSize: 11.5 }}>لا توجد</span>
+                        )}
                       </td>
                       <td>
                         <Badge text={s.status || 'نشط'} tone={s.status === 'موقوف' ? 'b-grey' : 'b-green'} />
                       </td>
                       <td style={{ textAlign: 'center' }}>
-                        <div style={{ display: 'inline-flex', gap: 4, flexWrap: 'nowrap' }}>
+                        <div style={{ display: 'inline-flex', gap: 5, flexWrap: 'nowrap', justifyContent: 'center' }}>
                           <button
                             className="btn soft sm"
                             onClick={() => setDetail(s)}
                             type="button"
                             title="عرض تفاصيل الموظف"
+                            style={{ padding: '5px 9px', fontSize: 12 }}
                           >
                             <Icon name="user" /> تفاصيل
                           </button>
@@ -615,6 +791,7 @@ resetForm();
                             onClick={() => startEdit(s)}
                             type="button"
                             title="تعديل بيانات الموظف والصلاحيات"
+                            style={{ padding: '5px 9px', fontSize: 12 }}
                           >
                             <Icon name="doc" /> تعديل
                           </button>
@@ -624,6 +801,11 @@ resetForm();
                               onClick={() => toggleStaff(s)}
                               type="button"
                               title={s.status === 'موقوف' ? 'تفعيل الحساب' : 'إيقاف الحساب'}
+                              style={{
+                                padding: '5px 9px',
+                                fontSize: 12,
+                                color: s.status === 'موقوف' ? 'var(--green, #10b981)' : 'var(--red, #ef4444)',
+                              }}
                             >
                               {s.status === 'موقوف' ? (
                                 <><Icon name="check" /> تفعيل</>
@@ -1175,70 +1357,643 @@ setRole('موظف خدمة عملاء');
       </div>
       )}
 
-      {/* نافذة معاينة تفاصيل الموظف (Modal) */}
-      <Modal title={detail ? `الملف الوظيفي — ${detail.name}` : ''} open={!!detail} onClose={() => setDetail(null)}>
+      {/* ── نافذة الملف الوظيفي الموحد (Executive Staff Dossier Modal) ── */}
+      <Modal
+        title={detail ? `الملف الوظيفي — ${detail.name}` : ''}
+        subtitle="بطاقة البيانات المهنية، الأقسام المسندة، وحوكمة الصلاحيات"
+        open={!!detail}
+        onClose={() => {
+          setDetail(null);
+          setModalPermSearch('');
+        }}
+        maxWidth={780}
+      >
         {detail && (
-          <>
-            <div style={{ marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <Badge text={detail.status || 'نشط'} tone={detail.status === 'موقوف' ? 'b-grey' : 'b-green'} />
-              <button
-                className="btn soft sm"
-                style={{ marginInlineStart: 'auto' }}
-                onClick={() => startEdit(detail)}
-                type="button"
-              >
-                <Icon name="doc" /> تعديل البيانات
-              </button>
-              {/* أُلغيت «معاينة اللوحة بصلاحياته» (الإمبرسنيشن) بقرار 2026-08-28
-              {detail.roleKey !== 'admin' && (
-                <button className="btn sm" onClick={() => previewStaff(detail)} type="button">
-                  <Icon name="out" /> معاينة اللوحة بصلاحياته
+          <div className="staff-dossier" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* 1. الترويسة الرئيسية للملف الوظيفي (Profile Hero Banner) */}
+            <div className="staff-dossier-hero">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div
+                  style={{
+                    width: 58,
+                    height: 58,
+                    borderRadius: 16,
+                    background:
+                      detail.roleKey === 'admin'
+                        ? 'linear-gradient(135deg, #4f46e5 0%, #0A2A55 100%)'
+                        : detail.roleKey === 'lawyer'
+                        ? 'linear-gradient(135deg, #0A2A55 0%, #11A0C8 100%)'
+                        : 'linear-gradient(135deg, #0e5c9c 0%, #10b981 100%)',
+                    color: '#fff',
+                    display: 'grid',
+                    placeItems: 'center',
+                    fontSize: 20,
+                    fontWeight: 800,
+                    boxShadow: '0 4px 12px -2px rgba(10, 42, 85, 0.25)',
+                    position: 'relative',
+                  }}
+                >
+                  {detail.name.replace(/^أ\.?\s*/, '').slice(0, 1)}
+                  <span
+                    style={{
+                      position: 'absolute',
+                      bottom: -2,
+                      left: -2,
+                      width: 14,
+                      height: 14,
+                      borderRadius: '50%',
+                      background: detail.status === 'موقوف' ? 'var(--red, #ef4444)' : 'var(--green, #10b981)',
+                      border: '2px solid #fff',
+                    }}
+                    title={detail.status === 'موقوف' ? 'حساب موقوف' : 'حساب نشط'}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: 'var(--ink, #0f172a)' }}>
+                      {detail.name}
+                    </h3>
+                    <Badge
+                      text={detail.status || 'نشط'}
+                      tone={detail.status === 'موقوف' ? 'b-grey' : 'b-green'}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: 'var(--primary, #0e5c9c)',
+                        background: 'rgba(14, 92, 156, 0.08)',
+                        padding: '2px 8px',
+                        borderRadius: 6,
+                      }}
+                    >
+                      {detail.roleKey === 'lawyer' ? '⚖️ محامٍ مرخص' : detail.roleKey === 'admin' ? '🏛️ الإدارة العليا' : '💼 كادر إداري ومساند'}
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--muted, #64748b)' }}>•</span>
+                    <span style={{ fontSize: 12, color: 'var(--muted, #64748b)' }}>{detail.role}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* أزرار الإجراءات السريعة */}
+              <div className="staff-hero-actions">
+                <button
+                  className="btn sm"
+                  onClick={() => {
+                    setDetail(null);
+                    startEdit(detail);
+                  }}
+                  type="button"
+                  style={{ gap: 6 }}
+                >
+                  <Icon name="doc" /> تعديل البيانات
                 </button>
-              )} */}
+
+                {detail.roleKey !== 'admin' && (
+                  <button
+                    className="btn sm soft"
+                    onClick={() => {
+                      toggleStaff(detail);
+                      setDetail((prev) => (prev ? { ...prev, status: prev.status === 'موقوف' ? 'نشط' : 'موقوف' } : null));
+                    }}
+                    type="button"
+                    style={{
+                      gap: 6,
+                      color: detail.status === 'موقوف' ? 'var(--green, #10b981)' : 'var(--red, #ef4444)',
+                    }}
+                    title={detail.status === 'موقوف' ? 'تفعيل حساب الموظف' : 'إيقاف حساب الموظف'}
+                  >
+                    {detail.status === 'موقوف' ? (
+                      <><Icon name="check" /> تفعيل الحساب</>
+                    ) : (
+                      <><Icon name="lock" /> إيقاف الحساب</>
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div className="kv"><span className="k">الاسم الكامل</span><span className="v"><b>{detail.name}</b></span></div>
-            <div className="kv"><span className="k">الصفة والمسمى</span><span className="v">{detail.role}</span></div>
-            <div className="kv"><span className="k">القسم المختص</span><span className="v">{detail.dept}</span></div>
-            <div className="kv"><span className="k">البريد الإلكتروني</span><span className="v mono" style={{ direction: 'ltr' }}>{detail.email || '—'}</span></div>
-            <div className="kv"><span className="k">رقم الجوال</span><span className="v mono" style={{ direction: 'ltr' }}>{detail.mobile || '—'}</span></div>
-            <div className="kv"><span className="k">رقم الهوية الوطنية</span><span className="v mono" style={{ direction: 'ltr' }}>{detail.nid || '—'}</span></div>
-            <div className="kv"><span className="k">تاريخ المباشرة</span><span className="v">{detail.join || '—'}</span></div>
-            <div className="kv"><span className="k">ساعات الدوام</span><span className="v mono" style={{ direction: 'ltr' }}>{detail.start && detail.end && detail.start !== '—' ? `${detail.start} – ${detail.end}` : '—'}</span></div>
-            <div className="kv"><span className="k">الأجر والتعاقد</span><span className="v mono">{detail.pay || '—'}</span></div>
-
-            <div style={{ borderTop: '1px solid var(--line-soft)', marginTop: 14, paddingTop: 12 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--deep)', marginBottom: 8 }}>
-                الصلاحيات الممنوحة ({(detail.perms && detail.perms.length) || 0})
+            {/* 2. شريط النبض التشغيلي (Key Metrics Strip) */}
+            <div className="staff-metrics-grid">
+              <div
+                style={{
+                  background: '#fff',
+                  border: '1px solid var(--line, #e2e8f0)',
+                  borderRadius: 10,
+                  padding: '10px 12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                }}
+              >
+                <div
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 8,
+                    background: 'rgba(14, 92, 156, 0.08)',
+                    color: 'var(--primary)',
+                    display: 'grid',
+                    placeItems: 'center',
+                    flex: '0 0 34px',
+                  }}
+                >
+                  <Icon name="folder" />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <span style={{ fontSize: 10.5, color: 'var(--muted)', display: 'block' }}>التخصص والأقسام</span>
+                  <b style={{ fontSize: 12, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                    {detail.coversAll || detail.dept === 'كل الأقسام'
+                      ? 'تغطية شاملة'
+                      : (detail.dept || '').split(/[،,]/).length > 1
+                      ? `${(detail.dept || '').split(/[،,]/).length} أقسام معتمدة`
+                      : detail.dept || 'القسم العام'}
+                  </b>
+                </div>
               </div>
-              {detail.perms && detail.perms.length ? (
-                catalog.groups.map((grp) => {
-                  const have = grp.items.filter((p) => detail.perms.indexOf(p) >= 0);
 
-                  if (!have.length) {
-return null;
-}
+              <div
+                style={{
+                  background: '#fff',
+                  border: '1px solid var(--line, #e2e8f0)',
+                  borderRadius: 10,
+                  padding: '10px 12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                }}
+              >
+                <div
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 8,
+                    background: 'rgba(16, 185, 129, 0.08)',
+                    color: '#059669',
+                    display: 'grid',
+                    placeItems: 'center',
+                    flex: '0 0 34px',
+                  }}
+                >
+                  <Icon name="cal" />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <span style={{ fontSize: 10.5, color: 'var(--muted)', display: 'block' }}>التعاقد والأجر</span>
+                  <b style={{ fontSize: 12, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                    {detail.pay || '—'}
+                  </b>
+                </div>
+              </div>
 
-                  return (
-                    <div key={grp.g} style={{ marginBottom: 10 }}>
-                      <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--primary)', marginBottom: 5 }}>
-                        {grp.g}
-                      </div>
-                      <div className="detail-chips">
-                        {have.map((p) => (
-                          <span key={p} className="chip">
-                            {p}
-                          </span>
-                        ))}
+              <div
+                style={{
+                  background: '#fff',
+                  border: '1px solid var(--line, #e2e8f0)',
+                  borderRadius: 10,
+                  padding: '10px 12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                }}
+              >
+                <div
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 8,
+                    background: 'rgba(245, 158, 11, 0.08)',
+                    color: '#d97706',
+                    display: 'grid',
+                    placeItems: 'center',
+                    flex: '0 0 34px',
+                  }}
+                >
+                  <Icon name="clock" />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <span style={{ fontSize: 10.5, color: 'var(--muted)', display: 'block' }}>الدوام اليومي</span>
+                  <b style={{ fontSize: 12, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                    {detail.start && detail.end && detail.start !== '—' ? `${detail.start} – ${detail.end}` : '—'}
+                  </b>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: '#fff',
+                  border: '1px solid var(--line, #e2e8f0)',
+                  borderRadius: 10,
+                  padding: '10px 12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                }}
+              >
+                <div
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 8,
+                    background: 'rgba(99, 102, 241, 0.08)',
+                    color: '#4f46e5',
+                    display: 'grid',
+                    placeItems: 'center',
+                    flex: '0 0 34px',
+                  }}
+                >
+                  <Icon name="lock" />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <span style={{ fontSize: 10.5, color: 'var(--muted)', display: 'block' }}>الصلاحيات</span>
+                  <b style={{ fontSize: 12, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                    {detail.roleKey === 'admin' ? 'إدارة شاملة' : `${detail.perms?.length || 0} صلاحية`}
+                  </b>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. شبكة تفاصيل الملف (Personal & Professional Info Grid) */}
+            <div className="staff-info-grid">
+              {/* بطاقة معلومات الهوية والاتصال */}
+              <div
+                style={{
+                  background: '#fff',
+                  border: '1px solid var(--line, #e2e8f0)',
+                  borderRadius: 12,
+                  padding: '14px 16px',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 800,
+                    color: 'var(--deep, #0A2A55)',
+                    marginBottom: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 7,
+                    borderBottom: '1px solid var(--line-soft, #f1f5f9)',
+                    paddingBottom: 8,
+                  }}
+                >
+                  <Icon name="user" cls="ic sm" /> بيانات الهوية والتواصل
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                  <div className="kv" style={{ padding: '4px 0' }}>
+                    <span className="k" style={{ fontSize: 12 }}>رقم الهوية / الإقامة</span>
+                    <span className="v mono" style={{ direction: 'ltr', fontWeight: 700, color: 'var(--ink)' }}>
+                      {detail.nid || '—'}
+                    </span>
+                  </div>
+
+                  <div className="kv" style={{ padding: '4px 0' }}>
+                    <span className="k" style={{ fontSize: 12 }}>البريد الإلكتروني</span>
+                    <div className="v" style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                      <a
+                        href={detail.email ? `mailto:${detail.email}` : undefined}
+                        className="mono"
+                        style={{
+                          direction: 'ltr',
+                          fontSize: 12,
+                          color: 'var(--primary)',
+                          textDecoration: 'none',
+                          wordBreak: 'break-all',
+                        }}
+                      >
+                        {detail.email || '—'}
+                      </a>
+                      {detail.email && (
+                        <button
+                          type="button"
+                          className="btn ghost sm"
+                          style={{ padding: '2px 5px', fontSize: 10 }}
+                          onClick={() => {
+                            if (navigator.clipboard) {
+                              void navigator.clipboard.writeText(detail.email);
+                              toast('تم نسخ البريد الإلكتروني');
+                            }
+                          }}
+                          title="نسخ البريد"
+                        >
+                          <Icon name="link" cls="ic sm" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="kv" style={{ padding: '4px 0' }}>
+                    <span className="k" style={{ fontSize: 12 }}>رقم الجوال</span>
+                    <div className="v" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <a
+                        href={detail.mobile && detail.mobile !== '—' ? `tel:${detail.mobile}` : undefined}
+                        className="mono"
+                        style={{
+                          direction: 'ltr',
+                          fontSize: 12,
+                          color: 'var(--primary)',
+                          textDecoration: 'none',
+                        }}
+                      >
+                        {detail.mobile || '—'}
+                      </a>
+                      {detail.mobile && detail.mobile !== '—' && (
+                        <button
+                          type="button"
+                          className="btn ghost sm"
+                          style={{ padding: '2px 5px', fontSize: 10 }}
+                          onClick={() => {
+                            if (navigator.clipboard) {
+                              void navigator.clipboard.writeText(detail.mobile);
+                              toast('تم نسخ رقم الجوال');
+                            }
+                          }}
+                          title="نسخ الجوال"
+                        >
+                          <Icon name="link" cls="ic sm" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="kv" style={{ padding: '4px 0' }}>
+                    <span className="k" style={{ fontSize: 12 }}>تاريخ المباشرة</span>
+                    <span className="v" style={{ fontSize: 12, color: 'var(--ink)' }}>
+                      {detail.join || '—'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* بطاقة الأقسام والتخصصات المعتمدة */}
+              <div
+                style={{
+                  background: '#fff',
+                  border: '1px solid var(--line, #e2e8f0)',
+                  borderRadius: 12,
+                  padding: '14px 16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 800,
+                    color: 'var(--deep, #0A2A55)',
+                    marginBottom: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 7,
+                    borderBottom: '1px solid var(--line-soft, #f1f5f9)',
+                    paddingBottom: 8,
+                  }}
+                >
+                  <Icon name="folder" cls="ic sm" /> الأقسام والتخصصات المسندة
+                </div>
+
+                <div style={{ flex: 1 }}>
+                  {detail.coversAll || detail.dept === 'كل الأقسام' ? (
+                    <div
+                      style={{
+                        background: 'rgba(16, 185, 129, 0.08)',
+                        border: '1.4px solid rgba(16, 185, 129, 0.25)',
+                        borderRadius: 10,
+                        padding: '12px 14px',
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 10,
+                      }}
+                    >
+                      <span style={{ fontSize: 20 }}>🌟</span>
+                      <div>
+                        <b style={{ color: '#047857', fontSize: 13, display: 'block', marginBottom: 2 }}>
+                          تغطية شاملة لكافة الأقسام (محامٍ عام)
+                        </b>
+                        <p style={{ margin: 0, fontSize: 11.5, color: '#065f46', lineHeight: 1.6 }}>
+                          معتمد للترافع وتوزيع التذاكر والاستشارات التخصصية في كافة مجالات ودوائر المكتب الـ 29 دون حصر.
+                        </p>
                       </div>
                     </div>
-                  );
-                })
+                  ) : (
+                    <div>
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 8 }}>
+                        الأقسام المصرح له بمباشرة ملفاتها وقضاياها:
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {(detail.dept || '')
+                          .split(/[،,]\s*/)
+                          .map((d) => d.trim())
+                          .filter(Boolean)
+                          .map((d, idx) => (
+                            <span
+                              key={idx}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                background: 'rgba(14, 92, 156, 0.06)',
+                                border: '1px solid rgba(14, 92, 156, 0.18)',
+                                color: 'var(--primary)',
+                                fontSize: 12,
+                                fontWeight: 700,
+                                padding: '5px 10px',
+                                borderRadius: 8,
+                              }}
+                            >
+                              <Icon name="folder" cls="ic sm" /> {d}
+                            </span>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 4. مصفوفة الصلاحيات الممنوحة (Role-Based Permissions Dossier) */}
+            <div
+              style={{
+                background: '#fff',
+                border: '1px solid var(--line, #e2e8f0)',
+                borderRadius: 12,
+                padding: '16px',
+              }}
+            >
+              <div className="staff-perm-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name="lock" cls="ic sm" />
+                  <b style={{ fontSize: 13.5, color: 'var(--deep)' }}>
+                    مصفوفة الصلاحيات الممنوحة
+                  </b>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 800,
+                      background: 'rgba(14, 92, 156, 0.08)',
+                      color: 'var(--primary)',
+                      padding: '2px 8px',
+                      borderRadius: 999,
+                    }}
+                  >
+                    {detail.perms?.length || 0} صلاحية نشطة
+                  </span>
+                </div>
+
+                {/* بحث سريع داخل صلاحيات المودال */}
+                <div className="staff-perm-search">
+                  <input
+                    type="text"
+                    className="input"
+                    placeholder="بحث في الصلاحيات..."
+                    value={modalPermSearch}
+                    onChange={(e) => setModalPermSearch(e.target.value)}
+                    style={{ width: '100%', fontSize: 11.5, padding: '5px 8px 5px 24px', borderRadius: 8 }}
+                  />
+                  {modalPermSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setModalPermSearch('')}
+                      style={{
+                        position: 'absolute',
+                        left: 6,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: 'var(--muted)',
+                        fontSize: 10,
+                      }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {detail.roleKey === 'admin' ? (
+                <div
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(79, 70, 229, 0.06), rgba(14, 92, 156, 0.08))',
+                    border: '1.5px solid rgba(79, 70, 229, 0.2)',
+                    borderRadius: 10,
+                    padding: '14px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                  }}
+                >
+                  <span style={{ fontSize: 24 }}>👑</span>
+                  <div>
+                    <b style={{ color: '#4338ca', fontSize: 13.5, display: 'block', marginBottom: 2 }}>
+                      حساب قيادي — إدارة عليا بصلاحيات كاملة
+                    </b>
+                    <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                      يمتلك هذا الحساب تفويضاً كاملاً غير مقيد للإدارة العامة، التوزيع والتعيين، الرقابة المالية، وإعدادات النظام.
+                    </p>
+                  </div>
+                </div>
+              ) : detail.perms && detail.perms.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {catalog.groups
+                    .map((grp) => {
+                      const have = grp.items.filter(
+                        (p) =>
+                          detail.perms.indexOf(p) >= 0 &&
+                          (!modalPermSearch.trim() || p.toLowerCase().includes(modalPermSearch.toLowerCase()))
+                      );
+                      if (!have.length) return null;
+
+                      return (
+                        <div
+                          key={grp.g}
+                          style={{
+                            background: '#f8fafc',
+                            border: '1px solid var(--line-soft, #f1f5f9)',
+                            borderRadius: 10,
+                            padding: '10px 12px',
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: 11.5,
+                              fontWeight: 800,
+                              color: 'var(--primary)',
+                              marginBottom: 8,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                            }}
+                          >
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--primary)' }} />
+                            {grp.g} ({have.length})
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {have.map((p) => (
+                              <span
+                                key={p}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 5,
+                                  background: '#fff',
+                                  border: '1px solid rgba(14, 92, 156, 0.16)',
+                                  color: 'var(--ink)',
+                                  fontSize: 11.5,
+                                  fontWeight: 600,
+                                  padding: '4px 9px',
+                                  borderRadius: 7,
+                                  boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                                }}
+                              >
+                                <span style={{ color: 'var(--success)', fontWeight: 800 }}>✓</span> {p}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })
+                    .filter(Boolean)}
+                </div>
               ) : (
-                <span className="chip muted">لا توجد صلاحيات مسندة</span>
+                <div style={{ textAlign: 'center', padding: '16px', color: 'var(--muted)', fontSize: 12 }}>
+                  لا توجد صلاحيات مسندة لهذا الحساب حالياً
+                </div>
               )}
             </div>
-          </>
+
+            {/* 5. شريط التذييل وأزرار الإغلاق (Modal Footer) */}
+            <div className="staff-dossier-footer">
+              <span style={{ fontSize: 11.5, color: 'var(--faint)' }}>
+                معرّف الموظف بالنظام: #{detail.id}
+              </span>
+
+              <div className="staff-footer-actions">
+                <button
+                  className="btn soft sm"
+                  onClick={() => setDetail(null)}
+                  type="button"
+                >
+                  إغلاق
+                </button>
+                <button
+                  className="btn sm"
+                  onClick={() => {
+                    setDetail(null);
+                    startEdit(detail);
+                  }}
+                  type="button"
+                  style={{ gap: 6 }}
+                >
+                  <Icon name="doc" /> تعديل الملف الوظيفي
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </Modal>
     </>

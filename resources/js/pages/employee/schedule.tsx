@@ -9,6 +9,8 @@ import { useToast } from '@/components/babylon/Toast';
 import { todayISO } from '@/components/SpecialistPicker';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { useCan, useMasker } from '@/lib/permissions';
+import { truncateWords } from '@/lib/utils';
 
 // الشاشة تُعرض داخل تقويم الموظف وتقويم الإدارة معًا — العناوين تُشتق من اللوحة الحالية
 // (لم يعد الأدمن يمرّ عبر بوابة دور الموظف — قرار 2026-08-28، له مسارات admin مطابقة)
@@ -81,12 +83,22 @@ export interface AwaitingConsultItem {
   ticketNo?: string | null;
 }
 
+export interface ScheduleCan {
+  book?: boolean;
+  manage?: boolean;
+  enterRoom?: boolean;
+  court?: boolean;
+  meetings?: boolean;
+  approve?: boolean;
+}
+
 interface Props {
   clients: ClientItem[];
   lawyers: LawyerItem[];
   appointments?: AppointmentItem[];
   counts?: Counts;
   awaitingConsults?: AwaitingConsultItem[];
+  can?: ScheduleCan;
 }
 
 const TYPES: [string, string, string][] = [
@@ -102,14 +114,47 @@ const DAY_HOURS = [
   '19:00', '20:00', '21:00', '22:00'
 ];
 
+/** استخراج الحروف الأولى لرمز المستشار */
+const getInitials = (name: string): string => {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[1][0]}`;
+  }
+  return name.slice(0, 2);
+};
+
+/** حساب نهاية الفترة الزمنية للساعة الحالية */
+const nextHour = (h: string): string => {
+  const hourNum = parseInt(h.split(':')[0], 10);
+  return `${String(hourNum + 1).padStart(2, '0')}:00`;
+};
+
+/** وصف الفترة الزمنية باللغة العربية */
+const formatPeriod = (h: string): string => {
+  const hourNum = parseInt(h.split(':')[0], 10);
+  if (hourNum < 12) return 'صباحاً';
+  if (hourNum === 12) return 'ظهراً';
+  return 'مساءً';
+};
+
 const EmployeeSchedule: React.FC<Props> = ({
   clients = [],
   lawyers = [],
   appointments = [],
   counts,
   awaitingConsults = [],
+  can,
 }) => {
   const toast = useToast();
+  const userCan = useCan();
+  const mask = useMasker();
+  const isSuper = window.location.pathname.startsWith('/admin');
+
+  // حوكمة الصلاحيات التفصيلية
+  const canBook = can?.book ?? (isSuper || userCan('جدولة المواعيد'));
+  const canManage = can?.manage ?? (isSuper || userCan('إدارة المواعيد والحجوزات'));
+  const canVideo = can?.enterRoom ?? (isSuper || userCan('إجراء الجلسات المرئية') || userCan('استقبال الاستشارات'));
+  const canApprove = can?.approve ?? isSuper;
 
   // نمط العرض: تقويم وتفرغ الفريق | قائمة المواعيد
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -438,6 +483,36 @@ return lawyers;
     return map;
   }, [appointments, selectedDay]);
 
+  // إحصائيات تفرغ المستشارين لليوم المختار
+  const lawyerDailyStats = useMemo(() => {
+    const statsMap = new Map<number, { booked: number; free: number; past: number; total: number }>();
+    const isToday = selectedDay === todayISO();
+    const currentHM = nowHM();
+
+    gridLawyers.forEach((l) => {
+      let booked = 0;
+      let free = 0;
+      let past = 0;
+
+      DAY_HOURS.forEach((h) => {
+        const isTaken = dayAppointmentsMap.has(`${l.id}_${h}`);
+        const isHourPast = isToday && h <= currentHM;
+
+        if (isTaken) {
+          booked++;
+        } else if (isHourPast) {
+          past++;
+        } else {
+          free++;
+        }
+      });
+
+      statsMap.set(l.id, { booked, free, past, total: DAY_HOURS.length });
+    });
+
+    return statsMap;
+  }, [gridLawyers, dayAppointmentsMap, selectedDay]);
+
   return (
     <>
       {/* ── الترويسة الرئيسية والإجراءات السريعة ── */}
@@ -465,9 +540,11 @@ return lawyers;
               <Icon name="ticket" /> قائمة المواعيد
             </button>
           </div>
-          <button className="btn" type="button" onClick={openNewBooking}>
-            <Icon name="calplus" /> + حجز موعد جديد
-          </button>
+          {canBook && (
+            <button className="btn" type="button" onClick={openNewBooking}>
+              <Icon name="calplus" /> + حجز موعد جديد
+            </button>
+          )}
         </div>
       </div>
 
@@ -580,139 +657,548 @@ return lawyers;
 
       {/* ── العرض 1: شبكة تفرغ الفريق والتقويم التفاعلي (Resource Grid) ── */}
       {viewMode === 'grid' && (
-        <div className="card">
-          <div className="card-h">
+        <div className="card" style={{ overflow: 'hidden' }}>
+          {/* رأس البطاقة والشرح ودليل الحالات */}
+          <div className="card-h" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Icon name="calgrid" />
-              <h3>شبكة تفرغ المستشارين ليوم {formattedSelectedDay}</h3>
+              <div style={{
+                width: 38,
+                height: 38,
+                borderRadius: 10,
+                background: 'rgba(14, 92, 156, 0.1)',
+                color: 'var(--primary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 18,
+              }}>
+                <Icon name="calgrid" />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>شبكة تفرغ المستشارين</h3>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>📅 ليوم {formattedSelectedDay}</span>
+                  <span>•</span>
+                  <span>انقر على أي فترة شاغرة لحجز موعد فوري</span>
+                </div>
+              </div>
             </div>
-            <span className="sub">
-              انقر على أي فترة شاغرة خضراء لحجز موعد فوري
-            </span>
+
+            {/* دليل الحالات (Status Legend) */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              flexWrap: 'wrap',
+              background: 'var(--paper-2)',
+              padding: '6px 12px',
+              borderRadius: 8,
+              border: '1px solid var(--line-soft)',
+              fontSize: 11.5,
+              fontWeight: 600,
+            }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#047857' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+                متاح للحجز
+              </span>
+              <span style={{ color: 'var(--line)' }}>|</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--primary)' }}>
+                <span>🏢</span> حضورية
+              </span>
+              <span style={{ color: 'var(--line)' }}>|</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--cyan)' }}>
+                <span>🎥</span> مرئية
+              </span>
+              <span style={{ color: 'var(--line)' }}>|</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--amber)' }}>
+                <span>📞</span> هاتفية
+              </span>
+              <span style={{ color: 'var(--line)' }}>|</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--muted)' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--line)' }} />
+                منقضية
+              </span>
+            </div>
           </div>
+
+          {/* في حالة اختيار مستشار واحد: بطاقة هوية المستشار وإحصائيات طاقة اليوم */}
+          {gridLawyers.length === 1 && (() => {
+            const singleLawyer = gridLawyers[0];
+            const stats = lawyerDailyStats.get(singleLawyer.id) || { booked: 0, free: 0, past: 0, total: DAY_HOURS.length };
+            const freePercent = Math.round((stats.free / stats.total) * 100);
+
+            return (
+              <div style={{
+                background: 'linear-gradient(135deg, rgba(14, 92, 156, 0.04) 0%, rgba(17, 160, 200, 0.06) 100%)',
+                borderBottom: '1px solid var(--line-soft)',
+                padding: '14px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 16,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <div style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, var(--primary) 0%, #1e40af 100%)',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 16,
+                    fontWeight: 800,
+                    boxShadow: '0 4px 10px rgba(14, 92, 156, 0.25)',
+                    border: '2px solid #fff',
+                  }}>
+                    {getInitials(singleLawyer.name)}
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 16, fontWeight: 800, color: 'var(--deep)' }}>{singleLawyer.name}</span>
+                      <span style={{
+                        fontSize: 11,
+                        background: 'rgba(14, 92, 156, 0.1)',
+                        color: 'var(--primary)',
+                        padding: '2px 8px',
+                        borderRadius: 12,
+                        fontWeight: 700,
+                      }}>
+                        {singleLawyer.dept || 'القسم القانوني'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                      جدول التفرغ وساعات الاستشارات لليوم المحدد ({DAY_HOURS.length} فترات زمنية)
+                    </div>
+                  </div>
+                </div>
+
+                {/* إحصائيات التفرغ اليومي لهذا المستشار */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{
+                    background: '#fff',
+                    border: '1px solid #10b98133',
+                    padding: '6px 14px',
+                    borderRadius: 8,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                  }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+                    <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>المتاح للحجز:</span>
+                    <b style={{ fontSize: 14, color: '#047857' }}>{stats.free} فترة</b>
+                  </div>
+
+                  <div style={{
+                    background: '#fff',
+                    border: '1px solid var(--primary)33',
+                    padding: '6px 14px',
+                    borderRadius: 8,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                  }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--primary)' }} />
+                    <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>المحجوز:</span>
+                    <b style={{ fontSize: 14, color: 'var(--primary)' }}>{stats.booked} موعد</b>
+                  </div>
+
+                  {stats.past > 0 && (
+                    <div style={{
+                      background: '#fff',
+                      border: '1px solid var(--line-soft)',
+                      padding: '6px 14px',
+                      borderRadius: 8,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                    }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--line)' }} />
+                      <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>منقضية:</span>
+                      <b style={{ fontSize: 14, color: 'var(--muted)' }}>{stats.past}</b>
+                    </div>
+                  )}
+
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    minWidth: 100,
+                    padding: '4px 8px',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginBottom: 3 }}>
+                      <span>نسبة الشغور</span>
+                      <b style={{ color: freePercent > 0 ? '#047857' : 'var(--muted)' }}>{freePercent}%</b>
+                    </div>
+                    <div style={{ width: '100%', height: 6, background: '#e2e8f0', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ width: `${freePercent}%`, height: '100%', background: freePercent > 20 ? '#10b981' : '#f59e0b', borderRadius: 3, transition: 'width .3s' }} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* في حالة عرض كافة المستشارين: شريط ملخص إجمالي الفريق */}
+          {gridLawyers.length > 1 && (() => {
+            let totalFree = 0;
+            let totalBooked = 0;
+            gridLawyers.forEach((l) => {
+              const st = lawyerDailyStats.get(l.id);
+              if (st) {
+                totalFree += st.free;
+                totalBooked += st.booked;
+              }
+            });
+
+            return (
+              <div style={{
+                background: 'var(--paper-2)',
+                borderBottom: '1px solid var(--line-soft)',
+                padding: '10px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 12,
+                fontSize: 12.5,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--deep)', fontWeight: 600 }}>
+                  <span>👥 إجمالي المستشارين المعروضين: <b>{gridLawyers.length}</b></span>
+                  <span>•</span>
+                  <span>إجمالي فترات الحجز المتاحة اليوم: <b style={{ color: '#047857' }}>{totalFree} فترة شاغرة</b></span>
+                  <span>•</span>
+                  <span>المواعيد المحجوزة: <b style={{ color: 'var(--primary)' }}>{totalBooked} موعد</b></span>
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                  مرّر أفقياً لاستعراض جدول كافة المستشارين
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="card-b t-wrap" style={{ padding: 0 }}>
             {gridLawyers.length === 0 ? (
-              <div className="empty">
+              <div className="empty" style={{ padding: 48 }}>
                 <Icon name="user" />
-                <b>لا يوجد مستشارون مسجلون</b>
+                <b>لا يوجد مستشارون مسجلون مطابقون للفلترة</b>
+                <p style={{ fontSize: 12, color: 'var(--muted)' }}>يرجى تغيير خيارات الفلترة أو إضافة مستشارين للنظام</p>
               </div>
             ) : (
-              <table className="tbl" style={{ borderCollapse: 'separate', borderSpacing: 0, minWidth: 720 }}>
+              <table className="tbl" style={{ borderCollapse: 'separate', borderSpacing: 0, minWidth: gridLawyers.length === 1 ? '100%' : 780 }}>
                 <thead>
                   <tr style={{ background: 'var(--paper-2)' }}>
-                    <th style={{ width: 90, textAlign: 'center', borderRight: '1px solid var(--line-soft)' }}>الوقت</th>
-                    {gridLawyers.map((l) => (
-                      <th key={l.id} style={{ minWidth: 160, padding: '12px 14px' }}>
-                        <div style={{ fontWeight: 800, color: 'var(--deep)', fontSize: 13.5 }}>{l.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}>{l.dept || 'القسم القانوني'}</div>
-                      </th>
-                    ))}
+                    <th style={{
+                      width: 110,
+                      minWidth: 110,
+                      maxWidth: 120,
+                      textAlign: 'center',
+                      borderRight: '1px solid var(--line-soft)',
+                      padding: '14px 10px',
+                      background: 'var(--paper-2)',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, color: 'var(--deep)', fontSize: 13, fontWeight: 800 }}>
+                        <Icon name="clock" />
+                        <span>الوقت</span>
+                      </div>
+                    </th>
+
+                    {gridLawyers.map((l) => {
+                      const st = lawyerDailyStats.get(l.id);
+                      const freeCount = st?.free ?? 0;
+
+                      return (
+                        <th key={l.id} style={{
+                          minWidth: gridLawyers.length === 1 ? 'auto' : 240,
+                          padding: '12px 16px',
+                          borderRight: '1px solid var(--line-soft)',
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <div style={{
+                                width: 34,
+                                height: 34,
+                                borderRadius: '50%',
+                                background: 'linear-gradient(135deg, var(--primary) 0%, #1e40af 100%)',
+                                color: '#fff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 12.5,
+                                fontWeight: 800,
+                                flexShrink: 0,
+                              }}>
+                                {getInitials(l.name)}
+                              </div>
+                              <div>
+                                <div style={{ fontWeight: 800, color: 'var(--deep)', fontSize: 13.5 }}>{l.name}</div>
+                                <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}>{l.dept || 'القسم القانوني'}</div>
+                              </div>
+                            </div>
+
+                            {/* شارة التفرغ لليوم */}
+                            {freeCount > 0 ? (
+                              <span style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                background: 'rgba(16, 185, 129, 0.1)',
+                                color: '#047857',
+                                border: '1px solid rgba(16, 185, 129, 0.25)',
+                                padding: '3px 8px',
+                                borderRadius: 12,
+                                whiteSpace: 'nowrap',
+                              }}>
+                                🟢 {freeCount} متاحة
+                              </span>
+                            ) : (
+                              <span style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                background: 'rgba(239, 68, 68, 0.1)',
+                                color: '#b91c1c',
+                                border: '1px solid rgba(239, 68, 68, 0.25)',
+                                padding: '3px 8px',
+                                borderRadius: 12,
+                                whiteSpace: 'nowrap',
+                              }}>
+                                🔴 مكتمل اليوم
+                              </span>
+                            )}
+                          </div>
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody>
                   {DAY_HOURS.map((hourStr) => {
                     const isSlotPast = selectedDay === todayISO() && hourStr <= nowHM();
+                    const endH = nextHour(hourStr);
+                    const period = formatPeriod(hourStr);
 
                     return (
                       <tr key={hourStr} style={{ borderBottom: '1px solid var(--line-soft)' }}>
+                        {/* عمود الوقت الأنيق */}
                         <td
                           style={{
                             textAlign: 'center',
-                            fontWeight: 700,
-                            fontSize: 12.5,
-                            color: 'var(--muted)',
                             background: 'var(--paper-2)',
                             borderRight: '1px solid var(--line-soft)',
-                            padding: '10px 8px',
+                            padding: '12px 8px',
+                            verticalAlign: 'middle',
                           }}
                         >
-                          {hourStr}
+                          <div style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--deep)' }}>
+                            {hourStr}
+                          </div>
+                          <div style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, marginTop: 2 }}>
+                            {endH} {period}
+                          </div>
                         </td>
+
                         {gridLawyers.map((l) => {
                           const appt = dayAppointmentsMap.get(`${l.id}_${hourStr}`);
 
                           if (appt) {
-                            // الخانة محجوزة بموعد
+                            // ── الخانة محجوزة بموعد ──
                             const isVid = appt.channel === 'مرئية' || appt.ico === 'video';
                             const isPhone = appt.channel === 'هاتفية' || appt.ico === 'phone';
-                            const bgCard = isVid
-                              ? 'rgba(17, 160, 200, 0.12)'
+                            const cardBg = isVid
+                              ? 'linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(6, 182, 212, 0.03) 100%)'
                               : isPhone
-                              ? 'rgba(192, 131, 43, 0.12)'
-                              : 'rgba(14, 92, 156, 0.1)';
+                              ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.03) 100%)'
+                              : 'linear-gradient(135deg, rgba(14, 92, 156, 0.09) 0%, rgba(14, 92, 156, 0.02) 100%)';
+
                             const borderCol = isVid ? 'var(--cyan)' : isPhone ? 'var(--amber)' : 'var(--primary)';
+                            const channelText = isVid ? '🎥 جلسة مرئية' : isPhone ? '📞 مكالمة هاتفية' : '🏢 استشارة حضورية';
 
                             return (
                               <td
                                 key={l.id}
-                                style={{ padding: '6px 8px', verticalAlign: 'middle' }}
+                                style={{
+                                  padding: '8px 12px',
+                                  verticalAlign: 'middle',
+                                  borderRight: '1px solid var(--line-soft)',
+                                }}
                               >
                                 <div
                                   onClick={() => setSelectedAppt(appt)}
                                   style={{
-                                    background: bgCard,
-                                    borderRight: `3px solid ${borderCol}`,
-                                    borderRadius: 8,
-                                    padding: '7px 10px',
+                                    maxWidth: gridLawyers.length === 1 ? 580 : '100%',
+                                    margin: gridLawyers.length === 1 ? '0 auto' : undefined,
+                                    background: cardBg,
+                                    border: `1px solid ${borderCol}44`,
+                                    borderRight: `4px solid ${borderCol}`,
+                                    borderRadius: 10,
+                                    padding: '9px 14px',
                                     cursor: 'pointer',
-                                    transition: '.13s',
+                                    boxShadow: '0 2px 6px rgba(0,0,0,0.02)',
+                                    transition: 'transform .15s ease, box-shadow .15s ease',
                                   }}
-                                  title="انقر لعرض تفاصيل الموعد"
+                                  title="انقر لعرض تفاصيل الموعد والتحكم به"
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(-2px)';
+                                    e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.06)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                    e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.02)';
+                                  }}
                                 >
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                                    <b style={{ fontSize: 12.5, color: 'var(--deep)' }}>{appt.client || 'عميل'}</b>
-                                    <span style={{ fontSize: 11, fontWeight: 700, color: borderCol }}>
-                                      {isVid ? '🎥 مرئية' : isPhone ? '📞 هاتفية' : '🏢 حضورية'}
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                      <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--deep)' }}>
+                                        👤 {mask(appt.client || 'عميل')}
+                                      </span>
+                                    </div>
+                                    <span style={{
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      color: borderCol,
+                                      background: '#fff',
+                                      padding: '2px 8px',
+                                      borderRadius: 6,
+                                      border: `1px solid ${borderCol}33`,
+                                    }}>
+                                      {channelText}
                                     </span>
                                   </div>
-                                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, display: 'flex', justifyContent: 'space-between' }}>
-                                    <span>{appt.subject || appt.type}</span>
-                                    <Badge text={appt.status} tone={appt.tone} />
+
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 11.5 }}>
+                                    <span style={{ color: 'var(--muted)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 280 }}>
+                                      📌 {appt.subject || appt.type || 'استشارة قانونية'}
+                                    </span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                                      <Badge text={appt.status} tone={appt.tone} />
+                                      <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600 }}>تفاصيل ↗</span>
+                                    </div>
                                   </div>
                                 </div>
                               </td>
                             );
                           }
 
-                          // الخانة متاحة للحجز
+                          // ── الخانة شاغرة (متاحة للحجز) ──
                           return (
-                            <td key={l.id} style={{ padding: '6px 8px', verticalAlign: 'middle' }}>
-                              <button
-                                type="button"
-                                onClick={() => openBookingForSlot(l.id, selectedDay, hourStr)}
-                                disabled={isSlotPast}
-                                style={{
-                                  width: '100%',
-                                  padding: '7px 10px',
-                                  borderRadius: 8,
-                                  border: '1px dashed var(--line)',
-                                  background: isSlotPast ? '#fafafa' : '#fff',
-                                  color: isSlotPast ? 'var(--faint)' : 'var(--success)',
-                                  fontSize: 12,
-                                  fontWeight: 600,
-                                  cursor: isSlotPast ? 'not-allowed' : 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  gap: 5,
-                                  transition: '.15s',
-                                }}
-                                onMouseEnter={(e) => {
-                                  if (!isSlotPast) {
-                                    e.currentTarget.style.borderColor = 'var(--success)';
-                                    e.currentTarget.style.background = 'var(--success-bg)';
-                                  }
-                                }}
-                                onMouseLeave={(e) => {
-                                  if (!isSlotPast) {
-                                    e.currentTarget.style.borderColor = 'var(--line)';
-                                    e.currentTarget.style.background = '#fff';
-                                  }
-                                }}
-                              >
-                                {isSlotPast ? '— منقضٍ' : '+ متاح للحجز'}
-                              </button>
+                            <td
+                              key={l.id}
+                              style={{
+                                padding: '8px 12px',
+                                verticalAlign: 'middle',
+                                borderRight: '1px solid var(--line-soft)',
+                              }}
+                            >
+                              {canBook ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openBookingForSlot(l.id, selectedDay, hourStr)}
+                                  disabled={isSlotPast}
+                                  style={{
+                                    width: '100%',
+                                    maxWidth: gridLawyers.length === 1 ? 580 : '100%',
+                                    margin: gridLawyers.length === 1 ? '0 auto' : undefined,
+                                    padding: '9px 14px',
+                                    borderRadius: 10,
+                                    border: isSlotPast
+                                      ? '1px dashed #cbd5e1'
+                                      : '1.5px dashed rgba(16, 185, 129, 0.45)',
+                                    background: isSlotPast
+                                      ? '#f8fafc'
+                                      : 'linear-gradient(135deg, rgba(16, 185, 129, 0.04) 0%, #ffffff 100%)',
+                                    cursor: isSlotPast ? 'not-allowed' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 10,
+                                    transition: 'all .18s ease',
+                                    boxShadow: isSlotPast ? 'none' : '0 1px 2px rgba(16, 185, 129, 0.05)',
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    if (!isSlotPast) {
+                                      e.currentTarget.style.borderColor = '#10b981';
+                                      e.currentTarget.style.background = 'linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(16, 185, 129, 0.04) 100%)';
+                                      e.currentTarget.style.transform = 'translateY(-1px)';
+                                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.15)';
+                                    }
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    if (!isSlotPast) {
+                                      e.currentTarget.style.borderColor = 'rgba(16, 185, 129, 0.45)';
+                                      e.currentTarget.style.background = 'linear-gradient(135deg, rgba(16, 185, 129, 0.04) 0%, #ffffff 100%)';
+                                      e.currentTarget.style.transform = 'translateY(0)';
+                                      e.currentTarget.style.boxShadow = '0 1px 2px rgba(16, 185, 129, 0.05)';
+                                    }
+                                  }}
+                                  title={isSlotPast ? 'هذه الفترة الزمنية انقضت اليوم' : `انقر لحجز استشارة مع ${l.name} في تمام الساعة ${hourStr}`}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <span style={{
+                                      width: 8,
+                                      height: 8,
+                                      borderRadius: '50%',
+                                      background: isSlotPast ? '#94a3b8' : '#10b981',
+                                      flexShrink: 0,
+                                    }} />
+                                    <div style={{ textAlign: 'right' }}>
+                                      <div style={{
+                                        fontSize: 12.5,
+                                        fontWeight: 700,
+                                        color: isSlotPast ? '#94a3b8' : '#047857',
+                                      }}>
+                                        {isSlotPast ? 'فترة منقضية' : 'متاح للحجز الفوري'}
+                                      </div>
+                                      <div style={{
+                                        fontSize: 10.5,
+                                        color: isSlotPast ? '#cbd5e1' : '#059669',
+                                        fontWeight: 500,
+                                      }}>
+                                        {hourStr} - {endH} (60 دقيقة)
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {!isSlotPast && (
+                                    <span style={{
+                                      fontSize: 11.5,
+                                      fontWeight: 700,
+                                      color: '#047857',
+                                      background: '#fff',
+                                      border: '1px solid rgba(16, 185, 129, 0.35)',
+                                      padding: '4px 10px',
+                                      borderRadius: 6,
+                                      boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                                    }}>
+                                      + احجز الآن
+                                    </span>
+                                  )}
+                                </button>
+                              ) : (
+                                <div
+                                  style={{
+                                    width: '100%',
+                                    maxWidth: gridLawyers.length === 1 ? 580 : '100%',
+                                    margin: gridLawyers.length === 1 ? '0 auto' : undefined,
+                                    padding: '8px 12px',
+                                    borderRadius: 10,
+                                    border: '1px solid var(--line-soft)',
+                                    background: isSlotPast ? 'var(--paper-2)' : 'var(--paper)',
+                                    color: isSlotPast ? 'var(--faint)' : 'var(--muted)',
+                                    fontSize: 11.5,
+                                    fontWeight: 600,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                  }}
+                                >
+                                  <span>{isSlotPast ? '— فترة منقضية' : 'شاغر للمواعيد'}</span>
+                                  <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>{hourStr} - {endH}</span>
+                                </div>
+                              )}
                             </td>
                           );
                         })}
@@ -739,22 +1225,22 @@ return lawyers;
 
           <div className="card-b t-wrap" style={{ padding: 0 }}>
             {filteredAppointments.length > 0 ? (
-              <table className="tbl">
+              <table className="tbl" style={{ minWidth: 780 }}>
                 <thead>
                   <tr>
-                    <th>النوع والقناة</th>
-                    <th>العميل</th>
+                    <th style={{ width: 150 }}>النوع والقناة</th>
+                    <th style={{ minWidth: 150, maxWidth: 220 }}>العميل</th>
                     <th>المستشار المكلف</th>
                     <th>التاريخ والوقت</th>
-                    <th>المكان / الرابط</th>
+                    <th style={{ minWidth: 140, maxWidth: 220 }}>المكان / الرابط</th>
                     <th>الحالة والسداد</th>
-                    <th>الإجراءات</th>
+                    <th style={{ width: 100, textAlign: 'center' }}>الإجراءات</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredAppointments.map((a) => (
                     <tr key={a.id} className="click" onClick={() => setSelectedAppt(a)}>
-                      <td>
+                      <td style={{ width: 150 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <div
                             style={{
@@ -785,21 +1271,23 @@ return lawyers;
                           </div>
                         </div>
                       </td>
-                      <td>
-                        <b>{a.client || '—'}</b>
+                      <td style={{ minWidth: 150, maxWidth: 220 }}>
+                        <b title={a.client || '—'}>{truncateWords(mask(a.client || '—'), 4)}</b>
                         {a.phone && <div className="sub">{a.phone}</div>}
                       </td>
-                      <td>
-                        <b>{a.lawyer || '—'}</b>
+                      <td className="nowrap">
+                        <b title={a.lawyer || '—'}>{truncateWords(a.lawyer || '—', 4)}</b>
                       </td>
-                      <td>
+                      <td className="nowrap">
                         <div><b>{a.day || '—'}</b></div>
                         <span className="muted">{a.time || '—'}</span>
                       </td>
-                      <td>
-                        <span className="muted">{a.place || (a.channel === 'مرئية' ? 'جلسة إلكترونية' : '—')}</span>
+                      <td style={{ minWidth: 140, maxWidth: 220 }}>
+                        <span className="muted" title={a.place || (a.channel === 'مرئية' ? 'جلسة إلكترونية' : '—')}>
+                          {truncateWords(a.place || (a.channel === 'مرئية' ? 'جلسة إلكترونية' : '—'), 4)}
+                        </span>
                       </td>
-                      <td>
+                      <td className="nowrap">
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
                           <Badge text={a.status} tone={a.tone} />
                           {a.pay && (
@@ -809,7 +1297,7 @@ return lawyers;
                           )}
                         </div>
                       </td>
-                      <td>
+                      <td className="nowrap" style={{ textAlign: 'center' }}>
                         <div style={{ display: 'flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
                           <button
                             className="btn soft sm"
@@ -819,7 +1307,7 @@ return lawyers;
                           >
                             <Icon name="info" /> التفاصيل
                           </button>
-                          {a.joinLink && (
+                          {canVideo && a.joinLink && (
                             <a
                               className="btn sm"
                               href={a.joinLink}
@@ -1047,7 +1535,7 @@ return lawyers;
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, background: 'var(--paper-2)', padding: 14, borderRadius: 12, marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span className="muted">العميل:</span>
-                <b>{selectedAppt.client || '—'}</b>
+                <b>{mask(selectedAppt.client || '—')}</b>
               </div>
               {selectedAppt.phone && (
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -1079,8 +1567,8 @@ return lawyers;
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {selectedAppt.joinLink && (
+            {canVideo && selectedAppt.joinLink && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
                 <a
                   className="btn block"
                   href={selectedAppt.joinLink}
@@ -1090,12 +1578,11 @@ return lawyers;
                 >
                   <Icon name="video" /> دخول غرفة الجلسة المرئية
                 </a>
-              )}
-            </div>
+              </div>
+            )}
 
-            {/* كانت اللوحة بلا أي إجراء بعد الإنشاء — القدرة موجودة عبر الاستشارة المرافقة
-                (إعادة الجدولة تُلغي الموعد القديم فعلاً) لكن بلا جسر واجهة */}
-            {selectedAppt.consultId && selectedAppt.status !== APPT_PENDING && (
+            {/* أزرار إدارة الموعد — إعادة الجدولة ووسم لم يحضر لمن يملك صلاحية إدارة المواعيد */}
+            {canManage && selectedAppt.consultId && selectedAppt.status !== APPT_PENDING && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
                 <button
                   className="btn soft sm"
@@ -1104,8 +1591,8 @@ return lawyers;
                   onClick={() => router.post(`${apiBase()}/consults/${selectedAppt.consultId}/reschedule`, {}, {
                     preserveScroll: true,
                     onSuccess: () => {
- toast('أُلغي الموعد وطُلب من العميل اختيار موعد جديد'); setSelectedAppt(null); 
-},
+                      toast('أُلغي الموعد وطُلب من العميل اختيار موعد جديد'); setSelectedAppt(null); 
+                    },
                     onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّرت إعادة الجدولة')),
                   })}
                 >
@@ -1118,13 +1605,42 @@ return lawyers;
                   onClick={() => router.post(`${apiBase()}/consults/${selectedAppt.consultId}/no-show`, {}, {
                     preserveScroll: true,
                     onSuccess: () => {
- toast('وُسم الموعد «لم يحضر»'); setSelectedAppt(null); 
-},
+                      toast('وُسم الموعد «لم يحضر»'); setSelectedAppt(null); 
+                    },
                     onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر الوسم')),
                   })}
                 >
                   <Icon name="clock" /> لم يحضر
                 </button>
+              </div>
+            )}
+
+            {/* اعتماد الموعد المقترح للإدارة العليا */}
+            {canApprove && selectedAppt.consultId && selectedAppt.status === APPT_PENDING && (
+              <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--amber-deep)', marginBottom: 8 }}>
+                  ⏳ هذا الموعد اقترحه الموظف وبانتظار اعتماد الإدارة العليا لتبليغ العميل:
+                </div>
+                <button
+                  className="btn block"
+                  type="button"
+                  onClick={() => router.post(`/admin/consults/${selectedAppt.consultId}/appointment/approve`, {}, {
+                    preserveScroll: true,
+                    onSuccess: () => {
+                      toast('✅ تم اعتماد الموعد وإرساله للعميل بنجاح');
+                      setSelectedAppt(null);
+                    },
+                    onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر اعتماد الموعد')),
+                  })}
+                >
+                  <Icon name="check" /> اعتماد الموعد وإرساله للعميل فوراً
+                </button>
+              </div>
+            )}
+
+            {!canApprove && selectedAppt.status === APPT_PENDING && (
+              <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, background: 'rgba(245, 158, 11, 0.08)', color: 'var(--amber-deep)', fontSize: 12 }}>
+                ⏳ الموعد مقترح وبانتظار مراجعة واعتماد الإدارة العليا قبل تبليغ العميل.
               </div>
             )}
           </div>

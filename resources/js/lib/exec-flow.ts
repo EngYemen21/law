@@ -121,6 +121,7 @@ export interface ExecStudy {
 
 export interface ExecReq {
   id: string;
+  rawId?: number;
   client: string;
   code: string;
   sanad: string;

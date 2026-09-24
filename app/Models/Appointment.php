@@ -137,9 +137,13 @@ class Appointment extends Model
             // جسر إجراءات لوحة المواعيد: إعادة الجدولة/«لم يحضر» تمرّان عبر الاستشارة المرافقة
             'consultId' => $this->consult?->id,
             'pay' => $this->consult?->paid_at ? 'مدفوع' : 'بانتظار السداد',
-            // رابط الجلسة المرئية الحقيقي داخل المنصّة — فارغ لغير المرئية (يُخفى الزرّ)
-            // canJoin شرط لازم: بلا الحكم الزمني كان الزرّ يظهر دائماً ويردّ الخادم 403 «لم يحن الموعد»
-            'joinLink' => $this->consult?->channel === 'مرئية' && $this->consult->canJoin() ? $this->consult->joinLink($viewer) : '',
+            // رابط الجلسة المرئية الحقيقي داخل المنصّة — فارغ لغير المرئية أو لفاقدي صلاحية الحضور (يُخفى الزرّ)
+            // canJoin + فحص الصلاحية شرطان لازمان: بلا الحكمين كان الزرّ يظهر ويردّ الخادم 403
+            'joinLink' => $this->consult?->channel === 'مرئية'
+                && $this->consult->canJoin()
+                && ($viewer === null || $viewer->isAdmin() || $viewer->isClient() || $viewer->can('إجراء الجلسات المرئية') || $viewer->can('استقبال الاستشارات'))
+                ? $this->consult->joinLink($viewer)
+                : '',
         ];
     }
 }

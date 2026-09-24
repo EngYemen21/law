@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import React, { useEffect, useRef, useState } from 'react';
 import DetailShell from '@/components/babylon/DetailShell';
 import ChatThread from '@/components/babylon/ChatThread';
@@ -13,12 +13,24 @@ import { echo } from '@/lib/echo';
 // يطابق clientTicketView + خطوات حجز الاستشارة (tfChooseConsult→tfInvoice→tfPaid→tfChooseSlot→tfConfirm)
 // دورة الحجز مقودة من الخادم عبر حالة الاستشارة المرتبطة (consult): تسعير الإدارة → فاتورة → دفع محاكى → موعد.
 
+export interface TicketActions {
+  can_request_consult?: boolean;
+  can_convert_case?: boolean;
+  can_convert_exec?: boolean;
+  can_close?: boolean;
+  can_request_docs?: boolean;
+  can_rerun_ai?: boolean;
+}
+
 interface TicketCard {
   no: string;
   type: string;
   status: string;
+  statusCode?: string;
   tone: string;
   isFrozen?: boolean;
+  isTerminal?: boolean;
+  actions?: TicketActions;
   hasCase?: boolean;
   caseNumber?: string | null;
   hasExecution?: boolean;
@@ -35,7 +47,7 @@ interface TicketCard {
   };
 }
 interface ConsultLink {
-  id: number; ref: string; status: string; channel: string;
+  id: number; ref: string; status: string; channel: string; statusCode?: string;
   price?: number; vat?: number; total?: number; priced?: boolean; paid?: boolean; invoiceNo?: string | null;
 }
 
@@ -171,11 +183,13 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
   // تُعرض لوحة الحجز بعد نشر الرأي القانونيّ المبدئيّ (يُطلب منها)، أو ما دامت هناك استشارة قيد
   // التسعير/السداد/تحديد الموعد — «المرحلة التالية» لم تعد تنقل التذكرة إلى «بانتظار حجز الاستشارة».
   const bookingActive = consult && ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'].includes(consult.status);
-  const canRequest = ['الرأي القانوني', 'بانتظار حجز الاستشارة'].includes(status.status)
-    && (!consult || ['منتهية', 'ملغاة', 'لم يحضر'].includes(consult.status));
+  const canRequest = ticket.actions?.can_request_consult ?? (
+    ['الرأي القانوني', 'بانتظار حجز الاستشارة'].includes(status.status)
+    && (!consult || ['منتهية', 'ملغاة', 'لم يحضر'].includes(consult.status))
+  );
   const showBooking = canRequest || !!bookingActive;
 
-  const isTerminal = ['مكتملة', 'مغلقة', 'محولة إلى قضية'].includes(status.status) || !!ticket.isFrozen;
+  const isTerminal = Boolean(ticket.isTerminal || ticket.isFrozen || ['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة إلى تنفيذ'].includes(status.status));
 
   const topExtra = (
     <>
@@ -190,45 +204,64 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
       </div>
 
       {/* ── بطاقات توجيه وقرارات الإدارة العليا المعتمدة للعميل مع بيان السبب الحقيقي ── */}
-      {(ticket.trackGovernance?.approvedTrack === 'execution' || ticket.hasExecution) && (
+      {(ticket.trackGovernance?.approvedTrack === 'execution' || status.status === 'محولة إلى تنفيذ' || ticket.hasExecution) && (
         <div className="card" style={{ marginBottom: 16, borderInlineStart: '4px solid var(--amber, #d97706)', background: '#fffbeb' }}>
           <div className="card-b" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Icon name="card" />
-              <div>
-                <b style={{ fontSize: 13.5, display: 'block', color: '#92400e' }}>قرار الإدارة العليا: تحويل الطلب إلى ملف تنفيذ قضائي</b>
-                <span style={{ fontSize: 12.5, color: '#78350f', display: 'block', marginTop: 2 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: '1 1 240px' }}>
+              <div style={{ flexShrink: 0, marginTop: 2 }}><Icon name="card" /></div>
+              <div style={{ minWidth: 0 }}>
+                <b style={{ fontSize: 13.5, display: 'block', color: '#92400e', wordBreak: 'break-word' }}>قرار الإدارة العليا: تحويل الطلب إلى ملف تنفيذ قضائي</b>
+                <span style={{ fontSize: 12.5, color: '#78350f', display: 'block', marginTop: 2, wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                   <strong>السبب والمبرر النظامي:</strong> {ticket.trackGovernance?.approvedTrackReason || 'تبيّن حيازة سند تنفيذي مكتمل الأركان لمباشرة التنفيذ عبر منصة ناجز.'}
                 </span>
               </div>
             </div>
-            {/* المسار الصحيح /execs — كان /executions يعطي صفحة غير موجودة (404) */}
-            <a href="/execs" className="btn sm" style={{ whiteSpace: 'nowrap', background: '#d97706', color: '#fff', border: 'none' }}>
-              الانتقال لملف التنفيذ
-            </a>
+            {/* رابط عميق لملف التنفيذ بمكون Link التابع لـ Inertia */}
+            {ticket.executionNumber ? (
+              <Link
+                href={`/execs/${encodeURIComponent(ticket.executionNumber)}`}
+                className="btn sm"
+                style={{ whiteSpace: 'nowrap', background: '#d97706', color: '#fff', border: 'none', flexShrink: 0 }}
+              >
+                الانتقال لملف التنفيذ ←
+              </Link>
+            ) : (
+              <Link
+                href="/execs"
+                className="btn sm"
+                style={{ whiteSpace: 'nowrap', background: '#d97706', color: '#fff', border: 'none', flexShrink: 0 }}
+              >
+                الانتقال لملف التنفيذ ←
+              </Link>
+            )}
           </div>
         </div>
       )}
 
-      {(status.status === 'محولة إلى قضية' || ticket.trackGovernance?.approvedTrack === 'case') && !ticket.hasExecution && (
+      {(status.status === 'محولة إلى قضية' || ticket.trackGovernance?.approvedTrack === 'case') && !ticket.hasExecution && status.status !== 'محولة إلى تنفيذ' && (
         <div className="card" style={{ marginBottom: 16, borderInlineStart: '4px solid var(--primary, #0e5c9c)' }}>
           <div className="card-b" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Icon name="scale" />
-              <div>
-                <b style={{ fontSize: 13.5, display: 'block' }}>قرار الإدارة العليا: تحويل الطلب إلى قضية رسمية</b>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: '1 1 240px' }}>
+              <div style={{ flexShrink: 0, marginTop: 2 }}><Icon name="scale" /></div>
+              <div style={{ minWidth: 0 }}>
+                <b style={{ fontSize: 13.5, display: 'block', wordBreak: 'break-word' }}>قرار الإدارة العليا: تحويل الطلب إلى قضية رسمية</b>
                 {ticket.trackGovernance?.approvedTrackReason ? (
-                  <span style={{ fontSize: 12.5, color: 'var(--text-soft, #475569)', display: 'block', marginTop: 2 }}>
+                  <span style={{ fontSize: 12.5, color: 'var(--text-soft, #475569)', display: 'block', marginTop: 2, wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                     <strong>السبب والمبرر النظامي:</strong> {ticket.trackGovernance.approvedTrackReason}
                   </span>
                 ) : (
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>تم فتح ملف قضية لمتابعة الإجراءات القضائية، يمكنك متابعة المستجدات في قائمة القضايا.</span>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', wordBreak: 'break-word' }}>تم فتح ملف قضية لمتابعة الإجراءات القضائية، يمكنك متابعة المستجدات في قائمة القضايا.</span>
                 )}
               </div>
             </div>
-            <a href="/cases" className="btn soft sm" style={{ whiteSpace: 'nowrap' }}>
-              الانتقال للقضايا
-            </a>
+            {/* رابط عميق لملف القضية بمكون Link التابع لـ Inertia */}
+            <Link
+              href={ticket.caseNumber ? `/cases/${encodeURIComponent(ticket.caseNumber)}` : '/cases'}
+              className="btn soft sm"
+              style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+            >
+              الانتقال للقضية ←
+            </Link>
           </div>
         </div>
       )}
@@ -236,11 +269,11 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
       {ticket.trackGovernance?.approvedTrack === 'consultation' && ticket.trackGovernance?.approvedTrackReason && (
         <div className="card" style={{ marginBottom: 16, borderInlineStart: '4px solid #2563eb', background: '#eff6ff' }}>
           <div className="card-b" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Icon name="chat" />
-              <div>
-                <b style={{ fontSize: 13.5, display: 'block', color: '#1d4ed8' }}>قرار الإدارة العليا: توجيه بطلب استشارة قانونية</b>
-                <span style={{ fontSize: 12.5, color: '#1e3a8a', display: 'block', marginTop: 2 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: '1 1 240px' }}>
+              <div style={{ flexShrink: 0, marginTop: 2 }}><Icon name="chat" /></div>
+              <div style={{ minWidth: 0 }}>
+                <b style={{ fontSize: 13.5, display: 'block', color: '#1d4ed8', wordBreak: 'break-word' }}>قرار الإدارة العليا: توجيه بطلب استشارة قانونية</b>
+                <span style={{ fontSize: 12.5, color: '#1e3a8a', display: 'block', marginTop: 2, wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                   <strong>السبب والمبرر النظامي:</strong> {ticket.trackGovernance.approvedTrackReason}
                 </span>
               </div>
@@ -248,7 +281,7 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
             <button
               type="button"
               className="btn sm"
-              style={{ whiteSpace: 'nowrap', background: '#2563eb', color: '#fff', border: 'none' }}
+              style={{ whiteSpace: 'nowrap', background: '#2563eb', color: '#fff', border: 'none', flexShrink: 0 }}
               onClick={() => {
                 // المحدّد القديم (صنف book-consult) كان ميّتاً — لا عنصر يحمله فلا يفعل الزرّ شيئاً؛
                 // الهدف الصحيح بطاقة الحجز ذات المعرّف book-consult في هذه الصفحة، وإن لم تكن
@@ -270,11 +303,11 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
 
       {(status.status === 'مغلقة' || ticket.trackGovernance?.approvedTrack === 'close') && (
         <div className="card" style={{ marginBottom: 16, borderInlineStart: '4px solid var(--muted, #64748b)' }}>
-          <div className="card-b" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Icon name="check" />
-            <div>
-              <b style={{ fontSize: 13.5, display: 'block' }}>اكتملت المعالجة وحُفظ الطلب بقرار مسبّب</b>
-              <span style={{ fontSize: 12.5, color: 'var(--muted)', display: 'block', marginTop: 2 }}>
+          <div className="card-b" style={{ padding: '14px 18px', display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0 }}>
+            <div style={{ flexShrink: 0, marginTop: 2 }}><Icon name="check" /></div>
+            <div style={{ minWidth: 0 }}>
+              <b style={{ fontSize: 13.5, display: 'block', wordBreak: 'break-word' }}>اكتملت المعالجة وحُفظ الطلب بقرار مسبّب</b>
+              <span style={{ fontSize: 12.5, color: 'var(--muted)', display: 'block', marginTop: 2, wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                 {ticket.trackGovernance?.approvedTrackReason ? (
                   <><strong>المبرر النظامي:</strong> {ticket.trackGovernance.approvedTrackReason}</>
                 ) : (

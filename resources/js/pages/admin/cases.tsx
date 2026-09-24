@@ -5,6 +5,7 @@ import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { truncateWords } from '@/lib/utils';
 
 /* ─────────────────────────────────────────────────────────────
    منظومة إشراف ومتابعة كل القضايا — الإدارة العليا
@@ -395,16 +396,16 @@ return false;
 
         <div className="card-b t-wrap" style={{ padding: 0 }}>
           {filtered.length ? (
-            <table className="tbl">
+            <table className="tbl" style={{ minWidth: 780 }}>
               <thead>
                 <tr>
-                  <th>رقم القضية</th>
-                  <th>العميل / الخصم</th>
-                  <th>النوع والمحكمة</th>
+                  <th style={{ width: 130 }}>رقم القضية</th>
+                  <th style={{ minWidth: 160, maxWidth: 240 }}>العميل / الخصم</th>
+                  <th style={{ minWidth: 160, maxWidth: 260 }}>النوع والمحكمة</th>
                   <th>المحامي المسند</th>
                   <th>الحالة</th>
                   <th>الجلسات</th>
-                  <th style={{ textAlign: 'center' }}>الإجراءات الإدارية</th>
+                  <th style={{ textAlign: 'center', width: 130 }}>الإجراءات الإدارية</th>
                 </tr>
               </thead>
               <tbody>
@@ -414,10 +415,10 @@ return false;
                   return (
                     <tr key={c.no} className="click">
                       {/* رقم القضية */}
-                      <td>
+                      <td className="nowrap">
                         <span
                           className="mono"
-                          style={{ cursor: 'pointer', color: 'var(--primary)' }}
+                          style={{ cursor: 'pointer', color: 'var(--primary)', fontWeight: 800 }}
                           onClick={() => setPreviewCase(c)}
                         >
                           {c.no}
@@ -426,33 +427,41 @@ return false;
                       </td>
 
                       {/* العميل والخصم */}
-                      <td>
-                        <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)' }}>{c.client}</div>
+                      <td style={{ minWidth: 160, maxWidth: 240 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)' }} title={c.client}>
+                          {truncateWords(c.client, 4)}
+                        </div>
                         {c.opponent ? (
-                          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>ضد: {c.opponent}</div>
+                          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }} title={c.opponent}>
+                            ضد: {truncateWords(c.opponent, 4)}
+                          </div>
                         ) : (
                           <div style={{ fontSize: 11.5, color: 'var(--faint)', marginTop: 2 }}>دعوى قضائية</div>
                         )}
                       </td>
 
                       {/* النوع والمحكمة */}
-                      <td>
+                      <td style={{ minWidth: 160, maxWidth: 260 }}>
                         <div style={{ fontWeight: 600, fontSize: 13 }}>{c.type}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--faint)', marginTop: 2 }}>{c.courtName || 'المحكمة المختصة'}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--faint)', marginTop: 2 }} title={c.courtName || 'المحكمة المختصة'}>
+                          {truncateWords(c.courtName || 'المحكمة المختصة', 6)}
+                        </div>
                       </td>
 
                       {/* المحامي المسند */}
-                      <td>
+                      <td className="nowrap">
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <div className="avatar" style={{ width: 28, height: 28, fontSize: 11, flex: '0 0 28px' }}>
                             {c.lawyer.slice(0, 2)}
                           </div>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{c.lawyer}</span>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }} title={c.lawyer}>
+                            {truncateWords(c.lawyer, 4)}
+                          </span>
                         </div>
                       </td>
 
                       {/* الحالة */}
-                      <td>
+                      <td className="nowrap">
                         <Badge text={c.status} tone={c.tone} />
                         {c.ruling && (
                           <div style={{ fontSize: 11, color: 'var(--success)', fontWeight: 700, marginTop: 4 }}>

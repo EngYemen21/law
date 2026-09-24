@@ -6,7 +6,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import TextAlign from '@tiptap/extension-text-align';
 import Underline from '@tiptap/extension-underline';
-import { TextStyle } from '@tiptap/extension-text-style';
+import { TextStyle, FontFamily, FontSize, LineHeight } from '@tiptap/extension-text-style';
 import Color from '@tiptap/extension-color';
 import Highlight from '@tiptap/extension-highlight';
 import { Table } from '@tiptap/extension-table';
@@ -81,13 +81,46 @@ interface Props {
   incomingMeta?: Record<string, unknown> | null;
   incomingTemplate?: string;
   defaultHeader: HeaderConfig;
+  canApprove?: boolean;
 }
 
 // ── ألوان سريعة للتلوين ──
 const COLORS = [
-  '#000000', '#1a1a2e', '#16213e', '#0f3460', '#533483',
-  '#e94560', '#d63031', '#e17055', '#00b894', '#00cec9',
-  '#0984e3', '#6c5ce7', '#fdcb6e', '#e84393', '#636e72',
+  { label: 'كحلي قضائي', value: '#0a2a55' },
+  { label: 'أزرق ملكي', value: '#0e5c9c' },
+  { label: 'كحلي غامق', value: '#13314f' },
+  { label: 'أسود داكن', value: '#000000' },
+  { label: 'أحمر تحذيري', value: '#d63031' },
+  { label: 'أخضر معتمد', value: '#00b894' },
+  { label: 'برتقالي مميز', value: '#e17055' },
+  { label: 'بنفسجي نظامي', value: '#6c5ce7' },
+  { label: 'رمادي مسودة', value: '#636e72' },
+];
+
+// ── الخطوط القضائية المعتمدة ──
+const LEGAL_FONTS = [
+  { label: 'خط تجوال (افتراضي قياسي)', value: 'Tajawal, sans-serif' },
+  { label: 'الخط الأميري (قضائي/عقود)', value: 'Amiri, serif' },
+  { label: 'الخط التقليدي (المحاكم/ناجز)', value: '"Traditional Arabic", Arial, sans-serif' },
+  { label: 'الخط البسيط (Simplified Arabic)', value: '"Simplified Arabic", Arial, sans-serif' },
+  { label: 'خط كايرو (عصري متوازن)', value: 'Cairo, sans-serif' },
+];
+
+// ── أحجام الخطوط القضائية القياسية ──
+const LEGAL_FONT_SIZES = [
+  { label: '12pt — هوامش وملاحظات', value: '12pt' },
+  { label: '14pt — صلب النص القضائي المعتمد', value: '14pt' },
+  { label: '16pt — عناوين فرعية وبنود', value: '16pt' },
+  { label: '18pt — عناوين الأقسام الرئيسية', value: '18pt' },
+  { label: '22pt — عنوان المستند والدعوى', value: '22pt' },
+];
+
+// ── تباعد الأسطر القانوني ──
+const LEGAL_LINE_SPACINGS = [
+  { label: '1.15 — تباعد مضغوط', value: '1.15' },
+  { label: '1.50 — تباعد قياسي مريح', value: '1.5' },
+  { label: '1.85 — التباعد القضائي المعتمد', value: '1.85' },
+  { label: '2.00 — تباعد مزدوج للتدقيق', value: '2.0' },
 ];
 
 const LawyerEditor: React.FC<Props> = ({
@@ -101,10 +134,15 @@ const LawyerEditor: React.FC<Props> = ({
   incomingMeta,
   incomingTemplate,
   defaultHeader,
+  canApprove = false,
 }) => {
   const toast = useToast();
   const { url } = usePage();
-  const base = (url as string).startsWith('/admin') ? '/admin' : '/lawyer';
+  const base = (url as string).startsWith('/admin')
+    ? '/admin'
+    : (url as string).startsWith('/employee')
+      ? '/employee'
+      : '/lawyer';
   const isNew = !doc;
 
   const matchedTemplate = incomingTemplate
@@ -142,6 +180,91 @@ const LawyerEditor: React.FC<Props> = ({
 
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── مؤقت نبضات واجهة المحرر لتحديث تفاعلية الشريط فوراً ──
+  const [, setEditorTick] = useState(0);
+
+  // ── مرجع رفع الصور والأختام محلياً ──
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleLocalImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast('⚠️ حجم الصورة كبير جداً، الحد الأقصى 5 ميجابايت');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const src = event.target?.result as string;
+      if (src && editor) {
+        editor.chain().focus().setImage({ src, alt: file.name }).run();
+        toast('🖼️ تم إدراج الصورة/الختم في المستند');
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // ── إدراج بنود قانونية قضائية نموذجية ──
+  const insertLegalClause = (clauseType: string) => {
+    if (!editor) return;
+    let html = '';
+    switch (clauseType) {
+      case 'basmala':
+        html = '<p style="text-align: center; margin-bottom: 16px;"><strong>بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</strong></p><p><strong>فضيلة رئيس وأعضاء الدائرة القضائية الموقرين،،،</strong><br/><strong>السلام عليكم ورحمة الله وبركاته،، وبعد:</strong></p>';
+        break;
+      case 'capacity':
+        html = '<p>بصفتي وكيلاً شرعياً ونظامياً عن المدعي بموجب الوكالة الشرعية رقم (...) وتاريخ (.../ .../ ....هـ) الصادرة من وزارة العدل، أتقدم لعدالتكم بلائحتنا هذه بياناً لما يلي:</p>';
+        break;
+      case 'facts':
+        html = '<h2>⚖️ أولاً: الوقائع</h2><p>1- حيث إنه بتاريخ (.../ .../ ....هـ)، اتفق موكلي مع المدعى عليه على [...].</p><p>2- وحيث إن المدعى عليه قد أخل بالتزاماته المترتبة عليه والمتمثلة في [...].</p>';
+        break;
+      case 'grounds':
+        html = '<h2>📜 ثانياً: الأسانيد الشرعية والنظامية</h2><blockquote>استناداً إلى القاعدة الشرعية القطعية: «المسلمون على شروطهم»، ولقول النبي ﷺ: «لا ضرر ولا ضرار».</blockquote><blockquote>واستناداً إلى أحكام المادة (...) من نظام (...) الصادر بالمرسوم الملكي رقم (...)، والتي نصت على: «[...]».</blockquote>';
+        break;
+      case 'requests':
+        html = '<h2>🎯 ثالثاً: الطلبات الختامية</h2><p>بناءً على ما تقدم من وقائع وأسانيد، نلتمس من فضيلتكم الموقرة التفضل بالحكم بـ:</p><ol><li><strong>أصلياً:</strong> إلزام المدعى عليه بـ [...].</li><li><strong>احتياطياً:</strong> ندب خبير هندسي / محاسبي لتحديد قيمة المطالبة والضرر.</li><li>إلزام المدعى عليه بأتعاب المحاماة ومصاريف التقاضي.</li></ol>';
+        break;
+      case 'closing':
+        html = '<div style="margin-top: 28px; text-align: left;"><p><strong>وتفضلوا بقبول فائق التقدير والاحترام،،،</strong><br/><strong>مقدمه لفضيلتكم وكيل المدعي:</strong> .............................<br/><strong>رقم الترخيص / الوكالة:</strong> .............................&nbsp;&nbsp;&nbsp;&nbsp;<strong>التاريخ:</strong> .../ .../ .....هـ<br/><strong>التوقيع:</strong> .............................&nbsp;&nbsp;&nbsp;&nbsp;<strong>الختم الرسمي:</strong></p></div>';
+        break;
+      default:
+        return;
+    }
+    editor.chain().focus().insertContent(html).run();
+    toast('⚖️ تم إدراج البند القضائي بنجاح');
+  };
+
+  // ── تحويل النصوص النقية إلى HTML منظم ──
+  const normalizeTextToHtml = (text: string) => {
+    if (!text) return '<p dir="rtl"></p>';
+    if (text.trim().startsWith('<')) return text;
+    return `<p dir="rtl">${text.replace(/\r\n/g, '\n').replace(/\n\n+/g, '</p><p dir="rtl">').replace(/\n/g, '<br/>')}</p>`;
+  };
+
+  // ── مراجع حية لتفادي مشكلة الـ Stale Closure في الحفظ التلقائي ──
+  const titleRef = useRef(title);
+  const typeRef = useRef(type);
+  const metaRef = useRef(meta);
+  const headerConfigRef = useRef(headerConfig);
+  const linkedTicketRef = useRef(linkedTicket);
+  const linkedCaseRef = useRef(linkedCase);
+  const docRef = useRef(doc);
+  const isNewRef = useRef(isNew);
+
+  useEffect(() => { titleRef.current = title; }, [title]);
+  useEffect(() => { typeRef.current = type; }, [type]);
+  useEffect(() => { metaRef.current = meta; }, [meta]);
+  useEffect(() => { headerConfigRef.current = headerConfig; }, [headerConfig]);
+  useEffect(() => { linkedTicketRef.current = linkedTicket; }, [linkedTicket]);
+  useEffect(() => { linkedCaseRef.current = linkedCase; }, [linkedCase]);
+  useEffect(() => {
+    docRef.current = doc;
+    isNewRef.current = isNew;
+  }, [doc, isNew]);
+
+  const autoSaveRef = useRef<() => Promise<void>>(async () => {});
+
   // ── TipTap editor ──
   const editor = useEditor({
     extensions: [
@@ -151,6 +274,9 @@ const LawyerEditor: React.FC<Props> = ({
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Underline,
       TextStyle,
+      FontFamily,
+      FontSize,
+      LineHeight.configure({ types: ['textStyle', 'paragraph', 'heading'] }),
       Color,
       Highlight.configure({ multicolor: true }),
       Table.configure({ resizable: true }),
@@ -163,47 +289,83 @@ const LawyerEditor: React.FC<Props> = ({
         placeholder: 'ابدأ الكتابة هنا... أو اختر قالباً من القائمة الجاهزة',
       }),
     ],
-    content: doc?.contentJson
+    content: (doc?.contentJson && Object.keys(doc.contentJson).length > 0)
       ? doc.contentJson
-      : matchedTemplate
-        ? matchedTemplate.contentHtml
-        : incomingDraft
-          ? (incomingDraft.trim().startsWith('<') ? incomingDraft : `<p dir="rtl">${incomingDraft.replace(/\n/g, '</p><p dir="rtl">')}</p>`)
-          : '<p dir="rtl"></p>',
+      : doc?.contentHtml
+        ? doc.contentHtml
+        : matchedTemplate
+          ? matchedTemplate.contentHtml
+          : incomingDraft
+            ? normalizeTextToHtml(incomingDraft)
+            : '<p dir="rtl"></p>',
     editorProps: {
       attributes: {
         class: 'legal-editor-content',
         dir: 'rtl',
       },
     },
+    onSelectionUpdate: () => {
+      setEditorTick((t) => t + 1);
+    },
+    onTransaction: () => {
+      setEditorTick((t) => t + 1);
+    },
     onUpdate: () => {
       // حفظ تلقائي بعد 3 ثوانٍ من آخر تعديل للمستندات المحفوظة
-      if (!isNew && doc) {
+      if (!isNewRef.current && docRef.current) {
         if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-        autoSaveTimer.current = setTimeout(() => autoSave(), 3000);
+        autoSaveTimer.current = setTimeout(() => {
+          autoSaveRef.current();
+        }, 3000);
       }
     },
   });
 
-  // ── حفظ تلقائي ──
+  // ── مزامنة المحتوى إذا تغيّر المستند المعروض دون إعادة تحميل الصفحة ──
+  const lastDocIdRef = useRef<number | null>(doc?.id || null);
+  useEffect(() => {
+    if (editor && doc && doc.id !== lastDocIdRef.current) {
+      lastDocIdRef.current = doc.id;
+      setTitle(doc.title || '');
+      setType(doc.type || 'free');
+      setMeta(doc.metadata || null);
+      setHeaderConfig(doc.headerConfig || defaultHeader);
+      setLinkedTicket(ticket || null);
+      setLinkedCase(initialCase || null);
+      setLastSaved('الآن');
+
+      const targetContent = (doc.contentJson && Object.keys(doc.contentJson).length > 0)
+        ? doc.contentJson
+        : (doc.contentHtml || '<p dir="rtl"></p>');
+
+      editor.commands.setContent(targetContent);
+    }
+  }, [doc, editor, defaultHeader, ticket, initialCase]);
+
+  // ── حفظ تلقائي يقرأ أحدث القيم من الـ Refs لتفادي أي كتابة فوق العنوان الجديد ──
   const autoSave = useCallback(async () => {
-    if (!editor || !doc) return;
+    const currentDoc = docRef.current;
+    if (!editor || !currentDoc || isNewRef.current) return;
     try {
-      const { data } = await axios.put(`${base}/editor/${doc.id}`, {
-        title: title || 'بدون عنوان',
-        type,
+      const { data } = await axios.put(`${base}/editor/${currentDoc.id}`, {
+        title: titleRef.current || 'بدون عنوان',
+        type: typeRef.current,
         content_html: editor.getHTML(),
         content_json: editor.getJSON(),
-        header_config: headerConfig,
-        ticket_id: linkedTicket?.id || null,
-        case_id: linkedCase?.id || null,
-        metadata: meta || null,
+        header_config: headerConfigRef.current,
+        ticket_id: linkedTicketRef.current?.id || null,
+        case_id: linkedCaseRef.current?.id || null,
+        metadata: metaRef.current || null,
       });
       setLastSaved(data.updatedAt || 'الآن');
     } catch {
       // صامت — الحفظ اليدوي متاح
     }
-  }, [editor, doc, title, type, headerConfig, linkedTicket, linkedCase, meta, base]);
+  }, [editor, base]);
+
+  useEffect(() => {
+    autoSaveRef.current = autoSave;
+  }, [autoSave]);
 
   // ── حفظ يدوي ──
   const save = () => {
@@ -308,18 +470,73 @@ const LawyerEditor: React.FC<Props> = ({
     }
   };
 
+  // ── تحميل المستند كملف PDF حقيقي عبر Browsershot ──
+  const downloadPdf = () => {
+    if (isNew || !doc) {
+      toast('يرجى حفظ المستند أولاً لتوليد ملف الـ PDF الرسمي');
+      return;
+    }
+    toast('⏳ جارٍ تجهيز وتحميل ملف الـ PDF...');
+    window.location.href = `${base}/editor/${doc.id}/pdf`;
+  };
+
   // ── تصدير ملف Word (.doc) ──
   const exportToWord = () => {
     if (!editor) return;
+
+    const logoSrc = headerConfig.logoUrl
+      ? (headerConfig.logoUrl.startsWith('http') || headerConfig.logoUrl.startsWith('data:')
+          ? headerConfig.logoUrl
+          : `${window.location.origin}${headerConfig.logoUrl}`)
+      : `${window.location.origin}/images/021.png`;
+
     const headerHtml = headerConfig.showHeader
       ? `
-        <div style="text-align: center; border-bottom: 2.5px solid #0e5c9c; padding-bottom: 12px; margin-bottom: 24px;">
-          <h2 style="color: #0a2a55; margin: 0; font-size: 18pt;">${headerConfig.officeName || 'مكتب المحاماة'}</h2>
-          ${headerConfig.officeNameEn ? `<div style="color: #607689; font-size: 11pt;">${headerConfig.officeNameEn}</div>` : ''}
-          ${headerConfig.licenseNo ? `<div style="color: #607689; font-size: 10pt;">ترخيص رقم: ${headerConfig.licenseNo}</div>` : ''}
-        </div>
+        <table style="width: 100%; border-collapse: collapse; border-bottom: 2.5pt solid #0e5c9c; margin-bottom: 18pt; padding-bottom: 12pt;">
+          <tr>
+            <td style="width: 25%; text-align: right; vertical-align: middle; border: none; padding: 0;">
+              <img src="${logoSrc}" alt="شعار المكتب" style="max-height: 54pt; max-width: 140pt; height: auto;" />
+            </td>
+            <td style="width: 50%; text-align: center; vertical-align: middle; border: none; padding: 0;">
+              <div style="color: #0a2a55; font-size: 17pt; font-weight: bold; font-family: 'Amiri', 'Traditional Arabic', serif;">
+                ${headerConfig.officeName || 'مكتب المحاماة والاستشارات القانونية'}
+              </div>
+              ${headerConfig.officeNameEn ? `<div style="color: #607689; font-size: 10.5pt; margin-top: 3pt; font-family: Arial, sans-serif;">${headerConfig.officeNameEn}</div>` : ''}
+              ${headerConfig.licenseNo ? `<div style="color: #607689; font-size: 9.5pt; margin-top: 2pt;">ترخيص رقم: ${headerConfig.licenseNo}</div>` : ''}
+            </td>
+            <td style="width: 25%; text-align: left; vertical-align: middle; border: none; padding: 0; font-size: 9.5pt; color: #607689; line-height: 1.5;">
+              ${headerConfig.phone ? `<div>هاتف: ${headerConfig.phone}</div>` : ''}
+              ${headerConfig.email ? `<div>بريد: ${headerConfig.email}</div>` : ''}
+              ${headerConfig.address ? `<div>${headerConfig.address}</div>` : ''}
+            </td>
+          </tr>
+        </table>
       `
       : '';
+
+    const refBarHtml = `
+      <table style="width: 100%; border-collapse: collapse; background-color: #f8fafc; border: 1pt solid #cbd5e1; margin-bottom: 20pt; font-size: 10.5pt;">
+        <tr>
+          <td style="padding: 6pt 10pt; border: none; text-align: right; color: #475569;">
+            الرقم المرجعي: <strong style="color: #0a2a55;">DOC-${(doc?.id || 'NEW').toString().padStart(5, '0')}</strong>
+          </td>
+          <td style="padding: 6pt 10pt; border: none; text-align: center; color: #475569;">
+            التصنيف: <strong style="color: #0e5c9c;">${types[type] || type}</strong>
+          </td>
+          ${linkedCase ? `<td style="padding: 6pt 10pt; border: none; text-align: center; color: #475569;">القضية: <strong style="color: #0e5c9c;">${linkedCase.no}</strong></td>` : ''}
+          ${linkedTicket ? `<td style="padding: 6pt 10pt; border: none; text-align: center; color: #475569;">التذكرة: <strong style="color: #0a2a55;">${linkedTicket.no}</strong></td>` : ''}
+          <td style="padding: 6pt 10pt; border: none; text-align: left; color: #475569;">
+            التاريخ: <strong>${new Date().toLocaleDateString('ar-SA')}</strong>
+          </td>
+        </tr>
+      </table>
+    `;
+
+    const footerHtml = `
+      <div style="margin-top: 40pt; padding-top: 14pt; border-top: 1pt solid #cbd5e1; text-align: center; font-size: 9.5pt; color: #94a3b8;">
+        مستند رسمي صادر من المنصة القانونية — سري ومحمي بموجب الأنظمة واللوائح المرعية © ${new Date().getFullYear()}
+      </div>
+    `;
 
     const fullHtml = `
       <!DOCTYPE html>
@@ -327,26 +544,50 @@ const LawyerEditor: React.FC<Props> = ({
       <head>
         <meta charset='utf-8'>
         <title>${title || 'مستند قانوني'}</title>
+        <!--[if gte mso 9]>
+        <xml>
+          <w:WordDocument>
+            <w:View>Print</w:View>
+            <w:Zoom>100</w:Zoom>
+            <w:DoNotOptimizeForBrowser/>
+          </w:WordDocument>
+        </xml>
+        <![endif]-->
         <style>
+          @page {
+            size: A4;
+            margin: 20mm 15mm 20mm 15mm;
+            mso-header-margin: 10mm;
+            mso-footer-margin: 10mm;
+          }
           body {
-            font-family: 'Tajawal', 'Traditional Arabic', Arial, sans-serif;
+            font-family: 'Amiri', 'Traditional Arabic', 'Tajawal', Arial, sans-serif;
             direction: rtl;
             text-align: right;
             font-size: 14pt;
             line-height: 1.85;
             color: #13314f;
           }
-          h1, h2, h3, h4 { color: #0a2a55; margin-top: 14pt; margin-bottom: 6pt; }
+          h1 { font-size: 20pt; color: #0a2a55; text-align: center; margin-top: 10pt; margin-bottom: 18pt; }
+          h2 { font-size: 16pt; color: #0a2a55; margin-top: 16pt; margin-bottom: 6pt; }
+          h3 { font-size: 14pt; color: #0e5c9c; margin-top: 12pt; margin-bottom: 4pt; }
+          h4 { font-size: 12pt; color: #1e293b; margin-top: 10pt; margin-bottom: 3pt; }
+          p { margin-bottom: 8pt; }
           table { width: 100%; border-collapse: collapse; margin: 12pt 0; }
-          th, td { border: 1px solid #999; padding: 6pt 10pt; text-align: right; }
-          th { background: #f0f4f8; font-weight: bold; }
-          blockquote { border-right: 4pt solid #0e5c9c; padding: 6pt 12pt; background: #f4f8fb; margin: 10pt 0; }
+          th, td { border: 1pt solid #cbd5e1; padding: 6pt 10pt; text-align: right; }
+          th { background: #f1f5f9; font-weight: bold; color: #0a2a55; }
+          blockquote { border-right: 4pt solid #0e5c9c; padding: 6pt 12pt; background: #f8fafc; margin: 10pt 0; color: #334155; }
+          ul, ol { margin: 8pt 0; padding-right: 20pt; }
+          li { margin-bottom: 4pt; }
+          img { max-width: 100%; height: auto; margin: 10pt auto; }
         </style>
       </head>
       <body>
         ${headerHtml}
+        ${refBarHtml}
         <h1 style="text-align: center; color: #0a2a55;">${title || 'مستند قانوني'}</h1>
         ${editor.getHTML()}
+        ${footerHtml}
       </body>
       </html>
     `;
@@ -431,7 +672,7 @@ const LawyerEditor: React.FC<Props> = ({
     ? editor.getText().trim().split(/\s+/).filter(Boolean).length
     : 0;
 
-  const isInsideTable = editor ? editor.can().deleteTable() : false;
+  const isInsideTable = editor ? (editor.isActive('table') || editor.can().deleteTable()) : false;
 
   if (!editor) return null;
 
@@ -511,9 +752,26 @@ const LawyerEditor: React.FC<Props> = ({
             <Icon name="doc" /> Word
           </button>
 
-          {/* زر الطباعة والـ PDF */}
-          <button type="button" className="btn soft sm" onClick={printDocument} style={{ height: 32, fontSize: 12, gap: 5 }}>
-            <Icon name="upload" /> طباعة / PDF
+          {/* زر تحميل PDF حقيقي عبر Browsershot */}
+          <button
+            type="button"
+            className="btn soft sm"
+            onClick={downloadPdf}
+            style={{ height: 32, fontSize: 12, gap: 5 }}
+            title="تحميل المستند كملف PDF حقيقي"
+          >
+            <Icon name="download" /> تحميل PDF
+          </button>
+
+          {/* زر الطباعة والمعاينة */}
+          <button
+            type="button"
+            className="btn soft sm"
+            onClick={printDocument}
+            style={{ height: 32, fontSize: 12, gap: 5 }}
+            title="معاينة المستند والطباعة الورقية"
+          >
+            <Icon name="upload" /> طباعة
           </button>
 
           {/* زر نسخ لناجز */}
@@ -521,11 +779,30 @@ const LawyerEditor: React.FC<Props> = ({
             <Icon name="doc" /> نسخ
           </button>
 
-          {/* اعتماد رسمي من الإدارة */}
-          {doc && !doc.approved && (
+          {/* اعتماد رسمي من الإدارة أو المستشار المصرح له */}
+          {doc && !doc.approved && canApprove && (
             <button type="button" className="btn primary sm" onClick={approve} style={{ height: 32, fontSize: 12 }}>
               <Icon name="check" /> اعتماد
             </button>
+          )}
+          {doc && !doc.approved && !canApprove && (
+            <span
+              className="chip"
+              style={{
+                height: 32,
+                fontSize: 11.5,
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                color: '#64748b',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '0 10px',
+              }}
+              title="الاعتماد النهائي يتطلب صلاحية «اعتماد الصياغة القانونية»"
+            >
+              <Icon name="lock" style={{ width: 13, height: 13 }} /> مسودة (بانتظار الاعتماد)
+            </span>
           )}
         </div>
       </div>
@@ -630,7 +907,123 @@ const LawyerEditor: React.FC<Props> = ({
 
       {/* ── 3. شريط أدوات التنسيق (Toolbar) ── */}
       <div className="legal-editor-toolbar">
-        {/* تنسيق النص الأساسي */}
+        {/* ملف مخفي لرفع الصور والأختام من الجهاز */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={handleLocalImageUpload}
+        />
+
+        {/* 1. تراجع وإعادة */}
+        <div className="toolbar-group">
+          <button
+            type="button"
+            className="toolbar-btn"
+            onClick={() => editor.chain().focus().undo().run()}
+            disabled={!editor.can().undo()}
+            title="تراجع (Ctrl+Z)"
+          >
+            ↩
+          </button>
+          <button
+            type="button"
+            className="toolbar-btn"
+            onClick={() => editor.chain().focus().redo().run()}
+            disabled={!editor.can().redo()}
+            title="إعادة (Ctrl+Y)"
+          >
+            ↪
+          </button>
+        </div>
+
+        <div className="toolbar-divider" />
+
+        {/* 2. الخطوط القضائية والأحجام والتباعد (Legal Typography) */}
+        <div className="toolbar-group">
+          <select
+            className="toolbar-select"
+            value=""
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val) editor.chain().focus().setFontFamily(val).run();
+              e.target.value = '';
+            }}
+            title="الخطوط القضائية المعتمدة"
+          >
+            <option value="" disabled hidden>🔤 نوع الخط</option>
+            {LEGAL_FONTS.map((f) => (
+              <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="toolbar-select"
+            value=""
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val) editor.chain().focus().setFontSize(val).run();
+              e.target.value = '';
+            }}
+            title="حجم الخط القضائي"
+          >
+            <option value="" disabled hidden>📏 الحجم</option>
+            {LEGAL_FONT_SIZES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="toolbar-select"
+            value=""
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val) editor.chain().focus().setLineHeight(val).run();
+              e.target.value = '';
+            }}
+            title="تباعد الأسطر القضائي"
+          >
+            <option value="" disabled hidden>↕️ التباعد</option>
+            {LEGAL_LINE_SPACINGS.map((lh) => (
+              <option key={lh.value} value={lh.value}>
+                {lh.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="toolbar-divider" />
+
+        {/* 3. بنود وهيكلية الصياغة القضائية المتخصصة */}
+        <div className="toolbar-group">
+          <select
+            className="toolbar-select"
+            value=""
+            onChange={(e) => {
+              if (e.target.value) insertLegalClause(e.target.value);
+              e.target.value = '';
+            }}
+            title="إدراج بند قضائي نموذجي جاهز"
+            style={{ borderColor: '#0e5c9c', color: '#0e5c9c', fontWeight: 700 }}
+          >
+            <option value="" disabled hidden>📜 صياغة البنود القضائية</option>
+            <option value="basmala">﷽ ديباجة وتحية الدائرة الموقرة</option>
+            <option value="capacity">⚖️ التمهيد وبيان صفة التمثيل الشرعي</option>
+            <option value="facts">📋 أولاً: بند الوقائع وتفاصيل الدعوى</option>
+            <option value="grounds">📜 ثانياً: بند الأسانيد الشرعية والنظامية</option>
+            <option value="requests">🎯 ثالثاً: بند الطلبات الختامية للمحكمة</option>
+            <option value="closing">✍️ خاتمة الدعوى واعتماد التوقيع والختم</option>
+          </select>
+        </div>
+
+        <div className="toolbar-divider" />
+
+        {/* 4. تنسيق النص الأساسي */}
         <div className="toolbar-group">
           <button
             type="button"
@@ -668,7 +1061,44 @@ const LawyerEditor: React.FC<Props> = ({
 
         <div className="toolbar-divider" />
 
-        {/* العناوين المتدرجة */}
+        {/* 5. الألوان والتمييز */}
+        <div className="toolbar-group">
+          <select
+            className="toolbar-select"
+            value=""
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val === 'unset') {
+                editor.chain().focus().unsetColor().run();
+              } else if (val) {
+                editor.chain().focus().setColor(val).run();
+              }
+              e.target.value = '';
+            }}
+            title="لون الخط"
+          >
+            <option value="" disabled hidden>🎨 لون الخط</option>
+            <option value="unset">تلقائي (افتراضي)</option>
+            {COLORS.map((c) => (
+              <option key={c.value} value={c.value} style={{ color: c.value, fontWeight: 'bold' }}>
+                ■ {c.label}
+              </option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            className={`toolbar-btn ${editor.isActive('highlight') ? 'active' : ''}`}
+            onClick={() => editor.chain().focus().toggleHighlight({ color: '#ffeaa7' }).run()}
+            title="تمييز خلفية النص"
+          >
+            ✨
+          </button>
+        </div>
+
+        <div className="toolbar-divider" />
+
+        {/* 6. العناوين المتدرجة */}
         <div className="toolbar-group">
           <button
             type="button"
@@ -693,7 +1123,7 @@ const LawyerEditor: React.FC<Props> = ({
 
         <div className="toolbar-divider" />
 
-        {/* محاذاة النص */}
+        {/* 7. محاذاة النص */}
         <div className="toolbar-group">
           <button
             type="button"
@@ -731,7 +1161,7 @@ const LawyerEditor: React.FC<Props> = ({
 
         <div className="toolbar-divider" />
 
-        {/* القوائم */}
+        {/* 8. القوائم والاقتباسات */}
         <div className="toolbar-group">
           <button
             type="button"
@@ -761,40 +1191,7 @@ const LawyerEditor: React.FC<Props> = ({
 
         <div className="toolbar-divider" />
 
-        {/* الألوان والتمييز */}
-        <div className="toolbar-group">
-          <select
-            className="toolbar-color-select"
-            onChange={(e) => {
-              if (e.target.value) {
-                editor.chain().focus().setColor(e.target.value).run();
-              } else {
-                editor.chain().focus().unsetColor().run();
-              }
-            }}
-            title="لون الخط"
-          >
-            <option value="">🎨 لون</option>
-            {COLORS.map((c) => (
-              <option key={c} value={c} style={{ color: c }}>
-                ■ {c}
-              </option>
-            ))}
-          </select>
-
-          <button
-            type="button"
-            className={`toolbar-btn ${editor.isActive('highlight') ? 'active' : ''}`}
-            onClick={() => editor.chain().focus().toggleHighlight({ color: '#ffeaa7' }).run()}
-            title="تمييز خلفية النص"
-          >
-            ✨
-          </button>
-        </div>
-
-        <div className="toolbar-divider" />
-
-        {/* إدراج الجداول والوسائط */}
+        {/* 9. إدراج الجداول والوسائط */}
         <div className="toolbar-group">
           <button
             type="button"
@@ -815,97 +1212,134 @@ const LawyerEditor: React.FC<Props> = ({
           <button
             type="button"
             className="toolbar-btn"
-            onClick={() => {
-              const url = prompt('أدخل رابط الصورة:');
-              if (url) editor.chain().focus().setImage({ src: url }).run();
-            }}
-            title="إدراج صورة"
+            onClick={() => fileInputRef.current?.click()}
+            title="إدراج صورة أو ختم أو توقيع من الجهاز"
           >
-            🖼️
+            🖼️ ختم/صورة
           </button>
           <button
             type="button"
             className="toolbar-btn"
             onClick={() => {
-              const href = prompt('أدخل الرابط:');
-              if (href) editor.chain().focus().setLink({ href }).run();
+              const url = window.prompt('أدخل رابط الصورة (URL):');
+              if (url && url.trim()) editor.chain().focus().setImage({ src: url.trim() }).run();
             }}
-            title="إدراج رابط"
+            title="إدراج صورة من رابط إنترنت"
+          >
+            🌐
+          </button>
+          <button
+            type="button"
+            className={`toolbar-btn ${editor.isActive('link') ? 'active' : ''}`}
+            onClick={() => {
+              const previousUrl = editor.getAttributes('link').href || '';
+              const href = window.prompt('أدخل رابط الموقع (URL):', previousUrl || 'https://');
+              if (href === null) return;
+              if (href.trim() === '') {
+                editor.chain().focus().unsetLink().run();
+                toast('🔗 تم إلغاء الرابط');
+              } else {
+                editor.chain().focus().setLink({ href: href.trim() }).run();
+                toast('🔗 تم تطبيق الرابط');
+              }
+            }}
+            title={editor.isActive('link') ? 'تعديل الرابط الحالي' : 'إدراج رابط'}
           >
             🔗
           </button>
+          {editor.isActive('link') && (
+            <button
+              type="button"
+              className="toolbar-btn"
+              onClick={() => {
+                editor.chain().focus().unsetLink().run();
+                toast('🔗 تم إلغاء الرابط');
+              }}
+              title="إلغاء الرابط الحالي"
+              style={{ color: 'var(--red)', fontSize: 11.5 }}
+            >
+              ✕ فك
+            </button>
+          )}
         </div>
 
-        <div className="toolbar-divider" />
-
-        {/* أدوات الجدول المتقدمة (تظهر عند الوقوف داخل جدول) */}
+        {/* 10. أدوات الجدول المتقدمة (تظهر فوراً عند الوقوف داخل أي خلية جدول) */}
         {isInsideTable && (
-          <div className="toolbar-group" style={{ background: '#eef6fc', padding: '2px 6px', borderRadius: 6 }}>
-            <button
-              type="button"
-              className="toolbar-btn"
-              onClick={() => editor.chain().focus().addRowAfter().run()}
-              title="إضافة صف لأسفل"
-            >
-              +صف
-            </button>
-            <button
-              type="button"
-              className="toolbar-btn"
-              onClick={() => editor.chain().focus().deleteRow().run()}
-              title="حذف الصف الحالي"
-            >
-              -صف
-            </button>
-            <button
-              type="button"
-              className="toolbar-btn"
-              onClick={() => editor.chain().focus().addColumnAfter().run()}
-              title="إضافة عمود"
-            >
-              +عمود
-            </button>
-            <button
-              type="button"
-              className="toolbar-btn"
-              onClick={() => editor.chain().focus().deleteColumn().run()}
-              title="حذف العمود"
-            >
-              -عمود
-            </button>
-            <button
-              type="button"
-              className="toolbar-btn"
-              onClick={() => editor.chain().focus().deleteTable().run()}
-              title="حذف الجدول كاملاً"
-              style={{ color: 'var(--red)' }}
-            >
-              ✕ حذف جدول
-            </button>
-          </div>
+          <>
+            <div className="toolbar-divider" />
+            <div className="toolbar-table-tools">
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#0e5c9c', padding: '0 4px' }}>الجدول:</span>
+              <button
+                type="button"
+                className="toolbar-table-btn"
+                onClick={() => editor.chain().focus().addRowBefore().run()}
+                title="إضافة صف لأعلى"
+              >
+                +صف أعلى
+              </button>
+              <button
+                type="button"
+                className="toolbar-table-btn"
+                onClick={() => editor.chain().focus().addRowAfter().run()}
+                title="إضافة صف لأسفل"
+              >
+                +صف أسفل
+              </button>
+              <button
+                type="button"
+                className="toolbar-table-btn danger"
+                onClick={() => editor.chain().focus().deleteRow().run()}
+                title="حذف الصف الحالي"
+              >
+                -صف
+              </button>
+              <button
+                type="button"
+                className="toolbar-table-btn"
+                onClick={() => editor.chain().focus().addColumnBefore().run()}
+                title="إضافة عمود يمين"
+              >
+                +عمود يمين
+              </button>
+              <button
+                type="button"
+                className="toolbar-table-btn"
+                onClick={() => editor.chain().focus().addColumnAfter().run()}
+                title="إضافة عمود يسار"
+              >
+                +عمود يسار
+              </button>
+              <button
+                type="button"
+                className="toolbar-table-btn danger"
+                onClick={() => editor.chain().focus().deleteColumn().run()}
+                title="حذف العمود الحالي"
+              >
+                -عمود
+              </button>
+              <button
+                type="button"
+                className="toolbar-table-btn"
+                onClick={() => editor.chain().focus().toggleHeaderRow().run()}
+                title="تبديل صف الترويسة"
+              >
+                صف ترويسة
+              </button>
+              <button
+                type="button"
+                className="toolbar-table-btn danger"
+                onClick={() => {
+                  if (window.confirm('هل أنت متأكد من رغبتك بحذف الجدول كاملاً؟')) {
+                    editor.chain().focus().deleteTable().run();
+                  }
+                }}
+                title="حذف الجدول كاملاً"
+              >
+                ✕ حذف الجدول
+              </button>
+            </div>
+          </>
         )}
-
-        {/* تراجع وإعادة */}
-        <div className="toolbar-group" style={{ marginInlineStart: 'auto' }}>
-          <button
-            type="button"
-            className="toolbar-btn"
-            onClick={() => editor.chain().focus().undo().run()}
-            disabled={!editor.can().undo()}
-            title="تراجع (Ctrl+Z)"
-          >
-            ↩
-          </button>
-          <button
-            type="button"
-            className="toolbar-btn"
-            onClick={() => editor.chain().focus().redo().run()}
-            disabled={!editor.can().redo()}
-            title="إعادة (Ctrl+Y)"
-          >
-            ↪
-          </button>
-        </div>
       </div>
 
       {/* ── 4. ترويسة المستند الرسمية ── */}

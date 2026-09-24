@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/lib/icons';
 
@@ -18,23 +18,44 @@ interface ModalProps {
 // عدّاد مشترك: مودالات وأدراج عدة قد تتراكب، والقفل يُرفع فقط عند إغلاق آخرها.
 // «القيمة السابقة» غير آمنة هنا — درج يُغلق بعد مودال كان يعيد 'hidden' فيجمّد الصفحة.
 let openOverlays = 0;
+let originalPaddingRight = '';
 
-/** قفل تمرير الصفحة أثناء تراكب (مودال/درج) — يشارك العدّاد مع Modal فلا تسابق بين الطبقات */
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
+
+/** قفل تمرير الصفحة أثناء تراكب (مودال/درج) — يشارك العدّاد مع Modal فلا تسابق بين الطبقات ويمنع اهتزاز الشاشة */
 export function useBodyScrollLock(active: boolean): void {
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (!active) {
-return;
-}
+      return;
+    }
+
+    if (openOverlays === 0) {
+      const hasScrollbar = window.innerWidth > document.documentElement.clientWidth;
+      const supportsGutter = typeof CSS !== 'undefined' && CSS.supports && CSS.supports('scrollbar-gutter', 'stable');
+
+      if (hasScrollbar && !supportsGutter) {
+        const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+        originalPaddingRight = document.body.style.paddingInlineEnd || '';
+        document.body.style.paddingInlineEnd = `${scrollbarWidth}px`;
+      }
+      document.body.style.overflow = 'hidden';
+    }
 
     openOverlays += 1;
-    document.body.style.overflow = 'hidden';
 
     return () => {
       openOverlays -= 1;
 
       if (openOverlays <= 0) {
-document.body.style.overflow = '';
-}
+        openOverlays = 0;
+        document.body.style.overflow = '';
+        if (originalPaddingRight !== '') {
+          document.body.style.paddingInlineEnd = originalPaddingRight;
+          originalPaddingRight = '';
+        } else {
+          document.body.style.paddingInlineEnd = '';
+        }
+      }
     };
   }, [active]);
 }

@@ -18,7 +18,6 @@ import {
   CONSULT_SESSION_ENDED,
   CONSULT_PRIORITIES,
   CONSULT_CHANNEL_OPTIONS,
-  DEFAULT_CONSULT_CHANNEL,
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { consultMediaUrls, SessionMediaPanel } from '@/lib/recording-ui';
@@ -185,7 +184,7 @@ export const AdminConsults: React.FC<AdminConsultsProps> = ({
 
   // Standalone Table Modals State
   const [pricingConsult, setPricingConsult] = useState<ConsultCard | null>(null);
-  const [pricingChannel, setPricingChannel] = useState<string>(DEFAULT_CONSULT_CHANNEL);
+  const [pricingChannel, setPricingChannel] = useState<string>('حضورية');
   const [inputPrice, setInputPrice] = useState<string>('600');
   const [reassignConsult, setReassignConsult] = useState<ConsultCard | null>(null);
   const [selectedLawyerId, setSelectedLawyerId] = useState<number | ''>('');
@@ -516,7 +515,7 @@ return false;
   // Table Modals Handlers
   const handleOpenPricingModal = (consult: ConsultCard) => {
     setPricingConsult(consult);
-    setPricingChannel(consult.channel || DEFAULT_CONSULT_CHANNEL);
+    setPricingChannel(consult.channel || 'حضورية');
     setInputPrice(String(consult.price || 600));
   };
 
@@ -2452,15 +2451,13 @@ return;
                 قناة الاستشارة:
               </label>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                {CONSULT_CHANNEL_OPTIONS.map((label) => {
-                  const icon = crChannelIcon(label);
-                  const isSelected = pricingChannel === label;
-
+                {CONSULT_CHANNEL_OPTIONS.map((channel) => {
+                  const isSelected = pricingChannel === channel;
                   return (
                     <button
-                      key={label}
+                      key={channel}
                       type="button"
-                      onClick={() => setPricingChannel(label)}
+                      onClick={() => setPricingChannel(channel)}
                       style={{
                         padding: '8px',
                         borderRadius: 8,
@@ -2477,8 +2474,8 @@ return;
                         gap: 6,
                       }}
                     >
-                      <Icon name={icon} />
-                      <span>{label}</span>
+                      <Icon name={crChannelIcon(channel)} />
+                      <span>{channel}</span>
                     </button>
                   );
                 })}

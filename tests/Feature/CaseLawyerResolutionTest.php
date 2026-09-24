@@ -48,7 +48,7 @@ class CaseLawyerResolutionTest extends TestCase
         ]);
         $ticket = $this->unassignedTicket($client);
 
-        $case = CaseConversion::convert($ticket, $admin);
+        $case = CaseConversion::fromTicket($ticket, $admin);
 
         $this->assertSame($lawyer->id, $case->assigned_lawyer_id, 'القضية أُنشئت بلا محامٍ.');
         $this->assertSame($lawyer->name, $case->assigned_lawyer);
@@ -66,7 +66,7 @@ class CaseLawyerResolutionTest extends TestCase
         ]);
         $ticket = $this->unassignedTicket($client);
 
-        $case = CaseConversion::convert($ticket, $lawyer);
+        $case = CaseConversion::fromTicket($ticket, $lawyer);
 
         $this->assertSame($lawyer->id, $case->assigned_lawyer_id);
     }
@@ -79,7 +79,7 @@ class CaseLawyerResolutionTest extends TestCase
         $ticket = $this->unassignedTicket($client);
 
         try {
-            CaseConversion::convert($ticket, $admin);
+            CaseConversion::fromTicket($ticket, $admin);
             $this->fail('كان يجب رفض التحويل بلا محامٍ.');
         } catch (ValidationException $e) {
             $this->assertSame(

@@ -46,7 +46,12 @@ class ExecFlowController extends Controller
             ->where('user_id', $request->user()->id)
             ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(false));
 
-        return Inertia::render('execflow', ['role' => 'client', 'execs' => $execs]);
+        return Inertia::render('execflow', [
+            'role' => 'client',
+            'execs' => $execs,
+            'initialId' => $request->query('id'),
+            'initialTab' => $request->query('tab'),
+        ]);
     }
 
     public function lawyer(Request $request): Response
@@ -58,16 +63,27 @@ class ExecFlowController extends Controller
                 ->orWhere(fn ($p) => $p->whereNull('assigned_lawyer_id')->whereNotNull('stage')->where('stage', '>=', 2)))
             ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(false, true));
 
-        return Inertia::render('execflow', ['role' => 'lawyer', 'execs' => $execs]);
+        return Inertia::render('execflow', [
+            'role' => 'lawyer',
+            'execs' => $execs,
+            'initialId' => $request->query('id'),
+            'initialTab' => $request->query('tab'),
+        ]);
     }
 
-    public function admin(): Response
+    public function admin(Request $request): Response
     {
         // التبويب الموحّد: كل التنفيذات (تدفّق + قديمة تُعرَض بمرحلة مشتقّة) — الإدارة ترى الكلّ
         $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'invoices'])
             ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(false, true));
 
-        return Inertia::render('execflow', ['role' => 'admin', 'execs' => $execs, 'lawyers' => self::assignableLawyers()]);
+        return Inertia::render('execflow', [
+            'role' => 'admin',
+            'execs' => $execs,
+            'lawyers' => self::assignableLawyers(),
+            'initialId' => $request->query('id'),
+            'initialTab' => $request->query('tab'),
+        ]);
     }
 
     public function employee(Request $request): Response
@@ -84,6 +100,8 @@ class ExecFlowController extends Controller
             'role' => 'employee',
             'execs' => $execs,
             'lawyers' => $canAssign ? self::assignableLawyers() : [],
+            'initialId' => $request->query('id'),
+            'initialTab' => $request->query('tab'),
         ]);
     }
 
@@ -273,6 +291,7 @@ class ExecFlowController extends Controller
                 $execution,
                 (int) $request->validate(['amount' => ['required', 'integer', 'min:1']])['amount'],
                 trim((string) $request->input('note', '')),
+                $user,
             ),
             // سبب الإنهاء يُسجَّل مع الإغلاق (ExecFlow::CLOSE_REASONS) — «أخرى» إن لم يُحدَّد.
             // والفاعل يُمرَّر صراحةً: إنهاء **الملفّ المرفوض** (2‑3) للإدارة وحدها، وحارسُه في

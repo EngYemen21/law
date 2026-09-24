@@ -53,7 +53,9 @@ export function canViewRoute(
       bestLen = prefix.length;
     }
   }
-  return needed === null || permissions.includes(needed);
+  if (needed === null) return true;
+  const options = needed.split(',').map((p) => p.trim());
+  return options.some((opt) => permissions.includes(opt));
 }
 
 /**

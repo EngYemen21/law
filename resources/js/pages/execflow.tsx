@@ -1,6 +1,6 @@
 import { router } from '@inertiajs/react';
 import axios from 'axios';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import ChatThread from '@/components/babylon/ChatThread';
 import FlowLine from '@/components/babylon/FlowLine';
@@ -54,8 +54,11 @@ return 'بانتظار إسناد محامٍ';
 }
 
   if (role === 'admin') {
-return r.stage < 2 ? 'أحِل لقسم التنفيذ' : r.stage === 4 ? 'اعتمد الأتعاب' : '';
-}
+    if (r.offerStatus === 'مرفوض' && r.stage === 5) {
+      return 'رفض العميل العرض — أعد التسعير أو أنهِ الملف';
+    }
+    return r.stage < 2 ? 'أحِل لقسم التنفيذ' : r.stage === 4 ? 'اعتمد الأتعاب' : '';
+  }
 
   if (role === 'lawyer') {
     if (r.stage <= 1) {
@@ -382,6 +385,8 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
         <button className="btn" type="button" onClick={() => act('pay', { plan: onPlan ? 'install' : 'full' })}><Icon name="card" /> دفع الآن</button>
         {/* خطّة التقسيط قرار العميل، وتُفتح مرّةً واحدة — بعدها الأزرار تسدّد دفعاتها */}
         {!onPlan && <button className="btn soft" type="button" onClick={() => act('pay', { plan: 'install' })}><Icon name="card" /> تقسيط على 3 دفعات</button>}
+        <button className="btn soft" type="button" onClick={() => act('inquire')}><Icon name="info" /> طلب استفسار</button>
+        <button className="btn soft" type="button" onClick={() => act('rejectOffer')}><Icon name="out" /> رفض العرض</button>
       </>);
     }
   } else if (role === 'lawyer') {
@@ -413,9 +418,12 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
           <div className="field"><label>مدة التنفيذ</label><input className="input" value={dur} onChange={(e) => setDur(e.target.value)} placeholder="30-45 يوم" /></div>
         </div>
         {feeMode === 'percent' && <div className="action-hint" style={{ marginBottom: 8 }}><Icon name="info" /> لا مبلغ مقدَّم — تُصدَر فاتورة أتعاب بهذه النسبة مع كل مبلغ يُحصَّل.</div>}
-        <button className="btn" type="button" onClick={() => act('saveFee', feeMode === 'percent'
-          ? { feeMode: 'percent', feePct: parseFloat(collectPct || '0') || 0, duration: dur }
-          : { feeMode: 'fixed', fee: parseInt(fee || '0', 10) || 0, duration: dur })}><Icon name="send" /> إرسال الأتعاب للإدارة</button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+          <button className="btn" type="button" onClick={() => act('saveFee', feeMode === 'percent'
+            ? { feeMode: 'percent', feePct: parseFloat(collectPct || '0') || 0, duration: dur }
+            : { feeMode: 'fixed', fee: parseInt(fee || '0', 10) || 0, duration: dur })}><Icon name="send" /> إرسال الأتعاب للإدارة</button>
+          <button className="btn soft" type="button" onClick={() => act('requestDocs')}><Icon name="upload" /> طلب مستندات</button>
+        </div>
       </>);
     } else if (r.stage >= 7 && !r.closed) {
       body = (<>
@@ -428,14 +436,19 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
       </>);
     }
   } else if (role === 'admin') {
-    /* **مخرج الملفّ المرفوض — للإدارة وحدها** (قرار المالك 2026-09-13): الرفض يكتب القرار
-       ولا ينقل المرحلة، فالمرفوض يبقى مفتوحاً بلا إجراءٍ ولا إغلاقٍ تلقائيّ — يتراكم في
-       القوائم أبداً. والشرط هنا **يطابق حارس `ExecService::close` حرفاً بحرف**: مرفوضٌ في
-       المرحلة 2 أو 3، والدور إدارة — فلا يظهر زرٌّ يردّه الخادم. */
-    if (r.decision === 'مرفوض' && (r.stage === 2 || r.stage === 3)) {
+    /* **مخرج الملفّ المرفوض — للإدارة وحدها**: الرفض (سواء بعد الدراسة في 2-3 أو برفض العميل للعرض في 5)
+       لا ينقل المرحلة تلقائيّاً، فالمرفوض يبقى مفتوحاً بلا إجراءٍ ولا إغلاقٍ تلقائيّ. والشرط هنا
+       يطابق حارس `ExecService::close` وحارس `CloseExecution` حرفاً بحرف. */
+    const isRejectedStudy = r.decision === 'مرفوض' && (r.stage === 2 || r.stage === 3);
+    const isRejectedOffer = r.stage === 5 && r.offerStatus === 'مرفوض';
+
+    if (isRejectedStudy || isRejectedOffer) {
       body = (<>
         <div className="mtg-pend" style={{ marginBottom: 8 }}>
-          <Icon name="info" /> رُفض هذا الطلب بعد الدراسة — لا يُسعَّر ولا يُحال ولا يُسنَد. وإنهاؤه وأرشفته قرار الإدارة.
+          <Icon name="info" />
+          {isRejectedOffer
+            ? 'رفض العميل عرض الخدمة — يمكن إعادة التسعير من تبويب «الأتعاب»، أو إنهاء الملف وأرشفته بقرار الإدارة.'
+            : 'رُفض هذا الطلب بعد الدراسة — لا يُسعَّر ولا يُحال ولا يُسنَد. وإنهاؤه وأرشفته قرار الإدارة.'}
         </div>
         <div className="field"><label>سبب الإنهاء</label>
           <select className="input" value={rejectedReason} onChange={(e) => setRejectedReason(e.target.value)}>
@@ -450,6 +463,13 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
       body = (<>
         <button className="btn" type="button" onClick={() => act('refer')}><Icon name="reply" /> إحالة لقسم التنفيذ</button>
         {/* الخادم يسمح للإدارة بطلب المستندات — الزرّ كان للمحامي والموظف فقط */}
+        <button className="btn soft" type="button" onClick={() => act('requestDocs')}><Icon name="upload" /> طلب مستندات</button>
+      </>);
+    } else if (r.stage === 3) {
+      body = (<>
+        <div className="action-hint" style={{ marginBottom: 8 }}>
+          <Icon name="info" /> الطلب في مرحلة تحديد الأتعاب — يمكن مراجعة المستندات أو طلب مستندات إضافية لاستكمال التسعير.
+        </div>
         <button className="btn soft" type="button" onClick={() => act('requestDocs')}><Icon name="upload" /> طلب مستندات</button>
       </>);
     } else if (r.stage === 4) {
@@ -1066,8 +1086,40 @@ return null;
 };
 
 // ── التفاصيل (تطابق execDetail، بنفس ترتيب 1970) — للأدوار غير العميل ──
-const ExecDetail: React.FC<{ role: Role; r: ExecReq; lawyers: ExecLawyerOpt[]; onBack: () => void; act: ActFn }> = ({ role, r, lawyers, onBack, act }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'docs' | 'finance' | 'chat'>('overview');
+interface ExecDetailProps {
+  role: Role;
+  r: ExecReq;
+  lawyers: ExecLawyerOpt[];
+  onBack: () => void;
+  act: ActFn;
+  initialTab?: string | null;
+  onTabChange?: (tab: 'overview' | 'docs' | 'finance' | 'chat') => void;
+}
+
+const EXEC_DETAIL_TABS = ['overview', 'docs', 'finance', 'chat'] as const;
+type ExecDetailTab = (typeof EXEC_DETAIL_TABS)[number];
+const isExecDetailTab = (t: unknown): t is ExecDetailTab => typeof t === 'string' && (EXEC_DETAIL_TABS as readonly string[]).includes(t);
+
+const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, initialTab, onTabChange }) => {
+  const [activeTab, setActiveTabState] = useState<ExecDetailTab>(() => {
+    if (isExecDetailTab(initialTab)) return initialTab;
+    if (typeof window !== 'undefined') {
+      const sp = new URLSearchParams(window.location.search).get('tab');
+      if (isExecDetailTab(sp)) return sp;
+    }
+    return 'overview';
+  });
+
+  useEffect(() => {
+    if (isExecDetailTab(initialTab) && initialTab !== activeTab) {
+      setActiveTabState(initialTab);
+    }
+  }, [initialTab]);
+
+  const setActiveTab = (tab: ExecDetailTab) => {
+    setActiveTabState(tab);
+    onTabChange?.(tab);
+  };
   const total = r.fee + r.vat;
   // خطوات ناجز صارت للموظّف الحامل «إجراءات المحكمة والجلسات» (قرار المالك 2026-09-12)؛
   // وكان الشرط `role !== 'client'` يعرض لموظّفٍ بلا صلاحيّة أزراراً يردّها الخادم بـ403.
@@ -1269,11 +1321,11 @@ const ExecDetail: React.FC<{ role: Role; r: ExecReq; lawyers: ExecLawyerOpt[]; o
           {/* تبويب: الأتعاب والفواتير */}
           {activeTab === 'finance' && (
             <>
-              {/* إعادة التسعير مسموحة خادمياً في المرحلة 5 حين يرفض العميل العرض أو يستفسر
+              {/* إعادة التسعير مسموحة خادمياً في المرحلة 5 حين يرفض العميل العرض أو يستفسر، والمرحلة 6 إن كانت غير مدفوعة
                   (ExecService::feeStages) — وبلا هذا الشرط كان الطلب المرفوض يتجمّد بلا زرّ لأي دور */}
               {/* المرفوض بعد الدراسة لا يُسعَّر — والخادم يرفضه بالرسالة نفسها (ExecService::guardNotRejected) */}
-              {role === 'admin' && r.decision !== 'مرفوض' && r.stage >= 2 && r.stage <= 5
-                && (!r.feeApproved || ['مرفوض', 'استفسار'].includes(r.offerStatus || ''))
+              {role === 'admin' && r.decision !== 'مرفوض' && r.stage >= 2 && r.stage <= 6 && !r.paid
+                && (!r.feeApproved || ['مرفوض', 'استفسار'].includes(r.offerStatus || '') || r.stage === 6)
                 && <PricingCard r={r} act={act} />}
 
               {r.stage >= 4 && (r.fee > 0 || r.feeMode === 'percent') && (
@@ -1372,22 +1424,120 @@ const ExecDetail: React.FC<{ role: Role; r: ExecReq; lawyers: ExecLawyerOpt[]; o
 
 // ── الصفحة ──
 // `lawyers` اختياريّة: تصل لمن يملك الإسناد وحده، وغيابها لا يكسر باقي الشاشة
-const ExecFlow: React.FC<{ role: Role; execs: ExecReq[]; lawyers?: ExecLawyerOpt[] }> = ({ role, execs, lawyers = [] }) => {
+const ExecFlow: React.FC<{
+  role: Role;
+  execs: ExecReq[];
+  lawyers?: ExecLawyerOpt[];
+  initialId?: string | number | null;
+  initialTab?: string | null;
+}> = ({ role, execs, lawyers = [], initialId, initialTab }) => {
   const toast = useToast();
-  const [view, setView] = useState<View>('list');
-  const [currentId, setCurrentId] = useState<string | null>(null);
+
+  const resolveTarget = (idVal?: string | number | null, tabVal?: string | null) => {
+    let targetId: string | null = idVal !== undefined && idVal !== null ? String(idVal) : null;
+    let targetTab: string | null = tabVal !== undefined && tabVal !== null ? String(tabVal) : null;
+
+    if (typeof window !== 'undefined') {
+      const sp = new URLSearchParams(window.location.search);
+      if (!targetId) targetId = sp.get('id');
+      if (!targetTab) targetTab = sp.get('tab');
+    }
+
+    const matched = targetId
+      ? execs.find((e) => String(e.id) === targetId || (e.rawId !== undefined && String(e.rawId) === targetId) || (e.execNo && String(e.execNo) === targetId)) ?? null
+      : null;
+
+    return { matched, targetTab };
+  };
+
+  const initialTarget = useMemo(() => resolveTarget(initialId, initialTab), []);
+  const [view, setView] = useState<View>(initialTarget.matched ? 'detail' : 'list');
+  const [currentId, setCurrentId] = useState<string | null>(initialTarget.matched ? initialTarget.matched.id : null);
+  const [currentTab, setCurrentTab] = useState<string | null>(initialTarget.targetTab);
   const [busy, setBusy] = useState(false);
 
   const current = useMemo(() => execs.find((e) => e.id === currentId) ?? null, [execs, currentId]);
 
+  const syncUrl = (id: string | null, tab?: string | null, push = false) => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (id) {
+      url.searchParams.set('id', id);
+      if (tab && tab !== 'overview') {
+        url.searchParams.set('tab', tab);
+      } else {
+        url.searchParams.delete('tab');
+      }
+    } else {
+      url.searchParams.delete('id');
+      url.searchParams.delete('tab');
+    }
+    const nextPath = url.pathname + (url.search ? url.search : '');
+    if (push) {
+      window.history.pushState({}, '', nextPath);
+    } else {
+      window.history.replaceState({}, '', nextPath);
+    }
+  };
+
+  useEffect(() => {
+    const onPopState = () => {
+      const sp = new URLSearchParams(window.location.search);
+      const urlId = sp.get('id');
+      const urlTab = sp.get('tab');
+      if (urlId) {
+        const matched = execs.find((e) => String(e.id) === urlId || (e.rawId !== undefined && String(e.rawId) === urlId) || (e.execNo && String(e.execNo) === urlId));
+        if (matched) {
+          setCurrentId(matched.id);
+          setView('detail');
+          setCurrentTab(urlTab);
+          return;
+        }
+      }
+      setCurrentId(null);
+      setView('list');
+      setCurrentTab(null);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [execs]);
+
+  useEffect(() => {
+    if (initialId) {
+      const { matched, targetTab } = resolveTarget(initialId, initialTab);
+      if (matched) {
+        setCurrentId(matched.id);
+        setView('detail');
+        if (targetTab) setCurrentTab(targetTab);
+      }
+    }
+  }, [initialId, initialTab, execs]);
+
   const open = (id: string) => {
- setCurrentId(id); setView('detail'); 
-};
+    setCurrentId(id);
+    setView('detail');
+    setCurrentTab('overview');
+    syncUrl(id, 'overview', true);
+  };
+
+  const backToList = () => {
+    setCurrentId(null);
+    setView('list');
+    setCurrentTab(null);
+    syncUrl(null, null, true);
+  };
+
+  const handleTabChange = (tab: 'overview' | 'docs' | 'finance' | 'chat') => {
+    setCurrentTab(tab);
+    if (currentId) {
+      syncUrl(currentId, tab, false);
+    }
+  };
 
   const act: ActFn = (action, payload = {}) => {
     if (!currentId) {
-return;
-}
+      return;
+    }
 
     const id = encodeURIComponent(currentId);
 
@@ -1434,8 +1584,9 @@ return;
       forceFormData: true,
       preserveScroll: true,
       onSuccess: () => {
- setView('list'); toast('تم إرسال طلب التنفيذ وبدء التحليل الذكي للمستندات'); 
-},
+        backToList();
+        toast('تم إرسال طلب التنفيذ وبدء التحليل الذكي للمستندات');
+      },
       onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر إرسال الطلب'),
       onFinish: () => setBusy(false),
     });
@@ -1443,11 +1594,11 @@ return;
 
   return (
     <div className="tflow">
-      {view === 'list' && <ExecList role={role} execs={execs} onNew={() => setView('new')} onOpen={open} />}
-      {view === 'new' && <ExecNew onSubmit={submitNew} onBack={() => setView('list')} busy={busy} />}
+      {view === 'list' && <ExecList role={role} execs={execs} onNew={() => { setView('new'); syncUrl(null, null, true); }} onOpen={open} />}
+      {view === 'new' && <ExecNew onSubmit={submitNew} onBack={backToList} busy={busy} />}
       {view === 'detail' && current && (role === 'client'
-        ? <ClientExecDetail r={current} onBack={() => setView('list')} act={act} />
-        : <ExecDetail role={role} r={current} lawyers={lawyers} onBack={() => setView('list')} act={act} />)}
+        ? <ClientExecDetail r={current} onBack={backToList} act={act} />
+        : <ExecDetail role={role} r={current} lawyers={lawyers} onBack={backToList} act={act} initialTab={currentTab} onTabChange={handleTabChange} />)}
       {view === 'detail' && !current && <div className="empty"><Icon name="exec" /><b>لم يُحدَّد طلب</b></div>}
     </div>
   );

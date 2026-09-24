@@ -83,7 +83,7 @@ class TicketAssignment
 
         // عدد التذاكر المفتوحة لكل محامٍ (لموازنة الحمل)
         $openCounts = Ticket::whereIn('assigned_lawyer_id', $lawyers->pluck('id'))
-            ->whereNotIn('status', ['مكتملة', 'مغلقة'])
+            ->open()
             ->selectRaw('assigned_lawyer_id, count(*) as c')
             ->groupBy('assigned_lawyer_id')
             ->pluck('c', 'assigned_lawyer_id');

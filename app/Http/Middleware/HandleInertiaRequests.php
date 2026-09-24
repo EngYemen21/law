@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Enums\Role;
+use App\Http\Controllers\NotificationController;
 use App\Models\Appointment;
 use App\Models\Invoice;
 use App\Models\Ticket;
@@ -80,12 +81,23 @@ class HandleInertiaRequests extends Middleware
             'unreadNotifications' => fn () => $user
                 ? UserNotification::where('user_id', $user->id)->where('is_read', false)->count()
                 : 0,
+            // الإشعارات الحديثة مع الروابط المحسوبة (لتغذية القائمة المنسدلة فورياً دون تأخير)
+            'recentNotifications' => fn () => $user
+                ? UserNotification::where('user_id', $user->id)
+                    ->latest('id')
+                    ->limit(15)
+                    ->get()
+                    ->map(fn (UserNotification $n) => array_merge($n->toData(), [
+                        'id' => $n->id,
+                        'link' => NotificationController::linkFor($user->role->value, $n->body, $n->icon),
+                    ]))
+                : [],
             // شارات شريط العميل (كسولة) — كانت مشتقّة من بيانات DATA الوهمية في الواجهة،
             // فيرى كل عميل الأرقام نفسها (تذاكر 3 · مواعيد 2 · فواتير 4) مهما كان سجلّه.
             'navBadges' => fn () => ($user && $user->role === Role::Client)
                 ? [
                     '/tickets' => Ticket::where('user_id', $user->id)
-                        ->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
+                        ->open()->count(),
                     // with('consult') إلزامي: liveState() يقرأ الاستشارة، وبدونه استعلام لكل موعد في كل عرض صفحة
                     // المفتاح /calendar لا /appointments: تبويب «المواعيد» طُوي في التبويب
                     // الزمني الموحّد، وبقاء المفتاح القديم كان يُخفي الشارة تماماً.

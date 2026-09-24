@@ -2,7 +2,6 @@ import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useEffect, useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
-import CloseTicketModal, { CLOSURE_REASONS } from '@/components/babylon/CloseTicketModal';
 import FlowLine from '@/components/babylon/FlowLine';
 import MsgMeta from '@/components/babylon/MsgMeta';
 import TicketActionsPanel from '@/components/babylon/TicketActionsPanel';
@@ -22,7 +21,7 @@ import { useCan } from '@/lib/permissions';
 
 interface EmpTicket {
   no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string;
-  caseRef?: string | null; subject?: string | null; priority?: string | null; mobile?: string | null; openedAt?: string | null;
+  caseRef?: string | null; execRef?: string | null; subject?: string | null; priority?: string | null; mobile?: string | null; openedAt?: string | null;
   isFrozen?: boolean;
   canDecideOutcome?: boolean;
   isTerminal?: boolean;
@@ -200,14 +199,6 @@ return;
       onError: fail('لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — حرّره يدوياً أولاً.'),
     });
 
-  const [showCloseModal, setShowCloseModal] = useState(false);
-
-  const convertToCase = () =>
-    router.post(`${base}/tickets/${no}/convert`, {}, {
-      onSuccess: () => toast('✅ تم تحويل التذكرة إلى قضية بنجاح'),
-      onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تحويل التذكرة لقضية'}`),
-    });
-
   const requestDocs = () =>
     router.post(`${base}/tickets/${no}/request-docs`, {}, {
       preserveScroll: true,
@@ -216,9 +207,9 @@ return;
     });
 
   const cur = tktStage(status.status);
-  const isTerminal = ['محولة إلى قضية', 'مغلقة'].includes(status.status) || !!ticket.isTerminal;
+  const isTerminal = ['محولة إلى قضية', 'محولة إلى تنفيذ', 'مغلقة'].includes(status.status) || !!ticket.isTerminal;
   const isFrozen = !!ticket.isFrozen || isTerminal;
-  const canDecideOutcome = !isFrozen && !ticket.caseRef && !converted && (status.status === 'بانتظار قرار المآل' || status.status === 'مكتملة');
+  const canDecideOutcome = !isFrozen && !ticket.caseRef && !ticket.execRef && !converted && (status.status === 'بانتظار قرار المآل' || status.status === 'مكتملة');
 
   return (
     <div className="tflow">
@@ -359,7 +350,6 @@ setTypingSignal((n) => n + 1);
               caseRef={ticket.caseRef ?? null}
               role={base === '/admin' ? 'admin' : 'lawyer'}
               onRequestDocs={requestDocs}
-              onCloseJustified={() => setShowCloseModal(true)}
             />
           )}
 
@@ -374,14 +364,6 @@ setTypingSignal((n) => n + 1);
         </aside>
       </div>
 
-      {showCloseModal && (
-        <CloseTicketModal
-          open={showCloseModal}
-          ticketNo={ticket.no}
-          role={base === '/admin' ? 'admin' : 'lawyer'}
-          onClose={() => setShowCloseModal(false)}
-        />
-      )}
     </div>
   );
 };

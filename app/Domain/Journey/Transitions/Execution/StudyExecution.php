@@ -65,7 +65,7 @@ final class StudyExecution extends Transition
                 return 'هذا الطلب مرفوض بالفعل.';
             }
         } elseif ($action === 'requestDocs') {
-            if (! in_array($entity->effectiveStage(), [0, 1, 2], true)) {
+            if (! in_array($entity->effectiveStage(), [0, 1, 2, 3], true)) {
                 return 'لا يمكن طلب مستندات في مرحلته الحالية.';
             }
             if ($entity->decision === 'مرفوض') {
@@ -94,7 +94,7 @@ final class StudyExecution extends Transition
                 $entity->decision = 'مقبول';
                 $entity->last_action = 'قبل المحامي الطلب — بانتظار تحديد الأتعاب';
             })(),
-            'requestDocs' => (function () use ($entity) {
+            'requestDocs' => (function () {
                 // المرحلة والحالة لا تتغير في طلب النواقص
             })(),
             'reject' => (function () use ($entity) {

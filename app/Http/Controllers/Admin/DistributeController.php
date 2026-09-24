@@ -23,8 +23,6 @@ use Inertia\Response;
 
 class DistributeController extends Controller
 {
-    private const CLOSED = ['مكتملة', 'مغلقة'];
-
     public function index(): Response
     {
         $lawyers = User::where('role', Role::Lawyer)
@@ -33,7 +31,7 @@ class DistributeController extends Controller
             ->get()
             ->map(function (User $u) {
                 $activeTicketsCount = Ticket::where('assigned_lawyer_id', $u->id)
-                    ->whereNotIn('status', self::CLOSED)
+                    ->open()
                     ->count();
                 $activeCasesCount = LegalCase::where('assigned_lawyer_id', $u->id)
                     ->whereNotIn('status', ['مغلقة', 'مؤرشفة'])
@@ -66,7 +64,7 @@ class DistributeController extends Controller
 
         // 1. التذاكر والطلبات
         $tickets = Ticket::with(['user', 'assignedLawyer'])
-            ->whereNotIn('status', self::CLOSED)
+            ->open()
             ->where('is_frozen', false)
             ->latest('id')
             ->get()
@@ -252,7 +250,7 @@ class DistributeController extends Controller
     public function assign(Request $request, Ticket $ticket): RedirectResponse
     {
         abort_if($ticket->is_frozen, 422, 'التذكرة مجمّدة لاعتماد مسارها النهائي — لا يُعاد إسنادها.');
-        abort_if(in_array($ticket->status, self::CLOSED, true), 422, 'التذكرة مغلقة — لا يُعاد إسنادها.');
+        abort_if($ticket->isTerminal(), 422, 'التذكرة مغلقة — لا يُعاد إسنادها.');
 
         $data = $request->validate([
             'lawyer_id' => ['required', 'integer', new ActiveLawyer],
@@ -373,7 +371,7 @@ class DistributeController extends Controller
     public function auto(Request $request): RedirectResponse
     {
         $actorName = $request->user()->name;
-        $tickets = Ticket::whereNotIn('status', self::CLOSED)
+        $tickets = Ticket::open()
             ->whereNull('assigned_lawyer_id')
             ->get(['id']);
 

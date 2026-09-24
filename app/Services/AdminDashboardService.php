@@ -17,8 +17,6 @@ use Illuminate\Support\Facades\DB;
 
 class AdminDashboardService
 {
-    private const CLOSED_TICKETS = ['مكتملة', 'مغلقة'];
-
     private const CLOSED_CASES = ['مغلقة', 'مؤرشفة'];
 
     public function get360Data(bool $bypassCache = false): array
@@ -224,7 +222,7 @@ class AdminDashboardService
                     ->count();
 
                 $activeTickets = Ticket::where('assigned_lawyer_id', $lawyer->id)
-                    ->whereNotIn('status', self::CLOSED_TICKETS)
+                    ->open()
                     ->count();
 
                 // **حملٌ لا إعلان.** يُقاس بالاستشارات المفتوحة على المحامي — والمفتوحُ عملٌ

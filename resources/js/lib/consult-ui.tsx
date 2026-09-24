@@ -336,20 +336,245 @@ return null;
   );
 };
 
-// نافذة ملخص الاستشارة (تُستخدم لدى العميل والمكتب)
-// يقرأ المرجع والنصّ وحدهما — فيصلح للبطاقتين
+// نافذة ملخص ومحضر الاستشارة (المكون الموحد لملخص الاستشارة للعميل والمكتب)
+export type SummaryModalConsult =
+  | (Partial<ConsultCard> & Partial<ClientConsultCard> & { ref: string; summary: string | null })
+  | null;
+
 export const SummaryModal: React.FC<{
-  consult: Pick<ConsultCard, 'ref' | 'summary'> | null;
+  consult: SummaryModalConsult;
   onClose: () => void;
-}> = ({ consult, onClose }) => (
-  <Modal title={`ملخص الاستشارة — ${consult?.ref ?? ''}`} open={!!consult} onClose={onClose}>
-    {consult && (
-      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: '13.5px' }}>
-        <RichText text={consult.summary} fallback="انتهت الجلسة — يُعدّ الملخص حالياً وسيصلك إشعار فور جاهزيته." />
+}> = ({ consult, onClose }) => {
+  const toast = useToast();
+  const [copied, setCopied] = useState(false);
+
+  if (!consult) {
+    return null;
+  }
+
+  const handleCopy = () => {
+    if (!consult.summary) {
+      return;
+    }
+    navigator.clipboard.writeText(consult.summary).then(() => {
+      setCopied(true);
+      toast('تم نسخ خلاصة الاستشارة إلى الحافظة بنجاح');
+      setTimeout(() => setCopied(false), 2200);
+    }).catch(() => {
+      toast('تعذّر نسخ النص');
+    });
+  };
+
+  const sourceLabel = (consult.summaryEdited || consult.summaryAiSource)
+    ? summarySourceLabel({ summaryEdited: consult.summaryEdited, summaryAiSource: consult.summaryAiSource })
+    : null;
+
+  const isApproved = Boolean(consult.summaryApproved);
+  const isLawyerApproved = Boolean(consult.summaryLawyerApproved);
+  const isPending = Boolean(consult.summaryPending) || (!isApproved && !isLawyerApproved);
+
+  const headerBadge = (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      {isApproved ? (
+        <Badge tone="b-green" text="معتمد رسمياً" />
+      ) : isLawyerApproved ? (
+        <Badge tone="b-blue" text="بانتظار اعتماد الإدارة" />
+      ) : isPending ? (
+        <Badge tone="b-amber" text="بانتظار اعتماد المستشار" />
+      ) : (
+        <Badge tone="b-grey" text="مسودة قيد الإعداد" />
+      )}
+      {sourceLabel && <Badge tone="b-grey" text={sourceLabel} />}
+    </div>
+  );
+
+  const decisionsList = (consult.decisions && consult.decisions.length > 0)
+    ? consult.decisions
+    : (consult.zoomAiNextSteps && consult.zoomAiNextSteps.length > 0)
+      ? consult.zoomAiNextSteps
+      : [];
+
+  const channelIcon = consult.channel === 'مرئية'
+    ? 'video'
+    : consult.channel === 'هاتفية'
+      ? 'phone'
+      : 'office';
+
+  return (
+    <Modal
+      title={`محضر وخلاصة الاستشارة — ${consult.ref}`}
+      subtitle={`المستشار: ${consult.lawyer || 'مستشار المكتب المختص'} · الموعد: ${consult.when || '—'}`}
+      badge={headerBadge}
+      open={Boolean(consult)}
+      onClose={onClose}
+      maxWidth={720}
+    >
+      <div className="csd-container">
+        {/* شريط معلومات الجلسة التنفيذي */}
+        <div className="csd-meta-grid">
+          <div className="csd-meta-item">
+            <span className="csd-meta-label">
+              <Icon name="scale" /> الموضوع والتخصص
+            </span>
+            <span className="csd-meta-val" title={consult.subject || 'استشارة قانونية'}>
+              {consult.subject || 'استشارة قانونية'}
+              {consult.specialty && <span className="csd-chip">{consult.specialty}</span>}
+            </span>
+          </div>
+
+          <div className="csd-meta-item">
+            <span className="csd-meta-label">
+              <Icon name="user" /> المستشار المسؤول
+            </span>
+            <span className="csd-meta-val" title={consult.lawyer || 'المستشار القانوني'}>
+              {consult.lawyer || 'المستشار القانوني'}
+            </span>
+          </div>
+
+          <div className="csd-meta-item">
+            <span className="csd-meta-label">
+              <Icon name={channelIcon} /> القناة والمدة
+            </span>
+            <span className="csd-meta-val">
+              {consult.channel || 'جلسة استشارة'}
+              {consult.duration ? ` · ${consult.duration}` : ''}
+            </span>
+          </div>
+
+          <div className="csd-meta-item">
+            <span className="csd-meta-label">
+              <Icon name="clock" /> تاريخ الانعقاد
+            </span>
+            <span className="csd-meta-val" title={consult.when || '—'}>
+              {consult.when || '—'}
+            </span>
+          </div>
+        </div>
+
+        {/* شريط الروابط والسجلات المرتبطة إن وجدت */}
+        {(consult.caseNo || consult.ticketNo) && (
+          <div className="csd-linked-strip">
+            {consult.caseNo && (
+              <Link href={`/cases/${consult.caseNo}`} className="csd-linked-pill" title="الانتقال إلى ملف القضية المرتبطة">
+                <Icon name="scale" /> قضية مرتبطة: <b>#{consult.caseNo}</b>
+              </Link>
+            )}
+            {consult.ticketNo && (
+              <span className="csd-linked-pill static" title="رقم التذكرة الأساسية">
+                <Icon name="ticket" /> تذكرة أساسية: <b>#{consult.ticketNo}</b>
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* بطاقة محضر الرأي القانوني الرسمية */}
+        <div className="csd-paper-card">
+          <div className="csd-paper-header">
+            <div className="csd-paper-title">
+              <Icon name="doc" />
+              <span>خلاصة الرأي القانوني والمداولة</span>
+            </div>
+            {consult.summary && (
+              <button
+                type="button"
+                className="btn soft sm"
+                onClick={handleCopy}
+                style={{ fontSize: 12, padding: '3px 10px', height: 28 }}
+                title="نسخ نص المحضر إلى الحافظة"
+              >
+                <Icon name={copied ? 'check' : 'reply'} />
+                <span>{copied ? 'تم النسخ' : 'نسخ النص'}</span>
+              </button>
+            )}
+          </div>
+
+          {consult.summary && consult.summary.trim() !== '' ? (
+            <div className="csd-paper-body">
+              <RichText text={consult.summary} />
+            </div>
+          ) : (
+            <div className="csd-paper-empty">
+              <div className="csd-empty-icon">
+                <Icon name="clock" />
+              </div>
+              <h4>محضر الجلسة قيد المراجعة والاعتماد</h4>
+              <p>
+                {consult.summaryPending
+                  ? 'انتهت الجلسة بنجاح، ويراجع المستشار القانوني صياغة المحضر والقرارات الآن. ستصلك إشعار فور الاعتماد النهائي.'
+                  : 'انتهت الجلسة — يُعدّ المحضر والملخص حالياً وسيصلك إشعار فور اكتماله.'}
+              </p>
+            </div>
+          )}
+
+          {/* ختم الاعتماد الموثق في أسفل المحضر */}
+          {isApproved && (
+            <div className="csd-seal-ribbon">
+              <div className="csd-seal-badge">
+                <Icon name="check" />
+                <span>وثيقة استشارة معتمدة رسمياً — صادرة وموثقة بمحاضر مكتب المحاماة</span>
+              </div>
+              {consult.summaryApprovedAt && (
+                <span className="csd-seal-date">
+                  معتمد بتاريخ: {consult.summaryApprovedAt.slice(0, 10)}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* التوصيات والقرارات الإجرائية المعتمدة إن وجدت */}
+        {decisionsList.length > 0 && (
+          <div className="csd-decisions-card">
+            <div className="csd-decisions-title">
+              <Icon name="check" />
+              <span>القرارات والتوصيات الإجرائية المعتمدة:</span>
+            </div>
+            <ul className="csd-decisions-list">
+              {decisionsList.map((d, idx) => (
+                <li key={idx} className="csd-decision-item">
+                  <Icon name="check" />
+                  <span>{decisionText(d)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* أزرار الإجراءات والتصدير */}
+        <div className="csd-footer-actions">
+          <div className="csd-footer-primary">
+            {consult.id && (
+              <a
+                className="btn soft sm"
+                href={`/consults/${consult.id}/report.pdf`}
+                download
+                target="_blank"
+                rel="noopener"
+                title="تحميل التقرير الرسمي للاستشارة بصيغة PDF"
+              >
+                <Icon name="download" /> تحميل التقرير الرسمي (PDF)
+              </a>
+            )}
+            {consult.summary && (
+              <button
+                type="button"
+                className="btn soft sm"
+                onClick={handleCopy}
+                title="نسخ نص المحضر إلى الحافظة"
+              >
+                <Icon name={copied ? 'check' : 'reply'} />
+                <span>{copied ? 'تم نسخ النص' : 'نسخ النص'}</span>
+              </button>
+            )}
+          </div>
+          <button className="btn sm" type="button" onClick={onClose}>
+            إغلاق النافذة
+          </button>
+        </div>
       </div>
-    )}
-  </Modal>
-);
+    </Modal>
+  );
+};
 
 // ============================================================
 // استقبال الاستشارات — صفحة مشتركة للموظف/المحامي/الإدارة
@@ -1006,439 +1231,663 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
   const hasSessionOutputs = !!(c.duration || hasMedia || attendees.length);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
 
+  const journeySteps = isBooking ? CONSULT_BOOKING_FLOW : CONSULT_FLOW;
+  const currentStage = isBooking
+    ? cBookingStage(c.status, c.session)
+    : (cHasStage(c.status) ? cStage(c.status) : 0);
+
   return (
-    <div className="detail-wrap" style={{ maxWidth: 920 }}>
-      <div style={{ marginBottom: 14 }}>
-        <Link href={`${base}/consults`} className="btn soft sm">
-          <Icon name="reply" /> رجوع للاستشارات
-        </Link>
+    <div className="cj-page-container">
+      {/* ── 1. الشريط العلوي للإجراءات السريعة والملاحة ── */}
+      <div className="cj-topbar-actions">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Link href={`${base}/consults`} className="cj-back-btn">
+            <Icon name="reply" />
+            <span>العودة لقائمة الاستشارات</span>
+          </Link>
+          <span style={{ color: 'var(--line)' }}>|</span>
+          <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>
+            ملف رحلة الاستشارة
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {c.id && (
+            <a
+              href={`/consults/${c.id}/report.pdf`}
+              download
+              target="_blank"
+              rel="noopener"
+              className="btn soft sm"
+              title="تحميل محضر الاستشارة الرسمي بصيغة PDF"
+            >
+              <Icon name="download" />
+              <span>تقرير الاستشارة (PDF)</span>
+            </a>
+          )}
+          {c.session === 'منتهية' && c.channel === 'مرئية' && !c.summaryApproved && (
+            <button
+              type="button"
+              className="btn soft sm"
+              onClick={() => post('zoom-sync', {}, 'اكتمل الاستعلام من Zoom — حُدّثت بيانات الجلسة المتوفرة')}
+              disabled={busy}
+              title="مزامنة بيانات التسجيل والحضور من Zoom"
+            >
+              <Icon name="video" />
+              <span>{busy && running === 'zoom-sync' ? 'جارٍ المزامنة…' : 'تحديث من Zoom'}</span>
+            </button>
+          )}
+          {c.channel === 'مرئية' && c.session === 'جلسة جارية' && (
+            <Link
+              href={`${base}/videoroom?ref=${encodeURIComponent(c.ref)}`}
+              className="btn sm"
+              style={{ fontWeight: 800 }}
+            >
+              <Icon name="video" />
+              <span>دخول جلسة Zoom</span>
+            </Link>
+          )}
+        </div>
       </div>
 
-      {/*
-        * **رأسٌ يصف الملفّ قبل أن يُطلب منك فعلٌ فيه** — على نمط صفحة تفاصيل الاجتماع.
-        * كان صفَّ رقائقَ رماديّة متساوية، فلا يبرز منه المرجع ولا الحالة ولا القناة.
-        */}
-      <div className="card cj-hero">
-        <div className="cj-hero-top">
-          <div>
-            <div className="cj-ref">{c.ref}</div>
-            <div className="cj-subject">{c.subject}</div>
+      {/* ── 2. بطاقة القيادة والملف التعريفي التنفيذي (Executive Hero Card) ── */}
+      <div className="cj-hero-card">
+        <div className="cj-hero-header">
+          <div style={{ minWidth: 0, flex: '1 1 300px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span className="cj-ref-badge">
+                <Icon name="scale" style={{ width: 14, height: 14 }} />
+                {c.ref}
+              </span>
+              <button
+                type="button"
+                className="btn soft sm"
+                style={{ padding: '2px 8px', height: 26, fontSize: 11.5 }}
+                onClick={() => {
+                  navigator.clipboard.writeText(c.ref);
+                  toast('تم نسخ الرقم المرجعي للاستشارة');
+                }}
+                title="نسخ الرقم المرجعي"
+              >
+                <Icon name="reply" style={{ width: 12, height: 12 }} />
+                <span>نسخ</span>
+              </button>
+              {c.ticketNo && (
+                <span className="csd-chip" title="التذكرة الأساسية">
+                  تذكرة: #{c.ticketNo}
+                </span>
+              )}
+              {c.caseNo && (
+                <Link href={`/cases/${c.caseNo}`} className="csd-chip" title="القضية المرتبطة">
+                  قضية: #{c.caseNo}
+                </Link>
+              )}
+            </div>
+            <h1 className="cj-title" title={c.subject}>
+              {c.subject || 'جلسة استشارة قانونية متخصصة'}
+            </h1>
           </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+
+          <div className="cj-badges-cluster">
             <Badge text={c.status} tone={cTone(c.status)} />
             {c.session ? <Badge text={c.session} tone={sessTone(c.session)} /> : null}
             {c.channel ? <Badge text={c.channel} tone={crChannelTone(c.channel)} /> : null}
+            <Badge
+              text={`أولوية: ${c.priority}`}
+              tone={c.priority === 'عالية' ? 'b-red' : c.priority === 'متوسطة' ? 'b-amber' : 'b-grey'}
+            />
           </div>
         </div>
 
-        <div className="cj-facts">
-          <div><span>الموكّل</span><b>{mask(c.client)}</b></div>
-          {/* «كل الأقسام» قيمةُ «لا تخصيص» لا تخصّصاً — ونصٌّ غيرُ فارغٍ فتحجب `type` الحقيقيّ */}
-          <div><span>التخصّص</span><b>{(c.specialty && c.specialty !== 'كل الأقسام') ? c.specialty : c.type}</b></div>
-          <div><span>الأولويّة</span><b className={`mq-priority ${c.priority}`}>{c.priority}</b></div>
-          <div><span>استُلمت</span><b>{c.received}</b></div>
-          <div><span>الموظّف</span><b>{c.employee || '—'}</b></div>
-          <div><span>المستشار</span><b>{c.lawyer}</b></div>
-          {c.when ? <div><span>الموعد</span><b>{c.when}</b></div> : null}
-          {c.ticketNo ? <div><span>التذكرة</span><b>{c.ticketNo}</b></div> : null}
+        {/* شبكة مصفوفة البيانات الستّة */}
+        <div className="cj-matrix-grid">
+          <div className="cj-matrix-item">
+            <span className="cj-matrix-label"><Icon name="user" /> الموكّل</span>
+            <span className="cj-matrix-val" title={mask(c.client)}>{mask(c.client)}</span>
+          </div>
+
+          <div className="cj-matrix-item">
+            <span className="cj-matrix-label"><Icon name="scale" /> المستشار المسؤول</span>
+            <span className="cj-matrix-val" title={c.lawyer}>{c.lawyer || 'لم يُعيّن بعد'}</span>
+          </div>
+
+          <div className="cj-matrix-item">
+            <span className="cj-matrix-label"><Icon name="folder" /> التخصص</span>
+            <span className="cj-matrix-val" title={(c.specialty && c.specialty !== 'كل الأقسام') ? c.specialty : c.type}>
+              {(c.specialty && c.specialty !== 'كل الأقسام') ? c.specialty : c.type}
+            </span>
+          </div>
+
+          <div className="cj-matrix-item">
+            <span className="cj-matrix-label"><Icon name="clock" /> موعد الجلسة</span>
+            <span className="cj-matrix-val" title={c.when || 'لم يحدد'}>{c.when || 'بانتظار التحديد'}</span>
+          </div>
+
+          <div className="cj-matrix-item">
+            <span className="cj-matrix-label"><Icon name="cal" /> تاريخ الاستلام</span>
+            <span className="cj-matrix-val" title={c.received}>{c.received}</span>
+          </div>
+
+          <div className="cj-matrix-item">
+            <span className="cj-matrix-label"><Icon name="office" /> الموظف المشرف</span>
+            <span className="cj-matrix-val" title={c.employee || '—'}>{c.employee || '—'}</span>
+          </div>
         </div>
       </div>
 
-      {/*
-        * **الموعد المقترح يُرى حيث يُبحث عنه.**
-        *
-        * الموظّف يقترح فيُكتب الموعد على «الموعد» لا على الاستشارة حتى تعتمده الإدارة
-        * (`ProposeAppointment`)، فكانت الصفحة تبقى بلا تاريخٍ ولا وقتٍ ولا محامٍ — ويبدو
-        * الحجز كأنّه لم يُحفظ. والاقتراح كان يظهر في درج الإدارة وحده.
-        */}
-      {c.proposal ? (
-        <div className="card" role="status" style={{ marginBottom: 16, borderInlineStart: '4px solid #d97706', background: '#fffbeb' }}>
-          <div className="card-b" style={{ padding: '12px 18px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Icon name="clock" />
-            <b>موعد مقترح: {proposalWhen(c.proposal)} مع {c.proposal.lawyer}</b>
-            <span style={{ color: 'var(--muted)', fontSize: 12.5 }}>
-              ({c.proposal.channel}) — بانتظار اعتماد الإدارة
-            </span>
-            {isAdmin ? (
-              <Link href="/admin/approvals" className="btn soft sm" style={{ marginInlineStart: 'auto' }}>
-                <Icon name="check" /> اعتماد من «بانتظار اعتمادك»
+      {/* ── 3. تنبيه الموعد المقترح بانتظار الاعتماد ── */}
+      {c.proposal && (
+        <div className="card" role="status" style={{ borderInlineStart: '4px solid #d97706', background: '#fffbeb' }}>
+          <div className="card-b" style={{ padding: '14px 20px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Icon name="clock" style={{ color: '#d97706', width: 22, height: 22 }} />
+            <div>
+              <b style={{ display: 'block', fontSize: 13.5, color: '#92400e' }}>
+                موعد مقترح: {proposalWhen(c.proposal)} مع المستشار {c.proposal.lawyer}
+              </b>
+              <span style={{ color: '#b45309', fontSize: 12.5 }}>
+                قناة الجلسة: ({c.proposal.channel}) — تم التنسيق مع العميل وبانتظار اعتماد الإدارة العليا.
+              </span>
+            </div>
+            {isAdmin && (
+              <Link href="/admin/approvals" className="btn sm" style={{ marginInlineStart: 'auto', background: '#d97706', color: '#fff' }}>
+                <Icon name="check" /> اعتماد الموعد فوراً
               </Link>
-            ) : null}
+            )}
           </div>
-        </div>
-      ) : null}
-
-      {/*
-        * **خطُّ الرحلة يصف الرحلة التي سلكها هذا الملفّ.**
-        *
-        * استشارةٌ قادمةٌ من حجزٍ على تذكرة لا تدخل رحلة الاستقبال قطّ — رحلتُها تسعيرٌ
-        * وسدادٌ وموعدٌ وجلسة. وكان الخطّ الأوّل يُعرض لها فتُبرَز «جاهزة/محالة للمحامي»
-        * لجلسةٍ **انتهت واعتُمد ملخّصها**. المصدر يُميَّز بـ`ticketNo`.
-        */}
-      {isBooking ? (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div className="card-b" style={{ padding: '16px 18px' }}>
-            <FlowLine steps={CONSULT_BOOKING_FLOW} cur={cBookingStage(c.status, c.session)} />
-          </div>
-        </div>
-      ) : cHasStage(c.status) ? (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div className="card-b" style={{ padding: '16px 18px' }}>
-            <FlowLine steps={CONSULT_FLOW} cur={cStage(c.status)} />
-          </div>
-        </div>
-      ) : null}
-
-      {/* action bar */}
-      {(showEmpActions || showRefer) && (
-        <div style={{ display: 'flex', gap: 9, margin: '0 0 16px', flexWrap: 'wrap' }}>
-          {/*
-            * **شرطُ الجسم = شرطُ الشريط.** خطوةُ الاستلام اليدويّة أُزيلت بقرار المالك
-            * 2026-09-08، وكان جسمُ الشريط يشترط حالتين بينما `showEmpActions` يشمل
-            * ثلاثاً — فصارت كلُّ استشارةٍ «جديدة» تُصيّر **حاويةَ أزرارٍ فارغة**، ولا
-            * يملك الموظّف من هذه الصفحة أيَّ سبيلٍ لتحريك الملفّ.
-            *
-            * والخادمُ يقبل الفعلين على «جديدة» أصلاً: `requestDocs` يمنع دورةَ الحجز
-            * والنهايات وحدها، و`analyze` يمنع المُقفَلة وحدها.
-            */}
-          {showEmpActions && (
-            <>
-              <button className="btn soft" onClick={requestDocs} disabled={busy} type="button">
-                <Icon name="upload" /> طلب استكمال مستندات
-              </button>
-              {mayAnalyze && (
-                <button className="btn" onClick={runAI} disabled={busy} type="button">
-                  <Icon name="info" /> {running === 'analyze' ? 'جارٍ التحليل…' : 'بدء معالجة الفريق القانوني'}
-                </button>
-              )}
-            </>
-          )}
-          {showRefer && !referBlocked && (
-            <button className="btn" onClick={refer} disabled={busy || !lawyerId} type="button">
-              {/* بلا اسمٍ مطابق كان يُصيَّر «إحالة للمحامي ()» — قوسان فارغان */}
-              <Icon name="scale" /> {lawyerName ? `إحالة للمحامي (${lawyerName})` : 'إحالة للمحامي — اختر مستشاراً أوّلاً'}
-            </button>
-          )}
         </div>
       )}
 
-      {/* استعلام يدوي من Zoom API: يسحب كل بيانات الجلسة (الحضور/المدة/التسجيل/النص/الملخص)
-          ويحدّث الاستشارة فوراً — لحالات تأخّر الويبهوك أو تعثّر السحب الدوري */}
-      {/* حارسا الخادم: لا جلسةَ Zoom مرتبطة (غيرُ المرئيّة)، والاعتماد نهائيّ فلا
-          تُحدَّث بياناتُ ملخّصٍ وصل الموكّل. كان الشرطُ `session==='منتهية'` وحده،
-          فكلُّ منتهيةٍ معتمدةٍ تعرض زرّاً مصيرُه ٤٢٢. */}
-      {c.session === 'منتهية' && c.channel === 'مرئية' && !c.summaryApproved && (
-        <div style={{ display: 'flex', gap: 9, margin: '0 0 16px', flexWrap: 'wrap' }}>
-          <button className="btn soft" onClick={() => post('zoom-sync', {}, 'اكتمل الاستعلام من Zoom — حُدّثت بيانات الجلسة المتوفرة')} disabled={busy} type="button">
-            <Icon name="video" /> {busy ? 'جارٍ الاستعلام من Zoom…' : 'تحديث بيانات الجلسة من Zoom'}
-          </button>
-        </div>
-      )}
-
-      {/* AI card */}
-      {showAiCard && (
-        <>
-          <div className="ai-banner">
-            <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
-            <p>
-              {aiFailed
-                ? 'تعذّر التحليل الذكيّ لهذه الاستشارة — لم يُنتج النموذج رأياً. يلزم إعداد التصنيف والرأي القانوني واختيار المحامي يدوياً قبل الاعتماد. تُحفظ كل التعديلات في سجل التدقيق.'
-                : 'نتائج تحليل الفريق القانوني — يمكن للموظف المخوّل أو الإدارة تعديلها واعتمادها. تُحفظ كل التعديلات في سجل التدقيق.'}
-            </p>
+      {/* ── 4. مسار مراحل رحلة الاستشارة التفاعلي (Interactive Journey Stepper) ── */}
+      <div className="cj-stepper-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, fontWeight: 800, color: 'var(--deep)' }}>
+            <Icon name="compass" style={{ width: 17, height: 17, color: 'var(--cyan)' }} />
+            <span>مسار مراحل الاستشارة المعياري</span>
           </div>
-          <div className="card" style={{ marginBottom: 14 }}>
-            <div className="card-h"><h3>{aiFailed ? 'إعداد يدويّ مطلوب — تعذّر التحليل الذكيّ' : 'تحليل الفريق القانوني'}</h3></div>
-            <div className="card-b" style={{ padding: '16px 18px' }}>
-              <div className="field">
-                <label>تصنيف الاستشارة</label>
-                <input className="input" value={aiClass} onChange={(e) => setAiClass(e.target.value)} />
-              </div>
-              <div className="field">
-                <label>الملخص القانوني</label>
-                <textarea className="input" rows={5} value={aiSummary} onChange={(e) => setAiSummary(e.target.value)} />
-              </div>
-              <div className="field">
-                <label>المحامي المقترح</label>
-                <select value={lawyerId} onChange={(e) => setLawyerId(Number(e.target.value))}>
-                  {lawyers.length === 0 && <option value="">— لا محامون —</option>}
-                  {/* بلا اقتراح صالح: اختيار صريح مطلوب، لا محامٍ مُنتقى ضمناً */}
-                  {lawyers.length > 0 && lawyerId === '' && <option value="">— اختر المحامي المختصّ —</option>}
-                  {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}</option>)}
-                </select>
-              </div>
-              {c.missing.length > 0 && (
-                <div className="action-hint">
-                  <Icon name="upload" /> مستندات ناقصة: {c.missing.join('، ')}
+          <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
+            {isBooking ? 'مسار حجز التذكرة' : 'مسار الاستشارة المباشرة'}
+          </span>
+        </div>
+
+        <div className="cj-stepper-track">
+          {journeySteps.map((step, idx) => {
+            const isDone = idx < currentStage;
+            const isCur = idx === currentStage;
+
+            return (
+              <React.Fragment key={step}>
+                <div className="cj-step-item">
+                  <div className={`cj-step-node ${isDone ? 'done' : isCur ? 'cur' : 'pending'}`}>
+                    {isDone ? <Icon name="check" style={{ width: 14, height: 14 }} /> : (idx + 1)}
+                  </div>
+                  <span className={`cj-step-name ${isCur ? 'cur' : ''}`}>
+                    {step}
+                  </span>
                 </div>
-              )}
-              <div style={{ display: 'flex', gap: 9, marginTop: 6, flexWrap: 'wrap' }}>
-                {/* `saveAnalysis` يفرض `aiLawyer` مطلوباً، و`lawyerName` فارغٌ ما لم
-                    يُطابَق الاقتراح — فالحفظ بلا اختيارٍ مصيرُه ٤٢٢ */}
-                <button className="btn soft sm" onClick={saveAI} disabled={busy || !lawyerName} type="button">
-                  <Icon name="check" /> حفظ التعديلات
-                </button>
-                {showApprove && (
-                  <button className="btn sm" onClick={approveAI} disabled={busy} type="button">
-                    <Icon name="check" /> اعتماد التحليل (جاهزة للمحامي)
-                  </button>
+                {idx < journeySteps.length - 1 && (
+                  <div className={`cj-step-connector ${isDone ? 'done' : ''}`} />
                 )}
-                <a className="btn soft sm" href={`/consults/${c.id}/report.pdf`} target="_blank" rel="noopener">
-                  <Icon name="download" /> طباعة الملخص (PDF)
-                </a>
-                {/* `analyze` يردّ ٤٢٢ على CLOSED_STATUSES — وتعليقُه في المتحكّم يسمّي
-                    هذا الزرّ بعينه: «زرّ إعادة التحليل في الشاشة بلا شرط حالة» */}
-                {mayAnalyze && !analyzeBlocked && (
-                  <button className="btn soft sm" onClick={rerun} disabled={busy} type="button">
-                    <Icon name="info" /> إعادة التحليل
-                  </button>
-                )}
-              </div>
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── 5. شريط الإجراءات والقرارات الفورية التشغيلية ── */}
+      {(showEmpActions || (showRefer && !referBlocked)) && (
+        <div className="cj-actions-banner">
+          <div className="cj-actions-banner-text">
+            <Icon name="sparkles" />
+            <div>
+              <b style={{ display: 'block', fontSize: 13.5, color: 'var(--deep)' }}>
+                إجراءات تشغيلية مطلوبة في هذه المرحلة
+              </b>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {showEmpActions ? 'يمكنك طلب استكمال مستندات من العميل أو إطلاق معالجة التحليل القانوني' : 'الاستشارة جاهزة للإحالة والاعتماد للمستشار القانوني'}
+              </span>
             </div>
           </div>
-        </>
-      )}
 
-      {/* admin panel */}
-      {isAdmin && (
-        <div className="card" style={{ marginBottom: 14 }}>
-          <div className="card-h"><h3>تدخّل الإدارة العليا</h3></div>
-          <div className="card-b" style={{ padding: '16px 18px' }}>
-            <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <div className="field" style={{ minWidth: 160, margin: 0 }}>
-                <label>الأولوية</label>
-                <select value={priority} onChange={(e) => setPriority(e.target.value)}>
-                  {/*
-                    * **من الكتالوج لا من نسخةٍ بيد.** كانت `['عالية','متوسطة','عادية']`
-                    * و«عادية» أولويّةُ **تذكرة** لا استشارة — يردّها الخادم بـ٤٢٢
-                    * (`Rule::in(Consult::PRIORITIES)`)، و«منخفضة» غائبة. فاستشارةٌ
-                    * أولويّتُها «منخفضة» لا تجد قيمتَها فيسقط المتصفّح على أوّل خيار:
-                    * الرأس يقول «منخفضة» والمنتقي يقول «عالية» — وأيُّ حفظٍ يكتب الخطأ.
-                    * قيسَ في المتصفّح على CN-2026-7173 يوم 2026-09-08.
-                    */}
-                  {CONSULT_PRIORITIES.map((p) => <option key={p}>{p}</option>)}
-                </select>
-              </div>
-              {/* **لا فرزَ لملفٍّ خرج من الطابور.** الأولويّة أداةُ ترتيبِ عملٍ قائم،
-                  وتغييرُها على منتهيةٍ أو ملغاةٍ فعلٌ بلا أثر — والشاشة لا تدعو إليه. */}
-              <button
-                className="btn soft sm"
-                onClick={savePriority}
-                disabled={busy || CONSULT_CLOSED_STATUSES.includes(c.status)}
-                type="button"
-              >
-                <Icon name="check" /> تحديث الأولوية
+          <div className="cj-actions-banner-buttons">
+            {showEmpActions && (
+              <>
+                <button className="btn soft sm" onClick={requestDocs} disabled={busy} type="button">
+                  <Icon name="upload" /> طلب استكمال مستندات
+                </button>
+                {mayAnalyze && (
+                  <button className="btn sm" onClick={runAI} disabled={busy} type="button">
+                    <Icon name="sparkles" /> {running === 'analyze' ? 'جارٍ التحليل…' : 'بدء معالجة الفريق القانوني'}
+                  </button>
+                )}
+              </>
+            )}
+            {showRefer && !referBlocked && (
+              <button className="btn sm" onClick={refer} disabled={busy || !lawyerId} type="button">
+                <Icon name="scale" /> {lawyerName ? `إحالة للمحامي (${lawyerName})` : 'إحالة للمحامي — اختر مستشاراً أولاً'}
               </button>
-              <div className="field" style={{ minWidth: 200, margin: 0 }}>
-                <label>المحامي المختص</label>
-                <select value={lawyerId} onChange={(e) => setLawyerId(Number(e.target.value))}>
-                  {lawyers.length === 0 && <option value="">— لا محامون —</option>}
-                  {/* بلا اقتراح صالح: اختيار صريح مطلوب، لا محامٍ مُنتقى ضمناً */}
-                  {lawyers.length > 0 && lawyerId === '' && <option value="">— اختر المحامي المختصّ —</option>}
-                  {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}</option>)}
-                </select>
-              </div>
-              {/* `lawyerId` فارغٌ ⇒ الخادم يسقط إلى النائب النصّيّ «المستشار القانوني»
-                  ويكتب «محالة للمحامي» ويُشعر الموكّل — والتوست يقول «إلى المحامي: »
-                  بلا اسم. الاختيارُ الصريح شرطٌ، وحرّاسُ `refer` الثلاثة تُشرَط بها. */}
-              <button className="btn sm" onClick={refer} disabled={busy || !lawyerId || !!referBlocked} type="button">
-                <Icon name="scale" /> تعيين المحامي واعتماد الإحالة
-              </button>
-              {referBlocked && (
-                <span style={{ fontSize: 12, color: 'var(--muted)', alignSelf: 'center' }}>{referBlocked}</span>
-              )}
-            </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* ملخّص الجلسة — ما سيقرؤه العميل، يُحرّر قبل الاعتماد ويُقفَل بعده */}
-      {c.session === 'منتهية' && (
-        <div className="card" style={{ marginBottom: 14 }}>
-          <div className="card-h">
-            <h3>ملخّص الجلسة (نسخة العميل)</h3>
-            <SummaryStateBadge consult={c} />
-          </div>
-          <div className="card-b" style={{ padding: '16px 18px' }}>
-            {c.summaryApproved ? (
-              <>
-                <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: '13.5px' }}><RichText text={c.summary} /></div>
-                <p className="action-hint" style={{ marginTop: 10 }}>
-                  <Icon name="info" /> اعتُمد هذا النصّ وقرأه العميل — تعديله الآن سحبٌ لا حفظ، فهو قرارٌ مستقلّ يُشعَر به صاحبه.
-                </p>
-              </>
-            ) : c.summary ? (
-              <>
-                {/*
-                  **المحرّر خلف الصلاحيّة لا خلف الدور.** كان يُعرض للجميع، ومسار
-                  الموظّف غير مسجَّل — فيحرّر نصّه ويضغط الحفظ فيسقط الطلب صامتاً.
-                  ومن لا صلاحيّة له يقرأ النصّ وحالته ولا يلمسه، إلّا أن تمنحه
-                  الإدارة العليا الصلاحيّة صراحةً.
-                */}
-                {mayEditSummary ? (
+      {/* ── 6. التخطيط الشبكي المنقسم (2-Column Command Grid) ── */}
+      <div className="cj-layout-grid">
+        {/* العمود الرئيسي (Main Stage) */}
+        <div className="cj-main-column">
+          {/* محضر وخلاصة الاستشارة (نسخة العميل) */}
+          {(c.session === 'منتهية' || c.summary) && (
+            <div className="csd-paper-card">
+              <div className="csd-paper-header">
+                <div className="csd-paper-title">
+                  <Icon name="doc" />
+                  <span>محضر وخلاصة الاستشارة الرسمية</span>
+                </div>
+                <SummaryStateBadge consult={c} />
+              </div>
+
+              <div className="csd-paper-body">
+                {c.summaryApproved ? (
                   <>
-                    <div className="field">
-                      <label>النصّ الذي سيصل العميل بعد اعتمادك</label>
-                      <textarea className="input" rows={10} value={sessionSummary} onChange={(ev) => setSessionSummary(ev.target.value)} />
-                    </div>
-                    <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
-                      <button className="btn soft sm" onClick={saveSessionSummary} disabled={busy || sessionSummary.trim() === ''} type="button">
-                        <Icon name="check" /> حفظ الملخّص المحرّر
-                      </button>
-                      <button className="btn sm" onClick={approveSessionSummary} disabled={busy} type="button">
-                        <Icon name="scale" /> اعتماد وإرسال للعميل
-                      </button>
-                    </div>
+                    <RichText text={c.summary} />
+                    <p className="action-hint" style={{ marginTop: 14 }}>
+                      <Icon name="info" /> اعتُمد هذا المحضر رسمياً وقرأه الموكّل — تعديله الآن يتطلب قراراً جديداً يُشعر به العميل.
+                    </p>
+                  </>
+                ) : c.summary ? (
+                  <>
+                    {mayEditSummary ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <div className="field" style={{ margin: 0 }}>
+                          <label style={{ fontSize: 12.5, fontWeight: 700 }}>
+                            النص الذي سيصل الموكّل بعد الاعتماد:
+                          </label>
+                          <textarea
+                            className="input"
+                            rows={8}
+                            value={sessionSummary}
+                            onChange={(ev) => setSessionSummary(ev.target.value)}
+                            placeholder="اكتب خلاصة الرأي القانوني وتوجيهات الجلسة هنا..."
+                            style={{ lineHeight: 1.8 }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <button className="btn soft sm" onClick={saveSessionSummary} disabled={busy || sessionSummary.trim() === ''} type="button">
+                            <Icon name="check" /> حفظ الملخص المحرر
+                          </button>
+                          <button className="btn sm" onClick={approveSessionSummary} disabled={busy} type="button">
+                            <Icon name="scale" /> اعتماد وإرسال للعميل
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <RichText text={c.summary} />
+                    )}
+
+                    {c.zoomSummary && (
+                      <details style={{ marginTop: 14 }}>
+                        <summary style={{ cursor: 'pointer', fontWeight: 700, fontSize: 12.8, color: 'var(--primary)' }}>
+                          مادّة مسجلة من جلسة Zoom (للبناء عليها)
+                        </summary>
+                        <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.85, fontSize: 13, marginTop: 8, padding: 12, border: '1px solid var(--line-soft)', borderRadius: 8, background: '#f8fafc' }}>
+                          <RichText text={c.zoomSummary} />
+                        </div>
+                      </details>
+                    )}
+
+                    <p className="action-hint" style={{ marginTop: 12 }}>
+                      <Icon name="info" /> {mayEditSummary
+                        ? 'حفظ الملخص لا يُطلقه للعميل — الإطلاق يتم بالاعتماد الرسمي.'
+                        : 'هذا النص محجوب عن العميل حتى يعتمده المحامي المختص أو الإدارة.'}
+                    </p>
                   </>
                 ) : (
-                  <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: '13.5px' }}><RichText text={c.summary} /></div>
+                  <div className="csd-paper-empty">
+                    <div className="csd-empty-icon"><Icon name="clock" /></div>
+                    <h4>محضر الجلسة قيد المراجعة والاعتماد</h4>
+                    <p>انتهت الجلسة — يُعدّ المحضر والملخص حالياً وسيصلك إشعار فور اكتماله.</p>
+                  </div>
                 )}
-                {c.zoomSummary && (
-                  <details style={{ marginTop: 12 }}>
-                    <summary style={{ cursor: 'pointer', fontWeight: 700 }}>مادّة من جلسة Zoom (للبناء عليها)</summary>
-                    <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: '13px', marginTop: 8, padding: 10, border: '1px solid var(--line-soft)', borderRadius: 8 }}>
-                      <RichText text={c.zoomSummary} />
+              </div>
+
+              {c.summaryApproved && (
+                <div className="csd-seal-ribbon">
+                  <div className="csd-seal-badge">
+                    <Icon name="check" />
+                    <span>وثيقة استشارة معتمدة رسمياً — صادرة وموثقة بمحاضر مكتب المحاماة</span>
+                  </div>
+                  {c.summaryApprovedAt && (
+                    <span className="csd-seal-date">
+                      معتمد بتاريخ: {c.summaryApprovedAt.slice(0, 10)}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* القرارات والتوصيات والمهام الإجرائية المستخرجة */}
+          {c.decisions && c.decisions.length > 0 && (
+            <div className="card">
+              <div className="card-h">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name="check" style={{ color: 'var(--success)' }} />
+                  <h3 style={{ margin: 0 }}>القرارات والتوصيات المعتمدة ({c.decisions.length})</h3>
+                </div>
+                <button className="btn soft sm" onClick={makeTasks} disabled={busy || tasksDone} type="button">
+                  <Icon name="check" /> {tasksDone ? 'حُوّلت إلى مهام عمل' : 'تحويل القرارات إلى مهام'}
+                </button>
+              </div>
+              <div className="card-b" style={{ padding: '16px 18px' }}>
+                <ul className="csd-decisions-list">
+                  {c.decisions.map((d, i) => (
+                    <li key={i} className="csd-decision-item">
+                      <Icon name="check" />
+                      <span>{decisionText(d)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {/* مخرجات الجلسة ومكتبة الوسائط والتفريغ النصي */}
+          {hasSessionOutputs && (
+            <div className="card">
+              <div className="card-h">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name="video" style={{ color: 'var(--primary)' }} />
+                  <h3 style={{ margin: 0 }}>مخرجات وتسجيلات الجلسة</h3>
+                </div>
+                {measured && <span className="sub">المدة المقيسة: {measured}</span>}
+              </div>
+              <div className="card-b" style={{ padding: '16px 18px' }}>
+                <div className="cj-outputs">
+                  {measured && <div><span>المدة الفعلية</span><b>{measured}</b></div>}
+                  {c.when && <div><span>موعد الانعقاد</span><b>{c.when}</b></div>}
+                  {attendees.length > 0 && <div><span>عدد الحضور</span><b>{attendees.length} مشارك</b></div>}
+                </div>
+
+                {media && (hasMedia || media.locked) && (
+                  <div style={{ marginTop: 14 }}>
+                    <SessionMediaPanel
+                      media={media}
+                      urls={consultMediaUrls(base, c.id)}
+                      onViewTranscript={() => setTranscriptOpen(true)}
+                    />
+                    <TranscriptModal
+                      title={`النص الحرفي وتفريغ الجلسة — ${c.ref}`}
+                      url={consultMediaUrls(base, c.id).transcript}
+                      open={transcriptOpen}
+                      onClose={() => setTranscriptOpen(false)}
+                    />
+                  </div>
+                )}
+
+                {attendees.length > 0 && (
+                  <details style={{ marginTop: 14 }}>
+                    <summary style={{ cursor: 'pointer', fontWeight: 700, fontSize: 13, color: 'var(--ink)' }}>
+                      سجل حضور المشاركين ({attendees.length})
+                    </summary>
+                    <div className="t-wrap" style={{ marginTop: 8 }}>
+                      <table className="tbl">
+                        <thead>
+                          <tr>
+                            <th>المشارك</th>
+                            <th>الدخول</th>
+                            <th>الخروج</th>
+                            <th>المدة</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {attendees.map((a, i) => (
+                            <tr key={i}>
+                              <td>{a.name || '—'}</td>
+                              <td className="mono">{a.join_time || '—'}</td>
+                              <td className="mono">{a.leave_time || '—'}</td>
+                              <td>{a.duration_sec != null ? `${Math.round(a.duration_sec / 60)} دقيقة` : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </details>
                 )}
-                <p className="action-hint" style={{ marginTop: 10 }}>
-                  <Icon name="info" /> {mayEditSummary
-                    ? 'الحفظ لا يُطلق الملخّص — الإطلاق بالاعتماد.'
-                    : 'هذا النصّ محجوب عن العميل حتى يعتمده محامٍ مختصّ.'}
+
+                {c.zoomAiNextSteps && c.zoomAiNextSteps.length > 0 && (
+                  <details style={{ marginTop: 12 }}>
+                    <summary style={{ cursor: 'pointer', fontWeight: 700, fontSize: 13, color: 'var(--cyan)' }}>
+                      خطوات اقترحها Zoom AI ({c.zoomAiNextSteps.length})
+                    </summary>
+                    <ul style={{ margin: '8px 0 0', paddingInlineStart: 20, fontSize: 13, lineHeight: 1.9 }}>
+                      {c.zoomAiNextSteps.map((t, i) => <li key={i}>{t}</li>)}
+                    </ul>
+                  </details>
+                )}
+
+                <p className="action-hint" style={{ marginTop: 12 }}>
+                  <Icon name="info" /> مخرجات وتفريغ الجلسة تُحدّث تلقائياً أو عبر زر «تحديث من Zoom» في الشريط العلوي.
                 </p>
-              </>
-            ) : (
-              <div className="empty"><Icon name="info" /><b>لا ملخّص بعد</b></div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/*
-        * **مخرجات الجلسة — كانت في القاعدة ولا تُعرض.**
-        *
-        * قِيس على `CN-2026-7173`: المدّة والدخول والخروج والتسجيل والصوت والتفريغ
-        * **ستّتها محفوظة** بعد `zoom-sync`، والصفحة لا تعرض منها إلّا ملخّص Zoom.
-        * وصفحة تفاصيل الاجتماع تعرضها كلَّها — فهذا نظيرُها.
-        *
-        * ولا يُعرض القسم إلّا حين توجد مادّة: بطاقةٌ فارغةٌ تُوهم بجلسةٍ لم تُسجَّل.
-        */}
-      {hasSessionOutputs && (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div className="card-h">
-            <h3>مخرجات الجلسة</h3>
-            {measured ? <span className="sub">مدّة الحضور: {measured}</span> : null}
-          </div>
-          <div className="card-b" style={{ padding: '14px 18px' }}>
-            <div className="cj-outputs">
-              {/* **«الفعليّة» تعني مقيسة.** كانت تعرض `duration` النصّيّ وهو عمودٌ بلا
-                  كاتبٍ حيّ — رقمٌ من البذر يُقدَّم قياساً. المقيسُ `durationSec` من ويبهوك
-                  Zoom، وما لم يُقَس لا يُعرض. */}
-              {measured ? <div><span>مدّة الحضور الفعليّة</span><b>{measured}</b></div> : null}
-              {c.when ? <div><span>موعد الانعقاد</span><b>{c.when}</b></div> : null}
-              {attendees.length > 0 ? <div><span>الحضور</span><b>{attendees.length}</b></div> : null}
-            </div>
-
-            {/* التسجيل والصوت والنصّ عبر الخادم — تشغيلٌ وتنزيلٌ داخل النظام. «رابط المشاركة»
-                أُزيل (قرار المالك 2026-09-15): كان يفتح سحابة Zoom لكلّ من يملك الرابط. */}
-            {/* المقفل يُعرض بسببه (اللوحة تقول لماذا) لا يُخفى كأنّ الجلسة بلا تسجيل */}
-            {media && (hasMedia || media.locked) ? (
-              <div style={{ marginTop: 12 }}>
-                <SessionMediaPanel
-                  media={media}
-                  urls={consultMediaUrls(base, c.id)}
-                  onViewTranscript={() => setTranscriptOpen(true)}
-                />
-                <TranscriptModal
-                  title={`النص الحرفي للجلسة — ${c.ref}`}
-                  url={consultMediaUrls(base, c.id).transcript}
-                  open={transcriptOpen}
-                  onClose={() => setTranscriptOpen(false)}
-                />
-              </div>
-            ) : null}
-
-            {attendees.length > 0 && (
-              <details style={{ marginTop: 12 }}>
-                <summary style={{ cursor: 'pointer', fontWeight: 700 }}>سجلّ الحضور ({attendees.length})</summary>
-                <div className="t-wrap" style={{ marginTop: 8 }}>
-                  <table className="tbl">
-                    <thead>
-                      <tr><th>المشارك</th><th>الدخول</th><th>الخروج</th><th>المدّة</th></tr>
-                    </thead>
-                    <tbody>
-                      {attendees.map((a, i) => (
-                        <tr key={i}>
-                          <td>{a.name || '—'}</td>
-                          <td className="mono">{a.join_time || '—'}</td>
-                          <td className="mono">{a.leave_time || '—'}</td>
-                          <td>{a.duration_sec != null ? `${Math.round(a.duration_sec / 60)} د` : '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </details>
-            )}
-
-            {/* خطوات Zoom AI — **مادّةٌ للبناء لا قرارات**: القرارات المعتمدة أدناه */}
-            {c.zoomAiNextSteps && c.zoomAiNextSteps.length > 0 && (
-              <details style={{ marginTop: 10 }}>
-                <summary style={{ cursor: 'pointer', fontWeight: 700 }}>
-                  خطواتٌ اقترحها Zoom ({c.zoomAiNextSteps.length}) — لم تُعتمد
-                </summary>
-                <ul style={{ margin: '8px 0 0', paddingInlineStart: 20, fontSize: 13, lineHeight: 1.9 }}>
-                  {c.zoomAiNextSteps.map((t, i) => <li key={i}>{t}</li>)}
-                </ul>
-              </details>
-            )}
-
-            <p className="action-hint" style={{ marginTop: 10 }}>
-              <Icon name="info" /> هذه المخرجات تُسحب من Zoom بزرّ «تحديث بيانات الجلسة» أعلاه، أو بالمجدول إن كان يعمل.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* القرارات والمهام — تُستخرج من ملخص الجلسة وتُحوّل لمهام حقيقية */}
-      {c.decisions.length > 0 && (
-        <div className="card">
-          <div className="card-h">
-            <h3>القرارات والمهام</h3>
-            <button className="btn soft sm" onClick={makeTasks} disabled={busy || tasksDone} type="button">
-              <Icon name="check" /> {tasksDone ? 'حُوّلت إلى مهام' : 'تحويل القرارات إلى مهام'}
-            </button>
-          </div>
-          <div className="card-b">
-            <ul style={{ margin: 0, paddingInlineStart: 18, lineHeight: 2 }}>
-              {c.decisions.map((d, i) => <li key={i}>{decisionText(d)}</li>)}
-            </ul>
-          </div>
-        </div>
-      )}
-
-      {/* audit log */}
-      <div className="card">
-        <div className="card-h">
-          <h3>سجل التدقيق (Audit Log)</h3>
-          <span className="sub">{c.audit.length}</span>
-        </div>
-        <div className="card-b">
-          {c.audit.length ? c.audit.map((a, i) => (
-            <div key={i} className="item">
-              <div className="iico"><Icon name="info" /></div>
-              <div className="imeta">
-                <b>{a.field}</b>
-                <span style={{ display: 'block', marginTop: 2 }}>{a.user} · {a.before} ← {a.after}</span>
-                {/* `at` (ISO) حين وُجد: `time` نصٌّ بصيغة ١٢ ساعة، وقيودُ ما قبل الهجرة
-                    بلا ص/م فتُقرأ «12:48» ظهراً وهي فجراً. */}
-                <span style={{ color: 'var(--muted)', fontSize: 11 }} dir="auto">{fmtAuditTime(a)}</span>
               </div>
             </div>
-          )) : (
-            <div className="empty"><Icon name="info" /><b>لا تعديلات بعد</b></div>
           )}
+        </div>
+
+        {/* العمود الجانبي (Side Column) */}
+        <div className="cj-side-column">
+          {/* بطاقة تحليل الفريق القانوني والذكاء الاصطناعي */}
+          {showAiCard && (
+            <div className="cj-ai-card">
+              <div className="cj-ai-header">
+                <div className="cj-ai-title">
+                  <Icon name="sparkles" />
+                  <span>{aiFailed ? 'إعداد يدوي مطلوب' : 'تحليل الفريق القانوني'}</span>
+                </div>
+                {aiFailed && <Badge tone="b-red" text="تعذّر الآلي" />}
+              </div>
+
+              <div className="card-b" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700 }}>تصنيف الاستشارة</label>
+                  <input
+                    className="input"
+                    value={aiClass}
+                    onChange={(e) => setAiClass(e.target.value)}
+                    placeholder="مثال: عقود تجارية / نزاع إيجاري"
+                  />
+                </div>
+
+                <div className="field" style={{ margin: 0 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700 }}>الملخص والتكييف القانوني</label>
+                  <textarea
+                    className="input"
+                    rows={4}
+                    value={aiSummary}
+                    onChange={(e) => setAiSummary(e.target.value)}
+                    placeholder="وقائع الاستشارة وتكييفها الأولي..."
+                    style={{ lineHeight: 1.7 }}
+                  />
+                </div>
+
+                <div className="field" style={{ margin: 0 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700 }}>المستشار المقترح</label>
+                  <select
+                    value={lawyerId}
+                    onChange={(e) => setLawyerId(Number(e.target.value))}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 8, fontSize: 13 }}
+                  >
+                    {lawyers.length === 0 && <option value="">— لا يوجد مستشارون —</option>}
+                    {lawyers.length > 0 && lawyerId === '' && <option value="">— اختر المحامي المختص —</option>}
+                    {lawyers.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {c.missing.length > 0 && (
+                  <div className="action-hint" style={{ margin: 0 }}>
+                    <Icon name="upload" /> مستندات ناقصة: {c.missing.join('، ')}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 6, borderTop: '1px solid var(--line-soft)' }}>
+                  <button className="btn soft sm" onClick={saveAI} disabled={busy || !lawyerName} type="button">
+                    <Icon name="check" /> حفظ
+                  </button>
+                  {showApprove && (
+                    <button className="btn sm" onClick={approveAI} disabled={busy} type="button">
+                      <Icon name="check" /> اعتماد التحليل
+                    </button>
+                  )}
+                  {mayAnalyze && !analyzeBlocked && (
+                    <button className="btn soft sm" onClick={rerun} disabled={busy} type="button">
+                      <Icon name="sparkles" /> إعادة التحليل
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* لوحة تحكم وتدخل الإدارة العليا */}
+          {isAdmin && (
+            <div className="card">
+              <div className="card-h">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="office" style={{ color: 'var(--primary)' }} />
+                  <h3 style={{ margin: 0, fontSize: 14 }}>تدخل وصلاحيات الإدارة</h3>
+                </div>
+              </div>
+              <div className="card-b" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700 }}>تعديل الأولوية</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <select
+                      value={priority}
+                      onChange={(e) => setPriority(e.target.value)}
+                      style={{ flex: 1, padding: '7px 10px', borderRadius: 8, fontSize: 13 }}
+                    >
+                      {CONSULT_PRIORITIES.map((p) => <option key={p}>{p}</option>)}
+                    </select>
+                    <button
+                      className="btn soft sm"
+                      onClick={savePriority}
+                      disabled={busy || CONSULT_CLOSED_STATUSES.includes(c.status)}
+                      type="button"
+                    >
+                      تحديث
+                    </button>
+                  </div>
+                </div>
+
+                <div className="field" style={{ margin: 0 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700 }}>المحامي المختص</label>
+                  <select
+                    value={lawyerId}
+                    onChange={(e) => setLawyerId(Number(e.target.value))}
+                    style={{ width: '100%', padding: '7px 10px', borderRadius: 8, fontSize: 13, marginBottom: 8 }}
+                  >
+                    {lawyers.length === 0 && <option value="">— لا يوجد مستشارون —</option>}
+                    {lawyers.length > 0 && lawyerId === '' && <option value="">— اختر المحامي المختص —</option>}
+                    {lawyers.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="btn sm"
+                    onClick={refer}
+                    disabled={busy || !lawyerId || !!referBlocked}
+                    type="button"
+                    style={{ width: '100%', justifyContent: 'center' }}
+                  >
+                    <Icon name="scale" /> تعيين المحامي واعتماد الإحالة
+                  </button>
+                  {referBlocked && (
+                    <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'block', marginTop: 4 }}>
+                      {referBlocked}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* السجلات والملفات المرتبطة */}
+          {(c.ticketNo || c.caseNo || c.invoiceNo) && (
+            <div className="card">
+              <div className="card-h">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="link" style={{ color: 'var(--cyan)' }} />
+                  <h3 style={{ margin: 0, fontSize: 14 }}>السجلات المرتبطة</h3>
+                </div>
+              </div>
+              <div className="card-b" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {c.caseNo && (
+                  <Link href={`/cases/${c.caseNo}`} className="csd-linked-pill" style={{ justifyContent: 'space-between' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Icon name="scale" /> ملف القضية
+                    </span>
+                    <b>#{c.caseNo}</b>
+                  </Link>
+                )}
+                {c.ticketNo && (
+                  <div className="csd-linked-pill static" style={{ justifyContent: 'space-between' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Icon name="ticket" /> التذكرة الأساسية
+                    </span>
+                    <b>#{c.ticketNo}</b>
+                  </div>
+                )}
+                {c.invoiceNo && (
+                  <div className="csd-linked-pill static" style={{ justifyContent: 'space-between' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Icon name="card" /> رقم الفاتورة
+                    </span>
+                    <b>#{c.invoiceNo}</b>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* سجل التدقيق الزمني (Audit Trail) */}
+          <div className="card">
+            <div className="card-h">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Icon name="clock" style={{ color: 'var(--faint)' }} />
+                <h3 style={{ margin: 0, fontSize: 14 }}>سجل التدقيق ({c.audit.length})</h3>
+              </div>
+            </div>
+            <div className="card-b" style={{ padding: '14px 16px', maxHeight: 380, overflowY: 'auto' }}>
+              {c.audit.length ? (
+                <div className="cj-audit-timeline">
+                  {c.audit.map((a, i) => (
+                    <div key={i} className="cj-audit-entry">
+                      <div className="cj-audit-dot" />
+                      <b style={{ fontSize: 12.8, color: 'var(--deep)' }}>{a.field}</b>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>
+                        {a.user}: {a.before} ← {a.after}
+                      </span>
+                      <span style={{ color: 'var(--faint)', fontSize: 10.5, marginTop: 2 }} dir="auto">
+                        {fmtAuditTime(a)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty" style={{ padding: '20px 10px', textAlign: 'center' }}>
+                  <Icon name="info" />
+                  <b style={{ display: 'block', fontSize: 12.5, marginTop: 4 }}>لا تعديلات مسجلة بعد</b>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 };
+

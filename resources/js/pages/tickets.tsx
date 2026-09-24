@@ -4,6 +4,7 @@ import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { truncateWords } from '@/lib/utils';
 
 // ============================================================
 // مركز متابعة التذاكر والطلبات القانونية 360° (Client Legal Tickets Hub)
@@ -20,7 +21,17 @@ const JOURNEY_STEPS = [
   'النتيجة والاعتماد',
 ];
 
-export const TERMINAL_STATUSES = ['مكتملة', 'مغلقة', 'محولة إلى قضية', 'طلب مكتمل ومغلق', 'تم تحويل الطلب إلى قضية رسمية'];
+/** @deprecated استخدم t.isTerminal القادم من الخادم بدلاً من مقارنة النصوص العربية */
+export const TERMINAL_STATUSES = ['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة إلى تنفيذ', 'طلب مكتمل ومغلق', 'تم تحويل الطلب إلى قضية رسمية', 'تم تحويل الطلب إلى ملف تنفيذ قضائي'];
+
+export interface TicketActions {
+  can_request_consult?: boolean;
+  can_convert_case?: boolean;
+  can_convert_exec?: boolean;
+  can_close?: boolean;
+  can_request_docs?: boolean;
+  can_rerun_ai?: boolean;
+}
 
 export interface TicketCard {
   no: string;
@@ -29,8 +40,11 @@ export interface TicketCard {
   priority?: string;
   dept?: string;
   status: string;
+  statusCode?: string;
   tone: string;
   isFrozen?: boolean;
+  isTerminal?: boolean;
+  actions?: TicketActions;
   last?: string;
   date: string;
   lawyer?: string;
@@ -68,20 +82,21 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
   const [deptFilter, setDeptFilter] = useState<string>('all');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [datePreset, setDatePreset] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
 
   // إحصائيات لوحة التذاكر
   const statsList: StatItem[] = [
     [
       't-blue',
       'folder',
-      counts?.active ?? tickets.filter((t) => !TERMINAL_STATUSES.includes(t.status)).length,
+      counts?.active ?? tickets.filter((t) => !(t.isTerminal ?? TERMINAL_STATUSES.includes(t.status))).length,
       'تذاكر جارية ونشطة',
     ],
     [
       't-amber',
       'alert',
-      counts?.needsAction ?? tickets.filter((t) => ['بانتظار مستندات', 'بانتظار حجز الاستشارة'].includes(t.status)).length,
+      counts?.needsAction ?? tickets.filter((t) => t.needsDoc || t.needsBooking).length,
       'تتطلب إجراءً منك',
     ],
     [
@@ -93,7 +108,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
     [
       't-green',
       'check',
-      counts?.completed ?? tickets.filter((t) => TERMINAL_STATUSES.includes(t.status)).length,
+      counts?.completed ?? tickets.filter((t) => Boolean(t.isTerminal ?? TERMINAL_STATUSES.includes(t.status))).length,
       'تذاكر مكتملة ومنجزة',
     ],
   ];
@@ -120,29 +135,28 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
     return Array.from(set);
   }, [availableStatuses, tickets]);
 
-  const hasActiveFilters = search || statusFilter !== 'all' || specificStatus !== 'all' || deptFilter !== 'all' || startDate || endDate;
+  const hasActiveFilters = Boolean(search || statusFilter !== 'all' || specificStatus !== 'all' || deptFilter !== 'all' || startDate || endDate || datePreset !== 'all');
 
   const resetFilters = () => {
     setSearch('');
     setStatusFilter('all');
     setSpecificStatus('all');
     setDeptFilter('all');
+    setDatePreset('all');
     setStartDate('');
     setEndDate('');
   };
 
-  // تعيين تواريخ سريعة
-  const setQuickDate = (preset: 'today' | 'week' | 'month' | 'clear') => {
+  // التعامل مع اختيار فترة التاريخ من القائمة المنسدلة
+  const handleDatePresetChange = (preset: 'all' | 'today' | 'week' | 'month' | 'custom') => {
+    setDatePreset(preset);
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
 
-    if (preset === 'clear') {
+    if (preset === 'all') {
       setStartDate('');
       setEndDate('');
-      return;
-    }
-
-    if (preset === 'today') {
+    } else if (preset === 'today') {
       setStartDate(todayStr);
       setEndDate(todayStr);
     } else if (preset === 'week') {
@@ -178,8 +192,9 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
       }
 
       // تصفية التبويب العام
+      const isTerminal = Boolean(t.isTerminal ?? TERMINAL_STATUSES.includes(t.status));
       if (statusFilter === 'active') {
-        if (TERMINAL_STATUSES.includes(t.status)) return false;
+        if (isTerminal) return false;
       } else if (statusFilter === 'action') {
         if (!t.needsDoc && !t.needsBooking) return false;
       } else if (statusFilter === 'analysis') {
@@ -188,7 +203,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
       } else if (statusFilter === 'opinion') {
         if (!(t.phase === 'opinion')) return false;
       } else if (statusFilter === 'completed') {
-        if (!TERMINAL_STATUSES.includes(t.status)) return false;
+        if (!isTerminal) return false;
       }
 
       // تصفية القسم
@@ -243,161 +258,128 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
         if (idx === 3) setStatusFilter('completed');
       }} />
 
-      {/* ── رادار التذاكر التي تتطلب إجراء العميل ── */}
-      {actionRequiredTickets.length > 0 && statusFilter !== 'completed' && specificStatus === 'all' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
-          {actionRequiredTickets.map((t) => (
-            <div
-              key={t.no}
-              style={{
-                background: 'rgba(245, 158, 11, 0.08)',
-                border: '1.5px solid rgba(245, 158, 11, 0.3)',
-                borderRadius: 12,
-                padding: '12px 16px',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: 12,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 240px' }}>
-                <div
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 8,
-                    background: 'var(--paper-2)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 16,
-                    flexShrink: 0,
-                  }}
-                >
-                  <Icon name={t.needsDoc ? 'alert' : 'cal'} />
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span className="mono" style={{ fontWeight: 800, fontSize: 13, color: 'var(--ink)' }}>{t.no}</span>
-                    <Badge text={t.status} tone={t.tone} />
-                  </div>
-                  <div style={{ fontSize: 12.5, color: 'var(--ink)', fontWeight: 600, marginTop: 2 }}>
-                    {t.needsDoc
-                      ? 'مطلوب تزويد المستشار بالوثائق والمستندات لاستكمال الدراسة'
-                      : 'تمت الدراسة المبدئية، يرجى حجز موعد الاستشارة لمناقشة الرأي القانوني'}
-                  </div>
-                </div>
-              </div>
-
-              <button
-                className="btn sm"
-                style={{ flexShrink: 0 }}
-                onClick={() => router.visit(t.needsBooking ? '/book' : `/tickets/${encodeURIComponent(t.no)}`)}
-                type="button"
-              >
-                {t.needsDoc ? '📎 إرفاق المستندات' : '📅 حجز الموعد الآن'}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── شريط البحث والفلترة الشامل (بما في ذلك الحالة والتاريخ من - إلى) ── */}
+      {/* ── شريط البحث والفلترة الشامل الموحد ── */}
       <div className="card" style={{ marginBottom: 18 }}>
         <div className="card-b" style={{ padding: '14px 16px' }}>
 
-          {/* الصف الأول: البحث + القوائم المنسدلة + طريقة العرض */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          {/* صف الفلترة والبحث الموحد في صف واحد على الشاشات الكبيرة */}
+          <div className="tickets-toolbar">
 
-            {/* حقل البحث السريع */}
-            <div style={{ flex: '1 1 240px', position: 'relative' }}>
+            {/* 1. حقل البحث السريع */}
+            <div className="search-field">
               <input
                 type="text"
                 className="input"
                 placeholder="ابحث برقم التذكرة، الموضوع، المستشار، أو القسم..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                style={{ width: '100%', paddingRight: 36 }}
+                style={{ width: '100%', paddingRight: 36, paddingLeft: 12, height: 38 }}
               />
               <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5, pointerEvents: 'none' }}>
                 <Icon name="search" />
               </div>
             </div>
 
-            {/* قائمة فلترة الحالة بالتحديد */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {/* 2. قائمة فلترة الحالة بالتحديد */}
+            <select
+              className="input select-field"
+              value={specificStatus}
+              onChange={(e) => setSpecificStatus(e.target.value)}
+              style={{ height: 38, padding: '6px 10px' }}
+              title="تصفية حسب الحالة"
+            >
+              <option value="all">🔍 كافة الحالات</option>
+              {allStatuses.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+
+            {/* 3. قائمة فلترة الأقسام */}
+            {departments.length > 0 && (
               <select
-                className="input"
-                value={specificStatus}
-                onChange={(e) => setSpecificStatus(e.target.value)}
-                style={{ minWidth: 150, padding: '6px 12px' }}
-                title="تصفية حسب الحالة الدقيقة"
+                className="input select-field"
+                value={deptFilter}
+                onChange={(e) => setDeptFilter(e.target.value)}
+                style={{ height: 38, padding: '6px 10px' }}
+                title="تصفية حسب القسم"
               >
-                <option value="all">🔍 كافة الحالات</option>
-                {allStatuses.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
+                <option value="all">📂 كافة الأقسام</option>
+                {departments.map((d) => (
+                  <option key={d} value={d}>{d}</option>
                 ))}
               </select>
+            )}
 
-              {/* قائمة فلترة الأقسام */}
-              {departments.length > 0 && (
-                <select
-                  className="input"
-                  value={deptFilter}
-                  onChange={(e) => setDeptFilter(e.target.value)}
-                  style={{ minWidth: 140, padding: '6px 12px' }}
-                >
-                  <option value="all">📂 كافة الأقسام</option>
-                  {departments.map((d) => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-              )}
+            {/* 4. قائمة فلترة التاريخ الذكية المنسدلة */}
+            <select
+              className="input select-field"
+              value={datePreset}
+              onChange={(e) => handleDatePresetChange(e.target.value as any)}
+              style={{ height: 38, padding: '6px 10px' }}
+              title="تصفية حسب التاريخ"
+            >
+              <option value="all">📅 كافة الفترات</option>
+              <option value="today">اليوم</option>
+              <option value="week">آخر 7 أيام</option>
+              <option value="month">هذا الشهر</option>
+              <option value="custom">🗓️ تاريخ محدد...</option>
+            </select>
 
-              {/* التبديل بين عرض البطاقات والجدول */}
-              <div style={{ display: 'flex', background: 'var(--paper-2)', padding: 3, borderRadius: 8, border: '1px solid var(--line-soft)' }}>
-                <button
-                  type="button"
-                  className={`btn sm ${viewMode === 'cards' ? '' : 'ghost'}`}
-                  style={{ padding: '5px 10px', boxShadow: viewMode === 'cards' ? undefined : 'none' }}
-                  onClick={() => setViewMode('cards')}
-                  title="عرض البطاقات"
-                >
-                  ▤ بطاقات
-                </button>
-                <button
-                  type="button"
-                  className={`btn sm ${viewMode === 'table' ? '' : 'ghost'}`}
-                  style={{ padding: '5px 10px', boxShadow: viewMode === 'table' ? undefined : 'none' }}
-                  onClick={() => setViewMode('table')}
-                  title="عرض الجدول"
-                >
-                  ☰ جدول
-                </button>
-              </div>
+            {/* 5. التبديل بين عرض الجدول والبطاقات (الافتراضي: جدول) */}
+            <div className="view-switcher" style={{ display: 'flex', background: 'var(--paper-2)', padding: 3, borderRadius: 8, border: '1px solid var(--line-soft)', height: 38, alignItems: 'center' }}>
+              <button
+                type="button"
+                className={`btn sm ${viewMode === 'table' ? '' : 'ghost'}`}
+                style={{ padding: '5px 12px', height: 30, boxShadow: viewMode === 'table' ? undefined : 'none' }}
+                onClick={() => setViewMode('table')}
+                title="عرض الجدول"
+              >
+                ☰ جدول
+              </button>
+              <button
+                type="button"
+                className={`btn sm ${viewMode === 'cards' ? '' : 'ghost'}`}
+                style={{ padding: '5px 12px', height: 30, boxShadow: viewMode === 'cards' ? undefined : 'none' }}
+                onClick={() => setViewMode('cards')}
+                title="عرض البطاقات"
+              >
+                ▤ بطاقات
+              </button>
             </div>
+
+            {/* 6. زر إعادة ضبط الفلاتر */}
+            {hasActiveFilters && (
+              <button
+                type="button"
+                className="btn soft sm"
+                style={{ fontSize: 11.5, height: 38, padding: '0 10px', flexShrink: 0 }}
+                onClick={resetFilters}
+                title="إلغاء وتفريغ كافة خيارات التصفية"
+              >
+                إعادة ضبط ✕
+              </button>
+            )}
 
           </div>
 
-          {/* الصف الثاني: فلترة التاريخ (من تاريخ - إلى تاريخ) مع اختصارات سريعة */}
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: 12,
-              marginTop: 12,
-              paddingTop: 12,
-              borderTop: '1px solid var(--line-soft)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {/* تظهر حقول التاريخ المخصص فقط إذا اختار المستخدم 'تاريخ محدد' */}
+          {datePreset === 'custom' && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                marginTop: 12,
+                paddingTop: 12,
+                borderTop: '1px solid var(--line-soft)',
+                flexWrap: 'wrap',
+                animation: 'fadeIn 0.2s ease',
+              }}
+            >
               <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Icon name="cal" /> التاريخ:
+                <Icon name="cal" /> تحديد النطاق الزمني:
               </span>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--paper-2)', padding: '4px 8px', borderRadius: 8, border: '1px solid var(--line-soft)' }}>
@@ -422,56 +404,18 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
                 />
               </div>
 
-              {/* اختصارات التاريخ السريعة */}
-              <div style={{ display: 'flex', gap: 4 }}>
+              {(startDate || endDate) && (
                 <button
                   type="button"
                   className="btn ghost sm"
-                  style={{ fontSize: 11, padding: '3px 8px' }}
-                  onClick={() => setQuickDate('today')}
+                  style={{ fontSize: 11, padding: '3px 8px', color: 'var(--red, #ef4444)' }}
+                  onClick={() => { setStartDate(''); setEndDate(''); }}
                 >
-                  اليوم
+                  ✕ مسح التاريخ المخصص
                 </button>
-                <button
-                  type="button"
-                  className="btn ghost sm"
-                  style={{ fontSize: 11, padding: '3px 8px' }}
-                  onClick={() => setQuickDate('week')}
-                >
-                  آخر 7 أيام
-                </button>
-                <button
-                  type="button"
-                  className="btn ghost sm"
-                  style={{ fontSize: 11, padding: '3px 8px' }}
-                  onClick={() => setQuickDate('month')}
-                >
-                  هذا الشهر
-                </button>
-                {(startDate || endDate) && (
-                  <button
-                    type="button"
-                    className="btn ghost sm"
-                    style={{ fontSize: 11, padding: '3px 8px', color: 'var(--red, #ef4444)' }}
-                    onClick={() => setQuickDate('clear')}
-                  >
-                    ✕ مسح التاريخ
-                  </button>
-                )}
-              </div>
+              )}
             </div>
-
-            {hasActiveFilters && (
-              <button
-                type="button"
-                className="btn soft sm"
-                style={{ fontSize: 11.5 }}
-                onClick={resetFilters}
-              >
-                إعادة ضبط الفلاتر ✕
-              </button>
-            )}
-          </div>
+          )}
 
           {/* الصف الثالث: تبويبات الحالات العامة السريعة */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line-soft)' }}>
@@ -560,7 +504,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
         </div>
       ) : viewMode === 'cards' ? (
         /* ── نمط شبكة البطاقات الفاخرة (360° Luxury Cards) ── */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16, marginBottom: 24 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: 16, marginBottom: 24 }}>
           {filteredTickets.map((t) => {
             const stepIdx = t.step ?? 0;
             return (
@@ -697,16 +641,16 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
         /* ── نمط الجدول المنظم (Table View) ── */
         <div className="card" style={{ marginBottom: 24 }}>
           <div className="card-b t-wrap" style={{ padding: 0 }}>
-            <table className="tbl">
+            <table className="tbl" style={{ minWidth: 720 }}>
               <thead>
                 <tr>
-                  <th>رقم التذكرة</th>
-                  <th>النوع والموضوع</th>
+                  <th style={{ width: 130 }}>رقم التذكرة</th>
+                  <th style={{ minWidth: 200, maxWidth: 360 }}>النوع والموضوع</th>
                   <th>القسم</th>
                   <th>المستشار</th>
                   <th>الحالة</th>
                   <th>آخر تحديث</th>
-                  <th>الإجراء</th>
+                  <th style={{ width: 95, textAlign: 'center' }}>الإجراء</th>
                 </tr>
               </thead>
               <tbody>
@@ -716,17 +660,29 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
                     className="click"
                     onClick={() => router.visit(`/tickets/${encodeURIComponent(t.no)}`)}
                   >
-                    <td className="mono" style={{ fontWeight: 800 }}>{t.no}</td>
-                    <td>
-                      <b>{t.type}</b>
-                      {t.subject && <span className="muted" style={{ display: 'block', fontSize: 11 }}>{t.subject}</span>}
+                    <td className="mono nowrap" style={{ fontWeight: 800 }}>{t.no}</td>
+                    <td style={{ minWidth: 200, maxWidth: 360 }}>
+                      <b style={{ color: 'var(--ink)' }}>{t.type}</b>
+                      {t.subject && (
+                        <div
+                          className="muted"
+                          title={t.subject}
+                          style={{
+                            fontSize: 11.5,
+                            marginTop: 3,
+                            lineHeight: 1.4,
+                          }}
+                        >
+                          {truncateWords(t.subject, 10)}
+                        </div>
+                      )}
                     </td>
-                    <td>{t.dept || '—'}</td>
-                    <td>{t.lawyer || '—'}</td>
-                    <td><Badge text={t.status} tone={t.tone} /></td>
-                    <td className="muted" style={{ fontSize: 11.5 }}>{t.date}</td>
-                    <td>
-                      <button className="btn soft sm" type="button">
+                    <td className="nowrap">{t.dept || '—'}</td>
+                    <td className="nowrap">{t.lawyer || '—'}</td>
+                    <td className="nowrap"><Badge text={t.status} tone={t.tone} /></td>
+                    <td className="muted nowrap" style={{ fontSize: 11.5 }}>{t.date}</td>
+                    <td className="nowrap" style={{ textAlign: 'center' }}>
+                      <button className="btn soft sm" type="button" style={{ whiteSpace: 'nowrap' }}>
                         المحادثة ←
                       </button>
                     </td>

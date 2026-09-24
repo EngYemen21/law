@@ -69,7 +69,7 @@ class GenerateTicketSummaryJob implements ShouldQueue
             || $summary->status !== 'awaiting_lawyer'
             || $summary->edited_at !== null
             || ($summary->ai_generated && ! $this->force)
-            || in_array($ticket->status, ['مكتملة', 'مغلقة'], true)) {
+            || $ticket->isTerminal()) {
             return;
         }
 
@@ -139,7 +139,7 @@ class GenerateTicketSummaryJob implements ShouldQueue
         $summary = $ticket->summary;
         // نجح متأخّراً أو أُغلقت التذكرة → لا تصعيد
         if ($summary === null || $summary->ai_generated || $summary->approved_at !== null
-            || in_array($ticket->status, ['مكتملة', 'مغلقة'], true)) {
+            || $ticket->isTerminal()) {
             return;
         }
 

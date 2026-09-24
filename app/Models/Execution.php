@@ -172,6 +172,7 @@ class Execution extends Model
 
         return [
             'id' => $this->number,
+            'rawId' => $this->id,
             'client' => $masked ? self::maskName($client) : $client,
             'code' => $this->client_code ?? '',
             'sanad' => $this->sanad ?? '',

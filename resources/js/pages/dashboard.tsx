@@ -171,53 +171,72 @@ const Dashboard: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* ── مركز التنبيهات والإجراءات العاجلة (Smart Action Radar) ── */}
+      {/* ── مركز التنبيهات والإجراءات العاجلة (Smart Action Radar - بطاقات مصغرة متكيفة) ── */}
       {actionAlerts.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))',
+            gap: 12,
+            marginBottom: 20,
+          }}
+        >
           {actionAlerts.map((alert) => (
             <div
               key={alert.id}
+              className="card"
               style={{
-                background: alert.tone === 'b-red' ? 'rgba(239, 68, 68, 0.08)' : alert.tone === 'b-amber' ? 'rgba(245, 158, 11, 0.08)' : 'rgba(14, 165, 233, 0.08)',
-                border: `1.5px solid ${alert.tone === 'b-red' ? 'rgba(239, 68, 68, 0.3)' : alert.tone === 'b-amber' ? 'rgba(245, 158, 11, 0.3)' : 'rgba(14, 165, 233, 0.3)'}`,
+                margin: 0,
+                background: alert.tone === 'b-red' ? 'rgba(239, 68, 68, 0.05)' : alert.tone === 'b-amber' ? 'rgba(245, 158, 11, 0.05)' : 'rgba(14, 165, 233, 0.05)',
+                border: `1.5px solid ${alert.tone === 'b-red' ? 'rgba(239, 68, 68, 0.25)' : alert.tone === 'b-amber' ? 'rgba(245, 158, 11, 0.25)' : 'rgba(14, 165, 233, 0.25)'}`,
                 borderRadius: 12,
-                padding: '12px 16px',
+                padding: '12px 14px',
                 display: 'flex',
+                flexDirection: 'column',
                 justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: 12,
+                gap: 10,
+                transition: 'transform 0.15s ease, box-shadow 0.15s ease',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 240px' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                 <div
                   style={{
-                    width: 36,
-                    height: 36,
+                    width: 34,
+                    height: 34,
                     borderRadius: 8,
-                    background: 'var(--paper-2)',
+                    background: 'var(--paper)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: 16,
+                    fontSize: 15,
                     flexShrink: 0,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
                   }}
                 >
-                  <Icon name={alert.type === 'video_ready' ? 'video' : alert.type === 'missing_doc' ? 'alert' : 'card'} />
+                  <Icon name={alert.type === 'video_ready' ? 'video' : alert.type === 'missing_doc' ? 'alert' : alert.type === 'needs_booking' ? 'cal' : 'card'} />
                 </div>
-                <div style={{ minWidth: 0 }}>
-                  <b style={{ fontSize: 13.5, color: 'var(--ink)', display: 'block' }}>{alert.title}</b>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, wordBreak: 'break-word' }}>{alert.desc}</div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <b style={{ fontSize: 13, color: 'var(--ink)', display: 'block', wordBreak: 'break-word' }}>{alert.title}</b>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3, wordBreak: 'break-word', lineHeight: 1.4 }}>{alert.desc}</div>
                 </div>
               </div>
 
-              <a
-                href={alert.link}
-                className={`btn sm ${alert.tone === 'b-red' ? '' : 'soft'}`}
-                style={{ textDecoration: 'none', fontWeight: 700, flexShrink: 0 }}
-              >
-                {alert.cta}
-              </a>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
+                <a
+                  href={alert.link}
+                  className={`btn sm ${alert.tone === 'b-red' ? '' : 'soft'}`}
+                  style={{
+                    textDecoration: 'none',
+                    fontWeight: 700,
+                    fontSize: 12,
+                    padding: '5px 12px',
+                    width: '100%',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {alert.cta}
+                </a>
+              </div>
             </div>
           ))}
         </div>

@@ -210,7 +210,7 @@ class ExecService
 
     public static function refer(Execution $exec, ?User $actor = null): void
     {
-        self::guard($exec, [0, 1, 2], 'لا يمكن إحالة هذا الطلب في مرحلته الحالية.');
+        self::guard($exec, [0, 1], 'لا يمكن إحالة هذا الطلب في مرحلته الحالية — الطلب محالٌ للدراسة بالفعل أو تجاوز هذه المرحلة.');
         self::guardNotRejected($exec, 'هذا الطلب مرفوض بعد الدراسة — لا يُعاد إحالته لقسم التنفيذ.');
         Workflow::run(new ReferExecution, $exec, $actor);
         self::officeMsg($exec, $actor, 'إحالة', 'أُحيل الطلب إلى قسم التنفيذ للدراسة.');
@@ -246,7 +246,7 @@ class ExecService
      * ملفّاً من يد من يعمل عليه ويكسر عزلَه عنه (`assigned_lawyer_id` هو ما يحجب الملفّ عن
      * زملائه)، وهو قرار توزيعٍ إداريّ لا خطوةُ استقبال — بينما إسنادُ ملفٍّ بلا صاحب توجيهٌ
      * لا نزع. والملفّ المنتهي لا يُسنَد أصلاً: إسنادٌ بعد الإقفال يُحمّل محامياً مسؤوليّة
-     * ملفٍّ لا إجراء فيه.
+     * ملفّاً لا إجراء فيه.
      */
     public static function assignLawyer(Execution $exec, User $lawyer, ?User $actor = null): void
     {
@@ -312,10 +312,16 @@ class ExecService
         Live::push(new ExecStatusBroadcast($exec->fresh()));
     }
 
-    /** مراحل التسعير المسموحة: 2‑4 عادةً، وتضمّ 5 أيضاً إن رفض العميل العرض أو استفسر عنه (لإعادة العرض). */
+    /** مراحل التسعير المسموحة: 2‑4 عادةً، وتضمّ 5 إن رفض العميل العرض أو استفسر عنه، و6 (قبل السداد) لإعادة التسعير. */
     private static function feeStages(Execution $exec): array
     {
-        return in_array($exec->offer_status, ['مرفوض', 'استفسار'], true) ? [2, 3, 4, 5] : [2, 3, 4];
+        if ($exec->paid || $exec->effectiveStage() >= 7) {
+            return [];
+        }
+
+        return in_array($exec->offer_status, ['مرفوض', 'استفسار'], true) || $exec->effectiveStage() === 6
+            ? [2, 3, 4, 5, 6]
+            : [2, 3, 4];
     }
 
     /**
@@ -364,8 +370,8 @@ class ExecService
 
     public static function requestDocs(Execution $exec, ?User $actor = null): void
     {
-        // الاستقبال (0‑1) أو الدراسة (2) — قبل فتح الملفّ
-        self::guard($exec, [0, 1, 2], 'لا يمكن طلب مستندات في مرحلته الحالية.');
+        // الاستقبال (0‑1) أو الدراسة (2) أو تحديد الأتعاب (3)
+        self::guard($exec, [0, 1, 2, 3], 'لا يمكن طلب مستندات في مرحلته الحالية.');
         // ولا تُطلب مستنداتٌ على ملفٍّ أُغلق قرارُه: العميل وصله بريد الرفض، فطلبُ نواقصَ بعده
         // يَعِده باستكمالٍ لا يقع — ويُنشئ صفوف مستنداتٍ «مطلوبة» على ملفٍّ لا إجراء فيه.
         self::guardNotRejected($exec, 'هذا الطلب مرفوض بعد الدراسة — لا تُطلب عليه مستندات.');
@@ -478,7 +484,9 @@ class ExecService
 
     public static function inquire(Execution $exec): void
     {
-        self::guard($exec, [5], 'لا يوجد عرض للاستفسار عنه.');
+        self::guard($exec, [5, 6], 'لا يوجد عرض للاستفسار عنه.');
+        abort_if($exec->paid, 422, 'تم سداد أتعاب هذا الملف بالفعل.');
+
         $exec->update(['offer_status' => 'استفسار']);
         $exec->messages()->create([
             'who' => 'client', 'name' => 'أنت', 'role' => 'العميل',
@@ -491,7 +499,8 @@ class ExecService
 
     public static function rejectOffer(Execution $exec): void
     {
-        self::guard($exec, [5], 'لا يوجد عرض للرفض.');
+        self::guard($exec, [5, 6], 'لا يوجد عرض للرفض.');
+        abort_if($exec->paid, 422, 'تم سداد أتعاب هذا الملف بالفعل.');
 
         Workflow::run(new RejectExecutionOffer, $exec);
 
@@ -604,7 +613,10 @@ class ExecService
     {
         $actor ??= auth()->user();
 
-        if ($exec->decision === 'مرفوض' && in_array($exec->effectiveStage(), [2, 3], true)) {
+        $isRejected = ($exec->decision === 'مرفوض' && in_array($exec->effectiveStage(), [2, 3], true))
+            || ($exec->effectiveStage() === 5 && $exec->offer_status === 'مرفوض');
+
+        if ($isRejected) {
             abort_unless(
                 $actor?->role === Role::Admin,
                 403,
@@ -711,6 +723,10 @@ class ExecService
         // مبلغٌ محصَّل على ملفٍّ لم يُقيَّد لدى محكمة التنفيذ بعد. الحارس الآن يطابق ما تقوله الرسالة.
         abort_if($exec->registered_at === null, 422, 'سجّل قيد الطلب لدى محكمة التنفيذ أوّلاً.');
         abort_if($amount < 1, 422, 'أدخل مبلغاً صحيحاً.');
+
+        $remaining = max(0, (int) $exec->amount - (int) $exec->collected);
+        abort_if($remaining <= 0, 422, 'تم تحصيل كامل قيمة المطالبة لهذا الملف بالفعل.');
+        abort_if($amount > $remaining, 422, 'مبلغ التحصيل يتجاوز المتبقي من قيمة المطالبة (المتبقي: '.number_format($remaining).' ريال).');
 
         Workflow::run(new RecordExecutionCollection, $exec, $actor, [
             'amount' => $amount,

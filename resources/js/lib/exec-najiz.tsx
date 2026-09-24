@@ -57,8 +57,12 @@ export const ExecNajizCard: React.FC<{ base: string; najiz: ExecNajiz; stage: nu
   const measureOptions = najiz.measureOptions?.length ? najiz.measureOptions : EXEC_MEASURES;
   const closeReasons = najiz.closeReasons?.length ? najiz.closeReasons : EXEC_CLOSE_REASONS;
   const pickedReason = closeReason || closeReasons[0];
+  const remaining = Math.max(0, (najiz.amount || 0) - (najiz.collected || 0));
+  const isFullyCollected = (najiz.amount || 0) > 0 && remaining <= 0;
   const collectAmount = normalizeDigits(collect.amount);
-  const collectOk = /^\d+$/.test(collectAmount) && Number(collectAmount) > 0;
+  const collectOk = /^\d+$/.test(collectAmount) && Number(collectAmount) > 0 && Number(collectAmount) <= remaining && remaining > 0;
+  const collectNum = Number(collectAmount);
+  const exceedsRemaining = /^\d+$/.test(collectAmount) && collectNum > remaining;
   // ملفٌّ أُنهي أو أُرشف (المرحلة 9) لا تُسجَّل عليه خطوة — الخادم يردّها، فلا تُعرض أزرارها
   const locked = Boolean(najiz.closedReason) || stage >= 9;
 
@@ -75,7 +79,6 @@ export const ExecNajizCard: React.FC<{ base: string; najiz: ExecNajiz; stage: nu
     });
   };
   const toggle = (m: string) => setPicked((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]));
-  const remaining = Math.max(0, (najiz.amount || 0) - (najiz.collected || 0));
   const badge: [string, string] = najiz.closedReason
     ? [`أُنهي — ${najiz.closedReason}`, 'b-grey']
     : najiz.registeredAt
@@ -122,7 +125,17 @@ export const ExecNajizCard: React.FC<{ base: string; najiz: ExecNajiz; stage: nu
             {najiz.requestNo && !najiz.registeredAt && <button className="btn sm" type="button" onClick={() => setOpen(open === 'register' ? null : 'register')}><Icon name="check" /> تسجيل القيد</button>}
             {najiz.registeredAt && !najiz.notifiedAt && <button className="btn sm" type="button" onClick={() => setOpen(open === 'notify' ? null : 'notify')}><Icon name="cal" /> تسجيل الإبلاغ بأمر التنفيذ</button>}
             {najiz.notifiedAt && <button className="btn soft sm" type="button" onClick={() => setOpen(open === 'measures' ? null : 'measures')}><Icon name="scale" /> إجراءات عدم الوفاء</button>}
-            {najiz.registeredAt && <button className="btn soft sm" type="button" onClick={() => setOpen(open === 'collect' ? null : 'collect')}><Icon name="card" /> تسجيل مبلغ محصَّل</button>}
+            {najiz.registeredAt && (
+              <button
+                className="btn soft sm"
+                type="button"
+                onClick={() => setOpen(open === 'collect' ? null : 'collect')}
+                disabled={isFullyCollected}
+                title={isFullyCollected ? 'تم تحصيل كامل قيمة المطالبة' : undefined}
+              >
+                <Icon name="card" /> {isFullyCollected ? 'تم تحصيل كامل المطالبة' : 'تسجيل مبلغ محصَّل'}
+              </button>
+            )}
             {/* الإنهاء متاحٌ متى فُتح الملفّ (7 و8 كحارس الخادم)، وللمحامي والإدارة وحدهما — والموظّف يردّه الخادم */}
             {canClose && <button className="btn soft sm" type="button" onClick={() => setOpen(open === 'close' ? null : 'close')}><Icon name="folder" /> إنهاء الملفّ</button>}
           </div>
@@ -197,13 +210,30 @@ export const ExecNajizCard: React.FC<{ base: string; najiz: ExecNajiz; stage: nu
             }}
             style={{ marginTop: 10 }}
           >
-            <div className="field">
-              <label>المبلغ المحصَّل (ريال)</label>
-              <input className="input" type="text" inputMode="numeric" value={collect.amount} onChange={(e) => setCollect({ ...collect, amount: e.target.value })} placeholder="مثال: 25000" />
-              {collect.amount.trim() !== '' && !collectOk && <span style={{ fontSize: 11.5, color: 'var(--amber)' }}>أدخل مبلغاً صحيحاً أكبر من صفر.</span>}
-            </div>
-            <div className="field"><label>بيان (اختياري)</label><input className="input" value={collect.note} onChange={(e) => setCollect({ ...collect, note: e.target.value })} placeholder="حجز حساب بنكيّ" /></div>
-            <button className="btn sm" type="submit" disabled={busy || !collectOk}>حفظ</button>
+            {isFullyCollected ? (
+              <div className="action-hint" style={{ marginBottom: 10 }}>
+                <Icon name="check" /> تم تحصيل كامل قيمة المطالبة لهذا الملف بالفعل ({execMoney(najiz.amount)} ريال).
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+                  المتبقي للتحصيل من قيمة المطالبة: <b style={{ color: 'var(--primary)' }}>{execMoney(remaining)} ريال</b>
+                </div>
+                <div className="field">
+                  <label>المبلغ المحصَّل (ريال)</label>
+                  <input className="input" type="text" inputMode="numeric" value={collect.amount} onChange={(e) => setCollect({ ...collect, amount: e.target.value })} placeholder={`مثال: ${remaining > 0 ? Math.min(25000, remaining) : 25000}`} />
+                  {collect.amount.trim() !== '' && !/^\d+$/.test(collectAmount) && <span style={{ fontSize: 11.5, color: 'var(--amber)' }}>أدخل مبلغاً صحيحاً أكبر من صفر.</span>}
+                  {collect.amount.trim() !== '' && /^\d+$/.test(collectAmount) && collectNum <= 0 && <span style={{ fontSize: 11.5, color: 'var(--amber)' }}>أدخل مبلغاً صحيحاً أكبر من صفر.</span>}
+                  {exceedsRemaining && (
+                    <span style={{ fontSize: 11.5, color: 'var(--amber)' }}>
+                      مبلغ التحصيل يتجاوز المتبقي من قيمة المطالبة (المتبقي: {execMoney(remaining)} ريال).
+                    </span>
+                  )}
+                </div>
+                <div className="field"><label>بيان (اختياري)</label><input className="input" value={collect.note} onChange={(e) => setCollect({ ...collect, note: e.target.value })} placeholder="حجز حساب بنكيّ" /></div>
+                <button className="btn sm" type="submit" disabled={busy || !collectOk}>حفظ</button>
+              </>
+            )}
           </form>
         )}
 

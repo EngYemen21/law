@@ -99,15 +99,15 @@ export interface NavGroup { g: string; items: NavItem[]; }
 
 export const NAV: NavGroup[] = [
   { g: 'لوحة المعلومات', items: [{ icon: 'home', label: 'الرئيسية', view: 'home' }] },
-  { g: 'طلباتي', items: [
+  { g: 'طلباتي وقضاياي', items: [
     { icon: 'ticket', label: 'فتح تذكرة', view: 'newticket' },
     { icon: 'folder', label: 'متابعة التذاكر', view: 'tickets' },
     { icon: 'scale', label: 'القضايا النشطة', view: 'cases' },
     { icon: 'exec', label: 'التنفيذ', view: 'execs' },
   ] },
-  { g: 'الاستشارات', items: [
+  { g: 'الاستشارات والمواعيد', items: [
     { icon: 'calplus', label: 'حجز استشارة', view: 'book' },
-    { icon: 'folder', label: 'استشاراتي', view: 'myconsults' },
+    { icon: 'compass', label: 'استشاراتي', view: 'myconsults' },
     { icon: 'video', label: 'الاجتماعات', view: 'meetings' },
     { icon: 'calgrid', label: 'التقويم والمواعيد', view: 'calendar' },
   ] },
@@ -116,7 +116,6 @@ export const NAV: NavGroup[] = [
     { icon: 'card', label: 'الفواتير', view: 'invoices', alert: true },
   ] },
   { g: 'الحساب', items: [
-    { icon: 'bell', label: 'الإشعارات', view: 'notifications', alert: true },
     { icon: 'user', label: 'الملف الشخصي', view: 'profile' },
   ] },
 ];
@@ -133,7 +132,6 @@ export const TILES: Tile[] = [
   { icon: 'doc', title: 'المستندات', sub: 'المرفوعة والصادرة إليك', view: 'docs' },
   { icon: 'card', title: 'الفواتير', sub: 'المستحقة والمدفوعة', view: 'invoices' },
   { icon: 'calgrid', title: 'التقويم والمواعيد', sub: 'مواعيدك وارتباطاتك في مكان واحد', view: 'calendar' },
-  { icon: 'bell', title: 'الإشعارات', sub: 'آخر التحديثات', view: 'notifications' },
   { icon: 'user', title: 'الملف الشخصي', sub: 'بياناتك وأمان حسابك', view: 'profile' },
 ];
 
@@ -152,7 +150,6 @@ export const TITLES: Record<string, [string, string]> = {
   calendar: ['التقويم والمواعيد', 'الاستشارات'],
   docs: ['المستندات', 'الملفات والمالية'],
   invoices: ['الفواتير والمدفوعات', 'الملفات والمالية'],
-  notifications: ['الإشعارات', 'الحساب'],
   profile: ['الملف الشخصي', 'الحساب'],
   myconsults: ['استشاراتي', 'الاستشارات'],
   // meetreqs: طُوي — الدعوة تُولَد مؤكَّدة فتظهر في «الاجتماعات» مباشرةً
@@ -174,7 +171,6 @@ export const VIEW_ROUTE: Record<string, string> = {
   calendar: '/calendar',
   docs: '/documents',
   invoices: '/invoices',
-  notifications: '/notifications',
   profile: '/profile',
 };
 
@@ -209,7 +205,7 @@ return 'admin';
 }
 
 // الصفحات المشتركة (بلا بادئة دور) — تُعرض داخل لوحة دور المستخدم الفعليّ لا لوحة العميل الافتراضية.
-export const SHARED_ACCOUNT_ROUTES = ['/notifications', '/profile'];
+export const SHARED_ACCOUNT_ROUTES = ['/profile'];
 
 // لوحة العرض الصحيحة: للصفحات المشتركة نعتمد دور المستخدم الفعليّ (auth.user.role)،
 // ولغيرها نشتقّ الدور من المسار. (مبدّل لوحات الإدارة أُلغي 2026-08-28 — الدالة باقية
@@ -251,46 +247,58 @@ const CLIENT_NAV: SideGroup[] = NAV.map((grp) => ({
   })),
 }));
 
-// شريط دور الموظف — يطابق ROLE_DEFS.employee.nav
+// شريط دور الموظف — حوكمة العمليات الإدارية والتشغيلية
 const EMPLOYEE_NAV: SideGroup[] = [
-  { g: 'التشغيل', items: [
+  { g: 'العمليات والمسارات', items: [
     { icon: 'home', label: 'الرئيسية', route: '/employee/dashboard' },
     { icon: 'folder', label: 'التذاكر', route: '/employee/tickets' },
+    { icon: 'reply', label: 'التحويلات', route: '/employee/transfer' },
     { icon: 'scale', label: 'القضايا', route: '/employee/cases' },
     { icon: 'exec', label: 'التنفيذ', route: '/employee/execs' },
+  ] },
+  { g: 'الاستشارات والمواعيد', items: [
     { icon: 'scale', label: 'إدارة الاستشارات', route: '/employee/consults' },
-    { icon: 'calgrid', label: 'التقويم والمواعيد', route: '/employee/calendar' },
-    { icon: 'reply', label: 'التحويلات', route: '/employee/transfer' },
-    { icon: 'video', label: 'الاجتماعات', route: '/employee/meetings' },
-    { icon: 'video', label: 'طلبات الاجتماعات', route: '/employee/meetreqs' },
     { icon: 'compass', label: 'استقبال الاستشارات', route: '/employee/consultrecv' },
+    { icon: 'calgrid', label: 'التقويم والمواعيد', route: '/employee/calendar' },
+  ] },
+  { g: 'الاجتماعات', items: [
+    { icon: 'video', label: 'الاجتماعات', route: '/employee/meetings' },
+    { icon: 'send', label: 'طلبات الاجتماعات', route: '/employee/meetreqs' },
+  ] },
+  { g: 'الصياغة والوثائق', items: [
+    { icon: 'office', label: 'محرر الصياغة', route: '/employee/editor' },
+  ] },
+  { g: 'الذكاء الاصطناعي', items: [
     { icon: 'sparkles', label: 'مراجعة مخرجات الذكاء', route: '/employee/ai-review' },
   ] },
 ];
 
-// شريط دور المحامي — يطابق ROLE_DEFS.lawyer.nav
+// شريط دور المحامي — مسارات العمل المهني والقانوني التخصصي
 const LAWYER_NAV: SideGroup[] = [
-  { g: 'العمل القانوني', items: [
+  { g: 'العمل القانوني والملفات', items: [
     { icon: 'home', label: 'الرئيسية', route: '/lawyer/dashboard' },
     { icon: 'folder', label: 'التذاكر', route: '/lawyer/tickets' },
     { icon: 'scale', label: 'قضاياي', route: '/lawyer/cases' },
     { icon: 'exec', label: 'التنفيذ', route: '/lawyer/execs' },
-    { icon: 'video', label: 'الاجتماعات', route: '/lawyer/meetings' },
-    { icon: 'video', label: 'طلبات الاجتماعات', route: '/lawyer/meetreqs' },
+    { icon: 'check', label: 'مهام العمل', route: '/lawyer/tasks' },
+  ] },
+  { g: 'الاستشارات والمواعيد', items: [
+    { icon: 'scale', label: 'جلسات الاستشارات', route: '/lawyer/consults' },
+    { icon: 'compass', label: 'استقبال الاستشارات', route: '/lawyer/consultrecv' },
+    { icon: 'out', label: 'الملخصات القانونية', route: '/lawyer/summaries' },
     { icon: 'calgrid', label: 'التقويم والمواعيد', route: '/lawyer/calendar' },
   ] },
-  { g: 'الأدوات', items: [
-    { icon: 'doc', label: 'المساعد القانوني', route: '/lawyer/assistant' },
+  { g: 'الاجتماعات', items: [
+    { icon: 'video', label: 'الاجتماعات', route: '/lawyer/meetings' },
+    { icon: 'send', label: 'طلبات الاجتماعات', route: '/lawyer/meetreqs' },
+  ] },
+  { g: 'الصياغة والأدوات القانونية', items: [
     { icon: 'office', label: 'محرر الصياغة', route: '/lawyer/editor' },
-    { icon: 'compass', label: 'استقبال الاستشارات', route: '/lawyer/consultrecv' },
-    { icon: 'scale', label: 'جلسات الاستشارات', route: '/lawyer/consults' },
-    { icon: 'out', label: 'الملخصات', route: '/lawyer/summaries' },
-    { icon: 'exec', label: 'المهام', route: '/lawyer/tasks' },
-    // صندوق المراجعة نفسه لكل دور والعزل داخل AiReviewInbox — فحصره في لوحة
-    // الإدارة يناقض P3. وبلا رابطٍ هنا لا يصل إليه المحامي أصلاً.
+    { icon: 'doc', label: 'المساعد القانوني', route: '/lawyer/assistant' },
+  ] },
+  { g: 'الذكاء الاصطناعي والمصادر', items: [
     { icon: 'sparkles', label: 'مراجعة مخرجات الذكاء', route: '/lawyer/ai-review' },
-    // الخطة تفرض أن **المحامي** يراجع العيّنة العمياء ويعتمد المصادر — فبابهما هنا
-    { icon: 'doc', label: 'المراجعة العمياء', route: '/lawyer/ai-blind-review' },
+    { icon: 'eye', label: 'المراجعة العمياء', route: '/lawyer/ai-blind-review' },
     { icon: 'scale', label: 'المصادر القانونيّة', route: '/lawyer/legal-sources' },
   ] },
 ];
@@ -327,7 +335,6 @@ const ADMIN_NAV: SideGroup[] = [
     { icon: 'card', label: 'أتعاب القضايا', route: '/admin/casefees' },
     { icon: 'exec', label: 'مهام العمل', route: '/admin/tasks' },
     { icon: 'calgrid', label: 'التقويم والمواعيد', route: '/admin/calendar' },
-    { icon: 'bell', label: 'إشعارات العملاء', route: '/admin/clientnotifs' },
     { icon: 'doc', label: 'المساعد القانوني', route: '/admin/assistant' },
     { icon: 'office', label: 'محرر الصياغة', route: '/admin/editor' },
     // متغيّرات النظام: مهل التنفيذ والتنبيهات وبيانات المكتب — كانت ثوابتَ في الشيفرة
@@ -392,6 +399,7 @@ const EMPLOYEE_TITLES: Record<string, [string, string]> = {
   '/employee/consultrecv': ['استقبال الاستشارات', 'لوحة الموظف'],
   '/employee/videoroom': ['غرفة الجلسة المرئية', 'لوحة الموظف'],
   '/employee/ai-review': ['مراجعة مخرجات الذكاء', 'لوحة الموظف'],
+  '/employee/editor': ['محرر الصياغة القانونية', 'لوحة الموظف'],
 };
 
 const LAWYER_TITLES: Record<string, [string, string]> = {
@@ -440,7 +448,6 @@ const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/meetmgmt': ['إدارة الاجتماعات', 'الإدارة العليا'],
   '/admin/meetreqs': ['طلبات الاجتماعات', 'لوحة الإدارة'],
   '/admin/meetlog': ['أرشيف الاجتماعات', 'الإدارة العليا'],
-  '/admin/clientnotifs': ['إشعارات العملاء', 'الإدارة العليا'],
   '/admin/meetings': ['اعتماد الاجتماعات', 'لوحة الإدارة'],
   '/admin/meeting': ['تفاصيل الاجتماع', 'لوحة الإدارة'],
   '/admin/meetingroom': ['غرفة الاجتماع', 'لوحة الإدارة'],

@@ -4,6 +4,7 @@ import Icon from '@/lib/icons';
 import Pagination, { type Paginated } from '@/components/babylon/Pagination';
 import Badge from '@/components/babylon/Badge';
 import { TICKET_PRIORITIES, isUrgentTicket } from '@/lib/employee-data';
+import { truncateWords } from '@/lib/utils';
 
 interface EmpTicket {
   no: string;
@@ -464,7 +465,7 @@ const AdminTickets: React.FC<Props> = ({
               <tbody>
                 {tickets.data.map((t) => (
                   <tr key={t.no} className="click" onClick={() => openTicket(t.no)}>
-                    <td>
+                    <td className="nowrap">
                       <b className="mono">{t.no}</b>
                       {isUrgentTicket(t.priority) && (
                         <span className="badge-s b-red" style={{ fontSize: 10, padding: '1px 5px', marginRight: 6 }}>
@@ -472,23 +473,27 @@ const AdminTickets: React.FC<Props> = ({
                         </span>
                       )}
                     </td>
-                    <td>
-                      <b>{t.client}</b>
+                    <td style={{ minWidth: 150, maxWidth: 220 }}>
+                      <b title={t.client}>{truncateWords(t.client, 4)}</b>
                     </td>
-                    <td>
+                    <td style={{ minWidth: 160, maxWidth: 280 }}>
                       <div style={{ fontWeight: 600 }}>{t.type}</div>
                       {t.subject && (
-                        <div className="muted" style={{ fontSize: 11.5, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {t.subject}
+                        <div
+                          className="muted"
+                          title={t.subject}
+                          style={{ fontSize: 11.5, marginTop: 2, lineHeight: 1.4 }}
+                        >
+                          {truncateWords(t.subject, 8)}
                         </div>
                       )}
                     </td>
                     <td>{renderDepartment(t.dept)}</td>
-                    <td className="muted">{t.lawyer}</td>
-                    <td><Badge text={t.status} tone={t.tone} /></td>
-                    <td className="muted" style={{ fontSize: 12 }}>{t.date}</td>
-                    <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-                      <button className="btn sm soft" onClick={() => openTicket(t.no)} type="button">
+                    <td className="muted nowrap" title={t.lawyer}>{truncateWords(t.lawyer, 4)}</td>
+                    <td className="nowrap"><Badge text={t.status} tone={t.tone} /></td>
+                    <td className="muted nowrap" style={{ fontSize: 12 }}>{t.date}</td>
+                    <td className="nowrap" style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                      <button className="btn sm soft" onClick={() => openTicket(t.no)} type="button" style={{ whiteSpace: 'nowrap' }}>
                         <Icon name="out" /> عرض
                       </button>
                     </td>

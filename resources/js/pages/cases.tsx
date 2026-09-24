@@ -5,6 +5,7 @@ import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { truncateWords } from '@/lib/utils';
 
 // ============================================================
 // مركز القضايا والدعاوى القضائية 360° (Client Legal Cases Hub)
@@ -22,6 +23,7 @@ export interface CaseCard {
   feeStatus?: string;
   invoice?: string | null;
   department?: string;
+  createdAt?: string;
   assignedLawyer?: string;
   court?: string;
   nextHearing?: {
@@ -73,8 +75,55 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
   const toast = useToast();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [specificStatus, setSpecificStatus] = useState<string>('all');
   const [deptFilter, setDeptFilter] = useState<string>('all');
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [datePreset, setDatePreset] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
+
+  // استخراج كافة الحالات المتوفرة للقائمة المنسدلة
+  const allStatuses = useMemo(() => {
+    const set = new Set<string>();
+    cases.forEach((c) => set.add(c.status));
+    return Array.from(set);
+  }, [cases]);
+
+  const hasActiveFilters = Boolean(search || statusFilter !== 'all' || specificStatus !== 'all' || deptFilter !== 'all' || startDate || endDate || datePreset !== 'all');
+
+  const resetFilters = () => {
+    setSearch('');
+    setStatusFilter('all');
+    setSpecificStatus('all');
+    setDeptFilter('all');
+    setDatePreset('all');
+    setStartDate('');
+    setEndDate('');
+  };
+
+  // التعامل مع اختيار فترة التاريخ من القائمة المنسدلة
+  const handleDatePresetChange = (preset: 'all' | 'today' | 'week' | 'month' | 'custom') => {
+    setDatePreset(preset);
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+
+    if (preset === 'all') {
+      setStartDate('');
+      setEndDate('');
+    } else if (preset === 'today') {
+      setStartDate(todayStr);
+      setEndDate(todayStr);
+    } else if (preset === 'week') {
+      const past7 = new Date();
+      past7.setDate(now.getDate() - 7);
+      setStartDate(past7.toISOString().split('T')[0]);
+      setEndDate(todayStr);
+    } else if (preset === 'month') {
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      setStartDate(firstDay.toISOString().split('T')[0]);
+      setEndDate(todayStr);
+    }
+  };
 
   const pay = (no: string) => {
     router.post(
@@ -138,6 +187,11 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
 
       if (!matchQuery) return false;
 
+      // تصفية الحالة المحددة بالاسم
+      if (specificStatus !== 'all' && c.status !== specificStatus) {
+        return false;
+      }
+
       // تصفية الحالة
       if (statusFilter === 'active') {
         if (!tabs.active.includes(c.status)) return false;
@@ -154,9 +208,17 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
         return false;
       }
 
+      // تصفية التاريخ (تاريخ إنشاء القضية)
+      if (startDate && c.createdAt) {
+        if (c.createdAt < startDate) return false;
+      }
+      if (endDate && c.createdAt) {
+        if (c.createdAt > endDate) return false;
+      }
+
       return true;
     });
-  }, [tabs, cases, search, statusFilter, deptFilter]);
+  }, [tabs, cases, search, statusFilter, specificStatus, deptFilter, startDate, endDate]);
 
   return (
     <>
@@ -203,7 +265,7 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
             <Badge text={`${upcomingHearings.length} جلسات مجدولة`} tone="b-green" />
           </div>
           <div className="card-b" style={{ padding: '12px 16px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 12 }}>
               {upcomingHearings.map((h) => (
                 <div
                   key={h.id}
@@ -251,65 +313,162 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
         </div>
       )}
 
-      {/* ── شريط البحث والفلترة الذكي ── */}
+      {/* ── شريط البحث والفلترة الذكي الموحد ── */}
       <div className="card" style={{ marginBottom: 18 }}>
         <div className="card-b" style={{ padding: '14px 16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+
+          {/* صف الفلترة والبحث الموحد في صف واحد على الشاشات الكبيرة */}
+          <div className="tickets-toolbar">
             
-            {/* حقل البحث السريع */}
-            <div style={{ flex: '1 1 260px', position: 'relative' }}>
+            {/* 1. حقل البحث السريع */}
+            <div className="search-field">
               <input
                 type="text"
                 className="input"
-                placeholder="ابحث برقم القضية، المحكمة، المستشار، أو النوع..."
+                placeholder="ابحث برقم القضية، المحكمة، المستشار، أو القسم..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                style={{ width: '100%', paddingRight: 36 }}
+                style={{ width: '100%', paddingRight: 36, paddingLeft: 12, height: 38 }}
               />
               <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5, pointerEvents: 'none' }}>
                 <Icon name="search" />
               </div>
             </div>
 
-            {/* أزرار التصفية السريعة */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              {departments.length > 0 && (
-                <select
-                  className="input"
-                  value={deptFilter}
-                  onChange={(e) => setDeptFilter(e.target.value)}
-                  style={{ minWidth: 140, padding: '6px 12px' }}
-                >
-                  <option value="all">كافة الأقسام</option>
-                  {departments.map((d) => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-              )}
+            {/* 2. قائمة فلترة الحالات */}
+            <select
+              className="input select-field"
+              value={specificStatus}
+              onChange={(e) => setSpecificStatus(e.target.value)}
+              style={{ height: 38, padding: '6px 10px' }}
+              title="تصفية حسب الحالة"
+            >
+              <option value="all">🔍 كافة الحالات</option>
+              {allStatuses.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
 
-              <div style={{ display: 'flex', background: 'var(--paper-2)', padding: 3, borderRadius: 8, border: '1px solid var(--line-soft)' }}>
-                <button
-                  type="button"
-                  className={`btn sm ${viewMode === 'cards' ? '' : 'ghost'}`}
-                  style={{ padding: '5px 10px', boxShadow: viewMode === 'cards' ? undefined : 'none' }}
-                  onClick={() => setViewMode('cards')}
-                  title="عرض البطاقات"
-                >
-                  ▤ بطاقات
-                </button>
-                <button
-                  type="button"
-                  className={`btn sm ${viewMode === 'table' ? '' : 'ghost'}`}
-                  style={{ padding: '5px 10px', boxShadow: viewMode === 'table' ? undefined : 'none' }}
-                  onClick={() => setViewMode('table')}
-                  title="عرض الجدول"
-                >
-                  ☰ جدول
-                </button>
-              </div>
+            {/* 3. قائمة فلترة الأقسام */}
+            {departments.length > 0 && (
+              <select
+                className="input select-field"
+                value={deptFilter}
+                onChange={(e) => setDeptFilter(e.target.value)}
+                style={{ height: 38, padding: '6px 10px' }}
+                title="تصفية حسب القسم"
+              >
+                <option value="all">📂 كافة الأقسام</option>
+                {departments.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            )}
+
+            {/* 4. قائمة فلترة التاريخ الذكية */}
+            <select
+              className="input select-field"
+              value={datePreset}
+              onChange={(e) => handleDatePresetChange(e.target.value as any)}
+              style={{ height: 38, padding: '6px 10px' }}
+              title="تصفية حسب التاريخ"
+            >
+              <option value="all">📅 كافة الفترات</option>
+              <option value="today">اليوم</option>
+              <option value="week">آخر 7 أيام</option>
+              <option value="month">هذا الشهر</option>
+              <option value="custom">🗓️ تاريخ محدد...</option>
+            </select>
+
+            {/* 5. مبدل العرض (الافتراضي: جدول) */}
+            <div className="view-switcher" style={{ display: 'flex', background: 'var(--paper-2)', padding: 3, borderRadius: 8, border: '1px solid var(--line-soft)', height: 38, alignItems: 'center' }}>
+              <button
+                type="button"
+                className={`btn sm ${viewMode === 'table' ? '' : 'ghost'}`}
+                style={{ padding: '5px 12px', height: 30, boxShadow: viewMode === 'table' ? undefined : 'none' }}
+                onClick={() => setViewMode('table')}
+                title="عرض الجدول"
+              >
+                ☰ جدول
+              </button>
+              <button
+                type="button"
+                className={`btn sm ${viewMode === 'cards' ? '' : 'ghost'}`}
+                style={{ padding: '5px 12px', height: 30, boxShadow: viewMode === 'cards' ? undefined : 'none' }}
+                onClick={() => setViewMode('cards')}
+                title="عرض البطاقات"
+              >
+                ▤ بطاقات
+              </button>
             </div>
 
+            {/* 6. زر إعادة الضبط */}
+            {hasActiveFilters && (
+              <button
+                type="button"
+                className="btn soft sm"
+                style={{ fontSize: 11.5, height: 38, padding: '0 10px', flexShrink: 0 }}
+                onClick={resetFilters}
+                title="إلغاء وتفريغ كافة خيارات التصفية"
+              >
+                إعادة ضبط ✕
+              </button>
+            )}
+
           </div>
+
+          {/* تظهر حقول التاريخ المخصص فقط إذا اختار المستخدم 'تاريخ محدد' */}
+          {datePreset === 'custom' && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                marginTop: 12,
+                paddingTop: 12,
+                borderTop: '1px solid var(--line-soft)',
+                flexWrap: 'wrap',
+                animation: 'fadeIn 0.2s ease',
+              }}
+            >
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Icon name="cal" /> تحديد النطاق الزمني:
+              </span>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--paper-2)', padding: '4px 8px', borderRadius: 8, border: '1px solid var(--line-soft)' }}>
+                <span style={{ fontSize: 11, color: 'var(--faint)' }}>من:</span>
+                <input
+                  type="date"
+                  className="input"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  style={{ padding: '3px 6px', fontSize: 12, border: 'none', background: 'transparent' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--paper-2)', padding: '4px 8px', borderRadius: 8, border: '1px solid var(--line-soft)' }}>
+                <span style={{ fontSize: 11, color: 'var(--faint)' }}>إلى:</span>
+                <input
+                  type="date"
+                  className="input"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  style={{ padding: '3px 6px', fontSize: 12, border: 'none', background: 'transparent' }}
+                />
+              </div>
+
+              {(startDate || endDate) && (
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  style={{ fontSize: 11, padding: '3px 8px', color: 'var(--red, #ef4444)' }}
+                  onClick={() => { setStartDate(''); setEndDate(''); }}
+                >
+                  ✕ مسح التاريخ المخصص
+                </button>
+              )}
+            </div>
+          )}
 
           {/* تبويبات حالات القضايا */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line-soft)' }}>
@@ -391,14 +550,14 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
             <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
               جرب تغيير معايير البحث أو استعراض كافة القضايا المسجلة.
             </p>
-            <button className="btn sm" onClick={() => { setSearch(''); setStatusFilter('all'); setDeptFilter('all'); }} type="button">
+            <button className="btn sm" onClick={resetFilters} type="button">
               إعادة ضبط الفلاتر
             </button>
           </div>
         </div>
       ) : viewMode === 'cards' ? (
         /* ── نمط شبكة البطاقات الفاخرة (360° Luxury Cards) ── */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16, marginBottom: 24 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: 16, marginBottom: 24 }}>
           {filteredCases.map((c) => (
             <div
               key={c.no}
@@ -520,16 +679,16 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
         /* ── نمط الجدول المنظم (Table View) ── */
         <div className="card" style={{ marginBottom: 24 }}>
           <div className="card-b t-wrap" style={{ padding: 0 }}>
-            <table className="tbl">
+            <table className="tbl" style={{ minWidth: 740 }}>
               <thead>
                 <tr>
-                  <th>رقم القضية</th>
-                  <th>النوع والقسم</th>
-                  <th>المحكمة</th>
+                  <th style={{ width: 130 }}>رقم القضية</th>
+                  <th style={{ minWidth: 180, maxWidth: 280 }}>النوع والقسم</th>
+                  <th style={{ minWidth: 160, maxWidth: 240 }}>المحكمة</th>
                   <th>المستشار</th>
                   <th>الحالة</th>
                   <th>الجلسة القادمة</th>
-                  <th>الإجراء</th>
+                  <th style={{ width: 110, textAlign: 'center' }}>الإجراء</th>
                 </tr>
               </thead>
               <tbody>
@@ -539,28 +698,41 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
                     className="click"
                     onClick={() => router.visit(`/cases/${encodeURIComponent(c.no)}`)}
                   >
-                    <td className="mono" style={{ fontWeight: 800 }}>{c.no}</td>
-                    <td>
-                      <b>{c.type}</b>
-                      {c.department && <span className="muted" style={{ display: 'block', fontSize: 11 }}>{c.department}</span>}
+                    <td className="mono nowrap" style={{ fontWeight: 800 }}>{c.no}</td>
+                    <td style={{ minWidth: 180, maxWidth: 280 }}>
+                      <b style={{ color: 'var(--ink)' }}>{c.type}</b>
+                      {c.department && (
+                        <span
+                          className="muted"
+                          title={c.department}
+                          style={{ display: 'block', fontSize: 11, marginTop: 2 }}
+                        >
+                          {truncateWords(c.department, 5)}
+                        </span>
+                      )}
                     </td>
-                    <td>{c.court || 'المحكمة المختصة'}</td>
-                    <td>{c.assignedLawyer || '—'}</td>
-                    <td><Badge text={c.status} tone={c.tone} /></td>
-                    <td style={{ color: c.next && c.next !== '—' ? 'var(--primary)' : 'var(--muted)', fontWeight: c.next && c.next !== '—' ? 700 : 400 }}>
-                      {c.next ?? '—'}
+                    <td style={{ minWidth: 160, maxWidth: 240 }}>
+                      <span title={c.court || 'المحكمة المختصة'}>
+                        {truncateWords(c.court || 'المحكمة المختصة', 6)}
+                      </span>
                     </td>
-                    <td>
+                    <td className="nowrap">{c.assignedLawyer || '—'}</td>
+                    <td className="nowrap"><Badge text={c.status} tone={c.tone} /></td>
+                    <td className="nowrap" style={{ color: c.next && c.next !== '—' ? 'var(--primary)' : 'var(--muted)', fontWeight: c.next && c.next !== '—' ? 700 : 400 }}>
+                      <span title={c.next ?? '—'}>{truncateWords(c.next ?? '—', 5)}</span>
+                    </td>
+                    <td className="nowrap" style={{ textAlign: 'center' }}>
                       {c.feeStatus === 'pending_payment' ? (
                         <button
                           className="btn sm"
                           type="button"
+                          style={{ whiteSpace: 'nowrap' }}
                           onClick={(e) => { e.stopPropagation(); pay(c.no); }}
                         >
                           <Icon name="card" /> سداد {c.fee ? `(${c.fee.toLocaleString()} ر.س)` : ''}
                         </button>
                       ) : (
-                        <button className="btn soft sm" type="button">
+                        <button className="btn soft sm" type="button" style={{ whiteSpace: 'nowrap' }}>
                           التفاصيل ←
                         </button>
                       )}

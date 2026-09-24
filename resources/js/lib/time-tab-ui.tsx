@@ -36,13 +36,13 @@ export const TimeTab: React.FC<Props> = ({
 
   return (
     <>
-      <div className="stat-strip" style={{ marginBottom: 4 }} role="tablist" aria-label="منظر التبويب الزمني">
+      <div className="stat-strip" style={{ marginBottom: 16 }} role="tablist" aria-label="منظر التبويب الزمني">
         <button
           type="button" role="tab" aria-selected={view === 'events'}
           className={view === 'events' ? 'btn pri sm' : 'btn soft sm'}
           onClick={() => setView('events')}
         >
-          <Icon name="calgrid" /> الأحداث ({events.length})
+          <Icon name="calgrid" /> التقويم والأجندة الشاملة ({events.length})
         </button>
         <button
           type="button" role="tab" aria-selected={view === 'list'}

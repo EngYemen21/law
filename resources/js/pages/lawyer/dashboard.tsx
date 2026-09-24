@@ -515,7 +515,7 @@ setActiveTab('tasks');
       />
 
       {/* 4. الهيكل الأساسي: مساحة العمل الموحدة + الجناح الذكي */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 20, alignItems: 'start' }}>
+      <div className="dashboard-layout-grid">
         {/* العمود الرئيسي: مساحة العمل الموحدة */}
         <div style={{ minWidth: 0 }}>
           <div className="card">

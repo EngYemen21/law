@@ -65,7 +65,11 @@ const typeIcon = (t: string) => {
 
 const EditorIndex: React.FC<Props> = ({ documents, types }) => {
   const { url } = usePage();
-  const base = (url as string).startsWith('/admin') ? '/admin' : '/lawyer';
+  const base = (url as string).startsWith('/admin')
+    ? '/admin'
+    : (url as string).startsWith('/employee')
+      ? '/employee'
+      : '/lawyer';
   const [filter, setFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [showTemplateModal, setShowTemplateModal] = useState(false);

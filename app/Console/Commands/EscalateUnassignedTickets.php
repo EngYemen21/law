@@ -25,9 +25,6 @@ class EscalateUnassignedTickets extends Command
 
     protected $description = 'تصعيد التذاكر المفتوحة التي بقيت بلا محامٍ مسنَد إلى الإدارة العليا';
 
-    /** حالات لا معنى لتصعيدها: انتهت رحلتها. */
-    private const CLOSED = ['مكتملة', 'مغلقة'];
-
     public function handle(): int
     {
         // مهلة قبل التصعيد: تمنع سباقاً مع الوظيفة المُرسَلة لحظة الفتح (وقد تكون في الطابور بعد)
@@ -36,7 +33,7 @@ class EscalateUnassignedTickets extends Command
         $cutoff = now()->subMinutes($minutes);
 
         $tickets = Ticket::whereNull('assigned_lawyer_id')
-            ->whereNotIn('status', self::CLOSED)
+            ->open()
             ->where('created_at', '<=', $cutoff)
             ->pluck('id');
 

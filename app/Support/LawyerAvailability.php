@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Domain\Journey\Enums\AppointmentStatus;
 use App\Domain\Journey\Enums\ConsultStatus;
+use App\Domain\Journey\Enums\TicketStatus;
 use App\Enums\Role;
 use App\Models\Appointment;
 use App\Models\Consult;
@@ -89,7 +90,7 @@ class LawyerAvailability
             $c = $cases->get($id, collect());
             $e = $execs->get($id, collect());
             $total = $t->count() + $c->count() + $e->count();
-            $closed = $t->whereIn('status', self::CLOSED_TICKETS)->count()
+            $closed = $t->whereIn('status', TicketStatus::finals())->count()
                 + $c->whereIn('status', self::CLOSED_CASES)->count()
                 + $e->whereIn('status', self::CLOSED_EXECS)->count();
 
@@ -102,7 +103,7 @@ class LawyerAvailability
                     'closed' => $closed,
                     'total' => $total,
                 ],
-                'load' => $t->whereNotIn('status', self::CLOSED_TICKETS)->count(),
+                'load' => $t->whereNotIn('status', TicketStatus::finals())->count(),
             ];
         })->sort(fn ($a, $b) => [$b['success']['closed'], $b['success']['rate'], $a['load'], $a['id']]
             <=> [$a['success']['closed'], $a['success']['rate'], $b['load'], $b['id']]

@@ -4,7 +4,7 @@ import Badge from '@/components/babylon/Badge';
 import BookingActions from '@/components/babylon/BookingActions';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
-import { RichText } from '@/lib/consult-ui';
+import { RichText, SummaryModal } from '@/lib/consult-ui';
 import type { ClientConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { CONSULT_BOOKING_STATUSES, crChannelIcon, crChannelTone, foldSearch } from '@/lib/employee-data';
@@ -674,91 +674,8 @@ return list;
         </div>
       </div>
 
-      {/* 5. نافذة استعراض الملخص والقرارات المعتمدة */}
-      <Modal
-        title={`ملخص وتقرير الاستشارة — ${summaryOf?.ref || ''}`}
-        subtitle={`المستشار: ${summaryOf?.lawyer || 'مستشار المكتب'} · التاريخ: ${summaryOf?.when || '—'}`}
-        open={!!summaryOf}
-        onClose={() => setSummaryOf(null)}
-        maxWidth={660}
-      >
-        {summaryOf && (
-          <div style={{ padding: '6px 4px' }}>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '12px 16px',
-                borderRadius: 10,
-                backgroundColor: '#f8fafc',
-                border: '1px solid var(--line-soft)',
-                marginBottom: 16,
-                fontSize: 12.5,
-              }}
-            >
-              <div>
-                <b style={{ color: 'var(--ink)', display: 'block' }}>
-                  {summaryOf.subject || 'استشارة قانونية'}
-                </b>
-                <span style={{ color: 'var(--faint)' }}>
-                  القناة: {summaryOf.channel} · المرجع: {summaryOf.ref}
-                </span>
-              </div>
-              {/* الشارة تتبع الاعتماد الفعليّ. كانت «معتمد رسمياً» ثابتةً فوق نصّ
-                  ولّده نموذج ولم يمرّ به إنسان — وهي أخطر كذبةٍ في الواجهة لأن
-                  العميل يبني عليها قراراً قانونياً. */}
-              {summaryOf.summaryApproved ? (
-                <span className="badge-s b-green">
-                  <span className="d" /> معتمد
-                </span>
-              ) : (
-                <span className="badge-s b-amber">
-                  <span className="d" /> بانتظار اعتماد المستشار
-                </span>
-              )}
-            </div>
-
-            {/* نص التقرير */}
-            <div
-              style={{
-                padding: '16px',
-                borderRadius: 10,
-                backgroundColor: '#ffffff',
-                border: '1px solid var(--line)',
-                fontSize: 14,
-                lineHeight: 1.8,
-                color: '#1e293b',
-                whiteSpace: 'pre-wrap',
-                maxHeight: 320,
-                overflowY: 'auto',
-                marginBottom: 16,
-              }}
-            >
-              <RichText
-                text={summaryOf.summary}
-                fallback={summaryOf.summaryPending
-                  ? 'انتهت الجلسة، ويُراجع المستشار ملخّصها الآن. سيصلك إشعار فور اعتماده.'
-                  : 'انتهت الجلسة — يُعدّ الملخص حالياً وسيصلك إشعار فور جاهزيته.'}
-              />
-            </div>
-
-            {/* أزرار الإجراءات */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, borderTop: '1px solid var(--line-soft)', paddingTop: 14 }}>
-              <a
-                className="btn soft sm"
-                href={`/consults/${summaryOf.id}/report.pdf`}
-                download
-              >
-                <Icon name="download" /> تحميل التقرير الرسمي (PDF)
-              </a>
-              <button className="btn sm" type="button" onClick={() => setSummaryOf(null)}>
-                إغلاق
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
+      {/* 5. نافذة استعراض الملخص والقرارات المعتمدة — مكون مركزي موحد */}
+      <SummaryModal consult={summaryOf} onClose={() => setSummaryOf(null)} />
     </>
   );
 };

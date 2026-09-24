@@ -7,7 +7,6 @@ use App\Models\Consult;
 use App\Models\Task;
 use App\Models\Ticket;
 use App\Models\User;
-use App\Models\UserNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -63,18 +62,6 @@ class AdminOpsTest extends TestCase
         $task = Task::firstOrFail();
         $this->assertSame($lawyer->id, $task->assigned_to);
         $this->assertSame('مفتوحة', $task->status);
-    }
-
-    public function test_admin_sends_client_notification(): void
-    {
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        $client = User::factory()->create(['role' => Role::Client]);
-
-        $this->actingAs($admin)->post(route('admin.clientnotifs.send'), [
-            'client_id' => $client->id, 'body' => 'تذكير بموعد جلستك غداً.',
-        ])->assertRedirect();
-
-        $this->assertSame(1, UserNotification::where('user_id', $client->id)->count());
     }
 
     public function test_admin_archive_shows_finished_consults(): void

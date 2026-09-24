@@ -1308,11 +1308,23 @@ class LegalAiService
      */
     public function analyzeExecution(Execution $exec): array
     {
-        // قراءة وتلخيص كافة المستندات المرفقة مع الطلب (ومستندات قضيّته المصدر إن وُجدت)
-        $exec->loadMissing(['documents', 'legalCase.documents']);
+        // قراءة وتلخيص كافة المستندات المرفقة مع الطلب (ومستندات قضيّته/تذكرته المصدر إن وُجدت)
+        $exec->loadMissing(['documents', 'legalCase.documents', 'ticket.documents']);
         [$docSnippets, $readableDocs] = $this->documentSnippets(
             $exec->documents->map(fn (ExecutionDocument $d) => ['path' => $d->path, 'label' => (string) $d->label, 'summary' => $d->summary])->all()
         );
+
+        if (empty($docSnippets) && ($ticket = $exec->ticket) !== null && $ticket->documents->isNotEmpty()) {
+            [$ticketSnippets, $ticketReadable] = $this->documentSnippets(
+                $ticket->documents->map(fn (TicketDocument $d) => [
+                    'path' => $d->path,
+                    'label' => (string) ($d->name ?: ($d->doc_type ?: 'مستند')),
+                    'summary' => $d->summary,
+                ])->all()
+            );
+            $docSnippets = $ticketSnippets;
+            $readableDocs += $ticketReadable;
+        }
 
         $docsContext = ! empty($docSnippets)
             ? "\n\nالمستندات المرفقة مع الطلب:\n".implode("\n", $docSnippets)
@@ -1376,7 +1388,7 @@ class LegalAiService
                             // مستندات القضيّة تُعدّ في الثقة كما تُقرأ في السياق: ملفٌّ مفتوحٌ
                             // من قضيّةٍ يصل بلا مرفقٍ خاصّ به، فعدّ مرفقاته وحدها يخفض ثقة
                             // دراسةٍ قرأت صكّ الحكم فعلاً.
-                            documentsTotal: $exec->documents->count() + (int) $exec->legalCase?->documents->count(),
+                            documentsTotal: $exec->documents->count() + (int) $exec->legalCase?->documents->count() + ($exec->documents->isEmpty() ? (int) $exec->ticket?->documents->count() : 0),
                             documentsReadable: $readableDocs,
                             hasDefendant: trim((string) $exec->defendant) !== '',
                             hasSanad: trim((string) $exec->sanad) !== '',

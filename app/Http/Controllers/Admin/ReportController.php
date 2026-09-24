@@ -33,12 +33,14 @@ class ReportController extends Controller
         // ── 1. دورة التذاكر والاستشارات (Tickets & Consultations) ──
         $totalTickets = Ticket::count();
         $convertedToCase = Ticket::where('status', TicketStatus::ConvertedToCase->value)->count();
+        $convertedToExecution = Ticket::where('status', TicketStatus::ConvertedToExecution->value)->count();
         $closedTickets = Ticket::whereIn('status', ['مكتملة', 'مغلقة', TicketStatus::Closed->value])
             ->orWhereNotNull('closure_reason_code')
             ->count();
         $activeTickets = Ticket::whereNotIn('status', [
             TicketStatus::Closed->value,
             TicketStatus::ConvertedToCase->value,
+            TicketStatus::ConvertedToExecution->value,
             'مكتملة', 'مغلقة',
         ])->where('is_frozen', false)->count();
 
@@ -145,6 +147,7 @@ class ReportController extends Controller
                 'totalTickets' => $totalTickets,
                 'closureRate' => $closureRate,
                 'convertedToCase' => $convertedToCase,
+                'convertedToExecution' => $convertedToExecution,
                 'conversionRate' => $conversionRate,
                 'closedTickets' => $closedTickets,
                 'activeTickets' => $activeTickets,
@@ -185,6 +188,7 @@ class ReportController extends Controller
     {
         $totalTickets = Ticket::count();
         $convertedToCase = Ticket::where('status', TicketStatus::ConvertedToCase->value)->count();
+        $convertedToExecution = Ticket::where('status', TicketStatus::ConvertedToExecution->value)->count();
         $closedTickets = Ticket::whereIn('status', ['مكتملة', 'مغلقة', TicketStatus::Closed->value])
             ->orWhereNotNull('closure_reason_code')
             ->count();

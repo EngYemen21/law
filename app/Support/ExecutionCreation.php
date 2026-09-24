@@ -9,6 +9,8 @@ use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 /**
  * فتح طلب تنفيذ من قضية بلغت «صدر الحكم» أو من تذكرة استقر مسارها على التنفيذ.
@@ -52,6 +54,7 @@ class ExecutionCreation
             // يُفتح داخل المحرّك: سطرُ فتحٍ في سجلّ الانتقالات بالفاعل ومصدره
             $exec = Workflow::open('exec.open_from_case', fn () => Execution::create([
                 'user_id' => $case->user_id,
+                'client_code' => 'CL-'.str_pad((string) $case->user_id, 6, '0', STR_PAD_LEFT),
                 'case_id' => $case->id,
                 'ticket_id' => $ticket?->id,
                 'number' => $number,
@@ -124,15 +127,19 @@ class ExecutionCreation
             $ticket->court_name ? 'المحكمة المختصة: '.$ticket->court_name : '',
         ])));
 
-        $exec = DB::transaction(function () use ($ticket, $lawyer, $notes, $actor, $reason) {
+        $detectedSanad = $ticket->documents->pluck('doc_type')->first(fn ($t) => in_array($t, ExecFlow::SANADS, true));
+        $sanad = $detectedSanad ?: 'سند تنفيذي';
+
+        $exec = DB::transaction(function () use ($ticket, $lawyer, $notes, $actor, $reason, $sanad) {
             $number = ReferenceNumber::next(Execution::class, 'number', 'EXE');
 
             $exec = Workflow::open('exec.open_from_ticket', fn () => Execution::create([
                 'user_id' => $ticket->user_id,
+                'client_code' => 'CL-'.str_pad((string) $ticket->user_id, 6, '0', STR_PAD_LEFT),
                 'ticket_id' => $ticket->id,
                 'number' => $number,
                 'subject' => 'تنفيذ سند — '.($ticket->subject ?: $ticket->type),
-                'sanad' => 'سند تنفيذي',
+                'sanad' => $sanad,
                 'defendant' => (string) ($ticket->opponent_name ?? ''),
                 'amount' => (int) ($ticket->claim_amount ?? 0),
                 'notes' => $notes,
@@ -145,6 +152,9 @@ class ExecutionCreation
                 'tone' => ExecFlow::tone(3),
                 'last_action' => 'فتح طلب التنفيذ بعد اعتماد مسار التنفيذ — بانتظار تحديد الأتعاب',
             ]), $actor, array_filter(['ticket' => $ticket->number, 'reason' => $reason]));
+
+            self::migrateTicketDocuments($exec, $ticket->documents);
+            $exec->load('documents');
 
             $exec->messages()->create([
                 'who' => 'system', 'name' => 'النظام', 'role' => 'فتح',
@@ -185,6 +195,47 @@ class ExecutionCreation
         );
 
         return $exec;
+    }
+
+    /**
+     * نقل مستندات التذكرة إلى جدول مستندات التنفيذ بنسخ آمن للملفات المخزّنة.
+     */
+    private static function migrateTicketDocuments(Execution $exec, iterable $documents): void
+    {
+        $disk = Storage::disk('local');
+
+        foreach ($documents as $td) {
+            $path = (string) ($td->path ?? '');
+            $newPath = null;
+
+            if ($path !== '') {
+                $ext = pathinfo($path, PATHINFO_EXTENSION);
+                $newFilename = Str::random(40).($ext ? ".{$ext}" : '');
+                $targetPath = "exec-docs/{$exec->id}/{$newFilename}";
+
+                try {
+                    if ($disk->exists($path)) {
+                        $disk->copy($path, $targetPath);
+                        $newPath = $targetPath;
+                    } else {
+                        $newPath = $path;
+                    }
+                } catch (\Throwable) {
+                    $newPath = $path;
+                }
+            }
+
+            $exec->documents()->create([
+                'label' => (string) ($td->name ?: ($td->doc_type ?: 'مستند التنفيذ')),
+                'path' => $newPath,
+                'mime' => $td->mime ?? 'application/pdf',
+                'size' => (int) ($td->size ?? 0),
+                'status' => 'مرفوع',
+                'uploaded_at' => now(),
+                'doc_type' => $td->doc_type ?? null,
+                'summary' => $td->summary ?? null,
+            ]);
+        }
     }
 
     private static function clock(): string

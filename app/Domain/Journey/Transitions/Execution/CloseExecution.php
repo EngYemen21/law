@@ -43,8 +43,11 @@ final class CloseExecution extends Transition
             return 'الملف مغلق بالفعل.';
         }
 
-        // إنهاء الملفات المرفوضة في مرحلة الدراسة محصور في الإدارة
-        if ($entity->decision === 'مرفوض' && in_array($entity->effectiveStage(), [2, 3], true) && ! $actor->isAdmin()) {
+        // إنهاء الملفات المرفوضة في مرحلة الدراسة أو برفض العميل للعرض محصور في الإدارة
+        $isRejected = ($entity->decision === 'مرفوض' && in_array($entity->effectiveStage(), [2, 3], true))
+            || ($entity->effectiveStage() === 5 && $entity->offer_status === 'مرفوض');
+
+        if ($isRejected && ! $actor->isAdmin()) {
             return 'إنهاء الملفّ المرفوض وأرشفته من صلاحيّة الإدارة وحدها.';
         }
 
@@ -58,8 +61,10 @@ final class CloseExecution extends Transition
     public function guard(Model $entity, array $payload): ?string
     {
         /** @var Execution $entity */
-        $isRejectedStudy = $entity->decision === 'مرفوض' && in_array($entity->effectiveStage(), [2, 3], true);
-        if (! $isRejectedStudy && ! in_array($entity->effectiveStage(), [7, 8], true)) {
+        $isRejected = ($entity->decision === 'مرفوض' && in_array($entity->effectiveStage(), [2, 3], true))
+            || ($entity->effectiveStage() === 5 && $entity->offer_status === 'مرفوض');
+
+        if (! $isRejected && ! in_array($entity->effectiveStage(), [7, 8], true)) {
             return 'لا يمكن إغلاق الملف في مرحلته الحالية.';
         }
 

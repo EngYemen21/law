@@ -8,6 +8,7 @@ import TicketOpsModals, { type LawyerOption, type TicketOpsKind } from '@/compon
 import QuickTicketModal, { type TicketPreviewData } from '@/components/babylon/QuickTicketModal';
 import { foldSearch, isUrgentTicket } from '@/lib/employee-data';
 import { useCan } from '@/lib/permissions';
+import { truncateWords } from '@/lib/utils';
 
 // ============================================================
 // لوحة إدارة وتوزيع التذاكر للموظف (Legal Ticket Triage Desk)
@@ -24,6 +25,10 @@ export interface EmpTicket {
   lawyer: string;
   lawyerId?: number | null;
   status: string;
+  statusCode?: string;
+  isTerminal?: boolean;
+  needsDoc?: boolean;
+  actions?: Record<string, boolean>;
   tone: string;
   converted?: boolean;
   updatedAgo?: string;
@@ -90,25 +95,13 @@ const EmployeeTickets: React.FC<Props> = ({
     setOpsKind('reqdocs');
   };
 
-  const convert = (no: string) =>
-    router.post(
-      `/employee/tickets/${encodeURIComponent(no)}/convert`,
-      {},
-      {
-        preserveScroll: true,
-        onSuccess: () => toast('تم تحويل التذكرة إلى قضية بنجاح'),
-        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تحويل التذكرة لقضية'}`),
-      }
-    );
-
   // حساب الإحصائيات
   const calculatedCounts = useMemo(() => {
-    const terminalList = ['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة لقضية'];
-    const needAction = tickets.filter((t) => !terminalList.includes(t.status) && !awaitingOthers.includes(t.status)).length;
-    const missingDocs = tickets.filter((t) => t.status === 'بانتظار مستندات').length;
-    const referred = tickets.filter((t) => t.status === 'محالة للقسم القانوني').length;
+    const needAction = tickets.filter((t) => !t.isTerminal && !awaitingOthers.includes(t.status)).length;
+    const missingDocs = tickets.filter((t) => t.statusCode === 'awaiting_docs' || t.status === 'بانتظار مستندات').length;
+    const referred = tickets.filter((t) => t.statusCode === 'referred' || t.status === 'محالة للقسم القانوني').length;
     const urgent = tickets.filter((t) => isUrgentTicket(t.priority)).length;
-    const completed = tickets.filter((t) => terminalList.includes(t.status)).length;
+    const completed = tickets.filter((t) => Boolean(t.isTerminal)).length;
 
     return {
       total: counts?.total ?? tickets.length,
@@ -130,15 +123,14 @@ const EmployeeTickets: React.FC<Props> = ({
 
   // تصفية التذاكر بحسب التبويب والفلاتر والبحث
   const filteredTickets = useMemo(() => {
-    const terminalList = ['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة لقضية'];
     return tickets.filter((t) => {
       // فلترة التبويب
-      if (activeTab === 'active' && terminalList.includes(t.status)) return false;
+      if (activeTab === 'active' && t.isTerminal) return false;
       if (activeTab === 'urgent' && !isUrgentTicket(t.priority)) return false;
-      if (activeTab === 'needAction' && (terminalList.includes(t.status) || awaitingOthers.includes(t.status))) return false;
-      if (activeTab === 'missingDocs' && t.status !== 'بانتظار مستندات') return false;
-      if (activeTab === 'referred' && t.status !== 'محالة للقسم القانوني') return false;
-      if (activeTab === 'completed' && !terminalList.includes(t.status)) return false;
+      if (activeTab === 'needAction' && (t.isTerminal || awaitingOthers.includes(t.status))) return false;
+      if (activeTab === 'missingDocs' && t.statusCode !== 'awaiting_docs' && t.status !== 'بانتظار مستندات') return false;
+      if (activeTab === 'referred' && t.statusCode !== 'referred' && t.status !== 'محالة للقسم القانوني') return false;
+      if (activeTab === 'completed' && !t.isTerminal) return false;
 
       // فلترة القسم
       if (filterDept !== 'all' && t.dept !== filterDept) return false;
@@ -199,7 +191,7 @@ const EmployeeTickets: React.FC<Props> = ({
               style={{ boxShadow: activeTab === 'active' ? undefined : 'none' }}
               onClick={() => setActiveTab('active')}
             >
-              <Icon name="folder" /> كل النشطة ({tickets.filter((t) => !['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة لقضية'].includes(t.status)).length})
+              <Icon name="folder" /> كل النشطة ({tickets.filter((t) => !t.isTerminal).length})
             </button>
             <button
               type="button"
@@ -320,16 +312,16 @@ const EmployeeTickets: React.FC<Props> = ({
 
         <div className="card-b t-wrap" style={{ padding: 0 }}>
           {filteredTickets.length ? (
-            <table className="tbl">
+            <table className="tbl" style={{ minWidth: 780 }}>
               <thead>
                 <tr>
-                  <th>التذكرة</th>
-                  <th>العميل والموضوع</th>
+                  <th style={{ width: 130 }}>التذكرة</th>
+                  <th style={{ minWidth: 180, maxWidth: 300 }}>العميل والموضوع</th>
                   <th>النوع والقسم</th>
                   <th>الأولوية</th>
                   <th>المستشار المكلف</th>
                   <th>الحالة</th>
-                  <th>الإجراءات</th>
+                  <th style={{ width: 150 }}>الإجراءات</th>
                 </tr>
               </thead>
               <tbody>
@@ -339,25 +331,29 @@ const EmployeeTickets: React.FC<Props> = ({
 
                   return (
                     <tr key={t.no} className="click" onClick={() => openTicket(t.no)}>
-                      <td>
+                      <td className="nowrap">
                         <div className="mono" style={{ fontWeight: 800, fontSize: 13.5 }}>{t.no}</div>
                         <div className="muted" style={{ fontSize: 11 }}>{t.updatedAgo || t.createdAgo || 'الآن'}</div>
                       </td>
-                      <td>
-                        <b>{t.client}</b>
-                        {t.subject && <div className="muted" style={{ fontSize: 11.5 }}>{t.subject}</div>}
+                      <td style={{ minWidth: 180, maxWidth: 300 }}>
+                        <b title={t.client}>{truncateWords(t.client, 4)}</b>
+                        {t.subject && (
+                          <div className="muted" title={t.subject} style={{ fontSize: 11.5, marginTop: 2, lineHeight: 1.4 }}>
+                            {truncateWords(t.subject, 8)}
+                          </div>
+                        )}
                       </td>
                       <td>
                         <div style={{ fontWeight: 600, color: 'var(--ink)' }}>{t.type}</div>
                         <div className="muted" style={{ fontSize: 11 }}>{t.dept}</div>
                       </td>
-                      <td>
+                      <td className="nowrap">
                         <Badge text={t.priority || 'متوسطة'} tone={pTone} />
                       </td>
-                      <td>
-                        <b>{t.lawyer}</b>
+                      <td className="nowrap">
+                        <b title={t.lawyer}>{truncateWords(t.lawyer, 4)}</b>
                       </td>
-                      <td>
+                      <td className="nowrap">
                         <Badge text={t.status} tone={t.tone} />
                       </td>
                       <td>
@@ -383,7 +379,7 @@ const EmployeeTickets: React.FC<Props> = ({
                           </button>
 
                           {/* طلب نواقص بصلاحية الرد على العملاء */}
-                          {canReqDocs && t.status !== 'مكتملة' && (
+                          {canReqDocs && !t.isTerminal && (
                             <button
                               className="btn soft sm"
                               onClick={() => openReqDocs(t)}
@@ -394,22 +390,22 @@ const EmployeeTickets: React.FC<Props> = ({
                             </button>
                           )}
 
-                          {t.status === 'مكتملة' && (
+                          {t.isTerminal && (
                             t.converted ? (
                               <Badge text="محوّلة لقضية" tone="b-cyan" />
                             ) : (
                               <button
                                 className="btn soft sm"
-                                onClick={() => convert(t.no)}
+                                onClick={() => openTicket(t.no)}
                                 type="button"
-                                title="تحويل التذكرة المكتملة إلى ملف قضية"
+                                title="عرض التذكرة لمتابعة قرار المآل عبر بطاقة الحوكمة"
                               >
-                                <Icon name="scale" /> تحويل لقضية
+                                <Icon name="scale" /> قرار المآل
                               </button>
                             )
                           )}
 
-                          {canTransfer && t.status !== 'مكتملة' && (
+                          {canTransfer && !t.isTerminal && (
                             <button
                               className="btn soft sm"
                               onClick={() => openTransfer(t)}

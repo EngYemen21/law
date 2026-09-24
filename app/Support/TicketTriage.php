@@ -216,7 +216,7 @@ class TicketTriage
         }
 
         // لا تحليلَ على ملفٍّ منتهٍ — كان يُحلَّل ويُرسل ملخّصه على تذكرةٍ مغلقة (ع٢٤)
-        if (in_array($ticket->status, ['مكتملة', 'مغلقة'], true)) {
+        if ($ticket->isTerminal()) {
             return;
         }
 

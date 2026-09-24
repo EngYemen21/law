@@ -15,6 +15,7 @@ interface DocData {
   statusLabel: string;
   author: string;
   ticketNo: string | null;
+  caseNo?: string | null;
   updatedAt: string;
   createdAt: string;
   approved: boolean;
@@ -39,7 +40,11 @@ interface Props {
 
 const EditorPrint: React.FC<Props> = ({ document: doc }) => {
   const { url } = usePage();
-  const base = (url as string).startsWith('/admin') ? '/admin' : '/lawyer';
+  const base = (url as string).startsWith('/admin')
+    ? '/admin'
+    : (url as string).startsWith('/employee')
+      ? '/employee'
+      : '/lawyer';
   const header = doc.headerConfig || {
     showHeader: true,
     officeName: 'مكتب المحاماة',
@@ -64,7 +69,7 @@ const EditorPrint: React.FC<Props> = ({ document: doc }) => {
   }, []);
 
   return (
-    <div style={{ background: '#f0f3f6', minHeight: '100vh', padding: '24px 16px', direction: 'rtl' }}>
+    <div className="legal-print-page" style={{ background: '#f0f3f6', minHeight: '100vh', padding: '24px 16px', direction: 'rtl' }}>
       {/* ── شريط التحكم العلوي (يختفي عند الطباعة) ── */}
       <div
         className="print-controls-bar"
@@ -95,13 +100,20 @@ const EditorPrint: React.FC<Props> = ({ document: doc }) => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <a
+            href={`${base}/editor/${doc.id}/pdf`}
+            className="btn primary sm"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 36, padding: '0 18px', textDecoration: 'none' }}
+          >
+            <Icon name="download" /> تحميل ملف PDF
+          </a>
           <button
             type="button"
-            className="btn primary sm"
+            className="btn soft sm"
             onClick={() => window.print()}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 36, padding: '0 18px' }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 36, padding: '0 14px' }}
           >
-            <Icon name="upload" /> طباعة / تصدير PDF
+            <Icon name="upload" /> طباعة ورقية
           </button>
         </div>
       </div>
@@ -141,11 +153,11 @@ const EditorPrint: React.FC<Props> = ({ document: doc }) => {
                 <div style={{ fontSize: 18, fontWeight: 800, color: '#0a2a55', marginBottom: 2 }}>
                   {header.officeName || 'مكتب المحاماة والاستشارات القانونية'}
                 </div>
-                {header.officeNameEn && (
+                {/* {header.officeNameEn && (
                   <div style={{ fontSize: 12, color: '#607689', fontFamily: 'sans-serif', letterSpacing: 0.5 }}>
                     {header.officeNameEn}
                   </div>
-                )}
+                )} */}
                 {header.licenseNo && (
                   <div style={{ fontSize: 11.5, color: '#607689', marginTop: 3 }}>
                     ترخيص رقم: {header.licenseNo}
@@ -164,7 +176,7 @@ const EditorPrint: React.FC<Props> = ({ document: doc }) => {
         )}
 
         {/* ── شريط المراجع والتوثيق ── */}
-        <div
+        {/* <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
@@ -184,6 +196,11 @@ const EditorPrint: React.FC<Props> = ({ document: doc }) => {
           <div>
             التصنيف: <strong style={{ color: '#0e5c9c' }}>{doc.typeLabel}</strong>
           </div>
+          {doc.caseNo && (
+            <div>
+              القضية: <strong style={{ color: '#0e5c9c' }}>{doc.caseNo}</strong>
+            </div>
+          )}
           {doc.ticketNo && (
             <div>
               التذكرة: <strong style={{ color: '#13314f' }}>{doc.ticketNo}</strong>
@@ -192,10 +209,10 @@ const EditorPrint: React.FC<Props> = ({ document: doc }) => {
           <div>
             التاريخ: <strong style={{ color: '#13314f' }}>{doc.createdAt}</strong>
           </div>
-        </div>
+        </div> */}
 
         {/* ── عنوان المستند الرئيسي ── */}
-        <h1
+        {/* <h1
           style={{
             textAlign: 'center',
             fontSize: 22,
@@ -207,7 +224,7 @@ const EditorPrint: React.FC<Props> = ({ document: doc }) => {
           }}
         >
           {doc.title}
-        </h1>
+        </h1> */}
 
         {/* ── متن المستند (المحتوى المنسق) ── */}
         <div
@@ -249,23 +266,12 @@ const EditorPrint: React.FC<Props> = ({ document: doc }) => {
               <div style={{ height: 44, width: 130, borderBottom: '1px dashed #90a2b2', marginTop: 8 }} />
             </div>
           </div>
-
-          <div
-            style={{
-              textAlign: 'center',
-              fontSize: 10.5,
-              color: '#90a2b2',
-              marginTop: 24,
-              paddingTop: 12,
-              borderTop: '1px solid #edf2f6',
-            }}
-          >
-            هذا المستند صادر من المنصة القانونية — جميع الحقوق محفوظة © {new Date().getFullYear()}
-          </div>
         </div>
       </div>
     </div>
   );
 };
+
+(EditorPrint as any).layout = (page: React.ReactNode) => page;
 
 export default EditorPrint;

@@ -5,6 +5,7 @@ import StatRow from '@/components/babylon/StatRow';
 import type { StatItem } from '@/components/babylon/StatRow';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { truncateWords } from '@/lib/utils';
 
 // ============================================================
 // لوحة متابعة وتنسيق القضايا للموظف (Legal Case Management Desk)
@@ -308,16 +309,16 @@ const EmployeeCases: React.FC<Props> = ({
 
         <div className="card-b t-wrap" style={{ padding: 0 }}>
           {filteredCases.length ? (
-            <table className="tbl">
+            <table className="tbl" style={{ minWidth: 760 }}>
               <thead>
                 <tr>
-                  <th>رقم القضية</th>
-                  <th>العميل والمحكمة</th>
+                  <th style={{ width: 130 }}>رقم القضية</th>
+                  <th style={{ minWidth: 180, maxWidth: 280 }}>العميل والمحكمة</th>
                   <th>نوع الدعوى</th>
                   <th>المستشار المترافع</th>
                   <th>الجلسة القادمة</th>
                   <th>المرحلة والحالة</th>
-                  <th>الإجراء</th>
+                  <th style={{ width: 120, textAlign: 'center' }}>الإجراء</th>
                 </tr>
               </thead>
               <tbody>
@@ -326,37 +327,42 @@ const EmployeeCases: React.FC<Props> = ({
 
                   return (
                     <tr key={c.no} className="click" onClick={() => open(c.no)}>
-                      <td>
+                      <td className="nowrap">
                         <div className="mono" style={{ fontWeight: 800, fontSize: 13.5 }}>{c.no}</div>
                         <div className="muted" style={{ fontSize: 11 }}>{c.updatedAgo || 'الآن'}</div>
                       </td>
-                      <td>
-                        <b>{c.client}</b>
-                        {c.court && <div className="muted" style={{ fontSize: 11.5 }}>🏛️ {c.court}</div>}
+                      <td style={{ minWidth: 180, maxWidth: 280 }}>
+                        <b title={c.client}>{truncateWords(c.client, 4)}</b>
+                        {c.court && (
+                          <div className="muted" title={c.court} style={{ fontSize: 11.5, marginTop: 2 }}>
+                            🏛️ {truncateWords(c.court, 5)}
+                          </div>
+                        )}
                       </td>
                       <td>
                         <div style={{ fontWeight: 600, color: 'var(--ink)' }}>{c.type}</div>
                         {c.dept && c.dept !== c.type && <div className="muted" style={{ fontSize: 11 }}>{c.dept}</div>}
                       </td>
-                      <td>
-                        <b>{c.lawyer}</b>
+                      <td className="nowrap">
+                        <b title={c.lawyer}>{truncateWords(c.lawyer, 4)}</b>
                       </td>
-                      <td>
+                      <td className="nowrap">
                         {hasUpcoming ? (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                            <span className="badge-s b-amber"><span className="d" /> {c.next}</span>
+                            <span className="badge-s b-amber" title={c.next ?? ''}><span className="d" /> {truncateWords(c.next ?? '', 4)}</span>
                           </div>
                         ) : (
                           <span className="muted" style={{ fontSize: 12 }}>—</span>
                         )}
                       </td>
-                      <td>
+                      <td className="nowrap">
                         <Badge text={c.status} tone={c.tone} />
                       </td>
-                      <td>
+                      <td className="nowrap" style={{ textAlign: 'center' }}>
                         <button
                           className="btn soft sm"
                           type="button"
+                          style={{ whiteSpace: 'nowrap' }}
                           onClick={(e) => {
                             e.stopPropagation();
                             open(c.no);

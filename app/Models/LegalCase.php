@@ -214,6 +214,7 @@ class LegalCase extends Model
             'feeStatus' => $this->fee_status,
             'invoice' => $this->invoice_text,
             'department' => $this->department,
+            'createdAt' => $this->created_at?->format('Y-m-d'),
             'assignedLawyer' => LawyerName::forClient($this->assigned_lawyer_id ? $this->assignedLawyer : null, $this->assigned_lawyer, 'المستشار المخصص'),
             'court' => $this->court ?: ($nextLive?->court ?: ($firstHearing?->court ?? 'المحكمة المختصة')),
             'najiz' => $this->najizCard(),

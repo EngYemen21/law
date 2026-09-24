@@ -4,7 +4,10 @@ namespace App\Domain\Journey\Transitions\Execution;
 
 use App\Domain\Journey\Enums\ExecutionStatus;
 use App\Domain\Journey\Transition;
+use App\Domain\Journey\Transitions\Invoice\CancelInvoice;
+use App\Domain\Journey\Workflow;
 use App\Models\Execution;
+use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\User;
 use App\Support\ExecFee;
@@ -29,6 +32,7 @@ final class SetExecutionFee extends Transition
             ExecutionStatus::FeeEstimation->value,
             ExecutionStatus::AdminApproval->value,
             ExecutionStatus::ServiceOffer->value,
+            ExecutionStatus::Payment->value,
         ];
     }
 
@@ -53,6 +57,10 @@ final class SetExecutionFee extends Transition
     public function guard(Model $entity, array $payload): ?string
     {
         /** @var Execution $entity */
+        if ($entity->paid || $entity->effectiveStage() >= ExecutionStatus::PendingNajiz->stage()) {
+            return 'فُتح ملفّ التنفيذ وسُدّدت الأتعاب — لا يمكن إعادة التسعير بعد السداد.';
+        }
+
         if ($entity->decision === 'مرفوض') {
             return 'هذا الطلب مرفوض بعد الدراسة — لا يُسعَّر ولا يُعرَض.';
         }
@@ -77,6 +85,15 @@ final class SetExecutionFee extends Transition
         $isAdmin = $actor?->isAdmin() || (bool) ($payload['is_admin'] ?? false);
         $targetStatus = $isAdmin ? ExecutionStatus::ServiceOffer : ExecutionStatus::AdminApproval;
 
+        // إلغاء كلّ فاتورةٍ غير مسدَّدة على ملفّ التنفيذ (فواتير التقسيط السابقة أو فاتورة العرض السابق)
+        Invoice::where('exec_id', $entity->id)
+            ->where('paid', false)
+            ->whereIn('status', (new CancelInvoice)->from())
+            ->get()
+            ->each(fn (Invoice $invoice) => Workflow::run(new CancelInvoice, $invoice, $actor, [
+                'reason' => "إعادة تسعير ملف التنفيذ {$entity->number}",
+            ]));
+
         $fee = (int) ($payload['fee'] ?? 0);
         $duration = (string) ($payload['duration'] ?? '30-45 يوم');
         $feeMode = (string) ($payload['fee_mode'] ?? 'fixed');
@@ -91,6 +108,9 @@ final class SetExecutionFee extends Transition
         $entity->fee_mode = $percent ? 'percent' : 'fixed';
         $entity->collection_fee_pct = $percent ? $feePct : null;
         $entity->pay_plan = null;
+        $entity->installments_total = 1;
+        $entity->installments_paid = 0;
+        $entity->invoice_no = null;
         $entity->pay_method = ExecFee::payMethodLabel($entity);
         $entity->fee_approved = $isAdmin;
         if ($isAdmin) {

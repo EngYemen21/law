@@ -26,8 +26,6 @@ class AssignTicketJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    private const CLOSED = ['مكتملة', 'مغلقة'];
-
     public function __construct(
         public int $ticketId,
         public string $actorName
@@ -36,7 +34,7 @@ class AssignTicketJob implements ShouldQueue
     public function handle(): void
     {
         $ticket = Ticket::find($this->ticketId);
-        if ($ticket === null || $ticket->assigned_lawyer_id || in_array($ticket->status, self::CLOSED, true)) {
+        if ($ticket === null || $ticket->assigned_lawyer_id || $ticket->isTerminal()) {
             return;
         }
 
@@ -49,7 +47,7 @@ class AssignTicketJob implements ShouldQueue
         // كتابة الإسناد في معاملة قصيرة مع قفل صفٍّ واحد + إعادة فحص السباق
         DB::transaction(function () use ($lawyer): void {
             $locked = Ticket::whereKey($this->ticketId)->lockForUpdate()->first();
-            if ($locked === null || $locked->assigned_lawyer_id || in_array($locked->status, self::CLOSED, true)) {
+            if ($locked === null || $locked->assigned_lawyer_id || $locked->isTerminal()) {
                 return;
             }
 

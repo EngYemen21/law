@@ -366,29 +366,13 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
       return;
     }
 
-    if (!confirm(`هل ترغب في تحويل ملف الاستشارة (${consult.ref}) إلى ملف قضية تمثيل قضائي رسمي؟`)) {
+    if (!confirm(`هل ترغب في فتح ملف التذكرة (${consult.ticketNo}) لرفع مقترح مآل القضية عبر بطاقة الحوكمة المعتمدة؟`)) {
       return;
     }
 
-    setIsProcessing(true);
-    router.post(
-      `/lawyer/tickets/${consult.ticketNo}/convert`,
-      {},
-      {
-        preserveScroll: true,
-        onSuccess: () => {
-          // كان يقول «وفتح ملف القضية الجديد» — و`convertToCase` يُعيد `back()`
-          // بتعليقٍ صريح أنّه **لا ينقل** المستخدم. فالوعد لا يقع، والدرج يُغلق
-          // بعده فلا يبقى للمحامي شيء.
-          toast('حُوّلت إلى قضية — تجدها في «القضايا»');
-          closeDrawer();
-        },
-        // نصّ الرفض من الخادم: «تم تحويل هذه التذكرة لقضية مسبقاً» و«التذكرة غير
-        // مكتملة» سببان مختلفان، وابتلاعُهما يترك المحامي يعيد المحاولة بلا فهم.
-        onError: (errors) => toast(Object.values(errors)[0] || 'تعذر تحويل الاستشارة إلى قضية'),
-        onFinish: () => setIsProcessing(false),
-      }
-    );
+    closeDrawer();
+    toast('جارٍ الانتقال إلى ملف التذكرة لحوكمة المسار...');
+    router.visit(`/lawyer/tickets/${encodeURIComponent(consult.ticketNo)}`);
   };
 
   return (

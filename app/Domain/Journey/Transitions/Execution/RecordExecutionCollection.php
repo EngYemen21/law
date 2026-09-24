@@ -6,7 +6,6 @@ use App\Domain\Journey\Enums\ExecutionStatus;
 use App\Domain\Journey\Transition;
 use App\Models\Execution;
 use App\Models\User;
-use App\Support\ExecFee;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -48,6 +47,16 @@ final class RecordExecutionCollection extends Transition
         $amount = (int) ($payload['amount'] ?? 0);
         if ($amount <= 0) {
             return 'مبلغ التحصيل يجب أن يكون أكبر من الصفر.';
+        }
+
+        /** @var Execution $entity */
+        $remaining = max(0, (int) $entity->amount - (int) $entity->collected);
+        if ($remaining <= 0) {
+            return 'تم تحصيل كامل قيمة المطالبة لهذا الملف بالفعل.';
+        }
+
+        if ($amount > $remaining) {
+            return 'مبلغ التحصيل يتجاوز المتبقي من قيمة المطالبة (المتبقي: '.number_format($remaining).' ريال).';
         }
 
         return null;

@@ -132,6 +132,19 @@ class DashboardController extends Controller
             ];
         }
 
+        // ج) تذاكر بانتظار حجز موعد الاستشارة من العميل
+        foreach ($activeTickets->where('status', 'بانتظار حجز الاستشارة') as $ticket) {
+            $actionAlerts[] = [
+                'id' => 'book-'.$ticket->id,
+                'type' => 'needs_booking',
+                'title' => 'بانتظار حجز موعد الاستشارة 📅',
+                'desc' => "تذكرة {$ticket->number} — تمت الدراسة المبدئية، يرجى حجز موعد الاستشارة لمناقشة الرأي القانوني",
+                'cta' => 'حجز الموعد الآن',
+                'link' => '/book',
+                'tone' => 'b-blue',
+            ];
+        }
+
         // ج) فواتير متأخرة تجاوزت موعد الاستحقاق
         $overdueInvoices = $unpaidInvoices->filter(fn (Invoice $i) => $i->isOverdue());
         if ($overdueInvoices->isNotEmpty()) {

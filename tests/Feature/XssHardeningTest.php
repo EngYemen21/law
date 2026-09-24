@@ -38,10 +38,9 @@ class XssHardeningTest extends TestCase
 
         $notification = UserNotification::where('user_id', $employee->id)->firstOrFail();
 
-        // الصفحة تُصيّر النصّ كنصّ: التوكيد هنا أن الحمولة لا تُقدَّم كـHTML قابل للتنفيذ
+        // الصفحة المستقلة أُلغيت وحُوّلت، وتُبثّ الإشعارات عبر المنسدلة في Inertia shared props
         $this->actingAs($employee)->get(route('notifications'))
-            ->assertOk()
-            ->assertInertia(fn ($p) => $p->component('notifications'));
+            ->assertRedirect();
 
         // الحمولة محفوظة كبيانات (لا تُعدَّل)، والحماية في طبقة العرض
         $this->assertStringContainsString(self::PAYLOAD, $notification->body);

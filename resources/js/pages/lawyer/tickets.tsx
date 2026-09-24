@@ -7,6 +7,7 @@ import { useToast } from '@/components/babylon/Toast';
 import { TICKET_PRIORITIES, TICKET_PRIORITY_DEFAULT, foldSearch, isUrgentTicket } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+import { truncateWords } from '@/lib/utils';
 
 // ============================================================
 // منصة فرز ودراسة تذاكر المستشار القانوني 360° (Lawyer Ticket Study Desk)
@@ -20,6 +21,10 @@ export interface EmpTicket {
   dept: string;
   lawyer: string;
   status: string;
+  statusCode?: string;
+  isTerminal?: boolean;
+  needsDoc?: boolean;
+  actions?: Record<string, boolean>;
   tone: string;
   subject?: string;
   priority?: string;
@@ -78,31 +83,17 @@ const LawyerTickets: React.FC<Props> = ({
   const openSummaries = () => router.visit('/lawyer/summaries');
   const openAssistant = () => router.visit('/lawyer/assistant');
 
-  // تحويل التذكرة إلى قضية
-  const convert = (no: string) => {
-    router.post(
-      `/lawyer/tickets/${encodeURIComponent(no)}/convert`,
-      {},
-      {
-        preserveScroll: true,
-        onSuccess: () => toast('✅ تم تحويل التذكرة إلى قضية رسمية بنجاح'),
-        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تحويل التذكرة لقضية'}`),
-      }
-    );
-  };
-
   // حساب الإحصائيات إذا لم تُمرر من الخادم
   const calculatedCounts: Counts = useMemo(() => {
     if (counts) return counts;
-    const terminalList = ['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة لقضية'];
     return {
       total: tickets.length,
-      needStudy: tickets.filter((t) => !terminalList.includes(t.status)).length,
+      needStudy: tickets.filter((t) => !t.isTerminal).length,
       awaitingSummary: tickets.filter((t) => t.summaryStatus === 'awaiting_lawyer').length,
       urgent: tickets.filter((t) => isUrgentTicket(t.priority)).length,
-      missingDocs: tickets.filter((t) => t.status === 'بانتظار مستندات').length,
+      missingDocs: tickets.filter((t) => t.statusCode === 'awaiting_docs' || t.status === 'بانتظار مستندات').length,
       converted: tickets.filter((t) => t.converted).length,
-      completed: tickets.filter((t) => terminalList.includes(t.status)).length,
+      completed: tickets.filter((t) => Boolean(t.isTerminal)).length,
     };
   }, [tickets, counts]);
 
@@ -114,15 +105,14 @@ const LawyerTickets: React.FC<Props> = ({
 
   // تصفية التذاكر بناءً على التبويب والبحث والفلاتر
   const filteredTickets = useMemo(() => {
-    const terminalList = ['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة لقضية'];
     return tickets.filter((t) => {
       // 1. تصفية التبويب
-      if (activeTab === 'needStudy' && terminalList.includes(t.status)) return false;
+      if (activeTab === 'needStudy' && t.isTerminal) return false;
       if (activeTab === 'awaitingSummary' && t.summaryStatus !== 'awaiting_lawyer') return false;
       if (activeTab === 'urgent' && !isUrgentTicket(t.priority)) return false;
-      if (activeTab === 'missingDocs' && t.status !== 'بانتظار مستندات') return false;
+      if (activeTab === 'missingDocs' && t.statusCode !== 'awaiting_docs' && t.status !== 'بانتظار مستندات') return false;
       if (activeTab === 'converted' && !t.converted) return false;
-      if (activeTab === 'completed' && !terminalList.includes(t.status)) return false;
+      if (activeTab === 'completed' && !t.isTerminal) return false;
 
       // 2. فلتر القسم
       if (filterDept !== 'all' && t.dept !== filterDept) return false;
@@ -435,35 +425,37 @@ const LawyerTickets: React.FC<Props> = ({
           {filteredTickets.length > 0 ? (
             viewMode === 'table' ? (
               /* نمط الجدول التفاعلي المتقدم */
-              <table className="tbl">
+              <table className="tbl" style={{ minWidth: 800 }}>
                 <thead>
                   <tr>
-                    <th>رقم التذكرة</th>
-                    <th>الموكل</th>
-                    <th>النوع والقسم</th>
+                    <th style={{ width: 130 }}>رقم التذكرة</th>
+                    <th style={{ minWidth: 160, maxWidth: 240 }}>الموكل</th>
+                    <th style={{ minWidth: 160, maxWidth: 240 }}>النوع والقسم</th>
                     <th>الأولوية</th>
                     <th>دراسة الذكاء الاصطناعي</th>
                     <th>الحالة</th>
-                    <th style={{ textAlign: 'end', paddingInlineEnd: 20 }}>إجراءات المستشار</th>
+                    <th style={{ textAlign: 'end', paddingInlineEnd: 20, width: 140 }}>إجراءات المستشار</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredTickets.map((t) => (
                     <tr key={t.no} className="click" onClick={() => openTicket(t.no)}>
-                      <td className="mono" style={{ fontWeight: 800, color: '#0E5C9C' }}>
+                      <td className="mono nowrap" style={{ fontWeight: 800, color: '#0E5C9C' }}>
                         {t.no}
                       </td>
-                      <td>
-                        <div style={{ fontWeight: 700, color: '#13314F' }}>{t.client}</div>
-                        <div className="muted" style={{ fontSize: 11.5 }}>
+                      <td style={{ minWidth: 160, maxWidth: 240 }}>
+                        <div style={{ fontWeight: 700, color: '#13314F' }} title={t.client}>
+                          {truncateWords(t.client, 4)}
+                        </div>
+                        <div className="muted nowrap" style={{ fontSize: 11.5 }}>
                           {t.updatedAgo ? `تحديث: ${t.updatedAgo}` : t.createdAgo}
                         </div>
                       </td>
-                      <td>
+                      <td style={{ minWidth: 160, maxWidth: 240 }}>
                         <div style={{ fontWeight: 600 }}>{t.type}</div>
                         <div className="muted" style={{ fontSize: 11.5 }}>{t.dept || 'القسم القانوني'}</div>
                       </td>
-                      <td>
+                      <td className="nowrap">
                         {isUrgentTicket(t.priority) ? (
                           <span className="badge-s b-red" style={{ fontSize: 11 }}>
                             <span className="d" /> عاجلة ⚡
@@ -474,7 +466,7 @@ const LawyerTickets: React.FC<Props> = ({
                           </span>
                         )}
                       </td>
-                      <td>
+                      <td className="nowrap">
                         {t.summaryStatus === 'awaiting_lawyer' ? (
                           <span className="badge-s b-amber" style={{ fontSize: 11 }}>
                             <span className="d" /> بانتظار اعتمادك 🟡
@@ -497,10 +489,10 @@ const LawyerTickets: React.FC<Props> = ({
                           </span>
                         )}
                       </td>
-                      <td>
+                      <td className="nowrap">
                         <Badge text={t.status} tone={t.tone} />
                       </td>
-                      <td>
+                      <td className="nowrap">
                         <div
                           style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', paddingInlineEnd: 12 }}
                           onClick={(e) => e.stopPropagation()}
@@ -520,7 +512,7 @@ const LawyerTickets: React.FC<Props> = ({
                           >
                             <Icon name="scale" /> دراسة ومحادثة
                           </button>
-                          {t.status === 'مكتملة' && (
+                          {(t.isTerminal || t.status === 'مكتملة') && (
                             t.converted ? (
                               <span className="badge-s b-cyan" style={{ fontSize: 11 }}>
                                 <span className="d" /> محوّلة لقضية
@@ -529,10 +521,11 @@ const LawyerTickets: React.FC<Props> = ({
                               <button
                                 className="btn sm"
                                 style={{ background: '#0A2A55' }}
-                                onClick={() => convert(t.no)}
+                                onClick={() => openTicket(t.no)}
                                 type="button"
+                                title="عرض التذكرة لمتابعة قرار المآل عبر بطاقة الحوكمة"
                               >
-                                <Icon name="scale" /> تحويل لقضية
+                                <Icon name="scale" /> قرار المآل
                               </button>
                             )
                           )}
@@ -544,7 +537,7 @@ const LawyerTickets: React.FC<Props> = ({
               </table>
             ) : (
               /* نمط بطاقات الفرز الذكية (Card / Grid View) */
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16, padding: 18 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: 16, padding: 18 }}>
                 {filteredTickets.map((t) => (
                   <div
                     key={t.no}

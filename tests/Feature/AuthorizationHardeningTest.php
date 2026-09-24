@@ -89,7 +89,7 @@ class AuthorizationHardeningTest extends TestCase
         $this->actingAs($admin)
             ->getJson('/admin/schedule/slots?lawyer_id='.$lawyer->id.'&date='.now()->addDay()->toDateString())
             ->assertOk();
-        $this->actingAs($admin)->post('/admin/tickets/TK-NOPE/convert-consult')->assertNotFound(); // عبَر البوابة وسقط على الربط
+        $this->actingAs($admin)->post('/admin/tickets/TK-NOPE/track/approve')->assertNotFound(); // عبَر البوابة وسقط على الربط
 
         // ومسارات الأدوار الأخرى مقفلة عليه حتى للإجراءات (POST) — مسار بلا مُعامِلات
         // كي تظهر البوابة نفسها (ربط النماذج يسبقها فيحجب المعرّفات الوهمية بـ404)

@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\TransitionDenied;
 use App\Domain\Journey\Transitions\Execution\AcceptExecutionOffer;
 use App\Domain\Journey\Transitions\Execution\ActivateExecution;
@@ -140,7 +141,10 @@ class ExecFee
                 return null;
             }
 
-            $master = Invoice::where('exec_id', $locked->id)->where('paid', false)->orderBy('id')->first();
+            $master = Invoice::where('exec_id', $locked->id)
+                ->where('paid', false)
+                ->whereNotIn('status', [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value])
+                ->orderBy('id')->first();
             if ($master === null) {
                 return null;
             }
@@ -189,7 +193,9 @@ class ExecFee
     public static function nextInstallment(Execution $exec): ?Invoice
     {
         return Invoice::where('exec_id', $exec->id)->whereNotNull('installment_no')
-            ->where('paid', false)->orderBy('installment_no')->orderBy('id')->first();
+            ->where('paid', false)
+            ->whereNotIn('status', [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value])
+            ->orderBy('installment_no')->orderBy('id')->first();
     }
 
     /**
@@ -200,7 +206,10 @@ class ExecFee
     public static function nextPayable(Execution $exec): ?Invoice
     {
         return self::nextInstallment($exec)
-            ?: Invoice::where('exec_id', $exec->id)->where('paid', false)->orderBy('id')->first();
+            ?: Invoice::where('exec_id', $exec->id)
+                ->where('paid', false)
+                ->whereNotIn('status', [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value])
+                ->orderBy('id')->first();
     }
 
     /**
