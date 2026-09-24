@@ -17,6 +17,11 @@ export interface Invoice {
   no: string; desc: string; amount: number; status: string; tone: string; due: string; overdue?: boolean; paid: boolean; hasProof?: boolean;
   /** ملغاة — لا دفع ولا إثبات (يطابق `Invoice::isCancelled`). */
   cancelled?: boolean;
+  /**
+   * أهي ذمّةٌ فعلاً؟ — يحسبها الخادم من `RevenueSnapshot::isReceivable`.
+   * **لا تُشتقّ هنا بـ`!paid`**: الملغاة والمعدومة غير مدفوعتين وليستا ديناً.
+   */
+  receivable?: boolean;
 }
 export interface Notif { ic: string; tone: string; text: string; time: string; unread: boolean; }
 

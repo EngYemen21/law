@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Support\Finance\InvoiceFactory;
+use App\Support\Finance\RevenueSnapshot;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -144,6 +145,9 @@ class Invoice extends Model
             'paid' => $this->paid,
             // الشاشة تُخفي الدفع ورفع الإثبات عن الملغاة — والخادم يرفضهما (`SubmitPaymentProof`)
             'cancelled' => $this->isCancelled(),
+            // **أهي ذمّةٌ فعلاً؟** `paid` وحده لا يكفي: الملغاة والمعدومة غير مدفوعتين وليستا ديناً.
+            // التعريف من `RevenueSnapshot` — المصدر نفسه الذي تقرأ منه شاشة الإدارة.
+            'receivable' => RevenueSnapshot::isReceivable($this),
             'hasProof' => $this->proof_path !== null,   // رُفع إثبات تحويل بانتظار المراجعة
             'installmentNo' => $this->installment_no,   // موضعها من خطّة التقسيط — null لغيرها
         ];

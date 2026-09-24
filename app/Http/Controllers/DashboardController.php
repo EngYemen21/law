@@ -75,7 +75,10 @@ class DashboardController extends Controller
             ?? User::where('role', Role::Lawyer)->where('status', 'active')->first();
 
         $assignedAdvisor = $advisorUser ? [
-            'name' => $advisorUser->name,
+            // **مقنَّعٌ كبقيّة ما يصل العميل** (قرار المالك 2026-09-11): كان يُرسَل خاماً فتعرض
+            // بطاقة «المستشار المخصص» الاسم كاملاً، بينما سطرا القضايا والتذاكر أدناه يقنّعان.
+            // سهوُ بطاقةٍ واحدة لا قرارُ استثناء.
+            'name' => LawyerName::forClient($advisorUser, $advisorUser->name, 'المستشار المكلف'),
             'title' => $advisorUser->title ?? 'المستشار القانوني',
             'jobTitle' => $advisorUser->job_title ?? 'مستشار ومحامٍ معتمد',
             'department' => $advisorUser->department ?? 'الاستشارات العامة',

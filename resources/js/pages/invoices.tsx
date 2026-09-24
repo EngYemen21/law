@@ -104,13 +104,18 @@ fileRef.current.value = '';
 };
 
 const Invoices: React.FC<{ invoices: Invoice[] }> = ({ invoices }) => {
+  // **الذمّة من تعريف الخادم لا من `!paid`.** الملغاة والمعدومة غير مدفوعتين وليستا ديناً:
+  // كان العدّاد يجمعها فيُطالَب العميل بما أُلغي (٢٤٬٠٣٥ بدل ١٧٬٥١٩)، بينما شاشة الإدارة
+  // تعرض الصحيح. و`receivable` يأتي من `RevenueSnapshot::isReceivable` — المصدر نفسه.
+  const owed = invoices.filter((v) => v.receivable ?? !v.paid);
+  // والقائمة تبقى تعرض غير المدفوعة كلّها (ومنها الملغاة بشارتها) — العدّاد وحده هو ما يُصحَّح
   const due = invoices.filter((v) => !v.paid);
   const paid = invoices.filter((v) => v.paid);
-  const dueSum = due.reduce((a, v) => a + v.amount, 0);
+  const dueSum = owed.reduce((a, v) => a + v.amount, 0);
   const paidSum = paid.reduce((a, v) => a + v.amount, 0);
 
   const stats: StatItem[] = [
-    ['t-amber', 'card', due.length, 'فواتير مستحقة'],
+    ['t-amber', 'card', owed.length, 'فواتير مستحقة'],
     ['t-blue', 'card', dueSum.toLocaleString(), 'إجمالي المستحق (ر.س)'],
     ['t-green', 'check', paid.length, 'فواتير مدفوعة'],
     ['t-cyan', 'card', paidSum.toLocaleString(), 'إجمالي المدفوع (ر.س)'],

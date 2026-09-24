@@ -282,4 +282,21 @@ final class RevenueSnapshot
         return Invoice::where('paid', false)
             ->whereNotIn('status', [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value]);
     }
+
+    /**
+     * **أهذه الفاتورة ذمّةٌ على صاحبها؟** — تعريفُ `receivables()` نفسه مطبَّقاً على صفٍّ واحد.
+     *
+     * لماذا هنا لا في الواجهة؟ لأنّ شاشة العميل كانت تحسب الذمّة بـ`!paid` وحده، فتعُدّ الملغاة
+     * والمعدومة ديناً: عُرض على العميل ٢٤٬٠٣٥ ر.س وذمّتُه ١٧٬٥١٩، والفرق فاتورةٌ أُلغيت — بينما
+     * شاشة الإدارة تعرض الرقم الصحيح من `receivables()`. رقمان لمفهومٍ واحد، والعميل يأخذ الخطأ.
+     * فالتعريف يبقى في موضعٍ واحد، وتقرؤه الشاشتان.
+     */
+    public static function isReceivable(Invoice $invoice): bool
+    {
+        return ! $invoice->paid && ! in_array(
+            $invoice->status,
+            [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value],
+            true
+        );
+    }
 }

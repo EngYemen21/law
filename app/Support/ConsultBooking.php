@@ -9,6 +9,7 @@ use App\Domain\Journey\Transitions\Consult\RepriceConsult;
 use App\Domain\Journey\Transitions\Consult\SettlePayment;
 use App\Domain\Journey\Transitions\Ticket\RequestConsultBooking;
 use App\Domain\Journey\Workflow;
+use App\Enums\Role;
 use App\Events\ConsultStatusBroadcast;
 use App\Mail\ConsultBooked;
 use App\Models\Appointment;
@@ -287,9 +288,16 @@ class ConsultBooking
     {
         $m = self::map()[$data['type']];
 
+        // **محامٍ لا أيّ مستخدم.** كان `User::find()` بلا فحص دور، فمعرّفُ إداريٍّ يُكتب اسمه في
+        // حقل المستشار ويقرأ العميل «المستشار: الإدارة العليا». والدور يُفحَص هنا عند المصدر لا
+        // عند العرض، كي لا يُخزَّن في الصفّ ما ليس صحيحاً أصلاً.
+        $lawyerOnly = fn (?int $id) => $id
+            ? User::where('id', $id)->where('role', Role::Lawyer)->first()
+            : null;
+
         $lawyerUser = ! empty($data['lawyer_id'])
-            ? User::find((int) $data['lawyer_id'])
-            : ($ticket?->assigned_lawyer_id ? User::find($ticket->assigned_lawyer_id) : null);
+            ? $lawyerOnly((int) $data['lawyer_id'])
+            : $lawyerOnly($ticket?->assigned_lawyer_id);
         $lawyer = $lawyerUser?->name
             ?: (($data['lawyer'] ?? null) ?: ($ticket?->assigned_lawyer ?: 'المستشار القانوني'));
 
