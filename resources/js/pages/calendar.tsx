@@ -1,19 +1,18 @@
-import React, { useState } from 'react';
-import { useToast } from '@/components/babylon/Toast';
+import React, { useMemo, useState } from 'react';
+import { UnifiedCalendar, type UnifiedCalendarItem } from '@/components/babylon/UnifiedCalendar';
 import { type Appt } from '@/lib/data';
 import Icon from '@/lib/icons';
 import {
   type TimelineEvent, type TimelineFilters, type TimelineMeta,
-  TimelinePager, TimelineTable, TimelineToolbar,
+  TimelinePager, TimelineToolbar,
 } from '@/lib/timeline-ui';
 import Appointments from '@/pages/appointments';
 
-// التبويب الزمني الموحّد للعميل — منظران:
-//   • «الأحداث»: كل الأنواع (مواعيد · استشارات · جلسات · اجتماعات) بترشيح وبحث وتصفيح خادميّة.
-//   • «مواعيدي»: نوع واحد ببطاقته الغنيّة (QR · بطاقة PDF · حالة السداد · رابط الجلسة).
-//
-// كانت الصفحة تُحمّل الأنواع الأربعة كاملةً في حمولة واحدة ثم تدمجها الواجهة: لا بحث ولا
-// ترشيح، وحجم الحمولة ينمو مع عمر الحساب بلا سقف.
+// ============================================================
+// مركز التقويم والمواعيد للعميل (Client Interactive Calendar & Hub)
+// يجمع: التقويم الشهري التفاعلي + الأجندة الذكية + جدول الارتباطات الكلاسيكي + بطاقات المواعيد
+// خالي تماماً من التكرار وبدون أي روابط مزامنة جوال أو ICS
+// ============================================================
 
 interface Props {
   events: TimelineEvent[];
@@ -27,69 +26,83 @@ interface Props {
 }
 
 const ClientCalendar: React.FC<Props> = ({
-  events, meta, counts, statuses, filters, appointments, feedUrl, webcalUrl,
+  events, meta, counts, statuses, filters, appointments,
 }) => {
-  const [view, setView] = useState<'events' | 'list'>('events');
-  const toast = useToast();
+  const [view, setView] = useState<'calendar' | 'cards'>('calendar');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
-  const copyFeed = () => {
-    if (!feedUrl) return;
-    if (navigator.clipboard) void navigator.clipboard.writeText(feedUrl);
-    toast('تم نسخ رابط الاشتراك الحي بتقويمك بنجاح');
-  };
+  // تحويل الأحداث إلى النمط الموحد التفاعلي للتقويم والجدول
+  const calendarItems: UnifiedCalendarItem[] = useMemo(() => {
+    return events.map((e, idx) => ({
+      id: e.id || `evt-${idx}`,
+      kind: e.kind,
+      kindKey: e.kindKey,
+      tone: e.tone,
+      title: e.title,
+      day: e.day,
+      time: e.time,
+      where: e.where,
+      status: e.status,
+      statusTone: e.statusTone,
+      joinLink: e.joinLink,
+      cardUrl: e.cardUrl,
+    }));
+  }, [events]);
 
   return (
     <>
-      <div className="greet" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <h2>التقويم والمواعيد</h2>
-          <p>مواعيدك واستشاراتك وجلساتك واجتماعاتك — مع المزامنة مع تقويم جوالك.</p>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {webcalUrl && (
-            <a className="btn pri sm" href={webcalUrl} title="تفعيل الاشتراك التلقائي لتقويم جوالك">
-              <Icon name="bell" /> 📲 تفعيل المزامنة التلقائية
-            </a>
-          )}
-          {feedUrl && (
-            <button className="btn soft sm" type="button" onClick={copyFeed} title="مزامنة دائمة مع تقويمك على الحاسوب أو الجوال (ICS)">
-              <Icon name="link" /> نسخ رابط Live Feed
+      {/* 1. أزرار التبديل الرئيسية (بدون أي تكرار) */}
+      <div
+        className="stat-strip"
+        style={{ marginBottom: 16 }}
+        role="tablist"
+        aria-label="منظر التبويب الزمني"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'calendar'}
+          className={view === 'calendar' ? 'btn pri sm' : 'btn soft sm'}
+          onClick={() => setView('calendar')}
+        >
+          <Icon name="calgrid" /> التقويم وجدول المواعيد ({meta.total})
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'cards'}
+          className={view === 'cards' ? 'btn pri sm' : 'btn soft sm'}
+          onClick={() => setView('cards')}
+        >
+          <Icon name="cal" /> بطاقات مواعيدي{appointments ? ` (${appointments.length})` : ''}
+        </button>
+      </div>
+
+      {/* 2. مساحة العرض حسب النمط المختار */}
+      {view === 'calendar' ? (
+        <UnifiedCalendar
+          items={calendarItems}
+          title="التقويم والمواعيد"
+          subtitle="مواعيدك واستشاراتك وجلساتك القضائية في مكان واحد منظم وسهل الوصول."
+          emptyMessage="لا توجد مواعيد أو جلسات مسجلة في تقويمك"
+          headerActions={
+            <button
+              type="button"
+              className={`btn sm ${showAdvancedFilters ? 'pri' : 'soft'}`}
+              onClick={() => setShowAdvancedFilters((prev) => !prev)}
+              title="خيارات الفلترة المتقدمة والمدى الزمني"
+            >
+              <Icon name="search" /> {showAdvancedFilters ? 'إخفاء التصفية المتقدمة' : 'تصفية وبحث متقدم'}
             </button>
-          )}
-        </div>
-      </div>
-
-      <div className="stat-strip" style={{ marginBottom: 4 }} role="tablist" aria-label="منظر التبويب الزمني">
-        <button
-          type="button" role="tab" aria-selected={view === 'events'}
-          className={view === 'events' ? 'btn pri sm' : 'btn soft sm'}
-          onClick={() => setView('events')}
-        >
-          <Icon name="calgrid" /> الأحداث ({meta.total})
-        </button>
-        <button
-          type="button" role="tab" aria-selected={view === 'list'}
-          className={view === 'list' ? 'btn pri sm' : 'btn soft sm'}
-          onClick={() => setView('list')}
-        >
-          <Icon name="cal" /> مواعيدي{appointments ? ` (${appointments.length})` : ''}
-        </button>
-      </div>
-
-      {view === 'events' ? (
-        <>
-          <TimelineToolbar filters={filters} counts={counts} statuses={statuses} />
-          <div className="card">
-            <div className="card-h">
-              <h3>الأحداث والارتباطات</h3>
-              <span className="sub">{meta.total} حدث</span>
-            </div>
-            <div className="card-b">
-              <TimelineTable events={events} />
-              <TimelinePager meta={meta} filters={filters} />
-            </div>
-          </div>
-        </>
+          }
+          filterToolbar={
+            showAdvancedFilters ? (
+              <TimelineToolbar filters={filters} counts={counts} statuses={statuses} />
+            ) : undefined
+          }
+          pager={<TimelinePager meta={meta} filters={filters} />}
+        />
       ) : (
         <Appointments appointments={appointments ?? []} />
       )}

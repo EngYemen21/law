@@ -76,9 +76,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                 <Icon name={it.icon} />
                 <span>{it.label}</span>
                 {(() => {
-                  // كل الشارات من الخادم: الإشعارات من unreadNotifications والباقي من navBadges.
-                  // كانت مشتقّة من DATA الوهمية فيرى كل عميل الأرقام نفسها مهما كان سجلّه.
-                  const badge = it.route === '/notifications' ? unreadNotifications : navBadges[it.route];
+                  // كل الشارات من الخادم عبر navBadges
+                  const badge = navBadges[it.route];
 
                   return badge ? <span className="badge">{badge}</span> : null;
                 })()}

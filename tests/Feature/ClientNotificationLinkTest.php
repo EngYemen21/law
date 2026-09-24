@@ -33,8 +33,8 @@ class ClientNotificationLinkTest extends TestCase
         $this->notify($client, 'تم تحديث التذكرة SB-2026-1042');              // → /tickets
 
         $links = collect(
-            $this->actingAs($client)->get('/notifications')
-                ->viewData('page')['props']['notifications']
+            $this->actingAs($client)->get('/tickets')
+                ->viewData('page')['props']['recentNotifications']
         )->pluck('link')->all();
 
         $this->assertSame(['/tickets', '/invoices', null], $links);
@@ -51,8 +51,8 @@ class ClientNotificationLinkTest extends TestCase
         $this->notify($client, 'صدرت فاتورة أتعاب التنفيذ لطلبك EXE-2026-0007 — بانتظار السداد.', 'card');
 
         $link = collect(
-            $this->actingAs($client)->get('/notifications')
-                ->viewData('page')['props']['notifications']
+            $this->actingAs($client)->get('/tickets')
+                ->viewData('page')['props']['recentNotifications']
         )->first()['link'];
 
         $this->assertSame('/execs', $link);
@@ -64,10 +64,52 @@ class ClientNotificationLinkTest extends TestCase
         $this->notify($client, 'تذكير بموعدك غداً', 'cal'); // نصّ فيه «موعد» → /appointments
 
         $link = collect(
-            $this->actingAs($client)->get('/notifications')
-                ->viewData('page')['props']['notifications']
+            $this->actingAs($client)->get('/tickets')
+                ->viewData('page')['props']['recentNotifications']
         )->first()['link'];
 
         $this->assertSame('/appointments', $link);
+    }
+
+    public function test_mark_all_notifications_as_read(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $this->notify($client, 'إشعار 1');
+        $this->notify($client, 'إشعار 2');
+
+        $this->assertDatabaseHas('user_notifications', ['user_id' => $client->id, 'is_read' => false]);
+
+        $response = $this->actingAs($client)->post('/notifications/read-all');
+        $response->assertStatus(302);
+
+        $this->assertDatabaseMissing('user_notifications', ['user_id' => $client->id, 'is_read' => false]);
+    }
+
+    public function test_mark_single_notification_as_read(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $this->notify($client, 'إشعار مفرد');
+
+        $notification = UserNotification::where('user_id', $client->id)->first();
+        $this->assertFalse($notification->is_read);
+
+        $response = $this->actingAs($client)->post("/notifications/{$notification->id}/read");
+        $response->assertStatus(302);
+
+        $this->assertTrue($notification->fresh()->is_read);
+    }
+
+    public function test_recent_notifications_shared_in_inertia(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $this->notify($client, 'تم تحديث التذكرة SB-2026-999');
+
+        $response = $this->actingAs($client)->get('/tickets');
+        $response->assertStatus(200);
+
+        $recent = $response->viewData('page')['props']['recentNotifications'] ?? [];
+        $this->assertNotEmpty($recent);
+        $this->assertSame('/tickets', $recent[0]['link']);
+        $this->assertFalse($recent[0]['is_read'] ?? ($recent[0]['unread'] === false));
     }
 }

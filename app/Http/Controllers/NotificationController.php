@@ -5,8 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\UserNotification;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
-use Inertia\Response;
 
 class NotificationController extends Controller
 {
@@ -36,21 +34,6 @@ class NotificationController extends Controller
         ],
     ];
 
-    // قائمة إشعارات المستخدم الحالي (مع رابط الشاشة المرتبطة بحسب دوره لجعلها قابلة للنقر)
-    public function index(Request $request): Response
-    {
-        $role = $request->user()->role->value;
-
-        $notifications = UserNotification::where('user_id', $request->user()->id)->latest('id')->get()
-            ->map(fn (UserNotification $n) => array_merge($n->toData(), [
-                'link' => self::linkFor($role, $n->body, $n->icon),
-            ]));
-
-        return Inertia::render('notifications', [
-            'notifications' => $notifications,
-        ]);
-    }
-
     // تعليم كل الإشعارات كمقروءة
     public function markAllRead(Request $request): RedirectResponse
     {
@@ -59,8 +42,18 @@ class NotificationController extends Controller
         return back();
     }
 
+    // تعليم إشعار فردي كمقروء
+    public function markAsRead(Request $request, UserNotification $notification): RedirectResponse
+    {
+        if ($notification->user_id === $request->user()->id) {
+            $notification->update(['is_read' => true]);
+        }
+
+        return back();
+    }
+
     /** رابط الشاشة المرتبطة بالإشعار لدور المشاهِد، أو null إن لم توجد شاشة مناسبة. */
-    private static function linkFor(string $role, ?string $body, ?string $icon): ?string
+    public static function linkFor(string $role, ?string $body, ?string $icon): ?string
     {
         $concept = self::conceptOf($body, $icon);
 

@@ -3,6 +3,8 @@ import React from 'react';
 import Icon from '@/lib/icons';
 import { ROLE_TITLES, panelRole } from '@/lib/data';
 
+import NotificationDropdown from '@/components/navigation/NotificationDropdown';
+
 interface TopbarProps {
   onMenuToggle: () => void;
 }
@@ -10,7 +12,6 @@ interface TopbarProps {
 const Topbar: React.FC<TopbarProps> = ({ onMenuToggle }) => {
   const { url, props } = usePage() as any;
   const user = props?.auth?.user;
-  const unread = (props?.unreadNotifications as number) ?? 0; // عدّ حقيقي من الخادم
   const path = (url as string).split('?')[0];
   // الصفحات المشتركة تُنسب للوحة دور المستخدم الفعليّ (اتّساقاً مع الشريط الجانبيّ).
   const role = panelRole(path, user?.role);
@@ -35,9 +36,7 @@ const Topbar: React.FC<TopbarProps> = ({ onMenuToggle }) => {
     [title, crumb] = ['متابعة طلب التنفيذ', titles[`${path.split('/execs')[0]}/execs`]?.[1] ?? crumb];
   }
   // الصفحات المشتركة: عنوان ثابت لكل الأدوار
-  if (path === '/notifications') {
-    [title, crumb] = ['الإشعارات', 'الحساب'];
-  } else if (path === '/profile') {
+  if (path === '/profile') {
     [title, crumb] = ['الملف الشخصي', 'الحساب'];
   }
 
@@ -53,14 +52,7 @@ const Topbar: React.FC<TopbarProps> = ({ onMenuToggle }) => {
       </div>
 
       <div className="top-actions">
-        <button
-          className="icon-btn"
-          onClick={() => router.visit('/notifications')}
-          type="button"
-        >
-          <Icon name="bell" />
-          {unread > 0 && <span className="ndot" />}
-        </button>
+        <NotificationDropdown />
 
         <div
           className="avatar"

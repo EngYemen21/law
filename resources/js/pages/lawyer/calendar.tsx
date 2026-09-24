@@ -9,7 +9,7 @@ const LawyerCalendar: React.FC<{ events: CalendarEvent[]; feedUrl?: string; webc
   <TimeTab
     {...props}
     title="التقويم والمواعيد"
-    subtitle="جلسات قضاياك، اجتماعاتك، واستشاراتك القانونية المكلّف بها — متزامنة لحظياً."
+    subtitle="جلسات قضاياك، اجتماعاتك، واستشاراتك القانونية المكلّف بها في مكان واحد منظم."
   />
 );
 

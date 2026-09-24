@@ -24,6 +24,12 @@ class CalendarController extends Controller
     public function index(Request $request): Response
     {
         $user = $request->user();
+        $isAdmin = $user->isAdmin();
+        $canCourt = $isAdmin || $user->can('إجراءات المحكمة والجلسات') || $user->can('إدارة القضايا والأتعاب');
+        $canMeetings = $isAdmin || $user->can('إدارة الاجتماعات') || $user->can('إرسال دعوات الاجتماعات');
+        $canBook = $isAdmin || $user->can('جدولة المواعيد');
+        $canManage = $isAdmin || $user->can('إدارة المواعيد والحجوزات');
+        $canVideo = $isAdmin || $user->can('إجراء الجلسات المرئية') || $user->can('استقبال الاستشارات');
 
         // نافذة زمنية: الغرض نظرة على ما هو محجوز قبل جدولة موعد، لا أرشيف المكتب كلّه.
         // الترتيب بالموعد لا بالمعرّف: مع latest('id') كان السقف يقتطع الأقدم إنشاءً — وهي
@@ -38,10 +44,10 @@ class CalendarController extends Controller
                 'kind' => 'جلسة',
                 'kindKey' => 'hearing',
                 'tone' => 'b-blue',
-                'title' => $h->title.' — قضية '.($h->legalCase?->number ?? ''),
+                'title' => $canCourt ? ($h->title.' — قضية '.($h->legalCase?->number ?? '')) : 'جلسة قضائية مجدولة لدى المستشار',
                 'day' => $h->day,
                 'time' => $h->time,
-                'where' => $h->court,
+                'where' => $canCourt ? $h->court : 'المحكمة',
                 'status' => EventStatus::forHearing($h),
                 'startsAt' => ($h->starts_at ?: MeetingTime::parse($h->day, $h->time))?->toIso8601String(),
             ]);
@@ -52,10 +58,10 @@ class CalendarController extends Controller
                 'kind' => 'اجتماع',
                 'kindKey' => 'meeting',
                 'tone' => 'b-cyan',
-                'title' => $m->title,
+                'title' => $canMeetings ? $m->title : 'اجتماع عمل مجدول',
                 'day' => $m->when_label,
                 'time' => null,
-                'where' => $m->client_name ?: 'داخلي',
+                'where' => $canMeetings ? ($m->client_name ?: 'داخلي') : 'مكتب العمل',
                 'status' => EventStatus::forMeeting($m),
                 // الخام لا المُبدَّل: `?: now()` كان يرفع اجتماعاً بلا موعد إلى وسط القائمة بدل الذيل.
                 'startsAt' => $m->starts_at?->toIso8601String(),
@@ -88,6 +94,14 @@ class CalendarController extends Controller
                 ->values(),
             'feedUrl' => $user->calendarFeedUrl(),
             'webcalUrl' => $user->calendarWebcalUrl(),
+            'can' => [
+                'book' => $canBook,
+                'manage' => $canManage,
+                'enterRoom' => $canVideo,
+                'court' => $canCourt,
+                'meetings' => $canMeetings,
+                'approve' => $isAdmin,
+            ],
         ], AppointmentBoard::data($user)));
     }
 }
