@@ -65,7 +65,11 @@ class NavPermissionSyncTest extends TestCase
             $perm = null;
             foreach ($route->gatherMiddleware() as $mw) {
                 if (is_string($mw) && str_starts_with($mw, 'permission:')) {
-                    $perm = explode(',', substr($mw, 11))[0];
+                    // **القائمة كاملةً لا أوّلها.** الوسيط `permission:أ,ب` يعني «أيّهما يكفي»،
+                    // و`Permissions::viewMap()` يخزّنها كما هي، و`canViewRoute` في الواجهة
+                    // يقسّمها على الفاصلة ويقبل أيّها. فاقتطاعُ الأوّل هنا كان يخالف الثلاثة،
+                    // ولم يظهر إلّا حين صار لمسارٍ صلاحيّتان (2026-09-24).
+                    $perm = substr($mw, 11);
                     break;
                 }
             }

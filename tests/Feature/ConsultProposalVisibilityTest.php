@@ -45,7 +45,11 @@ class ConsultProposalVisibilityTest extends TestCase
             (string) file_get_contents(resource_path('js/lib/consult-ui.tsx'))
         );
 
-        $this->assertStringContainsString('c.proposal ?', $lib);
+        // **يُفحص ما يراه المستخدم لا صيغةُ الشرط.** كان التأكيد الأوّل `'c.proposal ?'` يشترط
+        // عاملاً ثلاثيّاً بعينه، فسقط حين صارت الكتلة `{c.proposal && (…)}` — وهي صيغةٌ تعرض
+        // البانر نفسه. الشرط تفصيلٌ برمجيّ يتغيّر بلا أثرٍ على المستخدم؛ والبانر هو العقد.
+        $this->assertMatchesRegularExpression('/c\.proposal\s*(\?|&&)/u', $lib, 'البانر لم يعد مشروطاً بوجود اقتراح.');
+        $this->assertStringContainsString('موعد مقترح:', $lib, 'ضاع عنوان بطاقة الموعد المقترح.');
         $this->assertStringContainsString('بانتظار اعتماد الإدارة', $lib);
         $this->assertStringContainsString('proposalWhen(c.proposal)', $lib);
     }

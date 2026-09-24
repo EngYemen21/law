@@ -45,13 +45,18 @@ class HearingManagementTest extends TestCase
         Mail::fake();
         [$client, $lawyer, $case] = $this->lawyerAndCase();
 
+        // **تاريخٌ نسبيّ لا مثبَّت.** كان `2026-09-20` مستقبلاً يوم كُتب الاختبار، فلمّا جاوزه
+        // التقويم صار جلسةً ماضية: `nextHearingLive()` يستبعد ما فات، فتصدُق «—» ويسقط
+        // التأكيد. العطل في تقادم الاختبار لا في الكود — والنسبيّ لا يتقادم.
+        $day = now()->addDays(10)->toDateString();
+
         $this->actingAs($lawyer)->post(route('lawyer.cases.hearings.add', $case), [
-            'title' => 'الجلسة الأولى', 'day' => '2026-09-20', 'time' => '11:00', 'court' => 'الدائرة التجارية',
+            'title' => 'الجلسة الأولى', 'day' => $day, 'time' => '11:00', 'court' => 'الدائرة التجارية',
         ])->assertRedirect();
 
         $hearing = CaseHearing::where('case_id', $case->id)->firstOrFail();
         $this->assertNotNull($hearing->starts_at);
-        $this->assertSame('2026-09-20 11:00', $hearing->starts_at->format('Y-m-d H:i'));
+        $this->assertSame($day.' 11:00', $hearing->starts_at->format('Y-m-d H:i'));
         $this->assertNotSame('—', $case->fresh()->next_hearing);
         // بريد «إنشاء» للعميل والمحامي
         Mail::assertQueued(HearingEventMail::class, fn ($m) => $m->event === 'created' && $m->hasTo($client->email));

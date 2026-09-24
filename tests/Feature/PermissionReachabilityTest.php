@@ -38,13 +38,23 @@ class PermissionReachabilityTest extends TestCase
         return null;
     }
 
-    /** الصلاحيّاتُ التي يشترطها مسارٌ ما. @return array<int,string> */
+    /**
+     * الصلاحيّاتُ التي يشترطها مسارٌ ما.
+     *
+     * **الوسيط `permission:أ,ب` يعني «أيّهما يكفي»** — فتُقسَّم القائمة على الفاصلة ويُعَدّ
+     * كلٌّ منها فاتحاً للباب. وبدون التقسيم كان الحارس يقارن «أ» بالنصّ «أ,ب» فلا يتطابقان،
+     * فيُبلّغ عن منحةٍ ميّتةٍ وهي حيّة. لم يظهر إلّا حين صار لمسارَين صلاحيّتان (2026-09-24).
+     *
+     * @return array<int,string>
+     */
     private function permissionsRequiredBy(\Illuminate\Routing\Route $route): array
     {
         $out = [];
         foreach ($route->gatherMiddleware() as $m) {
             if (is_string($m) && str_starts_with($m, 'permission:')) {
-                $out[] = substr($m, 11);
+                foreach (explode(',', substr($m, 11)) as $one) {
+                    $out[] = trim($one);
+                }
             }
         }
 
@@ -67,7 +77,10 @@ class PermissionReachabilityTest extends TestCase
      * @var array<string, list<string>> الدور => صلاحيّاتٌ ممنوحةٌ لا يبلغ مساراتها
      */
     private const KNOWN_DEAD = [
-        'employee' => ['توزيع التذاكر', 'إشعارات العملاء', 'إدارة المواعيد والحجوزات'],
+        // خرجت اثنتان (2026-09-24): «إشعارات العملاء» حُذفت الصلاحيّة نفسها مع ميزتها؛
+        // و«إدارة المواعيد والحجوزات» صارت تفتح باباً فعلاً بعد أن تعلّم الحارسُ قراءةَ
+        // الصلاحيّات البديلة في الوسيط (`permission:أ,ب`) — كانت «ميّتة» في التوثيق وحده.
+        'employee' => ['توزيع التذاكر'],
         'lawyer' => ['اعتماد الاجتماعات', 'تقارير الاجتماعات'],
     ];
 

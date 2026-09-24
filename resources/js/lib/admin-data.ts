@@ -186,23 +186,6 @@ export interface PriceLogEntry { who: string; ts: number; changes: string[]; }
 // قنوات الاستشارات ونغماتها مصدرها employee-data (تستهلكها consult-ui المشتركة).
 // حُذفت من هنا نسخة ثانية متطابقة لم تكن مستوردة من أي صفحة — نفس ازدواج نغمة الاجتماعات.
 
-// ── إشعارات العملاء (CLIENT_NOTIFS demo) ──
-export interface ClientNotif { ic: string; tone: string; text: string; time: string; link?: string | null; unread: boolean; }
-export const DEMO_CLIENT_NOTIFS: Record<string, ClientNotif[]> = {
-  'عبدالله محمد العتيبي': [
-    { ic: 'cal', tone: 't-blue', text: 'اجتماع مجدول («نزاع تجاري») مع المكتب يوم الاثنين 29 يونيو 11:30 ص — تجده في قسم الاجتماعات بالمنصة.', time: 'قبل ساعة', link: null, unread: true },
-    { ic: 'doc', tone: 't-cyan', text: 'تم إرسال ملخص استشارتك المعتمد (SB-2026-1042) — اطّلع عليه في ملف التذكرة/القضية.', time: 'أمس', link: null, unread: false },
-    { ic: 'video', tone: 't-green', text: 'تم تأكيد ودفع حجز استشارتك (مرئية) ليوم الثلاثاء 30 يونيو 11:30 ص. رابط الجلسة: https://salaselbabel.net/CN-2026-1042.', time: 'أمس', link: 'https://salaselbabel.net/CN-2026-1042', unread: false },
-  ],
-  'نورة سعد الدوسري': [
-    { ic: 'folder', tone: 't-amber', text: 'المكتب يطلب استكمال مستندات استشارتك (فصل تعسفي من العمل).', time: 'قبل ساعتين', link: null, unread: true },
-  ],
-  'شركة الأفق التجارية': [
-    { ic: 'cal', tone: 't-green', text: 'اعتمدت الإدارة اجتماع («مراجعة عقد») يوم الأربعاء 01 يوليو 01:00 م ونُشر في منصتك. معرّف الاجتماع: SLS-204517.', time: 'أمس', link: 'https://salaselbabel.net/SLS-204517', unread: false },
-  ],
-  'فهد علي الشهري': [],
-};
-
 // ── أحدث النشاط في لوحة الإدارة (adHome) ──
 export const AD_ACTIVITY: [string, string, string][] = [
   ['ticket', 'تذكرة جديدة من شركة الأفق', 'قبل ساعة'],

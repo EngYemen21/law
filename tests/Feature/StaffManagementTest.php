@@ -185,17 +185,21 @@ class StaffManagementTest extends TestCase
     {
         $admin = $this->admin();
 
-        // موظف بدور employee: صلاحية محامٍ خالصة («المساعد القانوني») تُرفَض/تُقصّ
+        // موظف بدور employee: صلاحية محامٍ خالصة تُرفَض/تُقصّ.
+        //
+        // ⚠️ **بُدِّل المثال (2026-09-24):** كانت «المساعد القانوني» هي المثال، وصارت ضمن سقف
+        // الموظّف بعد إضافة محرّر الصياغة إلى مساراته (`/employee/editor`) — فلم تعد تُقصّ.
+        // والحارس يبقى حيّاً بمثالٍ ما زال خارج السقف: «سجل التدقيق الأمني» للإدارة وحدها.
         $this->actingAs($admin)->post(route('admin.staff.store'), [
             'name' => 'موظف', 'role' => 'employee', 'job_title' => 'موظف خدمة عملاء',
             'email' => 'scoped@salasel.test', 'mobile' => '0590000190', 'nid' => '1090000190',
             'payType' => 'salary', 'salary' => 6000,
-            'perms' => ['إدارة التذاكر', 'المساعد القانوني'], // الثانية خارج صلاحيات الموظف
+            'perms' => ['إدارة التذاكر', 'سجل التدقيق الأمني'], // الثانية خارج صلاحيات الموظف
         ])->assertRedirect();
 
         $u = User::where('email', 'scoped@salasel.test')->firstOrFail();
         $this->assertContains('إدارة التذاكر', $u->getPermissionNames()->all());
-        $this->assertNotContains('المساعد القانوني', $u->getPermissionNames()->all()); // قُصّت
+        $this->assertNotContains('سجل التدقيق الأمني', $u->getPermissionNames()->all()); // قُصّت
     }
 
     public function test_catalog_exposes_role_permissions(): void
