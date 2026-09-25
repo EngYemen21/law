@@ -18,6 +18,8 @@ export interface TrackGovernanceData {
   approvedTrackAt?: string | null;
   /** سبب منع رفع المقترح/الاعتماد الآن (ملخّصٌ غير معتمد) — من حارس الخادم نفسه؛ `null` = لا مانع. */
   outcomeBlocker?: string | null;
+  /** سبب التجاوز الذي دوّنه هذا المدير حين رفع المقترح — يُورَث عند الاعتماد فلا يُطلب ثانيةً. */
+  inheritedWaiver?: string | null;
 }
 
 /** أقصر سبب تجاوز يقبله الخادم (`OutcomeSummaryGate::WAIVER_MIN`). */
@@ -119,7 +121,8 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
 
   // المانع يحسبه الخادم (`OutcomeSummaryGate::blocker`) ولا يُعاد اشتقاقه هنا
   const blocker = governance?.outcomeBlocker ?? null;
-  const waiverReady = !blocker || waiver.trim().length >= WAIVER_MIN;
+  const inheritedWaiver = governance?.inheritedWaiver ?? null;
+  const waiverReady = !blocker || inheritedWaiver !== null || waiver.trim().length >= WAIVER_MIN;
 
   // Apply AI suggestion helper
   const applyAiSuggestion = () => {
@@ -302,7 +305,11 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
               <Icon name="lock" /> {blocker}
             </div>
-            {isAdmin ? (
+            {isAdmin && inheritedWaiver ? (
+              <div style={{ marginTop: 6, fontSize: 12 }}>
+                سبب التجاوز الذي دوّنتَه عند رفع المقترح يُعتمد به أيضاً: «{inheritedWaiver}»
+              </div>
+            ) : isAdmin ? (
               <div className="field" style={{ marginTop: 8, marginBottom: 0 }}>
                 <label style={{ fontSize: 12, fontWeight: 700, display: 'flex', justifyContent: 'space-between' }}>
                   <span>للإدارة العليا المضيّ دونه — سبب التجاوز (يُقيَّد في سجلّ الرحلة والتدقيق):</span>

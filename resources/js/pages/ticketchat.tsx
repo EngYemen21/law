@@ -35,15 +35,10 @@ interface TicketCard {
   caseNumber?: string | null;
   hasExecution?: boolean;
   executionNumber?: string | null;
+  /** ما نُشر للعميل من قرار المآل وحده — `Ticket::publishedTrackDecision`. */
   trackGovernance?: {
-    aiSuggestedTrack?: string | null;
-    aiSuggestedReason?: string | null;
-    proposedTrack?: string | null;
-    proposedTrackReason?: string | null;
     approvedTrack?: string | null;
     approvedTrackReason?: string | null;
-    approvedBy?: string | null;
-    approvedTrackAt?: string | null;
   };
 }
 interface ConsultLink {

@@ -181,6 +181,55 @@ class OutcomeRequiresApprovedSummaryTest extends TestCase
     }
 
     /**
+     * **سببٌ واحد لمن رفع المقترح واعتمده** (قرار المالك 2026-09-25): المدير الذي رفع المقترح
+     * متجاوزاً بسببٍ مدوَّن لا يُطالَب به ثانيةً ليعتمد مقترحه — يُورَث من سجلّ الرحلة، ويُقيَّد
+     * في سطر الاعتماد أيضاً فلا يضيع أثره.
+     */
+    public function test_the_admin_who_proposed_with_a_reason_approves_without_repeating_it(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $ticket = $this->bareTicket();
+
+        $this->actingAs($admin)
+            ->post(route('admin.tickets.track.propose', $ticket), $this->proposal([OutcomeSummaryGate::WAIVER => self::WAIVER]))
+            ->assertRedirect();
+
+        $this->actingAs($admin)
+            ->get(route('admin.tickets.show', $ticket))
+            ->assertInertia(fn ($p) => $p->where('ticket.trackGovernance.inheritedWaiver', self::WAIVER));
+
+        $this->actingAs($admin)
+            ->post(route('admin.tickets.track.approve', $ticket), $this->proposal())
+            ->assertRedirect();
+
+        $this->assertSame(TicketOutcomeTrack::Execution->value, $ticket->fresh()->approved_track, 'طُولب المدير بالسبب ثانيةً.');
+        $row = JourneyTransition::where('entity_id', $ticket->id)
+            ->where('transition', 'ticket.approve_outcome_track')->firstOrFail();
+        $this->assertSame(self::WAIVER, $row->payload[OutcomeSummaryGate::WAIVER] ?? null, 'الاعتماد بلا أثرٍ للتجاوز.');
+    }
+
+    /** **والتجاوز مسؤوليّةُ من يقرّره:** إن رفعه مديرٌ فاعتمده غيرُه، طُلب السبب من المعتمِد. */
+    public function test_another_admin_must_write_their_own_reason_to_approve(): void
+    {
+        $proposer = User::factory()->create(['role' => Role::Admin]);
+        $approver = User::factory()->create(['role' => Role::Admin]);
+        $ticket = $this->bareTicket();
+
+        $this->actingAs($proposer)
+            ->post(route('admin.tickets.track.propose', $ticket), $this->proposal([OutcomeSummaryGate::WAIVER => self::WAIVER]))
+            ->assertRedirect();
+
+        $this->actingAs($approver)
+            ->get(route('admin.tickets.show', $ticket))
+            ->assertInertia(fn ($p) => $p->where('ticket.trackGovernance.inheritedWaiver', null));
+
+        $this->actingAs($approver)
+            ->post(route('admin.tickets.track.approve', $ticket), $this->proposal())
+            ->assertStatus(422);
+        $this->assertNull($ticket->fresh()->approved_track);
+    }
+
+    /**
      * **التجاوز امتيازٌ للإدارة العليا وحدها — في المحرّك لا في المتحكّم.** متحكّما الموظّف
      * والمحامي لا يمرّران الحقل أصلاً، لكنّ أيّ منادٍ للانتقال يُردّ (403).
      */

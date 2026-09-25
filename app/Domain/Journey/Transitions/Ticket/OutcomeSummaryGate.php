@@ -2,6 +2,7 @@
 
 namespace App\Domain\Journey\Transitions\Ticket;
 
+use App\Models\JourneyTransition;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Support\Audit;
@@ -62,6 +63,34 @@ final class OutcomeSummaryGate
     }
 
     /** سبب التجاوز كما دُوِّن في الحمولة (مقصوصاً)، أو `null` إن لم يُدوَّن. */
+    /**
+     * **سببُ التجاوز الذي دوّنه المعتمِدُ نفسُه حين رفع المقترح** — فلا يُطلب منه ثانيةً (قرار المالك
+     * 2026-09-25). كان المدير الذي رفع مقترحاً بلا ملخّصٍ معتمد وكتب سببه يُطالَب بكتابته مرّةً
+     * أخرى ليعتمد مقترحه هو.
+     *
+     * ويُورَث من **سجلّ الرحلة** لا من ذاكرة الواجهة: آخرُ سطر اقتراحٍ لهذه التذكرة، ومن هذا المعتمِد
+     * نفسه، وما زال مقترحُه هو القائم (`proposed_by_id`). فإن رفعه غيرُه طُلب السبب من المعتمِد —
+     * التجاوز مسؤوليّةُ من يقرّره.
+     */
+    public static function inheritedWaiver(Ticket $ticket, ?User $approver): ?string
+    {
+        if ($approver === null || ! $approver->isAdmin() || $ticket->proposed_by_id !== $approver->id) {
+            return null;
+        }
+
+        $row = JourneyTransition::where('entity_type', 'Ticket')
+            ->where('entity_id', $ticket->id)
+            ->where('transition', (new ProposeOutcomeTrack)->name())
+            ->latest('id')
+            ->first(['actor_id', 'payload']);
+
+        if ($row === null || $row->actor_id !== $approver->id) {
+            return null;
+        }
+
+        return self::waiver((array) $row->payload);
+    }
+
     public static function waiver(array $payload): ?string
     {
         $reason = trim((string) ($payload[self::WAIVER] ?? ''));

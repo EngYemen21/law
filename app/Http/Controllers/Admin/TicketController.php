@@ -244,6 +244,12 @@ class TicketController extends Controller
             OutcomeSummaryGate::WAIVER => ['nullable', 'string', 'max:1000'],
         ]);
 
+        // من رفع المقترح متجاوزاً بسببٍ مدوَّن لا يُطالَب به ثانيةً ليعتمده — يُورَث من سجلّ الرحلة
+        // والحارس يبقى صارماً: السبب يصله في الحمولة كما لو كُتب الآن، ويُقيَّد في سطر الاعتماد
+        $data[OutcomeSummaryGate::WAIVER] = filled($data[OutcomeSummaryGate::WAIVER] ?? null)
+            ? $data[OutcomeSummaryGate::WAIVER]
+            : OutcomeSummaryGate::inheritedWaiver($ticket, $request->user());
+
         Workflow::run(new ApproveOutcomeTrack, $ticket, $request->user(), $data);
 
         $trackEnum = TicketOutcomeTrack::from($data['track']);

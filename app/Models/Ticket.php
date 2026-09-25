@@ -132,6 +132,8 @@ class Ticket extends Model
             'approvedTrackAt' => $this->approved_track_at?->format('Y-m-d H:i'),
             // سبب تعطيل رفع المقترح/الاعتماد من مصدر الحارس نفسه — لا تعيد البطاقة اشتقاقه (ث٥)
             'outcomeBlocker' => OutcomeSummaryGate::blocker($this),
+            // سبب التجاوز الذي دوّنه هذا المشاهِد حين رفع المقترح — فلا تطلبه البطاقة ثانيةً
+            'inheritedWaiver' => OutcomeSummaryGate::inheritedWaiver($this, auth()->user()),
         ];
     }
 
@@ -178,7 +180,25 @@ class Ticket extends Model
             'createdAt' => $this->created_at?->format('Y-m-d'),
             'isFrozen' => (bool) $this->is_frozen,
             'isTerminal' => $entity->isTerminal(),
-            'trackGovernance' => $this->trackGovernance(),
+            'trackGovernance' => $this->publishedTrackDecision(),
+        ];
+    }
+
+    /**
+     * **ما نُشر للعميل من قرار المآل — وحده.**
+     *
+     * كانت بطاقة العميل تحمل `trackGovernance()` كاملةً (منذ 2026-09-19): اسمَ من رفع المقترح ومن
+     * اعتمده **كاملاً** (والمحامي يراه العميل «محمد. ب» بقرار 2026-09-11)، واقتراحَ الذكاء
+     * الداخليّ وتسبيبَه، وتسبيبَ المقترح قبل الاعتماد، وموانعَ الحوكمة. وشاشة العميل لا تقرأ منها
+     * إلّا القرارَ المعتمد وتسبيبَه المنشور — «نُشر القرار والتسبيب للعميل». فالحمولة على قدر ذلك.
+     *
+     * @return array{approvedTrack: ?string, approvedTrackReason: ?string}
+     */
+    public function publishedTrackDecision(): array
+    {
+        return [
+            'approvedTrack' => $this->approved_track,
+            'approvedTrackReason' => $this->approved_track ? $this->approved_track_reason : null,
         ];
     }
 

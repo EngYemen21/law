@@ -52,6 +52,12 @@ class LawyerNameNeverLeaksTest extends TestCase
             'department' => 'القسم التجاري', 'status' => 'قيد التحليل', 'tone' => 'b-blue',
             'assigned_lawyer' => self::FULL, 'assigned_lawyer_id' => $this->lawyer->id,
         ]);
+        // قرار مآلٍ رفعه المحامي واعتُمد — كانت بطاقة العميل تحمل «من رفعه ومن اعتمده» بالاسم الكامل
+        // ضمن `trackGovernance` كلّه (رُصد 2026-09-25)
+        $ticket->forceFill([
+            'proposed_track' => 'case', 'proposed_track_reason' => 'تسبيبٌ داخليّ', 'proposed_by_id' => $this->lawyer->id,
+            'approved_track' => 'case', 'approved_track_reason' => 'التسبيب المنشور للعميل', 'approved_by_id' => $this->lawyer->id,
+        ])->saveQuietly();
 
         LegalCase::create([
             'user_id' => $this->client->id, 'ticket_id' => $ticket->id, 'number' => 'CASE-LEAK-1',
