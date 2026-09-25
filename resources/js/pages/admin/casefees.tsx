@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import Icon from '@/lib/icons';
 import Pagination, { type Paginated } from '@/components/babylon/Pagination';
 import Badge from '@/components/babylon/Badge';
+import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import { useToast } from '@/components/babylon/Toast';
 
 // أتعاب القضايا المحوّلة — بيانات حقيقية من الخادم (الإدارة تحدّد الأتعاب لتفعيل القضية)
@@ -11,6 +12,7 @@ interface CaseFee { no: string; type: string; client: string; lawyer: string; st
 interface Props { cases: Paginated<CaseFee>; }
 
 const AdminCaseFees: React.FC<Props> = ({ cases }) => {
+  const ask = useConfirm();
   const toast = useToast();
   const [vals, setVals] = useState<Record<string, { fee: string; pct: string }>>({});
 
@@ -23,7 +25,7 @@ const AdminCaseFees: React.FC<Props> = ({ cases }) => {
     return Math.round((fee * pct) / 100);
   };
 
-  const setFee = (no: string) => {
+  const setFee = async (no: string) => {
     const fee = parseInt(vals[no]?.fee || '0', 10) || 0;
     const lawyer_pct = parseInt(vals[no]?.pct || '0', 10) || 0;
     // الصفر قرارٌ صريح (قضية بلا أتعاب) لا خانةٌ فارغة — قرار المالك 2026-09-11
@@ -35,7 +37,15 @@ const AdminCaseFees: React.FC<Props> = ({ cases }) => {
       return;
     }
 
-    if (fee === 0 && !window.confirm('الأتعاب صفر: تُفعَّل القضية مباشرةً بلا أتعاب ولا فاتورة. متابعة؟')) {
+    if (
+      fee === 0 &&
+      !(await ask({
+        title: 'اعتماد أتعابٍ صفر',
+        message: 'الأتعاب صفر: تُفعَّل القضية مباشرةً بلا أتعاب ولا فاتورة.',
+        confirmLabel: 'اعتماد بلا أتعاب',
+        tone: 'danger',
+      }))
+    ) {
       return;
     }
 

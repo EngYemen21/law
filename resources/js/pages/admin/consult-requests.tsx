@@ -2,6 +2,7 @@ import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
+import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import Modal, { useBodyScrollLock } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
@@ -57,6 +58,7 @@ export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
   suggestedPrices = {},
   lawyers = [],
 }) => {
+  const ask = useConfirm();
   const toast = useToast();
 
   // State Management
@@ -418,12 +420,19 @@ return (a.total || 0) - (b.total || 0);
    * «بانتظار التسعير» وأوّلُ تسعيرٍ يقفلها. فرقمٌ خاطئ في فاتورةٍ وصلت عميلاً لم يكن
    * له مخرجٌ إلّا إلغاء الطلب كلّه.
    */
-  const handleReprice = (consult: ConsultCard) => {
+  const handleReprice = async (consult: ConsultCard) => {
     if (isProcessing) {
       return;
     }
 
-    if (!window.confirm(`ستُلغى فاتورة (${consult.ref}) ويُشعَر العميل، ويعود الطلب إلى التسعير. متابعة؟`)) {
+    const ok = await ask({
+      title: 'إعادة تسعير الطلب',
+      message: `ستُلغى فاتورة (${consult.ref}) ويُشعَر العميل، ويعود الطلب إلى التسعير.`,
+      confirmLabel: 'إلغاء الفاتورة وإعادة التسعير',
+      tone: 'danger',
+    });
+
+    if (!ok) {
       return;
     }
 

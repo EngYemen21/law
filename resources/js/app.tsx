@@ -2,6 +2,7 @@ import { createInertiaApp } from '@inertiajs/react';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import AppLayout from '@/components/layouts/AppLayout';
+import { ConfirmDialogProvider } from '@/components/babylon/ConfirmDialog';
 import { ToastProvider } from '@/components/babylon/Toast';
 import '@/lib/echo';
 
@@ -33,7 +34,10 @@ createInertiaApp({
         const root = ReactDOM.createRoot(el);
         root.render(
             <ToastProvider>
-                <App {...props} />
+                {/* نوافذ التأكيد والإدخال داخل التنبيهات: بعضها يُطلق تنبيهاً بعد التأكيد */}
+                <ConfirmDialogProvider>
+                    <App {...props} />
+                </ConfirmDialogProvider>
             </ToastProvider>
         );
     },

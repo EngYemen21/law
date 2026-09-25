@@ -1,6 +1,7 @@
 import { Link, router } from '@inertiajs/react';
 import React, { useEffect, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import { usePrompt } from '@/components/babylon/ConfirmDialog';
 import FlowLine from '@/components/babylon/FlowLine';
 import Modal from '@/components/babylon/Modal';
 import StatRow from '@/components/babylon/StatRow';
@@ -1080,6 +1081,7 @@ export const PricingAction: React.FC<{ c: ConsultCard; base: string; toast: (m: 
 export interface LawyerOpt { id: number; name: string; dept: string; }
 
 export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; isAdmin?: boolean; lawyers: LawyerOpt[] }> = ({ consult: c, base, isAdmin, lawyers }) => {
+  const askFor = usePrompt();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   /**
@@ -1130,8 +1132,16 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
 
   // كانت ترسل حمولةً فارغة، فيصل العميلَ «مستند إضافي مطلوب» بلا بيان — طلبٌ
   // يعلق به ملفّه بانتظار شيءٍ مجهول. والخادم صار يشترط النصّ.
-  const requestDocs = () => {
-    const what = window.prompt('ما المستند المطلوب من العميل؟')?.trim();
+  const requestDocs = async () => {
+    const what = (
+      await askFor({
+        title: 'طلب استكمال مستند',
+        message: 'يصل العميلَ إشعارٌ بنصّ الطلب كما تكتبه هنا — فاذكر المستند باسمه.',
+        label: 'ما المستند المطلوب من العميل؟',
+        placeholder: 'صورة السجلّ التجاريّ ساريةَ المفعول',
+        confirmLabel: 'إرسال الطلب',
+      })
+    )?.trim();
 
     if (!what) {
       return;

@@ -1,6 +1,7 @@
 import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import Modal from '@/components/babylon/Modal';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
@@ -169,6 +170,7 @@ export const ScheduleHearingCard: React.FC<{ base: string }> = ({ base }) => {
  * فيُعرض له سببُ الغياب بدل نموذجٍ يردّه الخادم. والمحامي المسنَد يبقى على الأصل (`true`).
  */
 export const RulingCard: React.FC<{ base: string; ruling?: string | null; canCorrect?: boolean; canRecord?: boolean }> = ({ base, ruling: initialRuling, canCorrect = false, canRecord = true }) => {
+  const ask = useConfirm();
   const toast = useToast();
   const [ruling, setRuling] = useState('');
   const [correcting, setCorrecting] = useState(false);
@@ -176,7 +178,7 @@ export const RulingCard: React.FC<{ base: string; ruling?: string | null; canCor
   const [reasonText, setReasonText] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const recordRuling = (e: React.FormEvent) => {
+  const recordRuling = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!ruling.trim()) {
@@ -184,7 +186,14 @@ export const RulingCard: React.FC<{ base: string; ruling?: string | null; canCor
       return;
     }
 
-    if (!window.confirm('تسجيل الحكم ينقل القضيّة إلى «صدر الحكم» ويفتح مسار الاستئناف ومهلة الاعتراض النظامية (30 يوماً). متابعة؟')) {
+    const ok = await ask({
+      title: 'تسجيل منطوق الحكم',
+      message: 'تسجيل الحكم ينقل القضيّة إلى «صدر الحكم» ويفتح مسار الاستئناف ومهلة الاعتراض النظامية (30 يوماً).',
+      confirmLabel: 'تسجيل الحكم',
+      tone: 'danger',
+    });
+
+    if (!ok) {
       return;
     }
 
@@ -492,6 +501,7 @@ export const AppealCard: React.FC<{
 
 /** تحديث الجلسات — تسجيل النتيجة، وإعادة الجدولة، والإلغاء. المغلقة والمؤرشفة لا يعرضها المُنادي. */
 export const HearingUpdatesCard: React.FC<{ base: string; hearings: Hearing[] }> = ({ base, hearings }) => {
+  const ask = useConfirm();
   const toast = useToast();
   const [editId, setEditId] = useState<number | null>(null);
   const [eh, setEh] = useState({ title: '', day: '', time: '', court: '' });
@@ -526,8 +536,16 @@ export const HearingUpdatesCard: React.FC<{ base: string; hearings: Hearing[] }>
       onError: (err) => toast(reason(err)),
     });
   };
-  const cancelHearing = (id: number) => {
-    if (!window.confirm('إلغاء الجلسة يُبلَّغ به العميل ولا يُتراجع عنه. متابعة؟')) {
+  const cancelHearing = async (id: number) => {
+    const ok = await ask({
+      title: 'إلغاء الجلسة',
+      message: 'إلغاء الجلسة يُبلَّغ به العميل ولا يُتراجع عنه.',
+      confirmLabel: 'إلغاء الجلسة',
+      cancelLabel: 'تراجع',
+      tone: 'danger',
+    });
+
+    if (!ok) {
       return;
     }
 

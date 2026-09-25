@@ -2,6 +2,7 @@ import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
+import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import { useBodyScrollLock } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 // اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
@@ -61,6 +62,7 @@ type LawyerDrawerTab = 'facts' | 'session' | 'report' | 'actions';
 export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   consults: initialConsults = [],
 }) => {
+  const ask = useConfirm();
   const toast = useToast();
 
   // ── الحالة الأساسية ومزامنة البيانات ──
@@ -252,8 +254,18 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   };
 
   // تسجيل عدم حضور العميل
-  const handleNoShow = (consult: ConsultCard) => {
-    if (!confirm('هل أنت متأكد من تسجيل عدم حضور العميل للجلسة؟')) return;
+  const handleNoShow = async (consult: ConsultCard) => {
+    const ok = await ask({
+      title: 'تسجيل عدم حضور العميل',
+      message: 'تُسجَّل الجلسة غيابَ موكّل ويُشعَر بذلك — راجع غرفة الاجتماع قبل التأكيد.',
+      confirmLabel: 'تسجيل الغياب',
+      tone: 'danger',
+    });
+
+    if (!ok) {
+      return;
+    }
+
     setIsProcessing(true);
     router.post(
       `/lawyer/consults/${consult.id}/no-show`,
@@ -295,7 +307,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   // تحويل القرارات إلى مهام
   // الاعتماد من شاشة الملفّ — لا من الصندوق وحده. ملخّصٌ بلا قيد `ai_runs` لا يبلغ
   // الصندوق أبداً، فكان يبقى محجوباً عن الموكّل مهما طال.
-  const handleApproveReport = (consult: ConsultCard) => {
+  const handleApproveReport = async (consult: ConsultCard) => {
     /*
      * **يُعتمد المحفوظ لا المعروض.** الخادم يعتمد `$consult->summary` المخزَّن،
      * والمحرّر قد يحمل تحريراً لم يُحفظ — فمن يُحرّر ثمّ يضغط «اعتماد» يُرسل إلى
@@ -309,7 +321,14 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
       return;
     }
 
-    if (!window.confirm('سيُرفع الملخّص للإدارة لاعتماده النهائيّ، ولا يُعدَّل من جهتك بعدها. متابعة؟')) {
+    const ok = await ask({
+      title: 'اعتماد الملخّص ورفعه للإدارة',
+      message: 'يُرفع الملخّص للإدارة لاعتماده النهائيّ، ولا يُعدَّل من جهتك بعدها.',
+      confirmLabel: 'اعتماد ورفع',
+      tone: 'danger',
+    });
+
+    if (!ok) {
       return;
     }
 
@@ -328,8 +347,15 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
    * فعلٌ مُدمِّر: يحذف اجتماع Zoom ويصفّر الموعد وأختام التذكير ويُشعر الموكّل.
    * فيُستأذَن قبله.
    */
-  const handleReschedule = (consult: ConsultCard) => {
-    if (!window.confirm('سيُلغى الموعد الحاليّ وغرفة Zoom، ويُطلب من الموكّل اختيار موعدٍ جديد. متابعة؟')) {
+  const handleReschedule = async (consult: ConsultCard) => {
+    const ok = await ask({
+      title: 'إعادة جدولة الجلسة',
+      message: 'يُلغى الموعد الحاليّ وغرفة Zoom، ويُطلب من الموكّل اختيار موعدٍ جديد.',
+      confirmLabel: 'إعادة الجدولة',
+      tone: 'danger',
+    });
+
+    if (!ok) {
       return;
     }
 
@@ -360,13 +386,19 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   };
 
   // تحويل الاستشارة إلى قضية تمثيل قضائي
-  const handleConvertToCase = (consult: ConsultCard) => {
+  const handleConvertToCase = async (consult: ConsultCard) => {
     if (!consult.ticketNo) {
       toast('هذه الاستشارة غير مرتبطة بتذكرة نظامية للتحويل المباشر');
       return;
     }
 
-    if (!confirm(`هل ترغب في فتح ملف التذكرة (${consult.ticketNo}) لرفع مقترح مآل القضية عبر بطاقة الحوكمة المعتمدة؟`)) {
+    const ok = await ask({
+      title: 'الانتقال إلى ملفّ التذكرة',
+      message: `يُفتح ملفّ التذكرة (${consult.ticketNo}) لرفع مقترح مآل القضية عبر بطاقة الحوكمة المعتمدة.`,
+      confirmLabel: 'فتح الملفّ',
+    });
+
+    if (!ok) {
       return;
     }
 

@@ -1,6 +1,7 @@
 import { Link, router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import { useConfirm } from '@/components/babylon/ConfirmDialog';
 // import StatRow from '@/components/babylon/StatRow'; // غير مستخدم — البطاقات تُرسم محليًا بنمط الصفحة
 import type { StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
@@ -135,6 +136,7 @@ const AdminClientDetail: React.FC<Props> = ({
   invoices,
   documents,
 }) => {
+  const ask = useConfirm();
   const toast = useToast();
 
   // نموذج التعديل
@@ -181,10 +183,20 @@ const AdminClientDetail: React.FC<Props> = ({
   };
 
   // تبديل حالة الحساب سريعاً
-  const handleToggleStatus = () => {
+  const handleToggleStatus = async () => {
     const action = status === 'active' ? 'إيقاف' : 'تفعيل';
 
-    if (!confirm(`هل أنت متأكد من ${action} حساب العميل؟`)) {
+    if (
+      !(await ask({
+        title: `${action} حساب العميل`,
+        message:
+          action === 'إيقاف'
+            ? 'يُمنع العميل من الدخول إلى حسابه فور التأكيد.'
+            : 'يستعيد العميل القدرة على الدخول إلى حسابه فور التأكيد.',
+        confirmLabel: action,
+        tone: action === 'إيقاف' ? 'danger' : 'default',
+      }))
+    ) {
       return;
     }
 

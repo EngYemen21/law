@@ -17,6 +17,7 @@ import ImageExt from '@tiptap/extension-image';
 import LinkExt from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import Icon from '@/lib/icons';
+import { useConfirm, usePrompt } from '@/components/babylon/ConfirmDialog';
 import { useToast } from '@/components/babylon/Toast';
 import { LEGAL_TEMPLATES, LegalTemplate } from '@/lib/editor-templates';
 
@@ -136,6 +137,8 @@ const LawyerEditor: React.FC<Props> = ({
   defaultHeader,
   canApprove = false,
 }) => {
+  const ask = useConfirm();
+  const askFor = usePrompt();
   const toast = useToast();
   const { url } = usePage();
   const base = (url as string).startsWith('/admin')
@@ -415,11 +418,18 @@ const LawyerEditor: React.FC<Props> = ({
     }
   };
 
-  const handleImportDraft = (item: ImportableItem) => {
+  const handleImportDraft = async (item: ImportableItem) => {
     if (!editor) return;
 
     if (editor.getText().trim().length > 10) {
-      if (!window.confirm('هل تريد استبدال محتوى المحرر الحالي بهذه المسودة المستوردة؟')) {
+      const ok = await ask({
+        title: 'استبدال محتوى المحرّر',
+        message: 'المحرّر ليس فارغاً — تحلّ المسودّة المستوردة محلّ نصّه الحاليّ.',
+        confirmLabel: 'استبدال',
+        tone: 'danger',
+      });
+
+      if (!ok) {
         return;
       }
     }
@@ -612,10 +622,17 @@ const LawyerEditor: React.FC<Props> = ({
   };
 
   // ── تطبيق قالب قانوني جاهز ──
-  const applyTemplate = (tmpl: LegalTemplate) => {
+  const applyTemplate = async (tmpl: LegalTemplate) => {
     if (!editor) return;
     if (editor.getText().trim().length > 30) {
-      if (!window.confirm('سيتم استبدال المحتوى الحالي بمحتوى القالب المحدد. هل ترغب بالمتابعة؟')) {
+      const ok = await ask({
+        title: 'تطبيق القالب',
+        message: 'المحرّر ليس فارغاً — يحلّ محتوى القالب محلّ نصّه الحاليّ.',
+        confirmLabel: 'تطبيق القالب',
+        tone: 'danger',
+      });
+
+      if (!ok) {
         return;
       }
     }
@@ -1220,8 +1237,8 @@ const LawyerEditor: React.FC<Props> = ({
           <button
             type="button"
             className="toolbar-btn"
-            onClick={() => {
-              const url = window.prompt('أدخل رابط الصورة (URL):');
+            onClick={async () => {
+              const url = await askFor({ title: 'إدراج صورة من رابط', label: 'رابط الصورة', placeholder: 'https://' });
               if (url && url.trim()) editor.chain().focus().setImage({ src: url.trim() }).run();
             }}
             title="إدراج صورة من رابط إنترنت"
@@ -1231,9 +1248,16 @@ const LawyerEditor: React.FC<Props> = ({
           <button
             type="button"
             className={`toolbar-btn ${editor.isActive('link') ? 'active' : ''}`}
-            onClick={() => {
+            onClick={async () => {
               const previousUrl = editor.getAttributes('link').href || '';
-              const href = window.prompt('أدخل رابط الموقع (URL):', previousUrl || 'https://');
+              // `required: false` عمداً: إفراغُ الحقل ثمّ التأكيد هو كيف يُلغى الرابط
+              const href = await askFor({
+                title: 'رابط الموقع',
+                label: 'الرابط',
+                message: 'أفرغ الحقل ثمّ أكّد لإلغاء الرابط الحاليّ.',
+                defaultValue: previousUrl || 'https://',
+                required: false,
+              });
               if (href === null) return;
               if (href.trim() === '') {
                 editor.chain().focus().unsetLink().run();
@@ -1328,8 +1352,8 @@ const LawyerEditor: React.FC<Props> = ({
               <button
                 type="button"
                 className="toolbar-table-btn danger"
-                onClick={() => {
-                  if (window.confirm('هل أنت متأكد من رغبتك بحذف الجدول كاملاً؟')) {
+                onClick={async () => {
+                  if (await ask({ title: 'حذف الجدول', message: 'يُحذف الجدول كاملاً بصفوفه وأعمدته.', confirmLabel: 'حذف', tone: 'danger' })) {
                     editor.chain().focus().deleteTable().run();
                   }
                 }}

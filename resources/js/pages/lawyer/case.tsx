@@ -2,6 +2,7 @@ import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
 import { AppealCard, AttachDocModal, HearingUpdatesCard, NajizFilingCard, RulingCard, ScheduleHearingCard } from '@/lib/case-court';
@@ -44,6 +45,7 @@ function docState(d: CaseDoc): [string, string] {
 }
 
 const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, pleadingBlock, pleadingDraft, canExecute, ticketDocuments = [], fileInfo = {}, fileFacts = null, readiness = [], filing = { canFile: false, canRegister: false, data: null } }) => {
+  const ask = useConfirm();
   const toast = useToast();
   const base = `/lawyer/cases/${encodeURIComponent(c.no)}`;
   const [attachOpen, setAttachOpen] = useState(false);
@@ -148,15 +150,29 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
     });
   };
   const savePleading = () => pleadingPost('pleading/save', { body: draft }, 'حُفظت المسودّة — محجوبة عن العميل حتى الاعتماد النهائيّ');
-  const regeneratePleading = () => {
-    if (!window.confirm('إعادة التوليد تُنشئ مسودّةً آليّة جديدة تحلّ محلّ النصّ في المحرّر (ويبقى ما حفظته في سجلّ المحادثة). متابعة؟')) {
+  const regeneratePleading = async () => {
+    const ok = await ask({
+      title: 'إعادة توليد اللائحة',
+      message: 'تُنشئ مسودّةً آليّة جديدة تحلّ محلّ النصّ في المحرّر — ويبقى ما حفظته في سجلّ المحادثة.',
+      confirmLabel: 'إعادة التوليد',
+      tone: 'danger',
+    });
+
+    if (!ok) {
       return;
     }
 
     pleadingPost('pleading/regenerate', {}, 'جارٍ إعادة التوليد — تظهر المسودّة في المحرّر حين تجهز', () => setRegenPending(true));
   };
-  const approvePleading = () => {
-    if (!window.confirm('الاعتماد النهائيّ يُقفل نصّ اللائحة ويُتيحه للعميل، ولا يُعدَّل بعده. ثم ارفع الصحيفة في ناجز وسجّل رقم الطلب هنا. متابعة؟')) {
+  const approvePleading = async () => {
+    const ok = await ask({
+      title: 'الاعتماد النهائيّ للائحة',
+      message: 'يُقفل نصّ اللائحة ويُتيحه للعميل، ولا يُعدَّل بعده. ثمّ ارفع الصحيفة في ناجز وسجّل رقم الطلب هنا.',
+      confirmLabel: 'اعتماد نهائيّ',
+      tone: 'danger',
+    });
+
+    if (!ok) {
       return;
     }
 

@@ -2,6 +2,7 @@ import { router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import Modal from '@/components/babylon/Modal';
+import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import { useToast } from '@/components/babylon/Toast';
 import { foldSearch, isUrgentTicket, TICKET_PRIORITIES } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
@@ -123,6 +124,7 @@ export const AdminDistribute: React.FC<Props> = ({
   departments = [],
   kpis,
 }) => {
+  const ask = useConfirm();
   const toast = useToast();
 
   // تجميع كافة الأعمال في مصفوفة موحدة
@@ -244,9 +246,16 @@ export const AdminDistribute: React.FC<Props> = ({
     );
   };
 
-  const runAuto = () => {
+  const runAuto = async () => {
     if (!unassignedTicketsCount || autoBusy) return;
-    if (!window.confirm(`سيتم توزيع ${unassignedTicketsCount} تذكرة مفتوحة تلقائياً على المستشارين حسب التخصص ومعدل الحمل. متابعة؟`)) return;
+
+    const ok = await ask({
+      title: 'التوزيع التلقائيّ للتذاكر',
+      message: `سيتم توزيع ${unassignedTicketsCount} تذكرة مفتوحة تلقائياً على المستشارين حسب التخصص ومعدل الحمل.`,
+      confirmLabel: 'توزيع الآن',
+    });
+
+    if (!ok) return;
     setAutoBusy(true);
     router.post('/admin/distribute/auto', {}, {
       preserveScroll: true,
