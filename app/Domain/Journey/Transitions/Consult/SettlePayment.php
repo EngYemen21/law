@@ -7,12 +7,12 @@ use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\Enums\TicketStatus;
 use App\Domain\Journey\Transition;
 use App\Domain\Journey\Transitions\Invoice\SettleInvoice;
+use App\Domain\Journey\Transitions\Ticket\TicketAwaitsSchedule;
 use App\Domain\Journey\Workflow;
 use App\Events\Journey\ConsultPaid;
 use App\Models\Consult;
 use App\Models\Invoice;
 use App\Models\User;
-use App\Support\TicketJourney;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -79,13 +79,12 @@ final class SettlePayment extends Transition
         Workflow::run(new SettleInvoice, $invoice, $actor, ['channel' => (string) ($payload['note'] ?? 'مدفوع')]);
 
         // سُدّدت الاستشارة ⇒ الخطوة التالية حجز الطاقم للموعد، لا حجز العميل (قرار المالك 2026-09-14)
+        // والتذكرة بانتقالها هي — كانت تُكتب هنا بلا سطرٍ في رحلتها (انظر `TicketAwaitsSchedule`)
         $ticket = $entity->ticket;
         if ($ticket !== null && $ticket->status === TicketStatus::AwaitingBooking->value) {
-            $ticket->update([
-                'status' => TicketStatus::AwaitingSchedule->value,
-                'tone' => TicketJourney::toneFor(TicketStatus::AwaitingSchedule->value),
-                'last_message' => 'سُدّدت الاستشارة — يُحدَّد موعد الجلسة مع المستشار المختص.',
-                'date_label' => 'الآن',
+            Workflow::run(new TicketAwaitsSchedule, $ticket, $actor, [
+                'message' => 'سُدّدت الاستشارة — يُحدَّد موعد الجلسة مع المستشار المختص.',
+                'consult_ref' => $entity->ref,
             ]);
         }
     }

@@ -5,13 +5,13 @@ namespace App\Domain\Journey\Transitions\Consult;
 use App\Domain\Journey\Enums\AppointmentStatus;
 use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\InvoiceStatus;
-use App\Domain\Journey\Enums\TicketStatus;
 use App\Domain\Journey\Transition;
+use App\Domain\Journey\Transitions\Ticket\TicketBookingWithdrawn;
+use App\Domain\Journey\Workflow;
 use App\Events\Journey\ConsultCancelled;
 use App\Models\Consult;
 use App\Models\Invoice;
 use App\Models\User;
-use App\Support\TicketJourney;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -71,23 +71,24 @@ final class CancelRequest extends Transition
 
         $appointment = $entity->appointment;
         if ($appointment !== null && $appointment->status === AppointmentStatus::PendingApproval->value) {
-            $appointment->update(['status' => AppointmentStatus::Cancelled->value, 'tone' => 'b-grey', 'when_kind' => 'past']);
+            $appointment->update([
+                'status' => AppointmentStatus::Cancelled->value, 'tone' => 'b-grey', 'when_kind' => 'past',
+                // الموعد الملغى يحمل ذاكرته كما في إعادة الجدولة
+                'consult_id' => $entity->getKey(), 'cancelled_at' => now(),
+                'cancel_reason' => 'أُلغي طلب الاستشارة'.($reason !== '' ? ' — '.$reason : ''),
+            ]);
         }
 
         $ticket = $entity->ticket;
         if ($ticket === null
-            || ! in_array($ticket->status, [TicketStatus::AwaitingBooking->value, TicketStatus::AwaitingSchedule->value], true)
+            || ! (new TicketBookingWithdrawn)->accepts((string) $ticket->status)
             || $ticket->consults()->whereKeyNot($entity->id)->whereNotIn('status', [ConsultStatus::Cancelled->value, ConsultStatus::Ended->value])->exists()
             || ! $ticket->summary?->isApproved()) {
             return;
         }
 
-        $ticket->update([
-            'status' => TicketStatus::LegalOpinion->value,
-            'tone' => TicketJourney::toneFor(TicketStatus::LegalOpinion->value),
-            'last_message' => 'أُلغي طلب الاستشارة — يمكن طلب استشارة جديدة.',
-            'date_label' => 'الآن',
-        ]);
+        // والتذكرة بانتقالها هي — كانت تُكتب هنا بلا سطرٍ في رحلتها
+        Workflow::run(new TicketBookingWithdrawn, $ticket, $actor, ['consult_ref' => $entity->ref]);
     }
 
     public function events(Model $entity, string $from, ?User $actor, array $payload): array
@@ -97,4 +98,3 @@ final class CancelRequest extends Transition
         return [new ConsultCancelled($entity, $from, $actor->name ?? 'النظام', $reason !== '' ? $reason : null)];
     }
 }
-

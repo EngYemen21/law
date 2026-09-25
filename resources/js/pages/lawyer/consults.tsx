@@ -7,6 +7,7 @@ import { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 // اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
 import { maskClient } from '@/lib/employee-data';
+import { useConsultReschedule } from '@/lib/consult-reschedule';
 import { RichText, SummaryStateBadge } from '@/lib/consult-ui';
 import type { ConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
@@ -63,6 +64,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   consults: initialConsults = [],
 }) => {
   const ask = useConfirm();
+  const reschedule = useConsultReschedule('/lawyer');
   const toast = useToast();
 
   // ── الحالة الأساسية ومزامنة البيانات ──
@@ -335,34 +337,10 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   };
 
   /**
-   * إعادة الجدولة — مسارُ إنقاذ الفائتة.
-   *
-   * فعلٌ مُدمِّر: يحذف اجتماع Zoom ويصفّر الموعد وأختام التذكير ويُشعر الموكّل.
-   * فيُستأذَن قبله.
+   * إعادة الجدولة — مسارُ إنقاذ الفائتة. فعلٌ مُدمِّر (يُلغي الموعد واجتماع Zoom)، فيُستأذَن
+   * قبله بسببٍ إلزاميّ. والطلب والنافذة والنصّ من مسارها الواحد `useConsultReschedule`.
    */
-  const handleReschedule = async (consult: ConsultCard) => {
-    const ok = await ask({
-      title: 'إعادة جدولة الجلسة',
-      message: 'يُلغى الموعد الحاليّ وغرفة Zoom، ويُطلب من الموكّل اختيار موعدٍ جديد.',
-      confirmLabel: 'إعادة الجدولة',
-      tone: 'danger',
-    });
-
-    if (!ok) {
-      return;
-    }
-
-    setIsProcessing(true);
-    router.post(`/lawyer/consults/${consult.id}/reschedule`, {}, {
-      preserveScroll: true,
-      onSuccess: () => {
-        toast('أُعيدت الجدولة — الموكّل يختار موعداً جديداً');
-        closeDrawer();
-      },
-      onError: (errors) => toast(Object.values(errors)[0] || 'تعذّرت إعادة الجدولة'),
-      onFinish: () => setIsProcessing(false),
-    });
-  };
+  const handleReschedule = (consult: ConsultCard) => reschedule.open(consult, closeDrawer);
 
   const handleCreateTasks = (consult: ConsultCard) => {
     setIsProcessing(true);
@@ -402,6 +380,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
 
   return (
     <div className="lawyer-consults-wrap" dir="rtl">
+      {reschedule.dialog}
       {/* ── 1. ترويسة الصفحة ── */}
       <div className="lawyer-header">
         <div>

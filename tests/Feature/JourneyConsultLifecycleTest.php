@@ -3,13 +3,17 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
+use App\Models\Appointment;
+use App\Models\AuditLog;
 use App\Models\Consult;
 use App\Models\Invoice;
 use App\Models\JourneyTransition;
+use App\Models\Meeting;
 use App\Models\Ticket;
 use App\Models\TicketSummary;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Support\LawyerAvailability;
 use App\Support\PaymentReconciler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
@@ -189,7 +193,7 @@ class JourneyConsultLifecycleTest extends TestCase
             'starts_at' => now(), 'when_label' => 'اليوم',
         ]);
 
-        $this->actingAs($this->admin)->post("/admin/consults/{$consult->id}/reschedule")->assertStatus(422);
+        $this->actingAs($this->admin)->post("/admin/consults/{$consult->id}/reschedule", ['reason' => 'client_request'])->assertStatus(422);
 
         $this->assertSame('98765', $consult->fresh()->meet_id, 'اجتماع Zoom القائم لا يُحذف');
         $this->assertSame('جلسة جارية', $consult->fresh()->session);
@@ -314,7 +318,7 @@ class JourneyConsultLifecycleTest extends TestCase
         $this->assertStringContainsString('طلب العميل الإلغاء — تعذر التنسيق', $audit[0]['after']);
 
         // سجل التدقيق العام
-        $auditLog = \App\Models\AuditLog::where('auditable_id', $consult->id)->latest('id')->first();
+        $auditLog = AuditLog::where('auditable_id', $consult->id)->latest('id')->first();
         $this->assertNotNull($auditLog);
         $this->assertStringContainsString('طلب العميل الإلغاء — تعذر التنسيق', $auditLog->description);
     }
@@ -334,12 +338,12 @@ class JourneyConsultLifecycleTest extends TestCase
             ->assertRedirect();
 
         // إشعار العميل
-        $clientNotif = \App\Models\UserNotification::where('user_id', $consult->user_id)->latest('id')->first();
+        $clientNotif = UserNotification::where('user_id', $consult->user_id)->latest('id')->first();
         $this->assertNotNull($clientNotif);
         $this->assertStringContainsString('بيانات الطلب غير مكتملة', $clientNotif->body);
 
         // إشعار المحامي المسند
-        $lawyerNotif = \App\Models\UserNotification::where('user_id', $lawyer->id)->latest('id')->first();
+        $lawyerNotif = UserNotification::where('user_id', $lawyer->id)->latest('id')->first();
         $this->assertNotNull($lawyerNotif);
         $this->assertStringContainsString('بيانات الطلب غير مكتملة', $lawyerNotif->body);
         $this->assertStringContainsString($consult->ref, $lawyerNotif->body);
@@ -383,7 +387,7 @@ class JourneyConsultLifecycleTest extends TestCase
         $startsAt = now()->addDay()->setTime(10, 0);
 
         // موعد ملغي
-        \App\Models\Appointment::create([
+        Appointment::create([
             'user_id' => $this->client->id,
             'ext_id' => 'AP-FREE-'.uniqid(),
             'lawyer_id' => $lawyer->id,
@@ -409,7 +413,7 @@ class JourneyConsultLifecycleTest extends TestCase
         ]);
 
         // اجتماع ملغى
-        \App\Models\Meeting::create([
+        Meeting::create([
             'ref' => 'M-FREE-'.uniqid(),
             'assigned_lawyer_id' => $lawyer->id,
             'starts_at' => $startsAt->copy()->setTime(14, 0),
@@ -420,11 +424,7 @@ class JourneyConsultLifecycleTest extends TestCase
             'when_label' => 'غداً',
         ]);
 
-        $busy = \App\Support\LawyerAvailability::busyIntervals($lawyer->id, $startsAt->toDateString());
+        $busy = LawyerAvailability::busyIntervals($lawyer->id, $startsAt->toDateString());
         $this->assertEmpty($busy, 'المواعيد والاستشارات والاجتماعات الملغاة لا تحجز فترات انشغال للمحامي');
     }
 }
-
-
-
-

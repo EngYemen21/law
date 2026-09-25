@@ -7,6 +7,7 @@ import Modal from '@/components/babylon/Modal';
 import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
+import { useConsultReschedule } from '@/lib/consult-reschedule';
 import { echo } from '@/lib/echo';
 import {
   CONSULT_CHANNELS, CONSULT_FLOW, CONSULT_BOOKING_FLOW, CONSULT_BOOKING_STATUSES,
@@ -50,6 +51,10 @@ export interface ConsultCard {
   slink: string;
   canJoin?: boolean; // زر الدخول مفعّل؟ (بعد إطلاق الرابط قبل الموعد بـ5د)
   missed?: boolean; // فات موعدها بلا جلسة (يشتقه الخادم)
+  /** كم مرّة أُعيدت جدولتها — السقف في `reschedule.limit` المشترك من الخادم. */
+  rescheduleCount?: number;
+  /** طلب العميل تغيير الموعد، معلّقٌ حتى يُعاد جدولتها أو يُرفض. */
+  rescheduleRequest?: { at: string; note: string | null } | null;
   startable?: boolean; // «بدء الجلسة» ضمن نافذة الموعد فقط (يشتقه الخادم — بطاقة المكتب)
   startsAt?: string | null;
   hostLink: string | null; // رابط مضيف Zoom (للمكتب)
@@ -583,6 +588,7 @@ export const SummaryModal: React.FC<{
 // ============================================================
 
 export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }> = ({ consults, base }) => {
+  const rescheduleFlow = useConsultReschedule(base);
   const toast = useToast();
   const [filter, setFilter] = useState('all');
   const [summaryOf, setSummaryOf] = useState<ConsultCard | null>(null);
@@ -716,13 +722,8 @@ counts[c.channel]++;
     });
   };
 
-  const reschedule = (c: ConsultCard) => {
-    router.post(`${base}/consults/${c.id}/reschedule`, {}, {
-      preserveScroll: true,
-      onSuccess: () => toast('أُعيدت الاستشارة لاختيار موعد جديد وأُشعر العميل'),
-      onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر إعادة الجدولة'}`),
-    });
-  };
+  // كانت تُرسل الطلب **بلا تأكيد**: ضغطةٌ واحدة تُلغي الموعد واجتماع Zoom. صارت من مسارها الواحد.
+  const reschedule = (c: ConsultCard) => rescheduleFlow.open(c);
 
   const copyLink = (c: ConsultCard) => {
     if (navigator.clipboard) {
@@ -737,6 +738,7 @@ void navigator.clipboard.writeText(c.slink);
 
   return (
     <>
+      {rescheduleFlow.dialog}
       <div className="greet">
         <h2>استقبال الاستشارات</h2>
         <p>تكملة رحلة الاستشارة: استقبال الجلسات حسب القناة — مرئية (فيديو) / حضورية / هاتفية — حتى كتابة الملخص.</p>

@@ -15,10 +15,13 @@ class Appointment extends Model
     protected $fillable = [
         'user_id', 'ticket_id', 'ext_id', 'type', 'ico', 'lawyer', 'lawyer_id', 'day', 'time',
         'starts_at', 'duration_min', 'place', 'status', 'tone', 'when_kind',
+        // ذاكرةُ إعادة الجدولة: الموعد الملغى يبقى مرتبطاً باستشارته بسببه ووقت إلغائه
+        'consult_id', 'cancelled_at', 'cancel_reason',
     ];
 
     protected $casts = [
         'starts_at' => 'datetime',
+        'cancelled_at' => 'datetime',
     ];
 
     /** ربط الراوت برقم العمل (ext_id) لا المعرّف الداخلي — يطابق نمط LegalCase/Invoice. */
@@ -136,6 +139,7 @@ class Appointment extends Model
             'consultRef' => $this->consult?->ref,
             // جسر إجراءات لوحة المواعيد: إعادة الجدولة/«لم يحضر» تمرّان عبر الاستشارة المرافقة
             'consultId' => $this->consult?->id,
+            'consultRescheduleCount' => (int) ($this->consult?->reschedule_count ?? 0),
             'pay' => $this->consult?->paid_at ? 'مدفوع' : 'بانتظار السداد',
             // رابط الجلسة المرئية الحقيقي داخل المنصّة — فارغ لغير المرئية أو لفاقدي صلاحية الحضور (يُخفى الزرّ)
             // canJoin + فحص الصلاحية شرطان لازمان: بلا الحكمين كان الزرّ يظهر ويردّ الخادم 403

@@ -3,6 +3,7 @@
 namespace App\Events\Journey;
 
 use App\Models\Consult;
+use App\Models\User;
 use Illuminate\Foundation\Events\Dispatchable;
 
 final class ConsultRescheduled
@@ -13,7 +14,9 @@ final class ConsultRescheduled
         public readonly Consult $consult,
         public readonly string $oldWhen,
         public readonly ?string $oldMeetId,
-        public readonly string $actorName,
+        // الفاعل نفسه لا اسمه: المستمع يستثنيه من التنبيه، ولا يُعرف «من فعل» من اسمٍ نصّيّ
+        public readonly ?User $actor,
         public readonly bool $ticketReverted,
+        public readonly string $reason,
     ) {}
 }

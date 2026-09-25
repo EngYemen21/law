@@ -6,6 +6,8 @@ use App\Domain\Journey\Enums\AppointmentStatus;
 use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\TicketStatus;
 use App\Domain\Journey\Transition;
+use App\Domain\Journey\Transitions\Ticket\TicketScheduled;
+use App\Domain\Journey\Workflow;
 use App\Events\Journey\AppointmentPublished;
 use App\Models\Appointment;
 use App\Models\Consult;
@@ -14,7 +16,6 @@ use App\Models\User;
 use App\Services\LegalAiService;
 use App\Support\AppointmentCard;
 use App\Support\ConsultBooking;
-use App\Support\TicketJourney;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -46,8 +47,18 @@ final class PublishAppointment extends Transition
         return [ConsultStatus::AwaitingSchedule->value, ConsultStatus::AwaitingAppointmentApproval->value];
     }
 
+    /**
+     * **الاستشارة تعود إلى حيث كانت.** أوّلُ موعدٍ يفتحها «جديدة»؛ أمّا الموعد التالي لإعادة
+     * جدولةٍ فيُعيدها إلى حالة فرزها المحفوظة (`resume_status`) — كانت «محالة للمحامي» تعود
+     * «جديدة» فيُعاد فرزها من أوّله.
+     */
     public function to(Model $entity, array $payload): string
     {
+        $resume = ConsultStatus::tryFrom((string) $entity->resume_status);
+        if ($resume !== null) {
+            return $resume->value;
+        }
+
         return ConsultStatus::New->value;
     }
 
@@ -98,6 +109,9 @@ final class PublishAppointment extends Transition
             'when_kind' => 'up',
         ];
 
+        // `consult_id` صلةٌ ثابتة: تبقى على الموعد بعد إلغائه، فتُقرأ منها سلسلة مواعيد الاستشارة
+        $values['consult_id'] = $entity->getKey();
+
         if ($appointment !== null) {
             $appointment->update($values);
         } else {
@@ -119,6 +133,7 @@ final class PublishAppointment extends Transition
             'meet_link' => $zoom['join_url'] ?? null,
             'host_link' => $zoom['start_url'] ?? null,
             'meet_password' => $zoom['password'] ?? null,
+            'resume_status' => null, // قُضيت: `to()` قرأها قبل الكتابة
         ]);
         $entity->logAudit(
             $actor->name ?? 'النظام',
@@ -141,13 +156,14 @@ final class PublishAppointment extends Transition
             'time_label' => now()->format('h:i').' '.(now()->hour < 12 ? 'ص' : 'م'),
         ]);
 
-        $ticket->update([
-            'status' => TicketStatus::Scheduled->value,
-            'tone' => TicketJourney::toneFor(TicketStatus::Scheduled->value),
-            'last_message' => 'تم تأكيد موعد الاستشارة: '.$payload['day'].' · '.$payload['time'],
-            'date_label' => 'الآن',
-        ]);
-        $this->ticketMoved = true;
+        // التذكرة تتحرّك بانتقالها هي فيُسجَّل لها سطرٌ في رحلتها — انظر `TicketScheduled`
+        if ((new TicketScheduled)->accepts((string) $ticket->status)) {
+            Workflow::run(new TicketScheduled, $ticket, $actor, [
+                'message' => 'تم تأكيد موعد الاستشارة: '.$payload['day'].' · '.$payload['time'],
+                'consult_ref' => $entity->ref,
+            ]);
+            $this->ticketMoved = true;
+        }
     }
 
     public function events(Model $entity, string $from, ?User $actor, array $payload): array

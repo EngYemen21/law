@@ -112,7 +112,7 @@ class ConsultTerminalStateTest extends TestCase
         [$consult, $lawyer, $client] = $this->terminal($status);
 
         $this->actingAs($lawyer)
-            ->post("/lawyer/consults/{$consult->id}/reschedule")
+            ->post("/lawyer/consults/{$consult->id}/reschedule", ['reason' => 'client_absent'])
             ->assertStatus(422);
 
         $this->assertSame($status, $consult->fresh()->status);
@@ -134,7 +134,7 @@ class ConsultTerminalStateTest extends TestCase
             ->assertRedirect();
 
         $this->actingAs($lawyer)
-            ->post("/lawyer/consults/{$consult->id}/reschedule")
+            ->post("/lawyer/consults/{$consult->id}/reschedule", ['reason' => 'client_absent'])
             ->assertRedirect();
 
         $this->assertSame('بانتظار تحديد الموعد', $consult->fresh()->status, 'تعود لاختيار موعد');

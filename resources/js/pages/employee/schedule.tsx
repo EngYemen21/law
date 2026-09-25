@@ -7,6 +7,7 @@ import type {StatItem} from '@/components/babylon/StatRow';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { todayISO } from '@/components/SpecialistPicker';
+import { useConsultReschedule } from '@/lib/consult-reschedule';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
@@ -54,6 +55,7 @@ export interface AppointmentItem {
   client?: string;
   consultRef?: string;
   consultId?: number;
+  consultRescheduleCount?: number;
   pay?: string;
   joinLink?: string;
   rawStartsAt?: string | null;
@@ -146,6 +148,7 @@ const EmployeeSchedule: React.FC<Props> = ({
   can,
 }) => {
   const toast = useToast();
+  const reschedule = useConsultReschedule(apiBase());
   const userCan = useCan();
   const mask = useMasker();
   const isSuper = window.location.pathname.startsWith('/admin');
@@ -515,6 +518,7 @@ return lawyers;
 
   return (
     <>
+      {reschedule.dialog}
       {/* ── الترويسة الرئيسية والإجراءات السريعة ── */}
       <div className="greet" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 14 }}>
         <div>
@@ -1588,13 +1592,13 @@ return lawyers;
                   className="btn soft sm"
                   type="button"
                   style={{ flex: 1 }}
-                  onClick={() => router.post(`${apiBase()}/consults/${selectedAppt.consultId}/reschedule`, {}, {
-                    preserveScroll: true,
-                    onSuccess: () => {
-                      toast('أُلغي الموعد وطُلب من العميل اختيار موعد جديد'); setSelectedAppt(null); 
-                    },
-                    onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّرت إعادة الجدولة')),
-                  })}
+                  // كانت تُرسل بلا تأكيد، وتقول «طُلب من العميل اختيار موعد» والعميل لا يختاره
+                  onClick={() => reschedule.open({
+                    id: selectedAppt.consultId as number,
+                    ref: selectedAppt.consultRef ?? '',
+                    channel: selectedAppt.channel,
+                    rescheduleCount: selectedAppt.consultRescheduleCount,
+                  }, () => setSelectedAppt(null))}
                 >
                   <Icon name="cal" /> إعادة جدولة الموعد
                 </button>

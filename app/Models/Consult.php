@@ -11,6 +11,7 @@ use App\Support\LawyerName;
 use App\Support\RecordingArchive;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
@@ -168,6 +169,9 @@ class Consult extends Model
         'join_time' => 'datetime',
         'leave_time' => 'datetime',
         'zoom_summary_at' => 'datetime',
+        // ذاكرةُ إعادة الجدولة — خارج `$fillable` عمداً: لا يكتبها إلّا الانتقال وطلب العميل
+        'reschedule_count' => 'integer',
+        'reschedule_requested_at' => 'datetime',
     ];
 
     /**
@@ -223,6 +227,17 @@ class Consult extends Model
     public function appointment(): BelongsTo
     {
         return $this->belongsTo(Appointment::class);
+    }
+
+    /**
+     * **كلّ مواعيد الاستشارة، الملغاة منها أيضاً** — الأحدث أوّلاً.
+     *
+     * `appointment()` الموعد الحاليّ وحده، ويُستبدل عند كلّ حجز؛ فكانت الإعادة تمحو أثر ما
+     * قبلها. هذه السلسلة من `appointments.consult_id` الثابت.
+     */
+    public function appointments(): HasMany
+    {
+        return $this->hasMany(Appointment::class)->latest('id');
     }
 
     /**
@@ -472,6 +487,12 @@ class Consult extends Model
             'hostLink' => $this->channel === 'مرئية' ? ($this->host_link ?: null) : null,
             'session' => $this->session,
             'missed' => $this->isMissed(), // فات موعدها بلا جلسة — تبويب «فائتة» وإجراءا لم يحضر/إعادة الجدولة
+            // ذاكرة إعادة الجدولة: كم مرّة أُعيدت (السقف في `reschedule.limit` المشترك)، وطلب العميل المعلّق
+            'rescheduleCount' => (int) $this->reschedule_count,
+            'rescheduleRequest' => $this->reschedule_requested_at === null ? null : [
+                'at' => $this->reschedule_requested_at->toIso8601String(),
+                'note' => $this->reschedule_request_note,
+            ],
             'startable' => $this->isStartable(),
             'startsAt' => $this->starts_at?->toIso8601String(),
             // اقتراح الموظّف بانتظار اعتماد الإدارة — تعرضه شاشة الطلبات لتعتمده أو تعدّله

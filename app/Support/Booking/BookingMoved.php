@@ -55,7 +55,7 @@ class BookingMoved
 
     private static function rearm(Model $entity): void
     {
-        $attrs = self::rearmAttributes($entity);
+        $attrs = self::markers($entity);
 
         if ($attrs !== []) {
             $entity->forceFill($attrs)->saveQuietly();
@@ -123,15 +123,17 @@ class BookingMoved
     /**
      * أختام التذكير وإطلاق الرابط — تُصفَّر ليُعاد احتسابها للموعد الجديد.
      *
+     * **عامّةٌ عمداً:** هي المصدر الوحيد لـ«أيّ الأختام تتبع الموعد». `RescheduleConsult` يدمجها
+     * في كتابته داخل المعاملة، وكانت قبلها تُكتب هناك نسخةً ثانية، و`updateHearing` نسخةً ثالثة.
+     *
      * @return array<string,mixed>
      */
-    private static function rearmAttributes(Model $entity): array
+    public static function markers(Model $entity): array
     {
         return match (true) {
             $entity instanceof Consult => [
-                // الموضع **الوحيد** الذي يُصفَّر فيه هذا العمود في المشروع كان
-                // `Staff\ConsultController::reschedule`. وأيّ مسارٍ آخر يُحرّك الوقت
-                // بلا تصفيره يُقصي الصفّ من `zoom:release-links` بلا رجعة.
+                // وأيّ مسارٍ يُحرّك الوقت بلا تصفير هذا الختم يُقصي الصفّ من
+                // `zoom:release-links` بلا رجعة — فلا يصل الموعدَ الجديد رابطٌ ولا بريده.
                 'link_released_at' => null,
                 'reminder_24h_sent_at' => null,
                 'reminder_30m_sent_at' => null,

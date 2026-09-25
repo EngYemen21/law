@@ -130,7 +130,7 @@ class BookingZoomSyncTest extends TestCase
             'link_released_at' => now(), 'reminder_24h_sent_at' => now(),
         ]);
 
-        $this->actingAs($admin)->post("/admin/consults/{$consult->id}/reschedule")->assertRedirect();
+        $this->actingAs($admin)->post("/admin/consults/{$consult->id}/reschedule", ['reason' => 'client_request'])->assertRedirect();
 
         Http::assertSent(fn ($r) => $r->method() === 'DELETE' && str_contains($r->url(), '/meetings/9333'));
 

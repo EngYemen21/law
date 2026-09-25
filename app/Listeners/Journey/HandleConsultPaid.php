@@ -9,6 +9,7 @@ use App\Events\TicketStatusBroadcast;
 use App\Mail\ConsultPaidMail;
 use App\Models\User;
 use App\Services\MailService;
+use App\Support\Booking\BookingStaff;
 use App\Support\Live;
 use App\Support\Notify;
 
@@ -31,8 +32,9 @@ final class HandleConsultPaid
             Notify::send($admin->id, 'card', 't-green', "تمّت عملية دفع استشارة {$consult->ref} بمبلغ {$consult->total} ر.س من العميل.");
         }
 
-        // **الحجز بيد الطاقم** — من يملك «جدولة المواعيد» يُنبَّه لحجز الموعد
-        foreach (User::where('role', Role::Employee)->get()->filter(fn (User $u) => $u->can('جدولة المواعيد')) as $employee) {
+        // **الحجز بيد الطاقم** — والموظّفون الذين يحجزون من مصدرهم الواحد `BookingStaff`.
+        // الإدارة أُبلغت بالسداد أعلاه، فالتنبيه بالحجز هنا للموظّفين وحدهم كما كان.
+        foreach (BookingStaff::recipients()->reject(fn (User $u) => $u->isAdmin()) as $employee) {
             Notify::send($employee->id, 'cal', 't-amber', "الاستشارة ({$consult->ref}) سُدّدت — احجز موعد جلستها ليُعتمد ويُرسل للعميل.");
         }
 

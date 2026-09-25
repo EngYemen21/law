@@ -85,7 +85,7 @@ class ConsultNoShowRescheduleTest extends TestCase
             'meet_password' => 'pw', 'link_released_at' => now()->subHours(4),
         ]);
 
-        $this->actingAs($employee)->post(route('employee.consults.reschedule', $consult))->assertRedirect();
+        $this->actingAs($employee)->post(route('employee.consults.reschedule', $consult), ['reason' => 'client_absent'])->assertRedirect();
 
         $consult->refresh();
         // تعود لمرحلة اختيار الموعد ضمن دورة الحجز المدفوعة
@@ -107,10 +107,10 @@ class ConsultNoShowRescheduleTest extends TestCase
         $employee = User::factory()->create(['role' => Role::Employee]);
 
         $ended = $this->consult($client, ['session' => 'منتهية', 'status' => 'منتهية']);
-        $this->actingAs($employee)->post(route('employee.consults.reschedule', $ended))->assertStatus(422);
+        $this->actingAs($employee)->post(route('employee.consults.reschedule', $ended), ['reason' => 'client_request'])->assertStatus(422);
 
         $preSession = $this->consult($client, ['status' => 'بانتظار التسعير']);
-        $this->actingAs($employee)->post(route('employee.consults.reschedule', $preSession))->assertStatus(422);
+        $this->actingAs($employee)->post(route('employee.consults.reschedule', $preSession), ['reason' => 'client_request'])->assertStatus(422);
     }
 
     public function test_lawyer_and_admin_routes_share_the_cycle_with_guards(): void
@@ -127,7 +127,7 @@ class ConsultNoShowRescheduleTest extends TestCase
         // المحامي المسنَد يسم «لم يحضر»، والإدارة تعيد الجدولة
         $this->actingAs($lawyerA)->post(route('lawyer.consults.noshow', $foreign))->assertRedirect();
         $this->assertSame('لم يحضر', $foreign->fresh()->status);
-        $this->actingAs($admin)->post(route('admin.consults.reschedule', $foreign))->assertRedirect();
+        $this->actingAs($admin)->post(route('admin.consults.reschedule', $foreign), ['reason' => 'client_request'])->assertRedirect();
         $this->assertSame('بانتظار تحديد الموعد', $foreign->fresh()->status);
     }
 }

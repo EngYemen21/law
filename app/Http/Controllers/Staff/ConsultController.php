@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Staff;
 
+use App\Domain\Journey\Enums\RescheduleReason;
 use App\Domain\Journey\TransitionDenied;
 use App\Domain\Journey\Transitions\Consult\AnalyzeConsult;
 use App\Domain\Journey\Transitions\Consult\ApproveConsultAnalysis;
@@ -664,8 +665,15 @@ class ConsultController extends Controller
     {
         $this->guardConsult($request, $consult);
 
-        // لا إعادة جدولة أثناء جلسةٍ منعقدة (ع١٥)؛ وحذف اجتماع Zoom بعد الالتزام — انظر `RescheduleConsult`.
-        Workflow::run(new RescheduleConsult, $consult, $request->user());
+        // السبب إلزاميّ من قائمةٍ مغلقة (قرار المالك 2026-09-25) — والحرّاس كلّها في `RescheduleConsult`
+        $data = $request->validate(RescheduleReason::rules('consult'));
+        $reason = RescheduleReason::from($data['reason']);
+
+        Workflow::run(new RescheduleConsult, $consult, $request->user(), [
+            'reason_code' => $reason->value,
+            'note' => $data['note'] ?? null,
+            'reason' => $reason->describe($data['note'] ?? null),
+        ]);
 
         return back();
     }

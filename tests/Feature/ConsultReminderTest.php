@@ -158,7 +158,7 @@ class ConsultReminderTest extends TestCase
 
         $employee = User::factory()->create(['role' => Role::Employee]);
 
-        $this->actingAs($employee)->post(route('employee.consults.reschedule', $consult));
+        $this->actingAs($employee)->post(route('employee.consults.reschedule', $consult), ['reason' => 'client_request']);
 
         $fresh = $consult->fresh();
         $this->assertNull($fresh->reminder_24h_sent_at, 'ختم 24 ساعة بقي بعد إعادة الجدولة.');

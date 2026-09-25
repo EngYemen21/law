@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class CaseHearing extends Model
 {
     protected $fillable = [
-        'case_id', 'title', 'day', 'time', 'court', 'status', 'outcome',
+        'case_id', 'postponed_from_id', 'title', 'day', 'time', 'court', 'status', 'outcome',
         'starts_at', 'reminder_24h_sent_at', 'reminder_1h_sent_at',
     ];
 

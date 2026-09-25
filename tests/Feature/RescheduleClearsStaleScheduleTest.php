@@ -49,7 +49,7 @@ class RescheduleClearsStaleScheduleTest extends TestCase
     private function reschedule(Consult $consult): Consult
     {
         $admin = User::factory()->create(['role' => Role::Admin]);
-        $this->actingAs($admin)->post(route('admin.consults.reschedule', $consult))->assertRedirect();
+        $this->actingAs($admin)->post(route('admin.consults.reschedule', $consult), ['reason' => 'client_request'])->assertRedirect();
 
         return $consult->fresh();
     }

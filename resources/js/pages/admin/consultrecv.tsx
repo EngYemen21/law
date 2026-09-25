@@ -5,6 +5,7 @@ import Badge from '@/components/babylon/Badge';
 import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
+import { useConsultReschedule } from '@/lib/consult-reschedule';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { crChannelIcon, crChannelTone, sessTone } from '@/lib/employee-data';
@@ -33,13 +34,13 @@ export const AdminConsultRecv: React.FC<Props> = ({ consults = [] }) => {
   const [drawerRef, setDrawerRef] = useState<string | null>(null);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>('actions');
 
-  // Confirmation Modal state for Rescheduling
   // نافذة التدوين عند إنهاء الجلسة — مادّة الملخّص الوحيدة
   const [endingOf, setEndingOf] = useState<ConsultCard | null>(null);
   const [endNotes, setEndNotes] = useState('');
 
-  const [rescheduleTarget, setRescheduleTarget] = useState<ConsultCard | null>(null);
-  const [isRescheduling, setIsRescheduling] = useState(false);
+  // إعادة الجدولة من مسارها الواحد — كانت هنا نافذةٌ خاصّة من مئتي سطر تقول للمستخدم
+  // «يُشعَر العميل لاختيار موعد جديد عبر حسابه» والعميل لا يختار موعده (قرار 2026-09-14)
+  const reschedule = useConsultReschedule('/admin');
 
   // Real-time Echo WebSocket subscriptions
   useEffect(() => {
@@ -291,31 +292,7 @@ return false;
 
   const handleReschedule = (c: ConsultCard, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    setRescheduleTarget(c);
-  };
-
-  const confirmReschedule = () => {
-    if (!rescheduleTarget) {
-return;
-}
-
-    setIsRescheduling(true);
-    router.post(
-      `/admin/consults/${rescheduleTarget.id}/reschedule`,
-      {},
-      {
-        preserveScroll: true,
-        onSuccess: () => {
-          setIsRescheduling(false);
-          setRescheduleTarget(null);
-          toast('تمت إعادة جدولة الاستشارة بنجاح وأُشعر العميل لاختيار موعد جديد');
-        },
-        onError: (errors) => {
-          setIsRescheduling(false);
-          toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر إعادة الجدولة'}`);
-        },
-      }
-    );
+    reschedule.open(c);
   };
 
   const handleCopyLink = (c: ConsultCard, e?: React.MouseEvent) => {
@@ -329,6 +306,7 @@ return;
 
   return (
     <div className="admin-consultrecv-360-root" style={{ paddingBottom: 60, width: '100%' }}>
+      {reschedule.dialog}
       {/* ── CSS المخصص للاستجابة والشاشة الكاملة والأنيميشن ── */}
       <style>{`
         .admin-consultrecv-360-root {
@@ -1386,7 +1364,7 @@ return;
                               <Icon name="clock" /> الاستشارة فاتت موعدها المحدد
                             </div>
                             <span>
-                              <b>إعادة الجدولة:</b> تُلغي الموعد وجلسة Zoom السابقة، وتُعيد الاستشارة لحالة «بانتظار تحديد الموعد»، وتُشعر العميل فورياً لاختيار موعد جديد عبر حسابه.
+                              <b>إعادة الجدولة:</b> تُلغي الموعد وجلسة Zoom السابقة، وتُعيد الاستشارة لحالة «بانتظار تحديد الموعد»، فيحجز المكتب موعداً جديداً ويُبلَّغ العميل به.
                             </span>
                           </div>
 
@@ -1404,7 +1382,7 @@ return;
                             type="button"
                             onClick={(e) => handleReschedule(drawerItem, e)}
                           >
-                            إعادة الجدولة وإشعار العميل
+                            إعادة الجدولة
                           </button>
                         </>
                       ) : drawerItem.session === 'منتهية' ? (
@@ -1642,211 +1620,6 @@ return;
         </div>
       </Modal>
 
-      {/* ── 6. نافذة تأكيد إعادة الجدولة المنبثقة (Confirmation Modal Portal) ── */}
-      {rescheduleTarget && typeof document !== 'undefined' && createPortal(
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 99995,
-            background: 'rgba(10, 25, 45, 0.65)',
-            backdropFilter: 'blur(5px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-            direction: 'rtl',
-            animation: 'recv360FadeIn 0.2s ease-out',
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !isRescheduling) {
-              setRescheduleTarget(null);
-            }
-          }}
-          aria-modal="true"
-          role="dialog"
-        >
-          <div
-            style={{
-              background: '#fff',
-              borderRadius: 16,
-              maxWidth: 520,
-              width: '100%',
-              boxShadow: '0 20px 50px rgba(0,0,0,0.3)',
-              overflow: 'hidden',
-              display: 'flex',
-              flexDirection: 'column',
-              animation: 'recv360FadeIn 0.25s ease-out',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* رأس النافذة */}
-            <div
-              style={{
-                padding: '18px 22px',
-                background: 'linear-gradient(135deg, rgba(220, 38, 38, 0.08), rgba(245, 158, 11, 0.08))',
-                borderBottom: '1px solid rgba(0,0,0,0.08)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div
-                  style={{
-                    width: 38,
-                    height: 38,
-                    borderRadius: 10,
-                    background: 'rgba(220, 38, 38, 0.12)',
-                    color: '#dc2626',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 18,
-                  }}
-                >
-                  <Icon name="clock" />
-                </div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: 16, color: '#13314F' }}>
-                    تأكيد إعادة جدولة الاستشارة ({rescheduleTarget.ref})
-                  </h3>
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    العميل: {maskClient(rescheduleTarget.client)}
-                  </span>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => !isRescheduling && setRescheduleTarget(null)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  fontSize: 18,
-                  cursor: isRescheduling ? 'not-allowed' : 'pointer',
-                  color: 'var(--muted)',
-                  padding: 4,
-                }}
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* محتوى النافذة والنص التوضيحي الشامل */}
-            <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {/* بطاقة معلومات الجلسة الحالية */}
-              <div
-                style={{
-                  background: 'rgba(0,0,0,0.02)',
-                  border: '1px solid rgba(0,0,0,0.06)',
-                  borderRadius: 10,
-                  padding: '12px 14px',
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(2, 1fr)',
-                  gap: 10,
-                  fontSize: 12.5,
-                }}
-              >
-                <div>
-                  <span style={{ color: 'var(--muted)', fontSize: 11 }}>الموعد الحالي:</span>
-                  <div style={{ fontWeight: 600, marginTop: 2 }}>{rescheduleTarget.when}</div>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--muted)', fontSize: 11 }}>المستشار المسند:</span>
-                  <div style={{ fontWeight: 600, marginTop: 2 }}>{rescheduleTarget.lawyer}</div>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--muted)', fontSize: 11 }}>القناة:</span>
-                  <div style={{ fontWeight: 600, marginTop: 2 }}>{rescheduleTarget.channel}</div>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--muted)', fontSize: 11 }}>الحالة:</span>
-                  <div style={{ fontWeight: 600, marginTop: 2, color: '#dc2626' }}>
-                    {(rescheduleTarget.missed || rescheduleTarget.session === 'لم تُعقد') ? 'فائتة / لم تنعقد' : rescheduleTarget.session}
-                  </div>
-                </div>
-              </div>
-
-              {/* ما الذي سيحدث عند إعادة الجدولة؟ */}
-              <div
-                style={{
-                  background: 'rgba(14, 92, 156, 0.04)',
-                  borderRight: '4px solid var(--primary)',
-                  borderRadius: 8,
-                  padding: '12px 14px',
-                  fontSize: 12.5,
-                  lineHeight: 1.7,
-                }}
-              >
-                <b style={{ color: 'var(--primary)', display: 'block', marginBottom: 6 }}>
-                  ما الذي سينفذه النظام عند تأكيد إعادة الجدولة؟
-                </b>
-                <ul style={{ margin: 0, paddingRight: 18, color: '#333' }}>
-                  <li>
-                    <b>إلغاء الموعد القديم:</b> سيتم وسم الموعد السابق كـ «ملغي» وتصفير رابط وبيانات اجتماع Zoom.
-                  </li>
-                  <li>
-                    <b>إعادة فتح حجز الموعد:</b> ستتحول حالة الاستشارة إلى «بانتظار تحديد الموعد».
-                  </li>
-                  <li>
-                    <b>إشعار فوري للعميل:</b> سيصل العميل إشعار تنبيه على حسابه فورياً لاختيار موعد جديد عبر صفحة «استشاراتي».
-                  </li>
-                </ul>
-              </div>
-
-              <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-                ⚠️ هل أنت متأكد من رغبتك في إعادة الجدولة الآن وإلغاء الموعد الحالي؟
-              </p>
-            </div>
-
-            {/* أزرار الإجراء */}
-            <div
-              style={{
-                padding: '14px 22px',
-                borderTop: '1px solid rgba(0,0,0,0.08)',
-                background: '#fafafa',
-                display: 'flex',
-                justifyContent: 'flex-end',
-                gap: 10,
-              }}
-            >
-              <button
-                type="button"
-                className="btn soft sm"
-                disabled={isRescheduling}
-                onClick={() => setRescheduleTarget(null)}
-                style={{ padding: '8px 18px', fontSize: 13 }}
-              >
-                تراجع / إلغاء
-              </button>
-
-              <button
-                type="button"
-                className="btn primary sm"
-                disabled={isRescheduling}
-                onClick={confirmReschedule}
-                style={{
-                  padding: '8px 20px',
-                  fontSize: 13,
-                  fontWeight: 700,
-                  background: '#dc2626',
-                  borderColor: '#dc2626',
-                }}
-              >
-                {isRescheduling ? (
-                  <>جاري المعالجة وإشعار العميل…</>
-                ) : (
-                  <>
-                    <Icon name="check" /> تأكيد إعادة الجدولة وإشعار العميل
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
     </div>
   );
 };

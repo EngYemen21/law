@@ -2,6 +2,8 @@
 
 namespace App\Http\Middleware;
 
+use App\Domain\Journey\Enums\RescheduleReason;
+use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
 use App\Enums\Role;
 use App\Http\Controllers\NotificationController;
 use App\Models\Appointment;
@@ -77,6 +79,12 @@ class HandleInertiaRequests extends Middleware
             // 'impersonating' => ($impersonatorId && $user) ? ['name' => $user->name] : null,
             // كتالوج الصلاحيات (المصدر الوحيد من الخادم) — للتصفية وشاشة الموظفين
             'permCatalog' => $user ? Permissions::catalog() : null,
+            // **سياسة إعادة الجدولة من مصدرها** (قرار المالك 2026-09-25): أسبابها وسقفها للطاقم.
+            // الواجهة لا تكتب الأسباب ولا الرقم بنفسها — تتباعد عن الخادم عند أوّل تعديل.
+            'reschedule' => ($user && $user->role !== Role::Client) ? [
+                'reasons' => ['consult' => RescheduleReason::options('consult'), 'meeting' => RescheduleReason::options('meeting'), 'hearing' => RescheduleReason::options('hearing')],
+                'limit' => RescheduleConsult::LIMIT,
+            ] : null,
             // عدّ الإشعارات غير المقروءة الحقيقي (كسول) — يغذّي نقطة الجرس وشارة «الإشعارات»
             'unreadNotifications' => fn () => $user
                 ? UserNotification::where('user_id', $user->id)->where('is_read', false)->count()
