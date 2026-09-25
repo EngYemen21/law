@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
 import { useConfirm } from '@/components/babylon/ConfirmDialog';
-import { useBodyScrollLock } from '@/components/babylon/Modal';
+import { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 // اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
 import { maskClient } from '@/lib/employee-data';
@@ -124,15 +124,8 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   // قفل التمرير عند فتح الدرج
   useBodyScrollLock(Boolean(drawerConsult));
 
-  // إغلاق الدرج بمفتاح Escape
-  useEffect(() => {
-    if (!drawerConsult) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeDrawer();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [drawerConsult]);
+  // إغلاق الدرج بمفتاح Escape — طبقةٌ في المكدّس المشترك، فنافذةٌ فوقه تُغلَق وحدها
+  useEscapeLayer(Boolean(drawerConsult), closeDrawer);
 
   // مزامنة الملاحظات والتقرير عند فتح الاستشارة
   useEffect(() => {

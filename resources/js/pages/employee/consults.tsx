@@ -2,7 +2,7 @@ import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
-import { useBodyScrollLock } from '@/components/babylon/Modal';
+import { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 // اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
 import { maskClient } from '@/lib/employee-data';
@@ -197,14 +197,8 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
 
   useBodyScrollLock(Boolean(drawerRef));
 
-  useEffect(() => {
-    if (!drawerRef) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeDrawer();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [drawerRef]);
+  // Escape يغلق الدرج — طبقةٌ في المكدّس المشترك، فنافذةٌ فوقه تُغلَق وحدها
+  useEscapeLayer(Boolean(drawerRef), closeDrawer);
 
   // مزامنة حقول الدرج عند تغير الاستشارة
   useEffect(() => {

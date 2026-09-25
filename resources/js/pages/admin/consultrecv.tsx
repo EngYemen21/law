@@ -2,7 +2,7 @@ import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
-import Modal, { useBodyScrollLock } from '@/components/babylon/Modal';
+import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
 import type {ConsultCard} from '@/lib/consult-ui';
@@ -78,21 +78,8 @@ export const AdminConsultRecv: React.FC<Props> = ({ consults = [] }) => {
   // قفل تمرير الصفحة عبر العدّاد المشترك مع Modal — «القيمة السابقة» كانت تجمّد الصفحة عند تراكب الطبقات
   useBodyScrollLock(!!drawerRef);
 
-  // Escape يغلق الدرج
-  useEffect(() => {
-    if (!drawerRef) {
-return;
-}
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setDrawerRef(null);
-      }
-    };
-    document.addEventListener('keydown', onKey);
-
-    return () => document.removeEventListener('keydown', onKey);
-  }, [drawerRef]);
+  // Escape يغلق الدرج — طبقةٌ في المكدّس المشترك، فنافذةٌ فوقه تُغلَق وحدها
+  useEscapeLayer(Boolean(drawerRef), () => setDrawerRef(null));
 
   // Currently selected item in drawer
   const drawerItem = useMemo(() => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/lib/icons';
 
@@ -60,23 +60,70 @@ export function useBodyScrollLock(active: boolean): void {
   }, [active]);
 }
 
-const Modal: React.FC<ModalProps> = ({ title, subtitle, badge, open, onClose, maxWidth, children }) => {
-  useBodyScrollLock(open);
+/*
+ * **مفتاحُ الهروب يُغلق طبقةً واحدة — العليا.**
+ *
+ * كان كلُّ درجٍ وكلُّ نافذة يسجّل مستمعَه الخاصّ على `document`، فضغطةٌ واحدة تصل
+ * الجميع: نافذةُ تأكيدٍ فوق درج الاستشارة تُغلَق **ويُغلَق الدرجُ تحتها معها**، فيفقد
+ * المستخدم موضعه ويعيد فتح الملفّ من الجدول. عولج مرّةً في درجٍ واحد بفحص
+ * `.modal-bg.show`، وبقيت الأدراج الأربعة الأخرى على العطل.
+ *
+ * فالمكدّس هنا واحدٌ لكلّ الطبقات: ما يُفتح يُدفع، وما يُغلق يُسحب، والمستمعُ الوحيد
+ * يستدعي أعلاها فقط. وترتيبُ الفتح هو ترتيبُ الظهور — النافذة تُفتح فوق الدرج بعده.
+ */
+const escapeLayers: Array<{ close: () => void }> = [];
+
+function onEscapeKey(e: KeyboardEvent): void {
+  if (e.key !== 'Escape') {
+    return;
+  }
+
+  const top = escapeLayers[escapeLayers.length - 1];
+
+  if (top) {
+    e.preventDefault();
+    top.close();
+  }
+}
+
+/** يسجّل طبقةً تُغلَق بمفتاح الهروب ما دامت `active` — الطبقةُ العليا وحدها تستجيب. */
+export function useEscapeLayer(active: boolean, onClose: () => void): void {
+  // أحدثُ دالّةِ إغلاق في مرجع: تتغيّر كلَّ تصيير، ولا يجوز أن يُعاد ترتيب الطبقة لأجلها
+  const latest = useRef(onClose);
+
+  useIsomorphicLayoutEffect(() => {
+    latest.current = onClose;
+  });
 
   useEffect(() => {
-    if (!open) {
-return;
-}
+    if (!active) {
+      return;
+    }
 
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-onClose();
-}
+    const layer = { close: () => latest.current() };
+    escapeLayers.push(layer);
+
+    if (escapeLayers.length === 1) {
+      document.addEventListener('keydown', onEscapeKey);
+    }
+
+    return () => {
+      const at = escapeLayers.lastIndexOf(layer);
+
+      if (at !== -1) {
+        escapeLayers.splice(at, 1);
+      }
+
+      if (escapeLayers.length === 0) {
+        document.removeEventListener('keydown', onEscapeKey);
+      }
     };
-    document.addEventListener('keydown', onKey);
+  }, [active]);
+}
 
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+const Modal: React.FC<ModalProps> = ({ title, subtitle, badge, open, onClose, maxWidth, children }) => {
+  useBodyScrollLock(open);
+  useEscapeLayer(open, onClose);
 
   return createPortal(
     <div className={`modal-bg${open ? ' show' : ''}`} onClick={onClose}>

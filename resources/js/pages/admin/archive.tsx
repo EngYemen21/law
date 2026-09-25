@@ -1,8 +1,8 @@
 import { router } from '@inertiajs/react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
-import { useBodyScrollLock } from '@/components/babylon/Modal';
+import { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { maskClient } from '@/lib/admin-data';
 import { crChannelIcon, crChannelTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
@@ -71,21 +71,8 @@ return null;
   // قفل تمرير الصفحة عبر العدّاد المشترك مع Modal — «القيمة السابقة» كانت تجمّد الصفحة عند تراكب الطبقات
   useBodyScrollLock(!!drawerRef);
 
-  // Escape يغلق الدرج
-  useEffect(() => {
-    if (!drawerRef) {
-return;
-}
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setDrawerRef(null);
-      }
-    };
-    document.addEventListener('keydown', onKey);
-
-    return () => document.removeEventListener('keydown', onKey);
-  }, [drawerRef]);
+  // Escape يغلق الدرج — طبقةٌ في المكدّس المشترك، فنافذةٌ فوقه تُغلَق وحدها
+  useEscapeLayer(Boolean(drawerRef), () => setDrawerRef(null));
 
   // Open & Close Drawer Actions
   const openDrawer = (ref: string, initialTab: DrawerTab = 'summary') => {

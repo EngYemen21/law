@@ -1,5 +1,6 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEscapeLayer } from '@/components/babylon/Modal';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
 
@@ -26,7 +27,10 @@ const NotificationDropdown: React.FC = () => {
         return (props?.recentNotifications as DropdownNotificationItem[]) ?? [];
     }, [props?.recentNotifications]);
 
-    // إغلاق القائمة عند النقر خارجها أو الضغط على Escape
+    // Escape يغلق القائمة — طبقةٌ في المكدّس المشترك، فلا يُغلق معها درجٌ مفتوح تحتها
+    useEscapeLayer(isOpen, () => setIsOpen(false));
+
+    // إغلاق القائمة عند النقر خارجها
     useEffect(() => {
         const handleOutsideClick = (e: MouseEvent) => {
             if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -34,20 +38,12 @@ const NotificationDropdown: React.FC = () => {
             }
         };
 
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') {
-                setIsOpen(false);
-            }
-        };
-
         if (isOpen) {
             document.addEventListener('mousedown', handleOutsideClick);
-            document.addEventListener('keydown', handleKeyDown);
         }
 
         return () => {
             document.removeEventListener('mousedown', handleOutsideClick);
-            document.removeEventListener('keydown', handleKeyDown);
         };
     }, [isOpen]);
 

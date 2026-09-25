@@ -2,7 +2,7 @@ import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
-import Modal, { useBodyScrollLock } from '@/components/babylon/Modal';
+import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
 import { RichText, sessTone, SummaryStateBadge } from '@/lib/consult-ui';
@@ -261,34 +261,9 @@ return initialLawyers;
   // قفل تمرير الصفحة عبر العدّاد المشترك مع Modal — «القيمة السابقة» كانت تجمّد الصفحة عند تراكب الطبقات
   useBodyScrollLock(!!drawerRef);
 
-  // Escape يغلق الدرج
-  useEffect(() => {
-    if (!drawerRef) {
-return;
-}
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') {
-        return;
-      }
-
-      /*
-       * **Escape يغلق طبقةً واحدة.**
-       *
-       * كان هذا المستمع و`Modal` يلتقطان المفتاح نفسه على `document`، فضغطةٌ واحدة
-       * تُغلق النافذة **والدرجَ تحتها معاً** — يفقد المستخدم موضعه ويعيد فتح البطاقة
-       * من الجدول. الطبقةُ العليا وحدها تستجيب.
-       */
-      if (document.querySelector('.modal-bg.show')) {
-        return;
-      }
-
-      setDrawerRef(null);
-    };
-    document.addEventListener('keydown', onKey);
-
-    return () => document.removeEventListener('keydown', onKey);
-  }, [drawerRef]);
+  // Escape يغلق الدرج — طبقةٌ في المكدّس المشترك (`useEscapeLayer`)، فنافذةٌ فوقه تُغلَق
+  // وحدها. كان هنا فحصُ `.modal-bg.show` المحلّيّ، وصار عامّاً لكلّ الأدراج.
+  useEscapeLayer(Boolean(drawerRef), () => setDrawerRef(null));
 
   // Synchronize inline drawer fields when drawerConsult changes
   useEffect(() => {

@@ -27,13 +27,17 @@ class AdminConsultLeftoversTest extends TestCase
      * كان الدرج و`Modal` يسجّلان مستمعاً للمفتاح نفسه على `document`. فضغطةٌ واحدة
      * فوق نافذةٍ مفتوحة تغلقها **وتغلق الدرجَ تحتها معاً** — يعود المستخدم إلى الجدول
      * ويُعيد فتح البطاقة من أوّلها.
+     *
+     * عولج هنا أوّلاً بفحص `.modal-bg.show` محلّيّاً، وبقيت الأدراج الأربعة الأخرى على
+     * العطل. فصار العلاج مكدّساً مشتركاً (`useEscapeLayer` في `Modal.tsx`) يحرسه
+     * `EscapeClosesOneLayerTest` للواجهة كلّها — وهذا الفحص يثبّت أنّ هذا الدرج طبقةٌ فيه.
      */
     public function test_escape_closes_one_layer_only(): void
     {
-        $this->assertStringContainsString(
-            "document.querySelector('.modal-bg.show')",
+        $this->assertMatchesRegularExpression(
+            '/useEscapeLayer\(\s*Boolean\(drawerRef\)/',
             $this->screen(),
-            'الدرج يتنحّى حين تكون فوقه نافذة'
+            'الدرج ليس طبقةً في مكدّس الهروب المشترك — فنافذةٌ فوقه تُغلقه معها.'
         );
     }
 
