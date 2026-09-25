@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Jobs\AnalyzeCaseDocumentJob;
 use App\Jobs\GenerateCaseReplyJob;
+use App\Models\CaseMessage;
 use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Services\LegalAiService;
@@ -98,7 +99,7 @@ class CaseController extends Controller
             ],
             'channel' => 'case.'.$case->id,
             // العميل: بلا ملاحظات داخليّة وبلا مخرجٍ محجوب بانتظار اعتماد محامٍ
-            'messages' => LawyerName::inMessages(ConversationFiles::linkLegacyChips($case->messages()->visibleTo(false)->get()->map->toMessage()->all(), 'case', $case->documents)),
+            'messages' => LawyerName::inMessages(ConversationFiles::linkLegacyChips($case->messages()->visibleTo(false)->get()->map(fn (CaseMessage $m) => $m->toMessage(forClient: true))->all(), 'case', $case->documents)),
             'hearings' => $case->hearings->map->toData(),
             'documents' => $case->documents->map(fn ($d) => $d->toData(auth()->user())),
         ]);

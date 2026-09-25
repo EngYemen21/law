@@ -11,6 +11,8 @@ export interface Message {
   text: string; // قد يحتوي HTML بسيط
   time: string;
   date?: string; // تاريخ الرسالة الحقيقي من الخادم (created_at)
+  // عنوان IP لمُرسِلها — يرسله الخادم للطاقم وحده (`RecordsSenderIp::senderIpField`)؛ غيابه عند العميل حجبٌ خادميّ لا إخفاءٌ في الواجهة
+  ip?: string;
 }
 
 export const CLIENT_NAME = 'عبدالله العتيبي';

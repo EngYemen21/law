@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Events\CaseMessageBroadcast;
+use App\Models\Concerns\RecordsSenderIp;
 use App\Support\Live;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -10,6 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class CaseMessage extends Model
 {
+    use RecordsSenderIp;
+
     protected $fillable = ['case_id', 'who', 'name', 'role', 'body', 'time_label', 'withheld_at'];
 
     protected $casts = ['withheld_at' => 'datetime'];
@@ -51,7 +54,8 @@ class CaseMessage extends Model
     }
 
     // الشكل الذي تتوقعه الواجهة (يطابق Message في chat.ts)
-    public function toMessage(): array
+    // `forClient`: حمولةٌ تصل العميل (صفحته أو بثٌّ على قناته) — لا عنوان IP فيها أيّاً كان الباني
+    public function toMessage(bool $forClient = false): array
     {
         return [
             'id' => $this->id,
@@ -60,6 +64,6 @@ class CaseMessage extends Model
             'role' => $this->role,
             'text' => $this->body,
             'time' => $this->time_label,
-        ];
+        ] + $this->senderIpField($forClient);
     }
 }

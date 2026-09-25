@@ -12,6 +12,7 @@ use App\Services\Ai\AiGateway;
 use App\Support\LegalCatalogue;
 use App\Support\OtpService;
 use App\Support\Phone;
+use App\Support\SenderIp;
 use App\Support\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -20,6 +21,7 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -54,7 +56,11 @@ class AppServiceProvider extends ServiceProvider
         $this->configureDefaults();
 
         // ربط {doc} بنموذج LegalDocument صراحةً — لتفادي أي تعارض مع Document الحالي
-        \Illuminate\Support\Facades\Route::model('doc', LegalDocument::class);
+        Route::model('doc', LegalDocument::class);
+
+        // عنوان IP لمُرسِل الرسالة: ما يُكتب داخل مهمّة طابور — ولو متزامنةً في طلب مستخدم — لا مُرسِلَ
+        // بشريّاً له، فلا يُنسب لصاحب الطلب. التتبّع هنا والقاعدة في `SenderIp`.
+        SenderIp::trackJobs();
 
         // تجاوز OTP التطويري (رمز ثابت لأي هوية) للاختبار
         // if (OtpService::isDevOtpConfigured() && ! app(OtpService::class)->devBypass()) {

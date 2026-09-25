@@ -36,9 +36,12 @@ class ExecMessageBroadcast implements ShouldBroadcastNow
      *
      * والطاقم يشارك القناة نفسها، فيرى الاسم مختصراً في الرسالة اللحظيّة وكاملاً عند التحميل —
      * وهو ثمنٌ مقبول: البديل قناةٌ ثانية بحمولةٍ ثانية لكلّ رسالة.
+     *
+     * **ولا عنوان IP في البثّ** (`forClient: true`): الحمولة تُبنى داخل طلب المُرسِل — موظّفاً
+     * كان فيراه المشاهدُ من الطاقم — ثمّ تصل قناةً يستمع إليها العميل. والطاقم يراه عند التحميل.
      */
     public function broadcastWith(): array
     {
-        return ['message' => LawyerName::inMessages([$this->message->toMessage()])[0]];
+        return ['message' => LawyerName::inMessages([$this->message->toMessage(forClient: true)])[0]];
     }
 }

@@ -3,12 +3,15 @@
 namespace App\Models;
 
 use App\Events\ExecMessageBroadcast;
+use App\Models\Concerns\RecordsSenderIp;
 use App\Support\Live;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ExecutionMessage extends Model
 {
+    use RecordsSenderIp;
+
     protected $fillable = ['execution_id', 'who', 'name', 'role', 'body', 'time_label'];
 
     // بثّ كل رسالة تنفيذ لحظياً فور إنشائها (كـ CaseMessage)
@@ -25,7 +28,8 @@ class ExecutionMessage extends Model
     }
 
     // الشكل الذي تتوقعه الواجهة (يطابق Message في chat.ts)
-    public function toMessage(): array
+    // `forClient`: حمولةٌ تصل العميل (صفحته أو بثٌّ على قناته) — لا عنوان IP فيها أيّاً كان الباني
+    public function toMessage(bool $forClient = false): array
     {
         return [
             'id' => $this->id,
@@ -34,6 +38,6 @@ class ExecutionMessage extends Model
             'role' => $this->role,
             'text' => $this->body,
             'time' => $this->time_label,
-        ];
+        ] + $this->senderIpField($forClient);
     }
 }

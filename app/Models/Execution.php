@@ -369,7 +369,7 @@ class Execution extends Model
     {
         $messages = ConversationFiles::linkLegacyChips(
             ($internal ? $this->messages : $this->messages->where('who', '!=', 'note'))
-                ->values()->map->toMessage()->all(),
+                ->values()->map(fn (ExecutionMessage $m) => $m->toMessage(forClient: ! $internal))->all(),
             'exec',
             $this->relationLoaded('documents') ? $this->documents : []
         );
