@@ -33,9 +33,17 @@ return Application::configure(basePath: dirname(__DIR__))
         // Zoom/Moyasar webhooks لا ترسل رمز CSRF؛ محميّة بتوقيع/سرّ في المتحكّم
         $middleware->validateCsrfTokens(except: ['webhooks/zoom', 'webhooks/moyasar']);
 
-        // الثقة بترويسات الوسيط (X-Forwarded-*) — خلف ngrok/Reverse proxy يبني Laravel
-        // روابط https صحيحة (رابط عودة ميسّر callback_url آمن)، ويكتشف بروتوكول الطلب الحقيقي.
-        $middleware->trustProxies(at: '*', headers: Request::HEADER_X_FORWARDED_FOR
+        // الثقة بترويسات الوسيط (X-Forwarded-*) — **من الخادم نفسه وحده.**
+        //
+        // تُحتاج خلف ngrok في التطوير ليبني Laravel روابط https صحيحة (رابط عودة ميسّر) — وngrok
+        // يتّصل من الجهاز نفسه. أمّا الإنتاج فـnginx يسلّم php-fpm مباشرةً (`fastcgi_pass`، انظر
+        // DEPLOYMENT_AR.md)، فعنوان الاتّصال **هو** عنوان الزائر، ولا وسيطَ يُصدَّق.
+        //
+        // كانت الثقة بـ`*`: فأيّ زائرٍ يرسل `X-Forwarded-For` بعنوانٍ يختاره فيصدّقه النظام —
+        // فيُزوَّر العنوان في سجلّ التدقيق وفي عنوان مُرسِل الرسائل. (حدود رمز الدخول لم تتأثّر:
+        // بُنيت على الجلسة والهويّة لا الـIP لهذا السبب نفسه.) وإن وُضع أمام الخادم وسيطٌ يوماً
+        // (Cloudflare مثلاً) تُضاف نطاقاته هنا — لا `*`.
+        $middleware->trustProxies(at: ['127.0.0.1', '::1'], headers: Request::HEADER_X_FORWARDED_FOR
             | Request::HEADER_X_FORWARDED_HOST
             | Request::HEADER_X_FORWARDED_PORT
             | Request::HEADER_X_FORWARDED_PROTO

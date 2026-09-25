@@ -211,6 +211,41 @@ class ChatSenderIpTest extends TestCase
     }
 
     /** العنوان لا يُكتب من مدخلات الطلب: العميل لا يختار ما يُسجَّل عنه. */
+    /**
+     * **العنوان لا يُزوَّر بترويسة** (قرار المالك 2026-09-25: الخادم بلا وسيطٍ أمامه).
+     *
+     * كانت الثقة بالوسطاء `*`: زائرٌ يرسل `X-Forwarded-For` بعنوانٍ يختاره فيُحفظ عنوانُه المزعوم.
+     * صارت للخادم نفسه وحده — فيُحفظ عنوان الاتّصال الحقيقيّ.
+     */
+    public function test_a_forged_forwarded_header_from_a_visitor_is_ignored(): void
+    {
+        Queue::fake();
+        [$ticket] = $this->seedChats();
+
+        $this->actingAs($this->client)
+            ->withServerVariables(['REMOTE_ADDR' => '198.51.100.20'])
+            ->withHeader('X-Forwarded-For', '203.0.113.99')
+            ->post(route('tickets.messages.store', $ticket), ['body' => 'رسالةٌ بترويسةٍ مزوّرة'])
+            ->assertNoContent();
+
+        $this->assertSame('198.51.100.20', TicketMessage::where('body', 'رسالةٌ بترويسةٍ مزوّرة')->value('sender_ip'), 'صدّق النظام عنواناً أرسله الزائر نفسه.');
+    }
+
+    /** **ويُصدَّق الوسيطُ على الجهاز نفسه** (ngrok في التطوير) — وإلّا حُفظ عنوان الوسيط لكلّ زائر. */
+    public function test_a_local_proxy_still_passes_the_real_address(): void
+    {
+        Queue::fake();
+        [$ticket] = $this->seedChats();
+
+        $this->actingAs($this->client)
+            ->withServerVariables(['REMOTE_ADDR' => '127.0.0.1'])
+            ->withHeader('X-Forwarded-For', '198.51.100.44')
+            ->post(route('tickets.messages.store', $ticket), ['body' => 'رسالةٌ عبر وسيطٍ محلّيّ'])
+            ->assertNoContent();
+
+        $this->assertSame('198.51.100.44', TicketMessage::where('body', 'رسالةٌ عبر وسيطٍ محلّيّ')->value('sender_ip'));
+    }
+
     public function test_the_sender_ip_cannot_be_mass_assigned(): void
     {
         [$ticket] = $this->seedChats();
