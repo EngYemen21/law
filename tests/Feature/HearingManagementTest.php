@@ -71,16 +71,20 @@ class HearingManagementTest extends TestCase
             'title' => 'جلسة', 'day' => '2026-09-01', 'status' => 'مؤجلة', 'starts_at' => now()->addDay(),
             'reminder_24h_sent_at' => now(), 'reminder_1h_sent_at' => now(),
         ]);
+        $day = now()->addDays(10)->toDateString(); // نسبيّ كي لا يتقادم الاختبار فيصير الموعد ماضياً
 
         $this->actingAs($lawyer)->post(route('lawyer.cases.hearings.update', [$case, $hearing]), [
-            'title' => 'جلسة (مُعاد جدولتها)', 'day' => '2026-10-05', 'time' => '09:30', 'court' => 'الدائرة',
-        ])->assertRedirect();
+            'title' => 'جلسة (مُعاد جدولتها)', 'day' => $day, 'time' => '09:30', 'court' => 'الدائرة', 'reason' => 'court_decision',
+        ])->assertRedirect()->assertSessionHasNoErrors();
 
-        $fresh = $hearing->fresh();
-        $this->assertSame('مجدولة', $fresh->status); // عادت مجدولة
-        $this->assertSame('2026-10-05 09:30', $fresh->starts_at->format('Y-m-d H:i'));
-        $this->assertNull($fresh->reminder_24h_sent_at); // صُفّرت الأختام لإعادة التذكير
+        // التأجيل صفٌّ جديد يشير إلى السابق — السابق يبقى «مؤجلة» (HearingPostponementTest)
+        $this->assertSame('مؤجلة', $hearing->fresh()->status);
+        $fresh = CaseHearing::where('postponed_from_id', $hearing->id)->firstOrFail();
+        $this->assertSame('مجدولة', $fresh->status);
+        $this->assertSame($day.' 09:30', $fresh->starts_at->format('Y-m-d H:i'));
+        $this->assertNull($fresh->reminder_24h_sent_at); // أختامٌ نظيفة ليُذكَّر بالموعد الجديد
         $this->assertNull($fresh->reminder_1h_sent_at);
+        $this->assertNotSame('—', $case->fresh()->next_hearing); // «القادمة» صارت الجلسة الجديدة
         $this->assertDatabaseHas('user_notifications', ['user_id' => $client->id]); // أُشعر العميل
         Mail::assertQueued(HearingEventMail::class, fn ($m) => $m->event === 'rescheduled' && $m->hasTo($client->email));
     }

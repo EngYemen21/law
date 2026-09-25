@@ -2,23 +2,26 @@
 
 namespace App\Http\Controllers\Concerns;
 
+use App\Domain\Journey\Enums\HearingStatus;
+use App\Domain\Journey\Enums\RescheduleReason;
+use App\Domain\Journey\Transitions\LegalCase\RecordRuling as RecordRulingTransition;
+use App\Domain\Journey\Workflow;
 use App\Events\CaseStatusBroadcast;
 use App\Mail\HearingEventMail;
 use App\Models\CaseHearing;
 use App\Models\LegalCase;
 use App\Models\User;
-use App\Domain\Journey\Transitions\LegalCase\RecordRuling as RecordRulingTransition;
-use App\Domain\Journey\Workflow;
 use App\Services\MailService;
 use App\Support\Audit;
+use App\Support\Booking\BookingMoved;
 use App\Support\CaseFiling;
-use App\Support\CaseJourney;
-use App\Support\EventStatus;
 use App\Support\Live;
 use App\Support\MeetingTime;
 use App\Support\Notify;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -148,9 +151,9 @@ trait ManagesCourtProceedings
         $this->guardCourtAccess($case);
         abort_unless($hearing->case_id === $case->id, 404);
         $this->guardHearingsOpen($case);
-        abort_unless(in_array($hearing->status, ['مجدولة', EventStatus::HEARING_LAPSED], true), 422, 'تُسجَّل نتيجةُ جلسةٍ مجدولة أو فائتة فقط.');
+        abort_unless((bool) $hearing->statusEnum()?->awaitsOutcome(), 422, 'تُسجَّل نتيجةُ جلسةٍ مجدولة أو فائتة فقط.');
         $data = $request->validate([
-            'status' => ['required', 'string', 'in:منعقدة,مؤجلة'],
+            'status' => ['required', 'string', 'in:'.implode(',', HearingStatus::outcomes())],
             'outcome' => ['nullable', 'string', 'max:2000'],
         ]);
         $actor = $request->user();
@@ -164,7 +167,7 @@ trait ManagesCourtProceedings
             'body' => '<p>تحديث الجلسة «'.e($hearing->title).'»: <b>'.e($data['status']).'</b>'.($outcome !== '' ? ' — '.e($outcome) : '').'.</p>',
             'time_label' => $this->courtClock(),
         ]);
-        Notify::send($case->user_id, 'cal', $data['status'] === 'منعقدة' ? 't-green' : 't-amber', "تحديث جلسة قضيتك {$case->number}: {$hearing->title} — {$data['status']}.");
+        Notify::send($case->user_id, 'cal', HearingStatus::from($data['status']) === HearingStatus::Held ? 't-green' : 't-amber', "تحديث جلسة قضيتك {$case->number}: {$hearing->title} — {$data['status']}.");
         Audit::log(
             action: 'تسجيل نتيجة جلسة',
             description: "سجّل {$actor->name} نتيجة الجلسة «{$hearing->title}» للقضية {$case->number}: {$data['status']}".($outcome !== '' ? " — {$outcome}" : '').'.',
@@ -179,13 +182,21 @@ trait ManagesCourtProceedings
         return back();
     }
 
-    // تعديل/إعادة جدولة جلسة (نفس السجلّ) — يعيد ضبط الموعد ويصفّر أختام التذكير فتُعاد التذكيرات
+    /**
+     * **تعديل جلسة — وإن تغيّر موعدها فهو تأجيل.**
+     *
+     * كان التعديل يكتب فوق الصفّ نفسه: يضيع الموعد القديم، وجلسةٌ سُجّلت «مؤجلة» بنتيجتها تُمحى
+     * نتيجتها وتعود «مجدولة». وفي المحكمة الجلسة المؤجّلة محضرٌ يبقى، والتالية جلسةٌ جديدة. فصار:
+     * تغيُّر الموعد ⇐ تأجيلٌ بسببٍ إلزاميّ وصفٍّ جديد (`postponeHearing`)؛ وتعديل العنوان أو الدائرة
+     * وحده ⇐ تصحيح بياناتٍ في مكانه (`editHearingDetails`) — لا يُقال للعميل «أُعيدت جدولة جلستك»
+     * وموعده لم يتغيّر.
+     */
     public function updateHearing(Request $request, LegalCase $case, CaseHearing $hearing): RedirectResponse
     {
         $this->guardCourtAccess($case);
         abort_unless($hearing->case_id === $case->id, 404);
         $this->guardHearingsOpen($case);
-        abort_if(in_array($hearing->status, ['منعقدة', 'ملغاة'], true), 422, 'جلسةٌ منعقدة أو ملغاة لا تُعاد جدولتها.');
+        $this->guardHearingEditable($hearing);
         $data = $request->validate([
             'title' => ['required', 'string', 'max:120'],
             'day' => ['required', 'date_format:Y-m-d'],
@@ -193,50 +204,33 @@ trait ManagesCourtProceedings
             'court' => ['nullable', 'string', 'max:120'],
         ]);
         $actor = $request->user();
-
         $startsAt = MeetingTime::parse($data['day'], $data['time'] ?? null);
-        $dayLabel = $startsAt ? $startsAt->locale('ar')->translatedFormat('l d F Y') : $data['day'];
 
-        $hearing->update($data + [
-            'status' => 'مجدولة', // إعادة الجدولة تعيد الجلسة لحالة مجدولة
-            'starts_at' => $startsAt,
-            'reminder_24h_sent_at' => null, // تصفير الأختام لإعادة التذكير للموعد الجديد
-            'reminder_1h_sent_at' => null,
-        ]);
-        $case->update(['update_text' => 'إعادة جدولة جلسة: '.$data['title']]);
-        $this->refreshNextHearing($case);
-        $case->messages()->create([
-            'who' => CaseFiling::author($actor), 'name' => $actor->name, 'role' => 'جلسة',
-            'body' => '<p>أُعيدت جدولة الجلسة: <b>'.e($data['title']).'</b> — '.e($dayLabel).(isset($data['time']) ? ' · '.e($data['time']) : '').'.</p>',
-            'time_label' => $this->courtClock(),
-        ]);
-        Notify::send($case->user_id, 'cal', 't-cyan', "أُعيدت جدولة جلسة قضيتك {$case->number}: {$dayLabel}.");
-        $this->mailHearingEvent($case, $hearing->fresh(), 'rescheduled');
-        Audit::log(
-            action: 'إعادة جدولة جلسة محكمة',
-            description: "أعاد {$actor->name} جدولة الجلسة «{$data['title']}» للقضية {$case->number} — {$dayLabel}".(isset($data['time']) ? " · {$data['time']}" : '').'.',
-            category: 'قضايا وتنفيذ',
-            severity: 'warning',
-            auditable: $case,
-            auditableRef: $case->number,
-            afterState: ['الجلسة' => $data['title'], 'الموعد الجديد' => $dayLabel.(isset($data['time']) ? ' · '.$data['time'] : '')],
-        );
-        $this->tellLawyer($case, $actor, "أُعيدت جدولة الجلسة «{$data['title']}» إلى {$dayLabel}");
-        Live::push(new CaseStatusBroadcast($case));
+        if (! $this->hearingMoves($hearing, $startsAt)) {
+            return $this->editHearingDetails($case, $hearing, $actor, $data);
+        }
 
-        return back();
+        // السبب يُطلب حين يتحرّك الموعد وحده — تصحيح عنوانٍ لا سبب له
+        $why = $request->validate(RescheduleReason::rules('hearing'));
+        // الوقت محدّد ⇐ يُقارن بالآن؛ وبلا وقت ⇐ باليوم، فجلسةٌ «اليوم» بلا ساعة ليست ماضية
+        abort_if($startsAt->lt(isset($data['time']) ? now() : today()), 422, 'لا يمكن تأجيل الجلسة إلى موعدٍ مضى.');
+
+        return $this->postponeHearing($case, $hearing, $actor, $data, $startsAt, RescheduleReason::from($why['reason'])->describe($why['note'] ?? null));
     }
 
-    // إلغاء جلسة (سجلّ تاريخيّ بحالة «ملغاة») — تخرج من «القادمة» ولا تُذكَّر
+    /**
+     * إلغاء جلسة (سجلّ تاريخيّ بحالة «ملغاة») — تخرج من «القادمة» ولا تُذكَّر.
+     * وتُلغى الجلسة المنتظرة وحدها: المؤجّلة سجلٌّ لما جرى في المحكمة، وإلغاؤها يمحو تأجيلها.
+     */
     public function cancelHearing(Request $request, LegalCase $case, CaseHearing $hearing): RedirectResponse
     {
         $this->guardCourtAccess($case);
         abort_unless($hearing->case_id === $case->id, 404);
         $this->guardHearingsOpen($case);
-        abort_if(in_array($hearing->status, ['منعقدة', 'ملغاة'], true), 422, 'جلسةٌ منعقدة أو ملغاة لا تُلغى.');
+        abort_unless((bool) $hearing->statusEnum()?->awaitsOutcome(), 422, 'تُلغى الجلسة المجدولة أو الفائتة فقط — المنعقدة والمؤجّلة والملغاة سجلٌّ لما جرى.');
         $actor = $request->user();
 
-        $hearing->update(['status' => 'ملغاة']);
+        $hearing->update(['status' => HearingStatus::Cancelled->value]);
         $case->update(['update_text' => 'إلغاء جلسة: '.$hearing->title]);
         $this->refreshNextHearing($case);
         $case->messages()->create([
@@ -477,7 +471,7 @@ trait ManagesCourtProceedings
         $startsAt = MeetingTime::parse($data['day'], $data['time'] ?? null);
         $dayLabel = $startsAt ? $startsAt->locale('ar')->translatedFormat('l d F Y') : $data['day'];
 
-        $hearing = $case->hearings()->create($data + ['status' => 'مجدولة', 'starts_at' => $startsAt]);
+        $hearing = $case->hearings()->create($data + ['status' => HearingStatus::Scheduled->value, 'starts_at' => $startsAt]);
         $case->update(['update_text' => 'تم جدولة جلسة: '.$data['title']]);
         $this->refreshNextHearing($case);
         $case->messages()->create([
@@ -498,6 +492,107 @@ trait ManagesCourtProceedings
         Live::push(new CaseStatusBroadcast($case));
     }
 
+    /** المنعقدة والملغاة انتهى أمرها — والحالة غير المعروفة تُرفض بسببٍ مقروء لا تُفترض. */
+    private function guardHearingEditable(CaseHearing $hearing): void
+    {
+        abort_unless($hearing->statusEnum()?->isFinal() === false, 422, 'جلسةٌ منعقدة أو ملغاة لا تُعدَّل ولا تُعاد جدولتها.');
+    }
+
+    /**
+     * هل يتحرّك الموعد؟ المقارنة باللحظة لا بنصّي اليوم والوقت (قد يُخزَّن «09:30» ويصل «09:30» بصيغةٍ
+     * أخرى). وجلسةٌ قديمة بموعدٍ نصّيّ لا يُفكّ لا تُقارَن — فأيّ تاريخٍ يُدخَل لها موعدٌ جديد.
+     */
+    private function hearingMoves(CaseHearing $hearing, ?Carbon $startsAt): bool
+    {
+        return $hearing->starts_at === null || $startsAt === null || ! $hearing->starts_at->equalTo($startsAt);
+    }
+
+    /** تصحيح العنوان أو الدائرة والموعد باقٍ — في مكانه، بلا إشعارٍ ولا بريدٍ للعميل. */
+    private function editHearingDetails(LegalCase $case, CaseHearing $hearing, User $actor, array $data): RedirectResponse
+    {
+        $before = ['الجلسة' => $hearing->title, 'الدائرة' => $hearing->court];
+        $hearing->fill(Arr::only($data, ['title', 'court']));
+
+        if (! $hearing->isDirty()) {
+            return back();
+        }
+
+        $hearing->save();
+        Audit::log(
+            action: 'تعديل بيانات جلسة',
+            description: "عدّل {$actor->name} بيانات الجلسة «{$hearing->title}» للقضية {$case->number} — الموعد باقٍ على {$hearing->label()}.",
+            category: 'قضايا وتنفيذ',
+            auditable: $case,
+            auditableRef: $case->number,
+            beforeState: $before,
+            afterState: ['الجلسة' => $hearing->title, 'الدائرة' => $hearing->court],
+        );
+        $this->tellLawyer($case, $actor, "عُدّلت بيانات الجلسة «{$hearing->title}»");
+        Live::push(new CaseStatusBroadcast($case));
+
+        return back();
+    }
+
+    /**
+     * **تأجيل الجلسة** — القديمة تبقى محضراً «مؤجلة» بسببها، والموعد الجديد جلسةٌ جديدة تشير إليها.
+     *
+     * والقديمة المسجّلة «مؤجلة» سلفاً (من `recordHearing` بنتيجتها) لا تُمسّ: هنا يُحدَّد موعد تاليتها
+     * فقط. وأختام التذكير من `BookingMoved::markers` — المصدر الواحد لما يتبع موعداً تحرّك.
+     */
+    private function postponeHearing(LegalCase $case, CaseHearing $hearing, User $actor, array $data, Carbon $startsAt, string $reason): RedirectResponse
+    {
+        $from = $hearing->label();
+
+        $next = DB::transaction(function () use ($case, $hearing, $data, $startsAt, $reason) {
+            // القفل وإعادة الحارس داخل المعاملة: نقرتان متزامنتان كانتا ستُنشئان تاليتين لجلسةٍ واحدة
+            $old = CaseHearing::whereKey($hearing->id)->lockForUpdate()->firstOrFail();
+            $this->guardHearingEditable($old);
+            abort_if($old->postponedTo()->exists(), 422, 'أُجّلت هذه الجلسة وحُدّد موعد تاليتها — عدّل موعد الجلسة التالية.');
+
+            if ($old->statusEnum()?->awaitsOutcome()) {
+                $old->update([
+                    'status' => HearingStatus::Postponed->value,
+                    'outcome' => trim((string) $old->outcome) !== '' ? $old->outcome : $reason,
+                ]);
+            }
+
+            return $case->hearings()->create([
+                'postponed_from_id' => $old->id,
+                'title' => $data['title'],
+                'court' => array_key_exists('court', $data) ? $data['court'] : $old->court,
+                'day' => $data['day'],
+                'time' => $data['time'] ?? null,
+                'starts_at' => $startsAt,
+                'status' => HearingStatus::Scheduled->value,
+            ] + BookingMoved::markers($old));
+        });
+
+        $to = $next->label();
+        $case->update(['update_text' => 'تأجيل جلسة: '.$next->title.' — '.$reason]);
+        $this->refreshNextHearing($case);
+        $case->messages()->create([
+            'who' => CaseFiling::author($actor), 'name' => $actor->name, 'role' => 'جلسة',
+            'body' => '<p>أُجّلت الجلسة «'.e($hearing->title).'» ('.e($from).') إلى: <b>'.e($next->title).'</b> — '.e($to).'.<br>السبب: '.e($reason).'.</p>',
+            'time_label' => $this->courtClock(),
+        ]);
+        Notify::send($case->user_id, 'cal', 't-cyan', "أُجّلت جلسة قضيتك {$case->number} إلى {$to} — {$reason}.");
+        $this->mailHearingEvent($case, $next, 'rescheduled');
+        Audit::log(
+            action: 'تأجيل جلسة محكمة',
+            description: "أجّل {$actor->name} الجلسة «{$hearing->title}» للقضية {$case->number} من {$from} إلى {$to} — {$reason}.",
+            category: 'قضايا وتنفيذ',
+            severity: 'warning',
+            auditable: $case,
+            auditableRef: $case->number,
+            beforeState: ['الجلسة' => $hearing->title, 'الموعد' => $from],
+            afterState: ['الجلسة' => $next->title, 'الموعد الجديد' => $to, 'السبب' => $reason],
+        );
+        $this->tellLawyer($case, $actor, "أُجّلت الجلسة «{$hearing->title}» إلى {$to}");
+        Live::push(new CaseStatusBroadcast($case));
+
+        return back();
+    }
+
     /** المغلقة والمؤرشفة للقراءة: لا تُحرَّك جلساتهما ولا يُشعَر العميل بجدولةٍ في ملفٍّ منتهٍ. */
     private function guardHearingsOpen(LegalCase $case): void
     {
@@ -508,7 +603,7 @@ trait ManagesCourtProceedings
     private function refreshNextHearing(LegalCase $case): void
     {
         // الفائتة (starts_at ماضٍ) ليست «قادمة» — كانت جلسة الشهر الماضي تبقى معروضة قادمةً
-        $next = $case->hearings()->where('status', 'مجدولة')
+        $next = $case->hearings()->where('status', HearingStatus::Scheduled->value)
             ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '>=', now()))
             ->orderByRaw('starts_at IS NULL')
             ->orderBy('starts_at')->orderBy('id')

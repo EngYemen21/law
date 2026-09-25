@@ -96,11 +96,14 @@ class EmployeeCourtActionsTest extends TestCase
         $this->actingAs($employee)->post(route('employee.cases.hearings.add', $case), ['title' => 'جلسة المرافعة', 'day' => now()->addDays(20)->toDateString(), 'time' => '10:00'])
             ->assertRedirect();
         $second = $case->hearings()->where('title', 'جلسة المرافعة')->firstOrFail();
-        $this->actingAs($employee)->post(route('employee.cases.hearings.update', [$case, $second]), ['title' => 'جلسة المرافعة', 'day' => now()->addDays(25)->toDateString(), 'time' => '11:00'])
-            ->assertRedirect();
-        $this->assertSame('11:00', $second->fresh()->starts_at?->format('H:i'));
-        $this->actingAs($employee)->post(route('employee.cases.hearings.cancel', [$case, $second]))->assertRedirect();
-        $this->assertSame('ملغاة', $second->fresh()->status);
+        $this->actingAs($employee)->post(route('employee.cases.hearings.update', [$case, $second]), ['title' => 'جلسة المرافعة', 'day' => now()->addDays(25)->toDateString(), 'time' => '11:00', 'reason' => 'court_decision'])
+            ->assertRedirect()->assertSessionHasNoErrors();
+        // إعادة الجدولة تأجيل: السابقة تبقى «مؤجلة» والموعد الجديد جلسةٌ تشير إليها
+        $this->assertSame('مؤجلة', $second->fresh()->status);
+        $postponed = $case->hearings()->where('postponed_from_id', $second->id)->firstOrFail();
+        $this->assertSame('11:00', $postponed->starts_at?->format('H:i'));
+        $this->actingAs($employee)->post(route('employee.cases.hearings.cancel', [$case, $postponed]))->assertRedirect();
+        $this->assertSame('ملغاة', $postponed->fresh()->status);
 
         // ٤) نتيجة الجلسة الأولى
         $this->actingAs($employee)->post(route('employee.cases.hearings.record', [$case, $first]), ['status' => 'منعقدة', 'outcome' => 'قُدّمت المذكرة'])

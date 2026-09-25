@@ -27,6 +27,12 @@ export interface Hearing {
   court?: string | null; status: string; outcome?: string | null; startsAt?: string | null;
   // جلسة «مجدولة» فات موعدها بلا نتيجة — الحالة المخزّنة لا تتحدّث بمرور الوقت (يشتقها الخادم)
   lapsed?: boolean;
+  // سلسلة التأجيل: الجلسة التي أُجّلت إلى هذه — تُوجد في القائمة نفسها بمعرّفها
+  postponedFromId?: number | null;
+  // ما يجوز على الجلسة يقرّره الخادم (HearingStatus) — لا مقارنة لنصوص الحالة هنا
+  canRecord?: boolean;
+  canEdit?: boolean;
+  canCancel?: boolean;
 }
 
 /** نغمة حالة الجلسة — مصدر وحيد (يستعملها تقويم المحامي أيضاً) */

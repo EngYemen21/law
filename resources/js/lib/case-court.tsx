@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import Modal from '@/components/babylon/Modal';
+import RescheduleDialog from '@/components/babylon/RescheduleDialog';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import type { Hearing } from '@/lib/case-ui';
@@ -499,13 +500,30 @@ export const AppealCard: React.FC<{
   );
 };
 
-/** تحديث الجلسات — تسجيل النتيجة، وإعادة الجدولة، والإلغاء. المغلقة والمؤرشفة لا يعرضها المُنادي. */
+/** «2026-10-05» و«09:30» من موعد الجلسة الحقيقيّ — ما يملأ نموذج التعديل ويُقارَن به. */
+const slotOf = (hr: Hearing) => ({ day: hr.startsAt ? hr.startsAt.slice(0, 10) : '', time: hr.startsAt ? hr.startsAt.slice(11, 16) : '' });
+
+/**
+ * تحديث الجلسات — تسجيل النتيجة، والتعديل والتأجيل، والإلغاء. المغلقة والمؤرشفة لا يعرضها المُنادي.
+ *
+ * التعديل صنفان والخادم يفرّقهما بالموعد: تغيُّر اليوم أو الساعة **تأجيل** — سببٌ إلزاميّ، وتبقى الجلسة
+ * الحاليّة سجلّاً «مؤجلة» وتُنشأ تاليتها ويُبلَّغ العميل؛ وتعديل العنوان أو الدائرة وحده تصحيحٌ في مكانه
+ * لا يُشعَر به العميل. فنافذة السبب تُفتح للأوّل وحده، وما يجوز من الأزرار من الخادم (`canRecord`…).
+ */
 export const HearingUpdatesCard: React.FC<{ base: string; hearings: Hearing[] }> = ({ base, hearings }) => {
   const ask = useConfirm();
   const toast = useToast();
   const [editId, setEditId] = useState<number | null>(null);
   const [eh, setEh] = useState({ title: '', day: '', time: '', court: '' });
+  const [orig, setOrig] = useState({ day: '', time: '' });
+  // الجلسة التي تنتظر سبب تأجيلها — النافذة تُركَّب عند الحاجة فلا يُرحَّل سببٌ من جلسةٍ لأخرى
+  const [postponing, setPostponing] = useState<Hearing | null>(null);
   const [recOutcome, setRecOutcome] = useState('');
+
+  // السلسلة من القائمة نفسها: السابقة بمعرّفها، ومَن لها تالية حُسم موعدها فلا يُحرَّك ثانيةً
+  const byId = new Map(hearings.map((h) => [h.id, h]));
+  const followed = new Set(hearings.map((h) => h.postponedFromId).filter((id): id is number => id != null));
+  const moved = eh.day !== orig.day || eh.time !== orig.time;
 
   const recordHearing = (id: number, status: string) =>
     router.post(`${base}/hearings/${id}`, { status, outcome: recOutcome }, {
@@ -517,21 +535,29 @@ export const HearingUpdatesCard: React.FC<{ base: string; hearings: Hearing[] }>
       onError: (err) => toast(reason(err)),
     });
   const startEdit = (hr: Hearing) => {
+    const slot = slotOf(hr);
     setEditId(hr.id);
-    setEh({ title: hr.title, day: hr.startsAt ? hr.startsAt.slice(0, 10) : '', time: hr.startsAt ? hr.startsAt.slice(11, 16) : '', court: hr.court || '' });
+    setOrig(slot);
+    setEh({ title: hr.title, ...slot, court: hr.court || '' });
   };
-  const submitEdit = (id: number) => {
+  const submitEdit = (hr: Hearing) => {
     if (!eh.title.trim() || !eh.day.trim()) {
       toast('أدخل عنوان الجلسة والتاريخ');
 
       return;
     }
 
-    router.post(`${base}/hearings/${id}/update`, eh, {
+    if (moved) {
+      setPostponing(hr);
+
+      return;
+    }
+
+    router.post(`${base}/hearings/${hr.id}/update`, eh, {
       preserveScroll: true,
       onSuccess: () => {
         setEditId(null);
-        toast('تمت إعادة جدولة الجلسة');
+        toast('حُفظت بيانات الجلسة — الموعد باقٍ ولم يُبلَّغ العميل');
       },
       onError: (err) => toast(reason(err)),
     });
@@ -556,48 +582,98 @@ export const HearingUpdatesCard: React.FC<{ base: string; hearings: Hearing[] }>
     <div className="card">
       <div className="card-h"><h3>تحديث الجلسات</h3></div>
       <div className="card-b">
-        {hearings.map((hr) => (
-          <div key={hr.id} className="item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <div className="imeta"><b>{hr.title}</b><span>{hr.day}{hr.time ? ` · ${hr.time}` : ''} · {hr.lapsed ? 'فائتة — سجّل نتيجتها' : hr.status}</span></div>
-              {hr.status !== 'ملغاة' && hr.status !== 'منعقدة' && (
-                <div className="iact" style={{ gap: 6 }}>
-                  <button className="btn soft sm" type="button" onClick={() => (editId === hr.id ? setEditId(null) : startEdit(hr))}>تعديل</button>
-                  <button className="btn soft sm" type="button" onClick={() => cancelHearing(hr.id)}>إلغاء</button>
+        {hearings.map((hr) => {
+          const from = hr.postponedFromId ? byId.get(hr.postponedFromId) : undefined;
+
+          return (
+            <div key={hr.id} className="item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div className="imeta">
+                  <b>{hr.title}</b>
+                  <span>{hr.day}{hr.time ? ` · ${hr.time}` : ''} · {hr.lapsed ? 'فائتة — سجّل نتيجتها' : hr.status}</span>
+                  {from && <span>مؤجّلة من {from.day}{from.time ? ` · ${from.time}` : ''}</span>}
+                </div>
+                {(hr.canEdit || hr.canCancel) && (
+                  <div className="iact" style={{ gap: 6 }}>
+                    {hr.canEdit && <button className="btn soft sm" type="button" onClick={() => (editId === hr.id ? setEditId(null) : startEdit(hr))}>تعديل</button>}
+                    {hr.canCancel && <button className="btn soft sm" type="button" onClick={() => cancelHearing(hr.id)}>إلغاء</button>}
+                  </div>
+                )}
+              </div>
+
+              {hr.canRecord && editId !== hr.id && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <input className="input" placeholder="نتيجة الجلسة (اختياري)" value={recOutcome} onChange={(e) => setRecOutcome(e.target.value)} style={{ flex: 1, minWidth: 150 }} />
+                  <button className="btn soft sm" type="button" onClick={() => recordHearing(hr.id, 'منعقدة')}>منعقدة</button>
+                  <button className="btn soft sm" type="button" onClick={() => recordHearing(hr.id, 'مؤجلة')}>مؤجلة</button>
                 </div>
               )}
+
+              {editId === hr.id && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    submitEdit(hr);
+                  }}
+                >
+                  <div className="picker-grid">
+                    <div className="field"><label>عنوان الجلسة</label><input className="input" value={eh.title} onChange={(e) => setEh({ ...eh, title: e.target.value })} /></div>
+                    <div className="field"><label>الدائرة</label><input className="input" value={eh.court} onChange={(e) => setEh({ ...eh, court: e.target.value })} placeholder="الدائرة التجارية الأولى" /></div>
+                  </div>
+                  {followed.has(hr.id) ? (
+                    <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>
+                      حُدّد موعد الجلسة التالية لهذه الجلسة — لتغيير الموعد عدّل الجلسة التالية.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="field"><label>التاريخ</label><input className="input" type="date" value={eh.day} onChange={(e) => setEh({ ...eh, day: e.target.value })} /></div>
+                      <TimeSlotPicker value={eh.time} onChange={(t) => setEh({ ...eh, time: t })} date={eh.day} label="وقت الجلسة" required allowCustom={false} />
+                    </>
+                  )}
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                    <button className="btn sm" type="submit" disabled={!eh.time}>
+                      <Icon name="cal" /> {moved ? 'تأجيل الجلسة…' : 'حفظ التعديل'}
+                    </button>
+                    <button className="btn soft sm" type="button" onClick={() => setEditId(null)}>إلغاء التعديل</button>
+                  </div>
+                </form>
+              )}
             </div>
-
-            {(hr.status === 'مجدولة' || hr.status === 'فائتة — بانتظار النتيجة') && editId !== hr.id && (
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                <input className="input" placeholder="نتيجة الجلسة (اختياري)" value={recOutcome} onChange={(e) => setRecOutcome(e.target.value)} style={{ flex: 1, minWidth: 150 }} />
-                <button className="btn soft sm" type="button" onClick={() => recordHearing(hr.id, 'منعقدة')}>منعقدة</button>
-                <button className="btn soft sm" type="button" onClick={() => recordHearing(hr.id, 'مؤجلة')}>مؤجلة</button>
-              </div>
-            )}
-
-            {editId === hr.id && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  submitEdit(hr.id);
-                }}
-              >
-                <div className="picker-grid">
-                  <div className="field"><label>عنوان الجلسة</label><input className="input" value={eh.title} onChange={(e) => setEh({ ...eh, title: e.target.value })} /></div>
-                  <div className="field"><label>الدائرة</label><input className="input" value={eh.court} onChange={(e) => setEh({ ...eh, court: e.target.value })} placeholder="الدائرة التجارية الأولى" /></div>
-                </div>
-                <div className="field"><label>التاريخ</label><input className="input" type="date" value={eh.day} onChange={(e) => setEh({ ...eh, day: e.target.value })} /></div>
-                <TimeSlotPicker value={eh.time} onChange={(t) => setEh({ ...eh, time: t })} date={eh.day} label="الوقت الجديد للجلسة" required allowCustom={false} />
-                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                  <button className="btn sm" type="submit" disabled={!eh.time}><Icon name="cal" /> حفظ إعادة الجدولة</button>
-                  <button className="btn soft sm" type="button" onClick={() => setEditId(null)}>إلغاء التعديل</button>
-                </div>
-              </form>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
+
+      {postponing && (
+        <RescheduleDialog
+          open
+          domain="hearing"
+          title={`تأجيل الجلسة «${postponing.title}»`}
+          confirmLabel="تأجيل الجلسة"
+          consequence={
+            <>
+              {postponing.canRecord
+                ? 'تبقى الجلسة الحاليّة في السجلّ بحالة «مؤجلة» وسببها، '
+                : 'تبقى الجلسة الحاليّة في السجلّ كما سُجّلت، '}
+              وتُنشأ جلسةٌ جديدة في {eh.day}{eh.time ? ` · ${eh.time}` : ''} بتذكيراتها. ويُبلَّغ العميل والمحامي بإشعارٍ وبريد.
+            </>
+          }
+          onClose={() => setPostponing(null)}
+          onSubmit={(choice) =>
+            new Promise<void>((resolve) => {
+              router.post(`${base}/hearings/${postponing.id}/update`, { ...eh, ...choice }, {
+                preserveScroll: true,
+                onSuccess: () => {
+                  setPostponing(null);
+                  setEditId(null);
+                  toast('أُجّلت الجلسة — وبقيت السابقة في السجلّ', 'success');
+                },
+                onError: (err) => toast(reason(err), 'error'),
+                onFinish: () => resolve(),
+              });
+            })
+          }
+        />
+      )}
     </div>
   );
 };

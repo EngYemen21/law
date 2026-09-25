@@ -164,7 +164,8 @@ class CaseLifecycleIntegrityTest extends TestCase
 
         // جلسةٌ منعقدة لا تُعاد جدولتها ولا تُلغى
         $this->actingAs($lawyer)->post(route('lawyer.cases.hearings.record', [$case, $h]), ['status' => 'منعقدة'])->assertRedirect();
-        $this->actingAs($lawyer)->post(route('lawyer.cases.hearings.update', [$case, $h]), [])->assertStatus(422);
+        // طلبٌ مكتمل بسببه — كي يكون الرفض من حارس الحالة لا من التحقّق
+        $this->actingAs($lawyer)->post(route('lawyer.cases.hearings.update', [$case, $h]), ['day' => now()->addWeeks(2)->format('Y-m-d'), 'reason' => 'court_decision'] + $hearing)->assertStatus(422);
         $this->actingAs($lawyer)->post(route('lawyer.cases.hearings.cancel', [$case, $h]))->assertStatus(422);
         $this->actingAs($lawyer)->post(route('lawyer.cases.hearings.record', [$case, $h]), ['status' => 'مؤجلة'])->assertStatus(422);
 
