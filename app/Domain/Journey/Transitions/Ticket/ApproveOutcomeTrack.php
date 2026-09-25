@@ -28,10 +28,16 @@ use Illuminate\Support\Facades\DB;
  * - تنفيذ: تحويل الطلب إلى ملف تنفيذ قضائي وتجميد التذكرة ونشر القرار والسبب للعميل.
  * - إغلاق: حفظ مسبب للتذكرة برمز سبب معتمد وتجميد التذكرة ونشر المبرر الحقيقي للعميل.
  *
+ * ولا يُعتمد مسارٌ قبل ملخّصٍ معتمد، إلّا بسبب تجاوزٍ تدوّنه الإدارة (`OutcomeSummaryGate`) — الشرط
+ * نفسه في الاقتراح: اعتمادٌ مباشر بلا مقترح كان سيصير باباً خلفيّاً لما أُغلق في الاقتراح.
+ *
  * @extends Transition<Ticket>
  */
 final class ApproveOutcomeTrack extends Transition
 {
+    /** سبب التجاوز إن مضى الانتقال به — يُحسب في `apply` ويقرؤه `record` و`events` بعده. */
+    private ?string $waived = null;
+
     public function name(): string
     {
         return 'ticket.approve_outcome_track';
@@ -83,6 +89,11 @@ final class ApproveOutcomeTrack extends Transition
         return null;
     }
 
+    public function denyRequest(Model $entity, ?User $actor, array $payload): ?string
+    {
+        return OutcomeSummaryGate::denyWaiver($actor, $payload);
+    }
+
     public function guard(Model $entity, array $payload): ?string
     {
         /** @var Ticket $entity */
@@ -100,7 +111,7 @@ final class ApproveOutcomeTrack extends Transition
             return 'يجب تدوين السبب الحقيقي والمبرر النظامي الذي يظهر للعميل (10 أحرف على الأقل).';
         }
 
-        return null;
+        return OutcomeSummaryGate::guard($entity, $payload);
     }
 
     public function apply(Model $entity, ?User $actor, array $payload): void
@@ -108,6 +119,7 @@ final class ApproveOutcomeTrack extends Transition
         /** @var Ticket $entity */
         $trackEnum = TicketOutcomeTrack::from((string) $payload['track']);
         $reason = trim((string) $payload['reason']);
+        $this->waived = OutcomeSummaryGate::usedWaiver($entity, $payload);
 
         $entity->approved_track = $trackEnum->value;
         $entity->approved_track_reason = $reason;
@@ -293,7 +305,16 @@ final class ApproveOutcomeTrack extends Transition
             user: $actor,
         );
 
+        if ($this->waived !== null) {
+            OutcomeSummaryGate::audit($entity, $actor, 'اعتماد المسار', $this->waived);
+        }
+
         return [new TicketStatusBroadcast($entity)];
+    }
+
+    public function record(array $payload): array
+    {
+        return OutcomeSummaryGate::record($this->waived);
     }
 
     private static function clock(): string

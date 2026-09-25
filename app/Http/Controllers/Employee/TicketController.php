@@ -22,6 +22,7 @@ use App\Support\LegalCatalogue;
 use App\Support\Live;
 use App\Support\Notify;
 use App\Support\ServiceDocs;
+use App\Support\TicketAssignment;
 use App\Support\TicketJourney;
 use App\Support\TicketTriage;
 use App\Support\TicketWritePolicy;
@@ -112,6 +113,8 @@ class TicketController extends Controller
                 'priority' => $ticket->priority ?: 'متوسطة',
                 // الموظف لا يحوّل قبل اعتماد المحامي — الزرّ يُخفى بدل أن يُعرَض ويُرفض بـ422
                 'summaryApproved' => (bool) $ticket->summary?->isApproved(),
+                // اقتراح النظام لمودال التحويل — لغير المسنَدة وحدها، والإسناد يؤكّده الموظّف
+                'lawyerSuggestion' => $ticket->assigned_lawyer_id ? null : TicketAssignment::suggest($ticket)->toArray(),
             ]),
             'clientStats' => $clientStats,
             'channel' => 'ticket.'.$ticket->id,

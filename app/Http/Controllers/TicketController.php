@@ -25,6 +25,7 @@ use App\Support\LawyerName;
 use App\Support\LegalCatalogue;
 use App\Support\Live;
 use App\Support\Notify;
+use App\Support\TicketAssignment;
 use App\Support\TicketJourney;
 use App\Support\TicketTriage;
 use Illuminate\Http\JsonResponse;
@@ -203,6 +204,10 @@ class TicketController extends Controller
             auditable: $ticket,
             auditableRef: $ticket->number,
         );
+
+        // الفتح لا يُسنِد أحداً (قرار 2026-09-20) — إلّا ألّا يكون في المكتب محامٍ أصلاً، فالإدارة
+        // العليا صاحبة الملفّ من لحظته بدل أن يبقى بلا صاحبٍ حتى انقضاء المهلة (سلسلة المالك 2026-09-25)
+        TicketAssignment::escalateIfNoLawyer($ticket);
 
         return redirect()->route('tickets.show', $ticket);
     }

@@ -10,10 +10,12 @@ use App\Models\Ticket;
 use App\Models\TicketSummary;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 class AdminApprovalsOperationsTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     private User $admin;
@@ -58,6 +60,8 @@ class AdminApprovalsOperationsTest extends TestCase
             'proposed_by_id' => $this->lawyer->id,
             'proposed_at' => now(),
         ]);
+        // «الرأي القانوني» لا يُبلَغ إلّا بملخّصٍ معتمد — شرط قرار المآل (ث٥)
+        $this->approveOpinionOf($ticket);
 
         $response = $this->actingAs($this->admin)->post("/admin/tickets/{$ticket->number}/track/approve", [
             'track' => TicketOutcomeTrack::Case->value,

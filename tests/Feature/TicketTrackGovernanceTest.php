@@ -12,6 +12,7 @@ use App\Models\Ticket;
 use App\Models\User;
 use App\Services\LegalAiService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\ApprovesTicketSummary;
 use Tests\TestCase;
 
 /**
@@ -20,6 +21,7 @@ use Tests\TestCase;
  */
 class TicketTrackGovernanceTest extends TestCase
 {
+    use ApprovesTicketSummary;
     use RefreshDatabase;
 
     private function createTicket(User $client, ?User $lawyer = null, array $attrs = []): Ticket
@@ -103,6 +105,8 @@ class TicketTrackGovernanceTest extends TestCase
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'name' => 'المستشار القانوني']);
         $admin = User::factory()->create(['role' => Role::Admin]);
         $ticket = $this->createTicket($client, $lawyer);
+        // ملخّصٌ معتمد كما في الرحلة الحقيقيّة — شرط قرار المآل (ث٥)
+        $this->approveTicketSummary($ticket);
 
         $response = $this->actingAs($lawyer)
             ->post(route('lawyer.tickets.track.propose', $ticket), [
@@ -126,6 +130,8 @@ class TicketTrackGovernanceTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $employee = User::factory()->create(['role' => Role::Employee, 'name' => 'أحمد الموظف']);
         $ticket = $this->createTicket($client);
+        // ملخّصٌ معتمد كما في الرحلة الحقيقيّة — شرط قرار المآل (ث٥)
+        $this->approveTicketSummary($ticket);
 
         $response = $this->actingAs($employee)
             ->post(route('employee.tickets.track.propose', $ticket), [
@@ -146,6 +152,8 @@ class TicketTrackGovernanceTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $admin = User::factory()->create(['role' => Role::Admin]);
         $ticket = $this->createTicket($client);
+        // ملخّصٌ معتمد كما في الرحلة الحقيقيّة — شرط قرار المآل (ث٥)
+        $this->approveTicketSummary($ticket);
 
         $reason = 'الموضوع يستدعي جلسة استشارية متعمقة لبحث خيارات التفاوض وصياغة الموقف الودي.';
 
@@ -177,6 +185,8 @@ class TicketTrackGovernanceTest extends TestCase
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $admin = User::factory()->create(['role' => Role::Admin]);
         $ticket = $this->createTicket($client, $lawyer);
+        // ملخّصٌ معتمد كما في الرحلة الحقيقيّة — شرط قرار المآل (ث٥)
+        $this->approveTicketSummary($ticket);
 
         $reason = 'توافر أركان الخصومة التجارية وتخلف المدعى عليه عن السداد يستوجب رفع الدعوى أمام المحكمة.';
 
@@ -208,6 +218,8 @@ class TicketTrackGovernanceTest extends TestCase
             'claim_amount' => 85000,
             'opponent_name' => 'شركة التحدي للتجارة',
         ]);
+        // ملخّصٌ معتمد كما في الرحلة الحقيقيّة — شرط قرار المآل (ث٥)
+        $this->approveTicketSummary($ticket);
 
         $reason = 'ثبوت السند التنفيذي المستوفي لشروطه النظامية مما يخول التقديم على دوائر التنفيذ فوراً.';
 
@@ -236,6 +248,8 @@ class TicketTrackGovernanceTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $admin = User::factory()->create(['role' => Role::Admin]);
         $ticket = $this->createTicket($client);
+        // ملخّصٌ معتمد كما في الرحلة الحقيقيّة — شرط قرار المآل (ث٥)
+        $this->approveTicketSummary($ticket);
 
         $reason = 'عدم توافر السند القانوني الكافي وثبوت تقادم الحق المدعى به نظاماً.';
 

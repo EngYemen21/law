@@ -20,10 +20,15 @@ use Illuminate\Database\Eloquent\Model;
  * يُتاح للمحامي والموظف لرفع التوصية المهنية مع التسبيب الحقيقي
  * ولا يُنشر للعميل إلا بعد صدور قرار الإدارة العليا المعتمد.
  *
+ * ولا يُرفع مقترحٌ قبل ملخّصٍ معتمد — إلّا للإدارة العليا بسبب تجاوزٍ مدوَّن (`OutcomeSummaryGate`).
+ *
  * @extends Transition<Ticket>
  */
 final class ProposeOutcomeTrack extends Transition
 {
+    /** سبب التجاوز إن مضى الانتقال به — يُحسب في `apply` ويقرؤه `record` و`events` بعده. */
+    private ?string $waived = null;
+
     public function name(): string
     {
         return 'ticket.propose_outcome_track';
@@ -67,6 +72,11 @@ final class ProposeOutcomeTrack extends Transition
         return null;
     }
 
+    public function denyRequest(Model $entity, ?User $actor, array $payload): ?string
+    {
+        return OutcomeSummaryGate::denyWaiver($actor, $payload);
+    }
+
     public function guard(Model $entity, array $payload): ?string
     {
         /** @var Ticket $entity */
@@ -82,6 +92,11 @@ final class ProposeOutcomeTrack extends Transition
         $reason = trim((string) ($payload['reason'] ?? ''));
         if (mb_strlen($reason) < 10) {
             return 'يجب تدوين السبب الحقيقي والمبرر المهني للمسار المقترح (10 أحرف على الأقل).';
+        }
+
+        // ث٥: الشرط في الانتقال لا في المتحكّمات الثلاثة — يسري على كلّ منادٍ حاضرٍ وآتٍ
+        if (($why = OutcomeSummaryGate::guard($entity, $payload)) !== null) {
+            return $why;
         }
 
         /*
@@ -111,6 +126,7 @@ final class ProposeOutcomeTrack extends Transition
         /** @var Ticket $entity */
         $trackEnum = TicketOutcomeTrack::from((string) $payload['track']);
         $reason = trim((string) $payload['reason']);
+        $this->waived = OutcomeSummaryGate::usedWaiver($entity, $payload);
 
         $entity->proposed_track = $trackEnum->value;
         $entity->proposed_track_reason = $reason;
@@ -147,6 +163,15 @@ final class ProposeOutcomeTrack extends Transition
             user: $actor,
         );
 
+        if ($this->waived !== null) {
+            OutcomeSummaryGate::audit($entity, $actor, 'رفع مقترح المسار', $this->waived);
+        }
+
         return [new TicketStatusBroadcast($entity)];
+    }
+
+    public function record(array $payload): array
+    {
+        return OutcomeSummaryGate::record($this->waived);
     }
 }

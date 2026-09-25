@@ -21,6 +21,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Permission;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
@@ -30,6 +31,7 @@ use Tests\TestCase;
  */
 class GrandTourE2ETest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     /** @return array{0:User,1:User,2:User,3:User} client, employee, lawyer, admin */
@@ -105,6 +107,8 @@ class GrandTourE2ETest extends TestCase
 
         // اكتمال الدراسة ثم اعتماد الإدارة العليا لمسار القضية عبر حوكمة المسارات
         $ticket->update(['status' => 'مكتملة', 'tone' => 'b-green']);
+        // والملخّص معتمدٌ بمرحلتيه كما في التدفّق الواقعيّ — شرط قرار المآل (ث٥)
+        $this->approveOpinionOf($ticket);
         $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
             'track' => TicketOutcomeTrack::Case->value,
             'reason' => 'اعتماد الإدارة العليا لتحويل التذكرة إلى قضية رسمية مباشرة.',

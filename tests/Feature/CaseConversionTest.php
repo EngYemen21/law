@@ -8,7 +8,6 @@ use App\Enums\Role;
 use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Ticket;
-use App\Models\TicketSummary;
 use App\Models\User;
 use App\Models\UserNotification;
 use App\Support\CaseConversion;
@@ -17,6 +16,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
@@ -24,11 +24,16 @@ use Tests\TestCase;
  */
 class CaseConversionTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
-    private function completedTicket(User $client, ?User $lawyer = null): Ticket
+    /**
+     * تذكرةٌ «مكتملة» كما في التدفّق الواقعيّ: **ملخّصها معتمد** — شرط قرار المآل (ث٥، 2026-09-25).
+     * `$approvedSummary = false` لاختبار الشرط نفسه.
+     */
+    private function completedTicket(User $client, ?User $lawyer = null, bool $approvedSummary = true): Ticket
     {
-        return Ticket::create([
+        $ticket = Ticket::create([
             'user_id' => $client->id,
             'number' => 'SB-2026-9100',
             'type' => 'نزاع تجاري',
@@ -38,6 +43,8 @@ class CaseConversionTest extends TestCase
             'status' => 'مكتملة',
             'tone' => 'b-green',
         ]);
+
+        return $approvedSummary ? $this->approveOpinionOf($ticket) : $ticket;
     }
 
     public function test_lawyer_converts_completed_ticket_to_case(): void
@@ -79,12 +86,8 @@ class CaseConversionTest extends TestCase
         // محامٍ نشط في التوزيع التلقائي: التحويل لم يعد يُنتج قضية بلا محامٍ حقيقي
         // (اسم نصّي بلا معرّف كان يُخرج القضية من قائمة كل محامٍ — CaseLawyerResolutionTest)
         User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'distribution_mode' => 'auto']);
+        // في التدفق الواقعي لا تصل التذكرة «مكتملة» إلا بعد اعتماد الملخّص — يضمنه `completedTicket`
         $ticket = $this->completedTicket($client);
-        // في التدفق الواقعي لا تصل التذكرة «مكتملة» إلا بعد اعتماد المستشار للملخّص — شرط تحويل الموظف
-        TicketSummary::create([
-            'ticket_id' => $ticket->id, 'case_summary' => 'ملخّص معتمد', 'status' => 'approved',
-            'approved_at' => now(), 'ai_generated' => true,
-        ]);
 
         $this->actingAs($employee)->post(route('employee.tickets.track.propose', $ticket), [
             'track' => TicketOutcomeTrack::Case->value,
@@ -145,42 +148,44 @@ class CaseConversionTest extends TestCase
     }
 
     /**
-     * قاعدة الاعتماد الثلاثية — **مقصودة لا متناقضة**، وتُثبَّت هنا كي لا «تُصحَّح» سهواً:
+     * قاعدة الاعتماد — **نقضها قرار المالك 2026-09-25 (ث٥)**، وتُثبَّت هنا كي لا تعود سهواً:
      *
-     *   • المحامي هو **المعتمِد** للنتيجة، فاشتراط اعتماد سابق عليه دور — يحوّل بلا ملخّص.
-     *   • الموظف ينتظر اعتماد المحامي — لا يحوّل قبله.
-     *   • الإدارة العليا هي **الاعتماد النهائي** — تحوّل بلا قيد.
+     *   • كانت: المحامي يحوّل بلا ملخّص، والإدارة بلا قيد. فوُلد ملفّ تنفيذ من SB-2026-1018 بلا
+     *     ملخّص ولا محامٍ ولا رأي.
+     *   • صارت: لا مقترح ولا اعتماد قبل ملخّصٍ معتمد نهائيّاً — للمحامي والموظّف والإدارة.
+     *   • وللإدارة العليا وحدها المضيّ دونه **بسبب تجاوزٍ مكتوب** يُقيَّد في الرحلة والتدقيق.
      */
-    public function test_lawyer_may_convert_without_an_approved_summary(): void
+    public function test_lawyer_may_not_propose_without_an_approved_summary(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        $ticket = $this->completedTicket($client, $lawyer);
+        $ticket = $this->completedTicket($client, $lawyer, approvedSummary: false);
 
         $this->assertNull($ticket->summary, 'التذكرة لها ملخّص — الاختبار يفقد معناه.');
 
-        $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
+        $this->actingAs($lawyer)->post(route('lawyer.tickets.track.propose', $ticket), [
             'track' => TicketOutcomeTrack::Case->value,
-            'reason' => 'اعتماد الإدارة العليا لمسار القضية دون اشتراط ملخص مسبق.',
-        ])->assertRedirect();
+            'reason' => 'رفع مقترح القضية دون ملخّصٍ معتمد.',
+        ])->assertStatus(422);
 
-        $this->assertSame(1, LegalCase::where('ticket_id', $ticket->id)->count());
+        $this->assertNull($ticket->fresh()->proposed_track);
+        $this->assertSame(0, LegalCase::where('ticket_id', $ticket->id)->count());
     }
 
-    /** الإدارة العليا: الاعتماد النهائي — تحوّل بلا ملخّص وبلا إسناد. */
+    /** الإدارة العليا: الاعتماد النهائي — تحوّل بلا ملخّص وبلا إسناد، **بسبب تجاوزٍ مكتوب**. */
     public function test_admin_may_convert_without_an_approved_summary(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         // محامٍ نشط يلتقطه TicketAssignment::pickLawyer — موضوع الاختبار تجاوزُ الإدارة
         // لشرط اعتماد الملخّص، لا إنشاء قضية بلا محامٍ (ذاك يُرفض الآن عمداً)
         User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'distribution_mode' => 'auto']);
-        $ticket = $this->completedTicket($client); // بلا إسناد مباشر — يُحلّ تلقائياً
+        $ticket = $this->completedTicket($client, approvedSummary: false); // بلا إسناد مباشر — يُحلّ تلقائياً
         $admin = User::factory()->create(['role' => Role::Admin]);
 
         $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
             'track' => TicketOutcomeTrack::Case->value,
             'reason' => 'اعتماد الإدارة العليا النهائي لمسار القضية.',
+            'summary_waiver_reason' => 'مهلة رفع الدعوى تنقضي هذا الأسبوع — لا يُنتظر اكتمال الملخّص.',
         ])->assertRedirect();
 
         $this->assertSame(1, LegalCase::where('ticket_id', $ticket->id)->count());

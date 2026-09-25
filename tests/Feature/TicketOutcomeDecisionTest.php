@@ -10,6 +10,7 @@ use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\ApprovesTicketSummary;
 use Tests\TestCase;
 
 /**
@@ -18,11 +19,13 @@ use Tests\TestCase;
  */
 class TicketOutcomeDecisionTest extends TestCase
 {
+    use ApprovesTicketSummary;
     use RefreshDatabase;
 
+    /** تذكرةٌ «بانتظار قرار المآل» — وملخّصها معتمد كما في الرحلة الحقيقيّة (شرط قرار المآل، ث٥). */
     private function readyForOutcomeTicket(User $client, ?User $lawyer = null): Ticket
     {
-        return Ticket::create([
+        return $this->approveTicketSummary(Ticket::create([
             'user_id' => $client->id,
             'number' => 'SB-2026-9900',
             'type' => 'نزاع تجاري',
@@ -31,7 +34,7 @@ class TicketOutcomeDecisionTest extends TestCase
             'assigned_lawyer_id' => $lawyer?->id,
             'status' => TicketStatus::ReadyForOutcome->value,
             'tone' => 'b-amber',
-        ]);
+        ]));
     }
 
     public function test_lawyer_converts_ready_for_outcome_ticket_to_case(): void

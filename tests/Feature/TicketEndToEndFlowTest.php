@@ -13,10 +13,12 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Permission;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 class TicketEndToEndFlowTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -139,6 +141,8 @@ class TicketEndToEndFlowTest extends TestCase
 
         // 9. اكتمال دراسة الملف وتحويل التذكرة لحالة مكتملة
         $ticket->update(['status' => 'مكتملة', 'tone' => 'b-green']);
+        // والملخّص معتمدٌ بمرحلتيه كما في التدفّق الواقعيّ — شرط قرار المآل (ث٥)
+        $this->approveOpinionOf($ticket);
 
         $admin = User::factory()->create([
             'role' => Role::Admin,

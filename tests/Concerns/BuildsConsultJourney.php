@@ -5,7 +5,6 @@ namespace Tests\Concerns;
 use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Ticket;
-use App\Models\TicketSummary;
 use App\Models\User;
 use App\Support\ConsultBooking;
 use App\Support\TicketJourney;
@@ -22,19 +21,12 @@ use Spatie\Permission\Models\Permission;
  */
 trait BuildsConsultJourney
 {
+    use ApprovesTicketSummary;
+
     /** يعتمد ملخّص الملفّ بمرحلتيه (المحامي ثمّ الإدارة) — شرط طلب الاستشارة. */
     protected function approveOpinionOf(Ticket $ticket): Ticket
     {
-        TicketSummary::create([
-            'ticket_id' => $ticket->id,
-            'facts' => 'وقائع الملفّ كما أوردها العميل ومستنداته.',
-            'key_points' => 'المطالبة بالمستحقات وديّاً ثمّ قضائياً.',
-            'status' => 'approved',
-            'lawyer_approved_at' => now(),
-            'approved_at' => now(),
-        ]);
-
-        return $ticket;
+        return $this->approveTicketSummary($ticket);
     }
 
     /**

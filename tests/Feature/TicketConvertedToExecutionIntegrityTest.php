@@ -10,10 +10,12 @@ use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
+use Tests\Concerns\ApprovesTicketSummary;
 use Tests\TestCase;
 
 class TicketConvertedToExecutionIntegrityTest extends TestCase
 {
+    use ApprovesTicketSummary;
     use RefreshDatabase;
 
     public function test_ticket_converted_to_execution_sets_status_creates_record_and_notifies_client(): void
@@ -35,6 +37,8 @@ class TicketConvertedToExecutionIntegrityTest extends TestCase
             'assigned_lawyer_id' => $lawyer->id,
             'assigned_lawyer' => $lawyer->name,
         ]);
+        // ملخّصٌ معتمد كما في الرحلة الحقيقيّة — شرط قرار المآل (ث٥)
+        $this->approveTicketSummary($ticket);
 
         $reason = 'ثبوت السند التنفيذي المستوفي لكافة الأركان النظامية مما يستوجب قيد طلب تنفيذ لدى محكمة التنفيذ.';
 

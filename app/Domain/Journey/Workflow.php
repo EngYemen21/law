@@ -56,6 +56,9 @@ final class Workflow
             if (($why = $transition->deny($locked, $actor)) !== null) {
                 throw TransitionDenied::forbidden($why);
             }
+            if (($why = $transition->denyRequest($locked, $actor, $payload)) !== null) {
+                throw TransitionDenied::forbidden($why);
+            }
             if (($why = $transition->guard($locked, $payload)) !== null) {
                 throw TransitionDenied::invalid($why);
             }
@@ -151,6 +154,7 @@ final class Workflow
             $current = (string) $entity->getAttribute($transition->column());
             if ($transition->accepts($current)
                 && $transition->deny($entity, $actor) === null
+                && $transition->denyRequest($entity, $actor, []) === null
                 && $transition->guard($entity, []) === null) {
                 $names[] = $transition->name();
             }

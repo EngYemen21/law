@@ -32,12 +32,16 @@ class TransferController extends Controller
             ->open()
             ->latest('id')->get();
 
-        $tickets = $allTickets->map(function (Ticket $t) {
+        // اقتراح النظام لغير المسنَدة، موسوماً بالتخصّص — يؤكّده الموظّف ولا يُكتب شيء (قرار 2026-09-20)
+        $suggestions = TicketAssignment::suggestMany($allTickets->whereNull('assigned_lawyer_id'));
+
+        $tickets = $allTickets->map(function (Ticket $t) use ($suggestions) {
             $isUnassigned = ! $t->assigned_lawyer_id || in_array($t->assigned_lawyer, ['', '—', null], true);
 
             return array_merge($t->toEmployeeCard(), [
                 'no' => $t->number,
                 'isUnassigned' => $isUnassigned,
+                'suggestion' => isset($suggestions[$t->id]) ? $suggestions[$t->id]->toArray() : null,
                 'updatedAgo' => $t->updated_at?->locale('ar')->diffForHumans() ?? 'الآن',
                 'createdAgo' => $t->created_at?->locale('ar')->diffForHumans() ?? 'الآن',
             ]);

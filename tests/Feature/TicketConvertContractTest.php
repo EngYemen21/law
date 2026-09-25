@@ -6,10 +6,10 @@ use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Enums\Role;
 use App\Models\LegalCase;
 use App\Models\Ticket;
-use App\Models\TicketSummary;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
+use Tests\Concerns\ApprovesTicketSummary;
 use Tests\TestCase;
 
 /**
@@ -26,6 +26,7 @@ use Tests\TestCase;
  */
 class TicketConvertContractTest extends TestCase
 {
+    use ApprovesTicketSummary;
     use RefreshDatabase;
 
     private function completedTicket(User $client, ?User $lawyer = null): Ticket
@@ -42,14 +43,6 @@ class TicketConvertContractTest extends TestCase
         ]);
     }
 
-    private function approveSummary(Ticket $ticket): void
-    {
-        TicketSummary::create([
-            'ticket_id' => $ticket->id, 'case_summary' => 'ملخّص معتمد', 'status' => 'approved',
-            'approved_at' => now(), 'ai_generated' => true,
-        ]);
-    }
-
     /** المسار الحوكمي الرسمي الذي تركّبه الواجهة من رقم التذكرة يصل فعلاً إلى المتحكّم (ربط بـnumber لا id). */
     public function test_the_url_the_frontend_builds_from_the_ticket_number_converts(): void
     {
@@ -57,6 +50,8 @@ class TicketConvertContractTest extends TestCase
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $admin = User::factory()->create(['role' => Role::Admin]);
         $ticket = $this->completedTicket($client, $lawyer);
+        // تذكرةٌ «مكتملة» ملخّصها معتمد كما في التدفّق الواقعيّ — شرط قرار المآل (ث٥)
+        $this->approveTicketSummary($ticket);
 
         $endpoint = '/admin/tickets/'.rawurlencode($ticket->number).'/track/approve';
 
@@ -75,6 +70,8 @@ class TicketConvertContractTest extends TestCase
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $admin = User::factory()->create(['role' => Role::Admin]);
         $ticket = $this->completedTicket($client, $lawyer);
+        // تذكرةٌ «مكتملة» ملخّصها معتمد كما في التدفّق الواقعيّ — شرط قرار المآل (ث٥)
+        $this->approveTicketSummary($ticket);
 
         // قبل التحويل: canConvert في الواجهة = status==='مكتملة' && !converted
         $this->actingAs($lawyer)->get(route('lawyer.tickets.show', $ticket))
@@ -112,7 +109,7 @@ class TicketConvertContractTest extends TestCase
                 ->where('ticket.summaryApproved', false)
                 ->where('ticket.caseRef', null));
 
-        $this->approveSummary($ticket);
+        $this->approveTicketSummary($ticket);
 
         $this->actingAs($employee)->get(route('employee.tickets.show', $ticket))
             ->assertInertia(fn ($p) => $p->where('ticket.summaryApproved', true));
@@ -135,6 +132,8 @@ class TicketConvertContractTest extends TestCase
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $admin = User::factory()->create(['role' => Role::Admin]);
         $ticket = $this->completedTicket($client, $lawyer);
+        // تذكرةٌ «مكتملة» ملخّصها معتمد كما في التدفّق الواقعيّ — شرط قرار المآل (ث٥)
+        $this->approveTicketSummary($ticket);
 
         $this->actingAs($admin)->get(route('admin.tickets.show', $ticket))
             ->assertInertia(fn ($p) => $p->where('base', '/admin'));

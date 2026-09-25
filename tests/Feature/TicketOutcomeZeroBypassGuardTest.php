@@ -10,6 +10,7 @@ use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
@@ -25,6 +26,7 @@ use Tests\TestCase;
  */
 class TicketOutcomeZeroBypassGuardTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     private function completedTicket(User $client, ?User $lawyer = null): Ticket
@@ -82,7 +84,8 @@ class TicketOutcomeZeroBypassGuardTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $admin = User::factory()->create(['role' => Role::Admin]);
-        $ticket = $this->completedTicket($client, $lawyer);
+        // «مكتملة» ملخّصها معتمد كما في التدفّق الواقعيّ — شرط قرار المآل (ث٥)
+        $ticket = $this->approveOpinionOf($this->completedTicket($client, $lawyer));
 
         $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
             'track' => TicketOutcomeTrack::Case->value,

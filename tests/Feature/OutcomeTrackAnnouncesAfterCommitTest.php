@@ -13,6 +13,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use RuntimeException;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
@@ -30,6 +31,7 @@ use Tests\TestCase;
  */
 class OutcomeTrackAnnouncesAfterCommitTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     /** @return array{0:Ticket,1:User,2:User} التذكرة · العميل · الإداريّ */
@@ -43,6 +45,9 @@ class OutcomeTrackAnnouncesAfterCommitTest extends TestCase
             'department' => 'القسم التجاري', 'status' => 'بانتظار قرار المآل', 'tone' => 'b-amber',
             'assigned_lawyer' => $lawyer->name, 'assigned_lawyer_id' => $lawyer->id,
         ]);
+        // «بانتظار قرار المآل» لا تُبلَغ إلّا بملخّصٍ معتمد — وبدونه يرتدّ الاعتماد 422 (وهو
+        // `RuntimeException`)، فيمرّ اختبار الإلغاء بلا أن يُختبر شيء
+        $this->approveOpinionOf($ticket);
 
         return [$ticket, $client, $admin];
     }

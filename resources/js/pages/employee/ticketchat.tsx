@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import FlowLine from '@/components/babylon/FlowLine';
+import { type LawyerSuggestionData } from '@/components/babylon/LawyerSuggestionHint';
 import Modal from '@/components/babylon/Modal';
 import MsgMeta from '@/components/babylon/MsgMeta';
 import TicketTalkingNotice from '@/components/babylon/TicketTalkingNotice';
@@ -35,6 +36,8 @@ interface EmpTicket {
   closureReasonCode?: string | null;
   closureNotes?: string | null;
   trackGovernance?: TrackGovernanceData | null;
+  /** اقتراح النظام لمحامي تذكرةٍ غير مسنَدة (مختصّ/غير مختصّ) — لمودال التحويل */
+  lawyerSuggestion?: LawyerSuggestionData | null;
 }
 interface StateOption { status: string; tone: string; }
 interface LawyerOption { id: number; name: string; }
@@ -296,6 +299,7 @@ const EmployeeTicketChat: React.FC<{
         dept={ticket.dept}
         lawyerId={ticket.lawyerId ?? null}
         lawyers={lawyers}
+        suggestion={ticket.lawyerSuggestion}
         departments={catalogueDepartments}
         onClose={() => setOpsKind(null)}
         onDone={() => router.reload({ only: ['ticket', 'messages'] })}

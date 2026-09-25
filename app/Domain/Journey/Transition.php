@@ -59,6 +59,22 @@ abstract class Transition
     }
 
     /**
+     * رفضٌ بسبب الفاعل **فيما يطلبه** (⇒ 403). `null` = مسموح.
+     *
+     * لماذا غير `deny`: بعض الانتقالات يملكها أكثرُ من دور، لكنّ **خياراً** في حمولتها امتيازٌ
+     * لدورٍ واحد — مثل تجاوز شرط الملخّص المعتمد بسببٍ مكتوب، وهو للإدارة العليا وحدها. `deny`
+     * لا يرى الحمولة و`guard` لا يرى الفاعل، فكان الامتياز سيُحرس في المتحكّم وحده، ويمرّ من أيّ
+     * منادٍ آخر. يُنادى بعد `deny` وقبل `guard`، وبحمولةٍ فارغة من `Workflow::allowed`.
+     *
+     * @param  TModel  $entity
+     * @param  array<string, mixed>  $payload
+     */
+    public function denyRequest(Model $entity, ?User $actor, array $payload): ?string
+    {
+        return null;
+    }
+
+    /**
      * رفضٌ بسبب حال الملفّ (⇒ 422). يُنادى أيضاً بحمولةٍ فارغة من `Workflow::allowed`،
      * فلا يفترض وجود مفاتيحها.
      *

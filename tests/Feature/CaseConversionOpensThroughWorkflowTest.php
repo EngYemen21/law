@@ -9,6 +9,7 @@ use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\ApprovesTicketSummary;
 use Tests\TestCase;
 
 /**
@@ -16,6 +17,7 @@ use Tests\TestCase;
  */
 class CaseConversionOpensThroughWorkflowTest extends TestCase
 {
+    use ApprovesTicketSummary;
     use RefreshDatabase;
 
     public function test_converting_a_ticket_records_the_case_opening(): void
@@ -27,6 +29,8 @@ class CaseConversionOpensThroughWorkflowTest extends TestCase
             'user_id' => $client->id, 'number' => 'SB-2026-9170', 'type' => 'نزاع تجاري', 'department' => 'القسم التجاري',
             'assigned_lawyer' => $lawyer->name, 'assigned_lawyer_id' => $lawyer->id, 'status' => 'مكتملة', 'tone' => 'b-green',
         ]);
+        // ملخّصٌ معتمد كما في الرحلة الحقيقيّة — شرط قرار المآل (ث٥)
+        $this->approveTicketSummary($ticket);
 
         $this->actingAs($admin)->post(route('admin.tickets.track.approve', $ticket), [
             'track' => TicketOutcomeTrack::Case->value,

@@ -16,7 +16,12 @@ export interface TrackGovernanceData {
   approvedTrackReason?: string | null;
   approvedBy?: string | null;
   approvedTrackAt?: string | null;
+  /** سبب منع رفع المقترح/الاعتماد الآن (ملخّصٌ غير معتمد) — من حارس الخادم نفسه؛ `null` = لا مانع. */
+  outcomeBlocker?: string | null;
 }
+
+/** أقصر سبب تجاوز يقبله الخادم (`OutcomeSummaryGate::WAIVER_MIN`). */
+const WAIVER_MIN = 10;
 
 export interface TicketTrackProps {
   ticketNo: string;
@@ -109,6 +114,12 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
   const [closureCode, setClosureCode] = useState<string>(closureReasonCode || 'STATUTORY_INADMISSIBILITY');
   const [busy, setBusy] = useState<boolean>(false);
   const [isEditing, setIsEditing] = useState<boolean>(!approved && (!proposed || isAdmin));
+  // سبب المضيّ بلا ملخّصٍ معتمد — المسار السريع للإدارة العليا وحدها، عبر الاعتماد نفسه لا زرٍّ جانبيّ
+  const [waiver, setWaiver] = useState<string>('');
+
+  // المانع يحسبه الخادم (`OutcomeSummaryGate::blocker`) ولا يُعاد اشتقاقه هنا
+  const blocker = governance?.outcomeBlocker ?? null;
+  const waiverReady = !blocker || waiver.trim().length >= WAIVER_MIN;
 
   // Apply AI suggestion helper
   const applyAiSuggestion = () => {
@@ -171,6 +182,7 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
         track: finalTrack,
         reason: finalReason.trim(),
         closure_reason_code: finalTrack === 'close' ? closureCode : undefined,
+        summary_waiver_reason: blocker ? waiver.trim() : undefined,
       },
       {
         preserveScroll: true,
@@ -269,6 +281,46 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
             <div style={{ fontSize: 12, color: 'var(--text-soft, #334155)', lineHeight: 1.5, whiteSpace: 'pre-line', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
               <strong>السبب الحقيقي:</strong> {governance.aiSuggestedReason}
             </div>
+          </div>
+        )}
+
+        {/* ── مانع القرار: ملخّصٌ غير معتمد (ث٥) — ولمن يملك التجاوز حقلُ سببه ── */}
+        {blocker && !isFrozen && !(approved && !isEditing) && (
+          <div
+            role="alert"
+            style={{
+              padding: '10px 12px',
+              borderRadius: 8,
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              marginBottom: 14,
+              fontSize: 12.5,
+              color: '#7f1d1d',
+              lineHeight: 1.6,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+              <Icon name="lock" /> {blocker}
+            </div>
+            {isAdmin ? (
+              <div className="field" style={{ marginTop: 8, marginBottom: 0 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>للإدارة العليا المضيّ دونه — سبب التجاوز (يُقيَّد في سجلّ الرحلة والتدقيق):</span>
+                  <span style={{ fontSize: 11, color: waiverReady ? 'var(--muted)' : 'var(--red, #ef4444)' }}>
+                    {waiver.trim().length}/{WAIVER_MIN}
+                  </span>
+                </label>
+                <textarea
+                  value={waiver}
+                  onChange={(e) => setWaiver(e.target.value)}
+                  rows={2}
+                  placeholder="لماذا يُتّخذ القرار قبل اعتماد الملخّص؟"
+                  style={{ width: '100%', fontSize: 12.5, lineHeight: 1.4 }}
+                />
+              </div>
+            ) : (
+              <div style={{ marginTop: 4, fontSize: 11.5 }}>يُتاح رفع المقترح بعد اعتماد الملخّص.</div>
+            )}
           </div>
         )}
 
@@ -375,7 +427,7 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
                   type="button"
                   className="btn sm"
                   style={{ flex: 1, justifyContent: 'center' }}
-                  disabled={busy}
+                  disabled={busy || !waiverReady}
                   onClick={() => submitApproval(governance?.proposedTrack || undefined, governance?.proposedTrackReason || undefined)}
                 >
                   <Icon name="check" /> اعتماد ونشر للعميل
@@ -486,7 +538,7 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
                   type="button"
                   className="btn sm"
                   style={{ flex: 1, justifyContent: 'center' }}
-                  disabled={busy || reason.trim().length < 10}
+                  disabled={busy || reason.trim().length < 10 || !waiverReady}
                   onClick={() => submitApproval()}
                 >
                   <Icon name="check" /> اعتماد المسار ونشره للعميل
@@ -496,7 +548,8 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
                   type="button"
                   className="btn sm"
                   style={{ flex: 1, justifyContent: 'center' }}
-                  disabled={busy || reason.trim().length < 10}
+                  disabled={busy || reason.trim().length < 10 || Boolean(blocker)}
+                  title={blocker ?? undefined}
                   onClick={submitProposal}
                 >
                   <Icon name="send" /> رفع المقترح للإدارة العليا

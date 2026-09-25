@@ -1,6 +1,7 @@
 import { router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import LawyerSuggestionHint, { type LawyerSuggestionData } from '@/components/babylon/LawyerSuggestionHint';
 import Modal from '@/components/babylon/Modal';
 import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import { useToast } from '@/components/babylon/Toast';
@@ -37,6 +38,8 @@ export interface DistributeItem {
   courtName?: string | null;
   suggestedLawyerId?: number | null;
   suggestedLawyerName?: string | null;
+  /** اقتراح النظام موسوماً بالتخصّص — للتذاكر غير المسنَدة وحدها */
+  suggestion?: LawyerSuggestionData | null;
   itemKind: WorkItemKind;
   itemKindLabel: string;
   badgeTone: string;
@@ -829,12 +832,20 @@ export const AdminDistribute: React.FC<Props> = ({
                               className="btn soft sm"
                               disabled={isAssigning}
                               onClick={() => assign(item, item.suggestedLawyerId!)}
-                              style={{ fontSize: 11.5, padding: '5px 9px', color: 'var(--success)', borderColor: 'var(--success)', whiteSpace: 'nowrap' }}
-                              title="إسناد المقترح فوراً"
+                              style={{
+                                fontSize: 11.5,
+                                padding: '5px 9px',
+                                // المقترح غير المختصّ لا يُلوَّن كالاختيار الطبيعيّ
+                                color: item.suggestion?.specialist === false ? 'var(--amber, #d97706)' : 'var(--success)',
+                                borderColor: item.suggestion?.specialist === false ? 'var(--amber, #d97706)' : 'var(--success)',
+                                whiteSpace: 'nowrap',
+                              }}
+                              title={item.suggestion?.label ?? 'إسناد المقترح فوراً'}
                             >
                               ⚡ {item.suggestedLawyerName}
                             </button>
                           )}
+                          {isUnassigned && <LawyerSuggestionHint suggestion={item.suggestion} compact />}
                           <select
                             value={chosenLawyerId}
                             onChange={(e) => {

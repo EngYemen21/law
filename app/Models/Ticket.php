@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Domain\Journey\Enums\TicketStatus;
 use App\Domain\Journey\GuardsJourneyState;
+use App\Domain\Journey\Transitions\Ticket\OutcomeSummaryGate;
 use App\Infrastructure\Repositories\EloquentTicketRepository;
 use App\Models\Concerns\ClipsPreviewText;
 use App\Models\Concerns\LinksLegalDepartment;
@@ -129,6 +130,8 @@ class Ticket extends Model
             'approvedTrackReason' => $this->approved_track_reason,
             'approvedBy' => $this->relationLoaded('approvedBy') ? $this->approvedBy?->name : $this->approvedBy()->value('name'),
             'approvedTrackAt' => $this->approved_track_at?->format('Y-m-d H:i'),
+            // سبب تعطيل رفع المقترح/الاعتماد من مصدر الحارس نفسه — لا تعيد البطاقة اشتقاقه (ث٥)
+            'outcomeBlocker' => OutcomeSummaryGate::blocker($this),
         ];
     }
 

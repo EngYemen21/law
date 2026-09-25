@@ -63,13 +63,22 @@ class DistributeController extends Controller
             });
 
         // 1. التذاكر والطلبات
-        $tickets = Ticket::with(['user', 'assignedLawyer'])
+        $openTickets = Ticket::with(['user', 'assignedLawyer'])
             ->open()
             ->where('is_frozen', false)
             ->latest('id')
-            ->get()
-            ->map(function (Ticket $t) {
-                $suggested = TicketAssignment::pickLawyer($t, requireSpecialty: false);
+            ->get();
+
+        /*
+         * **اقتراح النظام لغير المسنَدة وحدها، موسوماً بالتخصّص** (سلسلة المالك 2026-09-25).
+         * كان يُحسب لكلّ تذكرة بلا وسم: فالمسنَدة تُعرض قائمتها على المقترَح لا على محاميها،
+         * و⚡ «محامي العقارات» لتذكرةٍ عمّاليّة يبدو اختياراً طبيعيّاً. والمسبح يُحمَّل مرّةً للقائمة.
+         */
+        $suggestions = TicketAssignment::suggestMany($openTickets->whereNull('assigned_lawyer_id'));
+
+        $tickets = $openTickets
+            ->map(function (Ticket $t) use ($suggestions) {
+                $suggested = $suggestions[$t->id] ?? null;
 
                 return [
                     'id' => $t->id,
@@ -90,8 +99,9 @@ class DistributeController extends Controller
                     'caseRef' => $t->case_ref,
                     'claimAmount' => $t->claim_amount,
                     'courtName' => $t->court_name,
-                    'suggestedLawyerId' => $suggested?->id,
-                    'suggestedLawyerName' => $suggested?->name,
+                    'suggestedLawyerId' => $suggested?->lawyer?->id,
+                    'suggestedLawyerName' => $suggested?->lawyer?->name,
+                    'suggestion' => $suggested?->toArray(),
                     'itemKind' => 'ticket',
                     'itemKindLabel' => 'تذكرة طلب',
                     'badgeTone' => 'b-blue',

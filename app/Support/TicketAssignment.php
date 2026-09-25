@@ -5,9 +5,11 @@ namespace App\Support;
 use App\Domain\Journey\Transitions\Ticket\ReferOnAssignment;
 use App\Domain\Journey\Workflow;
 use App\Enums\Role;
+use App\Jobs\EscalateUnassignedTicketJob;
 use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
+use Illuminate\Support\Collection;
 
 /**
  * إسناد التذكرة إلى محامٍ — **حتميّ بالكامل، بلا أيّ نداء ذكاء اصطناعيّ**.
@@ -26,7 +28,8 @@ class TicketAssignment
      * الموظّف من «تحويل التذاكر»، والإدارة من «توزيع التذاكر» (ومنها زرّ التوزيع الجماعيّ عبر
      * `AssignTicketJob`). وما بقي بلا محامٍ بعد مهلة الإعدادات تُسنده مهمّة التصعيد للإدارة العليا.
      *
-     * الباقي هنا هو المشترك: `pickLawyer` (سياسة الاختيار) و`write` (كتابة الإسناد).
+     * الباقي هنا هو المشترك: `suggest`/`pickLawyer` (سياسة الاختيار — اقتراحٌ يؤكّده إنسان)
+     * و`write` (كتابة الإسناد) و`escalateIfNoLawyer` (لا محامي أصلاً ⇒ الإدارة العليا).
      */
 
     /**
@@ -65,31 +68,119 @@ class TicketAssignment
      *
      * $requireSpecialty: يعيد null إن لم يوجد محامٍ في قسم التذكرة، بدل السقوط على كل
      * المحامين. الافتراضي false يحفظ سلوك المنادين القائمين (AssignTicketJob ·
-     * CaseConversion::resolveLawyer · DistributeController::auto) حيث أيّ محامٍ أفضل من لا شيء.
-     * ولا يمرّره منادٍ اليوم بعد حذف الإسناد الأوّل التلقائيّ؛ يبقى لأنّ سياسة «لا إسناد صامتاً
-     * خارج التخصّص» قد تُطلب في توزيعٍ جماعيّ صارم.
+     * CaseConversion::resolveLawyer · ExecutionCreation) حيث أيّ محامٍ أفضل من لا شيء.
+     *
+     * السياسة نفسها في `suggest` — هذه واجهتها المختصرة لمن يريد المحامي وحده.
      */
     public static function pickLawyer(Ticket $ticket, bool $requireSpecialty = false): ?User
     {
-        // المحامون النشطون في وضع التوزيع التلقائي فقط (الـ manual يُسنَد يدوياً من Distribute)
+        $suggestion = self::suggest($ticket);
+
+        // الصرامة تنطبق **فقط** حين للتذكرة قسم معروف: «لا يوجد متخصّص» تفترض تخصّصاً معلوماً.
+        // والقسم اختياري في نموذج العميل، ويضبطه TriageTicketOnOpenJob بعد الفتح.
+        if ($requireSpecialty && $suggestion->departmentKnown && ! $suggestion->specialist) {
+            return null; // قسم معروف ولا محامي فيه — القرار يُصعَّد لا يُفرض
+        }
+
+        return $suggestion->lawyer;
+    }
+
+    /**
+     * **اقتراح النظام لمحامي التذكرة** — سلسلة المالك (2026-09-25): مختصٌّ بالقسم ← وإلّا الأقلّ
+     * حملاً **موسوماً بأنّه غير مختصّ** ← وإلّا لا أحد (فالتصعيد للإدارة العليا).
+     *
+     * اقتراحٌ يعرضه الطاقم ويؤكّده (شاشتا «توزيع التذاكر» و«تحويل التذاكر» ومودال التحويل) —
+     * لا يكتب شيئاً: الإسناد قرارٌ بشريّ (قرار المالك 2026-09-20).
+     */
+    public static function suggest(Ticket $ticket): LawyerSuggestion
+    {
+        [$lawyers, $openCounts] = self::pool();
+
+        return self::choose($ticket, $lawyers, $openCounts);
+    }
+
+    /**
+     * اقتراحات قائمةٍ من التذاكر — مسبح المحامين وأحمالهم يُحمَّلان **مرّةً** لا لكلّ تذكرة.
+     *
+     * @param  iterable<Ticket>  $tickets
+     * @return array<int, LawyerSuggestion> مفهرسةٌ بمعرّف التذكرة
+     */
+    public static function suggestMany(iterable $tickets): array
+    {
+        [$lawyers, $openCounts] = self::pool();
+
+        $out = [];
+        foreach ($tickets as $ticket) {
+            $out[$ticket->id] = self::choose($ticket, $lawyers, $openCounts);
+        }
+
+        return $out;
+    }
+
+    /**
+     * هل في المكتب محامٍ نشطٌ واحدٌ على الأقلّ — بأيّ وضع توزيع؟
+     *
+     * غير مسبح الاقتراح عمداً: محامٍ في وضع «يدويّ» لا يُقترح آليّاً، لكنّ الطاقم يملك إسناده —
+     * فوجوده يعني أنّ للتذكرة من يُسنَد إليه، فلا تُصعَّد للإدارة بسببه.
+     */
+    public static function anyActiveLawyer(): bool
+    {
+        return User::where('role', Role::Lawyer)->where('status', 'active')->exists();
+    }
+
+    /**
+     * **الحلقة الأخيرة من السلسلة عند الفتح:** لا محامي نشطاً في المكتب أصلاً ⇒ الإدارة العليا
+     * صاحبة الملفّ من لحظته (`EscalateUnassignedTicketJob` نفسه — لا مسار تصعيدٍ ثانٍ).
+     *
+     * لماذا لا تُنتظر مهلة الإعدادات (ساعتان): المهلة نافذةٌ ليختار الطاقم محامياً، ولا محامي
+     * يُختار؛ فانتظارها يترك التذكرة بلا صاحبٍ ساعتين بلا فائدة. وحين يوجد محامٍ ولو واحد، لا
+     * يُسنِد الفتحُ أحداً (قرار 2026-09-20) وتبقى المهلة كما هي.
+     */
+    public static function escalateIfNoLawyer(Ticket $ticket): bool
+    {
+        if (self::anyActiveLawyer()) {
+            return false;
+        }
+
+        EscalateUnassignedTicketJob::dispatch($ticket->id);
+
+        return true;
+    }
+
+    /**
+     * مسبح الاقتراح: المحامون النشطون في وضع التوزيع التلقائي فقط (الـ manual يُسنَد يدوياً)،
+     * مع عدد التذاكر المفتوحة لكلٍّ منهم (لموازنة الحمل).
+     *
+     * @return array{0: Collection<int, User>, 1: Collection<int|string, mixed>}
+     */
+    private static function pool(): array
+    {
         $lawyers = User::where('role', Role::Lawyer)
             ->where('status', 'active')
             ->where('distribution_mode', 'auto')
             ->with('specialties')
             ->get();
-        if ($lawyers->isEmpty()) {
-            return null;
-        }
 
-        // عدد التذاكر المفتوحة لكل محامٍ (لموازنة الحمل)
-        $openCounts = Ticket::whereIn('assigned_lawyer_id', $lawyers->pluck('id'))
+        $openCounts = $lawyers->isEmpty() ? collect() : Ticket::whereIn('assigned_lawyer_id', $lawyers->pluck('id'))
             ->open()
             ->selectRaw('assigned_lawyer_id, count(*) as c')
             ->groupBy('assigned_lawyer_id')
             ->pluck('c', 'assigned_lawyer_id');
 
-        // اقصر المرشحين على المطابقين للتخصّص إن وُجدوا، وإلا الكل
+        return [$lawyers, $openCounts];
+    }
+
+    /**
+     * @param  Collection<int, User>  $lawyers
+     * @param  Collection<int|string, mixed>  $openCounts
+     */
+    private static function choose(Ticket $ticket, Collection $lawyers, Collection $openCounts): LawyerSuggestion
+    {
         $dept = $ticket->department;
+        if ($lawyers->isEmpty()) {
+            return LawyerSuggestion::none($dept);
+        }
+
         /*
          * **«كل الأقسام» تُطابق كلَّ قسم.**
          *
@@ -108,12 +199,6 @@ class TicketAssignment
         $deptMatched = $deptKnown
             ? $lawyers->filter(fn (User $u) => LawyerSpecialties::covers($u, $deptId, $dept))->values()
             : collect();
-        // الصرامة تنطبق **فقط** حين للتذكرة قسم معروف: «لا يوجد متخصّص» تفترض تخصّصاً
-        // معلوماً. والقسم اختياري في نموذج العميل، ويضبطه TriageTicketOnOpenJob **بعد**
-        // الإسناد لا قبله — فتصعيد كل تذكرة بلا قسم يُغرق الإدارة بلا فائدة.
-        if ($requireSpecialty && $deptKnown && $deptMatched->isEmpty()) {
-            return null; // قسم معروف ولا محامي فيه — القرار يُصعَّد لا يُفرض
-        }
 
         $pool = $deptMatched->isNotEmpty() ? $deptMatched : $lawyers;
 
@@ -129,7 +214,7 @@ class TicketAssignment
         // محفوظ للرجوع:
         //   $id = app(LegalAiService::class)->chooseLawyer($ticket, $ordered);
         //   return $ordered->firstWhere('id', $id) ?? $ordered->first();
-        return $ordered->first();
+        return new LawyerSuggestion($ordered->first(), $deptMatched->isNotEmpty(), $deptKnown, $dept);
     }
 
     /**

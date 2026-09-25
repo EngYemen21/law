@@ -14,6 +14,7 @@ use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
+use Tests\Concerns\ApprovesTicketSummary;
 use Tests\TestCase;
 
 /**
@@ -26,6 +27,7 @@ use Tests\TestCase;
  */
 class TicketJourneyIntegrityTest extends TestCase
 {
+    use ApprovesTicketSummary;
     use RefreshDatabase;
 
     private function ticket(string $status, string $tone = 'b-blue'): Ticket
@@ -106,6 +108,8 @@ class TicketJourneyIntegrityTest extends TestCase
     public function test_a_closed_status_menu_cannot_unlock_convert_to_case(): void
     {
         $ticket = $this->ticket('قيد التحليل');
+        // ملخّصٌ معتمد كما في الرحلة الحقيقيّة — شرط قرار المآل (ث٥)
+        $this->approveTicketSummary($ticket);
         $employee = $this->employee();
 
         // محاولة القفز إلى «مكتملة» تُصدّ…

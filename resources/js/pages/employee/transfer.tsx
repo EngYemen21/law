@@ -2,6 +2,7 @@ import { router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
+import LawyerSuggestionHint, { type LawyerSuggestionData } from '@/components/babylon/LawyerSuggestionHint';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import { foldSearch, isUrgentTicket } from '@/lib/employee-data';
@@ -24,6 +25,8 @@ export interface EmpTransferTicket {
   status: string;
   tone: string;
   isUnassigned?: boolean;
+  /** اقتراح النظام لغير المسنَدة، موسوماً بالتخصّص (يؤكّده الموظّف) */
+  suggestion?: LawyerSuggestionData | null;
   updatedAgo?: string;
   createdAgo?: string;
 }
@@ -84,7 +87,8 @@ const EmployeeTransfer: React.FC<Props> = ({
 
   // إعدادات التحويل الفردي للصفوف
   const [selLawyer, setSelLawyer] = useState<Record<string, number>>(() =>
-    Object.fromEntries(tickets.map((t) => [t.no, lawyers[0]?.id ?? 0]))
+    // المبدئيّ اقتراح النظام إن وُجد — لا أوّل اسمٍ في الترتيب الأبجديّ
+    Object.fromEntries(tickets.map((t) => [t.no, t.suggestion?.lawyerId ?? lawyers[0]?.id ?? 0]))
   );
   const [rowReason, setRowReason] = useState<Record<string, string>>({});
   const [transferringNo, setTransferringNo] = useState<string | null>(null);
@@ -534,6 +538,7 @@ const EmployeeTransfer: React.FC<Props> = ({
                               </option>
                             ))}
                           </select>
+                          {isUn && <LawyerSuggestionHint suggestion={t.suggestion} compact />}
                         </td>
                         <td>
                           <input

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import React, { useEffect, useState } from 'react';
 import Icon from '@/lib/icons';
+import LawyerSuggestionHint, { type LawyerSuggestionData } from '@/components/babylon/LawyerSuggestionHint';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { REQ_DOCS } from '@/lib/employee-data';
@@ -18,6 +19,8 @@ interface Props {
   dept?: string;
   lawyerId?: number | null;
   lawyers: LawyerOption[];
+  /** اقتراح النظام لتذكرةٍ غير مسنَدة (مختصّ/غير مختصّ) — يملأ الاختيار المبدئيّ ولا يُسنِد */
+  suggestion?: LawyerSuggestionData | null;
   departments: string[]; // أسماء الأقسام الفعّالة من الكتالوج
   onClose: () => void;
   onDone?: () => void; // إعادة تحميل/تحديث بعد نجاح فعلي
@@ -27,12 +30,14 @@ interface Props {
 const initialDept = (dept: string | undefined, departments: string[]) =>
   (dept && departments.includes(dept) ? dept : departments[0]) ?? '';
 
-const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawyers, departments, onClose, onDone }) => {
+const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawyers, suggestion, departments, onClose, onDone }) => {
   const toast = useToast();
 
   // ── تحويل التذكرة ──
   const [trDept, setTrDept] = useState(initialDept(dept, departments));
-  const [trLawyerId, setTrLawyerId] = useState<string>(lawyerId ? String(lawyerId) : '');
+  // المبدئيّ: المحامي الحاليّ، وإلّا اقتراح النظام — والتأكيد بيد الموظّف
+  const initialLawyer = lawyerId ?? suggestion?.lawyerId ?? null;
+  const [trLawyerId, setTrLawyerId] = useState<string>(initialLawyer ? String(initialLawyer) : '');
   const [trReason, setTrReason] = useState('');
   const [trBusy, setTrBusy] = useState(false);
 
@@ -45,7 +50,7 @@ const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawy
   useEffect(() => {
     if (kind === 'transfer') {
       setTrDept(initialDept(dept, departments));
-      setTrLawyerId(lawyerId ? String(lawyerId) : '');
+      setTrLawyerId(initialLawyer ? String(initialLawyer) : '');
       setTrReason('');
       setTrBusy(false);
     }
@@ -54,7 +59,7 @@ const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawy
       setReqExtra('');
       setReqBusy(false);
     }
-  }, [kind, ticketNo, dept, lawyerId, departments]);
+  }, [kind, ticketNo, dept, initialLawyer, departments]);
 
   const submitTransfer = () => {
     if (!trLawyerId) { toast('يرجى اختيار المستشار'); return; }
@@ -108,6 +113,7 @@ const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawy
             <option value="">اختر المستشار…</option>
             {lawyers.map((l) => <option key={l.id} value={String(l.id)}>{l.name}</option>)}
           </select>
+          {!lawyerId && <LawyerSuggestionHint suggestion={suggestion} />}
         </div>
         <div className="field">
           <label>سبب التحويل (اختياري)</label>

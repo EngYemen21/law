@@ -6,6 +6,7 @@ use App\Domain\Journey\Enums\ClosureReasonCode;
 use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Domain\Journey\Transitions\Ticket\ApproveOutcomeTrack;
 use App\Domain\Journey\Transitions\Ticket\CorrectTicketStatus;
+use App\Domain\Journey\Transitions\Ticket\OutcomeSummaryGate;
 use App\Domain\Journey\Transitions\Ticket\ProposeOutcomeTrack;
 use App\Domain\Journey\Workflow;
 use App\Enums\Role;
@@ -224,6 +225,8 @@ class TicketController extends Controller
         $data = $request->validate([
             'track' => ['required', 'string', Rule::in(TicketOutcomeTrack::values())],
             'reason' => ['required', 'string', 'min:10', 'max:2000'],
+            // المسار السريع للإدارة بلا ملخّصٍ معتمد — طوله وشرطه يحكمهما `OutcomeSummaryGate`
+            OutcomeSummaryGate::WAIVER => ['nullable', 'string', 'max:1000'],
         ]);
 
         Workflow::run(new ProposeOutcomeTrack, $ticket, $request->user(), $data);
@@ -238,6 +241,7 @@ class TicketController extends Controller
             'track' => ['required', 'string', Rule::in(TicketOutcomeTrack::values())],
             'reason' => ['required', 'string', 'min:10', 'max:2000'],
             'closure_reason_code' => ['nullable', 'string', Rule::in(ClosureReasonCode::values())],
+            OutcomeSummaryGate::WAIVER => ['nullable', 'string', 'max:1000'],
         ]);
 
         Workflow::run(new ApproveOutcomeTrack, $ticket, $request->user(), $data);

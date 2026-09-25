@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Models\UserNotification;
 use App\Services\Ai\AiReviewOutcome;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
@@ -39,18 +40,20 @@ use Tests\TestCase;
  */
 class GovernanceActionsAreIdempotentTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
+    /** تذكرةٌ ملخّصها معتمد — شرط رفع المقترح (ث٥)؛ موضوع هذا الملفّ التكرار لا الشرط. */
     private function ticket(User $client): Ticket
     {
-        return Ticket::create([
+        return $this->approveOpinionOf(Ticket::create([
             'user_id' => $client->id,
             'number' => 'SB-IDEM-'.uniqid(),
             'type' => 'نزاع تجاري',
             'department' => 'القسم التجاري',
             'status' => TicketStatus::Analyzing->value,
             'tone' => 'b-blue',
-        ]);
+        ]));
     }
 
     private function endedConsult(User $client, User $lawyer): Consult
