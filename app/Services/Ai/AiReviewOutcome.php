@@ -2,7 +2,9 @@
 
 namespace App\Services\Ai;
 
+use App\Domain\Journey\TransitionDenied;
 use App\Domain\Journey\Transitions\Consult\ApproveConsultSummary;
+use App\Domain\Journey\Transitions\Consult\LawyerApproveConsultSummary;
 use App\Domain\Journey\Workflow;
 use App\Enums\AiSource;
 use App\Enums\Role;
@@ -267,17 +269,19 @@ class AiReviewOutcome
      */
     public static function lawyerApproveConsultSummary(Consult $consult, User $lawyer): bool
     {
-        if ($consult->summaryApproved() || $consult->summary_lawyer_approved_at !== null
-            || blank($consult->summary) || $consult->session !== 'منتهية') {
+        // **الاعتماد داخل المحرّك** (‏`LawyerApproveConsultSummary`): كان قراءةً ثمّ كتابةً بلا
+        // قفل، فاعتمادان متزامنان يمرّان معاً ويصل الإدارةَ إشعاران عن قرارٍ واحد، بلا أثرٍ في
+        // سجلّ الرحلة. والمحرّك يقفل الصفّ ويعيد قراءته قبل الحارس، فيُردّ الثاني ويُسجَّل الأوّل.
+        //
+        // والفحص المسبق يبقى: `TransitionDenied` يُترجَم إلى `false` كما كان المنادون يتوقّعون،
+        // فلا يتغيّر عقد الدالّة ولا يرتدّ خطأٌ في وجه المستخدم على نقرةٍ مكرّرة.
+        try {
+            Workflow::run(new LawyerApproveConsultSummary, $consult, $lawyer);
+        } catch (TransitionDenied) {
             return false;
         }
 
-        $consult->update([
-            'summary_lawyer_approved_at' => now(),
-            'summary_lawyer_approved_by' => $lawyer->id,
-        ]);
-        $consult->logAudit($lawyer->name, 'اعتماد ملخّص الاستشارة', 'مبدئيّ', 'اعتمده المستشار — بانتظار الإدارة');
-        $consult->save();
+        $consult->refresh();
 
         foreach (User::where('role', Role::Admin)->pluck('id') as $adminId) {
             Notify::send($adminId, 'doc', 't-amber', "اعتمد المستشار {$lawyer->name} ملخّص جلسة الاستشارة ({$consult->ref}) — بانتظار اعتمادكم النهائيّ قبل إرساله للعميل.");
