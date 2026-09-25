@@ -108,7 +108,7 @@ class BookingZoomSyncTest extends TestCase
 
         $day = now()->addDays(4)->toDateString();
         $this->actingAs($admin)->post("/admin/meetings/{$meeting->id}/reschedule", [
-            'day' => $day, 'time' => '11:00',
+            'day' => $day, 'time' => '11:00', 'reason' => 'client_request',
         ])->assertRedirect();
 
         Http::assertSent(fn ($r) => $r->method() === 'PATCH'

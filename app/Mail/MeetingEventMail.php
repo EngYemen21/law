@@ -17,9 +17,14 @@ class MeetingEventMail extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 
+    /**
+     * @param  string|null  $reason  سطر السبب كما يصوغه `RescheduleReason::describe()` — يُعرض
+     *                               «السبب» حين يُمرَّر؛ فمن يُبلَّغ بتغيّر موعده يعرف لماذا تغيّر.
+     */
     public function __construct(
         public Meeting $meeting,
-        public string $event // rescheduled | cancelled
+        public string $event, // rescheduled | cancelled
+        public ?string $reason = null,
     ) {}
 
     /** @return array{0:string,1:string} [عنوان، تمهيد] */
@@ -49,6 +54,7 @@ class MeetingEventMail extends Mailable implements ShouldQueue
                 'event' => $this->event,
                 'subject' => $subject,
                 'intro' => $intro,
+                'reason' => $this->reason,
             ]
         );
     }

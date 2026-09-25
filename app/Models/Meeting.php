@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\Enums\MeetingStatus;
 use App\Enums\Role;
 use App\Support\LawyerName;
 use App\Support\MeetingTime;
@@ -135,6 +136,21 @@ class Meeting extends Model
         return $this->join_time !== null
             ? ['past', 'منتهٍ', 'b-green']
             : ['past', 'لم ينعقد', 'b-grey'];
+    }
+
+    /**
+     * **هل انعقد الاجتماع فعلاً؟** — بما يشهد به Zoom، لا بما كُتب في عمود الحالة.
+     *
+     * الحالة المخزّنة تتأخّر عن الحقيقة: اجتماعٌ دخله أطرافه وسُجّل ما زال «قادماً» حتى يمرّ
+     * المجدول أو يضغط أحدٌ «إنهاء». وكانت إعادة جدولته في تلك الفجوة تمحو `recording_url`
+     * و`join_time` — أي تمحو الدليل الوحيد على جلسةٍ وقعت. فالشاهد هنا: دخولٌ مسجَّل، أو
+     * تسجيلٌ محفوظ، أو حالةٌ حيّة تقول «منتهٍ» (وهي تشمل «جارٍ» تجاوز مدّته).
+     */
+    public function wasHeld(): bool
+    {
+        return $this->join_time !== null
+            || $this->recording_url !== null
+            || $this->liveState()[1] === MeetingStatus::Ended->value;
     }
 
     /**
@@ -349,6 +365,9 @@ class Meeting extends Model
             // في JS: الشاشة تفرز بالأولى وتشرط زرّ الدخول بالثانية، كما تفعل بطاقة العميل.
             'up' => $this->liveState()[0] === 'up',
             'canJoin' => $this->canJoin(),
+            // حكم الخادم نفسه (`MeetingController::reschedule`) — كي لا يُعرض زرٌّ يُردّ بـ٤٢٢:
+            // اجتماعٌ انعقد وحالته ما زالت «قادم» يُنهى، لا يُعاد جدولته.
+            'reschedulable' => ! MeetingStatus::isFinalValue($this->status) && ! $this->wasHeld(),
             'priority' => $this->priority,
             'conf' => $this->conf,
             // المُدخَل يدوياً — يبقى للتعبئة المسبقة في نافذة الإنهاء ولعرضه موسوماً

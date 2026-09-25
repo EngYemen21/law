@@ -120,7 +120,7 @@ class BookingValidationContractTest extends TestCase
         $before = $meeting->starts_at;
 
         $this->actingAs($this->admin())
-            ->post("/admin/meetings/{$meeting->id}/reschedule", ['day' => $day, 'time' => '10:00'])
+            ->post("/admin/meetings/{$meeting->id}/reschedule", ['day' => $day, 'time' => '10:00', 'reason' => 'client_request'])
             ->assertSessionHasErrors('day');
 
         $this->assertEquals($before, $meeting->fresh()->starts_at, 'الموعد القديم يبقى');

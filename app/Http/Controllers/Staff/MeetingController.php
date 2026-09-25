@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Staff;
 
+use App\Domain\Journey\Enums\MeetingStatus;
+use App\Domain\Journey\Enums\RescheduleReason;
 use App\Enums\Role;
 use App\Events\MeetingStatusBroadcast;
 use App\Http\Controllers\Concerns\ScopedToLawyer;
@@ -389,7 +391,10 @@ class MeetingController extends Controller
     {
         $this->guardMeeting($request, $meeting);
         // حارس خادمي: النهائية لا تُعاد جدولتها (إخفاء الزر في الواجهة وحده يُلتفّ عليه)
-        abort_if(in_array($meeting->status, ['منتهٍ', 'ملغى'], true), 422, 'الاجتماع منتهٍ أو ملغى — أنشئ اجتماعاً جديداً بدل إعادة جدولته.');
+        abort_if(MeetingStatus::isFinalValue($meeting->status), 422, 'الاجتماع منتهٍ أو ملغى — أنشئ اجتماعاً جديداً بدل إعادة جدولته.');
+        // **ولا ما انعقد فعلاً وإن لم تُحدَّث حالته بعد.** إعادة الجدولة تُصفّر بيانات جلسة Zoom
+        // (أدناه) — وفي اجتماعٍ وقع، تلك البيانات هي تسجيله ودليل حضوره، فتُمحى بلا رجعة.
+        abort_if($meeting->wasHeld(), 422, 'انعقد هذا الاجتماع — أنشئ اجتماعاً جديداً بدل إعادة جدولته.');
         // **موعدٌ مفهوم لا سلسلة حرّة.** كانت إعادة الجدولة تقبل أيّ نصّ،
         // فتُنتج `starts_at = null` وحالةً «مؤجّل» — واجتماعٌ بلا طابع زمنيّ
         // لا يصله تذكيرٌ أبداً (`meetings:send-reminders` يشترطه).
@@ -398,22 +403,32 @@ class MeetingController extends Controller
         // بالمصادفة؛ وتشديدُ الصيغة وحده كان سيجعلها **غير قابلة للبلوغ** رغم أن
         // لها تبويباً وعدّاداً في اللوحة — وهو مصير «بانتظار التأكيد» المعلّق أدناه.
         $postpone = $request->boolean('postpone');
-        $data = $request->validate($postpone ? [] : BookingMoment::rules());
+        // **السبب إلزاميّ في المسارين** — التأجيل بلا موعد ليس أهون من النقل: كلاهما يُخلف موعداً
+        // أُبلغ به العميل، وكان يقع بلا أثرٍ يقول لماذا.
+        $data = $request->validate(array_merge(
+            $postpone ? [] : BookingMoment::rules(),
+            RescheduleReason::rules('meeting'),
+        ));
+        $reason = RescheduleReason::from($data['reason'])->describe($data['note'] ?? null);
 
         $moment = $postpone ? null : BookingMoment::from($data['day'], $data['time'], $meeting->durationMinutes() ?: 60);
+        // **موعدٌ مضى ليس موعداً.** كان يُقبل، ثمّ يلتقطه `meetings:auto-close` فيغلقه «لم ينعقد» —
+        // اجتماعٌ «أُعيدت جدولته» يموت في الدورة التالية للمجدول. ومسارات الحجز الأخرى ترفضه أصلاً.
+        abort_if($moment?->isPast() === true, 422, 'لا يمكن نقل الاجتماع إلى موعدٍ مضى — اختر وقتاً لاحقاً.');
         $startsAt = $moment?->startsAt;
         $when = $moment?->label() ?? 'يُحدَّد لاحقاً';
+        $oldWhen = (string) ($meeting->when_label ?: '—');
+        $oldStatus = (string) $meeting->status;
 
         $meeting->update([
-            'status' => $startsAt ? 'قادم' : 'مؤجل',
+            'status' => ($startsAt ? MeetingStatus::Upcoming : MeetingStatus::Postponed)->value,
             'when_label' => $when,
             'starts_at' => $startsAt,
             'reminder_sent_at' => null, // إعادة تسليح التذكير للموعد الجديد
-            // بيانات جلسة Zoom القديمة لم تعد تخص الموعد الجديد — كانت تلوّث liveState (فات ودخل أحد ⇒ منتهٍ)
-            'join_time' => null,
+            // بقايا جلسةٍ لم تنعقد (خروجٌ/مدّةٌ/حضورٌ يدويّ) لا تخصّ الموعد الجديد. ولا يُمسّ
+            // `join_time` ولا `recording_url`: حارس «انعقد» أعلاه يضمن خلوّهما، ومحوهما كان يُضيع تسجيلاً.
             'leave_time' => null,
             'duration_sec' => null,
-            'recording_url' => null,
             'attend' => 0, // العمود غير قابل لـnull — صفر يعني «لم يُسجَّل حضور بعد»
         ]);
 
@@ -432,10 +447,23 @@ class MeetingController extends Controller
         MeetRequest::where('meeting_id', $meeting->id)
             ->where('stage', '!=', MeetRequest::STAGE_CANCELLED)
             ->update(['day' => $data['day'] ?? $when, 'time' => ($data['time'] ?? '') ?: '—']);
+        // العميل يعرف **لماذا** تغيّر موعده — لا أنّه تغيّر فحسب.
         if ($meeting->user_id) {
-            Notify::send($meeting->user_id, 'cal', 't-amber', "أُعيدت جدولة اجتماع «{$meeting->title}»: {$when}.");
+            Notify::send($meeting->user_id, 'cal', 't-amber', $startsAt
+                ? "أُعيدت جدولة اجتماع «{$meeting->title}»: {$when} — السبب: {$reason}."
+                : "أُجّل اجتماع «{$meeting->title}» بلا موعد — يصلك الموعد الجديد حين يُحدَّد. السبب: {$reason}.");
         }
-        $this->mailMeetingEvent($meeting, 'rescheduled');
+        $this->mailMeetingEvent($meeting, 'rescheduled', $reason);
+        Audit::log(
+            action: $startsAt ? 'إعادة جدولة اجتماع' : 'تأجيل اجتماع',
+            description: ($startsAt ? "نقل {$request->user()->name} الاجتماع «{$meeting->title}» ({$meeting->ref}) إلى {$when}" : "أجّل {$request->user()->name} الاجتماع «{$meeting->title}» ({$meeting->ref}) بلا موعد")
+                ." ({$reason}) — كان موعده: {$oldWhen}.",
+            category: 'اجتماعات',
+            severity: 'warning',
+            auditable: $meeting,
+            beforeState: ['الموعد' => $oldWhen, 'الحالة' => $oldStatus],
+            afterState: ['الموعد' => $when, 'الحالة' => (string) $meeting->status, 'السبب' => $reason],
+        );
         Live::push(new MeetingStatusBroadcast($meeting));
 
         return back();
@@ -445,9 +473,9 @@ class MeetingController extends Controller
     public function cancel(Request $request, Meeting $meeting): RedirectResponse
     {
         $this->guardMeeting($request, $meeting);
-        if (! in_array($meeting->status, ['منتهٍ', 'ملغى'], true)) {
+        if (! MeetingStatus::isFinalValue($meeting->status)) {
             $this->zoom->deleteMeeting((string) $meeting->meet_id);
-            $meeting->update(['status' => 'ملغى', 'meet_id' => null]);
+            $meeting->update(['status' => MeetingStatus::Cancelled->value, 'meet_id' => null]);
             // سجلّ تاريخي «أُلغيت» بدل الحذف الصلب — كان أثر الدعوة يختفي من شاشة العميل بلا تفسير.
             // الدعوة المعتمدة (STAGE_APPROVED) تُستثنى: تنزيلها يمحو سجلّ اعتمادها بلا رجعة
             // لأن resend لا يقبل إلا «منتهية الصلاحية» — فتصير بلا مخرج.
@@ -472,14 +500,14 @@ class MeetingController extends Controller
     }
 
     /** بريد حدث الاجتماع (إعادة جدولة/إلغاء) للعميل والمحامي — best-effort عبر MailService. */
-    private function mailMeetingEvent(Meeting $meeting, string $event): void
+    private function mailMeetingEvent(Meeting $meeting, string $event, ?string $reason = null): void
     {
         $mail = app(MailService::class);
         if ($meeting->user) {
-            $mail->send($meeting->user, new MeetingEventMail($meeting, $event));
+            $mail->send($meeting->user, new MeetingEventMail($meeting, $event, $reason));
         }
         if ($meeting->assignedLawyer) {
-            $mail->send($meeting->assignedLawyer, new MeetingEventMail($meeting, $event));
+            $mail->send($meeting->assignedLawyer, new MeetingEventMail($meeting, $event, $reason));
         }
     }
 

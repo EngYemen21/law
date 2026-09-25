@@ -150,8 +150,11 @@ class SchedulerAutoCloseTest extends TestCase
         $meeting = Meeting::create([
             'user_id' => $client->id, 'ref' => 'M-9020', 'title' => 'لم ينعقد', 'when_label' => 'أمس',
             'status' => 'لم ينعقد', 'starts_at' => now()->subDay(),
-            'join_time' => now()->subDay(), 'leave_time' => now()->subDay(),
-            'duration_sec' => 1200, 'recording_url' => 'https://z/rec', 'attend' => 40,
+            // بقايا جلسةٍ لم تنعقد (لا دخول ولا تسجيل): خروجٌ ومدّةٌ وحضورٌ مُدخَل يدوياً.
+            // اجتماعٌ فيه `join_time` أو `recording_url` انعقد فعلاً فيُرفض نقله —
+            // MeetingRescheduleRulesTest::test_a_held_meeting_is_refused_and_keeps_its_recording
+            'leave_time' => now()->subDay(),
+            'duration_sec' => 1200, 'attend' => 40,
         ]);
         $req = MeetRequest::create([
             'user_id' => $client->id, 'meeting_id' => $meeting->id, 'ref' => 'MR-9020',
@@ -161,16 +164,15 @@ class SchedulerAutoCloseTest extends TestCase
 
         $newDay = now()->addWeek()->format('Y-m-d');
         $this->actingAs($admin)->post(route('admin.meetings.reschedule', $meeting), [
-            'day' => $newDay, 'time' => '11:00',
+            'day' => $newDay, 'time' => '11:00', 'reason' => 'client_request',
         ])->assertRedirect();
 
         $meeting->refresh();
         $this->assertSame('قادم', $meeting->status);
-        // بيانات جلسة Zoom القديمة صُفّرت — كانت تلوّث liveState الموعدَ الجديد («دخل أحد ⇒ منتهٍ»)
+        // بقايا الجلسة القديمة صُفّرت — لا تخصّ الموعد الجديد
         $this->assertNull($meeting->join_time);
         $this->assertNull($meeting->leave_time);
         $this->assertNull($meeting->duration_sec);
-        $this->assertNull($meeting->recording_url);
         $this->assertSame(0, $meeting->attend);
         // الدعوة المنتهية عادت «مؤكدة» بالموعد الجديد
         $req->refresh();
@@ -183,8 +185,9 @@ class SchedulerAutoCloseTest extends TestCase
         $admin = User::factory()->create(['role' => Role::Admin]);
         $ended = Meeting::create(['ref' => 'M-9021', 'title' => 'منتهٍ', 'when_label' => 'أمس', 'status' => 'منتهٍ']);
 
+        // بسببٍ صالح — كي يُردّ الطلب بحارس النهائيّة لا بنقص السبب
         $this->actingAs($admin)->post(route('admin.meetings.reschedule', $ended), [
-            'day' => now()->addWeek()->format('Y-m-d'), 'time' => '11:00',
+            'day' => now()->addWeek()->format('Y-m-d'), 'time' => '11:00', 'reason' => 'client_request',
         ])->assertStatus(422);
         $this->assertSame('منتهٍ', $ended->fresh()->status);
     }

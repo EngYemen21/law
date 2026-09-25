@@ -85,8 +85,10 @@ class MeetingLifecycleTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client, 'email' => 'cl@example.com']);
         $meeting = $this->meeting($lawyer, ['user_id' => $client->id, 'reminder_sent_at' => now()->subHour()]);
 
+        // موعدٌ لاحقٌ دائماً — تاريخٌ مثبَّت يصير ماضياً مع الأيّام، والماضي يُرفض الآن
+        $day = now()->addWeek()->toDateString();
         $this->actingAs($lawyer)
-            ->post(route('lawyer.meetings.reschedule', $meeting), ['day' => '2026-09-15', 'time' => '14:30'])
+            ->post(route('lawyer.meetings.reschedule', $meeting), ['day' => $day, 'time' => '14:30', 'reason' => 'client_request'])
             ->assertRedirect();
 
         $fresh = $meeting->fresh();
@@ -97,7 +99,7 @@ class MeetingLifecycleTest extends TestCase
 
         Http::assertSent(fn ($r) => $r->method() === 'PATCH'
             && str_contains($r->url(), 'api.zoom.us/v2/meetings/81823767754')
-            && $r['start_time'] === '2026-09-15T14:30:00');
+            && $r['start_time'] === $day.'T14:30:00');
         Mail::assertQueued(MeetingEventMail::class, fn ($m) => $m->event === 'rescheduled' && $m->hasTo('cl@example.com'));
         Mail::assertQueued(MeetingEventMail::class, fn ($m) => $m->hasTo('lw@example.com'));
     }
@@ -117,7 +119,7 @@ class MeetingLifecycleTest extends TestCase
         $meeting = $this->meeting($lawyer);
 
         $this->actingAs($lawyer)
-            ->post(route('lawyer.meetings.reschedule', $meeting), ['postpone' => true])
+            ->post(route('lawyer.meetings.reschedule', $meeting), ['postpone' => true, 'reason' => 'client_request'])
             ->assertRedirect();
 
         $fresh = $meeting->fresh();
@@ -136,7 +138,7 @@ class MeetingLifecycleTest extends TestCase
         $meeting = $this->meeting($lawyer);
 
         $this->actingAs($lawyer)
-            ->post(route('lawyer.meetings.reschedule', $meeting), ['day' => 'يُحدَّد لاحقًا'])
+            ->post(route('lawyer.meetings.reschedule', $meeting), ['day' => 'يُحدَّد لاحقًا', 'reason' => 'client_request'])
             ->assertSessionHasErrors('day');
 
         $this->assertSame('قادم', $meeting->fresh()->status, 'نصٌّ لا يُفكّ لا يُغيّر الحالة');

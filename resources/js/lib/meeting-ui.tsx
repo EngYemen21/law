@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import FlowLine from '@/components/babylon/FlowLine';
 import Modal from '@/components/babylon/Modal';
+import RescheduleDialog from '@/components/babylon/RescheduleDialog';
 import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
@@ -116,6 +117,8 @@ export interface FullMeetingCard {
     // شقّا الحالة الحيّة من الخادم: قادم أم ماضٍ، وهل نافذة الدخول مفتوحة الآن
     up: boolean;
     canJoin: boolean;
+    /** يجوز نقل موعده؟ حكم الخادم: لا نهائيّ ولا منعقدٌ فعلاً (تسجيلٌ أو دخولٌ مسجَّل). */
+    reschedulable: boolean;
     joinTime: string | null;
     leaveTime: string | null;
     durationSec: number | null;
@@ -707,6 +710,92 @@ function defaultSummary(m: FullMeetingCard): string {
         `الخلاصة والقرارات: ${m.after.join(' ، ')}.`;
 } */
 
+/**
+ * **إعادة جدولة الاجتماع — بالنافذة المشتركة وسببٍ إلزاميّ.**
+ *
+ * كانت لوحةً مضمَّنة تنقل الموعد بضغطة بلا سبب، فيصل العميلَ «أُعيدت جدولة اجتماعك» ولا يُعرف
+ * بعدها أطلبها هو أم اعتذر المحامي. الموعد الجديد (أو «أجّل بلا موعد») يُمرَّر أبناءً للنافذة
+ * المشتركة، والسبب تحرسه هي — كما في الاستشارات وجلسات المحكمة.
+ *
+ * تُركَّب عند فتحها (`{rescheduling && …}`) فتبدأ حقولها نظيفة.
+ */
+const MeetingRescheduleDialog: React.FC<{ meeting: FullMeetingCard; base: string; onClose: () => void }> = ({ meeting: m, base, onClose }) => {
+    const toast = useToast();
+    // «أجّل بلا موعد» نيّةٌ صريحة لا حصيلةُ حقلٍ فارغ — كان التأجيل يقع بنصٍّ لا يُفكّ في حقل التاريخ
+    const [postpone, setPostpone] = useState(false);
+    const [day, setDay] = useState('');
+    const [time, setTime] = useState('');
+    // الخادم يرفض الماضي (٤٢٢)؛ التنبيه هنا كي لا يكتشفه المستخدم بعد الإرسال
+    const past = !postpone && day !== '' && time !== '' && `${day} ${time}` <= `${todayISO()} ${new Date().toTimeString().slice(0, 5)}`;
+    const dated = day !== '' && time !== '' && !past;
+
+    return (
+        <RescheduleDialog
+            open
+            domain="meeting"
+            title={`إعادة جدولة الاجتماع ${m.id}`}
+            consequence={postpone ? (
+                <>
+                    يصير الاجتماع «مؤجلاً» بلا موعد ويبقى اجتماع Zoom قائماً، ويُبلَّغ العميل والمحامي المسنَد بالسبب.
+                    ويُحدَّد الموعد لاحقاً بإعادة الجدولة من هنا.
+                </>
+            ) : (
+                <>
+                    ينتقل الاجتماع إلى الموعد الجديد ويُحدَّث على Zoom، ويُعاد ضبط التذكير.
+                    ويُبلَّغ العميل والمحامي المسنَد بالموعد الجديد وسببه.
+                </>
+            )}
+            extraReady={postpone || dated}
+            confirmLabel={postpone ? 'تأجيل بلا موعد' : 'نقل الموعد'}
+            onClose={onClose}
+            onSubmit={(choice) =>
+                new Promise<void>((resolve) => {
+                    router.post(`${base}/meetings/${m.dbId}/reschedule`, postpone ? { postpone: true, ...choice } : { day, time, ...choice }, {
+                        preserveScroll: true,
+                        onSuccess: () => {
+                            toast(postpone ? 'أُجّل الاجتماع بلا موعد' : 'أُعيدت جدولة الاجتماع', 'success');
+                            onClose();
+                        },
+                        onError: (errors) => toast(String(Object.values(errors)[0] ?? 'تعذّرت إعادة الجدولة'), 'error'),
+                        onFinish: () => resolve(),
+                    });
+                })
+            }
+        >
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                <button type="button" className={`btn sm${postpone ? ' soft' : ''}`} onClick={() => setPostpone(false)} aria-pressed={!postpone}>
+                    <Icon name="cal" /> موعدٌ جديد
+                </button>
+                <button type="button" className={`btn sm${postpone ? '' : ' soft'}`} onClick={() => setPostpone(true)} aria-pressed={postpone}>
+                    <Icon name="clock" /> أجّل بلا موعد
+                </button>
+            </div>
+            {!postpone && (
+                <div style={{ marginBottom: 12 }}>
+                    <div className="field" style={{ marginBottom: 12 }}>
+                        <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>التاريخ الجديد</label>
+                        <input className="input" type="date" min={todayISO()} value={day} onChange={(e) => setDay(e.target.value)} style={{ borderRadius: 9 }} />
+                    </div>
+                    {/* الدقيقة المخصّصة متاحة: الخادم يقبل أيّ `H:i` (`MeetingController::reschedule` ⇐ `BookingMoment::rules`) */}
+                    <TimeSlotPicker
+                        value={time}
+                        onChange={setTime}
+                        date={day}
+                        label="الوقت الجديد للاجتماع"
+                        required
+                        allowCustom
+                    />
+                    {past && (
+                        <p style={{ margin: '8px 0 0', fontSize: 12.5, color: 'var(--red, #ef4444)' }}>
+                            هذا الموعد مضى — اختر وقتاً لاحقاً.
+                        </p>
+                    )}
+                </div>
+            )}
+        </RescheduleDialog>
+    );
+};
+
 export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: string }> = ({ meeting: m, base }) => {
     const toast = useToast();
 
@@ -822,9 +911,9 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
     };
 
     // إدارة دورة حياة الاجتماع (متزامنة مع Zoom خادميًّا): بدء/إنهاء/إعادة جدولة/إلغاء
-    const [lcMode, setLcMode] = useState<'reschedule' | 'end' | null>(null);
-    const [reDay, setReDay] = useState('');
-    const [reTime, setReTime] = useState('');
+    const [lcMode, setLcMode] = useState<'end' | null>(null);
+    // نافذة إعادة الجدولة تُركَّب عند فتحها فتبدأ نظيفة (سببها وحقولها)
+    const [rescheduling, setRescheduling] = useState(false);
     // يبدأ فارغاً: 90 الافتراضية كانت تُحفظ كنسبة «حقيقية» بلا إدخال من أحد
     const [endAttend, setEndAttend] = useState('');
     const [endNotes, setEndNotes] = useState('');
@@ -836,27 +925,6 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
 
     const startMeeting = () =>
         router.post(`${base}/meetings/${m.dbId}/start`, {}, { preserveScroll: true, onSuccess: () => toast('بدأت الجلسة') });
-    const submitReschedule = () => {
-        if (!reDay) {
- toast('اختر تاريخ الموعد الجديد');
-
- return; 
-}
-
-        router.post(`${base}/meetings/${m.dbId}/reschedule`, { day: reDay, time: reTime }, {
-            preserveScroll: true, onSuccess: () => {
- setLcMode(null); toast('أُعيدت جدولة الاجتماع'); 
-},
-        });
-    };
-    // «أجّل بلا موعد» — نيّةٌ صريحة. كان التأجيل يقع بكتابة نصٍّ لا يُفكّ في
-    // حقل التاريخ، وبعد تشديد الصيغة لم يبقَ للحالة «مؤجل» بابٌ رغم تبويبها في اللوحة.
-    const submitPostpone = () =>
-        router.post(`${base}/meetings/${m.dbId}/reschedule`, { postpone: true }, {
-            preserveScroll: true, onSuccess: () => {
- setLcMode(null); toast('أُجّل الاجتماع بلا موعد'); 
-},
-        });
     const submitEnd = () =>
         router.post(`${base}/meetings/${m.dbId}/end`, { attend: Number(endAttend) || 0, notes: endNotes }, {
             preserveScroll: true, onSuccess: () => {
@@ -1064,13 +1132,15 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                                     <Icon name="check" /> إنهاء الاجتماع
                                 </button>
                             )}
-                            <button
-                                className="btn soft sm" type="button"
-                                onClick={() => setLcMode(lcMode === 'reschedule' ? null : 'reschedule')}
-                                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                            >
-                                <Icon name="cal" /> إعادة جدولة
-                            </button>
+                            {m.reschedulable && (
+                                <button
+                                    className="btn soft sm" type="button"
+                                    onClick={() => setRescheduling(true)}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                >
+                                    <Icon name="cal" /> إعادة جدولة
+                                </button>
+                            )}
                             {canReschedule && (
                                 <button
                                     className="btn soft sm" type="button" onClick={cancelMeeting}
@@ -1081,39 +1151,12 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                             )}
                         </div>
 
-                        {lcMode === 'reschedule' && (
-                            <div style={{
-                                marginTop: 16, padding: 16,
-                                background: 'var(--surface-soft, #f8fafc)',
-                                border: '1px solid var(--line-soft, #e2e8f0)',
-                                borderRadius: 12,
-                            }}>
-                                <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--deep)', marginBottom: 12 }}>
-                                    📅 تحديد الموعد الجديد
-                                </div>
-                                <div className="field" style={{ marginBottom: 12 }}>
-                                    <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>التاريخ الجديد</label>
-                                    <input className="input" type="date" min={todayISO()} value={reDay} onChange={(e) => setReDay(e.target.value)} style={{ borderRadius: 9 }} />
-                                </div>
-                                {/* الدقيقة المخصّصة متاحة: الخادم يقبل أيّ `H:i` (`MeetingController::reschedule` ⇐ `BookingMoment::rules`) */}
-                                <TimeSlotPicker
-                                    value={reTime}
-                                    onChange={setReTime}
-                                    date={reDay}
-                                    label="الوقت الجديد للاجتماع"
-                                    required
-                                    allowCustom
-                                />
-                                <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-                                    <button className="btn sm" type="button" onClick={submitReschedule} disabled={!reDay || !reTime}>
-                                        <Icon name="cal" /> حفظ الموعد الجديد
-                                    </button>
-                                    <button className="btn soft sm" type="button" onClick={submitPostpone}>
-                                        <Icon name="clock" /> أجّل بلا موعد
-                                    </button>
-                                    <button className="btn soft sm" type="button" onClick={() => setLcMode(null)}>إلغاء</button>
-                                </div>
-                            </div>
+                        {rescheduling && (
+                            <MeetingRescheduleDialog
+                                meeting={m}
+                                base={base}
+                                onClose={() => setRescheduling(false)}
+                            />
                         )}
 
                         {lcMode === 'end' && (
