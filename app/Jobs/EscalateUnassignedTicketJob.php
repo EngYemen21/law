@@ -8,6 +8,7 @@ use App\Models\Ticket;
 use App\Models\User;
 use App\Services\MailService;
 use App\Support\Audit;
+use App\Support\LawyerName;
 use App\Support\Notify;
 use App\Support\TicketAssignment;
 use Illuminate\Bus\Queueable;
@@ -33,8 +34,13 @@ class EscalateUnassignedTicketJob implements ShouldQueue
     /** الصلاحية التي تُخوّل إسناد التذاكر يدوياً (شاشة التوزيع). */
     private const DISTRIBUTE_PERMISSION = 'توزيع التذاكر';
 
-    /** الاسم المعروض في حقل المحامي — لا اسم شخص: التذكرة مُصعَّدة لا مُسنَدة لمحامٍ. */
-    public const SENIOR_LABEL = 'الإدارة العليا';
+    /**
+     * الاسم المعروض في حقل المحامي — لا اسم شخص: التذكرة مُصعَّدة لا مُسنَدة لمحامٍ.
+     *
+     * والنصّ نفسه في `LawyerName::SENIOR` لأنّ تلك الدالّة هي التي تقرّر ما يصل العميل،
+     * فلو تباعد النصّان لحُجبت التسمية بلا أثرٍ ظاهر. هذا الثابت اسمٌ بديلٌ لها لا نسخة.
+     */
+    public const SENIOR_LABEL = LawyerName::SENIOR;
 
     public function __construct(public int $ticketId) {}
 

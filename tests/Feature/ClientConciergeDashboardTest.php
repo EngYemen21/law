@@ -11,6 +11,7 @@ use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\LawyerName;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -139,7 +140,9 @@ class ClientConciergeDashboardTest extends TestCase
             ->has('activeTickets', 1)
             ->has('activeExecutions', 1)
             ->has('assignedAdvisor')
-            ->where('assignedAdvisor.name', $lawyer->name)
+            // لوحةُ العميل تعرض الاسم المختصر لا الكامل (قرار المالك 2026-09-11) —
+            // وكانت هذه البطاقة آخرَ موضعٍ يفلت منه، فيصل «أ. فهد السبيعي» كاملاً.
+            ->where('assignedAdvisor.name', LawyerName::short($lawyer->name))
         );
     }
 }

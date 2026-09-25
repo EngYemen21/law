@@ -169,20 +169,40 @@ class LawyerNameNeverLeaksTest extends TestCase
         $this->assertSame('المستشار المكلف', LawyerName::forClient(null, self::FULL, 'المستشار المكلف'));
     }
 
-    /** ولا اسمُ غير المحامي — وهو ما رُصد حيّاً: «المستشار: الإدارة العليا». */
+    /** ولا اسمُ غير المحامي: إداريٌّ يتابع الملفّ لا يُعرض اسمُه على العميل. */
     public function test_a_non_lawyer_user_is_withheld(): void
     {
-        $admin = User::factory()->create(['role' => Role::Admin, 'name' => 'الإدارة العليا']);
+        $admin = User::factory()->create(['role' => Role::Admin, 'name' => 'نورة الدوسري']);
 
-        $this->assertSame('—', LawyerName::forClient($admin, 'الإدارة العليا', '—'));
+        $this->assertSame('—', LawyerName::forClient($admin, 'نورة الدوسري', '—'));
     }
 
     /** والتسمية لا تُقنَّع فتصير «المستشار. ا» — العطل المعكوس. */
     public function test_a_placeholder_label_is_never_shortened(): void
     {
-        $out = LawyerName::forClient(null, 'المستشار القانوني', 'بانتظار الإسناد');
+        foreach (LawyerName::PLACEHOLDERS as $label) {
+            $out = LawyerName::forClient(null, $label, '—');
 
-        $this->assertSame('بانتظار الإسناد', $out);
-        $this->assertStringNotContainsString('. ', $out, 'قُنِّعت تسميةٌ ليست اسماً.');
+            $this->assertSame($label, $out, "التسمية «{$label}» لم تمرّ كما هي.");
+            $this->assertStringNotContainsString('. ', $out, 'قُنِّعت تسميةٌ ليست اسماً.');
+        }
+    }
+
+    /**
+     * **والتسمية تصل العميل فعلاً — لا تُحجب.**
+     *
+     * حُجبت يوماً بحجّة أنّ النصّ المخزَّن كلّه مشبوه، فرأى صاحبُ ملفٍّ مُصعَّد «—» مكان
+     * «الإدارة العليا»: خبرٌ يعنيه أُسقط باسم الخصوصيّة. فالحدُّ بين الاثنين هو القائمة
+     * المعدودة لا حجبٌ شامل.
+     */
+    public function test_an_escalated_file_still_tells_the_client_who_holds_it(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin, 'name' => 'مدير المكتب']);
+
+        $this->assertSame(
+            LawyerName::SENIOR,
+            LawyerName::forClient($admin, LawyerName::SENIOR, '—'),
+            'الملفّ المُصعَّد لا يخبر صاحبه أنّه عند الإدارة العليا.'
+        );
     }
 }
