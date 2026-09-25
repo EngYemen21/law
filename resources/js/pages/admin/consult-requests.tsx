@@ -9,6 +9,7 @@ import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { CONSULT_BOOKING_STATUSES, CONSULT_CHANNEL_OPTIONS, crChannelIcon, crChannelTone, cTone, DEFAULT_CONSULT_CHANNEL } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { humanDuration } from '@/lib/utils';
 
 interface AdminConsultRequestsProps {
   consults: ConsultCard[];
@@ -793,7 +794,8 @@ return (a.total || 0) - (b.total || 0);
             <Icon name="clock" />
           </div>
           <div style={{ fontSize: 'clamp(20px, 3vw, 24px)', fontWeight: 800, color: '#11A0C8', marginTop: 4 }}>
-            {telemetry.avgMins == null ? '—' : telemetry.avgMins} <span style={{ fontSize: 12 }}>دقيقة</span>
+            {/* الوحدة تُختار بحسب المدّة — «14325 دقيقة» رقمٌ لا يقرؤه أحد */}
+            {humanDuration(telemetry.avgMins) ?? '—'}
           </div>
           <div style={{ fontSize: 10.5, color: telemetry.late > 0 ? '#C0392B' : 'var(--muted)', marginTop: 2 }}>
             {telemetry.avgMins == null
