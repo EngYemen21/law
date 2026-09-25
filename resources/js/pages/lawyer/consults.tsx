@@ -7,7 +7,7 @@ import { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 // اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
 import { maskClient } from '@/lib/employee-data';
-import { useConsultReschedule } from '@/lib/consult-reschedule';
+import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-reschedule';
 import { RichText, SummaryStateBadge } from '@/lib/consult-ui';
 import type { ConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
@@ -1041,6 +1041,8 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                           </button>
                         )}
 
+                        <RescheduleRequestNotice consult={drawerConsult} base="/lawyer" onReschedule={() => handleReschedule(drawerConsult)} />
+
                         {/* الخادم يشترط جلسةً منتظِرةً فات موعدها (`isMissed`) — وكان
                             الزرّ ظاهراً بلا شرط، فيُضغط على جلسةٍ لم يحن وقتها ويُردّ
                             برسالةٍ لا تُعرض. */}
@@ -1060,7 +1062,9 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                           والمسار مسجَّل للمحامي ويقبله الخادم، ولا زرّ له في الشاشة
                           كلّها. فيسِم المحامي «لم يحضر» ثمّ لا يجد ما يُنقذ به الملفّ.
                         */}
-                        {(drawerConsult.missed || drawerConsult.session === 'لم تُعقد') && (
+                        {/* يتبع حارس الانتقال (`canReschedule`) لا «الفائتة» وحدها: المحامي المعتذر عن
+                            موعدٍ قادم لم يكن يجد الزرّ، والخادم يقبله. */}
+                        {drawerConsult.canReschedule && (
                           <button
                             type="button"
                             className="btn soft sm"

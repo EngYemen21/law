@@ -7,7 +7,7 @@ import Modal from '@/components/babylon/Modal';
 import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
-import { useConsultReschedule } from '@/lib/consult-reschedule';
+import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-reschedule';
 import { echo } from '@/lib/echo';
 import {
   CONSULT_CHANNELS, CONSULT_FLOW, CONSULT_BOOKING_FLOW, CONSULT_BOOKING_STATUSES,
@@ -53,8 +53,10 @@ export interface ConsultCard {
   missed?: boolean; // فات موعدها بلا جلسة (يشتقه الخادم)
   /** كم مرّة أُعيدت جدولتها — السقف في `reschedule.limit` المشترك من الخادم. */
   rescheduleCount?: number;
+  /** يسمح حارس `RescheduleConsult` بإعادة جدولتها الآن — الزرّ يتبعه لا يخمّن. */
+  canReschedule?: boolean;
   /** طلب العميل تغيير الموعد، معلّقٌ حتى يُعاد جدولتها أو يُرفض. */
-  rescheduleRequest?: { at: string; note: string | null } | null;
+  clientRescheduleRequest?: { at: string; note: string | null } | null;
   startable?: boolean; // «بدء الجلسة» ضمن نافذة الموعد فقط (يشتقه الخادم — بطاقة المكتب)
   startsAt?: string | null;
   hostLink: string | null; // رابط مضيف Zoom (للمكتب)
@@ -155,6 +157,8 @@ export interface ClientConsultCard {
   slink: string;
   canJoin?: boolean;
   missed?: boolean;
+  /** طلب تغيير الموعد — يُتاح وفق `Consult::rescheduleRequestBlocker` في الخادم وحده. */
+  rescheduleRequest?: { pending: boolean; canRequest: boolean };
   session: string;
   status: string;
   /** ما ينتظره المكتب من الموكّل — يُملأ حين تُطلب مستندات. */
@@ -785,6 +789,8 @@ void navigator.clipboard.writeText(c.slink);
                     {c.subject} · {c.lawyer} · {c.when}
                   </span>
                   {extra}
+                  {/* طلب العميل تغيير موعده — يراه الموظّف هنا بفعلَيه (إعادة الجدولة · الرفض) */}
+                  <RescheduleRequestNotice consult={c} base={base} onReschedule={() => reschedule(c)} />
                 </div>
                 <div className="iact">
                   <Badge text={c.channel} tone={crChannelTone(c.channel)} />

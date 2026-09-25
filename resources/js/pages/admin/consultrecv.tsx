@@ -5,7 +5,7 @@ import Badge from '@/components/babylon/Badge';
 import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
-import { useConsultReschedule } from '@/lib/consult-reschedule';
+import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-reschedule';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { crChannelIcon, crChannelTone, sessTone } from '@/lib/employee-data';
@@ -1324,6 +1324,21 @@ return false;
                     </p>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <RescheduleRequestNotice consult={drawerItem} base="/admin" onReschedule={() => handleReschedule(drawerItem)} />
+
+                      {/* إعادة جدولة موعدٍ قادم (اعتذار المحامي مثلاً) — كان الزرّ للفائتة وحدها أدناه،
+                          والخادم يقبل كلّ موعدٍ لم ينعقد. يتبع حارس الانتقال (`canReschedule`). */}
+                      {drawerItem.canReschedule && !drawerItem.missed && !drawerItem.clientRescheduleRequest && (
+                        <button
+                          className="btn soft"
+                          style={{ width: '100%', justifyContent: 'center' }}
+                          type="button"
+                          onClick={(e) => handleReschedule(drawerItem, e)}
+                        >
+                          <Icon name="cal" /> إعادة جدولة الموعد
+                        </button>
+                      )}
+
                       {/* إجراءات الجلسة الجارية */}
                       {drawerItem.session === 'جلسة جارية' ? (
                         <>

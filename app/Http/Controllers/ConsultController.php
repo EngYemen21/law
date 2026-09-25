@@ -2,10 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\Role;
 use App\Models\Consult;
-use App\Models\User;
 use App\Services\MoyasarService;
+use App\Support\Booking\BookingStaff;
 use App\Support\ConsultBooking;
 use App\Support\ConsultReport;
 use App\Support\Notify;
@@ -173,27 +172,40 @@ class ConsultController extends Controller
      * لإعادة الجدولة» نصاً بلا أي زرّ ولا قناة. يوثَّق بسجل التدقيق ويُشعَر المحامي
      * المسند والإدارة؛ إعادة الجدولة الفعلية تبقى قرار المكتب (consults.reschedule).
      */
+    /**
+     * **العميل يطلب تغيير موعده** — القادمَ قبل ٢٤ ساعة، أو الفائت. (قرار المالك 2026-09-25)
+     *
+     * الطلب **حالةٌ معلّقة** (`reschedule_requested_at`) لا رسالةٌ عابرة: يُرسَل مرّةً، ويرى
+     * العميل «قيد المعالجة»، ويراه الطاقم على الاستشارة حتى يُعيد جدولتها (فيُقضى) أو يرفضه
+     * بسبب. كان يُرسَل مرّاتٍ بلا حدّ وكلُّ مرّةٍ تُنبّه الإدارة كلّها.
+     *
+     * والقرار كلّه في `Consult::rescheduleRequestBlocker` — الزرّ يقرأ منه ما يقرؤه الخادم هنا.
+     */
     public function rescheduleRequest(Request $request, Consult $consult): RedirectResponse
     {
         abort_unless($consult->user_id === $request->user()->id, 403);
-        abort_unless(
-            $consult->isMissed() || $consult->session === 'لم تُعقد' || $consult->status === 'لم يحضر',
-            422,
-            'طلب إعادة الجدولة متاح للجلسات الفائتة فقط.'
-        );
 
-        $consult->logAudit($request->user()->name, 'طلب إعادة الجدولة', '—', 'طلب العميل موعداً جديداً');
+        $data = $request->validate(['note' => ['nullable', 'string', 'max:500']]);
+
+        if (($blocker = $consult->rescheduleRequestBlocker()) !== null) {
+            abort(422, $blocker);
+        }
+
+        $note = trim((string) ($data['note'] ?? ''));
+        $consult->forceFill([
+            'reschedule_requested_at' => now(),
+            'reschedule_request_note' => $note !== '' ? $note : null,
+        ]);
+        $consult->logAudit($request->user()->name, 'طلب تغيير الموعد', $consult->whenLabel(), $note !== '' ? $note : 'طلب العميل موعداً آخر');
         $consult->save();
 
-        $message = "طلب العميل إعادة جدولة الاستشارة الفائتة ({$consult->ref}) — حدّد موعداً جديداً من شاشة الاستشارات.";
+        $message = "طلب العميل تغيير موعد الاستشارة ({$consult->ref})".($note !== '' ? " — «{$note}»" : '').'. أعِد جدولتها أو ارفض الطلب من شاشة الاستشارات.';
+        BookingStaff::notify('cal', 't-amber', $message);
         if ($consult->assigned_lawyer_id) {
             Notify::send($consult->assigned_lawyer_id, 'cal', 't-amber', $message);
         }
-        foreach (User::where('role', Role::Admin)->get() as $admin) {
-            Notify::send($admin->id, 'cal', 't-amber', $message);
-        }
 
-        return back()->with('flash', 'أُرسل طلبك للمكتب — سيتواصل معك فريقنا بموعد جديد قريباً.');
+        return back()->with('flash', 'أُرسل طلبك للمكتب — سيتواصل معك بموعدٍ جديد، ويبقى موعدك الحاليّ قائماً حتى ذلك.');
     }
 
     /**

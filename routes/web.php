@@ -295,6 +295,7 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
     Route::middleware('permission:استقبال الاستشارات,إدارة المواعيد والحجوزات')->group(function () {
         Route::post('/consults/{consult}/no-show', [StaffConsultController::class, 'noShow'])->name('consults.noshow');
         Route::post('/consults/{consult}/reschedule', [StaffConsultController::class, 'reschedule'])->name('consults.reschedule');
+        Route::post('/consults/{consult}/reschedule-request/dismiss', [StaffConsultController::class, 'dismissRescheduleRequest'])->name('consults.reschedule-request.dismiss');
     });
 
     // أيّ من الصلاحيتين تكفي: الغرفة تُفتح من شاشة الاستقبال أيضاً — حصرها بواحدة كان يصدّ حاملي الأخرى
@@ -513,6 +514,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::post('/consults/{consult}/end', [StaffConsultController::class, 'end'])->name('consults.end');
         Route::post('/consults/{consult}/no-show', [StaffConsultController::class, 'noShow'])->name('consults.noshow');
         Route::post('/consults/{consult}/reschedule', [StaffConsultController::class, 'reschedule'])->name('consults.reschedule');
+        Route::post('/consults/{consult}/reschedule-request/dismiss', [StaffConsultController::class, 'dismissRescheduleRequest'])->name('consults.reschedule-request.dismiss');
         Route::post('/consults/{consult}/reqdocs', [StaffConsultController::class, 'requestDocs'])->name('consults.reqdocs');
         Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware('permission:تشغيل تلخيص الفريق القانوني'); // انظر شرح النسخة أعلاه
         Route::post('/consults/{consult}/analysis', [StaffConsultController::class, 'saveAnalysis'])->name('consults.analysis');
@@ -736,6 +738,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/consults/{consult}/end', [StaffConsultController::class, 'end'])->name('consults.end');
     Route::post('/consults/{consult}/no-show', [StaffConsultController::class, 'noShow'])->name('consults.noshow');
     Route::post('/consults/{consult}/reschedule', [StaffConsultController::class, 'reschedule'])->name('consults.reschedule');
+    Route::post('/consults/{consult}/reschedule-request/dismiss', [StaffConsultController::class, 'dismissRescheduleRequest'])->name('consults.reschedule-request.dismiss');
     Route::post('/consults/{consult}/tasks', [StaffConsultController::class, 'createTasks'])->name('consults.tasks');
     Route::get('/consult', [StaffConsultController::class, 'show'])->name('consult');
     Route::get('/meeting', [StaffMeetingController::class, 'show'])->name('meeting');

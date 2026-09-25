@@ -4,7 +4,9 @@ namespace App\Models;
 
 use App\Domain\Journey\Enums\AppointmentStatus;
 use App\Domain\Journey\Enums\ConsultStatus;
+use App\Domain\Journey\Enums\SessionState;
 use App\Domain\Journey\GuardsJourneyState;
+use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
 use App\Enums\Role;
 use App\Models\Concerns\LinksLegalDepartment;
 use App\Support\LawyerName;
@@ -208,6 +210,35 @@ class Consult extends Model
             && $this->starts_at->copy()->addMinutes($this->duration_min ?: 45)->isPast();
     }
 
+    /** لا يطلب العميل تغيير موعدٍ يبدأ خلال هذه الساعات — يتّصل بالمكتب (قرار المالك 2026-09-25). */
+    public const RESCHEDULE_REQUEST_NOTICE_HOURS = 24;
+
+    /**
+     * **لماذا لا يستطيع العميل طلب تغيير موعده الآن — `null` = يستطيع.**
+     *
+     * مصدرٌ واحد للزرّ في «استشاراتي» ولردّ الخادم، فلا يُعرض زرٌّ يرفضه الخادم.
+     *
+     * كان الطلب للفائتة وحدها: من لا يستطيع الحضور غداً لم يكن له طريقٌ إلّا أن يفوته
+     * الموعد. وكان بلا حالة: يُرسَل مرّاتٍ بلا حدّ وكلُّ مرّةٍ تُنبّه الإدارة كلّها، ولا
+     * يرى الطاقم أنّ طلباً معلّق. فصار: القادمُ قبل ٢٤ ساعة والفائتُ، مرّةً حتى يُقضى.
+     */
+    public function rescheduleRequestBlocker(): ?string
+    {
+        $status = ConsultStatus::tryFrom((string) $this->status);
+        $missed = $status === ConsultStatus::NoShow || $this->session === SessionState::NotHeld->value || $this->isMissed();
+
+        return match (true) {
+            $this->reschedule_requested_at !== null => 'طلبك السابق قيد المعالجة — سيتواصل معك المكتب.',
+            $status?->isClosed() === true, $this->session === SessionState::Ended->value => 'انتهت الاستشارة — لا موعد يُغيَّر.',
+            $this->session === SessionState::Live->value => 'الجلسة منعقدة الآن.',
+            $status?->isPreSession() === true => 'لم يُحدَّد موعد جلستك بعد — يصلك إشعارٌ به فور تحديده.',
+            $missed => null,
+            $this->starts_at === null => 'لم يُحدَّد موعد جلستك بعد — يصلك إشعارٌ به فور تحديده.',
+            $this->starts_at->lt(now()->addHours(self::RESCHEDULE_REQUEST_NOTICE_HOURS)) => 'موعدك خلال أقلّ من '.self::RESCHEDULE_REQUEST_NOTICE_HOURS.' ساعة — لتغييره تواصل مع المكتب مباشرةً.',
+            default => null,
+        };
+    }
+
     /** تخصّص الاستشارة في `specialty` — يُربط بالكتالوج عند الحفظ. */
     protected function legalDepartmentSource(): string
     {
@@ -388,7 +419,14 @@ class Consult extends Model
             'place' => $this->placeForClient(),
             'slink' => $this->channel === 'مرئية' ? $this->joinLink() : '',
             'canJoin' => $this->canJoin(), // زر الدخول معطّل حتى إطلاق الرابط قبل الموعد بـ5د
-            'missed' => $this->isMissed(), // فات موعدها بلا جلسة — كانت «بانتظار الجلسة» أبدية متناقضة مع «لم يحضر» في المواعيد
+            // فات موعدها بلا جلسة، أو سُجّلت «لم تُعقد» — الحكم هنا لا في الواجهة: كانت تقارن
+            // `c.session === 'لم تُعقد'` نصّاً عربيّاً في موضعين لتكمل ما لا يقوله هذا الحقل
+            'missed' => $this->isMissed() || $this->session === SessionState::NotHeld->value,
+            // طلب تغيير الموعد: هل يُتاح، وهل طلبٌ سابقٌ معلّق، ولماذا يُحجب — من `rescheduleRequestBlocker` وحده
+            'rescheduleRequest' => [
+                'pending' => $this->reschedule_requested_at !== null,
+                'canRequest' => $this->rescheduleRequestBlocker() === null,
+            ],
             'session' => $this->session,
             // اعتمادُ الإدارة للموعد شأنٌ داخليّ — يقرأ العميل «بانتظار تحديد الموعد»
             'status' => ConsultStatus::tryFrom((string) $this->status)?->clientLabel() ?? $this->status,
@@ -489,7 +527,11 @@ class Consult extends Model
             'missed' => $this->isMissed(), // فات موعدها بلا جلسة — تبويب «فائتة» وإجراءا لم يحضر/إعادة الجدولة
             // ذاكرة إعادة الجدولة: كم مرّة أُعيدت (السقف في `reschedule.limit` المشترك)، وطلب العميل المعلّق
             'rescheduleCount' => (int) $this->reschedule_count,
-            'rescheduleRequest' => $this->reschedule_requested_at === null ? null : [
+            // **هل تُعاد جدولتها الآن؟ — من حارس الانتقال نفسه** لا من تخمين الواجهة. كان الزرّ في
+            // درج المحامي واستقبال الإدارة للفائتة وحدها، والخادم يقبل كلّ موعدٍ لم ينعقد: فلم يجد
+            // المحامي المعتذر عن موعد الأسبوع القادم زرّاً. والسقف يُفحص عند الإرسال بفاعله.
+            'canReschedule' => (new RescheduleConsult)->guard($this, []) === null,
+            'clientRescheduleRequest' => $this->reschedule_requested_at === null ? null : [
                 'at' => $this->reschedule_requested_at->toIso8601String(),
                 'note' => $this->reschedule_request_note,
             ],

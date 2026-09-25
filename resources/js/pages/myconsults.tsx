@@ -2,6 +2,7 @@ import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import BookingActions from '@/components/babylon/BookingActions';
+import { usePrompt } from '@/components/babylon/ConfirmDialog';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { RichText, SummaryModal } from '@/lib/consult-ui';
@@ -28,6 +29,55 @@ interface Props {
   stats?: ConsultStats;
   nextConsult?: ClientConsultCard | null;
 }
+
+/**
+ * **طلب تغيير الموعد — من العميل للمكتب.** (قرار المالك 2026-09-25)
+ *
+ * كان زرّاً في فرع «الفائتة» وحده، يبقى فعّالاً بعد الضغط فيُرسَل مرّاتٍ بلا حدّ، وكلُّ مرّةٍ
+ * تُنبّه الإدارة كلّها. صار: يظهر حيث يسمح الخادم (`rescheduleRequest.canRequest`)، ويصير بعد
+ * الإرسال شارةَ «قيد المعالجة» حتى يعيد المكتب الجدولة أو يرفض بسبب. والعميل **يطلب** ولا
+ * يختار — المكتب يحدّد الموعد (قرار 2026-09-14).
+ */
+const RescheduleRequestControl: React.FC<{ consult: ClientConsultCard }> = ({ consult }) => {
+  const toast = useToast();
+  const askFor = usePrompt();
+  const state = consult.rescheduleRequest;
+
+  if (state?.pending) {
+    return <Badge text="طلب تغيير الموعد قيد المعالجة" tone="b-amber" />;
+  }
+
+  if (!state?.canRequest) {
+    return null;
+  }
+
+  const request = async () => {
+    const note = await askFor({
+      title: 'طلب تغيير موعد الجلسة',
+      message: 'يصل طلبك للمكتب فيحدّد لك موعداً جديداً ويُبلغك به. ويبقى موعدك الحاليّ قائماً حتى ذلك — فاحضر فيه ما لم يصلك غيره.',
+      label: 'ما سبب الطلب؟ (اختياريّ)',
+      placeholder: 'مثلاً: لديّ سفر في هذا الموعد',
+      confirmLabel: 'إرسال الطلب',
+      required: false,
+    });
+
+    if (note === null) {
+      return;
+    }
+
+    router.post(`/consults/${consult.id}/reschedule-request`, { note }, {
+      preserveScroll: true,
+      onSuccess: () => toast('أُرسل طلبك للمكتب — سيتواصل معك بموعدٍ جديد', 'success'),
+      onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر إرسال الطلب'), 'error'),
+    });
+  };
+
+  return (
+    <button className="btn soft sm" type="button" onClick={request}>
+      <Icon name="cal" /> طلب تغيير الموعد
+    </button>
+  );
+};
 
 const MyConsults: React.FC<Props> = ({
   consults = [],
@@ -138,7 +188,7 @@ return;
     // الفائتة تحتاج إجراءً (طلب إعادة جدولة) — كانت لا تظهر إلا في «الكل» فتضيع
     return items.filter((c) => CONSULT_BOOKING_STATUSES.includes(c.status)
       || c.status === 'بانتظار استكمال البيانات'
-      || c.missed || c.session === 'لم تُعقد');
+      || c.missed);
   }, [items]);
 
   const completedConsults = useMemo(() => {
@@ -583,22 +633,8 @@ return list;
                             </button>
                           )}
                         </>
-                      ) : c.session === 'لم تُعقد' || c.missed ? (
-                        <>
-                          <Badge text="فائتة — لم تنعقد" tone="b-red" />
-                          {/* كان نصاً ميتاً «تواصل مع المكتب» بلا أي زرّ ولا قناة — صار طلباً فعلياً يُشعر المكتب */}
-                          <button
-                            className="btn sm"
-                            type="button"
-                            onClick={() => router.post(`/consults/${c.id}/reschedule-request`, {}, {
-                              preserveScroll: true,
-                              onSuccess: () => toast('أُرسل طلبك للمكتب — سيتواصل معك فريقنا بموعد جديد'),
-                              onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر إرسال الطلب')),
-                            })}
-                          >
-                            <Icon name="cal" /> طلب إعادة الجدولة
-                          </button>
-                        </>
+                      ) : c.missed ? (
+                        <Badge text="فائتة — لم تنعقد" tone="b-red" />
                       ) : c.channel === 'مرئية' ? (
                         <>
                           <Badge text="بانتظار الجلسة" tone="b-grey" />
@@ -637,6 +673,9 @@ return list;
                       ) : (
                         <Badge text="بانتظار الحضور للمكتب" tone="b-grey" />
                       )}
+
+                      {/* طلب تغيير الموعد — للقادم قبل ٢٤ ساعة وللفائت، مرّةً حتى يُقضى (الحكم في الخادم) */}
+                      <RescheduleRequestControl consult={c} />
 
                       {/* زر تحميل تقرير الاستشارة الرسمي PDF */}
                       {!isBookingFlow && c.status !== 'ملغاة' && (

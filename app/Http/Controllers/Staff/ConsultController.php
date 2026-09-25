@@ -678,6 +678,28 @@ class ConsultController extends Controller
         return back();
     }
 
+    /**
+     * **رفضُ طلب العميل تغيير موعده — بسببٍ يصله.** (قرار المالك 2026-09-25)
+     *
+     * الطلب حالةٌ معلّقة لها صاحب: يُقضى بإعادة الجدولة (`RescheduleConsult` يمحوه)، أو يُرفض
+     * هنا. والرفض بلا سبب يترك العميل لا يعرف أيحضر أم لا — فالسبب إلزاميّ ويصله نصّاً.
+     */
+    public function dismissRescheduleRequest(Request $request, Consult $consult): RedirectResponse
+    {
+        $this->guardConsult($request, $consult);
+        abort_if($consult->reschedule_requested_at === null, 422, 'لا طلبَ معلّقاً لتغيير موعد هذه الاستشارة.');
+
+        $reason = trim((string) $request->validate(['reason' => ['required', 'string', 'max:500']])['reason']);
+
+        $consult->forceFill(['reschedule_requested_at' => null, 'reschedule_request_note' => null]);
+        $consult->logAudit($request->user()->name, 'رفض طلب تغيير الموعد', 'طلب العميل موعداً آخر', $reason);
+        $consult->save();
+
+        Notify::send($consult->user_id, 'cal', 't-amber', "تعذّر تغيير موعد استشارتك ({$consult->ref}) — {$reason}. يبقى موعدك كما هو: {$consult->whenLabel()}.");
+
+        return back()->with('flash', 'رُفض الطلب وأُبلغ العميل بسببه — موعده باقٍ كما هو.');
+    }
+
     // تحويل قرارات الاستشارة إلى مهام حقيقية (موديل Task) — لمرة واحدة
     public function createTasks(Request $request, Consult $consult): RedirectResponse
     {
