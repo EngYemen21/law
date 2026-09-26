@@ -17,7 +17,7 @@ if command -v mysqldump &> /dev/null; then
     DB_USER=$(php artisan tinker --execute='echo config("database.connections.".config("database.default").".username");' 2>/dev/null | tail -n1)
     DB_PASS=$(php artisan tinker --execute='echo config("database.connections.".config("database.default").".password");' 2>/dev/null | tail -n1)
     echo "💾 Backing up $DB_NAME -> $BACKUP_FILE"
-    MYSQL_PWD="$DB_PASS" mysqldump -u "$DB_USER" "$DB_NAME" > "$BACKUP_FILE"
+    MYSQL_PWD="$DB_PASS" mysqldump --no-tablespaces --single-transaction -u "$DB_USER" "$DB_NAME" > "$BACKUP_FILE"
     echo "✅ Backup written ($(du -h "$BACKUP_FILE" | cut -f1))"
 else
     echo "⛔ mysqldump غير متوفّر — أوقف النشر وخذ نسخة احتياطية يدوياً قبل الترحيل."
@@ -28,6 +28,9 @@ fi
 php artisan down || true
 
 # 2. سحب آخر التحديثات من الفرع الرئيسي
+# ملفّا القفل لا يُعدَّلان على الخادم أبداً — نسختهما من المستودع هي الحقّ. محاولة `npm ci` فاشلة سابقة
+# عدّلت package-lock.json محلّياً فرفض `git pull` السحب وبقي الموقع على نصف تحديث (2026-09-26)
+git checkout -- package-lock.json composer.lock 2>/dev/null || true
 git pull origin main
 
 # 3. تحديث حزم Composer للإنتاج
