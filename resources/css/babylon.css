@@ -1162,3 +1162,12 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
   color: #ffffff;
 }
 
+/* طلبات الاستشارة الجارية في صفحة الحجز — بطاقةٌ هادئة بشعار المنصّة لا إطارٍ كهرمانيّ صارخ */
+.book-pending{border:1px solid var(--line);box-shadow:var(--shadow)}
+.book-pending-h{background:linear-gradient(135deg,#f8fbff,#fff)}
+.book-pending-h h3{font-size:15px;font-weight:800;color:var(--deep)}
+.book-pending-mark{width:42px;height:42px;border-radius:12px;background:#fff;border:1px solid var(--line-soft);display:grid;place-items:center;flex:0 0 42px;box-shadow:0 4px 12px -6px rgba(10,42,85,.25)}
+.book-pending-mark img{width:30px;height:auto;display:block}
+.book-pending-item{padding:14px 0;border-bottom:1px solid var(--line-soft)}
+.book-pending-item:last-child{border-bottom:0}
+@media (max-width:560px){.book-pending-h{flex-wrap:wrap}.book-pending-h .sub{display:none}}

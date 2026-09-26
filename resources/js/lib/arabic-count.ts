@@ -39,5 +39,6 @@ export const NOUN = {
   ticket: { one: 'تذكرة', two: 'تذكرتان', few: 'تذاكر', many: 'تذكرة' },
   client: { one: 'عميل', two: 'عميلان', few: 'عملاء', many: 'عميلاً', hundred: 'عميل' },
   execFile: { one: 'ملف تنفيذ نشط', two: 'ملفّا تنفيذ نشطان', few: 'ملفات تنفيذ نشطة', many: 'ملف تنفيذ نشطاً', hundred: 'ملف تنفيذ نشط' },
+  request: { one: 'طلب', two: 'طلبان', few: 'طلبات', many: 'طلباً', hundred: 'طلب' },
   videoConsult: { one: 'استشارة مرئية قادمة', two: 'استشارتان مرئيتان قادمتان', few: 'استشارات مرئية قادمة', many: 'استشارة مرئية قادمة' },
 } satisfies Record<string, NounForms>;

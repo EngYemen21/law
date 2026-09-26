@@ -7,6 +7,7 @@ import type { ConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { crChannelIcon, crChannelTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { arabicCount, NOUN } from '@/lib/arabic-count';
 
 // ============================================================
 // بوابة حجز الاستشارات القانونية 360 درجة (360° Consultations Booking Command Center)
@@ -253,43 +254,43 @@ const Book: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* 3. طلبات الاستشارة الجارية بدورة الحجز (إن وجدت) */}
+      {/* 3. طلبات الاستشارة الجارية بدورة الحجز (إن وجدت)
+          شعار المنصّة في الترويسة (طلب المالك 2026-09-26) — كانت أيقونة ساعةٍ بصنفِ لونٍ وحده (`cls="text-amber"`)
+          يُسقط صنفها الأساسيّ `ic`، فتُرسم بلا حجمٍ ولا حدٍّ وتُملأ سوداء: «دائرة سوداء» بجانب العنوان. */}
       {items.length > 0 && (
-        <div className="card" style={{ marginBottom: 22, border: '1.5px solid #f59e0b' }}>
-          <div className="card-h" style={{ backgroundColor: '#fefce8' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Icon name="clock" cls="text-amber" />
-              <h3 style={{ color: '#92400e', fontSize: 15, fontWeight: 800 }}>
-                طلبات استشاراتك قيد المتابعة والإجراء ({items.length})
-              </h3>
+        <div className="card book-pending" style={{ marginBottom: 22 }}>
+          <div className="card-h book-pending-h">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+              <span className="book-pending-mark">
+                <img src="/images/sb-mark.png" alt="" width={320} height={303} />
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <h3>طلبات استشاراتك قيد المتابعة والإجراء</h3>
+                <span className="sub">نتابع كلّ طلبٍ حتى انعقاد جلسته — والخطوة التالية مكتوبةٌ بجانبه</span>
+              </div>
             </div>
-            <span className="badge-s b-amber">{items.length} طلبات</span>
+            <span className="badge-s b-amber">{arabicCount(items.length, NOUN.request)}</span>
           </div>
-          <div className="card-b" style={{ padding: '8px 18px 16px' }}>
+          <div className="card-b" style={{ padding: '6px 18px 14px' }}>
             {items.map((c) => (
-              <div key={c.ref} className="item" style={{ padding: '14px 0' }}>
+              <div key={c.ref} className="item book-pending-item">
                 <div className="item-top">
                   <div className={`iico ${crChannelTone(c.channel)}`}>
                     <Icon name={crChannelIcon(c.channel)} />
                   </div>
                   <div className="imeta">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
                       <b>{c.subject || 'طلب استشارة'}</b>
-                      <span className="chip" style={{ fontSize: 11 }}>
-                        {c.ref}
-                      </span>
+                      <span className="chip" style={{ fontSize: 11, direction: 'ltr' }}>{c.ref}</span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'var(--muted)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--muted)' }}>
                       <Badge text={c.channel} tone={crChannelTone(c.channel)} />
-                      <span>·</span>
                       {c.priced ? (
-                        <span style={{ color: 'var(--deep)', fontWeight: 700 }}>
-                          المبلغ المعتمد: {c.total} ر.س {c.paid ? '✓ مسدد' : 'بانتظار السداد'}
+                        <span className={`badge-s ${c.paid ? 'b-green' : 'b-amber'}`}>
+                          {c.total} ر.س · {c.paid ? 'مسدَّد' : 'بانتظار السداد'}
                         </span>
                       ) : (
-                        <span style={{ color: '#b45309', fontWeight: 600 }}>
-                          بانتظار تسعير الإدارة العليا
-                        </span>
+                        <span className="badge-s b-amber">بانتظار تسعير الإدارة العليا</span>
                       )}
                     </div>
                   </div>
