@@ -9,10 +9,11 @@ use Tests\TestCase;
  *
  * إنهاء الجلسة أو الاجتماع وإلغاؤهما وإلغاء الدعوة أفعالٌ لا يُتراجع عنها: تُغلق غرفة Zoom أو
  * تحذفها وتُبلغ العميل. فكلّ نداءٍ لها في الواجهة يسبقه تأكيدٌ من النافذة المشتركة
- * (`useConfirm` / `usePrompt` — `await ask(…)` أو `await prompt(…)`) يقول الأثر، لا نافذة المتصفّح.
+ * (`useConfirm` / `usePrompt` — `await ask(…)` أو `await askFor(…)` أو `await prompt(…)`) يقول الأثر، لا نافذة المتصفّح.
  *
  * فحصٌ نصّيّ: كلّ `router.post` إلى رابط إنهاءٍ/إلغاء في هذه الملفّات يسبقه — داخل الدالّة نفسها،
- * في الأسطر القريبة قبله — `await ask(` أو `await prompt(`. زرٌّ جديد يُرسل بلا تأكيد يُسقط الاختبار.
+ * في الأسطر القريبة قبله — `await ask(` أو `await askFor(` أو `await prompt(` (`askFor` اسم `usePrompt` المعتمد في
+ * المشروع كي لا يلتبس بنافذة المتصفّح `prompt(` التي يمنعها `NativeDialogsAreGoneTest`). زرٌّ جديد يُرسل بلا تأكيد يُسقط الاختبار.
  */
 class EndCancelConfirmGuardTest extends TestCase
 {
@@ -48,7 +49,7 @@ class EndCancelConfirmGuardTest extends TestCase
                 $found++;
 
                 $before = implode("\n", array_slice($lines, max(0, $i - self::WINDOW), min($i, self::WINDOW)));
-                if (! preg_match('/await\s+(ask|prompt)\(/', $before)) {
+                if (! preg_match('/await\s+(ask|askFor|prompt)\(/', $before)) {
                     $violations[] = "{$path}:".($i + 1).' — إرسال إنهاءٍ/إلغاء بلا تأكيدٍ قبله';
                 }
             }
