@@ -50,17 +50,15 @@ export function LandingHeader({ cta }: { cta: Cta }) {
     return (
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
             <div className={`${CONTAINER} flex h-16 items-center justify-between gap-3`}>
-                <a href="#top" className={`flex min-w-0 items-center gap-3 rounded-lg ${FOCUS_LIGHT}`}>
+                {/* الشعار وحده بلا نصٍّ بجانبه (طلب المالك 2026-09-26) — ليظهر واضحاً؛ واسم المكتب نصُّه البديل لقارئ الشاشة */}
+                <a href="#top" className={`flex min-w-0 items-center rounded-lg ${FOCUS_LIGHT}`}>
                     <img
                         src="/images/021.png"
                         width={1672}
                         height={512}
-                        alt="شعار سلاسل بابل لتقنية المعلومات"
-                        className="h-9 w-auto shrink-0"
+                        alt={office_name}
+                        className="h-11 w-auto shrink-0"
                     />
-                    <span className="hidden truncate text-sm font-bold text-[#0A2A55] sm:inline md:text-base">
-                        {office_name}
-                    </span>
                 </a>
 
                 <nav aria-label="أقسام الصفحة" className="hidden lg:block">
