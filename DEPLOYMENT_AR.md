@@ -4,7 +4,7 @@
 > خدمات خارجيّة: **تقنيات (OTP)** · **Resend (بريد)** · **Moyasar (دفع)** · **Zoom (اجتماعات)** · (اختياري: GLM/Gemini للـAI).
 >
 > **آخر تحديث: 2026-09-26** — خطّة رفع الدفعة الكبيرة في القسم «★» أدناه (قبل §0).
-> حالة الشيفرة: **749/749 اختباراً خضراء** · 74 مهاجرة · `tsc`/`build`/`pint`/`route:cache` نظيفة.
+> حالة الشيفرة (2026-09-26): **2577/2581 اختباراً خضراء** (الأربعة الباقية: ثلاثةٌ معروفة لتجاوز رمز الدخول في التطوير + واحدٌ أُصلح بعدها) · 137 مهاجرة · `tsc`/`build`/`pint` نظيفة.
 >
 > ⚠️ **حرِج**: المنصّة لا تعمل «بشكل صحيح» بمجرّد رفع الكود — تحتاج **٣ عمليّات خلفيّة دائمة**: (1) خادم الويب PHP-FPM، (2) **عامل الطابور** `queue:work`، (3) **المجدول** `schedule:run` عبر cron، (4) **Reverb** للبثّ الحيّ. بدون العامل: لا تُرسَل إيميلات الاجتماعات ولا تُولَّد الملخّصات. بدون cron: لا تذكير ولا إطلاق روابط الجلسات. بدون Reverb: لا مزامنة لحظيّة.
 
@@ -43,7 +43,10 @@ cd /var/www/law && bash deploy.sh
    `meeting.ended` · `meeting.participant_joined` · `meeting.participant_left` · `recording.started` ·
    `recording.stopped` · `recording.paused` · `recording.resumed` · `recording.completed` · `meeting.summary_completed`.
    بدونها لا تتحدّث غرفة الجلسة لحظيّاً.
-5. **`.env`:** `APP_URL` = العنوان العامّ بـHTTPS (تُبنى منه روابط التحقّق في رموز QR). **لا تغيّر `APP_KEY`** —
+5. **حدود الرفع:** في `php.ini` لـPHP-FPM: `upload_max_filesize = 12M` و`post_max_size = 14M`، وفي Nginx
+   `client_max_body_size 12M` (§7) — التطبيق يقبل مرفقاتٍ حتى 10MB، والحدّ الأدنى منها يرفض الملفّ قبل أن يصل التطبيق
+   فيرى المستخدم خطأ «413» بدل رسالةٍ عربيّة.
+6. **`.env`:** `APP_URL` = العنوان العامّ بـHTTPS (تُبنى منه روابط التحقّق في رموز QR). **لا تغيّر `APP_KEY`** —
    رموز التحقّق المطبوعة موقّعةٌ به؛ إن اضطُررت فضع القديم في `APP_PREVIOUS_KEYS`.
 
 ### د) من شاشة الإعدادات (`/admin/settings`) — بيد الإدارة
@@ -358,7 +361,7 @@ server {
         proxy_set_header Host $host;
     }
 
-    client_max_body_size 5M;   # يوافق حدّ رفع الملفّات (2MB منطقيّاً + هامش)
+    client_max_body_size 12M;  # أكبر مرفقٍ يقبله التطبيق 10MB (مستندات التذاكر والقضايا والتنفيذ) + هامش
     location ~ /\.(?!well-known).* { deny all; }
 }
 ```
@@ -404,10 +407,10 @@ sudo certbot --nginx -d DOMAIN        # HTTPS إلزاميّ (الجلسات ا�
 5. **البثّ الحيّ**: افتح لوحتين → غيّر حالة → تحديث لحظيّ (يؤكّد Reverb + بروكسي wss).
 6. **الدفع**: دورة استشارة → ميسّر ببطاقة اختبار/حيّة → callback + webhook.
 7. **الطابور الفاشل**: `php artisan queue:failed` يجب أن يكون فارغاً.
-8. **الصلاحيات**: `php artisan tinker --execute='echo Spatie\Permission\Models\Permission::count();'` ⇒ **23**، ولا وجود لصلاحية «إدارة الفروع».
+8. **الصلاحيات**: `php artisan tinker --execute='echo Spatie\Permission\Models\Permission::count();'` ⇒ **27** (بعد `PermissionSeeder`)، ولا وجود لصلاحيتَي «إدارة الفروع» و«المخاطبات».
 9. **الجلسة المرئيّة**: احجز استشارة مرئيّة → تأكّد أنّ `meet_id` غير فارغ في `consults`، وأنّ `storage/logs/laravel.log` **خالٍ** من `Zoom: تعذّر إنشاء اجتماع الاستشارة` — وجودها يعني أنّ الجلسة حُجزت بلا اجتماع Zoom وتحتاج معالجة يدويّة.
 10. **إطلاق روابط الجلسات**: بعد دقيقة من اقتراب موعد جلسة مرئيّة، يجب أن يمتلئ `link_released_at`. إن بقي فارغاً فالمجدول لا يعمل (راجع §6-ج) — **ولن يُفعَّل زرّ الدخول أبداً**.
-11. **PDF**: `php artisan pdf:diagnose` — يؤكّد مسار كروم/Node وعنوان المكتب من `config/office.php`.
+11. **PDF**: `php artisan pdf:diagnose` — يؤكّد مسار كروم/Node وبيانات المكتب (من شاشة الإعدادات، والعنوان والمدينة يرثان `config/office.php` حتى تُضبط).
 12. **الأصول**: افتح أي صفحة وتأكّد أنّ `public/build/manifest.json` موجود وأنّ لا `public/hot` متبقٍّ (وجوده يجعل Laravel يتجاهل البناء ⇒ صفحات بيضاء).
 
 ---
@@ -455,5 +458,5 @@ cd /var/www/law && bash deploy.sh
 | طول `start_url` مقابل عمود `varchar(1000)` | رابط مضيف مبتور أو خطأ إدراج عند أوّل اجتماع Zoom حقيقيّ |
 | نافذة `ReleaseMeetingLinks` ‏`[−60د، +5د]` | تعطّل المجدول ساعةً يترك `link_released_at` فارغاً **للأبد** لتلك الجلسات — راقب §10-10 |
 | لا سياسة احتفاظ لـ`recordings/` و`transcripts/` | نموّ بلا حدّ في `storage/app/private/` — راقب المساحة |
-| `deleteMeeting`/`endMeeting` لا يفحصان الاستجابة | إلغاء اجتماع يبدو ناجحاً ولو رفضه Zoom ⇒ اجتماعات يتيمة في الحساب |
+| إغلاق/حذف غرف Zoom صار مهامّ طابور تعيد المحاولة (`EndZoomMeetingJob`/`DropZoomMeetingJob`) | راقب `queue:failed` — مهمّةٌ فاشلة نهائياً تعني غرفةً باقية في حساب Zoom |
 | `ZOOM_FALLBACK_BASE` | إعداد ميت (لا قارئ له في الكود) — لا تعتمد عليه |
