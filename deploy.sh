@@ -24,14 +24,6 @@ else
     exit 1
 fi
 
-# 0-ب. إصدار npm: ملفّ القفل مولَّدٌ بـnpm 11، وnpm 10 يعدّ حزماً اختياريّة ناقصة فيرفض `npm ci`
-# (وقع 2026-09-26 وترك الموقع على نصف تحديث). يُفحص قبل الصيانة وقبل أيّ سحب — فلا يتغيّر شيء إن لم يوافق.
-NPM_MAJOR=$(npm --version 2>/dev/null | cut -d. -f1)
-if [ -z "$NPM_MAJOR" ] || [ "$NPM_MAJOR" -lt 11 ]; then
-    echo "⛔ npm $(npm --version 2>/dev/null) أقدم من الإصدار 11 — حدّثه أوّلاً: npm install -g npm@11"
-    exit 1
-fi
-
 # 1. تفعيل وضع الصيانة المؤقت
 php artisan down || true
 
@@ -45,7 +37,15 @@ git pull origin main
 composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
 
 # 4. تثبيت حزم الواجهة ومحرك طباعة التقارير PDF
-npm ci
+# ملفّ القفل مولَّدٌ بـnpm 11؛ وnpm 10 يرفضه في `npm ci` («Missing: @emnapi/core …» — حزمٌ اختياريّة يسجّلها
+# الإصداران بطريقتين). فمع npm 10 يُكمل `npm install` الناقص بنفسه، وتعديله لملفّ القفل على الخادم لا يبقى:
+# السحب القادم يعيده لنسخة المستودع (الخطوة 2). وnpm 11 يبقى الأصحّ: `npm install -g npm@11`.
+if [ "$(npm --version | cut -d. -f1)" -ge 11 ]; then
+    npm ci
+else
+    echo "⚠️ npm $(npm --version) — يُستعمل npm install بدل npm ci (حدّثه لاحقاً إلى 11)"
+    npm install --no-audit --no-fund
+fi
 if ! npx puppeteer browsers installed | grep -q "chrome"; then
     npx puppeteer browsers install chrome || true
 fi
