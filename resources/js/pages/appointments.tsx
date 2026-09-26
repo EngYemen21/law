@@ -49,12 +49,9 @@ return;
     <>
       <div className="apptx">
         <div className="apptx-head">
+          {/* شعار المكتب وحده — نظير نسخة PDF (`AppointmentCardPdf`) */}
           <div className="apptx-brand">
-            <div className="apptx-logo">LM</div>
-            <div>
-              <b>{office_name}</b>
-              <span className="bs">LEGAL OFFICE MANAGEMENT · المواعيد القانونية</span>
-            </div>
+            <span className="apptx-logo"><img src="/images/021.png" alt={office_name} /></span>
           </div>
           <div className="apptx-title"><Icon name="cal" /> بطاقة موعد {a.type}</div>
           <div className="apptx-no">{a.id}</div>

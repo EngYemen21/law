@@ -29,9 +29,8 @@ class AppointmentCardPdf
         .apptx{border-radius:18px;overflow:hidden;background:#fff;max-width:560px;margin:0 auto;border:1px solid #E1E8EE}
         .apptx-head{background:linear-gradient(135deg,#5B4BD6,#7C3AED 55%,#9061F9);color:#fff;padding:18px 20px 20px}
         .apptx-brand{display:flex;align-items:center;gap:11px;margin-bottom:15px}
-        .apptx-logo{width:42px;height:42px;border-radius:11px;background:rgba(255,255,255,.18);display:grid;place-items:center;font-weight:800;font-size:15px;letter-spacing:.5px}
-        .apptx-brand b{font-size:15px;display:block;line-height:1.3}
-        .apptx-brand .bs{font-size:10px;opacity:.85;letter-spacing:.6px}
+        .apptx-logo{display:inline-flex;align-items:center;background:#fff;border-radius:12px;padding:7px 14px}
+        .apptx-logo img{height:38px;width:auto;display:block}
         .apptx-title{font-size:12.5px;opacity:.92;margin-bottom:3px;display:flex;align-items:center;gap:6px}
         .apptx-no{font-size:26px;font-weight:800;letter-spacing:.5px;direction:ltr;text-align:right}
         .apptx-chips{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}
@@ -61,7 +60,10 @@ class AppointmentCardPdf
     }
 
     /**
-     * @param  array{no:string,type:string,day:string,time:string,place:string,client:string,lawyer:string,consultRef:string,address:string,paid:bool,payLabel:string,qr?:string|null}  $a
+     * `payLabel` null ⇒ لا صفّ سداد (موعدٌ لا استشارة له)؛ و`status` حالة الموعد الحيّة.
+     * والمصدر الواحد لهذه الحقول من سجلّ الموعد هو `fields()` أدناه.
+     *
+     * @param  array{no:string,type:string,day:string,time:string,place:string,client:string,lawyer:string,consultRef:string,address:string,paid:bool,payLabel:string|null,status?:string|null,qr?:string|null}  $a
      */
     public static function html(array $a): string
     {
@@ -74,7 +76,8 @@ class AppointmentCardPdf
         return '<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>'.e($a['no']).'</title><style>'.self::STYLE.'</style></head><body>'
             .'<div class="apptx">'
             .'<div class="apptx-head">'
-            .'<div class="apptx-brand"><div class="apptx-logo">LM</div><div><b>'.e($officeName).'</b><span class="bs">LEGAL OFFICE MANAGEMENT · المواعيد القانونية</span></div></div>'
+            // شعار المكتب وحده (طلب المالك 2026-09-26) — كان مربّعاً مكتوباً فيه «LM» واسمَ المكتب وسطراً إنجليزيّاً
+            .'<div class="apptx-brand">'.(($logo = ReportPrint::logoDataUri()) ? '<span class="apptx-logo"><img src="'.$logo.'" alt="'.e($officeName).'"></span>' : '<b>'.e($officeName).'</b>').'</div>'
             .'<div class="apptx-title">'.self::icon('cal').' بطاقة موعد '.e($a['type']).'</div>'
             .'<div class="apptx-no">'.e($a['no']).'</div>'
             .'<div class="apptx-chips"><span class="apptx-chip">'.self::icon('cal').' '.e($a['day']).'</span><span class="apptx-chip">'.self::icon('clock').' '.e($a['time']).'</span><span class="apptx-chip">'.self::icon('pin').' '.e($a['place']).'</span></div>'
@@ -92,9 +95,60 @@ class AppointmentCardPdf
             .'<div class="apptx-row"><div class="ri">'.self::icon('scale').'</div><div class="rc"><div class="rl">المحامي المكلّف</div><div class="rv">'.e($a['lawyer']).'</div></div></div>'
             .'<div class="apptx-row"><div class="ri">'.self::icon('doc').'</div><div class="rc"><div class="rl">رقم الاستشارة</div><div class="rv" style="direction:ltr;text-align:right">'.e($a['consultRef']).'</div></div></div>'
             .'<div class="apptx-row"><div class="ri">'.self::icon('office').'</div><div class="rc"><div class="rl">العنوان</div><div class="rv">'.e($a['address']).'</div></div></div>'
-            .'<div class="apptx-row"><div class="ri">'.self::icon('card').'</div><div class="rc"><div class="rl">حالة السداد</div><div class="rv"><span class="apptx-pay '.$payTone.'">'.self::icon('check').' '.e($a['payLabel']).'</span></div></div></div>'
+            // حالة الموعد الحيّة: بطاقةٌ لموعدٍ أُلغي أو فات كانت تُطبع كأنّه قائم — لا شيء فيها يقول غير ذلك
+            .(! empty($a['status']) ? '<div class="apptx-row"><div class="ri">'.self::icon('cal').'</div><div class="rc"><div class="rl">حالة الموعد</div><div class="rv">'.e($a['status']).'</div></div></div>' : '')
+            // لا صفَّ سدادٍ بلا فاتورةٍ يُسأل عنها — كان يُطبع «بانتظار السداد» لموعدٍ لا استشارة له
+            .($a['payLabel'] !== null ? '<div class="apptx-row"><div class="ri">'.self::icon('card').'</div><div class="rc"><div class="rl">حالة السداد</div><div class="rv"><span class="apptx-pay '.$payTone.'">'.self::icon('check').' '.e($a['payLabel']).'</span></div></div></div>' : '')
             .'</div></div>'
             .'<div class="apptx-foot"><span>'.e($officeContact).'</span><span>يُرجى الحضور قبل الموعد بـ15 دقيقة وإحضار المستندات المطلوبة</span></div>'
             .'</div></body></html>';
+    }
+
+    /**
+     * **حقول البطاقة من سجلّ الموعد — المصدر الواحد** (كانت تُبنى داخل `AppointmentController::card`
+     * فلا يقرؤها اختبار: المخرج PDF مضغوط).
+     *
+     * ثلاثة أخطاء بياناتٍ كانت هناك:
+     * - **«عن بُعد» بمطابقة نصوص** (`str_contains($place, 'إلكتروني')` …): الآن من `ico` الذي يكتبه
+     *   `ConsultBooking::meta` على كلّ موعد (`video` · `phone` · `office`).
+     * - **الموعد المُعاد جدولته يفقد استشارته**: علاقة `consult` تمرّ بـ`consults.appointment_id`
+     *   الذي ينتقل إلى الموعد الجديد، فتُطبع بطاقة القديم «بانتظار السداد» ورقمَ استشارة «—» عن
+     *   استشارةٍ مدفوعة. الصلة الثابتة `appointments.consult_id` احتياطُها.
+     * - **لا حالة للموعد على البطاقة**: الملغى يُطبع بطاقةً قائمة.
+     *
+     * @return array{no:string,type:string,day:string,time:string,place:string,client:string,lawyer:string,consultRef:string,address:string,paid:bool,payLabel:string|null,status:string,qr:string}
+     */
+    public static function fields(Appointment $appointment, User $viewer): array
+    {
+        $consult = $appointment->consult
+            ?? ($appointment->consult_id ? Consult::find($appointment->consult_id) : null);
+
+        $ico = (string) $appointment->ico;
+        $officePlace = (string) ($appointment->place ?: SettingsRegistry::str('office_address'));
+        $phone = (string) ($consult?->phone ?? '');
+        $address = match ($ico) {
+            'video' => 'جلسة مرئية عن بُعد — تُعقد داخل المنصّة من صفحة الاستشارة',
+            // الرقم الذي تُجرى عليه المكالمة من الاستشارة نفسها — لا وعدٌ بإرسال رابطٍ لا وجود له
+            'phone' => 'مكالمة هاتفية'.($phone !== '' ? ' على الرقم '.$phone : ''),
+            default => $officePlace,
+        };
+        $paid = $consult?->paid_at !== null;
+
+        return [
+            'no' => (string) $appointment->ext_id,
+            'type' => (string) $appointment->type,
+            'day' => $appointment->dayLabel(),
+            'time' => $appointment->timeLabel(),
+            'place' => in_array($ico, ['video', 'phone'], true) ? 'عن بُعد' : $officePlace,
+            'client' => (string) ($appointment->user?->name ?: '—'),
+            // العميل يرى «الاسم. الحرف» (`LawyerName::forClient`)؛ والطاقم الاسم كاملاً
+            'lawyer' => $viewer->isClient() ? $appointment->lawyerForClient() : (string) ($appointment->lawyer ?: '—'),
+            'consultRef' => (string) ($consult?->ref ?: '—'),
+            'address' => $address,
+            'paid' => $paid,
+            'payLabel' => $consult === null ? null : ($paid ? 'مدفوع' : 'بانتظار السداد'),
+            'status' => $appointment->liveState()[1],
+            'qr' => DocumentVerification::url(DocumentVerification::APPOINTMENT, (string) $appointment->ext_id),
+        ];
     }
 }

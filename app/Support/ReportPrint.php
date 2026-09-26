@@ -19,9 +19,8 @@ class ReportPrint
         body{margin:0;padding:0;background:#fff;font-family:'Tajawal',Tahoma,Arial,sans-serif;-webkit-font-smoothing:antialiased}
         .cf{font-family:'Tajawal',Tahoma,Arial,sans-serif;color:#1a2540;background:#fff;max-width:820px;margin:0 auto}
         .cf-hd{display:flex;align-items:center;gap:12px;padding:16px 22px 10px;border-bottom:2px solid #0E5C9C}
-        .cf-hd img{height:46px}
-        .cf-hd .t b{display:block;font-size:15px;color:#0A2A55;font-weight:800}
-        .cf-hd .t span{font-size:9.5px;color:#7a8aa3;letter-spacing:.5px}
+        .cf-hd img{height:56px}
+        .cf-hd .cf-name{font-size:15px;color:#0A2A55;font-weight:800}
         .cf-hd .meta{margin-inline-start:auto;text-align:left;font-size:10px;color:#7a8aa3;line-height:1.8}
         .cf-title{background:linear-gradient(135deg,#0E5C9C,#11A0C8);color:#fff;margin:12px 22px;border-radius:9px;padding:12px 18px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
         .cf-title b{font-size:15px;font-weight:800}
@@ -84,7 +83,9 @@ class ReportPrint
 
         return '<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>'.e($doc['ref']).'</title><style>'.self::STYLE.'</style></head><body>'
             .'<div class="cf">'
-            .'<div class="cf-hd">'.($logo ? '<img src="'.$logo.'" alt="">' : '').'<div class="t"><b>'.e($officeName).'</b><span>LEGAL OFFICE MANAGEMENT SYSTEM</span></div><div class="meta">'.e($officeUrl).'<br>'.e($officePhone).'</div></div>'
+            // الشعار وحده في الترويسة (طلب المالك 2026-09-26) — كان بجانبه اسم المكتب وسطرٌ إنجليزيّ
+            // «LEGAL OFFICE MANAGEMENT SYSTEM»؛ واسم المكتب باقٍ في التذييل وفي نصّ الشعار البديل
+            .'<div class="cf-hd">'.($logo ? '<img src="'.$logo.'" alt="'.e($officeName).'">' : '<b class="cf-name">'.e($officeName).'</b>').'<div class="meta">'.e($officeUrl).'<br>'.e($officePhone).'</div></div>'
             .'<div class="cf-title"><div><b>'.e($doc['title']).'</b><span class="s">'.e($doc['subtitle']).'</span></div><div class="rf">'.e($doc['ref']).'</div></div>'
             .$blocksHtml.$approvalHtml.$noteHtml.$footerHtml
             .'</div></body></html>';
@@ -152,7 +153,7 @@ class ReportPrint
     }
 
     /** يضمّن شعار المكتب كـdata URI حتى يظهر داخل PDF المُصيَّر بمعزل عن الخادم المحلي (بلا طلب شبكة). */
-    private static function logoDataUri(): ?string
+    public static function logoDataUri(): ?string
     {
         $path = public_path('images/021.png');
         if (! is_file($path)) {
