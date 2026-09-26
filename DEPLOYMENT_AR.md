@@ -22,6 +22,11 @@
 3. `composer.lock` ضمن الحفظ (يضيف `bacon/bacon-qr-code` و`dasprid/enum` لرموز QR الحقيقيّة).
 
 ### ب) التشغيل على الخادم
+**مرّةً واحدة قبل أوّل تشغيل: npm 11** (ملفّ القفل مولَّدٌ به، وnpm 10 يرفضه بـ«Missing: @emnapi/core …»؛ والسكربت
+صار يفحص الإصدار ويتوقّف قبل أيّ تغيير إن كان أقدم):
+```bash
+npm install -g npm@11 && npm --version
+```
 ```bash
 cd /var/www/law && bash deploy.sh
 ```

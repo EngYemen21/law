@@ -24,6 +24,14 @@ else
     exit 1
 fi
 
+# 0-ب. إصدار npm: ملفّ القفل مولَّدٌ بـnpm 11، وnpm 10 يعدّ حزماً اختياريّة ناقصة فيرفض `npm ci`
+# (وقع 2026-09-26 وترك الموقع على نصف تحديث). يُفحص قبل الصيانة وقبل أيّ سحب — فلا يتغيّر شيء إن لم يوافق.
+NPM_MAJOR=$(npm --version 2>/dev/null | cut -d. -f1)
+if [ -z "$NPM_MAJOR" ] || [ "$NPM_MAJOR" -lt 11 ]; then
+    echo "⛔ npm $(npm --version 2>/dev/null) أقدم من الإصدار 11 — حدّثه أوّلاً: npm install -g npm@11"
+    exit 1
+fi
+
 # 1. تفعيل وضع الصيانة المؤقت
 php artisan down || true
 
