@@ -90,7 +90,7 @@ class LawyerCaseSidebarTest extends TestCase
         $this->actingAs($lawyer)->get(ConversationFiles::url('ticket', $contract->id))->assertOk();
 
         $stranger = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
-        $this->actingAs($stranger)->get(ConversationFiles::url('ticket', $contract->id))->assertForbidden();
+        $this->assertPageRefused($this->actingAs($stranger)->get(ConversationFiles::url('ticket', $contract->id)));
     }
 
     public function test_readiness_is_shown_only_while_the_pleading_awaits_the_lawyer(): void

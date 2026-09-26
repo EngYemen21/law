@@ -30,21 +30,19 @@ class CalendarController extends Controller
         $window = CalendarWindow::forLawyer();
 
         $hearings = CaseHearing::whereIn('case_id', $caseIds)->with('legalCase')->where($window)->orderByRaw('starts_at is null')->orderBy('starts_at')->limit(CalendarWindow::LIMIT)->get()
-            ->map(function (CaseHearing $h) {
-                $start = MeetingTime::parse($h->day, $h->time);
-
-                return [
-                    'kind' => 'جلسة',
-                    'kindKey' => 'hearing',
-                    'tone' => 'b-blue',
-                    'title' => $h->title.' — قضية '.($h->legalCase?->number ?? ''),
-                    'day' => $h->day,
-                    'time' => $h->time,
-                    'where' => $h->court,
-                    'status' => EventStatus::forHearing($h),
-                    'startsAt' => ($h->starts_at ?: $start)?->toIso8601String(),
-                ];
-            });
+            ->map(fn (CaseHearing $h) => [
+                'kind' => 'جلسة',
+                'kindKey' => 'hearing',
+                'tone' => 'b-blue',
+                'title' => $h->title.' — قضية '.($h->legalCase?->number ?? ''),
+                'day' => $h->day,
+                'time' => $h->time,
+                'where' => $h->court,
+                'status' => EventStatus::forHearing($h),
+                'startsAt' => $h->startMoment()?->toIso8601String(),
+                // المدّة المتوقّعة إن أُدخلت — وإلا لا مدّة تُعرض (لا نهاية مختلَقة للجلسة)
+                'durationMin' => $h->duration_min,
+            ]);
 
         // 2. اجتماعات المحامي
         // بالإسناد وحده: `created_by` نصُّ اسمٍ يشاركه الزملاء فيُدخل اجتماعات غيره

@@ -1,7 +1,6 @@
 import React from 'react';
 import { Bars } from '@/components/babylon/admin-charts';
 import type { BarDatum } from '@/lib/admin-data';
-import { PAY_METHODS } from '@/lib/admin-data';
 import Icon from '@/lib/icons';
 
 // إيرادات الإدارة — تجميعات ومؤشرات مالية متكاملة للاستشارات والقضايا والتنفيذ القضائي والرواتب
@@ -27,6 +26,8 @@ interface Props {
   totalDebtEnforced?: number;
   totalCollectedDebts?: number;
   collectionRate?: number;
+  /** المحصَّل ÷ الصادر من الخادم (`RevenueSnapshot`) — null = لا فواتير صادرة */
+  invoiceCollectionRate: number | null;
   byService: BarDatum[];
   salaries: { name: string; salary: number }[];
   salaryTotal: number;
@@ -47,13 +48,11 @@ const AdminRevenue: React.FC<Props> = ({
   totalDebtEnforced = 0,
   totalCollectedDebts = 0,
   collectionRate = 0,
+  invoiceCollectionRate,
   byService,
   salaries,
   salaryTotal,
 }) => {
-  // نسبة التحصيل من الصادر غير الملغى — مشتقّة من الرقمين المعروضين، بلا مصدر ثالث
-  const collectedOfIssued = issued > 0 ? Math.round(((issued - due) / issued) * 100) : 0;
-
   return (
     <>
       {/* الرأس المالي مع زر التصدير */}
@@ -181,7 +180,7 @@ const AdminRevenue: React.FC<Props> = ({
             </div>
             <div className="kpi-row">
               <span className="t">نسبة تحصيل الفواتير الصادرة</span>
-              <span className="v">{collectedOfIssued}%</span>
+              <span className="v">{invoiceCollectionRate !== null ? `${invoiceCollectionRate}%` : '—'}</span>
             </div>
           </div>
         </div>
@@ -242,13 +241,8 @@ const AdminRevenue: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* ── وسائل الدفع المتاحة ── */}
-      <div className="card">
-        <div className="card-h"><h3>وسائل وقنوات الدفع المعتمدة</h3></div>
-        <div className="card-b" style={{ padding: 16 }}>
-          <div className="chips">{PAY_METHODS.map((p) => <span key={p} className="chip">{p}</span>)}</div>
-        </div>
-      </div>
+      {/* حُذفت بطاقة «وسائل وقنوات الدفع المعتمدة»: قائمةٌ تجريبيّة ثابتة من `admin-data` تُعرض كأنّها
+          إعدادُ المكتب، والفاتورة لا تحمل وسيلة دفعٍ يُشتقّ منها رقمٌ حقيقيّ. */}
     </>
   );
 };

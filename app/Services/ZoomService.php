@@ -149,6 +149,10 @@ class ZoomService
     /**
      * إنهاء اجتماع Zoom الجاري فعليًا (action=end) — أفضل-جهد. يعمل على الاجتماع الجاري فقط؛
      * على غيره ترفض Zoom بلطف (لا يهمّ، القاعدة مصدر الحقيقة). يسجّل ولا يرمي.
+     *
+     * **true = الغرفة ليست مفتوحة الآن**: أُنهيت، أو لم تكن جارية (400)، أو لا وجود لها (404) —
+     * الغاية متحقّقة في الثلاث، فلا يُعيد `EndZoomMeetingJob` المحاولة عليها. false = تعذّرٌ عابر
+     * (رمز، شبكة، 5xx، 429) يستحقّ إعادة المحاولة.
      */
     public function endMeeting(string $meetingId): bool
     {
@@ -169,11 +173,14 @@ class ZoomService
             if ($response->successful()) {
                 return true;
             }
-            // 400 متوقّع على اجتماع غير جارٍ — يُسجَّل بمستوى أدنى كي لا يُغرق السجلّ
-            // (التوثيق أعلاه ينصّ: على غيره ترفض Zoom بلطف والقاعدة مصدر الحقيقة).
-            $response->status() === 400
-                ? Log::info('ZoomService endMeeting: الاجتماع غير جارٍ ('.$meetingId.')')
-                : Log::warning('ZoomService endMeeting failed: '.$response->status().' '.$response->body());
+            // 400 متوقّع على اجتماع غير جارٍ (خرج الجميع قبل الزرّ) و404 على محذوف — يُسجَّلان
+            // بمستوى أدنى كي لا يُغرقا السجلّ، ولا يُعادان: لا غرفة مفتوحة تُغلق.
+            if (in_array($response->status(), [400, 404], true)) {
+                Log::info('ZoomService endMeeting: الاجتماع غير جارٍ ('.$meetingId.')');
+
+                return true;
+            }
+            Log::warning('ZoomService endMeeting failed: '.$response->status().' '.$response->body());
         } catch (\Throwable $e) {
             Log::warning('ZoomService endMeeting failed: '.$e->getMessage());
         }

@@ -1,5 +1,6 @@
 import { router, usePage } from '@inertiajs/react';
 import React, { useState } from 'react';
+import { useToast } from '@/components/babylon/Toast';
 import { panelBase } from '@/lib/data';
 import Icon from '@/lib/icons';
 
@@ -22,6 +23,10 @@ interface Source {
   sourceUrl: string | null;
   usageScope: string | null;
   status: string;
+  /** نبرة الحالة وأفعالها من الخادم (`LegalSource`) — لا مقارنة بنصّ الحالة هنا */
+  statusTone: string;
+  canApprove: boolean;
+  canSuspend: boolean;
   reviewedBy: string | null;
   legalReviewAt: string | null;
 }
@@ -46,15 +51,13 @@ interface Props {
   stats: Stats;
   filters: Filters;
   pagination: Pagination;
+  /** خيارات مرشّح الحالة من ثوابت `LegalSource` */
+  statusOptions: { value: string; label: string }[];
 }
 
-const STATUS_TONE: Record<string, string> = {
-  'معتمد': 'b-green',
-  'مسودة': 'b-amber',
-  'موقوف': 'b-grey',
-};
-
-const LegalSources: React.FC<Props> = ({ sources, systems, stats, filters, pagination }) => {
+const LegalSources: React.FC<Props> = ({ sources, systems, stats, filters, pagination, statusOptions }) => {
+  const toast = useToast();
+  const showError = (errs: Record<string, string>, fallback: string) => toast(`⚠️ ${Object.values(errs)[0] ?? fallback}`, 'error');
   // بادئة لوحة الدور: الشاشة مشتركة بين الإدارة والمحامي، وتثبيت `/admin` في
   // الإرسال يجعلها تُعرض للمحامي ثم تُمنع عند الحفظ بـ403 — شاشةٌ لا تعمل.
   const base = panelBase((usePage().url as string).split('?')[0]);
@@ -68,6 +71,7 @@ const LegalSources: React.FC<Props> = ({ sources, systems, stats, filters, pagin
     setBusy(true);
     router.post(`${base}/legal-sources/${id}/${action}`, {}, {
       preserveScroll: true,
+      onError: (errs) => showError(errs as Record<string, string>, 'تعذّر تنفيذ الإجراء'),
       onFinish: () => setBusy(false),
     });
   };
@@ -78,9 +82,12 @@ const LegalSources: React.FC<Props> = ({ sources, systems, stats, filters, pagin
 
   const approveSystem = (system: string) => {
     setBusy(true);
+    // مربّع التأكيد يُغلق عند النجاح وحده: خطأ الخادم («لا مسودّات…») يُعرض ويبقى المكتوب
     router.post(`${base}/legal-sources/approve-system`, { system, confirm: typed }, {
       preserveScroll: true,
-      onFinish: () => { setBusy(false); setConfirmSystem(null); setTyped(''); },
+      onSuccess: () => { setConfirmSystem(null); setTyped(''); },
+      onError: (errs) => showError(errs as Record<string, string>, 'تعذّر اعتماد النظام'),
+      onFinish: () => setBusy(false),
     });
   };
 
@@ -196,9 +203,7 @@ const LegalSources: React.FC<Props> = ({ sources, systems, stats, filters, pagin
             <label>الحالة</label>
             <select className="input" value={filters.status} onChange={(e) => browse({ status: e.target.value, page: 1 })}>
               <option value="">الكل</option>
-              <option value="مسودة">مسودة</option>
-              <option value="معتمد">معتمد</option>
-              <option value="موقوف">موقوف</option>
+              {statusOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
           <button className="btn sm" type="button" onClick={() => browse({ page: 1 })}>
@@ -225,7 +230,7 @@ const LegalSources: React.FC<Props> = ({ sources, systems, stats, filters, pagin
             <div key={s.id} className="card" style={{ marginBottom: 12 }}>
               <div className="card-h">
                 <h3>{s.citation}</h3>
-                <span className={`badge ${STATUS_TONE[s.status] ?? 'b-grey'}`}>{s.status}</span>
+                <span className={`badge ${s.statusTone}`}>{s.status}</span>
                 {!s.inForce && <span className="badge b-amber">لم يبدأ سريانه</span>}
               </div>
               <div className="card-b" style={{ padding: '14px 16px' }}>
@@ -260,12 +265,12 @@ const LegalSources: React.FC<Props> = ({ sources, systems, stats, filters, pagin
                 </details>
 
                 <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-                  {s.status !== 'معتمد' && (
+                  {s.canApprove && (
                     <button className="btn sm" disabled={busy} onClick={() => act(s.id, 'approve')} type="button">
                       <Icon name="check" /> اعتماد للاستشهاد
                     </button>
                   )}
-                  {s.status === 'معتمد' && (
+                  {s.canSuspend && (
                     <button className="btn soft sm" disabled={busy} onClick={() => act(s.id, 'suspend')} type="button">
                       <Icon name="info" /> إيقاف الاستشهاد
                     </button>

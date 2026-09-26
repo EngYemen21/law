@@ -28,9 +28,12 @@ use Illuminate\Validation\ValidationException;
  */
 final class BookingMoment
 {
+    /**
+     * لحظةُ **بدء** لا نافذةٌ ذات نهاية: كان هنا `durationMin` لا يقرؤه أحد، والجلسة لا مدّة لها
+     * تنتهي بها (قرار المالك 2026-09-26) — فحُذف كي لا يُظنّ أنّ الموعد يحمل نهايته.
+     */
     private function __construct(
         public readonly Carbon $startsAt,
-        public readonly int $durationMin,
     ) {}
 
     /**
@@ -57,9 +60,9 @@ final class BookingMoment
      * **الرمي لا الإرجاع `null`:** الإرجاع الصامت هو ما أنتج صفوف `starts_at`
      * الفارغة. ومن أراد التساهل فليُعلنه بـ`tryFrom`.
      */
-    public static function from(?string $day, ?string $time, int $durationMin = 60, string $field = 'day'): self
+    public static function from(?string $day, ?string $time, string $field = 'day'): self
     {
-        $moment = self::tryFrom($day, $time, $durationMin);
+        $moment = self::tryFrom($day, $time);
 
         if ($moment === null) {
             throw ValidationException::withMessages([
@@ -71,7 +74,7 @@ final class BookingMoment
     }
 
     /** محاولةٌ متساهلة — تُستعمل حيث يكون غياب الموعد حالةً مشروعة. */
-    public static function tryFrom(?string $day, ?string $time, int $durationMin = 60): ?self
+    public static function tryFrom(?string $day, ?string $time): ?self
     {
         $parsed = MeetingTime::parse($day, $time);
 
@@ -79,7 +82,7 @@ final class BookingMoment
             return null;
         }
 
-        return new self(Carbon::instance($parsed->toDateTime()), max(1, $durationMin));
+        return new self(Carbon::instance($parsed->toDateTime()));
     }
 
     /** `Y-m-d` — الصيغة التي تُخزَّن في أعمدة `day`. */

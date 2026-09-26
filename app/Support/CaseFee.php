@@ -14,6 +14,7 @@ use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Services\MailService;
 use App\Services\MoyasarService;
+use App\Support\Finance\InvoiceDue;
 use App\Support\Finance\InvoiceFactory;
 use Illuminate\Support\Facades\DB;
 
@@ -75,11 +76,12 @@ class CaseFee
             // **والضريبة تُقسَّم مع المبلغ.** الأمّ كانت تحمل ضريبة الأتعاب كاملةً، فتقليصُ
             // `amount` وحده يترك `subtotal + vat_amount` أكبر من الإجماليّ — أي فاتورةً
             // ضريبيّةً لا تتوازن. والحصّة إجماليٌّ معلومٌ لا أساس، فتُعكَس حساباً.
+            // المهل من الإعدادات (`InvoiceDue::installment`): الأولى بمهلة «الدفعة الأولى» التي تحدّدها
+            // الإدارة، وما بعدها بمضاعفات الفاصل بين الدفعات.
             $master->update(array_merge(InvoiceFactory::taxFromTotal($first), [
                 'installment_no' => 1,
                 'description' => self::installmentLabel($case, 1, $count),
-                'due_label' => 'خلال 3 أيام',
-                'due_at' => now()->addDays(3)->toDateString(),
+                ...InvoiceDue::installment(1),
             ]));
 
             for ($n = 2; $n <= $count; $n++) {
@@ -88,8 +90,7 @@ class CaseFee
                     'case_id' => $locked->id,
                     'installment_no' => $n,
                     'description' => self::installmentLabel($case, $n, $count),
-                    'due_label' => 'خلال '.(($n - 1) * 30).' يوماً',
-                    'due_at' => now()->addDays(($n - 1) * 30)->toDateString(),
+                    ...InvoiceDue::installment($n),
                 ]);
             }
 
@@ -341,9 +342,11 @@ class CaseFee
         }
 
         $lawyer = $case->assigned_lawyer ?: 'المستشار القانوني';
+        // المتن يقرؤه العميل: العمود النصّيّ خامٌ (اسمٌ كامل) — فالمسنَد إليه بالمصدر الواحد،
+        // والاسم الكامل يبقى لسجلّ التدقيق أدناه
         $case->messages()->create([
             'who' => 'system', 'name' => 'النظام', 'role' => 'تفعيل',
-            'body' => '<p>تم تفعيل القضية وإسنادها إلى '.e($lawyer).'.</p>',
+            'body' => '<p>تم تفعيل القضية وإسنادها إلى '.e(LawyerName::forClient($case->assigned_lawyer_id ? $case->assignedLawyer : null, $case->assigned_lawyer, 'المستشار القانوني')).'.</p>',
             'time_label' => self::clock(),
         ]);
 

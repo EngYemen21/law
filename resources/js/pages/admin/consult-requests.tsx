@@ -6,16 +6,18 @@ import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
+import { CONFIRM_CANCEL_CONSULT_REQUEST } from '@/lib/consult-ui';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { CONSULT_BOOKING_STATUSES, CONSULT_CHANNEL_OPTIONS, crChannelIcon, crChannelTone, cTone, DEFAULT_CONSULT_CHANNEL } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { useSettings } from '@/lib/settings';
 import { humanDuration } from '@/lib/utils';
 
 interface AdminConsultRequestsProps {
   consults: ConsultCard[];
-  /** نسبة الضريبة من إعدادات المكتب — كانت مصلَّبة 0.15 في الحاسبة. */
-  vatRate?: number;
+  /** نسبة الضريبة من إعدادات المكتب — كانت مصلَّبة 0.15 في الحاسبة. إلزاميّة: المتحكّم يرسلها دائماً. */
+  vatRate: number;
   /** الأسعار المعتمدة لكلّ قناة — بديل «الباقات المعياريّة» المكتوبة بيد. */
   suggestedPrices?: Record<string, number>;
   /** محامو المكتب النشطون — لتعديل المحامي عند اعتماد موعدٍ اقترحه موظّف. */
@@ -29,8 +31,11 @@ type CategoryFilter = 'all' | 'pricing' | 'payment' | 'scheduling' | 'approval' 
 const SCHEDULE_STAGE = ['بانتظار تحديد الموعد', 'بانتظار اعتماد الموعد'];
 const CHANNEL_KEY: Record<string, string> = { 'حضورية': 'office', 'مرئية': 'video', 'هاتفية': 'phone' };
 
-/** حدُّ التأخّر بالدقائق منذ الاستقبال — ساعتان. */
-const LATE_AFTER_MINS = 120;
+/*
+ * حدُّ التأخّر بالدقائق منذ الاستقبال من إعدادات الخادم (`consult_request_late_minutes`) —
+ * كان 120 منقوشاً هنا و100 في «إدارة الاستشارات» للطلبات نفسها، ونصّ الفلتر «> ساعتين» منقوشاً
+ * ثالثاً. القيمة واحدة الآن، والنصّ يُبنى منها بـ`humanDuration`.
+ */
 type DrawerTab = 'pricing' | 'details' | 'actions' | 'audit';
 
 /*
@@ -54,12 +59,15 @@ export const CANCEL_REASONS = [
 
 export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
   consults: initialConsults = [],
-  vatRate = 15,
+  // بلا افتراضٍ «15»: نسخةٌ منقوشة من الإعداد كانت تظهر متى غاب الحقل، فتخالف الفاتورة
+  vatRate,
   suggestedPrices = {},
   lawyers = [],
 }) => {
   const ask = useConfirm();
   const toast = useToast();
+  const { consult_request_late_minutes: lateAfterMins } = useSettings();
+  const lateAfterText = humanDuration(lateAfterMins) ?? '';
 
   // State Management
   const [items, setItems] = useState<ConsultCard[]>(initialConsults);
@@ -78,7 +86,8 @@ export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
   const [drawerTab, setDrawerTab] = useState<DrawerTab>(() => (refFromUrl() ? 'actions' : 'pricing'));
 
   // Inline Drawer Pricing Input & Action State
-  const [inputPrice, setInputPrice] = useState<string>('600');
+  // لا «600» افتراضيّةً: السعر من الإعدادات بحسب القناة حين يُفتح الطلب، أو فارغٌ يُكتب
+  const [inputPrice, setInputPrice] = useState<string>('');
   const [isProcessing, setIsProcessingAction] = useState(false);
 
   // Fast Pricing Modal (for Table view quick clicks)
@@ -86,7 +95,7 @@ export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
   // قناة الاستشارة في نافذة التسعير السريع وفي درج التفاصيل — تُهيّأ من قناة الطلب عند فتحه
   const [modalChannel, setModalChannel] = useState<string>(DEFAULT_CONSULT_CHANNEL);
   const [drawerChannel, setDrawerChannel] = useState<string>(DEFAULT_CONSULT_CHANNEL);
-  const [modalPrice, setModalPrice] = useState<string>('600');
+  const [modalPrice, setModalPrice] = useState<string>('');
 
   // Cancel Confirmation Modal State
   const [cancelTargetConsult, setCancelTargetConsult] = useState<ConsultCard | null>(null);
@@ -161,7 +170,7 @@ return null;
     if (drawerConsult) {
       const ch = drawerConsult.channel || DEFAULT_CONSULT_CHANNEL;
       setDrawerChannel(ch);
-      setInputPrice(String(drawerConsult.price || suggestedPrices[ch] || 600));
+      setInputPrice(String(drawerConsult.price || suggestedPrices[ch] || ''));
     }
   }, [drawerConsult, suggestedPrices]);
 
@@ -178,10 +187,11 @@ return null;
   // Telemetry & KPI Computations
   const telemetry = useMemo(() => {
     const total = liveItems.length;
-    const pendingPricing = liveItems.filter((c) => c.status === 'بانتظار التسعير').length;
-    const awaitingPayment = liveItems.filter((c) => c.status === 'بانتظار السداد').length;
-    const awaitingSchedule = liveItems.filter((c) => c.status === 'بانتظار تحديد الموعد').length;
-    const awaitingApproval = liveItems.filter((c) => c.status === 'بانتظار اعتماد الموعد').length;
+    // المراحل من مفتاح الخادم (`Consult::toCard.bookingStage`) لا من نصوص الحالة
+    const pendingPricing = liveItems.filter((c) => c.bookingStage === 'pricing').length;
+    const awaitingPayment = liveItems.filter((c) => c.bookingStage === 'payment').length;
+    const awaitingSchedule = liveItems.filter((c) => c.bookingStage === 'scheduling').length;
+    const awaitingApproval = liveItems.filter((c) => c.bookingStage === 'approval').length;
 
     // Financial volume calculations
     const pendingPaymentAmount = liveItems
@@ -200,7 +210,7 @@ return null;
      * الجدول. والعنوان نفسه كان كاذباً مرّتين: لا يقيس **المعالجة** بل عمرَ الطلب المفتوح.
      */
     const measured = liveItems.map((c) => c.ageMins).filter((m): m is number => m != null);
-    const late = measured.filter((m) => m > LATE_AFTER_MINS).length;
+    const late = measured.filter((m) => m > lateAfterMins).length;
     const avgMins = measured.length > 0
       ? Math.round(measured.reduce((acc, m) => acc + m, 0) / measured.length)
       : null;
@@ -216,7 +226,7 @@ return null;
       late,
       avgMins,
     };
-  }, [liveItems]);
+  }, [liveItems, lateAfterMins]);
 
   // Unique list of specialties
   const specialtiesList = useMemo(() => {
@@ -236,24 +246,13 @@ set.add(sp.trim());
   const filteredItems = useMemo(() => {
     return liveItems
       .filter((c) => {
-        if (categoryFilter === 'pricing' && c.status !== 'بانتظار التسعير') {
-return false;
-}
-
-        if (categoryFilter === 'payment' && c.status !== 'بانتظار السداد') {
-return false;
-}
-
-        if (categoryFilter === 'scheduling' && c.status !== 'بانتظار تحديد الموعد') {
-return false;
-}
-
-        if (categoryFilter === 'approval' && c.status !== 'بانتظار اعتماد الموعد') {
+        // مرشّحات المراحل الأربع تطابق مفتاح الخادم باسمه
+        if (['pricing', 'payment', 'scheduling', 'approval'].includes(categoryFilter) && c.bookingStage !== categoryFilter) {
 return false;
 }
 
         // غيرُ المقيس ليس «في الوقت» — فلا يدخل تبويب المتأخّرة ولا يُنفى منه بصفرٍ مصطنع
-        if (categoryFilter === 'late' && !(c.ageMins != null && c.ageMins > LATE_AFTER_MINS)) {
+        if (categoryFilter === 'late' && !(c.ageMins != null && c.ageMins > lateAfterMins)) {
 return false;
 }
 
@@ -303,7 +302,7 @@ return (a.total || 0) - (b.total || 0);
 
         return 0;
       });
-  }, [liveItems, categoryFilter, channelFilter, specialtyFilter, searchQuery, sortBy]);
+  }, [liveItems, categoryFilter, channelFilter, specialtyFilter, searchQuery, sortBy, lateAfterMins]);
 
   // Submit Pricing Action (Base + VAT + Channel)
   const handlePricingSubmit = (consult: ConsultCard, priceStr: string, channelToSet?: string) => {
@@ -436,7 +435,7 @@ return (a.total || 0) - (b.total || 0);
   };
 
   // Submit Cancel Request
-  const handleCancelRequest = () => {
+  const handleCancelRequest = async () => {
     if (!cancelTargetConsult) {
       return;
     }
@@ -448,6 +447,11 @@ return (a.total || 0) - (b.total || 0);
     }
 
     if (isProcessing) {
+      return;
+    }
+
+    // تأكيدٌ يقول الأثر قبل الإرسال (قرار المالك 2026-09-26) — الإلغاء لا يُتراجع عنه
+    if (!(await ask(CONFIRM_CANCEL_CONSULT_REQUEST))) {
       return;
     }
 
@@ -797,7 +801,7 @@ return (a.total || 0) - (b.total || 0);
             {telemetry.avgMins == null
               ? 'لا طلبات مفتوحة'
               : telemetry.late > 0
-                ? `${telemetry.late} طلب تجاوز ${LATE_AFTER_MINS / 60} ساعة`
+                ? `${telemetry.late} طلب تجاوز ${lateAfterText}`
                 : 'الانتظار ضمن المعدل'}
           </div>
         </div>
@@ -825,7 +829,7 @@ return (a.total || 0) - (b.total || 0);
                 ['payment', '2. بانتظار السداد', telemetry.awaitingPayment],
                 ['scheduling', '3. بانتظار تحديد الموعد', telemetry.awaitingSchedule],
                 ['approval', '4. بانتظار اعتماد الموعد', telemetry.awaitingApproval],
-                ['late', 'متأخرة (> ساعتين)', telemetry.late],
+                ['late', `متأخرة (> ${lateAfterText})`, telemetry.late],
               ] as const
             ).map(([key, label, count]) => (
               <button
@@ -1026,7 +1030,7 @@ return (a.total || 0) - (b.total || 0);
                       <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                         <Badge text={c.specialty || c.type || 'عام'} tone="b-grey" />
                         {c.ageMins != null ? (
-                          <span style={{ fontSize: 10.5, color: c.ageMins > LATE_AFTER_MINS ? '#C0392B' : 'var(--muted)', alignSelf: 'center' }}>
+                          <span style={{ fontSize: 10.5, color: c.ageMins > lateAfterMins ? '#C0392B' : 'var(--muted)', alignSelf: 'center' }}>
                             {c.received}
                           </span>
                         ) : null}
@@ -1499,7 +1503,7 @@ return (a.total || 0) - (b.total || 0);
                                 setPricingModalConsult(c);
                                 const ch = c.channel || DEFAULT_CONSULT_CHANNEL;
                                 setModalChannel(ch);
-                                setModalPrice(String(c.price || suggestedPrices[ch] || 600));
+                                setModalPrice(String(c.price || suggestedPrices[ch] || ''));
                               }}
                             >
                               <Icon name="card" /> تسعير
@@ -1786,7 +1790,7 @@ return (a.total || 0) - (b.total || 0);
                   >
                     <b style={{ color: 'var(--primary)', fontSize: 13.5 }}>محرك التسعير وإصدار الفاتورة الضريبية</b>
                     <p style={{ margin: '6px 0 0', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-                      حدد السعر الأساسي للاستشارة. سيقوم النظام آلياً بحساب ضريبة القيمة المضافة (15%) وإصدار فاتورة إلكترونية معتمدة وإشعار العميل فوراً للسداد.
+                      حدد السعر الأساسي للاستشارة. سيقوم النظام آلياً بحساب ضريبة القيمة المضافة ({vatRate}%) وإصدار فاتورة إلكترونية معتمدة وإشعار العميل فوراً للسداد.
                     </p>
                   </div>
 
@@ -1900,7 +1904,7 @@ return (a.total || 0) - (b.total || 0);
                         <b>{parsedDrawerPrice.toLocaleString()} ر.س</b>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--muted)' }}>ضريبة القيمة المضافة (15%):</span>
+                        <span style={{ color: 'var(--muted)' }}>ضريبة القيمة المضافة ({vatRate}%):</span>
                         <b>{drawerVatAmount.toLocaleString()} ر.س</b>
                       </div>
                       <div

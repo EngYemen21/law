@@ -13,6 +13,7 @@ import {
   attachMessage,
   nowClock,
 } from '@/lib/chat';
+import { serverMessage } from '@/lib/server-message';
 
 // يطابق ctRenderMsg + metaLine
 const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
@@ -21,14 +22,14 @@ const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
   const actor = isClient ? 'me' : 'ai';
   const isAuto = m.who === 'ai';
 
-  // العميل يرى اسماً موحّداً «الفريق القانوني» لأطراف المكتب البشريّة.
+  // **الاسم من الخادم لا من هنا** (`ChatSenderLabel`): الإدارة تضبط من الإعدادات باسم مَن يظهر
+  // الموظّف والمحامي والإدارة والذكاء الاصطناعي للعميل (طلب المالك 2026-09-25). كانت التسميتان
+  // «الفريق القانوني» و«خدمة العملاء» منقوشتين هنا فتغييرهما يلزمه نشرُ كود.
   //
-  // أمّا المخرج الآليّ فيُقدَّم باسم **«خدمة العملاء»** ويُوسَم «ردّ آليّ». كان يُنسب
-  // إلى «الفريق القانوني» كغيره، فيقرأ العميل ردّاً آلياً على أنه رأيُ فريقٍ بشريّ —
-  // وذلك يناقض مبدأ صدق المصدر الذي بُنيت عليه المنظومة (P0). والوسم لا يكشف عطلاً
-  // ولا تفصيلاً تشغيلياً: يقول من يخاطبه فقط.
-  const name = isClient ? 'أنت' : isAuto ? 'خدمة العملاء' : 'الفريق القانوني';
-  const role = isClient ? '' : isAuto ? 'ردّ آليّ' : m.role || '';
+  // والردّ الآليّ باسمه الذي ضبطته الإدارة **وحده** بلا وسم «ردّ آليّ» — قرار المالك. واسمه المستقلّ
+  // عن اسم الموظّف يبقي المصدر صادقاً: العميل لا يقرأ ردّاً آليّاً باسم الفريق البشريّ.
+  const name = isClient ? 'أنت' : m.name || 'الفريق القانوني';
+  const role = isClient || isAuto ? '' : m.role || '';
 
   return (
     <div className={`msg ${actor}`}>
@@ -105,10 +106,11 @@ const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكت�
   }, [messages, typing]);
 
   // فشل الإرسال كان صامتاً والنصّ يُمسح على أي حال، فتضيع رسالة العميل بلا أثر
-  const failed = (restore: string, msg: string) => (): void => {
+  // السبب من الخادم إن جاء (`serverMessage`) — لا «تعذّر» مجرّدةً تُخفي ما يصحّحه المستخدم
+  const failed = (restore: string, msg: string) => (err?: unknown): void => {
     setReply(restore);
     setTyping(false);
-    toast(`⚠️ ${msg}`);
+    toast(`⚠️ ${serverMessage(err, msg)}`);
   };
 
   const send = () => {
@@ -151,7 +153,7 @@ const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكت�
   };
   const onFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f) Promise.resolve(onAttach?.(f)).catch(() => toast('⚠️ تعذّر رفع المستند، حاول مجدداً'));
+    if (f) Promise.resolve(onAttach?.(f)).catch((err: unknown) => toast(`⚠️ ${serverMessage(err, 'تعذّر رفع المستند، حاول مجدداً')}`));
     e.target.value = '';
   };
 

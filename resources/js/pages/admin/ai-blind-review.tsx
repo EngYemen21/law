@@ -1,5 +1,6 @@
 import { router, usePage } from '@inertiajs/react';
 import React, { useState } from 'react';
+import { useToast } from '@/components/babylon/Toast';
 import { panelBase } from '@/lib/data';
 import Icon from '@/lib/icons';
 
@@ -12,6 +13,10 @@ import Icon from '@/lib/icons';
 interface Item {
   id: number;
   taskType: string | null;
+  /** اسم المهمّة من سجلّ التعليمات في الخادم */
+  taskLabel: string;
+  /** نصّ المخرج المحكوم عليه — بلا مصدره ولا نموذجه ولا ثقته؛ `null` = لا مخرج محفوظ */
+  output: string | null;
   entityRef: string;
   createdAt: string | null;
   judged: boolean;
@@ -50,16 +55,31 @@ const AiBlindReview: React.FC<Props> = ({ items, summary, actions, reasons, defa
   const [verdict, setVerdict] = useState('');
   const [reason, setReason] = useState('');
   const [note, setNote] = useState('');
-  const [size, setSize] = useState(defaultSize);
+  // نصٌّ لا رقم: الحقل الفارغ «الحجم الافتراضيّ» لا صفر — كان يُرسل 0 فيردّه الخادم
+  const [size, setSize] = useState(String(defaultSize));
   const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  const firstError = (errs: Record<string, string>, fallback: string): string => Object.values(errs)[0] ?? fallback;
 
   const needsReason = actions.find((a) => a.value === verdict)?.requires_reason ?? false;
 
+  // النموذج يُغلق عند النجاح وحده: كان يُغلق في `onFinish` فيضيع الحكم المكتوب مع خطأ الخادم
   const judge = (id: number) => {
     setBusy(true);
     router.post(`${base}/ai-blind-review/${id}/judge`, { verdict, reason: reason || null, note: note || null }, {
       preserveScroll: true,
-      onFinish: () => { setBusy(false); setOpenId(null); setVerdict(''); setReason(''); setNote(''); },
+      onSuccess: () => { setOpenId(null); setVerdict(''); setReason(''); setNote(''); },
+      onError: (errs) => toast(`⚠️ ${firstError(errs as Record<string, string>, 'تعذّر تسجيل الحكم')}`, 'error'),
+      onFinish: () => setBusy(false),
+    });
+  };
+
+  const draw = () => {
+    setBusy(true);
+    router.post(`${base}/ai-blind-review/draw`, { size: size.trim() === '' ? null : Number(size) }, {
+      preserveScroll: true,
+      onError: (errs) => toast(`⚠️ ${firstError(errs as Record<string, string>, 'تعذّر سحب العيّنة')}`, 'error'),
+      onFinish: () => setBusy(false),
     });
   };
 
@@ -113,16 +133,16 @@ const AiBlindReview: React.FC<Props> = ({ items, summary, actions, reasons, defa
         <div className="card-b" style={{ padding: '14px 16px', display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className="field" style={{ margin: 0, maxWidth: 160 }}>
             <label>حجم العيّنة (حتى {maxSize})</label>
-            <input className="input" type="number" min={1} max={maxSize} value={size} onChange={(e) => setSize(Number(e.target.value))} />
+            <input className="input" type="number" min={1} max={maxSize} value={size} placeholder={String(defaultSize)} onChange={(e) => setSize(e.target.value)} />
           </div>
           <button
             className="btn sm"
             type="button"
             disabled={busy}
             style={{ marginBottom: 14 }}
-            onClick={() => router.post(`${base}/ai-blind-review/draw`, { size }, { preserveScroll: true })}
+            onClick={draw}
           >
-            <Icon name="reply" /> اسحب عيّنة جديدة
+            <Icon name="reply" /> {busy ? 'جارٍ السحب…' : 'اسحب عيّنة جديدة'}
           </button>
           <p style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 14 }}>
             العيّنة عشوائيّة لا الأحدث، وبلا ما سبق أن راجعتَه — الحكم على ما رأيتَه سابقاً ليس أعمى.
@@ -136,7 +156,7 @@ const AiBlindReview: React.FC<Props> = ({ items, summary, actions, reasons, defa
         items.map((item) => (
           <div key={item.id} className="card" style={{ marginBottom: 12 }}>
             <div className="card-h">
-              <h3>{item.taskType}{item.entityRef !== '—' && ` · ${item.entityRef}`}</h3>
+              <h3>{item.taskLabel}{item.entityRef !== '—' && ` · ${item.entityRef}`}</h3>
               {item.judged ? (
                 <span className={`badge ${item.agrees ? 'b-green' : 'b-amber'}`}>
                   {item.agrees ? 'اتّفقتما' : 'اختلفتما'}
@@ -147,6 +167,15 @@ const AiBlindReview: React.FC<Props> = ({ items, summary, actions, reasons, defa
             </div>
             <div className="card-b" style={{ padding: '14px 16px' }}>
               <div className="cell-row"><span>تاريخ المخرج: {item.createdAt ?? '—'}</span></div>
+
+              {/* ما يُحكم عليه — كان المراجع يُطلب منه الحكم على مخرجٍ لا يراه */}
+              {item.output ? (
+                <div style={{ marginTop: 8, padding: '10px 12px', background: 'var(--paper-2, #f8fafc)', borderRadius: 8, whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: 13.5, maxHeight: 320, overflowY: 'auto' }}>
+                  {item.output}
+                </div>
+              ) : (
+                <p style={{ color: 'var(--amber)', fontSize: 12, marginTop: 6 }}>لا نصّ محفوظ لهذا المخرج — فلا يُحكم عليه هنا.</p>
+              )}
 
               {!item.judged && (
                 <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 4 }}>

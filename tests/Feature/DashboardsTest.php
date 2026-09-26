@@ -96,11 +96,14 @@ class DashboardsTest extends TestCase
 
         $this->actingAs($admin)->get(route('admin.dashboard'))
             ->assertOk()->assertInertia(fn ($p) => $p->component('admin/dashboard')
-            ->where('stats.clients', 1)
-            ->where('stats.openTickets', 1)
-            ->where('stats.revenue', 8000)
-            ->where('stats.pendingMeetings', 1)
-            ->has('activity'));
+            // الحزمتان القديمتان `stats`/`activity` أُسقطتا — الأرقام من `AdminDashboardService` وحده
+            ->where('overview.clientsCount', 1)
+            ->where('overview.openTickets', 1)
+            ->where('finance.totalCollected', 8000)
+            ->where('radar', fn ($radar) => collect($radar)->firstWhere('id', 'pending-meetings')['count'] === 1)
+            ->has('liveActivity')
+            ->missing('stats')
+            ->missing('activity'));
     }
 
     public function test_client_calendar_shows_events(): void

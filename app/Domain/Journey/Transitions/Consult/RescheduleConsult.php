@@ -13,7 +13,9 @@ use App\Domain\Journey\Workflow;
 use App\Events\Journey\ConsultRescheduled;
 use App\Models\Consult;
 use App\Models\User;
+use App\Support\ArabicCount;
 use App\Support\Booking\BookingMoved;
+use App\Support\SettingsRegistry;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -39,8 +41,17 @@ use Illuminate\Database\Eloquent\Model;
  */
 final class RescheduleConsult extends Transition
 {
-    /** سقفُ إعادة الجدولة لغير الإدارة العليا. */
+    /**
+     * سقفُ إعادة الجدولة لغير الإدارة العليا — **الافتراض المُعلَن لا القيمة النافذة**: الإدارة
+     * تضبطه (`consult_reschedule_limit`)، والقراءة من `limit()` وحدها هنا وفي الشاشات.
+     */
     public const LIMIT = 2;
+
+    /** السقف النافذ — الحارس أدناه والشاشات (عبر الخاصّيّة المشتركة) يقرآنه من هنا. */
+    public static function limit(): int
+    {
+        return SettingsRegistry::int('consult_reschedule_limit');
+    }
 
     /**
      * حالاتُ الفرز التي تستحقّ أن تُستعاد بعد الموعد الجديد. «لم يحضر» ليست منها: الموعد
@@ -77,8 +88,13 @@ final class RescheduleConsult extends Transition
 
     public function deny(Model $entity, ?User $actor): ?string
     {
-        if ($actor !== null && ! $actor->isAdmin() && (int) $entity->reschedule_count >= self::LIMIT) {
-            return 'أُعيدت جدولة هذه الاستشارة '.self::LIMIT.' مرّات — إعادتها مرّةً أخرى للإدارة العليا وحدها.';
+        $limit = self::limit();
+
+        if ($actor !== null && ! $actor->isAdmin() && (int) $entity->reschedule_count >= $limit) {
+            // الجملة من القيمة نفسها («مرّتين» لا «2 مرّات»)، وسقفٌ صفريّ لا يُقرأ «أُعيدت 0 مرّة»
+            return $limit === 0
+                ? 'إعادة جدولة الاستشارة للإدارة العليا وحدها.'
+                : 'أُعيدت جدولة هذه الاستشارة '.ArabicCount::times($limit).' — إعادتها مرّةً أخرى للإدارة العليا وحدها.';
         }
 
         return null;

@@ -6,9 +6,11 @@ use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Enums\Role;
 use App\Models\Appointment;
 use App\Models\Consult;
+use App\Models\JourneyTransition;
 use App\Models\Ticket;
 use App\Models\TicketSummary;
 use App\Models\User;
+use App\Models\UserNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
@@ -99,29 +101,6 @@ class AdminApprovalsOperationsTest extends TestCase
         $this->assertNull($ticket->proposed_track_reason);
     }
 
-    public function test_admin_can_dismiss_track_proposal(): void
-    {
-        $ticket = Ticket::create([
-            'user_id' => $this->client->id,
-            'number' => 'TK-TRK-'.uniqid(),
-            'type' => 'استشارة',
-            'status' => 'الرأي القانوني',
-            'proposed_track' => TicketOutcomeTrack::Close->value,
-            'proposed_track_reason' => 'إغلاق الملف لعدم الجدوى.',
-            'proposed_by_id' => $this->lawyer->id,
-            'proposed_at' => now(),
-        ]);
-
-        $response = $this->actingAs($this->admin)->post('/admin/approvals/dismiss', [
-            'type' => 'track',
-            'ref' => $ticket->number,
-        ]);
-
-        $response->assertRedirect();
-        $ticket->refresh();
-        $this->assertNull($ticket->proposed_track);
-    }
-
     public function test_admin_can_reject_summary(): void
     {
         $ticket = Ticket::create([
@@ -151,34 +130,7 @@ class AdminApprovalsOperationsTest extends TestCase
         $this->assertNull($summary->lawyer_approved_at);
     }
 
-    public function test_admin_can_dismiss_summary(): void
-    {
-        $ticket = Ticket::create([
-            'user_id' => $this->client->id,
-            'number' => 'TK-SUM-'.uniqid(),
-            'type' => 'استشارة عقارية',
-            'status' => 'بانتظار اعتماد الإدارة للملخّص',
-        ]);
-        $summary = TicketSummary::create([
-            'ticket_id' => $ticket->id,
-            'facts' => 'وقائع العقد العقاري',
-            'key_points' => 'التوصيات',
-            'status' => 'awaiting_admin',
-            'lawyer_id' => $this->lawyer->id,
-            'lawyer_approved_at' => now(),
-        ]);
-
-        $response = $this->actingAs($this->admin)->post('/admin/approvals/dismiss', [
-            'type' => 'summary',
-            'ref' => $ticket->number,
-        ]);
-
-        $response->assertRedirect();
-        $summary->refresh();
-        $this->assertSame('awaiting_lawyer', $summary->status);
-    }
-
-    public function test_admin_can_reject_and_dismiss_session_summary(): void
+    public function test_admin_can_reject_session_summary(): void
     {
         $consult = Consult::create([
             'user_id' => $this->client->id,
@@ -190,6 +142,7 @@ class AdminApprovalsOperationsTest extends TestCase
             'session' => 'منتهية',
             'summary' => 'تم الاتفاق على التسوية الودية.',
             'summary_lawyer_approved_at' => now(),
+            'summary_lawyer_approved_by' => $this->lawyer->id,
         ]);
 
         // 1. اختبار الرفض
@@ -202,15 +155,9 @@ class AdminApprovalsOperationsTest extends TestCase
         $consult->refresh();
         $this->assertNull($consult->summary_lawyer_approved_at);
 
-        // 2. إعادة تفعيل ثم اختبار الاستبعاد (Dismiss)
-        $consult->update(['summary_lawyer_approved_at' => now()]);
-        $response2 = $this->actingAs($this->admin)->post('/admin/approvals/dismiss', [
-            'type' => 'session',
-            'ref' => $consult->ref,
-        ]);
-        $response2->assertRedirect();
-        $consult->refresh();
-        $this->assertNull($consult->summary_lawyer_approved_at);
+        // 2. الإعادة انتقالٌ مسجَّل بسببه، والمستشار يُبلَّغ (كانت مسحَ عمودٍ صامتاً — `ReturnConsultSummary`)
+        $this->assertSame(1, JourneyTransition::where('transition', 'consult.return_summary')->count());
+        $this->assertTrue(UserNotification::where('user_id', $this->lawyer->id)->where('body', 'like', '%محضر%')->exists());
     }
 
     public function test_admin_can_reject_and_dismiss_appointment(): void

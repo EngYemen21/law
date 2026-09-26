@@ -3,6 +3,7 @@ import React from 'react';
 import { ROLES, ROLE_NAV, panelRole } from '@/lib/data';
 import Icon from '@/lib/icons';
 import { canViewRoute  } from '@/lib/permissions';
+import { useSettings } from '@/lib/settings';
 import type {PermCatalog} from '@/lib/permissions';
 
 interface SidebarProps {
@@ -13,6 +14,7 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const { url, props } = usePage() as any;
   const user = props?.auth?.user;
+  const officeName = useSettings().office_name;
   const unreadNotifications = (props?.unreadNotifications as number) ?? 0; // عدّ حقيقي من الخادم
   const navBadges = (props?.navBadges as Record<string, number>) ?? {}; // شارات العميل الحقيقية
   const path = (url as string).split('?')[0];
@@ -37,7 +39,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     <aside className={`sidebar ${isOpen ? 'open' : ''}`} id="sidebar">
       {/* الشعار */}
       <div className="sb-logo">
-        <img src="/images/021.png" alt="النظام الإداري لمكاتب المحاماة" />
+        {/* النصّ البديل اسم المكتب من إعداده (`office_name`) — لا نسخةً منقوشة */}
+        <img src="/images/021.png" alt={officeName} />
       </div>
 
       {/* أُلغي مبدّل «عرض اللوحات (إشراف)» بقرار المستخدم 2026-08-28 — الإدارة العليا

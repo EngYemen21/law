@@ -70,7 +70,8 @@ class MeetingLifecycleTest extends TestCase
         $admin = User::factory()->create(['role' => Role::Admin]);
         $meeting = $this->meeting(null, ['status' => 'منتهٍ']);
 
-        $this->actingAs($admin)->post(route('admin.meetings.start', $meeting))->assertRedirect();
+        // يُرفض بسببه (`StartMeeting::guard`) — كان يُعاد بصمت فلا يعرف الضاغط لماذا لم يبدأ
+        $this->actingAs($admin)->post(route('admin.meetings.start', $meeting))->assertStatus(422);
 
         $this->assertSame('منتهٍ', $meeting->fresh()->status);
     }

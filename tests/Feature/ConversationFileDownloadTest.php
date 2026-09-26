@@ -116,6 +116,13 @@ class ConversationFileDownloadTest extends TestCase
                 'موظّفٌ بلا صلاحيّة' => [$this->employee([]), 403],
             ] as $who => [$user, $status]) {
                 $res = $this->actingAs($user)->get($url);
+                // الرابط يُفتح في المتصفّح: المرفوض يعود بسببه إشعاراً لا صفحة ٤٠٣ (`ErrorResponse`)
+                if ($status === 403) {
+                    $this->assertSame(303, $res->getStatusCode(), "{$type} · {$who}: مرفوض");
+                    $this->assertPageRefused($res);
+
+                    continue;
+                }
                 $this->assertSame($status, $res->getStatusCode(), "{$type} · {$who}");
                 if ($status === 200) {
                     $this->assertStringContainsString('attachment', (string) $res->headers->get('content-disposition'), "{$type} · {$who}: ليس تنزيلاً");

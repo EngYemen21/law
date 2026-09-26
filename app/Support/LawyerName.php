@@ -21,6 +21,9 @@ final class LawyerName
     /** التذكرة مُصعَّدة لا مُسنَدة لمحامٍ — حالةٌ يكتبها النظام في حقل المحامي. مصدرها هنا لأنّها تُقرأ في `forClient`. */
     public const SENIOR = 'الإدارة العليا';
 
+    /** تسمية المسنَد إليه حين لا يكون محامياً موثَّقاً — انظر `assignedTo`. */
+    public const SPECIALIST = 'المستشار المختص';
+
     /**
      * **التسمياتُ التي يكتبها النظام بنفسه في حقل المحامي — لا أسماءَ أشخاص.**
      *
@@ -30,7 +33,7 @@ final class LawyerName
      */
     public const PLACEHOLDERS = [
         self::SENIOR,
-        'المستشار المختص',
+        self::SPECIALIST,
         'المستشار القانوني',
         'المستشار المكلف',
         'بانتظار الإسناد',
@@ -94,7 +97,7 @@ final class LawyerName
          * فالقاعدة: **اسمُ محامٍ موثَّق يُختصر · وتسميةُ النظام تمرّ · وما سواهما يُحجب.**
          * ولا يُقنَّع المخزَّن بدل حجبه لأنّ تقنيع تسميةٍ يُنتج «المستشار. ا» — عطلاً معكوساً.
          *
-         * والطاقم غير معنيّ: `LawyerName::inMessages` و`ExecService` وغيرهما تقرأ الاسم الكامل
+         * والطاقم غير معنيّ: `ExecService` وغيرها تقرأ الاسم الكامل
          * من مصادرها — هذه الدالّة للعميل وحده كما يقول اسمها.
          */
         $stored = trim((string) $stored);
@@ -103,20 +106,15 @@ final class LawyerName
     }
 
     /**
-     * رسائلُ المحادثة كما تصل العميل: اسمُ المحامي المرسِل بالصيغة نفسها. يُكتب في الرسالة من
-     * `$request->user()->name` لحظةَ الإرسال — اسمٌ حقيقيّ لا نائب.
+     * **المسنَد إليه داخل نصٍّ يقرؤه العميل** («أُسند ملفّ التنفيذ إلى …») — لا في خانةٍ مستقلّة.
      *
-     * @param  array<int, array<string, mixed>>  $messages
-     * @return array<int, array<string, mixed>>
+     * رسائل المكتب الآليّة كانت تكتب `$lawyer->name` في متن الرسالة، والمتنُ يُحفظ ويُعرض ويُبثّ كما
+     * كُتب: فلا تنفع تسميةُ المُرسِل (`ChatSenderLabel`) ولا تقنيعُ الخانة. فالاسم يُقرَّر لحظة الكتابة
+     * من هنا: محامٍ موثَّق يُختصر «محمد. ب»، وحسابٌ غيره (مديرٌ يُسنَد احتياطاً) لا يُسمّى.
+     * والطاقم يجد الاسم الكامل في سجلّ الانتقالات والتدقيق — لا في متنٍ يقرؤه العميل.
      */
-    public static function inMessages(array $messages): array
+    public static function assignedTo(?User $account): string
     {
-        foreach ($messages as $i => $message) {
-            if (($message['who'] ?? null) === 'lawyer' && trim((string) ($message['name'] ?? '')) !== '') {
-                $messages[$i]['name'] = self::short((string) $message['name']);
-            }
-        }
-
-        return $messages;
+        return self::forClient($account, null, self::SPECIALIST);
     }
 }

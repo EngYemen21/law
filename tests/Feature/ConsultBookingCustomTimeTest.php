@@ -90,17 +90,16 @@ class ConsultBookingCustomTimeTest extends TestCase
 
     // ————— ٢ · الشاشة تعرض المنتقي المشترك ولا تقفل التأكيد —————
 
-    public function test_the_client_picker_uses_the_shared_component_with_custom_minutes(): void
+    /**
+     * **مُنتقي العميل القديم (`SpecialistPicker`) حُذف ولا يعود** (2026-09-26).
+     *
+     * منذ 2026-09-14 يحدّد الطاقم الموعد، فلم يبقَ مَن يرسم المُنتقي — وكان يحمل نسخةً رابعة من
+     * اختصار اسم المحامي في المتصفّح («أ. محمد»)، خارج المصدر الواحد `LawyerName`. وكان هذا
+     * الاختبار يفحص نصّ ملفٍّ ميّت. الدقيقة المخصّصة للطاقم تحرسها الاختبارات أدناه.
+     */
+    public function test_the_dead_client_picker_stays_deleted(): void
     {
-        $picker = file_get_contents(resource_path('js/components/SpecialistPicker.tsx'));
-
-        // المنتقي المشترك نفسه المستعمل في دعوات الاجتماعات — لا صفّ أزرارٍ خام
-        $this->assertStringContainsString('<TimeSlotPicker', $picker);
-        $this->assertStringNotContainsString("title={past ? 'انقضى الوقت' : free ? 'متاح' : 'محجوز'}", $picker);
-        // «محجوز» من التوفّر الحقيقيّ لا من العلم الخام
-        $this->assertStringContainsString('taken: freeAt(s.time).length === 0', $picker);
-        // ونصٌّ صادق حين يخرج الوقت عن الشبكة
-        $this->assertStringContainsString('يُسنَد مستشارُك قبل الجلسة ويصلك إشعار', $picker);
+        $this->assertFileDoesNotExist(resource_path('js/components/SpecialistPicker.tsx'));
     }
 
     public function test_confirm_buttons_do_not_require_a_lawyer_that_is_never_sent(): void

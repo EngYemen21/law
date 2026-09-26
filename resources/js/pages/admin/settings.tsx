@@ -14,6 +14,8 @@ interface Field {
   min?: number;
   max?: number;
   forwardOnly?: boolean;
+  /** وصف الافتراض حين لا يقول نصّه شيئاً (الفراغ ذو المعنى) — من السجلّ */
+  defaultLabel?: string;
 }
 
 interface Props {
@@ -49,13 +51,21 @@ const AdminSettings: React.FC<Props> = ({ groups, fields, values }) => {
       Object.fromEntries(keys.map((key) => [key, form[key]])),
       {
         preserveScroll: true,
-        onSuccess: () => {
+        // رسالة النجاح من الخادم وحده («حُفظت…» أو «لا تغيير…») — كان هنا توستٌ ثانٍ يقول «حُفظت»
+        // حتى حين ردّ الخادم بأنّ شيئاً لم يتغيّر.
+        onSuccess: (page) => {
           setErrors({});
-          toast('حُفظت إعدادات «' + groups[group] + '»');
+          // الحقول المحفوظة تُقرأ من جديد ممّا حفظه الخادم (بعد التشذيب، والفارغ ⇦ افتراضه)،
+          // ولا تُمسّ البطاقات الأخرى — تعديلٌ لم يُحفظ فيها يبقى كما هو.
+          const saved = (page.props as unknown as Props).values;
+          setForm((prev) => ({
+            ...prev,
+            ...Object.fromEntries(keys.map((key) => [key, String(saved[key] ?? fields[key].default)])),
+          }));
         },
         onError: (errs) => {
           setErrors(errs as Record<string, string>);
-          toast('⚠️ تعذّر الحفظ — راجع القيم المدخلة');
+          toast(`⚠️ ${Object.values(errs)[0] ?? 'تعذّر الحفظ — راجع القيم المدخلة'}`, 'error');
         },
         onFinish: () => setBusy(null),
       },
@@ -94,7 +104,7 @@ const AdminSettings: React.FC<Props> = ({ groups, fields, values }) => {
             type="button"
             disabled={busy !== null || isDefault}
             onClick={() => setForm({ ...form, [key]: String(field.default) })}
-            title={`الافتراض: ${field.default}`}
+            title={field.defaultLabel ?? `الافتراض: ${field.default}`}
           >
             <Icon name="reply" /> إعادة إلى الافتراض
           </button>
@@ -113,7 +123,8 @@ const AdminSettings: React.FC<Props> = ({ groups, fields, values }) => {
         <h1>إعدادات النظام</h1>
         <p>
           متغيّرات التشغيل التي كانت تحتاج تعديل شيفرةٍ ونشراً لتُضبط: مهل التنفيذ والأتعاب،
-          ومهل التنبيهات الآليّة، وبيانات المكتب في المستندات والبريد. ولا مفاتيح أسرار هنا —
+          ومهل سداد الفواتير، وساعات حجز الاستشارات وسياسة إعادة جدولتها، ومهل التنبيهات الآليّة، وبيانات المكتب في المستندات والبريد، ومسمّيات المتحدّثين كما يراها
+          العميل في محادثاته. ولا مفاتيح أسرار هنا —
           تلك في بيئة الخادم وحدها.
         </p>
       </div>

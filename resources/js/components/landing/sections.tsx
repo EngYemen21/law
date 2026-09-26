@@ -1,4 +1,5 @@
 import { Link } from '@inertiajs/react';
+import { useSettings } from '@/lib/settings';
 import {
     AI_CHAIN,
     AI_POINTS,
@@ -43,6 +44,9 @@ function SectionHeading({ id, eyebrow, title, intro }: { id: string; eyebrow: st
 }
 
 export function LandingHeader({ cta }: { cta: Cta }) {
+    // اسم المكتب من إعداده (`office_name`) — تغيّره الإدارة من الإعدادات بلا نشر كود
+    const { office_name } = useSettings();
+
     return (
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
             <div className={`${CONTAINER} flex h-16 items-center justify-between gap-3`}>
@@ -55,7 +59,7 @@ export function LandingHeader({ cta }: { cta: Cta }) {
                         className="h-9 w-auto shrink-0"
                     />
                     <span className="hidden truncate text-sm font-bold text-[#0A2A55] sm:inline md:text-base">
-                        النظام الإداري لمكاتب المحاماة
+                        {office_name}
                     </span>
                 </a>
 
@@ -87,6 +91,8 @@ export function LandingHeader({ cta }: { cta: Cta }) {
 }
 
 export function Hero({ cta }: { cta: Cta }) {
+    const { office_name } = useSettings();
+
     return (
         <section
             aria-labelledby="hero-title"
@@ -99,7 +105,7 @@ export function Hero({ cta }: { cta: Cta }) {
                 <div>
                     <p className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3! py-1! text-xs font-bold text-blue-50 sm:text-sm">
                         <LandingIcon name="scale" className="size-4" />
-                        النظام الإداري لمكاتب المحاماة
+                        {office_name}
                     </p>
                     <h1 id="hero-title" className="mt-5! text-3xl leading-[1.4] font-extrabold sm:text-4xl lg:text-[2.75rem]">
                         من أول طلب يفتحه العميل حتى تنفيذ الحكم، في منصّة واحدة
@@ -345,11 +351,13 @@ export function FinalCta({ cta }: { cta: Cta }) {
 }
 
 export function LandingFooter({ cta }: { cta: Cta }) {
+    const { office_name } = useSettings();
+
     return (
         <footer className="border-t border-slate-200 bg-white">
             <div className={`${CONTAINER} flex flex-col gap-6 py-8! md:flex-row md:items-center md:justify-between`}>
                 <div>
-                    <p className="text-base font-extrabold text-[#0A2A55]">النظام الإداري لمكاتب المحاماة</p>
+                    <p className="text-base font-extrabold text-[#0A2A55]">{office_name}</p>
                     <p className="mt-1! text-sm text-slate-600">© {new Date().getFullYear()} جميع الحقوق محفوظة</p>
                 </div>
                 <nav aria-label="روابط التذييل">

@@ -88,22 +88,21 @@ class TicketTriage
             return;
         }
 
-        // لا مرفقات — رسالة ترحيب واحدة إنسانية تجمع الترحيب + إعادة الصياغة + طلب المستندات
-        $svcDocs = ServiceDocs::for($ticket->type);
+        // لا مرفقات — رسالة ترحيب واحدة إنسانية تجمع الترحيب + إعادة الصياغة + طلب المستندات.
+        // المطلوب من قائمة قسم التذكرة (`TicketDocumentRequirements`) لا من نوعها
         $ai = app(LegalAiService::class);
-        $greeting = $ai->greet($ticket, $details, $svcDocs);
+        $greeting = $ai->greet($ticket, $details, TicketDocumentRequirements::labels(TicketDocumentRequirements::missing($ticket)));
         // ترحيبٌ يصل العميل: يُقيَّد كبقيّة مخرجات المحادثة (حساسيّته `low` ⇒ `completed`)
         $greetRun = $ai->takeLastChatOutcome();
         AiRunLogger::log('chat.reply', $greetRun['source'], $greetRun['meta'], $ticket, (string) $ticket->number);
-        $chips = implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', $svcDocs));
 
         self::move(new AwaitTicketDocuments, $ticket, 'بانتظار إرفاق المستندات المطلوبة', 'triage.greeting');
         $msg = $ticket->messages()->create([
             'who' => 'ai',
             'name' => LegalAiService::AGENT_NAME,
             'role' => LegalAiService::AGENT_ROLE,
-            'body' => '<p>'.nl2br(e($greeting)).'</p><div class="doc-list">'.$chips.'</div>'
-                .'<p class="muted">'.ServiceDocs::NOTE.'</p>',
+            // الترحيب نفسه يطلب المستندات — فلا مقدّمة ثانية قبل القائمة
+            'body' => TicketDocumentRequirements::requestHtml($ticket, null, '<p>'.nl2br(e($greeting)).'</p>'),
             'time_label' => self::clock(),
         ]);
         Live::push(new TicketMessageBroadcast($msg));
@@ -167,15 +166,16 @@ class TicketTriage
 
         // (ب) مرفقات فُحصت لكن لا شيء ذو صلة — طلب المستندات الصحيحة
         if ($analyzedAny) {
-            $chips = implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', ServiceDocs::for($ticket->type)));
             self::move(new AwaitTicketDocuments, $ticket, 'بانتظار إرفاق المستندات الصحيحة', 'triage.unrelated_documents');
             $msg = $ticket->messages()->create([
                 'who' => 'ai',
                 'name' => LegalAiService::AGENT_NAME,
                 'role' => 'نواقص',
-                'body' => '<p>شكراً لك، اطّلعنا على المستندات المرفقة إلا أنها لا تخصّ موضوع تذكرتك مباشرةً.</p>'
-                    .'<p>لبدء الدراسة، نأمل إرفاق المستندات التالية:</p><div class="doc-list">'.$chips.'</div>'
-                    .'<p class="muted">'.ServiceDocs::NOTE.'</p>',
+                'body' => TicketDocumentRequirements::requestHtml(
+                    $ticket,
+                    'لبدء الدراسة، نأمل إرفاق المستندات التالية:',
+                    '<p>شكراً لك، اطّلعنا على المستندات المرفقة إلا أنها لا تخصّ موضوع تذكرتك مباشرةً.</p>',
+                ),
                 'time_label' => self::clock(),
             ]);
             Live::push(new TicketMessageBroadcast($msg));
@@ -251,6 +251,7 @@ class TicketTriage
                 'reason' => $analysis['reason'],
                 'summary_approved' => true, // يُرسل للعميل مباشرة (أُلغي اعتماد الموظف)
             ]);
+            self::recordRequirements($doc, $analysis);
 
             // **ملخّص المستند المرتبط وحده يصل العميل** — كان يُرسل حتى لغير المرتبط (ع٢٤)
             if ($analysis['related']) {
@@ -278,15 +279,16 @@ class TicketTriage
 
         // مستند غير مرتبط بالموضوع — رفض مع التوضيح وطلب المستندات الصحيحة
         if (! $analysis['related']) {
-            $chips = implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', ServiceDocs::for($ticket->type)));
             $msg = $ticket->messages()->create([
                 'who' => 'ai',
                 'name' => LegalAiService::AGENT_NAME,
                 'role' => 'نواقص',
-                'body' => '<p>فحصنا المستند «'.e($doc->name).'» وتبيّن أنه <b>غير مرتبط بموضوع تذكرتك</b>'
-                    .($analysis['reason'] !== '' ? ' — '.e($analysis['reason']) : '.')
-                    .'</p><p>نأمل إرفاق المستندات الصحيحة التالية:</p><div class="doc-list">'.$chips.'</div>'
-                    .'<p class="muted">'.ServiceDocs::NOTE.'</p>',
+                'body' => TicketDocumentRequirements::requestHtml(
+                    $ticket,
+                    'نأمل إرفاق المستندات الصحيحة التالية:',
+                    '<p>فحصنا المستند «'.e($doc->name).'» وتبيّن أنه <b>غير مرتبط بموضوع تذكرتك</b>'
+                        .($analysis['reason'] !== '' ? ' — '.e($analysis['reason']) : '.').'</p>',
+                ),
                 'time_label' => self::clock(),
             ]);
             Live::push(new TicketMessageBroadcast($msg));
@@ -339,8 +341,21 @@ class TicketTriage
             'reason' => $analysis['reason'],
             'summary_approved' => $analysis['related'], // المتعلّق فقط يُرسل ملخصه للعميل مباشرة
         ]);
+        self::recordRequirements($doc, $analysis);
 
         return $analysis;
+    }
+
+    /**
+     * **حصيلة الفحص مقابل قائمة مستندات القسم** — الموضع الواحد لفرعَي الفحص (`classifyDoc` والإرفاق
+     * خارج «بانتظار مستندات»). المستند غير المرتبط لا يستوفي بنداً ولو سمّاه النموذج؛ ويُعلَّم مفحوصاً
+     * في الحالين، فلا يبقى «لم يُتحقّق» ما فُحص فعلاً.
+     *
+     * @param  array{related: bool, requirements?: mixed}  $analysis
+     */
+    private static function recordRequirements(TicketDocument $doc, array $analysis): void
+    {
+        TicketDocumentRequirements::recordAiCheck($doc, $analysis['related'] ? ($analysis['requirements'] ?? []) : []);
     }
 
     /** يرسل ملخص تحليل المستند للعميل كرسالة مرئية لحظية (بلا اعتماد بشري). */

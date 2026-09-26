@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Support\SettingsRegistry;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
@@ -24,7 +25,8 @@ class VerificationCodeMail extends Mailable
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: 'رمز التحقّق — '.config('app.name'));
+        // اسم المكتب من الإعدادات لا `APP_NAME` (اسمٌ تقنيّ في البيئة بتهجئةٍ غير تهجئة المستندات)
+        return new Envelope(subject: 'رمز التحقّق — '.SettingsRegistry::str('office_name'));
     }
 
     public function content(): Content

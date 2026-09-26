@@ -120,7 +120,7 @@ class CaseLifecycleTest extends TestCase
         $this->assertNotEmpty($case->ruling);
 
         // الإدارة تغلق
-        $this->actingAs($admin)->post(route('admin.cases.close', $case))->assertRedirect();
+        $this->actingAs($admin)->post(route('admin.cases.close', $case), ['closure_reason' => 'RULING_FINALIZED'])->assertRedirect();
         $this->assertSame('مغلقة', $case->fresh()->status);
     }
 

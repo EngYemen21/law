@@ -41,7 +41,7 @@ class ConsultIsolationTest extends TestCase
         $consult = $this->consultFor($lawyerA);
 
         // عرض الرحلة عبر ?ref — يُمنع للمحامي غير المسند
-        $this->actingAs($lawyerB)->get('/lawyer/consult?ref='.$consult->ref)->assertForbidden();
+        $this->assertPageRefused($this->actingAs($lawyerB)->get('/lawyer/consult?ref='.$consult->ref));
         // الإجراءات — تُمنع أيضاً
         $this->actingAs($lawyerB)->post(route('lawyer.consults.end', $consult))->assertForbidden();
         $this->actingAs($lawyerB)->post(route('lawyer.consults.tasks', $consult))->assertForbidden();

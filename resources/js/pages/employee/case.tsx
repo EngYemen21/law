@@ -3,6 +3,8 @@ import axios from 'axios';
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
+import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
+import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
 import { echo } from '@/lib/echo';
@@ -10,6 +12,7 @@ import { AppealCard, AttachDocModal, HearingUpdatesCard, NajizFilingCard, Ruling
 import type { AppealData, Filing } from '@/lib/case-court';
 import { CASE_LIFE, caseStage, type Hearing, HearingsCard, CaseMsgRow } from '@/lib/case-ui';
 import { type Message } from '@/lib/chat';
+import { serverMessage } from '@/lib/server-message';
 
 interface CaseInfo {
   no: string;
@@ -60,6 +63,8 @@ interface Props {
   canCourt?: boolean;
   /** «تسجيل الأحكام» فوقها — الحكم وتصحيحه وحكم الاستئناف (قرار المالك 2026-09-18). */
   canRule?: boolean;
+  /** من يتولّى المحادثة ومن تولّاها قبله — `ConversationHandler::history`. */
+  conversation?: ConversationHistory | null;
 }
 
 const EmployeeCase: React.FC<Props> = ({
@@ -72,6 +77,7 @@ const EmployeeCase: React.FC<Props> = ({
   filing = { canFile: false, canRegister: false, data: null },
   canCourt = false,
   canRule = false,
+  conversation,
 }) => {
   const toast = useToast();
   const base = `/employee/cases/${encodeURIComponent(c.no)}`;
@@ -97,14 +103,17 @@ const EmployeeCase: React.FC<Props> = ({
 
   useEffect(() => {
     const ch = echo.private(channel);
-    ch.listen('.message', (e: { message: Message }) => {
+    const append = (e: { message: Message }) => {
       const m = e.message;
       if (m.id && seen.current.has(m.id)) return;
       if (m.id) seen.current.add(m.id);
       setMsgs((prev) => [...prev, m]);
-    });
+    };
+    ch.listen('.message', append);
+    // الملاحظات الداخليّة تُبثّ على قناة الطاقم وحدها — لا على القناة التي يسمعها العميل
+    echo.private(`${channel}.staff`).listen('.message', append);
     ch.listen('.status', (e: { status: string; tone: string }) => setLive({ status: e.status, tone: e.tone }));
-    return () => { echo.leave(channel); };
+    return () => { echo.leave(channel); echo.leave(`${channel}.staff`); };
   }, [channel]);
 
   const send = (e: React.FormEvent) => {
@@ -114,7 +123,7 @@ const EmployeeCase: React.FC<Props> = ({
 
     axios.post(`/employee/cases/${encodeURIComponent(c.no)}/reply`, { body: v })
       .then(() => setReply(''))
-      .catch(() => toast('⚠️ تعذّر إرسال الرد'));
+      .catch((err: unknown) => toast(`⚠️ ${serverMessage(err, 'تعذّر إرسال الرد')}`));
   };
 
   return (
@@ -214,6 +223,8 @@ const EmployeeCase: React.FC<Props> = ({
 
         {/* الشريط الجانبي */}
         <aside className="tf-aside">
+          <ConversationHandlerCard conversation={conversation} />
+
           {/* بطاقة معلومات القضية */}
           <div className="card">
             <div className="tc-top">

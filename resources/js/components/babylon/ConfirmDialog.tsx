@@ -50,6 +50,13 @@ export interface PromptRequest {
   cancelLabel?: string;
   /** يمنع التأكيد حتى يُكتب نصّ — افتراضه صحيح، فأغلب المواضع تطلب قيمةً لازمة. */
   required?: boolean;
+  /**
+   * حقلٌ متعدّد الأسطر بدل السطر الواحد — لتدوينٍ لا لكلمة (تدوين الجلسة عند إنهائها من الغرفة).
+   * مفتاح الإدخال فيه سطرٌ جديد لا تأكيد، والتأكيد بالزرّ.
+   */
+  multiline?: boolean;
+  /** عدد أسطر الحقل المتعدّد (افتراضه ٤). */
+  rows?: number;
 }
 
 type Pending =
@@ -86,6 +93,7 @@ export const ConfirmDialogProvider: React.FC<{ children: React.ReactNode }> = ({
   const [pending, setPending] = useState<Pending | null>(null);
   const [value, setValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const areaRef = useRef<HTMLTextAreaElement>(null);
 
   /*
    * الوعد الحيّ يُمسك في مرجع لا في الحالة وحدها، لسببين:
@@ -141,7 +149,7 @@ export const ConfirmDialogProvider: React.FC<{ children: React.ReactNode }> = ({
       return undefined;
     }
 
-    const id = window.setTimeout(() => inputRef.current?.select(), 30);
+    const id = window.setTimeout(() => (inputRef.current ?? areaRef.current)?.select(), 30);
 
     return () => window.clearTimeout(id);
   }, [pending]);
@@ -177,20 +185,33 @@ export const ConfirmDialogProvider: React.FC<{ children: React.ReactNode }> = ({
                     {pending.req.label}
                   </label>
                 )}
-                <input
-                  ref={inputRef}
-                  value={value}
-                  onChange={(e) => setValue(e.target.value)}
-                  placeholder={pending.req.placeholder}
-                  autoFocus
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: 8,
-                    border: '1px solid var(--line, #e2e8f0)',
-                    fontSize: 13.5,
-                  }}
-                />
+                {pending.req.multiline ? (
+                  <textarea
+                    ref={areaRef}
+                    className="input"
+                    rows={pending.req.rows ?? 4}
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                    placeholder={pending.req.placeholder}
+                    autoFocus
+                    style={{ width: '100%', resize: 'vertical' }}
+                  />
+                ) : (
+                  <input
+                    ref={inputRef}
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                    placeholder={pending.req.placeholder}
+                    autoFocus
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: 8,
+                      border: '1px solid var(--line, #e2e8f0)',
+                      fontSize: 13.5,
+                    }}
+                  />
+                )}
               </div>
             )}
 

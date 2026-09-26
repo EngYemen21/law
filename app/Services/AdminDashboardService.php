@@ -10,8 +10,10 @@ use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Meeting;
 use App\Models\Ticket;
-use App\Models\TicketSummary;
 use App\Models\User;
+use App\Support\AdminApprovalQueue;
+use App\Support\ArabicCount;
+use App\Support\Finance\RevenueSnapshot;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -19,9 +21,13 @@ class AdminDashboardService
 {
     private const CLOSED_CASES = ['مغلقة', 'مؤرشفة'];
 
+    // v3: التحصيل بـ`paid_at` والرادار من `AdminApprovalQueue` — الشكل تغيّر، فمفتاحٌ جديد يتخطّى المخزَّن
+    public const CACHE_KEY = 'admin:dashboard:360:metrics_v3';
+
     public function get360Data(bool $bypassCache = false): array
     {
-        $cacheKey = 'admin:dashboard:360:metrics_v1';
+        // v2: نسخة v1 المخزَّنة على الخوادم تحمل مجموعاتٍ لا تُقرأ — مفتاحٌ جديد يتخطّاها بلا مسحٍ يدويّ
+        $cacheKey = self::CACHE_KEY;
 
         if (app()->environment('testing') || $bypassCache) {
             Cache::forget($cacheKey);
@@ -45,32 +51,39 @@ class AdminDashboardService
                 COALESCE(SUM(amount), 0) as total_billed,
                 COALESCE(SUM(CASE WHEN paid = 1 THEN amount ELSE 0 END), 0) as total_collected,
                 COALESCE(SUM(CASE WHEN paid = 0 THEN amount ELSE 0 END), 0) as total_unpaid,
-                COUNT(CASE WHEN paid = 0 AND due_at IS NOT NULL AND due_at < ? THEN 1 END) as overdue_count,
-                COALESCE(SUM(CASE WHEN paid = 1 AND updated_at >= ? THEN amount ELSE 0 END), 0) as current_month_collected,
-                COALESCE(SUM(CASE WHEN paid = 1 AND updated_at >= ? AND updated_at <= ? THEN amount ELSE 0 END), 0) as prev_month_collected
-            ', [$now->toDateString(), $startOfMonth, $startOfPrevMonth, $endOfPrevMonth])
+                COUNT(CASE WHEN paid = 0 AND due_at IS NOT NULL AND due_at < ? THEN 1 END) as overdue_count
+            ', [$now->toDateString()])
             ->first();
 
         $totalBilled = (int) ($invoiceStats->total_billed ?? 0);
         $totalCollected = (int) ($invoiceStats->total_collected ?? 0);
         $totalUnpaid = (int) ($invoiceStats->total_unpaid ?? 0);
         $overdueCount = (int) ($invoiceStats->overdue_count ?? 0);
-        $currentMonthCollected = (int) ($invoiceStats->current_month_collected ?? 0);
-        $prevMonthCollected = (int) ($invoiceStats->prev_month_collected ?? 0);
+        /*
+         * **المحصَّل في شهرٍ = ما سُدّد فيه** (`paid_at`) — من المصدر الواحد للتقارير الماليّة
+         * (`RevenueSnapshot::collectedBetween`). كان يُقاس بـ`updated_at`: أيّ تعديلٍ لاحق على فاتورةٍ
+         * مسدَّدة قديمة (ملاحظة، تصحيح رقم) ينقل مبلغها إلى «تحصيل هذا الشهر» ويُضخّم النموّ.
+         */
+        $currentMonthCollected = RevenueSnapshot::collectedBetween($startOfMonth, $now)['total'];
+        $prevMonthCollected = RevenueSnapshot::collectedBetween($startOfPrevMonth, $endOfPrevMonth)['total'];
 
         $collectionRate = $totalBilled > 0 ? (int) round(($totalCollected / $totalBilled) * 100) : 100;
+        // **لا نموَّ بلا أساس:** كان الشهر السابق الصفريّ يُعطي «+100%» ثابتةً أيّاً كان المحصّل —
+        // رقمٌ مختلَق على أوّل بطاقة. `null` = لا مقارنة، والواجهة تُخفي الشارة.
         $revenueGrowth = $prevMonthCollected > 0
             ? round((($currentMonthCollected - $prevMonthCollected) / $prevMonthCollected) * 100, 1)
-            : ($currentMonthCollected > 0 ? 100 : 0);
+            : null;
 
-        // 2. التذاكر
-        $ticketStats = DB::table('tickets')
-            ->selectRaw("
-                COUNT(*) as total_tickets,
-                COUNT(CASE WHEN status NOT IN ('مكتملة', 'مغلقة') THEN 1 END) as open_tickets,
-                COUNT(CASE WHEN status NOT IN ('مكتملة', 'مغلقة') AND assigned_lawyer_id IS NULL THEN 1 END) as unassigned_tickets
-            ")
-            ->first();
+        /*
+         * 2. التذاكر — **بنطاقات النموذج لا بقائمة حالاتٍ مكتوبةٍ هنا.** كان «المفتوح» يستثني «مكتملة»
+         * و«مغلقة» وحدهما، فتُعدّ المحوّلة إلى قضيّة أو تنفيذ مفتوحةً، ويعدّ «بانتظار التوزيع» المجمَّدةَ
+         * التي لا تظهر في شاشة التوزيع ولا تقبل إسناداً. الآن: `open()` كصفحة التذاكر، و`distributable()`
+         * كشاشة التوزيع — فالرقم على البطاقة هو ما يجده المدير حين ينقر.
+         */
+        $ticketStats = (object) [
+            'open_tickets' => Ticket::open()->count(),
+            'unassigned_tickets' => Ticket::distributable()->whereNull('assigned_lawyer_id')->count(),
+        ];
 
         // 3. القضايا
         $caseStats = DB::table('cases')
@@ -121,8 +134,10 @@ class AdminDashboardService
             ->where('status', 'منتهٍ')
             ->count();
 
-        // ما ينتظر الإدارة وحدها — كان `whereNull('approved_at')` يعدّ ما لم يعتمده المحامي بعد أيضاً
-        $pendingSummaryApprovals = TicketSummary::where('status', 'awaiting_admin')->count();
+        // ما ينتظر الإدارة وحدها — من تعريف مركز الاعتمادات نفسه (`AdminApprovalQueue`)، فلا يقول
+        // الرادار «لا توجد طلبات» ومقترحُ مسارٍ أو محضرُ جلسةٍ أو موعدٌ ينتظر في المركز
+        $approvals = AdminApprovalQueue::counts();
+        $pendingSummaryApprovals = $approvals['summaries'];
 
         // 6. رادار الإجراءات العاجلة
         $actionRadar = [];
@@ -132,7 +147,7 @@ class AdminDashboardService
                 'id' => 'unassigned-tickets',
                 'title' => 'تذاكر جديدة بانتظار التوزيع',
                 'count' => (int) $ticketStats->unassigned_tickets,
-                'desc' => "يوجد {$ticketStats->unassigned_tickets} تذكرة بحاجة لتعيين مستشار مختص",
+                'desc' => 'يوجد '.ArabicCount::of((int) $ticketStats->unassigned_tickets, 'تذكرة واحدة', 'تذكرتان', 'تذاكر', 'تذكرة', 'تذكرة').' بحاجة لتعيين مستشار مختص',
                 'cta' => 'توزيع التذاكر',
                 'link' => route('admin.distribute'),
                 'tone' => 'amber',
@@ -145,7 +160,7 @@ class AdminDashboardService
                 'id' => 'pending-prices',
                 'title' => 'طلبات استشارة بانتظار التسعير',
                 'count' => (int) $consultStats->pending_price,
-                'desc' => "يوجد {$consultStats->pending_price} طلب بحاجة لتحديد السعر وإصدار الفاتورة",
+                'desc' => 'يوجد '.ArabicCount::of((int) $consultStats->pending_price, 'طلب واحد', 'طلبان', 'طلبات', 'طلباً', 'طلب').' بحاجة لتحديد السعر وإصدار الفاتورة',
                 'cta' => 'تسعير الطلبات',
                 'link' => route('admin.consult-requests'),
                 'tone' => 'blue',
@@ -158,7 +173,7 @@ class AdminDashboardService
                 'id' => 'pending-meetings',
                 'title' => 'محاضر اجتماعات بانتظار الاعتماد',
                 'count' => $pendingMeetingApprovals,
-                'desc' => "يوجد {$pendingMeetingApprovals} محضر اجتماع بحاجة لاعتماد الإدارة",
+                'desc' => 'يوجد '.ArabicCount::of($pendingMeetingApprovals, 'محضر اجتماع واحد', 'محضرا اجتماع', 'محاضر اجتماعات', 'محضر اجتماع', 'محضر اجتماع').' بحاجة لاعتماد الإدارة',
                 'cta' => 'اعتماد المحاضر',
                 'link' => route('admin.meetmgmt'),
                 'tone' => 'purple',
@@ -171,11 +186,50 @@ class AdminDashboardService
                 'id' => 'pending-summaries',
                 'title' => 'ملخصات ملفات بانتظار الاعتماد',
                 'count' => $pendingSummaryApprovals,
-                'desc' => "يوجد {$pendingSummaryApprovals} ملخص قانوني جاهز للمراجعة",
+                'desc' => 'يوجد '.ArabicCount::of($pendingSummaryApprovals, 'ملخص قانوني واحد', 'ملخصان قانونيان', 'ملخصات قانونية', 'ملخصاً قانونياً', 'ملخص قانوني').' جاهز للمراجعة',
                 'cta' => 'مراجعة الملخصات',
-                'link' => route('admin.summaries'),
+                'link' => route('admin.approvals', ['tab' => 'summaries']),
                 'tone' => 'cyan',
                 'icon' => 'folder',
+            ];
+        }
+
+        if ($approvals['proposals'] > 0) {
+            $actionRadar[] = [
+                'id' => 'pending-tracks',
+                'title' => 'مقترحات مسار المآل بانتظار الاعتماد',
+                'count' => $approvals['proposals'],
+                'desc' => 'يوجد '.ArabicCount::of($approvals['proposals'], 'مقترح مسار واحد', 'مقترحا مسار', 'مقترحات مسار', 'مقترحاً', 'مقترح').' بحاجة لقرار الإدارة ونشره للعميل',
+                'cta' => 'اعتماد المسارات',
+                'link' => route('admin.approvals', ['tab' => 'tracks']),
+                'tone' => 'amber',
+                'icon' => 'scale',
+            ];
+        }
+
+        if ($approvals['sessions'] > 0) {
+            $actionRadar[] = [
+                'id' => 'pending-sessions',
+                'title' => 'محاضر جلسات استشارة بانتظار الاعتماد',
+                'count' => $approvals['sessions'],
+                'desc' => 'يوجد '.ArabicCount::of($approvals['sessions'], 'محضر جلسة واحد', 'محضرا جلسة', 'محاضر جلسات', 'محضر جلسة', 'محضر جلسة').' اعتمده المستشار وينتظر نشره للعميل',
+                'cta' => 'مراجعة المحاضر',
+                'link' => route('admin.approvals', ['tab' => 'sessions']),
+                'tone' => 'cyan',
+                'icon' => 'video',
+            ];
+        }
+
+        if ($approvals['appointments'] > 0) {
+            $actionRadar[] = [
+                'id' => 'pending-appointments',
+                'title' => 'مواعيد استشارة بانتظار الاعتماد',
+                'count' => $approvals['appointments'],
+                'desc' => 'يوجد '.ArabicCount::of($approvals['appointments'], 'موعد واحد', 'موعدان', 'مواعيد', 'موعداً', 'موعد').' حجزه موظّف وينتظر اعتمادك قبل إبلاغ العميل',
+                'cta' => 'اعتماد المواعيد',
+                'link' => route('admin.approvals', ['tab' => 'appointments']),
+                'tone' => 'blue',
+                'icon' => 'cal',
             ];
         }
 
@@ -184,7 +238,7 @@ class AdminDashboardService
                 'id' => 'overdue-invoices',
                 'title' => 'فواتير متجاوزة الاستحقاق',
                 'count' => $overdueCount,
-                'desc' => "يوجد {$overdueCount} فاتورة مستحقة متأخرة السداد",
+                'desc' => 'يوجد '.ArabicCount::of($overdueCount, 'فاتورة واحدة', 'فاتورتان', 'فواتير', 'فاتورة', 'فاتورة').' متأخرة السداد',
                 'cta' => 'متابعة المحاسبة',
                 'link' => route('admin.finance', ['tab' => 'aging']),
                 'tone' => 'red',
@@ -201,6 +255,8 @@ class AdminDashboardService
             ->get()
             ->map(fn (CaseHearing $h) => [
                 'id' => $h->id,
+                // رابط ملفّ القضيّة نفسه — كان الصفّ يفتح قائمة القضايا كلّها
+                'caseUrl' => $h->legalCase ? route('admin.cases.show', $h->legalCase) : null,
                 'title' => $h->title,
                 'caseNumber' => $h->legalCase?->number ?? '—',
                 'caseType' => $h->legalCase?->type ?? 'قضية',
@@ -256,7 +312,8 @@ class AdminDashboardService
             $monthName = $mStart->locale('ar')->translatedFormat('F');
 
             $mBilled = (int) Invoice::whereBetween('created_at', [$mStart, $mEnd])->sum('amount');
-            $mCollected = (int) Invoice::where('paid', true)->whereBetween('updated_at', [$mStart, $mEnd])->sum('amount');
+            // التحصيل بتاريخ السداد من المصدر الواحد — كما في بطاقة الشهر أعلاه
+            $mCollected = RevenueSnapshot::collectedBetween($mStart, $mEnd)['total'];
 
             $monthlyRevenue[] = [
                 'month' => $monthName,
@@ -321,9 +378,19 @@ class AdminDashboardService
             ->take(8)
             ->values();
 
+        /*
+         * **مصفوفاتٌ صافية لا `Collection`.** الناتج يُخزَّن في الذاكرة المؤقّتة (`get360Data`)، والإعداد
+         * `cache.serializable_classes = false` يمنع إعادة بناء أيّ كائنٍ عند القراءة (حمايةٌ من حقن
+         * الكائنات) — فكانت المجموعات الأربع تعود `__PHP_Incomplete_Class` وتصل اللوحة فارغة:
+         * «لم يتم تسجيل محامين نشطين» والمحامي موجود، وتوزيعٌ بلا تخصّصات، ونبضٌ «الآن · عام».
+         * يظهر الصحيح في الطلب الأوّل وحده (قبل التخزين) ثمّ يفرغ ثلاث دقائق. رُصد في المتصفّح 2026-09-26،
+         * ويحرسه `AdminDashboardCacheTest`.
+         */
         return [
             'overview' => [
                 'clientsCount' => User::where('role', Role::Client)->count(),
+                // النشط وحده — كان السطر تحت العدد الكلّيّ يقول «حسابات نشطة وموثقة» والعدد يضمّ الموقوفين
+                'activeClients' => User::where('role', Role::Client)->where('status', '!=', 'suspended')->count(),
                 'activeCases' => (int) ($caseStats->active_cases ?? 0),
                 'openTickets' => (int) ($ticketStats->open_tickets ?? 0),
                 'activeExecutions' => (int) ($execStats->active_execs ?? 0),
@@ -341,11 +408,11 @@ class AdminDashboardService
                 'overdueCount' => $overdueCount,
             ],
             'radar' => $actionRadar,
-            'upcomingHearings' => $upcomingHearings,
-            'lawyersWorkload' => $lawyers,
+            'upcomingHearings' => $upcomingHearings->values()->all(),
+            'lawyersWorkload' => $lawyers->values()->all(),
             'revenueTrajectory' => $monthlyRevenue,
-            'practiceAreas' => $practiceAreas,
-            'liveActivity' => $activity,
+            'practiceAreas' => $practiceAreas->all(),
+            'liveActivity' => $activity->all(),
         ];
     }
 }

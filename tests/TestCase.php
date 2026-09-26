@@ -35,6 +35,27 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
+     * **الصفحة المرفوضة تُعيد صاحبها ومعه السبب** — لا صفحة خطأ (`App\Support\ErrorResponse`).
+     *
+     * فتحُ رابطٍ مرفوض في المتصفّح (تنزيلٌ لغير مالكه، ملفٌّ لغير المُسنَد إليه) يُحوَّل بإشعارٍ
+     * عربيّ بدل صفحة «Forbidden» الخام. فالحارس يُقاس هنا بالتحويل **وبالسبب**: التحويلُ وحده
+     * لا يثبت الرفض (النجاح يحوّل أيضاً)، والسببُ العربيّ في `flash.error` هو ما يراه صاحبه.
+     */
+    protected function assertPageRefused(TestResponse $response, ?string $reason = null): TestResponse
+    {
+        $response->assertRedirect()->assertSessionHas('error');
+
+        $message = (string) session('error');
+        $this->assertMatchesRegularExpression('/\p{Arabic}/u', $message, 'سبب الرفض بالعربيّة لا نصّ الإطار');
+
+        if ($reason !== null) {
+            $this->assertStringContainsString($reason, $message);
+        }
+
+        return $response;
+    }
+
+    /**
      * تهيئة مفاتيح تقنيات + تزييف واجهة Verify (generate=5، check=10 للرمز الصحيح و11 لغيره).
      * تُستدعى في الاختبارات التي تمرّ بمسار المصادقة الفعليّ.
      */

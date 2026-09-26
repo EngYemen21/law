@@ -6,7 +6,7 @@ namespace App\Support;
  * مصيّر بطاقة الموعد كـPDF حقيقي — يطابق حرفياً تصميم .apptx المعروض في resources/js/pages/appointments.tsx
  * (المنقول أصلاً من openAppt بالتصميم المرجعي) وCSS الفعلي في resources/css/babylon.css:681-707.
  * عائلة تصميم منفصلة عمداً عن ReportPrint (بطاقة مضغوطة بتدرّج بنفسجي لا مستند رسمي بأقسام)،
- * تشارك معه فقط مولّد QR الزخرفي المشترك (App\Support\Qr).
+ * تشارك معه فقط مولّد رمز الاستجابة الوحيد (App\Support\Qr).
  */
 class AppointmentCardPdf
 {
@@ -37,9 +37,9 @@ class AppointmentCardPdf
         .apptx-chips{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}
         .apptx-chip{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.22);padding:6px 12px;border-radius:11px;font-size:12.5px;font-weight:700;direction:rtl}
         .apptx-body{padding:18px 20px;display:flex;gap:18px;align-items:flex-start}
-        .apptx-qr{flex-shrink:0;text-align:center;width:136px}
-        .apptx-qr .qrbox{background:#fff;border:1px solid #E1E8EE;border-radius:12px;padding:8px;display:grid;place-items:center}
-        .apptx-qr .qrbox svg{width:108px;height:108px}
+        .apptx-qr{flex-shrink:0;text-align:center;width:150px}
+        .apptx-qr .qrbox{background:#fff;border:1px solid #E1E8EE;border-radius:12px;padding:4px;display:grid;place-items:center}
+        .apptx-qr .qrbox svg{width:136px;height:136px;display:block}
         .apptx-qr p{font-size:10.5px;color:#607689;margin-top:9px;line-height:1.6}
         .apptx-rows{flex:1;display:flex;flex-direction:column;gap:13px;min-width:0}
         .apptx-row{display:flex;align-items:flex-start;gap:11px}
@@ -61,25 +61,32 @@ class AppointmentCardPdf
     }
 
     /**
-     * @param  array{no:string,type:string,day:string,time:string,place:string,client:string,lawyer:string,consultRef:string,address:string,paid:bool,payLabel:string,qrSeed:string}  $a
+     * @param  array{no:string,type:string,day:string,time:string,place:string,client:string,lawyer:string,consultRef:string,address:string,paid:bool,payLabel:string,qr?:string|null}  $a
      */
     public static function html(array $a): string
     {
         $payTone = $a['paid'] ? 'paid' : 'wait';
+        // هويّة المكتب من الإعدادات — كانت منقوشةً هنا وفي نسختها في `appointments.tsx`، فتبقى
+        // البطاقة تحمل الاسم والهاتف القديمين مهما ضبطتهما الإدارة.
+        $officeName = SettingsRegistry::str('office_name');
+        $officeContact = SettingsRegistry::str('office_url').' · '.SettingsRegistry::str('office_phone');
 
         return '<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>'.e($a['no']).'</title><style>'.self::STYLE.'</style></head><body>'
             .'<div class="apptx">'
             .'<div class="apptx-head">'
-            .'<div class="apptx-brand"><div class="apptx-logo">LM</div><div><b>النظام الإداري لمكاتب المحاماة</b><span class="bs">LEGAL OFFICE MANAGEMENT · المواعيد القانونية</span></div></div>'
+            .'<div class="apptx-brand"><div class="apptx-logo">LM</div><div><b>'.e($officeName).'</b><span class="bs">LEGAL OFFICE MANAGEMENT · المواعيد القانونية</span></div></div>'
             .'<div class="apptx-title">'.self::icon('cal').' بطاقة موعد '.e($a['type']).'</div>'
             .'<div class="apptx-no">'.e($a['no']).'</div>'
             .'<div class="apptx-chips"><span class="apptx-chip">'.self::icon('cal').' '.e($a['day']).'</span><span class="apptx-chip">'.self::icon('clock').' '.e($a['time']).'</span><span class="apptx-chip">'.self::icon('pin').' '.e($a['place']).'</span></div>'
             .'</div>'
             .'<div class="apptx-body">'
-            // الرمز **زخرفيّ** (انظر توثيق `Qr`) — ولا يُمسح. وكان النصّ تحته يقول «امسح
-            // لتأكيد الحضور وبدء الجلسة»، فيحاول العميل مسحه فلا شيء، أو يظنّ حضوره
-            // مؤكَّداً وهو لم يُؤكَّد. فصار يحمل المرجع نفسه مكتوباً — وهو ما ينفع فعلاً.
-            .'<div class="apptx-qr"><div class="qrbox">'.Qr::svg($a['qrSeed']).'</div><p>مرجع الموعد<br>'.e($a['qrSeed']).'</p></div>'
+            // رمزٌ **حقيقيّ** يحمل رابط التحقّق الموقَّع (`DocumentVerification`) — كان نقشاً زخرفيّاً
+            // تحته أمرٌ بمسحه لتأكيد الحضور وبدء الجلسة ولا شيء يُقرأ. والنصّ يَعِد بما يقع فعلاً:
+            // المسح يُثبت أنّ البطاقة صادرة من المكتب ويُظهر حالة الموعد الآن — لا يُسجّل حضوراً.
+            // وبلا رابط (عيّنة فحص) يبقى المرجع مكتوباً وحده، لا رمزٌ لا يحيل إلى شيء.
+            .'<div class="apptx-qr">'.(! empty($a['qr'])
+                ? '<div class="qrbox">'.Qr::svg($a['qr'], 136, 'رمز التحقّق من بطاقة الموعد').'</div><p>امسح للتحقّق من البطاقة<br>مرجع الموعد '.e($a['no']).'</p>'
+                : '<p>مرجع الموعد<br>'.e($a['no']).'</p>').'</div>'
             .'<div class="apptx-rows">'
             .'<div class="apptx-row"><div class="ri">'.self::icon('user').'</div><div class="rc"><div class="rl">العميل</div><div class="rv">'.e($a['client']).'</div></div></div>'
             .'<div class="apptx-row"><div class="ri">'.self::icon('scale').'</div><div class="rc"><div class="rl">المحامي المكلّف</div><div class="rv">'.e($a['lawyer']).'</div></div></div>'
@@ -87,7 +94,7 @@ class AppointmentCardPdf
             .'<div class="apptx-row"><div class="ri">'.self::icon('office').'</div><div class="rc"><div class="rl">العنوان</div><div class="rv">'.e($a['address']).'</div></div></div>'
             .'<div class="apptx-row"><div class="ri">'.self::icon('card').'</div><div class="rc"><div class="rl">حالة السداد</div><div class="rv"><span class="apptx-pay '.$payTone.'">'.self::icon('check').' '.e($a['payLabel']).'</span></div></div></div>'
             .'</div></div>'
-            .'<div class="apptx-foot"><span>https://salaselbabel.net/ · 011 462 2277</span><span>يُرجى الحضور قبل الموعد بـ15 دقيقة وإحضار المستندات المطلوبة</span></div>'
+            .'<div class="apptx-foot"><span>'.e($officeContact).'</span><span>يُرجى الحضور قبل الموعد بـ15 دقيقة وإحضار المستندات المطلوبة</span></div>'
             .'</div></body></html>';
     }
 }

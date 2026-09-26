@@ -3,6 +3,7 @@ import Badge from '@/components/babylon/Badge';
 import { UnifiedCalendar, type UnifiedCalendarItem } from '@/components/babylon/UnifiedCalendar';
 import { type CalendarEvent } from '@/lib/calendar-ui';
 import { hearingTone } from '@/lib/case-ui';
+import { sessTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { meetStatusTone } from '@/lib/meeting-ui';
 import EmployeeSchedule, {
@@ -20,23 +21,20 @@ import EmployeeSchedule, {
 
 interface Props {
   events: CalendarEvent[];
-  feedUrl?: string;
-  webcalUrl?: string;
   clients: ClientItem[];
   lawyers: LawyerItem[];
   appointments?: AppointmentItem[];
-  counts?: { today: number; upcoming: number; video: number; office: number };
+  counts?: { today: number; upcoming: number; video: number; office: number; pendingApproval?: number };
   awaitingConsults?: AwaitingConsultItem[];
   can?: ScheduleCan;
 }
 
+// لكلّ نوعٍ كتالوجُ ألوانه: الاستشارة بحالة جلستها (`sessTone`) — كانت تُلوَّن بكتالوج جلسات المحاكم
 const statusTone = (e: CalendarEvent): string =>
-  e.kindKey === 'meeting' ? meetStatusTone(e.status) : hearingTone(e.status);
+  e.kindKey === 'meeting' ? meetStatusTone(e.status) : e.kindKey === 'consult' ? sessTone(e.status) : hearingTone(e.status);
 
 const AdminCalendar: React.FC<Props> = ({
   events,
-  feedUrl,
-  webcalUrl,
   clients,
   lawyers,
   appointments = [],
@@ -63,10 +61,8 @@ const AdminCalendar: React.FC<Props> = ({
     }));
   }, [events]);
 
-  // عدد المواعيد المعلقة بانتظار اعتماد الإدارة
-  const pendingApprovalsCount = useMemo(() => {
-    return appointments.filter((a) => a.status === 'بانتظار الاعتماد').length;
-  }, [appointments]);
+  // المواعيد بانتظار اعتماد الإدارة — عدّادٌ من القاعدة (`AppointmentBoard`) لا من القائمة المقصوصة
+  const pendingApprovalsCount = counts?.pendingApproval ?? 0;
 
   // إحصائيات الجلسات والمواعيد
   const hearingsCount = useMemo(() => events.filter((e) => e.kindKey === 'hearing').length, [events]);
@@ -108,7 +104,7 @@ const AdminCalendar: React.FC<Props> = ({
               🏛️ {hearingsCount} جلسة محكمة
             </div>
             <div className="chip b-green" style={{ fontSize: 12 }}>
-              ⚖️ {consultsCount} استشارة مكتبية
+              ⚖️ {consultsCount} استشارة (كل القنوات)
             </div>
             {pendingApprovalsCount > 0 && (
               <div

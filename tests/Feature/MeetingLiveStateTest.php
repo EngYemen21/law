@@ -8,8 +8,9 @@ use Tests\TestCase;
 
 /**
  * الاجتماعات: الحالة المخزّنة لا تتحدّث بمرور الوقت — liveState يشتق الحقيقة عند القراءة
- * (نظير Appointment::liveState): «قادم» الفائت = «لم ينعقد» فوراً بلا مجدول، «جارٍ» المتجاوز
- * لمدّته = منتهٍ، «بانتظار التأكيد»/«مؤجل» قادمة، وزر الدخول بنافذة مغلقة الطرفين.
+ * (نظير Appointment::liveState): «قادم» فات دون أن يبدأ = «لم ينعقد» فوراً بلا مجدول، و«جارٍ»
+ * جارٍ حتى يُنهى — لا مدّة تُنهيه (قرار المالك 2026-09-26)، «بانتظار التأكيد»/«مؤجل» قادمة،
+ * وزر الدخول بنافذة مغلقة الطرفين لما لم يبدأ.
  */
 class MeetingLiveStateTest extends TestCase
 {
@@ -61,11 +62,16 @@ class MeetingLiveStateTest extends TestCase
         $this->assertFalse($m->canJoin()); // كان الزر مفتوحاً للأبد (شرط من جهة واحدة)
     }
 
-    public function test_expired_upcoming_with_join_time_shows_ended(): void
+    /**
+     * **دخله أحدٌ فقد بدأ — ولا يُختم «منتهٍ» بالساعة** (قرار المالك 2026-09-26): يبقى جارياً حتى
+     * يُنهى، والمنسيّ منه تُنهيه شبكة النسيان بعد مهلتها (`sessions:close-stale` · `SessionZoomClosureTest`).
+     */
+    public function test_expired_upcoming_with_join_time_counts_as_started_not_ended(): void
     {
         $m = $this->meeting(['starts_at' => now()->subDay(), 'join_time' => now()->subDay()]);
 
-        $this->assertSame(['past', 'منتهٍ', 'b-green'], $m->liveState());
+        $this->assertSame(['up', 'جارٍ', 'b-amber'], $m->liveState());
+        $this->assertTrue($m->hasStarted());
     }
 
     public function test_running_meeting_within_cap_is_live(): void
@@ -76,13 +82,13 @@ class MeetingLiveStateTest extends TestCase
         $this->assertTrue($m->canJoin());
     }
 
-    public function test_running_meeting_past_cap_shows_ended(): void
+    public function test_running_meeting_stays_live_and_joinable_until_ended(): void
     {
-        // «جارٍ» عالق (لم يُنهِه أحد) — بعد المدة + 120د يُعرض منتهياً لا جارياً أبدياً
+        // كان «جارٍ» يُعرض منتهياً بعد «المدة + 120د» — والاجتماع ما زال منعقداً. النهاية حدث الإنهاء
         $m = $this->meeting(['status' => 'جارٍ', 'starts_at' => now()->subHours(4)]);
 
-        $this->assertSame(['past', 'منتهٍ', 'b-green'], $m->liveState());
-        $this->assertFalse($m->canJoin());
+        $this->assertSame(['up', 'جارٍ', 'b-amber'], $m->liveState());
+        $this->assertTrue($m->canJoin());
     }
 
     public function test_can_join_window_is_closed_on_both_ends(): void
@@ -91,8 +97,7 @@ class MeetingLiveStateTest extends TestCase
         $this->assertTrue($inWindow->canJoin());
 
         $justAfter = $this->meeting(['starts_at' => now()->subMinutes(30)]);
-        // بدأ قبل 30د (المدة 60 + هامش 30) — ما زال داخل النافذة لكن حالته «قادم» فائتة؟
-        // لا: 30د < 60د فالاجتماع لم يفت بعد (isPast يعتمد البداية+المدة) — الدخول متاح
+        // موعده قبل 30د ولم يبدأ — لم يفُت بعد (مهلة الفوات من البداية، ٦٠ افتراضاً) — الدخول متاح
         $this->assertTrue($justAfter->canJoin());
 
         $wayAfter = $this->meeting(['starts_at' => now()->subHours(2)]);

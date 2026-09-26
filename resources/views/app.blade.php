@@ -19,8 +19,11 @@
 
         @viteReactRefresh
         @vite(['resources/css/app.css', 'resources/js/app.tsx'])
+        {{-- عنوان التبويب قبل أن تعمل الواجهة: اسم المكتب من إعداده (`office_name`) — لا `APP_NAME`
+             المبنيّ في البيئة ولا نصٌّ منقوش. وبعد التحميل يتولّاه `title` في `app.tsx` من الخاصيّة
+             المشتركة `settings.office_name` نفسها، فمصدر الاسم واحدٌ في الطريقين. --}}
         <x-inertia::head>
-            <title>{{ config('app.name', 'النظام الإداري لمكاتب المحاماة') }}</title>
+            <title>{{ \App\Support\SettingsRegistry::str('office_name') }}</title>
         </x-inertia::head>
     </head>
     <body>

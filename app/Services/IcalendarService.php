@@ -9,6 +9,8 @@ use App\Models\Consult;
 use App\Models\Meeting;
 use App\Models\User;
 use App\Support\MeetingTime;
+use App\Support\SessionWindow;
+use App\Support\SettingsRegistry;
 use Carbon\CarbonInterface;
 use DateTimeInterface;
 use Illuminate\Support\Carbon;
@@ -41,9 +43,13 @@ class IcalendarService
         DateTimeInterface|CarbonInterface $startsAt,
         int $durationMinutes,
         string $locationUrl,
-        string $organizerName = 'النظام الإداري لمكاتب المحاماة',
-        string $organizerEmail = 'no-reply@salasel.sa'
+        ?string $organizerName = null,
+        ?string $organizerEmail = null
     ): string {
+        // وبريد المنظِّم كذلك (`office_email`) — كان `no-reply@salasel.sa` منقوشاً في التوقيع
+        $organizerEmail ??= SettingsRegistry::str('office_email');
+        // الافتراض اسم المكتب من الإعدادات لا نصّاً منقوشاً (والافتراض الساكن في التوقيع لا يقبل نداءً)
+        $organizerName ??= SettingsRegistry::str('office_name');
         $startCarbon = Carbon::parse($startsAt)->utc();
         $startUtc = $startCarbon->format('Ymd\THis\Z');
         $endUtc = $startCarbon->copy()->addMinutes(max(15, $durationMinutes))->format('Ymd\THis\Z');
@@ -100,6 +106,11 @@ class IcalendarService
             ->orderByRaw('starts_at is null')->orderBy('starts_at')
             ->limit(self::FEED_MAX_EVENTS);
 
+        /*
+         * **`DTEND` اسميّ للاستشارة والاجتماع والموعد** (`SessionWindow::nominalMinutes`) — iCalendar
+         * يشترطه، والجلسة لا مدّة لها: تنتهي حين تُنهى (قرار المالك 2026-09-26). فالرقم يحجز خانةً
+         * في تقويم القارئ بطول شريحة الحجز، ولا يقرؤه منطق الانتهاء في المنصّة.
+         */
         // 1. الاستشارات
         $consultQuery = Consult::with('appointment');
         if ($isLawyer) {
@@ -116,14 +127,14 @@ class IcalendarService
             if (! $start) {
                 continue;
             }
-            $dur = $c->duration_min ?: 45;
             $link = $c->joinLink($user);
             $events->push(self::formatVEvent(
                 uid: 'CONSULT-'.$c->id,
                 title: "استشارة: {$c->subject} ({$c->ref})",
-                description: "استشارة قانونية ({$c->channel})\nالمستشار: {$c->lawyer}\nرابط الجلسة: {$link}",
+                // تقويم العميل يُقرأ في تطبيقه خارج المنصّة — فالمستشار باسمه للعميل لا الكامل
+                description: "استشارة قانونية ({$c->channel})\nالمستشار: ".($user->isClient() ? $c->lawyerForClient() : $c->lawyer)."\nرابط الجلسة: {$link}",
                 startsAt: $start,
-                durationMinutes: $dur,
+                durationMinutes: SessionWindow::nominalMinutes(),
                 location: $c->channel === 'حضورية' ? $c->placeLabel() : $link
             ));
         }
@@ -147,7 +158,7 @@ class IcalendarService
                 title: "اجتماع: {$m->title} ({$m->ref})",
                 description: "اجتماع رسمي عبر المنصة\nرابط الاجتماع: {$link}",
                 startsAt: $start,
-                durationMinutes: 60,
+                durationMinutes: SessionWindow::nominalMinutes(),
                 location: $link
             ));
         }
@@ -163,17 +174,25 @@ class IcalendarService
         }
         $hearings = $hearingQuery->get();
 
+        /*
+         * **جلسة المحكمة بلا نهاية مختلَقة** (قرار المالك 2026-09-26) — كانت ستّين دقيقة منقوشة.
+         * المدّة المتوقّعة يُدخلها الطاقم إن عرفها فيُكتب `DTEND` منها (`CaseHearing::endsAt`)؛ وإلا
+         * لا `DTEND` أصلاً: RFC 5545 (3.6.1) يجعل حدثاً بـ`DTSTART` زمنيّ بلا نهايةٍ حدثاً عند لحظة
+         * بدايته — وهو الصادق: نعرف متى تبدأ الجلسة ولا نعرف متى تنتهي. ولا رقم اسميّ هنا كالاستشارة:
+         * تلك شريحة حجزٍ يعرفها المكتب، وهذه موعدٌ تحدّده المحكمة.
+         */
         foreach ($hearings as $h) {
-            $start = MeetingTime::parse($h->day, $h->time);
+            $start = $h->startMoment();
             if (! $start) {
                 continue;
             }
             $events->push(self::formatVEvent(
                 uid: 'HEARING-'.$h->id,
                 title: "جلسة محكمة: {$h->title} (قضية ".($h->legalCase?->number ?: '—').')',
-                description: "جلسة قضائية\nالمحكمة: ".($h->court ?: 'المحكمة المختصة')."\nرقم القضية: ".($h->legalCase?->number ?: '—'),
+                description: "جلسة قضائية\nالمحكمة: ".($h->court ?: 'المحكمة المختصة')."\nرقم القضية: ".($h->legalCase?->number ?: '—')
+                    .($h->duration_min ? "\nالمدّة المتوقّعة: {$h->duration_min} دقيقة" : ''),
                 startsAt: $start,
-                durationMinutes: 60,
+                durationMinutes: $h->duration_min,
                 location: $h->court ?: 'المحكمة المختصة'
             ));
         }
@@ -188,10 +207,10 @@ class IcalendarService
             $events->push(self::formatVEvent(
                 uid: 'APPT-'.$a->id,
                 title: "موعد: {$a->type}",
-                description: "موعد رسمي لدى المكتب\nالمحامي: {$a->lawyer}\nالمكان: {$a->place}",
+                description: "موعد رسمي لدى المكتب\nالمحامي: ".($user->isClient() ? $a->lawyerForClient() : $a->lawyer)."\nالمكان: {$a->place}",
                 startsAt: $start,
-                durationMinutes: 30,
-                location: $a->place ?: (string) config('office.address')
+                durationMinutes: SessionWindow::nominalMinutes(),
+                location: $a->place ?: SettingsRegistry::str('office_address')
             ));
         }
 
@@ -201,7 +220,7 @@ class IcalendarService
             ."VERSION:2.0\r\n"
             ."PRODID:-//LegalOffice//Management System Calendar Feed//AR\r\n"
             ."CALSCALE:GREGORIAN\r\n"
-            ."X-WR-CALNAME:مواعيد النظام الإداري لمكاتب المحاماة\r\n"
+            .'X-WR-CALNAME:مواعيد '.self::escape(SettingsRegistry::str('office_name'))."\r\n"
             ."X-WR-TIMEZONE:Asia/Riyadh\r\n"
             ."REFRESH-INTERVAL;VALUE=DURATION:PT1H\r\n"
             ."X-PUBLISHED-TTL:PT1H\r\n"
@@ -214,12 +233,17 @@ class IcalendarService
         string $title,
         string $description,
         DateTimeInterface|CarbonInterface $startsAt,
-        int $durationMinutes,
+        ?int $durationMinutes,
         string $location
     ): string {
         $startCarbon = Carbon::parse($startsAt)->utc();
         $startUtc = $startCarbon->format('Ymd\THis\Z');
-        $endUtc = $startCarbon->copy()->addMinutes(max(15, $durationMinutes))->format('Ymd\THis\Z');
+        // null ⇒ لا `DTEND`: حدثٌ عند لحظة بدايته (جلسة محكمة بلا مدّةٍ مُدخلة) بدل نهايةٍ مختلَقة.
+        // وبلا أرضيّة ١٥ دقيقة: مدّة الجلسة المُدخلة تُكتب كما هي، والرقم الاسميّ للاستشارة أرضيّته
+        // ١٥ في الإعدادات أصلاً (`consult_slot_minutes`)
+        $endLine = $durationMinutes === null
+            ? ''
+            : 'DTEND:'.$startCarbon->copy()->addMinutes($durationMinutes)->format('Ymd\THis\Z')."\r\n";
         $stampUtc = now()->utc()->format('Ymd\THis\Z');
 
         $cleanTitle = self::escape($title);
@@ -230,7 +254,7 @@ class IcalendarService
             ."UID:{$uid}@salasel.sa\r\n"
             ."DTSTAMP:{$stampUtc}\r\n"
             ."DTSTART:{$startUtc}\r\n"
-            ."DTEND:{$endUtc}\r\n"
+            .$endLine
             ."SUMMARY:{$cleanTitle}\r\n"
             ."DESCRIPTION:{$cleanDesc}\r\n"
             ."LOCATION:{$cleanLoc}\r\n"

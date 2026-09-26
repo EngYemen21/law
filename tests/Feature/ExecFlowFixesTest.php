@@ -171,7 +171,7 @@ class ExecFlowFixesTest extends TestCase
         $doc = $exec->documents()->create(['label' => 'الهوية', 'status' => 'مرفوع', 'path' => 'exec-docs/1/id.pdf']);
 
         // عميل آخر ممنوع
-        $this->actingAs($otherClient)->get(route('exec-flow.documents.download', [$exec, $doc]))->assertForbidden();
+        $this->assertPageRefused($this->actingAs($otherClient)->get(route('exec-flow.documents.download', [$exec, $doc])));
         // صاحب الملف مسموح
         $this->actingAs($client)->get(route('exec-flow.documents.download', [$exec, $doc]))->assertOk();
         // المحامي المسنَد مسموح

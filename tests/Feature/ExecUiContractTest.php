@@ -112,7 +112,9 @@ class ExecUiContractTest extends TestCase
         // ولا نسخةٌ واحدة من النصّ في الشاشة — المصدر دالّةٌ واحدة تقرأ نسبة الخادم
         $this->assertStringNotContainsString('ضريبة القيمة المضافة (', $ui);
         $this->assertStringContainsString('export function execVatLabel', $lib);
-        $this->assertStringContainsString('${rate ?? 15}%', $lib);
+        // والنسبة إلزاميّة بلا افتراضٍ منقوش — «?? 15» كانت نسخةً من الإعداد تظهر متى غاب
+        $this->assertStringContainsString('(${rate}%)', $lib);
+        $this->assertStringNotContainsString('?? 15', $lib);
         // وبطاقتا المكتب والعميل كلتاهما تناديانها
         $this->assertGreaterThanOrEqual(2, substr_count($ui, 'execVatLabel(r.vatRate)'));
     }

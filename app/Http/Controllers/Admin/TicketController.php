@@ -14,7 +14,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Ticket;
 use App\Models\TicketSummary;
 use App\Models\User;
+use App\Support\AdminApprovalQueue;
 use App\Support\ConversationFiles;
+use App\Support\ConversationHandler;
 use App\Support\Paginate;
 use App\Support\SearchText;
 use App\Support\TicketJourney;
@@ -41,7 +43,8 @@ class TicketController extends Controller
         $dateTo = trim((string) $request->query('date_to', ''));
         $sort = trim((string) $request->query('sort', 'latest'));
 
-        $query = Ticket::with(['user', 'summary', 'assignedLawyer']);
+        // العميل وحده يُقرأ من علاقة — الملخّص والمحامي لا يعرضهما الصفّ (`listRow`)
+        $query = Ticket::with(['user:id,name']);
 
         // 1. البحث النصي
         if ($search !== '') {
@@ -116,13 +119,7 @@ class TicketController extends Controller
             ->get(['id', 'name']);
 
         return Inertia::render('admin/tickets', [
-            'tickets' => Paginate::shape(
-                $tickets,
-                fn (Ticket $t) => array_merge($t->toEmployeeCard(), [
-                    'client' => $t->user?->name ?? '—',
-                    'date' => $t->created_at?->format('Y-m-d') ?: '—',
-                ])
-            ),
+            'tickets' => Paginate::shape($tickets, fn (Ticket $t) => self::listRow($t)),
             'filters' => [
                 'q' => $search,
                 'status' => $status,
@@ -158,13 +155,36 @@ class TicketController extends Controller
      */
     private static function awaitingAdmin(Builder $query): Builder
     {
-        return $query->where(function (Builder $q) {
-            $q->where('status', 'بانتظار اعتماد الإدارة للملخّص')
-                ->orWhereHas('summary', fn (Builder $sq) => $sq->where('status', 'awaiting_admin'))
-                ->orWhereHas('consults', fn (Builder $cq) => $cq
-                    ->whereNotNull('summary_lawyer_approved_at')
-                    ->whereNull('summary_approved_at'));
-        });
+        // كان يُغفل مقترحات المسار («بانتظار اعتماد الإدارة للمسار») — والتعريف الآن واحدٌ مع
+        // مركز الاعتمادات ورادار اللوحة (`AdminApprovalQueue`)، فلا يقول تبويبٌ رقماً غير الآخر
+        return AdminApprovalQueue::ticketsAwaitingAdmin($query);
+    }
+
+    /**
+     * **صفّ القائمة على قدر ما تعرضه** — رقمٌ وعميلٌ ونوعٌ وقسمٌ ومحامٍ وحالةٌ وتاريخ.
+     *
+     * كان كلّ صفٍّ يُبنى بـ`toEmployeeCard()` كاملةً: مصفوفة الأفعال وكيان الدومين وملفّا التحويل
+     * وحوكمة المسار (ومنها سجلّ الرحلة لسبب التجاوز) — نحو ستّة استعلامات للصفّ، خمسون صفّاً للصفحة،
+     * والجدول لا يقرأ منها إلّا عشرة حقول. العميل مُحمَّل مسبقاً، والمحامي من عموده النصّيّ.
+     *
+     * @return array<string, mixed>
+     */
+    private static function listRow(Ticket $t): array
+    {
+        return [
+            'no' => $t->number,
+            'client' => $t->user?->name ?? '—',
+            'clientId' => $t->user_id,
+            'type' => $t->type,
+            'subject' => $t->subject,
+            'priority' => $t->priority ?: 'متوسطة',
+            'dept' => $t->department,
+            'lawyer' => $t->assigned_lawyer ?: '—',
+            'lawyerId' => $t->assigned_lawyer_id,
+            'status' => $t->status,
+            'tone' => $t->tone,
+            'date' => $t->created_at?->format('Y-m-d') ?: '—',
+        ];
     }
 
     public function show(Ticket $ticket): Response
@@ -172,6 +192,8 @@ class TicketController extends Controller
         $ticket->load(['user', 'summary', 'legalCase', 'execution']);
 
         return Inertia::render('lawyer/ticketchat', [
+            // من يتولّى المحادثة الآن ومن تولّاها قبله — للطاقم وحده (`ConversationHandler`)
+            'conversation' => ConversationHandler::history($ticket),
             'ticket' => array_merge($ticket->toEmployeeCard(), [
                 'caseRef' => $ticket->legalCase?->number,
                 'execRef' => $ticket->execution?->number,
@@ -186,6 +208,8 @@ class TicketController extends Controller
             // كانت مفقودة ⇒ canConvert صحيح دائماً فيظهر زر التحويل حتى بعد التحويل
             'converted' => (bool) ($ticket->legalCase || $ticket->execution),
             'convertedType' => $ticket->execution ? 'execution' : ($ticket->legalCase ? 'case' : null),
+            // بطاقة «تصحيح الحالة» من حارس الانتقال نفسه — لا قائمةً مكتوبةً في الواجهة
+            'correction' => CorrectTicketStatus::form($ticket),
             'base' => '/admin',
         ]);
     }

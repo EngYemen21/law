@@ -2,47 +2,97 @@
 
 namespace App\Support;
 
+use BaconQrCode\Common\ErrorCorrectionLevel;
+use BaconQrCode\Encoder\Encoder;
+
 /**
- * مولّد QR زخرفي حتميّ (مربّعات ركنية + تعبئة عشوائية ثابتة حسب البذرة) — يطابق شكل qrRects/Qr
- * بالواجهة (resources/js/components/babylon/admin-charts.tsx). مشترك بين كل مصيّرات PDF
- * الخادمية (تقرير الاستشارة، بطاقة الموعد، ...) لتفادي تكرار الخوارزمية.
+ * **المولّد الوحيد لرمز الاستجابة السريعة في المشروع** — رمزٌ حقيقيّ يُمسح، يُرمِّز النصّ الممرَّر
+ * بعينه (ISO/IEC 18004 عبر `bacon/bacon-qr-code`).
  *
- * ⚠️ **زخرفيّ لا يُمسح.** ليس ترميز QR صالحاً: مربّعاته تعبئةٌ حتميّة من بذرة
- * (`crc32`) لا بيانات مُرمَّزة. فلا يُرافَق بنصٍّ يَعِد بمسحٍ أو تحقّق — كان تحته
- * «امسح لتأكيد الحضور» في بطاقة الموعد و«موثق ومعتمد برقم مرجعي» في تقرير
- * الملخّص، وكلاهما يُقرأ ختمَ تحقّقٍ إلكترونيّ ولا جهة تُحقّقه.
+ * **لماذا أُعيدت كتابته؟** كان هنا نقشٌ **زخرفيّ** يشبه الرمز: مربّعات الزوايا ثمّ تعبئةٌ عشوائيّة
+ * حتميّة من بذرة (`crc32`) — لا بيانات فيه، ولا ماسح يقرؤه. وكان على بطاقة الموعد وتقارير
+ * الاستشارة والملخّص وعرض التنفيذ، فيحاول العميل مسحه فلا شيء؛ وهذا عرضُ شيءٍ وهميّ بصفته
+ * حقيقيّاً، وهو ما يمنعه المالك. فصار كلّ رمزٍ في المشروع يخرج من هنا ويحمل بياناتٍ تُقرأ:
+ * رابطَ تحقّقٍ موقَّعاً (`DocumentVerification`) أو حمولةَ الفاتورة الضريبيّة (`Finance\ZatcaQr`).
+ *
+ * **ولماذا مصفوفةٌ من المكتبة ورسمٌ هنا لا مُصيِّرُها الجاهز؟** لأنّ الرمز يُرسَم في ثلاثة مواضع:
+ * HTML يصيّره كروم إلى PDF، والشاشة (`<img>` من مسار الخادم)، والاحتياطيّ `NativePdf` الذي لا
+ * يفهم SVG فيرسم المربّعات بأوامر PDF. والمصفوفة الواحدة تغذّي الثلاثة بلا نسخةٍ ثانية من الترميز.
+ *
+ * ضوابط المسح (مقصودة لا اعتباطيّة):
+ * - **تصحيح الخطأ M** (≈15٪): يحتمل طيّ الورقة وبقعةً صغيرة، دون تضخيم الرمز كـQ/H.
+ * - **منطقةٌ هادئة ٤ وحدات** بيضاء حول الرمز — الحدّ الأدنى في المعيار؛ بدونها يخطئ الماسح الحدود.
+ * - **داكنٌ خالص على أبيض**: الكحليّ الفاتح كان يُضعف التباين عند الطباعة الرماديّة.
+ * - الحجم المطبوع يضبطه المنادي (`$px`)، ولا يقلّ في المستندات عن ≈٢٫٥ سم.
  */
-class Qr
+final class Qr
 {
-    public static function svg(string $seed, int $px = 78): string
+    /** عرض المنطقة الهادئة بالوحدات — الحدّ الأدنى في المعيار. */
+    public const QUIET_ZONE = 4;
+
+    /**
+     * مصفوفة الرمز بلا منطقة هادئة: `true` = وحدةٌ داكنة. صفوفٌ ثمّ أعمدة.
+     *
+     * @return list<list<bool>>
+     */
+    public static function matrix(string $text): array
     {
-        $n = 21;
-        $cell = 4;
-        $size = $n * $cell;
-        mt_srand(crc32($seed));
+        // النصّ اللاتينيّ (الروابط وBase64) بالترميز الافتراضيّ بلا مقطع ECI — أوسع توافقاً
+        // مع الماسحات؛ وغيره بـUTF-8 مُعلَن، وإلّا قرأه الماسح بترميزٍ خاطئ.
+        $ascii = preg_match('/^[\x20-\x7E]*$/', $text) === 1;
+        $code = $ascii
+            ? Encoder::encode($text, ErrorCorrectionLevel::M())
+            : Encoder::encode($text, ErrorCorrectionLevel::M(), 'UTF-8');
 
-        $fin = function (int $x, int $y) use ($n): bool {
-            $f = fn ($a, $b) => $x >= $a && $x < $a + 7 && $y >= $b && $y < $b + 7;
+        $m = $code->getMatrix();
+        $rows = [];
+        for ($y = 0; $y < $m->getHeight(); $y++) {
+            $row = [];
+            for ($x = 0; $x < $m->getWidth(); $x++) {
+                $row[] = $m->get($x, $y) === 1;
+            }
+            $rows[] = $row;
+        }
 
-            return $f(0, 0) || $f($n - 7, 0) || $f(0, $n - 7);
-        };
+        return $rows;
+    }
 
-        $rects = [];
-        for ($y = 0; $y < $n; $y++) {
-            for ($x = 0; $x < $n; $x++) {
-                if ($fin($x, $y)) {
-                    $ix = $x < 7 ? $x : $x - ($n - 7);
-                    $iy = $y < 7 ? $y : $y - ($n - 7);
-                    $on = $ix === 0 || $ix === 6 || $iy === 0 || $iy === 6 || ($ix >= 2 && $ix <= 4 && $iy >= 2 && $iy <= 4);
-                } else {
-                    $on = (mt_rand(0, 1000) / 1000) > 0.55;
+    /**
+     * الرمز SVG مضمَّناً (لا ملفّ ولا طلب شبكة) — يصلح لـHTML يصيّره كروم ولردّ `image/svg+xml`.
+     *
+     * `data-qr` يحمل النصّ المُرمَّز نفسه: منه يعيد `NativePdf` رسم الرمز حين يسقط كروم،
+     * ومنه يقرأ الفاحص ما يَعِد به الرمز دون فكّ صورة.
+     */
+    public static function svg(string $text, int $px = 120, string $label = 'رمز الاستجابة السريعة'): string
+    {
+        $rows = self::matrix($text);
+        $q = self::QUIET_ZONE;
+        $size = count($rows) + 2 * $q;
+
+        // مسارٌ واحد يدمج الوحدات المتجاورة أفقيّاً — أصغر بكثير من مستطيلٍ لكلّ وحدة
+        $path = '';
+        foreach ($rows as $y => $row) {
+            $x = 0;
+            $n = count($row);
+            while ($x < $n) {
+                if (! $row[$x]) {
+                    $x++;
+
+                    continue;
                 }
-                if ($on) {
-                    $rects[] = '<rect x="'.($x * $cell).'" y="'.($y * $cell).'" width="'.$cell.'" height="'.$cell.'"/>';
+                $start = $x;
+                while ($x < $n && $row[$x]) {
+                    $x++;
                 }
+                $run = $x - $start;
+                $path .= 'M'.($start + $q).' '.($y + $q).'h'.$run.'v1h-'.$run.'z';
             }
         }
 
-        return '<svg width="'.$px.'" height="'.$px.'" viewBox="0 0 '.$size.' '.$size.'" fill="#0A2A55" xmlns="http://www.w3.org/2000/svg">'.implode('', $rects).'</svg>';
+        return '<svg xmlns="http://www.w3.org/2000/svg" width="'.$px.'" height="'.$px.'" viewBox="0 0 '.$size.' '.$size.'"'
+            .' shape-rendering="crispEdges" role="img" aria-label="'.e($label).'" data-qr="'.e($text).'">'
+            .'<rect width="'.$size.'" height="'.$size.'" fill="#FFFFFF"/>'
+            .'<path fill="#000000" d="'.$path.'"/>'
+            .'</svg>';
     }
 }

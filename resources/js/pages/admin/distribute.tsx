@@ -21,12 +21,12 @@ export interface DistributeItem {
   id: number;
   no: string;
   client: string;
-  realClientName: string;
   userAvatar: string;
   type: string;
   subject: string;
   dept: string;
-  priority: string;
+  /** `null` للقضايا وملفّات التنفيذ — لا عمود أولويّة لهما، فلا شارة ولا وزن في الفرز. */
+  priority: string | null;
   lawyer: string;
   lawyerId: number | null;
   status: string;
@@ -99,7 +99,7 @@ interface Props {
  * وزن الفرز «الأعلى أولاً» من كتالوج الأولويّات الواحد (`TicketJourney::PRIORITIES`) — لا من
  * مفرداتٍ ميّتة («عاجلة»…) لم تعد تُكتب. عالية 3 · متوسطة 2 · منخفضة 1، وغير المعروف 1 والفارغ 0 كما كانا.
  */
-const priorityWeight = (p: string) => {
+const priorityWeight = (p: string | null) => {
   if (!p) return 0;
   const rank = TICKET_PRIORITIES.indexOf(p);
 
@@ -231,13 +231,8 @@ export const AdminDistribute: React.FC<Props> = ({
       { lawyer_id: lid },
       {
         preserveScroll: true,
-        onSuccess: (page) => {
-          setAssigningKey(null);
-          const flashMsg = (page.props as any)?.flash?.success;
-          if (!flashMsg) {
-            toast(`تم إسناد ${item.itemKindLabel} (${item.no}) بنجاح ✨`, 'success');
-          }
-        },
+        // رسالة النجاح من الخادم (flash) يعرضها التخطيط — لا إشعار ثانٍ هنا
+        onSuccess: () => setAssigningKey(null),
         onError: (errors) => {
           setAssigningKey(null);
           const msg =
@@ -262,12 +257,7 @@ export const AdminDistribute: React.FC<Props> = ({
     setAutoBusy(true);
     router.post('/admin/distribute/auto', {}, {
       preserveScroll: true,
-      onSuccess: (page) => {
-        const flashMsg = (page.props as any)?.flash?.success;
-        if (!flashMsg) {
-          toast('اكتمل التوزيع التلقائي للتذاكر ⚡', 'success');
-        }
-      },
+      // الخادم يقول ما وقع فعلاً («جارٍ توزيع N في الخلفية») — لا «اكتمل» مختلَقة هنا
       onError: (errors) => {
         const msg =
           (errors && (errors.message || Object.values(errors)[0])) ||
@@ -278,6 +268,12 @@ export const AdminDistribute: React.FC<Props> = ({
     });
   };
 
+  /**
+   * **الإسناد الجماعيّ طلبٌ واحد** (`DistributeController::bulk`). كانت حلقةٌ تطلق `router.post` لكلّ
+   * عنصر، وInertia يلغي الزيارة الجارية عند بدء أخرى — فيُسنَد بعضها ويُلغى بعضها، والإشعار يقول
+   * «تم إسناد N أعمال» في كلّ حال. الخادم الآن يُسند كلّاً بمساره الفرديّ ويُعلن: ما أُسند (flash)
+   * وما رُفض ولماذا (خطأ) — فالإشعاران من الخادم لا من عدٍّ في المتصفّح.
+   */
   const bulkAssign = () => {
     if (!selectedKeys.length) return toast('يرجى اختيار معاملة واحدة على الأقل للإسناد الجماعي', 'warning');
     if (!bulkLawyer) return toast('يرجى اختيار المستشار أولاً', 'warning');
@@ -287,43 +283,19 @@ export const AdminDistribute: React.FC<Props> = ({
     if (!itemsToAssign.length) return;
 
     setBulkBusy(true);
-    let done = 0;
-    let errorsCount = 0;
-    itemsToAssign.forEach((item) => {
-      let url = `/admin/distribute/${encodeURIComponent(item.no)}`;
-      if (item.itemKind === 'case') {
-        url = `/admin/distribute/case/${encodeURIComponent(item.no)}`;
-      } else if (item.itemKind === 'execution') {
-        url = `/admin/distribute/execution/${encodeURIComponent(item.no)}`;
-      } else if (item.itemKind === 'consult') {
-        url = `/admin/distribute/consult/${encodeURIComponent(item.id)}`;
+    router.post(
+      '/admin/distribute/bulk',
+      { lawyer_id: bulkLawyer, items: itemsToAssign.map((i) => ({ kind: i.itemKind, id: i.id })) },
+      {
+        preserveScroll: true,
+        onSuccess: () => setSelectedKeys([]),
+        onError: (errors) => {
+          // ما أُسند منها خرج من القائمة بعد إعادة التحميل — ويبقى المرفوض مختاراً لإعادة المحاولة
+          toast(String(errors.message ?? Object.values(errors)[0] ?? 'تعذّر الإسناد الجماعي'), 'error');
+        },
+        onFinish: () => setBulkBusy(false),
       }
-
-      router.post(
-        url,
-        { lawyer_id: bulkLawyer },
-        {
-          preserveScroll: true,
-          onError: (errors) => {
-            errorsCount++;
-            const msg =
-              (errors && (errors.message || Object.values(errors)[0])) ||
-              `تعذّر إسناد ${item.no}`;
-            toast(String(msg), 'error');
-          },
-          onFinish: () => {
-            done++;
-            if (done >= itemsToAssign.length) {
-              setBulkBusy(false);
-              setSelectedKeys([]);
-              if (errorsCount === 0) {
-                toast(`تم إسناد ${itemsToAssign.length} أعمال بنجاح للمستشار المختار ⚡`, 'success');
-              }
-            }
-          },
-        }
-      );
-    });
+    );
   };
 
   const toggleSelect = (key: string) =>
@@ -805,7 +777,7 @@ export const AdminDistribute: React.FC<Props> = ({
 
                       {/* الأولوية / القيمة المالية */}
                       <td>
-                        <Badge text={item.priority} tone={priorityTone(item.priority)} />
+                        {item.priority && <Badge text={item.priority} tone={priorityTone(item.priority)} />}
                         {item.claimAmount && (
                           <div style={{ fontSize: 11, color: 'var(--primary)', fontWeight: 700, marginTop: 4 }}>
                             {item.claimAmount}
@@ -940,12 +912,14 @@ export const AdminDistribute: React.FC<Props> = ({
                   <span className={`badge-s ${preview.badgeTone}`}>{preview.itemKindLabel}</span>
                 </div>
               </div>
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--faint)', fontWeight: 700 }}>الأولوية</div>
-                <div style={{ marginTop: 3 }}>
-                  <Badge text={preview.priority} tone={priorityTone(preview.priority)} />
+              {preview.priority && (
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--faint)', fontWeight: 700 }}>الأولوية</div>
+                  <div style={{ marginTop: 3 }}>
+                    <Badge text={preview.priority} tone={priorityTone(preview.priority)} />
+                  </div>
                 </div>
-              </div>
+              )}
               <div>
                 <div style={{ fontSize: 11, color: 'var(--faint)', fontWeight: 700 }}>الحالة الحالية</div>
                 <div style={{ fontSize: 13, fontWeight: 700, marginTop: 3 }}>{preview.status}</div>
@@ -959,7 +933,7 @@ export const AdminDistribute: React.FC<Props> = ({
             </div>
             <div className="kv">
               <span className="k">العميل</span>
-              <span className="v">{preview.realClientName || preview.client}</span>
+              <span className="v">{preview.client}</span>
             </div>
             <div className="kv">
               <span className="k">القسم / التخصص</span>

@@ -2,25 +2,29 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Journey\Enums\ConsultStatus;
+use App\Domain\Journey\Enums\SessionState;
 use App\Domain\Journey\TransitionDenied;
 use App\Domain\Journey\Transitions\Consult\EndSession;
 use App\Domain\Journey\Transitions\Consult\ZoomSessionStarted;
+use App\Domain\Journey\Transitions\Meeting\EndMeeting;
+use App\Domain\Journey\Transitions\Meeting\StartMeeting;
 use App\Domain\Journey\Workflow;
 use App\Enums\Role;
 use App\Events\ConsultStatusBroadcast;
-use App\Events\MeetingStatusBroadcast;
-use App\Jobs\FinalizeConsultJob;
+use App\Events\Journey\SessionEndedInSystem;
+use App\Events\RoomStateChanged;
 use App\Jobs\GenerateMeetingSummaryJob;
 use App\Jobs\ProcessZoomRecordingJob;
 use App\Jobs\ProcessZoomSummaryJob;
 use App\Models\Consult;
 use App\Models\Meeting;
-use App\Models\MeetRequest;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\ConsultSessionOutcome;
 use App\Support\Live;
 use App\Support\Notify;
+use App\Support\RoomPresence;
 use App\Support\ZoomWebhook;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
@@ -68,6 +72,16 @@ class ZoomWebhookController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    /**
+     * **أحداث Zoom اللحظيّة** (قرار المالك 2026-09-26: «تواصل لحظي بالأحداث مع Zoom API»).
+     *
+     * ما يغيّر حالة الرحلة يمرّ بالمحرّك (البدء `ZoomSessionStarted`/`StartMeeting`، والإنهاء
+     * `EndSession`/`EndMeeting`) فيبثّ `RoomStateChanged` بعد التزامه؛ وما هو حالُ الغرفة العابر
+     * (من فيها، والتسجيل) يُحفظ في `RoomPresence` ويُبثّ فوراً. الاشتراكات المطلوبة في تطبيق Zoom:
+     * `meeting.started` · `meeting.ended` · `meeting.participant_joined` · `meeting.participant_left`
+     * · `recording.started` · `recording.stopped` · `recording.paused` · `recording.resumed`
+     * · `recording.completed` · `meeting.summary_completed`.
+     */
     private function routeConsult(string $event, Consult $consult, Request $request): void
     {
         match ($event) {
@@ -75,6 +89,8 @@ class ZoomWebhookController extends Controller
             'meeting.ended' => $this->endConsult($consult),
             'meeting.summary_completed' => ProcessZoomSummaryJob::dispatch($consult, (array) $request->input('payload.object')),
             'recording.completed' => $this->recording($consult, $request),
+            'recording.started', 'recording.resumed' => $this->recordingState($consult, true),
+            'recording.stopped', 'recording.paused' => $this->recordingState($consult, false),
             'meeting.participant_joined' => $this->participantJoined($consult, $request),
             'meeting.participant_left' => $this->participantLeft($consult, $request),
             default => null,
@@ -84,14 +100,39 @@ class ZoomWebhookController extends Controller
     private function routeMeeting(string $event, Meeting $meeting, Request $request): void
     {
         match ($event) {
-            'meeting.started' => $this->setMeetingStatus($meeting, 'جارٍ'),
+            'meeting.started' => $this->startMeeting($meeting),
             'meeting.ended' => $this->endMeeting($meeting),
             'meeting.summary_completed' => ProcessZoomSummaryJob::dispatch($meeting, (array) $request->input('payload.object')),
             'recording.completed' => $this->recording($meeting, $request),
+            'recording.started', 'recording.resumed' => $this->recordingState($meeting, true),
+            'recording.stopped', 'recording.paused' => $this->recordingState($meeting, false),
             'meeting.participant_joined' => $this->participantJoined($meeting, $request),
             'meeting.participant_left' => $this->participantLeft($meeting, $request),
             default => null,
         };
+    }
+
+    /** بدء/إيقاف التسجيل السحابيّ — حالُ غرفةٍ لا حالةُ رحلة؛ يصل الطاقمَ وحده (`RoomStateChanged`). */
+    private function recordingState(Consult|Meeting $session, bool $on): void
+    {
+        RoomPresence::setRecording($session, $on);
+        Live::push(...RoomStateChanged::both($session));
+    }
+
+    /**
+     * معرّف المشارك داخل هذه الغرفة — `participant_uuid` ثابتٌ للمشارك في الاجتماع، وما بعده احتياطٌ
+     * لحمولاتٍ أقدم. بلا معرّفٍ ⇒ لا يُحسب (لا يُخمَّن شخصٌ).
+     */
+    private function participantKey(Request $request): ?string
+    {
+        foreach (['participant_uuid', 'id', 'user_id', 'email', 'user_name'] as $field) {
+            $value = (string) $request->input("payload.object.participant.{$field}", '');
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     // التسجيل/النصّ ثقيلان نسبياً — يُنزَّلان بعد إرسال الاستجابة (الـwebhook يردّ 200 فوراً)
@@ -102,40 +143,50 @@ class ZoomWebhookController extends Controller
         ProcessZoomRecordingJob::dispatch($model, $files, $token);
     }
 
-    private function participantJoined(Model $model, Request $request): void
+    private function participantJoined(Consult|Meeting $model, Request $request): void
     {
-        if ($model->join_time !== null) {
-            return; // أوّل دخول فقط
+        // من في الغرفة الآن — يُحسب لكلّ دخول (لا الأوّل وحده) ويُبثّ لصفحة الغرفة لحظيّاً
+        if (($key = $this->participantKey($request)) !== null) {
+            RoomPresence::participantJoined($model, $key);
         }
+
         $join = $request->input('payload.object.participant.join_time');
-        if ($join) {
+        // `join_time` أوّلُ دخولٍ فقط — منه تُقاس المدّة وشبكة النسيان
+        if ($model->join_time === null && $join) {
             // طوابع Zoom بتوقيت UTC (…Z)؛ نحوّلها لتوقيت التطبيق كي يتّسق التخزين والقراءة
             $model->update(['join_time' => Carbon::parse($join)->setTimezone(config('app.timezone'))]);
         }
+
+        Live::push(...RoomStateChanged::both($model));
     }
 
-    private function participantLeft(Model $model, Request $request): void
+    private function participantLeft(Consult|Meeting $model, Request $request): void
     {
+        if (($key = $this->participantKey($request)) !== null) {
+            RoomPresence::participantLeft($model, $key);
+        }
+
         $leave = $request->input('payload.object.participant.leave_time');
-        if (! $leave) {
-            return;
+        if ($leave) {
+            $leaveAt = Carbon::parse($leave)->setTimezone(config('app.timezone'));
+            $data = ['leave_time' => $leaveAt];
+            if ($model->join_time !== null) {
+                $data['duration_sec'] = (int) abs($leaveAt->diffInSeconds($model->join_time));
+            }
+            $model->update($data);
         }
-        $leaveAt = Carbon::parse($leave)->setTimezone(config('app.timezone'));
-        $data = ['leave_time' => $leaveAt];
-        if ($model->join_time !== null) {
-            $data['duration_sec'] = (int) abs($leaveAt->diffInSeconds($model->join_time));
-        }
-        $model->update($data);
+
+        Live::push(...RoomStateChanged::both($model));
     }
 
     // لا نتراجع عن جلسة منتهية (الحدث قد يصل متأخّراً/مكرّراً)
     private function startConsultSession(Consult $consult): void
     {
-        if ($consult->session === 'منتهية' || $consult->session === 'جلسة جارية') {
+        if ($consult->session === SessionState::Ended->value || $consult->isLive()) {
             return;
         }
 
-        $revived = $consult->status === 'لم يحضر';
+        $revived = ConsultStatus::tryFrom((string) $consult->status) === ConsultStatus::NoShow;
         // الحارسان أعلاه يُقرآن قبل القفل؛ فإن ختمها الطاقم بينهما يرفض المحرّك — والويبهوك
         // يبقى صامتاً كما كان (Zoom يعيد إرسال ما لم يُجَب بـ200)
         try {
@@ -177,20 +228,21 @@ class ZoomWebhookController extends Controller
      */
     private function endConsult(Consult $consult): void
     {
-        if ($consult->session === 'منتهية') {
+        // Zoom يقول: الغرفة أُغلقت — لا يبقى عددٌ ولا تسجيلٌ بائت، أيّاً كان من أنهاها
+        RoomPresence::forget($consult);
+
+        if ($consult->session === SessionState::Ended->value) {
             return; // حدثٌ متأخّر/مكرّر — أو ختمه الطاقم بالفعل
         }
 
         // الختم وحسم الموعد في انتقالٍ واحد مع زرّ الطاقم (`Staff\ConsultController::end`) — انظر `EndSession`
         try {
-            Workflow::run(new EndSession, $consult, null, ['source' => 'zoom']);
+            // المصدر Zoom ⇒ لا يُنادى Zoom لإغلاق غرفةٍ أغلقها هو (`SessionEndedInSystem`)
+            Workflow::run(new EndSession, $consult, null, ['source' => SessionEndedInSystem::VIA_ZOOM]);
         } catch (TransitionDenied) {
             return; // ختمه الطاقم بين القراءة والقفل
         }
-        ConsultSessionOutcome::sessionEnded($consult);
-        Live::push(new ConsultStatusBroadcast($consult));
-
-        FinalizeConsultJob::dispatch($consult->fresh(), '');
+        ConsultSessionOutcome::afterUnattendedEnd($consult);
     }
 
     /**
@@ -199,32 +251,30 @@ class ZoomWebhookController extends Controller
      */
     private function endMeeting(Meeting $meeting): void
     {
-        if (in_array($meeting->status, ['منتهٍ', 'ملغى'], true)) {
-            return; // حالة نهائية — الحدث متأخّر/مكرّر
-        }
+        RoomPresence::forget($meeting);
 
-        $meeting->update([
-            'status' => 'منتهٍ',
-            // لا نسبة حضور مختلقة (كانت 90 مثبّتة): 0 = غير مسجَّلة وتُخفى من العرض
-            'attend' => $meeting->attend ?: 0,
-        ]);
-        MeetRequest::where('meeting_id', $meeting->id)
-            ->where('stage', '<', MeetRequest::STAGE_EXECUTED)
-            ->update(['stage' => MeetRequest::STAGE_EXECUTED]);
-        Live::push(new MeetingStatusBroadcast($meeting));
+        // الختم والحضور ورفع الدعوة والبثّ في انتقالٍ واحد مع زرّ الطاقم — انظر `EndMeeting`.
+        // الحالة النهائيّة يرفضها حارسه: حدثٌ متأخّر/مكرّر يُمتصّ بصمت (Zoom يعيد ما لم يُجَب بـ200)
+        try {
+            Workflow::run(new EndMeeting, $meeting, null, ['source' => SessionEndedInSystem::VIA_ZOOM]);
+        } catch (TransitionDenied) {
+            return;
+        }
 
         GenerateMeetingSummaryJob::dispatch($meeting, '');
     }
 
-    private function setMeetingStatus(Meeting $meeting, string $status): void
+    /**
+     * Zoom يُعلن بدء الاجتماع ⇐ «جارٍ» بانتقال البدء نفسه الذي يسلكه زرّ الطاقم (`StartMeeting`،
+     * بمصدر Zoom: يُقبل من أيّ حالةٍ غير نهائيّة). كان يُكتب هنا مباشرةً بمقارنةٍ نصّيّة. والنهائيّ
+     * والجاري أصلاً يرفضهما الحارس: حدثٌ متأخّر/مكرّر يُمتصّ بصمت (Zoom يعيد ما لم يُجَب بـ200).
+     */
+    private function startMeeting(Meeting $meeting): void
     {
-        // الحالات النهائية لا تُحدَّث بحدث Zoom متأخّر: «منتهٍ» و«ملغى»
-        // (فلا يُحيي حدث started/ended مطابور قبل الحذف اجتماعًا أُلغي).
-        if (in_array($meeting->status, ['منتهٍ', 'ملغى'], true) || $meeting->status === $status) {
+        try {
+            Workflow::run(new StartMeeting, $meeting, null, ['source' => SessionEndedInSystem::VIA_ZOOM]);
+        } catch (TransitionDenied) {
             return;
         }
-
-        $meeting->update(['status' => $status]);
-        Live::push(new MeetingStatusBroadcast($meeting));
     }
 }

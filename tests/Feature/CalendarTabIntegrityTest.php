@@ -7,6 +7,7 @@ use App\Models\Appointment;
 use App\Models\Consult;
 use App\Models\Meeting;
 use App\Models\User;
+use App\Support\SettingsRegistry;
 use App\Support\TimelineCard;
 use App\Support\TimelineQuery;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -230,6 +231,9 @@ class CalendarTabIntegrityTest extends TestCase
             }
             $rows = collect(TimelineQuery::paginate($client->id, [], 50, 1)->items());
 
+            // قيم الإعدادات تُقرأ مرّةً لكلّ طلب (`SettingsRegistry`) — تُنسى قبل كلّ قياس كي يحمل
+            // القياسان استعلامها معاً، فلا يُحسب «تسخينُ» الأوّل نموّاً مع عدد الاستشارات
+            SettingsRegistry::flush();
             DB::flushQueryLog();
             DB::enableQueryLog();
             TimelineCard::hydrate($rows, $client);

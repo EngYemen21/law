@@ -8,6 +8,7 @@ use App\Support\LawyerSpecialties;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -108,6 +109,18 @@ class User extends Authenticatable
     public function isActive(): bool
     {
         return $this->status !== 'suspended';
+    }
+
+    /**
+     * **المحامون الذين يقبلهم `ActiveLawyer`** — قائمةُ الاختيار في النماذج تُبنى من هنا، فلا يُعرض
+     * محامٍ موقوف ثمّ يُردّ اختياره بـ«غير نشط». (القاعدة نفسها: `isActive` = غير موقوف.)
+     *
+     * @param  Builder<User>  $query
+     * @return Builder<User>
+     */
+    public function scopeActiveLawyers($query)
+    {
+        return $query->where('role', Role::Lawyer)->where('status', '!=', 'suspended');
     }
 
     // وصف الأجر (يطابق payLabel في staff.tsx)

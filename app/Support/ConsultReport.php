@@ -81,7 +81,9 @@ class ConsultReport
                     'title' => '٥. الفاتورة والسداد',
                     'cellRows' => [[
                         ['رسوم الاستشارة', $consult->price ? $consult->price.' ر.س' : '—'],
-                        ['الضريبة (١٥٪)', $consult->vat ? $consult->vat.' ر.س' : '—'],
+                        // النسبة المطبَّقة فعلاً على هذه الاستشارة لا «١٥٪» منقوشة — `Consult::vatRate`
+                        // (وقبل التسعير لا نسبة تُطبع: لم تُطبَّق بعد)
+                        [$consult->vatRate() !== null ? 'الضريبة ('.$consult->vatRate().'٪)' : 'الضريبة', $consult->vat ? $consult->vat.' ر.س' : '—'],
                         ['الإجمالي', $consult->total ? $consult->total.' ر.س' : '—'],
                         ['حالة السداد', $payLabel],
                     ]],
@@ -89,16 +91,19 @@ class ConsultReport
                 ['title' => '٦. الإجراء القادم', 'chips' => [$nextStep]],
             ],
             'approval' => [
-                'qrSeed' => $consult->ref,
+                // رابط التحقّق الموقَّع — المسح يُظهر حالة الاستشارة الآن (`DocumentVerification`)
+                'qr' => DocumentVerification::url(DocumentVerification::CONSULT, (string) $consult->ref),
+                'qrCaption' => 'امسح للتحقّق من التقرير',
                 'rows' => [
-                    ['الجهة', 'النظام الإداري لمكاتب المحاماة'],
+                    ['الجهة', SettingsRegistry::str('office_name')],
                     // للعميل تسميته — «بانتظار اعتماد الموعد» شأنٌ داخليّ يقرؤه «بانتظار تحديد الموعد»
                     ['حالة الاستشارة', $forClient ? (ConsultStatus::tryFrom((string) $consult->status)?->clientLabel() ?? $consult->status) : $consult->status],
                     ['تاريخ الطباعة', now()->format('Y-m-d')],
                 ],
             ],
             'note' => 'هذا التقرير يلخّص استشارتك القانونية ولا يُعدّ بذاته مرافعة أو مستنداً قضائياً. للاستفسار يمكنك فتح تذكرة من بوابتك.',
-            'footer' => 'النظام الإداري لمكاتب المحاماة — نسخة العميل · صادرة إلكترونياً',
+            // اسم المكتب من الإعدادات — التذييل المنقوش كان يعلو على ما تضبطه الإدارة
+            'footer' => SettingsRegistry::str('office_name').' — نسخة العميل · صادرة إلكترونياً',
         ];
     }
 }

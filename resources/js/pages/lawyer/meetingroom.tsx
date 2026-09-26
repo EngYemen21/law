@@ -1,10 +1,4 @@
-import React from 'react';
-import {  StaffMeetingRoom } from '@/lib/meeting-ui';
-import type {FullMeetingCard} from '@/lib/meeting-ui';
+import { RoomRoute } from '@/lib/zoom-room';
 
-// غرفة الاجتماع المضمّنة (دور المحامي)
-const LawyerMeetingRoom: React.FC<{ meeting: FullMeetingCard }> = ({ meeting }) => (
-  <StaffMeetingRoom meeting={meeting} base="/lawyer" />
-);
-
-export default LawyerMeetingRoom;
+// غرفة الاجتماع (المحامي) — الغرفة الواحدة لكلّ الأدوار؛ تعرض عقد الخادم `room` كما هو
+export default RoomRoute;

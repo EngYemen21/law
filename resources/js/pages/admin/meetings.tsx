@@ -19,8 +19,8 @@ const AdminMeetings: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) 
       onError: (e) => toast(Object.values(e)[0] ?? 'الاعتماد متاح بعد انتهاء الاجتماع وتوفر الملخص أو المحضر'),
     });
 
-  // الاعتماد يُطلب بعد انعقاد الاجتماع وحده — العدّ نفسه الذي في لوحة الإدارة (`status = منتهٍ`)
-  const pending = meetings.filter((m) => m.approve !== 'معتمد' && m.status === 'منتهٍ').length;
+  // الاعتماد يُطلب بعد انعقاد الاجتماع وحده — مفتاح الحالة من الخادم لا نصّها العربيّ
+  const pending = meetings.filter((m) => !m.approved && m.statusKey === 'ended').length;
 
   return (
     <>
@@ -41,7 +41,7 @@ const AdminMeetings: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) 
                   <span className="chip" style={{ opacity: m.summary ? 1 : 0.5 }}>{m.summary ? '✓ ملخّص' : 'بلا ملخّص'}</span>
                   <span className="chip" style={{ opacity: m.minutes ? 1 : 0.5 }}>{m.minutes ? '✓ محضر' : 'بلا محضر'}</span>
                   <span className="chip" style={{ opacity: m.decisions.length ? 1 : 0.5 }}>{m.decisions.length ? `✓ قرارات (${m.decisions.length})` : 'بلا قرارات'}</span>
-                  {m.status === 'منتهٍ' && (attendanceLabel(m) || fmtActualDuration(m.durationSec)) && (
+                  {m.statusKey === 'ended' && (attendanceLabel(m) || fmtActualDuration(m.durationSec)) && (
                     <span className="chip">
                       {[attendanceLabel(m), fmtActualDuration(m.durationSec)].filter(Boolean).join(' · ')}
                     </span>
@@ -52,9 +52,10 @@ const AdminMeetings: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) 
                 <button className="btn soft sm" onClick={() => router.visit(`/admin/meeting?id=${encodeURIComponent(m.id)}`)} type="button">
                   <Icon name="out" /> فتح الصفحة
                 </button>
-                {m.approve === 'معتمد' ? (
-                  <Badge text="معتمد" tone="b-green" />
-                ) : m.status === 'منتهٍ' && (m.summary || m.minutes) ? (
+                {m.approved ? (
+                  <Badge text={m.approve} tone="b-green" />
+                ) : m.canApprove ? (
+                  /* حكم حارس الاعتماد نفسه (`Meeting::approvalBlocker`) — القالبيّ ليس مخرجاً فلا زرّ يُردّ بـ٤٢٢ */
                   <button className="btn sm" onClick={() => approve(m)} type="button"><Icon name="check" /> اعتماد</button>
                 ) : (
                   /* الاعتماد بعد الانتهاء وتوفر المخرجات فقط — كما تفعل صفحة التفاصيل */

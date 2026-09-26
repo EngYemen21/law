@@ -60,7 +60,7 @@ class ConsultReportPdfTest extends TestCase
             'lawyer' => 'أ. سارة القحطاني',
         ]);
 
-        $this->actingAs($intruder)->get(route('consults.report', $consult))->assertForbidden();
+        $this->assertPageRefused($this->actingAs($intruder)->get(route('consults.report', $consult)));
     }
 
     /**
@@ -77,9 +77,8 @@ class ConsultReportPdfTest extends TestCase
         // محامٍ زميل يملك كل الصلاحيات — العزل بالإسناد لا بالصلاحية
         $outsider = User::factory()->create(['role' => Role::Lawyer]);
 
-        $this->actingAs($outsider)
-            ->get(route('consults.report', $consult))
-            ->assertForbidden();
+        $this->assertPageRefused($this->actingAs($outsider)
+            ->get(route('consults.report', $consult)));
     }
 
     /** الموظف بلا صلاحية «استقبال الاستشارات» يُمنع (الموظف بصلاحيته يرى سجلات المكتب عمداً). */
@@ -92,9 +91,8 @@ class ConsultReportPdfTest extends TestCase
         $employee = User::factory()->create(['role' => Role::Employee]);
         $employee->syncPermissions([]);
 
-        $this->actingAs($employee)
-            ->get(route('consults.report', $consult))
-            ->assertForbidden();
+        $this->assertPageRefused($this->actingAs($employee)
+            ->get(route('consults.report', $consult)));
     }
 
     /** المحامي المسنَد يبقى قادراً — الإصلاح يجب ألّا يحجب صاحب العمل. */

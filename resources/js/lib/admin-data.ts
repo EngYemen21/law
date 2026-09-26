@@ -30,9 +30,6 @@ export function maskLawyer(name: string): string {
   return name || '—';
 }
 
-// ── وسائل الدفع (PAY_METHODS) ──
-export const PAY_METHODS = ['مدى', 'Apple Pay', 'بطاقة ائتمانية', 'تحويل بنكي'];
-
 // ── بيانات الرسوم البيانية (REVENUE / REV_BY_SVC) ──
 export interface BarDatum { m: string; v: number; }
 export const REVENUE: BarDatum[] = [
@@ -135,10 +132,11 @@ export const FULL_MEETINGS: FullMeeting[] = RAW_MEETINGS.map((m, i) => ({
   dur: _D[i] || '60 دقيقة',
 }));
 
+// مفاتيح `MeetingStatus::key()` (تُقارَن بـ`statusKey` في البطاقة) — لا النصّ العربيّ المعروض
 export const MEET_STATUSES: [string, string][] = [
   // «بانتظار التأكيد» عُلّقت: حالة يتيمة منذ إلغاء تأكيد العميل — خيار مرشّح بلا نتائج أبداً
-  ['all', 'الكل'], ['قادم', 'القادمة'], /* ['بانتظار التأكيد', 'بانتظار التأكيد'], */ ['جارٍ', 'الجارية'],
-  ['منتهٍ', 'المنتهية'], ['لم ينعقد', 'لم تنعقد'], ['مؤجل', 'المؤجلة'], ['ملغى', 'الملغاة'],
+  ['all', 'الكل'], ['upcoming', 'القادمة'], /* ['awaiting', 'بانتظار التأكيد'], */ ['live', 'الجارية'],
+  ['ended', 'المنتهية'], ['missed', 'لم تنعقد'], ['postponed', 'المؤجلة'], ['cancelled', 'الملغاة'],
 ];
 export const MEET_TYPES_FULL = ['اجتماع مع عميل', 'اجتماع مع محامٍ', 'اجتماع مع موظف', 'اجتماع متعدد الموظفين', 'اجتماع داخلي', 'اجتماع الإدارة العليا', 'اجتماع مرتبط بقضية', 'اجتماع مرتبط باستشارة'];
 export const MEET_TEMPLATES: [string, string][] = [
@@ -166,14 +164,13 @@ export const MEET_REQUESTS: MeetRequest[] = [
   { id: 'MR-1028', client: 'فهد الشهري', service: 'تنفيذ حكم', type: 'استشارة مرئية', day: 'الأحد 28 يونيو', time: '09:00 ص', by: 'الإدارة العليا', stage: 2, meetId: 'SLS-338290', meetLink: 'https://salaselbabel.net/SLS-338290' },
 ];
 
-// دليل العملاء/الموظفين للدعوات (CLIENT_DIR / STAFF_DIR)
+// دليل العملاء للدعوات (CLIENT_DIR) — `STAFF_DIR` التجريبيّ أُزيل: كان بديلاً صامتاً لكادرٍ حقيقيّ فارغ
 export const CLIENT_DIR: { name: string; items: string[] }[] = [
   { name: 'عبدالله محمد العتيبي', items: ['SB-2026-1042 — استشارة تجارية', 'CASE-2026-014 — قضية تجارية', 'EXE-2026-2210 — طلب تنفيذ حكم'] },
   { name: 'نورة سعد الدوسري', items: ['SB-2026-1009 — استشارة عمالية', 'CASE-2026-031 — قضية عمالية'] },
   { name: 'شركة الأفق التجارية', items: ['SB-2026-0987 — مراجعة عقد', 'CASE-2026-022 — نزاع تجاري', 'EXE-2026-2185 — تنفيذ مطالبة'] },
   { name: 'فهد علي الشهري', items: ['SB-2026-0950 — استشارة تنفيذ'] },
 ];
-export const STAFF_DIR = ['منيرة الحربي (خدمة عملاء)', 'أ. سارة القحطاني (محامٍ)', 'أ. خالد المالكي (محامٍ)', 'أ. ريم الزهراني (محامٍ)', 'أ. ماجد العتيبي (محامٍ)'];
 
 // ملاحظة: كتالوج الصلاحيات (المجموعات/القوالب/الخريطة) صار مصدره الوحيد الخادم
 // (App\Support\Permissions::catalog) ويصل عبر Inertia؛ انظر resources/js/lib/permissions.ts.

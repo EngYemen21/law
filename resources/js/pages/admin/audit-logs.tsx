@@ -22,6 +22,12 @@ export interface AuditLogCard {
   ipAddress: string;
   userAgent: string;
   severity: 'info' | 'warning' | 'critical';
+  /** الأسماء والألوان من الخادم (`AuditLog::toCard`) — الشاشة لا تقارن نصّ الفئة ولا الدور */
+  severityLabel: string;
+  roleLabel: string;
+  roleTone: 'b-blue' | 'b-green' | 'b-amber' | 'b-grey';
+  categoryColor: string;
+  categoryIcon: string;
   time: string;
   timeHuman: string;
 }
@@ -32,13 +38,13 @@ interface Props {
     total: number;
     today: number;
     critical: number;
-    consults: number;
     financial: number;
-    security: number;
     activeActors: number;
   };
   categories: string[];
   actors: string[];
+  /** خيارات الأهمية بأسمائها العربيّة من `AuditLog::SEVERITY_LABELS` */
+  severityOptions: { value: string; label: string }[];
   filters: {
     search: string;
     category: string;
@@ -57,6 +63,7 @@ export const AdminAuditLogs: React.FC<Props> = ({
   stats,
   categories = [],
   actors = [],
+  severityOptions = [],
   filters,
 }) => {
   // const toast = useToast(); // غير مستخدم بعد
@@ -122,71 +129,13 @@ export const AdminAuditLogs: React.FC<Props> = ({
     router.get('/admin/audit-logs', {}, { preserveState: true, preserveScroll: true });
   };
 
-  const roleLabel = (role: string) => {
-    switch (role) {
-      case 'admin':
-        return 'الإدارة العليا';
-      case 'lawyer':
-        return 'مستشار قانوني';
-      case 'employee':
-        return 'موظف استقبال';
-      case 'client':
-        return 'عميل';
-      case 'system':
-        return 'النظام الآلي';
-      default:
-        return role;
-    }
-  };
-
-  const roleTone = (role: string): 'b-blue' | 'b-green' | 'b-amber' | 'b-grey' => {
-    switch (role) {
-      case 'admin':
-        return 'b-blue';
-      case 'lawyer':
-        return 'b-green';
-      case 'employee':
-        return 'b-amber';
-      default:
-        return 'b-grey';
-    }
-  };
-
-  const categoryColor = (cat: string) => {
-    switch (cat) {
-      case 'أمن وحماية':
-        return '#dc2626';
-      case 'مالية وفواتير':
-        return '#C0832B';
-      case 'استشارات':
-        return '#0E5C9C';
-      case 'اجتماعات':
-        return '#11A0C8';
-      case 'قضايا وتنفيذ':
-        return '#1E9D6B';
-      default:
-        return '#4B5563';
-    }
-  };
-
-  const categoryIcon = (cat: string) => {
-    switch (cat) {
-      case 'أمن وحماية':
-        return 'clock';
-      case 'مالية وفواتير':
-        return 'card';
-      case 'استشارات':
-        return 'scale';
-      case 'اجتماعات':
-        return 'video';
-      case 'قضايا وتنفيذ':
-        return 'folder';
-      case 'تذاكر':
-        return 'folder';
-      default:
-        return 'doc';
-    }
-  };
+  /*
+   * **التصدير يحمل المرشّحات المطبَّقة** (`filters` من الخادم لا حقولاً لم تُطبَّق بعد): كان الرابط
+   * ثابتاً فيُصدِّر أحدث ألف قيدٍ أيّاً كان الترشيح. والخادم يكتب كلّ المطابق بلا سقف.
+   */
+  const exportHref = `/admin/audit-logs/export?${new URLSearchParams(
+    Object.entries(filters).filter(([, v]) => v !== '' && v !== 'all' && v != null) as [string, string][]
+  ).toString()}`;
 
   return (
     <div className="admin-audit-logs-root" style={{ paddingBottom: 60, width: '100%' }}>
@@ -195,7 +144,7 @@ export const AdminAuditLogs: React.FC<Props> = ({
         <div>
           <h2 style={{ display: 'flex', alignItems: 'center', gap: 10, margin: 0 }}>
             <Icon name="clock" cls="ic" />
-            سجل الرقابة والتدقيق الأمني — الإدارة العليا (Audit Trail)
+            سجل الرقابة والتدقيق الأمني — الإدارة العليا
           </h2>
           <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13 }}>
             تتبع لحظي وشامل لكافة الأنشطة، التعديلات المالية، إجراءات القضايا والاستشارات، وسجلات الدخول لضمان الامتثال والسرية التامة.
@@ -203,13 +152,14 @@ export const AdminAuditLogs: React.FC<Props> = ({
         </div>
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {/* تنزيل ملفّ لا زيارة صفحة — لذا `<a>` لا `<Link>` */}
           <a
-            href="/admin/audit-logs/export"
+            href={exportHref}
             className="btn soft"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
-            title="تصدير كملف CSV معتمد"
+            title={hasFilters ? `تصدير القيود المطابقة للترشيح (${meta.total})` : `تصدير كلّ القيود (${stats.total})`}
           >
-            <Icon name="download" /> تصدير السجلات CSV
+            <Icon name="download" /> {hasFilters ? 'تصدير المطابق CSV' : 'تصدير السجلات CSV'}
           </a>
 
           {/* تبديل العرض */}
@@ -269,7 +219,7 @@ export const AdminAuditLogs: React.FC<Props> = ({
         <div className="card" style={{ margin: 0, padding: '14px 16px', borderTop: '3px solid #1E9D6B' }}>
           <div style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>عمليات اليوم الحية</div>
           <b style={{ fontSize: 22, color: '#1E9D6B', display: 'block', marginTop: 4 }}>{stats.today.toLocaleString()}</b>
-          <div style={{ fontSize: 11, color: '#1E9D6B', marginTop: 2 }}>خلال آخر 24 ساعة</div>
+          <div style={{ fontSize: 11, color: '#1E9D6B', marginTop: 2 }}>منذ بداية اليوم</div>
         </div>
 
         <div className="card" style={{ margin: 0, padding: '14px 16px', borderTop: '3px solid #dc2626' }}>
@@ -287,7 +237,7 @@ export const AdminAuditLogs: React.FC<Props> = ({
         <div className="card" style={{ margin: 0, padding: '14px 16px', borderTop: '3px solid #11A0C8' }}>
           <div style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>المستخدمون النشطون</div>
           <b style={{ fontSize: 22, color: '#11A0C8', display: 'block', marginTop: 4 }}>{stats.activeActors.toLocaleString()}</b>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>تفاعلوا اليوم</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>خلال آخر 24 ساعة</div>
         </div>
       </div>
 
@@ -338,9 +288,9 @@ export const AdminAuditLogs: React.FC<Props> = ({
             style={{ padding: '9px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.15)', fontSize: 12.5 }}
           >
             <option value="all">كافة مستويات الأهمية</option>
-            <option value="info">🟢 عادي (Info)</option>
-            <option value="warning">🟡 تحذيري (Warning)</option>
-            <option value="critical">🔴 حرج (Critical)</option>
+            {severityOptions.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
           </select>
 
           {/* المستخدم / الفاعل */}
@@ -491,7 +441,7 @@ export const AdminAuditLogs: React.FC<Props> = ({
                             </div>
                             <div>
                               <b style={{ color: '#13314F', display: 'block' }}>{log.userName}</b>
-                              <Badge text={roleLabel(log.userRole)} tone={roleTone(log.userRole)} />
+                              <Badge text={log.roleLabel} tone={log.roleTone} />
                             </div>
                           </div>
                         </td>
@@ -506,13 +456,13 @@ export const AdminAuditLogs: React.FC<Props> = ({
                               gap: 4,
                               fontSize: 11,
                               fontWeight: 600,
-                              color: categoryColor(log.category),
-                              background: `${categoryColor(log.category)}15`,
+                              color: log.categoryColor,
+                              background: `${log.categoryColor}15`,
                               padding: '2px 8px',
                               borderRadius: 6,
                             }}
                           >
-                            <Icon name={categoryIcon(log.category)} /> {log.category}
+                            <Icon name={log.categoryIcon} /> {log.category}
                           </span>
                         </td>
 
@@ -611,7 +561,7 @@ export const AdminAuditLogs: React.FC<Props> = ({
                 style={{
                   margin: 0,
                   padding: 16,
-                  borderRight: `4px solid ${categoryColor(log.category)}`,
+                  borderRight: `4px solid ${log.categoryColor}`,
                   cursor: 'pointer',
                   transition: 'box-shadow 0.15s ease',
                 }}
@@ -624,19 +574,19 @@ export const AdminAuditLogs: React.FC<Props> = ({
                         width: 36,
                         height: 36,
                         borderRadius: 10,
-                        background: `${categoryColor(log.category)}15`,
-                        color: categoryColor(log.category),
+                        background: `${log.categoryColor}15`,
+                        color: log.categoryColor,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                       }}
                     >
-                      <Icon name={categoryIcon(log.category)} />
+                      <Icon name={log.categoryIcon} />
                     </div>
                     <div>
                       <b style={{ fontSize: 14, color: '#13314F' }}>{log.action}</b>
                       <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                        <span>بواسطة: <b>{log.userName}</b> ({roleLabel(log.userRole)})</span>
+                        <span>بواسطة: <b>{log.userName}</b> ({log.roleLabel})</span>
                         {log.auditableRef && log.auditableRef !== '—' && (
                           <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--primary)' }}>
                             · {log.auditableRef}
@@ -806,11 +756,11 @@ setActiveLogId(null);
                       </div>
                       <div>
                         <span style={{ color: 'var(--muted)', fontSize: 11 }}>الدور والصلاحية:</span>
-                        <div style={{ marginTop: 2 }}><Badge text={roleLabel(activeLog.userRole)} tone={roleTone(activeLog.userRole)} /></div>
+                        <div style={{ marginTop: 2 }}><Badge text={activeLog.roleLabel} tone={activeLog.roleTone} /></div>
                       </div>
                       <div>
                         <span style={{ color: 'var(--muted)', fontSize: 11 }}>الفئة:</span>
-                        <div style={{ fontWeight: 700, marginTop: 2, color: categoryColor(activeLog.category) }}>{activeLog.category}</div>
+                        <div style={{ fontWeight: 700, marginTop: 2, color: activeLog.categoryColor }}>{activeLog.category}</div>
                       </div>
                       <div>
                         <span style={{ color: 'var(--muted)', fontSize: 11 }}>المرجع:</span>
@@ -899,7 +849,7 @@ setActiveLogId(null);
                               background: activeLog.severity === 'critical' ? '#fee2e2' : activeLog.severity === 'warning' ? '#fef3c7' : '#dcfce7',
                             }}
                           >
-                            {activeLog.severity.toUpperCase()}
+                            {activeLog.severityLabel}
                           </span>
                         </div>
                       </div>

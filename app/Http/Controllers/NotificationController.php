@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use App\Models\UserNotification;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
@@ -33,6 +35,45 @@ class NotificationController extends Controller
             'invoices' => '/admin/finance?tab=invoices',
         ],
     ];
+
+    /** حجم الصفحة الواحدة في قائمة الجرس — الأولى من `HandleInertiaRequests` وما بعدها من `more`. */
+    public const PAGE_SIZE = 15;
+
+    /**
+     * **قائمة إشعارات المستخدم بروابطها — مصدرٌ واحد للصفحة الأولى وما بعدها.**
+     *
+     * كان تحت القائمة رابط «عرض سجل الإشعارات الكامل» إلى `/notifications`، وهو تحويلٌ إلى
+     * `/dashboard` لا صفحة — فيُقذف المدير خارج مكانه. فصار السجلّ كلّه في القائمة نفسها صفحاتٍ
+     * بـ«عرض الأقدم»، والصفّ يُشكَّل هنا مرّةً لا في موضعين يتباعدان.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public static function feed(User $user, ?int $beforeId = null, int $limit = self::PAGE_SIZE): array
+    {
+        return UserNotification::where('user_id', $user->id)
+            ->when($beforeId !== null, fn ($q) => $q->where('id', '<', $beforeId))
+            ->latest('id')
+            ->limit($limit)
+            ->get()
+            ->map(fn (UserNotification $n) => array_merge($n->toData(), [
+                'id' => $n->id,
+                'link' => self::linkFor($user->role->value, $n->body, $n->icon),
+            ]))
+            ->values()
+            ->all();
+    }
+
+    /** الصفحة التالية (الأقدم) من قائمة الجرس — JSON لا صفحة، فلا تُغادر الشاشة الحاليّة. */
+    public function more(Request $request): JsonResponse
+    {
+        $before = $request->integer('before') ?: null;
+        $items = self::feed($request->user(), $before);
+
+        return response()->json([
+            'items' => $items,
+            'hasMore' => count($items) === self::PAGE_SIZE,
+        ]);
+    }
 
     // تعليم كل الإشعارات كمقروءة
     public function markAllRead(Request $request): RedirectResponse

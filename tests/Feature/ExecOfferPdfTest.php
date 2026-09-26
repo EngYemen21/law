@@ -62,7 +62,7 @@ class ExecOfferPdfTest extends TestCase
         $intruder = User::factory()->create(['role' => Role::Client]);
         $exec = $this->execFor($owner);
 
-        $this->actingAs($intruder)->get(route('exec-flow.offer.pdf', $exec))->assertForbidden();
+        $this->assertPageRefused($this->actingAs($intruder)->get(route('exec-flow.offer.pdf', $exec)));
     }
 
     public function test_unassigned_lawyer_cannot_download_another_lawyers_offer(): void
@@ -72,7 +72,7 @@ class ExecOfferPdfTest extends TestCase
         $other = User::factory()->create(['role' => Role::Lawyer]);
         $exec = $this->execFor($client, ['assigned_lawyer_id' => $owner->id]);
 
-        $this->actingAs($other)->get(route('exec-flow.offer.pdf', $exec))->assertForbidden();
+        $this->assertPageRefused($this->actingAs($other)->get(route('exec-flow.offer.pdf', $exec)));
     }
 
     public function test_returns_422_when_no_fee_set_yet(): void
@@ -80,6 +80,6 @@ class ExecOfferPdfTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $exec = $this->execFor($client, ['fee' => 0, 'vat' => 0, 'fee_approved' => false, 'stage' => 2]);
 
-        $this->actingAs($client)->get(route('exec-flow.offer.pdf', $exec))->assertStatus(422);
+        $this->assertPageRefused($this->actingAs($client)->get(route('exec-flow.offer.pdf', $exec)));
     }
 }

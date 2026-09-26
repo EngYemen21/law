@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Jobs\RunAiEvaluationJob;
 use App\Models\AiEvaluationRun;
 use App\Models\Setting;
+use App\Services\Ai\AiCost;
 use App\Services\Ai\AiDataClass;
 use App\Services\Ai\AiEvaluator;
+use App\Services\Ai\AiFailure;
 use App\Services\Ai\AiOpsMetrics;
 use App\Services\Ai\AiPolicyGate;
 use App\Services\Ai\AiPromptRegistry;
@@ -40,7 +42,10 @@ class AiOpsController extends Controller
             'days' => $days,
             'metrics' => AiOpsMetrics::snapshot($days),
             'alerts' => AiOpsMetrics::alerts($days),
-            'failureCodes' => AiOpsMetrics::failureCodes($days),
+            // أسباب التعذّر مسمّاةً بالعربيّة من `AiFailure` — كانت تُعرض برموزها الإنجليزيّة
+            'failureCodes' => $this->labelledFailures($days),
+            // عملة الكلفة من مصدرها الواحد (`AiCost::CURRENCY`) — الصندوق واللوحة يقرآنها معاً
+            'currency' => AiCost::CURRENCY,
             'rejectionReasons' => $this->labelledReasons($days),
             'editRate' => AiReviewInbox::humanEditRate($days),
             'pendingReview' => AiReviewInbox::countFor($request->user()),
@@ -59,14 +64,14 @@ class AiOpsController extends Controller
                 'stopped' => AiOpsMetrics::budgetStopsCalls(),
             ],
             'evaluation' => [
-                'last' => AiEvaluator::lastRun(),
+                'last' => $this->labelledLastRun(),
                 'tasks' => array_keys(AiEvaluator::GATES),
                 'liveCapable' => AiEvaluator::LIVE_CAPABLE,
                 // بلا مزوّد مهيَّأ لا معنى لزرّ «تشغيل حيّ» — يُعطَّل ويُشرح سببه
                 'providerReady' => app(LegalAiService::class)->isConfigured(),
                 // الفرق عن التشغيل السابق: النتيجة وحدها تقول «كم هي اليوم»، والسؤال
                 // الحاكم «هل تراجعت» — ولا يُجاب إلّا بمقارنة
-                'diff' => $this->evaluationDiff(),
+                'diff' => array_map(fn (array $d) => $d + ['label' => AiPromptRegistry::taskLabel($d['task'])], $this->evaluationDiff()),
                 'baselineAt' => AiEvaluator::previousRun()?->created_at?->toDateTimeString(),
                 'runsRecorded' => AiEvaluationRun::count(),
             ],
@@ -243,6 +248,38 @@ class AiOpsController extends Controller
         return back()->with('flash', 'حُفظت مدد الاحتفاظ — تُطبَّق بأمر ai:purge.');
     }
 
+    /** @return list<array{code:string,label:string,total:int}> */
+    private function labelledFailures(int $days): array
+    {
+        $rows = [];
+        foreach (AiOpsMetrics::failureCodes($days) as $code => $total) {
+            $rows[] = ['code' => (string) $code, 'label' => (string) AiFailure::label((string) $code), 'total' => (int) $total];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * آخر تشغيلٍ للتقييم ومهامّه مسمّاةً — النتائج تُخزَّن بمعرّفات التعليمات، والشاشة
+     * تعرض الاسم لا الرمز.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function labelledLastRun(): ?array
+    {
+        $last = AiEvaluator::lastRun();
+        if ($last === null) {
+            return null;
+        }
+
+        $last['results'] = array_map(
+            fn (array $r) => $r + ['label' => AiPromptRegistry::taskLabel((string) ($r['task'] ?? ''))],
+            (array) $last['results'],
+        );
+
+        return $last;
+    }
+
     /** @return array<int, array{code:string,label:string,total:int,highRisk:bool}> */
     private function labelledReasons(int $days): array
     {
@@ -311,6 +348,7 @@ class AiOpsController extends Controller
         // «لا حالات تقييم لهذا المسار»، وهو وصفٌ لحال القياس لا مبرّرٌ لحجب المفتاح.
         return array_map(fn (string $task) => [
             'task' => $task,
+            'label' => AiPromptRegistry::taskLabel($task),
             'enabled' => Setting::aiTaskEnabled($task),
             'sensitivity' => AiPolicyGate::sensitivity($task),
             'gate' => AiEvaluator::GATES[$task] ?? null,

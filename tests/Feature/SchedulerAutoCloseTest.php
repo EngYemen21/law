@@ -16,7 +16,8 @@ use Tests\TestCase;
 
 /**
  * مجدولات الدفعة 3 — مثبِّتات القاعدة (العرض الفوري تكفله liveState/isMissed/isLapsed):
- * حسم الاستشارات الفائتة، توسيع حسم الاجتماعات (منعقد/جارٍ/بانتظار التأكيد)، وجلسات القضايا الفائتة.
+ * حسم الاستشارات الفائتة، وحسم الاجتماعات التي لم تبدأ (والتي بدأت لا يُنهيها إلّا إنهاؤها —
+ * قرار المالك 2026-09-26)، وجلسات القضايا الفائتة.
  */
 class SchedulerAutoCloseTest extends TestCase
 {
@@ -53,11 +54,16 @@ class SchedulerAutoCloseTest extends TestCase
         $this->assertSame('النظام', $stale->fresh()->audit[0]['user']);
     }
 
-    public function test_auto_close_meetings_ends_joined_and_misses_unjoined(): void
+    /**
+     * **المجدول يحسم ما لم يبدأ وحده** (قرار المالك 2026-09-26). كان يختم «منتهٍ» كلَّ قادمٍ دخله
+     * أحدٌ بعد ١٢ ساعة — نهايةٌ تقرّرها الساعة. الاجتماع الذي بدأ لا ينتهي إلّا بإنهائه، والمنسيّ
+     * منه تُنهيه شبكة النسيان بعد مهلتها (`sessions:close-stale` · `SessionZoomClosureTest`).
+     */
+    public function test_auto_close_meetings_misses_unjoined_and_leaves_started_ones(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
 
-        // فات ودخل أحد ⇒ منتهٍ (كان قيد join_time===null يُبقيه «قادماً» للأبد)
+        // فات ودخل أحد ⇒ بدأ فعلاً — لا يحسمه هذا المجدول
         $joined = Meeting::create([
             'user_id' => $client->id, 'ref' => 'M-9001', 'title' => 'انعقد بلا إنهاء', 'when_label' => 'أمس',
             'status' => 'قادم', 'starts_at' => now()->subHours(13), 'join_time' => now()->subHours(13),
@@ -87,34 +93,30 @@ class SchedulerAutoCloseTest extends TestCase
 
         $this->artisan('zoom:auto-close-missed')->assertExitCode(0);
 
-        $joined->refresh();
-        $this->assertSame('منتهٍ', $joined->status);
-        // لا نسبة مختلقة (كانت 90 مثبّتة): 0 = غير مسجَّلة وتُخفى من العرض — قرار صاحب المنتج 2026-08-26
-        $this->assertSame(0, $joined->attend);
-        $this->assertSame(MeetRequest::STAGE_EXECUTED, $joinedReq->fresh()->stage);
+        $this->assertSame('قادم', $joined->fresh()->status);
+        $this->assertSame(MeetRequest::STAGE_CONFIRMED, $joinedReq->fresh()->stage);
 
         $this->assertSame('لم ينعقد', $missed->fresh()->status);
         $this->assertSame(MeetRequest::STAGE_EXPIRED, $missedReq->fresh()->stage);
+        // وحسمه انتقالٌ مسجَّل لا كتابةٌ صامتة
+        $this->assertDatabaseHas('journey_transitions', [
+            'entity_type' => 'Meeting', 'entity_id' => $missed->id, 'transition' => 'meeting.missed',
+        ]);
 
         $this->assertSame('قادم', $upcoming->fresh()->status);
     }
 
-    public function test_auto_close_meetings_ends_expired_live_sessions_only(): void
+    public function test_auto_close_meetings_never_ends_a_live_meeting(): void
     {
-        // «جارٍ» تجاوزت (المدة + 3 ساعات) ⇒ منتهٍ — كانت الجارية أبدية لا يحسمها أحد
-        $expiredLive = Meeting::create([
-            'ref' => 'M-9010', 'title' => 'جارٍ منسيّ', 'when_label' => 'أمس',
+        // كانت «جارٍ» تُختم بعد «المدة + 3 ساعات» — الآن لا يمسّها هذا المجدول مهما طالت
+        $longLive = Meeting::create([
+            'ref' => 'M-9010', 'title' => 'جارٍ طويل', 'when_label' => 'أمس',
             'status' => 'جارٍ', 'starts_at' => now()->subHours(5), 'dur' => '60 دقيقة',
-        ]);
-        $freshLive = Meeting::create([
-            'ref' => 'M-9011', 'title' => 'جارٍ فعلاً', 'when_label' => 'الآن',
-            'status' => 'جارٍ', 'starts_at' => now()->subMinutes(30), 'dur' => '60 دقيقة',
         ]);
 
         $this->artisan('zoom:auto-close-missed')->assertExitCode(0);
 
-        $this->assertSame('منتهٍ', $expiredLive->fresh()->status);
-        $this->assertSame('جارٍ', $freshLive->fresh()->status);
+        $this->assertSame('جارٍ', $longLive->fresh()->status);
     }
 
     public function test_auto_lapse_hearings_marks_and_notifies_lawyer(): void

@@ -32,13 +32,13 @@ class MeetInvitation
         // والرفعُ نمطُ المشروع المقرَّر لكلّ مسارٍ بطيء (PdfRenderer · LegalAiService).
         WebTimeLimit::raise(90);
         $startsAt = MeetingTime::parse($req->day, $req->time);
-        $durMinutes = $req->duration_min ?: 60;
         $existing = $req->meeting_id ? Meeting::find($req->meeting_id) : null;
 
         $zoom = ($existing && ! empty($existing->meet_id))
             ? null
+            // `duration` يشترطه Zoom — رقمٌ اسميّ لا يُنهي الاجتماع به (`SessionWindow::nominalMinutes`)
             : app(ZoomService::class)->createMeeting(
-                "{$req->type} — {$req->service} ({$req->ref})", $durMinutes, false, $startsAt
+                "{$req->type} — {$req->service} ({$req->ref})", SessionWindow::nominalMinutes(), false, $startsAt
             );
 
         if ($existing) {
@@ -71,7 +71,7 @@ class MeetInvitation
                 'starts_at' => $startsAt,
                 'status' => 'قادم',
                 'case_ref' => $req->case_ref,
-                'dur' => $durMinutes.' دقيقة',
+                // لا `dur`: الاجتماع بلا مدّةٍ ثابتة — ينتهي حين يُنهى (قرار المالك 2026-09-26)
                 'assigned_lawyer_id' => $req->assigned_lawyer_id,
                 'meet_id' => $zoom['id'] ?? null,
                 'meet_link' => $zoom['join_url'] ?? null,
@@ -111,7 +111,8 @@ class MeetInvitation
             "{$req->type} — {$req->service}",
             "{$req->day} · {$req->time}",
             $meeting->portalUrlFor($client),
-            'داخل النظام الإداري لمكاتب المحاماة (قسم الاجتماعات)',
+            // اسم المكتب من الإعدادات لا منقوشاً — كي لا تحمل الدعوة اسماً غير ما تضبطه الإدارة
+            'داخل '.SettingsRegistry::str('office_name').' (قسم الاجتماعات)',
             'الاجتماع مجدول ومؤكَّد. لأسباب السرية، يرجى تسجيل الدخول إلى حسابك بالمنصة عند موعد الجلسة.'
         ));
     }

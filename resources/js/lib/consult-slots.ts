@@ -1,0 +1,50 @@
+import { useMemo } from 'react';
+import { useSettings } from '@/lib/settings';
+import type { SharedSettings } from '@/lib/settings';
+
+/**
+ * **شبكة شرائح الاستشارة في الواجهة — مبنيّةً من إعدادات الخادم لا منقوشة.**
+ *
+ * كانت ثلاث نسخ لا تتّفق: المحرّك (`LawyerAvailability`) يولّد ٠٠–٢٣ بساعة، وشبكة الموظّف
+ * اليوميّة ٠٩–٢٢، والمنتقي حين لا تصله شرائح ٠٨–٢٢ بنصف ساعة — فيعرض الموظّف ساعاتٍ لا
+ * يولّدها المحرّك ويُخفي أخرى يولّدها. صار الثلاثة يقرؤون `consult_day_start/end/slot_minutes`
+ * من الخاصّيّة المشتركة، وقاعدة التوليد هنا نسخةُ قاعدة `LawyerAvailability::slotsFromIntervals`:
+ * الخطوة طول الشريحة، ولا شريحة تبدأ ما لم تنتهِ قبل نهاية الساعات.
+ */
+
+type SlotSettings = Pick<SharedSettings, 'consult_day_start' | 'consult_day_end' | 'consult_slot_minutes'>;
+
+const hm = (minutes: number): string =>
+  `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+
+/** بدايات الشرائح «HH:MM» لليوم. */
+export function consultSlotGrid(s: SlotSettings): string[] {
+  const out: string[] = [];
+  const length = s.consult_slot_minutes;
+
+  for (let from = s.consult_day_start * 60; from + length <= s.consult_day_end * 60; from += length) {
+    out.push(hm(from));
+  }
+
+  return out;
+}
+
+/** نهاية الشريحة التي تبدأ عند `time` — «14:30» + ٦٠ ⇐ «15:30». */
+export function slotEnd(time: string, minutes: number): string {
+  const [h, m] = time.split(':').map((v) => parseInt(v, 10));
+
+  return hm(Math.min(24 * 60, h * 60 + (m || 0) + minutes));
+}
+
+/** الشبكة وطول الشريحة من الخاصّيّة المشتركة. */
+export function useConsultSlots(): { grid: string[]; slotMinutes: number } {
+  const { consult_day_start, consult_day_end, consult_slot_minutes } = useSettings();
+
+  // مصفوفةٌ ثابتة الهويّة ما لم تتغيّر القيم — الشاشات تضعها في تبعيّات `useMemo`
+  const grid = useMemo(
+    () => consultSlotGrid({ consult_day_start, consult_day_end, consult_slot_minutes }),
+    [consult_day_start, consult_day_end, consult_slot_minutes],
+  );
+
+  return { grid, slotMinutes: consult_slot_minutes };
+}

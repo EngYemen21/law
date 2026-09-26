@@ -62,6 +62,12 @@ class LegalCase extends Model
         return $this->belongsTo(User::class);
     }
 
+    /** الموظّف المسؤول عن محادثة هذا الملفّ الآن — يتولّاها تلقائيّاً من يردّ (`ConversationHandler`). */
+    public function handler(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'handler_id');
+    }
+
     public function ticket(): BelongsTo
     {
         return $this->belongsTo(Ticket::class);

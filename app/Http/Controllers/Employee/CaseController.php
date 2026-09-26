@@ -11,6 +11,7 @@ use App\Models\Ticket;
 use App\Models\User;
 use App\Support\CaseFiling;
 use App\Support\ConversationFiles;
+use App\Support\ConversationHandler;
 use App\Support\Notify;
 use App\Support\Permissions;
 use Illuminate\Http\RedirectResponse;
@@ -133,6 +134,8 @@ class CaseController extends Controller
         $canCourt = (bool) auth()->user()?->can('إجراءات المحكمة والجلسات');
 
         return Inertia::render('employee/case', [
+            // من يتولّى المحادثة الآن ومن تولّاها قبله — للطاقم وحده (`ConversationHandler`)
+            'conversation' => ConversationHandler::history($case),
             'case' => [
                 'no' => $case->number,
                 'client' => Ticket::maskClient($case->user?->name ?? ''),

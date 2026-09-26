@@ -81,7 +81,7 @@ class DashboardGapsTest extends TestCase
 
         $this->actingAs($admin)->get(route('admin.dashboard'))
             ->assertOk()
-            ->assertInertia(fn ($p) => $p->where('stats.pendingMeetings', 1));
+            ->assertInertia(fn ($p) => $p->where('radar', fn ($radar) => collect($radar)->firstWhere('id', 'pending-meetings')['count'] === 1));
     }
 
     // ── تذاكر المحامي: whereHas('summary') كان يُخفي المسندة إليه قبل إنتاج ملخصها ──

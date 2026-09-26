@@ -14,6 +14,7 @@ use App\Support\Audit;
 use App\Support\CaseFiling;
 use App\Support\CasePleading;
 use App\Support\ConversationFiles;
+use App\Support\ConversationHandler;
 use App\Support\ExecutionCreation;
 use App\Support\Notify;
 use Illuminate\Http\RedirectResponse;
@@ -79,6 +80,8 @@ class CaseController extends Controller
         ];
 
         return Inertia::render('lawyer/case', [
+            // من يتولّى المحادثة الآن ومن تولّاها قبله — للطاقم وحده (`ConversationHandler`)
+            'conversation' => ConversationHandler::history($case),
             // رفع الدعوى في ناجز ثمّ قيدها (الخطّة ب) — ما يجوز الآن من الحرّاس نفسها
             'filing' => CaseFiling::panel($case),
             'ticketDocuments' => $ticketDocs,
@@ -181,7 +184,7 @@ class CaseController extends Controller
     public function convertToExecution(Request $request, LegalCase $case): RedirectResponse
     {
         $this->guardAssigned($case);
-        abort_unless(ExecutionCreation::isEligible($case), 422);
+        abort_unless(ExecutionCreation::isEligible($case), 422, 'لا يُفتح طلب تنفيذٍ من هذه القضية: يلزم أن يصدر الحكم، وألّا يكون لها طلب تنفيذٍ قائم.');
 
         ExecutionCreation::fromCase($case, $request->user());
 
@@ -192,7 +195,7 @@ class CaseController extends Controller
     public function approvePleading(Request $request, LegalCase $case): RedirectResponse
     {
         $this->guardAssigned($case);
-        abort_unless($case->pleading_status === 'pending_lawyer', 422);
+        abort_unless($case->pleading_status === 'pending_lawyer', 422, 'اللائحة ليست بانتظار اعتمادك — ربّما اعتُمدت من قبل، حدّث الصفحة.');
         // لا يُبلَّغ العميل باعتماد لائحةٍ لا نصَّ لها
         // بلا مسودّة، أو بنصٍّ احتياطيّ، أو بعد رفضها في الصندوق — لا اعتماد
         $blocked = CasePleading::blockReason($case);

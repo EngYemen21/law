@@ -122,13 +122,63 @@ class AiReviewInbox
         return self::scopeToAuthority(AiRun::query()->whereKey($run->getKey()), $user)->exists();
     }
 
+    /**
+     * من يجوز التصعيد إليه: محامٍ أو إداريّ فعّال غير المُصعِّد نفسه.
+     *
+     * **مصدرٌ واحد للقائمة والتحقّق**: الشاشة تعرضها منتقىً، و`decide` يرفض معرّفاً خارجها —
+     * كان التحقّق `exists:users` وحده، فيُصعَّد إلى عميلٍ أو حسابٍ موقوف فيضيع القيد عند من لا
+     * يرى الصندوق أصلاً. والموظّف خارجها: ما يُصعَّد رأيٌ قانونيّ يحتاج محامياً أو الإدارة.
+     *
+     * @return list<array{id:int,label:string}>
+     */
+    public static function escalationTargets(User $by): array
+    {
+        return self::escalationQuery($by)
+            ->orderBy('role')->orderBy('name')
+            ->get(['id', 'name', 'role'])
+            ->map(fn (User $u) => ['id' => $u->id, 'label' => "{$u->name} — {$u->role->label()}"])
+            ->values()
+            ->all();
+    }
+
+    public static function mayEscalateTo(User $by, int $targetId): bool
+    {
+        return self::escalationQuery($by)->whereKey($targetId)->exists();
+    }
+
+    private static function escalationQuery(User $by): Builder
+    {
+        return User::query()
+            ->whereIn('role', [Role::Lawyer->value, Role::Admin->value])
+            ->where('status', 'active')
+            ->whereKeyNot($by->getKey());
+    }
+
+    /**
+     * الأفعال التي **تُبقي المراجعة مفتوحة** (`closesReview() === false`) — من العقد نفسه.
+     *
+     * كان الاستعلام `whereNull('review_action')` وحده، فتصعيدٌ يُكتب `escalate` يُخرج القيد من
+     * صندوق **الجميع** — ومنهم من صُعِّد إليه. أي أن التصعيد كان إخفاءً لا تسليماً، والعقد في
+     * `AiReviewAction` يقول العكس. فصار «المنتظِر» يُشتقّ من العقد لا من قائمةٍ تُكتب هنا.
+     *
+     * @return list<string>
+     */
+    private static function openActions(): array
+    {
+        return array_values(array_map(
+            fn (AiReviewAction $a) => $a->value,
+            array_filter(AiReviewAction::cases(), fn (AiReviewAction $a) => ! $a->closesReview()),
+        ));
+    }
+
     /** الاستعلام الأساس: منتظِر للبتّ، منظوراً بعين الدور. */
     private static function query(User $user): Builder
     {
         return self::scopeToAuthority(
             AiRun::query()
                 ->where('status', AiRun::STATUS_NEEDS_REVIEW)
-                ->whereNull('review_action'), // لم يُبتّ فيه بعد
+                // لم يُبتّ فيه بعد — أو بُتّ بفعلٍ يُبقيه مفتوحاً (تصعيد · إعادة تشغيل)
+                ->where(fn (Builder $q) => $q->whereNull('review_action')->orWhereIn('review_action', self::openActions())),
             $user
         );
     }

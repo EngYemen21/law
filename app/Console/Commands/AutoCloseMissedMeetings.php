@@ -2,20 +2,25 @@
 
 namespace App\Console\Commands;
 
-use App\Events\MeetingStatusBroadcast;
+use App\Domain\Journey\TransitionDenied;
+use App\Domain\Journey\Transitions\Meeting\MarkMeetingMissed;
+use App\Domain\Journey\Workflow;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
-use App\Support\Live;
 use App\Support\MeetingTime;
+use App\Support\SessionWindow;
 use Illuminate\Console\Command;
 
 /**
  * معالجة وحسم المواعيد والدعوات الفائتة آلياً (تثبيت للقاعدة — العرض الفوري تكفله liveState):
  * 1. الدعوات المعلقة التي مرّ موعدها بـ6 ساعات دون موافقة الإدارة → منتهية الصلاحية (STAGE_EXPIRED).
- * 2. قادم/مؤجل/بانتظار التأكيد المتجاوز موعده بـ12 ساعة: دخل أحدٌ فعلاً ⇒ «منتهٍ» (لا استثناء
- *    يُبقيه قادماً للأبد كما كان قيد join_time===null)، ولم يدخل أحد ⇒ «لم ينعقد».
- * 3. «جارٍ» المتجاوز (المدة + 3 ساعات) ⇒ «منتهٍ» — كانت الجارية أبديةً لا يحسمها أحد.
- * وترتفع مراحل الدعوات المرتبطة تبعاً (منعقد ⇒ تنفيذ الجلسة، لم ينعقد ⇒ منتهية الصلاحية).
+ * 2. قادم/مؤجل/بانتظار التأكيد **لم يبدأ قطّ** وتجاوز موعده مهلةَ الإعدادات (`meeting_autoclose_minutes`)
+ *    ⇒ «لم ينعقد» عبر `MarkMeetingMissed`، ودعوته منتهية الصلاحية.
+ *
+ * **ولا يُنهي اجتماعاً بدأ** (قرار المالك 2026-09-26). كان هنا فرعان يُنهيان بالساعة: «قادمٌ»
+ * دخله أحدٌ يُختم «منتهٍ» بعد ١٢ ساعة، و«جارٍ» يُختم بعد «المدة + ٣ ساعات». الاجتماع ينتهي حين
+ * يُنهى (`EndMeeting`)؛ والمنسيّ منه يُنهى بعد مهلة النسيان مع تنبيه الطاقم من شبكةٍ واحدة
+ * للاستشارات والاجتماعات معاً (`sessions:close-stale`) — لا بحسبة مدّة.
  */
 class AutoCloseMissedMeetings extends Command
 {
@@ -37,59 +42,31 @@ class AutoCloseMissedMeetings extends Command
             }
         }
 
-        // 2. حسم القادمة الفائتة (12 ساعة): منعقدة فعلاً ⇒ منتهٍ، وإلا ⇒ لم ينعقد
+        // 2. حسم القادمة الفائتة التي لم تبدأ — المهلة من الإعدادات (كانت ١٢ منقوشة)
+        $minutes = SessionWindow::meetingAutocloseMinutes();
         $missedMeetingsCount = 0;
-        $endedMeetingsCount = 0;
         // «بانتظار التأكيد» حالة تاريخية: لا يكتبها أي مسار حيّ منذ إلغاء تأكيد العميل — تبقى دفاعاً عن سجلّات قديمة
-        $overdueMeetings = Meeting::whereIn('status', ['قادم', 'مؤجل', 'بانتظار التأكيد'])->get();
+        $overdueMeetings = Meeting::whereIn('status', (new MarkMeetingMissed)->from())
+            ->whereNull('join_time')
+            ->get();
 
         foreach ($overdueMeetings as $meeting) {
             // starts_at الحقيقي يحسم أولاً؛ تحليل when_label احتياط للسجلات القديمة بلا موعد
             $dt = $meeting->startsAtResolved();
-            if (! $dt || ! $dt->copy()->addHours(12)->isPast()) {
+            if (! $dt || ! $dt->copy()->addMinutes($minutes)->isPast()) {
                 continue;
             }
 
-            if ($meeting->join_time !== null) {
-                // دخل أحد الأطراف فعلاً — الاجتماع انعقد وإن لم يُنهه أحد يدوياً
-                $this->closeAsEnded($meeting);
-                $endedMeetingsCount++;
-            } else {
-                $meeting->update(['status' => 'لم ينعقد']);
-                // دعوة اجتماع لم ينعقد لم تعد قابلة للدخول — تُعلَّم منتهية الصلاحية (يُتاح إعادة إرسالها)
-                MeetRequest::where('meeting_id', $meeting->id)
-                    ->where('stage', '<', MeetRequest::STAGE_EXECUTED)
-                    ->update(['stage' => MeetRequest::STAGE_EXPIRED]);
-                Live::push(new MeetingStatusBroadcast($meeting));
+            try {
+                Workflow::run(new MarkMeetingMissed, $meeting);
                 $missedMeetingsCount++;
+            } catch (TransitionDenied) {
+                continue; // بدأ بين القراءة والقفل — يُنهى بإنهائه لا بالمجدول
             }
         }
 
-        // 3. حسم «جارٍ» الأبدية: تجاوزت (المدة + 3 ساعات) ⇒ منتهٍ
-        foreach (Meeting::where('status', 'جارٍ')->get() as $meeting) {
-            $dt = $meeting->startsAtResolved();
-            if ($dt && $dt->copy()->addMinutes($meeting->durationMinutes())->addHours(3)->isPast()) {
-                $this->closeAsEnded($meeting);
-                $endedMeetingsCount++;
-            }
-        }
-
-        $this->info("تم حسم {$expiredRequestsCount} دعوة منتهية الصلاحية، و{$missedMeetingsCount} اجتماع لم ينعقد، و{$endedMeetingsCount} اجتماع منتهٍ.");
+        $this->info("تم حسم {$expiredRequestsCount} دعوة منتهية الصلاحية، و{$missedMeetingsCount} اجتماع لم ينعقد.");
 
         return self::SUCCESS;
-    }
-
-    /** إنهاء الاجتماع بنفس دلالة الإنهاء اليدوي/الويبهوك: حضور افتراضي + رفع مرحلة الدعوة + بثّ. */
-    private function closeAsEnded(Meeting $meeting): void
-    {
-        $meeting->update([
-            'status' => 'منتهٍ',
-            // لا نسبة حضور مختلقة (كانت 90 مثبّتة): 0 = غير مسجَّلة وتُخفى من العرض
-            'attend' => $meeting->attend ?: 0,
-        ]);
-        MeetRequest::where('meeting_id', $meeting->id)
-            ->where('stage', '<', MeetRequest::STAGE_EXECUTED)
-            ->update(['stage' => MeetRequest::STAGE_EXECUTED]);
-        Live::push(new MeetingStatusBroadcast($meeting));
     }
 }

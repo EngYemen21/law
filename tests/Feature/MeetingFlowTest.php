@@ -99,7 +99,7 @@ class MeetingFlowTest extends TestCase
         $this->actingAs($lawyerB)->get(route('lawyer.meetings'))
             ->assertInertia(fn ($p) => $p->has('meetings', 0));
         // الوصول المباشر والإجراءات ممنوعة (تكشف hostLink/الملخص)
-        $this->actingAs($lawyerB)->get('/lawyer/meeting?id=M-7400')->assertForbidden();
+        $this->assertPageRefused($this->actingAs($lawyerB)->get('/lawyer/meeting?id=M-7400'));
         $this->actingAs($lawyerB)->post(route('lawyer.meetings.summary', $meeting), ['summary' => 'x'])->assertForbidden();
         $this->actingAs($lawyerB)->post(route('lawyer.meetings.tasks', $meeting))->assertForbidden();
 

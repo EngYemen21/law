@@ -4,15 +4,16 @@ namespace App\Providers;
 
 use App\Models\LegalCatalogueAlias;
 use App\Models\LegalDepartment;
+use App\Models\LegalDepartmentDocument;
 use App\Models\LegalDocument;
 use App\Models\LegalService;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\Ai\AiGateway;
 use App\Support\LegalCatalogue;
+use App\Support\MessageSender;
 use App\Support\OtpService;
 use App\Support\Phone;
-use App\Support\SenderIp;
 use App\Support\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -59,8 +60,8 @@ class AppServiceProvider extends ServiceProvider
         Route::model('doc', LegalDocument::class);
 
         // عنوان IP لمُرسِل الرسالة: ما يُكتب داخل مهمّة طابور — ولو متزامنةً في طلب مستخدم — لا مُرسِلَ
-        // بشريّاً له، فلا يُنسب لصاحب الطلب. التتبّع هنا والقاعدة في `SenderIp`.
-        SenderIp::trackJobs();
+        // بشريّاً له، فلا يُنسب لصاحب الطلب. التتبّع هنا والقاعدة في `MessageSender`.
+        MessageSender::trackJobs();
 
         // تجاوز OTP التطويري (رمز ثابت لأي هوية) للاختبار
         // if (OtpService::isDevOtpConfigured() && ! app(OtpService::class)->devBypass()) {
@@ -78,7 +79,7 @@ class AppServiceProvider extends ServiceProvider
 
         // الكتالوج القانونيّ على النمط نفسه: أيّ حفظٍ في أقسامه أو خدماته أو أسمائه البديلة
         // يُنسي لقطة الطلب، فتقرأ الشاشة والإسناد ما كُتب للتوّ.
-        foreach ([LegalDepartment::class, LegalService::class, LegalCatalogueAlias::class] as $model) {
+        foreach ([LegalDepartment::class, LegalService::class, LegalCatalogueAlias::class, LegalDepartmentDocument::class] as $model) {
             $model::saved(fn () => LegalCatalogue::flush());
             $model::deleted(fn () => LegalCatalogue::flush());
         }

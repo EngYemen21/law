@@ -15,11 +15,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const toast = useToast();
   const props = usePage().props as {
     auth?: { user?: { id?: number } };
-    flash?: { error?: string | null; success?: string | null };
   };
   const userId = props.auth?.user?.id;
-  const flashError = props.flash?.error;
-  const flashSuccess = props.flash?.success;
 
   // إشعارات لحظية: قناة المستخدم الخاصّة — تنبيه فوريّ + تحديث نقطة الجرس وقائمة الإشعارات بلا إعادة تحميل
   useEffect(() => {
@@ -29,7 +26,8 @@ return;
 
     echo.private(`notifications.${userId}`).listen('.notify', (e: { text: string }) => {
       toast(e.text);
-      router.reload({ only: ['unreadNotifications', 'notifications'] });
+      // `recentNotifications` هو ما تقرؤه القائمة — كان المُعاد `notifications` (لا وجود له) فتبقى القائمة بائتة
+      router.reload({ only: ['unreadNotifications', 'recentNotifications'] });
     });
 
     return () => {
@@ -37,18 +35,8 @@ return;
 };
   }, [userId]);
 
-  // رسائل الخادم (flash.error / flash.success) → toast — استهلاك مشاركة موجودة أصلاً في HandleInertiaRequests
-  useEffect(() => {
-    if (flashError) {
-      toast(flashError, 'error');
-    }
-  }, [flashError, toast]);
-
-  useEffect(() => {
-    if (flashSuccess) {
-      toast(flashSuccess, 'success');
-    }
-  }, [flashSuccess, toast]);
+  // رسائل الخادم (flash.error / flash.success) انتقلت إلى `ServerFeedback.tsx`: كانت هنا فلا تصل
+  // صفحةَ الدخول (مستقلّة بلا تخطيط)، وتُطلق بتغيّر النصّ فيضيع الرفض نفسه في المرّة الثانية.
 
   return (
     <div className="app">

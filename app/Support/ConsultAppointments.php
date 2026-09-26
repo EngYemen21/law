@@ -71,8 +71,9 @@ final class ConsultAppointments
             ->value('actor_id');
 
         $isVideo = $slot['type'] === 'video';
+        // `duration` لـZoom اسميّ (`SessionWindow::nominalMinutes`) — الجلسة تنتهي بختمها لا ببلوغه
         $slot['zoom'] = $isVideo
-            ? app(ZoomService::class)->createMeeting("استشارة {$consult->ref} — {$consult->subject}", $slot['duration'], false, $slot['starts_at'])
+            ? app(ZoomService::class)->createMeeting("استشارة {$consult->ref} — {$consult->subject}", SessionWindow::nominalMinutes(), false, $slot['starts_at'])
             : null;
 
         if ($isVideo && empty($slot['zoom']['id'])) {
@@ -115,6 +116,7 @@ final class ConsultAppointments
             $type = self::typeOf($consult);
         }
 
+        // مسافة الحجز على تقويم المحامي (تُحفظ في `duration_min` لمنع التعارض) — لا عمرُ الجلسة
         $duration = LawyerAvailability::slotMinutes();
         $lawyer = self::lawyer($consult, $input['lawyer_id'] ?? $base['lawyer_id'] ?? null, $startsAt, $duration);
 

@@ -161,7 +161,8 @@ class DocumentEditorTest extends TestCase
 
         // محاولة العرض من محامٍ آخر
         $responseGet = $this->actingAs($this->lawyerB)->get("/lawyer/editor/{$doc->id}");
-        $responseGet->assertStatus(403);
+        $this->assertPageRefused($responseGet);
+        $responseGet->assertDontSee('بيانات سرية');
 
         // محاولة التعديل من محامٍ آخر
         $responsePut = $this->actingAs($this->lawyerB)->put("/lawyer/editor/{$doc->id}", [
@@ -441,7 +442,7 @@ class DocumentEditorTest extends TestCase
 
         $response = $this->actingAs($this->lawyerB)->get("/lawyer/editor/{$doc->id}/print");
 
-        $response->assertForbidden();
+        $this->assertPageRefused($response);
     }
 
     public function test_admin_can_view_print_preview_of_any_document(): void
@@ -492,7 +493,7 @@ class DocumentEditorTest extends TestCase
 
         $response = $this->actingAs($this->lawyerB)->get("/lawyer/editor/{$doc->id}/pdf");
 
-        $response->assertForbidden();
+        $this->assertPageRefused($response);
     }
 
     public function test_admin_can_download_pdf_of_any_document(): void

@@ -6,6 +6,8 @@ use App\Domain\Journey\Enums\AppointmentStatus;
 use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\SessionState;
 use App\Domain\Journey\Transition;
+use App\Events\Journey\SessionEndedInSystem;
+use App\Events\RoomStateChanged;
 use App\Models\Consult;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -17,14 +19,20 @@ use Illuminate\Database\Eloquent\Model;
  * الجلسة والحالة وموعدها مباشرةً، كلٌّ بنسخته. هنا الكتابة واحدة: الجلسة والحالة «منتهية»،
  * والموعد المرتبط يُحسم «تم الحضور» (وإلّا بقي «قادماً» في الأعمدة المخزّنة حتى تنقضي خانته).
  *
- * **`from()` مفتوح والحارس «غير مختومة» وحده، عمداً:** الويبهوك يختم من أيّ جلسةٍ لم تُختم
- * (Zoom دليلُ انعقاد، ولو وُسمت «لم تُعقد» قبله)؛ وزرّ الطاقم يشترط «جارية» عند المنادي
- * برسالته. تضييقه هنا يُسقط ختماً ينجح اليوم.
+ * **`from()` مفتوح والحارس يفرّق بالمصدر:** الويبهوك يختم من أيّ جلسةٍ لم تُختم (Zoom دليلُ
+ * انعقاد، ولو وُسمت «لم تُعقد» قبله)؛ أمّا زرّ الطاقم وشبكة النسيان فلا يختمان إلّا **جاريةً**
+ * (`Consult::isLive` — القاعدة نفسها التي تُفعّل زرّ الإنهاء في عقد الغرفة). كان شرط «جارية»
+ * عند المنادي وحده، فأيّ منادٍ جديد يختم جلسةً لم تبدأ.
  *
- * ما يلي الختم (تذكرة «بانتظار ملخّص الجلسة»، وإنهاء غرفة Zoom، والتوليد، والبثّ) يبقى عند
- * المنادي بعد النداء وبترتيبه — شبكةٌ وطوابير لا مكان لها داخل المعاملة.
+ * **وإغلاقُ غرفة Zoom حدثٌ بعد الالتزام** (`SessionEndedInSystem` ⇒ `EndZoomMeetingJob`) — في
+ * الانتقال لا عند كلّ منادٍ، فلا يُختم سجلٌّ وتبقى غرفته مفتوحة (قرار المالك 2026-09-26)؛ إلّا
+ * إن جاء الإنهاء من Zoom نفسه (`source` = `zoom`) فالغرفة أُغلقت هناك.
  *
- * الحمولة (اختياريّة، من زرّ الطاقم): `session_notes` · `duration_label`.
+ * وما يلي الختم غير ذلك (تذكرة «بانتظار ملخّص الجلسة»، والتوليد، والبثّ) يبقى عند المنادي بعد
+ * النداء وبترتيبه.
+ *
+ * الحمولة (اختياريّة): `source` (`staff` افتراضاً / `zoom` / `safety_net` — `SessionEndedInSystem::VIA_*`)
+ * · `reason` · ومن زرّ الطاقم `session_notes` · `duration_label`.
  *
  * @extends Transition<Consult>
  */
@@ -52,8 +60,13 @@ final class EndSession extends Transition
 
     public function guard(Model $entity, array $payload): ?string
     {
-        return $entity->session === SessionState::Ended->value
-            ? 'خُتمت هذه الجلسة بالفعل.'
+        /** @var Consult $entity */
+        if ($entity->session === SessionState::Ended->value) {
+            return 'خُتمت هذه الجلسة بالفعل.';
+        }
+
+        return ($payload['source'] ?? SessionEndedInSystem::VIA_STAFF) !== SessionEndedInSystem::VIA_ZOOM && ! $entity->isLive()
+            ? 'الجلسة لم تبدأ — لا تُختَم إلّا جلسةٌ جارية. سجّل «لم يحضر» إن فات موعدها.'
             : null;
     }
 
@@ -76,8 +89,17 @@ final class EndSession extends Transition
         ]);
     }
 
+    public function events(Model $entity, string $from, ?User $actor, array $payload): array
+    {
+        /** @var Consult $entity */
+        return [
+            ...SessionEndedInSystem::forEnd($entity->meet_id, $entity->ref, $payload),
+            ...RoomStateChanged::both($entity),
+        ];
+    }
+
     public function record(array $payload): array
     {
-        return ['source' => $payload['source'] ?? 'staff'];
+        return ['source' => $payload['source'] ?? SessionEndedInSystem::VIA_STAFF];
     }
 }

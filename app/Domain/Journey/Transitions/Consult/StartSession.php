@@ -6,6 +6,7 @@ use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\SessionState;
 use App\Domain\Journey\Transition;
 use App\Events\Journey\ConsultSessionStarted;
+use App\Events\RoomStateChanged;
 use App\Models\Consult;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -63,6 +64,8 @@ final class StartSession extends Transition
 
     public function events(Model $entity, string $from, ?User $actor, array $payload): array
     {
-        return [new ConsultSessionStarted($entity)];
+        /** @var Consult $entity */
+        // وصفحةُ الغرفة المفتوحة تصير «جارية» ويُفعَّل زرّ الإنهاء لحظة البدء
+        return [new ConsultSessionStarted($entity), ...RoomStateChanged::both($entity)];
     }
 }

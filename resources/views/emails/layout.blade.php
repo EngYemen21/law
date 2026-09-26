@@ -4,7 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>{{ $title ?? 'النظام الإداري لمكاتب المحاماه' }}</title>
+    {{-- الافتراض اسم المكتب من إعداده — كان نصّاً منقوشاً بتهجئة «المحاماه» لا تطابق المستندات --}}
+    <title>{{ $title ?? \App\Support\SettingsRegistry::str('office_name') }}</title>
     <style>
         /* Google Fonts & Reset */
         @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');
@@ -95,14 +96,14 @@
                             <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 14px;">
                                 <tr>
                                     <td align="center" style="background-color:#FFFFFF;border-radius:12px;padding:8px 18px;text-align:center;">
-                                        <img src="{{ $logoSrc }}" alt="النظام الإداري لمكاتب المحاماة" width="200" style="display:block;margin:0 auto;width:200px;max-width:100%;height:auto;max-height:55px;border:0;" />
+                                        <img src="{{ $logoSrc }}" alt="{{ $officeName }}" width="200" style="display:block;margin:0 auto;width:200px;max-width:100%;height:auto;max-height:55px;border:0;" />
                                     </td>
                                 </tr>
                             </table>
 
-                            {{-- اسم النظام --}}
+                            {{-- اسم المكتب من الإعدادات — كان الرأس منقوشاً والتذييل يقرأ الإعداد، فتحمل الرسالة اسمين --}}
                             <div style="font-size:20px;font-weight:bold;color:#FFFFFF;line-height:1.3;margin-bottom:6px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;">
-                                النظام الإداري لمكاتب المحاماة
+                                {{ $officeName }}
                             </div>
 
                             {{-- الشارة الفرعية --}}

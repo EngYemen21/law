@@ -1,7 +1,8 @@
-import { Link } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useState } from 'react';
 import { useToast } from '@/components/babylon/Toast';
+import { panelBase } from '@/lib/data';
 import Icon from '@/lib/icons';
 
 // مختبر التحليل والصياغة القانونية للمحامي والمستشار — Legal Analysis & Drafting Lab
@@ -100,6 +101,9 @@ interface Props {
 
 const LawyerAssistant: React.FC<Props> = ({ refs }) => {
   const toast = useToast();
+  // بادئة لوحة الدور — الصفحة تُعرض من لوحتي المحامي والإدارة، وكلٌّ ينادي مساره ومحرّره
+  const base = panelBase((usePage().url as string).split('?')[0]);
+  const [opening, setOpening] = useState(false);
   const [selectedQuick, setSelectedQuick] = useState<string | null>(null);
   const [tab, setTab] = useState(ASSIST_TABS[0].key);
   const [type, setType] = useState(ASSIST_TABS[0].items[0]);
@@ -148,7 +152,7 @@ const LawyerAssistant: React.FC<Props> = ({ refs }) => {
     setDraftSource(null); // وسمُ مسودّةٍ سابقة فوق مسودّة جديدة أسوأ من غيابه
     try {
       // الصفحة تُعرض من لوحتي المحامي والإدارة — كل لوحة تنادي مسارها (قرار 2026-08-28)
-      const { data } = await axios.post(`${window.location.pathname.startsWith('/admin') ? '/admin' : '/lawyer'}/assistant/generate`, {
+      const { data } = await axios.post(`${base}/assistant/generate`, {
         kind: kindToSend,
         docType: type,
         ref,
@@ -157,8 +161,11 @@ const LawyerAssistant: React.FC<Props> = ({ refs }) => {
       setDraft(data.draft);
       setDraftSource({ source: data.source, label: data.sourceLabel });
       toast('✨ تم توليد الصياغة القانونية بنجاح — يمكنك مراجعتها وتعديلها');
-    } catch {
-      toast('تعذّر توليد المسودة حالياً، يرجى المحاولة لاحقاً');
+    } catch (err) {
+      // رسالة الخادم أوّلاً (تحقّقٌ مرفوض، مرجعٌ غير مسند إليك…) — لا عبارة عامّة تُخفي السبب
+      const body = axios.isAxiosError(err) ? (err.response?.data as { message?: string; errors?: Record<string, string[]> } | undefined) : undefined;
+      const first = body?.errors ? Object.values(body.errors)[0]?.[0] : undefined;
+      toast(first ?? body?.message ?? 'تعذّر توليد المسودة حالياً، يرجى المحاولة لاحقاً', 'error');
     } finally {
       setBusy(false);
     }
@@ -295,14 +302,24 @@ return;
               </span>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <Link
-                href={`/lawyer/editor/create?draft=${encodeURIComponent(draft)}`}
+              {/* التسليم عبر الجلسة لا العنوان (`AssistantController::toEditor`): مسودّةٌ بآلاف
+                  الحروف في العنوان تُقتطع، وكانت البادئة `/lawyer` مثبَّتة فيُصدّ عنها الإداريّ */}
+              <button
+                type="button"
                 className="btn primary sm"
+                disabled={opening}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                title="فتح المسودة في محرر الصياغة للتنسيق والطباعة كـ Word"
+                title="فتح المسودة في محرر الصياغة للتنسيق والطباعة"
+                onClick={() => {
+                  setOpening(true);
+                  router.post(`${base}/assistant/to-editor`, { draft, title: type }, {
+                    onError: (errs) => toast(`⚠️ ${Object.values(errs)[0] ?? 'تعذّر فتح المحرّر'}`, 'error'),
+                    onFinish: () => setOpening(false),
+                  });
+                }}
               >
-                <Icon name="doc" /> فتح في محرر الصياغة
-              </Link>
+                <Icon name="doc" /> {opening ? 'جارٍ الفتح…' : 'فتح في محرر الصياغة'}
+              </button>
               <button
                 className="btn soft sm"
                 onClick={() => {

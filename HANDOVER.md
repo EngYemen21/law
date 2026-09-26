@@ -625,7 +625,7 @@ idempotent → فتح ملف التنفيذ). المستندات (`execution_doc
   بثلاثة أوضاع: محاكى/خادم/بثّ لحظيّ عبر أحداث `.message`+`.status`)، `DetailShell` (قشرة التفصيل)،
   `TicketActions` (`useTicketActions`: مودالات نواقص/تحويل/جدولة)، `TicketTalkingNotice` (منع الردّ
   المزدوج عبر presence+whisper)، `Modal`, `Badge`, `MsgMeta`, `StatRow`, `FlowLine`, `admin-charts`.
-  و`components/SpecialistPicker.tsx` (منتقي المستشارين والفترات — يجلب التفرّغ من الخادم).
+  (حُذف `components/SpecialistPicker.tsx` في 2026-09-26: لم يكن يستعمله شيء، ويختصر اسم المحامي بطريقةٍ خاصّة تخالف `LawyerName`.)
 
 ### 12.3 مكتبات `lib/` والبيانات المولّدة
 - `data.ts` (مصدر التنقّل: `ROLES, ROLE_NAV, ROLE_TITLES, roleOfPath, NAV/TILES/VIEW_ROUTE`)، `icons.tsx`

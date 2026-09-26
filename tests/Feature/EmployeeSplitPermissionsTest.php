@@ -52,7 +52,7 @@ class EmployeeSplitPermissionsTest extends TestCase
         $url = route('exec-flow.documents.download', [$exec, $doc]);
 
         $viewer = $this->employee(['إدارة القضايا والأتعاب']);
-        $this->actingAs($viewer)->get($url)->assertForbidden()->assertSee('تنزيل مرفقات الملفات');
+        $this->assertPageRefused($this->actingAs($viewer)->get($url), 'تنزيل مرفقات الملفات');
         $this->actingAs($viewer);
         $this->assertFalse($doc->toData()['canDownload'], 'الاسم بلا رابط');
 

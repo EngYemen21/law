@@ -15,6 +15,8 @@ interface ClientRow {
   consults: number;
   executions: number;
   status: string;
+  /** لون شارة الحالة من الخادم (`ClientController::index`) */
+  statusTone: string;
   createdAt: string;
 }
 
@@ -426,7 +428,7 @@ const AdminClients: React.FC<Props> = ({ clients, filters = {}, summaryStats }) 
                       <td className="muted">{c.email}</td>
                       <td>{renderActivity(c)}</td>
                       <td>
-                        <Badge text={c.status} tone={c.status === 'نشط' ? 'b-green' : 'b-grey'} />
+                        <Badge text={c.status} tone={c.statusTone} />
                       </td>
                       <td className="muted" style={{ fontSize: 12 }}>{c.createdAt}</td>
                       <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>

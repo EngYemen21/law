@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
+use App\Models\Consult;
 use App\Models\Setting;
 use Carbon\Carbon;
 
@@ -34,8 +36,11 @@ class SettingsRegistry
     {
         return [
             'exec' => 'التنفيذ والأتعاب',
+            'billing' => 'الفواتير والسداد',
+            'consults' => 'الاستشارات والمواعيد',
             'alerts' => 'المهل والتنبيهات',
             'office' => 'بيانات المكتب في المستندات والبريد',
+            'chat' => 'مسمّيات المتحدّثين في محادثات العميل',
         ];
     }
 
@@ -45,7 +50,7 @@ class SettingsRegistry
      *
      * `forwardOnly` يعني: التغيير يسري على ما يُنشأ بعده وحده، وما مضى محفوظٌ على صفّه.
      *
-     * @return array<string, array{group:string,label:string,hint:string,type:'int'|'string'|'date',default:mixed,min?:int,max?:int,rules:array<int,string>,forwardOnly?:bool}>
+     * @return array<string, array{group:string,label:string,hint:string,type:'int'|'string'|'date',default:mixed,min?:int,max?:int,rules:array<int,string>,forwardOnly?:bool,gt?:string,defaultLabel?:string}>
      */
     public static function all(): array
     {
@@ -92,6 +97,144 @@ class SettingsRegistry
                 'forwardOnly' => true,
             ],
 
+            // ── الفواتير والسداد ──
+            // مهلة كلّ فاتورةٍ كانت رقماً منقوشاً في موضع إصدارها ومعه نصٌّ عربيّ مكتوبٌ باليد
+            // («خلال 3 أيام»). القارئ الوحيد الآن `Finance\InvoiceDue` — يبني التاريخ والنصّ معاً
+            // من القيمة نفسها. وكلّها `forwardOnly`: الفاتورة تحمل `due_at` مجمَّداً لحظة إصدارها.
+            'invoice_due_days_consult' => [
+                'group' => 'billing',
+                'label' => 'مهلة سداد فاتورة الاستشارة (أيّام)',
+                'hint' => 'تُحسب من لحظة تسعير الاستشارة وإصدار فاتورتها.',
+                'type' => 'int',
+                'default' => 3,
+                'min' => 1,
+                'max' => 30,
+                'rules' => ['required', 'integer', 'min:1', 'max:30'],
+                'forwardOnly' => true,
+            ],
+            'invoice_due_days_case' => [
+                'group' => 'billing',
+                'label' => 'مهلة سداد فاتورة أتعاب القضيّة (أيّام)',
+                'hint' => 'تُحسب من اعتماد الأتعاب حين يدفع العميل المبلغ كاملاً. مهلة الدفعة الأولى في التقسيط خانةٌ مستقلّة أدناه.',
+                'type' => 'int',
+                'default' => 14,
+                'min' => 1,
+                'max' => 60,
+                'rules' => ['required', 'integer', 'min:1', 'max:60'],
+                'forwardOnly' => true,
+            ],
+            'invoice_due_days_exec' => [
+                'group' => 'billing',
+                'label' => 'مهلة سداد فاتورة أتعاب التنفيذ (أيّام)',
+                'hint' => 'تُحسب من قبول العميل عرض التنفيذ حين يدفع المبلغ كاملاً. مهلة الدفعة الأولى في التقسيط خانةٌ مستقلّة أدناه.',
+                'type' => 'int',
+                'default' => 3,
+                'min' => 1,
+                'max' => 30,
+                'rules' => ['required', 'integer', 'min:1', 'max:30'],
+                'forwardOnly' => true,
+            ],
+            'invoice_due_days_collection' => [
+                'group' => 'billing',
+                'label' => 'مهلة سداد فاتورة النسبة من المحصّل (أيّام)',
+                'hint' => 'الفاتورة التي تصدر مع كلّ تحصيلٍ في ملفّ تنفيذٍ أتعابُه نسبةٌ من المحصّل.',
+                'type' => 'int',
+                'default' => 7,
+                'min' => 1,
+                'max' => 30,
+                'rules' => ['required', 'integer', 'min:1', 'max:30'],
+                'forwardOnly' => true,
+            ],
+            'installment_first_due_days' => [
+                'group' => 'billing',
+                'label' => 'مهلة سداد الدفعة الأولى في التقسيط (أيّام)',
+                'hint' => 'حين يختار العميل التقسيط في قضيّةٍ أو تنفيذ: تُحسب من فتح خطّة التقسيط.',
+                'type' => 'int',
+                // ما كان منقوشاً قبل أن تصير المهل إعدادات — فلا يتغيّر شيءٌ حتى تغيّره الإدارة
+                'default' => 3,
+                'min' => 1,
+                'max' => 60,
+                'rules' => ['required', 'integer', 'min:1', 'max:60'],
+                'forwardOnly' => true,
+            ],
+            'installment_interval_days' => [
+                'group' => 'billing',
+                'label' => 'الفاصل بين دفعات التقسيط (أيّام)',
+                'hint' => 'الدفعة الثانية تستحقّ بعد هذا الفاصل من فتح الخطّة، والثالثة بعد ضعفه، وهكذا — في القضايا والتنفيذ.',
+                'type' => 'int',
+                'default' => 30,
+                'min' => 7,
+                'max' => 90,
+                'rules' => ['required', 'integer', 'min:7', 'max:90'],
+                'forwardOnly' => true,
+            ],
+
+            // ── الاستشارات والمواعيد ──
+            // ساعات الحجز وطول الشريحة كانت ثوابتَ في `LawyerAvailability` ونُسخاً مختلفة في
+            // الواجهة (09–22 في شبكة الموظّف و08–22 بنصف ساعة في المنتقي). المحرّك يقرأ هنا،
+            // والشاشات تأخذ القيم من الخادم مشتركةً — فلا شبكة تعرض ساعةً لا يقبلها المحرّك.
+            'consult_day_start' => [
+                'group' => 'consults',
+                'label' => 'بداية ساعات حجز الاستشارات',
+                'hint' => 'الساعة (0–23) التي تبدأ منها أوّل شريحة حجز كلّ يوم. 0 = منتصف الليل.',
+                'type' => 'int',
+                'default' => LawyerAvailability::WORK_START,
+                'min' => 0,
+                'max' => 23,
+                'rules' => ['required', 'integer', 'min:0', 'max:23'],
+            ],
+            'consult_day_end' => [
+                'group' => 'consults',
+                'label' => 'نهاية ساعات حجز الاستشارات',
+                'hint' => 'الساعة (1–24) التي تنتهي عندها آخر شريحة — لا تبدأ شريحةٌ لا تنتهي قبلها. 24 = نهاية اليوم.',
+                'type' => 'int',
+                'default' => LawyerAvailability::WORK_END,
+                'min' => 1,
+                'max' => 24,
+                'rules' => ['required', 'integer', 'min:1', 'max:24'],
+                // علاقةٌ بين حقلين لا يعبّر عنها `gt:` وحده: البطاقة قد ترسل أحدهما، فيُقارن
+                // بالمحفوظ للآخر — `relationErrors()` تتولّاه.
+                'gt' => 'consult_day_start',
+            ],
+            // **مسافةُ حجزٍ لا عمرُ جلسة** (قرار المالك 2026-09-26): الجلسة تنتهي حين تُنهى، وهذا
+            // الرقم يمنع حجز موكّلَين عند المحامي في الوقت نفسه، ويُمرَّر لـZoom والتقويم اسماً فقط.
+            'consult_slot_minutes' => [
+                'group' => 'consults',
+                'label' => 'المسافة بين مواعيد الحجز (دقائق)',
+                'hint' => 'طول شريحة الحجز: لا يُحجز للمحامي موعدان داخل هذه المسافة. لا يُنهي الجلسة — الاستشارة والاجتماع ينتهيان حين يُنهيهما الطاقم أو يُنهى اجتماع Zoom.',
+                'type' => 'int',
+                'default' => LawyerAvailability::SLOT_MIN,
+                'min' => 15,
+                'max' => 120,
+                'rules' => ['required', 'integer', 'min:15', 'max:120'],
+                'forwardOnly' => true,
+            ],
+            'consult_reschedule_limit' => [
+                'group' => 'consults',
+                'label' => 'سقف إعادة جدولة الاستشارة',
+                'hint' => 'عدد المرّات التي يعيد فيها الطاقم جدولة استشارةٍ واحدة — وما بعدها للإدارة العليا وحدها. 0 = للإدارة العليا دائماً.',
+                'type' => 'int',
+                'default' => RescheduleConsult::LIMIT,
+                'min' => 0,
+                'max' => 10,
+                'rules' => ['required', 'integer', 'min:0', 'max:10'],
+            ],
+            // **المهل بالدقائق** (قرار المالك 2026-09-26): كانت أربعٌ منها بالساعات، فلا تُضبط مهلةٌ
+            // من ٥ أو ١٠ دقائق. والشاشة تأخذ دقائق، وكلُّ نصٍّ يقرؤه إنسانٌ يُصاغ منها بوحدتها
+            // الطبيعيّة (`ArabicCount::duration`: ٩٠ ⇒ «ساعة ونصف») لا «٩٠ دقيقة». المحفوظ بالساعات
+            // حُوِّل بمهاجرة `2026_09_26_130000_settings_hours_to_minutes`، ويحرس `HumanDurationTest`
+            // ألّا يعود مفتاح مدّةٍ بالساعات.
+            'consult_reschedule_notice_minutes' => [
+                'group' => 'consults',
+                'label' => 'أقلّ مهلة لطلب العميل تغيير موعده (دقائق)',
+                'hint' => 'موعدٌ يبدأ خلال هذه الدقائق لا يطلب العميل تغييره من حسابه — يتّصل بالمكتب مباشرةً. 1440 = يوم واحد. 0 = يطلب في أيّ وقت.',
+                'type' => 'int',
+                'default' => Consult::RESCHEDULE_REQUEST_NOTICE_MINUTES,
+                'min' => 0,
+                'max' => 10080,
+                'rules' => ['required', 'integer', 'min:0', 'max:10080'],
+            ],
+
             // ── المهل والتنبيهات ──
             'ticket_escalate_minutes' => [
                 'group' => 'alerts',
@@ -105,15 +248,48 @@ class SettingsRegistry
                 'max' => 240,
                 'rules' => ['required', 'integer', 'min:5', 'max:240'],
             ],
-            'consult_autoclose_hours' => [
+            'consult_autoclose_minutes' => [
                 'group' => 'alerts',
-                'label' => 'إغلاق الاستشارة الفائتة بعد (ساعات)',
-                'hint' => 'المدّة بعد موعد الجلسة التي تُوسَم بعدها الاستشارة التي لم تُعقد «لم يحضر» آلياً.',
+                'label' => 'إغلاق الاستشارة الفائتة بعد (دقائق)',
+                'hint' => 'الدقائق بعد موعد الجلسة التي تُوسَم بعدها الاستشارة التي لم تُعقد «لم يحضر» آلياً. 720 = 12 ساعة.',
                 'type' => 'int',
-                'default' => 12,
-                'min' => 1,
-                'max' => 72,
-                'rules' => ['required', 'integer', 'min:1', 'max:72'],
+                'default' => 720,
+                'min' => 5,
+                'max' => 4320,
+                'rules' => ['required', 'integer', 'min:5', 'max:4320'],
+            ],
+            // ── نهاية الجلسة حدثٌ لا حساب (قرار المالك 2026-09-26) — `SessionWindow` ──
+            // الثلاثة تُقاس من **البداية**، ولا يُنهي أيٌّ منها جلسةً بدأت — وشبكةُ النسيان تنبّه
+            // الطاقم ولا تُنهي (قرار المالك 2026-09-26).
+            'session_missed_after_minutes' => [
+                'group' => 'alerts',
+                'label' => 'عدّ الجلسة التي لم تبدأ فائتةً بعد (دقائق)',
+                'hint' => 'استشارةٌ أو اجتماعٌ لم يبدأ بعد هذه الدقائق من موعده يُعرض «فائتاً» ويُغلق باب دخوله، ويجوز تسجيل «لم يحضر». لا يمسّ جلسةً بدأت — تلك لا تنتهي إلّا بإنهائها.',
+                'type' => 'int',
+                'default' => SessionWindow::MISSED_AFTER_MINUTES,
+                'min' => 10,
+                'max' => 240,
+                'rules' => ['required', 'integer', 'min:10', 'max:240'],
+            ],
+            'meeting_autoclose_minutes' => [
+                'group' => 'alerts',
+                'label' => 'إغلاق الاجتماع الذي لم ينعقد بعد (دقائق)',
+                'hint' => 'الدقائق بعد موعد الاجتماع التي يُوسَم بعدها «لم ينعقد» آلياً إن لم يدخله أحد، وتنتهي صلاحية دعوته. 720 = 12 ساعة.',
+                'type' => 'int',
+                'default' => SessionWindow::MEETING_AUTOCLOSE_MINUTES,
+                'min' => 5,
+                'max' => 4320,
+                'rules' => ['required', 'integer', 'min:5', 'max:4320'],
+            ],
+            'session_stale_minutes' => [
+                'group' => 'alerts',
+                'label' => 'إنهاء الجلسة المنسيّة بعد (دقائق)',
+                'hint' => 'جلسةٌ بدأت ولم يُنهها أحد: بعد هذه الدقائق من بدئها يُنبَّه الطاقم وتُنهى الجلسة في النظام وفي Zoom. شبكة أمانٍ للنسيان، لا مدّةٌ للجلسة. 360 = 6 ساعات.',
+                'type' => 'int',
+                'default' => SessionWindow::STALE_AFTER_MINUTES,
+                'min' => 5,
+                'max' => 2880,
+                'rules' => ['required', 'integer', 'min:5', 'max:2880'],
             ],
             'meeting_reminder_lead' => [
                 'group' => 'alerts',
@@ -125,12 +301,28 @@ class SettingsRegistry
                 'max' => 1440,
                 'rules' => ['required', 'integer', 'min:5', 'max:1440'],
             ],
+            'consult_request_late_minutes' => [
+                'group' => 'alerts',
+                'label' => 'تأخّر طلب الاستشارة المفتوح بعد (دقائق)',
+                'hint' => 'عمر الطلب المفتوح منذ استقباله الذي يُعدّ بعده «متأخّراً» في شاشتي الاستشارات وطلباتها.',
+                'type' => 'int',
+                // كانت الشاشتان تحملان حدّين مختلفين للطلبات نفسها (100 و120): فالطلب الواحد
+                // «متأخّر» في شاشةٍ و«في الوقت» في جارتها. اختير 120 — ساعتان، ما تعلنه
+                // تسمية فلتر «متأخرة (> ساعتين)» وما يطابق مهلة تصعيد التذكرة.
+                'default' => 120,
+                'min' => 15,
+                'max' => 1440,
+                'rules' => ['required', 'integer', 'min:15', 'max:1440'],
+            ],
 
             // ── بيانات المكتب ──
             'office_name' => [
                 'group' => 'office',
+                // **اسمٌ واحد في كلّ مكان** (قرار المالك 2026-09-26): كان اسم المنصّة منقوشاً في
+                // الصفحة الترويجيّة وصفحة الدخول وعنوان التبويب وشعار القائمة وتعليمات النموذج،
+                // فلا تغيّره الإدارة إلّا بنشر كود. صار هذا الحقل مصدره الوحيد — لا حقل «اسم نظام» ثانٍ.
                 'label' => 'اسم المكتب',
-                'hint' => 'يظهر في رأس كلّ مستند PDF وفي تذييل كلّ رسالة بريد.',
+                'hint' => 'الاسم الواحد للمكتب في كلّ مكان: رأس مستندات PDF، ورسائل البريد، والصفحة الترويجيّة وصفحة الدخول، وعنوان تبويب المتصفّح، والقائمة الجانبيّة، والاسم الذي يُعرّف به المساعدُ الذكيّ المكتب.',
                 'type' => 'string',
                 // **النصّ المنقوش سابقاً لا `config('app.name')`.** الاثنان يختلفان بحرف:
                 // الكود يكتبها «المحاماة» في خمسةٍ وأربعين موضعاً (ومنها رأس PDF قبل هذا
@@ -164,7 +356,75 @@ class SettingsRegistry
                 // منقوشٌ افتراضاً يُطبع على مستندٍ رسميّ فيصير رقماً **كاذباً** باسم المكتب،
                 // وهو أسوأ من غيابه. فإمّا الرقم الصحيح الذي تُدخله الإدارة، وإمّا لا سطر.
                 'default' => '',
+                // ما يقرؤه المدير على زرّ «إعادة إلى الافتراض» — الفراغ وحده لا يقول شيئاً
+                'defaultLabel' => 'فارغ — لا يُطبع سطر الرقم الضريبيّ',
                 'rules' => ['nullable', 'string', 'max:30'],
+            ],
+            // **العنوان والمدينة افتراضُهما من `config/office.php` لا نصٌّ هنا.** كانا يُقرآن من
+            // البيئة (`OFFICE_ADDRESS`/`OFFICE_CITY`)، ونشرٌ ضبطهما هناك لا يصحّ أن يرتدّ إلى نصٍّ
+            // منقوش حين يصير الإعداد في الجدول. فالترتيب: ما حفظته الإدارة ← البيئة ← افتراض
+            // ملفّ الإعداد. والقارئ واحد (`SettingsRegistry::str`) — لا أحد يقرأ `config('office.*')` بعد اليوم.
+            'office_address' => [
+                'group' => 'office',
+                'label' => 'عنوان المكتب',
+                'hint' => 'مكان الاستشارة الحضوريّة حين لا يحمل موعدها مكاناً، ويظهر في التقويم وبطاقات المواعيد.',
+                'type' => 'string',
+                'default' => (string) config('office.address'),
+                'rules' => ['required', 'string', 'max:200'],
+            ],
+            'office_city' => [
+                'group' => 'office',
+                'label' => 'مدينة المكتب',
+                'hint' => 'تُكتب في صحيفة الدعوى المولّدة: «لدى المحكمة المختصّة بمدينة …».',
+                'type' => 'string',
+                'default' => (string) config('office.city'),
+                'rules' => ['required', 'string', 'max:60'],
+            ],
+            'office_email' => [
+                'group' => 'office',
+                'label' => 'بريد المكتب في دعوات التقويم',
+                'hint' => 'البريد الذي يظهر «منظِّماً» في ملفّ دعوة التقويم المرفق بالمواعيد.',
+                'type' => 'string',
+                'default' => 'no-reply@salasel.sa',
+                'rules' => ['required', 'string', 'max:120', 'email'],
+            ],
+
+            // ── مسمّيات المتحدّثين (طلب المالك 2026-09-25) ──
+            // ما يقرؤه **العميل** فوق كلّ رسالة في التذكرة والقضيّة والتنفيذ؛ الطاقم يرى الأسماء
+            // الحقيقيّة. القارئ الوحيد `ChatSenderLabel`. والحقول اختياريّة: تفريغُ حقلٍ يعيد افتراضه.
+            ChatSenderLabel::EMPLOYEE => [
+                'group' => 'chat',
+                'label' => 'الموظّف',
+                'hint' => 'الاسم الذي يظهر للعميل فوق ردود موظّفي المكتب. اتركه فارغاً ليظهر «الفريق القانوني».',
+                'type' => 'string',
+                'default' => ChatSenderLabel::OFFICE,
+                'rules' => ['nullable', 'string', 'max:40'],
+            ],
+            ChatSenderLabel::LAWYER => [
+                'group' => 'chat',
+                'label' => 'المحامي',
+                'hint' => 'اسمٌ بديل يظهر للعميل فوق ردود المحامين كلّهم. اتركه فارغاً ليظهر اسم المحامي مختصراً «محمد. ب».',
+                'type' => 'string',
+                // **الفراغ هنا معنىً لا غياب**: يعني «الاسم المختصر لكلّ محامٍ»، فلا افتراضَ نصّيّاً يحلّ محلّه
+                'default' => '',
+                'defaultLabel' => 'فارغ — يظهر اسم كلّ محامٍ مختصراً',
+                'rules' => ['nullable', 'string', 'max:40'],
+            ],
+            ChatSenderLabel::ADMIN => [
+                'group' => 'chat',
+                'label' => 'الإدارة العليا',
+                'hint' => 'الاسم الذي يظهر للعميل فوق ردود الإدارة العليا. اتركه فارغاً ليظهر «الفريق القانوني».',
+                'type' => 'string',
+                'default' => ChatSenderLabel::OFFICE,
+                'rules' => ['nullable', 'string', 'max:40'],
+            ],
+            ChatSenderLabel::AI => [
+                'group' => 'chat',
+                'label' => 'الذكاء الاصطناعي',
+                'hint' => 'الاسم الذي يظهر للعميل فوق الردود الآليّة. اتركه فارغاً ليظهر «خدمة العملاء».',
+                'type' => 'string',
+                'default' => 'خدمة العملاء',
+                'rules' => ['nullable', 'string', 'max:40'],
             ],
         ];
     }
@@ -231,6 +491,39 @@ class SettingsRegistry
         }
 
         return $rules;
+    }
+
+    /**
+     * **أخطاء العلاقة بين حقلين** (`gt`: هذا أكبر من ذاك) — بعد تحقّق كلّ حقلٍ بمفرده.
+     *
+     * `gt:` في قواعد لارافيل يفشل إن غاب الحقل الآخر عن الطلب، والبطاقة قد ترسل أحدهما
+     * وحده؛ فالمقارنة هنا بالقيمة **النافذة** للآخر: المرسَلة إن أُرسلت، وإلّا المحفوظة.
+     * وإلّا حُفظت نهايةٌ قبل البداية فيولّد المحرّك يوماً بلا شريحة واحدة بصمت.
+     *
+     * @param  array<string, mixed>  $data  المُتحقَّق منه
+     * @return array<string, string> مفتاح ← رسالة
+     */
+    public static function relationErrors(array $data): array
+    {
+        $current = self::values();
+        $errors = [];
+
+        foreach (self::all() as $key => $field) {
+            $other = $field['gt'] ?? null;
+
+            if ($other === null || (! array_key_exists($key, $data) && ! array_key_exists($other, $data))) {
+                continue;
+            }
+
+            $mine = (int) ($data[$key] ?? $current[$key]);
+            $theirs = (int) ($data[$other] ?? $current[$other]);
+
+            if ($mine <= $theirs) {
+                $errors[$key] = '«'.$field['label'].'» يجب أن تكون بعد «'.self::field($other)['label'].'» ('.$theirs.').';
+            }
+        }
+
+        return $errors;
     }
 
     /**

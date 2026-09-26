@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domain\Journey\Enums\ClosureReasonCode;
 use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Domain\Journey\Transitions\Consult\RejectProposedAppointment;
+use App\Domain\Journey\Transitions\Consult\ReturnConsultSummary;
+use App\Domain\Journey\Transitions\Ticket\OutcomeSummaryGate;
 use App\Domain\Journey\Transitions\Ticket\RejectOutcomeTrack;
 use App\Domain\Journey\Transitions\Ticket\RejectTicketResult;
 use App\Domain\Journey\Transitions\Ticket\ReturnTicketSummary;
@@ -12,6 +15,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\TicketSummary;
+use App\Support\AdminApprovalQueue;
 use App\Support\Notify;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -34,9 +38,8 @@ class ApprovalsController extends Controller
     public function index(): Response
     {
         // 1. ملخصات التذاكر المعلقة — الأحدث اعتماداً وتحديثاً من المستشار في أول الجدول
-        $ticketSummaries = TicketSummary::with(['ticket.user', 'ticket.assignedLawyer', 'lawyer'])
-            ->where('status', 'awaiting_admin')
-            ->whereHas('ticket')
+        // القوائم الأربع من تعريفها الواحد (`AdminApprovalQueue`) — يقرؤه رادار اللوحة وتبويب التذاكر أيضاً
+        $ticketSummaries = AdminApprovalQueue::ticketSummaries()->with(['ticket.user', 'ticket.assignedLawyer', 'lawyer'])
             ->orderByRaw('COALESCE(lawyer_approved_at, updated_at) DESC')
             ->get()
             ->map(function (TicketSummary $s) {
@@ -61,10 +64,7 @@ class ApprovalsController extends Controller
             })->values();
 
         // 2. مقترحات مسار مآل التذاكر — الأحدث اقتراحاً في أول الجدول
-        $ticketTrackProposals = Ticket::with(['user', 'proposedBy', 'assignedLawyer'])
-            ->whereNotNull('proposed_track')
-            ->whereNull('approved_track')
-            ->where('is_frozen', false)
+        $ticketTrackProposals = AdminApprovalQueue::trackProposals()->with(['user', 'proposedBy', 'assignedLawyer', 'summary'])
             ->orderByRaw('COALESCE(proposed_at, updated_at) DESC')->get()
             ->map(fn (Ticket $t) => [
                 'id' => $t->id,
@@ -82,14 +82,19 @@ class ApprovalsController extends Controller
                 'aiSuggestedTrack' => $t->ai_suggested_track,
                 'aiSuggestedTrackLabel' => TicketOutcomeTrack::tryFrom((string) $t->ai_suggested_track)?->label() ?? $t->ai_suggested_track,
                 'aiSuggestedReason' => $t->ai_suggested_reason,
+                /*
+                 * **حارس المآل نفسه يصل الصفّ** (`OutcomeSummaryGate`، ث٥): كان الاعتماد من هنا يُرسل
+                 * المسار والتسبيب وحدهما، فكلّ مقترحٍ بلا ملخّصٍ معتمد يُردّ 422 وتقول الشاشة «حدث خطأ».
+                 * الآن الصفّ يحمل المانع وسبب التجاوز الموروث، فتطلب النافذة سبب التجاوز حيث يلزم وحده.
+                 */
+                'outcomeBlocker' => OutcomeSummaryGate::blocker($t),
+                'inheritedWaiver' => OutcomeSummaryGate::inheritedWaiver($t, auth()->user()),
                 'since' => ($t->proposed_at ?? $t->updated_at)?->locale('ar')->diffForHumans(),
                 'at' => ($t->proposed_at ?? $t->updated_at)?->toIso8601String(),
             ])->values();
 
         // 3. محاضر الجلسات ونتائج الاستشارات — الأحدث اعتماداً في أول الجدول
-        $sessionSummaries = Consult::with(['user', 'ticket:id,number'])
-            ->whereNotNull('summary_lawyer_approved_at')
-            ->whereNull('summary_approved_at')
+        $sessionSummaries = AdminApprovalQueue::sessionSummaries()->with(['user', 'ticket:id,number'])
             ->orderByRaw('COALESCE(summary_lawyer_approved_at, updated_at) DESC')->get()
             ->map(fn (Consult $c) => [
                 'id' => $c->id,
@@ -105,8 +110,7 @@ class ApprovalsController extends Controller
             ])->values();
 
         // 4. مواعيد الاستشارات المحجوزة — الأحدث حجزاً وتعديلاً في أول الجدول
-        $appointments = Consult::with(['user', 'appointment'])
-            ->where('status', 'بانتظار اعتماد الموعد')
+        $appointments = AdminApprovalQueue::appointments()->with(['user', 'appointment'])
             ->latest('updated_at')->get()
             ->map(fn (Consult $c) => [
                 'id' => $c->id,
@@ -155,6 +159,8 @@ class ApprovalsController extends Controller
             'appointments' => $appointments,
             'approvedHistory' => $approvedHistory,
             'counts' => $counts,
+            // أسباب الإغلاق من الكتالوج — يختار المدير أحدها حين يعتمد مسار «إغلاق» (كان يُكتب `NoLegalMerit` صامتاً)
+            'closureReasons' => ClosureReasonCode::options(),
         ]);
     }
 
@@ -212,14 +218,23 @@ class ApprovalsController extends Controller
         }
 
         if ($data['type'] === 'session') {
+            // الإعادة انتقالٌ بحارسٍ وقيد (`ReturnConsultSummary`) لا مسحُ عمود — والمستشار يُبلَّغ بالسبب
             $consult = Consult::where('ref', $data['ref'])->firstOrFail();
-            $consult->update([
-                'summary_lawyer_approved_at' => null,
-            ]);
-            $consult->logAudit($admin->name, 'رفض محضر الجلسة', '—', $reason);
-            $consult->save();
+            $lawyerId = $consult->summary_lawyer_approved_by ?? $consult->assigned_lawyer_id;
+            Workflow::run(new ReturnConsultSummary, $consult, $admin, ['reason' => $reason]);
 
-            return back()->with('flash', 'تمت إعادة محضر الجلسة للمستشار لاستكماله.');
+            $consult->ticket?->messages()->create([
+                'who' => 'note',
+                'name' => $admin->name,
+                'role' => 'إدارة',
+                'body' => '<p><b>إعادة محضر الجلسة '.e($consult->ref).' للمستشار:</b> '.e($reason).'</p>',
+                'time_label' => now()->format('h:i A'),
+            ]);
+            if ($lawyerId) {
+                Notify::send($lawyerId, 'user', 't-amber', "أعادت الإدارة محضر الجلسة {$consult->ref} للاستكمال: {$reason}");
+            }
+
+            return back()->with('flash', 'تمت إعادة محضر الجلسة للمستشار لاستكماله وفق ملاحظاتك.');
         }
 
         if ($data['type'] === 'appointment') {
@@ -246,56 +261,5 @@ class ApprovalsController extends Controller
         }
 
         return back();
-    }
-
-    /**
-     * استبعاد أو حذف البند من قائمة الانتظار / الأرشيف.
-     */
-    public function dismiss(Request $request): RedirectResponse
-    {
-        $data = $request->validate([
-            'type' => ['required', 'string', Rule::in(['track', 'summary', 'session', 'appointment', 'history'])],
-            'ref' => ['required', 'string'],
-        ]);
-
-        $admin = $request->user();
-
-        if ($data['type'] === 'track') {
-            // كان تحديثاً جماعيّاً يمسح المقترح ويترك الحالة «بانتظار اعتماد الإدارة للمسار» —
-            // فتعلق التذكرة بانتظار مقترحٍ لم يعد قائماً. الاستبعاد رفضٌ بلا سببٍ ولا إشعار.
-            $ticket = Ticket::where('number', $data['ref'])->firstOrFail();
-            Workflow::run(new RejectOutcomeTrack, $ticket, $admin, ['dismiss' => true]);
-
-            return back()->with('flash', 'تم استبعاد المقترح بنجاح.');
-        }
-
-        if ($data['type'] === 'summary') {
-            $ticket = Ticket::where('number', $data['ref'])->first();
-            if ($ticket?->summary) {
-                Workflow::run(new ReturnTicketSummary, $ticket->summary, $admin);
-            }
-
-            return back()->with('flash', 'تم استبعاد ملخص التذكرة وإعادته لمرحلة المستشار.');
-        }
-
-        if ($data['type'] === 'session') {
-            $consult = Consult::where('ref', $data['ref'])->first();
-            $consult?->update([
-                'summary_lawyer_approved_at' => null,
-            ]);
-
-            return back()->with('flash', 'تم استبعاد محضر الجلسة من قائمة المتابعة.');
-        }
-
-        if ($data['type'] === 'appointment') {
-            $consult = Consult::where('ref', $data['ref'])->first();
-            if ($consult !== null) {
-                Workflow::run(new RejectProposedAppointment, $consult, $admin);
-            }
-
-            return back()->with('flash', 'تم حذف حجز الموعد بنجاح.');
-        }
-
-        return back()->with('flash', 'تم استبعاد البند بنجاح.');
     }
 }

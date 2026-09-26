@@ -47,6 +47,22 @@ enum HearingStatus: string
     }
 
     /**
+     * **نغمة الشارة** — نظير `hearingTone` في `lib/case-ui.tsx` (اللوحة نفسها). يرسلها الخادم لشاشة
+     * جلسات الإدارة بدل `switch` على النصوص العربيّة هناك، الذي كان يلوّن «مؤجلة» بنفسجيّاً و«فائتة»
+     * عنبريّاً خلافاً لبقيّة الشاشات.
+     */
+    public function tone(): string
+    {
+        return match ($this) {
+            self::Held => 'b-green',
+            self::Postponed => 'b-amber',
+            self::Cancelled => 'b-grey',
+            self::Lapsed => 'b-red',
+            self::Scheduled => 'b-blue',
+        };
+    }
+
+    /**
      * النتائج التي يسجّلها المحامي أو الموظّف لجلسةٍ انتظرت نتيجتها — قاعدة `in:` للتحقّق.
      *
      * @return list<string>

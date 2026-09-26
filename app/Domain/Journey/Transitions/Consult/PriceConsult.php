@@ -7,6 +7,7 @@ use App\Domain\Journey\Transition;
 use App\Models\Consult;
 use App\Models\Invoice;
 use App\Models\User;
+use App\Support\Finance\InvoiceDue;
 use App\Support\Finance\InvoiceFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -75,12 +76,12 @@ final class PriceConsult extends Transition
 
         // الأساس والضريبة **كما سعّرهما المسعِّر في هذه الحمولة نفسها** لا كما تُحسب من الإعداد
         // ثانيةً — والفاتورة والاستشارة تحملان الرقم عينه (`InvoiceFactory::fromFrozen`).
+        // والمهلة من الإعدادات (`InvoiceDue`) — التاريخ ونصّه من رقمٍ واحد
         $this->invoice = InvoiceFactory::fromFrozen((int) $payload['price'], (int) $payload['vat'], [
             'user_id' => $entity->user_id,
             'consult_id' => $entity->id,
             'description' => "استشارة {$entity->ref} — {$entity->channel}",
-            'due_label' => 'خلال 3 أيام',
-            'due_at' => now()->addDays(3)->toDateString(),
+            ...InvoiceDue::consult(),
         ], $actor);
     }
 

@@ -9,20 +9,23 @@ use App\Models\Execution;
 use App\Models\Ticket;
 use App\Models\TicketSummary;
 use App\Models\User;
+use App\Support\DocumentVerification;
 use App\Support\ExecService;
 use App\Support\Qr;
 use App\Support\ReportPrint;
-use App\Support\ServiceDocs;
 use App\Support\SummaryReport;
+use App\Support\TicketDocumentRequirements;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
  * ثلاثة ادّعاءات صغيرة تُقرأ إثباتاً.
  *
- * **ج** — نقشٌ يشبه QR وهو زخرفيّ حتميّ لا يُمسح، كان تحته «امسح لتأكيد الحضور» في
+ * **ج** — كان نقشٌ يشبه QR زخرفيّاً حتميّاً لا يُمسح، تحته «امسح لتأكيد الحضور» في
  * بطاقة الموعد و«موثق ومعتمد برقم مرجعي» في التقرير المختوم، وبذرتُه رابط تحقّق
- * `…/verify?ref=…&approved=1` **ولا مسار تحقّق في المشروع**.
+ * `…/verify?ref=…&approved=1` **ولا مسار تحقّق في المشروع**. صار الرمز حقيقيّاً يحيل إلى
+ * صفحة تحقّقٍ موقَّعة (`DocumentVerification`؛ حارسه الكامل `QrCodeTest`)، ويبقى هنا
+ * حارسُ الادّعاءين: لا اعتمادَ في الرابط، ولا أمرَ مسحٍ بما لا يقع.
  *
  * **د** — «معدّل الإنجاز» المعروض للعميل وهو يختار محاميه: يَعُدّ الملفّات المغلقة،
  * و«صدر الحكم» حالةُ إغلاق تُحتسب مهما كان اتّجاه الحكم — فهو مقياس تشغيليّ يُقدَّم
@@ -37,7 +40,7 @@ class DocumentAndMetricHonestyTest extends TestCase
 
     // ── ج) لا ادّعاء تحقّق فوق نقشٍ زخرفيّ ──
 
-    /** التقرير المختوم لا يَعِد بتوثيقٍ إلكترونيّ ولا يحمل رابط تحقّق وهميّاً. */
+    /** التقرير المختوم لا يحمل رابط تحقّقٍ يُعلن الاعتماد بنفسه — رابطه موقَّعٌ إلى صفحةٍ قائمة. */
     public function test_the_sealed_report_claims_no_electronic_verification(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
@@ -55,21 +58,21 @@ class DocumentAndMetricHonestyTest extends TestCase
         $html = ReportPrint::html($doc);
 
         $this->assertStringNotContainsString('موثق ومعتمد برقم مرجعي', $html);
-        $this->assertStringNotContainsString('/verify?', $html, 'لا رابط تحقّق — لا مسار له في المشروع');
-        $this->assertStringNotContainsString('approved=1', $doc['approval']['qrSeed']);
+        $this->assertStringNotContainsString('/verify?', $html, 'لا رابط تحقّق بالاستعلام القديم');
+        $this->assertStringNotContainsString('approved=1', $doc['approval']['qr']);
+        $this->assertSame(DocumentVerification::url(DocumentVerification::SUMMARY, $ticket->number), $doc['approval']['qr']);
     }
 
-    /** والنقش نفسه زخرفيّ حتميّ — لا يُرافَق بأمرٍ بمسحه. */
-    public function test_the_decorative_mark_is_never_paired_with_a_scan_instruction(): void
+    /** الرمز لا يُرافَق بأمرٍ بمسحٍ لا يقع — المسح يتحقّق من البطاقة، لا يسجّل حضوراً. */
+    public function test_the_code_is_never_paired_with_a_false_scan_instruction(): void
     {
-        $this->assertStringNotContainsString(
-            'امسح لتأكيد الحضور',
-            file_get_contents(app_path('Support/AppointmentCardPdf.php'))
-        );
+        foreach ([app_path('Support/AppointmentCardPdf.php'), resource_path('js/pages/appointments.tsx')] as $file) {
+            $this->assertStringNotContainsString('امسح لتأكيد الحضور', (string) file_get_contents($file));
+        }
 
-        // حتميّ: البذرة نفسها تُنتج النقش نفسه — فليس ترميزاً لبيانات متغيّرة
+        // رمزٌ يُرمِّز نصّه: النصّ نفسه ⇒ الرمز نفسه، ونصّان ⇒ رمزان
         $this->assertSame(Qr::svg('REF-1'), Qr::svg('REF-1'));
-        $this->assertNotSame(Qr::svg('REF-1'), Qr::svg('REF-2'));
+        $this->assertNotSame(Qr::matrix('REF-1'), Qr::matrix('REF-2'));
     }
 
     // ── د) المقياس يُسمّى بما يقيس ──
@@ -77,8 +80,8 @@ class DocumentAndMetricHonestyTest extends TestCase
     /** «معدّل إغلاق الملفّات» لا «معدّل الإنجاز» — في كل ما يصل العميل أو النموذج. */
     public function test_the_closure_metric_is_never_labelled_a_success_record(): void
     {
+        // (`SpecialistPicker.tsx` كان هنا — حُذف مُنتقي العميل الميّت 2026-09-26)
         foreach ([
-            'resources/js/components/SpecialistPicker.tsx',
             'app/Services/LegalAiService.php',
         ] as $file) {
             $src = file_get_contents(base_path($file));
@@ -95,33 +98,25 @@ class DocumentAndMetricHonestyTest extends TestCase
     // ── هـ) القائمة العامّة تُعرّف نفسها ──
 
     /**
-     * كل رسالةٍ تعرض قائمة `ServiceDocs` العامّة تُرفقها بتنويه.
+     * كل رسالةٍ تعرض قائمة القسم تُرفقها بتنويه.
      *
-     * ولا يُعدّ عدد استدعاءات `ServiceDocs::for` مقياساً: استدعاءٌ واحد قد يُبنى منه
-     * `$chips` تُعرض في رسالتين، ورسالةٌ أخرى تعرض قائمةً **كتبها الموظّف بنفسه** —
-     * وسمُ تلك بأنها «عامّة بحسب النوع» يكذب عكسياً. فالمقياس: كل رسالة عرضت
-     * `$chips` **المبنيّة من `ServiceDocs`** رافقها `NOTE`.
+     * كانت القائمة (`ServiceDocs`، حُذف 2026-09-26) تُبنى في خمسة مواضع ولكلٍّ سطرُ تنويهه، فعُدّت
+     * التنويهات مصدريّاً. صار الغلاف واحداً (`TicketDocumentRequirements::requestHtml`) والتنويه فيه —
+     * فيُثبت هنا سلوكاً: قائمةٌ معروضة ⇒ تنويهها معها. وحارس الغلاف الواحد في `TicketDocumentRequirementsTest`.
      */
     public function test_a_generic_document_checklist_announces_itself(): void
     {
-        $this->assertNotEmpty(ServiceDocs::NOTE);
+        $this->assertNotEmpty(TicketDocumentRequirements::NOTE);
 
-        // الرسائل التي تعرض القائمة العامّة — حُصرت بقراءة المواضع، ولكلٍّ سطرُ تنويه
-        $genericBlocks = [
-            'app/Support/TicketTriage.php' => 3,
-            'app/Http/Controllers/Employee/TicketController.php' => 1,
-            'app/Http/Controllers/Lawyer/TicketController.php' => 1,
-        ];
+        $ticket = Ticket::create([
+            'number' => 'TK-NOTE-1', 'user_id' => User::factory()->create(['role' => Role::Client])->id,
+            'type' => 'خدمةٌ بلا قسم', 'status' => 'جديدة', 'tone' => 'b-blue',
+        ]);
 
-        foreach ($genericBlocks as $file => $expected) {
-            $notes = substr_count(file_get_contents(base_path($file)), 'ServiceDocs::NOTE');
+        $html = TicketDocumentRequirements::requestHtml($ticket, 'نأمل إرفاق المستندات التالية:');
 
-            $this->assertSame(
-                $expected,
-                $notes,
-                "{$file}: تنويهات القائمة العامّة {$notes} والمتوقَّع {$expected}"
-            );
-        }
+        $this->assertStringContainsString('doc-chip', $html);
+        $this->assertStringContainsString(e(TicketDocumentRequirements::NOTE), $html);
     }
 
     /** ولا يُوسم بالعموم ما كتبه موظّفٌ لهذا الملفّ بعينه. */
@@ -134,7 +129,8 @@ class DocumentAndMetricHonestyTest extends TestCase
         $this->assertNotFalse($pos);
 
         $block = substr($src, $pos, 400);
-        $this->assertStringNotContainsString('ServiceDocs::NOTE', $block);
+        $this->assertStringNotContainsString('TicketDocumentRequirements::NOTE', $block);
+        $this->assertStringNotContainsString('requestHtml', $block);
     }
 
     /** وطلب مستندات التنفيذ يُفرّق بين نواقص التحليل وقائمة الاستقبال. */

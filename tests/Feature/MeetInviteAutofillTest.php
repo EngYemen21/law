@@ -122,7 +122,8 @@ class MeetInviteAutofillTest extends TestCase
         $meeting = Meeting::firstOrFail();
         $this->assertSame($client->id, $meeting->user_id);
         $this->assertSame($lawyer->id, $meeting->assigned_lawyer_id);
-        $this->assertSame('45 دقيقة', $meeting->dur);
+        // لا مدّة تُكتب للاجتماع — ينتهي حين يُنهى (قرار المالك 2026-09-26)
+        $this->assertNull($meeting->dur);
         $this->assertStringContainsString('11:07', (string) $meeting->when_label);
         $this->assertSame('11:07', $meeting->starts_at?->format('H:i'));
         $this->assertSame('قادم', $meeting->status);

@@ -3,6 +3,8 @@ import axios from 'axios';
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
+import ConversationHandlerCard, { refreshConversation, refreshConversationOn } from '@/components/babylon/ConversationHandlerCard';
+import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
 import { type LawyerSuggestionData } from '@/components/babylon/LawyerSuggestionHint';
 import Modal from '@/components/babylon/Modal';
@@ -11,13 +13,15 @@ import TicketTalkingNotice from '@/components/babylon/TicketTalkingNotice';
 import TicketActionsPanel from '@/components/babylon/TicketActionsPanel';
 import TicketDetailsCard from '@/components/babylon/TicketDetailsCard';
 import TicketOpsModals, { type TicketOpsKind } from '@/components/babylon/TicketOpsModals';
+import TicketRequirementsCard from '@/components/babylon/TicketRequirementsCard';
 import TicketTrackDecisionCard, { TrackGovernanceData } from '@/components/babylon/TicketTrackDecisionCard';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { ALLOWED_DOC_ACCEPT, TKT_LIFE, nowClock, tktStage, type Message } from '@/lib/chat';
+import { useConsultSlots } from '@/lib/consult-slots';
 import { echo } from '@/lib/echo';
 import { useCan } from '@/lib/permissions';
-import { isPastSlot, todayISO } from '@/components/SpecialistPicker';
+import { todayISO } from '@/lib/local-date';
 
 // الموظّف يُحيل الملفّ إلى المستشار في هذه المراحل وحدها (Employee\TicketController::advance)
 const REFERRABLE = ['جديدة', 'قيد التحليل', 'محالة للقسم القانوني', 'بانتظار مستندات'];
@@ -86,7 +90,9 @@ const EmployeeTicketChat: React.FC<{
   lawyers: LawyerOption[];
   clientStats?: ClientStats | null;
   catalogueDepartments?: string[]; // أقسام مودال التحويل من الكتالوج الفعّال
-}> = ({ ticket, channel, messages, lawyers, clientStats, catalogueDepartments = [] }) => {
+  /** من يتولّى المحادثة ومن تولّاها قبله — `ConversationHandler::history`. */
+  conversation?: ConversationHistory | null;
+}> = ({ ticket, channel, messages, lawyers, clientStats, catalogueDepartments = [], conversation }) => {
   const toast = useToast();
   const can = useCan();
   // الأزرار تُخفى بحسب الصلاحية التفصيلية — كانت تُعرض للجميع ثم يُبتلع رفض الخادم
@@ -113,6 +119,8 @@ const EmployeeTicketChat: React.FC<{
   // الفترات المتاحة: تُجلب من API عند تغيير المحامي أو التاريخ
   const [slots, setSlots] = useState<{ time: string; taken: boolean }[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
+  // قبل اختيار المستشار: شبكة ساعات الحجز من إعدادات الخادم — لا شبكة المنتقي العامّة (٠٨–٢٢ بنصف ساعة)
+  const { grid: consultGrid } = useConsultSlots();
 
   const fetchSlots = (lawyerId: string, date: string) => {
     if (!lawyerId || !date) { setSlots([]); return; }
@@ -167,6 +175,8 @@ const EmployeeTicketChat: React.FC<{
   useEffect(() => {
     const append = (e: { message: Message }) => {
       const m = e.message;
+      // قبل فحص التكرار: ردّي أنا يصل مكرّراً ويبقى أنّه قد نقل المحادثة إليّ
+      refreshConversationOn(m.who);
       if (m.id && seen.current.has(m.id)) return;
       if (m.id) seen.current.add(m.id);
       setMsgs((prev) => [...prev, m]);
@@ -188,7 +198,14 @@ const EmployeeTicketChat: React.FC<{
     const endpoint = mode === 'reply' ? 'reply' : 'note';
     // لا يُمسح النص إلا بعد نجاح الإرسال فعلاً — كان يضيع عند أي فشل (صلاحية/تحقّق/خادم)
     axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/${endpoint}`, { body: v })
-      .then(() => setBody(''))
+      .then(() => {
+        setBody('');
+
+        // الردّ على العميل قد نقل المحادثة إليّ — والملاحظة الداخليّة لا تنقلها
+        if (endpoint === 'reply') {
+          refreshConversation();
+        }
+      })
       .catch((err) => {
         const msg = err.response?.data?.message || 'تعذّر الإرسال';
         toast(`⚠️ ${msg}`);
@@ -281,7 +298,7 @@ const EmployeeTicketChat: React.FC<{
           value={schedTime}
           onChange={setSchedTime}
           date={schedDate}
-          slots={schedLawyerId && slots.length > 0 ? slots : undefined}
+          slots={schedLawyerId && slots.length > 0 ? slots : consultGrid}
           label={schedLawyerId ? 'الوقت المتاح للمستشار' : 'وقت الموعد المقترح'}
           helperText={slotsLoading ? 'جاري التحقق من أوقات المستشار المتاحة...' : undefined}
           required
@@ -413,6 +430,8 @@ const EmployeeTicketChat: React.FC<{
             </div>
           </div>
 
+          <ConversationHandlerCard conversation={conversation} />
+
           {/* تفاصيل الطلب (يطابق tkDetailsCard المرجعي): موضوع/قسم/خدمة/جوال/أهمية — بجانب المحادثة */}
           <TicketDetailsCard
             subject={ticket.subject}
@@ -420,6 +439,14 @@ const EmployeeTicketChat: React.FC<{
             service={ticket.type}
             mobile={ticket.mobile}
             priority={ticket.priority}
+          />
+
+          {/* قائمة مستندات القسم: ما استُوفي وما بقي وما لم يُتحقّق — تُعاد قراءتها مع كلّ رسالة */}
+          <TicketRequirementsCard
+            base="/employee"
+            ticketNo={ticket.no}
+            refreshKey={msgs.length}
+            canEdit={!ticket.isFrozen && !ticket.isTerminal}
           />
 
           {/* ملف العميل وسياقه 360 درجة */}

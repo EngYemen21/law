@@ -5,8 +5,11 @@ namespace App\Http\Controllers;
 use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Meeting;
+use App\Models\User;
 use App\Services\ZoomService;
 use App\Support\ChannelAccess;
+use App\Support\ChatSenderLabel;
+use App\Support\SessionWindow;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -31,12 +34,16 @@ class ZoomController extends Controller
 
         $user = $request->user();
         abort_unless(ChannelAccess::ownerOrStaff($user, $joinable), 403);
-        // لا اجتماع Zoom حقيقي (لم تُهيّأ مفاتيح S2S) ⇒ لا تضمين؛ تتدرّج الواجهة للفتح الخارجي
-        abort_unless(! empty($joinable->meet_id), 422, 'لا يوجد اجتماع Zoom مرتبط.');
         // القناة المرئية شرط للاستشارة فقط (اجتماع المكتب مرئيّ دائماً)
-        abort_if($joinable instanceof Consult && $joinable->channel !== 'مرئية', 422, 'الاستشارة ليست مرئية.');
-        // نافذة الدخول تُفرض خادمياً هنا أيضاً — تعطيل الزر في الواجهة وحده يُلتفّ عليه بطلب مباشر
-        abort_unless($joinable->canJoin(), 403, 'انتهت نافذة دخول الجلسة أو لم تُفتح بعد.');
+        abort_if($joinable instanceof Consult && $joinable->channel !== 'مرئية', 422, SessionWindow::REFUSE_NOT_VIDEO);
+        // نافذة الدخول تُفرض خادمياً هنا أيضاً — تعطيل الزر في الواجهة وحده يُلتفّ عليه بطلب مباشر.
+        // **والسبب الحقيقيّ** (`joinBlocker`): كان «انتهت نافذة دخول الجلسة أو لم تُفتح بعد» يُقال
+        // لسببين متعاكسين، فلا يعرف المنتظر أيعود بعد دقائق أم انتهى الأمر. والواجهة تعرض `message`.
+        if (($why = $joinable->joinBlocker()) !== null) {
+            abort(403, $why);
+        }
+        // لا اجتماع Zoom حقيقي (لم تُهيّأ مفاتيح S2S) ⇒ لا تضمين؛ تتدرّج الواجهة للفتح الخارجي
+        abort_unless(! empty($joinable->meet_id), 422, 'لا يوجد اجتماع Zoom مرتبط بهذه الجلسة.');
         abort_unless($this->zoom->sdkConfigured(), 503, 'تضمين Zoom غير مُهيّأ.');
 
         // المضيف يحتاج ZAK؛ إن تعذّر جلبه (نطاق user:read:token غير مُفعّل) يُخفَّض إلى مشارك
@@ -50,11 +57,29 @@ class ZoomController extends Controller
             'signature' => $this->zoom->sdkSignature((string) $joinable->meet_id, $role),
             'meetingNumber' => (string) $joinable->meet_id,
             'password' => $joinable->meet_password ?? '',
-            'userName' => $user->name,
+            'userName' => $this->displayName($user, $joinable),
             'userEmail' => $user->email,
             'role' => $role,
             'zak' => $zak,
         ]);
+    }
+
+    /**
+     * **الاسم الظاهر على مربّع المشارك** — والعميل في الغرفة يقرؤه.
+     *
+     * كان يُمرَّر `$user->name` للجميع، فيرى العميل الاسمَ الكامل للمحامي أو الموظّف على مربّعه
+     * بينما محادثته تسمّيه «محمد. ب» أو «الفريق القانوني». فالطاقم في جلسةٍ يملكها عميلٌ يدخل
+     * بتسميته للعميل من المصدر الواحد (`ChatSenderLabel::forAccount`)، واجتماعٌ داخليّ بلا عميل
+     * يبقى بالأسماء الحقيقيّة (قرار المالك: الطاقم يرى الأسماء).
+     */
+    private function displayName(User $user, Model $joinable): string
+    {
+        $ownerId = $joinable->getAttribute('user_id');
+        $clientOwned = $ownerId !== null && User::find($ownerId)?->isClient() === true;
+
+        return $clientOwned && ! $user->isClient()
+            ? ChatSenderLabel::forAccount($user)
+            : (string) $user->name;
     }
 
     /** يحلّ الكيان القابل للانضمام بحسب النوع (قائمة بيضاء صارمة)؛ 404 إن لم يوجد. */

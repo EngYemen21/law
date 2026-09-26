@@ -9,6 +9,7 @@ use App\Services\MailService;
 use App\Services\TaqnyatSmsService;
 use App\Support\Phone;
 use App\Support\ReminderLayer;
+use App\Support\SettingsRegistry;
 use Illuminate\Console\Command;
 
 /**
@@ -99,7 +100,9 @@ class SendConsultReminders extends Command
     {
         $place = $consult->channel === 'حضورية' ? $consult->placeLabel() : $consult->channel;
 
+        // التوقيع اسم المكتب من الإعدادات لا `APP_NAME` — ذاك اسمٌ تقنيّ في البيئة يُكتب بغير
+        // تهجئة المستندات، والعميل يقرأ الاسم الذي تضبطه الإدارة لا ما في ملفّ النشر.
         return "تذكير: موعد استشارتك {$consult->ref} بعد {$remaining} ({$place}). "
-            .config('app.name');
+            .SettingsRegistry::str('office_name');
     }
 }

@@ -6,8 +6,9 @@ import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
-import { todayISO } from '@/components/SpecialistPicker';
+import { todayISO } from '@/lib/local-date';
 import { useConsultReschedule } from '@/lib/consult-reschedule';
+import { slotEnd, useConsultSlots } from '@/lib/consult-slots';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
@@ -109,12 +110,10 @@ const TYPES: [string, string, string][] = [
   ['phone', 'هاتفية', 'phone'],
 ];
 
-// الساعات المعروضة في شبكة التقويم اليومي للمستشارين
-const DAY_HOURS = [
-  '09:00', '10:00', '11:00', '12:00', '13:00',
-  '14:00', '15:00', '16:00', '17:00', '18:00',
-  '19:00', '20:00', '21:00', '22:00'
-];
+/*
+ * شبكة التقويم اليوميّ للمستشارين من إعدادات الخادم (`useConsultSlots`) — كانت ٠٩–٢٢ منقوشة
+ * هنا والمحرّك يولّد ٠٠–٢٣، فساعاتٌ يحجزها العميل لا تظهر للموظّف في شبكته.
+ */
 
 /** استخراج الحروف الأولى لرمز المستشار */
 const getInitials = (name: string): string => {
@@ -123,12 +122,6 @@ const getInitials = (name: string): string => {
     return `${parts[0][0]}${parts[1][0]}`;
   }
   return name.slice(0, 2);
-};
-
-/** حساب نهاية الفترة الزمنية للساعة الحالية */
-const nextHour = (h: string): string => {
-  const hourNum = parseInt(h.split(':')[0], 10);
-  return `${String(hourNum + 1).padStart(2, '0')}:00`;
 };
 
 /** وصف الفترة الزمنية باللغة العربية */
@@ -149,6 +142,8 @@ const EmployeeSchedule: React.FC<Props> = ({
 }) => {
   const toast = useToast();
   const reschedule = useConsultReschedule(apiBase());
+  // الشبكة وطول الشريحة من الخادم — ما يولّده المحرّك نفسه
+  const { grid: dayHours, slotMinutes } = useConsultSlots();
   const userCan = useCan();
   const mask = useMasker();
   const isSuper = window.location.pathname.startsWith('/admin');
@@ -497,7 +492,7 @@ return lawyers;
       let free = 0;
       let past = 0;
 
-      DAY_HOURS.forEach((h) => {
+      dayHours.forEach((h) => {
         const isTaken = dayAppointmentsMap.has(`${l.id}_${h}`);
         const isHourPast = isToday && h <= currentHM;
 
@@ -510,11 +505,11 @@ return lawyers;
         }
       });
 
-      statsMap.set(l.id, { booked, free, past, total: DAY_HOURS.length });
+      statsMap.set(l.id, { booked, free, past, total: dayHours.length });
     });
 
     return statsMap;
-  }, [gridLawyers, dayAppointmentsMap, selectedDay]);
+  }, [gridLawyers, dayAppointmentsMap, selectedDay, dayHours]);
 
   return (
     <>
@@ -728,7 +723,7 @@ return lawyers;
           {/* في حالة اختيار مستشار واحد: بطاقة هوية المستشار وإحصائيات طاقة اليوم */}
           {gridLawyers.length === 1 && (() => {
             const singleLawyer = gridLawyers[0];
-            const stats = lawyerDailyStats.get(singleLawyer.id) || { booked: 0, free: 0, past: 0, total: DAY_HOURS.length };
+            const stats = lawyerDailyStats.get(singleLawyer.id) || { booked: 0, free: 0, past: 0, total: dayHours.length };
             const freePercent = Math.round((stats.free / stats.total) * 100);
 
             return (
@@ -774,7 +769,7 @@ return lawyers;
                       </span>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                      جدول التفرغ وساعات الاستشارات لليوم المحدد ({DAY_HOURS.length} فترات زمنية)
+                      جدول التفرغ وساعات الاستشارات لليوم المحدد ({dayHours.length} فترات زمنية)
                     </div>
                   </div>
                 </div>
@@ -980,9 +975,9 @@ return lawyers;
                   </tr>
                 </thead>
                 <tbody>
-                  {DAY_HOURS.map((hourStr) => {
+                  {dayHours.map((hourStr) => {
                     const isSlotPast = selectedDay === todayISO() && hourStr <= nowHM();
-                    const endH = nextHour(hourStr);
+                    const endH = slotEnd(hourStr, slotMinutes);
                     const period = formatPeriod(hourStr);
 
                     return (
@@ -1161,7 +1156,8 @@ return lawyers;
                                         color: isSlotPast ? '#cbd5e1' : '#059669',
                                         fontWeight: 500,
                                       }}>
-                                        {hourStr} - {endH} (60 دقيقة)
+                                        {/* بدء الموعد وحده: الجلسة تنتهي بإنهائها لا بطول الشريحة (قرار المالك 2026-09-26) */}
+                                        يبدأ {hourStr}
                                       </div>
                                     </div>
                                   </div>
@@ -1492,7 +1488,7 @@ return lawyers;
             value={time}
             onChange={setTime}
             date={date}
-            slots={slots}
+            slots={slots.length > 0 ? slots : dayHours /* قبل اختيار المستشار: شبكة الحجز لا شبكة المنتقي العامّة */}
             label="الوقت المتاح للموعد"
             helperText={slotsLoading ? 'جارٍ فحص الأوقات المتاحة لدى المستشار…' : undefined}
             required

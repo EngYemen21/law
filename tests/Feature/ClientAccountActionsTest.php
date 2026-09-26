@@ -94,7 +94,7 @@ class ClientAccountActionsTest extends TestCase
         ])->assertRedirect();
         $doc = Document::where('user_id', $owner->id)->firstOrFail();
 
-        $this->actingAs($intruder)->get(route('documents.download', $doc))->assertForbidden();
+        $this->assertPageRefused($this->actingAs($intruder)->get(route('documents.download', $doc)));
     }
 
     public function test_download_missing_file_returns_404(): void

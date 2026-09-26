@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\AppointmentStatus;
 use App\Domain\Journey\Enums\ConsultStatus;
 use App\Enums\Role;
 use App\Models\Appointment;
@@ -77,6 +78,8 @@ class AppointmentBoard
                 'upcoming' => Appointment::where('starts_at', '>=', now())->count(),
                 'video' => $windowed()->whereHas('consult', fn ($q) => $q->where('channel', 'مرئية'))->count(),
                 'office' => $windowed()->whereHas('consult', fn ($q) => $q->where('channel', 'حضورية'))->count(),
+                // من القاعدة لا من الشريحة المقصوصة بـ١٥٠ — كانت شارة «بانتظار الاعتماد» تعدّ المحمَّل وحده
+                'pendingApproval' => Appointment::where('status', AppointmentStatus::PendingApproval->value)->count(),
             ],
             // مدى النافذة والسقف — تعرضهما الشاشة فلا يُقرأ «لا نتائج» على أنّه «لا بيانات»
             'window' => [

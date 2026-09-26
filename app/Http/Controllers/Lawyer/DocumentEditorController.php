@@ -26,6 +26,12 @@ use Inertia\Response;
 class DocumentEditorController extends Controller
 {
     /**
+     * مفتاح الجلسة الذي يسلّم به المساعد القانوني مسودّته للمحرّر (`AssistantController::toEditor`).
+     * رسالةٌ لمرّةٍ واحدة (`flash`) لا عنوان صفحة: المسودّة تصل صاحبها وحده ولا تُعاد بإعادة التحميل.
+     */
+    public const ASSISTANT_DRAFT = 'assistant_draft';
+
+    /**
      * قائمة المستندات — تُظهر مستندات المستخدم الحالي (أو الكل للإدارة).
      */
     public function index(Request $request): Response
@@ -46,7 +52,6 @@ class DocumentEditorController extends Controller
         return Inertia::render('lawyer/editor-index', [
             'documents' => $docs,
             'types' => LegalDocument::TYPES,
-            'statuses' => LegalDocument::STATUSES,
         ]);
     }
 
@@ -63,10 +68,13 @@ class DocumentEditorController extends Controller
             ? Ticket::where('number', $ticketNo)->first()
             : null;
 
-        // مسودة خام قادمة من المساعد القانوني أو عبر الاستيراد
-        $incomingDraft = (string) $request->query('draft', '');
+        // **مسودّة المساعد من الجلسة لا من العنوان.** كان `?draft=` يُقرأ ويُدخله المحرّر كما هو إن
+        // بدأ بـ`<` — فرابطٌ مصنوع يحقن وسوماً في محرّر محامٍ. الآن لا مصدر للمسودّة الحرّة إلّا ما
+        // سلّمه `AssistantController::toEditor` لهذه الجلسة، ويُهرَّب نصّاً عاديّاً إلى فقرات.
+        $handoff = $request->session()->get(self::ASSISTANT_DRAFT);
+        $incomingDraft = is_array($handoff) ? self::plainTextToHtml((string) ($handoff['text'] ?? '')) : '';
         $incomingTemplate = (string) $request->query('template', '');
-        $incomingTitle = '';
+        $incomingTitle = is_array($handoff) ? (string) ($handoff['title'] ?? '') : '';
         $incomingType = 'free';
         $incomingMeta = null;
         $incomingCase = null;
@@ -756,6 +764,25 @@ HTML;
         }
 
         return '/lawyer';
+    }
+
+    /**
+     * نصٌّ عاديّ ⇦ فقرات HTML **مهرَّبة**: السطر الفارغ يفصل الفقرات، والسطر المفرد فاصل سطر.
+     * التهريب هنا لا في الواجهة — المحرّر يُدخل ما يصله HTML، فالنصّ الخام لا يبلغه بحال.
+     */
+    public static function plainTextToHtml(string $text): string
+    {
+        $text = trim(str_replace(["\r\n", "\r"], "\n", $text));
+        if ($text === '') {
+            return '';
+        }
+
+        $paragraphs = preg_split('/\n{2,}/', $text) ?: [$text];
+
+        return implode('', array_map(
+            fn (string $p) => '<p dir="rtl">'.nl2br(e(trim($p)), false).'</p>',
+            $paragraphs,
+        ));
     }
 
     /**

@@ -19,11 +19,30 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [items, setItems] = useState<ToastItem[]>([]);
   const seq = useRef(0);
 
+  // الإشعارات الظاهرة الآن (نصوصها) — لإسقاط المكرّر قبل رسمه
+  const visible = useRef<Map<number, string>>(new Map());
+
   const toast = useCallback((msg: string, tone?: ToastTone) => {
+    /*
+     * **الرسالة الواحدة إشعارٌ واحد.** رفضُ الخادم يُعرض من موضعٍ عامّ (`ServerFeedback.tsx`) لأنّ
+     * أفعالاً كثيرة بلا `onError` — والأفعال التي كتبته تعرض النصّ نفسه (أحياناً بزيادة «⚠️ »).
+     * فما دام إشعارٌ يحمل النصّ ظاهراً لا يُرسم ثانٍ. تُنزع الرموز في أوّله («⚠️ »)، ويُقبل الاحتواء
+     * في النصوص الطويلة وحدها — «تمّ» القصيرة لا تُسقط «تمّ الحفظ» المختلفة.
+     */
+    const text = msg.replace(/^[^\p{L}\p{N}]+/u, '').trim();
+    const same = (shown: string) =>
+      shown === text || (Math.min(shown.length, text.length) >= 20 && (shown.includes(text) || text.includes(shown)));
+
+    if (text && [...visible.current.values()].some(same)) {
+      return;
+    }
+
     const id = ++seq.current;
+    visible.current.set(id, text);
     setItems((prev) => [...prev, { id, msg, tone }]);
     // يختفي بعد 3000ms مع تلاشٍ 300ms لتمكين المستخدم من قراءة التنبيه كاملاً
     setTimeout(() => {
+      visible.current.delete(id);
       setItems((prev) => prev.map((t) => (t.id === id ? { ...t, leaving: true } : t)));
       setTimeout(() => {
         setItems((prev) => prev.filter((t) => t.id !== id));

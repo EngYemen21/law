@@ -1,3 +1,4 @@
+import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
 // ─────────────────────────────────────────────────────────────────────────────
 // ثوابت وأنواع تدفّق طلب التنفيذ (نظير EXEC_FLOW في index (21).html).
 // المرحلة 2: لا بيانات وهميّة ولا منطق محلّي — الحالة كلّها من الخادم عبر Inertia،
@@ -27,15 +28,15 @@ export const EXEC_FEE_MODES = [
 
 export type ExecFeeMode = (typeof EXEC_FEE_MODES)[number]['value'];
 
-/** خطط السداد في النموذج الثابت — يقرّرها **العميل** عند السداد، كنمط القضايا. */
-export const EXEC_PAY_PLANS = [
-  { value: 'full', label: 'سداد كامل' },
-  { value: 'install', label: 'تقسيط على 3 دفعات' },
-] as const;
+// أُزيلت `EXEC_PAY_PLANS`: قائمةٌ لا يستوردها أحد، ونصّها «تقسيط على 3 دفعات» نسخةٌ منقوشة من
+// إعدادٍ تضبطه الإدارة. عدد الدفعات من `useSettings().installments_count` وصياغته `installmentsText`.
 
-/** نصّ سطر الضريبة — مصدرٌ واحد كي لا تتباعد صياغته بين البطاقات. */
-export function execVatLabel(rate?: number): string {
-  return `ضريبة القيمة المضافة (${rate ?? 15}%)`;
+/**
+ * نصّ سطر الضريبة — مصدرٌ واحد كي لا تتباعد صياغته بين البطاقات. **والنسبة إلزاميّة**: كان
+ * افتراضها «15» هنا فيعرض نسبةً منقوشة متى غابت، والخادم يرسلها دائماً (`Execution::toFlowCard`).
+ */
+export function execVatLabel(rate: number): string {
+  return `ضريبة القيمة المضافة (${rate}%)`;
 }
 
 // صيغ الإرفاق في محادثة التنفيذ — تطابق ExecFlowController::attach (يضيف XLSX عن نظيرتها في التذاكر/القضايا)
@@ -70,6 +71,10 @@ export interface ExecInvoice {
 // مستند مطلوب من العميل (يطابق exDocPanel)
 export interface ExecDoc {
   id: number; label: string; status: string; tone: string; fileName: string | null; canUpload: boolean; docType?: string; summary?: string;
+  /** يُراجَع (اعتماد/إعادة) — حارس `reviewDocument` نفسه، لا مقارنة بـ«مرفوع» هنا */
+  canReview: boolean;
+  /** وصل المكتب (رُفع أو قُبل) */
+  provided: boolean;
   /** `false` لموظّفٍ بلا «تنزيل مرفقات الملفات» — يُعرض الاسم بلا رابط. */
   canDownload?: boolean;
 }
@@ -120,6 +125,8 @@ export interface ExecStudy {
 }
 
 export interface ExecReq {
+  /** من يتولّى محادثة الملفّ ومن تولّاها قبله — لبطاقة الطاقم وحدها (`ExecFlowController::staffCards`). */
+  conversation?: ConversationHistory | null;
   id: string;
   rawId?: number;
   client: string;
@@ -148,8 +155,8 @@ export interface ExecReq {
   decision: string;
   fee: number;
   vat: number;
-  /** نسبة الضريبة من إعدادات النظام — لا تُحسب 15% ثابتة في الشاشة. */
-  vatRate?: number;
+  /** نسبة الضريبة من إعدادات النظام — يرسلها الخادم دائماً، فلا افتراضَ منقوشاً في الشاشة. */
+  vatRate: number;
   duration: string;
   /** عنوان طريقة السداد — **مشتقٌّ في الخادم** من النموذج والخطّة، فلا يخالف ما يقع. */
   payMethod: string;
@@ -173,6 +180,14 @@ export interface ExecReq {
   /** خطوات ناجز — تصل بعد فتح الملفّ (المرحلة 7)، وقبلها `null`. */
   najiz?: ExecNajiz | null;
   closed: boolean;
+  /** رفضه المحامي بعد الدراسة (`Execution::isRejectedAfterStudy`) — لا مقارنة بـ«مرفوض» هنا */
+  isRejected: boolean;
+  /** رفض العميل عرض الأتعاب (`Execution::isOfferRejected`) */
+  offerRejected: boolean;
+  /** مرفوضٌ مفتوح مخرجُه إنهاء الإدارة (`Execution::isRejectedOpen` — حارس `CloseExecution` نفسه) */
+  rejectedOpen: boolean;
+  /** يجوز تسعيره الآن (`ExecService::canPrice` — حارس `setFee` نفسه) */
+  canReprice: boolean;
   /** دراسة التنفيذ — تصل للمكتب وحده؛ `null` قبل جاهزيّتها. */
   study?: ExecStudy | null;
   /** هل يملك الناظر إسناد محامٍ؟ (إدارةٌ دائماً، وموظّفٌ بصلاحيّة «إجراءات المحكمة والجلسات») */

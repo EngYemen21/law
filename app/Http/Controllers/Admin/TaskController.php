@@ -60,8 +60,8 @@ class TaskController extends Controller
      */
     public function complete(Task $task): RedirectResponse
     {
-        if ($task->status !== 'منجزة') {
-            $task->update(['status' => 'منجزة', 'tone' => 'b-green', 'completed_at' => now()]);
+        if ($task->status !== Task::DONE) {
+            $task->update(['status' => Task::DONE, 'tone' => 'b-green', 'completed_at' => now()]);
         }
 
         return back()->with('flash', 'أُنجزت المهمة.');

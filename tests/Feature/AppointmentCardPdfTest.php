@@ -58,6 +58,6 @@ class AppointmentCardPdfTest extends TestCase
             'when_kind' => 'up',
         ]);
 
-        $this->actingAs($intruder)->get(route('appointments.card', $appointment))->assertForbidden();
+        $this->assertPageRefused($this->actingAs($intruder)->get(route('appointments.card', $appointment)));
     }
 }

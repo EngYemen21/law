@@ -4,7 +4,13 @@ namespace App\Http\Controllers\Staff;
 
 use App\Domain\Journey\Enums\MeetingStatus;
 use App\Domain\Journey\Enums\RescheduleReason;
+use App\Domain\Journey\Transitions\Meeting\CancelMeeting;
+use App\Domain\Journey\Transitions\Meeting\EndMeeting;
+use App\Domain\Journey\Transitions\Meeting\StartMeeting;
+use App\Domain\Journey\Workflow;
 use App\Enums\Role;
+use App\Events\Journey\MeetingCancelled;
+use App\Events\Journey\SessionEndedInSystem;
 use App\Events\MeetingStatusBroadcast;
 use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
@@ -31,8 +37,10 @@ use App\Support\MeetingSummary;
 use App\Support\Notify;
 use App\Support\RecordingArchive;
 use App\Support\ReferenceNumber;
+use App\Support\RoomDetails;
+use App\Support\SessionWindow;
+use App\Support\SettingsRegistry;
 use App\Support\WebTimeLimit;
-use App\Support\ZoomSummaryText;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -69,15 +77,19 @@ class MeetingController extends Controller
     }
 
     // غرفة الاجتماع المضمّنة (Zoom Web SDK) — ?ref=M-…
-    public function room(Request $request): Response
+    public function room(Request $request): Response|RedirectResponse
     {
         $meeting = Meeting::where('ref', (string) $request->query('ref'))->firstOrFail();
         $this->guardMeeting($request, $meeting);
-        // الحالة المشتقّة لا المخزّنة: «قادم» الفائت يُصَدّ كما يُصَدّ المنتهي — وإخفاء
-        // الزرّ في الواجهة وحده يُلتفّ عليه بالرابط المباشر.
-        abort_if(in_array($meeting->liveState()[1], ['منتهٍ', 'ملغى', 'لم ينعقد'], true), 422, 'انتهت هذه الجلسة أو فات موعدها — لا يمكن دخول غرفتها.');
+        // القاعدة الواحدة للغرف الأربع (`RoomDetails::entryBlocker`) — المنتهي والفائت والملغى
+        // يُصَدّ بسببه الحقيقيّ؛ وإخفاء الزرّ في الواجهة وحده يُلتفّ عليه بالرابط المباشر.
+        if (($why = RoomDetails::entryBlocker($meeting, $request->user())) !== null) {
+            return RoomDetails::refuse($request, $meeting, $why, 422);
+        }
 
         return Inertia::render($this->prefix($request).'/meetingroom', [
+            // عقد الغرفة (`RoomDetails::for`) — والخاصيّتان القديمتان باقيتان حتى تنتقل الواجهة إليه
+            'room' => RoomDetails::for($meeting, $request->user()),
             'meeting' => $meeting->toFullCard(),
             'selfName' => $request->user()->name,
         ]);
@@ -89,15 +101,18 @@ class MeetingController extends Controller
         return Inertia::render('admin/meetmgmt', [
             'meetings' => $this->cards($request),
             'clients' => ClientDirectory::list(),
-            'lawyers' => User::where('role', Role::Lawyer)->orderBy('name')->get(['id', 'name'])
+            // النشطون وحدهم — `store` يتحقّق بـ`ActiveLawyer`، فعرضُ الموقوف كان يُفضي إلى رفضٍ لا يُفهم
+            'lawyers' => User::activeLawyers()->orderBy('name')->get(['id', 'name'])
                 ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name]),
             'staff' => User::whereIn('role', [Role::Lawyer, Role::Employee, Role::Admin])
+                ->where('status', '!=', 'suspended')
                 ->orderBy('name')->get(['id', 'name', 'role', 'department'])
+                // الدور بتسميته العربيّة (`Role::label`) — `value` لاتينيّ («lawyer») كان يظهر للمستخدم
                 ->map(fn ($u) => [
                     'id' => $u->id,
                     'name' => $u->name,
-                    'role' => $u->role->value ?? 'كادر',
-                    'label' => "{$u->name} (".($u->department ?: ($u->role->value ?? 'كادر')).')',
+                    'role' => $u->role?->label() ?? 'كادر',
+                    'label' => "{$u->name} (".($u->department ?: ($u->role?->label() ?? 'كادر')).')',
                 ]),
             'kpis' => $this->kpis(),
         ]);
@@ -133,7 +148,7 @@ class MeetingController extends Controller
             'type' => ['required', 'string', 'max:60'],
             'priority' => ['nullable', 'string', 'in:عالية,متوسطة,عادية'],
             'conf' => ['nullable', 'string', 'in:سري,عادي'],
-            'dur' => ['nullable', 'string', 'max:30'],
+            // لا حقل «المدة» (قرار المالك 2026-09-26): الاجتماع ينتهي حين يُنهى — `EndMeeting`
             'participants' => ['nullable', 'string', 'max:300'],
             'client_id' => ['nullable', 'integer', 'exists:users,id'],
             'case_ref' => ['nullable', 'string', 'max:120'],
@@ -145,14 +160,14 @@ class MeetingController extends Controller
         $assignedLawyer = ! empty($data['lawyer_id'])
             ? User::where('role', Role::Lawyer)->find((int) $data['lawyer_id'])
             : ($request->user()->role === Role::Lawyer ? $request->user() : null);
-        $durMinutes = (int) ($data['dur'] ?? 60) ?: 60;
         // اللحظة مصدر الوقت **والعرض** معاً — فلا يقول `when_label` شيئاً
         // و`starts_at` شيئاً آخر (أو لا يقول شيئاً).
-        $moment = BookingMoment::from($data['day'], $data['time'], $durMinutes);
+        $moment = BookingMoment::from($data['day'], $data['time']);
         $startsAt = $moment->startsAt;
         $when = $moment->label();
 
-        $zoom = $this->zoom->createMeeting($data['title'], $durMinutes, ($data['conf'] ?? '') === 'سري', $startsAt);
+        // Zoom يشترط `duration` — رقمٌ اسميّ لا يُنهي الاجتماع به (`SessionWindow::nominalMinutes`)
+        $zoom = $this->zoom->createMeeting($data['title'], SessionWindow::nominalMinutes(), ($data['conf'] ?? '') === 'سري', $startsAt);
 
         // لا 'بانتظار التأكيد': تأكيد العميل أُلغي، فالاجتماع مجدول منذ إنشائه
         $status = 'قادم';
@@ -168,7 +183,7 @@ class MeetingController extends Controller
             'status' => $status,
             'priority' => $data['priority'] ?? 'عادية',
             'conf' => $data['conf'] ?? 'عادي',
-            'dur' => ($data['dur'] ?? '') ?: '60 دقيقة',
+            // `dur` لا يُكتب: لا مدّة للاجتماع، ومسافته على تقويم المحامي طولُ شريحة الحجز
             'participants' => ($data['participants'] ?? '') ?: null,
             'case_ref' => ($data['case_ref'] ?? '') ?: null,
             'meet_id' => $zoom['id'] ?? null,
@@ -197,7 +212,6 @@ class MeetingController extends Controller
                 'case_ref' => ($data['case_ref'] ?? '') ?: null,
                 'day' => $data['day'] ?: now()->format('Y-m-d'),
                 'time' => $data['time'] ?: '10:00',
-                'duration_min' => $durMinutes,
                 'assigned_lawyer_id' => $assignedLawyer?->id,
                 'sent_by' => $request->user()->name.' ('.$request->user()->role->label().')',
                 'sent_by_id' => $request->user()->id,
@@ -243,7 +257,8 @@ class MeetingController extends Controller
                     $meeting->title,
                     $when,
                     $staffUrl,
-                    'داخل النظام الإداري لمكاتب المحاماة',
+                    // اسم المكتب من الإعدادات لا منقوشاً
+                    'داخل '.SettingsRegistry::str('office_name'),
                     'تمت إضافتك كمشارك في الاجتماع من قِبل الإدارة، يرجى تسجيل الدخول للمنصة للحضور.'
                 ));
             }
@@ -304,17 +319,11 @@ class MeetingController extends Controller
     // اعتماد الاجتماع ومحضره (الإدارة — يطابق mApprove) → يظهر المحضر والملخص للعميل
     public function approve(Request $request, Meeting $meeting): RedirectResponse
     {
-        if ($meeting->approve !== 'معتمد') {
-            // الاعتماد بعد اكتمال الجلسة وتوفّر مخرجات **حقيقية** فقط (ملخص Zoom أو تدوين يدوي) —
-            // النصوص القالبية («بانتظار ملخص الجلسة من Zoom») مملوءة تقنياً لكنها ليست مخرجات؛
-            // اعتمادها كان يعرض للعميل محضراً رسمياً بلا مضمون (حادثة M-26753).
-            $hasRealOutput = (filled($meeting->summary) && ! ZoomSummaryText::isPlaceholderSummary($meeting->summary))
-                || (filled($meeting->minutes) && ! ZoomSummaryText::isPlaceholderMinutes($meeting->minutes));
-            abort_unless(
-                $meeting->status === 'منتهٍ' && $hasRealOutput,
-                422,
-                'الاعتماد متاح بعد انتهاء الاجتماع ووصول ملخص Zoom أو تدوين المحضر يدوياً.'
-            );
+        if (! $meeting->isApproved()) {
+            // الاعتماد بعد اكتمال الجلسة وتوفّر مخرجات **حقيقية** فقط — القاعدة في النموذج
+            // (`Meeting::approvalBlocker`) لأنّ البطاقة تقرؤها أيضاً علَماً (`canApprove`) فلا يُعرض زرٌّ يُردّ.
+            $why = $meeting->approvalBlocker();
+            abort_if($why !== null, 422, (string) $why);
             $meeting->update([
                 'approve' => 'معتمد',
                 'sum_approved' => true,
@@ -348,39 +357,42 @@ class MeetingController extends Controller
             'notes' => ['nullable', 'string', 'max:4000'],
         ]);
 
-        if ($meeting->status !== 'منتهٍ') {
-            // مزامنة Zoom: إنهاء الجلسة الجارية فعليًا على Zoom (best-effort) — الويبهوك اللاحق يُمتَصّ بحارس «منتهٍ»
-            $this->zoom->endMeeting((string) $meeting->meet_id);
-            $meeting->update([
-                'status' => 'منتهٍ',
-                // المدخل اليدوي يُحترم؛ وإلا 0 = غير مسجَّلة (كانت 90 مختلقة تُعرض كنسبة حقيقية)
-                'attend' => $data['attend'] ?? $meeting->attend ?: 0,
-            ]);
-            MeetRequest::where('meeting_id', $meeting->id)
-                ->where('stage', '<', MeetRequest::STAGE_EXECUTED)
-                ->update(['stage' => MeetRequest::STAGE_EXECUTED]);
-            Live::push(new MeetingStatusBroadcast($meeting));
+        // **الإنهاء حدثٌ لا حساب** (قرار المالك 2026-09-26) — والختم في انتقالٍ واحد مع ويبهوك
+        // Zoom (`EndMeeting`). «ملغى» كان يُختم هنا «منتهٍ» لأنّ الشرط قارن «منتهٍ» وحدها؛ حارس
+        // الانتقال يرفض النهائيّتين معاً. وإغلاق غرفة Zoom حدثُ الانتقال بعد التزامه
+        // (`EndZoomMeetingJob`) — كان نداءً متزامناً هنا قبل الختم يقف عليه الزرّ.
+        //
+        // **ولا يُنهى إلّا جارٍ** (قرار المالك 2026-09-26): كان الشرط «غير نهائيّ» وحده، فيُنهى
+        // اجتماعٌ «قادم» لم يبدأ ويُطلب محضره. الحارس في الانتقال (`EndMeeting::guard` ⇐
+        // `Meeting::isLive`) برسالته، لا هنا. والمنتهي أصلاً (نقرةٌ ثانية) يُعاد بصمت كما كان.
+        if (! MeetingStatus::isFinalValue($meeting->status)) {
+            Workflow::run(new EndMeeting, $meeting, $request->user(), array_filter([
+                'source' => SessionEndedInSystem::VIA_STAFF,
+                'attend' => $data['attend'] ?? null,
+            ], fn ($v) => $v !== null));
 
             $notes = trim($data['notes'] ?? '');
             GenerateMeetingSummaryJob::dispatch($meeting, $notes);
         }
 
-        return back();
+        return RoomDetails::afterEnd($meeting, $request->user(), 'انتهى الاجتماع وأُغلقت غرفته — يُعدّ محضره الآن.');
     }
 
     // بدء الاجتماع يدويًا (قادم/مؤجل → جارٍ) — للاجتماعات المجدولة مباشرةً بلا دعوة
     public function start(Request $request, Meeting $meeting): RedirectResponse
     {
         $this->guardMeeting($request, $meeting);
-        if (in_array($meeting->status, ['قادم', 'مؤجل'], true)) {
-            $meeting->update(['status' => 'جارٍ']);
-            MeetRequest::where('meeting_id', $meeting->id)
-                ->where('stage', '<', MeetRequest::STAGE_EXECUTED)
-                ->update(['stage' => MeetRequest::STAGE_EXECUTED]);
-            if ($meeting->user_id) {
-                Notify::send($meeting->user_id, 'video', 't-cyan', "بدأت جلسة اجتماع «{$meeting->title}» — يمكنك الدخول الآن.");
-            }
-            Live::push(new MeetingStatusBroadcast($meeting));
+        // بدأه Zoom أو زميلٌ قبل ثوانٍ — تكرارُ الفعل ليس خطأً
+        if ($meeting->status === MeetingStatus::Live->value) {
+            return back();
+        }
+
+        // الكتابة والحارس ورفع الدعوة والبثّ في الانتقال (`StartMeeting`) — كان «جارٍ» يُكتب هنا
+        // مباشرةً بلا سطرٍ في سجلّ الرحلة، و«لم ينعقد» يُتجاهل بصمت بدل أن يُقال لماذا.
+        Workflow::run(new StartMeeting, $meeting, $request->user(), ['source' => SessionEndedInSystem::VIA_STAFF]);
+
+        if ($meeting->user_id) {
+            Notify::send($meeting->user_id, 'video', 't-cyan', "بدأت جلسة اجتماع «{$meeting->title}» — يمكنك الدخول الآن.");
         }
 
         return back();
@@ -411,7 +423,7 @@ class MeetingController extends Controller
         ));
         $reason = RescheduleReason::from($data['reason'])->describe($data['note'] ?? null);
 
-        $moment = $postpone ? null : BookingMoment::from($data['day'], $data['time'], $meeting->durationMinutes() ?: 60);
+        $moment = $postpone ? null : BookingMoment::from($data['day'], $data['time']);
         // **موعدٌ مضى ليس موعداً.** كان يُقبل، ثمّ يلتقطه `meetings:auto-close` فيغلقه «لم ينعقد» —
         // اجتماعٌ «أُعيدت جدولته» يموت في الدورة التالية للمجدول. ومسارات الحجز الأخرى ترفضه أصلاً.
         abort_if($moment?->isPast() === true, 422, 'لا يمكن نقل الاجتماع إلى موعدٍ مضى — اختر وقتاً لاحقاً.');
@@ -432,9 +444,7 @@ class MeetingController extends Controller
             'attend' => 0, // العمود غير قابل لـnull — صفر يعني «لم يُسجَّل حضور بعد»
         ]);
 
-        // **Zoom يتبع الموعد بمدّته الحقيقيّة.** كانت المزامنة تُرسل `duration => 60`
-        // مثبَّتة، فاجتماعٌ مدّته ٩٠ أو ١٢٠ يُخفَّض إلى ٦٠ على Zoom في كلّ إعادة جدولة
-        // بينما `Meeting::durationMinutes()` ما زال يقول ٩٠ — فتتباعد الجهتان صامتتين.
+        // **Zoom يتبع الموعد** (ومدّته الاسميّة من `SessionWindow` — لا يُنهي الاجتماع بها).
         // **فقط عند موعدٍ مفهوم.** تاريخٌ لا يُفكّ يعني «أُجّل بلا موعد»
         // لا «أُلغي» — والخلط بينهما كان سيحذف اجتماع Zoom.
         if ($startsAt) {
@@ -469,34 +479,26 @@ class MeetingController extends Controller
         return back();
     }
 
-    // إلغاء الاجتماع — يحذف اجتماع Zoom ويضبط «ملغى» (حالة نهائية يحميها حارس الويبهوك)
+    /**
+     * إلغاء الاجتماع — بانتقال الإلغاء (`CancelMeeting`): «ملغى»، والدعوات المرتبطة، وحذفُ غرفة
+     * Zoom في الطابور (`MeetingCancelled`)، والبثّ والتدقيق. **والجاري لا يُلغى** — يرفضه الحارس
+     * بسببه (قرار المالك 2026-09-26). والملغى أصلاً (نقرةٌ ثانية) يُعاد بصمت كما كان.
+     */
     public function cancel(Request $request, Meeting $meeting): RedirectResponse
     {
         $this->guardMeeting($request, $meeting);
-        if (! MeetingStatus::isFinalValue($meeting->status)) {
-            $this->zoom->deleteMeeting((string) $meeting->meet_id);
-            $meeting->update(['status' => MeetingStatus::Cancelled->value, 'meet_id' => null]);
-            // سجلّ تاريخي «أُلغيت» بدل الحذف الصلب — كان أثر الدعوة يختفي من شاشة العميل بلا تفسير.
-            // الدعوة المعتمدة (STAGE_APPROVED) تُستثنى: تنزيلها يمحو سجلّ اعتمادها بلا رجعة
-            // لأن resend لا يقبل إلا «منتهية الصلاحية» — فتصير بلا مخرج.
-            MeetRequest::where('meeting_id', $meeting->id)
-                ->where('stage', '!=', MeetRequest::STAGE_APPROVED)
-                ->update(['stage' => MeetRequest::STAGE_CANCELLED]);
-            if ($meeting->user_id) {
-                Notify::send($meeting->user_id, 'info', 't-red', "أُلغي اجتماع «{$meeting->title}».");
-            }
-            $this->mailMeetingEvent($meeting, 'cancelled');
-            Audit::log(
-                action: 'إلغاء اجتماع',
-                description: "ألغى {$request->user()->name} الاجتماع «{$meeting->title}» ({$meeting->ref}).",
-                category: 'اجتماعات',
-                severity: 'warning',
-                auditable: $meeting,
-            );
-            Live::push(new MeetingStatusBroadcast($meeting));
+        if (MeetingStatus::isFinalValue($meeting->status)) {
+            return back();
         }
 
-        return back();
+        Workflow::run(new CancelMeeting, $meeting, $request->user(), ['via' => MeetingCancelled::VIA_MEETING]);
+
+        if ($meeting->user_id) {
+            Notify::send($meeting->user_id, 'info', 't-red', "أُلغي اجتماع «{$meeting->title}».");
+        }
+        $this->mailMeetingEvent($meeting, 'cancelled');
+
+        return back()->with('flash', 'أُلغي الاجتماع وحُذفت غرفته على Zoom.');
     }
 
     /** بريد حدث الاجتماع (إعادة جدولة/إلغاء) للعميل والمحامي — best-effort عبر MailService. */
@@ -515,12 +517,12 @@ class MeetingController extends Controller
     public function createTasks(Request $request, Meeting $meeting): RedirectResponse
     {
         $this->guardMeeting($request, $meeting);
-        abort_if($meeting->tasks_created, 409);
+        abort_if($meeting->tasks_created, 409, 'أُنشئت مهامّ هذا الاجتماع من قبل.');
 
         // الاحتياط: أوّل محامٍ في قائمة المشاركين، وإلا الفاعل (المحامي المسنَد له الأولوية داخل DecisionTasks)
         $fallback = self::firstNamedLawyer($meeting->participants) ?? $request->user();
         $count = DecisionTasks::create($meeting, $this->ai, $fallback);
-        abort_if($count === 0, 422);
+        abort_if($count === 0, 422, 'لم تُنشأ مهامّ: لا قرارات في ملخّص الاجتماع، أو لا محامي تُسند إليه.');
 
         return back()->with('flash', 'تم تحويل '.$count.' قرار إلى مهام');
     }

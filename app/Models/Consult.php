@@ -6,11 +6,16 @@ use App\Domain\Journey\Enums\AppointmentStatus;
 use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\SessionState;
 use App\Domain\Journey\GuardsJourneyState;
+use App\Domain\Journey\Transitions\Consult\ApproveConsultAnalysis;
 use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
 use App\Enums\Role;
 use App\Models\Concerns\LinksLegalDepartment;
+use App\Support\ArabicCount;
+use App\Support\Finance\InvoiceFactory;
 use App\Support\LawyerName;
 use App\Support\RecordingArchive;
+use App\Support\SessionWindow;
+use App\Support\SettingsRegistry;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -136,6 +141,8 @@ class Consult extends Model
     protected $fillable = [
         'user_id', 'ticket_id', 'appointment_id', 'ref', 'subject', 'type', 'priority', 'channel',
         'lawyer', 'assigned_lawyer_id', 'specialty', 'employee', 'day', 'time', 'when_label', 'received_label', 'phone',
+        // `duration_min`: المسافة المحجوزة على تقويم المحامي عند الحجز (يقرؤها `LawyerAvailability`
+        // لمنع التعارض) — **لا عمرُ الجلسة**: الجلسة تنتهي بختمها (قرار المالك 2026-09-26).
         'starts_at', 'duration_min',
         'meet_id', 'meet_link', 'host_link', 'meet_password',
         'link_released_at', 'reminder_24h_sent_at', 'reminder_30m_sent_at', 'join_time', 'leave_time', 'duration_sec', 'transcript', 'recording_url', 'transcript_path', 'zoom_summary_at',
@@ -177,41 +184,68 @@ class Consult extends Model
     ];
 
     /**
-     * هل يُفعَّل زر «الدخول إلى الجلسة»؟ للمرئية فقط، بعد إطلاق الرابط (قبل الموعد بـ5د)،
-     * وقبل انتهاء الجلسة. قبل الإطلاق يكون الزر معطّلاً تماماً.
-     * سقف علوي: كان الشرط بلا حدّ زمني فيبقى الزر مفعّلاً للأبد بعد فوات موعد لم تُعقد جلسته.
+     * هل يُفعَّل زر «الدخول إلى الجلسة»؟ للمرئية فقط، بعد إطلاق الرابط (قبل الموعد بـ5د).
+     *
+     * **الجلسة تنتهي حين تُنهى لا حين تبلغ الساعةُ مدّتها** (قرار المالك 2026-09-26). كان للدخول
+     * سقفان محسوبان من المدّة — «الموعد + المدة + 30د» قبل البدء و«+ 180د» أثناءه — فتُغلق غرفةٌ
+     * ما زال فيها الموكّل مع محاميه لأنّ الساعة قالت ذلك. الآن:
+     * - **جارية** ⇒ مفتوحة حتى تُختم (`EndSession` من زرّ الطاقم أو ويبهوك Zoom؛ والمنسيّة تُختم
+     *   بعد مهلة النسيان مع تنبيه الطاقم — `sessions:close-stale`).
+     * - **لم تبدأ** ⇒ من إطلاق الرابط حتى تفوت (`SessionWindow::isMissed` — من البداية لا من مدّة).
+     * - **مختومة** (انعقدت أو «لم تُعقد») ⇒ مغلقة.
      */
     public function canJoin(): bool
     {
-        if ($this->channel !== 'مرئية' || $this->session === 'منتهية') {
-            return false;
-        }
-
-        // جلسة جارية فعلاً: الدخول متاح ضمن سقف (المدة + 180د) — لا «جارية» أبدية
-        if ($this->session === 'جلسة جارية') {
-            return $this->starts_at === null
-                || $this->starts_at->copy()->addMinutes(($this->duration_min ?: 45) + 180)->isFuture();
-        }
-
-        if ($this->link_released_at === null) {
-            return false;
-        }
-
-        // أُطلق الرابط: نافذة مغلقة حتى (الموعد + المدة + 30د)
-        return $this->starts_at === null
-            || $this->starts_at->copy()->addMinutes(($this->duration_min ?: 45) + 30)->isFuture();
+        return $this->joinBlocker() === null;
     }
 
-    /** فاتت نافذة موعدها (البداية + المدة) ولم تُعقد جلستها — لا تُعرض «بانتظار الجلسة» للأبد */
+    /**
+     * **لماذا لا يُدخَل إلى الغرفة الآن — `null` = يُدخَل.** مصدرُ `canJoin()` ونصُّ الرفض معاً
+     * (غرفة العميل وغرفة الطاقم ونقطة توقيع Zoom)، فلا يُعرض سببٌ غير الذي منع.
+     */
+    public function joinBlocker(): ?string
+    {
+        $session = SessionState::tryFrom((string) $this->session);
+
+        return match (true) {
+            $this->channel !== 'مرئية' => SessionWindow::REFUSE_NOT_VIDEO,
+            $session === SessionState::Ended => SessionWindow::REFUSE_ENDED,
+            $session === SessionState::NotHeld => SessionWindow::REFUSE_MISSED,
+            $session === SessionState::Live => null,
+            ConsultStatus::tryFrom((string) $this->status) === ConsultStatus::Cancelled => SessionWindow::REFUSE_CANCELLED,
+            $this->isMissed() => SessionWindow::REFUSE_MISSED,
+            $this->link_released_at === null => SessionWindow::refuseNotOpen(),
+            default => null,
+        };
+    }
+
+    /**
+     * **جاريةٌ الآن؟** — القاعدة الواحدة لـ«يجوز إنهاؤها» (`EndSession` لغير Zoom) ولعلَم `live`
+     * في عقد الغرفة (`RoomDetails`) — نظيرُها `Meeting::isLive()`.
+     */
+    public function isLive(): bool
+    {
+        return $this->session === SessionState::Live->value;
+    }
+
+    /**
+     * **فاتت دون أن تبدأ** — «بانتظار الجلسة» بعد مهلة الفوات من موعدها (`SessionWindow`).
+     *
+     * كانت تُقاس بـ«البداية + المدّة»، فصار طولُ الشريحة يقرّر متى يغيب الموكّل. الفوات كشفُ
+     * غيابٍ من **البداية**، وجلسةٌ بدأت لا تفوت مهما طالت.
+     */
     public function isMissed(): bool
     {
-        return $this->session === 'بانتظار الجلسة'
-            && $this->starts_at !== null
-            && $this->starts_at->copy()->addMinutes($this->duration_min ?: 45)->isPast();
+        return $this->session === SessionState::Waiting->value
+            && SessionWindow::isMissed($this->starts_at);
     }
 
-    /** لا يطلب العميل تغيير موعدٍ يبدأ خلال هذه الساعات — يتّصل بالمكتب (قرار المالك 2026-09-25). */
-    public const RESCHEDULE_REQUEST_NOTICE_HOURS = 24;
+    /**
+     * لا يطلب العميل تغيير موعدٍ يبدأ خلال هذه الدقائق — يتّصل بالمكتب (قرار المالك 2026-09-25).
+     * **الافتراض المُعلَن لا القيمة النافذة**: الإدارة تضبطها (`consult_reschedule_notice_minutes`) —
+     * بالدقائق منذ 2026-09-26. يوم واحد.
+     */
+    public const RESCHEDULE_REQUEST_NOTICE_MINUTES = 1440;
 
     /**
      * **لماذا لا يستطيع العميل طلب تغيير موعده الآن — `null` = يستطيع.**
@@ -226,6 +260,8 @@ class Consult extends Model
     {
         $status = ConsultStatus::tryFrom((string) $this->status);
         $missed = $status === ConsultStatus::NoShow || $this->session === SessionState::NotHeld->value || $this->isMissed();
+        $notice = SettingsRegistry::int('consult_reschedule_notice_minutes');
+        $noticeEdge = now()->addMinutes($notice);
 
         return match (true) {
             $this->reschedule_requested_at !== null => 'طلبك السابق قيد المعالجة — سيتواصل معك المكتب.',
@@ -234,7 +270,8 @@ class Consult extends Model
             $status?->isPreSession() === true => 'لم يُحدَّد موعد جلستك بعد — يصلك إشعارٌ به فور تحديده.',
             $missed => null,
             $this->starts_at === null => 'لم يُحدَّد موعد جلستك بعد — يصلك إشعارٌ به فور تحديده.',
-            $this->starts_at->lt(now()->addHours(self::RESCHEDULE_REQUEST_NOTICE_HOURS)) => 'موعدك خلال أقلّ من '.self::RESCHEDULE_REQUEST_NOTICE_HOURS.' ساعة — لتغييره تواصل مع المكتب مباشرةً.',
+            // والجملة تُبنى من القيمة نفسها بوحدتها الطبيعيّة — «أقلّ من يوم واحد» لا «أقلّ من 1440 دقيقة»
+            $this->starts_at->lt($noticeEdge) => 'موعدك خلال أقلّ من '.ArabicCount::duration($notice).' — لتغييره تواصل مع المكتب مباشرةً.',
             default => null,
         };
     }
@@ -281,7 +318,7 @@ class Consult extends Model
         return match ($this->channel) {
             'مرئية' => 'اجتماع إلكتروني',
             'هاتفية' => 'مكالمة هاتفية',
-            default => $this->appointment?->place ?: (string) config('office.address'),
+            default => $this->appointment?->place ?: SettingsRegistry::str('office_address'),
         };
     }
 
@@ -404,6 +441,23 @@ class Consult extends Model
         return $this->summary_approved_at !== null;
     }
 
+    /**
+     * **نسبة الضريبة التي طُبّقت على هذه الاستشارة** — مستنتجةً من السعر والضريبة المجمَّدين
+     * (`InvoiceFactory::taxFromFrozen`) لا من الإعداد الحاليّ. كانت الفاتورة والتقرير يكتبان
+     * «(15%)» نصّاً، فلو غيّرت الإدارة النسبة لعرضا نسبةً تخالف المبلغ المطبوع بجوارها.
+     *
+     * و`null` قبل التسعير: لا نسبة طُبّقت بعد — ولا يُسأل الإعداد عنها، فبطاقات القوائم لا تستعلم
+     * مرّةً لكلّ استشارةٍ غير مسعَّرة (`Setting::vatRate` استعلامٌ في كلّ نداء).
+     */
+    public function vatRate(): ?int
+    {
+        if ((int) $this->price <= 0) {
+            return null;
+        }
+
+        return InvoiceFactory::taxFromFrozen((int) $this->price, (int) $this->vat)['vat_rate'];
+    }
+
     public function toClientCard(): array
     {
         return [
@@ -456,6 +510,7 @@ class Consult extends Model
             // دورة الحجز/الدفع (تسعير الإدارة → فاتورة → دفع ميسّر → اختيار الموعد)
             'price' => $this->price,
             'vat' => $this->vat,
+            'vatRate' => $this->vatRate(),
             'total' => $this->total,
             'priced' => $this->priced_at !== null,
             'paid' => $this->paid_at !== null,
@@ -531,6 +586,20 @@ class Consult extends Model
             // درج المحامي واستقبال الإدارة للفائتة وحدها، والخادم يقبل كلّ موعدٍ لم ينعقد: فلم يجد
             // المحامي المعتذر عن موعد الأسبوع القادم زرّاً. والسقف يُفحص عند الإرسال بفاعله.
             'canReschedule' => (new RescheduleConsult)->guard($this, []) === null,
+            // **أعلامُ الإجراءات من الخادم** — كانت شاشة الإدارة تقارن نصّ الحالة لتقرّر أيّ زرٍّ يظهر
+            // (التسعير · التذكير · اعتماد التحليل)؛ والشرط الآن من الكتالوج والحارس اللذين يحكمان الطلب
+            'needsPricing' => $this->status === ConsultStatus::AwaitingPricing->value,
+            'canRemindSchedule' => $this->status === ConsultStatus::AwaitingSchedule->value,
+            'canApproveAnalysis' => (new ApproveConsultAnalysis)->accepts((string) $this->status),
+            // مرحلة دورة الحجز (التسعير ← السداد ← الموعد ← اعتماده) — مفتاحٌ ثابت تُجمَّع به شاشة
+            // «طلبات الاستشارات» بدل مقارنة أربعة نصوص عربيّة؛ و`null` لما تجاوز دورة الحجز
+            'bookingStage' => match ($this->status) {
+                ConsultStatus::AwaitingPricing->value => 'pricing',
+                ConsultStatus::AwaitingPayment->value => 'payment',
+                ConsultStatus::AwaitingSchedule->value => 'scheduling',
+                ConsultStatus::AwaitingAppointmentApproval->value => 'approval',
+                default => null,
+            },
             'clientRescheduleRequest' => $this->reschedule_requested_at === null ? null : [
                 'at' => $this->reschedule_requested_at->toIso8601String(),
                 'note' => $this->reschedule_request_note,
@@ -593,6 +662,7 @@ class Consult extends Model
             'media' => RecordingArchive::availability($this),
             'price' => $this->price,
             'vat' => $this->vat,
+            'vatRate' => $this->vatRate(),
             'total' => $this->total,
             'priced' => $this->priced_at !== null,
             'paid' => $this->paid_at !== null,

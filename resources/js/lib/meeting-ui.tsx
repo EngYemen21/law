@@ -2,6 +2,7 @@ import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useEffect, useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import FlowLine from '@/components/babylon/FlowLine';
 import Modal from '@/components/babylon/Modal';
 import RescheduleDialog from '@/components/babylon/RescheduleDialog';
@@ -9,16 +10,16 @@ import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
-import { todayISO } from '@/components/SpecialistPicker';
+import { todayISO } from '@/lib/local-date';
 import { nowClock, todayDate } from '@/lib/chat';
 import { openMeeting, RichText } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { MR_FLOW } from '@/lib/employee-data';
 import { useMasker } from '@/lib/permissions';
+import { useSettings } from '@/lib/settings';
 import Icon from '@/lib/icons';
 import { meetingMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
 import type { SessionMedia } from '@/lib/recording-ui';
-import ZoomEmbedRoom from '@/lib/zoom-room';
 
 // ============================================================
 // واجهة الاجتماعات المشتركة (Meeting/MeetRequest الحقيقيان من الخادم)
@@ -80,6 +81,9 @@ function decisionText(x: unknown): string {
     return (x as { title?: string })?.title ?? JSON.stringify(x);
 }
 
+/** مفاتيح `MeetingStatus::key()` — المنطق يشرط بها، والنصّ العربيّ `status` للعرض. */
+export type MeetingStatusKey = 'upcoming' | 'live' | 'ended' | 'cancelled' | 'missed' | 'postponed' | 'awaiting' | 'unknown';
+
 // بطاقة الاجتماع الكامل (Meeting::toFullCard) — تطابق FullMeeting
 export interface FullMeetingCard {
     id: string;      // M-26101
@@ -93,7 +97,13 @@ export interface FullMeetingCard {
     before: string[];
     during: string[];
     after: string[];
-    status: string;  // قادم/جارٍ/منتهٍ/مؤجل/ملغى
+    status: string;  // قادم/جارٍ/منتهٍ/مؤجل/ملغى — للعرض وحده
+    /** مفتاح الحالة الحيّة للمنطق (`MeetingStatus::key`) — لا مقارنة بالنصّ العربيّ المعروض. */
+    statusKey: MeetingStatusKey;
+    /** اعتمدت الإدارة المحضر والملخص؟ (`Meeting::isApproved`) */
+    approved: boolean;
+    /** حكم حارس الاعتماد نفسه (`Meeting::approvalBlocker`) — القالبيّ ليس مخرجاً فلا يُعرض زرٌّ يُردّ بـ٤٢٢. */
+    canApprove: boolean;
     priority: string;
     conf: string;
     attend: number;
@@ -105,7 +115,7 @@ export interface FullMeetingCard {
     meetId: string;
     meetLink: string;
     hostLink: string | null;
-    dur: string;
+    // لا `dur`: الاجتماع بلا مدّةٍ ثابتة — ينتهي حين يُنهى (قرار المالك 2026-09-26)، والمقيس بعده `durationSec`
     summary: string | null;
     zoomSummary: string | null;
     /** هل للاجتماع تسجيلٌ مرئيّ؟ علَمٌ لا رابط — رابط سحابة Zoom لا يغادر الخادم. */
@@ -119,6 +129,8 @@ export interface FullMeetingCard {
     canJoin: boolean;
     /** يجوز نقل موعده؟ حكم الخادم: لا نهائيّ ولا منعقدٌ فعلاً (تسجيلٌ أو دخولٌ مسجَّل). */
     reschedulable: boolean;
+    /** أزرار دورة الحياة بحراس الانتقالات نفسها (`StartMeeting`/`EndMeeting`/`CancelMeeting`) — لا قوائم نصّية هنا. */
+    actions: { start: boolean; end: boolean; cancel: boolean };
     joinTime: string | null;
     leaveTime: string | null;
     durationSec: number | null;
@@ -151,7 +163,6 @@ export interface MeetReqCard {
     stage: number;   // 0..3
     /** لفحص إتاحة المحامي في مودال إعادة الإرسال */
     lawyerId?: number | null;
-    durationMin?: number;
     meetId: string | null;
     meetLink: string | null;
     hostLink: string | null;
@@ -163,72 +174,14 @@ export interface MeetReqCard {
 export interface ClientFileOption { ref: string; label: string; subject: string | null }
 export interface ClientDirEntry { id: number; name: string; items: ClientFileOption[] }
 
-// غرفة الاجتماع المضمّنة لدور المكتب — فيديو Zoom داخل الموقع + إنهاء الجلسة بملاحظاتها
-// (كانت بلا زرّ إنهاء ولا ملاحظات بخلاف غرفة الاستشارة — فيغادر الموظف ويُنهي من صفحة أخرى)
-export const StaffMeetingRoom: React.FC<{ meeting: FullMeetingCard; base: string }> = ({ meeting, base }) => {
-    const toast = useToast();
-    const [notes, setNotes] = useState('');
-    const endFromRoom = () => {
-        router.post(`${base}/meetings/${meeting.dbId}/end`, { notes }, {
-            onSuccess: () => {
-                toast('انتهى الاجتماع — بانتظار ملخص Zoom أو التدوين اليدوي');
-                router.visit(`${base}/meeting?id=${encodeURIComponent(meeting.id)}`);
-            },
-            onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر إنهاء الاجتماع')),
-        });
-    };
-
-    return (<>
-    <ZoomEmbedRoom
-        cref={meeting.id}
-        kind="meeting"
-        label={`${meeting.id} · ${meeting.title}`}
-        back={`${base}/meeting?id=${encodeURIComponent(meeting.id)}`}
-        fallbackUrl={meeting.hostLink || meeting.meetLink}
-        viewer="staff"
-        details={{
-            title: meeting.title,
-            status: meeting.status,
-            rows: [
-                { k: 'العميل', v: meeting.client },
-                { k: 'المحامي', v: meeting.lawyer },
-                { k: 'الموعد', v: meeting.when },
-                { k: 'المدة', v: meeting.dur },
-                ...(meeting.caseRef ? [{ k: 'المرجع', v: meeting.caseRef }] : []),
-                ...(meeting.participants ? [{ k: 'المشاركون', v: meeting.participants }] : []),
-            ],
-            agenda: { before: meeting.before, during: meeting.during, after: meeting.after },
-            summaryHref: `${base}/meeting?id=${encodeURIComponent(meeting.id)}`,
-        }}
-    />
-    {['قادم', 'مؤجل', 'جارٍ'].includes(meeting.status) && (
-        <div className="card" style={{ marginTop: 16, maxWidth: 900, marginInline: 'auto' }}>
-            <div className="card-h">
-                <h3>ملاحظات الجلسة</h3>
-                <button className="btn sm" onClick={endFromRoom} type="button">
-                    <Icon name="check" /> إنهاء الاجتماع
-                </button>
-            </div>
-            <div className="card-b" style={{ padding: '14px 16px' }}>
-                <textarea
-                    className="input"
-                    rows={3}
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="دوّن أبرز نقاط الاجتماع (تُغذّي الملخّص عند الإنهاء)…"
-                />
-            </div>
-        </div>
-    )}
-    </>);
-};
+// غرفة الاجتماع لدور المكتب: انتقلت إلى الغرفة الواحدة `RoomPage` (`lib/zoom-room.tsx`) — تفاصيلها
+// وزرُّ إنهائها من عقد الخادم `room`، والإنهاء داخل الغرفة لا بطاقةٌ تحتها (قرار المالك 2026-09-26).
 
 // ============================================================
 // طلبات الاجتماعات — صفحة مشتركة للموظف/المحامي/الإدارة
 // يطابق meetReqsView + sendMeetInvite/mrCancel
 // ============================================================
 
-const MI_DURATIONS = [30, 45, 60, 90, 120];
 // شبكة مواعيد ضمن ساعات العمل (09:00–20:30) كل 30 دقيقة
 const MI_SLOTS: string[] = (() => {
     const out: string[] = [];
@@ -247,6 +200,7 @@ const hmToMin = (hm: string) => {
 
 export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDirEntry[]; lawyers: { id: number; name: string }[]; selfLawyerId?: number | null; base: string }> = ({ requests, clients, lawyers, selfLawyerId, base }) => {
     const toast = useToast();
+    const ask = useConfirm();
     const mask = useMasker();
     const [open, setOpen] = useState(false);
     // إن كان المُنشئ محاميًا فهو المحامي المسؤول حصراً (لا يختار غيره)
@@ -260,7 +214,12 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
     // هل كتب المستخدم الموضوع بيده؟ التعبئة التلقائية لا تطمس كتابةً بشرية
     const [serviceTyped, setServiceTyped] = useState(false);
     const [miType, setMiType] = useState('استشارة مرئية');
-    const [miDuration, setMiDuration] = useState(60);
+    /*
+     * **لا «مدة» في الدعوة** (قرار المالك 2026-09-26): الاجتماع ينتهي حين يُنهى. والتعارض يُفحص
+     * بمسافة الحجز نفسها التي يفحص بها الخادم (`LawyerAvailability::isBusy`) — طول الشريحة من
+     * الإعدادات المشتركة، فلا يَعرض المنتقي وقتاً يرفضه الخادم ولا يُخفي وقتاً يقبله.
+     */
+    const { consult_slot_minutes: spacing } = useSettings();
     const [miDay, setMiDay] = useState(todayISO());
     const [miTime, setMiTime] = useState('');
     const [busy, setBusy] = useState<[string, string][]>([]); // فترات انشغال المحامي في اليوم
@@ -302,10 +261,10 @@ setBusy([]);
 return false;
 }
 
-        const cs = hmToMin(s); const ce = cs + miDuration;
+        const cs = hmToMin(s); const ce = cs + spacing;
 
         return !busy.some(([a, b]) => cs < hmToMin(b) && hmToMin(a) < ce);
-    }), [busy, miDuration, miDay]);
+    }), [busy, spacing, miDay]);
     // صفّر الوقت إن لم يعد متاحاً بعد تغيير المحامي/اليوم/المدة
     useEffect(() => {
  if (miTime && !availableSlots.includes(miTime)) {
@@ -314,11 +273,11 @@ setMiTime('');
 }, [availableSlots, miTime]);
     // قائمة كاملة بكل الأوقات — المحجوزة تُعلَّم taken:true لتُعرض رمادية في المكوّن
     const allSlotsWithStatus = useMemo(() => MI_SLOTS.map((s) => {
-        const cs = hmToMin(s); const ce = cs + miDuration;
+        const cs = hmToMin(s); const ce = cs + spacing;
         const isBusy = busy.some(([a, b]) => cs < hmToMin(b) && hmToMin(a) < ce);
 
         return { time: s, taken: isBusy, label: isBusy ? 'محجوز' : undefined };
-    }), [busy, miDuration, miDay]);
+    }), [busy, spacing, miDay]);
 
     const submitInvite = () => {
         if (!miClient) {
@@ -342,7 +301,7 @@ setMiTime('');
         const name = clients.find((c) => c.id === miClient)?.name ?? '';
         router.post(`${base}/meetreqs`, {
             client_id: miClient, lawyer_id: miLawyer, service: miService, type: miType,
-            case_ref: miCase, day: miDay, time: miTime, duration: miDuration,
+            case_ref: miCase, day: miDay, time: miTime,
         }, {
             preserveScroll: true,
             onSuccess: () => {
@@ -350,18 +309,31 @@ setMiTime('');
                 setMiService(''); setMiTime('');
                 toast(`تم إرسال الدعوة وإشعارها إلى العميل: ${name}`);
             },
-            onError: (e) => toast(e.time || e.day || e.lawyer_id || 'تعذّر إرسال الدعوة'),
+            onError: (e) => toast(e.time || e.day || e.lawyer_id || e.message || 'تعذّر إرسال الدعوة'),
         });
     };
 
     // onError في الاثنين: الحارس الخادميّ يردّ ٤٢٢ (دعوة غير معلّقة / ليست لك)
     // وكان الردّ يسقط صامتاً — فتُنقر الموافقة مرّتين ولا يظهر شيء.
-    const cancel = (r: MeetReqCard) =>
+    // **الإلغاء بعد تأكيدٍ يقول أثره** (قرار المالك 2026-09-26): إلغاء الدعوة يُلغي اجتماعها
+    // ويحذف غرفته على Zoom — لا يُتراجع عنه، فلا يقع بنقرةٍ عابرة.
+    const cancel = async (r: MeetReqCard) => {
+        if (!(await ask({
+            title: 'إلغاء الدعوة؟',
+            message: 'تُلغى الدعوة ويُلغى اجتماعها وتُحذف غرفته في Zoom، ويُبلَّغ العميل. لا يمكن التراجع.',
+            confirmLabel: 'إلغاء الدعوة',
+            cancelLabel: 'تراجع',
+            tone: 'danger',
+        }))) {
+            return;
+        }
+
         router.post(`${base}/meetreqs/${r.dbId}/cancel`, {}, {
             preserveScroll: true,
-            onSuccess: () => toast('تم إلغاء الدعوة'),
+            onSuccess: () => toast('أُلغيت الدعوة واجتماعها'),
             onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر إلغاء الدعوة'),
         });
+    };
 
     // موافقة الإدارة على دعوة معلّقة ونشرها للعميل (الزرّ يظهر في لوحة الإدارة فقط)
     const approveReq = (r: MeetReqCard) =>
@@ -386,7 +358,7 @@ setMiTime('');
 
         if (r.stage === 1) {
             // onSuccess ثم الانتقال — كان visit يُجهض طلب البدء (سباق Inertia) فيدخل المضيف والجلسة لم تُعلَّم «جارية»
-            router.post(`${base}/meetreqs/${r.dbId}/start`, {}, { preserveScroll: true, onSuccess: go, onError: () => toast('تعذّر بدء الجلسة') });
+            router.post(`${base}/meetreqs/${r.dbId}/start`, {}, { preserveScroll: true, onSuccess: go, onError: (e) => toast(e.message || 'تعذّر بدء الجلسة') });
 
             return;
         }
@@ -426,11 +398,11 @@ setMiTime('');
     }, [resendOf, rsDay, base]);
     const rsSlotsWithStatus = useMemo(() => MI_SLOTS.map((s) => {
         const cs = hmToMin(s);
-        const ce = cs + (resendOf?.durationMin ?? 60);
+        const ce = cs + spacing;
         const isBusy = rsBusy.some(([a, b]) => cs < hmToMin(b) && hmToMin(a) < ce);
 
         return { time: s, busy: isBusy };
-    }), [rsBusy, resendOf, rsDay]);
+    }), [rsBusy, spacing, rsDay]);
     const submitResend = () => {
         if (!resendOf) {
  return; 
@@ -447,7 +419,7 @@ setMiTime('');
             onSuccess: () => {
  setResendOf(null); setRsTime(''); toast('أُعيد إرسال الدعوة بالموعد الجديد وأُشعر العميل'); 
 },
-            onError: (e) => toast(e.time || e.day || 'تعذّرت إعادة الإرسال'),
+            onError: (e) => toast(e.time || e.day || e.message || 'تعذّرت إعادة الإرسال'),
         });
     };
 
@@ -600,10 +572,8 @@ setMiTime('');
                         </select>
                     </div>
                     <div className="field">
-                        <label>المدة</label>
-                        <select className="input" value={miDuration} onChange={(e) => setMiDuration(Number(e.target.value))}>
-                            {MI_DURATIONS.map((d) => <option key={d} value={d}>{d} دقيقة</option>)}
-                        </select>
+                        <label>نهاية الاجتماع</label>
+                        <div className="input" style={{ color: 'var(--muted)' }}>ينتهي حين يُنهيه المضيف — بلا مدّةٍ ثابتة</div>
                     </div>
                 </div>
                 <div className="picker-grid">
@@ -798,11 +768,18 @@ const MeetingRescheduleDialog: React.FC<{ meeting: FullMeetingCard; base: string
 
 export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: string }> = ({ meeting: m, base }) => {
     const toast = useToast();
+    const ask = useConfirm();
 
     // حالة لحظية: تتحدّث فور بثّ الخادم (إنهاء/اعتماد + الملخص/المحضر)
     const [status, setStatus] = useState(m.status);
+    // المفتاح للمنطق والنصّ للعرض — كلاهما من الخادم ويتحدّثان بالبثّ معاً
+    const [statusKey, setStatusKey] = useState<MeetingStatusKey>(m.statusKey);
+    // أزرار البدء/الإنهاء/الإلغاء بحكم الخادم (`Meeting::lifecycleActions`) — تتحدّث بالبثّ أيضاً
+    const [actions, setActions] = useState(m.actions);
     const [approve, setApprove] = useState(m.approve);
-    const approved = approve === 'معتمد';
+    const [approved, setApproved] = useState(m.approved);
+    // زرّ الاعتماد بحكم حارسه (`Meeting::approvalBlocker`) — «النصّ غير فارغ» كان يُظهره لقالبٍ يردّه الخادم
+    const [canApprove, setCanApprove] = useState(m.canApprove);
     /**
      * الاعتماد نهائيّ: ما اعتمدته الإدارة وصل العميل بشهادتها، فتعديله بعدها يجعل
      * الشهادة تصف نصّاً لا وجود له. الخادم يردّ ٤٢٢، والواجهة لا تدعو لفعلٍ مردود.
@@ -816,8 +793,6 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
     const [minutes, setMinutes] = useState(m.minutes || '');
     const [decisions, setDecisions] = useState<string[]>(m.decisions ?? []);
     const [tasksDone, setTasksDone] = useState(m.tasksCreated);
-    // وجود مخرجات فعلية (لا الافتراضية) — شرط ظهور زرّ الاعتماد؛ يتحدّث بالبثّ اللحظي
-    const [hasOutputs, setHasOutputs] = useState(!!(m.summary || m.minutes));
     // استعلام يدوي من Zoom API — يسحب كل بيانات الجلسة ويحدّثها (بديل فوري للويبهوك المتأخّر)
     const [syncing, setSyncing] = useState(false);
     const syncFromZoom = () => {
@@ -826,7 +801,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
             preserveScroll: true,
             onFinish: () => setSyncing(false),
             onSuccess: () => toast('اكتمل الاستعلام من Zoom — حُدّثت بيانات الجلسة المتوفرة'),
-            onError: () => toast('تعذّر الاستعلام من Zoom — حاول بعد قليل'),
+            onError: (e) => toast(e.message || 'تعذّر الاستعلام من Zoom — حاول بعد قليل'),
         });
     };
 
@@ -837,13 +812,33 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
     useEffect(() => {
         setSummary(m.summary || ''); setMinutes(m.minutes || '');
         setDecisions(m.decisions ?? []); setTasksDone(m.tasksCreated); setStatus(m.status); setApprove(m.approve);
-        setHasOutputs(!!(m.summary || m.minutes));
-    }, [m.summary, m.minutes, m.decisions, m.tasksCreated, m.status, m.approve]);
+        setStatusKey(m.statusKey); setApproved(m.approved); setCanApprove(m.canApprove); setActions(m.actions);
+    }, [m.summary, m.minutes, m.decisions, m.tasksCreated, m.status, m.statusKey, m.approve, m.approved, m.canApprove, m.actions]);
 
     // بثّ لحظي لحالة الاجتماع (جارٍ→منتهٍ→معتمد + المخرجات بعد الاعتماد)
     useEffect(() => {
-        const ch = echo.private(`meeting.${m.dbId}`).listen('.status', (e: { status: string; approve: string; summary: string | null; minutes: string | null }) => {
-            setStatus(e.status); setApprove(e.approve);
+        const ch = echo.private(`meeting.${m.dbId}`).listen('.status', (e: {
+            status: string; liveStatus?: string; statusKey?: MeetingStatusKey; approve: string; approved?: boolean; canApprove?: boolean;
+            summary: string | null; minutes: string | null; actions?: FullMeetingCard['actions'];
+        }) => {
+            // الحالة الحيّة المشتقّة كالبطاقة — المخزّنة تتأخّر («قادم» فات يُعرض «لم ينعقد»)
+            setStatus(e.liveStatus ?? e.status); setApprove(e.approve);
+
+            if (e.statusKey) {
+                setStatusKey(e.statusKey);
+            }
+
+            if (e.approved !== undefined) {
+                setApproved(e.approved);
+            }
+
+            if (e.canApprove !== undefined) {
+                setCanApprove(e.canApprove);
+            }
+
+            if (e.actions) {
+                setActions(e.actions);
+            }
 
             if (e.summary) {
                 setSummary(e.summary);
@@ -852,10 +847,6 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
             if (e.minutes) {
                 setMinutes(e.minutes);
             }
-
-            if (e.summary || e.minutes) {
-                setHasOutputs(true);
-            }
         });
 
         return () => {
@@ -863,29 +854,33 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
         };
     }, [m.dbId]);
 
-    // الحفظ اليدوي مصدر مخرجات مكافئ لتلخيص Zoom — يُفعّل زرّ الاعتماد فوراً.
-    // لا يُحفظ فراغ: الحقل الفارغ يعني «بانتظار Zoom أو التدوين» لا مخرجات.
+    // الحفظ اليدوي مصدر مخرجات مكافئ لتلخيص Zoom — والخادم يعيد البطاقة بعده فيحكم `canApprove`
+    // (المحفوظ قالبيّاً لا يُفعّل الاعتماد). لا يُحفظ فراغ: الحقل الفارغ يعني «بانتظار Zoom أو التدوين».
     const saveSummary = () => {
         if (!summary.trim()) {
- toast('لا يُحفظ ملخص فارغ — دوّن نصاً فعلياً أو انتظر ملخص Zoom');
+            toast('لا يُحفظ ملخص فارغ — دوّن نصاً فعلياً أو انتظر ملخص Zoom');
 
- return; 
-}
+            return;
+        }
 
-        router.post(`${base}/meetings/${m.dbId}/summary`, { summary }, { preserveScroll: true, onSuccess: () => {
- toast('تم حفظ الملخص'); setHasOutputs(true); 
-} });
+        router.post(`${base}/meetings/${m.dbId}/summary`, { summary }, {
+            preserveScroll: true,
+            onSuccess: () => toast('تم حفظ الملخص'),
+            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر حفظ الملخص'),
+        });
     };
     const saveMinutes = () => {
         if (!minutes.trim()) {
- toast('لا يُحفظ محضر فارغ — دوّن نصاً فعلياً أو انتظر ملخص Zoom');
+            toast('لا يُحفظ محضر فارغ — دوّن نصاً فعلياً أو انتظر ملخص Zoom');
 
- return; 
-}
+            return;
+        }
 
-        router.post(`${base}/meetings/${m.dbId}/minutes`, { minutes }, { preserveScroll: true, onSuccess: () => {
- toast('تم حفظ المحضر'); setHasOutputs(true); 
-} });
+        router.post(`${base}/meetings/${m.dbId}/minutes`, { minutes }, {
+            preserveScroll: true,
+            onSuccess: () => toast('تم حفظ المحضر'),
+            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر حفظ المحضر'),
+        });
     };
 
     const copyLink = () => {
@@ -917,43 +912,76 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
     // يبدأ فارغاً: 90 الافتراضية كانت تُحفظ كنسبة «حقيقية» بلا إدخال من أحد
     const [endAttend, setEndAttend] = useState('');
     const [endNotes, setEndNotes] = useState('');
-    const manageable = !['منتهٍ', 'ملغى', 'لم ينعقد'].includes(status);
+    const manageable = !(['ended', 'cancelled', 'missed'] as MeetingStatusKey[]).includes(statusKey);
     // «لم ينعقد» (المشتقّة لاجتماع فات موعده) يجوز إعادة جدولته — دون بدء/إنهاء/دخول
-    const canReschedule = manageable || status === 'لم ينعقد';
-    const canStart = ['قادم', 'مؤجل'].includes(status);
-    const canEnd = ['قادم', 'جارٍ'].includes(status);
+    const canReschedule = manageable || statusKey === 'missed';
+    // بحكم الخادم لا بقائمة حالات: كان «إنهاء» يُعرض لـ«قادم» و«إلغاء» لـ«جارٍ» والخادم يرفضهما
+    const canStart = actions.start;
+    const canEnd = actions.end;
 
     const startMeeting = () =>
-        router.post(`${base}/meetings/${m.dbId}/start`, {}, { preserveScroll: true, onSuccess: () => toast('بدأت الجلسة') });
-    const submitEnd = () =>
-        router.post(`${base}/meetings/${m.dbId}/end`, { attend: Number(endAttend) || 0, notes: endNotes }, {
-            preserveScroll: true, onSuccess: () => {
- setLcMode(null); toast('أُنهي الاجتماع'); 
-},
+        router.post(`${base}/meetings/${m.dbId}/start`, {}, {
+            preserveScroll: true,
+            onSuccess: () => toast('بدأت الجلسة'),
+            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر بدء الاجتماع'),
         });
-    const cancelMeeting = () =>
-        router.post(`${base}/meetings/${m.dbId}/cancel`, {}, { preserveScroll: true, onSuccess: () => toast('أُلغي الاجتماع') });
+    // الإنهاء والإلغاء بعد تأكيدٍ يقول أثره (قرار المالك 2026-09-26) — لا يُتراجع عنهما
+    const submitEnd = async () => {
+        if (!(await ask({
+            title: 'إنهاء الاجتماع للجميع؟',
+            message: 'يُنهى الاجتماع لكلّ الحاضرين وتُغلق غرفته في Zoom، ويُعدّ محضره. لا يمكن استئنافه بعد الإنهاء.',
+            confirmLabel: 'إنهاء الاجتماع',
+            cancelLabel: 'تراجع',
+            tone: 'danger',
+        }))) {
+            return;
+        }
+
+        router.post(`${base}/meetings/${m.dbId}/end`, { attend: Number(endAttend) || 0, notes: endNotes }, {
+            preserveScroll: true,
+            onSuccess: () => {
+                setLcMode(null); toast('أُنهي الاجتماع وأُغلقت غرفته');
+            },
+            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر إنهاء الاجتماع'),
+        });
+    };
+    const cancelMeeting = async () => {
+        if (!(await ask({
+            title: 'إلغاء الاجتماع؟',
+            message: 'يُلغى الاجتماع وتُحذف غرفته في Zoom، ويُبلَّغ العميل والمحامي. لا يمكن التراجع.',
+            confirmLabel: 'إلغاء الاجتماع',
+            cancelLabel: 'تراجع',
+            tone: 'danger',
+        }))) {
+            return;
+        }
+
+        router.post(`${base}/meetings/${m.dbId}/cancel`, {}, {
+            preserveScroll: true,
+            onSuccess: () => toast('أُلغي الاجتماع وحُذفت غرفته'),
+            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر إلغاء الاجتماع'),
+        });
+    };
 
     // اعتماد الإدارة من صفحة التفاصيل — كان الاعتماد متاحاً من قائمة /admin/meetings فقط
     const approveMeeting = () =>
         router.post(`/admin/meetings/${m.dbId}/approve`, {}, {
             preserveScroll: true,
-            onSuccess: () => {
- setApprove('معتمد'); toast('اعتُمد الاجتماع — وصل المحضر والملخص للعميل'); 
-},
+            // الحالة الجديدة تصل بإعادة تحميل البطاقة من الخادم (والبثّ) — لا نصّ «معتمد» يُكتب هنا
+            onSuccess: () => toast('اعتُمد الاجتماع — وصل المحضر والملخص للعميل'),
             onError: (e) => toast(Object.values(e)[0] ?? 'الاعتماد متاح بعد انتهاء الاجتماع ووصول ملخص Zoom أو التدوين اليدوي'),
         });
 
     // ألوان حالة الاجتماع — مبنية على CSS variables المنصة (--deep / --primary / --cyan / --amber / --success / --red / --muted)
-    const heroGradients: Record<string, string> = {
-        'قادم':      'linear-gradient(135deg, #0A2A55 0%, #0E5C9C 55%, #11A0C8 100%)', // brand: --deep → --primary → --cyan
-        'جارٍ':      'linear-gradient(135deg, #5a3500 0%, #C0832B 60%, #d9a450 100%)', // brand: --amber
-        'منتهٍ':     'linear-gradient(135deg, #0b3320 0%, #1E9D6B 60%, #2abf85 100%)', // brand: --success
-        'مؤجل':      'linear-gradient(135deg, #1e2d3d 0%, #607689 60%, #90A2B2 100%)', // brand: --muted / --faint
-        'ملغى':      'linear-gradient(135deg, #3d0a0a 0%, #C0392B 60%, #d9504a 100%)', // brand: --red
-        'لم ينعقد':  'linear-gradient(135deg, #1e2d3d 0%, #607689 60%, #90A2B2 100%)', // brand: --muted / --faint
+    const heroGradients: Partial<Record<MeetingStatusKey, string>> = {
+        upcoming:  'linear-gradient(135deg, #0A2A55 0%, #0E5C9C 55%, #11A0C8 100%)', // brand: --deep → --primary → --cyan
+        live:      'linear-gradient(135deg, #5a3500 0%, #C0832B 60%, #d9a450 100%)', // brand: --amber
+        ended:     'linear-gradient(135deg, #0b3320 0%, #1E9D6B 60%, #2abf85 100%)', // brand: --success
+        postponed: 'linear-gradient(135deg, #1e2d3d 0%, #607689 60%, #90A2B2 100%)', // brand: --muted / --faint
+        cancelled: 'linear-gradient(135deg, #3d0a0a 0%, #C0392B 60%, #d9504a 100%)', // brand: --red
+        missed:    'linear-gradient(135deg, #1e2d3d 0%, #607689 60%, #90A2B2 100%)', // brand: --muted / --faint
     };
-    const heroGrad = heroGradients[status] ?? heroGradients['قادم'];
+    const heroGrad = heroGradients[statusKey] ?? heroGradients.upcoming;
 
     return (
         <div className="detail-wrap">
@@ -1012,9 +1040,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                             <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                                 <Icon name="clock" /> {m.when}
                             </span>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                <Icon name="cal" /> {m.dur}
-                            </span>
+                            {/* لا «المدة» سلفاً — والمقيسة بعد الإنهاء في «مدة الحضور الفعلية» أدناه */}
                             {m.caseRef && (
                                 <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                                     <Icon name="folder" /> {m.caseRef}
@@ -1041,7 +1067,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
 
                         {/* زر الاعتماد (إدارة فقط) — بعد انتهاء الجلسة وتوليد مخرجاتها فقط:
                             اعتماد اجتماع لم ينعقد أو بلا ملخص/محضر كان يوسمه «معتمداً» بلا شيء يُعرض */}
-                        {base === '/admin' && !approved && status === 'منتهٍ' && hasOutputs && (
+                        {base === '/admin' && canApprove && (
                             <button
                                 type="button"
                                 onClick={approveMeeting}
@@ -1141,7 +1167,8 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                                     <Icon name="cal" /> إعادة جدولة
                                 </button>
                             )}
-                            {canReschedule && (
+                            {/* الجاري لا يُلغى — يُنهى أوّلاً (`CancelMeeting::guard`)؛ فالزرّ بحكم الخادم */}
+                            {actions.cancel && (
                                 <button
                                     className="btn soft sm" type="button" onClick={cancelMeeting}
                                     style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--red)' }}
@@ -1228,7 +1255,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                                     label: 'الحضور',
                                     value: m.attendedCount !== null
                                         ? `${m.attendedCount}${m.invitedCount !== null ? ` من ${m.invitedCount}` : ''}`
-                                        : (status === 'منتهٍ' && m.attend ? `${m.attend}% (مُدخَل يدوياً)` : null),
+                                        : (statusKey === 'ended' && m.attend ? `${m.attend}% (مُدخَل يدوياً)` : null),
                                 },
                                 { label: 'متوسّط البقاء', value: m.presenceRate !== null ? `${m.presenceRate}%` : null },
                             ].filter(r => r.value).map((row, i) => (
@@ -1249,7 +1276,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                         <div style={{ padding: '12px 16px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                             <SessionMediaPanel media={m.media} urls={meetingMediaUrls(base, m.dbId)} />
                             {/* النصّ يُجلب من مسار التسجيلات نفسه — يُخفى عمّن لا يملك «تشغيل تسجيلات الجلسات» */}
-                            {(m.transcript || status === 'منتهٍ') && !m.media?.locked && (
+                            {(m.transcript || statusKey === 'ended') && !m.media?.locked && (
                                 <button type="button" onClick={openTranscript}
                                     style={{
                                         display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -1262,7 +1289,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                                 </button>
                             )}
                             {/* المزامنة تُغيّر القرارات والمشاركين، وهما ممّا يشمله الاعتماد — فتُمنع بعده */}
-                            {status === 'منتهٍ' && !locked && (
+                            {statusKey === 'ended' && !locked && (
                                 <button type="button" onClick={syncFromZoom} disabled={syncing}
                                     style={{
                                         display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -1296,7 +1323,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                             </div>
                         )}
 
-                        {!m.joinTime && !m.recording && !m.transcript && status !== 'منتهٍ' && (
+                        {!m.joinTime && !m.recording && !m.transcript && statusKey !== 'ended' && (
                             <div className="action-hint" style={{ margin: '8px 16px' }}>
                                 تظهر بيانات الجلسة الفعلية (الدخول/المدة/التسجيل/النص) تلقائيًّا بعد انعقاد الجلسة عبر ويبهوك Zoom.
                             </div>
@@ -1576,10 +1603,10 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
 type MeetTab = 'up' | 'past' | 'needsOutput' | 'needsApproval' | 'missed';
 
 // ينتظر عملَ الموظّف: انعقد ولم يكتمل توثيقه
-const needsOutput = (m: FullMeetingCard) => m.status === 'منتهٍ' && (!m.summary || !m.minutes);
+const needsOutput = (m: FullMeetingCard) => m.statusKey === 'ended' && (!m.summary || !m.minutes);
 // اكتمل توثيقه وينتظر شهادة الإدارة — وبالاعتماد يصل الموكّل
-const needsApproval = (m: FullMeetingCard) =>
-    m.status === 'منتهٍ' && m.approve !== 'معتمد' && !!(m.summary || m.minutes);
+// حكم حارس الاعتماد نفسه (`canApprove`) — «النصّ غير فارغ» كان يعدّ القالبيّ مخرجاً
+const needsApproval = (m: FullMeetingCard) => m.canApprove;
 
 export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: string }> = ({ meetings, base }) => {
     const openPage = (id: string) => router.visit(`${base}/meeting?id=${encodeURIComponent(id)}`);
@@ -1596,7 +1623,7 @@ export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: str
             up: meetings.filter((m) => m.up).length,
             needsOutput: meetings.filter(needsOutput).length,
             needsApproval: meetings.filter(needsApproval).length,
-            missed: meetings.filter((m) => m.status === 'لم ينعقد').length,
+            missed: meetings.filter((m) => m.statusKey === 'missed').length,
             past: meetings.filter((m) => !m.up).length,
         };
     }, [meetings]);
@@ -1629,7 +1656,7 @@ export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: str
                 return needsApproval(m);
             }
 
-            return m.status === 'لم ينعقد';
+            return m.statusKey === 'missed';
         });
 
         const needle = q.trim().toLowerCase();
@@ -1714,7 +1741,7 @@ export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: str
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                             {/* شارة الحالة الحيّة — كانت البطاقة بلا حالة فلا يُفرَّق القادم عن «لم ينعقد» */}
                             <Badge text={m.status} tone={meetStatusTone(m.status)} />
-                            <Badge text={m.approve} tone={m.approve === 'معتمد' ? 'b-green' : 'b-amber'} />
+                            <Badge text={m.approve} tone={m.approved ? 'b-green' : 'b-amber'} />
                         </div>
                     </div>
                     <div className="card-b" style={{ padding: '14px 18px' }}>
@@ -1751,7 +1778,7 @@ export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: str
                             <button className="btn soft sm" onClick={() => openPage(m.id)} type="button">
                                 <Icon name="doc" /> فتح الصفحة
                             </button>
-                            {m.status === 'لم ينعقد' && (
+                            {m.statusKey === 'missed' && (
                                 <span className="chip" style={{ color: 'var(--amber)' }}>
                                     <Icon name="calplus" /> فات موعده — أعِد جدولته من صفحته
                                 </span>

@@ -170,7 +170,7 @@ class GrandTourE2ETest extends TestCase
         $this->assertSame($lawyer->id, $exec->assigned_lawyer_id);
         $this->actingAs($client)->get(route('execs'))->assertInertia(fn ($p) => $p->has('execs', 1));
 
-        $this->actingAs($admin)->post(route('admin.cases.close', $case))->assertRedirect();
+        $this->actingAs($admin)->post(route('admin.cases.close', $case), ['closure_reason' => 'RULING_FINALIZED'])->assertRedirect();
         $this->assertSame('مغلقة', $case->fresh()->status);
     }
 

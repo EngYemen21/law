@@ -19,7 +19,9 @@ class NativePdf
         $lines = array_values(array_filter(array_map('trim', explode("\n", $plain)), fn ($l) => ! empty($l)));
 
         // تنظيف النصوص للعرض القياسي في كائن الـ PDF
-        $docTitle = ! empty($title) ? $title : 'مستند رسمي — النظام الإداري لمكاتب المحاماة';
+        // اسم المكتب من الإعدادات — الاحتياطيّ يحمل الهويّة نفسها التي يحملها المستند الأصليّ
+        $officeName = SettingsRegistry::str('office_name');
+        $docTitle = ! empty($title) ? $title : 'مستند رسمي — '.$officeName;
 
         $contentStream = "BT\n";
         $contentStream .= "/F1 16 Tf\n";
@@ -27,7 +29,7 @@ class NativePdf
         $contentStream .= '('.static::escapePdfText($docTitle).") Tj\n";
         $contentStream .= "/F1 10 Tf\n";
         $contentStream .= "0 -22 Td\n";
-        $contentStream .= '('.static::escapePdfText('النظام الإداري لمكاتب المحاماة — تاريخ الإصدار: '.date('Y-m-d H:i')).") Tj\n";
+        $contentStream .= '('.static::escapePdfText($officeName.' — تاريخ الإصدار: '.date('Y-m-d H:i')).") Tj\n";
         $contentStream .= "0 -15 Td\n";
         $contentStream .= '('.static::escapePdfText('----------------------------------------------------------------------------------------------------').") Tj\n";
 
@@ -57,6 +59,7 @@ class NativePdf
         $contentStream .= "/F1 9 Tf\n";
         $contentStream .= '('.static::escapePdfText('وثيقة إلكترونية صادرة وموثقة آلياً من المنصة — جميع الحقوق محفوظة © '.date('Y')).") Tj\n";
         $contentStream .= "ET\n";
+        $contentStream .= static::qrOperators($html);
 
         // بناء كائنات هيكل ملف الـ PDF (%PDF-1.4)
         $objects = [];
@@ -88,6 +91,48 @@ class NativePdf
         $pdf .= "startxref\n".$xrefOffset."\n%%EOF\n";
 
         return $pdf;
+    }
+
+    /**
+     * **رمز الاستجابة يبقى في الاحتياطيّ.** هذا المُنشئ نصّيّ لا يفهم SVG، فكان يُسقط الرمز مع كلّ
+     * صورة — والرمز هنا ليس زينة: رمز الهيئة على الفاتورة الضريبيّة، أو رابط التحقّق على الوثيقة.
+     * فيُقرأ النصّ المُرمَّز من `data-qr` (يكتبه `Qr::svg`) وتُعاد مصفوفته من المولّد نفسه، وتُرسم
+     * وحداته مستطيلاتٍ PDF أعلى يمين الصفحة — بعد النصّ وبخلفيّةٍ بيضاء، فلا يُغطّيه سطرٌ طويل.
+     * الأوّل وحده: الصفحة واحدة، وكلّ وثيقةٍ اليوم تحمل رمزاً واحداً.
+     */
+    private static function qrOperators(string $html): string
+    {
+        if (preg_match('/data-qr="([^"]*)"/', $html, $m) !== 1 || $m[1] === '') {
+            return '';
+        }
+
+        $rows = Qr::matrix(html_entity_decode($m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $side = 100.0; // ≈ ٣٫٥ سم شاملةً المنطقة الهادئة
+        $unit = $side / (count($rows) + 2 * Qr::QUIET_ZONE);
+        $x0 = 595.28 - 40 - $side;
+        $top = 841.89 - 40;
+        $f = fn (float $v): string => sprintf('%.3F', $v);
+
+        $ops = "% qr\nq\n1 g\n".$f($x0).' '.$f($top - $side).' '.$f($side).' '.$f($side)." re f\n0 g\n";
+        foreach ($rows as $y => $row) {
+            $x = 0;
+            $n = count($row);
+            while ($x < $n) {
+                if (! $row[$x]) {
+                    $x++;
+
+                    continue;
+                }
+                $start = $x;
+                while ($x < $n && $row[$x]) {
+                    $x++;
+                }
+                $ops .= $f($x0 + ($start + Qr::QUIET_ZONE) * $unit).' '.$f($top - ($y + Qr::QUIET_ZONE + 1) * $unit)
+                    .' '.$f(($x - $start) * $unit).' '.$f($unit)." re\n";
+            }
+        }
+
+        return $ops."f\nQ\n";
     }
 
     private static function escapePdfText(string $text): string

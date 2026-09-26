@@ -2,19 +2,25 @@
 
 namespace App\Models;
 
-use App\Models\Concerns\RecordsSenderIp;
+use App\Models\Concerns\RecordsSender;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class TicketMessage extends Model
 {
-    use RecordsSenderIp;
+    use RecordsSender;
 
     protected $fillable = ['ticket_id', 'who', 'name', 'role', 'body', 'time_label'];
 
     public function ticket(): BelongsTo
     {
         return $this->belongsTo(Ticket::class);
+    }
+
+    /** الملفّ الذي تنتمي إليه الرسالة — يقرؤه `RecordsSender` لنقل مسؤوليّة المحادثة. */
+    public function conversation(): ?Model
+    {
+        return $this->ticket;
     }
 
     // الشكل الذي تتوقعه الواجهة (يطابق Message في chat.ts)
@@ -24,7 +30,7 @@ class TicketMessage extends Model
         return [
             'id' => $this->id,
             'who' => $this->who,
-            'name' => $this->name,
+            'name' => $this->senderName($forClient),
             'role' => $this->role,
             'text' => $this->body,
             'time' => $this->time_label,

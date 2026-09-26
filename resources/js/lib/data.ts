@@ -313,9 +313,11 @@ const ADMIN_NAV: SideGroup[] = [
   { g: 'الإشراف', items: [
     { icon: 'home', label: 'الرئيسية', route: '/admin/dashboard' },
     { icon: 'clock', label: 'سجل التدقيق الأمني', route: '/admin/audit-logs' },
+    { icon: 'reply', label: 'سجل انتقالات الرحلة', route: '/admin/journey-transitions' },
     { icon: 'user', label: 'العملاء', route: '/admin/clients' },
     { icon: 'folder', label: 'التذاكر', route: '/admin/tickets' },
     { icon: 'scale', label: 'كل القضايا', route: '/admin/cases' },
+    { icon: 'calgrid', label: 'الجلسات وتواريخ المحاكم', route: '/admin/hearings' },
     { icon: 'exec', label: 'التنفيذ', route: '/admin/execs' },
     { icon: 'scale', label: 'المحامون', route: '/admin/lawyers' },
   ] },
@@ -433,6 +435,7 @@ const LAWYER_TITLES: Record<string, [string, string]> = {
 const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/dashboard': ['الرئيسية', 'لوحة الإدارة'],
   '/admin/audit-logs': ['سجل الرقابة والتدقيق الأمني', 'الإدارة العليا'],
+  '/admin/journey-transitions': ['سجل انتقالات الرحلة الموحد', 'الإدارة العليا'],
   '/admin/ai-review': ['مراجعة مخرجات الذكاء', 'الإدارة العليا'],
   '/admin/ai-blind-review': ['المراجعة العمياء', 'الإدارة العليا'],
   '/admin/legal-sources': ['المصادر القانونيّة المعتمدة', 'الإدارة العليا'],
@@ -448,6 +451,7 @@ const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/distribute': ['توزيع وإسناد الأعمال', 'الإدارة العليا'],
   '/admin/casefees': ['أتعاب القضايا', 'الإدارة العليا'],
   '/admin/cases': ['كل القضايا', 'لوحة الإدارة'],
+  '/admin/hearings': ['الجلسات القضائية وتواريخ المحاكم', 'الإشراف والمتابعة'],
   '/admin/execs': ['التنفيذ', 'لوحة الإدارة'],
   '/admin/tasks': ['مهام العمل', 'الإدارة العليا'],
   '/admin/meetmgmt': ['إدارة الاجتماعات', 'الإدارة العليا'],

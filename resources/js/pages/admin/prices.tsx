@@ -16,10 +16,12 @@ interface Props {
 export const AdminPrices: React.FC<Props> = ({ prices }) => {
   const toast = useToast();
 
-  const [office, setOffice] = useState<string>(String(prices?.office ?? 600));
-  const [video, setVideo] = useState<string>(String(prices?.video ?? 450));
-  const [phone, setPhone] = useState<string>(String(prices?.phone ?? 350));
-  const [vat, setVat] = useState<string>(String(prices?.vat ?? 15));
+  // القيم من `Setting::consultPrices()` وحده — كانت هنا افتراضاتٌ منقوشة (600/450/350/15) نسخةً
+  // ثانية من افتراضات الخادم، تتباعد عنها عند أوّل تعديل ويحفظها المدير دون أن يدري.
+  const [office, setOffice] = useState<string>(String(prices.office));
+  const [video, setVideo] = useState<string>(String(prices.video));
+  const [phone, setPhone] = useState<string>(String(prices.phone));
+  const [vat, setVat] = useState<string>(String(prices.vat));
   const [busy, setBusy] = useState(false);
 
   // Live computations
@@ -50,13 +52,12 @@ export const AdminPrices: React.FC<Props> = ({ prices }) => {
       },
       {
         preserveScroll: true,
-        onSuccess: () => {
+        // النجاح يعلنه الخادم برسالته (`flash`) ويعرضها `AppLayout` — تنبيهٌ محلّيّ فوقه كان يكرّره
+        onSuccess: () => setBusy(false),
+        // رسالة الحقل من الخادم نفسها — العامّة كانت تُخفي أيّ القيم رُدّت ولماذا
+        onError: (e) => {
           setBusy(false);
-          toast('تم حفظ وإعداد أسعار الاستشارات بنجاح — مطبقة على الحجوزات والفواتير الجديدة');
-        },
-        onError: () => {
-          setBusy(false);
-          toast('⚠️ تعذر حفظ الأسعار، يرجى مراجعة القيم المدخلة');
+          toast(String(Object.values(e)[0] ?? 'تعذّر حفظ الأسعار — راجع القيم المدخلة'), 'error');
         },
       }
     );
@@ -306,6 +307,8 @@ export const AdminPrices: React.FC<Props> = ({ prices }) => {
             </div>
             <span style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6, display: 'block' }}>
               النسبة النظامية المعتمدة في المملكة العربية السعودية هي 15%.
+              {' '}
+              <b>والنسبة عامّة</b>: تُطبَّق على كلّ فاتورةٍ جديدة في النظام — الاستشارات وأتعاب القضايا والتنفيذ — لا على الاستشارات وحدها؛ والفاتورة الصادرة تحتفظ بنسبتها.
             </span>
           </div>
 

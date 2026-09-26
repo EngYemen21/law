@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\LegalCatalogueAlias;
 use App\Models\LegalDepartment;
+use App\Models\LegalDepartmentDocument;
 use App\Models\LegalService;
 use Illuminate\Support\Collection;
 
@@ -30,6 +31,20 @@ class LegalCatalogue
     public const GENERAL_CODE = 'general';
 
     private const CACHE = 'support.legal-catalogue.snapshot';
+
+    /**
+     * **القائمة العامّة — الموضع الوحيد لقائمة مستنداتٍ مكتوبة في الشيفرة.**
+     *
+     * تُطلب لقسمٍ لم تُحرَّر قائمتُه بعد، ولتذكرةٍ بلا قسمٍ مطابَق. كانت هي نفسها احتياطَ
+     * `ServiceDocs::for` (المحذوف)، فلا يتغيّر ما يُطلب ممّن لا قائمة لقسمه. وتعرضها شاشة الإدارة
+     * بجانب كلّ قسمٍ بلا قائمة، كي يُرى أنّه على العامّة لا على قائمةٍ تخصّه.
+     *
+     * @var list<array{name: string, required: bool}>
+     */
+    public const DEFAULT_DOCUMENTS = [
+        ['name' => 'الهوية الوطنية', 'required' => true],
+        ['name' => 'المستندات ذات العلاقة بالموضوع', 'required' => true],
+    ];
 
     /** أقصر نصٍّ يُقبل في المطابقة الاحتوائيّة — «عام» و«قسم» لا تدلّ على قسم. */
     private const LOOSE_MIN_LENGTH = 4;
@@ -206,6 +221,32 @@ class LegalCatalogue
                 ->map(fn (LegalService $s) => ['id' => $s->id, 'name' => $s->name])
                 ->values()
                 ->all(),
+        ])->values()->all();
+    }
+
+    /**
+     * **قائمة المستندات المطلوبة لقسم** — بنوده من الكتالوج، وإلّا `DEFAULT_DOCUMENTS`.
+     *
+     * `id` معرّف البند (فتتبعه المطابقة بعد إعادة تسميته)، و`null` لبنود القائمة العامّة.
+     * القسم الموقوف يبقى على قائمته: تذاكره القائمة ما زالت تُتابَع.
+     *
+     * القائمة تُحمَّل عند الطلب على نموذج القسم المحفوظ في اللقطة (فتُقرأ مرّةً لكلّ طلب) — لا في
+     * `build()`: هجراتٌ أقدم من جدولها (ربط الكتالوج 2026-09-14) تبني اللقطة قبل أن يوجد.
+     *
+     * @return list<array{id: int|null, name: string, required: bool}>
+     */
+    public static function documentsFor(?int $departmentId): array
+    {
+        $department = $departmentId === null ? null : self::department($departmentId);
+
+        if ($department === null || $department->documents->isEmpty()) {
+            return array_map(fn (array $d) => ['id' => null] + $d, self::DEFAULT_DOCUMENTS);
+        }
+
+        return $department->documents->map(fn (LegalDepartmentDocument $d) => [
+            'id' => $d->id,
+            'name' => $d->name,
+            'required' => $d->required,
         ])->values()->all();
     }
 

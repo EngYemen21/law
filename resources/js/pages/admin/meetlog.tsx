@@ -2,11 +2,13 @@ import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Icon from '@/lib/icons';
 import { attendanceLabel, fmtActualDuration, type FullMeetingCard } from '@/lib/meeting-ui';
+import { MediaButton, meetingMediaUrls } from '@/lib/recording-ui';
 
 // يطابق meetLogView في index (82).html — الأرشيف حقيقي من الخادم (بيانات Zoom/الويبهوك فقط)
 
 const AdminMeetLog: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) => {
-  const ended = meetings.filter((m) => m.status === 'منتهٍ');
+  // مفتاح الحالة من الخادم (`statusKey`) — لا مقارنة بالنصّ العربيّ المعروض
+  const ended = meetings.filter((m) => m.statusKey === 'ended');
 
   // بحث وفلترة (client-side — بيانات الإدارة محمّلة كاملةً)
   const [q, setQ] = useState('');
@@ -63,6 +65,7 @@ const AdminMeetLog: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) =
         <div className="card-b">
           {list.length ? list.map((m) => {
             const actual = fmtActualDuration(m.durationSec);
+            const urls = meetingMediaUrls('/admin', m.dbId);
             return (
               <div key={m.id} className="item">
                 <div className="iico"><Icon name="folder" /></div>
@@ -74,11 +77,12 @@ const AdminMeetLog: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) =
                     {m.recording
                       ? <a className="chip" onClick={() => router.visit(`/admin/meeting?id=${encodeURIComponent(m.id)}`)} style={{ cursor: 'pointer' }}><Icon name="video" /> مشاهدة</a>
                       : <span className="chip" style={{ opacity: 0.5 }}>لا تسجيل</span>}
-                    {/* تنزيلات عبر الخادم — روابط Zoom السحابية صفحات مشاهدة لا ملفات */}
-                    {m.media.video && <a className="chip" href={`/admin/meetings/${m.dbId}/recording.zip`}><Icon name="download" /> الفيديو</a>}
-                    {m.media.audio && <a className="chip" href={`/admin/meetings/${m.dbId}/audio.zip`}><Icon name="download" /> الصوت</a>}
-                    {(m.transcript || m.recording)
-                      ? <a className="chip" href={`/admin/meetings/${m.dbId}/transcript`}><Icon name="doc" /> النص الكامل</a>
+                    {/* تنزيلات عبر الخادم بأعلام الجاهزيّة (`MediaButton`) — الرابط الخام لغير الجاهز كان
+                        يردّ `back()` فتومض الصفحة ولا ينزل شيء؛ غيرُ الجاهز الآن طلبُ «تحضير» صريح */}
+                    {m.media.video && <MediaButton href={urls.video} ready={m.media.videoReady} icon="download" label="الفيديو" />}
+                    {m.media.audio && <MediaButton href={urls.audio} ready={m.media.audioReady} icon="download" label="الصوت" />}
+                    {m.media.transcript
+                      ? <a className="chip" href={urls.transcript}><Icon name="doc" /> النص الكامل</a>
                       : <span className="chip" style={{ opacity: 0.5 }}>لا نصّ</span>}
                     {m.minutes
                       ? <a className="chip" onClick={() => router.visit(`/admin/meeting?id=${encodeURIComponent(m.id)}`)} style={{ cursor: 'pointer' }}><Icon name="doc" /> المحضر</a>
@@ -90,8 +94,8 @@ const AdminMeetLog: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) =
                       <span className="chip"><Icon name="user" /> {[attendanceLabel(m), actual].filter(Boolean).join(' · ')}</span>
                     )}
                     {/* شارة الاعتماد — يعرف المدقّق أيّ السجلات لم تُعتمد محاضرها بعد */}
-                    <span className="chip" style={m.approve === 'معتمد' ? undefined : { color: 'var(--amber, #b45309)' }}>
-                      <Icon name="check" /> {m.approve === 'معتمد' ? 'معتمد' : 'بانتظار الاعتماد'}
+                    <span className="chip" style={m.approved ? undefined : { color: 'var(--amber, #b45309)' }}>
+                      <Icon name="check" /> {m.approved ? m.approve : 'بانتظار الاعتماد'}
                     </span>
                   </div>
                 </div>

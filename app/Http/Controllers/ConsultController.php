@@ -11,6 +11,7 @@ use App\Support\Notify;
 use App\Support\PaymentReconciler;
 use App\Support\PdfRenderer;
 use App\Support\ReportPrint;
+use App\Support\RoomDetails;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -152,16 +153,19 @@ class ConsultController extends Controller
     }
 
     // غرفة الجلسة المرئية للعميل — تضمين Zoom داخل المنصّة (?ref=CN-…)
-    public function room(Request $request): Response
+    public function room(Request $request): Response|RedirectResponse
     {
-        $consult = Consult::with('user')->where('ref', $request->query('ref'))->firstOrFail();
+        $consult = Consult::with(['user', 'assignedLawyer'])->where('ref', (string) $request->query('ref'))->firstOrFail();
         abort_unless($consult->user_id === $request->user()->id, 403);
-        // رسالة مميّزة لكل حالة — «انتهت» توحي بمراجعة الملخص، و«لم يحن» تدعو للانتظار
-        abort_unless($consult->canJoin(), 403, ($consult->session === 'منتهية' || $consult->isMissed())
-            ? 'انتهت جلسة هذه الاستشارة — لم يعد الدخول متاحاً.'
-            : 'لم يحن موعد الجلسة بعد — يُفعَّل الدخول قبل الموعد بـ5 دقائق.');
+        // السبب الحقيقيّ من المصدر الواحد (`joinBlocker` عبر `RoomDetails::entryBlocker`) — «انتهت»
+        // و«فاتت» و«لم تُفتح بعد» بنصّها نفسه في الغرف الأربع ونقطة توقيع Zoom
+        if (($why = RoomDetails::entryBlocker($consult, $request->user())) !== null) {
+            return RoomDetails::refuse($request, $consult, $why, 403);
+        }
 
         return Inertia::render('videoroom', [
+            // عقد الغرفة — والخاصيّتان القديمتان باقيتان حتى تنتقل الواجهة إليه
+            'room' => RoomDetails::for($consult, $request->user()),
             'consult' => $consult->toClientCard(),
             'selfName' => $request->user()->name,
         ]);

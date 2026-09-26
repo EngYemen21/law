@@ -75,7 +75,8 @@ class ExecutionCreation
 
             $exec->messages()->create([
                 'who' => 'system', 'name' => 'النظام', 'role' => 'فتح',
-                'body' => '<p>تم فتح طلب تنفيذ الحكم الصادر في القضية '.e($case->number).'، وإسناده إلى قسم التنفيذ ('.e($lawyer->name).') — بانتظار تحديد أتعاب التنفيذ.</p>',
+                // المتن يقرؤه العميل: المسنَد إليه باسمه للعميل لا الكامل (`LawyerName::assignedTo`)
+                'body' => '<p>تم فتح طلب تنفيذ الحكم الصادر في القضية '.e($case->number).'، وإسناده إلى قسم التنفيذ ('.e(LawyerName::assignedTo($lawyer)).') — بانتظار تحديد أتعاب التنفيذ.</p>',
                 'time_label' => self::clock(),
             ]);
 
@@ -158,7 +159,8 @@ class ExecutionCreation
 
             $exec->messages()->create([
                 'who' => 'system', 'name' => 'النظام', 'role' => 'فتح',
-                'body' => '<p>تم فتح طلب التنفيذ رقم '.e($number).' المحال من التذكرة '.e($ticket->number).' وإسناده إلى قسم التنفيذ ('.e($lawyer->name).') — بانتظار تحديد الأتعاب.</p>',
+                // و`$lawyer` قد يكون المديرَ نفسه احتياطاً — فلا يُسمّى (`LawyerName::assignedTo`)
+                'body' => '<p>تم فتح طلب التنفيذ رقم '.e($number).' المحال من التذكرة '.e($ticket->number).' وإسناده إلى قسم التنفيذ ('.e(LawyerName::assignedTo($lawyer)).') — بانتظار تحديد الأتعاب.</p>',
                 'time_label' => self::clock(),
             ]);
 

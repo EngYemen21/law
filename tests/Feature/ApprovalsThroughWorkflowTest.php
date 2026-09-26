@@ -70,35 +70,17 @@ class ApprovalsThroughWorkflowTest extends TestCase
         $this->assertTrue(UserNotification::where('user_id', $this->lawyer->id)->where('body', 'like', '%رفض مقترح المسار%')->exists(), 'المقترِح يُبلَّغ كما كان');
     }
 
-    /** 🔴 كان الاستبعاد يمسح المقترح ويترك التذكرة «بانتظار اعتماد الإدارة للمسار» بلا مقترح. */
-    public function test_dismissing_a_track_no_longer_strands_the_ticket(): void
-    {
-        $ticket = $this->proposal();
-
-        $this->actingAs($this->admin)->post('/admin/approvals/dismiss', ['type' => 'track', 'ref' => $ticket->number])->assertRedirect();
-
-        $ticket->refresh();
-        $this->assertNull($ticket->proposed_track);
-        $this->assertSame('الرأي القانوني', $ticket->status, 'لا تعلق بانتظار مقترحٍ مُسح');
-        $this->assertSame(1, $this->transitions('ticket.reject_outcome_track'));
-    }
-
-    /** الرفض يعيد التذكرة للمستشار، والاستبعاد يعيد الملخّص وحده — كما كانا، مع قيد الانتقال. */
+    /** الرفض يعيد التذكرة للمستشار مع قيد الانتقال (الاستبعاد بلا سبب أُزيل — لا مسار التفاف على الرفض المسبَّب). */
     public function test_returning_a_summary_goes_through_the_engine(): void
     {
         $reject = Ticket::create(['user_id' => $this->client->id, 'number' => 'TK-WF-R', 'type' => 'عقاري', 'status' => 'بانتظار اعتماد الإدارة للملخّص']);
         $rs = TicketSummary::create(['ticket_id' => $reject->id, 'status' => 'awaiting_admin', 'lawyer_id' => $this->lawyer->id, 'lawyer_approved_at' => now()]);
-        $dismiss = Ticket::create(['user_id' => $this->client->id, 'number' => 'TK-WF-D', 'type' => 'عقاري', 'status' => 'بانتظار اعتماد الإدارة للملخّص']);
-        $ds = TicketSummary::create(['ticket_id' => $dismiss->id, 'status' => 'awaiting_admin', 'lawyer_id' => $this->lawyer->id, 'lawyer_approved_at' => now()]);
 
         $this->actingAs($this->admin)->post('/admin/approvals/reject', ['type' => 'summary', 'ref' => 'TK-WF-R', 'reason' => 'دقّق الشرط الجزائيّ'])->assertRedirect();
-        $this->actingAs($this->admin)->post('/admin/approvals/dismiss', ['type' => 'summary', 'ref' => 'TK-WF-D'])->assertRedirect();
 
         $this->assertSame('awaiting_lawyer', $rs->fresh()->status);
         $this->assertSame('بانتظار اعتماد المستشار', $reject->fresh()->status);
-        $this->assertSame('awaiting_lawyer', $ds->fresh()->status);
-        $this->assertSame('بانتظار اعتماد الإدارة للملخّص', $dismiss->fresh()->status, 'الاستبعاد لا يمسّ التذكرة');
-        $this->assertSame(2, $this->transitions('ticket_summary.return_to_lawyer'));
+        $this->assertSame(1, $this->transitions('ticket_summary.return_to_lawyer'));
     }
 
     /** التذكرة المحوّلة قضيّةً لا تُحيا «بانتظار اعتماد المستشار» بإعادة ملخّصها. */

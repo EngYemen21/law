@@ -21,6 +21,7 @@ export interface UnifiedCalendarItem {
     status: string;
     statusTone?: string;
     startsAt?: string | null; // ISO string للفرز الزمني
+    duration?: string | null; // «المدّة المتوقّعة …» مصاغةً — تُعرض إن وُجدت فقط، فلا نهاية مختلَقة
     joinLink?: string;
     cardUrl?: string;
     actionButton?: React.ReactNode;
@@ -860,6 +861,9 @@ export const UnifiedCalendar: React.FC<UnifiedCalendarProps> = ({
                                                 )}
                                                 {item.where && (
                                                     <span>📍 {item.where}</span>
+                                                )}
+                                                {item.duration && (
+                                                    <span>⏱ {item.duration}</span>
                                                 )}
                                                 {item.subtitle && (
                                                     <span>👤 {item.subtitle}</span>

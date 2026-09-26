@@ -57,7 +57,7 @@ class CaseLifecycleTransitionsTest extends TestCase
         $admin = $this->admin();
         $case = $this->caseOf();
 
-        $this->actingAs($admin)->post(route('admin.cases.close', $case))->assertRedirect();
+        $this->actingAs($admin)->post(route('admin.cases.close', $case), ['closure_reason' => 'RULING_FINALIZED'])->assertRedirect();
         $closing = (string) $case->messages()->where('role', 'إغلاق')->value('body');
         $this->assertStringNotContainsString('وتنفيذه', $closing, 'لم يُفتح تنفيذ — فلا يُقال «وتنفيذه»');
 
@@ -106,7 +106,7 @@ class CaseLifecycleTransitionsTest extends TestCase
         $admin = $this->admin();
         $case = $this->caseOf();
 
-        $this->actingAs($admin)->post(route('admin.cases.close', $case))->assertRedirect();
+        $this->actingAs($admin)->post(route('admin.cases.close', $case), ['closure_reason' => 'RULING_FINALIZED'])->assertRedirect();
         $this->actingAs($admin)->post(route('admin.cases.archive', $case))->assertRedirect();
 
         $this->assertTrue(AuditLog::where('action', 'إغلاق قضية')->where('auditable_ref', $case->number)->exists());
@@ -541,5 +541,3 @@ class CaseLifecycleTransitionsTest extends TestCase
         ])->assertStatus(422);
     }
 }
-
-

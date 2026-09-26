@@ -70,19 +70,25 @@ class DashboardController extends Controller
             ->map(fn (Document $d) => $d->toCard());
 
         // 8. المستشار القانوني المخصص (من القضايا أو التذاكر الحالية)
+        //
+        // **لا مستشارَ مخصّصاً لعميلٍ لم يُسنَد له أحد.** كان الاحتياط «أوّل محامٍ نشط في المكتب»،
+        // فتعرض البطاقة («المستشار المخصص» بشارة «معتمد») محامياً لا صلة له بالعميل: ادّعاءُ إسنادٍ
+        // لم يقع، وكشفُ اسم محامٍ ومسمّاه وقسمه لعميلٍ لا يخصّه. والبطاقة تختفي بلا مستشار (`dashboard.tsx`).
         $advisorUser = $activeCases->first()?->assignedLawyer
-            ?? $activeTickets->first()?->assignedLawyer
-            ?? User::where('role', Role::Lawyer)->where('status', 'active')->first();
+            ?? $activeTickets->first()?->assignedLawyer;
+
+        $advisorName = $advisorUser ? LawyerName::forClient($advisorUser, $advisorUser->name, 'المستشار المكلف') : null;
 
         $assignedAdvisor = $advisorUser ? [
             // **مقنَّعٌ كبقيّة ما يصل العميل** (قرار المالك 2026-09-11): كان يُرسَل خاماً فتعرض
             // بطاقة «المستشار المخصص» الاسم كاملاً، بينما سطرا القضايا والتذاكر أدناه يقنّعان.
             // سهوُ بطاقةٍ واحدة لا قرارُ استثناء.
-            'name' => LawyerName::forClient($advisorUser, $advisorUser->name, 'المستشار المكلف'),
+            'name' => $advisorName,
             'title' => $advisorUser->title ?? 'المستشار القانوني',
             'jobTitle' => $advisorUser->job_title ?? 'مستشار ومحامٍ معتمد',
             'department' => $advisorUser->department ?? 'الاستشارات العامة',
-            'initials' => $advisorUser->avatar_initials ?? 'مح',
+            // الأحرف من الاسم المعروض لا من `avatar_initials`: حقلٌ حرّ لا يمرّ بقاعدة الاختصار
+            'initials' => self::initials((string) $advisorName),
         ] : null;
 
         // 9. مركز التنبيهات الذكي اللحظي (Smart Action Center)
@@ -91,6 +97,8 @@ class DashboardController extends Controller
         // أ) جلسة مرئية يمكن الانضمام لها أو موعد اليوم
         foreach ($upcomingAppts as $app) {
             $consult = $app->consult;
+            // المحامي باسمه للعميل (`Appointment::lawyerForClient`) — العمود النصّيّ اسمٌ كامل
+            $apptLawyer = $app->lawyerForClient(LawyerName::SPECIALIST);
             // **البنر لا يقوم إلا على موعدٍ محلَّل.** `canJoin` حارسٌ متساهل عمداً: جلسةٌ بلا
             // موعد تُبدأ يدوياً وتبقى قابلة للدخول (‏`Consult::isStartable`) — وهو صواب
             // للحارس. أمّا **الإعلان** «جاهزة للانضمام الآن» فيَعِد بحاضرٍ لا يعرفه: بلا
@@ -100,7 +108,7 @@ class DashboardController extends Controller
                     'id' => 'meet-'.$app->id,
                     'type' => 'video_ready',
                     'title' => 'جلستك المرئية جاهزة للانضمام الآن 🔴',
-                    'desc' => "استشارة «{$consult->subject}» مع {$app->lawyer} ({$app->time})",
+                    'desc' => "استشارة «{$consult->subject}» مع {$apptLawyer} ({$app->time})",
                     'cta' => 'دخول الجلسة الآن',
                     // الغرفة المضمّنة لا رابط Zoom الخام: الخام كان يقذف العميل خارج المنصّة (بلا noopener)
                     'link' => $consult->joinLink($user) ?: route('meetings'),
@@ -114,7 +122,7 @@ class DashboardController extends Controller
                     'id' => 'today-'.$app->id,
                     'type' => 'today_appt',
                     'title' => 'لديك موعد استشارة مجدول اليوم 📅',
-                    'desc' => "{$app->type} مع {$app->lawyer} الساعة {$app->time} ({$app->place})",
+                    'desc' => "{$app->type} مع {$apptLawyer} الساعة {$app->time} ({$app->place})",
                     'cta' => 'عرض التفاصيل',
                     'link' => route('appointments'),
                     'tone' => 'b-cyan',
@@ -346,28 +354,21 @@ class DashboardController extends Controller
         $bypassCache = $request->boolean('fresh');
         $data360 = $adminDashboardService->get360Data($bypassCache);
 
-        // أحدث نشاط: آخر تذاكر/قضايا/استشارات
-        // **يُدمج زمنيّاً قبل الاقتطاع.** كان `concat` بلا أيّ فرز ثمّ `take(8)` على عشرة
-        // عناصر: آخر استشارتين تسقطان **دائماً**، والاستشارة الجديدة لا تبلغ الصدارة ولو
-        // كانت أحدث شيءٍ في النظام — لأنّ ترتيب الظهور ترتيبُ الضمّ لا ترتيبُ الزمن.
-        $activity = collect()
-            ->concat(Ticket::latest('id')->take(4)->get()->map(fn ($t) => ['ico' => 'folder', 'title' => 'تذكرة جديدة '.$t->number, 'sub' => $t->type, 'at' => $t->created_at?->getTimestamp() ?? 0]))
-            ->concat(LegalCase::latest('id')->take(3)->get()->map(fn ($c) => ['ico' => 'scale', 'title' => 'قضية '.$c->number, 'sub' => $c->status, 'at' => $c->created_at?->getTimestamp() ?? 0]))
-            ->concat(Consult::latest('id')->take(3)->get()->map(fn ($c) => ['ico' => 'video', 'title' => 'استشارة '.$c->ref, 'sub' => $c->channel, 'at' => $c->created_at?->getTimestamp() ?? 0]))
-            ->sortByDesc('at')->take(8)->values();
-
-        $stats = [
-            'clients' => User::where('role', Role::Client)->count(),
-            'openTickets' => Ticket::whereNotIn('status', self::CLOSED)->count(),
-            'revenue' => (int) Invoice::where('paid', true)->sum('amount'),
-            // الاعتماد لا يُطلب إلا بعد انعقاد الاجتماع — كان يعدّ القادمة أيضاً فيتضخّم الرقم
-            'pendingMeetings' => Meeting::where('approve', '!=', 'معتمد')->where('status', 'منتهٍ')->count(),
-        ];
-
+        /*
+         * كانت تُرسل هنا حزمتان قديمتان (`stats` و`activity`) تحسبان من جديد ما في `$data360` —
+         * العملاء والتذاكر المفتوحة (بقائمة حالاتٍ مكتوبة) والإيراد والنشاط — والصفحة لا تقرؤهما
+         * إلّا احتياطاً لا يقع. خمسة استعلامات في كلّ تحميل لأرقامٍ مكرّرة قد تختلف عن المعروض.
+         */
         return Inertia::render('admin/dashboard', array_merge($data360, [
-            'stats' => $stats,
-            'activity' => $activity,
+            // أداة التصفير تظهر حيث يقبلها الخادم وحده (`resetDatabase`) — لا زرٌّ يردّه 403 في الإنتاج
+            'canReset' => self::resetAllowed(),
         ]));
+    }
+
+    /** هل يُسمح بتصفير بيانات الاختبار هنا؟ شرطٌ واحد للزرّ وللمسار. */
+    private static function resetAllowed(): bool
+    {
+        return ! app()->isProduction() || (bool) config('app.allow_db_reset');
     }
 
     /**
@@ -381,7 +382,7 @@ class DashboardController extends Controller
     public function resetDatabase(Request $request): RedirectResponse
     {
         abort_unless($request->user()->isAdmin(), 403);
-        abort_if(app()->isProduction() && ! config('app.allow_db_reset'), 403, 'تصفير قاعدة البيانات معطّل في بيئة الإنتاج.');
+        abort_unless(self::resetAllowed(), 403, 'تصفير قاعدة البيانات معطّل في بيئة الإنتاج.');
         $request->validate(['confirm' => ['required', 'string', 'in:RESET']]);
 
         Log::warning('Database reset executed', [
@@ -441,5 +442,13 @@ class DashboardController extends Controller
         cache()->flush();
 
         return redirect()->route('admin.dashboard')->with('flash', 'تم تصفير جميع بيانات الاختبار بنجاح مع الاحتفاظ بالمستخدمين.');
+    }
+
+    /** حرفا الصورة الرمزيّة من الاسم **المعروض** («محمد. ب» ⇐ «مب») — فلا تحمل أكثر ممّا يحمله الاسم. */
+    private static function initials(string $shown): string
+    {
+        $words = preg_split('/[\s.]+/u', trim($shown), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        return implode('', array_map(fn (string $w) => mb_substr($w, 0, 1), array_slice($words, 0, 2)));
     }
 }

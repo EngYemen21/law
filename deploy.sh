@@ -49,6 +49,10 @@ fi
 # 6. ترحيل قواعد البيانات
 php artisan migrate --force
 
+# 6-ب. مزامنة المصادر القانونيّة المشحونة في database/legal-sources — متكرّرة بلا أثر:
+# الجديد مسودة، والمعتمد لا يُخفَّض، وملفٌّ معطوب يُسقط النشر هنا قبل أيّ كتابة (set -e)
+php artisan ai:sync-sources
+
 # 6. إعداد مجلدات التخزين والمؤقت لتقارير PDF
 mkdir -p storage/app/browsershot-tmp
 chmod -R 775 storage || true

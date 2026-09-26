@@ -13,13 +13,14 @@ use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
+use App\Support\ChatSenderLabel;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
  * **اسم المحامي مقنَّعٌ في البثّ اللحظيّ أيضاً** (قرار المالك 2026-09-11، ثغرةٌ وُجدت 2026-09-20).
  *
- * العميل يرى «محمد. ب» لا الاسم الكامل. والمتحكّمات تقنّعه عند التحميل (`LawyerName::inMessages`)،
+ * العميل يرى «محمد. ب» لا الاسم الكامل. والمتحكّمات تقنّعه عند التحميل (`toMessage(forClient: true)`)،
  * لكنّ حمولة البثّ كانت خاماً: قنوات `case.{id}` و`ticket.{id}` و`exec.{id}` يُخوَّل عليها العميل
  * (`routes/channels.php`)، فيصله الاسم كاملاً لحظةَ الإرسال ثمّ يُختصر عند أوّل تحميل.
  */
@@ -33,6 +34,9 @@ class LawyerNameInBroadcastsTest extends TestCase
 
     private function client(): User
     {
+        // الرسالة هنا بلا حساب مُرسِل، فلا يُختصر اسمها إلّا إن طابق حسابَ محامٍ فعلاً (`ChatSenderLabel`)
+        User::factory()->create(['role' => Role::Lawyer, 'name' => self::FULL]);
+
         return User::factory()->create(['role' => Role::Client]);
     }
 
@@ -87,8 +91,11 @@ class LawyerNameInBroadcastsTest extends TestCase
     }
 
     /**
-     * ما ليس اسم محامٍ يمرّ كما هو: رسالة العميل والنظام والموظّف لا تُختصر — واختصارُ نائبٍ
-     * نصّيّ («الإدارة العليا») يُنتج كلاماً بلا معنى.
+     * ما ليس اسم محامٍ **لا يُختصر**: رسالة العميل تمرّ كما هي، وإعلان النظام يصل باسم المكتب
+     * (ما كانت شاشة العميل تعرضه له أصلاً).
+     *
+     * **وموظّفو المكتب يصلون العميلَ بتسمية الإدارة** («الفريق القانوني» افتراضاً، 2026-09-25) —
+     * كانت الحمولة تحمل اسم الموظّف كاملاً مخفيّاً وراء تسمية الشاشة.
      */
     public function test_other_senders_are_untouched(): void
     {
@@ -97,7 +104,7 @@ class LawyerNameInBroadcastsTest extends TestCase
             'user_id' => $client->id, 'number' => 'CS-BC-2', 'type' => 'نزاع', 'status' => 'منظورة',
         ]);
 
-        foreach ([['client', 'أنت'], ['system', 'النظام'], ['staff', 'الإدارة العليا']] as [$who, $name]) {
+        foreach ([['client', 'أنت', 'أنت'], ['system', 'النظام', ChatSenderLabel::OFFICE], ['staff', 'سلمى موظّفة الاستقبال', ChatSenderLabel::OFFICE]] as [$who, $name, $expected]) {
             $message = CaseMessage::create([
                 'case_id' => $case->id, 'who' => $who, 'name' => $name,
                 'role' => 'تحديث', 'body' => '<p>نصّ</p>', 'time_label' => '10:00 ص',
@@ -105,7 +112,7 @@ class LawyerNameInBroadcastsTest extends TestCase
 
             $payload = (new CaseMessageBroadcast($message))->broadcastWith();
 
-            $this->assertSame($name, $payload['message']['name'], "اسم «{$name}» تغيّر في البثّ.");
+            $this->assertSame($expected, $payload['message']['name'], "اسم «{$name}» لم يصل كما ينبغي في البثّ.");
         }
     }
 }

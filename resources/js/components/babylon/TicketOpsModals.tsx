@@ -3,8 +3,9 @@ import React, { useEffect, useState } from 'react';
 import Icon from '@/lib/icons';
 import LawyerSuggestionHint, { type LawyerSuggestionData } from '@/components/babylon/LawyerSuggestionHint';
 import Modal from '@/components/babylon/Modal';
+import { fetchTicketRequirements } from '@/components/babylon/TicketRequirementsCard';
+import type { RequirementItem } from '@/components/babylon/TicketRequirementsCard';
 import { useToast } from '@/components/babylon/Toast';
-import { REQ_DOCS } from '@/lib/employee-data';
 
 // مودالا «تحويل التذكرة» و«طلب النواقص» — نسخة واحدة عاملة تُصيب المسارات الحقيقية،
 // تحلّ محلّ النسخة المكرّرة في محادثة الموظف والنسخة الديكورية القديمة في قائمة التذاكر.
@@ -43,6 +44,8 @@ const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawy
 
   // ── طلب النواقص ──
   const [reqChosen, setReqChosen] = useState<Record<string, boolean>>({});
+  // الخيارات = نواقص قائمة قسم التذكرة (ما لم يُستوفَ بعد) — لا قائمة ثابتة، ولا يُعرض ما ثبت إرفاقه
+  const [reqOptions, setReqOptions] = useState<RequirementItem[]>([]);
   const [reqExtra, setReqExtra] = useState('');
   const [reqBusy, setReqBusy] = useState(false);
 
@@ -58,6 +61,10 @@ const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawy
       setReqChosen({});
       setReqExtra('');
       setReqBusy(false);
+      setReqOptions([]);
+      fetchTicketRequirements('/employee', ticketNo)
+        .then((d) => setReqOptions(d.items.filter((i) => !i.satisfied)))
+        .catch(() => setReqOptions([]));
     }
   }, [kind, ticketNo, dept, initialLawyer, departments]);
 
@@ -79,7 +86,7 @@ const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawy
   };
 
   const submitReqDocs = () => {
-    const picked = REQ_DOCS.filter((r) => reqChosen[r]);
+    const picked = reqOptions.map((r) => r.name).filter((r) => reqChosen[r]);
     const extras = reqExtra.split('\n').map((s) => s.trim()).filter(Boolean);
     const allDocs = [...picked, ...extras];
     if (!allDocs.length) { toast('يرجى اختيار أو كتابة مستند واحد على الأقل'); return; }
@@ -131,10 +138,13 @@ const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawy
 
       <Modal title={`طلب نواقص — ${ticketNo}`} open={kind === 'reqdocs'} onClose={onClose}>
         <p style={{ fontSize: '13.5px', color: '#2b4a68', marginBottom: 10 }}>
-          اختر المستندات المطلوبة من العميل، ويمكنك أيضاً كتابة مستندات إضافية:
+          اختر من نواقص قائمة القسم (ما لم يُرفق بعد)، ويمكنك أيضاً كتابة مستندات إضافية:
         </p>
+        {reqOptions.length === 0 && (
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>لا نواقص في قائمة القسم — اكتب ما تحتاجه أدناه.</p>
+        )}
         <div className="chips" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
-          {REQ_DOCS.map((r) => (
+          {reqOptions.map(({ name: r, required }) => (
             <span
               key={r}
               className={`chip sel-toggle${reqChosen[r] ? ' on' : ''}`}
@@ -150,7 +160,7 @@ const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawy
                 cursor: 'pointer',
               }}
             >
-              {reqChosen[r] ? '✓ ' : ''}{r}
+              {reqChosen[r] ? '✓ ' : ''}{r}{required ? '' : ' (اختياريّ)'}
             </span>
           ))}
         </div>

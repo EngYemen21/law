@@ -330,7 +330,7 @@ return tasks;
           setTaskDue('');
           toast('✅ تمت إضافة المهمة القانونية بنجاح');
         },
-        onError: () => toast('⚠️ تعذّرت إضافة المهمة، يرجى المحاولة لاحقاً'),
+        onError: (e) => toast(e.message || Object.values(e)[0] || '⚠️ تعذّرت إضافة المهمة، يرجى المحاولة لاحقاً'),
         onFinish: () => setTaskBusy(false),
       }
     );

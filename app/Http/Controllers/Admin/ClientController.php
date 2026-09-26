@@ -104,6 +104,8 @@ class ClientController extends Controller
                 'consults' => $u->consults_count,
                 'executions' => $u->executions_count,
                 'status' => $u->isActive() ? 'نشط' : 'موقوف',
+                // لون الشارة من الخادم مع نصّها — الواجهة لا تقارن «نشط» بنفسها
+                'statusTone' => $u->isActive() ? 'b-green' : 'b-grey',
                 'createdAt' => $u->created_at?->format('Y-m-d') ?: '—',
             ]),
             'filters' => [

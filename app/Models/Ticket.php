@@ -62,6 +62,12 @@ class Ticket extends Model
         return $this->belongsTo(User::class);
     }
 
+    /** الموظّف المسؤول عن محادثة هذا الملفّ الآن — يتولّاها تلقائيّاً من يردّ (`ConversationHandler`). */
+    public function handler(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'handler_id');
+    }
+
     public function messages(): HasMany
     {
         return $this->hasMany(TicketMessage::class)->orderBy('id');
@@ -92,6 +98,39 @@ class Ticket extends Model
     public function execution(): HasOne
     {
         return $this->hasOne(Execution::class);
+    }
+
+    /**
+     * **الملفّ الذي تشهد له حالة التذكرة** — القضيّة وراء «محولة إلى قضية»، والتنفيذ وراء
+     * «محولة إلى تنفيذ»، ولا شيء لغيرهما.
+     *
+     * المصدر الواحد لسؤال «هل حالة هذه التذكرة قائمةٌ على ملفٍّ حيّ؟» — يقرؤه حارس التصحيح
+     * الإداريّ (`CorrectTicketStatus`) في الاتّجاهين: لا يُصحَّح **بعيداً** عن حالةٍ ملفُّها قائم،
+     * ولا **إلى** حالةٍ لا ملفَّ وراءها.
+     *
+     * والربط بالحالة لا بمجرّد وجود صفّ: القضيّة قد يُفتح منها تنفيذٌ يحمل `ticket_id` نفسه
+     * (`ExecutionCreation::fromCase`)، فتذكرةٌ حالتها «محولة إلى قضية» لها صفّا ملفّين — وما
+     * يُثبّت حالتها هو القضيّة. ولو حُذف ملفّ التنفيذ وبقيت القضيّة، فتصحيح «محولة إلى تنفيذ»
+     * إلى «محولة إلى قضية» هو الإصلاح الصحيح ولا يجوز أن يُصدّ.
+     *
+     * «قائم» = الصفّ موجودٌ ومربوطٌ بالتذكرة، **أيّاً كانت حالته** (مغلقاً أو مؤرشفاً): الملفّ
+     * المغلق يبقى ما صارت إليه التذكرة فعلاً — تُفتح منه القضيّة ثانيةً (`ReopenCase`) ويُفتح
+     * منه التنفيذ — والعميل يقرأ حالة التذكرة دليلاً إليه. ولا حذف ناعماً على الجدولين، فحذف
+     * الصفّ يُفرغ `ticket_id` (مفتاح `nullOnDelete`) ويعود التصحيح ممكناً.
+     */
+    public function producedFile(): LegalCase|Execution|null
+    {
+        return $this->fileBehind(TicketStatus::tryFrom((string) $this->status));
+    }
+
+    /** الملفّ الذي **كانت** ستشهد له هذه الحالة لو بلغتها التذكرة — القاعدة نفسها لـ`producedFile`. */
+    public function fileBehind(?TicketStatus $status): LegalCase|Execution|null
+    {
+        return match ($status) {
+            TicketStatus::ConvertedToCase => $this->legalCase,
+            TicketStatus::ConvertedToExecution => $this->execution,
+            default => null,
+        };
     }
 
     // استشارات هذه التذكرة (تُنشأ عند طلب حجز استشارة من داخل المحادثة)
@@ -232,10 +271,14 @@ class Ticket extends Model
             'caseNumber' => $caseNo,
             'hasExecution' => $hasExec,
             'executionNumber' => $execNo,
-            'closureReason' => $this->closure_reason_code,
+            // الاسم نفسه الذي تقرؤه صفحتا المحادثة وبطاقة المآل — كان `closureReason` فتقرأ الصفحةُ
+            // `closureReasonCode` غير المرسَل وتعرض البطاقةُ سبباً افتراضيّاً بدل السبب المعتمد
+            'closureReasonCode' => $this->closure_reason_code,
             'closureNotes' => $this->closure_notes,
             'canDecideOutcome' => in_array($this->status, [TicketStatus::ReadyForOutcome->value, TicketStatus::Completed->value], true) && ! $hasCase && ! $hasExec,
             'isTerminal' => $entity->isTerminal(),
+            // الموظّف المسؤول عن المحادثة الآن — للطاقم وحده (بطاقة العميل `toCard` لا تحمله)
+            'handler' => $this->relationLoaded('handler') ? $this->handler?->name : $this->handler()->value('name'),
             'trackGovernance' => $this->trackGovernance(),
         ];
     }
@@ -277,6 +320,16 @@ class Ticket extends Model
     public function scopeOpen(Builder $query): Builder
     {
         return $query->whereNotIn('status', TicketStatus::finals());
+    }
+
+    /**
+     * **ما ينتظر التوزيع أو يقبله:** مفتوحةٌ غيرُ مجمَّدة — المجمَّدة حُسم مسارها فلا يُعاد إسنادها
+     * (`DistributeController::assign` يرفضها). شاشة التوزيع وتوزيعها الآليّ ورادار اللوحة يقرؤونه
+     * فلا يَعِد الرادار بتذاكر «بانتظار التوزيع» لا تظهر في شاشته.
+     */
+    public function scopeDistributable(Builder $query): Builder
+    {
+        return $query->open()->where('is_frozen', false);
     }
 
     /** النطاق النهائي: التذاكر المكتملة أو المغلقة أو المحولة */

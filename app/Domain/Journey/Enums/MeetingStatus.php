@@ -39,4 +39,28 @@ enum MeetingStatus: string
     {
         return self::tryFrom((string) $value)?->isFinal() ?? false;
     }
+
+    /**
+     * **مفتاحٌ لاتينيّ ثابت للواجهة** — تشرط به أزرارها وتبويباتها بدل مقارنة النصّ العربيّ المعروض.
+     * كانت الشاشات تكتب `status === 'منتهٍ'` في عشرة مواضع؛ فتعديلُ نصّ الحالة (أو همزةٌ ناقصة)
+     * كان يُطفئ زرّ الاعتماد وعدّاد «لم ينعقد» صامتاً. النصّ للعرض، والمفتاح للمنطق.
+     */
+    public function key(): string
+    {
+        return match ($this) {
+            self::Upcoming => 'upcoming',
+            self::Live => 'live',
+            self::Ended => 'ended',
+            self::Cancelled => 'cancelled',
+            self::Missed => 'missed',
+            self::Postponed => 'postponed',
+            self::AwaitingConfirmation => 'awaiting',
+        };
+    }
+
+    /** مفتاحُ قيمةٍ خام — المجهولة `unknown` لا استثناء (سجلٌّ شاذّ لا يُسقط الصفحة). */
+    public static function keyOf(?string $value): string
+    {
+        return self::tryFrom((string) $value)?->key() ?? 'unknown';
+    }
 }

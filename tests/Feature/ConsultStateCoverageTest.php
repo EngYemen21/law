@@ -84,7 +84,7 @@ class ConsultStateCoverageTest extends TestCase
         // ولا طريقَ مسدود لما لا تذكرة له
         $this->actingAs($client)->get("/consults/{$ticketless->id}/documents")
             ->assertRedirect(route('documents'));
-        $this->actingAs($stranger)->get("/consults/{$withTicket->id}/documents")->assertForbidden();
+        $this->assertPageRefused($this->actingAs($stranger)->get("/consults/{$withTicket->id}/documents"));
 
         $ui = $this->src('js/pages/myconsults.tsx');
         $this->assertStringContainsString('router.visit(`/consults/${c.id}/documents`)', $ui);

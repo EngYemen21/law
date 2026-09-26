@@ -18,9 +18,11 @@ use Illuminate\Support\Carbon;
  * اليوم، وتبويب الفواتير في م٣ — ونسختان من مستندٍ ضريبيّ تتباعدان عند أوّل تعديل. ولأنّ
  * محتواه يصير عندئذٍ قابلاً للفحص نصّاً، فلا يُختبَر بفتح ملفّ PDF ثنائيّ.
  *
- * **ولا رمز استجابةٍ سريعاً.** في المشروع مولّد رمزٍ **زخرفيّ** يعترف تعليقه بأنّه لا يشفّر
- * شيئاً (`Support\AppointmentCard`)، ورمزٌ كاذب على مستندٍ ضريبيّ أسوأ من غيابه. والرمز
- * النظاميّ جزءٌ من الفوترة الإلكترونيّة المؤجَّلة بقرار المالك (ق١).
+ * **ورمز الاستجابة هو رمز الهيئة لا غيره** (`ZatcaQr`): حمولة TLV بالوسوم الخمسة للفاتورة
+ * المبسَّطة. كان المستند بلا رمز لأنّ مولّد المشروع كان نقشاً زخرفيّاً لا يُمسح، ورمزٌ كاذب على
+ * مستندٍ ضريبيّ أسوأ من غيابه؛ وصار المولّد حقيقيّاً. **ويغيب الرمز وسطر الرقم الضريبيّ معاً**
+ * متى خلا الإعداد: رمزٌ ضريبيّ بلا رقمٍ ضريبيّ ليس رمزاً ضريبيّاً. (والمرحلة الثانية — الربط
+ * بمنصّة «فاتورة» والتوقيع التشفيريّ — خارج هذا الرمز، مؤجَّلةٌ بقرار المالك ق١.)
  */
 final class TaxInvoiceDocument
 {
@@ -66,8 +68,41 @@ final class TaxInvoiceDocument
                     ],
                 ],
             ],
-            'footer' => 'النظام الإداري لمكاتب المحاماة — شكراً لتعاملكم معنا',
+            ...self::zatcaBlock($invoice),
+            // الاسم من الإعدادات لا منقوشاً — كان التذييل يعلو على اسم المكتب الذي تضبطه الإدارة
+            'footer' => SettingsRegistry::str('office_name').' — شكراً لتعاملكم معنا',
         ]);
+    }
+
+    public const ZATCA_TITLE = 'رمز الفاتورة الإلكترونيّة — هيئة الزكاة والضريبة والجمارك';
+
+    /**
+     * كتلة الرمز الضريبيّ — أو لا شيء (لا رقمٌ ضريبيّ، أو الفاتورة ملغاة؛ انظر `ZatcaQr::fields`).
+     *
+     * بجوار الرمز **القيمُ نفسها التي يحملها** بالعربيّة: يرى القارئ ما سيقرؤه الماسح، ويُطابقه
+     * المدقّق بعينه على تفصيل المبلغ أعلاه.
+     *
+     * @return array{}|array{approval: array{title:string, qr:string, qrCaption:string, rows:list<array{0:string,1:string}>}}
+     */
+    private static function zatcaBlock(Invoice $invoice): array
+    {
+        $fields = ZatcaQr::fields($invoice);
+        if ($fields === null) {
+            return [];
+        }
+
+        return ['approval' => [
+            'title' => self::ZATCA_TITLE,
+            'qr' => ZatcaQr::encode($fields),
+            'qrCaption' => 'يُقرأ بتطبيق الهيئة للتحقّق من الفاتورة',
+            'rows' => [
+                ['اسم البائع', $fields[ZatcaQr::TAG_SELLER]],
+                [self::VAT_NUMBER_LABEL, $fields[ZatcaQr::TAG_VAT_NUMBER]],
+                ['وقت الإصدار (UTC)', $fields[ZatcaQr::TAG_TIMESTAMP]],
+                [self::TOTAL_LABEL, $fields[ZatcaQr::TAG_TOTAL].' ر.س'],
+                ['ضريبة القيمة المضافة', $fields[ZatcaQr::TAG_VAT].' ر.س'],
+            ],
+        ]];
     }
 
     public const SUBTOTAL_LABEL = 'الإجمالي قبل الضريبة';

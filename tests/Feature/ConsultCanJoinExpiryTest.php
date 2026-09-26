@@ -52,13 +52,18 @@ class ConsultCanJoinExpiryTest extends TestCase
         $this->assertTrue($c->toClientCard()['missed']);
     }
 
-    public function test_running_session_can_join_within_cap_only(): void
+    /**
+     * **الجارية مفتوحة حتى تُختم** (قرار المالك 2026-09-26). كان لها سقف «المدة + 180د» يُغلق
+     * غرفةً ما زال فيها الموكّل؛ والمنسيّة تُختم بشبكة النسيان بعد مهلتها (`sessions:close-stale`
+     * · `SessionZoomClosureTest`) — لا الساعة في العرض.
+     */
+    public function test_running_session_stays_joinable_until_it_is_ended(): void
     {
         $running = $this->consult(['session' => 'جلسة جارية', 'starts_at' => now()->subMinutes(90)]);
         $this->assertTrue($running->canJoin());
 
-        $stuck = $this->consult(['session' => 'جلسة جارية', 'starts_at' => now()->subHours(5)]);
-        $this->assertFalse($stuck->canJoin()); // «جارية» عالقة — لا دخول أبدياً
+        $long = $this->consult(['session' => 'جلسة جارية', 'starts_at' => now()->subHours(5)]);
+        $this->assertTrue($long->canJoin(), 'جلسةٌ طالت لم تنتهِ — تنتهي بختمها');
     }
 
     public function test_ended_session_never_joins_and_not_missed(): void

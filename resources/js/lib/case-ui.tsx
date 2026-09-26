@@ -25,6 +25,9 @@ export function caseStage(status: string): number {
 export interface Hearing {
   id: number; title: string; day: string; time?: string | null;
   court?: string | null; status: string; outcome?: string | null; startsAt?: string | null;
+  // المدّة المتوقّعة بالدقائق كما أدخلها الطاقم — null ⇒ لا نهاية ولا مدّة تُعرض (لا رقمَ مختلَق)
+  durationMin?: number | null;
+  endsAt?: string | null;
   // جلسة «مجدولة» فات موعدها بلا نتيجة — الحالة المخزّنة لا تتحدّث بمرور الوقت (يشتقها الخادم)
   lapsed?: boolean;
   // سلسلة التأجيل: الجلسة التي أُجّلت إلى هذه — تُوجد في القائمة نفسها بمعرّفها
@@ -34,6 +37,19 @@ export interface Hearing {
   canEdit?: boolean;
   canCancel?: boolean;
 }
+
+/**
+ * حدود «المدّة المتوقّعة» في نماذج الجلسة — مرآة `CaseHearing::DURATION_MIN/MAX`. الحارس الخادم
+ * (`CaseHearing::durationRule`)؛ وهذه تُعين المتصفّح على منع الخطأ قبل الإرسال فقط.
+ */
+export const HEARING_DURATION = { min: 5, max: 600 } as const;
+
+/**
+ * صياغة المدّة المتوقّعة للجلسة — مصدرٌ واحد لبطاقات القضيّة والتقويم والتبويب الزمنيّ.
+ * لا مدّة ⇒ null: لا يُعرض شيء، فلا تُوحي الواجهة بنهايةٍ لا يعرفها أحد (قرار المالك 2026-09-26).
+ */
+export const hearingDurationLabel = (min?: number | null): string | null =>
+  min ? `المدّة المتوقّعة ${min} دقيقة` : null;
 
 /** نغمة حالة الجلسة — مصدر وحيد (يستعملها تقويم المحامي أيضاً) */
 export const hearingTone = (s: string): string =>
@@ -68,6 +84,7 @@ export const HearingsCard: React.FC<{ hearings: Hearing[]; documents?: HearingDo
                 <div className="imeta">
                   <b>{h.title}</b>
                   <span>{h.day}{h.time ? ` · ${h.time}` : ''}{h.court ? ` · ${h.court}` : ''}</span>
+                  {hearingDurationLabel(h.durationMin) && <span>{hearingDurationLabel(h.durationMin)}</span>}
                   {h.outcome && <span style={{ display: 'block', color: 'var(--muted)', marginTop: 3 }}>{h.outcome}</span>}
                 </div>
               </div>

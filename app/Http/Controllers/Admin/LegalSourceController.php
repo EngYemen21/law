@@ -35,7 +35,8 @@ class LegalSourceController extends Controller
         ];
 
         $query = LegalSource::with('reviewer')
-            ->orderByRaw("CASE status WHEN 'مسودة' THEN 0 WHEN 'معتمد' THEN 1 ELSE 2 END")
+            // الترتيب بثوابت النموذج لا بنصوصٍ منقوشة في SQL — المسودّات أوّلاً (هي ما ينتظر قراراً)
+            ->orderByRaw('CASE status WHEN ? THEN 0 WHEN ? THEN 1 ELSE 2 END', [LegalSource::STATUS_DRAFT, LegalSource::STATUS_APPROVED])
             ->orderBy('system_name')
             ->orderBy('id');
 
@@ -75,6 +76,10 @@ class LegalSourceController extends Controller
                 'sourceUrl' => $s->source_url,
                 'usageScope' => $s->usage_scope,
                 'status' => $s->status,
+                // النبرة والأفعال من النموذج — الشاشة لا تقارن نصّ الحالة
+                'statusTone' => $s->statusTone(),
+                'canApprove' => $s->canApprove(),
+                'canSuspend' => $s->canSuspend(),
                 'reviewedBy' => $s->reviewer?->name,
                 'legalReviewAt' => $s->legal_review_at?->format('Y-m-d'),
             ])->values(),
@@ -84,6 +89,7 @@ class LegalSourceController extends Controller
                 'total' => $page->total(),
             ],
             'systems' => $this->systemRows(),
+            'statusOptions' => LegalSource::statusOptions(),
             'stats' => [
                 'draft' => LegalSource::where('status', LegalSource::STATUS_DRAFT)->count(),
                 'approved' => LegalSource::where('status', LegalSource::STATUS_APPROVED)->count(),
@@ -194,9 +200,9 @@ class LegalSourceController extends Controller
     {
         return LegalSource::query()
             ->selectRaw('system_name, COUNT(*) total')
-            ->selectRaw("SUM(status = 'مسودة') draft")
-            ->selectRaw("SUM(status = 'معتمد') approved")
-            ->selectRaw("SUM(status = 'موقوف') suspended")
+            ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) draft', [LegalSource::STATUS_DRAFT])
+            ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) approved', [LegalSource::STATUS_APPROVED])
+            ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) suspended', [LegalSource::STATUS_SUSPENDED])
             ->selectRaw('MIN(effective_from) effective_from')
             ->groupBy('system_name')
             ->orderBy('system_name')

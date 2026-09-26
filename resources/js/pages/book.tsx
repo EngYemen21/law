@@ -135,7 +135,7 @@ const Book: React.FC<Props> = ({
       {
         onFinish: () => setBusy(false),
         onSuccess: () => toast('أُرسل طلبك بنجاح — سيتم دراسته وتسعيره من الإدارة العليا فوراً'),
-        onError: (e) => toast(e.type || e.specialty || e.subject || 'تعذّر إرسال الطلب'),
+        onError: (e) => toast(e.type || e.specialty || e.subject || e.message || 'تعذّر إرسال الطلب'),
       }
     );
   };

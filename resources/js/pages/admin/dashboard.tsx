@@ -1,8 +1,10 @@
 import { router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import Icon from '@/lib/icons';
-import Modal from '@/components/babylon/Modal';
+import { usePrompt } from '@/components/babylon/ConfirmDialog';
 import { useToast } from '@/components/babylon/Toast';
+import { countNoun, NOUN } from '@/lib/arabic-count';
+import { useSettings } from '@/lib/settings';
 
 // ============================================================
 // لوحة الإدارة العليا والتحكم العام 360 درجة (360° Executive Command Center)
@@ -13,6 +15,8 @@ const fmt = (n: number) => (n || 0).toLocaleString('en-US');
 
 export interface OverviewStats {
   clientsCount: number;
+  /** غير الموقوفين — السطر تحت العدد الكلّيّ */
+  activeClients: number;
   activeCases: number;
   openTickets: number;
   activeExecutions: number;
@@ -27,7 +31,7 @@ export interface FinanceStats {
   collectionRate: number;
   currentMonthCollected: number;
   prevMonthCollected: number;
-  revenueGrowth: number;
+  revenueGrowth: number | null;
   overdueCount: number;
 }
 
@@ -44,6 +48,8 @@ export interface RadarItem {
 
 export interface HearingItem {
   id: number;
+  /** ملفّ القضيّة نفسه (`admin.cases.show`) — `null` لجلسةٍ بلا قضيّة */
+  caseUrl: string | null;
   title: string;
   caseNumber: string;
   caseType: string;
@@ -98,8 +104,8 @@ interface Props {
   revenueTrajectory?: RevenuePoint[];
   practiceAreas?: PracticeArea[];
   liveActivity?: LiveActivityItem[];
-  stats?: { clients: number; openTickets: number; revenue: number; pendingMeetings: number };
-  activity?: { ico: string; title: string; sub: string }[];
+  /** أداة التصفير متاحةٌ هنا؟ من الخادم (`DashboardController::resetAllowed`) — لا تظهر حيث يردّها 403 */
+  canReset?: boolean;
 }
 
 const AdminDashboard: React.FC<Props> = ({
@@ -111,31 +117,31 @@ const AdminDashboard: React.FC<Props> = ({
   revenueTrajectory = [],
   practiceAreas = [],
   liveActivity = [],
-  stats,
-  activity = [],
+  canReset = false,
 }) => {
   const toast = useToast();
-  const [resetOpen, setResetOpen] = useState(false);
+  const askFor = usePrompt();
+  const { office_name: officeName } = useSettings();
   const [busy, setBusy] = useState(false);
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  // إحصائيات مجمعة مع دعم التوافق التراجعي
   const finalOverview = useMemo(() => {
     return {
-      clients: overview?.clientsCount ?? stats?.clients ?? 0,
-      openTickets: overview?.openTickets ?? stats?.openTickets ?? 0,
+      clients: overview?.clientsCount ?? 0,
+      activeClients: overview?.activeClients ?? 0,
+      openTickets: overview?.openTickets ?? 0,
       activeCases: overview?.activeCases ?? 0,
       activeExecs: overview?.activeExecutions ?? 0,
       execAmount: overview?.activeExecAmount ?? 0,
       upcomingSessions: overview?.upcomingSessions ?? 0,
-      totalRevenue: finance?.totalCollected ?? stats?.revenue ?? 0,
+      totalRevenue: finance?.totalCollected ?? 0,
       collectionRate: finance?.collectionRate ?? 100,
-      revenueGrowth: finance?.revenueGrowth ?? 0,
+      revenueGrowth: finance?.revenueGrowth ?? null,
       totalUnpaid: finance?.totalUnpaid ?? 0,
       overdueCount: finance?.overdueCount ?? 0,
     };
-  }, [overview, finance, stats]);
+  }, [overview, finance]);
 
   // تحديث البيانات اللحظي
   const handleRefresh = () => {
@@ -149,20 +155,42 @@ const AdminDashboard: React.FC<Props> = ({
     });
   };
 
-  // تصفير قاعدة بيانات الاختبار
-  const handleResetDatabase = () => {
+  /**
+   * **تصفير بيانات الاختبار — تأكيدٌ يكتبه المدير بيده.** كان الزرّ يرسل `confirm: 'RESET'` ثابتةً
+   * من الشفرة، فحارس الخادم (عبارة تأكيد صريحة) يُستوفى آليّاً بنقرة «تأكيد» في نافذةٍ عاديّة. الآن
+   * تُرسل العبارة كما كتبها، والخادم يرفض غيرها — والرسالة (نجاحاً أو رفضاً) من الخادم.
+   */
+  const handleResetDatabase = async () => {
+    const typed = await askFor({
+      title: 'تأكيد تصفير بيانات الاختبار',
+      message: (
+        <div style={{ fontSize: 13, lineHeight: 1.6, color: '#991b1b' }}>
+          <strong>تحذير:</strong> سيُحذف نهائياً كلّ ما في الجداول التشغيلية: التذاكر ومحادثاتها ومستنداتها والملخّصات،
+          والقضايا وجلساتها وفواتيرها، وملفات التنفيذ، والاستشارات ومواعيدها والاجتماعات والمهام.
+          <div style={{ marginTop: 6, color: '#15803d', fontWeight: 700 }}>✓ يُبقى على حسابات المستخدمين وأدوارهم وصلاحياتهم.</div>
+        </div>
+      ),
+      label: 'اكتب RESET بأحرفٍ لاتينيّة كبيرة للتأكيد',
+      placeholder: 'RESET',
+      confirmLabel: 'تصفير البيانات نهائياً',
+    });
+
+    if (typed === null) {
+      return;
+    }
+
+    if (typed.trim() !== 'RESET') {
+      toast('⚠️ لم يُصفَّر شيء — عبارة التأكيد يجب أن تكون RESET حرفياً', 'error');
+
+      return;
+    }
+
     setBusy(true);
     router.post(
       '/admin/reset-database',
-      { confirm: 'RESET' },
+      { confirm: typed.trim() },
       {
-        onSuccess: () => {
-          setResetOpen(false);
-          toast('✅ تم تصفير جميع بيانات الاختبار بنجاح مع الاحتفاظ بالمستخدمين');
-        },
-        onError: () => {
-          toast('⚠️ تعذّر تصفير قاعدة البيانات، يرجى المحاولة لاحقاً');
-        },
+        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تصفير قاعدة البيانات'}`, 'error'),
         onFinish: () => setBusy(false),
       }
     );
@@ -174,19 +202,7 @@ const AdminDashboard: React.FC<Props> = ({
     return Math.max(...revenueTrajectory.map((r) => Math.max(r.billed, r.collected))) || 1;
   }, [revenueTrajectory]);
 
-  // دمج النشاط المباشر مع التوافق التراجعي
-  const finalActivity = useMemo(() => {
-    if (liveActivity.length > 0) return liveActivity;
-    return activity.map((a, idx) => ({
-      id: `legacy-${idx}`,
-      ico: a.ico,
-      title: a.title,
-      sub: a.sub,
-      time: 'الآن',
-      tag: 'عام',
-      tone: 'blue',
-    }));
-  }, [liveActivity, activity]);
+  const finalActivity = liveActivity;
 
   return (
     <>
@@ -196,7 +212,7 @@ const AdminDashboard: React.FC<Props> = ({
           <div style={{ maxWidth: 680 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
               <span className="chip" style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', borderColor: 'rgba(255,255,255,0.3)', fontWeight: 700 }}>
-                <Icon name="scale" cls="ic" /> الإدارة العليا · سلاسل بابل
+                <Icon name="scale" cls="ic" /> الإدارة العليا · {officeName}
               </span>
               <span style={{ fontSize: 12, opacity: 0.85, color: '#e0f2fe' }}>
                 رؤية 360° مباشرة
@@ -250,7 +266,8 @@ const AdminDashboard: React.FC<Props> = ({
           <div className="lbl">الإيراد المحصّل</div>
           <div style={{ marginTop: 6, fontSize: 11.5, color: '#047857', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
             <span>نسبة التحصيل: {finalOverview.collectionRate}%</span>
-            {finalOverview.revenueGrowth !== 0 && (
+            {/* لا مقارنة بلا شهرٍ سابق — الخادم يرسل `null` بدل «+100%» مختلَقة */}
+            {finalOverview.revenueGrowth != null && finalOverview.revenueGrowth !== 0 && (
               <span style={{ color: finalOverview.revenueGrowth > 0 ? '#15803d' : '#b91c1c' }}>
                 ({finalOverview.revenueGrowth > 0 ? '+' : ''}{finalOverview.revenueGrowth}%)
               </span>
@@ -262,10 +279,10 @@ const AdminDashboard: React.FC<Props> = ({
         {/* بطاقة القضايا والتنفيذ */}
         <div className="stat t-blue" onClick={() => router.visit('/admin/cases')} title="عرض القضايا">
           <div className="si"><Icon name="scale" /></div>
-          <div className="num" style={{ fontSize: 25 }}>{finalOverview.activeCases} <span style={{ fontSize: 13, fontWeight: 600 }}>قضية</span></div>
+          <div className="num" style={{ fontSize: 25 }}>{finalOverview.activeCases} <span style={{ fontSize: 13, fontWeight: 600 }}>{countNoun(finalOverview.activeCases, NOUN.case)}</span></div>
           <div className="lbl">قضايا جارية بالمحاكم</div>
           <div style={{ marginTop: 6, fontSize: 11.5, color: '#0369a1', fontWeight: 600 }}>
-            {finalOverview.activeExecs} ملف تنفيذ نشط
+            {finalOverview.activeExecs} {countNoun(finalOverview.activeExecs, NOUN.execFile)}
           </div>
           <div className="go"><Icon name="out" /></div>
         </div>
@@ -273,10 +290,10 @@ const AdminDashboard: React.FC<Props> = ({
         {/* بطاقة التذاكر والاستشارات */}
         <div className="stat t-cyan" onClick={() => router.visit('/admin/tickets')} title="عرض التذاكر">
           <div className="si"><Icon name="folder" /></div>
-          <div className="num" style={{ fontSize: 25 }}>{finalOverview.openTickets} <span style={{ fontSize: 13, fontWeight: 600 }}>تذكرة</span></div>
+          <div className="num" style={{ fontSize: 25 }}>{finalOverview.openTickets} <span style={{ fontSize: 13, fontWeight: 600 }}>{countNoun(finalOverview.openTickets, NOUN.ticket)}</span></div>
           <div className="lbl">تذاكر نشطة بانتظار المعالجة</div>
           <div style={{ marginTop: 6, fontSize: 11.5, color: '#0e7490', fontWeight: 600 }}>
-            {finalOverview.upcomingSessions} استشارة مرئية قادمة
+            {finalOverview.upcomingSessions} {countNoun(finalOverview.upcomingSessions, NOUN.videoConsult)}
           </div>
           <div className="go"><Icon name="out" /></div>
         </div>
@@ -284,10 +301,10 @@ const AdminDashboard: React.FC<Props> = ({
         {/* بطاقة العملاء والموكلين */}
         <div className="stat t-amber" onClick={() => router.visit('/admin/clients')} title="عرض الموكلين">
           <div className="si"><Icon name="user" /></div>
-          <div className="num" style={{ fontSize: 25 }}>{finalOverview.clients} <span style={{ fontSize: 13, fontWeight: 600 }}>عميل</span></div>
+          <div className="num" style={{ fontSize: 25 }}>{finalOverview.clients} <span style={{ fontSize: 13, fontWeight: 600 }}>{countNoun(finalOverview.clients, NOUN.client)}</span></div>
           <div className="lbl">الموكلين والعملاء المسجلين</div>
           <div style={{ marginTop: 6, fontSize: 11.5, color: '#b45309', fontWeight: 600 }}>
-            حسابات نشطة وموثقة
+            {finalOverview.activeClients} {countNoun(finalOverview.activeClients, NOUN.client)} بحسابٍ نشط
           </div>
           <div className="go"><Icon name="out" /></div>
         </div>
@@ -387,7 +404,7 @@ const AdminDashboard: React.FC<Props> = ({
                     key={h.id}
                     className="item"
                     style={{ padding: '11px 0', cursor: 'pointer' }}
-                    onClick={() => router.visit(`/admin/cases`)}
+                    onClick={() => router.visit(h.caseUrl ?? '/admin/cases')}
                   >
                     <div className="item-top">
                       <div className={`iico ${h.isToday ? 'pay-ico' : 'file-ico'}`}>
@@ -650,7 +667,8 @@ const AdminDashboard: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* 7. منطقة الصيانة والإشراف المتقدم (Collapsible Advanced Maintenance) */}
+      {/* 7. منطقة الصيانة والإشراف المتقدم — حيث يقبل الخادم التصفير وحده (`canReset`) */}
+      {canReset && (
       <div
         className="card"
         style={{
@@ -707,84 +725,21 @@ const AdminDashboard: React.FC<Props> = ({
               <button
                 className="btn sm"
                 type="button"
-                onClick={() => setResetOpen(true)}
+                disabled={busy}
+                onClick={handleResetDatabase}
                 style={{
                   backgroundColor: '#dc2626',
                   borderColor: '#b91c1c',
                   color: '#fff',
                 }}
               >
-                <Icon name="trash" /> تصفير البيانات
+                <Icon name="trash" /> {busy ? 'جارٍ التصفير…' : 'تصفير البيانات'}
               </button>
             </div>
           </div>
         )}
       </div>
-
-      {/* مودال تأكيد تصفير البيانات */}
-      <Modal
-        title="تأكيد تصفير بيانات الاختبار"
-        subtitle="إجراء إداري لحذف البيانات التشغيلية"
-        open={resetOpen}
-        onClose={() => !busy && setResetOpen(false)}
-        maxWidth={520}
-      >
-        <div style={{ padding: '8px 4px' }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 12,
-              padding: '12px 14px',
-              borderRadius: 8,
-              backgroundColor: '#fef2f2',
-              border: '1px solid #fee2e2',
-              color: '#991b1b',
-              marginBottom: 16,
-            }}
-          >
-            <div style={{ flexShrink: 0, marginTop: 2 }}>
-              <Icon name="alert" />
-            </div>
-            <div style={{ fontSize: 13, lineHeight: 1.6 }}>
-              <strong>تحذير:</strong> هذا الإجراء سيقوم بحذف وإفراغ جميع الجداول التشغيلية نهائياً:
-              <ul style={{ margin: '6px 0 0', paddingRight: 20 }}>
-                <li>التذاكر ومحادثاتها ومستنداتها والملخصات.</li>
-                <li>القضايا والجلسات ومذكراتها وفواتيرها.</li>
-                <li>ملفات التنفيذ وإجراءاتها.</li>
-                <li>الاستشارات ومواعيدها والاجتماعات والمهام.</li>
-              </ul>
-              <div style={{ marginTop: 8, color: '#15803d', fontWeight: 700 }}>
-                ✓ سيتم الإبقاء على جدول المستخدمين (Users)، والأدوار والصلاحيات.
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
-            <button
-              className="btn soft"
-              type="button"
-              disabled={busy}
-              onClick={() => setResetOpen(false)}
-            >
-              إلغاء
-            </button>
-            <button
-              className="btn"
-              type="button"
-              disabled={busy}
-              onClick={handleResetDatabase}
-              style={{
-                backgroundColor: '#dc2626',
-                borderColor: '#b91c1c',
-                color: '#fff',
-              }}
-            >
-              <Icon name="trash" /> {busy ? 'جاري التصفير…' : 'تأكيد الحذف وتصفير البيانات'}
-            </button>
-          </div>
-        </div>
-      </Modal>
+      )}
     </>
   );
 };

@@ -40,15 +40,15 @@ class ConsultBooking
     /**
      * أنواع الاستشارة ومكانها المكتوب على الموعد.
      *
-     * دالة لا ثابتاً: عنوان المكتب يأتي من config('office.address') — كان مصلَّباً هنا،
-     * فتغيير OFFICE_ADDRESS يغيّر ما يُعرض ولا يغيّر ما يُكتب على الموعد المحجوز.
+     * دالة لا ثابتاً: عنوان المكتب إعدادٌ (`office_address` في `SettingsRegistry`) — كان
+     * مصلَّباً هنا، فتغييره يغيّر ما يُعرض ولا يغيّر ما يُكتب على الموعد المحجوز.
      *
      * @return array<string, array{label:string, ico:string, place:string}>
      */
     private static function map(): array
     {
         return [
-            'office' => ['label' => 'حضورية', 'ico' => 'office', 'place' => (string) config('office.address')],
+            'office' => ['label' => 'حضورية', 'ico' => 'office', 'place' => SettingsRegistry::str('office_address')],
             'video' => ['label' => 'مرئية', 'ico' => 'video', 'place' => 'اجتماع إلكتروني'],
             'phone' => ['label' => 'هاتفية', 'ico' => 'phone', 'place' => 'مكالمة هاتفية'],
         ];

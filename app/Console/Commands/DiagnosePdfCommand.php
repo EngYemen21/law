@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Support\AppointmentCardPdf;
 use App\Support\PdfRenderer;
 use App\Support\ReportPrint;
+use App\Support\SettingsRegistry;
 use Illuminate\Console\Command;
 
 class DiagnosePdfCommand extends Command
@@ -77,10 +78,11 @@ class DiagnosePdfCommand extends Command
             'client' => 'شركة الأعمال الحديثة المحدودة',
             'lawyer' => 'المحامي العام المعتمد',
             'consultRef' => 'REF-2026-7788',
-            'address' => (string) config('office.address'),
+            'address' => SettingsRegistry::str('office_address'),
             'paid' => true,
             'payLabel' => 'مدفوع ومؤكد بالكامل',
-            'qrSeed' => 'APPT-2026-8899',
+            // نصٌّ تشخيصيّ لا رابط تحقّق: العيّنة لا سجلّ لها، والغاية أن يُثبت الفحص أنّ كروم يرسم الرمز
+            'qr' => 'PDF-DIAGNOSTIC APPT-2026-8899',
         ]);
 
         $t1 = microtime(true);
@@ -121,9 +123,10 @@ class DiagnosePdfCommand extends Command
                 ['title' => '٥. التوصيات', 'chips' => ['تحديث بنود الاتفاقية', 'إعادة صياغة شروط التحكيم والتعويض']],
             ],
             'approval' => [
-                'qrSeed' => 'CN-2026-9900',
+                'qr' => 'PDF-DIAGNOSTIC CN-2026-9900',
+                'qrCaption' => 'رمز فحصٍ تشخيصيّ',
                 'rows' => [
-                    ['الجهة', 'النظام الإداري لمكاتب المحاماة'],
+                    ['الجهة', SettingsRegistry::str('office_name')],
                     ['تاريخ الطباعة', now()->format('Y-m-d')],
                 ],
             ],

@@ -12,6 +12,8 @@ use App\Rules\ActiveLawyer;
 use App\Services\MoyasarService;
 use App\Support\Audit;
 use App\Support\ConversationFiles;
+use App\Support\ConversationHandler;
+use App\Support\DocumentVerification;
 use App\Support\ExecFee;
 use App\Support\ExecFlow;
 use App\Support\ExecService;
@@ -24,6 +26,7 @@ use App\Support\SettingsRegistry;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -61,7 +64,8 @@ class ExecFlowController extends Controller
         $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'invoices'])
             ->where(fn ($q) => $q->where('assigned_lawyer_id', $uid)
                 ->orWhere(fn ($p) => $p->whereNull('assigned_lawyer_id')->whereNotNull('stage')->where('stage', '>=', 2)))
-            ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(false, true));
+            ->latest('id')->get();
+        $execs = self::staffCards($execs);
 
         return Inertia::render('execflow', [
             'role' => 'lawyer',
@@ -75,7 +79,8 @@ class ExecFlowController extends Controller
     {
         // التبويب الموحّد: كل التنفيذات (تدفّق + قديمة تُعرَض بمرحلة مشتقّة) — الإدارة ترى الكلّ
         $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'invoices'])
-            ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(false, true));
+            ->latest('id')->get();
+        $execs = self::staffCards($execs);
 
         return Inertia::render('execflow', [
             'role' => 'admin',
@@ -90,7 +95,8 @@ class ExecFlowController extends Controller
     {
         // التبويب الموحّد لموظف الاستقبال: كل ملفّات التنفيذ (تدفّق + قديمة) — بوّابة الاستقبال والإحالة
         $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'invoices'])
-            ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(false, true));
+            ->latest('id')->get();
+        $execs = self::staffCards($execs);
 
         // قائمة الإسناد **لمن يُسند وحده**: موظّفٌ بلا «إجراءات المحكمة والجلسات» لا يفتح
         // مودال الإسناد أصلاً (`canAssign=false` على كلّ بطاقة)، فقائمةٌ في حمولته زينةٌ لا تُستعمل.
@@ -103,6 +109,20 @@ class ExecFlowController extends Controller
             'initialId' => $request->query('id'),
             'initialTab' => $request->query('tab'),
         ]);
+    }
+
+    /**
+     * بطاقات الطاقم — ومعها مسؤول المحادثة وسجلّ تولّيها، **لكلّ الملفّات باستعلامَين** لا لكلّ ملفّ
+     * (`ConversationHandler::historiesFor`). وبطاقة العميل (`client()`) لا تمرّ من هنا.
+     *
+     * @param  Collection<int, Execution>  $execs
+     * @return Collection<int, array<string, mixed>>
+     */
+    private static function staffCards($execs)
+    {
+        $histories = ConversationHandler::historiesFor($execs);
+
+        return $execs->map(fn (Execution $e) => $e->toFlowCard(false, true) + ['conversation' => $histories[$e->id]]);
     }
 
     /**
@@ -387,16 +407,10 @@ class ExecFlowController extends Controller
             return Inertia::location($url); // Inertia يوجّه المتصفّح لصفحة ميسّر
         }
 
-        // **العميل يقرأ سببَ التعذّر لا صفحةَ 503 خام.** محوّل الاستثناءات (bootstrap/app.php)
-        // يترجم 403/409/422 وحدها إلى أخطاء Inertia، و5xx مستثناة عمداً (وضع الصيانة منها) —
-        // فلا يُوسَّع الاستثناء العامّ. الترجمة هنا: زيارةُ Inertia تُردّ برسالةٍ على الشاشة،
-        // ويبقى 503 لمن يقرأ الرمز (axios/الاختبارات) كعقد `EnsurePermission` نفسه.
-        if (! app(MoyasarService::class)->isConfigured()) {
-            $message = 'بوّابة الدفع غير مهيّأة — تواصل مع المكتب لإتمام السداد.';
-            abort_unless($request->inertia(), 503, $message);
-
-            return back()->withErrors(['message' => $message]);
-        }
+        // **العميل يقرأ سببَ التعذّر لا صفحةَ 503 خام.** كانت الترجمة هنا يدويّةً لأنّ المُحوِّل العامّ
+        // كان يعرف 403/409/422 وحدها؛ صار `App\Support\ErrorResponse` يعرف كلّ رمز: زيارةُ Inertia
+        // تعود برسالةٍ على الشاشة، ويبقى 503 لمن يقرأ الرمز (axios/الاختبارات).
+        abort_unless(app(MoyasarService::class)->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة — تواصل مع المكتب لإتمام السداد.');
 
         return back()->with('error', 'تعذّر بدء الدفع حالياً، حاول بعد قليل.');
     }
@@ -637,15 +651,18 @@ class ExecFlowController extends Controller
                 ],
             ],
             'approval' => [
-                'qrSeed' => $execution->number,
+                // رابط التحقّق الموقَّع — المسح يُظهر حالة الطلب الآن (`DocumentVerification`)
+                'qr' => DocumentVerification::url(DocumentVerification::EXECUTION, (string) $execution->number),
+                'qrCaption' => 'امسح للتحقّق من المستند',
                 'rows' => [
-                    ['الجهة', 'النظام الإداري لمكاتب المحاماة'],
+                    ['الجهة', SettingsRegistry::str('office_name')],
                     ['حالة الطلب', $execution->status],
                     ['تاريخ الطباعة', now()->format('Y-m-d')],
                 ],
             ],
             'note' => 'هذا المستند يمثّل عرض/فاتورة خدمة التنفيذ الصادرة عن المكتب، ولا يُعدّ بذاته سنداً تنفيذياً أو حكماً قضائياً.',
-            'footer' => 'النظام الإداري لمكاتب المحاماة — صادر إلكترونياً',
+            // لا `footer`: التذييل الافتراضيّ في `ReportPrint` هو «اسم المكتب — صادر إلكترونياً» من
+            // الإعدادات، وكان المنقوش هنا يطابقه نصّاً ويعلو على الاسم الذي تضبطه الإدارة.
         ]);
 
         return PdfRenderer::render($html, $execution->number.'.pdf');

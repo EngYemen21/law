@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\Setting;
 use App\Services\Ai\AiPromptRegistry;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
@@ -18,6 +20,21 @@ use Tests\TestCase;
  */
 class AiPromptRegistryTest extends TestCase
 {
+    use RefreshDatabase;
+
+    /**
+     * اسم المكتب الذي التُقطت به البصمات. الاسم صار إعداداً تملكه الإدارة يُقرأ عند بناء التعليمة
+     * (`AiPromptRegistry::withOffice`)، فيُثبَّت هنا كما تُثبَّت قائمة الأقسام: البصمة تجمّد
+     * **القالب** — تعديل التعليمة يُسقط الاختبار، وتغيير اسم المكتب أو افتراضه لا يُسقطه.
+     */
+    private const OFFICE_FIXTURE = 'النظام الإداري لمكاتب المحاماة';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Setting::put('office_name', self::OFFICE_FIXTURE);
+    }
+
     /** أسماء المحامين المستعملة في بصمة تعليمة الاستشارة — ثابتة كي تبقى البصمة ثابتة. */
     private const ROSTER = ['أ. سارة القحطاني', 'أ. خالد المالكي'];
 
@@ -40,7 +57,9 @@ class AiPromptRegistryTest extends TestCase
             'execution.analyze' => ['31553bf14fcb9886690909c2a10bac9dc68d12989036cb0b4835a4fd95c5af43', 'v2'],
             // v2: كالفرز — القائمة من الكتالوج، والبصمة بالقائمة الثابتة نفسها (2026-09-15)
             'case.classify' => ['45759aaa2465fb041bf7119bc36d83c93d601e0dd91e6a919c5b4c61595f03f5', 'v2'],
-            'document.analyze' => ['e7723156ba39cc4c03ed5464df50da4cf088e990cd9792a4a11c9f1aa5a02662', 'v1'],
+            // v2: الفحص يطابق المستند أيضاً ببنود قائمة مستندات القسم (`requirements`) — منها تُحسب
+            // «النواقص» فلا يُطلب من العميل ما أرفقه؛ بمحتوى الملفّ لا اسمه، ولا بندَ خارج القائمة (2026-09-26)
+            'document.analyze' => ['81e7deeae53e3c2780e2f8c78ee473d771f9b62a21bbacf069e20cfab7254e4d', 'v2'],
             'meeting.summary' => ['4f831da512089d5b7c3ba494146f32323db7a16083fe2b48590234d60f8df439', 'v1'],
             'meeting.decisions' => ['01c2ccc915cfc7e373476f500b2e8c038050e8421cb97f5bcf2e9f9b8d9e6be0', 'v1'],
             'ticket.summary' => ['651e3f7d7ea8af142a4db4cdd8002d9ca2825828127d683725e83b673b82c317', 'v1'],

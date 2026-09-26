@@ -268,13 +268,22 @@ setName(data.name);
     }
   };
 
+  /**
+   * تفعيل/إيقاف حساب — **الحالة من ردّ الخادم لا من قلبٍ متفائل.** كانت بطاقة التفاصيل تقلب الحالة
+   * فور النقر ولا تعود عند الرفض (403 لحساب إداريّ، أو خطأ)، فتقول «موقوف» لحسابٍ ما زال نشطاً.
+   * الآن تُقرأ الحالة من قائمة `staff` المحدَّثة بعد النجاح، ورسالة النجاح من الخادم (flash).
+   */
   const toggleStaff = (s: StaffRow) =>
     router.post(
       `/admin/staff/${s.id}/toggle`,
       {},
       {
         preserveScroll: true,
-        onSuccess: () => toast(s.status === 'موقوف' ? 'تم تفعيل الحساب' : 'تم إيقاف الحساب'),
+        onSuccess: (page) => {
+          const fresh = ((page.props as unknown as Props).staff ?? []).find((x) => x.id === s.id);
+          setDetail((prev) => (prev && prev.id === s.id && fresh ? fresh : prev));
+        },
+        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تغيير حالة الحساب'}`, 'error'),
       }
     );
 
@@ -1455,10 +1464,7 @@ setRole('موظف خدمة عملاء');
                 {detail.roleKey !== 'admin' && (
                   <button
                     className="btn sm soft"
-                    onClick={() => {
-                      toggleStaff(detail);
-                      setDetail((prev) => (prev ? { ...prev, status: prev.status === 'موقوف' ? 'نشط' : 'موقوف' } : null));
-                    }}
+                    onClick={() => toggleStaff(detail)}
                     type="button"
                     style={{
                       gap: 6,

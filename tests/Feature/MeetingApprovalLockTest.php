@@ -205,9 +205,16 @@ class MeetingApprovalLockTest extends TestCase
             'when_label' => 'قبل يومين · 09:00',
         ]);
 
+        // طلبٌ برمجيّ يأخذ الرمز، وفتحُ الرابط في المتصفّح يعود إلى صفحة الاجتماع بالسبب لا إلى صفحة خطأ
+        // (`RoomDetails::refuse` — 2026-09-26)
+        $this->actingAs($this->employee())
+            ->getJson('/employee/meetingroom?ref='.$meeting->ref)
+            ->assertStatus(422);
+
         $this->actingAs($this->employee())
             ->get('/employee/meetingroom?ref='.$meeting->ref)
-            ->assertStatus(422);
+            ->assertRedirect('/employee/meeting?id='.$meeting->ref)
+            ->assertSessionHas('error');
     }
 
     // ————— ٥ · بنيويّ: لا Markdown خامّ على الشاشة، ولا صفرٌ مختلق —————
@@ -311,7 +318,8 @@ class MeetingApprovalLockTest extends TestCase
     {
         $ui = file_get_contents(resource_path('js/lib/meeting-ui.tsx'));
 
-        $this->assertStringContainsString("{status === 'منتهٍ' && !locked && (", $ui);
+        // بمفتاح الحالة من الخادم (`statusKey`) لا بالنصّ العربيّ — الحارس نفسه: لا مزامنة بعد الاعتماد
+        $this->assertStringContainsString("{statusKey === 'ended' && !locked && (", $ui);
     }
 
     // ————— ٧ · القائمة تفرز بالموعد وتحترم نافذة الدخول —————

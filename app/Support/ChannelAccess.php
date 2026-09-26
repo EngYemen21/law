@@ -53,6 +53,23 @@ class ChannelAccess
     }
 
     /**
+     * **من الطاقم يدخل غرفة الجلسة** — نفس `staffCanSee`، ويُضاف الموظّف الذي تفتح له صلاحيّة
+     * «إجراء الجلسات المرئية» غرفةَ الاستشارة (`/employee/videoroom` يقبلها بديلاً عن «استقبال
+     * الاستشارات»). بدونها يدخل الغرفة ولا يصله بثّها.
+     */
+    public static function roomStaff(User $user, object $model): bool
+    {
+        return self::staffCanSee($user, $model)
+            || ($model instanceof Consult && $user->role === Role::Employee && $user->can('إجراء الجلسات المرئية'));
+    }
+
+    /** العميل المالك أو من يدخل الغرفة من الطاقم — قناة الغرفة المشتركة. */
+    public static function roomMember(User $user, object $model): bool
+    {
+        return ($model->user_id ?? null) === $user->id || self::roomStaff($user, $model);
+    }
+
+    /**
      * بيانات عضو قناة الحضور (presence) لمنع الردّ المزدوج، أو null لمنع الانضمام.
      * نفس عزل الملاحظات الداخلية: العميل لا ينضم إطلاقاً (الحضور شأن داخلي).
      *

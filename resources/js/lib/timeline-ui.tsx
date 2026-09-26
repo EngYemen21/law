@@ -1,6 +1,7 @@
 import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import { hearingDurationLabel } from '@/lib/case-ui';
 import Icon from '@/lib/icons';
 
 // شريط ترشيح وبحث وتصفيح للتبويب الزمني — كل حالة الترشيح في رابط الصفحة.
@@ -13,6 +14,8 @@ export interface TimelineEvent {
   day: string | null; time: string | null; where: string | null;
   status: string; statusTone: string; when: string;
   joinLink?: string; cardUrl?: string;
+  /** جلسة المحكمة وحدها: المدّة المتوقّعة بالدقائق إن أُدخلت — وإلا لا تُعرض مدّة (TimelineCard::hearing). */
+  durationMin?: number | null;
 }
 
 export interface TimelineFilters {
@@ -244,7 +247,10 @@ export const TimelineTable: React.FC<{ events: TimelineEvent[] }> = ({ events })
               <td><b>{e.title}</b></td>
               <td className="muted">{e.id || '—'}</td>
               <td className="muted">{e.day || '—'}</td>
-              <td className="muted">{e.time || '—'}</td>
+              <td className="muted">
+                {e.time || '—'}
+                {hearingDurationLabel(e.durationMin) && <div style={{ fontSize: 11 }}>{hearingDurationLabel(e.durationMin)}</div>}
+              </td>
               <td className="muted">{e.where || '—'}</td>
               <td><Badge text={e.status} tone={e.statusTone} /></td>
               <td>

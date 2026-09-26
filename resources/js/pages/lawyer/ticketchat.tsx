@@ -2,10 +2,13 @@ import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useEffect, useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import ConversationHandlerCard, { refreshConversation, refreshConversationOn } from '@/components/babylon/ConversationHandlerCard';
+import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
 import MsgMeta from '@/components/babylon/MsgMeta';
 import TicketActionsPanel from '@/components/babylon/TicketActionsPanel';
 import TicketDetailsCard from '@/components/babylon/TicketDetailsCard';
+import TicketRequirementsCard from '@/components/babylon/TicketRequirementsCard';
 import TicketTalkingNotice from '@/components/babylon/TicketTalkingNotice';
 import TicketTrackDecisionCard, { TrackGovernanceData } from '@/components/babylon/TicketTrackDecisionCard';
 import { useToast } from '@/components/babylon/Toast';
@@ -23,7 +26,6 @@ interface EmpTicket {
   no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string;
   caseRef?: string | null; execRef?: string | null; subject?: string | null; priority?: string | null; mobile?: string | null; openedAt?: string | null;
   isFrozen?: boolean;
-  canDecideOutcome?: boolean;
   isTerminal?: boolean;
   closureReasonCode?: string | null;
   closureNotes?: string | null;
@@ -33,7 +35,9 @@ interface EmpTicket {
   executionNumber?: string | null;
   trackGovernance?: TrackGovernanceData | null;
 }
-interface Props { ticket: EmpTicket; channel: string; messages: Message[]; summary: SummaryData | null; converted?: boolean; base?: string }
+/** نموذج «تصحيح الحالة» من حارس الانتقال (`CorrectTicketStatus::form`) — للإدارة وحدها، و`null` لغيرها. */
+interface CorrectionForm { blocker: string | null; targets: { value: string; label: string }[] }
+interface Props { ticket: EmpTicket; channel: string; messages: Message[]; summary: SummaryData | null; base?: string; conversation?: ConversationHistory | null; correction?: CorrectionForm | null }
 
 const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
   if (m.who === 'note') {
@@ -67,14 +71,12 @@ const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
   );
 };
 
-// مراحل الرحلة التي يصحّح إليها المدير
-const CORRECTABLE = [
-  'جديدة', 'قيد التحليل', 'بانتظار مستندات', 'محالة للقسم القانوني', 'بانتظار اعتماد المستشار',
-  'بانتظار اعتماد الإدارة للملخّص', 'الرأي القانوني', 'بانتظار حجز الاستشارة', 'بانتظار تحديد الموعد',
-  'موعد مؤكد', 'بانتظار ملخّص الجلسة', 'مكتملة', 'مغلقة',
-];
-
-const CorrectStatusCard: React.FC<{ ticketNo: string; current: string }> = ({ ticketNo, current }) => {
+/**
+ * **تصحيح الحالة — نموذجٌ يقبله الخادم أو سببٌ يشرح امتناعه.** كانت البطاقة تعرض قائمةً مكتوبةً هنا
+ * (تنقصها حالتا المآل) ونموذجاً دائماً ولو كان للتذكرة ملفٌّ قائم يردّ الخادمُ تصحيحَها 422.
+ * الأهداف والمانع الآن من `CorrectTicketStatus::form` — الحارس نفسه الذي يحكم الطلب.
+ */
+const CorrectStatusCard: React.FC<{ ticketNo: string; form: CorrectionForm }> = ({ ticketNo, form }) => {
   const toast = useToast();
   const [target, setTarget] = useState('');
   const [reason, setReason] = useState('');
@@ -84,8 +86,8 @@ const CorrectStatusCard: React.FC<{ ticketNo: string; current: string }> = ({ ti
     setBusy(true);
     router.post(`/admin/tickets/${encodeURIComponent(ticketNo)}/correct-status`, { status: target, reason }, {
       preserveScroll: true,
+      // رسالة النجاح من الخادم (flash) يعرضها التخطيط
       onSuccess: () => {
-        toast('صُحّحت حالة التذكرة وسُجّل السبب');
         setTarget('');
         setReason('');
       },
@@ -98,23 +100,31 @@ const CorrectStatusCard: React.FC<{ ticketNo: string; current: string }> = ({ ti
     <div className="card">
       <div className="card-h"><h3>تصحيح الحالة</h3></div>
       <div className="card-b" style={{ padding: 14 }}>
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>
-          استثناءٌ للإدارة فقط — يُسجَّل السبب في ملاحظة داخليّة وفي سجلّ التدقيق.
-        </div>
-        <div className="field">
-          <label>الحالة الصحيحة</label>
-          <select value={target} onChange={(e) => setTarget(e.target.value)}>
-            <option value="">— اختر —</option>
-            {CORRECTABLE.filter((s) => s !== current).map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-        <div className="field">
-          <label>السبب</label>
-          <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="لماذا تُصحَّح الحالة؟" />
-        </div>
-        <button className="btn soft sm" type="button" disabled={busy || !target || reason.trim().length < 5} onClick={submit}>
-          <Icon name="check" /> تصحيح الحالة
-        </button>
+        {form.blocker ? (
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <Icon name="lock" /> <span>{form.blocker}</span>
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>
+              استثناءٌ للإدارة فقط — يُسجَّل السبب في ملاحظة داخليّة وفي سجلّ التدقيق.
+            </div>
+            <div className="field">
+              <label>الحالة الصحيحة</label>
+              <select value={target} onChange={(e) => setTarget(e.target.value)}>
+                <option value="">— اختر —</option>
+                {form.targets.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label>السبب</label>
+              <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="لماذا تُصحَّح الحالة؟" />
+            </div>
+            <button className="btn soft sm" type="button" disabled={busy || !target || reason.trim().length < 5} onClick={submit}>
+              <Icon name="check" /> تصحيح الحالة
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -127,7 +137,7 @@ const SUM_FIELDS: { key: keyof SummaryData; label: string }[] = [
   { key: 'keyPoints', label: 'النقاط المهمة' },
 ];
 
-const LawyerTicketChat: React.FC<Props> = ({ ticket, channel, messages, summary, converted, base = '/lawyer' }) => {
+const LawyerTicketChat: React.FC<Props> = ({ ticket, channel, messages, summary, base = '/lawyer', conversation, correction }) => {
   const toast = useToast();
   const can = useCan();
   // الأزرار تُخفى بحسب الصلاحية — كانت تُعرض دائماً ثم يردّ الخادم 403
@@ -145,6 +155,8 @@ const LawyerTicketChat: React.FC<Props> = ({ ticket, channel, messages, summary,
   useEffect(() => {
     const append = (e: { message: Message }) => {
       const m = e.message;
+      // قبل فحص التكرار: ردّي أنا يصل مكرّراً ويبقى أنّه قد نقل المحادثة إليّ
+      refreshConversationOn(m.who);
 
       if (m.id && seen.current.has(m.id)) {
 return;
@@ -158,7 +170,12 @@ seen.current.add(m.id);
     };
     const ch = echo.private(channel);
     ch.listen('.message', append);
-    ch.listen('.status', (e: { status: string; tone: string }) => setStatus(e));
+    ch.listen('.status', (e: { status: string; tone: string }) => {
+      setStatus(e);
+      // البثّ يحمل الحالة ولونها وحدهما — أمّا «مجمَّدة/نهائيّة» ونموذج التصحيح وبطاقة المآل فمن
+      // الخادم؛ فتُعاد قراءتها بدل اشتقاقها هنا من نصّ الحالة
+      router.reload({ only: ['ticket', 'correction', 'summary'] });
+    });
     echo.private(`${channel}.staff`).listen('.message', append);
 
     return () => {
@@ -186,30 +203,36 @@ return;
     const endpoint = mode === 'reply' ? 'reply' : 'note';
     // لا يُمسح النص إلا بعد نجاح الإرسال فعلاً — لا يضيع عند فشل (صلاحية/تحقّق/خادم)
     axios.post(`${base}/tickets/${no}/${endpoint}`, { body: v })
-      .then(() => setBody(''))
+      .then(() => {
+        setBody('');
+
+        // الردّ على العميل قد نقل المحادثة إليّ — والملاحظة الداخليّة لا تنقلها
+        if (endpoint === 'reply') {
+          refreshConversation();
+        }
+      })
       .catch((err) => {
         const msg = err.response?.data?.message || 'تعذّر الإرسال';
         toast(`⚠️ ${msg}`);
       });
   };
 
+  // رسالة النجاح في الفعلين من الخادم (flash) يعرضها التخطيط — لا إشعار ثانٍ هنا
   const approve = () =>
     router.post(`${base}/summary/${no}/approve`, {}, {
-      onSuccess: () => toast(base === '/admin' ? 'اعتُمد الملخّص وأُرسل الرأي القانوني للعميل' : 'اعتُمد الملخّص ورُفع للإدارة'),
+      preserveScroll: true,
       onError: fail('لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — حرّره يدوياً أولاً.'),
     });
 
   const requestDocs = () =>
     router.post(`${base}/tickets/${no}/request-docs`, {}, {
       preserveScroll: true,
-      onSuccess: () => toast('تم طلب مستندات إضافية من العميل'),
       onError: fail('تعذّر طلب مستندات إضافية'),
     });
 
   const cur = tktStage(status.status);
-  const isTerminal = ['محولة إلى قضية', 'محولة إلى تنفيذ', 'مغلقة'].includes(status.status) || !!ticket.isTerminal;
-  const isFrozen = !!ticket.isFrozen || isTerminal;
-  const canDecideOutcome = !isFrozen && !ticket.caseRef && !ticket.execRef && !converted && (status.status === 'بانتظار قرار المآل' || status.status === 'مكتملة');
+  // من الخادم لا من قائمة حالاتٍ هنا (`Ticket::toEmployeeCard`) — ويُعاد تحميلها مع بثّ الحالة أعلاه
+  const isFrozen = !!ticket.isFrozen || !!ticket.isTerminal;
 
   return (
     <div className="tflow">
@@ -278,6 +301,8 @@ setTypingSignal((n) => n + 1);
         </div>
 
         <aside className="tf-aside">
+          <ConversationHandlerCard conversation={conversation} />
+
           {/* تفاصيل الطلب (يطابق tkDetailsCard المرجعي) — بجانب المحادثة */}
           <TicketDetailsCard
             subject={ticket.subject}
@@ -286,6 +311,8 @@ setTypingSignal((n) => n + 1);
             mobile={ticket.mobile}
             priority={ticket.priority}
           />
+          {/* قائمة مستندات القسم: ما استُوفي وما بقي وما لم يُتحقّق — تُعاد قراءتها مع كلّ رسالة */}
+          <TicketRequirementsCard base={base} ticketNo={ticket.no} refreshKey={msgs.length} canEdit={!isFrozen} />
           <div className="card">
             <div className="card-h">
               <h3>ملخص الملف</h3>
@@ -324,7 +351,7 @@ setTypingSignal((n) => n + 1);
           </div>
 
           {/* تصحيح الحالة استثناءٌ إداريّ مسبَّب — لا قائمة حالات بيد الموظّف (قرار المالك 2026-09-14) */}
-          {base === '/admin' && <CorrectStatusCard ticketNo={ticket.no} current={status.status} />}
+          {correction && <CorrectStatusCard ticketNo={ticket.no} form={correction} />}
 
           {/* حوكمة وتحديد مسار المآل (القرارات الأربعة ومقترح الذكاء الاصطناعي) */}
           <TicketTrackDecisionCard
@@ -349,7 +376,8 @@ setTypingSignal((n) => n + 1);
               status={status.status}
               caseRef={ticket.caseRef ?? null}
               role={base === '/admin' ? 'admin' : 'lawyer'}
-              onRequestDocs={requestDocs}
+              // طلب النواقص كتابةٌ على التذكرة — لا يُعرض لمجمَّدةٍ أو نهائيّة (والخادم يرفضه كذلك)
+              onRequestDocs={isFrozen ? undefined : requestDocs}
             />
           )}
 

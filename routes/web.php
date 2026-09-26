@@ -9,8 +9,10 @@ use App\Http\Controllers\Admin\AuditLogController as AdminAuditLogController;
 use App\Http\Controllers\Admin\CaseController as AdminCaseController;
 use App\Http\Controllers\Admin\CatalogueController as AdminCatalogueController;
 use App\Http\Controllers\Admin\ClientController as AdminClientController;
+use App\Http\Controllers\Admin\CourtHearingController as AdminCourtHearingController;
 use App\Http\Controllers\Admin\DistributeController as AdminDistributeController;
 use App\Http\Controllers\Admin\FinanceController as AdminFinanceController;
+use App\Http\Controllers\Admin\JourneyTransitionController as AdminJourneyTransitionController;
 use App\Http\Controllers\Admin\LawyerController as AdminLawyerController;
 use App\Http\Controllers\Admin\LegalSourceController as AdminLegalSourceController;
 use App\Http\Controllers\Admin\PriceController as AdminPriceController;
@@ -28,6 +30,7 @@ use App\Http\Controllers\ConsultController;
 use App\Http\Controllers\ConversationFileController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\DocumentVerificationController;
 use App\Http\Controllers\Employee\CalendarController as EmployeeCalendarController;
 use App\Http\Controllers\Employee\CaseController as EmployeeCaseController;
 use App\Http\Controllers\Employee\ScheduleController as EmployeeScheduleController;
@@ -52,10 +55,12 @@ use App\Http\Controllers\Staff\ConsultController as StaffConsultController;
 use App\Http\Controllers\Staff\ConsultRecordingController as StaffConsultRecordingController;
 use App\Http\Controllers\Staff\MeetingController as StaffMeetingController;
 use App\Http\Controllers\Staff\MeetRequestController as StaffMeetRequestController;
+use App\Http\Controllers\Staff\TicketRequirementController as StaffTicketRequirementController;
 use App\Http\Controllers\TicketController;
 use App\Http\Controllers\ZoomController;
 use App\Http\Controllers\ZoomWebhookController;
 use App\Support\ConversationFiles;
+use App\Support\DocumentVerification;
 use Illuminate\Support\Facades\Route;
 
 // ── عام (بدون مصادقة) ──
@@ -69,6 +74,11 @@ Route::post('/webhooks/moyasar', [MoyasarWebhookController::class, 'handle'])->n
 
 // موجز التقويم الحي (RFC 5545 iCal Live Subscription Feed) — عام ومحمي برمز أمان فريد لكل مستخدم
 Route::get('/calendar/feed/{user}/{token}.ics', [CalendarController::class, 'feed'])->name('calendar.feed');
+
+// التحقّق من وثيقة مطبوعة — يفتحه رمز الاستجابة بلا دخول؛ محميّ بتوقيعٍ يصدره الخادم (DocumentVerification)
+Route::get('/verify/{kind}/{ref}', DocumentVerificationController::class)
+    ->whereIn('kind', DocumentVerification::KINDS)->where('ref', '[^/]+')
+    ->middleware('throttle:60,1')->name(DocumentVerification::ROUTE);
 
 // المصادقة — دخول برقم الهويّة + رمز SMS (OTP)، بلا كلمة مرور
 Route::middleware('guest')->group(function () {
@@ -96,8 +106,8 @@ Route::middleware(['auth', 'active'])->group(function () {
     Route::post('/exec-flow/{execution}/pay', [ExecFlowController::class, 'pay'])->name('exec-flow.pay');
     Route::get('/exec-flow/{execution}/pay/callback', [ExecFlowController::class, 'payCallback'])->name('exec-flow.pay.callback');
     // محادثة ملفّ التنفيذ + رفع المستندات المطلوبة (يحرسان دور العميل/الملكيّة داخليّاً)
-    Route::post('/exec-flow/{execution}/messages', [ExecFlowController::class, 'message'])->name('exec-flow.messages.store');
-    Route::post('/exec-flow/{execution}/attach', [ExecFlowController::class, 'attach'])->name('exec-flow.attach');
+    Route::post('/exec-flow/{execution}/messages', [ExecFlowController::class, 'message'])->middleware('conversation.reply')->name('exec-flow.messages.store');
+    Route::post('/exec-flow/{execution}/attach', [ExecFlowController::class, 'attach'])->middleware('conversation.reply')->name('exec-flow.attach');
     Route::post('/exec-flow/{execution}/documents/{document}', [ExecFlowController::class, 'uploadDocument'])->name('exec-flow.documents.upload');
     Route::post('/exec-flow/{execution}/documents/{document}/review', [ExecFlowController::class, 'reviewDocument'])->name('exec-flow.documents.review');
     Route::get('/exec-flow/{execution}/documents/{document}/download', [ExecFlowController::class, 'downloadDocument'])->name('exec-flow.documents.download');
@@ -154,6 +164,8 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
     Route::get('/appointments', [AppointmentController::class, 'index'])->name('appointments');
     Route::get('/appointments/{appointment}/card.pdf', [AppointmentController::class, 'card'])->name('appointments.card');
     Route::get('/appointments/{appointment}/card', [AppointmentController::class, 'card'])->name('appointments.card.plain');
+    // رمز التحقّق على بطاقة الموعد في الشاشة — SVG من المولّد الخادميّ الوحيد (`Support\Qr`) لا مكتبةَ واجهةٍ ثانية
+    Route::get('/appointments/{appointment}/qr.svg', [AppointmentController::class, 'qr'])->name('appointments.qr');
     Route::get('/meetings', [MeetingController::class, 'index'])->name('meetings');
     Route::get('/meetingroom', [MeetingController::class, 'room'])->name('meetingroom');
     // دعوات الاجتماعات (مربوطة بقاعدة البيانات — تُنشر مؤكَّدة بعد موافقة الإدارة؛ تأكيد العميل مُلغى)
@@ -178,6 +190,8 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
 // الحساب — متاح لأي مستخدم مسجّل
 Route::middleware(['auth', 'active'])->group(function () {
     Route::redirect('/notifications', '/dashboard')->name('notifications');
+    // الصفحات الأقدم من قائمة الجرس — السجلّ الكامل داخل القائمة لا صفحةٌ لا وجود لها
+    Route::get('/notifications/more', [NotificationController::class, 'more'])->name('notifications.more');
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
     Route::inertia('/profile', 'profile')->name('profile');
@@ -218,20 +232,23 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
         Route::post('/tickets/{ticket}/advance', [EmployeeTicketController::class, 'advance'])->name('tickets.advance');
         Route::post('/tickets/{ticket}/rerun', [EmployeeTicketController::class, 'rerunSummary'])->name('tickets.rerun');
         Route::post('/tickets/{ticket}/track/propose', [EmployeeTicketController::class, 'proposeTrack'])->name('tickets.track.propose');
+        // قائمة مستندات القسم للتذكرة: ما استُوفي وما لم يُتحقّق، والتأكيد/الإلغاء اليدويّ (قرار المالك 2026-09-26)
+        Route::get('/tickets/{ticket}/requirements', [StaffTicketRequirementController::class, 'show'])->name('tickets.requirements');
+        Route::post('/tickets/{ticket}/requirements', [StaffTicketRequirementController::class, 'update'])->name('tickets.requirements.update');
     });
-    Route::post('/tickets/{ticket}/reply', [EmployeeTicketController::class, 'reply'])
+    Route::post('/tickets/{ticket}/reply', [EmployeeTicketController::class, 'reply'])->middleware('conversation.reply')
         ->middleware('permission:الرد على العملاء')->name('tickets.reply');
-    Route::post('/tickets/{ticket}/attach', [EmployeeTicketController::class, 'attach'])
+    Route::post('/tickets/{ticket}/attach', [EmployeeTicketController::class, 'attach'])->middleware('conversation.reply')
         ->middleware('permission:الرد على العملاء')->name('tickets.attach');
-    Route::post('/tickets/{ticket}/request-docs', [EmployeeTicketController::class, 'requestDocs'])
+    Route::post('/tickets/{ticket}/request-docs', [EmployeeTicketController::class, 'requestDocs'])->middleware('conversation.reply')
         ->middleware('permission:الرد على العملاء')->name('tickets.reqdocs');
 
     // القضايا وطلبات التنفيذ — إدارة القضايا والأتعاب
     Route::middleware('permission:إدارة القضايا والأتعاب')->group(function () {
         Route::get('/cases', [EmployeeCaseController::class, 'index'])->name('cases');
         Route::get('/cases/{case}', [EmployeeCaseController::class, 'show'])->name('cases.show');
-        Route::post('/cases/{case}/reply', [EmployeeCaseController::class, 'reply'])->name('cases.reply');
-        Route::post('/cases/{case}/attach', [EmployeeCaseController::class, 'attach'])->name('cases.attach');
+        Route::post('/cases/{case}/reply', [EmployeeCaseController::class, 'reply'])->middleware('conversation.reply')->name('cases.reply');
+        Route::post('/cases/{case}/attach', [EmployeeCaseController::class, 'attach'])->middleware('conversation.reply')->name('cases.attach');
         // إجراءات المحكمة (ناجز والجلسات والحكم) — لمن تمنحه الإدارة «إجراءات المحكمة والجلسات» من تبويب
         // الموظّفين (قرار المالك 2026-09-11)، بحرّاس المحامي نفسها (`ManagesCourtProceedings`)
         Route::middleware('permission:إجراءات المحكمة والجلسات')->group(function () {
@@ -378,8 +395,11 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
     Route::get('/tickets', [LawyerTicketController::class, 'index'])->name('tickets');
     Route::get('/tickets/{ticket}', [LawyerTicketController::class, 'show'])->name('tickets.show');
     // ردّ المستشار المباشر على العميل (يطابق lwReply المرجعي) + ملاحظته الداخلية — guardAssigned يحصرهما بالمُسنَد
-    Route::post('/tickets/{ticket}/reply', [LawyerTicketController::class, 'reply'])->name('tickets.reply');
+    Route::post('/tickets/{ticket}/reply', [LawyerTicketController::class, 'reply'])->middleware('conversation.reply')->name('tickets.reply');
     Route::post('/tickets/{ticket}/note', [LawyerTicketController::class, 'note'])->name('tickets.note');
+    // قائمة مستندات القسم للتذكرة — guardAssigned في المتحكّم يحصرها بالمُسنَد
+    Route::get('/tickets/{ticket}/requirements', [StaffTicketRequirementController::class, 'show'])->name('tickets.requirements');
+    Route::post('/tickets/{ticket}/requirements', [StaffTicketRequirementController::class, 'update'])->name('tickets.requirements.update');
     Route::get('/calendar', [LawyerCalendarController::class, 'index'])->name('calendar');
 
     // الملخصات والاعتماد — اعتماد الملخصات
@@ -406,7 +426,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
 
     // دورة القضية + التنفيذ + المهام — إدارة القضايا والأتعاب
     Route::middleware('permission:إدارة القضايا والأتعاب')->group(function () {
-        Route::post('/tickets/{ticket}/request-docs', [LawyerTicketController::class, 'requestDocs'])->name('tickets.reqdocs');
+        Route::post('/tickets/{ticket}/request-docs', [LawyerTicketController::class, 'requestDocs'])->middleware('conversation.reply')->name('tickets.reqdocs');
         Route::post('/tickets/{ticket}/track/propose', [LawyerTicketController::class, 'proposeTrack'])->name('tickets.track.propose');
         Route::get('/cases', [LawyerCaseController::class, 'index'])->name('cases');
         Route::get('/cases/{case}', [LawyerCaseController::class, 'show'])->name('cases.show');
@@ -479,6 +499,8 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
     Route::middleware('permission:المساعد القانوني')->group(function () {
         Route::get('/assistant', [LawyerAssistantController::class, 'index'])->name('assistant');
         Route::post('/assistant/generate', [LawyerAssistantController::class, 'generate'])->name('assistant.generate');
+        // تسليم المسودّة لمحرّر الصياغة عبر الجلسة — لا في عنوانٍ يُحقن منه نصّ
+        Route::post('/assistant/to-editor', [LawyerAssistantController::class, 'toEditor'])->name('assistant.to-editor');
 
         // اعتماد المصادر القانونيّة: **المحامي المسؤول** هو من يعتمد كما تنصّ الخطة.
         // حصرُه في لوحة الإدارة يجعل الفعل القانونيّ بيد غير أهله — والاعتماد يُسجَّل
@@ -565,10 +587,12 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     // تصحيح الحالة استثناءٌ إداريّ مسبَّب — لا قائمة حالات بيد الموظّف (قرار المالك 2026-09-14)
     Route::post('/tickets/{ticket}/correct-status', [AdminTicketController::class, 'correctStatus'])->name('tickets.correct-status');
     // صفحة تذكرة الإدارة تعيد استخدام شاشة المستشار — فتحتاج نظائر admin.* لإجراءاتها
-    Route::post('/tickets/{ticket}/request-docs', [LawyerTicketController::class, 'requestDocs'])->name('tickets.reqdocs');
-    Route::post('/tickets/{ticket}/reply', [LawyerTicketController::class, 'reply'])->name('tickets.reply');
+    Route::post('/tickets/{ticket}/request-docs', [LawyerTicketController::class, 'requestDocs'])->middleware('conversation.reply')->name('tickets.reqdocs');
+    Route::post('/tickets/{ticket}/reply', [LawyerTicketController::class, 'reply'])->middleware('conversation.reply')->name('tickets.reply');
     // ملاحظة إدارية داخلية (يطابق adtSaveNote المرجعي) — نفس ميثود المستشار (واعٍ بالدور) ولا تصل قناة العميل
     Route::post('/tickets/{ticket}/note', [LawyerTicketController::class, 'note'])->name('tickets.note');
+    Route::get('/tickets/{ticket}/requirements', [StaffTicketRequirementController::class, 'show'])->name('tickets.requirements');
+    Route::post('/tickets/{ticket}/requirements', [StaffTicketRequirementController::class, 'update'])->name('tickets.requirements.update');
     Route::post('/tickets/{ticket}/track/propose', [AdminTicketController::class, 'proposeTrack'])->name('tickets.track.propose');
     Route::post('/tickets/{ticket}/track/approve', [AdminTicketController::class, 'approveTrack'])->name('tickets.track.approve');
     Route::get('/lawyers', [AdminLawyerController::class, 'index'])->name('lawyers');
@@ -607,6 +631,8 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::get('/consults/{consult}/stream/{type}', [StaffConsultRecordingController::class, 'stream'])->whereIn('type', ['video', 'audio'])->name('consults.stream')->middleware('permission:أرشيف الاستشارات');
     Route::get('/distribute', [AdminDistributeController::class, 'index'])->name('distribute')->middleware('permission:توزيع التذاكر');
     Route::post('/distribute/auto', [AdminDistributeController::class, 'auto'])->name('distribute.auto')->middleware('permission:توزيع التذاكر');
+    // الإسناد الجماعيّ طلبٌ واحد (قبل `/distribute/{ticket}` كي لا تُقرأ «bulk» رقمَ تذكرة)
+    Route::post('/distribute/bulk', [AdminDistributeController::class, 'bulk'])->name('distribute.bulk')->middleware('permission:توزيع التذاكر');
     Route::post('/distribute/case/{case}', [AdminDistributeController::class, 'assignCase'])->name('distribute.assign-case')->middleware('permission:توزيع التذاكر');
     Route::post('/distribute/execution/{execution}', [AdminDistributeController::class, 'assignExecution'])->name('distribute.assign-execution')->middleware('permission:توزيع التذاكر');
     Route::post('/distribute/consult/{consult}', [AdminDistributeController::class, 'assignConsult'])->name('distribute.assign-consult')->middleware('permission:توزيع التذاكر');
@@ -657,10 +683,14 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/meetings/{meeting}/zoom-sync', [StaffMeetingController::class, 'zoomSync'])->name('meetings.zoomsync');
     Route::get('/meetings/{meeting}/recording.zip', [StaffMeetingController::class, 'recordingZip'])->name('meetings.recording');
     Route::get('/meetings/{meeting}/audio.zip', [StaffMeetingController::class, 'audioZip'])->name('meetings.audio');
+    // التشغيل داخل النظام — `recording-ui.tsx` يبني `${base}/meetings/{id}/stream/*` لكلّ دور؛
+    // غيابُه هنا وحدَه كان يُسقط مشغّل الإدارة بـ404 بينما يعمل لدى المحامي والموظّف
+    Route::get('/meetings/{meeting}/stream/{type}', [StaffMeetingController::class, 'stream'])->whereIn('type', ['video', 'audio'])->name('meetings.stream');
     // «مركز الاعتمادات والقرارات»: ملخّصات التذاكر والجلسات ومواعيد الموظّفين ومسارات المآل
     Route::get('/approvals', [AdminApprovalsController::class, 'index'])->name('approvals');
     Route::post('/approvals/reject', [AdminApprovalsController::class, 'reject'])->name('approvals.reject');
-    Route::post('/approvals/dismiss', [AdminApprovalsController::class, 'dismiss'])->name('approvals.dismiss');
+    // «استبعاد» بلا سبب أُزيل (2026-09-26): لا تناديه الواجهة، وكان يُعيد المقترح/الملخّص/المحضر بلا سببٍ
+    // ولا إبلاغ — مسار التفافٍ على الرفض المسبَّب (`approvals.reject`)
     Route::get('/summaries', [AdminTicketController::class, 'summaries'])->name('summaries');
     // مراجعة/اعتماد/تعديل ملخص الملف (إشراف الإدارة العليا — صلاحيات مطلقة)
     Route::get('/summary/{ticket}', [LawyerTicketController::class, 'showSummary'])->name('summary');
@@ -671,6 +701,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::get('/summary/{ticket}/print', [LawyerTicketController::class, 'printSummary'])->name('summary.print');
     Route::get('/assistant', [LawyerAssistantController::class, 'index'])->name('assistant');
     Route::post('/assistant/generate', [LawyerAssistantController::class, 'generate'])->name('assistant.generate');
+    Route::post('/assistant/to-editor', [LawyerAssistantController::class, 'toEditor'])->name('assistant.to-editor');
     // محرر الصياغة القانونية — نسخة الإدارة العليا (ترى كل المستندات)
     Route::get('/editor', [LawyerDocumentEditorController::class, 'index'])->name('editor');
     Route::get('/editor/create', [LawyerDocumentEditorController::class, 'create'])->name('editor.create');
@@ -706,6 +737,11 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/catalogue/departments/{department}/services/reorder', [AdminCatalogueController::class, 'reorderServices'])->name('catalogue.services.reorder');
     Route::put('/catalogue/services/{service}', [AdminCatalogueController::class, 'updateService'])->name('catalogue.services.update');
     Route::post('/catalogue/services/{service}/toggle', [AdminCatalogueController::class, 'toggleService'])->name('catalogue.services.toggle');
+    // قائمة المستندات المطلوبة لكلّ قسم (قرار المالك 2026-09-26) — بالحارس نفسه: لا صلاحيّة مستحدثة للكتالوج
+    Route::post('/catalogue/departments/{department}/documents', [AdminCatalogueController::class, 'storeDocument'])->name('catalogue.documents.store');
+    Route::post('/catalogue/departments/{department}/documents/reorder', [AdminCatalogueController::class, 'reorderDocuments'])->name('catalogue.documents.reorder');
+    Route::put('/catalogue/documents/{departmentDocument}', [AdminCatalogueController::class, 'updateDocument'])->name('catalogue.documents.update');
+    Route::delete('/catalogue/documents/{departmentDocument}', [AdminCatalogueController::class, 'destroyDocument'])->name('catalogue.documents.destroy');
     Route::post('/catalogue/staff-departments', [AdminCatalogueController::class, 'storeStaffDepartment'])->name('catalogue.staff-departments.store');
     Route::put('/catalogue/staff-departments/{staffDepartment}', [AdminCatalogueController::class, 'updateStaffDepartment'])->name('catalogue.staff-departments.update');
     Route::post('/catalogue/staff-departments/{staffDepartment}/toggle', [AdminCatalogueController::class, 'toggleStaffDepartment'])->name('catalogue.staff-departments.toggle');
@@ -749,6 +785,16 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::get('/audit-logs/export', [AdminAuditLogController::class, 'export'])
         ->middleware('permission:سجل التدقيق الأمني')->name('audit-logs.export');
 
+    // سجل انتقالات الرحلة والحالات الموحد (Workflow Journey Transitions Log)
+    Route::get('/journey-transitions', [AdminJourneyTransitionController::class, 'index'])
+        ->middleware('permission:سجل التدقيق الأمني')->name('journey-transitions');
+    Route::get('/journey-transitions/export', [AdminJourneyTransitionController::class, 'export'])
+        ->middleware('permission:سجل التدقيق الأمني')->name('journey-transitions.export');
+
+    // الجلسات القضائية وتواريخ المحاكم — الإدارة العليا
+    Route::get('/hearings', [AdminCourtHearingController::class, 'index'])->name('hearings');
+    Route::get('/hearings/export', [AdminCourtHearingController::class, 'export'])->name('hearings.export');
+
     // تشغيل الذكاء وحوكمته — المؤشّرات ومعايرة العتبة والأسعار ومدد الاحتفاظ.
     // قرارات مكتب لا هندسة: العتبة قانونيّة والأسعار محاسبيّة والاحتفاظ نظاميّ،
     // فلا يصحّ أن يلزمها تعديل كود ونشر.
@@ -790,3 +836,15 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/ai-blind-review/{review}/judge', [AdminAiBlindReviewController::class, 'judge'])
         ->middleware('permission:اعتماد الملخصات')->name('ai-blind-review.judge');
 });
+
+/*
+ * **الرابط المجهول صفحةُ ٤٠٤ عربيّة داخل التطبيق** — لا صفحة لارافل الإنجليزيّة.
+ *
+ * رابطٌ لا يطابق مساراً يُرفض في الموجِّه قبل مجموعة `web`: فلا جلسة ولا مستخدم ولا خصائص
+ * مشتركة، فتسقط صفحته على القالب الساكن. مسار الاحتياط يمرّ بالمجموعة كاملةً، فيعرض
+ * `ErrorResponse` الصفحة بالشريط الجانبيّ لمن سجّل دخوله — والرسالة من الخريطة الواحدة.
+ *
+ * بكلّ الأفعال لا GET وحده (`Route::fallback` يسجّل GET): احتياطُ GET وحده يجعل كلّ نشرٍ إلى رابطٍ
+ * مجهول «٤٠٥ الفعل غير مدعوم» بدل ٤٠٤ — ومسارٌ أُزيل (`/impersonate/leave`) يبقى ٤٠٤ كما تحرسه اختباراته.
+ */
+Route::any('{fallbackPlaceholder}', fn () => abort(404))->where('fallbackPlaceholder', '.*')->fallback();

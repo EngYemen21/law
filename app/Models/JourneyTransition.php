@@ -23,6 +23,18 @@ class JourneyTransition extends Model
         'created_at' => 'datetime',
     ];
 
+    /**
+     * **هل وقع هذا الانتقال لهذا الكيان من قبل؟** — لحدثٍ يقع مرّةً واحدة في عمر الكيان
+     * (تنبيه الجلسة المنسيّة) فيكون سطرُ الرحلة نفسُه ذاكرةَ «وقع» بلا عمودٍ موازٍ يتباعد عنه.
+     */
+    public static function happened(Model $entity, string $transition): bool
+    {
+        return self::where('entity_type', class_basename($entity))
+            ->where('entity_id', $entity->getKey())
+            ->where('transition', $transition)
+            ->exists();
+    }
+
     /** @return BelongsTo<User, $this> */
     public function actor(): BelongsTo
     {

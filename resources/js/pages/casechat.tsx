@@ -10,6 +10,7 @@ import { CASE_LIFE, caseStage,  HearingsCard } from '@/lib/case-ui';
 import type {Hearing} from '@/lib/case-ui';
 import type {Message} from '@/lib/chat';
 import Icon from '@/lib/icons';
+import { installmentsText, useSettings } from '@/lib/settings';
 
 // يطابق clientCaseView — مسار القضية + الجلسات + سداد الأتعاب + المحادثة (من قاعدة البيانات)
 
@@ -40,6 +41,8 @@ interface Props { case: CaseDetail; channel: string; messages: Message[]; hearin
 
 const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings, documents }) => {
   const toast = useToast();
+  // عدد دفعات الخطّة الجديدة من إعدادات الإدارة لا «3» منقوشة — الخادم يقسّم بـ`installments_count`
+  const { installments_count: installments } = useSettings();
   const [status, setStatus] = useState({ status: c.status, tone: c.tone });
   const send = (text: string) => axios.post(`/cases/${encodeURIComponent(c.no)}/messages`, { body: text });
   // المحادثة والرفع متاحان ما لم تكن القضية مغلقة/مؤرشفة (متوافق مع حارس الخادم)
@@ -84,7 +87,7 @@ return;
             <div style={{ marginBottom: 12 }}>{c.invoice || `أتعاب القضية: ${(c.fee || 0).toLocaleString()} ر.س`}</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button className="btn" type="button" onClick={() => pay('full')}><Icon name="card" /> سداد كامل عبر ميسّر</button>
-              <button className="btn soft" type="button" onClick={() => pay('install')}><Icon name="card" /> تقسيط على 3 دفعات</button>
+              <button className="btn soft" type="button" onClick={() => pay('install')}><Icon name="card" /> تقسيط على {installmentsText(installments)}</button>
             </div>
           </div>
         </div>

@@ -1,8 +1,10 @@
-import { Link, router, usePage } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
+import axios from 'axios';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useEscapeLayer } from '@/components/babylon/Modal';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
+import { serverMessage } from '@/lib/server-message';
 
 export interface DropdownNotificationItem {
     id?: number;
@@ -23,9 +25,42 @@ const NotificationDropdown: React.FC = () => {
     const [filterMode, setFilterMode] = useState<'all' | 'unread'>('all');
 
     const unreadCount = (props?.unreadNotifications as number) ?? 0;
-    const rawNotifications: DropdownNotificationItem[] = useMemo(() => {
+    const firstPage: DropdownNotificationItem[] = useMemo(() => {
         return (props?.recentNotifications as DropdownNotificationItem[]) ?? [];
     }, [props?.recentNotifications]);
+
+    // **السجلّ الكامل داخل القائمة** بصفحاتٍ من `/notifications/more` — كان رابط «السجلّ الكامل»
+    // يقود إلى `/notifications` وهو تحويلٌ لا صفحة، فيُقذف المستخدم خارج مكانه.
+    // الأقدم المحمَّل مربوطٌ بالصفحة الأولى التي حُمِّل بعدها: إن تجدّدت (إشعارٌ لحظيّ، تعليمٌ
+    // كمقروء) سقط تلقائياً ويُعاد طلبه — اشتقاقٌ في العرض لا مزامنةٌ في `useEffect`.
+    const [older, setOlder] = useState<{ after: DropdownNotificationItem[]; items: DropdownNotificationItem[]; hasMore: boolean } | null>(null);
+    const [loadingMore, setLoadingMore] = useState(false);
+
+    const olderItems = useMemo(() => (older?.after === firstPage ? older.items : []), [older, firstPage]);
+    // قبل أوّل طلبٍ لا يُعرف إن بقي أقدم — والخادم وحده يجيب (`hasMore`)، فلا حجم صفحةٍ منسوخاً هنا
+    const hasMore = older?.after === firstPage ? older.hasMore : firstPage.length > 0;
+    const rawNotifications = useMemo(() => [...firstPage, ...olderItems], [firstPage, olderItems]);
+
+    const loadOlder = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        const lastId = rawNotifications[rawNotifications.length - 1]?.id;
+
+        if (!lastId) {
+            return;
+        }
+
+        setLoadingMore(true);
+
+        try {
+            const { data } = await axios.get('/notifications/more', { params: { before: lastId } });
+
+            setOlder({ after: firstPage, items: [...olderItems, ...(data.items as DropdownNotificationItem[])], hasMore: Boolean(data.hasMore) });
+        } catch (err) {
+            toast(serverMessage(err, 'تعذّر تحميل الإشعارات الأقدم'), 'error');
+        } finally {
+            setLoadingMore(false);
+        }
+    };
 
     // Escape يغلق القائمة — طبقةٌ في المكدّس المشترك، فلا يُغلق معها درجٌ مفتوح تحتها
     useEscapeLayer(isOpen, () => setIsOpen(false));
@@ -74,12 +109,21 @@ const NotificationDropdown: React.FC = () => {
     const handleNotificationClick = (item: DropdownNotificationItem) => {
         setIsOpen(false);
 
-        // إذا كان الإشعار غير مقروء وله معرف، نقوم بتعليمه كمقروء
+        // التعليم كمقروء **ثمّ** الانتقال: زيارتان متتاليتان بلا انتظار تُلغي الثانيةُ الأولى في
+        // Inertia، فيبقى الإشعار «غير مقروء» وإن فُتح. فالانتقال في `onFinish` بعد وصول التعليم.
         if (item.unread && item.id) {
-            router.post(`/notifications/${item.id}/read`, {}, { preserveScroll: true });
+            router.post(`/notifications/${item.id}/read`, {}, {
+                preserveScroll: true,
+                onFinish: () => {
+                    if (item.link) {
+                        router.visit(item.link);
+                    }
+                },
+            });
+
+            return;
         }
 
-        // الانتقال للشاشة المرتبطة إن وجدت
         if (item.link) {
             router.visit(item.link);
         }
@@ -403,32 +447,33 @@ const NotificationDropdown: React.FC = () => {
                         )}
                     </div>
 
-                    {/* أسفل القائمة: رابط السجل الكامل */}
-                    <div
-                        style={{
-                            padding: '10px 16px',
-                            background: 'var(--paper-2, #f8fafc)',
-                            borderTop: '1px solid var(--line-soft, #e2e8f0)',
-                            textAlign: 'center',
-                        }}
-                    >
-                        <Link
-                            href="/notifications"
-                            onClick={() => setIsOpen(false)}
+                    {/* أسفل القائمة: الصفحة التالية من السجلّ نفسه — لا رابط إلى صفحةٍ غير موجودة */}
+                    {hasMore && rawNotifications.length > 0 && (
+                        <div
                             style={{
-                                fontSize: 12,
-                                fontWeight: 700,
-                                color: 'var(--primary)',
-                                textDecoration: 'none',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 5,
+                                padding: '10px 16px',
+                                background: 'var(--paper-2, #f8fafc)',
+                                borderTop: '1px solid var(--line-soft, #e2e8f0)',
+                                textAlign: 'center',
                             }}
                         >
-                            <span>عرض سجل الإشعارات الكامل</span>
-                            <span>←</span>
-                        </Link>
-                    </div>
+                            <button
+                                type="button"
+                                onClick={loadOlder}
+                                disabled={loadingMore}
+                                style={{
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    color: 'var(--primary)',
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                {loadingMore ? 'جارٍ التحميل…' : 'عرض الإشعارات الأقدم'}
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

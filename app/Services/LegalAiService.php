@@ -21,13 +21,15 @@ use App\Services\Ai\AiContextBuilder;
 use App\Services\Ai\AiFailure;
 use App\Services\Ai\AiGateway;
 use App\Services\Ai\AiModelRouter;
+use App\Services\Ai\AiOpsMetrics;
 use App\Services\Ai\AiOutputValidator;
 use App\Services\Ai\AiPromptRegistry;
 use App\Services\Ai\AiUsage;
 use App\Services\Ai\LegalClaims;
 use App\Services\Ai\LegalKnowledge;
 use App\Support\LegalCatalogue;
-use App\Support\ServiceDocs;
+use App\Support\SettingsRegistry;
+use App\Support\TicketDocumentRequirements;
 use App\Support\WebTimeLimit;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Collection;
@@ -444,9 +446,10 @@ class LegalAiService
     /**
      * فحص مستند مرفق: قراءة محتواه الفعلي وتحديد نوعه وملخصه وهل يرتبط بموضوع التذكرة.
      * النصوص وdocx تُستخرج مباشرة (كل المزوّدين)؛ PDF والصور عبر Gemini متعدد الوسائط.
-     * يُعيد {related, doc_type, summary, reason} أو null عند تعذّر الفحص (لا مزوّد/نوع غير مدعوم).
+     * يُعيد {related, doc_type, summary, reason, requirements} أو null عند تعذّر الفحص (لا مزوّد/نوع غير مدعوم).
+     * `requirements`: بنود قائمة القسم التي قال النموذج إنّ الملفّ يستوفيها — خامٌ غير مصفّى.
      *
-     * @return array{related: bool, doc_type: string, summary: string, reason: string}|null
+     * @return array{related: bool, doc_type: string, summary: string, reason: string, requirements: mixed}|null
      */
     public function analyzeDocument(Ticket $ticket, TicketDocument $doc): ?array
     {
@@ -455,7 +458,8 @@ class LegalAiService
             return null; // ملف مفقود أو أكبر من حد الفحص
         }
 
-        $required = implode('، ', ServiceDocs::for($ticket->type));
+        // قائمة مستندات القسم بإلزامها واستيفائها — منها يختار النموذج ما يستوفيه الملفّ (v2)
+        $requirements = TicketDocumentRequirements::forPrompt($ticket);
         $subject = AiContextBuilder::prepare((string) $ticket->messages()->where('who', 'client')->first()?->body) ?: $ticket->type;
 
         $prevDocs = $ticket->documents()->where('id', '!=', $doc->id)->get();
@@ -465,7 +469,7 @@ class LegalAiService
         }
 
         $system = AiPromptRegistry::documentAnalyzeSystem();
-        $context = "نوع التذكرة: {$ticket->type}\nالقسم: {$ticket->department}\nموضوع العميل: {$subject}\nالمستندات المطلوبة عادةً لهذا النوع: {$required}\nاسم الملف: {$doc->name}{$prevDocsInfo}";
+        $context = "نوع التذكرة: {$ticket->type}\nالقسم: {$ticket->department}\nموضوع العميل: {$subject}\nقائمة المستندات المطلوبة لقسم الطلب:\n{$requirements}\nاسم الملف: {$doc->name}{$prevDocsInfo}";
 
         $call = new AiCallResult(text: null, traceId: (string) Str::uuid(), durationMs: 0, failureCode: AiFailure::PROVIDER_ERROR);
 
@@ -499,6 +503,9 @@ class LegalAiService
                 $valid = AiOutputValidator::documentAnalysis($data);
                 if ($valid !== null) {
                     return $valid + [
+                        // الأسماء كما أعادها النموذج — يصفّيها `TicketDocumentRequirements::matchItems`
+                        // على قائمة القسم عند الحفظ، فلا يُقبل بندٌ ليس فيها
+                        'requirements' => $data['requirements'] ?? [],
                         'source' => AiSource::AiSuccess->value,
                         'meta' => self::callMeta($call, 'document.analyze'),
                     ];
@@ -528,7 +535,8 @@ class LegalAiService
 
         $call = new AiCallResult(text: null, traceId: (string) Str::uuid(), durationMs: 0, failureCode: AiFailure::PROVIDER_ERROR);
 
-        $system = 'أنت مساعد قانوني في «النظام الإداري لمكاتب المحاماة» بالسعودية. اقرأ محتوى المستند المرفق بملف القضية كاملاً، '
+        // اسم المكتب من إعداده عبر `AiPromptRegistry::withOffice` — القارئ الواحد لكلّ التعليمات
+        $system = AiPromptRegistry::withOffice('أنت مساعد قانوني في «{office}» بالسعودية. اقرأ محتوى المستند المرفق بملف القضية كاملاً، ')
             .'صنّف نوعه ولخّص محتواه بإيجاز مفيد للمحامي. أعد JSON فقط: '
             .'{"doc_type":"نوع المستند كما فهمته من محتواه","summary":"ملخّص محتوى المستند في سطر أو سطرين"}. لا نص خارج JSON.';
         $context = "نوع القضية: {$case->type}\nالقسم: ".($case->department ?? '—')."\nاسم الملف: {$doc->name}";
@@ -1078,7 +1086,9 @@ class LegalAiService
 
         $notes = $material;
         $system = AiPromptRegistry::consultSummarySystem();
-        $prompt = "استشارة {$consult->channel} رقم {$consult->ref} بموضوع «{$consult->subject}» مع المستشار {$consult->lawyer}."
+        // **لا اسمَ مستشارٍ في التعليمة**: الملخّص يصل العميل، وما يُعطى للنموذج قد يُعاد في نصّه —
+        // والاسم الكامل (`$consult->lawyer`) كان يتسرّب منه. والملخّص عن مضمون الجلسة لا عن شخص.
+        $prompt = "استشارة {$consult->channel} رقم {$consult->ref} بموضوع «{$consult->subject}»."
             .($notes !== '' ? "\nملاحظات المستشار أثناء الجلسة:\n{$notes}" : '')
             ."\nاكتب ملخص الاستشارة.";
 
@@ -1481,7 +1491,7 @@ class LegalAiService
         $call = new AiCallResult(text: null, traceId: (string) Str::uuid(), durationMs: 0, failureCode: AiFailure::PROVIDER_ERROR);
 
         $fileName = basename((string) $doc->path);
-        $system = 'أنت مساعد قانوني في قسم التنفيذ في «النظام الإداري لمكاتب المحاماة» بالسعودية. اقرأ محتوى المستند المرفق على طلب تنفيذ كاملاً، '
+        $system = AiPromptRegistry::withOffice('أنت مساعد قانوني في قسم التنفيذ في «{office}» بالسعودية. اقرأ محتوى المستند المرفق على طلب تنفيذ كاملاً، ')
             .'صنّف نوعه، ولخّص محتواه موضحاً مدى توافقه مع بيانات الطلب (نوع السند/قيمة المطالبة/المنفَّذ ضده) إن أمكن. أعد JSON فقط: '
             .'{"doc_type":"نوع المستند كما فهمته من محتواه","summary":"ملخّص محتوى المستند وتوافقه مع الطلب في سطر أو سطرين"}. لا نص خارج JSON.';
         $context = "طلب تنفيذ {$exec->number} — نوع السند: {$exec->sanad}، الموضوع: «{$exec->subject}»، "
@@ -1535,7 +1545,7 @@ class LegalAiService
         $ids = $candidates->pluck('id')->map(fn ($i) => (int) $i)->all();
 
         $list = $candidates->map(fn ($u) => "- id={$u->id} | {$u->name} | التخصّص: ".($u->department ?: '—'))->implode("\n");
-        $system = 'أنت منسّق إسناد في «النظام الإداري لمكاتب المحاماة». اختر المحامي الأنسب تخصّصاً لموضوع التذكرة من القائمة. '
+        $system = AiPromptRegistry::withOffice('أنت منسّق إسناد في «{office}». اختر المحامي الأنسب تخصّصاً لموضوع التذكرة من القائمة. ')
             .'أعد JSON فقط: {"lawyer_id": المعرّف الرقمي للمحامي المختار}. لا نص خارج JSON.';
         $prompt = "نوع التذكرة: {$ticket->type}\nالقسم: ".($ticket->department ?: '—')."\n\nالمحامون المتاحون:\n{$list}";
 
@@ -1774,7 +1784,7 @@ class LegalAiService
 
         // مسودة ناجز احتياطية منظمة
         return ['draft' => "المملكة العربية السعودية\nوزارة العدل — منصة ناجز الإلكترونية\nصحيفة دعوى إلكترونية\n\n"
-            .'لدى المحكمة المختصة بمدينة: '.config('office.city')."\n\n"
+            .'لدى المحكمة المختصة بمدينة: '.SettingsRegistry::str('office_city')."\n\n"
             ."المدعي: {$clientName}\n"
             ."المدعى عليه: (يُحدد حسب بيانات الخصم)\n"
             ."نوع الدعوى: {$ticket->type}\n"
@@ -1789,7 +1799,8 @@ class LegalAiService
             ."1. إلزام المدعى عليه بالوفاء بالحق والالتزام محل النزاع.\n"
             ."2. إلزام المدعى عليه بالتعويض عن الأضرار الناشئة عن المماطلة.\n"
             ."3. إلزام المدعى عليه بأتعاب المحاماة ومصاريف الدعوى.\n\n"
-            ."وتفضلوا بقبول وافر الاحترام والتقدير،،\nوكيل المدعي / النظام الإداري لمكاتب المحاماة",
+            // توقيع الوكيل باسم المكتب من الإعدادات — مسودّةٌ تُرفع للمحكمة لا تحمل اسماً منقوشاً قديماً
+            ."وتفضلوا بقبول وافر الاحترام والتقدير،،\nوكيل المدعي / ".SettingsRegistry::str('office_name'),
             'meta' => $meta ?? [],
             'source' => AiSource::Fallback,
             'verdict' => null,
@@ -1876,7 +1887,7 @@ class LegalAiService
                 ."2. تقييم المخاطر والثغرات:\n"
                 ."• شرط الفسخ والإنهاء: يحتاج إضافة مهلة إخطار كتابي صريحة (15 يوماً).\n"
                 ."• شرط التعويض والغرامات: يجب ألا يتجاوز الضرر الفعلي المباشر تفادياً لعدم إقراره قضائياً.\n"
-                ."• الاختصاص القضائي: يُوصى بتحديد المحكمة المختصة بمدينة الرياض صراحةً.\n\n"
+                .'• الاختصاص القضائي: يُوصى بتحديد المحكمة المختصة بمدينة '.SettingsRegistry::str('office_city')." صراحةً.\n\n"
                 ."3. التوصيات النهائية:\n"
                 .'إعادة صياغة بند المسؤولية والضمان بما يضمن حماية حقوق الموكل قبل التوقيع النهائي.',
 
@@ -2181,6 +2192,13 @@ class LegalAiService
     /** فحص مستند ثنائي (PDF/صورة) عبر Gemini متعدد الوسائط — يعيد JSON نصياً أو null. */
     private function viaGeminiDocument(string $system, string $prompt, string $base64, string $mime): ?string
     {
+        // **مفتاح الإطفاء والميزانيّة هنا أيضاً.** هذا المسار خارج البوّابة، فكان إطفاءُ `document.analyze`
+        // من لوحة التشغيل يوقف فحص النصوص وحدها ويترك PDF والصور تُرسَل — والفحص صار يحكم باستيفاء
+        // قائمة المستندات، فإطفاؤه يجب أن يعني «لا حكم آليّ» لكلّ ملف. (نداءاته الثلاثة كلّها `document.analyze`.)
+        if (! Setting::aiTaskEnabled('document.analyze') || AiOpsMetrics::budgetStopsCalls()) {
+            return null;
+        }
+
         WebTimeLimit::raise(150); // فحص الملفات الكبيرة قد يتجاوز مهلة الويب
 
         $model = config('services.gemini.model', 'gemini-2.5-flash');

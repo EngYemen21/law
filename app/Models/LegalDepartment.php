@@ -41,6 +41,16 @@ class LegalDepartment extends Model
         return $this->hasMany(LegalService::class)->orderBy('sort_order')->orderBy('id');
     }
 
+    /**
+     * قائمة المستندات المطلوبة للقسم مرتّبةً — تُقرأ عبر `LegalCatalogue::documentsFor`.
+     *
+     * @return HasMany<LegalDepartmentDocument, $this>
+     */
+    public function documents(): HasMany
+    {
+        return $this->hasMany(LegalDepartmentDocument::class)->orderBy('sort_order')->orderBy('id');
+    }
+
     /** @return HasMany<LegalCatalogueAlias, $this> */
     public function aliases(): HasMany
     {

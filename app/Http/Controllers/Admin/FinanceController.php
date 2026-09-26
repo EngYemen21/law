@@ -20,6 +20,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -167,7 +168,14 @@ class FinanceController extends Controller
     public function pay(Request $request, Invoice $invoice): RedirectResponse
     {
         if (! PaymentReconciler::settleManual($invoice, $request->user()->name)) {
-            return back()->with('error', "الفاتورة {$invoice->number} محصّلة مسبقاً.");
+            // **رفضٌ لا نجاحٌ بلونٍ آخر**: `back()->with('error')` تحويلٌ ناجح، فكانت الواجهة تُطلق
+            // «تم تسجيل التحصيل» ورسالة الخادم «محصّلة مسبقاً» معاً. خطأ تحقّقٍ يبلغ `onError` وحده.
+            // والرفض يقول سببه: `settleManual` يرفض المدفوعة **والملغاة** — «محصّلة مسبقاً» لملغاةٍ كان كذباً
+            throw ValidationException::withMessages([
+                'invoice' => $invoice->paid
+                    ? "الفاتورة {$invoice->number} محصّلة مسبقاً."
+                    : "الفاتورة {$invoice->number} ملغاة — لا تُحصَّل.",
+            ]);
         }
 
         return back()->with('flash', "تم تسجيل تحصيل الفاتورة {$invoice->number}.");

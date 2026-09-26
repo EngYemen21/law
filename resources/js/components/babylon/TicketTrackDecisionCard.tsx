@@ -113,7 +113,9 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
 
   const [selectedTrack, setSelectedTrack] = useState<string>(initialTrack);
   const [reason, setReason] = useState<string>(initialReason);
-  const [closureCode, setClosureCode] = useState<string>(closureReasonCode || 'STATUTORY_INADMISSIBILITY');
+  // **لا سببَ إغلاقٍ افتراضيّاً.** كان الافتراض 'STATUTORY_INADMISSIBILITY' — رمزٌ ليس في الكتالوج
+  // (`ClosureReasonCode`) فيردّ الخادم الاعتماد 422 ما لم يغيّر المدير القائمة. السبب قرارٌ يُختار.
+  const [closureCode, setClosureCode] = useState<string>(closureReasonCode || '');
   const [busy, setBusy] = useState<boolean>(false);
   const [isEditing, setIsEditing] = useState<boolean>(!approved && (!proposed || isAdmin));
   // سبب المضيّ بلا ملخّصٍ معتمد — المسار السريع للإدارة العليا وحدها، عبر الاعتماد نفسه لا زرٍّ جانبيّ
@@ -173,6 +175,12 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
 
     if (!finalReason || finalReason.trim().length < 10) {
       toast('⚠️ يُرجى تدوين المبرر والسبب الحقيقي للاعتماد (10 أحرف على الأقل)');
+      return;
+    }
+
+    if (finalTrack === 'close' && !closureCode) {
+      toast('⚠️ اختر تصنيف سبب الإغلاق قبل الاعتماد');
+
       return;
     }
 
@@ -512,6 +520,7 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
                   onChange={(e) => setClosureCode(e.target.value)}
                   style={{ width: '100%', fontSize: 12.5 }}
                 >
+                  <option value="">— اختر سبب الإغلاق —</option>
                   {CLOSURE_REASONS.map((r) => (
                     <option key={r.code} value={r.code}>
                       {r.label}

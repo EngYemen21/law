@@ -12,6 +12,7 @@ use App\Jobs\TriageTicketOnOpenJob;
 use App\Mail\TicketOpenedMail;
 use App\Models\Consult;
 use App\Models\Ticket;
+use App\Models\TicketMessage;
 use App\Models\User;
 use App\Rules\ActiveLegalDepartment;
 use App\Rules\ServiceOfDepartment;
@@ -21,7 +22,6 @@ use App\Support\Audit;
 use App\Support\ConsultBooking;
 use App\Support\ConversationFiles;
 use App\Support\LawyerAvailability;
-use App\Support\LawyerName;
 use App\Support\LegalCatalogue;
 use App\Support\Live;
 use App\Support\Notify;
@@ -256,7 +256,7 @@ class TicketController extends Controller
         return Inertia::render('ticketchat', [
             'ticket' => $ticket->toCard(),
             'channel' => 'ticket.'.$ticket->id,
-            'messages' => LawyerName::inMessages(ConversationFiles::linkLegacyChips($messages->map->toMessage()->all(), 'ticket', $ticket->documents)),
+            'messages' => ConversationFiles::linkLegacyChips($messages->map(fn (TicketMessage $m) => $m->toMessage(forClient: true))->all(), 'ticket', $ticket->documents),
             'consult' => $consult?->toClientCard(),
         ]);
     }

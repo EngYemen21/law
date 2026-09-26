@@ -236,12 +236,22 @@ final class FinanceBoard
     }
 
     /** مجموع ما دخل في الفترة — بالريال، من العمود القابل للجمع وحده. */
-    public static function receiptsTotal(array $period): int
+    public static function receiptsTotal(array $period): float
     {
         $halalas = (int) Payment::whereRaw(self::RECEIVED_AT.' BETWEEN ? AND ?', [$period['from'], $period['to']])
             ->sum('amount_halalas');
 
-        return intdiv($halalas, 100);
+        return self::riyals($halalas);
+    }
+
+    /**
+     * **هللاتٌ ← ريالٌ بكسره، لا بقطعه.** كان `intdiv` يقطع كلّ صفٍّ وحده ويقطع المجموع وحده،
+     * فثلاثة مقبوضاتٍ بـ١٠٫٥٠ تُعرض ١٠+١٠+١٠ والمجموع ٣١ — صفوفٌ لا تجمع إلى إجماليّها. الكسر
+     * العشريّ الدقيق (منزلتان = الهللة) يجعل المجموع مجموعَ الصفوف بحكم الحساب.
+     */
+    public static function riyals(int $halalas): float
+    {
+        return round($halalas / 100, 2);
     }
 
     /** صفّ المقبوضات كما تعرضه الواجهة — الاشتقاق هنا لا هناك. */
@@ -253,7 +263,7 @@ final class FinanceBoard
             'method' => self::methodLabel($payment),
             'invoice' => $payment->invoice?->number ?? '—',
             'client' => Ticket::maskClient($payment->invoice?->user?->name ?? ''),
-            'amount' => intdiv((int) $payment->amount_halalas, 100),
+            'amount' => self::riyals((int) $payment->amount_halalas),
             // من قيَّده: التحصيل اليدويّ يحفظ اسم المحصِّل في `raw.actor`؛ والبوّابة لا فاعلَ
             // بشريّاً لها — فتُسمّى باسمها بدل أن يُنسب القيد إلى أحد
             'actor' => self::actorLabel($payment),

@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Domain\Journey\Enums\HearingStatus;
+use App\Support\MeetingTime;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -15,11 +17,20 @@ class CaseHearing extends Model
 {
     protected $fillable = [
         'case_id', 'postponed_from_id', 'title', 'day', 'time', 'court', 'status', 'outcome',
-        'starts_at', 'reminder_24h_sent_at', 'reminder_1h_sent_at',
+        'starts_at', 'duration_min', 'reminder_24h_sent_at', 'reminder_1h_sent_at',
     ];
+
+    /**
+     * **حدود المدّة المتوقّعة بالدقائق** (قرار المالك 2026-09-26) — من جلسةٍ قصيرة للنطق بقرار
+     * إلى يوم عملٍ كامل. خارجها خطأ إدخال لا جلسة: ٦٠٠٠ دقيقة تعني أن أحداً كتب رقماً زائداً.
+     */
+    public const DURATION_MIN = 5;
+
+    public const DURATION_MAX = 600;
 
     protected $casts = [
         'starts_at' => 'datetime',
+        'duration_min' => 'integer',
         'reminder_24h_sent_at' => 'datetime',
         'reminder_1h_sent_at' => 'datetime',
     ];
@@ -62,6 +73,40 @@ class CaseHearing extends Model
         return trim($day.($this->time ? ' · '.$this->time : ''));
     }
 
+    /**
+     * **قاعدة تحقّق المدّة المتوقّعة** — مصدرٌ واحد لكلّ نموذج يُنشئ جلسة أو يعدّلها أو يؤجّلها
+     * (ومنه رسائلها العربيّة عبر `lang/ar/validation.php`). اختياريّة: تركُها فارغةً قرارٌ صادق.
+     *
+     * @return array<int, string>
+     */
+    public static function durationRule(): array
+    {
+        return ['nullable', 'integer', 'min:'.self::DURATION_MIN, 'max:'.self::DURATION_MAX];
+    }
+
+    /**
+     * **بداية الجلسة** — `starts_at` الحقيقيّ، وإلا نصّا اليوم والوقت للجلسات القديمة قبل العمود.
+     * مصدرٌ واحد لما يضعه التقويم والاشتراك بدايةً، فلا تختلف لحظة الجلسة بين شاشةٍ وأخرى.
+     */
+    public function startMoment(): ?CarbonInterface
+    {
+        return $this->starts_at ?: MeetingTime::parse($this->day, $this->time);
+    }
+
+    /**
+     * **نهاية الجلسة المتوقّعة — من المدّة المُدخلة وحدها** (قرار المالك 2026-09-26).
+     *
+     * كانت النهاية ستّين دقيقة منقوشة في التقويم: رقمٌ لا يعرفه المكتب ولا المحكمة. فالآن إن أدخل
+     * الطاقم مدّةً فالنهاية البداية + المدّة، وإلا **null** — لا نهاية مختلَقة. ولا يقرؤها منطق
+     * «انعقدت/فاتت»: ذلك من الحالة المسجّلة (`HearingStatus`) لا من الساعة.
+     */
+    public function endsAt(): ?CarbonInterface
+    {
+        $start = $this->startMoment();
+
+        return ($start && $this->duration_min) ? $start->copy()->addMinutes($this->duration_min) : null;
+    }
+
     /** جلسة مجدولة فات موعدها ولم تُسجَّل نتيجتها — الحالة المخزّنة «مجدولة» لا تتحدّث بمرور الوقت */
     public function isLapsed(): bool
     {
@@ -88,6 +133,9 @@ class CaseHearing extends Model
             'lapsed' => $this->isLapsed(), // للواجهة: شارة «فائتة — بانتظار النتيجة» بدل «مجدولة» الكاذبة
             'outcome' => $this->outcome,
             'startsAt' => $this->starts_at?->toIso8601String(), // لتعبئة نموذج التعديل في الواجهة
+            // المدّة المتوقّعة بالدقائق — null ⇒ لا تعرض الواجهة نهايةً ولا مدّة (لا رقمَ مختلَق)
+            'durationMin' => $this->duration_min,
+            'endsAt' => $this->endsAt()?->toIso8601String(),
             // سلسلة التأجيل: الواجهة تجد السابقة في القائمة نفسها بمعرّفها — فلا استعلام لكلّ جلسة،
             // وتعرف منها أيضاً أيّ الجلسات لها تالية («مؤجّلة إلى …») فلا يُحرَّك موعدها
             'postponedFromId' => $this->postponed_from_id,

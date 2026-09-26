@@ -46,11 +46,25 @@ Broadcast::channel('case.{caseId}', function (User $user, int $caseId) {
     return $case ? ChannelAccess::ownerOrStaff($user, $case) : false;
 });
 
+// ملاحظات القضية الداخلية — الطاقم المخوّل وحده (`RecordsSender::broadcastChannelName`)
+Broadcast::channel('case.{caseId}.staff', function (User $user, int $caseId) {
+    $case = LegalCase::find($caseId);
+
+    return $case ? ChannelAccess::staffCanSee($user, $case) : false;
+});
+
 // قناة طلب التنفيذ — العميل صاحبه أو موظف مخوّل
 Broadcast::channel('exec.{execId}', function (User $user, int $execId) {
     $exec = Execution::find($execId);
 
     return $exec ? ChannelAccess::ownerOrStaff($user, $exec) : false;
+});
+
+// ملاحظات التنفيذ الداخلية — الطاقم المخوّل وحده
+Broadcast::channel('exec.{execId}.staff', function (User $user, int $execId) {
+    $exec = Execution::find($execId);
+
+    return $exec ? ChannelAccess::staffCanSee($user, $exec) : false;
 });
 
 // قناة الاستشارة — العميل صاحبها أو موظف مخوّل (حالة الجلسة والملخص)
@@ -65,4 +79,30 @@ Broadcast::channel('meeting.{meetingId}', function (User $user, int $meetingId) 
     $meeting = Meeting::find($meetingId);
 
     return $meeting ? ChannelAccess::ownerOrStaff($user, $meeting) : false;
+});
+
+// غرفة الجلسة (`RoomStateChanged` · `RoomDetails::channel`) — حالُ الغرفة الحيّة: العميل المالك
+// ومن يدخل الغرفة من الطاقم. وقناة `.staff` للطاقم وحده: تحمل التسجيل الذي لا يُخبَر به العميل.
+Broadcast::channel('room.consult.{consultId}', function (User $user, int $consultId) {
+    $consult = Consult::find($consultId);
+
+    return $consult ? ChannelAccess::roomMember($user, $consult) : false;
+});
+
+Broadcast::channel('room.consult.{consultId}.staff', function (User $user, int $consultId) {
+    $consult = Consult::find($consultId);
+
+    return $consult ? ChannelAccess::roomStaff($user, $consult) : false;
+});
+
+Broadcast::channel('room.meeting.{meetingId}', function (User $user, int $meetingId) {
+    $meeting = Meeting::find($meetingId);
+
+    return $meeting ? ChannelAccess::roomMember($user, $meeting) : false;
+});
+
+Broadcast::channel('room.meeting.{meetingId}.staff', function (User $user, int $meetingId) {
+    $meeting = Meeting::find($meetingId);
+
+    return $meeting ? ChannelAccess::roomStaff($user, $meeting) : false;
 });

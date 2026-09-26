@@ -43,9 +43,16 @@ export interface TicketTrackProposalRow {
     aiSuggestedTrack?: string | null;
     aiSuggestedTrackLabel?: string | null;
     aiSuggestedReason?: string | null;
+    /** مانع الاعتماد من حارس المآل نفسه (`OutcomeSummaryGate::blocker`) — `null` = لا مانع. */
+    outcomeBlocker?: string | null;
+    /** سبب التجاوز الذي دوّنه هذا المدير حين رفع المقترح — يُورَث فلا يُطلب ثانيةً. */
+    inheritedWaiver?: string | null;
     since?: string | null;
     at?: string | null;
 }
+
+/** أقصر سبب تجاوزٍ يقبله الخادم (`OutcomeSummaryGate::WAIVER_MIN`). */
+const WAIVER_MIN = 10;
 
 export interface SessionSummaryRow {
     id?: number;
@@ -96,6 +103,8 @@ interface Props {
     appointments: AppointmentRow[];
     approvedHistory?: HistorySummaryItem[];
     counts?: CountsData;
+    /** أسباب الإغلاق من الكتالوج (`ClosureReasonCode::options`) — لاعتماد مسار «إغلاق». */
+    closureReasons?: { code: string; label: string }[];
 }
 
 type TabKey = 'all' | 'tracks' | 'summaries' | 'sessions' | 'appointments' | 'history';
@@ -115,6 +124,7 @@ const AdminApprovals: React.FC<Props> = ({
     appointments = [],
     approvedHistory = [],
     counts,
+    closureReasons = [],
 }) => {
     const toast = useToast();
 
@@ -138,6 +148,9 @@ const AdminApprovals: React.FC<Props> = ({
     // حالة النافذة التأكيدية المنبثقة
     const [modalState, setModalState] = useState<ActiveModalState | null>(null);
     const [rejectReason, setRejectReason] = useState('');
+    // اعتماد المسار: سبب تجاوز الملخّص (حيث يمنعه الحارس) وسبب الإغلاق (لمسار «إغلاق»)
+    const [waiver, setWaiver] = useState('');
+    const [closureCode, setClosureCode] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [mounted, setMounted] = useState(false);
 
@@ -166,6 +179,8 @@ const AdminApprovals: React.FC<Props> = ({
     // فتح نافذة الإجراء
     const openModal = (action: ActionType, item: any, category: ItemCategory) => {
         setRejectReason('');
+        setWaiver('');
+        setClosureCode('');
         setModalState({ action, item, category });
     };
 
@@ -175,9 +190,34 @@ const AdminApprovals: React.FC<Props> = ({
         setRejectReason('');
     };
 
-    // تنفيذ الموافقة الرسمية المباشرة لجميع الفئات الخمس
+    /**
+     * خطأ الخادم كما قاله — كانت كلّ الإجراءات تقول «حدث خطأ» فيضيع سبب الرفض (مانع الملخّص،
+     * موعدٌ فات، محضرٌ اعتُمد). ورسالة النجاح من الخادم (flash) يعرضها التخطيط — لا إشعار ثانٍ هنا.
+     */
+    const failWith = (fallback: string) => (errors: Record<string, string>) =>
+        toast(`⚠️ ${Object.values(errors)[0] ?? fallback}`, 'error');
+
+    const post = (url: string, data: Record<string, unknown>, fallback: string) =>
+        router.post(url, data as never, {
+            preserveScroll: true,
+            onSuccess: () => closeModal(),
+            onError: failWith(fallback),
+            onFinish: () => setIsProcessing(false),
+        });
+
+    // حاجة صفّ المسار المفتوح: هل يلزمه سبب تجاوز؟ وهل هو «إغلاق» يلزمه سببٌ من الكتالوج؟
+    const trackItem = modalState?.category === 'track' ? (modalState.item as TicketTrackProposalRow) : null;
+    const needsWaiver = !!trackItem?.outcomeBlocker && !trackItem?.inheritedWaiver;
+    const needsClosureCode = trackItem?.proposedTrack === 'close';
+    const approveReady = !trackItem
+        || ((!needsWaiver || waiver.trim().length >= WAIVER_MIN) && (!needsClosureCode || closureCode !== ''));
+
+    // تنفيذ الموافقة الرسمية المباشرة لجميع الفئات
     const handleApprove = () => {
-        if (!modalState?.item) return;
+        if (!modalState?.item || !approveReady) {
+            return;
+        }
+
         const { item, category } = modalState;
         setIsProcessing(true);
 
@@ -185,87 +225,36 @@ const AdminApprovals: React.FC<Props> = ({
             const reason = (item.proposedTrackReason && item.proposedTrackReason.trim().length >= 10)
                 ? item.proposedTrackReason.trim()
                 : 'تم اعتماد المسار رسمياً من قبل الإدارة العليا بموجب الصلاحية الإدارية.';
-            router.post(
+            post(
                 `/admin/tickets/${encodeURIComponent(item.no)}/track/approve`,
                 {
                     track: item.proposedTrack,
                     reason,
+                    closure_reason_code: needsClosureCode ? closureCode : undefined,
+                    // المسار السريع للإدارة بلا ملخّصٍ معتمد — الموروث يقرؤه الخادم بنفسه
+                    summary_waiver_reason: needsWaiver ? waiver.trim() : undefined,
                 },
-                {
-                    onSuccess: () => {
-                        toast(`تم اعتماد مسار (${item.proposedTrackLabel}) وتوجيه العميل بنجاح`);
-                        closeModal();
-                    },
-                    onError: () => toast('حدث خطأ أثناء اعتماد المسار'),
-                    onFinish: () => setIsProcessing(false),
-                },
+                'تعذّر اعتماد المسار',
             );
             return;
         }
 
         if (category === 'summary') {
-            router.post(
-                `/admin/summary/${encodeURIComponent(item.no)}/approve`,
-                {},
-                {
-                    onSuccess: () => {
-                        toast(`تم اعتماد الرأي القانوني للتذكرة ${item.no} ونشره للعميل`);
-                        closeModal();
-                    },
-                    onError: () => toast('حدث خطأ أثناء اعتماد الملخص'),
-                    onFinish: () => setIsProcessing(false),
-                },
-            );
+            post(`/admin/summary/${encodeURIComponent(item.no)}/approve`, {}, 'تعذّر اعتماد الملخّص');
             return;
         }
 
         if (category === 'session') {
-            const consultId = item.id;
-            if (consultId) {
-                router.post(
-                    `/admin/consults/${consultId}/summary/approve`,
-                    {},
-                    {
-                        onSuccess: () => {
-                            toast(`تم اعتماد محضر وخلاصة الاستشارة ${item.ref} ونشر التقرير للموكل بنجاح`);
-                            closeModal();
-                        },
-                        onError: () => toast('حدث خطأ أثناء اعتماد محضر الجلسة'),
-                        onFinish: () => setIsProcessing(false),
-                    },
-                );
-                return;
-            }
-            toast('جاري الانتقال لصفحة الجلسة...');
-            setIsProcessing(false);
-            closeModal();
-            router.visit(`/admin/consult?ref=${encodeURIComponent(item.ref)}`);
+            post(`/admin/consults/${item.id}/summary/approve`, {}, 'تعذّر اعتماد محضر الجلسة');
             return;
         }
 
         if (category === 'appointment') {
-            const consultId = item.id;
-            if (consultId) {
-                router.post(
-                    `/admin/consults/${consultId}/appointment/approve`,
-                    {},
-                    {
-                        onSuccess: () => {
-                            toast(`تم اعتماد وتثبيت موعد الاستشارة ${item.ref} بنجاح`);
-                            closeModal();
-                        },
-                        onError: () => toast('حدث خطأ أثناء اعتماد الموعد'),
-                        onFinish: () => setIsProcessing(false),
-                    },
-                );
-                return;
-            }
-            toast('جاري الانتقال لصفحة المواعيد...');
-            setIsProcessing(false);
-            closeModal();
-            router.visit(`/admin/consult-requests?ref=${encodeURIComponent(item.ref)}`);
+            post(`/admin/consults/${item.id}/appointment/approve`, {}, 'تعذّر اعتماد الموعد');
             return;
         }
+
+        setIsProcessing(false);
     };
 
     // تنفيذ الرفض مع تدوين السبب
@@ -289,11 +278,9 @@ const AdminApprovals: React.FC<Props> = ({
                 reason: rejectReason.trim(),
             },
             {
-                onSuccess: () => {
-                    toast('تم رفض الطلب وإعادته مع الملاحظات والتوجيهات بنجاح');
-                    closeModal();
-                },
-                onError: () => toast('حدث خطأ أثناء رفض الطلب'),
+                preserveScroll: true,
+                onSuccess: () => closeModal(),
+                onError: failWith('تعذّر رفض الطلب'),
                 onFinish: () => setIsProcessing(false),
             },
         );
@@ -1366,6 +1353,39 @@ const AdminApprovals: React.FC<Props> = ({
                                         </div>
                                     )}
 
+                                    {/* سبب الإغلاق من الكتالوج — كان «إغلاق» يُعتمد بسببٍ افتراضيّ صامت */}
+                                    {needsClosureCode && (
+                                        <div className="field" style={{ marginTop: 12 }}>
+                                            <label style={{ fontSize: 12, fontWeight: 700 }}>تصنيف سبب الإغلاق</label>
+                                            <select className="input" value={closureCode} onChange={(e) => setClosureCode(e.target.value)} style={{ width: '100%', fontSize: 12.5 }}>
+                                                <option value="">— اختر سبب الإغلاق —</option>
+                                                {closureReasons.map((r) => <option key={r.code} value={r.code}>{r.label}</option>)}
+                                            </select>
+                                        </div>
+                                    )}
+
+                                    {/* مانع الملخّص من الحارس نفسه، والمسار السريع للإدارة بسببٍ مدوَّن */}
+                                    {trackItem?.outcomeBlocker && (
+                                        <div style={{ marginTop: 12, fontSize: 12, lineHeight: 1.6 }}>
+                                            <div style={{ color: '#991b1b', marginBottom: 6 }}>{trackItem.outcomeBlocker}</div>
+                                            {trackItem.inheritedWaiver ? (
+                                                <div style={{ color: 'var(--muted)' }}>سبب التجاوز الذي دوّنته عند رفع المقترح: «{trackItem.inheritedWaiver}»</div>
+                                            ) : (
+                                                <>
+                                                    <label style={{ fontWeight: 700, display: 'block', marginBottom: 4 }}>سبب المضيّ بلا ملخّصٍ معتمد ({WAIVER_MIN} أحرف على الأقل)</label>
+                                                    <textarea
+                                                        className="input"
+                                                        rows={3}
+                                                        value={waiver}
+                                                        onChange={(e) => setWaiver(e.target.value)}
+                                                        placeholder="يُحفظ في سجلّ الرحلة وسجلّ التدقيق…"
+                                                        style={{ width: '100%', padding: '8px 10px', fontSize: 12.5, borderRadius: 6, border: '1px solid var(--border)', boxSizing: 'border-box' }}
+                                                    />
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+
                                     {modalState.category === 'summary' && (
                                         <div
                                             style={{
@@ -1452,7 +1472,7 @@ const AdminApprovals: React.FC<Props> = ({
                                         إلغاء
                                     </button>
                                     {modalState.action === 'approve' ? (
-                                        <button type="button" className="btn sm" onClick={handleApprove} disabled={isProcessing}>
+                                        <button type="button" className="btn sm" onClick={handleApprove} disabled={isProcessing || !approveReady}>
                                             <Icon name="check" /> {isProcessing ? 'جارٍ الاعتماد…' : 'تأكيد الاعتماد'}
                                         </button>
                                     ) : (

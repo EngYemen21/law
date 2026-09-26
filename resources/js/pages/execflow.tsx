@@ -3,10 +3,12 @@ import axios from 'axios';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import ChatThread from '@/components/babylon/ChatThread';
+import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
 import { EXEC_FLOW, EXEC_SANADS, EXEC_FEE_MODES, EXEC_CLOSE_REASONS, EXEC_DOC_ACCEPT, EXEC_DOC_HINT, EXEC_REQ_DOC_ACCEPT, EXEC_REQ_DOC_HINT, execTone, execMoney, procTone, execVatLabel, execAiPresentation, execStudyBasis, execUnassigned    } from '@/lib/exec-flow';
 import type { ExecFeeMode, ExecInvoice } from '@/lib/exec-flow';
+import { installmentsText, useSettings } from '@/lib/settings';
 import type {ExecDoc, ExecLawyerOpt, ExecReq, Role} from '@/lib/exec-flow';
 import { ExecNajizCard } from '@/lib/exec-najiz';
 import Icon from '@/lib/icons';
@@ -38,7 +40,7 @@ const CellRow: React.FC<{ cells: [string, string][] }> = ({ cells }) => (
 // الإجراء التالي المطلوب على البطاقة حسب الدور (تطابق execNextAction)
 const nextAction = (role: Role, r: ExecReq, canCourt = false): string => {
   // الطلب المرفوض لا إجراء عليه — كان يُطبع «اقبل الطلب أو اطلب مستندات» لطلب رُفض فعلاً
-  if (r.decision === 'مرفوض') {
+  if (r.isRejected) {
 return 'مرفوض بعد الدراسة';
 }
 
@@ -54,7 +56,7 @@ return 'بانتظار إسناد محامٍ';
 }
 
   if (role === 'admin') {
-    if (r.offerStatus === 'مرفوض' && r.stage === 5) {
+    if (r.offerRejected && r.stage === 5) {
       return 'رفض العميل العرض — أعد التسعير أو أنهِ الملف';
     }
     return r.stage < 2 ? 'أحِل لقسم التنفيذ' : r.stage === 4 ? 'اعتمد الأتعاب' : '';
@@ -366,6 +368,8 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
   const [feeAdj, setFeeAdj] = useState('');
   // سبب أرشفة الملفّ المرفوض — «أخرى» افتراضاً، والقائمة تُرسَل كما يقبلها الخادم
   const [rejectedReason, setRejectedReason] = useState('أخرى');
+  // عدد الدفعات من إعدادات الإدارة لا «3» منقوشة — الخادم يقسّم بـ`installments_count`
+  const { installments_count: installments } = useSettings();
   const total = r.fee + r.vat;
   const basis = execStudyBasis(r.study);
 
@@ -384,13 +388,13 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
         <div className="action-hint" style={{ marginBottom: 8 }}><Icon name="card" /> الفاتورة {r.invoiceNo} — {onPlan ? `الدفعة الأولى ${execMoney(r.invoices?.[0]?.amount ?? 0)} ريال` : `الإجمالي ${execMoney(total)} ريال`}</div>
         <button className="btn" type="button" onClick={() => act('pay', { plan: onPlan ? 'install' : 'full' })}><Icon name="card" /> دفع الآن</button>
         {/* خطّة التقسيط قرار العميل، وتُفتح مرّةً واحدة — بعدها الأزرار تسدّد دفعاتها */}
-        {!onPlan && <button className="btn soft" type="button" onClick={() => act('pay', { plan: 'install' })}><Icon name="card" /> تقسيط على 3 دفعات</button>}
+        {!onPlan && <button className="btn soft" type="button" onClick={() => act('pay', { plan: 'install' })}><Icon name="card" /> تقسيط على {installmentsText(installments)}</button>}
         <button className="btn soft" type="button" onClick={() => act('inquire')}><Icon name="info" /> طلب استفسار</button>
         <button className="btn soft" type="button" onClick={() => act('rejectOffer')}><Icon name="out" /> رفض العرض</button>
       </>);
     }
   } else if (role === 'lawyer') {
-    if (r.decision === 'مرفوض') {
+    if (r.isRejected) {
       body = <div className="action-hint"><Icon name="info" /> رُفض هذا الطلب — لا مزيد من الإجراءات عليه.</div>;
     } else if (r.stage === 2) {
       body = (<>
@@ -439,10 +443,10 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
     /* **مخرج الملفّ المرفوض — للإدارة وحدها**: الرفض (سواء بعد الدراسة في 2-3 أو برفض العميل للعرض في 5)
        لا ينقل المرحلة تلقائيّاً، فالمرفوض يبقى مفتوحاً بلا إجراءٍ ولا إغلاقٍ تلقائيّ. والشرط هنا
        يطابق حارس `ExecService::close` وحارس `CloseExecution` حرفاً بحرف. */
-    const isRejectedStudy = r.decision === 'مرفوض' && (r.stage === 2 || r.stage === 3);
-    const isRejectedOffer = r.stage === 5 && r.offerStatus === 'مرفوض';
+    // علَم الخادم (`rejectedOpen`) — القاعدة نفسها التي يحرس بها `CloseExecution` الإنهاء
+    const isRejectedOffer = r.offerRejected && r.stage === 5;
 
-    if (isRejectedStudy || isRejectedOffer) {
+    if (r.rejectedOpen) {
       body = (<>
         <div className="mtg-pend" style={{ marginBottom: 8 }}>
           <Icon name="info" />
@@ -537,10 +541,12 @@ const KpiRow: React.FC<{ t: React.ReactNode; v: React.ReactNode; total?: boolean
 );
 
 const ClientFlowCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
+  // عدد الدفعات من إعدادات الإدارة — والخطّة المفتوحة تحمل عددها المحفوظ (`installmentsTotal`)
+  const { installments_count: installments } = useSettings();
   const total = r.fee + r.vat;
 
   // رفض المكتب للطلب أصلاً (قبل مرحلة العرض) — رسالة صريحة بدل «قيد الدراسة» المضلِّلة
-  if (r.decision === 'مرفوض') {
+  if (r.isRejected) {
     return (
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="card-h"><h3>طلب التنفيذ</h3><Badge text="تعذّر قبول الطلب" tone="b-red" /></div>
@@ -572,7 +578,7 @@ const ClientFlowCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
             <KpiRow t={execVatLabel(r.vatRate)} v={`${execMoney(r.vat)} ريال`} />
             <KpiRow t="مدة التنفيذ المتوقعة" v={r.duration || '—'} />
             <KpiRow total t={<b>الإجمالي</b>} v={<b>{execMoney(total)} ريال</b>} />
-            <div className="action-hint" style={{ marginTop: 8 }}><Icon name="info" /> عند السداد تختار: دفعة واحدة، أو تقسيطاً على ثلاث دفعات.</div>
+            <div className="action-hint" style={{ marginTop: 8 }}><Icon name="info" /> عند السداد تختار: دفعة واحدة، أو تقسيطاً على {installmentsText(installments)}.</div>
           </>)}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
             <button className="btn" type="button" onClick={() => act('acceptOffer')}><Icon name="check" /> {r.feeMode === 'percent' ? 'قبول العرض وفتح ملفّ التنفيذ' : 'قبول العرض وإصدار الفاتورة'}</button>
@@ -585,7 +591,7 @@ const ClientFlowCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
   }
 
   // العميل رفض العرض — بانتظار مراجعة المكتب وإعادة عرض جديد (لا تكرار لنفس الأزرار)
-  if (r.stage === 5 && r.offerStatus === 'مرفوض') {
+  if (r.stage === 5 && r.offerRejected) {
     return (
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="card-h"><h3>عرض خدمة التنفيذ</h3><Badge text="رفضتَ هذا العرض" tone="b-red" /></div>
@@ -604,7 +610,7 @@ const ClientFlowCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
         <div className="card-b" style={{ padding: 16 }}>
           <KpiRow t="رقم الفاتورة" v={r.invoiceNo || '—'} />
           {r.payPlan === 'install' ? (<>
-            <KpiRow t="خطة السداد" v={`${r.installmentsTotal || 3} دفعات — يُفتح الملفّ بالدفعة الأولى`} />
+            <KpiRow t="خطة السداد" v={`${installmentsText(r.installmentsTotal || installments)} — يُفتح الملفّ بالدفعة الأولى`} />
             <KpiRow total t={<b>الدفعة الأولى</b>} v={<b>{execMoney(r.invoices?.[0]?.amount ?? 0)} ريال</b>} />
             <button className="btn block" style={{ marginTop: 14 }} type="button" onClick={() => act('pay', { plan: 'install' })}>
               <Icon name="card" /> سداد الدفعة الأولى وفتح ملف التنفيذ
@@ -614,9 +620,9 @@ const ClientFlowCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
             <button className="btn block" style={{ marginTop: 14 }} type="button" onClick={() => act('pay', { plan: 'full' })}>
               <Icon name="card" /> سداد الفاتورة وفتح ملف التنفيذ
             </button>
-            {/* التقسيط خيارٌ حقيقيّ خلفه ثلاث فواتير — لا وعدَ في قائمةٍ لا يقرؤها كود */}
+            {/* التقسيط خيارٌ حقيقيّ خلفه فواتيرُ بعدد الإعداد — لا وعدَ في قائمةٍ لا يقرؤها كود */}
             <button className="btn soft block" style={{ marginTop: 8 }} type="button" onClick={() => act('pay', { plan: 'install' })}>
-              <Icon name="card" /> تقسيط على 3 دفعات
+              <Icon name="card" /> تقسيط على {installmentsText(installments)}
             </button>
           </>)}
         </div>
@@ -665,7 +671,7 @@ const DocsPanel: React.FC<{ execId: string; docs: ExecDoc[] }> = ({ execId, docs
 return null;
 }
 
-  const done = docs.filter((d) => d.status === 'مقبول' || d.status === 'مرفوع').length;
+  const done = docs.filter((d) => d.provided).length;
 
   const pick = (id: number) => fileRefs.current[id]?.click();
   const upload = (id: number, e: React.ChangeEvent<HTMLInputElement>) => {
@@ -991,14 +997,16 @@ const PricingCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
   const [feeMode, setFeeMode] = useState<ExecFeeMode>(r.feeMode === 'percent' ? 'percent' : 'fixed');
   const [collectPct, setCollectPct] = useState(r.collectionFeePct ? String(r.collectionFeePct) : '');
 
+  // عدد الدفعات وسقف النسبة من إعدادات الإدارة — كانا «ثلاث» و«50» منقوشين، والخادم يتحقّق بالإعداد
+  const { installments_count: installments, exec_max_collection_pct: maxPct } = useSettings();
   const percent = feeMode === 'percent';
   const collectPctNum = parseFloat(collectPct || '0') || 0;
   const fee = basisMode === 'fixed' ? (parseInt(fixed || '0', 10) || 0) : Math.round((r.amount * (parseFloat(pct || '0') || 0)) / 100);
   // نسبة الإدارة لا 15% ثابتة — الخادم يحسب الضريبة بها (Setting::vatOn)، فكان المعروض يخالف الفاتورة
-  const vatRate = r.vatRate ?? 15;
+  const vatRate = r.vatRate;
   const vat = Math.round((fee * vatRate) / 100);
   const basis = execStudyBasis(r.study);
-  const ready = percent ? collectPctNum >= 0.01 && collectPctNum <= 50 : fee >= 1;
+  const ready = percent ? collectPctNum >= 0.01 && collectPctNum <= maxPct : fee >= 1;
   const submit = () => {
  if (ready) {
 act('setFee', percent
@@ -1042,7 +1050,7 @@ act('setFee', percent
             : <div className="field"><label>النسبة من قيمة المطالبة (%)</label><input className="input" value={pct} onChange={(e) => setPct(e.target.value)} placeholder="مثال: 10" /></div>}
           <div className="field"><label>مدة التنفيذ المتوقعة</label><input className="input" value={dur} onChange={(e) => setDur(e.target.value)} placeholder="30-45 يوم" /></div>
           <KpiRow total t={<b>الإجمالي بعد الضريبة ({vatRate}%)</b>} v={<b>{execMoney(fee + vat)} ريال</b>} />
-          <div className="action-hint" style={{ margin: '8px 0' }}><Icon name="info" /> يختار العميل عند السداد: كاملاً أو على ثلاث دفعات.</div>
+          <div className="action-hint" style={{ margin: '8px 0' }}><Icon name="info" /> يختار العميل عند السداد: كاملاً أو على {installmentsText(installments)}.</div>
         </>)}
         <div className="action-hint" style={{ margin: '8px 0' }}><Icon name="info" /> تحديد الأتعاب واعتمادها من صلاحيات الإدارة العليا؛ بعد الاعتماد يُرسَل العرض للعميل.</div>
         <button className="btn block" type="button" disabled={!ready} onClick={submit}><Icon name="check" /> اعتماد الأتعاب وإرسال العرض للعميل</button>
@@ -1071,7 +1079,7 @@ return null;
             </div>
             <div className="iact" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <Badge text={d.status} tone={d.tone} />
-              {d.status === 'مرفوع' && (
+              {d.canReview && (
                 <>
                   <button className="btn sm" type="button" onClick={() => onReview(d.id, 'accept')}><Icon name="check" /> اعتماد</button>
                   <button className="btn soft sm" type="button" onClick={() => onReview(d.id, 'reject')}><Icon name="reply" /> إعادة</button>
@@ -1101,6 +1109,7 @@ type ExecDetailTab = (typeof EXEC_DETAIL_TABS)[number];
 const isExecDetailTab = (t: unknown): t is ExecDetailTab => typeof t === 'string' && (EXEC_DETAIL_TABS as readonly string[]).includes(t);
 
 const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, initialTab, onTabChange }) => {
+  const { installments_count: installments } = useSettings();
   const [activeTab, setActiveTabState] = useState<ExecDetailTab>(() => {
     if (isExecDetailTab(initialTab)) return initialTab;
     if (typeof window !== 'undefined') {
@@ -1234,6 +1243,9 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
           {/* تبويب: نظرة عامة وإجراءات ناجز */}
           {activeTab === 'overview' && (
             <>
+              {/* من يتولّى محادثة الملفّ ومن تولّاها قبله — يصل بطاقة الطاقم وحدها */}
+              <ConversationHandlerCard conversation={r.conversation} />
+
               {/* مسار ناجز (المرحلتان 7 و8): العميل يطّلع على رقم طلبه ومحكمته ومهلته، والمكتب يسجّل الخطوات */}
               {r.najiz && (
                 <ExecNajizCard
@@ -1324,9 +1336,8 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
               {/* إعادة التسعير مسموحة خادمياً في المرحلة 5 حين يرفض العميل العرض أو يستفسر، والمرحلة 6 إن كانت غير مدفوعة
                   (ExecService::feeStages) — وبلا هذا الشرط كان الطلب المرفوض يتجمّد بلا زرّ لأي دور */}
               {/* المرفوض بعد الدراسة لا يُسعَّر — والخادم يرفضه بالرسالة نفسها (ExecService::guardNotRejected) */}
-              {role === 'admin' && r.decision !== 'مرفوض' && r.stage >= 2 && r.stage <= 6 && !r.paid
-                && (!r.feeApproved || ['مرفوض', 'استفسار'].includes(r.offerStatus || '') || r.stage === 6)
-                && <PricingCard r={r} act={act} />}
+              {/* حكم حارس التسعير نفسه (`ExecService::canPrice`) — كان شرطاً ثانياً بنصوص «مرفوض»/«استفسار» */}
+              {role === 'admin' && r.canReprice && <PricingCard r={r} act={act} />}
 
               {r.stage >= 4 && (r.fee > 0 || r.feeMode === 'percent') && (
                 <div className="card" style={{ marginBottom: 12 }}>
@@ -1340,7 +1351,7 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
                       <CellRow cells={[['الإجمالي', execMoney(total) + ' ريال'], ['مدة التنفيذ', r.duration || '—']]} />
                     </>)}
                     <CellRow cells={[['طريقة السداد', r.payMethod || '—'], ['حالة العرض', r.offerStatus || '—']]} />
-                    {r.payPlan === 'install' && <CellRow cells={[['خطة السداد', `دفعة ${r.installmentsPaid ?? 0} من ${r.installmentsTotal ?? 3} مسدَّدة`], ['فاتورة فتح الملفّ', r.invoiceNo || '—']]} />}
+                    {r.payPlan === 'install' && <CellRow cells={[['خطة السداد', `دفعة ${r.installmentsPaid ?? 0} من ${r.installmentsTotal ?? installments} مسدَّدة`], ['فاتورة فتح الملفّ', r.invoiceNo || '—']]} />}
                   </div>
                 </div>
               )}

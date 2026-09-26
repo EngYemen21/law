@@ -59,6 +59,7 @@ final class RevenueSnapshot
         public readonly int $totalDebtEnforced,
         public readonly int $totalCollectedDebts,
         public readonly int $collectionRate,
+        public readonly ?int $invoiceCollectionRate,
         public readonly array $byService,
         public readonly array $salaries,
         public readonly int $salaryTotal,
@@ -100,6 +101,10 @@ final class RevenueSnapshot
             totalDebtEnforced: $totalDebtEnforced,
             totalCollectedDebts: $totalCollectedDebts,
             collectionRate: $totalDebtEnforced > 0 ? (int) round($totalCollectedDebts / $totalDebtEnforced * 100) : 0,
+            // **المحصَّل ÷ الصادر** — كانت الشاشة تشتقّها `(الصادر − الذمم) ÷ الصادر`، والمعدومة خارج
+            // الذمم وداخل الصادر، فتُحسب **محصَّلةً** وهي مالٌ أُسقطت مطالبته. والمدفوعة لا تكون ملغاةً ولا
+            // معدومةً (`paid` لا يصحّ عليهما) فالمحصَّل هو `totalIncome` نفسه. null = لا صادر (لا مقياس).
+            invoiceCollectionRate: $issued > 0 ? (int) round($income['total'] / $issued * 100) : null,
             byService: self::consultIncomeByChannel(),
             salaries: $staff->map(fn ($u) => ['name' => (string) $u->name, 'salary' => (int) $u->salary])->values()->all(),
             salaryTotal: (int) $staff->sum('salary'),
@@ -124,6 +129,7 @@ final class RevenueSnapshot
             'totalDebtEnforced' => $this->totalDebtEnforced,
             'totalCollectedDebts' => $this->totalCollectedDebts,
             'collectionRate' => $this->collectionRate,
+            'invoiceCollectionRate' => $this->invoiceCollectionRate,
             'byService' => $this->byService,
             'salaries' => $this->salaries,
             'salaryTotal' => $this->salaryTotal,

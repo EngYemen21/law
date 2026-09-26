@@ -3,6 +3,8 @@ import axios from 'axios';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import { useConfirm } from '@/components/babylon/ConfirmDialog';
+import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
+import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
 import { AppealCard, AttachDocModal, HearingUpdatesCard, NajizFilingCard, RulingCard, ScheduleHearingCard } from '@/lib/case-court';
@@ -29,6 +31,8 @@ interface Props {
   case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[];
   convertedExec?: boolean; pleadingBlock?: string | null; pleadingDraft?: string | null; canExecute?: boolean;
   ticketDocuments?: CaseDoc[]; fileInfo?: FileInfo; fileFacts?: FileFacts | null; readiness?: ReadinessItem[]; filing?: Filing;
+  /** من يتولّى المحادثة ومن تولّاها قبله — `ConversationHandler::history`. */
+  conversation?: ConversationHistory | null;
 }
 
 type DocSource = 'ticket' | 'case';
@@ -44,7 +48,7 @@ function docState(d: CaseDoc): [string, string] {
   return d.summary ? ['محلَّل', 'b-green'] : ['بانتظار التحليل', 'b-amber'];
 }
 
-const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, pleadingBlock, pleadingDraft, canExecute, ticketDocuments = [], fileInfo = {}, fileFacts = null, readiness = [], filing = { canFile: false, canRegister: false, data: null } }) => {
+const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, pleadingBlock, pleadingDraft, canExecute, ticketDocuments = [], fileInfo = {}, fileFacts = null, readiness = [], filing = { canFile: false, canRegister: false, data: null }, conversation }) => {
   const ask = useConfirm();
   const toast = useToast();
   const base = `/lawyer/cases/${encodeURIComponent(c.no)}`;
@@ -99,7 +103,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
 
   useEffect(() => {
     const ch = echo.private(channel);
-    ch.listen('.message', (e: { message: Message }) => {
+    const append = (e: { message: Message }) => {
       const m = e.message;
 
       if (m.id && seen.current.has(m.id)) {
@@ -111,7 +115,10 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
       }
 
       setMsgs((prev) => [...prev, m]);
-    });
+    };
+    ch.listen('.message', append);
+    // الملاحظات الداخليّة تُبثّ على قناة الطاقم وحدها — لا على القناة التي يسمعها العميل
+    echo.private(`${channel}.staff`).listen('.message', append);
     ch.listen('.status', (e: { status: string; tone: string }) => {
       setLive({ status: e.status, tone: e.tone });
       // مسودّةٌ جهزت بالطابور (المحجوب لا يُبثّ) — يُحدَّث المحرّر وسببُ المنع
@@ -120,6 +127,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
 
     return () => {
       echo.leave(channel);
+      echo.leave(`${channel}.staff`);
     };
   }, [channel]);
 
@@ -231,6 +239,8 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
         </div>
 
         <aside className="tf-aside">
+          <ConversationHandlerCard conversation={conversation} />
+
           {/* بطاقة الملفّ — ما يحتاجه المحامي أمامه دائماً */}
           <div className="card">
             <div className="tc-top"><div className="lbl">القضية</div><div className="num">{c.no}</div></div>

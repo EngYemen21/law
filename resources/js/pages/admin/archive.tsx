@@ -3,9 +3,9 @@ import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
 import { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
-import { maskClient } from '@/lib/admin-data';
 import { crChannelIcon, crChannelTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { fmtActualDuration } from '@/lib/meeting-ui';
 import { InlinePlayer, MediaButton } from '@/lib/recording-ui';
 
 interface ArchiveRow {
@@ -18,7 +18,8 @@ interface ArchiveRow {
   specialty: string;
   subject: string;
   date: string;
-  dur: string;
+  /** المدّة المقيسة من Zoom بالثواني — null = لم تُقَس (لا «مدّة» نصّيّة ثابتة بلا كاتب) */
+  durationSec: number | null;
   total: number;
   status: string;
   summary: string | null;
@@ -35,6 +36,12 @@ interface ArchiveRow {
   audioReady: boolean;
   transcriptReady: boolean;
 }
+
+/**
+ * **المدّة المقيسة لا المختلقة** — الجلسة بلا مدّةٍ ثابتة (تنتهي بحدث)، و`duration_label` نصٌّ بلا
+ * كاتبٍ حيّ كان يُعرض كأنّه قياس. الصيغة نفسها التي تعرض بها الاجتماعات مدّتها (`fmtActualDuration`).
+ */
+const durText = (a: { durationSec: number | null }) => fmtActualDuration(a.durationSec) ?? 'لم تُقَس';
 
 interface AdminArchiveProps {
   rows: ArchiveRow[];
@@ -648,7 +655,7 @@ return false;
                   </div>
 
                   <div style={{ fontSize: 13.5, fontWeight: 700, marginTop: 8, color: '#13314F' }}>
-                    {maskClient(a.client)}
+                    {a.client}
                   </div>
 
                   <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 }}>
@@ -668,7 +675,7 @@ return false;
                     }}
                   >
                     <span>المستشار: <b>{a.lawyer}</b></span>
-                    <span>المدة: <b>{a.dur}</b></span>
+                    <span>المدة: <b>{durText(a)}</b></span>
                   </div>
 
                   <div style={{ fontSize: 11, color: 'var(--muted)' }}>
@@ -779,7 +786,7 @@ return false;
                       <td style={{ padding: '12px 16px' }}>
                         <b style={{ color: 'var(--primary)' }}>{a.ref}</b>
                         <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                          {maskClient(a.client)}
+                          {a.client}
                         </div>
                       </td>
 
@@ -806,7 +813,7 @@ return false;
 
                       {/* المدة */}
                       <td style={{ padding: '12px 14px', fontWeight: 600 }}>
-                        {a.dur}
+                        {durText(a)}
                       </td>
 
                       {/* الوسائط والتنزيلات */}
@@ -871,7 +878,7 @@ return false;
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <b style={{ color: 'var(--primary)', fontSize: 13.5 }}>{a.ref}</b>
-                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{maskClient(a.client)}</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{a.client}</div>
                     </div>
                     <Badge text={a.ctype} tone={crChannelTone(a.channel)} />
                   </div>
@@ -893,7 +900,7 @@ return false;
                     }}
                   >
                     <span>مستشار: <b>{a.lawyer}</b></span>
-                    <span>المدة: <b>{a.dur}</b></span>
+                    <span>المدة: <b>{durText(a)}</b></span>
                   </div>
 
                   <div
@@ -908,9 +915,10 @@ return false;
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div style={{ display: 'flex', gap: 4 }}>
-                      {a.zip && <a className="btn soft sm" href={a.zip} style={{ padding: '4px 8px', fontSize: 11 }}>MP4</a>}
-                      {a.audioZip && <a className="btn soft sm" href={a.audioZip} style={{ padding: '4px 8px', fontSize: 11 }}>صوت</a>}
-                      {a.transcript && <a className="btn soft sm" href={a.transcript} style={{ padding: '4px 8px', fontSize: 11 }}>نص</a>}
+                      {/* بأعلام الجاهزيّة — الرابط الخام لملفٍّ لم يُبنَ كان يردّ `back()` فلا ينزل شيء */}
+                      {a.zip && <MediaButton href={a.zip} ready={a.videoReady} icon="video" label="MP4" />}
+                      {a.audioZip && <MediaButton href={a.audioZip} ready={a.audioReady} icon="mic" label="صوت" />}
+                      {a.transcript && <MediaButton href={a.transcript} ready={a.transcriptReady} icon="doc" label="نص" />}
                     </div>
                     <button
                       className="btn primary sm"
@@ -968,7 +976,7 @@ return false;
                   <Badge text="جلسة منتهية" tone="b-green" />
                 </div>
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                  العميل: {maskClient(drawerItem.client)} · المستشار: {drawerItem.lawyer}
+                  العميل: {drawerItem.client} · المستشار: {drawerItem.lawyer}
                 </div>
               </div>
 
@@ -1047,7 +1055,7 @@ return false;
                   <div className="card" style={{ margin: 0, padding: 16 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                       <b style={{ color: 'var(--primary)', fontSize: 14 }}>الملخص النهائي للجلسة الاستشارية</b>
-                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>المدة: {drawerItem.dur}</span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>المدة: {durText(drawerItem)}</span>
                     </div>
 
                     {drawerItem.summary ? (
@@ -1122,9 +1130,7 @@ return false;
                       </div>
                     </div>
                     {drawerItem.zip ? (
-                      <a className="btn primary sm" href={drawerItem.zip}>
-                        <Icon name="download" /> تنزيل MP4
-                      </a>
+                      <MediaButton href={drawerItem.zip} ready={drawerItem.videoReady} icon="download" label="تنزيل MP4" />
                     ) : (
                       <span className="chip muted">غير متاح</span>
                     )}
@@ -1151,9 +1157,7 @@ return false;
                       </div>
                     </div>
                     {drawerItem.audioZip ? (
-                      <a className="btn soft sm" href={drawerItem.audioZip}>
-                        <Icon name="download" /> تنزيل M4A
-                      </a>
+                      <MediaButton href={drawerItem.audioZip} ready={drawerItem.audioReady} icon="download" label="تنزيل M4A" />
                     ) : (
                       <span className="chip muted">غير متاح</span>
                     )}
@@ -1180,9 +1184,7 @@ return false;
                       </div>
                     </div>
                     {drawerItem.transcript ? (
-                      <a className="btn soft sm" href={drawerItem.transcript}>
-                        <Icon name="download" /> تنزيل TXT
-                      </a>
+                      <MediaButton href={drawerItem.transcript} ready={drawerItem.transcriptReady} icon="download" label="تنزيل TXT" />
                     ) : (
                       <span className="chip muted">غير متاح</span>
                     )}
@@ -1218,7 +1220,7 @@ return false;
                   <div className="card" style={{ margin: 0, padding: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12 }}>
                     <div>
                       <span style={{ fontSize: 11, color: 'var(--muted)' }}>العميل:</span>
-                      <div style={{ fontWeight: 600, fontSize: 13, marginTop: 2 }}>{maskClient(drawerItem.client)}</div>
+                      <div style={{ fontWeight: 600, fontSize: 13, marginTop: 2 }}>{drawerItem.client}</div>
                     </div>
                     <div>
                       <span style={{ fontSize: 11, color: 'var(--muted)' }}>المستشار:</span>
@@ -1238,7 +1240,7 @@ return false;
                     </div>
                     <div>
                       <span style={{ fontSize: 11, color: 'var(--muted)' }}>مدة الجلسة:</span>
-                      <div style={{ fontWeight: 600, fontSize: 13, marginTop: 2 }}>{drawerItem.dur}</div>
+                      <div style={{ fontWeight: 600, fontSize: 13, marginTop: 2 }}>{durText(drawerItem)}</div>
                     </div>
                   </div>
 

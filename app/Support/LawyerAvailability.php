@@ -28,11 +28,16 @@ class LawyerAvailability
     /** الاستشارات متاحة طوال الأسبوع: الأحد(0)…السبت(6) بتقويم Carbon. */
     private const WORK_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
-    private const WORK_START = 0;   // 00:00 — متاح طوال 24 ساعة
+    /*
+     * **افتراضاتٌ مُعلَنة لا قيمٌ نافذة.** ساعات الحجز وطول الشريحة إعداداتٌ تضبطها الإدارة
+     * (`consult_day_start`/`consult_day_end`/`consult_slot_minutes` في `SettingsRegistry`)،
+     * والسجلّ يأخذ افتراضه من هنا. القراءة من `workHours()` و`slotMinutes()` وحدهما.
+     */
+    public const WORK_START = 0;   // 00:00 — متاح طوال 24 ساعة
 
-    private const WORK_END = 24;    // آخر بداية 23:00 لموعد 60د
+    public const WORK_END = 24;    // آخر بداية 23:00 لموعد 60د
 
-    private const SLOT_MIN = 60;    // كل استشارة ساعة واحدة
+    public const SLOT_MIN = 60;    // مسافة الحجز الافتراضيّة — لا عمر الجلسة (قرار المالك 2026-09-26)
 
     /**
      * حالات «مغلق» لكل نوع — تُغذّي **معدّل الإغلاق** لا معدّل النجاح.
@@ -162,8 +167,10 @@ class LawyerAvailability
      * الإسناد التلقائيّ (العميل لا يختار): أعلى مختصّ في نوع المشكلة (تخصّص + سجلّ إنجاز)
      * غير مشغول في الوقت المطلوب. يعيد المحامي، أو null إن لم يتوفّر أيّ مختصّ في تلك الفترة.
      */
-    public static function assignLawyer(string $specialty, ?string $subject, Carbon $startsAt, int $dur = self::SLOT_MIN): ?User
+    public static function assignLawyer(string $specialty, ?string $subject, Carbon $startsAt, ?int $dur = null): ?User
     {
+        $dur ??= self::slotMinutes();
+
         foreach (self::rankedSpecialists($specialty, $subject, $startsAt->toDateString()) as $l) {
             if (! self::isBusy((int) $l['id'], $startsAt, $dur)) {
                 return User::find($l['id']);
@@ -226,9 +233,12 @@ class LawyerAvailability
         $dayEnd = $dayStart->copy()->endOfDay();
         $out = array_fill_keys($ids, []);
 
-        $add = function (int $lawyerId, ?int $from, int $dur) use (&$out) {
+        // صفٌّ بلا مسافةٍ محفوظة يشغل شريحةً واحدة بطولها النافذ — لا رقماً منقوشاً. والمحفوظ
+        // (`duration_min` · `dur` التاريخيّ) مسافةٌ حُجزت يومها، لا عمرُ جلسةٍ تنتهي به.
+        $slot = self::slotMinutes();
+        $add = function (int $lawyerId, ?int $from, int $dur) use (&$out, $slot) {
             if ($from !== null && isset($out[$lawyerId])) {
-                $out[$lawyerId][] = [$from, $from + ($dur ?: self::SLOT_MIN)];
+                $out[$lawyerId][] = [$from, $from + ($dur ?: $slot)];
             }
         };
 
@@ -244,7 +254,7 @@ class LawyerAvailability
         foreach (Meeting::whereIn('assigned_lawyer_id', $ids)
             ->whereNotIn('status', ['ملغى', 'ملغي', 'ملغاة'])
             ->whereBetween('starts_at', [$dayStart, $dayEnd])->get(['assigned_lawyer_id', 'starts_at', 'dur']) as $mt) {
-            $d = (int) (preg_match('/\d+/', (string) $mt->dur, $mm) ? $mm[0] : self::SLOT_MIN);
+            $d = (int) (preg_match('/\d+/', (string) $mt->dur, $mm) ? $mm[0] : $slot);
             $add((int) $mt->assigned_lawyer_id, $toMin($mt->starts_at?->format('H:i')), $d);
         }
 
@@ -278,11 +288,15 @@ class LawyerAvailability
     private static function slotsFromIntervals(array $intervals, Carbon $day): array
     {
         $slots = [];
-        $pastHour = self::pastHourFor($day);
+        $pastMinute = self::pastMinuteFor($day);
+        [$startHour, $endHour] = self::workHours();
+        $length = self::slotMinutes();
 
-        for ($h = self::WORK_START; $h < self::WORK_END; $h++) {
-            $from = $h * 60;
-            $to = $from + self::SLOT_MIN;
+        // **الخطوة طولُ الشريحة لا ساعة.** كانت الحلقة ساعيّة والطول ثابتاً ٦٠ فتطابقا؛ ولمّا صار
+        // الطول إعداداً، شريحةُ ٣٠ دقيقة بخطوةٍ ساعيّة تترك نصف كلّ ساعةٍ بلا حجز. ولا شريحةَ
+        // تبدأ ما لم تنتهِ قبل نهاية الساعات — وبالافتراض (٠–٢٤، ٦٠د) هي الأربع والعشرون نفسها.
+        for ($from = $startHour * 60; $from + $length <= $endHour * 60; $from += $length) {
+            $to = $from + $length;
             $overlaps = false;
 
             foreach ($intervals as [$s, $e]) {
@@ -292,17 +306,17 @@ class LawyerAvailability
                 }
             }
 
-            $slots[] = ['time' => sprintf('%02d:00', $h), 'taken' => $overlaps || $h <= $pastHour];
+            $slots[] = ['time' => sprintf('%02d:%02d', intdiv($from, 60), $from % 60), 'taken' => $overlaps || $from <= $pastMinute];
         }
 
         return $slots;
     }
 
     /** هل تتقاطع الفترة [start, start+dur) مع أي انشغال؟ */
-    public static function isBusy(int $lawyerId, Carbon $start, int $dur = self::SLOT_MIN): bool
+    public static function isBusy(int $lawyerId, Carbon $start, ?int $dur = null): bool
     {
         $from = $start->hour * 60 + $start->minute;
-        $to = $from + $dur;
+        $to = $from + ($dur ?? self::slotMinutes());
 
         foreach (self::busyIntervals($lawyerId, $start->toDateString()) as [$s, $e]) {
             if ($from < $e && $to > $s) {
@@ -314,7 +328,7 @@ class LawyerAvailability
     }
 
     /**
-     * فترات اليوم لمحامٍ (00:00…23:00 بطول 60د، متاحة طوال الأسبوع)، كلٌّ مع علامة المحجوز.
+     * فترات اليوم لمحامٍ (ساعات الحجز وطول الشريحة من الإعدادات، متاحة طوال الأسبوع)، كلٌّ مع علامة المحجوز.
      *
      * @return array<int, array{time:string,taken:bool}>
      */
@@ -330,16 +344,19 @@ class LawyerAvailability
     }
 
     /**
-     * آخر ساعة منقضية لليوم المُعطى بتوقيت الخادم — الفترات الماضية تُعلَّم محجوزةً خادمياً
+     * آخر دقيقة منقضية من اليوم المُعطى بتوقيت الخادم — الفترات الماضية تُعلَّم محجوزةً خادمياً
      * (كان الحجب بساعة متصفّح العميل وحدها، فمتصفّح بتوقيت مختلف يفتح فترات ماضية).
+     *
+     * بالدقيقة لا بالساعة لأنّ الشريحة قد تبدأ في منتصف ساعة؛ ومع الشرائح الساعيّة النتيجةُ
+     * نفسها: الشريحة التي بدأت ساعتُها (١٤:٠٠ في ١٤:٣٠) منقضية، والتالية متاحة.
      */
-    private static function pastHourFor(Carbon $day): int
+    private static function pastMinuteFor(Carbon $day): int
     {
         if ($day->isToday()) {
-            return now()->hour;
+            return now()->hour * 60 + now()->minute;
         }
 
-        return $day->isPast() ? 24 : -1;
+        return $day->isPast() ? 24 * 60 : -1;
     }
 
     /** أقرب يوم عمل من تاريخ مُعطى (أو من اليوم إن لم يُعطَ). */
@@ -354,8 +371,31 @@ class LawyerAvailability
         return $day;
     }
 
+    /**
+     * **مسافة الحجز** بالدقائق — طول الشريحة الذي لا يُحجز فيه للمحامي موعدان (`consult_slot_minutes`).
+     *
+     * ليست مدّة الجلسة: الاستشارة والاجتماع ينتهيان حين يُنهيان (قرار المالك 2026-09-26)، وما
+     * يحتاج رقماً اسمياً لـZoom أو التقويم يأخذه من `SessionWindow::nominalMinutes()`.
+     */
     public static function slotMinutes(): int
     {
-        return self::SLOT_MIN;
+        return SettingsRegistry::int('consult_slot_minutes');
+    }
+
+    /**
+     * ساعات الحجز [البداية، النهاية) من الإعدادات.
+     *
+     * الحافظ يرفض نهايةً لا تتجاوز البداية (`SettingsRegistry::relationErrors`)، لكنّ القيمة قد
+     * تفسد في القاعدة مباشرةً — ويومٌ بلا شريحةٍ واحدة يُغلق الحجز بصمت. فالفاسد يعود إلى
+     * الافتراض المُعلَن بدل أن يوقف الميزة (نمط القيد عند القراءة في السجلّ نفسه).
+     *
+     * @return array{0:int,1:int}
+     */
+    public static function workHours(): array
+    {
+        $start = SettingsRegistry::int('consult_day_start');
+        $end = SettingsRegistry::int('consult_day_end');
+
+        return $end > $start ? [$start, $end] : [self::WORK_START, self::WORK_END];
     }
 }

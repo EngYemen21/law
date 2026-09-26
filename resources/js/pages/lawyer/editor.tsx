@@ -370,6 +370,9 @@ const LawyerEditor: React.FC<Props> = ({
     autoSaveRef.current = autoSave;
   }, [autoSave]);
 
+  /** أوّل رسالة من أخطاء الخادم، أو بديلٌ حين لا رسالة */
+  const serverError = (errs: Record<string, string>, fallback: string): string => Object.values(errs)[0] ?? fallback;
+
   // ── حفظ يدوي ──
   const save = () => {
     if (!editor) return;
@@ -385,20 +388,18 @@ const LawyerEditor: React.FC<Props> = ({
       metadata: meta || null,
     };
 
+    // رسالة النجاح من الخادم (`with('success')`) يعرضها التخطيط مرّةً — كان هنا توستٌ ثانٍ لها.
+    // والخطأ نصُّ الخادم (العنوان مطلوب، النوع غير صالح…) لا «تعذّر» عامّة تُخفي سببها.
     if (isNew) {
       router.post(`${base}/editor`, payload as any, {
-        onSuccess: () => toast('✅ تم إنشاء المستند بنجاح'),
-        onError: () => toast('تعذر حفظ المستند'),
+        onError: (errs) => toast(`⚠️ ${serverError(errs, 'تعذّر حفظ المستند')}`, 'error'),
         onFinish: () => setIsSaving(false),
       });
     } else {
       router.put(`${base}/editor/${doc!.id}`, payload as any, {
         preserveScroll: true,
-        onSuccess: () => {
-          toast('✅ تم حفظ المستند');
-          setLastSaved('الآن');
-        },
-        onError: () => toast('تعذر حفظ المستند'),
+        onSuccess: () => setLastSaved('الآن'),
+        onError: (errs) => toast(`⚠️ ${serverError(errs, 'تعذّر حفظ المستند')}`, 'error'),
         onFinish: () => setIsSaving(false),
       });
     }
@@ -466,8 +467,7 @@ const LawyerEditor: React.FC<Props> = ({
   const approve = () => {
     if (!doc) return;
     router.post(`${base}/editor/${doc.id}/approve`, {}, {
-      onSuccess: () => toast('✅ تم اعتماد المستند رسمياً'),
-      onError: () => toast('تعذر اعتماد المستند'),
+      onError: (errs) => toast(`⚠️ ${serverError(errs, 'تعذّر اعتماد المستند')}`, 'error'),
     });
   };
 

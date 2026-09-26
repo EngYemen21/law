@@ -6,7 +6,7 @@ import Modal from '@/components/babylon/Modal';
 import RescheduleDialog from '@/components/babylon/RescheduleDialog';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
-import type { Hearing } from '@/lib/case-ui';
+import { HEARING_DURATION, hearingDurationLabel, type Hearing } from '@/lib/case-ui';
 import Icon from '@/lib/icons';
 
 // ============================================================
@@ -34,11 +34,36 @@ export interface AppealData {
 
 const reason = (e: Record<string, string>) => String(Object.values(e)[0] ?? 'تعذّر تنفيذ الإجراء');
 
+/**
+ * حقل «المدّة المتوقّعة (دقائق)» — واحدٌ لنماذج الجدولة والقيد والتعديل والتأجيل (قرار المالك 2026-09-26).
+ * اختياريّ: تركُه فارغاً يعني أنّ المدّة غير معروفة، فلا يكتب التقويم نهايةً مختلَقة للجلسة.
+ * القيمة نصّ الحقل كما هو؛ والفارغ يصل الخادم null (ConvertEmptyStringsToNull).
+ */
+const HearingDurationField: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => (
+  <div className="field">
+    <label>المدّة المتوقّعة (دقائق)</label>
+    <input
+      className="input"
+      type="number"
+      inputMode="numeric"
+      min={HEARING_DURATION.min}
+      max={HEARING_DURATION.max}
+      step={5}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder="اختياري — مثلاً 30"
+    />
+  </div>
+);
+
+/** مدّة الجلسة المخزّنة ⇐ نصّ الحقل — لتعبئة نموذج التعديل بما أُدخل سابقاً. */
+const durationText = (min?: number | null): string => (min ? String(min) : '');
+
 /** رفع الدعوى في ناجز ثمّ قيدها — ما يجوز يحدّده الخادم (الخطّة ب). لا تُعرض إن لم يجز شيءٌ ولا بيانات. */
 export const NajizFilingCard: React.FC<{ base: string; filing: Filing; defaultCourt?: string }> = ({ base, filing, defaultCourt = '' }) => {
   const toast = useToast();
   const [nf, setNf] = useState({ request_no: '', filed_at: '' });
-  const [nr, setNr] = useState({ case_no: '', court: defaultCourt, circuit: '', registered_at: '', hearing_day: '', hearing_time: '', hearing_mode: 'حضورية' });
+  const [nr, setNr] = useState({ case_no: '', court: defaultCourt, circuit: '', registered_at: '', hearing_day: '', hearing_time: '', hearing_duration_min: '', hearing_mode: 'حضورية' });
   const [nrFile, setNrFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -104,6 +129,7 @@ export const NajizFilingCard: React.FC<{ base: string; filing: Filing; defaultCo
               <div className="field"><label>موعد الجلسة الأولى</label><input className="input" type="date" value={nr.hearing_day} onChange={(e) => setNr({ ...nr, hearing_day: e.target.value })} /></div>
               <div className="field"><label>الوقت</label><input className="input" type="time" value={nr.hearing_time} onChange={(e) => setNr({ ...nr, hearing_time: e.target.value })} /></div>
             </div>
+            <HearingDurationField value={nr.hearing_duration_min} onChange={(v) => setNr({ ...nr, hearing_duration_min: v })} />
             <div className="field">
               <label>طريقة الانعقاد</label>
               <select className="input" value={nr.hearing_mode} onChange={(e) => setNr({ ...nr, hearing_mode: e.target.value })}>
@@ -125,7 +151,7 @@ export const NajizFilingCard: React.FC<{ base: string; filing: Filing; defaultCo
 /** جدولة جلسة — والقضيّة منظورة (يقرّر المُنادي متى تُعرض، والخادم يرفض خارجها). */
 export const ScheduleHearingCard: React.FC<{ base: string }> = ({ base }) => {
   const toast = useToast();
-  const [h, setH] = useState({ title: '', day: '', time: '', court: '' });
+  const [h, setH] = useState({ title: '', day: '', time: '', court: '', duration_min: '' });
 
   const addHearing = (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,7 +165,7 @@ export const ScheduleHearingCard: React.FC<{ base: string }> = ({ base }) => {
     router.post(`${base}/hearings`, h, {
       preserveScroll: true,
       onSuccess: () => {
-        setH({ title: '', day: '', time: '', court: '' });
+        setH({ title: '', day: '', time: '', court: '', duration_min: '' });
         toast('تمت جدولة الجلسة');
       },
       onError: (err) => toast(reason(err)),
@@ -157,6 +183,7 @@ export const ScheduleHearingCard: React.FC<{ base: string }> = ({ base }) => {
           </div>
           <div className="field"><label>الدائرة</label><input className="input" value={h.court} onChange={(e) => setH({ ...h, court: e.target.value })} placeholder="الدائرة التجارية الأولى" /></div>
           <TimeSlotPicker value={h.time} onChange={(t) => setH({ ...h, time: t })} date={h.day} label="وقت الجلسة" required allowCustom={false} />
+          <HearingDurationField value={h.duration_min} onChange={(v) => setH({ ...h, duration_min: v })} />
           <button className="btn" type="submit" disabled={!h.time}><Icon name="cal" /> جدولة الجلسة</button>
         </form>
       </div>
@@ -514,7 +541,7 @@ export const HearingUpdatesCard: React.FC<{ base: string; hearings: Hearing[] }>
   const ask = useConfirm();
   const toast = useToast();
   const [editId, setEditId] = useState<number | null>(null);
-  const [eh, setEh] = useState({ title: '', day: '', time: '', court: '' });
+  const [eh, setEh] = useState({ title: '', day: '', time: '', court: '', duration_min: '' });
   const [orig, setOrig] = useState({ day: '', time: '' });
   // الجلسة التي تنتظر سبب تأجيلها — النافذة تُركَّب عند الحاجة فلا يُرحَّل سببٌ من جلسةٍ لأخرى
   const [postponing, setPostponing] = useState<Hearing | null>(null);
@@ -538,7 +565,8 @@ export const HearingUpdatesCard: React.FC<{ base: string; hearings: Hearing[] }>
     const slot = slotOf(hr);
     setEditId(hr.id);
     setOrig(slot);
-    setEh({ title: hr.title, ...slot, court: hr.court || '' });
+    // المدّة تُعبّأ بما أُدخل — تغييرها وحده تصحيحٌ في مكانه لا تأجيل (الخادم يفرّق بالموعد وحده)
+    setEh({ title: hr.title, ...slot, court: hr.court || '', duration_min: durationText(hr.durationMin) });
   };
   const submitEdit = (hr: Hearing) => {
     if (!eh.title.trim() || !eh.day.trim()) {
@@ -591,6 +619,7 @@ export const HearingUpdatesCard: React.FC<{ base: string; hearings: Hearing[] }>
                 <div className="imeta">
                   <b>{hr.title}</b>
                   <span>{hr.day}{hr.time ? ` · ${hr.time}` : ''} · {hr.lapsed ? 'فائتة — سجّل نتيجتها' : hr.status}</span>
+                  {hearingDurationLabel(hr.durationMin) && <span>{hearingDurationLabel(hr.durationMin)}</span>}
                   {from && <span>مؤجّلة من {from.day}{from.time ? ` · ${from.time}` : ''}</span>}
                 </div>
                 {(hr.canEdit || hr.canCancel) && (
@@ -630,6 +659,7 @@ export const HearingUpdatesCard: React.FC<{ base: string; hearings: Hearing[] }>
                       <TimeSlotPicker value={eh.time} onChange={(t) => setEh({ ...eh, time: t })} date={eh.day} label="وقت الجلسة" required allowCustom={false} />
                     </>
                   )}
+                  <HearingDurationField value={eh.duration_min} onChange={(v) => setEh({ ...eh, duration_min: v })} />
                   <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                     <button className="btn sm" type="submit" disabled={!eh.time}>
                       <Icon name="cal" /> {moved ? 'تأجيل الجلسة…' : 'حفظ التعديل'}
@@ -654,7 +684,8 @@ export const HearingUpdatesCard: React.FC<{ base: string; hearings: Hearing[] }>
               {postponing.canRecord
                 ? 'تبقى الجلسة الحاليّة في السجلّ بحالة «مؤجلة» وسببها، '
                 : 'تبقى الجلسة الحاليّة في السجلّ كما سُجّلت، '}
-              وتُنشأ جلسةٌ جديدة في {eh.day}{eh.time ? ` · ${eh.time}` : ''} بتذكيراتها. ويُبلَّغ العميل والمحامي بإشعارٍ وبريد.
+              وتُنشأ جلسةٌ جديدة في {eh.day}{eh.time ? ` · ${eh.time}` : ''}
+              {eh.duration_min ? ` بمدّةٍ متوقّعة ${eh.duration_min} دقيقة` : ' بلا مدّةٍ محدّدة'} بتذكيراتها. ويُبلَّغ العميل والمحامي بإشعارٍ وبريد.
             </>
           }
           onClose={() => setPostponing(null)}

@@ -1,6 +1,7 @@
 import { router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { foldSearch } from '@/lib/employee-data';
@@ -12,6 +13,9 @@ import Icon from '@/lib/icons';
 
 interface ServiceRow { id: number; name: string; active: boolean }
 
+/** بندٌ في قائمة مستندات القسم (قرار المالك 2026-09-26) — «إلزاميّ» أو «اختياريّ». */
+interface DocumentRow { id: number; name: string; required: boolean }
+
 interface DepartmentRow {
   id: number;
   name: string;
@@ -20,6 +24,7 @@ interface DepartmentRow {
   impact: { lawyersOnlyHere: number; openTickets: number };
   aliases: string[];
   services: ServiceRow[];
+  documents: DocumentRow[];
 }
 
 interface StaffDepartmentRow { id: number; name: string; active: boolean; employees: number }
@@ -27,6 +32,8 @@ interface StaffDepartmentRow { id: number; name: string; active: boolean; employ
 interface Props {
   departments: DepartmentRow[];
   staffDepartments: StaffDepartmentRow[];
+  /** القائمة العامّة — ما يُطلب في قسمٍ بلا قائمة محرَّرة (LegalCatalogue::DEFAULT_DOCUMENTS) */
+  defaultDocuments: { name: string; required: boolean }[];
 }
 
 type Errors = Record<string, string>;
@@ -82,14 +89,20 @@ const NameForm: React.FC<{
   );
 };
 
-const AdminCatalogue: React.FC<Props> = ({ departments, staffDepartments }) => {
+const AdminCatalogue: React.FC<Props> = ({ departments, staffDepartments, defaultDocuments }) => {
   const toast = useToast();
+  const ask = useConfirm();
   const [tab, setTab] = useState<'legal' | 'staff'>('legal');
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(departments[0]?.id ?? null);
   const [busy, setBusy] = useState(false);
-  const [errors, setErrors] = useState<Errors>({});
+  // أخطاء الخادم **منسوبةً إلى النموذج الذي أرسلها** — كانت حالةً واحدة بمفتاح `name` يقرؤها
+  // حقلُ اسم القسم وحده، فخطأ «مستندٌ بهذا الاسم» يظهر تحت اسم القسم لا تحت حقل المستند.
+  const [errors, setErrors] = useState<{ form: string; errs: Errors } | null>(null);
+  const errorOf = (form: string, key = 'name'): string | undefined => (errors?.form === form ? errors.errs[key] : undefined);
   const [confirming, setConfirming] = useState<DepartmentRow | null>(null);
+  // البند الجديد إلزاميّ افتراضاً — قاعدة المالك: الإلزام ما لم يكن مكمّلاً بوضوح
+  const [newDocRequired, setNewDocRequired] = useState(true);
 
   const selected = departments.find((d) => d.id === selectedId) ?? null;
   const visible = useMemo(() => {
@@ -98,22 +111,30 @@ const AdminCatalogue: React.FC<Props> = ({ departments, staffDepartments }) => {
     return q ? departments.filter((d) => foldSearch(d.name).includes(q) || d.services.some((s) => foldSearch(s.name).includes(q))) : departments;
   }, [departments, search]);
 
-  /** إرسالٌ موحّد: يشغل الشاشة، ويعرض رسالة النجاح أو أخطاء الخادم تحت حقولها. */
-  const send = (method: 'post' | 'put', url: string, data: Record<string, unknown>, success: string, after?: () => void) => {
+  /**
+   * إرسالٌ موحّد: يشغل الشاشة، ويعرض أخطاء الخادم تحت حقول النموذج `form` الذي أرسلها.
+   * رسالة النجاح من الخادم (`flash`) يعرضها التخطيط مرّةً — كان هنا توستٌ ثانٍ لكلّ حفظ.
+   */
+  const send = (method: 'post' | 'put' | 'delete', url: string, data: Record<string, unknown>, form: string, after?: () => void) => {
     setBusy(true);
-    router[method](url, data as never, {
+    const options = {
       preserveScroll: true,
       onSuccess: () => {
-        setErrors({});
-        toast(success);
+        setErrors(null);
         after?.();
       },
-      onError: (errs) => {
-        setErrors(errs as Errors);
-        toast('⚠️ ' + (Object.values(errs)[0] ?? 'تعذّر الحفظ'));
+      onError: (errs: Errors) => {
+        setErrors({ form, errs });
+        toast('⚠️ ' + (Object.values(errs)[0] ?? 'تعذّر الحفظ'), 'error');
       },
       onFinish: () => setBusy(false),
-    });
+    };
+
+    if (method === 'delete') {
+      router.delete(url, options);
+    } else {
+      router[method](url, data as never, options);
+    }
   };
 
   const toggleDepartment = (d: DepartmentRow, confirm = false) => {
@@ -125,14 +146,31 @@ const AdminCatalogue: React.FC<Props> = ({ departments, staffDepartments }) => {
       return;
     }
 
-    send('post', `/admin/catalogue/departments/${d.id}/toggle`, { confirm }, d.active ? 'أُوقف القسم' : 'فُعّل القسم', () => setConfirming(null));
+    send('post', `/admin/catalogue/departments/${d.id}/toggle`, { confirm }, 'toggle-department', () => setConfirming(null));
   };
 
   const reorderDepartments = (index: number, step: -1 | 1) =>
-    send('post', '/admin/catalogue/departments/reorder', { order: moved(departments.map((d) => d.id), index, step) }, 'حُفظ الترتيب');
+    send('post', '/admin/catalogue/departments/reorder', { order: moved(departments.map((d) => d.id), index, step) }, 'actions');
 
   const reorderServices = (d: DepartmentRow, index: number, step: -1 | 1) =>
-    send('post', `/admin/catalogue/departments/${d.id}/services/reorder`, { order: moved(d.services.map((s) => s.id), index, step) }, 'حُفظ الترتيب');
+    send('post', `/admin/catalogue/departments/${d.id}/services/reorder`, { order: moved(d.services.map((s) => s.id), index, step) }, 'actions');
+
+  const reorderDocuments = (d: DepartmentRow, index: number, step: -1 | 1) =>
+    send('post', `/admin/catalogue/departments/${d.id}/documents/reorder`, { order: moved(d.documents.map((x) => x.id), index, step) }, 'actions');
+
+  // الحذف بالحوار المشترك (خطر، Escape = إلغاء) — لا `window.confirm` (قرار المالك)
+  const deleteDocument = async (doc: DocumentRow) => {
+    const ok = await ask({
+      title: `حذف «${doc.name}» من قائمة القسم؟`,
+      message: 'لن يُطلب هذا المستند بعد الآن من عملاء هذا القسم، ولا يُتراجع عن الحذف إلّا بإضافته من جديد. تبقى مطابقات المرفقات السابقة باسمه.',
+      confirmLabel: 'حذف المستند',
+      tone: 'danger',
+    });
+
+    if (ok) {
+      send('delete', `/admin/catalogue/documents/${doc.id}`, {}, 'actions');
+    }
+  };
 
   return (
     <div style={{ paddingBottom: 60, width: '100%' }}>
@@ -165,7 +203,8 @@ const AdminCatalogue: React.FC<Props> = ({ departments, staffDepartments }) => {
                 placeholder="اسم قسمٍ جديد"
                 submitLabel="إضافة"
                 busy={busy}
-                onSubmit={(name, reset) => send('post', '/admin/catalogue/departments', { name }, 'أُضيف القسم', reset)}
+                error={errorOf('catalogue-new-department')}
+                onSubmit={(name, reset) => send('post', '/admin/catalogue/departments', { name }, 'catalogue-new-department', reset)}
               />
               <div>
                 {visible.map((d) => {
@@ -216,8 +255,8 @@ const AdminCatalogue: React.FC<Props> = ({ departments, staffDepartments }) => {
                     placeholder="اسم القسم"
                     submitLabel="حفظ الاسم"
                     busy={busy}
-                    error={errors.name}
-                    onSubmit={(name) => send('put', `/admin/catalogue/departments/${selected.id}`, { name }, 'حُفظ اسم القسم')}
+                    error={errorOf(`dept-name-${selected.id}`)}
+                    onSubmit={(name) => send('put', `/admin/catalogue/departments/${selected.id}`, { name }, `dept-name-${selected.id}`)}
                   />
                 </div>
 
@@ -244,7 +283,8 @@ const AdminCatalogue: React.FC<Props> = ({ departments, staffDepartments }) => {
                     placeholder="اسم خدمةٍ جديدة في هذا القسم"
                     submitLabel="إضافة خدمة"
                     busy={busy}
-                    onSubmit={(name, reset) => send('post', `/admin/catalogue/departments/${selected.id}/services`, { name }, 'أُضيفت الخدمة', reset)}
+                    error={errorOf(`new-service-${selected.id}`)}
+                    onSubmit={(name, reset) => send('post', `/admin/catalogue/departments/${selected.id}/services`, { name }, `new-service-${selected.id}`, reset)}
                   />
                   <div style={{ marginTop: 8 }}>
                     {selected.services.map((s, index) => (
@@ -257,18 +297,76 @@ const AdminCatalogue: React.FC<Props> = ({ departments, staffDepartments }) => {
                             placeholder="اسم الخدمة"
                             submitLabel="حفظ"
                             busy={busy}
-                            onSubmit={(name) => send('put', `/admin/catalogue/services/${s.id}`, { name }, 'حُفظ اسم الخدمة')}
+                            error={errorOf(`service-name-${s.id}`)}
+                            onSubmit={(name) => send('put', `/admin/catalogue/services/${s.id}`, { name }, `service-name-${s.id}`)}
                           />
                         </div>
                         {!s.active && <Badge text="موقوفة" tone="b-grey" />}
                         <button type="button" className="btn soft sm" aria-label={`رفع ${s.name}`} disabled={busy || index === 0} onClick={() => reorderServices(selected, index, -1)}>▲</button>
                         <button type="button" className="btn soft sm" aria-label={`خفض ${s.name}`} disabled={busy || index === selected.services.length - 1} onClick={() => reorderServices(selected, index, 1)}>▼</button>
-                        <button type="button" className="btn soft sm" disabled={busy} onClick={() => send('post', `/admin/catalogue/services/${s.id}/toggle`, {}, s.active ? 'أُوقفت الخدمة' : 'فُعّلت الخدمة')}>
+                        <button type="button" className="btn soft sm" disabled={busy} onClick={() => send('post', `/admin/catalogue/services/${s.id}/toggle`, {}, 'actions')}>
                           {s.active ? 'إيقاف' : 'تفعيل'}
                         </button>
                       </div>
                     ))}
                     {selected.services.length === 0 && <div style={muted}>لا خدمات في هذا القسم بعد.</div>}
+                  </div>
+                </div>
+
+                {/* ── قائمة المستندات المطلوبة للقسم — منها تُحسب «النواقص» في كلّ تذكرة ── */}
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>المستندات المطلوبة ({selected.documents.length})</div>
+                  <p style={{ ...muted, margin: '0 0 8px' }}>
+                    تُطلب من العميل في تذاكر هذا القسم، ويُسقط منها ما ثبت إرفاقه. الإلزاميّ يُطلب أوّلاً، والاختياريّ موسوماً.
+                  </p>
+                  {selected.documents.length === 0 && (
+                    <div style={{ ...muted, marginBottom: 8 }}>
+                      لا قائمة لهذا القسم بعد — تُطلب القائمة العامّة: {defaultDocuments.map((d) => d.name).join('، ')}.
+                      {' '}إضافة أوّل مستندٍ تنسخ بنود القائمة العامّة إلى هذا القسم أوّلاً، فتبقى مطلوبةً وتستطيع تعديلها أو حذفها.
+                    </div>
+                  )}
+                  <NameForm
+                    key={`new-document-${selected.id}`}
+                    id={`new-document-${selected.id}`}
+                    placeholder="اسم مستندٍ مطلوب في هذا القسم"
+                    submitLabel="إضافة مستند"
+                    busy={busy}
+                    error={errorOf(`new-document-${selected.id}`)}
+                    onSubmit={(name, reset) => send('post', `/admin/catalogue/departments/${selected.id}/documents`, { name, required: newDocRequired }, `new-document-${selected.id}`, reset)}
+                  />
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, marginTop: 6 }}>
+                    <input type="checkbox" checked={newDocRequired} onChange={(e) => setNewDocRequired(e.target.checked)} />
+                    إلزاميّ (أزل العلامة لمستندٍ اختياريّ)
+                  </label>
+                  <div style={{ marginTop: 8 }}>
+                    {selected.documents.map((doc, index) => (
+                      <div key={doc.id} style={rowStyle}>
+                        <div style={{ flex: '1 1 240px' }}>
+                          <NameForm
+                            key={`doc-${doc.id}-${doc.name}`}
+                            id={`document-name-${doc.id}`}
+                            initial={doc.name}
+                            placeholder="اسم المستند"
+                            submitLabel="حفظ"
+                            busy={busy}
+                            error={errorOf(`document-name-${doc.id}`)}
+                            onSubmit={(name) => send('put', `/admin/catalogue/documents/${doc.id}`, { name }, `document-name-${doc.id}`)}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          className="btn soft sm"
+                          disabled={busy}
+                          title="بدّل بين إلزاميّ واختياريّ"
+                          onClick={() => send('put', `/admin/catalogue/documents/${doc.id}`, { required: !doc.required }, 'actions')}
+                        >
+                          <Badge text={doc.required ? 'إلزاميّ' : 'اختياريّ'} tone={doc.required ? 'b-blue' : 'b-grey'} />
+                        </button>
+                        <button type="button" className="btn soft sm" aria-label={`رفع ${doc.name}`} disabled={busy || index === 0} onClick={() => reorderDocuments(selected, index, -1)}>▲</button>
+                        <button type="button" className="btn soft sm" aria-label={`خفض ${doc.name}`} disabled={busy || index === selected.documents.length - 1} onClick={() => reorderDocuments(selected, index, 1)}>▼</button>
+                        <button type="button" className="btn soft sm" disabled={busy} onClick={() => deleteDocument(doc)}>حذف</button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -286,7 +384,8 @@ const AdminCatalogue: React.FC<Props> = ({ departments, staffDepartments }) => {
               placeholder="اسم قسمٍ إداريٍّ جديد"
               submitLabel="إضافة"
               busy={busy}
-              onSubmit={(name, reset) => send('post', '/admin/catalogue/staff-departments', { name }, 'أُضيف القسم الإداريّ', reset)}
+              error={errorOf('catalogue-new-staff-department')}
+              onSubmit={(name, reset) => send('post', '/admin/catalogue/staff-departments', { name }, 'catalogue-new-staff-department', reset)}
             />
             {staffDepartments.map((d) => (
               <div key={d.id} style={rowStyle}>
@@ -298,12 +397,13 @@ const AdminCatalogue: React.FC<Props> = ({ departments, staffDepartments }) => {
                     placeholder="اسم القسم"
                     submitLabel="حفظ"
                     busy={busy}
-                    onSubmit={(name) => send('put', `/admin/catalogue/staff-departments/${d.id}`, { name }, 'حُفظ اسم القسم الإداريّ')}
+                    error={errorOf(`staff-department-name-${d.id}`)}
+                    onSubmit={(name) => send('put', `/admin/catalogue/staff-departments/${d.id}`, { name }, `staff-department-name-${d.id}`)}
                   />
                 </div>
                 <span style={muted}>{d.employees} موظّف</span>
                 {!d.active && <Badge text="موقوف" tone="b-grey" />}
-                <button type="button" className="btn soft sm" disabled={busy} onClick={() => send('post', `/admin/catalogue/staff-departments/${d.id}/toggle`, {}, d.active ? 'أُوقف القسم الإداريّ' : 'فُعّل القسم الإداريّ')}>
+                <button type="button" className="btn soft sm" disabled={busy} onClick={() => send('post', `/admin/catalogue/staff-departments/${d.id}/toggle`, {}, 'actions')}>
                   {d.active ? 'إيقاف' : 'تفعيل'}
                 </button>
               </div>
@@ -322,7 +422,7 @@ const AdminCatalogue: React.FC<Props> = ({ departments, staffDepartments }) => {
               {confirming.impact.openTickets > 0 && <>فيه <b>{confirming.impact.openTickets}</b> تذكرة مفتوحة تبقى كما هي. </>}
               لن يظهر القسم في الاختيار بعد الإيقاف، ويمكن تفعيله لاحقاً.
             </p>
-            {errors.confirm && <div style={errText}>{errors.confirm}</div>}
+            {errorOf('toggle-department', 'confirm') && <div style={errText}>{errorOf('toggle-department', 'confirm')}</div>}
             <div style={{ display: 'flex', gap: 8 }}>
               <button type="button" className="btn sm" disabled={busy} onClick={() => toggleDepartment(confirming, true)}>
                 <Icon name="check" /> تأكيد الإيقاف

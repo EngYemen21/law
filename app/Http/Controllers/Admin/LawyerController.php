@@ -24,7 +24,9 @@ class LawyerController extends Controller
     {
         // withCount بدل COUNT لكل محامٍ (N+1 → استعلام واحد)
         $lawyers = User::where('role', Role::Lawyer)
-            ->withCount(['assignedTickets as active' => fn ($q) => $q->where('status', '!=', 'مكتملة')])
+            // «نشطة» بنطاق التذاكر المفتوحة نفسه (`Ticket::open`) — كان يستثني «مكتملة» وحدها،
+            // فتُعدّ المغلقة والمحوّلة إلى قضيّة أو تنفيذ حِملاً قائماً على المحامي
+            ->withCount(['assignedTickets as active' => fn ($q) => $q->open()])
             // الأحدث أوّلاً كجدول الموظّفين المجاور (`StaffController`) — كان تصاعديّاً
             // فيظهر المحامي المضاف حديثاً في آخر صفّ، وشاشتان متجاورتان بسلوكين متعاكسين.
             ->orderByDesc('id')->get()
@@ -36,6 +38,8 @@ class LawyerController extends Controller
                     ? [Specialties::ALL_DEPARTMENTS]
                     : LegalCatalogue::departments(activeOnly: false)->whereIn('id', LawyerSpecialties::departmentIds($u))->pluck('name')->values()->all(),
                 'active' => $u->active,
+                // الموقوف لا يُسنَد إليه (`ActiveLawyer`) — تُظهره الشاشة كي لا يُظنّ متاحاً
+                'suspended' => $u->status === 'suspended',
                 'mode' => $u->distribution_mode === 'manual' ? 'يدوي' : 'تلقائي',
             ]);
 

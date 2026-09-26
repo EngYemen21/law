@@ -6,7 +6,7 @@ import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import Modal from '@/components/babylon/Modal';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
-import { MEET_STATUSES, MEET_TYPES_FULL, MEET_TEMPLATES, STAFF_DIR } from '@/lib/admin-data';
+import { MEET_STATUSES, MEET_TYPES_FULL, MEET_TEMPLATES } from '@/lib/admin-data';
 import { meetStatusTone, attendanceLabel, fmtActualDuration, type ClientDirEntry, type FullMeetingCard } from '@/lib/meeting-ui';
 
 // واجهة إدارة الاجتماعات الحديثة — التصميم الفاخر والمطور 2026
@@ -39,7 +39,6 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
   const [type, setType] = useState(MEET_TYPES_FULL[0]);
   const [prio, setPrio] = useState('عادية');
   const [conf, setConf] = useState('عادي');
-  const [dur, setDur] = useState('');
   const [participants, setParticipants] = useState<string[]>([]);
   const [day, setDay] = useState('');
   const [time, setTime] = useState('10:00');
@@ -48,10 +47,11 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
   const [caseRef, setCaseRef] = useState('');
   useEffect(() => { setCaseRef(''); }, [clientId]);
 
-  const up = meetings.filter((m) => m.status === 'قادم').length;
-  const live = meetings.filter((m) => m.status === 'جارٍ').length;
-  const done = meetings.filter((m) => m.status === 'منتهٍ');
-  const missed = meetings.filter((m) => m.status === 'لم ينعقد').length;
+  // العدّ بمفتاح الحالة من الخادم (`statusKey`) — النصّ العربيّ للعرض وحده
+  const up = meetings.filter((m) => m.statusKey === 'upcoming').length;
+  const live = meetings.filter((m) => m.statusKey === 'live').length;
+  const done = meetings.filter((m) => m.statusKey === 'ended');
+  const missed = meetings.filter((m) => m.statusKey === 'missed').length;
   // المتوسّط على المقيس وحده: طيُّ غير المقيس صفراً كان يجرّ نسبة المكتب للأسفل ببياناتٍ ليست بيانات
   const measured = done.filter((m) => m.presenceRate !== null);
   const att = measured.length
@@ -69,7 +69,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
   ];
 
   const list = meetings.filter((m) => {
-    if (filter !== 'all' && m.status !== filter) return false;
+    if (filter !== 'all' && m.statusKey !== filter) return false;
     if (lawyerF && m.lawyer !== lawyerF) return false;
     if (q.trim()) {
       const hay = `${m.title} ${m.client} ${m.lawyer} ${m.caseRef || ''}`.toLowerCase();
@@ -92,7 +92,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
   const submit = () => {
     if (!title.trim()) { toast('أدخل عنوان الاجتماع'); return; }
     router.post('/admin/meetings', {
-      title, type, priority: prio, conf, dur,
+      title, type, priority: prio, conf,
       participants: participants.join('، '),
       day, time,
       client_id: clientId === '' ? null : clientId,
@@ -102,13 +102,14 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
       preserveScroll: true,
       onSuccess: () => {
         setOpen(false);
-        setFilter('قادم');
+        setFilter('upcoming');
         setTitle('');
-        setDur('');
         setParticipants([]);
         setLawyerId('');
         toast('تم إنشاء الاجتماع بجلسة Zoom وإضافته للتقويم');
       },
+      // رسالة الخادم نفسها (تاريخٌ مطلوب/موعدٌ مضى/محامٍ غير نشط) — بلا onError كان الرفض صامتاً والنافذة مفتوحة
+      onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر إنشاء الاجتماع — راجع الحقول'),
     });
   };
 
@@ -295,13 +296,12 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '5px 0 3px', fontSize: '12.5px', color: 'var(--muted)' }}>
                     <span>🏷️ {m.type}</span>
                     <span>🕒 {m.when}</span>
-                    <span>⏱️ {m.dur || '60 دقيقة'}</span>
                     {m.caseRef && <span>⚖️ {m.caseRef}</span>}
                   </div>
 
                   <div style={{ fontSize: '12px', color: 'var(--ink-soft, #475569)' }}>
                     <b>العميل:</b> {m.client} · <b>المحامي:</b> {m.lawyer !== '—' ? m.lawyer : 'غير مسند'}
-                    {m.status === 'منتهٍ' && (attendanceLabel(m) || fmtActualDuration(m.durationSec)) && (
+                    {m.statusKey === 'ended' && (attendanceLabel(m) || fmtActualDuration(m.durationSec)) && (
                       <span style={{ color: 'var(--primary)', fontWeight: 700, marginRight: 8 }}>
                         · {attendanceLabel(m) ?? ''}
                         {fmtActualDuration(m.durationSec) ? ` (${fmtActualDuration(m.durationSec)} مدة فعلية)` : ''}
@@ -316,7 +316,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                   </span>
                   <Badge text={m.status} tone={meetStatusTone(m.status)} />
                   {/* شارة الاعتماد — كانت حالة الاعتماد غائبة عن القائمة فلا يُعرف ما ينتظر الإدارة */}
-                  <Badge text={m.approve} tone={m.approve === 'معتمد' ? 'b-green' : 'b-amber'} />
+                  <Badge text={m.approve} tone={m.approved ? 'b-green' : 'b-amber'} />
                   <button
                     className="btn soft sm"
                     onClick={() => router.visit(`/admin/meeting?id=${encodeURIComponent(m.id)}`)}
@@ -489,34 +489,8 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                 </div>
               </div>
 
-              <div className="field">
-                <label style={{ fontSize: '12px', fontWeight: 700, marginBottom: 5, display: 'block' }}>المدة الزمنية المقدرة</label>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {['30 دقيقة', '45 دقيقة', '60 دقيقة', '90 دقيقة', '120 دقيقة'].map((d) => {
-                    const sel = (dur || '60 دقيقة') === d;
-                    return (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => setDur(d)}
-                        style={{
-                          padding: '6px 9px',
-                          borderRadius: 7,
-                          fontSize: '11.5px',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          border: sel ? '1.5px solid var(--primary)' : '1px solid var(--line-soft, #cbd5e1)',
-                          background: sel ? 'var(--primary)' : '#ffffff',
-                          color: sel ? '#ffffff' : 'var(--ink)',
-                          transition: '0.15s',
-                        }}
-                      >
-                        {d}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+              {/* لا «المدة الزمنية المقدرة» (قرار المالك 2026-09-26): الاجتماع ينتهي حين يُنهيه المضيف،
+                  ومدّته الفعليّة تُقاس من Zoom بعد إنهائه وتظهر في البطاقة «مدة فعلية». */}
             </div>
           </div>
 
@@ -624,7 +598,11 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                 👥 المشاركون من الكادر القانوني والإداري (انقر للتحديد والإضافة)
               </label>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', maxHeight: 110, overflowY: 'auto', padding: 6, border: '1px solid var(--line-soft, #cbd5e1)', borderRadius: 9, background: '#fff' }}>
-                {(staff && staff.length > 0 ? staff.map((s) => s.label) : STAFF_DIR).map((s) => {
+                {/* الكادر الحقيقيّ وحده — كان يسقط إلى دليلٍ تجريبيّ ثابت في `admin-data` بأسماءٍ لا حسابات لها فلا يصلها إشعار */}
+                {staff.length === 0 && (
+                  <span style={{ fontSize: '12px', color: 'var(--muted)', padding: '4px 6px' }}>لا كادر نشطاً لإضافته.</span>
+                )}
+                {staff.map((s) => s.label).map((s) => {
                   const isChecked = participants.includes(s);
                   return (
                     <button

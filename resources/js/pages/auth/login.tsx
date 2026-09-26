@@ -1,6 +1,7 @@
 import { router, useForm, usePage } from '@inertiajs/react';
 import React from 'react';
 import LandingIcon from '@/components/landing/LandingIcon';
+import { useSettings } from '@/lib/settings';
 
 // صفحة الدخول — هوية + رمز SMS (OTP) بلا كلمة مرور + تسجيل ذاتي للعميل.
 // الدور يُشتقّ حصراً من الخادم بعد التحقّق (لا يُرسَل من الواجهة إطلاقاً).
@@ -69,6 +70,8 @@ const Divider: React.FC = () => (
 
 const Login: React.FC = () => {
   const { authState, accountChoice, devOtp, errors } = usePage<PageProps>().props;
+  // اسم المكتب من إعداده (`office_name`) — كان هنا «النظام الإداري للمحاماة» نسخةً ثالثة بتهجئةٍ أخرى
+  const officeName = useSettings().office_name;
   const otpActive = authState?.step === 'otp';
   const chooseActive = !!accountChoice && accountChoice.length > 0;
 
@@ -187,7 +190,7 @@ const Login: React.FC = () => {
 
             <div className="lgn-hero-txt">
               <h2>
-                النظام الإداري للمحاماة
+                {officeName}
                 <br />
                 والاستشارات القانونية <em>الذكية</em>
               </h2>
@@ -221,7 +224,7 @@ const Login: React.FC = () => {
           <section className="lgn-card lgn-glass" aria-labelledby="lgn-title">
             <img className="lgn-logo" src="/images/sb-mark.png" alt="سلاسل بابل" width={320} height={303} />
             <h1 id="lgn-title">مرحباً بك</h1>
-            <p className="lgn-sub">في النظام الإداري للمحاماة</p>
+            <p className="lgn-sub">في {officeName}</p>
             <p className="lgn-accent">والاستشارات القانونية الذكية</p>
             <Divider />
 

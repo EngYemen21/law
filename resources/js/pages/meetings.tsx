@@ -7,6 +7,7 @@ import { RichText } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { sessTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { useSettings } from '@/lib/settings';
 
 // ============================================================
 // لوحة اجتماعات وجلسات العميل 360 درجة (360° Client Meetings Command Center)
@@ -26,7 +27,6 @@ export interface ClientMeeting {
   link: string;
   minutes: string | null;
   summary: string | null;
-  dur?: string;
   lawyer?: string;
   caseRef?: string | null;
   type?: string;
@@ -69,6 +69,8 @@ const Meetings: React.FC<Props> = ({
   videoConsults = [],
 }) => {
   const toast = useToast();
+  // اسم المكتب من الإعدادات — كان رأس المحضر يحمل اسماً ثالثاً منقوشاً لا يطابق مستندات المكتب
+  const { office_name: officeName } = useSettings();
   const [items, setItems] = useState<ClientMeeting[]>(meetings);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past' | 'consults'>('upcoming');
   const [searchQuery, setSearchQuery] = useState('');
@@ -340,8 +342,9 @@ return;
                     <Icon name="user" /> المستشار: {nextUp.lawyer || 'مستشار المكتب'}
                   </span>
                   <span>·</span>
+                  {/* لا «المدة: 60 دقيقة» — الاجتماع لا مدّة له تُعلَن، ينتهي حين يُنهيه المستشار */}
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    <Icon name="clock" /> المدة: {nextUp.dur || '60 دقيقة'}
+                    <Icon name="clock" /> ينتهي بإنهاء المستشار له
                   </span>
                   {nextUp.caseRef && (
                     <>
@@ -774,7 +777,7 @@ return;
               }}
             >
               <div>
-                <b style={{ color: 'var(--ink)', display: 'block' }}>مكتب سلاسل بابل للمحاماة والاستشارات</b>
+                <b style={{ color: 'var(--ink)', display: 'block' }}>{officeName}</b>
                 <span style={{ color: 'var(--faint)' }}>التاريخ: {activeDoc.when || '—'} · المستشار: {activeDoc.lawyer || 'مستشار المكتب'}</span>
               </div>
               <span className="badge-s b-green">

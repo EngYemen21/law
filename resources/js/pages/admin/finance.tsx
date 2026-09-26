@@ -1,6 +1,7 @@
 import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import { usePrompt } from '@/components/babylon/ConfirmDialog';
 import Modal from '@/components/babylon/Modal';
 import Pagination from '@/components/babylon/Pagination';
 import type { Paginated } from '@/components/babylon/Pagination';
@@ -20,7 +21,8 @@ import Icon from '@/lib/icons';
  * والمشاركة، وتبقى صحيحةً مع الترقيم.
  */
 
-const fmt = (n: number) => n.toLocaleString('en-US') + ' ر.س';
+// المقبوضات تصل بكسر الهللة (`FinanceBoard::riyals`) — منزلتان على الأكثر، وبلا أصفارٍ زائدة للصحيح
+const fmt = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' ر.س';
 
 interface Opt { k: string; label: string }
 interface StatusOpt extends Opt { tone: string }
@@ -71,6 +73,7 @@ const AdminFinance: React.FC<Props> = ({
   dashboard, invoices, receipts, aging, vat,
 }) => {
   const toast = useToast();
+  const askFor = usePrompt();
   const [reasonFor, setReasonFor] = useState<{ no: string; action: 'cancel' | 'write-off' } | null>(null);
   const [reason, setReason] = useState('');
   const [from, setFrom] = useState(period.from);
@@ -95,11 +98,33 @@ const AdminFinance: React.FC<Props> = ({
     router.get('/admin/finance', q, { preserveScroll: true, preserveState: false });
   };
 
-  const act = (no: string, path: string, done: string, data: Record<string, string> = {}) => {
+  /**
+   * نجاحُ كلّ إجراءٍ يُعلنه الخادم برسالته (`flash`) ويعرضها `AppLayout` — تنبيهٌ محلّيّ فوقه كان
+   * يُكرّره. والرفض (حارس الانتقال ٤٢٢ · «محصّلة مسبقاً») يبلغ `onError` برسالته نفسها؛ كان صامتاً.
+   */
+  const act = (no: string, path: string, data: Record<string, string> = {}) => {
     router.post(`/admin/invoices/${encodeURIComponent(no)}/${path}`, data, {
       preserveScroll: true,
-      onSuccess: () => toast(done),
+      onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر تنفيذ الإجراء على الفاتورة ' + no, 'error'),
     });
+  };
+
+  /** رفض إثبات التحويل بعد تأكيدٍ وسببٍ يصل العميل — الخادم يقبل `reason` ويُشعره به. */
+  const rejectProof = async (no: string) => {
+    const why = await askFor({
+      title: 'رفض إثبات التحويل؟',
+      message: 'يُحذف الملفّ المرفوع وتعود الفاتورة للاستحقاق، ويُشعَر العميل بالسبب ليرفع إثباتاً صحيحاً أو يدفع إلكترونياً.',
+      label: 'سبب الرفض (يصل العميل)',
+      placeholder: 'مثال: المبلغ في الإيصال لا يطابق الفاتورة',
+      confirmLabel: 'رفض الإثبات',
+      required: false,
+    });
+
+    if (why === null) {
+      return;
+    }
+
+    act(no, 'proof/reject', { reason: why.trim() });
   };
 
   /** فتح نافذة السبب — الإلغاء والشطب كلاهما قرارٌ يُسبَّب، والشطب سببُه إلزاميّ. */
@@ -119,12 +144,7 @@ const AdminFinance: React.FC<Props> = ({
       return;
     }
 
-    act(
-      reasonFor.no,
-      reasonFor.action,
-      reasonFor.action === 'cancel' ? 'أُلغيت الفاتورة ' + reasonFor.no : 'شُطبت الفاتورة ' + reasonFor.no + ' ديناً معدوماً',
-      { reason: reason.trim() },
-    );
+    act(reasonFor.no, reasonFor.action, { reason: reason.trim() });
     setReasonFor(null);
     setReason('');
   };
@@ -262,14 +282,14 @@ const AdminFinance: React.FC<Props> = ({
                             )}
                             {/* الأزرار من `Workflow::allowed` — الحارس الذي يقبل الإجراء هو من يُظهر زرّه */}
                             {v.can.includes('invoice.issue') && (
-                              <button className="btn sm" type="button" onClick={() => act(v.no, 'issue', 'أُصدرت الفاتورة ' + v.no)}><Icon name="send" /> إصدار للعميل</button>
+                              <button className="btn sm" type="button" onClick={() => act(v.no, 'issue')}><Icon name="send" /> إصدار للعميل</button>
                             )}
                             {v.can.includes('invoice.settle') && (
-                              <button className="btn sm" type="button" onClick={() => act(v.no, 'pay', 'تم تسجيل تحصيل الفاتورة ' + v.no)}><Icon name="check" /> تحصيل</button>
+                              <button className="btn sm" type="button" onClick={() => act(v.no, 'pay')}><Icon name="check" /> تحصيل</button>
                             )}
                             {/* رافع الملف الخاطئ كان يفقد زرّ الدفع نهائياً — الرفض يعيد الفاتورة للاستحقاق ويُشعره */}
                             {v.hasProof && !v.paid && (
-                              <button className="btn ghost sm" type="button" onClick={() => act(v.no, 'proof/reject', 'رُفض الإثبات وأُشعر العميل')}>
+                              <button className="btn ghost sm" type="button" onClick={() => rejectProof(v.no)}>
                                 <Icon name="close" /> رفض الإثبات
                               </button>
                             )}

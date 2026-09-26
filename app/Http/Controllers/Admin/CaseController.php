@@ -2,6 +2,12 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domain\Journey\Enums\ClosureCaseReasonCode;
+use App\Domain\Journey\Transitions\LegalCase\ArchiveCase as ArchiveCaseTransition;
+use App\Domain\Journey\Transitions\LegalCase\CloseCase as CloseCaseTransition;
+use App\Domain\Journey\Transitions\LegalCase\ReopenCase as ReopenCaseTransition;
+use App\Domain\Journey\Transitions\LegalCase\SetFee as SetFeeTransition;
+use App\Domain\Journey\Workflow;
 use App\Enums\Role;
 use App\Events\CaseStatusBroadcast;
 use App\Http\Controllers\Controller;
@@ -11,25 +17,20 @@ use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
-use App\Domain\Journey\Enums\ClosureCaseReasonCode;
-use App\Domain\Journey\Transitions\LegalCase\ArchiveCase as ArchiveCaseTransition;
-use App\Domain\Journey\Transitions\LegalCase\CloseCase as CloseCaseTransition;
-use App\Domain\Journey\Transitions\LegalCase\ReopenCase as ReopenCaseTransition;
-use App\Domain\Journey\Transitions\LegalCase\SetFee as SetFeeTransition;
-use App\Domain\Journey\Workflow;
 use App\Services\MailService;
 use App\Support\Audit;
 use App\Support\CaseFee;
 use App\Support\CaseJourney;
 use App\Support\ConversationFiles;
+use App\Support\ConversationHandler;
 use App\Support\ExecutionCreation;
+use App\Support\Finance\InvoiceDue;
 use App\Support\Finance\InvoiceFactory;
 use App\Support\Live;
 use App\Support\Notify;
 use App\Support\Paginate;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -55,6 +56,13 @@ class CaseController extends Controller
                 'lawyerFee' => $c->lawyer_fee,
                 'lawyerPct' => $c->lawyer_pct,
                 'feeStatus' => $c->fee_status,
+                // حكم انتقال `SetFee` (حالته المصدر + صلاحيّة الفاعل) — كانت الواجهة تقارن نصّ الحالة
+                'canSetFee' => $c->fee_status === 'none'
+                    && (new SetFeeTransition)->accepts((string) $c->status)
+                    && (new SetFeeTransition)->deny($c, auth()->user()) === null,
+                // خطّة التقسيط — كانت `installments` بلا فرعٍ في الشاشة فتقع على «لا إجراء مطلوب»
+                'installmentsTotal' => $c->installments_total,
+                'installmentsPaid' => $c->installments_paid,
             ]),
         ]);
     }
@@ -62,7 +70,7 @@ class CaseController extends Controller
     // تحديد قيمة الأتعاب → القضية بانتظار سداد العميل
     public function setFee(Request $request, LegalCase $case): RedirectResponse
     {
-        abort_unless($case->status === 'بانتظار اعتماد الأتعاب', 422);
+        abort_unless($case->status === 'بانتظار اعتماد الأتعاب', 422, 'تُحدَّد الأتعاب والقضية بانتظار اعتمادها فقط — حدّث الصفحة لترى حالتها الحاليّة.');
 
         $data = $request->validate([
             'fee' => ['required', 'integer', 'min:0', 'max:10000000'],
@@ -115,8 +123,7 @@ class CaseController extends Controller
             'user_id' => $case->user_id,
             'case_id' => $case->id,
             'description' => "أتعاب قضية {$case->number} — {$case->type}",
-            'due_label' => 'خلال 14 يوماً',
-            'due_at' => now()->addDays(14)->toDateString(),
+            ...InvoiceDue::caseFee(), // المهلة من الإعدادات — التاريخ ونصّه من رقمٍ واحد
         ], $request->user());
 
         $case->messages()->create([
@@ -186,7 +193,8 @@ class CaseController extends Controller
                 'updateText' => $c->update_text,
                 'ruling' => $c->ruling,
                 'hearingsCount' => $c->hearings->count(),
-                'nextHearingDate' => $nextHearing ? ($nextHearing->starts_at?->format('Y-m-d H:i') ?? $nextHearing->session_date) : null,
+                // `session_date` لا عمود له — الموعد بصياغته الموحّدة (`CaseHearing::label`) حين لا طابع زمنيّ
+                'nextHearingDate' => $nextHearing ? ($nextHearing->starts_at?->format('Y-m-d H:i') ?? $nextHearing->label()) : null,
                 'nextHearingNotes' => $nextHearing?->notes,
                 'date' => $c->created_at?->format('Y-m-d'),
                 'canClose' => $c->status === 'صدر الحكم',
@@ -217,6 +225,8 @@ class CaseController extends Controller
             'types' => $types,
             'kpis' => $kpis,
             'tabs' => $tabs,
+            // أسباب الإغلاق من الكتالوج (`ClosureCaseReasonCode::options`) — نافذة القائمة والتفاصيل من مصدرٍ واحد
+            'closureReasons' => ClosureCaseReasonCode::options(),
         ]);
     }
 
@@ -231,6 +241,8 @@ class CaseController extends Controller
         $case->load(['user', 'hearings', 'documents', 'assignedLawyer']);
 
         return Inertia::render('admin/case', [
+            // من يتولّى المحادثة الآن ومن تولّاها قبله — للطاقم وحده (`ConversationHandler`)
+            'conversation' => ConversationHandler::history($case),
             'case' => [
                 'no' => $case->number,
                 'client' => $case->user?->name ?? '—',
@@ -252,6 +264,9 @@ class CaseController extends Controller
                 'appeal' => $case->appealCard(),
                 'canClose' => $case->status === 'صدر الحكم',
                 'canArchive' => $case->status === 'مغلقة',
+                // حكم الانتقال نفسه (`ReopenCase`: حالته المصدر + صلاحيّة الفاعل) — لا «status === مغلقة» في الواجهة
+                'canReopen' => (new ReopenCaseTransition)->accepts((string) $case->status)
+                    && (new ReopenCaseTransition)->deny($case, $request->user()) === null,
                 'canExecute' => ExecutionCreation::isEligible($case),
                 'canReassign' => $case->status !== 'مؤرشفة',
                 'feePending' => $case->status === 'بانتظار اعتماد الأتعاب',
@@ -262,6 +277,7 @@ class CaseController extends Controller
             'hearings' => $case->hearings->map->toData(),
             'documents' => $case->documents->map(fn ($d) => $d->toData($request->user())),
             'convertedExec' => $case->execution()->exists(),
+            'closureReasons' => ClosureCaseReasonCode::options(),
             // لإعادة الإسناد — المحامون النشطون وحدهم (قاعدة `ActiveLawyer` نفسها)
             'lawyers' => User::where('role', Role::Lawyer)->orderBy('name')->get()
                 ->filter(fn (User $u) => $u->isActive())
@@ -273,28 +289,17 @@ class CaseController extends Controller
     // الإغلاق بعد الحكم مع التسبيب النظامي (المرحلة ب — 2026-09-16)
     public function closeCase(Request $request, LegalCase $case): RedirectResponse
     {
-        abort_unless($case->status === 'صدر الحكم', 422);
+        abort_unless($case->status === 'صدر الحكم', 422, 'تُغلق القضية بعد صدور الحكم فقط.');
 
-        $rawReason = $request->input('closure_reason');
-        $reasonMap = [
-            'حكم قطعي / نهائي' => ClosureCaseReasonCode::RulingFinalized->value,
-            'صلح وتراضي' => ClosureCaseReasonCode::AmicableSettlement->value,
-            'تنازل المدعي' => ClosureCaseReasonCode::ClaimRelinquished->value,
-            'عدم اختصاص' => ClosureCaseReasonCode::NoCompetence->value,
-            'رد الدعوى' => ClosureCaseReasonCode::NoCompetence->value,
-            'أخرى مع تسبيب' => ClosureCaseReasonCode::OtherWithJustification->value,
-        ];
-        if (isset($reasonMap[$rawReason])) {
-            $request->merge(['closure_reason' => $reasonMap[$rawReason]]);
-        }
-
+        // **السبب إلزاميّ ورمزٌ من الكتالوج** — كان اختياريّاً يسقط إلى «حكم نهائي» حين يغيب، فزرّ
+        // الإغلاق في القائمة (يرسل `{}`) كان يسجّل كلّ إغلاقٍ «صدور حكم نهائي» وإن كان صلحاً أو تنازلاً.
+        // وخريطة التسميات العربيّة القديمة أُزيلت: لا واجهة ترسلها، والواجهتان ترسلان الرمز.
         $data = $request->validate([
-            'closure_reason' => ['nullable', 'string', Rule::in(ClosureCaseReasonCode::values())],
+            'closure_reason' => ['required', 'string', Rule::in(ClosureCaseReasonCode::values())],
             'closure_notes' => ['nullable', 'string', 'max:2000'],
-        ]);
+        ], [], ['closure_reason' => 'سبب الإغلاق']);
 
-        $reasonCode = $data['closure_reason'] ?? ClosureCaseReasonCode::RulingFinalized->value;
-        $reasonEnum = ClosureCaseReasonCode::tryFrom($reasonCode) ?? ClosureCaseReasonCode::RulingFinalized;
+        $reasonEnum = ClosureCaseReasonCode::from($data['closure_reason']);
         $notes = $data['closure_notes'] ?? null;
         $reasonLabel = $reasonEnum->label();
 
@@ -459,7 +464,8 @@ class CaseController extends Controller
         $exec = ExecutionCreation::fromCase($case, $request->user());
 
         // وجهة الملف المفتوح لا الصفحة السابقة — نظير مسار المحامي (lawyer.execs)، والعقد موثّق باختبار
-        return redirect()->route('admin.execs')->with('flash', "فُتح طلب التنفيذ {$exec->number} للقضية {$case->number}.");
+        // `?id=` يفتح الملفّ نفسه (`execflow.resolveTarget`) — بدونه تهبط الإدارة على القائمة كلّها
+        return redirect()->route('admin.execs', ['id' => $exec->number])->with('flash', "فُتح طلب التنفيذ {$exec->number} للقضية {$case->number}.");
     }
 
     private function clock(): string

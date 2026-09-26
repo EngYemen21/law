@@ -2,12 +2,14 @@ import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
+import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
-import { RichText, sessTone, SummaryStateBadge } from '@/lib/consult-ui';
+import { CONFIRM_CANCEL_CONSULT_REQUEST, RichText, sessTone, SummaryStateBadge } from '@/lib/consult-ui';
 import type {ConsultCard, LawyerOpt} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
+import { useSettings } from '@/lib/settings';
 import {
   cTone,
   crChannelIcon,
@@ -54,14 +56,19 @@ interface AdminConsultsProps {
   consults: ConsultCard[];
   preSessionRequests?: ConsultCard[];
   lawyers?: LawyerOpt[];
+  /** السعر المقترح لكلّ قناة من الإعدادات (`Setting::consultPrices`). */
+  suggestedPrices?: Record<string, number>;
 }
 
 type ViewMode = 'table' | 'pipeline' | 'calendar' | 'analytics';
 type CategoryFilter = 'all' | 'live' | 'pre_session' | 'in_flight' | 'completed' | 'late' | 'unassigned';
 type DrawerTab = 'details' | 'actions' | 'ai_zoom' | 'audit';
 
-/** حدُّ التأخّر بالدقائق منذ الاستقبال — للطلبات المفتوحة وحدها. */
-const LATE_AFTER_MINS = 100;
+/*
+ * حدُّ التأخّر بالدقائق منذ الاستقبال — للطلبات المفتوحة وحدها. من إعدادات الخادم
+ * (`consult_request_late_minutes`) لا منقوشاً: كانت هذه الشاشة تحمل 100 وجارتها «طلبات
+ * الاستشارات» 120، فالطلب الواحد «متأخّر» هنا و«في الوقت» هناك.
+ */
 
 /**
  * **متأخّرٌ يعني قِيس فتجاوز الحدّ.**
@@ -88,10 +95,10 @@ function needsAssignment(c: ConsultCard): boolean {
   );
 }
 
-function isLate(c: ConsultCard): boolean {
+function isLate(c: ConsultCard, lateAfterMins: number): boolean {
   return (
     c.ageMins != null &&
-    c.ageMins > LATE_AFTER_MINS &&
+    c.ageMins > lateAfterMins &&
     !['جاهزة للمحامي', ...CONSULT_TERMINAL_STATUSES].includes(c.status)
   );
 }
@@ -154,8 +161,11 @@ export const AdminConsults: React.FC<AdminConsultsProps> = ({
   consults: initialConsults = [],
   preSessionRequests: initialRequests = [],
   lawyers: initialLawyers = [],
+  suggestedPrices = {},
 }) => {
   const toast = useToast();
+  const ask = useConfirm();
+  const { consult_request_late_minutes: lateAfterMins } = useSettings();
 
   // State Management
   const [inFlightItems, setInFlightItems] = useState<ConsultCard[]>(initialConsults);
@@ -179,15 +189,22 @@ export const AdminConsults: React.FC<AdminConsultsProps> = ({
 
   // Inline Controls State for 360° Drawer
   const [drawerLawyerId, setDrawerLawyerId] = useState<number | ''>('');
-  const [drawerPrice, setDrawerPrice] = useState<string>('600');
+  const [drawerPrice, setDrawerPrice] = useState<string>('');
   const [isProcessingAction, setIsProcessingAction] = useState(false);
 
   // Standalone Table Modals State
   const [pricingConsult, setPricingConsult] = useState<ConsultCard | null>(null);
   const [pricingChannel, setPricingChannel] = useState<string>('حضورية');
-  const [inputPrice, setInputPrice] = useState<string>('600');
+  const [inputPrice, setInputPrice] = useState<string>('');
   const [reassignConsult, setReassignConsult] = useState<ConsultCard | null>(null);
   const [selectedLawyerId, setSelectedLawyerId] = useState<number | ''>('');
+
+  // سعر القناة من الإعدادات (`ConsultController::suggestedPrices`) — كانت «600» مكتوبةً لكلّ قناة
+  const priceFor = (channel?: string | null): string => {
+    const p = suggestedPrices[channel || 'حضورية'];
+
+    return p ? String(p) : '';
+  };
 
   // Realtime synchronization via Echo
   useEffect(() => {
@@ -270,7 +287,7 @@ return initialLawyers;
     if (drawerConsult) {
       const found = lawyersList.find((l) => l.name === drawerConsult.lawyer);
       setDrawerLawyerId(found ? found.id : '');
-      setDrawerPrice(String(drawerConsult.price || 600));
+      setDrawerPrice(drawerConsult.price ? String(drawerConsult.price) : priceFor(drawerConsult.channel));
     }
   }, [drawerConsult, lawyersList]);
 
@@ -280,13 +297,13 @@ return initialLawyers;
     const liveNow = allItems.filter((c) => c.session === 'جلسة جارية').length;
     // من الكتالوج المشترك لا من نسخةٍ مكتوبةٍ بيد — تُخالف عند أوّل تعديل
     const preSession = allItems.filter((c) => CONSULT_BOOKING_STATUSES.includes(c.status)).length;
-    const needsPricing = allItems.filter((c) => c.status === 'بانتظار التسعير').length;
+    const needsPricing = allItems.filter((c) => c.needsPricing).length;
     const readyForLawyer = allItems.filter((c) => c.status === 'جاهزة للمحامي').length;
     const completed = allItems.filter((c) => CONSULT_TERMINAL_STATUSES.includes(c.status)).length;
     const toCase = allItems.filter((c) => !!c.caseNo).length;
     const conversionRate = total > 0 ? Math.round((toCase / total) * 100) : 0;
 
-    const late = allItems.filter(isLate).length;
+    const late = allItems.filter((c) => isLate(c, lateAfterMins)).length;
     const unassigned = allItems.filter(needsAssignment).length;
 
     /*
@@ -325,7 +342,7 @@ return initialLawyers;
       pendingRevenue,
       unassigned,
     };
-  }, [allItems]);
+  }, [allItems, lateAfterMins]);
 
   // Active live sessions for the Radar section
   const liveSessions = useMemo(() => {
@@ -378,7 +395,7 @@ return false;
 return false;
 }
 
-      if (categoryFilter === 'late' && !isLate(c)) {
+      if (categoryFilter === 'late' && !isLate(c, lateAfterMins)) {
 return false;
 }
 
@@ -421,7 +438,7 @@ return false;
 
       return true;
     });
-  }, [allItems, categoryFilter, channelFilter, specialtyFilter, lawyerFilter, priorityFilter, searchQuery]);
+  }, [allItems, categoryFilter, channelFilter, specialtyFilter, lawyerFilter, priorityFilter, searchQuery, lateAfterMins]);
 
   // Open & Close Drawer Actions
   const openDrawer = (ref: string) => {
@@ -491,7 +508,7 @@ return false;
   const handleOpenPricingModal = (consult: ConsultCard) => {
     setPricingConsult(consult);
     setPricingChannel(consult.channel || 'حضورية');
-    setInputPrice(String(consult.price || 600));
+    setInputPrice(consult.price ? String(consult.price) : priceFor(consult.channel));
   };
 
   const submitPricingModal = (e: React.FormEvent) => {
@@ -562,7 +579,7 @@ return;
       {},
       {
         preserveScroll: true,
-        onSuccess: () => toast('🔔 تم إرسال تذكير الموعد للعميل بنجاح'),
+        // التذكير يصل فريق المواعيد لا العميل (الحجز بيد الطاقم — قرار 2026-09-14)، ونصّ النجاح من الخادم
         onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذر الإرسال'}`),
       }
     );
@@ -596,10 +613,15 @@ return;
     );
   };
 
-  const triggerCancelRequest = (consult: ConsultCard) => {
+  const triggerCancelRequest = async (consult: ConsultCard) => {
     if (!cancelReason) {
       toast('⚠️ يُرجى اختيار سبب الإلغاء');
 
+      return;
+    }
+
+    // تأكيدٌ يقول الأثر قبل الإرسال (قرار المالك 2026-09-26) — الإلغاء لا يُتراجع عنه
+    if (!(await ask(CONFIRM_CANCEL_CONSULT_REQUEST))) {
       return;
     }
 
@@ -1381,7 +1403,7 @@ return;
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                          {c.status === 'بانتظار التسعير' && (
+                          {c.needsPricing && (
                             <button
                               className="btn primary sm"
                               type="button"
@@ -1390,7 +1412,7 @@ return;
                               تسعير
                             </button>
                           )}
-                          {c.status === 'بانتظار تحديد الموعد' && (
+                          {c.canRemindSchedule && (
                             <button
                               className="btn soft sm"
                               type="button"
@@ -2072,7 +2094,7 @@ return;
                   )}
 
                   {/* 2. التسعير المباشر وإصدار الفاتورة */}
-                  {drawerConsult.status === 'بانتظار التسعير' && (
+                  {drawerConsult.needsPricing && (
                     <div className="card" style={{ margin: 0, padding: 16, borderRight: '4px solid #C0832B' }}>
                       <b>تسعير الاستشارة وإصدار الفاتورة:</b>
                       <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
@@ -2109,11 +2131,11 @@ return;
                   )}
 
                   {/* 3. تذكير الموعد */}
-                  {drawerConsult.status === 'بانتظار تحديد الموعد' && (
+                  {drawerConsult.canRemindSchedule && (
                     <div className="card" style={{ margin: 0, padding: 14 }}>
-                      <b>تذكير العميل باختيار الموعد:</b>
+                      <b>تذكير فريق المواعيد بحجز الموعد:</b>
                       <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
-                        العميل سدد الرسوم ولم يحدد موعداً بعد.
+                        العميل سدّد الرسوم ولم يُحجز موعده بعد — الحجز بيد الطاقم، فيصل التذكير لمن يملك جدولة المواعيد.
                       </p>
                       <button
                         className="btn soft sm"
@@ -2121,7 +2143,7 @@ return;
                         type="button"
                         onClick={() => triggerRemindSchedule(drawerConsult)}
                       >
-                        <Icon name="bell" /> إرسال إشعار تذكير
+                        <Icon name="bell" /> تذكير فريق المواعيد
                       </button>
                     </div>
                   )}
@@ -2185,7 +2207,7 @@ return;
                       >
                         <Icon name="sparkles" /> تشغيل التحليل
                       </button>
-                      {drawerConsult.status === 'بانتظار اعتماد الموظف' && (
+                      {drawerConsult.canApproveAnalysis && (
                         <button
                           className="btn primary sm"
                           style={{ flex: 1, justifyContent: 'center' }}

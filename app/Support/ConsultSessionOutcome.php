@@ -6,7 +6,9 @@ use App\Domain\Journey\Transitions\Ticket\ApproveTicketResult;
 use App\Domain\Journey\Transitions\Ticket\ReadyForOutcome;
 use App\Domain\Journey\Transitions\Ticket\SessionEnded;
 use App\Domain\Journey\Workflow;
+use App\Events\ConsultStatusBroadcast;
 use App\Events\TicketMessageBroadcast;
+use App\Jobs\FinalizeConsultJob;
 use App\Models\Consult;
 use App\Models\User;
 use App\Services\LegalAiService;
@@ -38,6 +40,19 @@ final class ConsultSessionOutcome
         }
 
         Workflow::run($transition, $ticket);
+    }
+
+    /**
+     * **ما يلي ختمَ جلسةٍ بلا زرّ الطاقم** — ويبهوك Zoom (`meeting.ended`) وشبكة النسيان
+     * (`sessions:close-stale`، قرار المالك 2026-09-26 الأخير) بعد `EndSession`: التذكرة «بانتظار
+     * ملخّص الجلسة»، والبثّ، ووظيفة الختم (تولّد إن وجدت مادّة، وإلّا نبّهت المحامي ليدوّن).
+     */
+    public static function afterUnattendedEnd(Consult $consult): void
+    {
+        self::sessionEnded($consult);
+        Live::push(new ConsultStatusBroadcast($consult));
+
+        FinalizeConsultJob::dispatch($consult->fresh(), '');
     }
 
     /**

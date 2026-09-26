@@ -11,8 +11,8 @@ use App\Models\Consult;
  *
  * ملاحظتان مقصودتان بخلاف المخطوطة:
  * - صفّ المستشار يستخدم أيقونة user لا clock (المخطوطة كانت تضع الساعة، وهو خطأ ظاهر فيها).
- * - رمز QR غير مُدرج: مولّد المخطوطة كان يرسم نمطاً عشوائياً لا يُشفّر شيئاً، ووضعه في
- *   الإنتاج يعني رمزاً يمسحه العميل فلا يحصل على شيء. يُضاف عند توفّر مكتبة QR حقيقية.
+ * - لا رمز استجابة هنا: رسالة المحادثة تُخزَّن HTML ثابتاً، ورابط التحقّق الموقَّع مكانه بطاقة
+ *   الموعد نفسها (الشاشة وPDF — `AppointmentController::card/qr`)، حيث يُولَّد حين يُطلب.
  */
 class AppointmentCard
 {
@@ -30,17 +30,6 @@ class AppointmentCard
         return '<svg class="ic" viewBox="0 0 24 24">'.(self::ICONS[$key] ?? '').'</svg>';
     }
 
-    /** الاسم الأول فقط (لقب + أول اسم) — لا يُظهَر الاسم الكامل للمحامي للعميل (يطابق lawyerFirst في الواجهة). */
-    private static function firstName(string $name): string
-    {
-        $parts = preg_split('/\s+/', trim($name)) ?: [];
-        if (isset($parts[1]) && preg_match('/^(أ|د|م|الأستاذ|الأستاذة|المحامي|المحامية)\.?$/u', $parts[0])) {
-            return $parts[0].' '.$parts[1];
-        }
-
-        return $parts[0] ?? $name;
-    }
-
     /**
      * @param  array{label:string,place:string}  $meta  ناتج ConsultBooking::meta()
      */
@@ -49,7 +38,9 @@ class AppointmentCard
         $place = $consult->placeLabel() ?: $meta['place'];
 
         $rows = '<div class="row">'.self::icon('cal').'<b>'.e($consult->day).'</b><span>· '.e($consult->time).'</span></div>'
-            .'<div class="row">'.self::icon('user').'<span>'.e(self::firstName($consult->lawyer)).'</span></div>'
+            // المستشار بالمصدر الواحد «محمد. ب» (`Consult::lawyerForClient`). كانت هنا نسخةٌ ثالثة
+            // تُبقي اللقب والاسم الأوّل «أ. محمد» وتقصّ النوائب («الإدارة العليا» ⇐ «الإدارة»)
+            .'<div class="row">'.self::icon('user').'<span>'.e($consult->lawyerForClient(LawyerName::SPECIALIST)).'</span></div>'
             .'<div class="row">'.self::icon('pin').'<span>'.e($place).'</span></div>';
 
         // رابط الجلسة المرئية داخل المنصة حصراً

@@ -9,6 +9,7 @@ use App\Models\Meeting;
 use App\Models\User;
 use App\Support\LawyerName;
 use App\Support\Notify;
+use App\Support\RoomDetails;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -72,16 +73,19 @@ class MeetingController extends Controller
     }
 
     // غرفة الاجتماع المضمّنة للعميل — تضمين Zoom داخل المنصّة (?ref=M-…)
-    public function room(Request $request): Response
+    public function room(Request $request): Response|RedirectResponse
     {
-        $meeting = Meeting::where('ref', (string) $request->query('ref'))->firstOrFail();
+        $meeting = Meeting::with('assignedLawyer')->where('ref', (string) $request->query('ref'))->firstOrFail();
         abort_unless($meeting->user_id === $request->user()->id, 403);
-        // رسالة مميّزة لكل حالة — «انتهت» توحي بمراجعة الملخص، و«لم يحن» تدعو للانتظار
-        abort_unless($meeting->canJoin(), 403, $meeting->liveState()[0] === 'past'
-            ? 'انتهت جلسة هذا الاجتماع — لم يعد الدخول متاحاً.'
-            : 'لم يحن موعد الجلسة بعد — يُفعَّل الدخول قبل الموعد بـ5 دقائق.');
+        // السبب الحقيقيّ من المصدر الواحد (`joinBlocker` عبر `RoomDetails::entryBlocker`) — كان
+        // «انتهت» يُقال لاجتماعٍ ملغى أو فائت، والنصّ غير نصّ نقطة التوقيع
+        if (($why = RoomDetails::entryBlocker($meeting, $request->user())) !== null) {
+            return RoomDetails::refuse($request, $meeting, $why, 403);
+        }
 
         return Inertia::render('meetingroom', [
+            // عقد الغرفة — والخاصيّتان القديمتان باقيتان حتى تنتقل الواجهة إليه
+            'room' => RoomDetails::for($meeting, $request->user()),
             'meeting' => $meeting->toCard(),
             'selfName' => $request->user()->name,
         ]);

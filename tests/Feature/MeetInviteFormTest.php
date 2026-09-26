@@ -3,16 +3,14 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
-use App\Mail\MeetInviteMail;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 /**
- * فورم دعوة الاجتماع الاحترافي: محامٍ ومدة إلزاميان، موعد مستقبلي فقط،
+ * فورم دعوة الاجتماع الاحترافي: محامٍ إلزاميّ (ولا مدّة — الاجتماع ينتهي حين يُنهى)، موعد مستقبلي فقط،
  * منع الحجز المزدوج للمحامي، نقطة التوفّر، وتمرير المحامي/المدة للاجتماع عند التأكيد.
  */
 class MeetInviteFormTest extends TestCase
@@ -28,7 +26,11 @@ class MeetInviteFormTest extends TestCase
         ], $over);
     }
 
-    public function test_requires_lawyer_and_duration(): void
+    /**
+     * المحامي إلزاميّ — و«المدة» لم تعد حقلاً (قرار المالك 2026-09-26): الاجتماع ينتهي حين يُنهى،
+     * والتعارض بمسافة الحجز من الإعدادات.
+     */
+    public function test_requires_lawyer_but_no_duration(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $emp = User::factory()->create(['role' => Role::Employee]);
@@ -36,7 +38,7 @@ class MeetInviteFormTest extends TestCase
         $this->actingAs($emp)->post(route('employee.meetreqs.store'), [
             'client_id' => $client->id, 'type' => 'استشارة مرئية',
             'day' => now()->addWeek()->format('Y-m-d'), 'time' => '11:30',
-        ])->assertSessionHasErrors(['lawyer_id', 'duration']);
+        ])->assertSessionHasErrors(['lawyer_id'])->assertSessionDoesntHaveErrors(['duration']);
     }
 
     public function test_rejects_past_day(): void

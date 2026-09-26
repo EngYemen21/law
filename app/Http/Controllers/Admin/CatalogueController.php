@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\LegalCatalogueAlias;
 use App\Models\LegalDepartment;
+use App\Models\LegalDepartmentDocument;
 use App\Models\LegalService;
 use App\Models\StaffDepartment;
 use App\Support\LegalCatalogue;
@@ -18,7 +19,7 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * **شاشة «الأقسام والخدمات»** — الأقسام القانونيّة وخدماتها، والأقسام الإداريّة للموظّفين.
+ * **شاشة «الأقسام والخدمات»** — الأقسام القانونيّة وخدماتها وقائمة مستندات كلّ قسم، والأقسام الإداريّة للموظّفين.
  *
  * المتحكّم يتحقّق من المدخلات وينقل؛ منطق الكتابة كلّه (إعادة التسمية الشاملة، والأسماء البديلة،
  * والتدقيق) في `LegalCatalogueEditor` — مصدرٌ واحد يعيد استعماله أيّ مدخلٍ آخر لاحقاً.
@@ -45,7 +46,8 @@ class CatalogueController extends Controller
         ];
 
         return Inertia::render('admin/catalogue', [
-            'departments' => LegalCatalogue::departments(activeOnly: false)->map(fn (LegalDepartment $d) => [
+            // قوائم المستندات تُحمَّل هنا دفعةً واحدة — لقطة الكتالوج لا تحمّلها لكلّ طلب
+            'departments' => LegalCatalogue::departments(activeOnly: false)->loadMissing('documents')->map(fn (LegalDepartment $d) => [
                 'id' => $d->id,
                 'name' => $d->name,
                 'active' => $d->isActive(),
@@ -57,7 +59,14 @@ class CatalogueController extends Controller
                     'name' => $s->name,
                     'active' => $s->isActive(),
                 ])->values(),
+                // قائمة مستندات القسم كما حُرّرت — فارغةٌ ⇒ القسم على القائمة العامّة (`defaultDocuments`)
+                'documents' => $d->documents->map(fn (LegalDepartmentDocument $doc) => [
+                    'id' => $doc->id,
+                    'name' => $doc->name,
+                    'required' => $doc->required,
+                ])->values(),
             ])->values(),
+            'defaultDocuments' => LegalCatalogue::DEFAULT_DOCUMENTS,
             'staffDepartments' => StaffDepartment::query()->orderBy('sort_order')->orderBy('id')->get()
                 ->map(fn (StaffDepartment $d) => [
                     'id' => $d->id,
@@ -149,6 +158,46 @@ class CatalogueController extends Controller
         LegalCatalogueEditor::reorderServices($department, $data['order'], $request->user());
 
         return back()->with('flash', 'حُفظ ترتيب الخدمات.');
+    }
+
+    // ── قائمة مستندات القسم ─────────────────────────────────
+
+    public function storeDocument(Request $request, LegalDepartment $department): RedirectResponse
+    {
+        $data = $request->validate(['name' => ['required', 'string', 'max:160'], 'required' => ['required', 'boolean']], self::NAME_MESSAGES);
+        LegalCatalogueEditor::createDocument($department, $data['name'], (bool) $data['required'], $request->user());
+
+        return back()->with('flash', 'أُضيف المستند إلى قائمة القسم.');
+    }
+
+    /** إعادة التسمية و/أو تغيير الإلزام — كلٌّ يُقيَّد في التدقيق وحده. */
+    public function updateDocument(Request $request, LegalDepartmentDocument $departmentDocument): RedirectResponse
+    {
+        $data = $request->validate(['name' => ['sometimes', 'required', 'string', 'max:160'], 'required' => ['sometimes', 'boolean']], self::NAME_MESSAGES);
+
+        if (array_key_exists('name', $data)) {
+            LegalCatalogueEditor::renameDocument($departmentDocument, $data['name'], $request->user());
+        }
+        if (array_key_exists('required', $data)) {
+            LegalCatalogueEditor::setDocumentRequired($departmentDocument, (bool) $data['required'], $request->user());
+        }
+
+        return back()->with('flash', 'حُفظ المستند.');
+    }
+
+    public function destroyDocument(Request $request, LegalDepartmentDocument $departmentDocument): RedirectResponse
+    {
+        LegalCatalogueEditor::deleteDocument($departmentDocument, $request->user());
+
+        return back()->with('flash', 'حُذف المستند من قائمة القسم — تبقى مطابقات المرفقات السابقة باسمه.');
+    }
+
+    public function reorderDocuments(Request $request, LegalDepartment $department): RedirectResponse
+    {
+        $data = $request->validate(['order' => ['required', 'array', 'min:1'], 'order.*' => ['integer']]);
+        LegalCatalogueEditor::reorderDocuments($department, $data['order'], $request->user());
+
+        return back()->with('flash', 'حُفظ ترتيب المستندات.');
     }
 
     // ── الأقسام الإداريّة ───────────────────────────────────

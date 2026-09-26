@@ -118,7 +118,7 @@ class EmployeeSeesEverythingTest extends TestCase
             'assigned_lawyer_id' => $this->lawyer->id, 'status' => 'بانتظار اعتماد المستشار', 'tone' => 'b-amber',
         ]);
 
-        $this->actingAs($stranger)->get(route('lawyer.tickets.show', $ticket))->assertForbidden();
+        $this->assertPageRefused($this->actingAs($stranger)->get(route('lawyer.tickets.show', $ticket)));
         $this->assertFalse(ChannelAccess::staffCanSee($stranger, $ticket));
     }
 

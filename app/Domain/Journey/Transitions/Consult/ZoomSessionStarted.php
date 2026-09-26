@@ -5,6 +5,7 @@ namespace App\Domain\Journey\Transitions\Consult;
 use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\SessionState;
 use App\Domain\Journey\Transition;
+use App\Events\RoomStateChanged;
 use App\Models\Consult;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -55,5 +56,11 @@ final class ZoomSessionStarted extends Transition
     {
         /** @var Consult $entity */
         $entity->status = ConsultStatus::InSession->value;
+    }
+
+    public function events(Model $entity, string $from, ?User $actor, array $payload): array
+    {
+        /** @var Consult $entity */
+        return RoomStateChanged::both($entity);
     }
 }

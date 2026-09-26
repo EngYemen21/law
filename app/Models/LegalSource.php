@@ -27,6 +27,40 @@ class LegalSource extends Model
     /** موقوف (نُسخ أو عُدّل النظام) — لا يُستشهد به. */
     public const STATUS_SUSPENDED = 'موقوف';
 
+    /**
+     * **الحالات بترتيب عرضها ونبرتها — المصدر الوحيد لخيارات الحالة ولونها.**
+     * كانت الشاشة تقارن `status === 'معتمد'` وتحمل قاموس ألوانٍ بمفاتيح عربيّة، فتغييرُ نصّ
+     * حالةٍ هنا يُبقي الزرّ الخطأ ظاهراً هناك بصمت. الآن الشاشة تقرأ ما يُحسب هنا ولا تقارن.
+     */
+    public const STATUSES = [
+        self::STATUS_DRAFT => 'b-amber',
+        self::STATUS_APPROVED => 'b-green',
+        self::STATUS_SUSPENDED => 'b-grey',
+    ];
+
+    /** @return list<array{value:string,label:string}> خيارات مرشِّح الحالة */
+    public static function statusOptions(): array
+    {
+        return array_map(fn (string $s) => ['value' => $s, 'label' => $s], array_keys(self::STATUSES));
+    }
+
+    public function statusTone(): string
+    {
+        return self::STATUSES[$this->status] ?? 'b-grey';
+    }
+
+    /** الاعتماد لما لم يُعتمد بعد (مسودّة أو موقوف يُعاد). */
+    public function canApprove(): bool
+    {
+        return $this->status !== self::STATUS_APPROVED;
+    }
+
+    /** الإيقاف للمعتمد وحده — المسودّة لا يُستشهد بها أصلاً فلا معنى لإيقافها. */
+    public function canSuspend(): bool
+    {
+        return $this->status === self::STATUS_APPROVED;
+    }
+
     protected $fillable = [
         'ref', 'system_name', 'article_no', 'title', 'text',
         'jurisdiction', 'domain', 'version',

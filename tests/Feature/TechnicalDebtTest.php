@@ -116,8 +116,9 @@ class TechnicalDebtTest extends TestCase
         ]);
 
         $this->actingAs($admin)->post(route('admin.invoices.pay', $invoice));
+        // التحصيل الثاني خطأُ إدخالٍ على الفاتورة نفسها (2026-09-26) — كان «نجاحاً» يحمل رسالة خطأ فيظهر نخبان متناقضان
         $this->actingAs($admin)->post(route('admin.invoices.pay', $invoice))
-            ->assertSessionHas('error');
+            ->assertSessionHasErrors('invoice');
 
         $this->assertSame(1, Payment::where('invoice_id', $invoice->id)->count());
     }

@@ -90,6 +90,7 @@ trait ManagesCourtProceedings
             'hearing_day' => ['required', 'date_format:Y-m-d', 'after_or_equal:registered_at'],
             'hearing_time' => ['required', 'date_format:H:i'],
             'hearing_mode' => ['required', 'in:حضورية,عن بُعد'],
+            'hearing_duration_min' => CaseHearing::durationRule(),
             'file' => ['nullable', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png'],
         ], [
             'case_no.required' => 'أدخل رقم القضية كما صدر من ناجز.',
@@ -120,6 +121,7 @@ trait ManagesCourtProceedings
             'day' => $data['hearing_day'],
             'time' => $data['hearing_time'],
             'court' => $data['circuit'],
+            'duration_min' => $data['hearing_duration_min'] ?? null,
         ]);
         $this->tellLawyer($case, $actor, "قُيّدت الدعوى برقم {$data['case_no']} وجُدولت الجلسة الأولى");
 
@@ -137,6 +139,8 @@ trait ManagesCourtProceedings
             'day' => ['required', 'date_format:Y-m-d'],
             'time' => ['nullable', 'date_format:H:i'],
             'court' => ['nullable', 'string', 'max:120'],
+            // اختياريّة — منها وحدها نهاية الجلسة في التقويم (`CaseHearing::endsAt`)
+            'duration_min' => CaseHearing::durationRule(),
         ]);
 
         $this->createHearing($case, $request->user(), $data);
@@ -202,6 +206,8 @@ trait ManagesCourtProceedings
             'day' => ['required', 'date_format:Y-m-d'],
             'time' => ['nullable', 'date_format:H:i'],
             'court' => ['nullable', 'string', 'max:120'],
+            // اختياريّة — منها وحدها نهاية الجلسة في التقويم (`CaseHearing::endsAt`)
+            'duration_min' => CaseHearing::durationRule(),
         ]);
         $actor = $request->user();
         $startsAt = MeetingTime::parse($data['day'], $data['time'] ?? null);
@@ -510,8 +516,10 @@ trait ManagesCourtProceedings
     /** تصحيح العنوان أو الدائرة والموعد باقٍ — في مكانه، بلا إشعارٍ ولا بريدٍ للعميل. */
     private function editHearingDetails(LegalCase $case, CaseHearing $hearing, User $actor, array $data): RedirectResponse
     {
-        $before = ['الجلسة' => $hearing->title, 'الدائرة' => $hearing->court];
-        $hearing->fill(Arr::only($data, ['title', 'court']));
+        $before = ['الجلسة' => $hearing->title, 'الدائرة' => $hearing->court, 'المدّة المتوقّعة' => $hearing->duration_min];
+        // المدّة تصحيحٌ في مكانه كالعنوان — لا تحرّك الموعد فلا تأجيل. و`Arr::only` لا يمسّ مفتاحاً
+        // لم يُرسَل: نداءٌ قديم بلا حقل المدّة لا يمحو مدّةً مُدخلة
+        $hearing->fill(Arr::only($data, ['title', 'court', 'duration_min']));
 
         if (! $hearing->isDirty()) {
             return back();
@@ -525,7 +533,7 @@ trait ManagesCourtProceedings
             auditable: $case,
             auditableRef: $case->number,
             beforeState: $before,
-            afterState: ['الجلسة' => $hearing->title, 'الدائرة' => $hearing->court],
+            afterState: ['الجلسة' => $hearing->title, 'الدائرة' => $hearing->court, 'المدّة المتوقّعة' => $hearing->duration_min],
         );
         $this->tellLawyer($case, $actor, "عُدّلت بيانات الجلسة «{$hearing->title}»");
         Live::push(new CaseStatusBroadcast($case));
@@ -563,6 +571,8 @@ trait ManagesCourtProceedings
                 'day' => $data['day'],
                 'time' => $data['time'] ?? null,
                 'starts_at' => $startsAt,
+                // مدّة الجلسة الجديدة ممّا أُدخل مع التأجيل وحده — جلسةٌ أخرى قد تطول أو تقصر
+                'duration_min' => $data['duration_min'] ?? null,
                 'status' => HearingStatus::Scheduled->value,
             ] + BookingMoved::markers($old));
         });

@@ -760,7 +760,7 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 .apptx-body{padding:18px 20px;display:flex;gap:18px;align-items:flex-start}
 .apptx-qr{flex-shrink:0;text-align:center;width:136px}
 .apptx-qr .qrbox{background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px;display:grid;place-items:center}
-.apptx-qr .qrbox svg{width:108px;height:108px}
+.apptx-qr .qrbox img{width:108px;height:108px;display:block}
 .apptx-qr p{font-size:10.5px;color:var(--muted);margin-top:9px;line-height:1.6}
 .apptx-rows{flex:1;display:flex;flex-direction:column;gap:13px;min-width:0}
 .apptx-row{display:flex;align-items:flex-start;gap:11px}
@@ -799,32 +799,68 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 .vr-btn .ic{width:22px;height:22px}
 .vr-hint{text-align:center;color:rgba(255,255,255,.72);font-size:11px;padding:0 0 14px;background:#0A2A55;min-height:14px}
 
-/* غرفة الاجتماع المخصّصة داخل الموقع — إطار بهوية المكتب + لوحة جانبية + شاشات الحالة */
-.mroom-grid{display:grid;grid-template-columns:1fr 300px;gap:16px;align-items:start}
-.mroom{background:#0A2A55;border-radius:16px;overflow:hidden;box-shadow:0 22px 55px -30px rgba(10,42,85,.6)}
-.mroom-head{display:flex;align-items:center;gap:10px;padding:11px 15px;color:#fff;background:linear-gradient(to left,rgba(255,255,255,.07),transparent);border-bottom:1px solid rgba(255,255,255,.1)}
+/*
+ * غرفة الجلسة المرئيّة — ملءَ التبويب، تصميمٌ واحد للجميع (قرار المالك ٢٠٢٦-٠٩-٢٦).
+ * الطبقات إخوةٌ ثابتة على body بلا غلافٍ ذي z-index (انظر `zoom-room.tsx` و`room-session.ts`):
+ *   80 الخلفيّة · 81 حاوية Zoom · 82 الشاشات والعلامة المائيّة · 83 الترويسة · 84–85 الدرج · 86–87 الشريط العائم.
+ * تحت الإشعارات (90) والنوافذ (100000) — فنافذة الإنهاء وتنبيهاتها تظهر فوق الغرفة.
+ * الارتفاع بـdvh: شريط عنوان متصفّح الهاتف لا يقصّ أسفل الفيديو؛ ولا ارتفاعَ أدنى ثابتاً.
+ */
+:root{--mroom-head:54px;--mroom-dock-w:min(340px,calc(100vw - 32px));--mroom-dock-h:196px;--mroom-dock-bar:92px}
+.mroom-bg{position:fixed;inset:0;z-index:80;background:radial-gradient(circle at 50% 34%,#16427d,#0A2A55 72%)}
+.mroom-head{position:fixed;top:0;inset-inline:0;height:var(--mroom-head);z-index:83;display:flex;align-items:center;gap:10px;padding:0 14px;color:#fff;background:#0A2A55;border-bottom:1px solid rgba(255,255,255,.1)}
 .mroom-head .brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:13px;white-space:nowrap}
-.mroom-head .brand img{width:26px;height:26px;border-radius:7px;object-fit:cover}
-.mroom-head .ttl{font-size:12px;opacity:.82;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mroom-video{position:relative;min-height:520px;background:radial-gradient(circle at 50% 34%,#16427d,#0A2A55 72%);direction:ltr}
-.mroom-overlay{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:#fff;padding:26px;z-index:4}
+.mroom-head .ttl{flex:1;min-width:0;font-size:12.5px;opacity:.9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mroom-head .ttl .st{margin-inline-start:8px;font-size:11px;background:rgba(255,255,255,.12);padding:2px 8px;border-radius:99px}
+.mroom-head .tools{display:flex;align-items:center;gap:7px;flex:none}
+.mroom-head .vr-timer{margin-inline-start:0}
+.mroom-btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 11px;border-radius:9px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap}
+.mroom-btn:hover{background:rgba(255,255,255,.16)}
+.mroom-btn .ic{width:16px;height:16px}
+.mroom-btn.leave{background:#C0392B;border-color:#C0392B}
+.mroom-btn.end{background:#1E9D6B;border-color:#1E9D6B}
+.mroom-btn:disabled{opacity:.45;cursor:not-allowed}
+.mroom-zoom{position:fixed;z-index:81;overflow:hidden;direction:ltr;background:#0A2A55}
+.mroom-zoom[data-view="hidden"]{display:none}
+.mroom-zoom[data-view="full"]{top:var(--mroom-head);inset-inline:0;bottom:0}
+.mroom-zoom[data-view="dock"]{z-index:86;bottom:calc(16px + var(--mroom-dock-bar));inset-inline-end:16px;width:var(--mroom-dock-w);height:var(--mroom-dock-h);border-radius:14px 14px 0 0;box-shadow:0 22px 55px -20px rgba(10,42,85,.7)}
+.mroom-zoom-root{width:100%;height:100%}
+.mroom-stage{position:fixed;top:var(--mroom-head);inset-inline:0;bottom:0;z-index:82;pointer-events:none}
+.mroom-overlay{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:#fff;padding:26px;pointer-events:auto;background:radial-gradient(circle at 50% 34%,#16427d,#0A2A55 72%)}
 .mroom-overlay .oi{width:66px;height:66px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.1);margin:0 auto 4px}
 .mroom-overlay .oi .ic{width:30px;height:30px}
 .mroom-overlay b{font-size:16px;display:block}
-.mroom-overlay .os{font-size:12.5px;opacity:.82;max-width:36ch;margin:3px auto 0;line-height:1.7}
-.mroom-wm{position:absolute;bottom:12px;inset-inline-end:14px;color:rgba(255,255,255,.34);font-size:10.5px;font-weight:700;pointer-events:none;direction:ltr;z-index:5;letter-spacing:.3px}
-.mroom-spin{width:42px;height:42px;border-radius:50%;border:3px solid rgba(255,255,255,.22);border-top-color:#fff;animation:mroomspin .85s linear infinite}
+.mroom-overlay .os{font-size:12.5px;opacity:.82;max-width:42ch;margin:3px auto 0;line-height:1.7}
+.mroom-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px}
+.mroom-wm{position:fixed;bottom:12px;inset-inline-end:14px;color:rgba(255,255,255,.34);font-size:10.5px;font-weight:700;pointer-events:none;direction:ltr;z-index:82;letter-spacing:.3px}
+.mroom-spin{width:42px;height:42px;border-radius:50%;border:3px solid rgba(255,255,255,.22);border-top-color:#fff;animation:mroomspin .85s linear infinite;margin:0 auto 12px}
 @keyframes mroomspin{to{transform:rotate(360deg)}}
-.mroom-side .card-b{padding:12px 15px 15px}
+.mroom-scrim{position:fixed;inset:0;top:var(--mroom-head);z-index:84;background:rgba(10,42,85,.35)}
+.mroom-drawer{position:fixed;top:var(--mroom-head);bottom:0;inset-inline-end:0;z-index:85;width:min(340px,100vw);background:var(--paper,#fff);color:var(--ink);box-shadow:0 0 40px rgba(0,0,0,.35);display:flex;flex-direction:column;transform:translateX(-100%);visibility:hidden;transition:transform .22s,visibility .22s}
+[dir="ltr"] .mroom-drawer{transform:translateX(100%)}
+.mroom-drawer.open{transform:none;visibility:visible}
+.mroom-drawer-h{display:flex;align-items:center;gap:8px;padding:13px 15px;border-bottom:1px solid var(--line-soft)}
+.mroom-drawer-h h3{font-size:14px;margin:0}
+.mroom-drawer-h .sub{font-size:11.5px;color:var(--muted)}
+.mroom-drawer-h .x{margin-inline-start:auto;background:none;border:none;cursor:pointer;color:var(--muted)}
+.mroom-drawer-b{padding:10px 15px 15px;overflow:auto}
+.mroom-drawer-end{margin-top:14px;width:100%;justify-content:center}
+.mroom-drawer-b .action-hint{margin-top:10px}
 .mroom-row{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px}
 .mroom-row:last-child{border-bottom:none}
 .mroom-row .k{color:var(--muted)}
-.mroom-row .v{font-weight:700;color:var(--ink);text-align:left;max-width:60%}
-.mroom-agd{margin-top:6px}
-.mroom-agd h5{font-size:11.5px;color:var(--primary);margin:10px 0 4px;font-weight:800}
-.mroom-agd li{font-size:12px;color:var(--ink);opacity:.85;padding:2px 0 2px 0;list-style:none;position:relative;padding-inline-start:14px}
-.mroom-agd li::before{content:"";position:absolute;inset-inline-start:2px;top:9px;width:5px;height:5px;border-radius:50%;background:var(--cyan)}
-@media(max-width:900px){.mroom-grid{grid-template-columns:1fr}.staff-live-preview{display:none!important}}
+.mroom-row .v{font-weight:700;color:var(--ink);text-align:end;max-width:60%}
+.mroom-dock{position:fixed;bottom:16px;inset-inline-end:16px;z-index:87;width:var(--mroom-dock-w);min-height:var(--mroom-dock-bar);box-sizing:border-box;background:#0A2A55;color:#fff;border-radius:14px;padding:10px 12px;box-shadow:0 22px 55px -20px rgba(10,42,85,.7);display:flex;flex-direction:column;gap:8px}
+.mroom-dock.live{border-radius:0 0 14px 14px;height:var(--mroom-dock-bar)}
+.mroom-dock-bar{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;min-width:0}
+.mroom-dock-bar .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mroom-dock-bar .ic{width:16px;height:16px;flex:none}
+.mroom-dock-bar .vr-timer{margin-inline-start:0}
+.mroom-dock-note{font-size:11.5px;opacity:.82}
+.mroom-dock-actions{display:flex;gap:7px;flex-wrap:wrap}
+.mroom-dock-leave{background:#C0392B;border-color:#C0392B}
+@media(max-width:640px){.mroom-head{gap:6px;padding:0 8px}.mroom-head .lbl,.mroom-head .ttl .st{display:none}.mroom-btn{padding:0 9px}}
+@media(max-width:900px){.staff-live-preview{display:none!important}}
 .menu-btn{display:none}
 .scrim{display:none}
 @media(max-width:1080px){.stats{grid-template-columns:repeat(2,1fr)}.tiles{grid-template-columns:repeat(3,1fr)}.tflow .tf-grid{grid-template-columns:1fr}.tflow .tf-aside{position:static}}
@@ -866,7 +902,7 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
   .apptx-head{padding:16px 14px}
   .apptx-body{flex-direction:column;align-items:center;padding:16px 12px;gap:16px}
   .apptx-qr{width:100%;margin:0 auto}
-  .apptx-qr .qrbox svg{width:96px;height:96px}
+  .apptx-qr .qrbox img{width:96px;height:96px}
   .apptx-chips{justify-content:center;gap:6px;margin-top:10px}
   .apptx-chip{font-size:11.5px;padding:4px 10px}
   .apptx-no{text-align:center;font-size:22px}

@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AiBlindReview;
 use App\Services\Ai\AiBlindSample;
+use App\Services\Ai\AiPromptRegistry;
 use App\Services\Ai\AiReviewAction;
+use App\Services\Ai\AiReviewPreview;
 use App\Services\Ai\AiReviewReason;
 use App\Support\Audit;
 use Illuminate\Http\RedirectResponse;
@@ -31,17 +33,27 @@ class AiBlindReviewController extends Controller
     {
         $user = $request->user();
 
-        $items = AiBlindReview::with('run')
+        // `run.entity` مسبقاً: النصّ يُقرأ من كيان كلّ حالة، فبلا تحميلٍ مسبق استعلامٌ لكلّ صفّ
+        $items = AiBlindReview::with('run.entity')
             ->where('reviewer_id', $user->id)
             ->orderByRaw('judged_at IS NULL DESC')
             ->orderByDesc('id')
             ->get()
-            ->map(function (AiBlindReview $review) {
+            ->map(function (AiBlindReview $review) use ($user) {
                 $judged = $review->judged();
+                $preview = $review->run ? AiReviewPreview::for($review->run, $user) : null;
 
                 return [
                     'id' => $review->id,
                     'taskType' => $review->run?->task_type,
+                    'taskLabel' => AiPromptRegistry::taskLabel($review->run?->task_type),
+
+                    // **المخرج نفسه** — كان المراجع يُطلب منه الحكم على ما لم يره: الحالة
+                    // تصل بنوعها وتاريخها وحدهما. النصّ لا يكشف المصدر، فيُرسل قبل الحكم؛
+                    // والرابط إلى الملفّ يُحجب لأنّ الملفّ يعرض المصدر والثقة فيسقط العمى.
+                    // والعنوان اسمُ المهمّة لا عنوان المعاينة: بعض عناوينها («كما حكم به النموذج»)
+                    // تُعلن المصدر صراحةً.
+                    'output' => $preview === null ? null : $preview['fullText'] ?? $preview['text'],
                     'entityRef' => $review->run?->entity_ref ?? '—',
                     'createdAt' => $review->run?->created_at?->locale('ar')->translatedFormat('d F Y'),
                     'judged' => $judged,
@@ -122,7 +134,7 @@ class AiBlindReviewController extends Controller
 
         Audit::log(
             action: 'حكم في مراجعة عمياء',
-            description: "حكم «{$verdict->label()}» على مخرج {$review->run?->task_type} — قبل كشف مصدره.",
+            description: "حكم «{$verdict->label()}» على مخرج «".AiPromptRegistry::taskLabel($review->run?->task_type).'» — قبل كشف مصدره.',
             category: 'المساعد القانوني',
             auditable: $review,
         );

@@ -34,7 +34,7 @@
             مرحباً {{ $consult->user?->name ?? 'عميلنا الكريم' }}،
         </div>
         <p style="margin:0 0 16px;color:#33415C;">
-            يسرنا إبلاغك بأنه تم تأكيد حجز استشارتك القانونية رقم <b>{{ $consult->ref }}</b> بنجاح لدى النظام الإداري لمكاتب المحاماة.
+            يسرنا إبلاغك بأنه تم تأكيد حجز استشارتك القانونية رقم <b>{{ $consult->ref }}</b> بنجاح لدى {{ \App\Support\SettingsRegistry::str('office_name') }}.
         </p>
 
         @include('emails.partials.card', [

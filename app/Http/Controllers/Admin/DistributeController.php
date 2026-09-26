@@ -18,8 +18,11 @@ use App\Support\TicketAssignment;
 use App\Support\TicketJourney;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class DistributeController extends Controller
 {
@@ -64,8 +67,7 @@ class DistributeController extends Controller
 
         // 1. التذاكر والطلبات
         $openTickets = Ticket::with(['user', 'assignedLawyer'])
-            ->open()
-            ->where('is_frozen', false)
+            ->distributable()
             ->latest('id')
             ->get();
 
@@ -83,8 +85,7 @@ class DistributeController extends Controller
                 return [
                     'id' => $t->id,
                     'no' => $t->number,
-                    'client' => Ticket::maskClient($t->user?->name ?? ''),
-                    'realClientName' => $t->user?->name ?? 'عميل المنصة',
+                    'client' => $t->user?->name ?? 'عميل المنصة',
                     'userAvatar' => $t->user?->avatar_initials ?: 'عم',
                     'type' => $t->type ?: 'طلب عام',
                     'subject' => $t->subject ?: 'موضوع التذكرة',
@@ -117,13 +118,14 @@ class DistributeController extends Controller
                 return [
                     'id' => $c->id,
                     'no' => $c->number,
-                    'client' => Ticket::maskClient($c->user?->name ?? ''),
-                    'realClientName' => $c->user?->name ?? 'عميل المنصة',
+                    'client' => $c->user?->name ?? 'عميل المنصة',
                     'userAvatar' => $c->user?->avatar_initials ?: 'عم',
                     'type' => $c->type ?: 'قضية قضائية',
                     'subject' => ($c->type ?: 'قضية').' — '.($c->department ?: 'المحكمة'),
                     'dept' => $c->department ?: 'المحاكم القضائية',
-                    'priority' => 'عالية',
+                    // لا عمود أولويّة للقضيّة — كانت «عالية» ثابتةً لكلّ قضيّة، فتتصدّر الفرزَ وتُلوَّن
+                    // حمراء بلا سبب. لا أولويّة = لا شارة (الواجهة تُخفيها)
+                    'priority' => null,
                     'lawyer' => $c->assigned_lawyer ?: '—',
                     'lawyerId' => $c->assigned_lawyer_id,
                     'status' => $c->status,
@@ -153,13 +155,12 @@ class DistributeController extends Controller
                 return [
                     'id' => $e->id,
                     'no' => $e->number,
-                    'client' => Ticket::maskClient($e->user?->name ?? ''),
-                    'realClientName' => $e->user?->name ?? 'عميل المنصة',
+                    'client' => $e->user?->name ?? 'عميل المنصة',
                     'userAvatar' => $e->user?->avatar_initials ?: 'عم',
                     'type' => 'تنفيذ أحكام وسندات',
                     'subject' => $e->subject ?: 'سند تنفيذي',
                     'dept' => $e->court ?: 'محكمة التنفيذ',
-                    'priority' => 'عالية',
+                    'priority' => null, // لا عمود أولويّة لملفّ التنفيذ — كالقضيّة أعلاه
                     'lawyer' => $e->assigned_lawyer ?: '—',
                     'lawyerId' => $e->assigned_lawyer_id,
                     'status' => $e->status,
@@ -187,8 +188,7 @@ class DistributeController extends Controller
                 return [
                     'id' => $cn->id,
                     'no' => $cn->ref,
-                    'client' => Ticket::maskClient($cn->user?->name ?? ''),
-                    'realClientName' => $cn->user?->name ?? 'عميل المنصة',
+                    'client' => $cn->user?->name ?? 'عميل المنصة',
                     'userAvatar' => $cn->user?->avatar_initials ?: 'عم',
                     'type' => $cn->type ?: 'استشارة نظامية',
                     'subject' => $cn->subject ?: 'جلسة استشارية',
@@ -259,44 +259,131 @@ class DistributeController extends Controller
 
     public function assign(Request $request, Ticket $ticket): RedirectResponse
     {
-        abort_if($ticket->is_frozen, 422, 'التذكرة مجمّدة لاعتماد مسارها النهائي — لا يُعاد إسنادها.');
-        abort_if($ticket->isTerminal(), 422, 'التذكرة مغلقة — لا يُعاد إسنادها.');
+        $lawyer = $this->lawyerFrom($request);
 
+        return back()->with('flash', $this->assignTicketTo($ticket, $lawyer, $request->user()));
+    }
+
+    public function assignCase(Request $request, LegalCase $case): RedirectResponse
+    {
+        $lawyer = $this->lawyerFrom($request);
+
+        return back()->with('flash', $this->assignCaseTo($case, $lawyer, $request->user()));
+    }
+
+    public function assignExecution(Request $request, Execution $execution): RedirectResponse
+    {
+        $lawyer = $this->lawyerFrom($request);
+
+        return back()->with('flash', $this->assignExecutionTo($execution, $lawyer, $request->user()));
+    }
+
+    public function assignConsult(Request $request, Consult $consult): RedirectResponse
+    {
+        $lawyer = $this->lawyerFrom($request);
+
+        return back()->with('flash', $this->assignConsultTo($consult, $lawyer, $request->user()));
+    }
+
+    /**
+     * **الإسناد الجماعيّ — طلبٌ واحد، والمسار نفسه لكلّ عنصر.**
+     *
+     * كانت الواجهة تطلق `router.post` لكلّ عنصرٍ مختار في حلقةٍ واحدة، وInertia 3 يلغي الزيارة
+     * الجارية عند بدء أخرى: فيُنفَّذ بعضها ويُلغى بعضها، والإشعار يقول «تم إسناد N أعمال» على كلّ حال.
+     * الآن الخادم يمرّ على العناصر **بدوال الإسناد الفرديّ نفسها** (حرّاسها وملاحظاتها وتدقيقها)، كلُّ عنصرٍ
+     * في معاملته — فرفضُ عنصرٍ لا يُسقط غيره — ويُعلن الناتج بصدق: ما أُسند، وما رُفض ولماذا.
+     */
+    public function bulk(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'lawyer_id' => ['required', 'integer', new ActiveLawyer],
+            'items' => ['required', 'array', 'min:1', 'max:200'],
+            'items.*.kind' => ['required', 'string', Rule::in(['ticket', 'case', 'execution', 'consult'])],
+            'items.*.id' => ['required', 'integer'],
+        ]);
+        $lawyer = User::findOrFail($data['lawyer_id']);
+        $actor = $request->user();
+
+        $done = 0;
+        $failed = [];
+        foreach ($data['items'] as $item) {
+            $entity = match ($item['kind']) {
+                'ticket' => Ticket::find($item['id']),
+                'case' => LegalCase::find($item['id']),
+                'execution' => Execution::find($item['id']),
+                'consult' => Consult::find($item['id']),
+            };
+            if ($entity === null) {
+                $failed[] = "#{$item['id']}: لم يُعثر على العنصر.";
+
+                continue;
+            }
+
+            try {
+                DB::transaction(fn () => match (true) {
+                    $entity instanceof Ticket => $this->assignTicketTo($entity, $lawyer, $actor),
+                    $entity instanceof LegalCase => $this->assignCaseTo($entity, $lawyer, $actor),
+                    $entity instanceof Execution => $this->assignExecutionTo($entity, $lawyer, $actor),
+                    $entity instanceof Consult => $this->assignConsultTo($entity, $lawyer, $actor),
+                });
+                $done++;
+            } catch (HttpExceptionInterface $e) {
+                $ref = $entity instanceof Consult ? $entity->ref : $entity->number;
+                $failed[] = "{$ref}: {$e->getMessage()}";
+            }
+        }
+
+        $total = count($data['items']);
+        $response = back();
+        if ($done > 0) {
+            $response = $response->with('flash', "أُسند {$done} من {$total} إلى {$lawyer->name}.");
+        }
+
+        return $failed === []
+            ? $response
+            : $response->withErrors(['message' => 'تعذّر إسناد '.count($failed).' من '.$total.' — '.implode(' · ', $failed)]);
+    }
+
+    private function lawyerFrom(Request $request): User
+    {
         $data = $request->validate([
             'lawyer_id' => ['required', 'integer', new ActiveLawyer],
         ]);
-        $lawyer = User::findOrFail($data['lawyer_id']);
+
+        return User::findOrFail($data['lawyer_id']);
+    }
+
+    /** إسناد تذكرة — المصدر الواحد للإسناد الفرديّ والجماعيّ. يرمي 422 برسالةٍ مقروءة إن رُفض. */
+    private function assignTicketTo(Ticket $ticket, User $lawyer, User $actor): string
+    {
+        abort_if($ticket->is_frozen, 422, 'التذكرة مجمّدة لاعتماد مسارها النهائي — لا يُعاد إسنادها.');
+        abort_if($ticket->isTerminal(), 422, 'التذكرة مغلقة — لا يُعاد إسنادها.');
 
         // الإسناد وقفزة «محالة» من مصدرٍ واحد مع الإسناد الآليّ، والقفزة بالمحرّك باسم الإداريّ
-        TicketAssignment::write($ticket, $lawyer->id, $lawyer->name, $request->user());
+        TicketAssignment::write($ticket, $lawyer->id, $lawyer->name, $actor);
         TicketAssignment::syncRelatedConsults($ticket->fresh());
         Live::push(new TicketStatusBroadcast($ticket));
 
         $ticket->messages()->create([
-            'who' => 'note', 'name' => $request->user()->name, 'role' => 'توزيع',
+            'who' => 'note', 'name' => $actor->name, 'role' => 'توزيع',
             'body' => '<p>أسندت الإدارة التذكرة إلى '.e($lawyer->name).'.</p>', 'time_label' => 'الآن',
         ]);
 
         Audit::log(
             action: 'إسناد تذكرة',
-            description: "أسندت الإدارة ({$request->user()->name}) التذكرة {$ticket->number} إلى {$lawyer->name}.",
+            description: "أسندت الإدارة ({$actor->name}) التذكرة {$ticket->number} إلى {$lawyer->name}.",
             category: 'تذاكر',
             auditable: $ticket,
             auditableRef: $ticket->number,
             afterState: ['المحامي' => $lawyer->name],
         );
 
-        return back()->with('flash', "تم إسناد التذكرة {$ticket->number} إلى {$lawyer->name}.");
+        return "تم إسناد التذكرة {$ticket->number} إلى {$lawyer->name}.";
     }
 
-    public function assignCase(Request $request, LegalCase $case): RedirectResponse
+    private function assignCaseTo(LegalCase $case, User $lawyer, User $actor): string
     {
         abort_if(in_array($case->status, ['مغلقة', 'مؤرشفة'], true), 422, 'القضية مغلقة أو مؤرشفة — لا يُعاد إسنادها.');
-
-        $data = $request->validate([
-            'lawyer_id' => ['required', 'integer', new ActiveLawyer],
-        ]);
-        $lawyer = User::findOrFail($data['lawyer_id']);
 
         $case->update([
             'assigned_lawyer_id' => $lawyer->id,
@@ -305,7 +392,7 @@ class DistributeController extends Controller
 
         $case->messages()->create([
             'who' => 'note',
-            'name' => $request->user()->name,
+            'name' => $actor->name,
             'role' => 'توزيع',
             'body' => '<p>أسندت الإدارة القضية إلى '.e($lawyer->name).'.</p>',
             'time_label' => 'الآن',
@@ -313,25 +400,20 @@ class DistributeController extends Controller
 
         Audit::log(
             action: 'إسناد قضية',
-            description: "أسندت الإدارة ({$request->user()->name}) القضية {$case->number} إلى {$lawyer->name}.",
+            description: "أسندت الإدارة ({$actor->name}) القضية {$case->number} إلى {$lawyer->name}.",
             category: 'قضايا',
             auditable: $case,
             auditableRef: $case->number,
             afterState: ['المحامي' => $lawyer->name],
         );
 
-        return back()->with('flash', "تم إسناد القضية {$case->number} إلى {$lawyer->name}.");
+        return "تم إسناد القضية {$case->number} إلى {$lawyer->name}.";
     }
 
-    public function assignExecution(Request $request, Execution $execution): RedirectResponse
+    private function assignExecutionTo(Execution $execution, User $lawyer, User $actor): string
     {
         abort_if($execution->isClosed(), 422, 'ملفّ التنفيذ منتهٍ أو مغلق — لا يُسنَد بعد إغلاقه.');
         abort_if($execution->decision === 'مرفوض', 422, 'هذا الطلب مرفوض بعد الدراسة — لا يُسنَد إليه محامٍ.');
-
-        $data = $request->validate([
-            'lawyer_id' => ['required', 'integer', new ActiveLawyer],
-        ]);
-        $lawyer = User::findOrFail($data['lawyer_id']);
 
         $execution->update([
             'assigned_lawyer_id' => $lawyer->id,
@@ -340,26 +422,21 @@ class DistributeController extends Controller
 
         Audit::log(
             action: 'إسناد ملف تنفيذ',
-            description: "أسندت الإدارة ({$request->user()->name}) ملف التنفيذ {$execution->number} إلى {$lawyer->name}.",
+            description: "أسندت الإدارة ({$actor->name}) ملف التنفيذ {$execution->number} إلى {$lawyer->name}.",
             category: 'تنفيذ',
             auditable: $execution,
             auditableRef: $execution->number,
             afterState: ['المحامي' => $lawyer->name],
         );
 
-        return back()->with('flash', "تم إسناد ملف التنفيذ {$execution->number} إلى {$lawyer->name}.");
+        return "تم إسناد ملف التنفيذ {$execution->number} إلى {$lawyer->name}.";
     }
 
-    public function assignConsult(Request $request, Consult $consult): RedirectResponse
+    private function assignConsultTo(Consult $consult, User $lawyer, User $actor): string
     {
         abort_if(in_array($consult->status, Consult::TERMINAL_STATUSES, true), 422, 'الاستشارة انتهت أو أُلغيت — لا تُحال إلى محامٍ.');
         abort_if(in_array($consult->status, Consult::PRE_SESSION_STATUSES, true), 422, 'الاستشارة ما زالت في دورة الحجز والسداد — لا تُحال للمحامي قبل حجزها.');
         abort_if($consult->session === 'جلسة جارية', 422, 'الجلسة منعقدة الآن — أنهِها قبل تغيير المستشار.');
-
-        $data = $request->validate([
-            'lawyer_id' => ['required', 'integer', new ActiveLawyer],
-        ]);
-        $lawyer = User::findOrFail($data['lawyer_id']);
 
         $consult->update([
             'assigned_lawyer_id' => $lawyer->id,
@@ -368,20 +445,22 @@ class DistributeController extends Controller
 
         Audit::log(
             action: 'إسناد جلسة استشارة',
-            description: "أسندت الإدارة ({$request->user()->name}) الاستشارة {$consult->ref} إلى {$lawyer->name}.",
+            description: "أسندت الإدارة ({$actor->name}) الاستشارة {$consult->ref} إلى {$lawyer->name}.",
             category: 'استشارات',
             auditable: $consult,
             auditableRef: $consult->ref,
             afterState: ['المستشار' => $lawyer->name],
         );
 
-        return back()->with('flash', "تم إسناد الاستشارة {$consult->ref} إلى {$lawyer->name}.");
+        return "تم إسناد الاستشارة {$consult->ref} إلى {$lawyer->name}.";
     }
 
     public function auto(Request $request): RedirectResponse
     {
         $actorName = $request->user()->name;
-        $tickets = Ticket::open()
+        // المجمَّدة لا تُسنَد (`assignTicketTo` يرفضها) — كانت تُرسل للطابور فتفشل هناك صامتةً
+        // ويَعِد الإشعار بتوزيعها. النطاق نفسه الذي تعرضه الشاشة.
+        $tickets = Ticket::distributable()
             ->whereNull('assigned_lawyer_id')
             ->get(['id']);
 

@@ -28,6 +28,9 @@ class SessionRecordingAccessTest extends TestCase
 {
     use RefreshDatabase;
 
+    /** ما يرسله عنصر `<video>` حين يطلب البثّ — جلبُ وسائط لا فتحُ صفحة (`ErrorResponse::isPageVisit`). */
+    private const MEDIA_FETCH = ['Sec-Fetch-Mode' => 'no-cors', 'Sec-Fetch-Dest' => 'video', 'Accept' => '*/*'];
+
     private function endedConsult(array $extra = []): Consult
     {
         $client = User::factory()->create(['role' => Role::Client]);
@@ -116,8 +119,9 @@ class SessionRecordingAccessTest extends TestCase
         $consult = $this->endedConsult(['assigned_lawyer_id' => $assigned->id]);
         $this->storeMedia($consult);
 
-        $this->actingAs($other)->get(route('lawyer.consults.stream', ['consult' => $consult, 'type' => 'video']))->assertForbidden();
-        $this->actingAs($other)->get(route('lawyer.consults.recording', $consult))->assertForbidden();
+        // المشغّل يطلب البثّ جلبَ وسائط (`no-cors`) فيأخذ ٤٠٣ نفسه — والتنزيل رابطٌ يُفتح فيعود بالسبب
+        $this->actingAs($other)->get(route('lawyer.consults.stream', ['consult' => $consult, 'type' => 'video']), self::MEDIA_FETCH)->assertForbidden();
+        $this->assertPageRefused($this->actingAs($other)->get(route('lawyer.consults.recording', $consult)));
     }
 
     public function test_the_employee_downloads_through_the_server(): void
@@ -145,10 +149,20 @@ class SessionRecordingAccessTest extends TestCase
         $this->storeMedia($consult);
         $this->storeMedia($consult, 'audio');
 
-        foreach (['employee.consults.stream' => ['consult' => $consult, 'type' => 'video'], 'employee.consults.recording' => $consult, 'employee.consults.audio' => $consult, 'employee.consults.transcript' => $consult] as $route => $params) {
-            $this->actingAs($employee)->get(route($route, $params))
+        // البثّ جلبُ وسائط للمشغّل والنصّ جلبُ `fetch` — كلاهما يأخذ ٤٠٣ بسببه؛ والتنزيلان رابطان
+        // يُفتحان فيعود صاحبهما بالسبب نفسه إشعاراً (`ErrorResponse`)
+        $fetched = [
+            'employee.consults.stream' => [['consult' => $consult, 'type' => 'video'], self::MEDIA_FETCH],
+            'employee.consults.transcript' => [$consult, ['Sec-Fetch-Mode' => 'cors', 'Accept' => '*/*']],
+        ];
+        foreach ($fetched as $route => [$params, $headers]) {
+            $this->actingAs($employee)->get(route($route, $params), $headers)
                 ->assertForbidden()
                 ->assertSee('تشغيل تسجيلات الجلسات');
+        }
+
+        foreach (['employee.consults.recording', 'employee.consults.audio'] as $route) {
+            $this->assertPageRefused($this->actingAs($employee)->get(route($route, $consult)), 'تشغيل تسجيلات الجلسات');
         }
 
         $this->actingAs($employee);

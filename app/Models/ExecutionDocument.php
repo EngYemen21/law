@@ -38,6 +38,10 @@ class ExecutionDocument extends Model
             // الموظّف بلا «تنزيل مرفقات الملفات» يرى الاسم بلا رابطٍ يردّه الخادم (`downloadDocument`)
             'canDownload' => $this->path !== null && self::viewerMayDownload(),
             'canUpload' => in_array($this->status, ['مطلوب', 'مرفوض'], true),
+            // حارس `ExecFlowController::reviewDocument` نفسه — الواجهة كانت تقارن «مرفوع» نصّاً
+            'canReview' => $this->status === 'مرفوع',
+            // وصل المكتبَ (رُفع أو قُبل) — لعدّاد «المستوفى» في لوحة المستندات
+            'provided' => in_array($this->status, ['مقبول', 'مرفوع'], true),
             'docType' => $this->doc_type ?? '',
             'summary' => $this->summary ?? '',
         ];

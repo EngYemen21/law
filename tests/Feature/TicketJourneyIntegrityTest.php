@@ -3,8 +3,11 @@
 namespace Tests\Feature;
 
 use App\Domain\Journey\Enums\TicketOutcomeTrack;
+use App\Domain\Journey\Transitions\Ticket\CorrectTicketStatus;
+use App\Domain\Journey\Workflow;
 use App\Enums\Role;
 use App\Events\TicketStatusBroadcast;
+use App\Models\Execution;
 use App\Models\JourneyTransition;
 use App\Models\LegalCase;
 use App\Models\Ticket;
@@ -234,6 +237,78 @@ class TicketJourneyIntegrityTest extends TestCase
             ->assertRedirect();
 
         $this->assertSame('مكتملة', $ticket->fresh()->status);
+    }
+
+    // ── التصحيح لا يكذّب الملفّ (قرار المالك 2026-09-25، ث٦) ──
+
+    private function execFor(Ticket $ticket): Execution
+    {
+        return Execution::create([
+            'user_id' => $ticket->user_id, 'ticket_id' => $ticket->id, 'number' => 'EXE-2026-'.random_int(5000, 5999),
+            'subject' => 'تنفيذ سند', 'status' => 'قيد الدراسة', 'tone' => 'b-blue', 'stage' => 2,
+        ]);
+    }
+
+    private function caseFor(Ticket $ticket): LegalCase
+    {
+        return LegalCase::create([
+            'user_id' => $ticket->user_id, 'ticket_id' => $ticket->id, 'number' => 'CS-2026-'.random_int(5000, 5999),
+            'type' => 'تجاري', 'status' => 'منظورة',
+        ]);
+    }
+
+    /**
+     * **ما وقع فعلاً** (SB-2026-1018): تذكرةٌ «محولة إلى تنفيذ» وملفّها حيّ صُحّحت إلى «قيد التحليل»،
+     * فقرأ العميل أنّ طلبه ما زال يُدرس والملفّ يتقدّم. والملفّ القائم يصدّ كلّ هدف — ولو كان مغلقاً.
+     */
+    public function test_a_ticket_whose_file_exists_cannot_be_corrected_away_from_it(): void
+    {
+        foreach (['محولة إلى تنفيذ' => fn (Ticket $t) => $this->execFor($t), 'محولة إلى قضية' => fn (Ticket $t) => $this->caseFor($t)] as $status => $makeFile) {
+            $ticket = $this->ticket($status, 'b-purple');
+            $file = $makeFile($ticket);
+
+            foreach (['قيد التحليل', 'مغلقة'] as $target) {
+                $this->actingAs($this->admin())
+                    ->post(route('admin.tickets.correct-status', $ticket), ['status' => $target, 'reason' => 'تصحيحٌ يناقض الملفّ'])
+                    ->assertStatus(422);
+
+                $this->assertSame($status, $ticket->fresh()->status, "«{$status}» صُحّحت إلى «{$target}» وملفّها {$file->number} قائم");
+            }
+
+            $this->assertNotContains('ticket.correct-status', Workflow::allowed($ticket->fresh(), $this->admin(), [new CorrectTicketStatus]), 'السؤال بلا حمولة يجيب «لا» أيضاً');
+        }
+
+        $this->assertSame(0, JourneyTransition::where('transition', 'ticket.correct-status')->count());
+    }
+
+    /** والاتّجاه المعاكس: لا تصحيح **إلى** حالة تحويلٍ لا ملفّ وراءها — التحويل طريقه بطاقة المآل. */
+    public function test_a_ticket_cannot_be_corrected_into_a_conversion_without_its_file(): void
+    {
+        foreach (['محولة إلى قضية', 'محولة إلى تنفيذ'] as $target) {
+            $ticket = $this->ticket('قيد التحليل');
+
+            $this->actingAs($this->admin())
+                ->post(route('admin.tickets.correct-status', $ticket), ['status' => $target, 'reason' => 'تحويلٌ بلا ملفّ'])
+                ->assertStatus(422);
+
+            $this->assertSame('قيد التحليل', $ticket->fresh()->status, "«{$target}» قُبلت بلا ملفّ");
+        }
+    }
+
+    /**
+     * التصحيح الصحيح لا يُصدّ: تذكرةٌ «محولة إلى تنفيذ» حُذف ملفّ تنفيذها وبقيت قضيّتها — تصحيحها إلى
+     * «محولة إلى قضية» هو الإصلاح. والحكم بالملفّ الذي **تشهد له الحالة**، لا بأيّ صفٍّ مربوط.
+     */
+    public function test_the_honest_correction_still_passes(): void
+    {
+        $ticket = $this->ticket('محولة إلى تنفيذ', 'b-purple');
+        $this->caseFor($ticket);
+
+        $this->actingAs($this->admin())
+            ->post(route('admin.tickets.correct-status', $ticket), ['status' => 'محولة إلى قضية', 'reason' => 'حُذف ملفّ التنفيذ وبقيت القضيّة'])
+            ->assertRedirect();
+
+        $this->assertSame('محولة إلى قضية', $ticket->fresh()->status);
     }
 
     // ── «إحالة للمستشار»: فعل الموظّف الوحيد ──

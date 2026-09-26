@@ -99,6 +99,8 @@ class TimelineCard
             'id' => $h->legalCase?->number ?? (string) $d['id'],
             'title' => $d['title'].' — قضية '.($h->legalCase?->number ?? ''),
             'day' => $d['day'], 'time' => $d['time'], 'where' => $d['court'],
+            // المدّة المتوقّعة إن أُدخلت (قرار المالك 2026-09-26) — null ⇒ لا مدّة تُعرض
+            'durationMin' => $d['durationMin'],
             // lapsed: «مجدولة» فات موعدها ⇒ «فائتة — بانتظار النتيجة» بدل حالة كاذبة
             'status' => EventStatus::forHearing($h),
             'statusTone' => $d['lapsed'] ? 'b-red' : 'b-amber',

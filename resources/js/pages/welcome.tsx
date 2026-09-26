@@ -33,8 +33,8 @@ export default function Welcome() {
 
     return (
         <div id="top" lang="ar" dir="rtl" className="min-h-screen bg-[#FAFBFD] font-['Tajawal',sans-serif] text-slate-800 antialiased">
+            {/* بلا `<title>`: العنوان الفارغ يجعل `title` في `app.tsx` يكتب اسم المكتب وحده من إعداده */}
             <Head>
-                <title>النظام الإداري لمكاتب المحاماة</title>
                 <meta
                     name="description"
                     head-key="description"

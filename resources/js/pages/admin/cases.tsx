@@ -1,6 +1,8 @@
 import { Link, router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import CaseClosureModal from '@/components/babylon/CaseClosureModal';
+import type { ClosureReasonOption } from '@/components/babylon/CaseClosureModal';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { foldSearch } from '@/lib/employee-data';
@@ -58,11 +60,16 @@ interface Props {
   kpis?: CaseKPIs;
   /** مجموعات الحالات من `CaseJourney::adminTabs` — لا قوائم باليد في الشاشة */
   tabs?: { pendingFee: string[]; active: string[]; judged: string[]; closed: string[] };
+  /** أسباب الإغلاق من الكتالوج (`ClosureCaseReasonCode::options`) — النافذة نفسها في صفحة التفاصيل */
+  closureReasons?: ClosureReasonOption[];
 }
+
+/** رسالة الخادم نفسها (حارس الانتقال ٤٢٢ · تحقّق الحقول) — كانت تُستبدل بـ«حاول مجدداً» عامّة. */
+const serverMessage = (e: Record<string, string>, fallback: string) => String(Object.values(e)[0] ?? fallback);
 
 const NO_TABS = { pendingFee: [] as string[], active: [] as string[], judged: [] as string[], closed: [] as string[] };
 
-export const AdminCases: React.FC<Props> = ({ cases = [], types = [], kpis, tabs = NO_TABS }) => {
+export const AdminCases: React.FC<Props> = ({ cases = [], types = [], kpis, tabs = NO_TABS, closureReasons = [] }) => {
   const toast = useToast();
 
   // State
@@ -72,13 +79,16 @@ export const AdminCases: React.FC<Props> = ({ cases = [], types = [], kpis, tabs
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'hearings'>('newest');
   const [previewCase, setPreviewCase] = useState<CaseRow | null>(null);
   const [busyNo, setBusyNo] = useState<string | null>(null);
+  // القضية المفتوحة نافذةُ إغلاقها — الإغلاق من القائمة يمرّ بالسبب كصفحة التفاصيل (كان يرسل `{}`)
+  const [closingNo, setClosingNo] = useState<string | null>(null);
 
   // Actions
-  const close = (no: string) => {
+  const close = (no: string, reason: string, notes: string) => {
     setBusyNo(no);
+    setClosingNo(null);
     router.post(
       `/admin/cases/${encodeURIComponent(no)}/close`,
-      {},
+      { closure_reason: reason, closure_notes: notes },
       {
         preserveScroll: true,
         onSuccess: () => {
@@ -89,9 +99,9 @@ export const AdminCases: React.FC<Props> = ({ cases = [], types = [], kpis, tabs
 setPreviewCase(null);
 }
         },
-        onError: () => {
+        onError: (e) => {
           setBusyNo(null);
-          toast('تعذّر إغلاق القضية، يرجى المحاولة مجدداً');
+          toast(serverMessage(e, 'تعذّر إغلاق القضية'), 'error');
         },
       }
     );
@@ -112,9 +122,9 @@ setPreviewCase(null);
 setPreviewCase(null);
 }
         },
-        onError: () => {
+        onError: (e) => {
           setBusyNo(null);
-          toast('تعذّرت الأرشفة، يرجى المحاولة مجدداً');
+          toast(serverMessage(e, 'تعذّرت الأرشفة'), 'error');
         },
       }
     );
@@ -135,9 +145,9 @@ setPreviewCase(null);
 setPreviewCase(null);
 }
         },
-        onError: () => {
+        onError: (e) => {
           setBusyNo(null);
-          toast('تعذّر تحويل القضية للتنفيذ، يرجى المحاولة مجدداً');
+          toast(serverMessage(e, 'تعذّر تحويل القضية للتنفيذ'), 'error');
         },
       }
     );
@@ -339,7 +349,7 @@ return false;
                 type="button"
                 onClick={() => setStatusTab('pendingFee')}
               >
-                بانتظار الأتعاب
+                بانتظار الأتعاب ({kpis?.pendingFee ?? cases.filter((c) => tabs.pendingFee.includes(c.status)).length})
               </button>
             </div>
 
@@ -490,7 +500,7 @@ return false;
                               className="btn sm"
                               type="button"
                               disabled={isBusy}
-                              onClick={() => close(c.no)}
+                              onClick={() => setClosingNo(c.no)}
                               title="إغلاق القضية بعد اكتمال الحكم"
                             >
                               <Icon name="check" /> {isBusy ? '…' : 'إغلاق'}
@@ -622,10 +632,11 @@ return false;
                 <span className="v" style={{ color: 'var(--deep)' }}>{previewCase.claimAmount}</span>
               </div>
             )}
-            {previewCase.fee && (
+            {/* `fee && …` كان يطبع «0» لقضيّةٍ بلا أتعاب — الصفر قيمةٌ معتمدة تُعرض صراحةً */}
+            {previewCase.fee != null && (
               <div className="kv">
                 <span className="k">أتعاب القضية المعتمدة</span>
-                <span className="v" style={{ color: 'var(--primary)' }}>{previewCase.fee} ر.س</span>
+                <span className="v" style={{ color: 'var(--primary)' }}>{previewCase.fee === 0 ? 'بلا أتعاب' : `${previewCase.fee.toLocaleString('en-US')} ر.س`}</span>
               </div>
             )}
             <div className="kv">
@@ -653,7 +664,7 @@ return false;
                   className="btn"
                   style={{ flex: 1 }}
                   disabled={busyNo === previewCase.no}
-                  onClick={() => close(previewCase.no)}
+                  onClick={() => setClosingNo(previewCase.no)}
                 >
                   <Icon name="check" /> إغلاق القضية رسمياً
                 </button>
@@ -691,6 +702,15 @@ return false;
           </div>
         </Modal>
       )}
+
+      <CaseClosureModal
+        open={closingNo !== null}
+        caseNo={closingNo ?? ''}
+        reasons={closureReasons}
+        busy={busyNo !== null}
+        onClose={() => setClosingNo(null)}
+        onSubmit={(reason, notes) => closingNo && close(closingNo, reason, notes)}
+      />
     </>
   );
 };

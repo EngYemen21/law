@@ -4,12 +4,13 @@ use App\Http\Middleware\EnsureActive;
 use App\Http\Middleware\EnsurePermission;
 use App\Http\Middleware\EnsureRole;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\MarksConversationReply;
+use App\Support\ErrorResponse;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -28,6 +29,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => EnsureRole::class,
             'permission' => EnsurePermission::class,
             'active' => EnsureActive::class,
+            // مسارات الردّ وحدها تنقل مسؤوليّة المحادثة (قرار المالك 2026-09-25) — انظر ConversationHandler
+            'conversation.reply' => MarksConversationReply::class,
         ]);
 
         // Zoom/Moyasar webhooks لا ترسل رمز CSRF؛ محميّة بتوقيع/سرّ في المتحكّم
@@ -53,39 +56,19 @@ return Application::configure(basePath: dirname(__DIR__))
         // نداءات axios في الواجهة (Accept: application/json) تحتاج جسم خطأ حقيقياً (422/403).
         // كانت تُعاد توجيهاً فيتبعه axios ويقرأ 200 فيشتعل then() ويظهر توست «✅ تم…» بلا تنفيذ.
         // زيارات Inertia مستثناة: تعتمد على التحويل مع أخطاء الجلسة (onError).
-        $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*')
-                || (! $request->inertia() && $request->expectsJson()),
-        );
+        $exceptions->shouldRenderJsonWhen(fn (Request $request) => ErrorResponse::wantsJson($request));
 
         /*
-         * **رسالةُ الرفض تصل صاحبها.**
+         * **الخطأ رسالةٌ لا صفحة — من موضعٍ واحد** (`App\Support\ErrorResponse`).
          *
-         * التعليق أعلاه يَعِد بأن زيارات Inertia «تعتمد على التحويل مع أخطاء الجلسة
-         * (onError)» — ولم يكن شيءٌ يُحقّق ذلك. فـ`abort(422, '…')` يرمي
-         * `HttpException` لا `ValidationException`، والردّ صفحةُ HTML بلا ترويسة
-         * `X-Inertia` وبلا تحويل ⇒ **`onError` لا يُنادى قطّ**. قِستُه بطلبٍ حيّ.
+         * كان التحويل هنا لزيارات Inertia وحدها وبالرموز ٤٠٣/٤٠٩/٤٢٢ وحدها، فبقي فتحُ رابطٍ مرفوض
+         * في تبويب (غرفةٌ انتهت، تنزيلٌ لا يُسمح به) صفحةَ لارافل الخام «Unprocessable Content»،
+         * والسجلّ المحذوف «Not Found» بالإنجليزيّة، و`abort(403)` بلا نصٍّ «Forbidden». الآن يُصنَّف
+         * الطلب مرّةً (JSON · فعل Inertia · فتح صفحة) وكلّ رمزٍ يأخذ رسالته العربيّة من خريطةٍ واحدة —
+         * فأيّ `abort` جديد يُشرح تلقائيّاً. التفصيل والأسباب في رأس الصنف.
          *
-         * فثلاثة عشر حارساً في متحكّم الاستشارات وحده تمنع الضرر ولا تشرح: يرى
-         * الموظّف نافذة خطأ خام بدل «فات موعد هذه الجلسة — سجّل لم يحضر أو أعد
-         * جدولتها». الحارس يعمل والرسالة تضيع.
-         *
-         * **والتحويل هنا لا في ثلاثة عشر موضعاً** — فأيّ `abort` جديد يُشرح تلقائياً.
-         *
-         * ويقتصر على ٤٠٣/٤٠٩/٤٢٢: رفضٌ يعرف المستخدم سببه ويستطيع تصحيحه. أمّا ٤٠٤
-         * و٤١٩ و5xx فتبقى كما هي — صفحةٌ لا توجد ليست إجراءً مرفوضاً، و«انتهت الجلسة»
-         * لها معالجتها في Inertia.
-         *
-         * ولا يمسّ الاختبارات: عميل الاختبار لا يرسل `X-Inertia`، فتبقى تأكيدات
-         * `assertStatus(422)` صحيحةً على حالها.
+         * ونشرُ النماذج بلا `X-Inertia` (webhooks، واختبارات الحرّاس) يبقى برمزه — فتبقى تأكيدات
+         * `->post(...)->assertStatus(422)` تقيس الحارس نفسه.
          */
-        $exceptions->render(function (HttpExceptionInterface $e, Request $request) {
-            if (! $request->inertia() || ! in_array($e->getStatusCode(), [403, 409, 422], true)) {
-                return null;
-            }
-
-            return back()->withErrors([
-                'message' => $e->getMessage() ?: 'تعذّر تنفيذ الإجراء في حالته الحاليّة.',
-            ]);
-        });
+        $exceptions->render(fn (Throwable $e, Request $request) => ErrorResponse::render($e, $request));
     })->create();

@@ -63,16 +63,17 @@ class ConsultStaffTransitionsTest extends TestCase
         $this->assertSame('بانتظار السداد', $consult->fresh()->status);
     }
 
-    public function test_approving_analysis_is_a_transition_and_a_silent_noop_otherwise(): void
+    public function test_approving_analysis_is_a_transition_and_refuses_loudly_otherwise(): void
     {
         $employee = User::factory()->create(['role' => Role::Employee]);
         $consult = $this->consult(['status' => 'بانتظار اعتماد الموظف']);
 
         $this->actingAs($employee)->post(route('employee.consults.approve', $consult))->assertRedirect();
-        $this->actingAs($employee)->post(route('employee.consults.approve', $consult))->assertRedirect();
+        // كانت الضغطة الثانية تعود نجاحاً صامتاً فتعرض الشاشة «اعتُمد التحليل» — الآن 422 بالسبب
+        $this->actingAs($employee)->post(route('employee.consults.approve', $consult))->assertStatus(422);
 
         $this->assertSame('جاهزة للمحامي', $consult->fresh()->status);
-        $this->assertSame(1, $this->rows($consult, 'consult.approve_analysis'), 'الضغطة الثانية لا انتقال لها ولا خطأ');
+        $this->assertSame(1, $this->rows($consult, 'consult.approve_analysis'), 'الضغطة الثانية لا انتقال لها');
     }
 
     public function test_staff_end_seals_the_session_and_settles_the_appointment(): void

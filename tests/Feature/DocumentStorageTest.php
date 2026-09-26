@@ -222,9 +222,8 @@ class DocumentStorageTest extends TestCase
         [, $doc] = $this->caseWithDoc();
         $outsider = User::factory()->create(['role' => Role::Lawyer]);
 
-        $this->actingAs($outsider)
-            ->get(route('lawyer.documents.download', ['type' => 'case', 'id' => $doc->id]))
-            ->assertForbidden();
+        $this->assertPageRefused($this->actingAs($outsider)
+            ->get(route('lawyer.documents.download', ['type' => 'case', 'id' => $doc->id])));
     }
 
     /**

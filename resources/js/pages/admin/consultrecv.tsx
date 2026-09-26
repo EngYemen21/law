@@ -2,10 +2,12 @@ import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
+import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
 import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-reschedule';
+import { CONFIRM_END_CONSULT } from '@/lib/consult-ui';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { crChannelIcon, crChannelTone, sessTone } from '@/lib/employee-data';
@@ -21,6 +23,7 @@ type DrawerTab = 'actions' | 'summary' | 'details' | 'audit';
 
 export const AdminConsultRecv: React.FC<Props> = ({ consults = [] }) => {
   const toast = useToast();
+  const ask = useConfirm();
 
   // State Management
   const [items, setItems] = useState<ConsultCard[]>(consults);
@@ -219,6 +222,8 @@ return false;
       {
         preserveScroll: true,
         onSuccess: () => toast(msg),
+        // سبب الرفض من الخادم (موعدٌ فات، جلسةٌ ملغاة…) — كان الرفض يمرّ بلا أيّ رسالة
+        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر بدء الجلسة'}`, 'error'),
       }
     );
   };
@@ -233,8 +238,13 @@ return false;
     setEndNotes('');
   };
 
-  const submitEnd = () => {
+  const submitEnd = async () => {
     if (endingOf === null) {
+      return;
+    }
+
+    // تأكيدٌ يقول الأثر قبل الإرسال — النصّ الواحد من `consult-ui` (قرار المالك 2026-09-26)
+    if (!(await ask(CONFIRM_END_CONSULT))) {
       return;
     }
 
@@ -245,13 +255,12 @@ return false;
       { notes },
       {
         preserveScroll: true,
+        // نصّ النجاح من الخادم (`RoomDetails::afterEnd` ⇐ flash) — لا إشعار ثانٍ هنا
         onSuccess: () => {
           setEndingOf(null);
           setEndNotes('');
-          toast(notes === ''
-            ? 'خُتمت الجلسة بلا تدوين — لا ملخّص حتّى تُدوّن ما دار فيها'
-            : 'خُتمت الجلسة وحُفظ تدوينك — يُعدّ الملخّص لاعتماد المستشار');
         },
+        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر إنهاء الجلسة'}`, 'error'),
       }
     );
   };
@@ -267,7 +276,7 @@ return false;
         {
           preserveScroll: true,
           onSuccess: () => router.visit(room),
-          onError: () => toast('تعذّر بدء الجلسة'),
+          onError: (e) => toast(e.message || 'تعذّر بدء الجلسة'),
         }
       );
 

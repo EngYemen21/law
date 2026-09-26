@@ -11,6 +11,7 @@ use App\Domain\Journey\Workflow;
 use App\Events\ExecStatusBroadcast;
 use App\Models\Execution;
 use App\Models\Invoice;
+use App\Support\Finance\InvoiceDue;
 use App\Support\Finance\InvoiceFactory;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
@@ -107,8 +108,7 @@ class ExecFee
                 'user_id' => $locked->user_id, 'exec_id' => $locked->id, 'number' => $number,
                 'installment_no' => 1,
                 'description' => 'أتعاب تنفيذ · '.$locked->number,
-                'due_label' => 'خلال 3 أيام',
-                'due_at' => now()->addDays(3)->toDateString(),
+                ...InvoiceDue::execFee(), // المهلة من الإعدادات — التاريخ ونصّه من رقمٍ واحد
             ]);
             // الخطّة تبقى معلّقة حتى يختارها العميل عند السداد؛ والمجموع 1 حتى يُقسَّط
             $locked->update(['offer_status' => 'مقبول', 'invoice_no' => $number, 'installments_total' => 1]);
@@ -159,11 +159,11 @@ class ExecFee
 
             // الضريبة تُقسَّم مع المبلغ — نظير `CaseFee::openInstallmentPlan`: الأمّ كانت تحمل
             // ضريبة الأتعاب كاملةً، فتقليصُ `amount` وحده يكسر `subtotal + vat_amount = amount`.
+            // المهل من الإعدادات (`InvoiceDue::installment`) — نظير `CaseFee::openInstallmentPlan` بالقارئ نفسه.
             $master->update(array_merge(InvoiceFactory::taxFromTotal($first), [
                 'installment_no' => 1,
                 'description' => self::installmentLabel($locked, 1, $count),
-                'due_label' => 'خلال 3 أيام',
-                'due_at' => now()->addDays(3)->toDateString(),
+                ...InvoiceDue::installment(1),
             ]));
 
             for ($n = 2; $n <= $count; $n++) {
@@ -172,8 +172,7 @@ class ExecFee
                     'exec_id' => $locked->id,
                     'installment_no' => $n,
                     'description' => self::installmentLabel($locked, $n, $count),
-                    'due_label' => 'خلال '.(($n - 1) * 30).' يوماً',
-                    'due_at' => now()->addDays(($n - 1) * 30)->toDateString(),
+                    ...InvoiceDue::installment($n),
                 ]);
             }
 
@@ -377,8 +376,7 @@ class ExecFee
             'installment_no' => null,
             'description' => 'أتعاب تنفيذ '.self::pctLabel($pct).'% من تحصيل '.number_format($collected).' ريال · '.$exec->number
                 .($note !== '' ? ' — '.$note : ''),
-            'due_label' => 'خلال 7 أيام',
-            'due_at' => now()->addDays(7)->toDateString(),
+            ...InvoiceDue::collection(), // المهلة من الإعدادات — التاريخ ونصّه من رقمٍ واحد
         ]);
     }
 

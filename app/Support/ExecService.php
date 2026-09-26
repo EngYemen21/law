@@ -253,16 +253,28 @@ class ExecService
         abort_if($exec->isClosed(), 422, 'ملفّ التنفيذ منتهٍ — لا يُسنَد بعد إغلاقه.');
         self::guardNotRejected($exec, 'هذا الطلب مرفوض بعد الدراسة — لا يُسنَد إليه محامٍ.');
 
-        $before = $exec->assigned_lawyer ?: '—';
-        Workflow::run(new AssignExecutionLawyer, $exec, $actor, [
+        $assign = new AssignExecutionLawyer;
+        Workflow::run($assign, $exec, $actor, [
             'lawyer_id' => $lawyer->id,
             'lawyer_name' => $lawyer->name,
         ]);
 
-        // `officeMsg` تكتب الرسالة **باسم الفاعل** (حقل `name`) — فلا يُكرَّر الاسم في النصّ
-        self::officeMsg($exec, $actor, 'إسناد', $before === '—'
-            ? 'أُسند ملفّ التنفيذ إلى '.$lawyer->name.'.'
-            : 'أُعيد إسناد ملفّ التنفيذ من '.$before.' إلى '.$lawyer->name.'.');
+        /*
+         * **نصُّ الرسالة يقرؤه العميل — فالمحاميان فيه باسمهما للعميل لا باسمهما الكامل.**
+         *
+         * كانت الرسالة تحمل الاسمين الكاملين للقديم والجديد فتصل محادثةَ العميل وبثَّه اللحظيّ، بينما خانة
+         * المحامي في شاشته نفسها تعرض «محمد. ب». فكلاهما بالمصدر الواحد (`LawyerName`) — والسابق **يُذكر**
+         * (قرار المالك 2026-09-26)، ويُحفظ كاملاً في سطر الرحلة (`previous_lawyer_id/name`) للطاقم.
+         */
+        $assignee = LawyerName::assignedTo($lawyer);
+        $reassigned = $assign->previousId() !== null || $assign->previousName() !== null;
+        $previous = $reassigned
+            ? LawyerName::forClient($assign->previousId() !== null ? User::find($assign->previousId()) : null, $assign->previousName(), LawyerName::SPECIALIST)
+            : null;
+
+        self::officeMsg($exec, $actor, 'إسناد', $previous !== null
+            ? 'أُعيد إسناد ملفّ التنفيذ من '.$previous.' إلى '.$assignee.'.'
+            : 'أُسند ملفّ التنفيذ إلى '.$assignee.'.');
 
         // من أُسند إليه الملفّ يُبلَّغ بالإشعار وبالبريد معاً — نظير `ExecutionCreation::fromCase`
         Notify::send($lawyer->id, 'exec', 't-blue', "أُسند إليك ملفّ التنفيذ {$exec->number} — {$exec->subject}.");
@@ -310,6 +322,15 @@ class ExecService
         self::notify($exec, 'card', 't-blue', "عرض خدمة التنفيذ لطلبك {$exec->number} جاهز — بانتظار قبولك.");
         self::mail($exec, 'feeApproved');
         Live::push(new ExecStatusBroadcast($exec->fresh()));
+    }
+
+    /**
+     * **يجوز تسعيره الآن؟** — حارسا `setFee` نفسهما (المرحلة ضمن `feeStages` + غير مرفوضٍ بعد الدراسة)،
+     * تقرؤهما البطاقة علَماً (`canReprice`). كانت الواجهة تعيد كتابتهما بمقارنة «مرفوض»/«استفسار» نصّاً.
+     */
+    public static function canPrice(Execution $exec): bool
+    {
+        return ! $exec->isRejectedAfterStudy() && in_array($exec->effectiveStage(), self::feeStages($exec), true);
     }
 
     /** مراحل التسعير المسموحة: 2‑4 عادةً، وتضمّ 5 إن رفض العميل العرض أو استفسر عنه، و6 (قبل السداد) لإعادة التسعير. */

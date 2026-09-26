@@ -2,6 +2,7 @@
 
 namespace App\Events;
 
+use App\Domain\Journey\Enums\MeetingStatus;
 use App\Models\Meeting;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
@@ -31,7 +32,7 @@ class MeetingStatusBroadcast implements ShouldBroadcastNow
 
     public function broadcastWith(): array
     {
-        $approved = $this->meeting->approve === 'معتمد';
+        $approved = $this->meeting->isApproved();
         [, $liveStatus, $tone] = $this->meeting->liveState();
 
         return [
@@ -42,7 +43,13 @@ class MeetingStatusBroadcast implements ShouldBroadcastNow
             'tone' => $tone,
             'up' => $this->meeting->isUpcoming(),
             'canJoin' => $this->meeting->canJoin(),
+            // أزرار البدء/الإنهاء/الإلغاء تتبع الحالة لحظيّاً — بحراس الانتقالات لا بقائمةٍ في الواجهة
+            'actions' => $this->meeting->lifecycleActions(),
             'approve' => $this->meeting->approve,
+            // مفتاح الحالة وعلَما الاعتماد — الصفحة تشرط أزرارها بها لا بالنصّ العربيّ (نظير `toFullCard`)
+            'statusKey' => MeetingStatus::keyOf($liveStatus),
+            'approved' => $approved,
+            'canApprove' => $this->meeting->canApprove(),
             // المحضر/الملخص البشري المعتمَد فقط (لا يُبثّ ملخّص AI للعميل)
             'summary' => $approved ? $this->meeting->summary : null,
             'minutes' => $approved ? $this->meeting->minutes : null,

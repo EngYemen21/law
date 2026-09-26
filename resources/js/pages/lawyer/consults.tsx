@@ -8,7 +8,7 @@ import { useToast } from '@/components/babylon/Toast';
 // اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
 import { maskClient } from '@/lib/employee-data';
 import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-reschedule';
-import { RichText, SummaryStateBadge } from '@/lib/consult-ui';
+import { CONFIRM_END_CONSULT, RichText, SummaryStateBadge } from '@/lib/consult-ui';
 import type { ConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import {
@@ -226,7 +226,12 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   };
 
   // إنهاء الجلسة وحفظ الملاحظات
-  const handleEnd = (consult: ConsultCard) => {
+  const handleEnd = async (consult: ConsultCard) => {
+    // تأكيدٌ يقول الأثر قبل الإرسال — النصّ الواحد من `consult-ui` (قرار المالك 2026-09-26)
+    if (!(await ask(CONFIRM_END_CONSULT))) {
+      return;
+    }
+
     setIsProcessing(true);
     router.post(
       `/lawyer/consults/${consult.id}/end`,
@@ -293,7 +298,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
           // لا قيد له في `ai_runs` فلا يبلغ الصندوق قطّ. الوعد كان يُخفي الحجب.
           toast('حُفظت المسودّة — لم تصل الموكّل بعد؛ الإرسال يقع بالاعتماد');
         },
-        onError: () => toast('تعذر حفظ التقرير'),
+        onError: (e) => toast(e.message || Object.values(e)[0] || 'تعذر حفظ التقرير'),
         onFinish: () => setIsProcessing(false),
       }
     );
@@ -350,7 +355,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
       {
         preserveScroll: true,
         onSuccess: () => toast('تم تحويل قرارات الجلسة إلى مهام عمل تنفيذية بنجاح'),
-        onError: () => toast('تعذر تحويل القرارات إلى مهام'),
+        onError: (e) => toast(e.message || Object.values(e)[0] || 'تعذر تحويل القرارات إلى مهام'),
         onFinish: () => setIsProcessing(false),
       }
     );

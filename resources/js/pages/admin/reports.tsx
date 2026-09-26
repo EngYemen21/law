@@ -10,6 +10,7 @@ interface Props {
     convertedToCase?: number;
     conversionRate?: number;
     closedTickets?: number;
+    finishedTickets?: number;
     activeTickets?: number;
     meetingsHeld: number;
     totalCases?: number;
@@ -189,7 +190,8 @@ const AdminReports: React.FC<Props> = ({
               </div>
               <div className="card-b" style={{ padding: 16 }}>
                 <div className="kpi-row">
-                  <span className="t">نسبة إغلاق التذاكر (المكتملة + المحولة)</span>
+                  {/* الحساب في الخادم (`PerformanceSnapshot`): التذاكر المحسومة = `TicketStatus::finals()` */}
+                  <span className="t">نسبة حسم التذاكر (المكتملة والمغلقة والمحوّلة)</span>
                   <span className="v" style={{ color: 'var(--c-green, #10b981)', fontWeight: 800 }}>{stats.closureRate}%</span>
                 </div>
                 <div className="kpi-row">
@@ -268,7 +270,8 @@ const AdminReports: React.FC<Props> = ({
               </div>
               <div className="stat t-grey">
                 <div className="num">{stats.closedTickets ?? 0}</div>
-                <div className="lbl">مغلقة ومحفوظة ({stats.closureRate}%)</div>
+                {/* المحوّلة لها عدّادها — والنسبة المئويّة للحسم كلّه، فلا تُلصق بعددٍ لا يضمّها */}
+                <div className="lbl">مغلقة ومكتملة (بلا المحوّلة)</div>
               </div>
             </div>
           </div>

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { Qr } from '@/components/babylon/admin-charts';
 import Badge from '@/components/babylon/Badge';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import type {Appt} from '@/lib/data';
 import Icon from '@/lib/icons';
+import { useSettings } from '@/lib/settings';
 
 // يطابق viewAppts + openAppt (بطاقة .apptx) في index (21).html — ببيانات حقيقيّة
 
@@ -25,6 +25,8 @@ function apptPlace(a: Appt) {
 // بطاقة الموعد الغنيّة (.apptx) — تطابق openAppt، ببيانات حقيقيّة
 const ApptCard: React.FC<{ a: Appt }> = ({ a }) => {
   const toast = useToast();
+  // هويّة المكتب من الإعدادات — كانت نسخةً منقوشة من بطاقة PDF (`AppointmentCardPdf`) تتخلّف عنها
+  const { office_name, office_url, office_phone } = useSettings();
   const p = apptPlace(a);
   const paid = a.pay === 'مدفوع';
   // رابط الجلسة المرئية الحقيقي بالمنصّة — كان يُنسخ رابط مختلق (salaselbabel.net/APT-…) لا مسار له
@@ -50,7 +52,7 @@ return;
           <div className="apptx-brand">
             <div className="apptx-logo">LM</div>
             <div>
-              <b>النظام الإداري لمكاتب المحاماة</b>
+              <b>{office_name}</b>
               <span className="bs">LEGAL OFFICE MANAGEMENT · المواعيد القانونية</span>
             </div>
           </div>
@@ -64,8 +66,17 @@ return;
         </div>
         <div className="apptx-body">
           <div className="apptx-qr">
-            <div className="qrbox"><Qr seed={a.id} /></div>
-            <p>امسح لتأكيد الحضور<br />وبدء الجلسة</p>
+            {/* رمزٌ حقيقيّ من الخادم (المولّد الوحيد `Support\Qr`) يحمل رابط التحقّق الموقَّع — كان نقشاً
+                زخرفيّاً لا يُقرأ تحته أمرٌ بمسحه لتأكيد الحضور، والمسح لا يسجّل حضوراً بل يُثبت البطاقة */}
+            <div className="qrbox">
+              <img
+                src={`/appointments/${encodeURIComponent(a.id)}/qr.svg`}
+                alt="رمز التحقّق من بطاقة الموعد"
+                width={108}
+                height={108}
+              />
+            </div>
+            <p>امسح للتحقّق من البطاقة<br />مرجع الموعد {a.id}</p>
           </div>
           <div className="apptx-rows">
             <div className="apptx-row">
@@ -110,7 +121,7 @@ return;
           </div>
         </div>
         <div className="apptx-foot">
-          <span>https://salaselbabel.net/ · 011 462 2277</span>
+          <span>{office_url} · {office_phone}</span>
           <span>يُرجى الحضور قبل الموعد بـ15 دقيقة وإحضار المستندات المطلوبة</span>
         </div>
       </div>

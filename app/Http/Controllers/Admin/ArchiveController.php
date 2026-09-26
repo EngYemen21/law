@@ -32,7 +32,8 @@ class ArchiveController extends Controller
                     'specialty' => $c->specialty ?: ($c->type ?: 'عام'),
                     'subject' => $c->subject,
                     'date' => $c->whenLabel(),
-                    'dur' => $c->duration_label ?: '—',
+                    // المقيسُ من Zoom لا `duration_label` — نصٌّ بلا كاتبٍ حيّ كان يُعرض «مدّةً» (نظير `Consult::toCard`)
+                    'durationSec' => $c->duration_sec !== null ? (int) $c->duration_sec : null,
                     'total' => $c->total,
                     'status' => $c->status,
                     'summary' => $c->summary,

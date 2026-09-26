@@ -400,11 +400,14 @@ class CaseConversionTest extends TestCase
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $client = User::factory()->create(['role' => Role::Client]);
         $ticket = $this->completedTicket($client, $lawyer);
+        // طلب النواقص كتابةٌ على التذكرة فيحكمه `TicketWritePolicy` كالردّ والملاحظة: «مكتملة» حالةٌ
+        // نهائيّة لا تُكتب عليها — ومحطّة القرار الحيّة قبل المآل «بانتظار قرار المآل»
+        $ticket->update(['status' => 'بانتظار قرار المآل']);
 
         $this->actingAs($lawyer)->post(route('lawyer.tickets.reqdocs', $ticket))->assertRedirect();
         $this->assertTrue($ticket->messages->contains(fn ($m) => $m->who === 'lawyer' && $m->role === 'نواقص'));
         $this->assertSame(1, UserNotification::where('user_id', $client->id)->count());
-        $this->assertSame('مكتملة', $ticket->fresh()->status); // الحالة لا تتغيّر
+        $this->assertSame('بانتظار قرار المآل', $ticket->fresh()->status); // الحالة لا تتغيّر
     }
 
     public function test_admin_oversees_case_fees(): void

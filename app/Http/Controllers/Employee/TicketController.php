@@ -18,11 +18,12 @@ use App\Models\User;
 use App\Services\LegalAiService;
 use App\Support\Audit;
 use App\Support\ConversationFiles;
+use App\Support\ConversationHandler;
 use App\Support\LegalCatalogue;
 use App\Support\Live;
 use App\Support\Notify;
-use App\Support\ServiceDocs;
 use App\Support\TicketAssignment;
+use App\Support\TicketDocumentRequirements;
 use App\Support\TicketJourney;
 use App\Support\TicketTriage;
 use App\Support\TicketWritePolicy;
@@ -104,6 +105,8 @@ class TicketController extends Controller
             ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name]);
 
         return Inertia::render('employee/ticketchat', [
+            // من يتولّى المحادثة الآن ومن تولّاها قبله — للطاقم وحده (`ConversationHandler`)
+            'conversation' => ConversationHandler::history($ticket),
             // caseRef يخفي زرّ «تحويل إلى قضية» بعد التحويل ويعرض رابط ملف القضية بدله
             // mobile/openedAt لبطاقتَي «تفاصيل الطلب» ومعلومات التذكرة (يطابق tkDetailsCard المرجعي)
             'ticket' => array_merge($ticket->toEmployeeCard(), [
@@ -226,8 +229,8 @@ class TicketController extends Controller
             'docs.*' => ['required', 'string', 'max:190'],
         ]);
 
-        // الغلاف حرفيّ ثابت، والتهريب على أسماء المستندات وحدها — لا HTML قادم من الواجهة (يمنع دمج الكود في الرسالة)
-        $chips = implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', $data['docs']));
+        // الغلاف الواحد (`TicketDocumentRequirements::chips`) يهرّب كلّ اسم — لا HTML قادم من الواجهة (يمنع دمج الكود في الرسالة)
+        $chips = TicketDocumentRequirements::chips($data['docs']);
 
         $msg = null;
         DB::transaction(function () use ($ticket, $request, $chips, &$msg) {
@@ -328,13 +331,12 @@ class TicketController extends Controller
                 'via' => 'employee.advance',
             ]);
 
-            $chips = implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', ServiceDocs::for($ticket->type)));
+            // نواقص قائمة القسم وحدها — ما ثبت إرفاقه لا يُطلب ثانيةً
             $msg = $ticket->messages()->create([
                 'who' => 'ai',
                 'name' => LegalAiService::AGENT_NAME,
                 'role' => 'نواقص',
-                'body' => '<p>لمساعدتنا في دراسة الطلب بشكل أدق، يرجى إرفاق المستندات التالية:</p><div class="doc-list">'.$chips.'</div>'
-                    .'<p class="muted">'.ServiceDocs::NOTE.'</p>',
+                'body' => TicketDocumentRequirements::requestHtml($ticket, 'لمساعدتنا في دراسة الطلب بشكل أدق، يرجى إرفاق المستندات التالية:'),
                 'time_label' => $this->clock(),
             ]);
             Live::push(new TicketMessageBroadcast($msg));

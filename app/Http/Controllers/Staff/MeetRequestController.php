@@ -2,19 +2,24 @@
 
 namespace App\Http\Controllers\Staff;
 
+use App\Domain\Journey\Enums\MeetingStatus;
+use App\Domain\Journey\Transitions\Meeting\CancelMeeting;
+use App\Domain\Journey\Transitions\Meeting\StartMeeting;
+use App\Domain\Journey\Workflow;
 use App\Enums\Role;
-use App\Events\MeetingStatusBroadcast;
+use App\Events\Journey\MeetingCancelled;
+use App\Events\Journey\SessionEndedInSystem;
 use App\Http\Controllers\Controller;
 use App\Mail\MeetInviteMail;
 use App\Models\Consult;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\User;
+use App\Rules\ActiveLawyer;
 use App\Services\MailService;
 use App\Support\Audit;
 use App\Support\ClientDirectory;
 use App\Support\LawyerAvailability;
-use App\Support\Live;
 use App\Support\MeetInvitation;
 use App\Support\Notify;
 use App\Support\ReferenceNumber;
@@ -32,6 +37,9 @@ use Inertia\Response;
  */
 class MeetRequestController extends Controller
 {
+    /** رسالة التعارض — واحدةٌ للإرسال الأوّل وإعادة الإرسال. */
+    private const TAKEN = 'هذا الموعد محجوز للمحامي — اختر وقتاً آخر، أو أحِل الطلب للإدارة العليا لإسناد محامٍ مختصّ آخر.';
+
     public function index(Request $request): Response
     {
         // الموظّف يرى كلّ دعوات المكتب (قرار المالك 2026-09-14)، والمحامي ما أُسند إليه، والإدارة الكل.
@@ -44,7 +52,8 @@ class MeetRequestController extends Controller
         return Inertia::render($this->prefix($request).'/meetreqs', [
             'requests' => $query->get()->map(fn (MeetRequest $r) => $r->toCard()),
             'clients' => ClientDirectory::list(),
-            'lawyers' => User::where('role', Role::Lawyer)->orderBy('name')->get(['id', 'name'])
+            // النشطون وحدهم (`User::activeLawyers`) — القائمة نفسها التي يقبلها `store` بـ`ActiveLawyer`
+            'lawyers' => User::activeLawyers()->orderBy('name')->get(['id', 'name'])
                 ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name]),
             // إن كان المُنشئ محاميًا: يُثبَّت هو المحامي المسؤول (لا يختار غيره)
             'selfLawyerId' => $request->user()->role === Role::Lawyer ? $request->user()->id : null,
@@ -56,34 +65,32 @@ class MeetRequestController extends Controller
     {
         $data = $request->validate([
             'client_id' => ['required', 'integer', 'exists:users,id'],
-            'lawyer_id' => ['required', 'integer', 'exists:users,id'],
+            // محامٍ **نشط** لا «أيّ مستخدم» — كان الموقوف يُسند إليه اجتماعٌ لا يستطيع دخوله
+            'lawyer_id' => ['required', 'integer', new ActiveLawyer],
             'service' => ['nullable', 'string', 'max:120'],
             'type' => ['required', 'string', 'in:استشارة مرئية,استشارة حضورية,استشارة هاتفية'],
             'case_ref' => ['nullable', 'string', 'max:120'],
             'day' => ['required', 'date_format:Y-m-d', 'after_or_equal:today'],
             'time' => ['required', 'string', 'date_format:H:i'],
-            'duration' => ['required', 'integer', 'in:30,45,60,90,120'],
+            // لا «مدة» (قرار المالك 2026-09-26): الاجتماع ينتهي حين يُنهى، والتعارض بمسافة الحجز
         ]);
 
         $client = User::findOrFail($data['client_id']);
-        abort_unless($client->role === Role::Client, 422);
+        abort_unless($client->role === Role::Client, 422, 'الحساب المختار ليس حساب عميل.');
 
         // المحامي المُنشئ يُسنِد نفسه حصراً؛ الموظف/الإدارة يختار المحامي المسؤول
         $lawyerId = $request->user()->role === Role::Lawyer ? $request->user()->id : (int) $data['lawyer_id'];
         $lawyer = User::find($lawyerId);
-        abort_unless($lawyer && $lawyer->role === Role::Lawyer, 422);
+        abort_unless($lawyer && $lawyer->role === Role::Lawyer, 422, 'المحامي المختار غير موجود أو ليس حساب محامٍ.');
 
         // موعد مستقبلي فقط (يحمي حالة «اليوم» بوقت مضى) + منع الحجز المزدوج للمحامي
         $startsAt = Carbon::createFromFormat('Y-m-d H:i', $data['day'].' '.$data['time']);
         if ($startsAt->isPast()) {
             throw ValidationException::withMessages(['time' => 'لا يمكن اختيار موعد ماضٍ — اختر وقتاً لاحقاً.']);
         }
-        $start = $startsAt->hour * 60 + $startsAt->minute;
-        $end = $start + (int) $data['duration'];
-        foreach ($this->busy($lawyer->id, $data['day']) as [$s, $e]) {
-            if ($start < $e && $s < $end) {
-                throw ValidationException::withMessages(['time' => 'هذا الموعد محجوز للمحامي — اختر وقتاً آخر، أو أحِل الطلب للإدارة العليا لإسناد محامٍ مختصّ آخر.']);
-            }
+        // التعارض بمسافة الحجز من المصدر الواحد (`LawyerAvailability::isBusy`) — لا مدّةٍ يختارها النموذج
+        if (LawyerAvailability::isBusy($lawyer->id, $startsAt)) {
+            throw ValidationException::withMessages(['time' => self::TAKEN]);
         }
 
         $req = MeetRequest::create([
@@ -94,7 +101,6 @@ class MeetRequestController extends Controller
             'case_ref' => ($data['case_ref'] ?? '') ?: null,
             'day' => $data['day'],
             'time' => $data['time'],
-            'duration_min' => (int) $data['duration'],
             'assigned_lawyer_id' => $lawyer->id,
             'sent_by' => $request->user()->name.' ('.$request->user()->role->label().')',
             'sent_by_id' => $request->user()->id,
@@ -207,14 +213,8 @@ class MeetRequestController extends Controller
         if ($startsAt->isPast()) {
             throw ValidationException::withMessages(['time' => 'لا يمكن اختيار موعد ماضٍ — اختر وقتاً لاحقاً.']);
         }
-        if ($meetRequest->assigned_lawyer_id) {
-            $start = $startsAt->hour * 60 + $startsAt->minute;
-            $end = $start + (int) ($meetRequest->duration_min ?: 60);
-            foreach ($this->busy($meetRequest->assigned_lawyer_id, $data['day']) as [$s, $e]) {
-                if ($start < $e && $s < $end) {
-                    throw ValidationException::withMessages(['time' => 'هذا الموعد محجوز للمحامي — اختر وقتاً آخر، أو أحِل الطلب للإدارة العليا لإسناد محامٍ مختصّ آخر.']);
-                }
-            }
+        if ($meetRequest->assigned_lawyer_id && LawyerAvailability::isBusy($meetRequest->assigned_lawyer_id, $startsAt)) {
+            throw ValidationException::withMessages(['time' => self::TAKEN]);
         }
 
         // نفس بوّابة الإرسال الأول: إعادة إرسال الموظف/المحامي تعود لموافقة الإدارة،
@@ -260,10 +260,19 @@ class MeetRequestController extends Controller
             'انعقدت هذه الجلسة أو تجاوزت مرحلة الإلغاء — لا تُلغى بعد انعقادها.'
         );
 
+        // **إلغاء الدعوة يُلغي اجتماعها ويحذف غرفته** (قرار المالك 2026-09-26). كان يُنزّل الدعوة
+        // وحدها، فيبقى اجتماعها «قادماً» في اجتماعات العميل وغرفته حيّة على Zoom — يحضر العميل
+        // لاجتماعٍ أُلغيت دعوته. بانتقال الإلغاء نفسه الذي يسلكه زرّ الاجتماع (`CancelMeeting`) —
+        // وحارسُه يرفض الجاري برسالته، فلا تُلغى دعوةٌ والطرفان في غرفتها.
+        $meeting = $meetRequest->meeting;
+        if ($meeting !== null && ! MeetingStatus::isFinalValue($meeting->status)) {
+            Workflow::run(new CancelMeeting, $meeting, $request->user(), ['via' => MeetingCancelled::VIA_INVITATION]);
+        }
+
         $meetRequest->update(['stage' => MeetRequest::STAGE_CANCELLED]);
         Notify::send($meetRequest->user_id, 'info', 't-grey', "أُلغيت دعوة الاجتماع ({$meetRequest->ref}) — «{$meetRequest->service}».");
 
-        return back();
+        return back()->with('flash', $meeting !== null ? 'أُلغيت الدعوة واجتماعها، وحُذفت غرفته على Zoom.' : 'أُلغيت الدعوة.');
     }
 
     // بدء تنفيذ الجلسة (مرحلة 2) — يفتح المكتب Zoom ويُعلَّم الاجتماع «جارٍ»
@@ -271,12 +280,14 @@ class MeetRequestController extends Controller
     {
         $this->guardOwner($request, $meetRequest);
         if ($meetRequest->stage === MeetRequest::STAGE_CONFIRMED) {
-            $meetRequest->update(['stage' => MeetRequest::STAGE_EXECUTED]);
-            // مطابقة نمط MeetingController: علَم «جارٍ الآن» + بثّ لحظي لشاشة العميل
-            if ($meeting = $meetRequest->meeting) {
-                $meeting->update(['status' => 'جارٍ']);
-                Live::push(new MeetingStatusBroadcast($meeting->fresh()));
+            // «جارٍ» بانتقال البدء نفسه الذي يسلكه زرّ الاجتماع وويبهوك Zoom (`StartMeeting`) — كان
+            // يُكتب هنا بلا شرطٍ على حالة الاجتماع فيُحيي «ملغى» أو «منتهٍ». والانتقال يرفع الدعوة
+            // إلى «نُفّذت» ويبثّ؛ وما بدأ قبلُ (Zoom أو زميل) لا يُعاد بدؤه.
+            $meeting = $meetRequest->meeting;
+            if ($meeting !== null && $meeting->status !== MeetingStatus::Live->value) {
+                Workflow::run(new StartMeeting, $meeting, $request->user(), ['source' => SessionEndedInSystem::VIA_STAFF]);
             }
+            $meetRequest->update(['stage' => MeetRequest::STAGE_EXECUTED]);
         }
 
         return back();

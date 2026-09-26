@@ -91,8 +91,8 @@ class StaffVisibilityTest extends TestCase
             'assigned_lawyer_id' => $other->id, 'status' => 'جديد', 'tone' => 'b-blue', 'last_action' => 'فتح',
         ]);
 
-        $this->actingAs($mine)->get(route('lawyer.tickets.show', $ticket))->assertForbidden();
-        $this->actingAs($mine)->get(route('lawyer.cases.show', $case))->assertForbidden();
+        $this->assertPageRefused($this->actingAs($mine)->get(route('lawyer.tickets.show', $ticket)));
+        $this->assertPageRefused($this->actingAs($mine)->get(route('lawyer.cases.show', $case)));
         // التنفيذ الموحّد: لا يتصرّف المحامي على ملفّ مسند لزميل آخر
         $this->actingAs($mine)->post(route('exec-flow.act', $exec), ['action' => 'accept'])->assertForbidden();
 

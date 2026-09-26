@@ -1,12 +1,4 @@
-import React from 'react';
-import { type ConsultCard, StaffVideoRoomPage } from '@/lib/consult-ui';
+import { RoomRoute } from '@/lib/zoom-room';
 
-// يطابق videoRoomView (دور الإدارة) — الاستشارة حقيقية من الخادم
-
-interface Props { consult?: ConsultCard | null; selfName?: string; selfAv?: string }
-
-const AdminVideoRoom: React.FC<Props> = ({ consult, selfName, selfAv }) => (
-  <StaffVideoRoomPage consult={consult} selfName={selfName} selfAv={selfAv} base="/admin" />
-);
-
-export default AdminVideoRoom;
+// غرفة الاستشارة المرئيّة (الإدارة) — الغرفة الواحدة لكلّ الأدوار؛ تعرض عقد الخادم `room` كما هو
+export default RoomRoute;

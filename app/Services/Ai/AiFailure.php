@@ -46,6 +46,44 @@ final class AiFailure
     public const CONTENT_BLOCKED = 'content_blocked';
 
     /**
+     * **اسم السبب كما يقرؤه المدير** — بجوار الرموز لا في كلّ شاشة. كان الصندوق ولوحة التشغيل
+     * يعرضان الرمز الخام (`provider_error`)، فرمزٌ يُضاف هنا يصل الشاشات بلا تعديلٍ فيها.
+     */
+    private const LABELS = [
+        self::PROVIDER_UNAVAILABLE => 'لا مزوّد متاح',
+        self::PROVIDER_ERROR => 'خطأ من المزوّد أو ردّ فارغ',
+        self::INVALID_JSON => 'ردّ النموذج بصيغة غير صالحة',
+        self::INVALID_STRUCTURE => 'ردّ النموذج لا يطابق العقد المطلوب',
+        self::QUOTA_EXHAUSTED => 'نفدت حصّة المزوّد',
+        self::BUDGET_EXCEEDED => 'أُوقف لتجاوز الميزانيّة',
+        self::TASK_DISABLED => 'المسار مُطفأ من اللوحة',
+        self::RATE_LIMITED => 'تجاوز حدّ النداءات لدى المزوّد',
+        self::UNAUTHORIZED => 'مفتاح المزوّد مرفوض',
+        self::BAD_REQUEST => 'طلب مرفوض من المزوّد',
+        self::SERVER_ERROR => 'عطل في خادم المزوّد',
+        self::CONTENT_BLOCKED => 'حجبه المزوّد لسياسة المحتوى',
+    ];
+
+    /** اسم السبب بالعربيّة؛ الرمز المجهول يُقال «غير مصنَّف» ولا يُعرض رمزه الإنجليزيّ. */
+    public static function label(?string $code): ?string
+    {
+        if ($code === null || $code === '') {
+            return null;
+        }
+
+        return self::LABELS[$code] ?? 'سبب غير مصنَّف';
+    }
+
+    /** كلّ الرموز المعلنة — لحارس الاختبار: رمزٌ بلا اسمٍ عربيّ يُسقطه. @return list<string> */
+    public static function codes(): array
+    {
+        return array_values(array_filter(
+            (new \ReflectionClass(self::class))->getConstants(\ReflectionClassConstant::IS_PUBLIC),
+            'is_string',
+        ));
+    }
+
+    /**
      * تصنيف فشل المزوّد إلى رمز معياريّ — **بلا تسريب جسم الاستجابة**.
      *
      * كان يُسجَّل `$response->body()` كاملاً في ثلاثة مواضع. واستجابات الخطأ من

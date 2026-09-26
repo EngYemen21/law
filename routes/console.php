@@ -32,6 +32,10 @@ Schedule::command('zoom:auto-close-missed')->everyFifteenMinutes()->withoutOverl
 // حسم الاستشارات الفائتة (بانتظار الجلسة + فات موعدها 12 ساعة ⇒ لم يحضر)
 Schedule::command('consults:auto-close-missed')->everyFifteenMinutes()->withoutOverlapping();
 
+// شبكة النسيان: جلسةٌ (استشارة أو اجتماع) بدأت ولم يُنهها أحد بعد `session_stale_minutes` يُنبَّه بها
+// الطاقم مرّةً واحدة **وتُنهى** في النظام وتُغلق غرفتها في Zoom (قرار المالك 2026-09-26 الأخير)
+Schedule::command('sessions:close-stale')->everyFifteenMinutes()->withoutOverlapping();
+
 // وسم جلسات القضايا الفائتة (+24 ساعة) «بانتظار تسجيل النتيجة» وتنبيه محاميها
 Schedule::command('hearings:auto-lapse')->hourly()->withoutOverlapping();
 

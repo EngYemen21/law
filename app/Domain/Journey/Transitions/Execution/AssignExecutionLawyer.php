@@ -14,6 +14,10 @@ use Illuminate\Database\Eloquent\Model;
  */
 final class AssignExecutionLawyer extends Transition
 {
+    private ?int $previousId = null;
+
+    private ?string $previousName = null;
+
     public function name(): string
     {
         return 'exec.assign_lawyer';
@@ -71,15 +75,37 @@ final class AssignExecutionLawyer extends Transition
             $lawyerName = $lawyer?->name ?? '';
         }
 
+        // المحامي السابق يُلتقط **داخل القفل وقبل الكتابة**: ما يُقرأ خارجه قد يسبقه إسنادٌ آخر
+        $this->previousId = $entity->assigned_lawyer_id !== null ? (int) $entity->assigned_lawyer_id : null;
+        $this->previousName = trim((string) $entity->assigned_lawyer) !== '' ? (string) $entity->assigned_lawyer : null;
+
         $entity->assigned_lawyer_id = $lawyerId;
         $entity->assigned_lawyer = $lawyerName;
     }
 
+    /**
+     * **السابق يُحفظ مع الجديد في سطر الرحلة** (قرار المالك 2026-09-26: «يُذكر المحامي السابق ويُحفظ
+     * حتى لا يضيع شيء»). كان السطر يحفظ المسنَد إليه وحده، فإعادة الإسناد تمحو من كان قبله من الملفّ
+     * ومن السجلّ معاً — لا يبقى أثرٌ لمن عمل عليه.
+     */
     public function record(array $payload): array
     {
         return [
             'lawyer_id' => $payload['lawyer_id'] ?? null,
             'lawyer_name' => $payload['lawyer_name'] ?? null,
+            'previous_lawyer_id' => $this->previousId,
+            'previous_lawyer_name' => $this->previousName,
         ];
+    }
+
+    /** المحامي الذي كان مسنَداً قبل هذا الانتقال — يقرؤه `ExecService` لرسالة العميل بعد التنفيذ. */
+    public function previousId(): ?int
+    {
+        return $this->previousId;
+    }
+
+    public function previousName(): ?string
+    {
+        return $this->previousName;
     }
 }

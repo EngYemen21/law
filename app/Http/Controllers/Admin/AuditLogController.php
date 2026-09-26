@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Support\Paginate;
 use App\Support\SearchText;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Response as FacadeResponse;
 use Inertia\Inertia;
@@ -21,45 +22,7 @@ class AuditLogController extends Controller
         // إذا كان الجدول جديداً، نملأه بقيود التدقيق الفعلية الموجودة مسبقاً في الاستشارات
         $this->ensureInitialHistoricalLogs();
 
-        $query = AuditLog::query()->with('user')->latest('id');
-
-        // فلترة بالبحث
-        if ($search = $request->input('search')) {
-            $query->where(function ($q) use ($search) {
-                SearchText::apply($q, ['action', 'description', 'user_name', 'auditable_ref', 'ip_address'], $search);
-            });
-        }
-
-        // فلترة بالفئة
-        if ($category = $request->input('category')) {
-            if ($category !== 'all') {
-                $query->where('category', $category);
-            }
-        }
-
-        // فلترة بدرجة الأهمية
-        if ($severity = $request->input('severity')) {
-            if ($severity !== 'all') {
-                $query->where('severity', $severity);
-            }
-        }
-
-        // فلترة بالمستخدم / الفاعل
-        if ($user = $request->input('user')) {
-            if ($user !== 'all') {
-                $query->where('user_name', $user);
-            }
-        }
-
-        // فلترة من تاريخ
-        if ($fromDate = $request->input('from_date')) {
-            $query->whereDate('created_at', '>=', $fromDate);
-        }
-
-        // فلترة إلى تاريخ
-        if ($toDate = $request->input('to_date')) {
-            $query->whereDate('created_at', '<=', $toDate);
-        }
+        $query = $this->filtered($request)->with('user');
 
         // **تصفيحٌ حقيقيّ لا سقفٌ صامت.** كان `limit(200)` بلا مؤشّرٍ ولا صفحات: يرشّح
         // المدير فيرى نتيجةً تبدو تامّة، والقيد الذي يبحث عنه في الصفّ الخمسمئة. والشاشة
@@ -69,13 +32,13 @@ class AuditLogController extends Controller
 
         // إحصائيات لوحة القيادة الحية
         $today = Carbon::today();
+        // ما تعرضه الشاشة وحده — كانت `consults` و`security` تُحسبان في كلّ فتحٍ ولا يقرؤهما أحد.
+        // و`today` منذ بداية اليوم و`activeActors` آخر ٢٤ ساعة: عنواناهما في الشاشة يقولان ذلك نصّاً.
         $stats = [
             'total' => AuditLog::count(),
             'today' => AuditLog::whereDate('created_at', $today)->count(),
             'critical' => AuditLog::whereIn('severity', ['warning', 'critical'])->count(),
-            'consults' => AuditLog::where('category', 'استشارات')->count(),
             'financial' => AuditLog::where('category', 'مالية وفواتير')->count(),
-            'security' => AuditLog::where('category', 'أمن وحماية')->count(),
             'activeActors' => AuditLog::where('created_at', '>=', now()->subHours(24))->distinct('user_name')->count('user_name'),
         ];
 
@@ -91,6 +54,7 @@ class AuditLogController extends Controller
             'stats' => $stats,
             'categories' => $categories,
             'actors' => $actors,
+            'severityOptions' => AuditLog::severityOptions(),
             'filters' => [
                 'search' => $request->input('search', ''),
                 'category' => $request->input('category', 'all'),
@@ -103,35 +67,39 @@ class AuditLogController extends Controller
     }
 
     /**
-     * تصدير السجلات بتنسيق CSV للمراجعة والامتثال القانوني
+     * **التصدير بمرشّحات الشاشة نفسها وبلا سقفٍ صامت.**
+     *
+     * كان يُصدّر أحدث ١٠٠٠ قيدٍ أيّاً كانت المرشّحات: يرشّح المدير قيود «مالية» لشهرٍ مضى فيستلم
+     * ملفّاً لا يحويها، ولا يعلم أنّ الملفّ مقطوع. الآن الاستعلام واحد (`filtered`) للعرض والتصدير،
+     * والصفوف تُقرأ دفعاتٍ (`lazyByIdDesc`) فيُكتب السجلّ كلّه دون تحميله في الذاكرة.
      */
     public function export(Request $request)
     {
-        $logs = AuditLog::latest('id')->limit(1000)->get();
+        $query = $this->filtered($request);
 
         $headers = [
             'Content-Type' => 'text/csv; charset=UTF-8',
             'Content-Disposition' => 'attachment; filename="audit_logs_'.date('Y-m-d_His').'.csv"',
         ];
 
-        $callback = function () use ($logs) {
+        $callback = function () use ($query) {
             $output = fopen('php://output', 'w');
             // BOM for UTF-8 Excel support
             fwrite($output, "\xEF\xBB\xBF");
 
             fputcsv($output, ['المعرف', 'المستخدم', 'الدور', 'نوع الإجراء', 'الفئة', 'المرجع', 'الوصف', 'عنوان IP', 'الأهمية', 'التاريخ والوقت']);
 
-            foreach ($logs as $l) {
+            foreach ($query->lazyByIdDesc(500) as $l) {
                 fputcsv($output, [
                     $l->id,
                     $l->user_name,
-                    $l->user_role,
+                    AuditLog::roleLabelOf($l->user_role),
                     $l->action,
                     $l->category,
                     $l->auditable_ref ?? '—',
                     $l->description,
                     $l->ip_address,
-                    $l->severity,
+                    AuditLog::SEVERITY_LABELS[$l->severity] ?? $l->severity,
                     $l->created_at ? $l->created_at->format('Y-m-d H:i:s') : '—',
                 ]);
             }
@@ -140,6 +108,39 @@ class AuditLogController extends Controller
         };
 
         return FacadeResponse::stream($callback, 200, $headers);
+    }
+
+    /**
+     * **المرشّحات في موضعٍ واحد** — يقرؤها العرض والتصدير معاً، فلا يُصدَّر غيرُ ما يُرى.
+     *
+     * @return Builder<AuditLog>
+     */
+    private function filtered(Request $request): Builder
+    {
+        $query = AuditLog::query()->latest('id');
+
+        if ($search = $request->input('search')) {
+            $query->where(function ($q) use ($search) {
+                SearchText::apply($q, ['action', 'description', 'user_name', 'auditable_ref', 'ip_address'], $search);
+            });
+        }
+
+        foreach (['category' => 'category', 'severity' => 'severity', 'user' => 'user_name'] as $param => $column) {
+            $value = $request->input($param);
+            if ($value && $value !== 'all') {
+                $query->where($column, $value);
+            }
+        }
+
+        if ($fromDate = $request->input('from_date')) {
+            $query->whereDate('created_at', '>=', $fromDate);
+        }
+
+        if ($toDate = $request->input('to_date')) {
+            $query->whereDate('created_at', '<=', $toDate);
+        }
+
+        return $query;
     }
 
     /**

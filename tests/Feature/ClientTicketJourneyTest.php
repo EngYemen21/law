@@ -197,6 +197,6 @@ class ClientTicketJourneyTest extends TestCase
         $ticket = Ticket::firstOrFail();
 
         $intruder = $this->client();
-        $this->actingAs($intruder)->get(route('tickets.show', $ticket))->assertForbidden();
+        $this->assertPageRefused($this->actingAs($intruder)->get(route('tickets.show', $ticket)));
     }
 }

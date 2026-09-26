@@ -1,5 +1,6 @@
 import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
+import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
 
 interface Metrics {
@@ -19,6 +20,8 @@ interface RetentionRow { value: string; label: string; days: number | null; isDe
 
 interface EvalResult {
   task: string;
+  /** اسم المهمّة من سجلّ التعليمات في الخادم */
+  label: string;
   total: number;
   passed: number;
   skipped: number;
@@ -47,7 +50,10 @@ interface Props {
   days: number;
   metrics: Metrics;
   alerts: { code: string; message: string; value: number }[];
-  failureCodes: Record<string, number>;
+  /** أسباب التعذّر مسمّاةً من الخادم (`AiFailure::label`) — الرمز للمفتاح لا للعرض */
+  failureCodes: { code: string; label: string; total: number }[];
+  /** عملة الكلفة من الخادم (`AiCost::CURRENCY`) */
+  currency: string;
   rejectionReasons: Reason[];
   editRate: number | null;
   pendingReview: number;
@@ -92,6 +98,7 @@ interface Calibration {
 /** مفتاح مسار وحصيلة تقييمه — `rate: null` = لم يُقَس بعد، لا صفر. */
 interface TaskSwitch {
   task: string;
+  label: string;
   enabled: boolean;
   /** حساسيّة `AiPolicyGate` — العالية أولى ما يُطفَأ عند تراجع الجودة. */
   sensitivity: string;
@@ -104,6 +111,7 @@ interface TaskSwitch {
 /** فرق مهمّة عن تشغيلها السابق — «جديدة» تُميَّز عن «تراجعت». */
 interface EvalDiff {
   task: string;
+  label: string;
   rate: number;
   previous: number | null;
   delta: number | null;
@@ -114,7 +122,10 @@ interface EvalDiff {
 /** «غير مقيسة» لا صفر: الصفر يقول إن القياس جرى ونتيجته صفر — وهو ادّعاء مختلف. */
 const pct = (v: number | null): string => (v === null ? 'غير مقيسة' : `${Math.round(v * 100)}%`);
 
-const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejectionReasons, editRate, pendingReview, settings, spending, taskSwitches, calibration, evaluation }) => {
+const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, currency, rejectionReasons, editRate, pendingReview, settings, spending, taskSwitches, calibration, evaluation }) => {
+  const toast = useToast();
+  /** مبلغٌ بعملته من الخادم — لا «$» ولا «ر.س» منقوشة */
+  const money = (v: number): string => `${v} ${currency}`;
   const [threshold, setThreshold] = useState(settings.threshold);
   // السقف نصّ لا رقم: الفراغ يعني «بلا سقف» وهو معنى لا يمثّله أي رقم
   const [cap, setCap] = useState(settings.budget.cap === null ? '' : String(settings.budget.cap));
@@ -131,10 +142,37 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
     Object.entries(settings.pricing).map(([model, r]) => ({ model, input: r.input, output: r.output })),
   );
   const [busy, setBusy] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
+  /**
+   * إرسالٌ موحّد لكلّ بطاقات اللوحة: يشغل الأزرار، ويعرض خطأ الخادم تحت حقله وفي تنبيه.
+   * كان الخطأ يُبتلع — حفظُ سقفٍ سالب أو عتبةٍ فوق 100 يبدو ناجحاً بلا أثر. والنجاح رسالة
+   * الخادم وحدها (يعرضها التخطيط)، فلا توست ثانٍ هنا.
+   */
   const post = (url: string, data: Parameters<typeof router.post>[1]) => {
     setBusy(true);
-    router.post(url, data, { preserveScroll: true, onFinish: () => setBusy(false) });
+    router.post(url, data, {
+      preserveScroll: true,
+      onSuccess: () => setErrors({}),
+      onError: (errs) => {
+        setErrors(errs as Record<string, string>);
+        toast(`⚠️ ${Object.values(errs)[0] ?? 'تعذّر الحفظ'}`, 'error');
+      },
+      onFinish: () => setBusy(false),
+    });
+  };
+
+  /** أخطاء حقلٍ أو مجموعة حقول (`pricing.0.model` …) تحت بطاقتها */
+  const errorsFor = (...prefixes: string[]): string[] =>
+    Object.entries(errors).filter(([k]) => prefixes.some((p) => k === p || k.startsWith(`${p}.`))).map(([, v]) => v);
+  const fieldErrors = (...keys: string[]): React.ReactNode => {
+    const list = errorsFor(...keys);
+
+    return list.length === 0 ? null : (
+      <div style={{ color: 'var(--red)', fontSize: 12, margin: '4px 0 8px' }}>
+        {list.map((m, i) => <div key={i}>{m}</div>)}
+      </div>
+    );
   };
 
   return (
@@ -173,7 +211,7 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
         <div className="kpi"><span>التوكنات</span><b>{metrics.total_tokens.toLocaleString('en-US')}</b></div>
         <div className="kpi">
           <span>الكلفة التقديريّة</span>
-          <b>{metrics.estimated_cost === null ? 'غير معلومة' : metrics.estimated_cost}</b>
+          <b>{metrics.estimated_cost === null ? 'غير معلومة' : money(metrics.estimated_cost)}</b>
           {metrics.cost_coverage !== null && metrics.cost_coverage < 1 && (
             <small style={{ color: 'var(--amber)' }}>جزئيّة — تغطية {pct(metrics.cost_coverage)}</small>
           )}
@@ -200,12 +238,12 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
         </div>
       </div>
 
-      {Object.keys(failureCodes).length > 0 && (
+      {failureCodes.length > 0 && (
         <div className="card" style={{ marginBottom: 12 }}>
           <div className="card-h"><h3>أسباب التعذّر</h3></div>
           <div className="card-b" style={{ padding: '14px 16px' }}>
-            {Object.entries(failureCodes).map(([code, total]) => (
-              <div key={code} className="cell-row"><span>{code}</span><span>{total}</span></div>
+            {failureCodes.map((f) => (
+              <div key={f.code} className="cell-row"><span>{f.label}</span><span>{f.total}</span></div>
             ))}
           </div>
         </div>
@@ -230,6 +268,7 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
               onChange={(e) => setThreshold(Number(e.target.value))}
             />
           </div>
+          {fieldErrors('threshold')}
           <button className="btn sm" disabled={busy} type="button" onClick={() => post('/admin/ai-ops/threshold', { threshold })}>
             <Icon name="check" /> حفظ العتبة
           </button>
@@ -307,7 +346,7 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
                   checked={switches[t.task] ?? true}
                   onChange={(e) => setSwitches({ ...switches, [t.task]: e.target.checked })}
                 />
-                {t.task}
+                {t.label}
                 {t.sensitivity === 'high' && <span className="badge b-red">عالية</span>}
               </label>
               <span>
@@ -322,6 +361,7 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
             </div>
           ))}
 
+          {fieldErrors('tasks')}
           <button
             className="btn sm"
             type="button"
@@ -340,8 +380,8 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
         <div className="card-b" style={{ padding: '14px 16px' }}>
           <p style={{ color: 'var(--muted)', fontSize: 12.5 }}>
             إنفاق الشهر الجاري:{' '}
-            <b>{spending.thisMonth === null ? 'غير معلوم — لا نداء مسعَّر بعد' : `$${spending.thisMonth}`}</b>
-            {settings.budget.cap !== null && ` من $${settings.budget.cap}`}
+            <b>{spending.thisMonth === null ? 'غير معلوم — لا نداء مسعَّر بعد' : money(spending.thisMonth)}</b>
+            {settings.budget.cap !== null && ` من ${money(settings.budget.cap)}`}
           </p>
 
           {spending.stopped && (
@@ -353,7 +393,7 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
 
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div className="field" style={{ maxWidth: 200 }}>
-              <label>السقف الشهريّ (اتركه فارغاً = بلا سقف)</label>
+              <label>السقف الشهريّ بالـ{currency} (اتركه فارغاً = بلا سقف)</label>
               <input
                 className="input"
                 type="number"
@@ -372,15 +412,18 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
               <input type="checkbox" checked={stop} onChange={(e) => setStop(e.target.checked)} />
               إيقاف النداءات عند التجاوز
             </label>
+            {/* عبر `post` كبقيّة البطاقات: كان هذا الزرّ وحده بلا انشغالٍ ولا خطأ */}
             <button
               className="btn sm"
               type="button"
+              disabled={busy}
               style={{ marginBottom: 14 }}
-              onClick={() => router.post('/admin/ai-ops/budget', { cap: cap === '' ? null : Number(cap), warnAt, stop }, { preserveScroll: true })}
+              onClick={() => post('/admin/ai-ops/budget', { cap: cap === '' ? null : Number(cap), warnAt, stop })}
             >
               <Icon name="check" /> حفظ الميزانيّة
             </button>
           </div>
+          {fieldErrors('cap', 'warnAt', 'stop')}
 
           {/* أثرٌ واسع لا يُفتَرض: تفعيله يوقف معالجة الذكاء كلّها عند التجاوز */}
           <p style={{ color: stop ? 'var(--amber)' : 'var(--muted)', fontSize: 12 }}>
@@ -397,7 +440,7 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
 
       {/* ── الأسعار ── */}
       <div className="card" style={{ marginBottom: 12 }}>
-        <div className="card-h"><h3>أسعار النماذج — لكل مليون توكن</h3></div>
+        <div className="card-h"><h3>أسعار النماذج بالـ{currency} — لكل مليون توكن</h3></div>
         <div className="card-b" style={{ padding: '14px 16px' }}>
           <p style={{ color: 'var(--muted)', fontSize: 12.5 }}>
             بلا سعر تبقى الكلفة «غير معلومة» ويُعلَن أن المجموع جزئيّ — لا صفر يوهم بأن
@@ -423,6 +466,7 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
               <button className="btn soft sm" type="button" onClick={() => setPricing(pricing.filter((_, j) => j !== i))}>حذف</button>
             </div>
           ))}
+          {fieldErrors('pricing')}
           <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
             <button className="btn soft sm" type="button" onClick={() => setPricing([...pricing, { model: '', input: 0, output: 0 }])}>
               إضافة نموذج
@@ -483,6 +527,7 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
               placeholder="مثل: قرار اجتماع الحوكمة بتاريخ… استناداً إلى نظام حماية البيانات" />
           </div>
 
+          {fieldErrors('retention', 'approve', 'basis')}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn soft sm" disabled={busy} type="button" onClick={() => post('/admin/ai-ops/retention', { retention })}>
               <Icon name="check" /> حفظ المدد
@@ -532,6 +577,7 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
             </button>
           </div>
 
+          {fieldErrors('live')}
           {!evaluation.providerReady && (
             <p style={{ color: 'var(--amber)', fontSize: 12 }}>لا مزوّد مهيَّأ — التشغيل الحيّ متعذّر.</p>
           )}
@@ -543,7 +589,7 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
               <p style={{ fontSize: 12.5 }}>
                 آخر تشغيل: {evaluation.last.at} — {evaluation.last.live ? 'حيّ' : 'جافّ'}
                 {evaluation.last.by && ` · بأمر ${evaluation.last.by}`}
-                {evaluation.last.live && ` · الكلفة: ${evaluation.last.cost === null ? 'غير معلومة' : `$${evaluation.last.cost}`}`}
+                {evaluation.last.live && ` · الكلفة: ${evaluation.last.cost === null ? 'غير معلومة' : money(evaluation.last.cost)}`}
               </p>
 
               {evaluation.last.running && (
@@ -571,7 +617,7 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
                   )}
                   {evaluation.diff.map((d) => (
                     <div key={d.task} className="cell-row" style={{ fontSize: 12.5 }}>
-                      <span>{d.task}</span>
+                      <span>{d.label}</span>
                       <span style={{ color: d.regressed ? 'var(--red)' : undefined }}>
                         {d.isNew
                           ? 'مهمّة جديدة — لا سابق لها'
@@ -588,7 +634,7 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, rejection
                 <div key={r.task} style={{ marginTop: 10 }}>
                   <div className="cell-row">
                     <span>
-                      {r.task}
+                      {r.label}
                       <span className={`badge ${r.meets ? 'b-green' : 'b-red'}`} style={{ marginInlineStart: 6 }}>
                         {r.meets ? 'عبرت' : 'سقطت'}
                       </span>

@@ -10,17 +10,22 @@ import Icon from '@/lib/icons';
 interface ReviewItem {
   id: number;
   taskType: string;
+  /** اسم المهمّة من سجلّ التعليمات في الخادم — لا خريطة أسماء هنا */
+  taskLabel: string;
   entityRef: string;
   source: string | null;
   sourceLabel: string | null;
   /** `null` = غير مقيسة — تُعرض كذلك ولا تُحوَّل صفراً */
   confidence: number | null;
   confidenceSignals: Record<string, unknown> | null;
+  /** الإشارات مسمّاةً بالعربيّة من جوار تعريفها في الخادم (`AiConfidence::describe`) */
+  signalRows: { key: string; label: string; ok: boolean }[];
   /** أعدادٌ وحجم لا محتوى — دليل أن المعرّفات مُوّهت قبل مغادرة الخادم. */
   outboundAudit: { chars: number; masked: Record<string, number> } | null;
   model: string;
   promptVersion: string;
   failureCode: string | null;
+  failureLabel: string | null;
   traceId: string | null;
   /** نصّ المخرج للقراءة فقط — التحرير في شاشة الملفّ. `null` = لا مخرج محفوظ. */
   preview: { text: string; fullText?: string; truncated: boolean; label: string; href: string | null } | null;
@@ -108,25 +113,6 @@ const VisualConfidenceBadge: React.FC<{ value: number | null }> = ({ value }) =>
   );
 };
 
-/** ترجمة إشارات الثقة التقنية إلى بنود مفهومة للمحامي */
-const formatSignalLabel = (key: string, val: unknown): { label: string; ok: boolean } => {
-  const isOk = Boolean(val) && val !== 0 && val !== '0';
-  const labels: Record<string, string> = {
-    has_defendant: 'تحديد المنفّذ ضده',
-    documents_readable: 'قراءة المستندات المرفقة بنجاح',
-    documents_total: 'مستندات مرفقة بالطلب',
-    summary_length: 'اكتمال صياغة الملخص',
-    real_lawyer_assigned: 'إسناد لمحامٍ مرخص',
-    department_matched: 'تطابق التخصص النظامي',
-    fact_coverage: 'تغطية الوقائع الأساسية',
-    citation_coverage: 'الاستناد لنصوص نظامية معتمدة',
-    no_unsupported_claims: 'خلو من المواد غير المسندة',
-  };
-
-  const name = labels[key] || key.replace(/_/g, ' ');
-  return { label: typeof val === 'boolean' ? name : `${name}: ${String(val)}`, ok: isOk };
-};
-
 /** تنظيف النص من أي وسوم HTML أو نصوص برمجية وفك تشفير الكيانات */
 const cleanPreviewText = (rawText: string | null | undefined): string => {
   if (!rawText) return '';
@@ -148,37 +134,16 @@ const cleanPreviewText = (rawText: string | null | undefined): string => {
   return cleaned.trim();
 };
 
-/** ترجمة معرّف نوع المهمة إلى مسمّى عربي قانوني فخم ومفهوم */
-const formatTaskTypeLabel = (type: string | null | undefined): string => {
-  if (!type) return 'مخرج ذكاء';
-  const map: Record<string, string> = {
-    'case.pleading': 'مسودة لائحة دعوى',
-    'case.classify': 'تصنيف وتكييف القضية',
-    'document.analyze': 'فحص وتحليل مستند',
-    'execution': 'تحليل طلب تنفيذ',
-    'execution.analyze': 'تحليل طلب تنفيذ',
-    'meeting.decisions': 'قرارات ومحاضر الجلسات',
-    'najiz.statement': 'صحيفة دعوى ناجز',
-    'triage': 'فرز وتوجيه التذكرة',
-    'ticket.triage': 'فرز وتوجيه التذكرة',
-    'ticket.summary': 'ملخص ملف التذكرة',
-    'consult': 'تحليل استشارة (قبل الجلسة)',
-    'consult.analyze': 'تحليل استشارة (قبل الجلسة)',
-    'consult.summary': 'ملخص جلسة استشارة',
-    'meeting.summary': 'ملخص محضر الاجتماع',
-    'assistant.draft': 'مسودة المساعد القانوني',
-    'chat.reply': 'رد المحادثة التلقائي',
-  };
-
-  return map[type] || type;
-};
-
 export const AiReview: React.FC<{
   items: ReviewItem[];
   actions: ActionOption[];
   reasons: ReasonOption[];
+  /** من يُصعَّد إليه — القائمة نفسها التي يتحقّق بها الخادم */
+  assignees: { id: number; label: string }[];
+  /** عملة الكلفة من الخادم (`AiCost::CURRENCY`) — لا تُكتب هنا */
+  currency: string;
   metrics: Metrics;
-}> = ({ items, actions, reasons, metrics }) => {
+}> = ({ items, actions, reasons, assignees, currency, metrics }) => {
   const toast = useToast();
   const base = panelBase((usePage().url as string).split('?')[0]);
 
@@ -187,6 +152,11 @@ export const AiReview: React.FC<{
   const [selectedAction, setSelectedAction] = useState<string>('accept');
   const [selectedReason, setSelectedReason] = useState<string>('');
   const [actionNote, setActionNote] = useState<string>('');
+  const [escalatedTo, setEscalatedTo] = useState<string>('');
+  // ما يحتاجه الفعل يعلنه الخادم (`requires_reason` / `requires_assignee`) — لا مقارنة باسم الفعل هنا
+  const actionMeta = (value: string) => actions.find((a) => a.value === value);
+  const needsAssignee = actionMeta(selectedAction)?.requires_assignee ?? false;
+  const needsReason = actionMeta(selectedAction)?.requires_reason ?? false;
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // نافذة القراءة الكاملة الموسعة
@@ -232,7 +202,7 @@ export const AiReview: React.FC<{
       if (searchQuery.trim() !== '') {
         const needle = searchQuery.toLowerCase();
         const matchesRef = item.entityRef?.toLowerCase().includes(needle);
-        const matchesType = item.taskType?.toLowerCase().includes(needle);
+        const matchesType = item.taskLabel?.toLowerCase().includes(needle);
         const matchesText = item.preview?.text?.toLowerCase().includes(needle);
         if (!matchesRef && !matchesType && !matchesText) {
           return false;
@@ -252,6 +222,8 @@ export const AiReview: React.FC<{
         action: actionValue,
         reason: reasonValue || null,
         note: noteValue || null,
+        // يُرسل مع الفعل الذي يطلبه وحده — كان التصعيد لا يُرسله فيردّه الخادم دائماً
+        escalated_to: actionMeta(actionValue)?.requires_assignee && escalatedTo ? Number(escalatedTo) : null,
       },
       {
         preserveScroll: true,
@@ -262,12 +234,13 @@ export const AiReview: React.FC<{
           setSelectedAction('accept');
           setSelectedReason('');
           setActionNote('');
-          toast('✅ تم تسجيل قرار المراجعة وتحديث الملف بنجاح');
+          setEscalatedTo('');
+          // لا توست نجاح هنا: رسالة الخادم («سُجّل القرار: …») يعرضها التخطيط مرّةً واحدة
         },
         onError: (err) => {
           setIsSubmitting(false);
           const firstErr = Object.values(err)[0];
-          toast(`⚠️ ${firstErr || 'تعذر تسجيل القرار'}`);
+          toast(`⚠️ ${firstErr || 'تعذر تسجيل القرار'}`, 'error');
         },
       }
     );
@@ -542,13 +515,13 @@ export const AiReview: React.FC<{
             <Icon name="card" />
           </div>
           <div style={{ fontSize: 20, fontWeight: 800, color: '#8e44ad', marginTop: 4 }}>
-            {metrics.ops.estimated_cost === null ? 'غير معلومة' : `${metrics.ops.estimated_cost} ر.س`}
+            {metrics.ops.estimated_cost === null ? 'غير معلومة' : `${metrics.ops.estimated_cost} ${currency}`}
           </div>
           <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2 }}>
             {metrics.ops.cost_coverage !== null && metrics.ops.cost_coverage < 1 ? (
               <span style={{ color: 'var(--amber)' }}>تغطية تسعير جزئية</span>
             ) : (
-              'استهلاك الـ API الفعلي'
+              'الاستهلاك الفعليّ لدى المزوّد'
             )}
           </div>
         </div>
@@ -576,7 +549,7 @@ export const AiReview: React.FC<{
                   className={`air-pill-btn ${taskFilter === t ? 'active' : ''}`}
                   onClick={() => setTaskFilter(t)}
                 >
-                  {formatTaskTypeLabel(t)} ({count})
+                  {items.find((i) => i.taskType === t)?.taskLabel ?? 'مخرج ذكاء'} ({count})
                 </button>
               );
             })}
@@ -657,7 +630,7 @@ export const AiReview: React.FC<{
               <div className="air-card-top">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <b style={{ fontSize: 15, color: 'var(--primary)' }}>{item.entityRef}</b>
-                  <Badge text={formatTaskTypeLabel(item.taskType)} tone="b-blue" />
+                  <Badge text={item.taskLabel} tone="b-blue" />
                   {item.sourceLabel && (
                     <span style={{ fontSize: 12, color: 'var(--muted)' }}>
                       المصدر: <b>{item.sourceLabel}</b>
@@ -678,9 +651,9 @@ export const AiReview: React.FC<{
                   <span>النموذج المولد: <b>{item.model}</b></span>
                   <span>إصدار التوجيه: <b>{item.promptVersion}</b></span>
                   {item.traceId && <span>رقم التتبع: <code style={{ fontSize: 11 }}>{item.traceId.slice(0, 8)}</code></span>}
-                  {item.failureCode && (
+                  {item.failureLabel && (
                     <span style={{ color: '#C0392B', fontWeight: 700 }}>
-                      ⚠️ سبب التعثر: {item.failureCode}
+                      ⚠️ سبب التعثر: {item.failureLabel}
                     </span>
                   )}
                 </div>
@@ -711,14 +684,13 @@ export const AiReview: React.FC<{
                 )}
 
                 {/* إشارات الثقة المنظمة بصرياً */}
-                {item.confidenceSignals && (
+                {item.signalRows.length > 0 && (
                   <div style={{ marginTop: 12 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 6 }}>
                       مؤشرات الجودة والتحقق الأوتوماتيكي:
                     </div>
                     <div className="air-signals-grid">
-                      {Object.entries(item.confidenceSignals).map(([key, val]) => {
-                        const { label, ok } = formatSignalLabel(key, val);
+                      {item.signalRows.map(({ key, label, ok }) => {
                         return (
                           <div key={key} className="air-signal-chip" style={{ borderLeft: `3px solid ${ok ? '#1E9D6B' : '#C0832B'}` }}>
                             <span style={{ color: ok ? '#1E9D6B' : '#C0832B', fontSize: 13 }}>
@@ -744,7 +716,7 @@ export const AiReview: React.FC<{
                         textDecoration: 'underline',
                       }}
                     >
-                      {showJson ? 'إخفاء تفاصيل JSON الفنية' : 'عرض تفاصيل JSON الفنية'}
+                      {showJson ? 'إخفاء البيانات الفنّيّة الخام' : 'عرض البيانات الفنّيّة الخام'}
                     </button>
                     {showJson && (
                       <pre
@@ -868,9 +840,11 @@ export const AiReview: React.FC<{
                       <button
                         type="button"
                         className="btn soft sm"
+                        disabled={isSubmitting}
                         onClick={() => {
                           setActiveActionItemId(item.id);
-                          setSelectedAction('rerun');
+                          setSelectedAction('escalate');
+                          setEscalatedTo('');
                         }}
                       >
                         خيارات متقدمة (تصعيد / إعادة تشغيل)...
@@ -920,7 +894,7 @@ export const AiReview: React.FC<{
                       </div>
 
                       {/* سبب الرفض الإلزامي في حال تم اختيار رفض */}
-                      {selectedAction === 'reject' && (
+                      {needsReason && (
                         <div style={{ marginTop: 4 }}>
                           <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 4, color: '#C0392B' }}>
                             سبب الرفض المنظم (إلزامي لتدريب وتقييم الذكاء الاصطناعي):
@@ -937,6 +911,29 @@ export const AiReview: React.FC<{
                               </option>
                             ))}
                           </select>
+                        </div>
+                      )}
+
+                      {/* المُصعَّد إليه — إلزاميّ حين يطلبه الفعل (`requires_assignee`) */}
+                      {needsAssignee && (
+                        <div style={{ marginTop: 4 }}>
+                          <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 4 }}>
+                            يُصعَّد إلى (محامٍ أو إداريّ):
+                          </label>
+                          {assignees.length === 0 ? (
+                            <div style={{ fontSize: 12.5, color: '#C0392B' }}>لا محامٍ ولا إداريّ فعّال غيرك يُصعَّد إليه.</div>
+                          ) : (
+                            <select
+                              value={escalatedTo}
+                              onChange={(e) => setEscalatedTo(e.target.value)}
+                              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.15)' }}
+                            >
+                              <option value="">-- اختر من يُصعَّد إليه --</option>
+                              {assignees.map((a) => (
+                                <option key={a.id} value={String(a.id)}>{a.label}</option>
+                              ))}
+                            </select>
+                          )}
                         </div>
                       )}
 
@@ -966,7 +963,7 @@ export const AiReview: React.FC<{
                         <button
                           type="button"
                           className="btn primary sm"
-                          disabled={isSubmitting || (selectedAction === 'reject' && !selectedReason)}
+                          disabled={isSubmitting || (needsReason && !selectedReason) || (needsAssignee && !escalatedTo)}
                           onClick={() => handleDecide(item.id, selectedAction, selectedReason, actionNote)}
                         >
                           <Icon name="check" /> {isSubmitting ? 'جاري التسجيل...' : 'تأكيد وحفظ القرار'}
@@ -995,7 +992,7 @@ export const AiReview: React.FC<{
           open={Boolean(readingModalItem)}
           onClose={() => setReadingModalItem(null)}
           title={`معاينة المخرج القانوني: ${readingModalItem.entityRef}`}
-          subtitle={`${formatTaskTypeLabel(readingModalItem.taskType)} · ${readingModalItem.model} · تاريخ: ${readingModalItem.createdAt}`}
+          subtitle={`${readingModalItem.taskLabel} · ${readingModalItem.model} · تاريخ: ${readingModalItem.createdAt}`}
           maxWidth={820}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

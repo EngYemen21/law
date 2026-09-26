@@ -76,16 +76,17 @@ const AdminMeetReports: React.FC<{ meetings: FullMeetingCard[]; analytics: Analy
     ? Object.keys(byLawyer).map((k) => [k, byLawyer[k]])
     : [['—', 0]];
 
-  const done = meetings.filter((m) => m.status === 'منتهٍ');
+  // العدّ بمفتاح الحالة من الخادم (`statusKey`) — النصّ العربيّ للعرض وحده
+  const done = meetings.filter((m) => m.statusKey === 'ended');
   const measured = done.filter((m) => m.presenceRate !== null);
   const att = measured.length
     ? Math.round(measured.reduce((a, m) => a + (m.presenceRate ?? 0), 0) / measured.length)
     : null;
-  const cancelled = meetings.filter((m) => m.status === 'ملغى').length;
-  const missed = meetings.filter((m) => m.status === 'لم ينعقد').length;
-  const postponed = meetings.filter((m) => m.status === 'مؤجل').length;
-  const up = meetings.filter((m) => m.status === 'قادم').length;
-  const approved = meetings.filter((m) => m.approve === 'معتمد').length;
+  const cancelled = meetings.filter((m) => m.statusKey === 'cancelled').length;
+  const missed = meetings.filter((m) => m.statusKey === 'missed').length;
+  const postponed = meetings.filter((m) => m.statusKey === 'postponed').length;
+  const up = meetings.filter((m) => m.statusKey === 'upcoming').length;
+  const approved = meetings.filter((m) => m.approved).length;
 
   const stats: StatItem[] = [
     ['t-blue', 'video', meetings.length, 'إجمالي الاجتماعات'],
@@ -102,7 +103,7 @@ const AdminMeetReports: React.FC<{ meetings: FullMeetingCard[]; analytics: Analy
   const filteredMeetings = useMemo(() => {
     return meetings.filter((m) => {
       if (filterType !== 'all' && m.type !== filterType) return false;
-      if (filterStatus !== 'all' && m.status !== filterStatus) return false;
+      if (filterStatus !== 'all' && m.statusKey !== filterStatus) return false;
       if (searchQ.trim()) {
         const q = searchQ.trim().toLowerCase();
         const hay = `${m.title} ${m.client} ${m.lawyer} ${m.caseRef || ''} ${m.id}`.toLowerCase();
@@ -122,8 +123,12 @@ const AdminMeetReports: React.FC<{ meetings: FullMeetingCard[]; analytics: Analy
     return (analytics.monthlyTrend || []).reduce((acc, curr) => acc + (curr.v || 0), 0);
   }, [analytics.monthlyTrend]);
 
+  // مجموع أعشارٍ عشريّة يُخرج ضجيج الفاصلة العائمة (0.1 + 0.2 = 0.30000000000000004) —
+  // فيُقرَّب إلى منزلةٍ واحدة كما يقرّب الخادم ساعات كلّ شهر
   const totalTrendHours = useMemo(() => {
-    return (analytics.monthlyTrend || []).reduce((acc, curr) => acc + (curr.hours || 0), 0);
+    const sum = (analytics.monthlyTrend || []).reduce((acc, curr) => acc + (curr.hours || 0), 0);
+
+    return Math.round(sum * 10) / 10;
   }, [analytics.monthlyTrend]);
 
   return (
@@ -546,12 +551,13 @@ const AdminMeetReports: React.FC<{ meetings: FullMeetingCard[]; analytics: Analy
                 style={{ width: 140, fontSize: 13 }}
               >
                 <option value="all">كل الحالات</option>
-                <option value="قادم">قادم</option>
-                <option value="منتهٍ">منتهٍ</option>
-                <option value="جارٍ">جارٍ</option>
-                <option value="ملغى">ملغى</option>
-                <option value="لم ينعقد">لم ينعقد</option>
-                <option value="مؤجل">مؤجل</option>
+                {/* القيم مفاتيح `MeetingStatus::key` — والنصّ المعروض هو الحالة نفسها */}
+                <option value="upcoming">قادم</option>
+                <option value="ended">منتهٍ</option>
+                <option value="live">جارٍ</option>
+                <option value="cancelled">ملغى</option>
+                <option value="missed">لم ينعقد</option>
+                <option value="postponed">مؤجل</option>
               </select>
 
               {(searchQ || filterType !== 'all' || filterStatus !== 'all') && (

@@ -99,7 +99,7 @@ class CaseController extends Controller
             ],
             'channel' => 'case.'.$case->id,
             // العميل: بلا ملاحظات داخليّة وبلا مخرجٍ محجوب بانتظار اعتماد محامٍ
-            'messages' => LawyerName::inMessages(ConversationFiles::linkLegacyChips($case->messages()->visibleTo(false)->get()->map(fn (CaseMessage $m) => $m->toMessage(forClient: true))->all(), 'case', $case->documents)),
+            'messages' => ConversationFiles::linkLegacyChips($case->messages()->visibleTo(false)->get()->map(fn (CaseMessage $m) => $m->toMessage(forClient: true))->all(), 'case', $case->documents),
             'hearings' => $case->hearings->map->toData(),
             'documents' => $case->documents->map(fn ($d) => $d->toData(auth()->user())),
         ]);
@@ -173,7 +173,7 @@ class CaseController extends Controller
     public function pay(Request $request, LegalCase $case): \Symfony\Component\HttpFoundation\Response
     {
         $this->authorizeCase($request, $case);
-        abort_unless($case->fee_status === 'pending_payment', 422);
+        abort_unless($case->fee_status === 'pending_payment', 422, 'لا أتعاب مستحقّة السداد على هذه القضية الآن — حدّث الصفحة.');
 
         $plan = $request->validate(['plan' => ['nullable', 'in:full,install']])['plan'] ?? 'full';
 
@@ -223,7 +223,7 @@ class CaseController extends Controller
     public function payInstallment(Request $request, LegalCase $case): RedirectResponse
     {
         $this->authorizeCase($request, $case);
-        abort_unless($case->fee_status === 'installments', 422);
+        abort_unless($case->fee_status === 'installments', 422, 'أتعاب هذه القضية ليست مقسّطة، أو سُدّدت أقساطها كاملة.');
 
         // كان هذا الزرّ يزيد العدّاد ويكتب «تم استلام الدفعة» بلا أي سداد. الآن يبدأ دفعة
         // حقيقية على فاتورة القسط المستحقّ، والتقدّم يقع في PaymentReconciler عند التسوية.

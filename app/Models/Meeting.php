@@ -3,10 +3,15 @@
 namespace App\Models;
 
 use App\Domain\Journey\Enums\MeetingStatus;
+use App\Domain\Journey\Transitions\Meeting\CancelMeeting;
+use App\Domain\Journey\Transitions\Meeting\EndMeeting;
+use App\Domain\Journey\Transitions\Meeting\StartMeeting;
 use App\Enums\Role;
 use App\Support\LawyerName;
 use App\Support\MeetingTime;
 use App\Support\RecordingArchive;
+use App\Support\SessionWindow;
+use App\Support\ZoomSummaryText;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
@@ -18,6 +23,8 @@ class Meeting extends Model
 {
     protected $fillable = [
         'user_id', 'ref', 'title', 'type', 'client_name', 'when_label', 'starts_at', 'reminder_sent_at',
+        // `dur`: عمودٌ تاريخيّ — ما حُفظ فيه يبقى مسافةً محجوزة على تقويم المحامي (`LawyerAvailability`)،
+        // ولا يُكتب جديداً ولا يُنهي الاجتماع (قرار المالك 2026-09-26).
         'status', 'priority', 'conf', 'attend', 'dur', 'approve',
         'before_items', 'during_items', 'after_items',
         'summary', 'sum_approved', 'minutes', 'participants', 'case_ref',
@@ -63,14 +70,6 @@ class Meeting extends Model
         return $this->belongsTo(User::class, 'assigned_lawyer_id');
     }
 
-    /** مدة الاجتماع بالدقائق من نص `dur` («60 دقيقة») — الافتراض 60 */
-    public function durationMinutes(): int
-    {
-        $n = (int) preg_replace('/\D+/', '', (string) $this->dur);
-
-        return $n > 0 ? $n : 60;
-    }
-
     /** موعد البدء: starts_at الحقيقي، أو تحليل دفاعي لـ when_label («اليوم · 09:00 ص») */
     public function startsAtResolved(): ?Carbon
     {
@@ -83,59 +82,54 @@ class Meeting extends Model
         return MeetingTime::parse($parts[0] ?? null, $parts[1] ?? null);
     }
 
-    /** هل انقضى وقت الاجتماع (البداية + المدة)؟ تعذُّر التحليل ⇒ ليس ماضياً (سلوك آمن) */
-    public function isPast(): bool
+    /**
+     * **فات دون أن يبدأ؟** — مهلة الفوات من البداية (`SessionWindow`)، لا «البداية + المدّة».
+     * تعذُّر تحليل الموعد ⇒ لم يفُت (سلوك آمن).
+     */
+    public function isMissed(): bool
     {
-        $start = $this->startsAtResolved();
+        return SessionWindow::isMissed($this->startsAtResolved());
+    }
 
-        return $start !== null && $start->copy()->addMinutes($this->durationMinutes())->isPast();
+    /**
+     * **بدأ فعلاً؟** — حالته «جارٍ»، أو سجّل Zoom دخول أحد أطرافه وإن فات حدثُ البدء.
+     * يُقرأ هنا وفي شبكة النسيان (`sessions:close-stale` · `AlertStaleMeeting`) — تعريفٌ واحد لـ«بدأ ولم يُنهَ».
+     */
+    public function hasStarted(): bool
+    {
+        return $this->status === MeetingStatus::Live->value || $this->join_time !== null;
     }
 
     /**
      * الحالة الحيّة المشتقّة [when, status, tone] — الحالة المخزّنة لا تتحدّث بمرور الوقت
-     * (نظير Appointment::liveState): «قادم» الفائت يُعرض «لم ينعقد» فوراً دون انتظار المجدول،
-     * و«جارٍ» المتجاوز لمدّته يُعرض منتهياً، و«بانتظار التأكيد»/«مؤجل» يبقيان في القادمة.
+     * (نظير Appointment::liveState): «قادم» فات دون أن يبدأ يُعرض «لم ينعقد» فوراً دون انتظار
+     * المجدول، و«بانتظار التأكيد»/«مؤجل» يبقيان في القادمة.
+     *
+     * **والجاري جارٍ حتى يُنهى** (قرار المالك 2026-09-26): كان «جارٍ» يُعرض «منتهٍ» بعد «المدة +
+     * 120د»، و«قادمٌ» دخله أحدٌ يُعرض «منتهٍ» بمجرّد فوات موعده — نهايتان تقرّرهما الساعة. الآن
+     * النهاية حدث `EndMeeting` (زرّ الطاقم أو ويبهوك Zoom أو شبكة النسيان بعد مهلتها — `sessions:close-stale`).
      * النغمات تطابق meetStatusTone في resources/js/lib/meeting-ui.tsx (المصدر الموحّد).
      *
      * @return array{0:string,1:string,2:string}
      */
     public function liveState(): array
     {
-        $status = (string) $this->status;
+        $status = MeetingStatus::tryFrom((string) $this->status);
 
-        if ($status === 'ملغى') {
-            return ['past', 'ملغى', 'b-red'];
-        }
-        if ($status === 'منتهٍ') {
-            return ['past', 'منتهٍ', 'b-green'];
-        }
-        if ($status === 'لم ينعقد') {
-            return ['past', 'لم ينعقد', 'b-grey'];
-        }
-
-        if ($status === 'جارٍ') {
-            $start = $this->startsAtResolved();
-            $expired = $start !== null && $start->copy()->addMinutes($this->durationMinutes() + 120)->isPast();
-
-            return $expired ? ['past', 'منتهٍ', 'b-green'] : ['up', 'جارٍ', 'b-amber'];
-        }
-
-        // قادم / مؤجل / بانتظار التأكيد — قادمة ما لم يفت موعدها
-        // («بانتظار التأكيد» حالة تاريخية: لا يكتبها مسار حيّ منذ إلغاء تأكيد العميل — الفرع دفاع عن سجلّات قديمة)
-        if (! $this->isPast()) {
-            $tone = match ($status) {
-                'مؤجل' => 'b-grey',
-                'بانتظار التأكيد' => 'b-amber',
+        return match (true) {
+            $status === MeetingStatus::Cancelled => ['past', MeetingStatus::Cancelled->value, 'b-red'],
+            $status === MeetingStatus::Ended => ['past', MeetingStatus::Ended->value, 'b-green'],
+            $status === MeetingStatus::Missed => ['past', MeetingStatus::Missed->value, 'b-grey'],
+            $this->hasStarted() => ['up', MeetingStatus::Live->value, 'b-amber'],
+            // قادم / مؤجل / بانتظار التأكيد — قادمة ما لم يفت موعدها دون أن تبدأ
+            // («بانتظار التأكيد» حالة تاريخية: لا يكتبها مسار حيّ منذ إلغاء تأكيد العميل — الفرع دفاع عن سجلّات قديمة)
+            ! $this->isMissed() => ['up', (string) $this->status !== '' ? (string) $this->status : MeetingStatus::Upcoming->value, match ($status) {
+                MeetingStatus::Postponed => 'b-grey',
+                MeetingStatus::AwaitingConfirmation => 'b-amber',
                 default => 'b-blue',
-            };
-
-            return ['up', $status !== '' ? $status : 'قادم', $tone];
-        }
-
-        // فات الموعد: دخل أحدهم فعلاً ⇒ منتهٍ، وإلا ⇒ لم ينعقد
-        return $this->join_time !== null
-            ? ['past', 'منتهٍ', 'b-green']
-            : ['past', 'لم ينعقد', 'b-grey'];
+            }],
+            default => ['past', MeetingStatus::Missed->value, 'b-grey'],
+        };
     }
 
     /**
@@ -144,7 +138,7 @@ class Meeting extends Model
      * الحالة المخزّنة تتأخّر عن الحقيقة: اجتماعٌ دخله أطرافه وسُجّل ما زال «قادماً» حتى يمرّ
      * المجدول أو يضغط أحدٌ «إنهاء». وكانت إعادة جدولته في تلك الفجوة تمحو `recording_url`
      * و`join_time` — أي تمحو الدليل الوحيد على جلسةٍ وقعت. فالشاهد هنا: دخولٌ مسجَّل، أو
-     * تسجيلٌ محفوظ، أو حالةٌ حيّة تقول «منتهٍ» (وهي تشمل «جارٍ» تجاوز مدّته).
+     * تسجيلٌ محفوظ، أو حالةٌ تقول «منتهٍ» (لا تُشتقّ من الساعة — الاجتماع ينتهي حين يُنهى).
      */
     public function wasHeld(): bool
     {
@@ -248,30 +242,81 @@ class Meeting extends Model
         return $this->liveState()[0] === 'up';
     }
 
+    /** اعتمدت الإدارة المحضر والملخص؟ — الموضع الوحيد الذي يقرأ نصّ العمود `approve`. */
+    public function isApproved(): bool
+    {
+        return $this->approve === 'معتمد';
+    }
+
+    /**
+     * **مخرجاتٌ حقيقيّة** (ملخّص Zoom أو تدوينٌ يدويّ) — لا النصوص القالبيّة («بانتظار ملخص الجلسة
+     * من Zoom») المملوءة تقنيّاً بلا مضمون؛ اعتمادها كان يعرض للعميل محضراً رسميّاً فارغاً (حادثة M-26753).
+     */
+    public function hasRealOutput(): bool
+    {
+        return (filled($this->summary) && ! ZoomSummaryText::isPlaceholderSummary($this->summary))
+            || (filled($this->minutes) && ! ZoomSummaryText::isPlaceholderMinutes($this->minutes));
+    }
+
+    /**
+     * **لماذا لا يُعتمد الآن — `null` = يُعتمد.** القاعدة الواحدة لحارس `approve` في المتحكّم ولعلَم
+     * `canApprove` في البطاقة والبثّ: كانت الواجهة تشرط الزرّ بـ«النصّ غير فارغ» والخادم يرفض القالبيّ
+     * بـ٤٢٢ — زرٌّ يُعرض ثمّ يُردّ.
+     */
+    public function approvalBlocker(): ?string
+    {
+        if ($this->isApproved()) {
+            return 'الاجتماع معتمد نهائيًّا.';
+        }
+
+        return $this->status === MeetingStatus::Ended->value && $this->hasRealOutput()
+            ? null
+            : 'الاعتماد متاح بعد انتهاء الاجتماع ووصول ملخص Zoom أو تدوين المحضر يدوياً.';
+    }
+
+    public function canApprove(): bool
+    {
+        return $this->approvalBlocker() === null;
+    }
+
     /**
      * هل يُفعَّل زر «الدخول للاجتماع»؟
-     * نافذة مغلقة الطرفين: قبل الموعد بـ5 دقائق حتى (البداية + المدة + 30د) —
-     * كان الشرط مفتوحاً من جهة واحدة فيبقى الزر فعّالاً للأبد بعد فوات الموعد.
+     *
+     * - **جارٍ** ⇒ مفتوح حتى يُنهى — لا سقف «المدة + 30د» يُغلق غرفةً منعقدة.
+     * - **لم يبدأ** ⇒ من قبل الموعد بـ5 دقائق حتى يفوت دون أن يبدأ (`liveState` تُخرجه من «القادمة»
+     *   حينها) — فالنافذة مغلقة الطرفين ولا يبقى الزرّ فعّالاً للأبد بعد فوات الموعد.
+     * بلا موعدٍ قابل للتحليل ⇒ يُحسم بالحالة وحدها (السلوك السابق).
      */
     public function canJoin(): bool
     {
-        [$when, $status] = $this->liveState();
+        return $this->joinBlocker() === null;
+    }
 
-        if ($when !== 'up') {
-            return false;
-        }
+    /**
+     * **لماذا لا يُدخَل إلى الغرفة الآن — `null` = يُدخَل.** نظير `Consult::joinBlocker` بالنصوص
+     * نفسها (`SessionWindow::REFUSE_*`) — مصدرُ `canJoin()` ونصُّ الرفض في الغرف ونقطة التوقيع.
+     */
+    public function joinBlocker(): ?string
+    {
+        [, $status] = $this->liveState();
 
-        if ($status === 'جارٍ') {
-            return true; // ضمن سقف liveState (المدة + 120د)
-        }
+        return match ($status) {
+            MeetingStatus::Cancelled->value => SessionWindow::REFUSE_CANCELLED,
+            MeetingStatus::Ended->value => SessionWindow::REFUSE_ENDED,
+            MeetingStatus::Missed->value => SessionWindow::REFUSE_MISSED,
+            MeetingStatus::Live->value => null,
+            default => SessionWindow::joinOpened($this->startsAtResolved()) ? null : SessionWindow::refuseNotOpen(),
+        };
+    }
 
-        $start = $this->startsAtResolved();
-        if ($start === null) {
-            return true; // بلا موعد قابل للتحليل — يُحسم بالحالة فقط (السلوك السابق)
-        }
-
-        return now()->greaterThanOrEqualTo($start->copy()->subMinutes(5))
-            && now()->lessThanOrEqualTo($start->copy()->addMinutes($this->durationMinutes() + 30));
+    /**
+     * **جارٍ الآن؟** — بدأ (حالته «جارٍ» أو سجّل Zoom دخولاً) ولم يُختم ولم يُحسم «لم ينعقد».
+     * القاعدة الواحدة لـ«يجوز إنهاؤه» من الطاقم أو شبكة النسيان (`EndMeeting::guard`) ولعلَم
+     * `live` في عقد الغرفة — نظيرُها `Consult::isLive()`.
+     */
+    public function isLive(): bool
+    {
+        return $this->liveState()[1] === MeetingStatus::Live->value;
     }
 
     /**
@@ -316,7 +361,7 @@ class Meeting extends Model
     // بطاقة العميل (يطابق DATA.meetings + viewMeetings) — المحضر/الملخص بعد اعتماد الإدارة فقط
     public function toCard(): array
     {
-        $approved = $this->approve === 'معتمد';
+        $approved = $this->isApproved();
         $canJoin = $this->canJoin();
         [$when, $status, $tone] = $this->liveState();
 
@@ -335,12 +380,27 @@ class Meeting extends Model
             'link' => $canJoin ? $this->joinLink() : '',
             'minutes' => $approved ? $this->minutes : null,
             'summary' => $approved ? $this->summary : null,
-            'dur' => $this->dur ?: '60 دقيقة',
+            // لا `dur` («60 دقيقة» مختلقة): الاجتماع ينتهي حين يُنهى، والمدّة الفعليّة بعده من Zoom
             'lawyer' => LawyerName::forClient($this->assignedLawyer, $this->assignedLawyer?->name, 'مستشار المكتب'),
             'caseRef' => $this->case_ref,
             'type' => $this->type ?: 'اجتماع مرئي',
             'decisions' => $approved ? ($this->decisions ?? []) : [],
             'startsAt' => $this->starts_at?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * **أيّ أفعال دورة الحياة يقبلها الخادم الآن؟** — حراس الانتقالات أنفسها بمصدر الطاقم، فلا يُعرض
+     * زرٌّ يُردّ بـ٤٢٢ (إنهاء «قادم»، إلغاء «جارٍ»). تقرؤه البطاقة وبثّ الحالة معاً.
+     *
+     * @return array{start: bool, end: bool, cancel: bool}
+     */
+    public function lifecycleActions(): array
+    {
+        return [
+            'start' => (new StartMeeting)->guard($this, []) === null,
+            'end' => (new EndMeeting)->guard($this, []) === null,
+            'cancel' => (new CancelMeeting)->guard($this, []) === null,
         ];
     }
 
@@ -361,6 +421,11 @@ class Meeting extends Model
             'after' => $this->after_items ?? [],
             // الحالة الحيّة المشتقّة (لا المخزّنة) — «قادم» الفائت يظهر «لم ينعقد» فوراً
             'status' => $this->liveState()[1],
+            // مفتاحها اللاتينيّ للمنطق (`MeetingStatus::key`) — النصّ للعرض وحده
+            'statusKey' => MeetingStatus::keyOf($this->liveState()[1]),
+            'approved' => $this->isApproved(),
+            // حكم حارس الاعتماد نفسه (`approvalBlocker`) — لا «النصّ غير فارغ» في الواجهة
+            'canApprove' => $this->canApprove(),
             // شقّا الحالة الآخران — كي لا تُعاد كتابة قاعدتَي «قادم/ماضٍ» و«نافذة الدخول»
             // في JS: الشاشة تفرز بالأولى وتشرط زرّ الدخول بالثانية، كما تفعل بطاقة العميل.
             'up' => $this->liveState()[0] === 'up',
@@ -368,6 +433,9 @@ class Meeting extends Model
             // حكم الخادم نفسه (`MeetingController::reschedule`) — كي لا يُعرض زرٌّ يُردّ بـ٤٢٢:
             // اجتماعٌ انعقد وحالته ما زالت «قادم» يُنهى، لا يُعاد جدولته.
             'reschedulable' => ! MeetingStatus::isFinalValue($this->status) && ! $this->wasHeld(),
+            // **أزرار دورة الحياة بحراس الانتقالات نفسها** — كانت الواجهة تشتقّها من قوائم نصّية
+            // (`['قادم','جارٍ'].includes(status)`) فيُعرض «إنهاء» لقادمٍ و«إلغاء» لجارٍ يرفضهما الخادم.
+            'actions' => $this->lifecycleActions(),
             'priority' => $this->priority,
             'conf' => $this->conf,
             // المُدخَل يدوياً — يبقى للتعبئة المسبقة في نافذة الإنهاء ولعرضه موسوماً
@@ -381,7 +449,7 @@ class Meeting extends Model
             'meetId' => $this->meet_id ?: ($this->ref ?: 'M-'.$this->id),
             'meetLink' => $this->joinLink(),
             'hostLink' => $this->host_link,
-            'dur' => $this->dur ?: '60 دقيقة',
+            // لا `dur`: الاجتماع بلا مدّةٍ ثابتة (قرار المالك 2026-09-26) — المقيس بعده `durationSec`
             'summary' => $this->summary,
             'zoomSummary' => $this->zoom_summary,
             // هل للاجتماع تسجيلٌ مرئيّ؟ علَمٌ لا رابط — الرابط السحابيّ لا يغادر الخادم

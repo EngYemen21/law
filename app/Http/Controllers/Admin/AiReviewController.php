@@ -4,12 +4,17 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\AiRun;
+use App\Services\Ai\AiConfidence;
+use App\Services\Ai\AiCost;
+use App\Services\Ai\AiFailure;
 use App\Services\Ai\AiOpsMetrics;
+use App\Services\Ai\AiPromptRegistry;
 use App\Services\Ai\AiReviewAction;
 use App\Services\Ai\AiReviewInbox;
 use App\Services\Ai\AiReviewOutcome;
 use App\Services\Ai\AiReviewPreview;
 use App\Services\Ai\AiReviewReason;
+use App\Support\Notify;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -34,17 +39,22 @@ class AiReviewController extends Controller
             'items' => AiReviewInbox::forUser($user)->map(fn (AiRun $run) => [
                 'id' => $run->id,
                 'taskType' => $run->task_type,
+                // الاسم من سجلّ التعليمات — الواجهة لا تحمل خريطة أسماءٍ تنقص مهمّةً فتظهر برمزها
+                'taskLabel' => AiPromptRegistry::taskLabel($run->task_type),
                 'entityRef' => $run->entity_ref ?? '—',
                 'source' => $run->source?->value,
                 'sourceLabel' => $run->source?->label(),
                 // null يُعرض «غير مقيسة» لا صفراً — لا يُدّعى قياسٌ لم يقع
                 'confidence' => $run->confidence,
                 'confidenceSignals' => $run->confidence_signals,
+                // الإشارات بأسمائها العربيّة من جوار تعريفها — لا خريطة مخمَّنة في المتصفّح
+                'signalRows' => AiConfidence::describe($run->confidence_signals),
                 // دليل تقليل البيانات أمام المراجع: كم معرّفاً مُوّه وكم غادر الخادم
                 'outboundAudit' => $run->outbound_audit,
                 'model' => $run->model ?? '—',
                 'promptVersion' => $run->prompt_version ?? '—',
                 'failureCode' => $run->failure_code,
+                'failureLabel' => AiFailure::label($run->failure_code),
                 'traceId' => $run->trace_id,
                 // **النصّ نفسه** لا بياناته وحدها: كان الاعتماد يقع على المصدر
                 // والثقة والنموذج بلا رؤية ما سيقرؤه الإنسان. `null` = لا مخرج محفوظ.
@@ -53,6 +63,11 @@ class AiReviewController extends Controller
             ])->values(),
             'actions' => AiReviewAction::options(),
             'reasons' => AiReviewReason::options(),
+            // من يُصعَّد إليه — القائمة نفسها التي يتحقّق بها `decide`. كان الفعل يلزمه
+            // `escalated_to` والشاشة لا تُرسله، فلم ينجح تصعيدٌ واحد قطّ.
+            'assignees' => AiReviewInbox::escalationTargets($user),
+            // عملة الكلفة من مصدرها — كانت هذه الشاشة تكتب «ر.س» ولوحة التشغيل «$» للرقم نفسه
+            'currency' => AiCost::CURRENCY,
             'metrics' => [
                 'pending' => AiReviewInbox::countFor($user),
                 'editRate' => AiReviewInbox::humanEditRate(),
@@ -89,6 +104,16 @@ class AiReviewController extends Controller
             return back()->withErrors(['escalated_to' => 'التصعيد يلزمه مُصعَّدٌ إليه.']);
         }
 
+        // المُصعَّد إليه من القائمة المعروضة نفسها — لا عميل ولا حساب موقوف ولا المُصعِّد ذاته
+        if ($action->requiresAssignee() && ! AiReviewInbox::mayEscalateTo($request->user(), (int) $data['escalated_to'])) {
+            return back()->withErrors(['escalated_to' => 'لا يُصعَّد إلّا إلى محامٍ أو إداريٍّ فعّال غيرك.']);
+        }
+
+        // حقلٌ يخصّ التصعيد وحده: قرارٌ آخر لا يحمل مُصعَّداً إليه ولو أُرسل خطأً
+        if (! $action->requiresAssignee()) {
+            $data['escalated_to'] = null;
+        }
+
         // القرار كما وقع لا كما أُعلن: «قبول» على نصٍّ حرّره المراجع **تعديلٌ**.
         // بهذا يصير `humanEditRate` قياساً لعملٍ لا استفتاءً على نيّة.
         [$action, $editDistance] = AiReviewOutcome::effectiveAction($run, $action);
@@ -110,6 +135,17 @@ class AiReviewController extends Controller
             // العميل بانتظار اعتماد يجب أن يُطلقه، وإلّا بقي محجوباً وإن اعتُمد.
             AiReviewOutcome::apply($run->fresh(), $action, $request->user());
         });
+
+        // التصعيد تسليمٌ لإنسان — يُبلَّغ به، وإلّا انتظر القيدُ في صندوقٍ لا يعلم صاحبه أنه فيه
+        if ($action === AiReviewAction::Escalate) {
+            Notify::send(
+                (int) $data['escalated_to'],
+                'alert',
+                't-amber',
+                "صعّد {$request->user()->name} إليك مخرج ذكاء للمراجعة: ".AiPromptRegistry::taskLabel($run->task_type)
+                    .($run->entity_ref ? " — {$run->entity_ref}" : '').' — تجده في «مراجعة مخرجات الذكاء».',
+            );
+        }
 
         return back()->with('flash', "سُجّل القرار: {$action->label()}");
     }

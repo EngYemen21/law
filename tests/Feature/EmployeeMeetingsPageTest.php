@@ -35,8 +35,9 @@ class EmployeeMeetingsPageTest extends TestCase
     public function test_employee_lifecycle_actions_work_on_any_meeting(): void
     {
         $employee = User::factory()->create(['role' => Role::Employee]);
-        $meeting = Meeting::create(['ref' => 'M-8010', 'title' => 'اجتماع', 'when_label' => 'اليوم', 'status' => 'قادم']);
-        $another = Meeting::create(['ref' => 'M-8011', 'title' => 'اجتماع', 'when_label' => 'اليوم', 'status' => 'قادم']);
+        // جاريان: الزرّ لا يُنهي إلّا اجتماعاً جارياً (قرار المالك 2026-09-26 — `EndMeeting::guard`)
+        $meeting = Meeting::create(['ref' => 'M-8010', 'title' => 'اجتماع', 'when_label' => 'اليوم', 'status' => 'جارٍ']);
+        $another = Meeting::create(['ref' => 'M-8011', 'title' => 'اجتماع', 'when_label' => 'اليوم', 'status' => 'جارٍ']);
 
         $this->actingAs($employee)->post(route('employee.meetings.end', $meeting), ['attend' => 80])->assertRedirect();
         $this->assertSame('منتهٍ', $meeting->fresh()->status);

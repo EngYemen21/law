@@ -6,6 +6,8 @@ use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\SessionState;
 use App\Domain\Journey\Transition;
 use App\Events\Journey\ConsultMarkedNoShow;
+use App\Events\Journey\SessionEndedInSystem;
+use App\Events\RoomStateChanged;
 use App\Models\Consult;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -64,9 +66,19 @@ final class MarkNoShow extends Transition
         $entity->status = ConsultStatus::NoShow->value;
     }
 
+    /**
+     * وغرفةُ Zoom تُغلق كما في الإنهاء (`SessionEndedInSystem`): إن كان أحدٌ فتحها وضاع حدثُ بدئها
+     * فلا تبقى مفتوحةً لجلسةٍ حُسمت؛ وإن لم تُفتح فالإغلاق لا يفعل شيئاً — والاجتماع لا يُحذف،
+     * فـZoom يبقى قادراً على إحيائها إن انعقدت فعلاً (`ZoomSessionStarted`).
+     */
     public function events(Model $entity, string $from, ?User $actor, array $payload): array
     {
-        return [new ConsultMarkedNoShow($entity)];
+        /** @var Consult $entity */
+        return [
+            new ConsultMarkedNoShow($entity),
+            ...SessionEndedInSystem::forEnd($entity->meet_id, $entity->ref, $payload),
+            ...RoomStateChanged::both($entity),
+        ];
     }
 
     public function record(array $payload): array

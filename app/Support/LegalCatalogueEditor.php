@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Enums\Role;
 use App\Models\LegalCatalogueAlias;
 use App\Models\LegalDepartment;
+use App\Models\LegalDepartmentDocument;
 use App\Models\LegalService;
 use App\Models\StaffDepartment;
 use App\Models\User;
@@ -202,6 +203,101 @@ class LegalCatalogueEditor
         self::audit($actor, 'ترتيب خدمات قسم', "أعاد {$actor->name} ترتيب خدمات القسم «{$department->name}».", $department, $department->code);
     }
 
+    // ── قائمة مستندات القسم ─────────────────────────────────
+    // قرار المالك 2026-09-26: لكلّ قسمٍ قائمته، ولكلّ بندٍ «إلزاميّ» أو «اختياريّ». الحذف مسموحٌ هنا
+    // بخلاف الأقسام والخدمات: لا شيء يشير إلى البند إلّا مطابقاتُ المرفقات، وهي تُبقي نصَّ البند
+    // (`requirement`) ويُفرَّغ معرّفها — فلا يُمحى أثرٌ وقع.
+
+    public static function createDocument(LegalDepartment $department, string $name, bool $required, User $actor): LegalDepartmentDocument
+    {
+        $name = self::cleanName($name);
+        self::assertDocumentNameFree($department, $name, null);
+
+        return DB::transaction(function () use ($department, $name, $required, $actor) {
+            // **أوّل بندٍ لا يُسقط القائمة العامّة بصمت.** قسمٌ بلا قائمةٍ يطلب `DEFAULT_DOCUMENTS`
+            // (الهويّة الوطنيّة…)، وكانت إضافةُ بندٍ واحد تجعل قائمته هي وحدها — فيختفي طلبُ الهويّة
+            // من كلّ تذاكر القسم دون أن يقرّر ذلك أحد. فتُنسخ بنود العامّة أوّلاً صفوفاً قابلة
+            // للتحرير والحذف، ثمّ يُضاف البند؛ والحذف بعدها قرارٌ صريح يُقيَّد في التدقيق.
+            $seeded = [];
+            if (! $department->documents()->exists()) {
+                $folded = LegalCatalogue::foldName($name);
+                foreach (LegalCatalogue::DEFAULT_DOCUMENTS as $default) {
+                    if (LegalCatalogue::foldName($default['name']) === $folded) {
+                        continue; // البند الجديد نفسه — يُضاف بإلزامه المختار أدناه لا مرّتين
+                    }
+                    LegalDepartmentDocument::create([
+                        'legal_department_id' => $department->id,
+                        'name' => $default['name'],
+                        'required' => $default['required'],
+                        'sort_order' => (count($seeded) + 1) * 10,
+                    ]);
+                    $seeded[] = $default['name'];
+                }
+            }
+
+            $document = LegalDepartmentDocument::create([
+                'legal_department_id' => $department->id,
+                'name' => $name,
+                'required' => $required,
+                'sort_order' => (int) $department->documents()->max('sort_order') + 10,
+            ]);
+
+            self::audit($actor, 'إضافة مستند مطلوب', "أضاف {$actor->name} المستند «{$name}» (".self::requiredLabel($required).") إلى قائمة القسم «{$department->name}»"
+                .($seeded === [] ? '.' : '، ونُسخت إليها بنود القائمة العامّة: '.implode('، ', $seeded).'.'), $department, $department->code);
+
+            LegalCatalogue::flush();
+
+            return $document;
+        });
+    }
+
+    public static function renameDocument(LegalDepartmentDocument $document, string $name, User $actor): void
+    {
+        $name = self::cleanName($name);
+        $old = $document->name;
+        if ($name === $old) {
+            return;
+        }
+
+        $department = $document->department;
+        self::assertDocumentNameFree($department, $name, $document->id);
+
+        $document->update(['name' => $name]);
+
+        self::audit($actor, 'إعادة تسمية مستند مطلوب', "أعاد {$actor->name} تسمية المستند «{$old}» إلى «{$name}» في قائمة القسم «{$department->name}».", $department, $department->code, ['المستند' => $old], ['المستند' => $name]);
+    }
+
+    public static function setDocumentRequired(LegalDepartmentDocument $document, bool $required, User $actor): void
+    {
+        if ($document->required === $required) {
+            return;
+        }
+
+        $document->update(['required' => $required]);
+        $department = $document->department;
+
+        self::audit($actor, 'تغيير إلزام مستند', "جعل {$actor->name} المستند «{$document->name}» ".self::requiredLabel($required)."اً في قائمة القسم «{$department->name}».", $department, $department->code, ['الإلزام' => self::requiredLabel(! $required)], ['الإلزام' => self::requiredLabel($required)]);
+    }
+
+    public static function deleteDocument(LegalDepartmentDocument $document, User $actor): void
+    {
+        $department = $document->department;
+        $name = $document->name;
+
+        $document->delete();
+
+        self::audit($actor, 'حذف مستند مطلوب', "حذف {$actor->name} المستند «{$name}» من قائمة القسم «{$department->name}».", $department, $department->code);
+    }
+
+    /** @param  array<int, int|string>  $ids  معرّفات بنود القسم بالترتيب الجديد */
+    public static function reorderDocuments(LegalDepartment $department, array $ids, User $actor): void
+    {
+        self::applyOrder($department->documents()->pluck('id')->all(), $ids, fn (int $id, int $order) => LegalDepartmentDocument::whereKey($id)->update(['sort_order' => $order]));
+        LegalCatalogue::flush();
+
+        self::audit($actor, 'ترتيب مستندات قسم', "أعاد {$actor->name} ترتيب قائمة مستندات القسم «{$department->name}».", $department, $department->code);
+    }
+
     // ── الأقسام الإداريّة للموظّفين ─────────────────────────
 
     public static function createStaffDepartment(string $name, User $actor): StaffDepartment
@@ -280,6 +376,25 @@ class LegalCatalogueEditor
                 'name' => "توجد في القسم خدمةٌ بهذا الاسم أو باسمٍ مطابقٍ له: «{$existing->name}».",
             ]);
         }
+    }
+
+    /** اسم البند لا يتكرّر في قائمة قسمه بعد توحيد الصياغة — «الهويّة» و«الهوية» بندٌ واحد. */
+    private static function assertDocumentNameFree(LegalDepartment $department, string $name, ?int $exceptId): void
+    {
+        $folded = LegalCatalogue::foldName($name);
+        $clash = $department->documents()
+            ->when($exceptId !== null, fn ($q) => $q->whereKeyNot($exceptId))
+            ->get(['name'])
+            ->first(fn (LegalDepartmentDocument $d) => LegalCatalogue::foldName($d->name) === $folded);
+
+        if ($clash !== null) {
+            throw ValidationException::withMessages(['name' => "في قائمة القسم مستندٌ بهذا الاسم: «{$clash->name}»."]);
+        }
+    }
+
+    private static function requiredLabel(bool $required): string
+    {
+        return $required ? 'إلزاميّ' : 'اختياريّ';
     }
 
     private static function assertStaffDepartmentNameFree(string $name, ?int $exceptId): void

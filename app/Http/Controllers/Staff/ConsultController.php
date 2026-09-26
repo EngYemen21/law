@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Staff;
 
 use App\Domain\Journey\Enums\RescheduleReason;
+use App\Domain\Journey\Enums\SessionState;
 use App\Domain\Journey\TransitionDenied;
 use App\Domain\Journey\Transitions\Consult\AnalyzeConsult;
 use App\Domain\Journey\Transitions\Consult\ApproveConsultAnalysis;
@@ -38,6 +39,7 @@ use App\Support\DecisionTasks;
 use App\Support\LawyerSpecialties;
 use App\Support\Live;
 use App\Support\Notify;
+use App\Support\RoomDetails;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -91,6 +93,8 @@ class ConsultController extends Controller
                 ->whereIn('status', Consult::PRE_SESSION_STATUSES)
                 ->latest('id')->get()
                 ->map(fn (Consult $c) => $c->toCard());
+            // سعر التسعير المقترح من الإعدادات بحسب القناة — كانت الشاشة تفترض «600» لكلّ قناة
+            $props['suggestedPrices'] = self::suggestedPrices();
         }
 
         return Inertia::render($this->prefix($request).'/consults', $props);
@@ -115,15 +119,29 @@ class ConsultController extends Controller
 
         return Inertia::render('admin/consult-requests', [
             'consults' => $consults,
-            'vatRate' => (int) ($prices['vat'] ?? 15),
+            // `consultPrices()` يحمل الضريبة دائماً من `Setting::vatRate()` — فلا افتراضَ «15» ثانٍ هنا
+            'vatRate' => (int) $prices['vat'],
             // محامو المكتب النشطون — لتعديل المحامي عند اعتماد موعدٍ اقترحه موظّف
             'lawyers' => User::where('role', Role::Lawyer)->where('status', 'active')->orderBy('name')->get(['id', 'name']),
-            'suggestedPrices' => [
-                'مرئية' => (int) ($prices['video'] ?? 0),
-                'حضورية' => (int) ($prices['office'] ?? 0),
-                'هاتفية' => (int) ($prices['phone'] ?? 0),
-            ],
+            'suggestedPrices' => self::suggestedPrices(),
         ]);
+    }
+
+    /**
+     * السعر المقترح لكلّ قناة من الإعدادات (`Setting::consultPrices`) — مصدرٌ واحد لشاشتَي التسعير
+     * («طلبات الاستشارات» و«الاستشارات») بدل رقمٍ مكتوبٍ في كلٍّ منهما.
+     *
+     * @return array<string, int>
+     */
+    private static function suggestedPrices(): array
+    {
+        $prices = Setting::consultPrices();
+
+        return [
+            'مرئية' => (int) ($prices['video'] ?? 0),
+            'حضورية' => (int) ($prices['office'] ?? 0),
+            'هاتفية' => (int) ($prices['phone'] ?? 0),
+        ];
     }
 
     // رحلة الاستشارة (يطابق consultView) — التفاصيل والإجراءات وسجل التدقيق
@@ -397,25 +415,30 @@ class ConsultController extends Controller
     public function approveAnalysis(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
-        // ما ليس «بانتظار اعتماد الموظف» يُتجاوز بصمتٍ كما كان — ومنه نقرةٌ ثانية سبقتها الأولى إلى القفل
+        /*
+         * **الرفض يُقال لا يُبتلع.** كان ما ليس «بانتظار اعتماد الموظف» يُتجاوز بصمتٍ ويعود `back()`،
+         * فتعرض الشاشة «✅ اعتُمد التحليل» على طلبٍ لم يُنفَّذ (نقرةٌ ثانية، أو تحليلٌ أُعيد للتشغيل،
+         * أو استشارةٌ أُحيلت من شاشةٍ أخرى). الآن 422 بالسبب، ورفضُ المحرّك (`TransitionDenied`)
+         * يصل الواجهة كما هو.
+         */
         $transition = new ApproveConsultAnalysis;
-        if ($transition->accepts((string) $consult->status)) {
-            try {
-                Workflow::run($transition, $consult, $request->user());
-            } catch (TransitionDenied) {
-                return back();
-            }
-            Live::push(new ConsultStatusBroadcast($consult));
+        abort_unless(
+            $transition->accepts((string) $consult->status),
+            422,
+            "لا تحليل بانتظار الاعتماد — الاستشارة في حالة «{$consult->status}»."
+        );
 
-            // ويُسجَّل قرار المراجعة كما يُسجَّل من الصندوق — وإلّا بقي القيد معلَّقاً
-            // أبداً لمخرجٍ اعتمده إنسان. و«حُرّر» يُشتقّ من سجلّ التدقيق: `saveAnalysis`
-            // تكتب فيه قيد «الملخص» عند كل تحرير، فهو أثرُ فعلٍ لا إعلانُ نيّة.
-            $edited = collect((array) ($consult->audit ?? []))
-                ->contains(fn ($entry) => ($entry['field'] ?? '') === 'الملخص');
+        Workflow::run($transition, $consult, $request->user());
+        Live::push(new ConsultStatusBroadcast($consult));
 
-            // اسم القيد `consult` لا `consult.analyze` — انظر `AiRunLogger::STORED_TASK_TYPE`
-            AiReviewOutcome::recordFileApproval('consult', $consult->ref, $request->user(), $edited);
-        }
+        // ويُسجَّل قرار المراجعة كما يُسجَّل من الصندوق — وإلّا بقي القيد معلَّقاً
+        // أبداً لمخرجٍ اعتمده إنسان. و«حُرّر» يُشتقّ من سجلّ التدقيق: `saveAnalysis`
+        // تكتب فيه قيد «الملخص» عند كل تحرير، فهو أثرُ فعلٍ لا إعلانُ نيّة.
+        $edited = collect((array) ($consult->audit ?? []))
+            ->contains(fn ($entry) => ($entry['field'] ?? '') === 'الملخص');
+
+        // اسم القيد `consult` لا `consult.analyze` — انظر `AiRunLogger::STORED_TASK_TYPE`
+        AiReviewOutcome::recordFileApproval('consult', $consult->ref, $request->user(), $edited);
 
         return back();
     }
@@ -523,11 +546,13 @@ class ConsultController extends Controller
          * و«منتهية» تبقى مقبولة: التدوين المتأخّر مسارٌ مقصود — الويبهوك يختم الجلسة
          * قبل أن يضغط المحامي، فيُحفظ تدوينه بعدها ويُستدعى التوليد ثانيةً.
          */
-        abort_unless(
-            in_array($consult->session, ['جلسة جارية', 'منتهية'], true),
-            422,
-            'الجلسة لم تبدأ — لا تُختَم إلّا جلسةٌ انعقدت. سجّل «لم يحضر» إن فات موعدها.'
-        );
+        //
+        // **والحارس في الانتقال لا هنا** (`EndSession::guard` ⇐ `Consult::isLive`) — القاعدة نفسها
+        // التي تُفعّل زرّ الإنهاء في عقد الغرفة؛ يُفحص هنا قبل التصديق وحده برسالة الانتقال.
+        $alreadyEnded = $consult->session === SessionState::Ended->value;
+        if (! $alreadyEnded && ($why = (new EndSession)->guard($consult, [])) !== null) {
+            abort(422, $why);
+        }
 
         $data = $request->validate([
             'notes' => ['nullable', 'string', 'max:4000'],
@@ -535,7 +560,6 @@ class ConsultController extends Controller
         ]);
 
         $notes = trim($data['notes'] ?? '');
-        $alreadyEnded = $consult->session === 'منتهية';
 
         // **ختمُ الجلسة وحفظُ الملاحظات فعلان منفصلان.** كانا ملفوفين بشرطٍ واحد
         // (`session !== 'منتهية'`)، وويبهوك Zoom يختم الجلسة قبل أن يضغط المحامي
@@ -561,15 +585,8 @@ class ConsultController extends Controller
             ConsultSessionOutcome::sessionEnded($consult);
         }
 
-        // **وتُغلق غرفة Zoom فعلاً.** كان «إنهاء الجلسة» يختم السجلّ وحده ولا يُنهي
-        // الاجتماع — يبقى حيّاً حتى يخرج آخر مشارك، فيستطيع الموكّل (أو من بلغه
-        // الرابط) البقاء فيه أو العودة إليه بعد أن أُعلنت الجلسة منتهية. ونظيرُه
-        // في الاجتماعات يُنهيه منذ البداية (`Staff\MeetingController`).
-        // الإنهاء **عند الختم وحده** لا عند حفظ تدوينٍ لجلسةٍ مختومة، وفشلُه
-        // مُبتلَعٌ داخل `endMeeting` فلا يُسقط ختم الجلسة على المكتب.
-        if (! $alreadyEnded && filled($consult->meet_id)) {
-            app(ZoomService::class)->endMeeting((string) $consult->meet_id);
-        }
+        // **وتُغلق غرفة Zoom فعلاً** — حدثُ `EndSession` بعد التزامه (`EndZoomMeetingJob` في
+        // الطابور)، فيقع عند الختم وحده لا عند حفظ تدوينٍ لجلسةٍ مختومة، ولا يقف عليه الزرّ.
 
         // التوليد عند الختم، **أو** عند وصول ملاحظاتٍ لجلسةٍ خُتمت بلا ملخّص — وهي
         // حال «انتهت بلا تدوين»: الوظيفة لا تُنادي النموذج بلا مادّة، فتُنبّه المحامي،
@@ -578,7 +595,11 @@ class ConsultController extends Controller
             FinalizeConsultJob::dispatch($consult->fresh(), $notes);
         }
 
-        return back();
+        return RoomDetails::afterEnd($consult, $request->user(), match (true) {
+            ! $alreadyEnded => 'انتهت الجلسة وأُغلقت غرفتها — يُعدّ ملخّصها الآن.',
+            $notes !== '' => 'حُفظ تدوينك للجلسة.',
+            default => 'الجلسة منتهية بالفعل.',
+        });
     }
 
     // تذكير عميلٍ دفع ولم يختر موعده — الطلب كان يعلق للأبد بلا أي إجراء إداري
@@ -704,28 +725,34 @@ class ConsultController extends Controller
     public function createTasks(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
-        abort_if($consult->tasks_created, 409);
+        abort_if($consult->tasks_created, 409, 'أُنشئت مهامّ هذه الاستشارة من قبل.');
 
         $count = DecisionTasks::create($consult, $this->ai, $request->user());
-        abort_if($count === 0, 422);
+        abort_if($count === 0, 422, 'لم تُنشأ مهامّ: لا قرارات في ملخّص الاستشارة، أو لا محامي تُسند إليه.');
 
         return back()->with('flash', 'تم تحويل '.$count.' قرار إلى مهام');
     }
 
-    // غرفة الجلسة المرئية (يطابق openVideoRoom) — ?ref=CN-… للاستشارة، وتبقى kind=req لطلبات الاجتماعات
-    public function room(Request $request): Response
+    /**
+     * غرفة الجلسة المرئية للطاقم — `?ref=CN-…`.
+     *
+     * كانت بلا حارسٍ إطلاقاً: مرجعٌ مجهول يفتح غرفةً فارغة (لا 404)، واستشارةٌ منتهية أو فائتة أو
+     * حضوريّة تُفتح غرفتها كأنّها قائمة. الآن `firstOrFail` والقاعدة الواحدة للغرف الأربع
+     * (`RoomDetails::entryBlocker`) بسببها الحقيقيّ — نظيرُ غرفة الاجتماع حرفاً. («kind=req» لطلبات
+     * الاجتماعات القديمة لم يعد لها منادٍ: غرفة الاجتماع `/{role}/meetingroom`.)
+     */
+    public function room(Request $request): Response|RedirectResponse
     {
-        $card = null;
-        if ($ref = $request->query('ref')) {
-            $consult = Consult::with('user')->where('ref', $ref)->first();
-            if ($consult) {
-                $this->guardConsult($request, $consult);
-                $card = $consult->toCard();
-            }
+        $consult = Consult::with(['user', 'assignedLawyer'])->where('ref', (string) $request->query('ref'))->firstOrFail();
+        $this->guardConsult($request, $consult);
+        if (($why = RoomDetails::entryBlocker($consult, $request->user())) !== null) {
+            return RoomDetails::refuse($request, $consult, $why, 422);
         }
 
         return Inertia::render($this->prefix($request).'/videoroom', [
-            'consult' => $card,
+            // عقد الغرفة (`RoomDetails::for`) — والخاصيّات القديمة باقية حتى تنتقل الواجهة إليه
+            'room' => RoomDetails::for($consult, $request->user()),
+            'consult' => $consult->toCard(),
             'selfName' => $request->user()->name,
             'selfAv' => $request->user()->avatar_initials ?? '',
         ]);

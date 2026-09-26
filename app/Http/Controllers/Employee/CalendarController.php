@@ -49,7 +49,9 @@ class CalendarController extends Controller
                 'time' => $h->time,
                 'where' => $canCourt ? $h->court : 'المحكمة',
                 'status' => EventStatus::forHearing($h),
-                'startsAt' => ($h->starts_at ?: MeetingTime::parse($h->day, $h->time))?->toIso8601String(),
+                'startsAt' => $h->startMoment()?->toIso8601String(),
+                // المدّة المتوقّعة إن أُدخلت — وإلا لا مدّة تُعرض (لا نهاية مختلَقة للجلسة)
+                'durationMin' => $h->duration_min,
             ]);
 
         $meetings = Meeting::where($window)

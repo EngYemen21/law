@@ -2,11 +2,13 @@
 
 namespace App\Console\Commands;
 
+use App\Domain\Journey\Enums\SessionState;
 use App\Events\ConsultStatusBroadcast;
 use App\Mail\MeetingLinkReady;
 use App\Models\Consult;
 use App\Models\User;
 use App\Support\Live;
+use App\Support\SessionWindow;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Mail;
 
@@ -25,10 +27,13 @@ class ReleaseMeetingLinks extends Command
         $due = Consult::with('user')
             ->where('channel', 'مرئية')
             ->whereNull('link_released_at')
-            ->where('session', '!=', 'منتهية')
+            // والجارية تُطلَق أيضاً: الطاقم يبدأ قبل الموعد بربع ساعة، وبريد الرابط للعميل يلزم
+            ->whereIn('session', [SessionState::Waiting->value, SessionState::Live->value])
             ->whereNotNull('starts_at')
-            ->where('starts_at', '<=', now()->addMinutes(5))
-            ->where('starts_at', '>=', now()->subMinutes(60))
+            ->where('starts_at', '<=', now()->addMinutes(SessionWindow::JOIN_OPENS_BEFORE_MINUTES))
+            // لا يُطلق رابطُ جلسةٍ فاتت دون أن تبدأ — الحدّ مهلة الفوات من البداية (`SessionWindow`)،
+            // وكان ٦٠ منقوشة تطابق «المدّة» صدفةً.
+            ->where('starts_at', '>=', now()->subMinutes(SessionWindow::missedAfterMinutes()))
             ->get();
 
         foreach ($due as $consult) {

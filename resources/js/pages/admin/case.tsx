@@ -1,6 +1,10 @@
 import { Link, router } from '@inertiajs/react';
 import React, { useEffect, useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import CaseClosureModal from '@/components/babylon/CaseClosureModal';
+import type { ClosureReasonOption } from '@/components/babylon/CaseClosureModal';
+import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
+import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
@@ -28,6 +32,8 @@ interface CaseInfo {
   appeal?: AppealData | null;
   closureReason?: string | null; closureNotes?: string | null;
   canClose: boolean; canArchive: boolean; canExecute: boolean; canReassign: boolean; feePending: boolean;
+  /** حكم انتقال `ReopenCase` (حالته المصدر + صلاحيّة الفاعل) — لا مقارنة بنصّ الحالة هنا. */
+  canReopen: boolean;
 }
 interface CaseDoc {
   id: number; name: string; by: string; status: string; docType: string; summary: string; date: string; downloadUrl?: string | null;
@@ -37,19 +43,13 @@ interface LawyerOpt { id: number; name: string }
 interface Props {
   case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[];
   convertedExec?: boolean; lawyers: LawyerOpt[];
+  /** أسباب الإغلاق من الكتالوج (`ClosureCaseReasonCode::options`) — كانت نسخةً مكتوبةً هنا */
+  closureReasons: ClosureReasonOption[];
+  /** من يتولّى المحادثة ومن تولّاها قبله — `ConversationHandler::history`. */
+  conversation?: ConversationHistory | null;
 }
 
-export const CASE_CLOSURE_REASONS = [
-  { code: 'RULING_FINALIZED', label: 'صدور حكم نهائي مكتسب القطعية واستيفاء الإجراءات' },
-  { code: 'JUDGMENT_ENFORCED', label: 'صدور الحكم وتنفيذه بالكامل واستلام الحقوق' },
-  { code: 'AMICABLE_SETTLEMENT', label: 'انتهاء النزاع بالصلح والتسوية الودية بين الأطراف' },
-  { code: 'CLAIM_RELINQUISHED', label: 'تنازل المدعي عن الدعوى أو التنازل عن الحكم' },
-  { code: 'NO_COMPETENCE', label: 'الحكم بعدم الاختصاص أو صرف النظر لعدم الصحة' },
-  { code: 'CLIENT_REQUEST', label: 'طلب العميل الصريح إغلاق الملف والاكتفاء بما تم' },
-  { code: 'OTHER_WITH_JUSTIFICATION', label: 'سبب نظامي آخر (مع تسبيب مفصل)' },
-];
-
-const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, lawyers }) => {
+const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, lawyers, conversation, closureReasons }) => {
   const toast = useToast();
   const base = `/admin/cases/${encodeURIComponent(c.no)}`;
   const [msgs, setMsgs] = useState<Message[]>(messages);
@@ -57,8 +57,6 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
   const [lawyerId, setLawyerId] = useState<string>(c.lawyerId ? String(c.lawyerId) : '');
   const [busy, setBusy] = useState(false);
   const [closeModalOpen, setCloseModalOpen] = useState(false);
-  const [closureReason, setClosureReason] = useState('RULING_FINALIZED');
-  const [closureNotes, setClosureNotes] = useState('');
   const [reopenModalOpen, setReopenModalOpen] = useState(false);
   const [reopenReason, setReopenReason] = useState('استئناف الحكم');
   const [reopenNotes, setReopenNotes] = useState('');
@@ -66,7 +64,7 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
 
   useEffect(() => {
     const ch = echo.private(channel);
-    ch.listen('.message', (e: { message: Message }) => {
+    const append = (e: { message: Message }) => {
       const m = e.message;
 
       if (m.id && seen.current.has(m.id)) {
@@ -78,11 +76,15 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
       }
 
       setMsgs((prev) => [...prev, m]);
-    });
+    };
+    ch.listen('.message', append);
+    // الملاحظات الداخليّة تُبثّ على قناة الطاقم وحدها — لا على القناة التي يسمعها العميل
+    echo.private(`${channel}.staff`).listen('.message', append);
     ch.listen('.status', (e: { status: string; tone: string }) => setLive({ status: e.status, tone: e.tone }));
 
     return () => {
       echo.leave(channel);
+      echo.leave(`${channel}.staff`);
     };
   }, [channel]);
 
@@ -141,6 +143,8 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
         </div>
 
         <aside className="tf-aside">
+          <ConversationHandlerCard conversation={conversation} />
+
           {/* إجراءات الإدارة — الأزرار تتبع ما يقبله الخادم */}
           <div className="card">
             <div className="card-h"><h3>إجراءات الإدارة</h3></div>
@@ -153,7 +157,7 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
                   <Icon name="check" /> إغلاق القضية (مسبّب)
                 </button>
               )}
-              {live.status === 'مغلقة' && (
+              {c.canReopen && (
                 <button className="btn sm soft" type="button" disabled={busy} onClick={() => setReopenModalOpen(true)}>
                   <Icon name="reply" /> إعادة فتح القضية
                 </button>
@@ -245,31 +249,18 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
         </aside>
       </div>
 
-      {/* مودال إغلاق القضية مع التسبيب */}
-      <Modal open={closeModalOpen} onClose={() => setCloseModalOpen(false)} title="إغلاق القضية بتسبيب نظامي" maxWidth={480}>
-        <form onSubmit={(e) => {
-          e.preventDefault();
-          act('close', { closure_reason: closureReason, closure_notes: closureNotes }, 'أُغلقت القضية بنجاح مع توثيق السبب');
+      {/* مودال إغلاق القضية مع التسبيب — المكوّن نفسه الذي تفتحه قائمة القضايا */}
+      <CaseClosureModal
+        open={closeModalOpen}
+        caseNo={c.no}
+        reasons={closureReasons}
+        busy={busy}
+        onClose={() => setCloseModalOpen(false)}
+        onSubmit={(reason, notes) => {
+          act('close', { closure_reason: reason, closure_notes: notes }, 'أُغلقت القضية بنجاح مع توثيق السبب');
           setCloseModalOpen(false);
-        }}>
-          <div className="field">
-            <label>سبب إغلاق القضية (نظامي)</label>
-            <select className="input" value={closureReason} onChange={(e) => setClosureReason(e.target.value)}>
-              {CASE_CLOSURE_REASONS.map((r) => (
-                <option key={r.code} value={r.code}>{r.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>ملاحظات وقرار الإغلاق (اختياري)</label>
-            <textarea rows={3} value={closureNotes} onChange={(e) => setClosureNotes(e.target.value)} placeholder="اكتب تفاصيل أو حيثيات قرار الإغلاق..." />
-          </div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
-            <button className="btn soft sm" type="button" onClick={() => setCloseModalOpen(false)}>إلغاء</button>
-            <button className="btn sm" type="submit" disabled={busy}><Icon name="check" /> تأكيد الإغلاق</button>
-          </div>
-        </form>
-      </Modal>
+        }}
+      />
 
       {/* مودال إعادة فتح القضية */}
       <Modal open={reopenModalOpen} onClose={() => setReopenModalOpen(false)} title="إعادة فتح القضية المغلقة" maxWidth={480}>

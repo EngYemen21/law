@@ -8,6 +8,7 @@ use App\Models\Concerns\ClipsPreviewText;
 use App\Models\Concerns\PurgesDocumentFiles;
 use App\Support\ConversationFiles;
 use App\Support\ExecFlow;
+use App\Support\ExecService;
 use App\Support\LawyerName;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -76,6 +77,12 @@ class Execution extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** الموظّف المسؤول عن محادثة هذا الملفّ الآن — يتولّاها تلقائيّاً من يردّ (`ConversationHandler`). */
+    public function handler(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'handler_id');
     }
 
     public function legalCase(): BelongsTo
@@ -242,6 +249,12 @@ class Execution extends Model
             ])->values()->all(),
             'najiz' => $this->najizCard(),
             'closed' => $this->isClosed(),
+            // أعلامٌ من الخادم بدل مقارنة «مرفوض» نصّاً في الواجهة (`execflow.tsx`)
+            'isRejected' => $this->isRejectedAfterStudy(),
+            'offerRejected' => $this->isOfferRejected(),
+            'rejectedOpen' => $this->isRejectedOpen(),
+            // حارس التسعير نفسه (`ExecService::canPrice`) — لا شرطٌ ثانٍ في الواجهة يفترق عنه
+            'canReprice' => ExecService::canPrice($this),
         ];
     }
 
@@ -364,17 +377,40 @@ class Execution extends Model
         return $this->effectiveStage() >= 9 || in_array($this->status, self::CLOSED_STATUSES, true);
     }
 
-    /** رسائل المحادثة للبطاقة: المرفقات روابط تنزيل، واسم المحامي للعميل «الاسم. الحرف». */
+    /** رفضه المحامي بعد الدراسة؟ — الموضع الذي يقرأ نصّ `decision` لتسأله الواجهة علَماً. */
+    public function isRejectedAfterStudy(): bool
+    {
+        return $this->decision === 'مرفوض';
+    }
+
+    /** رفض العميل عرض الأتعاب؟ */
+    public function isOfferRejected(): bool
+    {
+        return $this->offer_status === 'مرفوض';
+    }
+
+    /**
+     * **مرفوضٌ مفتوح بلا إجراء** — رفضٌ بعد الدراسة (٢–٣) أو رفضُ العميل للعرض (٥). الرفض لا ينقل
+     * المرحلة، فمخرجه الوحيد إنهاء الإدارة. القاعدة الواحدة لحارس `CloseExecution` ولعلَم البطاقة
+     * `rejectedOpen` — كانت مكتوبةً مرّتين في الانتقال ومرّةً ثالثةً نصّاً عربيّاً في الواجهة.
+     */
+    public function isRejectedOpen(): bool
+    {
+        $stage = $this->effectiveStage();
+
+        return ($this->isRejectedAfterStudy() && in_array($stage, [2, 3], true))
+            || ($stage === 5 && $this->isOfferRejected());
+    }
+
+    /** رسائل المحادثة للبطاقة: المرفقات روابط تنزيل، وأسماء المتحدّثين للعميل بتسميات الإدارة (`ChatSenderLabel`). */
     private function flowMessages(bool $internal): array
     {
-        $messages = ConversationFiles::linkLegacyChips(
+        return ConversationFiles::linkLegacyChips(
             ($internal ? $this->messages : $this->messages->where('who', '!=', 'note'))
                 ->values()->map(fn (ExecutionMessage $m) => $m->toMessage(forClient: ! $internal))->all(),
             'exec',
             $this->relationLoaded('documents') ? $this->documents : []
         );
-
-        return $internal ? $messages : LawyerName::inMessages($messages);
     }
 
     private static function maskName(string $name): string

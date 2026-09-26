@@ -65,7 +65,8 @@ class DashboardFilterScreenGuardsTest extends TestCase
     {
         $code = $this->screen('pages/admin/meetings.tsx');
 
-        $this->assertStringContainsString("m.approve !== 'معتمد' && m.status === 'منتهٍ'", $code);
+        // المفتاح من الخادم (`statusKey`/`approved` — 2026-09-26) لا مقارنة النصّ العربيّ؛ والشرط نفسه: المنتهية غير المعتمدة
+        $this->assertStringContainsString("!m.approved && m.statusKey === 'ended'", $code);
     }
 
     /** (٥) ملخّصٌ رفعه المحامي للإدارة له تسميةٌ وخيار مرشّح عنده. */

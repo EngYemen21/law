@@ -243,6 +243,6 @@ class MoyasarPaymentTest extends TestCase
         $intruder = User::factory()->create(['role' => Role::Client]);
         $consult = $this->pendingConsult($client);
 
-        $this->actingAs($intruder)->get(route('consults.pay.callback', $consult).'?id=pay_1')->assertForbidden();
+        $this->assertPageRefused($this->actingAs($intruder)->get(route('consults.pay.callback', $consult).'?id=pay_1'));
     }
 }

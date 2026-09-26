@@ -106,9 +106,8 @@ class CriticalHardeningTest extends TestCase
         $employee = User::factory()->create(['role' => Role::Employee]);
         $employee->syncPermissions([]); // بلا «إدارة القضايا والأتعاب»
 
-        $this->actingAs($employee)
-            ->get(route('exec-flow.documents.download', [$execution, $document]))
-            ->assertForbidden();
+        $this->assertPageRefused($this->actingAs($employee)
+            ->get(route('exec-flow.documents.download', [$execution, $document])));
     }
 
     public function test_client_still_downloads_own_execution_document(): void

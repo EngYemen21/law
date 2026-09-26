@@ -100,10 +100,12 @@ class ExecutionCreationTest extends TestCase
         $admin = User::factory()->create(['role' => Role::Admin]);
         $case = $this->ruledCase(User::factory()->create(['role' => Role::Client]));
 
-        $this->actingAs($admin)->post(route('admin.cases.execute', $case))->assertRedirect(route('admin.execs'));
+        $res = $this->actingAs($admin)->post(route('admin.cases.execute', $case));
 
         $exec = Execution::where('case_id', $case->id)->first();
         $this->assertNotNull($exec);
+        // الوجهة الملفّ المفتوح نفسه (`?id=`) لا القائمة كلّها
+        $res->assertRedirect(route('admin.execs', ['id' => $exec->number]));
     }
 
     public function test_admin_cannot_open_execution_before_ruling(): void

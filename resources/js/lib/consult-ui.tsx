@@ -1,7 +1,8 @@
 import { Link, router } from '@inertiajs/react';
 import React, { useEffect, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
-import { usePrompt } from '@/components/babylon/ConfirmDialog';
+import { useConfirm, usePrompt } from '@/components/babylon/ConfirmDialog';
+import type { ConfirmRequest } from '@/components/babylon/ConfirmDialog';
 import FlowLine from '@/components/babylon/FlowLine';
 import Modal from '@/components/babylon/Modal';
 import StatRow from '@/components/babylon/StatRow';
@@ -19,12 +20,32 @@ import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
 import { consultMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
 import type { SessionMedia } from '@/lib/recording-ui';
-import ZoomEmbedRoom from '@/lib/zoom-room';
 
 // ============================================================
 // واجهة الاستشارات المشتركة (سجلّ Consult الحقيقي من الخادم)
 // يطابق consultRecvView + videoRoomView + vrEnd في index (82).html
 // ============================================================
+
+/**
+ * **تأكيد ختم جلسة الاستشارة — نصٌّ واحد لكلّ شاشةٍ فيها زرّ «إنهاء الجلسة».** (قرار المالك 2026-09-26)
+ * الختم لا يُتراجع عنه: يُغلق غرفة Zoom ويُبلغ الموكّل ويبدأ الملخّص — فلا يقع بنقرةٍ عابرة.
+ */
+export const CONFIRM_END_CONSULT: ConfirmRequest = {
+  title: 'إنهاء الجلسة للجميع؟',
+  message: 'تُختم الجلسة وتُغلق غرفتها في Zoom ويُبلَّغ العميل بانتهائها، ثمّ يُعدّ ملخّصها. لا يمكن استئنافها بعد الإنهاء.',
+  confirmLabel: 'إنهاء الجلسة',
+  cancelLabel: 'تراجع',
+  tone: 'danger',
+};
+
+/** تأكيد إلغاء طلب الاستشارة قبل الجلسة — لكلّ شاشةٍ فيها الزرّ (الإدارة · طابور ما قبل الجلسة). */
+export const CONFIRM_CANCEL_CONSULT_REQUEST: ConfirmRequest = {
+  title: 'إلغاء طلب الاستشارة؟',
+  message: 'يُلغى الطلب وفواتيره غير المدفوعة ويُبلَّغ العميل بالسبب. لا يمكن التراجع.',
+  confirmLabel: 'إلغاء الطلب',
+  cancelLabel: 'تراجع',
+  tone: 'danger',
+};
 
 // نصّ قرار آمن للعرض — القرارات نصوص عادةً، لكن بيانات قديمة قد تحمل كائن مهمّة {title,...}
 // (نظير الحارس نفسه في DecisionTasks::create على الخادم) فلا يُكسَر React عند عنصر غير نصّي.
@@ -131,6 +152,12 @@ export interface ConsultCard {
   audit: AuditEntry[];
   decisions: string[];
   tasksCreated: boolean;
+  /** أعلام الإجراءات من الخادم (`Consult::toCard`) — بدل مقارنة نصّ الحالة في الواجهة */
+  needsPricing?: boolean;
+  canRemindSchedule?: boolean;
+  canApproveAnalysis?: boolean;
+  /** مرحلة دورة الحجز من الخادم — `null` لما تجاوزها */
+  bookingStage?: 'pricing' | 'payment' | 'scheduling' | 'approval' | null;
 }
 
 /**
@@ -594,6 +621,7 @@ export const SummaryModal: React.FC<{
 export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }> = ({ consults, base }) => {
   const rescheduleFlow = useConsultReschedule(base);
   const toast = useToast();
+  const ask = useConfirm();
   const [filter, setFilter] = useState('all');
   const [summaryOf, setSummaryOf] = useState<ConsultCard | null>(null);
   const [items, setItems] = useState<ConsultCard[]>(consults);
@@ -679,8 +707,13 @@ counts[c.channel]++;
   const [endingOf, setEndingOf] = useState<ConsultCard | null>(null);
   const [endNotes, setEndNotes] = useState('');
 
-  const end = () => {
+  const end = async () => {
     if (endingOf === null) {
+      return;
+    }
+
+    // تأكيدٌ يقول الأثر قبل الإرسال (قرار المالك 2026-09-26) — الختم لا يُتراجع عنه
+    if (!(await ask(CONFIRM_END_CONSULT))) {
       return;
     }
 
@@ -919,122 +952,8 @@ void navigator.clipboard.writeText(c.slink);
   );
 };
 
-// ============================================================
-// غرفة الجلسة للمكتب (موظف/محامٍ/إدارة) — استشارة مرئية مضمّنة (Zoom Web SDK)
-// ============================================================
-
-export interface StaffRoomProps {
-  consult?: ConsultCard | null;
-  selfName?: string;
-  selfAv?: string;
-  base: string; // '/employee' | '/lawyer' | '/admin'
-}
-
-// غرفة الجلسة المضمّنة لدور المكتب — فيديو Zoom + بطاقة الملاحظات/الملخص (يطابق vrEnd)
-const StaffZoomRoom: React.FC<{ consult: ConsultCard; base: string }> = ({ consult, base }) => {
-  const toast = useToast();
-  const [notes, setNotes] = useState('');
-  /*
-   * **ولا عدّادَ بلا قارئ.** بقي `seconds` ومؤقّتُه بعد حذف المدّة المختلَقة: مؤقّتٌ
-   * يعيد تصيير الغرفة **كلّ ثانية** طوال انعقاد الجلسة لقيمةٍ لا يقرؤها أحد. حُذف
-   * الاثنان — والمدّة تأتي من ويبهوك Zoom كما هو مشروح أدناه.
-   */
-  const running = consult.session === 'جلسة جارية';
-
-  const end = () => {
-    /*
-     * **المدّة لا تُختلق.** كان `seconds` عدّاداً يبدأ عند **فتح الصفحة** لا عند
-     * الانضمام، ويُكتب في `duration_label` مدّةً رسميّة للجلسة — ففتحُ الغرفة عشر
-     * ثوانٍ يُثبت «00:10» في السجلّ. والخادم يشتقّ المدّة من ويبهوك Zoom
-     * (`join_time`/`leave_time`)، وهو المصدر الذي رآها فعلاً.
-     */
-    router.post(`${base}/consults/${consult.id}/end`, { notes: notes.trim() }, {
-      onSuccess: () => {
-        // كان يقول «ولّد الفريق القانوني ملخص الاستشارة» — و`FinalizeConsultJob`
-        // **لا ينادي النموذج بلا مادّة**، بل يُنبّه المحامي ليدوّن. وهي عين الكذبة
-        // التي أُصلحت في نافذة الاستقبال وتُركت هنا.
-        toast(notes.trim() === ''
-          ? 'خُتمت الجلسة بلا تدوين — لا ملخّص حتّى تُدوّن'
-          : 'خُتمت الجلسة وحُفظ التدوين — يُعدّ الملخّص الآن');
-        router.visit(`${base}/consultrecv`);
-      },
-      onError: (errors) => toast(Object.values(errors)[0] || 'تعذّر إنهاء الجلسة'),
-    });
-  };
-
-  return (
-    <>
-      {/*
-        * **الغرفة نفسها التي يراها الاجتماع.** `ZoomEmbedRoom` فيه مساران:
-        * بلا `details` يُصيَّر عمودٌ بسيط، ومعها تُصيَّر الغرفة الكاملة (مسرحُ فيديو
-        * + جانبيّة + مؤقّت + شارة تسجيل + مغادرة + علامة مائيّة). وكانت الاستشارة
-        * لا تمرّرها فتحرم نفسها من التصميم بلا سبب — والأنماط `mroom-*` مشتركةٌ أصلاً.
-        *
-        * وكلُّ صفٍّ مشروطٌ بقيمته: حقلٌ فارغٌ لا يُعرض بدل أن يظهر بشرطةٍ أبداً.
-        */}
-      <ZoomEmbedRoom
-        cref={consult.ref}
-        kind="consult"
-        label={`${consult.ref} · ${consult.subject || 'استشارة مرئية'}`}
-        back={`${base}/consultrecv`}
-        fallbackUrl={consult.hostLink || consult.slink}
-        viewer="staff"
-        details={{
-          title: consult.subject || `استشارة ${consult.ref}`,
-          // حالةُ **الجلسة** لا حالةُ الملفّ — نظيرُ ما يعرضه الاجتماع، وما يعني
-          // من هو داخل الغرفة الآن (قرار المالك).
-          status: consult.session,
-          rows: [
-            ...(consult.client ? [{ k: 'العميل', v: consult.client }] : []),
-            ...(consult.lawyer ? [{ k: 'المستشار', v: consult.lawyer }] : []),
-            ...(consult.when ? [{ k: 'الموعد', v: consult.when }] : []),
-            ...(consult.duration ? [{ k: 'المدة', v: consult.duration }] : []),
-            ...(consult.channel ? [{ k: 'القناة', v: consult.channel }] : []),
-            ...(consult.channel === 'حضورية' && consult.place ? [{ k: 'المكان', v: consult.place }] : []),
-            ...(consult.specialty ? [{ k: 'التخصّص', v: consult.specialty }] : []),
-            ...(consult.caseNo || consult.ticketNo
-              ? [{ k: 'المرجع', v: (consult.caseNo || consult.ticketNo) as string }]
-              : []),
-          ],
-          // شاشةُ النهاية تقود إلى صفحة الاستشارة — مسجَّلةٌ للأدوار الثلاثة
-          summaryHref: `${base}/consult?ref=${encodeURIComponent(consult.ref)}`,
-        }}
-      />
-      <div className="card" style={{ marginTop: 16, maxWidth: 900, marginInline: 'auto' }}>
-        <div className="card-h">
-          <h3>ملاحظات الجلسة</h3>
-          {/* الزرّ كان بلا شرطٍ ولا تعطيل، فيُختَم به ما لم ينعقد. والخادم يمنعه
-              الآن — وإظهارُه مفعّلاً وعداً بما يُرفض. */}
-          <button className="btn sm" onClick={end} type="button" disabled={!running}>
-            <Icon name="doc" /> إنهاء وكتابة الملخص
-          </button>
-        </div>
-        <div className="card-b" style={{ padding: '14px 16px' }}>
-          <textarea
-            className="input"
-            rows={3}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="دوّن أبرز نقاط الجلسة المرئية (تُحفظ وتُنقل لصفحة الملخص)…"
-          />
-        </div>
-      </div>
-    </>
-  );
-};
-
-export const StaffVideoRoomPage: React.FC<StaffRoomProps> = ({ consult, base }) => {
-  if (!consult) {
-    return (
-      <div className="card"><div className="card-b">
-        <div className="empty"><Icon name="video" /><b>لا توجد جلسة محددة</b></div>
-      </div></div>
-    );
-  }
-
-  // الاستشارة الحقيقية — فيديو Zoom مضمّن + بطاقة الملاحظات/الملخص
-  return <StaffZoomRoom consult={consult} base={base} />;
-};
+// غرفة الجلسة للمكتب: انتقلت إلى الغرفة الواحدة `RoomPage` (`lib/zoom-room.tsx`) — لكلّ الأدوار
+// والنوعين، تفاصيلها وشرطُ إنهائها من عقد الخادم `room` (قرار المالك 2026-09-26).
 
 // ============================================================
 // إدارة الاستشارات — قائمة الرحلة (يطابق emConsultsView + cKPIs)

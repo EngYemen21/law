@@ -44,6 +44,8 @@ interface TicketCard {
 interface ConsultLink {
   id: number; ref: string; status: string; channel: string; statusCode?: string;
   price?: number; vat?: number; total?: number; priced?: boolean; paid?: boolean; invoiceNo?: string | null;
+  /** النسبة المطبَّقة على هذه الاستشارة (`Consult::vatRate`) — لا «15%» منقوشة تخالف مبلغ الضريبة. */
+  vatRate?: number | null;
 }
 
 const TYPES: { key: string; label: string; ico: string; sub: string }[] = [
@@ -141,7 +143,7 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
               <div className="inv-head"><b>فاتورة استشارة قانونية</b><span>{consult?.invoiceNo ?? consult?.ref}</span></div>
               <div className="inv-body">
                 <div className="inv-row"><span className="lbl">استشارة {consult?.channel}</span><span>{consult?.price} ر.س</span></div>
-                <div className="inv-row"><span className="lbl">ضريبة القيمة المضافة (15%)</span><span>{consult?.vat} ر.س</span></div>
+                <div className="inv-row"><span className="lbl">ضريبة القيمة المضافة ({consult?.vatRate}%)</span><span>{consult?.vat} ر.س</span></div>
                 <div className="inv-row total"><span>الإجمالي</span><span>{consult?.total} ر.س</span></div>
               </div>
             </div>

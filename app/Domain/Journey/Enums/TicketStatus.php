@@ -44,6 +44,12 @@ enum TicketStatus: string
         return in_array($this, [self::ConvertedToCase, self::ConvertedToExecution, self::Closed], true);
     }
 
+    /** حالةٌ تشهد أنّ التذكرة صارت ملفّاً (قضيّة أو تنفيذ) — فلا تصدق بلا ذلك الملفّ. */
+    public function isConversion(): bool
+    {
+        return $this === self::ConvertedToCase || $this === self::ConvertedToExecution;
+    }
+
     public function isFinal(): bool
     {
         return $this->isTerminal() || $this === self::Completed;

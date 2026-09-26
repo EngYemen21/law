@@ -8,6 +8,7 @@ use App\Support\Audit;
 use App\Support\SettingsRegistry;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -34,6 +35,12 @@ class SettingsController extends Controller
     public function update(Request $request): RedirectResponse
     {
         $data = $request->validate(SettingsRegistry::rulesFor());
+
+        // العلاقات بين الحقول (نهاية الساعات بعد بدايتها) معلنةٌ في السجلّ أيضاً — ولا كتابةَ
+        // لأيّ حقلٍ إن فشلت، فلا يُحفظ نصف بطاقة.
+        if (($relation = SettingsRegistry::relationErrors($data)) !== []) {
+            throw ValidationException::withMessages($relation);
+        }
 
         $before = SettingsRegistry::values();
         $changed = [];

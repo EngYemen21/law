@@ -80,8 +80,12 @@ class CalendarController extends Controller
 
     public function feed(User $user, string $token): HttpResponse
     {
-        // التحقق من صحة رمز الأمان الثابت للمستخدم
-        abort_unless(hash_equals($user->calendarToken(), $token), 403, 'رمز التغذية غير صالح.');
+        // التحقق من صحة رمز الأمان الثابت للمستخدم.
+        // الرفض ردٌّ نصّيّ بالرمز لا `abort`: قارئ الرابط تطبيقُ تقويم لا متصفّح، فلا يُحوَّل إلى
+        // صفحةٍ بإشعار كما تُحوَّل الصفحات المرفوضة (`ErrorResponse`) — يحتاج ٤٠٣ ليعرف أنّ الرابط أُبطل.
+        if (! hash_equals($user->calendarToken(), $token)) {
+            return response('رمز التغذية غير صالح.', 403, ['Content-Type' => 'text/plain; charset=UTF-8']);
+        }
 
         $ics = IcalendarService::feedForUser($user);
 

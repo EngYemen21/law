@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Support\MeetingTime;
+use App\Support\SessionWindow;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -67,13 +68,11 @@ class MeetRequest extends Model
             // نافذة مغلقة الطرفين — كان الشرط مفتوحاً بعد الموعد فيبقى الزر فعّالاً للأبد.
             // تعذُّر تحليل التاريخ العربي الحرّ يُبقي السلوك السابق (متاح) — نفس فلسفة
             // «غير القابل للتحليل ليس ماضياً»، ويحسمه ربط الاجتماع أو المجدول لاحقاً.
+            // والطرف الأعلى مهلةُ الفوات من البداية (`SessionWindow`) — لا «+90» التي كانت
+            // «المدّة + 30د»: الاجتماع لا مدّة له تنتهي بها (قرار المالك 2026-09-26).
             $startsAt = MeetingTime::parse($this->day, $this->time);
-            if ($startsAt) {
-                return now()->greaterThanOrEqualTo($startsAt->copy()->subMinutes(5))
-                    && now()->lessThanOrEqualTo($startsAt->copy()->addMinutes(90));
-            }
 
-            return true;
+            return SessionWindow::joinOpened($startsAt) && ! SessionWindow::isMissed($startsAt);
         }
 
         return false;
@@ -84,30 +83,12 @@ class MeetRequest extends Model
         return url('/meetingroom?ref='.($this->meeting?->ref ?: $this->ref));
     }
 
-    /**
-     * بطاقة العميل لصفحة «دعوات الاجتماعات» — حقول العرض الآمنة فقط.
-     * تستثني عمداً host_link (رابط المضيف/ZAK) واسم العميل والمرجع الداخلي.
+    /*
+     * `toClientCard` أُزيلت (2026-09-26): صفحة «دعوات الاجتماعات» للعميل طُويت في /meetings
+     * (بطاقة `Meeting::toCard`)، فلم يبقَ لها مُنادٍ — وكانت تحمل `'by' => sent_by`، أي
+     * «الاسم الكامل (الدور)» لمن أرسل الدعوة. نسخةٌ ميّتة من بطاقة عميلٍ أوّلُ ما يُحيا منها التسريب.
+     * والدعوة للعميل تُعرض عبر اجتماعها المعتمد وحده.
      */
-    public function toClientCard(): array
-    {
-        $confirmed = $this->stage >= self::STAGE_CONFIRMED;
-        $canJoin = $this->canJoin();
-
-        return [
-            'id' => $this->ref,
-            'dbId' => $this->id,
-            'service' => $this->service,
-            'type' => $this->type,
-            'day' => $this->day,
-            'time' => $this->time,
-            'by' => $this->sent_by,
-            'stage' => $this->stage,
-            'canJoin' => $canJoin,
-            'meetLink' => $canJoin ? $this->joinLink() : null,
-            // مرجع الاجتماع المرتبط — للدخول للغرفة المضمّنة (kind=meeting)
-            'meetingRef' => $confirmed ? $this->meeting?->ref : null,
-        ];
-    }
 
     // يطابق واجهة MeetRequest في employee-data (id = المرجع النصّي)
     public function toCard(): array
@@ -129,7 +110,6 @@ class MeetRequest extends Model
             'stage' => $this->stage,
             // لفحص إتاحة المحامي في مودال إعادة الإرسال (كان بلا فحص فيصطدم برفض الخادم)
             'lawyerId' => $this->assigned_lawyer_id,
-            'durationMin' => $this->duration_min ?: 60,
             'meetId' => $confirmed ? ($this->meet_id ?: $this->ref) : null,
             'meetLink' => $confirmed ? $this->joinLink() : null,
             'hostLink' => $confirmed ? $this->host_link : null,

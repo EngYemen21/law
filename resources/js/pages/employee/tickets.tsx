@@ -23,6 +23,8 @@ export interface EmpTicket {
   priority?: string;
   dept: string;
   lawyer: string;
+  /** الموظّف المسؤول عن المحادثة الآن — يتولّاها تلقائيّاً من يردّ (`ConversationHandler`). */
+  handler?: string | null;
   lawyerId?: number | null;
   status: string;
   statusCode?: string;
@@ -352,6 +354,11 @@ const EmployeeTickets: React.FC<Props> = ({
                       </td>
                       <td className="nowrap">
                         <b title={t.lawyer}>{truncateWords(t.lawyer, 4)}</b>
+                        {t.handler && (
+                          <div className="muted" style={{ fontSize: 11 }} title="الموظّف المسؤول عن المحادثة الآن">
+                            المحادثة: {truncateWords(t.handler, 3)}
+                          </div>
+                        )}
                       </td>
                       <td className="nowrap">
                         <Badge text={t.status} tone={t.tone} />

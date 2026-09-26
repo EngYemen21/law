@@ -3,7 +3,7 @@
 namespace App\Models;
 
 use App\Events\CaseMessageBroadcast;
-use App\Models\Concerns\RecordsSenderIp;
+use App\Models\Concerns\RecordsSender;
 use App\Support\Live;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class CaseMessage extends Model
 {
-    use RecordsSenderIp;
+    use RecordsSender;
 
     protected $fillable = ['case_id', 'who', 'name', 'role', 'body', 'time_label', 'withheld_at'];
 
@@ -53,6 +53,12 @@ class CaseMessage extends Model
         return $this->belongsTo(LegalCase::class, 'case_id');
     }
 
+    /** الملفّ الذي تنتمي إليه الرسالة — يقرؤه `RecordsSender` لنقل مسؤوليّة المحادثة. */
+    public function conversation(): ?Model
+    {
+        return $this->legalCase;
+    }
+
     // الشكل الذي تتوقعه الواجهة (يطابق Message في chat.ts)
     // `forClient`: حمولةٌ تصل العميل (صفحته أو بثٌّ على قناته) — لا عنوان IP فيها أيّاً كان الباني
     public function toMessage(bool $forClient = false): array
@@ -60,7 +66,7 @@ class CaseMessage extends Model
         return [
             'id' => $this->id,
             'who' => $this->who,
-            'name' => $this->name,
+            'name' => $this->senderName($forClient),
             'role' => $this->role,
             'text' => $this->body,
             'time' => $this->time_label,

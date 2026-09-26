@@ -6,7 +6,7 @@ import { useToast } from '@/components/babylon/Toast';
 // يطابق adLawyers — المحامون من جدول users بدور lawyer + عدد التذاكر المحالة
 // + وضع التوزيع لكل محامٍ (تلقائي/يدوي) قابل للتبديل عبر /admin/lawyers/{id}/mode
 
-interface LawyerRow { id: number; name: string; depts: string[]; active: number; mode: string }
+interface LawyerRow { id: number; name: string; depts: string[]; active: number; mode: string; suspended?: boolean }
 
 const AdminLawyers: React.FC<{ lawyers: LawyerRow[] }> = ({ lawyers }) => {
   const toast = useToast();
@@ -18,8 +18,8 @@ const AdminLawyers: React.FC<{ lawyers: LawyerRow[] }> = ({ lawyers }) => {
     setBusyId(l.id);
     router.post(`/admin/lawyers/${l.id}/mode`, {}, {
       preserveScroll: true,
-      onSuccess: () => toast(`تم تبديل وضع التوزيع إلى: ${l.mode === 'تلقائي' ? 'يدوي' : 'تلقائي'}`),
-      onError: () => toast('تعذّر تبديل الوضع، حاول مجدداً'),
+      // نصّ النجاح من الخادم (flash) — ورسالة الرفض منه كذلك
+      onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تبديل الوضع، حاول مجدداً'}`, 'error'),
       onFinish: () => setBusyId(undefined), // ضمان تحرير الزر حتى عند الخطأ
     });
   };
@@ -44,7 +44,7 @@ const AdminLawyers: React.FC<{ lawyers: LawyerRow[] }> = ({ lawyers }) => {
           <tbody>
             {lawyers.length ? lawyers.map((l) => (
               <tr key={l.id}>
-                <td><b>{l.name}</b></td>
+                <td><b>{l.name}</b>{l.suspended && <> <Badge text="موقوف" tone="b-red" /></>}</td>
                 <td>
                   <div className="chips">
                     {l.depts.length ? l.depts.map((d) => <span key={d} className="chip muted">{d}</span>) : <span className="chip muted">—</span>}

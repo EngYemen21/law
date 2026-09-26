@@ -41,8 +41,9 @@ class AdminOverrideTest extends TestCase
         $ticket = $this->referredTicket($lawyer);
 
         // لا 403 رغم أن الملخص مسند لمحامٍ آخر
-        $this->actingAs($admin)->post(route('admin.summary.approve', $ticket), ['key_points' => 'الرأي المعتمد'])
-            ->assertRedirect(route('admin.summaries'));
+        // يبقى المدير في الشاشة التي اعتمد منها (مركز الاعتمادات أو المحادثة) — لا قذفَ إلى قائمة الملخّصات
+        $this->actingAs($admin)->from(route('admin.approvals'))->post(route('admin.summary.approve', $ticket), ['key_points' => 'الرأي المعتمد'])
+            ->assertRedirect(route('admin.approvals'));
 
         $this->assertSame('approved', $ticket->summary->fresh()->status);
         $this->assertSame('الرأي القانوني', $ticket->fresh()->status);

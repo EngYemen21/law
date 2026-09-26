@@ -29,7 +29,6 @@ interface DocCard {
 interface Props {
   documents: DocCard[];
   types: Record<string, string>;
-  statuses: Record<string, string>;
 }
 
 const statusTone = (s: string) => {

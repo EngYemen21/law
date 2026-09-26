@@ -5,6 +5,7 @@ import Modal from '@/components/babylon/Modal';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
+import { dateISOAfter } from '@/lib/local-date';
 import { truncateWords } from '@/lib/utils';
 
 // مهام الإدارة — إسناد مهام حقيقية للمحامين ومتابعة مؤشرات الإنجاز
@@ -15,6 +16,8 @@ interface Task {
   owner: string;
   due: string;
   overdue?: boolean;
+  /** منجزة؟ من الخادم (`Task::toData`) — لا مقارنة بنصّ الحالة هنا */
+  done: boolean;
   status: string;
   tone: string;
 }
@@ -29,13 +32,6 @@ const getInitials = (name: string): string => {
   const parts = name.trim().split(/\s+/);
   if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`;
   return name.slice(0, 2);
-};
-
-/** حساب تاريخ بالمستقبل بصيغة YYYY-MM-DD */
-const getFutureISO = (daysAhead: number): string => {
-  const d = new Date();
-  d.setDate(d.getDate() + daysAhead);
-  return d.toISOString().split('T')[0];
 };
 
 const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
@@ -60,9 +56,9 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
   const [filterStatus, setFilterStatus] = useState('all');
 
   // إحصائيات المهام
-  const completedTasks = tasks.filter((t) => t.status === 'منجزة');
+  const completedTasks = tasks.filter((t) => t.done);
   const overdueTasks = tasks.filter((t) => Boolean(t.overdue));
-  const activeOpenTasks = tasks.filter((t) => t.status !== 'منجزة' && !t.overdue);
+  const activeOpenTasks = tasks.filter((t) => !t.done && !t.overdue);
   const completionRate = tasks.length ? Math.round((completedTasks.length / tasks.length) * 100) : 0;
 
   const stats: StatItem[] = [
@@ -76,10 +72,21 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
   // فلترة المهام للعرض
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
-      if (filterLawyer !== 'all' && t.owner !== filterLawyer) return false;
-      if (filterStatus === 'open' && (t.status === 'منجزة' || t.overdue)) return false;
-      if (filterStatus === 'overdue' && !t.overdue) return false;
-      if (filterStatus === 'done' && t.status !== 'منجزة') return false;
+      if (filterLawyer !== 'all' && t.owner !== filterLawyer) {
+        return false;
+      }
+
+      if (filterStatus === 'open' && (t.done || t.overdue)) {
+        return false;
+      }
+
+      if (filterStatus === 'overdue' && !t.overdue) {
+        return false;
+      }
+
+      if (filterStatus === 'done' && !t.done) {
+        return false;
+      }
 
       if (searchQ.trim()) {
         const q = searchQ.trim().toLowerCase();
@@ -90,6 +97,16 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
       return true;
     });
   }, [tasks, filterLawyer, filterStatus, searchQ]);
+
+  /*
+   * **أعمدة كانبان من القائمة المصفّاة** — كانت تُبنى من كلّ المهام فيتجاهل منظرُ البطاقات البحثَ
+   * والمرشّحات التي يطبّقها الجدول. والعمود المنجز مقصوص (أقدم المنجزات أرشيف)، فعدّاده يقول
+   * «المعروض من المجموع» لا المجموع وحده فوق شريحة.
+   */
+  const KANBAN_DONE_CAP = 15;
+  const kanbanOpen = filteredTasks.filter((t) => !t.done && !t.overdue);
+  const kanbanOverdue = filteredTasks.filter((t) => Boolean(t.overdue));
+  const kanbanDone = filteredTasks.filter((t) => t.done);
 
   // إرسال مهمة جديدة
   const submitNewTask = () => {
@@ -112,8 +129,8 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
           setRef('');
           setDue('');
           setModalOpen(false);
-          toast('تم إسناد المهمة بنجاح للمحامي');
         },
+        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر إسناد المهمة'}`, 'error'),
       }
     );
   };
@@ -125,7 +142,8 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
       {},
       {
         preserveScroll: true,
-        onSuccess: () => toast('تم إنجاز المهمة بنجاح'),
+        // نصّ النجاح من الخادم (flash) — لا إشعار ثانٍ هنا
+        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر إنجاز المهمة'}`, 'error'),
       }
     );
   };
@@ -138,7 +156,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
       { assigned_to: newLawyerId },
       {
         preserveScroll: true,
-        onSuccess: () => toast('تمت إعادة إسناد المهمة للمحامي المختار'),
+        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّرت إعادة الإسناد'}`, 'error'),
       }
     );
   };
@@ -414,7 +432,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
                 </thead>
                 <tbody>
                   {filteredTasks.map((t) => {
-                    const isDone = t.status === 'منجزة';
+                    const isDone = t.done;
                     const isLate = Boolean(t.overdue);
 
                     return (
@@ -609,17 +627,17 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
                 <span>مهام جارية</span>
               </div>
               <span style={{ fontSize: 12, background: 'rgba(59, 130, 246, 0.1)', color: '#1d4ed8', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
-                {activeOpenTasks.length}
+                {kanbanOpen.length}
               </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {activeOpenTasks.length === 0 ? (
+              {kanbanOpen.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--muted)', fontSize: 12 }}>
                   لا توجد مهام جارية حالياً
                 </div>
               ) : (
-                activeOpenTasks.map((t) => (
+                kanbanOpen.map((t) => (
                   <div key={t.id} className="kanban-card">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       {t.ref && t.ref !== '—' ? (
@@ -665,17 +683,17 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
                 <span>متأخرة الاستحقاق</span>
               </div>
               <span style={{ fontSize: 12, background: 'rgba(239, 68, 68, 0.1)', color: '#b91c1c', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
-                {overdueTasks.length}
+                {kanbanOverdue.length}
               </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {overdueTasks.length === 0 ? (
+              {kanbanOverdue.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '30px 10px', color: '#047857', fontSize: 12 }}>
                   ✨ ممتاز! لا توجد أي مهام متأخرة
                 </div>
               ) : (
-                overdueTasks.map((t) => (
+                kanbanOverdue.map((t) => (
                   <div key={t.id} className="kanban-card" style={{ borderRight: '3px solid #ef4444' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       {t.ref && t.ref !== '—' ? (
@@ -721,17 +739,17 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
                 <span>مهام منجزة</span>
               </div>
               <span style={{ fontSize: 12, background: 'rgba(16, 185, 129, 0.1)', color: '#047857', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
-                {completedTasks.length}
+                {kanbanDone.length > KANBAN_DONE_CAP ? `${KANBAN_DONE_CAP} من ${kanbanDone.length}` : kanbanDone.length}
               </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {completedTasks.length === 0 ? (
+              {kanbanDone.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--muted)', fontSize: 12 }}>
                   لا توجد مهام منجزة بعد
                 </div>
               ) : (
-                completedTasks.slice(0, 15).map((t) => (
+                kanbanDone.slice(0, KANBAN_DONE_CAP).map((t) => (
                   <div key={t.id} className="kanban-card" style={{ opacity: 0.85 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       {t.ref && t.ref !== '—' ? (
@@ -827,7 +845,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
                   type="button"
                   className="btn soft sm"
                   style={{ padding: '2px 8px', fontSize: 11 }}
-                  onClick={() => setDue(getFutureISO(0))}
+                  onClick={() => setDue(dateISOAfter(0))}
                 >
                   اليوم
                 </button>
@@ -835,7 +853,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
                   type="button"
                   className="btn soft sm"
                   style={{ padding: '2px 8px', fontSize: 11 }}
-                  onClick={() => setDue(getFutureISO(1))}
+                  onClick={() => setDue(dateISOAfter(1))}
                 >
                   غداً
                 </button>
@@ -843,7 +861,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
                   type="button"
                   className="btn soft sm"
                   style={{ padding: '2px 8px', fontSize: 11 }}
-                  onClick={() => setDue(getFutureISO(3))}
+                  onClick={() => setDue(dateISOAfter(3))}
                 >
                   3 أيام
                 </button>
@@ -851,7 +869,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
                   type="button"
                   className="btn soft sm"
                   style={{ padding: '2px 8px', fontSize: 11 }}
-                  onClick={() => setDue(getFutureISO(7))}
+                  onClick={() => setDue(dateISOAfter(7))}
                 >
                   أسبوع
                 </button>
@@ -937,7 +955,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
                 إغلاق
               </button>
 
-              {selectedTask.status !== 'منجزة' && (
+              {!selectedTask.done && (
                 <button
                   type="button"
                   className="btn"

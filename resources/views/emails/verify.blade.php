@@ -9,7 +9,7 @@
     </div>
 
     <p style="margin:0 0 16px;color:#33415C;font-size:14.5px;line-height:1.75;">
-        استخدم رمز التحقق الآمن التالي لإتمام عملية <b>{{ $purpose }}</b> في {{ config('app.name', 'النظام القانوني للشركات ومكاتب المحاماة') }}:
+        استخدم رمز التحقق الآمن التالي لإتمام عملية <b>{{ $purpose }}</b> في {{ \App\Support\SettingsRegistry::str('office_name') }}:
     </p>
 
     {{-- بطاقة الرمز الرقمي --}}

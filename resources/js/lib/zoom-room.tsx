@@ -1,402 +1,229 @@
-import { router } from '@inertiajs/react';
-import axios from 'axios';
-import React, { useEffect, useRef, useState } from 'react';
+import { Link, router, usePage } from '@inertiajs/react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { usePrompt } from '@/components/babylon/ConfirmDialog';
+import { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
+import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
+import { isStaffRoom, ROOM_TEXT, roomKey, roomNoun } from '@/lib/room';
+import type { Room } from '@/lib/room';
+import {
+  closeView,
+  dismissResume,
+  isActivePhase,
+  leaveRoom,
+  markRoomEnded,
+  openRoom,
+  rejoinRoom,
+  resetRoom,
+  syncRoom,
+  useRoomSession,
+} from '@/lib/room-session';
+import { useSettings } from '@/lib/settings';
 
 // ============================================================
-// غرفة الجلسة المرئية — تضمين Zoom (Meeting SDK / Component View) داخل المنصّة
-// يستبدل الفتح الخارجي (window.open) بمكالمة مضمّنة؛ ويتدرّج للفتح الخارجي عند
-// غياب المفاتيح أو الاجتماع الحقيقي (لا يكسر بيئات الاختبار/التطوير).
+// غرفة الجلسة المرئيّة — تصميمٌ واحد للجميع (قرار المالك ٢٠٢٦-٠٩-٢٦)
+//
+// كانت للغرفة صورتان: عمودٌ بسيط للعميل في الاستشارة، وغرفةٌ كاملة للباقين — ولكلّ دورٍ بطاقةُ
+// إنهاءٍ تحت الغرفة بشرطٍ مختلف. فصارت:
+//   • `RoomPage`: الغرفة ملءَ التبويب لكلّ الأدوار والنوعين، تقرأ عقد الخادم `room` وحده.
+//   • `RoomDock`: شريطٌ عائم في كلّ صفحةٍ أخرى — التنقّل لا يُسقط المكالمة (انظر `room-session.ts`).
+// و«تسجيل» للطاقم وحده، والإنهاء داخل الغرفة بشرطٍ واحد `endAction.enabled`، والمدّة من Zoom بعد
+// الانتهاء لا صفَّ «مدّة» مُعلَنة سلفاً.
 // ============================================================
 
-interface SignaturePayload {
-  sdkKey: string;
-  signature: string;
-  meetingNumber: string;
-  password: string;
-  userName: string;
-  userEmail: string;
-  role: number;
-  zak: string | null;
-}
-
-// تفاصيل الغرفة المخصّصة (اختيارية): تُفعّل إطار الهوية واللوحة الجانبية وشاشات ما قبل/بعد.
-// عند غيابها تبقى الغرفة بسيطة (توافق رجعي مع غرف الاستشارات).
-export interface RoomDetails {
-  title: string; // عنوان الجلسة (شريط الهوية + لوحة التفاصيل)
-  status?: string; // حالة الاجتماع (قادم/جارٍ/منتهٍ…)
-  rows?: { k: string; v: string }[]; // العميل/المحامي/الموعد/المرجع…
-  agenda?: { before?: string[]; during?: string[]; after?: string[] };
-  summaryHref?: string; // رابط صفحة الاجتماع/الملخّص (شاشة ما بعد الجلسة)
-}
-
-interface Props {
-  cref: string; // مرجع الكيان (CN-… للاستشارة، M-… للاجتماع) لطلب التوقيع
-  kind?: 'consult' | 'meeting'; // نوع الكيان (افتراضي: استشارة)
-  label: string; // «CN-2026-1042 · استشارة مرئية»
-  back: string; // مسار الرجوع
-  fallbackUrl?: string; // رابط Zoom الخارجي للتدرّج الآمن
-  viewer: 'client' | 'staff';
-  details?: RoomDetails; // تفاصيل الغرفة المخصّصة (اجتماعات المكتب)
-}
-
-// الحد الأدنى من واجهة Zoom Component View المستخدمة هنا (الحزمة تُحمّل كسولاً وقت التشغيل)
-interface ZoomClient {
-  init(opts: {
-    zoomAppRoot: HTMLElement;
-    language?: string;
-    patchJsMedia?: boolean;
-    customize?: { video?: { isResizable?: boolean } };
-  }): Promise<unknown>;
-  join(opts: {
-    signature: string;
-    meetingNumber: string;
-    password?: string;
-    userName: string;
-    userEmail?: string;
-    zak?: string;
-  }): Promise<unknown>;
-  leaveMeeting(): Promise<unknown>;
-  on?(event: string, callback: (payload: { state?: string }) => void): void;
-}
-interface ZoomEmbedded {
-  createClient(): ZoomClient;
-  destroyClient(): void;
-}
-
-// يُحمّل Component View من CDN عمداً: يتطلّب Component View وجود React/ReactDOM كمتغيّرات عامّة
-// (window.React). نحمّل نسخة Zoom المرفقة (React 18) كـglobals — معزولة تماماً عن React 19 المضيف
-// (المضيف يستورد React من الحزمة لا من window)، ويتفادى تعارض الحزمة عبر npm مع React 19.
-const ZOOM_SDK_VERSION = '6.2.0';
-const ZOOM_BASE = `https://source.zoom.us/${ZOOM_SDK_VERSION}`;
-const ZOOM_SCRIPTS = [
-  `${ZOOM_BASE}/lib/vendor/react.min.js`,
-  `${ZOOM_BASE}/lib/vendor/react-dom.min.js`,
-  `${ZOOM_BASE}/zoom-meeting-embedded-${ZOOM_SDK_VERSION}.min.js`,
-];
-
-declare global {
-  interface Window {
-    ZoomMtgEmbedded?: ZoomEmbedded;
-    __zoomSdkLoad?: Promise<ZoomEmbedded>;
-  }
-}
-
-function loadScript(src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(`script[src="${src}"]`);
-
-    if (existing) {
-      resolve();
-
-      return;
-    }
-
-    const s = document.createElement('script');
-    s.src = src;
-    s.async = false; // يحافظ على ترتيب التحميل (React قبل ReactDOM قبل SDK)
-    s.onload = () => resolve();
-    // نزيل العقدة الفاشلة كي تُعاد إضافتها عند المحاولة التالية (وإلا حُلّ فوراً بسكربت فاشل)
-    s.onerror = () => { s.remove(); reject(new Error(`failed to load ${src}`)); };
-    document.head.appendChild(s);
-  });
-}
-
-function loadZoomSdk(): Promise<ZoomEmbedded> {
-  if (window.ZoomMtgEmbedded) {
-    return Promise.resolve(window.ZoomMtgEmbedded);
-  }
-
-  if (window.__zoomSdkLoad) {
-    return window.__zoomSdkLoad;
-  }
-
-  const load = (async () => {
-    for (const src of ZOOM_SCRIPTS) {
-      await loadScript(src);
-    }
-
-    if (! window.ZoomMtgEmbedded) {
-      throw new Error('ZoomMtgEmbedded global missing');
-    }
-
-    return window.ZoomMtgEmbedded;
-  })();
-
-  // عند الفشل نُفرّغ الوعد المخبّأ كي تُعاد المحاولة عند الدخول التالي
-  // (كان خطأ CDN عابر يخزّن وعداً مرفوضاً فتبقى الغرفة في الاحتياط حتى إعادة تحميل كاملة)
-  window.__zoomSdkLoad = load.catch((e) => {
-    window.__zoomSdkLoad = undefined;
-    throw e;
-  });
-
-  return window.__zoomSdkLoad;
-}
-
-type Phase = 'loading' | 'joining' | 'joined' | 'ended' | 'fallback' | 'error';
-
-export const ZoomEmbedRoom: React.FC<Props> = ({ cref, kind = 'consult', label, back, fallbackUrl, details }) => {
-  'use no memo'; // تركيب Zoom تحكّمي (refs/تأثيرات) — خارج مُحسّن React
-
-  const rootRef = useRef<HTMLDivElement>(null);
-  const clientRef = useRef<ZoomClient | null>(null);
-  const [phase, setPhase] = useState<Phase>('loading');
-  const [msg, setMsg] = useState('');
-  const [userName, setUserName] = useState('');
-  const [elapsed, setElapsed] = useState(0); // ثوانٍ منذ الانضمام (المؤقّت التصاعدي)
-  const [retryKey, setRetryKey] = useState(0); // إعادة المحاولة داخل الموقع
-  // رابط الطوارئ لا يصلح مخرجاً إن كان يشير إلى هذه الصفحة نفسها. العميل يُمرَّر إليه
-  // joinLink() وهو عنوان هذه الغرفة بالضبط (سياسة مقصودة: لا يُسرَّب رابط Zoom للعميل)،
-  // فكان زرّ «فتح Zoom في تبويب» يعيد فتح الصفحة التي فشلت للتوّ فتفشل ثانيةً — حلقة مغلقة.
-  // الطاقم وحده يملك رابطاً خارجياً حقيقياً (host_link من Zoom) فيبقى الزرّ نافعاً له.
-  const externalFallback = React.useMemo(() => {
-    if (! fallbackUrl) {
-      return null;
-    }
-    try {
-      const target = new URL(fallbackUrl, window.location.href);
-      return target.pathname === window.location.pathname ? null : fallbackUrl;
-    } catch {
-      return fallbackUrl;
-    }
-  }, [fallbackUrl]);
-
-  // مؤقّت الجلسة التصاعدي — يعمل أثناء الانضمام فقط
-  useEffect(() => {
-    if (phase !== 'joined') {
-      return;
-    }
-    const t = setInterval(() => setElapsed((s) => s + 1), 1000);
-
-    return () => clearInterval(t);
-  }, [phase]);
+/** مؤقّت الحضور التصاعديّ (س:د:ث) — منذ انضمامك أنت، لا مدّة الجلسة الرسميّة. */
+function useElapsed(since: number | null): string {
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    let cancelled = false;
-    let embedded: ZoomEmbedded | null = null;
+    if (since === null) {
+      return undefined;
+    }
 
-    // يُفكّك أي عميل/واجهة Zoom رُكِّبت فعلاً (init() يُظهر واجهته الخاصة حتى قبل نجاح join()،
-    // مثل «The meeting has not started») — وإلا تبقى ظاهرة خلف بطاقة الخطأ/التدرّج البديل.
-    const teardown = () => {
-      try {
-        void clientRef.current?.leaveMeeting();
-        embedded?.destroyClient();
-      } catch {
-        /* تنظيف صامت */
-      }
-      clientRef.current = null;
-      embedded = null;
-    };
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
 
-    const fail = (m: string) => {
-      if (cancelled) {
-return;
+    return () => window.clearInterval(t);
+  }, [since]);
+
+  if (since === null) {
+    return '';
+  }
+
+  const total = Math.max(0, Math.floor((now - since) / 1000));
+  const h = Math.floor(total / 3600);
+  const mm = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
+  const ss = String(total % 60).padStart(2, '0');
+
+  // كان يعرض الدقائق وحدها فتصير الساعة «75:00»
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-      teardown();
-      setMsg(m);
-      setPhase(externalFallback ? 'fallback' : 'error');
-    };
+/** شارة «تسجيل»: للطاقم وحده، ومن الخادم وحده — لا تُستنتج من أحداث Zoom. */
+const RecordingBadge: React.FC<{ room: Room }> = ({ room }) =>
+  isStaffRoom(room) && room.recording ? (
+    <span className="vr-rec"><span className="dot" /> {ROOM_TEXT.recording}</span>
+  ) : null;
 
-    void (async () => {
-      // 1) طلب توقيع الانضمام (التفويض/الدور على الخادم)
-      let data: SignaturePayload;
-
-      try {
-        const res = await axios.post<SignaturePayload>('/zoom/sdk-signature', { ref: cref, kind });
-        data = res.data;
-        setUserName(data.userName || '');
-      } catch (e) {
-        const status = axios.isAxiosError(e) ? e.response?.status : undefined;
-        fail(status === 503 ? 'تضمين Zoom غير مُهيّأ بعد.' : 'تعذّر تجهيز غرفة الجلسة.');
-
-        return;
-      }
-
-      // 2) تحميل مكتبة Zoom من CDN عند الطلب (تُعزل عن بقية الصفحات وعن React المضيف)
-      try {
-        embedded = await loadZoomSdk();
-      } catch {
-        fail('تعذّر تحميل مكتبة Zoom.');
-
-        return;
-      }
-
-      if (cancelled || !rootRef.current) {
-return;
-}
-
-      // 3) التهيئة والانضمام (الاسم/الإيميل تلقائياً؛ ZAK للمضيف)
-      try {
-        setPhase('joining');
-        const client = embedded.createClient();
-        clientRef.current = client;
-        await client.init({
-          zoomAppRoot: rootRef.current,
-          language: 'en-US',
-          patchJsMedia: true,
-          customize: { video: { isResizable: true } },
-        });
-
-        // انتهاء الجلسة/المغادرة عبر واجهة Zoom نفسها → شاشة «انتهت الجلسة» المخصّصة (أفضل-جهد)
-        try {
-          client.on?.('connection-change', (p) => {
-            if (! cancelled && (p?.state === 'Closed' || p?.state === 'Fail')) {
-              setPhase('ended');
-            }
-          });
-        } catch { /* واجهة الأحداث قد تختلف بين إصدارات SDK */ }
-
-        if (cancelled) {
-return;
-}
-
-        await client.join({
-          signature: data.signature,
-          meetingNumber: data.meetingNumber,
-          password: data.password,
-          userName: data.userName,
-          userEmail: data.userEmail,
-          zak: data.zak || undefined,
-        });
-
-        if (cancelled) {
-return;
-}
-
-        setPhase('joined');
-      } catch (e) {
-        const reason = String((e as { reason?: string; errorMessage?: string })?.reason
-          ?? (e as { reason?: string; errorMessage?: string })?.errorMessage ?? '').toLowerCase();
-        fail(reason.includes('not start') ? 'لم يبدأ المضيف الجلسة بعد — حاول مرة أخرى عند بدء الموعد.' : 'تعذّر الانضمام إلى الجلسة.');
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      teardown();
-    };
-  }, [cref, kind, externalFallback, retryKey]);
-
-  const fmtTimer = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-  const retry = () => { setMsg(''); setElapsed(0); setPhase('loading'); setRetryKey((k) => k + 1); };
-
-  const leave = () => { void clientRef.current?.leaveMeeting().catch(() => {}); setPhase('ended'); };
-
-  // ── الغرفة البسيطة (استشارات) — سلوك أصلي دون تغيير ──
-  if (! details) {
-    return (
-    <div style={{ maxWidth: 900, margin: '0 auto' }}>
-      <div style={{ marginBottom: 14, display: 'flex', gap: 9, flexWrap: 'wrap', alignItems: 'center' }}>
-        <button className="btn soft sm" onClick={() => router.visit(back)} type="button">
-          <Icon name="reply" /> رجوع
-        </button>
-        <span style={{ opacity: 0.75, fontSize: 12 }}>{label}</span>
+/** صفوف التفاصيل — من الخادم كما هي، ومعها الحاضرون الآن والمدّة المقيسة بعد الانتهاء. */
+const RoomRows: React.FC<{ room: Room; participants: number | null }> = ({ room, participants }) => (
+  <>
+    {room.rows.map((r, i) => (
+      <div key={`${i}-${r.label}`} className="mroom-row"><span className="k">{r.label}</span><span className="v">{r.value}</span></div>
+    ))}
+    {participants !== null && !room.ended && (
+      <div className="mroom-row"><span className="k">{ROOM_TEXT.participants}</span><span className="v">{participants}</span></div>
+    )}
+    {room.ended && (
+      <div className="mroom-row">
+        <span className="k">{ROOM_TEXT.measuredDuration}</span>
+        <span className="v">{room.measuredDuration ?? ROOM_TEXT.durationPending}</span>
       </div>
+    )}
+  </>
+);
 
-      {(phase === 'loading' || phase === 'joining') && (
-        <div className="card"><div className="card-b">
-          <div className="empty">
-            <Icon name="video" />
-            <b>{phase === 'loading' ? 'يجري تجهيز غرفة الجلسة…' : 'يجري الانضمام إلى Zoom…'}</b>
-          </div>
-        </div></div>
-      )}
+// ——————————————————————— صفحة الغرفة ———————————————————————
 
-      {phase === 'fallback' && (
-        <div className="card"><div className="card-b">
-          <div className="empty">
-            <Icon name="video" />
-            <b>تعذّر التضمين داخل المنصّة</b>
-            <span>{msg} يمكنك فتح الجلسة في Zoom مباشرة.</span>
-            <button className="btn sm" style={{ marginTop: 10 }} onClick={() => {
- if (externalFallback) {
-window.open(externalFallback, '_blank', 'noopener');
-} 
-}} type="button">
-              <Icon name="video" /> فتح Zoom في تبويب
-            </button>
-          </div>
-        </div></div>
-      )}
+export const RoomPage: React.FC<{ room: Room }> = ({ room: serverRoom }) => {
+  const { office_name: officeName } = useSettings();
+  const { url } = usePage();
+  const s = useRoomSession();
+  const toast = useToast();
+  const askFor = usePrompt();
+  const [drawer, setDrawer] = useState(false);
+  const key = roomKey(serverRoom);
 
-      {phase === 'error' && (
-        <div className="card"><div className="card-b">
-          <div className="empty">
-            <Icon name="video" />
-            <b>{msg || 'تعذّر بدء الجلسة'}</b>
-            <button className="btn sm" style={{ marginTop: 10 }} onClick={retry} type="button">
-              <Icon name="video" /> إعادة المحاولة
-            </button>
-          </div>
-        </div></div>
-      )}
+  // فتحُ الجلسة عند دخول الصفحة، وتصغيرُها (لا إنهاؤها) عند الخروج
+  useEffect(() => {
+    openRoom(serverRoom, url);
 
-      {/* حاوية تضمين Zoom (Component View) — تبقى في DOM ليركّب SDK داخلها عند التهيئة */}
-      <div
-        ref={rootRef}
-        style={{ minHeight: phase === 'joined' || phase === 'joining' ? 520 : 0, direction: 'ltr' }}
-      />
-    </div>
-    );
-  }
+    return () => closeView(serverRoom);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- الجلسة تُفتح لكلّ مفتاح مرّةً؛ تجدّد الخصائص يمرّ بـsyncRoom
+  }, [key]);
 
-  // ── الغرفة المخصّصة (اجتماعات المكتب) — إطار هوية + لوحة جانبية + شاشات الحالة ──
-  const recording = kind === 'meeting'; // اجتماعات المكتب تُسجَّل سحابيًّا تلقائياً
+  useEffect(() => {
+    syncRoom(serverRoom);
+  }, [serverRoom]);
 
-  /*
-   * **مفرداتُ الغرفة تتبع نوعَ الجلسة.** الغرفة الكاملة كُتبت للاجتماعات، فنصوص
-   * شاشة النهاية تقول «صفحة الاجتماع» و«رجوع للاجتماعات» و«المحضر والملخّص». وحين
-   * لبستها الاستشارةُ صارت تُحيل الموكّلَ إلى «اجتماع» لا وجود له — و«المحضر» ليس
-   * من مخرجاتها أصلاً (لها ملخّصٌ وتدوينُ جلسة). فالاسم يُشتقّ من `kind` لا يُكتب مرّة.
-   */
-  const noun = kind === 'meeting' ? 'الاجتماع' : 'الاستشارة';
-  const backLabel = kind === 'meeting' ? 'رجوع للاجتماعات' : 'رجوع للاستشارات';
-  const outputs = kind === 'meeting' ? 'المحضر والملخّص' : 'الملخّص';
+  useEscapeLayer(drawer, () => setDrawer(false));
+  // الغرفة تغطّي التبويب — لا تمريرَ للصفحة تحتها (العدّاد مشتركٌ مع النوافذ)
+  useBodyScrollLock(true);
+
+  const mine = s.room !== null && roomKey(s.room) === key;
+  // جلسةٌ أخرى قائمة في الشريط — لا تُهدم بصمت، يختار المستخدم
+  const busy = s.room !== null && !mine && isActivePhase(s.phase);
+  const room = mine && s.room ? s.room : serverRoom;
+  const phase = mine ? s.phase : 'idle';
+  const elapsed = useElapsed(mine && phase === 'joined' ? s.joinedAt : null);
+  const noun = roomNoun(room.kind);
+  const end = room.endAction;
+
+  const endSession = async () => {
+    if (!end?.enabled) {
+      return;
+    }
+
+    const notes = await askFor({
+      title: end.label,
+      message: ROOM_TEXT.endHint,
+      label: ROOM_TEXT.endNotesLabel,
+      placeholder: end.placeholder,
+      multiline: true,
+      required: false,
+      confirmLabel: end.label,
+    });
+
+    if (notes === null) {
+      return;
+    }
+
+    router.post(end.url, { notes: notes.trim() }, {
+      preserveScroll: true,
+      onSuccess: () => {
+        markRoomEnded();
+
+        // الخادم يعيد من الغرفة إلى الوجهة نفسها غالباً (`RoomDetails::afterEnd`) — فلا زيارةَ ثانية
+        const here = `${window.location.pathname}${window.location.search}`;
+
+        if (here !== end.redirect && window.location.href !== end.redirect) {
+          router.visit(end.redirect);
+        }
+      },
+      onError: (errors) => toast(String(Object.values(errors)[0] ?? ROOM_TEXT.endFailed), 'error'),
+    });
+  };
 
   const overlay = (() => {
-    if (phase === 'loading' || phase === 'joining') {
+    if (busy && s.room) {
       return (
         <div className="mroom-overlay"><div>
-          <div className="mroom-spin" style={{ margin: '0 auto 12px' }} />
-          <b>{phase === 'loading' ? 'يجري تجهيز غرفة الجلسة…' : 'يجري الانضمام إلى Zoom…'}</b>
-          <div className="os">{details.title}</div>
+          <div className="oi"><Icon name="video" /></div>
+          <b>{ROOM_TEXT.otherActive}</b>
+          <div className="os">«{s.room.title}» — {ROOM_TEXT.otherActiveHint}</div>
+          <div className="mroom-actions">
+            {s.href && <Link className="btn sm" href={s.href}><Icon name="reply" /> {ROOM_TEXT.returnToRoom}</Link>}
+            <button className="btn soft sm" onClick={() => {
+              resetRoom();
+              openRoom(serverRoom, url);
+            }} type="button">{ROOM_TEXT.leaveAndJoin}</button>
+          </div>
         </div></div>
       );
     }
+
+    if (phase === 'idle' || phase === 'loading' || phase === 'joining') {
+      return (
+        <div className="mroom-overlay"><div>
+          <div className="mroom-spin" />
+          <b>{phase === 'joining' ? ROOM_TEXT.joining : ROOM_TEXT.preparing}</b>
+          <div className="os">{room.title}</div>
+        </div></div>
+      );
+    }
+
     if (phase === 'ended') {
       return (
         <div className="mroom-overlay"><div>
           <div className="oi"><Icon name="check" /></div>
-          <b>انتهت الجلسة</b>
-          <div className="os">شكراً لك.{details.summaryHref ? ` يمكنك الاطّلاع على ${outputs} من صفحة ${noun}.` : ''}</div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 }}>
-            <button className="btn sm" onClick={() => router.visit(details.summaryHref || back)} type="button">
-              <Icon name={details.summaryHref ? 'doc' : 'reply'} /> {details.summaryHref ? `صفحة ${noun}` : 'رجوع'}
-            </button>
-            {details.summaryHref && <button className="btn soft sm" onClick={() => router.visit(back)} type="button">{backLabel}</button>}
+          <b>{ROOM_TEXT.ended}</b>
+          <div className="os">
+            {ROOM_TEXT.measuredDuration}: {room.measuredDuration ?? ROOM_TEXT.durationPending}
+          </div>
+          <div className="os">{ROOM_TEXT.endedThanks}</div>
+          <div className="mroom-actions">
+            {room.summaryHref && <Link className="btn sm" href={room.summaryHref}><Icon name="doc" /> صفحة {noun}</Link>}
+            <Link className={room.summaryHref ? 'btn soft sm' : 'btn sm'} href={room.back}><Icon name="reply" /> {ROOM_TEXT.back}</Link>
           </div>
         </div></div>
       );
     }
-    if (phase === 'fallback' || phase === 'error') {
+
+    if (phase === 'left') {
       return (
         <div className="mroom-overlay"><div>
-          <div className="oi"><Icon name="video" /></div>
-          <b>{phase === 'fallback' ? 'تعذّر التضمين داخل الموقع' : (msg || 'تعذّر بدء الجلسة')}</b>
-          <div className="os">{msg}</div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 }}>
-            <button className="btn sm" onClick={retry} type="button"><Icon name="video" /> إعادة المحاولة داخل الموقع</button>
+          <div className="oi"><Icon name="out" /></div>
+          <b>{ROOM_TEXT.left}</b>
+          <div className="os">{ROOM_TEXT.leftHint}</div>
+          <div className="mroom-actions">
+            <button className="btn sm" onClick={rejoinRoom} type="button"><Icon name="video" /> {ROOM_TEXT.rejoin}</button>
+            <Link className="btn soft sm" href={room.back}><Icon name="reply" /> {ROOM_TEXT.back}</Link>
           </div>
-          {externalFallback && phase === 'fallback' && (
-            <div style={{ marginTop: 10 }}>
-              <button
-                onClick={() => window.open(externalFallback, '_blank', 'noopener')}
-                style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.55)', fontSize: 11, textDecoration: 'underline', cursor: 'pointer' }}
-                type="button"
-              >فتح في Zoom كحلٍّ أخير</button>
-            </div>
-          )}
+        </div></div>
+      );
+    }
+
+    if (phase === 'error') {
+      return (
+        <div className="mroom-overlay"><div>
+          <div className="oi"><Icon name="alert" /></div>
+          <b>{ROOM_TEXT.failedTitle}</b>
+          {/* سببُ الرفض كما علّله الخادم (403/422) — لا رسالةٌ عامّة */}
+          <div className="os">{s.message}</div>
+          <div className="mroom-actions">
+            <button className="btn sm" onClick={rejoinRoom} type="button"><Icon name="video" /> {ROOM_TEXT.retry}</button>
+            <Link className="btn soft sm" href={room.back}><Icon name="reply" /> {ROOM_TEXT.back}</Link>
+          </div>
         </div></div>
       );
     }
@@ -404,56 +231,172 @@ window.open(externalFallback, '_blank', 'noopener');
     return null;
   })();
 
-  return (
-    <div>
-      <div style={{ marginBottom: 12, display: 'flex', gap: 9, flexWrap: 'wrap', alignItems: 'center' }}>
-        <button className="btn soft sm" onClick={() => router.visit(back)} type="button"><Icon name="reply" /> رجوع</button>
-        <span style={{ opacity: 0.7, fontSize: 12 }}>{label}</span>
-      </div>
+  if (typeof document === 'undefined') {
+    return null;
+  }
 
-      <div className="mroom-grid">
-        <div className="mroom">
-          <div className="mroom-head">
-            <span className="brand"><Icon name="video" /> النظام الإداري لمكاتب المحاماة</span>
-            <span className="ttl">{details.title}</span>
-            {phase === 'joined' && (
-              <>
-                <span className="vr-timer">{fmtTimer(elapsed)}</span>
-                {recording && <span className="vr-rec"><span className="dot" /> تسجيل</span>}
-                <button className="btn sm" style={{ background: '#C0392B', marginInlineStart: 8 }} onClick={leave} type="button">
-                  <Icon name="reply" /> مغادرة
-                </button>
-              </>
-            )}
-          </div>
-          <div className="mroom-video">
-            <div ref={rootRef} style={{ minHeight: 520, direction: 'ltr' }} />
-            {overlay}
-            {phase === 'joined' && userName && <div className="mroom-wm">{userName} · {cref}</div>}
-          </div>
+  /*
+   * الغرفة تُرسم على `body` لا داخل `.view`: حركة `.view` (animation) تجعلها حاويةً للعناصر
+   * الثابتة فيُحبس «ملءُ التبويب» داخل عمود المحتوى. والطبقات إخوةٌ بلا غلافٍ ذي `z-index` كي
+   * تعلو الترويسةُ والشاشاتُ حاويةَ Zoom (`.mroom-zoom`) التي تعيش هي أيضاً على `body`.
+   */
+  return createPortal(
+    <div className="mroom-layer" data-kind={room.kind}>
+      <div className="mroom-bg" />
+      <header className="mroom-head">
+        <span className="brand"><Icon name="video" /> <span className="lbl">{officeName}</span></span>
+        <span className="ttl">
+          {room.title}
+          {room.statusLabel && <span className="st">{room.statusLabel}</span>}
+        </span>
+        <span className="tools">
+          {phase === 'joined' && elapsed && <span className="vr-timer">{elapsed}</span>}
+          <RecordingBadge room={room} />
+          <button className="mroom-btn" onClick={() => setDrawer((o) => !o)} type="button" aria-expanded={drawer} title={ROOM_TEXT.detailsTitle}>
+            <Icon name="info" /> <span className="lbl">{ROOM_TEXT.details}</span>
+          </button>
+          {end && !room.ended && (
+            <button
+              className="mroom-btn end"
+              onClick={() => void endSession()}
+              disabled={!end.enabled}
+              title={end.enabled ? end.label : ROOM_TEXT.endDisabled}
+              type="button"
+            >
+              <Icon name="check" /> <span className="lbl">{end.label}</span>
+            </button>
+          )}
+          {(phase === 'joined' || phase === 'joining') && (
+            <button className="mroom-btn leave" onClick={leaveRoom} title={ROOM_TEXT.leaveHint} type="button">
+              <Icon name="out" /> <span className="lbl">{ROOM_TEXT.leave}</span>
+            </button>
+          )}
+          <Link className="mroom-btn" href={room.back} title={isActivePhase(phase) ? ROOM_TEXT.backHint : ROOM_TEXT.back}>
+            <Icon name="reply" /> <span className="lbl">{ROOM_TEXT.back}</span>
+          </Link>
+        </span>
+      </header>
+
+      <div className="mroom-stage">{overlay}</div>
+      {phase === 'joined' && s.userName && <div className="mroom-wm">{s.userName} · {room.ref}</div>}
+
+      {drawer && <div className="mroom-scrim" onClick={() => setDrawer(false)} />}
+      <aside className={`mroom-drawer${drawer ? ' open' : ''}`} aria-hidden={!drawer}>
+        <div className="mroom-drawer-h">
+          <h3>{ROOM_TEXT.detailsTitle}</h3>
+          {room.statusLabel && <span className="sub">{room.statusLabel}</span>}
+          <button className="x" onClick={() => setDrawer(false)} type="button" aria-label={ROOM_TEXT.close}><Icon name="close" /></button>
         </div>
+        <div className="mroom-drawer-b">
+          <RoomRows room={room} participants={mine ? s.participants : null} />
+          {end && !room.ended && (
+            <button
+              className="btn sm mroom-drawer-end"
+              onClick={() => void endSession()}
+              disabled={!end.enabled}
+              title={end.enabled ? end.label : ROOM_TEXT.endDisabled}
+              type="button"
+            >
+              <Icon name="check" /> {end.label}
+            </button>
+          )}
+          {end && !room.ended && !end.enabled && <p className="action-hint"><Icon name="info" /> {ROOM_TEXT.endDisabled}</p>}
+        </div>
+      </aside>
+    </div>,
+    document.body,
+  );
+};
 
-        <aside className="mroom-side card">
-          <div className="card-h"><h3>تفاصيل الجلسة</h3>{details.status && <span className="sub">{details.status}</span>}</div>
-          <div className="card-b">
-            {details.rows?.map((r, i) => (
-              <div key={i} className="mroom-row"><span className="k">{r.k}</span><span className="v">{r.v}</span></div>
-            ))}
-            {/* عُلّق بطلب صاحب المنتج (2026-08-26): قوائم ثابتة مختلقة لا بيانات حقيقية */}
-            {/*
-            {details.agenda && (
-              <div className="mroom-agd">
-                {!!details.agenda.before?.length && <><h5>قبل الاجتماع</h5><ul>{details.agenda.before.map((x, i) => <li key={i}>{x}</li>)}</ul></>}
-                {!!details.agenda.during?.length && <><h5>أثناء الاجتماع</h5><ul>{details.agenda.during.map((x, i) => <li key={i}>{x}</li>)}</ul></>}
-                {!!details.agenda.after?.length && <><h5>بعد الاجتماع</h5><ul>{details.agenda.after.map((x, i) => <li key={i}>{x}</li>)}</ul></>}
-              </div>
-            )}
-            */}
-          </div>
-        </aside>
+/** صفحة غرفةٍ وصلت بلا `room` (رابطٌ قديم أو جلسةٌ غير محدّدة). */
+export const RoomMissing: React.FC = () => (
+  <div className="card"><div className="card-b">
+    <div className="empty"><Icon name="video" /><b>{ROOM_TEXT.missing}</b></div>
+  </div></div>
+);
+
+/** غلاف صفحات الغرف الثماني — كلّها تمرّر `room` كما أرسله الخادم ولا شيء غيره. */
+export const RoomRoute: React.FC<{ room?: Room | null }> = ({ room }) =>
+  room ? <RoomPage room={room} /> : <RoomMissing />;
+
+// ——————————————————————— الشريط العائم ———————————————————————
+
+/**
+ * يُركَّب مرّةً في جذر التطبيق (`app.tsx`) خارج الصفحات — فيبقى مع كلّ تنقّل. يظهر حين تكون الجلسة
+ * مصغّرة (صفحةٌ غير صفحة الغرفة)، أو انتهت وأنت خارجها، أو قطعتها إعادة التحميل.
+ * أزراره تنقّلٌ بـ`router.visit`: الشريط خارج شجرة صفحات Inertia.
+ */
+export const RoomDock: React.FC = () => {
+  const s = useRoomSession();
+  const elapsed = useElapsed(s.view === 'dock' && s.phase === 'joined' ? s.joinedAt : null);
+
+  if (!s.room && s.resume) {
+    const resume = s.resume;
+
+    return (
+      <div className="mroom-dock" role="status">
+        <div className="mroom-dock-bar">
+          <Icon name="video" />
+          <span className="t">{ROOM_TEXT.resumeTitle} — «{resume.title}»</span>
+        </div>
+        <div className="mroom-dock-actions">
+          <button className="btn sm" onClick={() => router.visit(resume.href)} type="button">{ROOM_TEXT.returnToRoom}</button>
+          <button className="btn soft sm" onClick={dismissResume} type="button">{ROOM_TEXT.dismiss}</button>
+        </div>
+      </div>
+    );
+  }
+
+  const room = s.room;
+
+  if (!room || s.view !== 'dock') {
+    return null;
+  }
+
+  const href = s.href;
+
+  if (isActivePhase(s.phase)) {
+    // فوق حاوية Zoom المصغّرة مباشرةً (`.mroom-zoom[data-view=dock]`)
+    return (
+      <div className="mroom-dock live" role="region" aria-label={room.title}>
+        <div className="mroom-dock-bar">
+          <Icon name="video" />
+          <span className="t">{room.title}</span>
+          {elapsed && <span className="vr-timer">{elapsed}</span>}
+          <RecordingBadge room={room} />
+        </div>
+        <div className="mroom-dock-actions">
+          {href && <button className="btn sm" onClick={() => router.visit(href)} type="button">{ROOM_TEXT.returnToRoom}</button>}
+          <button className="btn sm mroom-dock-leave" onClick={leaveRoom} title={ROOM_TEXT.leaveHint} type="button">{ROOM_TEXT.leave}</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mroom-dock" role="status">
+      <div className="mroom-dock-bar">
+        <Icon name={s.phase === 'ended' ? 'check' : 'video'} />
+        <span className="t">{s.phase === 'ended' ? ROOM_TEXT.ended : ROOM_TEXT.left} — «{room.title}»</span>
+      </div>
+      {s.phase === 'ended' && (
+        <div className="mroom-dock-note">{ROOM_TEXT.measuredDuration}: {room.measuredDuration ?? ROOM_TEXT.durationPending}</div>
+      )}
+      <div className="mroom-dock-actions">
+        {s.phase === 'ended' && room.summaryHref && (
+          <button className="btn sm" onClick={() => {
+            const to = room.summaryHref as string;
+            resetRoom();
+            router.visit(to);
+          }} type="button">صفحة {roomNoun(room.kind)}</button>
+        )}
+        {s.phase !== 'ended' && href && (
+          <button className="btn sm" onClick={() => router.visit(href)} type="button">{ROOM_TEXT.returnToRoom}</button>
+        )}
+        <button className="btn soft sm" onClick={resetRoom} type="button">{ROOM_TEXT.dismiss}</button>
       </div>
     </div>
   );
 };
 
-export default ZoomEmbedRoom;
+export default RoomPage;

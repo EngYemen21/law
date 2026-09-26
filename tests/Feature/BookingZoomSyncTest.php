@@ -6,8 +6,10 @@ use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
+use App\Models\Setting;
 use App\Models\User;
 use App\Support\Booking\BookingMoved;
+use App\Support\SessionWindow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -93,18 +95,21 @@ class BookingZoomSyncTest extends TestCase
             && ($r->data()['start_time'] ?? null) === $newDay.'T15:00:00');
     }
 
-    /** وإعادة جدولة الاجتماع تُرسل **مدّته الحقيقيّة** لا ستّين مثبَّتة. */
-    public function test_rescheduling_sends_the_real_duration_not_a_hardcoded_60(): void
+    /**
+     * وإعادة جدولة الاجتماع تُرسل لـZoom **الرقم الاسميّ من مصدره الواحد** — لا ستّين مثبَّتة، ولا
+     * «مدّة الاجتماع»: الاجتماع لا مدّة له تنتهي بها (قرار المالك 2026-09-26)، وZoom لا يُنهيه به.
+     */
+    public function test_rescheduling_sends_the_nominal_length_from_its_single_source(): void
     {
         $this->fakeZoom();
         [, , $admin] = $this->cast();
+        Setting::put('consult_slot_minutes', 45);
 
         $meeting = Meeting::create([
             'user_id' => $admin->id, 'ref' => 'M-DUR-'.uniqid(), 'title' => 'اجتماع طويل',
             'when_label' => 'اليوم · 10:00', 'type' => 'اجتماع', 'status' => 'قادم',
             'dur' => '90 دقيقة', 'meet_id' => '9222', 'starts_at' => now()->addDay(),
         ]);
-        $this->assertSame(90, $meeting->durationMinutes());
 
         $day = now()->addDays(4)->toDateString();
         $this->actingAs($admin)->post("/admin/meetings/{$meeting->id}/reschedule", [
@@ -113,7 +118,8 @@ class BookingZoomSyncTest extends TestCase
 
         Http::assertSent(fn ($r) => $r->method() === 'PATCH'
             && str_contains($r->url(), '/meetings/9222')
-            && ($r->data()['duration'] ?? null) === 90);
+            && ($r->data()['duration'] ?? null) === SessionWindow::nominalMinutes()
+            && SessionWindow::nominalMinutes() === 45);
     }
 
     /** وإعادة جدولة الاستشارة **تحذف** اجتماعها بدل أن تتركه يتيماً. */

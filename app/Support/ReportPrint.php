@@ -5,7 +5,7 @@ namespace App\Support;
 /**
  * مولّد تقارير رسمية قابل لإعادة الاستخدام — النظير الخادميّ لـ resources/js/lib/reportPrint.ts.
  * يبني نفس تصميم بطاقة .cf (رأس بالشعار، عنوان متدرّج، أقسام مرقّمة كاملة العرض أو عمودين،
- * قسم اعتماد بختم QR، ملاحظة، تذييل) كسلسلة HTML واحدة، تُغذّى إلى Browsershot لإصدار PDF حقيقي
+ * قسم اعتماد برمز استجابة حقيقيّ، ملاحظة، تذييل) كسلسلة HTML واحدة، تُغذّى إلى Browsershot لإصدار PDF حقيقي
  * مطابق تماماً لما يعرضه المتصفح — لا صورة/محاكاة.
  *
  * @phpstan-type ReportCell array{0: string, 1: string}
@@ -46,7 +46,9 @@ class ReportPrint
         .cf-chips{display:flex;flex-wrap:wrap;gap:7px}
         .cf-chip{font-size:11px;border:1px solid #C9DEF0;background:#F2F8FC;border-radius:6px;padding:5px 11px;color:#0E5C9C;font-weight:700}
         .cf-appr{display:flex;justify-content:space-between;gap:10px;align-items:center}
-        .cf-appr .qr svg{width:78px;height:78px}
+        .cf-appr .qr{flex-shrink:0;text-align:center;width:132px}
+        .cf-appr .qr svg{width:120px;height:120px;display:block;margin:0 auto}
+        .cf-appr .qr small{display:block;font-size:9px;color:#7a8aa3;line-height:1.5;margin-top:3px}
         .cf-appr .rows{flex:1}
         .cf-appr .r{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed #E7EFF6;font-size:11px}
         .cf-appr .r:last-child{border-bottom:none}
@@ -58,7 +60,7 @@ class ReportPrint
         CSS;
 
     /**
-     * @param  array{title:string,subtitle:string,ref:string,blocks:array<int, ReportSection|array{0:ReportSection,1:ReportSection}>,approval?:array{qrSeed:string,rows:array<int,ReportCell>},note?:string,footer?:string}  $doc
+     * @param  array{title:string,subtitle:string,ref:string,blocks:array<int, ReportSection|array{0:ReportSection,1:ReportSection}>,approval?:array{qr?:string|null,qrCaption?:string,rows:array<int,ReportCell>,title?:string},note?:string,footer?:string}  $doc
      */
     public static function html(array $doc): string
     {
@@ -127,7 +129,11 @@ class ReportPrint
      *
      * والتقصير هو الصادق: من يملك اعتماداً فعلياً يُعلنه بـ`title`.
      *
-     * @param  array{qrSeed:string,rows:array<int,ReportCell>,title?:string}  $a
+     * **والرمز يحمل ما يُمرَّر في `qr` بعينه** (`Qr` — مولّدٌ حقيقيّ يُمسح): رابط التحقّق الموقَّع
+     * (`DocumentVerification::url`) أو حمولة الفاتورة الضريبيّة (`Finance\ZatcaQr`). كان هنا
+     * بذرةٌ لنقشٍ زخرفيّ لا يُقرأ. ولا `qr` ⇒ لا رمز: لا يُرسم ما لا يحيل إلى شيء.
+     *
+     * @param  array{qr?:string|null,qrCaption?:string,rows:array<int,ReportCell>,title?:string}  $a
      */
     private static function renderApproval(array $a): string
     {
@@ -138,7 +144,11 @@ class ReportPrint
 
         $title = trim((string) ($a['title'] ?? '')) ?: 'بيانات إصدار الوثيقة';
 
-        return '<div class="cf-sec"><div class="sh">'.e($title).'</div><div class="sb"><div class="cf-appr"><div class="qr">'.Qr::svg($a['qrSeed']).'</div><div class="rows">'.$rows.'</div></div></div></div>';
+        $qr = trim((string) ($a['qr'] ?? '')) !== ''
+            ? '<div class="qr">'.Qr::svg((string) $a['qr'], 120, $title).(isset($a['qrCaption']) ? '<small>'.e($a['qrCaption']).'</small>' : '').'</div>'
+            : '';
+
+        return '<div class="cf-sec"><div class="sh">'.e($title).'</div><div class="sb"><div class="cf-appr">'.$qr.'<div class="rows">'.$rows.'</div></div></div></div>';
     }
 
     /** يضمّن شعار المكتب كـdata URI حتى يظهر داخل PDF المُصيَّر بمعزل عن الخادم المحلي (بلا طلب شبكة). */

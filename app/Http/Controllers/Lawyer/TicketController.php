@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Lawyer;
 use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Domain\Journey\Transitions\Ticket\AwaitAdminSummaryApproval;
 use App\Domain\Journey\Transitions\Ticket\AwaitTicketDocuments;
+use App\Domain\Journey\Transitions\Ticket\CorrectTicketStatus;
 use App\Domain\Journey\Transitions\Ticket\FinalApproveTicketSummary;
 use App\Domain\Journey\Transitions\Ticket\LawyerApproveTicketSummary;
 use App\Domain\Journey\Transitions\Ticket\ProposeOutcomeTrack;
@@ -31,12 +32,13 @@ use App\Services\LegalAiService;
 use App\Services\MailService;
 use App\Support\Audit;
 use App\Support\ConversationFiles;
+use App\Support\ConversationHandler;
 use App\Support\Live;
 use App\Support\Notify;
 use App\Support\PdfRenderer;
 use App\Support\ReportPrint;
-use App\Support\ServiceDocs;
 use App\Support\SummaryReport;
+use App\Support\TicketDocumentRequirements;
 use App\Support\TicketJourney;
 use App\Support\TicketResult;
 use App\Support\TicketWritePolicy;
@@ -336,6 +338,8 @@ class TicketController extends Controller
         $ticket->load(['user', 'summary', 'legalCase', 'execution']);
 
         return Inertia::render('lawyer/ticketchat', [
+            // من يتولّى المحادثة الآن ومن تولّاها قبله — للطاقم وحده (`ConversationHandler`)
+            'conversation' => ConversationHandler::history($ticket),
             // رقم القضية الحقيقي — كانت الواجهة تطبع نصّاً ثابتاً مكان الرقم
             // mobile/openedAt لبطاقة «تفاصيل الطلب» (يطابق tkDetailsCard المرجعي)
             'ticket' => array_merge($ticket->toEmployeeCard(), [
@@ -349,6 +353,8 @@ class TicketController extends Controller
             'summary' => $ticket->summary?->toData(),
             'converted' => (bool) $ticket->legalCase || (bool) $ticket->execution,
             'convertedType' => $ticket->execution ? 'execution' : ($ticket->legalCase ? 'case' : null),
+            // تصحيح الحالة للإدارة وحدها — والنموذج من حارس الانتقال لا من قائمةٍ في الواجهة
+            'correction' => $request->user()->isAdmin() ? CorrectTicketStatus::form($ticket) : null,
             // الإدارة تفتح نفس الصفحة من مسارها — الروابط تُبنى من base لا مثبّتة على /lawyer
             'base' => $request->user()->isAdmin() ? '/admin' : '/lawyer',
         ]);
@@ -617,7 +623,9 @@ class TicketController extends Controller
             Notify::send($summary->lawyer_approved_by, 'check', 't-green', "اعتمدت الإدارة ملخّص التذكرة {$ticket->number} وأُرسل الرأي القانوني للعميل.");
         }
 
-        return redirect()->route('admin.summaries')->with('flash', 'اعتُمد الملخّص وأُرسل الرأي القانوني للعميل.');
+        // **يبقى المدير حيث اعتمد.** كان التحويل إلى `admin.summaries` يقذفه من مركز الاعتمادات
+        // أو من محادثة التذكرة إلى قائمةٍ أخرى — فيفقد موضعه وبقيّة ما ينتظره في الشاشة التي كان فيها.
+        return back()->with('flash', 'اعتُمد الملخّص وأُرسل الرأي القانوني للعميل.');
     }
 
     // توليد مسودة لائحة دعوى لمعايير منصة ناجز
@@ -664,11 +672,12 @@ class TicketController extends Controller
     public function requestDocs(Request $request, Ticket $ticket): RedirectResponse
     {
         $this->guardAssigned($ticket);
-        $chips = implode('', array_map(fn ($d) => '<span class="doc-chip">'.e($d).'</span>', ServiceDocs::for($ticket->type)));
+        // طلبُ نواقص رسالةٌ للعميل وقفزةُ حالة — لا يُكتب على تذكرةٍ حُسم مآلها (كان يُقبل على المجمَّدة والنهائيّة)
+        TicketWritePolicy::assertWritable($ticket);
+        // نواقص قائمة القسم وحدها — ما ثبت إرفاقه لا يُطلب ثانيةً (`TicketDocumentRequirements`)
         $msg = $ticket->messages()->create([
             'who' => 'lawyer', 'name' => $request->user()->name, 'role' => 'نواقص',
-            'body' => '<p>لاستكمال تقييم الطلب قبل اتخاذ القرار، نأمل تزويدنا بالمستندات الإضافية التالية:</p><div class="doc-list">'.$chips.'</div>'
-                .'<p class="muted">'.ServiceDocs::NOTE.'</p>',
+            'body' => TicketDocumentRequirements::requestHtml($ticket, 'لاستكمال تقييم الطلب قبل اتخاذ القرار، نأمل تزويدنا بالمستندات الإضافية التالية:'),
             'time_label' => $this->clock(),
         ]);
         Live::push(new TicketMessageBroadcast($msg));
@@ -687,7 +696,7 @@ class TicketController extends Controller
 
         Notify::send($ticket->user_id, 'upload', 't-amber', "طلب المستشار مستندات إضافية على تذكرتك {$ticket->number}.");
 
-        return back();
+        return back()->with('flash', 'تم طلب مستندات إضافية من العميل.');
     }
 
     // مقترح المستشار لمسار مآل التذكرة (أحد المسارات الأربعة) مرفوعاً للإدارة العليا

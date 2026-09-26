@@ -74,7 +74,7 @@ class TicketSummaryApprovalThroughWorkflowTest extends TestCase
         $this->assertSame(['edited' => true], $this->row('ticket_summary.lawyer_approved')->payload);
         $this->assertSame($this->lawyer->id, $this->row('ticket.awaiting_admin_summary_approval')->actor_id);
 
-        $this->actingAs($this->admin)->post(route('admin.summary.approve', $ticket))->assertRedirect(route('admin.summaries'));
+        $this->actingAs($this->admin)->from(route('admin.approvals'))->post(route('admin.summary.approve', $ticket))->assertRedirect(route('admin.approvals'));
 
         $ticket->refresh();
         $this->assertSame('approved', $ticket->summary->status);

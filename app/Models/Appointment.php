@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\Enums\SessionState;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Support\LawyerName;
+use App\Support\SessionWindow;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -52,6 +54,17 @@ class Appointment extends Model
         return $this->hasOne(Consult::class, 'appointment_id');
     }
 
+    /**
+     * **اسم محامي الموعد كما يراه العميل** — نظير `Consult::lawyerForClient`.
+     *
+     * كانت القاعدة منسوخةً في بطاقة الموعد وحدها، فكتب مركز تنبيهات لوحة العميل وتقويمُه المشترَك
+     * العمودَ النصّيّ `lawyer` خاماً (الاسم الكامل). دالّةٌ واحدة يقرؤها كلّ ما يصل العميل.
+     */
+    public function lawyerForClient(string $fallback = '—'): string
+    {
+        return LawyerName::forClient($this->lawyer_id ? $this->lawyerUser : null, $this->lawyer, $fallback);
+    }
+
     /** يوم الموعد بصياغة عربية مقروءة (الاثنين ٢٩ يونيو ٢٠٢٦) من starts_at الحقيقي؛ يرجع للنص المخزَّن إن غاب. */
     public function dayLabel(): string
     {
@@ -64,14 +77,18 @@ class Appointment extends Model
         return $this->starts_at?->locale('ar')->translatedFormat('h:i A') ?: (string) $this->time;
     }
 
-    /** هل انقضى وقت الموعد (البداية + المدة)؟ — when_kind المخزّنة ثابتة ولا تتحدّث بمرور الوقت */
+    /**
+     * **فات الموعد دون أن تبدأ جلسته؟** — مهلة الفوات من **البداية** (`SessionWindow`)، لا
+     * «البداية + المدّة»: الجلسة لا مدّة لها تنتهي بها (قرار المالك 2026-09-26).
+     * `when_kind` المخزّنة ثابتة ولا تتحدّث بمرور الوقت، فهي احتياطُ الصفّ بلا موعد.
+     */
     public function isPast(): bool
     {
         if (! $this->starts_at) {
             return $this->when_kind === 'past';
         }
 
-        return $this->starts_at->copy()->addMinutes($this->duration_min ?: 60)->isPast();
+        return SessionWindow::isMissed($this->starts_at);
     }
 
     /**
@@ -85,22 +102,18 @@ class Appointment extends Model
     {
         $session = $this->consult?->session;
 
-        // «جلسة جارية» ضمن سقف زمني (المدة + 180د) — جلسة بُدئت ولم تُختم لا تُثبّت الموعد في «القادمة» أبدياً
-        if ($session === 'جلسة جارية') {
-            $withinCap = $this->starts_at === null
-                || $this->starts_at->copy()->addMinutes(($this->duration_min ?: 60) + 180)->isFuture();
-
-            // تجاوزت السقف بلا ختم: الجلسة بُدئت فعلاً ⇒ حضورٌ وقع (لا «لم يحضر»)
-            return $withinCap
-                ? ['up', 'قيد الجلسة', 'b-blue']
-                : ['past', 'تم الحضور', 'b-green'];
+        // **الجارية قيد الجلسة حتى تُختم** — كان لها سقفٌ «المدة + 180د» تُعرض بعده «تم الحضور»
+        // وهي ما زالت منعقدة. النهاية حدث الختم (`EndSession`) — فيصير الموعد «تم الحضور» من هناك
+        // لا من الساعة؛ والمنسيّة تُختم بانتقال الإنهاء نفسه بعد مهلة النسيان (`sessions:close-stale`).
+        if ($session === SessionState::Live->value) {
+            return ['up', 'قيد الجلسة', 'b-blue'];
         }
 
         // **الجلسة المختومة ماضيةٌ مهما تكن الساعة** — وكان هذا الفحص **بعد** فحص الساعة،
         // فجلسةٌ مدّتها ساعة انتهت في دقيقتها العشرين تبقى «قادمة» أربعين دقيقة: يُعلن بنر
         // «لديك موعد استشارة مجدول اليوم» على العميل بعد أن ودّع محاميه. المقياس هو
         // انتهاء الجلسة لا انقضاء الخانة المحجوزة لها.
-        if ($session === 'منتهية') {
+        if ($session === SessionState::Ended->value) {
             return ['past', 'تم الحضور', 'b-green'];
         }
 
@@ -127,7 +140,7 @@ class Appointment extends Model
             'type' => $this->type,
             'ico' => $this->ico,
             // العميل يرى «الاسم. الحرف»؛ والطاقم الاسمَ كاملاً
-            'lawyer' => $viewer?->isClient() ? LawyerName::forClient($this->lawyer_id ? $this->lawyerUser : null, $this->lawyer, '—') : $this->lawyer,
+            'lawyer' => $viewer?->isClient() ? $this->lawyerForClient() : $this->lawyer,
             'day' => $this->dayLabel(),
             'time' => $this->timeLabel(),
             'place' => $this->place,

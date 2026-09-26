@@ -4,8 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Appointment;
 use App\Support\AppointmentCardPdf;
-use App\Support\LawyerName;
+use App\Support\DocumentVerification;
 use App\Support\PdfRenderer;
+use App\Support\Qr;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Spatie\Browsershot\Browsershot;
@@ -44,18 +45,8 @@ class AppointmentController extends Controller
      */
     public function card(Request $request, Appointment $appointment): Response
     {
+        $this->guardCard($request, $appointment);
         $user = $request->user();
-        abort_unless(
-            $appointment->user_id === $user->id ||
-            $appointment->lawyer_id === $user->id ||
-            $user->isAdmin() ||
-            $user->isEmployee() ||
-            $user->isLawyer(),
-            403
-        );
-
-        // لم تعتمده الإدارة بعد — لا بطاقةَ لموعدٍ لم يُرسَل للعميل
-        abort_if($user->isClient() && $appointment->status === 'بانتظار الاعتماد', 404);
 
         $remote = $appointment->type === 'استشارة مرئية'
             || str_contains((string) $appointment->place, 'إلكتروني')
@@ -73,14 +64,48 @@ class AppointmentController extends Controller
             'time' => $appointment->timeLabel(),
             'place' => $place,
             'client' => $appointment->user?->name ?: '—',
-            'lawyer' => $user->isClient() ? LawyerName::forClient($appointment->lawyer_id ? $appointment->lawyerUser : null, $appointment->lawyer, '—') : ($appointment->lawyer ?: '—'),
+            'lawyer' => $user->isClient() ? $appointment->lawyerForClient() : ($appointment->lawyer ?: '—'),
             'consultRef' => $consult?->ref ?: '—',
             'address' => $address,
             'paid' => $paid,
             'payLabel' => $paid ? 'مدفوع' : 'بانتظار السداد',
-            'qrSeed' => $appointment->ext_id,
+            'qr' => DocumentVerification::url(DocumentVerification::APPOINTMENT, (string) $appointment->ext_id),
         ]);
 
         return PdfRenderer::render($html, $appointment->ext_id.'.pdf');
+    }
+
+    /**
+     * رمز التحقّق نفسه الذي على البطاقة المطبوعة — تعرضه بطاقة الشاشة (`appointments.tsx`) صورةً.
+     * يُولَّد في الخادم بالمولّد الوحيد بدل مكتبة واجهة ثانية، وبحارس البطاقة نفسه: من لا يُنزّل
+     * البطاقة لا يحصل على رابطها الموقَّع.
+     */
+    public function qr(Request $request, Appointment $appointment): Response
+    {
+        $this->guardCard($request, $appointment);
+
+        $url = DocumentVerification::url(DocumentVerification::APPOINTMENT, (string) $appointment->ext_id);
+
+        return response(Qr::svg($url, 160, 'رمز التحقّق من بطاقة الموعد'), 200, [
+            'Content-Type' => 'image/svg+xml; charset=utf-8',
+            'Cache-Control' => 'private, max-age=300',
+        ]);
+    }
+
+    /** من يحقّ له البطاقة: صاحب الموعد ومحاميه والطاقم — والعميل بعد اعتماد الإدارة فقط. */
+    private function guardCard(Request $request, Appointment $appointment): void
+    {
+        $user = $request->user();
+        abort_unless(
+            $appointment->user_id === $user->id ||
+            $appointment->lawyer_id === $user->id ||
+            $user->isAdmin() ||
+            $user->isEmployee() ||
+            $user->isLawyer(),
+            403
+        );
+
+        // لم تعتمده الإدارة بعد — لا بطاقةَ لموعدٍ لم يُرسَل للعميل
+        abort_if($user->isClient() && $appointment->status === 'بانتظار الاعتماد', 404);
     }
 }

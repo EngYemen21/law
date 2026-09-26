@@ -75,6 +75,6 @@ class InvoicePdfTest extends TestCase
             'due_label' => '2026-08-30',
         ]);
 
-        $this->actingAs($intruder)->get(route('invoices.pdf', $invoice))->assertForbidden();
+        $this->assertPageRefused($this->actingAs($intruder)->get(route('invoices.pdf', $invoice)));
     }
 }

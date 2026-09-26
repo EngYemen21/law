@@ -2,6 +2,7 @@
 
 namespace App\Services\Ai;
 
+use App\Support\ArabicCount;
 use App\Support\LegalCatalogue;
 
 /**
@@ -166,6 +167,77 @@ final class AiConfidence
         $score += $signals['subject_present'] ? 15 : 0;
 
         return ['score' => self::clamp($score), 'signals' => $signals];
+    }
+
+    /**
+     * **أسماء الإشارات بجوار تعريفها** — ما يقرؤه المراجع تحت درجة الثقة.
+     *
+     * كانت الواجهة تحمل خريطةً مفاتيحها مخمَّنة (`has_defendant`، `summary_length`…) لا يطابق
+     * أيٌّ منها ما يكتبه هذا الصنف فعلاً، فتظهر الإشارات كلّها برموزها الإنجليزيّة. والآن إشارةٌ
+     * تُضاف أعلاه بلا اسمٍ هنا تُسقط `AiSignalLabelsTest` — لا تصل الشاشة رمزاً.
+     */
+    public const SIGNAL_LABELS = [
+        'documents_attached' => 'أُرفقت مستندات بالطلب',
+        'documents_total' => 'المستندات المرفقة',
+        'documents_readable' => 'مستندات أمكن قراءة نصّها',
+        'readable_ratio' => 'نسبة المستندات المقروءة',
+        'defendant_present' => 'ذُكر المنفَّذ ضدّه',
+        'sanad_present' => 'ذُكر السند التنفيذيّ',
+        'amount_present' => 'ذُكر مبلغ المطالبة',
+        'summary_substantial' => 'الملخّص وافٍ لا مقتضب',
+        'department_in_catalogue' => 'القسم من كتالوج المكتب',
+        'client_chose_department' => 'اختار العميل قسماً',
+        'agrees_with_client' => 'القسم يوافق اختيار العميل',
+        'details_length' => 'طول وصف الطلب',
+        'details_substantial' => 'وصف الطلب كافٍ للحكم',
+        'ticket_type_present' => 'نوع الطلب محدَّد',
+        'lawyer_from_roster' => 'المحامي المقترح من قائمة المكتب',
+        'roster_available' => 'قائمة المحامين متاحة للتحليل',
+        'summary_sections_found' => 'أقسام الملخّص المطلوبة',
+        'summary_sections_expected' => 'أقسام الملخّص المتوقَّعة',
+        'class_well_formed' => 'تصنيف الاستشارة بصيغة سليمة',
+        'subject_present' => 'موضوع الاستشارة محدَّد',
+    ];
+
+    /**
+     * الإشارات المخزَّنة جاهزةً للعرض: `{key, label, ok}` بالعربيّة — الواجهة تعرض ولا تترجم.
+     *
+     * الرقميّة تُكتب بقيمتها («المستندات المرفقة: 3»)، والنسبة مئويّة، وعددُ الأقسام يُدمج مع
+     * متوقَّعه في سطرٍ واحد («2 من 3») بدل سطرين لا يُفهم أحدهما بلا الآخر.
+     *
+     * @param  array<string,mixed>|null  $signals
+     * @return list<array{key:string,label:string,ok:bool}>
+     */
+    public static function describe(?array $signals): array
+    {
+        if ($signals === null || $signals === []) {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($signals as $key => $value) {
+            if ($key === 'summary_sections_expected') {
+                continue; // يُعرض مع «الموجودة» في سطرها
+            }
+
+            $name = self::SIGNAL_LABELS[$key] ?? 'إشارة غير مسمّاة';
+
+            [$label, $ok] = match (true) {
+                $key === 'summary_sections_found' => [
+                    "{$name}: {$value} من ".($signals['summary_sections_expected'] ?? '—'),
+                    (int) $value > 0 && (int) $value === (int) ($signals['summary_sections_expected'] ?? -1),
+                ],
+                $key === 'readable_ratio' => [$name.': '.round(((float) $value) * 100).'%', (float) $value >= 1.0],
+                $key === 'details_length' => [$name.': '.ArabicCount::of((int) $value, 'حرف واحد', 'حرفان', 'أحرف', 'حرفاً', 'حرف'), (bool) ($signals['details_substantial'] ?? false)],
+                is_bool($value) => [$name, $value],
+                is_numeric($value) => ["{$name}: {$value}", (float) $value > 0],
+                default => [$name, (bool) $value],
+            };
+
+            $rows[] = ['key' => (string) $key, 'label' => $label, 'ok' => $ok];
+        }
+
+        return $rows;
     }
 
     private static function clamp(int $score): int

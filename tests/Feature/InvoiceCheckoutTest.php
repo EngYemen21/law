@@ -97,7 +97,7 @@ class InvoiceCheckoutTest extends TestCase
         $intruder = User::factory()->create(['role' => Role::Client]);
         $invoice = $this->pendingInvoice($owner);
 
-        $this->actingAs($intruder)->get(route('invoices.checkout.callback', $invoice).'?id=pay_1')->assertForbidden();
+        $this->assertPageRefused($this->actingAs($intruder)->get(route('invoices.checkout.callback', $invoice).'?id=pay_1'));
     }
 
     public function test_client_downloads_real_pdf_invoice(): void
@@ -119,6 +119,6 @@ class InvoiceCheckoutTest extends TestCase
         $intruder = User::factory()->create(['role' => Role::Client]);
         $invoice = $this->pendingInvoice($owner);
 
-        $this->actingAs($intruder)->get(route('invoices.pdf', $invoice))->assertForbidden();
+        $this->assertPageRefused($this->actingAs($intruder)->get(route('invoices.pdf', $invoice)));
     }
 }

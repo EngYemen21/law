@@ -11,26 +11,27 @@ use Illuminate\Console\Command;
 
 /**
  * حسم الاستشارات الفائتة آلياً — تثبيت للقاعدة لا مصدرًا للعرض (isMissed يعرضها فوراً بلا cron):
- * «بانتظار الجلسة» التي مضى على موعدها مهلةُ الإعدادات (12 ساعة افتراضاً) دون انعقاد ⇒ «لم تُعقد»/«لم يحضر» + بثّ وإشعار.
+ * «بانتظار الجلسة» التي مضى على موعدها مهلةُ الإعدادات (`consult_autoclose_minutes` — 12 ساعة افتراضاً) دون انعقاد ⇒ «لم تُعقد»/«لم يحضر» + بثّ وإشعار.
  * كانت الفجوة الأكبر: أمر الاجتماعات يحسم اجتماعاته ولا أحد يحسم الاستشارات فتتراكم عالقة.
  */
 class AutoCloseMissedConsults extends Command
 {
-    // المهلة معاملٌ افتراضه من الإعدادات — كانت 12 منقوشة هنا، فتغييرها يحتاج نشرَ كود
-    protected $signature = 'consults:auto-close-missed {--hours= : المهلة بالساعات بعد الموعد (الافتراض من الإعدادات)}';
+    // المهلة معاملٌ افتراضه من الإعدادات — كانت 12 منقوشة هنا، فتغييرها يحتاج نشرَ كود.
+    // وبالدقائق كإعدادها (قرار المالك 2026-09-26) — وحدةٌ واحدة لا تحويلٌ بين المعامل والإعداد.
+    protected $signature = 'consults:auto-close-missed {--minutes= : المهلة بالدقائق بعد الموعد (الافتراض من الإعدادات)}';
 
     protected $description = 'وسم الاستشارات التي فات موعدها دون انعقاد «لم يحضر» تلقائياً';
 
     public function handle(): int
     {
-        $option = $this->option('hours');
-        $hours = max(1, $option === null || $option === '' ? SettingsRegistry::int('consult_autoclose_hours') : (int) $option);
+        $option = $this->option('minutes');
+        $minutes = max(1, $option === null || $option === '' ? SettingsRegistry::int('consult_autoclose_minutes') : (int) $option);
 
         $count = 0;
         $missed = Consult::where('session', 'بانتظار الجلسة')
             ->where('status', '!=', 'ملغاة')
             ->whereNotNull('starts_at')
-            ->where('starts_at', '<=', now()->subHours($hours))
+            ->where('starts_at', '<=', now()->subMinutes($minutes))
             ->get();
 
         foreach ($missed as $consult) {

@@ -6,6 +6,7 @@ use App\Models\CaseHearing;
 use App\Models\Consult;
 use App\Models\Meeting;
 use App\Services\ZoomService;
+use App\Support\SessionWindow;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Log;
@@ -15,7 +16,7 @@ use Illuminate\Support\Facades\Log;
  *
  * لموعدٍ يتحرّك أربعةُ لوازم، وكلٌّ منها كان متروكاً لتذكّر كاتب المسار:
  *
- * 1. **مزامنة Zoom** بالوقت **والمدّة** الفعليّين.
+ * 1. **مزامنة Zoom** بالوقت الجديد (والمدّة الاسميّة التي يشترطها Zoom).
  * 2. **تصفير `link_released_at`** (الاستشارات) — وإلّا أُقصي الصفّ من
  *    `zoom:release-links` إلى الأبد، فيبقى زرّ الدخول محكوماً بختمٍ بائت ولا يصل
  *    بريد «الرابط جاهز».
@@ -74,19 +75,11 @@ class BookingMoved
         self::rearm($entity);
     }
 
-    /** مدّة الكيان **الحقيقيّة** — لا رقمٌ مثبَّت. */
-    public static function durationOf(Model $entity): int
-    {
-        return match (true) {
-            $entity instanceof Meeting => $entity->durationMinutes() ?: 60,
-            $entity instanceof Consult => (int) ($entity->duration_min ?: 60),
-            default => 60,
-        };
-    }
-
     private static function syncZoom(Model $entity, string $meetId, CarbonInterface $startsAt): void
     {
-        $duration = self::durationOf($entity);
+        // Zoom يشترط `duration` — رقمٌ اسميّ من المصدر الواحد لا يُنهي Zoom الاجتماع به؛ الجلسة
+        // تنتهي حين تُنهى (قرار المالك 2026-09-26). وكانت هنا «مدّة الكيان» تُقرأ من ثلاثة نماذج.
+        $duration = SessionWindow::nominalMinutes();
 
         $ok = app(ZoomService::class)->updateMeeting($meetId, [
             'start_time' => $startsAt->format('Y-m-d\TH:i:s'),

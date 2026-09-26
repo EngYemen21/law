@@ -60,7 +60,7 @@ class ArchiveDownloadHonestyTest extends TestCase
     {
         $code = $this->screen();
 
-        foreach (['a.zip', 'a.audioZip', 'a.transcript'] as $field) {
+        foreach (['a.zip', 'a.audioZip', 'a.transcript', 'drawerItem.zip', 'drawerItem.audioZip', 'drawerItem.transcript'] as $field) {
             $this->assertStringNotContainsString(
                 "href={{$field}}>",
                 $code,
@@ -68,7 +68,9 @@ class ArchiveDownloadHonestyTest extends TestCase
             );
         }
 
-        $this->assertSame(6, substr_count($code, '<MediaButton'), 'ثلاثةُ أزرارٍ في عرضَين');
+        // ثلاثةُ أزرارٍ في كلّ موضع: البطاقات والجدول والشبكة ودرج التفاصيل (تدقيق 2026-09-26 — كانت
+        // الشبكة والدرج روابطَ خامّة تتجاهل الجاهزيّة)
+        $this->assertSame(12, substr_count($code, '<MediaButton'), 'ثلاثةُ أزرارٍ في أربعة مواضع');
         $this->assertStringContainsString('ready={a.videoReady}', $code);
     }
 }
