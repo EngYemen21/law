@@ -141,11 +141,13 @@ function kanbanColumnOf(c: ConsultCard): KanbanCol {
     return 'active_sessions';
   }
 
-  if (['بانتظار التسعير', 'بانتظار السداد'].includes(c.status)) {
+  // مرحلة الحجز من مفتاح الخادم (`bookingStage`) — كانت قائمتان نصّيّتان تُسقطان «بانتظار اعتماد
+  // الموعد» فتقع الاستشارة في «المراجعة» بدل عمود الجدولة
+  if (c.bookingStage === 'pricing' || c.bookingStage === 'payment') {
     return 'pre_session';
   }
 
-  if (['بانتظار تحديد الموعد', 'جديدة'].includes(c.status)) {
+  if (c.bookingStage === 'scheduling' || c.bookingStage === 'approval' || c.status === 'جديدة') {
     return 'scheduling';
   }
 
