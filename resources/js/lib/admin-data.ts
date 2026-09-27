@@ -212,24 +212,6 @@ export const INV_CLIENTS: [string, string][] = [
 export const VAT_NO = '300055512300003';
 export const INV_IBAN = 'SA44 8000 0000 6080 1234 5678';
 
-// ── دوال حساب الفواتير (مطابقة للأصل) ──
-export function invSub(v: Invoice): number { return v.items.reduce((a, i) => a + i.q * i.p, 0); }
-export function invDiscV(v: Invoice): number { return v.disc || 0; }
-export function invNet(v: Invoice): number { return invSub(v) - invDiscV(v); }
-export function invVatV(v: Invoice): number {
-  const r = typeof v.vat === 'number' ? v.vat : 0.15;
-  return Math.round(invNet(v) * r);
-}
-export function invTotal(v: Invoice): number { return invNet(v) + invVatV(v); }
-export function invPaidAmt(v: Invoice): number {
-  return v.status === 'مدفوعة' ? invTotal(v) : v.status === 'جزئية' ? v.part || 0 : 0;
-}
-export function invDueAmt(v: Invoice): number { return invTotal(v) - invPaidAmt(v); }
-export function invTone(s: string): string {
-  return s === 'مدفوعة' ? 'b-green' : s === 'متأخرة' ? 'b-red' : s === 'جزئية' ? 'b-amber' : 'b-grey';
-}
-export function fmtSAR(n: number): string { return Math.round(n).toLocaleString('en-US') + ' ر.س'; }
-
 // ── دوال مساعدة عامة ──
 export function relTime(ts: number): string {
   if (!ts) return 'الآن';
