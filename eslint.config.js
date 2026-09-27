@@ -106,6 +106,18 @@ export default [
         },
     },
     {
+        // سكربتات Node (مصيّر الـPDF وأدوات scripts/) — لا متصفّح فيها: `require` و`process` معرّفان
+        files: ['**/*.cjs', '**/*.mjs', 'scripts/**', 'app/Support/bin/**'],
+        languageOptions: {
+            globals: {
+                ...globals.node,
+            },
+        },
+        rules: {
+            '@typescript-eslint/no-require-imports': 'off',
+        },
+    },
+    {
         ignores: [
             'vendor',
             'node_modules',

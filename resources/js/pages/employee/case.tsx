@@ -1,4 +1,4 @@
-import { Link, router } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '@/lib/icons';

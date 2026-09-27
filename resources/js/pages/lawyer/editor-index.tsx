@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
-import { useToast } from '@/components/babylon/Toast';
 import { LEGAL_TEMPLATES } from '@/lib/editor-templates';
 
 // ============================================================================

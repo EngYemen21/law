@@ -15,7 +15,9 @@ for (const candidate of candidates) {
     try {
         puppet = require(candidate);
         if (puppet) break;
-    } catch (e) {}
+    } catch {
+        // غير مثبّت في هذا المسار — يُجرَّب المرشّح التالي
+    }
 }
 
 if (!puppet) {

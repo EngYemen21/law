@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-import Badge from '@/components/babylon/Badge';
 import { UnifiedCalendar, type UnifiedCalendarItem } from '@/components/babylon/UnifiedCalendar';
 import { type CalendarEvent } from '@/lib/calendar-ui';
 import { hearingTone } from '@/lib/case-ui';
