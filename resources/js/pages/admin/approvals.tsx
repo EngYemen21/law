@@ -37,6 +37,8 @@ export interface TicketTrackProposalRow {
     clientPhone?: string;
     proposedTrack: string;
     proposedTrackLabel: string;
+    /** `TicketOutcomeTrack::tone()` من الخادم. */
+    proposedTrackTone: string;
     proposedTrackReason: string;
     proposedBy: string;
     proposedByRole?: string;
@@ -344,21 +346,6 @@ const AdminApprovals: React.FC<Props> = ({
                 (h.type && h.type.toLowerCase().includes(q)),
         );
     }, [approvedHistory, q]);
-
-    // نغمة مسار المآل
-    const trackTone = (track: string): 'b-amber' | 'b-green' | 'b-blue' | 'b-grey' => {
-        switch (track) {
-            case 'case':
-                return 'b-green';
-            case 'execution':
-                return 'b-blue';
-            case 'close':
-                return 'b-grey';
-            case 'consultation':
-            default:
-                return 'b-amber';
-        }
-    };
 
     // رابط العرض الكامل لكل فئة
     const getFullLink = (item: any, category: ItemCategory): string => {
@@ -802,7 +789,7 @@ const AdminApprovals: React.FC<Props> = ({
                                                 </td>
 
                                                 <td style={{ padding: '12px 14px' }}>
-                                                    <Badge text={p.proposedTrackLabel} tone={trackTone(p.proposedTrack)} />
+                                                    <Badge text={p.proposedTrackLabel} tone={p.proposedTrackTone} />
                                                 </td>
 
                                                 <td style={{ padding: '12px 14px' }}>

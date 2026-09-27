@@ -76,6 +76,8 @@ class ApprovalsController extends Controller
                 'clientPhone' => $t->user?->phone ?? '—',
                 'proposedTrack' => $t->proposed_track,
                 'proposedTrackLabel' => TicketOutcomeTrack::tryFrom((string) $t->proposed_track)?->label() ?? $t->proposed_track,
+                // لون المسار من الـEnum نفسه (`TicketOutcomeTrack::tone`) — كانت الشاشة تقلب التنفيذ والاستشارة
+                'proposedTrackTone' => TicketOutcomeTrack::tryFrom((string) $t->proposed_track)?->tone() ?? 'b-grey',
                 'proposedTrackReason' => $t->proposed_track_reason,
                 'proposedBy' => $t->proposedBy?->name ?? '—',
                 'proposedByRole' => $t->proposedBy?->role?->label() ?? 'مسؤول',
