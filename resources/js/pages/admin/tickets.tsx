@@ -6,7 +6,8 @@ import Badge from '@/components/babylon/Badge';
 import { TICKET_PRIORITIES, isUrgentTicket } from '@/lib/employee-data';
 import { truncateWords } from '@/lib/utils';
 
-interface EmpTicket {
+/** صفّ قائمة التذاكر للإدارة — `Admin\TicketController::listRow` (حمولةٌ خفيفة، لا `toEmployeeCard`). */
+interface AdminTicketRow {
   no: string;
   client: string;
   clientId?: number;
@@ -33,7 +34,7 @@ interface FilterParams {
 }
 
 interface Props {
-  tickets: Paginated<EmpTicket>;
+  tickets: Paginated<AdminTicketRow>;
   filters?: FilterParams;
   departments?: string[];
   lawyers?: { id: number; name: string }[];
