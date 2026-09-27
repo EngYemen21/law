@@ -174,7 +174,8 @@ class MeetingController extends Controller
 
         $meeting = Meeting::create([
             'user_id' => $client?->id,
-            'ref' => 'M-'.now()->format('y').random_int(100, 999),
+            // المولّد الموحّد يفحص التكرار — كان ٩٠٠ رقمٍ في السنة بلا فحصٍ على عمودٍ فريد فيفشل الإنشاء
+            'ref' => ReferenceNumber::next(Meeting::class, 'ref', 'M'),
             'title' => $data['title'],
             'type' => $data['type'],
             'client_name' => $client?->name ?: 'داخلي',

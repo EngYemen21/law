@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\LegalAiService;
 use App\Support\AppointmentCard;
 use App\Support\ConsultBooking;
+use App\Support\ReferenceNumber;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -115,7 +116,7 @@ final class PublishAppointment extends Transition
         if ($appointment !== null) {
             $appointment->update($values);
         } else {
-            $appointment = Appointment::create($values + ['ext_id' => 'AP-'.now()->format('y').'-'.random_int(1000, 9999)]);
+            $appointment = Appointment::create($values + ['ext_id' => ReferenceNumber::next(Appointment::class, 'ext_id', 'AP')]);
         }
 
         $zoom = is_array($payload['zoom'] ?? null) ? $payload['zoom'] : null;

@@ -63,7 +63,8 @@ class MeetInvitation
         } else {
             $meeting = Meeting::create([
                 'user_id' => $req->user_id,
-                'ref' => 'M-'.now()->format('y').random_int(100, 999),
+                // المولّد الموحّد يفحص التكرار — كان ٩٠٠ رقمٍ في السنة بلا فحصٍ على عمودٍ فريد فيفشل الإنشاء
+                'ref' => ReferenceNumber::next(Meeting::class, 'ref', 'M'),
                 'title' => "{$req->type} — {$req->service}",
                 'type' => 'اجتماع مع عميل',
                 'client_name' => $client->name,

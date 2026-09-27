@@ -10,6 +10,7 @@ use App\Models\Appointment;
 use App\Models\Consult;
 use App\Models\User;
 use App\Support\ConsultBooking;
+use App\Support\ReferenceNumber;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -61,7 +62,8 @@ final class ProposeAppointment extends Transition
         $this->appointment = Appointment::create([
             'user_id' => $entity->user_id,
             'ticket_id' => $entity->ticket_id,
-            'ext_id' => 'AP-'.now()->format('y').'-'.random_int(1000, 9999),
+            // مفتاح المسار (`Appointment::getRouteKeyName`) — المولّد الموحّد يمنع رقمين لموعدين فيُفتح غير المقصود
+            'ext_id' => ReferenceNumber::next(Appointment::class, 'ext_id', 'AP'),
             'type' => 'استشارة '.$meta['label'],
             'ico' => $meta['ico'],
             'lawyer' => (string) $payload['lawyer'],

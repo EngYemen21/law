@@ -25,6 +25,7 @@ use App\Support\LawyerAvailability;
 use App\Support\LegalCatalogue;
 use App\Support\Live;
 use App\Support\Notify;
+use App\Support\ReferenceNumber;
 use App\Support\TicketAssignment;
 use App\Support\TicketJourney;
 use App\Support\TicketTriage;
@@ -117,10 +118,8 @@ class TicketController extends Controller
         $data['type'] = $service !== null ? $service->name : $data['type'];
 
         $details = trim($data['details'] ?? '') ?: ('طلب جديد بخصوص: '.$data['type']);
-        $year = now()->year;
-        do {
-            $number = "SB-{$year}-".random_int(1000, 9999);
-        } while (Ticket::where('number', $number)->exists());
+        // المولّد الموحّد (بالشكل نفسه SB-YYYY-NNNN) — كانت حلقةٌ هنا تكرّر منطقه بلا سقف
+        $number = ReferenceNumber::next(Ticket::class, 'number', 'SB');
 
         // ميلاد التذكرة أوّل سطرٍ في رحلتها — يُفتح بالمحرّك بحالته الأولى وباسم العميل الفاتح
         $ticket = Workflow::open('ticket.opened', fn () => $request->user()->tickets()->create([
