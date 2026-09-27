@@ -29,7 +29,7 @@ class AdminConsultDrawerActionsTest extends TestCase
 
         return Consult::create(array_merge([
             'user_id' => $client->id,
-            'ref' => 'CN-DRW-'.random_int(100, 999),
+            'ref' => 'CN-DRW-'.uniqid(),
             'subject' => 'نزاع تجاري',
             'type' => 'استشارة',
             'channel' => 'مرئية',
@@ -216,11 +216,10 @@ class AdminConsultDrawerActionsTest extends TestCase
         $this->assertStringContainsString('drawerConsult.summaryApproved ? (', $ui);
         $this->assertStringContainsString('drawerConsult.tasksCreated ? (', $ui);
 
-        // والرفض يُسمَع في كليهما
-        $this->assertSame(
-            2,
-            substr_count($ui, "onError: (err) => toast(`⚠️ \${Object.values(err)[0] || 'تعذّر"),
-            'كلا الفعلين الجديدين يعرض سبب الرفض'
-        );
+        // والرفض يُسمَع في كليهما — عبر القفل الموحّد (`useServerAction`) الذي يعرض سبب الخادم
+        // (`firstError`) أو نصّ `fallback` لكلّ فعل
+        $this->assertStringContainsString("fallback: 'تعذّر اعتماد الملخّص'", $ui, 'اعتماد الملخّص بلا رسالة رفض');
+        $this->assertStringContainsString("fallback: 'تعذّر إنشاء المهامّ'", $ui, 'إنشاء المهامّ بلا رسالة رفض');
+        $this->assertStringContainsString('const { run, busy: isProcessingAction } = useServerAction();', $ui);
     }
 }

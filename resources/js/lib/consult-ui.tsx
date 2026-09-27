@@ -1,7 +1,7 @@
 import { Link, router } from '@inertiajs/react';
 import React, { useEffect, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
-import { useConfirm, usePrompt } from '@/components/babylon/ConfirmDialog';
+import { usePrompt } from '@/components/babylon/ConfirmDialog';
 import type { ConfirmRequest } from '@/components/babylon/ConfirmDialog';
 import Modal from '@/components/babylon/Modal';
 import StatRow from '@/components/babylon/StatRow';
@@ -19,6 +19,7 @@ import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
 import { consultMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
 import type { SessionMedia } from '@/lib/recording-ui';
+import { useServerAction } from '@/lib/use-server-action';
 
 // ============================================================
 // واجهة الاستشارات المشتركة (سجلّ Consult الحقيقي من الخادم)
@@ -44,6 +45,34 @@ export const CONFIRM_CANCEL_CONSULT_REQUEST: ConfirmRequest = {
   confirmLabel: 'إلغاء الطلب',
   cancelLabel: 'تراجع',
   tone: 'danger',
+};
+
+/**
+ * **«لم يحضر» — نصٌّ واحد لكلّ شاشة** (قرار المالك 2026-09-27). يُشعر العميل ويُغلق الموعد
+ * بلا جلسة؛ كان في صفحة المحامي وحدها، والشاشات الأخرى تُرسله بنقرة.
+ */
+export const CONFIRM_NO_SHOW: ConfirmRequest = {
+  title: 'تسجيل عدم حضور العميل؟',
+  message: 'تُسجَّل الجلسة غيابَ موكّل ويُشعَر بذلك — راجع غرفة الاجتماع قبل التأكيد.',
+  confirmLabel: 'تسجيل الغياب',
+  cancelLabel: 'تراجع',
+  tone: 'danger',
+};
+
+/** بدء الجلسة — يُشعر العميل ويبدأ توقيتها (قرار المالك 2026-09-27). */
+export const CONFIRM_START_CONSULT: ConfirmRequest = {
+  title: 'بدء الجلسة الآن؟',
+  message: 'تبدأ الجلسة ويُبلَّغ العميل ويُحتسب وقتها من الآن.',
+  confirmLabel: 'بدء الجلسة',
+  cancelLabel: 'تراجع',
+};
+
+/** اعتماد الإدارة ملخّصَ الاستشارة — يصل العميلَ وتكتمل تذكرته، ولا يُعدَّل بعده. */
+export const CONFIRM_APPROVE_CONSULT_SUMMARY: ConfirmRequest = {
+  title: 'اعتماد الملخّص وإرساله للعميل؟',
+  message: 'يصل الملخّص العميلَ وتُنشر نتيجة تذكرته. لا يُعدَّل الملخّص بعد اعتماده.',
+  confirmLabel: 'اعتماد وإرسال',
+  cancelLabel: 'تراجع',
 };
 
 // نصّ قرار آمن للعرض — القرارات نصوص عادةً، لكن بيانات قديمة قد تحمل كائن مهمّة {title,...}
@@ -720,7 +749,6 @@ export const SummaryModal: React.FC<{
 export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }> = ({ consults, base }) => {
   const rescheduleFlow = useConsultReschedule(base);
   const toast = useToast();
-  const ask = useConfirm();
   const [filter, setFilter] = useState('all');
   const [summaryOf, setSummaryOf] = useState<ConsultCard | null>(null);
   const [items, setItems] = useState<ConsultCard[]>(consults);
@@ -781,19 +809,17 @@ counts[c.channel]++;
     ['t-red', 'clock', missedCount, 'فائتة'],
   ];
 
+  // قفلٌ موحّد لأفعال الجلسة: بدء · إنهاء · لم يحضر (`useServerAction`)
+  const action = useServerAction();
+
   // يطابق crStart — بدء الجلسة (يبثّ للعميل لحظياً)
   const start = (c: ConsultCard) => {
     const msg = c.channel === 'مرئية' ? 'تم بدء الجلسة المرئية مع العميل'
       : c.channel === 'هاتفية' ? 'تم بدء المكالمة الهاتفية مع العميل'
       : 'تم تسجيل وصول العميل وبدء الجلسة الحضورية';
-    router.post(`${base}/consults/${c.id}/start`, {}, {
-      preserveScroll: true,
-      onSuccess: () => toast(msg),
-      // **كان بلا `onError`.** ومنذ صار الخادم يرفض البدء خارج النافذة، كان زرّا
-      // «بدء المكالمة» و«تسجيل وصول العميل» يفشلان بصمتٍ تامّ: لا جلسة، ولا توست،
-      // ولا رسالة. ونظيرُه في `enterRoom` أدناه كان معالَجاً — أُصلح مسارٌ وتُرك
-      // نظيرُه في الملفّ نفسه.
-      onError: (errors) => toast(Object.values(errors)[0] || 'تعذّر بدء الجلسة'),
+    // الرفض (خارج نافذة البدء) يُعرض بسببه — كان هذا المسار بلا `onError` فيفشل بصمت
+    void action.run(`${base}/consults/${c.id}/start`, {
+      key: c.id, confirm: CONFIRM_START_CONSULT, success: msg, fallback: 'تعذّر بدء الجلسة',
     });
   };
 
@@ -811,21 +837,20 @@ counts[c.channel]++;
       return;
     }
 
-    // تأكيدٌ يقول الأثر قبل الإرسال (قرار المالك 2026-09-26) — الختم لا يُتراجع عنه
-    if (!(await ask(CONFIRM_END_CONSULT))) {
-      return;
-    }
-
     const notes = endNotes.trim();
 
-    router.post(`${base}/consults/${endingOf.id}/end`, { notes }, {
-      preserveScroll: true,
+    // تأكيدٌ يقول الأثر قبل الإرسال (قرار المالك 2026-09-26) — الختم لا يُتراجع عنه
+    await action.run(`${base}/consults/${endingOf.id}/end`, {
+      data: { notes },
+      key: endingOf.id,
+      confirm: CONFIRM_END_CONSULT,
+      success: notes === ''
+        ? 'خُتمت الجلسة بلا تدوين — لا ملخّص حتّى تُدوّن ما دار فيها'
+        : 'خُتمت الجلسة وحُفظ تدوينك — يُعدّ الملخّص لاعتمادك',
+      fallback: 'تعذّر إنهاء الجلسة',
       onSuccess: () => {
         setEndingOf(null);
         setEndNotes('');
-        toast(notes === ''
-          ? 'خُتمت الجلسة بلا تدوين — لا ملخّص حتّى تُدوّن ما دار فيها'
-          : 'خُتمت الجلسة وحُفظ تدوينك — يُعدّ الملخّص لاعتمادك');
       },
     });
   };
@@ -836,11 +861,10 @@ counts[c.channel]++;
     const room = `${base}/videoroom?ref=${encodeURIComponent(c.ref)}`;
 
     if (c.session === 'بانتظار الجلسة') {
-      router.post(`${base}/consults/${c.id}/start`, {}, {
-        preserveScroll: true,
+      // سبب الرفض من الخادم: «فات الموعد» و«قبل الموعد بربع ساعة» فعلان مختلفان.
+      void action.run(`${base}/consults/${c.id}/start`, {
+        key: c.id, confirm: CONFIRM_START_CONSULT, fallback: 'تعذّر بدء الجلسة',
         onSuccess: () => router.visit(room),
-        // سبب الرفض من الخادم: «فات الموعد» و«قبل الموعد بربع ساعة» فعلان مختلفان.
-        onError: (errors) => toast(Object.values(errors)[0] || 'تعذّر بدء الجلسة'),
       });
 
       return;
@@ -850,13 +874,10 @@ counts[c.channel]++;
   };
 
   // وسم «لم يحضر» لاستشارة فائتة — كانت الحيلة الوحيدة (بدء+إنهاء فوري) تزوّر السجل جلسةً منعقدة
-  const markNoShow = (c: ConsultCard) => {
-    router.post(`${base}/consults/${c.id}/no-show`, {}, {
-      preserveScroll: true,
-      onSuccess: () => toast('وُسمت الاستشارة «لم يحضر» وأُشعر العميل'),
-      onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر الوسم'}`),
+  const markNoShow = (c: ConsultCard) =>
+    action.run(`${base}/consults/${c.id}/no-show`, {
+      key: c.id, confirm: CONFIRM_NO_SHOW, success: 'وُسمت الاستشارة «لم يحضر» وأُشعر العميل', fallback: 'تعذّر الوسم',
     });
-  };
 
   // كانت تُرسل الطلب **بلا تأكيد**: ضغطةٌ واحدة تُلغي الموعد واجتماع Zoom. صارت من مسارها الواحد.
   const reschedule = (c: ConsultCard) => rescheduleFlow.open(c);
@@ -931,7 +952,7 @@ void navigator.clipboard.writeText(c.slink);
                     <>
                       <Badge text="فائتة — لم تنعقد" tone="b-red" />
                       {c.canMarkNoShow && (
-                        <button className="btn soft sm" onClick={() => markNoShow(c)} type="button">
+                        <button className="btn soft sm" onClick={() => markNoShow(c)} disabled={action.busyKey === c.id} type="button">
                           <Icon name="clock" /> لم يحضر
                         </button>
                       )}
@@ -963,7 +984,7 @@ void navigator.clipboard.writeText(c.slink);
                       </>
                     ) : c.channel === 'مرئية' ? (
                       <>
-                        <button className="btn sm" onClick={() => enterRoom(c)} type="button">
+                        <button className="btn sm" onClick={() => enterRoom(c)} disabled={action.busyKey === c.id} type="button">
                           <Icon name="video" /> بدء ودخول جلسة Zoom
                         </button>
                         <button className="btn soft sm" onClick={() => copyLink(c)} type="button">
@@ -971,11 +992,11 @@ void navigator.clipboard.writeText(c.slink);
                         </button>
                       </>
                     ) : c.channel === 'هاتفية' ? (
-                      <button className="btn sm" onClick={() => start(c)} type="button">
+                      <button className="btn sm" onClick={() => start(c)} disabled={action.busyKey === c.id} type="button">
                         <Icon name="phone" /> بدء المكالمة
                       </button>
                     ) : (
-                      <button className="btn sm" onClick={() => start(c)} type="button">
+                      <button className="btn sm" onClick={() => start(c)} disabled={action.busyKey === c.id} type="button">
                         <Icon name="check" /> تسجيل وصول العميل
                       </button>
                     )
@@ -1045,10 +1066,10 @@ void navigator.clipboard.writeText(c.slink);
           <Icon name="info" /> الملخّص يُبنى على تدوينك وحده — وبلا تدوين لا يُكتب شيء، لأنّ ما يُكتب من عنوان الموضوع وحده محضرٌ مختلَق.
         </p>
         <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
-          <button className="btn" onClick={end} disabled={endNotes.trim() === ''} type="button">
+          <button className="btn" onClick={end} disabled={action.busy || endNotes.trim() === ''} type="button">
             <Icon name="doc" /> إنهاء وحفظ التدوين
           </button>
-          <button className="btn soft" onClick={end} type="button">
+          <button className="btn soft" onClick={end} disabled={action.busy} type="button">
             <Icon name="check" /> إنهاء بلا تدوين
           </button>
         </div>
@@ -1065,37 +1086,6 @@ void navigator.clipboard.writeText(c.slink);
 // ============================================================
 // إدارة الاستشارات — قائمة الرحلة (يطابق emConsultsView + cKPIs)
 // ============================================================
-
-// إجراء تسعير الاستشارة (الإدارة العليا) — يُصدر الفاتورة وينقلها إلى «بانتظار السداد»
-export const PricingAction: React.FC<{ c: ConsultCard; base: string; toast: (m: string) => void }> = ({ c, base, toast }) => {
-  const [price, setPrice] = useState<string>(String(c.price ?? ''));
-  const [busy, setBusy] = useState(false);
-
-  const save = () => {
-    const val = parseInt(price, 10);
-
-    if (Number.isNaN(val) || val < 0) {
- toast('أدخل سعراً صحيحاً');
-
- return; 
-}
-
-    setBusy(true);
-    router.post(`${base}/consults/${c.id}/price`, { price: val }, {
-      preserveScroll: true, onSuccess: () => toast('تم تحديد السعر وإصدار الفاتورة'), onFinish: () => setBusy(false),
-    });
-  };
-
-  return (
-    <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-      <input className="input" style={{ width: 96 }} type="number" min={0} value={price}
-        onChange={(e) => setPrice(e.target.value)} placeholder="السعر" aria-label="سعر الاستشارة" />
-      <button className="btn sm" type="button" disabled={busy} onClick={save}>
-        <Icon name="card" /> تحديد السعر
-      </button>
-    </div>
-  );
-};
 
 /*
  * **حُذف `ConsultsListPage`.**

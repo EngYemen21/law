@@ -1,6 +1,7 @@
 import React from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
+import type { ConfirmRequest } from '@/components/babylon/ConfirmDialog';
 import MsgMeta from '@/components/babylon/MsgMeta';
 import { type Message } from '@/lib/chat';
 
@@ -42,6 +43,15 @@ export interface Hearing {
  * حدود «المدّة المتوقّعة» في نماذج الجلسة — مرآة `CaseHearing::DURATION_MIN/MAX`. الحارس الخادم
  * (`CaseHearing::durationRule`)؛ وهذه تُعين المتصفّح على منع الخطأ قبل الإرسال فقط.
  */
+/** أرشفة القضيّة — تُغلق الملفّ نهائياً فيصير للقراءة (قرار المالك 2026-09-27: لا تقع بنقرةٍ عابرة). */
+export const CONFIRM_ARCHIVE_CASE: ConfirmRequest = {
+  title: 'أرشفة ملف القضية؟',
+  message: 'يُنقل الملف إلى الأرشيف فيصير للقراءة فقط: لا جلسات ولا مستندات ولا رسائل جديدة عليه.',
+  confirmLabel: 'أرشفة الملف',
+  cancelLabel: 'تراجع',
+  tone: 'danger',
+};
+
 export const HEARING_DURATION = { min: 5, max: 600 } as const;
 
 /**

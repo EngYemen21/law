@@ -2,11 +2,10 @@ import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
-import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
-import { CONFIRM_CANCEL_CONSULT_REQUEST, RichText, sessTone, SummaryStateBadge } from '@/lib/consult-ui';
+import { CONFIRM_APPROVE_CONSULT_SUMMARY, CONFIRM_CANCEL_CONSULT_REQUEST, RichText, sessTone, SummaryStateBadge } from '@/lib/consult-ui';
 import type {ConsultCard, LawyerOpt} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { useSettings } from '@/lib/settings';
@@ -23,6 +22,7 @@ import {
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { consultMediaUrls, SessionMediaPanel } from '@/lib/recording-ui';
+import { useServerAction } from '@/lib/use-server-action';
 
 /**
  * سببُ تعذّر إعادة الإسناد — أو null إن كانت متاحة.
@@ -164,7 +164,6 @@ export const AdminConsults: React.FC<AdminConsultsProps> = ({
   suggestedPrices = {},
 }) => {
   const toast = useToast();
-  const ask = useConfirm();
   const { consult_request_late_minutes: lateAfterMins } = useSettings();
 
   // State Management
@@ -190,7 +189,8 @@ export const AdminConsults: React.FC<AdminConsultsProps> = ({
   // Inline Controls State for 360° Drawer
   const [drawerLawyerId, setDrawerLawyerId] = useState<number | ''>('');
   const [drawerPrice, setDrawerPrice] = useState<string>('');
-  const [isProcessingAction, setIsProcessingAction] = useState(false);
+  // قفلٌ موحّد لأفعال الدرج والجداول (`useServerAction`) — `isProcessingAction` يعطّل أزرارها
+  const { run, busy: isProcessingAction } = useServerAction();
 
   // Standalone Table Modals State
   const [pricingConsult, setPricingConsult] = useState<ConsultCard | null>(null);
@@ -458,22 +458,11 @@ return false;
       return;
     }
 
-    setIsProcessingAction(true);
-    router.post(
-      `/admin/consults/${consult.id}/refer`,
-      { lawyer_id: lawyerId },
-      {
-        preserveScroll: true,
-        onSuccess: () => {
-          setIsProcessingAction(false);
-          toast('✅ تم تحديث إسناد المحامي وإشعار العميل بنجاح');
-        },
-        onError: (err) => {
-          setIsProcessingAction(false);
-          toast(`⚠️ ${Object.values(err)[0] || 'تعذر تغيير المحامي'}`);
-        },
-      }
-    );
+    void run(`/admin/consults/${consult.id}/refer`, {
+      data: { lawyer_id: lawyerId },
+      success: '✅ تم تحديث إسناد المحامي وإشعار العميل بنجاح',
+      fallback: 'تعذر تغيير المحامي',
+    });
   };
 
   const handleDrawerPricing = (consult: ConsultCard, priceStr: string) => {
@@ -486,22 +475,11 @@ return false;
       return;
     }
 
-    setIsProcessingAction(true);
-    router.post(
-      `/admin/consults/${consult.id}/price`,
-      { price: priceNum },
-      {
-        preserveScroll: true,
-        onSuccess: () => {
-          setIsProcessingAction(false);
-          toast('✅ تم تسعير الاستشارة وإصدار الفاتورة للعميل');
-        },
-        onError: (err) => {
-          setIsProcessingAction(false);
-          toast(`⚠️ ${Object.values(err)[0] || 'تعذر تحديد السعر'}`);
-        },
-      }
-    );
+    void run(`/admin/consults/${consult.id}/price`, {
+      data: { price: priceNum },
+      success: '✅ تم تسعير الاستشارة وإصدار الفاتورة للعميل',
+      fallback: 'تعذر تحديد السعر',
+    });
   };
 
   // Table Modals Handlers
@@ -515,8 +493,8 @@ return false;
     e.preventDefault();
 
     if (!pricingConsult) {
-return;
-}
+      return;
+    }
 
     const priceNum = parseInt(inputPrice, 10);
 
@@ -526,20 +504,12 @@ return;
       return;
     }
 
-    router.post(
-      `/admin/consults/${pricingConsult.id}/price`,
-      { price: priceNum, channel: pricingChannel },
-      {
-        preserveScroll: true,
-        onSuccess: () => {
-          toast('✅ تم تسعير الاستشارة وإصدار الفاتورة للعميل');
-          setPricingConsult(null);
-        },
-        onError: (err) => {
-          toast(`⚠️ ${Object.values(err)[0] || 'تعذر تحديد السعر'}`);
-        },
-      }
-    );
+    void run(`/admin/consults/${pricingConsult.id}/price`, {
+      data: { price: priceNum, channel: pricingChannel },
+      success: '✅ تم تسعير الاستشارة وإصدار الفاتورة للعميل',
+      fallback: 'تعذر تحديد السعر',
+      onSuccess: () => setPricingConsult(null),
+    });
   };
 
   // مُعلَّق: لا زرّ يستدعيه — مودال إعادة التعيين المستقل يتيم (الإسناد يتم من درج 360°).
@@ -573,81 +543,50 @@ return;
     );
   };
 
-  const triggerRemindSchedule = (consult: ConsultCard) => {
-    router.post(
-      `/admin/consults/${consult.id}/remind-schedule`,
-      {},
-      {
-        preserveScroll: true,
-        // التذكير يصل فريق المواعيد لا العميل (الحجز بيد الطاقم — قرار 2026-09-14)، ونصّ النجاح من الخادم
-        onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذر الإرسال'}`),
-      }
-    );
-  };
+  // التذكير يصل فريق المواعيد لا العميل (الحجز بيد الطاقم — قرار 2026-09-14)، ونصّ النجاح من الخادم
+  const triggerRemindSchedule = (consult: ConsultCard) =>
+    run(`/admin/consults/${consult.id}/remind-schedule`, { fallback: 'تعذر الإرسال' });
 
-  const triggerRunAiAnalysis = (consult: ConsultCard) => {
-    router.post(
-      `/admin/consults/${consult.id}/analyze`,
-      {},
-      {
-        preserveScroll: true,
-        // «بنجاح» حكمٌ لا تحمله الاستجابة: المتحكّم يعيد `back()` ولو سقط
-        // إلى الاحتياطيّ. والنتيجة تُقرأ من البطاقة لا من التوست.
-        onSuccess: () => toast('انتهت المعالجة — راجع نتيجتها في بطاقة الاستشارة'),
-        onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذر تشغيل التحليل'}`),
-      }
-    );
-  };
+  // «بنجاح» حكمٌ لا تحمله الاستجابة: المتحكّم يعيد `back()` ولو سقط إلى الاحتياطيّ —
+  // والنتيجة تُقرأ من البطاقة لا من التوست.
+  const triggerRunAiAnalysis = (consult: ConsultCard) =>
+    run(`/admin/consults/${consult.id}/analyze`, {
+      success: 'انتهت المعالجة — راجع نتيجتها في بطاقة الاستشارة',
+      fallback: 'تعذر تشغيل التحليل',
+    });
 
-  const triggerApproveAiAnalysis = (consult: ConsultCard) => {
-    router.post(
-      `/admin/consults/${consult.id}/approve`,
-      {},
-      {
-        preserveScroll: true,
-        // `approveAnalysis` يكتب «جاهزة للمحامي» فقط — **والنقل فعلٌ آخر** (`refer`)
-        // يتطلّب اختيار محامٍ ويُرسل إشعاراً مستقلاً. فقد تبقى «جاهزة» بلا إسنادٍ أبداً.
-        onSuccess: () => toast('✅ اعتُمد التحليل — جاهزة للإحالة إلى محامٍ'),
-        onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذر اعتماد التحليل'}`),
-      }
-    );
-  };
+  // `approveAnalysis` يكتب «جاهزة للمحامي» فقط — **والنقل فعلٌ آخر** (`refer`)
+  const triggerApproveAiAnalysis = (consult: ConsultCard) =>
+    run(`/admin/consults/${consult.id}/approve`, {
+      success: '✅ اعتُمد التحليل — جاهزة للإحالة إلى محامٍ',
+      fallback: 'تعذر اعتماد التحليل',
+    });
 
-  const triggerCancelRequest = async (consult: ConsultCard) => {
+  const triggerCancelRequest = (consult: ConsultCard) => {
     if (!cancelReason) {
       toast('⚠️ يُرجى اختيار سبب الإلغاء');
 
       return;
     }
 
-    // تأكيدٌ يقول الأثر قبل الإرسال (قرار المالك 2026-09-26) — الإلغاء لا يُتراجع عنه
-    if (!(await ask(CONFIRM_CANCEL_CONSULT_REQUEST))) {
-      return;
-    }
-
-    setIsProcessingAction(true);
     const finalReason = cancelReason === 'أخرى (توضيح في الملاحظات)'
       ? (cancelNotes.trim() || 'أخرى')
       : (cancelNotes.trim() ? `${cancelReason} — ${cancelNotes.trim()}` : cancelReason);
 
-    router.post(
-      `/admin/consults/${consult.id}/cancel-request`,
-      { reason: finalReason },
-      {
-        preserveScroll: true,
-        onSuccess: () => {
-          setCancelTarget(null);
-          setCancelReason('');
-          setCancelNotes('');
-          setDrawerRef(null);
-          toast('أُلغي الطلب وأُشعر العميل');
-        },
-        // الخادم يرفض ما تجاوز مرحلة الحجز أو السبب الطويل — ورسالته تصل بدل صمتٍ.
-        // (المسدَّد قبل الجلسة يُلغى، ويُنبَّه الإدارة لاسترداده — انظر `HandleConsultCancelled`.)
-        onError: (err) => toast(String(Object.values(err)[0] ?? 'تعذّر إلغاء الطلب')),
-        onFinish: () => setIsProcessingAction(false),
-      }
-    );
+    // تأكيدٌ يقول الأثر قبل الإرسال (قرار المالك 2026-09-26) — الإلغاء لا يُتراجع عنه.
+    // والخادم يرفض ما تجاوز مرحلة الحجز أو السبب الطويل — ورسالته تصل بدل صمتٍ.
+    void run(`/admin/consults/${consult.id}/cancel-request`, {
+      data: { reason: finalReason },
+      confirm: CONFIRM_CANCEL_CONSULT_REQUEST,
+      success: 'أُلغي الطلب وأُشعر العميل',
+      fallback: 'تعذّر إلغاء الطلب',
+      onSuccess: () => {
+        setCancelTarget(null);
+        setCancelReason('');
+        setCancelNotes('');
+        setDrawerRef(null);
+      },
+    });
   };
 
   /**
@@ -657,33 +596,18 @@ return;
    * الاعتماد: `CN-2026-4754` كانت واقفةً عند `summaryPending` ولا سبيل إلى اعتمادها
    * من هذه الشاشة. فبإخفاء أزرار دورة الحجز وحدها يبدو التبويب معطَّلاً لا مُحكَماً.
    */
-  const triggerApproveSummary = (consult: ConsultCard) => {
-    setIsProcessingAction(true);
-    router.post(
-      `/admin/consults/${consult.id}/summary/approve`,
-      {},
-      {
-        preserveScroll: true,
-        onSuccess: () => toast('✅ اعتُمد الملخّص ووصل العميل، ونُشرت نتيجة التذكرة'),
-        onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذّر اعتماد الملخّص'}`),
-        onFinish: () => setIsProcessingAction(false),
-      }
-    );
-  };
+  const triggerApproveSummary = (consult: ConsultCard) =>
+    run(`/admin/consults/${consult.id}/summary/approve`, {
+      confirm: CONFIRM_APPROVE_CONSULT_SUMMARY,
+      success: '✅ اعتُمد الملخّص ووصل العميل، ونُشرت نتيجة التذكرة',
+      fallback: 'تعذّر اعتماد الملخّص',
+    });
 
-  const triggerCreateTasks = (consult: ConsultCard) => {
-    setIsProcessingAction(true);
-    router.post(
-      `/admin/consults/${consult.id}/tasks`,
-      {},
-      {
-        preserveScroll: true,
-        onSuccess: () => toast('✅ أُنشئت المهامّ من قرارات الجلسة'),
-        onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذّر إنشاء المهامّ'}`),
-        onFinish: () => setIsProcessingAction(false),
-      }
-    );
-  };
+  const triggerCreateTasks = (consult: ConsultCard) =>
+    run(`/admin/consults/${consult.id}/tasks`, {
+      success: '✅ أُنشئت المهامّ من قرارات الجلسة',
+      fallback: 'تعذّر إنشاء المهامّ',
+    });
 
   const triggerChangePriority = (consult: ConsultCard, priority: string) => {
     router.post(

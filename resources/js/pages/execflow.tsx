@@ -13,6 +13,7 @@ import type {ExecDoc, ExecLawyerOpt, ExecReq, Role} from '@/lib/exec-flow';
 import { ExecNajizCard } from '@/lib/exec-najiz';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+import { useServerAction } from '@/lib/use-server-action';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // تدفّق طلب التنفيذ (المرحلة 2) — مربوط بالخادم. الحالة كلّها props من Inertia،
@@ -1443,6 +1444,7 @@ const ExecFlow: React.FC<{
   initialTab?: string | null;
 }> = ({ role, execs, lawyers = [], initialId, initialTab }) => {
   const toast = useToast();
+  const execAction = useServerAction();
 
   const resolveTarget = (idVal?: string | number | null, tabVal?: string | null) => {
     let targetId: string | null = idVal !== undefined && idVal !== null ? String(idVal) : null;
@@ -1545,6 +1547,8 @@ const ExecFlow: React.FC<{
     }
   };
 
+  // **كلّ أفعال الملفّ من موزّعٍ واحد** (اعتماد العرض · السداد · خطوات المسار) — فالقفل الموحّد هنا
+  // يُسقط النقرة الثانية على أيٍّ منها، ولو لم يعرف الزرّ في المكوّن الفرعيّ بحالة الانشغال
   const act: ActFn = (action, payload = {}) => {
     if (!currentId) {
       return;
@@ -1555,7 +1559,7 @@ const ExecFlow: React.FC<{
     // السداد يمرّ ببوّابة ميسّر (يوجّه المتصفّح لصفحة الدفع)؛ باقي الإجراءات تُحدّث الحالة محليّاً.
     // و`plan` قرار العميل: كاملاً أو ثلاث دفعات — يقرؤه الخادم فيقسّم الفاتورة قبل التوجيه.
     if (action === 'pay') {
-      router.post(`/exec-flow/${id}/pay`, { plan: String(payload.plan ?? 'full') }, { onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر بدء الدفع') });
+      void execAction.run(`/exec-flow/${id}/pay`, { data: { plan: String(payload.plan ?? 'full') }, fallback: 'تعذّر بدء الدفع' });
 
       return;
     }
@@ -1563,18 +1567,15 @@ const ExecFlow: React.FC<{
     // فواتير ما بعد فتح الملفّ (الدفعتان 2 و3، وفواتير الأتعاب عن التحصيل) تمرّ بمسار
     // الفواتير العامّ: ردُّه يطابق **الفاتورة المعنيّة** بمرجعها، لا أحدث فاتورة على الملفّ.
     if (action === 'payInvoice') {
-      router.post(`/invoices/${encodeURIComponent(String(payload.no ?? ''))}/checkout`, {}, {
-        onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر بدء الدفع'),
-      });
+      void execAction.run(`/invoices/${encodeURIComponent(String(payload.no ?? ''))}/checkout`, { fallback: 'تعذّر بدء الدفع' });
 
       return;
     }
 
-    router.post(`/exec-flow/${id}/action`, { action, ...payload }, {
-      preserveScroll: true,
-      preserveState: true,
-      onSuccess: () => toast('تم تنفيذ الإجراء'),
-      onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر تنفيذ الإجراء'),
+    void execAction.run(`/exec-flow/${id}/action`, {
+      data: { action, ...payload },
+      success: 'تم تنفيذ الإجراء',
+      fallback: 'تعذّر تنفيذ الإجراء',
     });
   };
 

@@ -9,6 +9,7 @@ import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
 import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
+import { useServerAction } from '@/lib/use-server-action';
 
 // يطابق clientTicketView + خطوات حجز الاستشارة (tfChooseConsult→tfInvoice→tfPaid→tfChooseSlot→tfConfirm)
 // دورة الحجز مقودة من الخادم عبر حالة الاستشارة المرتبطة (consult): تسعير الإدارة → فاتورة → دفع محاكى → موعد.
@@ -57,7 +58,10 @@ const TYPES: { key: string; label: string; ico: string; sub: string }[] = [
 const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ no, consult }) => {
   const toast = useToast();
   const [type, setType] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [requesting, setBusy] = useState(false);
+  // قفلٌ موحّد للدفع — نقرتان لا تفتحان جلستَي دفع
+  const payment = useServerAction();
+  const busy = requesting || payment.busy;
   const cardRef = useRef<HTMLDivElement>(null);
 
   // بثّ لحظي لتقدّم الاستشارة (تسعير الإدارة/السداد) — يعيد تحميل الحقول من الخادم
@@ -87,14 +91,9 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
 
   const pay = () => {
     if (!consult) return;
-    setBusy(true);
     // النجاح = تحويل المتصفّح لصفحة ميسّر (Inertia::location) — لا توست «تم السداد» هنا،
     // فـ back()->with('error') عند تعذّر بدء الدفع استجابة ناجحة أيضاً وكانت تُظهر نجاحاً كاذباً.
-    router.post(`/consults/${consult.id}/pay`, {}, {
-      preserveScroll: true,
-      onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر بدء الدفع، حاول بعد قليل'),
-      onFinish: () => setBusy(false),
-    });
+    void payment.run(`/consults/${consult.id}/pay`, { fallback: 'تعذّر بدء الدفع، حاول بعد قليل' });
   };
 
   const badge = !status ? 'اختر النوع'

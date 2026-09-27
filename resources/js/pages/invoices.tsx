@@ -6,6 +6,7 @@ import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import type {Invoice} from '@/lib/data';
 import Icon from '@/lib/icons';
+import { useServerAction } from '@/lib/use-server-action';
 
 // يطابق viewInvoices في index (82).html — دفع حقيقي عبر ميسّر + رفع إثبات + PDF حقيقي (Browsershot)
 
@@ -13,15 +14,12 @@ const InvRow: React.FC<{ v: Invoice }> = ({ v }) => {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
-  const [paying, setPaying] = useState(false);
+  // قفلٌ موحّد: نقرتان على «ادفع» لا تفتحان جلستَي دفع
+  const payment = useServerAction();
+  const paying = payment.busy;
 
   const pay = () => {
-    setPaying(true);
-    router.post(`/invoices/${encodeURIComponent(v.no)}/checkout`, {}, {
-      preserveScroll: true,
-      onError: (err) => toast((Object.values(err)[0] as string) || 'تعذّر بدء الدفع، حاول بعد قليل'),
-      onFinish: () => setPaying(false),
-    });
+    void payment.run(`/invoices/${encodeURIComponent(v.no)}/checkout`, { fallback: 'تعذّر بدء الدفع، حاول بعد قليل' });
   };
 
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {

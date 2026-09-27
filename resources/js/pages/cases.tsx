@@ -2,9 +2,9 @@ import { router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
-import { useToast } from '@/components/babylon/Toast';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { useServerAction } from '@/lib/use-server-action';
 import { truncateWords } from '@/lib/utils';
 
 // ============================================================
@@ -72,7 +72,6 @@ interface Props {
 const NO_TABS = { active: [] as string[], fees: [] as string[], completed: [] as string[] };
 
 const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tabs = NO_TABS }) => {
-  const toast = useToast();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [specificStatus, setSpecificStatus] = useState<string>('all');
@@ -125,16 +124,10 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
     }
   };
 
-  const pay = (no: string) => {
-    router.post(
-      `/cases/${encodeURIComponent(no)}/pay`,
-      {},
-      {
-        preserveScroll: true,
-        onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر بدء الدفع، حاول بعد قليل'),
-      },
-    );
-  };
+  // قفلٌ موحّد: نقرتان على «ادفع» لا تفتحان جلستَي دفع
+  const payment = useServerAction();
+  const pay = (no: string) =>
+    payment.run(`/cases/${encodeURIComponent(no)}/pay`, { key: no, fallback: 'تعذّر بدء الدفع، حاول بعد قليل' });
 
   // إحصائيات لوحة القضايا
   const statsList: StatItem[] = [
@@ -648,6 +641,7 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
                       className="btn sm"
                       style={{ flex: 1 }}
                       type="button"
+                      disabled={payment.busyKey === c.no}
                       onClick={() => pay(c.no)}
                     >
                       <Icon name="card" /> سداد الأتعاب {c.fee ? `(${c.fee.toLocaleString()} ريال)` : ''}
@@ -727,6 +721,7 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
                           className="btn sm"
                           type="button"
                           style={{ whiteSpace: 'nowrap' }}
+                          disabled={payment.busyKey === c.no}
                           onClick={(e) => { e.stopPropagation(); pay(c.no); }}
                         >
                           <Icon name="card" /> سداد {c.fee ? `(${c.fee.toLocaleString()} ر.س)` : ''}

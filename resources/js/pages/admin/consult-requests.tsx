@@ -2,7 +2,6 @@ import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
-import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
@@ -12,6 +11,7 @@ import { echo } from '@/lib/echo';
 import { CONSULT_BOOKING_STATUSES, CONSULT_CHANNEL_OPTIONS, crChannelIcon, crChannelTone, cTone, DEFAULT_CONSULT_CHANNEL } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useSettings } from '@/lib/settings';
+import { useServerAction } from '@/lib/use-server-action';
 import { humanDuration } from '@/lib/utils';
 
 interface AdminConsultRequestsProps {
@@ -64,7 +64,6 @@ export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
   suggestedPrices = {},
   lawyers = [],
 }) => {
-  const ask = useConfirm();
   const toast = useToast();
   const { consult_request_late_minutes: lateAfterMins } = useSettings();
   const lateAfterText = humanDuration(lateAfterMins) ?? '';
@@ -88,7 +87,8 @@ export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
   // Inline Drawer Pricing Input & Action State
   // لا «600» افتراضيّةً: السعر من الإعدادات بحسب القناة حين يُفتح الطلب، أو فارغٌ يُكتب
   const [inputPrice, setInputPrice] = useState<string>('');
-  const [isProcessing, setIsProcessingAction] = useState(false);
+  // قفلٌ موحّد لكلّ أفعال الشاشة (`useServerAction`) — `isProcessing` يعطّل أزرارها أثناء الطلب
+  const { run, busy: isProcessing } = useServerAction();
 
   // Fast Pricing Modal (for Table view quick clicks)
   const [pricingModalConsult, setPricingModalConsult] = useState<ConsultCard | null>(null);
@@ -321,44 +321,21 @@ return (a.total || 0) - (b.total || 0);
       return;
     }
 
-    setIsProcessingAction(true);
-    router.post(
-      `/admin/consults/${consult.id}/price`,
-      { price: priceNum, channel: channelToSet },
-      {
-        preserveScroll: true,
-        onSuccess: () => {
-          setIsProcessingAction(false);
-          toast('✅ تم تسعير الاستشارة وإصدار الفاتورة وإشعار العميل بنجاح');
-          setPricingModalConsult(null);
-        },
-        onError: (err) => {
-          setIsProcessingAction(false);
-          toast(`⚠️ ${Object.values(err)[0] || 'تعذر تحديد السعر'}`);
-        },
-      }
-    );
+    run(`/admin/consults/${consult.id}/price`, {
+      data: { price: priceNum, channel: channelToSet },
+      success: '✅ تم تسعير الاستشارة وإصدار الفاتورة وإشعار العميل بنجاح',
+      fallback: 'تعذر تحديد السعر',
+      onSuccess: () => setPricingModalConsult(null),
+    });
   };
 
   // Submit Reminder for slot scheduling
-  const handleRemindSchedule = (consult: ConsultCard) => {
-    // نقرتان متتاليتان كانتا تُرسلان إشعارين للعميل وقيدَي تدقيق — لا تعطيل ولا حالة
-    if (isProcessing) {
-      return;
-    }
-
-    setIsProcessingAction(true);
-    router.post(
-      `/admin/consults/${consult.id}/remind-schedule`,
-      {},
-      {
-        preserveScroll: true,
-        onFinish: () => setIsProcessingAction(false),
-        onSuccess: () => toast('🔔 تم تذكير فريق المواعيد بحجز الموعد'),
-        onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذر الإرسال'}`),
-      }
-    );
-  };
+  // نقرتان متتاليتان كانتا تُرسلان إشعارين وقيدَي تدقيق — القفل الموحّد يُسقط الثانية
+  const handleRemindSchedule = (consult: ConsultCard) =>
+    run(`/admin/consults/${consult.id}/remind-schedule`, {
+      success: '🔔 تم تذكير فريق المواعيد بحجز الموعد',
+      fallback: 'تعذر الإرسال',
+    });
 
   // **اعتماد موعدٍ اقترحه موظّف — كما هو أو بعد تعديله** (قرار المالك 2026-09-14):
   // الإدارة لا ترفض الاقتراح، تعدّله إن لزم ثمّ تعتمده فيُرسل للعميل ويُشعَر الموظّف بما تغيّر.
@@ -381,28 +358,17 @@ return (a.total || 0) - (b.total || 0);
     }));
   };
 
-  const handleApproveAppointment = (consult: ConsultCard) => {
-    if (isProcessing) {
-      return;
-    }
-
-    setIsProcessingAction(true);
-    router.post(
-      `/admin/consults/${consult.id}/appointment/approve`,
-      {
+  const handleApproveAppointment = (consult: ConsultCard) =>
+    run(`/admin/consults/${consult.id}/appointment/approve`, {
+      data: {
         date: approval.date || null,
         time: approval.time || null,
         lawyer_id: approval.lawyerId ? Number(approval.lawyerId) : null,
         type: approval.type || null,
       },
-      {
-        preserveScroll: true,
-        onFinish: () => setIsProcessingAction(false),
-        onSuccess: () => toast('✅ اعتُمد الموعد وأُرسل للعميل'),
-        onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذّر اعتماد الموعد'}`),
-      }
-    );
-  };
+      success: '✅ اعتُمد الموعد وأُرسل للعميل',
+      fallback: 'تعذّر اعتماد الموعد',
+    });
 
   /**
    * **تصحيح تسعيرٍ خاطئ.**
@@ -411,36 +377,21 @@ return (a.total || 0) - (b.total || 0);
    * «بانتظار التسعير» وأوّلُ تسعيرٍ يقفلها. فرقمٌ خاطئ في فاتورةٍ وصلت عميلاً لم يكن
    * له مخرجٌ إلّا إلغاء الطلب كلّه.
    */
-  const handleReprice = async (consult: ConsultCard) => {
-    if (isProcessing) {
-      return;
-    }
-
-    const ok = await ask({
-      title: 'إعادة تسعير الطلب',
-      message: `ستُلغى فاتورة (${consult.ref}) ويُشعَر العميل، ويعود الطلب إلى التسعير.`,
-      confirmLabel: 'إلغاء الفاتورة وإعادة التسعير',
-      tone: 'danger',
-    });
-
-    if (!ok) {
-      return;
-    }
-
-    setIsProcessingAction(true);
-    router.post(`/admin/consults/${consult.id}/reprice`, {}, {
-      preserveScroll: true,
-      onSuccess: () => {
-        toast('أُلغيت الفاتورة — الطلب عاد إلى التسعير');
-        openDrawer(consult.ref, 'pricing');
+  const handleReprice = (consult: ConsultCard) =>
+    run(`/admin/consults/${consult.id}/reprice`, {
+      confirm: {
+        title: 'إعادة تسعير الطلب',
+        message: `ستُلغى فاتورة (${consult.ref}) ويُشعَر العميل، ويعود الطلب إلى التسعير.`,
+        confirmLabel: 'إلغاء الفاتورة وإعادة التسعير',
+        tone: 'danger',
       },
-      onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذّر تصحيح السعر'}`),
-      onFinish: () => setIsProcessingAction(false),
+      success: 'أُلغيت الفاتورة — الطلب عاد إلى التسعير',
+      fallback: 'تعذّر تصحيح السعر',
+      onSuccess: () => openDrawer(consult.ref, 'pricing'),
     });
-  };
 
   // Submit Cancel Request
-  const handleCancelRequest = async () => {
+  const handleCancelRequest = () => {
     if (!cancelTargetConsult) {
       return;
     }
@@ -451,39 +402,24 @@ return (a.total || 0) - (b.total || 0);
       return;
     }
 
-    if (isProcessing) {
-      return;
-    }
-
-    // تأكيدٌ يقول الأثر قبل الإرسال (قرار المالك 2026-09-26) — الإلغاء لا يُتراجع عنه
-    if (!(await ask(CONFIRM_CANCEL_CONSULT_REQUEST))) {
-      return;
-    }
-
-    setIsProcessingAction(true);
     const finalReason = cancelReason === 'أخرى (توضيح في الملاحظات)'
       ? (cancelNotes.trim() || 'أخرى')
       : (cancelNotes.trim() ? `${cancelReason} — ${cancelNotes.trim()}` : cancelReason);
 
-    router.post(
-      `/admin/consults/${cancelTargetConsult.id}/cancel-request`,
-      { reason: finalReason },
-      {
-        preserveScroll: true,
-        onFinish: () => setIsProcessingAction(false),
-        onSuccess: () => {
-          // يخرج من هذه الشاشة (طابورُ ما قبل الجلسة) — فلتقل أين ذهب لا أن يختفي
-          toast('✅ أُلغي الطلب وأُشعر العميل — تجده في «الاستشارات» ضمن «منتهية ومغلقة»');
-          setCancelTargetConsult(null);
-          setCancelReason('');
-          setCancelNotes('');
-          closeDrawer();
-        },
-        onError: (err) => {
-          toast(`⚠️ ${Object.values(err)[0] || 'تعذر إلغاء الطلب'}`);
-        },
-      }
-    );
+    // تأكيدٌ يقول الأثر قبل الإرسال (قرار المالك 2026-09-26) — الإلغاء لا يُتراجع عنه
+    run(`/admin/consults/${cancelTargetConsult.id}/cancel-request`, {
+      data: { reason: finalReason },
+      confirm: CONFIRM_CANCEL_CONSULT_REQUEST,
+      // يخرج من هذه الشاشة (طابورُ ما قبل الجلسة) — فلتقل أين ذهب لا أن يختفي
+      success: '✅ أُلغي الطلب وأُشعر العميل — تجده في «الاستشارات» ضمن «منتهية ومغلقة»',
+      fallback: 'تعذر إلغاء الطلب',
+      onSuccess: () => {
+        setCancelTargetConsult(null);
+        setCancelReason('');
+        setCancelNotes('');
+        closeDrawer();
+      },
+    });
   };
 
   // Helper VAT computations for the pricing engine

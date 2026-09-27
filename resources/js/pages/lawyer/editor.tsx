@@ -20,6 +20,7 @@ import Icon from '@/lib/icons';
 import { useConfirm, usePrompt } from '@/components/babylon/ConfirmDialog';
 import { useToast } from '@/components/babylon/Toast';
 import { LEGAL_TEMPLATES, LegalTemplate } from '@/lib/editor-templates';
+import { firstError } from '@/lib/server-message';
 
 // ============================================================================
 // محرر الصياغة القانونية — WYSIWYG بمستوى Word والذكاء الاصطناعي
@@ -371,7 +372,6 @@ const LawyerEditor: React.FC<Props> = ({
   }, [autoSave]);
 
   /** أوّل رسالة من أخطاء الخادم، أو بديلٌ حين لا رسالة */
-  const serverError = (errs: Record<string, string>, fallback: string): string => Object.values(errs)[0] ?? fallback;
 
   // ── حفظ يدوي ──
   const save = () => {
@@ -392,14 +392,14 @@ const LawyerEditor: React.FC<Props> = ({
     // والخطأ نصُّ الخادم (العنوان مطلوب، النوع غير صالح…) لا «تعذّر» عامّة تُخفي سببها.
     if (isNew) {
       router.post(`${base}/editor`, payload as any, {
-        onError: (errs) => toast(`⚠️ ${serverError(errs, 'تعذّر حفظ المستند')}`, 'error'),
+        onError: (errs) => toast(`⚠️ ${firstError(errs, 'تعذّر حفظ المستند')}`, 'error'),
         onFinish: () => setIsSaving(false),
       });
     } else {
       router.put(`${base}/editor/${doc!.id}`, payload as any, {
         preserveScroll: true,
         onSuccess: () => setLastSaved('الآن'),
-        onError: (errs) => toast(`⚠️ ${serverError(errs, 'تعذّر حفظ المستند')}`, 'error'),
+        onError: (errs) => toast(`⚠️ ${firstError(errs, 'تعذّر حفظ المستند')}`, 'error'),
         onFinish: () => setIsSaving(false),
       });
     }
@@ -467,7 +467,7 @@ const LawyerEditor: React.FC<Props> = ({
   const approve = () => {
     if (!doc) return;
     router.post(`${base}/editor/${doc.id}/approve`, {}, {
-      onError: (errs) => toast(`⚠️ ${serverError(errs, 'تعذّر اعتماد المستند')}`, 'error'),
+      onError: (errs) => toast(`⚠️ ${firstError(errs, 'تعذّر اعتماد المستند')}`, 'error'),
     });
   };
 

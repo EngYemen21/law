@@ -9,9 +9,11 @@ import { useToast } from '@/components/babylon/Toast';
 import { todayISO } from '@/lib/local-date';
 import { useConsultReschedule } from '@/lib/consult-reschedule';
 import { slotEnd, useConsultSlots } from '@/lib/consult-slots';
+import { CONFIRM_NO_SHOW } from '@/lib/consult-ui';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
+import { useServerAction } from '@/lib/use-server-action';
 import { truncateWords } from '@/lib/utils';
 
 // الشاشة تُعرض داخل تقويم الموظف وتقويم الإدارة معًا — العناوين تُشتق من اللوحة الحالية
@@ -144,6 +146,8 @@ const EmployeeSchedule: React.FC<Props> = ({
   can,
 }) => {
   const toast = useToast();
+  // قفلٌ موحّد لفعل «لم يحضر» من بطاقة الموعد
+  const action = useServerAction();
   const reschedule = useConsultReschedule(apiBase());
   // الشبكة وطول الشريحة من الخادم — ما يولّده المحرّك نفسه
   const { grid: dayHours, slotMinutes } = useConsultSlots();
@@ -1609,12 +1613,12 @@ return lawyers;
                   className="btn ghost sm"
                   type="button"
                   style={{ flex: 1 }}
-                  onClick={() => router.post(`${apiBase()}/consults/${selectedAppt.consultId}/no-show`, {}, {
-                    preserveScroll: true,
-                    onSuccess: () => {
-                      toast('وُسم الموعد «لم يحضر»'); setSelectedAppt(null); 
-                    },
-                    onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر الوسم')),
+                  disabled={action.busy}
+                  onClick={() => action.run(`${apiBase()}/consults/${selectedAppt.consultId}/no-show`, {
+                    confirm: CONFIRM_NO_SHOW,
+                    success: 'وُسم الموعد «لم يحضر»',
+                    fallback: 'تعذّر الوسم',
+                    onSuccess: () => setSelectedAppt(null),
                   })}
                 >
                   <Icon name="clock" /> لم يحضر

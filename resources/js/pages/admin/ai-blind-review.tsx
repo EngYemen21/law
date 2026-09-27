@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useToast } from '@/components/babylon/Toast';
 import { panelBase } from '@/lib/data';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 
 /**
  * حالة في العيّنة العمياء.
@@ -59,7 +60,6 @@ const AiBlindReview: React.FC<Props> = ({ items, summary, actions, reasons, defa
   const [size, setSize] = useState(String(defaultSize));
   const [busy, setBusy] = useState(false);
   const toast = useToast();
-  const firstError = (errs: Record<string, string>, fallback: string): string => Object.values(errs)[0] ?? fallback;
 
   const needsReason = actions.find((a) => a.value === verdict)?.requires_reason ?? false;
 

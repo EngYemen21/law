@@ -5,6 +5,7 @@ import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
 import { type SummaryData } from '@/lib/lawyer-data';
+import { firstError } from '@/lib/server-message';
 
 // ============================================================================
 // صفحة ملخص الملف والرأي القانوني المبدئي — واجهة نخبوية بمستوى المشاريع الكبرى
@@ -191,10 +192,7 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
     setIsApproving(true);
     router.post(`${base}/summary/${encodeURIComponent(ticket.no)}/approve`, form, {
       onSuccess: () => toast(isAdmin ? 'تم اعتماد الملخّص رسمياً ونشر الرأي القانوني للعميل' : 'تم اعتماد الملخّص ورفعه للإدارة العليا للمصادقة'),
-      onError: (errors) => {
-        const firstError = Object.values(errors)[0];
-        toast(typeof firstError === 'string' ? firstError : 'لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — حرّره يدوياً أولاً.');
-      },
+      onError: (errors) => toast(firstError(errors, 'لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — حرّره يدوياً أولاً.')),
       onFinish: () => setIsApproving(false),
     });
   };

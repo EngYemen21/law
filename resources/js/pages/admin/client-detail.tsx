@@ -7,6 +7,7 @@ import type { StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import { EXEC_FLOW } from '@/lib/exec-flow';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 
 interface ClientData {
   id: number;
@@ -174,8 +175,7 @@ const AdminClientDetail: React.FC<Props> = ({
         },
         onError: (errs) => {
           setErrors(errs);
-          const firstErr = Object.values(errs)[0];
-          toast(firstErr ? `⚠️ ${firstErr}` : 'تعذّر حفظ التعديلات');
+          toast(firstError(errs, 'تعذّر حفظ التعديلات'));
           setBusy(false);
         },
       }

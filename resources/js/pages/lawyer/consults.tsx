@@ -8,7 +8,7 @@ import { useToast } from '@/components/babylon/Toast';
 // اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
 import { maskClient } from '@/lib/employee-data';
 import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-reschedule';
-import { CONFIRM_END_CONSULT, RichText, SummaryStateBadge } from '@/lib/consult-ui';
+import { CONFIRM_END_CONSULT, CONFIRM_NO_SHOW, CONFIRM_START_CONSULT, RichText, SummaryStateBadge } from '@/lib/consult-ui';
 import type { ConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import {
@@ -21,6 +21,7 @@ import {
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+import { useServerAction } from '@/lib/use-server-action';
 
 export type LawyerKanbanCol = 'waiting' | 'live' | 'drafting' | 'completed';
 
@@ -86,7 +87,10 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   }, [drawerTab]);
   const [sessionNotes, setSessionNotes] = useState<string>('');
   const [clientReport, setClientReport] = useState<string>('');
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [processing, setIsProcessing] = useState(false);
+  // قفلٌ موحّد لأفعال الجلسة (بدء · إنهاء · لم يحضر) — وبقيّة الأفعال على `processing` كما هي
+  const action = useServerAction();
+  const isProcessing = processing || action.busy;
 
   // نصّ الموكّل يحرّره ويعتمده **من يملك الصلاحيّة** — لا من يفتح الصفحة.
   const mayEditSummary = useCan()('اعتماد/تعديل ملخص الاستشارة');
@@ -216,76 +220,37 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   // ── الإجراءات الميدانية للمحامي ──
 
   // بدء الجلسة
-  const handleStart = (consult: ConsultCard) => {
-    setIsProcessing(true);
-    router.post(
-      `/lawyer/consults/${consult.id}/start`,
-      {},
-      {
-        preserveScroll: true,
-        onSuccess: () => toast(`بدأت جلسة الاستشارة (${consult.ref}) وتم إشعار العميل فوراً`),
-        // رسالة الخادم لا نصّ ثابت: «فات الموعد» و«قبل الموعد بربع ساعة» سببان
-        // مختلفان، وإخفاؤهما خلف «تعذر» يترك المحامي يعيد المحاولة بلا فهم.
-        onError: (errors) => toast(Object.values(errors)[0] || 'تعذر بدء الجلسة'),
-        onFinish: () => setIsProcessing(false),
-      }
-    );
-  };
-
-  // إنهاء الجلسة وحفظ الملاحظات
-  const handleEnd = async (consult: ConsultCard) => {
-    // تأكيدٌ يقول الأثر قبل الإرسال — النصّ الواحد من `consult-ui` (قرار المالك 2026-09-26)
-    if (!(await ask(CONFIRM_END_CONSULT))) {
-      return;
-    }
-
-    setIsProcessing(true);
-    router.post(
-      `/lawyer/consults/${consult.id}/end`,
-      { notes: sessionNotes },
-      {
-        preserveScroll: true,
-        onSuccess: () => {
-          // «وجارٍ استخراج مسودة التقرير» ليست مضمونة: `FinalizeConsultJob` **لا
-          // ينادي النموذج بلا مادّة** — بل يُنبّه المحامي ليدوّن. والوعد يقع في
-          // الحالة التي كُتب لها ذلك الفرع أصلاً.
-          toast(sessionNotes.trim() === ''
-            ? 'خُتمت الجلسة بلا تدوين — لا ملخّص حتّى تُدوّن'
-            : 'خُتمت الجلسة وحُفظ التدوين — تُعدّ المسودّة الآن');
-          setDrawerTab('report');
-        },
-        onError: (errors) => toast(Object.values(errors)[0] || 'تعذر إنهاء الجلسة'),
-        onFinish: () => setIsProcessing(false),
-      }
-    );
-  };
-
-  // تسجيل عدم حضور العميل
-  const handleNoShow = async (consult: ConsultCard) => {
-    const ok = await ask({
-      title: 'تسجيل عدم حضور العميل',
-      message: 'تُسجَّل الجلسة غيابَ موكّل ويُشعَر بذلك — راجع غرفة الاجتماع قبل التأكيد.',
-      confirmLabel: 'تسجيل الغياب',
-      tone: 'danger',
+  // رسالة الخادم لا نصّ ثابت: «فات الموعد» و«قبل الموعد بربع ساعة» سببان مختلفان
+  const handleStart = (consult: ConsultCard) =>
+    action.run(`/lawyer/consults/${consult.id}/start`, {
+      confirm: CONFIRM_START_CONSULT,
+      success: `بدأت جلسة الاستشارة (${consult.ref}) وتم إشعار العميل فوراً`,
+      fallback: 'تعذر بدء الجلسة',
     });
 
-    if (!ok) {
-      return;
-    }
+  // إنهاء الجلسة وحفظ الملاحظات
+  // تأكيدٌ يقول الأثر قبل الإرسال — النصّ الواحد من `consult-ui` (قرار المالك 2026-09-26).
+  // «وجارٍ استخراج مسودة التقرير» ليست مضمونة: `FinalizeConsultJob` **لا ينادي النموذج
+  // بلا مادّة** — بل يُنبّه المحامي ليدوّن.
+  const handleEnd = (consult: ConsultCard) =>
+    action.run(`/lawyer/consults/${consult.id}/end`, {
+      data: { notes: sessionNotes },
+      confirm: CONFIRM_END_CONSULT,
+      success: sessionNotes.trim() === ''
+        ? 'خُتمت الجلسة بلا تدوين — لا ملخّص حتّى تُدوّن'
+        : 'خُتمت الجلسة وحُفظ التدوين — تُعدّ المسودّة الآن',
+      fallback: 'تعذر إنهاء الجلسة',
+      onSuccess: () => setDrawerTab('report'),
+    });
 
-    setIsProcessing(true);
-    router.post(
-      `/lawyer/consults/${consult.id}/no-show`,
-      {},
-      {
-        preserveScroll: true,
-        // `noShow()` يُشعر **العميل وحده** — لا إشعار إدارةٍ في المسار.
-        onSuccess: () => toast('سُجّل عدم الحضور وأُشعر الموكّل — يمكنك إعادة الجدولة'),
-        onError: (errors) => toast(Object.values(errors)[0] || 'تعذر تسجيل عدم الحضور'),
-        onFinish: () => setIsProcessing(false),
-      }
-    );
-  };
+  // تسجيل عدم حضور العميل
+  // `noShow()` يُشعر **العميل وحده** — لا إشعار إدارةٍ في المسار. والتأكيد نصٌّ مشترك
+  const handleNoShow = (consult: ConsultCard) =>
+    action.run(`/lawyer/consults/${consult.id}/no-show`, {
+      confirm: CONFIRM_NO_SHOW,
+      success: 'سُجّل عدم الحضور وأُشعر الموكّل — يمكنك إعادة الجدولة',
+      fallback: 'تعذر تسجيل عدم الحضور',
+    });
 
   // حفظ مسودة التقرير النهائي للعميل
   const handleSaveReport = (consult: ConsultCard) => {

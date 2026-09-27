@@ -2,16 +2,16 @@ import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
-import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
 import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-reschedule';
-import { CONFIRM_END_CONSULT } from '@/lib/consult-ui';
+import { CONFIRM_END_CONSULT, CONFIRM_NO_SHOW, CONFIRM_START_CONSULT } from '@/lib/consult-ui';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { crChannelIcon, crChannelTone, sessTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { useServerAction } from '@/lib/use-server-action';
 
 interface Props {
   consults: ConsultCard[];
@@ -23,7 +23,6 @@ type DrawerTab = 'actions' | 'summary' | 'details' | 'audit';
 
 export const AdminConsultRecv: React.FC<Props> = ({ consults = [] }) => {
   const toast = useToast();
-  const ask = useConfirm();
 
   // State Management
   const [items, setItems] = useState<ConsultCard[]>(consults);
@@ -206,7 +205,9 @@ return false;
     });
   }, [items, activeFilter, specialtyFilter, lawyerFilter, searchQuery]);
 
-  // Action Handlers
+  // Action Handlers — قفلٌ موحّد (`useServerAction`) لبدء الجلسة وإنهائها ووسم «لم يحضر»
+  const action = useServerAction();
+
   const handleStart = (c: ConsultCard, e?: React.MouseEvent) => {
     e?.stopPropagation();
     const msg =
@@ -216,16 +217,10 @@ return false;
         ? 'تم بدء المكالمة الهاتفية مع العميل'
         : 'تم تسجيل وصول العميل وبدء الجلسة الحضورية';
 
-    router.post(
-      `/admin/consults/${c.id}/start`,
-      {},
-      {
-        preserveScroll: true,
-        onSuccess: () => toast(msg),
-        // سبب الرفض من الخادم (موعدٌ فات، جلسةٌ ملغاة…) — كان الرفض يمرّ بلا أيّ رسالة
-        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر بدء الجلسة'}`, 'error'),
-      }
-    );
+    // سبب الرفض من الخادم (موعدٌ فات، جلسةٌ ملغاة…) يُعرض — كان يمرّ بلا أيّ رسالة
+    void action.run(`/admin/consults/${c.id}/start`, {
+      key: c.id, confirm: CONFIRM_START_CONSULT, success: msg, fallback: 'تعذّر بدء الجلسة',
+    });
   };
 
   // كان يُرسل حمولةً فارغة `{}` ويُقال «تم توليد وتوثيق ملخص الاستشارة».
@@ -244,25 +239,17 @@ return false;
     }
 
     // تأكيدٌ يقول الأثر قبل الإرسال — النصّ الواحد من `consult-ui` (قرار المالك 2026-09-26)
-    if (!(await ask(CONFIRM_END_CONSULT))) {
-      return;
-    }
-
-    const notes = endNotes.trim();
-
-    router.post(
-      `/admin/consults/${endingOf.id}/end`,
-      { notes },
-      {
-        preserveScroll: true,
-        // نصّ النجاح من الخادم (`RoomDetails::afterEnd` ⇐ flash) — لا إشعار ثانٍ هنا
-        onSuccess: () => {
-          setEndingOf(null);
-          setEndNotes('');
-        },
-        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر إنهاء الجلسة'}`, 'error'),
-      }
-    );
+    // ونصّ النجاح من الخادم (`RoomDetails::afterEnd` ⇐ flash) — لا إشعار ثانٍ هنا
+    await action.run(`/admin/consults/${endingOf.id}/end`, {
+      data: { notes: endNotes.trim() },
+      key: endingOf.id,
+      confirm: CONFIRM_END_CONSULT,
+      fallback: 'تعذّر إنهاء الجلسة',
+      onSuccess: () => {
+        setEndingOf(null);
+        setEndNotes('');
+      },
+    });
   };
 
   const handleEnterRoom = (c: ConsultCard, e?: React.MouseEvent) => {
@@ -270,15 +257,10 @@ return false;
     const room = `/admin/videoroom?ref=${encodeURIComponent(c.ref)}`;
 
     if (c.session === 'بانتظار الجلسة') {
-      router.post(
-        `/admin/consults/${c.id}/start`,
-        {},
-        {
-          preserveScroll: true,
-          onSuccess: () => router.visit(room),
-          onError: (e) => toast(e.message || 'تعذّر بدء الجلسة'),
-        }
-      );
+      void action.run(`/admin/consults/${c.id}/start`, {
+        key: c.id, confirm: CONFIRM_START_CONSULT, fallback: 'تعذّر بدء الجلسة',
+        onSuccess: () => router.visit(room),
+      });
 
       return;
     }
@@ -288,15 +270,9 @@ return false;
 
   const handleNoShow = (c: ConsultCard, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    router.post(
-      `/admin/consults/${c.id}/no-show`,
-      {},
-      {
-        preserveScroll: true,
-        onSuccess: () => toast('وُسمت الاستشارة «لم يحضر» وأُشعر العميل'),
-        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر الوسم'}`),
-      }
-    );
+    void action.run(`/admin/consults/${c.id}/no-show`, {
+      key: c.id, confirm: CONFIRM_NO_SHOW, success: 'وُسمت الاستشارة «لم يحضر» وأُشعر العميل', fallback: 'تعذّر الوسم',
+    });
   };
 
   const handleReschedule = (c: ConsultCard, e?: React.MouseEvent) => {
@@ -905,7 +881,7 @@ return false;
                             className="btn primary sm"
                             style={{ flex: 1, justifyContent: 'center' }}
                             type="button"
-                            onClick={(e) => handleEnterRoom(c, e)}
+                            onClick={(e) => handleEnterRoom(c, e)} disabled={action.busyKey === c.id}
                           >
                             <Icon name="video" /> دخول غرفة البث
                           </button>
@@ -929,7 +905,7 @@ return false;
                             className="btn primary sm"
                             style={{ flex: 1, justifyContent: 'center' }}
                             type="button"
-                            onClick={(e) => handleEnterRoom(c, e)}
+                            onClick={(e) => handleEnterRoom(c, e)} disabled={action.busyKey === c.id}
                           >
                             <Icon name="video" /> بدء / دخول الغرفة
                           </button>
@@ -938,7 +914,7 @@ return false;
                             className="btn primary sm"
                             style={{ flex: 1, justifyContent: 'center' }}
                             type="button"
-                            onClick={(e) => handleStart(c, e)}
+                            onClick={(e) => handleStart(c, e)} disabled={action.busyKey === c.id}
                           >
                             <Icon name="check" /> بدء الجلسة الآن
                           </button>
@@ -965,7 +941,7 @@ return false;
                             className="btn soft sm"
                             style={{ flex: 1, justifyContent: 'center', color: '#dc2626' }}
                             type="button"
-                            onClick={(e) => handleNoShow(c, e)}
+                            onClick={(e) => handleNoShow(c, e)} disabled={action.busyKey === c.id}
                           >
                             وسم لم يحضر
                           </button>
@@ -1091,7 +1067,7 @@ return false;
                           {c.session === 'جلسة جارية' ? (
                             <>
                               {c.channel === 'مرئية' && (
-                                <button className="btn primary sm" type="button" onClick={(e) => handleEnterRoom(c, e)}>
+                                <button className="btn primary sm" type="button" onClick={(e) => handleEnterRoom(c, e)} disabled={action.busyKey === c.id}>
                                   <Icon name="video" /> الغرفة
                                 </button>
                               )}
@@ -1102,7 +1078,7 @@ return false;
                           ) : c.missed ? (
                             <>
                               {c.canMarkNoShow && (
-                                <button className="btn soft sm" type="button" onClick={(e) => handleNoShow(c, e)}>
+                                <button className="btn soft sm" type="button" onClick={(e) => handleNoShow(c, e)} disabled={action.busyKey === c.id}>
                                   لم يحضر
                                 </button>
                               )}
@@ -1366,7 +1342,7 @@ return false;
                               className="btn primary"
                               style={{ width: '100%', justifyContent: 'center' }}
                               type="button"
-                              onClick={(e) => handleEnterRoom(drawerItem, e)}
+                              onClick={(e) => handleEnterRoom(drawerItem, e)} disabled={action.busyKey === drawerItem.id}
                             >
                               <Icon name="video" /> دخول غرفة البث المرئي المباشر
                             </button>
@@ -1407,7 +1383,7 @@ return false;
                               className="btn soft"
                               style={{ width: '100%', justifyContent: 'center', color: '#dc2626' }}
                               type="button"
-                              onClick={(e) => handleNoShow(drawerItem, e)}
+                              onClick={(e) => handleNoShow(drawerItem, e)} disabled={action.busyKey === drawerItem.id}
                             >
                               وسم الاستشارة «لم يحضر العميل»
                             </button>
@@ -1446,7 +1422,7 @@ return false;
                               className="btn primary"
                               style={{ width: '100%', justifyContent: 'center' }}
                               type="button"
-                              onClick={(e) => handleEnterRoom(drawerItem, e)}
+                              onClick={(e) => handleEnterRoom(drawerItem, e)} disabled={action.busyKey === drawerItem.id}
                             >
                               <Icon name="video" /> بدء الجلسة ودخول غرفة البث
                             </button>
@@ -1455,7 +1431,7 @@ return false;
                               className="btn primary"
                               style={{ width: '100%', justifyContent: 'center' }}
                               type="button"
-                              onClick={(e) => handleStart(drawerItem, e)}
+                              onClick={(e) => handleStart(drawerItem, e)} disabled={action.busyKey === drawerItem.id}
                             >
                               <Icon name="check" /> تسجيل الحضور وبدء الجلسة الآن
                             </button>
@@ -1649,10 +1625,10 @@ return false;
           <Icon name="info" /> الملخّص يُبنى على التدوين وحده — وبلا تدوين لا يُكتب شيء، لأنّ ما يُكتب من عنوان الموضوع وحده محضرٌ مختلَق.
         </p>
         <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
-          <button className="btn" onClick={submitEnd} disabled={endNotes.trim() === ''} type="button">
+          <button className="btn" onClick={submitEnd} disabled={action.busy || endNotes.trim() === ''} type="button">
             <Icon name="doc" /> إنهاء وحفظ التدوين
           </button>
-          <button className="btn soft" onClick={submitEnd} type="button">
+          <button className="btn soft" onClick={submitEnd} disabled={action.busy} type="button">
             <Icon name="check" /> إنهاء بلا تدوين
           </button>
         </div>

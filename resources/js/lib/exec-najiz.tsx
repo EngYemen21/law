@@ -1,10 +1,9 @@
-import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
-import { useToast } from '@/components/babylon/Toast';
 import { EXEC_CLOSE_REASONS, execMoney } from '@/lib/exec-flow';
 import type { ExecNajiz } from '@/lib/exec-flow';
 import Icon from '@/lib/icons';
+import { useServerAction } from '@/lib/use-server-action';
 
 // ============================================================
 // مسار التنفيذ في ناجز داخل المرحلتين 7 و8 (قرار المالك 2026-09-12).
@@ -21,7 +20,6 @@ export const EXEC_MEASURES = ['منع السفر', 'إيقاف الخدمات ا
 
 type Step = 'file' | 'register' | 'notify' | 'measures' | 'collect' | 'close';
 
-const reason = (e: Record<string, string>) => String(Object.values(e)[0] ?? 'تعذّر تنفيذ الإجراء');
 
 /**
  * «25,000» والأرقام العربيّة-الهنديّة كانت تُرسَل كما كُتبت، فيردّها `integer` في الخادم
@@ -39,9 +37,10 @@ const normalizeDigits = (raw: string): string => raw
  * `stage`: 7 «بانتظار الرفع في ناجز» أو 8 «قيد التنفيذ» — وما عداهما لا تُعرض البطاقة.
  */
 export const ExecNajizCard: React.FC<{ base: string; najiz: ExecNajiz; stage: number; canAct: boolean; canClose?: boolean }> = ({ base, najiz, stage, canAct, canClose = canAct }) => {
-  const toast = useToast();
   const [open, setOpen] = useState<Step | null>(null);
-  const [busy, setBusy] = useState(false);
+  // قفلٌ موحّد: خطوات ناجز (ومنها تسجيل مبلغٍ محصَّل) لا تُسجَّل مرّتين بنقرةٍ مزدوجة
+  const action = useServerAction();
+  const busy = action.busy;
   const [filing, setFiling] = useState({ request_no: '', filed_at: '' });
   const [reg, setReg] = useState({ court: najiz.court || '', circuit: '', registered_at: '' });
   const [notified, setNotified] = useState('');
@@ -66,16 +65,11 @@ export const ExecNajizCard: React.FC<{ base: string; najiz: ExecNajiz; stage: nu
   // ملفٌّ أُنهي أو أُرشف (المرحلة 9) لا تُسجَّل عليه خطوة — الخادم يردّها، فلا تُعرض أزرارها
   const locked = Boolean(najiz.closedReason) || stage >= 9;
 
-  const act = (action: string, payload: Record<string, string | string[]>, ok: string) => {
-    setBusy(true);
-    router.post(`${base}/action`, { action, ...payload }, {
-      preserveScroll: true,
-      onSuccess: () => {
-        toast(ok);
-        setOpen(null);
-      },
-      onError: (e) => toast(reason(e)),
-      onFinish: () => setBusy(false),
+  const act = (name: string, payload: Record<string, string | string[]>, ok: string) => {
+    void action.run(`${base}/action`, {
+      data: { action: name, ...payload },
+      success: ok,
+      onSuccess: () => setOpen(null),
     });
   };
   const toggle = (m: string) => setPicked((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]));

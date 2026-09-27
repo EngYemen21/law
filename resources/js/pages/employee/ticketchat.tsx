@@ -22,6 +22,7 @@ import { useConsultSlots } from '@/lib/consult-slots';
 import { echo } from '@/lib/echo';
 import { useCan } from '@/lib/permissions';
 import { todayISO } from '@/lib/local-date';
+import { useServerAction } from '@/lib/use-server-action';
 
 // الموظّف يُحيل الملفّ إلى المستشار في هذه المراحل وحدها (Employee\TicketController::advance)
 const REFERRABLE = ['جديدة', 'قيد التحليل', 'محالة للقسم القانوني', 'بانتظار مستندات'];
@@ -227,14 +228,13 @@ const EmployeeTicketChat: React.FC<{
       .finally(() => setAttachBusy(false));
   };
 
-  const rerunAi = () => {
-    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/rerun`)
-      .then(() => toast('تمت إعادة تشغيل التحليل الذكي للملخّص'))
-      .catch((err) => {
-        const msg = err.response?.data?.message || 'تعذّر إعادة تشغيل التحليل حالياً';
-        toast(`⚠️ ${msg}`);
-      });
-  };
+  // زيارة Inertia بقفلٍ موحّد لا axios: الردّ يُعيد تحميل التذكرة فيتحدّث `canRerunSummary`،
+  // والنقرة الثانية لا تُطلق توليدَين
+  const rerun = useServerAction();
+  const rerunAi = () =>
+    rerun.run(`/employee/tickets/${encodeURIComponent(ticket.no)}/rerun`, {
+      fallback: 'تعذّر إعادة تشغيل التحليل حالياً',
+    });
   const advance = () => {
     axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/advance`)
       .catch((err) => {
@@ -516,7 +516,7 @@ const EmployeeTicketChat: React.FC<{
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {/* بحارس الخادم (`Ticket::summaryRerunBlocker`) — كان ظاهراً دائماً ويُرفض بعد الاعتماد */}
                 {ticket.canRerunSummary && (
-                  <button className="btn soft sm" type="button" onClick={rerunAi}><Icon name="sparkles" /> إعادة التحليل الذكي للملخص</button>
+                  <button className="btn soft sm" type="button" disabled={rerun.busy} onClick={rerunAi}><Icon name="sparkles" /> إعادة التحليل الذكي للملخص</button>
                 )}
               </div>
             </div>
