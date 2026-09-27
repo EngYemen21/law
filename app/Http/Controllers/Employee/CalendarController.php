@@ -49,6 +49,7 @@ class CalendarController extends Controller
                 'time' => $h->time,
                 'where' => $canCourt ? $h->court : 'المحكمة',
                 'status' => EventStatus::forHearing($h),
+                'statusTone' => EventStatus::toneForHearing($h),
                 'startsAt' => $h->startMoment()?->toIso8601String(),
                 // المدّة المتوقّعة إن أُدخلت — وإلا لا مدّة تُعرض (لا نهاية مختلَقة للجلسة)
                 'durationMin' => $h->duration_min,
@@ -65,6 +66,7 @@ class CalendarController extends Controller
                 'time' => null,
                 'where' => $canMeetings ? ($m->client_name ?: 'داخلي') : 'مكتب العمل',
                 'status' => EventStatus::forMeeting($m),
+                'statusTone' => EventStatus::toneForMeeting($m),
                 // الخام لا المُبدَّل: `?: now()` كان يرفع اجتماعاً بلا موعد إلى وسط القائمة بدل الذيل.
                 'startsAt' => $m->starts_at?->toIso8601String(),
             ]);
@@ -81,6 +83,7 @@ class CalendarController extends Controller
                 'time' => $c->time,
                 'where' => $c->channel === 'حضورية' ? $c->placeLabel() : 'جلسة مرئية بالمنصة',
                 'status' => EventStatus::forConsult($c),
+                'statusTone' => EventStatus::toneForConsult($c),
                 'startsAt' => ($c->starts_at ?: MeetingTime::parse($c->day ?? '', $c->time ?? ''))?->toIso8601String(),
             ]);
 

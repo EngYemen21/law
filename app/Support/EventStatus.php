@@ -52,9 +52,23 @@ class EventStatus
         return (string) ($consult->session ?: $consult->status);
     }
 
-    /** نغمة الحالة للأنواع غير الاجتماعات (الاجتماع له meetStatusTone في الواجهة). */
-    public static function toneFor(string $status): string
+    /**
+     * **لون الحالة لكلّ نوع — بجوار نصّها ومن البانِي نفسه.** كان التقويم يحسبه في ثلاثة مواضع:
+     * `toneFor` هنا (كلّ ما ليس فائتاً أزرق: المنتهية والجارية معاً)، ودالّتان في الواجهة تُمرّر
+     * الاستشارة بكتالوج جلسات المحاكم.
+     */
+    public static function toneForConsult(Consult $consult): string
     {
-        return in_array($status, [self::HEARING_LAPSED, self::CONSULT_MISSED], true) ? 'b-red' : 'b-blue';
+        return $consult->isMissed() ? 'b-red' : $consult->sessionTone();
+    }
+
+    public static function toneForHearing(CaseHearing $hearing): string
+    {
+        return $hearing->liveTone();
+    }
+
+    public static function toneForMeeting(Meeting $meeting): string
+    {
+        return $meeting->liveState()[2];
     }
 }

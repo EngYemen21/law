@@ -367,33 +367,6 @@ export function crChannelIcon(ch: string): string {
 export function crChannelTone(ch: string): string {
   return ch === 'مرئية' ? 'b-blue' : ch === 'هاتفية' ? 'b-amber' : 'b-green';
 }
-/**
- * **نغمةُ حالة الجلسة — مصدرٌ واحد.**
- *
- * كانت نسختان متطابقتان حرفيّاً (`crSessionTone` هنا و`sessTone` في `consult-ui`)،
- * وثالثةٌ مكتوبةٌ بيدٍ في شاشة استقبال الإدارة تُخالفهما: «جارية الآن» **خضراء** بدل
- * الكهرمانيّ، و«منتهية» **رماديّة** بدل الأخضر. فالحالة الواحدة بثلاثة ألوان.
- *
- * و**«لم تُعقد» لم تكن في أيّها**، فتسقط في الفرع الجامع «رماديّة» — أو أسوأ: «منتهية
- * خضراء» في `consult-ui`. وهي فوتٌ لا نجاح.
- */
-export function sessTone(s: string): string {
-  if (s === 'جلسة جارية') {
-    return 'b-amber';
-  }
-
-  if (s === 'منتهية') {
-    return 'b-green';
-  }
-
-  // «لم تنعقد» تسمية التقويم لجلسةٍ فات موعدها (`EventStatus::CONSULT_MISSED`) — فوتٌ كـ«لم تُعقد»
-  if (s === 'لم تُعقد' || s === 'لم تنعقد') {
-    return 'b-red';
-  }
-
-  return 'b-grey';
-}
-
 // اسم العميل في لوحات الطاقم — صريح (يطابق Ticket::maskClient على الخادم)
 export function maskClient(name: string): string {
   // **لا تقنيع على الإدارة والمحامي والموظّف** (قرار المالك 2026-09-11). الاسمُ باقٍ لأنّ

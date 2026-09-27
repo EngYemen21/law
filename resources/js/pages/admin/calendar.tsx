@@ -1,10 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { UnifiedCalendar, type UnifiedCalendarItem } from '@/components/babylon/UnifiedCalendar';
 import { type CalendarEvent } from '@/lib/calendar-ui';
-import { hearingTone } from '@/lib/case-ui';
-import { sessTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
-import { meetStatusTone } from '@/lib/meeting-ui';
 import EmployeeSchedule, {
   type AppointmentItem,
   type AwaitingConsultItem,
@@ -27,10 +24,6 @@ interface Props {
   awaitingConsults?: AwaitingConsultItem[];
   can?: ScheduleCan;
 }
-
-// لكلّ نوعٍ كتالوجُ ألوانه: الاستشارة بحالة جلستها (`sessTone`) — كانت تُلوَّن بكتالوج جلسات المحاكم
-const statusTone = (e: CalendarEvent): string =>
-  e.kindKey === 'meeting' ? meetStatusTone(e.status) : e.kindKey === 'consult' ? sessTone(e.status) : hearingTone(e.status);
 
 const AdminCalendar: React.FC<Props> = ({
   events,
@@ -55,7 +48,8 @@ const AdminCalendar: React.FC<Props> = ({
       time: e.time,
       where: e.where,
       status: e.status,
-      statusTone: statusTone(e),
+      // لون الحالة من الخادم لكلّ نوع (`EventStatus::toneFor…`)
+      statusTone: e.statusTone,
       startsAt: e.startsAt,
     }));
   }, [events]);

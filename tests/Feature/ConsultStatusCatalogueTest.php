@@ -290,7 +290,12 @@ class ConsultStatusCatalogueTest extends TestCase
             );
         }
 
-        $this->assertSame(1, $defs, 'نغمةُ الجلسة تُعرَّف مرّةً واحدة');
+        // المصدر الواحد صار في الخادم (`SessionState::tone`) والبطاقات ترسل `sessionTone` — فلا تعريف في الواجهة
+        $this->assertSame(0, $defs, 'عادت نغمةُ الجلسة تُعرَّف في الواجهة');
+        $this->assertStringContainsString(
+            'public function tone(): string',
+            (string) file_get_contents(app_path('Domain/Journey/Enums/SessionState.php'))
+        );
         $this->assertStringNotContainsString(
             'crSessionTone',
             implode("\n", $this->screens()),

@@ -130,11 +130,27 @@ class StatusToneSourceTest extends TestCase
         $this->assertFalse($notHeld->toClientCard()['missed']);
         $this->assertTrue($notHeld->toClientCard()['notHeld']);
         $this->assertSame('b-green', $ended->toCard()['sessionTone'], 'المنتهية خضراء (قرار المالك)');
+        $this->assertSame('b-blue', SessionState::Waiting->tone(), 'المنتظرة زرقاء في كلّ مكان (قرار المالك)');
     }
 
     /** لا خريطة ألوانٍ للاستشارة في الواجهة — `cTone` حُذفت، والشاشات تقرأ `tone` من البطاقة. */
     public function test_no_frontend_consult_tone_map_remains(): void
     {
         $this->assertStringNotContainsString('export function cTone', (string) file_get_contents(resource_path('js/lib/employee-data.ts')));
+    }
+
+    /** التقويمات الثلاثة تأخذ لون الحدث من الخادم — كانت الاستشارة تُلوَّن بكتالوج جلسات المحاكم. */
+    public function test_calendars_send_the_event_tone(): void
+    {
+        foreach (['Lawyer', 'Employee'] as $who) {
+            $src = (string) file_get_contents(app_path("Http/Controllers/{$who}/CalendarController.php"));
+            foreach (['toneForHearing', 'toneForMeeting', 'toneForConsult'] as $fn) {
+                $this->assertStringContainsString("EventStatus::{$fn}(", $src, "{$who}: {$fn}");
+            }
+        }
+
+        foreach (['js/lib/calendar-ui.tsx', 'js/pages/admin/calendar.tsx'] as $f) {
+            $this->assertStringContainsString('statusTone: e.statusTone', (string) file_get_contents(resource_path($f)), $f);
+        }
     }
 }

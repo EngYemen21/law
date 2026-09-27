@@ -82,7 +82,7 @@ class TimelineCard
             'kind' => 'استشارة', 'kindKey' => 'consult', 'tone' => 'b-blue',
             'id' => $c['ref'], 'title' => 'استشارة: '.$c['subject'],
             'day' => $c['when'], 'time' => null, 'where' => $c['place'],
-            'status' => $status, 'statusTone' => EventStatus::toneFor($status),
+            'status' => $status, 'statusTone' => EventStatus::toneForConsult($co),
             'when' => ($co->starts_at && $co->starts_at->isFuture()) ? 'up' : 'past',
             // canJoin من البانِي: الرابط لا يُعرض قبل إطلاقه (‏5 دقائق قبل الموعد)
             'joinLink' => $c['canJoin'] ? $c['slink'] : '',

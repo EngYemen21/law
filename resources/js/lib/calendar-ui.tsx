@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
 import { UnifiedCalendar, type UnifiedCalendarItem } from '@/components/babylon/UnifiedCalendar';
-import { hearingDurationLabel, hearingTone } from '@/lib/case-ui';
-import { meetStatusTone } from '@/lib/meeting-ui';
+import { hearingDurationLabel } from '@/lib/case-ui';
 
 // عرض التقويم المشترك والمطور بين أدوار المكتب (المحامي والموظف والإدارة)
 // يعتمد على UnifiedCalendar لتوفير تقويم شهري تفاعلي + شريط أسبوعي + أجندة ذكية
@@ -15,6 +14,8 @@ export interface CalendarEvent {
   time: string | null;
   where: string | null;
   status: string;
+  /** لون الحالة من الخادم (`EventStatus::toneFor…`) — لا خريطة ألوانٍ في الواجهة. */
+  statusTone: string;
   /** ختم ISO للفرز الزمني الخادميّ — null للأحداث بلا موعد (تُرتَّب في الذيل). */
   startsAt?: string | null;
   /** المدّة المتوقّعة لجلسة المحكمة بالدقائق — null ⇒ لا مدّة تُعرض (لا نهاية مختلَقة). */
@@ -29,9 +30,6 @@ export interface CalendarPageProps {
   subtitle: string;
 }
 
-const statusTone = (e: CalendarEvent): string =>
-  e.kindKey === 'meeting' ? meetStatusTone(e.status) : hearingTone(e.status);
-
 export const CalendarPage: React.FC<CalendarPageProps> = ({ events, title, subtitle }) => {
   const calendarItems: UnifiedCalendarItem[] = useMemo(() => {
     return events.map((e, idx) => ({
@@ -44,7 +42,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({ events, title, subti
       time: e.time,
       where: e.where,
       status: e.status,
-      statusTone: statusTone(e),
+      statusTone: e.statusTone,
       startsAt: e.startsAt,
       duration: hearingDurationLabel(e.durationMin),
     }));
