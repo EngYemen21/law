@@ -30,6 +30,10 @@ use Illuminate\Database\Eloquent\Model;
  * إنّ له ملفّاً لا وجود له. فالحالتان لا تُبلغان تصحيحاً إلّا وملفّهما قائم (`Ticket::fileBehind`) —
  * والتحويل الحقيقيّ طريقه بطاقة المآل (`ApproveOutcomeTrack`) لا هذا الباب.
  *
+ * **والإغلاق كذلك** (Zero Bypass — `CLAUDE.md` ق٦): «مغلقة» مسارٌ من مسارات البطاقة الأربعة، يُكتب
+ * معه `closure_reason_code` ويُجمَّد السجلّ. كان هذا الباب يُغلق التذكرة بلا سببٍ مرمَّز ولا تجميد؛
+ * فلا يبلغها. أمّا الخروج من «مغلقة» (أُغلقت خطأً) فيبقى تصحيحاً مشروعاً.
+ *
  * @extends Transition<Ticket>
  */
 final class CorrectTicketStatus extends Transition
@@ -69,6 +73,7 @@ final class CorrectTicketStatus extends Transition
             $target === null => 'الحالة المطلوبة ليست من مراحل الرحلة.',
             $target->value === $entity->status => 'التذكرة في هذه الحالة أصلاً.',
             $target->isConversion() && $entity->fileBehind($target) === null => "لا ملفّ للتذكرة يشهد لحالة «{$target->value}» — التحويل يمرّ ببطاقة المآل لا بالتصحيح.",
+            $target === TicketStatus::Closed => 'الإغلاق مآلٌ يمرّ ببطاقة القرار (مسار الإغلاق بسببه المرمَّز) لا بالتصحيح.',
             blank($payload['reason'] ?? null) => 'اذكر سبب التصحيح — يُحفظ في سجلّ التذكرة.',
             default => null,
         };
@@ -110,6 +115,7 @@ final class CorrectTicketStatus extends Transition
         $targets = array_values(array_filter(
             TicketStatus::cases(),
             fn (TicketStatus $s) => $s->value !== $ticket->status
+                && $s !== TicketStatus::Closed
                 && (! $s->isConversion() || $ticket->fileBehind($s) !== null),
         ));
 
