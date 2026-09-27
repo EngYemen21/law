@@ -37,7 +37,7 @@ class TicketJourneyIntegrityTest extends TestCase
     {
         return Ticket::create([
             'user_id' => User::factory()->create(['role' => Role::Client])->id,
-            'number' => 'SB-2026-'.random_int(7000, 7999), 'type' => 'تجاري', 'department' => 'القضايا التجارية',
+            'number' => 'SB-2026-'.uniqid(), 'type' => 'تجاري', 'department' => 'القضايا التجارية',
             'status' => $status, 'tone' => $tone, 'attachments' => 2,
         ]);
     }
@@ -259,7 +259,7 @@ class TicketJourneyIntegrityTest extends TestCase
     private function execFor(Ticket $ticket): Execution
     {
         return Execution::create([
-            'user_id' => $ticket->user_id, 'ticket_id' => $ticket->id, 'number' => 'EXE-2026-'.random_int(5000, 5999),
+            'user_id' => $ticket->user_id, 'ticket_id' => $ticket->id, 'number' => 'EXE-2026-'.uniqid(),
             'subject' => 'تنفيذ سند', 'status' => 'قيد الدراسة', 'tone' => 'b-blue', 'stage' => 2,
         ]);
     }
@@ -267,7 +267,7 @@ class TicketJourneyIntegrityTest extends TestCase
     private function caseFor(Ticket $ticket): LegalCase
     {
         return LegalCase::create([
-            'user_id' => $ticket->user_id, 'ticket_id' => $ticket->id, 'number' => 'CS-2026-'.random_int(5000, 5999),
+            'user_id' => $ticket->user_id, 'ticket_id' => $ticket->id, 'number' => 'CS-2026-'.uniqid(),
             'type' => 'تجاري', 'status' => 'منظورة',
         ]);
     }

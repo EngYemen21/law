@@ -21,7 +21,7 @@ class LawyerConsultJourneyAccessTest extends TestCase
     {
         return Consult::create([
             'user_id' => User::factory()->create(['role' => Role::Client])->id, 'ticket_id' => $ticket?->id,
-            'ref' => 'CN-2026-'.random_int(1000, 9999), 'subject' => 'مكافأة نهاية الخدمة', 'channel' => 'مرئية',
+            'ref' => 'CN-2026-'.uniqid(), 'subject' => 'مكافأة نهاية الخدمة', 'channel' => 'مرئية',
             'lawyer' => $lawyer->name, 'assigned_lawyer_id' => $lawyer->id,
             'day' => 'الأحد', 'time' => '10ص', 'when_label' => 'الأحد', 'session' => 'بانتظار', 'status' => $status,
         ]);

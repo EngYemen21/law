@@ -50,7 +50,7 @@ class ZoomRecordingTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
 
         return Consult::create(array_merge([
-            'user_id' => $client->id, 'ref' => 'CN-2026-'.random_int(1000, 9999),
+            'user_id' => $client->id, 'ref' => 'CN-2026-'.uniqid(),
             'subject' => 'نزاع', 'channel' => 'مرئية', 'lawyer' => $lawyer?->name ?? 'محامٍ',
             'assigned_lawyer_id' => $lawyer?->id, 'day' => 'اليوم', 'time' => '11:00', 'when_label' => 'اليوم', 'session' => 'منتهية',
             'meet_id' => '55500011122',

@@ -28,7 +28,7 @@ class ConsultPlaceTest extends TestCase
         return Consult::create([
             'user_id' => $client->id,
             'appointment_id' => $appt?->id,
-            'ref' => 'CN-2026-'.random_int(1000, 9999),
+            'ref' => 'CN-2026-'.uniqid(),
             'subject' => 'استشارة قانونية',
             'status' => 'جديدة',
             'session' => 'بانتظار الجلسة',

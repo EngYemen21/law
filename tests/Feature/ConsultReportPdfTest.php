@@ -123,7 +123,7 @@ class ConsultReportPdfTest extends TestCase
         return Consult::create([
             'user_id' => $client->id,
             'assigned_lawyer_id' => $lawyer->id,
-            'ref' => 'CN-2026-9'.random_int(100, 999),
+            'ref' => 'CN-2026-9'.uniqid(),
             'subject' => 'استشارة',
             'specialty' => 'القضايا التجارية',
             'status' => 'جديدة',

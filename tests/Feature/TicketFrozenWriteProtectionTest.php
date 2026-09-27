@@ -99,7 +99,7 @@ class TicketFrozenWriteProtectionTest extends TestCase
 
         $ticket = Ticket::create([
             'user_id' => $client->id,
-            'number' => 'TKT-2026-'.random_int(1000, 9999),
+            'number' => 'TKT-2026-'.uniqid(),
             'type' => 'استشارة تجارية',
             'subject' => 'اختبار حماية السجل',
             'details' => 'تذكرة اختبارية لحماية السجل بعد القرار النهائي.',

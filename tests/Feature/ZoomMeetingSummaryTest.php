@@ -32,7 +32,7 @@ class ZoomMeetingSummaryTest extends TestCase
 
         return Consult::create(array_merge([
             'user_id' => $client->id,
-            'ref' => 'CN-2026-'.random_int(1000, 9999),
+            'ref' => 'CN-2026-'.uniqid(),
             'subject' => 'نزاع', 'channel' => 'مرئية',
             'lawyer' => 'محامٍ', 'day' => 'اليوم', 'time' => '11:00', 'when_label' => 'اليوم',
             'session' => 'منتهية', 'status' => 'منتهية', 'meet_id' => '81823767754',
