@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domain\Journey\Transitions\Consult\ReferConsult;
+use App\Domain\Journey\Workflow;
 use App\Enums\Role;
 use App\Events\TicketStatusBroadcast;
 use App\Http\Controllers\Controller;
@@ -432,25 +434,22 @@ class DistributeController extends Controller
         return "تم إسناد ملف التنفيذ {$execution->number} إلى {$lawyer->name}.";
     }
 
+    /**
+     * **إسناد الاستشارة من «التوزيع» = إحالتها من شاشات الاستشارات** (2026-09-27).
+     *
+     * كان يكتب `assigned_lawyer_id` مباشرةً: فلا تنتقل الحالة إلى «محالة للمحامي»، ولا يُحدَّث محامي
+     * التذكرة المرتبطة، ولا يُشعَر المحامي، ولا يُسجَّل في رحلة الاستشارة — وبقواعد منعٍ غير قواعد
+     * `ReferConsult` (يسمح بتحليلٍ غير معتمد). الآن الانتقال نفسه وحرّاسه، فالإسناد واحدٌ أيّاً كانت الشاشة.
+     */
     private function assignConsultTo(Consult $consult, User $lawyer, User $actor): string
     {
-        abort_if(in_array($consult->status, Consult::TERMINAL_STATUSES, true), 422, 'الاستشارة انتهت أو أُلغيت — لا تُحال إلى محامٍ.');
-        abort_if(in_array($consult->status, Consult::PRE_SESSION_STATUSES, true), 422, 'الاستشارة ما زالت في دورة الحجز والسداد — لا تُحال للمحامي قبل حجزها.');
-        abort_if($consult->session === 'جلسة جارية', 422, 'الجلسة منعقدة الآن — أنهِها قبل تغيير المستشار.');
+        $transition = new ReferConsult;
+        abort_if(($why = $transition->guard($consult, [])) !== null, 422, (string) $why);
 
-        $consult->update([
-            'assigned_lawyer_id' => $lawyer->id,
+        Workflow::run($transition, $consult, $actor, [
+            'lawyer_id' => $lawyer->id,
             'lawyer' => $lawyer->name,
         ]);
-
-        Audit::log(
-            action: 'إسناد جلسة استشارة',
-            description: "أسندت الإدارة ({$actor->name}) الاستشارة {$consult->ref} إلى {$lawyer->name}.",
-            category: 'استشارات',
-            auditable: $consult,
-            auditableRef: $consult->ref,
-            afterState: ['المستشار' => $lawyer->name],
-        );
 
         return "تم إسناد الاستشارة {$consult->ref} إلى {$lawyer->name}.";
     }
