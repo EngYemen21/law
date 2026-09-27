@@ -21,8 +21,6 @@ const JOURNEY_STEPS = [
   'النتيجة والاعتماد',
 ];
 
-/** @deprecated استخدم t.isTerminal القادم من الخادم بدلاً من مقارنة النصوص العربية */
-export const TERMINAL_STATUSES = ['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة إلى تنفيذ', 'طلب مكتمل ومغلق', 'تم تحويل الطلب إلى قضية رسمية', 'تم تحويل الطلب إلى ملف تنفيذ قضائي'];
 
 export interface TicketActions {
   can_request_consult?: boolean;
@@ -42,7 +40,8 @@ export interface TicketCard {
   statusCode?: string;
   tone: string;
   isFrozen?: boolean;
-  isTerminal?: boolean;
+  /** حكم الخادم (`TicketStatus::isTerminal`) — يُرسَل دائماً في `Ticket::toCard`. */
+  isTerminal: boolean;
   actions?: TicketActions;
   last?: string;
   date: string;
@@ -89,7 +88,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
     [
       't-blue',
       'folder',
-      counts?.active ?? tickets.filter((t) => !(t.isTerminal ?? TERMINAL_STATUSES.includes(t.status))).length,
+      counts?.active ?? tickets.filter((t) => !t.isTerminal).length,
       'تذاكر جارية ونشطة',
     ],
     [
@@ -107,7 +106,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
     [
       't-green',
       'check',
-      counts?.completed ?? tickets.filter((t) => Boolean(t.isTerminal ?? TERMINAL_STATUSES.includes(t.status))).length,
+      counts?.completed ?? tickets.filter((t) => Boolean(t.isTerminal)).length,
       'تذاكر مكتملة ومنجزة',
     ],
   ];
@@ -191,7 +190,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
       }
 
       // تصفية التبويب العام
-      const isTerminal = Boolean(t.isTerminal ?? TERMINAL_STATUSES.includes(t.status));
+      const isTerminal = Boolean(t.isTerminal);
       if (statusFilter === 'active') {
         if (isTerminal) return false;
       } else if (statusFilter === 'action') {

@@ -36,6 +36,8 @@ class TicketStatusBroadcast implements ShouldBroadcastNow
             'tone' => $this->ticket->tone,
             // القناة مشتركة بين العميل والطاقم: `status` داخليّ يبقى، وتسمية العميل بجواره يقرؤها العميل
             'clientStatus' => TicketStatus::labelForClient($this->ticket->status),
+            // «انتهت؟» حكمُ الخادم لا مقارنةٌ بنصّ — الشاشة تقرؤه حين تتقدّم الحالة وهي مفتوحة
+            'isTerminal' => $this->ticket->isTerminal(),
         ];
     }
 }

@@ -165,13 +165,13 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
 
 const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Message[]; consult?: ConsultLink | null }> = ({ ticket, channel, messages, consult }) => {
   // الحالة لحظية: تتحدّث عبر بثّ القناة فيتقدّم المسار دون إعادة تحميل
-  const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone });
+  const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone, isTerminal: Boolean(ticket.isTerminal) });
 
   // عند بثّ حالة التذكرة (تقدّم المسار خادميّاً) نعيد جلب الاستشارة المرتبطة أيضاً — فتصل حقول
   // الفاتورة/السداد لحظياً ويُفعَّل زر «الدفع عبر ميسّر» دون إعادة تحميل يدوي للصفحة.
   // القناة مشتركة مع الطاقم: `status` داخليّ، والعميل يقرأ `clientStatus` (قيد إعداد الرأي القانوني…)
-  const onStatus = (s: { status: string; tone: string; clientStatus?: string }) => {
-    setStatus({ status: s.clientStatus ?? s.status, tone: s.tone });
+  const onStatus = (s: { status: string; tone: string; clientStatus?: string; isTerminal?: boolean }) => {
+    setStatus({ status: s.clientStatus ?? s.status, tone: s.tone, isTerminal: Boolean(s.isTerminal) });
     router.reload({ only: ['consult'] });
   };
 
@@ -184,7 +184,9 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
   );
   const showBooking = canRequest || !!bookingActive;
 
-  const isTerminal = Boolean(ticket.isTerminal || ticket.isFrozen || ['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة إلى تنفيذ'].includes(status.status));
+  // حكم الخادم (`TicketStatus::isTerminal`) — من الصفحة ثمّ من البثّ. كانت قائمةٌ داخليّة تُقارَن بتسمية
+  // العميل (`clientStatus`) فلا تصدق أبداً
+  const isTerminal = Boolean(status.isTerminal || ticket.isFrozen);
 
   const topExtra = (
     <>
