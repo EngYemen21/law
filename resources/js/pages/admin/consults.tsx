@@ -4,17 +4,17 @@ import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
 import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
-import { maskClient } from '@/lib/admin-data';
 import { stageChanged, staffPatch } from '@/lib/consult-live';
 import { CONFIRM_APPROVE_CONSULT_SUMMARY, CONFIRM_CANCEL_CONSULT_REQUEST, RichText, SummaryStateBadge } from '@/lib/consult-ui';
 import type {ConsultCard, LawyerOpt} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { useSettings } from '@/lib/settings';
 import {
+  CONSULT_CHANNEL_OPTIONS,
+  CONSULT_PRIORITIES,
   crChannelIcon,
   crChannelTone,
-  CONSULT_PRIORITIES,
-  CONSULT_CHANNEL_OPTIONS,
+  maskClient,
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { consultMediaUrls, SessionMediaPanel } from '@/lib/recording-ui';

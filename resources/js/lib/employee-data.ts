@@ -344,14 +344,10 @@ export function crChannelIcon(ch: string): string {
 export function crChannelTone(ch: string): string {
   return ch === 'مرئية' ? 'b-blue' : ch === 'هاتفية' ? 'b-amber' : 'b-green';
 }
-// اسم العميل في لوحات الطاقم — صريح (يطابق Ticket::maskClient على الخادم)
+// اسم العميل في لوحات الطاقم — صريح (يطابق Ticket::maskClient على الخادم). النسخة الوحيدة في الواجهة:
+// كانت نسخةٌ مطابقة في `admin-data` تستوردها شاشات الإدارة
 export function maskClient(name: string): string {
   // **لا تقنيع على الإدارة والمحامي والموظّف** (قرار المالك 2026-09-11). الاسمُ باقٍ لأنّ
   // الشاشات تناديه في مواضع كثيرة؛ تغييرُ السلوك هنا يغطّيها كلَّها دون أن يُنسى أحدُها.
-  return name || '—';
-}
-
-// إخفاء أسماء المحامين — في دور الموظف لا يُخفى (يطابق maskLawyer: ROLE!=='client')
-export function maskLawyer(name: string): string {
   return name || '—';
 }

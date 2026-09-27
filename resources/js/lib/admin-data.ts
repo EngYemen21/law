@@ -21,14 +21,6 @@ import {
 export { CLIENTS, SYS_TICKETS, LAWYERS, STAFF, CONSULTS };
 export type { Consult };
 
-// ── إخفاء الأسماء في دور الإدارة: لا يُخفى شيء (تمرير مباشر) ──
-// يطابق maskClient (ROLE!=='employee'&&ROLE!=='lawyer') و maskLawyer (ROLE!=='client')
-export function maskClient(name: string): string {
-  return name || '—';
-}
-export function maskLawyer(name: string): string {
-  return name || '—';
-}
 
 // ── بيانات الرسوم البيانية (REVENUE / REV_BY_SVC) ──
 export interface BarDatum { m: string; v: number; }

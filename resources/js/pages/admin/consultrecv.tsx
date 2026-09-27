@@ -4,12 +4,11 @@ import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
 import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
-import { maskClient } from '@/lib/admin-data';
 import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-reschedule';
 import { CONFIRM_END_CONSULT, CONFIRM_NO_SHOW, CONFIRM_START_CONSULT } from '@/lib/consult-ui';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { crChannelIcon, crChannelTone } from '@/lib/employee-data';
+import { crChannelIcon, crChannelTone, maskClient } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useServerAction } from '@/lib/use-server-action';
 
