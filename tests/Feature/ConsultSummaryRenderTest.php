@@ -101,8 +101,8 @@ class ConsultSummaryRenderTest extends TestCase
     {
         $code = $this->screens()['employee/consults.tsx'];
 
-        $this->assertStringContainsString('CONSULT_CLOSED_STATUSES', $code, 'الكتالوج مستورد');
-        $this->assertStringContainsString('const isClosed', $code);
+        // «مقفلة» علمٌ من الخادم (`Consult::toCard.isClosed`) لا قائمةٌ منسوخة
+        $this->assertStringContainsString('const isClosed = drawerConsult != null && drawerConsult.isClosed;', $code);
         $this->assertStringContainsString('isClosed ?', $code, 'نموذج طلب المستندات مشروط');
         $this->assertStringContainsString('isClosed ||', $code, 'زرّ الإسناد معطَّل');
     }

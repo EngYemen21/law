@@ -15,9 +15,6 @@ import { echo } from '@/lib/echo';
 import {
   crChannelIcon,
   crChannelTone,
-  CONSULT_BOOKING_STATUSES,
-  CONSULT_CLOSED_STATUSES,
-  CONSULT_TERMINAL_STATUSES,
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
@@ -32,7 +29,7 @@ export type LawyerKanbanCol = 'waiting' | 'live' | 'drafting' | 'completed';
  * التي كانت تدخل عمود «بانتظار الانعقاد» وعمود «منتهية ومغلقة» معاً لأن cancelRequest لا يمس session).
  */
 export function lawyerKanbanColumnOf(c: ConsultCard): LawyerKanbanCol {
-  if (CONSULT_TERMINAL_STATUSES.includes(c.status) || c.notHeld) {
+  if (c.isTerminal || c.notHeld) {
     return 'completed';
   }
 
@@ -46,7 +43,7 @@ export function lawyerKanbanColumnOf(c: ConsultCard): LawyerKanbanCol {
   }
 
   // دورة الحجز لا تدخل جلسات الانعقاد عند المحامي
-  if (CONSULT_BOOKING_STATUSES.includes(c.status)) {
+  if (c.bookingStage != null) {
     return 'completed';
   }
 
@@ -169,7 +166,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
       (c) => c.session === 'منتهية' && !c.summaryApproved
     ).length;
     const completed = items.filter(
-      (c) => CONSULT_TERMINAL_STATUSES.includes(c.status)
+      (c) => c.isTerminal
     ).length;
 
     return {
@@ -200,7 +197,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
         if (c.session !== 'منتهية' || c.summaryApproved || c.summaryLawyerApproved) return false;
       }
       if (filterMode === 'completed') {
-        if (!CONSULT_TERMINAL_STATUSES.includes(c.status)) return false;
+        if (!c.isTerminal) return false;
       }
 
       // 2. فلتر القناة
@@ -617,7 +614,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         */}
                       {isLive ? (
                         <span className="lawyer-status-pill live">🔴 جلسة جارية الآن</span>
-                      ) : CONSULT_CLOSED_STATUSES.includes(c.status) && c.status === 'ملغاة' ? (
+                      ) : c.isClosed && c.status === 'ملغاة' ? (
                         <span className="lawyer-status-pill cancelled">✕ ملغاة</span>
                       ) : c.session === 'منتهية' ? (
                         <span className="lawyer-status-pill ended">✓ الجلسة انتهت</span>

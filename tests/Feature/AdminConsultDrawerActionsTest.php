@@ -89,12 +89,13 @@ class AdminConsultDrawerActionsTest extends TestCase
         $this->assertStringContainsString('function referBlockReason(', $ui);
         $this->assertStringContainsString('{referBlocked ? (', $ui);
         $this->assertStringContainsString("c.session === 'جلسة جارية'", $ui);
-        $this->assertStringContainsString('CONSULT_CLOSED_STATUSES.includes(c.status)', $ui);
-        $this->assertStringContainsString('CONSULT_BOOKING_STATUSES.includes(c.status)', $ui);
+        // مجموعات الحالة أعلامٌ من الخادم (`Consult::toCard`) لا قوائم منسوخة في الواجهة
+        $this->assertStringContainsString('if (c.isClosed) {', $ui);
+        $this->assertStringContainsString('if (c.bookingStage != null) {', $ui);
 
         // والتحليل لا يُعرض على ملفٍّ انتهى
         $this->assertStringContainsString(
-            '{!CONSULT_CLOSED_STATUSES.includes(drawerConsult.status) && (',
+            '{!drawerConsult.isClosed && (',
             $ui
         );
 
@@ -205,7 +206,7 @@ class AdminConsultDrawerActionsTest extends TestCase
         // كتلة «حصيلة الجلسة» تظهر عند ختم الجلسة أو انتهاء الملفّ.
         // **الشرط من أوّله**: فحصُ الاسم وحده ينجو من `{(false && …)` — جرّبتُه فنجا.
         $this->assertStringContainsString(
-            '{(CONSULT_SESSION_ENDED.includes(drawerConsult.session)',
+            '{(drawerConsult.sessionEnded',
             $ui,
             'كتلة حصيلة الجلسة مُعطَّلة أو مشروطةٌ بغير حالة الجلسة'
         );

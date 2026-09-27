@@ -8,7 +8,7 @@ import { maskClient } from '@/lib/admin-data';
 import { CONFIRM_CANCEL_CONSULT_REQUEST } from '@/lib/consult-ui';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { CONSULT_BOOKING_STATUSES, CONSULT_CHANNEL_OPTIONS, crChannelIcon, crChannelTone, DEFAULT_CONSULT_CHANNEL } from '@/lib/employee-data';
+import { CONSULT_CHANNEL_OPTIONS, crChannelIcon, crChannelTone, DEFAULT_CONSULT_CHANNEL } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useSettings } from '@/lib/settings';
 import { useServerAction } from '@/lib/use-server-action';
@@ -148,7 +148,7 @@ export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
 
   // Live active pre-session intake requests
   const liveItems = useMemo(() => {
-    return items.filter((c) => CONSULT_BOOKING_STATUSES.includes(c.status));
+    return items.filter((c) => c.bookingStage != null);
   }, [items]);
 
   // Currently active consult in the slide-over drawer

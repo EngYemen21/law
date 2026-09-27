@@ -525,6 +525,8 @@ class Consult extends Model
             'notHeld' => $this->isNotHeld(),
             'tone' => $this->statusTone(),
             'sessionTone' => $this->sessionTone(),
+            // في دورة الحجز (تسعير · سداد · موعد) — علمٌ لا مرحلة: `bookingStage` يكشف «اعتماد الموعد» الداخليّ
+            'inBooking' => in_array($this->status, self::PRE_SESSION_STATUSES, true),
             // طلب تغيير الموعد: هل يُتاح، وهل طلبٌ سابقٌ معلّق، ولماذا يُحجب — من `rescheduleRequestBlocker` وحده
             'rescheduleRequest' => [
                 'pending' => $this->reschedule_requested_at !== null,
@@ -633,6 +635,10 @@ class Consult extends Model
             // لونا الشارتين من الـEnum (`ConsultStatus::tone` · `SessionState::tone`) — لا خريطة في الواجهة
             'tone' => $this->statusTone(),
             'sessionTone' => $this->sessionTone(),
+            // **مجموعات الحالة أعلامٌ من الخادم** — كانت الشاشات تنسخ قوائمها (`CONSULT_TERMINAL_STATUSES`…)
+            'isTerminal' => in_array($this->status, self::TERMINAL_STATUSES, true),
+            'isClosed' => in_array($this->status, self::CLOSED_STATUSES, true),
+            'sessionEnded' => in_array($this->session, self::SESSION_ENDED, true),
             // ذاكرة إعادة الجدولة: كم مرّة أُعيدت (السقف في `reschedule.limit` المشترك)، وطلب العميل المعلّق
             'rescheduleCount' => (int) $this->reschedule_count,
             // **هل تُعاد جدولتها الآن؟ — من حارس الانتقال نفسه** لا من تخمين الواجهة. كان الزرّ في

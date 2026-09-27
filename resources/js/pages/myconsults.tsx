@@ -7,7 +7,7 @@ import { useToast } from '@/components/babylon/Toast';
 import { SummaryModal } from '@/lib/consult-ui';
 import type { ClientConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { CONSULT_BOOKING_STATUSES, crChannelIcon, crChannelTone, foldSearch } from '@/lib/employee-data';
+import { crChannelIcon, crChannelTone, foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 
 // ============================================================
@@ -88,7 +88,7 @@ const MyConsults: React.FC<Props> = ({
   // الافتراضي يُشتق من البيانات: القادم من /book حالته «بانتظار التسعير/السداد» — فتح
   // upcoming دائماً كان يخفي طلبه الجديد وزرّ الدفع خلف تبويب آخر ويريه «لا توجد استشارات»
   const [activeTab, setActiveTab] = useState<'upcoming' | 'pending' | 'completed' | 'all'>(
-    () => (consults.some((c) => CONSULT_BOOKING_STATUSES.includes(c.status)) ? 'pending' : 'upcoming'),
+    () => (consults.some((c) => Boolean(c.inBooking)) ? 'pending' : 'upcoming'),
   );
   const [searchQuery, setSearchQuery] = useState('');
   const [summaryOf, setSummaryOf] = useState<ClientConsultCard | null>(null);
@@ -176,7 +176,7 @@ return;
       (c) =>
         in_array_sessions(c.session) &&
         !c.missed &&
-        !CONSULT_BOOKING_STATUSES.includes(c.status) &&
+        !c.inBooking &&
         // ما ينتظر مستنداً من الموكّل ليس «قادماً مؤكداً» — هو موقوفٌ عليه
         c.status !== 'بانتظار استكمال البيانات' &&
         c.status !== 'ملغاة'
@@ -185,7 +185,7 @@ return;
 
   const pendingBookingConsults = useMemo(() => {
     // الفائتة تحتاج إجراءً (طلب إعادة جدولة) — كانت لا تظهر إلا في «الكل» فتضيع
-    return items.filter((c) => CONSULT_BOOKING_STATUSES.includes(c.status)
+    return items.filter((c) => Boolean(c.inBooking)
       || c.status === 'بانتظار استكمال البيانات'
       // الفائتة (`missed`) والمسجّلة «لم تُعقد» (`notHeld`) علمان منفصلان من الخادم — يُجمعان هنا كما كانا
       || c.missed || c.notHeld);
@@ -498,7 +498,7 @@ return list;
           {displayedConsults.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               {displayedConsults.map((c) => {
-                const isBookingFlow = CONSULT_BOOKING_STATUSES.includes(c.status);
+                const isBookingFlow = Boolean(c.inBooking);
                 const isLive = c.session === 'جلسة جارية';
                 const isCompleted = c.session === 'منتهية';
 

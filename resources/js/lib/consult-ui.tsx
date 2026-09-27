@@ -11,8 +11,7 @@ import { stageChanged, staffPatch } from '@/lib/consult-live';
 import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-reschedule';
 import { echo } from '@/lib/echo';
 import {
-  CONSULT_CHANNELS, CONSULT_FLOW, CONSULT_BOOKING_FLOW, CONSULT_BOOKING_STATUSES,
-  CONSULT_CLOSED_STATUSES, CONSULT_PRIORITIES, cBookingStage, cStage, cHasStage,
+  CONSULT_CHANNELS, CONSULT_FLOW, CONSULT_BOOKING_FLOW, CONSULT_PRIORITIES, cBookingStage, cStage, cHasStage,
   crChannelIcon, crChannelTone, maskClient
 } from '@/lib/employee-data';
 import type {AuditEntry} from '@/lib/employee-data';
@@ -114,6 +113,10 @@ export interface ConsultCard {
   /** لون شارة الحالة (`ConsultStatus::tone`) ولون شارة الجلسة (`SessionState::tone`) — من الخادم. */
   tone: string;
   sessionTone: string;
+  /** مجموعات الحالة من الخادم (`Consult::TERMINAL_STATUSES` · `CLOSED_STATUSES` · `SESSION_ENDED`) — لا قوائم في الواجهة. */
+  isTerminal: boolean;
+  isClosed: boolean;
+  sessionEnded: boolean;
   /** كم مرّة أُعيدت جدولتها — السقف في `reschedule.limit` المشترك من الخادم. */
   rescheduleCount?: number;
   /** يسمح حارس `RescheduleConsult` بإعادة جدولتها الآن — الزرّ يتبعه لا يخمّن. */
@@ -233,6 +236,8 @@ export interface ClientConsultCard {
   notHeld?: boolean;
   tone?: string;
   sessionTone?: string;
+  /** في دورة الحجز — علمٌ لا مرحلة (لا يكشف «اعتماد الموعد» الداخليّ للعميل). */
+  inBooking?: boolean;
   /** طلب تغيير الموعد — يُتاح وفق `Consult::rescheduleRequestBlocker` في الخادم وحده. */
   rescheduleRequest?: { pending: boolean; canRequest: boolean };
   session: string;
@@ -1241,13 +1246,13 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
    */
   const referBlocked = c.session === 'جلسة جارية'
     ? 'الجلسة منعقدة الآن — أنهِها قبل تغيير المستشار.'
-    : CONSULT_CLOSED_STATUSES.includes(c.status)
+    : c.isClosed
       ? 'الاستشارة انتهت أو أُلغيت — لا تُحال إلى محامٍ.'
-      : CONSULT_BOOKING_STATUSES.includes(c.status)
+      : c.bookingStage != null
         ? `ما زالت في دورة الحجز — حالتها «${c.status}». أكمل التسعير والسداد واختيار الموعد أوّلاً.`
         : null;
   /** «إعادة التحليل» يردّها الخادم على المنتهية والملغاة (`analyze`). */
-  const analyzeBlocked = CONSULT_CLOSED_STATUSES.includes(c.status);
+  const analyzeBlocked = c.isClosed;
   // البطاقة سطح تحرير الموظّف — تبقى ظاهرة عند تعذّر التحليل (فهو حينها من يكتب الرأي)،
   // لكن بعنوان صادق: كان الاحتياطيّ يظهر تحت «تحليل الفريق القانوني» كأن تحليلاً وقع.
   const aiFailed = c.aiSource === 'fallback';
@@ -1819,7 +1824,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                     <button
                       className="btn soft sm"
                       onClick={savePriority}
-                      disabled={busy || CONSULT_CLOSED_STATUSES.includes(c.status)}
+                      disabled={busy || c.isClosed}
                       type="button"
                     >
                       تحديث

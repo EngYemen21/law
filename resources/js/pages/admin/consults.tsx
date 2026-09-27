@@ -13,10 +13,6 @@ import { useSettings } from '@/lib/settings';
 import {
   crChannelIcon,
   crChannelTone,
-  CONSULT_TERMINAL_STATUSES,
-  CONSULT_BOOKING_STATUSES,
-  CONSULT_CLOSED_STATUSES,
-  CONSULT_SESSION_ENDED,
   CONSULT_PRIORITIES,
   CONSULT_CHANNEL_OPTIONS,
 } from '@/lib/employee-data';
@@ -41,11 +37,11 @@ function referBlockReason(c: ConsultCard | null): string | null {
         return 'الجلسة منعقدة الآن — أنهِها قبل تغيير المستشار.';
     }
 
-    if (CONSULT_CLOSED_STATUSES.includes(c.status)) {
+    if (c.isClosed) {
         return 'الاستشارة انتهت أو أُلغيت — لا تُحال إلى محامٍ.';
     }
 
-    if (CONSULT_BOOKING_STATUSES.includes(c.status)) {
+    if (c.bookingStage != null) {
         return `ما زالت في دورة الحجز — حالتها «${c.status}». أكمل التسعير والسداد واختيار الموعد أوّلاً.`;
     }
 
@@ -90,7 +86,7 @@ const SENIOR_LABEL = 'الإدارة العليا';
  */
 function needsAssignment(c: ConsultCard): boolean {
   return (
-    !CONSULT_TERMINAL_STATUSES.includes(c.status) &&
+    !c.isTerminal &&
     (c.lawyerId == null || c.lawyer === SENIOR_LABEL)
   );
 }
@@ -99,7 +95,7 @@ function isLate(c: ConsultCard, lateAfterMins: number): boolean {
   return (
     c.ageMins != null &&
     c.ageMins > lateAfterMins &&
-    !['جاهزة للمحامي', ...CONSULT_TERMINAL_STATUSES].includes(c.status)
+    c.status !== 'جاهزة للمحامي' && !c.isTerminal
   );
 }
 
@@ -133,7 +129,7 @@ type KanbanCol = 'pre_session' | 'scheduling' | 'review' | 'active_sessions' | '
  * فلا تسقط بطاقةٌ مهما استُحدثت حالة.
  */
 function kanbanColumnOf(c: ConsultCard): KanbanCol {
-  if (CONSULT_TERMINAL_STATUSES.includes(c.status)) {
+  if (c.isTerminal) {
     return 'completed';
   }
 
@@ -295,10 +291,10 @@ return initialLawyers;
     const total = allItems.length;
     const liveNow = allItems.filter((c) => c.session === 'جلسة جارية').length;
     // من الكتالوج المشترك لا من نسخةٍ مكتوبةٍ بيد — تُخالف عند أوّل تعديل
-    const preSession = allItems.filter((c) => CONSULT_BOOKING_STATUSES.includes(c.status)).length;
+    const preSession = allItems.filter((c) => c.bookingStage != null).length;
     const needsPricing = allItems.filter((c) => c.needsPricing).length;
     const readyForLawyer = allItems.filter((c) => c.status === 'جاهزة للمحامي').length;
-    const completed = allItems.filter((c) => CONSULT_TERMINAL_STATUSES.includes(c.status)).length;
+    const completed = allItems.filter((c) => c.isTerminal).length;
     const toCase = allItems.filter((c) => !!c.caseNo).length;
     const conversionRate = total > 0 ? Math.round((toCase / total) * 100) : 0;
 
@@ -382,15 +378,15 @@ set.add(c.lawyer.trim());
 return false;
 }
 
-      if (categoryFilter === 'pre_session' && !CONSULT_BOOKING_STATUSES.includes(c.status)) {
+      if (categoryFilter === 'pre_session' && c.bookingStage == null) {
 return false;
 }
 
-      if (categoryFilter === 'in_flight' && ([...CONSULT_BOOKING_STATUSES, ...CONSULT_TERMINAL_STATUSES].includes(c.status))) {
+      if (categoryFilter === 'in_flight' && (c.bookingStage != null || c.isTerminal)) {
 return false;
 }
 
-      if (categoryFilter === 'completed' && !CONSULT_TERMINAL_STATUSES.includes(c.status)) {
+      if (categoryFilter === 'completed' && !c.isTerminal) {
 return false;
 }
 
@@ -1684,7 +1680,7 @@ return;
             <div className="card-b">
               {assignedLawyersList.map((law) => {
                 const count = allItems.filter((c) => c.lawyer === law).length;
-                const active = allItems.filter((c) => c.lawyer === law && !CONSULT_TERMINAL_STATUSES.includes(c.status)).length;
+                const active = allItems.filter((c) => c.lawyer === law && !c.isTerminal).length;
                 const pct = allItems.length > 0 ? Math.round((count / allItems.length) * 100) : 0;
 
                 return (
@@ -2117,7 +2113,7 @@ return;
                   </div>
 
                   {/* 5. تشغيل الذكاء الاصطناعي — لا يُعاد تحليل ملفٍّ انتهى (حارس `analyze`) */}
-                  {!CONSULT_CLOSED_STATUSES.includes(drawerConsult.status) && (
+                  {!drawerConsult.isClosed && (
                   <div className="card" style={{ margin: 0, padding: 14 }}>
                     <b>تحليل الفريق القانوني الذكي:</b>
                     <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
@@ -2152,8 +2148,8 @@ return;
                     * `approveSummary` يردّ ٤٢٢ على المعتمد وعلى الفارغ، و`createTasks`
                     * يردّ ٤٠٩ على ما أُنشئت مهامُّه و٤٢٢ على ما لا قرارات له.
                     */}
-                  {(CONSULT_SESSION_ENDED.includes(drawerConsult.session)
-                    || CONSULT_CLOSED_STATUSES.includes(drawerConsult.status)) && (
+                  {(drawerConsult.sessionEnded
+                    || drawerConsult.isClosed) && (
                     <div className="card" style={{ margin: 0, padding: 14, borderRight: '4px solid #1E9D6B' }}>
                       <b>حصيلة الجلسة:</b>
 

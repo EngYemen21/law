@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\ConsultStatus;
+use App\Domain\Journey\Enums\SessionState;
 use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Invoice;
@@ -95,25 +97,33 @@ class ConsultMoneyCycleTest extends TestCase
     /** **وحالةٌ واحدةٌ بنصٍّ ولونٍ واحدين** — لا كتالوجَ ثانٍ في أيّ شاشة. */
     public function test_one_status_reads_the_same_everywhere(): void
     {
-        // الكتالوجات الأربعة على الخادم، ونظائرها المصدَّرة للواجهة
+        // مجموعات الحالة **لم تعد تُنسخ إلى الواجهة**: البطاقة تحملها أعلاماً (المرحلة ٢ من خطّة
+        // «إزالة التعارض») — فلا نسخةَ تنحرف. والأولويّة وحدها قاموسٌ يُعرض في قائمة اختيار.
         $lib = (string) file_get_contents(resource_path('js/lib/employee-data.ts'));
 
-        foreach ([
-            'CONSULT_TERMINAL_STATUSES' => Consult::TERMINAL_STATUSES,
-            'CONSULT_CLOSED_STATUSES' => Consult::CLOSED_STATUSES,
-            'CONSULT_BOOKING_STATUSES' => Consult::PRE_SESSION_STATUSES,
-            'CONSULT_SESSIONS' => Consult::SESSIONS,
-            'CONSULT_PRIORITIES' => Consult::PRIORITIES,
-        ] as $name => $server) {
-            preg_match("/export const {$name} = \[([^\]]*)\]/u", $lib, $m);
-            $this->assertNotEmpty($m, "«{$name}» غير مصدَّرة للواجهة");
+        foreach (['CONSULT_TERMINAL_STATUSES', 'CONSULT_CLOSED_STATUSES', 'CONSULT_BOOKING_STATUSES', 'CONSULT_SESSIONS', 'CONSULT_SESSION_ENDED'] as $gone) {
+            $this->assertStringNotContainsString("export const {$gone}", $lib, "عادت «{$gone}» نسخةً في الواجهة");
+        }
 
-            preg_match_all("/'([^']+)'/u", $m[1], $vals);
-            $this->assertSame(
-                $server,
-                $vals[1],
-                "«{$name}» تنحرف عن نظيرها الخادميّ — وهو أصلُ كلّ حالةٍ تُعرض بلونين"
-            );
+        preg_match("/export const CONSULT_PRIORITIES = \[([^\]]*)\]/u", $lib, $m);
+        $this->assertNotEmpty($m, '«CONSULT_PRIORITIES» غير مصدَّرة للواجهة');
+        preg_match_all("/'([^']+)'/u", $m[1], $vals);
+        $this->assertSame(Consult::PRIORITIES, $vals[1], 'قاموس الأولويّة ينحرف عن الخادم');
+
+        // والأعلام نفسها تطابق مجموعات الخادم لكلّ حالة
+        $client = User::factory()->create(['role' => Role::Client]);
+        foreach (ConsultStatus::cases() as $status) {
+            foreach (SessionState::cases() as $session) {
+                $card = Consult::create([
+                    'user_id' => $client->id, 'ref' => 'CN-FLAG-'.uniqid(), 'subject' => 'س', 'type' => 'استشارة',
+                    'channel' => 'حضورية', 'status' => $status->value, 'session' => $session->value, 'lawyer' => '—',
+                ])->toCard();
+
+                $this->assertSame(in_array($status->value, Consult::TERMINAL_STATUSES, true), $card['isTerminal'], $status->value);
+                $this->assertSame(in_array($status->value, Consult::CLOSED_STATUSES, true), $card['isClosed'], $status->value);
+                $this->assertSame(in_array($session->value, Consult::SESSION_ENDED, true), $card['sessionEnded'], $session->value);
+                $this->assertSame(in_array($status->value, Consult::PRE_SESSION_STATUSES, true), $card['bookingStage'] !== null, $status->value);
+            }
         }
     }
 }

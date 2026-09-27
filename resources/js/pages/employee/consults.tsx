@@ -13,8 +13,6 @@ import { echo } from '@/lib/echo';
 import {
   crChannelIcon,
   crChannelTone,
-  CONSULT_CLOSED_STATUSES,
-  CONSULT_TERMINAL_STATUSES,
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 
@@ -64,7 +62,7 @@ export type EmpKanbanCol = 'new_intake' | 'docs_check' | 'scheduling' | 'active_
  * القسمةُ بأولويّة، والفرعُ الأخير جامعٌ فلا تسقط بطاقةٌ مهما استُحدثت حالة.
  */
 function empKanbanColumnOf(c: ConsultCard): EmpKanbanCol {
-  if (CONSULT_TERMINAL_STATUSES.includes(c.status)) {
+  if (c.isTerminal) {
     return 'completed';
   }
 
@@ -170,7 +168,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
    * `CLOSED` لا `TERMINAL`: «لم يحضر» نهايةٌ في التبويب لكنّها **حالة إنقاذ** تُعاد
    * جدولتها — فحجبُ أفعالها يسدّ باب الإنقاذ.
    */
-  const isClosed = drawerConsult != null && CONSULT_CLOSED_STATUSES.includes(drawerConsult.status);
+  const isClosed = drawerConsult != null && drawerConsult.isClosed;
 
   // قائمة المحامين المعتمدين
   const lawyersList = useMemo(() => {
@@ -229,7 +227,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
     }).length;
     const preSession = allItems.filter((c) => Boolean(c.bookingStage)).length;
     const completed = allItems.filter(
-      (c) => CONSULT_TERMINAL_STATUSES.includes(c.status)
+      (c) => c.isTerminal
     ).length;
     // **ثلاث حالاتٍ كانت بلا تبويب** — وهي مربطُ عمل الموظّف: بين استلامه الطلب
     // وإحالته للمحامي. كانت الشاشة تعطي حبّةً لطلبات ما قبل الجلسة (وهي شغل الإدارة)
@@ -313,7 +311,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
       ) return false;
       if (
         categoryFilter === 'completed' &&
-        !CONSULT_TERMINAL_STATUSES.includes(c.status)
+        !c.isTerminal
       ) return false;
 
       if (channelFilter !== 'all' && c.channel !== channelFilter) return false;
@@ -1407,7 +1405,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                 // **تتبع المرشّحات كبقيّة العروض.** كانت وحدها تقرأ `allItems`، فيُصفّي
                 // الموظّف على تخصّصٍ أو قناة ثمّ يرى أحمالاً لا تصف ما أمامه.
                 const count = filteredItems.filter((c) => c.lawyer === law).length;
-                const active = filteredItems.filter((c) => c.lawyer === law && ! CONSULT_TERMINAL_STATUSES.includes(c.status)).length;
+                const active = filteredItems.filter((c) => c.lawyer === law && ! c.isTerminal).length;
                 const pct = filteredItems.length > 0 ? Math.round((count / filteredItems.length) * 100) : 0;
 
                 return (

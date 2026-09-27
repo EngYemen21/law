@@ -116,8 +116,9 @@ class ConsultJourneyHonestyTest extends TestCase
 
         $ui = $this->ui();
         $this->assertStringContainsString('const referBlocked = ', $ui);
-        $this->assertStringContainsString('CONSULT_CLOSED_STATUSES.includes(c.status)', $ui);
-        $this->assertStringContainsString('CONSULT_BOOKING_STATUSES.includes(c.status)', $ui);
+        // من أعلام الخادم (`isClosed` · `bookingStage`) لا من قوائم منسوخة
+        $this->assertStringContainsString(': c.isClosed', $ui);
+        $this->assertStringContainsString(': c.bookingStage != null', $ui);
         // ولا إحالةَ بلا اختيارٍ صريح — الخادم يسقط إلى النائب النصّيّ «المستشار القانوني»
         $this->assertStringContainsString('disabled={busy || !lawyerId || !!referBlocked}', $ui);
     }
@@ -126,7 +127,7 @@ class ConsultJourneyHonestyTest extends TestCase
     {
         $ui = $this->ui();
 
-        $this->assertStringContainsString('const analyzeBlocked = CONSULT_CLOSED_STATUSES.includes(c.status);', $ui);
+        $this->assertStringContainsString('const analyzeBlocked = c.isClosed;', $ui);
         $this->assertStringContainsString('{mayAnalyze && !analyzeBlocked && (', $ui);
         // و«حفظ التعديلات» يفرض الخادمُ فيه aiLawyer مطلوباً
         $this->assertStringContainsString('disabled={busy || !lawyerName}', $ui);
