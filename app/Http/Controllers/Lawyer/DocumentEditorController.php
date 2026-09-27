@@ -8,6 +8,7 @@ use App\Models\LegalCase;
 use App\Models\LegalDocument;
 use App\Models\Ticket;
 use App\Models\TicketSummary;
+use App\Models\User;
 use App\Services\LegalAiService;
 use App\Support\CasePleading;
 use App\Support\PdfRenderer;
@@ -168,6 +169,7 @@ class DocumentEditorController extends Controller
             'metadata' => ['nullable', 'array'],
             'header_config' => ['nullable', 'array'],
         ]);
+        $data = $this->guardCaseLink($request, $data);
 
         $doc = LegalDocument::create([
             ...$data,
@@ -216,6 +218,7 @@ class DocumentEditorController extends Controller
             'metadata' => ['nullable', 'array'],
             'header_config' => ['nullable', 'array'],
         ]);
+        $data = $this->guardCaseLink($request, $data, $doc);
 
         $doc->update($data);
 
@@ -236,6 +239,10 @@ class DocumentEditorController extends Controller
         $user = $request->user();
         if (! $user->isAdmin() && ! $user->can(Permissions::APPROVE_DOCUMENTS)) {
             abort(403, 'ليس لديك صلاحية اعتماد الصياغة القانونية.');
+        }
+        // المستند المربوط بقضية يكتب لائحتها عند الاعتماد — فلا يعتمده إلّا من يملك القضية
+        if ($doc->case_id && ! self::canUseCase($user, LegalCase::find($doc->case_id))) {
+            abort(403, 'هذه القضية غير مُسندة إليك.');
         }
 
         $doc->update([
@@ -736,6 +743,35 @@ HTML;
     }
 
     // ── مساعدات داخلية ──
+
+    /** القضية تُربط بمستندٍ لمن يملكها: الإدارة أو المحامي المُسندة إليه — القاعدة نفسها في `create`/`importables`. */
+    private static function canUseCase(User $user, ?LegalCase $case): bool
+    {
+        return $case !== null && ($user->isAdmin() || (int) $case->assigned_lawyer_id === (int) $user->id);
+    }
+
+    /**
+     * ربط المستند بقضية حكمُ الخادم لا الطلب.
+     *
+     * كان `case_id` و`metadata` يُقبلان كما أُرسلا، ثم يكتب `approve()` لائحة تلك القضية عبر
+     * `CasePleading::save` — فمن يملك صلاحية الاعتماد يستبدل لائحة قضيةٍ ليست له. الآن: القضية
+     * لمن يملكها وإلّا 403، و`source_type=case_pleading` لا يبقى إلّا مطابقاً للقضية المربوطة.
+     * الحفظ على الربط القائم نفسه لا يُعاد فحصه (أُعيد إسناد القضية؟ يبقى المسودّة حفظها،
+     * والاعتماد وحده يُحرس في `approve`).
+     */
+    private function guardCaseLink(Request $request, array $data, ?LegalDocument $doc = null): array
+    {
+        if (! empty($data['case_id']) && (int) $data['case_id'] !== (int) $doc?->case_id) {
+            abort_unless(self::canUseCase($request->user(), LegalCase::find($data['case_id'])), 403, 'هذه القضية غير مُسندة إليك.');
+        }
+
+        if (is_array($data['metadata'] ?? null) && ($data['metadata']['source_type'] ?? null) === 'case_pleading'
+            && (empty($data['case_id']) || (int) ($data['metadata']['case_id'] ?? 0) !== (int) $data['case_id'])) {
+            unset($data['metadata']['source_type']);
+        }
+
+        return $data;
+    }
 
     /**
      * مسار صورة الشعار على القرص — **داخل `public/` حصراً وبامتداد صورة**، أو `null`.

@@ -4,8 +4,10 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Http\Controllers\Lawyer\DocumentEditorController;
+use App\Models\LegalCase;
 use App\Models\LegalDocument;
 use App\Models\User;
+use App\Support\CasePleading;
 use App\Support\RichHtml;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -129,6 +131,81 @@ class DocumentEditorSecurityTest extends TestCase
             'src="data:image/png;base64,AAAA"'] as $kept) {
             $this->assertStringContainsString($kept, $clean);
         }
+    }
+
+    /** ربط مستندٍ بقضيةٍ ليست للمحامي، ثم اعتماده، كان يستبدل لائحتها المعلّقة. */
+    public function test_cannot_link_or_approve_a_document_on_a_case_assigned_to_someone_else(): void
+    {
+        $case = $this->pendingPleadingCase(User::factory()->create(['role' => Role::Lawyer]));
+
+        $this->actingAs($this->lawyer)->post('/lawyer/editor', [
+            'title' => 'لائحة مدسوسة',
+            'type' => 'lawsuit',
+            'content_html' => '<p>نصٌّ بديل</p>',
+            'case_id' => $case->id,
+            'metadata' => ['source_type' => 'case_pleading', 'case_id' => $case->id],
+        ])->assertForbidden();
+        $this->assertDatabaseMissing('legal_documents', ['title' => 'لائحة مدسوسة']);
+
+        // مستندٌ ربطه قائمٌ سلفاً (قبل الإصلاح) — الاعتماد لا يكتب اللائحة
+        $doc = LegalDocument::create([
+            'title' => 'لائحة قديمة', 'type' => 'lawsuit', 'user_id' => $this->lawyer->id,
+            'case_id' => $case->id, 'metadata' => ['source_type' => 'case_pleading', 'case_id' => $case->id],
+            'content_html' => '<p>نصٌّ بديل</p>', 'status' => 'draft',
+        ]);
+        $this->actingAs($this->lawyer)->post("/lawyer/editor/{$doc->id}/approve")->assertForbidden();
+
+        $this->assertSame('draft', $doc->fresh()->status);
+        $this->assertNull(CasePleading::latestDraft($case->fresh()));
+    }
+
+    public function test_pleading_source_is_dropped_when_it_does_not_match_the_linked_case(): void
+    {
+        $mine = $this->pendingPleadingCase($this->lawyer);
+        $other = $this->pendingPleadingCase(User::factory()->create(['role' => Role::Lawyer]));
+
+        $this->actingAs($this->lawyer)->post('/lawyer/editor', [
+            'title' => 'مستند بمصدرٍ مزوّر',
+            'type' => 'lawsuit',
+            'content_html' => '<p>نص</p>',
+            'case_id' => $mine->id,
+            'metadata' => ['source_type' => 'case_pleading', 'case_id' => $other->id],
+        ])->assertRedirect();
+
+        $doc = LegalDocument::where('title', 'مستند بمصدرٍ مزوّر')->firstOrFail();
+        $this->assertArrayNotHasKey('source_type', $doc->metadata ?? []);
+    }
+
+    public function test_assigned_lawyer_still_links_and_approves_their_case_pleading(): void
+    {
+        $case = $this->pendingPleadingCase($this->lawyer);
+
+        $this->actingAs($this->lawyer)->post('/lawyer/editor', [
+            'title' => 'لائحتي',
+            'type' => 'lawsuit',
+            'content_html' => '<p>الوقائع</p>',
+            'case_id' => $case->id,
+            'metadata' => ['source_type' => 'case_pleading', 'case_id' => $case->id],
+        ])->assertRedirect();
+
+        $doc = LegalDocument::where('title', 'لائحتي')->firstOrFail();
+        $this->actingAs($this->lawyer)->post("/lawyer/editor/{$doc->id}/approve")->assertSessionHasNoErrors();
+
+        $this->assertSame('approved', $doc->fresh()->status);
+        $this->assertNotNull(CasePleading::latestDraft($case->fresh()));
+    }
+
+    private function pendingPleadingCase(User $lawyer): LegalCase
+    {
+        return LegalCase::create([
+            'number' => 'CAS-SEC-'.$lawyer->id.'-'.uniqid(),
+            'type' => 'تجارية',
+            'department' => 'المحكمة التجارية',
+            'user_id' => User::factory()->create()->id,
+            'assigned_lawyer_id' => $lawyer->id,
+            'status' => 'قيد التحضير',
+            'pleading_status' => 'pending_lawyer',
+        ]);
     }
 
     private function assertHostileRemoved(string $html): bool
