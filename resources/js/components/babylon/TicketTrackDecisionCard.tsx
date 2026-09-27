@@ -18,6 +18,8 @@ export interface TrackGovernanceData {
   approvedTrackAt?: string | null;
   /** سبب منع رفع المقترح/الاعتماد الآن (ملخّصٌ غير معتمد) — من حارس الخادم نفسه؛ `null` = لا مانع. */
   outcomeBlocker?: string | null;
+  /** استشارةٌ قائمة للتذكرة تمنع القرار كلّه — مانعٌ بلا تجاوز (`OutcomeSummaryGate::consultBlocker`). */
+  consultBlocker?: string | null;
   /** سبب التجاوز الذي دوّنه هذا المدير حين رفع المقترح — يُورَث عند الاعتماد فلا يُطلب ثانيةً. */
   inheritedWaiver?: string | null;
 }
@@ -124,7 +126,8 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
   // المانع يحسبه الخادم (`OutcomeSummaryGate::blocker`) ولا يُعاد اشتقاقه هنا
   const blocker = governance?.outcomeBlocker ?? null;
   const inheritedWaiver = governance?.inheritedWaiver ?? null;
-  const waiverReady = !blocker || inheritedWaiver !== null || waiver.trim().length >= WAIVER_MIN;
+  const consultBlocker = governance?.consultBlocker ?? null;
+  const waiverReady = !consultBlocker && (!blocker || inheritedWaiver !== null || waiver.trim().length >= WAIVER_MIN);
 
   // Apply AI suggestion helper
   const applyAiSuggestion = () => {
@@ -295,8 +298,31 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
           </div>
         )}
 
+        {/* ── مانع القرار: استشارةٌ قائمة — لا تجاوز له، فلا حقل سبب ── */}
+        {consultBlocker && !isFrozen && !(approved && !isEditing) && (
+          <div
+            role="alert"
+            style={{
+              padding: '10px 12px',
+              borderRadius: 8,
+              background: '#fffbeb',
+              border: '1px solid #fde68a',
+              marginBottom: 14,
+              fontSize: 12.5,
+              color: '#78350f',
+              lineHeight: 1.6,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontWeight: 700,
+            }}
+          >
+            <Icon name="lock" /> {consultBlocker}
+          </div>
+        )}
+
         {/* ── مانع القرار: ملخّصٌ غير معتمد (ث٥) — ولمن يملك التجاوز حقلُ سببه ── */}
-        {blocker && !isFrozen && !(approved && !isEditing) && (
+        {blocker && !consultBlocker && !isFrozen && !(approved && !isEditing) && (
           <div
             role="alert"
             style={{
@@ -564,8 +590,8 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
                   type="button"
                   className="btn sm"
                   style={{ flex: 1, justifyContent: 'center' }}
-                  disabled={busy || reason.trim().length < 10 || Boolean(blocker)}
-                  title={blocker ?? undefined}
+                  disabled={busy || reason.trim().length < 10 || Boolean(blocker) || Boolean(consultBlocker)}
+                  title={consultBlocker ?? blocker ?? undefined}
                   onClick={submitProposal}
                 >
                   <Icon name="send" /> رفع المقترح للإدارة العليا

@@ -88,6 +88,7 @@ class ApprovalsController extends Controller
                  * الآن الصفّ يحمل المانع وسبب التجاوز الموروث، فتطلب النافذة سبب التجاوز حيث يلزم وحده.
                  */
                 'outcomeBlocker' => OutcomeSummaryGate::blocker($t),
+                'consultBlocker' => OutcomeSummaryGate::consultBlocker($t),
                 'inheritedWaiver' => OutcomeSummaryGate::inheritedWaiver($t, auth()->user()),
                 'since' => ($t->proposed_at ?? $t->updated_at)?->locale('ar')->diffForHumans(),
                 'at' => ($t->proposed_at ?? $t->updated_at)?->toIso8601String(),

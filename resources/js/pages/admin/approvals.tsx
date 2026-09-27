@@ -45,6 +45,7 @@ export interface TicketTrackProposalRow {
     aiSuggestedReason?: string | null;
     /** مانع الاعتماد من حارس المآل نفسه (`OutcomeSummaryGate::blocker`) — `null` = لا مانع. */
     outcomeBlocker?: string | null;
+    consultBlocker?: string | null;
     /** سبب التجاوز الذي دوّنه هذا المدير حين رفع المقترح — يُورَث فلا يُطلب ثانيةً. */
     inheritedWaiver?: string | null;
     since?: string | null;
@@ -210,7 +211,7 @@ const AdminApprovals: React.FC<Props> = ({
     const needsWaiver = !!trackItem?.outcomeBlocker && !trackItem?.inheritedWaiver;
     const needsClosureCode = trackItem?.proposedTrack === 'close';
     const approveReady = !trackItem
-        || ((!needsWaiver || waiver.trim().length >= WAIVER_MIN) && (!needsClosureCode || closureCode !== ''));
+        || (!trackItem.consultBlocker && (!needsWaiver || waiver.trim().length >= WAIVER_MIN) && (!needsClosureCode || closureCode !== ''));
 
     // تنفيذ الموافقة الرسمية المباشرة لجميع الفئات
     const handleApprove = () => {
@@ -1364,8 +1365,15 @@ const AdminApprovals: React.FC<Props> = ({
                                         </div>
                                     )}
 
+                                    {/* استشارةٌ قائمة: مانعٌ بلا تجاوز — القرار بعد الجلسة */}
+                                    {trackItem?.consultBlocker && (
+                                        <div style={{ marginTop: 12, fontSize: 12, lineHeight: 1.6, color: '#78350f', fontWeight: 700 }}>
+                                            {trackItem.consultBlocker}
+                                        </div>
+                                    )}
+
                                     {/* مانع الملخّص من الحارس نفسه، والمسار السريع للإدارة بسببٍ مدوَّن */}
-                                    {trackItem?.outcomeBlocker && (
+                                    {trackItem?.outcomeBlocker && !trackItem?.consultBlocker && (
                                         <div style={{ marginTop: 12, fontSize: 12, lineHeight: 1.6 }}>
                                             <div style={{ color: '#991b1b', marginBottom: 6 }}>{trackItem.outcomeBlocker}</div>
                                             {trackItem.inheritedWaiver ? (

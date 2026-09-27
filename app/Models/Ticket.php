@@ -171,6 +171,8 @@ class Ticket extends Model
             'approvedTrackAt' => $this->approved_track_at?->format('Y-m-d H:i'),
             // سبب تعطيل رفع المقترح/الاعتماد من مصدر الحارس نفسه — لا تعيد البطاقة اشتقاقه (ث٥)
             'outcomeBlocker' => OutcomeSummaryGate::blocker($this),
+            // استشارةٌ قائمة تمنع القرار كلّه — مانعٌ بلا تجاوز، فلا تعرض له البطاقة حقل سبب
+            'consultBlocker' => OutcomeSummaryGate::consultBlocker($this),
             // سبب التجاوز الذي دوّنه هذا المشاهِد حين رفع المقترح — فلا تطلبه البطاقة ثانيةً
             'inheritedWaiver' => OutcomeSummaryGate::inheritedWaiver($this, auth()->user()),
         ];

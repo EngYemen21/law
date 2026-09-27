@@ -101,6 +101,11 @@ final class ApproveOutcomeTrack extends Transition
             return 'التذكرة مجمدة بقرار نهائي سابق ولا يمكن تغيير مسارها.';
         }
 
+        // الاستشارة القائمة تسبق كلّ شرط: القرار بعد الجلسة، ولا تجاوز له (`OutcomeSummaryGate::consultBlocker`)
+        if (($busy = OutcomeSummaryGate::consultBlocker($entity)) !== null) {
+            return $busy;
+        }
+
         $track = $payload['track'] ?? null;
         if (! is_string($track) || ! in_array($track, TicketOutcomeTrack::values(), true)) {
             return 'يجب اختيار مسار صالح من المسارات المعتمدة الأربعة (استشارة، قضية، تنفيذ، إلغاء).';
