@@ -3,7 +3,6 @@ import React, { useEffect, useState } from 'react';
 import { useToast } from '@/components/babylon/Toast';
 import Sidebar from '@/components/navigation/Sidebar';
 import Topbar from '@/components/navigation/Topbar';
-// import ImpersonationBanner from '@/components/navigation/ImpersonationBanner'; // أُلغيت المعاينة 2026-08-28
 import { echo } from '@/lib/echo';
 
 interface AppLayoutProps {
@@ -49,7 +48,6 @@ return;
       />
 
       <div className="main">
-        {/* <ImpersonationBanner /> — أُلغيت معاينة اللوحات 2026-08-28 */}
         <Topbar onMenuToggle={() => setSidebarOpen(!sidebarOpen)} />
         <div className="content" id="content">
           <div className="view">{children}</div>

@@ -38,7 +38,6 @@ use App\Http\Controllers\Employee\TicketController as EmployeeTicketController;
 use App\Http\Controllers\Employee\TransferController as EmployeeTransferController;
 use App\Http\Controllers\ExecFlowController;
 use App\Http\Controllers\InvoiceController;
-// use App\Http\Controllers\ImpersonationController; // أُلغيت معاينة اللوحات (الإمبرسنيشن) بقرار 2026-08-28
 use App\Http\Controllers\Lawyer\AssistantController as LawyerAssistantController;
 use App\Http\Controllers\Lawyer\CalendarController as LawyerCalendarController;
 use App\Http\Controllers\Lawyer\CaseController as LawyerCaseController;
@@ -201,8 +200,6 @@ Route::middleware(['auth', 'active'])->group(function () {
     // تأكيد الجوال الجديد — الرقم لا يُكتب إلا هنا (عامل المصادقة الوحيد)
     Route::post('/profile/phone/verify', [ProfileController::class, 'verifyPhoneChange'])
         ->middleware('throttle:otp-verify')->name('profile.phone.verify');
-    // أُلغيت معاينة لوحة الموظف (الإمبرسنيشن) بقرار 2026-08-28 — الإدارة مقصورة على لوحتها
-    // Route::post('/impersonate/leave', [ImpersonationController::class, 'leave'])->name('impersonate.leave');
     // توقيع تضمين Zoom (Meeting SDK) — متاح للعميل والموظف؛ التفويض في المتحكّم عبر ChannelAccess
     Route::post('/zoom/sdk-signature', [ZoomController::class, 'sdkSignature'])->name('zoom.signature');
 });
@@ -622,8 +619,6 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/staff', [StaffController::class, 'store'])->name('staff.store')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::put('/staff/{user}', [StaffController::class, 'update'])->name('staff.update')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::post('/staff/{user}/toggle', [StaffController::class, 'toggle'])->name('staff.toggle')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
-    // أُلغيت معاينة لوحة الموظف (الإمبرسنيشن) بقرار 2026-08-28
-    // Route::post('/staff/{user}/preview', [StaffController::class, 'preview'])->name('staff.preview')->middleware('permission:إدارة الموظفين');
     Route::get('/archive', [AdminArchiveController::class, 'index'])->name('archive')->middleware(Permissions::middleware(Permissions::CONSULT_ARCHIVE));
     // مخرجات جلسة الاستشارة عبر الخادم (جلب من سحابة Zoom): فيديو/صوت + نصّ تفريغي + تشغيلٌ داخل النظام
     Route::get('/consults/{consult}/recording.zip', [StaffConsultRecordingController::class, 'video'])->name('consults.recording')->middleware(Permissions::middleware(Permissions::CONSULT_ARCHIVE));

@@ -287,8 +287,6 @@ setName(data.name);
       }
     );
 
-  // أُلغيت «معاينة اللوحة» (الإمبرسنيشن) بقرار 2026-08-28 — المسار الخادمي معلَّق أيضًا
-  // const previewStaff = (s: StaffRow) => router.post(`/admin/staff/${s.id}/preview`);
 
   // إحصائيات الكادر
   const lawyersCount = staff.filter((s) => s.roleKey === 'lawyer').length;

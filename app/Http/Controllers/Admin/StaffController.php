@@ -15,9 +15,7 @@ use App\Support\Phone;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -245,22 +243,6 @@ class StaffController extends Controller
 
         return back()->with('success', $user->isActive() ? 'تم تفعيل الموظف' : 'تم إيقاف الموظف');
     }
-
-    // أُلغيت «معاينة اللوحة» (الإمبرسنيشن) بقرار المستخدم 2026-08-28 — الإدارة العليا
-    // مقصورة على لوحتها ولا تدخل بحساب موظف/محامٍ. المسار معلَّق في routes/web.php.
-    // public function preview(Request $request, User $user): RedirectResponse
-    // {
-    //     // موظف/محامٍ فقط — لا معاينة إدارة أو عميل
-    //     abort_unless(in_array($user->role, [Role::Employee, Role::Lawyer], true), 403);
-    //
-    //     $admin = $request->user();
-    //     $request->session()->put('impersonator_id', $admin->id);
-    //     Auth::login($user);
-    //     $request->session()->regenerate(); // منع session fixation
-    //     Log::info('impersonation.start', ['admin_id' => $admin->id, 'target_id' => $user->id]);
-    //
-    //     return redirect($user->role->home());
-    // }
 
     // أول حرفَي كلمتين (بعد تنظيف «أ.») — يطابق توليد avatar في staff.tsx
     private static function initials(string $name): string
