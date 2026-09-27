@@ -823,7 +823,10 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 .mroom-zoom[data-view="hidden"]{display:none}
 .mroom-zoom[data-view="full"]{top:var(--mroom-head);inset-inline:0;bottom:0}
 .mroom-zoom[data-view="dock"]{z-index:86;bottom:calc(16px + var(--mroom-dock-bar));inset-inline-end:16px;width:var(--mroom-dock-w);height:var(--mroom-dock-h);border-radius:14px 14px 0 0;box-shadow:0 22px 55px -20px rgba(10,42,85,.7)}
-.mroom-zoom-root{width:100%;height:100%}
+.mroom-zoom-root{width:100%;height:100%;position:relative}
+/* Component View يضع الفيديو في حاويةٍ قابلة للسحب مُزاحةٍ بـtransform — داخل غرفتنا تُثبَّت في أصل الحاوية
+   فلا تُقصّ عند التبديل بين الغرفة والشريط المصغّر (ملاحظة المالك 2026-09-27) */
+.mroom-zoom-root .react-draggable{transform:none!important;inset:0 auto auto 0!important;max-width:100%;max-height:100%}
 .mroom-stage{position:fixed;top:var(--mroom-head);inset-inline:0;bottom:0;z-index:82;pointer-events:none}
 .mroom-overlay{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:#fff;padding:26px;pointer-events:auto;background:radial-gradient(circle at 50% 34%,#16427d,#0A2A55 72%)}
 .mroom-overlay .oi{width:66px;height:66px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.1);margin:0 auto 4px}

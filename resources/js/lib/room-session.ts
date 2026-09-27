@@ -49,7 +49,7 @@ interface ZoomClient {
     customize?: {
       video?: {
         isResizable?: boolean;
-        popper?: { disableDraggable?: boolean };
+        popper?: { disableDraggable?: boolean; anchorElement?: HTMLElement; placement?: string };
         viewSizes?: { default?: VideoSize; ribbon?: VideoSize };
       };
     };
@@ -259,6 +259,12 @@ function ensureHost(): HTMLDivElement {
   if (typeof ResizeObserver !== 'undefined') {
     new ResizeObserver(() => resizeVideo()).observe(host);
   }
+  // عودة التبويب من الخلفيّة: قد يعيد Zoom رسم الفيديو بمقاسه الافتراضيّ وهو مخفيّ — يُعاد القياس
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      resizeSoon();
+    }
+  });
 
   syncHost();
 
@@ -270,7 +276,17 @@ function syncHost(): void {
     return;
   }
 
-  host.dataset.view = isActivePhase(snap.phase) ? snap.view : 'hidden';
+  const next = isActivePhase(snap.phase) ? snap.view : 'hidden';
+  if (host.dataset.view !== next) {
+    host.dataset.view = next;
+    // التبديل بين `full` و`dock` يغيّر الحاوية — يُقاس بعد أن يطبّق المتصفّح التخطيط الجديد
+    resizeSoon();
+  }
+}
+
+/** إعادة القياس بعد إطارين: الأوّل يطبّق `data-view`، والثاني يضمن أنّ المقاس المقروء نهائيّ. */
+function resizeSoon(): void {
+  requestAnimationFrame(() => requestAnimationFrame(() => resizeVideo()));
 }
 
 function videoSize(): VideoSize | null {
@@ -467,8 +483,10 @@ async function join(): Promise<void> {
       customize: {
         video: {
           isResizable: false,
-          // الفيديو يملأ حاويته ولا يُسحب خارجها — الموضع تحدّده الغرفة لا المستخدم
-          popper: { disableDraggable: true },
+          // الفيديو يملأ حاويته ولا يُسحب خارجها — الموضع تحدّده الغرفة لا المستخدم.
+          // **مُرسًى على الحاوية** (`anchorElement`): بدونه يرسمه Component View نافذةً عائمة بمقاسها
+          // الافتراضيّ في زاوية الصفحة، فيُقصّ عند التبديل بين الغرفة والشريط المصغّر (ملاحظة المالك 2026-09-27)
+          popper: { disableDraggable: true, anchorElement: rootEl, placement: 'top' },
           viewSizes: size ? { default: size } : undefined,
         },
       },
