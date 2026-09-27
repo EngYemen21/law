@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Support\RichHtml;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -39,6 +41,18 @@ class LegalDocument extends Model
         'header_config' => 'array',
         'approved_at'  => 'datetime',
     ];
+
+    /**
+     * المحتوى يُنقّى بقائمة سماح عند الكتابة **وعند القراءة** — القراءة تحرس ما حُفظ قبل التنقية،
+     * فلا يصل سكربتٌ قديم صفحةَ الطباعة ولا كرومَ الـPDF. راجع `RichHtml`.
+     */
+    protected function contentHtml(): Attribute
+    {
+        return Attribute::make(
+            get: fn (?string $value) => $value === null ? null : RichHtml::clean($value),
+            set: fn (?string $value) => $value === null ? null : RichHtml::clean($value),
+        );
+    }
 
     // ── العلاقات ──
 

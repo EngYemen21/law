@@ -464,12 +464,9 @@ class DocumentEditorController extends Controller
             $logoUrl = $header['logoUrl'];
             if (str_starts_with($logoUrl, 'data:image')) {
                 $logoDataUri = $logoUrl;
-            } else {
-                $localPath = public_path(ltrim(parse_url($logoUrl, PHP_URL_PATH) ?: '', '/'));
-                if (is_file($localPath)) {
-                    $mime = str_ends_with($localPath, '.svg') ? 'image/svg+xml' : (str_ends_with($localPath, '.png') ? 'image/png' : 'image/jpeg');
-                    $logoDataUri = 'data:'.$mime.';base64,'.base64_encode((string) file_get_contents($localPath));
-                }
+            } elseif (($localPath = self::publicImagePath((string) $logoUrl)) !== null) {
+                $mime = str_ends_with($localPath, '.svg') ? 'image/svg+xml' : (str_ends_with($localPath, '.png') ? 'image/png' : 'image/jpeg');
+                $logoDataUri = 'data:'.$mime.';base64,'.base64_encode((string) file_get_contents($localPath));
             }
         }
         if (! $logoDataUri) {
@@ -739,6 +736,28 @@ HTML;
     }
 
     // ── مساعدات داخلية ──
+
+    /**
+     * مسار صورة الشعار على القرص — **داخل `public/` حصراً وبامتداد صورة**، أو `null`.
+     *
+     * `logoUrl` يكتبه صاحب المستند في ترويسته؛ وكان يُمرَّر إلى `public_path()` كما هو، فـ`/../.env`
+     * يقرأ ملف البيئة ويضمّنه في الـPDF (مفتاح التطبيق وكلمات المرور). `realpath` يحلّ `..` والروابط
+     * الرمزيّة، ثم يُشترط أن يبقى الناتج تحت `public/`.
+     */
+    public static function publicImagePath(string $url): ?string
+    {
+        $path = (string) parse_url($url, PHP_URL_PATH);
+        if (! preg_match('/\.(png|jpe?g|svg)$/i', $path)) {
+            return null;
+        }
+
+        $root = realpath(public_path());
+        $real = realpath(public_path(ltrim($path, '/')));
+
+        return ($root !== false && $real !== false && is_file($real) && str_starts_with($real, $root.DIRECTORY_SEPARATOR))
+            ? $real
+            : null;
+    }
 
     /**
      * حراسة الوصول: المالك أو الإدارة.
