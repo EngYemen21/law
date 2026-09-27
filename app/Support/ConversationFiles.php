@@ -72,12 +72,12 @@ final class ConversationFiles
         return match ($user->role) {
             Role::Client => (int) $parent->user_id === (int) $user->id,
             Role::Lawyer => $assigned === (int) $user->id
-                || ($doc instanceof ExecutionDocument && $assigned === null && $user->can('إدارة القضايا والأتعاب'))
+                || ($doc instanceof ExecutionDocument && $assigned === null && $user->can(Permissions::MANAGE_CASES_AND_FEES))
                 // محامي القضيّة المحوَّلة من هذه التذكرة: مرفقاتُ الطلب أساسُ لائحته، وإعادةُ إسناد
                 // القضيّة لا تمسّ محامي التذكرة — فكان المسنَد الجديد يفقدها
                 || ($doc instanceof TicketDocument && (int) ($parent->legalCase?->assigned_lawyer_id ?? 0) === (int) $user->id),
             Role::Employee => self::employeeMayDownload($user)
-                && $user->can($doc instanceof TicketDocument ? 'إدارة التذاكر' : 'إدارة القضايا والأتعاب'),
+                && $user->can($doc instanceof TicketDocument ? Permissions::MANAGE_TICKETS : Permissions::MANAGE_CASES_AND_FEES),
             default => false,
         };
     }

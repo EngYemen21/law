@@ -134,7 +134,7 @@ class CaseController extends Controller
         ]);
 
         // نماذج المحكمة لمن منحته الإدارة الصلاحيّة؛ ومن سواه يرى بيانات ناجز للاطّلاع (والمسار يرفضه)
-        $canCourt = (bool) auth()->user()?->can('إجراءات المحكمة والجلسات');
+        $canCourt = (bool) auth()->user()?->can(Permissions::COURT_PROCEEDINGS);
 
         return Inertia::render('employee/case', [
             // من يتولّى المحادثة الآن ومن تولّاها قبله — للطاقم وحده (`ConversationHandler`)

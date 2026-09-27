@@ -5,6 +5,7 @@ namespace App\Support\Booking;
 use App\Enums\Role;
 use App\Models\User;
 use App\Support\Notify;
+use App\Support\Permissions;
 use Illuminate\Support\Collection;
 
 /**
@@ -18,7 +19,7 @@ use Illuminate\Support\Collection;
 final class BookingStaff
 {
     /** الصلاحيّة التي تحجز الموعد — يشترطها مسار الحجز للموظّف. */
-    public const PERMISSION = 'جدولة المواعيد';
+    public const PERMISSION = Permissions::SCHEDULE_APPOINTMENTS;
 
     /** @return Collection<int, User> */
     public static function recipients(): Collection

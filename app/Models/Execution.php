@@ -10,6 +10,7 @@ use App\Support\ConversationFiles;
 use App\Support\ExecFlow;
 use App\Support\ExecService;
 use App\Support\LawyerName;
+use App\Support\Permissions;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -317,7 +318,7 @@ class Execution extends Model
 
         return match ($viewer->role) {
             Role::Admin => true,
-            Role::Employee => $exec->assigned_lawyer_id === null && $viewer->can('إجراءات المحكمة والجلسات'),
+            Role::Employee => $exec->assigned_lawyer_id === null && $viewer->can(Permissions::COURT_PROCEEDINGS),
             default => false,
         };
     }

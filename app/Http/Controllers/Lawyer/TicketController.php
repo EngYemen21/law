@@ -37,6 +37,7 @@ use App\Support\ConversationHandler;
 use App\Support\Live;
 use App\Support\Notify;
 use App\Support\PdfRenderer;
+use App\Support\Permissions;
 use App\Support\ReportPrint;
 use App\Support\SummaryReport;
 use App\Support\TicketDocumentRequirements;
@@ -206,7 +207,7 @@ class TicketController extends Controller
         // **ما يحرسه المسار تحرسه الحمولة.** `/lawyer/execs` يشترط «إدارة القضايا والأتعاب»،
         // ولوحةُ المحامي بلا وسيط صلاحيّة (عامّة للدور) كانت تشحن صفوف التنفيذ — أسماء موكّلين
         // ومواضيع ملفّاتهم — لكلّ محامٍ ولو نُزعت عنه الصلاحيّة. الحجب في الخادم لا في الشاشة.
-        $canExecs = $lawyer->can('إدارة القضايا والأتعاب');
+        $canExecs = $lawyer->can(Permissions::MANAGE_CASES_AND_FEES);
 
         $executions = ! $canExecs ? collect() : Execution::with('user')
             ->where('assigned_lawyer_id', $lawyerId)

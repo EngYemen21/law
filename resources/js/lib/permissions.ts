@@ -9,7 +9,7 @@ import { maskClient } from '@/lib/employee-data';
 export interface PermGroup { g: string; items: string[] }
 
 export interface PermCatalog {
-  permissions: string[];                    // القائمة المسطّحة (23)
+  permissions: string[];                    // القائمة المسطّحة (27 — `Permissions::all()`)
   groups: PermGroup[];                       // المجموعات الخمس
   presets: Record<string, string[]>;         // القوالب/الأدوار بصلاحياتها
   viewMap: Record<string, string>;           // المسار → الصلاحية اللازمة

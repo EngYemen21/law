@@ -9,7 +9,7 @@ use Spatie\Permission\Models\Role as SpatieRole;
 use Spatie\Permission\PermissionRegistrar;
 
 /**
- * يبذر صلاحيات spatie الـ23 وأدوار القوالب الخمسة (خدمة عملاء/محامٍ/إداري/الإدارة العليا/مدير).
+ * يبذر صلاحيات spatie الـ27 (`Permissions::all()`) وأدوار القوالب الخمسة (خدمة عملاء/محامٍ/إداري/الإدارة العليا/مدير).
  */
 class PermissionSeeder extends Seeder
 {

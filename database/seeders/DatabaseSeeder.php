@@ -70,7 +70,7 @@ class DatabaseSeeder extends Seeder
         $employee->syncPermissions(
             Permission::whereIn('name', array_values(array_diff(
                 Permissions::ROLE_PERMISSIONS['employee'],
-                ['تشغيل تلخيص الفريق القانوني'],
+                [Permissions::RUN_LEGAL_ANALYSIS],
             )))->get()
         );
 

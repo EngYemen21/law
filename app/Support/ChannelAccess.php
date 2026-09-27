@@ -48,10 +48,10 @@ class ChannelAccess
     private static function employeePermissionFor(object $model): string|array|null
     {
         return match (true) {
-            $model instanceof Ticket => 'إدارة التذاكر',
-            $model instanceof LegalCase, $model instanceof Execution => 'إدارة القضايا والأتعاب',
-            $model instanceof Consult => 'استقبال الاستشارات',
-            $model instanceof Meeting => ['إرسال دعوات الاجتماعات', 'إدارة الاجتماعات'],
+            $model instanceof Ticket => Permissions::MANAGE_TICKETS,
+            $model instanceof LegalCase, $model instanceof Execution => Permissions::MANAGE_CASES_AND_FEES,
+            $model instanceof Consult => Permissions::RECEIVE_CONSULTS,
+            $model instanceof Meeting => [Permissions::SEND_MEETING_INVITES, Permissions::MANAGE_MEETINGS],
             default => null,
         };
     }
@@ -70,7 +70,7 @@ class ChannelAccess
     public static function roomStaff(User $user, object $model): bool
     {
         return self::staffCanSee($user, $model)
-            || ($model instanceof Consult && $user->role === Role::Employee && $user->can('إجراء الجلسات المرئية'));
+            || ($model instanceof Consult && $user->role === Role::Employee && $user->can(Permissions::RUN_VIDEO_SESSIONS));
     }
 
     /** العميل المالك أو من يدخل الغرفة من الطاقم — قناة الغرفة المشتركة. */

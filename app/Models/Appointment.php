@@ -6,6 +6,7 @@ use App\Domain\Journey\Enums\SessionState;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
 use App\Support\LawyerName;
+use App\Support\Permissions;
 use App\Support\SessionWindow;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -162,7 +163,7 @@ class Appointment extends Model
             // canJoin + فحص الصلاحية شرطان لازمان: بلا الحكمين كان الزرّ يظهر ويردّ الخادم 403
             'joinLink' => $this->consult?->channel === 'مرئية'
                 && $this->consult->canJoin()
-                && ($viewer === null || $viewer->isAdmin() || $viewer->isClient() || $viewer->can('إجراء الجلسات المرئية') || $viewer->can('استقبال الاستشارات'))
+                && ($viewer === null || $viewer->isAdmin() || $viewer->isClient() || $viewer->can(Permissions::RUN_VIDEO_SESSIONS) || $viewer->can(Permissions::RECEIVE_CONSULTS))
                 ? $this->consult->joinLink($viewer)
                 : '',
         ];

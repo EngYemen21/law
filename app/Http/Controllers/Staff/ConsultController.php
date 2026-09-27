@@ -39,6 +39,7 @@ use App\Support\DecisionTasks;
 use App\Support\LawyerSpecialties;
 use App\Support\Live;
 use App\Support\Notify;
+use App\Support\Permissions;
 use App\Support\RoomDetails;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -607,7 +608,7 @@ class ConsultController extends Controller
 
         // **الحجز بيد الطاقم لا العميل** (قرار المالك 2026-09-14) — التذكير لمن يحجز.
         $staff = User::whereIn('role', [Role::Employee, Role::Admin])->get()
-            ->filter(fn (User $u) => $u->isAdmin() || $u->can('جدولة المواعيد'));
+            ->filter(fn (User $u) => $u->isAdmin() || $u->can(Permissions::SCHEDULE_APPOINTMENTS));
         foreach ($staff as $member) {
             Notify::send($member->id, 'cal', 't-amber', "تذكير: الاستشارة ({$consult->ref}) مدفوعة ولم يُحدَّد موعدها بعد — احجزه من شاشة المواعيد.");
         }

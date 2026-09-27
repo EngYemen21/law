@@ -10,6 +10,7 @@ use App\Support\AppointmentBoard;
 use App\Support\CalendarWindow;
 use App\Support\EventStatus;
 use App\Support\MeetingTime;
+use App\Support\Permissions;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -25,11 +26,11 @@ class CalendarController extends Controller
     {
         $user = $request->user();
         $isAdmin = $user->isAdmin();
-        $canCourt = $isAdmin || $user->can('إجراءات المحكمة والجلسات') || $user->can('إدارة القضايا والأتعاب');
-        $canMeetings = $isAdmin || $user->can('إدارة الاجتماعات') || $user->can('إرسال دعوات الاجتماعات');
-        $canBook = $isAdmin || $user->can('جدولة المواعيد');
-        $canManage = $isAdmin || $user->can('إدارة المواعيد والحجوزات');
-        $canVideo = $isAdmin || $user->can('إجراء الجلسات المرئية') || $user->can('استقبال الاستشارات');
+        $canCourt = $isAdmin || $user->can(Permissions::COURT_PROCEEDINGS) || $user->can(Permissions::MANAGE_CASES_AND_FEES);
+        $canMeetings = $isAdmin || $user->can(Permissions::MANAGE_MEETINGS) || $user->can(Permissions::SEND_MEETING_INVITES);
+        $canBook = $isAdmin || $user->can(Permissions::SCHEDULE_APPOINTMENTS);
+        $canManage = $isAdmin || $user->can(Permissions::MANAGE_BOOKINGS);
+        $canVideo = $isAdmin || $user->can(Permissions::RUN_VIDEO_SESSIONS) || $user->can(Permissions::RECEIVE_CONSULTS);
 
         // نافذة زمنية: الغرض نظرة على ما هو محجوز قبل جدولة موعد، لا أرشيف المكتب كلّه.
         // الترتيب بالموعد لا بالمعرّف: مع latest('id') كان السقف يقتطع الأقدم إنشاءً — وهي

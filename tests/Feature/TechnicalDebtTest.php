@@ -50,27 +50,27 @@ class TechnicalDebtTest extends TestCase
     public function test_every_declared_permission_guards_something(): void
     {
         $declared = collect(Permissions::GROUPS)->flatten()->all();
-        $routes = (string) file_get_contents(base_path('routes/web.php'));
-        preg_match_all("/permission:([^']+)'/u", $routes, $m);
-        // الوسيط يقبل عدّة صلاحيات مفصولة بفاصلة (`permission:أ,ب`) — بلا التفكيك كانت
-        // تُلتقط سلسلة واحدة فلا تطابق أيّاً منهما، فتُبلَّغ صلاحية محروسة فعلاً كأنها ميتة
-        // (وقعت على «إجراء الجلسات المرئية»: محروسة في routes/web.php ولا ترد إلا بهذه الصيغة).
-        $enforced = collect($m[1])
-            ->flatMap(fn ($group) => explode(',', $group))
+        // وسائط المسارات **وقت التشغيل** لا نصُّ الملفّ: المسارات تكتبها بالثوابت
+        // (`Permissions::middleware(...)`) فلا يظهر الاسم العربيّ في `routes/web.php`. والوسيط يقبل عدّة
+        // صلاحيات مفصولة بفاصلة (`permission:أ,ب`) — بلا التفكيك تُبلَّغ صلاحيّة محروسة كأنها ميتة.
+        $enforced = collect(app('router')->getRoutes()->getRoutes())
+            ->flatMap(fn ($route) => $route->gatherMiddleware())
+            ->filter(fn ($mw) => is_string($mw) && str_starts_with($mw, 'permission:'))
+            ->flatMap(fn ($mw) => explode(',', substr($mw, strlen('permission:'))))
             ->map(fn ($permission) => trim($permission))
-            ->all();
+            ->unique()->all();
 
         // ما لا يُفرض بالمسارات يجب أن يُفرض بـcan() في الكود أو الواجهة
         $code = '';
         foreach (['app', 'resources/js'] as $dir) {
             foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(base_path($dir))) as $f) {
-                if (in_array($f->getExtension(), ['php', 'tsx'], true)) {
+                if (in_array($f->getExtension(), ['php', 'tsx'], true) && ! str_ends_with($f->getPathname(), 'Support/Permissions.php')) {
                     $code .= file_get_contents($f->getPathname());
                 }
             }
         }
 
-        // والصلاحيّة المسمّاة بثابتٍ في الكتالوج تُفحص باسمه: `can(Permissions::DOWNLOAD_FILES)`
+        // الكود يفحص الصلاحيّة بثابتها (`can(Permissions::X)` · قوائم `ChannelAccess`)، والواجهة باسمها
         $constants = array_flip(array_filter(
             (new \ReflectionClass(Permissions::class))->getConstants(),
             'is_string'
@@ -80,7 +80,7 @@ class TechnicalDebtTest extends TestCase
             $declared,
             fn ($p) => ! in_array($p, $enforced, true)
                 && ! str_contains($code, "can('{$p}')")
-                && ! (isset($constants[$p]) && str_contains($code, "can(Permissions::{$constants[$p]})"))
+                && ! (isset($constants[$p]) && str_contains($code, "Permissions::{$constants[$p]}"))
         ));
 
         $this->assertSame([], $dead, 'صلاحيات معرَّفة لا تحرس شيئاً — تُربط أو تُحذف.');
