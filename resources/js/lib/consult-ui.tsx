@@ -336,27 +336,115 @@ return 'حُرّر بيد محامٍ';
  * HTML خامّاً بابُ حقنٍ لا يُفتح. React يُهرِّب النصّ تلقائياً، والتوكيد يُبنى عقداً
  * (`<strong>`) لا وسماً مُلصقاً.
  */
+/** التوكيد داخل السطر: `**عريض**` و`*مائل*` — ونجمةٌ منفردة تبقى حرفاً لا تكسر ما بعدها. */
+function inlineMarks(line: string): React.ReactNode[] {
+  return line.split(/(\*\*[^*\n]+\*\*|(?<![*\w])\*[^*\s][^*\n]*?\*(?![*\w]))/g).map((part, i) => {
+    if (/^\*\*[^*]+\*\*$/.test(part)) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    if (/^\*[^*\s][^*]*\*$/.test(part)) {
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    }
+
+    return <React.Fragment key={i}>{part}</React.Fragment>;
+  });
+}
+
+type RtBlock =
+  | { kind: 'p'; lines: string[] }
+  | { kind: 'h'; text: string }
+  | { kind: 'ul' | 'ol'; items: string[] }
+  | { kind: 'hr' };
+
+const RT_BULLET = /^\s*[-*•·]\s+/;
+const RT_NUMBER = /^\s*[0-9٠-٩]+[.)،-]\s+/;
+
+/**
+ * **نصّ الملخّص فقراتٍ وقوائم — عناصر React لا HTML** (ملاحظة المالك 2026-09-27).
+ *
+ * كان المُصيِّر يفهم `**عريض**` والعناوين وحدها، فتظهر القوائم (`- `، `1.`) والفواصل (`---`) رموزاً
+ * خاماً، ونجمةٌ منفردة تكسر العريض، وتضيع الأسطر في أيّ حاويةٍ بلا `pre-wrap`. الآن يُقسَّم النصّ
+ * كتلاً: فقرة · عنوان · قائمة نقطيّة · قائمة مرقّمة · فاصل — فلا يعتمد على `pre-wrap` حاويته.
+ * ولا `dangerouslySetInnerHTML`: المصدر نموذجٌ توليديّ، و React يُهرِّب النصّ.
+ */
 export const RichText: React.FC<{ text?: string | null; fallback?: string }> = ({ text, fallback }) => {
-  const raw = (text ?? '').trim();
+  const raw = (text ?? '').replace(/\r\n?/g, '\n').trim();
 
   if (raw === '') {
     return <>{fallback ?? ''}</>;
   }
 
+  const blocks: RtBlock[] = [];
+  const last = () => blocks[blocks.length - 1];
+
+  for (const line of raw.split('\n')) {
+    const t = line.trim();
+
+    if (t === '') {
+      blocks.push({ kind: 'p', lines: [] });
+      continue;
+    }
+    if (/^([-*_])\1{2,}$/.test(t)) {
+      blocks.push({ kind: 'hr' });
+      continue;
+    }
+    if (/^#{1,6}\s+/.test(t)) {
+      blocks.push({ kind: 'h', text: t.replace(/^#{1,6}\s+/, '') });
+      continue;
+    }
+
+    const list = RT_BULLET.test(line) ? 'ul' : RT_NUMBER.test(line) ? 'ol' : null;
+    if (list) {
+      const item = line.replace(list === 'ul' ? RT_BULLET : RT_NUMBER, '');
+      const prev = last();
+      if (prev && prev.kind === list) {
+        prev.items.push(item);
+      } else {
+        blocks.push({ kind: list, items: [item] });
+      }
+      continue;
+    }
+
+    const prev = last();
+    if (prev && prev.kind === 'p') {
+      prev.lines.push(t);
+    } else {
+      blocks.push({ kind: 'p', lines: [t] });
+    }
+  }
+
   return (
-    <>
-      {raw.split('\n').map((line, li) => (
-        <React.Fragment key={li}>
-          {li > 0 && '\n'}
-          {/* `#` البادئة عنوانٌ في Markdown ولا معنى له هنا — يُسقط ويبقى نصّه */}
-          {line.replace(/^#{1,6}\s*/, '').split(/(\*\*[^*]+\*\*)/g).map((part, pi) =>
-            /^\*\*[^*]+\*\*$/.test(part)
-              ? <strong key={pi}>{part.slice(2, -2)}</strong>
-              : <React.Fragment key={pi}>{part}</React.Fragment>
-          )}
-        </React.Fragment>
-      ))}
-    </>
+    <div className="rt" style={{ whiteSpace: 'normal', lineHeight: 1.8 }}>
+      {blocks.map((b, bi) => {
+        switch (b.kind) {
+          case 'hr':
+            return <hr key={bi} style={{ border: 0, borderTop: '1px solid var(--line, #e2e8f0)', margin: '10px 0' }} />;
+          case 'h':
+            return <div key={bi} style={{ fontWeight: 800, margin: '10px 0 4px' }}>{inlineMarks(b.text)}</div>;
+          case 'ul':
+          case 'ol': {
+            const List = b.kind;
+
+            return (
+              <List key={bi} style={{ margin: '4px 0 8px', paddingInlineStart: 22 }}>
+                {b.items.map((it, ii) => <li key={ii} style={{ margin: '2px 0' }}>{inlineMarks(it)}</li>)}
+              </List>
+            );
+          }
+          default:
+            return b.lines.length === 0 ? null : (
+              <p key={bi} style={{ margin: '0 0 8px' }}>
+                {b.lines.map((l, li) => (
+                  <React.Fragment key={li}>
+                    {li > 0 && <br />}
+                    {inlineMarks(l)}
+                  </React.Fragment>
+                ))}
+              </p>
+            );
+        }
+      })}
+    </div>
   );
 };
 
@@ -1453,7 +1541,17 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                             placeholder="اكتب خلاصة الرأي القانوني وتوجيهات الجلسة هنا..."
                             style={{ lineHeight: 1.8 }}
                           />
+                          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
+                            التنسيق: سطرٌ فارغ بين الفقرات · «- » لقائمة نقطيّة · «1. » لقائمة مرقّمة · **نص** للعريض · ### لعنوان
+                          </div>
                         </div>
+                        {/* معاينة بالمُصيِّر نفسه الذي يقرأ به الموكّل — لا مفاجأة بعد الاعتماد */}
+                        {sessionSummary.trim() !== '' && (
+                          <div style={{ border: '1px dashed var(--line, #e2e8f0)', borderRadius: 8, padding: '10px 12px', background: 'var(--paper-2, #f8fafc)' }}>
+                            <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', marginBottom: 6 }}>معاينة كما يراها الموكّل</div>
+                            <RichText text={sessionSummary} />
+                          </div>
+                        )}
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                           <button className="btn soft sm" onClick={saveSessionSummary} disabled={busy || sessionSummary.trim() === ''} type="button">
                             <Icon name="check" /> حفظ الملخص المحرر

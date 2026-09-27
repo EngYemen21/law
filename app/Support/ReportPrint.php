@@ -9,7 +9,7 @@ namespace App\Support;
  * مطابق تماماً لما يعرضه المتصفح — لا صورة/محاكاة.
  *
  * @phpstan-type ReportCell array{0: string, 1: string}
- * @phpstan-type ReportSection array{title: string, cellRows?: array<int, array<int, ReportCell>>, lines?: string, list?: array<int, string>, chips?: array<int, string>}
+ * @phpstan-type ReportSection array{title: string, cellRows?: array<int, array<int, ReportCell>>, lines?: string, rich?: string, list?: array<int, string>, chips?: array<int, string>}
  */
 class ReportPrint
 {
@@ -38,6 +38,7 @@ class ReportPrint
         .cf-cell .l{font-size:9.5px;color:#7a8aa3;font-weight:700;margin-bottom:3px}
         .cf-cell .v{font-size:12px;color:#0A2A55;font-weight:700}
         .cf-lines{font-size:12px;color:#33415c;line-height:2.1;white-space:pre-wrap}
+        .cf-rich{font-size:12px;color:#33415c;line-height:2}.cf-rich p{margin:0 0 6px}.cf-rich ul,.cf-rich ol{margin:2px 0 8px;padding-inline-start:20px}.cf-rich hr{border:0;border-top:1px solid #e2e8f0;margin:8px 0}
         .cf-ul{margin:0;padding:0;list-style:none}
         .cf-ul li{font-size:11.5px;color:#33415c;padding:6px 0;border-bottom:1px dashed #E7EFF6;display:flex;gap:8px;line-height:1.7}
         .cf-ul li:last-child{border-bottom:none}
@@ -109,6 +110,10 @@ class ReportPrint
     {
         $cells = implode('', array_map(fn ($row) => self::renderCells($row), $s['cellRows'] ?? []));
         $lines = isset($s['lines']) ? '<div class="cf-lines">'.e($s['lines']).'</div>' : '';
+        // نصٌّ بفقراتٍ وقوائم (ملخّص الاستشارة) — `SummaryText` يهرّبه ثمّ يبني عناصره
+        if (isset($s['rich'])) {
+            $lines .= '<div class="cf-rich">'.SummaryText::html($s['rich']).'</div>';
+        }
         $list = ! empty($s['list'])
             ? '<ul class="cf-ul">'.implode('', array_map(fn ($li) => '<li><div>'.e($li).'</div></li>', $s['list'])).'</ul>'
             : '';
