@@ -1,4 +1,4 @@
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import Modal from '@/components/babylon/Modal';
@@ -589,9 +589,9 @@ setActiveTab('tasks');
             {searchQuery.trim() !== '' && activeTab !== 'tickets' && activeTab !== 'cases' && (
               <div className="action-hint" style={{ margin: '8px 14px 0' }}>
                 <Icon name="info" /> البحث هنا في أحدث العناصر المعروضة فقط.{' '}
-                <a href={({ hearings: '/lawyer/calendar', consults: '/lawyer/consults', executions: '/lawyer/execs', tasks: '/lawyer/tasks' } as Record<string, string>)[activeTab]}>
+                <Link href={({ hearings: '/lawyer/calendar', consults: '/lawyer/consults', executions: '/lawyer/execs', tasks: '/lawyer/tasks' } as Record<string, string>)[activeTab]}>
                   ابحث في القائمة الكاملة
-                </a>
+                </Link>
               </div>
             )}
 

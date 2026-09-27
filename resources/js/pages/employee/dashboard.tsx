@@ -1,4 +1,4 @@
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
@@ -355,9 +355,9 @@ const EmployeeDashboard: React.FC<Props> = ({
             {searchQuery.trim() !== '' && activeTab !== 'tickets' && (
               <div className="action-hint" style={{ margin: '8px 14px 0' }}>
                 <Icon name="info" /> البحث هنا في المعاينة المعروضة فقط.{' '}
-                <a href={({ consults: '/employee/calendar', cases: '/employee/cases', execs: '/employee/execs' } as Record<string, string>)[activeTab]}>
+                <Link href={({ consults: '/employee/calendar', cases: '/employee/cases', execs: '/employee/execs' } as Record<string, string>)[activeTab]}>
                   ابحث في القائمة الكاملة
-                </a>
+                </Link>
               </div>
             )}
 

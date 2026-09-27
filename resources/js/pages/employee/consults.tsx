@@ -1,4 +1,4 @@
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
@@ -1567,13 +1567,13 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                     موظّف، فإجراءاتها (التحليل، حفظ التحليل، الاعتماد، تحويل القرارات
                     إلى مهامّ) مساراتها مفتوحة وصفحتها لا تُبلَغ إلّا بكتابة الرابط يدوياً.
                   */}
-                  <a
+                  <Link
                     href={`/employee/consult?ref=${encodeURIComponent(drawerConsult.ref)}`}
                     className="btn soft sm"
                     style={{ alignSelf: 'flex-start' }}
                   >
                     <Icon name="out" /> فتح رحلة الاستشارة الكاملة (تحليل واعتماد)
-                  </a>
+                  </Link>
 
                   <div className="card" style={{ margin: 0, padding: 14 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 6 }}>

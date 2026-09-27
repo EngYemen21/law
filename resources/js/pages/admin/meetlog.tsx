@@ -1,4 +1,4 @@
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Icon from '@/lib/icons';
 import { attendanceLabel, fmtActualDuration, type FullMeetingCard } from '@/lib/meeting-ui';
@@ -75,7 +75,7 @@ const AdminMeetLog: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) =
                   <div className="prot-list" style={{ marginTop: 6 }}>
                     {/* «مشاهدة» تفتح صفحة الاجتماع ومشغّلها الداخليّ — كانت تفتح سحابة Zoom خارج النظام */}
                     {m.recording
-                      ? <a className="chip" onClick={() => router.visit(`/admin/meeting?id=${encodeURIComponent(m.id)}`)} style={{ cursor: 'pointer' }}><Icon name="video" /> مشاهدة</a>
+                      ? <Link className="chip" href={`/admin/meeting?id=${encodeURIComponent(m.id)}`}><Icon name="video" /> مشاهدة</Link>
                       : <span className="chip" style={{ opacity: 0.5 }}>لا تسجيل</span>}
                     {/* تنزيلات عبر الخادم بأعلام الجاهزيّة (`MediaButton`) — الرابط الخام لغير الجاهز كان
                         يردّ `back()` فتومض الصفحة ولا ينزل شيء؛ غيرُ الجاهز الآن طلبُ «تحضير» صريح */}
@@ -85,10 +85,10 @@ const AdminMeetLog: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) =
                       ? <a className="chip" href={urls.transcript}><Icon name="doc" /> النص الكامل</a>
                       : <span className="chip" style={{ opacity: 0.5 }}>لا نصّ</span>}
                     {m.minutes
-                      ? <a className="chip" onClick={() => router.visit(`/admin/meeting?id=${encodeURIComponent(m.id)}`)} style={{ cursor: 'pointer' }}><Icon name="doc" /> المحضر</a>
+                      ? <Link className="chip" href={`/admin/meeting?id=${encodeURIComponent(m.id)}`}><Icon name="doc" /> المحضر</Link>
                       : <span className="chip" style={{ opacity: 0.5 }}>بلا محضر</span>}
                     {m.decisions.length
-                      ? <a className="chip" onClick={() => router.visit(`/admin/meeting?id=${encodeURIComponent(m.id)}`)} style={{ cursor: 'pointer' }}><Icon name="check" /> القرارات ({m.decisions.length})</a>
+                      ? <Link className="chip" href={`/admin/meeting?id=${encodeURIComponent(m.id)}`}><Icon name="check" /> القرارات ({m.decisions.length})</Link>
                       : <span className="chip" style={{ opacity: 0.5 }}>بلا قرارات</span>}
                     {(attendanceLabel(m) || actual) && (
                       <span className="chip"><Icon name="user" /> {[attendanceLabel(m), actual].filter(Boolean).join(' · ')}</span>
