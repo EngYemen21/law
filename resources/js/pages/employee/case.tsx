@@ -23,6 +23,9 @@ interface CaseInfo {
   lawyer: string;
   status: string;
   tone: string;
+  /** أعلام الحالة من الخادم (`LegalCase::stateFlags`) — في البطاقة والبثّ. */
+  isActive: boolean;
+  postJudgment: boolean;
   next?: string | null;
   // بيانات الرفع والقيد في ناجز (الخطّة ب) — للاطّلاع
   najiz?: { requestNo?: string | null; filedAt?: string | null; caseNo?: string | null; court?: string | null; circuit?: string | null; registeredAt?: string | null } | null;
@@ -93,14 +96,14 @@ const EmployeeCase: React.FC<Props> = ({
 
   const [reply, setReply] = useState('');
   const [msgs, setMsgs] = useState<Message[]>(messages);
-  const [live, setLive] = useState({ status: c.status, tone: c.tone });
+  const [live, setLive] = useState({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment });
   const seen = useRef<Set<number>>(new Set(messages.map((m) => m.id).filter(Boolean) as number[]));
   const [propsFrom, setPropsFrom] = useState({ status: c.status, messages });
 
   // الحالة والمحادثة تتبعان الخادم بعد كلّ إجراء — لا البثّ وحده (الموظّف صار يسجّل القيد والجلسات والحكم)
   if (c.status !== propsFrom.status || messages !== propsFrom.messages) {
     setPropsFrom({ status: c.status, messages });
-    setLive({ status: c.status, tone: c.tone });
+    setLive({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment });
     setMsgs(messages);
   }
 
@@ -120,7 +123,7 @@ const EmployeeCase: React.FC<Props> = ({
     ch.listen('.message', append);
     // الملاحظات الداخليّة تُبثّ على قناة الطاقم وحدها — لا على القناة التي يسمعها العميل
     echo.private(`${channel}.staff`).listen('.message', append);
-    ch.listen('.status', (e: { status: string; tone: string }) => setLive({ status: e.status, tone: e.tone }));
+    ch.listen('.status', (e: { status: string; tone: string; isActive: boolean; postJudgment: boolean }) => setLive({ status: e.status, tone: e.tone, isActive: e.isActive, postJudgment: e.postJudgment }));
     return () => { echo.leave(channel); echo.leave(`${channel}.staff`); };
   }, [channel]);
 
@@ -281,7 +284,7 @@ const EmployeeCase: React.FC<Props> = ({
           )}
 
           {/* تحديث الجلسات — المغلقة والمؤرشفة للقراءة */}
-          {canCourt && hearings.length > 0 && !['مغلقة', 'مؤرشفة'].includes(live.status) && <HearingUpdatesCard base={base} hearings={hearings} />}
+          {canCourt && hearings.length > 0 && live.isActive && <HearingUpdatesCard base={base} hearings={hearings} />}
 
           {/* بطاقة الجلسات القضائية */}
           <HearingsCard hearings={hearings} documents={documents} />

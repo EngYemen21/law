@@ -17,6 +17,9 @@ import { useServerAction } from '@/lib/use-server-action';
 
 interface CaseDetail {
   no: string; type: string; status: string; tone: string; update: string; next: string;
+  /** أعلام الحالة من الخادم (`LegalCase::stateFlags`) — في البطاقة والبثّ. */
+  isActive: boolean; postJudgment: boolean;
+
   invoice: string; paid: string; fee?: number | null; feeStatus?: string;
   installmentsPaid?: number; installmentsTotal?: number;
   najiz?: { requestNo?: string | null; caseNo?: string | null; court?: string | null; circuit?: string | null } | null;
@@ -50,10 +53,10 @@ const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings, docum
   const payment = useServerAction();
   // عدد دفعات الخطّة الجديدة من إعدادات الإدارة لا «3» منقوشة — الخادم يقسّم بـ`installments_count`
   const { installments_count: installments } = useSettings();
-  const [status, setStatus] = useState({ status: c.status, tone: c.tone });
+  const [status, setStatus] = useState<{ status: string; tone: string } & Record<string, unknown>>({ status: c.status, tone: c.tone, isActive: c.isActive });
   const send = (text: string) => axios.post(`/cases/${encodeURIComponent(c.no)}/messages`, { body: text });
-  // المحادثة والرفع متاحان ما لم تكن القضية مغلقة/مؤرشفة (متوافق مع حارس الخادم)
-  const chatOpen = !['مغلقة', 'مؤرشفة'].includes(status.status);
+  // المحادثة والرفع متاحان ما لم تكن القضية مغلقة/مؤرشفة — علم الخادم (`isActive`) من الصفحة ثمّ من البثّ
+  const chatOpen = status.isActive !== false;
   // رفع مستند فعلي لملف القضية — تظهر رسالته لحظياً عبر البثّ، وتُحدَّث قائمة المستندات فور نجاح الرفع
   const attach = (file?: File) => {
     if (!file) {

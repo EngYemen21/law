@@ -266,6 +266,7 @@ class CaseController extends Controller
             'lawyer' => $c->assigned_lawyer ?: '—',
             'status' => $c->status,
             'tone' => $c->tone,
+            ...$c->stateFlags(),
             'next' => $c->nextHearingLabel(),
             'pleadingStatus' => $c->pleading_status,
             'ruling' => $c->ruling,

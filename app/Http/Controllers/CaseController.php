@@ -86,6 +86,7 @@ class CaseController extends Controller
                 'type' => $case->type,
                 'status' => $case->status,
                 'tone' => $case->tone,
+                ...$case->stateFlags(),
                 'update' => $case->update_text,
                 'next' => $case->nextHearingLabel(),
                 'invoice' => $case->invoice_text,

@@ -217,6 +217,7 @@ class LegalCase extends Model
             'type' => $this->type,
             'status' => $this->status,
             'tone' => $this->tone,
+            ...$this->stateFlags(),
             'update' => $this->update_text,
             'next' => $this->nextHearingLabel(),
             'fee' => $this->fee,
@@ -258,6 +259,20 @@ class LegalCase extends Model
     public function isActive(): bool
     {
         return ! in_array($this->status, CaseJourney::CLOSED, true);
+    }
+
+    /**
+     * **أعلام الحالة للواجهة — والبثّ يحملها أيضاً.** كانت أربع صفحات تنسخ `['مغلقة','مؤرشفة']`
+     * و`['صدر الحكم','مغلقة']` لتقرّر: أتُفتح المحادثة؟ أتُحدَّث الجلسات؟ أيُصحَّح الحكم؟
+     *
+     * @return array{isActive: bool, postJudgment: bool}
+     */
+    public function stateFlags(): array
+    {
+        return [
+            'isActive' => $this->isActive(),
+            'postJudgment' => in_array($this->status, CaseJourney::POST_JUDGMENT, true),
+        ];
     }
 
     /**

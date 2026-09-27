@@ -23,6 +23,9 @@ export interface EmpCaseRow {
   lawyerId?: number | null;
   status: string;
   tone: string;
+  /** أعلام الحالة من الخادم (`LegalCase::stateFlags`) — في البطاقة والبثّ. */
+  isActive: boolean;
+  postJudgment: boolean;
   next?: string | null;
   hasNextHearing?: boolean;
   updatedAgo?: string;
@@ -72,13 +75,13 @@ const EmployeeCases: React.FC<Props> = ({
 
   // حساب الإحصائيات التراكمية
   const calculatedCounts = useMemo(() => {
-    const active = cases.filter((c) => !['مغلقة', 'مؤرشفة'].includes(c.status)).length;
+    const active = cases.filter((c) => c.isActive).length;
     const withHearings = cases.filter((c) => c.hasNextHearing || (c.next && c.next !== '—')).length;
     const preparing = cases.filter((c) => c.status === 'قيد التحضير').length;
     const awaiting = cases.filter((c) => c.status === 'بانتظار القيد').length;
     const inCourt = cases.filter((c) => c.status === 'منظورة').length;
     const ruled = cases.filter((c) => c.status === 'صدر الحكم').length;
-    const closed = cases.filter((c) => ['مغلقة', 'مؤرشفة'].includes(c.status)).length;
+    const closed = cases.filter((c) => !c.isActive).length;
 
     return {
       total: counts?.total ?? cases.length,
@@ -105,7 +108,7 @@ const EmployeeCases: React.FC<Props> = ({
   const filteredCases = useMemo(() => {
     return cases.filter((c) => {
       // فلترة التبويب
-      if (activeTab === 'active' && ['مغلقة', 'مؤرشفة'].includes(c.status)) {
+      if (activeTab === 'active' && !c.isActive) {
         return false;
       }
 
@@ -129,7 +132,7 @@ const EmployeeCases: React.FC<Props> = ({
         return false;
       }
 
-      if (activeTab === 'closed' && !['مغلقة', 'مؤرشفة'].includes(c.status)) {
+      if (activeTab === 'closed' && c.isActive) {
         return false;
       }
 

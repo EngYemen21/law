@@ -18,15 +18,17 @@ use Tests\TestCase;
  */
 class StatusBroadcastPayloadTest extends TestCase
 {
-    public function test_case_status_broadcast_carries_only_status_and_tone(): void
+    public function test_case_status_broadcast_carries_only_status_tone_and_state_flags(): void
     {
         $case = new LegalCase;
         $case->status = 'منظورة';
-        $case->tone = 'b-blue';
 
         $payload = (new CaseStatusBroadcast($case))->broadcastWith();
 
-        $this->assertSame(['status', 'tone'], array_keys($payload));
+        // والعلمان (`LegalCase::stateFlags`) تقرؤهما صفحات القضيّة الثلاث حين تتقدّم الحالة — لا حِمل ميّت
+        $this->assertSame(['status', 'tone', 'isActive', 'postJudgment'], array_keys($payload));
+        $this->assertTrue($payload['isActive']);
+        $this->assertFalse($payload['postJudgment']);
         $this->assertArrayNotHasKey('next', $payload);
         $this->assertSame('منظورة', $payload['status']);
         $this->assertSame(CaseStatus::InCourt->tone(), $payload['tone']);

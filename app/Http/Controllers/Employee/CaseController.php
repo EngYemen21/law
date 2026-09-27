@@ -70,6 +70,7 @@ class CaseController extends Controller
                 'lawyerId' => $c->assigned_lawyer_id,
                 'status' => $c->status,
                 'tone' => $c->tone,
+                ...$c->stateFlags(),
                 'next' => $c->nextHearingLabel(),
                 'hasNextHearing' => (bool) $nextHearing,
                 'updatedAgo' => $c->updated_at?->locale('ar')->diffForHumans() ?? 'الآن',
@@ -147,6 +148,7 @@ class CaseController extends Controller
                 'lawyer' => $case->assigned_lawyer ?: ($case->assignedLawyer?->name ?? '—'),
                 'status' => $case->status,
                 'tone' => $case->tone,
+                ...$case->stateFlags(),
                 'next' => $case->nextHearingLabel(),
                 // بيانات الرفع والقيد في ناجز — يسجّلها الموظّف كالمحامي (قرار المالك 2026-09-11)
                 'najiz' => $case->najizCard(),
