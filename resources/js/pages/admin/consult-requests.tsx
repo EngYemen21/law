@@ -8,7 +8,7 @@ import { maskClient } from '@/lib/admin-data';
 import { CONFIRM_CANCEL_CONSULT_REQUEST } from '@/lib/consult-ui';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { CONSULT_BOOKING_STATUSES, CONSULT_CHANNEL_OPTIONS, crChannelIcon, crChannelTone, cTone, DEFAULT_CONSULT_CHANNEL } from '@/lib/employee-data';
+import { CONSULT_BOOKING_STATUSES, CONSULT_CHANNEL_OPTIONS, crChannelIcon, crChannelTone, DEFAULT_CONSULT_CHANNEL } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useSettings } from '@/lib/settings';
 import { useServerAction } from '@/lib/use-server-action';
@@ -40,8 +40,9 @@ type DrawerTab = 'pricing' | 'details' | 'actions' | 'audit';
 
 /*
  * **خريطة النغمات المحلّيّة أُزيلت.** كانت تعطي «بانتظار السداد» أزرقَ و«بانتظار تحديد
- * الموعد» سماويّاً، بينما `cTone` المشترك يعطيهما كهرمانيّاً — فالطلب الواحد يُعرض
- * بلونين بين هذه الشاشة وشاشة «إدارة الاستشارات» التي تعرض الطلبات نفسها.
+ * الموعد» سماويّاً، بينما اللون المشترك يعطيهما كهرمانيّاً — فالطلب الواحد يُعرض
+ * بلونين بين هذه الشاشة وشاشة «إدارة الاستشارات» التي تعرض الطلبات نفسها. واللون اليوم من
+ * الخادم (`c.tone` ← `ConsultStatus::tone`)، فلا خريطة في أيّ شاشة.
  *
  * و`PRE_SESSION_STATUSES` كانت **نسخةً ثالثة** يدويّة من قائمةٍ يحملها النموذج
  * (`Consult::PRE_SESSION_STATUSES`) ويصدّرها `employee-data` — فأوّل تعديلٍ خادميّ
@@ -1424,7 +1425,7 @@ return (a.total || 0) - (b.total || 0);
 
                       {/* الحالة */}
                       <td style={{ padding: '12px 14px' }}>
-                        <Badge text={c.status} tone={cTone(c.status)} />
+                        <Badge text={c.status} tone={c.tone} />
                         {c.paidAgo && (
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
                             دُفع {c.paidAgo}
@@ -1525,7 +1526,7 @@ return (a.total || 0) - (b.total || 0);
                         <div style={{ fontSize: 12, color: 'var(--muted)' }}>{maskClient(c.client)}</div>
                       </div>
                     </div>
-                    <Badge text={c.status} tone={cTone(c.status)} />
+                    <Badge text={c.status} tone={c.tone} />
                   </div>
 
                   <div style={{ fontSize: 12.5, margin: '8px 0', lineHeight: 1.5, color: '#333' }}>
@@ -1642,7 +1643,7 @@ return (a.total || 0) - (b.total || 0);
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <h3 style={{ margin: 0, color: 'var(--primary)', fontSize: 17 }}>{drawerConsult.ref}</h3>
                   <Badge text={`استشارة ${drawerConsult.channel}`} tone={crChannelTone(drawerConsult.channel)} />
-                  <Badge text={drawerConsult.status} tone={cTone(drawerConsult.status)} />
+                  <Badge text={drawerConsult.status} tone={drawerConsult.tone} />
                 </div>
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                   العميل: {maskClient(drawerConsult.client)}
@@ -1903,7 +1904,7 @@ return (a.total || 0) - (b.total || 0);
                     <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                       <Badge text={drawerConsult.specialty || drawerConsult.type} tone="b-blue" />
                       <Badge text={`قناة ${drawerConsult.channel}`} tone={crChannelTone(drawerConsult.channel)} />
-                      <Badge text={drawerConsult.status} tone={cTone(drawerConsult.status)} />
+                      <Badge text={drawerConsult.status} tone={drawerConsult.tone} />
                     </div>
                   </div>
 

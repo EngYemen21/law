@@ -12,8 +12,8 @@ import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-res
 import { echo } from '@/lib/echo';
 import {
   CONSULT_CHANNELS, CONSULT_FLOW, CONSULT_BOOKING_FLOW, CONSULT_BOOKING_STATUSES,
-  CONSULT_CLOSED_STATUSES, CONSULT_PRIORITIES, cBookingStage, cStage, cHasStage, cTone,
-  crChannelIcon, crChannelTone, maskClient, sessTone
+  CONSULT_CLOSED_STATUSES, CONSULT_PRIORITIES, cBookingStage, cStage, cHasStage,
+  crChannelIcon, crChannelTone, maskClient
 } from '@/lib/employee-data';
 import type {AuditEntry} from '@/lib/employee-data';
 import Icon from '@/lib/icons';
@@ -109,6 +109,11 @@ export interface ConsultCard {
   slink: string;
   canJoin?: boolean; // زر الدخول مفعّل؟ (بعد إطلاق الرابط قبل الموعد بـ5د)
   missed?: boolean; // فات موعدها بلا جلسة (يشتقه الخادم)
+  /** سُجّلت «لم تُعقد» — علمٌ مستقلّ عن `missed` في البطاقتين (قرار المالك 2026-09-27). */
+  notHeld?: boolean;
+  /** لون شارة الحالة (`ConsultStatus::tone`) ولون شارة الجلسة (`SessionState::tone`) — من الخادم. */
+  tone: string;
+  sessionTone: string;
   /** كم مرّة أُعيدت جدولتها — السقف في `reschedule.limit` المشترك من الخادم. */
   rescheduleCount?: number;
   /** يسمح حارس `RescheduleConsult` بإعادة جدولتها الآن — الزرّ يتبعه لا يخمّن. */
@@ -225,6 +230,9 @@ export interface ClientConsultCard {
   slink: string;
   canJoin?: boolean;
   missed?: boolean;
+  notHeld?: boolean;
+  tone?: string;
+  sessionTone?: string;
   /** طلب تغيير الموعد — يُتاح وفق `Consult::rescheduleRequestBlocker` في الخادم وحده. */
   rescheduleRequest?: { pending: boolean; canRequest: boolean };
   session: string;
@@ -959,7 +967,7 @@ void navigator.clipboard.writeText(c.slink);
                         </button>
                       )}
                     </>
-                  ) : c.session === 'لم تُعقد' ? (
+                  ) : c.notHeld ? (
                     <>
                       <Badge text="لم يحضر" tone="b-red" />
                       {c.canReschedule && (
@@ -1026,8 +1034,8 @@ void navigator.clipboard.writeText(c.slink);
                      * فراغاً. صار الفرع صريحاً يعرض ما هو كائن بنغمته.
                      */
                     <>
-                      <Badge text={c.session || 'بانتظار الجلسة'} tone={sessTone(c.session)} />
-                      {c.session === 'لم تُعقد' && (
+                      <Badge text={c.session || 'بانتظار الجلسة'} tone={c.sessionTone} />
+                      {c.notHeld && (
                         <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>
                           لم يُسجَّل حضور — تُعاد جدولتها من صفحة الاستشارة
                         </span>
@@ -1360,8 +1368,8 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
           </div>
 
           <div className="cj-badges-cluster">
-            <Badge text={c.status} tone={cTone(c.status)} />
-            {c.session ? <Badge text={c.session} tone={sessTone(c.session)} /> : null}
+            <Badge text={c.status} tone={c.tone} />
+            {c.session ? <Badge text={c.session} tone={c.sessionTone} /> : null}
             {c.channel ? <Badge text={c.channel} tone={crChannelTone(c.channel)} /> : null}
             <Badge
               text={`أولوية: ${c.priority}`}

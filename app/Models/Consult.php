@@ -243,6 +243,24 @@ class Consult extends Model
             && SessionWindow::isMissed($this->starts_at);
     }
 
+    /** سُجّلت الجلسة «لم تُعقد» (لم يحضر العميل أو حُسمت آليّاً). */
+    public function isNotHeld(): bool
+    {
+        return $this->session === SessionState::NotHeld->value;
+    }
+
+    /** لون شارة الحالة (`ConsultStatus::tone`). */
+    public function statusTone(): string
+    {
+        return ConsultStatus::tryFrom((string) $this->status)?->tone() ?? 'b-grey';
+    }
+
+    /** لون شارة الجلسة (`SessionState::tone`). */
+    public function sessionTone(): string
+    {
+        return SessionState::tryFrom((string) $this->session)?->tone() ?? 'b-grey';
+    }
+
     /**
      * لا يطلب العميل تغيير موعدٍ يبدأ خلال هذه الدقائق — يتّصل بالمكتب (قرار المالك 2026-09-25).
      * **الافتراض المُعلَن لا القيمة النافذة**: الإدارة تضبطها (`consult_reschedule_notice_minutes`) —
@@ -500,9 +518,13 @@ class Consult extends Model
             'place' => $this->placeForClient(),
             'slink' => $this->channel === 'مرئية' ? $this->joinLink() : '',
             'canJoin' => $this->canJoin(), // زر الدخول معطّل حتى إطلاق الرابط قبل الموعد بـ5د
-            // فات موعدها بلا جلسة، أو سُجّلت «لم تُعقد» — الحكم هنا لا في الواجهة: كانت تقارن
-            // `c.session === 'لم تُعقد'` نصّاً عربيّاً في موضعين لتكمل ما لا يقوله هذا الحقل
-            'missed' => $this->isMissed() || $this->session === SessionState::NotHeld->value,
+            // **علمان بمعنى واحدٍ في البطاقتين** (قرار المالك 2026-09-27): `missed` فات موعدها والجلسة
+            // ما زالت منتظرة، و`notHeld` سُجّلت «لم تُعقد». كانت بطاقة العميل تجمعهما في `missed`
+            // وبطاقة الطاقم لا — وشاشة الإدارة تُعيد بناء تعريف العميل يدويّاً
+            'missed' => $this->isMissed(),
+            'notHeld' => $this->isNotHeld(),
+            'tone' => $this->statusTone(),
+            'sessionTone' => $this->sessionTone(),
             // طلب تغيير الموعد: هل يُتاح، وهل طلبٌ سابقٌ معلّق، ولماذا يُحجب — من `rescheduleRequestBlocker` وحده
             'rescheduleRequest' => [
                 'pending' => $this->reschedule_requested_at !== null,
@@ -607,6 +629,10 @@ class Consult extends Model
             'hostLink' => $this->channel === 'مرئية' ? ($this->host_link ?: null) : null,
             'session' => $this->session,
             'missed' => $this->isMissed(), // فات موعدها بلا جلسة — تبويب «فائتة» وإجراءا لم يحضر/إعادة الجدولة
+            'notHeld' => $this->isNotHeld(), // سُجّلت «لم تُعقد» — العلمان نفساهما في بطاقة العميل
+            // لونا الشارتين من الـEnum (`ConsultStatus::tone` · `SessionState::tone`) — لا خريطة في الواجهة
+            'tone' => $this->statusTone(),
+            'sessionTone' => $this->sessionTone(),
             // ذاكرة إعادة الجدولة: كم مرّة أُعيدت (السقف في `reschedule.limit` المشترك)، وطلب العميل المعلّق
             'rescheduleCount' => (int) $this->reschedule_count,
             // **هل تُعاد جدولتها الآن؟ — من حارس الانتقال نفسه** لا من تخمين الواجهة. كان الزرّ في

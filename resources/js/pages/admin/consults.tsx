@@ -6,12 +6,11 @@ import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/M
 import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
 import { stageChanged, staffPatch } from '@/lib/consult-live';
-import { CONFIRM_APPROVE_CONSULT_SUMMARY, CONFIRM_CANCEL_CONSULT_REQUEST, RichText, sessTone, SummaryStateBadge } from '@/lib/consult-ui';
+import { CONFIRM_APPROVE_CONSULT_SUMMARY, CONFIRM_CANCEL_CONSULT_REQUEST, RichText, SummaryStateBadge } from '@/lib/consult-ui';
 import type {ConsultCard, LawyerOpt} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { useSettings } from '@/lib/settings';
 import {
-  cTone,
   crChannelIcon,
   crChannelTone,
   CONSULT_TERMINAL_STATUSES,
@@ -1010,7 +1009,7 @@ return;
               >
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <Badge text={c.session} tone={sessTone(c.session)} />
+                    <Badge text={c.session} tone={c.sessionTone} />
                     {/* ملفٌّ رُفع إلى الإدارة لتعذّر الإسناد التلقائيّ — يُعرَض لا يُترك لإشعارٍ يمرّ */}
                     {needsAssignment(c) && <Badge text="بانتظار إسناد مستشار" tone="b-amber" />}
                     <b>{c.ref}</b>
@@ -1316,9 +1315,9 @@ return;
                       {/* المرحلة والحالة */}
                       <td style={{ padding: '12px 14px' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
-                          <Badge text={c.status} tone={cTone(c.status)} />
+                          <Badge text={c.status} tone={c.tone} />
                           {c.session && c.session !== 'بانتظار الجلسة' && (
-                            <Badge text={c.session} tone={sessTone(c.session)} />
+                            <Badge text={c.session} tone={c.sessionTone} />
                           )}
                         </div>
                       </td>
@@ -1426,7 +1425,7 @@ return;
                         <div style={{ fontSize: 12, color: 'var(--muted)' }}>{maskClient(c.client)}</div>
                       </div>
                     </div>
-                    <Badge text={c.status} tone={cTone(c.status)} />
+                    <Badge text={c.status} tone={c.tone} />
                   </div>
 
                   <div style={{ fontSize: 12.5, margin: '8px 0', lineHeight: 1.5, color: '#333' }}>
@@ -1577,7 +1576,7 @@ return;
                         }}
                       >
                         <span>مستشار: {c.lawyer}</span>
-                        <Badge text={c.status} tone={cTone(c.status)} />
+                        <Badge text={c.status} tone={c.tone} />
                       </div>
                     </div>
                   ))
@@ -1649,7 +1648,7 @@ return;
                       </span>
                     </div>
                     <div className="iact">
-                      <Badge text={c.session || 'بانتظار الجلسة'} tone={sessTone(c.session)} />
+                      <Badge text={c.session || 'بانتظار الجلسة'} tone={c.sessionTone} />
                       <button
                         className="btn soft sm"
                         type="button"
@@ -1815,7 +1814,7 @@ return;
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <h3 style={{ margin: 0, color: 'var(--primary)', fontSize: 17 }}>{drawerConsult.ref}</h3>
                   <Badge text={`استشارة ${drawerConsult.channel}`} tone={crChannelTone(drawerConsult.channel)} />
-                  <Badge text={drawerConsult.status} tone={cTone(drawerConsult.status)} />
+                  <Badge text={drawerConsult.status} tone={drawerConsult.tone} />
                 </div>
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                   العميل: {maskClient(drawerConsult.client)}

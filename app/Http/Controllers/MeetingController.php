@@ -51,6 +51,7 @@ class MeetingController extends Controller
                 'joinLink' => $c->joinLink($request->user()),
                 'status' => ConsultStatus::tryFrom((string) $c->status)?->clientLabel() ?? $c->status,
                 'session' => $c->session,
+                'sessionTone' => $c->sessionTone(),
                 // البديل يصف الغياب: «مستشار معتمد» كانت تُستعمل مكان **لا محامي
                 // مُسنَد**، فتقرأ اعتماداً حيث لا إسناد أصلاً.
                 'lawyer' => LawyerName::forClient($c->assigned_lawyer_id ? $c->assignedLawyer : null, $c->lawyer, 'لم يُسنَد بعد'),

@@ -9,7 +9,7 @@ import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-res
 import { CONFIRM_END_CONSULT, CONFIRM_NO_SHOW, CONFIRM_START_CONSULT } from '@/lib/consult-ui';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { crChannelIcon, crChannelTone, sessTone } from '@/lib/employee-data';
+import { crChannelIcon, crChannelTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useServerAction } from '@/lib/use-server-action';
 
@@ -112,7 +112,7 @@ return null;
     const officeCount = items.filter((c) => c.channel === 'حضورية').length;
     const phoneCount = items.filter((c) => c.channel === 'هاتفية').length;
     // «فائتة»: تشمل ما فات موعده لحظياً (c.missed) وما حسمه المجدول آلياً (لم تُعقد) فلا يهبط العداد إلى صفر بعد 12 ساعة
-    const missedCount = items.filter((c) => c.missed || c.session === 'لم تُعقد').length;
+    const missedCount = items.filter((c) => c.missed || c.notHeld).length;
     const endedCount = items.filter((c) => c.session === 'منتهية').length;
 
     return {
@@ -159,7 +159,7 @@ set.add(c.lawyer.trim());
 return false;
 }
 
-      if (activeFilter === '_missed' && !c.missed && c.session !== 'لم تُعقد') {
+      if (activeFilter === '_missed' && !c.missed && !c.notHeld) {
         return false;
       }
 
@@ -769,7 +769,7 @@ return false;
             filteredItems.map((c) => {
               const isLive = c.session === 'جلسة جارية';
               const isEnded = c.session === 'منتهية';
-              const isMissed = c.missed || c.session === 'لم تُعقد';
+              const isMissed = c.missed || c.notHeld;
 
               return (
                 <div
@@ -828,7 +828,7 @@ return false;
                           * في كلّ شاشةٍ أخرى. فالمدير يرى الحالة بلونٍ، والموظّف يراها
                           * بلونٍ آخر، ولا أحد يعلم أيّهما المقصود.
                           */}
-                        {!isMissed && c.session ? <Badge text={c.session} tone={sessTone(c.session)} /> : null}
+                        {!isMissed && c.session ? <Badge text={c.session} tone={c.sessionTone} /> : null}
                         {isMissed && <Badge text="فائتة" tone="b-red" />}
                       </div>
                     </div>
@@ -1049,12 +1049,12 @@ return false;
 
                       {/* الحالة */}
                       <td style={{ padding: '12px 14px' }}>
-                        {(c.missed || c.session === 'لم تُعقد') ? (
+                        {(c.missed || c.notHeld) ? (
                           <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 12 }}>⚠️ فائتة</span>
                         ) : (
                           // والفرعُ الجامع كان يعرض **«لم تُعقد» بانتظارَ الجلسة** — فجلسةٌ
                           // أُغلقت آلياً تُعرض قادمةً، ويُنتظر عميلٌ لن يأتي.
-                          <Badge text={c.session || 'بانتظار الجلسة'} tone={sessTone(c.session)} />
+                          <Badge text={c.session || 'بانتظار الجلسة'} tone={c.sessionTone} />
                         )}
                       </td>
 
@@ -1232,8 +1232,8 @@ return false;
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <h3 style={{ margin: 0, color: 'var(--primary)', fontSize: 17 }}>{drawerItem.ref}</h3>
                   <Badge text={drawerItem.channel} tone={crChannelTone(drawerItem.channel)} />
-                  {drawerItem.session && drawerItem.session !== 'لم تُعقد' && <Badge text={drawerItem.session} tone={sessTone(drawerItem.session)} />}
-                  {(drawerItem.missed || drawerItem.session === 'لم تُعقد') && <Badge text="فائتة" tone="b-red" />}
+                  {drawerItem.session && !drawerItem.notHeld && <Badge text={drawerItem.session} tone={drawerItem.sessionTone} />}
+                  {(drawerItem.missed || drawerItem.notHeld) && <Badge text="فائتة" tone="b-red" />}
                 </div>
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                   العميل: {maskClient(drawerItem.client)} · المستشار: {drawerItem.lawyer}

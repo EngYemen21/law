@@ -187,7 +187,8 @@ return;
     // الفائتة تحتاج إجراءً (طلب إعادة جدولة) — كانت لا تظهر إلا في «الكل» فتضيع
     return items.filter((c) => CONSULT_BOOKING_STATUSES.includes(c.status)
       || c.status === 'بانتظار استكمال البيانات'
-      || c.missed);
+      // الفائتة (`missed`) والمسجّلة «لم تُعقد» (`notHeld`) علمان منفصلان من الخادم — يُجمعان هنا كما كانا
+      || c.missed || c.notHeld);
   }, [items]);
 
   const completedConsults = useMemo(() => {
@@ -632,7 +633,7 @@ return list;
                             </button>
                           )}
                         </>
-                      ) : c.missed ? (
+                      ) : (c.missed || c.notHeld) ? (
                         <Badge text="فائتة — لم تنعقد" tone="b-red" />
                       ) : c.channel === 'مرئية' ? (
                         <>

@@ -19,6 +19,20 @@ enum SessionState: string
         return $this === self::Ended;
     }
 
+    /**
+     * **لون شارة الجلسة — المصدر الواحد** (كان `sessTone` في الواجهة): الجارية كهرمانيّة، والمنعقدة
+     * خضراء، و«لم تُعقد» حمراء (فوتٌ لا نجاح)، والمنتظرة محايدة.
+     */
+    public function tone(): string
+    {
+        return match ($this) {
+            self::Waiting => 'b-grey',
+            self::Live => 'b-amber',
+            self::Ended => 'b-green',
+            self::NotHeld => 'b-red',
+        };
+    }
+
     /** @return list<string> */
     public static function values(): array
     {

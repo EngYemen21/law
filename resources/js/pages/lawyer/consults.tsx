@@ -13,7 +13,6 @@ import { CONFIRM_END_CONSULT, CONFIRM_NO_SHOW, CONFIRM_START_CONSULT, RichText, 
 import type { ConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import {
-  cTone,
   crChannelIcon,
   crChannelTone,
   CONSULT_BOOKING_STATUSES,
@@ -33,7 +32,7 @@ export type LawyerKanbanCol = 'waiting' | 'live' | 'drafting' | 'completed';
  * التي كانت تدخل عمود «بانتظار الانعقاد» وعمود «منتهية ومغلقة» معاً لأن cancelRequest لا يمس session).
  */
 export function lawyerKanbanColumnOf(c: ConsultCard): LawyerKanbanCol {
-  if (CONSULT_TERMINAL_STATUSES.includes(c.status) || c.session === 'لم تُعقد') {
+  if (CONSULT_TERMINAL_STATUSES.includes(c.status) || c.notHeld) {
     return 'completed';
   }
 
@@ -622,7 +621,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         <span className="lawyer-status-pill cancelled">✕ ملغاة</span>
                       ) : c.session === 'منتهية' ? (
                         <span className="lawyer-status-pill ended">✓ الجلسة انتهت</span>
-                      ) : c.session === 'لم تُعقد' ? (
+                      ) : c.notHeld ? (
                         <span className="lawyer-status-pill missed">✕ لم تنعقد</span>
                       ) : (
                         <span className="lawyer-status-pill wait">⏳ بانتظار الانعقاد</span>
@@ -649,7 +648,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                     </td>
 
                     <td>
-                      <Badge text={c.status} tone={cTone(c.status)} />
+                      <Badge text={c.status} tone={c.tone} />
                     </td>
 
                     <td style={{ textAlign: 'center' }}>
@@ -824,7 +823,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                   >
                     <div className="card-top">
                       <b>{c.ref}</b>
-                      <Badge text={c.status} tone={cTone(c.status)} />
+                      <Badge text={c.status} tone={c.tone} />
                     </div>
                     <div className="card-subj">{c.subject}</div>
                     <div className="card-client">👤 {maskClient(c.client)}</div>
@@ -853,7 +852,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                   <h3 style={{ margin: 0, fontSize: 18, color: 'var(--primary)' }}>
                     ملف الاستشارة: {drawerConsult.ref}
                   </h3>
-                  <Badge text={drawerConsult.status} tone={cTone(drawerConsult.status)} />
+                  <Badge text={drawerConsult.status} tone={drawerConsult.tone} />
                 </div>
                 {/* صفحة الرحلة الكاملة (`/lawyer/consult?ref=`) قائمةٌ ومحروسةٌ بإسناد المحامي، ولم يكن
                     إليها رابطٌ في شاشات المحامي — لا تُبلَغ إلّا بكتابة العنوان (ملاحظة المالك 2026-09-27) */}

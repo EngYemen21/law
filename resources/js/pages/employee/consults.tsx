@@ -7,11 +7,10 @@ import { useToast } from '@/components/babylon/Toast';
 // اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
 import { stageChanged, staffPatch } from '@/lib/consult-live';
 import { maskClient } from '@/lib/employee-data';
-import { RichText, sessTone, SummaryStateBadge } from '@/lib/consult-ui';
+import { RichText, SummaryStateBadge } from '@/lib/consult-ui';
 import type { ConsultCard, LawyerOpt } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import {
-  cTone,
   crChannelIcon,
   crChannelTone,
   CONSULT_CLOSED_STATUSES,
@@ -809,7 +808,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
               >
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Badge text={c.session} tone={sessTone(c.session)} />
+                    <Badge text={c.session} tone={c.sessionTone} />
                     <b>{c.ref}</b>
                   </div>
                   <div style={{ fontSize: 13, marginTop: 4 }}>
@@ -1152,7 +1151,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                         </td>
 
                         <td style={{ padding: '12px 14px' }}>
-                          <Badge text={c.status} tone={cTone(c.status)} />
+                          <Badge text={c.status} tone={c.tone} />
                         </td>
 
                         <td style={{ padding: '12px 16px', textAlign: 'center' }}>
@@ -1205,7 +1204,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <b style={{ color: 'var(--primary)' }}>{c.ref}</b>
-                  <Badge text={c.status} tone={cTone(c.status)} />
+                  <Badge text={c.status} tone={c.tone} />
                 </div>
                 <div style={{ fontSize: 13, fontWeight: 600, margin: '6px 0' }}>{c.subject}</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>
@@ -1321,7 +1320,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                         <span style={{ fontSize: 11, color: 'var(--muted)' }}>
                           المستشار: <b>{c.lawyer}</b>
                         </span>
-                        <Badge text={c.status} tone={cTone(c.status)} />
+                        <Badge text={c.status} tone={c.tone} />
                       </div>
                     </div>
                   ))
@@ -1370,7 +1369,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                       </span>
                     </div>
                     <div className="iact">
-                      <Badge text={c.session || 'بانتظار الجلسة'} tone={sessTone(c.session)} />
+                      <Badge text={c.session || 'بانتظار الجلسة'} tone={c.sessionTone} />
                       <button
                         className="btn soft sm"
                         type="button"
@@ -1496,7 +1495,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <h3 style={{ margin: 0, color: 'var(--primary)', fontSize: 17 }}>{drawerConsult.ref}</h3>
                   <Badge text={`استشارة ${drawerConsult.channel}`} tone={crChannelTone(drawerConsult.channel)} />
-                  <Badge text={drawerConsult.status} tone={cTone(drawerConsult.status)} />
+                  <Badge text={drawerConsult.status} tone={drawerConsult.tone} />
                 </div>
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                   العميل: {maskClient(drawerConsult.client)}

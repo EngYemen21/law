@@ -361,17 +361,6 @@ export function cHasStage(s: string): boolean {
   return s !== 'ملغاة' && !CONSULT_BOOKING_STATUSES.includes(s);
 }
 
-export function cTone(s: string): string {
-  if (s === 'جديدة') return 'b-blue';
-  if (s === 'ملغاة') return 'b-red';
-  if (s === 'جاهزة للمحامي' || s === 'محالة للمحامي' || s === 'منتهية') return 'b-green';
-  // «لم يحضر» نهايةٌ غير ناجحة — رماديّها المحايد كان يساوي بينها وبين حالةٍ عاديّة
-  if (s === 'لم يحضر') return 'b-amber';
-  if (s.indexOf('بانتظار') >= 0) return 'b-amber';
-  if (s.indexOf('قيد') >= 0) return 'b-cyan';
-  return 'b-grey';
-}
-
 export function crChannelIcon(ch: string): string {
   return ch === 'مرئية' ? 'video' : ch === 'هاتفية' ? 'phone' : 'office';
 }
