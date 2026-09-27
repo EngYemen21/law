@@ -77,6 +77,13 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   // درج المستشار القانوني 360° المباشر والمضمون
   const [drawerConsult, setDrawerConsult] = useState<ConsultCard | null>(null);
   const [drawerTab, setDrawerTab] = useState<LawyerDrawerTab>('facts');
+  const drawerBodyRef = React.useRef<HTMLDivElement>(null);
+  // التبويب الجديد يبدأ من أعلاه — كان يُفتح في موضع تمرير السابق فيبدو مقصوصاً
+  useEffect(() => {
+    drawerBodyRef.current?.scrollTo({ top: 0 });
+    // وعلى الهاتف يُمرَّر شريط التبويبات حتى يظهر المختار كاملاً
+    document.querySelector('.emp-drawer-tabs .d-tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [drawerTab]);
   const [sessionNotes, setSessionNotes] = useState<string>('');
   const [clientReport, setClientReport] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -932,7 +939,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
               </div>
 
               {/* محتوى التبويبات */}
-              <div className="emp-drawer-body">
+              <div ref={drawerBodyRef} className="emp-drawer-body">
                 {/* ── التبويب 1: الوقائع والمستندات ── */}
                 {drawerTab === 'facts' && (
                   <div className="emp-d-content">
@@ -1600,7 +1607,10 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
           right: 0 !important;
           width: 600px !important;
           max-width: 92vw !important;
+          /* \`dvh\` على الجوّال، ولا يتمرّر اللوح نفسه — فلا يُقصّ الرأس عند تبديل التبويب */
           height: 100vh !important;
+          height: 100dvh !important;
+          overflow: hidden !important;
           background: #ffffff !important;
           z-index: 99999 !important;
           box-shadow: -10px 0 35px rgba(0, 0, 0, 0.3) !important;
@@ -1614,8 +1624,13 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
           from { transform: translateX(100%); }
           to { transform: translateX(0); }
         }
+        .emp-drawer-head, .emp-drawer-tabs {
+          flex-shrink: 0;
+        }
         .emp-drawer-head {
           padding: 16px 20px;
+          gap: 8px;
+          flex-wrap: wrap;
           border-bottom: 1px solid #e2e8f0;
           display: flex;
           justify-content: space-between;
@@ -1635,6 +1650,8 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
         .emp-drawer-close:hover { background: #e2e8f0; color: #0f172a; }
         .emp-drawer-tabs {
           display: flex;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
           border-bottom: 1px solid #e2e8f0;
           background: #f8fafc;
         }
@@ -1666,8 +1683,18 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
         .d-tab-count.warn { background: #fef3c7; color: #b45309; }
         .emp-drawer-body {
           flex: 1;
+          min-height: 0;
           overflow-y: auto;
           padding: 20px;
+        }
+        @media (max-width: 768px) {
+          .emp-drawer-panel { width: 100% !important; max-width: 100% !important; }
+          /* التبويبات لا تُعصر في عرض الهاتف — تتمرّر أفقيّاً بمقاسها */
+          .d-tab { flex: 0 0 auto; padding: 10px 12px; font-size: 12px; white-space: nowrap; }
+        }
+        @media (max-width: 420px) {
+          .emp-drawer-head { padding: 12px 14px; }
+          .emp-drawer-body { padding: 14px; }
         }
         .emp-d-content {
           display: flex;

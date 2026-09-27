@@ -115,6 +115,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
   // درج العمليات 360°
   const [drawerRef, setDrawerRef] = useState<string | null>(null);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>('details');
+  const drawerBodyRef = React.useRef<HTMLDivElement>(null);
   const [selectedLawyerId, setSelectedLawyerId] = useState<number | ''>('');
   const [missingDocInput, setMissingDocInput] = useState<string>('');
   const [isProcessingAction, setIsProcessingAction] = useState(false);
@@ -521,6 +522,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           inset: 0 !important;
           width: 100vw !important;
           height: 100vh !important;
+          height: 100dvh !important;
           z-index: 99990 !important;
           background: rgba(10, 25, 45, 0.6) !important;
           backdrop-filter: blur(4px) !important;
@@ -536,7 +538,11 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           right: 0 !important;
           width: 100% !important;
           max-width: 580px !important;
+          /* \`dvh\`: على الجوّال \`100vh\` أطول من المساحة الظاهرة فيُدفع الرأس خارجها */
           height: 100vh !important;
+          height: 100dvh !important;
+          /* لا يتمرّر اللوح نفسه — التمرير للمحتوى وحده، فلا يُقصّ الرأس عند تبديل التبويب */
+          overflow: hidden !important;
           background: #fff !important;
           box-shadow: -10px 0 35px rgba(0,0,0,0.35) !important;
           display: flex !important;
@@ -544,6 +550,9 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           box-sizing: border-box !important;
           z-index: 99999 !important;
           animation: c360SlideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        }
+        .c360-drawer-head, .c360-drawer-tabs {
+          flex-shrink: 0;
         }
         .c360-drawer-tabs {
           display: flex;
@@ -602,6 +611,12 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           .c360-drawer-panel {
             max-width: 100% !important;
           }
+          /* التبويبات الأربعة لا تُعصر في عرض الهاتف — تتمرّر أفقيّاً بمقاسها */
+          .c360-drawer-tabs > button {
+            flex: 0 0 auto !important;
+            font-size: 12px !important;
+            padding: 10px 12px !important;
+          }
         }
         @media (max-width: 420px) {
           .c360-view-switcher {
@@ -609,6 +624,12 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           }
           .c360-kpi-grid {
             grid-template-columns: 1fr;
+          }
+          .c360-drawer-head {
+            padding: 12px 14px !important;
+          }
+          .c360-drawer-body {
+            padding: 14px !important;
           }
         }
       `}</style>
@@ -1466,6 +1487,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           >
             {/* رأس الدرج مع زر إغلاق صريح ومستقل */}
             <div
+              className="c360-drawer-head"
               style={{
                 padding: '16px 20px',
                 borderBottom: '1px solid rgba(0,0,0,0.08)',
@@ -1529,7 +1551,13 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                 <button
                   key={tabKey}
                   type="button"
-                  onClick={() => setDrawerTab(tabKey)}
+                  onClick={(e) => {
+                    setDrawerTab(tabKey);
+                    // التبويب الجديد يبدأ من أعلاه — كان يُفتح في موضع تمرير السابق فيبدو مقصوصاً
+                    drawerBodyRef.current?.scrollTo({ top: 0 });
+                    // وعلى الهاتف يُمرَّر شريط التبويبات حتى يظهر المختار كاملاً
+                    e.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                  }}
                   style={{
                     flex: 1,
                     padding: '12px 10px',
@@ -1559,7 +1587,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
               * ارتفاعُه `100vh` ويُقصّ ما زاد **بلا شريط تمرير** — فسجلُّ تدقيقٍ طويل
               * يُقرأ نصفُه ولا سبيل إلى بقيّته. قِيس ذلك على `CN-2026-7173`.
               */}
-            <div className="c360-drawer-body" style={{ padding: 20, flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div ref={drawerBodyRef} className="c360-drawer-body" style={{ padding: 20, flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
               {/* Tab 1: التفاصيل والبيانات */}
               {drawerTab === 'details' && (
                 <>
