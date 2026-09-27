@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\CaseStatus;
 use App\Support\CaseJourney;
 use App\Support\ExecFlow;
 use App\Support\TicketJourney;
@@ -63,10 +64,11 @@ class StatusToneConsistencyTest extends TestCase
 
     public function test_stage_and_tone_come_from_one_map_so_they_cannot_drift(): void
     {
-        // المرحلة والنغمة تُقرآن من الخريطة نفسها — لا قائمتان تتباعدان
+        // المرحلة من خريطة المسار، والنغمة من الـEnum وحده — لا نسختان تتباعدان
         foreach (CaseJourney::STATUSES as $status => $meta) {
             $this->assertSame($meta['at'], CaseJourney::stage($status));
-            $this->assertSame($meta['tone'], CaseJourney::toneFor($status));
+            $this->assertSame(CaseStatus::from($status)->tone(), CaseJourney::toneFor($status));
+            $this->assertArrayNotHasKey('tone', $meta, 'عادت نسخة الألوان الثانية إلى CaseJourney');
         }
     }
 
