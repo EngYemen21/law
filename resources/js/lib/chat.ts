@@ -47,29 +47,6 @@ export function cleanTime(t?: string): string {
   return t;
 }
 
-// يطابق convGet — البذرة العامة للمحادثة
-export function seedTicket(type: string, last: string): Message[] {
-  return [
-    { who: 'client', name: CLIENT_NAME, role: 'العميل', text: `${type} — يرجى دراسة الموضوع وإفادتي بالرأي القانوني.`, time: '10:01 ص' },
-    { who: 'ai', name: 'الفريق القانوني', role: 'استقبال', text: 'تم استلام طلبكم بنجاح وإحالته إلى القسم القانوني المختص. يمكنكم متابعة المستجدات والكتابة هنا في أي وقت.', time: '10:02 ص' },
-    { who: 'ai', name: 'الفريق القانوني', role: 'متابعة', text: last || 'الطلب قيد المعالجة.', time: '10:20 ص' },
-  ];
-}
-
-export function seedCase(type: string, status: string, update: string, next?: string): Message[] {
-  return [
-    { who: 'client', name: CLIENT_NAME, role: 'العميل', text: `بخصوص قضيتي (${type}) أرغب بمتابعة المستجدات.`, time: '09:00 ص' },
-    { who: 'ai', name: 'الفريق القانوني', role: 'متابعة القضية', text: `مرحباً بكم. حالة القضية: ${status}. آخر تحديث: ${update}${next ? ` — الجلسة القادمة: ${next}` : ''}.`, time: '09:05 ص' },
-  ];
-}
-
-export function seedExec(subject: string, status: string, last: string): Message[] {
-  return [
-    { who: 'client', name: CLIENT_NAME, role: 'العميل', text: `بخصوص طلب التنفيذ (${subject}) أرغب بمتابعة الإجراء.`, time: '09:00 ص' },
-    { who: 'ai', name: 'الفريق القانوني', role: 'التنفيذ', text: `حالة الطلب: ${status}. آخر إجراء: ${last}.`, time: '09:05 ص' },
-  ];
-}
-
 // مراحل دورة حياة التذكرة — يطابق TKT_LIFE / tktStage
 export const TKT_LIFE = ['استلام الطلب', 'التحليل', 'الإحالة للقسم', 'الرأي القانوني', 'حجز الاستشارة', 'الجلسة', 'النتيجة'];
 

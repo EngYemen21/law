@@ -1,7 +1,5 @@
 import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Badge from '@/components/babylon/Badge';
-import { hearingDurationLabel } from '@/lib/case-ui';
 import Icon from '@/lib/icons';
 
 // شريط ترشيح وبحث وتصفيح للتبويب الزمني — كل حالة الترشيح في رابط الصفحة.
@@ -222,47 +220,6 @@ export const TimelinePager: React.FC<{ meta: TimelineMeta; filters: TimelineFilt
       <span style={{ marginInlineStart: 10, fontSize: 12, color: 'var(--muted)' }}>
         {meta.from}–{meta.to} من {meta.total}
       </span>
-    </div>
-  );
-};
-
-export const TimelineTable: React.FC<{ events: TimelineEvent[] }> = ({ events }) => {
-  if (!events.length) {
-    return <div className="empty"><Icon name="cal" /><b>لا نتائج مطابقة للترشيح</b></div>;
-  }
-
-  return (
-    <div className="t-wrap">
-      <table className="tbl">
-        <thead>
-          <tr>
-            <th>النوع</th><th>العنوان</th><th>المرجع</th><th>اليوم</th><th>الوقت</th>
-            <th>المكان / الجهة</th><th>الحالة</th><th>إجراءات</th>
-          </tr>
-        </thead>
-        <tbody>
-          {events.map((e, i) => (
-            <tr key={e.kindKey + '-' + e.id + '-' + i}>
-              <td><Badge text={e.kind} tone={e.tone} /></td>
-              <td><b>{e.title}</b></td>
-              <td className="muted">{e.id || '—'}</td>
-              <td className="muted">{e.day || '—'}</td>
-              <td className="muted">
-                {e.time || '—'}
-                {hearingDurationLabel(e.durationMin) && <div style={{ fontSize: 11 }}>{hearingDurationLabel(e.durationMin)}</div>}
-              </td>
-              <td className="muted">{e.where || '—'}</td>
-              <td><Badge text={e.status} tone={e.statusTone} /></td>
-              <td>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {e.joinLink && <a className="btn sm" href={e.joinLink}><Icon name="video" /> دخول</a>}
-                  {e.cardUrl && <a className="btn soft sm" href={e.cardUrl}><Icon name="doc" /> البطاقة</a>}
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 };
