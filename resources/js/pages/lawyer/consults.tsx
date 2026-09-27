@@ -6,6 +6,7 @@ import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 // اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
+import { stageChanged, staffPatch } from '@/lib/consult-live';
 import { maskClient } from '@/lib/employee-data';
 import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-reschedule';
 import { CONFIRM_END_CONSULT, CONFIRM_NO_SHOW, CONFIRM_START_CONSULT, RichText, SummaryStateBadge } from '@/lib/consult-ui';
@@ -101,11 +102,13 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
 
     initialConsults.forEach((c) => {
       echo.private(`consult.${c.id}`).listen('.status', (e: Partial<ConsultCard>) => {
+        // القاعدة المشتركة (`lib/consult-live`): لا تسمية العميل ولا ملخّصه فوق بطاقة الطاقم
+        const rest = staffPatch(e);
         setItems((prev) =>
-          prev.map((x) => (x.id === c.id ? { ...x, ...e } : x))
+          prev.map((x) => (x.id === c.id ? { ...x, ...rest } : x))
         );
 
-        if (e.session === 'منتهية') {
+        if (stageChanged(e, c)) {
           router.reload({ only: ['consults'] });
         }
       });

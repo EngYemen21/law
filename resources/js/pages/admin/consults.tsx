@@ -5,6 +5,7 @@ import Badge from '@/components/babylon/Badge';
 import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { maskClient } from '@/lib/admin-data';
+import { stageChanged, staffPatch } from '@/lib/consult-live';
 import { CONFIRM_APPROVE_CONSULT_SUMMARY, CONFIRM_CANCEL_CONSULT_REQUEST, RichText, sessTone, SummaryStateBadge } from '@/lib/consult-ui';
 import type {ConsultCard, LawyerOpt} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
@@ -216,17 +217,14 @@ export const AdminConsults: React.FC<AdminConsultsProps> = ({
     const allConsults = [...initialConsults, ...initialRequests];
     allConsults.forEach((c) => {
       echo.private(`consult.${c.id}`).listen('.status', (e: Partial<ConsultCard>) => {
-        // `summary` **يُستبعد من الدمج**: الحمولة تُبثّ للعميل أيضاً، فلا تحمل إلّا
-        // المعتمَد — والنشر الكامل كان يمسح النصّ المعروض للإدارة لحظة إنهاء الجلسة.
-        const rest = { ...e };
-
-        delete rest.summary;
+        // القاعدة المشتركة (`lib/consult-live`): لا تسمية العميل ولا ملخّصه فوق بطاقة الطاقم
+        const rest = staffPatch(e);
         const updater = (prev: ConsultCard[]) =>
           prev.map((x) => (x.id === c.id ? { ...x, ...rest } : x));
         setInFlightItems(updater);
         setRequestItems(updater);
 
-        if (e.session === 'منتهية') {
+        if (stageChanged(e, c)) {
           router.reload({ only: ['consults', 'preSessionRequests'] });
         }
       });

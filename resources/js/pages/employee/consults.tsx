@@ -5,6 +5,7 @@ import Badge from '@/components/babylon/Badge';
 import { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 // اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
+import { stageChanged, staffPatch } from '@/lib/consult-live';
 import { maskClient } from '@/lib/employee-data';
 import { RichText, sessTone, SummaryStateBadge } from '@/lib/consult-ui';
 import type { ConsultCard, LawyerOpt } from '@/lib/consult-ui';
@@ -128,21 +129,14 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
     const allConsults = [...initialConsults, ...initialRequests];
     allConsults.forEach((c) => {
       echo.private(`consult.${c.id}`).listen('.status', (e: Partial<ConsultCard>) => {
-        /*
-         * القناة يستمع لها العميل أيضاً، فـ`status` فيها **تسمية العميل** («بانتظار اعتماد الموعد» تصل
-         * «بانتظار تحديد الموعد») — فلا تُنسخ فوق حالة الطاقم. تغيّرُ المرحلة يُعيد قراءة البطاقة
-         * من الخادم بحقولها المشتقّة (`assignBlocker` · `bookingStage` · الموعد).
-         */
-        const rest = { ...e };
-        delete rest.summary;
-        delete rest.status;
-
+        // القاعدة المشتركة (`lib/consult-live`): لا تسمية العميل ولا ملخّصه فوق بطاقة الطاقم
+        const rest = staffPatch(e);
         const updater = (prev: ConsultCard[]) =>
           prev.map((x) => (x.id === c.id ? { ...x, ...rest } : x));
         setInFlightItems(updater);
         setRequestItems(updater);
 
-        if (e.status !== c.status || e.session !== c.session) {
+        if (stageChanged(e, c)) {
           router.reload({ only: ['consults', 'preSessionRequests'] });
         }
       });

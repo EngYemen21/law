@@ -7,6 +7,7 @@ import Modal from '@/components/babylon/Modal';
 import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
+import { stageChanged, staffPatch } from '@/lib/consult-live';
 import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-reschedule';
 import { echo } from '@/lib/echo';
 import {
@@ -769,18 +770,14 @@ export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }
          *   «لم يحضر» ثانيةً ويردّ الخادم ٤٢٢.
          * - وبعد إعادة الجدولة تبقى «فائتة» بموعدها القديم معروضاً.
          *
-         * والنمط الصحيح مطبَّقٌ في شاشة الموظّف: تنسخ الحمولة كلّها وتستثني
-         * `summary` بالحذف الصريح — فتلتقط أيّ مفتاحٍ يُضاف مستقبلاً.
+         * والنمط الصحيح في `lib/consult-live`: تُنسخ الحمولة كلّها إلّا `status` (تسمية
+         * العميل) و`summary` — فتلتقط أيّ مفتاحٍ يُضاف مستقبلاً.
          */
-        const rest = { ...e };
-        delete rest.summary;
-
+        // القاعدة المشتركة (`lib/consult-live`): لا تسمية العميل ولا ملخّصه فوق بطاقة الطاقم
+        const rest = staffPatch(e);
         setItems((prev) => prev.map((x) => (x.id === c.id ? { ...x, ...rest } : x)));
 
-        // الملخّص **لا يُؤخذ من البثّ**: الحمولة نفسها تُبثّ للعميل، فما يراه الطاقم
-        // منها هو ما يجوز للعميل رؤيته — أي المعتمَد وحده. والطاقم يحتاج النصّ غير
-        // المعتمَد ليراجعه، فيُجلب من الخادم بصلاحيّة الطاقم لا من قناةٍ مشتركة.
-        if (e.session === 'منتهية') {
+        if (stageChanged(e, c)) {
           router.reload({ only: ['consults'] });
         }
       });
