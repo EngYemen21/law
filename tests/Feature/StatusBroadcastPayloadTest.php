@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\CaseStatus;
 use App\Events\CaseStatusBroadcast;
 use App\Events\ExecStatusBroadcast;
 use App\Models\Execution;
 use App\Models\LegalCase;
+use App\Support\ExecFlow;
 use Tests\TestCase;
 
 /**
@@ -27,20 +29,21 @@ class StatusBroadcastPayloadTest extends TestCase
         $this->assertSame(['status', 'tone'], array_keys($payload));
         $this->assertArrayNotHasKey('next', $payload);
         $this->assertSame('منظورة', $payload['status']);
-        $this->assertSame('b-blue', $payload['tone']);
+        $this->assertSame(CaseStatus::InCourt->tone(), $payload['tone']);
     }
 
     public function test_exec_status_broadcast_carries_only_status_and_tone(): void
     {
         $exec = new Execution;
         $exec->status = 'جارٍ';
-        $exec->tone = 'b-blue';
+        // اللون يُحسب من المرحلة الفعّالة (`Execution::tone` ← `ExecFlow::tone`) لا من عمودٍ يُكتب باليد
+        $exec->stage = 3;
 
         $payload = (new ExecStatusBroadcast($exec))->broadcastWith();
 
         $this->assertSame(['status', 'tone'], array_keys($payload));
         $this->assertArrayNotHasKey('next', $payload);
         $this->assertSame('جارٍ', $payload['status']);
-        $this->assertSame('b-blue', $payload['tone']);
+        $this->assertSame(ExecFlow::tone(3), $payload['tone']);
     }
 }

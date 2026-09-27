@@ -6,6 +6,7 @@ use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Support\Finance\InvoiceFactory;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -199,5 +200,15 @@ class Invoice extends Model
             'hasProof' => $this->proof_path !== null,   // رُفع إثبات تحويل بانتظار المراجعة
             'installmentNo' => $this->installment_no,   // موضعها من خطّة التقسيط — null لغيرها
         ];
+    }
+
+    /**
+     * **اللون يُحسب من الحالة عند القراءة (`InvoiceStatus::tone`)** — العمود المخزَّن يُكتب مع الانتقال
+     * لكنّه لا يُقرأ: كانت حمولاتٌ ترسله خاماً وأخرى تحسبه، وصفوفٌ قديمة تحمل لوناً غير لون
+     * حالتها، وشاشة التوزيع تسدّ فراغه بألوانٍ لا يُنتجها الخادم. فكلّ `->tone` الآن هو لون الحالة.
+     */
+    protected function tone(): Attribute
+    {
+        return Attribute::get(fn ($value) => InvoiceStatus::tryFrom((string) $this->status)?->tone() ?? (string) $value);
     }
 }

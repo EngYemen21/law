@@ -10,6 +10,7 @@ use App\Support\ConversationFiles;
 use App\Support\ExecFlow;
 use App\Support\ExecService;
 use App\Support\LawyerName;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -424,5 +425,15 @@ class Execution extends Model
         }
 
         return $parts[0].' '.implode(' ', array_map(fn ($p) => mb_substr($p, 0, 1).'…', array_slice($parts, 1)));
+    }
+
+    /**
+     * **اللون يُحسب من الحالة عند القراءة (`ExecFlow::tone` للمرحلة الفعّالة)** — العمود المخزَّن يُكتب مع الانتقال
+     * لكنّه لا يُقرأ: كانت حمولاتٌ ترسله خاماً وأخرى تحسبه، وصفوفٌ قديمة تحمل لوناً غير لون
+     * حالتها، وشاشة التوزيع تسدّ فراغه بألوانٍ لا يُنتجها الخادم. فكلّ `->tone` الآن هو لون الحالة.
+     */
+    protected function tone(): Attribute
+    {
+        return Attribute::get(fn () => ExecFlow::tone($this->effectiveStage()));
     }
 }

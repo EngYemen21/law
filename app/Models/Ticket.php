@@ -12,6 +12,7 @@ use App\Models\Concerns\PurgesDocumentFiles;
 use App\Support\LawyerName;
 use App\Support\TicketJourney;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -200,7 +201,7 @@ class Ticket extends Model
             'statusCode' => $entity->status()->name,
             'actions' => $actions,
             'phase' => TicketJourney::clientPhase((string) $this->status),
-            'tone' => $this->tone ?: TicketJourney::toneFor($this->status),
+            'tone' => $this->tone,
             'last' => $this->last_message,
             // «الآن» المخزّنة كانت تتجمّد للأبد — الاشتقاق الحيّ من آخر تحديث (العمود يبقى للتوافق)
             'date' => $this->updated_at?->locale('ar')->diffForHumans() ?? $this->date_label,
@@ -374,5 +375,15 @@ class Ticket extends Model
     public function isOpen(): bool
     {
         return ! in_array($this->status, TicketStatus::finals(), true);
+    }
+
+    /**
+     * **اللون يُحسب من الحالة عند القراءة (`TicketJourney::toneFor`)** — العمود المخزَّن يُكتب مع الانتقال
+     * لكنّه لا يُقرأ: كانت حمولاتٌ ترسله خاماً وأخرى تحسبه، وصفوفٌ قديمة تحمل لوناً غير لون
+     * حالتها، وشاشة التوزيع تسدّ فراغه بألوانٍ لا يُنتجها الخادم. فكلّ `->tone` الآن هو لون الحالة.
+     */
+    protected function tone(): Attribute
+    {
+        return Attribute::get(fn () => TicketJourney::toneFor((string) $this->status));
     }
 }

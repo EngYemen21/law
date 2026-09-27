@@ -330,7 +330,7 @@ class CourtHearingController extends Controller
                 'title' => $h->legalCase->update_text ?: ($h->legalCase->type.' - '.$h->legalCase->number),
                 'type' => $h->legalCase->type,
                 'status' => $h->legalCase->status,
-                'tone' => $h->legalCase->tone ?: 'b-blue',
+                'tone' => $h->legalCase->tone,
                 'client' => Ticket::maskClient($h->legalCase->user?->name ?? 'عميل غير مسجل'),
                 'realClient' => $h->legalCase->user?->name ?? '—',
                 'lawyer' => $h->legalCase->assigned_lawyer ?: ($h->legalCase->assignedLawyer?->name ?? 'غير مسند'),

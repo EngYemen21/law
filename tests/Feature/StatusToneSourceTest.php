@@ -13,10 +13,12 @@ use App\Enums\Role;
 use App\Models\CaseHearing;
 use App\Models\Consult;
 use App\Models\Execution;
+use App\Models\JourneyTransition;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Support\ExecFlow;
+use App\Support\TicketJourney;
 use App\Support\TimelineCard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -170,5 +172,49 @@ class StatusToneSourceTest extends TestCase
         }
 
         $this->assertStringNotContainsString('export function execTone', (string) file_get_contents(resource_path('js/lib/exec-flow.ts')));
+    }
+
+    /** **العمود المخزَّن لا يُقرأ:** صفٌّ قديم بلونٍ غير لون حالته يُعرض بلون حالته في كلّ حمولة. */
+    public function test_a_stale_stored_tone_never_reaches_a_payload(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+
+        $ticket = Ticket::create(['user_id' => $client->id, 'number' => 'SB-STALE-'.uniqid(), 'type' => 'نزاع', 'status' => 'مغلقة', 'tone' => 'b-purple']);
+        $case = LegalCase::create(['user_id' => $client->id, 'number' => 'CASE-STALE-'.uniqid(), 'type' => 'نزاع', 'status' => 'صدر الحكم', 'tone' => 'b-purple', 'update_text' => '—']);
+        $exec = Execution::create(['user_id' => $client->id, 'number' => 'EX-STALE-'.uniqid(), 'subject' => 'سند', 'stage' => 7, 'status' => ExecutionStatus::InProgress->value, 'tone' => 'b-purple']);
+
+        $this->assertSame(TicketJourney::toneFor('مغلقة'), $ticket->fresh()->tone);
+        $this->assertSame($ticket->fresh()->tone, $ticket->fresh()->toEmployeeCard()['tone']);
+        $this->assertSame(CaseStatus::Judged->tone(), $case->fresh()->toCard()['tone']);
+        $this->assertSame(ExecFlow::tone(7), $exec->fresh()->tone);
+    }
+
+    /** سجلّ الانتقالات يلوّن كلّ حالةٍ بكتالوج نوعها — كان كتالوج التذاكر للجميع. */
+    public function test_the_journey_log_colours_each_entity_by_its_own_catalogue(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $rows = [
+            ['LegalCase', 'منظورة', 'صدر الحكم', CaseStatus::Judged->tone()],
+            ['Consult', SessionState::Waiting->value, SessionState::NotHeld->value, SessionState::NotHeld->tone()],
+            ['Consult', ConsultStatus::AwaitingPayment->value, ConsultStatus::Cancelled->value, ConsultStatus::Cancelled->tone()],
+            ['Invoice', InvoiceStatus::Due->value, InvoiceStatus::Paid->value, InvoiceStatus::Paid->tone()],
+            ['Execution', ExecutionStatus::InProgress->value, ExecutionStatus::Closed->value, ExecutionStatus::Closed->tone()],
+        ];
+        foreach ($rows as $i => [$type, $from, $to]) {
+            JourneyTransition::create(['entity_type' => $type, 'entity_id' => $i + 1, 'transition' => 't', 'from_state' => $from, 'to_state' => $to]);
+        }
+
+        $this->actingAs($admin)->get(route('admin.journey-transitions'))->assertInertia(fn ($p) => $p
+            ->where('transitions.data', function ($data) use ($rows) {
+                $toneById = collect($data)->mapWithKeys(fn ($r) => [$r['entityId'] => $r['toTone']]);
+
+                foreach ($rows as $i => [, , , $tone]) {
+                    if (($toneById[$i + 1] ?? null) !== $tone) {
+                        return false;
+                    }
+                }
+
+                return true;
+            }));
     }
 }

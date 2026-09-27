@@ -2,10 +2,15 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domain\Journey\Enums\ConsultStatus;
+use App\Domain\Journey\Enums\ExecutionStatus;
+use App\Domain\Journey\Enums\InvoiceStatus;
+use App\Domain\Journey\Enums\SessionState;
 use App\Enums\Role;
 use App\Http\Controllers\Controller;
 use App\Models\JourneyTransition;
 use App\Models\User;
+use App\Support\CaseJourney;
 use App\Support\Paginate;
 use App\Support\SearchText;
 use App\Support\TicketJourney;
@@ -123,6 +128,23 @@ class JourneyTransitionController extends Controller
     /**
      * تشكيل صف الانتقال ليناسب العرض الغني في الواجهة مع الروابط العميقة
      */
+    /**
+     * **لون الحالة بكتالوج نوعها** — كان كلّ صفٍّ يُلوَّن بكتالوج التذاكر (`TicketJourney::toneFor`)،
+     * فحالات القضايا والاستشارات والتنفيذ والفواتير تسقط إلى أزرقه الاحتياطيّ. وانتقالات الاستشارة
+     * تسجّل حالة الجلسة أحياناً (`MarkNoShow`: بانتظار الجلسة → لم تُعقد)، فيُقرأ كتالوجها بعدها.
+     */
+    private static function stateTone(string $type, string $state): string
+    {
+        return match (strtolower($type)) {
+            'ticket' => TicketJourney::toneFor($state),
+            'consult' => ConsultStatus::tryFrom($state)?->tone() ?? SessionState::tryFrom($state)?->tone() ?? 'b-grey',
+            'legalcase', 'case' => CaseJourney::toneFor($state),
+            'execution' => ExecutionStatus::tryFrom($state)?->tone() ?? 'b-grey',
+            'invoice' => InvoiceStatus::tryFrom($state)?->tone() ?? 'b-grey',
+            default => 'b-grey',
+        };
+    }
+
     private function shapeRow(JourneyTransition $row): array
     {
         $entityType = (string) $row->entity_type;
@@ -141,8 +163,8 @@ class JourneyTransitionController extends Controller
             'transitionLabel' => self::humanTransitionName($row->transition),
             'fromState' => self::humanStateName($row->from_state),
             'toState' => self::humanStateName($row->to_state),
-            'fromTone' => $row->from_state ? TicketJourney::toneFor((string) $row->from_state) : 'b-grey',
-            'toTone' => TicketJourney::toneFor((string) $row->to_state),
+            'fromTone' => $row->from_state ? self::stateTone($cleanType, (string) $row->from_state) : 'b-grey',
+            'toTone' => self::stateTone($cleanType, (string) $row->to_state),
             'actor' => $row->actor ? [
                 'id' => $row->actor->id,
                 'name' => $row->actor->name,

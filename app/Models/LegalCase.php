@@ -9,6 +9,7 @@ use App\Models\Concerns\PurgesDocumentFiles;
 use App\Support\CaseJourney;
 use App\Support\LawyerName;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -257,5 +258,15 @@ class LegalCase extends Model
     public function isActive(): bool
     {
         return ! in_array($this->status, CaseJourney::CLOSED, true);
+    }
+
+    /**
+     * **اللون يُحسب من الحالة عند القراءة (`CaseStatus::tone` عبر `CaseJourney::toneFor`)** — العمود المخزَّن يُكتب مع الانتقال
+     * لكنّه لا يُقرأ: كانت حمولاتٌ ترسله خاماً وأخرى تحسبه، وصفوفٌ قديمة تحمل لوناً غير لون
+     * حالتها، وشاشة التوزيع تسدّ فراغه بألوانٍ لا يُنتجها الخادم. فكلّ `->tone` الآن هو لون الحالة.
+     */
+    protected function tone(): Attribute
+    {
+        return Attribute::get(fn () => CaseJourney::toneFor((string) $this->status));
     }
 }
