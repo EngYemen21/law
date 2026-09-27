@@ -64,6 +64,8 @@ export interface ConsultCard {
   lawyerTentative?: boolean;
   /** الموعد المقترح بانتظار الاعتماد (قبل نشره). */
   proposedWhen?: string | null;
+  /** مقترح المآل مفتوحٌ من بطاقة التذكرة: انتهت الجلسة ولم تُحوَّل التذكرة — من الخادم. */
+  canProposeOutcome?: boolean;
   id: number;
   ref: string;
   client: string;

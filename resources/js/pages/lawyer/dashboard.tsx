@@ -828,13 +828,12 @@ setActiveTab('tasks');
                                 <Icon name="video" /> دخول الجلسة
                               </button>
                             ) : (
-                              <button
+                              <Link
                                 className="btn soft sm"
-                                onClick={() => router.visit('/lawyer/consults')}
-                                type="button"
+                                href={`/lawyer/consult?ref=${encodeURIComponent(c.ref)}`}
                               >
-                                <Icon name="compass" /> التفاصيل
-                              </button>
+                                <Icon name="compass" /> رحلة الاستشارة
+                              </Link>
                             )}
                           </td>
                         </tr>

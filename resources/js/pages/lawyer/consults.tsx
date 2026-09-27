@@ -1,4 +1,4 @@
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
@@ -880,6 +880,15 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                   </h3>
                   <Badge text={drawerConsult.status} tone={cTone(drawerConsult.status)} />
                 </div>
+                {/* صفحة الرحلة الكاملة (`/lawyer/consult?ref=`) قائمةٌ ومحروسةٌ بإسناد المحامي، ولم يكن
+                    إليها رابطٌ في شاشات المحامي — لا تُبلَغ إلّا بكتابة العنوان (ملاحظة المالك 2026-09-27) */}
+                <Link
+                  href={`/lawyer/consult?ref=${encodeURIComponent(drawerConsult.ref)}`}
+                  className="btn soft sm"
+                  style={{ marginInlineStart: 'auto', marginInlineEnd: 8 }}
+                >
+                  <Icon name="out" /> رحلة الاستشارة الكاملة
+                </Link>
                 <button
                   type="button"
                   className="emp-drawer-close"
@@ -1206,11 +1215,18 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                   <div className="emp-d-content">
                     <div className="emp-box" style={{ border: '1px solid #bbf7d0', background: '#f0fdf4' }}>
                       <h4 className="box-title" style={{ color: '#15803d' }}>
-                        ⚖️ تحويل الاستشارة إلى قضية تمثيل قضائي (Legal Case)
+                        ⚖️ اقتراح مسار قضية تمثيل قضائي
                       </h4>
+                      {/* لا تحويلَ مباشر: المقترح يُرفع من بطاقة القرار في التذكرة وتعتمده الإدارة العليا
+                          (`ApproveOutcomeTrack` — Zero Bypass)، وبعد انتهاء الجلسة وحده */}
                       <p style={{ margin: '0 0 12px', fontSize: 13, color: '#166534' }}>
-                        في حال اتفق الموكل معكم على رفع دعوى أمام المحكمة أو تمثيل قضائي، يمكنك تحويل هذا الملف مباشرة إلى قضية رسمية لفتح ملف القضية وتعيين الأتعاب.
+                        إن اتفق الموكل معكم على رفع دعوى أو تمثيل قضائي، ارفع مقترح مسار «قضية» من بطاقة القرار في ملف التذكرة؛ تعتمده الإدارة العليا فيُفتح ملف القضية وتُحدَّد الأتعاب.
                       </p>
+                      {!drawerConsult.canProposeOutcome && !drawerConsult.caseNo && (
+                        <p className="action-hint" style={{ margin: '0 0 10px' }}>
+                          <Icon name="info" /> يُرفع مقترح المسار بعد انتهاء الجلسة.
+                        </p>
+                      )}
                       {/* **الملفّ المحوَّل لا يُحوَّل مرّتين.** `caseNo` أُضيف إلى البطاقة
                           ليكون الإشارة الصادقة على التحويل، ولم يكن يُقرأ هنا —
                           فيبقى الزرّ أخضرَ مفعّلاً على ملفٍّ حُوِّل أمس، والخادم يردّ
@@ -1224,10 +1240,10 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         type="button"
                         className="btn sm"
                         style={{ background: '#16a34a', borderColor: '#16a34a', color: '#fff' }}
-                        disabled={isProcessing || !drawerConsult.ticketNo || !!drawerConsult.caseNo}
+                        disabled={isProcessing || !drawerConsult.canProposeOutcome}
                         onClick={() => handleConvertToCase(drawerConsult)}
                       >
-                        <Icon name="scale" /> تحويل الاستشارة إلى قضية تمثيل قضائي فوراً
+                        <Icon name="scale" /> اقتراح مسار قضية من بطاقة القرار
                       </button>
                     </div>
 

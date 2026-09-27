@@ -665,6 +665,10 @@ class Consult extends Model
              * يقع على **التذكرة** لا الاستشارة، فالإشارة الصادقة وجودُ قضيّةٍ لتذكرتها.
              */
             'caseNo' => $this->ticket?->legalCase?->number,
+            // مقترح المآل من بطاقة التذكرة **بعد الجلسة** — القاعدة نفسها في `OutcomeSummaryGate::consultBlocker`
+            'canProposeOutcome' => $this->ticket !== null
+                && $this->status === ConsultStatus::Ended->value
+                && $this->ticket->legalCase === null,
             // تدوين الجلسة — درج المحامي يملأ حقله منها؛ وكان يقرأ `notes`
             // التي لا تُرسل، فيفتح المحامي الدرج فيرى حقلاً فارغاً وتدوينه محفوظ.
             // (داخليّة للمكتب — لا وجود لها في `toClientCard`.)
