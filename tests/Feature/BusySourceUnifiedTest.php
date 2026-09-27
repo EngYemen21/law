@@ -7,9 +7,9 @@ use App\Models\Appointment;
 use App\Models\Meeting;
 use App\Models\User;
 use App\Support\LawyerAvailability;
-use Illuminate\Support\Carbon;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 

@@ -14,7 +14,9 @@ use InvalidArgumentException;
 final readonly class ClosureReason
 {
     private ClosureReasonCode $code;
+
     private ?string $notes;
+
     private ?int $closedById;
 
     public function __construct(ClosureReasonCode|string $code, ?string $notes = null, ?int $closedById = null)

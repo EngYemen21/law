@@ -7,7 +7,6 @@ use App\Domain\Journey\Transition;
 use App\Models\Execution;
 use App\Models\Setting;
 use App\Models\User;
-use App\Support\ExecFee;
 use App\Support\SettingsRegistry;
 use Illuminate\Database\Eloquent\Model;
 
