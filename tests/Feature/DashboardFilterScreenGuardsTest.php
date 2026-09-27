@@ -41,13 +41,22 @@ class DashboardFilterScreenGuardsTest extends TestCase
         $this->assertStringNotContainsString("'بانتظار اعتماد المستشار', 'بانتظار اعتماد الإدارة']", $code);
     }
 
-    /** (١٨) طلبات ما قبل الجلسة عند الموظّف تشمل «بانتظار اعتماد الموعد». */
+    /**
+     * (١٨) طلبات ما قبل الجلسة عند الموظّف تشمل «بانتظار اعتماد الموعد».
+     *
+     * كانت الشاشة تقارن النصّ بقائمة `CONSULT_BOOKING_STATUSES`، ثمّ صارت (2026-09-27) تقرأ مرحلة
+     * الحجز وسبب تعذّر الإسناد **من الخادم** (`bookingStage` · `assignBlocker` في `Consult::toCard`)
+     * — والخادم يشتقّهما من `ConsultStatus::isPreSession` الذي يشمل الحالات الأربع. فلا قائمةٌ منسوخة
+     * تنقص حالة، ولا نصٌّ عربيّ في شرط (CLAUDE.md ق٢).
+     */
     public function test_employee_consults_use_the_shared_booking_statuses(): void
     {
         $code = $this->screen('pages/employee/consults.tsx');
 
         $this->assertStringNotContainsString("['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد']", $code);
-        $this->assertGreaterThanOrEqual(6, substr_count($code, 'CONSULT_BOOKING_STATUSES.includes('));
+        $this->assertStringNotContainsString('CONSULT_BOOKING_STATUSES.includes(', $code);
+        $this->assertGreaterThanOrEqual(3, substr_count($code, 'bookingStage'));
+        $this->assertGreaterThanOrEqual(3, substr_count($code, 'assignBlocker'));
     }
 
     /** (١٨) لوحة المواعيد: لا «إعادة جدولة» ولا «لم يحضر» لموعدٍ لم يُعتمد، ومرشّحٌ له. */

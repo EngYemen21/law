@@ -58,6 +58,12 @@ function decisionText(x: unknown): string {
 
 // بطاقة الاستشارة كما يعيدها الخادم (Consult::toCard)
 export interface ConsultCard {
+  /** سبب تعذّر الإسناد الآن بحسب مرحلة الحجز — من الخادم (`Consult::toCard`)؛ `null` = لا مانع. */
+  assignBlocker?: string | null;
+  /** في دورة الحجز المحامي مرشَّحٌ من التذكرة لا مُسنَد. */
+  lawyerTentative?: boolean;
+  /** الموعد المقترح بانتظار الاعتماد (قبل نشره). */
+  proposedWhen?: string | null;
   id: number;
   ref: string;
   client: string;

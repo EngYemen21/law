@@ -213,6 +213,8 @@ class Consult extends Model
             $session === SessionState::NotHeld => SessionWindow::REFUSE_MISSED,
             $session === SessionState::Live => null,
             ConsultStatus::tryFrom((string) $this->status) === ConsultStatus::Cancelled => SessionWindow::REFUSE_CANCELLED,
+            // دورة الحجز لم تكتمل: لا رابطَ يُطلق ولا دخول قبل اعتماد الموعد (الجلسة الجارية فوق لا تُقطع)
+            ConsultStatus::tryFrom((string) $this->status)?->isPreSession() === true => SessionWindow::REFUSE_BOOKING,
             $this->isMissed() => SessionWindow::REFUSE_MISSED,
             $this->link_released_at === null => SessionWindow::refuseNotOpen(),
             default => null,
@@ -615,6 +617,25 @@ class Consult extends Model
                 'channel' => str_replace('استشارة ', '', (string) $this->appointment->type),
             ] : null,
             'status' => $this->status,
+            /*
+             * **سببُ تعذّر الإسناد الآن بحسب المرحلة الفعليّة — من الخادم** (ملاحظة المالك 2026-09-27).
+             * كانت النافذة تقارن النصّ بقائمة أربع حالات وتقول «لا إسناد إلا بعد اكتمال التسعير والسداد
+             * وتحديد الموعد» لعميلٍ دفع، وشارةُ «المسند: …» تعرض المحامي المنقول من التذكرة عند الطلب
+             * كأنّه أُسند. والإسناد في دورة الحجز يتمّ **مع اعتماد الموعد** (`PublishAppointment`).
+             */
+            'assignBlocker' => match ($this->status) {
+                ConsultStatus::AwaitingPricing->value => 'بانتظار تسعير الإدارة — يُسند المحامي مع اعتماد الموعد.',
+                ConsultStatus::AwaitingPayment->value => 'سُعّرت الاستشارة وبانتظار سداد العميل — يُسند المحامي مع اعتماد الموعد.',
+                ConsultStatus::AwaitingSchedule->value => 'سدّد العميل ✓ — بانتظار تحديد الموعد، ويُسند المحامي مع اعتماده.',
+                ConsultStatus::AwaitingAppointmentApproval->value => 'سدّد العميل ✓ — الموعد المقترح بانتظار اعتماد الإدارة، ويُسند المحامي عند اعتماده.',
+                default => null,
+            },
+            // في دورة الحجز المحامي **مرشَّحٌ** من التذكرة لا مُسنَد
+            'lawyerTentative' => ConsultStatus::tryFrom((string) $this->status)?->isPreSession() === true,
+            // الموعد المقترح بانتظار الاعتماد — `when` يبقى فارغاً حتى يُنشر فيُقرأ «لم يحدّد»
+            'proposedWhen' => $this->starts_at === null && $this->appointment?->starts_at
+                ? $this->appointment->starts_at->locale('ar')->translatedFormat('l d F Y · h:i A')
+                : null,
             'summary' => $this->summary,
             // الطاقم يرى النصّ قبل الاعتماد ليراجعه — ويرى **أنّه** غير معتمَد
             'summaryApproved' => $this->summaryApproved(),

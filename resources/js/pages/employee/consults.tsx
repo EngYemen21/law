@@ -14,7 +14,6 @@ import {
   crChannelIcon,
   crChannelTone,
   CONSULT_CLOSED_STATUSES,
-  CONSULT_BOOKING_STATUSES,
   CONSULT_TERMINAL_STATUSES,
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
@@ -74,7 +73,7 @@ function empKanbanColumnOf(c: ConsultCard): EmpKanbanCol {
   }
 
   // دورةُ الحجز ليست جلسةً قادمة — تُعرض حيث يُنتظر فيها فعل
-  if (CONSULT_BOOKING_STATUSES.includes(c.status)) {
+  if (c.bookingStage) {
     return 'scheduling';
   }
 
@@ -128,15 +127,21 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
     const allConsults = [...initialConsults, ...initialRequests];
     allConsults.forEach((c) => {
       echo.private(`consult.${c.id}`).listen('.status', (e: Partial<ConsultCard>) => {
+        /*
+         * القناة يستمع لها العميل أيضاً، فـ`status` فيها **تسمية العميل** («بانتظار اعتماد الموعد» تصل
+         * «بانتظار تحديد الموعد») — فلا تُنسخ فوق حالة الطاقم. تغيّرُ المرحلة يُعيد قراءة البطاقة
+         * من الخادم بحقولها المشتقّة (`assignBlocker` · `bookingStage` · الموعد).
+         */
         const rest = { ...e };
         delete rest.summary;
+        delete rest.status;
 
         const updater = (prev: ConsultCard[]) =>
           prev.map((x) => (x.id === c.id ? { ...x, ...rest } : x));
         setInFlightItems(updater);
         setRequestItems(updater);
 
-        if (e.session === 'منتهية') {
+        if (e.status !== c.status || e.session !== c.session) {
           router.reload({ only: ['consults', 'preSessionRequests'] });
         }
       });
@@ -228,9 +233,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
       if (!c.startsAt) return false;
       return new Date(c.startsAt).toDateString() === new Date().toDateString();
     }).length;
-    const preSession = allItems.filter((c) =>
-      CONSULT_BOOKING_STATUSES.includes(c.status)
-    ).length;
+    const preSession = allItems.filter((c) => Boolean(c.bookingStage)).length;
     const completed = allItems.filter(
       (c) => CONSULT_TERMINAL_STATUSES.includes(c.status)
     ).length;
@@ -312,7 +315,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
       ) return false;
       if (
         categoryFilter === 'pre_session' &&
-        !CONSULT_BOOKING_STATUSES.includes(c.status)
+        !c.bookingStage
       ) return false;
       if (
         categoryFilter === 'completed' &&
@@ -393,8 +396,8 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
       return;
     }
 
-    if (CONSULT_BOOKING_STATUSES.includes(consult.status)) {
-      toast('لا يمكن إسناد الاستشارة وهي في مرحلة ما قبل الجلسة حتى يكتمل التسعير والسداد وحجز الموعد');
+    if (consult.assignBlocker) {
+      toast(consult.assignBlocker);
       return;
     }
 
@@ -1736,22 +1739,25 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                       )}
                     </div>
                     <div style={{ fontSize: 13, color: '#334155' }}>
-                      الموعد المحدد: <b>{drawerConsult.when || 'لم يحدد موعد بعد'}</b>
+                      الموعد المحدد: <b>{drawerConsult.when || (drawerConsult.proposedWhen ? `مقترح: ${drawerConsult.proposedWhen} (بانتظار الاعتماد)` : 'لم يحدد موعد بعد')}</b>
                     </div>
                   </div>
 
                   <div className="card" style={{ margin: 0, padding: 16 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       <b>إسناد المستشار القانوني المختص:</b>
-                      <Badge text={drawerConsult.lawyer ? `المسند: ${drawerConsult.lawyer}` : 'غير مسند'} tone="b-blue" />
+                      <Badge
+                        text={drawerConsult.lawyer ? `${drawerConsult.lawyerTentative ? 'المرشّح' : 'المسند'}: ${drawerConsult.lawyer}` : 'غير مسند'}
+                        tone={drawerConsult.lawyerTentative ? 'b-amber' : 'b-blue'}
+                      />
                     </div>
                     <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
                       اختر المستشار القانوني المطابق للتخصص ثم اضغط تأكيد لتحديث الإسناد ومزامنة التذكرة المرتبطة.
                     </p>
 
-                    {CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && (
+                    {drawerConsult.assignBlocker && (
                       <div style={{ padding: '10px 14px', background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: 8, color: '#b45309', fontSize: 12.5, marginBottom: 12 }}>
-                        ⚠️ الاستشارة ما زالت في دورة الحجز والفوترة (<b>{drawerConsult.status}</b>) — لا يمكن إسناد المحامي إلا بعد اكتمال التسعير والسداد وتحديد الموعد.
+                        {drawerConsult.assignBlocker}
                       </div>
                     )}
 
@@ -1767,7 +1773,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                           fontSize: 13.5,
                           background: '#fff',
                         }}
-                        disabled={isClosed || CONSULT_BOOKING_STATUSES.includes(drawerConsult.status)}
+                        disabled={isClosed || Boolean(drawerConsult.assignBlocker)}
                       >
                         <option value="">-- اختر مستشاراً قانونياً --</option>
                         {lawyersList.map((l) => (
@@ -1785,7 +1791,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                           !selectedLawyerId ||
                           // `refer` يمنع النهايات المُقفَلة على الخادم — فلا يُعرض الزرّ فاعلاً
                           isClosed ||
-                          CONSULT_BOOKING_STATUSES.includes(drawerConsult.status)
+                          Boolean(drawerConsult.assignBlocker)
                         }
                         onClick={() => handleRefer(drawerConsult)}
                         style={{ padding: '9px 16px', fontSize: 13, justifyContent: 'center' }}
