@@ -822,7 +822,10 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 .mroom-zoom{position:fixed;z-index:81;overflow:hidden;direction:ltr;background:#0A2A55}
 .mroom-zoom[data-view="hidden"]{display:none}
 .mroom-zoom[data-view="full"]{top:var(--mroom-head);inset-inline:0;bottom:0}
-.mroom-zoom[data-view="dock"]{z-index:86;bottom:calc(16px + var(--mroom-dock-bar));inset-inline-end:16px;width:var(--mroom-dock-w);height:var(--mroom-dock-h);border-radius:14px 14px 0 0;box-shadow:0 22px 55px -20px rgba(10,42,85,.7)}
+/* الشريط المصغّر: \`left\` لا \`inset-inline-end\` — الحاوية \`direction:ltr\` (يشترطه Zoom) فكان «نهاية السطر» فيها يمينَ
+   الصفحة، بينما شريط التحكّم (\`.mroom-dock\`) في صفحةٍ RTL نهايتُه يسارها: الفيديو في زاوية وأزراره في الأخرى
+   (ملاحظة المالك 2026-09-27، الصورة ١) */
+.mroom-zoom[data-view="dock"]{z-index:86;bottom:calc(16px + var(--mroom-dock-bar));left:16px;right:auto;width:var(--mroom-dock-w);height:var(--mroom-dock-h);border-radius:14px 14px 0 0;box-shadow:0 22px 55px -20px rgba(10,42,85,.7)}
 .mroom-zoom-root{width:100%;height:100%;position:relative}
 /* Component View يضع الفيديو في حاويةٍ قابلة للسحب مُزاحةٍ بـtransform — داخل غرفتنا تُثبَّت في أصل الحاوية
    فلا تُقصّ عند التبديل بين الغرفة والشريط المصغّر (ملاحظة المالك 2026-09-27) */
