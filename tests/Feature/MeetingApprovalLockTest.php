@@ -35,7 +35,7 @@ class MeetingApprovalLockTest extends TestCase
     private function meeting(array $extra = []): Meeting
     {
         return Meeting::create(array_merge([
-            'ref' => 'M-LOCK-'.random_int(100, 999),
+            'ref' => 'M-LOCK-'.uniqid(),
             'title' => 'اجتماع متابعة العقد',
             'when_label' => 'أمس · 11:00',
             'status' => 'منتهٍ',

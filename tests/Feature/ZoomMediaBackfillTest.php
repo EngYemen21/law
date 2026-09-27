@@ -55,7 +55,7 @@ class ZoomMediaBackfillTest extends TestCase
     private function endedMeeting(array $extra = []): Meeting
     {
         return Meeting::create(array_merge([
-            'ref' => 'M-'.random_int(1000, 9999), 'title' => 'اجتماع منعقد', 'when_label' => 'أمس',
+            'ref' => 'M-'.uniqid(), 'title' => 'اجتماع منعقد', 'when_label' => 'أمس',
             'status' => 'منتهٍ', 'meet_id' => '82711433579',
         ], $extra));
     }

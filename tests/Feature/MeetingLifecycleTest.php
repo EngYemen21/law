@@ -40,7 +40,7 @@ class MeetingLifecycleTest extends TestCase
     private function meeting(?User $lawyer = null, array $extra = []): Meeting
     {
         return Meeting::create(array_merge([
-            'ref' => 'M-'.random_int(1000, 9999),
+            'ref' => 'M-'.uniqid(),
             'title' => 'اجتماع تجريبي', 'type' => 'اجتماع مع عميل', 'when_label' => 'اليوم · 11:00', 'status' => 'قادم',
             'meet_id' => '81823767754', 'meet_password' => 'mp123',
             'assigned_lawyer_id' => $lawyer?->id, ], $extra));

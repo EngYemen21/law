@@ -34,7 +34,7 @@ class RegressionGuardTest extends TestCase
 
         return Execution::create([
             'user_id' => User::factory()->create(['role' => Role::Client])->id,
-            'number' => 'EXE-R-'.random_int(1000, 9999), 'subject' => 'تنفيذ حكم',
+            'number' => 'EXE-R-'.uniqid(), 'subject' => 'تنفيذ حكم',
             // الحالة من المرحلة كما يكتبها النظام — «جديد» لم يكتبها أيّ كودٍ قطّ
             'status' => ExecFlow::label($stage), 'tone' => 'b-blue', 'last_action' => 'فتح',
             'stage' => $stage, 'fee' => $fee,

@@ -66,7 +66,7 @@ class StageIntegrityTest extends TestCase
     {
         return Execution::create(array_merge([
             'user_id' => User::factory()->create(['role' => Role::Client])->id,
-            'number' => 'EXE-S-'.random_int(1000, 9999), 'subject' => 'تنفيذ حكم',
+            'number' => 'EXE-S-'.uniqid(), 'subject' => 'تنفيذ حكم',
             // الحالة من المرحلة كما يكتبها النظام (`ExecFlow::label`) — «جديد» لم يكتبها أيّ كودٍ قطّ،
             // فكانت انتقالات المحرّك ترفض ملفّاً لا يوجد إلا في هذا المُثبِّت
             'status' => ExecFlow::label((int) ($extra['stage'] ?? 0)), 'tone' => 'b-blue', 'last_action' => 'فتح',

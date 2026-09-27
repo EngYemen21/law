@@ -95,7 +95,7 @@ class ZoomRecordingTest extends TestCase
         Storage::fake('local');
         Http::fake(['z/m.vtt' => Http::response("WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nمحضر")]);
         $meeting = Meeting::create([
-            'ref' => 'M-'.random_int(1000, 9999), 'title' => 'اجتماع', 'type' => 'اجتماع', 'when_label' => 'اليوم',
+            'ref' => 'M-'.uniqid(), 'title' => 'اجتماع', 'type' => 'اجتماع', 'when_label' => 'اليوم',
             'status' => 'منتهٍ', 'meet_id' => '77700033344',
         ]);
 

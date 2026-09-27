@@ -35,7 +35,7 @@ class ConsultJourneyHonestyTest extends TestCase
 
         return Consult::create(array_merge([
             'user_id' => $client->id,
-            'ref' => 'CN-JRN-'.random_int(100, 999),
+            'ref' => 'CN-JRN-'.uniqid(),
             'subject' => 'نزاع تجاري',
             'type' => 'استشارة',
             'channel' => 'مرئية',

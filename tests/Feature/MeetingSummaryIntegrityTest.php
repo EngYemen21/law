@@ -28,7 +28,7 @@ class MeetingSummaryIntegrityTest extends TestCase
     private function endedMeeting(array $extra = []): Meeting
     {
         return Meeting::create(array_merge([
-            'ref' => 'M-SUM-'.random_int(100, 999), 'title' => 'اجتماع متابعة',
+            'ref' => 'M-SUM-'.uniqid(), 'title' => 'اجتماع متابعة',
             'when_label' => 'أمس · 11:00', 'status' => 'منتهٍ', 'meet_id' => '9'.random_int(10 ** 9, 10 ** 10 - 1),
         ], $extra));
     }
