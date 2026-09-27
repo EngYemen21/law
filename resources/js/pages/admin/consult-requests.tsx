@@ -159,6 +159,11 @@ return null;
     return liveItems.find((c) => c.ref === drawerRef) || null;
   }, [liveItems, drawerRef]);
 
+  // **التبويب الفعّال مشتقٌّ من علم الخادم** — «حاسبة التسعير» لما ينتظر التسعير وحده (`needsPricing`):
+  // كان يُفتح لطلبٍ مسعَّر فيُرفض زرّه ٤٢٢، وتصحيح السعر له زرّ «إعادة التسعير» في الإجراءات.
+  const canPrice = Boolean(drawerConsult?.needsPricing);
+  const activeTab: DrawerTab = drawerTab === 'pricing' && !canPrice ? 'actions' : drawerTab;
+
   // قفل تمرير الصفحة عبر العدّاد المشترك مع Modal — «القيمة السابقة» كانت تجمّد الصفحة عند تراكب الطبقات
   useBodyScrollLock(!!drawerRef);
 
@@ -1332,17 +1337,19 @@ return (a.total || 0) - (b.total || 0);
                           gap: 6,
                         }}
                       >
-                        <button
-                          className="btn primary sm"
-                          type="button"
-                          style={{ flex: 1, justifyContent: 'center' }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemindSchedule(c);
-                          }}
-                        >
-                          <Icon name="bell" /> تذكير العميل بالحجز
-                        </button>
+                        {c.canRemindSchedule && (
+                          <button
+                            className="btn primary sm"
+                            type="button"
+                            style={{ flex: 1, justifyContent: 'center' }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemindSchedule(c);
+                            }}
+                          >
+                            <Icon name="bell" /> تذكير العميل بالحجز
+                          </button>
+                        )}
                         <button
                           className="btn soft sm"
                           type="button"
@@ -1497,7 +1504,7 @@ return (a.total || 0) - (b.total || 0);
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                          {c.status === 'بانتظار التسعير' && (
+                          {c.needsPricing && (
                             <button
                               className="btn primary sm"
                               type="button"
@@ -1511,7 +1518,7 @@ return (a.total || 0) - (b.total || 0);
                               <Icon name="card" /> تسعير
                             </button>
                           )}
-                          {c.status === 'بانتظار تحديد الموعد' && (
+                          {c.canRemindSchedule && (
                             <button
                               className="btn soft sm"
                               type="button"
@@ -1748,7 +1755,7 @@ return (a.total || 0) - (b.total || 0);
                   ['actions', 'الإجراءات والمتابعة', 'exec'],
                   ['audit', 'سجل التدقيق', 'clock'],
                 ] as const
-              ).map(([tabKey, label, iconName]) => (
+              ).filter(([tabKey]) => tabKey !== 'pricing' || canPrice).map(([tabKey, label, iconName]) => (
                 <button
                   key={tabKey}
                   type="button"
@@ -1758,9 +1765,9 @@ return (a.total || 0) - (b.total || 0);
                     padding: '12px 10px',
                     border: 'none',
                     background: 'none',
-                    borderBottom: drawerTab === tabKey ? '3px solid var(--primary)' : '3px solid transparent',
-                    color: drawerTab === tabKey ? 'var(--primary)' : 'var(--muted)',
-                    fontWeight: drawerTab === tabKey ? 700 : 500,
+                    borderBottom: activeTab === tabKey ? '3px solid var(--primary)' : '3px solid transparent',
+                    color: activeTab === tabKey ? 'var(--primary)' : 'var(--muted)',
+                    fontWeight: activeTab === tabKey ? 700 : 500,
                     fontSize: 12.5,
                     cursor: 'pointer',
                     display: 'flex',
@@ -1778,7 +1785,7 @@ return (a.total || 0) - (b.total || 0);
             {/* محتوى لسان التبويب */}
             <div className="c360-drawer-body" style={{ padding: 20, flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
               {/* Tab 1: حاسبة التسعير والفاتورة الذكية */}
-              {drawerTab === 'pricing' && (
+              {activeTab === 'pricing' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   {/* البطاقة الإرشادية */}
                   <div
@@ -1936,7 +1943,7 @@ return (a.total || 0) - (b.total || 0);
                       {isProcessing ? 'جاري إصدار الفاتورة...' : 'إصدار الفاتورة وتأكيد السعر وإشعار العميل'}
                     </button>
 
-                    {CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && (
+                    {drawerConsult.bookingStage != null && (
                       <button
                         className="btn soft sm"
                         style={{ width: '100%', justifyContent: 'center', color: '#C0392B', marginTop: 8 }}
@@ -1952,7 +1959,7 @@ return (a.total || 0) - (b.total || 0);
               )}
 
               {/* Tab 2: تفاصيل وبيانات الطلب */}
-              {drawerTab === 'details' && (
+              {activeTab === 'details' && (
                 <>
                   <div className="card" style={{ margin: 0, padding: 14 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 6 }}>
@@ -2004,10 +2011,10 @@ return (a.total || 0) - (b.total || 0);
               )}
 
               {/* Tab 3: الإجراءات والمتابعة */}
-              {drawerTab === 'actions' && (
+              {activeTab === 'actions' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {/* تذكير السداد أو حجز الموعد */}
-                  {drawerConsult.status === 'بانتظار تحديد الموعد' && (
+                  {drawerConsult.canRemindSchedule && (
                     <div className="card" style={{ margin: 0, padding: 14 }}>
                       <b>الاستشارة مدفوعة ولم يُحجز موعدها:</b>
                       <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
@@ -2072,7 +2079,7 @@ return (a.total || 0) - (b.total || 0);
                   )}
 
                   {/* إلغاء الطلب */}
-                  {CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && (
+                  {drawerConsult.bookingStage != null && (
                     <div className="card" style={{ margin: 0, padding: 14, borderRight: '4px solid #C0392B' }}>
                       <b style={{ color: '#C0392B' }}>إلغاء طلب الاستشارة:</b>
                       <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
@@ -2103,7 +2110,7 @@ return (a.total || 0) - (b.total || 0);
               )}
 
               {/* Tab 4: سجل التدقيق الزمني */}
-              {drawerTab === 'audit' && (
+              {activeTab === 'audit' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {drawerConsult.audit && drawerConsult.audit.length > 0 ? (
                     drawerConsult.audit.map((a, i) => (

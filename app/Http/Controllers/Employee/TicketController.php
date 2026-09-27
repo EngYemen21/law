@@ -117,6 +117,8 @@ class TicketController extends Controller
                 'priority' => $ticket->priority ?: 'متوسطة',
                 // الموظف لا يحوّل قبل اعتماد المحامي — الزرّ يُخفى بدل أن يُعرَض ويُرفض بـ422
                 'summaryApproved' => (bool) $ticket->summary?->isApproved(),
+                // زرّ «إعادة التحليل الذكي» بحارس `rerunSummary` نفسه
+                'canRerunSummary' => $ticket->summaryRerunBlocker() === null,
                 // اقتراح النظام لمودال التحويل — لغير المسنَدة وحدها، والإسناد يؤكّده الموظّف
                 'lawyerSuggestion' => $ticket->assigned_lawyer_id ? null : TicketAssignment::suggest($ticket)->toArray(),
             ]),
@@ -359,10 +361,8 @@ class TicketController extends Controller
     public function rerunSummary(Request $request, Ticket $ticket): RedirectResponse
     {
         abort_unless($ticket->summary, 404);
-        if ($ticket->summary?->isApproved()) {
-            throw ValidationException::withMessages([
-                'summary' => 'لا يمكن إعادة تشغيل التحليل لملخّص تم اعتماده رسمياً.',
-            ]);
+        if (($why = $ticket->summaryRerunBlocker()) !== null) {
+            throw ValidationException::withMessages(['summary' => $why]);
         }
 
         GenerateTicketSummaryJob::dispatch($ticket, force: true);

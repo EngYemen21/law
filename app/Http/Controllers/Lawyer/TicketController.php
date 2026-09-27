@@ -359,6 +359,8 @@ class TicketController extends Controller
             'correction' => $request->user()->isAdmin() ? CorrectTicketStatus::form($ticket) : null,
             // الإدارة تفتح نفس الصفحة من مسارها — الروابط تُبنى من base لا مثبّتة على /lawyer
             'base' => $request->user()->isAdmin() ? '/admin' : '/lawyer',
+            // زرّ «إعادة التحليل» بحارس `rerunSummary` نفسه — لا بشرط التعديل (`canEdit`) المختلف
+            'canRerunSummary' => $ticket->summaryRerunBlocker() === null,
         ]);
     }
 
@@ -503,13 +505,9 @@ class TicketController extends Controller
     {
         $this->guardAssigned($ticket);
         abort_unless($ticket->summary, 404);
-        if ($ticket->summary?->isApproved()) {
-            throw ValidationException::withMessages([
-                'summary' => 'لا يمكن إعادة تشغيل التحليل لملخّص تم اعتماده رسمياً.',
-            ]);
+        if (($why = $ticket->summaryRerunBlocker()) !== null) {
+            throw ValidationException::withMessages(['summary' => $why]);
         }
-
-        abort_if($ticket->summary->isLawyerApproved(), 422, 'اعتُمد هذا الملخّص من المستشار — لا يُعاد توليده.');
 
         GenerateTicketSummaryJob::dispatch($ticket, force: true);
 

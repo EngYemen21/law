@@ -109,8 +109,9 @@ class AdminConsultDrawerActionsTest extends TestCase
             $ui,
             'حجبُ الإلغاء عن المدفوعة يخالف الخادم الذي يقبله'
         );
+        // والشرط اليوم مفتاح الخادم `bookingStage` (غير فارغٍ في مراحل الحجز الأربع = `CancelRequest::from()`)
         $this->assertStringContainsString(
-            '{CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && (',
+            '{drawerConsult.bookingStage != null && (',
             $ui
         );
     }

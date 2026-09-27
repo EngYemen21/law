@@ -1064,14 +1064,13 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
 
                         <RescheduleRequestNotice consult={drawerConsult} base="/lawyer" onReschedule={() => handleReschedule(drawerConsult)} />
 
-                        {/* الخادم يشترط جلسةً منتظِرةً فات موعدها (`isMissed`) — وكان
-                            الزرّ ظاهراً بلا شرط، فيُضغط على جلسةٍ لم يحن وقتها ويُردّ
-                            برسالةٍ لا تُعرض. */}
+                        {/* بحارس الخادم (`canMarkNoShow` ← `MarkNoShow`): جلسةٌ منتظِرة فات موعدها.
+                            `missed` وحده يصدق أيضاً على ما وُسم «لم تُعقد» فيُرفض الضغط. */}
                         <button
                           type="button"
                           className="btn soft sm"
-                          disabled={isProcessing || !drawerConsult.missed}
-                          title={!drawerConsult.missed ? 'يُتاح بعد فوات الموعد بلا حضور' : undefined}
+                          disabled={isProcessing || !drawerConsult.canMarkNoShow}
+                          title={!drawerConsult.canMarkNoShow ? 'يُتاح بعد فوات الموعد بلا حضور' : undefined}
                           onClick={() => handleNoShow(drawerConsult)}
                         >
                           تسجيل عدم حضور العميل

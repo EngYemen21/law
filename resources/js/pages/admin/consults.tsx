@@ -1423,7 +1423,7 @@ return;
                               <Icon name="bell" /> تذكير
                             </button>
                           )}
-                          {CONSULT_BOOKING_STATUSES.includes(c.status) && (
+                          {c.bookingStage != null && (
                             <button
                               className="btn soft sm"
                               type="button"
@@ -2157,7 +2157,7 @@ return;
                     * فالمدير يرى طلباً معطَّلاً ولا سبيل له إلى إنهائه إلّا الانتقال
                     * إلى شاشة الطلبات. والمسار قائمٌ ومحروسٌ على الخادم.
                     */}
-                  {CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && (
+                  {drawerConsult.bookingStage != null && (
                     <div className="card" style={{ margin: 0, padding: 14, borderRight: '4px solid #C0392B' }}>
                       <b style={{ color: '#C0392B' }}>إلغاء طلب الاستشارة:</b>
                       <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
@@ -2236,9 +2236,11 @@ return;
 
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
                         {/* الملخّص */}
+                        {/* الزرّ بشروط الخادم (`canApproveSummary` ← `summaryApprovalBlocker`) —
+                            كان يظهر لاستشارةٍ ملغاةٍ لها ملخّص فيُرفض لأنّ الجلسة لم تنعقد */}
                         {drawerConsult.summaryApproved ? (
                           <Badge text="✓ الملخّص معتمد ووصل العميل" tone="b-green" />
-                        ) : drawerConsult.summary ? (
+                        ) : drawerConsult.canApproveSummary ? (
                           <button
                             className="btn primary sm"
                             style={{ width: '100%', justifyContent: 'center' }}
@@ -2250,7 +2252,9 @@ return;
                           </button>
                         ) : (
                           <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                            لا ملخّص بعد — يُدوّنه المستشار في صفحة الاستشارة، ثمّ يُعتمد من هنا.
+                            {drawerConsult.summary
+                              ? 'لم تنعقد هذه الجلسة — لا يُعتمد لها ملخّص جلسة.'
+                              : 'لا ملخّص بعد — يُدوّنه المستشار في صفحة الاستشارة، ثمّ يُعتمد من هنا.'}
                           </span>
                         )}
 

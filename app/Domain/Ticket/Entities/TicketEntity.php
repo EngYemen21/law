@@ -320,7 +320,6 @@ final class TicketEntity
                 TicketStatus::Referred,
                 TicketStatus::AwaitingDocs,
             ], true),
-            'can_rerun_ai' => ! $this->isFrozen && $this->status === TicketStatus::Analyzing,
         ];
     }
 

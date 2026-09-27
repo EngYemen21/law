@@ -83,6 +83,10 @@ export interface ConsultCard {
   rescheduleCount?: number;
   /** يسمح حارس `RescheduleConsult` بإعادة جدولتها الآن — الزرّ يتبعه لا يخمّن. */
   canReschedule?: boolean;
+  /** يسمح حارس `MarkNoShow` بوسمها «لم يحضر» الآن. */
+  canMarkNoShow?: boolean;
+  /** شروط `approveSummary` (`Consult::summaryApprovalBlocker`) — يُظهر زرّ الاعتماد. */
+  canApproveSummary?: boolean;
   /** طلب العميل تغيير الموعد، معلّقٌ حتى يُعاد جدولتها أو يُرفض. */
   clientRescheduleRequest?: { at: string; note: string | null } | null;
   startable?: boolean; // «بدء الجلسة» ضمن نافذة الموعد فقط (يشتقه الخادم — بطاقة المكتب)
@@ -926,28 +930,36 @@ void navigator.clipboard.writeText(c.slink);
                     /* فات موعدها بلا جلسة — كان زر «بدء» يبقى ظاهراً للأبد بلا أي وسم */
                     <>
                       <Badge text="فائتة — لم تنعقد" tone="b-red" />
-                      <button className="btn soft sm" onClick={() => markNoShow(c)} type="button">
-                        <Icon name="clock" /> لم يحضر
-                      </button>
-                      <button className="btn sm" onClick={() => reschedule(c)} type="button">
-                        <Icon name="cal" /> إعادة جدولة
-                      </button>
+                      {c.canMarkNoShow && (
+                        <button className="btn soft sm" onClick={() => markNoShow(c)} type="button">
+                          <Icon name="clock" /> لم يحضر
+                        </button>
+                      )}
+                      {c.canReschedule && (
+                        <button className="btn sm" onClick={() => reschedule(c)} type="button">
+                          <Icon name="cal" /> إعادة جدولة
+                        </button>
+                      )}
                     </>
                   ) : c.session === 'لم تُعقد' ? (
                     <>
                       <Badge text="لم يحضر" tone="b-red" />
-                      <button className="btn soft sm" onClick={() => reschedule(c)} type="button">
-                        <Icon name="cal" /> إعادة جدولة
-                      </button>
+                      {c.canReschedule && (
+                        <button className="btn soft sm" onClick={() => reschedule(c)} type="button">
+                          <Icon name="cal" /> إعادة جدولة
+                        </button>
+                      )}
                     </>
                   ) : c.session === 'بانتظار الجلسة' ? (
                     c.startable === false ? (
                       /* موعد مستقبلي خارج نافذة البدء — الخادم يسمح بإعادة جدولته والزرّ كان محصوراً بالفائتة */
                       <>
                         <Badge text="مجدولة — البدء قبل الموعد بـ15د" tone="b-grey" />
-                        <button className="btn soft sm" onClick={() => reschedule(c)} type="button">
-                          <Icon name="cal" /> إعادة جدولة
-                        </button>
+                        {c.canReschedule && (
+                          <button className="btn soft sm" onClick={() => reschedule(c)} type="button">
+                            <Icon name="cal" /> إعادة جدولة
+                          </button>
+                        )}
                       </>
                     ) : c.channel === 'مرئية' ? (
                       <>

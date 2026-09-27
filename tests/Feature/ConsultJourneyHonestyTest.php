@@ -169,7 +169,8 @@ class ConsultJourneyHonestyTest extends TestCase
 
     public function test_the_server_does_not_ask_a_consult_for_meeting_minutes(): void
     {
-        $src = file_get_contents(app_path('Http/Controllers/Staff/ConsultController.php'));
+        // الرسالة في شروط الاعتماد الموحّدة (`Consult::summaryApprovalBlocker`) التي يقرؤها المسار
+        $src = file_get_contents(app_path('Models/Consult.php'));
 
         // الاستشارة لها ملخّصٌ وتدوينُ جلسة — لا محضر
         $this->assertStringNotContainsString('دوّن محضر الجلسة أو اكتب التقرير', $src);

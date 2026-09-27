@@ -30,7 +30,7 @@ const REFERRABLE = ['جديدة', 'قيد التحليل', 'محالة للقس�
 
 interface EmpTicket {
   no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string;
-  clientId?: number; lawyerId?: number; caseRef?: string | null; summaryApproved?: boolean;
+  clientId?: number; lawyerId?: number; caseRef?: string | null; summaryApproved?: boolean; canRerunSummary?: boolean;
   subject?: string | null; priority?: string | null; mobile?: string | null; openedAt?: string | null;
   isFrozen?: boolean; isTerminal?: boolean;
   hasCase?: boolean;
@@ -514,7 +514,10 @@ const EmployeeTicketChat: React.FC<{
                 الحالة الحاليّة: <b>{status.status}</b> — تتقدّم التذكرة بالإجراءات، وتصحيحها الاستثنائيّ للإدارة.
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <button className="btn soft sm" type="button" onClick={rerunAi}><Icon name="sparkles" /> إعادة التحليل الذكي للملخص</button>
+                {/* بحارس الخادم (`Ticket::summaryRerunBlocker`) — كان ظاهراً دائماً ويُرفض بعد الاعتماد */}
+                {ticket.canRerunSummary && (
+                  <button className="btn soft sm" type="button" onClick={rerunAi}><Icon name="sparkles" /> إعادة التحليل الذكي للملخص</button>
+                )}
               </div>
             </div>
           </div>

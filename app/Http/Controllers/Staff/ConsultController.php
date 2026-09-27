@@ -385,10 +385,7 @@ class ConsultController extends Controller
     public function approveSummary(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
-        abort_if($consult->summaryApproved(), 422, 'اعتُمد هذا الملخّص ووصل العميل.');
-        abort_if(blank($consult->summary), 422, 'لا ملخّص ليُعتمد — دوّن تدوين الجلسة أو اكتب التقرير أوّلاً.');
-        // **لا «ملخّص جلسة» لجلسةٍ لم تنعقد** — كان يُعتمد لاستشارةٍ «جديدة» ويصل العميل (ع٢٢)
-        abort_unless($consult->session === 'منتهية', 422, 'لم تنعقد هذه الجلسة — لا يُعتمد لها ملخّص جلسة.');
+        abort_if(($why = $consult->summaryApprovalBlocker()) !== null, 422, $why);
 
         $user = $request->user();
         $edited = $consult->summary_edited_at !== null;

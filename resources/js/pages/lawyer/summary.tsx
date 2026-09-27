@@ -27,6 +27,8 @@ interface Props {
   ticket: EmpTicket;
   summary: SummaryData;
   base?: string;
+  /** حارس `rerunSummary` نفسه (`Ticket::summaryRerunBlocker`) — غير شرط التعديل. */
+  canRerunSummary?: boolean;
 }
 
 interface FieldMeta {
@@ -73,7 +75,7 @@ const LEGAL_SECTIONS: FieldMeta[] = [
   },
 ];
 
-const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) => {
+const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', canRerunSummary = false }) => {
   const toast = useToast();
   const approved = Boolean(summary.approved);
   const isAdmin = base === '/admin';
@@ -578,7 +580,7 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
           </div>
         </div>
 
-        {canEdit && (
+        {canRerunSummary && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button
               type="button"
@@ -1004,7 +1006,7 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
                 <Icon name="upload" /> {approved ? 'طباعة تقرير PDF معتمد' : 'تصدير مسودة تقرير PDF'}
               </button>
 
-              {canEdit && (
+              {canRerunSummary && (
                 <button
                   type="button"
                   className="btn soft sm"

@@ -57,6 +57,9 @@ export interface AppointmentItem {
   consultRef?: string;
   consultId?: number;
   consultRescheduleCount?: number;
+  /** حارسا الخادم (`RescheduleConsult` و`MarkNoShow`) — يُظهران زرّيهما */
+  consultCanReschedule?: boolean;
+  consultCanMarkNoShow?: boolean;
   pay?: string;
   joinLink?: string;
   rawStartsAt?: string | null;
@@ -1582,8 +1585,10 @@ return lawyers;
             )}
 
             {/* أزرار إدارة الموعد — إعادة الجدولة ووسم لم يحضر لمن يملك صلاحية إدارة المواعيد */}
-            {canManage && selectedAppt.consultId && selectedAppt.status !== APPT_PENDING && (
+            {canManage && selectedAppt.consultId && selectedAppt.status !== APPT_PENDING
+              && (selectedAppt.consultCanReschedule || selectedAppt.consultCanMarkNoShow) && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                {selectedAppt.consultCanReschedule && (
                 <button
                   className="btn soft sm"
                   type="button"
@@ -1598,6 +1603,8 @@ return lawyers;
                 >
                   <Icon name="cal" /> إعادة جدولة الموعد
                 </button>
+                )}
+                {selectedAppt.consultCanMarkNoShow && (
                 <button
                   className="btn ghost sm"
                   type="button"
@@ -1612,6 +1619,7 @@ return lawyers;
                 >
                   <Icon name="clock" /> لم يحضر
                 </button>
+                )}
               </div>
             )}
 

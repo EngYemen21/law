@@ -7,6 +7,7 @@ use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\SessionState;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Domain\Journey\Transitions\Consult\ApproveConsultAnalysis;
+use App\Domain\Journey\Transitions\Consult\MarkNoShow;
 use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
 use App\Enums\Role;
 use App\Models\Concerns\LinksLegalDepartment;
@@ -437,6 +438,30 @@ class Consult extends Model
      * تستثني عمداً: host_link (رابط المضيف/ZAK)، تحليل الذكاء الاصطناعي، سجل التدقيق،
      * الموظف المسند، والمستندات الناقصة — فهذه بيانات داخلية لا تخصّ العميل.
      */
+    /**
+     * **سبب منع اعتماد ملخّص الجلسة، أو `null` إن جاز** — شروط `approveSummary` الثلاثة في
+     * موضعٍ واحد، يقرؤها المسار وعلمُ الزرّ (`canApproveSummary`). كان الزرّ يظهر لاستشارةٍ
+     * ملغاةٍ لها ملخّص فيرفضه الخادم لأنّ الجلسة لم تنعقد.
+     */
+    public function summaryApprovalBlocker(): ?string
+    {
+        return match (true) {
+            $this->summaryApproved() => 'اعتُمد هذا الملخّص ووصل العميل.',
+            blank($this->summary) => 'لا ملخّص ليُعتمد — دوّن تدوين الجلسة أو اكتب التقرير أوّلاً.',
+            // **لا «ملخّص جلسة» لجلسةٍ لم تنعقد** — كان يُعتمد لاستشارةٍ «جديدة» ويصل العميل (ع٢٢)
+            $this->session !== SessionState::Ended->value => 'لم تنعقد هذه الجلسة — لا يُعتمد لها ملخّص جلسة.',
+            default => null,
+        };
+    }
+
+    /** «لم يحضر» الآن؟ — مصدر `MarkNoShow` وحارسه، كما يفحصهما المسار. */
+    public function canMarkNoShow(): bool
+    {
+        $transition = new MarkNoShow;
+
+        return in_array($this->session, $transition->from(), true) && $transition->guard($this, []) === null;
+    }
+
     /** هل اعتمد إنسانٌ مفوَّض ملخّص هذه الاستشارة؟ */
     public function summaryApproved(): bool
     {
@@ -588,6 +613,8 @@ class Consult extends Model
             // درج المحامي واستقبال الإدارة للفائتة وحدها، والخادم يقبل كلّ موعدٍ لم ينعقد: فلم يجد
             // المحامي المعتذر عن موعد الأسبوع القادم زرّاً. والسقف يُفحص عند الإرسال بفاعله.
             'canReschedule' => (new RescheduleConsult)->guard($this, []) === null,
+            'canMarkNoShow' => $this->canMarkNoShow(),
+            'canApproveSummary' => $this->summaryApprovalBlocker() === null,
             // **أعلامُ الإجراءات من الخادم** — كانت شاشة الإدارة تقارن نصّ الحالة لتقرّر أيّ زرٍّ يظهر
             // (التسعير · التذكير · اعتماد التحليل)؛ والشرط الآن من الكتالوج والحارس اللذين يحكمان الطلب
             'needsPricing' => $this->status === ConsultStatus::AwaitingPricing->value,

@@ -19,7 +19,6 @@ export interface TicketActions {
   can_convert_exec?: boolean;
   can_close?: boolean;
   can_request_docs?: boolean;
-  can_rerun_ai?: boolean;
 }
 
 interface TicketCard {

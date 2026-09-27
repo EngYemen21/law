@@ -960,22 +960,26 @@ return false;
                     {/* حالة 3: فائتة */}
                     {isMissed && (
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button
-                          className="btn soft sm"
-                          style={{ flex: 1, justifyContent: 'center', color: '#dc2626' }}
-                          type="button"
-                          onClick={(e) => handleNoShow(c, e)}
-                        >
-                          وسم لم يحضر
-                        </button>
-                        <button
-                          className="btn primary sm"
-                          style={{ flex: 1, justifyContent: 'center' }}
-                          type="button"
-                          onClick={(e) => handleReschedule(c, e)}
-                        >
-                          إعادة الجدولة
-                        </button>
+                        {c.canMarkNoShow && (
+                          <button
+                            className="btn soft sm"
+                            style={{ flex: 1, justifyContent: 'center', color: '#dc2626' }}
+                            type="button"
+                            onClick={(e) => handleNoShow(c, e)}
+                          >
+                            وسم لم يحضر
+                          </button>
+                        )}
+                        {c.canReschedule && (
+                          <button
+                            className="btn primary sm"
+                            style={{ flex: 1, justifyContent: 'center' }}
+                            type="button"
+                            onClick={(e) => handleReschedule(c, e)}
+                          >
+                            إعادة الجدولة
+                          </button>
+                        )}
                       </div>
                     )}
 
@@ -1097,12 +1101,16 @@ return false;
                             </>
                           ) : c.missed ? (
                             <>
-                              <button className="btn soft sm" type="button" onClick={(e) => handleNoShow(c, e)}>
-                                لم يحضر
-                              </button>
-                              <button className="btn primary sm" type="button" onClick={(e) => handleReschedule(c, e)}>
-                                جدولة
-                              </button>
+                              {c.canMarkNoShow && (
+                                <button className="btn soft sm" type="button" onClick={(e) => handleNoShow(c, e)}>
+                                  لم يحضر
+                                </button>
+                              )}
+                              {c.canReschedule && (
+                                <button className="btn primary sm" type="button" onClick={(e) => handleReschedule(c, e)}>
+                                  جدولة
+                                </button>
+                              )}
                             </>
                           ) : c.session === 'منتهية' ? (
                             <button className="btn soft sm" type="button" onClick={() => openDrawer(c.ref, 'summary')}>
@@ -1394,22 +1402,26 @@ return false;
                             </span>
                           </div>
 
-                          <button
-                            className="btn soft"
-                            style={{ width: '100%', justifyContent: 'center', color: '#dc2626' }}
-                            type="button"
-                            onClick={(e) => handleNoShow(drawerItem, e)}
-                          >
-                            وسم الاستشارة «لم يحضر العميل»
-                          </button>
-                          <button
-                            className="btn primary"
-                            style={{ width: '100%', justifyContent: 'center' }}
-                            type="button"
-                            onClick={(e) => handleReschedule(drawerItem, e)}
-                          >
-                            إعادة الجدولة
-                          </button>
+                          {drawerItem.canMarkNoShow && (
+                            <button
+                              className="btn soft"
+                              style={{ width: '100%', justifyContent: 'center', color: '#dc2626' }}
+                              type="button"
+                              onClick={(e) => handleNoShow(drawerItem, e)}
+                            >
+                              وسم الاستشارة «لم يحضر العميل»
+                            </button>
+                          )}
+                          {drawerItem.canReschedule && (
+                            <button
+                              className="btn primary"
+                              style={{ width: '100%', justifyContent: 'center' }}
+                              type="button"
+                              onClick={(e) => handleReschedule(drawerItem, e)}
+                            >
+                              إعادة الجدولة
+                            </button>
+                          )}
                         </>
                       ) : drawerItem.session === 'منتهية' ? (
                         <div style={{ textAlign: 'center', padding: 16, background: 'rgba(0,0,0,0.02)', borderRadius: 8 }}>
