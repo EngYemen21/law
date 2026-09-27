@@ -35,13 +35,17 @@ interface CaseInfo {
   /** حكم انتقال `ReopenCase` (حالته المصدر + صلاحيّة الفاعل) — لا مقارنة بنصّ الحالة هنا. */
   canReopen: boolean;
 }
+/** مرفقٌ من التذكرة قبل التحويل (`CaseTicketDocuments`). */
+interface TicketDoc {
+  id: number; name: string; by: string; status: string; docType: string; summary: string; date: string; downloadUrl: string | null;
+}
 interface CaseDoc {
   id: number; name: string; by: string; status: string; docType: string; summary: string; date: string; downloadUrl?: string | null;
   hearingId?: number | null; hearingTitle?: string | null;
 }
 interface LawyerOpt { id: number; name: string }
 interface Props {
-  case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[];
+  case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[]; ticketDocuments?: TicketDoc[];
   convertedExec?: boolean; lawyers: LawyerOpt[];
   /** أسباب الإغلاق من الكتالوج (`ClosureCaseReasonCode::options`) — كانت نسخةً مكتوبةً هنا */
   closureReasons: ClosureReasonOption[];
@@ -49,7 +53,7 @@ interface Props {
   conversation?: ConversationHistory | null;
 }
 
-const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, lawyers, conversation, closureReasons }) => {
+const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, ticketDocuments = [], convertedExec, lawyers, conversation, closureReasons }) => {
   const toast = useToast();
   const base = `/admin/cases/${encodeURIComponent(c.no)}`;
   const [msgs, setMsgs] = useState<Message[]>(messages);
@@ -229,6 +233,28 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
               )}
             </div>
           </div>
+
+          {/* مرفقات الطلب قبل التحويل — من التذكرة نفسها (`CaseTicketDocuments`)، بلا المرفوض «غير مرتبط» */}
+          {ticketDocuments.length > 0 && (
+            <div className="card">
+              <div className="card-h"><h3>مرفقات الطلب قبل التحويل</h3><span className="sub">{ticketDocuments.length} مستند</span></div>
+              <div className="card-b">
+                {ticketDocuments.map((d) => (
+                  <div key={`t-${d.id}`} className="item">
+                    <div className="iico"><Icon name="doc" /></div>
+                    <div className="imeta">
+                      <b>{d.name}</b>
+                      <span>{d.by} · {d.date}{d.docType ? ` · ${d.docType}` : ''}</span>
+                      {d.summary && <span style={{ display: 'block', marginTop: 3, fontSize: 11.5, color: 'var(--muted)' }}>{d.summary}</span>}
+                    </div>
+                    {d.downloadUrl && (
+                      <a className="btn soft sm" href={d.downloadUrl} title="تنزيل المستند"><Icon name="download" /> تنزيل</a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <HearingsCard hearings={hearings} documents={documents} />
 

@@ -21,6 +21,7 @@ use App\Services\MailService;
 use App\Support\Audit;
 use App\Support\CaseFee;
 use App\Support\CaseJourney;
+use App\Support\CaseTicketDocuments;
 use App\Support\ConversationFiles;
 use App\Support\ConversationHandler;
 use App\Support\ExecutionCreation;
@@ -238,7 +239,7 @@ class CaseController extends Controller
      */
     public function show(Request $request, LegalCase $case): Response
     {
-        $case->load(['user', 'hearings', 'documents', 'assignedLawyer']);
+        $case->load(['user', 'hearings', 'documents', 'assignedLawyer', 'ticket.documents']);
 
         return Inertia::render('admin/case', [
             // من يتولّى المحادثة الآن ومن تولّاها قبله — للطاقم وحده (`ConversationHandler`)
@@ -276,6 +277,8 @@ class CaseController extends Controller
             'messages' => ConversationFiles::linkLegacyChips($case->messages()->visibleTo(true)->get()->map->toMessage()->all(), 'case', $case->documents),
             'hearings' => $case->hearings->map->toData(),
             'documents' => $case->documents->map(fn ($d) => $d->toData($request->user())),
+            // مرفقات الطلب قبل التحويل — كانت القضيّة المحوَّلة تبدأ فارغةً هنا
+            'ticketDocuments' => CaseTicketDocuments::for($case, $request->user()),
             'convertedExec' => $case->execution()->exists(),
             'closureReasons' => ClosureCaseReasonCode::options(),
             // لإعادة الإسناد — المحامون النشطون وحدهم (قاعدة `ActiveLawyer` نفسها)

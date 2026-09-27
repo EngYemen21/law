@@ -51,12 +51,19 @@ interface ClientStats {
   memberSince: string;
 }
 
+/** مرفقٌ من التذكرة قبل التحويل (`CaseTicketDocuments`). */
+interface TicketDoc {
+  id: number; name: string; by: string; status: string; docType: string; summary: string; date: string; downloadUrl: string | null;
+}
+
 interface Props {
   case: CaseInfo;
   channel: string;
   messages: Message[];
   hearings: Hearing[];
   documents: CaseDoc[];
+  /** مرفقات الطلب قبل التحويل (`CaseTicketDocuments`). */
+  ticketDocuments?: TicketDoc[];
   clientStats?: ClientStats | null;
   filing?: Filing;
   /** «إجراءات المحكمة والجلسات» — تمنحها الإدارة من تبويب الموظّفين. */
@@ -73,6 +80,7 @@ const EmployeeCase: React.FC<Props> = ({
   messages,
   hearings,
   documents,
+  ticketDocuments = [],
   clientStats,
   filing = { canFile: false, canRegister: false, data: null },
   canCourt = false,
@@ -312,6 +320,31 @@ const EmployeeCase: React.FC<Props> = ({
                   <Icon name="doc" />
                   <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>لا توجد مستندات مسجلة</span>
                 </div>
+              )}
+
+              {/* مرفقات الطلب قبل التحويل — من التذكرة نفسها، بلا المرفوض «غير مرتبط» */}
+              {ticketDocuments.length > 0 && (
+                <>
+                  <div style={{ margin: '12px 0 4px', fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>
+                    مرفقات الطلب قبل التحويل ({ticketDocuments.length})
+                  </div>
+                  {ticketDocuments.map((d) => (
+                    <div key={`t-${d.id}`} className="item" style={{ padding: '8px 0', borderBottom: '1px solid var(--line-soft)' }}>
+                      <div className="iico"><Icon name="doc" /></div>
+                      <div className="imeta">
+                        <b style={{ fontSize: 13 }}>{d.name}</b>
+                        <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'block' }}>
+                          {d.by} · {d.date}{d.docType ? ` · ${d.docType}` : ''}
+                        </span>
+                      </div>
+                      {d.downloadUrl && (
+                        <a className="btn soft sm" href={d.downloadUrl} title="تنزيل المستند">
+                          <Icon name="download" /> تنزيل
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </>
               )}
 
               {/* تنبيه خصوصية وسرية المستندات */}

@@ -33,13 +33,17 @@ interface CaseDetail {
     judgedAt?: string | null;
   } | null;
 }
+/** مرفقٌ من التذكرة قبل التحويل (`CaseTicketDocuments`). */
+interface TicketDoc {
+  id: number; name: string; by: string; status: string; docType: string; summary: string; date: string; downloadUrl: string | null;
+}
 interface CaseDoc {
   id: number; name: string; by: string; status: string; docType: string; summary: string; date: string;
   hearingId?: number | null; hearingTitle?: string | null;
 }
-interface Props { case: CaseDetail; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[]; }
+interface Props { case: CaseDetail; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[]; ticketDocuments?: TicketDoc[]; }
 
-const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings, documents }) => {
+const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, ticketDocuments = [] }) => {
   const toast = useToast();
   // عدد دفعات الخطّة الجديدة من إعدادات الإدارة لا «3» منقوشة — الخادم يقسّم بـ`installments_count`
   const { installments_count: installments } = useSettings();
@@ -176,6 +180,27 @@ return;
                 <a className="btn soft sm" href={`/documents/download-file?type=case&id=${d.id}`}>
                   <Icon name="download" /> تنزيل
                 </a>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {/* مرفقات الطلب قبل التحويل — من التذكرة نفسها (`CaseTicketDocuments`)، بلا المرفوض «غير مرتبط» */}
+      {ticketDocuments.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-h"><h3>مرفقات الطلب قبل التحويل</h3><span className="sub">{ticketDocuments.length} مستند</span></div>
+          <div className="card-b">
+            {ticketDocuments.map((d) => (
+              <div key={`t-${d.id}`} className="item">
+                <div className="iico"><Icon name="doc" /></div>
+                <div className="imeta">
+                  <b>{d.name}</b>
+                  <span>{d.by} · {d.date}{d.docType ? ` · ${d.docType}` : ''}</span>
+                  {d.summary && <span style={{ display: 'block', marginTop: 3, fontSize: 11.5, color: 'var(--muted)' }}>{d.summary}</span>}
+                </div>
+                {d.downloadUrl && (
+                  <a className="btn soft sm" href={d.downloadUrl} title="تنزيل المستند"><Icon name="download" /> تنزيل</a>
+                )}
               </div>
             ))}
           </div>

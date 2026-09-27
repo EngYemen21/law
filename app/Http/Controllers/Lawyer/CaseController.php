@@ -13,6 +13,7 @@ use App\Services\Ai\AiReviewOutcome;
 use App\Support\Audit;
 use App\Support\CaseFiling;
 use App\Support\CasePleading;
+use App\Support\CaseTicketDocuments;
 use App\Support\ConversationFiles;
 use App\Support\ConversationHandler;
 use App\Support\ExecutionCreation;
@@ -56,17 +57,8 @@ class CaseController extends Controller
         $ticket = $case->ticket;
         $summary = $ticket?->summary;
 
-        // **مرفقات الطلب قبل التحويل** — كانت غائبةً عن شاشة القضيّة كلّها، والمحامي يحتاجها لإعداد اللائحة
-        $ticketDocs = ($ticket?->documents ?? collect())->sortByDesc('id')->values()->map(fn ($d) => [
-            'id' => $d->id,
-            'name' => $d->name,
-            'by' => $d->status === 'مرفق من المكتب' ? 'المكتب' : 'العميل',
-            'status' => (string) $d->status,
-            'docType' => (string) ($d->doc_type ?? ''),
-            'summary' => (string) ($d->summary ?? ''),
-            'date' => $d->created_at?->locale('ar')->translatedFormat('d F Y') ?: '',
-            'downloadUrl' => $d->path && ConversationFiles::canDownload($viewer, $d) ? ConversationFiles::url('ticket', $d->id) : null,
-        ]);
+        // **مرفقات الطلب قبل التحويل** — بلا ما رفضه الفحص «غير مرتبط» (`CaseTicketDocuments`)
+        $ticketDocs = CaseTicketDocuments::for($case, $viewer);
 
         // **جاهزية اللائحة** — ما يلزم قبل الاعتماد النهائيّ، من الحرّاس نفسها لا من تقديرٍ في الشاشة
         $pending = $ticketDocs->where('summary', '')->count()

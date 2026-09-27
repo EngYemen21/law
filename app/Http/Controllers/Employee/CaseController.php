@@ -10,6 +10,7 @@ use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Support\CaseFiling;
+use App\Support\CaseTicketDocuments;
 use App\Support\ConversationFiles;
 use App\Support\ConversationHandler;
 use App\Support\Notify;
@@ -105,7 +106,7 @@ class CaseController extends Controller
 
     public function show(LegalCase $case): Response
     {
-        $case->load(['user', 'hearings', 'documents', 'assignedLawyer']);
+        $case->load(['user', 'hearings', 'documents', 'assignedLawyer', 'ticket.documents']);
 
         $client = $case->user;
         $clientStats = $client ? [
@@ -161,6 +162,8 @@ class CaseController extends Controller
             'messages' => ConversationFiles::linkLegacyChips($case->messages()->visibleTo(true)->get()->map->toMessage()->all(), 'case', $case->documents),
             'hearings' => $case->hearings->map->toData(),
             'documents' => $documents,
+            // مرفقات الطلب قبل التحويل — بلا المرفوض «غير مرتبط» (`CaseTicketDocuments`)
+            'ticketDocuments' => CaseTicketDocuments::for($case, auth()->user()),
         ]);
     }
 

@@ -11,6 +11,7 @@ use App\Services\LegalAiService;
 use App\Services\MoyasarService;
 use App\Support\CaseFee;
 use App\Support\CaseJourney;
+use App\Support\CaseTicketDocuments;
 use App\Support\ConversationFiles;
 use App\Support\LawyerName;
 use App\Support\PaymentReconciler;
@@ -102,6 +103,8 @@ class CaseController extends Controller
             'messages' => ConversationFiles::linkLegacyChips($case->messages()->visibleTo(false)->get()->map(fn (CaseMessage $m) => $m->toMessage(forClient: true))->all(), 'case', $case->documents),
             'hearings' => $case->hearings->map->toData(),
             'documents' => $case->documents->map(fn ($d) => $d->toData(auth()->user())),
+            // مرفقاته هو قبل التحويل — كانت قضيّته المحوَّلة تبدأ بلا مستند
+            'ticketDocuments' => CaseTicketDocuments::for($case, auth()->user()),
         ]);
     }
 
