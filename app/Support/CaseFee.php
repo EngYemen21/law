@@ -2,7 +2,6 @@
 
 namespace App\Support;
 
-use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\TransitionDenied;
 use App\Domain\Journey\Transitions\Invoice\SettleInvoice;
 use App\Domain\Journey\Transitions\LegalCase\ActivateCase as ActivateCaseTransition;
@@ -53,8 +52,7 @@ class CaseFee
             // `latest('id')`: فقضيّةٌ عليها فاتورةٌ تكميليّة أُصدرت بعد فاتورة الأتعاب كانت
             // التكميليّةُ هي ما يُقسَّم، وتبقى الأتعاب كاملةً مستحقّةً خارج الخطّة.
             $master = Invoice::where('case_id', $locked->id)
-                ->where('paid', false)
-                ->whereNotIn('status', [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value])
+                ->outstanding()
                 ->orderBy('id')->first();
             if ($master === null) {
                 return null;
@@ -118,8 +116,7 @@ class CaseFee
     public static function nextInstallment(LegalCase $case): ?Invoice
     {
         return Invoice::where('case_id', $case->id)->whereNotNull('installment_no')
-            ->where('paid', false)
-            ->whereNotIn('status', [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value])
+            ->outstanding()
             ->orderBy('installment_no')->orderBy('id')->first();
     }
 
@@ -134,8 +131,7 @@ class CaseFee
     {
         return self::nextInstallment($case)
             ?: Invoice::where('case_id', $case->id)
-                ->where('paid', false)
-                ->whereNotIn('status', [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value])
+                ->outstanding()
                 ->orderBy('id')->first();
     }
 
@@ -305,8 +301,9 @@ class CaseFee
      */
     public static function markInvoicePaid(LegalCase $case, ?Invoice $invoice = null): void
     {
+        // `outstanding()`: الاحتياط لا يختار فاتورةً ملغاةً أو معدومة فيعلّمها مدفوعة
         $target = $invoice ?: Invoice::where('case_id', $case->id)
-            ->where('paid', false)->orderBy('id')->first();
+            ->outstanding()->orderBy('id')->first();
 
         if ($target === null) {
             return;

@@ -285,8 +285,7 @@ final class RevenueSnapshot
      */
     public static function receivables(): Builder
     {
-        return Invoice::where('paid', false)
-            ->whereNotIn('status', [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value]);
+        return Invoice::query()->outstanding();
     }
 
     /**
@@ -299,10 +298,6 @@ final class RevenueSnapshot
      */
     public static function isReceivable(Invoice $invoice): bool
     {
-        return ! $invoice->paid && ! in_array(
-            $invoice->status,
-            [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value],
-            true
-        );
+        return $invoice->isOutstanding();
     }
 }

@@ -5,7 +5,7 @@ namespace App\Models;
 use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Support\Finance\InvoiceFactory;
-use App\Support\Finance\RevenueSnapshot;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -45,7 +45,46 @@ class Invoice extends Model
      */
     public function isOverdue(): bool
     {
-        return ! $this->paid && ! $this->isCancelled() && $this->due_at !== null && $this->due_at->copy()->endOfDay()->isPast();
+        return $this->isOutstanding() && $this->due_at !== null && $this->due_at->copy()->endOfDay()->isPast();
+    }
+
+    /** الحالتان اللتان تُسقطان المطالبة: لا تُسدَّدان ولا تُعدّان ديناً ولا تتأخّران. */
+    private const SETTLED_WITHOUT_PAYMENT = [InvoiceStatus::Cancelled, InvoiceStatus::WrittenOff];
+
+    /**
+     * **ذمّةٌ قائمة** — غير مدفوعة، وليست ملغاة ولا معدومة. التعريف الواحد الذي تقرؤه الأتعاب
+     * والإيرادات والمالية ولوحة الإدارة؛ كان مكتوباً يدويّاً في سبعة مواضع.
+     */
+    public function scopeOutstanding(Builder $query): Builder
+    {
+        return $query->where('paid', false)
+            ->whereNotIn('status', array_map(fn (InvoiceStatus $s) => $s->value, self::SETTLED_WITHOUT_PAYMENT));
+    }
+
+    /** `scopeOutstanding` مطبَّقاً على صفٍّ واحد. */
+    public function isOutstanding(): bool
+    {
+        return ! $this->paid && ! in_array(InvoiceStatus::tryFrom((string) $this->status), self::SETTLED_WITHOUT_PAYMENT, true);
+    }
+
+    /**
+     * **ما يطالَب به العميل** — ذمّةٌ قائمة صدرت إليه؛ المسوّدة لم تُصدَر بعد فلا تُعدّ عليه.
+     * تقرؤه شارة `/invoices` ولوحة العميل وعدّاد صفحة فواتيره — فلا تختلف الثلاثة.
+     */
+    public function scopeOwedByClient(Builder $query): Builder
+    {
+        return $query->outstanding()->where('status', '!=', InvoiceStatus::Draft->value);
+    }
+
+    public function isOwedByClient(): bool
+    {
+        return $this->isOutstanding() && $this->status !== InvoiceStatus::Draft->value;
+    }
+
+    /** `isOverdue()` بلغة SQL — يوم الاستحقاق نفسه ليس تأخّراً. */
+    public function scopeOverdue(Builder $query): Builder
+    {
+        return $query->outstanding()->whereNotNull('due_at')->whereDate('due_at', '<', today());
     }
 
     /** أُلغيت (إعادة تسعير أو إلغاء طلب) — لا تُسدَّد ولا يُرفع لها إثبات ولا تُحصَّل. */
@@ -145,9 +184,9 @@ class Invoice extends Model
             'paid' => $this->paid,
             // الشاشة تُخفي الدفع ورفع الإثبات عن الملغاة — والخادم يرفضهما (`SubmitPaymentProof`)
             'cancelled' => $this->isCancelled(),
-            // **أهي ذمّةٌ فعلاً؟** `paid` وحده لا يكفي: الملغاة والمعدومة غير مدفوعتين وليستا ديناً.
-            // التعريف من `RevenueSnapshot` — المصدر نفسه الذي تقرأ منه شاشة الإدارة.
-            'receivable' => RevenueSnapshot::isReceivable($this),
+            // **أيُطالَب بها العميل؟** `paid` وحده لا يكفي: الملغاة والمعدومة غير مدفوعتين وليستا
+            // ديناً، والمسوّدة لم تُصدَر. التعريف نفسه الذي تعدّ به الشارة ولوحة العميل.
+            'receivable' => $this->isOwedByClient(),
             'hasProof' => $this->proof_path !== null,   // رُفع إثبات تحويل بانتظار المراجعة
             'installmentNo' => $this->installment_no,   // موضعها من خطّة التقسيط — null لغيرها
         ];

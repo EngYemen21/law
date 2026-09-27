@@ -162,7 +162,8 @@ class HandleInertiaRequests extends Middleware
                     '/calendar' => Appointment::with('consult')->where('user_id', $user->id)
                         ->where('status', '!=', 'بانتظار الاعتماد')
                         ->get()->filter(fn (Appointment $a) => $a->liveState()[0] === 'up')->count(),
-                    '/invoices' => Invoice::where('user_id', $user->id)->where('paid', false)->count(),
+                    // ما يُطالَب به فعلاً (`owedByClient`) — لا الملغاة ولا المعدومة ولا المسوّدة
+                    '/invoices' => Invoice::where('user_id', $user->id)->owedByClient()->count(),
                 ]
                 : []),
             // المفتاحان مقبولان: with('success', …) وwith('flash', …) — الأخير مستعمل في 17 متحكّماً
