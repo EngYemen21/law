@@ -81,6 +81,15 @@ class Invoice extends Model
         return $this->isOutstanding() && $this->status !== InvoiceStatus::Draft->value;
     }
 
+    /**
+     * **الصادر (المُفوتَر)** — كلّ فاتورةٍ إلّا الملغاة: الملغاة لم تُطالِب أحداً، والمعدومة داخله
+     * (صدرت فعلاً ثمّ أُسقطت — وإخراجها يعيد كتابة الماضي). مقامُ نسبة التحصيل في كلّ الشاشات.
+     */
+    public function scopeIssued(Builder $query): Builder
+    {
+        return $query->where('status', '!=', InvoiceStatus::Cancelled->value);
+    }
+
     /** `isOverdue()` بلغة SQL — يوم الاستحقاق نفسه ليس تأخّراً. */
     public function scopeOverdue(Builder $query): Builder
     {

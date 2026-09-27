@@ -125,4 +125,19 @@ class CounterConsistencyTest extends TestCase
             ->assertInertia(fn ($p) => $p->where('counts.activeCases', 3));
         $this->assertSame(3, (new AdminDashboardService)->get360Data(true)['overview']['activeCases'] ?? null);
     }
+
+    /** نسبة التحصيل مقامُها الصادر: الملغاة خارجه، والمعدومة داخله (صدرت ثمّ أُسقطت). */
+    public function test_the_collection_rate_ignores_cancelled_invoices(): void
+    {
+        $this->invoice(InvoiceStatus::Paid, paid: true);  // 1000 محصَّلة
+        $this->invoice(InvoiceStatus::Due);               // 1000 مستحقّة
+        $this->invoice(InvoiceStatus::Cancelled);         // خارج الصادر
+        $this->invoice(InvoiceStatus::Cancelled);
+
+        $finance = (new AdminDashboardService)->get360Data(true)['finance'];
+
+        $this->assertSame(2000, $finance['totalBilled']);
+        $this->assertSame(1000, $finance['totalCollected']);
+        $this->assertSame(50, $finance['collectionRate']);
+    }
 }

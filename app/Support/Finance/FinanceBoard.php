@@ -151,7 +151,7 @@ final class FinanceBoard
 
         // الصادر في الفترة: الملغاة خارجه (لا مطالبةَ صدرت)، والمعدومة داخله (صدرت فعلاً ثمّ
         // أُسقطت لاحقاً — وإخراجُها يعيد كتابة ماضي الفترة).
-        $issued = (int) Invoice::where('status', '!=', InvoiceStatus::Cancelled->value)
+        $issued = (int) Invoice::issued()
             ->whereRaw(self::ISSUED_AT.' BETWEEN ? AND ?', [$period['from'], $period['to']])
             ->sum('amount');
 

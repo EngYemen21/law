@@ -44,15 +44,10 @@ class AdminDashboardService
         $endOfPrevMonth = $now->copy()->subMonth()->endOfMonth();
 
         // 1. المالية (Invoices)
-        $invoiceStats = DB::table('invoices')
-            ->selectRaw('
-                COALESCE(SUM(amount), 0) as total_billed,
-                COALESCE(SUM(CASE WHEN paid = 1 THEN amount ELSE 0 END), 0) as total_collected
-            ')
-            ->first();
-
-        $totalBilled = (int) ($invoiceStats->total_billed ?? 0);
-        $totalCollected = (int) ($invoiceStats->total_collected ?? 0);
+        // **الصادر بنطاق النموذج** (`Invoice::issued` — تعريف تقرير الإيرادات وشاشة المالية نفسه):
+        // كان يجمع الملغاة فيكبر المقام وتظهر نسبة التحصيل أدنى من حقيقتها.
+        $totalBilled = (int) Invoice::issued()->sum('amount');
+        $totalCollected = (int) Invoice::issued()->where('paid', true)->sum('amount');
         // **الذمّة والتأخّر بنطاقَي النموذج** — كان الشرط `paid = 0` وحده، فتُعدّ الملغاة والمعدومة
         // ديناً ومتأخّرة، ويختلف الرقم عن شاشة المالية وعن شارة «متأخرة» على الفاتورة نفسها.
         $totalUnpaid = (int) Invoice::outstanding()->sum('amount');

@@ -2,7 +2,6 @@
 
 namespace App\Support\Finance;
 
-use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Execution;
@@ -72,7 +71,7 @@ final class RevenueSnapshot
         // الملغاة ليست ذمّةً على أحد: كانت تُجمَع في «الصادر» وتُطرح منها المحصَّلات، فتظهر
         // بكامل مبلغها ديناً على العميل إلى الأبد. والذمّة تُقاس مباشرةً — غيرُ ملغاةٍ وغير
         // مدفوعة — لا بطرح مجموعٍ من مجموع، فلا تصير سالبةً إن سُدّدت فاتورةٌ ثمّ أُلغيت.
-        $issued = (int) self::notCancelled()->sum('amount');
+        $issued = (int) Invoice::issued()->sum('amount');
         $due = (int) self::receivables()->sum('amount');
 
         $paidConsults = Consult::whereNotNull('paid_at');
@@ -259,12 +258,6 @@ final class RevenueSnapshot
         // الأساس بالطرح لا بجمعٍ ثانٍ: `subtotal + vat_amount = amount` على كلّ صفّ، فمجموعها
         // كذلك — والطرح يضمن ألّا يفترق الثلاثة إن بقي صفٌّ قديم بلا أعمدة ضريبة.
         return ['total' => $total, 'vat' => $vat, 'subtotal' => $total - $vat, 'count' => (int) ($row->invoices ?? 0)];
-    }
-
-    /** @return Builder<Invoice> */
-    private static function notCancelled(): Builder
-    {
-        return Invoice::where('status', '!=', InvoiceStatus::Cancelled->value);
     }
 
     /**
