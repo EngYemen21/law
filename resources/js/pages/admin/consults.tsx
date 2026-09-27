@@ -194,8 +194,6 @@ export const AdminConsults: React.FC<AdminConsultsProps> = ({
   const [pricingConsult, setPricingConsult] = useState<ConsultCard | null>(null);
   const [pricingChannel, setPricingChannel] = useState<string>('حضورية');
   const [inputPrice, setInputPrice] = useState<string>('');
-  const [reassignConsult, setReassignConsult] = useState<ConsultCard | null>(null);
-  const [selectedLawyerId, setSelectedLawyerId] = useState<number | ''>('');
 
   // سعر القناة من الإعدادات (`ConsultController::suggestedPrices`) — كانت «600» مكتوبةً لكلّ قناة
   const priceFor = (channel?: string | null): string => {
@@ -261,7 +259,7 @@ return initialLawyers;
       * **ولا قائمةَ احتياطيّة تُعمَّر بأسماءٍ لا تُسنِد.**
       *
       * كان الاحتياطيّ يبني الخيارات من أسماء المحامين المكتوبة في البطاقات ويمنح
-      * كلاًّ منها `id: 0`. والنموذج يرسل `lawyer_id` ويُعطَّل زرُّه بـ`!selectedLawyerId`
+      * كلاًّ منها `id: 0`. والإسناد يرسل `lawyer_id` ويُعطَّل زرُّه بلا محامٍ مختار
       * — و`0` قيمةٌ كاذبة. فالقائمة تمتلئ بأسماءٍ **يستحيل اختيار أيٍّ منها**، والمستخدم
       * ينقر الاسم ثمّ يجد الزرَّ معطَّلاً بلا سبب ظاهر.
       *
@@ -505,37 +503,6 @@ return false;
       fallback: 'تعذر تحديد السعر',
       onSuccess: () => setPricingConsult(null),
     });
-  };
-
-  // مُعلَّق: لا زرّ يستدعيه — مودال إعادة التعيين المستقل يتيم (الإسناد يتم من درج 360°).
-  // يُعاد تفعيله إن أُضيف زرّ «إعادة تعيين» خارج الدرج.
-  // const handleOpenReassignModal = (consult: ConsultCard) => {
-  //   setReassignConsult(consult);
-  //   const curr = lawyersList.find((l) => l.name === consult.lawyer);
-  //   setSelectedLawyerId(curr ? curr.id : '');
-  // };
-
-  const submitReassignModal = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!reassignConsult || !selectedLawyerId) {
-return;
-}
-
-    router.post(
-      `/admin/consults/${reassignConsult.id}/refer`,
-      { lawyer_id: selectedLawyerId },
-      {
-        preserveScroll: true,
-        onSuccess: () => {
-          toast('✅ تم تعيين المحامي وإشعار العميل بنجاح');
-          setReassignConsult(null);
-        },
-        onError: (err) => {
-          toast(`⚠️ ${Object.values(err)[0] || 'تعذر تعيين المحامي'}`);
-        },
-      }
-    );
   };
 
   // التذكير يصل فريق المواعيد لا العميل (الحجز بيد الطاقم — قرار 2026-09-14)، ونصّ النجاح من الخادم
@@ -2438,54 +2405,7 @@ return;
         </Modal>
       )}
 
-      {/* ── 8. نافذة إعادة التعيين المنبثقة من الجدول ── */}
-      {reassignConsult && (
-        <Modal
-          title={`إعادة إسناد المحامي — ${reassignConsult.ref}`}
-          open={!!reassignConsult}
-          onClose={() => setReassignConsult(null)}
-        >
-          <form onSubmit={submitReassignModal} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div>
-              <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>
-                اختر المستشار القانوني:
-              </label>
-              <select
-                value={selectedLawyerId}
-                onChange={(e) => setSelectedLawyerId(e.target.value ? Number(e.target.value) : '')}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  borderRadius: 8,
-                  border: '1px solid rgba(0,0,0,0.2)',
-                  fontSize: 14,
-                  boxSizing: 'border-box',
-                }}
-                required
-              >
-                <option value="">
-                  {lawyersList.length === 0 ? '— لا محامون متاحون —' : '-- اختر من القائمة --'}
-                </option>
-                {lawyersList.map((l) => (
-                  <option key={l.id || l.name} value={l.id}>
-                    {l.name} ({l.dept})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-              <button type="button" className="btn soft" onClick={() => setReassignConsult(null)}>
-                إلغاء
-              </button>
-              <button type="submit" className="btn primary" disabled={!selectedLawyerId}>
-                تأكيد الإسناد وإشعار العميل
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
-
-      {/* ── 9. تأكيد إلغاء الطلب مع تسجيل السبب ── */}
+      {/* ── 8. تأكيد إلغاء الطلب مع تسجيل السبب ── */}
       <Modal
         title={`تأكيد إلغاء الطلب — ${cancelTarget?.ref ?? ''}`}
         open={!!cancelTarget}
