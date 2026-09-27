@@ -27,6 +27,7 @@ export interface EmpTicket {
   handler?: string | null;
   lawyerId?: number | null;
   status: string;
+  /** اسم حالة الـEnum من الخادم (`TicketStatus::…->name`) — `AwaitingDocs` لا `awaiting_docs`. */
   statusCode?: string;
   isTerminal?: boolean;
   needsDoc?: boolean;
@@ -100,8 +101,8 @@ const EmployeeTickets: React.FC<Props> = ({
   // حساب الإحصائيات
   const calculatedCounts = useMemo(() => {
     const needAction = tickets.filter((t) => !t.isTerminal && !awaitingOthers.includes(t.status)).length;
-    const missingDocs = tickets.filter((t) => t.statusCode === 'awaiting_docs' || t.status === 'بانتظار مستندات').length;
-    const referred = tickets.filter((t) => t.statusCode === 'referred' || t.status === 'محالة للقسم القانوني').length;
+    const missingDocs = tickets.filter((t) => t.statusCode === 'AwaitingDocs').length;
+    const referred = tickets.filter((t) => t.statusCode === 'Referred').length;
     const urgent = tickets.filter((t) => isUrgentTicket(t.priority)).length;
     const completed = tickets.filter((t) => Boolean(t.isTerminal)).length;
 
@@ -130,8 +131,8 @@ const EmployeeTickets: React.FC<Props> = ({
       if (activeTab === 'active' && t.isTerminal) return false;
       if (activeTab === 'urgent' && !isUrgentTicket(t.priority)) return false;
       if (activeTab === 'needAction' && (t.isTerminal || awaitingOthers.includes(t.status))) return false;
-      if (activeTab === 'missingDocs' && t.statusCode !== 'awaiting_docs' && t.status !== 'بانتظار مستندات') return false;
-      if (activeTab === 'referred' && t.statusCode !== 'referred' && t.status !== 'محالة للقسم القانوني') return false;
+      if (activeTab === 'missingDocs' && t.statusCode !== 'AwaitingDocs') return false;
+      if (activeTab === 'referred' && t.statusCode !== 'Referred') return false;
       if (activeTab === 'completed' && !t.isTerminal) return false;
 
       // فلترة القسم

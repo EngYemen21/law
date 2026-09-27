@@ -21,6 +21,7 @@ export interface EmpTicket {
   dept: string;
   lawyer: string;
   status: string;
+  /** اسم حالة الـEnum من الخادم (`TicketStatus::…->name`) — `AwaitingDocs` لا `awaiting_docs`. */
   statusCode?: string;
   isTerminal?: boolean;
   needsDoc?: boolean;
@@ -91,7 +92,7 @@ const LawyerTickets: React.FC<Props> = ({
       needStudy: tickets.filter((t) => !t.isTerminal).length,
       awaitingSummary: tickets.filter((t) => t.summaryStatus === 'awaiting_lawyer').length,
       urgent: tickets.filter((t) => isUrgentTicket(t.priority)).length,
-      missingDocs: tickets.filter((t) => t.statusCode === 'awaiting_docs' || t.status === 'بانتظار مستندات').length,
+      missingDocs: tickets.filter((t) => t.statusCode === 'AwaitingDocs').length,
       converted: tickets.filter((t) => t.converted).length,
       completed: tickets.filter((t) => Boolean(t.isTerminal)).length,
     };
@@ -110,7 +111,7 @@ const LawyerTickets: React.FC<Props> = ({
       if (activeTab === 'needStudy' && t.isTerminal) return false;
       if (activeTab === 'awaitingSummary' && t.summaryStatus !== 'awaiting_lawyer') return false;
       if (activeTab === 'urgent' && !isUrgentTicket(t.priority)) return false;
-      if (activeTab === 'missingDocs' && t.statusCode !== 'awaiting_docs' && t.status !== 'بانتظار مستندات') return false;
+      if (activeTab === 'missingDocs' && t.statusCode !== 'AwaitingDocs') return false;
       if (activeTab === 'converted' && !t.converted) return false;
       if (activeTab === 'completed' && !t.isTerminal) return false;
 
