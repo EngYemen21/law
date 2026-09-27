@@ -90,7 +90,9 @@ class CaseStatusGroupsTest extends TestCase
         // في الملفّ نفسه صحيحةٌ لأنها للتذاكر — فالفحص على سطر القضايا وحده.
         $dash = (string) file_get_contents(app_path('Services/AdminDashboardService.php'));
         $this->assertStringNotContainsString("IN ('مكتملة', 'مغلقة') THEN 1 END) as closed_cases", $dash);
-        $this->assertStringContainsString("IN ('مغلقة', 'مؤرشفة') THEN 1 END) as closed_cases", $dash);
+        // والعدّ اليوم من النطاق الواحد (`LegalCase::active` ← `CaseJourney::CLOSED`) لا من SQL مكتوب هنا
+        $this->assertStringContainsString('LegalCase::active()->count()', $dash);
+        $this->assertStringContainsString("'closed_cases' => \$totalCases - \$activeCases", $dash);
     }
 
     /** خريطة المراحل في الواجهة تطابق الخادم — تبقى في الواجهة لأنّ الحالة تتحدّث بالبثّ. */

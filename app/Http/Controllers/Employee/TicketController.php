@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Employee;
 
 use App\Domain\Journey\Enums\TicketOutcomeTrack;
+use App\Domain\Journey\Enums\TicketStatus;
 use App\Domain\Journey\Transitions\Ticket\AwaitTicketDocuments;
 use App\Domain\Journey\Transitions\Ticket\ProposeOutcomeTrack;
 use App\Domain\Journey\Transitions\Ticket\TicketDocumentsReceived;
@@ -61,12 +62,12 @@ class TicketController extends Controller
 
         $counts = [
             'total' => $allTickets->count(),
-            'needAction' => $allTickets->whereNotIn('status', TicketJourney::AWAITING_OTHERS)->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
+            'needAction' => $allTickets->whereNotIn('status', TicketJourney::AWAITING_OTHERS)->whereNotIn('status', TicketStatus::finals())->count(),
             'missingDocs' => $allTickets->where('status', 'بانتظار مستندات')->count(),
             'referred' => $allTickets->where('status', 'محالة للقسم القانوني')->count(),
             // من الكتالوج: «حرجة/urgent/high» ثلاثُ مفرداتٍ لا كاتب لها، والكاتب الوحيد «عالية»
             'urgent' => $allTickets->filter(fn ($t) => TicketJourney::isUrgent($t->priority))->count(),
-            'completed' => $allTickets->whereIn('status', ['مكتملة', 'مغلقة'])->count(),
+            'completed' => $allTickets->whereIn('status', [TicketStatus::Completed->value, TicketStatus::Closed->value])->count(),
         ];
 
         $departments = $allTickets->pluck('department')->filter()->unique()->values();
@@ -94,7 +95,7 @@ class TicketController extends Controller
         $client = $ticket->user;
         $clientStats = $client ? [
             'totalTickets' => Ticket::where('user_id', $client->id)->count(),
-            'activeTickets' => Ticket::where('user_id', $client->id)->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
+            'activeTickets' => Ticket::where('user_id', $client->id)->open()->count(),
             'totalCases' => LegalCase::where('user_id', $client->id)->count(),
             'memberSince' => $client->created_at?->locale('ar')->translatedFormat('F Y') ?? '—',
         ] : null;

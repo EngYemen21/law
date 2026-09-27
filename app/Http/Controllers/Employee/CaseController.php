@@ -10,6 +10,7 @@ use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Support\CaseFiling;
+use App\Support\CaseJourney;
 use App\Support\CaseTicketDocuments;
 use App\Support\ConversationFiles;
 use App\Support\ConversationHandler;
@@ -77,14 +78,14 @@ class CaseController extends Controller
 
         $counts = [
             'total' => $allCases->count(),
-            'active' => $allCases->whereNotIn('status', ['مغلقة', 'مؤرشفة'])->count(),
+            'active' => $allCases->filter(fn (LegalCase $c) => $c->isActive())->count(),
             'withHearings' => $allCases->filter(fn (LegalCase $c) => $c->nextHearingLive() !== null)->count(),
             'preparing' => $allCases->where('status', 'قيد التحضير')->count(),
             // رُفعت في ناجز وتنتظر قيد المحكمة (الخطّة ب)
             'awaiting' => $allCases->where('status', 'بانتظار القيد')->count(),
             'inCourt' => $allCases->where('status', 'منظورة')->count(),
             'ruled' => $allCases->where('status', 'صدر الحكم')->count(),
-            'closed' => $allCases->whereIn('status', ['مغلقة', 'مؤرشفة'])->count(),
+            'closed' => $allCases->whereIn('status', CaseJourney::CLOSED)->count(),
         ];
 
         $departments = $allCases->pluck('department')->filter()->unique()->values();
@@ -111,7 +112,7 @@ class CaseController extends Controller
         $client = $case->user;
         $clientStats = $client ? [
             'totalTickets' => Ticket::where('user_id', $client->id)->count(),
-            'activeTickets' => Ticket::where('user_id', $client->id)->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
+            'activeTickets' => Ticket::where('user_id', $client->id)->open()->count(),
             'totalCases' => LegalCase::where('user_id', $client->id)->count(),
             'memberSince' => $client->created_at?->locale('ar')->translatedFormat('F Y') ?? '—',
         ] : null;

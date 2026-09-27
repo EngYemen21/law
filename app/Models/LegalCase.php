@@ -6,7 +6,9 @@ use App\Domain\Journey\GuardsJourneyState;
 use App\Models\Concerns\ClipsPreviewText;
 use App\Models\Concerns\LinksLegalDepartment;
 use App\Models\Concerns\PurgesDocumentFiles;
+use App\Support\CaseJourney;
 use App\Support\LawyerName;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -240,5 +242,20 @@ class LegalCase extends Model
             'pleadingStatus' => $this->pleading_status,
             'ruling' => $this->ruling,
         ];
+    }
+
+    /**
+     * **القضيّة النشطة** — كلّ ما لم يُغلق أو يُؤرشف، ومنها المعلّقة على الأتعاب والمحكومة
+     * (قرار المالك 2026-09-27). وهو أوسع من `CaseJourney::ACTIVE` (مجموعة تبويبٍ للعرض). التعريف الواحد لعدّادات اللوحات والشارات وبطاقات العميل؛
+     * كانت قوائم محلّيّة تختلف في «صدر الحكم» فيتباين الرقم بين شاشتين.
+     */
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->whereNotIn('status', CaseJourney::CLOSED);
+    }
+
+    public function isActive(): bool
+    {
+        return ! in_array($this->status, CaseJourney::CLOSED, true);
     }
 }

@@ -30,8 +30,6 @@ use Inertia\Response;
  */
 class DashboardController extends Controller
 {
-    private const CLOSED = ['مكتملة', 'مغلقة'];
-
     // لوحة العميل — بوابة العميل والكونسيرج القانوني 360 درجة
     public function client(Request $request): Response
     {
@@ -40,7 +38,7 @@ class DashboardController extends Controller
 
         // 1. التذاكر النشطة ورحلة آخر تذكرة
         $myTickets = Ticket::where('user_id', $uid)->with(['assignedLawyer'])->latest('id')->get();
-        $activeTickets = $myTickets->filter(fn (Ticket $t) => ! in_array($t->status, self::CLOSED, true))->values();
+        $activeTickets = $myTickets->filter(fn (Ticket $t) => $t->isOpen())->values();
         $lastTicket = $myTickets->first();
 
         // 2. المواعيد والاستشارات الحية
@@ -49,12 +47,12 @@ class DashboardController extends Controller
         $upcomingAppts = $myAppts->filter(fn (Appointment $a) => $a->liveState()[0] === 'up')->values();
 
         // 3. الفواتير غير المسددة
-        $unpaidInvoices = Invoice::where('user_id', $uid)->where('paid', false)
+        $unpaidInvoices = Invoice::where('user_id', $uid)->owedByClient()
             ->orderByRaw('due_at IS NULL')->orderBy('due_at')->latest('id')->get();
 
         // 4. القضايا الجارية وجلسات المحاكم
         $myCases = LegalCase::where('user_id', $uid)->with(['hearings', 'assignedLawyer'])->latest('id')->get();
-        $activeCases = $myCases->filter(fn (LegalCase $c) => ! in_array($c->status, ['مغلقة', 'مؤرشفة'], true))->values();
+        $activeCases = $myCases->filter(fn (LegalCase $c) => $c->isActive())->values();
 
         // 5. ملفات التنفيذ القضائي
         $myExecutions = Execution::where('user_id', $uid)->latest('id')->get();
@@ -227,7 +225,7 @@ class DashboardController extends Controller
     public function employee(Request $request): Response
     {
         $active = Ticket::with(['user', 'assignedLawyer'])
-            ->whereNotIn('status', self::CLOSED)->latest('id')->get();
+            ->open()->latest('id')->get();
 
         // 1. تذاكر تحتاج إجراء
         $tickets = $active->map(fn (Ticket $t) => $t->toEmployeeCard());
@@ -248,7 +246,7 @@ class DashboardController extends Controller
 
         // 3. قضايا المكتب وجلسات المحاكم القادمة
         $casesWithHearings = LegalCase::with(['user', 'assignedLawyer', 'hearings'])
-            ->whereNotIn('status', ['مغلقة', 'مؤرشفة', 'صدر الحكم'])
+            ->active()
             ->latest('id')
             ->take(6)
             ->get()
@@ -301,8 +299,8 @@ class DashboardController extends Controller
                 'id' => $u->id,
                 'name' => $u->name,
                 'dept' => $u->department ?: 'القسم القانوني',
-                'activeTickets' => Ticket::where('assigned_lawyer_id', $u->id)->whereNotIn('status', self::CLOSED)->count(),
-                'activeCases' => LegalCase::where('assigned_lawyer_id', $u->id)->whereNotIn('status', ['مغلقة', 'مؤرشفة'])->count(),
+                'activeTickets' => Ticket::where('assigned_lawyer_id', $u->id)->open()->count(),
+                'activeCases' => LegalCase::where('assigned_lawyer_id', $u->id)->active()->count(),
             ]);
 
         // 6. نشاط حديث
@@ -342,7 +340,7 @@ class DashboardController extends Controller
                 'missingDocs' => $active->where('status', 'بانتظار مستندات')->count(),
                 'todayAppts' => $todayAppts->count(),
                 'referred' => Ticket::where('status', 'محالة للقسم القانوني')->count(),
-                'activeCases' => LegalCase::whereNotIn('status', ['مغلقة', 'مؤرشفة', 'صدر الحكم'])->count(),
+                'activeCases' => LegalCase::active()->count(),
                 'activeExecs' => $activeExecsCount,
             ],
         ]);

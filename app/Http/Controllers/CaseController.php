@@ -112,7 +112,7 @@ class CaseController extends Controller
     public function attach(Request $request, LegalCase $case): HttpResponse
     {
         $this->authorizeCase($request, $case);
-        abort_if(in_array($case->status, ['مغلقة', 'مؤرشفة'], true), 422, 'لا يمكن إرفاق مستندات على قضية مغلقة أو مؤرشفة.');
+        abort_if(! $case->isActive(), 422, 'لا يمكن إرفاق مستندات على قضية مغلقة أو مؤرشفة.');
 
         $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx']]); // حتى 10MB
 
@@ -147,7 +147,7 @@ class CaseController extends Controller
         $this->authorizeCase($request, $case);
 
         abort_if(
-            in_array($case->status, ['مغلقة', 'مؤرشفة'], true),
+            ! $case->isActive(),
             422,
             'لا يمكن إرسال رسائل على قضية مغلقة أو مؤرشفة.'
         );

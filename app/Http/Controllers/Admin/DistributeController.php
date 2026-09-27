@@ -39,7 +39,7 @@ class DistributeController extends Controller
                     ->open()
                     ->count();
                 $activeCasesCount = LegalCase::where('assigned_lawyer_id', $u->id)
-                    ->whereNotIn('status', ['مغلقة', 'مؤرشفة'])
+                    ->active()
                     ->count();
                 $activeExecutionsCount = Execution::where('assigned_lawyer_id', $u->id)
                     ->whereNotIn('status', Execution::CLOSED_STATUSES)
@@ -113,7 +113,7 @@ class DistributeController extends Controller
 
         // 2. القضايا القضائية
         $cases = LegalCase::with(['user', 'assignedLawyer'])
-            ->whereNotIn('status', ['مغلقة', 'مؤرشفة'])
+            ->active()
             ->latest('id')
             ->get()
             ->map(function (LegalCase $c) {
@@ -385,7 +385,7 @@ class DistributeController extends Controller
 
     private function assignCaseTo(LegalCase $case, User $lawyer, User $actor): string
     {
-        abort_if(in_array($case->status, ['مغلقة', 'مؤرشفة'], true), 422, 'القضية مغلقة أو مؤرشفة — لا يُعاد إسنادها.');
+        abort_if(! $case->isActive(), 422, 'القضية مغلقة أو مؤرشفة — لا يُعاد إسنادها.');
 
         $case->update([
             'assigned_lawyer_id' => $lawyer->id,

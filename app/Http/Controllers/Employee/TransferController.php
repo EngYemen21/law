@@ -57,7 +57,7 @@ class TransferController extends Controller
                     ->open()
                     ->count();
                 $casesCount = LegalCase::where('assigned_lawyer_id', $u->id)
-                    ->whereNotIn('status', ['مغلقة', 'مؤرشفة'])
+                    ->active()
                     ->count();
 
                 $capacity = $ticketsCount <= 3 ? 'available' : ($ticketsCount <= 6 ? 'moderate' : 'busy');

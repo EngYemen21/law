@@ -22,7 +22,7 @@ class ExecutionCreation
     {
         // «مغلقة» أيضاً (قرار المالك 2026-09-11): الإغلاق بعد الحكم كان يمنع فتح التنفيذ
         // نهائياً، ونصُّه يقول «بعد صدور الحكم وتنفيذه» ولو لم يُفتح تنفيذ. والمؤرشفة لا.
-        return in_array($case->status, ['صدر الحكم', 'مغلقة'], true) && ! $case->execution()->exists();
+        return in_array($case->status, CaseJourney::POST_JUDGMENT, true) && ! $case->execution()->exists();
     }
 
     public static function fromCase(LegalCase $case, User $actor): Execution

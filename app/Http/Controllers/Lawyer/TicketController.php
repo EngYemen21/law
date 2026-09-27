@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Lawyer;
 
 use App\Domain\Journey\Enums\TicketOutcomeTrack;
+use App\Domain\Journey\Enums\TicketStatus;
 use App\Domain\Journey\Transitions\Ticket\AwaitAdminSummaryApproval;
 use App\Domain\Journey\Transitions\Ticket\AwaitTicketDocuments;
 use App\Domain\Journey\Transitions\Ticket\CorrectTicketStatus;
@@ -90,12 +91,13 @@ class TicketController extends Controller
 
         $counts = [
             'total' => $tickets->count(),
-            'needStudy' => $tickets->filter(fn ($t) => ! in_array($t['status'], ['مكتملة', 'مغلقة', 'محولة لقضية']))->count(),
+            // المفتوحة بتعريف `Ticket::open()` — كانت «محولة لقضية» (نصٌّ لا وجود له) فتُعدّ المحوّلة للدراسة
+            'needStudy' => $tickets->filter(fn ($t) => ! in_array($t['status'], TicketStatus::finals(), true))->count(),
             'awaitingSummary' => $tickets->filter(fn ($t) => ($t['summaryStatus'] ?? '') === 'awaiting_lawyer')->count(),
             'urgent' => $tickets->filter(fn ($t) => in_array($t['priority'] ?? '', ['عاجلة', 'طارئة', 'عاجل جداً', 'عالية']))->count(),
             'missingDocs' => $tickets->filter(fn ($t) => $t['status'] === 'بانتظار مستندات')->count(),
             'converted' => $tickets->filter(fn ($t) => $t['converted'])->count(),
-            'completed' => $tickets->filter(fn ($t) => in_array($t['status'], ['مكتملة', 'مغلقة']))->count(),
+            'completed' => $tickets->filter(fn ($t) => in_array($t['status'], [TicketStatus::Completed->value, TicketStatus::Closed->value], true))->count(),
         ];
 
         return Inertia::render('lawyer/tickets', [

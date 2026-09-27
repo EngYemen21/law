@@ -350,4 +350,10 @@ class Ticket extends Model
     {
         return $this->isTerminal();
     }
+
+    /** `scopeOpen` مطبَّقاً على صفٍّ محمَّل — لتصفية مجموعةٍ جُلبت أصلاً دون استعلامٍ ثانٍ. */
+    public function isOpen(): bool
+    {
+        return ! in_array($this->status, TicketStatus::finals(), true);
+    }
 }
