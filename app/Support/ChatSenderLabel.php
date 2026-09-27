@@ -86,13 +86,8 @@ final class ChatSenderLabel
     /** البديل الذي أدخلته الإدارة إن وُجد — وإلّا الاسم المختصر «محمد. ب» (قرار المالك 2026-09-11). */
     private static function lawyer(string $name): string
     {
-        $label = SettingsRegistry::str(self::LAWYER);
-
-        if ($label !== '') {
-            return $label;
-        }
-
-        return trim($name) !== '' ? LawyerName::short($name) : self::OFFICE;
+        // القاعدة الواحدة لاسم المحامي أمام العميل (`LawyerName::display`)؛ والاسم الفارغ اسمُ المكتب
+        return trim($name) !== '' ? LawyerName::display($name) : (SettingsRegistry::str(self::LAWYER) ?: self::OFFICE);
     }
 
     /**

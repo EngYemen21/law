@@ -74,13 +74,28 @@ final class LawyerName
     }
 
     /**
+     * **اسم المحامي أمام العميل = ما كتبته الإدارة في الإعدادات** (قرار المالك 2026-09-27).
+     *
+     * حقل «المحامي» في «مسمّيات المتحدّثين» (`ChatSenderLabel::LAWYER`) كان يُطبَّق فوق رسائل
+     * المحادثة وحدها، بينما تنبيه «جلستك جاهزة … مع امواج» وتفاصيل الغرفة والمحضر وتقرير PDF والبريد
+     * تقرأ هذه الدالّة فتختصر الاسم — والاسمُ ذو الكلمة الواحدة يمرّ كاملاً. فالإعداد الواحد الآن
+     * يحكم كلّ خانةٍ يراها العميل؛ والفراغُ يعيد الاختصار «محمد. ب» كما كان.
+     */
+    public static function display(string $name): string
+    {
+        $label = SettingsRegistry::str(ChatSenderLabel::LAWYER);
+
+        return $label !== '' ? $label : self::short($name);
+    }
+
+    /**
      * ما يُعرض للعميل في خانة المحامي: المسنَدُ بدور محامٍ يُختصر، وما سواه (نائبٌ نصّيّ، أو ملفٌّ
      * مرفوعٌ للإدارة) يمرّ كما خُزِّن، والفراغُ يأخذ البديل.
      */
     public static function forClient(?User $assigned, ?string $stored, string $fallback): string
     {
         if ($assigned !== null && $assigned->isLawyer() && trim((string) $assigned->name) !== '') {
-            return self::short((string) $assigned->name);
+            return self::display((string) $assigned->name);
         }
 
         /*

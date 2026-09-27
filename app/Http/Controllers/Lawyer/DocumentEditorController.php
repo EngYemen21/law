@@ -912,7 +912,8 @@ HTML;
     {
         $ref = e($consult->ref);
         $client = e($consult->user?->name ?? 'العميل');
-        $lawyer = e($consult->lawyer ?: 'المستشار القانوني');
+        // المحضر يُطبع ويُرسل للعميل — فالاسم كما يراه العميل (`LawyerName::forClient` عبر الإعداد)، لا الخام
+        $lawyer = e($consult->lawyerForClient('المستشار القانوني'));
         $subject = e($consult->subject ?: 'جلسة استشارة نظامية');
         $summary = nl2br(e($consult->summary ?: 'خلاصة وتوصيات الجلسة.'));
 
