@@ -13,6 +13,7 @@ use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
+use App\Support\ConversationHandler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Queue;
@@ -225,6 +226,21 @@ class ConversationHandoverTest extends TestCase
     }
 
     // ── العرض: للطاقم وحده ────────────────────────────────────────────────────
+
+    /** سطران منفصلان (قرار المالك 2026-09-27): ملفٌّ له محامٍ ولم يردّ عليه موظّفٌ بعد لا يُقرأ «بلا أحد». */
+    public function test_the_card_carries_the_assigned_lawyer_apart_from_the_handler(): void
+    {
+        $ticket = $this->ticket();
+
+        $history = ConversationHandler::history($ticket);
+        $this->assertNull($history['current'], 'لم يردّ موظّفٌ بعد');
+        $this->assertSame($this->lawyer->name, $history['lawyer']);
+
+        $this->reply($this->salma, $ticket);
+        $history = ConversationHandler::history($ticket->fresh());
+        $this->assertSame($this->salma->name, $history['current']['name']);
+        $this->assertSame($this->lawyer->name, $history['lawyer'], 'ردّ الموظّفة لا يحجب المحامي');
+    }
 
     public function test_staff_see_the_handler_and_history_and_the_client_never_does(): void
     {
