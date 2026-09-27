@@ -14,7 +14,7 @@ import TicketActionsPanel from '@/components/babylon/TicketActionsPanel';
 import TicketDetailsCard from '@/components/babylon/TicketDetailsCard';
 import TicketOpsModals, { type TicketOpsKind } from '@/components/babylon/TicketOpsModals';
 import TicketRequirementsCard from '@/components/babylon/TicketRequirementsCard';
-import TicketTrackDecisionCard, { TrackGovernanceData } from '@/components/babylon/TicketTrackDecisionCard';
+import TicketTrackDecisionCard from '@/components/babylon/TicketTrackDecisionCard';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { ALLOWED_DOC_ACCEPT, TKT_LIFE, nowClock, tktStage, type Message } from '@/lib/chat';
@@ -23,21 +23,17 @@ import { echo } from '@/lib/echo';
 import { useCan } from '@/lib/permissions';
 import { todayISO } from '@/lib/local-date';
 import { useServerAction } from '@/lib/use-server-action';
+import type { EmployeeTicketCard } from '@/types';
 
 // محادثة التذكرة (لوحة الموظف) — مزامنة لحظية مع العميل (Reverb) بلا إعادة تحميل
 
-interface EmpTicket {
-  no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string;
-  clientId?: number; lawyerId?: number; caseRef?: string | null; summaryApproved?: boolean; canRerunSummary?: boolean;
-  subject?: string | null; priority?: string | null; mobile?: string | null; openedAt?: string | null;
-  isFrozen?: boolean; isTerminal?: boolean;
-  hasCase?: boolean;
-  caseNumber?: string | null;
-  hasExecution?: boolean;
-  executionNumber?: string | null;
-  closureReasonCode?: string | null;
-  closureNotes?: string | null;
-  trackGovernance?: TrackGovernanceData | null;
+/** `Ticket::toEmployeeCard` (`@/types`) وما تُلحقه هذه الصفحة. */
+interface EmpTicket extends EmployeeTicketCard {
+  caseRef?: string | null;
+  summaryApproved?: boolean;
+  canRerunSummary?: boolean;
+  mobile?: string | null;
+  openedAt?: string | null;
   /** اقتراح النظام لمحامي تذكرةٍ غير مسنَدة (مختصّ/غير مختصّ) — لمودال التحويل */
   lawyerSuggestion?: LawyerSuggestionData | null;
 }

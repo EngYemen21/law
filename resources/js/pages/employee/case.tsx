@@ -13,6 +13,7 @@ import type { AppealData, Filing } from '@/lib/case-court';
 import { CASE_LIFE, caseStage, type Hearing, HearingsCard, CaseMsgRow } from '@/lib/case-ui';
 import { type Message } from '@/lib/chat';
 import { serverMessage } from '@/lib/server-message';
+import type { CaseDocumentCard, TicketDocumentCard } from '@/types';
 
 interface CaseInfo {
   no: string;
@@ -33,19 +34,8 @@ interface CaseInfo {
   appeal?: AppealData | null;
 }
 
-interface CaseDoc {
-  id: number;
-  name: string;
-  by: string;
-  status: string;
-  docType?: string;
-  summary?: string;
-  date: string;
-  /** `null` لمن لا تُجيزه `ConversationFiles` — الخادم يقرّر لا الشاشة. */
-  downloadUrl?: string | null;
-  hearingId?: number | null;
-  hearingTitle?: string | null;
-}
+/** `CaseDocument::toData` — النوع المشترك (`@/types`). */
+type CaseDoc = CaseDocumentCard;
 
 interface ClientStats {
   totalTickets: number;
@@ -55,9 +45,8 @@ interface ClientStats {
 }
 
 /** مرفقٌ من التذكرة قبل التحويل (`CaseTicketDocuments`). */
-interface TicketDoc {
-  id: number; name: string; by: string; status: string; docType: string; summary: string; date: string; downloadUrl: string | null;
-}
+/** `CaseTicketDocuments::for` — النوع المشترك (`@/types`). */
+type TicketDoc = TicketDocumentCard;
 
 interface Props {
   case: CaseInfo;

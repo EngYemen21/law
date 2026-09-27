@@ -10,37 +10,11 @@ import { useToast } from '@/components/babylon/Toast';
 import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
 import { useServerAction } from '@/lib/use-server-action';
+// بطاقة العميل من النوع المشترك (`Ticket::toCard`) — كانت مُعرَّفةً هنا وفي الصفحة الأخرى
+import type { ClientTicketCard as TicketCard } from '@/types';
 
 // يطابق clientTicketView + خطوات حجز الاستشارة (tfChooseConsult→tfInvoice→tfPaid→tfChooseSlot→tfConfirm)
 // دورة الحجز مقودة من الخادم عبر حالة الاستشارة المرتبطة (consult): تسعير الإدارة → فاتورة → دفع محاكى → موعد.
-
-export interface TicketActions {
-  can_request_consult?: boolean;
-  can_convert_case?: boolean;
-  can_convert_exec?: boolean;
-  can_close?: boolean;
-  can_request_docs?: boolean;
-}
-
-interface TicketCard {
-  no: string;
-  type: string;
-  status: string;
-  statusCode?: string;
-  tone: string;
-  isFrozen?: boolean;
-  isTerminal?: boolean;
-  actions?: TicketActions;
-  hasCase?: boolean;
-  caseNumber?: string | null;
-  hasExecution?: boolean;
-  executionNumber?: string | null;
-  /** ما نُشر للعميل من قرار المآل وحده — `Ticket::publishedTrackDecision`. */
-  trackGovernance?: {
-    approvedTrack?: string | null;
-    approvedTrackReason?: string | null;
-  };
-}
 interface ConsultLink {
   id: number; ref: string; status: string; channel: string; statusCode?: string;
   price?: number; vat?: number; total?: number; priced?: boolean; paid?: boolean; invoiceNo?: string | null;

@@ -12,6 +12,7 @@ import type {Message} from '@/lib/chat';
 import Icon from '@/lib/icons';
 import { installmentsText, useSettings } from '@/lib/settings';
 import { useServerAction } from '@/lib/use-server-action';
+import type { CaseDocumentCard, TicketDocumentCard } from '@/types';
 
 // يطابق clientCaseView — مسار القضية + الجلسات + سداد الأتعاب + المحادثة (من قاعدة البيانات)
 
@@ -38,13 +39,10 @@ interface CaseDetail {
   } | null;
 }
 /** مرفقٌ من التذكرة قبل التحويل (`CaseTicketDocuments`). */
-interface TicketDoc {
-  id: number; name: string; by: string; status: string; docType: string; summary: string; date: string; downloadUrl: string | null;
-}
-interface CaseDoc {
-  id: number; name: string; by: string; status: string; docType: string; summary: string; date: string;
-  hearingId?: number | null; hearingTitle?: string | null;
-}
+/** `CaseTicketDocuments::for` — النوع المشترك (`@/types`). */
+type TicketDoc = TicketDocumentCard;
+/** `CaseDocument::toData` — النوع المشترك (`@/types`). */
+type CaseDoc = CaseDocumentCard;
 interface Props { case: CaseDetail; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[]; ticketDocuments?: TicketDoc[]; }
 
 const CaseChat: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, ticketDocuments = [] }) => {

@@ -9,30 +9,16 @@ import QuickTicketModal, { type TicketPreviewData } from '@/components/babylon/Q
 import { foldSearch, isUrgentTicket } from '@/lib/employee-data';
 import { useCan } from '@/lib/permissions';
 import { truncateWords } from '@/lib/utils';
+import type { EmployeeTicketCard } from '@/types';
 
 // ============================================================
 // لوحة إدارة وتوزيع التذاكر للموظف (Legal Ticket Triage Desk)
 // فلاتر ذكية، مؤشرات أولوية، بحث متعدد الحقول، وإجراءات سريعة
 // ============================================================
 
-export interface EmpTicket {
-  no: string;
-  client: string;
-  type: string;
-  subject?: string;
-  priority?: string;
-  dept: string;
-  lawyer: string;
-  /** الموظّف المسؤول عن المحادثة الآن — يتولّاها تلقائيّاً من يردّ (`ConversationHandler`). */
-  handler?: string | null;
-  lawyerId?: number | null;
-  status: string;
-  /** اسم حالة الـEnum من الخادم (`TicketStatus::…->name`) — `AwaitingDocs` لا `awaiting_docs`. */
-  statusCode?: string;
-  isTerminal?: boolean;
+/** `Ticket::toEmployeeCard` (`@/types`) وما تُلحقه هذه الصفحة. */
+export interface EmpTicket extends EmployeeTicketCard {
   needsDoc?: boolean;
-  actions?: Record<string, boolean>;
-  tone: string;
   converted?: boolean;
   updatedAgo?: string;
   createdAgo?: string;

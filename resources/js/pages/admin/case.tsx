@@ -14,6 +14,7 @@ import type { Hearing } from '@/lib/case-ui';
 import type { Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
+import type { CaseDocumentCard, TicketDocumentCard } from '@/types';
 
 /**
  * **تفاصيل القضيّة للإدارة العليا** (قرار المالك 2026-09-11).
@@ -36,13 +37,10 @@ interface CaseInfo {
   canReopen: boolean;
 }
 /** مرفقٌ من التذكرة قبل التحويل (`CaseTicketDocuments`). */
-interface TicketDoc {
-  id: number; name: string; by: string; status: string; docType: string; summary: string; date: string; downloadUrl: string | null;
-}
-interface CaseDoc {
-  id: number; name: string; by: string; status: string; docType: string; summary: string; date: string; downloadUrl?: string | null;
-  hearingId?: number | null; hearingTitle?: string | null;
-}
+/** `CaseTicketDocuments::for` — النوع المشترك (`@/types`). */
+type TicketDoc = TicketDocumentCard;
+/** `CaseDocument::toData` — النوع المشترك (`@/types`). */
+type CaseDoc = CaseDocumentCard;
 interface LawyerOpt { id: number; name: string }
 interface Props {
   case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[]; ticketDocuments?: TicketDoc[];

@@ -17,7 +17,7 @@ export type TicketOpsKind = 'transfer' | 'reqdocs' | null;
 interface Props {
   kind: TicketOpsKind;
   ticketNo: string;
-  dept?: string;
+  dept?: string | null;
   lawyerId?: number | null;
   lawyers: LawyerOption[];
   /** اقتراح النظام لتذكرةٍ غير مسنَدة (مختصّ/غير مختصّ) — يملأ الاختيار المبدئيّ ولا يُسنِد */
@@ -28,7 +28,7 @@ interface Props {
 }
 
 /** القسم المبدئيّ: قسم التذكرة إن كان في الكتالوج، وإلّا أوّل قسم. */
-const initialDept = (dept: string | undefined, departments: string[]) =>
+const initialDept = (dept: string | null | undefined, departments: string[]) =>
   (dept && departments.includes(dept) ? dept : departments[0]) ?? '';
 
 const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawyers, suggestion, departments, onClose, onDone }) => {

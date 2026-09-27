@@ -14,6 +14,7 @@ import type { Hearing } from '@/lib/case-ui';
 import type { Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
+import type { CaseDocumentCard, TicketDocumentCard } from '@/types';
 
 interface CaseInfo {
   no: string; client: string; type: string; dept: string; lawyer: string;
@@ -23,10 +24,8 @@ interface CaseInfo {
 
   appeal?: AppealData | null;
 }
-interface CaseDoc {
-  id: number; name: string; by: string; status: string; docType: string; summary: string; date: string; downloadUrl?: string | null;
-  hearingId?: number | null; hearingTitle?: string | null; source?: 'ticket' | 'case';
-}
+/** مستند القضيّة أو التذكرة المرتبطة في قائمةٍ واحدة (`source` يفرّقهما) — من النوعين المشتركين. */
+type CaseDoc = TicketDocumentCard & Partial<Pick<CaseDocumentCard, 'hearingId' | 'hearingTitle'>> & { source?: 'ticket' | 'case' };
 interface FileInfo { ticketNo?: string | null; subject?: string | null; opponent?: string | null; claim?: string | null; court?: string | null }
 interface FileFacts { summary?: string | null; facts?: string | null; keyPoints?: string | null; approved: boolean }
 interface ReadinessItem { label: string; ok: boolean; hint?: string | null }

@@ -6,23 +6,15 @@ import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
 import { type SummaryData } from '@/lib/lawyer-data';
 import { firstError } from '@/lib/server-message';
+import type { EmployeeTicketCard } from '@/types';
 
 // ============================================================================
 // صفحة ملخص الملف والرأي القانوني المبدئي — واجهة نخبوية بمستوى المشاريع الكبرى
 // تدعم دور المحامي ودور الإدارة العليا مع الحفاظ 100% على كافة الوظائف ومسارات الخادم
 // ============================================================================
 
-interface EmpTicket {
-  no: string;
-  client: string;
-  type: string;
-  dept: string;
-  lawyer: string;
-  status: string;
-  tone: string;
-  priority?: string;
-  subject?: string;
-}
+/** `Ticket::toEmployeeCard` — النوع المشترك (`@/types`). */
+type EmpTicket = EmployeeTicketCard;
 
 interface Props {
   ticket: EmpTicket;

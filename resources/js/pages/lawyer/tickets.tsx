@@ -8,27 +8,16 @@ import { TICKET_PRIORITIES, TICKET_PRIORITY_DEFAULT, foldSearch, isUrgentTicket 
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
 import { truncateWords } from '@/lib/utils';
+import type { EmployeeTicketCard } from '@/types';
 
 // ============================================================
 // منصة فرز ودراسة تذاكر المستشار القانوني 360° (Lawyer Ticket Study Desk)
 // فحص التذاكر المحالة، مراجعة ملخصات الذكاء الاصطناعي، وتحويل الملفات لقضايا
 // ============================================================
 
-export interface EmpTicket {
-  no: string;
-  client: string;
-  type: string;
-  dept: string;
-  lawyer: string;
-  status: string;
-  /** اسم حالة الـEnum من الخادم (`TicketStatus::…->name`) — `AwaitingDocs` لا `awaiting_docs`. */
-  statusCode?: string;
-  isTerminal?: boolean;
+/** `Ticket::toEmployeeCard` (`@/types`) وما تُلحقه هذه الصفحة. */
+export interface EmpTicket extends EmployeeTicketCard {
   needsDoc?: boolean;
-  actions?: Record<string, boolean>;
-  tone: string;
-  subject?: string;
-  priority?: string;
   hasSummary?: boolean;
   summaryStatus?: string;
   summaryRecommendation?: string;
@@ -101,7 +90,7 @@ const LawyerTickets: React.FC<Props> = ({
   // استخراج قائمة الأقسام الفريدة
   const deptList = useMemo(() => {
     if (departments.length > 0) return departments;
-    return Array.from(new Set(tickets.map((t) => t.dept).filter(Boolean)));
+    return Array.from(new Set(tickets.map((t) => t.dept).filter((d): d is string => Boolean(d))));
   }, [tickets, departments]);
 
   // تصفية التذاكر بناءً على التبويب والبحث والفلاتر

@@ -139,7 +139,7 @@ const SEARCH_FOLD: Record<string, string> = {
 };
 
 /** يطبّع نصّاً للبحث: أرقاماً عربيّةً وهمزاتٍ وتاءً مربوطة وتطويلاً، مع خفض حالة الأحرف. */
-export function foldSearch(raw: string): string {
+export function foldSearch(raw: string | null | undefined): string {
   return (raw ?? '').replace(/[أإآٱةىئؤـ٠-٩۰-۹]/g, (c) => SEARCH_FOLD[c] ?? c).toLowerCase().trim();
 }
 

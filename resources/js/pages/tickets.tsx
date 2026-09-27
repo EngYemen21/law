@@ -5,6 +5,8 @@ import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { truncateWords } from '@/lib/utils';
+// بطاقة العميل من النوع المشترك (`Ticket::toCard`) — كانت مُعرَّفةً هنا وفي الصفحة الأخرى
+import type { ClientTicketCard as TicketCard } from '@/types';
 
 // ============================================================
 // مركز متابعة التذاكر والطلبات القانونية 360° (Client Legal Tickets Hub)
@@ -21,44 +23,6 @@ const JOURNEY_STEPS = [
   'النتيجة والاعتماد',
 ];
 
-
-export interface TicketActions {
-  can_request_consult?: boolean;
-  can_convert_case?: boolean;
-  can_convert_exec?: boolean;
-  can_close?: boolean;
-  can_request_docs?: boolean;
-}
-
-export interface TicketCard {
-  no: string;
-  type: string;
-  subject?: string;
-  priority?: string;
-  dept?: string;
-  status: string;
-  statusCode?: string;
-  tone: string;
-  isFrozen?: boolean;
-  /** حكم الخادم (`TicketStatus::isTerminal`) — يُرسَل دائماً في `Ticket::toCard`. */
-  isTerminal: boolean;
-  actions?: TicketActions;
-  last?: string;
-  date: string;
-  lawyer?: string;
-  step?: number;
-  needsDoc?: boolean;
-  needsBooking?: boolean;
-  hasCase?: boolean;
-  courtName?: string;
-  claimAmount?: number;
-  opponentName?: string;
-  documentsCount?: number;
-  messagesCount?: number;
-  createdAt?: string;
-  /** تبويب العميل الذي تقع فيه التذكرة — يحسبه الخادم من الحالة الداخليّة (`TicketJourney::CLIENT_PHASES`) */
-  phase?: 'analysis' | 'opinion' | null;
-}
 
 interface Props {
   tickets: TicketCard[];

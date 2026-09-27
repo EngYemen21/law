@@ -4,21 +4,15 @@ import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import type { EmployeeTicketCard } from '@/types';
 
 // ============================================================
 // لوحة الموظف وإدارة العمليات 360 درجة (360° Operational Command Center)
 // تتيح الإحاطة بجميع مسارات العمل القانوني والإداري: تذاكر، جلسات، قضايا، تنفيذ، وتفرغ الفريق
 // ============================================================
 
-export interface EmpTicket {
-  no: string;
-  client: string;
-  type: string;
-  dept: string;
-  lawyer: string;
-  status: string;
-  tone: string;
-}
+/** `Ticket::toEmployeeCard` — النوع المشترك (`@/types`). */
+export type EmpTicket = EmployeeTicketCard;
 
 export interface TodayAppt {
   id: string; // ext_id

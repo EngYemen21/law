@@ -5,29 +5,24 @@ import Modal from '@/components/babylon/Modal';
 import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
+import type { ConsultCard } from '@/lib/consult-ui';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+import type { EmployeeTicketCard } from '@/types';
 
 // ============================================================
 // لوحة المحامي والمستشار القانوني 360 درجة (360° Legal Command Center)
 // مركز قيادة العمليات القضائية: تذاكر، قضايا، جلسات محاكم، استشارات حية، وتنفيذ
 // ============================================================
 
-export interface EmpTicket {
-  no: string;
-  client: string;
-  type: string;
-  dept: string;
-  lawyer: string;
-  status: string;
-  tone: string;
+/** `Ticket::toEmployeeCard` (`@/types`) وما تُلحقه هذه الصفحة. */
+export interface EmpTicket extends EmployeeTicketCard {
   hasSummary?: boolean;
   summaryStatus?: string;
   summaryRecommendation?: string;
   converted?: boolean;
   caseRef?: string;
-  priority?: string;
   updatedAgo?: string;
 }
 
@@ -62,27 +57,10 @@ export interface LawyerHearingItem {
   isTomorrow: boolean;
 }
 
-export interface LawyerConsultItem {
-  id: number;
-  ref: string;
-  client: string;
-  subject: string;
-  specialty?: string;
-  channel: string;
-  lawyer: string;
-  when: string;
-  place?: string;
-  phone?: string;
-  canJoin: boolean;
-  slink?: string;
-  joinLink?: string;
-  session: string;
-  missed?: boolean;
-  startable?: boolean;
-  status: string;
-  summary?: string;
-  duration?: string;
-  isToday?: boolean;
+/** `Consult::toCard` (`ConsultCard`) وما تُلحقه اللوحة: رابط الدخول للمحامي، وهل هي اليوم. */
+export interface LawyerConsultItem extends ConsultCard {
+  joinLink: string;
+  isToday: boolean;
 }
 
 export interface LawyerExecItem {
