@@ -85,10 +85,16 @@ class OtpService
             && ! in_array($host, ['127.0.0.1', '::1'], true);
     }
 
-    /** تجاوز تطويريّ مؤقّت (رمز ثابت) — يعمل عند ضبط AUTH_DEV_OTP للاختبار. */
+    /**
+     * تجاوز تطويريّ مؤقّت (رمز ثابت) — بيئتا local/testing حصراً وحين ضبط AUTH_DEV_OTP،
+     * ولا يعمل على مضيفٍ يبدو إنتاجيّاً ولو قال APP_ENV غير ذلك (راجع `productionLike`).
+     * الشرط نفسه في `EmailOtpService::devBypass` — القناتان تُفتحان معاً أو تُغلقان معاً.
+     */
     public function devBypass(): bool
     {
-        return self::isDevOtpConfigured();
+        return self::isDevOtpConfigured()
+            && app()->environment('local', 'testing')
+            && ! self::productionLike();
     }
 
     /** توليد معرّف عمليّة وإطلاق إرسال الرمز عبر تقنيات — يعيد بيانات الجلسة/العرض. */

@@ -21,6 +21,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
@@ -63,10 +64,16 @@ class AppServiceProvider extends ServiceProvider
         // بشريّاً له، فلا يُنسب لصاحب الطلب. التتبّع هنا والقاعدة في `MessageSender`.
         MessageSender::trackJobs();
 
-        // تجاوز OTP التطويري (رمز ثابت لأي هوية) للاختبار
-        // if (OtpService::isDevOtpConfigured() && ! app(OtpService::class)->devBypass()) {
-        //     throw new \RuntimeException('AUTH_DEV_OTP مضبوط خارج بيئة التطوير — أزِله فوراً من ملف البيئة.');
-        // }
+        // تجاوز OTP التطويري (رمز ثابت لأي هوية): خارج التطوير يُطفئه `devBypass` نفسه، وهنا
+        // يُنبَّه المشغّل إلى متغيّرٍ منسيّ في ملف البيئة. تنبيهٌ لا استثناء — الاستثناء يُسقط
+        // الموقع كلّه بسبب متغيّرٍ صار أصلاً بلا أثر. وفي الطرفيّة وحدها (النشر يشغّل artisan)
+        // كي لا يُكتب مع كلّ طلب ويب.
+        if ($this->app->runningInConsole() && OtpService::isDevOtpConfigured() && ! app(OtpService::class)->devBypass()) {
+            Log::critical('otp.dev_bypass_configured_outside_dev', [
+                'env' => app()->environment(),
+                'hint' => 'AUTH_DEV_OTP مضبوط خارج بيئة التطوير — التجاوز معطّل، أزِله من ملف البيئة.',
+            ]);
+        }
 
         // الإدارة العليا (enum Admin) تتجاوز كل الصلاحيات — يجعل $user->can(...) صحيحاً دائماً لها
         Gate::before(fn (User $user) => $user->isAdmin() ? true : null);
