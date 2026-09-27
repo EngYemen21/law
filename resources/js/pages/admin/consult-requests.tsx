@@ -330,12 +330,10 @@ return (a.total || 0) - (b.total || 0);
   };
 
   // Submit Reminder for slot scheduling
-  // نقرتان متتاليتان كانتا تُرسلان إشعارين وقيدَي تدقيق — القفل الموحّد يُسقط الثانية
+  // نقرتان متتاليتان كانتا تُرسلان إشعارين وقيدَي تدقيق — القفل الموحّد يُسقط الثانية.
+  // التذكير يصل فريق المواعيد لا العميل (الحجز بيد الطاقم)، ونصّ النجاح من الخادم (`flash`) وحده
   const handleRemindSchedule = (consult: ConsultCard) =>
-    run(`/admin/consults/${consult.id}/remind-schedule`, {
-      success: '🔔 تم تذكير فريق المواعيد بحجز الموعد',
-      fallback: 'تعذر الإرسال',
-    });
+    run(`/admin/consults/${consult.id}/remind-schedule`, { fallback: 'تعذر الإرسال' });
 
   // **اعتماد موعدٍ اقترحه موظّف — كما هو أو بعد تعديله** (قرار المالك 2026-09-14):
   // الإدارة لا ترفض الاقتراح، تعدّله إن لزم ثمّ تعتمده فيُرسل للعميل ويُشعَر الموظّف بما تغيّر.
@@ -1283,7 +1281,7 @@ return (a.total || 0) - (b.total || 0);
                               handleRemindSchedule(c);
                             }}
                           >
-                            <Icon name="bell" /> تذكير العميل بالحجز
+                            <Icon name="bell" /> تذكير فريق المواعيد
                           </button>
                         )}
                         <button
