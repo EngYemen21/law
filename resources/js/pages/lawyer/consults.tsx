@@ -1463,7 +1463,9 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
           background: #fff;
           border: 1px solid rgba(0,0,0,0.08);
           border-radius: 12px;
-          overflow: hidden;
+          /* تمريرٌ أفقيّ لا قصّ — كان \`hidden\` يقطع الجدول (857px) على الهاتف فيظهر ثلثه */
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
           box-shadow: 0 1px 3px rgba(0,0,0,0.02);
         }
         .lawyer-table {
@@ -1525,7 +1527,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
         .lawyer-summary-badge.empty { background: #f1f5f9; color: #64748b; }
         .lawyer-kanban-board {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
           gap: 16px;
         }
         .lawyer-kanban-col {
@@ -1595,6 +1597,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
           inset: 0 !important;
           width: 100vw !important;
           height: 100vh !important;
+          height: 100dvh !important;
           background: rgba(15, 23, 42, 0.6) !important;
           z-index: 99990 !important;
           backdrop-filter: blur(4px) !important;

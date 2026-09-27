@@ -478,7 +478,7 @@ const LawyerTasks: React.FC<Props> = ({ tasks = [] }) => {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))',
             gap: 16,
             marginBottom: 24,
           }}
@@ -743,7 +743,7 @@ const LawyerTasks: React.FC<Props> = ({ tasks = [] }) => {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: 12, fontSize: 13 }}>
               <div style={{ background: '#fff', border: '1px solid var(--line-soft)', padding: 10, borderRadius: 8 }}>
                 <span style={{ color: 'var(--muted)', display: 'block', fontSize: 11 }}>المرجع</span>
                 <b className="mono">{selectedTask.ref || '—'}</b>

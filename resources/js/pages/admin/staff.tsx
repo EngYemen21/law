@@ -1084,7 +1084,7 @@ setRole('موظف خدمة عملاء');
 
                 <div className="field">
                   <label>ساعات الدوام اليومي (المدة: {workHoursText})</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: 10 }}>
                     <div>
                       <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>من (البداية):</span>
                       <input

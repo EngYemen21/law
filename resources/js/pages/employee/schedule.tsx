@@ -1434,7 +1434,7 @@ return lawyers;
 
             <div className="field">
               <label>قناة ونوع الاستشارة <span className="req">*</span></label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 110px), 1fr))', gap: 6 }}>
                 {TYPES.map(([v, l, icon]) => (
                   <button
                     key={v}

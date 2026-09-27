@@ -384,7 +384,7 @@ const AdminFinance: React.FC<Props> = ({
 
       {tab === 'vat' && vat && (
         <>
-          <div className="stats" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
+          <div className="stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))' }}>
             <div className="stat t-blue"><div className="si"><Icon name="card" /></div><div className="num">{fmt(vat.subtotal)}</div><div className="lbl">الأساس المحصَّل في الفترة</div></div>
             <div className="stat t-cyan"><div className="si"><Icon name="scale" /></div><div className="num">{fmt(vat.vat)}</div><div className="lbl">الضريبة المستحقّة</div></div>
             <div className="stat t-green"><div className="si"><Icon name="check" /></div><div className="num">{fmt(vat.total)}</div><div className="lbl">الإجمالي ({vat.count} فاتورة)</div></div>
@@ -452,7 +452,7 @@ const AdminFinance: React.FC<Props> = ({
           <div className="card-h"><h3>التقارير</h3><span className="sub">شاشتان قائمتان</span></div>
           <div className="card-b">
             {/* لا تكرار: التقارير تعيش في شاشتيها، وهنا نقلٌ إليهما فقط */}
-            <div className="stats" style={{ gridTemplateColumns: 'repeat(2,1fr)', marginBottom: 0 }}>
+            <div className="stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', marginBottom: 0 }}>
               <div className="stat t-green" onClick={() => router.visit('/admin/revenue')} title="تقرير الإيرادات">
                 <div className="si"><Icon name="card" /></div>
                 <div className="num" style={{ fontSize: 19 }}>الإيرادات</div>

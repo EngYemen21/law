@@ -146,7 +146,7 @@ const AdminReports: React.FC<Props> = ({
       {/* ── تبويب النظرة العامة (Overview) ── */}
       {activeTab === 'overview' && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, marginBottom: 16 }}>
             {/* التذاكر حسب القسم */}
             <div className="card">
               <div className="card-h">
@@ -170,7 +170,7 @@ const AdminReports: React.FC<Props> = ({
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, marginBottom: 16 }}>
             {/* مراحل التنفيذ القضائي */}
             <div className="card">
               <div className="card-h">
@@ -222,7 +222,7 @@ const AdminReports: React.FC<Props> = ({
 
       {/* ── تبويب التذاكر والاستشارات (Triage & Consultations BI) ── */}
       {activeTab === 'triage' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, marginBottom: 16 }}>
           <div className="card">
             <div className="card-h">
               <h3>التذاكر حسب الأقسام القانونية</h3>
@@ -280,7 +280,7 @@ const AdminReports: React.FC<Props> = ({
 
       {/* ── تبويب القضايا القضائية والاستئناف (Cases & Litigation BI) ── */}
       {activeTab === 'cases' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, marginBottom: 16 }}>
           <div className="card">
             <div className="card-h">
               <h3>القضايا حسب القسم القضائي</h3>
@@ -320,7 +320,7 @@ const AdminReports: React.FC<Props> = ({
 
       {/* ── تبويب التنفيذ القضائي (ExecFlow BI) ── */}
       {activeTab === 'executions' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, marginBottom: 16 }}>
           <div className="card">
             <div className="card-h">
               <h3>ملفات التنفيذ القضائي حسب المرحلة</h3>

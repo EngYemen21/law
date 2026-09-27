@@ -252,7 +252,7 @@ return false;
       </div>
 
       {/* ── 2. مؤشرات الأداء الحية للقضايا (KPIs) ── */}
-      <div className="stats" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
+      <div className="stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', marginBottom: 20 }}>
         <div
           className={`stat t-blue${statusTab === 'all' ? ' sel' : ''}`}
           style={{ cursor: 'pointer', outline: statusTab === 'all' ? '2px solid var(--primary)' : 'none' }}
@@ -583,7 +583,7 @@ return false;
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr 1fr 1fr',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 110px), 1fr))',
                 gap: 10,
                 background: 'var(--paper-2)',
                 borderRadius: 'var(--r-sm)',

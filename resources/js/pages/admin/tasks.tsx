@@ -614,7 +614,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 290px), 1fr))',
             gap: 16,
             marginBottom: 24,
           }}
@@ -922,7 +922,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: 12, fontSize: 13 }}>
               <div style={{ background: '#fff', border: '1px solid var(--line-soft)', padding: 10, borderRadius: 8 }}>
                 <span style={{ color: 'var(--muted)', display: 'block', fontSize: 11 }}>المحامي المسند إليه</span>
                 <b>{selectedTask.owner}</b>

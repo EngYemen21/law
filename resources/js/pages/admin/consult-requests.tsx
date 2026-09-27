@@ -597,6 +597,7 @@ return (a.total || 0) - (b.total || 0);
           inset: 0 !important;
           width: 100vw !important;
           height: 100vh !important;
+          height: 100dvh !important;
           z-index: 99990 !important;
           background: rgba(10, 25, 45, 0.6) !important;
           backdrop-filter: blur(4px) !important;
@@ -610,6 +611,7 @@ return (a.total || 0) - (b.total || 0);
           width: 100% !important;
           max-width: 580px !important;
           height: 100vh !important;
+          height: 100dvh !important;
           background: #fff !important;
           box-shadow: -10px 0 35px rgba(0,0,0,0.35) !important;
           display: flex !important;
@@ -1799,7 +1801,7 @@ return (a.total || 0) - (b.total || 0);
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 8 }}>
                       قناة الاستشارة المعتمدة للتسعير:
                     </label>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 110px), 1fr))', gap: 8 }}>
                       {CONSULT_CHANNEL_OPTIONS.map((label) => {
                         const icon = crChannelIcon(label);
                         const isSelected = drawerChannel === label;
@@ -2178,7 +2180,7 @@ return (a.total || 0) - (b.total || 0);
               <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>
                 قناة الاستشارة:
               </label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 110px), 1fr))', gap: 8 }}>
                 {CONSULT_CHANNEL_OPTIONS.map((label) => {
                   const icon = crChannelIcon(label);
                   const isSelected = modalChannel === label;

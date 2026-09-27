@@ -872,7 +872,9 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 @media(max-width:860px){
   .staff-live-preview{display:none!important}
   .sidebar{transform:translateX(100%)}.sidebar.open{transform:none;box-shadow:var(--shadow-lg)}
-  .main{margin-right:0}.menu-btn{display:grid}.search{display:none}
+  .main{margin-right:0}.menu-btn{display:grid}.topbar .search{display:none}
+  /* بحثُ الصفحة يبقى ظاهراً — كانت \`.search{display:none}\` عامّةً فتُخفي مربّع التصفية في تسع صفحات (2026-09-27) */
+  .content .search{max-width:100%}
   .tiles{grid-template-columns:repeat(2,1fr)}.grid-2{grid-template-columns:1fr}
   .scrim.show{display:block;position:fixed;inset:0;background:rgba(10,42,85,.4);z-index:45}
   .appt-body{grid-template-columns:1fr;text-align:center}.qr{margin:0 auto}

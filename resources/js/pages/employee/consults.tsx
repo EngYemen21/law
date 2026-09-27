@@ -506,7 +506,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
         }
         .c360-radar-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
           gap: 12px;
         }
         @keyframes c360FadeIn {
@@ -1402,7 +1402,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
 
       {/* ── View D: التحليلات وتوزيع الأحمال (Analytics View) ── */}
       {viewMode === 'analytics' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: 16 }}>
           {/* أحمال المستشارين والمحامين */}
           <div className="card" style={{ margin: 0 }}>
             <div className="card-h">

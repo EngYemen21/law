@@ -783,7 +783,7 @@ return;
         /* رادار الجلسات */
         .c360-radar-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
           gap: 12px;
         }
 
@@ -802,6 +802,7 @@ return;
           inset: 0 !important;
           width: 100vw !important;
           height: 100vh !important;
+          height: 100dvh !important;
           z-index: 99990 !important;
           background: rgba(10, 25, 45, 0.6) !important;
           backdrop-filter: blur(4px) !important;
@@ -815,6 +816,7 @@ return;
           width: 100% !important;
           max-width: 580px !important;
           height: 100vh !important;
+          height: 100dvh !important;
           background: #fff !important;
           box-shadow: -10px 0 35px rgba(0,0,0,0.35) !important;
           display: flex !important;
@@ -1749,7 +1751,7 @@ return;
 
       {/* ── View D: التحليلات وتوزيع الأحمال ── */}
       {viewMode === 'analytics' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: 16 }}>
           {/* توزيع المستشارين وأحمالهم */}
           <div className="card" style={{ margin: 0 }}>
             <div className="card-h">
@@ -2176,7 +2178,7 @@ return;
                   {/* 4. تعديل الأولوية */}
                   <div className="card" style={{ margin: 0, padding: 14 }}>
                     <b>تعديل درجة الأولوية:</b>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginTop: 10 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 80px), 1fr))', gap: 6, marginTop: 10 }}>
                       {CONSULT_PRIORITIES.map((p) => (
                         <button
                           key={p}
@@ -2447,7 +2449,7 @@ return;
               <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>
                 قناة الاستشارة:
               </label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 110px), 1fr))', gap: 8 }}>
                 {CONSULT_CHANNEL_OPTIONS.map((channel) => {
                   const isSelected = pricingChannel === channel;
                   return (

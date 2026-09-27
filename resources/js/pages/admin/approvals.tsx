@@ -1544,7 +1544,7 @@ const AdminApprovals: React.FC<Props> = ({
                                         </div>
                                     )}
 
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 4 }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: 8, marginTop: 4 }}>
                                         <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                                             المسؤول: <strong style={{ color: 'var(--text)' }}>{modalState.item?.lawyer || modalState.item?.proposedBy || '—'}</strong>
                                         </div>

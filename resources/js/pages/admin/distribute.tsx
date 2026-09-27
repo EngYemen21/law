@@ -342,7 +342,7 @@ export const AdminDistribute: React.FC<Props> = ({
       </div>
 
       {/* ── 2. شبكة مؤشرات KPI الشاملة ── */}
-      <div className="stats" style={{ gridTemplateColumns: 'repeat(4,1fr)', marginBottom: 20 }}>
+      <div className="stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', marginBottom: 20 }}>
         <div
           className={`stat t-amber${statusTab === 'unassigned' && kindFilter === 'all' ? ' sel' : ''}`}
           style={{ cursor: 'pointer', outline: statusTab === 'unassigned' && kindFilter === 'all' ? '2px solid var(--amber)' : 'none' }}
@@ -443,7 +443,7 @@ export const AdminDistribute: React.FC<Props> = ({
                   </div>
 
                   {/* إحصاءات الحمل التفصيلية للأقسام الأربعة */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px', fontSize: 11.5, color: 'var(--muted)', marginBottom: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: '4px 8px', fontSize: 11.5, color: 'var(--muted)', marginBottom: 8 }}>
                     <span>تذاكر: <strong style={{ color: 'var(--ink)' }}>{l.activeTicketsCount}</strong></span>
                     <span>قضايا: <strong style={{ color: 'var(--ink)' }}>{l.activeCasesCount}</strong></span>
                     <span>تنفيذ: <strong style={{ color: 'var(--ink)' }}>{l.activeExecutionsCount ?? 0}</strong></span>
@@ -898,7 +898,7 @@ export const AdminDistribute: React.FC<Props> = ({
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr 1fr 1fr',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 110px), 1fr))',
                 gap: 10,
                 background: 'var(--paper-2)',
                 borderRadius: 'var(--r-sm)',

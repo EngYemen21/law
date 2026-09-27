@@ -927,7 +927,7 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
                 <div style={{ fontWeight: 600, color: 'var(--ink)', marginTop: 1 }}>{ticket.lawyer || '—'}</div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: 8 }}>
                 <div>
                   <div style={{ color: 'var(--muted)', fontSize: 11 }}>النوع:</div>
                   <div style={{ fontWeight: 600, color: 'var(--ink)', marginTop: 1 }}>{ticket.type}</div>

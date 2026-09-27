@@ -323,7 +323,7 @@ const AdminDashboard: React.FC<Props> = ({
             </span>
           </div>
           <div className="card-b" style={{ padding: '14px 18px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 12 }}>
               {radar.map((item) => (
                 <div
                   key={item.id}

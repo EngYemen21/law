@@ -129,7 +129,7 @@ const AdminRevenue: React.FC<Props> = ({
       </div>
 
       {/* ── قطاعات الدخل الثلاثة ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, marginBottom: 16 }}>
         {/* قطاع 1: الاستشارات القانونية */}
         <div className="card">
           <div className="card-h">

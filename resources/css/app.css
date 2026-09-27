@@ -391,6 +391,7 @@ html {
   flex-direction: column;
   gap: 14px;
   min-height: 100vh;
+height: 100dvh;
   padding-bottom: 60px;
   width: 100%;
   max-width: 100%;
@@ -946,6 +947,7 @@ html {
   bottom: 0;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   background: rgba(10, 42, 85, 0.45);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
@@ -1037,6 +1039,7 @@ html {
   bottom: 0;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   background: rgba(10, 42, 85, 0.6);
   backdrop-filter: blur(5px);
   -webkit-backdrop-filter: blur(5px);
