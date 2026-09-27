@@ -43,7 +43,7 @@ jobs:
           node-version: '22'
 
       - name: Install Node Dependencies
-        run: npm i
+        run: npm ci
 
       - name: Install Dependencies
         run: composer install --no-interaction --prefer-dist --optimize-autoloader
@@ -53,6 +53,10 @@ jobs:
 
       - name: Generate Application Key
         run: php artisan key:generate
+
+      # `vite build` لا يفحص الأنواع — و`CLAUDE.md` يشترط `tsc --noEmit` نظيفاً قبل أيّ تسليم
+      - name: Check TypeScript
+        run: npm run types:check
 
       - name: Build Assets
         run: npm run build
