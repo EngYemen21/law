@@ -24,9 +24,6 @@ import { useCan } from '@/lib/permissions';
 import { todayISO } from '@/lib/local-date';
 import { useServerAction } from '@/lib/use-server-action';
 
-// الموظّف يُحيل الملفّ إلى المستشار في هذه المراحل وحدها (Employee\TicketController::advance)
-const REFERRABLE = ['جديدة', 'قيد التحليل', 'محالة للقسم القانوني', 'بانتظار مستندات'];
-
 // محادثة التذكرة (لوحة الموظف) — مزامنة لحظية مع العميل (Reverb) بلا إعادة تحميل
 
 interface EmpTicket {
@@ -93,7 +90,9 @@ const EmployeeTicketChat: React.FC<{
   catalogueDepartments?: string[]; // أقسام مودال التحويل من الكتالوج الفعّال
   /** من يتولّى المحادثة ومن تولّاها قبله — `ConversationHandler::history`. */
   conversation?: ConversationHistory | null;
-}> = ({ ticket, channel, messages, lawyers, clientStats, catalogueDepartments = [], conversation }) => {
+  /** مراحل إحالة الموظّف (`TicketTriage::REFERRABLE`) — يقارنها الزرّ بالحالة الحيّة. */
+  referrable: string[];
+}> = ({ ticket, channel, messages, lawyers, clientStats, catalogueDepartments = [], conversation, referrable }) => {
   const toast = useToast();
   const can = useCan();
   // الأزرار تُخفى بحسب الصلاحية التفصيلية — كانت تُعرض للجميع ثم يُبتلع رفض الخادم
@@ -257,7 +256,8 @@ const EmployeeTicketChat: React.FC<{
   };
   const waiting = WAITING[status.status];
   // الإحالة وحدها بيد الموظّف؛ وإكمال التذكرة باعتماد الإدارة لملخّص الجلسة (قرار المالك 2026-09-14)
-  const canRefer = REFERRABLE.includes(status.status);
+  // مراحل الإحالة من الخادم (`TicketTriage::REFERRABLE`) — حارس `advance` نفسه
+  const canRefer = referrable.includes(status.status);
 
   return (
     <div className="tflow">

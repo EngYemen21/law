@@ -108,6 +108,9 @@ class TicketController extends Controller
         return Inertia::render('employee/ticketchat', [
             // من يتولّى المحادثة الآن ومن تولّاها قبله — للطاقم وحده (`ConversationHandler`)
             'conversation' => ConversationHandler::history($ticket),
+            // مراحل الإحالة من `TicketTriage::REFERRABLE` — حارس `advance` نفسه؛ قائمةٌ لا علم لأنّ
+            // الشاشة تقارنها بالحالة الحيّة (البثّ) فيظهر الزرّ ويختفي دون إعادة تحميل
+            'referrable' => TicketTriage::REFERRABLE,
             // caseRef يخفي زرّ «تحويل إلى قضية» بعد التحويل ويعرض رابط ملف القضية بدله
             // mobile/openedAt لبطاقتَي «تفاصيل الطلب» ومعلومات التذكرة (يطابق tkDetailsCard المرجعي)
             'ticket' => array_merge($ticket->toEmployeeCard(), [

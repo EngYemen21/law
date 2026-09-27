@@ -8,6 +8,7 @@ use App\Events\TicketStatusBroadcast;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Support\TicketJourney;
+use App\Support\TicketTriage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -40,5 +41,18 @@ class TicketTerminalSourceTest extends TestCase
             "['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة إلى تنفيذ']",
             (string) file_get_contents(resource_path('js/pages/ticketchat.tsx'))
         );
+    }
+
+    /** مراحل إحالة الموظّف تصل الشاشة من حارس `advance` نفسه — كانت نسخةً يدويّة في الواجهة. */
+    public function test_the_referral_stages_come_from_the_server(): void
+    {
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $ticket = Ticket::create(['user_id' => $client->id, 'number' => 'SB-REF-'.uniqid(), 'type' => 'نزاع', 'status' => 'جديدة']);
+
+        $this->actingAs($employee)->get("/employee/tickets/{$ticket->number}")
+            ->assertInertia(fn ($p) => $p->where('referrable', TicketTriage::REFERRABLE));
+
+        $this->assertStringNotContainsString('const REFERRABLE', (string) file_get_contents(resource_path('js/pages/employee/ticketchat.tsx')));
     }
 }
