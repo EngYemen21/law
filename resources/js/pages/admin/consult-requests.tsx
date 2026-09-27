@@ -27,8 +27,6 @@ interface AdminConsultRequestsProps {
 type ViewMode = 'pipeline' | 'table';
 type CategoryFilter = 'all' | 'pricing' | 'payment' | 'scheduling' | 'approval' | 'late';
 
-/** مرحلة الحجز بعد السداد: لم يُحجز الموعد، أو حجزه موظّفٌ وينتظر اعتماد الإدارة (قرار المالك 2026-09-14). */
-const SCHEDULE_STAGE = ['بانتظار تحديد الموعد', 'بانتظار اعتماد الموعد'];
 const CHANNEL_KEY: Record<string, string> = { 'حضورية': 'office', 'مرئية': 'video', 'هاتفية': 'phone' };
 
 /*
@@ -201,11 +199,11 @@ return null;
 
     // Financial volume calculations
     const pendingPaymentAmount = liveItems
-      .filter((c) => c.status === 'بانتظار السداد')
+      .filter((c) => c.bookingStage === 'payment')
       .reduce((sum, c) => sum + (Number(c.total) || 0), 0);
 
     const paidCollectedAmount = liveItems
-      .filter((c) => c.status === 'بانتظار تحديد الموعد' || c.paid)
+      .filter((c) => c.bookingStage === 'scheduling' || c.paid)
       .reduce((sum, c) => sum + (Number(c.total) || 0), 0);
 
     /*
@@ -309,6 +307,15 @@ return (a.total || 0) - (b.total || 0);
         return 0;
       });
   }, [liveItems, categoryFilter, channelFilter, specialtyFilter, searchQuery, sortBy, lateAfterMins]);
+
+  // **أعمدة الكانبان من مرحلة الحجز (`bookingStage`)** — كانت ثلاث مقارناتٍ لنصّ الحالة لكلّ عمود
+  // وقائمةٌ محلّيّة لعمود الجدولة؛ والعمود الثالث يضمّ ما بعد السداد: لم يُحجز، أو حُجز وينتظر
+  // اعتماد الإدارة (قرار المالك 2026-09-14).
+  const kanban = useMemo(() => ({
+    pricing: filteredItems.filter((c) => c.bookingStage === 'pricing'),
+    payment: filteredItems.filter((c) => c.bookingStage === 'payment'),
+    scheduling: filteredItems.filter((c) => c.bookingStage === 'scheduling' || c.bookingStage === 'approval'),
+  }), [filteredItems]);
 
   // Submit Pricing Action (Base + VAT + Channel)
   const handlePricingSubmit = (consult: ConsultCard, priceStr: string, channelToSet?: string) => {
@@ -923,14 +930,13 @@ return (a.total || 0) - (b.total || 0);
                   fontWeight: 800,
                 }}
               >
-                {filteredItems.filter((c) => c.status === 'بانتظار التسعير').length}
+                {kanban.pricing.length}
               </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {filteredItems.filter((c) => c.status === 'بانتظار التسعير').length > 0 ? (
-                filteredItems
-                  .filter((c) => c.status === 'بانتظار التسعير')
+              {kanban.pricing.length > 0 ? (
+                kanban.pricing
                   .map((c) => (
                     <div
                       key={c.id}
@@ -1053,14 +1059,13 @@ return (a.total || 0) - (b.total || 0);
                   fontWeight: 800,
                 }}
               >
-                {filteredItems.filter((c) => c.status === 'بانتظار السداد').length}
+                {kanban.payment.length}
               </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {filteredItems.filter((c) => c.status === 'بانتظار السداد').length > 0 ? (
-                filteredItems
-                  .filter((c) => c.status === 'بانتظار السداد')
+              {kanban.payment.length > 0 ? (
+                kanban.payment
                   .map((c) => (
                     <div
                       key={c.id}
@@ -1201,14 +1206,13 @@ return (a.total || 0) - (b.total || 0);
                   fontWeight: 800,
                 }}
               >
-                {filteredItems.filter((c) => SCHEDULE_STAGE.includes(c.status)).length}
+                {kanban.scheduling.length}
               </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {filteredItems.filter((c) => SCHEDULE_STAGE.includes(c.status)).length > 0 ? (
-                filteredItems
-                  .filter((c) => SCHEDULE_STAGE.includes(c.status))
+              {kanban.scheduling.length > 0 ? (
+                kanban.scheduling
                   .map((c) => (
                     <div
                       key={c.id}
@@ -1236,7 +1240,7 @@ return (a.total || 0) - (b.total || 0);
                           <Icon name={crChannelIcon(c.channel)} />
                           <b style={{ color: 'var(--primary)', fontSize: 13.5 }}>{c.ref}</b>
                         </div>
-                        <Badge text={c.status === 'بانتظار اعتماد الموعد' ? 'بانتظار اعتماد الموعد' : 'مُسددة'} tone={c.status === 'بانتظار اعتماد الموعد' ? 'b-amber' : 'b-green'} />
+                        <Badge text={c.bookingStage === 'approval' ? 'بانتظار اعتماد الموعد' : 'مُسددة'} tone={c.bookingStage === 'approval' ? 'b-amber' : 'b-green'} />
                       </div>
 
                       <div style={{ fontSize: 13, fontWeight: 700, marginTop: 6, color: '#13314F' }}>
@@ -1462,7 +1466,7 @@ return (a.total || 0) - (b.total || 0);
                               <Icon name="bell" /> تذكير
                             </button>
                           )}
-                          {c.status === 'بانتظار اعتماد الموعد' && (
+                          {c.bookingStage === 'approval' && (
                             <button className="btn sm" type="button" onClick={() => openDrawer(c.ref, 'actions')}>
                               <Icon name="check" /> اعتماد الموعد
                             </button>
@@ -1966,7 +1970,7 @@ return (a.total || 0) - (b.total || 0);
                     </div>
                   )}
 
-                  {drawerConsult.status === 'بانتظار اعتماد الموعد' && (
+                  {drawerConsult.bookingStage === 'approval' && (
                     <div className="card" style={{ margin: 0, padding: 14, borderRight: '4px solid #1E9D6B' }}>
                       <b>اعتماد الموعد المقترح من الموظّف:</b>
                       <p style={{ fontSize: 12.5, margin: '6px 0 4px' }}>
