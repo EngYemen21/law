@@ -3,7 +3,7 @@
 منصة إدارة متكاملة لمكاتب المحاماة، توفر إدارة كاملة للعملاء والقضايا والاستشارات والفواتير والمستندات.
 
 **الإصدار:** 1.0 (قيد التطوير)  
-**الآخر تحديث:** 26 يونيو 2026
+**آخر تحديث:** 27 سبتمبر 2026
 
 ---
 
@@ -51,8 +51,8 @@
 
 ### المتطلبات المسبقة
 ```
-- PHP 8.2+
-- Node.js 18+
+- PHP 8.3+
+- Node.js 22+ و npm 10 أو 11 (التثبيت بـ`npm ci`)
 - Composer 2.0+
 - MySQL 8.0+ (أو PostgreSQL)
 ```
@@ -165,13 +165,14 @@ project/
 - 🔥 **Vite** - Build Tool
 
 ### Backend
-- 🐘 **Laravel 11** - PHP Framework
+- 🐘 **Laravel 13** - PHP Framework
 - 🗄️ **Eloquent ORM** - Database Layer
-- 🔐 **Sanctum** - API Authentication
-- 📨 **Laravel Mail** - Email Service
+- 🔐 **spatie/laravel-permission** - الأدوار والصلاحيّات
+- 📡 **Laravel Reverb** - البثّ اللحظيّ (WebSockets)
+- 📨 **Laravel Mail + Resend** - Email Service
 
 ### Development Tools
-- 🧪 **Vitest** - Unit Testing
+- 🧪 **Pest / PHPUnit** - اختبارات الخادم (Feature)
 - 🔍 **ESLint** - Code Linting
 - 🎨 **Prettier** - Code Formatting
 - 📚 **TypeScript** - Type Checking
@@ -211,15 +212,16 @@ touch resources/js/components/ui/NewComponent.tsx
 # 2. كتابة الكود مع TypeScript
 # اتبع معايير المكونات الموجودة
 
-# 3. إضافة الاختبارات
-touch resources/js/components/ui/NewComponent.test.tsx
+# 3. إضافة الاختبارات: اختبار Feature في tests/Feature (لا اختبارات واجهة في المشروع حالياً)
 ```
 
 ### تشغيل الاختبارات
 ```bash
-npm run test              # تشغيل الاختبارات
-npm run test:watch       # وضع المراقبة
-npm run test:ui         # واجهة رسومية
+php artisan test                 # اختبارات الخادم كلّها (أو --filter=<Domain>)
+npm run types:check              # فحص الأنواع (tsc --noEmit)
+composer lint:check              # تنسيق PHP (pint --test)
+npm run lint:check               # ESLint
+npm run format:check             # Prettier
 ```
 
 ---
@@ -325,11 +327,14 @@ npm run type-check   # فحص الأنواع
 
 | المقياس | القيمة |
 |--------|--------|
-| **المكونات** | 7 |
-| **الصفحات** | 3/7 |
-| **الاختبارات** | 10 |
-| **سطور الكود** | ~2,900 |
-| **التوثيق** | 3 ملفات |
+| **صفحات الواجهة** | 97 |
+| **المكوّنات** | 39 |
+| **ملفّات الاختبار** | 370 (~2,590 اختباراً) |
+| **سطور PHP في `app/`** | ~61,000 (453 ملفّاً) |
+| **سطور TypeScript/React** | ~66,000 |
+| **المهاجرات** | 137 |
+
+> الأرقام بتاريخ 2026-09-27. الحالة الحيّة للمشروع في [`PROJECT_STATUS.md`](./PROJECT_STATUS.md).
 
 ---
 
@@ -368,7 +373,7 @@ npm run type-check   # فحص الأنواع
 
 ---
 
-**آخر تحديث:** 26 يونيو 2026  
+**آخر تحديث:** 27 سبتمبر 2026  
 **الحالة:** قيد التطوير النشط 🚀
 
 للمزيد من المعلومات، يرجى الاطلاع على التوثيق الكاملة في مجلد `/docs`
