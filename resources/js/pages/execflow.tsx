@@ -6,7 +6,7 @@ import ChatThread from '@/components/babylon/ChatThread';
 import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
-import { EXEC_FLOW, EXEC_SANADS, EXEC_FEE_MODES, EXEC_CLOSE_REASONS, EXEC_DOC_ACCEPT, EXEC_DOC_HINT, EXEC_REQ_DOC_ACCEPT, EXEC_REQ_DOC_HINT, execTone, execMoney, procTone, execVatLabel, execAiPresentation, execStudyBasis, execUnassigned    } from '@/lib/exec-flow';
+import { EXEC_FLOW, EXEC_SANADS, EXEC_FEE_MODES, EXEC_CLOSE_REASONS, EXEC_DOC_ACCEPT, EXEC_DOC_HINT, EXEC_REQ_DOC_ACCEPT, EXEC_REQ_DOC_HINT, execMoney, procTone, execVatLabel, execAiPresentation, execStudyBasis, execUnassigned    } from '@/lib/exec-flow';
 import type { ExecFeeMode, ExecInvoice } from '@/lib/exec-flow';
 import { installmentsText, useSettings } from '@/lib/settings';
 import type {ExecDoc, ExecLawyerOpt, ExecReq, Role} from '@/lib/exec-flow';
@@ -154,7 +154,7 @@ const ExecList: React.FC<{ role: Role; execs: ExecReq[]; onNew: () => void; onOp
                     مطالبة {execMoney(r.amount)} ريال{r.execNo ? ` · تنفيذ ${r.execNo}` : ''}
                   </div>
                 </div>
-                <Badge text={EXEC_FLOW[r.stage]} tone={execTone(r.stage)} />
+                <Badge text={EXEC_FLOW[r.stage]} tone={r.tone} />
               </div>
               <div className="agd-meta">
                 <span><Icon name="scale" /> {r.defendant || '—'}</span>
@@ -778,7 +778,7 @@ return;
       </div>
 
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="card-h"><h3>طلب التنفيذ {r.id}</h3><Badge text={EXEC_FLOW[r.stage]} tone={execTone(r.stage)} /></div>
+        <div className="card-h"><h3>طلب التنفيذ {r.id}</h3><Badge text={EXEC_FLOW[r.stage]} tone={r.tone} /></div>
         <div className="card-b" style={{ padding: 16 }}>
           <FlowLine steps={EXEC_FLOW} cur={r.stage} />
         </div>
@@ -1155,7 +1155,7 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
               <Icon name="reply" /> رجوع
             </button>
             <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>طلب تنفيذ #{r.id}</span>
-            <Badge text={EXEC_FLOW[r.stage]} tone={execTone(r.stage)} />
+            <Badge text={EXEC_FLOW[r.stage]} tone={r.tone} />
             {r.closed && <Badge text="مغلق" tone="b-grey" />}
             {r.execNo && <span className="chip" style={{ fontSize: 11.5 }}>رقم التنفيذ: {r.execNo}</span>}
           </div>
@@ -1273,7 +1273,7 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
                 </div>
               ) : (
                 <div className="card" style={{ marginBottom: 12 }}>
-                  <div className="card-h"><h3>موقف طلب التنفيذ</h3><Badge text={EXEC_FLOW[r.stage]} tone={execTone(r.stage)} /></div>
+                  <div className="card-h"><h3>موقف طلب التنفيذ</h3><Badge text={EXEC_FLOW[r.stage]} tone={r.tone} /></div>
                   <div className="card-b" style={{ padding: 16 }}>
                     <div className="mtg-pend">
                       <Icon name="info" />

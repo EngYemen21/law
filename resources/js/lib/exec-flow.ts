@@ -138,6 +138,8 @@ export interface ExecReq {
   notes: string;
   docs: string[];
   stage: number;
+  /** لون شارة المرحلة (`ExecFlow::tone`) من الخادم. */
+  tone: string;
   channel: string;
   messages: Message[];
   docItems: ExecDoc[];
@@ -223,11 +225,6 @@ export function execStudyBasis(study?: ExecStudy | null): string {
     count > 0 ? `الإجراءات المتوقّعة: ${count}` : '',
     study.durationEstimate ? `المدّة المتوقّعة: ${study.durationEstimate}` : '',
   ].filter(Boolean).join(' · ');
-}
-
-// نغمة الشارة حسب المرحلة (تطابق execTone في التصميم)
-export function execTone(stage: number): string {
-  return stage >= 9 ? 'b-grey' : stage >= 7 ? 'b-green' : stage >= 5 ? 'b-amber' : stage >= 2 ? 'b-blue' : 'b-grey';
 }
 
 // تنسيق المبلغ (تطابق execMoney)

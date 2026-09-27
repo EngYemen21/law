@@ -189,6 +189,9 @@ class Execution extends Model
             'notes' => $this->notes ?? '',
             'docs' => $this->docs ?? [],
             'stage' => $stage,
+            // لون شارة المرحلة من الخادم (`ExecFlow::tone`) للمرحلة الفعّالة نفسها — كانت معادلته منسوخةً
+            // في الواجهة (`execTone`)
+            'tone' => ExecFlow::tone($stage),
             'channel' => 'exec.'.$this->id,
             'messages' => $this->relationLoaded('messages')
                 ? $this->flowMessages($internal)

@@ -12,9 +12,11 @@ use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Enums\Role;
 use App\Models\CaseHearing;
 use App\Models\Consult;
+use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\ExecFlow;
 use App\Support\TimelineCard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -152,5 +154,21 @@ class StatusToneSourceTest extends TestCase
         foreach (['js/lib/calendar-ui.tsx', 'js/pages/admin/calendar.tsx'] as $f) {
             $this->assertStringContainsString('statusTone: e.statusTone', (string) file_get_contents(resource_path($f)), $f);
         }
+    }
+
+    /** بطاقة التنفيذ تحمل لون مرحلتها الفعّالة — كانت الواجهة تنسخ معادلة `ExecFlow::tone` (`execTone`). */
+    public function test_the_execution_card_carries_its_stage_tone(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+
+        foreach ([[2, ExecutionStatus::InProgress], [7, ExecutionStatus::InProgress], [null, ExecutionStatus::InProgress], [null, ExecutionStatus::Closed]] as [$stage, $status]) {
+            $e = Execution::create([
+                'user_id' => $client->id, 'number' => 'EX-TONE-'.uniqid(), 'subject' => 'سند', 'stage' => $stage, 'status' => $status->value,
+            ]);
+
+            $this->assertSame(ExecFlow::tone($e->effectiveStage()), $e->toFlowCard()['tone']);
+        }
+
+        $this->assertStringNotContainsString('export function execTone', (string) file_get_contents(resource_path('js/lib/exec-flow.ts')));
     }
 }
