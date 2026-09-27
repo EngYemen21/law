@@ -37,15 +37,10 @@ git pull origin main
 composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
 
 # 4. تثبيت حزم الواجهة ومحرك طباعة التقارير PDF
-# ملفّ القفل مولَّدٌ بـnpm 11؛ وnpm 10 يرفضه في `npm ci` («Missing: @emnapi/core …» — حزمٌ اختياريّة يسجّلها
-# الإصداران بطريقتين). فمع npm 10 يُكمل `npm install` الناقص بنفسه، وتعديله لملفّ القفل على الخادم لا يبقى:
-# السحب القادم يعيده لنسخة المستودع (الخطوة 2). وnpm 11 يبقى الأصحّ: `npm install -g npm@11`.
-if [ "$(npm --version | cut -d. -f1)" -ge 11 ]; then
-    npm ci
-else
-    echo "⚠️ npm $(npm --version) — يُستعمل npm install بدل npm ci (حدّثه لاحقاً إلى 11)"
-    npm install --no-audit --no-fund
-fi
+# `npm ci` وحده: يثبّت ملفّ القفل كما هو أو يفشل — لا يعدّله. كان الملفّ غير متزامن مع package.json
+# («Missing: @emnapi/core …») فيرفضه npm 10 و11 كلاهما، فاستُعمل `npm install` مع npm 10؛ أُعيد توليده
+# (2026-09-27) فصار `npm ci` يقبله بالإصدارين.
+npm ci
 if ! npx puppeteer browsers installed | grep -q "chrome"; then
     npx puppeteer browsers install chrome || true
 fi
