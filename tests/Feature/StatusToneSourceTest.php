@@ -2,10 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\HearingStatus;
 use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Enums\Role;
+use App\Models\CaseHearing;
+use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\TimelineCard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -48,5 +52,34 @@ class StatusToneSourceTest extends TestCase
             (string) file_get_contents(resource_path('js/pages/admin/approvals.tsx')),
             'عادت خريطة ألوانٍ محلّيّة للمسارات'
         );
+    }
+
+    /** التقويم الزمنيّ يلوّن الجلسة القضائيّة كشاشة الجلسات — كانت كلّ غير فائتةٍ كهرمانيّة. */
+    public function test_the_timeline_colours_a_hearing_as_its_status(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $case = LegalCase::create([
+            'user_id' => $client->id, 'number' => 'CASE-TONE-'.uniqid(), 'type' => 'نزاع', 'status' => 'منظورة',
+            'tone' => 'b-blue', 'update_text' => '—',
+        ]);
+
+        $expect = [];
+        foreach ([
+            [HearingStatus::Held, now()->subDay(), 'b-green'],
+            [HearingStatus::Cancelled, now()->addDay(), 'b-grey'],
+            [HearingStatus::Scheduled, now()->addDay(), 'b-blue'],
+            [HearingStatus::Scheduled, now()->subDays(2), 'b-red'], // فائتة
+        ] as [$status, $at, $tone]) {
+            $h = CaseHearing::create([
+                'case_id' => $case->id, 'title' => 'جلسة', 'day' => $at->toDateString(), 'time' => $at->format('H:i'),
+                'starts_at' => $at, 'status' => $status->value, 'duration_min' => 45,
+            ]);
+            $expect[$h->id] = $tone;
+        }
+
+        $rows = collect(array_map(fn ($id) => (object) ['kind' => 'hearing', 'model_id' => $id], array_keys($expect)));
+        $cards = TimelineCard::hydrate($rows, $client);
+
+        $this->assertSame(array_values($expect), array_column($cards, 'statusTone'));
     }
 }

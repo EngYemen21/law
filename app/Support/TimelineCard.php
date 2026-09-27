@@ -103,7 +103,8 @@ class TimelineCard
             'durationMin' => $d['durationMin'],
             // lapsed: «مجدولة» فات موعدها ⇒ «فائتة — بانتظار النتيجة» بدل حالة كاذبة
             'status' => EventStatus::forHearing($h),
-            'statusTone' => $d['lapsed'] ? 'b-red' : 'b-amber',
+            // لون الحالة من `CaseHearing::liveTone` — كانت كلّ جلسةٍ غير فائتة كهرمانيّة (المنعقدة والملغاة معاً)
+            'statusTone' => $h->liveTone(),
             'when' => ($h->starts_at && $h->starts_at->isFuture()) ? 'up' : 'past',
             'joinLink' => '',
         ];

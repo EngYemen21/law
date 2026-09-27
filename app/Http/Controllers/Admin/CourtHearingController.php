@@ -298,7 +298,7 @@ class CourtHearingController extends Controller
             // الشارة من الخادم: نصُّ العرض (`EventStatus::forHearing`) ونغمتُه (`HearingStatus::tone`) —
             // كان `switch` على النصوص العربيّة في الشاشة يلوّن بلوحةٍ غير لوحة بقيّة الشاشات
             'statusLabel' => EventStatus::forHearing($h),
-            'tone' => ($lapsed ? HearingStatus::Lapsed : ($h->statusEnum() ?? HearingStatus::Scheduled))->tone(),
+            'tone' => $h->liveTone(),
             // «اليوم» علَمٌ لا مقارنةٌ بنصّ `relativeDate` في الواجهة
             'isToday' => (bool) $startsAt?->isToday(),
             // المدّة المتوقّعة (دقائق) كما أُدخلت — الشاشة تعرضها بصيغتها المشتركة (`hearingDurationLabel`)
