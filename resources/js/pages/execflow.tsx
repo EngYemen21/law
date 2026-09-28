@@ -154,7 +154,7 @@ const ExecList: React.FC<{ role: Role; execs: ExecReq[]; onNew: () => void; onOp
                     مطالبة {execMoney(r.amount)} ريال{r.execNo ? ` · تنفيذ ${r.execNo}` : ''}
                   </div>
                 </div>
-                <Badge text={EXEC_FLOW[r.stage]} tone={r.tone} />
+                <Badge text={r.stageLabel} tone={r.tone} />
               </div>
               <div className="agd-meta">
                 <span><Icon name="scale" /> {r.defendant || '—'}</span>
@@ -801,7 +801,7 @@ return;
       </div>
 
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="card-h"><h3>طلب التنفيذ {r.id}</h3><Badge text={EXEC_FLOW[r.stage]} tone={r.tone} /></div>
+        <div className="card-h"><h3>طلب التنفيذ {r.id}</h3><Badge text={r.stageLabel} tone={r.tone} /></div>
         <div className="card-b" style={{ padding: 16 }}>
           <FlowLine steps={EXEC_FLOW} cur={r.stage} />
         </div>
@@ -1180,7 +1180,7 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
               <Icon name="reply" /> رجوع
             </button>
             <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>طلب تنفيذ #{r.id}</span>
-            <Badge text={EXEC_FLOW[r.stage]} tone={r.tone} />
+            <Badge text={r.stageLabel} tone={r.tone} />
             {r.closed && <Badge text="مغلق" tone="b-grey" />}
             {r.execNo && <span className="chip" style={{ fontSize: 11.5 }}>رقم التنفيذ: {r.execNo}</span>}
           </div>
@@ -1298,7 +1298,7 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
                 </div>
               ) : (
                 <div className="card" style={{ marginBottom: 12 }}>
-                  <div className="card-h"><h3>موقف طلب التنفيذ</h3><Badge text={EXEC_FLOW[r.stage]} tone={r.tone} /></div>
+                  <div className="card-h"><h3>موقف طلب التنفيذ</h3><Badge text={r.stageLabel} tone={r.tone} /></div>
                   <div className="card-b" style={{ padding: 16 }}>
                     <div className="mtg-pend">
                       <Icon name="info" />
@@ -1421,7 +1421,7 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
               <CellRow cells={[['نوع السند', r.sanad || '—'], ['قيمة المطالبة', execMoney(r.amount) + ' ريال']]} />
               <CellRow cells={[['طالب التنفيذ', r.client], ['المنفَّذ ضده', r.defendant || '—']]} />
               {role !== 'client' && r.lawyer && <CellRow cells={[['محامي التنفيذ', r.lawyer], ['حالة القرار', r.decision || 'قيد الدراسة']]} />}
-              {r.execNo && <CellRow cells={[['رقم ملف التنفيذ', r.execNo], ['المرحلة', EXEC_FLOW[r.stage]]]} />}
+              {r.execNo && <CellRow cells={[['رقم ملف التنفيذ', r.execNo], ['المرحلة', r.stageLabel]]} />}
             </div>
           </div>
 

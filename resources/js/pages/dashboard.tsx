@@ -5,7 +5,6 @@ import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import Icon from '@/lib/icons';
 import { TILES, VIEW_ROUTE } from '@/lib/data';
 import type { Appt, Invoice } from '@/lib/data';
-import { EXEC_FLOW } from '@/lib/exec-flow';
 
 // ============================================================
 // لوحة العميل الرقمية والكونسيرج القانوني 360 درجة
@@ -50,6 +49,8 @@ export interface ClientExecItem {
   subject: string;
   court?: string;
   stage?: number;
+  /** اسم المرحلة من الخادم (`Execution::stageLabel`) */
+  stageLabel?: string;
   status: string;
   tone: string;
   amount?: number;
@@ -88,6 +89,8 @@ interface Props {
     activeCases?: number;
     upAppts: number;
     upMeet: number;
+    /** مواعيد + اجتماعات قادمة أو جارية — من الخادم */
+    upcoming: number;
     dueInv: number;
     overdueInv?: number;
     myExec: number;
@@ -128,7 +131,7 @@ const Dashboard: React.FC<Props> = ({
     ['t-blue', 'folder', counts.openTickets, 'تذاكر وطلبات جارية', 'tickets'],
     ['t-cyan', 'scale', counts.activeCases ?? activeCases.length, 'قضايا منظورة بالمحاكم', 'cases'],
     // الوجهة calendar لا appts: مفتاح appts معلَّق في VIEW_ROUTE (طُوي في التقويم الموحّد)
-    ['t-green', 'cal', counts.upAppts, 'مواعيد واستشارات قادمة', 'calendar'],
+    ['t-green', 'cal', counts.upcoming, 'مواعيد واجتماعات قادمة', 'calendar'],
     [
       counts.overdueInv ? 't-red' : 't-amber',
       'card',
@@ -450,8 +453,8 @@ const Dashboard: React.FC<Props> = ({
                             <span className="mono" style={{ fontWeight: 800, fontSize: 13.5 }}>{e.number}</span>
                             <Badge text={e.status} tone={e.tone} />
                             {/* المرحلة والمحكمة يرسلهما الخادم وكانت الشاشة تُسقطهما — والمرحلة لا تُعاد إن كانت هي الحالة نفسها */}
-                            {typeof e.stage === 'number' && EXEC_FLOW[e.stage] && EXEC_FLOW[e.stage] !== e.status && (
-                              <span className="chip">{EXEC_FLOW[e.stage]}</span>
+                            {e.stageLabel && e.stageLabel !== e.status && (
+                              <span className="chip">{e.stageLabel}</span>
                             )}
                             {e.amount && <b style={{ fontSize: 12.5, color: 'var(--ink)' }}>{e.amount.toLocaleString('en-US')} ريال</b>}
                           </div>

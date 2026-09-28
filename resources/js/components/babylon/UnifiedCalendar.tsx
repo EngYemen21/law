@@ -795,10 +795,14 @@ export const UnifiedCalendar: React.FC<UnifiedCalendarProps> = ({
                             {selectedDayItems.length === 0 ? (
                                 <div className="empty" style={{ padding: '36px 16px' }}>
                                     <Icon name="cal" />
-                                    <b>{emptyMessage}</b>
-                                    <span className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                                        لا توجد أي جلسات أو استشارات مسجلة في هذا اليوم.
-                                    </span>
+                                    {/* يومٌ فارغ في تقويمٍ فيه مواعيد ليس «تقويماً فارغاً» — كانت الرسالة تقول
+                                        «لا توجد مواعيد في تقويمك» وعدّاد التقويم فوقها (6) */}
+                                    <b>{items.length ? 'لا مواعيد في هذا اليوم' : emptyMessage}</b>
+                                    {items.length > 0 && (
+                                        <span className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                                            اختر يوماً آخر من التقويم، أو اعرض القائمة كاملة.
+                                        </span>
+                                    )}
                                 </div>
                             ) : (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

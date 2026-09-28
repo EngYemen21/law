@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\MeetingStatus;
 use App\Enums\Role;
 use App\Models\Appointment;
 use App\Models\CaseHearing;
@@ -9,6 +10,7 @@ use App\Models\Consult;
 use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\LegalCase;
+use App\Models\Meeting;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Support\LawyerName;
@@ -144,5 +146,18 @@ class ClientConciergeDashboardTest extends TestCase
             // وكانت هذه البطاقة آخرَ موضعٍ يفلت منه، فيصل «أ. فهد السبيعي» كاملاً.
             ->where('assignedAdvisor.name', LawyerName::short($lawyer->name))
         );
+    }
+
+    /** **اجتماعٌ جارٍ يُعدّ في «مواعيد واجتماعات قادمة»** — كان العدّاد المواعيدَ وحدها فيقول 0 والجلسة تُدخَل الآن. */
+    public function test_the_upcoming_counter_includes_a_live_meeting(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        Meeting::create([
+            'ref' => 'M-UP-'.uniqid(), 'title' => 'اجتماع جارٍ', 'user_id' => $client->id, 'when_label' => 'الآن',
+            'status' => MeetingStatus::Live->value,
+        ]);
+
+        $this->actingAs($client)->get('/dashboard')->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('counts.upAppts', 0)->where('counts.upMeet', 1)->where('counts.upcoming', 1));
     }
 }

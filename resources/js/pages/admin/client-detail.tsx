@@ -5,7 +5,6 @@ import { useConfirm } from '@/components/babylon/ConfirmDialog';
 // import StatRow from '@/components/babylon/StatRow'; // غير مستخدم — البطاقات تُرسم محليًا بنمط الصفحة
 import type { StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
-import { EXEC_FLOW } from '@/lib/exec-flow';
 import Icon from '@/lib/icons';
 import { firstError } from '@/lib/server-message';
 
@@ -83,6 +82,8 @@ interface ExecutionItem {
   subject: string;
   defendant: string;
   stage: number;
+  /** اسم المرحلة من الخادم (`Execution::stageLabel`) */
+  stageLabel: string;
   status: string;
   tone: string;
   amount: string;
@@ -581,7 +582,7 @@ const AdminClientDetail: React.FC<Props> = ({
                               <td className="muted">{ex.defendant}</td>
                               <td className="mono">{ex.amount}</td>
                               {/* اسم المرحلة كشاشة التنفيذ — «مرحلة 8/10» هنا مقابل «قيد التنفيذ» هناك: رقمان لملفٍّ واحد */}
-                              <td><span className="chip">{EXEC_FLOW[ex.stage] ?? '—'}</span></td>
+                              <td><span className="chip">{ex.stageLabel}</span></td>
                               <td><Badge text={ex.status} tone={ex.tone} /></td>
                             </tr>
                           ))}

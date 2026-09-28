@@ -138,6 +138,8 @@ export interface ExecReq {
   notes: string;
   docs: string[];
   stage: number;
+  /** اسم المرحلة من الخادم (`Execution::stageLabel`) — الشارات تقرؤه، و`EXEC_FLOW` لشريط الخطوات وحده */
+  stageLabel: string;
   /** لون شارة المرحلة (`ExecFlow::tone`) من الخادم. */
   tone: string;
   channel: string;

@@ -197,6 +197,7 @@ class ClientController extends Controller
                 'subject' => $e->subject,
                 'defendant' => $e->defendant ?: '—',
                 'stage' => $e->effectiveStage(),
+                'stageLabel' => $e->stageLabel(),
                 'status' => $e->status,
                 'tone' => $e->tone,
                 'amount' => $e->amount ? number_format($e->amount).' ر.س' : '—',

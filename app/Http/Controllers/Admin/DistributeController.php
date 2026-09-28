@@ -15,6 +15,7 @@ use App\Models\Ticket;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
 use App\Support\Audit;
+use App\Support\LegalCatalogue;
 use App\Support\Live;
 use App\Support\TicketAssignment;
 use App\Support\TicketJourney;
@@ -145,7 +146,8 @@ class DistributeController extends Controller
                 ];
             });
 
-        // 3. ملفات التنفيذ
+        // 3. ملفات التنفيذ — قسمها قسم «التنفيذ» في الكتالوج (رمزه `enforcement`)
+        $execDept = LegalCatalogue::department('enforcement')?->name ?? 'التنفيذ';
         $executions = Execution::with(['user', 'assignedLawyer'])
             ->whereNotIn('status', Execution::CLOSED_STATUSES)
             ->where(function ($q) {
@@ -153,7 +155,7 @@ class DistributeController extends Controller
             })
             ->latest('id')
             ->get()
-            ->map(function (Execution $e) {
+            ->map(function (Execution $e) use ($execDept) {
                 return [
                     'id' => $e->id,
                     'no' => $e->number,
@@ -161,7 +163,9 @@ class DistributeController extends Controller
                     'userAvatar' => $e->user?->avatar_initials ?: 'عم',
                     'type' => 'تنفيذ أحكام وسندات',
                     'subject' => $e->subject ?: 'سند تنفيذي',
-                    'dept' => $e->court ?: 'محكمة التنفيذ',
+                    // قسم ملفّ التنفيذ هو قسم «التنفيذ» في الكتالوج — كان اسمَ المحكمة، فامتلأ فلتر الأقسام
+                    // بدوائر التنفيذ (سبعة خيارات) بين الأقسام القانونيّة. والمحكمة باقيةٌ في `courtName`
+                    'dept' => $execDept,
                     'priority' => null, // لا عمود أولويّة لملفّ التنفيذ — كالقضيّة أعلاه
                     'lawyer' => $e->assigned_lawyer ?: '—',
                     'lawyerId' => $e->assigned_lawyer_id,

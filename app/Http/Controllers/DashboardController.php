@@ -176,6 +176,9 @@ class DashboardController extends Controller
                 'activeCases' => $activeCases->count(),
                 'upAppts' => $upcomingAppts->count(),
                 'upMeet' => $upcomingMeetings->count(),
+                // عدّاد «مواعيد واجتماعات قادمة» — كان المواعيد وحدها، فيقول 0 واجتماعُ العميل جارٍ الآن
+                // (`Meeting::isUpcoming` يشمل الجاري)
+                'upcoming' => $upcomingAppts->count() + $upcomingMeetings->count(),
                 'dueInv' => $unpaidInvoices->count(),
                 'overdueInv' => $overdueInvoices->count(),
                 'myExec' => $activeExecutions->count(),
@@ -204,6 +207,7 @@ class DashboardController extends Controller
                 'court' => $e->court,
                 // المرحلة الفعّالة كبقيّة الشاشات — كان العميل يرى `null` للملفّات المفتوحة من قضية
                 'stage' => $e->effectiveStage(),
+                'stageLabel' => $e->stageLabel(),
                 'status' => $e->status,
                 'tone' => $e->tone,
                 'amount' => $e->amount,
@@ -288,6 +292,7 @@ class DashboardController extends Controller
                 'tone' => $e->tone,
                 'amount' => (int) $e->amount,
                 'stage' => $e->effectiveStage(),
+                'stageLabel' => $e->stageLabel(),
             ]);
 
         // 5. تفرغ ومستشاري المكتب

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\Enums\ExecutionStatus;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Enums\Role;
 use App\Models\Concerns\ClipsPreviewText;
@@ -193,6 +194,7 @@ class Execution extends Model
             'notes' => $this->notes ?? '',
             'docs' => $this->docs ?? [],
             'stage' => $stage,
+            'stageLabel' => $this->stageLabel(),
             // لون شارة المرحلة من الخادم (`ExecFlow::tone`) للمرحلة الفعّالة نفسها — كانت معادلته منسوخةً
             // في الواجهة (`execTone`)
             'tone' => ExecFlow::tone($stage),
@@ -323,6 +325,16 @@ class Execution extends Model
             Role::Employee => $exec->assigned_lawyer_id === null && $viewer->can(Permissions::COURT_PROCEEDINGS),
             default => false,
         };
+    }
+
+    /**
+     * **اسم المرحلة الفعّالة من الـEnum** — تقرؤه كلّ شارات المرحلة (بطاقة التدفّق، ولوحة العميل، وملفّ
+     * العميل عند الإدارة). كانت الشارة تُقرأ من نسخةٍ في الواجهة (`EXEC_FLOW[stage]`) فتخرج فارغةً لمرحلةٍ
+     * خارجها؛ و`fromStage` يعيد «مغلق» لكلّ ما بعد التنفيذ.
+     */
+    public function stageLabel(): string
+    {
+        return ExecutionStatus::fromStage($this->effectiveStage())->value;
     }
 
     /**
