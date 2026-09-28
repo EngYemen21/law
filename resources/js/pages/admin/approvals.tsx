@@ -131,7 +131,7 @@ const AdminApprovals: React.FC<Props> = ({
 }) => {
     const toast = useToast();
 
-    // قراءة التبويب الافتراضي من الرابط (?tab=history عند التحويل من /admin/summaries)
+    // قراءة التبويب الافتراضي من الرابط (?tab=history — سجلّ الملخّصات المعتمدة)
     const initialTab = useMemo<TabKey>(() => {
         try {
             const urlParams = new URLSearchParams(window.location.search);

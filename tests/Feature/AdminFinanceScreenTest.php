@@ -23,7 +23,7 @@ use Tests\TestCase;
  * ما تحرسه هذه الاختبارات، وما الذي يكسره غيابها:
  *
  * 1. **التبويب خادميّ** — تبويبٌ يُرشَّح في المتصفّح يرشّح الصفحة الحاليّة وحدها فيكذب مع الترقيم.
- * 2. **`/admin/accounting` يعيد توجيهاً لا ٤٠٤** — روابطُه محفوظةٌ ومكتوبةٌ في إشعاراتٍ أُرسلت (خ٨).
+ * 2. **`/admin/accounting` حُذف** (قرار المالك 2026-09-28) — تبويب «الفواتير» هنا مكانه الوحيد.
  * 3. **التصفية بالفترة** — أوّل ما صار ممكناً بعد عمود `invoices.paid_at` (م١)، وهو الفرق
  *    الحقيقيّ بين هذه الشاشة وما قبلها.
  * 4. **الأعمار بشرط `Invoice::isOverdue` نفسه** — وإلّا ظهرت فاتورةٌ «متأخّرة» في الأعمار
@@ -128,16 +128,11 @@ class AdminFinanceScreenTest extends TestCase
 
     // ─────────────────────────── ٢. المسار القديم ───────────────────────────
 
-    /** **لا ٤٠٤ على رابطٍ محفوظ** — المسار يبقى مسجَّلاً ويُعيد التوجيه إلى تبويب الفواتير. */
-    public function test_the_legacy_accounting_path_redirects_and_is_not_gone(): void
+    /** **المسار القديم حُذف** — لا شاشتان للفواتير؛ والتبويب يصل مباشرةً. */
+    public function test_the_legacy_accounting_path_is_gone_and_invoices_live_in_finance(): void
     {
-        $response = $this->actingAs($this->admin())->get(route('admin.accounting'));
-
-        $response->assertRedirect();
-        $location = (string) $response->headers->get('Location');
-
-        $this->assertStringContainsString('/admin/finance', $location, 'المسار المحفوظ يصل الشاشة الجديدة');
-        $this->assertStringContainsString('tab=invoices', $location, 'ويصل تبويبَه هو لا لوحةً أخرى');
+        $this->actingAs($this->admin())->get('/admin/accounting')->assertNotFound();
+        $this->actingAs($this->admin())->get(route('admin.finance', ['tab' => 'invoices']))->assertOk();
     }
 
     // ─────────────────────────── ٣. التصفية بالفترة ───────────────────────────

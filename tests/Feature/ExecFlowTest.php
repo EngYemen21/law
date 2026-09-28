@@ -254,9 +254,9 @@ class ExecFlowTest extends TestCase
 
     public function test_client_render_endpoint_ok(): void
     {
-        // التبويب الموحّد للعميل — يعرض صفحة التدفّق (المسار القديم /exec-preview يحوّل إليه)
+        // التبويب الموحّد للعميل — والمسار القديم /exec-preview حُذف (قرار المالك 2026-09-28)
         $this->actingAs($this->client())->get(route('execs'))->assertOk();
-        $this->actingAs($this->client())->get('/exec-preview')->assertRedirect('/execs');
+        $this->actingAs($this->client())->get('/exec-preview')->assertNotFound();
     }
 
     public function test_submit_dispatches_analysis_job(): void

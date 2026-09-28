@@ -147,8 +147,6 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
 
     // التنفيذ — تبويب موحّد (تدفّق + تنفيذات قديمة) على مسار /execs
     Route::get('/execs', [ExecFlowController::class, 'client'])->name('execs');
-    // توافق خلفيّ: المسار القديم يُحوّل للتبويب الموحّد
-    Route::redirect('/exec-preview', '/execs')->name('exec.preview');
 
     // الاستشارات — «استشاراتي» مربوطة بقاعدة البيانات؛ الجلسات المرئية عبر Zoom
     Route::get('/book', [ConsultBookingController::class, 'index'])->name('book');
@@ -268,7 +266,6 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
         });
         // التنفيذ — تبويب موحّد (استقبال/إحالة) لدور الموظف
         Route::get('/execs', [ExecFlowController::class, 'employee'])->name('execs');
-        Route::redirect('/exec-preview', '/employee/execs')->name('exec.preview');
     });
 
     // رحلة الاستشارة + الاستقبال + الغرفة — استقبال الاستشارات
@@ -462,7 +459,6 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::post('/cases/{case}/execute', [LawyerCaseController::class, 'convertToExecution'])->name('cases.execute');
         // التنفيذ — تبويب موحّد (تدفّق + تنفيذات قديمة) لدور المحامي، محصور بالمسند إليه/القابل للالتقاط
         Route::get('/execs', [ExecFlowController::class, 'lawyer'])->name('execs');
-        Route::redirect('/exec-preview', '/lawyer/execs')->name('exec.preview');
         Route::get('/tasks', [LawyerTaskController::class, 'index'])->name('tasks');
         Route::post('/tasks', [LawyerTaskController::class, 'store'])->name('tasks.store');
         Route::post('/tasks/{task}/complete', [LawyerTaskController::class, 'complete'])->name('tasks.complete');
@@ -659,7 +655,6 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/cases/{case}/execute', [AdminCaseController::class, 'execute'])->name('cases.execute');
     // التنفيذ — تبويب موحّد (تدفّق + تنفيذات قديمة) لدور الإدارة العليا
     Route::get('/execs', [ExecFlowController::class, 'admin'])->name('execs');
-    Route::redirect('/exec-preview', '/admin/execs')->name('exec.preview');
     Route::get('/tasks', [AdminTaskController::class, 'index'])->name('tasks');
     Route::post('/tasks', [AdminTaskController::class, 'store'])->name('tasks.store');
     // إنجاز أي مهمة + إعادة إسنادها — المهمة المسندة لغير محامٍ كانت لا تُغلق من أي شاشة
@@ -699,7 +694,6 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/approvals/reject', [AdminApprovalsController::class, 'reject'])->name('approvals.reject');
     // «استبعاد» بلا سبب أُزيل (2026-09-26): لا تناديه الواجهة، وكان يُعيد المقترح/الملخّص/المحضر بلا سببٍ
     // ولا إبلاغ — مسار التفافٍ على الرفض المسبَّب (`approvals.reject`)
-    Route::get('/summaries', [AdminTicketController::class, 'summaries'])->name('summaries');
     // مراجعة/اعتماد/تعديل ملخص الملف (إشراف الإدارة العليا — صلاحيات مطلقة)
     Route::get('/summary/{ticket}', [LawyerTicketController::class, 'showSummary'])->name('summary');
     Route::post('/summary/{ticket}', [LawyerTicketController::class, 'updateSummary'])->name('summary.update');
@@ -763,8 +757,6 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     // ومتى حُسم ق٩ (هل يرى المحامي أرقام موكّلي غيره؟) تُستحدث الصلاحيّة **مع** مسارٍ خارج
     // `role:admin` يقابلها، لا قبله.
     Route::get('/finance', [AdminFinanceController::class, 'index'])->name('finance');
-    // المسار القديم يبقى مسجَّلاً ويُعيد التوجيه — روابطُه محفوظةٌ ومكتوبةٌ في إشعاراتٍ أُرسلت (خ٨)
-    Route::get('/accounting', [AdminFinanceController::class, 'legacyAccounting'])->name('accounting');
     Route::post('/invoices/{invoice}/pay', [AdminFinanceController::class, 'pay'])->name('invoices.pay');
     // دورة حياة الفاتورة من الشاشة — كلٌّ ينادي انتقاله فيُسجَّل في `journey_transitions` (م٢)
     Route::post('/invoices/{invoice}/issue', [AdminFinanceController::class, 'issue'])->name('invoices.issue');
