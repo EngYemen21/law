@@ -38,7 +38,7 @@ class Execution extends Model
         'ai_done', 'ai_source', 'ai_summary', 'ai_missing', 'ai_procedures', 'ai_study', 'ai_approved_at', 'ai_approved_by',
         'decision', 'fee', 'vat', 'duration', 'pay_method', 'fee_approved', 'offer_status',
         // نماذج الأتعاب: نموذج المكتب (ثابت/نسبة) وخطّة العميل (كامل/تقسيط)
-        'fee_mode', 'collection_fee_pct', 'pay_plan', 'installments_total', 'installments_paid',
+        'fee_mode', 'collection_fee_pct', 'lawyer_pct', 'lawyer_fee', 'pay_plan', 'installments_total', 'installments_paid',
         'invoice_no', 'paid', 'paid_at', 'exec_no', 'payment_reminder_sent_at',
         // مسار ناجز داخل المرحلتين 7 و8 (قرار المالك 2026-09-12) وسبب الإنهاء
         'najiz_request_no', 'najiz_filed_at', 'circuit', 'registered_at', 'notified_at', 'pay_due_at',
@@ -60,6 +60,8 @@ class Execution extends Model
         'ai_study' => 'array',
         'fee_approved' => 'boolean',
         'collection_fee_pct' => 'decimal:2',
+        'lawyer_pct' => 'integer',
+        'lawyer_fee' => 'integer',
         'installments_total' => 'integer',
         'installments_paid' => 'integer',
         'paid' => 'boolean',

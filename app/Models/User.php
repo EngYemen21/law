@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\PayType;
 use App\Enums\Role;
 use App\Support\LawyerSpecialties;
 use Database\Factories\UserFactory;
@@ -123,15 +124,23 @@ class User extends Authenticatable
         return $query->where('role', Role::Lawyer)->where('status', '!=', 'suspended');
     }
 
+    /** نوع الأجر مصنَّفاً — `null` لموظّفٍ لم يُضبط أجره. */
+    public function payType(): ?PayType
+    {
+        return PayType::tryFrom((string) $this->pay_type);
+    }
+
     // وصف الأجر (يطابق payLabel في staff.tsx)
     public function payLabel(): string
     {
-        return match ($this->pay_type) {
-            'salary' => 'راتب ثابت: '.number_format($this->salary).' ر.س/شهري',
-            'pct' => 'نسبة: '.rtrim(rtrim((string) $this->pay_pct, '0'), '.').'%',
-            'both' => 'راتب '.number_format($this->salary).' ر.س + نسبة '.rtrim(rtrim((string) $this->pay_pct, '0'), '.').'%',
-            'session' => 'بالجلسة: '.number_format((int) $this->session_fee).' ر.س/جلسة',
-            default => '—',
+        $pct = rtrim(rtrim((string) $this->pay_pct, '0'), '.');
+
+        return match ($this->payType()) {
+            PayType::Salary => 'راتب ثابت: '.number_format($this->salary).' ر.س/شهري',
+            PayType::Percent => 'نسبة: '.$pct.'%',
+            PayType::SalaryAndPercent => 'راتب '.number_format($this->salary).' ر.س + نسبة '.$pct.'%',
+            PayType::Session => 'بالجلسة: '.number_format((int) $this->session_fee).' ر.س/جلسة',
+            null => '—',
         };
     }
 

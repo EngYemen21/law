@@ -12,6 +12,8 @@ import { useSettings } from '@/lib/settings';
 interface CaseFee {
   no: string; type: string; client: string; lawyer: string; status: string; tone: string;
   fee: number | null; lawyerFee?: number | null; lawyerPct?: number | null; feeStatus: string;
+  /** النسبة الافتراضيّة من الخادم (`LawyerShare::defaultPctFor`): نسبة ملفّ المحامي أو الافتراض الموحّد */
+  lawyerDefaultPct: number;
   /** حكم انتقال `SetFee` من الخادم — لا مقارنة بنصّ الحالة هنا */
   canSetFee: boolean;
   /** خطّة التقسيط (`fee_status = installments`) — الدفعات المسدَّدة من مجموعها */
@@ -40,13 +42,15 @@ const AdminCaseFees: React.FC<Props> = ({ cases }) => {
   // نسبة الضريبة المشتركة من الخادم (`Setting::vatRate`) — الفاتورة تُصدر بها، فالمعاينة بها أيضاً
   const { vat_rate: vatRate } = useSettings();
   const [vals, setVals] = useState<Record<string, { fee: string; pct: string }>>({});
+  // النسبة المدخلة، وإلّا افتراض الخادم لهذه القضيّة — مصدرٌ واحد للحقل والمعاينة والإرسال
+  const pctOf = (no: string) => vals[no]?.pct ?? String(cases.data.find((c) => c.no === no)?.lawyerDefaultPct ?? '');
 
   const set = (no: string, k: 'fee' | 'pct', v: string) =>
-    setVals((p) => ({ ...p, [no]: { fee: p[no]?.fee ?? '', pct: p[no]?.pct ?? '20', [k]: v } }));
+    setVals((p) => ({ ...p, [no]: { fee: p[no]?.fee ?? '', pct: pctOf(no), [k]: v } }));
 
   const calcLawyer = (no: string) => {
     const fee = wholeNumber(vals[no]?.fee) ?? 0;
-    const pct = wholeNumber(vals[no]?.pct ?? '20') ?? 0;
+    const pct = wholeNumber(pctOf(no)) ?? 0;
 
     return Math.round((fee * pct) / 100);
   };
@@ -70,7 +74,7 @@ const AdminCaseFees: React.FC<Props> = ({ cases }) => {
     }
 
     const fee = wholeNumber(raw);
-    const lawyer_pct = wholeNumber(vals[no]?.pct ?? '20');
+    const lawyer_pct = wholeNumber(pctOf(no));
 
     if (fee === null) {
       toast('الأتعاب بالريال الصحيح — بلا كسورٍ ولا قيمٍ سالبة', 'error');
@@ -130,7 +134,7 @@ const AdminCaseFees: React.FC<Props> = ({ cases }) => {
                   </div>
                   <div className="field">
                     <label>نسبة أتعاب المحامي (%)</label>
-                    <input className="input" type="number" value={vals[c.no]?.pct ?? '20'} onChange={(e) => set(c.no, 'pct', e.target.value)} />
+                    <input className="input" type="number" value={pctOf(c.no)} onChange={(e) => set(c.no, 'pct', e.target.value)} />
                   </div>
                 </div>
                 <div className="kv"><span className="k">نصيب المحامي المحتسب</span><span className="v">{calcLawyer(c.no).toLocaleString()} ر.س</span></div>

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\PayType;
 use App\Enums\Role;
 use App\Http\Controllers\Controller;
 use App\Models\LegalDepartment;
@@ -42,6 +43,12 @@ class StaffController extends Controller
             // قائمتان منفصلتان (قرار المالك 2026-09-14) بدل قائمةٍ ثابتة تخلطهما
             'legalDepartments' => LegalCatalogue::departments()->map(fn ($d) => ['id' => $d->id, 'name' => $d->name])->values(),
             'staffDepartments' => StaffDepartment::active()->orderBy('sort_order')->pluck('name'),
+            // أنواع الأجر من `PayType` — النموذج يعرض ما يُتاح للدور، والخادم يرفض غيره
+            'payTypes' => array_map(fn (PayType $t) => [
+                'id' => $t->value,
+                'label' => $t->label(),
+                'lawyerOnly' => ! $t->allowedFor(Role::Employee),
+            ], PayType::cases()),
         ]);
     }
 
@@ -147,7 +154,13 @@ class StaffController extends Controller
             'join' => ['nullable', 'date'],
             'start' => ['nullable', 'string', 'max:8'],
             'end' => ['nullable', 'string', 'max:8'],
-            'payType' => ['required', 'string', 'in:salary,pct,both,session'],
+            // النسبة للمحامي وحده (قرار المالك 2026-09-28) — لا تُحفظ نسبةٌ لا مصدر لها تُحسب منه
+            'payType' => ['required', 'string', Rule::in(PayType::values()), function (string $attr, mixed $value, \Closure $fail) use ($role) {
+                $type = PayType::tryFrom((string) $value);
+                if ($type !== null && ($r = Role::tryFrom((string) $role)) !== null && ! $type->allowedFor($r)) {
+                    $fail('النسبة من الأتعاب للمحامي وحده — اختر للموظّف راتباً شهريّاً أو أجراً بالجلسة.');
+                }
+            }],
             'salary' => ['nullable', 'integer', 'min:0'],
             'pct' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'session' => ['nullable', 'integer', 'min:0'],
@@ -225,10 +238,10 @@ class StaffController extends Controller
             'join_date' => $data['join'] ?? null,
             'work_start' => $data['start'] ?? null,
             'work_end' => $data['end'] ?? null,
-            'pay_type' => $data['payType'],
-            'salary' => in_array($data['payType'], ['salary', 'both'], true) ? ($data['salary'] ?? 0) : 0,
-            'pay_pct' => in_array($data['payType'], ['pct', 'both'], true) ? ($data['pct'] ?? null) : null,
-            'session_fee' => $data['payType'] === 'session' ? ($data['session'] ?? null) : null,
+            'pay_type' => ($pay = PayType::from($data['payType']))->value,
+            'salary' => $pay->hasSalary() ? ($data['salary'] ?? 0) : 0,
+            'pay_pct' => $pay->hasPercent() ? ($data['pct'] ?? null) : null,
+            'session_fee' => $pay->isSession() ? ($data['session'] ?? null) : null,
         ]
             // قسم المحامي تكتبه مزامنة تخصّصاته (syncSpecialties)، ولغيره قسمه الإداريّ
             + ($data['role'] === Role::Lawyer->value ? [] : ['department' => $data['dept'] ?? null]);

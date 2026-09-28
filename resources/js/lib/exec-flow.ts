@@ -166,6 +166,10 @@ export interface ExecReq {
   feeMode?: ExecFeeMode;
   /** نسبة الأتعاب من المحصَّل (النموذج النسبيّ وحده). */
   collectionFeePct?: number;
+  /** نصيب المحامي من الأتعاب — لبطاقة الإدارة وحدها (`ExecFlowController::admin`). */
+  lawyerPct?: number | null;
+  /** النسبة الافتراضيّة من الخادم (`LawyerShare::defaultPctFor`): نسبة ملفّ المحامي أو الافتراض الموحّد. */
+  lawyerDefaultPct?: number;
   /** خطّة السداد التي اختارها العميل — '' قبل اختياره. */
   payPlan?: '' | 'full' | 'install';
   installmentsTotal?: number;

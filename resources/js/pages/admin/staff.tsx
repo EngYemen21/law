@@ -26,13 +26,19 @@ interface Props {
   staff: StaffRow[];
   legalDepartments: LegalDepartmentOption[]; // تخصّصات المحامي (كتالوج الأقسام القانونيّة)
   staffDepartments: string[]; // أقسام الموظّفين الإداريّة
+  /** أنواع الأجر من الخادم (`App\Enums\PayType`) — النسبة للمحامي وحده */
+  payTypes: PayTypeOption[];
 }
+
+interface PayTypeOption { id: PayType; label: string; lawyerOnly: boolean }
+
+const PAY_TYPE_ICONS: Record<PayType, string> = { salary: '💵', pct: '📈', both: '🤝', session: '⚖️' };
 
 interface Shared {
   generatedPassword?: { email: string; password: string } | null;
 }
 
-const AdminStaff: React.FC<Props> = ({ staff, legalDepartments = [], staffDepartments = [] }) => {
+const AdminStaff: React.FC<Props> = ({ staff, legalDepartments = [], staffDepartments = [], payTypes = [] }) => {
   const toast = useToast();
   const { props } = usePage() as unknown as { props: Shared };
   const formRef = React.useRef<HTMLDivElement>(null);
@@ -74,7 +80,7 @@ setCred(props.generatedPassword);
   const [join, setJoin] = useState('');
   const [start, setStart] = useState('08:00');
   const [end, setEnd] = useState('16:00');
-  const [payType, setPayType] = useState<PayType>('salary');
+  const [payTypeChoice, setPayType] = useState<PayType>('salary');
   const [salary, setSalary] = useState('');
   const [pct, setPct] = useState('');
   const [session, setSession] = useState('');
@@ -134,6 +140,11 @@ setName(data.name);
   React.useEffect(() => {
     setPerms((prev) => prev.filter((p) => allowedPerms.includes(p)));
   }, [roleKey]);
+
+  // أنواع الأجر المتاحة للدور: النسبة للمحامي وحده — وتبديل الدور يُسقط نوعاً لم يعد متاحاً
+  // (قيمةٌ مشتقّة لا حالةٌ تُصحَّح: ما يُعرض ويُرسل هو المتاح دائماً)
+  const payTypesForRole = payTypes.filter((t) => roleKey === 'lawyer' || !t.lawyerOnly);
+  const payType: PayType = payTypesForRole.some((t) => t.id === payTypeChoice) ? payTypeChoice : 'salary';
 
   const togglePerm = (p: string) =>
     setPerms((prev) => (prev.indexOf(p) >= 0 ? prev.filter((x) => x !== p) : [...prev, p]));
@@ -1113,16 +1124,11 @@ setRole('موظف خدمة عملاء');
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, marginBottom: 14 }}>
-                {[
-                  { id: 'salary', label: 'راتب شهري ثابت', icon: '💵' },
-                  { id: 'pct', label: 'نسبة من الأتعاب', icon: '📈' },
-                  { id: 'both', label: 'راتب + نسبة', icon: '🤝' },
-                  { id: 'session', label: 'بالجلسة الواحدة', icon: '⚖️' },
-                ].map((pt) => (
+                {payTypesForRole.map((pt) => (
                   <button
                     key={pt.id}
                     type="button"
-                    onClick={() => setPayType(pt.id as PayType)}
+                    onClick={() => setPayType(pt.id)}
                     style={{
                       border: `1.5px solid ${payType === pt.id ? 'var(--primary)' : 'var(--line)'}`,
                       background: payType === pt.id ? 'rgba(14,92,156,.08)' : '#fff',
@@ -1139,7 +1145,7 @@ setRole('موظف خدمة عملاء');
                       transition: 'all .13s ease',
                     }}
                   >
-                    <span>{pt.icon}</span>
+                    <span>{PAY_TYPE_ICONS[pt.id]}</span>
                     <span>{pt.label}</span>
                   </button>
                 ))}

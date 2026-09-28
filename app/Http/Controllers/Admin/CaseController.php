@@ -27,6 +27,7 @@ use App\Support\ConversationHandler;
 use App\Support\ExecutionCreation;
 use App\Support\Finance\InvoiceDue;
 use App\Support\Finance\InvoiceFactory;
+use App\Support\Finance\LawyerShare;
 use App\Support\Live;
 use App\Support\Notify;
 use App\Support\Paginate;
@@ -43,7 +44,7 @@ class CaseController extends Controller
 {
     public function fees(): Response
     {
-        $cases = LegalCase::with(['user', 'hearings'])->latest('id')->paginate(50)->withQueryString();
+        $cases = LegalCase::with(['user', 'hearings', 'assignedLawyer'])->latest('id')->paginate(50)->withQueryString();
 
         return Inertia::render('admin/casefees', [
             'cases' => Paginate::shape($cases, fn (LegalCase $c) => [
@@ -56,6 +57,8 @@ class CaseController extends Controller
                 'fee' => $c->fee,
                 'lawyerFee' => $c->lawyer_fee,
                 'lawyerPct' => $c->lawyer_pct,
+                // تملأ حقل النسبة في نموذج الأتعاب — نسبة ملفّ المحامي أو الافتراض الموحّد
+                'lawyerDefaultPct' => LawyerShare::defaultPctFor($c->assignedLawyer),
                 'feeStatus' => $c->fee_status,
                 // حكم انتقال `SetFee` (حالته المصدر + صلاحيّة الفاعل) — كانت الواجهة تقارن نصّ الحالة
                 'canSetFee' => $c->fee_status === 'none'
@@ -78,12 +81,15 @@ class CaseController extends Controller
             'lawyer_pct' => ['nullable', 'integer', 'min:0', 'max:100'],
         ]);
 
+        // النسبة الافتراضيّة نسبة ملفّ المحامي المسند (`LawyerShare`) — لا «20» منقوشة
+        $pct = (int) ($data['lawyer_pct'] ?? LawyerShare::defaultPctFor($case->assignedLawyer));
+
         // **الأتعاب صفراً قضيّةٌ بلا أتعاب** (قرار المالك 2026-09-11). كانت تُصدر فاتورةً بصفر
         // ريال «مستحقّة» وتعلّق القضيّة بانتظار سدادٍ لا شيء فيه — فتُفعَّل مباشرةً كأنها سُدّدت.
         if ((int) $data['fee'] === 0) {
             Workflow::run(new SetFeeTransition, $case, $request->user(), [
                 'fee' => 0,
-                'lawyer_pct' => $data['lawyer_pct'] ?? 0,
+                'lawyer_pct' => $pct,
                 'lawyer_fee' => 0,
             ]);
             $case->messages()->create([
@@ -107,8 +113,7 @@ class CaseController extends Controller
 
         $vat = Setting::vatOn($data['fee']);
         $total = $data['fee'] + $vat;
-        $pct = $data['lawyer_pct'] ?? 0;
-        $lawyerFee = (int) round($data['fee'] * $pct / 100);
+        $lawyerFee = LawyerShare::of((int) $data['fee'], $pct);
 
         Workflow::run(new SetFeeTransition, $case, $request->user(), [
             'fee' => $data['fee'],

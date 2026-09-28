@@ -17,6 +17,7 @@ use App\Support\DocumentVerification;
 use App\Support\ExecFee;
 use App\Support\ExecFlow;
 use App\Support\ExecService;
+use App\Support\Finance\LawyerShare;
 use App\Support\LawyerName;
 use App\Support\Notify;
 use App\Support\PaymentReconciler;
@@ -79,9 +80,13 @@ class ExecFlowController extends Controller
     public function admin(Request $request): Response
     {
         // التبويب الموحّد: كل التنفيذات (تدفّق + قديمة تُعرَض بمرحلة مشتقّة) — الإدارة ترى الكلّ
-        $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'invoices'])
+        $models = Execution::with(['user', 'procedures', 'messages', 'documents', 'invoices', 'assignedLawyer'])
             ->latest('id')->get();
-        $execs = self::staffCards($execs);
+        // نصيب المحامي للإدارة وحدها — يملأ حقل النسبة في بطاقتي الاعتماد والتسعير
+        $execs = self::staffCards($models)->map(fn (array $card, int $i) => $card + [
+            'lawyerPct' => $models[$i]->lawyer_pct,
+            'lawyerDefaultPct' => LawyerShare::defaultPctFor($models[$i]->assignedLawyer),
+        ]);
 
         return Inertia::render('execflow', [
             'role' => 'admin',
@@ -269,10 +274,12 @@ class ExecFlowController extends Controller
             'approveFee' => ExecService::approveFee(
                 $execution,
                 ((int) ($request->validate(['fee' => ['nullable', 'integer', 'min:0']])['fee'] ?? 0)) ?: null,
+                lawyerPct: self::lawyerPctInput($request),
             ),
             'setFee' => ExecService::setFee(
                 $execution,
                 ...self::feeInput($request),
+                lawyerPct: self::lawyerPctInput($request),
             ),
             'acceptOffer' => ExecService::acceptOffer($execution),
             'inquire' => ExecService::inquire($execution),
@@ -427,6 +434,14 @@ class ExecFlowController extends Controller
      *
      * @return array{0:int,1:string,2:string,3:?float} [الأتعاب، المدّة، النموذج، النسبة]
      */
+    /** نسبة المحامي من أتعاب الملفّ (الإدارة وحدها) — الفراغ ⇒ المحفوظة ثمّ نسبة ملفّه (`LawyerShare`). */
+    private static function lawyerPctInput(Request $request): ?int
+    {
+        $pct = $request->validate(['lawyerPct' => ['nullable', 'integer', 'min:0', 'max:100']])['lawyerPct'] ?? null;
+
+        return $pct === null ? null : (int) $pct;
+    }
+
     private static function feeInput(Request $request): array
     {
         $mode = (string) $request->input('feeMode', '') === 'percent' ? 'percent' : 'fixed';

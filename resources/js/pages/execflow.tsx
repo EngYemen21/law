@@ -360,6 +360,26 @@ return;
 type ActFn = (action: string, payload?: Record<string, unknown>) => void;
 
 // ── بطاقة الإجراء المقيّدة بالدور (تطابق actions 1965‑1967) ──
+/**
+ * **نسبة المحامي من أتعاب الملفّ** — حقلٌ واحد لبطاقتي الاعتماد والتسعير (الإدارة وحدها). القيمة
+ * المبدئيّة من الخادم: نسبة الملفّ المحفوظة، وإلّا نسبة ملفّ المحامي (`LawyerShare`).
+ */
+const initialLawyerPct = (r: ExecReq): string => String(r.lawyerPct ?? r.lawyerDefaultPct ?? '');
+
+const LawyerPctField: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => (
+  <div className="field">
+    <label>نسبة المحامي من الأتعاب (%)</label>
+    <input className="input" inputMode="numeric" value={value} onChange={(e) => onChange(e.target.value)} placeholder="مثال: 20" />
+  </div>
+);
+
+/** النسبة المرسلة: عددٌ صحيح بين 0 و100، والفراغ ⇒ لا شيء (الخادم يعتمد المحفوظة ثمّ الافتراض). */
+const lawyerPctPayload = (v: string): { lawyerPct?: number } => {
+  const n = Number(v);
+
+  return v.trim() !== '' && Number.isInteger(n) && n >= 0 && n <= 100 ? { lawyerPct: n } : {};
+};
+
 const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r, act }) => {
   const [fee, setFee] = useState('');
   const [dur, setDur] = useState('');
@@ -367,6 +387,7 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
   const [collectPct, setCollectPct] = useState('');
   const [proc, setProc] = useState('');
   const [feeAdj, setFeeAdj] = useState('');
+  const [lawyerPct, setLawyerPct] = useState(() => initialLawyerPct(r));
   // سبب أرشفة الملفّ المرفوض — «أخرى» افتراضاً، والقائمة تُرسَل كما يقبلها الخادم
   const [rejectedReason, setRejectedReason] = useState('أخرى');
   // عدد الدفعات من إعدادات الإدارة لا «3» منقوشة — الخادم يقسّم بـ`installments_count`
@@ -484,11 +505,13 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
         <div className="action-hint" style={{ marginBottom: 8 }}>
           <Icon name="info" /> نموذج الأتعاب: نسبة من المحصّل — <b>{r.collectionFeePct ?? 0}%</b> من كل مبلغ يُحصَّل، بلا مبلغ مقدَّم. لتغيير النسبة أعد التسعير من بطاقة التسعير.
         </div>
-        <button className="btn" type="button" onClick={() => act('approveFee')}><Icon name="check" /> اعتماد وإرسال العرض</button>
+        <LawyerPctField value={lawyerPct} onChange={setLawyerPct} />
+        <button className="btn" type="button" onClick={() => act('approveFee', lawyerPctPayload(lawyerPct))}><Icon name="check" /> اعتماد وإرسال العرض</button>
       </>) : (<>
         <div className="action-hint" style={{ marginBottom: 8 }}><Icon name="info" /> مراجعة الأتعاب واعتمادها قبل إرسال العرض. بعد الاعتماد لا تُعدَّل إلا بصلاحية الإدارة.</div>
         <div className="field"><label>تعديل الأتعاب (اختياري)</label><input className="input" value={feeAdj} onChange={(e) => setFeeAdj(e.target.value)} placeholder={String(r.fee)} /></div>
-        <button className="btn" type="button" onClick={() => act('approveFee', { fee: parseInt(feeAdj || '0', 10) || 0 })}><Icon name="check" /> اعتماد وإرسال العرض</button>
+        <LawyerPctField value={lawyerPct} onChange={setLawyerPct} />
+        <button className="btn" type="button" onClick={() => act('approveFee', { fee: parseInt(feeAdj || '0', 10) || 0, ...lawyerPctPayload(lawyerPct) })}><Icon name="check" /> اعتماد وإرسال العرض</button>
       </>);
     } else if (r.stage >= 7 && !r.closed) {
       body = (<>
@@ -997,6 +1020,7 @@ const PricingCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
   // التسعير كان يعود إلى «مبلغ ثابت» صامتاً، و`writeFee` يمسح النسبة المخزَّنة معه.
   const [feeMode, setFeeMode] = useState<ExecFeeMode>(r.feeMode === 'percent' ? 'percent' : 'fixed');
   const [collectPct, setCollectPct] = useState(r.collectionFeePct ? String(r.collectionFeePct) : '');
+  const [lawyerPct, setLawyerPct] = useState(() => initialLawyerPct(r));
 
   // عدد الدفعات وسقف النسبة من إعدادات الإدارة — كانا «ثلاث» و«50» منقوشين، والخادم يتحقّق بالإعداد
   const { installments_count: installments, exec_max_collection_pct: maxPct } = useSettings();
@@ -1011,8 +1035,8 @@ const PricingCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
   const submit = () => {
  if (ready) {
 act('setFee', percent
-      ? { feeMode: 'percent', feePct: collectPctNum, duration: dur }
-      : { feeMode: 'fixed', fee, duration: dur });
+      ? { feeMode: 'percent', feePct: collectPctNum, duration: dur, ...lawyerPctPayload(lawyerPct) }
+      : { feeMode: 'fixed', fee, duration: dur, ...lawyerPctPayload(lawyerPct) });
 } 
 };
 
@@ -1053,6 +1077,7 @@ act('setFee', percent
           <KpiRow total t={<b>الإجمالي بعد الضريبة ({vatRate}%)</b>} v={<b>{execMoney(fee + vat)} ريال</b>} />
           <div className="action-hint" style={{ margin: '8px 0' }}><Icon name="info" /> يختار العميل عند السداد: كاملاً أو على {installmentsText(installments)}.</div>
         </>)}
+        <LawyerPctField value={lawyerPct} onChange={setLawyerPct} />
         <div className="action-hint" style={{ margin: '8px 0' }}><Icon name="info" /> تحديد الأتعاب واعتمادها من صلاحيات الإدارة العليا؛ بعد الاعتماد يُرسَل العرض للعميل.</div>
         <button className="btn block" type="button" disabled={!ready} onClick={submit}><Icon name="check" /> اعتماد الأتعاب وإرسال العرض للعميل</button>
       </div>
