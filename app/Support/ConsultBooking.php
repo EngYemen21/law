@@ -43,6 +43,9 @@ class ConsultBooking
     /** تنبيه الحاجز حين يُقبل موعدٌ فوق انشغالٍ آخر للمحامي (`conflictVerdict`). */
     public const OVERLAP_NOTICE = '⚠️ تنبيه: للمحامي ارتباطٌ آخر في هذا الوقت.';
 
+    /** تنبيه الحاجز حين يُقبل موعدٌ خارج أوقات الدوام (`officeHoursVerdict`). */
+    public const OFF_HOURS_NOTICE = '⚠️ تنبيه: الموعد خارج أوقات دوام المكتب.';
+
     /**
      * أنواع الاستشارة ومكانها المكتوب على الموعد.
      *
@@ -373,6 +376,26 @@ class ConsultBooking
             ->get(['id']);
 
         return self::conflictVerdict($lawyerId, $start, $duration, 'starts_at', 'هذا الموعد محجوز لدى المستشار، فضلاً اختر موعداً آخر.');
+    }
+
+    /**
+     * **قرار الحجز خارج أوقات الدوام — من هنا وحده** (الفحص المسبق في `Employee\ScheduleController::store`،
+     * و`ConsultAppointments::slot` قبل الاقتراح والنشر): خارج الدوام ← رفضٌ برسالة
+     * `LawyerAvailability::officeHoursError`، إلّا إن سمحت الإدارة (`consult_allow_outside_office`).
+     *
+     * @return bool `true` حين يُقبل الموعد خارج الدوام — ليُنبَّه الحاجز (`ScheduledConsult::notice`)
+     *
+     * @throws ValidationException
+     */
+    public static function officeHoursVerdict(Carbon $start, string $field): bool
+    {
+        $why = LawyerAvailability::officeHoursError($start);
+
+        if ($why !== null && ! SettingsRegistry::bool('consult_allow_outside_office')) {
+            throw ValidationException::withMessages([$field => $why]);
+        }
+
+        return $why !== null;
     }
 
     /**

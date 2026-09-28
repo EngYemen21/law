@@ -384,7 +384,8 @@ class LawyerAvailability
      */
     public static function daySlotsForMany(array $lawyerIds, Carbon $day): array
     {
-        if (! self::isWorkDay($day)) {
+        // يوم العطلة بلا شرائح — إلّا إن سمحت الإدارة بالحجز خارج الدوام: فتُعرض شبكة ساعات الحجز وانشغالها
+        if (! self::isWorkDay($day) && ! SettingsRegistry::bool('consult_allow_outside_office')) {
             return array_fill_keys($lawyerIds, []);
         }
 

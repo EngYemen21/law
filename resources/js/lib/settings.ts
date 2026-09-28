@@ -32,6 +32,8 @@ export interface SharedSettings {
   consult_work_days: string;
   /** ١ = يُقبل حجز الاستشارة فوق انشغالٍ آخر للمحامي بتنبيه (عدا جلسة المحكمة)، ٠ = يُرفض. */
   consult_allow_overlap: number;
+  /** ١ = يُقبل حجز الاستشارة خارج أيّام الدوام وساعاته بتنبيه — شبكة يوم العطلة تُعرض للحجز، ٠ = يُرفض. */
+  consult_allow_outside_office: number;
   /** طول الشريحة ومدّة الاستشارة بالدقائق. */
   consult_slot_minutes: number;
   /** عمر الطلب المفتوح بالدقائق الذي يُعدّ بعده «متأخّراً» في شاشتي الاستشارات. */

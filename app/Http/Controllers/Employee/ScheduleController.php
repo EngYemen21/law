@@ -98,10 +98,8 @@ class ScheduleController extends Controller
         if ($startsAt->isPast()) {
             throw ValidationException::withMessages(['time' => 'لا يمكن اختيار موعد في الماضي، فضلاً اختر وقتاً لاحقاً.']);
         }
-        // دوام المكتب قبل انشغال المحامي — فالجمعة تُرفض «خارج الدوام» لا «مشغول»
-        if ($why = LawyerAvailability::officeHoursError($startsAt)) {
-            throw ValidationException::withMessages(['time' => $why]);
-        }
+        // دوام المكتب قبل انشغال المحامي — فالجمعة تُرفض «خارج الدوام» لا «مشغول» (ما لم تسمح الإدارة)
+        ConsultBooking::officeHoursVerdict($startsAt, 'time');
         if (! empty($data['lawyer_id'])) {
             // القرار من `ConsultBooking::conflictVerdict` (جلسة محكمة، أو خيار الحجز المتداخل). ونفس صياغة
             // حارس دعوات الاجتماعات (قرار صاحب المنتج) — والإدارة نفسها لا تُحال إلى نفسها

@@ -37,7 +37,7 @@ final class ConsultAppointments
         $slot = self::slot($consult, $input, base: null);
         $transition = new ProposeAppointment;
 
-        return new ScheduledConsult(Workflow::run($transition, $consult, $actor, $slot), $transition->overlapped());
+        return new ScheduledConsult(Workflow::run($transition, $consult, $actor, $slot), $transition->overlapped(), $slot['off_hours']);
     }
 
     /**
@@ -84,7 +84,7 @@ final class ConsultAppointments
         $transition = new PublishAppointment;
 
         try {
-            return new ScheduledConsult(Workflow::run($transition, $consult, $actor, $slot), $transition->overlapped());
+            return new ScheduledConsult(Workflow::run($transition, $consult, $actor, $slot), $transition->overlapped(), $slot['off_hours']);
         } catch (\Throwable $e) {
             if (! empty($slot['zoom']['id'])) {
                 app(ZoomService::class)->deleteMeeting((string) $slot['zoom']['id']);
@@ -113,9 +113,7 @@ final class ConsultAppointments
         if ($startsAt->isPast()) {
             throw ValidationException::withMessages(['time' => 'لا يمكن اختيار موعد في الماضي، فضلاً اختر وقتاً لاحقاً.']);
         }
-        if ($why = LawyerAvailability::officeHoursError($startsAt)) {
-            throw ValidationException::withMessages(['time' => $why]);
-        }
+        $offHours = ConsultBooking::officeHoursVerdict($startsAt, 'time');
 
         $type = (string) ($input['type'] ?? $base['type'] ?? self::typeOf($consult));
         if (! in_array($type, self::TYPES, true)) {
@@ -140,6 +138,7 @@ final class ConsultAppointments
             'time' => $startsAt->format('H:i'),
             'type' => $type,
             'place' => $place,
+            'off_hours' => $offHours,
         ];
     }
 

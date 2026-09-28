@@ -4,9 +4,11 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Models\JourneyTransition;
 use App\Models\Meeting;
 use App\Models\Setting;
 use App\Models\User;
+use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
 use App\Support\SettingsRegistry;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -107,7 +109,7 @@ class OfficeHoursBookingTest extends TestCase
     /** «لم يُختر يوم» ليس «يوم عطلة» — منتقي محادثة التذكرة يعرض شبكة الدوام قبل التاريخ. */
     public function test_no_date_yet_shows_the_office_grid(): void
     {
-        $this->assertStringContainsString("dateISO === '' || isWorkDay(", (string) file_get_contents(resource_path('js/lib/consult-slots.ts')));
+        $this->assertStringContainsString("dateISO === '' || allowOffHours || isWorkDay(", (string) file_get_contents(resource_path('js/lib/consult-slots.ts')));
     }
 
     /** الجمعة ومحامٍ مشغول: الرفض بسبب الدوام أوّلاً — الرسالة لا تتبع ترتيب الفحوص عشوائيّاً. */
@@ -135,5 +137,47 @@ class OfficeHoursBookingTest extends TestCase
             ->values()->all();
 
         $this->assertSame(['lib/local-date.ts'], $copies);
+    }
+
+    /**
+     * **خيار «السماح بالحجز خارج الدوام»** (`consult_allow_outside_office`، قرار المالك 2026-09-28): «نعم» يقبل
+     * موعد العطلة أو خارج الساعات بتنبيه ويسجّله في الرحلة، وتُعرض شبكة يوم العطلة للحجز.
+     */
+    public function test_off_hours_booking_is_accepted_with_a_notice_when_allowed(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => Role::Admin]))
+            ->post(route('admin.settings.update'), ['consult_allow_outside_office' => '1'])->assertSessionHasNoErrors();
+        $lawyer = $this->lawyer();
+        $client = User::factory()->create(['role' => Role::Client]);
+        $friday = $this->requestPricedAndPaid($client, $this->ticketWithApprovedOpinion($client, ['status' => 'بانتظار حجز الاستشارة']), 'video');
+
+        $this->adminPublishes($friday, ['date' => $this->nextWeek(5), 'time' => '10:00', 'lawyer_id' => $lawyer->id])
+            ->assertOk()->assertJsonPath('message', fn (string $m) => str_ends_with($m, ConsultBooking::OFF_HOURS_NOTICE));
+        $this->assertDatabaseHas('journey_transitions', ['entity_id' => $friday->id, 'transition' => 'consult.publish-appointment']);
+        $this->assertTrue(JourneyTransition::where('entity_id', $friday->id)->where('transition', 'consult.publish-appointment')->first()->payload['off_hours']);
+
+        // دقيقةٌ مخصّصة قبل بداية الساعات في يوم عمل
+        $early = $this->requestPricedAndPaid($client, $this->ticketWithApprovedOpinion($client, ['status' => 'بانتظار حجز الاستشارة']), 'video');
+        $this->adminPublishes($early, ['date' => $this->nextWeek(1), 'time' => '07:30', 'lawyer_id' => $lawyer->id])->assertOk();
+
+        // وشبكة يوم العطلة تُعرض للطاقم
+        $this->assertCount(13, LawyerAvailability::slotsFor($lawyer->id, $this->nextWeek(6)));
+    }
+
+    public function test_within_office_hours_there_is_no_off_hours_notice(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => Role::Admin]))
+            ->post(route('admin.settings.update'), ['consult_allow_outside_office' => '1'])->assertSessionHasNoErrors();
+        $client = User::factory()->create(['role' => Role::Client]);
+        $consult = $this->requestPricedAndPaid($client, $this->ticketWithApprovedOpinion($client, ['status' => 'بانتظار حجز الاستشارة']), 'video');
+
+        $this->adminPublishes($consult, ['date' => $this->nextWeek(1), 'time' => '10:00', 'lawyer_id' => $this->lawyer()->id])
+            ->assertOk()->assertJsonPath('message', fn (string $m) => ! str_contains($m, ConsultBooking::OFF_HOURS_NOTICE));
+    }
+
+    public function test_the_booking_screens_open_a_day_off_when_allowed(): void
+    {
+        $this->assertStringContainsString("dateISO === '' || allowOffHours || isWorkDay(", (string) file_get_contents(resource_path('js/lib/consult-slots.ts')));
+        $this->assertArrayHasKey('consult_allow_outside_office', HandleInertiaRequests::sharedSettings());
     }
 }

@@ -109,6 +109,7 @@ final class ProposeAppointment extends Transition
             'time' => $payload['time'] ?? null,
             'type' => $payload['type'] ?? null,
             'overlap' => $this->overlap,
+            'off_hours' => (bool) ($payload['off_hours'] ?? false),
         ];
     }
 }

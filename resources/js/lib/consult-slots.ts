@@ -50,17 +50,19 @@ const NO_SLOTS: string[] = [];
  * كما يُرجعها المحرّك (`LawyerAvailability::slotsFor`)، فلا تعرض شاشةٌ شرائح يرفضها الخادم.
  */
 export function useConsultSlots(): { grid: string[]; slotMinutes: number; gridOn: (dateISO: string) => string[]; allowOverlap: boolean } {
-  const { consult_day_start, consult_day_end, consult_slot_minutes, consult_work_days, consult_allow_overlap } = useSettings();
+  const { consult_day_start, consult_day_end, consult_slot_minutes, consult_work_days, consult_allow_overlap, consult_allow_outside_office } = useSettings();
 
   // مصفوفةٌ ثابتة الهويّة ما لم تتغيّر القيم — الشاشات تضعها في تبعيّات `useMemo`
   const grid = useMemo(
     () => consultSlotGrid({ consult_day_start, consult_day_end, consult_slot_minutes }),
     [consult_day_start, consult_day_end, consult_slot_minutes],
   );
-  // بلا تاريخٍ بعدُ تُعرض شبكة الدوام — «لم يُختر يوم» ليس «يوم عطلة»
+  // بلا تاريخٍ بعدُ تُعرض شبكة الدوام — «لم يُختر يوم» ليس «يوم عطلة». ومع «السماح بالحجز خارج الدوام»
+  // يُعرض يوم العطلة بشبكة الساعات نفسها (والخادم يقبله بتنبيه — `ConsultBooking::officeHoursVerdict`)
+  const allowOffHours = consult_allow_outside_office === 1;
   const gridOn = useCallback(
-    (dateISO: string) => (dateISO === '' || isWorkDay(consult_work_days, dateISO) ? grid : NO_SLOTS),
-    [grid, consult_work_days],
+    (dateISO: string) => (dateISO === '' || allowOffHours || isWorkDay(consult_work_days, dateISO) ? grid : NO_SLOTS),
+    [grid, consult_work_days, allowOffHours],
   );
 
   // «السماح بحجزٍ متداخل» — المنتقي يتيح المحجوز، والخادم يقرّر (`ConsultBooking::conflictVerdict`)
