@@ -57,7 +57,11 @@ export function useConsultSlots(): { grid: string[]; slotMinutes: number; gridOn
     () => consultSlotGrid({ consult_day_start, consult_day_end, consult_slot_minutes }),
     [consult_day_start, consult_day_end, consult_slot_minutes],
   );
-  const gridOn = useCallback((dateISO: string) => (isWorkDay(consult_work_days, dateISO) ? grid : NO_SLOTS), [grid, consult_work_days]);
+  // بلا تاريخٍ بعدُ تُعرض شبكة الدوام — «لم يُختر يوم» ليس «يوم عطلة»
+  const gridOn = useCallback(
+    (dateISO: string) => (dateISO === '' || isWorkDay(consult_work_days, dateISO) ? grid : NO_SLOTS),
+    [grid, consult_work_days],
+  );
 
   // «السماح بحجزٍ متداخل» — المنتقي يتيح المحجوز، والخادم يقرّر (`ConsultBooking::conflictVerdict`)
   return { grid, slotMinutes: consult_slot_minutes, gridOn, allowOverlap: consult_allow_overlap === 1 };

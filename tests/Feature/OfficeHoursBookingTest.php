@@ -4,12 +4,14 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Models\Meeting;
 use App\Models\Setting;
 use App\Models\User;
 use App\Support\LawyerAvailability;
 use App\Support\SettingsRegistry;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\File;
 use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
@@ -100,5 +102,38 @@ class OfficeHoursBookingTest extends TestCase
 
         $this->assertStringContainsString('{dayHours.length === 0 ? (', $src);
         $this->assertStringContainsString('stats.total > 0 ? Math.round((stats.free / stats.total) * 100) : 0', $src);
+    }
+
+    /** «لم يُختر يوم» ليس «يوم عطلة» — منتقي محادثة التذكرة يعرض شبكة الدوام قبل التاريخ. */
+    public function test_no_date_yet_shows_the_office_grid(): void
+    {
+        $this->assertStringContainsString("dateISO === '' || isWorkDay(", (string) file_get_contents(resource_path('js/lib/consult-slots.ts')));
+    }
+
+    /** الجمعة ومحامٍ مشغول: الرفض بسبب الدوام أوّلاً — الرسالة لا تتبع ترتيب الفحوص عشوائيّاً. */
+    public function test_a_day_off_is_refused_for_office_hours_before_the_lawyer_being_busy(): void
+    {
+        $friday = Carbon::parse($this->nextWeek(5).' 10:00');
+        $lawyer = $this->lawyer();
+        Meeting::create([
+            'user_id' => null, 'ref' => 'M-OH-1', 'title' => 'اجتماع', 'when_label' => 'x', 'status' => 'قادم',
+            'assigned_lawyer_id' => $lawyer->id, 'starts_at' => $friday, 'dur' => '60 دقيقة',
+        ]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $consult = $this->requestPricedAndPaid($client, $this->ticketWithApprovedOpinion($client, ['status' => 'بانتظار حجز الاستشارة']), 'video');
+
+        $this->adminPublishes($consult, ['date' => $friday->toDateString(), 'time' => '10:00', 'lawyer_id' => $lawyer->id])
+            ->assertStatus(422)->assertJsonPath('errors.time.0', 'هذا اليوم خارج أيّام دوام المكتب — اختر يوماً من أيّام الدوام.');
+    }
+
+    /** أسماء الأيّام تعريفٌ واحد (`lib/local-date.ts`) — كانت نسختين في التقويم والإعدادات. */
+    public function test_week_day_names_are_defined_once(): void
+    {
+        $copies = collect(File::allFiles(resource_path('js')))
+            ->filter(fn ($f) => str_contains($f->getContents(), "['الأحد', 'الاثنين'"))
+            ->map(fn ($f) => str_replace(resource_path('js').'/', '', $f->getPathname()))
+            ->values()->all();
+
+        $this->assertSame(['lib/local-date.ts'], $copies);
     }
 }

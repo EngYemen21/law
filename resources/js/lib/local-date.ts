@@ -20,3 +20,9 @@ export function dateISOAfter(days: number): string {
 
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+/**
+ * أسماء أيّام الأسبوع بترتيب `Date.getDay()` (الأحد=0) — وهو ترتيب Carbon في الخادم (`consult_work_days`).
+ * المصدر الواحد لرأس التقويم وأزرار «أيّام دوام المكتب» في الإعدادات.
+ */
+export const WEEK_DAY_NAMES = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'] as const;

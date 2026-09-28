@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import Icon from '@/lib/icons';
+import { WEEK_DAY_NAMES } from '@/lib/local-date';
 
 // ============================================================
 // المكون الموحد للتقويم والمواعيد والأجندة الذكية (Unified Responsive Calendar)
@@ -43,7 +44,6 @@ export interface UnifiedCalendarProps {
     defaultViewMode?: 'calendar' | 'table' | 'agenda';
 }
 
-const WEEK_DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 const MONTH_NAMES = [
     'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
     'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
@@ -236,7 +236,7 @@ export const UnifiedCalendar: React.FC<UnifiedCalendarProps> = ({
             d.setDate(center.getDate() + offset);
             const key = toDateKey(d);
             days.push({
-                name: WEEK_DAYS[d.getDay()],
+                name: WEEK_DAY_NAMES[d.getDay()],
                 dayNum: d.getDate(),
                 key,
                 count: (itemsByDay.get(key) || []).length,
@@ -645,7 +645,7 @@ export const UnifiedCalendar: React.FC<UnifiedCalendarProps> = ({
                                         color: 'var(--muted)',
                                     }}
                                 >
-                                    {WEEK_DAYS.map((w) => (
+                                    {WEEK_DAY_NAMES.map((w) => (
                                         <div key={w} style={{ padding: '4px 0' }}>{w}</div>
                                     ))}
                                 </div>

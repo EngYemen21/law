@@ -50,7 +50,7 @@ class SettingsRegistry
      *
      * `forwardOnly` يعني: التغيير يسري على ما يُنشأ بعده وحده، وما مضى محفوظٌ على صفّه.
      *
-     * @return array<string, array{group:string,label:string,hint:string,type:'int'|'string'|'date',default:mixed,min?:int,max?:int,rules:array<int,string>,forwardOnly?:bool,gt?:string,defaultLabel?:string}>
+     * @return array<string, array{group:string,label:string,hint:string,type:'int'|'string'|'date'|'days'|'bool',default:mixed,min?:int,max?:int,rules:array<int,string>,forwardOnly?:bool,gt?:string,defaultLabel?:string}>
      */
     public static function all(): array
     {

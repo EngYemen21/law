@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
+import { WEEK_DAY_NAMES } from '@/lib/local-date';
 
 /** وصف المتغيّر كما يعلنه `SettingsRegistry` — الشاشة لا تعرّف حقلاً ولا افتراضاً. */
 interface Field {
@@ -42,9 +43,6 @@ const YesNoInput: React.FC<{ id: string; value: string; onChange: (v: string) =>
   </div>
 );
 
-/** أيّام الأسبوع بترتيب `Date.getDay()`/Carbon (الأحد=0) — كما يخزّنها الخادم «0,1,2». */
-const WEEK_DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-
 /** إعداد من نوع «أيّام»: أزرار تبديل تكتب النصّ «0,1,4» مرتّباً — ولا يُفرَّغ آخر يوم. */
 const DaysInput: React.FC<{ id: string; value: string; onChange: (v: string) => void }> = ({ id, value, onChange }) => {
   const on = new Set(value.split(',').filter((d) => d !== '').map(Number));
@@ -64,7 +62,7 @@ const DaysInput: React.FC<{ id: string; value: string; onChange: (v: string) => 
 
   return (
     <div id={id} role="group" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-      {WEEK_DAYS.map((name, d) => (
+      {WEEK_DAY_NAMES.map((name, d) => (
         <button key={d} type="button" aria-pressed={on.has(d)} className={`btn sm ${on.has(d) ? '' : 'soft'}`} onClick={() => toggle(d)}>
           {name}
         </button>
