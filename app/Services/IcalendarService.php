@@ -142,7 +142,7 @@ class IcalendarService
         // 2. الاجتماعات
         $meetingQuery = Meeting::query();
         if ($isLawyer) {
-            $meetingQuery->where('assigned_lawyer_id', $user->id);
+            $meetingQuery->visibleToLawyer($user->id);
         } elseif ($isOfficeWide) {
             $window($meetingQuery);
         } else {

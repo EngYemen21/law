@@ -47,7 +47,7 @@ class CalendarController extends Controller
 
         // 2. اجتماعات المحامي
         // بالإسناد وحده: `created_by` نصُّ اسمٍ يشاركه الزملاء فيُدخل اجتماعات غيره
-        $meetings = Meeting::where('assigned_lawyer_id', $lawyerId)->where($window)->orderByRaw('starts_at is null')->orderBy('starts_at')->limit(CalendarWindow::LIMIT)->get()
+        $meetings = Meeting::visibleToLawyer($lawyerId)->where($window)->orderByRaw('starts_at is null')->orderBy('starts_at')->limit(CalendarWindow::LIMIT)->get()
             ->map(function (Meeting $m) {
                 return [
                     'kind' => 'اجتماع',

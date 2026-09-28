@@ -12,8 +12,10 @@ use App\Support\MeetingTime;
 use App\Support\RecordingArchive;
 use App\Support\SessionWindow;
 use App\Support\ZoomSummaryText;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -68,6 +70,42 @@ class Meeting extends Model
     public function assignedLawyer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_lawyer_id');
+    }
+
+    /**
+     * **المشاركون من الكادر — حسابات** (`meeting_participants`، قرار المالك 2026-09-28). عمود `participants`
+     * النصّيّ بقي لاجتماعاتٍ قديمة لم يُطابَق فيها اسمٌ بحساب — يُعرض ملاحظةً ولا يُقرأ للصلاحيّة.
+     */
+    public function participantUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'meeting_participants')->withTimestamps();
+    }
+
+    /**
+     * **ما يراه المحامي: المسنَد إليه، أو ما هو مشاركٌ فيه** — التعريف الواحد لقوائمه وتقويمه واشتراكه
+     * وغرفته (`involves`). كانت كلّها `assigned_lawyer_id` وحده، فيُشعَر المشارك «متاح في لوحتك» ولا يجده.
+     *
+     * @param  Builder<Meeting>  $query
+     */
+    public function scopeVisibleToLawyer(Builder $query, int $lawyerId): void
+    {
+        $query->where(fn (Builder $q) => $q->where('assigned_lawyer_id', $lawyerId)
+            ->orWhereHas('participantUsers', fn (Builder $p) => $p->whereKey($lawyerId)));
+    }
+
+    /** هل للمستخدم من الكادر صلةٌ بالاجتماع (مسؤولٌ أو مشارك)؟ — نظير `scopeVisibleToLawyer` للسجلّ الواحد. */
+    public function involves(User $user): bool
+    {
+        return (int) $this->assigned_lawyer_id === (int) $user->id
+            || $this->participantUsers()->whereKey($user->id)->exists();
+    }
+
+    /** أسماء المشاركين للعرض: الحسابات، وإلا النصّ القديم لاجتماعٍ لم يُربط. */
+    public function participantsLabel(): ?string
+    {
+        $names = $this->participantUsers->pluck('name')->all();
+
+        return $names !== [] ? implode('، ', $names) : ($this->participants ?: null);
     }
 
     /** موعد البدء: starts_at الحقيقي، أو تحليل دفاعي لـ when_label («اليوم · 09:00 ص») */
@@ -180,8 +218,7 @@ class Meeting extends Model
     }
 
     /**
-     * عدد المدعوّين: العميل + المحامي المسند + أسماء حقل «المشاركون»، موحَّدةً.
-     * التطبيع نفسه المستعمل في إشعارات الدعوة (Staff\MeetingController::store).
+     * عدد المدعوّين: العميل + المحامي المسند + المشاركون (حساباتهم، أو النصّ القديم)، موحَّدةً.
      */
     public function invitedCount(): ?int
     {
@@ -193,7 +230,9 @@ class Meeting extends Model
         if ($this->assigned_lawyer_id && $this->assignedLawyer) {
             $names[] = $this->assignedLawyer->name;
         }
-        foreach (preg_split('/[،,]/u', (string) $this->participants, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $raw) {
+        $linked = $this->participantUsers->pluck('name')->all();
+        // النصّ القديم لاجتماعٍ لم يُربط مشاركوه بحسابات وحده
+        foreach ($linked !== [] ? $linked : (preg_split('/[،,]/u', (string) $this->participants, -1, PREG_SPLIT_NO_EMPTY) ?: []) as $raw) {
             $names[] = (string) preg_replace('/\s*\([^)]*\)\s*$/u', '', trim($raw));
         }
 
@@ -467,7 +506,7 @@ class Meeting extends Model
             'createdBy' => $this->created_by,
             'sumApproved' => (bool) $this->sum_approved,
             'minutes' => $this->minutes,
-            'participants' => $this->participants,
+            'participants' => $this->participantsLabel(),
             'caseRef' => $this->case_ref,
             'decisions' => $this->decisions ?? [],
             'tasksCreated' => (bool) $this->tasks_created,

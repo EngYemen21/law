@@ -30,7 +30,10 @@ class ChannelAccess
             return $permissions === null || $user->canAny((array) $permissions);
         }
         if ($user->role === Role::Lawyer) {
-            return (int) ($model->assigned_lawyer_id ?? 0) === (int) $user->id;
+            // الاجتماع للمسؤول وللمشارك (`Meeting::involves`) — كان المشارك يرى الاجتماع ولا يصله بثّ غرفته
+            return $model instanceof Meeting
+                ? $model->involves($user)
+                : (int) ($model->assigned_lawyer_id ?? 0) === (int) $user->id;
         }
 
         return false;

@@ -41,7 +41,8 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
   const [type, setType] = useState(MEET_TYPES_FULL[0]);
   const [prio, setPrio] = useState('عادية');
   const [conf, setConf] = useState('عادي');
-  const [participants, setParticipants] = useState<string[]>([]);
+  // المشاركون من الكادر بمعرّفاتهم — الخادم يحفظهم حسابات (`meeting_participants`) لا أسماءً تُطابَق نصّاً
+  const [participants, setParticipants] = useState<number[]>([]);
   const [day, setDay] = useState('');
   const [time, setTime] = useState('10:00');
   const [clientId, setClientId] = useState<number | ''>('');
@@ -122,7 +123,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
     void action.run('/admin/meetings', {
       data: {
         title, type, priority: prio, conf,
-        participants: participants.join('، '),
+        participant_ids: participants,
         day, time,
         client_id: clientId === '' ? null : clientId,
         lawyer_id: lawyerId === '' ? null : lawyerId,
@@ -623,17 +624,17 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                 {staff.length === 0 && (
                   <span style={{ fontSize: '12px', color: 'var(--muted)', padding: '4px 6px' }}>لا كادر نشطاً لإضافته.</span>
                 )}
-                {staff.map((s) => s.label).map((s) => {
-                  const isChecked = participants.includes(s);
+                {staff.map((member) => {
+                  const isChecked = participants.includes(member.id);
                   return (
                     <button
-                      key={s}
+                      key={member.id}
                       type="button"
                       onClick={() => {
                         if (isChecked) {
-                          setParticipants(participants.filter((p) => p !== s));
+                          setParticipants(participants.filter((p) => p !== member.id));
                         } else {
-                          setParticipants([...participants, s]);
+                          setParticipants([...participants, member.id]);
                         }
                       }}
                       style={{
@@ -652,7 +653,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                       }}
                     >
                       <span>{isChecked ? '✓' : '+'}</span>
-                      <span>{s}</span>
+                      <span>{member.label}</span>
                     </button>
                   );
                 })}
