@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Execution;
 use App\Models\Invoice;
+use App\Models\StaffPayout;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -62,6 +63,7 @@ final class RevenueSnapshot
         public readonly array $byService,
         public readonly array $salaries,
         public readonly int $salaryTotal,
+        public readonly int $staffPaidTotal,
     ) {}
 
     public static function build(): self
@@ -107,6 +109,8 @@ final class RevenueSnapshot
             byService: self::consultIncomeByChannel(),
             salaries: $staff->map(fn ($u) => ['name' => (string) $u->name, 'salary' => (int) $u->salary])->values()->all(),
             salaryTotal: (int) $staff->sum('salary'),
+            // ما صُرف للموظّفين فعلاً (سجلّ الصرف الساري) — لا ما يُفترض من الرواتب المضبوطة
+            staffPaidTotal: (int) StaffPayout::active()->sum('amount'),
         );
     }
 
@@ -132,6 +136,7 @@ final class RevenueSnapshot
             'byService' => $this->byService,
             'salaries' => $this->salaries,
             'salaryTotal' => $this->salaryTotal,
+            'staffPaidTotal' => $this->staffPaidTotal,
         ];
     }
 

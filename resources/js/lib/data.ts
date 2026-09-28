@@ -207,6 +207,9 @@ const EMPLOYEE_NAV: SideGroup[] = [
   { g: 'الذكاء الاصطناعي', items: [
     { icon: 'sparkles', label: 'مراجعة مخرجات الذكاء', route: '/employee/ai-review' },
   ] },
+  { g: 'حسابي', items: [
+    { icon: 'card', label: 'مستحقاتي', route: '/employee/earnings' },
+  ] },
 ];
 
 // شريط دور المحامي — مسارات العمل المهني والقانوني التخصصي
@@ -236,6 +239,9 @@ const LAWYER_NAV: SideGroup[] = [
     { icon: 'sparkles', label: 'مراجعة مخرجات الذكاء', route: '/lawyer/ai-review' },
     { icon: 'eye', label: 'المراجعة العمياء', route: '/lawyer/ai-blind-review' },
     { icon: 'scale', label: 'المصادر القانونيّة', route: '/lawyer/legal-sources' },
+  ] },
+  { g: 'حسابي', items: [
+    { icon: 'card', label: 'مستحقاتي', route: '/lawyer/earnings' },
   ] },
 ];
 
@@ -338,6 +344,7 @@ const EMPLOYEE_TITLES: Record<string, [string, string]> = {
   '/employee/videoroom': ['غرفة الجلسة المرئية', 'لوحة الموظف'],
   '/employee/ai-review': ['مراجعة مخرجات الذكاء', 'لوحة الموظف'],
   '/employee/editor': ['محرر الصياغة القانونية', 'لوحة الموظف'],
+  '/employee/earnings': ['مستحقاتي', 'لوحة الموظف'],
 };
 
 const LAWYER_TITLES: Record<string, [string, string]> = {
@@ -361,6 +368,7 @@ const LAWYER_TITLES: Record<string, [string, string]> = {
   '/lawyer/legal-sources': ['المصادر القانونيّة المعتمدة', 'لوحة المحامي'],
   '/lawyer/editor': ['محرر الصياغة القانونية', 'لوحة المحامي'],
   '/lawyer/videoroom': ['غرفة الجلسة المرئية', 'لوحة المحامي'],
+  '/lawyer/earnings': ['مستحقاتي', 'لوحة المحامي'],
 };
 
 const ADMIN_TITLES: Record<string, [string, string]> = {

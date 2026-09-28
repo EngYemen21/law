@@ -129,6 +129,7 @@ class ReportController extends Controller
                     'title' => '٤. الرواتب الثابتة الشهرية',
                     'cellRows' => array_merge(
                         [[['إجمالي الرواتب', number_format($snap->salaryTotal).' ر.س'], ['عدد الموظفين', (string) count($snap->salaries).' موظف']]],
+                        [[['المصروف للموظفين (سجلّ الصرف)', number_format($snap->staffPaidTotal).' ر.س']]],
                         array_map(fn (array $u) => [[$u['name'], number_format($u['salary']).' ر.س']], $snap->salaries)
                     ),
                 ],

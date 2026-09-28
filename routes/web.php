@@ -53,6 +53,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Staff\ConsultController as StaffConsultController;
 use App\Http\Controllers\Staff\ConsultRecordingController as StaffConsultRecordingController;
+use App\Http\Controllers\Staff\EarningsController as StaffEarningsController;
 use App\Http\Controllers\Staff\MeetingController as StaffMeetingController;
 use App\Http\Controllers\Staff\MeetRequestController as StaffMeetRequestController;
 use App\Http\Controllers\Staff\TicketRequirementController as StaffTicketRequirementController;
@@ -207,6 +208,9 @@ Route::middleware(['auth', 'active'])->group(function () {
 
 // ── لوحة الموظف ── (deny-by-default: صلاحية صريحة لكل إجراء حسّاس فوق حارس الدور)
 Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name('employee.')->group(function () {
+    // «مستحقاتي» — الراتب ونصيب الأتعاب وأجر الجلسات وسجلّ الصرف (بيانات المستخدم الحاليّ وحده)
+    Route::get('/earnings', [StaffEarningsController::class, 'index'])->name('earnings');
+    Route::get('/earnings/statement.pdf', [StaffEarningsController::class, 'statement'])->name('earnings.statement');
     Route::get('/dashboard', [DashboardController::class, 'employee'])->name('dashboard'); // عام للدور
 
     // صندوق مراجعة مخرجات الذكاء — الشاشة نفسها لكل دور، والعزل داخل AiReviewInbox:
@@ -389,6 +393,9 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
 
 // ── لوحة المحامي ── (deny-by-default: صلاحية صريحة لكل إجراء حسّاس فوق حارس الدور)
 Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('lawyer.')->group(function () {
+    // «مستحقاتي» — الراتب ونصيب الأتعاب وأجر الجلسات وسجلّ الصرف (بيانات المستخدم الحاليّ وحده)
+    Route::get('/earnings', [StaffEarningsController::class, 'index'])->name('earnings');
+    Route::get('/earnings/statement.pdf', [StaffEarningsController::class, 'statement'])->name('earnings.statement');
     Route::get('/dashboard', [LawyerTicketController::class, 'dashboard'])->name('dashboard'); // عام للدور
     // التذاكر المحالة — عرض عام للمحامي؛ الإجراءات الحسّاسة مُصرَّحة أدناه
     Route::get('/tickets', [LawyerTicketController::class, 'index'])->name('tickets');

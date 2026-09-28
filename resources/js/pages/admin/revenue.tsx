@@ -31,6 +31,8 @@ interface Props {
   byService: BarDatum[];
   salaries: { name: string; salary: number }[];
   salaryTotal: number;
+  /** ما صُرف للموظّفين فعلاً — مجموع سجلّ الصرف الساري (`StaffPayout::active`) */
+  staffPaidTotal: number;
 }
 
 const AdminRevenue: React.FC<Props> = ({
@@ -52,6 +54,7 @@ const AdminRevenue: React.FC<Props> = ({
   byService,
   salaries,
   salaryTotal,
+  staffPaidTotal,
 }) => {
   return (
     <>
@@ -227,6 +230,10 @@ const AdminRevenue: React.FC<Props> = ({
             <span className="t">إجمالي الرواتب الثابتة الشهرية</span>
             <span className="v" style={{ fontWeight: 800 }}>{fmt(salaryTotal)} ر.س</span>
           </div>
+          <div className="kpi-row">
+            <span className="t">المصروف للموظفين (سجلّ الصرف)</span>
+            <span className="v" style={{ fontWeight: 800 }}>{fmt(staffPaidTotal)} ر.س</span>
+          </div>
           {/* حُذفت «تغطية الرواتب من الدخل المحصل»: نسبةُ إيرادِ العمر كلّه إلى رواتب شهرٍ واحد —
               هي عين عطل «صافي التدفق» بصيغة مئويّة. تعود مع التصفية بالفترة (م١). */}
           <div style={{ marginTop: 12 }}>
@@ -237,7 +244,7 @@ const AdminRevenue: React.FC<Props> = ({
               </div>
             ))}
           </div>
-          <div className="action-hint" style={{ marginTop: 10 }}>أجور النِّسَب والجلسات متغيّرة وتُحتسب عند الاستحقاق.</div>
+          <div className="action-hint" style={{ marginTop: 10 }}>أجور النِّسَب والجلسات متغيّرة وتُحتسب عند الاستحقاق — تفصيلها لكلّ موظّف في «المستحقّات والصرف» بتبويب الموظّفين.</div>
         </div>
       </div>
 
