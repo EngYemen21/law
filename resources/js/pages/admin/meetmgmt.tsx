@@ -7,6 +7,7 @@ import Modal from '@/components/babylon/Modal';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { MEET_STATUSES, MEET_TYPES_FULL, MEET_TEMPLATES } from '@/lib/admin-data';
+import { dateISOAfter, todayISO } from '@/lib/local-date';
 import { meetStatusTone, attendanceLabel, fmtActualDuration, type ClientDirEntry, type FullMeetingCard } from '@/lib/meeting-ui';
 
 // واجهة إدارة الاجتماعات الحديثة — التصميم الفاخر والمطور 2026
@@ -507,18 +508,14 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button
                       type="button"
-                      onClick={() => setDay(new Date().toISOString().slice(0, 10))}
+                      onClick={() => setDay(todayISO())}
                       style={{ fontSize: 10.5, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--line-soft)', background: '#fff', cursor: 'pointer' }}
                     >
                       اليوم
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        const d = new Date();
-                        d.setDate(d.getDate() + 1);
-                        setDay(d.toISOString().slice(0, 10));
-                      }}
+                      onClick={() => setDay(dateISOAfter(1))}
                       style={{ fontSize: 10.5, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--line-soft)', background: '#fff', cursor: 'pointer' }}
                     >
                       غداً

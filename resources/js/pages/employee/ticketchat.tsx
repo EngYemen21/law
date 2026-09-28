@@ -286,7 +286,7 @@ const EmployeeTicketChat: React.FC<{
             className="input"
             type="date"
             value={schedDate}
-            min={new Date().toISOString().split('T')[0]}
+            min={todayISO()}
             onChange={(e) => { setSchedDate(e.target.value); fetchSlots(schedLawyerId, e.target.value); }}
           />
         </div>

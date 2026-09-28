@@ -7,6 +7,7 @@ import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { HEARING_DURATION, hearingDurationLabel, type Hearing } from '@/lib/case-ui';
 import Icon from '@/lib/icons';
+import { todayISO } from '@/lib/local-date';
 import { firstError } from '@/lib/server-message';
 import { useServerAction } from '@/lib/use-server-action';
 
@@ -342,14 +343,14 @@ export const AppealCard: React.FC<{
     appeal_request_no: '',
     appeal_court: defaultCourt ? `محكمة الاستئناف (${defaultCourt})` : 'محكمة الاستئناف',
     appeal_circuit: '',
-    appeal_filed_at: new Date().toISOString().slice(0, 10),
+    appeal_filed_at: todayISO(),
   });
 
   // Form for appeal ruling
   const [ar, setAr] = useState({
     appeal_outcome: 'تأييد الحكم الابتدائي',
     appeal_ruling: '',
-    appeal_judged_at: new Date().toISOString().slice(0, 10),
+    appeal_judged_at: todayISO(),
   });
 
   if (!appeal) {

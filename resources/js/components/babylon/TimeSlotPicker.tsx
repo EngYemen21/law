@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import Icon from '@/lib/icons';
+import { todayISO } from '@/lib/local-date';
 
 export interface TimeSlotItem {
   time: string;
@@ -52,7 +53,7 @@ export const formatSlotDisplay = (timeStr: string): string => {
 
 const isPastSlot = (dateStr?: string, timeStr?: string): boolean => {
   if (!dateStr || !timeStr) return false;
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayISO();
   if (dateStr < today) return true;
   if (dateStr > today) return false;
   const [h, m] = timeStr.split(':').map((v) => parseInt(v, 10));
