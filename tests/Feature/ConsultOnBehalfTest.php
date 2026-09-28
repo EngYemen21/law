@@ -76,4 +76,17 @@ class ConsultOnBehalfTest extends TestCase
             $this->assertStringContainsString('<ConsultOnBehalfButton', (string) file_get_contents(resource_path("js/pages/{$page}.tsx")), $page);
         }
     }
+
+    /**
+     * رفض الطلب (عميلٌ له طلبٌ قائم) يعود بزيارةٍ تغيب عنها الخاصّيّة الاختياريّة — فكانت النافذة تفقد
+     * الدليل وما اختير فيها. الحارس: الحالة تُحفظ عند الرفض، وآخر دليلٍ محمَّل يبقى ما دامت مفتوحة.
+     */
+    public function test_a_refusal_keeps_the_modal_and_its_choices(): void
+    {
+        $src = (string) file_get_contents(resource_path('js/components/consult/ConsultOnBehalfButton.tsx'));
+
+        $this->assertStringContainsString("preserveState: 'errors'", $src);
+        $this->assertStringContainsString('const form = fresh ?? kept;', $src);
+        $this->assertStringContainsString('preserveState?:', (string) file_get_contents(resource_path('js/lib/use-server-action.ts')));
+    }
 }

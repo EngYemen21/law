@@ -20,7 +20,15 @@ interface OnBehalfForm {
 }
 
 const ConsultOnBehalfButton: React.FC<{ className?: string }> = ({ className = 'btn soft' }) => {
-  const { consultRequestForm: form } = usePage<{ consultRequestForm?: OnBehalfForm }>().props;
+  const { consultRequestForm: fresh } = usePage<{ consultRequestForm?: OnBehalfForm }>().props;
+  // الخاصّيّة الاختياريّة تغيب عن أيّ زيارةٍ لاحقة (ومنها عودة الرفض) — فتُحفظ آخر نسخةٍ ليبقى النموذج قائماً
+  const [kept, setKept] = useState<OnBehalfForm | undefined>(fresh);
+
+  if (fresh && fresh !== kept) {
+    setKept(fresh);
+  }
+
+  const form = fresh ?? kept;
   const action = useServerAction();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -32,7 +40,8 @@ const ConsultOnBehalfButton: React.FC<{ className?: string }> = ({ className = '
   const show = () => {
     setOpen(true);
 
-    if (!form) {
+    // كلّ فتحٍ يجلب الدليل من جديد إن لم يكن في الصفحة — فلا يُعرض دليلٌ قديم
+    if (!fresh) {
       router.reload({ only: ['consultRequestForm'] });
     }
   };
@@ -57,6 +66,8 @@ const ConsultOnBehalfButton: React.FC<{ className?: string }> = ({ className = '
     void action.run(`${panelBase(window.location.pathname)}/consults/request`, {
       data: { client_id: clientId, type, subject: subject.trim() || null, ticket_no: ticketNo || null },
       fallback: 'تعذّر إنشاء طلب الاستشارة',
+      // الرفض (عميلٌ له طلبٌ قائم مثلاً) يُبقي النافذة وما اختير فيها ليُصحَّح
+      preserveState: 'errors',
       onSuccess: close,
     });
   };

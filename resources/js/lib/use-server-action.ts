@@ -23,6 +23,8 @@ export interface ServerActionOptions {
   /** مفتاح العنصر الجاري عليه الفعل (رقم فاتورة، معرّف استشارة) — يُعطّل زرّه وحده في القوائم. */
   key?: string | number;
   preserveScroll?: boolean;
+  /** `'errors'` يُبقي حالة الصفحة (نموذجٌ مفتوح وما كُتب فيه) حين يرفض الخادم، ويُعيد تركيبها عند النجاح. */
+  preserveState?: VisitOptions['preserveState'];
   only?: string[];
   onSuccess?: (page: Page) => void;
   onError?: (errors: Record<string, string>) => void;
@@ -65,6 +67,7 @@ export function useServerAction() {
         method: opts.method ?? 'post',
         data: opts.data as VisitOptions['data'],
         preserveScroll: opts.preserveScroll ?? true,
+        ...(opts.preserveState !== undefined ? { preserveState: opts.preserveState } : {}),
         ...(opts.only ? { only: opts.only } : {}),
         onSuccess: (page) => {
           if (opts.success) {
