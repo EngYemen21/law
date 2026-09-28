@@ -91,6 +91,15 @@ class Invoice extends Model
         return $query->where('status', '!=', InvoiceStatus::Cancelled->value);
     }
 
+    /**
+     * **المحصَّل** — ما سدّده العميل فعلاً. مصدر نصيب المحامي (`Finance\StaffEarnings`): يُستحقّ
+     * بقدر ما سُدّد، والمبلغ المعتمد فيه `taxBreakdown()['subtotal']` (قبل الضريبة).
+     */
+    public function scopeCollected(Builder $query): Builder
+    {
+        return $query->where('paid', true);
+    }
+
     /** `isOverdue()` بلغة SQL — يوم الاستحقاق نفسه ليس تأخّراً. */
     public function scopeOverdue(Builder $query): Builder
     {

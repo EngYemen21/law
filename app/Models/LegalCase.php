@@ -87,6 +87,12 @@ class LegalCase extends Model
         return $this->hasMany(CaseMessage::class, 'case_id')->orderBy('id');
     }
 
+    // فواتير أتعاب القضيّة (الكاملة أو أقساطها) — المفتاح case_id
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class, 'case_id');
+    }
+
     public function hearings(): HasMany
     {
         return $this->hasMany(CaseHearing::class, 'case_id')->orderBy('id');
