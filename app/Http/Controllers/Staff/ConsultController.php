@@ -98,6 +98,8 @@ class ConsultController extends Controller
             $props['suggestedPrices'] = self::suggestedPrices();
         }
 
+        $props['consultRequestForm'] = ConsultBooking::onBehalfForm();
+
         return Inertia::render($this->prefix($request).'/consults', $props);
     }
 
@@ -120,6 +122,8 @@ class ConsultController extends Controller
 
         return Inertia::render('admin/consult-requests', [
             'consults' => $consults,
+            // «طلب استشارة نيابةً عن العميل» — يُحمَّل عند فتح النموذج وحده
+            'consultRequestForm' => ConsultBooking::onBehalfForm(),
             // `consultPrices()` يحمل الضريبة دائماً من `Setting::vatRate()` — فلا افتراضَ «15» ثانٍ هنا
             'vatRate' => (int) $prices['vat'],
             // محامو المكتب النشطون — لتعديل المحامي عند اعتماد موعدٍ اقترحه موظّف

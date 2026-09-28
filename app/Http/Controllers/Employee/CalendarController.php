@@ -8,6 +8,7 @@ use App\Models\Consult;
 use App\Models\Meeting;
 use App\Support\AppointmentBoard;
 use App\Support\CalendarWindow;
+use App\Support\ConsultBooking;
 use App\Support\EventStatus;
 use App\Support\MeetingTime;
 use App\Support\Permissions;
@@ -99,6 +100,8 @@ class CalendarController extends Controller
                 ->sortBy(fn (array $e) => [$e['startsAt'] === null, $e['startsAt']])
                 ->values(),
             'feedUrl' => $user->calendarFeedUrl(),
+            // «طلب استشارة نيابةً عن العميل» بجانب «حجز موعد جديد» — يُحمَّل عند فتح النموذج وحده
+            'consultRequestForm' => ConsultBooking::onBehalfForm(),
             'webcalUrl' => $user->calendarWebcalUrl(),
             'can' => [
                 'book' => $canBook,

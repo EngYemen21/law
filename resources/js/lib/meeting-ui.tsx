@@ -171,7 +171,7 @@ export interface MeetReqCard {
 }
 
 /** خيارُ ملفٍّ للعميل: `subject` هو موضوعه في القاعدة — null إن لم يُسجَّل. */
-export interface ClientFileOption { ref: string; label: string; subject: string | null }
+export interface ClientFileOption { ref: string; kind: 'ticket' | 'case' | 'consult'; label: string; subject: string | null }
 export interface ClientDirEntry { id: number; name: string; items: ClientFileOption[] }
 
 // غرفة الاجتماع لدور المكتب: انتقلت إلى الغرفة الواحدة `RoomPage` (`lib/zoom-room.tsx`) — تفاصيلها

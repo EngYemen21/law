@@ -6,6 +6,7 @@ import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
+import ConsultOnBehalfButton from '@/components/consult/ConsultOnBehalfButton';
 import { todayISO } from '@/lib/local-date';
 import { useConsultReschedule } from '@/lib/consult-reschedule';
 import { slotEnd, useConsultSlots } from '@/lib/consult-slots';
@@ -547,9 +548,13 @@ return lawyers;
             </button>
           </div>
           {canBook && (
-            <button className="btn" type="button" onClick={openNewBooking}>
-              <Icon name="calplus" /> + حجز موعد جديد
-            </button>
+            <>
+              <button className="btn" type="button" onClick={openNewBooking}>
+                <Icon name="calplus" /> + حجز موعد جديد
+              </button>
+              {/* عميلٌ بلا استشارةٍ مدفوعة لا يُحجز له — يُطلب له أوّلاً فيُسعَّر ويُسدَّد */}
+              <ConsultOnBehalfButton />
+            </>
           )}
         </div>
       </div>

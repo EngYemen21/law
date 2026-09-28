@@ -24,6 +24,8 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
+use Inertia\Inertia;
+use Inertia\OptionalProp;
 
 /**
  * دورة حياة حجز الاستشارة (مطابقة لتصميم رحلة التذكرة) — مصدر موحّد:
@@ -52,6 +54,25 @@ class ConsultBooking
             'video' => ['label' => 'مرئية', 'ico' => 'video', 'place' => 'اجتماع إلكتروني'],
             'phone' => ['label' => 'هاتفية', 'ico' => 'phone', 'place' => 'مكالمة هاتفية'],
         ];
+    }
+
+    /**
+     * أنواع الاستشارة للنماذج — المفتاح والاسم والأيقونة من `map()` نفسها، فلا تُكتب في الواجهة.
+     *
+     * @return list<array{key:string, label:string, ico:string}>
+     */
+    public static function typeOptions(): array
+    {
+        return collect(self::map())->map(fn (array $t, string $key) => ['key' => $key, 'label' => $t['label'], 'ico' => $t['ico']])->values()->all();
+    }
+
+    /**
+     * **بيانات نموذج «طلب استشارة نيابةً عن العميل»** — خاصّيّةٌ اختياريّة لا تُحمَّل إلّا حين يُفتح النموذج
+     * (`router.reload({ only: ['consultRequestForm'] })`)، فلا يُثقل دليلُ العملاء الصفحاتِ الأربع التي تعرض الزرّ.
+     */
+    public static function onBehalfForm(): OptionalProp
+    {
+        return Inertia::optional(fn () => ['clients' => ClientDirectory::list(), 'types' => self::typeOptions()]);
     }
 
     /**

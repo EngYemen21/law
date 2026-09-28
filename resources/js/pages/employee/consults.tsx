@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
 import { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
+import ConsultOnBehalfButton from '@/components/consult/ConsultOnBehalfButton';
 // اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
 import { stageChanged, staffPatch } from '@/lib/consult-live';
 import { maskClient } from '@/lib/employee-data';
@@ -15,6 +16,7 @@ import {
   crChannelTone,
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { useCan } from '@/lib/permissions';
 
 interface EmployeeConsultsProps {
   consults: ConsultCard[];
@@ -103,6 +105,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
 
   // أنماط العرض والتصفية
   const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const canSchedule = useCan()('جدولة المواعيد');
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [channelFilter, setChannelFilter] = useState<string>('all');
@@ -635,6 +638,12 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13 }}>
             غرفة العمليات والتنسيق اللوجستي: تدقيق مستندات العملاء، التأكد من الجاهزية، جدولة وإسناد المحامين المختصين.
           </p>
+          {/* صلاحيّة المسار نفسها (`consults.request` خلف «جدولة المواعيد») */}
+          {canSchedule && (
+            <div style={{ marginTop: 10 }}>
+              <ConsultOnBehalfButton className="btn sm" />
+            </div>
+          )}
         </div>
 
         {/* مبدل العرض المتكيف */}

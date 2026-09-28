@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
 import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
+import ConsultOnBehalfButton from '@/components/consult/ConsultOnBehalfButton';
 import { CONFIRM_CANCEL_CONSULT_REQUEST } from '@/lib/consult-ui';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
@@ -650,6 +651,9 @@ return (a.total || 0) - (b.total || 0);
           <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13 }}>
             مراجعة طلبات الاستشارات الواردة، حساب الضريبة وإصدار الفواتير الفورية، وتتبع سداد العملاء وحجز المواعيد.
           </p>
+          <div style={{ marginTop: 10 }}>
+            <ConsultOnBehalfButton className="btn sm" />
+          </div>
         </div>
 
         {/* مبدل العرض المتكيف */}

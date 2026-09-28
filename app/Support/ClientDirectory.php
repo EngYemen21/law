@@ -7,7 +7,7 @@ use App\Models\User;
 
 /**
  * دليل العملاء المسجّلين وملفاتهم الحقيقية (يطابق CLIENT_DIR في التصميم الأصلي)
- * — يُستخدم في دعوات الاجتماعات وإنشائها.
+ * — يُستخدم في دعوات الاجتماعات وإنشائها، وفي «طلب استشارة نيابةً عن العميل».
  */
 class ClientDirectory
 {
@@ -23,10 +23,10 @@ class ClientDirectory
             ])
             ->get()->map(function (User $u) {
                 $items = collect()
-                    ->merge($u->tickets->map(fn ($t) => self::item($t->number, 'تذكرة', $t->subject)))
+                    ->merge($u->tickets->map(fn ($t) => self::item($t->number, 'ticket', 'تذكرة', $t->subject)))
                     // القضية بلا عمود موضوع — موضوعها موضوع تذكرتها، وإلا نوعها
-                    ->merge($u->cases->map(fn ($c) => self::item($c->number, 'قضية', $c->ticket?->subject ?: $c->type)))
-                    ->merge($u->consults->map(fn ($c) => self::item($c->ref, 'استشارة', $c->subject)))
+                    ->merge($u->cases->map(fn ($c) => self::item($c->number, 'case', 'قضية', $c->ticket?->subject ?: $c->type)))
+                    ->merge($u->consults->map(fn ($c) => self::item($c->ref, 'consult', 'استشارة', $c->subject)))
                     ->values()->all();
 
                 return ['id' => $u->id, 'name' => $u->name, 'items' => $items];
@@ -39,11 +39,13 @@ class ClientDirectory
      * `subject` يملأ حقل «الموضوع/الخدمة» تلقائياً عند اختيار الملفّ — و**null إن لم
      * يُسجَّل موضوع**، فيبقى الحقل فارغاً للكتابة بدل أن يُملأ بنصٍّ مختلق.
      */
-    private static function item(string $ref, string $kind, ?string $subject): array
+    private static function item(string $ref, string $kind, string $kindLabel, ?string $subject): array
     {
         return [
             'ref' => $ref,
-            'label' => $ref.' — '.$kind,
+            // نوع الملفّ مفتاحاً (`ticket`·`case`·`consult`) — نموذج «طلب استشارة نيابةً عن العميل» يعرض التذاكر وحدها
+            'kind' => $kind,
+            'label' => $ref.' — '.$kindLabel,
             'subject' => trim((string) $subject) ?: null,
         ];
     }
