@@ -6,10 +6,11 @@ import ChatThread from '@/components/babylon/ChatThread';
 import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
+import { matchesSearch } from '@/lib/employee-data';
 import { EXEC_FLOW, EXEC_SANADS, EXEC_FEE_MODES, EXEC_CLOSE_REASONS, EXEC_DOC_ACCEPT, EXEC_DOC_HINT, EXEC_REQ_DOC_ACCEPT, EXEC_REQ_DOC_HINT, execMoney, procTone, execVatLabel, execAiPresentation, execStudyBasis, execUnassigned    } from '@/lib/exec-flow';
 import type { ExecFeeMode, ExecInvoice } from '@/lib/exec-flow';
 import { installmentsText, useSettings } from '@/lib/settings';
-import type {ExecDoc, ExecLawyerOpt, ExecReq, Role} from '@/lib/exec-flow';
+import type {ExecBucket, ExecDoc, ExecLawyerOpt, ExecReq, Role} from '@/lib/exec-flow';
 import { ExecNajizCard } from '@/lib/exec-najiz';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
@@ -111,28 +112,23 @@ return 'سجّل خطوة التنفيذ في ناجز';
   return '';
 };
 
-const ExecList: React.FC<{ role: Role; execs: ExecReq[]; onNew: () => void; onOpen: (id: string) => void }> = ({ role, execs, onNew, onOpen }) => {
+const ExecList: React.FC<{ role: Role; execs: ExecReq[]; buckets: Record<ExecBucket, string>; onNew: () => void; onOpen: (id: string) => void }> = ({ role, execs, buckets, onNew, onOpen }) => {
   // الإجراء التالي للموظّف يتبع صلاحيّته لا دوره وحده
   const canCourt = useCan()('إجراءات المحكمة والجلسات');
-  const neu = execs.filter((r) => r.stage <= 1).length;
-  const study = execs.filter((r) => r.stage >= 2 && r.stage <= 4).length;
-  const offer = execs.filter((r) => r.stage >= 5 && r.stage <= 6 && !r.paid).length;
-  const active = execs.filter((r) => r.stage >= 7 && !r.closed).length;
-  const closed = execs.filter((r) => r.closed).length;
+  // تبويب المجموعة + بحث — المجموعة من الخادم (`r.bucket`)، والبحث بمطابقةٍ تتسامح مع الهمزات والتاء المربوطة
+  const [tab, setTab] = useState<ExecBucket | 'all'>('all');
+  const [search, setSearch] = useState('');
+  // «دراسة/أتعاب» شأنٌ داخليّ لا يُعرض للعميل تبويباً
+  const tabs = (Object.keys(buckets) as ExecBucket[]).filter((k) => role !== 'client' || k !== 'study');
+  const count = (k: ExecBucket) => execs.filter((r) => r.bucket === k).length;
+  const shown = execs.filter((r) => (tab === 'all' || r.bucket === tab)
+    && matchesSearch(search, r.id, r.subject, r.client, r.defendant, r.execNo, r.sanad));
 
   return (
     <>
       <div className="greet">
         <h2>{role === 'client' ? 'طلبات التنفيذ' : 'ملفات التنفيذ'}</h2>
         <p>إدارة طلبات التنفيذ إلكترونياً من التقديم حتى إغلاق الملف، مع تحديد الأتعاب واعتمادها قبل بدء العمل.</p>
-      </div>
-
-      <div className="stat-strip">
-        <span className="stat-pill"><span className="pd" style={{ background: '#607689' }} /><b>{neu}</b> جديدة/تحليل</span>
-        {role !== 'client' && <span className="stat-pill"><span className="pd" style={{ background: '#0E5C9C' }} /><b>{study}</b> دراسة/أتعاب</span>}
-        <span className="stat-pill"><span className="pd" style={{ background: '#C0832B' }} /><b>{offer}</b> عروض/سداد</span>
-        <span className="stat-pill"><span className="pd" style={{ background: '#1E9D6B' }} /><b>{active}</b> قيد التنفيذ</span>
-        <span className="stat-pill"><span className="pd" style={{ background: '#8895a7' }} /><b>{closed}</b> مغلقة</span>
       </div>
 
       {role === 'client' && (
@@ -142,9 +138,27 @@ const ExecList: React.FC<{ role: Role; execs: ExecReq[]; onNew: () => void; onOp
       )}
 
       <div className="card">
-        <div className="card-h"><h3>الطلبات</h3><span className="sub">{execs.length}</span></div>
+        <div className="card-h" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div className="tabs" style={{ margin: 0 }}>
+            <button className={`tab${tab === 'all' ? ' on' : ''}`} type="button" onClick={() => setTab('all')}>الكل ({execs.length})</button>
+            {tabs.map((k) => (
+              <button key={k} className={`tab${tab === k ? ' on' : ''}`} type="button" onClick={() => setTab(k)}>
+                {buckets[k]} ({count(k)})
+              </button>
+            ))}
+          </div>
+          <input
+            className="input"
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={role === 'client' ? 'ابحث برقم الطلب أو الموضوع أو المنفَّذ ضده…' : 'ابحث برقم الملف أو العميل أو المنفَّذ ضده…'}
+            style={{ maxWidth: 300 }}
+            aria-label="بحث في ملفات التنفيذ"
+          />
+        </div>
         <div className="card-b" style={{ padding: '14px 16px' }}>
-          {execs.length ? execs.map((r) => (
+          {shown.length ? shown.map((r) => (
             <div key={r.id} className="agd-c" style={{ borderRightColor: STAGE_COLOR(r.stage), marginBottom: 10, cursor: 'pointer' }} onClick={() => onOpen(r.id)}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
                 <div style={{ minWidth: 0 }}>
@@ -163,7 +177,7 @@ const ExecList: React.FC<{ role: Role; execs: ExecReq[]; onNew: () => void; onOp
                 {role !== 'client' && nextAction(role, r, canCourt) ? <span style={{ color: STAGE_COLOR(r.stage), fontWeight: 700 }}><Icon name="info" /> {nextAction(role, r, canCourt)}</span> : null}
               </div>
             </div>
-          )) : <div className="empty"><Icon name="exec" /><b>لا طلبات تنفيذ</b></div>}
+          )) : <div className="empty"><Icon name="exec" /><b>{execs.length ? 'لا ملفات مطابقة للبحث أو التبويب' : 'لا طلبات تنفيذ'}</b></div>}
         </div>
       </div>
     </>
@@ -1464,10 +1478,12 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
 const ExecFlow: React.FC<{
   role: Role;
   execs: ExecReq[];
+  /** أسماء مجموعات القائمة من الخادم (`ExecFlow::BUCKETS`) */
+  buckets: Record<ExecBucket, string>;
   lawyers?: ExecLawyerOpt[];
   initialId?: string | number | null;
   initialTab?: string | null;
-}> = ({ role, execs, lawyers = [], initialId, initialTab }) => {
+}> = ({ role, execs, buckets, lawyers = [], initialId, initialTab }) => {
   const toast = useToast();
   const execAction = useServerAction();
 
@@ -1631,7 +1647,7 @@ const ExecFlow: React.FC<{
 
   return (
     <div className="tflow">
-      {view === 'list' && <ExecList role={role} execs={execs} onNew={() => { setView('new'); syncUrl(null, null, true); }} onOpen={open} />}
+      {view === 'list' && <ExecList role={role} execs={execs} buckets={buckets} onNew={() => { setView('new'); syncUrl(null, null, true); }} onOpen={open} />}
       {view === 'new' && <ExecNew onSubmit={submitNew} onBack={backToList} busy={busy} />}
       {view === 'detail' && current && (role === 'client'
         ? <ClientExecDetail r={current} onBack={backToList} act={act} />

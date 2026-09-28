@@ -124,6 +124,9 @@ export interface ExecStudy {
   approved: boolean;
 }
 
+/** مفاتيح مجموعات قائمة التنفيذ — أسماؤها تصل من الخادم (`ExecFlow::BUCKETS`) */
+export type ExecBucket = 'new' | 'study' | 'offer' | 'active' | 'closed';
+
 export interface ExecReq {
   /** من يتولّى محادثة الملفّ ومن تولّاها قبله — لبطاقة الطاقم وحدها (`ExecFlowController::staffCards`). */
   conversation?: ConversationHistory | null;
@@ -140,6 +143,8 @@ export interface ExecReq {
   stage: number;
   /** اسم المرحلة من الخادم (`Execution::stageLabel`) — الشارات تقرؤه، و`EXEC_FLOW` لشريط الخطوات وحده */
   stageLabel: string;
+  /** مجموعة الملفّ في تبويبات القائمة (`ExecFlow::bucket`) */
+  bucket: ExecBucket;
   /** لون شارة المرحلة (`ExecFlow::tone`) من الخادم. */
   tone: string;
   channel: string;

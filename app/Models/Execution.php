@@ -258,6 +258,8 @@ class Execution extends Model
             ])->values()->all(),
             'najiz' => $this->najizCard(),
             'closed' => $this->isClosed(),
+            // مجموعة الملفّ في تبويبات القائمة (`ExecFlow::BUCKETS`) — لا شروطَ مرحلةٍ في الواجهة
+            'bucket' => ExecFlow::bucket($stage, (bool) $this->paid, $this->isClosed()),
             // أعلامٌ من الخادم بدل مقارنة «مرفوض» نصّاً في الواجهة (`execflow.tsx`)
             'isRejected' => $this->isRejectedAfterStudy(),
             'offerRejected' => $this->isOfferRejected(),

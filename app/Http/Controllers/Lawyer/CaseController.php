@@ -12,6 +12,7 @@ use App\Models\Ticket;
 use App\Services\Ai\AiReviewOutcome;
 use App\Support\Audit;
 use App\Support\CaseFiling;
+use App\Support\CaseJourney;
 use App\Support\CasePleading;
 use App\Support\CaseTicketDocuments;
 use App\Support\ConversationFiles;
@@ -45,7 +46,8 @@ class CaseController extends Controller
             ->where('assigned_lawyer_id', $request->user()->id)->latest('id')->get()
             ->map(fn (LegalCase $c) => $this->card($c));
 
-        return Inertia::render('lawyer/cases', ['cases' => $cases]);
+        // تبويبات الحالة من المصدر نفسه الذي تقرؤه قضايا الإدارة (`CaseJourney::adminTabs`)
+        return Inertia::render('lawyer/cases', ['cases' => $cases, 'tabs' => CaseJourney::adminTabs()]);
     }
 
     public function show(LegalCase $case): Response

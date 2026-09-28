@@ -52,6 +52,7 @@ class ExecFlowController extends Controller
             ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(false));
 
         return Inertia::render('execflow', [
+            'buckets' => ExecFlow::BUCKETS,
             'role' => 'client',
             'execs' => $execs,
             'initialId' => $request->query('id'),
@@ -70,6 +71,7 @@ class ExecFlowController extends Controller
         $execs = self::staffCards($execs);
 
         return Inertia::render('execflow', [
+            'buckets' => ExecFlow::BUCKETS,
             'role' => 'lawyer',
             'execs' => $execs,
             'initialId' => $request->query('id'),
@@ -89,6 +91,7 @@ class ExecFlowController extends Controller
         ]);
 
         return Inertia::render('execflow', [
+            'buckets' => ExecFlow::BUCKETS,
             'role' => 'admin',
             'execs' => $execs,
             'lawyers' => self::assignableLawyers(),
@@ -109,6 +112,7 @@ class ExecFlowController extends Controller
         $canAssign = (bool) $request->user()?->can(Permissions::COURT_PROCEEDINGS);
 
         return Inertia::render('execflow', [
+            'buckets' => ExecFlow::BUCKETS,
             'role' => 'employee',
             'execs' => $execs,
             'lawyers' => $canAssign ? self::assignableLawyers() : [],
