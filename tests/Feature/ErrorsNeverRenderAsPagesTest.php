@@ -423,4 +423,21 @@ class ErrorsNeverRenderAsPagesTest extends TestCase
 
         return [$consult, $lawyer];
     }
+
+    /**
+     * **دالّة التخطيط لا تقرأ خصائص الصفحة من وسيطها.** Inertia v3 تناديها أوّلاً بخصائص الصفحة لا
+     * بعنصرها، فـ`page.props.auth` ينهار — وكانت صفحة الخطأ (٤٠٤) تُعرض بيضاء لكلّ من فتح رابطاً غير
+     * موجود (رُصد في المتصفّح 2026-09-28). ما يحتاجه التخطيط يُقرأ بـ`usePage()` داخل مكوّن.
+     */
+    public function test_page_layouts_never_read_props_from_their_argument(): void
+    {
+        $offenders = [];
+        foreach ((new Finder)->files()->in(resource_path('js/pages'))->name('*.tsx') as $file) {
+            if (preg_match('/\.layout\s*=\s*\(?\s*(\w+)[^\n]*=>[^\n]*\b\1\.props\b/', $file->getContents())) {
+                $offenders[] = $file->getRelativePathname();
+            }
+        }
+
+        $this->assertSame([], $offenders, 'دالّة تخطيطٍ تقرأ `.props` من وسيطها — اقرأ الخصائص بـusePage() داخل مكوّن.');
+    }
 }
