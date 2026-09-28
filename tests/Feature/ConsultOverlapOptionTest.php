@@ -12,9 +12,11 @@ use App\Models\User;
 use App\Support\ConsultAppointments;
 use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
+use App\Support\Permissions;
 use Carbon\CarbonInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Spatie\Permission\Models\Permission;
 use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
@@ -184,5 +186,35 @@ class ConsultOverlapOptionTest extends TestCase
         $this->assertStringContainsString('{appts.map(renderApptCard)}', $src);
         $this->assertStringContainsString('{dayRows.map((hourStr) => {', $src);
         $this->assertStringNotContainsString('{dayHours.map((hourStr) => {', $src);
+    }
+
+    /**
+     * **شبكة التفرّغ تقرأ المحرّك** (`schedule/day-slots`): وقت الاجتماع مشغول، ووقت جلسة المحكمة
+     * `hard` — كانت الشبكة تعرف المواعيد وحدها فتعرضهما «احجز الآن». والمسار اطّلاعٌ لمن يرى التقويم.
+     */
+    public function test_the_grid_reads_meetings_and_hearings_from_the_engine(): void
+    {
+        $inMeeting = $this->lawyer();
+        $inCourt = $this->lawyer();
+        $this->meetingFor($inMeeting);
+        $this->hearingFor($inCourt);
+        $viewer = User::factory()->create(['role' => Role::Employee]);
+        $viewer->syncRoles([]);
+        $viewer->syncPermissions([Permission::firstOrCreate(['name' => Permissions::MANAGE_BOOKINGS, 'guard_name' => 'web'])]);
+
+        $res = $this->actingAs($viewer)->getJson(route('employee.schedule.day-slots', ['date' => $this->at->toDateString(), 'lawyer_ids' => [$inMeeting->id, $inCourt->id]]))->assertOk();
+        $at = fn (int $id) => collect($res->json("slots.{$id}"))->keyBy('time')['10:00'];
+
+        $this->assertSame(['taken' => true, 'hard' => false], array_intersect_key($at($inMeeting->id), ['taken' => 1, 'hard' => 1]));
+        $this->assertSame(['taken' => true, 'hard' => true], array_intersect_key($at($inCourt->id), ['taken' => 1, 'hard' => 1]));
+        $this->assertFalse(collect($res->json("slots.{$inMeeting->id}"))->keyBy('time')['12:00']['taken']);
+
+        $this->actingAs(User::factory()->create(['role' => Role::Client]))
+            ->getJson(route('employee.schedule.day-slots', ['date' => $this->at->toDateString(), 'lawyer_ids' => [$inMeeting->id]]))
+            ->assertForbidden();
+
+        $src = (string) file_get_contents(resource_path('js/pages/employee/schedule.tsx'));
+        $this->assertStringContainsString('/schedule/day-slots?date=', $src);
+        $this->assertStringContainsString("inCourt ? '⚖️ جلسة محكمة' : '⏳ مشغول — ارتباطٌ آخر'", $src);
     }
 }

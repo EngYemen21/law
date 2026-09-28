@@ -372,11 +372,26 @@ class LawyerAvailability
     {
         $day = $date ? Carbon::parse($date)->startOfDay() : self::resolveDate(null);
 
+        return self::daySlotsForMany([$lawyerId], $day)[$lawyerId] ?? [];
+    }
+
+    /**
+     * **شرائح اليوم لعدّة محامين باستعلامٍ واحد** — ما تقرؤه شبكة التفرّغ فتُظهر ما يحسبه المحرّك (اجتماعاً
+     * أو جلسة محكمة) بدل مواعيدها وحدها. ويوم العطلة بلا شرائح. `slotsFor` هو هذا لمحامٍ واحد.
+     *
+     * @param  list<int>  $lawyerIds
+     * @return array<int, array<int, array{time:string,taken:bool,hard:bool}>>
+     */
+    public static function daySlotsForMany(array $lawyerIds, Carbon $day): array
+    {
         if (! self::isWorkDay($day)) {
-            return [];
+            return array_fill_keys($lawyerIds, []);
         }
 
-        return self::slotsFromIntervals(self::busyIntervals($lawyerId, $day->toDateString()), $day);
+        return array_map(
+            fn (array $intervals) => self::slotsFromIntervals($intervals, $day),
+            self::busyIntervalsForMany($lawyerIds, $day->toDateString())
+        );
     }
 
     /**

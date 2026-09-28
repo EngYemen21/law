@@ -1,5 +1,5 @@
 import { router } from '@inertiajs/react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import Modal from '@/components/babylon/Modal';
 import StatRow from '@/components/babylon/StatRow';
@@ -508,6 +508,45 @@ return lawyers;
     return [...times].sort();
   }, [dayHours, appointments, selectedDay, gridLawyers]);
 
+  /*
+   * **شرائح اليوم كما يحسبها المحرّك** (`LawyerAvailability::daySlotsForMany`) — الشبكة كانت تعرف المواعيد
+   * وحدها، فتعرض وقت اجتماعٍ أو جلسة محكمة «احجز الآن» ثمّ يرفضه الخادم «مشغول».
+   */
+  const [daySlots, setDaySlots] = useState<Record<number, TimeSlotItem[]>>({});
+  const gridLawyerIds = gridLawyers.map((l) => l.id).join(',');
+
+  useEffect(() => {
+    // بلا مستشارين معروضين لا تُرسم الشبكة أصلاً — فلا طلب
+    if (gridLawyerIds === '') {
+      return;
+    }
+
+    let cancelled = false;
+    const query = gridLawyerIds.split(',').map((id) => `lawyer_ids[]=${id}`).join('&');
+    fetch(`${apiBase()}/schedule/day-slots?date=${selectedDay}&${query}`, { headers: { Accept: 'application/json' } })
+      .then((r) => (r.ok ? r.json() : { slots: {} }))
+      .then((j: { slots?: Record<number, TimeSlotItem[]> }) => {
+        if (!cancelled) {
+          setDaySlots(j.slots ?? {});
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDaySlots({});
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDay, gridLawyerIds, appointments]);
+
+  /** شريحة المحرّك لمحامٍ في وقتٍ من اليوم المختار. */
+  const engineSlot = useCallback(
+    (lawyerId: number, time: string): TimeSlotItem | undefined => daySlots[lawyerId]?.find((x) => x.time === time),
+    [daySlots],
+  );
+
   // إحصائيات تفرغ المستشارين لليوم المختار
   const lawyerDailyStats = useMemo(() => {
     const statsMap = new Map<number, { booked: number; free: number; past: number; total: number }>();
@@ -520,13 +559,14 @@ return lawyers;
 
       // الشاغر والمنقضي على شبكة الدوام وحدها؛ والمحجوز عددُ مواعيد اليوم كلّها (ولو خارجها)
       dayHours.forEach((h) => {
+        // الموعد وارتباطات المحرّك (اجتماع، جلسة محكمة) كلاهما ليس شاغراً
         if (dayAppointmentsMap.has(`${l.id}_${h}`)) {
           return;
         }
 
         if (isToday && h <= currentHM) {
           past++;
-        } else {
+        } else if (!engineSlot(l.id, h)?.taken) {
           free++;
         }
       });
@@ -536,7 +576,7 @@ return lawyers;
     });
 
     return statsMap;
-  }, [gridLawyers, dayAppointmentsMap, selectedDay, dayHours, dayRows]);
+  }, [gridLawyers, dayAppointmentsMap, selectedDay, dayHours, dayRows, engineSlot]);
 
   /**
    * بطاقة موعدٍ في خانة الشبكة — دالّةٌ واحدة لأنّ الخانة قد تحمل أكثر من موعد (خيار الحجز المتداخل).
@@ -1141,6 +1181,43 @@ return lawyers;
                           // صفٌّ خارج شبكة الدوام (أُضيف لموعدٍ قائم): الخانة الفارغة بلا زرّ حجز
                           if (!isOfficeRow) {
                             return <td key={l.id} style={{ borderRight: '1px solid var(--line-soft)' }} />;
+                          }
+
+                          // ── وقتٌ يشغله ارتباطٌ غير الموعد (اجتماع، جلسة محكمة) — من المحرّك ──
+                          const engine = engineSlot(l.id, hourStr);
+
+                          if (!isSlotPast && engine?.taken) {
+                            // `hard` لوقتٍ لم يمضِ = جلسة محكمة: لا تُتجاوز ولو سُمح بالحجز المتداخل
+                            const inCourt = engine.hard === true;
+
+                            return (
+                              <td key={l.id} style={{ padding: '8px 12px', verticalAlign: 'middle', borderRight: '1px solid var(--line-soft)' }}>
+                                <div
+                                  style={{
+                                    maxWidth: gridLawyers.length === 1 ? 580 : '100%',
+                                    margin: gridLawyers.length === 1 ? '0 auto' : undefined,
+                                    padding: '9px 14px',
+                                    borderRadius: 10,
+                                    border: '1px dashed var(--amber, #d97706)',
+                                    background: 'var(--paper-2)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 10,
+                                    fontSize: 12.5,
+                                    fontWeight: 700,
+                                    color: 'var(--muted)',
+                                  }}
+                                >
+                                  <span>{inCourt ? '⚖️ جلسة محكمة' : '⏳ مشغول — ارتباطٌ آخر'}</span>
+                                  {canBook && allowOverlap && !inCourt && (
+                                    <button className="btn soft sm" type="button" onClick={() => openBookingForSlot(l.id, selectedDay, hourStr)}>
+                                      حجز رغم الانشغال
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            );
                           }
 
                           // ── الخانة شاغرة (متاحة للحجز) ──

@@ -323,6 +323,8 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
     // يُتاح لمن يملك جدولة المواعيد أو إدارة المواعيد والحجوزات أو إجراءات المحكمة والجلسات
     Route::middleware(Permissions::middleware(Permissions::SCHEDULE_APPOINTMENTS, Permissions::MANAGE_BOOKINGS, Permissions::COURT_PROCEEDINGS))->group(function () {
         Route::get('/calendar', [EmployeeCalendarController::class, 'index'])->name('calendar');
+        // شرائح اليوم لشبكة التفرّغ — اطّلاعٌ لمن يرى التقويم (الحجز نفسه محروسٌ بجدولة المواعيد)
+        Route::get('/schedule/day-slots', [EmployeeScheduleController::class, 'daySlots'])->name('schedule.day-slots');
         // شاشة الجدولة المستقلّة طُويت في التقويم — تُحوَّل ولا تُحذف (روابط محفوظة/إشعارات)
         Route::get('/schedule', [EmployeeScheduleController::class, 'index'])->name('schedule');
     });
@@ -580,6 +582,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     // نظيرا الجدولة للوحة الإدارة — التقويم الإداري يحجز ويجلب الفترات من مساراته هو
     // (قرار 2026-08-28: لا يمرّ الأدمن عبر بوابات الأدوار الأخرى إطلاقًا)
     Route::get('/schedule/slots', [EmployeeScheduleController::class, 'slots'])->name('schedule.slots');
+    Route::get('/schedule/day-slots', [EmployeeScheduleController::class, 'daySlots'])->name('schedule.day-slots');
     Route::post('/schedule', [EmployeeScheduleController::class, 'store'])->name('schedule.store');
     Route::post('/consults/request', [EmployeeScheduleController::class, 'requestFor'])->name('consults.request');
     // اعتماد موعدٍ اقترحه موظّف — كما هو أو بعد تعديله (قرار المالك 2026-09-14)

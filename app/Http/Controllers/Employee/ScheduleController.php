@@ -44,6 +44,24 @@ class ScheduleController extends Controller
     }
 
     /**
+     * GET …/schedule/day-slots?date=YYYY-MM-DD&lawyer_ids[]=… — شرائح اليوم لكلّ مستشاري شبكة التفرّغ
+     * (`LawyerAvailability::daySlotsForMany`). تقرؤها الشبكة لتُظهر الوقت الذي يشغله اجتماعٌ أو جلسة
+     * محكمة — كانت تعرضه «احجز الآن» ثمّ يرفضه الخادم «مشغول». اطّلاعٌ لمن يرى التقويم.
+     */
+    public function daySlots(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'date' => ['required', 'date_format:Y-m-d'],
+            'lawyer_ids' => ['required', 'array', 'max:100'],
+            'lawyer_ids.*' => ['integer'],
+        ]);
+
+        $ids = User::where('role', Role::Lawyer)->whereIn('id', $data['lawyer_ids'])->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        return response()->json(['slots' => (object) LawyerAvailability::daySlotsForMany($ids, Carbon::parse($data['date'])->startOfDay())]);
+    }
+
+    /**
      * API: فترات محامٍ في يوم معيّن — يُعيد كل ساعة مع علامة مشغول/متاح.
      * GET /employee/schedule/slots?lawyer_id=X&date=YYYY-MM-DD
      */
