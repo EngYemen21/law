@@ -116,7 +116,7 @@ const EmployeeTicketChat: React.FC<{
   const [slots, setSlots] = useState<{ time: string; taken: boolean }[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   // قبل اختيار المستشار: شبكة ساعات الحجز من إعدادات الخادم — لا شبكة المنتقي العامّة (٠٨–٢٢ بنصف ساعة)
-  const { grid: consultGrid } = useConsultSlots();
+  const { gridOn } = useConsultSlots();
 
   const fetchSlots = (lawyerId: string, date: string) => {
     if (!lawyerId || !date) { setSlots([]); return; }
@@ -294,8 +294,9 @@ const EmployeeTicketChat: React.FC<{
           value={schedTime}
           onChange={setSchedTime}
           date={schedDate}
-          slots={schedLawyerId && slots.length > 0 ? slots : consultGrid}
+          slots={schedLawyerId && slots.length > 0 ? slots : gridOn(schedDate)}
           label={schedLawyerId ? 'الوقت المتاح للمستشار' : 'وقت الموعد المقترح'}
+          emptyText="لا مواعيد للحجز في هذا اليوم — خارج أيّام دوام المكتب."
           helperText={slotsLoading ? 'جاري التحقق من أوقات المستشار المتاحة...' : undefined}
           required
           allowCustom

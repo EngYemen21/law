@@ -150,8 +150,8 @@ const EmployeeSchedule: React.FC<Props> = ({
   // قفلٌ موحّد لفعل «لم يحضر» من بطاقة الموعد
   const action = useServerAction();
   const reschedule = useConsultReschedule(apiBase());
-  // الشبكة وطول الشريحة من الخادم — ما يولّده المحرّك نفسه
-  const { grid: dayHours, slotMinutes } = useConsultSlots();
+  // الشبكة وطول الشريحة وأيّام الدوام من الخادم — ما يولّده المحرّك نفسه
+  const { gridOn, slotMinutes } = useConsultSlots();
   const userCan = useCan();
   const mask = useMasker();
   const isSuper = window.location.pathname.startsWith('/admin');
@@ -167,6 +167,8 @@ const EmployeeSchedule: React.FC<Props> = ({
 
   // اليوم المختار في عرض الشبكة / التقويم
   const [selectedDay, setSelectedDay] = useState(todayISO());
+  // شبكة اليوم المختار — فارغةٌ في يوم العطلة
+  const dayHours = gridOn(selectedDay);
 
   // التصفية والبحث
   const [searchQuery, setSearchQuery] = useState('');
@@ -1217,6 +1219,13 @@ return lawyers;
                       </tr>
                     );
                   })}
+                  {dayHours.length === 0 && (
+                    <tr>
+                      <td colSpan={gridLawyers.length + 1} style={{ textAlign: 'center', padding: 32, color: 'var(--muted)' }}>
+                        يوم عطلة — خارج أيّام دوام المكتب، فلا مواعيد للحجز فيه.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             )}
@@ -1500,8 +1509,9 @@ return lawyers;
             value={time}
             onChange={setTime}
             date={date}
-            slots={slots.length > 0 ? slots : dayHours /* قبل اختيار المستشار: شبكة الحجز لا شبكة المنتقي العامّة */}
+            slots={slots.length > 0 ? slots : gridOn(date) /* قبل اختيار المستشار: شبكة الحجز لا شبكة المنتقي العامّة */}
             label="الوقت المتاح للموعد"
+            emptyText="لا مواعيد للحجز في هذا اليوم — خارج أيّام دوام المكتب."
             helperText={slotsLoading ? 'جارٍ فحص الأوقات المتاحة لدى المستشار…' : undefined}
             required
             allowCustom

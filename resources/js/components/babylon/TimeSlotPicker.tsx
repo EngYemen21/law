@@ -19,6 +19,11 @@ interface Props {
   minTime?: string;
   allowCustom?: boolean;
   helperText?: string;
+  /**
+   * نصّ القائمة الفارغة. بلا هذه الخاصّيّة تُعرض الشبكة العامّة حين لا تصل شرائح (الجلسات والاجتماعات)؛
+   * ومعها القائمةُ الفارغة فارغةٌ فعلاً — يومُ عطلةٍ في حجز الاستشارة لا تُعرض فيه ساعاتٌ يرفضها الخادم.
+   */
+  emptyText?: string;
 }
 
 const DEFAULT_HOURS_SLOTS: string[] = [
@@ -68,19 +73,20 @@ const TimeSlotPicker: React.FC<Props> = ({
   // تحسب التوفّر بالساعة. ومن أراده فليُعلنه صراحةً عند نقطة الاستدعاء.
   allowCustom = false,
   helperText,
+  emptyText,
 }) => {
   const [period, setPeriod] = useState<'all' | 'am' | 'pm'>('all');
   const [showCustomInput, setShowCustomInput] = useState(false);
 
   const normalizedSlots: TimeSlotItem[] = useMemo(() => {
-    const rawList = slots && slots.length > 0 ? slots : DEFAULT_HOURS_SLOTS;
+    const rawList = slots && slots.length > 0 ? slots : emptyText !== undefined ? [] : DEFAULT_HOURS_SLOTS;
     return rawList.map((s) => {
       if (typeof s === 'string') {
         return { time: s, taken: false };
       }
       return s;
     });
-  }, [slots]);
+  }, [slots, emptyText]);
 
   const filteredSlots = useMemo(() => {
     return normalizedSlots.filter((slot) => {
@@ -177,6 +183,10 @@ const TimeSlotPicker: React.FC<Props> = ({
 
       {helperText && (
         <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px 0' }}>{helperText}</p>
+      )}
+
+      {emptyText !== undefined && normalizedSlots.length === 0 && (
+        <div style={{ color: 'var(--muted)', fontSize: 12.5, padding: '8px 2px' }}>{emptyText}</div>
       )}
 
       {/* شبكة مربعات الأوقات المتاحة */}

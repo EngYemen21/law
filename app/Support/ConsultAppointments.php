@@ -110,6 +110,9 @@ final class ConsultAppointments
         if ($startsAt->isPast()) {
             throw ValidationException::withMessages(['time' => 'لا يمكن اختيار موعد في الماضي، فضلاً اختر وقتاً لاحقاً.']);
         }
+        if ($why = LawyerAvailability::officeHoursError($startsAt)) {
+            throw ValidationException::withMessages(['time' => $why]);
+        }
 
         $type = (string) ($input['type'] ?? $base['type'] ?? self::typeOf($consult));
         if (! in_array($type, self::TYPES, true)) {

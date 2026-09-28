@@ -9,7 +9,7 @@ interface Field {
   group: string;
   label: string;
   hint: string;
-  type: 'int' | 'string' | 'date';
+  type: 'int' | 'string' | 'date' | 'days';
   default: number | string;
   min?: number;
   max?: number;
@@ -30,6 +30,38 @@ interface Props {
  * لكلّ بطاقةٍ زرُّ حفظٍ مستقلّ ترسل حقولها وحدها: حفظُ مهلةٍ لا يلزمه المرور على بيانات
  * المكتب. والتفسير تحت كلّ حقل من السجلّ نفسه لا نسخةً منقوشةً هنا — نسختان تتباعدان.
  */
+
+/** أيّام الأسبوع بترتيب `Date.getDay()`/Carbon (الأحد=0) — كما يخزّنها الخادم «0,1,2». */
+const WEEK_DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+/** إعداد من نوع «أيّام»: أزرار تبديل تكتب النصّ «0,1,4» مرتّباً — ولا يُفرَّغ آخر يوم. */
+const DaysInput: React.FC<{ id: string; value: string; onChange: (v: string) => void }> = ({ id, value, onChange }) => {
+  const on = new Set(value.split(',').filter((d) => d !== '').map(Number));
+  const toggle = (d: number) => {
+    const next = new Set(on);
+
+    if (next.has(d)) {
+      next.delete(d);
+    } else {
+      next.add(d);
+    }
+
+    if (next.size > 0) {
+      onChange([...next].sort((a, b) => a - b).join(','));
+    }
+  };
+
+  return (
+    <div id={id} role="group" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {WEEK_DAYS.map((name, d) => (
+        <button key={d} type="button" aria-pressed={on.has(d)} className={`btn sm ${on.has(d) ? '' : 'soft'}`} onClick={() => toggle(d)}>
+          {name}
+        </button>
+      ))}
+    </div>
+  );
+};
+
 const AdminSettings: React.FC<Props> = ({ groups, fields, values }) => {
   const toast = useToast();
 
@@ -88,6 +120,9 @@ const AdminSettings: React.FC<Props> = ({ groups, fields, values }) => {
         </label>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {field.type === 'days' ? (
+            <DaysInput id={`set-${key}`} value={form[key]} onChange={(v) => setForm({ ...form, [key]: v })} />
+          ) : (
           <input
             id={`set-${key}`}
             className="input"
@@ -98,6 +133,7 @@ const AdminSettings: React.FC<Props> = ({ groups, fields, values }) => {
             onChange={(e) => setForm({ ...form, [key]: e.target.value })}
             style={{ maxWidth: field.type === 'string' ? 340 : 200 }}
           />
+          )}
 
           <button
             className="btn soft sm"

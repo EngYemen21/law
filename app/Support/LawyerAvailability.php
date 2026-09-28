@@ -25,17 +25,17 @@ use Illuminate\Support\Carbon;
  */
 class LawyerAvailability
 {
-    /** الاستشارات متاحة طوال الأسبوع: الأحد(0)…السبت(6) بتقويم Carbon. */
-    private const WORK_DAYS = [0, 1, 2, 3, 4, 5, 6];
-
     /*
      * **افتراضاتٌ مُعلَنة لا قيمٌ نافذة.** ساعات الحجز وطول الشريحة إعداداتٌ تضبطها الإدارة
      * (`consult_day_start`/`consult_day_end`/`consult_slot_minutes` في `SettingsRegistry`)،
      * والسجلّ يأخذ افتراضه من هنا. القراءة من `workHours()` و`slotMinutes()` وحدهما.
      */
-    public const WORK_START = 0;   // 00:00 — متاح طوال 24 ساعة
+    public const WORK_START = 9;   // دوام المكتب (قرار المالك 2026-09-28): من 09:00
 
-    public const WORK_END = 24;    // آخر بداية 23:00 لموعد 60د
+    public const WORK_END = 22;    // إلى 22:00 — آخر بداية 21:00 لشريحة 60د
+
+    /** أيّام الدوام الافتراضيّة بتقويم Carbon (الأحد=0): الأحد–الخميس. الإعداد `consult_work_days`. */
+    public const WORK_DAYS = [0, 1, 2, 3, 4];
 
     public const SLOT_MIN = 60;    // مسافة الحجز الافتراضيّة — لا عمر الجلسة (قرار المالك 2026-09-26)
 
@@ -81,7 +81,7 @@ class LawyerAvailability
         // الذي يقرأ منه `slotsFor`. وكان يقرأ المواعيد وحدها، فتعرض شبكة
         // العميل ساعةً يحجبها المحرّك — وهو أخطر موضعٍ للتباين لأنّه الذي يراه العميل.
         $day = self::resolveDate($date);
-        $isWorkDay = in_array($day->dayOfWeek, self::WORK_DAYS, true);
+        $isWorkDay = self::isWorkDay($day);
         $intervalsByLawyer = $isWorkDay
             ? self::busyIntervalsForMany($ids, $day->toDateString())
             : [];
@@ -326,15 +326,18 @@ class LawyerAvailability
     }
 
     /**
-     * فترات اليوم لمحامٍ (ساعات الحجز وطول الشريحة من الإعدادات، متاحة طوال الأسبوع)، كلٌّ مع علامة المحجوز.
+     * فترات اليوم لمحامٍ (ساعات الدوام وأيّامه وطول الشريحة من الإعدادات)، كلٌّ مع علامة المحجوز.
+     *
+     * اليوم المطلوب نفسه لا «أقرب يوم عمل» بعده: كان يُنقل صامتاً إلى الأحد فتعرض شبكة الجمعة
+     * شرائح الأحد وتُحجز على الجمعة. ويومُ العطلة بلا شرائح.
      *
      * @return array<int, array{time:string,taken:bool}>
      */
     public static function slotsFor(int $lawyerId, ?string $date): array
     {
-        $day = self::resolveDate($date);
+        $day = $date ? Carbon::parse($date)->startOfDay() : self::resolveDate(null);
 
-        if (! in_array($day->dayOfWeek, self::WORK_DAYS, true)) {
+        if (! self::isWorkDay($day)) {
             return [];
         }
 
@@ -362,7 +365,7 @@ class LawyerAvailability
     {
         $day = $date ? Carbon::parse($date)->startOfDay() : Carbon::today();
         $guard = 0;
-        while (! in_array($day->dayOfWeek, self::WORK_DAYS, true) && $guard++ < 7) {
+        while (! self::isWorkDay($day) && $guard++ < 7) {
             $day->addDay();
         }
 
@@ -395,5 +398,40 @@ class LawyerAvailability
         $end = SettingsRegistry::int('consult_day_end');
 
         return $end > $start ? [$start, $end] : [self::WORK_START, self::WORK_END];
+    }
+
+    /**
+     * أيّام الدوام (`consult_work_days`) — والفاسد أو الفارغ يعود إلى الافتراض في السجلّ.
+     *
+     * @return list<int>
+     */
+    public static function workDays(): array
+    {
+        return SettingsRegistry::days('consult_work_days');
+    }
+
+    public static function isWorkDay(Carbon $day): bool
+    {
+        return in_array($day->dayOfWeek, self::workDays(), true);
+    }
+
+    /**
+     * **حارس دوام المكتب على الخادم** — الشبكات لا تعرض إلّا شرائح الدوام، لكنّ النموذج قد يُرسل
+     * وقتاً آخر (أو اقتراحاً قديماً سبق تغيير الساعات). يُرجع سبب الرفض أو `null`.
+     */
+    public static function officeHoursError(Carbon $start): ?string
+    {
+        [$from, $to] = self::workHours();
+        $minute = $start->hour * 60 + $start->minute;
+
+        if (! self::isWorkDay($start)) {
+            return 'هذا اليوم خارج أيّام دوام المكتب — اختر يوماً من أيّام الدوام.';
+        }
+
+        if ($minute < $from * 60 || $minute + self::slotMinutes() > $to * 60) {
+            return sprintf('الموعد خارج ساعات دوام المكتب (%02d:00–%02d:00).', $from, $to);
+        }
+
+        return null;
     }
 }

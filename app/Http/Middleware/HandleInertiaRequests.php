@@ -54,6 +54,7 @@ class HandleInertiaRequests extends Middleware
         // ساعات الحجز وطول الشريحة — شبكة الموظّف ومنتقي الوقت يرسمان ما يولّده المحرّك
         'consult_day_start',
         'consult_day_end',
+        'consult_work_days',
         'consult_slot_minutes',
         // حدّ «متأخّر» في شاشتي الاستشارات — كانتا تحملان 100 و120 للطلبات نفسها
         'consult_request_late_minutes',

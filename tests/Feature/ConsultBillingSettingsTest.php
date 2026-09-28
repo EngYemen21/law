@@ -157,8 +157,8 @@ class ConsultBillingSettingsTest extends TestCase
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $day = now()->addDays(2)->toDateString();
 
-        // الافتراض: اليوم كلّه بساعة — الأربع والعشرون نفسها قبل هذا العمل
-        $this->assertCount(24, LawyerAvailability::slotsFor($lawyer->id, $day));
+        // الافتراض: دوام المكتب ٠٩–٢٢ بساعة — ١٣ شريحة (قرار المالك 2026-09-28)
+        $this->assertCount(13, LawyerAvailability::slotsFor($lawyer->id, $day));
 
         Setting::put('consult_day_start', 9);
         Setting::put('consult_day_end', 17);

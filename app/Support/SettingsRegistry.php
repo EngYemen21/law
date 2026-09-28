@@ -206,6 +206,15 @@ class SettingsRegistry
                 // بالمحفوظ للآخر — `relationErrors()` تتولّاه.
                 'gt' => 'consult_day_start',
             ],
+            // أيّام الدوام كانت ثابتاً في `LawyerAvailability` (الأسبوع كلّه) — صارت إعداداً مع الساعات
+            'consult_work_days' => [
+                'group' => 'consults',
+                'label' => 'أيّام دوام المكتب',
+                'hint' => 'الأيّام التي يُحجز فيها موعد الاستشارة. لا شرائح حجز في غيرها.',
+                'type' => 'days',
+                'default' => implode(',', LawyerAvailability::WORK_DAYS),
+                'rules' => ['required', 'string', 'regex:/^[0-6](,[0-6]){0,6}$/'],
+            ],
             // **مسافةُ حجزٍ لا عمرُ جلسة** (قرار المالك 2026-09-26): الجلسة تنتهي حين تُنهى، وهذا
             // الرقم يمنع حجز موكّلَين عند المحامي في الوقت نفسه، ويُمرَّر لـZoom والتقويم اسماً فقط.
             'consult_slot_minutes' => [
@@ -473,6 +482,33 @@ class SettingsRegistry
         return $value !== '' ? $value : (string) $field['default'];
     }
 
+    /**
+     * **أيّام الأسبوع** (الأحد=0 … السبت=6) من نصٍّ «0,1,2» — مرتّبةً بلا تكرار. والفارغ أو الفاسد
+     * يعود إلى الافتراض: أسبوعٌ بلا يوم دوامٍ واحد يُغلق الحجز بصمت.
+     *
+     * @return list<int>
+     */
+    public static function days(string $key): array
+    {
+        $days = self::parseDays((string) (self::stored()[$key] ?? ''));
+
+        return $days !== [] ? $days : self::parseDays((string) self::field($key)['default']);
+    }
+
+    /**
+     * «4,0,1,1» ← [0,1,4]: أرقام الأيّام الصحيحة وحدها، مرتّبةً بلا تكرار — للقراءة وللحفظ معاً.
+     *
+     * @return list<int>
+     */
+    public static function parseDays(string $csv): array
+    {
+        $days = array_map('intval', array_filter(array_map('trim', explode(',', $csv)), fn (string $d) => preg_match('/^[0-6]$/', $d) === 1));
+        $days = array_values(array_unique($days));
+        sort($days);
+
+        return $days;
+    }
+
     /** تاريخ `Y-m-d` — وما لا يُقرأ تاريخاً يعود إلى الافتراض بدل أن يرمي عند التحليل. */
     public static function date(string $key): string
     {
@@ -549,6 +585,7 @@ class SettingsRegistry
             $out[$key] = match ($field['type']) {
                 'int' => self::int($key),
                 'date' => self::date($key),
+                'days' => implode(',', self::days($key)),
                 default => self::str($key),
             };
         }

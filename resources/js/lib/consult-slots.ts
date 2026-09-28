@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useSettings } from '@/lib/settings';
 import type { SharedSettings } from '@/lib/settings';
 
@@ -36,15 +36,28 @@ export function slotEnd(time: string, minutes: number): string {
   return hm(Math.min(24 * 60, h * 60 + (m || 0) + minutes));
 }
 
-/** الشبكة وطول الشريحة من الخاصّيّة المشتركة. */
-export function useConsultSlots(): { grid: string[]; slotMinutes: number } {
-  const { consult_day_start, consult_day_end, consult_slot_minutes } = useSettings();
+/** يوم «YYYY-MM-DD» من أيّام الدوام؟ (`consult_work_days`: «0,1,2,3,4» بالأحد=0 كما في الخادم) */
+export function isWorkDay(workDays: string, dateISO: string): boolean {
+  const day = new Date(`${dateISO}T00:00:00`).getDay();
+
+  return workDays.split(',').map(Number).includes(day);
+}
+
+const NO_SLOTS: string[] = [];
+
+/**
+ * الشبكة وطول الشريحة من الخاصّيّة المشتركة، و`gridOn(date)` شبكةُ يومٍ بعينه — فارغةٌ في يوم العطلة
+ * كما يُرجعها المحرّك (`LawyerAvailability::slotsFor`)، فلا تعرض شاشةٌ شرائح يرفضها الخادم.
+ */
+export function useConsultSlots(): { grid: string[]; slotMinutes: number; gridOn: (dateISO: string) => string[] } {
+  const { consult_day_start, consult_day_end, consult_slot_minutes, consult_work_days } = useSettings();
 
   // مصفوفةٌ ثابتة الهويّة ما لم تتغيّر القيم — الشاشات تضعها في تبعيّات `useMemo`
   const grid = useMemo(
     () => consultSlotGrid({ consult_day_start, consult_day_end, consult_slot_minutes }),
     [consult_day_start, consult_day_end, consult_slot_minutes],
   );
+  const gridOn = useCallback((dateISO: string) => (isWorkDay(consult_work_days, dateISO) ? grid : NO_SLOTS), [grid, consult_work_days]);
 
-  return { grid, slotMinutes: consult_slot_minutes };
+  return { grid, slotMinutes: consult_slot_minutes, gridOn };
 }
