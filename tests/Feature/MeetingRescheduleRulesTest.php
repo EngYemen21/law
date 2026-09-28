@@ -183,4 +183,34 @@ class MeetingRescheduleRulesTest extends TestCase
         $this->assertSame('بطلب العميل', $log->after_state['السبب'] ?? null);
         $this->assertStringContainsString('بطلب العميل', (string) UserNotification::where('user_id', $client->id)->latest('id')->value('body'));
     }
+
+    public function test_it_refuses_a_time_the_responsible_lawyer_or_a_participant_is_busy_but_not_its_own(): void
+    {
+        Http::fake();
+        $owner = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'name' => 'المسؤول']);
+        $other = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'name' => 'محامٍ آخر']);
+        $participant = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'name' => 'المشارك']);
+        $day = now()->addDays(2)->toDateString();
+        $at = fn (string $time) => $this->meeting(['assigned_lawyer_id' => $owner->id, 'starts_at' => "{$day} {$time}"]);
+
+        $busy = $at('10:00');
+        $busy->participantUsers()->sync([$participant->id]);
+        $sameLawyer = $at('12:00');
+        $sharedParticipant = $this->meeting(['assigned_lawyer_id' => $other->id, 'starts_at' => "{$day} 14:00"]);
+        $sharedParticipant->participantUsers()->sync([$participant->id]);
+
+        $move = fn (Meeting $m, string $time) => $this->actingAs($this->admin())->post(route('admin.meetings.reschedule', $m), [
+            'day' => $day, 'time' => $time, 'reason' => 'client_request',
+        ]);
+
+        // ثبت قبل الإصلاح: الحالتان كانتا تُنقلان إلى 10:00 فوق الاجتماع الأوّل
+        $move($sameLawyer, '10:00')->assertSessionHasErrors(['time' => 'مشغولٌ في هذا الوقت: المسؤول — اختر وقتاً آخر.']);
+        $move($sharedParticipant, '10:00')->assertSessionHasErrors(['time' => 'مشغولٌ في هذا الوقت: المشارك — اختر وقتاً آخر.']);
+        $this->assertSame('12:00', $sameLawyer->fresh()->starts_at->format('H:i'));
+        $this->assertSame('14:00', $sharedParticipant->fresh()->starts_at->format('H:i'));
+
+        // والاجتماع لا يحجب نفسه: نقله ربع ساعة مقبول
+        $move($busy, '10:15')->assertSessionHasNoErrors();
+        $this->assertSame('10:15', $busy->fresh()->starts_at->format('H:i'));
+    }
 }

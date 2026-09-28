@@ -465,6 +465,15 @@ class MeetingController extends Controller
         // اجتماعٌ «أُعيدت جدولته» يموت في الدورة التالية للمجدول. ومسارات الحجز الأخرى ترفضه أصلاً.
         abort_if($moment?->isPast() === true, 422, 'لا يمكن نقل الاجتماع إلى موعدٍ مضى — اختر وقتاً لاحقاً.');
         $startsAt = $moment?->startsAt;
+        // **ولا فوق ارتباطٍ آخر للمسؤول أو المشاركين** — كحارس الإنشاء (ثبت بالاختبار 2026-09-28 أنّ النقل
+        // كان يقبل ما يرفضه الإنشاء). والاجتماع نفسه لا يحجب موعده الجديد.
+        if ($startsAt) {
+            $people = [(int) $meeting->assigned_lawyer_id, ...$meeting->participantUsers()->pluck('users.id')->map('intval')->all()];
+            if ($busy = LawyerAvailability::busyAmong(array_filter($people), Carbon::parse($startsAt), null, $meeting->id)) {
+                $names = User::whereKey($busy)->pluck('name')->implode('، ');
+                throw ValidationException::withMessages(['time' => "مشغولٌ في هذا الوقت: {$names} — اختر وقتاً آخر."]);
+            }
+        }
         $when = $moment?->label() ?? 'يُحدَّد لاحقاً';
         $oldWhen = (string) ($meeting->when_label ?: '—');
         $oldStatus = (string) $meeting->status;

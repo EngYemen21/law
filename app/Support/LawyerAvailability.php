@@ -211,10 +211,12 @@ class LawyerAvailability
      * `['lawyer_id','starts_at']` فيُمسح الجدول كاملاً — ومع `lockForUpdate` في الحارس
      * يصير قفلاً يتّسع بنموّ البيانات.
      *
+     * **`$exceptMeetingId`** لإعادة جدولة اجتماع: لا يحجب نفسَه ولا دعوتَه — وإلا رُفض نقله ربعَ ساعة.
+     *
      * @param  array<int,int>  $lawyerIds
      * @return array<int, array<int, array{0:int,1:int,2:BusyKind}>> مفتاحه معرّف المحامي
      */
-    public static function busyIntervalsForMany(array $lawyerIds, string $day): array
+    public static function busyIntervalsForMany(array $lawyerIds, string $day, ?int $exceptMeetingId = null): array
     {
         $ids = array_values(array_unique(array_map('intval', $lawyerIds)));
 
@@ -259,6 +261,7 @@ class LawyerAvailability
             ->orWhereHas('participantUsers', fn ($p) => $p->whereIn('users.id', $ids)))
             ->whereNotIn('status', ['ملغى', 'ملغي', 'ملغاة'])
             ->whereBetween('starts_at', [$dayStart, $dayEnd])
+            ->when($exceptMeetingId, fn ($q) => $q->whereKeyNot($exceptMeetingId))
             ->with('participantUsers:users.id')
             ->get(['id', 'assigned_lawyer_id', 'starts_at', 'dur']) as $mt) {
             $d = (int) (preg_match('/\d+/', (string) $mt->dur, $mm) ? $mm[0] : $slot);
@@ -279,7 +282,9 @@ class LawyerAvailability
         // '<' STAGE_EXECUTED يشمل المُرسَلة والمؤكَّدة، ويستثني المنتهية(4) والملغاة(5).
         // (`meet_requests` بلا `starts_at`، فالمطابقة على سلسلة `day` — تُوحَّد في الدفعة ٦.)
         foreach (MeetRequest::whereIn('assigned_lawyer_id', $ids)->where('day', $day)
-            ->where('stage', '<', MeetRequest::STAGE_EXECUTED)->get(['assigned_lawyer_id', 'time', 'duration_min']) as $r) {
+            ->where('stage', '<', MeetRequest::STAGE_EXECUTED)
+            ->when($exceptMeetingId, fn ($q) => $q->where(fn ($r) => $r->whereNull('meeting_id')->orWhere('meeting_id', '!=', $exceptMeetingId)))
+            ->get(['assigned_lawyer_id', 'time', 'duration_min']) as $r) {
             $add((int) $r->assigned_lawyer_id, $toMin($r->time), (int) $r->duration_min);
         }
 
@@ -341,15 +346,16 @@ class LawyerAvailability
      * لا خمسةٍ لكلّ شخص، وبالحكم نفسه (`kindWithin`) الذي يقرّر به `isBusy`.
      *
      * @param  array<int,int>  $userIds
+     * @param  int|null  $exceptMeetingId  اجتماعٌ يُعاد جدولته لا يحجب نفسه
      * @return array<int,int> المعرّفات المشغولة
      */
-    public static function busyAmong(array $userIds, Carbon $start, ?int $dur = null): array
+    public static function busyAmong(array $userIds, Carbon $start, ?int $dur = null, ?int $exceptMeetingId = null): array
     {
         $from = $start->hour * 60 + $start->minute;
         $to = $from + ($dur ?? self::slotMinutes());
 
         return array_keys(array_filter(
-            self::busyIntervalsForMany($userIds, $start->toDateString()),
+            self::busyIntervalsForMany($userIds, $start->toDateString(), $exceptMeetingId),
             fn (array $intervals) => self::kindWithin($intervals, $from, $to) !== BusyKind::Free,
         ));
     }
