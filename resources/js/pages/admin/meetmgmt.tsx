@@ -8,7 +8,8 @@ import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { MEET_STATUSES, MEET_TYPES_FULL, MEET_TEMPLATES } from '@/lib/admin-data';
 import { dateISOAfter, todayISO } from '@/lib/local-date';
-import { meetStatusTone, attendanceLabel, fmtActualDuration, type ClientDirEntry, type FullMeetingCard } from '@/lib/meeting-ui';
+import { meetStatusTone, attendanceLabel, fmtActualDuration, useLawyerDaySlots, type ClientDirEntry, type FullMeetingCard } from '@/lib/meeting-ui';
+import { useServerAction } from '@/lib/use-server-action';
 
 // واجهة إدارة الاجتماعات الحديثة — التصميم الفاخر والمطور 2026
 interface Props {
@@ -47,6 +48,10 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
   const [lawyerId, setLawyerId] = useState<number | ''>('');
   const [caseRef, setCaseRef] = useState('');
   useEffect(() => { setCaseRef(''); }, [clientId]);
+  // قفلٌ موحّد للإرسال — كانت نقرتان سريعتان تُنشئان اجتماعين (وجلستي Zoom)؛ ثبت في المتصفّح 2026-09-28
+  const action = useServerAction();
+  // شبكة الوقت بانشغال المحامي المختار — المصدر نفسه لنافذة الدعوات (`useLawyerDaySlots`)
+  const slots = useLawyerDaySlots('/admin', lawyerId, day);
 
   // العدّ بمفتاح الحالة من الخادم (`statusKey`) — النصّ العربيّ للعرض وحده
   const up = meetings.filter((m) => m.statusKey === 'upcoming').length;
@@ -90,27 +95,45 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
     toast('تم تطبيق القالب: ' + name);
   };
 
+  // النموذج يعود كاملاً إلى بدايته بعد الإنشاء — كان العميل والقضيّة والموعد والأولويّة والسرّيّة تبقى من السابق
+  const resetForm = () => {
+    setTitle('');
+    setType(MEET_TYPES_FULL[0]);
+    setPrio('عادية');
+    setConf('عادي');
+    setParticipants([]);
+    setDay('');
+    setTime('10:00');
+    setClientId('');
+    setLawyerId('');
+    setCaseRef('');
+  };
+
   const submit = () => {
     if (!title.trim()) { toast('أدخل عنوان الاجتماع'); return; }
-    router.post('/admin/meetings', {
-      title, type, priority: prio, conf,
-      participants: participants.join('، '),
-      day, time,
-      client_id: clientId === '' ? null : clientId,
-      lawyer_id: lawyerId === '' ? null : lawyerId,
-      case_ref: caseRef,
-    }, {
-      preserveScroll: true,
+
+    if (!day) {
+      toast('اختر تاريخ الاجتماع');
+
+      return;
+    }
+
+    // رسالة النجاح من الخادم (`flash`) — تقول «بلا رابط Zoom» إن تعذّر إنشاؤه؛ والرفض يعرضه `useServerAction`
+    void action.run('/admin/meetings', {
+      data: {
+        title, type, priority: prio, conf,
+        participants: participants.join('، '),
+        day, time,
+        client_id: clientId === '' ? null : clientId,
+        lawyer_id: lawyerId === '' ? null : lawyerId,
+        case_ref: caseRef,
+      },
+      fallback: 'تعذّر إنشاء الاجتماع — راجع الحقول',
       onSuccess: () => {
         setOpen(false);
         setFilter('upcoming');
-        setTitle('');
-        setParticipants([]);
-        setLawyerId('');
-        toast('تم إنشاء الاجتماع بجلسة Zoom وإضافته للتقويم');
+        resetForm();
       },
-      // رسالة الخادم نفسها (تاريخٌ مطلوب/موعدٌ مضى/محامٍ غير نشط) — بلا onError كان الرفض صامتاً والنافذة مفتوحة
-      onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر إنشاء الاجتماع — راجع الحقول'),
     });
   };
 
@@ -504,7 +527,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
               <div className="field">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                  <label style={{ fontSize: '12px', fontWeight: 700 }}>التاريخ المجدول</label>
+                  <label style={{ fontSize: '12px', fontWeight: 700 }}>التاريخ المجدول <span style={{ color: 'var(--red)' }}>*</span></label>
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button
                       type="button"
@@ -536,9 +559,10 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
               value={time}
               onChange={setTime}
               date={day}
+              slots={slots}
               label="وقت بدء الجلسة / الاجتماع"
               required
-              allowCustom={false}
+              allowCustom
 />
           </div>
 
@@ -671,6 +695,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
               type="button"
               className="btn"
               onClick={submit}
+              disabled={action.busy}
               style={{
                 padding: '11px 26px',
                 borderRadius: 10,
@@ -679,7 +704,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                 boxShadow: '0 4px 14px rgba(14,92,156,0.25)',
               }}
             >
-              <Icon name="check" /> تأكيد جدولة الاجتماع وإطلاقه
+              <Icon name="check" /> {action.busy ? 'جارٍ الإنشاء…' : 'تأكيد جدولة الاجتماع وإطلاقه'}
             </button>
           </div>
 

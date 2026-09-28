@@ -9,6 +9,7 @@ import RescheduleDialog from '@/components/babylon/RescheduleDialog';
 import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
+import type { TimeSlotItem } from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { todayISO } from '@/lib/local-date';
 import { nowClock, todayDate } from '@/lib/chat';
@@ -198,6 +199,45 @@ const hmToMin = (hm: string) => {
  return h * 60 + m; 
 };
 
+/**
+ * **شبكة أوقات الاجتماع لمحامٍ في يوم، معلَّماً فيها المحجوز** — مصدرٌ واحد لنافذة الدعوة، وإعادة إرسالها،
+ * وإنشاء الاجتماع (`pages/admin/meetmgmt.tsx`). الانشغال من الخادم (`meetreqs/availability` ← المحرّك
+ * `LawyerAvailability`، ومعه ما مضى من اليوم)، والتعارض بمسافة الحجز نفسها التي يفحص بها الخادم.
+ * كانت نسختين هنا، والثانية تعلّم `busy` لا `taken` فيعرض منتقي إعادة الإرسال المحجوزَ متاحاً.
+ */
+export function useLawyerDaySlots(base: string, lawyerId: number | '' | null | undefined, day: string): TimeSlotItem[] {
+    const { consult_slot_minutes: spacing } = useSettings();
+    const key = lawyerId && day ? `${lawyerId}|${day}` : '';
+    // الانشغال مقروناً بمفتاحه — فلا يُعرض انشغالُ محامٍ أو يومٍ سابق ريثما يصل الجديد
+    const [loaded, setLoaded] = useState<{ key: string; busy: [string, string][] }>({ key: '', busy: [] });
+
+    useEffect(() => {
+        if (!key) {
+            return;
+        }
+
+        let alive = true;
+        axios.get(`${base}/meetreqs/availability`, { params: { lawyer_id: lawyerId, day } })
+            .then((r) => alive && setLoaded({ key, busy: r.data?.busy ?? [] }))
+            .catch(() => alive && setLoaded({ key, busy: [] }));
+
+        return () => {
+            alive = false;
+        };
+    }, [base, key, lawyerId, day]);
+
+    return useMemo(() => {
+        const busy = loaded.key === key ? loaded.busy : [];
+
+        return MI_SLOTS.map((time) => {
+            const cs = hmToMin(time);
+            const taken = busy.some(([a, b]) => cs < hmToMin(b) && hmToMin(a) < cs + spacing);
+
+            return { time, taken, label: taken ? 'محجوز' : undefined };
+        });
+    }, [loaded, key, spacing]);
+}
+
 export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDirEntry[]; lawyers: { id: number; name: string }[]; selfLawyerId?: number | null; base: string }> = ({ requests, clients, lawyers, selfLawyerId, base }) => {
     const toast = useToast();
     const ask = useConfirm();
@@ -214,70 +254,25 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
     // هل كتب المستخدم الموضوع بيده؟ التعبئة التلقائية لا تطمس كتابةً بشرية
     const [serviceTyped, setServiceTyped] = useState(false);
     const [miType, setMiType] = useState('استشارة مرئية');
-    /*
-     * **لا «مدة» في الدعوة** (قرار المالك 2026-09-26): الاجتماع ينتهي حين يُنهى. والتعارض يُفحص
-     * بمسافة الحجز نفسها التي يفحص بها الخادم (`LawyerAvailability::isBusy`) — طول الشريحة من
-     * الإعدادات المشتركة، فلا يَعرض المنتقي وقتاً يرفضه الخادم ولا يُخفي وقتاً يقبله.
-     */
-    const { consult_slot_minutes: spacing } = useSettings();
+    // لا «مدة» في الدعوة (قرار المالك 2026-09-26) — والتعارض بمسافة الحجز داخل `useLawyerDaySlots`
     const [miDay, setMiDay] = useState(todayISO());
     const [miTime, setMiTime] = useState('');
-    const [busy, setBusy] = useState<[string, string][]>([]); // فترات انشغال المحامي في اليوم
     useEffect(() => {
  setMiCase(''); 
 }, [miClient]);
 
-    // جلب المواعيد المحجوزة للمحامي في اليوم المختار
-    useEffect(() => {
-        if (!miLawyer || !miDay) {
- setBusy([]);
-
- return; 
-}
-
-        let alive = true;
-        axios.get(`${base}/meetreqs/availability`, { params: { lawyer_id: miLawyer, day: miDay } })
-            .then((r) => {
- if (alive) {
-setBusy(r.data?.busy ?? []);
-} 
-})
-            .catch(() => {
- if (alive) {
-setBusy([]);
-} 
-});
-
-        return () => {
- alive = false; 
-};
-    }, [miLawyer, miDay, base]);
+    // المواعيد وانشغال المحامي في اليوم المختار — من المصدر الواحد
+    const allSlotsWithStatus = useLawyerDaySlots(base, miLawyer, miDay);
 
     const caseOptions = clients.find((c) => c.id === miClient)?.items ?? [];
-    const nowHM = () => new Date().toTimeString().slice(0, 5);
-    // المواعيد المتاحة: تستبعد الماضية (اليوم) والمتعارضة مع حجوزات المحامي حسب المدة المختارة
-    const availableSlots = useMemo(() => MI_SLOTS.filter((s) => {
-        if (miDay === todayISO() && s <= nowHM()) {
-return false;
-}
-
-        const cs = hmToMin(s); const ce = cs + spacing;
-
-        return !busy.some(([a, b]) => cs < hmToMin(b) && hmToMin(a) < ce);
-    }), [busy, spacing, miDay]);
+    // المتاح: غير المحجوز (والخادم يحجب ما مضى من اليوم — `MeetRequestController::availability`)
+    const availableSlots = useMemo(() => allSlotsWithStatus.filter((x) => !x.taken).map((x) => x.time), [allSlotsWithStatus]);
     // صفّر الوقت إن لم يعد متاحاً بعد تغيير المحامي/اليوم/المدة
     useEffect(() => {
  if (miTime && !availableSlots.includes(miTime)) {
 setMiTime('');
 } 
 }, [availableSlots, miTime]);
-    // قائمة كاملة بكل الأوقات — المحجوزة تُعلَّم taken:true لتُعرض رمادية في المكوّن
-    const allSlotsWithStatus = useMemo(() => MI_SLOTS.map((s) => {
-        const cs = hmToMin(s); const ce = cs + spacing;
-        const isBusy = busy.some(([a, b]) => cs < hmToMin(b) && hmToMin(a) < ce);
-
-        return { time: s, taken: isBusy, label: isBusy ? 'محجوز' : undefined };
-    }), [busy, spacing, miDay]);
 
     const submitInvite = () => {
         if (!miClient) {
@@ -370,39 +365,8 @@ setMiTime('');
     const [resendOf, setResendOf] = useState<MeetReqCard | null>(null);
     const [rsDay, setRsDay] = useState(todayISO());
     const [rsTime, setRsTime] = useState('');
-    // فحص إتاحة المحامي لإعادة الإرسال — كمودال الإرسال الأول (كان بلا فحص فيصطدم برفض الخادم)
-    const [rsBusy, setRsBusy] = useState<[string, string][]>([]);
-    useEffect(() => {
-        if (!resendOf?.lawyerId || !rsDay) {
-            setRsBusy([]);
-
-            return;
-        }
-
-        let alive = true;
-        axios.get(`${base}/meetreqs/availability`, { params: { lawyer_id: resendOf.lawyerId, day: rsDay } })
-            .then((r) => {
- if (alive) {
- setRsBusy(r.data?.busy ?? []); 
-} 
-})
-            .catch(() => {
- if (alive) {
- setRsBusy([]); 
-} 
-});
-
-        return () => {
- alive = false; 
-};
-    }, [resendOf, rsDay, base]);
-    const rsSlotsWithStatus = useMemo(() => MI_SLOTS.map((s) => {
-        const cs = hmToMin(s);
-        const ce = cs + spacing;
-        const isBusy = rsBusy.some(([a, b]) => cs < hmToMin(b) && hmToMin(a) < ce);
-
-        return { time: s, busy: isBusy };
-    }), [rsBusy, spacing, rsDay]);
+    // إتاحة المحامي لإعادة الإرسال — المصدر نفسه لمودال الإرسال الأوّل (`useLawyerDaySlots`)
+    const rsSlotsWithStatus = useLawyerDaySlots(base, resendOf?.lawyerId, rsDay);
     const submitResend = () => {
         if (!resendOf) {
  return; 

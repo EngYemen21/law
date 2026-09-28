@@ -369,6 +369,7 @@ class JourneyTransitionController extends Controller
             'invoice.cancel' => 'إلغاء الفاتورة',
             'invoice.write_off' => 'إسقاط الفاتورة كدين معدوم',
 
+            'meeting.create' => 'إنشاء اجتماع جديد',
             'meeting.reschedule' => 'إعادة جدولة الاجتماع',
             'hearing.postpone' => 'تأجيل جلسة المحكمة',
             'conversation.handover' => 'تسليم المحادثة لموظف آخر',

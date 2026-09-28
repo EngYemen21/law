@@ -29,7 +29,7 @@ class MeetingMailTest extends TestCase
         $this->actingAs($admin)->post(route('admin.meetings.store'), [
             'title' => 'اجتماع مراجعة العقد', 'type' => 'اجتماع مع عميل',
             'client_id' => $client->id, 'lawyer_id' => $lawyer->id,
-            'day' => '2026-08-08', 'time' => '10:00',
+            'day' => now()->addDays(3)->toDateString(), 'time' => '10:00',
         ])->assertRedirect();
 
         Mail::assertQueued(MeetInviteMail::class, fn ($m) => $m->hasTo('client@example.com'));

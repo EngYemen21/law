@@ -32,6 +32,7 @@ use App\Support\Booking\BookingMoment;
 use App\Support\Booking\BookingMoved;
 use App\Support\ClientDirectory;
 use App\Support\DecisionTasks;
+use App\Support\LawyerAvailability;
 use App\Support\Live;
 use App\Support\MeetingSummary;
 use App\Support\Notify;
@@ -43,6 +44,9 @@ use App\Support\SettingsRegistry;
 use App\Support\WebTimeLimit;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -166,62 +170,86 @@ class MeetingController extends Controller
         $startsAt = $moment->startsAt;
         $when = $moment->label();
 
+        // **حرّاس الموعد كمسار الدعوات** (`MeetRequestController::store`) — كان الإنشاء من هنا يقبل موعداً
+        // مضى، وموعداً فوق ارتباطٍ آخر للمحامي المسؤول (ثبت بالاختبار 2026-09-28)
+        if ($startsAt->isPast()) {
+            throw ValidationException::withMessages(['time' => 'لا يمكن اختيار موعد ماضٍ — اختر وقتاً لاحقاً.']);
+        }
+        if ($assignedLawyer && LawyerAvailability::isBusy($assignedLawyer->id, Carbon::parse($startsAt))) {
+            throw ValidationException::withMessages(['time' => 'المحامي مشغول في هذا الوقت — اختر وقتاً آخر أو محامياً مختلفاً.']);
+        }
+
         // Zoom يشترط `duration` — رقمٌ اسميّ لا يُنهي الاجتماع به (`SessionWindow::nominalMinutes`)
         $zoom = $this->zoom->createMeeting($data['title'], SessionWindow::nominalMinutes(), ($data['conf'] ?? '') === 'سري', $startsAt);
+        if (empty($zoom['join_url'])) {
+            // لا يُصمت: الاجتماع يُحفظ بلا رابط، والرسالة تقول ذلك (كانت تقول «أُنشئ بجلسة Zoom»)
+            Log::error('Zoom: تعذّر إنشاء جلسة الاجتماع — يُحفظ بلا رابط', ['title' => $data['title']]);
+        }
 
-        // لا 'بانتظار التأكيد': تأكيد العميل أُلغي، فالاجتماع مجدول منذ إنشائه
-        $status = 'قادم';
+        /*
+         * **الإنشاء في سجلّ الرحلة وفي معاملةٍ واحدة** (`Workflow::open`): الاجتماع ودعوة العميل معاً أو لا
+         * شيء — وكانت جلسة Zoom تبقى يتيمةً إن فشل الحفظ بعد إنشائها، فتُحذف هنا.
+         */
+        $meetRequest = null;
 
-        $meeting = Meeting::create([
-            'user_id' => $client?->id,
-            // المولّد الموحّد يفحص التكرار — كان ٩٠٠ رقمٍ في السنة بلا فحصٍ على عمودٍ فريد فيفشل الإنشاء
-            'ref' => ReferenceNumber::next(Meeting::class, 'ref', 'M'),
-            'title' => $data['title'],
-            'type' => $data['type'],
-            'client_name' => $client?->name ?: 'داخلي',
-            'when_label' => $when,
-            'starts_at' => $startsAt,
-            'status' => $status,
-            'priority' => $data['priority'] ?? 'عادية',
-            'conf' => $data['conf'] ?? 'عادي',
-            // `dur` لا يُكتب: لا مدّة للاجتماع، ومسافته على تقويم المحامي طولُ شريحة الحجز
-            'participants' => ($data['participants'] ?? '') ?: null,
-            'case_ref' => ($data['case_ref'] ?? '') ?: null,
-            'meet_id' => $zoom['id'] ?? null,
-            'meet_link' => $zoom['join_url'] ?? null,
-            'host_link' => $zoom['start_url'] ?? null,
-            'meet_password' => $zoom['password'] ?? null,
-            'created_by' => $request->user()->name,
-            // عزل الرؤية/البثّ: المحامي المسؤول (المحامي يرى المسنَد إليه وحده)
-            'assigned_lawyer_id' => $assignedLawyer?->id,
-            // عُلّق بطلب صاحب المنتج (2026-08-26): قوائم «قبل/أثناء/بعد الاجتماع» نصّ ثابت مختلق لا بيانات حقيقية
-            // 'before_items' => ['تحليل الموضوع', 'مراجعة المستندات', 'تجهيز جدول الأعمال'],
-            // 'during_items' => ['تحويل الصوت إلى نص', 'استخراج القرارات', 'تحديد المهام'],
-            // 'after_items' => ['إنشاء الملخص', 'تحديث القضية', 'إنشاء المهام'],
-            'has_link' => true,
-        ]);
+        try {
+            $meeting = Workflow::open('meeting.create', function () use ($data, $client, $when, $startsAt, $zoom, $assignedLawyer, $request, &$meetRequest) {
+                $meeting = Meeting::create([
+                    'user_id' => $client?->id,
+                    // المولّد الموحّد يفحص التكرار — كان ٩٠٠ رقمٍ في السنة بلا فحصٍ على عمودٍ فريد فيفشل الإنشاء
+                    'ref' => ReferenceNumber::next(Meeting::class, 'ref', 'M'),
+                    'title' => $data['title'],
+                    'type' => $data['type'],
+                    'client_name' => $client?->name ?: 'داخلي',
+                    'when_label' => $when,
+                    'starts_at' => $startsAt,
+                    // لا «بانتظار التأكيد»: تأكيد العميل أُلغي، فالاجتماع مجدول منذ إنشائه
+                    'status' => MeetingStatus::Upcoming->value,
+                    'priority' => $data['priority'] ?? 'عادية',
+                    'conf' => $data['conf'] ?? 'عادي',
+                    // `dur` لا يُكتب: لا مدّة للاجتماع، ومسافته على تقويم المحامي طولُ شريحة الحجز
+                    'participants' => ($data['participants'] ?? '') ?: null,
+                    'case_ref' => ($data['case_ref'] ?? '') ?: null,
+                    'meet_id' => $zoom['id'] ?? null,
+                    'meet_link' => $zoom['join_url'] ?? null,
+                    'host_link' => $zoom['start_url'] ?? null,
+                    'meet_password' => $zoom['password'] ?? null,
+                    'created_by' => $request->user()->name,
+                    // عزل الرؤية/البثّ: المحامي المسؤول (المحامي يرى المسنَد إليه وحده)
+                    'assigned_lawyer_id' => $assignedLawyer?->id,
+                    'has_link' => ! empty($zoom['join_url']),
+                ]);
+
+                // دعوة رسميّة مؤكَّدة يراجع العميل منها تفاصيل الاجتماع (تأكيد الحضور مُلغى)
+                $meetRequest = $client === null ? null : MeetRequest::create([
+                    'user_id' => $client->id,
+                    'meeting_id' => $meeting->id,
+                    'ref' => ReferenceNumber::next(MeetRequest::class, 'ref', 'MR'),
+                    'service' => $data['title'],
+                    'type' => $data['type'],
+                    'case_ref' => ($data['case_ref'] ?? '') ?: null,
+                    'day' => $data['day'],
+                    'time' => $data['time'],
+                    'assigned_lawyer_id' => $assignedLawyer?->id,
+                    'sent_by' => $request->user()->name.' ('.$request->user()->role->label().')',
+                    'sent_by_id' => $request->user()->id,
+                    'stage' => MeetRequest::STAGE_CONFIRMED, // مؤكَّدة منذ الإرسال (لا تأكيد من العميل)
+                    'meet_id' => $zoom['id'] ?? null,
+                    'meet_link' => $zoom['join_url'] ?? null,
+                    'host_link' => $zoom['start_url'] ?? null,
+                ]);
+
+                return $meeting;
+            }, $request->user(), ['client_id' => $client?->id, 'lawyer_id' => $assignedLawyer?->id, 'zoom' => ! empty($zoom['join_url'])]);
+        } catch (\Throwable $e) {
+            if (! empty($zoom['id'])) {
+                $this->zoom->deleteMeeting((string) $zoom['id']);
+            }
+            throw $e;
+        }
 
         // إشعار (داخل التطبيق + بريد) بموعد الاجتماع — توجيه آمن داخل المنصّة لكل دور (لا روابط خارجية)
         if ($client) {
-            // إنشاء سجل دعوة رسمي مؤكَّد يتيح للعميل مراجعة تفاصيل الاجتماع (تأكيد الحضور مُلغى)
-            $meetRequest = MeetRequest::create([
-                'user_id' => $client->id,
-                'meeting_id' => $meeting->id,
-                'ref' => ReferenceNumber::next(MeetRequest::class, 'ref', 'MR'),
-                'service' => $data['title'],
-                'type' => $data['type'],
-                'case_ref' => ($data['case_ref'] ?? '') ?: null,
-                'day' => $data['day'] ?: now()->format('Y-m-d'),
-                'time' => $data['time'] ?: '10:00',
-                'assigned_lawyer_id' => $assignedLawyer?->id,
-                'sent_by' => $request->user()->name.' ('.$request->user()->role->label().')',
-                'sent_by_id' => $request->user()->id,
-                'stage' => MeetRequest::STAGE_CONFIRMED, // مؤكَّدة منذ الإرسال (لا تأكيد من العميل)
-                'meet_id' => $zoom['id'] ?? null,
-                'meet_link' => $zoom['join_url'] ?? null,
-                'host_link' => $zoom['start_url'] ?? null,
-            ]);
-
             // إشعار بموعد مجدول لا بطلب تأكيد
             Notify::send($client->id, 'video', 't-blue', "اجتماع مجدول: «{$meeting->title}» ({$when}) — تجده في قسم الاجتماعات بالمنصة.");
             app(MailService::class)->send($client, new MeetInviteMail($meetRequest));
@@ -265,7 +293,9 @@ class MeetingController extends Controller
             }
         }
 
-        return back();
+        return back()->with('flash', $meeting->meet_link
+            ? "أُنشئ الاجتماع {$meeting->ref} بجلسة Zoom وأُضيف للتقويم."
+            : "أُنشئ الاجتماع {$meeting->ref} وأُضيف للتقويم — بلا رابط Zoom (تعذّر إنشاؤه)، أضِفه لاحقاً من صفحة الاجتماع.");
     }
 
     // حفظ ملخص الاجتماع (المحامي)

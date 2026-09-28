@@ -68,7 +68,7 @@ class ZoomIntegrationTest extends TestCase
 
         $this->actingAs($admin)->post(route('admin.meetings.store'), [
             'title' => 'اجتماع سري', 'type' => 'اجتماع مع عميل', 'conf' => 'سري',
-            'client_id' => $client->id, 'day' => '2026-07-10', 'time' => '10:00',
+            'client_id' => $client->id, 'day' => now()->addDays(3)->toDateString(), 'time' => '10:00',
         ])->assertRedirect();
 
         Http::assertSent(fn ($req) => str_contains($req->url(), '/v2/users/me/meetings')
