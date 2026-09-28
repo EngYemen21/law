@@ -640,9 +640,9 @@ class ConsultController extends Controller
             'type' => ['nullable', 'string', 'in:office,video,phone'],
         ]);
 
-        ConsultAppointments::publish($consult, $request->user(), array_filter($data, fn ($v) => $v !== null && $v !== ''));
+        $scheduled = ConsultAppointments::publish($consult, $request->user(), array_filter($data, fn ($v) => $v !== null && $v !== ''));
 
-        return back()->with('flash', "اعتُمد موعد الاستشارة {$consult->ref} وأُرسل للعميل.".ConsultAppointments::overlapSuffix($consult));
+        return back()->with('flash', "اعتُمد موعد الاستشارة {$consult->ref} وأُرسل للعميل.".$scheduled->notice());
     }
 
     // إلغاء طلب معلّق قبل الجلسة — يُحيي حالة «ملغاة» التي لم يكن لها كاتب في النظام

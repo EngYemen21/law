@@ -95,6 +95,12 @@ final class ProposeAppointment extends Transition
         return $this->appointment === null ? [] : [new AppointmentProposed($entity, $this->appointment, $actor->name ?? 'النظام')];
     }
 
+    /** قُبل الموعد فوق انشغالٍ آخر للمحامي — يقرؤه `ConsultAppointments` بعد `Workflow::run`. */
+    public function overlapped(): bool
+    {
+        return $this->overlap;
+    }
+
     public function record(array $payload): array
     {
         return [

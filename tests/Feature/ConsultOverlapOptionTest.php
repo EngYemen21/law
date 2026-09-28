@@ -9,6 +9,7 @@ use App\Models\LegalCase;
 use App\Models\Meeting;
 use App\Models\Setting;
 use App\Models\User;
+use App\Support\ConsultAppointments;
 use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
 use Carbon\CarbonInterface;
@@ -150,5 +151,24 @@ class ConsultOverlapOptionTest extends TestCase
     {
         $this->assertStringContainsString('allowTaken={allowOverlap}', (string) file_get_contents(resource_path('js/pages/employee/schedule.tsx')));
         $this->assertStringContainsString('allowTaken={allowOverlap}', (string) file_get_contents(resource_path('js/pages/employee/ticketchat.tsx')));
+    }
+
+    /** الحكم يعود من الانتقال نفسه (`ScheduledConsult`) — لا قراءةٌ لاحقة لسجلّ الرحلة. */
+    public function test_the_booking_returns_whether_it_overlapped(): void
+    {
+        $busy = $this->lawyer();
+        $free = $this->lawyer();
+        $this->meetingFor($busy);
+        $this->allowOverlap();
+        $input = fn (User $l) => ['date' => $this->at->toDateString(), 'time' => '10:00', 'lawyer_id' => $l->id];
+
+        $over = ConsultAppointments::publish($this->paidConsult(), $this->journeyAdmin(), $input($busy));
+        $clear = ConsultAppointments::publish($this->paidConsult(), $this->journeyAdmin(), $input($free));
+
+        $this->assertTrue($over->overlap);
+        $this->assertSame(' '.ConsultBooking::OVERLAP_NOTICE, $over->notice());
+        $this->assertFalse($clear->overlap);
+        $this->assertSame('', $clear->notice());
+        $this->assertSame($busy->id, $over->consult->assigned_lawyer_id);
     }
 }

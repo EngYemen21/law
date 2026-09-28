@@ -110,14 +110,14 @@ class ScheduleController extends Controller
         ];
 
         $isAdmin = $request->user()->isAdmin();
-        $isAdmin
+        $scheduled = $isAdmin
             ? ConsultAppointments::publish($consult, $request->user(), $input)
             : ConsultAppointments::propose($consult, $request->user(), $input);
 
         $message = ($isAdmin
             ? "تم تحديد موعد الاستشارة {$consult->ref} وإرساله للعميل {$client->name}."
             : "أُرسل موعد الاستشارة {$consult->ref} لاعتماد الإدارة قبل إرساله للعميل.")
-            .ConsultAppointments::overlapSuffix($consult);
+            .$scheduled->notice();
 
         if ($request->expectsJson()) {
             return response()->json(['ref' => $consult->ref, 'message' => $message]);

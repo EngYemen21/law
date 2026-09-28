@@ -182,6 +182,12 @@ final class PublishAppointment extends Transition
         )];
     }
 
+    /** قُبل الموعد فوق انشغالٍ آخر للمحامي — يقرؤه `ConsultAppointments` بعد `Workflow::run`. */
+    public function overlapped(): bool
+    {
+        return $this->overlap;
+    }
+
     public function record(array $payload): array
     {
         return [

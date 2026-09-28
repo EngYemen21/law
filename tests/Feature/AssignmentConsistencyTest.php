@@ -38,7 +38,7 @@ class AssignmentConsistencyTest extends TestCase
 
         $consult = ConsultAppointments::publish($consult, $this->journeyAdmin(), [
             'type' => 'phone', 'date' => now()->addDays(2)->toDateString(), 'time' => '11:00',
-        ]);
+        ])->consult;
 
         $this->assertSame($lawyer->id, $consult->assigned_lawyer_id); // مشتقّ من التذكرة رغم غياب lawyer_id
         $this->assertSame($lawyer->name, $consult->lawyer);

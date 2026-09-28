@@ -382,7 +382,7 @@ class ConsultBooking
      *   • جلسة محكمة ← رفضٌ دائماً.
      *   • انشغالٌ آخر ← رفضٌ، إلّا إن سمحت الإدارة بالحجز المتداخل (`consult_allow_overlap`).
      *
-     * @return bool `true` حين يُقبل الحجز رغم انشغالٍ آخر — ليُنبَّه الحاجز (`OVERLAP_NOTICE`)
+     * @return bool `true` حين يُقبل الحجز رغم انشغالٍ آخر — ليُنبَّه الحاجز (`ScheduledConsult::notice`)
      *
      * @throws ValidationException
      */

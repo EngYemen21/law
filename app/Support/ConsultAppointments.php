@@ -32,27 +32,12 @@ final class ConsultAppointments
     /**
      * @param  array{date:string,time:string,lawyer_id?:int|null,type?:string|null,place?:string|null}  $input
      */
-    public static function propose(Consult $consult, User $actor, array $input): Consult
+    public static function propose(Consult $consult, User $actor, array $input): ScheduledConsult
     {
         $slot = self::slot($consult, $input, base: null);
+        $transition = new ProposeAppointment;
 
-        return Workflow::run(new ProposeAppointment, $consult, $actor, $slot);
-    }
-
-    /**
-     * **تنبيه الحجز المتداخل** — « ⚠️ …» تُلحق برسالة النجاح إن قُبل آخر حجزٍ للاستشارة فوق انشغالٍ
-     * آخر للمحامي، وإلا نصٌّ فارغ. المصدر ما سجّله الانتقال نفسه في الرحلة (`overlap`) — لا فحصٌ ثانٍ
-     * بعد الحجز يرى الموعد الجديد انشغالاً.
-     */
-    public static function overlapSuffix(Consult $consult): string
-    {
-        $payload = JourneyTransition::where('entity_type', 'Consult')
-            ->where('entity_id', $consult->id)
-            ->whereIn('transition', [(new ProposeAppointment)->name(), (new PublishAppointment)->name()])
-            ->latest('id')
-            ->first()?->payload;
-
-        return ($payload['overlap'] ?? false) ? ' '.ConsultBooking::OVERLAP_NOTICE : '';
+        return new ScheduledConsult(Workflow::run($transition, $consult, $actor, $slot), $transition->overlapped());
     }
 
     /**
@@ -60,7 +45,7 @@ final class ConsultAppointments
      *
      * @param  array{date?:string|null,time?:string|null,lawyer_id?:int|null,type?:string|null,place?:string|null}  $input
      */
-    public static function publish(Consult $consult, User $actor, array $input = []): Consult
+    public static function publish(Consult $consult, User $actor, array $input = []): ScheduledConsult
     {
         WebTimeLimit::raise(90);
 
@@ -96,8 +81,10 @@ final class ConsultAppointments
             Log::error('Zoom: تعذّر إنشاء اجتماع الاستشارة — تُنشر بلا رابط جلسة', ['consult' => $consult->ref]);
         }
 
+        $transition = new PublishAppointment;
+
         try {
-            return Workflow::run(new PublishAppointment, $consult, $actor, $slot);
+            return new ScheduledConsult(Workflow::run($transition, $consult, $actor, $slot), $transition->overlapped());
         } catch (\Throwable $e) {
             if (! empty($slot['zoom']['id'])) {
                 app(ZoomService::class)->deleteMeeting((string) $slot['zoom']['id']);
