@@ -241,7 +241,7 @@ const EmployeeSchedule: React.FC<Props> = ({
       headers: { Accept: 'application/json' },
     })
       .then((r) => r.json())
-      .then((j: { slots?: { time: string; taken: boolean }[] }) => {
+      .then((j: { slots?: TimeSlotItem[] }) => {
         if (!cancelled) {
 setSlots(j.slots ?? []);
 }
