@@ -171,4 +171,18 @@ class ConsultOverlapOptionTest extends TestCase
         $this->assertSame('', $clear->notice());
         $this->assertSame($busy->id, $over->consult->assigned_lawyer_id);
     }
+
+    /**
+     * شبكة التفرّغ تعرض كلّ مواعيد اليوم: قائمةٌ لكلّ خانة (موعدان متداخلان لا يمحو أحدهما الآخر)،
+     * وصفوفٌ لأوقات المواعيد القائمة خارج شبكة الدوام (عطلة، خارج الساعات، دقيقة غير ساعيّة).
+     */
+    public function test_the_grid_shows_every_appointment_of_the_day(): void
+    {
+        $src = (string) file_get_contents(resource_path('js/pages/employee/schedule.tsx'));
+
+        $this->assertStringContainsString('new Map<string, AppointmentItem[]>()', $src);
+        $this->assertStringContainsString('{appts.map(renderApptCard)}', $src);
+        $this->assertStringContainsString('{dayRows.map((hourStr) => {', $src);
+        $this->assertStringNotContainsString('{dayHours.map((hourStr) => {', $src);
+    }
 }

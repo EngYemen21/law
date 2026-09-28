@@ -478,19 +478,35 @@ return lawyers;
     return lawyers.filter((l) => String(l.id) === filterLawyer || l.name === filterLawyer);
   }, [lawyers, filterLawyer]);
 
-  // خريطة سريعة للمواعيد في اليوم المختار لمطابقة [lawyerId_time]
+  // مواعيد اليوم المختار لكلّ [lawyerId_HH:MM] — **قائمة** لا موعدٌ واحد: بخيار الحجز المتداخل قد يحمل
+  // الوقت نفسه موعدين للمحامي، وكان الثاني يمحو الأوّل من الشبكة
   const dayAppointmentsMap = useMemo(() => {
-    const map = new Map<string, AppointmentItem>();
+    const map = new Map<string, AppointmentItem[]>();
     appointments.forEach((a) => {
       if (a.rawDate === selectedDay && a.rawTime && a.lawyerId) {
-        // مفتاح: lawyerId_HH:MM
         const key = `${a.lawyerId}_${a.rawTime.slice(0, 5)}`;
-        map.set(key, a);
+        map.set(key, [...(map.get(key) ?? []), a]);
       }
     });
 
     return map;
   }, [appointments, selectedDay]);
+
+  /*
+   * **صفوف الشبكة: شبكة الدوام + أوقات مواعيد اليوم القائمة.** الشبكة وحدها كانت تُخفي موعداً في يوم
+   * عطلة أو خارج الساعات أو على دقيقةٍ غير ساعيّة (14:30) — فيقول الجدول «لا مواعيد» وهي قائمة.
+   */
+  const dayRows = useMemo(() => {
+    const ids = new Set(gridLawyers.map((l) => l.id));
+    const times = new Set(dayHours);
+    appointments.forEach((a) => {
+      if (a.rawDate === selectedDay && a.rawTime && a.lawyerId && ids.has(a.lawyerId)) {
+        times.add(a.rawTime.slice(0, 5));
+      }
+    });
+
+    return [...times].sort();
+  }, [dayHours, appointments, selectedDay, gridLawyers]);
 
   // إحصائيات تفرغ المستشارين لليوم المختار
   const lawyerDailyStats = useMemo(() => {
@@ -499,28 +515,101 @@ return lawyers;
     const currentHM = nowHM();
 
     gridLawyers.forEach((l) => {
-      let booked = 0;
       let free = 0;
       let past = 0;
 
+      // الشاغر والمنقضي على شبكة الدوام وحدها؛ والمحجوز عددُ مواعيد اليوم كلّها (ولو خارجها)
       dayHours.forEach((h) => {
-        const isTaken = dayAppointmentsMap.has(`${l.id}_${h}`);
-        const isHourPast = isToday && h <= currentHM;
+        if (dayAppointmentsMap.has(`${l.id}_${h}`)) {
+          return;
+        }
 
-        if (isTaken) {
-          booked++;
-        } else if (isHourPast) {
+        if (isToday && h <= currentHM) {
           past++;
         } else {
           free++;
         }
       });
 
+      const booked = dayRows.reduce((n, h) => n + (dayAppointmentsMap.get(`${l.id}_${h}`)?.length ?? 0), 0);
       statsMap.set(l.id, { booked, free, past, total: dayHours.length });
     });
 
     return statsMap;
-  }, [gridLawyers, dayAppointmentsMap, selectedDay, dayHours]);
+  }, [gridLawyers, dayAppointmentsMap, selectedDay, dayHours, dayRows]);
+
+  /**
+   * بطاقة موعدٍ في خانة الشبكة — دالّةٌ واحدة لأنّ الخانة قد تحمل أكثر من موعد (خيار الحجز المتداخل).
+   */
+  const renderApptCard = (appt: AppointmentItem) => {
+    const isVid = appt.channel === 'مرئية' || appt.ico === 'video';
+    const isPhone = appt.channel === 'هاتفية' || appt.ico === 'phone';
+    const cardBg = isVid
+      ? 'linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(6, 182, 212, 0.03) 100%)'
+      : isPhone
+      ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.03) 100%)'
+      : 'linear-gradient(135deg, rgba(14, 92, 156, 0.09) 0%, rgba(14, 92, 156, 0.02) 100%)';
+
+    const borderCol = isVid ? 'var(--cyan)' : isPhone ? 'var(--amber)' : 'var(--primary)';
+    const channelText = isVid ? '🎥 جلسة مرئية' : isPhone ? '📞 مكالمة هاتفية' : '🏢 استشارة حضورية';
+
+    return (
+      <div
+        key={appt.id}
+        onClick={() => setSelectedAppt(appt)}
+        style={{
+          maxWidth: gridLawyers.length === 1 ? 580 : '100%',
+          margin: gridLawyers.length === 1 ? '0 auto' : undefined,
+          background: cardBg,
+          border: `1px solid ${borderCol}44`,
+          borderRight: `4px solid ${borderCol}`,
+          borderRadius: 10,
+          padding: '9px 14px',
+          cursor: 'pointer',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.02)',
+          transition: 'transform .15s ease, box-shadow .15s ease',
+        }}
+        title="انقر لعرض تفاصيل الموعد والتحكم به"
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = 'translateY(-2px)';
+          e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.06)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'translateY(0)';
+          e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.02)';
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--deep)' }}>
+              👤 {mask(appt.client || 'عميل')}
+            </span>
+          </div>
+          <span style={{
+            fontSize: 11,
+            fontWeight: 700,
+            color: borderCol,
+            background: '#fff',
+            padding: '2px 8px',
+            borderRadius: 6,
+            border: `1px solid ${borderCol}33`,
+          }}>
+            {channelText}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 11.5 }}>
+          <span style={{ color: 'var(--muted)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 280 }}>
+            📌 {appt.subject || appt.type || 'استشارة قانونية'}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <Badge text={appt.status} tone={appt.tone} />
+            <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600 }}>تفاصيل ↗</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <>
@@ -968,7 +1057,7 @@ return lawyers;
                                 borderRadius: 12,
                                 whiteSpace: 'nowrap',
                               }}>
-                                عطلة
+                                {st?.booked ? `عطلة · ${st.booked} موعد` : 'عطلة'}
                               </span>
                             ) : freeCount > 0 ? (
                               <span style={{
@@ -1004,7 +1093,8 @@ return lawyers;
                   </tr>
                 </thead>
                 <tbody>
-                  {dayHours.map((hourStr) => {
+                  {dayRows.map((hourStr) => {
+                    const isOfficeRow = dayHours.includes(hourStr);
                     const isSlotPast = selectedDay === todayISO() && hourStr <= nowHM();
                     const endH = slotEnd(hourStr, slotMinutes);
                     const period = formatPeriod(hourStr);
@@ -1030,21 +1120,10 @@ return lawyers;
                         </td>
 
                         {gridLawyers.map((l) => {
-                          const appt = dayAppointmentsMap.get(`${l.id}_${hourStr}`);
+                          const appts = dayAppointmentsMap.get(`${l.id}_${hourStr}`) ?? [];
 
-                          if (appt) {
-                            // ── الخانة محجوزة بموعد ──
-                            const isVid = appt.channel === 'مرئية' || appt.ico === 'video';
-                            const isPhone = appt.channel === 'هاتفية' || appt.ico === 'phone';
-                            const cardBg = isVid
-                              ? 'linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(6, 182, 212, 0.03) 100%)'
-                              : isPhone
-                              ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.03) 100%)'
-                              : 'linear-gradient(135deg, rgba(14, 92, 156, 0.09) 0%, rgba(14, 92, 156, 0.02) 100%)';
-
-                            const borderCol = isVid ? 'var(--cyan)' : isPhone ? 'var(--amber)' : 'var(--primary)';
-                            const channelText = isVid ? '🎥 جلسة مرئية' : isPhone ? '📞 مكالمة هاتفية' : '🏢 استشارة حضورية';
-
+                          if (appts.length > 0) {
+                            // ── الخانة محجوزة — بكلّ مواعيدها ──
                             return (
                               <td
                                 key={l.id}
@@ -1054,61 +1133,14 @@ return lawyers;
                                   borderRight: '1px solid var(--line-soft)',
                                 }}
                               >
-                                <div
-                                  onClick={() => setSelectedAppt(appt)}
-                                  style={{
-                                    maxWidth: gridLawyers.length === 1 ? 580 : '100%',
-                                    margin: gridLawyers.length === 1 ? '0 auto' : undefined,
-                                    background: cardBg,
-                                    border: `1px solid ${borderCol}44`,
-                                    borderRight: `4px solid ${borderCol}`,
-                                    borderRadius: 10,
-                                    padding: '9px 14px',
-                                    cursor: 'pointer',
-                                    boxShadow: '0 2px 6px rgba(0,0,0,0.02)',
-                                    transition: 'transform .15s ease, box-shadow .15s ease',
-                                  }}
-                                  title="انقر لعرض تفاصيل الموعد والتحكم به"
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(-2px)';
-                                    e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.06)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                    e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.02)';
-                                  }}
-                                >
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                      <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--deep)' }}>
-                                        👤 {mask(appt.client || 'عميل')}
-                                      </span>
-                                    </div>
-                                    <span style={{
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      color: borderCol,
-                                      background: '#fff',
-                                      padding: '2px 8px',
-                                      borderRadius: 6,
-                                      border: `1px solid ${borderCol}33`,
-                                    }}>
-                                      {channelText}
-                                    </span>
-                                  </div>
-
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 11.5 }}>
-                                    <span style={{ color: 'var(--muted)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 280 }}>
-                                      📌 {appt.subject || appt.type || 'استشارة قانونية'}
-                                    </span>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                                      <Badge text={appt.status} tone={appt.tone} />
-                                      <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600 }}>تفاصيل ↗</span>
-                                    </div>
-                                  </div>
-                                </div>
+                                <div style={{ display: 'grid', gap: 6 }}>{appts.map(renderApptCard)}</div>
                               </td>
                             );
+                          }
+
+                          // صفٌّ خارج شبكة الدوام (أُضيف لموعدٍ قائم): الخانة الفارغة بلا زرّ حجز
+                          if (!isOfficeRow) {
+                            return <td key={l.id} style={{ borderRight: '1px solid var(--line-soft)' }} />;
                           }
 
                           // ── الخانة شاغرة (متاحة للحجز) ──
@@ -1234,7 +1266,7 @@ return lawyers;
                       </tr>
                     );
                   })}
-                  {dayHours.length === 0 && (
+                  {dayRows.length === 0 && (
                     <tr>
                       <td colSpan={gridLawyers.length + 1} style={{ textAlign: 'center', padding: 32, color: 'var(--muted)' }}>
                         يوم عطلة — خارج أيّام دوام المكتب، فلا مواعيد للحجز فيه.
