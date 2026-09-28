@@ -73,13 +73,14 @@ class ReportController extends Controller
                 [
                     'title' => '١. المؤشرات التنفيذية الرئيسية (Executive Scorecard)',
                     'cellRows' => [
-                        [['إجمالي الاستشارات والتذاكر', (string) $s['totalTickets']], ['معدل التحويل لقضايا', $s['conversionRate'].'%']],
-                        [['القضايا النشطة', (string) $s['activeCases']], ['الأحكام الصادرة', (string) $s['ruledCases']]],
-                        [['طلبات التنفيذ القضائي', (string) $s['totalExecutions']], ['نسبة نجاح التحصيل', $s['collectionSuccessRate'].'%']],
+                        [['إجمالي التذاكر', (string) $s['totalTickets']], ['إجمالي الاستشارات (عدا الملغاة)', (string) $s['totalConsults']]],
+                        [['معدل تحويل التذاكر لقضايا', $s['conversionRate'].'%'], ['القضايا النشطة', (string) $s['activeCases']]],
+                        [['الأحكام الصادرة', (string) $s['ruledCases']], ['طلبات التنفيذ القضائي', (string) $s['totalExecutions']]],
+                        [['نسبة نجاح التحصيل', $s['collectionSuccessRate'].'%']],
                     ],
                 ],
                 [
-                    'title' => '٢. التذاكر والاستشارات حسب القسم',
+                    'title' => '٢. التذاكر حسب القسم',
                     'cellRows' => array_map(fn (array $r) => [[$r['dept'], $r['c'].' تذكرة']], $snap->ticketsByDept),
                 ],
                 [
