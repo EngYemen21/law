@@ -69,8 +69,6 @@ final class TaxInvoiceDocument
                 ],
             ],
             ...self::zatcaBlock($invoice),
-            // الاسم من الإعدادات لا منقوشاً — كان التذييل يعلو على اسم المكتب الذي تضبطه الإدارة
-            'footer' => SettingsRegistry::str('office_name').' — شكراً لتعاملكم معنا',
         ]);
     }
 

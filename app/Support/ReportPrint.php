@@ -5,7 +5,7 @@ namespace App\Support;
 /**
  * مولّد تقارير رسمية قابل لإعادة الاستخدام — النظير الخادميّ لـ resources/js/lib/reportPrint.ts.
  * يبني نفس تصميم بطاقة .cf (رأس بالشعار، عنوان متدرّج، أقسام مرقّمة كاملة العرض أو عمودين،
- * قسم اعتماد برمز استجابة حقيقيّ، ملاحظة، تذييل) كسلسلة HTML واحدة، تُغذّى إلى Browsershot لإصدار PDF حقيقي
+ * قسم اعتماد برمز استجابة حقيقيّ، ملاحظة — بلا شريط تذييل) كسلسلة HTML واحدة، تُغذّى إلى Browsershot لإصدار PDF حقيقي
  * مطابق تماماً لما يعرضه المتصفح — لا صورة/محاكاة.
  *
  * @phpstan-type ReportCell array{0: string, 1: string}
@@ -55,12 +55,11 @@ class ReportPrint
         .cf-appr .r span{color:#7a8aa3}
         .cf-appr .r b{color:#0A2A55}
         .cf-note{margin:0 22px 12px;background:#FFF8EC;border:1px solid #F0DDB0;border-radius:8px;padding:9px 13px;font-size:10.5px;color:#8A6D2F;line-height:1.85}
-        .cf-foot{background:#0E5C9C;color:#fff;font-size:10.5px;text-align:center;padding:10px;margin-top:8px}
         @page{size:A4;margin:12mm}
         CSS;
 
     /**
-     * @param  array{title:string,subtitle:string,ref:string,blocks:array<int, ReportSection|array{0:ReportSection,1:ReportSection}>,approval?:array{qr?:string|null,qrCaption?:string,rows:array<int,ReportCell>,title?:string},note?:string,footer?:string}  $doc
+     * @param  array{title:string,subtitle:string,ref:string,blocks:array<int, ReportSection|array{0:ReportSection,1:ReportSection}>,approval?:array{qr?:string|null,qrCaption?:string,rows:array<int,ReportCell>,title?:string},note?:string}  $doc
      */
     public static function html(array $doc): string
     {
@@ -80,15 +79,15 @@ class ReportPrint
         $officeName = SettingsRegistry::str('office_name');
         $officeUrl = SettingsRegistry::str('office_url');
         $officePhone = SettingsRegistry::str('office_phone');
-        $footerHtml = '<div class="cf-foot">'.e($doc['footer'] ?? $officeName.' — صادر إلكترونياً').'</div>';
 
         return '<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>'.e($doc['ref']).'</title><style>'.self::STYLE.'</style></head><body>'
             .'<div class="cf">'
             // الشعار وحده في الترويسة (طلب المالك 2026-09-26) — كان بجانبه اسم المكتب وسطرٌ إنجليزيّ
-            // «LEGAL OFFICE MANAGEMENT SYSTEM»؛ واسم المكتب باقٍ في التذييل وفي نصّ الشعار البديل
+            // «LEGAL OFFICE MANAGEMENT SYSTEM»؛ واسم المكتب في نصّ الشعار البديل. ولا شريط تذييل
+            // باسم المكتب أسفل الوثيقة (طلب المالك 2026-09-28): الشعار هويّتها الوحيدة
             .'<div class="cf-hd">'.($logo ? '<img src="'.$logo.'" alt="'.e($officeName).'">' : '<b class="cf-name">'.e($officeName).'</b>').'<div class="meta">'.e($officeUrl).'<br>'.e($officePhone).'</div></div>'
             .'<div class="cf-title"><div><b>'.e($doc['title']).'</b><span class="s">'.e($doc['subtitle']).'</span></div><div class="rf">'.e($doc['ref']).'</div></div>'
-            .$blocksHtml.$approvalHtml.$noteHtml.$footerHtml
+            .$blocksHtml.$approvalHtml.$noteHtml
             .'</div></body></html>';
     }
 

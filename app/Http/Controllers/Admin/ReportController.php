@@ -8,7 +8,6 @@ use App\Support\Finance\RevenueSnapshot;
 use App\Support\PdfRenderer;
 use App\Support\ReportPrint;
 use App\Support\Reports\PerformanceSnapshot;
-use App\Support\SettingsRegistry;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -95,8 +94,6 @@ class ReportController extends Controller
                     ],
                 ],
             ],
-            // اسم المكتب من الإعدادات لا منقوشاً — التذييل كان يعلو على ما تضبطه الإدارة
-            'footer' => SettingsRegistry::str('office_name').' — تقرير الأداء العام الداخلي',
         ]);
 
         return PdfRenderer::render($html, 'reports-'.now()->format('Y-m-d').'.pdf');
@@ -136,7 +133,6 @@ class ReportController extends Controller
                     ),
                 ],
             ],
-            'footer' => SettingsRegistry::str('office_name').' — تقرير ماليّ ورقابي داخلي',
         ]);
 
         return PdfRenderer::render($html, 'revenue-'.now()->format('Y-m-d').'.pdf');
