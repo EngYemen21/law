@@ -19,6 +19,7 @@ use App\Http\Controllers\Admin\PriceController as AdminPriceController;
 use App\Http\Controllers\Admin\ReportController as AdminReportController;
 use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
 use App\Http\Controllers\Admin\StaffController;
+use App\Http\Controllers\Admin\StaffPayoutController;
 use App\Http\Controllers\Admin\TaskController as AdminTaskController;
 use App\Http\Controllers\Admin\TicketController as AdminTicketController;
 use App\Http\Controllers\AppointmentController;
@@ -619,6 +620,10 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/staff', [StaffController::class, 'store'])->name('staff.store')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::put('/staff/{user}', [StaffController::class, 'update'])->name('staff.update')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::post('/staff/{user}/toggle', [StaffController::class, 'toggle'])->name('staff.toggle')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
+    // مستحقّات الموظّف وسجلّ صرفه — القيد يُسجَّل ويُلغى، ولا تعديل ولا حذف
+    Route::get('/staff/{user}/earnings', [StaffPayoutController::class, 'show'])->name('staff.earnings')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
+    Route::post('/staff/{user}/payouts', [StaffPayoutController::class, 'store'])->name('staff.payouts.store')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
+    Route::post('/staff/{user}/payouts/{payout}/void', [StaffPayoutController::class, 'void'])->name('staff.payouts.void')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::get('/archive', [AdminArchiveController::class, 'index'])->name('archive')->middleware(Permissions::middleware(Permissions::CONSULT_ARCHIVE));
     // مخرجات جلسة الاستشارة عبر الخادم (جلب من سحابة Zoom): فيديو/صوت + نصّ تفريغي + تشغيلٌ داخل النظام
     Route::get('/consults/{consult}/recording.zip', [StaffConsultRecordingController::class, 'video'])->name('consults.recording')->middleware(Permissions::middleware(Permissions::CONSULT_ARCHIVE));

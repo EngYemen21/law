@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import Badge from '@/components/babylon/Badge';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
+import StaffPayoutsModal from '@/components/earnings/StaffPayoutsModal';
 import { foldSearch } from '@/lib/employee-data';
 import type {Staff} from '@/lib/employee-data';
 import Icon from '@/lib/icons';
@@ -88,6 +89,8 @@ setCred(props.generatedPassword);
   const [permSearch, setPermSearch] = useState('');
   const [busy, setBusy] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  // درج «المستحقّات والصرف» — للموظّف والمحامي وحدهما
+  const [payoutsFor, setPayoutsFor] = useState<{ id: number; name: string } | null>(null);
 
   const [detail, setDetail] = useState<StaffRow | null>(null);
   const [modalPermSearch, setModalPermSearch] = useState('');
@@ -813,6 +816,17 @@ resetForm();
                           >
                             <Icon name="doc" /> تعديل
                           </button>
+                          {s.roleKey !== 'admin' && (
+                            <button
+                              className="btn soft sm"
+                              onClick={() => setPayoutsFor({ id: s.id, name: s.name })}
+                              type="button"
+                              title="مستحقّات الموظف وسجلّ صرفه"
+                              style={{ padding: '5px 9px', fontSize: 12 }}
+                            >
+                              <Icon name="card" /> المستحقّات والصرف
+                            </button>
+                          )}
                           {s.roleKey !== 'admin' && (
                             <button
                               className="btn soft sm"
@@ -2006,6 +2020,8 @@ setRole('موظف خدمة عملاء');
           </div>
         )}
       </Modal>
+
+      <StaffPayoutsModal staff={payoutsFor} onClose={() => setPayoutsFor(null)} />
     </>
   );
 };
