@@ -156,14 +156,14 @@ class BusySourceUnifiedTest extends TestCase
         $this->assertTrue($slots['11:00']['taken'], 'مدّة الجلسة (١٢٠د) لا تحجب ما بعدها');
         $this->assertFalse($slots['12:00']['taken'], 'حجبٌ بعد انتهاء الجلسة');
 
-        // وحجز الطاقم فوقها يُرفض بالرسالة نفسها
+        // وحجز الطاقم فوقها يُرفض — برسالة الجلسة (لا تُتجاوز ولو سُمح بالحجز المتداخل)
         $employee = User::factory()->create(['role' => Role::Employee]);
         $employee->syncPermissions(Permission::whereIn('name', ['جدولة المواعيد'])->get());
         $this->actingAs($employee)->post('/employee/schedule', [
             'client_id' => User::factory()->create(['role' => Role::Client])->id, 'lawyer_id' => $lawyer->id,
             'type' => 'office', 'date' => $at->format('Y-m-d'), 'time' => '10:00',
         ])->assertSessionHasErrors('time');
-        $this->assertStringContainsString('مشغول', session('errors')->first('time'));
+        $this->assertStringContainsString('جلسة محكمة', session('errors')->first('time'));
     }
 
     public function test_a_hearing_without_a_duration_blocks_one_slot(): void

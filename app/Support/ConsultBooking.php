@@ -9,6 +9,7 @@ use App\Domain\Journey\Transitions\Consult\RepriceConsult;
 use App\Domain\Journey\Transitions\Consult\SettlePayment;
 use App\Domain\Journey\Transitions\Ticket\RequestConsultBooking;
 use App\Domain\Journey\Workflow;
+use App\Enums\BusyKind;
 use App\Enums\Role;
 use App\Events\ConsultStatusBroadcast;
 use App\Mail\ConsultBooked;
@@ -39,6 +40,9 @@ use Inertia\OptionalProp;
  */
 class ConsultBooking
 {
+    /** تنبيه الحاجز حين يُقبل موعدٌ فوق انشغالٍ آخر للمحامي (`conflictVerdict`). */
+    public const OVERLAP_NOTICE = '⚠️ تنبيه: للمحامي ارتباطٌ آخر في هذا الوقت.';
+
     /**
      * أنواع الاستشارة ومكانها المكتوب على الموعد.
      *
@@ -351,13 +355,15 @@ class ConsultBooking
      * فهو أضيق من الحاجز الذي سبقه: اجتماعٌ أو دعوةٌ في الوقت نفسه لا يمنعانه.
      * وهو خطّ الدفاع الأخير في السباق، فضِيقُه يعني أن سباقاً بين حجزٍ واجتماع يمرّ.
      *
-     * والآن يستعمل `LawyerAvailability::isBusy` نفسها — فلا يمكن للحاجزين أن يفترقا
-     * مستقبلاً لأنهما صارا شيفرةً واحدة.
+     * والآن يستعمل `conflictVerdict` نفسها (فوق `LawyerAvailability::conflictAt`) — فلا يمكن للحاجزين
+     * أن يفترقا مستقبلاً لأنهما صارا شيفرةً واحدة.
      *
      * ويبقى القفل: `lockForUpdate` على مواعيد اليوم يُسلسل المتسابقين على المحامي
      * نفسه. (توسيع القفل ليشمل الجداول الأربعة شأنُ الدفعة ٧ — قفلُ صفّ المحامي.)
+     *
+     * @return bool قُبل الموعد فوق انشغالٍ آخر (خيار الحجز المتداخل) — يسجّله الانتقال `overlap`
      */
-    public static function guardNoConflict(int $lawyerId, Carbon $start, int $duration): void
+    public static function guardNoConflict(int $lawyerId, Carbon $start, int $duration): bool
     {
         // القفل أوّلاً: يُسلسل الحجوزات المتزامنة على هذا المحامي في هذا اليوم
         Appointment::where('lawyer_id', $lawyerId)
@@ -366,11 +372,33 @@ class ConsultBooking
             ->lockForUpdate()
             ->get(['id']);
 
-        if (LawyerAvailability::isBusy($lawyerId, $start, $duration)) {
-            throw ValidationException::withMessages([
-                'starts_at' => 'هذا الموعد محجوز لدى المستشار، فضلاً اختر موعداً آخر.',
-            ]);
+        return self::conflictVerdict($lawyerId, $start, $duration, 'starts_at', 'هذا الموعد محجوز لدى المستشار، فضلاً اختر موعداً آخر.');
+    }
+
+    /**
+     * **قرار الحجز على انشغال المحامي — من هنا وحده** (الفحص المسبق في `Employee\ScheduleController::store`،
+     * و`guardNoConflict` داخل معاملة الاقتراح والنشر — وهذا ما يُسجَّل `overlap` في الرحلة):
+     *
+     *   • جلسة محكمة ← رفضٌ دائماً.
+     *   • انشغالٌ آخر ← رفضٌ، إلّا إن سمحت الإدارة بالحجز المتداخل (`consult_allow_overlap`).
+     *
+     * @return bool `true` حين يُقبل الحجز رغم انشغالٍ آخر — ليُنبَّه الحاجز (`OVERLAP_NOTICE`)
+     *
+     * @throws ValidationException
+     */
+    public static function conflictVerdict(int $lawyerId, Carbon $start, int $duration, string $field, string $busyMessage): bool
+    {
+        $kind = LawyerAvailability::conflictAt($lawyerId, $start, $duration);
+
+        if ($kind === BusyKind::Hearing) {
+            throw ValidationException::withMessages([$field => 'للمحامي جلسة محكمة في هذا الوقت — اختر وقتاً آخر أو محامياً مختلفاً.']);
         }
+
+        if ($kind === BusyKind::Busy && ! SettingsRegistry::bool('consult_allow_overlap')) {
+            throw ValidationException::withMessages([$field => $busyMessage]);
+        }
+
+        return $kind === BusyKind::Busy;
     }
 
     /**

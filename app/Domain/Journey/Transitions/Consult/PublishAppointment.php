@@ -38,6 +38,9 @@ final class PublishAppointment extends Transition
 
     private bool $ticketMoved = false;
 
+    /** قُبل الموعد فوق انشغالٍ آخر للمحامي (خيار الحجز المتداخل) — يُسجَّل في الرحلة ويُنبَّه به الحاجز. */
+    private bool $overlap = false;
+
     public function name(): string
     {
         return 'consult.publish-appointment';
@@ -91,7 +94,7 @@ final class PublishAppointment extends Transition
 
         // **الاقتراح لا يتعارض مع نفسه:** يُخلى وقته قبل فحص التعارض، وتُرجعه المعاملة إن رُفض.
         $appointment?->update(['starts_at' => null]);
-        ConsultBooking::guardNoConflict($lawyerId, $startsAt, $duration);
+        $this->overlap = ConsultBooking::guardNoConflict($lawyerId, $startsAt, $duration);
 
         $values = [
             'user_id' => $entity->user_id,
@@ -186,6 +189,7 @@ final class PublishAppointment extends Transition
             'day' => $payload['day'] ?? null,
             'time' => $payload['time'] ?? null,
             'type' => $payload['type'] ?? null,
+            'overlap' => $this->overlap,
             'changes' => $payload['changes'] ?? [],
         ];
     }

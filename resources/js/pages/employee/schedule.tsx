@@ -5,6 +5,7 @@ import Modal from '@/components/babylon/Modal';
 import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
+import type { TimeSlotItem } from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import ConsultOnBehalfButton from '@/components/consult/ConsultOnBehalfButton';
 import { todayISO } from '@/lib/local-date';
@@ -151,7 +152,7 @@ const EmployeeSchedule: React.FC<Props> = ({
   const action = useServerAction();
   const reschedule = useConsultReschedule(apiBase());
   // الشبكة وطول الشريحة وأيّام الدوام من الخادم — ما يولّده المحرّك نفسه
-  const { gridOn, slotMinutes } = useConsultSlots();
+  const { gridOn, allowOverlap, slotMinutes } = useConsultSlots();
   const userCan = useCan();
   const mask = useMasker();
   const isSuper = window.location.pathname.startsWith('/admin');
@@ -223,7 +224,7 @@ const EmployeeSchedule: React.FC<Props> = ({
   const defaultClientId = (): number | '' => awaitingConsults[0]?.clientId ?? clients[0]?.id ?? '';
 
   // الفترات المتاحة للمستشار في المودال
-  const [slots, setSlots] = useState<{ time: string; taken: boolean }[]>([]);
+  const [slots, setSlots] = useState<TimeSlotItem[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
 
   // جلب الفترات عند تغيير المستشار أو التاريخ في المودال
@@ -1512,6 +1513,7 @@ return lawyers;
             slots={slots.length > 0 ? slots : gridOn(date) /* قبل اختيار المستشار: شبكة الحجز لا شبكة المنتقي العامّة */}
             label="الوقت المتاح للموعد"
             emptyText="لا مواعيد للحجز في هذا اليوم — خارج أيّام دوام المكتب."
+            allowTaken={allowOverlap}
             helperText={slotsLoading ? 'جارٍ فحص الأوقات المتاحة لدى المستشار…' : undefined}
             required
             allowCustom

@@ -6,6 +6,7 @@ use App\Domain\Journey\Enums\MeetingStatus;
 use App\Domain\Journey\Transitions\Meeting\CancelMeeting;
 use App\Domain\Journey\Transitions\Meeting\StartMeeting;
 use App\Domain\Journey\Workflow;
+use App\Enums\BusyKind;
 use App\Enums\Role;
 use App\Events\Journey\MeetingCancelled;
 use App\Events\Journey\SessionEndedInSystem;
@@ -190,7 +191,7 @@ class MeetRequestController extends Controller
      * فوق اجتماع لأن مودال الجدولة يقرأ المصدر الأضيق. المنطق كلّه انتقل إلى
      * LawyerAvailability::busyIntervals ويقرأ الخمسة (ومنها جلسات المحاكم).
      *
-     * @return array<int, array{0:int,1:int}>
+     * @return array<int, array{0:int,1:int,2:BusyKind}>
      */
     private function busy(int $lawyerId, string $day): array
     {

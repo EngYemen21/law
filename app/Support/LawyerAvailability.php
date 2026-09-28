@@ -6,6 +6,7 @@ use App\Domain\Journey\Enums\AppointmentStatus;
 use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\HearingStatus;
 use App\Domain\Journey\Enums\TicketStatus;
+use App\Enums\BusyKind;
 use App\Enums\Role;
 use App\Models\Appointment;
 use App\Models\CaseHearing;
@@ -192,7 +193,7 @@ class LawyerAvailability
      *
      * الأربعة مجتمعة هنا: Appointment + Meeting + Consult + MeetRequest.
      *
-     * @return array<int, array{0:int,1:int}> فترات [بداية، نهاية]
+     * @return array<int, array{0:int,1:int,2:BusyKind}> فترات [بداية، نهاية، نوع الانشغال]
      */
     public static function busyIntervals(int $lawyerId, string $day): array
     {
@@ -211,7 +212,7 @@ class LawyerAvailability
      * يصير قفلاً يتّسع بنموّ البيانات.
      *
      * @param  array<int,int>  $lawyerIds
-     * @return array<int, array<int, array{0:int,1:int}>> مفتاحه معرّف المحامي
+     * @return array<int, array<int, array{0:int,1:int,2:BusyKind}>> مفتاحه معرّف المحامي
      */
     public static function busyIntervalsForMany(array $lawyerIds, string $day): array
     {
@@ -236,9 +237,10 @@ class LawyerAvailability
         // صفٌّ بلا مسافةٍ محفوظة يشغل شريحةً واحدة بطولها النافذ — لا رقماً منقوشاً. والمحفوظ
         // (`duration_min` · `dur` التاريخيّ) مسافةٌ حُجزت يومها، لا عمرُ جلسةٍ تنتهي به.
         $slot = self::slotMinutes();
-        $add = function (int $lawyerId, ?int $from, int $dur) use (&$out, $slot) {
+        // الفترة [بداية، نهاية، نوع الانشغال] — والنوع لخيار الحجز المتداخل (`BusyKind`)
+        $add = function (int $lawyerId, ?int $from, int $dur, BusyKind $kind = BusyKind::Busy) use (&$out, $slot) {
             if ($from !== null && isset($out[$lawyerId])) {
-                $out[$lawyerId][] = [$from, $from + ($dur ?: $slot)];
+                $out[$lawyerId][] = [$from, $from + ($dur ?: $slot), $kind];
             }
         };
 
@@ -280,7 +282,7 @@ class LawyerAvailability
             ->where('case_hearings.status', HearingStatus::Scheduled->value)
             ->whereBetween('case_hearings.starts_at', [$dayStart, $dayEnd])
             ->get(['cases.assigned_lawyer_id', 'case_hearings.starts_at', 'case_hearings.duration_min']) as $h) {
-            $add((int) $h->assigned_lawyer_id, $toMin($h->starts_at?->format('H:i')), (int) $h->duration_min);
+            $add((int) $h->assigned_lawyer_id, $toMin($h->starts_at?->format('H:i')), (int) $h->duration_min, BusyKind::Hearing);
         }
 
         return $out;
@@ -292,8 +294,8 @@ class LawyerAvailability
      * كان في المشروع مولّدان: هذا (بحساب تداخلٍ صحيح) و`slotsFromAppointments`
      * (بمطابقة ساعة البداية على المواعيد وحدها) — والثاني هو ما يغذّي شبكة العميل.
      *
-     * @param  array<int, array{0:int,1:int}>  $intervals
-     * @return array<int, array{time:string,taken:bool}>
+     * @param  array<int, array{0:int,1:int,2:BusyKind}>  $intervals
+     * @return array<int, array{time:string,taken:bool,hard:bool}>
      */
     private static function slotsFromIntervals(array $intervals, Carbon $day): array
     {
@@ -306,17 +308,15 @@ class LawyerAvailability
         // الطول إعداداً، شريحةُ ٣٠ دقيقة بخطوةٍ ساعيّة تترك نصف كلّ ساعةٍ بلا حجز. ولا شريحةَ
         // تبدأ ما لم تنتهِ قبل نهاية الساعات — وبالافتراض (٠–٢٤، ٦٠د) هي الأربع والعشرون نفسها.
         for ($from = $startHour * 60; $from + $length <= $endHour * 60; $from += $length) {
-            $to = $from + $length;
-            $overlaps = false;
+            $kind = self::kindWithin($intervals, $from, $from + $length);
+            $past = $from <= $pastMinute;
 
-            foreach ($intervals as [$s, $e]) {
-                if ($from < $e && $to > $s) {
-                    $overlaps = true;
-                    break;
-                }
-            }
-
-            $slots[] = ['time' => sprintf('%02d:%02d', intdiv($from, 60), $from % 60), 'taken' => $overlaps || $from <= $pastMinute];
+            // `hard`: لا يُتجاوز ولو سمحت الإدارة بالحجز المتداخل — وقتٌ مضى أو جلسة محكمة
+            $slots[] = [
+                'time' => sprintf('%02d:%02d', intdiv($from, 60), $from % 60),
+                'taken' => $kind !== BusyKind::Free || $past,
+                'hard' => $kind === BusyKind::Hearing || $past,
+            ];
         }
 
         return $slots;
@@ -325,16 +325,39 @@ class LawyerAvailability
     /** هل تتقاطع الفترة [start, start+dur) مع أي انشغال؟ */
     public static function isBusy(int $lawyerId, Carbon $start, ?int $dur = null): bool
     {
-        $from = $start->hour * 60 + $start->minute;
-        $to = $from + ($dur ?? self::slotMinutes());
+        return self::conflictAt($lawyerId, $start, $dur) !== BusyKind::Free;
+    }
 
-        foreach (self::busyIntervals($lawyerId, $start->toDateString()) as [$s, $e]) {
+    /**
+     * **بماذا المحامي مشغول في هذا الوقت؟** — `Hearing` مقدَّمٌ على `Busy` لأنّه لا يُتجاوز.
+     * ما يقرّره الحجز بها (رفضٌ أو قبولٌ بتنبيه) في `ConsultBooking::conflictVerdict`.
+     */
+    public static function conflictAt(int $lawyerId, Carbon $start, ?int $dur = null): BusyKind
+    {
+        $from = $start->hour * 60 + $start->minute;
+
+        return self::kindWithin(self::busyIntervals($lawyerId, $start->toDateString()), $from, $from + ($dur ?? self::slotMinutes()));
+    }
+
+    /**
+     * نوع الانشغال في النافذة [من، إلى) من فترات اليوم — المصدر الواحد لـ`conflictAt` وللشرائح.
+     *
+     * @param  array<int, array{0:int,1:int,2:BusyKind}>  $intervals
+     */
+    private static function kindWithin(array $intervals, int $from, int $to): BusyKind
+    {
+        $kind = BusyKind::Free;
+
+        foreach ($intervals as [$s, $e, $k]) {
             if ($from < $e && $to > $s) {
-                return true;
+                if ($k === BusyKind::Hearing) {
+                    return BusyKind::Hearing;
+                }
+                $kind = BusyKind::Busy;
             }
         }
 
-        return false;
+        return $kind;
     }
 
     /**
@@ -343,7 +366,7 @@ class LawyerAvailability
      * اليوم المطلوب نفسه لا «أقرب يوم عمل» بعده: كان يُنقل صامتاً إلى الأحد فتعرض شبكة الجمعة
      * شرائح الأحد وتُحجز على الجمعة. ويومُ العطلة بلا شرائح.
      *
-     * @return array<int, array{time:string,taken:bool}>
+     * @return array<int, array{time:string,taken:bool,hard:bool}>
      */
     public static function slotsFor(int $lawyerId, ?string $date): array
     {

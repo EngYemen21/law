@@ -215,6 +215,15 @@ class SettingsRegistry
                 'default' => implode(',', LawyerAvailability::WORK_DAYS),
                 'rules' => ['required', 'string', 'regex:/^[0-6](,[0-6]){0,6}$/'],
             ],
+            // قرار المالك 2026-09-28: خيار «نعم/لا» — الافتراض «لا» يُبقي الحجز المتداخل مرفوضاً كما كان
+            'consult_allow_overlap' => [
+                'group' => 'consults',
+                'label' => 'السماح بحجز استشارةٍ لمحامٍ مشغول في الوقت نفسه',
+                'hint' => '«نعم»: يُقبل الحجز فوق موعدٍ أو اجتماعٍ آخر للمحامي مع تنبيه للحاجز. جلسة المحكمة تمنع الحجز دائماً. لا يشمل دعوات الاجتماعات ولا الإسناد التلقائيّ (يختار متفرّغاً).',
+                'type' => 'bool',
+                'default' => 0,
+                'rules' => ['required', 'boolean'],
+            ],
             // **مسافةُ حجزٍ لا عمرُ جلسة** (قرار المالك 2026-09-26): الجلسة تنتهي حين تُنهى، وهذا
             // الرقم يمنع حجز موكّلَين عند المحامي في الوقت نفسه، ويُمرَّر لـZoom والتقويم اسماً فقط.
             'consult_slot_minutes' => [
@@ -473,6 +482,12 @@ class SettingsRegistry
         return max((int) ($field['min'] ?? PHP_INT_MIN), min((int) ($field['max'] ?? PHP_INT_MAX), $value));
     }
 
+    /** خيار «نعم/لا» — المخزَّن «1» أو «0»، والغائب يعود إلى الافتراض. */
+    public static function bool(string $key): bool
+    {
+        return (bool) (int) (self::stored()[$key] ?? self::field($key)['default']);
+    }
+
     /** نصٌّ غير فارغ — والفراغ في القاعدة يعود إلى الافتراض لا إلى سطرٍ خالٍ في المستند. */
     public static function str(string $key): string
     {
@@ -586,6 +601,7 @@ class SettingsRegistry
                 'int' => self::int($key),
                 'date' => self::date($key),
                 'days' => implode(',', self::days($key)),
+                'bool' => (int) self::bool($key),
                 default => self::str($key),
             };
         }

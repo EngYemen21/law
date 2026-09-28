@@ -55,6 +55,7 @@ class HandleInertiaRequests extends Middleware
         'consult_day_start',
         'consult_day_end',
         'consult_work_days',
+        'consult_allow_overlap',
         'consult_slot_minutes',
         // حدّ «متأخّر» في شاشتي الاستشارات — كانتا تحملان 100 و120 للطلبات نفسها
         'consult_request_late_minutes',

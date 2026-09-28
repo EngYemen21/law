@@ -54,7 +54,7 @@ class SettingsController extends Controller
             }
 
             $value = match ($field['type']) {
-                'int' => (int) $data[$key],
+                'int', 'bool' => (int) $data[$key],
                 // «4,0,1,1» و«0,1,4» أيّامٌ واحدة — تُكتب مرتّبةً بلا تكرار فلا يُقيَّد تعديلٌ بلا تعديل
                 'days' => implode(',', SettingsRegistry::parseDays((string) $data[$key])),
                 default => trim((string) $data[$key]),

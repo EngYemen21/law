@@ -4,6 +4,8 @@ import Icon from '@/lib/icons';
 export interface TimeSlotItem {
   time: string;
   taken?: boolean;
+  /** لا يُتجاوز ولو سُمح بالمحجوز (`allowTaken`): وقتٌ مضى أو جلسة محكمة — من الخادم. */
+  hard?: boolean;
   label?: string;
 }
 
@@ -24,6 +26,8 @@ interface Props {
    * ومعها القائمةُ الفارغة فارغةٌ فعلاً — يومُ عطلةٍ في حجز الاستشارة لا تُعرض فيه ساعاتٌ يرفضها الخادم.
    */
   emptyText?: string;
+  /** المحجوز قابلٌ للاختيار (خيار «السماح بالحجز المتداخل») — يبقى معلَّماً، وما عليه `hard` يبقى مقفلاً. */
+  allowTaken?: boolean;
 }
 
 const DEFAULT_HOURS_SLOTS: string[] = [
@@ -74,6 +78,7 @@ const TimeSlotPicker: React.FC<Props> = ({
   allowCustom = false,
   helperText,
   emptyText,
+  allowTaken = false,
 }) => {
   const [period, setPeriod] = useState<'all' | 'am' | 'pm'>('all');
   const [showCustomInput, setShowCustomInput] = useState(false);
@@ -203,8 +208,10 @@ const TimeSlotPicker: React.FC<Props> = ({
       >
         {filteredSlots.map((slot) => {
           const past = isPastSlot(date, slot.time);
-          const isBlocked = slot.taken || past;
+          const isBlocked = past || (slot.taken === true && !(allowTaken && !slot.hard));
           const isSelected = value === slot.time;
+          // محجوزٌ أُتيح بخيار الحجز المتداخل: يُختار ويبقى معلَّماً «مشغول» بلونٍ تحذيريّ
+          const isOverlap = slot.taken === true && !isBlocked;
 
           return (
             <button
@@ -215,13 +222,15 @@ const TimeSlotPicker: React.FC<Props> = ({
                 onChange(slot.time);
                 setShowCustomInput(false);
               }}
-              title={past ? 'انقضى هذا الوقت' : slot.taken ? 'محجوز مسبقاً' : `اختيار ${slot.time}`}
+              title={past ? 'انقضى هذا الوقت' : isOverlap ? 'للمحامي ارتباطٌ آخر — يُقبل بتنبيه' : slot.taken ? 'محجوز مسبقاً' : `اختيار ${slot.time}`}
               style={{
                 padding: '7px 4px',
                 border: isSelected
                   ? '2px solid var(--primary, #0E5C9C)'
                   : isBlocked
                   ? '1px dashed #cbd5e1'
+                  : isOverlap
+                  ? '1px dashed var(--amber, #d97706)'
                   : '1px solid var(--line, #e2e8f0)',
                 borderRadius: 8,
                 background: isSelected
@@ -250,7 +259,7 @@ const TimeSlotPicker: React.FC<Props> = ({
             >
               <span>{formatSlotDisplay(slot.time)}</span>
               <span style={{ fontSize: 10, opacity: isSelected ? 0.9 : 0.6, fontWeight: 500 }}>
-                {slot.time}
+                {isOverlap ? 'مشغول' : slot.time}
               </span>
             </button>
           );

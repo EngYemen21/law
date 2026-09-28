@@ -80,12 +80,12 @@ class ScheduleController extends Controller
         if ($startsAt->isPast()) {
             throw ValidationException::withMessages(['time' => 'لا يمكن اختيار موعد في الماضي، فضلاً اختر وقتاً لاحقاً.']);
         }
-        if (! empty($data['lawyer_id'])
-            && LawyerAvailability::isBusy((int) $data['lawyer_id'], $startsAt, LawyerAvailability::slotMinutes())) {
-            // نفس صياغة حارس دعوات الاجتماعات (قرار صاحب المنتج) — والإدارة نفسها لا تُحال إلى نفسها
-            throw ValidationException::withMessages(['time' => $request->user()->isAdmin()
+        if (! empty($data['lawyer_id'])) {
+            // القرار من `ConsultBooking::conflictVerdict` (جلسة محكمة، أو خيار الحجز المتداخل). ونفس صياغة
+            // حارس دعوات الاجتماعات (قرار صاحب المنتج) — والإدارة نفسها لا تُحال إلى نفسها
+            ConsultBooking::conflictVerdict((int) $data['lawyer_id'], $startsAt, LawyerAvailability::slotMinutes(), 'time', $request->user()->isAdmin()
                 ? 'المحامي مشغول في هذا الوقت — اختر وقتاً آخر أو محامياً مختلفاً.'
-                : 'المحامي مشغول في هذا الوقت — اختر وقتاً آخر أو محامياً مختلفاً، أو أحِل الطلب للإدارة العليا لإسناد محامٍ مختصّ آخر.']);
+                : 'المحامي مشغول في هذا الوقت — اختر وقتاً آخر أو محامياً مختلفاً، أو أحِل الطلب للإدارة العليا لإسناد محامٍ مختصّ آخر.');
         }
 
         /*
@@ -110,9 +110,10 @@ class ScheduleController extends Controller
             ? ConsultAppointments::publish($consult, $request->user(), $input)
             : ConsultAppointments::propose($consult, $request->user(), $input);
 
-        $message = $isAdmin
+        $message = ($isAdmin
             ? "تم تحديد موعد الاستشارة {$consult->ref} وإرساله للعميل {$client->name}."
-            : "أُرسل موعد الاستشارة {$consult->ref} لاعتماد الإدارة قبل إرساله للعميل.";
+            : "أُرسل موعد الاستشارة {$consult->ref} لاعتماد الإدارة قبل إرساله للعميل.")
+            .ConsultAppointments::overlapSuffix($consult);
 
         if ($request->expectsJson()) {
             return response()->json(['ref' => $consult->ref, 'message' => $message]);

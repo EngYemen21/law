@@ -642,7 +642,7 @@ class ConsultController extends Controller
 
         ConsultAppointments::publish($consult, $request->user(), array_filter($data, fn ($v) => $v !== null && $v !== ''));
 
-        return back()->with('flash', "اعتُمد موعد الاستشارة {$consult->ref} وأُرسل للعميل.");
+        return back()->with('flash', "اعتُمد موعد الاستشارة {$consult->ref} وأُرسل للعميل.".ConsultAppointments::overlapSuffix($consult));
     }
 
     // إلغاء طلب معلّق قبل الجلسة — يُحيي حالة «ملغاة» التي لم يكن لها كاتب في النظام

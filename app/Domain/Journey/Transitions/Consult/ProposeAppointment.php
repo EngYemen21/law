@@ -29,6 +29,9 @@ final class ProposeAppointment extends Transition
 {
     private ?Appointment $appointment = null;
 
+    /** قُبل الموعد فوق انشغالٍ آخر للمحامي (خيار الحجز المتداخل) — يُسجَّل في الرحلة ويُنبَّه به الحاجز. */
+    private bool $overlap = false;
+
     public function name(): string
     {
         return 'consult.propose-appointment';
@@ -57,7 +60,7 @@ final class ProposeAppointment extends Transition
     {
         $meta = ConsultBooking::meta((string) $payload['type']);
 
-        ConsultBooking::guardNoConflict((int) $payload['lawyer_id'], $payload['starts_at'], (int) $payload['duration']);
+        $this->overlap = ConsultBooking::guardNoConflict((int) $payload['lawyer_id'], $payload['starts_at'], (int) $payload['duration']);
 
         $this->appointment = Appointment::create([
             'user_id' => $entity->user_id,
@@ -99,6 +102,7 @@ final class ProposeAppointment extends Transition
             'day' => $payload['day'] ?? null,
             'time' => $payload['time'] ?? null,
             'type' => $payload['type'] ?? null,
+            'overlap' => $this->overlap,
         ];
     }
 }

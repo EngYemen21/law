@@ -9,7 +9,7 @@ interface Field {
   group: string;
   label: string;
   hint: string;
-  type: 'int' | 'string' | 'date' | 'days';
+  type: 'int' | 'string' | 'date' | 'days' | 'bool';
   default: number | string;
   min?: number;
   max?: number;
@@ -30,6 +30,17 @@ interface Props {
  * لكلّ بطاقةٍ زرُّ حفظٍ مستقلّ ترسل حقولها وحدها: حفظُ مهلةٍ لا يلزمه المرور على بيانات
  * المكتب. والتفسير تحت كلّ حقل من السجلّ نفسه لا نسخةً منقوشةً هنا — نسختان تتباعدان.
  */
+
+/** إعداد «نعم/لا» — يُكتب «1» أو «0» كما يقرؤه `SettingsRegistry::bool`. */
+const YesNoInput: React.FC<{ id: string; value: string; onChange: (v: string) => void }> = ({ id, value, onChange }) => (
+  <div id={id} role="group" style={{ display: 'flex', gap: 6 }}>
+    {[['1', 'نعم'], ['0', 'لا']].map(([v, label]) => (
+      <button key={v} type="button" aria-pressed={value === v} className={`btn sm ${value === v ? '' : 'soft'}`} onClick={() => onChange(v)}>
+        {label}
+      </button>
+    ))}
+  </div>
+);
 
 /** أيّام الأسبوع بترتيب `Date.getDay()`/Carbon (الأحد=0) — كما يخزّنها الخادم «0,1,2». */
 const WEEK_DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
@@ -122,6 +133,8 @@ const AdminSettings: React.FC<Props> = ({ groups, fields, values }) => {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {field.type === 'days' ? (
             <DaysInput id={`set-${key}`} value={form[key]} onChange={(v) => setForm({ ...form, [key]: v })} />
+          ) : field.type === 'bool' ? (
+            <YesNoInput id={`set-${key}`} value={form[key]} onChange={(v) => setForm({ ...form, [key]: v })} />
           ) : (
           <input
             id={`set-${key}`}

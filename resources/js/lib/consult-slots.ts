@@ -49,8 +49,8 @@ const NO_SLOTS: string[] = [];
  * الشبكة وطول الشريحة من الخاصّيّة المشتركة، و`gridOn(date)` شبكةُ يومٍ بعينه — فارغةٌ في يوم العطلة
  * كما يُرجعها المحرّك (`LawyerAvailability::slotsFor`)، فلا تعرض شاشةٌ شرائح يرفضها الخادم.
  */
-export function useConsultSlots(): { grid: string[]; slotMinutes: number; gridOn: (dateISO: string) => string[] } {
-  const { consult_day_start, consult_day_end, consult_slot_minutes, consult_work_days } = useSettings();
+export function useConsultSlots(): { grid: string[]; slotMinutes: number; gridOn: (dateISO: string) => string[]; allowOverlap: boolean } {
+  const { consult_day_start, consult_day_end, consult_slot_minutes, consult_work_days, consult_allow_overlap } = useSettings();
 
   // مصفوفةٌ ثابتة الهويّة ما لم تتغيّر القيم — الشاشات تضعها في تبعيّات `useMemo`
   const grid = useMemo(
@@ -59,5 +59,6 @@ export function useConsultSlots(): { grid: string[]; slotMinutes: number; gridOn
   );
   const gridOn = useCallback((dateISO: string) => (isWorkDay(consult_work_days, dateISO) ? grid : NO_SLOTS), [grid, consult_work_days]);
 
-  return { grid, slotMinutes: consult_slot_minutes, gridOn };
+  // «السماح بحجزٍ متداخل» — المنتقي يتيح المحجوز، والخادم يقرّر (`ConsultBooking::conflictVerdict`)
+  return { grid, slotMinutes: consult_slot_minutes, gridOn, allowOverlap: consult_allow_overlap === 1 };
 }

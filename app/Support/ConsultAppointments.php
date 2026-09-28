@@ -40,6 +40,22 @@ final class ConsultAppointments
     }
 
     /**
+     * **تنبيه الحجز المتداخل** — « ⚠️ …» تُلحق برسالة النجاح إن قُبل آخر حجزٍ للاستشارة فوق انشغالٍ
+     * آخر للمحامي، وإلا نصٌّ فارغ. المصدر ما سجّله الانتقال نفسه في الرحلة (`overlap`) — لا فحصٌ ثانٍ
+     * بعد الحجز يرى الموعد الجديد انشغالاً.
+     */
+    public static function overlapSuffix(Consult $consult): string
+    {
+        $payload = JourneyTransition::where('entity_type', 'Consult')
+            ->where('entity_id', $consult->id)
+            ->whereIn('transition', [(new ProposeAppointment)->name(), (new PublishAppointment)->name()])
+            ->latest('id')
+            ->first()?->payload;
+
+        return ($payload['overlap'] ?? false) ? ' '.ConsultBooking::OVERLAP_NOTICE : '';
+    }
+
+    /**
      * اعتماد اقتراحٍ قائم (مع تعديلٍ اختياريّ) أو حجزٌ مباشر من الإدارة.
      *
      * @param  array{date?:string|null,time?:string|null,lawyer_id?:int|null,type?:string|null,place?:string|null}  $input

@@ -16,6 +16,7 @@ import TicketOpsModals, { type TicketOpsKind } from '@/components/babylon/Ticket
 import TicketRequirementsCard from '@/components/babylon/TicketRequirementsCard';
 import TicketTrackDecisionCard from '@/components/babylon/TicketTrackDecisionCard';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
+import type { TimeSlotItem } from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { ALLOWED_DOC_ACCEPT, TKT_LIFE, nowClock, tktStage, type Message } from '@/lib/chat';
 import { useConsultSlots } from '@/lib/consult-slots';
@@ -113,10 +114,10 @@ const EmployeeTicketChat: React.FC<{
   const [schedTime, setSchedTime] = useState('');
   const [schedBusy, setSchedBusy] = useState(false);
   // الفترات المتاحة: تُجلب من API عند تغيير المحامي أو التاريخ
-  const [slots, setSlots] = useState<{ time: string; taken: boolean }[]>([]);
+  const [slots, setSlots] = useState<TimeSlotItem[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   // قبل اختيار المستشار: شبكة ساعات الحجز من إعدادات الخادم — لا شبكة المنتقي العامّة (٠٨–٢٢ بنصف ساعة)
-  const { gridOn } = useConsultSlots();
+  const { gridOn, allowOverlap } = useConsultSlots();
 
   const fetchSlots = (lawyerId: string, date: string) => {
     if (!lawyerId || !date) { setSlots([]); return; }
@@ -297,6 +298,7 @@ const EmployeeTicketChat: React.FC<{
           slots={schedLawyerId && slots.length > 0 ? slots : gridOn(schedDate)}
           label={schedLawyerId ? 'الوقت المتاح للمستشار' : 'وقت الموعد المقترح'}
           emptyText="لا مواعيد للحجز في هذا اليوم — خارج أيّام دوام المكتب."
+          allowTaken={allowOverlap}
           helperText={slotsLoading ? 'جاري التحقق من أوقات المستشار المتاحة...' : undefined}
           required
           allowCustom
