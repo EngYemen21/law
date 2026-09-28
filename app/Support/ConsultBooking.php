@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\TransitionDenied;
 use App\Domain\Journey\Transitions\Consult\PriceConsult;
@@ -153,7 +154,7 @@ class ConsultBooking
      */
     public static function setPrice(Consult $consult, int $price, User $actor, ?string $channel = null): Invoice
     {
-        abort_unless($consult->status === 'بانتظار التسعير', 422, 'لا يمكن تسعير هذا الطلب في حالته الحالية.');
+        abort_unless($consult->status === ConsultStatus::AwaitingPricing->value, 422, 'لا يمكن تسعير هذا الطلب في حالته الحالية.');
 
         /*
          * **لا فاتورةَ بصفر.** كان التحقّق `min:0` والواجهة تسمح بالصفر من مودال

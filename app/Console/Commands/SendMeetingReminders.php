@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Domain\Journey\Enums\MeetingStatus;
 use App\Mail\MeetingReminderMail;
 use App\Models\Meeting;
 use App\Services\MailService;
@@ -26,7 +27,7 @@ class SendMeetingReminders extends Command
         $lead = max(1, $option === null || $option === '' ? SettingsRegistry::int('meeting_reminder_lead') : (int) $option);
 
         $due = Meeting::with(['user', 'assignedLawyer'])
-            ->where('status', 'قادم')
+            ->where('status', MeetingStatus::Upcoming->value)
             ->whereNull('reminder_sent_at')
             ->whereNotNull('starts_at')
             ->where('starts_at', '>=', now())

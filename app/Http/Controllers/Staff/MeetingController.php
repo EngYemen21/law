@@ -125,7 +125,7 @@ class MeetingController extends Controller
         $totalTasks = $refs !== [] ? Task::whereIn('ref', $refs)->count() : 0;
         $doneTasks = $refs !== [] ? Task::whereIn('ref', $refs)->where('status', 'منجزة')->count() : 0;
 
-        $durations = Meeting::where('status', 'منتهٍ')->whereNotNull('duration_sec')->pluck('duration_sec');
+        $durations = Meeting::where('status', MeetingStatus::Ended->value)->whereNotNull('duration_sec')->pluck('duration_sec');
 
         return [
             // null = لا مقياس بعد (لا مهامّ / لا مدد فعلية) — الصفر يدّعي قياساً وقع
@@ -606,7 +606,7 @@ class MeetingController extends Controller
         }
 
         // 3. تغطية Zoom والذكاء الاصطناعي للمنتهية — على المجموعة المشتقّة نفسها
-        $endedIds = $liveOf->filter(fn ($live) => $live === 'منتهٍ')->keys()->all();
+        $endedIds = $liveOf->filter(fn ($live) => $live === MeetingStatus::Ended->value)->keys()->all();
         $totalEnded = count($endedIds);
         $ended = fn () => $this->scopedQuery($request)->whereIn('id', $endedIds ?: [0]);
 

@@ -25,6 +25,9 @@ const apiBase = () => (window.location.pathname.startsWith('/admin') ? '/admin' 
 // موعدٌ اقترحه موظّف ولم تعتمده الإدارة بعد (`AppointmentStatus::PendingApproval`) — لا يُعاد جدولته
 // ولا يُوسم «لم يحضر» (الخادم يرفضهما لطلبٍ في دورة الحجز)، وله خيار ترشيحٍ مستقلّ
 const APPT_PENDING = 'بانتظار الاعتماد';
+// نتيجتا الموعد بعد الجلسة (`AppointmentStatus::Attended` / `::NoShow`) — لفلتري «حضر» و«لم يحضر»
+const APPT_ATTENDED = 'تم الحضور';
+const APPT_NO_SHOW = 'لم يحضر';
 
 // ============================================================
 // لوحة جدولة وإدارة مواعيد المكتب للموظف (Enterprise Scheduling Hub)
@@ -420,11 +423,11 @@ return false;
 return false;
 }
 
-        if (filterStatus === 'attended' && a.status !== 'تم الحضور') {
+        if (filterStatus === 'attended' && a.status !== APPT_ATTENDED) {
 return false;
 }
 
-        if (filterStatus === 'noshow' && a.status !== 'لم يحضر') {
+        if (filterStatus === 'noshow' && a.status !== APPT_NO_SHOW) {
 return false;
 }
       }

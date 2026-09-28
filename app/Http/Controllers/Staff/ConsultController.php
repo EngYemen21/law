@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Staff;
 
+use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\RescheduleReason;
 use App\Domain\Journey\Enums\SessionState;
 use App\Domain\Journey\TransitionDenied;
@@ -209,7 +210,7 @@ class ConsultController extends Controller
         $this->guardConsult($request, $consult);
 
         abort_unless(
-            $consult->status === 'بانتظار السداد',
+            $consult->status === ConsultStatus::AwaitingPayment->value,
             422,
             'التصحيح متاحٌ للطلبات المسعَّرة التي لم تُسدَّد بعد.'
         );
@@ -518,7 +519,7 @@ class ConsultController extends Controller
         $this->guardConsult($request, $consult);
 
         // بدأها ويبهوك Zoom أو زميلٌ قبل ثوانٍ — تكرارُ الفعل ليس خطأً.
-        if ($consult->session === 'جلسة جارية') {
+        if ($consult->session === SessionState::Live->value) {
             return back();
         }
 
@@ -608,7 +609,7 @@ class ConsultController extends Controller
     public function remindSchedule(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
-        abort_unless($consult->status === 'بانتظار تحديد الموعد', 422, 'التذكير متاح للاستشارات المدفوعة التي لم يُحجز موعدها بعد.');
+        abort_unless($consult->status === ConsultStatus::AwaitingSchedule->value, 422, 'التذكير متاح للاستشارات المدفوعة التي لم يُحجز موعدها بعد.');
 
         // **الحجز بيد الطاقم لا العميل** (قرار المالك 2026-09-14) — التذكير لمن يحجز.
         $staff = User::whereIn('role', [Role::Employee, Role::Admin])->get()
@@ -631,7 +632,7 @@ class ConsultController extends Controller
      */
     public function approveAppointment(Request $request, Consult $consult): RedirectResponse
     {
-        abort_unless($consult->status === 'بانتظار اعتماد الموعد', 422, 'لا موعد مقترح بانتظار الاعتماد لهذه الاستشارة.');
+        abort_unless($consult->status === ConsultStatus::AwaitingAppointmentApproval->value, 422, 'لا موعد مقترح بانتظار الاعتماد لهذه الاستشارة.');
 
         $data = $request->validate([
             'date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:today'],
@@ -676,7 +677,7 @@ class ConsultController extends Controller
     public function noShow(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
-        abort_if($consult->session !== 'بانتظار الجلسة', 422, 'الجلسة بدأت أو انتهت — لا يصحّ وسمها «لم يحضر».');
+        abort_if($consult->session !== SessionState::Waiting->value, 422, 'الجلسة بدأت أو انتهت — لا يصحّ وسمها «لم يحضر».');
 
         Workflow::run(new MarkNoShow, $consult, $request->user());
 

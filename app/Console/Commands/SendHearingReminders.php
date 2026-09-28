@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Domain\Journey\Enums\HearingStatus;
 use App\Mail\HearingReminderMail;
 use App\Models\CaseHearing;
 use App\Services\MailService;
@@ -25,7 +26,7 @@ class SendHearingReminders extends Command
 
         // الجلسات المجدولة القادمة (لها موعد حقيقي) خلال أفق 24 ساعة
         $hearings = CaseHearing::with(['legalCase.user', 'legalCase.assignedLawyer'])
-            ->where('status', 'مجدولة')
+            ->where('status', HearingStatus::Scheduled->value)
             ->whereNotNull('starts_at')
             ->where('starts_at', '>', $now)
             ->where('starts_at', '<=', $now->copy()->addDay())
