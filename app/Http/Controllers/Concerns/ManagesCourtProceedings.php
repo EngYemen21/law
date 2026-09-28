@@ -138,11 +138,12 @@ trait ManagesCourtProceedings
         $data = $request->validate([
             'title' => ['required', 'string', 'max:120'],
             'day' => ['required', 'date_format:Y-m-d'],
-            'time' => ['nullable', 'date_format:H:i'],
+            // إلزاميّ (قرار المالك 2026-09-28): جلسةٌ بلا وقت تُسجَّل 00:00 فلا تحجب المحامي عن الحجز
+            'time' => ['required', 'date_format:H:i'],
             'court' => ['nullable', 'string', 'max:120'],
             // اختياريّة — منها وحدها نهاية الجلسة في التقويم (`CaseHearing::endsAt`)
             'duration_min' => CaseHearing::durationRule(),
-        ]);
+        ], ['time.required' => 'حدّد وقت الجلسة.']);
 
         $this->createHearing($case, $request->user(), $data);
         $this->tellLawyer($case, $request->user(), "جُدولت جلسة «{$data['title']}»");
@@ -205,11 +206,12 @@ trait ManagesCourtProceedings
         $data = $request->validate([
             'title' => ['required', 'string', 'max:120'],
             'day' => ['required', 'date_format:Y-m-d'],
-            'time' => ['nullable', 'date_format:H:i'],
+            // إلزاميّ (قرار المالك 2026-09-28): جلسةٌ بلا وقت تُسجَّل 00:00 فلا تحجب المحامي عن الحجز
+            'time' => ['required', 'date_format:H:i'],
             'court' => ['nullable', 'string', 'max:120'],
             // اختياريّة — منها وحدها نهاية الجلسة في التقويم (`CaseHearing::endsAt`)
             'duration_min' => CaseHearing::durationRule(),
-        ]);
+        ], ['time.required' => 'حدّد وقت الجلسة.']);
         $actor = $request->user();
         $startsAt = MeetingTime::parse($data['day'], $data['time'] ?? null);
 
