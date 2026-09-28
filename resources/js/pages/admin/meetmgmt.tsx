@@ -53,6 +53,8 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
   const action = useServerAction();
   // شبكة الوقت بانشغال المحامي المختار — المصدر نفسه لنافذة الدعوات (`useLawyerDaySlots`)
   const slots = useLawyerDaySlots('/admin', lawyerId, day);
+  // المحامي المسؤول له صفته — لا يُعرض بين المشاركين
+  const participantChoices = staff.filter((m) => m.id !== lawyerId);
 
   // العدّ بمفتاح الحالة من الخادم (`statusKey`) — النصّ العربيّ للعرض وحده
   const up = meetings.filter((m) => m.statusKey === 'upcoming').length;
@@ -366,7 +368,6 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
       <Modal
         title="جدولة جلسة واجتماع جديد"
         subtitle="إنشاء جلسة مرئية سحابية عبر Zoom وربطها التلقائي بملفات القضايا والتقويم"
-        badge={<Badge text="Zoom Cloud API" tone="b-blue" />}
         maxWidth={780}
         open={open}
         onClose={() => setOpen(false)}
@@ -481,7 +482,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                 <div style={{ display: 'flex', gap: 8 }}>
                   {[
                     { id: 'عادي', label: 'عادي (دخول مباشر)', icon: 'video' },
-                    { id: 'سري', label: 'سري (غرفة انتظار مشفرة)', icon: 'lock' },
+                    { id: 'سري', label: 'سري (غرفة انتظار)', icon: 'lock' },
                   ].map((c) => {
                     const sel = conf === c.id;
                     return (
@@ -613,7 +614,12 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
               <select
                 className="input"
                 value={lawyerId}
-                onChange={(e) => setLawyerId(e.target.value === '' ? '' : Number(e.target.value))}
+                onChange={(e) => {
+                  const id = e.target.value === '' ? '' : Number(e.target.value);
+                  setLawyerId(id);
+                  // المسؤول ليس مشاركاً (الخادم يستبعده) — فلا يبقى محدَّداً في البطاقات
+                  setParticipants((prev) => prev.filter((p) => p !== id));
+                }}
                 style={{ borderRadius: 9, padding: '9px 12px', fontSize: '13px', border: '1px solid var(--line-soft, #cbd5e1)', background: '#fff' }}
               >
                 <option value="">— بدون محامٍ محدد —</option>
@@ -628,10 +634,10 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
               </label>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', maxHeight: 110, overflowY: 'auto', padding: 6, border: '1px solid var(--line-soft, #cbd5e1)', borderRadius: 9, background: '#fff' }}>
                 {/* الكادر الحقيقيّ وحده — كان يسقط إلى دليلٍ تجريبيّ ثابت في `admin-data` بأسماءٍ لا حسابات لها فلا يصلها إشعار */}
-                {staff.length === 0 && (
+                {participantChoices.length === 0 && (
                   <span style={{ fontSize: '12px', color: 'var(--muted)', padding: '4px 6px' }}>لا كادر نشطاً لإضافته.</span>
                 )}
-                {staff.map((member) => {
+                {participantChoices.map((member) => {
                   const isChecked = participants.includes(member.id);
                   return (
                     <button

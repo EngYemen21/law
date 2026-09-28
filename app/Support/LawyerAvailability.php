@@ -252,12 +252,20 @@ class LawyerAvailability
             $add((int) $a->lawyer_id, $toMin($a->starts_at?->format('H:i')), (int) $a->duration_min);
         }
 
-        // (2) الاجتماعات — `dur` نصّيّ («60 دقيقة») فيُستخرج رقمه
-        foreach (Meeting::whereIn('assigned_lawyer_id', $ids)
+        // (2) الاجتماعات — `dur` نصّيّ («60 دقيقة») فيُستخرج رقمه.
+        // تشغل المسؤولَ **والمشاركين** من الكادر (`meeting_participants`) — كان وقت المشارك يظهر
+        // متاحاً فيُحجز له موعدٌ فوق اجتماعٍ هو فيه (قرار المالك 2026-09-28)
+        foreach (Meeting::where(fn ($q) => $q->whereIn('assigned_lawyer_id', $ids)
+            ->orWhereHas('participantUsers', fn ($p) => $p->whereIn('users.id', $ids)))
             ->whereNotIn('status', ['ملغى', 'ملغي', 'ملغاة'])
-            ->whereBetween('starts_at', [$dayStart, $dayEnd])->get(['assigned_lawyer_id', 'starts_at', 'dur']) as $mt) {
+            ->whereBetween('starts_at', [$dayStart, $dayEnd])
+            ->with('participantUsers:users.id')
+            ->get(['id', 'assigned_lawyer_id', 'starts_at', 'dur']) as $mt) {
             $d = (int) (preg_match('/\d+/', (string) $mt->dur, $mm) ? $mm[0] : $slot);
-            $add((int) $mt->assigned_lawyer_id, $toMin($mt->starts_at?->format('H:i')), $d);
+            $people = array_unique([(int) $mt->assigned_lawyer_id, ...$mt->participantUsers->pluck('id')->map('intval')->all()]);
+            foreach ($people as $personId) {
+                $add($personId, $toMin($mt->starts_at?->format('H:i')), $d);
+            }
         }
 
         // (3) الاستشارات (استبعاد الملغاة لتحرير تفرّغ المحامي فور الإلغاء)
@@ -326,6 +334,24 @@ class LawyerAvailability
     public static function isBusy(int $lawyerId, Carbon $start, ?int $dur = null): bool
     {
         return self::conflictAt($lawyerId, $start, $dur) !== BusyKind::Free;
+    }
+
+    /**
+     * **مَن مِن هؤلاء مشغولٌ في هذا الوقت؟** — لقائمةٍ (مشاركو اجتماع) باستعلامات الدفعة الواحدة
+     * لا خمسةٍ لكلّ شخص، وبالحكم نفسه (`kindWithin`) الذي يقرّر به `isBusy`.
+     *
+     * @param  array<int,int>  $userIds
+     * @return array<int,int> المعرّفات المشغولة
+     */
+    public static function busyAmong(array $userIds, Carbon $start, ?int $dur = null): array
+    {
+        $from = $start->hour * 60 + $start->minute;
+        $to = $from + ($dur ?? self::slotMinutes());
+
+        return array_keys(array_filter(
+            self::busyIntervalsForMany($userIds, $start->toDateString()),
+            fn (array $intervals) => self::kindWithin($intervals, $from, $to) !== BusyKind::Free,
+        ));
     }
 
     /**

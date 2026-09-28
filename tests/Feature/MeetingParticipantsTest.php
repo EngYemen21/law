@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\MeetingStatus;
 use App\Enums\Role;
 use App\Models\Meeting;
 use App\Models\User;
 use App\Support\ChannelAccess;
+use App\Support\LawyerAvailability;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 /**
@@ -106,5 +109,38 @@ class MeetingParticipantsTest extends TestCase
         $page = (string) file_get_contents(resource_path('js/pages/admin/meetmgmt.tsx'));
         $this->assertStringContainsString('participant_ids: participants,', $page);
         $this->assertStringNotContainsString("participants.join('، ')", $page);
+    }
+
+    public function test_a_participant_is_busy_during_the_meeting_like_the_responsible_lawyer(): void
+    {
+        $meeting = $this->createMeeting([$this->participant->id, $this->employee->id]);
+        $at = Carbon::parse($meeting->starts_at);
+
+        // المحرّك الواحد: المشارك مشغولٌ في وقت الاجتماع — فلا يُحجز له موعدٌ فوقه
+        $this->assertTrue(LawyerAvailability::isBusy($this->participant->id, $at), 'المشارك يظهر متاحاً وقت اجتماعه');
+        $this->assertTrue(LawyerAvailability::isBusy($this->owner->id, $at));
+        $this->assertFalse(LawyerAvailability::isBusy($this->outsider->id, $at));
+        $this->assertEqualsCanonicalizing(
+            [$this->participant->id, $this->employee->id],
+            LawyerAvailability::busyAmong([$this->participant->id, $this->employee->id, $this->outsider->id], $at),
+        );
+
+        // والملغى يحرّر وقتهم
+        $meeting->update(['status' => MeetingStatus::Cancelled->value]);
+        $this->assertFalse(LawyerAvailability::isBusy($this->participant->id, $at));
+    }
+
+    public function test_a_busy_participant_is_refused_by_name(): void
+    {
+        $this->createMeeting([$this->participant->id]);
+
+        // اجتماعٌ ثانٍ في الوقت نفسه بمسؤولٍ آخر والمشارك نفسه ⇒ رفضٌ باسمه ولا اجتماع
+        $count = Meeting::count();
+        $this->actingAs(User::factory()->create(['role' => Role::Admin, 'status' => 'active']))
+            ->post(route('admin.meetings.store'), [
+                'title' => 'اجتماع آخر', 'type' => 'اجتماع داخلي', 'day' => now()->addDays(2)->toDateString(), 'time' => '10:00',
+                'lawyer_id' => $this->outsider->id, 'participant_ids' => [$this->participant->id, $this->employee->id],
+            ])->assertSessionHasErrors(['participant_ids' => 'مشغولٌ في هذا الوقت: المشارك — أزِله من المشاركين أو اختر وقتاً آخر.']);
+        $this->assertSame($count, Meeting::count());
     }
 }

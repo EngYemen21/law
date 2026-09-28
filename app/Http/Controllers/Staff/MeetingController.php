@@ -181,6 +181,12 @@ class MeetingController extends Controller
         if ($assignedLawyer && LawyerAvailability::isBusy($assignedLawyer->id, Carbon::parse($startsAt))) {
             throw ValidationException::withMessages(['time' => 'المحامي مشغول في هذا الوقت — اختر وقتاً آخر أو محامياً مختلفاً.']);
         }
+        // والمشاركون كالمسؤول: وقتهم محجوبٌ في المحرّك، فلا يُضاف مشاركٌ مشغول (قرار المالك: رفضٌ باسمه)
+        $participantIds = array_values(array_diff(array_map('intval', $data['participant_ids'] ?? []), [(int) $assignedLawyer?->id]));
+        if ($busy = LawyerAvailability::busyAmong($participantIds, Carbon::parse($startsAt))) {
+            $names = User::whereKey($busy)->pluck('name')->implode('، ');
+            throw ValidationException::withMessages(['participant_ids' => "مشغولٌ في هذا الوقت: {$names} — أزِله من المشاركين أو اختر وقتاً آخر."]);
+        }
 
         // Zoom يشترط `duration` — رقمٌ اسميّ لا يُنهي الاجتماع به (`SessionWindow::nominalMinutes`)
         $zoom = $this->zoom->createMeeting($data['title'], SessionWindow::nominalMinutes(), ($data['conf'] ?? '') === 'سري', $startsAt);
@@ -196,7 +202,7 @@ class MeetingController extends Controller
         $meetRequest = null;
 
         try {
-            $meeting = Workflow::open('meeting.create', function () use ($data, $client, $when, $startsAt, $zoom, $assignedLawyer, $request, &$meetRequest) {
+            $meeting = Workflow::open('meeting.create', function () use ($data, $client, $when, $startsAt, $zoom, $assignedLawyer, $participantIds, $request, &$meetRequest) {
                 $meeting = Meeting::create([
                     'user_id' => $client?->id,
                     // المولّد الموحّد يفحص التكرار — كان ٩٠٠ رقمٍ في السنة بلا فحصٍ على عمودٍ فريد فيفشل الإنشاء
@@ -223,7 +229,7 @@ class MeetingController extends Controller
                 ]);
 
                 // المسؤول ليس «مشاركاً» — له صفته وصلاحيّاته
-                $meeting->participantUsers()->sync(array_values(array_diff(array_map('intval', $data['participant_ids'] ?? []), [(int) $assignedLawyer?->id])));
+                $meeting->participantUsers()->sync($participantIds);
 
                 // دعوة رسميّة مؤكَّدة يراجع العميل منها تفاصيل الاجتماع (تأكيد الحضور مُلغى)
                 $meetRequest = $client === null ? null : MeetRequest::create([
