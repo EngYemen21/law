@@ -512,6 +512,13 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                     );
                   })}
                 </div>
+                {/* الفرق من إعدادات Zoom نفسها (`ZoomService::settings`): عادي ⇐ دخولٌ قبل المضيف بلا غرفة انتظار،
+                    سري ⇐ غرفة انتظار ولا دخول قبل المضيف */}
+                <div style={{ fontSize: '11.5px', color: 'var(--muted)', marginTop: 6, lineHeight: 1.6 }}>
+                  {conf === 'سري'
+                    ? 'سري: ينتظر كلّ مدعوٍّ في غرفة الانتظار ولا يدخل حتى يقبله المضيف.'
+                    : 'عادي: يدخل كلّ من معه الرابط مباشرةً، ولو قبل وصول المضيف.'}
+                </div>
               </div>
 
               {/* لا «المدة الزمنية المقدرة» (قرار المالك 2026-09-26): الاجتماع ينتهي حين يُنهيه المضيف،
@@ -658,27 +665,6 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                   );
                 })}
               </div>
-            </div>
-          </div>
-
-          {/* 🛡️ إشعار الأمان وتكامل Zoom السحابي */}
-          <div
-            style={{
-              padding: '12px 16px',
-              borderRadius: 10,
-              background: 'linear-gradient(135deg, rgba(10,42,85,0.04) 0%, rgba(14,92,156,0.08) 100%)',
-              border: '1px solid rgba(14,92,156,0.15)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-            }}
-          >
-            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'var(--primary)', color: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-              <Icon name="video" />
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--ink-soft)', lineHeight: 1.5 }}>
-              <b style={{ color: 'var(--deep)', display: 'block', marginBottom: 2 }}>تأكيد الجدولة المباشرة عبر Zoom:</b>
-              سيتم إنشاء جلسة Zoom سحابية برمز مرور وتشفير كامل، وإدراج الموعد في تقويم المنصة، وإرسال دعوة الحضور بالبريد والإشعارات لجميع الأطراف.
             </div>
           </div>
 
