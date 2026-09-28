@@ -6,6 +6,7 @@ use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\Transition;
 use App\Models\Invoice;
 use App\Models\User;
+use App\Support\Finance\LawyerShare;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -59,6 +60,8 @@ final class SettleInvoice extends Transition
         $entity->paid = true;
         $entity->paid_at = now();
         $entity->tone = InvoiceStatus::Paid->tone();
+        // نصيب الأتعاب لمن كان مسنَداً لحظة التحصيل — لا لمن يُسند بعدها
+        $entity->share_user_id = LawyerShare::lawyerIdFor($entity);
     }
 
     public function record(array $payload): array

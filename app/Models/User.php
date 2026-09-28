@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Traits\HasRoles;
 
 /**
@@ -110,6 +111,33 @@ class User extends Authenticatable
     public function isActive(): bool
     {
         return $this->status !== 'suspended';
+    }
+
+    /**
+     * **الإيقاف والتفعيل من موضعٍ واحد** — الحالة وفترة الإيقاف معاً (`StaffSuspension`)، فيعرف حساب
+     * المستحقّات أيّ الأيّام كان فيها الموظّف موقوفاً ولا يُحسب له راتبها.
+     */
+    public function setSuspended(bool $suspended): void
+    {
+        if ($suspended === ! $this->isActive()) {
+            return;
+        }
+
+        DB::transaction(function () use ($suspended) {
+            $this->update(['status' => $suspended ? 'suspended' : 'active']);
+
+            if ($suspended) {
+                StaffSuspension::create(['user_id' => $this->id, 'starts_on' => today()]);
+            } else {
+                StaffSuspension::where('user_id', $this->id)->whereNull('ends_on')->update(['ends_on' => today()]);
+            }
+        });
+    }
+
+    /** فترات الإيقاف — `Finance\StaffEarnings` يُسقط أيّامها من الراتب. */
+    public function suspensions(): HasMany
+    {
+        return $this->hasMany(StaffSuspension::class);
     }
 
     /**

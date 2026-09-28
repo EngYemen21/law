@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\PayoutKind;
 use App\Enums\Role;
 use App\Models\AuditLog;
+use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\StaffPayout;
 use App\Models\User;
@@ -115,5 +116,18 @@ class StaffPayoutLedgerTest extends TestCase
             ->assertJsonPath('earnings.payType', 'both')
             ->assertJsonCount(count(PayoutKind::cases()), 'kinds');
         $this->assertSame(0, StaffPayout::count());
+    }
+
+    public function test_a_former_lawyer_can_be_paid_the_share_collected_in_his_time(): void
+    {
+        $case = $this->case($this->lawyer);
+        Invoice::create(['user_id' => $case->user_id, 'case_id' => $case->id, 'number' => 'INV-PL-'.uniqid(), 'description' => 'أتعاب',
+            'amount' => 5750, 'subtotal' => 5000, 'vat_rate' => 15, 'vat_amount' => 750, 'status' => 'مدفوعة', 'tone' => 'b-green',
+            'due_label' => '—', 'paid' => true, 'paid_at' => now(), 'share_user_id' => $this->lawyer->id]);
+        $this->actingAs($this->admin)->post(route('admin.cases.lawyer', $case), ['lawyer_id' => User::factory()->create(['role' => Role::Lawyer])->id])->assertRedirect();
+
+        $this->actingAs($this->admin)->postJson(route('admin.staff.payouts.store', $this->lawyer), [
+            'kind' => 'case_share', 'amount' => 1000, 'period' => now()->format('Y-m'), 'file_id' => $case->id,
+        ])->assertOk()->assertJsonPath('earnings.shares.0.balance', 0);
     }
 }

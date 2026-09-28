@@ -4,7 +4,15 @@
  */
 export type PayoutKindId = 'salary' | 'case_share' | 'exec_share' | 'session';
 
-export interface SalaryMonth { period: string; label: string; amount: number; paid: number; remaining: number }
+export interface SalaryMonth {
+  period: string;
+  label: string;
+  /** راتب الشهر بعد إسقاط أيّام الإيقاف */
+  amount: number;
+  suspendedDays: number;
+  paid: number;
+  remaining: number;
+}
 
 export interface ShareRow {
   kind: 'case' | 'exec';
@@ -15,6 +23,9 @@ export interface ShareRow {
   pct: number;
   /** النصيب الكلّيّ — null في التنفيذ بنموذج النسبة من المحصَّل (بلا مبلغٍ مقدَّم) */
   share: number | null;
+  /** المسند الآن؟ — وإلّا فمحامٍ سابق يُعرض له ما حُصّل في عهده وحده */
+  current: boolean;
+  /** ما حُصّل من الملفّ في عهد هذا الموظّف (قبل الضريبة) */
   collected: number;
   earned: number;
   expected: number | null;

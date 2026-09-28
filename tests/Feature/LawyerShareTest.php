@@ -111,7 +111,7 @@ class LawyerShareTest extends TestCase
             ->assertInertia(fn ($p) => $p->where('execs.0.lawyerDefaultPct', 30)->where('execs.0.lawyerPct', null));
     }
 
-    public function test_percent_pay_is_for_lawyers_only(): void
+    public function test_percent_and_session_pay_are_for_lawyers_only(): void
     {
         $this->seed(PermissionSeeder::class);
         $admin = User::factory()->create(['role' => Role::Admin]);
@@ -122,11 +122,14 @@ class LawyerShareTest extends TestCase
 
         $this->actingAs($admin)->post(route('admin.staff.store'), $payload('employee', '1077665544', '0551112233'))
             ->assertSessionHasErrors('payType');
+        // الجلسة استشارةٌ يعقدها المحامي — لا مصدر لأجرها عند الموظّف
+        $this->actingAs($admin)->post(route('admin.staff.store'), ['payType' => 'session', 'session' => 200] + $payload('employee', '1077665546', '0551112235'))
+            ->assertSessionHasErrors('payType');
         $this->actingAs($admin)->post(route('admin.staff.store'), $payload('lawyer', '1077665545', '0551112234'))
             ->assertSessionHasNoErrors();
         $this->assertSame(15, (int) User::where('national_id', '1077665545')->value('pay_pct'));
 
         $this->actingAs($admin)->get(route('admin.staff'))->assertInertia(fn ($p) => $p
-            ->where('payTypes', fn ($types) => collect($types)->where('lawyerOnly', true)->pluck('id')->sort()->values()->all() === ['both', 'pct']));
+            ->where('payTypes', fn ($types) => collect($types)->where('lawyerOnly', true)->pluck('id')->sort()->values()->all() === ['both', 'pct', 'session']));
     }
 }

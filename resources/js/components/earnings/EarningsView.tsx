@@ -127,7 +127,10 @@ const EarningsView: React.FC<Props> = ({ earnings: e, base, onMonth, statementHr
               <tbody>
                 {e.salary.months.map((m) => (
                   <tr key={m.period}>
-                    <td>{m.label}</td>
+                    <td>
+                      {m.label}
+                      {m.suspendedDays > 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>منه {m.suspendedDays} يوم إيقاف بلا راتب</div>}
+                    </td>
                     <td className="n">{sar(m.amount)}</td>
                     <td className="n">{sar(m.paid)}</td>
                     <td>{m.remaining > 0 ? <Badge text={`متبقٍّ ${sar(m.remaining)}`} tone="b-amber" /> : <Badge text="مصروف" tone="b-green" />}</td>
@@ -162,7 +165,10 @@ const EarningsView: React.FC<Props> = ({ earnings: e, base, onMonth, statementHr
                     <tr key={`${r.kind}-${r.id}`}>
                       <td>
                         <Link href={fileHref(base, r)}>{r.ref}</Link>
-                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{r.kind === 'case' ? 'قضيّة' : 'تنفيذ'}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                          {r.kind === 'case' ? 'قضيّة' : 'تنفيذ'}
+                          {!r.current && ' · أُسندت لغيرك — ما حُصّل في عهدك'}
+                        </div>
                       </td>
                       <td>{r.client}</td>
                       <td className="n">{r.share == null ? 'نسبة من المحصَّل' : sar(r.fee)}</td>

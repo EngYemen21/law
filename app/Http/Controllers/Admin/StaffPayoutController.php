@@ -48,8 +48,8 @@ class StaffPayoutController extends Controller
         ]);
 
         $kind = PayoutKind::from($data['kind']);
-        $file = $kind->needsFile() ? self::fileOf($user, $kind, (int) ($data['file_id'] ?? 0)) : null;
-        abort_if($kind->needsFile() && $file === null, 422, 'اختر '.($kind === PayoutKind::CaseShare ? 'القضيّة' : 'ملفّ التنفيذ').' المسنَد إلى الموظّف الذي يخصّه هذا الصرف.');
+        $file = $kind->needsFile() ? self::fileOf($user, $kind, (int) ($data['file_id'] ?? 0), $data['period']) : null;
+        abort_if($kind->needsFile() && $file === null, 422, 'اختر '.($kind === PayoutKind::CaseShare ? 'القضيّة' : 'ملفّ التنفيذ').' التي للموظّف نصيبٌ فيها.');
 
         $payout = StaffPayout::create([
             'user_id' => $user->id,
@@ -115,12 +115,17 @@ class StaffPayoutController extends Controller
         abort_unless($user->isLawyer() || $user->isEmployee(), 404);
     }
 
-    /** الملفّ الذي يخصّه صرف النصيب — مسنَدٌ إلى الموظّف نفسه، وإلّا فلا. */
-    private static function fileOf(User $user, PayoutKind $kind, int $id): LegalCase|Execution|null
+    /**
+     * الملفّ الذي يخصّه صرف النصيب — من ملفّات الموظّف في حساب مستحقّاته نفسه (`StaffEarnings`): المسند
+     * إليه الآن، أو ما حُصّل منه في عهده قبل أن يُسند إلى غيره. وما سواهما مرفوض.
+     */
+    private static function fileOf(User $user, PayoutKind $kind, int $id, string $period): LegalCase|Execution|null
     {
-        $model = $kind === PayoutKind::CaseShare ? LegalCase::class : Execution::class;
+        $fileKind = $kind === PayoutKind::CaseShare ? 'case' : 'exec';
+        $ours = collect(StaffEarnings::for($user, $period)['shares'])->contains(fn (array $r) => $r['kind'] === $fileKind && $r['id'] === $id);
+        $model = $fileKind === 'case' ? LegalCase::class : Execution::class;
 
-        return $model::whereKey($id)->where('assigned_lawyer_id', $user->id)->first();
+        return $ours ? $model::find($id) : null;
     }
 
     private static function payload(User $user, ?string $month): array

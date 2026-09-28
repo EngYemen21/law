@@ -27,7 +27,7 @@ interface Props {
   staff: StaffRow[];
   legalDepartments: LegalDepartmentOption[]; // تخصّصات المحامي (كتالوج الأقسام القانونيّة)
   staffDepartments: string[]; // أقسام الموظّفين الإداريّة
-  /** أنواع الأجر من الخادم (`App\Enums\PayType`) — النسبة للمحامي وحده */
+  /** أنواع الأجر من الخادم (`App\Enums\PayType`) — النسبة والجلسة للمحامي وحده */
   payTypes: PayTypeOption[];
 }
 
@@ -144,7 +144,7 @@ setName(data.name);
     setPerms((prev) => prev.filter((p) => allowedPerms.includes(p)));
   }, [roleKey]);
 
-  // أنواع الأجر المتاحة للدور: النسبة للمحامي وحده — وتبديل الدور يُسقط نوعاً لم يعد متاحاً
+  // أنواع الأجر المتاحة للدور: النسبة والجلسة للمحامي وحده — وتبديل الدور يُسقط نوعاً لم يعد متاحاً
   // (قيمةٌ مشتقّة لا حالةٌ تُصحَّح: ما يُعرض ويُرسل هو المتاح دائماً)
   const payTypesForRole = payTypes.filter((t) => roleKey === 'lawyer' || !t.lawyerOnly);
   const payType: PayType = payTypesForRole.some((t) => t.id === payTypeChoice) ? payTypeChoice : 'salary';

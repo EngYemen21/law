@@ -6,8 +6,9 @@ namespace App\Enums;
  * **نوع أجر الموظّف — المصدر الواحد** (`users.pay_type`).
  *
  * يقرؤه نموذج التسجيل (`Admin\StaffController`)، ووصف الأجر (`User::payLabel`)، وحساب المستحقّات
- * (`Finance\StaffEarnings`). النسبة **للمحامي وحده** (قرار المالك 2026-09-28): تُحسب من أتعاب قضاياه
- * وملفّات تنفيذه (`Finance\LawyerShare`)، وغير المحامي لا يُسند إليه ما يُحسب منه نسبة.
+ * (`Finance\StaffEarnings`). **النسبة والأجر بالجلسة للمحامي وحده** (قرار المالك 2026-09-28): النسبة من
+ * أتعاب قضاياه وملفّات تنفيذه (`Finance\LawyerShare`)، والجلسة استشارةٌ يعقدها المحامي — وغير المحامي لا
+ * يُسند إليه ما يُحسب منه أيٌّ منهما، فالموظّف براتبٍ شهريّ.
  */
 enum PayType: string
 {
@@ -41,10 +42,10 @@ enum PayType: string
         return $this === self::Session;
     }
 
-    /** الأنواع المتاحة للدور: النسبة للمحامي وحده. */
+    /** الأنواع المتاحة للدور: المحامي كلّها، والموظّف الراتب الشهريّ وحده. */
     public function allowedFor(Role $role): bool
     {
-        return ! $this->hasPercent() || $role === Role::Lawyer;
+        return $role === Role::Lawyer || $this === self::Salary;
     }
 
     /** @return list<string> */

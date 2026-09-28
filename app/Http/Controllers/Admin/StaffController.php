@@ -154,11 +154,11 @@ class StaffController extends Controller
             'join' => ['nullable', 'date'],
             'start' => ['nullable', 'string', 'max:8'],
             'end' => ['nullable', 'string', 'max:8'],
-            // النسبة للمحامي وحده (قرار المالك 2026-09-28) — لا تُحفظ نسبةٌ لا مصدر لها تُحسب منه
+            // النسبة والجلسة للمحامي وحده (قرار المالك 2026-09-28) — لا يُحفظ أجرٌ لا مصدر له يُحسب منه
             'payType' => ['required', 'string', Rule::in(PayType::values()), function (string $attr, mixed $value, \Closure $fail) use ($role) {
                 $type = PayType::tryFrom((string) $value);
                 if ($type !== null && ($r = Role::tryFrom((string) $role)) !== null && ! $type->allowedFor($r)) {
-                    $fail('النسبة من الأتعاب للمحامي وحده — اختر للموظّف راتباً شهريّاً أو أجراً بالجلسة.');
+                    $fail('النسبة من الأتعاب والأجر بالجلسة للمحامي وحده — الموظّف براتبٍ شهريّ.');
                 }
             }],
             'salary' => ['nullable', 'integer', 'min:0'],
@@ -252,7 +252,7 @@ class StaffController extends Controller
     {
         abort_if($user->isAdmin(), 403);
         abort_if($user->role === Role::Client, 403);
-        $user->update(['status' => $user->isActive() ? 'suspended' : 'active']);
+        $user->setSuspended($user->isActive());
 
         return back()->with('success', $user->isActive() ? 'تم تفعيل الموظف' : 'تم إيقاف الموظف');
     }

@@ -3,6 +3,8 @@
 namespace App\Support\Finance;
 
 use App\Models\Execution;
+use App\Models\Invoice;
+use App\Models\LegalCase;
 use App\Models\User;
 
 /**
@@ -48,6 +50,19 @@ final class LawyerShare
     {
         $exec->lawyer_pct = $pct ?? $exec->lawyer_pct ?? self::defaultPctFor($exec->assignedLawyer);
         $exec->lawyer_fee = $exec->feeMode() === 'percent' ? null : self::of((int) $exec->fee, (int) $exec->lawyer_pct);
+    }
+
+    /**
+     * **صاحب نصيب الفاتورة لحظة تحصيلها** — المحامي المسند إلى قضيّتها أو ملفّ تنفيذها الآن.
+     * يُجمَّد على الفاتورة (`share_user_id`) في `SettleInvoice`، فلا ينتقل ما حُصّل إلى محامٍ يُسند بعده.
+     */
+    public static function lawyerIdFor(Invoice $invoice): ?int
+    {
+        return match (true) {
+            $invoice->case_id !== null => LegalCase::whereKey($invoice->case_id)->value('assigned_lawyer_id'),
+            $invoice->exec_id !== null => Execution::whereKey($invoice->exec_id)->value('assigned_lawyer_id'),
+            default => null,
+        };
     }
 
     /** المستحقّ من المحصَّل — لا يتجاوز النصيب الكلّيّ إن عُرف (النموذج النسبيّ للتنفيذ بلا سقف). */

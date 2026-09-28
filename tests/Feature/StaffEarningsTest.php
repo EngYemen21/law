@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\InvoiceStatus;
+use App\Domain\Journey\Transitions\Invoice\SettleInvoice;
+use App\Domain\Journey\Workflow;
 use App\Enums\PayoutKind;
 use App\Enums\PayType;
 use App\Enums\Role;
@@ -16,6 +18,7 @@ use App\Models\Setting;
 use App\Models\StaffPayout;
 use App\Models\User;
 use App\Support\Finance\StaffEarnings;
+use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Tests\TestCase;
@@ -186,5 +189,74 @@ class StaffEarningsTest extends TestCase
     {
         $this->assertSame('2026-10', StaffEarnings::month('bogus'));
         $this->assertSame('2026-10', StaffEarnings::for($this->lawyer(), '2026-13')['month']);
+    }
+
+    public function test_a_collected_share_stays_with_the_lawyer_assigned_when_it_was_paid(): void
+    {
+        $a = $this->lawyer(['name' => 'المحامي الأوّل']);
+        $b = $this->lawyer(['name' => 'المحامي الثاني']);
+        $case = $this->case($a, 10000, 20);
+        $first = $this->invoice(['case_id' => $case->id], 5000, null, InvoiceStatus::Due);
+        Workflow::run(new SettleInvoice, $first->fresh(), null, ['channel' => 'الإدارة']);
+        $this->assertSame($a->id, $first->fresh()->share_user_id, 'التسوية تجمّد صاحب النصيب');
+        $this->payout($a, PayoutKind::CaseShare, 1000, '2026-10', ['case_id' => $case->id]);
+
+        // تغيير المحامي من مسار الإدارة: ما حُصّل في عهد الأوّل يبقى له، والجديد لا يُنسب إليه ما لم يُحصَّل في عهده
+        $this->actingAs(User::factory()->create(['role' => Role::Admin]))
+            ->post(route('admin.cases.lawyer', $case), ['lawyer_id' => $b->id])->assertRedirect();
+        $this->assertSame($b->id, $case->fresh()->assigned_lawyer_id);
+        $rowA = StaffEarnings::for($a, '2026-10')['shares'][0];
+        $rowB = StaffEarnings::for($b, '2026-10')['shares'][0];
+        $this->assertSame([false, 1000, 0, null], [$rowA['current'], $rowA['earned'], $rowA['balance'], $rowA['expected']]);
+        $this->assertSame([true, 0, 1000], [$rowB['current'], $rowB['earned'], $rowB['expected']], 'المتوقَّع للمسند الآن: النصيب ناقص ما استُحقّ على الملفّ كلّه');
+
+        $second = $this->invoice(['case_id' => $case->id], 5000, null, InvoiceStatus::Due);
+        Workflow::run(new SettleInvoice, $second->fresh(), null, ['channel' => 'الإدارة']);
+        $this->assertSame(1000, StaffEarnings::for($b, '2026-10')['shares'][0]['earned']);
+        $this->assertSame(1000, StaffEarnings::for($a, '2026-10')['shares'][0]['earned'], 'لا يتغيّر نصيب الأوّل');
+    }
+
+    public function test_suspended_days_carry_no_salary(): void
+    {
+        $emp = User::factory()->create(['role' => Role::Employee, 'pay_type' => 'salary', 'salary' => 9300, 'join_date' => '2026-01-01']);
+
+        Carbon::setTestNow('2026-10-11 09:00:00');
+        $emp->setSuspended(true);
+        Carbon::setTestNow('2026-10-21 09:00:00');
+        $emp->setSuspended(false);
+        Carbon::setTestNow('2026-10-25 09:00:00');
+
+        $months = collect(StaffEarnings::for($emp, '2026-10')['salary']['months'])->keyBy('period');
+        $this->assertSame([10, 6300], [$months['2026-10']['suspendedDays'], $months['2026-10']['amount']], '١١–٢٠ أكتوبر موقوف: 9300 × 21/31');
+        $this->assertSame([0, 9300], [$months['2026-09']['suspendedDays'], $months['2026-09']['amount']]);
+
+        // ما زال موقوفاً ⇒ بقيّة الشهر بلا راتب
+        $emp->setSuspended(true);
+        $this->assertSame(10 + 7, StaffEarnings::for($emp, '2026-10')['salary']['months'][0]['suspendedDays'], 'من ٢٥ إلى ٣١ أكتوبر');
+    }
+
+    public function test_the_suspension_toggle_records_its_dates(): void
+    {
+        $this->seed(PermissionSeeder::class);
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $emp = User::factory()->create(['role' => Role::Employee]);
+
+        $this->actingAs($admin)->post(route('admin.staff.toggle', $emp))->assertRedirect();
+        $this->assertSame('suspended', $emp->fresh()->status);
+        $this->assertSame([['2026-10-15', null]], $emp->suspensions()->get()->map(fn ($s) => [$s->starts_on->toDateString(), $s->ends_on?->toDateString()])->all());
+
+        $this->actingAs($admin)->post(route('admin.staff.toggle', $emp))->assertRedirect();
+        $this->assertSame('2026-10-15', $emp->suspensions()->first()->ends_on->toDateString());
+    }
+
+    public function test_a_case_with_no_fee_earns_no_share_even_if_an_invoice_is_paid_on_it(): void
+    {
+        $lawyer = $this->lawyer();
+        $case = $this->case($lawyer, 0, 20);
+        $this->invoice(['case_id' => $case->id], 1000, '2026-10-05');
+
+        $row = StaffEarnings::for($lawyer, '2026-10')['shares'][0];
+
+        $this->assertSame([0, 0, 0], [$row['share'], $row['earned'], $row['expected']], 'سقف القضيّة نصيبها المعتمد دائماً');
     }
 }
