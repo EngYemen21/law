@@ -188,7 +188,7 @@ class MeetRequestController extends Controller
      * كان هنا تنفيذ ثانٍ يقرأ Meeting + Consult + MeetRequest بينما
      * LawyerAvailability::isBusy يقرأ Appointment وحده، فيتناقض الحارسان: موعد يُجدول
      * فوق اجتماع لأن مودال الجدولة يقرأ المصدر الأضيق. المنطق كلّه انتقل إلى
-     * LawyerAvailability::busyIntervals ويقرأ الأربعة.
+     * LawyerAvailability::busyIntervals ويقرأ الخمسة (ومنها جلسات المحاكم).
      *
      * @return array<int, array{0:int,1:int}>
      */

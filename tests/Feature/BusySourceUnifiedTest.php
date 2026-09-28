@@ -2,8 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\HearingStatus;
 use App\Enums\Role;
 use App\Models\Appointment;
+use App\Models\CaseHearing;
+use App\Models\LegalCase;
 use App\Models\Meeting;
 use App\Models\User;
 use App\Support\LawyerAvailability;
@@ -120,5 +123,70 @@ class BusySourceUnifiedTest extends TestCase
             session('errors')->first('time'),
             'الرسالة لا توجّه للإدارة العليا.'
         );
+    }
+
+    /** جلسة محكمة لقضيّةٍ مسندة إلى المحامي — `duration_min` اختياريّة كما في الشاشة. */
+    private function hearingFor(User $lawyer, \DateTimeInterface $at, HearingStatus $status = HearingStatus::Scheduled, ?int $minutes = null): void
+    {
+        $case = LegalCase::create([
+            'user_id' => User::factory()->create(['role' => Role::Client])->id,
+            'assigned_lawyer_id' => $lawyer->id, 'assigned_lawyer' => $lawyer->name,
+            'number' => 'CASE-BUSY-'.uniqid(), 'title' => 'دعوى', 'type' => 'تجاري',
+            'status' => 'منظورة', 'tone' => 'b-blue', 'update_text' => '—',
+        ]);
+        CaseHearing::create([
+            'case_id' => $case->id, 'title' => 'جلسة المرافعة', 'day' => $at->format('Y-m-d'), 'time' => $at->format('H:i'),
+            'starts_at' => $at, 'duration_min' => $minutes, 'court' => 'المحكمة التجارية', 'status' => $status->value,
+        ]);
+    }
+
+    /**
+     * **جلسة المحكمة مصدرٌ خامس.** كانت خارج المصادر: محامٍ في جلسةٍ الساعة ١٠ تُحجز له استشارة ١٠
+     * ويعرض الجدول وقته «متاحاً».
+     */
+    public function test_a_court_hearing_blocks_the_lawyer(): void
+    {
+        $at = now()->addDays(2)->setTime(10, 0);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $this->hearingFor($lawyer, $at, minutes: 120);
+
+        $this->assertTrue(LawyerAvailability::isBusy($lawyer->id, Carbon::parse($at), 60));
+        $slots = collect(LawyerAvailability::slotsFor($lawyer->id, $at->format('Y-m-d')))->keyBy('time');
+        $this->assertTrue($slots['10:00']['taken'], 'وقت الجلسة يبدو متاحاً');
+        $this->assertTrue($slots['11:00']['taken'], 'مدّة الجلسة (١٢٠د) لا تحجب ما بعدها');
+        $this->assertFalse($slots['12:00']['taken'], 'حجبٌ بعد انتهاء الجلسة');
+
+        // وحجز الطاقم فوقها يُرفض بالرسالة نفسها
+        $employee = User::factory()->create(['role' => Role::Employee]);
+        $employee->syncPermissions(Permission::whereIn('name', ['جدولة المواعيد'])->get());
+        $this->actingAs($employee)->post('/employee/schedule', [
+            'client_id' => User::factory()->create(['role' => Role::Client])->id, 'lawyer_id' => $lawyer->id,
+            'type' => 'office', 'date' => $at->format('Y-m-d'), 'time' => '10:00',
+        ])->assertSessionHasErrors('time');
+        $this->assertStringContainsString('مشغول', session('errors')->first('time'));
+    }
+
+    public function test_a_hearing_without_a_duration_blocks_one_slot(): void
+    {
+        $at = now()->addDays(2)->setTime(10, 0);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $this->hearingFor($lawyer, $at);
+
+        $slots = collect(LawyerAvailability::slotsFor($lawyer->id, $at->format('Y-m-d')))->keyBy('time');
+        $this->assertTrue($slots['10:00']['taken']);
+        $this->assertFalse($slots['11:00']['taken'], 'لا نهاية مختلَقة للجلسة');
+    }
+
+    public function test_postponed_or_cancelled_hearings_and_other_lawyers_hearings_do_not_block(): void
+    {
+        $at = now()->addDays(2)->setTime(10, 0);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $other = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $this->hearingFor($lawyer, $at, HearingStatus::Postponed);
+        $this->hearingFor($lawyer, $at, HearingStatus::Cancelled);
+        $this->hearingFor($other, $at);
+
+        $this->assertFalse(LawyerAvailability::isBusy($lawyer->id, Carbon::parse($at), 60));
+        $this->assertTrue(LawyerAvailability::isBusy($other->id, Carbon::parse($at), 60));
     }
 }

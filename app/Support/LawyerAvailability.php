@@ -4,9 +4,11 @@ namespace App\Support;
 
 use App\Domain\Journey\Enums\AppointmentStatus;
 use App\Domain\Journey\Enums\ConsultStatus;
+use App\Domain\Journey\Enums\HearingStatus;
 use App\Domain\Journey\Enums\TicketStatus;
 use App\Enums\Role;
 use App\Models\Appointment;
+use App\Models\CaseHearing;
 use App\Models\Consult;
 use App\Models\Execution;
 use App\Models\LegalCase;
@@ -269,6 +271,16 @@ class LawyerAvailability
         foreach (MeetRequest::whereIn('assigned_lawyer_id', $ids)->where('day', $day)
             ->where('stage', '<', MeetRequest::STAGE_EXECUTED)->get(['assigned_lawyer_id', 'time', 'duration_min']) as $r) {
             $add((int) $r->assigned_lawyer_id, $toMin($r->time), (int) $r->duration_min);
+        }
+
+        // (5) جلسات المحاكم المجدولة لقضايا المحامي — كانت خارج المصادر فتُحجز استشارةٌ فوق جلسته.
+        // «المجدولة» وحدها: المؤجّلة لم تنعقد في وقتها ولها جلستها التالية. والمدّة المُدخلة وإلا شريحة.
+        foreach (CaseHearing::join('cases', 'cases.id', '=', 'case_hearings.case_id')
+            ->whereIn('cases.assigned_lawyer_id', $ids)
+            ->where('case_hearings.status', HearingStatus::Scheduled->value)
+            ->whereBetween('case_hearings.starts_at', [$dayStart, $dayEnd])
+            ->get(['cases.assigned_lawyer_id', 'case_hearings.starts_at', 'case_hearings.duration_min']) as $h) {
+            $add((int) $h->assigned_lawyer_id, $toMin($h->starts_at?->format('H:i')), (int) $h->duration_min);
         }
 
         return $out;
