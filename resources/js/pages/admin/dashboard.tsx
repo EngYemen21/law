@@ -455,8 +455,9 @@ const AdminDashboard: React.FC<Props> = ({
               <Icon name="user" />
               <h3>مصفوفة أحمال وتفرغ المستشارين</h3>
             </div>
-            <button className="btn ghost sm" onClick={() => router.visit('/admin/staff')} type="button">
-              إدارة الطاقم
+            {/* شاشة الأحمال هي التوزيع — زرّ «إدارة الطاقم» في رأس الصفحة يغني عن تكراره هنا */}
+            <button className="btn ghost sm" onClick={() => router.visit('/admin/distribute')} type="button">
+              توزيع الأعمال
             </button>
           </div>
           <div className="card-b" style={{ flex: 1, padding: '8px 16px' }}>

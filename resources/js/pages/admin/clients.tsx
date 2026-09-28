@@ -161,29 +161,6 @@ const AdminClients: React.FC<Props> = ({ clients, filters = {}, summaryStats }) 
       <div className="hero">
         <h2>دليل العملاء والحسابات 👥</h2>
         <p>إدارة شاملة لملفات العملاء، مراجعة القضايا والاستشارات، الفواتير، ومتابعة حالة الحسابات وتحديث البيانات.</p>
-        <div className="hero-cta" style={{ flexWrap: 'wrap', gap: 8 }}>
-          <button
-            className={`hero-b ${!status ? '' : 'ghost'}`}
-            onClick={() => { setStatus(''); applyFilters({ status: '' }); }}
-            type="button"
-          >
-            <Icon name="user" /> كل العملاء ({summaryStats?.total ?? clients.meta.total})
-          </button>
-          <button
-            className={`hero-b ${status === 'active' ? '' : 'ghost'}`}
-            onClick={() => { setStatus('active'); applyFilters({ status: 'active' }); }}
-            type="button"
-          >
-            <Icon name="check" /> الحسابات النشطة ({summaryStats?.active ?? '—'})
-          </button>
-          <button
-            className={`hero-b ${status === 'suspended' ? '' : 'ghost'}`}
-            onClick={() => { setStatus('suspended'); applyFilters({ status: 'suspended' }); }}
-            type="button"
-          >
-            <Icon name="alert" /> الحسابات الموقوفة ({summaryStats?.suspended ?? '—'})
-          </button>
-        </div>
       </div>
 
       <div className="card">

@@ -197,18 +197,8 @@ const LawyerTickets: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* 2. شريط مؤشرات نبض التذاكر (KPI StatRow) */}
-      <StatRow
-        items={statItems}
-        onSelect={(idx) => {
-          if (idx === 0) setActiveTab('all');
-          if (idx === 1) setActiveTab('needStudy');
-          if (idx === 2) setActiveTab('awaitingSummary');
-          if (idx === 3) setActiveTab('urgent');
-          if (idx === 4) setActiveTab('missingDocs');
-          if (idx === 5) setActiveTab('converted');
-        }}
-      />
+      {/* 2. شريط مؤشرات نبض التذاكر — للعرض وحده؛ الفلترة من شريط التبويبات أدناه (لا طريقان لفعلٍ واحد) */}
+      <StatRow items={statItems} />
 
       {/* 3. حاوية مساحة التذاكر الرئيسية */}
       <div className="card">

@@ -229,10 +229,7 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
           </div>
 
           <div className="hero-cta" style={{ margin: 0 }}>
-            <button className="hero-b" onClick={() => router.visit('/book')} type="button">
-              <Icon name="calplus" /> حجز استشارة قضائية
-            </button>
-            <button className="hero-b ghost" onClick={() => router.visit('/tickets/new')} type="button">
+            <button className="hero-b" onClick={() => router.visit('/tickets/new')} type="button">
               <Icon name="plus" /> فتح طلب قضائي
             </button>
           </div>

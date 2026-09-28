@@ -204,9 +204,6 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
             <button className="hero-b" onClick={() => router.visit('/tickets/new')} type="button">
               <Icon name="plus" /> فتح تذكرة جديدة
             </button>
-            <button className="hero-b ghost" onClick={() => router.visit('/book')} type="button">
-              <Icon name="calplus" /> حجز استشارة
-            </button>
           </div>
         </div>
       </div>

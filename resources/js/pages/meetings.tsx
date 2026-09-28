@@ -243,10 +243,7 @@ return;
           </div>
 
           <div className="hero-cta" style={{ margin: 0 }}>
-            <button className="hero-b" onClick={() => router.visit('/book')} type="button">
-              <Icon name="calplus" /> حجز استشارة جديدة
-            </button>
-            <button className="hero-b ghost" onClick={() => router.visit('/calendar')} type="button">
+            <button className="hero-b" onClick={() => router.visit('/calendar')} type="button">
               <Icon name="cal" /> المواعيد والتقويم
             </button>
             <button className="hero-b ghost" onClick={() => router.visit('/cases')} type="button">
