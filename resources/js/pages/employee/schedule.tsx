@@ -739,7 +739,8 @@ return lawyers;
           {gridLawyers.length === 1 && (() => {
             const singleLawyer = gridLawyers[0];
             const stats = lawyerDailyStats.get(singleLawyer.id) || { booked: 0, free: 0, past: 0, total: dayHours.length };
-            const freePercent = Math.round((stats.free / stats.total) * 100);
+            // يوم العطلة بلا شرائح (`total` = 0) — لا قسمة على صفر تُظهر «NaN%»
+            const freePercent = stats.total > 0 ? Math.round((stats.free / stats.total) * 100) : 0;
 
             return (
               <div style={{
@@ -955,8 +956,21 @@ return lawyers;
                               </div>
                             </div>
 
-                            {/* شارة التفرغ لليوم */}
-                            {freeCount > 0 ? (
+                            {/* شارة التفرغ لليوم — ويوم العطلة (شبكته فارغة من `gridOn`) ليس «مكتملاً» */}
+                            {dayHours.length === 0 ? (
+                              <span style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                background: 'var(--paper-2)',
+                                color: 'var(--muted)',
+                                border: '1px solid var(--line-soft)',
+                                padding: '3px 8px',
+                                borderRadius: 12,
+                                whiteSpace: 'nowrap',
+                              }}>
+                                عطلة
+                              </span>
+                            ) : freeCount > 0 ? (
                               <span style={{
                                 fontSize: 11,
                                 fontWeight: 700,

@@ -92,4 +92,13 @@ class OfficeHoursBookingTest extends TestCase
             $this->assertStringContainsString('emptyText=', $src, "{$page}: يوم العطلة لا يعرض الشبكة العامّة");
         }
     }
+
+    /** يوم العطلة في شبكة المستشارين: شارة «عطلة» لا «مكتمل اليوم»، ولا «NaN%» في بطاقة المستشار الواحد. */
+    public function test_the_day_off_is_not_shown_as_fully_booked(): void
+    {
+        $src = (string) file_get_contents(resource_path('js/pages/employee/schedule.tsx'));
+
+        $this->assertStringContainsString('{dayHours.length === 0 ? (', $src);
+        $this->assertStringContainsString('stats.total > 0 ? Math.round((stats.free / stats.total) * 100) : 0', $src);
+    }
 }
