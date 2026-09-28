@@ -31,7 +31,7 @@ const EmployeeCalendar: React.FC<Props> = ({ events, feedUrl, webcalUrl, clients
     webcalUrl={webcalUrl}
     title="التقويم والمواعيد"
     subtitle="ارتباطات المكتب الزمنية وحجز المواعيد — نظرة واحدة قبل الجدولة."
-    listLabel="المواعيد"
+    listLabel="جدولة وتفرغ المستشارين"
     listCount={appointments?.length}
     listView={<EmployeeSchedule clients={clients} lawyers={lawyers} appointments={appointments} counts={counts} awaitingConsults={awaitingConsults} can={can} />}
   />
