@@ -12,23 +12,23 @@ type Method = 'post' | 'put' | 'patch' | 'delete';
 const ANY = '*';
 
 export interface ServerActionOptions {
-  data?: Record<string, unknown>;
-  method?: Method;
-  /** يُسأل المستخدم قبل الإرسال — نصوصٌ مشتركة `CONFIRM_*` في `lib/consult-ui.tsx`. */
-  confirm?: ConfirmRequest;
-  /** رسالة الرفض حين لا يحمل الخادم سبباً. */
-  fallback?: string;
-  /** رسالة النجاح (إن لم يُعلنها الخادم بـ`flash`). */
-  success?: string;
-  /** مفتاح العنصر الجاري عليه الفعل (رقم فاتورة، معرّف استشارة) — يُعطّل زرّه وحده في القوائم. */
-  key?: string | number;
-  preserveScroll?: boolean;
-  /** `'errors'` يُبقي حالة الصفحة (نموذجٌ مفتوح وما كُتب فيه) حين يرفض الخادم، ويُعيد تركيبها عند النجاح. */
-  preserveState?: VisitOptions['preserveState'];
-  only?: string[];
-  onSuccess?: (page: Page) => void;
-  onError?: (errors: Record<string, string>) => void;
-  onFinish?: () => void;
+    data?: Record<string, unknown>;
+    method?: Method;
+    /** يُسأل المستخدم قبل الإرسال — نصوصٌ مشتركة `CONFIRM_*` في `lib/consult-ui.tsx`. */
+    confirm?: ConfirmRequest;
+    /** رسالة الرفض حين لا يحمل الخادم سبباً. */
+    fallback?: string;
+    /** رسالة النجاح (إن لم يُعلنها الخادم بـ`flash`). */
+    success?: string;
+    /** مفتاح العنصر الجاري عليه الفعل (رقم فاتورة، معرّف استشارة) — يُعطّل زرّه وحده في القوائم. */
+    key?: string | number;
+    preserveScroll?: boolean;
+    /** `'errors'` يُبقي حالة الصفحة (نموذجٌ مفتوح وما كُتب فيه) حين يرفض الخادم، ويُعيد تركيبها عند النجاح. */
+    preserveState?: VisitOptions['preserveState'];
+    only?: string[];
+    onSuccess?: (page: Page) => void;
+    onError?: (errors: Record<string, string>) => void;
+    onFinish?: () => void;
 }
 
 /**
@@ -42,57 +42,68 @@ export interface ServerActionOptions {
  * @returns `run` ترسل (و`false` إن رُفضت النقرة أو التأكيد)، و`busy`/`busyKey` لتعطيل الزرّ.
  */
 export function useServerAction() {
-  const lock = useRef(false);
-  const [busyKey, setBusyKey] = useState<string | number | null>(null);
-  const ask = useConfirm();
-  const toast = useToast();
+    const lock = useRef(false);
+    const [busyKey, setBusyKey] = useState<string | number | null>(null);
+    const ask = useConfirm();
+    const toast = useToast();
 
-  const run = useCallback(
-    async (url: string, opts: ServerActionOptions = {}): Promise<boolean> => {
-      if (lock.current) {
-        return false;
-      }
+    const run = useCallback(
+        async (
+            url: string,
+            opts: ServerActionOptions = {},
+        ): Promise<boolean> => {
+            if (lock.current) {
+                return false;
+            }
 
-      lock.current = true;
+            lock.current = true;
 
-      if (opts.confirm && !(await ask(opts.confirm))) {
-        lock.current = false;
+            if (opts.confirm && !(await ask(opts.confirm))) {
+                lock.current = false;
 
-        return false;
-      }
+                return false;
+            }
 
-      setBusyKey(opts.key ?? ANY);
+            setBusyKey(opts.key ?? ANY);
 
-      const visit: VisitOptions = {
-        method: opts.method ?? 'post',
-        data: opts.data as VisitOptions['data'],
-        preserveScroll: opts.preserveScroll ?? true,
-        ...(opts.preserveState !== undefined ? { preserveState: opts.preserveState } : {}),
-        ...(opts.only ? { only: opts.only } : {}),
-        onSuccess: (page) => {
-          if (opts.success) {
-            toast(opts.success, 'success');
-          }
+            const visit: VisitOptions = {
+                method: opts.method ?? 'post',
+                data: opts.data as VisitOptions['data'],
+                preserveScroll: opts.preserveScroll ?? true,
+                ...(opts.preserveState !== undefined
+                    ? { preserveState: opts.preserveState }
+                    : {}),
+                ...(opts.only ? { only: opts.only } : {}),
+                onSuccess: (page) => {
+                    if (opts.success) {
+                        toast(opts.success, 'success');
+                    }
 
-          opts.onSuccess?.(page);
+                    opts.onSuccess?.(page);
+                },
+                onError: (errors) => {
+                    toast(
+                        firstError(
+                            errors as Record<string, string>,
+                            opts.fallback ?? 'تعذّر تنفيذ الإجراء',
+                        ),
+                        'error',
+                    );
+                    opts.onError?.(errors as Record<string, string>);
+                },
+                onFinish: () => {
+                    lock.current = false;
+                    setBusyKey(null);
+                    opts.onFinish?.();
+                },
+            };
+
+            router.visit(url, visit);
+
+            return true;
         },
-        onError: (errors) => {
-          toast(firstError(errors as Record<string, string>, opts.fallback ?? 'تعذّر تنفيذ الإجراء'), 'error');
-          opts.onError?.(errors as Record<string, string>);
-        },
-        onFinish: () => {
-          lock.current = false;
-          setBusyKey(null);
-          opts.onFinish?.();
-        },
-      };
+        [ask, toast],
+    );
 
-      router.visit(url, visit);
-
-      return true;
-    },
-    [ask, toast],
-  );
-
-  return { run, busy: busyKey !== null, busyKey };
+    return { run, busy: busyKey !== null, busyKey };
 }

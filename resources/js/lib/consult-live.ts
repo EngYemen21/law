@@ -12,14 +12,20 @@ import type { ConsultCard } from '@/lib/consult-ui';
  * البطاقة من الخادم بحقولها المشتقّة (`tone` · `bookingStage` · الأعلام).
  */
 export function staffPatch(e: Partial<ConsultCard>): Partial<ConsultCard> {
-  const rest = { ...e };
-  delete rest.status;
-  delete rest.summary;
+    const rest = { ...e };
+    delete rest.status;
+    delete rest.summary;
 
-  return rest;
+    return rest;
 }
 
 /** تغيّرت مرحلة الملفّ أو جلسته — فالبطاقة تُقرأ من الخادم لا تُرقَّع. */
-export function stageChanged(e: Partial<ConsultCard>, c: Pick<ConsultCard, 'status' | 'session'>): boolean {
-  return (e.status !== undefined && e.status !== c.status) || (e.session !== undefined && e.session !== c.session);
+export function stageChanged(
+    e: Partial<ConsultCard>,
+    c: Pick<ConsultCard, 'status' | 'session'>,
+): boolean {
+    return (
+        (e.status !== undefined && e.status !== c.status) ||
+        (e.session !== undefined && e.session !== c.session)
+    );
 }

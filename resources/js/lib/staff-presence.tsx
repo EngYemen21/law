@@ -10,26 +10,36 @@ import Badge from '@/components/babylon/Badge';
  * حكم الحجز من المواعيد (`LawyerAvailability`)، لا من هذه الحالة.
  */
 export function useInSession(): Record<number, string> {
-  const { props } = usePage() as unknown as { props: { inSession?: Record<number, string> | null } };
+    const { props } = usePage() as unknown as {
+        props: { inSession?: Record<number, string> | null };
+    };
 
-  return props.inSession ?? {};
+    return props.inSession ?? {};
 }
 
 /** لاحقةٌ لنصّ `<option>` (لا يحمل عناصر) — فارغةٌ لمن ليس في جلسة. */
-export function inSessionSuffix(inSession: Record<number, string>, id: number | string | null | undefined): string {
-  const ref = id == null || id === '' ? undefined : inSession[Number(id)];
+export function inSessionSuffix(
+    inSession: Record<number, string>,
+    id: number | string | null | undefined,
+): string {
+    const ref = id == null || id === '' ? undefined : inSession[Number(id)];
 
-  return ref ? ` — في جلسة الآن (${ref})` : '';
+    return ref ? ` — في جلسة الآن (${ref})` : '';
 }
 
 /** شارة الحالة بجانب اسم المحامي. `showFree` تُظهر «متاح الآن» أيضاً (الجداول والبطاقات). */
-export const PresenceBadge: React.FC<{ userId: number | null | undefined; showFree?: boolean }> = ({ userId, showFree = false }) => {
-  const inSession = useInSession();
-  const ref = userId == null ? undefined : inSession[userId];
+export const PresenceBadge: React.FC<{
+    userId: number | null | undefined;
+    showFree?: boolean;
+}> = ({ userId, showFree = false }) => {
+    const inSession = useInSession();
+    const ref = userId == null ? undefined : inSession[userId];
 
-  if (ref) {
-    return <Badge text={`في جلسة الآن · ${ref}`} tone="b-red" />;
-  }
+    if (ref) {
+        return <Badge text={`في جلسة الآن · ${ref}`} tone="b-red" />;
+    }
 
-  return showFree && userId != null ? <Badge text="متاح الآن" tone="b-green" /> : null;
+    return showFree && userId != null ? (
+        <Badge text="متاح الآن" tone="b-green" />
+    ) : null;
 };
