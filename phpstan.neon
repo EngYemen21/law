@@ -1,6 +1,10 @@
 includes:
     - vendor/larastan/larastan/extension.neon
     - vendor/nesbot/carbon/extension.neon
+    # أخطاء قائمة مجمّدة (2026-09-29) — كانت ‎1862 خطأً تُفشل خطوة CI قبل الاختبارات، فلا تُشغَّل
+    # الاختبارات في CI أصلاً. الأساس يُبقيها معروفةً ويرفض كلّ خطأٍ جديد؛ وتُصلَح تدريجيّاً ثمّ
+    # يُعاد توليده: vendor/bin/phpstan analyse --generate-baseline phpstan-baseline.neon
+    - phpstan-baseline.neon
 
 parameters:
     paths:
@@ -11,3 +15,6 @@ parameters:
         - routes/
 
     level: 7
+
+    # CI يحلّل على PHP 8.3 و8.4 و8.5 — خطأٌ مجمّد لا يظهر على إصدارٍ ما لا يُفشل الخطوة
+    reportUnmatchedIgnoredErrors: false
