@@ -99,7 +99,7 @@ const EmployeeTicketChat: React.FC<{
   const canSchedule = can('جدولة المواعيد');
   const canTransfer = can('تحويل التذاكر');
   const [msgs, setMsgs] = useState<Message[]>(messages);
-  const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone });
+  const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone, isTerminal: Boolean(ticket.isTerminal) });
   // مؤلّف بمبدّل وضع (يطابق التصميم): ردّ للعميل ⇄ ملاحظة داخلية — صندوق واحد
   const [mode, setMode] = useState<'reply' | 'note'>(canReply ? 'reply' : 'note');
   const [body, setBody] = useState('');
@@ -182,7 +182,7 @@ const EmployeeTicketChat: React.FC<{
     };
     const ch = echo.private(channel);
     ch.listen('.message', append);
-    ch.listen('.status', (e: { status: string; tone: string }) => setStatus(e));
+    ch.listen('.status', (e: { status: string; tone: string; isTerminal?: boolean }) => setStatus({ status: e.status, tone: e.tone, isTerminal: Boolean(e.isTerminal) }));
     echo.private(`${channel}.staff`).listen('.message', append);
     return () => { echo.leave(channel); echo.leave(`${channel}.staff`); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -240,6 +240,8 @@ const EmployeeTicketChat: React.FC<{
         toast(`⚠️ ${msg}`);
       });
   };
+  // أرشيف للقراءة فقط: حكم الخادم (`TicketStatus::isTerminal` والتجميد) — من الصفحة ثمّ من البثّ، لا نصوص الحالات
+  const locked = Boolean(ticket.isFrozen || status.isTerminal);
   const cur = tktStage(status.status);
   const isLast = cur >= TKT_LIFE.length - 1;
   // مراحل بيد المحامي/الإدارة/العميل — لا يتقدّم الموظف فيها
@@ -358,7 +360,7 @@ const EmployeeTicketChat: React.FC<{
               <div ref={endRef} />
             </div>
 
-            {ticket.isFrozen || ['محولة إلى قضية', 'محولة إلى تنفيذ', 'مغلقة'].includes(status.status) ? (
+            {locked ? (
               <div style={{ margin: 14, padding: '14px 18px', textAlign: 'center', background: 'var(--subtle, #f8fafc)', border: '1px solid var(--line, #e2e8f0)', borderRadius: 10 }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--muted, #64748b)', fontWeight: 600, fontSize: 13 }}>
                   <Icon name="lock" />
@@ -447,7 +449,7 @@ const EmployeeTicketChat: React.FC<{
             base="/employee"
             ticketNo={ticket.no}
             refreshKey={msgs.length}
-            canEdit={!ticket.isFrozen && !ticket.isTerminal}
+            canEdit={!locked}
           />
 
           {/* ملف العميل وسياقه 360 درجة */}
