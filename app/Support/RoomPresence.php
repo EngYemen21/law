@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Events\StaffPresenceChanged;
 use App\Models\Consult;
 use App\Models\Meeting;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -139,10 +140,21 @@ final class RoomPresence
         self::mutateLocked(self::key($session, 'participants'), $mutate);
     }
 
-    /** @param  callable(array<int, array<string,string>>): array<int, array<string,string>>  $mutate */
+    /**
+     * تعديل خريطة الطاقم ثمّ بثّها لحظيّاً إن تغيّر ما يُعرض — أفضل-جهد (`Live`): الصفحة تقرؤها عند
+     * أيّ تحميلٍ على كلّ حال.
+     *
+     * @param  callable(array<int, array<string,string>>): array<int, array<string,string>>  $mutate
+     */
     private static function mutateStaff(callable $mutate): void
     {
+        $before = self::staffInSession();
         self::mutateLocked(self::STAFF_KEY, $mutate);
+        $after = self::staffInSession();
+
+        if ($after !== $before) {
+            Live::push(new StaffPresenceChanged($after));
+        }
     }
 
     private static function mutateLocked(string $key, callable $mutate): void

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Events\RoomStateChanged;
+use App\Events\StaffPresenceChanged;
 use App\Models\Consult;
 use App\Models\JourneyTransition;
 use App\Models\Meeting;
@@ -13,6 +14,7 @@ use App\Support\RoomDetails;
 use App\Support\RoomPresence;
 use App\Support\SessionWindow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Testing\TestResponse;
@@ -410,5 +412,26 @@ class RoomContractTest extends TestCase
             ->assertInertia(fn (AssertableInertia $page) => $page->where('inSession.'.$lawyer->id, $meeting->ref));
         $this->actingAs(User::factory()->create(['role' => Role::Client]))->get(route('dashboard'))
             ->assertInertia(fn (AssertableInertia $page) => $page->where('inSession', null));
+    }
+
+    public function test_presence_changes_are_broadcast_live_to_staff_only(): void
+    {
+        Event::fake([StaffPresenceChanged::class]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $meeting = $this->meeting(['meet_id' => '94000500']);
+
+        RoomPresence::participantJoined($meeting, 'L', $lawyer->id);
+        Event::assertDispatched(StaffPresenceChanged::class, fn (StaffPresenceChanged $e) => $e->inSession === [$lawyer->id => $meeting->ref]
+            && $e->broadcastOn()[0]->name === 'private-'.StaffPresenceChanged::CHANNEL);
+        // دخولٌ مكرّر لا يغيّر ما يُعرض ⇒ لا بثّ؛ والخروج يبثّ الخريطة الفارغة
+        RoomPresence::participantJoined($meeting, 'L', $lawyer->id);
+        Event::assertDispatchedTimes(StaffPresenceChanged::class, 1);
+        RoomPresence::participantLeft($meeting, 'L');
+        Event::assertDispatched(StaffPresenceChanged::class, fn (StaffPresenceChanged $e) => $e->inSession === []);
+
+        // القناة للطاقم وحده
+        $authorize = Broadcast::driver()->getChannels()->get(StaffPresenceChanged::CHANNEL);
+        $this->assertTrue($authorize($lawyer));
+        $this->assertFalse($authorize(User::factory()->create(['role' => Role::Client])));
     }
 }
