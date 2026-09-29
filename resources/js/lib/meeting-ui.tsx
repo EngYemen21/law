@@ -14,7 +14,7 @@ import { useToast } from '@/components/babylon/Toast';
 import { todayISO } from '@/lib/local-date';
 import { nowClock, todayDate } from '@/lib/chat';
 import { useConsultSlots } from '@/lib/consult-slots';
-import { openMeeting, RichText } from '@/lib/consult-ui';
+import { RichText } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { MR_FLOW } from '@/lib/employee-data';
 import { useMasker } from '@/lib/permissions';
@@ -118,7 +118,6 @@ export interface FullMeetingCard {
     link: string;
     meetId: string;
     meetLink: string;
-    hostLink: string | null;
     // لا `dur`: الاجتماع بلا مدّةٍ ثابتة — ينتهي حين يُنهى (قرار المالك 2026-09-26)، والمقيس بعده `durationSec`
     summary: string | null;
     zoomSummary: string | null;
@@ -169,7 +168,6 @@ export interface MeetReqCard {
     lawyerId?: number | null;
     meetId: string | null;
     meetLink: string | null;
-    hostLink: string | null;
     meetingRef: string | null; // مرجع الاجتماع المرتبط (M-…) للغرفة المضمّنة
     canJoin?: boolean; // زر الدخول يُفعَّل قبل الموعد بـ5 دقائق (يرسله MeetRequest::toCard)
 }
@@ -338,16 +336,17 @@ setMiTime('');
 
     // دخول الغرفة المضمّنة كمضيف ويعلّم «تنفيذ الجلسة»
     const enterRoom = (r: MeetReqCard) => {
-        const go = () => {
-            if (r.meetingRef) {
-                router.visit(`${base}/meetingroom?ref=${encodeURIComponent(r.meetingRef)}`);
-            } else if (r.type.indexOf('مرئية') >= 0) {
-                openMeeting(r.hostLink || r.meetLink || '');
-            } else {
-                // احتياط
-                toast('سيتم فتح رابط الاجتماع في موعده');
-            }
-        };
+        // **غرفة المنصّة وحدها** (قرار المالك 2026-09-29): كانت دعوةٌ بلا اجتماعٍ داخليّ تفتح `start_url`
+        // الخارجيّ في Zoom. ولا تُعلَّم الجلسة «جارية» بلا غرفةٍ يُدخل إليها.
+        const meetingRef = r.meetingRef;
+
+        if (!meetingRef) {
+            toast('لا غرفة اجتماعٍ لهذه الدعوة بعد — تُفتح بعد اعتمادها ونشرها.');
+
+            return;
+        }
+
+        const go = () => router.visit(`${base}/meetingroom?ref=${encodeURIComponent(meetingRef)}`);
 
         if (r.stage === 1) {
             // onSuccess ثم الانتقال — كان visit يُجهض طلب البدء (سباق Inertia) فيدخل المضيف والجلسة لم تُعلَّم «جارية»

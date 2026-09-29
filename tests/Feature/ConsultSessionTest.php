@@ -144,7 +144,7 @@ class ConsultSessionTest extends TestCase
         $card = $consult->toCard();
         // التوجيه الداخلي الإلزامي: العميل يدخل عبر غرفة المنصة لا عبر رابط خارجي
         $this->assertSame(url('/consults/room?ref=CN-2026-5001'), $card['slink']);
-        $this->assertNull($card['hostLink']);
+        $this->assertArrayNotHasKey('hostLink', $card);
 
         // وحتى مع رابط Zoom محفوظ: دخول العميل يبقى عبر غرفة المنصة حصراً (لا روابط خارجية تخرج عن المنصة)
         $consult->update([
@@ -153,7 +153,8 @@ class ConsultSessionTest extends TestCase
         ]);
         $card = $consult->fresh()->toCard();
         $this->assertSame(url('/consults/room?ref=CN-2026-5001'), $card['slink']);
-        $this->assertSame('https://zoom.us/s/123456789?zak=abc', $card['hostLink']);
+        // ولا رابط المضيف الخارجيّ للطاقم أيضاً — الدخول من غرفة المنصّة وحدها (قرار المالك 2026-09-29)
+        $this->assertArrayNotHasKey('hostLink', $card);
     }
 
     public function test_staff_video_room_receives_consult_by_ref(): void

@@ -502,7 +502,7 @@ class Meeting extends Model
             'link' => $this->case_ref ?: ($this->client_name ?: '—'),
             'meetId' => $this->meet_id ?: ($this->ref ?: 'M-'.$this->id),
             'meetLink' => $this->joinLink(),
-            'hostLink' => $this->host_link,
+            // لا `hostLink`: رابط المضيف (`start_url`) لا يغادر الخادم — الدخول من غرفة المنصّة وحدها (قرار المالك 2026-09-29)
             // لا `dur`: الاجتماع بلا مدّةٍ ثابتة (قرار المالك 2026-09-26) — المقيس بعده `durationSec`
             'summary' => $this->summary,
             'zoomSummary' => $this->zoom_summary,

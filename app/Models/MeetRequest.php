@@ -112,7 +112,7 @@ class MeetRequest extends Model
             'lawyerId' => $this->assigned_lawyer_id,
             'meetId' => $confirmed ? ($this->meet_id ?: $this->ref) : null,
             'meetLink' => $confirmed ? $this->joinLink() : null,
-            'hostLink' => $confirmed ? $this->host_link : null,
+            // لا `hostLink`: رابط المضيف (`start_url`) لا يغادر الخادم — الدخول من غرفة المنصّة وحدها (قرار المالك 2026-09-29)
             // مرجع الاجتماع المرتبط — للدخول للغرفة المضمّنة (kind=meeting)
             'meetingRef' => $confirmed ? $this->meeting?->ref : null,
         ];

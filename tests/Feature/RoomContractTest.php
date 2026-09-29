@@ -36,7 +36,7 @@ class RoomContractTest extends TestCase
 
     private const KEYS = [
         'kind', 'ref', 'title', 'statusLabel', 'live', 'ended', 'rows', 'recording',
-        'measuredDuration', 'endAction', 'summaryHref', 'back', 'channel', 'staffChannel', 'hostUrl',
+        'measuredDuration', 'endAction', 'summaryHref', 'back', 'channel', 'staffChannel',
     ];
 
     private function consult(User $client, array $extra = []): Consult
@@ -99,7 +99,7 @@ class RoomContractTest extends TestCase
                 $this->assertFalse($room['recording'], 'العميل لا يُخبَر بالتسجيل');
                 $this->assertNull($room['endAction']);
                 $this->assertNull($room['staffChannel']);
-                $this->assertNull($room['hostUrl'], 'رابط المضيف لا يصل العميل');
+                $this->assertArrayNotHasKey('hostUrl', $room, 'رابط المضيف لا يصل العميل');
                 $this->assertSame('room.consult.'.$consult->id, $room['channel']);
                 $this->assertSame(['المحامي', 'الموعد', 'المرجع', 'القناة'], $this->labels($room['rows']));
             });
@@ -125,7 +125,8 @@ class RoomContractTest extends TestCase
                     'placeholder' => 'ملاحظات الجلسة (اختياريّة) — تُبنى عليها مسوّدة الملخّص',
                 ], $room['endAction']);
                 $this->assertSame('room.consult.'.$consult->id.'.staff', $room['staffChannel']);
-                $this->assertSame('https://zoom.us/s/93000001?zak=h', $room['hostUrl']);
+                // ولا رابط المضيف الخارجيّ للطاقم — الدخول من غرفة المنصّة وحدها (قرار المالك 2026-09-29)
+                $this->assertArrayNotHasKey('hostUrl', $room);
                 $labels = $this->labels($room['rows']);
                 $this->assertContains('العميل', $labels);
                 $this->assertNotContains('المدّة', $labels);

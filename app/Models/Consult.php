@@ -626,9 +626,9 @@ class Consult extends Model
             'place' => $this->placeForCard(),
             'phone' => $this->phone ?? '',
             'canJoin' => $this->canJoin(),
-            // رابط اجتماع Zoom الحقيقي؛ وعند غيابه (لم تُهيّأ مفاتيح Zoom بعد) الرابط الداخلي الاحتياطي
+            // رابط غرفة المنصّة الداخليّ (`joinLink`) — الطريق الوحيد إلى الجلسة
             'slink' => $this->channel === 'مرئية' ? $this->joinLink() : '',
-            'hostLink' => $this->channel === 'مرئية' ? ($this->host_link ?: null) : null,
+            // لا `hostLink`: رابط المضيف (`start_url`) لا يغادر الخادم — الدخول من غرفة المنصّة وحدها (قرار المالك 2026-09-29)
             'session' => $this->session,
             'missed' => $this->isMissed(), // فات موعدها بلا جلسة — تبويب «فائتة» وإجراءا لم يحضر/إعادة الجدولة
             'notHeld' => $this->isNotHeld(), // سُجّلت «لم تُعقد» — العلمان نفساهما في بطاقة العميل

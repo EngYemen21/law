@@ -130,7 +130,6 @@ export interface ConsultCard {
   clientRescheduleRequest?: { at: string; note: string | null } | null;
   startable?: boolean; // «بدء الجلسة» ضمن نافذة الموعد فقط (يشتقه الخادم — بطاقة المكتب)
   startsAt?: string | null;
-  hostLink: string | null; // رابط مضيف Zoom (للمكتب)
   session: string; // بانتظار الجلسة / جلسة جارية / منتهية
   status: string;
   summary: string | null;
@@ -260,13 +259,6 @@ export interface ClientConsultCard {
   /** تتبع الملخّص في الحجب — كانت تصل قبله. */
   decisions: string[];
   startsAt?: string | null;
-}
-
-// فتح جلسة Zoom في تبويب جديد (المكالمة والتسجيل على Zoom)
-export function openMeeting(url: string): void {
-  if (url) {
-window.open(url, '_blank', 'noopener');
-}
 }
 
 // `lawyerFirst` أُزيلت (2026-09-11): كانت تقصّ اسم المحامي لكلمته الأولى في شاشة العميل،

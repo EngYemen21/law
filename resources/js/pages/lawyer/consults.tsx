@@ -650,21 +650,12 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
 
                     <td style={{ textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                        {/* **`canJoin` يُحترم هنا كما يُحترم في الدرج.** كان صفّ
-                            الجدول يعرض الرابط بلا التفاتٍ إليه — و`hostLink` هو
-                            `start_url` خارجيّ لا يمرّ بحارس `sdkSignature`، فيُفتح
-                            قبل إطلاق الرابط وبعد انتهاء الجلسة سواء. القاعدة كانت
-                            تُطبَّق في موضعٍ وتُخرَق في آخر من الملفّ نفسه. */}
-                        {c.channel === 'مرئية' && c.canJoin !== false && (c.hostLink || c.slink) && (
-                          <a
-                            href={c.hostLink || c.slink}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="btn primary sm"
-                            style={{ padding: '3px 8px', fontSize: 11.5 }}
-                          >
-                            <Icon name="video" /> دخول Zoom
-                          </a>
+                        {/* **الدخول من غرفة المنصّة وحدها** (قرار المالك 2026-09-29): كان يفتح `start_url`
+                            الخارجيّ في تبويب Zoom فيتجاوز حارس `sdkSignature` وتعريف المحامي لحالته. */}
+                        {c.channel === 'مرئية' && c.canJoin !== false && c.slink && (
+                          <Link href={c.slink} className="btn primary sm" style={{ padding: '3px 8px', fontSize: 11.5 }}>
+                            <Icon name="video" /> دخول الغرفة
+                          </Link>
                         )}
                         <button
                           type="button"
@@ -747,17 +738,12 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                     <div className="card-subj">{c.subject}</div>
                     <div className="card-client">👤 {maskClient(c.client)}</div>
                     <div className="card-foot">
-                      {(c.hostLink || c.slink) ? (
-                        <a
-                          href={c.hostLink || c.slink}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="btn primary sm"
-                          style={{ padding: '2px 8px', fontSize: 11 }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          دخول Zoom
-                        </a>
+                      {c.slink ? (
+                        c.canJoin !== false && (
+                          <Link href={c.slink} className="btn primary sm" style={{ padding: '2px 8px', fontSize: 11 }} onClick={(e) => e.stopPropagation()}>
+                            دخول الغرفة
+                          </Link>
+                        )
                       ) : (
                         <span style={{ fontSize: 11, color: '#15803d' }}>جلسة مكتبية</span>
                       )}
@@ -969,29 +955,17 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         </div>
                       </div>
 
-                      {/* زر دخول Zoom المباشر */}
-                      {/*
-                        **الرابط يتبع نافذة الدخول.** `hostLink` هو `start_url` خارجيّ
-                        فلا يمرّ بحارس `ZoomController@sdkSignature` الذي يفرض `canJoin`
-                        — وكان يُعرض دائماً للقناة المرئية: قبل إطلاق الرابط وبعد
-                        انتهاء الجلسة سواء.
-                      */}
-                      {drawerConsult.channel === 'مرئية' && (drawerConsult.hostLink || drawerConsult.slink) && (
+                      {/* دخول غرفة المنصّة — والرابط يتبع نافذة الدخول (`canJoin`)، والخادم يفرضها أيضاً */}
+                      {drawerConsult.channel === 'مرئية' && drawerConsult.slink && (
                         <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
                           {drawerConsult.canJoin === false ? (
                             <p className="action-hint" style={{ margin: 0 }}>
                               <Icon name="info" /> يُفتح رابط الغرفة قبل الموعد بخمس دقائق.
                             </p>
                           ) : (
-                            <a
-                              href={drawerConsult.hostLink || drawerConsult.slink}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="btn primary"
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
-                            >
-                              <Icon name="video" /> دخول غرفة الاجتماع المرئية (Zoom) ↗
-                            </a>
+                            <Link href={drawerConsult.slink} className="btn primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                              <Icon name="video" /> دخول غرفة الاجتماع المرئية
+                            </Link>
                           )}
                         </div>
                       )}

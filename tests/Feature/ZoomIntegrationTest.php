@@ -117,4 +117,25 @@ class ZoomIntegrationTest extends TestCase
             ->assertOk()->assertInertia(fn ($p) => $p->component('meetings')
             ->missing('meetings.0.hostLink'));
     }
+
+    /**
+     * **الجلسات تُعقد داخل المنصّة وحدها** (قرار المالك 2026-09-29): لا زرّ يفتح Zoom خارجيّاً، ولا يغادر
+     * رابط المضيف (`start_url`) الخادمَ في أيّ بطاقة — كان الطاقم يدخل به فيتجاوز حارس الغرفة.
+     */
+    public function test_no_screen_opens_zoom_outside_the_platform(): void
+    {
+        $js = '';
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(resource_path('js'))) as $f) {
+            if ($f->isFile() && in_array($f->getExtension(), ['ts', 'tsx'], true) && ! str_contains($f->getPathname(), '/actions/')) {
+                $js .= file_get_contents($f->getPathname());
+            }
+        }
+        $this->assertStringNotContainsString('hostLink', str_replace('`hostLink`', '', $js));
+        $this->assertStringNotContainsString('hostUrl', $js);
+        $this->assertStringNotContainsString('openMeeting(', $js);
+
+        foreach (['Models/Consult.php', 'Models/Meeting.php', 'Models/MeetRequest.php', 'Support/RoomDetails.php'] as $file) {
+            $this->assertDoesNotMatchRegularExpression("/'host(Link|Url)' =>/", (string) file_get_contents(app_path($file)), $file);
+        }
+    }
 }

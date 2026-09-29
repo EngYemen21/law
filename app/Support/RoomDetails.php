@@ -92,9 +92,8 @@ final class RoomDetails
             'back' => self::back($session, $viewer),
             'channel' => self::channel($session),
             'staffChannel' => $staff ? self::staffChannel($session) : null,
-            // ملاذٌ أخير للطاقم حين يتعذّر التضمين: فتح الغرفة في Zoom مضيفاً. رابط المضيف لا يصل
-            // العميل أبداً (يحمل صلاحيّة المضيف)، ولا يُعطى لجلسةٍ انتهت
-            'hostUrl' => $staff && ! $state['ended'] && filled($session->host_link) ? (string) $session->host_link : null,
+            // لا `hostUrl`: كان ملاذاً للطاقم يفتح الغرفة في Zoom خارج المنصّة — والدخول من غرفة المنصّة
+            // وحدها (قرار المالك 2026-09-29). رابط المضيف لا يغادر الخادم
         ];
     }
 
