@@ -61,8 +61,6 @@ class Permissions
 
     public const COURT_PROCEEDINGS = 'إجراءات المحكمة والجلسات';
 
-    public const SET_CONSULT_PRICES = 'تحديد أسعار الاستشارات';
-
     public const REPORTS_AND_REVENUE = 'التقارير والإيرادات';
 
     public const MANAGE_STAFF = 'إدارة الموظفين';
@@ -98,7 +96,7 @@ class Permissions
         // موضع في النظام يكتب فيه إداريٌّ إشعاراً لعميلٍ بعينه — فبقاؤها مربّعٌ مؤشَّر يفتح باباً
         // معدوماً. تحذفها من القاعدة مهاجرة `2026_09_24_..._drop_client_notifications_permission`.
         'العملاء والإشعارات والمواعيد' => [self::MANAGE_BOOKINGS],
-        'القضايا والمالية والإدارة' => [self::MANAGE_CASES_AND_FEES, self::COURT_PROCEEDINGS, self::RECORD_RULINGS, self::DOWNLOAD_FILES, self::SET_CONSULT_PRICES, self::REPORTS_AND_REVENUE, self::MANAGE_STAFF, self::SECURITY_AUDIT_LOG],
+        'القضايا والمالية والإدارة' => [self::MANAGE_CASES_AND_FEES, self::COURT_PROCEEDINGS, self::RECORD_RULINGS, self::DOWNLOAD_FILES, self::REPORTS_AND_REVENUE, self::MANAGE_STAFF, self::SECURITY_AUDIT_LOG],
     ];
 
     /**

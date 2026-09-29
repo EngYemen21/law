@@ -95,8 +95,6 @@ class ConsultController extends Controller
                 ->whereIn('status', Consult::PRE_SESSION_STATUSES)
                 ->latest('id')->get()
                 ->map(fn (Consult $c) => $c->toCard());
-            // سعر التسعير المقترح من الإعدادات بحسب القناة — كانت الشاشة تفترض «600» لكلّ قناة
-            $props['suggestedPrices'] = self::suggestedPrices();
         }
 
         $props['consultRequestForm'] = ConsultBooking::onBehalfForm();
@@ -112,42 +110,16 @@ class ConsultController extends Controller
             ->latest('id')->get()
             ->map(fn (Consult $c) => $c->toCard());
 
-        /*
-         * **الأسعار والضريبة من الإعدادات لا من الشاشة.**
-         *
-         * كانت الشاشة تحسب الضريبة بـ`0.15` مصلَّبة وتعرض «باقات معياريّة» من ستّة
-         * أرقامٍ مكتوبةٍ بيدٍ لا يطابق واحدٌ منها سعراً معتمداً. والنسبة والأسعار
-         * إعداداتٌ إداريّة حيّة لها شاشةُ ضبطٍ في اللوحة نفسها — فتُمرَّر.
-         */
-        $prices = Setting::consultPrices();
-
         return Inertia::render('admin/consult-requests', [
             'consults' => $consults,
             // «طلب استشارة نيابةً عن العميل» — يُحمَّل عند فتح النموذج وحده
             'consultRequestForm' => ConsultBooking::onBehalfForm(),
-            // `consultPrices()` يحمل الضريبة دائماً من `Setting::vatRate()` — فلا افتراضَ «15» ثانٍ هنا
-            'vatRate' => (int) $prices['vat'],
+            // **الضريبة من «الإعدادات» لا من الشاشة** — كانت تحسبها بـ`0.15` مصلَّبة. والسعر يكتبه المسعّر
+            // لكلّ طلب (قرار المالك 2026-09-29: لا أسعار مقترحة)
+            'vatRate' => Setting::vatRate(),
             // محامو المكتب النشطون — لتعديل المحامي عند اعتماد موعدٍ اقترحه موظّف
             'lawyers' => User::where('role', Role::Lawyer)->where('status', 'active')->orderBy('name')->get(['id', 'name']),
-            'suggestedPrices' => self::suggestedPrices(),
         ]);
-    }
-
-    /**
-     * السعر المقترح لكلّ قناة من الإعدادات (`Setting::consultPrices`) — مصدرٌ واحد لشاشتَي التسعير
-     * («طلبات الاستشارات» و«الاستشارات») بدل رقمٍ مكتوبٍ في كلٍّ منهما.
-     *
-     * @return array<string, int>
-     */
-    private static function suggestedPrices(): array
-    {
-        $prices = Setting::consultPrices();
-
-        return [
-            'مرئية' => (int) ($prices['video'] ?? 0),
-            'حضورية' => (int) ($prices['office'] ?? 0),
-            'هاتفية' => (int) ($prices['phone'] ?? 0),
-        ];
     }
 
     // رحلة الاستشارة (يطابق consultView) — التفاصيل والإجراءات وسجل التدقيق

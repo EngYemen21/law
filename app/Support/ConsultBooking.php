@@ -127,10 +127,11 @@ class ConsultBooking
             'lawyer' => $ctx['lawyer'],
             'assigned_lawyer_id' => $ctx['lawyerId'],
             'phone' => $data['type'] === 'phone' ? $client->phone : null,
-            // سعر ابتدائي مقترح من إعدادات الإدارة — لا يُفعِّل السداد حتى يعتمده المسعّر
-            'price' => $ctx['price'],
-            'vat' => $ctx['vat'],
-            'total' => $ctx['price'] + $ctx['vat'],
+            // **بلا سعرٍ ابتدائيّ**: التسعير لكلّ طلبٍ على حدة عند المسعّر (قرار المالك 2026-09-29) —
+            // كان يُكتب هنا «سعرٌ مقترح» من تبويب «أسعار الاستشارات» المحذوف
+            'price' => 0,
+            'vat' => 0,
+            'total' => 0,
             'audit' => [['user' => 'النظام', 'field' => 'الاستقبال', 'before' => '—', 'after' => 'طلب تسعير — '.$m['label'], 'time' => now()->format('Y/m/d h:i')]],
         ]), $client, array_filter(['type' => $data['type'], 'ticket' => $ticket?->number]));
 
@@ -168,8 +169,7 @@ class ConsultBooking
          */
         abort_if($price < 1, 422, 'أقلّ سعرٍ للاستشارة ريالٌ واحد — استعمل الإلغاء إن كانت بلا مقابل.');
 
-        $prices = Setting::consultPrices();
-        $vat = (int) round($price * $prices['vat'] / 100);
+        $vat = Setting::vatOn($price);
         $total = $price + $vat;
 
         // السعر والفاتورة والحالة في معاملة المحرّك الواحدة — انظر `PriceConsult`
@@ -311,7 +311,7 @@ class ConsultBooking
     /**
      * حلّ سياق الحجز المشترك (المحامي/الموضوع/التخصّص/السعر الابتدائي/المرجع).
      *
-     * @return array{meta:array,type:string,ref:string,lawyer:string,lawyerId:?int,subject:string,specialty:?string,price:int,vat:int}
+     * @return array{meta:array,type:string,ref:string,lawyer:string,lawyerId:?int,subject:string,specialty:?string}
      */
     private static function resolveContext(User $client, array $data, ?Ticket $ticket): array
     {
@@ -334,10 +334,6 @@ class ConsultBooking
         $specialty = Specialties::normalize($data['specialty'] ?? $lawyerUser?->department) ?: null;
         $dept = $data['department'] ?? $ticket?->department;
 
-        $prices = Setting::consultPrices();
-        $price = (int) $prices[$data['type']];
-        $vat = (int) round($price * $prices['vat'] / 100);
-
         return [
             'meta' => $m,
             'type' => preg_replace('/^القسم\s+/u', '', (string) $dept) ?: 'عام',
@@ -346,8 +342,6 @@ class ConsultBooking
             'lawyerId' => $lawyerUser?->id,
             'subject' => $subject,
             'specialty' => $specialty,
-            'price' => $price,
-            'vat' => $vat,
         ];
     }
 

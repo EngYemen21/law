@@ -6,7 +6,6 @@ use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Invoice;
 use App\Models\LegalCase;
-use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -17,25 +16,6 @@ use Tests\TestCase;
 class DashboardGapsTwoTest extends TestCase
 {
     use RefreshDatabase;
-
-    // ── حمولة prices تصل صفحة الحجز سليمة — والواجهة لا تعرضها **عمداً** ──
-    // قرار منتج (2026-08-25): لا سعر ثابت مُعلن للعميل؛ التسعير تحدّده الإدارة لكل طلب
-    // على حدة بعد دراسته. فعدم عرض prices في book.tsx ليس ثغرة تجاهل — لا «تُصلحه»
-    // بإظهار السعر. الاختبار يحرس سلامة الحمولة (تُستهلك في شاشة تسعير الإدارة) فقط.
-
-    public function test_booking_page_receives_live_admin_prices(): void
-    {
-        Setting::put('price_office', 777);
-        Setting::put('vat_rate', 5);
-        $client = User::factory()->create(['role' => Role::Client]);
-
-        $this->actingAs($client)->get(route('book'))
-            ->assertOk()
-            ->assertInertia(fn ($p) => $p->component('book')
-                ->where('prices.office', 777)
-                ->where('prices.vat', 5)
-                ->has('specialties'));
-    }
 
     // ── الإيراد حسب النوع: القسمة على 1000 كانت تُصفّر كل ما دون 500 ر.س ──
 

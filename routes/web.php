@@ -15,7 +15,6 @@ use App\Http\Controllers\Admin\FinanceController as AdminFinanceController;
 use App\Http\Controllers\Admin\JourneyTransitionController as AdminJourneyTransitionController;
 use App\Http\Controllers\Admin\LawyerController as AdminLawyerController;
 use App\Http\Controllers\Admin\LegalSourceController as AdminLegalSourceController;
-use App\Http\Controllers\Admin\PriceController as AdminPriceController;
 use App\Http\Controllers\Admin\ReportController as AdminReportController;
 use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
 use App\Http\Controllers\Admin\StaffController;
@@ -722,8 +721,6 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     // تصدير PDF — كانت الشاشتان بلا أي تصدير أو طباعة
     Route::get('/reports.pdf', [AdminReportController::class, 'reportsPdf'])->name('reports.pdf')->middleware(Permissions::middleware(Permissions::REPORTS_AND_REVENUE));
     Route::get('/revenue.pdf', [AdminReportController::class, 'revenuePdf'])->name('revenue.pdf')->middleware(Permissions::middleware(Permissions::REPORTS_AND_REVENUE));
-    Route::get('/prices', [AdminPriceController::class, 'index'])->name('prices')->middleware(Permissions::middleware(Permissions::SET_CONSULT_PRICES));
-    Route::post('/prices', [AdminPriceController::class, 'update'])->name('prices.update')->middleware(Permissions::middleware(Permissions::SET_CONSULT_PRICES));
     // إعدادات النظام — متغيّرات كانت ثوابتَ في الشيفرة أو صفوفاً بلا شاشة (أظهرها
     // `exec_working_days_from`: إعدادٌ مقصود ولا باب لكتابته إلّا SQL على الإنتاج).
     // **بلا صلاحيّة مستحدثة**: `Gate::before` يجعل الأدمن يتجاوز كلّ `permission:`، فصلاحيّةٌ

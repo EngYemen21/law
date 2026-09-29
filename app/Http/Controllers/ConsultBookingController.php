@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Consult;
-use App\Models\Setting;
 use App\Support\ConsultBooking;
 use App\Support\LawyerAvailability;
 use App\Support\Specialties;
@@ -46,7 +45,6 @@ class ConsultBookingController extends Controller
         // ];
 
         return Inertia::render('book', [
-            'prices' => Setting::consultPrices(),
             'specialties' => Specialties::all(),
             'pending' => $pending,
             // 'stats' => $stats,

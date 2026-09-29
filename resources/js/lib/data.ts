@@ -263,7 +263,6 @@ const ADMIN_NAV: SideGroup[] = [
     { icon: 'card', label: 'طلبات الاستشارات', route: '/admin/consult-requests' },
     { icon: 'compass', label: 'استقبال الاستشارات', route: '/admin/consultrecv' },
     { icon: 'video', label: 'أرشيف الاستشارات', route: '/admin/archive' },
-    { icon: 'card', label: 'أسعار الاستشارات', route: '/admin/prices' },
   ] },
   { g: 'الاجتماعات', items: [
     { icon: 'calgrid', label: 'إدارة الاجتماعات', route: '/admin/meetmgmt' },
@@ -402,7 +401,6 @@ const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/assistant': ['المساعد القانوني الذكي', 'الإدارة العليا'],
   '/admin/approvals': ['مركز الاعتمادات والقرارات', 'لوحة الإدارة'],
   '/admin/revenue': ['الإيرادات', 'لوحة الإدارة'],
-  '/admin/prices': ['أسعار الاستشارات', 'الإدارة العليا'],
   '/admin/settings': ['إعدادات النظام', 'الإدارة العليا'],
   '/admin/catalogue': ['الأقسام والخدمات', 'الإدارة العليا'],
   '/admin/finance': ['المالية والمحاسبة', 'الإدارة العليا'],

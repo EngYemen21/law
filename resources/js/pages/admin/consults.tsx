@@ -53,7 +53,6 @@ interface AdminConsultsProps {
   preSessionRequests?: ConsultCard[];
   lawyers?: LawyerOpt[];
   /** السعر المقترح لكلّ قناة من الإعدادات (`Setting::consultPrices`). */
-  suggestedPrices?: Record<string, number>;
 }
 
 type ViewMode = 'table' | 'pipeline' | 'calendar' | 'analytics';
@@ -159,7 +158,6 @@ export const AdminConsults: React.FC<AdminConsultsProps> = ({
   consults: initialConsults = [],
   preSessionRequests: initialRequests = [],
   lawyers: initialLawyers = [],
-  suggestedPrices = {},
 }) => {
   const toast = useToast();
   const { consult_request_late_minutes: lateAfterMins } = useSettings();
@@ -195,12 +193,9 @@ export const AdminConsults: React.FC<AdminConsultsProps> = ({
   const [pricingChannel, setPricingChannel] = useState<string>('حضورية');
   const [inputPrice, setInputPrice] = useState<string>('');
 
-  // سعر القناة من الإعدادات (`ConsultController::suggestedPrices`) — كانت «600» مكتوبةً لكلّ قناة
-  const priceFor = (channel?: string | null): string => {
-    const p = suggestedPrices[channel || 'حضورية'];
-
-    return p ? String(p) : '';
-  };
+  // **لا سعر مقترح** (قرار المالك 2026-09-29): المسعّر يكتب السعر لكلّ طلب؛ والخانة تبدأ بالسعر
+  // المعتمد لطلبٍ سُعّر من قبل وحده — لا بما كُتب على الطلب قبل التسعير
+  const pricedValue = (c: ConsultCard): string => (c.priced && c.price ? String(c.price) : '');
 
   // Realtime synchronization via Echo
   useEffect(() => {
@@ -280,7 +275,7 @@ return initialLawyers;
     if (drawerConsult) {
       const found = lawyersList.find((l) => l.name === drawerConsult.lawyer);
       setDrawerLawyerId(found ? found.id : '');
-      setDrawerPrice(drawerConsult.price ? String(drawerConsult.price) : priceFor(drawerConsult.channel));
+      setDrawerPrice(pricedValue(drawerConsult));
     }
   }, [drawerConsult, lawyersList]);
 
@@ -479,7 +474,7 @@ return false;
   const handleOpenPricingModal = (consult: ConsultCard) => {
     setPricingConsult(consult);
     setPricingChannel(consult.channel || 'حضورية');
-    setInputPrice(consult.price ? String(consult.price) : priceFor(consult.channel));
+    setInputPrice(pricedValue(consult));
   };
 
   const submitPricingModal = (e: React.FormEvent) => {
