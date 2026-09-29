@@ -19,6 +19,7 @@ import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
 import { consultMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
 import type { SessionMedia } from '@/lib/recording-ui';
+import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 import { useServerAction } from '@/lib/use-server-action';
 
 // ============================================================
@@ -1112,6 +1113,7 @@ void navigator.clipboard.writeText(c.slink);
 export interface LawyerOpt { id: number; name: string; dept: string; }
 
 export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; isAdmin?: boolean; lawyers: LawyerOpt[] }> = ({ consult: c, base, isAdmin, lawyers }) => {
+  const inSession = useInSession();
   const askFor = usePrompt();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -1770,7 +1772,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                     {lawyers.length > 0 && lawyerId === '' && <option value="">— اختر المحامي المختص —</option>}
                     {lawyers.map((l) => (
                       <option key={l.id} value={l.id}>
-                        {l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}
+                        {l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}{inSessionSuffix(inSession, l.id)}
                       </option>
                     ))}
                   </select>
@@ -1843,7 +1845,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                     {lawyers.length > 0 && lawyerId === '' && <option value="">— اختر المحامي المختص —</option>}
                     {lawyers.map((l) => (
                       <option key={l.id} value={l.id}>
-                        {l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}
+                        {l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}{inSessionSuffix(inSession, l.id)}
                       </option>
                     ))}
                   </select>

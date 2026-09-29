@@ -9,6 +9,7 @@ import { useToast } from '@/components/babylon/Toast';
 import { MEET_STATUSES, MEET_TYPES_FULL, MEET_TEMPLATES } from '@/lib/admin-data';
 import { dateISOAfter, todayISO } from '@/lib/local-date';
 import { meetStatusTone, attendanceLabel, fmtActualDuration, useLawyerDaySlots, type ClientDirEntry, type FullMeetingCard } from '@/lib/meeting-ui';
+import { inSessionSuffix, PresenceBadge, useInSession } from '@/lib/staff-presence';
 import { useServerAction } from '@/lib/use-server-action';
 
 // واجهة إدارة الاجتماعات الحديثة — التصميم الفاخر والمطور 2026
@@ -22,6 +23,7 @@ interface Props {
 }
 
 const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = [], kpis }) => {
+  const inSession = useInSession();
   const toast = useToast();
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState(false);
@@ -327,7 +329,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                   </div>
 
                   <div style={{ fontSize: '12px', color: 'var(--ink-soft, #475569)' }}>
-                    <b>العميل:</b> {m.client} · <b>المحامي:</b> {m.lawyer !== '—' ? m.lawyer : 'غير مسند'}
+                    <b>العميل:</b> {m.client} · <b>المحامي:</b> {m.lawyer !== '—' ? m.lawyer : 'غير مسند'} <PresenceBadge userId={m.lawyerId} />
                     {m.statusKey === 'ended' && (attendanceLabel(m) || fmtActualDuration(m.durationSec)) && (
                       <span style={{ color: 'var(--primary)', fontWeight: 700, marginRight: 8 }}>
                         · {attendanceLabel(m) ?? ''}
@@ -623,7 +625,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                 style={{ borderRadius: 9, padding: '9px 12px', fontSize: '13px', border: '1px solid var(--line-soft, #cbd5e1)', background: '#fff' }}
               >
                 <option value="">— بدون محامٍ محدد —</option>
-                {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}{inSessionSuffix(inSession, l.id)}</option>)}
               </select>
             </div>
 

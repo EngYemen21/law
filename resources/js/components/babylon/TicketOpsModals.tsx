@@ -6,6 +6,7 @@ import Modal from '@/components/babylon/Modal';
 import { fetchTicketRequirements } from '@/components/babylon/TicketRequirementsCard';
 import type { RequirementItem } from '@/components/babylon/TicketRequirementsCard';
 import { useToast } from '@/components/babylon/Toast';
+import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 
 // مودالا «تحويل التذكرة» و«طلب النواقص» — نسخة واحدة عاملة تُصيب المسارات الحقيقية،
 // تحلّ محلّ النسخة المكرّرة في محادثة الموظف والنسخة الديكورية القديمة في قائمة التذاكر.
@@ -32,6 +33,7 @@ const initialDept = (dept: string | null | undefined, departments: string[]) =>
   (dept && departments.includes(dept) ? dept : departments[0]) ?? '';
 
 const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawyers, suggestion, departments, onClose, onDone }) => {
+  const inSession = useInSession();
   const toast = useToast();
 
   // ── تحويل التذكرة ──
@@ -118,7 +120,7 @@ const TicketOpsModals: React.FC<Props> = ({ kind, ticketNo, dept, lawyerId, lawy
           <label>المستشار</label>
           <select value={trLawyerId} onChange={(e) => setTrLawyerId(e.target.value)}>
             <option value="">اختر المستشار…</option>
-            {lawyers.map((l) => <option key={l.id} value={String(l.id)}>{l.name}</option>)}
+            {lawyers.map((l) => <option key={l.id} value={String(l.id)}>{l.name}{inSessionSuffix(inSession, l.id)}</option>)}
           </select>
           {!lawyerId && <LawyerSuggestionHint suggestion={suggestion} />}
         </div>

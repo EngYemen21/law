@@ -345,4 +345,70 @@ class RoomContractTest extends TestCase
         $this->actingAs($admin)->postJson(route('admin.meetings.start', $missed))->assertStatus(422);
         $this->assertSame('لم ينعقد', $missed->fresh()->status);
     }
+
+    /**
+     * **حالة المحامي الحيّة من أحداث Zoom** (قرار المالك 2026-09-29): دخوله أيّ غرفةٍ يجعله «في جلسة»،
+     * وخروجه منها وهو في أخرى يُبقيه فيها، وإغلاق الغرفة يُخرج من بقي. يُعرف بـ`customer_key` = `u{id}`.
+     */
+    public function test_a_lawyer_is_in_session_while_inside_any_room_and_free_after_leaving_all(): void
+    {
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $consult = $this->consult($client, ['meet_id' => '93000200']);
+        $meeting = $this->meeting(['meet_id' => '94000200']);
+        $event = fn (string $room, string $event, string $uuid, ?string $key) => $this->webhook(['event' => $event, 'payload' => ['object' => [
+            'id' => $room,
+            'participant' => array_filter(['participant_uuid' => $uuid, 'customer_key' => $key]),
+        ]]])->assertOk();
+
+        // الاستشارة ثمّ الاجتماع قبل الخروج منها
+        $event('93000200', 'meeting.participant_joined', 'L1', "u{$lawyer->id}");
+        $this->assertSame([$lawyer->id => $consult->ref], RoomPresence::staffInSession());
+        $event('94000200', 'meeting.participant_joined', 'L2', "u{$lawyer->id}");
+        $this->assertSame([$lawyer->id => $meeting->ref], RoomPresence::staffInSession(), 'آخر جلسةٍ دخلها');
+
+        // يخرج من الاجتماع وهو ما زال في الاستشارة ⇒ في جلسة
+        $event('94000200', 'meeting.participant_left', 'L2', "u{$lawyer->id}");
+        $this->assertSame([$lawyer->id => $consult->ref], RoomPresence::staffInSession());
+
+        // العميل ومن بلا مفتاح ومفتاحٌ لحساب عميل: لا يُحسبون طاقماً
+        $event('93000200', 'meeting.participant_joined', 'C1', "u{$client->id}");
+        $event('93000200', 'meeting.participant_joined', 'X1', null);
+        $this->assertSame([$lawyer->id], array_keys(RoomPresence::staffInSession()));
+
+        // إغلاق الغرفة (خروجٌ لم يصل حدثه) ⇒ متاح
+        $this->webhook(['event' => 'meeting.ended', 'payload' => ['object' => ['id' => '93000200']]])->assertOk();
+        $this->assertSame([], RoomPresence::staffInSession());
+    }
+
+    public function test_the_same_lawyer_on_two_devices_stays_in_session_until_both_leave(): void
+    {
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $this->meeting(['meet_id' => '94000300']);
+        $event = fn (string $event, string $uuid) => $this->webhook(['event' => $event, 'payload' => ['object' => [
+            'id' => '94000300', 'participant' => ['participant_uuid' => $uuid, 'customer_key' => "u{$lawyer->id}"],
+        ]]])->assertOk();
+
+        $event('meeting.participant_joined', 'PC');
+        $event('meeting.participant_joined', 'PHONE');
+        $event('meeting.participant_left', 'PC');
+        $this->assertArrayHasKey($lawyer->id, RoomPresence::staffInSession());
+        $event('meeting.participant_left', 'PHONE');
+        $this->assertSame([], RoomPresence::staffInSession());
+    }
+
+    public function test_the_sdk_join_identifies_staff_to_zoom_and_pages_share_who_is_in_session(): void
+    {
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $zoom = (string) file_get_contents(app_path('Http/Controllers/ZoomController.php'));
+        $this->assertStringContainsString("'customerKey' => \$isStaff ? 'u'.\$user->id : null", $zoom);
+        $this->assertStringContainsString('customerKey: data.customerKey || undefined', (string) file_get_contents(resource_path('js/lib/room-session.ts')));
+
+        $meeting = $this->meeting(['meet_id' => '94000400']);
+        RoomPresence::participantJoined($meeting, 'L', $lawyer->id);
+        $this->actingAs(User::factory()->create(['role' => Role::Admin]))->get(route('admin.meetmgmt'))
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('inSession.'.$lawyer->id, $meeting->ref));
+        $this->actingAs(User::factory()->create(['role' => Role::Client]))->get(route('dashboard'))
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('inSession', null));
+    }
 }

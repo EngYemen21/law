@@ -11,6 +11,7 @@ import { echo } from '@/lib/echo';
 import { CONSULT_CHANNEL_OPTIONS, crChannelIcon, crChannelTone, DEFAULT_CONSULT_CHANNEL, maskClient } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useSettings } from '@/lib/settings';
+import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 import { useServerAction } from '@/lib/use-server-action';
 import { humanDuration } from '@/lib/utils';
 
@@ -63,6 +64,7 @@ export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
   suggestedPrices = {},
   lawyers = [],
 }) => {
+  const inSession = useInSession();
   const toast = useToast();
   const { consult_request_late_minutes: lateAfterMins } = useSettings();
   const lateAfterText = humanDuration(lateAfterMins) ?? '';
@@ -1996,7 +1998,7 @@ return (a.total || 0) - (b.total || 0);
                         <label>المستشار</label>
                         <select value={approval.lawyerId} onChange={(e) => editApproval({ lawyerId: e.target.value })}>
                           {lawyers.map((l) => (
-                            <option key={l.id} value={String(l.id)}>{l.name}</option>
+                            <option key={l.id} value={String(l.id)}>{l.name}{inSessionSuffix(inSession, l.id)}</option>
                           ))}
                         </select>
                       </div>

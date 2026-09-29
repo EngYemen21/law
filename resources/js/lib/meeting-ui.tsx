@@ -21,6 +21,7 @@ import { useSettings } from '@/lib/settings';
 import Icon from '@/lib/icons';
 import { meetingMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
 import type { SessionMedia } from '@/lib/recording-ui';
+import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 
 // ============================================================
 // واجهة الاجتماعات المشتركة (Meeting/MeetRequest الحقيقيان من الخادم)
@@ -93,6 +94,8 @@ export interface FullMeetingCard {
     type: string;
     client: string;
     lawyer: string;
+    /** المحامي المسؤول — لشارة «في جلسة الآن» (`PresenceBadge`) */
+    lawyerId: number | null;
     when: string;
     approve: string;
     before: string[];
@@ -241,6 +244,7 @@ export function useLawyerDaySlots(base: string, lawyerId: number | '' | null | u
 }
 
 export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDirEntry[]; lawyers: { id: number; name: string }[]; selfLawyerId?: number | null; base: string }> = ({ requests, clients, lawyers, selfLawyerId, base }) => {
+    const inSession = useInSession();
     const toast = useToast();
     const ask = useConfirm();
     const mask = useMasker();
@@ -521,7 +525,7 @@ setMiTime('');
                         ) : (
                             <select value={miLawyer} onChange={(e) => setMiLawyer(e.target.value === '' ? '' : Number(e.target.value))}>
                                 <option value="">— اختر المحامي —</option>
-                                {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                                {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}{inSessionSuffix(inSession, l.id)}</option>)}
                             </select>
                         )}
                     </div>

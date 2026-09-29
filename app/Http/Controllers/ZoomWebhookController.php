@@ -135,6 +135,22 @@ class ZoomWebhookController extends Controller
         return null;
     }
 
+    /**
+     * **حسابُ الداخل من الطاقم** — غرفة المنصّة تعرّفه لـZoom بـ`customerKey` = `u{id}`
+     * (`ZoomController::sdkSignature`) فيعود في الحدث `customer_key`. الحمولة موقَّعة (HMAC أعلاه)،
+     * والحساب يُتحقَّق منه: طاقمٌ لا عميل. من دخل برابط Zoom الخارجيّ لا مفتاح له ⇒ لا يُخمَّن.
+     */
+    private function staffId(Request $request): ?int
+    {
+        $key = (string) $request->input('payload.object.participant.customer_key', '');
+        if (! preg_match('/^u(\d+)$/', $key, $m)) {
+            return null;
+        }
+        $user = User::find((int) $m[1]);
+
+        return $user !== null && ! $user->isClient() ? $user->id : null;
+    }
+
     // التسجيل/النصّ ثقيلان نسبياً — يُنزَّلان بعد إرسال الاستجابة (الـwebhook يردّ 200 فوراً)
     private function recording(Model $model, Request $request): void
     {
@@ -147,7 +163,7 @@ class ZoomWebhookController extends Controller
     {
         // من في الغرفة الآن — يُحسب لكلّ دخول (لا الأوّل وحده) ويُبثّ لصفحة الغرفة لحظيّاً
         if (($key = $this->participantKey($request)) !== null) {
-            RoomPresence::participantJoined($model, $key);
+            RoomPresence::participantJoined($model, $key, $this->staffId($request));
         }
 
         $join = $request->input('payload.object.participant.join_time');

@@ -6,6 +6,7 @@ import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
 import { dateISOAfter } from '@/lib/local-date';
+import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 import { truncateWords } from '@/lib/utils';
 
 // مهام الإدارة — إسناد مهام حقيقية للمحامين ومتابعة مؤشرات الإنجاز
@@ -35,6 +36,7 @@ const getInitials = (name: string): string => {
 };
 
 const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
+  const inSession = useInSession();
   const toast = useToast();
 
   // نمط العرض: جدول منظم | بطاقات كانبان
@@ -816,7 +818,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
             >
               {lawyers.map((l) => (
                 <option key={l.id} value={l.id}>
-                  {l.name}
+                  {l.name}{inSessionSuffix(inSession, l.id)}
                 </option>
               ))}
             </select>

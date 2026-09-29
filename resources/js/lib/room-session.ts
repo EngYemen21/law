@@ -36,6 +36,8 @@ interface SignaturePayload {
   userEmail: string;
   role: number;
   zak: string | null;
+  /** مفتاح حساب الطاقم لأحداث Zoom (`customer_key`) — به تُعرف حالة المحامي «في جلسة الآن» */
+  customerKey: string | null;
 }
 
 interface VideoSize { width: number; height: number }
@@ -61,6 +63,7 @@ interface ZoomClient {
     userName: string;
     userEmail?: string;
     zak?: string;
+    customerKey?: string;
   }): Promise<unknown>;
   leaveMeeting(): Promise<unknown>;
   updateVideoOptions?(opts: { viewSizes?: { default?: VideoSize } }): unknown;
@@ -513,6 +516,7 @@ async function join(): Promise<void> {
       userName: data.userName,
       userEmail: data.userEmail,
       zak: data.zak || undefined,
+      customerKey: data.customerKey || undefined,
     });
 
     if (stale()) {

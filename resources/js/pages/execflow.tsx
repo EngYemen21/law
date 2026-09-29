@@ -14,6 +14,7 @@ import type {ExecBucket, ExecDoc, ExecLawyerOpt, ExecReq, Role} from '@/lib/exec
 import { ExecNajizCard } from '@/lib/exec-najiz';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 import { useServerAction } from '@/lib/use-server-action';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -996,6 +997,7 @@ const ExecStudyCard: React.FC<{ r: ExecReq }> = ({ r }) => {
 // ملفٌّ بلا محامٍ حالةٌ يصلحها المكتب لا يتعايش معها: الخادم يردّ التسعير عليه.
 // يُعرض لمن يملك `canAssign` وحده (إدارةٌ دائماً، وموظّفٌ بصلاحيّة «إجراءات المحكمة والجلسات»).
 const ExecAssignCard: React.FC<{ r: ExecReq; lawyers: ExecLawyerOpt[]; act: ActFn }> = ({ r, lawyers, act }) => {
+  const inSession = useInSession();
   const unassigned = execUnassigned(r);
   const [sel, setSel] = useState<string>(r.lawyerId ? String(r.lawyerId) : '');
 
@@ -1011,7 +1013,7 @@ const ExecAssignCard: React.FC<{ r: ExecReq; lawyers: ExecLawyerOpt[]; act: ActF
           <div style={{ display: 'flex', gap: 6 }}>
             <select className="input" value={sel} onChange={(e) => setSel(e.target.value)} style={{ flex: 1 }}>
               <option value="">— اختر محامياً —</option>
-              {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}{inSessionSuffix(inSession, l.id)}</option>)}
             </select>
             <button className="btn sm" type="button" disabled={!sel} onClick={() => act('assignLawyer', { lawyer_id: Number(sel) })}>
               <Icon name="check" /> {unassigned ? 'إسناد' : 'إعادة الإسناد'}

@@ -6,6 +6,7 @@ import LawyerSuggestionHint, { type LawyerSuggestionData } from '@/components/ba
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import { foldSearch, isUrgentTicket } from '@/lib/employee-data';
+import { inSessionSuffix, PresenceBadge, useInSession } from '@/lib/staff-presence';
 import type { EmployeeTicketCard } from '@/types';
 
 // ============================================================
@@ -60,6 +61,7 @@ const EmployeeTransfer: React.FC<Props> = ({
   departments = [],
   recentTransfers = [],
 }) => {
+  const inSession = useInSession();
   const toast = useToast();
 
   // التبويب النشط
@@ -272,6 +274,7 @@ const EmployeeTransfer: React.FC<Props> = ({
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <b style={{ fontSize: 13.5, color: 'var(--ink)' }}>{l.name}</b>
+                    <PresenceBadge userId={l.id} showFree />
                     <Badge text={capLabel} tone={capTone} />
                   </div>
 
@@ -525,7 +528,7 @@ const EmployeeTransfer: React.FC<Props> = ({
                           >
                             {lawyers.map((l) => (
                               <option key={l.id} value={l.id}>
-                                {l.name} ({l.activeTickets} تذاكر)
+                                {l.name} ({l.activeTickets} تذاكر){inSessionSuffix(inSession, l.id)}
                               </option>
                             ))}
                           </select>
@@ -603,7 +606,7 @@ const EmployeeTransfer: React.FC<Props> = ({
               >
                 {lawyers.map((l) => (
                   <option key={l.id} value={l.id}>
-                    {l.name} ({l.activeTickets} تذاكر)
+                    {l.name} ({l.activeTickets} تذاكر){inSessionSuffix(inSession, l.id)}
                   </option>
                 ))}
               </select>

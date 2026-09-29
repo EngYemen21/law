@@ -8,6 +8,7 @@ import { foldSearch } from '@/lib/employee-data';
 import type {Staff} from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { usePermCatalog } from '@/lib/permissions';
+import { PresenceBadge } from '@/lib/staff-presence';
 
 type PayType = 'salary' | 'pct' | 'both' | 'session';
 
@@ -721,7 +722,7 @@ resetForm();
                           </div>
                           <div style={{ minWidth: 0 }}>
                             <div className="sn-b" style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>
-                              {s.name}
+                              {s.name} <PresenceBadge userId={s.id} />
                             </div>
                             <div className="sn-s" style={{ color: 'var(--muted)', fontSize: 11.5, display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }}>
                               <span>{s.role}</span>

@@ -467,6 +467,7 @@ class Meeting extends Model
             'type' => $this->type,
             'client' => $this->client_name ?: 'داخلي',
             'lawyer' => $this->assignedLawyer?->name ?: '—',
+            'lawyerId' => $this->assigned_lawyer_id,
             'when' => $this->when_label,
             'approve' => $this->approve,
             'before' => $this->before_items ?? [],

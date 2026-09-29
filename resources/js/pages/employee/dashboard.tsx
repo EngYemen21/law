@@ -4,6 +4,7 @@ import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { PresenceBadge } from '@/lib/staff-presence';
 import type { EmployeeTicketCard } from '@/types';
 
 // ============================================================
@@ -607,6 +608,7 @@ const EmployeeDashboard: React.FC<Props> = ({
                       <div>
                         <b style={{ fontSize: 13, color: 'var(--deep)', display: 'block' }}>{l.name}</b>
                         <span style={{ fontSize: 11, color: 'var(--muted)' }}>{l.dept}</span>
+                        <PresenceBadge userId={l.id} />
                       </div>
                       <div style={{ display: 'flex', gap: 5 }}>
                         <span className="chip" style={{ fontSize: 11 }} title="تذاكر نشطة">

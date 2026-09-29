@@ -7,6 +7,7 @@ import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import { useToast } from '@/components/babylon/Toast';
 import { foldSearch, isUrgentTicket, TICKET_PRIORITIES } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { inSessionSuffix, PresenceBadge, useInSession } from '@/lib/staff-presence';
 
 /* ─────────────────────────────────────────────────────────────
    مركز التوزيع والإسناد الشامل للأعمال القانونية — الإدارة العليا
@@ -127,6 +128,7 @@ export const AdminDistribute: React.FC<Props> = ({
   departments = [],
   kpis,
 }) => {
+  const inSession = useInSession();
   const ask = useConfirm();
   const toast = useToast();
 
@@ -439,6 +441,7 @@ export const AdminDistribute: React.FC<Props> = ({
                     <div style={{ overflow: 'hidden' }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{l.name}</div>
                       <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 1 }}>{l.department}</div>
+                      <PresenceBadge userId={l.id} />
                     </div>
                   </div>
 
@@ -651,7 +654,7 @@ export const AdminDistribute: React.FC<Props> = ({
             >
               {lawyers.map((l) => (
                 <option key={l.id} value={l.id} style={{ background: 'var(--deep)' }}>
-                  {l.name} · عبء: {l.totalLoad} وحدة
+                  {l.name} · عبء: {l.totalLoad} وحدة{inSessionSuffix(inSession, l.id)}
                 </option>
               ))}
             </select>
@@ -829,7 +832,7 @@ export const AdminDistribute: React.FC<Props> = ({
                           >
                             {lawyers.map((l) => (
                               <option key={l.id} value={l.id}>
-                                {l.name} ({l.totalLoad} عبء)
+                                {l.name} ({l.totalLoad} عبء){inSessionSuffix(inSession, l.id)}
                               </option>
                             ))}
                           </select>
@@ -980,7 +983,7 @@ export const AdminDistribute: React.FC<Props> = ({
                 >
                   {lawyers.map((l) => (
                     <option key={l.id} value={l.id}>
-                      {l.name} — {l.department} (إجمالي العبء: {l.totalLoad} وحدة)
+                      {l.name} — {l.department} (إجمالي العبء: {l.totalLoad} وحدة){inSessionSuffix(inSession, l.id)}
                     </option>
                   ))}
                 </select>

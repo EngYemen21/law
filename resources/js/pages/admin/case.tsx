@@ -14,6 +14,7 @@ import type { Hearing } from '@/lib/case-ui';
 import type { Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
+import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 import type { CaseDocumentCard, TicketDocumentCard } from '@/types';
 
 /**
@@ -52,6 +53,7 @@ interface Props {
 }
 
 const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, ticketDocuments = [], convertedExec, lawyers, conversation, closureReasons }) => {
+  const inSession = useInSession();
   const toast = useToast();
   const base = `/admin/cases/${encodeURIComponent(c.no)}`;
   const [msgs, setMsgs] = useState<Message[]>(messages);
@@ -182,7 +184,7 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
                   <div style={{ display: 'flex', gap: 6 }}>
                     <select className="input" value={lawyerId} onChange={(e) => setLawyerId(e.target.value)} style={{ flex: 1 }}>
                       <option value="">— اختر محامياً —</option>
-                      {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                      {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}{inSessionSuffix(inSession, l.id)}</option>)}
                     </select>
                     <button className="btn sm soft" type="button" disabled={busy || !lawyerId} onClick={reassign}>إعادة الإسناد</button>
                   </div>

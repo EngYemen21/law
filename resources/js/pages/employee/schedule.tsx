@@ -15,6 +15,7 @@ import { CONFIRM_NO_SHOW } from '@/lib/consult-ui';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
+import { inSessionSuffix, PresenceBadge, useInSession } from '@/lib/staff-presence';
 import { useServerAction } from '@/lib/use-server-action';
 import { truncateWords } from '@/lib/utils';
 
@@ -150,6 +151,7 @@ const EmployeeSchedule: React.FC<Props> = ({
   awaitingConsults = [],
   can,
 }) => {
+  const inSession = useInSession();
   const toast = useToast();
   // قفلٌ موحّد لفعل «لم يحضر» من بطاقة الموعد
   const action = useServerAction();
@@ -1085,6 +1087,7 @@ return lawyers;
                               <div>
                                 <div style={{ fontWeight: 800, color: 'var(--deep)', fontSize: 13.5 }}>{l.name}</div>
                                 <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}>{l.dept || 'القسم القانوني'}</div>
+                                <PresenceBadge userId={l.id} showFree />
                               </div>
                             </div>
 
@@ -1574,7 +1577,7 @@ return lawyers;
               >
                 {lawyers.map((l) => (
                   <option key={l.id} value={l.id}>
-                    {l.name} {l.dept ? `(${l.dept})` : ''}
+                    {l.name} {l.dept ? `(${l.dept})` : ''}{inSessionSuffix(inSession, l.id)}
                   </option>
                 ))}
               </select>

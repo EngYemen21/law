@@ -23,6 +23,7 @@ import { useConsultSlots } from '@/lib/consult-slots';
 import { echo } from '@/lib/echo';
 import { useCan } from '@/lib/permissions';
 import { todayISO } from '@/lib/local-date';
+import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 import { useServerAction } from '@/lib/use-server-action';
 import type { EmployeeTicketCard } from '@/types';
 
@@ -90,6 +91,7 @@ const EmployeeTicketChat: React.FC<{
   /** مراحل إحالة الموظّف (`TicketTriage::REFERRABLE`) — يقارنها الزرّ بالحالة الحيّة. */
   referrable: string[];
 }> = ({ ticket, channel, messages, lawyers, clientStats, catalogueDepartments = [], conversation, referrable }) => {
+  const inSession = useInSession();
   const toast = useToast();
   const can = useCan();
   // الأزرار تُخفى بحسب الصلاحية التفصيلية — كانت تُعرض للجميع ثم يُبتلع رفض الخادم
@@ -268,7 +270,7 @@ const EmployeeTicketChat: React.FC<{
           >
             <option value="">توزيع تلقائي</option>
             {lawyers.map((l) => (
-              <option key={l.id} value={String(l.id)}>{l.name}</option>
+              <option key={l.id} value={String(l.id)}>{l.name}{inSessionSuffix(inSession, l.id)}</option>
             ))}
           </select>
         </div>

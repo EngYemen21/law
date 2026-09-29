@@ -15,6 +15,7 @@ use App\Models\UserNotification;
 use App\Services\Ai\AiReviewInbox;
 use App\Support\AdminApprovalQueue;
 use App\Support\Permissions;
+use App\Support\RoomPresence;
 use App\Support\SettingsRegistry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -134,6 +135,9 @@ class HandleInertiaRequests extends Middleware
                 // السقف النافذ من الإعدادات (`consult_reschedule_limit`) — القارئ نفسه الذي يحرس الانتقال
                 'limit' => RescheduleConsult::limit(),
             ] : null,
+            // **مَن من الطاقم في جلسة Zoom الآن** [معرّف ⇒ رقم الجلسة] — من أحداث Zoom (`RoomPresence`)،
+            // قراءةٌ واحدة تغذّي كلّ قوائم المحامين في الصفحة (`lib/staff-presence`). للطاقم وحده، وللعرض فقط.
+            'inSession' => fn () => ($user && $user->role !== Role::Client) ? (object) RoomPresence::staffInSession() : null,
             // عدّ الإشعارات غير المقروءة الحقيقي (كسول) — يغذّي نقطة الجرس وشارة «الإشعارات»
             'unreadNotifications' => fn () => $user
                 ? UserNotification::where('user_id', $user->id)->where('is_read', false)->count()

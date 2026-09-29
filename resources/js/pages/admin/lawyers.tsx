@@ -2,6 +2,7 @@ import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
+import { PresenceBadge } from '@/lib/staff-presence';
 
 // يطابق adLawyers — المحامون من جدول users بدور lawyer + عدد التذاكر المحالة
 // + وضع التوزيع لكل محامٍ (تلقائي/يدوي) قابل للتبديل عبر /admin/lawyers/{id}/mode
@@ -44,7 +45,7 @@ const AdminLawyers: React.FC<{ lawyers: LawyerRow[] }> = ({ lawyers }) => {
           <tbody>
             {lawyers.length ? lawyers.map((l) => (
               <tr key={l.id}>
-                <td><b>{l.name}</b>{l.suspended && <> <Badge text="موقوف" tone="b-red" /></>}</td>
+                <td><b>{l.name}</b>{l.suspended && <> <Badge text="موقوف" tone="b-red" /></>} <PresenceBadge userId={l.id} showFree={!l.suspended} /></td>
                 <td>
                   <div className="chips">
                     {l.depts.length ? l.depts.map((d) => <span key={d} className="chip muted">{d}</span>) : <span className="chip muted">—</span>}
