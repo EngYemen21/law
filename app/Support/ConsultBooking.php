@@ -117,7 +117,8 @@ class ConsultBooking
             'ticket_id' => $ticket?->id,
             'ref' => $ctx['ref'],
             'subject' => $ctx['subject'],
-            'details' => $data['details'] ?? null,
+            // وقائع العميل: من النموذج، وإلّا رسالته الأولى في التذكرة — فيقرؤها المسعّر والمحامي في الاستشارة
+            'details' => $data['details'] ?? ($ticket?->openingText() ?: null),
             'status' => 'بانتظار التسعير',
             'session' => 'بانتظار الجلسة',
             'type' => $ctx['type'],
@@ -331,7 +332,8 @@ class ConsultBooking
         $lawyer = $lawyerUser?->name
             ?: (($data['lawyer'] ?? null) ?: ($ticket?->assigned_lawyer ?: 'المستشار القانوني'));
 
-        $subject = $data['subject'] ?? $ticket?->type ?? 'استشارة قانونية';
+        // استشارة التذكرة تحمل عنوانها كما يراه العميل (لا نوعها) — ما تعرضه صفحة الحجز عند اختيارها
+        $subject = $data['subject'] ?? ($ticket ? ($ticket->subject ?: $ticket->type) : null) ?? 'استشارة قانونية';
         $specialty = Specialties::normalize($data['specialty'] ?? $lawyerUser?->department) ?: null;
         $dept = $data['department'] ?? $ticket?->department;
 

@@ -125,7 +125,10 @@ class ConsultBookingPageTest extends TestCase
     public function test_booking_through_the_picked_ticket_links_the_consult(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $ticket = $this->ticketWithApprovedOpinion($client, ['status' => 'بانتظار حجز الاستشارة']);
+        $ticket = $this->ticketWithApprovedOpinion($client, [
+            'status' => 'بانتظار حجز الاستشارة', 'subject' => 'مطالبة بقيمة توريد', 'type' => 'نزاع تجاري',
+        ]);
+        $ticket->messages()->create(['who' => 'client', 'name' => 'أنت', 'role' => 'العميل', 'body' => nl2br(e("ورّدنا البضاعة\nولم نُسدَّد")), 'time_label' => 'الآن']);
 
         // الصفحة ترسل إلى مسار التذكرة نفسه — لا مسار جديد
         $this->assertStringContainsString('axios.post(`/tickets/${encodeURIComponent(linked.number)}/book`', (string) file_get_contents(resource_path('js/pages/book.tsx')));
@@ -134,6 +137,9 @@ class ConsultBookingPageTest extends TestCase
 
         $consult = Consult::sole();
         $this->assertSame($ticket->id, $consult->ticket_id, 'الاستشارة مربوطة بالتذكرة');
+        // ما عرضته الصفحة هو ما حُفظ: عنوان التذكرة لا نوعها، ووقائعها من رسالة العميل الأولى
+        $this->assertSame('مطالبة بقيمة توريد', $consult->subject);
+        $this->assertSame("ورّدنا البضاعة\nولم نُسدَّد", $consult->details);
         $this->assertTrue($ticket->fresh()->hasPendingConsult());
 
         // ولا تعود التذكرة في القائمة — طلبٌ واحد قائم
