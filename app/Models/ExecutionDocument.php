@@ -14,12 +14,18 @@ class ExecutionDocument extends Model
 {
     use PurgesStoredFile;
 
-    protected $fillable = ['execution_id', 'label', 'status', 'path', 'mime', 'size', 'uploaded_at', 'doc_type', 'summary'];
+    protected $fillable = ['execution_id', 'label', 'status', 'uploaded_by', 'path', 'mime', 'size', 'uploaded_at', 'doc_type', 'summary'];
 
     protected $casts = [
         'size' => 'integer',
         'uploaded_at' => 'datetime',
     ];
+
+    /** هل رفعه العميل بنفسه؟ — `uploaded_by` افتراضه `client` (كلّ مسارات الرفع له)، و`staff` لما نُسخ من مرفقات المكتب. */
+    public function isFromClient(): bool
+    {
+        return $this->uploaded_by !== 'staff';
+    }
 
     public function execution(): BelongsTo
     {

@@ -39,53 +39,55 @@ class DocumentController extends Controller
                 'at' => $d->created_at?->getTimestamp() ?? 0,
             ]);
 
-        // 2. مستندات القضايا: ما أرفقه/أصدره المكتب، وما رفعه العميل بنفسه
+        /*
+         * **ما رفعه العميل بنفسه في «مستنداتك المرفوعة»، والصادرة للمكتب وحده** (قرار المالك 2026-09-29).
+         * كانت مرفقات العميل من محادثات القضيّة والتذكرة والتنفيذ تُعرض «صادرةً إليك» — ومرفق التنفيذ
+         * بوسم «قرار 34/46» كأنّ المكتب أصدره (ثبت باختبار). المصدر في كلّ نوعٍ سؤالٌ واحد: `isFromClient()`.
+         */
+        $row = fn (string $key, int $id, string $name, string $meta, ?string $path, string $type, mixed $at) => [
+            'id' => "{$key}-{$id}",
+            'name' => $name,
+            'meta' => $meta,
+            'canDownload' => ! empty($path),
+            'downloadUrl' => ! empty($path) ? route('documents.download-file', ['type' => $type, 'id' => $id]) : null,
+            'at' => $at?->getTimestamp() ?? 0,
+        ];
+
+        // 2. مستندات القضايا
         $caseDocs = CaseDocument::whereHas('legalCase', fn ($q) => $q->where('user_id', $user->id))
             ->latest('id')->get()
-            ->map(fn (CaseDocument $cd) => [
-                'id' => 'case-'.$cd->id,
-                'name' => $cd->name,
-                // المصدر من `uploaded_by` الذي يكتبه رافعُه — لا وسمَ «معتمد من المكتب» على مستند العميل
-                'meta' => 'مستند قضية · '.($cd->doc_type ?: ($cd->uploaded_by === 'client' ? 'مرفوع منك' : 'معتمد من المكتب')),
-                'canDownload' => ! empty($cd->path),
-                'downloadUrl' => ! empty($cd->path) ? route('documents.download-file', ['type' => 'case', 'id' => $cd->id]) : null,
-                'at' => $cd->created_at?->getTimestamp() ?? 0,
-            ]);
+            ->map(fn (CaseDocument $cd) => ['mine' => $cd->isFromClient()] + $row(
+                'case', $cd->id, (string) $cd->name,
+                'مستند قضية · '.($cd->doc_type ?: ($cd->isFromClient() ? 'مرفوع منك' : 'معتمد من المكتب')),
+                $cd->path, 'case', $cd->created_at,
+            ));
 
-        // 3. مستندات وسندات التنفيذ التي أصدرها/أرفقها المكتب للعميل
+        // 3. مستندات التنفيذ
         $execDocs = ExecutionDocument::whereHas('execution', fn ($q) => $q->where('user_id', $user->id))
             ->whereNotNull('path')
             ->latest('id')->get()
-            ->map(fn (ExecutionDocument $ed) => [
-                'id' => 'exec-'.$ed->id,
-                'name' => $ed->label ?: basename((string) $ed->path),
-                'meta' => 'مستند تنفيذ · '.($ed->doc_type ?: 'قرار 34/46'),
-                'canDownload' => true,
-                'downloadUrl' => route('documents.download-file', ['type' => 'exec', 'id' => $ed->id]),
-                'at' => $ed->created_at?->getTimestamp() ?? 0,
-            ]);
+            ->map(fn (ExecutionDocument $ed) => ['mine' => $ed->isFromClient()] + $row(
+                'exec', $ed->id, (string) ($ed->label ?: basename((string) $ed->path)),
+                'مستند تنفيذ · '.($ed->doc_type ?: ($ed->isFromClient() ? 'مرفوع منك' : 'مرفق من المكتب')),
+                $ed->path, 'exec', $ed->created_at,
+            ));
 
-        // 4. مستندات التذاكر والاستشارات: ما أرفقه المكتب للعميل، وما رفعه هو بنفسه
+        // 4. مستندات التذاكر والاستشارات
         $ticketDocs = TicketDocument::whereHas('ticket', fn ($q) => $q->where('user_id', $user->id))
             ->whereNotNull('path')
             ->latest('id')->get()
-            ->map(fn (TicketDocument $td) => [
-                'id' => 'ticket-'.$td->id,
-                'name' => $td->name,
-                // مصدر المستند بحالته كما في `Lawyer\CaseController` — كان مستندُ العميل نفسه
-                // يُعرض عليه «معتمد من المكتب»، وهو وصفٌ لمصدرٍ لم يُصدره
-                'meta' => 'مستند استشارة · '.($td->doc_type ?: ($td->status === 'مرفق من المكتب' ? 'مرفق من المكتب' : 'مرفوع منك')),
-                'canDownload' => true,
-                'downloadUrl' => route('documents.download-file', ['type' => 'ticket', 'id' => $td->id]),
-                'at' => $td->created_at?->getTimestamp() ?? 0,
-            ]);
+            ->map(fn (TicketDocument $td) => ['mine' => $td->isFromClient()] + $row(
+                'ticket', $td->id, (string) $td->name,
+                'مستند استشارة · '.($td->doc_type ?: ($td->isFromClient() ? 'مرفوع منك' : 'مرفق من المكتب')),
+                $td->path, 'ticket', $td->created_at,
+            ));
 
-        // **دمجٌ زمنيّ لا رصٌّ تِباعاً.** كلّ مصدرٍ مرتَّبٌ وحده ثمّ `concat` يضعه خلف سابقه،
-        // فمستندُ التذكرة الصادر الآن يظهر بعد **كلّ** مستندات القضايا والتنفيذ.
+        $linked = $caseDocs->concat($execDocs)->concat($ticketDocs);
+        $strip = fn (array $d) => array_diff_key($d, ['mine' => true]);
+
+        // **دمجٌ زمنيّ لا رصٌّ تِباعاً** — كلّ مصدرٍ مرتَّبٌ وحده، و`concat` كان يضع الأحدث خلف كلّ سابقه
         $docsOut = $directOutDocs
-            ->concat($caseDocs)
-            ->concat($execDocs)
-            ->concat($ticketDocs)
+            ->concat($linked->reject(fn ($d) => $d['mine'])->map($strip))
             ->sortByDesc('at')
             ->values();
 
@@ -94,7 +96,11 @@ class DocumentController extends Controller
             ->latest('id')->get()
             ->map(fn (Document $d) => array_merge($d->toCard(), [
                 'downloadUrl' => route('documents.download', $d->id),
-            ]));
+                'at' => $d->created_at?->getTimestamp() ?? 0,
+            ]))
+            ->concat($linked->filter(fn ($d) => $d['mine'])->map($strip))
+            ->sortByDesc('at')
+            ->values();
 
         return Inertia::render('documents', [
             'docsOut' => $docsOut,
