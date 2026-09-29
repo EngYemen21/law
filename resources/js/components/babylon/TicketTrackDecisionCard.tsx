@@ -40,6 +40,8 @@ export interface TicketTrackProps {
   executionNumber?: string | null;
   closureReasonCode?: string | null;
   closureNotes?: string | null;
+  /** يملك رفع المقترح — المحامي بـ«إدارة القضايا والأتعاب» (حارس مسار `track/propose`)؛ وإلّا تُعرض البطاقة للاطّلاع */
+  canPropose?: boolean;
 }
 
 const TRACKS = [
@@ -98,6 +100,7 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
   executionNumber = null,
   closureReasonCode = null,
   closureNotes = null,
+  canPropose = true,
 }) => {
   const toast = useToast();
   const isAdmin = role === 'admin';
@@ -273,7 +276,7 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
                   {aiTrackMeta?.label || governance.aiSuggestedTrack}
                 </span>
               </div>
-              {!isFrozen && !approved && (
+              {!isFrozen && !approved && canPropose && (
                 <button
                   type="button"
                   onClick={applyAiSuggestion}
@@ -487,6 +490,10 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
                 المقترح قيد دراسة وتوجيه الإدارة العليا. سيُنشر للعميل فور اعتماده.
               </div>
             )}
+          </div>
+        ) : !canPropose ? (
+          <div style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'center', padding: '6px 0' }}>
+            رفعُ مقترح المسار لمن يملك صلاحيّة «إدارة القضايا والأتعاب».
           </div>
         ) : (
           /* ── 4. نموذج تحديد المسار (الخيارات الأربعة + التسبيب) ── */

@@ -14,13 +14,14 @@ import type { Hearing } from '@/lib/case-ui';
 import type { Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
+import { useServerAction } from '@/lib/use-server-action';
 import type { CaseDocumentCard, TicketDocumentCard } from '@/types';
 
 interface CaseInfo {
   no: string; client: string; type: string; dept: string; lawyer: string;
   status: string; tone: string; next?: string | null; pleadingStatus: string; ruling?: string | null;
   /** أعلام الحالة من الخادم (`LegalCase::stateFlags`) — في البطاقة والبثّ. */
-  isActive: boolean; postJudgment: boolean;
+  isActive: boolean; postJudgment: boolean; isArchived: boolean; inCourt: boolean;
 
   appeal?: AppealData | null;
 }
@@ -57,7 +58,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
   const [attachOpen, setAttachOpen] = useState(false);
   const [msgs, setMsgs] = useState<Message[]>(messages);
   const [reply, setReply] = useState('');
-  const [live, setLive] = useState({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment });
+  const [live, setLive] = useState({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment, isArchived: c.isArchived, inCourt: c.inCourt });
   const [propsFrom, setPropsFrom] = useState({ status: c.status, messages });
   // محرّر اللائحة — يتبع أحدث مسودّة من الخادم (بعد الحفظ أو إعادة التوليد)
   const [draft, setDraft] = useState(pleadingDraft ?? '');
@@ -94,7 +95,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
   // والشارة تبقى «قيد التحضير» ورسالة القيد لا تظهر حتى إعادة التحميل (قيسَ في المتصفّح 2026-09-11).
   if (c.status !== propsFrom.status || messages !== propsFrom.messages) {
     setPropsFrom({ status: c.status, messages });
-    setLive({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment });
+    setLive({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment, isArchived: c.isArchived, inCourt: c.inCourt });
     setMsgs(messages);
   }
 
@@ -121,8 +122,8 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
     ch.listen('.message', append);
     // الملاحظات الداخليّة تُبثّ على قناة الطاقم وحدها — لا على القناة التي يسمعها العميل
     echo.private(`${channel}.staff`).listen('.message', append);
-    ch.listen('.status', (e: { status: string; tone: string; isActive: boolean; postJudgment: boolean }) => {
-      setLive({ status: e.status, tone: e.tone, isActive: e.isActive, postJudgment: e.postJudgment });
+    ch.listen('.status', (e: { status: string; tone: string; isActive: boolean; postJudgment: boolean; isArchived: boolean; inCourt: boolean }) => {
+      setLive({ status: e.status, tone: e.tone, isActive: e.isActive, postJudgment: e.postJudgment, isArchived: e.isArchived, inCourt: e.inCourt });
       // مسودّةٌ جهزت بالطابور (المحجوب لا يُبثّ) — يُحدَّث المحرّر وسببُ المنع
       router.reload({ only: ['pleadingDraft', 'pleadingBlock'] });
     });
@@ -189,10 +190,12 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
     pleadingPost('pleading', {}, 'اعتُمدت اللائحة نهائياً — ارفعها الآن في ناجز وسجّل رقم الطلب');
   };
   // الرفع في ناجز والقيد والجلسات والحكم: بطاقات `case-court` — مشتركةٌ مع الموظّف
+  // الأداة الموحّدة: قفلٌ ضدّ النقرتين، ورسالة الرفض تُسمع — كان الطلب يُرسل بلا قفلٍ ولا رسالة خطأ
+  const execAction = useServerAction();
   const convertToExec = () =>
-    router.post(`${base}/execute`, {}, { onSuccess: () => toast('تم فتح طلب تنفيذ الحكم') });
+    execAction.run(`${base}/execute`, { success: 'تم فتح طلب تنفيذ الحكم', fallback: 'تعذّر فتح طلب تنفيذ الحكم' });
 
-  const active = c.status === 'منظورة';
+  const active = live.inCourt;
 
   return (
     <div className="tflow">
@@ -210,13 +213,18 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
           <div className="card">
             <div className="card-h"><h3>محادثة القضية</h3></div>
             <div className="thread">{msgs.map((m, i) => <CaseMsgRow key={m.id ?? i} m={m} />)}</div>
-            <div className="composer">
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--faint)', marginBottom: 8 }}>ردّ للعميل (المستشار القانوني):</div>
-              <form onSubmit={send}>
-                <textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="اكتب ردّك للعميل…" />
-                <div className="crow"><button className="btn" type="submit"><Icon name="send" /> إرسال</button></div>
-              </form>
-            </div>
+            {/* الأرشيف للقراءة — الخادم يردّ الردّ عليه، فلا صندوقَ يُكتب فيه ثمّ يُرفض */}
+            {live.isArchived ? (
+              <div className="composer sub">القضية مؤرشفة — ملفّها للقراءة فقط.</div>
+            ) : (
+              <div className="composer">
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--faint)', marginBottom: 8 }}>ردّ للعميل (المستشار القانوني):</div>
+                <form onSubmit={send}>
+                  <textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="اكتب ردّك للعميل…" />
+                  <div className="crow"><button className="btn" type="submit"><Icon name="send" /> إرسال</button></div>
+                </form>
+              </div>
+            )}
           </div>
 
           {/* جدولة الجلسات — والقضيّة منظورة */}
@@ -235,7 +243,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
           <AppealCard
             base={base}
             appeal={c.appeal}
-            canAct={!['مؤرشفة'].includes(live.status)}
+            canAct={!live.isArchived}
             defaultCourt={fileInfo.court ?? ''}
           />
         </div>
@@ -331,7 +339,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
           <div className="card">
             <div className="card-h">
               <h3>مستندات القضية</h3>
-              {c.status !== 'مؤرشفة' && (
+              {!live.isArchived && (
                 <button className="btn soft sm" type="button" onClick={() => setAttachOpen(true)}>
                   <Icon name="upload" /> إرفاق مستند
                 </button>
@@ -411,7 +419,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
                 ) : (
                   <>
                     <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>صدر الحكم. يمكنك فتح طلب تنفيذ لتحصيل الحق لدى محكمة التنفيذ.</div>
-                    <button className="btn sm" type="button" onClick={convertToExec}><Icon name="exec" /> فتح طلب تنفيذ الحكم</button>
+                    <button className="btn sm" type="button" disabled={execAction.busy} onClick={convertToExec}><Icon name="exec" /> فتح طلب تنفيذ الحكم</button>
                   </>
                 )}
               </div>

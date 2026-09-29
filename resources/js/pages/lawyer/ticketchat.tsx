@@ -354,6 +354,7 @@ setTypingSignal((n) => n + 1);
             status={status.status}
             role={base === '/admin' ? 'admin' : 'lawyer'}
             base={base}
+            canPropose={base === '/admin' || canManageCases}
             governance={ticket.trackGovernance}
             isFrozen={isFrozen}
             hasCase={ticket.hasCase || Boolean(ticket.caseRef)}

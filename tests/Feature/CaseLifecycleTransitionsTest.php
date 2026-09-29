@@ -86,6 +86,11 @@ class CaseLifecycleTransitionsTest extends TestCase
         $this->assertSame('pending_lawyer', $case->pleading_status);
         $this->assertFalse(Invoice::where('case_id', $case->id)->exists(), 'ولا فاتورة بصفر ريال');
         $this->assertTrue(AuditLog::where('action', 'قضية بلا أتعاب')->exists());
+        // والتفعيل نفسه يجري (تدقيق 2026-09-29): كان الانتقال يضبط حالة اللائحة قبل `CaseFee::activate`
+        // فيظنّها مفعّلةً سابقاً ويعود — فلا مسوّدة لائحة ولا رسالة تفعيل ولا خطّة عمل ولا سطر تدقيق
+        Queue::assertPushed(DraftCasePleadingJob::class);
+        $this->assertTrue($case->messages()->where('role', 'تفعيل')->exists(), 'رسالة التفعيل');
+        $this->assertTrue(AuditLog::where('action', 'تفعيل القضية')->exists());
     }
 
     public function test_a_positive_fee_still_issues_the_invoice(): void

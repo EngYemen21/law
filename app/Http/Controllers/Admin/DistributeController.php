@@ -15,6 +15,7 @@ use App\Models\Ticket;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
 use App\Support\Audit;
+use App\Support\ExecService;
 use App\Support\LegalCatalogue;
 use App\Support\Live;
 use App\Support\TicketAssignment;
@@ -418,13 +419,9 @@ class DistributeController extends Controller
 
     private function assignExecutionTo(Execution $execution, User $lawyer, User $actor): string
     {
-        abort_if($execution->isClosed(), 422, 'ملفّ التنفيذ منتهٍ أو مغلق — لا يُسنَد بعد إغلاقه.');
-        abort_if($execution->decision === 'مرفوض', 422, 'هذا الطلب مرفوض بعد الدراسة — لا يُسنَد إليه محامٍ.');
-
-        $execution->update([
-            'assigned_lawyer_id' => $lawyer->id,
-            'assigned_lawyer' => $lawyer->name,
-        ]);
+        // مسار الإسناد الواحد (`ExecService::assignLawyer`): حرّاسه (المغلق والمرفوض)، وانتقالُ الرحلة بفاعله،
+        // ورسالة الملفّ، وإشعار المحامي وبريده — كان هنا تحديثٌ مباشر بلا شيءٍ من ذلك (تدقيق 2026-09-29)
+        ExecService::assignLawyer($execution, $lawyer, $actor);
 
         Audit::log(
             action: 'إسناد ملف تنفيذ',

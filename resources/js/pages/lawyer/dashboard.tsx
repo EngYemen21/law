@@ -147,6 +147,8 @@ const LawyerDashboard: React.FC<Props> = ({
 }) => {
   const can = useCan();
   const toast = useToast();
+  // مسارات المهامّ (`/lawyer/tasks` إضافةً وإنجازاً) خلف «إدارة القضايا والأتعاب» — فأزرارها لمن يملكها وحده
+  const canManageTasks = can('إدارة القضايا والأتعاب');
 
   // الحالة للتبويب النشط والبحث
   const [activeTab, setActiveTab] = useState<'tickets' | 'cases' | 'hearings' | 'consults' | 'executions' | 'tasks'>('tickets');
@@ -355,13 +357,15 @@ return tasks;
             >
               <Icon name="clock" /> تحديث البيانات
             </button>
-            <button
-              className="hero-b"
-              onClick={() => setTaskModalOpen(true)}
-              type="button"
-            >
-              <Icon name="plus" /> مهمة سريعة
-            </button>
+            {canManageTasks && (
+              <button
+                className="hero-b"
+                onClick={() => setTaskModalOpen(true)}
+                type="button"
+              >
+                <Icon name="plus" /> مهمة سريعة
+              </button>
+            )}
           </div>
         </div>
 
@@ -915,7 +919,7 @@ setActiveTab('tasks');
                             <Badge text={t.status} tone={t.tone} />
                           </td>
                           <td style={{ textAlign: 'end', paddingInlineEnd: 16 }}>
-                            {t.status !== 'منجزة' && (
+                            {canManageTasks && t.status !== 'منجزة' && (
                               <button
                                 className="btn soft sm"
                                 onClick={() => handleCompleteTask(t.id)}
@@ -1065,14 +1069,16 @@ setActiveTab('tasks');
               <h3>
                 <Icon name="check" /> المهام العاجلة
               </h3>
-              <button
-                className="btn soft sm"
-                onClick={() => setTaskModalOpen(true)}
-                type="button"
-                style={{ padding: '4px 8px', fontSize: 11.5 }}
-              >
-                <Icon name="plus" /> إضافة
-              </button>
+              {canManageTasks && (
+                <button
+                  className="btn soft sm"
+                  onClick={() => setTaskModalOpen(true)}
+                  type="button"
+                  style={{ padding: '4px 8px', fontSize: 11.5 }}
+                >
+                  <Icon name="plus" /> إضافة
+                </button>
+              )}
             </div>
             <div className="card-b" style={{ padding: '12px 16px' }}>
               {tasks.filter((t) => t.status !== 'منجزة').length > 0 ? (
@@ -1098,25 +1104,27 @@ setActiveTab('tasks');
                           {t.ref} · {t.due} {t.overdue ? '(متأخرة)' : ''}
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleCompleteTask(t.id)}
-                        type="button"
-                        style={{
-                          width: 26,
-                          height: 26,
-                          borderRadius: 6,
-                          background: '#fff',
-                          border: '1px solid #E1E8EE',
-                          display: 'grid',
-                          placeItems: 'center',
-                          color: '#10b981',
-                          flexShrink: 0,
-                          marginInlineStart: 8,
-                        }}
-                        title="تعليم كمنجزة"
-                      >
-                        <Icon name="check" cls="ic" />
-                      </button>
+                      {canManageTasks && (
+                        <button
+                          onClick={() => handleCompleteTask(t.id)}
+                          type="button"
+                          style={{
+                            width: 26,
+                            height: 26,
+                            borderRadius: 6,
+                            background: '#fff',
+                            border: '1px solid #E1E8EE',
+                            display: 'grid',
+                            placeItems: 'center',
+                            color: '#10b981',
+                            flexShrink: 0,
+                            marginInlineStart: 8,
+                          }}
+                          title="تعليم كمنجزة"
+                        >
+                          <Icon name="check" cls="ic" />
+                        </button>
+                      )}
                     </div>
                   ))}
                   <button

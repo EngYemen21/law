@@ -3,13 +3,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import CaseClosureModal from '@/components/babylon/CaseClosureModal';
 import type { ClosureReasonOption } from '@/components/babylon/CaseClosureModal';
+import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
 import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { AppealCard, type AppealData } from '@/lib/case-court';
-import { CASE_LIFE, caseStage, HearingsCard, CaseMsgRow } from '@/lib/case-ui';
+import { CASE_LIFE, CONFIRM_ARCHIVE_CASE, caseStage, HearingsCard, CaseMsgRow } from '@/lib/case-ui';
 import type { Hearing } from '@/lib/case-ui';
 import type { Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
@@ -103,6 +104,14 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
     });
   };
 
+  // الأرشفة نهائيّةٌ بعد الإغلاق — تُؤكَّد بنصّ القائمة نفسه (`CONFIRM_ARCHIVE_CASE`)؛ كانت هنا بلا تأكيد
+  const ask = useConfirm();
+  const archive = async () => {
+    if (await ask(CONFIRM_ARCHIVE_CASE)) {
+      act('archive', {}, 'أُرشفت القضية');
+    }
+  };
+
   const reassign = () => {
     if (!lawyerId || Number(lawyerId) === c.lawyerId) {
       toast('اختر محامياً غير المسنَد حالياً');
@@ -172,7 +181,7 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
                 </button>
               )}
               {c.canArchive && (
-                <button className="btn sm soft" type="button" disabled={busy} onClick={() => act('archive', {}, 'أُرشفت القضية')}>
+                <button className="btn sm soft" type="button" disabled={busy} onClick={archive}>
                   <Icon name="folder" /> أرشفة القضية
                 </button>
               )}

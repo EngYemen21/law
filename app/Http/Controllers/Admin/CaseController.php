@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domain\Journey\Enums\CaseStatus;
 use App\Domain\Journey\Enums\ClosureCaseReasonCode;
 use App\Domain\Journey\Transitions\LegalCase\ArchiveCase as ArchiveCaseTransition;
 use App\Domain\Journey\Transitions\LegalCase\CloseCase as CloseCaseTransition;
@@ -274,7 +275,7 @@ class CaseController extends Controller
                 'canReopen' => (new ReopenCaseTransition)->accepts((string) $case->status)
                     && (new ReopenCaseTransition)->deny($case, $request->user()) === null,
                 'canExecute' => ExecutionCreation::isEligible($case),
-                'canReassign' => $case->status !== 'مؤرشفة',
+                'canReassign' => $case->status !== CaseStatus::Archived->value,
                 'feePending' => $case->status === 'بانتظار اعتماد الأتعاب',
             ],
             'channel' => 'case.'.$case->id,
@@ -432,7 +433,7 @@ class CaseController extends Controller
      */
     public function reassignLawyer(Request $request, LegalCase $case): RedirectResponse
     {
-        abort_if($case->status === 'مؤرشفة', 422, 'القضية مؤرشفة — لا يُعاد إسنادها.');
+        abort_if($case->status === CaseStatus::Archived->value, 422, 'القضية مؤرشفة — لا يُعاد إسنادها.');
 
         $data = $request->validate(['lawyer_id' => ['required', 'integer', new ActiveLawyer]]);
         $lawyer = User::findOrFail($data['lawyer_id']);

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\Enums\CaseStatus;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Models\Concerns\ClipsPreviewText;
 use App\Models\Concerns\LinksLegalDepartment;
@@ -278,6 +279,10 @@ class LegalCase extends Model
         return [
             'isActive' => $this->isActive(),
             'postJudgment' => in_array($this->status, CaseJourney::POST_JUDGMENT, true),
+            // الأرشيف للقراءة فقط — علمٌ من التعداد تقرؤه الواجهة بدل مقارنة نصّ الحالة «مؤرشفة»
+            'isArchived' => $this->status === CaseStatus::Archived->value,
+            // منظورةٌ أمام المحكمة — تُجدول فيها الجلسات ويُسجَّل الحكم
+            'inCourt' => $this->status === CaseStatus::InCourt->value,
         ];
     }
 

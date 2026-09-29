@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Lawyer;
 
+use App\Domain\Journey\Enums\CaseStatus;
 use App\Http\Controllers\Concerns\ManagesCourtProceedings;
 use App\Http\Controllers\Concerns\ScopedToLawyer;
 use App\Http\Controllers\Controller;
@@ -115,7 +116,7 @@ class CaseController extends Controller
     {
         $this->guardAssigned($case);
         // الأرشيف للقراءة — كان الإرفاق يُرفض عليه والردّ يمرّ
-        abort_if($case->status === 'مؤرشفة', 422, 'القضية مؤرشفة — ملفها للقراءة فقط.');
+        abort_if($case->status === CaseStatus::Archived->value, 422, 'القضية مؤرشفة — ملفها للقراءة فقط.');
         $data = $request->validate(['body' => ['required', 'string']]);
 
         $msg = $case->messages()->create([
@@ -134,7 +135,7 @@ class CaseController extends Controller
     public function attach(Request $request, LegalCase $case): RedirectResponse
     {
         $this->guardAssigned($case);
-        abort_if($case->status === 'مؤرشفة', 422, 'لا يمكن إرفاق مستندات على قضية مؤرشفة.');
+        abort_if($case->status === CaseStatus::Archived->value, 422, 'لا يمكن إرفاق مستندات على قضية مؤرشفة.');
 
         $data = $request->validate([
             'file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx'],

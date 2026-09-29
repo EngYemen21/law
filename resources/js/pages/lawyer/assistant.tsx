@@ -95,6 +95,14 @@ const ASSIST_TABS: AssistTab[] = [
   },
 ];
 
+// كل إجراء سريع ينتمي لتبويب: النقر (أو `?action=`) ينقل المستخدم إليه ويثبّت نوع الوثيقة الخاص به
+const QUICK_TAB: Record<string, string> = {
+  reply_memo: 'mems',
+  contract_check: 'analyze',
+  strengths_weaknesses: 'defense',
+  qualification: 'defense',
+};
+
 interface Props {
   refs: string[];
 }
@@ -102,11 +110,15 @@ interface Props {
 const LawyerAssistant: React.FC<Props> = ({ refs }) => {
   const toast = useToast();
   // بادئة لوحة الدور — الصفحة تُعرض من لوحتي المحامي والإدارة، وكلٌّ ينادي مساره ومحرّره
-  const base = panelBase((usePage().url as string).split('?')[0]);
+  const url = usePage().url as string;
+  const base = panelBase(url.split('?')[0]);
+  // اختصارات لوحة المحامي تفتح الصفحة بـ`?action=` إجراءٍ سريع — كانت المعلمة لا يقرؤها أحد فتُفتح الصفحة
+  // على التبويب الأوّل كأنّ الاختصار رابطٌ عامّ (تدقيق 2026-09-29)
+  const initialQuick = QUICK_ACTIONS.find((qa) => qa.id === new URLSearchParams(url.split('?')[1] ?? '').get('action')) ?? null;
   const [opening, setOpening] = useState(false);
-  const [selectedQuick, setSelectedQuick] = useState<string | null>(null);
-  const [tab, setTab] = useState(ASSIST_TABS[0].key);
-  const [type, setType] = useState(ASSIST_TABS[0].items[0]);
+  const [selectedQuick, setSelectedQuick] = useState<string | null>(initialQuick?.id ?? null);
+  const [tab, setTab] = useState(initialQuick ? QUICK_TAB[initialQuick.kind] : ASSIST_TABS[0].key);
+  const [type, setType] = useState(initialQuick?.docType ?? ASSIST_TABS[0].items[0]);
   const [ref, setRef] = useState(refs[0] || '');
   const [ctx, setCtx] = useState('');
   const [draft, setDraft] = useState<string | null>(null);
@@ -116,14 +128,6 @@ const LawyerAssistant: React.FC<Props> = ({ refs }) => {
   const [busy, setBusy] = useState(false);
 
   const activeTab = ASSIST_TABS.find((a) => a.key === tab) || ASSIST_TABS[0];
-
-  // كل إجراء سريع ينتمي لتبويب: النقر ينقل المستخدم إليه ويثبّت نوع الوثيقة الخاص به
-  const QUICK_TAB: Record<string, string> = {
-    reply_memo: 'mems',
-    contract_check: 'analyze',
-    strengths_weaknesses: 'defense',
-    qualification: 'defense',
-  };
 
   const handleQuickAction = (qa: QuickAction) => {
     setSelectedQuick(qa.id);

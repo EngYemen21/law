@@ -186,13 +186,15 @@ const LawyerTickets: React.FC<Props> = ({
                 <Icon name="doc" /> اعتماد الملخصات ({calculatedCounts.awaitingSummary})
               </button>
             )}
-            <button
-              className="hero-b ghost"
-              onClick={openAssistant}
-              type="button"
-            >
-              <Icon name="sparkles" /> المساعد الذكي
-            </button>
+            {can('المساعد القانوني') && (
+              <button
+                className="hero-b ghost"
+                onClick={openAssistant}
+                type="button"
+              >
+                <Icon name="sparkles" /> المساعد الذكي
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Domain\Journey\Enums\ConsultStatus;
+use App\Domain\Journey\Enums\MeetingStatus;
 use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Meeting;
@@ -99,7 +100,7 @@ class MeetingController extends Controller
     public function changeRequest(Request $request, Meeting $meeting): RedirectResponse
     {
         abort_unless($meeting->user_id === $request->user()->id, 403);
-        abort_unless(in_array($meeting->status, ['قادم', 'مؤجل'], true), 422, 'طلب تغيير الموعد متاح للاجتماعات القادمة فقط.');
+        abort_unless(in_array(MeetingStatus::tryFrom((string) $meeting->status), [MeetingStatus::Upcoming, MeetingStatus::Postponed], true), 422, 'طلب تغيير الموعد متاح للاجتماعات القادمة فقط.');
 
         $message = "طلب العميل تغيير موعد الاجتماع «{$meeting->title}» ({$meeting->ref}) — {$meeting->when_label}. أعد جدولته من صفحة الاجتماع.";
         if ($meeting->assigned_lawyer_id) {

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Employee;
 
+use App\Domain\Journey\Enums\CaseStatus;
 use App\Enums\Role;
 use App\Http\Controllers\Concerns\ManagesCourtProceedings;
 use App\Http\Controllers\Controller;
@@ -174,7 +175,7 @@ class CaseController extends Controller
     // كانت صفحة قضية الموظف بلا مستندات ولا إرفاق (عدم تماثل مع بقية الأدوار).
     public function attach(Request $request, LegalCase $case): RedirectResponse
     {
-        abort_if($case->status === 'مؤرشفة', 422, 'لا يمكن إرفاق مستندات على قضية مؤرشفة.');
+        abort_if($case->status === CaseStatus::Archived->value, 422, 'لا يمكن إرفاق مستندات على قضية مؤرشفة.');
 
         $data = $request->validate([
             'file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx'],
@@ -217,7 +218,7 @@ class CaseController extends Controller
     public function reply(Request $request, LegalCase $case): \Illuminate\Http\Response
     {
         // الأرشيف للقراءة — كان الإرفاق يُرفض عليه والردّ يمرّ
-        abort_if($case->status === 'مؤرشفة', 422, 'القضية مؤرشفة — ملفها للقراءة فقط.');
+        abort_if($case->status === CaseStatus::Archived->value, 422, 'القضية مؤرشفة — ملفها للقراءة فقط.');
         $data = $request->validate(['body' => ['required', 'string']]);
 
         $case->messages()->create([
