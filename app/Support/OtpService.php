@@ -86,15 +86,15 @@ class OtpService
     }
 
     /**
-     * تجاوز تطويريّ مؤقّت (رمز ثابت) — بيئتا local/testing حصراً وحين ضبط AUTH_DEV_OTP،
-     * ولا يعمل على مضيفٍ يبدو إنتاجيّاً ولو قال APP_ENV غير ذلك (راجع `productionLike`).
-     * الشرط نفسه في `EmailOtpService::devBypass` — القناتان تُفتحان معاً أو تُغلقان معاً.
+     * تجاوز مؤقّت (رمز ثابت) — يعمل **أينما ضُبط AUTH_DEV_OTP**، على الخادم أيضاً (قرار المالك
+     * 2026-09-29: كما كان قبل `14c8f8a` — لتجربة الدخول على سيرفر الاختبار بلا مزوّد رسائل).
+     * ⚠️ يقبل الدخول بأيّ رقم هويّة بالرمز نفسه، وصفحة الدخول تعرضه — فيُفرَّغ المتغيّر في الإنتاج.
+     * يُنبَّه في السجلّ حين يكون فعّالاً على مضيفٍ يبدو إنتاجيّاً (`AppServiceProvider`).
+     * تجاوز البريد (`EmailOtpService::devBypass`) باقٍ محصوراً في التطوير كما كان.
      */
     public function devBypass(): bool
     {
-        return self::isDevOtpConfigured()
-            && app()->environment('local', 'testing')
-            && ! self::productionLike();
+        return self::isDevOtpConfigured();
     }
 
     /** توليد معرّف عمليّة وإطلاق إرسال الرمز عبر تقنيات — يعيد بيانات الجلسة/العرض. */
