@@ -72,4 +72,22 @@ class ConsultBookingPageTest extends TestCase
         $this->assertStringNotContainsString('onSuccess:', $book, 'رسالة النجاح من الخادم وحده');
         $this->assertStringNotContainsString('router.visit(', $book, 'الروابط بـ<Link>');
     }
+
+    public function test_the_phone_layout_puts_the_form_first(): void
+    {
+        $book = (string) file_get_contents(resource_path('js/pages/book.tsx'));
+        $css = (string) file_get_contents(resource_path('css/babylon.css'));
+
+        // بطاقات الضمانات الثلاث أسفل النموذج محذوفة (قرار المالك 2026-09-29)
+        $this->assertStringNotContainsString('ميثاق الجودة', $book);
+        $this->assertStringNotContainsString('المادة 23', $book);
+
+        // الهاتف: المراحل شريطٌ مضغوط بعد النموذج، والقنوات صفٌّ واحد صغير
+        foreach (['book-page', 'book-steps', 'book-step-desc', 'book-channels', 'book-channel-desc'] as $cls) {
+            $this->assertStringContainsString($cls, $book, "الصنف {$cls} في الصفحة");
+        }
+        $this->assertMatchesRegularExpression('/\\.book-steps\\{order:1;display:flex!important;overflow-x:auto/u', $css);
+        $this->assertStringContainsString('.book-channels{display:flex!important', $css);
+        $this->assertStringContainsString('.book-channel-chip,.book-channel-desc{display:none}', $css);
+    }
 }

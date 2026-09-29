@@ -130,7 +130,7 @@ const Book: React.FC<Props> = ({
   };
 
   return (
-    <>
+    <div className="book-page">
       {/* 1. الهيدر التنفيذي 360° وشريط الإجراءات */}
       <div className="hero" style={{ padding: '24px 26px', marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
@@ -163,8 +163,9 @@ const Book: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* 2. مسار رحلة الاستشارة الشفاف (4-Step Flow Stepper) */}
+      {/* 2. مسار رحلة الاستشارة الشفاف (4-Step Flow Stepper) — على الهاتف شريطٌ أفقيّ مضغوط أسفل النموذج */}
       <div
+        className="book-steps"
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -173,6 +174,7 @@ const Book: React.FC<Props> = ({
         }}
       >
         <div
+          className="book-step"
           style={{
             padding: '14px 16px',
             borderRadius: 12,
@@ -187,10 +189,11 @@ const Book: React.FC<Props> = ({
             </span>
             تقديم الطلب والمجال
           </div>
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>تحديد القناة وتفاصيل الموضوع والوقائع.</p>
+          <p className="book-step-desc" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>تحديد القناة وتفاصيل الموضوع والوقائع.</p>
         </div>
 
         <div
+          className="book-step"
           style={{
             padding: '14px 16px',
             borderRadius: 12,
@@ -204,10 +207,11 @@ const Book: React.FC<Props> = ({
             </span>
             تسعير الإدارة العليا
           </div>
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>دراسة الموضوع وتحديد الأتعاب وإصدار الفاتورة.</p>
+          <p className="book-step-desc" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>دراسة الموضوع وتحديد الأتعاب وإصدار الفاتورة.</p>
         </div>
 
         <div
+          className="book-step"
           style={{
             padding: '14px 16px',
             borderRadius: 12,
@@ -221,10 +225,11 @@ const Book: React.FC<Props> = ({
             </span>
             السداد عبر ميسّر
           </div>
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>دفع إلكتروني آمن وفوري بكافة البطاقات.</p>
+          <p className="book-step-desc" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>دفع إلكتروني آمن وفوري بكافة البطاقات.</p>
         </div>
 
         <div
+          className="book-step"
           style={{
             padding: '14px 16px',
             borderRadius: 12,
@@ -238,7 +243,7 @@ const Book: React.FC<Props> = ({
             </span>
             تحديد الموعد وانعقاد الجلسة
           </div>
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>يحدّد المكتب الموعد ويُبلغك به، ثم تتلقى الرأي والمحضر المعتمد.</p>
+          <p className="book-step-desc" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>يحدّد المكتب الموعد ويُبلغك به، ثم تتلقى الرأي والمحضر المعتمد.</p>
         </div>
       </div>
 
@@ -312,6 +317,7 @@ const Book: React.FC<Props> = ({
             </label>
 
             <div
+              className="book-channels"
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
@@ -324,6 +330,7 @@ const Book: React.FC<Props> = ({
                 return (
                   <div
                     key={ch.key}
+                    className="book-channel"
                     onClick={() => setChannel(ch.key)}
                     style={{
                       padding: '16px',
@@ -352,7 +359,7 @@ const Book: React.FC<Props> = ({
                         <Icon name={ch.icon} />
                       </div>
                       <span
-                        className="chip"
+                        className="chip book-channel-chip"
                         style={{
                           fontWeight: 700,
                           color: isSelected ? 'var(--primary)' : 'var(--muted)',
@@ -368,7 +375,7 @@ const Book: React.FC<Props> = ({
                     <b style={{ display: 'block', fontSize: 14.5, color: isSelected ? 'var(--primary)' : 'var(--ink)', marginBottom: 4 }}>
                       {ch.label}
                     </b>
-                    <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                    <p className="book-channel-desc" style={{ margin: 0, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
                       {ch.desc}
                     </p>
                   </div>
@@ -530,47 +537,7 @@ const Book: React.FC<Props> = ({
           </div>
         </div>
       </div>
-
-      {/* 5. ميثاق الجودة والضمانات القانونية */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))',
-          gap: 16,
-          marginBottom: 24,
-        }}
-      >
-        <div className="card" style={{ padding: '16px 18px', margin: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, color: 'var(--primary)' }}>
-            <Icon name="lock" />
-            <b style={{ fontSize: 14, color: 'var(--ink)' }}>السرية المهنية المطلقة</b>
-          </div>
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            نلتزم التزاماً صارماً بسرية كافة المعلومات والوثائق وفق المادة 23 من نظام المحاماة.
-          </p>
-        </div>
-
-        <div className="card" style={{ padding: '16px 18px', margin: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, color: 'var(--primary)' }}>
-            <Icon name="scale" />
-            <b style={{ fontSize: 14, color: 'var(--ink)' }}>مستشارون مرخصون</b>
-          </div>
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            تُقدم الاستشارات بواسطة نخبة من المحامين المعتمدين والمقيدين لدى وزارة العدل.
-          </p>
-        </div>
-
-        <div className="card" style={{ padding: '16px 18px', margin: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, color: 'var(--primary)' }}>
-            <Icon name="doc" />
-            <b style={{ fontSize: 14, color: 'var(--ink)' }}>محضر وتوصيات معتمدة</b>
-          </div>
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            تحصل على تقرير ومحضر رسمي بنتائج الجلسة والتوصيات التنفيذية فور انتهاء الاستشارة.
-          </p>
-        </div>
-      </div>
-    </>
+    </div>
   );
 };
 

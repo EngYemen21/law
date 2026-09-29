@@ -886,6 +886,23 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
   .filter-selects>div:has(>select){display:flex!important;flex-direction:column;align-items:stretch!important;gap:4px!important}
   .filter-selects select{width:100%!important;min-width:0!important}
 }
+/* ── «حجز استشارة» على الهاتف (قرار المالك 2026-09-29) ──
+   النموذج أوّلاً: المراحل الأربع شريطٌ أفقيّ مضغوط تحته (عنوانٌ بلا شرح)، وبطاقات القنوات الثلاث صفٌّ
+   واحد صغير (أيقونة واسم، بلا وصف ولا شارة). `!important` لأنّ الصفحة تحمل تخطيطها في `style` المضمَّن. */
+@media(max-width:640px){
+  .book-page{display:flex;flex-direction:column}
+  .book-steps{order:1;display:flex!important;overflow-x:auto;gap:8px!important;margin-bottom:16px!important;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .book-steps::-webkit-scrollbar{display:none}
+  .book-step{flex:0 0 auto;padding:8px 12px!important;border-radius:999px!important;box-shadow:none!important}
+  .book-step>div{margin-bottom:0!important;font-size:12px!important;white-space:nowrap}
+  .book-step-desc{display:none}
+  .book-channels{display:flex!important;gap:8px!important;overflow-x:auto;scrollbar-width:none}
+  .book-channels::-webkit-scrollbar{display:none}
+  .book-channel{flex:1 1 0;min-width:96px;padding:10px 8px!important;text-align:center}
+  .book-channel>div:first-child{justify-content:center!important;margin-bottom:6px!important}
+  .book-channel-chip,.book-channel-desc{display:none}
+  .book-channel b{font-size:12px!important;line-height:1.5;margin-bottom:0!important}
+}
 @media(max-width:640px){.mroom-head{gap:6px;padding:0 8px}.mroom-head .lbl,.mroom-head .ttl .st{display:none}.mroom-btn{padding:0 9px}}
 @media(max-width:900px){.staff-live-preview{display:none!important}}
 .menu-btn{display:none}
