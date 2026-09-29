@@ -45,6 +45,12 @@ const Topbar: React.FC<TopbarProps> = ({ onMenuToggle }) => {
 
     [title, crumb] = ['متابعة طلب التنفيذ', titles[`${path.split('/execs')[0]}/execs`]?.[1] ?? crumb];
   }
+  // كشف حساب عميلٍ من لوحة الإدارة /admin/clients/{id}/statement
+  if (/^\/admin\/clients\/\d+\/statement$/.test(path)) {
+    resolved = true;
+
+    [title, crumb] = ['كشف حساب العميل', 'العملاء'];
+  }
   // الصفحات المشتركة: عنوان ثابت لكل الأدوار
   if (path === '/profile') {
     resolved = true;

@@ -1218,3 +1218,7 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 .book-pending-item{padding:14px 0;border-bottom:1px solid var(--line-soft)}
 .book-pending-item:last-child{border-bottom:0}
 @media (max-width:560px){.book-pending-h{flex-wrap:wrap}.book-pending-h .sub{display:none}}
+
+/* كشف حساب العميل — المبالغ والمراجع والتواريخ لا تنكسر على سطرين؛ الجدول يُمرَّر أفقيّاً داخل غلافه */
+.soa-tbl td.n,.soa-tbl td.mono,.soa-tbl th.n{white-space:nowrap}
+.soa-tbl td:nth-child(2){min-width:220px}

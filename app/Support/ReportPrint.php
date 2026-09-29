@@ -9,7 +9,8 @@ namespace App\Support;
  * مطابق تماماً لما يعرضه المتصفح — لا صورة/محاكاة.
  *
  * @phpstan-type ReportCell array{0: string, 1: string}
- * @phpstan-type ReportSection array{title: string, cellRows?: array<int, array<int, ReportCell>>, lines?: string, rich?: string, list?: array<int, string>, chips?: array<int, string>}
+ * @phpstan-type ReportSection array{title: string, cellRows?: array<int, array<int, ReportCell>>, lines?: string, rich?: string, list?: array<int, string>, chips?: array<int, string>, table?: ReportTable}
+ * @phpstan-type ReportTable array{head: list<string>, rows: list<list<string>>, foot?: list<string>, ltr?: list<int>}
  */
 class ReportPrint
 {
@@ -54,6 +55,12 @@ class ReportPrint
         .cf-appr .r:last-child{border-bottom:none}
         .cf-appr .r span{color:#7a8aa3}
         .cf-appr .r b{color:#0A2A55}
+        .cf-tbl{width:100%;border-collapse:collapse;font-size:10.5px;color:#33415c}
+        .cf-tbl th{background:#F5F9FC;color:#0A2A55;font-weight:800;padding:6px 8px;border-bottom:1.5px solid #D3E2F0;text-align:right}
+        .cf-tbl td{padding:5px 8px;border-bottom:1px solid #E7EFF6;vertical-align:top}
+        .cf-tbl tr{page-break-inside:avoid}
+        .cf-tbl .ltr{text-align:left;white-space:nowrap;direction:ltr;unicode-bidi:plaintext}
+        .cf-tbl tfoot td{font-weight:800;color:#0A2A55;background:#F5F9FC;border-top:1.5px solid #D3E2F0;border-bottom:none}
         .cf-note{margin:0 22px 12px;background:#FFF8EC;border:1px solid #F0DDB0;border-radius:8px;padding:9px 13px;font-size:10.5px;color:#8A6D2F;line-height:1.85}
         @page{size:A4;margin:12mm}
         CSS;
@@ -119,9 +126,30 @@ class ReportPrint
         $chips = ! empty($s['chips'])
             ? '<div class="cf-chips">'.implode('', array_map(fn ($c) => '<span class="cf-chip">'.e($c).'</span>', $s['chips'])).'</div>'
             : '';
-        $onlyCells = $cells !== '' && $lines === '' && $list === '' && $chips === '';
+        $table = isset($s['table']) ? self::renderTable($s['table']) : '';
+        $flush = ($cells !== '' || $table !== '') && $lines === '' && $list === '' && $chips === '';
 
-        return '<div class="cf-sec"><div class="sh">'.e($s['title']).'</div><div class="sb"'.($onlyCells ? ' style="padding:0"' : '').'>'.$cells.$lines.$list.$chips.'</div></div>';
+        return '<div class="cf-sec"><div class="sh">'.e($s['title']).'</div><div class="sb"'.($flush ? ' style="padding:0"' : '').'>'.$cells.$table.$lines.$list.$chips.'</div></div>';
+    }
+
+    /**
+     * جدولُ صفوفٍ (كشف الحساب والتقارير الماليّة) — كلّ خليّةٍ مهرَّبة، وأعمدة `ltr` (أرقامٌ ومراجع
+     * لاتينيّة) تُكتب من اليسار بلا انكسار فتصطفّ منازلها ولا ينقسم رقم مرجع.
+     *
+     * @param  ReportTable  $t
+     */
+    private static function renderTable(array $t): string
+    {
+        $ltr = array_flip($t['ltr'] ?? []);
+        $row = fn (array $cells, string $tag) => '<tr>'.implode('', array_map(
+            fn ($cell, $i) => "<{$tag}".(isset($ltr[$i]) ? ' class="ltr"' : '').'>'.e($cell)."</{$tag}>",
+            $cells,
+            array_keys($cells),
+        )).'</tr>';
+
+        return '<table class="cf-tbl"><thead>'.$row($t['head'], 'th').'</thead><tbody>'
+            .implode('', array_map(fn ($r) => $row($r, 'td'), $t['rows'])).'</tbody>'
+            .(isset($t['foot']) ? '<tfoot>'.$row($t['foot'], 'td').'</tfoot>' : '').'</table>';
     }
 
     /**

@@ -1,4 +1,4 @@
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import React, { useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import StatRow from '@/components/babylon/StatRow';
@@ -126,6 +126,10 @@ const Invoices: React.FC<{ invoices: Invoice[] }> = ({ invoices }) => {
   return (
     <>
       <StatRow items={stats} />
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <Link href="/statement" className="btn sm soft"><Icon name="doc" /> كشف الحساب</Link>
+      </div>
 
       <div className="card">
         <div className="card-h">

@@ -25,6 +25,7 @@ use App\Http\Controllers\AppointmentController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\CaseController;
+use App\Http\Controllers\ClientStatementController;
 use App\Http\Controllers\ConsultBookingController;
 use App\Http\Controllers\ConsultController;
 use App\Http\Controllers\ConversationFileController;
@@ -183,6 +184,9 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
     Route::get('/invoices/{invoice}/checkout/callback', [InvoiceController::class, 'checkoutCallback'])->name('invoices.checkout.callback');
     Route::get('/invoices/{invoice}/receipt', [InvoiceController::class, 'receipt'])->name('invoices.receipt');
     Route::get('/invoices/{invoice}/pdf', [InvoiceController::class, 'pdf'])->name('invoices.pdf');
+    // كشف الحساب — حساب العميل نفسه وحده (المرحلة ج)
+    Route::get('/statement', [ClientStatementController::class, 'index'])->name('statement');
+    Route::get('/statement/pdf', [ClientStatementController::class, 'pdf'])->name('statement.pdf');
 });
 
 // الحساب — متاح لأي مستخدم مسجّل
@@ -580,6 +584,8 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::get('/invoices/{invoice}/pdf', [InvoiceController::class, 'pdf'])->name('invoices.pdf');
     Route::put('/clients/{client}', [AdminClientController::class, 'update'])->name('clients.update');
     Route::post('/clients/{client}/toggle', [AdminClientController::class, 'toggle'])->name('clients.toggle');
+    Route::get('/clients/{client}/statement', [ClientStatementController::class, 'forClient'])->name('clients.statement');
+    Route::get('/clients/{client}/statement/pdf', [ClientStatementController::class, 'forClientPdf'])->name('clients.statement.pdf');
     // التقويم والمواعيد — لوحة الإدارة كانت بلا أي تبويب زمني. نفس متحكّم الموظف
     // (نطاق المكتب نفسه)، نظير توجيه تذاكر الإدارة إلى متحكّم المستشار أدناه.
     Route::get('/calendar', [EmployeeCalendarController::class, 'index'])->name('calendar');

@@ -52,6 +52,7 @@ export const NAV: NavGroup[] = [
   { g: 'الملفات والمالية', items: [
     { icon: 'doc', label: 'المستندات', view: 'docs' },
     { icon: 'card', label: 'الفواتير', view: 'invoices', alert: true },
+    { icon: 'doc', label: 'كشف الحساب', view: 'statement' },
   ] },
   { g: 'الحساب', items: [
     { icon: 'user', label: 'الملف الشخصي', view: 'profile' },
@@ -88,6 +89,7 @@ export const TITLES: Record<string, [string, string]> = {
   calendar: ['التقويم والمواعيد', 'الاستشارات'],
   docs: ['المستندات', 'الملفات والمالية'],
   invoices: ['الفواتير والمدفوعات', 'الملفات والمالية'],
+  statement: ['كشف الحساب', 'الملفات والمالية'],
   profile: ['الملف الشخصي', 'الحساب'],
   myconsults: ['استشاراتي', 'الاستشارات'],
   // meetreqs: طُوي — الدعوة تُولَد مؤكَّدة فتظهر في «الاجتماعات» مباشرةً
@@ -109,6 +111,7 @@ export const VIEW_ROUTE: Record<string, string> = {
   calendar: '/calendar',
   docs: '/documents',
   invoices: '/invoices',
+  statement: '/statement',
   profile: '/profile',
 };
 

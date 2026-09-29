@@ -1,4 +1,4 @@
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import { usePrompt } from '@/components/babylon/ConfirmDialog';
@@ -505,7 +505,7 @@ const AdminFinance: React.FC<Props> = ({
                   <tbody>
                     {aging.rows.map((d) => (
                       <tr key={d.id}>
-                        <td>{d.client}</td>
+                        <td>{d.id > 0 ? <Link href={`/admin/clients/${d.id}/statement`}>{d.client}</Link> : d.client}</td>
                         {buckets.map((b) => <td key={b.k} className="n">{fmt(d[b.k as 'b1' | 'b2' | 'b3' | 'b4'])}</td>)}
                         <td className="n">{fmt(d.notYetDue)}</td>
                         <td className="n">{fmt(d.total)}</td>
