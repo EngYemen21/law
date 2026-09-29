@@ -382,6 +382,12 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 .msg-meta .ic{width:11px;height:11px;stroke:var(--faint)}
 .msg-meta bdi{direction:ltr;font-weight:700}
 .composer{border-top:1px solid var(--line-soft);background:linear-gradient(180deg,#fbfdfe,#fff);padding:16px 18px}
+/* **صندوق الكتابة ظاهرٌ دائماً** — كانت المحادثة تنمو بطولها وصندوقها بعد آخر رسالة، فلا يُرى إلا بالسحب
+   لنهاية الصفحة (تذكرة/قضيّة/تنفيذ، للعميل والطاقم). يلتصق بأسفل الشاشة وهي تمرّ فوق الرسائل.
+   و`overflow:clip` بدل `hidden` على بطاقته: `hidden` يُنشئ حاوية تمرير فيُبطل الالتصاق، و`clip` يقصّ
+   الزوايا المدوّرة نفسها بلا ذلك. */
+.card:has(.composer){overflow:clip}
+.composer{position:sticky;bottom:0;z-index:5}
 .composer .cmode{display:inline-flex;background:var(--paper-2);border:1px solid var(--line);border-radius:10px;padding:3px;margin-bottom:11px}
 .composer .cmode button{padding:7px 14px;border-radius:8px;font-size:12.5px;font-weight:700;color:var(--muted)}
 .composer .cmode button.on{background:#fff;color:var(--primary);box-shadow:0 2px 6px -2px rgba(10,42,85,.15)}
