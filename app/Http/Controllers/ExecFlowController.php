@@ -149,36 +149,6 @@ class ExecFlowController extends Controller
             ->values()->all();
     }
 
-    // ── تقديم طلب جديد (العميل) ──
-
-    public function store(Request $request): RedirectResponse
-    {
-        abort_unless($request->user()->role === Role::Client, 403);
-
-        $data = $request->validate([
-            'sanad' => ['required', 'string', 'max:60'],
-            'subject' => ['required', 'string', 'max:160'],
-            'defendant' => ['nullable', 'string', 'max:160'],
-            'amount' => ['nullable', 'integer', 'min:0', 'max:1000000000'],
-            'notes' => ['nullable', 'string', 'max:2000'],
-            'files' => ['nullable', 'array', 'max:10'],
-            'files.*' => ['file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx'],
-        ]);
-
-        $files = $request->file('files', []);
-        $execution = ExecService::submit($request->user(), $data, is_array($files) ? $files : [$files]);
-
-        Audit::log(
-            action: 'فتح طلب تنفيذ',
-            description: "فتح العميل {$request->user()->name} طلب التنفيذ {$execution->number} — {$data['subject']}.",
-            category: 'قضايا وتنفيذ',
-            auditable: $execution,
-            auditableRef: $execution->number,
-        );
-
-        return back();
-    }
-
     // ── موزّع الإجراءات (يحرس الدور/الملكيّة لكلّ انتقال) ──
 
     public function act(Request $request, Execution $execution): RedirectResponse

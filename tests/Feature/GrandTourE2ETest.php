@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Permission;
 use Tests\Concerns\BuildsConsultJourney;
+use Tests\Concerns\BuildsLegacyExecutions;
 use Tests\TestCase;
 
 /**
@@ -32,6 +33,7 @@ use Tests\TestCase;
 class GrandTourE2ETest extends TestCase
 {
     use BuildsConsultJourney;
+    use BuildsLegacyExecutions;
     use RefreshDatabase;
 
     /** @return array{0:User,1:User,2:User,3:User} client, employee, lawyer, admin */
@@ -192,11 +194,10 @@ class GrandTourE2ETest extends TestCase
             ], 200),
         ]);
 
-        // 1-2: العميل يقدّم ← التحليل يكتمل ← قيد الدراسة
-        $this->actingAs($client)->post('/exec-flow', [
+        // 1-2: ملفّ قائم في التحليل ← التحليل يكتمل ← قيد الدراسة (الطلب الجديد يُفتح تذكرةً — قرار المالك 2026-09-29)
+        $exec = $this->legacyExecution($client, [
             'sanad' => 'شيك', 'subject' => 'تحصيل شيك مرتجع', 'defendant' => 'مؤسسة الرمال', 'amount' => 85000,
-        ])->assertRedirect();
-        $exec = Execution::where('user_id', $client->id)->firstOrFail();
+        ]);
         $this->assertSame(2, $exec->stage);
 
         // محادثة التبويب الموحّد: رسالة العميل + ردّ الموظف — بلا ردّ AI تلقائي على رسائل العميل

@@ -21,6 +21,7 @@ use App\Services\MailService;
 use App\Support\Audit;
 use App\Support\ConsultBooking;
 use App\Support\ConversationFiles;
+use App\Support\ExecFlow;
 use App\Support\LawyerAvailability;
 use App\Support\LegalCatalogue;
 use App\Support\Live;
@@ -80,10 +81,17 @@ class TicketController extends Controller
 
     // فتح تذكرة جديدة (تُخزَّن وتظهر للعميل والموظف)
     /** نموذج فتح تذكرة — الأقسام والخدمات الفعّالة من الكتالوج (لا قائمة ثابتة في الواجهة). */
-    public function create(): Response
+    /**
+     * نموذج «فتح تذكرة جديدة». `?department=` (رمزٌ أو معرّف) يحدّد القسم مسبقاً — به يفتح زرّ
+     * «طلب تنفيذ جديد» التذكرةَ على قسم التنفيذ؛ وحقول السند تظهر حين يكون القسم المختار هو قسم التنفيذ.
+     */
+    public function create(Request $request): Response
     {
         return Inertia::render('newticket', [
             'catalogue' => LegalCatalogue::forSelect(),
+            'enforcementId' => LegalCatalogue::department(LegalCatalogue::ENFORCEMENT_CODE)?->id,
+            'execSanads' => ExecFlow::SANADS,
+            'preselectDepartmentId' => LegalCatalogue::department($request->string('department')->toString())?->id,
         ]);
     }
 
@@ -102,6 +110,7 @@ class TicketController extends Controller
             'opponent_name' => ['nullable', 'string', 'max:190'],
             'opponent_id' => ['nullable', 'string', 'max:60'],
             'claim_amount' => ['nullable', 'integer', 'min:0'],
+            'exec_sanad' => ['nullable', 'string', Rule::in(ExecFlow::SANADS)],
             'court_name' => ['nullable', 'string', 'max:190'],
             // من الكتالوج لا نصّاً حرّاً: `max:20` كان يقبل أيّ مفردة فتدخل القاعدة قيمةٌ لا يعرفها مرشّح
             'priority' => ['nullable', 'string', Rule::in(TicketJourney::PRIORITIES)],
@@ -116,6 +125,12 @@ class TicketController extends Controller
         $department = LegalCatalogue::fromInput($data['department_id'] ?? $data['department'] ?? null);
         $service = LegalCatalogue::service(isset($data['service_id']) ? (int) $data['service_id'] : null);
         $data['type'] = $service !== null ? $service->name : $data['type'];
+
+        // طلب التنفيذ يُفتح تذكرةً في قسم التنفيذ: نوع السند مطلوبٌ فيه، ولا يُحفظ لغيره
+        $isEnforcement = $department?->code === LegalCatalogue::ENFORCEMENT_CODE;
+        if ($isEnforcement && empty($data['exec_sanad'])) {
+            throw ValidationException::withMessages(['exec_sanad' => 'اختر نوع السند التنفيذي.']);
+        }
 
         $details = trim($data['details'] ?? '') ?: ('طلب جديد بخصوص: '.$data['type']);
         // المولّد الموحّد (بالشكل نفسه SB-YYYY-NNNN) — كانت حلقةٌ هنا تكرّر منطقه بلا سقف
@@ -132,6 +147,7 @@ class TicketController extends Controller
             'opponent_name' => $data['opponent_name'] ?? null,
             'opponent_id' => $data['opponent_id'] ?? null,
             'claim_amount' => $data['claim_amount'] ?? null,
+            'exec_sanad' => $isEnforcement ? $data['exec_sanad'] : null,
             'court_name' => $data['court_name'] ?? null,
             'priority' => $data['priority'] ?? 'متوسطة',
             'status' => 'قيد التحليل',

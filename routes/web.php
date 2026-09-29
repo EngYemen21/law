@@ -102,7 +102,6 @@ Route::post('/auth/switch-account', [AuthController::class, 'switchAccount'])->m
 
 // تدفّق طلب التنفيذ (المرحلة 2) — تقديم العميل + موزّع الإجراءات (يحرس الدور/الملكيّة داخليّاً)
 Route::middleware(['auth', 'active'])->group(function () {
-    Route::post('/exec-flow', [ExecFlowController::class, 'store'])->name('exec-flow.store');
     Route::post('/exec-flow/{execution}/action', [ExecFlowController::class, 'act'])->name('exec-flow.act');
     Route::post('/exec-flow/{execution}/pay', [ExecFlowController::class, 'pay'])->name('exec-flow.pay');
     Route::get('/exec-flow/{execution}/pay/callback', [ExecFlowController::class, 'payCallback'])->name('exec-flow.pay.callback');

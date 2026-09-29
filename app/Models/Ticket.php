@@ -28,7 +28,7 @@ class Ticket extends Model
     protected array $previewText = ['last_message'];
 
     protected $fillable = [
-        'user_id', 'number', 'type', 'subject', 'opponent_name', 'opponent_id', 'claim_amount', 'court_name', 'priority',
+        'user_id', 'number', 'type', 'subject', 'opponent_name', 'opponent_id', 'claim_amount', 'exec_sanad', 'court_name', 'priority',
         'department', 'assigned_lawyer', 'assigned_lawyer_id', 'status', 'tone', 'attachments', 'last_message', 'date_label',
         'legal_department_id', 'legal_service_id',
         'closure_reason_code', 'closure_notes', 'closed_by_id', 'is_frozen', 'outcome_decision_at',

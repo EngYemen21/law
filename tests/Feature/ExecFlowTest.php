@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
-use App\Jobs\AnalyzeExecutionJob;
 use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\User;
@@ -11,7 +10,7 @@ use App\Support\ExecFee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Queue;
+use Tests\Concerns\BuildsLegacyExecutions;
 use Tests\TestCase;
 
 /**
@@ -20,6 +19,7 @@ use Tests\TestCase;
  */
 class ExecFlowTest extends TestCase
 {
+    use BuildsLegacyExecutions;
     use RefreshDatabase;
 
     private function client(): User
@@ -60,14 +60,12 @@ class ExecFlowTest extends TestCase
         ]);
     }
 
-    /** التقديم وحده — لمن يهيّئ مزوّده بنفسه. */
+    /** ملفّ قائم في «التحليل الذكيّ» يُحلَّل — لمن يهيّئ مزوّده بنفسه. */
     private function postSubmit(User $client, array $over = []): Execution
     {
-        $this->actingAs($client)->post('/exec-flow', array_merge([
+        return $this->legacyExecution($client, array_merge([
             'sanad' => 'شيك', 'subject' => 'تحصيل قيمة شيك مرتجع', 'defendant' => 'مؤسسة الرمال', 'amount' => 85000,
-        ], $over))->assertRedirect();
-
-        return Execution::where('user_id', $client->id)->latest('id')->firstOrFail();
+        ], $over));
     }
 
     private function submit(User $client, array $over = [], array $ai = []): Execution
@@ -257,17 +255,6 @@ class ExecFlowTest extends TestCase
         // التبويب الموحّد للعميل — والمسار القديم /exec-preview حُذف (قرار المالك 2026-09-28)
         $this->actingAs($this->client())->get(route('execs'))->assertOk();
         $this->actingAs($this->client())->get('/exec-preview')->assertNotFound();
-    }
-
-    public function test_submit_dispatches_analysis_job(): void
-    {
-        // التحليل الذكيّ مطابور: التقديم يُرسِل المهمّة ويترك الطلب بمرحلة «تحليل ذكي»
-        Queue::fake();
-        $exec = $this->submit($this->client());
-
-        Queue::assertPushed(AnalyzeExecutionJob::class);
-        $this->assertSame(1, (int) $exec->stage);
-        $this->assertFalse((bool) $exec->ai_done);
     }
 
     public function test_analysis_uses_ai_when_configured(): void

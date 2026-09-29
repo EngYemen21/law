@@ -30,6 +30,9 @@ class LegalCatalogue
     /** رمز القسم العامّ الذي دُمجت فيه الاستشارات والترافع والصياغة. */
     public const GENERAL_CODE = 'general';
 
+    /** رمز قسم «التنفيذ» — منه يُفتح طلب التنفيذ تذكرةً (يُسأل فيه عن السند) ويُنسب إليه ملفّ التنفيذ. */
+    public const ENFORCEMENT_CODE = 'enforcement';
+
     private const CACHE = 'support.legal-catalogue.snapshot';
 
     /**

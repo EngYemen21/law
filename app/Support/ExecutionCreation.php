@@ -130,8 +130,9 @@ class ExecutionCreation
             $ticket->court_name ? 'المحكمة المختصة: '.$ticket->court_name : '',
         ])));
 
+        // السند: ما اختاره العميل عند فتح تذكرة قسم التنفيذ، ثمّ ما كشفه فحص المستندات
         $detectedSanad = $ticket->documents->pluck('doc_type')->first(fn ($t) => in_array($t, ExecFlow::SANADS, true));
-        $sanad = $detectedSanad ?: 'سند تنفيذي';
+        $sanad = $ticket->exec_sanad ?: ($detectedSanad ?: 'سند تنفيذي');
 
         $exec = DB::transaction(function () use ($ticket, $lawyer, $notes, $actor, $reason, $sanad) {
             $number = ReferenceNumber::next(Execution::class, 'number', 'EXE');

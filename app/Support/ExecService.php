@@ -28,7 +28,6 @@ use App\Services\Ai\AiRunLogger;
 use App\Services\MailService;
 use App\Services\MoyasarService;
 use Carbon\Carbon;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -37,74 +36,7 @@ use Illuminate\Validation\ValidationException;
  */
 class ExecService
 {
-    // ── التقديم + التحليل ──
-
-    /** @param array{sanad:string,subject:string,defendant?:string,amount?:int,notes?:string} $data */
-    public static function submit(User $client, array $data, array $files = []): Execution
-    {
-        $docs = ['السند التنفيذي', 'الهوية'];
-        if (! empty($data['notes'])) {
-            $docs[] = 'مستند داعم';
-        }
-
-        // يُفتح داخل المحرّك: سطرُ فتحٍ في سجلّ الانتقالات بصاحب الطلب — نظير `ExecutionCreation`
-        $exec = Workflow::open('exec.submit', fn () => Execution::create([
-            'user_id' => $client->id,
-            'client_code' => 'CL-'.str_pad((string) $client->id, 6, '0', STR_PAD_LEFT),
-            'number' => ReferenceNumber::next(Execution::class, 'number', 'EXE'),
-            'subject' => $data['subject'],
-            'sanad' => $data['sanad'],
-            'defendant' => $data['defendant'] ?? '',
-            'amount' => (int) ($data['amount'] ?? 0),
-            'notes' => $data['notes'] ?? '',
-            'docs' => $docs,
-            'stage' => 1, // «تحليل ذكي» — بانتظار مهمّة التحليل بالذكاء الاصطناعي
-            'status' => ExecFlow::label(1),
-            'tone' => ExecFlow::tone(1),
-            'ai_done' => false,
-            'last_action' => 'فتح الطلب — جارٍ التحليل الذكيّ للمستندات',
-        ]), $client, ['sanad' => $data['sanad']]);
-
-        // حفظ الملفات المرفقة كمستندات رسمية لطلب التنفيذ
-        $attachedNames = [];
-        foreach ($files as $file) {
-            if ($file instanceof UploadedFile && $file->isValid()) {
-                $path = $file->store("executions/{$exec->id}", 'local');
-                $origName = $file->getClientOriginalName();
-                $attachedNames[] = $origName;
-                $exec->documents()->create([
-                    'label' => $origName,
-                    'path' => $path,
-                    'mime' => $file->getClientMimeType(),
-                    'size' => $file->getSize(),
-                    'status' => 'مرفوع',
-                    'uploaded_at' => now(),
-                ]);
-            }
-        }
-
-        $attachMsg = ! empty($attachedNames)
-            ? ' (مرفق: '.implode('، ', $attachedNames).')'
-            : '';
-
-        $exec->messages()->create([
-            'who' => 'client', 'name' => 'أنت', 'role' => 'العميل',
-            'body' => '<p>طلب تنفيذ '.e($exec->sanad).' — '.e($exec->subject).e($attachMsg).'.</p>',
-            'time_label' => self::clock(),
-        ]);
-
-        // التحليل الذكيّ يجري بالخلفية (لا يُحبَس طلب التقديم) — LegalAiService::analyzeExecution
-        AnalyzeExecutionJob::dispatch($exec);
-
-        // تأكيدٌ لصاحب الطلب، وإخطارٌ للمكتب: كان الطلب الجديد لا يُنبّه أحداً فيبقى بلا فاحص
-        self::mail($exec, 'submitted');
-        self::mailStaff($exec, 'newRequest', ['admin', 'employee']);
-        foreach (User::whereIn('role', [Role::Admin, Role::Employee])->pluck('id') as $staffId) {
-            Notify::send($staffId, 'exec', 't-blue', "طلب تنفيذ جديد {$exec->number} بانتظار الدراسة والإحالة.");
-        }
-
-        return $exec->refresh();
-    }
+    // ── التحليل (ملفّاتٌ قائمة في المرحلة 1 — الطلب الجديد يُفتح تذكرةً في قسم التنفيذ) ──
 
     /**
      * يطبّق نتيجة الدراسة الذكيّة (من LegalAiService::analyzeExecution): يحدّث الحقول، يقدّم المرحلة

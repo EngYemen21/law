@@ -16,10 +16,12 @@ use App\Support\ExecFlow;
 use App\Support\ExecService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Tests\Concerns\BuildsLegacyExecutions;
 use Tests\TestCase;
 
 class ExecutionLifecycleTransitionsTest extends TestCase
 {
+    use BuildsLegacyExecutions;
     use RefreshDatabase;
 
     private function client(): User
@@ -74,7 +76,7 @@ class ExecutionLifecycleTransitionsTest extends TestCase
         $admin = $this->admin();
 
         // 1. التقديم — المرحلة 0
-        $exec = ExecService::submit($client, [
+        $exec = $this->legacyExecution($client, [
             'sanad' => 'حكم قضائي',
             'subject' => 'تنفيذ مطالبة مالية عمالية',
             'defendant' => 'شركة المقاولات الحديثة',
@@ -199,7 +201,7 @@ class ExecutionLifecycleTransitionsTest extends TestCase
         $lawyer = $this->lawyer();
         $admin = $this->admin();
 
-        $exec = ExecService::submit($client, [
+        $exec = $this->legacyExecution($client, [
             'sanad' => 'سند لأمر',
             'subject' => 'تحصيل كمبيالات تجارية',
             'amount' => 100000,
@@ -231,7 +233,7 @@ class ExecutionLifecycleTransitionsTest extends TestCase
         $lawyer = $this->lawyer();
         $admin = $this->admin();
 
-        $exec = ExecService::submit($client, [
+        $exec = $this->legacyExecution($client, [
             'sanad' => 'حكم قضائي',
             'subject' => 'سند تنفيذي باطل',
             'amount' => 30000,
@@ -257,7 +259,7 @@ class ExecutionLifecycleTransitionsTest extends TestCase
         $lawyer = $this->lawyer();
         $admin = $this->admin();
 
-        $exec = ExecService::submit($client, [
+        $exec = $this->legacyExecution($client, [
             'sanad' => 'حكم قضائي',
             'subject' => 'سند مرفوض',
             'amount' => 30000,
@@ -288,7 +290,7 @@ class ExecutionLifecycleTransitionsTest extends TestCase
         $client = $this->client();
         $lawyer = $this->lawyer();
 
-        $exec = ExecService::submit($client, [
+        $exec = $this->legacyExecution($client, [
             'sanad' => 'حكم قضائي',
             'subject' => 'قفز غير قانوني',
             'amount' => 10000,
