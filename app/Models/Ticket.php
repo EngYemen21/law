@@ -140,6 +140,20 @@ class Ticket extends Model
         return $this->hasMany(Consult::class);
     }
 
+    /** رسالة العميل الأولى نصّاً (تُحفظ HTML بـ`nl2br(e())`) — وقائع طلبه كما كتبها عند الفتح. */
+    public function openingText(): string
+    {
+        $first = $this->messages()->where('who', 'client')->first();
+
+        return $first instanceof TicketMessage ? trim(html_entity_decode(strip_tags((string) $first->body))) : '';
+    }
+
+    /** طلبُ استشارةٍ قائم لم تنعقد جلسته — طلبٌ واحد لكلّ تذكرة حتى يكتمل أو يُلغى. */
+    public function hasPendingConsult(): bool
+    {
+        return $this->consults()->whereIn('status', Consult::PRE_SESSION_STATUSES)->exists();
+    }
+
     // ربط المسار برقم التذكرة بدل المعرّف
     public function getRouteKeyName(): string
     {

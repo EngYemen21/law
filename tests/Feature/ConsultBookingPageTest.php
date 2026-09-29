@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
@@ -17,6 +18,7 @@ use Tests\TestCase;
  */
 class ConsultBookingPageTest extends TestCase
 {
+    use BuildsConsultJourney;
     use RefreshDatabase;
 
     public function test_the_facts_are_kept_whole_beside_a_short_subject(): void
@@ -70,7 +72,7 @@ class ConsultBookingPageTest extends TestCase
 
         $this->assertStringNotContainsString('.slice(0, 120)', $book, 'لا قصّ للوقائع');
         $this->assertStringNotContainsString('onSuccess:', $book, 'رسالة النجاح من الخادم وحده');
-        $this->assertStringNotContainsString('router.visit(', $book, 'الروابط بـ<Link>');
+        $this->assertStringNotContainsString('onClick={() => router.visit(', $book, 'أزرار التنقّل روابط <Link>');
     }
 
     public function test_the_phone_layout_puts_the_form_first(): void
@@ -89,5 +91,52 @@ class ConsultBookingPageTest extends TestCase
         $this->assertMatchesRegularExpression('/\\.book-steps\\{order:1;display:flex!important;overflow-x:auto/u', $css);
         $this->assertStringContainsString('.book-channels{display:flex!important', $css);
         $this->assertStringContainsString('.book-channel-chip,.book-channel-desc{display:none}', $css);
+    }
+
+    /**
+     * «هل طلبك متعلّق بتذكرة؟» (اقتراح المالك 2026-09-29): القائمة تحمل ما يجوز الآن طلب استشارته
+     * وحده — بحكم زرّ المحادثة نفسه — والحقول منه؛ والإرسال عبر مسار التذكرة فتُربط الاستشارة بها.
+     */
+    public function test_the_page_offers_only_tickets_that_may_request_a_consult(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+
+        $ok = $this->ticketWithApprovedOpinion($client, [
+            'status' => 'بانتظار حجز الاستشارة', 'subject' => 'مطالبة بقيمة توريد', 'department' => 'القضايا التجارية',
+        ]);
+        $ok->messages()->create(['who' => 'client', 'name' => 'أنت', 'role' => 'العميل', 'body' => nl2br(e("وقائع التوريد\nوسؤالي عن المطالبة")), 'time_label' => 'الآن']);
+
+        $early = $this->ticketWithApprovedOpinion($client, ['status' => 'قيد التحليل']);           // قبل الرأي القانونيّ
+        $busy = $this->ticketWithApprovedOpinion($client, ['status' => 'بانتظار حجز الاستشارة']); // عليها طلبٌ قائم
+        $this->actingAs($client)->postJson("/tickets/{$busy->number}/book", ['type' => 'phone'])->assertNoContent();
+        $this->ticketWithApprovedOpinion(User::factory()->create(['role' => Role::Client]), ['status' => 'بانتظار حجز الاستشارة']); // لغيره
+
+        $this->actingAs($client)->get(route('book'))->assertOk()
+            ->assertInertia(fn ($p) => $p->component('book')
+                ->has('tickets', 1)
+                ->where('tickets.0.number', $ok->number)
+                ->where('tickets.0.subject', 'مطالبة بقيمة توريد')
+                ->where('tickets.0.specialty', 'القضايا التجارية')
+                ->where('tickets.0.details', "وقائع التوريد\nوسؤالي عن المطالبة"));
+
+        $this->assertNotSame($early->number, $ok->number);
+    }
+
+    public function test_booking_through_the_picked_ticket_links_the_consult(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $ticket = $this->ticketWithApprovedOpinion($client, ['status' => 'بانتظار حجز الاستشارة']);
+
+        // الصفحة ترسل إلى مسار التذكرة نفسه — لا مسار جديد
+        $this->assertStringContainsString('axios.post(`/tickets/${encodeURIComponent(linked.number)}/book`', (string) file_get_contents(resource_path('js/pages/book.tsx')));
+
+        $this->actingAs($client)->postJson("/tickets/{$ticket->number}/book", ['type' => 'video'])->assertNoContent();
+
+        $consult = Consult::sole();
+        $this->assertSame($ticket->id, $consult->ticket_id, 'الاستشارة مربوطة بالتذكرة');
+        $this->assertTrue($ticket->fresh()->hasPendingConsult());
+
+        // ولا تعود التذكرة في القائمة — طلبٌ واحد قائم
+        $this->actingAs($client)->get(route('book'))->assertInertia(fn ($p) => $p->has('tickets', 0));
     }
 }

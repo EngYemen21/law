@@ -1,4 +1,5 @@
 import { Link, router } from '@inertiajs/react';
+import axios from 'axios';
 import React, { useEffect, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import BookingActions from '@/components/babylon/BookingActions';
@@ -38,14 +39,24 @@ const CHANNELS: { key: string; label: string; icon: string; desc: string }[] = [
 
 const OTHER = '__other__';
 
+/** تذكرةٌ يجوز الآن طلب استشارتها — من الخادم (`ConsultBookingController::bookableTickets`). */
+interface BookableTicket {
+  number: string;
+  subject: string;
+  specialty: string;
+  details: string;
+}
+
 interface Props {
   pending: ConsultCard[];
   specialties?: string[];
+  tickets?: BookableTicket[];
 }
 
 const Book: React.FC<Props> = ({
   pending = [],
   specialties = [],
+  tickets = [],
 }) => {
   const toast = useToast();
   const [channel, setChannel] = useState('video');
@@ -54,6 +65,9 @@ const Book: React.FC<Props> = ({
   const [subject, setSubject] = useState('');
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
+  // طلبٌ متعلّق بتذكرة (اختياريّ): الحقول منها للعرض، والإرسال عبر مسار التذكرة فتُربط الاستشارة بها
+  const [ticketNo, setTicketNo] = useState('');
+  const linked = tickets.find((t) => t.number === ticketNo);
   const [items, setItems] = useState<ConsultCard[]>(pending);
 
   // تزامن لحظي: تسعير الإدارة/تأكيد الدفع يصلان فوراً
@@ -98,6 +112,20 @@ const Book: React.FC<Props> = ({
   const submit = () => {
     if (!channel) {
       toast('اختر نوع وقناة الاستشارة', 'warning');
+      return;
+    }
+
+    // مسار التذكرة نفسه الذي يستعمله زرّ المحادثة — بحارسه (المرحلة + طلبٌ واحد قائم) وربطه ورسالته
+    if (linked) {
+      setBusy(true);
+      axios.post(`/tickets/${encodeURIComponent(linked.number)}/book`, { type: channel })
+        .then(() => {
+          toast(`تم إرسال طلب استشارة التذكرة ${linked.number} — بانتظار تسعير المكتب، وبعد السداد يحدّد المكتب الموعد ويُبلغك به.`);
+          router.visit('/myconsults');
+        })
+        .catch((e) => toast(e?.response?.data?.errors?.type?.[0] ?? e?.response?.data?.message ?? 'تعذّر إرسال الطلب', 'error'))
+        .finally(() => setBusy(false));
+
       return;
     }
     if (!caseType) {
@@ -311,6 +339,26 @@ const Book: React.FC<Props> = ({
 
         <div className="card-b" style={{ padding: '20px 22px' }}>
           {/* أ. اختيار قناة الاستشارة (Visual Channel Cards) */}
+          {/* 0. طلبٌ متعلّق بتذكرة قائمة (اختياريّ) — تظهر حين يكون للعميل تذكرةٌ يجوز طلب استشارتها */}
+          {tickets.length > 0 && (
+            <div className="field" style={{ marginBottom: 18 }}>
+              <label style={{ fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>
+                هل طلبك متعلق بتذكرة؟ (اختياري)
+              </label>
+              <select className="input" value={ticketNo} onChange={(e) => setTicketNo(e.target.value)} style={{ padding: '10px 14px', fontSize: 13.5 }}>
+                <option value="">— لا، طلب جديد —</option>
+                {tickets.map((t) => (
+                  <option key={t.number} value={t.number}>{t.number} — {t.subject}</option>
+                ))}
+              </select>
+              {linked && (
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                  البيانات أدناه من التذكرة {linked.number}، وستُربط الاستشارة بها — اختر القناة فقط.
+                </span>
+              )}
+            </div>
+          )}
+
           <div style={{ marginBottom: 22 }}>
             <label style={{ display: 'block', fontWeight: 800, fontSize: 14, color: 'var(--ink)', marginBottom: 10 }}>
               1. اختر نوع وقناة الاستشارة:
@@ -392,11 +440,15 @@ const Book: React.FC<Props> = ({
               </label>
               <select
                 className="input"
-                value={caseType}
+                value={linked ? linked.specialty : caseType}
                 onChange={(e) => setCaseType(e.target.value)}
+                disabled={!!linked}
                 style={{ padding: '10px 14px', fontSize: 13.5 }}
               >
                 <option value="">— اختر المجال القضائي —</option>
+                {linked && linked.specialty && !specialties.includes(linked.specialty) && (
+                  <option value={linked.specialty}>{linked.specialty}</option>
+                )}
                 {/* الأقسام الفعّالة من كتالوج الأقسام — يمرّرها الخادم */}
                 {specialties.map((s) => (
                   <option key={s} value={s}>{s}</option>
@@ -405,7 +457,7 @@ const Book: React.FC<Props> = ({
               </select>
             </div>
 
-            {caseType === OTHER ? (
+            {!linked && caseType === OTHER ? (
               <div className="field" style={{ margin: 0 }}>
                 <label style={{ fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>
                   اكتب اسم التخصص أو نوع القضية:
@@ -434,15 +486,16 @@ const Book: React.FC<Props> = ({
                   type="text"
                   placeholder="مثال: مراجعة بنود عقد استثمار، فسخ عقد عمل…"
                   maxLength={60}
-                  value={subject}
+                  value={linked ? linked.subject : subject}
                   onChange={(e) => setSubject(e.target.value)}
+                  disabled={!!linked}
                   style={{ padding: '10px 14px', fontSize: 13.5 }}
                 />
               </div>
             )}
           </div>
 
-          {caseType === OTHER && (
+          {!linked && caseType === OTHER && (
             <div className="field" style={{ marginBottom: 18 }}>
               <label style={{ fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>
                 3. موضوع الاستشارة الرئيسي:
@@ -468,8 +521,9 @@ const Book: React.FC<Props> = ({
               className="input"
               rows={5}
               maxLength={2000}
-              value={notes}
+              value={linked ? linked.details : notes}
               onChange={(e) => setNotes(e.target.value)}
+              disabled={!!linked}
               placeholder="اكتب نبذة عن النزاع أو التساؤلات المطلوب الإجابة عليها ليتمكن المستشار المختص من تحضير الرأي القانوني المناسب مسبقاً…"
               style={{ padding: '12px 14px', fontSize: 13.5, lineHeight: 1.7 }}
             />

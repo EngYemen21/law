@@ -10,7 +10,6 @@ use App\Jobs\GenerateTicketReplyJob;
 use App\Jobs\TriageDocumentJob;
 use App\Jobs\TriageTicketOnOpenJob;
 use App\Mail\TicketOpenedMail;
-use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
@@ -374,7 +373,7 @@ class TicketController extends Controller
         }
 
         // منع طلبات التسعير المتكرّرة: طلب واحد قائم لكل تذكرة يكفي حتى يكتمل أو يُلغى
-        if ($ticket->consults()->whereIn('status', Consult::PRE_SESSION_STATUSES)->exists()) {
+        if ($ticket->hasPendingConsult()) {
             throw ValidationException::withMessages([
                 'type' => 'يوجد طلب استشارة قائم لهذه التذكرة.',
             ]);
