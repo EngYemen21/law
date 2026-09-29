@@ -13,13 +13,16 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Support\Audit;
 use App\Support\Finance\FinanceBoard;
+use App\Support\Finance\ReceiptVoucherDocument;
 use App\Support\Notify;
 use App\Support\Paginate;
 use App\Support\PaymentReconciler;
+use App\Support\PdfRenderer;
 use Carbon\CarbonInterface;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -156,7 +159,10 @@ class FinanceController extends Controller
     /** تحصيل يدويّ (نقد/تحويل خارج البوّابة) — يقيّد الدفتر ويمنع التحصيل المكرّر. */
     public function pay(Request $request, Invoice $invoice): RedirectResponse
     {
-        if (! PaymentReconciler::settleManual($invoice, $request->user()->name)) {
+        // طريقة القبض تُطبع على سند القبض — نقداً أو تحويلاً (البوّابة لا تُحصَّل من هنا)
+        $data = $request->validate(['method' => ['nullable', Rule::in(Payment::MANUAL_METHODS)]]);
+
+        if (! PaymentReconciler::settleManual($invoice, $request->user()->name, $request->user(), $data['method'] ?? null)) {
             // **رفضٌ لا نجاحٌ بلونٍ آخر**: `back()->with('error')` تحويلٌ ناجح، فكانت الواجهة تُطلق
             // «تم تسجيل التحصيل» ورسالة الخادم «محصّلة مسبقاً» معاً. خطأ تحقّقٍ يبلغ `onError` وحده.
             // والرفض يقول سببه: `settleManual` يرفض المدفوعة **والملغاة** — «محصّلة مسبقاً» لملغاةٍ كان كذباً
@@ -250,6 +256,14 @@ class FinanceController extends Controller
      * «بانتظار مراجعة الإثبات» طريق مسدود: المراجع يرى أن إثباتاً رُفع ولا يستطيع فتحه
      * ليقرّر التحصيل. للإدارة وحدها (المجموعة محروسة بـrole:admin).
      */
+    /** سند القبض PDF — للدفعة الناجحة التي مُنحت رقماً (`ReceiptVoucher`) وحدها. */
+    public function receipt(Payment $payment): \Symfony\Component\HttpFoundation\Response
+    {
+        abort_unless($payment->isReceived() && $payment->receipt_no !== null, 404);
+
+        return PdfRenderer::render(ReceiptVoucherDocument::html($payment->load('invoice.user', 'actor')), $payment->receipt_no.'.pdf');
+    }
+
     public function proof(Invoice $invoice): StreamedResponse
     {
         abort_if($invoice->proof_path === null, 404, 'لا يوجد إثبات مرفوع لهذه الفاتورة.');

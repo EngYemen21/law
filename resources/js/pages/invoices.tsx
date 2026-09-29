@@ -79,7 +79,11 @@ fileRef.current.value = '';
           <Icon name="download" /> الفاتورة PDF
         </a>
         {v.paid ? (
-          null
+          v.hasReceipt ? (
+            <a className="btn soft sm" href={`/invoices/${encodeURIComponent(v.no)}/receipt`} download>
+              <Icon name="download" /> سند القبض
+            </a>
+          ) : null
         ) : v.cancelled ? (
           // لا دفع ولا إثبات لملغاة — كان الزرّان ظاهرين والخادم يرفض الدفع ويقبل الإثبات فيُحيي الإلغاء
           <span className="action-hint" style={{ margin: 0 }}>أُلغيت ولا تُسدَّد — ادفع الفاتورة المحدَّثة</span>

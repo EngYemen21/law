@@ -14,6 +14,7 @@ use App\Models\LegalCase;
 use App\Models\Payment;
 use App\Models\User;
 use App\Services\MoyasarService;
+use App\Support\Finance\ReceiptVoucher;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -98,7 +99,7 @@ class PaymentReconciler
      * كان المسار الإداري يعلّم الفاتورة مدفوعة بلا صفّ في payments، فتستحيل التسوية المحاسبية
      * (المحصّل في اللوحة لا يقابله قيد)، وبلا حارس حالة يُعاد التحصيل على فاتورة مدفوعة.
      */
-    public static function settleManual(Invoice $invoice, string $actor): bool
+    public static function settleManual(Invoice $invoice, string $actor, ?User $by = null, ?string $method = null): bool
     {
         if ($invoice->paid) {
             return false; // مدفوعة أصلاً — لا تُقيَّد مرّتين
@@ -131,6 +132,12 @@ class PaymentReconciler
             Payment::where('gateway_payment_id', 'manual-'.$invoice->id)->delete();
 
             return false;
+        }
+
+        // سند القبض بعد نجاح التسوية — فلا يُستهلك رقمٌ متسلسل لتحصيلٍ رُفض
+        $ledger = Payment::where('gateway_payment_id', 'manual-'.$invoice->id)->first();
+        if ($ledger !== null) {
+            ReceiptVoucher::issue($ledger, $by, $method);
         }
 
         return true;
@@ -234,7 +241,7 @@ class PaymentReconciler
             return null;
         }
 
-        return Payment::updateOrCreate(
+        $ledger = Payment::updateOrCreate(
             ['gateway_payment_id' => $paymentId],
             [
                 'invoice_id' => $invoice?->id,
@@ -250,6 +257,9 @@ class PaymentReconciler
                 'raw' => $payment,
             ]
         );
+
+        // المال وصل ⇒ سند قبض (مرّةً واحدة — الإشعار والعودة قد يصلان معاً)؛ والمحاولة الفاشلة بلا سند
+        return ReceiptVoucher::issue($ledger);
     }
 
     /** @param  array<string,mixed>  $payment */

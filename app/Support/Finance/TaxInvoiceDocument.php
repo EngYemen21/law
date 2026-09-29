@@ -116,7 +116,7 @@ final class TaxInvoiceDocument
      *
      * @return list<array{0:string,1:string}>
      */
-    private static function officeCells(?\DateTimeInterface $issuedAt): array
+    public static function officeCells(?\DateTimeInterface $issuedAt): array
     {
         $cells = [['اسم المكتب', SettingsRegistry::str('office_name')]];
 

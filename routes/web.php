@@ -180,6 +180,7 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
     Route::post('/invoices/{invoice}/proof', [InvoiceController::class, 'uploadProof'])->name('invoices.proof');
     Route::post('/invoices/{invoice}/checkout', [InvoiceController::class, 'checkout'])->name('invoices.checkout');
     Route::get('/invoices/{invoice}/checkout/callback', [InvoiceController::class, 'checkoutCallback'])->name('invoices.checkout.callback');
+    Route::get('/invoices/{invoice}/receipt', [InvoiceController::class, 'receipt'])->name('invoices.receipt');
     Route::get('/invoices/{invoice}/pdf', [InvoiceController::class, 'pdf'])->name('invoices.pdf');
 });
 
@@ -760,6 +761,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/invoices/{invoice}/cancel', [AdminFinanceController::class, 'cancel'])->name('invoices.cancel');
     Route::post('/invoices/{invoice}/write-off', [AdminFinanceController::class, 'writeOff'])->name('invoices.write-off');
     Route::get('/invoices/{invoice}/proof', [AdminFinanceController::class, 'proof'])->name('invoices.proof');
+    Route::get('/receipts/{payment}/pdf', [AdminFinanceController::class, 'receipt'])->name('receipts.pdf');
     // رفض الإثبات يعيد الفاتورة للاستحقاق — رافع الملف الخاطئ كان يفقد زرّ الدفع نهائياً
     Route::post('/invoices/{invoice}/proof/reject', [AdminFinanceController::class, 'rejectProof'])->name('invoices.proof.reject');
     Route::get('/meetreports', [StaffMeetingController::class, 'reports'])->name('meetreports');

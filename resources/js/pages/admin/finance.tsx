@@ -2,7 +2,6 @@ import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import { usePrompt } from '@/components/babylon/ConfirmDialog';
-import type { ConfirmRequest } from '@/components/babylon/ConfirmDialog';
 import Modal from '@/components/babylon/Modal';
 import Pagination from '@/components/babylon/Pagination';
 import type { Paginated } from '@/components/babylon/Pagination';
@@ -10,13 +9,11 @@ import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
 import { useServerAction } from '@/lib/use-server-action';
 
-/** تحصيلٌ يدويّ — يُسجّل السداد ويُشعر العميل ويُحرّك ملفّه، فلا يقع بنقرةٍ عابرة (قرار المالك 2026-09-27). */
-const CONFIRM_SETTLE_INVOICE: ConfirmRequest = {
-  title: 'تسجيل تحصيل الفاتورة؟',
-  message: 'تُعلَّم الفاتورة مدفوعةً ويُشعَر العميل ويتقدّم ملفّه. تأكّد من وصول المبلغ قبل التسجيل.',
-  confirmLabel: 'تسجيل التحصيل',
-  cancelLabel: 'تراجع',
-};
+/** طرق التحصيل اليدويّ — تُطبع على سند القبض (`Payment::MANUAL_METHODS`). */
+const MANUAL_METHODS = [
+  { value: 'bank_transfer', label: 'تحويل بنكيّ' },
+  { value: 'cash', label: 'نقداً' },
+];
 
 /**
  * **المالية والمحاسبة — الشاشة الواحدة بتبويباتها الستّة** (م٣ من خطّة النظام الماليّ).
@@ -52,7 +49,7 @@ interface Debtor {
   overdue: number; overdueCount: number; total: number; count: number; lastReminder: string | null;
 }
 
-interface Receipt { id: number; at: string | null; method: string; invoice: string; client: string; amount: number; actor: string }
+interface Receipt { id: number; receiptNo: string | null; at: string | null; method: string; invoice: string; client: string; amount: number; actor: string }
 interface MonthRow { m: string; label: string; subtotal: number; vat: number; total: number; count: number }
 
 interface Props {
@@ -114,10 +111,30 @@ const AdminFinance: React.FC<Props> = ({
    */
   // قفلٌ موحّد (`useServerAction`): النقرة الثانية على «إصدار» أو «تحصيل» لا تصل الخادم
   const { run, busyKey } = useServerAction();
-  const act = (no: string, path: string, data: Record<string, string> = {}, confirm?: ConfirmRequest) =>
+  const act = (no: string, path: string, data: Record<string, string> = {}) =>
     run(`/admin/invoices/${encodeURIComponent(no)}/${path}`, {
-      data, key: no, confirm, fallback: 'تعذّر تنفيذ الإجراء على الفاتورة ' + no,
+      data, key: no, fallback: 'تعذّر تنفيذ الإجراء على الفاتورة ' + no,
     });
+
+  /**
+   * تحصيلٌ يدويّ — يُسجّل السداد ويُشعر العميل ويُحرّك ملفّه، فلا يقع بنقرةٍ عابرة (قرار المالك 2026-09-27).
+   * والنافذة نفسها تسأل عن طريقة القبض لسند القبض؛ ومرفوعُ إثبات التحويل يبدأ بـ«تحويل».
+   */
+  const collect = async (no: string, hasProof: boolean) => {
+    const method = await askFor({
+      title: 'تسجيل تحصيل الفاتورة؟',
+      message: 'تُعلَّم الفاتورة مدفوعةً ويُشعَر العميل ويتقدّم ملفّه ويصدر سند قبض. تأكّد من وصول المبلغ قبل التسجيل.',
+      label: 'طريقة القبض',
+      choices: MANUAL_METHODS,
+      defaultValue: hasProof ? 'bank_transfer' : 'cash',
+      confirmLabel: 'تسجيل التحصيل',
+      cancelLabel: 'تراجع',
+    });
+
+    if (method) {
+      act(no, 'pay', { method });
+    }
+  };
 
   /** رفض إثبات التحويل بعد تأكيدٍ وسببٍ يصل العميل — الخادم يقبل `reason` ويُشعره به. */
   const rejectProof = async (no: string) => {
@@ -295,7 +312,7 @@ const AdminFinance: React.FC<Props> = ({
                               <button className="btn sm" type="button" disabled={busyKey === v.no} onClick={() => act(v.no, 'issue')}><Icon name="send" /> إصدار للعميل</button>
                             )}
                             {v.can.includes('invoice.settle') && (
-                              <button className="btn sm" type="button" disabled={busyKey === v.no} onClick={() => act(v.no, 'pay', {}, CONFIRM_SETTLE_INVOICE)}><Icon name="check" /> تحصيل</button>
+                              <button className="btn sm" type="button" disabled={busyKey === v.no} onClick={() => collect(v.no, v.hasProof)}><Icon name="check" /> تحصيل</button>
                             )}
                             {/* رافع الملف الخاطئ كان يفقد زرّ الدفع نهائياً — الرفض يعيد الفاتورة للاستحقاق ويُشعره */}
                             {v.hasProof && !v.paid && (
@@ -331,16 +348,24 @@ const AdminFinance: React.FC<Props> = ({
             {receipts.rows.data.length ? (
               <div className="t-wrap">
                 <table className="tbl">
-                  <thead><tr><th>التاريخ</th><th>الطريقة</th><th>الفاتورة</th><th>الموكّل</th><th className="n">المبلغ</th><th>من قيَّده</th></tr></thead>
+                  <thead><tr><th>رقم السند</th><th>التاريخ</th><th>الطريقة</th><th>الفاتورة</th><th>الموكّل</th><th className="n">المبلغ</th><th>من قيَّده</th><th></th></tr></thead>
                   <tbody>
                     {receipts.rows.data.map((r) => (
                       <tr key={r.id}>
+                        <td className="mono">{r.receiptNo ?? '—'}</td>
                         <td>{r.at ?? '—'}</td>
                         <td><span className="chip">{r.method}</span></td>
                         <td className="mono">{r.invoice}</td>
                         <td>{r.client}</td>
                         <td className="n">{fmt(r.amount)}</td>
                         <td className="muted">{r.actor}</td>
+                        <td>
+                          {r.receiptNo && (
+                            <a className="btn soft sm" href={`/admin/receipts/${r.id}/pdf`} download>
+                              <Icon name="download" /> سند القبض
+                            </a>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

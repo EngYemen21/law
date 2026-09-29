@@ -6,7 +6,9 @@ use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\Transitions\Invoice\SubmitPaymentProof;
 use App\Domain\Journey\Workflow;
 use App\Models\Invoice;
+use App\Models\Payment;
 use App\Services\MoyasarService;
+use App\Support\Finance\ReceiptVoucherDocument;
 use App\Support\Finance\TaxInvoiceDocument;
 use App\Support\PaymentReconciler;
 use App\Support\PdfRenderer;
@@ -20,9 +22,14 @@ class InvoiceController extends Controller
     // قائمة فواتير العميل الحالي (تحسب الواجهة الإحصائيات والتقسيم)
     public function index(Request $request): Response
     {
-        $invoices = Invoice::where('user_id', $request->user()->id)
-            ->latest('id')->get()
-            ->map(fn (Invoice $v) => $v->toCard());
+        $invoices = Invoice::where('user_id', $request->user()->id)->latest('id')->get();
+
+        // لكلّ فاتورةٍ سندُ قبضٍ إن وُجدت لها دفعةٌ مقبوضة مرقّمة — استعلامٌ واحد للصفحة لا لكلّ فاتورة.
+        // (فواتير سُدّدت قبل دفتر المدفوعات بلا صفٍّ فيه، فلا يُعرض لها زرٌّ يردّ 404.)
+        $withReceipt = Payment::received()->whereNotNull('receipt_no')
+            ->whereIn('invoice_id', $invoices->modelKeys())->pluck('invoice_id')->flip();
+
+        $invoices = $invoices->map(fn (Invoice $v) => $v->toCard() + ['hasReceipt' => $withReceipt->has($v->id)]);
 
         return Inertia::render('invoices', [
             'invoices' => $invoices,
@@ -125,5 +132,17 @@ class InvoiceController extends Controller
         );
 
         return PdfRenderer::render(TaxInvoiceDocument::html($invoice), $invoice->number.'.pdf');
+    }
+
+    /** سند قبض الفاتورة المدفوعة — لصاحبها وللإدارة والموظّف، كالفاتورة نفسها. */
+    public function receipt(Request $request, Invoice $invoice): \Symfony\Component\HttpFoundation\Response
+    {
+        $user = $request->user();
+        abort_unless($invoice->user_id === $user->id || $user->isAdmin() || $user->isEmployee(), 403);
+
+        $payment = Payment::received()->where('invoice_id', $invoice->id)->whereNotNull('receipt_no')->latest('id')->first();
+        abort_if($payment === null, 404);
+
+        return PdfRenderer::render(ReceiptVoucherDocument::html($payment->load('invoice.user', 'actor')), $payment->receipt_no.'.pdf');
     }
 }

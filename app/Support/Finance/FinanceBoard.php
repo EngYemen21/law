@@ -229,7 +229,7 @@ final class FinanceBoard
      */
     public static function receipts(array $period): LengthAwarePaginator
     {
-        return Payment::with('invoice.user')
+        return Payment::with(['invoice.user', 'actor'])->received()
             ->whereRaw(self::RECEIVED_AT.' BETWEEN ? AND ?', [$period['from'], $period['to']])
             ->latest('id')
             ->paginate(self::PER_PAGE)
@@ -239,7 +239,7 @@ final class FinanceBoard
     /** مجموع ما دخل في الفترة — بالريال، من العمود القابل للجمع وحده. */
     public static function receiptsTotal(array $period): float
     {
-        $halalas = (int) Payment::whereRaw(self::RECEIVED_AT.' BETWEEN ? AND ?', [$period['from'], $period['to']])
+        $halalas = (int) Payment::received()->whereRaw(self::RECEIVED_AT.' BETWEEN ? AND ?', [$period['from'], $period['to']])
             ->sum('amount_halalas');
 
         return self::riyals($halalas);
@@ -260,14 +260,15 @@ final class FinanceBoard
     {
         return [
             'id' => $payment->id,
-            'at' => self::dateText($payment->reconciled_at ?? $payment->created_at),
-            'method' => self::methodLabel($payment),
+            'receiptNo' => $payment->receipt_no,
+            'at' => self::dateText($payment->received_at ?? $payment->reconciled_at ?? $payment->created_at),
+            'method' => $payment->methodLabel(),
             'invoice' => $payment->invoice?->number ?? '—',
             'client' => Ticket::maskClient($payment->invoice?->user?->name ?? ''),
             'amount' => self::riyals((int) $payment->amount_halalas),
             // من قيَّده: التحصيل اليدويّ يحفظ اسم المحصِّل في `raw.actor`؛ والبوّابة لا فاعلَ
             // بشريّاً لها — فتُسمّى باسمها بدل أن يُنسب القيد إلى أحد
-            'actor' => self::actorLabel($payment),
+            'actor' => $payment->receiverLabel(),
         ];
     }
 
@@ -481,7 +482,7 @@ final class FinanceBoard
     private const ISSUED_AT = 'COALESCE(issued_at, created_at)';
 
     /** تاريخ القبض: `reconciled_at` وإلّا `created_at` (صفوفٌ قديمة قد تصل بلا تسوية). */
-    private const RECEIVED_AT = 'COALESCE(reconciled_at, created_at)';
+    private const RECEIVED_AT = 'COALESCE(received_at, reconciled_at, created_at)';
 
     /** @param  Builder<Invoice>  $q */
     private static function scopeKind(Builder $q, string $kind): void
@@ -492,19 +493,6 @@ final class FinanceBoard
             'exec' => $q->whereNull('consult_id')->whereNull('case_id')->whereNotNull('exec_id'),
             default => null,
         };
-    }
-
-    private static function methodLabel(Payment $payment): string
-    {
-        return $payment->gateway === 'manual' ? 'تحصيل يدويّ' : 'بوّابة الدفع';
-    }
-
-    private static function actorLabel(Payment $payment): string
-    {
-        $raw = $payment->raw;
-        $actor = is_array($raw) && is_string($raw['actor'] ?? null) ? trim($raw['actor']) : '';
-
-        return $actor !== '' ? $actor : ($payment->gateway === 'manual' ? '—' : 'بوّابة الدفع');
     }
 
     private static function dateText(?CarbonInterface $at): ?string
