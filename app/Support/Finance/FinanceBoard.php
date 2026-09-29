@@ -9,6 +9,7 @@ use App\Models\Expense;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\Ticket;
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -136,6 +137,29 @@ final class FinanceBoard
             'quarter' => self::shape('quarter', $now->copy()->startOfQuarter(), $now->copy()->endOfQuarter()),
             'year' => self::shape('year', $now->copy()->startOfYear(), $now->copy()->endOfYear()),
             default => self::shape('month', $now->copy()->startOfMonth(), $now->copy()->endOfMonth()),
+        };
+    }
+
+    /**
+     * **الفترة السابقة المقابلة** — مقارنة التقارير (قرار المالك 2026-09-29): الشهر بالشهر قبله،
+     * والربع بالربع قبله، والسنة بالسنة قبلها؛ والمدى المخصّص بمدىً بطوله ينتهي قبل بدايته بيوم.
+     *
+     * @param  array{key:string, from:CarbonInterface, to:CarbonInterface, ...}  $period
+     * @return array{key:string, from:CarbonInterface, to:CarbonInterface, label:string, fromDate:string, toDate:string}
+     */
+    public static function previousPeriod(array $period): array
+    {
+        $from = CarbonImmutable::instance($period['from']);
+
+        return match ($period['key']) {
+            'month' => self::shape('month', $from->subMonthNoOverflow()->startOfMonth(), $from->subMonthNoOverflow()->endOfMonth()),
+            'quarter' => self::shape('quarter', $from->subQuarterNoOverflow()->startOfQuarter(), $from->subQuarterNoOverflow()->endOfQuarter()),
+            'year' => self::shape('year', $from->subYear()->startOfYear(), $from->subYear()->endOfYear()),
+            default => self::shape(
+                'custom',
+                $from->subDays((int) $from->diffInDays(CarbonImmutable::instance($period['to'])->startOfDay()) + 1)->startOfDay(),
+                $from->subDay()->endOfDay(),
+            ),
         };
     }
 

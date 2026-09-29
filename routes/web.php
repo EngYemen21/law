@@ -12,6 +12,7 @@ use App\Http\Controllers\Admin\ClientController as AdminClientController;
 use App\Http\Controllers\Admin\CourtHearingController as AdminCourtHearingController;
 use App\Http\Controllers\Admin\DistributeController as AdminDistributeController;
 use App\Http\Controllers\Admin\FinanceController as AdminFinanceController;
+use App\Http\Controllers\Admin\FinancialReportController as AdminFinancialReportController;
 use App\Http\Controllers\Admin\JourneyTransitionController as AdminJourneyTransitionController;
 use App\Http\Controllers\Admin\LawyerController as AdminLawyerController;
 use App\Http\Controllers\Admin\LegalSourceController as AdminLegalSourceController;
@@ -769,6 +770,10 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     // ومتى حُسم ق٩ (هل يرى المحامي أرقام موكّلي غيره؟) تُستحدث الصلاحيّة **مع** مسارٍ خارج
     // `role:admin` يقابلها، لا قبله.
     Route::get('/finance', [AdminFinanceController::class, 'index'])->name('finance');
+    // التقارير الماليّة — الإيرادات والمصروفات والأرباح والخسائر بمقارنة الفترة السابقة (المرحلة د)
+    Route::get('/financial-reports', [AdminFinancialReportController::class, 'index'])->name('financial-reports');
+    Route::get('/financial-reports/pdf', [AdminFinancialReportController::class, 'pdf'])->name('financial-reports.pdf');
+    Route::get('/financial-reports/csv', [AdminFinancialReportController::class, 'csv'])->name('financial-reports.csv');
     Route::post('/invoices/{invoice}/pay', [AdminFinanceController::class, 'pay'])->name('invoices.pay');
     // دورة حياة الفاتورة من الشاشة — كلٌّ ينادي انتقاله فيُسجَّل في `journey_transitions` (م٢)
     Route::post('/invoices/{invoice}/issue', [AdminFinanceController::class, 'issue'])->name('invoices.issue');

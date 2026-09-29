@@ -591,10 +591,16 @@ const AdminFinance: React.FC<Props> = ({
 
       {tab === 'reports' && (
         <div className="card">
-          <div className="card-h"><h3>التقارير</h3><span className="sub">شاشتان قائمتان</span></div>
+          <div className="card-h"><h3>التقارير</h3><span className="sub">ثلاث شاشات قائمة</span></div>
           <div className="card-b">
             {/* لا تكرار: التقارير تعيش في شاشتيها، وهنا نقلٌ إليهما فقط */}
             <div className="stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', marginBottom: 0 }}>
+              <div className="stat t-cyan" onClick={() => router.visit('/admin/financial-reports')} title="التقارير الماليّة">
+                <div className="si"><Icon name="file" /></div>
+                <div className="num" style={{ fontSize: 19 }}>الأرباح والخسائر</div>
+                <div className="lbl">الإيرادات والمصروفات والربح لفترةٍ بمقارنة السابقة، وتصدير PDF وCSV</div>
+                <div className="go"><Icon name="out" /></div>
+              </div>
               <div className="stat t-green" onClick={() => router.visit('/admin/revenue')} title="تقرير الإيرادات">
                 <div className="si"><Icon name="card" /></div>
                 <div className="num" style={{ fontSize: 19 }}>الإيرادات</div>
