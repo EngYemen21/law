@@ -20,7 +20,6 @@ interface AdminConsultRequestsProps {
   /** نسبة الضريبة من إعدادات المكتب — كانت مصلَّبة 0.15 في الحاسبة. إلزاميّة: المتحكّم يرسلها دائماً. */
   vatRate: number;
   /** الأسعار المعتمدة لكلّ قناة — بديل «الباقات المعياريّة» المكتوبة بيد. */
-  suggestedPrices?: Record<string, number>;
   /** محامو المكتب النشطون — لتعديل المحامي عند اعتماد موعدٍ اقترحه موظّف. */
   lawyers?: { id: number; name: string }[];
 }
@@ -61,7 +60,6 @@ export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
   consults: initialConsults = [],
   // بلا افتراضٍ «15»: نسخةٌ منقوشة من الإعداد كانت تظهر متى غاب الحقل، فتخالف الفاتورة
   vatRate,
-  suggestedPrices = {},
   lawyers = [],
 }) => {
   const inSession = useInSession();
@@ -176,9 +174,10 @@ return null;
     if (drawerConsult) {
       const ch = drawerConsult.channel || DEFAULT_CONSULT_CHANNEL;
       setDrawerChannel(ch);
-      setInputPrice(String(drawerConsult.price || suggestedPrices[ch] || ''));
+      // لا سعر مقترح (قرار المالك 2026-09-29) — السعر المعتمد لطلبٍ سُعّر من قبل وحده
+      setInputPrice(drawerConsult.priced && drawerConsult.price ? String(drawerConsult.price) : '');
     }
-  }, [drawerConsult, suggestedPrices]);
+  }, [drawerConsult]);
 
   // Open & Close Drawer Actions
   const openDrawer = (ref: string, initialTab: DrawerTab = 'pricing') => {
@@ -613,8 +612,12 @@ return (a.total || 0) - (b.total || 0);
             grid-template-columns: repeat(2, 1fr);
             gap: 8px;
           }
+          /* على الهاتف: قائمتان في كلّ صفّ، والبحث بعرض السطر فوقهما (قرار المالك 2026-09-29) */
           .cr360-filter-grid {
-            grid-template-columns: 1fr;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .cr360-filter-grid > :first-child {
+            grid-column: 1 / -1;
           }
 
           /* تحويل الجدول إلى كروت لمس ذكية وتفاعلية على الشاشات الصغيرة */
@@ -1456,7 +1459,7 @@ return (a.total || 0) - (b.total || 0);
                                 setPricingModalConsult(c);
                                 const ch = c.channel || DEFAULT_CONSULT_CHANNEL;
                                 setModalChannel(ch);
-                                setModalPrice(String(c.price || suggestedPrices[ch] || ''));
+                                setModalPrice(c.priced && c.price ? String(c.price) : '');
                               }}
                             >
                               <Icon name="card" /> تسعير
@@ -1756,19 +1759,12 @@ return (a.total || 0) - (b.total || 0);
                       {CONSULT_CHANNEL_OPTIONS.map((label) => {
                         const icon = crChannelIcon(label);
                         const isSelected = drawerChannel === label;
-                        const suggested = suggestedPrices[label];
 
                         return (
                           <button
                             key={label}
                             type="button"
-                            onClick={() => {
-                              setDrawerChannel(label);
-
-                              if (suggested) {
-                                setInputPrice(String(suggested));
-                              }
-                            }}
+                            onClick={() => setDrawerChannel(label)}
                             style={{
                               padding: '10px 8px',
                               borderRadius: 8,
@@ -1789,11 +1785,6 @@ return (a.total || 0) - (b.total || 0);
                               <Icon name={icon} />
                               <span>{label}</span>
                             </div>
-                            {suggested ? (
-                              <span style={{ fontSize: 11, fontWeight: 500, color: isSelected ? 'var(--primary)' : 'var(--muted)' }}>
-                                ({suggested} ر.س)
-                              </span>
-                            ) : null}
                           </button>
                         );
                       })}
@@ -1910,6 +1901,9 @@ return (a.total || 0) - (b.total || 0);
                       موضوع واستفسار العميل:
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.6 }}>{drawerConsult.subject}</div>
+                    {drawerConsult.details && (
+                      <div style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap', marginTop: 8, color: 'var(--ink)' }}>{drawerConsult.details}</div>
+                    )}
                     <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                       <Badge text={drawerConsult.specialty || drawerConsult.type} tone="b-blue" />
                       <Badge text={`قناة ${drawerConsult.channel}`} tone={crChannelTone(drawerConsult.channel)} />
@@ -2135,19 +2129,12 @@ return (a.total || 0) - (b.total || 0);
                 {CONSULT_CHANNEL_OPTIONS.map((label) => {
                   const icon = crChannelIcon(label);
                   const isSelected = modalChannel === label;
-                  const suggested = suggestedPrices[label];
 
                   return (
                     <button
                       key={label}
                       type="button"
-                      onClick={() => {
-                        setModalChannel(label);
-
-                        if (suggested) {
-                          setModalPrice(String(suggested));
-                        }
-                      }}
+                      onClick={() => setModalChannel(label)}
                       style={{
                         padding: '8px',
                         borderRadius: 8,
@@ -2168,11 +2155,6 @@ return (a.total || 0) - (b.total || 0);
                         <Icon name={icon} />
                         <span>{label}</span>
                       </div>
-                      {suggested ? (
-                        <span style={{ fontSize: 11, fontWeight: 500, color: isSelected ? 'var(--primary)' : 'var(--muted)' }}>
-                          ({suggested} ر.س)
-                        </span>
-                      ) : null}
                     </button>
                   );
                 })}

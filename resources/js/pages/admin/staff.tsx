@@ -475,7 +475,7 @@ diff += 24 * 60;
       <div className="hero">
         <h2>إدارة وتسجيل الكادر الوظيفي 👥</h2>
         <p>تسجيل المحامين والموظفين، ضبط ساعات العمل والأجور، وتخصيص الصلاحيات بدقة وأمان.</p>
-        <div className="hero-cta" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <div className="hero-cta filter-pills" style={{ flexWrap: 'wrap', gap: 8 }}>
           <button
             className={`hero-b ${activeTab === 'list' && !roleFilter ? '' : 'ghost'}`}
             onClick={() => {

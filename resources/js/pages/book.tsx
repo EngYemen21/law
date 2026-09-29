@@ -1,4 +1,5 @@
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
+import axios from 'axios';
 import React, { useEffect, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import BookingActions from '@/components/babylon/BookingActions';
@@ -38,22 +39,24 @@ const CHANNELS: { key: string; label: string; icon: string; desc: string }[] = [
 
 const OTHER = '__other__';
 
-export interface BookingStats {
-  pendingCount: number;
-  activeCount: number;
-  completedCount: number;
-  totalRequested: number;
+/** تذكرةٌ يجوز الآن طلب استشارتها — من الخادم (`ConsultBookingController::bookableTickets`). */
+interface BookableTicket {
+  number: string;
+  subject: string;
+  specialty: string;
+  details: string;
 }
 
 interface Props {
   pending: ConsultCard[];
   specialties?: string[];
-  stats?: BookingStats;
+  tickets?: BookableTicket[];
 }
 
 const Book: React.FC<Props> = ({
   pending = [],
   specialties = [],
+  tickets = [],
 }) => {
   const toast = useToast();
   const [channel, setChannel] = useState('video');
@@ -62,6 +65,9 @@ const Book: React.FC<Props> = ({
   const [subject, setSubject] = useState('');
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
+  // طلبٌ متعلّق بتذكرة (اختياريّ): الحقول منها للعرض، والإرسال عبر مسار التذكرة فتُربط الاستشارة بها
+  const [ticketNo, setTicketNo] = useState('');
+  const linked = tickets.find((t) => t.number === ticketNo);
   const [items, setItems] = useState<ConsultCard[]>(pending);
 
   // تزامن لحظي: تسعير الإدارة/تأكيد الدفع يصلان فوراً
@@ -105,44 +111,54 @@ const Book: React.FC<Props> = ({
 
   const submit = () => {
     if (!channel) {
-      toast('اختر نوع وقناة الاستشارة');
-      return;
-    }
-    if (!caseType) {
-      toast('اختر المجال أو نوع القضية');
-      return;
-    }
-    if (caseType === OTHER && !otherType.trim()) {
-      toast('اكتب نوع القضية أو التخصص المطلوب');
-      return;
-    }
-    if (!subject.trim()) {
-      toast('اكتب عنواناً أو موضوعاً موجزاً للاستشارة');
+      toast('اختر نوع وقناة الاستشارة', 'warning');
       return;
     }
 
-    // المجال: قسمٌ من الكتالوج أو نصٌّ حرّ في «مجال آخر» — الخادم يطابقه بالكتالوج في الحالتين
+    // مسار التذكرة نفسه الذي يستعمله زرّ المحادثة — بحارسه (المرحلة + طلبٌ واحد قائم) وربطه ورسالته
+    if (linked) {
+      setBusy(true);
+      axios.post(`/tickets/${encodeURIComponent(linked.number)}/book`, { type: channel })
+        .then(() => {
+          toast(`تم إرسال طلب استشارة التذكرة ${linked.number} — بانتظار تسعير المكتب، وبعد السداد يحدّد المكتب الموعد ويُبلغك به.`);
+          router.visit('/myconsults');
+        })
+        .catch((e) => toast(e?.response?.data?.errors?.type?.[0] ?? e?.response?.data?.message ?? 'تعذّر إرسال الطلب', 'error'))
+        .finally(() => setBusy(false));
+
+      return;
+    }
+    if (!caseType) {
+      toast('اختر المجال أو نوع القضية', 'warning');
+      return;
+    }
+    if (caseType === OTHER && !otherType.trim()) {
+      toast('اكتب نوع القضية أو التخصص المطلوب', 'warning');
+      return;
+    }
+    if (!subject.trim()) {
+      toast('اكتب عنواناً أو موضوعاً موجزاً للاستشارة', 'warning');
+      return;
+    }
+
+    // المجال: قسمٌ من الكتالوج أو نصٌّ حرّ في «مجال آخر» — الخادم يطابقه بالكتالوج في الحالتين.
+    // والموضوع والوقائع حقلان منفصلان: كانت الوقائع تُدمج في الموضوع وتُقصّ عند 120 حرفاً فتضيع.
     const specialty = caseType !== OTHER ? caseType : otherType.trim();
-    const caseLabel = specialty;
-    // حدّ الخادم subject: max:120 — بلا قصّ كان أي حجز بملاحظات حقيقية يسقط بـ422
-    const composedSubject = (notes.trim()
-      ? `${subject.trim()} (${caseLabel}) — ${notes.trim()}`
-      : `${subject.trim()} (${caseLabel})`).slice(0, 120);
 
     setBusy(true);
     router.post(
       '/book',
-      { type: channel, subject: composedSubject, specialty },
+      { type: channel, subject: subject.trim(), details: notes.trim() || null, specialty },
       {
         onFinish: () => setBusy(false),
-        onSuccess: () => toast('أُرسل طلبك بنجاح — سيتم دراسته وتسعيره من الإدارة العليا فوراً'),
-        onError: (e) => toast(e.type || e.specialty || e.subject || e.message || 'تعذّر إرسال الطلب'),
+        // رسالة النجاح من الخادم (flash) — لا ثانيةَ هنا
+        onError: (e) => toast(e.type || e.specialty || e.subject || e.details || e.message || 'تعذّر إرسال الطلب', 'error'),
       }
     );
   };
 
   return (
-    <>
+    <div className="book-page">
       {/* 1. الهيدر التنفيذي 360° وشريط الإجراءات */}
       <div className="hero" style={{ padding: '24px 26px', marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
@@ -157,26 +173,27 @@ const Book: React.FC<Props> = ({
             </div>
             <h2>حجز استشارة قانونية متخصصة 🏛️</h2>
             <p>
-              احصل على رأي قانوني رصين من نخبة المحامين والمستشارين المعتمدين. اختر القناة والمجال المناسبين ليتم تسعير الطلب واعتماده من الإدارة العليا قبل السداد وحجز الموعد.
+              احصل على رأي قانوني رصين من نخبة المحامين والمستشارين المعتمدين. اختر القناة والمجال المناسبين ليتم تسعير الطلب واعتماده من الإدارة العليا، وبعد السداد يحدّد المكتب موعد جلستك ويُبلغك به.
             </p>
           </div>
 
           <div className="hero-cta" style={{ margin: 0 }}>
-            <button className="hero-b" onClick={() => router.visit('/myconsults')} type="button">
+            <Link className="hero-b" href="/myconsults">
               <Icon name="scale" /> استشاراتي الحالية
-            </button>
-            <button className="hero-b ghost" onClick={() => router.visit('/calendar')} type="button">
+            </Link>
+            <Link className="hero-b ghost" href="/calendar">
               <Icon name="cal" /> المواعيد والتقويم
-            </button>
-            <button className="hero-b ghost" onClick={() => router.visit('/tickets')} type="button">
+            </Link>
+            <Link className="hero-b ghost" href="/tickets">
               <Icon name="ticket" /> طلباتي وتذاكري
-            </button>
+            </Link>
           </div>
         </div>
       </div>
 
-      {/* 2. مسار رحلة الاستشارة الشفاف (4-Step Flow Stepper) */}
+      {/* 2. مسار رحلة الاستشارة الشفاف (4-Step Flow Stepper) — على الهاتف شريطٌ أفقيّ مضغوط أسفل النموذج */}
       <div
+        className="book-steps"
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -185,6 +202,7 @@ const Book: React.FC<Props> = ({
         }}
       >
         <div
+          className="book-step"
           style={{
             padding: '14px 16px',
             borderRadius: 12,
@@ -199,10 +217,11 @@ const Book: React.FC<Props> = ({
             </span>
             تقديم الطلب والمجال
           </div>
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>تحديد القناة وتفاصيل الموضوع والوقائع.</p>
+          <p className="book-step-desc" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>تحديد القناة وتفاصيل الموضوع والوقائع.</p>
         </div>
 
         <div
+          className="book-step"
           style={{
             padding: '14px 16px',
             borderRadius: 12,
@@ -216,10 +235,11 @@ const Book: React.FC<Props> = ({
             </span>
             تسعير الإدارة العليا
           </div>
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>دراسة الموضوع وتحديد الأتعاب وإصدار الفاتورة.</p>
+          <p className="book-step-desc" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>دراسة الموضوع وتحديد الأتعاب وإصدار الفاتورة.</p>
         </div>
 
         <div
+          className="book-step"
           style={{
             padding: '14px 16px',
             borderRadius: 12,
@@ -233,10 +253,11 @@ const Book: React.FC<Props> = ({
             </span>
             السداد عبر ميسّر
           </div>
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>دفع إلكتروني آمن وفوري بكافة البطاقات.</p>
+          <p className="book-step-desc" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>دفع إلكتروني آمن وفوري بكافة البطاقات.</p>
         </div>
 
         <div
+          className="book-step"
           style={{
             padding: '14px 16px',
             borderRadius: 12,
@@ -248,9 +269,9 @@ const Book: React.FC<Props> = ({
             <span style={{ width: 22, height: 22, borderRadius: '50%', backgroundColor: '#e2e8f0', color: 'var(--ink)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>
               4
             </span>
-            حجز الموعد وانعقاد الجلسة
+            تحديد الموعد وانعقاد الجلسة
           </div>
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>اختيار الفترة وتلقي الرأي والمحضر المعتمد.</p>
+          <p className="book-step-desc" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>يحدّد المكتب الموعد ويُبلغك به، ثم تتلقى الرأي والمحضر المعتمد.</p>
         </div>
       </div>
 
@@ -318,12 +339,33 @@ const Book: React.FC<Props> = ({
 
         <div className="card-b" style={{ padding: '20px 22px' }}>
           {/* أ. اختيار قناة الاستشارة (Visual Channel Cards) */}
+          {/* 0. طلبٌ متعلّق بتذكرة قائمة (اختياريّ) — تظهر حين يكون للعميل تذكرةٌ يجوز طلب استشارتها */}
+          {tickets.length > 0 && (
+            <div className="field" style={{ marginBottom: 18 }}>
+              <label style={{ fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>
+                هل طلبك متعلق بتذكرة؟ (اختياري)
+              </label>
+              <select className="input" value={ticketNo} onChange={(e) => setTicketNo(e.target.value)} style={{ padding: '10px 14px', fontSize: 13.5 }}>
+                <option value="">— لا، طلب جديد —</option>
+                {tickets.map((t) => (
+                  <option key={t.number} value={t.number}>{t.number} — {t.subject}</option>
+                ))}
+              </select>
+              {linked && (
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                  البيانات أدناه من التذكرة {linked.number}، وستُربط الاستشارة بها — اختر القناة فقط.
+                </span>
+              )}
+            </div>
+          )}
+
           <div style={{ marginBottom: 22 }}>
             <label style={{ display: 'block', fontWeight: 800, fontSize: 14, color: 'var(--ink)', marginBottom: 10 }}>
               1. اختر نوع وقناة الاستشارة:
             </label>
 
             <div
+              className="book-channels"
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
@@ -336,6 +378,7 @@ const Book: React.FC<Props> = ({
                 return (
                   <div
                     key={ch.key}
+                    className="book-channel"
                     onClick={() => setChannel(ch.key)}
                     style={{
                       padding: '16px',
@@ -364,7 +407,7 @@ const Book: React.FC<Props> = ({
                         <Icon name={ch.icon} />
                       </div>
                       <span
-                        className="chip"
+                        className="chip book-channel-chip"
                         style={{
                           fontWeight: 700,
                           color: isSelected ? 'var(--primary)' : 'var(--muted)',
@@ -380,7 +423,7 @@ const Book: React.FC<Props> = ({
                     <b style={{ display: 'block', fontSize: 14.5, color: isSelected ? 'var(--primary)' : 'var(--ink)', marginBottom: 4 }}>
                       {ch.label}
                     </b>
-                    <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                    <p className="book-channel-desc" style={{ margin: 0, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
                       {ch.desc}
                     </p>
                   </div>
@@ -397,11 +440,15 @@ const Book: React.FC<Props> = ({
               </label>
               <select
                 className="input"
-                value={caseType}
+                value={linked ? linked.specialty : caseType}
                 onChange={(e) => setCaseType(e.target.value)}
+                disabled={!!linked}
                 style={{ padding: '10px 14px', fontSize: 13.5 }}
               >
                 <option value="">— اختر المجال القضائي —</option>
+                {linked && linked.specialty && !specialties.includes(linked.specialty) && (
+                  <option value={linked.specialty}>{linked.specialty}</option>
+                )}
                 {/* الأقسام الفعّالة من كتالوج الأقسام — يمرّرها الخادم */}
                 {specialties.map((s) => (
                   <option key={s} value={s}>{s}</option>
@@ -410,7 +457,7 @@ const Book: React.FC<Props> = ({
               </select>
             </div>
 
-            {caseType === OTHER ? (
+            {!linked && caseType === OTHER ? (
               <div className="field" style={{ margin: 0 }}>
                 <label style={{ fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>
                   اكتب اسم التخصص أو نوع القضية:
@@ -439,15 +486,16 @@ const Book: React.FC<Props> = ({
                   type="text"
                   placeholder="مثال: مراجعة بنود عقد استثمار، فسخ عقد عمل…"
                   maxLength={60}
-                  value={subject}
+                  value={linked ? linked.subject : subject}
                   onChange={(e) => setSubject(e.target.value)}
+                  disabled={!!linked}
                   style={{ padding: '10px 14px', fontSize: 13.5 }}
                 />
               </div>
             )}
           </div>
 
-          {caseType === OTHER && (
+          {!linked && caseType === OTHER && (
             <div className="field" style={{ marginBottom: 18 }}>
               <label style={{ fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>
                 3. موضوع الاستشارة الرئيسي:
@@ -471,10 +519,11 @@ const Book: React.FC<Props> = ({
             </label>
             <textarea
               className="input"
-              rows={4}
-              maxLength={300}
-              value={notes}
+              rows={5}
+              maxLength={2000}
+              value={linked ? linked.details : notes}
               onChange={(e) => setNotes(e.target.value)}
+              disabled={!!linked}
               placeholder="اكتب نبذة عن النزاع أو التساؤلات المطلوب الإجابة عليها ليتمكن المستشار المختص من تحضير الرأي القانوني المناسب مسبقاً…"
               style={{ padding: '12px 14px', fontSize: 13.5, lineHeight: 1.7 }}
             />
@@ -513,7 +562,7 @@ const Book: React.FC<Props> = ({
                 آلية التسعير والاعتماد من الإدارة العليا:
               </b>
               <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-                يتم تحديد المقابل المالي وإصدار الفاتورة الرسمية للاستشارة من قِبل الإدارة العليا بعد دراسة وقائع الطلب والتخصص المطلوب، لتتمكن بعدها من سداد الفاتورة إلكترونياً واختيار موعد الجلسة مباشرة.
+                يتم تحديد المقابل المالي وإصدار الفاتورة الرسمية للاستشارة من قِبل الإدارة العليا بعد دراسة وقائع الطلب والتخصص المطلوب، لتتمكن بعدها من سداد الفاتورة إلكترونياً، ثم يحدّد المكتب موعد الجلسة ويُبلغك به.
               </p>
             </div>
           </div>
@@ -537,52 +586,12 @@ const Book: React.FC<Props> = ({
 
             <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Icon name="lock" />
-              <span>بياناتك ومستنداتك مشفرة ومحمية بموجب نظام المحاماة السعودي.</span>
+              <span>بياناتك مشفرة ومحمية بموجب نظام المحاماة السعودي.</span>
             </div>
           </div>
         </div>
       </div>
-
-      {/* 5. ميثاق الجودة والضمانات القانونية */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))',
-          gap: 16,
-          marginBottom: 24,
-        }}
-      >
-        <div className="card" style={{ padding: '16px 18px', margin: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, color: 'var(--primary)' }}>
-            <Icon name="lock" />
-            <b style={{ fontSize: 14, color: 'var(--ink)' }}>السرية المهنية المطلقة</b>
-          </div>
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            نلتزم التزاماً صارماً بسرية كافة المعلومات والوثائق وفق المادة 23 من نظام المحاماة.
-          </p>
-        </div>
-
-        <div className="card" style={{ padding: '16px 18px', margin: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, color: 'var(--primary)' }}>
-            <Icon name="scale" />
-            <b style={{ fontSize: 14, color: 'var(--ink)' }}>مستشارون مرخصون</b>
-          </div>
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            تُقدم الاستشارات بواسطة نخبة من المحامين المعتمدين والمقيدين لدى وزارة العدل.
-          </p>
-        </div>
-
-        <div className="card" style={{ padding: '16px 18px', margin: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, color: 'var(--primary)' }}>
-            <Icon name="doc" />
-            <b style={{ fontSize: 14, color: 'var(--ink)' }}>محضر وتوصيات معتمدة</b>
-          </div>
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            تحصل على تقرير ومحضر رسمي بنتائج الجلسة والتوصيات التنفيذية فور انتهاء الاستشارة.
-          </p>
-        </div>
-      </div>
-    </>
+    </div>
   );
 };
 

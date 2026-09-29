@@ -15,6 +15,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\GenerateTicketSummaryJob;
 use App\Models\LegalCase;
 use App\Models\Ticket;
+use App\Models\TicketDocument;
 use App\Models\User;
 use App\Services\LegalAiService;
 use App\Support\Audit;
@@ -192,7 +193,7 @@ class TicketController extends Controller
             'path' => $path,
             'mime' => $file->getClientMimeType(),
             'size' => (int) $file->getSize(),
-            'status' => 'مرفق من المكتب',
+            'status' => TicketDocument::FROM_OFFICE,
         ]);
 
         $msg = $ticket->messages()->create([

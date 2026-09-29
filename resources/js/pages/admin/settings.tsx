@@ -190,8 +190,9 @@ const AdminSettings: React.FC<Props> = ({ groups, fields, values }) => {
       ))}
 
       {/* ── إعدادات أخرى: روابط لا نسخ حقول ──
-          حقلان يكتبان المفتاح نفسه من موضعين يتباعدان عند أوّل تعديل، فتبقى شاشتا الأسعار
-          والذكاء مالكتين لمفاتيحهما ويصير هذا التبويب مدخلاً واحداً للإعدادات. */}
+          حقلان يكتبان المفتاح نفسه من موضعين يتباعدان عند أوّل تعديل، فتبقى شاشة الذكاء مالكةً
+          لمفاتيحها ويصير هذا التبويب مدخلاً واحداً للإعدادات. (والضريبة صارت حقلاً هنا في «الفواتير
+          والسداد» بعد حذف تبويب «أسعار الاستشارات» — قرار المالك 2026-09-29.) */}
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="card-h"><h3>إعدادات أخرى</h3></div>
         <div className="card-b" style={{ padding: '14px 16px' }}>
@@ -200,9 +201,6 @@ const AdminSettings: React.FC<Props> = ({ groups, fields, values }) => {
           </p>
 
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <Link className="btn soft sm" href="/admin/prices">
-              <Icon name="card" /> أسعار الاستشارات والضريبة
-            </Link>
             <Link className="btn soft sm" href="/admin/ai-ops">
               <Icon name="compass" /> حوكمة الذكاء الاصطناعي
             </Link>

@@ -293,7 +293,7 @@ export const UnifiedCalendar: React.FC<UnifiedCalendarProps> = ({
                 }}
             >
                 {/* أزرار تصفية النوع السريعة */}
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div className="filter-pills" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                     <button
                         type="button"
                         className={filterKind === 'all' ? 'chip b-blue' : 'chip'}

@@ -14,7 +14,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * **آخر كتّاب مرحلة التنفيذ خارج المحرّك صاروا فيه** — فتح الطلب (`exec.submit`)، والمرحلة 6 بعد
+ * **آخر كتّاب مرحلة التنفيذ خارج المحرّك صاروا فيه** — المرحلة 6 بعد
  * صدور الفاتورة (`exec.accept_offer`)، وفتح الملفّ في المرحلة 7 (`exec.activate`). والنتيجة المخزّنة
  * كما كانت عبر `ExecService::sync` المحذوفة.
  */
@@ -38,19 +38,6 @@ class ExecServiceThroughWorkflowTest extends TestCase
     private function row(Execution $exec, string $name): ?JourneyTransition
     {
         return JourneyTransition::where('entity_type', 'Execution')->where('entity_id', $exec->id)->where('transition', $name)->first();
-    }
-
-    public function test_submitting_a_request_opens_it_through_the_engine(): void
-    {
-        $client = User::factory()->create(['role' => Role::Client]);
-
-        $exec = ExecService::submit($client, ['sanad' => 'شيك', 'subject' => 'شيك مرتجع']);
-
-        $row = $this->row($exec, 'exec.submit');
-        $this->assertNotNull($row);
-        $this->assertNull($row->from_state);
-        $this->assertSame('تحليل ذكي', $row->to_state);
-        $this->assertSame($client->id, $row->actor_id);
     }
 
     public function test_accepting_a_fixed_offer_moves_to_payment_with_the_same_last_action(): void

@@ -21,6 +21,15 @@ class TicketDocument extends Model
         'requirements_checked_at' => 'datetime',
     ];
 
+    /** حالةُ ما أرفقه المكتب للعميل (`Employee\TicketController::attach`) — وما سواها رفعه العميل. */
+    public const FROM_OFFICE = 'مرفق من المكتب';
+
+    /** هل رفعه العميل بنفسه؟ — مصدرٌ واحد لشاشة «المستندات» ونسخ المرفقات إلى التنفيذ. */
+    public function isFromClient(): bool
+    {
+        return $this->status !== self::FROM_OFFICE;
+    }
+
     public function ticket(): BelongsTo
     {
         return $this->belongsTo(Ticket::class);

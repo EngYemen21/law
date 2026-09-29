@@ -127,15 +127,13 @@
             'label' => 'فتح ملفّ التنفيذ',
             'variant' => 'gold'
         ])
-    @elseif($event === 'newRequest' || $event === 'feeAwaitingApproval' || $event === 'offerRejected' || $event === 'offerInquiry')
+    @elseif($event === 'feeAwaitingApproval' || $event === 'offerRejected' || $event === 'offerInquiry')
         @include('emails.partials.alert', [
             'type' => 'warning',
             'title' => '📌 إجراء مطلوب',
-            'slot' => $event === 'newRequest'
-                ? 'يلزم فحص المستندات وطلب أيّ ناقص، ثمّ إحالة الطلب لقسم التنفيذ.'
-                : ($event === 'feeAwaitingApproval'
-                    ? 'الاعتماد قرار الإدارة — يُراجَع المبلغ ثمّ يُعتمد ليُرسَل العرض للعميل.'
-                    : 'يُراجَع العرض ويُعاد تسعيره من الإدارة عند الاقتضاء.')
+            'slot' => $event === 'feeAwaitingApproval'
+                ? 'الاعتماد قرار الإدارة — يُراجَع المبلغ ثمّ يُعتمد ليُرسَل العرض للعميل.'
+                : 'يُراجَع العرض ويُعاد تسعيره من الإدارة عند الاقتضاء.'
         ])
         @include('emails.partials.button', [
             'url' => $panelUrl,

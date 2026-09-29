@@ -172,11 +172,24 @@ final class RevenueSnapshot
      */
     private static function incomeSplit(): array
     {
-        $row = Invoice::where('paid', true)
-            ->selectRaw('COALESCE(SUM(amount), 0) AS total_income')
-            ->selectRaw('COALESCE(SUM(CASE WHEN consult_id IS NOT NULL THEN amount ELSE 0 END), 0) AS consult_income')
-            ->selectRaw('COALESCE(SUM(CASE WHEN consult_id IS NULL AND case_id IS NOT NULL THEN amount ELSE 0 END), 0) AS case_income')
-            ->selectRaw('COALESCE(SUM(CASE WHEN consult_id IS NULL AND case_id IS NULL AND exec_id IS NOT NULL THEN amount ELSE 0 END), 0) AS exec_income')
+        return self::splitByKind(Invoice::where('paid', true), 'amount');
+    }
+
+    /**
+     * مجموع `$sum` على فواتير الاستعلام مقسوماً على الروابط الثلاثة — المصدر الواحد للتقسيم
+     * الذي تقرؤه لقطة العمر (`incomeSplit`) وتقرير الفترة (`collectedByKindBetween`).
+     *
+     * @param  Builder<Invoice>  $invoices
+     * @param  'amount'|'amount - COALESCE(vat_amount, 0)'  $sum
+     * @return array{total:int,consult:int,case:int,exec:int,other:int}
+     */
+    private static function splitByKind(Builder $invoices, string $sum): array
+    {
+        $row = $invoices
+            ->selectRaw("COALESCE(SUM({$sum}), 0) AS total_income")
+            ->selectRaw("COALESCE(SUM(CASE WHEN consult_id IS NOT NULL THEN {$sum} ELSE 0 END), 0) AS consult_income")
+            ->selectRaw("COALESCE(SUM(CASE WHEN consult_id IS NULL AND case_id IS NOT NULL THEN {$sum} ELSE 0 END), 0) AS case_income")
+            ->selectRaw("COALESCE(SUM(CASE WHEN consult_id IS NULL AND case_id IS NULL AND exec_id IS NOT NULL THEN {$sum} ELSE 0 END), 0) AS exec_income")
             ->first();
 
         $total = (int) ($row->total_income ?? 0);
@@ -250,8 +263,7 @@ final class RevenueSnapshot
      */
     public static function collectedBetween(string|\DateTimeInterface $from, string|\DateTimeInterface $to): array
     {
-        $row = Invoice::where('paid', true)
-            ->whereBetween('paid_at', [Carbon::parse($from)->startOfDay(), Carbon::parse($to)->endOfDay()])
+        $row = self::collectedQuery($from, $to)
             ->selectRaw('COALESCE(SUM(amount), 0) AS total')
             ->selectRaw('COALESCE(SUM(vat_amount), 0) AS vat')
             ->selectRaw('COUNT(*) AS invoices')
@@ -263,6 +275,37 @@ final class RevenueSnapshot
         // الأساس بالطرح لا بجمعٍ ثانٍ: `subtotal + vat_amount = amount` على كلّ صفّ، فمجموعها
         // كذلك — والطرح يضمن ألّا يفترق الثلاثة إن بقي صفٌّ قديم بلا أعمدة ضريبة.
         return ['total' => $total, 'vat' => $vat, 'subtotal' => $total - $vat, 'count' => (int) ($row->invoices ?? 0)];
+    }
+
+    /**
+     * **الدخل المحصَّل في فترة قبل الضريبة، مقسوماً على النوع** — لتقرير الأرباح والخسائر
+     * (المرحلة د: الأرباح بلا ضريبة). الفترة والشرط نفسهما في `collectedBetween`، فمجموعه
+     * يساوي `subtotal` هناك بحكم البناء.
+     *
+     * @return array{total:int,consult:int,case:int,exec:int,other:int}
+     */
+    public static function collectedByKindBetween(string|\DateTimeInterface $from, string|\DateTimeInterface $to): array
+    {
+        return self::splitByKind(
+            self::collectedQuery($from, $to),
+            'amount - COALESCE(vat_amount, 0)',
+        );
+    }
+
+    /**
+     * فواتير مدفوعة بلا تاريخ سداد — لا تقع في أيّ فترة، فتُعلَن بعددها في التقارير ولا يُخمَّن
+     * لها تاريخ (قرار المالك 2026-09-29).
+     */
+    public static function paidWithoutDate(): int
+    {
+        return Invoice::where('paid', true)->whereNull('paid_at')->count();
+    }
+
+    /** @return Builder<Invoice> */
+    private static function collectedQuery(string|\DateTimeInterface $from, string|\DateTimeInterface $to): Builder
+    {
+        return Invoice::where('paid', true)
+            ->whereBetween('paid_at', [Carbon::parse($from)->startOfDay(), Carbon::parse($to)->endOfDay()]);
     }
 
     /**

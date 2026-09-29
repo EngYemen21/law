@@ -12,6 +12,8 @@ export interface Invoice {
   no: string; desc: string; amount: number; status: string; tone: string; due: string; overdue?: boolean; paid: boolean; hasProof?: boolean;
   /** ملغاة — لا دفع ولا إثبات (يطابق `Invoice::isCancelled`). */
   cancelled?: boolean;
+  /** لها سند قبضٍ مرقّم (`/invoices/{no}/receipt`) — صفحة فواتير العميل وحدها تحسبه. */
+  hasReceipt?: boolean;
   /**
    * أهي ذمّةٌ فعلاً؟ — يحسبها الخادم من `RevenueSnapshot::isReceivable`.
    * **لا تُشتقّ هنا بـ`!paid`**: الملغاة والمعدومة غير مدفوعتين وليستا ديناً.
@@ -50,6 +52,7 @@ export const NAV: NavGroup[] = [
   { g: 'الملفات والمالية', items: [
     { icon: 'doc', label: 'المستندات', view: 'docs' },
     { icon: 'card', label: 'الفواتير', view: 'invoices', alert: true },
+    { icon: 'doc', label: 'كشف الحساب', view: 'statement' },
   ] },
   { g: 'الحساب', items: [
     { icon: 'user', label: 'الملف الشخصي', view: 'profile' },
@@ -86,6 +89,7 @@ export const TITLES: Record<string, [string, string]> = {
   calendar: ['التقويم والمواعيد', 'الاستشارات'],
   docs: ['المستندات', 'الملفات والمالية'],
   invoices: ['الفواتير والمدفوعات', 'الملفات والمالية'],
+  statement: ['كشف الحساب', 'الملفات والمالية'],
   profile: ['الملف الشخصي', 'الحساب'],
   myconsults: ['استشاراتي', 'الاستشارات'],
   // meetreqs: طُوي — الدعوة تُولَد مؤكَّدة فتظهر في «الاجتماعات» مباشرةً
@@ -107,6 +111,7 @@ export const VIEW_ROUTE: Record<string, string> = {
   calendar: '/calendar',
   docs: '/documents',
   invoices: '/invoices',
+  statement: '/statement',
   profile: '/profile',
 };
 
@@ -209,6 +214,8 @@ const EMPLOYEE_NAV: SideGroup[] = [
   ] },
   { g: 'حسابي', items: [
     { icon: 'card', label: 'مستحقاتي', route: '/employee/earnings' },
+    // بصلاحيّة «تسجيل المصروفات» وحدها — `viewMap` من المسار يخفيه عمّن لا يملكها
+    { icon: 'doc', label: 'المصروفات', route: '/employee/expenses' },
   ] },
 ];
 
@@ -263,7 +270,6 @@ const ADMIN_NAV: SideGroup[] = [
     { icon: 'card', label: 'طلبات الاستشارات', route: '/admin/consult-requests' },
     { icon: 'compass', label: 'استقبال الاستشارات', route: '/admin/consultrecv' },
     { icon: 'video', label: 'أرشيف الاستشارات', route: '/admin/archive' },
-    { icon: 'card', label: 'أسعار الاستشارات', route: '/admin/prices' },
   ] },
   { g: 'الاجتماعات', items: [
     { icon: 'calgrid', label: 'إدارة الاجتماعات', route: '/admin/meetmgmt' },
@@ -298,6 +304,7 @@ const ADMIN_NAV: SideGroup[] = [
   { g: 'المالية والتقارير', items: [
     { icon: 'card', label: 'الإيرادات', route: '/admin/revenue' },
     { icon: 'card', label: 'المالية والمحاسبة', route: '/admin/finance' },
+    { icon: 'file', label: 'التقارير الماليّة', route: '/admin/financial-reports' },
     { icon: 'calgrid', label: 'التقارير', route: '/admin/reports' },
   ] },
 ];
@@ -336,6 +343,7 @@ const EMPLOYEE_TITLES: Record<string, [string, string]> = {
   '/employee/schedule': ['التقويم والمواعيد', 'لوحة الموظف'],
   '/employee/calendar': ['التقويم والمواعيد', 'لوحة الموظف'],
   '/employee/transfer': ['التحويلات', 'لوحة الموظف'],
+  '/employee/expenses': ['المصروفات', 'لوحة الموظف'],
   '/employee/meetreqs': ['طلبات الاجتماعات', 'لوحة الموظف'],
   '/employee/meetings': ['الاجتماعات', 'لوحة الموظف'],
   '/employee/meeting': ['تفاصيل الاجتماع', 'لوحة الموظف'],
@@ -402,10 +410,10 @@ const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/assistant': ['المساعد القانوني الذكي', 'الإدارة العليا'],
   '/admin/approvals': ['مركز الاعتمادات والقرارات', 'لوحة الإدارة'],
   '/admin/revenue': ['الإيرادات', 'لوحة الإدارة'],
-  '/admin/prices': ['أسعار الاستشارات', 'الإدارة العليا'],
   '/admin/settings': ['إعدادات النظام', 'الإدارة العليا'],
   '/admin/catalogue': ['الأقسام والخدمات', 'الإدارة العليا'],
   '/admin/finance': ['المالية والمحاسبة', 'الإدارة العليا'],
+  '/admin/financial-reports': ['التقارير الماليّة', 'الإدارة العليا'],
   '/admin/meetreports': ['تقارير الاجتماعات', 'الإدارة العليا'],
   '/admin/reports': ['التقارير', 'لوحة الإدارة'],
   '/admin/editor': ['محرر الصياغة القانونية', 'لوحة الإدارة'],

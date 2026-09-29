@@ -295,7 +295,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
         }}
       >
         <div
-          className="card-b tasks-toolbar"
+          className="card-b tasks-toolbar filter-selects"
           style={{
             padding: '12px 16px',
             display: 'flex',

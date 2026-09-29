@@ -6,14 +6,13 @@ use App\Enums\Role;
 use App\Models\Appointment;
 use App\Models\Consult;
 use App\Models\Invoice;
-use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
 
 /**
- * حجز الاستشارة الحقيقي (العطل المُبلَّغ) — عميل مباشر + موظف نيابةً + الأسعار + المحاسبة.
+ * حجز الاستشارة الحقيقي (العطل المُبلَّغ) — عميل مباشر + موظف نيابةً + المحاسبة.
  */
 class DirectBookingTest extends TestCase
 {
@@ -34,7 +33,7 @@ class DirectBookingTest extends TestCase
         $this->assertNull($consult->ticket_id); // حجز مباشر بلا تذكرة
         $this->assertSame('هاتفية', $consult->channel);
         $this->assertSame('بانتظار التسعير', $consult->status);
-        $this->assertSame(350, $consult->price); // السعر الابتدائي المقترح (الافتراضي للهاتفية)
+        $this->assertSame(0, $consult->price); // بلا سعرٍ مقترح — يسعّره المسعّر (قرار المالك 2026-09-29)
         $this->assertNull($consult->appointment_id);
         $this->assertSame(0, Appointment::count()); // لا موعد قبل السداد
     }
@@ -109,22 +108,6 @@ class DirectBookingTest extends TestCase
                 ->where('pending.0.status', 'بانتظار التسعير')
                 // يُمرَّر التخصّص للعميل حتى يُصفّي منتقي الأوقات بالمختصّين لا كل المحامين
                 ->where('pending.0.specialty', 'القضايا التجارية'));
-    }
-
-    public function test_admin_price_change_applies_to_new_bookings(): void
-    {
-        $admin = User::factory()->create(['role' => Role::Admin]);
-        $client = User::factory()->create(['role' => Role::Client]);
-
-        $this->actingAs($admin)->post(route('admin.prices.update'), [
-            'office' => 800, 'video' => 500, 'phone' => 400, 'vat' => 15,
-        ])->assertRedirect();
-        $this->assertSame('400', Setting::get('price_phone'));
-
-        $this->actingAs($client)->post(route('book.store'), [
-            'type' => 'phone', 'specialty' => 'القضايا التجارية',
-        ])->assertRedirect();
-        $this->assertSame(400, Consult::firstOrFail()->price); // السعر الجديد انعكس على الطلب
     }
 
     public function test_admin_finance_shows_real_invoices_and_marks_paid(): void

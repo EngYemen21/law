@@ -237,6 +237,9 @@ const AdminClientDetail: React.FC<Props> = ({
           <Icon name="reply" /> العودة لدليل العملاء
         </Link>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Link href={`/admin/clients/${client.id}/statement`} className="btn sm soft">
+            <Icon name="doc" /> كشف الحساب
+          </Link>
           <span className="mono" style={{ background: '#fff', padding: '5px 12px', borderRadius: 8, fontSize: 13, border: '1px solid var(--line)', fontWeight: 700 }}>
             CL-{String(client.id).padStart(5, '0')}
           </span>

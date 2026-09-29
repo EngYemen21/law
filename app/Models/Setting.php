@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Services\Ai\AiPolicyGate;
+use App\Support\SettingsRegistry;
 use Illuminate\Database\Eloquent\Model;
 
 class Setting extends Model
@@ -29,27 +30,16 @@ class Setting extends Model
         static::updateOrCreate(['key' => $key], ['value' => (string) $value]);
     }
 
-    /** نسبة ضريبة القيمة المضافة (%) كما تضبطها الإدارة — مصدر واحد لكل حسابات الضريبة. */
+    /** نسبة ضريبة القيمة المضافة (%) من «الإعدادات» (`SettingsRegistry`) — مصدر واحد لكل حسابات الضريبة. */
     public static function vatRate(): int
     {
-        return (int) static::get('vat_rate', 15);
+        return SettingsRegistry::int('vat_rate');
     }
 
     /** مبلغ الضريبة على أساسٍ ما، بنسبة الإدارة الحالية. */
     public static function vatOn(int|float $base): int
     {
         return (int) round($base * static::vatRate() / 100);
-    }
-
-    /** أسعار الاستشارات الحالية (office/video/phone) + الضريبة — بافتراضات النظام الأصلية. */
-    public static function consultPrices(): array
-    {
-        return [
-            'office' => (int) static::get('price_office', 600),
-            'video' => (int) static::get('price_video', 450),
-            'phone' => (int) static::get('price_phone', 350),
-            'vat' => static::vatRate(),
-        ];
     }
 
     // ── معايرة الذكاء الاصطناعي (P4) ──

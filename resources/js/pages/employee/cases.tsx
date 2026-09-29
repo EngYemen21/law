@@ -190,7 +190,7 @@ const EmployeeCases: React.FC<Props> = ({
       <div className="card" style={{ marginBottom: 18 }}>
         <div className="card-b" style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* التبويبات العلوية */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderBottom: '1px solid var(--line-soft)', paddingBottom: 12 }}>
+          <div className="filter-pills" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderBottom: '1px solid var(--line-soft)', paddingBottom: 12 }}>
             <button
               type="button"
               className={`btn sm ${activeTab === 'active' ? '' : 'soft'}`}
@@ -265,7 +265,7 @@ const EmployeeCases: React.FC<Props> = ({
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div className="filter-selects" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               {(types.length > 0 || departments.length > 0) && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>النوع / القسم:</span>

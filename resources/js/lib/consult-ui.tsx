@@ -88,6 +88,8 @@ function decisionText(x: unknown): string {
 
 // بطاقة الاستشارة كما يعيدها الخادم (Consult::toCard)
 export interface ConsultCard {
+  /** وقائع العميل كما كتبها عند الحجز (`consults.details`) — حقلٌ مستقلّ عن الموضوع. */
+  details?: string | null;
   /** سبب تعذّر الإسناد الآن بحسب مرحلة الحجز — من الخادم (`Consult::toCard`)؛ `null` = لا مانع. */
   assignBlocker?: string | null;
   /** في دورة الحجز المحامي مرشَّحٌ من التذكرة لا مُسنَد. */
@@ -225,6 +227,7 @@ export interface ClientConsultCard {
   id: number;
   ref: string;
   subject: string;
+  details?: string | null;
   specialty?: string;
   channel: string;
   lawyer: string;
@@ -1409,6 +1412,16 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
           </div>
         </div>
       </div>
+
+      {/* وقائع العميل من نموذج الحجز — كاملةً كما كتبها */}
+      {c.details && (
+        <div className="card">
+          <div className="card-b" style={{ padding: '14px 20px' }}>
+            <b style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>وقائع العميل وأسئلته</b>
+            <div style={{ fontSize: 13.5, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{c.details}</div>
+          </div>
+        </div>
+      )}
 
       {/* ── 3. تنبيه الموعد المقترح بانتظار الاعتماد ── */}
       {c.proposal && (

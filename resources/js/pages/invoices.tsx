@@ -1,4 +1,4 @@
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import React, { useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import StatRow from '@/components/babylon/StatRow';
@@ -79,7 +79,11 @@ fileRef.current.value = '';
           <Icon name="download" /> الفاتورة PDF
         </a>
         {v.paid ? (
-          null
+          v.hasReceipt ? (
+            <a className="btn soft sm" href={`/invoices/${encodeURIComponent(v.no)}/receipt`} download>
+              <Icon name="download" /> سند القبض
+            </a>
+          ) : null
         ) : v.cancelled ? (
           // لا دفع ولا إثبات لملغاة — كان الزرّان ظاهرين والخادم يرفض الدفع ويقبل الإثبات فيُحيي الإلغاء
           <span className="action-hint" style={{ margin: 0 }}>أُلغيت ولا تُسدَّد — ادفع الفاتورة المحدَّثة</span>
@@ -122,6 +126,10 @@ const Invoices: React.FC<{ invoices: Invoice[] }> = ({ invoices }) => {
   return (
     <>
       <StatRow items={stats} />
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <Link href="/statement" className="btn sm soft"><Icon name="doc" /> كشف الحساب</Link>
+      </div>
 
       <div className="card">
         <div className="card-h">

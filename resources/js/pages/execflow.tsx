@@ -1,4 +1,4 @@
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
@@ -7,7 +7,7 @@ import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCar
 import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
 import { matchesSearch } from '@/lib/employee-data';
-import { EXEC_FLOW, EXEC_SANADS, EXEC_FEE_MODES, EXEC_CLOSE_REASONS, EXEC_DOC_ACCEPT, EXEC_DOC_HINT, EXEC_REQ_DOC_ACCEPT, EXEC_REQ_DOC_HINT, execMoney, procTone, execVatLabel, execAiPresentation, execStudyBasis, execUnassigned    } from '@/lib/exec-flow';
+import { EXEC_FLOW, EXEC_FEE_MODES, EXEC_CLOSE_REASONS, EXEC_DOC_ACCEPT, EXEC_DOC_HINT, EXEC_REQ_DOC_ACCEPT, EXEC_REQ_DOC_HINT, execMoney, procTone, execVatLabel, execAiPresentation, execStudyBasis, execUnassigned    } from '@/lib/exec-flow';
 import type { ExecFeeMode, ExecInvoice } from '@/lib/exec-flow';
 import { installmentsText, useSettings } from '@/lib/settings';
 import type {ExecBucket, ExecDoc, ExecLawyerOpt, ExecReq, Role} from '@/lib/exec-flow';
@@ -25,7 +25,7 @@ import { useServerAction } from '@/lib/use-server-action';
 
 const STAGE_COLOR = (s: number) => (s >= 9 ? '#607689' : s >= 7 ? '#1E9D6B' : s >= 5 ? '#C0832B' : '#0E5C9C');
 
-type View = 'list' | 'new' | 'detail';
+type View = 'list' | 'detail';
 
 // صفّ بيانات (تطابق cellRow → .lwf-cells)
 const CellRow: React.FC<{ cells: [string, string][] }> = ({ cells }) => (
@@ -113,7 +113,7 @@ return 'سجّل خطوة التنفيذ في ناجز';
   return '';
 };
 
-const ExecList: React.FC<{ role: Role; execs: ExecReq[]; buckets: Record<ExecBucket, string>; onNew: () => void; onOpen: (id: string) => void }> = ({ role, execs, buckets, onNew, onOpen }) => {
+const ExecList: React.FC<{ role: Role; execs: ExecReq[]; buckets: Record<ExecBucket, string>; onOpen: (id: string) => void }> = ({ role, execs, buckets, onOpen }) => {
   // الإجراء التالي للموظّف يتبع صلاحيّته لا دوره وحده
   const canCourt = useCan()('إجراءات المحكمة والجلسات');
   // تبويب المجموعة + بحث — المجموعة من الخادم (`r.bucket`)، والبحث بمطابقةٍ تتسامح مع الهمزات والتاء المربوطة
@@ -134,7 +134,8 @@ const ExecList: React.FC<{ role: Role; execs: ExecReq[]; buckets: Record<ExecBuc
 
       {role === 'client' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '4px 0 12px' }}>
-          <button className="btn" type="button" onClick={onNew}><Icon name="plus" /> طلب تنفيذ جديد</button>
+          {/* طلب التنفيذ يُفتح تذكرةً في قسم التنفيذ (قرار المالك 2026-09-29) — بابٌ واحد وحوكمةٌ واحدة: بطاقة القرار ثمّ اعتماد المسار */}
+          <Link className="btn" href="/tickets/new?department=enforcement"><Icon name="plus" /> طلب تنفيذ جديد</Link>
         </div>
       )}
 
@@ -179,193 +180,6 @@ const ExecList: React.FC<{ role: Role; execs: ExecReq[]; buckets: Record<ExecBuc
               </div>
             </div>
           )) : <div className="empty"><Icon name="exec" /><b>{execs.length ? 'لا ملفات مطابقة للبحث أو التبويب' : 'لا طلبات تنفيذ'}</b></div>}
-        </div>
-      </div>
-    </>
-  );
-};
-
-// ── نموذج التقديم (تطابق execNew مع إرفاق المستندات للتحليل الذكي) ──
-interface ExecNewPayload {
-  sanad: string;
-  subject: string;
-  defendant: string;
-  amount: number;
-  notes: string;
-  files?: File[];
-}
-
-const ExecNew: React.FC<{ onSubmit: (d: ExecNewPayload) => void; onBack: () => void; busy: boolean }> = ({ onSubmit, onBack, busy }) => {
-  const [sanad, setSanad] = useState(EXEC_SANADS[0]);
-  const [amount, setAmount] = useState('');
-  const [subject, setSubject] = useState('');
-  const [defendant, setDefendant] = useState('');
-  const [notes, setNotes] = useState('');
-  const [files, setFiles] = useState<File[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const chosen = e.target.files;
-
-    if (!chosen || chosen.length === 0) {
-return;
-}
-
-    const list = Array.from(chosen);
-    // حد أقصى 10 ملفات وحجم 10 ميجابايت للملف
-    const valid = list.filter((f) => f.size <= 10 * 1024 * 1024);
-    setFiles((prev) => [...prev, ...valid].slice(0, 10));
-
-    if (fileInputRef.current) {
-fileInputRef.current.value = '';
-}
-  };
-
-  const removeFile = (idx: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== idx));
-  };
-
-  const submit = () => {
-    if (!subject.trim()) {
-return;
-}
-
-    onSubmit({
-      sanad,
-      subject: subject.trim(),
-      defendant: defendant.trim(),
-      amount: parseInt(amount || '0', 10) || 0,
-      notes: notes.trim(),
-      files,
-    });
-  };
-
-  return (
-    <>
-      <div className="greet">
-        <h2>طلب تنفيذ جديد</h2>
-        <p>أدخل بيانات السند والمطالبة وأرفق المستندات، وسيحلّلها الفريق القانوني الذكي بالكامل قبل الإحالة.</p>
-      </div>
-      <div className="card">
-        <div className="card-b" style={{ padding: 18 }}>
-          <div className="picker-grid">
-            <div className="field">
-              <label>نوع السند التنفيذي</label>
-              <select className="input" value={sanad} onChange={(e) => setSanad(e.target.value)}>
-                {EXEC_SANADS.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label>قيمة المطالبة (ريال)</label>
-              <input className="input" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="مثال: 85000" />
-            </div>
-          </div>
-          <div className="field">
-            <label>موضوع التنفيذ</label>
-            <input className="input" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="مثال: تحصيل قيمة شيك مرتجع" />
-          </div>
-          <div className="field">
-            <label>بيانات المنفَّذ ضده (إن وجدت)</label>
-            <input className="input" value={defendant} onChange={(e) => setDefendant(e.target.value)} placeholder="اسم الطرف الآخر" />
-          </div>
-          <div className="field">
-            <label>معلومات إضافية</label>
-            <textarea className="input" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="أي إيضاحات أو تواريخ إضافية…" />
-          </div>
-
-          <div className="field">
-            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>إرفاق المستندات والسندات التنفيذية</span>
-              <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 'normal' }}>
-                (PDF، صور، Word، Excel — حتى 10 ملفات)
-              </span>
-            </label>
-            <div
-              style={{
-                border: '1.5px dashed #C0D2E6',
-                borderRadius: 14,
-                padding: '16px 14px',
-                background: '#F8FAFC',
-                textAlign: 'center',
-                cursor: 'pointer',
-                transition: 'border-color 0.2s',
-              }}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <div style={{ color: 'var(--primary)', marginBottom: 6 }}>
-                <Icon name="upload" />
-              </div>
-              <b style={{ color: 'var(--ink)', fontSize: 13.5, display: 'block' }}>
-                انقر لاختيار المستندات أو اسحبها هنا
-              </b>
-              <span style={{ color: 'var(--muted)', fontSize: 11.5, display: 'block', marginTop: 4 }}>
-                الحكم القضائي، الشيك، السند لأمر، العقد الموثق، أو الهوية
-              </span>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
-                style={{ display: 'none' }}
-                onChange={onFileChange}
-              />
-            </div>
-
-            {files.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
-                {files.map((file, idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      background: '#fff',
-                      border: '1px solid var(--line)',
-                      borderRadius: 10,
-                      padding: '7px 12px',
-                      fontSize: 12.5,
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                      <span style={{ color: 'var(--primary)', flexShrink: 0 }}><Icon name="doc" /></span>
-                      <span style={{ fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {file.name}
-                      </span>
-                      <span style={{ color: 'var(--muted)', fontSize: 11, flexShrink: 0 }}>
-                        ({(file.size / 1024).toFixed(0)} KB)
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => {
- e.stopPropagation(); removeFile(idx); 
-}}
-                      style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'var(--red)',
-                        cursor: 'pointer',
-                        fontWeight: 800,
-                        padding: '2px 6px',
-                        fontSize: 13,
-                      }}
-                      title="حذف المستند"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-         
-
-          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-            <button className="btn" type="button" onClick={submit} disabled={busy}><Icon name="send" /> {busy ? 'جارٍ الإرسال والتحليل…' : 'إرسال الطلب'}</button>
-            <button className="btn soft" type="button" onClick={onBack}><Icon name="out" /> رجوع</button>
-          </div>
         </div>
       </div>
     </>
@@ -1486,7 +1300,6 @@ const ExecFlow: React.FC<{
   initialId?: string | number | null;
   initialTab?: string | null;
 }> = ({ role, execs, buckets, lawyers = [], initialId, initialTab }) => {
-  const toast = useToast();
   const execAction = useServerAction();
 
   const resolveTarget = (idVal?: string | number | null, tabVal?: string | null) => {
@@ -1510,7 +1323,6 @@ const ExecFlow: React.FC<{
   const [view, setView] = useState<View>(initialTarget.matched ? 'detail' : 'list');
   const [currentId, setCurrentId] = useState<string | null>(initialTarget.matched ? initialTarget.matched.id : null);
   const [currentTab, setCurrentTab] = useState<string | null>(initialTarget.targetTab);
-  const [busy, setBusy] = useState(false);
 
   const current = useMemo(() => execs.find((e) => e.id === currentId) ?? null, [execs, currentId]);
 
@@ -1622,35 +1434,9 @@ const ExecFlow: React.FC<{
     });
   };
 
-  const submitNew = (d: ExecNewPayload) => {
-    setBusy(true);
-    const formData = new FormData();
-    formData.append('sanad', d.sanad);
-    formData.append('subject', d.subject);
-    formData.append('defendant', d.defendant);
-    formData.append('amount', String(d.amount));
-    formData.append('notes', d.notes);
-
-    if (d.files && d.files.length > 0) {
-      d.files.forEach((f) => formData.append('files[]', f));
-    }
-
-    router.post('/exec-flow', formData, {
-      forceFormData: true,
-      preserveScroll: true,
-      onSuccess: () => {
-        backToList();
-        toast('تم إرسال طلب التنفيذ وبدء التحليل الذكي للمستندات');
-      },
-      onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر إرسال الطلب'),
-      onFinish: () => setBusy(false),
-    });
-  };
-
   return (
     <div className="tflow">
-      {view === 'list' && <ExecList role={role} execs={execs} buckets={buckets} onNew={() => { setView('new'); syncUrl(null, null, true); }} onOpen={open} />}
-      {view === 'new' && <ExecNew onSubmit={submitNew} onBack={backToList} busy={busy} />}
+      {view === 'list' && <ExecList role={role} execs={execs} buckets={buckets} onOpen={open} />}
       {view === 'detail' && current && (role === 'client'
         ? <ClientExecDetail r={current} onBack={backToList} act={act} />
         : <ExecDetail role={role} r={current} lawyers={lawyers} onBack={backToList} act={act} initialTab={currentTab} onTabChange={handleTabChange} />)}

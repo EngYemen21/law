@@ -19,6 +19,12 @@ class CaseDocument extends Model
         'size' => 'integer',
     ];
 
+    /** هل رفعه العميل بنفسه؟ — `uploaded_by` يكتبه الرافع (`client` · `lawyer` · `staff`). */
+    public function isFromClient(): bool
+    {
+        return $this->uploaded_by === 'client';
+    }
+
     public function legalCase(): BelongsTo
     {
         return $this->belongsTo(LegalCase::class, 'case_id');

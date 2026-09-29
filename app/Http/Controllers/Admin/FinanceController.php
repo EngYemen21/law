@@ -8,18 +8,26 @@ use App\Domain\Journey\Transitions\Invoice\RejectPaymentProof;
 use App\Domain\Journey\Transitions\Invoice\SettleInvoice;
 use App\Domain\Journey\Transitions\Invoice\WriteOffInvoice;
 use App\Domain\Journey\Workflow;
+use App\Enums\ExpenseCategory;
+use App\Enums\ExpenseStatus;
 use App\Http\Controllers\Controller;
+use App\Models\Expense;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Support\Audit;
+use App\Support\Finance\Expenses;
 use App\Support\Finance\FinanceBoard;
+use App\Support\Finance\PaymentVoucherDocument;
+use App\Support\Finance\ReceiptVoucherDocument;
 use App\Support\Notify;
 use App\Support\Paginate;
 use App\Support\PaymentReconciler;
+use App\Support\PdfRenderer;
 use Carbon\CarbonInterface;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -103,6 +111,7 @@ class FinanceController extends Controller
                 ),
                 'total' => FinanceBoard::receiptsTotal($period),
             ]],
+            'expenses' => ['expenses' => $this->expensesPayload($request, $period)],
             'aging' => ['aging' => ['rows' => FinanceBoard::debtorsByClient()]],
             'vat' => ['vat' => FinanceBoard::vat($period) + [
                 'invoices' => Paginate::shape(
@@ -117,7 +126,33 @@ class FinanceController extends Controller
 
         // المفاتيح الباقية `null` صراحةً: الواجهة تقرؤها كلَّها، وغيابُ مفتاحٍ يعني `undefined`
         // لا «لا حمولة». و`+` يُبقي ما في الطرف الأيسر، فالمحسوب أوّلاً والفراغ بعده.
-        return $payload + ['dashboard' => null, 'invoices' => null, 'receipts' => null, 'aging' => null, 'vat' => null];
+        return $payload + ['dashboard' => null, 'invoices' => null, 'receipts' => null, 'expenses' => null, 'aging' => null, 'vat' => null];
+    }
+
+    /**
+     * تبويب المصروفات: الجدول بمرشّحيه (`estatus` · `category` — لا `status` الذي يخصّ الفواتير)،
+     * وأرقام الرأس، وخيارات نموذج التسجيل من مصادرها (التصنيف · الحالة · جهة الدفع).
+     *
+     * @param  array{from:CarbonInterface, to:CarbonInterface, ...}  $period
+     * @return array<string, mixed>
+     */
+    private function expensesPayload(Request $request, array $period): array
+    {
+        $status = (string) $request->query('estatus', 'all');
+        $category = (string) $request->query('category', 'all');
+
+        return [
+            'rows' => Paginate::shape(
+                FinanceBoard::expenses($period, $status, $category),
+                fn (Expense $e) => FinanceBoard::expenseRow($e, forAdmin: true),
+            ),
+            'summary' => FinanceBoard::expensesSummary($period),
+            'status' => $status,
+            'category' => $category,
+            'statuses' => ExpenseStatus::options(),
+            'categories' => ExpenseCategory::options(),
+            'paidFrom' => Expense::paidFromOptions(),
+        ];
     }
 
     /**
@@ -156,7 +191,10 @@ class FinanceController extends Controller
     /** تحصيل يدويّ (نقد/تحويل خارج البوّابة) — يقيّد الدفتر ويمنع التحصيل المكرّر. */
     public function pay(Request $request, Invoice $invoice): RedirectResponse
     {
-        if (! PaymentReconciler::settleManual($invoice, $request->user()->name)) {
+        // طريقة القبض تُطبع على سند القبض — نقداً أو تحويلاً (البوّابة لا تُحصَّل من هنا)
+        $data = $request->validate(['method' => ['nullable', Rule::in(Payment::MANUAL_METHODS)]]);
+
+        if (! PaymentReconciler::settleManual($invoice, $request->user()->name, $request->user(), $data['method'] ?? null)) {
             // **رفضٌ لا نجاحٌ بلونٍ آخر**: `back()->with('error')` تحويلٌ ناجح، فكانت الواجهة تُطلق
             // «تم تسجيل التحصيل» ورسالة الخادم «محصّلة مسبقاً» معاً. خطأ تحقّقٍ يبلغ `onError` وحده.
             // والرفض يقول سببه: `settleManual` يرفض المدفوعة **والملغاة** — «محصّلة مسبقاً» لملغاةٍ كان كذباً
@@ -250,6 +288,69 @@ class FinanceController extends Controller
      * «بانتظار مراجعة الإثبات» طريق مسدود: المراجع يرى أن إثباتاً رُفع ولا يستطيع فتحه
      * ليقرّر التحصيل. للإدارة وحدها (المجموعة محروسة بـrole:admin).
      */
+    // ── المصروفات (المرحلة ب) — كلّ قاعدةٍ في `Finance\Expenses`، والمتحكّم يمرّر ──
+
+    public function storeExpense(Request $request): RedirectResponse
+    {
+        [$rules, $messages] = Expenses::rules();
+        $data = $request->validate($rules, $messages);
+        $expense = Expenses::record($request->user(), $data, $request->file('document'));
+
+        return back()->with('flash', "سُجّل المصروف واعتُمد — سند الصرف {$expense->voucher_no}.");
+    }
+
+    public function approveExpense(Request $request, Expense $expense): RedirectResponse
+    {
+        Expenses::approve($expense, $request->user());
+
+        return back()->with('flash', "اعتُمد المصروف — سند الصرف {$expense->voucher_no}.");
+    }
+
+    public function rejectExpense(Request $request, Expense $expense): RedirectResponse
+    {
+        Expenses::reject($expense, $request->user(), self::reason($request));
+
+        return back()->with('flash', 'رُفض المصروف وأُبلغ من سجّله.');
+    }
+
+    public function voidExpense(Request $request, Expense $expense): RedirectResponse
+    {
+        Expenses::void($expense, $request->user(), self::reason($request));
+
+        return back()->with('flash', "أُلغي المصروف {$expense->voucher_no} — يبقى سنده في الدفتر بحالته.");
+    }
+
+    public function expenseDocument(Expense $expense): StreamedResponse
+    {
+        abort_if($expense->document_path === null || ! Storage::exists($expense->document_path), 404);
+
+        return Storage::download($expense->document_path);
+    }
+
+    /** سند الصرف PDF — للمصروف الذي اعتُمد مرّةً فحمل رقماً (والملغى يُطبع بحالته). */
+    public function expenseVoucher(Expense $expense): \Symfony\Component\HttpFoundation\Response
+    {
+        abort_if($expense->voucher_no === null, 404);
+
+        return PdfRenderer::render(PaymentVoucherDocument::forExpense($expense), $expense->voucher_no.'.pdf');
+    }
+
+    private static function reason(Request $request): string
+    {
+        return $request->validate(
+            ['reason' => ['required', 'string', 'min:5', 'max:300']],
+            ['reason.required' => 'اكتب السبب.', 'reason.min' => 'اكتب السبب بوضوح (5 أحرف على الأقل).'],
+        )['reason'];
+    }
+
+    /** سند القبض PDF — للدفعة الناجحة التي مُنحت رقماً (`ReceiptVoucher`) وحدها. */
+    public function receipt(Payment $payment): \Symfony\Component\HttpFoundation\Response
+    {
+        abort_unless($payment->isReceived() && $payment->receipt_no !== null, 404);
+
+        return PdfRenderer::render(ReceiptVoucherDocument::html($payment->load('invoice.user', 'actor')), $payment->receipt_no.'.pdf');
+    }
+
     public function proof(Invoice $invoice): StreamedResponse
     {
         abort_if($invoice->proof_path === null, 404, 'لا يوجد إثبات مرفوع لهذه الفاتورة.');

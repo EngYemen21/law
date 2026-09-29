@@ -12,7 +12,6 @@ use App\Support\ExecService;
 use App\Support\ExecutionCreation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 /**
@@ -53,28 +52,6 @@ class ExecEmailsTest extends TestCase
     private function sentTo(string $event, User $user): bool
     {
         return Mail::queued(ExecutionEventMail::class, fn ($m) => $m->event === $event && $m->hasTo($user->email))->isNotEmpty();
-    }
-
-    public function test_a_new_request_confirms_to_the_client_and_reaches_the_office(): void
-    {
-        Mail::fake();
-        Queue::fake();
-        $client = $this->client();
-        $admin = $this->admin();
-        $employee = User::factory()->create(['role' => Role::Employee, 'email' => 'emp'.uniqid().'@test.sa']);
-
-        $exec = ExecService::submit($client, ['sanad' => 'شيك', 'subject' => 'تحصيل قيمة شيك مرتجع']);
-
-        $this->assertTrue($this->sentTo('submitted', $client), 'تأكيد الاستلام لصاحب الطلب');
-        $this->assertTrue($this->sentTo('newRequest', $admin), 'الإدارة تُخطَر بالطلب الجديد');
-        $this->assertTrue($this->sentTo('newRequest', $employee), 'والموظّف كذلك');
-        $this->assertNotNull($exec->number);
-
-        // ولكلّ فئةٍ رابط لوحتها — لا رابط إدارة في بريد موظّف
-        $adminMail = Mail::queued(ExecutionEventMail::class, fn ($m) => $m->event === 'newRequest' && $m->hasTo($admin->email))->first();
-        $empMail = Mail::queued(ExecutionEventMail::class, fn ($m) => $m->event === 'newRequest' && $m->hasTo($employee->email))->first();
-        $this->assertStringEndsWith('/admin/execs', $adminMail->panelUrl());
-        $this->assertStringEndsWith('/employee/execs', $empMail->panelUrl());
     }
 
     public function test_fees_awaiting_approval_reach_the_admin(): void

@@ -37,7 +37,7 @@ final class CaseTicketDocuments
             ->map(fn (TicketDocument $d) => [
                 'id' => $d->id,
                 'name' => $d->name,
-                'by' => $d->status === 'مرفق من المكتب' ? 'المكتب' : 'العميل',
+                'by' => $d->isFromClient() ? 'العميل' : 'المكتب',
                 'status' => (string) $d->status,
                 'docType' => (string) ($d->doc_type ?? ''),
                 'summary' => (string) ($d->summary ?? ''),

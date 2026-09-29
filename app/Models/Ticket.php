@@ -28,7 +28,7 @@ class Ticket extends Model
     protected array $previewText = ['last_message'];
 
     protected $fillable = [
-        'user_id', 'number', 'type', 'subject', 'opponent_name', 'opponent_id', 'claim_amount', 'court_name', 'priority',
+        'user_id', 'number', 'type', 'subject', 'opponent_name', 'opponent_id', 'claim_amount', 'exec_sanad', 'court_name', 'priority',
         'department', 'assigned_lawyer', 'assigned_lawyer_id', 'status', 'tone', 'attachments', 'last_message', 'date_label',
         'legal_department_id', 'legal_service_id',
         'closure_reason_code', 'closure_notes', 'closed_by_id', 'is_frozen', 'outcome_decision_at',
@@ -138,6 +138,20 @@ class Ticket extends Model
     public function consults(): HasMany
     {
         return $this->hasMany(Consult::class);
+    }
+
+    /** رسالة العميل الأولى نصّاً (تُحفظ HTML بـ`nl2br(e())`) — وقائع طلبه كما كتبها عند الفتح. */
+    public function openingText(): string
+    {
+        $first = $this->messages()->where('who', 'client')->first();
+
+        return $first instanceof TicketMessage ? trim(html_entity_decode(strip_tags((string) $first->body))) : '';
+    }
+
+    /** طلبُ استشارةٍ قائم لم تنعقد جلسته — طلبٌ واحد لكلّ تذكرة حتى يكتمل أو يُلغى. */
+    public function hasPendingConsult(): bool
+    {
+        return $this->consults()->whereIn('status', Consult::PRE_SESSION_STATUSES)->exists();
     }
 
     // ربط المسار برقم التذكرة بدل المعرّف

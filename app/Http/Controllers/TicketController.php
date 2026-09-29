@@ -10,7 +10,6 @@ use App\Jobs\GenerateTicketReplyJob;
 use App\Jobs\TriageDocumentJob;
 use App\Jobs\TriageTicketOnOpenJob;
 use App\Mail\TicketOpenedMail;
-use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
@@ -21,7 +20,7 @@ use App\Services\MailService;
 use App\Support\Audit;
 use App\Support\ConsultBooking;
 use App\Support\ConversationFiles;
-use App\Support\LawyerAvailability;
+use App\Support\ExecFlow;
 use App\Support\LegalCatalogue;
 use App\Support\Live;
 use App\Support\Notify;
@@ -29,7 +28,6 @@ use App\Support\ReferenceNumber;
 use App\Support\TicketAssignment;
 use App\Support\TicketJourney;
 use App\Support\TicketTriage;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -80,10 +78,17 @@ class TicketController extends Controller
 
     // فتح تذكرة جديدة (تُخزَّن وتظهر للعميل والموظف)
     /** نموذج فتح تذكرة — الأقسام والخدمات الفعّالة من الكتالوج (لا قائمة ثابتة في الواجهة). */
-    public function create(): Response
+    /**
+     * نموذج «فتح تذكرة جديدة». `?department=` (رمزٌ أو معرّف) يحدّد القسم مسبقاً — به يفتح زرّ
+     * «طلب تنفيذ جديد» التذكرةَ على قسم التنفيذ؛ وحقول السند تظهر حين يكون القسم المختار هو قسم التنفيذ.
+     */
+    public function create(Request $request): Response
     {
         return Inertia::render('newticket', [
             'catalogue' => LegalCatalogue::forSelect(),
+            'enforcementId' => LegalCatalogue::department(LegalCatalogue::ENFORCEMENT_CODE)?->id,
+            'execSanads' => ExecFlow::SANADS,
+            'preselectDepartmentId' => LegalCatalogue::department($request->string('department')->toString())?->id,
         ]);
     }
 
@@ -102,6 +107,7 @@ class TicketController extends Controller
             'opponent_name' => ['nullable', 'string', 'max:190'],
             'opponent_id' => ['nullable', 'string', 'max:60'],
             'claim_amount' => ['nullable', 'integer', 'min:0'],
+            'exec_sanad' => ['nullable', 'string', Rule::in(ExecFlow::SANADS)],
             'court_name' => ['nullable', 'string', 'max:190'],
             // من الكتالوج لا نصّاً حرّاً: `max:20` كان يقبل أيّ مفردة فتدخل القاعدة قيمةٌ لا يعرفها مرشّح
             'priority' => ['nullable', 'string', Rule::in(TicketJourney::PRIORITIES)],
@@ -116,6 +122,12 @@ class TicketController extends Controller
         $department = LegalCatalogue::fromInput($data['department_id'] ?? $data['department'] ?? null);
         $service = LegalCatalogue::service(isset($data['service_id']) ? (int) $data['service_id'] : null);
         $data['type'] = $service !== null ? $service->name : $data['type'];
+
+        // طلب التنفيذ يُفتح تذكرةً في قسم التنفيذ: نوع السند مطلوبٌ فيه، ولا يُحفظ لغيره
+        $isEnforcement = $department?->code === LegalCatalogue::ENFORCEMENT_CODE;
+        if ($isEnforcement && empty($data['exec_sanad'])) {
+            throw ValidationException::withMessages(['exec_sanad' => 'اختر نوع السند التنفيذي.']);
+        }
 
         $details = trim($data['details'] ?? '') ?: ('طلب جديد بخصوص: '.$data['type']);
         // المولّد الموحّد (بالشكل نفسه SB-YYYY-NNNN) — كانت حلقةٌ هنا تكرّر منطقه بلا سقف
@@ -132,6 +144,7 @@ class TicketController extends Controller
             'opponent_name' => $data['opponent_name'] ?? null,
             'opponent_id' => $data['opponent_id'] ?? null,
             'claim_amount' => $data['claim_amount'] ?? null,
+            'exec_sanad' => $isEnforcement ? $data['exec_sanad'] : null,
             'court_name' => $data['court_name'] ?? null,
             'priority' => $data['priority'] ?? 'متوسطة',
             'status' => 'قيد التحليل',
@@ -343,22 +356,6 @@ class TicketController extends Controller
         return response()->noContent();
     }
 
-    // أوقات التفرّغ بقسم التذكرة (JSON) للعميل — يغذّي منتقي الوقت؛ والإسناد بعد التأكيد لا باختياره.
-    public function availability(Request $request, Ticket $ticket): JsonResponse
-    {
-        $this->authorizeTicket($request, $ticket);
-        $data = $request->validate(['date' => ['nullable', 'date_format:Y-m-d']]);
-
-        $day = LawyerAvailability::resolveDate($data['date'] ?? null);
-
-        // التخصّص من قسم التذكرة (مصدر الخادم، لا تلاعب) — يجسر Specialties::normalize صياغات SVC.
-        // والمخرَج للعميل: الأوقات وحدها بلا هويّة محامٍ ولا أداء (انظر `clientSlots`)
-        return response()->json(array_merge(
-            ['date' => $day->toDateString()],
-            LawyerAvailability::clientSlots($ticket->department ?: '', $ticket->type, $day->toDateString()),
-        ));
-    }
-
     // الخطوة 1 من الحجز: طلب استشارة (النوع فقط) من داخل محادثة التذكرة — يُرسل للتسعير،
     // ولا يُنشئ موعداً بعد. (الفاتورة → الدفع → اختيار الموعد تتمّ لاحقاً عبر مسارات consults.*)
     public function book(Request $request, Ticket $ticket): HttpResponse
@@ -376,7 +373,7 @@ class TicketController extends Controller
         }
 
         // منع طلبات التسعير المتكرّرة: طلب واحد قائم لكل تذكرة يكفي حتى يكتمل أو يُلغى
-        if ($ticket->consults()->whereIn('status', Consult::PRE_SESSION_STATUSES)->exists()) {
+        if ($ticket->hasPendingConsult()) {
             throw ValidationException::withMessages([
                 'type' => 'يوجد طلب استشارة قائم لهذه التذكرة.',
             ]);

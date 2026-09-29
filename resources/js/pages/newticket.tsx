@@ -8,6 +8,8 @@ import { ALLOWED_DOC_ACCEPT } from '@/lib/chat';
 // بطاقة واحدة بسيطة: بيانات العميل (readonly) + موضوع + قسم→خدمة + أهمية + رسالة + مستندات.
 // الأقسام والخدمات من كتالوج الخادم (TicketController::create) — لا قائمة ثابتة في الواجهة؛
 // ويُرسَل معرّفا القسم والخدمة فيتحقّق الخادم أنّ الخدمة تتبع قسمها وأنّ كليهما متاح.
+// قسم «التنفيذ» (معرّفه من الخادم لا اسمه) يضيف حقول طلب التنفيذ: نوع السند، قيمة المطالبة، المنفَّذ ضدّه —
+// وإليه يفتح زرّ «طلب تنفيذ جديد» النموذجَ (`?department=enforcement` ← `preselectDepartmentId`).
 
 interface CatalogueService { id: number; name: string }
 interface CatalogueDepartment { id: number; name: string; services: CatalogueService[] }
@@ -15,6 +17,9 @@ interface CatalogueDepartment { id: number; name: string; services: CatalogueSer
 interface PageProps {
   auth?: { user?: { name?: string; email?: string; phone?: string } };
   catalogue?: CatalogueDepartment[];
+  enforcementId?: number | null;
+  execSanads?: string[];
+  preselectDepartmentId?: number | null;
 }
 
 const fld: React.CSSProperties = {
@@ -32,17 +37,24 @@ const NewTicket: React.FC = () => {
   const { props } = usePage() as unknown as { props: PageProps };
   const u = props?.auth?.user ?? {};
   const catalogue = props?.catalogue ?? [];
+  const execSanads = props?.execSanads ?? [];
+  const preselect = catalogue.some((d) => d.id === props?.preselectDepartmentId) ? String(props?.preselectDepartmentId) : '';
 
   const [subject, setSubject] = useState('');
-  const [departmentId, setDepartmentId] = useState('');
+  const [departmentId, setDepartmentId] = useState(preselect);
   const [serviceId, setServiceId] = useState('');
   const [priority, setPriority] = useState('متوسطة');
   const [body, setBody] = useState('');
+  const [sanad, setSanad] = useState('');
+  const [claimAmount, setClaimAmount] = useState('');
+  const [opponent, setOpponent] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [err, setErr] = useState('');
   const [serverErrors, setServerErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const isEnforcement = props?.enforcementId != null && departmentId === String(props.enforcementId);
 
   const services = useMemo(
     () => catalogue.find((d) => String(d.id) === departmentId)?.services ?? [],
@@ -58,7 +70,8 @@ const NewTicket: React.FC = () => {
 
   const reset = () => {
     setSubject(''); setDepartmentId(''); setServiceId(''); setPriority('متوسطة');
-    setBody(''); setFiles([]); setErr(''); setServerErrors({});
+    setBody(''); setSanad(''); setClaimAmount(''); setOpponent('');
+    setFiles([]); setErr(''); setServerErrors({});
   };
 
   // إنشاء التذكرة فعلياً في قاعدة البيانات (مع مرفقاتها) ثم الانتقال إليها
@@ -66,6 +79,10 @@ const NewTicket: React.FC = () => {
     if (submitting) return; // منع الإرسال المزدوج
     if (!subject.trim() || !departmentId || !serviceId || !body.trim()) {
       setErr('يرجى تعبئة: موضوع التذكرة، القسم، الخدمة، ونص الرسالة.');
+      return;
+    }
+    if (isEnforcement && !sanad) {
+      setErr('يرجى اختيار نوع السند التنفيذي.');
       return;
     }
     setErr('');
@@ -77,6 +94,7 @@ const NewTicket: React.FC = () => {
       subject: subject.trim(),
       details: body.trim(),
       priority,
+      ...(isEnforcement ? { exec_sanad: sanad, claim_amount: claimAmount || null, opponent_name: opponent.trim() || null } : {}),
       files,
     }, {
       forceFormData: true,
@@ -142,6 +160,26 @@ const NewTicket: React.FC = () => {
               </select>
             </div>
           </div>
+
+          {/* قسم التنفيذ وحده: بيانات السند والمطالبة — تنتقل إلى ملفّ التنفيذ عند اعتماد المسار */}
+          {isEnforcement && (
+            <div style={rowStyle}>
+              <div style={{ flex: 1, minWidth: 220 }}><label style={lbl} htmlFor="nt-sanad">نوع السند التنفيذي <Req /></label>
+                <select id="nt-sanad" style={fld} value={sanad} onChange={(e) => setSanad(e.target.value)}>
+                  <option value="">اختر نوع السند…</option>
+                  {execSanads.map((x) => <option key={x} value={x}>{x}</option>)}
+                </select>
+                {serverErrors.exec_sanad && <div style={fieldErr}>{serverErrors.exec_sanad}</div>}
+              </div>
+              <div style={{ flex: 1, minWidth: 180 }}><label style={lbl} htmlFor="nt-amount">قيمة المطالبة (ريال)</label>
+                <input id="nt-amount" style={fld} type="number" min={0} inputMode="numeric" value={claimAmount} onChange={(e) => setClaimAmount(e.target.value)} placeholder="مثال: 85000" />
+                {serverErrors.claim_amount && <div style={fieldErr}>{serverErrors.claim_amount}</div>}
+              </div>
+              <div style={{ flex: 2, minWidth: 240 }}><label style={lbl} htmlFor="nt-opponent">المنفَّذ ضده (إن وجد)</label>
+                <input id="nt-opponent" style={fld} value={opponent} onChange={(e) => setOpponent(e.target.value)} placeholder="اسم الطرف الآخر" />
+              </div>
+            </div>
+          )}
 
           {/* صف 4: نص الرسالة */}
           <div style={{ marginBottom: 8 }}><label style={lbl} htmlFor="nt-body">نص الرسالة <Req /></label>

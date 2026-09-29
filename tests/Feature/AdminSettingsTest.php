@@ -175,11 +175,12 @@ class AdminSettingsTest extends TestCase
         $this->actingAs($this->admin())->post(route('admin.settings.update'), [
             'office_phone' => '011 000 1111',
             'gemini_api_key' => 'sk-should-never-be-written',
-            'vat_rate' => 99,
+            // مفتاح التبويب المحذوف (قرار المالك 2026-09-29) — لا قارئ له ولا يُكتب من هنا
+            'price_office' => 999,
         ])->assertRedirect();
 
         $this->assertSame('011 000 1111', Setting::get('office_phone'));
         $this->assertNull(Setting::get('gemini_api_key'));
-        $this->assertNull(Setting::get('vat_rate'), 'مفتاح شاشة الأسعار لا يُكتب من هنا');
+        $this->assertNull(Setting::get('price_office'), 'مفتاحٌ خارج السجلّ لا يُكتب');
     }
 }

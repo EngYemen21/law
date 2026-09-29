@@ -140,7 +140,7 @@ class Consult extends Model
     public const CHANNELS = ['حضورية', 'مرئية', 'هاتفية'];
 
     protected $fillable = [
-        'user_id', 'ticket_id', 'appointment_id', 'ref', 'subject', 'type', 'priority', 'channel',
+        'user_id', 'ticket_id', 'appointment_id', 'ref', 'subject', 'details', 'type', 'priority', 'channel',
         'lawyer', 'assigned_lawyer_id', 'specialty', 'employee', 'day', 'time', 'when_label', 'received_label', 'phone',
         // `duration_min`: المسافة المحجوزة على تقويم المحامي عند الحجز (يقرؤها `LawyerAvailability`
         // لمنع التعارض) — **لا عمرُ الجلسة**: الجلسة تنتهي بختمها (قرار المالك 2026-09-26).
@@ -509,6 +509,7 @@ class Consult extends Model
             'id' => $this->id,
             'ref' => $this->ref,
             'subject' => $this->subject,
+            'details' => $this->details,
             'specialty' => $this->specialty ?? '',
             'channel' => $this->channel,
             // «الاسم. الحرف» لمحامٍ مسنَد؛ والملفّ المرفوع للإدارة يبقى بنائبه (LawyerName)
@@ -609,6 +610,8 @@ class Consult extends Model
             'ref' => $this->ref,
             'client' => $this->user?->name ?? '—',
             'subject' => $this->subject,
+            // وقائع العميل كما كتبها عند الحجز — للمسعّر والمحامي (لا تُدمج في الموضوع)
+            'details' => $this->details,
             'specialty' => $this->specialty ?? $this->type ?? '',
             'channel' => $this->channel,
             'lawyer' => $this->lawyer,

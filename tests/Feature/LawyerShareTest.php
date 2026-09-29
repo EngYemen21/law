@@ -10,6 +10,7 @@ use App\Support\ExecService;
 use App\Support\Finance\LawyerShare;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\BuildsLegacyExecutions;
 use Tests\TestCase;
 
 /**
@@ -20,6 +21,7 @@ use Tests\TestCase;
  */
 class LawyerShareTest extends TestCase
 {
+    use BuildsLegacyExecutions;
     use RefreshDatabase;
 
     private function lawyer(PayType $type = PayType::Percent, ?float $pct = 30): User
@@ -70,7 +72,7 @@ class LawyerShareTest extends TestCase
     {
         $lawyer = $this->lawyer(PayType::Percent, 30);
         $admin = User::factory()->create(['role' => Role::Admin]);
-        $exec = ExecService::submit(User::factory()->create(['role' => Role::Client]), ['sanad' => 'شيك', 'subject' => 'تحصيل', 'amount' => 50000]);
+        $exec = $this->legacyExecution(User::factory()->create(['role' => Role::Client]), ['sanad' => 'شيك', 'subject' => 'تحصيل', 'amount' => 50000]);
         ExecService::refer($exec, $admin);
         ExecService::assignLawyer($exec, $lawyer, $admin);
         ExecService::accept($exec, $lawyer);
@@ -89,7 +91,7 @@ class LawyerShareTest extends TestCase
     {
         $lawyer = $this->lawyer(PayType::Percent, 30);
         $admin = User::factory()->create(['role' => Role::Admin]);
-        $exec = ExecService::submit(User::factory()->create(['role' => Role::Client]), ['sanad' => 'شيك', 'subject' => 'تحصيل', 'amount' => 50000]);
+        $exec = $this->legacyExecution(User::factory()->create(['role' => Role::Client]), ['sanad' => 'شيك', 'subject' => 'تحصيل', 'amount' => 50000]);
         ExecService::refer($exec, $admin);
         ExecService::assignLawyer($exec, $lawyer, $admin);
         ExecService::accept($exec, $lawyer);
@@ -104,7 +106,7 @@ class LawyerShareTest extends TestCase
     {
         $lawyer = $this->lawyer(PayType::Percent, 30);
         $admin = User::factory()->create(['role' => Role::Admin]);
-        $exec = ExecService::submit(User::factory()->create(['role' => Role::Client]), ['sanad' => 'شيك', 'subject' => 'تحصيل', 'amount' => 50000]);
+        $exec = $this->legacyExecution(User::factory()->create(['role' => Role::Client]), ['sanad' => 'شيك', 'subject' => 'تحصيل', 'amount' => 50000]);
         ExecService::assignLawyer($exec, $lawyer, $admin);
 
         $this->actingAs($admin)->get(route('admin.execs'))

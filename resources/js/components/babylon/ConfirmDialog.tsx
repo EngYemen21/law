@@ -57,6 +57,11 @@ export interface PromptRequest {
   multiline?: boolean;
   /** عدد أسطر الحقل المتعدّد (افتراضه ٤). */
   rows?: number;
+  /**
+   * اختيارٌ من قائمة بدل الكتابة — تُعاد قيمة المختار (`defaultValue` يحدّد الابتدائيّ).
+   * مثاله: طريقة القبض عند التحصيل اليدويّ (نقداً / تحويل بنكيّ).
+   */
+  choices?: { value: string; label: string }[];
 }
 
 type Pending =
@@ -185,7 +190,13 @@ export const ConfirmDialogProvider: React.FC<{ children: React.ReactNode }> = ({
                     {pending.req.label}
                   </label>
                 )}
-                {pending.req.multiline ? (
+                {pending.req.choices ? (
+                  <select className="input" value={value} onChange={(e) => setValue(e.target.value)} autoFocus style={{ width: '100%' }}>
+                    {pending.req.choices.map((c) => (
+                      <option key={c.value} value={c.value}>{c.label}</option>
+                    ))}
+                  </select>
+                ) : pending.req.multiline ? (
                   <textarea
                     ref={areaRef}
                     className="input"

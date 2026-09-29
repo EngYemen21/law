@@ -79,7 +79,7 @@ class AuditLogTest extends TestCase
 
     /**
      * الكتابة الحية تمرّ عبر الطابور (Audit::log → RecordAuditLogJob) مع التقاط
-     * سياق الطلب لحظة الحدث — تعديل الأسعار مثال يغطي المسار كاملاً.
+     * سياق الطلب لحظة الحدث — تعديل نسبة الضريبة من «الإعدادات» مثال يغطي المسار كاملاً.
      */
     public function test_live_actions_write_queued_audit_entries(): void
     {
@@ -87,17 +87,15 @@ class AuditLogTest extends TestCase
         // منح صلاحية المسار — الإدارة تتجاوز عبر Gate::before لكن السطر يوثّق الاعتماد
         $this->seed(PermissionSeeder::class);
 
-        $this->actingAs($admin)->post('/admin/prices', [
-            'office' => 700, 'video' => 500, 'phone' => 400, 'vat' => 15,
-        ])->assertRedirect();
+        $this->actingAs($admin)->post(route('admin.settings.update'), ['vat_rate' => 5])->assertRedirect();
 
-        $entry = AuditLog::where('action', 'تعديل أسعار الاستشارات')->first();
+        $entry = AuditLog::where('action', 'تعديل إعدادات النظام')->first();
         $this->assertNotNull($entry);
         $this->assertSame($admin->name, $entry->user_name);
         $this->assertSame('admin', $entry->user_role);
         $this->assertSame('warning', $entry->severity);
         $this->assertNotNull($entry->ip_address);       // من الطلب الحقيقي — لا اختلاق
-        $this->assertSame(700, $entry->after_state['office'] ?? null);
+        $this->assertSame(5, $entry->after_state['vat_rate'] ?? null);
     }
 
     public function test_audit_log_route_requires_its_permission_for_non_admin(): void

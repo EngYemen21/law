@@ -104,7 +104,7 @@ class ConsultBooking
     /**
      * الخطوة 1 — طلب استشارة (النوع فقط). لا Appointment ولا Zoom ولا حارس تعارض بعد.
      *
-     * @param  array{type:string,lawyer_id?:int,lawyer?:string,subject?:string,specialty?:string,department?:string}  $data
+     * @param  array{type:string,lawyer_id?:int,lawyer?:string,subject?:string,details?:string|null,specialty?:string,department?:string}  $data
      */
     public static function request(User $client, array $data, ?Ticket $ticket = null): Consult
     {
@@ -117,6 +117,8 @@ class ConsultBooking
             'ticket_id' => $ticket?->id,
             'ref' => $ctx['ref'],
             'subject' => $ctx['subject'],
+            // وقائع العميل: من النموذج، وإلّا رسالته الأولى في التذكرة — فيقرؤها المسعّر والمحامي في الاستشارة
+            'details' => $data['details'] ?? ($ticket?->openingText() ?: null),
             'status' => 'بانتظار التسعير',
             'session' => 'بانتظار الجلسة',
             'type' => $ctx['type'],
@@ -127,10 +129,11 @@ class ConsultBooking
             'lawyer' => $ctx['lawyer'],
             'assigned_lawyer_id' => $ctx['lawyerId'],
             'phone' => $data['type'] === 'phone' ? $client->phone : null,
-            // سعر ابتدائي مقترح من إعدادات الإدارة — لا يُفعِّل السداد حتى يعتمده المسعّر
-            'price' => $ctx['price'],
-            'vat' => $ctx['vat'],
-            'total' => $ctx['price'] + $ctx['vat'],
+            // **بلا سعرٍ ابتدائيّ**: التسعير لكلّ طلبٍ على حدة عند المسعّر (قرار المالك 2026-09-29) —
+            // كان يُكتب هنا «سعرٌ مقترح» من تبويب «أسعار الاستشارات» المحذوف
+            'price' => 0,
+            'vat' => 0,
+            'total' => 0,
             'audit' => [['user' => 'النظام', 'field' => 'الاستقبال', 'before' => '—', 'after' => 'طلب تسعير — '.$m['label'], 'time' => now()->format('Y/m/d h:i')]],
         ]), $client, array_filter(['type' => $data['type'], 'ticket' => $ticket?->number]));
 
@@ -168,8 +171,7 @@ class ConsultBooking
          */
         abort_if($price < 1, 422, 'أقلّ سعرٍ للاستشارة ريالٌ واحد — استعمل الإلغاء إن كانت بلا مقابل.');
 
-        $prices = Setting::consultPrices();
-        $vat = (int) round($price * $prices['vat'] / 100);
+        $vat = Setting::vatOn($price);
         $total = $price + $vat;
 
         // السعر والفاتورة والحالة في معاملة المحرّك الواحدة — انظر `PriceConsult`
@@ -311,7 +313,7 @@ class ConsultBooking
     /**
      * حلّ سياق الحجز المشترك (المحامي/الموضوع/التخصّص/السعر الابتدائي/المرجع).
      *
-     * @return array{meta:array,type:string,ref:string,lawyer:string,lawyerId:?int,subject:string,specialty:?string,price:int,vat:int}
+     * @return array{meta:array,type:string,ref:string,lawyer:string,lawyerId:?int,subject:string,specialty:?string}
      */
     private static function resolveContext(User $client, array $data, ?Ticket $ticket): array
     {
@@ -330,13 +332,10 @@ class ConsultBooking
         $lawyer = $lawyerUser?->name
             ?: (($data['lawyer'] ?? null) ?: ($ticket?->assigned_lawyer ?: 'المستشار القانوني'));
 
-        $subject = $data['subject'] ?? $ticket?->type ?? 'استشارة قانونية';
+        // استشارة التذكرة تحمل عنوانها كما يراه العميل (لا نوعها) — ما تعرضه صفحة الحجز عند اختيارها
+        $subject = $data['subject'] ?? ($ticket ? ($ticket->subject ?: $ticket->type) : null) ?? 'استشارة قانونية';
         $specialty = Specialties::normalize($data['specialty'] ?? $lawyerUser?->department) ?: null;
         $dept = $data['department'] ?? $ticket?->department;
-
-        $prices = Setting::consultPrices();
-        $price = (int) $prices[$data['type']];
-        $vat = (int) round($price * $prices['vat'] / 100);
 
         return [
             'meta' => $m,
@@ -346,8 +345,6 @@ class ConsultBooking
             'lawyerId' => $lawyerUser?->id,
             'subject' => $subject,
             'specialty' => $specialty,
-            'price' => $price,
-            'vat' => $vat,
         ];
     }
 

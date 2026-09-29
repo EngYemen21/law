@@ -147,7 +147,7 @@ class DistributeController extends Controller
             });
 
         // 3. ملفات التنفيذ — قسمها قسم «التنفيذ» في الكتالوج (رمزه `enforcement`)
-        $execDept = LegalCatalogue::department('enforcement')?->name ?? 'التنفيذ';
+        $execDept = LegalCatalogue::department(LegalCatalogue::ENFORCEMENT_CODE)?->name ?? 'التنفيذ';
         $executions = Execution::with(['user', 'assignedLawyer'])
             ->whereNotIn('status', Execution::CLOSED_STATUSES)
             ->where(function ($q) {

@@ -7,6 +7,7 @@ use App\Jobs\AnalyzeExecutionJob;
 use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\Ticket;
+use App\Models\TicketDocument;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -129,8 +130,9 @@ class ExecutionCreation
             $ticket->court_name ? 'المحكمة المختصة: '.$ticket->court_name : '',
         ])));
 
+        // السند: ما اختاره العميل عند فتح تذكرة قسم التنفيذ، ثمّ ما كشفه فحص المستندات
         $detectedSanad = $ticket->documents->pluck('doc_type')->first(fn ($t) => in_array($t, ExecFlow::SANADS, true));
-        $sanad = $detectedSanad ?: 'سند تنفيذي';
+        $sanad = $ticket->exec_sanad ?: ($detectedSanad ?: 'سند تنفيذي');
 
         $exec = DB::transaction(function () use ($ticket, $lawyer, $notes, $actor, $reason, $sanad) {
             $number = ReferenceNumber::next(Execution::class, 'number', 'EXE');
@@ -244,6 +246,8 @@ class ExecutionCreation
                 'mime' => $td->mime ?? 'application/pdf',
                 'size' => (int) ($td->size ?? 0),
                 'status' => 'مرفوع',
+                // مرفقات المكتب تبقى «صادرةً إليك» بعد النسخ — لا تُنسب للعميل (`TicketDocument::isFromClient`)
+                'uploaded_by' => $td instanceof TicketDocument && ! $td->isFromClient() ? 'staff' : 'client',
                 'uploaded_at' => now(),
                 'doc_type' => $td->doc_type ?? null,
                 'summary' => $td->summary ?? null,

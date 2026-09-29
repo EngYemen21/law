@@ -3,9 +3,13 @@
 namespace App\Support\Finance;
 
 use App\Domain\Journey\Enums\InvoiceStatus;
+use App\Enums\ExpenseCategory;
+use App\Enums\ExpenseStatus;
+use App\Models\Expense;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\Ticket;
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -55,6 +59,7 @@ final class FinanceBoard
         'dashboard' => 'لوحة المالية',
         'invoices' => 'الفواتير',
         'receipts' => 'المقبوضات',
+        'expenses' => 'المصروفات',
         'aging' => 'الذمم والأعمار',
         'vat' => 'الضريبة',
         'reports' => 'التقارير',
@@ -132,6 +137,29 @@ final class FinanceBoard
             'quarter' => self::shape('quarter', $now->copy()->startOfQuarter(), $now->copy()->endOfQuarter()),
             'year' => self::shape('year', $now->copy()->startOfYear(), $now->copy()->endOfYear()),
             default => self::shape('month', $now->copy()->startOfMonth(), $now->copy()->endOfMonth()),
+        };
+    }
+
+    /**
+     * **الفترة السابقة المقابلة** — مقارنة التقارير (قرار المالك 2026-09-29): الشهر بالشهر قبله،
+     * والربع بالربع قبله، والسنة بالسنة قبلها؛ والمدى المخصّص بمدىً بطوله ينتهي قبل بدايته بيوم.
+     *
+     * @param  array{key:string, from:CarbonInterface, to:CarbonInterface, ...}  $period
+     * @return array{key:string, from:CarbonInterface, to:CarbonInterface, label:string, fromDate:string, toDate:string}
+     */
+    public static function previousPeriod(array $period): array
+    {
+        $from = CarbonImmutable::instance($period['from']);
+
+        return match ($period['key']) {
+            'month' => self::shape('month', $from->subMonthNoOverflow()->startOfMonth(), $from->subMonthNoOverflow()->endOfMonth()),
+            'quarter' => self::shape('quarter', $from->subQuarterNoOverflow()->startOfQuarter(), $from->subQuarterNoOverflow()->endOfQuarter()),
+            'year' => self::shape('year', $from->subYear()->startOfYear(), $from->subYear()->endOfYear()),
+            default => self::shape(
+                'custom',
+                $from->subDays((int) $from->diffInDays(CarbonImmutable::instance($period['to'])->startOfDay()) + 1)->startOfDay(),
+                $from->subDay()->endOfDay(),
+            ),
         };
     }
 
@@ -229,7 +257,7 @@ final class FinanceBoard
      */
     public static function receipts(array $period): LengthAwarePaginator
     {
-        return Payment::with('invoice.user')
+        return Payment::with(['invoice.user', 'actor'])->received()
             ->whereRaw(self::RECEIVED_AT.' BETWEEN ? AND ?', [$period['from'], $period['to']])
             ->latest('id')
             ->paginate(self::PER_PAGE)
@@ -239,7 +267,7 @@ final class FinanceBoard
     /** مجموع ما دخل في الفترة — بالريال، من العمود القابل للجمع وحده. */
     public static function receiptsTotal(array $period): float
     {
-        $halalas = (int) Payment::whereRaw(self::RECEIVED_AT.' BETWEEN ? AND ?', [$period['from'], $period['to']])
+        $halalas = (int) Payment::received()->whereRaw(self::RECEIVED_AT.' BETWEEN ? AND ?', [$period['from'], $period['to']])
             ->sum('amount_halalas');
 
         return self::riyals($halalas);
@@ -260,14 +288,86 @@ final class FinanceBoard
     {
         return [
             'id' => $payment->id,
-            'at' => self::dateText($payment->reconciled_at ?? $payment->created_at),
-            'method' => self::methodLabel($payment),
+            'receiptNo' => $payment->receipt_no,
+            'at' => self::dateText($payment->received_at ?? $payment->reconciled_at ?? $payment->created_at),
+            'method' => $payment->methodLabel(),
             'invoice' => $payment->invoice?->number ?? '—',
             'client' => Ticket::maskClient($payment->invoice?->user?->name ?? ''),
             'amount' => self::riyals((int) $payment->amount_halalas),
             // من قيَّده: التحصيل اليدويّ يحفظ اسم المحصِّل في `raw.actor`؛ والبوّابة لا فاعلَ
             // بشريّاً لها — فتُسمّى باسمها بدل أن يُنسب القيد إلى أحد
-            'actor' => self::actorLabel($payment),
+            'actor' => $payment->receiverLabel(),
+        ];
+    }
+
+    // ─────────────────────────────── المصروفات (المرحلة ب) ───────────────────────────────
+
+    /**
+     * جدول المصروفات بالفترة (بتاريخ الصرف) والحالة والتصنيف. و**«بانتظار الاعتماد» بلا فترة**:
+     * ما ينتظر قراراً يُعرض كلّه، لا ما وقع في الشهر الجاري وحده.
+     *
+     * @param  array{from:CarbonInterface, to:CarbonInterface, ...}  $period
+     * @return LengthAwarePaginator<int, Expense>
+     */
+    public static function expenses(array $period, string $status, string $category): LengthAwarePaginator
+    {
+        $status = ExpenseStatus::tryFrom($status);
+
+        return Expense::with(['creator:id,name', 'approver:id,name'])
+            ->when($status !== ExpenseStatus::Pending, fn ($q) => $q->whereBetween('spent_on', [$period['from']->toDateString(), $period['to']->toDateString()]))
+            ->when($status !== null, fn ($q) => $q->where('status', $status->value))
+            ->when(ExpenseCategory::tryFrom($category) !== null, fn ($q) => $q->where('category', $category))
+            ->latest('spent_on')->latest('id')
+            ->paginate(self::PER_PAGE)
+            ->withQueryString();
+    }
+
+    /**
+     * أرقام رأس التبويب: المعتمد في الفترة (وضريبته)، وما ينتظر الاعتماد الآن.
+     *
+     * @param  array{from:CarbonInterface, to:CarbonInterface, ...}  $period
+     * @return array{approved: float, approvedVat: float, pending: int}
+     */
+    public static function expensesSummary(array $period): array
+    {
+        $approved = Expense::counted()->whereBetween('spent_on', [$period['from']->toDateString(), $period['to']->toDateString()]);
+
+        return [
+            'approved' => self::riyals((int) (clone $approved)->sum('amount_halalas')),
+            'approvedVat' => self::riyals((int) $approved->sum('vat_halalas')),
+            'pending' => Expense::where('status', ExpenseStatus::Pending->value)->count(),
+        ];
+    }
+
+    /**
+     * صفّ المصروف كما تعرضه الواجهة. و`can` حكم الخادم للإدارة وحدها (الموظّف يرى حالة ما سجّله).
+     *
+     * @return array<string, mixed>
+     */
+    public static function expenseRow(Expense $expense, bool $forAdmin = false): array
+    {
+        return [
+            'id' => $expense->id,
+            'voucherNo' => $expense->voucher_no,
+            'date' => VoucherFormat::date($expense->spent_on),
+            'category' => $expense->category->label(),
+            'description' => $expense->description,
+            'vendor' => $expense->vendor,
+            'amount' => self::riyals($expense->amount_halalas),
+            'vat' => self::riyals($expense->vat_halalas),
+            'paidFrom' => $expense->paidFromLabel(),
+            'reference' => $expense->reference,
+            'status' => $expense->status->label(),
+            'tone' => $expense->status->tone(),
+            'creator' => $expense->creator->name ?? '—',
+            'approver' => $expense->approver->name ?? null,
+            'reason' => $expense->reject_reason ?? $expense->void_reason,
+            'hasDocument' => $expense->document_path !== null,
+            'can' => $forAdmin ? array_keys(array_filter([
+                'approve' => $expense->isPending(),
+                'reject' => $expense->isPending(),
+                'void' => $expense->isApproved(),
+            ])) : [],
         ];
     }
 
@@ -481,7 +581,7 @@ final class FinanceBoard
     private const ISSUED_AT = 'COALESCE(issued_at, created_at)';
 
     /** تاريخ القبض: `reconciled_at` وإلّا `created_at` (صفوفٌ قديمة قد تصل بلا تسوية). */
-    private const RECEIVED_AT = 'COALESCE(reconciled_at, created_at)';
+    private const RECEIVED_AT = 'COALESCE(received_at, reconciled_at, created_at)';
 
     /** @param  Builder<Invoice>  $q */
     private static function scopeKind(Builder $q, string $kind): void
@@ -492,19 +592,6 @@ final class FinanceBoard
             'exec' => $q->whereNull('consult_id')->whereNull('case_id')->whereNotNull('exec_id'),
             default => null,
         };
-    }
-
-    private static function methodLabel(Payment $payment): string
-    {
-        return $payment->gateway === 'manual' ? 'تحصيل يدويّ' : 'بوّابة الدفع';
-    }
-
-    private static function actorLabel(Payment $payment): string
-    {
-        $raw = $payment->raw;
-        $actor = is_array($raw) && is_string($raw['actor'] ?? null) ? trim($raw['actor']) : '';
-
-        return $actor !== '' ? $actor : ($payment->gateway === 'manual' ? '—' : 'بوّابة الدفع');
     }
 
     private static function dateText(?CarbonInterface $at): ?string

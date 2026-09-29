@@ -12,10 +12,10 @@ use App\Http\Controllers\Admin\ClientController as AdminClientController;
 use App\Http\Controllers\Admin\CourtHearingController as AdminCourtHearingController;
 use App\Http\Controllers\Admin\DistributeController as AdminDistributeController;
 use App\Http\Controllers\Admin\FinanceController as AdminFinanceController;
+use App\Http\Controllers\Admin\FinancialReportController as AdminFinancialReportController;
 use App\Http\Controllers\Admin\JourneyTransitionController as AdminJourneyTransitionController;
 use App\Http\Controllers\Admin\LawyerController as AdminLawyerController;
 use App\Http\Controllers\Admin\LegalSourceController as AdminLegalSourceController;
-use App\Http\Controllers\Admin\PriceController as AdminPriceController;
 use App\Http\Controllers\Admin\ReportController as AdminReportController;
 use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
 use App\Http\Controllers\Admin\StaffController;
@@ -26,6 +26,7 @@ use App\Http\Controllers\AppointmentController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\CaseController;
+use App\Http\Controllers\ClientStatementController;
 use App\Http\Controllers\ConsultBookingController;
 use App\Http\Controllers\ConsultController;
 use App\Http\Controllers\ConversationFileController;
@@ -34,6 +35,7 @@ use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\DocumentVerificationController;
 use App\Http\Controllers\Employee\CalendarController as EmployeeCalendarController;
 use App\Http\Controllers\Employee\CaseController as EmployeeCaseController;
+use App\Http\Controllers\Employee\ExpenseController as EmployeeExpenseController;
 use App\Http\Controllers\Employee\ScheduleController as EmployeeScheduleController;
 use App\Http\Controllers\Employee\TicketController as EmployeeTicketController;
 use App\Http\Controllers\Employee\TransferController as EmployeeTransferController;
@@ -103,7 +105,6 @@ Route::post('/auth/switch-account', [AuthController::class, 'switchAccount'])->m
 
 // تدفّق طلب التنفيذ (المرحلة 2) — تقديم العميل + موزّع الإجراءات (يحرس الدور/الملكيّة داخليّاً)
 Route::middleware(['auth', 'active'])->group(function () {
-    Route::post('/exec-flow', [ExecFlowController::class, 'store'])->name('exec-flow.store');
     Route::post('/exec-flow/{execution}/action', [ExecFlowController::class, 'act'])->name('exec-flow.act');
     Route::post('/exec-flow/{execution}/pay', [ExecFlowController::class, 'pay'])->name('exec-flow.pay');
     Route::get('/exec-flow/{execution}/pay/callback', [ExecFlowController::class, 'payCallback'])->name('exec-flow.pay.callback');
@@ -134,7 +135,6 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
     Route::get('/tickets/{ticket}', [TicketController::class, 'show'])->name('tickets.show');
     Route::post('/tickets/{ticket}/messages', [TicketController::class, 'storeMessage'])->name('tickets.messages.store');
     Route::post('/tickets/{ticket}/attach', [TicketController::class, 'attach'])->name('tickets.attach');
-    Route::get('/tickets/{ticket}/availability', [TicketController::class, 'availability'])->name('tickets.availability');
     Route::post('/tickets/{ticket}/book', [TicketController::class, 'book'])->name('tickets.book');
     // القضايا (مربوطة بقاعدة البيانات)
     Route::get('/cases', [CaseController::class, 'index'])->name('cases');
@@ -150,7 +150,6 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
 
     // الاستشارات — «استشاراتي» مربوطة بقاعدة البيانات؛ الجلسات المرئية عبر Zoom
     Route::get('/book', [ConsultBookingController::class, 'index'])->name('book');
-    Route::get('/book/availability', [ConsultBookingController::class, 'availability'])->name('book.availability');
     Route::post('/book', [ConsultBookingController::class, 'store'])->name('book.store');
     Route::get('/myconsults', [ConsultController::class, 'index'])->name('myconsults');
     // دورة الحجز المطابقة للتصميم: دفع محاكى (يفتح اختيار الموعد) ثم جدولة الموعد بعد السداد
@@ -184,7 +183,11 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
     Route::post('/invoices/{invoice}/proof', [InvoiceController::class, 'uploadProof'])->name('invoices.proof');
     Route::post('/invoices/{invoice}/checkout', [InvoiceController::class, 'checkout'])->name('invoices.checkout');
     Route::get('/invoices/{invoice}/checkout/callback', [InvoiceController::class, 'checkoutCallback'])->name('invoices.checkout.callback');
+    Route::get('/invoices/{invoice}/receipt', [InvoiceController::class, 'receipt'])->name('invoices.receipt');
     Route::get('/invoices/{invoice}/pdf', [InvoiceController::class, 'pdf'])->name('invoices.pdf');
+    // كشف الحساب — حساب العميل نفسه وحده (المرحلة ج)
+    Route::get('/statement', [ClientStatementController::class, 'index'])->name('statement');
+    Route::get('/statement/pdf', [ClientStatementController::class, 'pdf'])->name('statement.pdf');
 });
 
 // الحساب — متاح لأي مستخدم مسجّل
@@ -209,6 +212,11 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
     // «مستحقاتي» — الراتب ونصيب الأتعاب وأجر الجلسات وسجلّ الصرف (بيانات المستخدم الحاليّ وحده)
     Route::get('/earnings', [StaffEarningsController::class, 'index'])->name('earnings');
     Route::get('/earnings/statement.pdf', [StaffEarningsController::class, 'statement'])->name('earnings.statement');
+    Route::get('/earnings/payouts/{payout}/voucher.pdf', [StaffEarningsController::class, 'voucher'])->name('earnings.voucher');
+    // المصروفات — يسجّلها الموظّف بصلاحيّتها فتنتظر اعتماد الإدارة (قرار المالك 2026-09-29)
+    Route::get('/expenses', [EmployeeExpenseController::class, 'index'])->name('expenses')->middleware(Permissions::middleware(Permissions::RECORD_EXPENSES));
+    Route::post('/expenses', [EmployeeExpenseController::class, 'store'])->name('expenses.store')->middleware(Permissions::middleware(Permissions::RECORD_EXPENSES));
+    Route::get('/expenses/{expense}/document', [EmployeeExpenseController::class, 'document'])->name('expenses.document')->middleware(Permissions::middleware(Permissions::RECORD_EXPENSES));
     Route::get('/dashboard', [DashboardController::class, 'employee'])->name('dashboard'); // عام للدور
 
     // صندوق مراجعة مخرجات الذكاء — الشاشة نفسها لكل دور، والعزل داخل AiReviewInbox:
@@ -395,6 +403,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
     // «مستحقاتي» — الراتب ونصيب الأتعاب وأجر الجلسات وسجلّ الصرف (بيانات المستخدم الحاليّ وحده)
     Route::get('/earnings', [StaffEarningsController::class, 'index'])->name('earnings');
     Route::get('/earnings/statement.pdf', [StaffEarningsController::class, 'statement'])->name('earnings.statement');
+    Route::get('/earnings/payouts/{payout}/voucher.pdf', [StaffEarningsController::class, 'voucher'])->name('earnings.voucher');
     Route::get('/dashboard', [LawyerTicketController::class, 'dashboard'])->name('dashboard'); // عام للدور
     // التذاكر المحالة — عرض عام للمحامي؛ الإجراءات الحسّاسة مُصرَّحة أدناه
     Route::get('/tickets', [LawyerTicketController::class, 'index'])->name('tickets');
@@ -576,6 +585,8 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::get('/invoices/{invoice}/pdf', [InvoiceController::class, 'pdf'])->name('invoices.pdf');
     Route::put('/clients/{client}', [AdminClientController::class, 'update'])->name('clients.update');
     Route::post('/clients/{client}/toggle', [AdminClientController::class, 'toggle'])->name('clients.toggle');
+    Route::get('/clients/{client}/statement', [ClientStatementController::class, 'forClient'])->name('clients.statement');
+    Route::get('/clients/{client}/statement/pdf', [ClientStatementController::class, 'forClientPdf'])->name('clients.statement.pdf');
     // التقويم والمواعيد — لوحة الإدارة كانت بلا أي تبويب زمني. نفس متحكّم الموظف
     // (نطاق المكتب نفسه)، نظير توجيه تذاكر الإدارة إلى متحكّم المستشار أدناه.
     Route::get('/calendar', [EmployeeCalendarController::class, 'index'])->name('calendar');
@@ -630,6 +641,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::get('/staff/{user}/earnings', [StaffPayoutController::class, 'show'])->name('staff.earnings')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::post('/staff/{user}/payouts', [StaffPayoutController::class, 'store'])->name('staff.payouts.store')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::post('/staff/{user}/payouts/{payout}/void', [StaffPayoutController::class, 'void'])->name('staff.payouts.void')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
+    Route::get('/staff/{user}/payouts/{payout}/voucher.pdf', [StaffPayoutController::class, 'voucher'])->name('staff.payouts.voucher')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::get('/archive', [AdminArchiveController::class, 'index'])->name('archive')->middleware(Permissions::middleware(Permissions::CONSULT_ARCHIVE));
     // مخرجات جلسة الاستشارة عبر الخادم (جلب من سحابة Zoom): فيديو/صوت + نصّ تفريغي + تشغيلٌ داخل النظام
     Route::get('/consults/{consult}/recording.zip', [StaffConsultRecordingController::class, 'video'])->name('consults.recording')->middleware(Permissions::middleware(Permissions::CONSULT_ARCHIVE));
@@ -722,8 +734,6 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     // تصدير PDF — كانت الشاشتان بلا أي تصدير أو طباعة
     Route::get('/reports.pdf', [AdminReportController::class, 'reportsPdf'])->name('reports.pdf')->middleware(Permissions::middleware(Permissions::REPORTS_AND_REVENUE));
     Route::get('/revenue.pdf', [AdminReportController::class, 'revenuePdf'])->name('revenue.pdf')->middleware(Permissions::middleware(Permissions::REPORTS_AND_REVENUE));
-    Route::get('/prices', [AdminPriceController::class, 'index'])->name('prices')->middleware(Permissions::middleware(Permissions::SET_CONSULT_PRICES));
-    Route::post('/prices', [AdminPriceController::class, 'update'])->name('prices.update')->middleware(Permissions::middleware(Permissions::SET_CONSULT_PRICES));
     // إعدادات النظام — متغيّرات كانت ثوابتَ في الشيفرة أو صفوفاً بلا شاشة (أظهرها
     // `exec_working_days_from`: إعدادٌ مقصود ولا باب لكتابته إلّا SQL على الإنتاج).
     // **بلا صلاحيّة مستحدثة**: `Gate::before` يجعل الأدمن يتجاوز كلّ `permission:`، فصلاحيّةٌ
@@ -760,12 +770,24 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     // ومتى حُسم ق٩ (هل يرى المحامي أرقام موكّلي غيره؟) تُستحدث الصلاحيّة **مع** مسارٍ خارج
     // `role:admin` يقابلها، لا قبله.
     Route::get('/finance', [AdminFinanceController::class, 'index'])->name('finance');
+    // التقارير الماليّة — الإيرادات والمصروفات والأرباح والخسائر بمقارنة الفترة السابقة (المرحلة د)
+    Route::get('/financial-reports', [AdminFinancialReportController::class, 'index'])->name('financial-reports');
+    Route::get('/financial-reports/pdf', [AdminFinancialReportController::class, 'pdf'])->name('financial-reports.pdf');
+    Route::get('/financial-reports/csv', [AdminFinancialReportController::class, 'csv'])->name('financial-reports.csv');
     Route::post('/invoices/{invoice}/pay', [AdminFinanceController::class, 'pay'])->name('invoices.pay');
     // دورة حياة الفاتورة من الشاشة — كلٌّ ينادي انتقاله فيُسجَّل في `journey_transitions` (م٢)
     Route::post('/invoices/{invoice}/issue', [AdminFinanceController::class, 'issue'])->name('invoices.issue');
     Route::post('/invoices/{invoice}/cancel', [AdminFinanceController::class, 'cancel'])->name('invoices.cancel');
     Route::post('/invoices/{invoice}/write-off', [AdminFinanceController::class, 'writeOff'])->name('invoices.write-off');
     Route::get('/invoices/{invoice}/proof', [AdminFinanceController::class, 'proof'])->name('invoices.proof');
+    Route::get('/receipts/{payment}/pdf', [AdminFinanceController::class, 'receipt'])->name('receipts.pdf');
+    // المصروفات (المرحلة ب): الإدارة تسجّل فيُعتمد فوراً، وتعتمد ما سجّله الموظّف أو ترفضه، وتلغي المعتمد بسبب
+    Route::post('/expenses', [AdminFinanceController::class, 'storeExpense'])->name('expenses.store');
+    Route::post('/expenses/{expense}/approve', [AdminFinanceController::class, 'approveExpense'])->name('expenses.approve');
+    Route::post('/expenses/{expense}/reject', [AdminFinanceController::class, 'rejectExpense'])->name('expenses.reject');
+    Route::post('/expenses/{expense}/void', [AdminFinanceController::class, 'voidExpense'])->name('expenses.void');
+    Route::get('/expenses/{expense}/document', [AdminFinanceController::class, 'expenseDocument'])->name('expenses.document');
+    Route::get('/expenses/{expense}/voucher.pdf', [AdminFinanceController::class, 'expenseVoucher'])->name('expenses.voucher');
     // رفض الإثبات يعيد الفاتورة للاستحقاق — رافع الملف الخاطئ كان يفقد زرّ الدفع نهائياً
     Route::post('/invoices/{invoice}/proof/reject', [AdminFinanceController::class, 'rejectProof'])->name('invoices.proof.reject');
     Route::get('/meetreports', [StaffMeetingController::class, 'reports'])->name('meetreports');

@@ -313,6 +313,7 @@ final class StaffEarnings
     {
         return [
             'id' => $p->id,
+            'voucherNo' => $p->voucher_no,
             'kind' => $p->kind->value,
             'kindLabel' => $p->kind->label(),
             'amount' => $p->amount,

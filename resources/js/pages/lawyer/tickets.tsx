@@ -204,7 +204,7 @@ const LawyerTickets: React.FC<Props> = ({
       <div className="card">
         {/* شريط التبويبات حسب المرحلة */}
         <div className="card-h" style={{ padding: '14px 18px', borderBottom: '1px solid var(--line-soft)', flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <div className="filter-pills" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <button
               className={`btn sm ${activeTab === 'all' ? '' : 'soft'}`}
               onClick={() => setActiveTab('all')}
@@ -315,7 +315,7 @@ const LawyerTickets: React.FC<Props> = ({
           </div>
 
           {/* الفلاتر المنسدلة */}
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="filter-selects" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             {/* فلتر القسم */}
             {deptList.length > 0 && (
               <select

@@ -239,6 +239,9 @@ const PayoutsPanel: React.FC<{ staffId: number }> = ({ staffId }) => {
                 earnings={data.earnings}
                 base="/admin"
                 onMonth={load}
+                voucherHref={(p) =>
+                    `/admin/staff/${staffId}/payouts/${p.id}/voucher.pdf`
+                }
                 payoutAction={(p) => (
                     <button
                         className="btn soft sm"

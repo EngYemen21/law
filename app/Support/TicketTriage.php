@@ -211,7 +211,7 @@ class TicketTriage
         }
 
         // المستندات المرفقة من المكتب أو غير المرفوعة من العميل لا تخضع لإجراءات AI
-        if ($doc && $doc->status === 'مرفق من المكتب') {
+        if ($doc && ! $doc->isFromClient()) {
             return;
         }
 

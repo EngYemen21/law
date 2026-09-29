@@ -2,94 +2,85 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Journey\Enums\TicketStatus;
 use App\Models\Consult;
-use App\Models\Setting;
+use App\Models\Ticket;
+use App\Models\User;
 use App\Support\ConsultBooking;
-use App\Support\LawyerAvailability;
 use App\Support\Specialties;
-use Illuminate\Http\JsonResponse;
+use App\Support\TicketJourney;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * حجز استشارة ذكي من العميل: اختيار التخصّص → محامون مرتّبون بأولوية الذكاء الاصطناعي
- * (بنفس التخصّص + سجلّ النجاح) → منتقي تاريخ وفترات متاحة (منع الحجز المزدوج) → حجز حقيقي.
+ * «حجز استشارة» للعميل: القناة والمجال والموضوع والوقائع → طلبٌ بانتظار تسعير المكتب →
+ * سداد الفاتورة عبر ميسّر → **المكتب يحدّد الموعد** ويُبلغ العميل (قرار المالك 2026-09-14:
+ * العميل لا يختار موعده ولا محاميه).
  */
 class ConsultBookingController extends Controller
 {
     public function index(Request $request): Response
     {
-        $user = $request->user();
-
-        // طلبات استشارة العميل الحالية بدورة الحجز (بانتظار التسعير/السداد/تحديد الموعد)
-        // تُعرض في نفس صفحة الحجز (مطابقة لدمج القائمة+النموذج بالتصميم المرجعي)
-        $pending = Consult::where('user_id', $user->id)
+        // طلبات العميل في دورة الحجز (بانتظار التسعير/السداد/تحديد الموعد) — تُعرض فوق النموذج
+        $pending = Consult::where('user_id', $request->user()->id)
             ->whereIn('status', Consult::PRE_SESSION_STATUSES)
             ->latest('id')->get()
             ->map(fn (Consult $c) => $c->toClientCard());
 
-        // stats عُلّقت (2026-08-25): الواجهة المعاد تصميمها لا تعرضها — ثلاث استعلامات
-        // كانت تُنفَّذ وتُرسَل بلا مستهلك. تُعاد بإزالة التعليق إن عادت للواجهة.
-        // $activeConsultsCount = Consult::where('user_id', $user->id)
-        //     ->whereIn('session', ['بانتظار الجلسة', 'جلسة جارية'])
-        //     ->count();
-        // $completedConsultsCount = Consult::where('user_id', $user->id)
-        //     ->where('session', 'منتهية')
-        //     ->count();
-        // $stats = [
-        //     'pendingCount' => $pending->count(),
-        //     'activeCount' => $activeConsultsCount,
-        //     'completedCount' => $completedConsultsCount,
-        //     'totalRequested' => Consult::where('user_id', $user->id)->count(),
-        // ];
-
         return Inertia::render('book', [
-            'prices' => Setting::consultPrices(),
             'specialties' => Specialties::all(),
             'pending' => $pending,
-            // 'stats' => $stats,
+            'tickets' => $this->bookableTickets($request->user()),
         ]);
     }
 
     /**
-     * أوقات التفرّغ ليوم مُعطى (JSON) للعميل — شبكة الفترات وحدها؛ والمحامي يُسنَد بعد التأكيد.
+     * تذاكر العميل التي **يجوز الآن** طلب استشارةٍ لها — لقائمة «هل طلبك متعلّق بتذكرة؟».
+     *
+     * الحكم نفسه الذي يحرس زرّ المحادثة (`TicketController::book`): مرحلة الرأي القانونيّ بملخّصٍ
+     * معتمد (`TicketJourney::consultRequestBlocker`) ولا طلبَ قائم لها (`Ticket::hasPendingConsult`).
+     * والحقول تُعبّأ منها للعرض؛ والإرسال عبر مسار التذكرة نفسه، فتُربط الاستشارة بها وتتقدّم رحلتها.
+     *
+     * @return list<array{number:string, subject:string, specialty:string, details:string}>
      */
-    public function availability(Request $request): JsonResponse
+    private function bookableTickets(User $client): array
     {
-        $data = $request->validate([
-            'specialty' => ['nullable', 'string', 'max:80'],
-            'subject' => ['nullable', 'string', 'max:120'],
-            'date' => ['nullable', 'date_format:Y-m-d'],
-        ]);
+        $tickets = Ticket::where('user_id', $client->id)
+            ->whereNotIn('status', TicketStatus::finals())
+            ->with('summary')
+            ->latest('id')->get()
+            ->filter(fn (Ticket $t) => TicketJourney::consultRequestBlocker($t) === null && ! $t->hasPendingConsult())
+            ->map(fn (Ticket $t) => [
+                'number' => $t->number,
+                'subject' => (string) ($t->subject ?: $t->type),
+                'specialty' => Specialties::normalize($t->department),
+                'details' => $t->openingText(),
+            ]);
 
-        $day = LawyerAvailability::resolveDate($data['date'] ?? null);
-
-        // الأوقات وحدها — لا أسماء ولا أقسام ولا أحمال ولا نسب إنجاز (انظر `clientSlots`)
-        return response()->json(array_merge(
-            ['date' => $day->toDateString()],
-            LawyerAvailability::clientSlots($data['specialty'] ?? '', $data['subject'] ?? null, $day->toDateString()),
-        ));
+        return array_values($tickets->all());
     }
 
-    // الخطوة 1: طلب استشارة (النوع/التخصّص فقط) — يُرسل للتسعير، ثم تُكمل الرحلة في «استشاراتي»
-    // (فاتورة الإدارة → دفع محاكى → اختيار الموعد). مطابق لتصميم رحلة الحجز.
+    // طلب استشارة يُرسل للتسعير، ثم تُكمل الرحلة في «استشاراتي» (فاتورة → سداد → موعدٌ يحدّده المكتب)
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
             'type' => ['required', 'string', 'in:office,video,phone'],
-            'subject' => ['nullable', 'string', 'max:120'],
+            'subject' => ['required', 'string', 'max:120'],
+            // الوقائع حقلٌ مستقلّ — كانت تُدمج في الموضوع وتُقصّ عند 120 حرفاً
+            'details' => ['nullable', 'string', 'max:2000'],
             'specialty' => ['nullable', 'string', 'max:80'],
         ]);
 
         $consult = ConsultBooking::request($request->user(), [
             'type' => $data['type'],
-            'subject' => $data['subject'] ?? null,
+            'subject' => $data['subject'],
+            'details' => $data['details'] ?? null,
             'specialty' => $data['specialty'] ?? null,
         ]);
 
         return redirect()->route('myconsults')
-            ->with('flash', "تم إرسال طلب استشارتك ({$consult->ref}) — بانتظار تسعير المكتب لسداد الفاتورة ثم اختيار الموعد.");
+            ->with('flash', "تم إرسال طلب استشارتك ({$consult->ref}) — بانتظار تسعير المكتب، وبعد السداد يحدّد المكتب الموعد ويُبلغك به.");
     }
 }
