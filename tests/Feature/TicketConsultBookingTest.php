@@ -33,40 +33,22 @@ class TicketConsultBookingTest extends TestCase
     }
 
     /**
-     * تفرّغ قسم التذكرة: المتخصّص وحده يُحتسب — والعميل يرى **الأوقات لا الهويّات**
-     * (قرار المالك 2026-09-11: لا يُعرض للعميل اسم محامٍ كاملاً؛ وهو لا يختار المحامي أصلاً).
+     * تخصّص قسم التذكرة يحدّد المرشَّحين: المتخصّص وحده يُحتسب في تفرّغ الطاقم.
+     * والعميل لا يقرأ التفرّغ (قرار المالك 2026-09-14: المكتب يحدّد الموعد) — فرابطه محذوف.
      */
-    public function test_ticket_availability_returns_times_without_identities(): void
+    public function test_ticket_specialty_filters_the_candidate_lawyers(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
-        $match = User::factory()->create(['role' => Role::Lawyer, 'name' => 'سارة القحطاني', 'status' => 'active', 'department' => 'القضايا التجارية']);
+        $match = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
         $other = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'العقارات']);
         $ticket = $this->ticketFor($client, 'القضايا التجارية');
         $date = LawyerAvailability::resolveDate(null)->toDateString();
 
-        $res = $this->actingAs($client)->getJson(route('tickets.availability', $ticket).'?date='.$date);
-
-        $res->assertOk()
-            ->assertJsonMissingPath('lawyers')
-            ->assertJsonStructure(['date', 'advisors', 'slots' => [['time', 'taken']]]);
-        $body = $res->getContent();
-        foreach (['سارة القحطاني', 'القضايا التجارية', 'success', 'load'] as $leak) {
-            $this->assertStringNotContainsString($leak, $body, "تسرّب «{$leak}» إلى العميل.");
-        }
-
-        // والمنطق نفسه محفوظ داخلياً: المتخصّص وحده يُحتسب
         $ids = collect(LawyerAvailability::rankedSpecialists('القضايا التجارية', $ticket->type, $date))->pluck('id');
         $this->assertTrue($ids->contains($match->id));
         $this->assertFalse($ids->contains($other->id));
-    }
 
-    public function test_foreign_client_cannot_read_ticket_availability(): void
-    {
-        $client = User::factory()->create(['role' => Role::Client]);
-        $intruder = User::factory()->create(['role' => Role::Client]);
-        $ticket = $this->ticketFor($client);
-
-        $this->actingAs($intruder)->getJson(route('tickets.availability', $ticket))->assertForbidden();
+        $this->actingAs($client)->getJson("/tickets/{$ticket->number}/availability")->assertNotFound();
     }
 
     public function test_request_creates_unpriced_pending_consult_with_no_appointment(): void

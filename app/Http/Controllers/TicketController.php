@@ -22,7 +22,6 @@ use App\Support\Audit;
 use App\Support\ConsultBooking;
 use App\Support\ConversationFiles;
 use App\Support\ExecFlow;
-use App\Support\LawyerAvailability;
 use App\Support\LegalCatalogue;
 use App\Support\Live;
 use App\Support\Notify;
@@ -30,7 +29,6 @@ use App\Support\ReferenceNumber;
 use App\Support\TicketAssignment;
 use App\Support\TicketJourney;
 use App\Support\TicketTriage;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -357,22 +355,6 @@ class TicketController extends Controller
         }
 
         return response()->noContent();
-    }
-
-    // أوقات التفرّغ بقسم التذكرة (JSON) للعميل — يغذّي منتقي الوقت؛ والإسناد بعد التأكيد لا باختياره.
-    public function availability(Request $request, Ticket $ticket): JsonResponse
-    {
-        $this->authorizeTicket($request, $ticket);
-        $data = $request->validate(['date' => ['nullable', 'date_format:Y-m-d']]);
-
-        $day = LawyerAvailability::resolveDate($data['date'] ?? null);
-
-        // التخصّص من قسم التذكرة (مصدر الخادم، لا تلاعب) — يجسر Specialties::normalize صياغات SVC.
-        // والمخرَج للعميل: الأوقات وحدها بلا هويّة محامٍ ولا أداء (انظر `clientSlots`)
-        return response()->json(array_merge(
-            ['date' => $day->toDateString()],
-            LawyerAvailability::clientSlots($ticket->department ?: '', $ticket->type, $day->toDateString()),
-        ));
     }
 
     // الخطوة 1 من الحجز: طلب استشارة (النوع فقط) من داخل محادثة التذكرة — يُرسل للتسعير،

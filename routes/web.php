@@ -132,7 +132,6 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
     Route::get('/tickets/{ticket}', [TicketController::class, 'show'])->name('tickets.show');
     Route::post('/tickets/{ticket}/messages', [TicketController::class, 'storeMessage'])->name('tickets.messages.store');
     Route::post('/tickets/{ticket}/attach', [TicketController::class, 'attach'])->name('tickets.attach');
-    Route::get('/tickets/{ticket}/availability', [TicketController::class, 'availability'])->name('tickets.availability');
     Route::post('/tickets/{ticket}/book', [TicketController::class, 'book'])->name('tickets.book');
     // القضايا (مربوطة بقاعدة البيانات)
     Route::get('/cases', [CaseController::class, 'index'])->name('cases');
@@ -148,7 +147,6 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
 
     // الاستشارات — «استشاراتي» مربوطة بقاعدة البيانات؛ الجلسات المرئية عبر Zoom
     Route::get('/book', [ConsultBookingController::class, 'index'])->name('book');
-    Route::get('/book/availability', [ConsultBookingController::class, 'availability'])->name('book.availability');
     Route::post('/book', [ConsultBookingController::class, 'store'])->name('book.store');
     Route::get('/myconsults', [ConsultController::class, 'index'])->name('myconsults');
     // دورة الحجز المطابقة للتصميم: دفع محاكى (يفتح اختيار الموعد) ثم جدولة الموعد بعد السداد

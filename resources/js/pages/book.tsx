@@ -1,4 +1,4 @@
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import React, { useEffect, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import BookingActions from '@/components/babylon/BookingActions';
@@ -38,17 +38,9 @@ const CHANNELS: { key: string; label: string; icon: string; desc: string }[] = [
 
 const OTHER = '__other__';
 
-export interface BookingStats {
-  pendingCount: number;
-  activeCount: number;
-  completedCount: number;
-  totalRequested: number;
-}
-
 interface Props {
   pending: ConsultCard[];
   specialties?: string[];
-  stats?: BookingStats;
 }
 
 const Book: React.FC<Props> = ({
@@ -105,38 +97,34 @@ const Book: React.FC<Props> = ({
 
   const submit = () => {
     if (!channel) {
-      toast('اختر نوع وقناة الاستشارة');
+      toast('اختر نوع وقناة الاستشارة', 'warning');
       return;
     }
     if (!caseType) {
-      toast('اختر المجال أو نوع القضية');
+      toast('اختر المجال أو نوع القضية', 'warning');
       return;
     }
     if (caseType === OTHER && !otherType.trim()) {
-      toast('اكتب نوع القضية أو التخصص المطلوب');
+      toast('اكتب نوع القضية أو التخصص المطلوب', 'warning');
       return;
     }
     if (!subject.trim()) {
-      toast('اكتب عنواناً أو موضوعاً موجزاً للاستشارة');
+      toast('اكتب عنواناً أو موضوعاً موجزاً للاستشارة', 'warning');
       return;
     }
 
-    // المجال: قسمٌ من الكتالوج أو نصٌّ حرّ في «مجال آخر» — الخادم يطابقه بالكتالوج في الحالتين
+    // المجال: قسمٌ من الكتالوج أو نصٌّ حرّ في «مجال آخر» — الخادم يطابقه بالكتالوج في الحالتين.
+    // والموضوع والوقائع حقلان منفصلان: كانت الوقائع تُدمج في الموضوع وتُقصّ عند 120 حرفاً فتضيع.
     const specialty = caseType !== OTHER ? caseType : otherType.trim();
-    const caseLabel = specialty;
-    // حدّ الخادم subject: max:120 — بلا قصّ كان أي حجز بملاحظات حقيقية يسقط بـ422
-    const composedSubject = (notes.trim()
-      ? `${subject.trim()} (${caseLabel}) — ${notes.trim()}`
-      : `${subject.trim()} (${caseLabel})`).slice(0, 120);
 
     setBusy(true);
     router.post(
       '/book',
-      { type: channel, subject: composedSubject, specialty },
+      { type: channel, subject: subject.trim(), details: notes.trim() || null, specialty },
       {
         onFinish: () => setBusy(false),
-        onSuccess: () => toast('أُرسل طلبك بنجاح — سيتم دراسته وتسعيره من الإدارة العليا فوراً'),
-        onError: (e) => toast(e.type || e.specialty || e.subject || e.message || 'تعذّر إرسال الطلب'),
+        // رسالة النجاح من الخادم (flash) — لا ثانيةَ هنا
+        onError: (e) => toast(e.type || e.specialty || e.subject || e.details || e.message || 'تعذّر إرسال الطلب', 'error'),
       }
     );
   };
@@ -157,20 +145,20 @@ const Book: React.FC<Props> = ({
             </div>
             <h2>حجز استشارة قانونية متخصصة 🏛️</h2>
             <p>
-              احصل على رأي قانوني رصين من نخبة المحامين والمستشارين المعتمدين. اختر القناة والمجال المناسبين ليتم تسعير الطلب واعتماده من الإدارة العليا قبل السداد وحجز الموعد.
+              احصل على رأي قانوني رصين من نخبة المحامين والمستشارين المعتمدين. اختر القناة والمجال المناسبين ليتم تسعير الطلب واعتماده من الإدارة العليا، وبعد السداد يحدّد المكتب موعد جلستك ويُبلغك به.
             </p>
           </div>
 
           <div className="hero-cta" style={{ margin: 0 }}>
-            <button className="hero-b" onClick={() => router.visit('/myconsults')} type="button">
+            <Link className="hero-b" href="/myconsults">
               <Icon name="scale" /> استشاراتي الحالية
-            </button>
-            <button className="hero-b ghost" onClick={() => router.visit('/calendar')} type="button">
+            </Link>
+            <Link className="hero-b ghost" href="/calendar">
               <Icon name="cal" /> المواعيد والتقويم
-            </button>
-            <button className="hero-b ghost" onClick={() => router.visit('/tickets')} type="button">
+            </Link>
+            <Link className="hero-b ghost" href="/tickets">
               <Icon name="ticket" /> طلباتي وتذاكري
-            </button>
+            </Link>
           </div>
         </div>
       </div>
@@ -248,9 +236,9 @@ const Book: React.FC<Props> = ({
             <span style={{ width: 22, height: 22, borderRadius: '50%', backgroundColor: '#e2e8f0', color: 'var(--ink)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>
               4
             </span>
-            حجز الموعد وانعقاد الجلسة
+            تحديد الموعد وانعقاد الجلسة
           </div>
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>اختيار الفترة وتلقي الرأي والمحضر المعتمد.</p>
+          <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>يحدّد المكتب الموعد ويُبلغك به، ثم تتلقى الرأي والمحضر المعتمد.</p>
         </div>
       </div>
 
@@ -471,8 +459,8 @@ const Book: React.FC<Props> = ({
             </label>
             <textarea
               className="input"
-              rows={4}
-              maxLength={300}
+              rows={5}
+              maxLength={2000}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="اكتب نبذة عن النزاع أو التساؤلات المطلوب الإجابة عليها ليتمكن المستشار المختص من تحضير الرأي القانوني المناسب مسبقاً…"
@@ -513,7 +501,7 @@ const Book: React.FC<Props> = ({
                 آلية التسعير والاعتماد من الإدارة العليا:
               </b>
               <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-                يتم تحديد المقابل المالي وإصدار الفاتورة الرسمية للاستشارة من قِبل الإدارة العليا بعد دراسة وقائع الطلب والتخصص المطلوب، لتتمكن بعدها من سداد الفاتورة إلكترونياً واختيار موعد الجلسة مباشرة.
+                يتم تحديد المقابل المالي وإصدار الفاتورة الرسمية للاستشارة من قِبل الإدارة العليا بعد دراسة وقائع الطلب والتخصص المطلوب، لتتمكن بعدها من سداد الفاتورة إلكترونياً، ثم يحدّد المكتب موعد الجلسة ويُبلغك به.
               </p>
             </div>
           </div>
@@ -537,7 +525,7 @@ const Book: React.FC<Props> = ({
 
             <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Icon name="lock" />
-              <span>بياناتك ومستنداتك مشفرة ومحمية بموجب نظام المحاماة السعودي.</span>
+              <span>بياناتك مشفرة ومحمية بموجب نظام المحاماة السعودي.</span>
             </div>
           </div>
         </div>

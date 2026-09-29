@@ -67,7 +67,7 @@ class SmartBookingTest extends TestCase
         $this->closeTickets($strong, $client, 3);
 
         $date = LawyerAvailability::resolveDate(null)->toDateString();
-        // المصدر الداخليّ: واجهة العميل لم تعد تُرجع هويّات (`clientSlots`) — الترتيب يخصّ الطاقم والإسناد
+        // المصدر الداخليّ للطاقم والإسناد — العميل لا يرى التفرّغ (المكتب يحدّد الموعد)
         $ids = collect(LawyerAvailability::rankedSpecialists('القضايا التجارية', null, $date))->pluck('id');
         // فقط المتخصّصان التجاريان (لا العقاري)
         $this->assertEqualsCanonicalizing([$strong->id, $weak->id], $ids->all());
@@ -79,7 +79,7 @@ class SmartBookingTest extends TestCase
     private function directBookAndSchedule(User $client, ?User $lawyer, string $date, string $time): TestResponse
     {
         $this->actingAs($client)->post(route('book.store'), [
-            'type' => 'office', 'specialty' => 'القضايا التجارية',
+            'type' => 'office', 'specialty' => 'القضايا التجارية', 'subject' => 'نزاع تجاري',
         ])->assertRedirect(route('myconsults'));
         $consult = $this->priceAndPay(Consult::where('user_id', $client->id)->latest('id')->firstOrFail(), 500);
 
@@ -105,9 +105,8 @@ class SmartBookingTest extends TestCase
         $this->directBookAndSchedule($client, $lawyer, $date, '10:00')->assertOk();
         $this->assertSame(1, Appointment::where('lawyer_id', $lawyer->id)->count());
 
-        // الفترة تظهر محجوزة في التفرّغ الذي يصل العميل (المحامي الوحيد هنا مشغول فيها)
-        $res = $this->actingAs($other)->getJson(route('book.availability', ['specialty' => 'القضايا التجارية', 'date' => $date]));
-        $slots = $res->json('slots');
+        // الفترة تظهر محجوزة في التفرّغ الذي يقرؤه الطاقم عند تحديد الموعد (المحامي الوحيد هنا مشغول فيها)
+        $slots = collect(LawyerAvailability::rankedSpecialists('القضايا التجارية', null, $date))->firstWhere('id', $lawyer->id)['slots'];
         $ten = collect($slots)->firstWhere('time', '10:00');
         $this->assertTrue($ten['taken']);
 
@@ -155,10 +154,7 @@ class SmartBookingTest extends TestCase
         $alt = $lawyers->firstWhere('id', $free->id);
         $this->assertGreaterThan(0, $alt['freeCount']);
 
-        // وما يصل العميل: الساعة متاحةٌ ما دام البديل متاحاً، بلا هويّة أحد
-        $res = $this->actingAs($client)->getJson(route('book.availability', ['specialty' => 'القضايا التجارية', 'date' => $date]));
-        $res->assertOk()->assertJsonMissingPath('lawyers');
-        $this->assertSame(1, $res->json('advisors'));
-        $this->assertTrue(collect($res->json('slots'))->contains(fn (array $slot) => $slot['taken'] === false));
+        // والعميل لا يرى التفرّغ أصلاً — المكتب يحدّد الموعد (قرار المالك 2026-09-14)
+        $this->actingAs($client)->getJson('/book/availability?specialty=x')->assertNotFound();
     }
 }

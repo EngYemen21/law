@@ -1901,6 +1901,9 @@ return (a.total || 0) - (b.total || 0);
                       موضوع واستفسار العميل:
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.6 }}>{drawerConsult.subject}</div>
+                    {drawerConsult.details && (
+                      <div style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap', marginTop: 8, color: 'var(--ink)' }}>{drawerConsult.details}</div>
+                    )}
                     <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                       <Badge text={drawerConsult.specialty || drawerConsult.type} tone="b-blue" />
                       <Badge text={`قناة ${drawerConsult.channel}`} tone={crChannelTone(drawerConsult.channel)} />

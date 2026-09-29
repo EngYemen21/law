@@ -104,7 +104,7 @@ class ConsultBooking
     /**
      * الخطوة 1 — طلب استشارة (النوع فقط). لا Appointment ولا Zoom ولا حارس تعارض بعد.
      *
-     * @param  array{type:string,lawyer_id?:int,lawyer?:string,subject?:string,specialty?:string,department?:string}  $data
+     * @param  array{type:string,lawyer_id?:int,lawyer?:string,subject?:string,details?:string|null,specialty?:string,department?:string}  $data
      */
     public static function request(User $client, array $data, ?Ticket $ticket = null): Consult
     {
@@ -117,6 +117,7 @@ class ConsultBooking
             'ticket_id' => $ticket?->id,
             'ref' => $ctx['ref'],
             'subject' => $ctx['subject'],
+            'details' => $data['details'] ?? null,
             'status' => 'بانتظار التسعير',
             'session' => 'بانتظار الجلسة',
             'type' => $ctx['type'],
