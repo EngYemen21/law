@@ -32,8 +32,15 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     .map((grp) => ({ ...grp, items: grp.items.filter((it) => canViewRoute(it.route, perms, isSuper, viewMap)) }))
     .filter((grp) => grp.items.length > 0);
 
-  const isActive = (route: string) =>
-    route === roleMeta.home ? path === route : path.startsWith(route);
+  // الخانة النشطة واحدة: أدقّ مسارٍ ينطبق على الصفحة بجزءٍ كامل — `/tickets/new` لـ«فتح تذكرة» وحدها
+  // لا لـ«متابعة التذاكر» معها، و`/tickets/SB-…` لـ«متابعة التذاكر». الرئيسيّة بمطابقة تامّة.
+  const matches = (route: string) =>
+    route === roleMeta.home ? path === route : path === route || path.startsWith(`${route}/`);
+  const activeRoute = nav
+    .flatMap((grp) => grp.items.map((it) => it.route))
+    .filter(matches)
+    .sort((a, b) => b.length - a.length)[0];
+  const isActive = (route: string) => route === activeRoute;
 
   return (
     <aside className={`sidebar ${isOpen ? 'open' : ''}`} id="sidebar">
