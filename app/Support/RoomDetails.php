@@ -47,7 +47,7 @@ final class RoomDetails
     /**
      * **الحال الحيّة** — ما تحمّله الصفحة وما يبثّه `RoomStateChanged` بالمفاتيح نفسها.
      *
-     * @return array{live: bool, ended: bool, statusLabel: string, measuredDuration: ?string, participants: ?int, recording?: bool}
+     * @return array{live: bool, ended: bool, statusLabel: string, measuredDuration: ?string, participants: ?int, recording?: bool, outsiders?: int}
      */
     public static function state(Consult|Meeting $session, bool $staff): array
     {
@@ -64,6 +64,8 @@ final class RoomDetails
 
         if ($staff) {
             $state['recording'] = $live && RoomPresence::recording($session);
+            // من دخل من خارج المنصّة (بلا مفتاحها) — تنبيهٌ للطاقم في الغرفة
+            $state['outsiders'] = $live ? RoomPresence::outsiders($session) : 0;
         }
 
         return $state;
@@ -86,6 +88,7 @@ final class RoomDetails
             'ended' => $state['ended'],
             'rows' => self::rows($session, $staff),
             'recording' => $staff ? $state['recording'] : false,
+            'outsiders' => $staff ? $state['outsiders'] : 0,
             'measuredDuration' => $state['measuredDuration'],
             'endAction' => $staff ? self::endAction($session, $viewer, $state['live']) : null,
             'summaryHref' => $state['ended'] && self::wasHeld($session) ? self::summaryHref($session, $viewer) : null,

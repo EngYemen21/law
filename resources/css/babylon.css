@@ -788,6 +788,9 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 .vr-timer{margin-inline-start:auto;font-weight:800;font-size:13px;background:rgba(0,0,0,.35);padding:4px 13px;border-radius:99px;direction:ltr}
 .vr-rec{display:flex;align-items:center;gap:6px;font-size:11px;background:rgba(192,57,43,.9);padding:3px 9px;border-radius:99px}
 .vr-rec .dot{width:7px;height:7px;border-radius:50%;background:#fff;animation:vrp 1.2s infinite}
+/* تنبيه الطاقم: داخلٌ من خارج المنصّة — تحت رأس الغرفة، وفي الشريط المصغّر ضمن تدفّقه */
+.mroom-warn{position:fixed;top:var(--mroom-head);inset-inline:0;z-index:84;padding:7px 14px;font-size:12.5px;font-weight:700;color:#7a1d12;background:#fde8e4;border-bottom:1px solid #f5b5a9}
+.mroom-dock .mroom-warn{position:static;border-radius:8px;margin:6px 0}
 @keyframes vrp{0%,100%{opacity:1}50%{opacity:.2}}
 .vr-wm{position:absolute;bottom:14px;inset-inline-end:16px;color:rgba(255,255,255,.32);font-size:10.5px;font-weight:700;direction:ltr}
 .vr-controls{display:flex;justify-content:center;align-items:center;gap:13px;padding:18px;background:#0A2A55}

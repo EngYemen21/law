@@ -59,9 +59,10 @@ class ZoomController extends Controller
             'password' => $joinable->meet_password ?? '',
             'userName' => $this->displayName($user, $joinable),
             'userEmail' => $user->email,
-            // يعود في أحداث الدخول/الخروج (`customer_key`) فيُعرف المحامي داخل أيّ جلسةٍ هو الآن
-            // (`ZoomWebhookController::staffId` ⇐ `RoomPresence::staffInSession`). للطاقم وحده.
-            'customerKey' => $isStaff ? 'u'.$user->id : null,
+            // يعود في أحداث الدخول/الخروج (`customer_key`): به يُعرف المحامي داخل أيّ جلسةٍ هو الآن
+            // (`RoomPresence::staffInSession`)، ومن دخل بلا مفتاحٍ دخل من خارج المنصّة (`outsiders`).
+            // لكلّ داخلٍ من المنصّة — عميلاً وطاقماً (`ZoomWebhookController::platformUser`).
+            'customerKey' => 'u'.$user->id,
             'role' => $role,
             'zak' => $zak,
         ]);

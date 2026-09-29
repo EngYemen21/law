@@ -38,6 +38,8 @@ export interface Room {
   rows: RoomRow[];
   /** للطاقم وحده — العميل يصله false دائماً. */
   recording: boolean;
+  /** كم دخل من خارج المنصّة (تطبيق Zoom أو رقم الاجتماع مباشرةً) — للطاقم وحده، والعميل يصله 0. */
+  outsiders: number;
   /** المدّة كما قاسها Zoom — بعد الانتهاء فقط. */
   measuredDuration: string | null;
   /** إجراء الإنهاء — للطاقم وحده (null للعميل). */
@@ -59,6 +61,7 @@ export interface RoomStatePayload {
   /** عدد الحاضرين الآن كما يرسله الخادم. */
   participants: number | null;
   recording?: boolean;
+  outsiders?: number;
 }
 
 /**
@@ -90,6 +93,7 @@ export const ROOM_TEXT = {
   close: 'إغلاق',
   dismiss: 'إخفاء',
   recording: 'تسجيل',
+  outsiders: (n: number) => `⚠️ ${n === 1 ? 'مشاركٌ دخل' : `${n} مشاركين دخلوا`} من خارج المنصّة — راجع قائمة المشاركين في Zoom وأزِل من لا يخصّ الجلسة.`,
   ended: 'انتهت الجلسة',
   endedThanks: 'شكراً لك.',
   measuredDuration: 'المدّة الفعليّة',

@@ -22,6 +22,8 @@ use Illuminate\Support\Facades\Cache;
  *   (`customerKey` ⇐ `customer_key` في الحدث — `ZoomController::sdkSignature`)، فيُعرف المحامي داخل
  *   أيّ غرفةٍ هو الآن. خروجُه من غرفةٍ وهو في أخرى يُبقيه «في جلسة» — لذلك الغرفُ لكلّ شخص مجموعةٌ لا علَم.
  *   للعرض وحده (قرار المالك 2026-09-29): لا يمسّ حكم الحجز (`LawyerAvailability`).
+ * - **الداخل من خارج المنصّة** (`outsiders`): كلّ داخلٍ من المنصّة يحمل مفتاح حسابه، فمن دخل بلا
+ *   مفتاح دخل بتطبيق Zoom أو برقم الاجتماع مباشرةً — يُعدّ ويُنبَّه الطاقم ويُسجَّل (قرار المالك 2026-09-29).
  * - **التسجيل**: كلّ اجتماعٍ يُنشأ بتسجيلٍ سحابيّ آليّ (`ZoomService::settings` → `auto_recording`)،
  *   فالجارية بغرفة Zoom تُعدّ مُسجَّلة حتى يقول Zoom غير ذلك (`recording.stopped/paused`).
  */
@@ -32,11 +34,21 @@ final class RoomPresence
 
     private const STAFF_KEY = 'room:staff-in-session';
 
-    /** دخولٌ إلى الغرفة — و`$staffId` حين عرّف Zoom الداخلَ بحسابه من الطاقم. */
-    public static function participantJoined(Consult|Meeting $session, string $participant, ?int $staffId = null): void
+    /** علامة الداخل من خارج المنصّة في مجموعة الغرفة (بجانب معرّف الطاقم و`true` لغيره). */
+    private const OUTSIDE = 'outside';
+
+    /**
+     * دخولٌ إلى الغرفة — و`$staffId` حين عرّف Zoom الداخلَ بحسابه من الطاقم، و`$outside` حين دخل بلا
+     * مفتاح المنصّة (تطبيق Zoom أو رابطٌ مباشر — `ZoomWebhookController::participantJoined`).
+     *
+     * @return bool أهو دخولٌ جديد (لا حدثٌ مكرّر للمشارك نفسه)
+     */
+    public static function participantJoined(Consult|Meeting $session, string $participant, ?int $staffId = null, bool $outside = false): bool
     {
-        self::mutateParticipants($session, function (array $ids) use ($participant, $staffId) {
-            $ids[$participant] = $staffId ?? true;
+        $new = false;
+        self::mutateParticipants($session, function (array $ids) use ($participant, $staffId, $outside, &$new) {
+            $new = ! array_key_exists($participant, $ids);
+            $ids[$participant] = $outside ? self::OUTSIDE : ($staffId ?? true);
 
             return $ids;
         });
@@ -48,6 +60,16 @@ final class RoomPresence
                 return $map;
             });
         }
+
+        return $new;
+    }
+
+    /** كم في الغرفة الآن ممّن دخل من خارج المنصّة — للطاقم (`RoomDetails::state`). */
+    public static function outsiders(Consult|Meeting $session): int
+    {
+        $ids = Cache::get(self::key($session, 'participants'));
+
+        return is_array($ids) ? count(array_keys($ids, self::OUTSIDE, true)) : 0;
     }
 
     public static function participantLeft(Consult|Meeting $session, string $participant): void
@@ -134,7 +156,7 @@ final class RoomPresence
         });
     }
 
-    /** @param  callable(array<string, true|int>): array<string, true|int>  $mutate */
+    /** @param  callable(array<string, true|int|string>): array<string, true|int|string>  $mutate */
     private static function mutateParticipants(Consult|Meeting $session, callable $mutate): void
     {
         self::mutateLocked(self::key($session, 'participants'), $mutate);

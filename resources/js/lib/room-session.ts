@@ -559,6 +559,7 @@ function applyState(p: RoomStatePayload, fromStaffChannel: boolean): void {
     statusLabel: p.statusLabel,
     measuredDuration: p.measuredDuration ?? room.measuredDuration,
     recording: fromStaffChannel && isStaffRoom(room) && typeof p.recording === 'boolean' ? p.recording : room.recording,
+    outsiders: fromStaffChannel && isStaffRoom(room) && typeof p.outsiders === 'number' ? p.outsiders : room.outsiders,
     // شرطُ الإنهاء عند الخادم «الجلسة منعقدة» — فيتبع البثَّ نفسه بلا انتظار إعادة تحميل
     endAction: room.endAction ? { ...room.endAction, enabled: p.live && !p.ended } : null,
   };

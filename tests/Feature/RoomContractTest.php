@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Events\RoomStateChanged;
 use App\Events\StaffPresenceChanged;
+use App\Models\AuditLog;
 use App\Models\Consult;
 use App\Models\JourneyTransition;
 use App\Models\Meeting;
@@ -35,7 +36,7 @@ class RoomContractTest extends TestCase
     private const WH_SECRET = 'whsec_room';
 
     private const KEYS = [
-        'kind', 'ref', 'title', 'statusLabel', 'live', 'ended', 'rows', 'recording',
+        'kind', 'ref', 'title', 'statusLabel', 'live', 'ended', 'rows', 'recording', 'outsiders',
         'measuredDuration', 'endAction', 'summaryHref', 'back', 'channel', 'staffChannel',
     ];
 
@@ -404,7 +405,7 @@ class RoomContractTest extends TestCase
     {
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
         $zoom = (string) file_get_contents(app_path('Http/Controllers/ZoomController.php'));
-        $this->assertStringContainsString("'customerKey' => \$isStaff ? 'u'.\$user->id : null", $zoom);
+        $this->assertStringContainsString("'customerKey' => 'u'.\$user->id,", $zoom);
         $this->assertStringContainsString('customerKey: data.customerKey || undefined', (string) file_get_contents(resource_path('js/lib/room-session.ts')));
 
         $meeting = $this->meeting(['meet_id' => '94000400']);
@@ -434,5 +435,37 @@ class RoomContractTest extends TestCase
         $authorize = Broadcast::driver()->getChannels()->get(StaffPresenceChanged::CHANNEL);
         $this->assertTrue($authorize($lawyer));
         $this->assertFalse($authorize(User::factory()->create(['role' => Role::Client])));
+    }
+
+    /**
+     * **الدخول من خارج المنصّة يُكشف** (قرار المالك 2026-09-29): كلّ داخلٍ من غرفة المنصّة يحمل مفتاح حسابه،
+     * فمن دخل بلا مفتاح (تطبيق Zoom أو رقم الاجتماع) يُعدّ للطاقم ويُسجَّل مرّةً — والعميل لا يُخبَر.
+     */
+    public function test_a_join_without_the_platform_key_is_flagged_to_staff_and_audited_once(): void
+    {
+        Event::fake([RoomStateChanged::class]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $consult = $this->consult($client, ['meet_id' => '93000600']);
+        $event = fn (string $event, string $uuid, ?string $key, string $name = 'زائر') => $this->webhook(['event' => $event, 'payload' => ['object' => [
+            'id' => '93000600',
+            'participant' => array_filter(['participant_uuid' => $uuid, 'customer_key' => $key, 'user_name' => $name]),
+        ]]])->assertOk();
+
+        // العميل من المنصّة ليس «دخيلاً»
+        $event('meeting.participant_joined', 'C', "u{$client->id}");
+        $this->assertSame(0, RoomPresence::outsiders($consult));
+
+        $event('meeting.participant_joined', 'X', null, 'هاتف مجهول');
+        $event('meeting.participant_joined', 'X', null, 'هاتف مجهول'); // حدثٌ مكرّر
+        $this->assertSame(1, RoomPresence::outsiders($consult));
+        $this->assertSame(1, AuditLog::where('action', 'دخول جلسة من خارج المنصّة')->count(), 'يُسجَّل مرّةً لا لكلّ حدث');
+        $this->assertStringContainsString('«هاتف مجهول»', (string) AuditLog::where('action', 'دخول جلسة من خارج المنصّة')->value('description'));
+
+        // للطاقم وحده: حال الطاقم تحمل العدد، وحال العميل لا
+        $this->assertSame(1, RoomDetails::state($consult->fresh(), true)['outsiders']);
+        $this->assertArrayNotHasKey('outsiders', RoomDetails::state($consult->fresh(), false));
+
+        $event('meeting.participant_left', 'X', null);
+        $this->assertSame(0, RoomPresence::outsiders($consult));
     }
 }

@@ -136,19 +136,31 @@ class ZoomWebhookController extends Controller
     }
 
     /**
-     * **حسابُ الداخل من الطاقم** — غرفة المنصّة تعرّفه لـZoom بـ`customerKey` = `u{id}`
-     * (`ZoomController::sdkSignature`) فيعود في الحدث `customer_key`. الحمولة موقَّعة (HMAC أعلاه)،
-     * والحساب يُتحقَّق منه: طاقمٌ لا عميل. من دخل برابط Zoom الخارجيّ لا مفتاح له ⇒ لا يُخمَّن.
+     * **حسابُ الداخل على المنصّة** — غرفة المنصّة تعرّف كلّ داخلٍ لـZoom بـ`customerKey` = `u{id}`
+     * (`ZoomController::sdkSignature`) فيعود في الحدث `customer_key`. الحمولة موقَّعة (HMAC أعلاه).
+     * `null` = دخل بلا مفتاح المنصّة: تطبيق Zoom أو رقم الاجتماع مباشرةً — لا يُخمَّن شخص.
      */
-    private function staffId(Request $request): ?int
+    private function platformUser(Request $request): ?User
     {
         $key = (string) $request->input('payload.object.participant.customer_key', '');
-        if (! preg_match('/^u(\d+)$/', $key, $m)) {
-            return null;
-        }
-        $user = User::find((int) $m[1]);
 
-        return $user !== null && ! $user->isClient() ? $user->id : null;
+        return preg_match('/^u(\d+)$/', $key, $m) ? User::find((int) $m[1]) : null;
+    }
+
+    /** الجلسات تُعقد داخل المنصّة وحدها (قرار المالك 2026-09-29) — فالدخول من خارجها يُسجَّل للمراجعة. */
+    private function auditOutsideJoin(Consult|Meeting $model, Request $request): void
+    {
+        $name = trim((string) $request->input('payload.object.participant.user_name', '')) ?: 'مجهول';
+        $what = $model instanceof Consult ? 'الاستشارة' : 'الاجتماع';
+
+        Audit::log(
+            action: 'دخول جلسة من خارج المنصّة',
+            description: "دخل «{$name}» {$what} {$model->ref} عبر Zoom مباشرةً دون غرفة المنصّة.",
+            category: 'أمن وحماية',
+            severity: 'warning',
+            auditable: $model,
+            auditableRef: (string) $model->ref,
+        );
     }
 
     // التسجيل/النصّ ثقيلان نسبياً — يُنزَّلان بعد إرسال الاستجابة (الـwebhook يردّ 200 فوراً)
@@ -163,7 +175,11 @@ class ZoomWebhookController extends Controller
     {
         // من في الغرفة الآن — يُحسب لكلّ دخول (لا الأوّل وحده) ويُبثّ لصفحة الغرفة لحظيّاً
         if (($key = $this->participantKey($request)) !== null) {
-            RoomPresence::participantJoined($model, $key, $this->staffId($request));
+            $user = $this->platformUser($request);
+            $new = RoomPresence::participantJoined($model, $key, $user?->isClient() === false ? $user->id : null, $user === null);
+            if ($user === null && $new) {
+                $this->auditOutsideJoin($model, $request);
+            }
         }
 
         $join = $request->input('payload.object.participant.join_time');
