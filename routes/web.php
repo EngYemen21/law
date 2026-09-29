@@ -618,6 +618,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/tickets/{ticket}/track/propose', [AdminTicketController::class, 'proposeTrack'])->name('tickets.track.propose');
     Route::post('/tickets/{ticket}/track/approve', [AdminTicketController::class, 'approveTrack'])->name('tickets.track.approve');
     Route::get('/lawyers', [AdminLawyerController::class, 'index'])->name('lawyers');
+    Route::get('/lawyers/{user}', [AdminLawyerController::class, 'show'])->whereNumber('user')->name('lawyers.show');
     Route::post('/lawyers/{user}/mode', [AdminLawyerController::class, 'toggleMode'])->name('lawyers.mode');
     // رحلة الاستشارة — مربوطة بقاعدة البيانات (+ صلاحيات الإدارة: الأولوية)
     Route::get('/consults', [StaffConsultController::class, 'index'])->name('consults');
