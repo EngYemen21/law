@@ -1245,9 +1245,8 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 .lw-filters .input{flex:1 1 180px;width:auto}
 .lw-name{background:none;border:0;padding:0;font:inherit;font-weight:700;color:var(--primary,#0E5C9C);cursor:pointer;text-align:start}
 .lw-name:hover{text-decoration:underline}
-.lw-nowrap{white-space:nowrap}
-.lw-overdue{font-size:12px;font-weight:700;color:var(--danger,#C0392B)}
-.lw-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.nowrap{white-space:nowrap}
+.txt-overdue{font-size:12px;font-weight:700;color:var(--danger,#C0392B)}
 .lw-links{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
 .lw-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .lw-group{border:1px solid var(--line,#E1E8EE);border-radius:10px;padding:10px 12px}
@@ -1257,16 +1256,30 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 .lw-items li:first-child{border-top:0}
 .lw-items li .sub{grid-column:1/-1;font-size:12px}
 .lw-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:720px){.lw-groups{grid-template-columns:1fr}}
+td.tc-actions > div{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+/* **جدولٌ يصير بطاقاتٍ على الهاتف** (`tbl-cards`) — كلّ خليّةٍ بعنوانها من `data-label`، وخليّة الرأس
+   (`tc-head`) بلا عنوان، وخليّة الأزرار (`tc-actions`) بعرض البطاقة. تستعمله «المحامون» و«أتعاب القضايا». */
 @media (max-width:720px){
-  .lw-groups{grid-template-columns:1fr}
-  .lw-tbl thead{display:none}
-  .lw-tbl,.lw-tbl tbody,.lw-tbl tr,.lw-tbl td{display:block;width:100%}
-  .lw-tbl tr{border:1px solid var(--line,#E1E8EE);border-radius:12px;padding:10px 12px;margin-bottom:10px}
-  .lw-tbl td{border:0;padding:4px 0;display:flex;justify-content:space-between;align-items:center;gap:10px}
-  .lw-tbl td[data-label]::before{content:attr(data-label);font-size:12px;color:var(--muted);font-weight:600}
-  .lw-tbl td[data-label="المحامي"]{flex-wrap:wrap;justify-content:flex-start}
-  .lw-tbl td[data-label="المحامي"]::before{display:none}
-  .lw-tbl td.lw-actions-cell{padding-top:8px}
-  .lw-tbl td.lw-actions-cell .lw-actions{width:100%}
-  .lw-tbl td.lw-actions-cell .btn{flex:1}
+  .tbl-cards thead{display:none}
+  .tbl-cards,.tbl-cards tbody,.tbl-cards tr,.tbl-cards td{display:block;width:100%}
+  .tbl-cards tr{border:1px solid var(--line,#E1E8EE);border-radius:12px;padding:10px 12px;margin-bottom:10px}
+  .tbl-cards td{border:0;padding:4px 0;display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .tbl-cards td[data-label]::before{content:attr(data-label);font-size:12px;color:var(--muted);font-weight:600}
+  .tbl-cards td.tc-head{flex-wrap:wrap;justify-content:flex-start}
+  .tbl-cards td.tc-head::before{display:none}
+  .tbl-cards td.tc-actions{padding-top:8px}
+  .tbl-cards td.tc-actions > div{width:100%}
+  .tbl-cards td.tc-actions .btn{flex:1}
+}
+/* «أتعاب القضايا» (2026-09-29) — البحث، وفواتير القضيّة تحت صفّها، وشريحة فلتر القضيّة في المالية */
+.cf-search{display:flex;gap:8px;margin-top:10px}
+.cf-search .input{flex:1;width:auto}
+.cf-invoices td{background:var(--paper-2,#F7F9FB)}
+.cf-inv-list{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.cf-inv{display:grid;grid-template-columns:140px 110px 110px 1fr auto;gap:8px;align-items:center;font-size:13px;padding:6px 10px;border:1px solid var(--line,#E1E8EE);border-radius:8px;background:#fff}
+.chip-x{background:none;border:0;padding:0 0 0 2px;margin:0;cursor:pointer;color:inherit;font:inherit;line-height:1}
+@media (max-width:720px){
+  .cf-inv{grid-template-columns:1fr 1fr}
+  .tbl-cards tr.cf-invoices td{display:block}
 }

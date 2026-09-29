@@ -7,6 +7,7 @@ use App\Enums\ExpenseCategory;
 use App\Enums\ExpenseStatus;
 use App\Models\Expense;
 use App\Models\Invoice;
+use App\Models\LegalCase;
 use App\Models\Payment;
 use App\Models\Ticket;
 use Carbon\CarbonImmutable;
@@ -208,13 +209,21 @@ final class FinanceBoard
      * الفترة؟». ولو رُشّح بتاريخ التحصيل لاختفت كلُّ فاتورةٍ غير مدفوعة — أي لاختفى بالضبط
      * ما يُفتح هذا التبويب لأجله.
      *
+     * **وفواتير قضيّةٍ واحدة (`$caseNumber`) بلا فترة**: يفتحها رابط «فتح في المالية» من «أتعاب القضايا» —
+     * أقساط القضيّة تمتدّ أشهراً، فلو قُيّدت بالفترة لغاب منها ما صدر قبلها.
+     *
      * @param  array{from:CarbonInterface, to:CarbonInterface, ...}  $period
      * @return LengthAwarePaginator<int, Invoice>
      */
-    public static function invoices(array $period, string $status, string $kind): LengthAwarePaginator
+    public static function invoices(array $period, string $status, string $kind, ?string $caseNumber = null): LengthAwarePaginator
     {
-        $q = Invoice::with('user')
-            ->whereRaw(self::ISSUED_AT.' BETWEEN ? AND ?', [$period['from'], $period['to']]);
+        $q = Invoice::with('user');
+
+        if ($caseNumber !== null) {
+            $q->whereIn('case_id', LegalCase::where('number', $caseNumber)->select('id'));
+        } else {
+            $q->whereRaw(self::ISSUED_AT.' BETWEEN ? AND ?', [$period['from'], $period['to']]);
+        }
 
         // «غير مدفوعة» ليست حالةً مخزّنة بل مرشّحٌ عرضيّ (وهو تبويب شاشة المحاسبة القديمة)
         // وهي الذمّة القائمة نفسها (`Invoice::outstanding`) — لا تُدرج الملغاة والمعدومة

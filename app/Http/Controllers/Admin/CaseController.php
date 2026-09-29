@@ -27,6 +27,7 @@ use App\Support\CaseTicketDocuments;
 use App\Support\ConversationFiles;
 use App\Support\ConversationHandler;
 use App\Support\ExecutionCreation;
+use App\Support\Finance\CaseFeeBoard;
 use App\Support\Finance\InvoiceDue;
 use App\Support\Finance\InvoiceFactory;
 use App\Support\Finance\LawyerShare;
@@ -44,11 +45,19 @@ use Inertia\Response;
  */
 class CaseController extends Controller
 {
-    public function fees(): Response
+    public function fees(Request $request): Response
     {
-        $cases = LegalCase::with(['user', 'hearings', 'assignedLawyer'])->latest('id')->paginate(50)->withQueryString();
+        $tab = CaseFeeBoard::tab($request->query('tab'));
+        $search = trim((string) $request->query('q', ''));
+        $actor = $request->user();
+        $cases = CaseFeeBoard::query($tab, $search)->with(['user', 'assignedLawyer', 'invoices'])->paginate(50)->withQueryString();
 
         return Inertia::render('admin/casefees', [
+            'tab' => $tab,
+            'q' => $search,
+            'tabs' => collect(CaseFeeBoard::TABS)->map(fn (string $label, string $key) => ['k' => $key, 'label' => $label])->values(),
+            'counts' => CaseFeeBoard::counts(),
+            'totals' => CaseFeeBoard::totals(),
             'cases' => Paginate::shape($cases, fn (LegalCase $c) => [
                 'no' => $c->number,
                 'type' => $c->type,
@@ -63,12 +72,12 @@ class CaseController extends Controller
                 'lawyerDefaultPct' => LawyerShare::defaultPctFor($c->assignedLawyer),
                 'feeStatus' => $c->fee_status,
                 // حكم انتقال `SetFee` (حالته المصدر + صلاحيّة الفاعل) — كانت الواجهة تقارن نصّ الحالة
-                'canSetFee' => $c->fee_status === 'none'
-                    && (new SetFeeTransition)->accepts((string) $c->status)
-                    && (new SetFeeTransition)->deny($c, auth()->user()) === null,
+                'canSetFee' => CaseFeeBoard::canSetFee($c, $actor),
                 // خطّة التقسيط — كانت `installments` بلا فرعٍ في الشاشة فتقع على «لا إجراء مطلوب»
                 'installmentsTotal' => $c->installments_total,
                 'installmentsPaid' => $c->installments_paid,
+                // المفوتَر والمسدَّد والمتبقّي وفواتيرها — من تعريفات الفاتورة الواحدة
+                'money' => CaseFeeBoard::money($c),
             ]),
         ]);
     }
@@ -76,7 +85,8 @@ class CaseController extends Controller
     // تحديد قيمة الأتعاب → القضية بانتظار سداد العميل
     public function setFee(Request $request, LegalCase $case): RedirectResponse
     {
-        abort_unless($case->status === 'بانتظار اعتماد الأتعاب', 422, 'تُحدَّد الأتعاب والقضية بانتظار اعتمادها فقط — حدّث الصفحة لترى حالتها الحاليّة.');
+        // حالة المصدر يحرسها انتقال `SetFee` نفسه (٤٢٢ برسالته) قبل أيّ فاتورةٍ أو رسالة — كانت تُقارَن هنا
+        // بنصّ الحالة العربيّ مرّةً ثانية
 
         $data = $request->validate([
             'fee' => ['required', 'integer', 'min:0', 'max:10000000'],
@@ -279,7 +289,8 @@ class CaseController extends Controller
                 // طلب فتح التنفيذ القائم (من المحامي/الموظّف) — يعتمده المدير أو يرفضه من هنا
                 'executionRequest' => CaseExecutionRequest::pending($case),
                 'canReassign' => $case->status !== CaseStatus::Archived->value,
-                'feePending' => $case->status === 'بانتظار اعتماد الأتعاب',
+                // الحكم الواحد مع صفحة الأتعاب (`CaseFeeBoard::canSetFee`) — كانت مقارنةً بنصّ الحالة
+                'feePending' => CaseFeeBoard::canSetFee($case, $request->user()),
             ],
             'channel' => 'case.'.$case->id,
             // الإدارة ترى ما يراه المكتب: الملاحظات الداخليّة والمحجوب بانتظار الاعتماد

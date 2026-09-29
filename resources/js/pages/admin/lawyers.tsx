@@ -84,7 +84,7 @@ const AdminLawyers: React.FC<{ lawyers: LawyerRow[]; weights: Weights }> = ({ la
           </select>
         </div>
         <div className="card-b t-wrap">
-          <table className="tbl lw-tbl">
+          <table className="tbl tbl-cards">
             <thead>
               <tr>
                 <th>المحامي</th>
@@ -102,7 +102,7 @@ const AdminLawyers: React.FC<{ lawyers: LawyerRow[]; weights: Weights }> = ({ la
             <tbody>
               {rows.length ? rows.map((l) => (
                 <tr key={l.id}>
-                  <td data-label="المحامي">
+                  <td className="tc-head" data-label="المحامي">
                     <button type="button" className="lw-name" onClick={() => setFileOf(l.id)} title="ملفّ المحامي المفتوح">{l.name}</button>
                     {l.suspended && <> <Badge text="موقوف" tone="b-red" /></>} <PresenceBadge userId={l.id} showFree={!l.suspended} />
                   </td>
@@ -119,12 +119,12 @@ const AdminLawyers: React.FC<{ lawyers: LawyerRow[]; weights: Weights }> = ({ la
                     {l.suspended ? <span className="sub">—</span> : <><b>{l.load.total}</b> <Badge text={CAPACITY[l.load.capacity].label} tone={CAPACITY[l.load.capacity].tone} /></>}
                   </td>
                   <td data-label="متابعة">
-                    <div className="sub lw-nowrap" title="الاجتماعات القادمة">اجتماعات: {l.load.upcomingMeetings}</div>
-                    <div className={`lw-nowrap ${l.load.overdueTasks > 0 ? 'lw-overdue' : 'sub'}`} title="المهام المتأخّرة">متأخّرة: {l.load.overdueTasks}</div>
+                    <div className="sub nowrap" title="الاجتماعات القادمة">اجتماعات: {l.load.upcomingMeetings}</div>
+                    <div className={`nowrap ${l.load.overdueTasks > 0 ? 'txt-overdue' : 'sub'}`} title="المهام المتأخّرة">متأخّرة: {l.load.overdueTasks}</div>
                   </td>
                   <td data-label="التوزيع"><Badge text={l.manual ? 'يدوي' : 'تلقائي'} tone={l.manual ? 'b-amber' : 'b-blue'} /></td>
-                  <td className="lw-actions-cell">
-                    <div className="lw-actions">
+                  <td className="tc-actions">
+                    <div>
                       <button className="btn soft sm" type="button" onClick={() => setFileOf(l.id)}>
                         <Icon name="folder" /> الملفّ
                       </button>
