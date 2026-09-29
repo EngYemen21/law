@@ -6,7 +6,8 @@ import Badge from '@/components/babylon/Badge';
 import { TICKET_PRIORITIES, isUrgentTicket } from '@/lib/employee-data';
 import { truncateWords } from '@/lib/utils';
 
-interface EmpTicket {
+/** صفّ قائمة التذاكر للإدارة — `Admin\TicketController::listRow` (حمولةٌ خفيفة، لا `toEmployeeCard`). */
+interface AdminTicketRow {
   no: string;
   client: string;
   clientId?: number;
@@ -33,7 +34,7 @@ interface FilterParams {
 }
 
 interface Props {
-  tickets: Paginated<EmpTicket>;
+  tickets: Paginated<AdminTicketRow>;
   filters?: FilterParams;
   departments?: string[];
   lawyers?: { id: number; name: string }[];
@@ -171,36 +172,6 @@ const AdminTickets: React.FC<Props> = ({
       <div className="hero">
         <h2>إشراف التذاكر والاستشارات 🎫</h2>
         <p>متابعة التذاكر القانونية الواردة، مسارات المعالجة، توزيع المهام على المحامين، والاعتماد الإداري النهائي.</p>
-        <div className="hero-cta" style={{ flexWrap: 'wrap', gap: 8 }}>
-          <button
-            className={`hero-b ${!status ? '' : 'ghost'}`}
-            onClick={() => { setStatus(''); applyFilters({ status: '' }); }}
-            type="button"
-          >
-            <Icon name="ticket" /> كل التذاكر ({summaryStats?.total ?? tickets.meta.total})
-          </button>
-          <button
-            className={`hero-b ${status === 'open' ? '' : 'ghost'}`}
-            onClick={() => { setStatus('open'); applyFilters({ status: 'open' }); }}
-            type="button"
-          >
-            <Icon name="folder" /> التذاكر المفتوحة ({summaryStats?.open ?? '—'})
-          </button>
-          <button
-            className={`hero-b ${status === 'pending_admin' ? '' : 'ghost'}`}
-            onClick={() => { setStatus('pending_admin'); applyFilters({ status: 'pending_admin' }); }}
-            type="button"
-          >
-            <Icon name="check" /> بانتظار الاعتماد ({summaryStats?.pending_admin ?? '—'})
-          </button>
-          <button
-            className={`hero-b ${status === 'completed' ? '' : 'ghost'}`}
-            onClick={() => { setStatus('completed'); applyFilters({ status: 'completed' }); }}
-            type="button"
-          >
-            <Icon name="card" /> التذاكر المكتملة ({summaryStats?.completed ?? '—'})
-          </button>
-        </div>
       </div>
 
       <div className="card">

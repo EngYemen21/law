@@ -47,6 +47,7 @@ class ConsultStatusBroadcast implements ShouldBroadcastNow
             // مشتقّاتٌ كانت البطاقة تحملها والبثّ لا — فتبقى بائتةً حتى إعادة التحميل:
             // موعدٌ فات يبقى «قابلاً للبدء»، وجلسةٌ فائتة لا تُعلَن فائتة.
             'missed' => $this->consult->isMissed(),
+            'notHeld' => $this->consult->isNotHeld(),
             'startable' => $this->consult->isStartable(),
             'duration' => $this->consult->duration_label,
             'canJoin' => $this->consult->canJoin(),

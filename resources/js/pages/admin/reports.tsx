@@ -6,6 +6,8 @@ import Icon from '@/lib/icons';
 interface Props {
   stats: {
     totalTickets: number;
+    /** الاستشارات عدا الملغاة — رقمٌ مستقلّ عن التذاكر */
+    totalConsults: number;
     closureRate: number;
     convertedToCase?: number;
     conversionRate?: number;
@@ -69,7 +71,7 @@ const AdminReports: React.FC<Props> = ({
 
   // البطاقات التنفيذية الكبرى
   const mainCards: [string, string, string, string, string][] = [
-    ['t-blue', 'ticket', `${conversionPct}%`, 'معدل تحويل الاستشارات لقضايا', `${convertedCount} قضية من ${stats.totalTickets} تذكرة`],
+    ['t-blue', 'ticket', `${conversionPct}%`, 'معدل تحويل التذاكر لقضايا', `${convertedCount} قضية من ${stats.totalTickets} تذكرة`],
     ['t-green', 'scale', `${rulingPct}%`, 'نسبة حسم القضايا بالأحكام', `${ruledCount} حكم من ${totalCasesCount} قضية`],
     ['t-amber', 'exec', `${collectionPct}%`, 'نسبة نجاح تحصيل ديون التنفيذ', `${fmt(collectedDebt)} ر.س من ${fmt(enforcedDebt)} ر.س`],
     ['t-cyan', 'check', String(transitionsCount), 'سجل حركات النظام المعتمدة (FSM)', 'حركة انتقال موثقة ومحمية'],
@@ -106,7 +108,7 @@ const AdminReports: React.FC<Props> = ({
           className={`btn sm ${activeTab === 'triage' ? 'primary' : 'soft'}`}
           onClick={() => setActiveTab('triage')}
         >
-          <Icon name="ticket" /> التذاكر والاستشارات ({stats.totalTickets})
+          <Icon name="ticket" /> التذاكر ({stats.totalTickets}) والاستشارات ({stats.totalConsults})
         </button>
         <button
           type="button"
@@ -146,11 +148,11 @@ const AdminReports: React.FC<Props> = ({
       {/* ── تبويب النظرة العامة (Overview) ── */}
       {activeTab === 'overview' && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, marginBottom: 16 }}>
             {/* التذاكر حسب القسم */}
             <div className="card">
               <div className="card-h">
-                <h3>التذاكر والاستشارات حسب القسم</h3>
+                <h3>التذاكر حسب القسم</h3>
                 <span className="sub">{stats.totalTickets} تذكرة</span>
               </div>
               <div className="card-b" style={{ padding: 18 }}>
@@ -170,7 +172,7 @@ const AdminReports: React.FC<Props> = ({
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, marginBottom: 16 }}>
             {/* مراحل التنفيذ القضائي */}
             <div className="card">
               <div className="card-h">
@@ -222,7 +224,7 @@ const AdminReports: React.FC<Props> = ({
 
       {/* ── تبويب التذاكر والاستشارات (Triage & Consultations BI) ── */}
       {activeTab === 'triage' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, marginBottom: 16 }}>
           <div className="card">
             <div className="card-h">
               <h3>التذاكر حسب الأقسام القانونية</h3>
@@ -260,6 +262,10 @@ const AdminReports: React.FC<Props> = ({
                 <div className="num">{stats.totalTickets}</div>
                 <div className="lbl">إجمالي التذاكر</div>
               </div>
+              <div className="stat t-cyan">
+                <div className="num">{stats.totalConsults}</div>
+                <div className="lbl">إجمالي الاستشارات (عدا الملغاة)</div>
+              </div>
               <div className="stat t-green">
                 <div className="num">{convertedCount}</div>
                 <div className="lbl">حُوّلت إلى قضايا ({conversionPct}%)</div>
@@ -280,7 +286,7 @@ const AdminReports: React.FC<Props> = ({
 
       {/* ── تبويب القضايا القضائية والاستئناف (Cases & Litigation BI) ── */}
       {activeTab === 'cases' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, marginBottom: 16 }}>
           <div className="card">
             <div className="card-h">
               <h3>القضايا حسب القسم القضائي</h3>
@@ -320,7 +326,7 @@ const AdminReports: React.FC<Props> = ({
 
       {/* ── تبويب التنفيذ القضائي (ExecFlow BI) ── */}
       {activeTab === 'executions' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, marginBottom: 16 }}>
           <div className="card">
             <div className="card-h">
               <h3>ملفات التنفيذ القضائي حسب المرحلة</h3>

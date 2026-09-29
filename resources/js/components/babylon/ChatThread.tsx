@@ -59,7 +59,8 @@ interface ChatThreadProps {
   // وضع البثّ اللحظي: اسم قناة Reverb (مثل ticket.5) — مزامنة بلا إعادة تحميل
   channel?: string;
   // تحديث حالة التذكرة لحظياً (تقدّم مسار المعالجة)
-  onStatus?: (s: { status: string; tone: string }) => void;
+  /** حمولة بثّ الحالة كما هي — `status`/`tone` ومعها أعلام النوع (`isActive` · `isTerminal`…). */
+  onStatus?: (s: { status: string; tone: string } & Record<string, unknown>) => void;
   // للقراءة فقط: تُخفى منطقة الكتابة/الإرفاق (سجلّ مغلق — مثل قضية مغلقة/مؤرشفة)
   readOnly?: boolean;
   // تجاوز صيغ/تلميح الإرفاق الافتراضيّين (مثال: لتضمين XLSX في محادثة التنفيذ)

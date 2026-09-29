@@ -40,6 +40,24 @@ enum ConsultStatus: string
         return $this === self::Ended || $this === self::Cancelled;
     }
 
+    /**
+     * **لون شارة الحالة — المصدر الواحد.** كانت الواجهة تحسبه (`cTone`) وتخمّن بعضه من كلمات النصّ
+     * («بانتظار…» كهرمانيّ، «قيد…» سماويّ)؛ الألوان هنا هي نفسها بلا تخمين.
+     */
+    public function tone(): string
+    {
+        return match ($this) {
+            self::New => 'b-blue',
+            self::AwaitingPricing, self::AwaitingPayment, self::AwaitingSchedule, self::AwaitingAppointmentApproval,
+            self::AwaitingData, self::AwaitingEmployeeApproval => 'b-amber',
+            self::ReadyForLawyer, self::ReferredToLawyer, self::Ended => 'b-green',
+            self::InSession => 'b-cyan',
+            // «لم يحضر» نهايةٌ غير ناجحة — لا رماديٌّ محايد يساويها بحالةٍ عاديّة
+            self::NoShow => 'b-amber',
+            self::Cancelled => 'b-red',
+        };
+    }
+
     public function clientLabel(): string
     {
         return $this === self::AwaitingAppointmentApproval ? self::AwaitingSchedule->value : $this->value;

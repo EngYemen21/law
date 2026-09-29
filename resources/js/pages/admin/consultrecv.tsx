@@ -2,16 +2,15 @@ import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
-import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
-import { maskClient } from '@/lib/admin-data';
 import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-reschedule';
-import { CONFIRM_END_CONSULT } from '@/lib/consult-ui';
+import { CONFIRM_END_CONSULT, CONFIRM_NO_SHOW, CONFIRM_START_CONSULT } from '@/lib/consult-ui';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { crChannelIcon, crChannelTone, sessTone } from '@/lib/employee-data';
+import { crChannelIcon, crChannelTone, maskClient } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { useServerAction } from '@/lib/use-server-action';
 
 interface Props {
   consults: ConsultCard[];
@@ -23,7 +22,6 @@ type DrawerTab = 'actions' | 'summary' | 'details' | 'audit';
 
 export const AdminConsultRecv: React.FC<Props> = ({ consults = [] }) => {
   const toast = useToast();
-  const ask = useConfirm();
 
   // State Management
   const [items, setItems] = useState<ConsultCard[]>(consults);
@@ -113,7 +111,7 @@ return null;
     const officeCount = items.filter((c) => c.channel === 'حضورية').length;
     const phoneCount = items.filter((c) => c.channel === 'هاتفية').length;
     // «فائتة»: تشمل ما فات موعده لحظياً (c.missed) وما حسمه المجدول آلياً (لم تُعقد) فلا يهبط العداد إلى صفر بعد 12 ساعة
-    const missedCount = items.filter((c) => c.missed || c.session === 'لم تُعقد').length;
+    const missedCount = items.filter((c) => c.missed || c.notHeld).length;
     const endedCount = items.filter((c) => c.session === 'منتهية').length;
 
     return {
@@ -160,7 +158,7 @@ set.add(c.lawyer.trim());
 return false;
 }
 
-      if (activeFilter === '_missed' && !c.missed && c.session !== 'لم تُعقد') {
+      if (activeFilter === '_missed' && !c.missed && !c.notHeld) {
         return false;
       }
 
@@ -206,7 +204,9 @@ return false;
     });
   }, [items, activeFilter, specialtyFilter, lawyerFilter, searchQuery]);
 
-  // Action Handlers
+  // Action Handlers — قفلٌ موحّد (`useServerAction`) لبدء الجلسة وإنهائها ووسم «لم يحضر»
+  const action = useServerAction();
+
   const handleStart = (c: ConsultCard, e?: React.MouseEvent) => {
     e?.stopPropagation();
     const msg =
@@ -216,16 +216,10 @@ return false;
         ? 'تم بدء المكالمة الهاتفية مع العميل'
         : 'تم تسجيل وصول العميل وبدء الجلسة الحضورية';
 
-    router.post(
-      `/admin/consults/${c.id}/start`,
-      {},
-      {
-        preserveScroll: true,
-        onSuccess: () => toast(msg),
-        // سبب الرفض من الخادم (موعدٌ فات، جلسةٌ ملغاة…) — كان الرفض يمرّ بلا أيّ رسالة
-        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر بدء الجلسة'}`, 'error'),
-      }
-    );
+    // سبب الرفض من الخادم (موعدٌ فات، جلسةٌ ملغاة…) يُعرض — كان يمرّ بلا أيّ رسالة
+    void action.run(`/admin/consults/${c.id}/start`, {
+      key: c.id, confirm: CONFIRM_START_CONSULT, success: msg, fallback: 'تعذّر بدء الجلسة',
+    });
   };
 
   // كان يُرسل حمولةً فارغة `{}` ويُقال «تم توليد وتوثيق ملخص الاستشارة».
@@ -244,25 +238,17 @@ return false;
     }
 
     // تأكيدٌ يقول الأثر قبل الإرسال — النصّ الواحد من `consult-ui` (قرار المالك 2026-09-26)
-    if (!(await ask(CONFIRM_END_CONSULT))) {
-      return;
-    }
-
-    const notes = endNotes.trim();
-
-    router.post(
-      `/admin/consults/${endingOf.id}/end`,
-      { notes },
-      {
-        preserveScroll: true,
-        // نصّ النجاح من الخادم (`RoomDetails::afterEnd` ⇐ flash) — لا إشعار ثانٍ هنا
-        onSuccess: () => {
-          setEndingOf(null);
-          setEndNotes('');
-        },
-        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر إنهاء الجلسة'}`, 'error'),
-      }
-    );
+    // ونصّ النجاح من الخادم (`RoomDetails::afterEnd` ⇐ flash) — لا إشعار ثانٍ هنا
+    await action.run(`/admin/consults/${endingOf.id}/end`, {
+      data: { notes: endNotes.trim() },
+      key: endingOf.id,
+      confirm: CONFIRM_END_CONSULT,
+      fallback: 'تعذّر إنهاء الجلسة',
+      onSuccess: () => {
+        setEndingOf(null);
+        setEndNotes('');
+      },
+    });
   };
 
   const handleEnterRoom = (c: ConsultCard, e?: React.MouseEvent) => {
@@ -270,15 +256,10 @@ return false;
     const room = `/admin/videoroom?ref=${encodeURIComponent(c.ref)}`;
 
     if (c.session === 'بانتظار الجلسة') {
-      router.post(
-        `/admin/consults/${c.id}/start`,
-        {},
-        {
-          preserveScroll: true,
-          onSuccess: () => router.visit(room),
-          onError: (e) => toast(e.message || 'تعذّر بدء الجلسة'),
-        }
-      );
+      void action.run(`/admin/consults/${c.id}/start`, {
+        key: c.id, confirm: CONFIRM_START_CONSULT, fallback: 'تعذّر بدء الجلسة',
+        onSuccess: () => router.visit(room),
+      });
 
       return;
     }
@@ -288,15 +269,9 @@ return false;
 
   const handleNoShow = (c: ConsultCard, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    router.post(
-      `/admin/consults/${c.id}/no-show`,
-      {},
-      {
-        preserveScroll: true,
-        onSuccess: () => toast('وُسمت الاستشارة «لم يحضر» وأُشعر العميل'),
-        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر الوسم'}`),
-      }
-    );
+    void action.run(`/admin/consults/${c.id}/no-show`, {
+      key: c.id, confirm: CONFIRM_NO_SHOW, success: 'وُسمت الاستشارة «لم يحضر» وأُشعر العميل', fallback: 'تعذّر الوسم',
+    });
   };
 
   const handleReschedule = (c: ConsultCard, e?: React.MouseEvent) => {
@@ -385,7 +360,7 @@ return false;
         /* شبكة بطاقات صالة الاستقبال */
         .recv360-cards-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+          grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
           gap: 16px;
         }
 
@@ -421,6 +396,7 @@ return false;
           inset: 0 !important;
           width: 100vw !important;
           height: 100vh !important;
+          height: 100dvh !important;
           z-index: 99990 !important;
           background: rgba(10, 25, 45, 0.6) !important;
           backdrop-filter: blur(4px) !important;
@@ -434,6 +410,7 @@ return false;
           width: 100% !important;
           max-width: 580px !important;
           height: 100vh !important;
+          height: 100dvh !important;
           background: #fff !important;
           box-shadow: -10px 0 35px rgba(0,0,0,0.35) !important;
           display: flex !important;
@@ -791,7 +768,7 @@ return false;
             filteredItems.map((c) => {
               const isLive = c.session === 'جلسة جارية';
               const isEnded = c.session === 'منتهية';
-              const isMissed = c.missed || c.session === 'لم تُعقد';
+              const isMissed = c.missed || c.notHeld;
 
               return (
                 <div
@@ -850,7 +827,7 @@ return false;
                           * في كلّ شاشةٍ أخرى. فالمدير يرى الحالة بلونٍ، والموظّف يراها
                           * بلونٍ آخر، ولا أحد يعلم أيّهما المقصود.
                           */}
-                        {!isMissed && c.session ? <Badge text={c.session} tone={sessTone(c.session)} /> : null}
+                        {!isMissed && c.session ? <Badge text={c.session} tone={c.sessionTone} /> : null}
                         {isMissed && <Badge text="فائتة" tone="b-red" />}
                       </div>
                     </div>
@@ -903,7 +880,7 @@ return false;
                             className="btn primary sm"
                             style={{ flex: 1, justifyContent: 'center' }}
                             type="button"
-                            onClick={(e) => handleEnterRoom(c, e)}
+                            onClick={(e) => handleEnterRoom(c, e)} disabled={action.busyKey === c.id}
                           >
                             <Icon name="video" /> دخول غرفة البث
                           </button>
@@ -927,7 +904,7 @@ return false;
                             className="btn primary sm"
                             style={{ flex: 1, justifyContent: 'center' }}
                             type="button"
-                            onClick={(e) => handleEnterRoom(c, e)}
+                            onClick={(e) => handleEnterRoom(c, e)} disabled={action.busyKey === c.id}
                           >
                             <Icon name="video" /> بدء / دخول الغرفة
                           </button>
@@ -936,7 +913,7 @@ return false;
                             className="btn primary sm"
                             style={{ flex: 1, justifyContent: 'center' }}
                             type="button"
-                            onClick={(e) => handleStart(c, e)}
+                            onClick={(e) => handleStart(c, e)} disabled={action.busyKey === c.id}
                           >
                             <Icon name="check" /> بدء الجلسة الآن
                           </button>
@@ -958,22 +935,26 @@ return false;
                     {/* حالة 3: فائتة */}
                     {isMissed && (
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button
-                          className="btn soft sm"
-                          style={{ flex: 1, justifyContent: 'center', color: '#dc2626' }}
-                          type="button"
-                          onClick={(e) => handleNoShow(c, e)}
-                        >
-                          وسم لم يحضر
-                        </button>
-                        <button
-                          className="btn primary sm"
-                          style={{ flex: 1, justifyContent: 'center' }}
-                          type="button"
-                          onClick={(e) => handleReschedule(c, e)}
-                        >
-                          إعادة الجدولة
-                        </button>
+                        {c.canMarkNoShow && (
+                          <button
+                            className="btn soft sm"
+                            style={{ flex: 1, justifyContent: 'center', color: '#dc2626' }}
+                            type="button"
+                            onClick={(e) => handleNoShow(c, e)} disabled={action.busyKey === c.id}
+                          >
+                            وسم لم يحضر
+                          </button>
+                        )}
+                        {c.canReschedule && (
+                          <button
+                            className="btn primary sm"
+                            style={{ flex: 1, justifyContent: 'center' }}
+                            type="button"
+                            onClick={(e) => handleReschedule(c, e)}
+                          >
+                            إعادة الجدولة
+                          </button>
+                        )}
                       </div>
                     )}
 
@@ -1067,12 +1048,12 @@ return false;
 
                       {/* الحالة */}
                       <td style={{ padding: '12px 14px' }}>
-                        {(c.missed || c.session === 'لم تُعقد') ? (
+                        {(c.missed || c.notHeld) ? (
                           <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 12 }}>⚠️ فائتة</span>
                         ) : (
                           // والفرعُ الجامع كان يعرض **«لم تُعقد» بانتظارَ الجلسة** — فجلسةٌ
                           // أُغلقت آلياً تُعرض قادمةً، ويُنتظر عميلٌ لن يأتي.
-                          <Badge text={c.session || 'بانتظار الجلسة'} tone={sessTone(c.session)} />
+                          <Badge text={c.session || 'بانتظار الجلسة'} tone={c.sessionTone} />
                         )}
                       </td>
 
@@ -1085,7 +1066,7 @@ return false;
                           {c.session === 'جلسة جارية' ? (
                             <>
                               {c.channel === 'مرئية' && (
-                                <button className="btn primary sm" type="button" onClick={(e) => handleEnterRoom(c, e)}>
+                                <button className="btn primary sm" type="button" onClick={(e) => handleEnterRoom(c, e)} disabled={action.busyKey === c.id}>
                                   <Icon name="video" /> الغرفة
                                 </button>
                               )}
@@ -1095,12 +1076,16 @@ return false;
                             </>
                           ) : c.missed ? (
                             <>
-                              <button className="btn soft sm" type="button" onClick={(e) => handleNoShow(c, e)}>
-                                لم يحضر
-                              </button>
-                              <button className="btn primary sm" type="button" onClick={(e) => handleReschedule(c, e)}>
-                                جدولة
-                              </button>
+                              {c.canMarkNoShow && (
+                                <button className="btn soft sm" type="button" onClick={(e) => handleNoShow(c, e)} disabled={action.busyKey === c.id}>
+                                  لم يحضر
+                                </button>
+                              )}
+                              {c.canReschedule && (
+                                <button className="btn primary sm" type="button" onClick={(e) => handleReschedule(c, e)}>
+                                  جدولة
+                                </button>
+                              )}
                             </>
                           ) : c.session === 'منتهية' ? (
                             <button className="btn soft sm" type="button" onClick={() => openDrawer(c.ref, 'summary')}>
@@ -1246,8 +1231,8 @@ return false;
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <h3 style={{ margin: 0, color: 'var(--primary)', fontSize: 17 }}>{drawerItem.ref}</h3>
                   <Badge text={drawerItem.channel} tone={crChannelTone(drawerItem.channel)} />
-                  {drawerItem.session && drawerItem.session !== 'لم تُعقد' && <Badge text={drawerItem.session} tone={sessTone(drawerItem.session)} />}
-                  {(drawerItem.missed || drawerItem.session === 'لم تُعقد') && <Badge text="فائتة" tone="b-red" />}
+                  {drawerItem.session && !drawerItem.notHeld && <Badge text={drawerItem.session} tone={drawerItem.sessionTone} />}
+                  {(drawerItem.missed || drawerItem.notHeld) && <Badge text="فائتة" tone="b-red" />}
                 </div>
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                   العميل: {maskClient(drawerItem.client)} · المستشار: {drawerItem.lawyer}
@@ -1356,7 +1341,7 @@ return false;
                               className="btn primary"
                               style={{ width: '100%', justifyContent: 'center' }}
                               type="button"
-                              onClick={(e) => handleEnterRoom(drawerItem, e)}
+                              onClick={(e) => handleEnterRoom(drawerItem, e)} disabled={action.busyKey === drawerItem.id}
                             >
                               <Icon name="video" /> دخول غرفة البث المرئي المباشر
                             </button>
@@ -1392,22 +1377,26 @@ return false;
                             </span>
                           </div>
 
-                          <button
-                            className="btn soft"
-                            style={{ width: '100%', justifyContent: 'center', color: '#dc2626' }}
-                            type="button"
-                            onClick={(e) => handleNoShow(drawerItem, e)}
-                          >
-                            وسم الاستشارة «لم يحضر العميل»
-                          </button>
-                          <button
-                            className="btn primary"
-                            style={{ width: '100%', justifyContent: 'center' }}
-                            type="button"
-                            onClick={(e) => handleReschedule(drawerItem, e)}
-                          >
-                            إعادة الجدولة
-                          </button>
+                          {drawerItem.canMarkNoShow && (
+                            <button
+                              className="btn soft"
+                              style={{ width: '100%', justifyContent: 'center', color: '#dc2626' }}
+                              type="button"
+                              onClick={(e) => handleNoShow(drawerItem, e)} disabled={action.busyKey === drawerItem.id}
+                            >
+                              وسم الاستشارة «لم يحضر العميل»
+                            </button>
+                          )}
+                          {drawerItem.canReschedule && (
+                            <button
+                              className="btn primary"
+                              style={{ width: '100%', justifyContent: 'center' }}
+                              type="button"
+                              onClick={(e) => handleReschedule(drawerItem, e)}
+                            >
+                              إعادة الجدولة
+                            </button>
+                          )}
                         </>
                       ) : drawerItem.session === 'منتهية' ? (
                         <div style={{ textAlign: 'center', padding: 16, background: 'rgba(0,0,0,0.02)', borderRadius: 8 }}>
@@ -1432,7 +1421,7 @@ return false;
                               className="btn primary"
                               style={{ width: '100%', justifyContent: 'center' }}
                               type="button"
-                              onClick={(e) => handleEnterRoom(drawerItem, e)}
+                              onClick={(e) => handleEnterRoom(drawerItem, e)} disabled={action.busyKey === drawerItem.id}
                             >
                               <Icon name="video" /> بدء الجلسة ودخول غرفة البث
                             </button>
@@ -1441,7 +1430,7 @@ return false;
                               className="btn primary"
                               style={{ width: '100%', justifyContent: 'center' }}
                               type="button"
-                              onClick={(e) => handleStart(drawerItem, e)}
+                              onClick={(e) => handleStart(drawerItem, e)} disabled={action.busyKey === drawerItem.id}
                             >
                               <Icon name="check" /> تسجيل الحضور وبدء الجلسة الآن
                             </button>
@@ -1635,10 +1624,10 @@ return false;
           <Icon name="info" /> الملخّص يُبنى على التدوين وحده — وبلا تدوين لا يُكتب شيء، لأنّ ما يُكتب من عنوان الموضوع وحده محضرٌ مختلَق.
         </p>
         <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
-          <button className="btn" onClick={submitEnd} disabled={endNotes.trim() === ''} type="button">
+          <button className="btn" onClick={submitEnd} disabled={action.busy || endNotes.trim() === ''} type="button">
             <Icon name="doc" /> إنهاء وحفظ التدوين
           </button>
-          <button className="btn soft" onClick={submitEnd} type="button">
+          <button className="btn soft" onClick={submitEnd} disabled={action.busy} type="button">
             <Icon name="check" /> إنهاء بلا تدوين
           </button>
         </div>

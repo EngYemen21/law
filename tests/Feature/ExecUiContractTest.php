@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\ExecutionStatus;
+use App\Models\Execution;
 use Tests\TestCase;
 
 /**
@@ -154,10 +156,29 @@ class ExecUiContractTest extends TestCase
         $dash = $this->ui('js/pages/dashboard.tsx');
 
         $this->assertStringNotContainsString('{ex.stage + 1}/10', $admin);
-        $this->assertStringContainsString("import { EXEC_FLOW } from '@/lib/exec-flow';", $admin);
-        $this->assertStringContainsString('{EXEC_FLOW[ex.stage] ?? ', $admin);
-
-        $this->assertStringContainsString('EXEC_FLOW[e.stage]', $dash);
+        // اسم المرحلة من الخادم (`Execution::stageLabel`) — لا فهرسة نسخة الواجهة فتخرج الشارة فارغة
+        $this->assertStringContainsString('{ex.stageLabel}', $admin);
+        $this->assertStringContainsString('e.stageLabel', $dash);
+        foreach ([$admin, $dash, $this->ui('js/pages/execflow.tsx')] as $src) {
+            $this->assertStringNotContainsString('EXEC_FLOW[', $src, 'الشارة لا تفهرس EXEC_FLOW');
+        }
         $this->assertStringContainsString('{e.court && ', $dash);
+    }
+
+    /**
+     * **شريط الخطوات يطابق الـEnum** — `EXEC_FLOW` باقٍ لـ`FlowLine` وحده، فلا ينجرف عن `ExecutionStatus`
+     * بترتيب مراحلها؛ والشارة تقرأ `stageLabel` فتُعطي «مغلق» لمرحلةٍ قديمة خارج الشريط.
+     */
+    public function test_the_steps_line_matches_the_status_enum_and_labels_come_from_the_server(): void
+    {
+        preg_match('/export const EXEC_FLOW = \[(.*?)\];/s', $this->ui('js/lib/exec-flow.ts'), $m);
+        preg_match_all("/'([^']+)'/u", $m[1] ?? '', $labels);
+        $expected = array_map(fn (int $stage) => ExecutionStatus::fromStage($stage)->value, range(0, 9));
+        $this->assertSame($expected, $labels[1]);
+
+        $exec = new Execution;
+        $exec->stage = 10; // بيانات قديمة: «منفّذ»
+        $exec->status = 'منفّذ';
+        $this->assertSame(ExecutionStatus::Closed->value, $exec->stageLabel());
     }
 }

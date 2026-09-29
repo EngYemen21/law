@@ -1,17 +1,12 @@
 // ============================================================
-// بيانات منصة العميل — مستخرجة حرفياً من index (82).html (DATA)
+// أنواع منصّة العميل والتنقّل (الأدوار · القوائم · العناوين)
 // ============================================================
 //
-// ⚠️ ثوابت غير مستعملة (تدقيق 2026-08-21) — بيانات عرض بقيت من مرحلة النموذج الثابت،
-//    والشاشات صارت تقرأ من الخادم عبر خصائص Inertia. مُحتفَظ بها بقرار «لا حذف»:
-//   CASE_DETAILS
-//    لا تبنِ عليها شيئاً: قيمها ثابتة ولا تعكس القاعدة.
+// حُذفت البيانات التجريبيّة الثابتة الموروثة من النموذج (قرار المالك 2026-09-27، ناقضاً قرار
+// «لا حذف» في 2026-08-21): لا مستوردَ لها، وقيمها تخالف الخادم. تبقى في تاريخ git.
+// الشاشات تقرأ بياناتها من الخادم عبر خصائص Inertia؛ ما هنا أنواعٌ وخرائط تنقّل حيّة.
 
-export interface Ticket { no: string; type: string; dept: string; status: string; tone: string; last: string; date: string; }
-export interface Case { no: string; type: string; status: string; tone: string; update: string; }
-export interface Exec { no: string; subject: string; status: string; tone: string; last: string; }
 export interface Appt { id: string; type: string; ico: string; lawyer: string; day: string; time: string; place: string; status: string; tone: string; when: 'up' | 'past'; client?: string; consultRef?: string; pay?: string; joinLink?: string; }
-export interface Meeting { id?: number; ref: string; title: string; when: string; up: boolean; status?: string; tone?: string; canJoin?: boolean; approved?: boolean; link: string; minutes: string | null; summary: string | null; }
 export interface DocItem { id?: number; name: string; meta: string; canDownload?: boolean; downloadUrl?: string; }
 export interface Invoice {
   no: string; desc: string; amount: number; status: string; tone: string; due: string; overdue?: boolean; paid: boolean; hasProof?: boolean;
@@ -23,70 +18,6 @@ export interface Invoice {
    */
   receivable?: boolean;
 }
-export interface Notif { ic: string; tone: string; text: string; time: string; unread: boolean; }
-
-export const DATA = {
-  tickets: [
-    { no: 'SB-2026-1042', type: 'نزاع تجاري', dept: 'القسم التجاري', status: 'قيد التحليل', tone: 'b-blue', last: 'تمت إحالة طلبكم إلى القسم المختص لدراسة الموضوع.', date: 'قبل ساعتين' },
-    { no: 'SB-2026-1009', type: 'قضية عمالية', dept: 'قسم القضايا العمالية', status: 'بانتظار مستندات', tone: 'b-amber', last: 'يرجى إرفاق عقد العمل ومسير الرواتب لاستكمال الدراسة.', date: 'أمس' },
-    { no: 'SB-2026-0950', type: 'استشارة قانونية عامة', dept: 'قسم الاستشارات العامة', status: 'بانتظار حجز الاستشارة', tone: 'b-amber', last: 'تمت دراسة طلبكم مبدئياً، الرجاء حجز استشارة لاستكمال الرأي.', date: 'قبل 4 أيام' },
-    { no: 'SB-2026-0987', type: 'نزاع عقاري', dept: 'القسم العقاري', status: 'مكتملة', tone: 'b-green', last: 'تم الانتهاء من الموضوع وإرسال ملخص الاستشارة.', date: 'قبل أسبوع' },
-  ] as Ticket[],
-  cases: [
-    { no: 'ق-2026-0211', type: 'تجاري', status: 'منظورة', tone: 'b-blue', update: 'جلسة قادمة الخميس 02 يوليو' },
-    { no: 'ق-2026-0118', type: 'عمالي', status: 'قيد التحضير', tone: 'b-amber', update: 'إعداد مذكرة الرد على الدعوى' },
-    { no: 'ق-2025-0904', type: 'عقاري', status: 'مغلقة', tone: 'b-green', update: 'صدور حكم نهائي لصالح العميل' },
-  ] as Case[],
-  execs: [
-    { no: 'تنفيذ-5521', subject: 'تنفيذ حكم مالي', status: 'جارٍ', tone: 'b-blue', last: 'تقديم طلب حجز تحفظي على الحسابات' },
-    { no: 'تنفيذ-5440', subject: 'تنفيذ سند لأمر', status: 'مكتمل', tone: 'b-green', last: 'تم تحصيل كامل المبلغ' },
-  ] as Exec[],
-  appts: [
-    { id: 'AP1', type: 'مرئية', ico: 'video', lawyer: 'أ. سارة القحطاني', day: 'الاثنين 29 يونيو 2026', time: '11:30 ص', place: 'اجتماع إلكتروني', status: 'مؤكد', tone: 'b-green', when: 'up' },
-    { id: 'AP2', type: 'حضورية', ico: 'office', lawyer: 'أ. خالد المالكي', day: 'الأربعاء 01 يوليو 2026', time: '01:00 م', place: 'الرياض — حي العليا', status: 'مؤكد', tone: 'b-green', when: 'up' },
-    { id: 'AP3', type: 'حضورية', ico: 'office', lawyer: 'أ. ريم الزهراني', day: 'الجمعة 12 يونيو 2026', time: '10:00 ص', place: 'جدة — حي الروضة', status: 'منتهٍ', tone: 'b-grey', when: 'past' },
-  ] as Appt[],
-  meetings: [
-    { title: 'استشارة مرئية — نزاع تجاري', when: 'الاثنين 29 يونيو · 11:30 ص', up: true, link: 'https://salaselbabel.net/M-1', minutes: null, summary: null },
-    { title: 'استشارة مرئية — نزاع عقاري', when: 'الجمعة 12 يونيو · 10:00 ص', up: false, link: '', minutes: 'محضر معتمد', summary: 'ملخص معتمد' },
-  ] as Meeting[],
-  docsUp: [
-    { name: 'عقد_التوريد.pdf', meta: 'PDF · 1.2MB · تذكرة SB-2026-1042' },
-    { name: 'الهوية_الوطنية.jpg', meta: 'صورة · 480KB' },
-    { name: 'مراسلات_البريد.pdf', meta: 'PDF · 760KB' },
-  ] as DocItem[],
-  docsOut: [
-    { name: 'ملخص_الاستشارة.pdf', meta: 'صادر · معتمد · 14 يونيو' },
-    { name: 'مذكرة_قانونية.pdf', meta: 'صادر · معتمد · 14 يونيو' },
-    { name: 'بطاقة_الموعد.pdf', meta: 'صادر · 12 يونيو' },
-  ] as DocItem[],
-  invoices: [
-    { no: 'INV-2026-312', desc: 'أتعاب قضية · CASE-2026-0001', amount: 23000, status: 'مستحقة', tone: 'b-amber', due: 'تستحق قبل 02 يوليو', paid: false },
-    { no: 'INV-2026-309', desc: 'استشارة هاتفية · الأحوال الشخصية', amount: 345, status: 'مستحقة', tone: 'b-amber', due: 'تستحق قبل 01 يوليو', paid: false },
-    { no: 'INV-2026-305', desc: 'مراجعة عقد · العقود والاتفاقيات', amount: 460, status: 'مستحقة', tone: 'b-amber', due: 'تستحق قبل 29 يونيو', paid: false },
-    { no: 'INV-2026-301', desc: 'استشارة مرئية · القسم التجاري', amount: 518, status: 'مستحقة', tone: 'b-amber', due: 'تستحق قبل 30 يونيو', paid: false },
-    { no: 'INV-2026-296', desc: 'اجتماع فريق قضية · عمالي', amount: 805, status: 'مدفوعة', tone: 'b-green', due: 'سُددت في 22 يونيو', paid: true },
-    { no: 'INV-2026-288', desc: 'استشارة حضورية · القسم العقاري', amount: 690, status: 'مدفوعة', tone: 'b-green', due: 'سُددت في 20 يونيو', paid: true },
-    { no: 'INV-2026-275', desc: 'مراجعة مستند · الشركات', amount: 402, status: 'مدفوعة', tone: 'b-green', due: 'سُددت في 15 يونيو', paid: true },
-    { no: 'INV-2026-260', desc: 'استشارة مرئية · البنوك والتمويل', amount: 575, status: 'مدفوعة', tone: 'b-green', due: 'سُددت في 10 يونيو', paid: true },
-    { no: 'INV-2026-244', desc: 'أتعاب تنفيذ · التنفيذ', amount: 1150, status: 'مدفوعة', tone: 'b-green', due: 'سُددت في 05 يونيو', paid: true },
-    { no: 'INV-2026-231', desc: 'استشارة هاتفية · الملكية الفكرية', amount: 299, status: 'مدفوعة', tone: 'b-green', due: 'سُددت في 01 يونيو', paid: true },
-  ] as Invoice[],
-  notifs: [
-    { ic: 'ticket', tone: 't-blue', text: 'تم تحديث حالة التذكرة <b>SB-2026-1042</b> إلى «قيد التحليل».', time: 'قبل ساعتين', unread: true },
-    { ic: 'cal', tone: 't-green', text: 'تم تأكيد موعدك يوم <b>الاثنين 29 يونيو</b> الساعة 11:30 ص.', time: 'أمس', unread: true },
-    { ic: 'video', tone: 't-cyan', text: 'تم اعتماد ملخص اجتماعك ويمكنك الاطلاع عليه في قسم الاجتماعات.', time: 'قبل يومين', unread: false },
-    { ic: 'card', tone: 't-amber', text: 'فاتورة <b>INV-2026-301</b> مستحقة السداد قبل 30 يونيو.', time: 'قبل 3 أيام', unread: true },
-  ] as Notif[],
-};
-
-// تفاصيل القضايا — يطابق CASE_DETAILS في الأصل
-export interface CaseDetail { next: string; update: string; invoice: string; paid: string; }
-export const CASE_DETAILS: Record<string, CaseDetail> = {
-  'ق-2026-0211': { next: 'الخميس 02 يوليو · 10:00 ص', update: 'تم تقديم مذكرة وتحديد جلسة', invoice: 'أتعاب القضية 23,000 ر.س — مدفوعة', paid: 'دفعة أولى 5,000 · ثانية 5,000 · ثالثة 13,000' },
-  'ق-2026-0118': { next: 'لم تُحدد بعد', update: 'إعداد مذكرة الرد على الدعوى', invoice: 'أتعاب القضية 17,250 ر.س — دفعة مستحقة', paid: 'دفعة أولى 5,000 (مدفوعة)' },
-  'ق-2025-0904': { next: '—', update: 'صدور حكم نهائي وإغلاق القضية', invoice: 'أتعاب القضية 28,750 ر.س — مدفوعة بالكامل', paid: 'سُددت كامل الدفعات' },
-};
 
 // العدادات المشتقة من DATA الوهمية — **ميتة**: Sidebar يقرأ navBadges من الخادم
 // (أعداد حقيقية لكل عميل) ويتجاهل حقل badge الثابت تماماً. تُعلَّق لا تُحذف كي لا
@@ -276,6 +207,9 @@ const EMPLOYEE_NAV: SideGroup[] = [
   { g: 'الذكاء الاصطناعي', items: [
     { icon: 'sparkles', label: 'مراجعة مخرجات الذكاء', route: '/employee/ai-review' },
   ] },
+  { g: 'حسابي', items: [
+    { icon: 'card', label: 'مستحقاتي', route: '/employee/earnings' },
+  ] },
 ];
 
 // شريط دور المحامي — مسارات العمل المهني والقانوني التخصصي
@@ -305,6 +239,9 @@ const LAWYER_NAV: SideGroup[] = [
     { icon: 'sparkles', label: 'مراجعة مخرجات الذكاء', route: '/lawyer/ai-review' },
     { icon: 'eye', label: 'المراجعة العمياء', route: '/lawyer/ai-blind-review' },
     { icon: 'scale', label: 'المصادر القانونيّة', route: '/lawyer/legal-sources' },
+  ] },
+  { g: 'حسابي', items: [
+    { icon: 'card', label: 'مستحقاتي', route: '/lawyer/earnings' },
   ] },
 ];
 
@@ -407,6 +344,7 @@ const EMPLOYEE_TITLES: Record<string, [string, string]> = {
   '/employee/videoroom': ['غرفة الجلسة المرئية', 'لوحة الموظف'],
   '/employee/ai-review': ['مراجعة مخرجات الذكاء', 'لوحة الموظف'],
   '/employee/editor': ['محرر الصياغة القانونية', 'لوحة الموظف'],
+  '/employee/earnings': ['مستحقاتي', 'لوحة الموظف'],
 };
 
 const LAWYER_TITLES: Record<string, [string, string]> = {
@@ -430,6 +368,7 @@ const LAWYER_TITLES: Record<string, [string, string]> = {
   '/lawyer/legal-sources': ['المصادر القانونيّة المعتمدة', 'لوحة المحامي'],
   '/lawyer/editor': ['محرر الصياغة القانونية', 'لوحة المحامي'],
   '/lawyer/videoroom': ['غرفة الجلسة المرئية', 'لوحة المحامي'],
+  '/lawyer/earnings': ['مستحقاتي', 'لوحة المحامي'],
 };
 
 const ADMIN_TITLES: Record<string, [string, string]> = {
@@ -461,7 +400,6 @@ const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/meeting': ['تفاصيل الاجتماع', 'لوحة الإدارة'],
   '/admin/meetingroom': ['غرفة الاجتماع', 'لوحة الإدارة'],
   '/admin/assistant': ['المساعد القانوني الذكي', 'الإدارة العليا'],
-  '/admin/summaries': ['مركز الاعتمادات والقرارات', 'لوحة الإدارة'],
   '/admin/approvals': ['مركز الاعتمادات والقرارات', 'لوحة الإدارة'],
   '/admin/revenue': ['الإيرادات', 'لوحة الإدارة'],
   '/admin/prices': ['أسعار الاستشارات', 'الإدارة العليا'],

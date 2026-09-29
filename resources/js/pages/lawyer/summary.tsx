@@ -5,28 +5,23 @@ import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
 import { type SummaryData } from '@/lib/lawyer-data';
+import { firstError } from '@/lib/server-message';
+import type { EmployeeTicketCard } from '@/types';
 
 // ============================================================================
 // صفحة ملخص الملف والرأي القانوني المبدئي — واجهة نخبوية بمستوى المشاريع الكبرى
 // تدعم دور المحامي ودور الإدارة العليا مع الحفاظ 100% على كافة الوظائف ومسارات الخادم
 // ============================================================================
 
-interface EmpTicket {
-  no: string;
-  client: string;
-  type: string;
-  dept: string;
-  lawyer: string;
-  status: string;
-  tone: string;
-  priority?: string;
-  subject?: string;
-}
+/** `Ticket::toEmployeeCard` — النوع المشترك (`@/types`). */
+type EmpTicket = EmployeeTicketCard;
 
 interface Props {
   ticket: EmpTicket;
   summary: SummaryData;
   base?: string;
+  /** حارس `rerunSummary` نفسه (`Ticket::summaryRerunBlocker`) — غير شرط التعديل. */
+  canRerunSummary?: boolean;
 }
 
 interface FieldMeta {
@@ -73,7 +68,7 @@ const LEGAL_SECTIONS: FieldMeta[] = [
   },
 ];
 
-const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) => {
+const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', canRerunSummary = false }) => {
   const toast = useToast();
   const approved = Boolean(summary.approved);
   const isAdmin = base === '/admin';
@@ -189,10 +184,7 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
     setIsApproving(true);
     router.post(`${base}/summary/${encodeURIComponent(ticket.no)}/approve`, form, {
       onSuccess: () => toast(isAdmin ? 'تم اعتماد الملخّص رسمياً ونشر الرأي القانوني للعميل' : 'تم اعتماد الملخّص ورفعه للإدارة العليا للمصادقة'),
-      onError: (errors) => {
-        const firstError = Object.values(errors)[0];
-        toast(typeof firstError === 'string' ? firstError : 'لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — حرّره يدوياً أولاً.');
-      },
+      onError: (errors) => toast(firstError(errors, 'لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — حرّره يدوياً أولاً.')),
       onFinish: () => setIsApproving(false),
     });
   };
@@ -578,7 +570,7 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
           </div>
         </div>
 
-        {canEdit && (
+        {canRerunSummary && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button
               type="button"
@@ -927,7 +919,7 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
                 <div style={{ fontWeight: 600, color: 'var(--ink)', marginTop: 1 }}>{ticket.lawyer || '—'}</div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: 8 }}>
                 <div>
                   <div style={{ color: 'var(--muted)', fontSize: 11 }}>النوع:</div>
                   <div style={{ fontWeight: 600, color: 'var(--ink)', marginTop: 1 }}>{ticket.type}</div>
@@ -1004,7 +996,7 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer' }) =
                 <Icon name="upload" /> {approved ? 'طباعة تقرير PDF معتمد' : 'تصدير مسودة تقرير PDF'}
               </button>
 
-              {canEdit && (
+              {canRerunSummary && (
                 <button
                   type="button"
                   className="btn soft sm"

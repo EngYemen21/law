@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
-import { useToast } from '@/components/babylon/Toast';
 import { LEGAL_TEMPLATES } from '@/lib/editor-templates';
 
 // ============================================================================
@@ -204,7 +203,7 @@ const EditorIndex: React.FC<Props> = ({ documents, types }) => {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))',
             gap: 14,
           }}
         >

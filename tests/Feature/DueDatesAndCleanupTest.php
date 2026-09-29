@@ -24,7 +24,7 @@ class DueDatesAndCleanupTest extends TestCase
     {
         return Invoice::create(array_merge([
             'user_id' => $client->id,
-            'number' => 'INV-2026-'.random_int(1000, 9999),
+            'number' => 'INV-2026-'.uniqid(),
             'description' => 'أتعاب', 'amount' => 1000,
             'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال 3 أيام', 'paid' => false,
         ], $extra));

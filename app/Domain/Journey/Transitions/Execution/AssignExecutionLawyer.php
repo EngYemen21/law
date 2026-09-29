@@ -5,6 +5,7 @@ namespace App\Domain\Journey\Transitions\Execution;
 use App\Domain\Journey\Transition;
 use App\Models\Execution;
 use App\Models\User;
+use App\Support\Permissions;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -48,7 +49,7 @@ final class AssignExecutionLawyer extends Transition
             return null;
         }
 
-        if ($actor->isEmployee() && $entity->assigned_lawyer_id === null && $actor->can('إجراءات المحكمة والجلسات')) {
+        if ($actor->isEmployee() && $entity->assigned_lawyer_id === null && $actor->can(Permissions::COURT_PROCEEDINGS)) {
             return null;
         }
 

@@ -42,7 +42,7 @@ class ZoomController extends Controller
         if (($why = $joinable->joinBlocker()) !== null) {
             abort(403, $why);
         }
-        // لا اجتماع Zoom حقيقي (لم تُهيّأ مفاتيح S2S) ⇒ لا تضمين؛ تتدرّج الواجهة للفتح الخارجي
+        // لا اجتماع Zoom حقيقي (لم تُهيّأ مفاتيح S2S) ⇒ لا تضمين — ولا فتحٌ خارجيّ بديل: الدخول من غرفة المنصّة وحدها
         abort_unless(! empty($joinable->meet_id), 422, 'لا يوجد اجتماع Zoom مرتبط بهذه الجلسة.');
         abort_unless($this->zoom->sdkConfigured(), 503, 'تضمين Zoom غير مُهيّأ.');
 
@@ -59,6 +59,10 @@ class ZoomController extends Controller
             'password' => $joinable->meet_password ?? '',
             'userName' => $this->displayName($user, $joinable),
             'userEmail' => $user->email,
+            // يعود في أحداث الدخول/الخروج (`customer_key`): به يُعرف المحامي داخل أيّ جلسةٍ هو الآن
+            // (`RoomPresence::staffInSession`)، ومن دخل بلا مفتاحٍ دخل من خارج المنصّة (`outsiders`).
+            // لكلّ داخلٍ من المنصّة — عميلاً وطاقماً (`ZoomWebhookController::platformUser`).
+            'customerKey' => 'u'.$user->id,
             'role' => $role,
             'zak' => $zak,
         ]);

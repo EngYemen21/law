@@ -33,6 +33,8 @@ class CaseStatusBroadcast implements ShouldBroadcastNow
         return [
             'status' => $this->case->status,
             'tone' => $this->case->tone,
+            // الصفحات تقرّر بها ما يُفتح (المحادثة · الجلسات · تصحيح الحكم) حين تتقدّم الحالة وهي مفتوحة
+            ...$this->case->stateFlags(),
         ];
     }
 }

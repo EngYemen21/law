@@ -11,6 +11,9 @@ use Tests\TestCase;
  * تحذفها وتُبلغ العميل. فكلّ نداءٍ لها في الواجهة يسبقه تأكيدٌ من النافذة المشتركة
  * (`useConfirm` / `usePrompt` — `await ask(…)` أو `await askFor(…)` أو `await prompt(…)`) يقول الأثر، لا نافذة المتصفّح.
  *
+ * وبعد القفل الموحّد (`useServerAction`، خطّة ١-د) يُرسَل الفعل بـ`run(url, { confirm: CONFIRM_… })`:
+ * التأكيد جزءٌ من النداء نفسه، فيُطلب `confirm:` في خياراته.
+ *
  * فحصٌ نصّيّ: كلّ `router.post` إلى رابط إنهاءٍ/إلغاء في هذه الملفّات يسبقه — داخل الدالّة نفسها،
  * في الأسطر القريبة قبله — `await ask(` أو `await askFor(` أو `await prompt(` (`askFor` اسم `usePrompt` المعتمد في
  * المشروع كي لا يلتبس بنافذة المتصفّح `prompt(` التي يمنعها `NativeDialogsAreGoneTest`). زرٌّ جديد يُرسل بلا تأكيد يُسقط الاختبار.
@@ -31,6 +34,12 @@ class EndCancelConfirmGuardTest extends TestCase
     /** رابط إنهاءٍ أو إلغاء — والغرفة ترسل إلى `end.url` من عقدها (`RoomDetails::endAction`). */
     private const ENDPOINT = '~router\.post\(\s*(`[^`]*/(consults|meetings|meetreqs)/\$\{[^}]+\}/(end|cancel|cancel-request)`|end\.url)~';
 
+    /** النداء الموحّد: `action.run(`…/end`, {` أو `run(`…/cancel-request`, {`. */
+    private const RUN_ENDPOINT = '~\brun\(\s*`[^`]*/(consults|meetings|meetreqs)/\$\{[^}]+\}/(end|cancel|cancel-request)`~';
+
+    /** كم سطراً بعد `run(` تُقرأ خياراته بحثاً عن `confirm:`. */
+    private const OPTIONS_WINDOW = 12;
+
     /** كم سطراً قبل الإرسال يُبحث فيها عن التأكيد — تكفي لحارسٍ أو اثنين قبله. */
     private const WINDOW = 25;
 
@@ -43,6 +52,17 @@ class EndCancelConfirmGuardTest extends TestCase
             $lines = file(base_path($path), FILE_IGNORE_NEW_LINES) ?: [];
 
             foreach ($lines as $i => $line) {
+                if (preg_match(self::RUN_ENDPOINT, $line)) {
+                    $found++;
+                    $options = implode("\n", array_slice($lines, $i, self::OPTIONS_WINDOW));
+
+                    if (! preg_match('/\bconfirm:\s*\S/', $options)) {
+                        $violations[] = "{$path}:".($i + 1).' — `run` إنهاءٍ/إلغاء بلا `confirm:` في خياراته';
+                    }
+
+                    continue;
+                }
+
                 if (! preg_match(self::ENDPOINT, $line) && ! (str_contains($line, 'router.post(') && isset($lines[$i + 1]) && preg_match(self::ENDPOINT, 'router.post('.trim($lines[$i + 1])))) {
                     continue;
                 }

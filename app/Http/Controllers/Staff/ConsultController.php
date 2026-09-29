@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Staff;
 
+use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\RescheduleReason;
 use App\Domain\Journey\Enums\SessionState;
 use App\Domain\Journey\TransitionDenied;
@@ -39,6 +40,7 @@ use App\Support\DecisionTasks;
 use App\Support\LawyerSpecialties;
 use App\Support\Live;
 use App\Support\Notify;
+use App\Support\Permissions;
 use App\Support\RoomDetails;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -97,6 +99,8 @@ class ConsultController extends Controller
             $props['suggestedPrices'] = self::suggestedPrices();
         }
 
+        $props['consultRequestForm'] = ConsultBooking::onBehalfForm();
+
         return Inertia::render($this->prefix($request).'/consults', $props);
     }
 
@@ -119,6 +123,8 @@ class ConsultController extends Controller
 
         return Inertia::render('admin/consult-requests', [
             'consults' => $consults,
+            // «طلب استشارة نيابةً عن العميل» — يُحمَّل عند فتح النموذج وحده
+            'consultRequestForm' => ConsultBooking::onBehalfForm(),
             // `consultPrices()` يحمل الضريبة دائماً من `Setting::vatRate()` — فلا افتراضَ «15» ثانٍ هنا
             'vatRate' => (int) $prices['vat'],
             // محامو المكتب النشطون — لتعديل المحامي عند اعتماد موعدٍ اقترحه موظّف
@@ -204,7 +210,7 @@ class ConsultController extends Controller
         $this->guardConsult($request, $consult);
 
         abort_unless(
-            $consult->status === 'بانتظار السداد',
+            $consult->status === ConsultStatus::AwaitingPayment->value,
             422,
             'التصحيح متاحٌ للطلبات المسعَّرة التي لم تُسدَّد بعد.'
         );
@@ -385,10 +391,7 @@ class ConsultController extends Controller
     public function approveSummary(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
-        abort_if($consult->summaryApproved(), 422, 'اعتُمد هذا الملخّص ووصل العميل.');
-        abort_if(blank($consult->summary), 422, 'لا ملخّص ليُعتمد — دوّن تدوين الجلسة أو اكتب التقرير أوّلاً.');
-        // **لا «ملخّص جلسة» لجلسةٍ لم تنعقد** — كان يُعتمد لاستشارةٍ «جديدة» ويصل العميل (ع٢٢)
-        abort_unless($consult->session === 'منتهية', 422, 'لم تنعقد هذه الجلسة — لا يُعتمد لها ملخّص جلسة.');
+        abort_if(($why = $consult->summaryApprovalBlocker()) !== null, 422, $why);
 
         $user = $request->user();
         $edited = $consult->summary_edited_at !== null;
@@ -516,7 +519,7 @@ class ConsultController extends Controller
         $this->guardConsult($request, $consult);
 
         // بدأها ويبهوك Zoom أو زميلٌ قبل ثوانٍ — تكرارُ الفعل ليس خطأً.
-        if ($consult->session === 'جلسة جارية') {
+        if ($consult->session === SessionState::Live->value) {
             return back();
         }
 
@@ -606,11 +609,11 @@ class ConsultController extends Controller
     public function remindSchedule(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
-        abort_unless($consult->status === 'بانتظار تحديد الموعد', 422, 'التذكير متاح للاستشارات المدفوعة التي لم يُحجز موعدها بعد.');
+        abort_unless($consult->status === ConsultStatus::AwaitingSchedule->value, 422, 'التذكير متاح للاستشارات المدفوعة التي لم يُحجز موعدها بعد.');
 
         // **الحجز بيد الطاقم لا العميل** (قرار المالك 2026-09-14) — التذكير لمن يحجز.
         $staff = User::whereIn('role', [Role::Employee, Role::Admin])->get()
-            ->filter(fn (User $u) => $u->isAdmin() || $u->can('جدولة المواعيد'));
+            ->filter(fn (User $u) => $u->isAdmin() || $u->can(Permissions::SCHEDULE_APPOINTMENTS));
         foreach ($staff as $member) {
             Notify::send($member->id, 'cal', 't-amber', "تذكير: الاستشارة ({$consult->ref}) مدفوعة ولم يُحدَّد موعدها بعد — احجزه من شاشة المواعيد.");
         }
@@ -629,7 +632,7 @@ class ConsultController extends Controller
      */
     public function approveAppointment(Request $request, Consult $consult): RedirectResponse
     {
-        abort_unless($consult->status === 'بانتظار اعتماد الموعد', 422, 'لا موعد مقترح بانتظار الاعتماد لهذه الاستشارة.');
+        abort_unless($consult->status === ConsultStatus::AwaitingAppointmentApproval->value, 422, 'لا موعد مقترح بانتظار الاعتماد لهذه الاستشارة.');
 
         $data = $request->validate([
             'date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:today'],
@@ -638,9 +641,9 @@ class ConsultController extends Controller
             'type' => ['nullable', 'string', 'in:office,video,phone'],
         ]);
 
-        ConsultAppointments::publish($consult, $request->user(), array_filter($data, fn ($v) => $v !== null && $v !== ''));
+        $scheduled = ConsultAppointments::publish($consult, $request->user(), array_filter($data, fn ($v) => $v !== null && $v !== ''));
 
-        return back()->with('flash', "اعتُمد موعد الاستشارة {$consult->ref} وأُرسل للعميل.");
+        return back()->with('flash', "اعتُمد موعد الاستشارة {$consult->ref} وأُرسل للعميل.".$scheduled->notice());
     }
 
     // إلغاء طلب معلّق قبل الجلسة — يُحيي حالة «ملغاة» التي لم يكن لها كاتب في النظام
@@ -674,7 +677,7 @@ class ConsultController extends Controller
     public function noShow(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
-        abort_if($consult->session !== 'بانتظار الجلسة', 422, 'الجلسة بدأت أو انتهت — لا يصحّ وسمها «لم يحضر».');
+        abort_if($consult->session !== SessionState::Waiting->value, 422, 'الجلسة بدأت أو انتهت — لا يصحّ وسمها «لم يحضر».');
 
         Workflow::run(new MarkNoShow, $consult, $request->user());
 

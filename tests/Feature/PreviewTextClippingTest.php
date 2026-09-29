@@ -53,6 +53,7 @@ class PreviewTextClippingTest extends TestCase
             'عمود المعاينة last_message تجاوز عرض varchar(255) — سيسقط الإدراج على mysql.'
         );
     }
+
     /** ردّ طويل: المعاينة تُقصّ بينما نصّ الرسالة نفسه يبقى كاملاً في جدول الرسائل. */
     public function test_a_long_reply_clips_the_preview_but_keeps_the_message_intact(): void
     {
@@ -115,6 +116,7 @@ class PreviewTextClippingTest extends TestCase
         $this->assertStringEndsWith('…', $clipped);
         $this->assertSame($clipped, mb_convert_encoding($clipped, 'UTF-8', 'UTF-8'), 'نتج محرف تالف من القصّ بالبايتات.');
     }
+
     /**
      * مطلب صاحب المنتج: حقل الرسالة بلا سقف. 50000 حرف عربي = 100000 بايت — أكثر من
      * ضعف سعة TEXT (65535)، فلولا التوسيع إلى MEDIUMTEXT وإزالة max:5000 لسقط الطلب.

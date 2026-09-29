@@ -2,9 +2,10 @@ import { router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
-import { useToast } from '@/components/babylon/Toast';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { dateISOAfter, firstOfMonthISO, todayISO } from '@/lib/local-date';
+import { useServerAction } from '@/lib/use-server-action';
 import { truncateWords } from '@/lib/utils';
 
 // ============================================================
@@ -72,7 +73,6 @@ interface Props {
 const NO_TABS = { active: [] as string[], fees: [] as string[], completed: [] as string[] };
 
 const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tabs = NO_TABS }) => {
-  const toast = useToast();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [specificStatus, setSpecificStatus] = useState<string>('all');
@@ -104,8 +104,8 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
   // التعامل مع اختيار فترة التاريخ من القائمة المنسدلة
   const handleDatePresetChange = (preset: 'all' | 'today' | 'week' | 'month' | 'custom') => {
     setDatePreset(preset);
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
+    // تواريخ الفلتر بالتوقيت المحلّي (`lib/local-date`) — `toISOString` يعطي أمسَ بعد منتصف الليل وآخرَ الشهر السابق لـ«هذا الشهر»
+    const todayStr = todayISO();
 
     if (preset === 'all') {
       setStartDate('');
@@ -114,27 +114,18 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
       setStartDate(todayStr);
       setEndDate(todayStr);
     } else if (preset === 'week') {
-      const past7 = new Date();
-      past7.setDate(now.getDate() - 7);
-      setStartDate(past7.toISOString().split('T')[0]);
+      setStartDate(dateISOAfter(-7));
       setEndDate(todayStr);
     } else if (preset === 'month') {
-      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-      setStartDate(firstDay.toISOString().split('T')[0]);
+      setStartDate(firstOfMonthISO());
       setEndDate(todayStr);
     }
   };
 
-  const pay = (no: string) => {
-    router.post(
-      `/cases/${encodeURIComponent(no)}/pay`,
-      {},
-      {
-        preserveScroll: true,
-        onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر بدء الدفع، حاول بعد قليل'),
-      },
-    );
-  };
+  // قفلٌ موحّد: نقرتان على «ادفع» لا تفتحان جلستَي دفع
+  const payment = useServerAction();
+  const pay = (no: string) =>
+    payment.run(`/cases/${encodeURIComponent(no)}/pay`, { key: no, fallback: 'تعذّر بدء الدفع، حاول بعد قليل' });
 
   // إحصائيات لوحة القضايا
   const statsList: StatItem[] = [
@@ -236,10 +227,7 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
           </div>
 
           <div className="hero-cta" style={{ margin: 0 }}>
-            <button className="hero-b" onClick={() => router.visit('/book')} type="button">
-              <Icon name="calplus" /> حجز استشارة قضائية
-            </button>
-            <button className="hero-b ghost" onClick={() => router.visit('/tickets/new')} type="button">
+            <button className="hero-b" onClick={() => router.visit('/tickets/new')} type="button">
               <Icon name="plus" /> فتح طلب قضائي
             </button>
           </div>
@@ -648,6 +636,7 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
                       className="btn sm"
                       style={{ flex: 1 }}
                       type="button"
+                      disabled={payment.busyKey === c.no}
                       onClick={() => pay(c.no)}
                     >
                       <Icon name="card" /> سداد الأتعاب {c.fee ? `(${c.fee.toLocaleString()} ريال)` : ''}
@@ -727,6 +716,7 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
                           className="btn sm"
                           type="button"
                           style={{ whiteSpace: 'nowrap' }}
+                          disabled={payment.busyKey === c.no}
                           onClick={(e) => { e.stopPropagation(); pay(c.no); }}
                         >
                           <Icon name="card" /> سداد {c.fee ? `(${c.fee.toLocaleString()} ر.س)` : ''}

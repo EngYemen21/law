@@ -3,13 +3,14 @@ import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
+import { WEEK_DAY_NAMES } from '@/lib/local-date';
 
 /** وصف المتغيّر كما يعلنه `SettingsRegistry` — الشاشة لا تعرّف حقلاً ولا افتراضاً. */
 interface Field {
   group: string;
   label: string;
   hint: string;
-  type: 'int' | 'string' | 'date';
+  type: 'int' | 'string' | 'date' | 'days' | 'bool';
   default: number | string;
   min?: number;
   max?: number;
@@ -30,6 +31,46 @@ interface Props {
  * لكلّ بطاقةٍ زرُّ حفظٍ مستقلّ ترسل حقولها وحدها: حفظُ مهلةٍ لا يلزمه المرور على بيانات
  * المكتب. والتفسير تحت كلّ حقل من السجلّ نفسه لا نسخةً منقوشةً هنا — نسختان تتباعدان.
  */
+
+/** إعداد «نعم/لا» — يُكتب «1» أو «0» كما يقرؤه `SettingsRegistry::bool`. */
+const YesNoInput: React.FC<{ id: string; value: string; onChange: (v: string) => void }> = ({ id, value, onChange }) => (
+  <div id={id} role="group" style={{ display: 'flex', gap: 6 }}>
+    {[['1', 'نعم'], ['0', 'لا']].map(([v, label]) => (
+      <button key={v} type="button" aria-pressed={value === v} className={`btn sm ${value === v ? '' : 'soft'}`} onClick={() => onChange(v)}>
+        {label}
+      </button>
+    ))}
+  </div>
+);
+
+/** إعداد من نوع «أيّام»: أزرار تبديل تكتب النصّ «0,1,4» مرتّباً — ولا يُفرَّغ آخر يوم. */
+const DaysInput: React.FC<{ id: string; value: string; onChange: (v: string) => void }> = ({ id, value, onChange }) => {
+  const on = new Set(value.split(',').filter((d) => d !== '').map(Number));
+  const toggle = (d: number) => {
+    const next = new Set(on);
+
+    if (next.has(d)) {
+      next.delete(d);
+    } else {
+      next.add(d);
+    }
+
+    if (next.size > 0) {
+      onChange([...next].sort((a, b) => a - b).join(','));
+    }
+  };
+
+  return (
+    <div id={id} role="group" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {WEEK_DAY_NAMES.map((name, d) => (
+        <button key={d} type="button" aria-pressed={on.has(d)} className={`btn sm ${on.has(d) ? '' : 'soft'}`} onClick={() => toggle(d)}>
+          {name}
+        </button>
+      ))}
+    </div>
+  );
+};
+
 const AdminSettings: React.FC<Props> = ({ groups, fields, values }) => {
   const toast = useToast();
 
@@ -88,6 +129,11 @@ const AdminSettings: React.FC<Props> = ({ groups, fields, values }) => {
         </label>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {field.type === 'days' ? (
+            <DaysInput id={`set-${key}`} value={form[key]} onChange={(v) => setForm({ ...form, [key]: v })} />
+          ) : field.type === 'bool' ? (
+            <YesNoInput id={`set-${key}`} value={form[key]} onChange={(v) => setForm({ ...form, [key]: v })} />
+          ) : (
           <input
             id={`set-${key}`}
             className="input"
@@ -98,6 +144,7 @@ const AdminSettings: React.FC<Props> = ({ groups, fields, values }) => {
             onChange={(e) => setForm({ ...form, [key]: e.target.value })}
             style={{ maxWidth: field.type === 'string' ? 340 : 200 }}
           />
+          )}
 
           <button
             className="btn soft sm"

@@ -63,7 +63,8 @@ final class CancelRequest extends Transition
 
         $entity->logAudit($actor->name ?? 'النظام', 'الحالة', (string) $entity->status, $afterState);
 
-        Invoice::where('consult_id', $entity->id)->where('paid', false)->get()
+        // `outstanding()` لا `paid=false`: المعدومة كانت تُقلب «ملغاة» فيضيع قيدُ شطبها
+        Invoice::where('consult_id', $entity->id)->outstanding()->get()
             ->each(fn (Invoice $invoice) => $invoice->update([
                 'status' => InvoiceStatus::Cancelled->value,
                 'tone' => 'b-red',

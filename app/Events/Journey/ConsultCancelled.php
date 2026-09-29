@@ -16,4 +16,3 @@ final class ConsultCancelled
         public readonly ?string $reason = null,
     ) {}
 }
-

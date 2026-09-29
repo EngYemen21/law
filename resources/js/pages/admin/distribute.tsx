@@ -7,6 +7,7 @@ import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import { useToast } from '@/components/babylon/Toast';
 import { foldSearch, isUrgentTicket, TICKET_PRIORITIES } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { inSessionSuffix, PresenceBadge, useInSession } from '@/lib/staff-presence';
 
 /* ─────────────────────────────────────────────────────────────
    مركز التوزيع والإسناد الشامل للأعمال القانونية — الإدارة العليا
@@ -127,6 +128,7 @@ export const AdminDistribute: React.FC<Props> = ({
   departments = [],
   kpis,
 }) => {
+  const inSession = useInSession();
   const ask = useConfirm();
   const toast = useToast();
 
@@ -342,7 +344,7 @@ export const AdminDistribute: React.FC<Props> = ({
       </div>
 
       {/* ── 2. شبكة مؤشرات KPI الشاملة ── */}
-      <div className="stats" style={{ gridTemplateColumns: 'repeat(4,1fr)', marginBottom: 20 }}>
+      <div className="stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', marginBottom: 20 }}>
         <div
           className={`stat t-amber${statusTab === 'unassigned' && kindFilter === 'all' ? ' sel' : ''}`}
           style={{ cursor: 'pointer', outline: statusTab === 'unassigned' && kindFilter === 'all' ? '2px solid var(--amber)' : 'none' }}
@@ -439,11 +441,12 @@ export const AdminDistribute: React.FC<Props> = ({
                     <div style={{ overflow: 'hidden' }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{l.name}</div>
                       <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 1 }}>{l.department}</div>
+                      <PresenceBadge userId={l.id} />
                     </div>
                   </div>
 
                   {/* إحصاءات الحمل التفصيلية للأقسام الأربعة */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px', fontSize: 11.5, color: 'var(--muted)', marginBottom: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: '4px 8px', fontSize: 11.5, color: 'var(--muted)', marginBottom: 8 }}>
                     <span>تذاكر: <strong style={{ color: 'var(--ink)' }}>{l.activeTicketsCount}</strong></span>
                     <span>قضايا: <strong style={{ color: 'var(--ink)' }}>{l.activeCasesCount}</strong></span>
                     <span>تنفيذ: <strong style={{ color: 'var(--ink)' }}>{l.activeExecutionsCount ?? 0}</strong></span>
@@ -651,7 +654,7 @@ export const AdminDistribute: React.FC<Props> = ({
             >
               {lawyers.map((l) => (
                 <option key={l.id} value={l.id} style={{ background: 'var(--deep)' }}>
-                  {l.name} · عبء: {l.totalLoad} وحدة
+                  {l.name} · عبء: {l.totalLoad} وحدة{inSessionSuffix(inSession, l.id)}
                 </option>
               ))}
             </select>
@@ -829,7 +832,7 @@ export const AdminDistribute: React.FC<Props> = ({
                           >
                             {lawyers.map((l) => (
                               <option key={l.id} value={l.id}>
-                                {l.name} ({l.totalLoad} عبء)
+                                {l.name} ({l.totalLoad} عبء){inSessionSuffix(inSession, l.id)}
                               </option>
                             ))}
                           </select>
@@ -898,7 +901,7 @@ export const AdminDistribute: React.FC<Props> = ({
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr 1fr 1fr',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 110px), 1fr))',
                 gap: 10,
                 background: 'var(--paper-2)',
                 borderRadius: 'var(--r-sm)',
@@ -980,7 +983,7 @@ export const AdminDistribute: React.FC<Props> = ({
                 >
                   {lawyers.map((l) => (
                     <option key={l.id} value={l.id}>
-                      {l.name} — {l.department} (إجمالي العبء: {l.totalLoad} وحدة)
+                      {l.name} — {l.department} (إجمالي العبء: {l.totalLoad} وحدة){inSessionSuffix(inSession, l.id)}
                     </option>
                   ))}
                 </select>

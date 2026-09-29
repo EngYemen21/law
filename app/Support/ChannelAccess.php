@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Execution;
 use App\Models\LegalCase;
+use App\Models\Meeting;
 use App\Models\Ticket;
 use App\Models\User;
 
@@ -24,24 +25,36 @@ class ChannelAccess
         // الموظّف يرى كلّ الملفّات (قرار إزالة الفروع) — **بصلاحيّة الكيان** التي تفتح له صفحته.
         // كان أيّ موظّفٍ يشترك في بثّ كلّ المحادثات ولو لم يملك صلاحيّة شاشتها.
         if ($user->role === Role::Employee) {
-            $permission = self::employeePermissionFor($model);
+            $permissions = self::employeePermissionFor($model);
 
-            return $permission === null || $user->can($permission);
+            return $permissions === null || $user->canAny((array) $permissions);
         }
         if ($user->role === Role::Lawyer) {
-            return (int) ($model->assigned_lawyer_id ?? 0) === (int) $user->id;
+            // الاجتماع للمسؤول وللمشارك (`Meeting::involves`) — كان المشارك يرى الاجتماع ولا يصله بثّ غرفته
+            return $model instanceof Meeting
+                ? $model->involves($user)
+                : (int) ($model->assigned_lawyer_id ?? 0) === (int) $user->id;
         }
 
         return false;
     }
 
-    /** الصلاحيّة التي تفتح للموظّف شاشة هذا الكيان — نفسُها في `routes/web.php`. */
-    private static function employeePermissionFor(object $model): ?string
+    /**
+     * الصلاحيّة التي تفتح للموظّف شاشة هذا الكيان — نفسُها في `routes/web.php` (أيٌّ منها يكفي).
+     *
+     * الاجتماع كان بلا صلاحيّة هنا، فأيّ موظّفٍ يمرّ من `ZoomController::sdkSignature` بتوقيع
+     * **مضيف** ورمز ZAK لحساب المكتب، ويشترك في بثّ غرفة أيّ اجتماع — بينما شاشاته محروسة
+     * بـ«إرسال دعوات الاجتماعات» (ومسار المحامي يقبل «إدارة الاجتماعات» بديلاً).
+     *
+     * @return string|list<string>|null
+     */
+    private static function employeePermissionFor(object $model): string|array|null
     {
         return match (true) {
-            $model instanceof Ticket => 'إدارة التذاكر',
-            $model instanceof LegalCase, $model instanceof Execution => 'إدارة القضايا والأتعاب',
-            $model instanceof Consult => 'استقبال الاستشارات',
+            $model instanceof Ticket => Permissions::MANAGE_TICKETS,
+            $model instanceof LegalCase, $model instanceof Execution => Permissions::MANAGE_CASES_AND_FEES,
+            $model instanceof Consult => Permissions::RECEIVE_CONSULTS,
+            $model instanceof Meeting => [Permissions::SEND_MEETING_INVITES, Permissions::MANAGE_MEETINGS],
             default => null,
         };
     }
@@ -60,7 +73,7 @@ class ChannelAccess
     public static function roomStaff(User $user, object $model): bool
     {
         return self::staffCanSee($user, $model)
-            || ($model instanceof Consult && $user->role === Role::Employee && $user->can('إجراء الجلسات المرئية'));
+            || ($model instanceof Consult && $user->role === Role::Employee && $user->can(Permissions::RUN_VIDEO_SESSIONS));
     }
 
     /** العميل المالك أو من يدخل الغرفة من الطاقم — قناة الغرفة المشتركة. */

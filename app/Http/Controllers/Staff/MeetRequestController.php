@@ -6,6 +6,7 @@ use App\Domain\Journey\Enums\MeetingStatus;
 use App\Domain\Journey\Transitions\Meeting\CancelMeeting;
 use App\Domain\Journey\Transitions\Meeting\StartMeeting;
 use App\Domain\Journey\Workflow;
+use App\Enums\BusyKind;
 use App\Enums\Role;
 use App\Events\Journey\MeetingCancelled;
 use App\Events\Journey\SessionEndedInSystem;
@@ -165,12 +166,17 @@ class MeetRequestController extends Controller
     public function availability(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'lawyer_id' => ['required', 'integer', 'exists:users,id'],
+            'lawyer_id' => ['required_without:meeting_id', 'nullable', 'integer', 'exists:users,id'],
+            // إعادة جدولة اجتماع: انشغال مسؤوله **ومشاركيه** معاً، والاجتماع لا يحجب نفسه —
+            // الحكم نفسه الذي يرفض به `MeetingController::reschedule`
+            'meeting_id' => ['nullable', 'integer', 'exists:meetings,id'],
             'day' => ['required', 'date_format:Y-m-d'],
         ]);
 
         $fmt = fn (int $min) => sprintf('%02d:%02d', intdiv($min, 60), $min % 60);
-        $intervals = $this->busy((int) $data['lawyer_id'], $data['day']);
+        $intervals = ! empty($data['meeting_id'])
+            ? $this->meetingBusy($request, Meeting::findOrFail($data['meeting_id']), $data['day'])
+            : $this->busy((int) $data['lawyer_id'], $data['day']);
 
         // الفترات الماضية محجوبة خادمياً — كان الحجب بساعة متصفّح العميل وحدها (توقيت مختلف يفتح فترات ماضية)
         if (now()->isSameDay(Carbon::parse($data['day']))) {
@@ -188,13 +194,26 @@ class MeetRequestController extends Controller
      * كان هنا تنفيذ ثانٍ يقرأ Meeting + Consult + MeetRequest بينما
      * LawyerAvailability::isBusy يقرأ Appointment وحده، فيتناقض الحارسان: موعد يُجدول
      * فوق اجتماع لأن مودال الجدولة يقرأ المصدر الأضيق. المنطق كلّه انتقل إلى
-     * LawyerAvailability::busyIntervals ويقرأ الأربعة.
+     * LawyerAvailability::busyIntervals ويقرأ الخمسة (ومنها جلسات المحاكم).
      *
-     * @return array<int, array{0:int,1:int}>
+     * @return array<int, array{0:int,1:int,2:BusyKind}>
      */
     private function busy(int $lawyerId, string $day): array
     {
         return LawyerAvailability::busyIntervals($lawyerId, $day);
+    }
+
+    /**
+     * فترات انشغال أهل الاجتماع (المسؤول والمشاركون) مجتمعةً، بلا الاجتماع نفسه ودعوته.
+     *
+     * @return array<int, array{0:int,1:int,2:BusyKind}>
+     */
+    private function meetingBusy(Request $request, Meeting $meeting, string $day): array
+    {
+        // المحامي يرى انشغال اجتماعٍ هو مسؤوله أو مشاركٌ فيه وحده — كحارس الاطّلاع على الاجتماع
+        abort_if($request->user()->role === Role::Lawyer && ! $meeting->involves($request->user()), 403);
+
+        return array_merge(...array_values(LawyerAvailability::busyIntervalsForMany($meeting->staffIds(), $day, $meeting->id)));
     }
 
     // إعادة إرسال دعوة منتهية الصلاحية بموعد جديد — كانت الدعوة المنتهية طريقاً مسدوداً بلا أي إجراء

@@ -298,7 +298,7 @@ class CourtHearingController extends Controller
             // الشارة من الخادم: نصُّ العرض (`EventStatus::forHearing`) ونغمتُه (`HearingStatus::tone`) —
             // كان `switch` على النصوص العربيّة في الشاشة يلوّن بلوحةٍ غير لوحة بقيّة الشاشات
             'statusLabel' => EventStatus::forHearing($h),
-            'tone' => ($lapsed ? HearingStatus::Lapsed : ($h->statusEnum() ?? HearingStatus::Scheduled))->tone(),
+            'tone' => $h->liveTone(),
             // «اليوم» علَمٌ لا مقارنةٌ بنصّ `relativeDate` في الواجهة
             'isToday' => (bool) $startsAt?->isToday(),
             // المدّة المتوقّعة (دقائق) كما أُدخلت — الشاشة تعرضها بصيغتها المشتركة (`hearingDurationLabel`)
@@ -330,7 +330,7 @@ class CourtHearingController extends Controller
                 'title' => $h->legalCase->update_text ?: ($h->legalCase->type.' - '.$h->legalCase->number),
                 'type' => $h->legalCase->type,
                 'status' => $h->legalCase->status,
-                'tone' => $h->legalCase->tone ?: 'b-blue',
+                'tone' => $h->legalCase->tone,
                 'client' => Ticket::maskClient($h->legalCase->user?->name ?? 'عميل غير مسجل'),
                 'realClient' => $h->legalCase->user?->name ?? '—',
                 'lawyer' => $h->legalCase->assigned_lawyer ?: ($h->legalCase->assignedLawyer?->name ?? 'غير مسند'),

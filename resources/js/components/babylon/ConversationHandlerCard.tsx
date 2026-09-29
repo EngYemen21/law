@@ -10,6 +10,8 @@ import Icon from '@/lib/icons';
  * والبيانات من الخادم (`ConversationHandler::history`) — شاشات العميل لا تستلمها أصلاً.
  */
 export interface ConversationHistory {
+  /** المحامي المُسند للملفّ (`assigned_lawyer_id`) — سطرٌ مستقلّ عن مسؤول المحادثة. */
+  lawyer?: string | null;
   current: { id: number; name: string; since: string | null } | null;
   history: { to: string; from: string | null; at: string; via: string | null }[];
 }
@@ -51,9 +53,15 @@ const ConversationHandlerCard: React.FC<{ conversation?: ConversationHistory | n
         <div className="lbl">المحادثة</div>
       </div>
       <div className="tc-body">
+        {/* سطران منفصلان (قرار المالك 2026-09-27): مسؤول المحادثة موظّفٌ أو مديرٌ ردّ على العميل،
+            والمحامي المُسند له إسناده المستقلّ — كانت «لم يتولّها أحدٌ بعد» تُقرأ كأن لا محامي للملفّ */}
         <div className="tc-row">
-          <span className="k">المسؤول الآن</span>
-          <span className="v">{current ? current.name : 'لم يتولّها أحدٌ بعد'}</span>
+          <span className="k">مسؤول المحادثة</span>
+          <span className="v">{current ? current.name : 'لم يتولّها موظّف بعد'}</span>
+        </div>
+        <div className="tc-row">
+          <span className="k">المحامي المُسند</span>
+          <span className="v">{conversation.lawyer || 'لم يُسند بعد'}</span>
         </div>
         {current?.since && (
           <div className="tc-row">

@@ -1,13 +1,15 @@
 import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
-import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import Modal from '@/components/babylon/Modal';
 import RescheduleDialog from '@/components/babylon/RescheduleDialog';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { HEARING_DURATION, hearingDurationLabel, type Hearing } from '@/lib/case-ui';
 import Icon from '@/lib/icons';
+import { todayISO } from '@/lib/local-date';
+import { firstError } from '@/lib/server-message';
+import { useServerAction } from '@/lib/use-server-action';
 
 // ============================================================
 // إجراءات المحكمة على القضيّة — رفعها في ناجز وقيدها، وجدولة جلساتها وتحديثها، وتسجيل الحكم.
@@ -32,7 +34,6 @@ export interface AppealData {
   judgedAt?: string | null;
 }
 
-const reason = (e: Record<string, string>) => String(Object.values(e)[0] ?? 'تعذّر تنفيذ الإجراء');
 
 /**
  * حقل «المدّة المتوقّعة (دقائق)» — واحدٌ لنماذج الجدولة والقيد والتعديل والتأجيل (قرار المالك 2026-09-26).
@@ -77,7 +78,7 @@ export const NajizFilingCard: React.FC<{ base: string; filing: Filing; defaultCo
       preserveScroll: true,
       forceFormData: true,
       onSuccess: () => toast(ok),
-      onError: (e) => toast(reason(e)),
+      onError: (e) => toast(firstError(e, 'تعذّر تنفيذ الإجراء')),
       onFinish: () => setBusy(false),
     });
   };
@@ -168,7 +169,7 @@ export const ScheduleHearingCard: React.FC<{ base: string }> = ({ base }) => {
         setH({ title: '', day: '', time: '', court: '', duration_min: '' });
         toast('تمت جدولة الجلسة');
       },
-      onError: (err) => toast(reason(err)),
+      onError: (err) => toast(firstError(err, 'تعذّر تنفيذ الإجراء')),
     });
   };
 
@@ -198,15 +199,16 @@ export const ScheduleHearingCard: React.FC<{ base: string }> = ({ base }) => {
  * فيُعرض له سببُ الغياب بدل نموذجٍ يردّه الخادم. والمحامي المسنَد يبقى على الأصل (`true`).
  */
 export const RulingCard: React.FC<{ base: string; ruling?: string | null; canCorrect?: boolean; canRecord?: boolean }> = ({ base, ruling: initialRuling, canCorrect = false, canRecord = true }) => {
-  const ask = useConfirm();
   const toast = useToast();
   const [ruling, setRuling] = useState('');
   const [correcting, setCorrecting] = useState(false);
   const [newRuling, setNewRuling] = useState(initialRuling ?? '');
   const [reasonText, setReasonText] = useState('');
-  const [busy, setBusy] = useState(false);
+  // قفلٌ موحّد: تسجيل الحكم وتصحيحه لا يُرسلان مرّتين (الحكم ينقل القضيّة ويفتح مهلة الاعتراض)
+  const action = useServerAction();
+  const busy = action.busy;
 
-  const recordRuling = async (e: React.FormEvent) => {
+  const recordRuling = (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!ruling.trim()) {
@@ -214,24 +216,16 @@ export const RulingCard: React.FC<{ base: string; ruling?: string | null; canCor
       return;
     }
 
-    const ok = await ask({
-      title: 'تسجيل منطوق الحكم',
-      message: 'تسجيل الحكم ينقل القضيّة إلى «صدر الحكم» ويفتح مسار الاستئناف ومهلة الاعتراض النظامية (30 يوماً).',
-      confirmLabel: 'تسجيل الحكم',
-      tone: 'danger',
-    });
-
-    if (!ok) {
-      return;
-    }
-
-    router.post(`${base}/ruling`, { ruling }, {
-      preserveScroll: true,
-      onSuccess: () => {
-        setRuling('');
-        toast('تم تسجيل الحكم وتفعيل مهلة الاعتراض');
+    void action.run(`${base}/ruling`, {
+      data: { ruling },
+      confirm: {
+        title: 'تسجيل منطوق الحكم',
+        message: 'تسجيل الحكم ينقل القضيّة إلى «صدر الحكم» ويفتح مسار الاستئناف ومهلة الاعتراض النظامية (30 يوماً).',
+        confirmLabel: 'تسجيل الحكم',
+        tone: 'danger',
       },
-      onError: (err) => toast(reason(err)),
+      success: 'تم تسجيل الحكم وتفعيل مهلة الاعتراض',
+      onSuccess: () => setRuling(''),
     });
   };
 
@@ -241,16 +235,13 @@ export const RulingCard: React.FC<{ base: string; ruling?: string | null; canCor
       toast('أدخل المنطوق المصحح وسبب التصحيح');
       return;
     }
-    setBusy(true);
-    router.post(`${base}/ruling/correct`, { ruling: newRuling, reason: reasonText }, {
-      preserveScroll: true,
+    void action.run(`${base}/ruling/correct`, {
+      data: { ruling: newRuling, reason: reasonText },
+      success: 'تم تصحيح منطوق الحكم بنجاح وتوثيقه',
       onSuccess: () => {
         setCorrecting(false);
         setReasonText('');
-        toast('تم تصحيح منطوق الحكم بنجاح وتوثيقه');
       },
-      onError: (err) => toast(reason(err)),
-      onFinish: () => setBusy(false),
     });
   };
 
@@ -321,7 +312,7 @@ export const RulingCard: React.FC<{ base: string; ruling?: string | null; canCor
       <div className="card-b" style={{ padding: 16 }}>
         <form onSubmit={recordRuling}>
           <textarea value={ruling} onChange={(e) => setRuling(e.target.value)} placeholder="منطوق الحكم…" aria-label="منطوق الحكم" />
-          <div className="crow"><button className="btn" type="submit"><Icon name="scale" /> تسجيل الحكم</button></div>
+          <div className="crow"><button className="btn" type="submit" disabled={busy}><Icon name="scale" /> تسجيل الحكم</button></div>
         </form>
       </div>
     </div>
@@ -343,21 +334,23 @@ export const AppealCard: React.FC<{
   const toast = useToast();
   const [showFilingForm, setShowFilingForm] = useState(false);
   const [showRulingForm, setShowRulingForm] = useState(false);
-  const [busy, setBusy] = useState(false);
+  // قفلٌ موحّد لقيد الاستئناف وحكمه
+  const action = useServerAction();
+  const busy = action.busy;
 
   // Form for filing appeal
   const [af, setAf] = useState({
     appeal_request_no: '',
     appeal_court: defaultCourt ? `محكمة الاستئناف (${defaultCourt})` : 'محكمة الاستئناف',
     appeal_circuit: '',
-    appeal_filed_at: new Date().toISOString().slice(0, 10),
+    appeal_filed_at: todayISO(),
   });
 
   // Form for appeal ruling
   const [ar, setAr] = useState({
     appeal_outcome: 'تأييد الحكم الابتدائي',
     appeal_ruling: '',
-    appeal_judged_at: new Date().toISOString().slice(0, 10),
+    appeal_judged_at: todayISO(),
   });
 
   if (!appeal) {
@@ -370,15 +363,10 @@ export const AppealCard: React.FC<{
       toast('أكمل جميع بيانات قيد الاستئناف');
       return;
     }
-    setBusy(true);
-    router.post(`${base}/appeal`, af, {
-      preserveScroll: true,
-      onSuccess: () => {
-        setShowFilingForm(false);
-        toast('تم تسجيل قيد الاستئناف بنجاح');
-      },
-      onError: (err) => toast(reason(err)),
-      onFinish: () => setBusy(false),
+    void action.run(`${base}/appeal`, {
+      data: af,
+      success: 'تم تسجيل قيد الاستئناف بنجاح',
+      onSuccess: () => setShowFilingForm(false),
     });
   };
 
@@ -388,15 +376,10 @@ export const AppealCard: React.FC<{
       toast('أدخل منطوق حكم الاستئناف والنتيجة');
       return;
     }
-    setBusy(true);
-    router.post(`${base}/appeal/ruling`, ar, {
-      preserveScroll: true,
-      onSuccess: () => {
-        setShowRulingForm(false);
-        toast('تم تسجيل حكم الاستئناف بنجاح');
-      },
-      onError: (err) => toast(reason(err)),
-      onFinish: () => setBusy(false),
+    void action.run(`${base}/appeal/ruling`, {
+      data: ar,
+      success: 'تم تسجيل حكم الاستئناف بنجاح',
+      onSuccess: () => setShowRulingForm(false),
     });
   };
 
@@ -538,8 +521,9 @@ const slotOf = (hr: Hearing) => ({ day: hr.startsAt ? hr.startsAt.slice(0, 10) :
  * لا يُشعَر به العميل. فنافذة السبب تُفتح للأوّل وحده، وما يجوز من الأزرار من الخادم (`canRecord`…).
  */
 export const HearingUpdatesCard: React.FC<{ base: string; hearings: Hearing[] }> = ({ base, hearings }) => {
-  const ask = useConfirm();
   const toast = useToast();
+  // قفلٌ موحّد لإلغاء الجلسة — مفتاحه معرّف الجلسة فيُعطَّل زرّها وحده
+  const cancelAction = useServerAction();
   const [editId, setEditId] = useState<number | null>(null);
   const [eh, setEh] = useState({ title: '', day: '', time: '', court: '', duration_min: '' });
   const [orig, setOrig] = useState({ day: '', time: '' });
@@ -559,7 +543,7 @@ export const HearingUpdatesCard: React.FC<{ base: string; hearings: Hearing[] }>
         setRecOutcome('');
         toast('تم تحديث الجلسة');
       },
-      onError: (err) => toast(reason(err)),
+      onError: (err) => toast(firstError(err, 'تعذّر تنفيذ الإجراء')),
     });
   const startEdit = (hr: Hearing) => {
     const slot = slotOf(hr);
@@ -587,24 +571,21 @@ export const HearingUpdatesCard: React.FC<{ base: string; hearings: Hearing[] }>
         setEditId(null);
         toast('حُفظت بيانات الجلسة — الموعد باقٍ ولم يُبلَّغ العميل');
       },
-      onError: (err) => toast(reason(err)),
+      onError: (err) => toast(firstError(err, 'تعذّر تنفيذ الإجراء')),
     });
   };
-  const cancelHearing = async (id: number) => {
-    const ok = await ask({
-      title: 'إلغاء الجلسة',
-      message: 'إلغاء الجلسة يُبلَّغ به العميل ولا يُتراجع عنه.',
-      confirmLabel: 'إلغاء الجلسة',
-      cancelLabel: 'تراجع',
-      tone: 'danger',
+  const cancelHearing = (id: number) =>
+    cancelAction.run(`${base}/hearings/${id}/cancel`, {
+      key: id,
+      confirm: {
+        title: 'إلغاء الجلسة',
+        message: 'إلغاء الجلسة يُبلَّغ به العميل ولا يُتراجع عنه.',
+        confirmLabel: 'إلغاء الجلسة',
+        cancelLabel: 'تراجع',
+        tone: 'danger',
+      },
+      success: 'أُلغيت الجلسة',
     });
-
-    if (!ok) {
-      return;
-    }
-
-    router.post(`${base}/hearings/${id}/cancel`, {}, { preserveScroll: true, onSuccess: () => toast('أُلغيت الجلسة'), onError: (err) => toast(reason(err)) });
-  };
 
   return (
     <div className="card">
@@ -625,7 +606,7 @@ export const HearingUpdatesCard: React.FC<{ base: string; hearings: Hearing[] }>
                 {(hr.canEdit || hr.canCancel) && (
                   <div className="iact" style={{ gap: 6 }}>
                     {hr.canEdit && <button className="btn soft sm" type="button" onClick={() => (editId === hr.id ? setEditId(null) : startEdit(hr))}>تعديل</button>}
-                    {hr.canCancel && <button className="btn soft sm" type="button" onClick={() => cancelHearing(hr.id)}>إلغاء</button>}
+                    {hr.canCancel && <button className="btn soft sm" type="button" disabled={cancelAction.busyKey === hr.id} onClick={() => cancelHearing(hr.id)}>إلغاء</button>}
                   </div>
                 )}
               </div>
@@ -698,7 +679,7 @@ export const HearingUpdatesCard: React.FC<{ base: string; hearings: Hearing[] }>
                   setEditId(null);
                   toast('أُجّلت الجلسة — وبقيت السابقة في السجلّ', 'success');
                 },
-                onError: (err) => toast(reason(err), 'error'),
+                onError: (err) => toast(firstError(err, 'تعذّر تنفيذ الإجراء'), 'error'),
                 onFinish: () => resolve(),
               });
             })
@@ -743,7 +724,7 @@ export const AttachDocModal: React.FC<{
         setHearingId('');
         onClose();
       },
-      onError: (err) => toast(reason(err)),
+      onError: (err) => toast(firstError(err, 'تعذّر تنفيذ الإجراء')),
       onFinish: () => setBusy(false),
     });
   };

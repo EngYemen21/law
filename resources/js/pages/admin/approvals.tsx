@@ -37,6 +37,8 @@ export interface TicketTrackProposalRow {
     clientPhone?: string;
     proposedTrack: string;
     proposedTrackLabel: string;
+    /** `TicketOutcomeTrack::tone()` من الخادم. */
+    proposedTrackTone: string;
     proposedTrackReason: string;
     proposedBy: string;
     proposedByRole?: string;
@@ -45,6 +47,7 @@ export interface TicketTrackProposalRow {
     aiSuggestedReason?: string | null;
     /** مانع الاعتماد من حارس المآل نفسه (`OutcomeSummaryGate::blocker`) — `null` = لا مانع. */
     outcomeBlocker?: string | null;
+    consultBlocker?: string | null;
     /** سبب التجاوز الذي دوّنه هذا المدير حين رفع المقترح — يُورَث فلا يُطلب ثانيةً. */
     inheritedWaiver?: string | null;
     since?: string | null;
@@ -128,7 +131,7 @@ const AdminApprovals: React.FC<Props> = ({
 }) => {
     const toast = useToast();
 
-    // قراءة التبويب الافتراضي من الرابط (?tab=history عند التحويل من /admin/summaries)
+    // قراءة التبويب الافتراضي من الرابط (?tab=history — سجلّ الملخّصات المعتمدة)
     const initialTab = useMemo<TabKey>(() => {
         try {
             const urlParams = new URLSearchParams(window.location.search);
@@ -210,7 +213,7 @@ const AdminApprovals: React.FC<Props> = ({
     const needsWaiver = !!trackItem?.outcomeBlocker && !trackItem?.inheritedWaiver;
     const needsClosureCode = trackItem?.proposedTrack === 'close';
     const approveReady = !trackItem
-        || ((!needsWaiver || waiver.trim().length >= WAIVER_MIN) && (!needsClosureCode || closureCode !== ''));
+        || (!trackItem.consultBlocker && (!needsWaiver || waiver.trim().length >= WAIVER_MIN) && (!needsClosureCode || closureCode !== ''));
 
     // تنفيذ الموافقة الرسمية المباشرة لجميع الفئات
     const handleApprove = () => {
@@ -343,21 +346,6 @@ const AdminApprovals: React.FC<Props> = ({
                 (h.type && h.type.toLowerCase().includes(q)),
         );
     }, [approvedHistory, q]);
-
-    // نغمة مسار المآل
-    const trackTone = (track: string): 'b-amber' | 'b-green' | 'b-blue' | 'b-grey' => {
-        switch (track) {
-            case 'case':
-                return 'b-green';
-            case 'execution':
-                return 'b-blue';
-            case 'close':
-                return 'b-grey';
-            case 'consultation':
-            default:
-                return 'b-amber';
-        }
-    };
 
     // رابط العرض الكامل لكل فئة
     const getFullLink = (item: any, category: ItemCategory): string => {
@@ -801,7 +789,7 @@ const AdminApprovals: React.FC<Props> = ({
                                                 </td>
 
                                                 <td style={{ padding: '12px 14px' }}>
-                                                    <Badge text={p.proposedTrackLabel} tone={trackTone(p.proposedTrack)} />
+                                                    <Badge text={p.proposedTrackLabel} tone={p.proposedTrackTone} />
                                                 </td>
 
                                                 <td style={{ padding: '12px 14px' }}>
@@ -1364,8 +1352,15 @@ const AdminApprovals: React.FC<Props> = ({
                                         </div>
                                     )}
 
+                                    {/* استشارةٌ قائمة: مانعٌ بلا تجاوز — القرار بعد الجلسة */}
+                                    {trackItem?.consultBlocker && (
+                                        <div style={{ marginTop: 12, fontSize: 12, lineHeight: 1.6, color: '#78350f', fontWeight: 700 }}>
+                                            {trackItem.consultBlocker}
+                                        </div>
+                                    )}
+
                                     {/* مانع الملخّص من الحارس نفسه، والمسار السريع للإدارة بسببٍ مدوَّن */}
-                                    {trackItem?.outcomeBlocker && (
+                                    {trackItem?.outcomeBlocker && !trackItem?.consultBlocker && (
                                         <div style={{ marginTop: 12, fontSize: 12, lineHeight: 1.6 }}>
                                             <div style={{ color: '#991b1b', marginBottom: 6 }}>{trackItem.outcomeBlocker}</div>
                                             {trackItem.inheritedWaiver ? (
@@ -1536,7 +1531,7 @@ const AdminApprovals: React.FC<Props> = ({
                                         </div>
                                     )}
 
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 4 }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: 8, marginTop: 4 }}>
                                         <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                                             المسؤول: <strong style={{ color: 'var(--text)' }}>{modalState.item?.lawyer || modalState.item?.proposedBy || '—'}</strong>
                                         </div>

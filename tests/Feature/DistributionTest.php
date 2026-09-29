@@ -5,9 +5,11 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Execution;
+use App\Models\JourneyTransition;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Models\UserNotification;
 use App\Support\TicketAssignment;
 use App\Support\TicketJourney;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -199,29 +201,29 @@ class DistributionTest extends TestCase
         $this->openTicket($client);
         LegalCase::create([
             'user_id' => $client->id,
-            'number'  => 'CAS-'.uniqid(),
-            'type'    => 'تجاري',
-            'status'  => 'جلسة أولى',
-            'tone'    => 'b-amber',
+            'number' => 'CAS-'.uniqid(),
+            'type' => 'تجاري',
+            'status' => 'جلسة أولى',
+            'tone' => 'b-amber',
         ]);
         Execution::create([
             'user_id' => $client->id,
-            'number'  => 'EX-'.uniqid(),
+            'number' => 'EX-'.uniqid(),
             'subject' => 'سند لأمر',
-            'status'  => 'دراسة الطلب',
-            'tone'    => 'b-purple',
+            'status' => 'دراسة الطلب',
+            'tone' => 'b-purple',
         ]);
         Consult::create([
-            'user_id'    => $client->id,
-            'ref'        => 'CON-'.uniqid(),
-            'status'     => 'جديدة',
-            'type'       => 'استشارة',
-            'subject'    => 'استشارة تجارية',
-            'channel'    => 'هاتفية',
-            'day'        => 'الأحد',
-            'time'       => '10ص',
+            'user_id' => $client->id,
+            'ref' => 'CON-'.uniqid(),
+            'status' => 'جديدة',
+            'type' => 'استشارة',
+            'subject' => 'استشارة تجارية',
+            'channel' => 'هاتفية',
+            'day' => 'الأحد',
+            'time' => '10ص',
             'when_label' => 'الأحد · 10ص',
-            'lawyer'     => '—',
+            'lawyer' => '—',
         ]);
 
         $this->actingAs($admin)
@@ -247,10 +249,10 @@ class DistributionTest extends TestCase
 
         $case = LegalCase::create([
             'user_id' => $client->id,
-            'number'  => 'CAS-'.uniqid(),
-            'type'    => 'تجاري',
-            'status'  => 'جلسة أولى',
-            'tone'    => 'b-amber',
+            'number' => 'CAS-'.uniqid(),
+            'type' => 'تجاري',
+            'status' => 'جلسة أولى',
+            'tone' => 'b-amber',
         ]);
 
         $this->actingAs($admin)
@@ -270,10 +272,10 @@ class DistributionTest extends TestCase
 
         $execution = Execution::create([
             'user_id' => $client->id,
-            'number'  => 'EX-'.uniqid(),
+            'number' => 'EX-'.uniqid(),
             'subject' => 'سند لأمر',
-            'status'  => 'دراسة الطلب',
-            'tone'    => 'b-purple',
+            'status' => 'دراسة الطلب',
+            'tone' => 'b-purple',
         ]);
 
         $this->actingAs($admin)
@@ -292,16 +294,16 @@ class DistributionTest extends TestCase
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
 
         $consult = Consult::create([
-            'user_id'    => $client->id,
-            'ref'        => 'CON-'.uniqid(),
-            'status'     => 'جديدة',
-            'type'       => 'استشارة',
-            'subject'    => 'استشارة تجارية',
-            'channel'    => 'هاتفية',
-            'day'        => 'الأحد',
-            'time'       => '10ص',
+            'user_id' => $client->id,
+            'ref' => 'CON-'.uniqid(),
+            'status' => 'جديدة',
+            'type' => 'استشارة',
+            'subject' => 'استشارة تجارية',
+            'channel' => 'هاتفية',
+            'day' => 'الأحد',
+            'time' => '10ص',
             'when_label' => 'الأحد · 10ص',
-            'lawyer'     => '—',
+            'lawyer' => '—',
         ]);
 
         $this->actingAs($admin)
@@ -311,6 +313,51 @@ class DistributionTest extends TestCase
         $consult->refresh();
         $this->assertSame($lawyer->id, $consult->assigned_lawyer_id);
         $this->assertSame($lawyer->name, $consult->lawyer);
+    }
+
+    /**
+     * **الإسناد من «التوزيع» = الإحالة من شاشات الاستشارات** (2026-09-27): كان يكتب المحامي مباشرةً،
+     * فلا تنتقل الحالة ولا يُحدَّث محامي التذكرة ولا يُشعَر العميل ولا يُسجَّل في الرحلة.
+     */
+    public function test_distribute_assignment_goes_through_the_referral_transition(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $ticket = Ticket::create([
+            'user_id' => $client->id, 'number' => 'SB-DIST-'.uniqid(), 'type' => 'عمالية',
+            'status' => 'موعد مؤكد', 'tone' => 'b-blue',
+        ]);
+        $consult = Consult::create([
+            'user_id' => $client->id, 'ticket_id' => $ticket->id, 'ref' => 'CON-'.uniqid(), 'status' => 'جديدة',
+            'type' => 'استشارة', 'subject' => 'استشارة عمالية', 'channel' => 'هاتفية',
+            'day' => 'الأحد', 'time' => '10ص', 'when_label' => 'الأحد · 10ص', 'lawyer' => '—',
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('admin.distribute.assign-consult', $consult), ['lawyer_id' => $lawyer->id])
+            ->assertRedirect();
+
+        $this->assertSame('محالة للمحامي', $consult->fresh()->status);
+        $this->assertSame($lawyer->id, $ticket->fresh()->assigned_lawyer_id, 'محامي التذكرة لم يُحدَّث');
+        $this->assertSame(1, JourneyTransition::where('transition', 'consult.refer')->where('entity_id', $consult->id)->count());
+        $this->assertTrue(UserNotification::where('user_id', $client->id)->exists(), 'العميل لم يُشعَر بالإحالة');
+    }
+
+    public function test_distribute_refuses_an_unapproved_analysis_like_the_consult_screens(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $consult = Consult::create([
+            'user_id' => User::factory()->create(['role' => Role::Client])->id, 'ref' => 'CON-'.uniqid(),
+            'status' => 'بانتظار اعتماد الموظف', 'type' => 'استشارة', 'subject' => 'استشارة', 'channel' => 'هاتفية',
+            'day' => 'الأحد', 'time' => '10ص', 'when_label' => 'الأحد · 10ص', 'lawyer' => '—',
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('admin.distribute.assign-consult', $consult), ['lawyer_id' => $lawyer->id]);
+
+        $this->assertNull($consult->fresh()->assigned_lawyer_id);
     }
 
     public function test_cannot_assign_frozen_or_closed_ticket(): void
@@ -338,10 +385,10 @@ class DistributionTest extends TestCase
 
         $closedCase = LegalCase::create([
             'user_id' => $client->id,
-            'number'  => 'CAS-'.uniqid(),
-            'type'    => 'تجاري',
-            'status'  => 'مغلقة',
-            'tone'    => 'b-grey',
+            'number' => 'CAS-'.uniqid(),
+            'type' => 'تجاري',
+            'status' => 'مغلقة',
+            'tone' => 'b-grey',
         ]);
         $this->actingAs($admin)
             ->post(route('admin.distribute.assign-case', $closedCase), ['lawyer_id' => $lawyer->id])
@@ -349,10 +396,10 @@ class DistributionTest extends TestCase
 
         $archivedCase = LegalCase::create([
             'user_id' => $client->id,
-            'number'  => 'CAS-'.uniqid(),
-            'type'    => 'تجاري',
-            'status'  => 'مؤرشفة',
-            'tone'    => 'b-grey',
+            'number' => 'CAS-'.uniqid(),
+            'type' => 'تجاري',
+            'status' => 'مؤرشفة',
+            'tone' => 'b-grey',
         ]);
         $this->actingAs($admin)
             ->post(route('admin.distribute.assign-case', $archivedCase), ['lawyer_id' => $lawyer->id])
@@ -367,22 +414,22 @@ class DistributionTest extends TestCase
 
         $closedExec = Execution::create([
             'user_id' => $client->id,
-            'number'  => 'EX-'.uniqid(),
+            'number' => 'EX-'.uniqid(),
             'subject' => 'سند لأمر',
-            'status'  => 'مغلق',
-            'tone'    => 'b-grey',
+            'status' => 'مغلق',
+            'tone' => 'b-grey',
         ]);
         $this->actingAs($admin)
             ->post(route('admin.distribute.assign-execution', $closedExec), ['lawyer_id' => $lawyer->id])
             ->assertStatus(422);
 
         $rejectedExec = Execution::create([
-            'user_id'  => $client->id,
-            'number'   => 'EX-'.uniqid(),
-            'subject'  => 'سند لأمر',
-            'status'   => 'دراسة الطلب',
+            'user_id' => $client->id,
+            'number' => 'EX-'.uniqid(),
+            'subject' => 'سند لأمر',
+            'status' => 'دراسة الطلب',
             'decision' => 'مرفوض',
-            'tone'     => 'b-red',
+            'tone' => 'b-red',
         ]);
         $this->actingAs($admin)
             ->post(route('admin.distribute.assign-execution', $rejectedExec), ['lawyer_id' => $lawyer->id])
@@ -396,33 +443,33 @@ class DistributionTest extends TestCase
         $lawyer = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
 
         $preSessionConsult = Consult::create([
-            'user_id'    => $client->id,
-            'ref'        => 'CON-'.uniqid(),
-            'status'     => 'بانتظار السداد',
-            'type'       => 'استشارة',
-            'subject'    => 'استشارة تجارية',
-            'channel'    => 'هاتفية',
-            'day'        => 'الأحد',
-            'time'       => '10ص',
+            'user_id' => $client->id,
+            'ref' => 'CON-'.uniqid(),
+            'status' => 'بانتظار السداد',
+            'type' => 'استشارة',
+            'subject' => 'استشارة تجارية',
+            'channel' => 'هاتفية',
+            'day' => 'الأحد',
+            'time' => '10ص',
             'when_label' => 'الأحد · 10ص',
-            'lawyer'     => '—',
+            'lawyer' => '—',
         ]);
         $this->actingAs($admin)
             ->post(route('admin.distribute.assign-consult', $preSessionConsult), ['lawyer_id' => $lawyer->id])
             ->assertStatus(422);
 
         $liveConsult = Consult::create([
-            'user_id'    => $client->id,
-            'ref'        => 'CON-'.uniqid(),
-            'status'     => 'قيد الاستشارة',
-            'session'    => 'جلسة جارية',
-            'type'       => 'استشارة',
-            'subject'    => 'استشارة تجارية',
-            'channel'    => 'مرئية',
-            'day'        => 'الأحد',
-            'time'       => '10ص',
+            'user_id' => $client->id,
+            'ref' => 'CON-'.uniqid(),
+            'status' => 'قيد الاستشارة',
+            'session' => 'جلسة جارية',
+            'type' => 'استشارة',
+            'subject' => 'استشارة تجارية',
+            'channel' => 'مرئية',
+            'day' => 'الأحد',
+            'time' => '10ص',
             'when_label' => 'الأحد · 10ص',
-            'lawyer'     => '—',
+            'lawyer' => '—',
         ]);
         $this->actingAs($admin)
             ->post(route('admin.distribute.assign-consult', $liveConsult), ['lawyer_id' => $lawyer->id])

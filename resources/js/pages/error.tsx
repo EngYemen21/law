@@ -1,4 +1,4 @@
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import React from 'react';
 import AppLayout from '@/components/layouts/AppLayout';
 
@@ -16,7 +16,7 @@ interface ErrorPageProps {
   auth?: { user?: { home?: string } | null } | null;
 }
 
-const ErrorPage: React.FC<ErrorPageProps> & { layout?: (page: React.ReactElement<ErrorPageProps>) => React.ReactNode } = ({
+const ErrorPage: React.FC<ErrorPageProps> & { layout?: (page: React.ReactNode) => React.ReactNode } = ({
   status,
   title,
   message,
@@ -50,6 +50,14 @@ const ErrorPage: React.FC<ErrorPageProps> & { layout?: (page: React.ReactElement
 
 // داخل تخطيط اللوحة لمن سجّل دخوله (الشريط الجانبيّ يبقى فلا يضيع صاحبه)، ومستقلّةً للزائر:
 // التخطيط يقرأ خصائص المستخدم المشتركة، والزائر بلا مستخدمٍ يُبنى له شريط.
-ErrorPage.layout = (page) => (page.props.auth?.user ? <AppLayout>{page}</AppLayout> : page);
+// المستخدم يُقرأ بـ`usePage()` لا من وسيط الدالّة: Inertia v3 تنادي دالّة التخطيط أوّلاً بخصائص
+// الصفحة لا بعنصرها — فكان `page.props.auth` ينهار وتُعرض صفحة الخطأ بيضاء.
+const ErrorLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { auth } = usePage<{ auth?: ErrorPageProps['auth'] }>().props;
+
+  return auth?.user ? <AppLayout>{children}</AppLayout> : <>{children}</>;
+};
+
+ErrorPage.layout = (page) => <ErrorLayout>{page}</ErrorLayout>;
 
 export default ErrorPage;

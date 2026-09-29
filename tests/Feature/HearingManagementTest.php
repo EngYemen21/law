@@ -89,6 +89,24 @@ class HearingManagementTest extends TestCase
         Mail::assertQueued(HearingEventMail::class, fn ($m) => $m->event === 'rescheduled' && $m->hasTo($client->email));
     }
 
+    /**
+     * **وقت الجلسة إلزاميّ** (قرار المالك 2026-09-28): جلسةٌ بلا وقت كانت تُسجَّل 00:00 فلا تحجب
+     * المحامي عن حجز الاستشارات (`LawyerAvailability` يقرأ `starts_at`).
+     */
+    public function test_a_hearing_needs_a_time_when_added_or_moved(): void
+    {
+        [, $lawyer, $case] = $this->lawyerAndCase();
+        $day = now()->addDays(10)->toDateString();
+
+        $this->actingAs($lawyer)->post(route('lawyer.cases.hearings.add', $case), ['title' => 'جلسة', 'day' => $day])
+            ->assertSessionHasErrors(['time' => 'حدّد وقت الجلسة.']);
+        $this->assertSame(0, CaseHearing::where('case_id', $case->id)->count());
+
+        $hearing = $case->hearings()->create(['title' => 'جلسة', 'day' => $day, 'time' => '10:00', 'status' => 'مجدولة', 'starts_at' => now()->addDays(10)->setTime(10, 0)]);
+        $this->actingAs($lawyer)->post(route('lawyer.cases.hearings.update', [$case, $hearing]), ['title' => 'جلسة', 'day' => $day, 'reason' => 'court_decision'])
+            ->assertSessionHasErrors(['time' => 'حدّد وقت الجلسة.']);
+    }
+
     public function test_cancel_sets_cancelled_and_clears_next(): void
     {
         Mail::fake();

@@ -14,16 +14,18 @@ import type { Hearing } from '@/lib/case-ui';
 import type { Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
+import type { CaseDocumentCard, TicketDocumentCard } from '@/types';
 
 interface CaseInfo {
   no: string; client: string; type: string; dept: string; lawyer: string;
   status: string; tone: string; next?: string | null; pleadingStatus: string; ruling?: string | null;
+  /** أعلام الحالة من الخادم (`LegalCase::stateFlags`) — في البطاقة والبثّ. */
+  isActive: boolean; postJudgment: boolean;
+
   appeal?: AppealData | null;
 }
-interface CaseDoc {
-  id: number; name: string; by: string; status: string; docType: string; summary: string; date: string; downloadUrl?: string | null;
-  hearingId?: number | null; hearingTitle?: string | null; source?: 'ticket' | 'case';
-}
+/** مستند القضيّة أو التذكرة المرتبطة في قائمةٍ واحدة (`source` يفرّقهما) — من النوعين المشتركين. */
+type CaseDoc = TicketDocumentCard & Partial<Pick<CaseDocumentCard, 'hearingId' | 'hearingTitle'>> & { source?: 'ticket' | 'case' };
 interface FileInfo { ticketNo?: string | null; subject?: string | null; opponent?: string | null; claim?: string | null; court?: string | null }
 interface FileFacts { summary?: string | null; facts?: string | null; keyPoints?: string | null; approved: boolean }
 interface ReadinessItem { label: string; ok: boolean; hint?: string | null }
@@ -55,7 +57,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
   const [attachOpen, setAttachOpen] = useState(false);
   const [msgs, setMsgs] = useState<Message[]>(messages);
   const [reply, setReply] = useState('');
-  const [live, setLive] = useState({ status: c.status, tone: c.tone });
+  const [live, setLive] = useState({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment });
   const [propsFrom, setPropsFrom] = useState({ status: c.status, messages });
   // محرّر اللائحة — يتبع أحدث مسودّة من الخادم (بعد الحفظ أو إعادة التوليد)
   const [draft, setDraft] = useState(pleadingDraft ?? '');
@@ -92,7 +94,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
   // والشارة تبقى «قيد التحضير» ورسالة القيد لا تظهر حتى إعادة التحميل (قيسَ في المتصفّح 2026-09-11).
   if (c.status !== propsFrom.status || messages !== propsFrom.messages) {
     setPropsFrom({ status: c.status, messages });
-    setLive({ status: c.status, tone: c.tone });
+    setLive({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment });
     setMsgs(messages);
   }
 
@@ -119,8 +121,8 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
     ch.listen('.message', append);
     // الملاحظات الداخليّة تُبثّ على قناة الطاقم وحدها — لا على القناة التي يسمعها العميل
     echo.private(`${channel}.staff`).listen('.message', append);
-    ch.listen('.status', (e: { status: string; tone: string }) => {
-      setLive({ status: e.status, tone: e.tone });
+    ch.listen('.status', (e: { status: string; tone: string; isActive: boolean; postJudgment: boolean }) => {
+      setLive({ status: e.status, tone: e.tone, isActive: e.isActive, postJudgment: e.postJudgment });
       // مسودّةٌ جهزت بالطابور (المحجوب لا يُبثّ) — يُحدَّث المحرّر وسببُ المنع
       router.reload({ only: ['pleadingDraft', 'pleadingBlock'] });
     });
@@ -225,7 +227,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
             <RulingCard
               base={base}
               ruling={c.ruling}
-              canCorrect={['صدر الحكم', 'مغلقة'].includes(live.status)}
+              canCorrect={live.postJudgment}
             />
           )}
 
@@ -398,7 +400,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
           )}
 
           {/* إدارة الجلسات — المغلقة والمؤرشفة للقراءة، والخادم يرفض تحريك جلساتهما */}
-          {hearings.length > 0 && !['مغلقة', 'مؤرشفة'].includes(live.status) && <HearingUpdatesCard base={base} hearings={hearings} />}
+          {hearings.length > 0 && live.isActive && <HearingUpdatesCard base={base} hearings={hearings} />}
 
           {(canExecute || convertedExec) && (
             <div className="card">

@@ -7,6 +7,7 @@ use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\SessionState;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Domain\Journey\Transitions\Consult\ApproveConsultAnalysis;
+use App\Domain\Journey\Transitions\Consult\MarkNoShow;
 use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
 use App\Enums\Role;
 use App\Models\Concerns\LinksLegalDepartment;
@@ -213,6 +214,8 @@ class Consult extends Model
             $session === SessionState::NotHeld => SessionWindow::REFUSE_MISSED,
             $session === SessionState::Live => null,
             ConsultStatus::tryFrom((string) $this->status) === ConsultStatus::Cancelled => SessionWindow::REFUSE_CANCELLED,
+            // دورة الحجز لم تكتمل: لا رابطَ يُطلق ولا دخول قبل اعتماد الموعد (الجلسة الجارية فوق لا تُقطع)
+            ConsultStatus::tryFrom((string) $this->status)?->isPreSession() === true => SessionWindow::REFUSE_BOOKING,
             $this->isMissed() => SessionWindow::REFUSE_MISSED,
             $this->link_released_at === null => SessionWindow::refuseNotOpen(),
             default => null,
@@ -238,6 +241,24 @@ class Consult extends Model
     {
         return $this->session === SessionState::Waiting->value
             && SessionWindow::isMissed($this->starts_at);
+    }
+
+    /** سُجّلت الجلسة «لم تُعقد» (لم يحضر العميل أو حُسمت آليّاً). */
+    public function isNotHeld(): bool
+    {
+        return $this->session === SessionState::NotHeld->value;
+    }
+
+    /** لون شارة الحالة (`ConsultStatus::tone`). */
+    public function statusTone(): string
+    {
+        return ConsultStatus::tryFrom((string) $this->status)?->tone() ?? 'b-grey';
+    }
+
+    /** لون شارة الجلسة (`SessionState::tone`). */
+    public function sessionTone(): string
+    {
+        return SessionState::tryFrom((string) $this->session)?->tone() ?? 'b-grey';
     }
 
     /**
@@ -435,6 +456,30 @@ class Consult extends Model
      * تستثني عمداً: host_link (رابط المضيف/ZAK)، تحليل الذكاء الاصطناعي، سجل التدقيق،
      * الموظف المسند، والمستندات الناقصة — فهذه بيانات داخلية لا تخصّ العميل.
      */
+    /**
+     * **سبب منع اعتماد ملخّص الجلسة، أو `null` إن جاز** — شروط `approveSummary` الثلاثة في
+     * موضعٍ واحد، يقرؤها المسار وعلمُ الزرّ (`canApproveSummary`). كان الزرّ يظهر لاستشارةٍ
+     * ملغاةٍ لها ملخّص فيرفضه الخادم لأنّ الجلسة لم تنعقد.
+     */
+    public function summaryApprovalBlocker(): ?string
+    {
+        return match (true) {
+            $this->summaryApproved() => 'اعتُمد هذا الملخّص ووصل العميل.',
+            blank($this->summary) => 'لا ملخّص ليُعتمد — دوّن تدوين الجلسة أو اكتب التقرير أوّلاً.',
+            // **لا «ملخّص جلسة» لجلسةٍ لم تنعقد** — كان يُعتمد لاستشارةٍ «جديدة» ويصل العميل (ع٢٢)
+            $this->session !== SessionState::Ended->value => 'لم تنعقد هذه الجلسة — لا يُعتمد لها ملخّص جلسة.',
+            default => null,
+        };
+    }
+
+    /** «لم يحضر» الآن؟ — مصدر `MarkNoShow` وحارسه، كما يفحصهما المسار. */
+    public function canMarkNoShow(): bool
+    {
+        $transition = new MarkNoShow;
+
+        return in_array($this->session, $transition->from(), true) && $transition->guard($this, []) === null;
+    }
+
     /** هل اعتمد إنسانٌ مفوَّض ملخّص هذه الاستشارة؟ */
     public function summaryApproved(): bool
     {
@@ -473,9 +518,15 @@ class Consult extends Model
             'place' => $this->placeForClient(),
             'slink' => $this->channel === 'مرئية' ? $this->joinLink() : '',
             'canJoin' => $this->canJoin(), // زر الدخول معطّل حتى إطلاق الرابط قبل الموعد بـ5د
-            // فات موعدها بلا جلسة، أو سُجّلت «لم تُعقد» — الحكم هنا لا في الواجهة: كانت تقارن
-            // `c.session === 'لم تُعقد'` نصّاً عربيّاً في موضعين لتكمل ما لا يقوله هذا الحقل
-            'missed' => $this->isMissed() || $this->session === SessionState::NotHeld->value,
+            // **علمان بمعنى واحدٍ في البطاقتين** (قرار المالك 2026-09-27): `missed` فات موعدها والجلسة
+            // ما زالت منتظرة، و`notHeld` سُجّلت «لم تُعقد». كانت بطاقة العميل تجمعهما في `missed`
+            // وبطاقة الطاقم لا — وشاشة الإدارة تُعيد بناء تعريف العميل يدويّاً
+            'missed' => $this->isMissed(),
+            'notHeld' => $this->isNotHeld(),
+            'tone' => $this->statusTone(),
+            'sessionTone' => $this->sessionTone(),
+            // في دورة الحجز (تسعير · سداد · موعد) — علمٌ لا مرحلة: `bookingStage` يكشف «اعتماد الموعد» الداخليّ
+            'inBooking' => in_array($this->status, self::PRE_SESSION_STATUSES, true),
             // طلب تغيير الموعد: هل يُتاح، وهل طلبٌ سابقٌ معلّق، ولماذا يُحجب — من `rescheduleRequestBlocker` وحده
             'rescheduleRequest' => [
                 'pending' => $this->reschedule_requested_at !== null,
@@ -575,17 +626,27 @@ class Consult extends Model
             'place' => $this->placeForCard(),
             'phone' => $this->phone ?? '',
             'canJoin' => $this->canJoin(),
-            // رابط اجتماع Zoom الحقيقي؛ وعند غيابه (لم تُهيّأ مفاتيح Zoom بعد) الرابط الداخلي الاحتياطي
+            // رابط غرفة المنصّة الداخليّ (`joinLink`) — الطريق الوحيد إلى الجلسة
             'slink' => $this->channel === 'مرئية' ? $this->joinLink() : '',
-            'hostLink' => $this->channel === 'مرئية' ? ($this->host_link ?: null) : null,
+            // لا `hostLink`: رابط المضيف (`start_url`) لا يغادر الخادم — الدخول من غرفة المنصّة وحدها (قرار المالك 2026-09-29)
             'session' => $this->session,
             'missed' => $this->isMissed(), // فات موعدها بلا جلسة — تبويب «فائتة» وإجراءا لم يحضر/إعادة الجدولة
+            'notHeld' => $this->isNotHeld(), // سُجّلت «لم تُعقد» — العلمان نفساهما في بطاقة العميل
+            // لونا الشارتين من الـEnum (`ConsultStatus::tone` · `SessionState::tone`) — لا خريطة في الواجهة
+            'tone' => $this->statusTone(),
+            'sessionTone' => $this->sessionTone(),
+            // **مجموعات الحالة أعلامٌ من الخادم** — كانت الشاشات تنسخ قوائمها (`CONSULT_TERMINAL_STATUSES`…)
+            'isTerminal' => in_array($this->status, self::TERMINAL_STATUSES, true),
+            'isClosed' => in_array($this->status, self::CLOSED_STATUSES, true),
+            'sessionEnded' => in_array($this->session, self::SESSION_ENDED, true),
             // ذاكرة إعادة الجدولة: كم مرّة أُعيدت (السقف في `reschedule.limit` المشترك)، وطلب العميل المعلّق
             'rescheduleCount' => (int) $this->reschedule_count,
             // **هل تُعاد جدولتها الآن؟ — من حارس الانتقال نفسه** لا من تخمين الواجهة. كان الزرّ في
             // درج المحامي واستقبال الإدارة للفائتة وحدها، والخادم يقبل كلّ موعدٍ لم ينعقد: فلم يجد
             // المحامي المعتذر عن موعد الأسبوع القادم زرّاً. والسقف يُفحص عند الإرسال بفاعله.
             'canReschedule' => (new RescheduleConsult)->guard($this, []) === null,
+            'canMarkNoShow' => $this->canMarkNoShow(),
+            'canApproveSummary' => $this->summaryApprovalBlocker() === null,
             // **أعلامُ الإجراءات من الخادم** — كانت شاشة الإدارة تقارن نصّ الحالة لتقرّر أيّ زرٍّ يظهر
             // (التسعير · التذكير · اعتماد التحليل)؛ والشرط الآن من الكتالوج والحارس اللذين يحكمان الطلب
             'needsPricing' => $this->status === ConsultStatus::AwaitingPricing->value,
@@ -615,6 +676,25 @@ class Consult extends Model
                 'channel' => str_replace('استشارة ', '', (string) $this->appointment->type),
             ] : null,
             'status' => $this->status,
+            /*
+             * **سببُ تعذّر الإسناد الآن بحسب المرحلة الفعليّة — من الخادم** (ملاحظة المالك 2026-09-27).
+             * كانت النافذة تقارن النصّ بقائمة أربع حالات وتقول «لا إسناد إلا بعد اكتمال التسعير والسداد
+             * وتحديد الموعد» لعميلٍ دفع، وشارةُ «المسند: …» تعرض المحامي المنقول من التذكرة عند الطلب
+             * كأنّه أُسند. والإسناد في دورة الحجز يتمّ **مع اعتماد الموعد** (`PublishAppointment`).
+             */
+            'assignBlocker' => match ($this->status) {
+                ConsultStatus::AwaitingPricing->value => 'بانتظار تسعير الإدارة — يُسند المحامي مع اعتماد الموعد.',
+                ConsultStatus::AwaitingPayment->value => 'سُعّرت الاستشارة وبانتظار سداد العميل — يُسند المحامي مع اعتماد الموعد.',
+                ConsultStatus::AwaitingSchedule->value => 'سدّد العميل ✓ — بانتظار تحديد الموعد، ويُسند المحامي مع اعتماده.',
+                ConsultStatus::AwaitingAppointmentApproval->value => 'سدّد العميل ✓ — الموعد المقترح بانتظار اعتماد الإدارة، ويُسند المحامي عند اعتماده.',
+                default => null,
+            },
+            // في دورة الحجز المحامي **مرشَّحٌ** من التذكرة لا مُسنَد
+            'lawyerTentative' => ConsultStatus::tryFrom((string) $this->status)?->isPreSession() === true,
+            // الموعد المقترح بانتظار الاعتماد — `when` يبقى فارغاً حتى يُنشر فيُقرأ «لم يحدّد»
+            'proposedWhen' => $this->starts_at === null && $this->appointment?->starts_at
+                ? $this->appointment->starts_at->locale('ar')->translatedFormat('l d F Y · h:i A')
+                : null,
             'summary' => $this->summary,
             // الطاقم يرى النصّ قبل الاعتماد ليراجعه — ويرى **أنّه** غير معتمَد
             'summaryApproved' => $this->summaryApproved(),
@@ -644,6 +724,10 @@ class Consult extends Model
              * يقع على **التذكرة** لا الاستشارة، فالإشارة الصادقة وجودُ قضيّةٍ لتذكرتها.
              */
             'caseNo' => $this->ticket?->legalCase?->number,
+            // مقترح المآل من بطاقة التذكرة **بعد الجلسة** — القاعدة نفسها في `OutcomeSummaryGate::consultBlocker`
+            'canProposeOutcome' => $this->ticket !== null
+                && $this->status === ConsultStatus::Ended->value
+                && $this->ticket->legalCase === null,
             // تدوين الجلسة — درج المحامي يملأ حقله منها؛ وكان يقرأ `notes`
             // التي لا تُرسل، فيفتح المحامي الدرج فيرى حقلاً فارغاً وتدوينه محفوظ.
             // (داخليّة للمكتب — لا وجود لها في `toClientCard`.)

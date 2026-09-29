@@ -10,6 +10,8 @@ use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Support\CaseFiling;
+use App\Support\CaseJourney;
+use App\Support\CaseTicketDocuments;
 use App\Support\ConversationFiles;
 use App\Support\ConversationHandler;
 use App\Support\Notify;
@@ -68,6 +70,7 @@ class CaseController extends Controller
                 'lawyerId' => $c->assigned_lawyer_id,
                 'status' => $c->status,
                 'tone' => $c->tone,
+                ...$c->stateFlags(),
                 'next' => $c->nextHearingLabel(),
                 'hasNextHearing' => (bool) $nextHearing,
                 'updatedAgo' => $c->updated_at?->locale('ar')->diffForHumans() ?? 'الآن',
@@ -76,14 +79,14 @@ class CaseController extends Controller
 
         $counts = [
             'total' => $allCases->count(),
-            'active' => $allCases->whereNotIn('status', ['مغلقة', 'مؤرشفة'])->count(),
+            'active' => $allCases->filter(fn (LegalCase $c) => $c->isActive())->count(),
             'withHearings' => $allCases->filter(fn (LegalCase $c) => $c->nextHearingLive() !== null)->count(),
             'preparing' => $allCases->where('status', 'قيد التحضير')->count(),
             // رُفعت في ناجز وتنتظر قيد المحكمة (الخطّة ب)
             'awaiting' => $allCases->where('status', 'بانتظار القيد')->count(),
             'inCourt' => $allCases->where('status', 'منظورة')->count(),
             'ruled' => $allCases->where('status', 'صدر الحكم')->count(),
-            'closed' => $allCases->whereIn('status', ['مغلقة', 'مؤرشفة'])->count(),
+            'closed' => $allCases->whereIn('status', CaseJourney::CLOSED)->count(),
         ];
 
         $departments = $allCases->pluck('department')->filter()->unique()->values();
@@ -105,12 +108,12 @@ class CaseController extends Controller
 
     public function show(LegalCase $case): Response
     {
-        $case->load(['user', 'hearings', 'documents', 'assignedLawyer']);
+        $case->load(['user', 'hearings', 'documents', 'assignedLawyer', 'ticket.documents']);
 
         $client = $case->user;
         $clientStats = $client ? [
             'totalTickets' => Ticket::where('user_id', $client->id)->count(),
-            'activeTickets' => Ticket::where('user_id', $client->id)->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
+            'activeTickets' => Ticket::where('user_id', $client->id)->open()->count(),
             'totalCases' => LegalCase::where('user_id', $client->id)->count(),
             'memberSince' => $client->created_at?->locale('ar')->translatedFormat('F Y') ?? '—',
         ] : null;
@@ -131,7 +134,7 @@ class CaseController extends Controller
         ]);
 
         // نماذج المحكمة لمن منحته الإدارة الصلاحيّة؛ ومن سواه يرى بيانات ناجز للاطّلاع (والمسار يرفضه)
-        $canCourt = (bool) auth()->user()?->can('إجراءات المحكمة والجلسات');
+        $canCourt = (bool) auth()->user()?->can(Permissions::COURT_PROCEEDINGS);
 
         return Inertia::render('employee/case', [
             // من يتولّى المحادثة الآن ومن تولّاها قبله — للطاقم وحده (`ConversationHandler`)
@@ -145,6 +148,7 @@ class CaseController extends Controller
                 'lawyer' => $case->assigned_lawyer ?: ($case->assignedLawyer?->name ?? '—'),
                 'status' => $case->status,
                 'tone' => $case->tone,
+                ...$case->stateFlags(),
                 'next' => $case->nextHearingLabel(),
                 // بيانات الرفع والقيد في ناجز — يسجّلها الموظّف كالمحامي (قرار المالك 2026-09-11)
                 'najiz' => $case->najizCard(),
@@ -161,6 +165,8 @@ class CaseController extends Controller
             'messages' => ConversationFiles::linkLegacyChips($case->messages()->visibleTo(true)->get()->map->toMessage()->all(), 'case', $case->documents),
             'hearings' => $case->hearings->map->toData(),
             'documents' => $documents,
+            // مرفقات الطلب قبل التحويل — بلا المرفوض «غير مرتبط» (`CaseTicketDocuments`)
+            'ticketDocuments' => CaseTicketDocuments::for($case, auth()->user()),
         ]);
     }
 

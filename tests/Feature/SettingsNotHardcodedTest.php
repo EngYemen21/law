@@ -290,8 +290,10 @@ class SettingsNotHardcodedTest extends TestCase
             'paid' => true, 'paid_at' => now(), 'issued_at' => now(),
         ]);
         $html = TaxInvoiceDocument::html($invoice);
-        $this->assertStringContainsString('مكتب الاختبار للمحاماة — شكراً لتعاملكم معنا', $html);
-        $this->assertStringNotContainsString($default, $html, 'التذييل لا يعلو على الاسم المضبوط');
+        // الاسم المضبوط في الفاتورة (البائع ونصّ الشعار البديل) — ولا شريط تذييل (طلب المالك 2026-09-28)
+        $this->assertStringContainsString('مكتب الاختبار للمحاماة', $html);
+        $this->assertStringNotContainsString('cf-foot', $html);
+        $this->assertStringNotContainsString($default, $html, 'الاسم الافتراضيّ لا يعلو على الاسم المضبوط');
 
         $consult = $this->pricedConsult($client, 1000, 150);
         $doc = json_encode(ConsultReport::doc($consult, $client->name), JSON_UNESCAPED_UNICODE);

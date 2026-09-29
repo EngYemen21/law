@@ -1,4 +1,4 @@
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
@@ -6,21 +6,19 @@ import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 // اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
+import { stageChanged, staffPatch } from '@/lib/consult-live';
 import { maskClient } from '@/lib/employee-data';
 import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-reschedule';
-import { CONFIRM_END_CONSULT, RichText, SummaryStateBadge } from '@/lib/consult-ui';
+import { CONFIRM_END_CONSULT, CONFIRM_NO_SHOW, CONFIRM_START_CONSULT, RichText, SummaryStateBadge } from '@/lib/consult-ui';
 import type { ConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import {
-  cTone,
   crChannelIcon,
   crChannelTone,
-  CONSULT_BOOKING_STATUSES,
-  CONSULT_CLOSED_STATUSES,
-  CONSULT_TERMINAL_STATUSES,
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+import { useServerAction } from '@/lib/use-server-action';
 
 export type LawyerKanbanCol = 'waiting' | 'live' | 'drafting' | 'completed';
 
@@ -31,7 +29,7 @@ export type LawyerKanbanCol = 'waiting' | 'live' | 'drafting' | 'completed';
  * التي كانت تدخل عمود «بانتظار الانعقاد» وعمود «منتهية ومغلقة» معاً لأن cancelRequest لا يمس session).
  */
 export function lawyerKanbanColumnOf(c: ConsultCard): LawyerKanbanCol {
-  if (CONSULT_TERMINAL_STATUSES.includes(c.status) || c.session === 'لم تُعقد') {
+  if (c.isTerminal || c.notHeld) {
     return 'completed';
   }
 
@@ -45,7 +43,7 @@ export function lawyerKanbanColumnOf(c: ConsultCard): LawyerKanbanCol {
   }
 
   // دورة الحجز لا تدخل جلسات الانعقاد عند المحامي
-  if (CONSULT_BOOKING_STATUSES.includes(c.status)) {
+  if (c.bookingStage != null) {
     return 'completed';
   }
 
@@ -77,9 +75,19 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   // درج المستشار القانوني 360° المباشر والمضمون
   const [drawerConsult, setDrawerConsult] = useState<ConsultCard | null>(null);
   const [drawerTab, setDrawerTab] = useState<LawyerDrawerTab>('facts');
+  const drawerBodyRef = React.useRef<HTMLDivElement>(null);
+  // التبويب الجديد يبدأ من أعلاه — كان يُفتح في موضع تمرير السابق فيبدو مقصوصاً
+  useEffect(() => {
+    drawerBodyRef.current?.scrollTo({ top: 0 });
+    // وعلى الهاتف يُمرَّر شريط التبويبات حتى يظهر المختار كاملاً
+    document.querySelector('.emp-drawer-tabs .d-tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [drawerTab]);
   const [sessionNotes, setSessionNotes] = useState<string>('');
   const [clientReport, setClientReport] = useState<string>('');
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [processing, setIsProcessing] = useState(false);
+  // قفلٌ موحّد لأفعال الجلسة (بدء · إنهاء · لم يحضر) — وبقيّة الأفعال على `processing` كما هي
+  const action = useServerAction();
+  const isProcessing = processing || action.busy;
 
   // نصّ الموكّل يحرّره ويعتمده **من يملك الصلاحيّة** — لا من يفتح الصفحة.
   const mayEditSummary = useCan()('اعتماد/تعديل ملخص الاستشارة');
@@ -90,11 +98,13 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
 
     initialConsults.forEach((c) => {
       echo.private(`consult.${c.id}`).listen('.status', (e: Partial<ConsultCard>) => {
+        // القاعدة المشتركة (`lib/consult-live`): لا تسمية العميل ولا ملخّصه فوق بطاقة الطاقم
+        const rest = staffPatch(e);
         setItems((prev) =>
-          prev.map((x) => (x.id === c.id ? { ...x, ...e } : x))
+          prev.map((x) => (x.id === c.id ? { ...x, ...rest } : x))
         );
 
-        if (e.session === 'منتهية') {
+        if (stageChanged(e, c)) {
           router.reload({ only: ['consults'] });
         }
       });
@@ -156,7 +166,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
       (c) => c.session === 'منتهية' && !c.summaryApproved
     ).length;
     const completed = items.filter(
-      (c) => CONSULT_TERMINAL_STATUSES.includes(c.status)
+      (c) => c.isTerminal
     ).length;
 
     return {
@@ -187,7 +197,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
         if (c.session !== 'منتهية' || c.summaryApproved || c.summaryLawyerApproved) return false;
       }
       if (filterMode === 'completed') {
-        if (!CONSULT_TERMINAL_STATUSES.includes(c.status)) return false;
+        if (!c.isTerminal) return false;
       }
 
       // 2. فلتر القناة
@@ -209,76 +219,37 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   // ── الإجراءات الميدانية للمحامي ──
 
   // بدء الجلسة
-  const handleStart = (consult: ConsultCard) => {
-    setIsProcessing(true);
-    router.post(
-      `/lawyer/consults/${consult.id}/start`,
-      {},
-      {
-        preserveScroll: true,
-        onSuccess: () => toast(`بدأت جلسة الاستشارة (${consult.ref}) وتم إشعار العميل فوراً`),
-        // رسالة الخادم لا نصّ ثابت: «فات الموعد» و«قبل الموعد بربع ساعة» سببان
-        // مختلفان، وإخفاؤهما خلف «تعذر» يترك المحامي يعيد المحاولة بلا فهم.
-        onError: (errors) => toast(Object.values(errors)[0] || 'تعذر بدء الجلسة'),
-        onFinish: () => setIsProcessing(false),
-      }
-    );
-  };
-
-  // إنهاء الجلسة وحفظ الملاحظات
-  const handleEnd = async (consult: ConsultCard) => {
-    // تأكيدٌ يقول الأثر قبل الإرسال — النصّ الواحد من `consult-ui` (قرار المالك 2026-09-26)
-    if (!(await ask(CONFIRM_END_CONSULT))) {
-      return;
-    }
-
-    setIsProcessing(true);
-    router.post(
-      `/lawyer/consults/${consult.id}/end`,
-      { notes: sessionNotes },
-      {
-        preserveScroll: true,
-        onSuccess: () => {
-          // «وجارٍ استخراج مسودة التقرير» ليست مضمونة: `FinalizeConsultJob` **لا
-          // ينادي النموذج بلا مادّة** — بل يُنبّه المحامي ليدوّن. والوعد يقع في
-          // الحالة التي كُتب لها ذلك الفرع أصلاً.
-          toast(sessionNotes.trim() === ''
-            ? 'خُتمت الجلسة بلا تدوين — لا ملخّص حتّى تُدوّن'
-            : 'خُتمت الجلسة وحُفظ التدوين — تُعدّ المسودّة الآن');
-          setDrawerTab('report');
-        },
-        onError: (errors) => toast(Object.values(errors)[0] || 'تعذر إنهاء الجلسة'),
-        onFinish: () => setIsProcessing(false),
-      }
-    );
-  };
-
-  // تسجيل عدم حضور العميل
-  const handleNoShow = async (consult: ConsultCard) => {
-    const ok = await ask({
-      title: 'تسجيل عدم حضور العميل',
-      message: 'تُسجَّل الجلسة غيابَ موكّل ويُشعَر بذلك — راجع غرفة الاجتماع قبل التأكيد.',
-      confirmLabel: 'تسجيل الغياب',
-      tone: 'danger',
+  // رسالة الخادم لا نصّ ثابت: «فات الموعد» و«قبل الموعد بربع ساعة» سببان مختلفان
+  const handleStart = (consult: ConsultCard) =>
+    action.run(`/lawyer/consults/${consult.id}/start`, {
+      confirm: CONFIRM_START_CONSULT,
+      success: `بدأت جلسة الاستشارة (${consult.ref}) وتم إشعار العميل فوراً`,
+      fallback: 'تعذر بدء الجلسة',
     });
 
-    if (!ok) {
-      return;
-    }
+  // إنهاء الجلسة وحفظ الملاحظات
+  // تأكيدٌ يقول الأثر قبل الإرسال — النصّ الواحد من `consult-ui` (قرار المالك 2026-09-26).
+  // «وجارٍ استخراج مسودة التقرير» ليست مضمونة: `FinalizeConsultJob` **لا ينادي النموذج
+  // بلا مادّة** — بل يُنبّه المحامي ليدوّن.
+  const handleEnd = (consult: ConsultCard) =>
+    action.run(`/lawyer/consults/${consult.id}/end`, {
+      data: { notes: sessionNotes },
+      confirm: CONFIRM_END_CONSULT,
+      success: sessionNotes.trim() === ''
+        ? 'خُتمت الجلسة بلا تدوين — لا ملخّص حتّى تُدوّن'
+        : 'خُتمت الجلسة وحُفظ التدوين — تُعدّ المسودّة الآن',
+      fallback: 'تعذر إنهاء الجلسة',
+      onSuccess: () => setDrawerTab('report'),
+    });
 
-    setIsProcessing(true);
-    router.post(
-      `/lawyer/consults/${consult.id}/no-show`,
-      {},
-      {
-        preserveScroll: true,
-        // `noShow()` يُشعر **العميل وحده** — لا إشعار إدارةٍ في المسار.
-        onSuccess: () => toast('سُجّل عدم الحضور وأُشعر الموكّل — يمكنك إعادة الجدولة'),
-        onError: (errors) => toast(Object.values(errors)[0] || 'تعذر تسجيل عدم الحضور'),
-        onFinish: () => setIsProcessing(false),
-      }
-    );
-  };
+  // تسجيل عدم حضور العميل
+  // `noShow()` يُشعر **العميل وحده** — لا إشعار إدارةٍ في المسار. والتأكيد نصٌّ مشترك
+  const handleNoShow = (consult: ConsultCard) =>
+    action.run(`/lawyer/consults/${consult.id}/no-show`, {
+      confirm: CONFIRM_NO_SHOW,
+      success: 'سُجّل عدم الحضور وأُشعر الموكّل — يمكنك إعادة الجدولة',
+      fallback: 'تعذر تسجيل عدم الحضور',
+    });
 
   // حفظ مسودة التقرير النهائي للعميل
   const handleSaveReport = (consult: ConsultCard) => {
@@ -643,11 +614,11 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         */}
                       {isLive ? (
                         <span className="lawyer-status-pill live">🔴 جلسة جارية الآن</span>
-                      ) : CONSULT_CLOSED_STATUSES.includes(c.status) && c.status === 'ملغاة' ? (
+                      ) : c.isClosed && c.status === 'ملغاة' ? (
                         <span className="lawyer-status-pill cancelled">✕ ملغاة</span>
                       ) : c.session === 'منتهية' ? (
                         <span className="lawyer-status-pill ended">✓ الجلسة انتهت</span>
-                      ) : c.session === 'لم تُعقد' ? (
+                      ) : c.notHeld ? (
                         <span className="lawyer-status-pill missed">✕ لم تنعقد</span>
                       ) : (
                         <span className="lawyer-status-pill wait">⏳ بانتظار الانعقاد</span>
@@ -674,26 +645,17 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                     </td>
 
                     <td>
-                      <Badge text={c.status} tone={cTone(c.status)} />
+                      <Badge text={c.status} tone={c.tone} />
                     </td>
 
                     <td style={{ textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                        {/* **`canJoin` يُحترم هنا كما يُحترم في الدرج.** كان صفّ
-                            الجدول يعرض الرابط بلا التفاتٍ إليه — و`hostLink` هو
-                            `start_url` خارجيّ لا يمرّ بحارس `sdkSignature`، فيُفتح
-                            قبل إطلاق الرابط وبعد انتهاء الجلسة سواء. القاعدة كانت
-                            تُطبَّق في موضعٍ وتُخرَق في آخر من الملفّ نفسه. */}
-                        {c.channel === 'مرئية' && c.canJoin !== false && (c.hostLink || c.slink) && (
-                          <a
-                            href={c.hostLink || c.slink}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="btn primary sm"
-                            style={{ padding: '3px 8px', fontSize: 11.5 }}
-                          >
-                            <Icon name="video" /> دخول Zoom
-                          </a>
+                        {/* **الدخول من غرفة المنصّة وحدها** (قرار المالك 2026-09-29): كان يفتح `start_url`
+                            الخارجيّ في تبويب Zoom فيتجاوز حارس `sdkSignature` وتعريف المحامي لحالته. */}
+                        {c.channel === 'مرئية' && c.canJoin !== false && c.slink && (
+                          <Link href={c.slink} className="btn primary sm" style={{ padding: '3px 8px', fontSize: 11.5 }}>
+                            <Icon name="video" /> دخول الغرفة
+                          </Link>
                         )}
                         <button
                           type="button"
@@ -776,17 +738,12 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                     <div className="card-subj">{c.subject}</div>
                     <div className="card-client">👤 {maskClient(c.client)}</div>
                     <div className="card-foot">
-                      {(c.hostLink || c.slink) ? (
-                        <a
-                          href={c.hostLink || c.slink}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="btn primary sm"
-                          style={{ padding: '2px 8px', fontSize: 11 }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          دخول Zoom
-                        </a>
+                      {c.slink ? (
+                        c.canJoin !== false && (
+                          <Link href={c.slink} className="btn primary sm" style={{ padding: '2px 8px', fontSize: 11 }} onClick={(e) => e.stopPropagation()}>
+                            دخول الغرفة
+                          </Link>
+                        )
                       ) : (
                         <span style={{ fontSize: 11, color: '#15803d' }}>جلسة مكتبية</span>
                       )}
@@ -849,7 +806,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                   >
                     <div className="card-top">
                       <b>{c.ref}</b>
-                      <Badge text={c.status} tone={cTone(c.status)} />
+                      <Badge text={c.status} tone={c.tone} />
                     </div>
                     <div className="card-subj">{c.subject}</div>
                     <div className="card-client">👤 {maskClient(c.client)}</div>
@@ -878,8 +835,17 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                   <h3 style={{ margin: 0, fontSize: 18, color: 'var(--primary)' }}>
                     ملف الاستشارة: {drawerConsult.ref}
                   </h3>
-                  <Badge text={drawerConsult.status} tone={cTone(drawerConsult.status)} />
+                  <Badge text={drawerConsult.status} tone={drawerConsult.tone} />
                 </div>
+                {/* صفحة الرحلة الكاملة (`/lawyer/consult?ref=`) قائمةٌ ومحروسةٌ بإسناد المحامي، ولم يكن
+                    إليها رابطٌ في شاشات المحامي — لا تُبلَغ إلّا بكتابة العنوان (ملاحظة المالك 2026-09-27) */}
+                <Link
+                  href={`/lawyer/consult?ref=${encodeURIComponent(drawerConsult.ref)}`}
+                  className="btn soft sm"
+                  style={{ marginInlineStart: 'auto', marginInlineEnd: 8 }}
+                >
+                  <Icon name="out" /> رحلة الاستشارة الكاملة
+                </Link>
                 <button
                   type="button"
                   className="emp-drawer-close"
@@ -923,7 +889,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
               </div>
 
               {/* محتوى التبويبات */}
-              <div className="emp-drawer-body">
+              <div ref={drawerBodyRef} className="emp-drawer-body">
                 {/* ── التبويب 1: الوقائع والمستندات ── */}
                 {drawerTab === 'facts' && (
                   <div className="emp-d-content">
@@ -989,29 +955,17 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         </div>
                       </div>
 
-                      {/* زر دخول Zoom المباشر */}
-                      {/*
-                        **الرابط يتبع نافذة الدخول.** `hostLink` هو `start_url` خارجيّ
-                        فلا يمرّ بحارس `ZoomController@sdkSignature` الذي يفرض `canJoin`
-                        — وكان يُعرض دائماً للقناة المرئية: قبل إطلاق الرابط وبعد
-                        انتهاء الجلسة سواء.
-                      */}
-                      {drawerConsult.channel === 'مرئية' && (drawerConsult.hostLink || drawerConsult.slink) && (
+                      {/* دخول غرفة المنصّة — والرابط يتبع نافذة الدخول (`canJoin`)، والخادم يفرضها أيضاً */}
+                      {drawerConsult.channel === 'مرئية' && drawerConsult.slink && (
                         <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
                           {drawerConsult.canJoin === false ? (
                             <p className="action-hint" style={{ margin: 0 }}>
                               <Icon name="info" /> يُفتح رابط الغرفة قبل الموعد بخمس دقائق.
                             </p>
                           ) : (
-                            <a
-                              href={drawerConsult.hostLink || drawerConsult.slink}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="btn primary"
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
-                            >
-                              <Icon name="video" /> دخول غرفة الاجتماع المرئية (Zoom) ↗
-                            </a>
+                            <Link href={drawerConsult.slink} className="btn primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                              <Icon name="video" /> دخول غرفة الاجتماع المرئية
+                            </Link>
                           )}
                         </div>
                       )}
@@ -1048,14 +1002,13 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
 
                         <RescheduleRequestNotice consult={drawerConsult} base="/lawyer" onReschedule={() => handleReschedule(drawerConsult)} />
 
-                        {/* الخادم يشترط جلسةً منتظِرةً فات موعدها (`isMissed`) — وكان
-                            الزرّ ظاهراً بلا شرط، فيُضغط على جلسةٍ لم يحن وقتها ويُردّ
-                            برسالةٍ لا تُعرض. */}
+                        {/* بحارس الخادم (`canMarkNoShow` ← `MarkNoShow`): جلسةٌ منتظِرة فات موعدها.
+                            `missed` وحده يصدق أيضاً على ما وُسم «لم تُعقد» فيُرفض الضغط. */}
                         <button
                           type="button"
                           className="btn soft sm"
-                          disabled={isProcessing || !drawerConsult.missed}
-                          title={!drawerConsult.missed ? 'يُتاح بعد فوات الموعد بلا حضور' : undefined}
+                          disabled={isProcessing || !drawerConsult.canMarkNoShow}
+                          title={!drawerConsult.canMarkNoShow ? 'يُتاح بعد فوات الموعد بلا حضور' : undefined}
                           onClick={() => handleNoShow(drawerConsult)}
                         >
                           تسجيل عدم حضور العميل
@@ -1206,11 +1159,18 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                   <div className="emp-d-content">
                     <div className="emp-box" style={{ border: '1px solid #bbf7d0', background: '#f0fdf4' }}>
                       <h4 className="box-title" style={{ color: '#15803d' }}>
-                        ⚖️ تحويل الاستشارة إلى قضية تمثيل قضائي (Legal Case)
+                        ⚖️ اقتراح مسار قضية تمثيل قضائي
                       </h4>
+                      {/* لا تحويلَ مباشر: المقترح يُرفع من بطاقة القرار في التذكرة وتعتمده الإدارة العليا
+                          (`ApproveOutcomeTrack` — Zero Bypass)، وبعد انتهاء الجلسة وحده */}
                       <p style={{ margin: '0 0 12px', fontSize: 13, color: '#166534' }}>
-                        في حال اتفق الموكل معكم على رفع دعوى أمام المحكمة أو تمثيل قضائي، يمكنك تحويل هذا الملف مباشرة إلى قضية رسمية لفتح ملف القضية وتعيين الأتعاب.
+                        إن اتفق الموكل معكم على رفع دعوى أو تمثيل قضائي، ارفع مقترح مسار «قضية» من بطاقة القرار في ملف التذكرة؛ تعتمده الإدارة العليا فيُفتح ملف القضية وتُحدَّد الأتعاب.
                       </p>
+                      {!drawerConsult.canProposeOutcome && !drawerConsult.caseNo && (
+                        <p className="action-hint" style={{ margin: '0 0 10px' }}>
+                          <Icon name="info" /> يُرفع مقترح المسار بعد انتهاء الجلسة.
+                        </p>
+                      )}
                       {/* **الملفّ المحوَّل لا يُحوَّل مرّتين.** `caseNo` أُضيف إلى البطاقة
                           ليكون الإشارة الصادقة على التحويل، ولم يكن يُقرأ هنا —
                           فيبقى الزرّ أخضرَ مفعّلاً على ملفٍّ حُوِّل أمس، والخادم يردّ
@@ -1224,10 +1184,10 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         type="button"
                         className="btn sm"
                         style={{ background: '#16a34a', borderColor: '#16a34a', color: '#fff' }}
-                        disabled={isProcessing || !drawerConsult.ticketNo || !!drawerConsult.caseNo}
+                        disabled={isProcessing || !drawerConsult.canProposeOutcome}
                         onClick={() => handleConvertToCase(drawerConsult)}
                       >
-                        <Icon name="scale" /> تحويل الاستشارة إلى قضية تمثيل قضائي فوراً
+                        <Icon name="scale" /> اقتراح مسار قضية من بطاقة القرار
                       </button>
                     </div>
 
@@ -1440,7 +1400,9 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
           background: #fff;
           border: 1px solid rgba(0,0,0,0.08);
           border-radius: 12px;
-          overflow: hidden;
+          /* تمريرٌ أفقيّ لا قصّ — كان \`hidden\` يقطع الجدول (857px) على الهاتف فيظهر ثلثه */
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
           box-shadow: 0 1px 3px rgba(0,0,0,0.02);
         }
         .lawyer-table {
@@ -1502,7 +1464,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
         .lawyer-summary-badge.empty { background: #f1f5f9; color: #64748b; }
         .lawyer-kanban-board {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
           gap: 16px;
         }
         .lawyer-kanban-col {
@@ -1572,6 +1534,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
           inset: 0 !important;
           width: 100vw !important;
           height: 100vh !important;
+          height: 100dvh !important;
           background: rgba(15, 23, 42, 0.6) !important;
           z-index: 99990 !important;
           backdrop-filter: blur(4px) !important;
@@ -1584,7 +1547,10 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
           right: 0 !important;
           width: 600px !important;
           max-width: 92vw !important;
+          /* \`dvh\` على الجوّال، ولا يتمرّر اللوح نفسه — فلا يُقصّ الرأس عند تبديل التبويب */
           height: 100vh !important;
+          height: 100dvh !important;
+          overflow: hidden !important;
           background: #ffffff !important;
           z-index: 99999 !important;
           box-shadow: -10px 0 35px rgba(0, 0, 0, 0.3) !important;
@@ -1598,8 +1564,13 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
           from { transform: translateX(100%); }
           to { transform: translateX(0); }
         }
+        .emp-drawer-head, .emp-drawer-tabs {
+          flex-shrink: 0;
+        }
         .emp-drawer-head {
           padding: 16px 20px;
+          gap: 8px;
+          flex-wrap: wrap;
           border-bottom: 1px solid #e2e8f0;
           display: flex;
           justify-content: space-between;
@@ -1619,6 +1590,8 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
         .emp-drawer-close:hover { background: #e2e8f0; color: #0f172a; }
         .emp-drawer-tabs {
           display: flex;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
           border-bottom: 1px solid #e2e8f0;
           background: #f8fafc;
         }
@@ -1650,8 +1623,18 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
         .d-tab-count.warn { background: #fef3c7; color: #b45309; }
         .emp-drawer-body {
           flex: 1;
+          min-height: 0;
           overflow-y: auto;
           padding: 20px;
+        }
+        @media (max-width: 768px) {
+          .emp-drawer-panel { width: 100% !important; max-width: 100% !important; }
+          /* التبويبات لا تُعصر في عرض الهاتف — تتمرّر أفقيّاً بمقاسها */
+          .d-tab { flex: 0 0 auto; padding: 10px 12px; font-size: 12px; white-space: nowrap; }
+        }
+        @media (max-width: 420px) {
+          .emp-drawer-head { padding: 12px 14px; }
+          .emp-drawer-body { padding: 14px; }
         }
         .emp-d-content {
           display: flex;

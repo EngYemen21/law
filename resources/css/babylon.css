@@ -788,6 +788,9 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 .vr-timer{margin-inline-start:auto;font-weight:800;font-size:13px;background:rgba(0,0,0,.35);padding:4px 13px;border-radius:99px;direction:ltr}
 .vr-rec{display:flex;align-items:center;gap:6px;font-size:11px;background:rgba(192,57,43,.9);padding:3px 9px;border-radius:99px}
 .vr-rec .dot{width:7px;height:7px;border-radius:50%;background:#fff;animation:vrp 1.2s infinite}
+/* تنبيه الطاقم: داخلٌ من خارج المنصّة — تحت رأس الغرفة، وفي الشريط المصغّر ضمن تدفّقه */
+.mroom-warn{position:fixed;top:var(--mroom-head);inset-inline:0;z-index:84;padding:7px 14px;font-size:12.5px;font-weight:700;color:#7a1d12;background:#fde8e4;border-bottom:1px solid #f5b5a9}
+.mroom-dock .mroom-warn{position:static;border-radius:8px;margin:6px 0}
 @keyframes vrp{0%,100%{opacity:1}50%{opacity:.2}}
 .vr-wm{position:absolute;bottom:14px;inset-inline-end:16px;color:rgba(255,255,255,.32);font-size:10.5px;font-weight:700;direction:ltr}
 .vr-controls{display:flex;justify-content:center;align-items:center;gap:13px;padding:18px;background:#0A2A55}
@@ -822,8 +825,14 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 .mroom-zoom{position:fixed;z-index:81;overflow:hidden;direction:ltr;background:#0A2A55}
 .mroom-zoom[data-view="hidden"]{display:none}
 .mroom-zoom[data-view="full"]{top:var(--mroom-head);inset-inline:0;bottom:0}
-.mroom-zoom[data-view="dock"]{z-index:86;bottom:calc(16px + var(--mroom-dock-bar));inset-inline-end:16px;width:var(--mroom-dock-w);height:var(--mroom-dock-h);border-radius:14px 14px 0 0;box-shadow:0 22px 55px -20px rgba(10,42,85,.7)}
-.mroom-zoom-root{width:100%;height:100%}
+/* الشريط المصغّر: \`left\` لا \`inset-inline-end\` — الحاوية \`direction:ltr\` (يشترطه Zoom) فكان «نهاية السطر» فيها يمينَ
+   الصفحة، بينما شريط التحكّم (\`.mroom-dock\`) في صفحةٍ RTL نهايتُه يسارها: الفيديو في زاوية وأزراره في الأخرى
+   (ملاحظة المالك 2026-09-27، الصورة ١) */
+.mroom-zoom[data-view="dock"]{z-index:86;bottom:calc(16px + var(--mroom-dock-bar));left:16px;right:auto;width:var(--mroom-dock-w);height:var(--mroom-dock-h);border-radius:14px 14px 0 0;box-shadow:0 22px 55px -20px rgba(10,42,85,.7)}
+.mroom-zoom-root{width:100%;height:100%;position:relative}
+/* Component View يضع الفيديو في حاويةٍ قابلة للسحب مُزاحةٍ بـtransform — داخل غرفتنا تُثبَّت في أصل الحاوية
+   فلا تُقصّ عند التبديل بين الغرفة والشريط المصغّر (ملاحظة المالك 2026-09-27) */
+.mroom-zoom-root .react-draggable{transform:none!important;inset:0 auto auto 0!important;max-width:100%;max-height:100%}
 .mroom-stage{position:fixed;top:var(--mroom-head);inset-inline:0;bottom:0;z-index:82;pointer-events:none}
 .mroom-overlay{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:#fff;padding:26px;pointer-events:auto;background:radial-gradient(circle at 50% 34%,#16427d,#0A2A55 72%)}
 .mroom-overlay .oi{width:66px;height:66px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.1);margin:0 auto 4px}
@@ -866,7 +875,9 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 @media(max-width:860px){
   .staff-live-preview{display:none!important}
   .sidebar{transform:translateX(100%)}.sidebar.open{transform:none;box-shadow:var(--shadow-lg)}
-  .main{margin-right:0}.menu-btn{display:grid}.search{display:none}
+  .main{margin-right:0}.menu-btn{display:grid}.topbar .search{display:none}
+  /* بحثُ الصفحة يبقى ظاهراً — كانت \`.search{display:none}\` عامّةً فتُخفي مربّع التصفية في تسع صفحات (2026-09-27) */
+  .content .search{max-width:100%}
   .tiles{grid-template-columns:repeat(2,1fr)}.grid-2{grid-template-columns:1fr}
   .scrim.show{display:block;position:fixed;inset:0;background:rgba(10,42,85,.4);z-index:45}
   .appt-body{grid-template-columns:1fr;text-align:center}.qr{margin:0 auto}

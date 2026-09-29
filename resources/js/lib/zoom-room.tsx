@@ -65,6 +65,12 @@ const RecordingBadge: React.FC<{ room: Room }> = ({ room }) =>
     <span className="vr-rec"><span className="dot" /> {ROOM_TEXT.recording}</span>
   ) : null;
 
+/** تنبيه الطاقم: دخل أحدٌ الجلسة من خارج المنصّة (بلا مفتاحها) — من الخادم وحده، والعميل لا يراه. */
+const OutsidersNotice: React.FC<{ room: Room }> = ({ room }) =>
+  isStaffRoom(room) && room.outsiders > 0 ? (
+    <div className="mroom-warn" role="alert">{ROOM_TEXT.outsiders(room.outsiders)}</div>
+  ) : null;
+
 /** صفوف التفاصيل — من الخادم كما هي، ومعها الحاضرون الآن والمدّة المقيسة بعد الانتهاء. */
 const RoomRows: React.FC<{ room: Room; participants: number | null }> = ({ room, participants }) => (
   <>
@@ -276,6 +282,7 @@ export const RoomPage: React.FC<{ room: Room }> = ({ room: serverRoom }) => {
           </Link>
         </span>
       </header>
+      <OutsidersNotice room={room} />
 
       <div className="mroom-stage">{overlay}</div>
       {phase === 'joined' && s.userName && <div className="mroom-wm">{s.userName} · {room.ref}</div>}
@@ -365,6 +372,7 @@ export const RoomDock: React.FC = () => {
           {elapsed && <span className="vr-timer">{elapsed}</span>}
           <RecordingBadge room={room} />
         </div>
+        <OutsidersNotice room={room} />
         <div className="mroom-dock-actions">
           {href && <button className="btn sm" onClick={() => router.visit(href)} type="button">{ROOM_TEXT.returnToRoom}</button>}
           <button className="btn sm mroom-dock-leave" onClick={leaveRoom} title={ROOM_TEXT.leaveHint} type="button">{ROOM_TEXT.leave}</button>

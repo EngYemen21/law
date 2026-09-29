@@ -26,7 +26,7 @@ class TicketConsultBookingTest extends TestCase
     private function ticketFor(User $client, string $dept = 'القضايا التجارية'): Ticket
     {
         return $this->ticketWithApprovedOpinion($client, [
-            'number' => 'SB-'.random_int(1000, 9999),
+            'number' => 'SB-'.uniqid(),
             'department' => $dept,
             'status' => 'بانتظار حجز الاستشارة',
         ]);

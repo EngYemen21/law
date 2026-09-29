@@ -87,7 +87,7 @@ class SessionRecordingAccessTest extends TestCase
     public function test_the_meeting_card_carries_media_flags_not_zoom_links(): void
     {
         $meeting = Meeting::create([
-            'ref' => 'M-'.random_int(1000, 9999), 'title' => 'اجتماع منعقد', 'when_label' => 'أمس',
+            'ref' => 'M-'.uniqid(), 'title' => 'اجتماع منعقد', 'when_label' => 'أمس',
             'status' => 'منتهٍ', 'meet_id' => '82711433579',
             'recording_url' => 'https://zoom.us/rec/play/meeting-token',
             'zoom_audio_url' => 'https://zoom.us/rec/play/meeting-audio',

@@ -4,7 +4,9 @@ namespace App\Models;
 
 use App\Domain\Journey\Enums\SessionState;
 use App\Domain\Journey\GuardsJourneyState;
+use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
 use App\Support\LawyerName;
+use App\Support\Permissions;
 use App\Support\SessionWindow;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -153,12 +155,15 @@ class Appointment extends Model
             // جسر إجراءات لوحة المواعيد: إعادة الجدولة/«لم يحضر» تمرّان عبر الاستشارة المرافقة
             'consultId' => $this->consult?->id,
             'consultRescheduleCount' => (int) ($this->consult?->reschedule_count ?? 0),
+            // أزرار الموعد في الجدول (إعادة الجدولة · لم يحضر) بحارسَي الخادم — لا بحالة الموعد وحدها
+            'consultCanReschedule' => $this->consult !== null && (new RescheduleConsult)->guard($this->consult, []) === null,
+            'consultCanMarkNoShow' => (bool) $this->consult?->canMarkNoShow(),
             'pay' => $this->consult?->paid_at ? 'مدفوع' : 'بانتظار السداد',
             // رابط الجلسة المرئية الحقيقي داخل المنصّة — فارغ لغير المرئية أو لفاقدي صلاحية الحضور (يُخفى الزرّ)
             // canJoin + فحص الصلاحية شرطان لازمان: بلا الحكمين كان الزرّ يظهر ويردّ الخادم 403
             'joinLink' => $this->consult?->channel === 'مرئية'
                 && $this->consult->canJoin()
-                && ($viewer === null || $viewer->isAdmin() || $viewer->isClient() || $viewer->can('إجراء الجلسات المرئية') || $viewer->can('استقبال الاستشارات'))
+                && ($viewer === null || $viewer->isAdmin() || $viewer->isClient() || $viewer->can(Permissions::RUN_VIDEO_SESSIONS) || $viewer->can(Permissions::RECEIVE_CONSULTS))
                 ? $this->consult->joinLink($viewer)
                 : '',
         ];

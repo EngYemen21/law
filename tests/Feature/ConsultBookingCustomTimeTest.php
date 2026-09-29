@@ -27,7 +27,7 @@ class ConsultBookingCustomTimeTest extends TestCase
     private function paidConsult(User $client): Consult
     {
         $ticket = $this->ticketWithApprovedOpinion($client, [
-            'number' => 'TK-CT-'.random_int(100, 999), 'type' => 'استشارة', 'subject' => 'نزاع تجاري',
+            'number' => 'TK-CT-'.uniqid(), 'type' => 'استشارة', 'subject' => 'نزاع تجاري',
         ]);
 
         return $this->requestPricedAndPaid($client, $ticket, 'video');

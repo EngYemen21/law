@@ -10,7 +10,7 @@ import TicketActionsPanel from '@/components/babylon/TicketActionsPanel';
 import TicketDetailsCard from '@/components/babylon/TicketDetailsCard';
 import TicketRequirementsCard from '@/components/babylon/TicketRequirementsCard';
 import TicketTalkingNotice from '@/components/babylon/TicketTalkingNotice';
-import TicketTrackDecisionCard, { TrackGovernanceData } from '@/components/babylon/TicketTrackDecisionCard';
+import TicketTrackDecisionCard from '@/components/babylon/TicketTrackDecisionCard';
 import { useToast } from '@/components/babylon/Toast';
 import { TKT_LIFE, tktStage  } from '@/lib/chat';
 import type {Message} from '@/lib/chat';
@@ -18,22 +18,17 @@ import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
 import type {SummaryData} from '@/lib/lawyer-data';
 import { useCan } from '@/lib/permissions';
+import type { EmployeeTicketCard } from '@/types';
 
 // دراسة التذكرة لدى المستشار — محادثة العميل (سياق حيّ + رد مباشر) + ملخص الملف + الاعتماد
 // تُستخدم الصفحة نفسها من لوحة الإدارة؛ لذا كل الروابط تُبنى من base لا مثبّتة على /lawyer.
 
-interface EmpTicket {
-  no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string;
-  caseRef?: string | null; execRef?: string | null; subject?: string | null; priority?: string | null; mobile?: string | null; openedAt?: string | null;
-  isFrozen?: boolean;
-  isTerminal?: boolean;
-  closureReasonCode?: string | null;
-  closureNotes?: string | null;
-  hasCase?: boolean;
-  caseNumber?: string | null;
-  hasExecution?: boolean;
-  executionNumber?: string | null;
-  trackGovernance?: TrackGovernanceData | null;
+/** `Ticket::toEmployeeCard` (`@/types`) وما تُلحقه هذه الصفحة. */
+interface EmpTicket extends EmployeeTicketCard {
+  caseRef?: string | null;
+  execRef?: string | null;
+  mobile?: string | null;
+  openedAt?: string | null;
 }
 /** نموذج «تصحيح الحالة» من حارس الانتقال (`CorrectTicketStatus::form`) — للإدارة وحدها، و`null` لغيرها. */
 interface CorrectionForm { blocker: string | null; targets: { value: string; label: string }[] }

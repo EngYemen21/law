@@ -29,7 +29,7 @@ class AdminConsultDrawerActionsTest extends TestCase
 
         return Consult::create(array_merge([
             'user_id' => $client->id,
-            'ref' => 'CN-DRW-'.random_int(100, 999),
+            'ref' => 'CN-DRW-'.uniqid(),
             'subject' => 'نزاع تجاري',
             'type' => 'استشارة',
             'channel' => 'مرئية',
@@ -89,12 +89,13 @@ class AdminConsultDrawerActionsTest extends TestCase
         $this->assertStringContainsString('function referBlockReason(', $ui);
         $this->assertStringContainsString('{referBlocked ? (', $ui);
         $this->assertStringContainsString("c.session === 'جلسة جارية'", $ui);
-        $this->assertStringContainsString('CONSULT_CLOSED_STATUSES.includes(c.status)', $ui);
-        $this->assertStringContainsString('CONSULT_BOOKING_STATUSES.includes(c.status)', $ui);
+        // مجموعات الحالة أعلامٌ من الخادم (`Consult::toCard`) لا قوائم منسوخة في الواجهة
+        $this->assertStringContainsString('if (c.isClosed) {', $ui);
+        $this->assertStringContainsString('if (c.bookingStage != null) {', $ui);
 
         // والتحليل لا يُعرض على ملفٍّ انتهى
         $this->assertStringContainsString(
-            '{!CONSULT_CLOSED_STATUSES.includes(drawerConsult.status) && (',
+            '{!drawerConsult.isClosed && (',
             $ui
         );
 
@@ -109,8 +110,9 @@ class AdminConsultDrawerActionsTest extends TestCase
             $ui,
             'حجبُ الإلغاء عن المدفوعة يخالف الخادم الذي يقبله'
         );
+        // والشرط اليوم مفتاح الخادم `bookingStage` (غير فارغٍ في مراحل الحجز الأربع = `CancelRequest::from()`)
         $this->assertStringContainsString(
-            '{CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && (',
+            '{drawerConsult.bookingStage != null && (',
             $ui
         );
     }
@@ -204,7 +206,7 @@ class AdminConsultDrawerActionsTest extends TestCase
         // كتلة «حصيلة الجلسة» تظهر عند ختم الجلسة أو انتهاء الملفّ.
         // **الشرط من أوّله**: فحصُ الاسم وحده ينجو من `{(false && …)` — جرّبتُه فنجا.
         $this->assertStringContainsString(
-            '{(CONSULT_SESSION_ENDED.includes(drawerConsult.session)',
+            '{(drawerConsult.sessionEnded',
             $ui,
             'كتلة حصيلة الجلسة مُعطَّلة أو مشروطةٌ بغير حالة الجلسة'
         );
@@ -215,11 +217,10 @@ class AdminConsultDrawerActionsTest extends TestCase
         $this->assertStringContainsString('drawerConsult.summaryApproved ? (', $ui);
         $this->assertStringContainsString('drawerConsult.tasksCreated ? (', $ui);
 
-        // والرفض يُسمَع في كليهما
-        $this->assertSame(
-            2,
-            substr_count($ui, "onError: (err) => toast(`⚠️ \${Object.values(err)[0] || 'تعذّر"),
-            'كلا الفعلين الجديدين يعرض سبب الرفض'
-        );
+        // والرفض يُسمَع في كليهما — عبر القفل الموحّد (`useServerAction`) الذي يعرض سبب الخادم
+        // (`firstError`) أو نصّ `fallback` لكلّ فعل
+        $this->assertStringContainsString("fallback: 'تعذّر اعتماد الملخّص'", $ui, 'اعتماد الملخّص بلا رسالة رفض');
+        $this->assertStringContainsString("fallback: 'تعذّر إنشاء المهامّ'", $ui, 'إنشاء المهامّ بلا رسالة رفض');
+        $this->assertStringContainsString('const { run, busy: isProcessingAction } = useServerAction();', $ui);
     }
 }

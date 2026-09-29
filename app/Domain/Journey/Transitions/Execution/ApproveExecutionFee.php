@@ -7,7 +7,7 @@ use App\Domain\Journey\Transition;
 use App\Models\Execution;
 use App\Models\Setting;
 use App\Models\User;
-use App\Support\ExecFee;
+use App\Support\Finance\LawyerShare;
 use App\Support\SettingsRegistry;
 use Illuminate\Database\Eloquent\Model;
 
@@ -93,6 +93,8 @@ final class ApproveExecutionFee extends Transition
             $entity->vat = Setting::vatOn($fee);
         }
 
+        LawyerShare::applyToExecution($entity, isset($payload['lawyer_pct']) ? (int) $payload['lawyer_pct'] : null);
+
         $entity->fee_approved = true;
         $entity->offer_status = null;
         $status = ExecutionStatus::ServiceOffer;
@@ -106,6 +108,7 @@ final class ApproveExecutionFee extends Transition
     {
         return [
             'adjusted_fee' => $payload['adjusted_fee'] ?? null,
+            'lawyer_pct' => $payload['lawyer_pct'] ?? null,
         ];
     }
 }

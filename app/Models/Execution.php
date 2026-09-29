@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\Enums\ExecutionStatus;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Enums\Role;
 use App\Models\Concerns\ClipsPreviewText;
@@ -10,6 +11,8 @@ use App\Support\ConversationFiles;
 use App\Support\ExecFlow;
 use App\Support\ExecService;
 use App\Support\LawyerName;
+use App\Support\Permissions;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -36,7 +39,7 @@ class Execution extends Model
         'ai_done', 'ai_source', 'ai_summary', 'ai_missing', 'ai_procedures', 'ai_study', 'ai_approved_at', 'ai_approved_by',
         'decision', 'fee', 'vat', 'duration', 'pay_method', 'fee_approved', 'offer_status',
         // نماذج الأتعاب: نموذج المكتب (ثابت/نسبة) وخطّة العميل (كامل/تقسيط)
-        'fee_mode', 'collection_fee_pct', 'pay_plan', 'installments_total', 'installments_paid',
+        'fee_mode', 'collection_fee_pct', 'lawyer_pct', 'lawyer_fee', 'pay_plan', 'installments_total', 'installments_paid',
         'invoice_no', 'paid', 'paid_at', 'exec_no', 'payment_reminder_sent_at',
         // مسار ناجز داخل المرحلتين 7 و8 (قرار المالك 2026-09-12) وسبب الإنهاء
         'najiz_request_no', 'najiz_filed_at', 'circuit', 'registered_at', 'notified_at', 'pay_due_at',
@@ -58,6 +61,8 @@ class Execution extends Model
         'ai_study' => 'array',
         'fee_approved' => 'boolean',
         'collection_fee_pct' => 'decimal:2',
+        'lawyer_pct' => 'integer',
+        'lawyer_fee' => 'integer',
         'installments_total' => 'integer',
         'installments_paid' => 'integer',
         'paid' => 'boolean',
@@ -189,6 +194,10 @@ class Execution extends Model
             'notes' => $this->notes ?? '',
             'docs' => $this->docs ?? [],
             'stage' => $stage,
+            'stageLabel' => $this->stageLabel(),
+            // لون شارة المرحلة من الخادم (`ExecFlow::tone`) للمرحلة الفعّالة نفسها — كانت معادلته منسوخةً
+            // في الواجهة (`execTone`)
+            'tone' => ExecFlow::tone($stage),
             'channel' => 'exec.'.$this->id,
             'messages' => $this->relationLoaded('messages')
                 ? $this->flowMessages($internal)
@@ -249,6 +258,8 @@ class Execution extends Model
             ])->values()->all(),
             'najiz' => $this->najizCard(),
             'closed' => $this->isClosed(),
+            // مجموعة الملفّ في تبويبات القائمة (`ExecFlow::BUCKETS`) — لا شروطَ مرحلةٍ في الواجهة
+            'bucket' => ExecFlow::bucket($stage, (bool) $this->paid, $this->isClosed()),
             // أعلامٌ من الخادم بدل مقارنة «مرفوض» نصّاً في الواجهة (`execflow.tsx`)
             'isRejected' => $this->isRejectedAfterStudy(),
             'offerRejected' => $this->isOfferRejected(),
@@ -313,9 +324,19 @@ class Execution extends Model
 
         return match ($viewer->role) {
             Role::Admin => true,
-            Role::Employee => $exec->assigned_lawyer_id === null && $viewer->can('إجراءات المحكمة والجلسات'),
+            Role::Employee => $exec->assigned_lawyer_id === null && $viewer->can(Permissions::COURT_PROCEEDINGS),
             default => false,
         };
+    }
+
+    /**
+     * **اسم المرحلة الفعّالة من الـEnum** — تقرؤه كلّ شارات المرحلة (بطاقة التدفّق، ولوحة العميل، وملفّ
+     * العميل عند الإدارة). كانت الشارة تُقرأ من نسخةٍ في الواجهة (`EXEC_FLOW[stage]`) فتخرج فارغةً لمرحلةٍ
+     * خارجها؛ و`fromStage` يعيد «مغلق» لكلّ ما بعد التنفيذ.
+     */
+    public function stageLabel(): string
+    {
+        return ExecutionStatus::fromStage($this->effectiveStage())->value;
     }
 
     /**
@@ -421,5 +442,15 @@ class Execution extends Model
         }
 
         return $parts[0].' '.implode(' ', array_map(fn ($p) => mb_substr($p, 0, 1).'…', array_slice($parts, 1)));
+    }
+
+    /**
+     * **اللون يُحسب من الحالة عند القراءة (`ExecFlow::tone` للمرحلة الفعّالة)** — العمود المخزَّن يُكتب مع الانتقال
+     * لكنّه لا يُقرأ: كانت حمولاتٌ ترسله خاماً وأخرى تحسبه، وصفوفٌ قديمة تحمل لوناً غير لون
+     * حالتها، وشاشة التوزيع تسدّ فراغه بألوانٍ لا يُنتجها الخادم. فكلّ `->tone` الآن هو لون الحالة.
+     */
+    protected function tone(): Attribute
+    {
+        return Attribute::get(fn () => ExecFlow::tone($this->effectiveStage()));
     }
 }

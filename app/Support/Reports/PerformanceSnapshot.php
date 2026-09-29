@@ -3,9 +3,11 @@
 namespace App\Support\Reports;
 
 use App\Domain\Journey\Enums\ClosureReasonCode;
+use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\MeetingStatus;
 use App\Domain\Journey\Enums\TicketStatus;
 use App\Http\Controllers\Admin\JourneyTransitionController;
+use App\Models\Consult;
 use App\Models\Execution;
 use App\Models\JourneyTransition;
 use App\Models\LegalCase;
@@ -57,6 +59,9 @@ final class PerformanceSnapshot
         $closedTickets = Ticket::whereIn('status', [TicketStatus::Closed->value, TicketStatus::Completed->value])->count();
         $activeTickets = Ticket::whereNotIn('status', TicketStatus::finals())->where('is_frozen', false)->count();
 
+        // ── الاستشارات ── (عدا الملغاة) — كان عنوان «إجمالي الاستشارات والتذاكر» يعرض التذاكر وحدها
+        $totalConsults = Consult::where('status', '!=', ConsultStatus::Cancelled->value)->count();
+
         // ── القضايا ──
         $totalCases = LegalCase::count();
         $activeCases = LegalCase::whereIn('status', CaseJourney::ACTIVE)->count();
@@ -81,6 +86,7 @@ final class PerformanceSnapshot
 
         $stats = [
             'totalTickets' => $totalTickets,
+            'totalConsults' => $totalConsults,
             'closureRate' => $totalTickets ? (int) round($finishedTickets / $totalTickets * 100) : 0,
             'convertedToCase' => $convertedToCase,
             'convertedToExecution' => $convertedToExecution,

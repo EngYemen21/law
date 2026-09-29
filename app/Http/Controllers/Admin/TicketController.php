@@ -12,7 +12,6 @@ use App\Domain\Journey\Workflow;
 use App\Enums\Role;
 use App\Http\Controllers\Controller;
 use App\Models\Ticket;
-use App\Models\TicketSummary;
 use App\Models\User;
 use App\Support\AdminApprovalQueue;
 use App\Support\ConversationFiles;
@@ -212,20 +211,6 @@ class TicketController extends Controller
             'correction' => CorrectTicketStatus::form($ticket),
             'base' => '/admin',
         ]);
-    }
-
-    public function summaries(): Response
-    {
-        $summaries = TicketSummary::with(['ticket.user', 'lawyer'])
-            ->whereHas('ticket')
-            ->orderByRaw('COALESCE(approved_at, lawyer_approved_at, updated_at) DESC')
-            ->get()
-            ->map(fn (TicketSummary $s) => array_merge($s->toData(), [
-                'type' => $s->ticket?->type,
-                'client' => $s->ticket?->user?->name ?? '—',
-            ]))->values();
-
-        return Inertia::render('admin/summaries', ['summaries' => $summaries]);
     }
 
     /**

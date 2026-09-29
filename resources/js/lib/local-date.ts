@@ -20,3 +20,17 @@ export function dateISOAfter(days: number): string {
 
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+/**
+ * أوّل الشهر الجاري `YYYY-MM-01` **بالتوقيت المحلي** — لفلتر «هذا الشهر». كان يُحسب بـ`toISOString` من
+ * منتصف ليل اليوم الأوّل محلّياً، وهو ٢١:٠٠ من آخر أيّام الشهر السابق بتوقيت UTC — فيبدأ الفلتر قبل الشهر بيوم طوال اليوم.
+ */
+export function firstOfMonthISO(): string {
+  return `${todayISO().slice(0, 8)}01`;
+}
+
+/**
+ * أسماء أيّام الأسبوع بترتيب `Date.getDay()` (الأحد=0) — وهو ترتيب Carbon في الخادم (`consult_work_days`).
+ * المصدر الواحد لرأس التقويم وأزرار «أيّام دوام المكتب» في الإعدادات.
+ */
+export const WEEK_DAY_NAMES = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'] as const;

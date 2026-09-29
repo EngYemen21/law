@@ -103,30 +103,36 @@ class BookingContractTest extends TestCase
 
     // ══ المحرّك: إجابتان لكلّ سؤال ══
 
-    /** التوفّر اليوم **٢٤ شريحة** لكلّ محامٍ في كلّ يوم — بلا دوامٍ إطلاقاً. */
-    public function test_wrong_every_lawyer_is_available_24_hours_every_day(): void
+    /**
+     * **قُلِب (قرار المالك 2026-09-28): الحجز بدوام المكتب.** كان التوفّر ٢٤ شريحةً لكلّ محامٍ في كلّ
+     * يوم. الآن ٠٩:٠٠–٢٢:٠٠ من الأحد إلى الخميس (إعدادا `consult_day_*` و`consult_work_days`).
+     */
+    public function test_availability_follows_office_hours_and_days(): void
     {
         $lawyer = $this->lawyer();
+        $sunday = now()->startOfWeek(Carbon::SUNDAY);
 
-        // @wrong الدفعة ٤ تُقيّده بدوام المكتب وساعات المحامي
-        foreach ([2, 3, 4] as $daysAhead) {
-            $slots = LawyerAvailability::slotsFor($lawyer->id, now()->addDays($daysAhead)->toDateString());
-            $this->assertCount(24, $slots, 'كلّ ساعات اليوم شرائح');
-            $this->assertSame('00:00', $slots[0]['time']);
-            $this->assertSame('23:00', $slots[23]['time']);
+        foreach ([1, 2, 3] as $weekday) {
+            $slots = LawyerAvailability::slotsFor($lawyer->id, $sunday->copy()->addDays($weekday + 7)->toDateString());
+            $this->assertCount(13, $slots, 'من ٠٩:٠٠ إلى آخر بدايةٍ ٢١:٠٠');
+            $this->assertSame('09:00', $slots[0]['time']);
+            $this->assertSame('21:00', $slots[12]['time']);
+        }
+
+        foreach ([5, 6] as $weekend) {
+            $this->assertSame([], LawyerAvailability::slotsFor($lawyer->id, $sunday->copy()->addDays($weekend + 7)->toDateString()), 'الجمعة والسبت بلا شرائح');
         }
     }
 
-    /** وساعات دوام المحامي مُخزَّنة ولا أثر لها. */
-    public function test_wrong_configured_working_hours_have_no_effect(): void
+    /** وساعات دوام المحامي في ملفّه للعرض — الحجز بدوام المكتب وحده (قرار المالك 2026-09-28). */
+    public function test_the_lawyers_own_hours_do_not_narrow_booking(): void
     {
         $lawyer = $this->lawyer();
-        $lawyer->forceFill(['work_start' => '09:00', 'work_end' => '17:00'])->save();
+        $lawyer->forceFill(['work_start' => '10:00', 'work_end' => '14:00'])->save();
 
-        // @wrong الدفعة ٤ تجعلها ٨ شرائح
         $slots = LawyerAvailability::slotsFor($lawyer->fresh()->id, now()->addDays(2)->toDateString());
 
-        $this->assertCount(24, $slots, 'العمودان يُكتبان ولا يقرؤهما المحرّك');
+        $this->assertCount(13, $slots, 'مصدرٌ واحد للحجز: دوام المكتب');
     }
 
     /**

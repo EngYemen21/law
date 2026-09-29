@@ -1,25 +1,26 @@
 import { Link, router } from '@inertiajs/react';
 import React, { useEffect, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
-import { useConfirm, usePrompt } from '@/components/babylon/ConfirmDialog';
+import { usePrompt } from '@/components/babylon/ConfirmDialog';
 import type { ConfirmRequest } from '@/components/babylon/ConfirmDialog';
-import FlowLine from '@/components/babylon/FlowLine';
 import Modal from '@/components/babylon/Modal';
 import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
+import { stageChanged, staffPatch } from '@/lib/consult-live';
 import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-reschedule';
 import { echo } from '@/lib/echo';
 import {
-  CONSULT_CHANNELS, CONSULT_FLOW, CONSULT_BOOKING_FLOW, CONSULT_BOOKING_STATUSES,
-  CONSULT_CLOSED_STATUSES, CONSULT_PRIORITIES, cBookingStage, cStage, cHasStage, cTone,
-  crChannelIcon, crChannelTone, maskClient, sessTone
+  CONSULT_CHANNELS, CONSULT_FLOW, CONSULT_BOOKING_FLOW, CONSULT_PRIORITIES, cBookingStage, cStage, cHasStage,
+  crChannelIcon, crChannelTone, maskClient
 } from '@/lib/employee-data';
 import type {AuditEntry} from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
 import { consultMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
 import type { SessionMedia } from '@/lib/recording-ui';
+import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
+import { useServerAction } from '@/lib/use-server-action';
 
 // ============================================================
 // واجهة الاستشارات المشتركة (سجلّ Consult الحقيقي من الخادم)
@@ -47,6 +48,34 @@ export const CONFIRM_CANCEL_CONSULT_REQUEST: ConfirmRequest = {
   tone: 'danger',
 };
 
+/**
+ * **«لم يحضر» — نصٌّ واحد لكلّ شاشة** (قرار المالك 2026-09-27). يُشعر العميل ويُغلق الموعد
+ * بلا جلسة؛ كان في صفحة المحامي وحدها، والشاشات الأخرى تُرسله بنقرة.
+ */
+export const CONFIRM_NO_SHOW: ConfirmRequest = {
+  title: 'تسجيل عدم حضور العميل؟',
+  message: 'تُسجَّل الجلسة غيابَ موكّل ويُشعَر بذلك — راجع غرفة الاجتماع قبل التأكيد.',
+  confirmLabel: 'تسجيل الغياب',
+  cancelLabel: 'تراجع',
+  tone: 'danger',
+};
+
+/** بدء الجلسة — يُشعر العميل ويبدأ توقيتها (قرار المالك 2026-09-27). */
+export const CONFIRM_START_CONSULT: ConfirmRequest = {
+  title: 'بدء الجلسة الآن؟',
+  message: 'تبدأ الجلسة ويُبلَّغ العميل ويُحتسب وقتها من الآن.',
+  confirmLabel: 'بدء الجلسة',
+  cancelLabel: 'تراجع',
+};
+
+/** اعتماد الإدارة ملخّصَ الاستشارة — يصل العميلَ وتكتمل تذكرته، ولا يُعدَّل بعده. */
+export const CONFIRM_APPROVE_CONSULT_SUMMARY: ConfirmRequest = {
+  title: 'اعتماد الملخّص وإرساله للعميل؟',
+  message: 'يصل الملخّص العميلَ وتُنشر نتيجة تذكرته. لا يُعدَّل الملخّص بعد اعتماده.',
+  confirmLabel: 'اعتماد وإرسال',
+  cancelLabel: 'تراجع',
+};
+
 // نصّ قرار آمن للعرض — القرارات نصوص عادةً، لكن بيانات قديمة قد تحمل كائن مهمّة {title,...}
 // (نظير الحارس نفسه في DecisionTasks::create على الخادم) فلا يُكسَر React عند عنصر غير نصّي.
 function decisionText(x: unknown): string {
@@ -59,6 +88,14 @@ function decisionText(x: unknown): string {
 
 // بطاقة الاستشارة كما يعيدها الخادم (Consult::toCard)
 export interface ConsultCard {
+  /** سبب تعذّر الإسناد الآن بحسب مرحلة الحجز — من الخادم (`Consult::toCard`)؛ `null` = لا مانع. */
+  assignBlocker?: string | null;
+  /** في دورة الحجز المحامي مرشَّحٌ من التذكرة لا مُسنَد. */
+  lawyerTentative?: boolean;
+  /** الموعد المقترح بانتظار الاعتماد (قبل نشره). */
+  proposedWhen?: string | null;
+  /** مقترح المآل مفتوحٌ من بطاقة التذكرة: انتهت الجلسة ولم تُحوَّل التذكرة — من الخادم. */
+  canProposeOutcome?: boolean;
   id: number;
   ref: string;
   client: string;
@@ -72,15 +109,27 @@ export interface ConsultCard {
   slink: string;
   canJoin?: boolean; // زر الدخول مفعّل؟ (بعد إطلاق الرابط قبل الموعد بـ5د)
   missed?: boolean; // فات موعدها بلا جلسة (يشتقه الخادم)
+  /** سُجّلت «لم تُعقد» — علمٌ مستقلّ عن `missed` في البطاقتين (قرار المالك 2026-09-27). */
+  notHeld?: boolean;
+  /** لون شارة الحالة (`ConsultStatus::tone`) ولون شارة الجلسة (`SessionState::tone`) — من الخادم. */
+  tone: string;
+  sessionTone: string;
+  /** مجموعات الحالة من الخادم (`Consult::TERMINAL_STATUSES` · `CLOSED_STATUSES` · `SESSION_ENDED`) — لا قوائم في الواجهة. */
+  isTerminal: boolean;
+  isClosed: boolean;
+  sessionEnded: boolean;
   /** كم مرّة أُعيدت جدولتها — السقف في `reschedule.limit` المشترك من الخادم. */
   rescheduleCount?: number;
   /** يسمح حارس `RescheduleConsult` بإعادة جدولتها الآن — الزرّ يتبعه لا يخمّن. */
   canReschedule?: boolean;
+  /** يسمح حارس `MarkNoShow` بوسمها «لم يحضر» الآن. */
+  canMarkNoShow?: boolean;
+  /** شروط `approveSummary` (`Consult::summaryApprovalBlocker`) — يُظهر زرّ الاعتماد. */
+  canApproveSummary?: boolean;
   /** طلب العميل تغيير الموعد، معلّقٌ حتى يُعاد جدولتها أو يُرفض. */
   clientRescheduleRequest?: { at: string; note: string | null } | null;
   startable?: boolean; // «بدء الجلسة» ضمن نافذة الموعد فقط (يشتقه الخادم — بطاقة المكتب)
   startsAt?: string | null;
-  hostLink: string | null; // رابط مضيف Zoom (للمكتب)
   session: string; // بانتظار الجلسة / جلسة جارية / منتهية
   status: string;
   summary: string | null;
@@ -184,6 +233,11 @@ export interface ClientConsultCard {
   slink: string;
   canJoin?: boolean;
   missed?: boolean;
+  notHeld?: boolean;
+  tone?: string;
+  sessionTone?: string;
+  /** في دورة الحجز — علمٌ لا مرحلة (لا يكشف «اعتماد الموعد» الداخليّ للعميل). */
+  inBooking?: boolean;
   /** طلب تغيير الموعد — يُتاح وفق `Consult::rescheduleRequestBlocker` في الخادم وحده. */
   rescheduleRequest?: { pending: boolean; canRequest: boolean };
   session: string;
@@ -205,13 +259,6 @@ export interface ClientConsultCard {
   /** تتبع الملخّص في الحجب — كانت تصل قبله. */
   decisions: string[];
   startsAt?: string | null;
-}
-
-// فتح جلسة Zoom في تبويب جديد (المكالمة والتسجيل على Zoom)
-export function openMeeting(url: string): void {
-  if (url) {
-window.open(url, '_blank', 'noopener');
-}
 }
 
 // `lawyerFirst` أُزيلت (2026-09-11): كانت تقصّ اسم المحامي لكلمته الأولى في شاشة العميل،
@@ -274,9 +321,6 @@ return '؟';
   return (p[0] ? p[0][0] : '') + (p[1] ? ` ${p[1][0]}` : '');
 }
 
-// النغمة تُعرَّف مرّةً في مكتبة الكتالوجات وتُعاد هنا للمستوردين القدامى
-export { sessTone } from '@/lib/employee-data';
-
 // ============================================================
 // حالة ملخّص الجلسة — مصدرٌ واحد تقرؤه الشاشات الثلاث
 // ============================================================
@@ -329,27 +373,115 @@ return 'حُرّر بيد محامٍ';
  * HTML خامّاً بابُ حقنٍ لا يُفتح. React يُهرِّب النصّ تلقائياً، والتوكيد يُبنى عقداً
  * (`<strong>`) لا وسماً مُلصقاً.
  */
+/** التوكيد داخل السطر: `**عريض**` و`*مائل*` — ونجمةٌ منفردة تبقى حرفاً لا تكسر ما بعدها. */
+function inlineMarks(line: string): React.ReactNode[] {
+  return line.split(/(\*\*[^*\n]+\*\*|(?<![*\w])\*[^*\s][^*\n]*?\*(?![*\w]))/g).map((part, i) => {
+    if (/^\*\*[^*]+\*\*$/.test(part)) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    if (/^\*[^*\s][^*]*\*$/.test(part)) {
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    }
+
+    return <React.Fragment key={i}>{part}</React.Fragment>;
+  });
+}
+
+type RtBlock =
+  | { kind: 'p'; lines: string[] }
+  | { kind: 'h'; text: string }
+  | { kind: 'ul' | 'ol'; items: string[] }
+  | { kind: 'hr' };
+
+const RT_BULLET = /^\s*[-*•·]\s+/;
+const RT_NUMBER = /^\s*[0-9٠-٩]+[.)،-]\s+/;
+
+/**
+ * **نصّ الملخّص فقراتٍ وقوائم — عناصر React لا HTML** (ملاحظة المالك 2026-09-27).
+ *
+ * كان المُصيِّر يفهم `**عريض**` والعناوين وحدها، فتظهر القوائم (`- `، `1.`) والفواصل (`---`) رموزاً
+ * خاماً، ونجمةٌ منفردة تكسر العريض، وتضيع الأسطر في أيّ حاويةٍ بلا `pre-wrap`. الآن يُقسَّم النصّ
+ * كتلاً: فقرة · عنوان · قائمة نقطيّة · قائمة مرقّمة · فاصل — فلا يعتمد على `pre-wrap` حاويته.
+ * ولا `dangerouslySetInnerHTML`: المصدر نموذجٌ توليديّ، و React يُهرِّب النصّ.
+ */
 export const RichText: React.FC<{ text?: string | null; fallback?: string }> = ({ text, fallback }) => {
-  const raw = (text ?? '').trim();
+  const raw = (text ?? '').replace(/\r\n?/g, '\n').trim();
 
   if (raw === '') {
     return <>{fallback ?? ''}</>;
   }
 
+  const blocks: RtBlock[] = [];
+  const last = () => blocks[blocks.length - 1];
+
+  for (const line of raw.split('\n')) {
+    const t = line.trim();
+
+    if (t === '') {
+      blocks.push({ kind: 'p', lines: [] });
+      continue;
+    }
+    if (/^([-*_])\1{2,}$/.test(t)) {
+      blocks.push({ kind: 'hr' });
+      continue;
+    }
+    if (/^#{1,6}\s+/.test(t)) {
+      blocks.push({ kind: 'h', text: t.replace(/^#{1,6}\s+/, '') });
+      continue;
+    }
+
+    const list = RT_BULLET.test(line) ? 'ul' : RT_NUMBER.test(line) ? 'ol' : null;
+    if (list) {
+      const item = line.replace(list === 'ul' ? RT_BULLET : RT_NUMBER, '');
+      const prev = last();
+      if (prev && prev.kind === list) {
+        prev.items.push(item);
+      } else {
+        blocks.push({ kind: list, items: [item] });
+      }
+      continue;
+    }
+
+    const prev = last();
+    if (prev && prev.kind === 'p') {
+      prev.lines.push(t);
+    } else {
+      blocks.push({ kind: 'p', lines: [t] });
+    }
+  }
+
   return (
-    <>
-      {raw.split('\n').map((line, li) => (
-        <React.Fragment key={li}>
-          {li > 0 && '\n'}
-          {/* `#` البادئة عنوانٌ في Markdown ولا معنى له هنا — يُسقط ويبقى نصّه */}
-          {line.replace(/^#{1,6}\s*/, '').split(/(\*\*[^*]+\*\*)/g).map((part, pi) =>
-            /^\*\*[^*]+\*\*$/.test(part)
-              ? <strong key={pi}>{part.slice(2, -2)}</strong>
-              : <React.Fragment key={pi}>{part}</React.Fragment>
-          )}
-        </React.Fragment>
-      ))}
-    </>
+    <div className="rt" style={{ whiteSpace: 'normal', lineHeight: 1.8 }}>
+      {blocks.map((b, bi) => {
+        switch (b.kind) {
+          case 'hr':
+            return <hr key={bi} style={{ border: 0, borderTop: '1px solid var(--line, #e2e8f0)', margin: '10px 0' }} />;
+          case 'h':
+            return <div key={bi} style={{ fontWeight: 800, margin: '10px 0 4px' }}>{inlineMarks(b.text)}</div>;
+          case 'ul':
+          case 'ol': {
+            const List = b.kind;
+
+            return (
+              <List key={bi} style={{ margin: '4px 0 8px', paddingInlineStart: 22 }}>
+                {b.items.map((it, ii) => <li key={ii} style={{ margin: '2px 0' }}>{inlineMarks(it)}</li>)}
+              </List>
+            );
+          }
+          default:
+            return b.lines.length === 0 ? null : (
+              <p key={bi} style={{ margin: '0 0 8px' }}>
+                {b.lines.map((l, li) => (
+                  <React.Fragment key={li}>
+                    {li > 0 && <br />}
+                    {inlineMarks(l)}
+                  </React.Fragment>
+                ))}
+              </p>
+            );
+        }
+      })}
+    </div>
   );
 };
 
@@ -621,7 +753,6 @@ export const SummaryModal: React.FC<{
 export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }> = ({ consults, base }) => {
   const rescheduleFlow = useConsultReschedule(base);
   const toast = useToast();
-  const ask = useConfirm();
   const [filter, setFilter] = useState('all');
   const [summaryOf, setSummaryOf] = useState<ConsultCard | null>(null);
   const [items, setItems] = useState<ConsultCard[]>(consults);
@@ -642,18 +773,14 @@ export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }
          *   «لم يحضر» ثانيةً ويردّ الخادم ٤٢٢.
          * - وبعد إعادة الجدولة تبقى «فائتة» بموعدها القديم معروضاً.
          *
-         * والنمط الصحيح مطبَّقٌ في شاشة الموظّف: تنسخ الحمولة كلّها وتستثني
-         * `summary` بالحذف الصريح — فتلتقط أيّ مفتاحٍ يُضاف مستقبلاً.
+         * والنمط الصحيح في `lib/consult-live`: تُنسخ الحمولة كلّها إلّا `status` (تسمية
+         * العميل) و`summary` — فتلتقط أيّ مفتاحٍ يُضاف مستقبلاً.
          */
-        const rest = { ...e };
-        delete rest.summary;
-
+        // القاعدة المشتركة (`lib/consult-live`): لا تسمية العميل ولا ملخّصه فوق بطاقة الطاقم
+        const rest = staffPatch(e);
         setItems((prev) => prev.map((x) => (x.id === c.id ? { ...x, ...rest } : x)));
 
-        // الملخّص **لا يُؤخذ من البثّ**: الحمولة نفسها تُبثّ للعميل، فما يراه الطاقم
-        // منها هو ما يجوز للعميل رؤيته — أي المعتمَد وحده. والطاقم يحتاج النصّ غير
-        // المعتمَد ليراجعه، فيُجلب من الخادم بصلاحيّة الطاقم لا من قناةٍ مشتركة.
-        if (e.session === 'منتهية') {
+        if (stageChanged(e, c)) {
           router.reload({ only: ['consults'] });
         }
       });
@@ -682,19 +809,17 @@ counts[c.channel]++;
     ['t-red', 'clock', missedCount, 'فائتة'],
   ];
 
+  // قفلٌ موحّد لأفعال الجلسة: بدء · إنهاء · لم يحضر (`useServerAction`)
+  const action = useServerAction();
+
   // يطابق crStart — بدء الجلسة (يبثّ للعميل لحظياً)
   const start = (c: ConsultCard) => {
     const msg = c.channel === 'مرئية' ? 'تم بدء الجلسة المرئية مع العميل'
       : c.channel === 'هاتفية' ? 'تم بدء المكالمة الهاتفية مع العميل'
       : 'تم تسجيل وصول العميل وبدء الجلسة الحضورية';
-    router.post(`${base}/consults/${c.id}/start`, {}, {
-      preserveScroll: true,
-      onSuccess: () => toast(msg),
-      // **كان بلا `onError`.** ومنذ صار الخادم يرفض البدء خارج النافذة، كان زرّا
-      // «بدء المكالمة» و«تسجيل وصول العميل» يفشلان بصمتٍ تامّ: لا جلسة، ولا توست،
-      // ولا رسالة. ونظيرُه في `enterRoom` أدناه كان معالَجاً — أُصلح مسارٌ وتُرك
-      // نظيرُه في الملفّ نفسه.
-      onError: (errors) => toast(Object.values(errors)[0] || 'تعذّر بدء الجلسة'),
+    // الرفض (خارج نافذة البدء) يُعرض بسببه — كان هذا المسار بلا `onError` فيفشل بصمت
+    void action.run(`${base}/consults/${c.id}/start`, {
+      key: c.id, confirm: CONFIRM_START_CONSULT, success: msg, fallback: 'تعذّر بدء الجلسة',
     });
   };
 
@@ -712,21 +837,20 @@ counts[c.channel]++;
       return;
     }
 
-    // تأكيدٌ يقول الأثر قبل الإرسال (قرار المالك 2026-09-26) — الختم لا يُتراجع عنه
-    if (!(await ask(CONFIRM_END_CONSULT))) {
-      return;
-    }
-
     const notes = endNotes.trim();
 
-    router.post(`${base}/consults/${endingOf.id}/end`, { notes }, {
-      preserveScroll: true,
+    // تأكيدٌ يقول الأثر قبل الإرسال (قرار المالك 2026-09-26) — الختم لا يُتراجع عنه
+    await action.run(`${base}/consults/${endingOf.id}/end`, {
+      data: { notes },
+      key: endingOf.id,
+      confirm: CONFIRM_END_CONSULT,
+      success: notes === ''
+        ? 'خُتمت الجلسة بلا تدوين — لا ملخّص حتّى تُدوّن ما دار فيها'
+        : 'خُتمت الجلسة وحُفظ تدوينك — يُعدّ الملخّص لاعتمادك',
+      fallback: 'تعذّر إنهاء الجلسة',
       onSuccess: () => {
         setEndingOf(null);
         setEndNotes('');
-        toast(notes === ''
-          ? 'خُتمت الجلسة بلا تدوين — لا ملخّص حتّى تُدوّن ما دار فيها'
-          : 'خُتمت الجلسة وحُفظ تدوينك — يُعدّ الملخّص لاعتمادك');
       },
     });
   };
@@ -737,11 +861,10 @@ counts[c.channel]++;
     const room = `${base}/videoroom?ref=${encodeURIComponent(c.ref)}`;
 
     if (c.session === 'بانتظار الجلسة') {
-      router.post(`${base}/consults/${c.id}/start`, {}, {
-        preserveScroll: true,
+      // سبب الرفض من الخادم: «فات الموعد» و«قبل الموعد بربع ساعة» فعلان مختلفان.
+      void action.run(`${base}/consults/${c.id}/start`, {
+        key: c.id, confirm: CONFIRM_START_CONSULT, fallback: 'تعذّر بدء الجلسة',
         onSuccess: () => router.visit(room),
-        // سبب الرفض من الخادم: «فات الموعد» و«قبل الموعد بربع ساعة» فعلان مختلفان.
-        onError: (errors) => toast(Object.values(errors)[0] || 'تعذّر بدء الجلسة'),
       });
 
       return;
@@ -751,13 +874,10 @@ counts[c.channel]++;
   };
 
   // وسم «لم يحضر» لاستشارة فائتة — كانت الحيلة الوحيدة (بدء+إنهاء فوري) تزوّر السجل جلسةً منعقدة
-  const markNoShow = (c: ConsultCard) => {
-    router.post(`${base}/consults/${c.id}/no-show`, {}, {
-      preserveScroll: true,
-      onSuccess: () => toast('وُسمت الاستشارة «لم يحضر» وأُشعر العميل'),
-      onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر الوسم'}`),
+  const markNoShow = (c: ConsultCard) =>
+    action.run(`${base}/consults/${c.id}/no-show`, {
+      key: c.id, confirm: CONFIRM_NO_SHOW, success: 'وُسمت الاستشارة «لم يحضر» وأُشعر العميل', fallback: 'تعذّر الوسم',
     });
-  };
 
   // كانت تُرسل الطلب **بلا تأكيد**: ضغطةٌ واحدة تُلغي الموعد واجتماع Zoom. صارت من مسارها الواحد.
   const reschedule = (c: ConsultCard) => rescheduleFlow.open(c);
@@ -831,32 +951,40 @@ void navigator.clipboard.writeText(c.slink);
                     /* فات موعدها بلا جلسة — كان زر «بدء» يبقى ظاهراً للأبد بلا أي وسم */
                     <>
                       <Badge text="فائتة — لم تنعقد" tone="b-red" />
-                      <button className="btn soft sm" onClick={() => markNoShow(c)} type="button">
-                        <Icon name="clock" /> لم يحضر
-                      </button>
-                      <button className="btn sm" onClick={() => reschedule(c)} type="button">
-                        <Icon name="cal" /> إعادة جدولة
-                      </button>
+                      {c.canMarkNoShow && (
+                        <button className="btn soft sm" onClick={() => markNoShow(c)} disabled={action.busyKey === c.id} type="button">
+                          <Icon name="clock" /> لم يحضر
+                        </button>
+                      )}
+                      {c.canReschedule && (
+                        <button className="btn sm" onClick={() => reschedule(c)} type="button">
+                          <Icon name="cal" /> إعادة جدولة
+                        </button>
+                      )}
                     </>
-                  ) : c.session === 'لم تُعقد' ? (
+                  ) : c.notHeld ? (
                     <>
                       <Badge text="لم يحضر" tone="b-red" />
-                      <button className="btn soft sm" onClick={() => reschedule(c)} type="button">
-                        <Icon name="cal" /> إعادة جدولة
-                      </button>
+                      {c.canReschedule && (
+                        <button className="btn soft sm" onClick={() => reschedule(c)} type="button">
+                          <Icon name="cal" /> إعادة جدولة
+                        </button>
+                      )}
                     </>
                   ) : c.session === 'بانتظار الجلسة' ? (
                     c.startable === false ? (
                       /* موعد مستقبلي خارج نافذة البدء — الخادم يسمح بإعادة جدولته والزرّ كان محصوراً بالفائتة */
                       <>
                         <Badge text="مجدولة — البدء قبل الموعد بـ15د" tone="b-grey" />
-                        <button className="btn soft sm" onClick={() => reschedule(c)} type="button">
-                          <Icon name="cal" /> إعادة جدولة
-                        </button>
+                        {c.canReschedule && (
+                          <button className="btn soft sm" onClick={() => reschedule(c)} type="button">
+                            <Icon name="cal" /> إعادة جدولة
+                          </button>
+                        )}
                       </>
                     ) : c.channel === 'مرئية' ? (
                       <>
-                        <button className="btn sm" onClick={() => enterRoom(c)} type="button">
+                        <button className="btn sm" onClick={() => enterRoom(c)} disabled={action.busyKey === c.id} type="button">
                           <Icon name="video" /> بدء ودخول جلسة Zoom
                         </button>
                         <button className="btn soft sm" onClick={() => copyLink(c)} type="button">
@@ -864,11 +992,11 @@ void navigator.clipboard.writeText(c.slink);
                         </button>
                       </>
                     ) : c.channel === 'هاتفية' ? (
-                      <button className="btn sm" onClick={() => start(c)} type="button">
+                      <button className="btn sm" onClick={() => start(c)} disabled={action.busyKey === c.id} type="button">
                         <Icon name="phone" /> بدء المكالمة
                       </button>
                     ) : (
-                      <button className="btn sm" onClick={() => start(c)} type="button">
+                      <button className="btn sm" onClick={() => start(c)} disabled={action.busyKey === c.id} type="button">
                         <Icon name="check" /> تسجيل وصول العميل
                       </button>
                     )
@@ -901,8 +1029,8 @@ void navigator.clipboard.writeText(c.slink);
                      * فراغاً. صار الفرع صريحاً يعرض ما هو كائن بنغمته.
                      */
                     <>
-                      <Badge text={c.session || 'بانتظار الجلسة'} tone={sessTone(c.session)} />
-                      {c.session === 'لم تُعقد' && (
+                      <Badge text={c.session || 'بانتظار الجلسة'} tone={c.sessionTone} />
+                      {c.notHeld && (
                         <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>
                           لم يُسجَّل حضور — تُعاد جدولتها من صفحة الاستشارة
                         </span>
@@ -938,10 +1066,10 @@ void navigator.clipboard.writeText(c.slink);
           <Icon name="info" /> الملخّص يُبنى على تدوينك وحده — وبلا تدوين لا يُكتب شيء، لأنّ ما يُكتب من عنوان الموضوع وحده محضرٌ مختلَق.
         </p>
         <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
-          <button className="btn" onClick={end} disabled={endNotes.trim() === ''} type="button">
+          <button className="btn" onClick={end} disabled={action.busy || endNotes.trim() === ''} type="button">
             <Icon name="doc" /> إنهاء وحفظ التدوين
           </button>
-          <button className="btn soft" onClick={end} type="button">
+          <button className="btn soft" onClick={end} disabled={action.busy} type="button">
             <Icon name="check" /> إنهاء بلا تدوين
           </button>
         </div>
@@ -958,37 +1086,6 @@ void navigator.clipboard.writeText(c.slink);
 // ============================================================
 // إدارة الاستشارات — قائمة الرحلة (يطابق emConsultsView + cKPIs)
 // ============================================================
-
-// إجراء تسعير الاستشارة (الإدارة العليا) — يُصدر الفاتورة وينقلها إلى «بانتظار السداد»
-export const PricingAction: React.FC<{ c: ConsultCard; base: string; toast: (m: string) => void }> = ({ c, base, toast }) => {
-  const [price, setPrice] = useState<string>(String(c.price ?? ''));
-  const [busy, setBusy] = useState(false);
-
-  const save = () => {
-    const val = parseInt(price, 10);
-
-    if (Number.isNaN(val) || val < 0) {
- toast('أدخل سعراً صحيحاً');
-
- return; 
-}
-
-    setBusy(true);
-    router.post(`${base}/consults/${c.id}/price`, { price: val }, {
-      preserveScroll: true, onSuccess: () => toast('تم تحديد السعر وإصدار الفاتورة'), onFinish: () => setBusy(false),
-    });
-  };
-
-  return (
-    <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-      <input className="input" style={{ width: 96 }} type="number" min={0} value={price}
-        onChange={(e) => setPrice(e.target.value)} placeholder="السعر" aria-label="سعر الاستشارة" />
-      <button className="btn sm" type="button" disabled={busy} onClick={save}>
-        <Icon name="card" /> تحديد السعر
-      </button>
-    </div>
-  );
-};
 
 /*
  * **حُذف `ConsultsListPage`.**
@@ -1008,6 +1105,7 @@ export const PricingAction: React.FC<{ c: ConsultCard; base: string; toast: (m: 
 export interface LawyerOpt { id: number; name: string; dept: string; }
 
 export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; isAdmin?: boolean; lawyers: LawyerOpt[] }> = ({ consult: c, base, isAdmin, lawyers }) => {
+  const inSession = useInSession();
   const askFor = usePrompt();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -1142,13 +1240,13 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
    */
   const referBlocked = c.session === 'جلسة جارية'
     ? 'الجلسة منعقدة الآن — أنهِها قبل تغيير المستشار.'
-    : CONSULT_CLOSED_STATUSES.includes(c.status)
+    : c.isClosed
       ? 'الاستشارة انتهت أو أُلغيت — لا تُحال إلى محامٍ.'
-      : CONSULT_BOOKING_STATUSES.includes(c.status)
+      : c.bookingStage != null
         ? `ما زالت في دورة الحجز — حالتها «${c.status}». أكمل التسعير والسداد واختيار الموعد أوّلاً.`
         : null;
   /** «إعادة التحليل» يردّها الخادم على المنتهية والملغاة (`analyze`). */
-  const analyzeBlocked = CONSULT_CLOSED_STATUSES.includes(c.status);
+  const analyzeBlocked = c.isClosed;
   // البطاقة سطح تحرير الموظّف — تبقى ظاهرة عند تعذّر التحليل (فهو حينها من يكتب الرأي)،
   // لكن بعنوان صادق: كان الاحتياطيّ يظهر تحت «تحليل الفريق القانوني» كأن تحليلاً وقع.
   const aiFailed = c.aiSource === 'fallback';
@@ -1266,8 +1364,8 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
           </div>
 
           <div className="cj-badges-cluster">
-            <Badge text={c.status} tone={cTone(c.status)} />
-            {c.session ? <Badge text={c.session} tone={sessTone(c.session)} /> : null}
+            <Badge text={c.status} tone={c.tone} />
+            {c.session ? <Badge text={c.session} tone={c.sessionTone} /> : null}
             {c.channel ? <Badge text={c.channel} tone={crChannelTone(c.channel)} /> : null}
             <Badge
               text={`أولوية: ${c.priority}`}
@@ -1446,7 +1544,17 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                             placeholder="اكتب خلاصة الرأي القانوني وتوجيهات الجلسة هنا..."
                             style={{ lineHeight: 1.8 }}
                           />
+                          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
+                            التنسيق: سطرٌ فارغ بين الفقرات · «- » لقائمة نقطيّة · «1. » لقائمة مرقّمة · **نص** للعريض · ### لعنوان
+                          </div>
                         </div>
+                        {/* معاينة بالمُصيِّر نفسه الذي يقرأ به الموكّل — لا مفاجأة بعد الاعتماد */}
+                        {sessionSummary.trim() !== '' && (
+                          <div style={{ border: '1px dashed var(--line, #e2e8f0)', borderRadius: 8, padding: '10px 12px', background: 'var(--paper-2, #f8fafc)' }}>
+                            <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', marginBottom: 6 }}>معاينة كما يراها الموكّل</div>
+                            <RichText text={sessionSummary} />
+                          </div>
+                        )}
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                           <button className="btn soft sm" onClick={saveSessionSummary} disabled={busy || sessionSummary.trim() === ''} type="button">
                             <Icon name="check" /> حفظ الملخص المحرر
@@ -1656,7 +1764,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                     {lawyers.length > 0 && lawyerId === '' && <option value="">— اختر المحامي المختص —</option>}
                     {lawyers.map((l) => (
                       <option key={l.id} value={l.id}>
-                        {l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}
+                        {l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}{inSessionSuffix(inSession, l.id)}
                       </option>
                     ))}
                   </select>
@@ -1710,7 +1818,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                     <button
                       className="btn soft sm"
                       onClick={savePriority}
-                      disabled={busy || CONSULT_CLOSED_STATUSES.includes(c.status)}
+                      disabled={busy || c.isClosed}
                       type="button"
                     >
                       تحديث
@@ -1729,7 +1837,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                     {lawyers.length > 0 && lawyerId === '' && <option value="">— اختر المحامي المختص —</option>}
                     {lawyers.map((l) => (
                       <option key={l.id} value={l.id}>
-                        {l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}
+                        {l.name}{l.dept !== '—' ? ` — ${l.dept}` : ''}{inSessionSuffix(inSession, l.id)}
                       </option>
                     ))}
                   </select>

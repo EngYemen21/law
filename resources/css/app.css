@@ -391,6 +391,7 @@ html {
   flex-direction: column;
   gap: 14px;
   min-height: 100vh;
+height: 100dvh;
   padding-bottom: 60px;
   width: 100%;
   max-width: 100%;
@@ -946,6 +947,7 @@ html {
   bottom: 0;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   background: rgba(10, 42, 85, 0.45);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
@@ -1037,6 +1039,7 @@ html {
   bottom: 0;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   background: rgba(10, 42, 85, 0.6);
   backdrop-filter: blur(5px);
   -webkit-backdrop-filter: blur(5px);
@@ -1526,9 +1529,9 @@ html {
   font-size: 13.8px;
   line-height: 1.85;
   color: #1e293b;
-  max-height: 340px;
-  overflow-y: auto;
-  white-space: pre-wrap;
+  /* المحضر يُقرأ كاملاً — كان محدوداً بـ340px فيُقرأ في نافذةٍ صغيرة بتمريرٍ داخليّ (ملاحظة المالك 2026-09-27).
+     و\`RichText\` يبني الفقرات والقوائم عناصرَ، فلا حاجة لـpre-wrap يضاعف المسافات */
+  white-space: normal;
   background: #ffffff;
 }
 
@@ -1696,7 +1699,6 @@ html {
   .csd-paper-body {
     padding: 14px;
     font-size: 13px;
-    max-height: 280px;
   }
   .csd-footer-actions {
     flex-direction: column;

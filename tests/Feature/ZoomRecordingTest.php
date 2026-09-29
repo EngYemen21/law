@@ -50,7 +50,7 @@ class ZoomRecordingTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
 
         return Consult::create(array_merge([
-            'user_id' => $client->id, 'ref' => 'CN-2026-'.random_int(1000, 9999),
+            'user_id' => $client->id, 'ref' => 'CN-2026-'.uniqid(),
             'subject' => 'نزاع', 'channel' => 'مرئية', 'lawyer' => $lawyer?->name ?? 'محامٍ',
             'assigned_lawyer_id' => $lawyer?->id, 'day' => 'اليوم', 'time' => '11:00', 'when_label' => 'اليوم', 'session' => 'منتهية',
             'meet_id' => '55500011122',
@@ -95,7 +95,7 @@ class ZoomRecordingTest extends TestCase
         Storage::fake('local');
         Http::fake(['z/m.vtt' => Http::response("WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nمحضر")]);
         $meeting = Meeting::create([
-            'ref' => 'M-'.random_int(1000, 9999), 'title' => 'اجتماع', 'type' => 'اجتماع', 'when_label' => 'اليوم',
+            'ref' => 'M-'.uniqid(), 'title' => 'اجتماع', 'type' => 'اجتماع', 'when_label' => 'اليوم',
             'status' => 'منتهٍ', 'meet_id' => '77700033344',
         ]);
 

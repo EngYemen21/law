@@ -15,6 +15,7 @@ use App\Services\MailService;
 use App\Support\Audit;
 use App\Support\Booking\BookingMoved;
 use App\Support\CaseFiling;
+use App\Support\CaseJourney;
 use App\Support\Live;
 use App\Support\MeetingTime;
 use App\Support\Notify;
@@ -137,11 +138,12 @@ trait ManagesCourtProceedings
         $data = $request->validate([
             'title' => ['required', 'string', 'max:120'],
             'day' => ['required', 'date_format:Y-m-d'],
-            'time' => ['nullable', 'date_format:H:i'],
+            // إلزاميّ (قرار المالك 2026-09-28): جلسةٌ بلا وقت تُسجَّل 00:00 فلا تحجب المحامي عن الحجز
+            'time' => ['required', 'date_format:H:i'],
             'court' => ['nullable', 'string', 'max:120'],
             // اختياريّة — منها وحدها نهاية الجلسة في التقويم (`CaseHearing::endsAt`)
             'duration_min' => CaseHearing::durationRule(),
-        ]);
+        ], ['time.required' => 'حدّد وقت الجلسة.']);
 
         $this->createHearing($case, $request->user(), $data);
         $this->tellLawyer($case, $request->user(), "جُدولت جلسة «{$data['title']}»");
@@ -204,11 +206,12 @@ trait ManagesCourtProceedings
         $data = $request->validate([
             'title' => ['required', 'string', 'max:120'],
             'day' => ['required', 'date_format:Y-m-d'],
-            'time' => ['nullable', 'date_format:H:i'],
+            // إلزاميّ (قرار المالك 2026-09-28): جلسةٌ بلا وقت تُسجَّل 00:00 فلا تحجب المحامي عن الحجز
+            'time' => ['required', 'date_format:H:i'],
             'court' => ['nullable', 'string', 'max:120'],
             // اختياريّة — منها وحدها نهاية الجلسة في التقويم (`CaseHearing::endsAt`)
             'duration_min' => CaseHearing::durationRule(),
-        ]);
+        ], ['time.required' => 'حدّد وقت الجلسة.']);
         $actor = $request->user();
         $startsAt = MeetingTime::parse($data['day'], $data['time'] ?? null);
 
@@ -299,7 +302,7 @@ trait ManagesCourtProceedings
     public function correctRuling(Request $request, LegalCase $case): RedirectResponse
     {
         $this->guardRulingAccess($case);
-        abort_unless(in_array($case->status, ['صدر الحكم', 'مغلقة'], true), 422, 'لا يُصحّح الحكم إلا بعد صدوره وقبل الأرشفة.');
+        abort_unless(in_array($case->status, CaseJourney::POST_JUDGMENT, true), 422, 'لا يُصحّح الحكم إلا بعد صدوره وقبل الأرشفة.');
 
         $data = $request->validate([
             'ruling' => ['required', 'string', 'max:3000'],
@@ -310,7 +313,7 @@ trait ManagesCourtProceedings
         $oldRuling = '';
         DB::transaction(function () use ($case, $data, $actor, &$oldRuling) {
             $locked = LegalCase::whereKey($case->id)->lockForUpdate()->firstOrFail();
-            abort_unless(in_array($locked->status, ['صدر الحكم', 'مغلقة'], true), 422, 'لا يُصحّح الحكم إلا بعد صدوره وقبل الأرشفة.');
+            abort_unless(in_array($locked->status, CaseJourney::POST_JUDGMENT, true), 422, 'لا يُصحّح الحكم إلا بعد صدوره وقبل الأرشفة.');
 
             $oldRuling = (string) $locked->ruling;
 
@@ -351,7 +354,7 @@ trait ManagesCourtProceedings
     public function recordAppeal(Request $request, LegalCase $case): RedirectResponse
     {
         $this->guardCourtAccess($case);
-        abort_unless(in_array($case->status, ['صدر الحكم', 'مغلقة'], true), 422, 'لا يُسجَّل الاستئناف إلا بعد صدور الحكم وقبل الأرشفة.');
+        abort_unless(in_array($case->status, CaseJourney::POST_JUDGMENT, true), 422, 'لا يُسجَّل الاستئناف إلا بعد صدور الحكم وقبل الأرشفة.');
 
         $data = $request->validate([
             'appeal_request_no' => ['required', 'string', 'max:64'],
@@ -364,7 +367,7 @@ trait ManagesCourtProceedings
 
         DB::transaction(function () use ($case, $data, $actor) {
             $locked = LegalCase::whereKey($case->id)->lockForUpdate()->firstOrFail();
-            abort_unless(in_array($locked->status, ['صدر الحكم', 'مغلقة'], true), 422, 'لا يُسجَّل الاستئناف إلا بعد صدور الحكم وقبل الأرشفة.');
+            abort_unless(in_array($locked->status, CaseJourney::POST_JUDGMENT, true), 422, 'لا يُسجَّل الاستئناف إلا بعد صدور الحكم وقبل الأرشفة.');
 
             $locked->update([
                 'appeal_status' => 'appeal_filed',
@@ -414,7 +417,7 @@ trait ManagesCourtProceedings
     public function recordAppealRuling(Request $request, LegalCase $case): RedirectResponse
     {
         $this->guardRulingAccess($case);
-        abort_unless(in_array($case->status, ['صدر الحكم', 'مغلقة'], true), 422, 'لا يُسجَّل حكم الاستئناف إلا بعد صدور الحكم وقبل الأرشفة.');
+        abort_unless(in_array($case->status, CaseJourney::POST_JUDGMENT, true), 422, 'لا يُسجَّل حكم الاستئناف إلا بعد صدور الحكم وقبل الأرشفة.');
         abort_unless($case->appeal_status === 'appeal_filed', 422, 'يجب قيد طلب الاستئناف أولاً قبل تسجيل حكمه.');
 
         $data = $request->validate([
@@ -427,7 +430,7 @@ trait ManagesCourtProceedings
 
         DB::transaction(function () use ($case, $data, $actor) {
             $locked = LegalCase::whereKey($case->id)->lockForUpdate()->firstOrFail();
-            abort_unless(in_array($locked->status, ['صدر الحكم', 'مغلقة'], true), 422, 'لا يُسجَّل حكم الاستئناف إلا بعد صدور الحكم وقبل الأرشفة.');
+            abort_unless(in_array($locked->status, CaseJourney::POST_JUDGMENT, true), 422, 'لا يُسجَّل حكم الاستئناف إلا بعد صدور الحكم وقبل الأرشفة.');
             abort_unless($locked->appeal_status === 'appeal_filed', 422, 'يجب قيد طلب الاستئناف أولاً قبل تسجيل حكمه.');
 
             $locked->update([
@@ -606,7 +609,7 @@ trait ManagesCourtProceedings
     /** المغلقة والمؤرشفة للقراءة: لا تُحرَّك جلساتهما ولا يُشعَر العميل بجدولةٍ في ملفٍّ منتهٍ. */
     private function guardHearingsOpen(LegalCase $case): void
     {
-        abort_if(in_array($case->status, ['مغلقة', 'مؤرشفة'], true), 422, 'القضيّة مغلقة أو مؤرشفة — جلساتها للقراءة فقط.');
+        abort_if(! $case->isActive(), 422, 'القضيّة مغلقة أو مؤرشفة — جلساتها للقراءة فقط.');
     }
 
     /** يعيد اشتقاق «الجلسة القادمة» من أقرب جلسة مجدولة (بالموعد الحقيقي إن وُجد، وإلا نصّها). */

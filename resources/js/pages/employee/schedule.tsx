@@ -1,17 +1,22 @@
 import { router } from '@inertiajs/react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import Modal from '@/components/babylon/Modal';
 import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
+import type { TimeSlotItem } from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
+import ConsultOnBehalfButton from '@/components/consult/ConsultOnBehalfButton';
 import { todayISO } from '@/lib/local-date';
 import { useConsultReschedule } from '@/lib/consult-reschedule';
 import { slotEnd, useConsultSlots } from '@/lib/consult-slots';
+import { CONFIRM_NO_SHOW } from '@/lib/consult-ui';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
+import { inSessionSuffix, PresenceBadge, useInSession } from '@/lib/staff-presence';
+import { useServerAction } from '@/lib/use-server-action';
 import { truncateWords } from '@/lib/utils';
 
 // الشاشة تُعرض داخل تقويم الموظف وتقويم الإدارة معًا — العناوين تُشتق من اللوحة الحالية
@@ -21,6 +26,9 @@ const apiBase = () => (window.location.pathname.startsWith('/admin') ? '/admin' 
 // موعدٌ اقترحه موظّف ولم تعتمده الإدارة بعد (`AppointmentStatus::PendingApproval`) — لا يُعاد جدولته
 // ولا يُوسم «لم يحضر» (الخادم يرفضهما لطلبٍ في دورة الحجز)، وله خيار ترشيحٍ مستقلّ
 const APPT_PENDING = 'بانتظار الاعتماد';
+// نتيجتا الموعد بعد الجلسة (`AppointmentStatus::Attended` / `::NoShow`) — لفلتري «حضر» و«لم يحضر»
+const APPT_ATTENDED = 'تم الحضور';
+const APPT_NO_SHOW = 'لم يحضر';
 
 // ============================================================
 // لوحة جدولة وإدارة مواعيد المكتب للموظف (Enterprise Scheduling Hub)
@@ -57,6 +65,9 @@ export interface AppointmentItem {
   consultRef?: string;
   consultId?: number;
   consultRescheduleCount?: number;
+  /** حارسا الخادم (`RescheduleConsult` و`MarkNoShow`) — يُظهران زرّيهما */
+  consultCanReschedule?: boolean;
+  consultCanMarkNoShow?: boolean;
   pay?: string;
   joinLink?: string;
   rawStartsAt?: string | null;
@@ -140,10 +151,13 @@ const EmployeeSchedule: React.FC<Props> = ({
   awaitingConsults = [],
   can,
 }) => {
+  const inSession = useInSession();
   const toast = useToast();
+  // قفلٌ موحّد لفعل «لم يحضر» من بطاقة الموعد
+  const action = useServerAction();
   const reschedule = useConsultReschedule(apiBase());
-  // الشبكة وطول الشريحة من الخادم — ما يولّده المحرّك نفسه
-  const { grid: dayHours, slotMinutes } = useConsultSlots();
+  // الشبكة وطول الشريحة وأيّام الدوام من الخادم — ما يولّده المحرّك نفسه
+  const { gridOn, allowOverlap, slotMinutes } = useConsultSlots();
   const userCan = useCan();
   const mask = useMasker();
   const isSuper = window.location.pathname.startsWith('/admin');
@@ -159,6 +173,8 @@ const EmployeeSchedule: React.FC<Props> = ({
 
   // اليوم المختار في عرض الشبكة / التقويم
   const [selectedDay, setSelectedDay] = useState(todayISO());
+  // شبكة اليوم المختار — فارغةٌ في يوم العطلة
+  const dayHours = gridOn(selectedDay);
 
   // التصفية والبحث
   const [searchQuery, setSearchQuery] = useState('');
@@ -213,7 +229,7 @@ const EmployeeSchedule: React.FC<Props> = ({
   const defaultClientId = (): number | '' => awaitingConsults[0]?.clientId ?? clients[0]?.id ?? '';
 
   // الفترات المتاحة للمستشار في المودال
-  const [slots, setSlots] = useState<{ time: string; taken: boolean }[]>([]);
+  const [slots, setSlots] = useState<TimeSlotItem[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
 
   // جلب الفترات عند تغيير المستشار أو التاريخ في المودال
@@ -230,7 +246,7 @@ const EmployeeSchedule: React.FC<Props> = ({
       headers: { Accept: 'application/json' },
     })
       .then((r) => r.json())
-      .then((j: { slots?: { time: string; taken: boolean }[] }) => {
+      .then((j: { slots?: TimeSlotItem[] }) => {
         if (!cancelled) {
 setSlots(j.slots ?? []);
 }
@@ -409,11 +425,11 @@ return false;
 return false;
 }
 
-        if (filterStatus === 'attended' && a.status !== 'تم الحضور') {
+        if (filterStatus === 'attended' && a.status !== APPT_ATTENDED) {
 return false;
 }
 
-        if (filterStatus === 'noshow' && a.status !== 'لم يحضر') {
+        if (filterStatus === 'noshow' && a.status !== APPT_NO_SHOW) {
 return false;
 }
       }
@@ -467,19 +483,74 @@ return lawyers;
     return lawyers.filter((l) => String(l.id) === filterLawyer || l.name === filterLawyer);
   }, [lawyers, filterLawyer]);
 
-  // خريطة سريعة للمواعيد في اليوم المختار لمطابقة [lawyerId_time]
+  // مواعيد اليوم المختار لكلّ [lawyerId_HH:MM] — **قائمة** لا موعدٌ واحد: بخيار الحجز المتداخل قد يحمل
+  // الوقت نفسه موعدين للمحامي، وكان الثاني يمحو الأوّل من الشبكة
   const dayAppointmentsMap = useMemo(() => {
-    const map = new Map<string, AppointmentItem>();
+    const map = new Map<string, AppointmentItem[]>();
     appointments.forEach((a) => {
       if (a.rawDate === selectedDay && a.rawTime && a.lawyerId) {
-        // مفتاح: lawyerId_HH:MM
         const key = `${a.lawyerId}_${a.rawTime.slice(0, 5)}`;
-        map.set(key, a);
+        map.set(key, [...(map.get(key) ?? []), a]);
       }
     });
 
     return map;
   }, [appointments, selectedDay]);
+
+  /*
+   * **صفوف الشبكة: شبكة الدوام + أوقات مواعيد اليوم القائمة.** الشبكة وحدها كانت تُخفي موعداً في يوم
+   * عطلة أو خارج الساعات أو على دقيقةٍ غير ساعيّة (14:30) — فيقول الجدول «لا مواعيد» وهي قائمة.
+   */
+  const dayRows = useMemo(() => {
+    const ids = new Set(gridLawyers.map((l) => l.id));
+    const times = new Set(dayHours);
+    appointments.forEach((a) => {
+      if (a.rawDate === selectedDay && a.rawTime && a.lawyerId && ids.has(a.lawyerId)) {
+        times.add(a.rawTime.slice(0, 5));
+      }
+    });
+
+    return [...times].sort();
+  }, [dayHours, appointments, selectedDay, gridLawyers]);
+
+  /*
+   * **شرائح اليوم كما يحسبها المحرّك** (`LawyerAvailability::daySlotsForMany`) — الشبكة كانت تعرف المواعيد
+   * وحدها، فتعرض وقت اجتماعٍ أو جلسة محكمة «احجز الآن» ثمّ يرفضه الخادم «مشغول».
+   */
+  const [daySlots, setDaySlots] = useState<Record<number, TimeSlotItem[]>>({});
+  const gridLawyerIds = gridLawyers.map((l) => l.id).join(',');
+
+  useEffect(() => {
+    // بلا مستشارين معروضين لا تُرسم الشبكة أصلاً — فلا طلب
+    if (gridLawyerIds === '') {
+      return;
+    }
+
+    let cancelled = false;
+    const query = gridLawyerIds.split(',').map((id) => `lawyer_ids[]=${id}`).join('&');
+    fetch(`${apiBase()}/schedule/day-slots?date=${selectedDay}&${query}`, { headers: { Accept: 'application/json' } })
+      .then((r) => (r.ok ? r.json() : { slots: {} }))
+      .then((j: { slots?: Record<number, TimeSlotItem[]> }) => {
+        if (!cancelled) {
+          setDaySlots(j.slots ?? {});
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDaySlots({});
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDay, gridLawyerIds, appointments]);
+
+  /** شريحة المحرّك لمحامٍ في وقتٍ من اليوم المختار. */
+  const engineSlot = useCallback(
+    (lawyerId: number, time: string): TimeSlotItem | undefined => daySlots[lawyerId]?.find((x) => x.time === time),
+    [daySlots],
+  );
 
   // إحصائيات تفرغ المستشارين لليوم المختار
   const lawyerDailyStats = useMemo(() => {
@@ -488,28 +559,102 @@ return lawyers;
     const currentHM = nowHM();
 
     gridLawyers.forEach((l) => {
-      let booked = 0;
       let free = 0;
       let past = 0;
 
+      // الشاغر والمنقضي على شبكة الدوام وحدها؛ والمحجوز عددُ مواعيد اليوم كلّها (ولو خارجها)
       dayHours.forEach((h) => {
-        const isTaken = dayAppointmentsMap.has(`${l.id}_${h}`);
-        const isHourPast = isToday && h <= currentHM;
+        // الموعد وارتباطات المحرّك (اجتماع، جلسة محكمة) كلاهما ليس شاغراً
+        if (dayAppointmentsMap.has(`${l.id}_${h}`)) {
+          return;
+        }
 
-        if (isTaken) {
-          booked++;
-        } else if (isHourPast) {
+        if (isToday && h <= currentHM) {
           past++;
-        } else {
+        } else if (!engineSlot(l.id, h)?.taken) {
           free++;
         }
       });
 
+      const booked = dayRows.reduce((n, h) => n + (dayAppointmentsMap.get(`${l.id}_${h}`)?.length ?? 0), 0);
       statsMap.set(l.id, { booked, free, past, total: dayHours.length });
     });
 
     return statsMap;
-  }, [gridLawyers, dayAppointmentsMap, selectedDay, dayHours]);
+  }, [gridLawyers, dayAppointmentsMap, selectedDay, dayHours, dayRows, engineSlot]);
+
+  /**
+   * بطاقة موعدٍ في خانة الشبكة — دالّةٌ واحدة لأنّ الخانة قد تحمل أكثر من موعد (خيار الحجز المتداخل).
+   */
+  const renderApptCard = (appt: AppointmentItem) => {
+    const isVid = appt.channel === 'مرئية' || appt.ico === 'video';
+    const isPhone = appt.channel === 'هاتفية' || appt.ico === 'phone';
+    const cardBg = isVid
+      ? 'linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(6, 182, 212, 0.03) 100%)'
+      : isPhone
+      ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.03) 100%)'
+      : 'linear-gradient(135deg, rgba(14, 92, 156, 0.09) 0%, rgba(14, 92, 156, 0.02) 100%)';
+
+    const borderCol = isVid ? 'var(--cyan)' : isPhone ? 'var(--amber)' : 'var(--primary)';
+    const channelText = isVid ? '🎥 جلسة مرئية' : isPhone ? '📞 مكالمة هاتفية' : '🏢 استشارة حضورية';
+
+    return (
+      <div
+        key={appt.id}
+        onClick={() => setSelectedAppt(appt)}
+        style={{
+          maxWidth: gridLawyers.length === 1 ? 580 : '100%',
+          margin: gridLawyers.length === 1 ? '0 auto' : undefined,
+          background: cardBg,
+          border: `1px solid ${borderCol}44`,
+          borderRight: `4px solid ${borderCol}`,
+          borderRadius: 10,
+          padding: '9px 14px',
+          cursor: 'pointer',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.02)',
+          transition: 'transform .15s ease, box-shadow .15s ease',
+        }}
+        title="انقر لعرض تفاصيل الموعد والتحكم به"
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = 'translateY(-2px)';
+          e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.06)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'translateY(0)';
+          e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.02)';
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--deep)' }}>
+              👤 {mask(appt.client || 'عميل')}
+            </span>
+          </div>
+          <span style={{
+            fontSize: 11,
+            fontWeight: 700,
+            color: borderCol,
+            background: '#fff',
+            padding: '2px 8px',
+            borderRadius: 6,
+            border: `1px solid ${borderCol}33`,
+          }}>
+            {channelText}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 11.5 }}>
+          <span style={{ color: 'var(--muted)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 280 }}>
+            📌 {appt.subject || appt.type || 'استشارة قانونية'}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <Badge text={appt.status} tone={appt.tone} />
+            <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600 }}>تفاصيل ↗</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <>
@@ -540,9 +685,13 @@ return lawyers;
             </button>
           </div>
           {canBook && (
-            <button className="btn" type="button" onClick={openNewBooking}>
-              <Icon name="calplus" /> + حجز موعد جديد
-            </button>
+            <>
+              <button className="btn" type="button" onClick={openNewBooking}>
+                <Icon name="calplus" /> + حجز موعد جديد
+              </button>
+              {/* عميلٌ بلا استشارةٍ مدفوعة لا يُحجز له — يُطلب له أوّلاً فيُسعَّر ويُسدَّد */}
+              <ConsultOnBehalfButton />
+            </>
           )}
         </div>
       </div>
@@ -724,7 +873,8 @@ return lawyers;
           {gridLawyers.length === 1 && (() => {
             const singleLawyer = gridLawyers[0];
             const stats = lawyerDailyStats.get(singleLawyer.id) || { booked: 0, free: 0, past: 0, total: dayHours.length };
-            const freePercent = Math.round((stats.free / stats.total) * 100);
+            // يوم العطلة بلا شرائح (`total` = 0) — لا قسمة على صفر تُظهر «NaN%»
+            const freePercent = stats.total > 0 ? Math.round((stats.free / stats.total) * 100) : 0;
 
             return (
               <div style={{
@@ -937,11 +1087,25 @@ return lawyers;
                               <div>
                                 <div style={{ fontWeight: 800, color: 'var(--deep)', fontSize: 13.5 }}>{l.name}</div>
                                 <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}>{l.dept || 'القسم القانوني'}</div>
+                                <PresenceBadge userId={l.id} showFree />
                               </div>
                             </div>
 
-                            {/* شارة التفرغ لليوم */}
-                            {freeCount > 0 ? (
+                            {/* شارة التفرغ لليوم — ويوم العطلة (شبكته فارغة من `gridOn`) ليس «مكتملاً» */}
+                            {dayHours.length === 0 ? (
+                              <span style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                background: 'var(--paper-2)',
+                                color: 'var(--muted)',
+                                border: '1px solid var(--line-soft)',
+                                padding: '3px 8px',
+                                borderRadius: 12,
+                                whiteSpace: 'nowrap',
+                              }}>
+                                {st?.booked ? `عطلة · ${st.booked} موعد` : 'عطلة'}
+                              </span>
+                            ) : freeCount > 0 ? (
                               <span style={{
                                 fontSize: 11,
                                 fontWeight: 700,
@@ -975,7 +1139,8 @@ return lawyers;
                   </tr>
                 </thead>
                 <tbody>
-                  {dayHours.map((hourStr) => {
+                  {dayRows.map((hourStr) => {
+                    const isOfficeRow = dayHours.includes(hourStr);
                     const isSlotPast = selectedDay === todayISO() && hourStr <= nowHM();
                     const endH = slotEnd(hourStr, slotMinutes);
                     const period = formatPeriod(hourStr);
@@ -1001,21 +1166,10 @@ return lawyers;
                         </td>
 
                         {gridLawyers.map((l) => {
-                          const appt = dayAppointmentsMap.get(`${l.id}_${hourStr}`);
+                          const appts = dayAppointmentsMap.get(`${l.id}_${hourStr}`) ?? [];
 
-                          if (appt) {
-                            // ── الخانة محجوزة بموعد ──
-                            const isVid = appt.channel === 'مرئية' || appt.ico === 'video';
-                            const isPhone = appt.channel === 'هاتفية' || appt.ico === 'phone';
-                            const cardBg = isVid
-                              ? 'linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(6, 182, 212, 0.03) 100%)'
-                              : isPhone
-                              ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.03) 100%)'
-                              : 'linear-gradient(135deg, rgba(14, 92, 156, 0.09) 0%, rgba(14, 92, 156, 0.02) 100%)';
-
-                            const borderCol = isVid ? 'var(--cyan)' : isPhone ? 'var(--amber)' : 'var(--primary)';
-                            const channelText = isVid ? '🎥 جلسة مرئية' : isPhone ? '📞 مكالمة هاتفية' : '🏢 استشارة حضورية';
-
+                          if (appts.length > 0) {
+                            // ── الخانة محجوزة — بكلّ مواعيدها ──
                             return (
                               <td
                                 key={l.id}
@@ -1025,58 +1179,48 @@ return lawyers;
                                   borderRight: '1px solid var(--line-soft)',
                                 }}
                               >
+                                <div style={{ display: 'grid', gap: 6 }}>{appts.map(renderApptCard)}</div>
+                              </td>
+                            );
+                          }
+
+                          // صفٌّ خارج شبكة الدوام (أُضيف لموعدٍ قائم): الخانة الفارغة بلا زرّ حجز
+                          if (!isOfficeRow) {
+                            return <td key={l.id} style={{ borderRight: '1px solid var(--line-soft)' }} />;
+                          }
+
+                          // ── وقتٌ يشغله ارتباطٌ غير الموعد (اجتماع، جلسة محكمة) — من المحرّك ──
+                          const engine = engineSlot(l.id, hourStr);
+
+                          if (!isSlotPast && engine?.taken) {
+                            // `hard` لوقتٍ لم يمضِ = جلسة محكمة: لا تُتجاوز ولو سُمح بالحجز المتداخل
+                            const inCourt = engine.hard === true;
+
+                            return (
+                              <td key={l.id} style={{ padding: '8px 12px', verticalAlign: 'middle', borderRight: '1px solid var(--line-soft)' }}>
                                 <div
-                                  onClick={() => setSelectedAppt(appt)}
                                   style={{
                                     maxWidth: gridLawyers.length === 1 ? 580 : '100%',
                                     margin: gridLawyers.length === 1 ? '0 auto' : undefined,
-                                    background: cardBg,
-                                    border: `1px solid ${borderCol}44`,
-                                    borderRight: `4px solid ${borderCol}`,
-                                    borderRadius: 10,
                                     padding: '9px 14px',
-                                    cursor: 'pointer',
-                                    boxShadow: '0 2px 6px rgba(0,0,0,0.02)',
-                                    transition: 'transform .15s ease, box-shadow .15s ease',
-                                  }}
-                                  title="انقر لعرض تفاصيل الموعد والتحكم به"
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(-2px)';
-                                    e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.06)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                    e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.02)';
+                                    borderRadius: 10,
+                                    border: '1px dashed var(--amber, #d97706)',
+                                    background: 'var(--paper-2)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 10,
+                                    fontSize: 12.5,
+                                    fontWeight: 700,
+                                    color: 'var(--muted)',
                                   }}
                                 >
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                      <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--deep)' }}>
-                                        👤 {mask(appt.client || 'عميل')}
-                                      </span>
-                                    </div>
-                                    <span style={{
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      color: borderCol,
-                                      background: '#fff',
-                                      padding: '2px 8px',
-                                      borderRadius: 6,
-                                      border: `1px solid ${borderCol}33`,
-                                    }}>
-                                      {channelText}
-                                    </span>
-                                  </div>
-
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 11.5 }}>
-                                    <span style={{ color: 'var(--muted)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 280 }}>
-                                      📌 {appt.subject || appt.type || 'استشارة قانونية'}
-                                    </span>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                                      <Badge text={appt.status} tone={appt.tone} />
-                                      <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600 }}>تفاصيل ↗</span>
-                                    </div>
-                                  </div>
+                                  <span>{inCourt ? '⚖️ جلسة محكمة' : '⏳ مشغول — ارتباطٌ آخر'}</span>
+                                  {canBook && allowOverlap && !inCourt && (
+                                    <button className="btn soft sm" type="button" onClick={() => openBookingForSlot(l.id, selectedDay, hourStr)}>
+                                      حجز رغم الانشغال
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                             );
@@ -1205,6 +1349,13 @@ return lawyers;
                       </tr>
                     );
                   })}
+                  {dayRows.length === 0 && (
+                    <tr>
+                      <td colSpan={gridLawyers.length + 1} style={{ textAlign: 'center', padding: 32, color: 'var(--muted)' }}>
+                        يوم عطلة — خارج أيّام دوام المكتب، فلا مواعيد للحجز فيه.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             )}
@@ -1426,7 +1577,7 @@ return lawyers;
               >
                 {lawyers.map((l) => (
                   <option key={l.id} value={l.id}>
-                    {l.name} {l.dept ? `(${l.dept})` : ''}
+                    {l.name} {l.dept ? `(${l.dept})` : ''}{inSessionSuffix(inSession, l.id)}
                   </option>
                 ))}
               </select>
@@ -1434,7 +1585,7 @@ return lawyers;
 
             <div className="field">
               <label>قناة ونوع الاستشارة <span className="req">*</span></label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 110px), 1fr))', gap: 6 }}>
                 {TYPES.map(([v, l, icon]) => (
                   <button
                     key={v}
@@ -1488,8 +1639,10 @@ return lawyers;
             value={time}
             onChange={setTime}
             date={date}
-            slots={slots.length > 0 ? slots : dayHours /* قبل اختيار المستشار: شبكة الحجز لا شبكة المنتقي العامّة */}
+            slots={slots.length > 0 ? slots : gridOn(date) /* قبل اختيار المستشار: شبكة الحجز لا شبكة المنتقي العامّة */}
             label="الوقت المتاح للموعد"
+            emptyText="لا مواعيد للحجز في هذا اليوم — خارج أيّام دوام المكتب."
+            allowTaken={allowOverlap}
             helperText={slotsLoading ? 'جارٍ فحص الأوقات المتاحة لدى المستشار…' : undefined}
             required
             allowCustom
@@ -1582,8 +1735,10 @@ return lawyers;
             )}
 
             {/* أزرار إدارة الموعد — إعادة الجدولة ووسم لم يحضر لمن يملك صلاحية إدارة المواعيد */}
-            {canManage && selectedAppt.consultId && selectedAppt.status !== APPT_PENDING && (
+            {canManage && selectedAppt.consultId && selectedAppt.status !== APPT_PENDING
+              && (selectedAppt.consultCanReschedule || selectedAppt.consultCanMarkNoShow) && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                {selectedAppt.consultCanReschedule && (
                 <button
                   className="btn soft sm"
                   type="button"
@@ -1598,20 +1753,23 @@ return lawyers;
                 >
                   <Icon name="cal" /> إعادة جدولة الموعد
                 </button>
+                )}
+                {selectedAppt.consultCanMarkNoShow && (
                 <button
                   className="btn ghost sm"
                   type="button"
                   style={{ flex: 1 }}
-                  onClick={() => router.post(`${apiBase()}/consults/${selectedAppt.consultId}/no-show`, {}, {
-                    preserveScroll: true,
-                    onSuccess: () => {
-                      toast('وُسم الموعد «لم يحضر»'); setSelectedAppt(null); 
-                    },
-                    onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر الوسم')),
+                  disabled={action.busy}
+                  onClick={() => action.run(`${apiBase()}/consults/${selectedAppt.consultId}/no-show`, {
+                    confirm: CONFIRM_NO_SHOW,
+                    success: 'وُسم الموعد «لم يحضر»',
+                    fallback: 'تعذّر الوسم',
+                    onSuccess: () => setSelectedAppt(null),
                   })}
                 >
                   <Icon name="clock" /> لم يحضر
                 </button>
+                )}
               </div>
             )}
 

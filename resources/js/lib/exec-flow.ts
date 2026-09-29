@@ -124,6 +124,9 @@ export interface ExecStudy {
   approved: boolean;
 }
 
+/** مفاتيح مجموعات قائمة التنفيذ — أسماؤها تصل من الخادم (`ExecFlow::BUCKETS`) */
+export type ExecBucket = 'new' | 'study' | 'offer' | 'active' | 'closed';
+
 export interface ExecReq {
   /** من يتولّى محادثة الملفّ ومن تولّاها قبله — لبطاقة الطاقم وحدها (`ExecFlowController::staffCards`). */
   conversation?: ConversationHistory | null;
@@ -138,6 +141,12 @@ export interface ExecReq {
   notes: string;
   docs: string[];
   stage: number;
+  /** اسم المرحلة من الخادم (`Execution::stageLabel`) — الشارات تقرؤه، و`EXEC_FLOW` لشريط الخطوات وحده */
+  stageLabel: string;
+  /** مجموعة الملفّ في تبويبات القائمة (`ExecFlow::bucket`) */
+  bucket: ExecBucket;
+  /** لون شارة المرحلة (`ExecFlow::tone`) من الخادم. */
+  tone: string;
   channel: string;
   messages: Message[];
   docItems: ExecDoc[];
@@ -164,6 +173,10 @@ export interface ExecReq {
   feeMode?: ExecFeeMode;
   /** نسبة الأتعاب من المحصَّل (النموذج النسبيّ وحده). */
   collectionFeePct?: number;
+  /** نصيب المحامي من الأتعاب — لبطاقة الإدارة وحدها (`ExecFlowController::admin`). */
+  lawyerPct?: number | null;
+  /** النسبة الافتراضيّة من الخادم (`LawyerShare::defaultPctFor`): نسبة ملفّ المحامي أو الافتراض الموحّد. */
+  lawyerDefaultPct?: number;
   /** خطّة السداد التي اختارها العميل — '' قبل اختياره. */
   payPlan?: '' | 'full' | 'install';
   installmentsTotal?: number;
@@ -223,11 +236,6 @@ export function execStudyBasis(study?: ExecStudy | null): string {
     count > 0 ? `الإجراءات المتوقّعة: ${count}` : '',
     study.durationEstimate ? `المدّة المتوقّعة: ${study.durationEstimate}` : '',
   ].filter(Boolean).join(' · ');
-}
-
-// نغمة الشارة حسب المرحلة (تطابق execTone في التصميم)
-export function execTone(stage: number): string {
-  return stage >= 9 ? 'b-grey' : stage >= 7 ? 'b-green' : stage >= 5 ? 'b-amber' : stage >= 2 ? 'b-blue' : 'b-grey';
 }
 
 // تنسيق المبلغ (تطابق execMoney)

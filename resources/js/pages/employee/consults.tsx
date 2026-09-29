@@ -1,23 +1,22 @@
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
 import { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
+import ConsultOnBehalfButton from '@/components/consult/ConsultOnBehalfButton';
 // اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
+import { stageChanged, staffPatch } from '@/lib/consult-live';
 import { maskClient } from '@/lib/employee-data';
-import { RichText, sessTone, SummaryStateBadge } from '@/lib/consult-ui';
+import { RichText, SummaryStateBadge } from '@/lib/consult-ui';
 import type { ConsultCard, LawyerOpt } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import {
-  cTone,
   crChannelIcon,
   crChannelTone,
-  CONSULT_CLOSED_STATUSES,
-  CONSULT_BOOKING_STATUSES,
-  CONSULT_TERMINAL_STATUSES,
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { useCan } from '@/lib/permissions';
 
 interface EmployeeConsultsProps {
   consults: ConsultCard[];
@@ -65,7 +64,7 @@ export type EmpKanbanCol = 'new_intake' | 'docs_check' | 'scheduling' | 'active_
  * القسمةُ بأولويّة، والفرعُ الأخير جامعٌ فلا تسقط بطاقةٌ مهما استُحدثت حالة.
  */
 function empKanbanColumnOf(c: ConsultCard): EmpKanbanCol {
-  if (CONSULT_TERMINAL_STATUSES.includes(c.status)) {
+  if (c.isTerminal) {
     return 'completed';
   }
 
@@ -74,7 +73,7 @@ function empKanbanColumnOf(c: ConsultCard): EmpKanbanCol {
   }
 
   // دورةُ الحجز ليست جلسةً قادمة — تُعرض حيث يُنتظر فيها فعل
-  if (CONSULT_BOOKING_STATUSES.includes(c.status)) {
+  if (c.bookingStage) {
     return 'scheduling';
   }
 
@@ -106,6 +105,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
 
   // أنماط العرض والتصفية
   const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const canSchedule = useCan()('جدولة المواعيد');
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [channelFilter, setChannelFilter] = useState<string>('all');
@@ -116,6 +116,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
   // درج العمليات 360°
   const [drawerRef, setDrawerRef] = useState<string | null>(null);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>('details');
+  const drawerBodyRef = React.useRef<HTMLDivElement>(null);
   const [selectedLawyerId, setSelectedLawyerId] = useState<number | ''>('');
   const [missingDocInput, setMissingDocInput] = useState<string>('');
   const [isProcessingAction, setIsProcessingAction] = useState(false);
@@ -128,15 +129,14 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
     const allConsults = [...initialConsults, ...initialRequests];
     allConsults.forEach((c) => {
       echo.private(`consult.${c.id}`).listen('.status', (e: Partial<ConsultCard>) => {
-        const rest = { ...e };
-        delete rest.summary;
-
+        // القاعدة المشتركة (`lib/consult-live`): لا تسمية العميل ولا ملخّصه فوق بطاقة الطاقم
+        const rest = staffPatch(e);
         const updater = (prev: ConsultCard[]) =>
           prev.map((x) => (x.id === c.id ? { ...x, ...rest } : x));
         setInFlightItems(updater);
         setRequestItems(updater);
 
-        if (e.session === 'منتهية') {
+        if (stageChanged(e, c)) {
           router.reload({ only: ['consults', 'preSessionRequests'] });
         }
       });
@@ -171,7 +171,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
    * `CLOSED` لا `TERMINAL`: «لم يحضر» نهايةٌ في التبويب لكنّها **حالة إنقاذ** تُعاد
    * جدولتها — فحجبُ أفعالها يسدّ باب الإنقاذ.
    */
-  const isClosed = drawerConsult != null && CONSULT_CLOSED_STATUSES.includes(drawerConsult.status);
+  const isClosed = drawerConsult != null && drawerConsult.isClosed;
 
   // قائمة المحامين المعتمدين
   const lawyersList = useMemo(() => {
@@ -228,11 +228,9 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
       if (!c.startsAt) return false;
       return new Date(c.startsAt).toDateString() === new Date().toDateString();
     }).length;
-    const preSession = allItems.filter((c) =>
-      CONSULT_BOOKING_STATUSES.includes(c.status)
-    ).length;
+    const preSession = allItems.filter((c) => Boolean(c.bookingStage)).length;
     const completed = allItems.filter(
-      (c) => CONSULT_TERMINAL_STATUSES.includes(c.status)
+      (c) => c.isTerminal
     ).length;
     // **ثلاث حالاتٍ كانت بلا تبويب** — وهي مربطُ عمل الموظّف: بين استلامه الطلب
     // وإحالته للمحامي. كانت الشاشة تعطي حبّةً لطلبات ما قبل الجلسة (وهي شغل الإدارة)
@@ -312,11 +310,11 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
       ) return false;
       if (
         categoryFilter === 'pre_session' &&
-        !CONSULT_BOOKING_STATUSES.includes(c.status)
+        !c.bookingStage
       ) return false;
       if (
         categoryFilter === 'completed' &&
-        !CONSULT_TERMINAL_STATUSES.includes(c.status)
+        !c.isTerminal
       ) return false;
 
       if (channelFilter !== 'all' && c.channel !== channelFilter) return false;
@@ -393,8 +391,8 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
       return;
     }
 
-    if (CONSULT_BOOKING_STATUSES.includes(consult.status)) {
-      toast('لا يمكن إسناد الاستشارة وهي في مرحلة ما قبل الجلسة حتى يكتمل التسعير والسداد وحجز الموعد');
+    if (consult.assignBlocker) {
+      toast(consult.assignBlocker);
       return;
     }
 
@@ -502,7 +500,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
         }
         .c360-radar-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
           gap: 12px;
         }
         @keyframes c360FadeIn {
@@ -518,6 +516,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           inset: 0 !important;
           width: 100vw !important;
           height: 100vh !important;
+          height: 100dvh !important;
           z-index: 99990 !important;
           background: rgba(10, 25, 45, 0.6) !important;
           backdrop-filter: blur(4px) !important;
@@ -533,7 +532,11 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           right: 0 !important;
           width: 100% !important;
           max-width: 580px !important;
+          /* \`dvh\`: على الجوّال \`100vh\` أطول من المساحة الظاهرة فيُدفع الرأس خارجها */
           height: 100vh !important;
+          height: 100dvh !important;
+          /* لا يتمرّر اللوح نفسه — التمرير للمحتوى وحده، فلا يُقصّ الرأس عند تبديل التبويب */
+          overflow: hidden !important;
           background: #fff !important;
           box-shadow: -10px 0 35px rgba(0,0,0,0.35) !important;
           display: flex !important;
@@ -541,6 +544,9 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           box-sizing: border-box !important;
           z-index: 99999 !important;
           animation: c360SlideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        }
+        .c360-drawer-head, .c360-drawer-tabs {
+          flex-shrink: 0;
         }
         .c360-drawer-tabs {
           display: flex;
@@ -599,6 +605,12 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           .c360-drawer-panel {
             max-width: 100% !important;
           }
+          /* التبويبات الأربعة لا تُعصر في عرض الهاتف — تتمرّر أفقيّاً بمقاسها */
+          .c360-drawer-tabs > button {
+            flex: 0 0 auto !important;
+            font-size: 12px !important;
+            padding: 10px 12px !important;
+          }
         }
         @media (max-width: 420px) {
           .c360-view-switcher {
@@ -606,6 +618,12 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           }
           .c360-kpi-grid {
             grid-template-columns: 1fr;
+          }
+          .c360-drawer-head {
+            padding: 12px 14px !important;
+          }
+          .c360-drawer-body {
+            padding: 14px !important;
           }
         }
       `}</style>
@@ -620,6 +638,12 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13 }}>
             غرفة العمليات والتنسيق اللوجستي: تدقيق مستندات العملاء، التأكد من الجاهزية، جدولة وإسناد المحامين المختصين.
           </p>
+          {/* صلاحيّة المسار نفسها (`consults.request` خلف «جدولة المواعيد») */}
+          {canSchedule && (
+            <div style={{ marginTop: 10 }}>
+              <ConsultOnBehalfButton className="btn sm" />
+            </div>
+          )}
         </div>
 
         {/* مبدل العرض المتكيف */}
@@ -791,7 +815,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
               >
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Badge text={c.session} tone={sessTone(c.session)} />
+                    <Badge text={c.session} tone={c.sessionTone} />
                     <b>{c.ref}</b>
                   </div>
                   <div style={{ fontSize: 13, marginTop: 4 }}>
@@ -1134,7 +1158,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                         </td>
 
                         <td style={{ padding: '12px 14px' }}>
-                          <Badge text={c.status} tone={cTone(c.status)} />
+                          <Badge text={c.status} tone={c.tone} />
                         </td>
 
                         <td style={{ padding: '12px 16px', textAlign: 'center' }}>
@@ -1187,7 +1211,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <b style={{ color: 'var(--primary)' }}>{c.ref}</b>
-                  <Badge text={c.status} tone={cTone(c.status)} />
+                  <Badge text={c.status} tone={c.tone} />
                 </div>
                 <div style={{ fontSize: 13, fontWeight: 600, margin: '6px 0' }}>{c.subject}</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>
@@ -1303,7 +1327,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                         <span style={{ fontSize: 11, color: 'var(--muted)' }}>
                           المستشار: <b>{c.lawyer}</b>
                         </span>
-                        <Badge text={c.status} tone={cTone(c.status)} />
+                        <Badge text={c.status} tone={c.tone} />
                       </div>
                     </div>
                   ))
@@ -1352,7 +1376,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                       </span>
                     </div>
                     <div className="iact">
-                      <Badge text={c.session || 'بانتظار الجلسة'} tone={sessTone(c.session)} />
+                      <Badge text={c.session || 'بانتظار الجلسة'} tone={c.sessionTone} />
                       <button
                         className="btn soft sm"
                         type="button"
@@ -1378,7 +1402,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
 
       {/* ── View D: التحليلات وتوزيع الأحمال (Analytics View) ── */}
       {viewMode === 'analytics' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: 16 }}>
           {/* أحمال المستشارين والمحامين */}
           <div className="card" style={{ margin: 0 }}>
             <div className="card-h">
@@ -1390,7 +1414,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                 // **تتبع المرشّحات كبقيّة العروض.** كانت وحدها تقرأ `allItems`، فيُصفّي
                 // الموظّف على تخصّصٍ أو قناة ثمّ يرى أحمالاً لا تصف ما أمامه.
                 const count = filteredItems.filter((c) => c.lawyer === law).length;
-                const active = filteredItems.filter((c) => c.lawyer === law && ! CONSULT_TERMINAL_STATUSES.includes(c.status)).length;
+                const active = filteredItems.filter((c) => c.lawyer === law && ! c.isTerminal).length;
                 const pct = filteredItems.length > 0 ? Math.round((count / filteredItems.length) * 100) : 0;
 
                 return (
@@ -1463,6 +1487,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           >
             {/* رأس الدرج مع زر إغلاق صريح ومستقل */}
             <div
+              className="c360-drawer-head"
               style={{
                 padding: '16px 20px',
                 borderBottom: '1px solid rgba(0,0,0,0.08)',
@@ -1477,7 +1502,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <h3 style={{ margin: 0, color: 'var(--primary)', fontSize: 17 }}>{drawerConsult.ref}</h3>
                   <Badge text={`استشارة ${drawerConsult.channel}`} tone={crChannelTone(drawerConsult.channel)} />
-                  <Badge text={drawerConsult.status} tone={cTone(drawerConsult.status)} />
+                  <Badge text={drawerConsult.status} tone={drawerConsult.tone} />
                 </div>
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                   العميل: {maskClient(drawerConsult.client)}
@@ -1526,7 +1551,13 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                 <button
                   key={tabKey}
                   type="button"
-                  onClick={() => setDrawerTab(tabKey)}
+                  onClick={(e) => {
+                    setDrawerTab(tabKey);
+                    // التبويب الجديد يبدأ من أعلاه — كان يُفتح في موضع تمرير السابق فيبدو مقصوصاً
+                    drawerBodyRef.current?.scrollTo({ top: 0 });
+                    // وعلى الهاتف يُمرَّر شريط التبويبات حتى يظهر المختار كاملاً
+                    e.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                  }}
                   style={{
                     flex: 1,
                     padding: '12px 10px',
@@ -1556,7 +1587,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
               * ارتفاعُه `100vh` ويُقصّ ما زاد **بلا شريط تمرير** — فسجلُّ تدقيقٍ طويل
               * يُقرأ نصفُه ولا سبيل إلى بقيّته. قِيس ذلك على `CN-2026-7173`.
               */}
-            <div className="c360-drawer-body" style={{ padding: 20, flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div ref={drawerBodyRef} className="c360-drawer-body" style={{ padding: 20, flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
               {/* Tab 1: التفاصيل والبيانات */}
               {drawerTab === 'details' && (
                 <>
@@ -1567,13 +1598,13 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                     موظّف، فإجراءاتها (التحليل، حفظ التحليل، الاعتماد، تحويل القرارات
                     إلى مهامّ) مساراتها مفتوحة وصفحتها لا تُبلَغ إلّا بكتابة الرابط يدوياً.
                   */}
-                  <a
+                  <Link
                     href={`/employee/consult?ref=${encodeURIComponent(drawerConsult.ref)}`}
                     className="btn soft sm"
                     style={{ alignSelf: 'flex-start' }}
                   >
                     <Icon name="out" /> فتح رحلة الاستشارة الكاملة (تحليل واعتماد)
-                  </a>
+                  </Link>
 
                   <div className="card" style={{ margin: 0, padding: 14 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 6 }}>
@@ -1736,22 +1767,25 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                       )}
                     </div>
                     <div style={{ fontSize: 13, color: '#334155' }}>
-                      الموعد المحدد: <b>{drawerConsult.when || 'لم يحدد موعد بعد'}</b>
+                      الموعد المحدد: <b>{drawerConsult.when || (drawerConsult.proposedWhen ? `مقترح: ${drawerConsult.proposedWhen} (بانتظار الاعتماد)` : 'لم يحدد موعد بعد')}</b>
                     </div>
                   </div>
 
                   <div className="card" style={{ margin: 0, padding: 16 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       <b>إسناد المستشار القانوني المختص:</b>
-                      <Badge text={drawerConsult.lawyer ? `المسند: ${drawerConsult.lawyer}` : 'غير مسند'} tone="b-blue" />
+                      <Badge
+                        text={drawerConsult.lawyer ? `${drawerConsult.lawyerTentative ? 'المرشّح' : 'المسند'}: ${drawerConsult.lawyer}` : 'غير مسند'}
+                        tone={drawerConsult.lawyerTentative ? 'b-amber' : 'b-blue'}
+                      />
                     </div>
                     <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
                       اختر المستشار القانوني المطابق للتخصص ثم اضغط تأكيد لتحديث الإسناد ومزامنة التذكرة المرتبطة.
                     </p>
 
-                    {CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && (
+                    {drawerConsult.assignBlocker && (
                       <div style={{ padding: '10px 14px', background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: 8, color: '#b45309', fontSize: 12.5, marginBottom: 12 }}>
-                        ⚠️ الاستشارة ما زالت في دورة الحجز والفوترة (<b>{drawerConsult.status}</b>) — لا يمكن إسناد المحامي إلا بعد اكتمال التسعير والسداد وتحديد الموعد.
+                        {drawerConsult.assignBlocker}
                       </div>
                     )}
 
@@ -1767,7 +1801,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                           fontSize: 13.5,
                           background: '#fff',
                         }}
-                        disabled={isClosed || CONSULT_BOOKING_STATUSES.includes(drawerConsult.status)}
+                        disabled={isClosed || Boolean(drawerConsult.assignBlocker)}
                       >
                         <option value="">-- اختر مستشاراً قانونياً --</option>
                         {lawyersList.map((l) => (
@@ -1785,7 +1819,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                           !selectedLawyerId ||
                           // `refer` يمنع النهايات المُقفَلة على الخادم — فلا يُعرض الزرّ فاعلاً
                           isClosed ||
-                          CONSULT_BOOKING_STATUSES.includes(drawerConsult.status)
+                          Boolean(drawerConsult.assignBlocker)
                         }
                         onClick={() => handleRefer(drawerConsult)}
                         style={{ padding: '9px 16px', fontSize: 13, justifyContent: 'center' }}

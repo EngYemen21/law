@@ -5,6 +5,7 @@ import Modal from '@/components/babylon/Modal';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
+import { dateISOAfter } from '@/lib/local-date';
 import { truncateWords } from '@/lib/utils';
 
 // مهام المحامي — متابعة المهام المسندة والذاتية وإنجازها
@@ -23,12 +24,6 @@ interface Props {
   tasks: Task[];
 }
 
-/** حساب تاريخ بالمستقبل بصيغة YYYY-MM-DD */
-const getFutureISO = (daysAhead: number): string => {
-  const d = new Date();
-  d.setDate(d.getDate() + daysAhead);
-  return d.toISOString().split('T')[0];
-};
 
 const LawyerTasks: React.FC<Props> = ({ tasks = [] }) => {
   const toast = useToast();
@@ -478,7 +473,7 @@ const LawyerTasks: React.FC<Props> = ({ tasks = [] }) => {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))',
             gap: 16,
             marginBottom: 24,
           }}
@@ -668,7 +663,7 @@ const LawyerTasks: React.FC<Props> = ({ tasks = [] }) => {
                   type="button"
                   className="btn soft sm"
                   style={{ padding: '2px 8px', fontSize: 11 }}
-                  onClick={() => setDue(getFutureISO(0))}
+                  onClick={() => setDue(dateISOAfter(0))}
                 >
                   اليوم
                 </button>
@@ -676,7 +671,7 @@ const LawyerTasks: React.FC<Props> = ({ tasks = [] }) => {
                   type="button"
                   className="btn soft sm"
                   style={{ padding: '2px 8px', fontSize: 11 }}
-                  onClick={() => setDue(getFutureISO(1))}
+                  onClick={() => setDue(dateISOAfter(1))}
                 >
                   غداً
                 </button>
@@ -684,7 +679,7 @@ const LawyerTasks: React.FC<Props> = ({ tasks = [] }) => {
                   type="button"
                   className="btn soft sm"
                   style={{ padding: '2px 8px', fontSize: 11 }}
-                  onClick={() => setDue(getFutureISO(3))}
+                  onClick={() => setDue(dateISOAfter(3))}
                 >
                   3 أيام
                 </button>
@@ -692,7 +687,7 @@ const LawyerTasks: React.FC<Props> = ({ tasks = [] }) => {
                   type="button"
                   className="btn soft sm"
                   style={{ padding: '2px 8px', fontSize: 11 }}
-                  onClick={() => setDue(getFutureISO(7))}
+                  onClick={() => setDue(dateISOAfter(7))}
                 >
                   أسبوع
                 </button>
@@ -743,7 +738,7 @@ const LawyerTasks: React.FC<Props> = ({ tasks = [] }) => {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: 12, fontSize: 13 }}>
               <div style={{ background: '#fff', border: '1px solid var(--line-soft)', padding: 10, borderRadius: 8 }}>
                 <span style={{ color: 'var(--muted)', display: 'block', fontSize: 11 }}>المرجع</span>
                 <b className="mono">{selectedTask.ref || '—'}</b>

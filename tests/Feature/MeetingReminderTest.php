@@ -24,12 +24,12 @@ class MeetingReminderTest extends TestCase
 
         $this->actingAs($admin)->post(route('admin.meetings.store'), [
             'title' => 'اجتماع', 'type' => 'اجتماع مع عميل',
-            'client_id' => $client->id, 'day' => '2026-08-08', 'time' => '10:00',
+            'client_id' => $client->id, 'day' => now()->addDays(3)->toDateString(), 'time' => '10:00',
         ])->assertRedirect();
 
         $meeting = Meeting::firstOrFail();
         $this->assertNotNull($meeting->starts_at);
-        $this->assertSame('2026-08-08 10:00', $meeting->starts_at->format('Y-m-d H:i'));
+        $this->assertSame(now()->addDays(3)->toDateString().' 10:00', $meeting->starts_at->format('Y-m-d H:i'));
     }
 
     public function test_reminder_sent_once_within_window(): void

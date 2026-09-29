@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Models\CaseHearing;
-use App\Models\Consult;
 use App\Models\LegalCase;
 use App\Models\Meeting;
 use App\Models\User;

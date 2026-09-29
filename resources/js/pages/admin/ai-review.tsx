@@ -5,6 +5,7 @@ import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { panelBase } from '@/lib/data';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 
 /** مخرج ينتظر قرار إنسان */
 interface ReviewItem {
@@ -239,8 +240,7 @@ export const AiReview: React.FC<{
         },
         onError: (err) => {
           setIsSubmitting(false);
-          const firstErr = Object.values(err)[0];
-          toast(`⚠️ ${firstErr || 'تعذر تسجيل القرار'}`, 'error');
+          toast(`⚠️ ${firstError(err, 'تعذر تسجيل القرار')}`, 'error');
         },
       }
     );

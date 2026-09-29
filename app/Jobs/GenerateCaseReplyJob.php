@@ -39,7 +39,7 @@ class GenerateCaseReplyJob implements ShouldQueue
     public function handle(LegalAiService $ai): void
     {
         $case = $this->case->fresh();
-        if (! $case || in_array($case->status, ['مغلقة', 'مؤرشفة'], true)) {
+        if (! $case || ! $case->isActive()) {
             return;
         }
 

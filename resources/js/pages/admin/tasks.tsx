@@ -6,6 +6,7 @@ import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
 import { dateISOAfter } from '@/lib/local-date';
+import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 import { truncateWords } from '@/lib/utils';
 
 // مهام الإدارة — إسناد مهام حقيقية للمحامين ومتابعة مؤشرات الإنجاز
@@ -35,6 +36,7 @@ const getInitials = (name: string): string => {
 };
 
 const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
+  const inSession = useInSession();
   const toast = useToast();
 
   // نمط العرض: جدول منظم | بطاقات كانبان
@@ -614,7 +616,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 290px), 1fr))',
             gap: 16,
             marginBottom: 24,
           }}
@@ -816,7 +818,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
             >
               {lawyers.map((l) => (
                 <option key={l.id} value={l.id}>
-                  {l.name}
+                  {l.name}{inSessionSuffix(inSession, l.id)}
                 </option>
               ))}
             </select>
@@ -922,7 +924,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: 12, fontSize: 13 }}>
               <div style={{ background: '#fff', border: '1px solid var(--line-soft)', padding: 10, borderRadius: 8 }}>
                 <span style={{ color: 'var(--muted)', display: 'block', fontSize: 11 }}>المحامي المسند إليه</span>
                 <b>{selectedTask.owner}</b>

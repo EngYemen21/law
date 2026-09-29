@@ -5,11 +5,11 @@ namespace App\Support;
 /**
  * مولّد تقارير رسمية قابل لإعادة الاستخدام — النظير الخادميّ لـ resources/js/lib/reportPrint.ts.
  * يبني نفس تصميم بطاقة .cf (رأس بالشعار، عنوان متدرّج، أقسام مرقّمة كاملة العرض أو عمودين،
- * قسم اعتماد برمز استجابة حقيقيّ، ملاحظة، تذييل) كسلسلة HTML واحدة، تُغذّى إلى Browsershot لإصدار PDF حقيقي
+ * قسم اعتماد برمز استجابة حقيقيّ، ملاحظة — بلا شريط تذييل) كسلسلة HTML واحدة، تُغذّى إلى Browsershot لإصدار PDF حقيقي
  * مطابق تماماً لما يعرضه المتصفح — لا صورة/محاكاة.
  *
  * @phpstan-type ReportCell array{0: string, 1: string}
- * @phpstan-type ReportSection array{title: string, cellRows?: array<int, array<int, ReportCell>>, lines?: string, list?: array<int, string>, chips?: array<int, string>}
+ * @phpstan-type ReportSection array{title: string, cellRows?: array<int, array<int, ReportCell>>, lines?: string, rich?: string, list?: array<int, string>, chips?: array<int, string>}
  */
 class ReportPrint
 {
@@ -38,6 +38,7 @@ class ReportPrint
         .cf-cell .l{font-size:9.5px;color:#7a8aa3;font-weight:700;margin-bottom:3px}
         .cf-cell .v{font-size:12px;color:#0A2A55;font-weight:700}
         .cf-lines{font-size:12px;color:#33415c;line-height:2.1;white-space:pre-wrap}
+        .cf-rich{font-size:12px;color:#33415c;line-height:2}.cf-rich p{margin:0 0 6px}.cf-rich ul,.cf-rich ol{margin:2px 0 8px;padding-inline-start:20px}.cf-rich hr{border:0;border-top:1px solid #e2e8f0;margin:8px 0}
         .cf-ul{margin:0;padding:0;list-style:none}
         .cf-ul li{font-size:11.5px;color:#33415c;padding:6px 0;border-bottom:1px dashed #E7EFF6;display:flex;gap:8px;line-height:1.7}
         .cf-ul li:last-child{border-bottom:none}
@@ -54,12 +55,11 @@ class ReportPrint
         .cf-appr .r span{color:#7a8aa3}
         .cf-appr .r b{color:#0A2A55}
         .cf-note{margin:0 22px 12px;background:#FFF8EC;border:1px solid #F0DDB0;border-radius:8px;padding:9px 13px;font-size:10.5px;color:#8A6D2F;line-height:1.85}
-        .cf-foot{background:#0E5C9C;color:#fff;font-size:10.5px;text-align:center;padding:10px;margin-top:8px}
         @page{size:A4;margin:12mm}
         CSS;
 
     /**
-     * @param  array{title:string,subtitle:string,ref:string,blocks:array<int, ReportSection|array{0:ReportSection,1:ReportSection}>,approval?:array{qr?:string|null,qrCaption?:string,rows:array<int,ReportCell>,title?:string},note?:string,footer?:string}  $doc
+     * @param  array{title:string,subtitle:string,ref:string,blocks:array<int, ReportSection|array{0:ReportSection,1:ReportSection}>,approval?:array{qr?:string|null,qrCaption?:string,rows:array<int,ReportCell>,title?:string},note?:string}  $doc
      */
     public static function html(array $doc): string
     {
@@ -79,15 +79,15 @@ class ReportPrint
         $officeName = SettingsRegistry::str('office_name');
         $officeUrl = SettingsRegistry::str('office_url');
         $officePhone = SettingsRegistry::str('office_phone');
-        $footerHtml = '<div class="cf-foot">'.e($doc['footer'] ?? $officeName.' — صادر إلكترونياً').'</div>';
 
         return '<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>'.e($doc['ref']).'</title><style>'.self::STYLE.'</style></head><body>'
             .'<div class="cf">'
             // الشعار وحده في الترويسة (طلب المالك 2026-09-26) — كان بجانبه اسم المكتب وسطرٌ إنجليزيّ
-            // «LEGAL OFFICE MANAGEMENT SYSTEM»؛ واسم المكتب باقٍ في التذييل وفي نصّ الشعار البديل
+            // «LEGAL OFFICE MANAGEMENT SYSTEM»؛ واسم المكتب في نصّ الشعار البديل. ولا شريط تذييل
+            // باسم المكتب أسفل الوثيقة (طلب المالك 2026-09-28): الشعار هويّتها الوحيدة
             .'<div class="cf-hd">'.($logo ? '<img src="'.$logo.'" alt="'.e($officeName).'">' : '<b class="cf-name">'.e($officeName).'</b>').'<div class="meta">'.e($officeUrl).'<br>'.e($officePhone).'</div></div>'
             .'<div class="cf-title"><div><b>'.e($doc['title']).'</b><span class="s">'.e($doc['subtitle']).'</span></div><div class="rf">'.e($doc['ref']).'</div></div>'
-            .$blocksHtml.$approvalHtml.$noteHtml.$footerHtml
+            .$blocksHtml.$approvalHtml.$noteHtml
             .'</div></body></html>';
     }
 
@@ -109,6 +109,10 @@ class ReportPrint
     {
         $cells = implode('', array_map(fn ($row) => self::renderCells($row), $s['cellRows'] ?? []));
         $lines = isset($s['lines']) ? '<div class="cf-lines">'.e($s['lines']).'</div>' : '';
+        // نصٌّ بفقراتٍ وقوائم (ملخّص الاستشارة) — `SummaryText` يهرّبه ثمّ يبني عناصره
+        if (isset($s['rich'])) {
+            $lines .= '<div class="cf-rich">'.SummaryText::html($s['rich']).'</div>';
+        }
         $list = ! empty($s['list'])
             ? '<ul class="cf-ul">'.implode('', array_map(fn ($li) => '<li><div>'.e($li).'</div></li>', $s['list'])).'</ul>'
             : '';

@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\ExecutionStatus;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 
@@ -11,10 +12,16 @@ use Carbon\CarbonInterface;
  */
 class ExecFlow
 {
-    /** المراحل بالترتيب (الفهرس = stage) */
-    public const FLOW = [
-        'طلب جديد', 'تحليل ذكي', 'قيد الدراسة', 'تحديد الأتعاب', 'اعتماد الإدارة',
-        'عرض الخدمة', 'السداد', 'بانتظار الرفع في ناجز', 'قيد التنفيذ', 'مغلق',
+    /**
+     * **مجموعات قائمة التنفيذ** — تبويبات الفلترة وعدّاداتها في الأدوار كلّها (`execflow.tsx`). كانت الشروط
+     * (`stage <= 1`…) مكتوبةً في الواجهة؛ والمجموعة الآن من الخادم على كلّ بطاقة (`bucket`).
+     */
+    public const BUCKETS = [
+        'new' => 'جديدة/تحليل',
+        'study' => 'دراسة/أتعاب',
+        'offer' => 'عروض/سداد',
+        'active' => 'قيد التنفيذ',
+        'closed' => 'مغلقة',
     ];
 
     /**
@@ -71,9 +78,24 @@ class ExecFlow
         return $stage >= 9 ? 'b-grey' : ($stage >= 7 ? 'b-green' : ($stage >= 5 ? 'b-amber' : ($stage >= 2 ? 'b-blue' : 'b-grey')));
     }
 
-    /** اسم المرحلة */
+    /** اسم المرحلة — من `ExecutionStatus` وحده (كانت هنا نسخةٌ تعيد «طلب جديد» لمرحلةٍ خارجها). */
     public static function label(int $stage): string
     {
-        return self::FLOW[$stage] ?? self::FLOW[0];
+        return ExecutionStatus::fromStage($stage)->value;
+    }
+
+    /**
+     * مجموعة الملفّ في القائمة (`BUCKETS`): المغلق أوّلاً، ثمّ بالمرحلة — والعرض المسدَّد قبل رفعه في
+     * ناجز «قيد التنفيذ» (انفتح الملفّ لدى المكتب)، لا «عروض/سداد».
+     */
+    public static function bucket(int $stage, bool $paid, bool $closed): string
+    {
+        return match (true) {
+            $closed || $stage >= 9 => 'closed',
+            $stage <= 1 => 'new',
+            $stage <= 4 => 'study',
+            $stage <= 6 && ! $paid => 'offer',
+            default => 'active',
+        };
     }
 }

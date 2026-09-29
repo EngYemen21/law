@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\ConsultStatus;
 use App\Models\Consult;
 use Tests\TestCase;
 
@@ -68,7 +69,7 @@ class ConsultStatusCatalogueTest extends TestCase
     {
         // **الانتقالات تكتب الحالة عبر تعداد الكتالوج** (خطّة الرحلة 2026-09-14): `to()` يُرجعها،
         // أو `apply()` يضبطها على الاستشارة. وكلُّ صفٍّ في `Transitions/Consult` كاتبٌ لاستشارة.
-        $case = \App\Domain\Journey\Enums\ConsultStatus::tryFrom($status)?->name;
+        $case = ConsultStatus::tryFrom($status)?->name;
         if ($case !== null) {
             foreach (glob(app_path('Domain/Journey/Transitions/Consult/*.php')) ?: [] as $transition) {
                 $src = (string) file_get_contents($transition);
@@ -289,7 +290,12 @@ class ConsultStatusCatalogueTest extends TestCase
             );
         }
 
-        $this->assertSame(1, $defs, 'نغمةُ الجلسة تُعرَّف مرّةً واحدة');
+        // المصدر الواحد صار في الخادم (`SessionState::tone`) والبطاقات ترسل `sessionTone` — فلا تعريف في الواجهة
+        $this->assertSame(0, $defs, 'عادت نغمةُ الجلسة تُعرَّف في الواجهة');
+        $this->assertStringContainsString(
+            'public function tone(): string',
+            (string) file_get_contents(app_path('Domain/Journey/Enums/SessionState.php'))
+        );
         $this->assertStringNotContainsString(
             'crSessionTone',
             implode("\n", $this->screens()),

@@ -4,7 +4,10 @@ import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { dateISOAfter, firstOfMonthISO, todayISO } from '@/lib/local-date';
 import { truncateWords } from '@/lib/utils';
+// بطاقة العميل من النوع المشترك (`Ticket::toCard`) — كانت مُعرَّفةً هنا وفي الصفحة الأخرى
+import type { ClientTicketCard as TicketCard } from '@/types';
 
 // ============================================================
 // مركز متابعة التذاكر والطلبات القانونية 360° (Client Legal Tickets Hub)
@@ -21,46 +24,6 @@ const JOURNEY_STEPS = [
   'النتيجة والاعتماد',
 ];
 
-/** @deprecated استخدم t.isTerminal القادم من الخادم بدلاً من مقارنة النصوص العربية */
-export const TERMINAL_STATUSES = ['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة إلى تنفيذ', 'طلب مكتمل ومغلق', 'تم تحويل الطلب إلى قضية رسمية', 'تم تحويل الطلب إلى ملف تنفيذ قضائي'];
-
-export interface TicketActions {
-  can_request_consult?: boolean;
-  can_convert_case?: boolean;
-  can_convert_exec?: boolean;
-  can_close?: boolean;
-  can_request_docs?: boolean;
-  can_rerun_ai?: boolean;
-}
-
-export interface TicketCard {
-  no: string;
-  type: string;
-  subject?: string;
-  priority?: string;
-  dept?: string;
-  status: string;
-  statusCode?: string;
-  tone: string;
-  isFrozen?: boolean;
-  isTerminal?: boolean;
-  actions?: TicketActions;
-  last?: string;
-  date: string;
-  lawyer?: string;
-  step?: number;
-  needsDoc?: boolean;
-  needsBooking?: boolean;
-  hasCase?: boolean;
-  courtName?: string;
-  claimAmount?: number;
-  opponentName?: string;
-  documentsCount?: number;
-  messagesCount?: number;
-  createdAt?: string;
-  /** تبويب العميل الذي تقع فيه التذكرة — يحسبه الخادم من الحالة الداخليّة (`TicketJourney::CLIENT_PHASES`) */
-  phase?: 'analysis' | 'opinion' | null;
-}
 
 interface Props {
   tickets: TicketCard[];
@@ -90,7 +53,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
     [
       't-blue',
       'folder',
-      counts?.active ?? tickets.filter((t) => !(t.isTerminal ?? TERMINAL_STATUSES.includes(t.status))).length,
+      counts?.active ?? tickets.filter((t) => !t.isTerminal).length,
       'تذاكر جارية ونشطة',
     ],
     [
@@ -108,7 +71,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
     [
       't-green',
       'check',
-      counts?.completed ?? tickets.filter((t) => Boolean(t.isTerminal ?? TERMINAL_STATUSES.includes(t.status))).length,
+      counts?.completed ?? tickets.filter((t) => Boolean(t.isTerminal)).length,
       'تذاكر مكتملة ومنجزة',
     ],
   ];
@@ -150,8 +113,8 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
   // التعامل مع اختيار فترة التاريخ من القائمة المنسدلة
   const handleDatePresetChange = (preset: 'all' | 'today' | 'week' | 'month' | 'custom') => {
     setDatePreset(preset);
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
+    // تواريخ الفلتر بالتوقيت المحلّي (`lib/local-date`) — `toISOString` يعطي أمسَ بعد منتصف الليل وآخرَ الشهر السابق لـ«هذا الشهر»
+    const todayStr = todayISO();
 
     if (preset === 'all') {
       setStartDate('');
@@ -160,13 +123,10 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
       setStartDate(todayStr);
       setEndDate(todayStr);
     } else if (preset === 'week') {
-      const past7 = new Date();
-      past7.setDate(now.getDate() - 7);
-      setStartDate(past7.toISOString().split('T')[0]);
+      setStartDate(dateISOAfter(-7));
       setEndDate(todayStr);
     } else if (preset === 'month') {
-      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-      setStartDate(firstDay.toISOString().split('T')[0]);
+      setStartDate(firstOfMonthISO());
       setEndDate(todayStr);
     }
   };
@@ -192,7 +152,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
       }
 
       // تصفية التبويب العام
-      const isTerminal = Boolean(t.isTerminal ?? TERMINAL_STATUSES.includes(t.status));
+      const isTerminal = Boolean(t.isTerminal);
       if (statusFilter === 'active') {
         if (isTerminal) return false;
       } else if (statusFilter === 'action') {
@@ -241,9 +201,6 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
           <div className="hero-cta" style={{ margin: 0 }}>
             <button className="hero-b" onClick={() => router.visit('/tickets/new')} type="button">
               <Icon name="plus" /> فتح تذكرة جديدة
-            </button>
-            <button className="hero-b ghost" onClick={() => router.visit('/book')} type="button">
-              <Icon name="calplus" /> حجز استشارة
             </button>
           </div>
         </div>

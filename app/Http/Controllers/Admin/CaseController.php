@@ -21,11 +21,13 @@ use App\Services\MailService;
 use App\Support\Audit;
 use App\Support\CaseFee;
 use App\Support\CaseJourney;
+use App\Support\CaseTicketDocuments;
 use App\Support\ConversationFiles;
 use App\Support\ConversationHandler;
 use App\Support\ExecutionCreation;
 use App\Support\Finance\InvoiceDue;
 use App\Support\Finance\InvoiceFactory;
+use App\Support\Finance\LawyerShare;
 use App\Support\Live;
 use App\Support\Notify;
 use App\Support\Paginate;
@@ -42,7 +44,7 @@ class CaseController extends Controller
 {
     public function fees(): Response
     {
-        $cases = LegalCase::with(['user', 'hearings'])->latest('id')->paginate(50)->withQueryString();
+        $cases = LegalCase::with(['user', 'hearings', 'assignedLawyer'])->latest('id')->paginate(50)->withQueryString();
 
         return Inertia::render('admin/casefees', [
             'cases' => Paginate::shape($cases, fn (LegalCase $c) => [
@@ -55,6 +57,8 @@ class CaseController extends Controller
                 'fee' => $c->fee,
                 'lawyerFee' => $c->lawyer_fee,
                 'lawyerPct' => $c->lawyer_pct,
+                // تملأ حقل النسبة في نموذج الأتعاب — نسبة ملفّ المحامي أو الافتراض الموحّد
+                'lawyerDefaultPct' => LawyerShare::defaultPctFor($c->assignedLawyer),
                 'feeStatus' => $c->fee_status,
                 // حكم انتقال `SetFee` (حالته المصدر + صلاحيّة الفاعل) — كانت الواجهة تقارن نصّ الحالة
                 'canSetFee' => $c->fee_status === 'none'
@@ -77,12 +81,15 @@ class CaseController extends Controller
             'lawyer_pct' => ['nullable', 'integer', 'min:0', 'max:100'],
         ]);
 
+        // النسبة الافتراضيّة نسبة ملفّ المحامي المسند (`LawyerShare`) — لا «20» منقوشة
+        $pct = (int) ($data['lawyer_pct'] ?? LawyerShare::defaultPctFor($case->assignedLawyer));
+
         // **الأتعاب صفراً قضيّةٌ بلا أتعاب** (قرار المالك 2026-09-11). كانت تُصدر فاتورةً بصفر
         // ريال «مستحقّة» وتعلّق القضيّة بانتظار سدادٍ لا شيء فيه — فتُفعَّل مباشرةً كأنها سُدّدت.
         if ((int) $data['fee'] === 0) {
             Workflow::run(new SetFeeTransition, $case, $request->user(), [
                 'fee' => 0,
-                'lawyer_pct' => $data['lawyer_pct'] ?? 0,
+                'lawyer_pct' => $pct,
                 'lawyer_fee' => 0,
             ]);
             $case->messages()->create([
@@ -106,8 +113,7 @@ class CaseController extends Controller
 
         $vat = Setting::vatOn($data['fee']);
         $total = $data['fee'] + $vat;
-        $pct = $data['lawyer_pct'] ?? 0;
-        $lawyerFee = (int) round($data['fee'] * $pct / 100);
+        $lawyerFee = LawyerShare::of((int) $data['fee'], $pct);
 
         Workflow::run(new SetFeeTransition, $case, $request->user(), [
             'fee' => $data['fee'],
@@ -184,7 +190,7 @@ class CaseController extends Controller
                 'lawyer' => $c->assigned_lawyer ?: ($c->assignedLawyer?->name ?: '—'),
                 'lawyerId' => $c->assigned_lawyer_id,
                 'status' => $c->status,
-                'tone' => $c->tone ?: 'b-blue',
+                'tone' => $c->tone,
                 'courtName' => $c->ticket?->court_name ?: 'المحكمة المختصة',
                 'claimAmount' => $c->ticket?->claim_amount,
                 'opponent' => $c->ticket?->opponent_name,
@@ -238,7 +244,7 @@ class CaseController extends Controller
      */
     public function show(Request $request, LegalCase $case): Response
     {
-        $case->load(['user', 'hearings', 'documents', 'assignedLawyer']);
+        $case->load(['user', 'hearings', 'documents', 'assignedLawyer', 'ticket.documents']);
 
         return Inertia::render('admin/case', [
             // من يتولّى المحادثة الآن ومن تولّاها قبله — للطاقم وحده (`ConversationHandler`)
@@ -251,7 +257,7 @@ class CaseController extends Controller
                 'lawyer' => $case->assigned_lawyer ?: ($case->assignedLawyer?->name ?? '—'),
                 'lawyerId' => $case->assigned_lawyer_id,
                 'status' => $case->status,
-                'tone' => $case->tone ?: CaseJourney::toneFor($case->status),
+                'tone' => $case->tone,
                 'next' => $case->nextHearingLabel(),
                 'pleadingStatus' => $case->pleading_status,
                 'ruling' => $case->ruling,
@@ -276,6 +282,8 @@ class CaseController extends Controller
             'messages' => ConversationFiles::linkLegacyChips($case->messages()->visibleTo(true)->get()->map->toMessage()->all(), 'case', $case->documents),
             'hearings' => $case->hearings->map->toData(),
             'documents' => $case->documents->map(fn ($d) => $d->toData($request->user())),
+            // مرفقات الطلب قبل التحويل — كانت القضيّة المحوَّلة تبدأ فارغةً هنا
+            'ticketDocuments' => CaseTicketDocuments::for($case, $request->user()),
             'convertedExec' => $case->execution()->exists(),
             'closureReasons' => ClosureCaseReasonCode::options(),
             // لإعادة الإسناد — المحامون النشطون وحدهم (قاعدة `ActiveLawyer` نفسها)

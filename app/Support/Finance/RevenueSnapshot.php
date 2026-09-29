@@ -2,11 +2,11 @@
 
 namespace App\Support\Finance;
 
-use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Execution;
 use App\Models\Invoice;
+use App\Models\StaffPayout;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -63,6 +63,7 @@ final class RevenueSnapshot
         public readonly array $byService,
         public readonly array $salaries,
         public readonly int $salaryTotal,
+        public readonly int $staffPaidTotal,
     ) {}
 
     public static function build(): self
@@ -72,7 +73,7 @@ final class RevenueSnapshot
         // الملغاة ليست ذمّةً على أحد: كانت تُجمَع في «الصادر» وتُطرح منها المحصَّلات، فتظهر
         // بكامل مبلغها ديناً على العميل إلى الأبد. والذمّة تُقاس مباشرةً — غيرُ ملغاةٍ وغير
         // مدفوعة — لا بطرح مجموعٍ من مجموع، فلا تصير سالبةً إن سُدّدت فاتورةٌ ثمّ أُلغيت.
-        $issued = (int) self::notCancelled()->sum('amount');
+        $issued = (int) Invoice::issued()->sum('amount');
         $due = (int) self::receivables()->sum('amount');
 
         $paidConsults = Consult::whereNotNull('paid_at');
@@ -108,6 +109,8 @@ final class RevenueSnapshot
             byService: self::consultIncomeByChannel(),
             salaries: $staff->map(fn ($u) => ['name' => (string) $u->name, 'salary' => (int) $u->salary])->values()->all(),
             salaryTotal: (int) $staff->sum('salary'),
+            // ما صُرف للموظّفين فعلاً (سجلّ الصرف الساري) — لا ما يُفترض من الرواتب المضبوطة
+            staffPaidTotal: (int) StaffPayout::active()->sum('amount'),
         );
     }
 
@@ -133,6 +136,7 @@ final class RevenueSnapshot
             'byService' => $this->byService,
             'salaries' => $this->salaries,
             'salaryTotal' => $this->salaryTotal,
+            'staffPaidTotal' => $this->staffPaidTotal,
         ];
     }
 
@@ -261,12 +265,6 @@ final class RevenueSnapshot
         return ['total' => $total, 'vat' => $vat, 'subtotal' => $total - $vat, 'count' => (int) ($row->invoices ?? 0)];
     }
 
-    /** @return Builder<Invoice> */
-    private static function notCancelled(): Builder
-    {
-        return Invoice::where('status', '!=', InvoiceStatus::Cancelled->value);
-    }
-
     /**
      * **تعريف «الذمّة» — المصدر الواحد** الذي تقرؤه هذه اللقطة وشاشة `/admin/finance`
      * (‏`Finance\FinanceBoard`: بطاقتا الذمم والمتأخّر، وتبويب الأعمار، وأعلى المدينين).
@@ -285,8 +283,7 @@ final class RevenueSnapshot
      */
     public static function receivables(): Builder
     {
-        return Invoice::where('paid', false)
-            ->whereNotIn('status', [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value]);
+        return Invoice::query()->outstanding();
     }
 
     /**
@@ -299,10 +296,6 @@ final class RevenueSnapshot
      */
     public static function isReceivable(Invoice $invoice): bool
     {
-        return ! $invoice->paid && ! in_array(
-            $invoice->status,
-            [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value],
-            true
-        );
+        return $invoice->isOutstanding();
     }
 }

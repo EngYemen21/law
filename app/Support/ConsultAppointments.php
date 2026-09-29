@@ -32,11 +32,12 @@ final class ConsultAppointments
     /**
      * @param  array{date:string,time:string,lawyer_id?:int|null,type?:string|null,place?:string|null}  $input
      */
-    public static function propose(Consult $consult, User $actor, array $input): Consult
+    public static function propose(Consult $consult, User $actor, array $input): ScheduledConsult
     {
         $slot = self::slot($consult, $input, base: null);
+        $transition = new ProposeAppointment;
 
-        return Workflow::run(new ProposeAppointment, $consult, $actor, $slot);
+        return new ScheduledConsult(Workflow::run($transition, $consult, $actor, $slot), $transition->overlapped(), $slot['off_hours']);
     }
 
     /**
@@ -44,7 +45,7 @@ final class ConsultAppointments
      *
      * @param  array{date?:string|null,time?:string|null,lawyer_id?:int|null,type?:string|null,place?:string|null}  $input
      */
-    public static function publish(Consult $consult, User $actor, array $input = []): Consult
+    public static function publish(Consult $consult, User $actor, array $input = []): ScheduledConsult
     {
         WebTimeLimit::raise(90);
 
@@ -80,8 +81,10 @@ final class ConsultAppointments
             Log::error('Zoom: تعذّر إنشاء اجتماع الاستشارة — تُنشر بلا رابط جلسة', ['consult' => $consult->ref]);
         }
 
+        $transition = new PublishAppointment;
+
         try {
-            return Workflow::run(new PublishAppointment, $consult, $actor, $slot);
+            return new ScheduledConsult(Workflow::run($transition, $consult, $actor, $slot), $transition->overlapped(), $slot['off_hours']);
         } catch (\Throwable $e) {
             if (! empty($slot['zoom']['id'])) {
                 app(ZoomService::class)->deleteMeeting((string) $slot['zoom']['id']);
@@ -110,6 +113,7 @@ final class ConsultAppointments
         if ($startsAt->isPast()) {
             throw ValidationException::withMessages(['time' => 'لا يمكن اختيار موعد في الماضي، فضلاً اختر وقتاً لاحقاً.']);
         }
+        $offHours = ConsultBooking::officeHoursVerdict($startsAt, 'time');
 
         $type = (string) ($input['type'] ?? $base['type'] ?? self::typeOf($consult));
         if (! in_array($type, self::TYPES, true)) {
@@ -134,6 +138,7 @@ final class ConsultAppointments
             'time' => $startsAt->format('H:i'),
             'type' => $type,
             'place' => $place,
+            'off_hours' => $offHours,
         ];
     }
 

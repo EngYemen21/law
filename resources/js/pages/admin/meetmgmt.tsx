@@ -7,7 +7,10 @@ import Modal from '@/components/babylon/Modal';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { MEET_STATUSES, MEET_TYPES_FULL, MEET_TEMPLATES } from '@/lib/admin-data';
-import { meetStatusTone, attendanceLabel, fmtActualDuration, type ClientDirEntry, type FullMeetingCard } from '@/lib/meeting-ui';
+import { dateISOAfter, todayISO } from '@/lib/local-date';
+import { meetStatusTone, attendanceLabel, fmtActualDuration, useLawyerDaySlots, type ClientDirEntry, type FullMeetingCard } from '@/lib/meeting-ui';
+import { inSessionSuffix, PresenceBadge, useInSession } from '@/lib/staff-presence';
+import { useServerAction } from '@/lib/use-server-action';
 
 // واجهة إدارة الاجتماعات الحديثة — التصميم الفاخر والمطور 2026
 interface Props {
@@ -20,6 +23,7 @@ interface Props {
 }
 
 const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = [], kpis }) => {
+  const inSession = useInSession();
   const toast = useToast();
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState(false);
@@ -39,13 +43,20 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
   const [type, setType] = useState(MEET_TYPES_FULL[0]);
   const [prio, setPrio] = useState('عادية');
   const [conf, setConf] = useState('عادي');
-  const [participants, setParticipants] = useState<string[]>([]);
+  // المشاركون من الكادر بمعرّفاتهم — الخادم يحفظهم حسابات (`meeting_participants`) لا أسماءً تُطابَق نصّاً
+  const [participants, setParticipants] = useState<number[]>([]);
   const [day, setDay] = useState('');
   const [time, setTime] = useState('10:00');
   const [clientId, setClientId] = useState<number | ''>('');
   const [lawyerId, setLawyerId] = useState<number | ''>('');
   const [caseRef, setCaseRef] = useState('');
   useEffect(() => { setCaseRef(''); }, [clientId]);
+  // قفلٌ موحّد للإرسال — كانت نقرتان سريعتان تُنشئان اجتماعين (وجلستي Zoom)؛ ثبت في المتصفّح 2026-09-28
+  const action = useServerAction();
+  // شبكة الوقت بانشغال المحامي المختار — المصدر نفسه لنافذة الدعوات (`useLawyerDaySlots`)
+  const slots = useLawyerDaySlots('/admin', lawyerId, day);
+  // المحامي المسؤول له صفته — لا يُعرض بين المشاركين
+  const participantChoices = staff.filter((m) => m.id !== lawyerId);
 
   // العدّ بمفتاح الحالة من الخادم (`statusKey`) — النصّ العربيّ للعرض وحده
   const up = meetings.filter((m) => m.statusKey === 'upcoming').length;
@@ -89,27 +100,45 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
     toast('تم تطبيق القالب: ' + name);
   };
 
+  // النموذج يعود كاملاً إلى بدايته بعد الإنشاء — كان العميل والقضيّة والموعد والأولويّة والسرّيّة تبقى من السابق
+  const resetForm = () => {
+    setTitle('');
+    setType(MEET_TYPES_FULL[0]);
+    setPrio('عادية');
+    setConf('عادي');
+    setParticipants([]);
+    setDay('');
+    setTime('10:00');
+    setClientId('');
+    setLawyerId('');
+    setCaseRef('');
+  };
+
   const submit = () => {
     if (!title.trim()) { toast('أدخل عنوان الاجتماع'); return; }
-    router.post('/admin/meetings', {
-      title, type, priority: prio, conf,
-      participants: participants.join('، '),
-      day, time,
-      client_id: clientId === '' ? null : clientId,
-      lawyer_id: lawyerId === '' ? null : lawyerId,
-      case_ref: caseRef,
-    }, {
-      preserveScroll: true,
+
+    if (!day) {
+      toast('اختر تاريخ الاجتماع');
+
+      return;
+    }
+
+    // رسالة النجاح من الخادم (`flash`) — تقول «بلا رابط Zoom» إن تعذّر إنشاؤه؛ والرفض يعرضه `useServerAction`
+    void action.run('/admin/meetings', {
+      data: {
+        title, type, priority: prio, conf,
+        participant_ids: participants,
+        day, time,
+        client_id: clientId === '' ? null : clientId,
+        lawyer_id: lawyerId === '' ? null : lawyerId,
+        case_ref: caseRef,
+      },
+      fallback: 'تعذّر إنشاء الاجتماع — راجع الحقول',
       onSuccess: () => {
         setOpen(false);
         setFilter('upcoming');
-        setTitle('');
-        setParticipants([]);
-        setLawyerId('');
-        toast('تم إنشاء الاجتماع بجلسة Zoom وإضافته للتقويم');
+        resetForm();
       },
-      // رسالة الخادم نفسها (تاريخٌ مطلوب/موعدٌ مضى/محامٍ غير نشط) — بلا onError كان الرفض صامتاً والنافذة مفتوحة
-      onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر إنشاء الاجتماع — راجع الحقول'),
     });
   };
 
@@ -300,7 +329,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                   </div>
 
                   <div style={{ fontSize: '12px', color: 'var(--ink-soft, #475569)' }}>
-                    <b>العميل:</b> {m.client} · <b>المحامي:</b> {m.lawyer !== '—' ? m.lawyer : 'غير مسند'}
+                    <b>العميل:</b> {m.client} · <b>المحامي:</b> {m.lawyer !== '—' ? m.lawyer : 'غير مسند'} <PresenceBadge userId={m.lawyerId} />
                     {m.statusKey === 'ended' && (attendanceLabel(m) || fmtActualDuration(m.durationSec)) && (
                       <span style={{ color: 'var(--primary)', fontWeight: 700, marginRight: 8 }}>
                         · {attendanceLabel(m) ?? ''}
@@ -341,7 +370,6 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
       <Modal
         title="جدولة جلسة واجتماع جديد"
         subtitle="إنشاء جلسة مرئية سحابية عبر Zoom وربطها التلقائي بملفات القضايا والتقويم"
-        badge={<Badge text="Zoom Cloud API" tone="b-blue" />}
         maxWidth={780}
         open={open}
         onClose={() => setOpen(false)}
@@ -456,7 +484,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                 <div style={{ display: 'flex', gap: 8 }}>
                   {[
                     { id: 'عادي', label: 'عادي (دخول مباشر)', icon: 'video' },
-                    { id: 'سري', label: 'سري (غرفة انتظار مشفرة)', icon: 'lock' },
+                    { id: 'سري', label: 'سري (غرفة انتظار)', icon: 'lock' },
                   ].map((c) => {
                     const sel = conf === c.id;
                     return (
@@ -487,6 +515,13 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                     );
                   })}
                 </div>
+                {/* الفرق من إعدادات Zoom نفسها (`ZoomService::settings`): عادي ⇐ دخولٌ قبل المضيف بلا غرفة انتظار،
+                    سري ⇐ غرفة انتظار ولا دخول قبل المضيف */}
+                <div style={{ fontSize: '11.5px', color: 'var(--muted)', marginTop: 6, lineHeight: 1.6 }}>
+                  {conf === 'سري'
+                    ? 'سري: ينتظر كلّ مدعوٍّ في غرفة الانتظار ولا يدخل حتى يقبله المضيف.'
+                    : 'عادي: يدخل كلّ من معه الرابط مباشرةً، ولو قبل وصول المضيف.'}
+                </div>
               </div>
 
               {/* لا «المدة الزمنية المقدرة» (قرار المالك 2026-09-26): الاجتماع ينتهي حين يُنهيه المضيف،
@@ -503,22 +538,18 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
               <div className="field">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                  <label style={{ fontSize: '12px', fontWeight: 700 }}>التاريخ المجدول</label>
+                  <label style={{ fontSize: '12px', fontWeight: 700 }}>التاريخ المجدول <span style={{ color: 'var(--red)' }}>*</span></label>
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button
                       type="button"
-                      onClick={() => setDay(new Date().toISOString().slice(0, 10))}
+                      onClick={() => setDay(todayISO())}
                       style={{ fontSize: 10.5, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--line-soft)', background: '#fff', cursor: 'pointer' }}
                     >
                       اليوم
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        const d = new Date();
-                        d.setDate(d.getDate() + 1);
-                        setDay(d.toISOString().slice(0, 10));
-                      }}
+                      onClick={() => setDay(dateISOAfter(1))}
                       style={{ fontSize: 10.5, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--line-soft)', background: '#fff', cursor: 'pointer' }}
                     >
                       غداً
@@ -539,9 +570,10 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
               value={time}
               onChange={setTime}
               date={day}
+              slots={slots}
               label="وقت بدء الجلسة / الاجتماع"
               required
-              allowCustom={false}
+              allowCustom
 />
           </div>
 
@@ -584,11 +616,16 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
               <select
                 className="input"
                 value={lawyerId}
-                onChange={(e) => setLawyerId(e.target.value === '' ? '' : Number(e.target.value))}
+                onChange={(e) => {
+                  const id = e.target.value === '' ? '' : Number(e.target.value);
+                  setLawyerId(id);
+                  // المسؤول ليس مشاركاً (الخادم يستبعده) — فلا يبقى محدَّداً في البطاقات
+                  setParticipants((prev) => prev.filter((p) => p !== id));
+                }}
                 style={{ borderRadius: 9, padding: '9px 12px', fontSize: '13px', border: '1px solid var(--line-soft, #cbd5e1)', background: '#fff' }}
               >
                 <option value="">— بدون محامٍ محدد —</option>
-                {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}{inSessionSuffix(inSession, l.id)}</option>)}
               </select>
             </div>
 
@@ -599,20 +636,20 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
               </label>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', maxHeight: 110, overflowY: 'auto', padding: 6, border: '1px solid var(--line-soft, #cbd5e1)', borderRadius: 9, background: '#fff' }}>
                 {/* الكادر الحقيقيّ وحده — كان يسقط إلى دليلٍ تجريبيّ ثابت في `admin-data` بأسماءٍ لا حسابات لها فلا يصلها إشعار */}
-                {staff.length === 0 && (
+                {participantChoices.length === 0 && (
                   <span style={{ fontSize: '12px', color: 'var(--muted)', padding: '4px 6px' }}>لا كادر نشطاً لإضافته.</span>
                 )}
-                {staff.map((s) => s.label).map((s) => {
-                  const isChecked = participants.includes(s);
+                {participantChoices.map((member) => {
+                  const isChecked = participants.includes(member.id);
                   return (
                     <button
-                      key={s}
+                      key={member.id}
                       type="button"
                       onClick={() => {
                         if (isChecked) {
-                          setParticipants(participants.filter((p) => p !== s));
+                          setParticipants(participants.filter((p) => p !== member.id));
                         } else {
-                          setParticipants([...participants, s]);
+                          setParticipants([...participants, member.id]);
                         }
                       }}
                       style={{
@@ -631,32 +668,11 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                       }}
                     >
                       <span>{isChecked ? '✓' : '+'}</span>
-                      <span>{s}</span>
+                      <span>{member.label}</span>
                     </button>
                   );
                 })}
               </div>
-            </div>
-          </div>
-
-          {/* 🛡️ إشعار الأمان وتكامل Zoom السحابي */}
-          <div
-            style={{
-              padding: '12px 16px',
-              borderRadius: 10,
-              background: 'linear-gradient(135deg, rgba(10,42,85,0.04) 0%, rgba(14,92,156,0.08) 100%)',
-              border: '1px solid rgba(14,92,156,0.15)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-            }}
-          >
-            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'var(--primary)', color: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-              <Icon name="video" />
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--ink-soft)', lineHeight: 1.5 }}>
-              <b style={{ color: 'var(--deep)', display: 'block', marginBottom: 2 }}>تأكيد الجدولة المباشرة عبر Zoom:</b>
-              سيتم إنشاء جلسة Zoom سحابية برمز مرور وتشفير كامل، وإدراج الموعد في تقويم المنصة، وإرسال دعوة الحضور بالبريد والإشعارات لجميع الأطراف.
             </div>
           </div>
 
@@ -674,6 +690,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
               type="button"
               className="btn"
               onClick={submit}
+              disabled={action.busy}
               style={{
                 padding: '11px 26px',
                 borderRadius: 10,
@@ -682,7 +699,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                 boxShadow: '0 4px 14px rgba(14,92,156,0.25)',
               }}
             >
-              <Icon name="check" /> تأكيد جدولة الاجتماع وإطلاقه
+              <Icon name="check" /> {action.busy ? 'جارٍ الإنشاء…' : 'تأكيد جدولة الاجتماع وإطلاقه'}
             </button>
           </div>
 

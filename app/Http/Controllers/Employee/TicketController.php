@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Employee;
 
 use App\Domain\Journey\Enums\TicketOutcomeTrack;
+use App\Domain\Journey\Enums\TicketStatus;
 use App\Domain\Journey\Transitions\Ticket\AwaitTicketDocuments;
 use App\Domain\Journey\Transitions\Ticket\ProposeOutcomeTrack;
 use App\Domain\Journey\Transitions\Ticket\TicketDocumentsReceived;
@@ -61,12 +62,12 @@ class TicketController extends Controller
 
         $counts = [
             'total' => $allTickets->count(),
-            'needAction' => $allTickets->whereNotIn('status', TicketJourney::AWAITING_OTHERS)->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
+            'needAction' => $allTickets->whereNotIn('status', TicketJourney::AWAITING_OTHERS)->whereNotIn('status', TicketStatus::finals())->count(),
             'missingDocs' => $allTickets->where('status', 'بانتظار مستندات')->count(),
             'referred' => $allTickets->where('status', 'محالة للقسم القانوني')->count(),
             // من الكتالوج: «حرجة/urgent/high» ثلاثُ مفرداتٍ لا كاتب لها، والكاتب الوحيد «عالية»
             'urgent' => $allTickets->filter(fn ($t) => TicketJourney::isUrgent($t->priority))->count(),
-            'completed' => $allTickets->whereIn('status', ['مكتملة', 'مغلقة'])->count(),
+            'completed' => $allTickets->whereIn('status', [TicketStatus::Completed->value, TicketStatus::Closed->value])->count(),
         ];
 
         $departments = $allTickets->pluck('department')->filter()->unique()->values();
@@ -94,7 +95,7 @@ class TicketController extends Controller
         $client = $ticket->user;
         $clientStats = $client ? [
             'totalTickets' => Ticket::where('user_id', $client->id)->count(),
-            'activeTickets' => Ticket::where('user_id', $client->id)->whereNotIn('status', ['مكتملة', 'مغلقة'])->count(),
+            'activeTickets' => Ticket::where('user_id', $client->id)->open()->count(),
             'totalCases' => LegalCase::where('user_id', $client->id)->count(),
             'memberSince' => $client->created_at?->locale('ar')->translatedFormat('F Y') ?? '—',
         ] : null;
@@ -107,6 +108,9 @@ class TicketController extends Controller
         return Inertia::render('employee/ticketchat', [
             // من يتولّى المحادثة الآن ومن تولّاها قبله — للطاقم وحده (`ConversationHandler`)
             'conversation' => ConversationHandler::history($ticket),
+            // مراحل الإحالة من `TicketTriage::REFERRABLE` — حارس `advance` نفسه؛ قائمةٌ لا علم لأنّ
+            // الشاشة تقارنها بالحالة الحيّة (البثّ) فيظهر الزرّ ويختفي دون إعادة تحميل
+            'referrable' => TicketTriage::REFERRABLE,
             // caseRef يخفي زرّ «تحويل إلى قضية» بعد التحويل ويعرض رابط ملف القضية بدله
             // mobile/openedAt لبطاقتَي «تفاصيل الطلب» ومعلومات التذكرة (يطابق tkDetailsCard المرجعي)
             'ticket' => array_merge($ticket->toEmployeeCard(), [
@@ -116,6 +120,8 @@ class TicketController extends Controller
                 'priority' => $ticket->priority ?: 'متوسطة',
                 // الموظف لا يحوّل قبل اعتماد المحامي — الزرّ يُخفى بدل أن يُعرَض ويُرفض بـ422
                 'summaryApproved' => (bool) $ticket->summary?->isApproved(),
+                // زرّ «إعادة التحليل الذكي» بحارس `rerunSummary` نفسه
+                'canRerunSummary' => $ticket->summaryRerunBlocker() === null,
                 // اقتراح النظام لمودال التحويل — لغير المسنَدة وحدها، والإسناد يؤكّده الموظّف
                 'lawyerSuggestion' => $ticket->assigned_lawyer_id ? null : TicketAssignment::suggest($ticket)->toArray(),
             ]),
@@ -358,10 +364,8 @@ class TicketController extends Controller
     public function rerunSummary(Request $request, Ticket $ticket): RedirectResponse
     {
         abort_unless($ticket->summary, 404);
-        if ($ticket->summary?->isApproved()) {
-            throw ValidationException::withMessages([
-                'summary' => 'لا يمكن إعادة تشغيل التحليل لملخّص تم اعتماده رسمياً.',
-            ]);
+        if (($why = $ticket->summaryRerunBlocker()) !== null) {
+            throw ValidationException::withMessages(['summary' => $why]);
         }
 
         GenerateTicketSummaryJob::dispatch($ticket, force: true);

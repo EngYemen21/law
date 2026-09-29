@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domain\Journey\Transitions\Consult\ReferConsult;
+use App\Domain\Journey\Workflow;
 use App\Enums\Role;
 use App\Events\TicketStatusBroadcast;
 use App\Http\Controllers\Controller;
@@ -13,6 +15,7 @@ use App\Models\Ticket;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
 use App\Support\Audit;
+use App\Support\LegalCatalogue;
 use App\Support\Live;
 use App\Support\TicketAssignment;
 use App\Support\TicketJourney;
@@ -37,7 +40,7 @@ class DistributeController extends Controller
                     ->open()
                     ->count();
                 $activeCasesCount = LegalCase::where('assigned_lawyer_id', $u->id)
-                    ->whereNotIn('status', ['مغلقة', 'مؤرشفة'])
+                    ->active()
                     ->count();
                 $activeExecutionsCount = Execution::where('assigned_lawyer_id', $u->id)
                     ->whereNotIn('status', Execution::CLOSED_STATUSES)
@@ -94,7 +97,7 @@ class DistributeController extends Controller
                     'lawyer' => $t->assigned_lawyer ?: '—',
                     'lawyerId' => $t->assigned_lawyer_id,
                     'status' => $t->status,
-                    'tone' => $t->tone ?: 'b-blue',
+                    'tone' => $t->tone,
                     'date' => $t->updated_at?->locale('ar')->diffForHumans() ?? 'الآن',
                     'createdAt' => $t->created_at?->format('Y-m-d H:i'),
                     'caseRef' => $t->case_ref,
@@ -111,7 +114,7 @@ class DistributeController extends Controller
 
         // 2. القضايا القضائية
         $cases = LegalCase::with(['user', 'assignedLawyer'])
-            ->whereNotIn('status', ['مغلقة', 'مؤرشفة'])
+            ->active()
             ->latest('id')
             ->get()
             ->map(function (LegalCase $c) {
@@ -129,7 +132,7 @@ class DistributeController extends Controller
                     'lawyer' => $c->assigned_lawyer ?: '—',
                     'lawyerId' => $c->assigned_lawyer_id,
                     'status' => $c->status,
-                    'tone' => $c->tone ?: 'b-amber',
+                    'tone' => $c->tone,
                     'date' => $c->updated_at?->locale('ar')->diffForHumans() ?? 'الآن',
                     'createdAt' => $c->created_at?->format('Y-m-d H:i'),
                     'caseRef' => $c->number,
@@ -143,7 +146,8 @@ class DistributeController extends Controller
                 ];
             });
 
-        // 3. ملفات التنفيذ
+        // 3. ملفات التنفيذ — قسمها قسم «التنفيذ» في الكتالوج (رمزه `enforcement`)
+        $execDept = LegalCatalogue::department('enforcement')?->name ?? 'التنفيذ';
         $executions = Execution::with(['user', 'assignedLawyer'])
             ->whereNotIn('status', Execution::CLOSED_STATUSES)
             ->where(function ($q) {
@@ -151,7 +155,7 @@ class DistributeController extends Controller
             })
             ->latest('id')
             ->get()
-            ->map(function (Execution $e) {
+            ->map(function (Execution $e) use ($execDept) {
                 return [
                     'id' => $e->id,
                     'no' => $e->number,
@@ -159,12 +163,14 @@ class DistributeController extends Controller
                     'userAvatar' => $e->user?->avatar_initials ?: 'عم',
                     'type' => 'تنفيذ أحكام وسندات',
                     'subject' => $e->subject ?: 'سند تنفيذي',
-                    'dept' => $e->court ?: 'محكمة التنفيذ',
+                    // قسم ملفّ التنفيذ هو قسم «التنفيذ» في الكتالوج — كان اسمَ المحكمة، فامتلأ فلتر الأقسام
+                    // بدوائر التنفيذ (سبعة خيارات) بين الأقسام القانونيّة. والمحكمة باقيةٌ في `courtName`
+                    'dept' => $execDept,
                     'priority' => null, // لا عمود أولويّة لملفّ التنفيذ — كالقضيّة أعلاه
                     'lawyer' => $e->assigned_lawyer ?: '—',
                     'lawyerId' => $e->assigned_lawyer_id,
                     'status' => $e->status,
-                    'tone' => $e->tone ?: 'b-purple',
+                    'tone' => $e->tone,
                     'date' => $e->updated_at?->locale('ar')->diffForHumans() ?? 'الآن',
                     'createdAt' => $e->created_at?->format('Y-m-d H:i'),
                     'caseRef' => $e->najiz_request_no,
@@ -383,7 +389,7 @@ class DistributeController extends Controller
 
     private function assignCaseTo(LegalCase $case, User $lawyer, User $actor): string
     {
-        abort_if(in_array($case->status, ['مغلقة', 'مؤرشفة'], true), 422, 'القضية مغلقة أو مؤرشفة — لا يُعاد إسنادها.');
+        abort_if(! $case->isActive(), 422, 'القضية مغلقة أو مؤرشفة — لا يُعاد إسنادها.');
 
         $case->update([
             'assigned_lawyer_id' => $lawyer->id,
@@ -432,25 +438,22 @@ class DistributeController extends Controller
         return "تم إسناد ملف التنفيذ {$execution->number} إلى {$lawyer->name}.";
     }
 
+    /**
+     * **إسناد الاستشارة من «التوزيع» = إحالتها من شاشات الاستشارات** (2026-09-27).
+     *
+     * كان يكتب `assigned_lawyer_id` مباشرةً: فلا تنتقل الحالة إلى «محالة للمحامي»، ولا يُحدَّث محامي
+     * التذكرة المرتبطة، ولا يُشعَر المحامي، ولا يُسجَّل في رحلة الاستشارة — وبقواعد منعٍ غير قواعد
+     * `ReferConsult` (يسمح بتحليلٍ غير معتمد). الآن الانتقال نفسه وحرّاسه، فالإسناد واحدٌ أيّاً كانت الشاشة.
+     */
     private function assignConsultTo(Consult $consult, User $lawyer, User $actor): string
     {
-        abort_if(in_array($consult->status, Consult::TERMINAL_STATUSES, true), 422, 'الاستشارة انتهت أو أُلغيت — لا تُحال إلى محامٍ.');
-        abort_if(in_array($consult->status, Consult::PRE_SESSION_STATUSES, true), 422, 'الاستشارة ما زالت في دورة الحجز والسداد — لا تُحال للمحامي قبل حجزها.');
-        abort_if($consult->session === 'جلسة جارية', 422, 'الجلسة منعقدة الآن — أنهِها قبل تغيير المستشار.');
+        $transition = new ReferConsult;
+        abort_if(($why = $transition->guard($consult, [])) !== null, 422, (string) $why);
 
-        $consult->update([
-            'assigned_lawyer_id' => $lawyer->id,
+        Workflow::run($transition, $consult, $actor, [
+            'lawyer_id' => $lawyer->id,
             'lawyer' => $lawyer->name,
         ]);
-
-        Audit::log(
-            action: 'إسناد جلسة استشارة',
-            description: "أسندت الإدارة ({$actor->name}) الاستشارة {$consult->ref} إلى {$lawyer->name}.",
-            category: 'استشارات',
-            auditable: $consult,
-            auditableRef: $consult->ref,
-            afterState: ['المستشار' => $lawyer->name],
-        );
 
         return "تم إسناد الاستشارة {$consult->ref} إلى {$lawyer->name}.";
     }

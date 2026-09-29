@@ -151,7 +151,7 @@ final class FinanceBoard
 
         // الصادر في الفترة: الملغاة خارجه (لا مطالبةَ صدرت)، والمعدومة داخله (صدرت فعلاً ثمّ
         // أُسقطت لاحقاً — وإخراجُها يعيد كتابة ماضي الفترة).
-        $issued = (int) Invoice::where('status', '!=', InvoiceStatus::Cancelled->value)
+        $issued = (int) Invoice::issued()
             ->whereRaw(self::ISSUED_AT.' BETWEEN ? AND ?', [$period['from'], $period['to']])
             ->sum('amount');
 
@@ -189,8 +189,9 @@ final class FinanceBoard
             ->whereRaw(self::ISSUED_AT.' BETWEEN ? AND ?', [$period['from'], $period['to']]);
 
         // «غير مدفوعة» ليست حالةً مخزّنة بل مرشّحٌ عرضيّ (وهو تبويب شاشة المحاسبة القديمة)
+        // وهي الذمّة القائمة نفسها (`Invoice::outstanding`) — لا تُدرج الملغاة والمعدومة
         if ($status === 'غير مدفوعة') {
-            $q->where('paid', false);
+            $q->outstanding();
         } elseif (in_array($status, InvoiceStatus::values(), true)) {
             $q->where('status', $status);
         }

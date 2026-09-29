@@ -6,7 +6,10 @@ use App\Domain\Journey\GuardsJourneyState;
 use App\Models\Concerns\ClipsPreviewText;
 use App\Models\Concerns\LinksLegalDepartment;
 use App\Models\Concerns\PurgesDocumentFiles;
+use App\Support\CaseJourney;
 use App\Support\LawyerName;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -82,6 +85,12 @@ class LegalCase extends Model
     public function messages(): HasMany
     {
         return $this->hasMany(CaseMessage::class, 'case_id')->orderBy('id');
+    }
+
+    // فواتير أتعاب القضيّة (الكاملة أو أقساطها) — المفتاح case_id
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class, 'case_id');
     }
 
     public function hearings(): HasMany
@@ -214,6 +223,7 @@ class LegalCase extends Model
             'type' => $this->type,
             'status' => $this->status,
             'tone' => $this->tone,
+            ...$this->stateFlags(),
             'update' => $this->update_text,
             'next' => $this->nextHearingLabel(),
             'fee' => $this->fee,
@@ -240,5 +250,44 @@ class LegalCase extends Model
             'pleadingStatus' => $this->pleading_status,
             'ruling' => $this->ruling,
         ];
+    }
+
+    /**
+     * **القضيّة النشطة** — كلّ ما لم يُغلق أو يُؤرشف، ومنها المعلّقة على الأتعاب والمحكومة
+     * (قرار المالك 2026-09-27). وهو أوسع من `CaseJourney::ACTIVE` (مجموعة تبويبٍ للعرض). التعريف الواحد لعدّادات اللوحات والشارات وبطاقات العميل؛
+     * كانت قوائم محلّيّة تختلف في «صدر الحكم» فيتباين الرقم بين شاشتين.
+     */
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->whereNotIn('status', CaseJourney::CLOSED);
+    }
+
+    public function isActive(): bool
+    {
+        return ! in_array($this->status, CaseJourney::CLOSED, true);
+    }
+
+    /**
+     * **أعلام الحالة للواجهة — والبثّ يحملها أيضاً.** كانت أربع صفحات تنسخ `['مغلقة','مؤرشفة']`
+     * و`['صدر الحكم','مغلقة']` لتقرّر: أتُفتح المحادثة؟ أتُحدَّث الجلسات؟ أيُصحَّح الحكم؟
+     *
+     * @return array{isActive: bool, postJudgment: bool}
+     */
+    public function stateFlags(): array
+    {
+        return [
+            'isActive' => $this->isActive(),
+            'postJudgment' => in_array($this->status, CaseJourney::POST_JUDGMENT, true),
+        ];
+    }
+
+    /**
+     * **اللون يُحسب من الحالة عند القراءة (`CaseStatus::tone` عبر `CaseJourney::toneFor`)** — العمود المخزَّن يُكتب مع الانتقال
+     * لكنّه لا يُقرأ: كانت حمولاتٌ ترسله خاماً وأخرى تحسبه، وصفوفٌ قديمة تحمل لوناً غير لون
+     * حالتها، وشاشة التوزيع تسدّ فراغه بألوانٍ لا يُنتجها الخادم. فكلّ `->tone` الآن هو لون الحالة.
+     */
+    protected function tone(): Attribute
+    {
+        return Attribute::get(fn () => CaseJourney::toneFor((string) $this->status));
     }
 }

@@ -8,7 +8,7 @@ export interface TicketPreviewData {
   no: string;
   client: string;
   type: string;
-  dept: string;
+  dept: string | null;
   lawyer: string;
   status: string;
   tone: string;

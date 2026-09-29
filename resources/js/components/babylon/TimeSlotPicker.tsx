@@ -1,9 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import Icon from '@/lib/icons';
+import { todayISO } from '@/lib/local-date';
 
 export interface TimeSlotItem {
   time: string;
   taken?: boolean;
+  /** لا يُتجاوز ولو سُمح بالمحجوز (`allowTaken`): وقتٌ مضى أو جلسة محكمة — من الخادم. */
+  hard?: boolean;
   label?: string;
 }
 
@@ -19,6 +22,13 @@ interface Props {
   minTime?: string;
   allowCustom?: boolean;
   helperText?: string;
+  /**
+   * نصّ القائمة الفارغة. بلا هذه الخاصّيّة تُعرض الشبكة العامّة حين لا تصل شرائح (الجلسات والاجتماعات)؛
+   * ومعها القائمةُ الفارغة فارغةٌ فعلاً — يومُ عطلةٍ في حجز الاستشارة لا تُعرض فيه ساعاتٌ يرفضها الخادم.
+   */
+  emptyText?: string;
+  /** المحجوز قابلٌ للاختيار (خيار «السماح بالحجز المتداخل») — يبقى معلَّماً، وما عليه `hard` يبقى مقفلاً. */
+  allowTaken?: boolean;
 }
 
 const DEFAULT_HOURS_SLOTS: string[] = [
@@ -43,7 +53,7 @@ export const formatSlotDisplay = (timeStr: string): string => {
 
 const isPastSlot = (dateStr?: string, timeStr?: string): boolean => {
   if (!dateStr || !timeStr) return false;
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayISO();
   if (dateStr < today) return true;
   if (dateStr > today) return false;
   const [h, m] = timeStr.split(':').map((v) => parseInt(v, 10));
@@ -68,19 +78,21 @@ const TimeSlotPicker: React.FC<Props> = ({
   // تحسب التوفّر بالساعة. ومن أراده فليُعلنه صراحةً عند نقطة الاستدعاء.
   allowCustom = false,
   helperText,
+  emptyText,
+  allowTaken = false,
 }) => {
   const [period, setPeriod] = useState<'all' | 'am' | 'pm'>('all');
   const [showCustomInput, setShowCustomInput] = useState(false);
 
   const normalizedSlots: TimeSlotItem[] = useMemo(() => {
-    const rawList = slots && slots.length > 0 ? slots : DEFAULT_HOURS_SLOTS;
+    const rawList = slots && slots.length > 0 ? slots : emptyText !== undefined ? [] : DEFAULT_HOURS_SLOTS;
     return rawList.map((s) => {
       if (typeof s === 'string') {
         return { time: s, taken: false };
       }
       return s;
     });
-  }, [slots]);
+  }, [slots, emptyText]);
 
   const filteredSlots = useMemo(() => {
     return normalizedSlots.filter((slot) => {
@@ -179,6 +191,10 @@ const TimeSlotPicker: React.FC<Props> = ({
         <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px 0' }}>{helperText}</p>
       )}
 
+      {emptyText !== undefined && normalizedSlots.length === 0 && (
+        <div style={{ color: 'var(--muted)', fontSize: 12.5, padding: '8px 2px' }}>{emptyText}</div>
+      )}
+
       {/* شبكة مربعات الأوقات المتاحة */}
       <div
         style={{
@@ -193,8 +209,10 @@ const TimeSlotPicker: React.FC<Props> = ({
       >
         {filteredSlots.map((slot) => {
           const past = isPastSlot(date, slot.time);
-          const isBlocked = slot.taken || past;
+          const isBlocked = past || (slot.taken === true && !(allowTaken && !slot.hard));
           const isSelected = value === slot.time;
+          // محجوزٌ أُتيح بخيار الحجز المتداخل: يُختار ويبقى معلَّماً «مشغول» بلونٍ تحذيريّ
+          const isOverlap = slot.taken === true && !isBlocked;
 
           return (
             <button
@@ -205,13 +223,15 @@ const TimeSlotPicker: React.FC<Props> = ({
                 onChange(slot.time);
                 setShowCustomInput(false);
               }}
-              title={past ? 'انقضى هذا الوقت' : slot.taken ? 'محجوز مسبقاً' : `اختيار ${slot.time}`}
+              title={past ? 'انقضى هذا الوقت' : isOverlap ? 'للمحامي ارتباطٌ آخر — يُقبل بتنبيه' : slot.taken ? 'محجوز مسبقاً' : `اختيار ${slot.time}`}
               style={{
                 padding: '7px 4px',
                 border: isSelected
                   ? '2px solid var(--primary, #0E5C9C)'
                   : isBlocked
                   ? '1px dashed #cbd5e1'
+                  : isOverlap
+                  ? '1px dashed var(--amber, #d97706)'
                   : '1px solid var(--line, #e2e8f0)',
                 borderRadius: 8,
                 background: isSelected
@@ -240,7 +260,7 @@ const TimeSlotPicker: React.FC<Props> = ({
             >
               <span>{formatSlotDisplay(slot.time)}</span>
               <span style={{ fontSize: 10, opacity: isSelected ? 0.9 : 0.6, fontWeight: 500 }}>
-                {slot.time}
+                {isOverlap ? 'مشغول' : slot.time}
               </span>
             </button>
           );

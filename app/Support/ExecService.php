@@ -283,7 +283,7 @@ class ExecService
         Live::push(new ExecStatusBroadcast($exec->fresh()));
     }
 
-    public static function approveFee(Execution $exec, ?int $adjustedFee = null, ?User $actor = null): void
+    public static function approveFee(Execution $exec, ?int $adjustedFee = null, ?User $actor = null, ?int $lawyerPct = null): void
     {
         self::guard($exec, self::feeStages($exec), 'لا توجد أتعاب بانتظار الاعتماد.');
         self::guardNotRejected($exec);
@@ -291,6 +291,7 @@ class ExecService
 
         Workflow::run(new ApproveExecutionFee, $exec, $actor, [
             'adjusted_fee' => $adjustedFee,
+            'lawyer_pct' => $lawyerPct,
         ]);
 
         self::officeMsg($exec, $actor, 'اعتماد', 'اعتمدت الإدارة أتعاب التنفيذ وأُرسل العرض للعميل.');
@@ -304,7 +305,7 @@ class ExecService
      * (المراحل 2‑4 قبل الاعتماد، أو 5 لإعادة تسعير عرض رفضه/استفسر عنه العميل). الأتعاب النهائيّة
      * تُحسب في الواجهة (ثابت/نسبة) وتُمرَّر رقماً.
      */
-    public static function setFee(Execution $exec, int $fee, string $duration, string $feeMode = 'fixed', ?float $feePct = null, ?User $actor = null): void
+    public static function setFee(Execution $exec, int $fee, string $duration, string $feeMode = 'fixed', ?float $feePct = null, ?User $actor = null, ?int $lawyerPct = null): void
     {
         self::guard($exec, self::feeStages($exec), 'لا يمكن تسعير الطلب في مرحلته الحالية.');
         self::guardNotRejected($exec);
@@ -316,6 +317,7 @@ class ExecService
             'fee_mode' => $feeMode,
             'collection_fee_pct' => $feePct,
             'is_admin' => true,
+            'lawyer_pct' => $lawyerPct,
         ]);
 
         self::officeMsg($exec, $actor, 'تسعير', 'حدّدت الإدارة أتعاب التنفيذ واعتمدتها وأُرسل العرض للعميل.');

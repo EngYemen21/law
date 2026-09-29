@@ -142,7 +142,7 @@ class ConsultAnalyzePermissionTest extends TestCase
         );
 
         $this->assertStringContainsString(
-            "array_diff(\n                Permissions::ROLE_PERMISSIONS['employee'],\n                ['تشغيل تلخيص الفريق القانوني'],",
+            "array_diff(\n                Permissions::ROLE_PERMISSIONS['employee'],\n                [Permissions::RUN_LEGAL_ANALYSIS],",
             (string) file_get_contents(base_path('database/seeders/DatabaseSeeder.php')),
             'ولا تنالها بذرةُ الموظّف — السقف ليس منحاً'
         );

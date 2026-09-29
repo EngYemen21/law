@@ -390,7 +390,7 @@ const Book: React.FC<Props> = ({
           </div>
 
           {/* ب. اختيار المجال والتخصص القضائي */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 18 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 16, marginBottom: 18 }}>
             <div className="field" style={{ margin: 0 }}>
               <label style={{ fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>
                 2. المجال القانوني / نوع القضية:
@@ -547,7 +547,7 @@ const Book: React.FC<Props> = ({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))',
           gap: 16,
           marginBottom: 24,
         }}

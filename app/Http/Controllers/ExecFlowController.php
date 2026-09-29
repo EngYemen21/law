@@ -17,10 +17,12 @@ use App\Support\DocumentVerification;
 use App\Support\ExecFee;
 use App\Support\ExecFlow;
 use App\Support\ExecService;
+use App\Support\Finance\LawyerShare;
 use App\Support\LawyerName;
 use App\Support\Notify;
 use App\Support\PaymentReconciler;
 use App\Support\PdfRenderer;
+use App\Support\Permissions;
 use App\Support\ReportPrint;
 use App\Support\SettingsRegistry;
 use Illuminate\Http\RedirectResponse;
@@ -50,6 +52,7 @@ class ExecFlowController extends Controller
             ->latest('id')->get()->map(fn (Execution $e) => $e->toFlowCard(false));
 
         return Inertia::render('execflow', [
+            'buckets' => ExecFlow::BUCKETS,
             'role' => 'client',
             'execs' => $execs,
             'initialId' => $request->query('id'),
@@ -68,6 +71,7 @@ class ExecFlowController extends Controller
         $execs = self::staffCards($execs);
 
         return Inertia::render('execflow', [
+            'buckets' => ExecFlow::BUCKETS,
             'role' => 'lawyer',
             'execs' => $execs,
             'initialId' => $request->query('id'),
@@ -78,11 +82,16 @@ class ExecFlowController extends Controller
     public function admin(Request $request): Response
     {
         // التبويب الموحّد: كل التنفيذات (تدفّق + قديمة تُعرَض بمرحلة مشتقّة) — الإدارة ترى الكلّ
-        $execs = Execution::with(['user', 'procedures', 'messages', 'documents', 'invoices'])
+        $models = Execution::with(['user', 'procedures', 'messages', 'documents', 'invoices', 'assignedLawyer'])
             ->latest('id')->get();
-        $execs = self::staffCards($execs);
+        // نصيب المحامي للإدارة وحدها — يملأ حقل النسبة في بطاقتي الاعتماد والتسعير
+        $execs = self::staffCards($models)->map(fn (array $card, int $i) => $card + [
+            'lawyerPct' => $models[$i]->lawyer_pct,
+            'lawyerDefaultPct' => LawyerShare::defaultPctFor($models[$i]->assignedLawyer),
+        ]);
 
         return Inertia::render('execflow', [
+            'buckets' => ExecFlow::BUCKETS,
             'role' => 'admin',
             'execs' => $execs,
             'lawyers' => self::assignableLawyers(),
@@ -100,9 +109,10 @@ class ExecFlowController extends Controller
 
         // قائمة الإسناد **لمن يُسند وحده**: موظّفٌ بلا «إجراءات المحكمة والجلسات» لا يفتح
         // مودال الإسناد أصلاً (`canAssign=false` على كلّ بطاقة)، فقائمةٌ في حمولته زينةٌ لا تُستعمل.
-        $canAssign = (bool) $request->user()?->can('إجراءات المحكمة والجلسات');
+        $canAssign = (bool) $request->user()?->can(Permissions::COURT_PROCEEDINGS);
 
         return Inertia::render('execflow', [
+            'buckets' => ExecFlow::BUCKETS,
             'role' => 'employee',
             'execs' => $execs,
             'lawyers' => $canAssign ? self::assignableLawyers() : [],
@@ -198,11 +208,11 @@ class ExecFlowController extends Controller
             // الموظف (بوّابة الاستقبال) أو المكتب (محامٍ/إدارة). refer للموظف/الإدارة فقط
             $allowed = $action === 'refer' ? [Role::Employee, Role::Admin] : [Role::Employee, Role::Lawyer, Role::Admin];
             abort_unless(in_array($role, $allowed, true), 403);
-            abort_unless($user->can('إدارة القضايا والأتعاب'), 403);
+            abort_unless($user->can(Permissions::MANAGE_CASES_AND_FEES), 403);
             abort_if($role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403);
         } elseif (in_array($action, $lawyerPickup, true)) {
             abort_unless($role === Role::Lawyer, 403);
-            abort_unless($user->can('إدارة القضايا والأتعاب'), 403);
+            abort_unless($user->can(Permissions::MANAGE_CASES_AND_FEES), 403);
             // عزل: لا يتصرّف محامٍ على ملفّ مسند لزميل آخر (يلتقط غير المسند فيُختَم باسمه)
             abort_if($execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403);
             // الإسناد **بعد** نجاح الإجراء لا قبله: كان يُختم الملفّ باسم المحامي ثم يرفض حارسُ
@@ -210,7 +220,7 @@ class ExecFlowController extends Controller
             $pickup = true;
         } elseif (in_array($action, $staffProcActions, true)) {
             abort_unless($role === Role::Lawyer || $role === Role::Admin, 403);
-            abort_unless($user->can('إدارة القضايا والأتعاب'), 403);
+            abort_unless($user->can(Permissions::MANAGE_CASES_AND_FEES), 403);
             abort_if($role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403);
         } elseif (in_array($action, $najizActions, true)) {
             /*
@@ -225,8 +235,8 @@ class ExecFlowController extends Controller
              * `permission:` — الحارس هنا (نظير `EnsurePermission`).
              */
             $allowed = match ($role) {
-                Role::Lawyer, Role::Admin => $user->can('إدارة القضايا والأتعاب'),
-                Role::Employee => $user->can('إجراءات المحكمة والجلسات'),
+                Role::Lawyer, Role::Admin => $user->can(Permissions::MANAGE_CASES_AND_FEES),
+                Role::Employee => $user->can(Permissions::COURT_PROCEEDINGS),
                 default => false,
             };
             abort_unless($allowed, 403, 'لا تملك صلاحية تسجيل إجراءات ناجز على ملفّ التنفيذ.');
@@ -246,7 +256,7 @@ class ExecFlowController extends Controller
              */
             $allowed = match ($role) {
                 Role::Admin => true,
-                Role::Employee => $execution->assigned_lawyer_id === null && $user->can('إجراءات المحكمة والجلسات'),
+                Role::Employee => $execution->assigned_lawyer_id === null && $user->can(Permissions::COURT_PROCEEDINGS),
                 default => false,
             };
             abort_unless($allowed, 403, 'لا تملك صلاحية إسناد محامٍ لملفّ التنفيذ.');
@@ -268,10 +278,12 @@ class ExecFlowController extends Controller
             'approveFee' => ExecService::approveFee(
                 $execution,
                 ((int) ($request->validate(['fee' => ['nullable', 'integer', 'min:0']])['fee'] ?? 0)) ?: null,
+                lawyerPct: self::lawyerPctInput($request),
             ),
             'setFee' => ExecService::setFee(
                 $execution,
                 ...self::feeInput($request),
+                lawyerPct: self::lawyerPctInput($request),
             ),
             'acceptOffer' => ExecService::acceptOffer($execution),
             'inquire' => ExecService::inquire($execution),
@@ -426,6 +438,14 @@ class ExecFlowController extends Controller
      *
      * @return array{0:int,1:string,2:string,3:?float} [الأتعاب، المدّة، النموذج، النسبة]
      */
+    /** نسبة المحامي من أتعاب الملفّ (الإدارة وحدها) — الفراغ ⇒ المحفوظة ثمّ نسبة ملفّه (`LawyerShare`). */
+    private static function lawyerPctInput(Request $request): ?int
+    {
+        $pct = $request->validate(['lawyerPct' => ['nullable', 'integer', 'min:0', 'max:100']])['lawyerPct'] ?? null;
+
+        return $pct === null ? null : (int) $pct;
+    }
+
     private static function feeInput(Request $request): array
     {
         $mode = (string) $request->input('feeMode', '') === 'percent' ? 'percent' : 'fixed';
@@ -473,7 +493,7 @@ class ExecFlowController extends Controller
         $isStaff = in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true);
         abort_unless($isClient || $isStaff, 403);
         if ($isStaff) {
-            abort_unless($user->can('إدارة القضايا والأتعاب'), 403);
+            abort_unless($user->can(Permissions::MANAGE_CASES_AND_FEES), 403);
         }
         abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403); // عزل المحامي بالإسناد
         abort_if($execution->isClosed(), 422, 'لا يمكن إرسال رسائل على ملفّ تنفيذ مغلق.');
@@ -549,7 +569,7 @@ class ExecFlowController extends Controller
     {
         $user = $request->user();
         abort_unless(in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true), 403);
-        abort_unless($user->can('إدارة القضايا والأتعاب'), 403); // إجراء على ملفّ موكّل — يستوجب الصلاحية
+        abort_unless($user->can(Permissions::MANAGE_CASES_AND_FEES), 403); // إجراء على ملفّ موكّل — يستوجب الصلاحية
         abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403); // عزل المحامي بالإسناد
         abort_unless($document->execution_id === $execution->id, 404);
         abort_unless($document->status === 'مرفوع', 422, 'لا يمكن مراجعة مستند لم يُرفَع بعد.');
@@ -580,7 +600,7 @@ class ExecFlowController extends Controller
         $user = $request->user();
         $isClient = $user->role === Role::Client && $execution->user_id === $user->id;
         // الطاقم يحتاج صلاحية الملفّات صراحةً — كان أي موظف بلا صلاحية يُنزّل مستندات أي موكّل
-        $isStaff = in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true) && $user->can('إدارة القضايا والأتعاب');
+        $isStaff = in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true) && $user->can(Permissions::MANAGE_CASES_AND_FEES);
         abort_unless($isClient || $isStaff, 403);
         // والموظّف يلزمه «تنزيل مرفقات الملفات» فوقها — القاعدة نفسها في `ConversationFiles`
         abort_if($user->role === Role::Employee && ! ConversationFiles::employeeMayDownload($user), 403, 'لا تملك صلاحيّة تنزيل مرفقات الملفات — تمنحها الإدارة من تبويب الموظّفين.');
@@ -598,7 +618,7 @@ class ExecFlowController extends Controller
     {
         $user = $request->user();
         $isClient = $user->role === Role::Client && $execution->user_id === $user->id;
-        $isStaff = in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true) && $user->can('إدارة القضايا والأتعاب');
+        $isStaff = in_array($user->role, [Role::Lawyer, Role::Admin, Role::Employee], true) && $user->can(Permissions::MANAGE_CASES_AND_FEES);
         abort_unless($isClient || $isStaff, 403);
         abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403);
         // **النموذج النسبيّ عرضٌ بلا مبلغ.** الحارس على `fee > 0` وحده كان سيمنع طباعة كلّ
@@ -661,8 +681,6 @@ class ExecFlowController extends Controller
                 ],
             ],
             'note' => 'هذا المستند يمثّل عرض/فاتورة خدمة التنفيذ الصادرة عن المكتب، ولا يُعدّ بذاته سنداً تنفيذياً أو حكماً قضائياً.',
-            // لا `footer`: التذييل الافتراضيّ في `ReportPrint` هو «اسم المكتب — صادر إلكترونياً» من
-            // الإعدادات، وكان المنقوش هنا يطابقه نصّاً ويعلو على الاسم الذي تضبطه الإدارة.
         ]);
 
         return PdfRenderer::render($html, $execution->number.'.pdf');

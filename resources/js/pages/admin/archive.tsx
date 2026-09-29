@@ -239,7 +239,7 @@ return false;
         /* شبكة بطاقات الوسائط */
         .arc360-cards-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+          grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
           gap: 16px;
         }
 
@@ -275,6 +275,7 @@ return false;
           inset: 0 !important;
           width: 100vw !important;
           height: 100vh !important;
+          height: 100dvh !important;
           z-index: 99990 !important;
           background: rgba(10, 25, 45, 0.6) !important;
           backdrop-filter: blur(4px) !important;
@@ -288,6 +289,7 @@ return false;
           width: 100% !important;
           max-width: 580px !important;
           height: 100vh !important;
+          height: 100dvh !important;
           background: #fff !important;
           box-shadow: -10px 0 35px rgba(0,0,0,0.35) !important;
           display: flex !important;

@@ -2,7 +2,6 @@
 
 namespace App\Support;
 
-use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\TransitionDenied;
 use App\Domain\Journey\Transitions\Execution\AcceptExecutionOffer;
 use App\Domain\Journey\Transitions\Execution\ActivateExecution;
@@ -142,8 +141,7 @@ class ExecFee
             }
 
             $master = Invoice::where('exec_id', $locked->id)
-                ->where('paid', false)
-                ->whereNotIn('status', [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value])
+                ->outstanding()
                 ->orderBy('id')->first();
             if ($master === null) {
                 return null;
@@ -192,8 +190,7 @@ class ExecFee
     public static function nextInstallment(Execution $exec): ?Invoice
     {
         return Invoice::where('exec_id', $exec->id)->whereNotNull('installment_no')
-            ->where('paid', false)
-            ->whereNotIn('status', [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value])
+            ->outstanding()
             ->orderBy('installment_no')->orderBy('id')->first();
     }
 
@@ -206,8 +203,7 @@ class ExecFee
     {
         return self::nextInstallment($exec)
             ?: Invoice::where('exec_id', $exec->id)
-                ->where('paid', false)
-                ->whereNotIn('status', [InvoiceStatus::Cancelled->value, InvoiceStatus::WrittenOff->value])
+                ->outstanding()
                 ->orderBy('id')->first();
     }
 

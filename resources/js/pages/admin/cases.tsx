@@ -4,9 +4,10 @@ import Badge from '@/components/babylon/Badge';
 import CaseClosureModal from '@/components/babylon/CaseClosureModal';
 import type { ClosureReasonOption } from '@/components/babylon/CaseClosureModal';
 import Modal from '@/components/babylon/Modal';
-import { useToast } from '@/components/babylon/Toast';
+import { CONFIRM_ARCHIVE_CASE } from '@/lib/case-ui';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { useServerAction } from '@/lib/use-server-action';
 import { truncateWords } from '@/lib/utils';
 
 /* ─────────────────────────────────────────────────────────────
@@ -64,13 +65,9 @@ interface Props {
   closureReasons?: ClosureReasonOption[];
 }
 
-/** رسالة الخادم نفسها (حارس الانتقال ٤٢٢ · تحقّق الحقول) — كانت تُستبدل بـ«حاول مجدداً» عامّة. */
-const serverMessage = (e: Record<string, string>, fallback: string) => String(Object.values(e)[0] ?? fallback);
-
 const NO_TABS = { pendingFee: [] as string[], active: [] as string[], judged: [] as string[], closed: [] as string[] };
 
 export const AdminCases: React.FC<Props> = ({ cases = [], types = [], kpis, tabs = NO_TABS, closureReasons = [] }) => {
-  const toast = useToast();
 
   // State
   const [search, setSearch] = useState('');
@@ -78,80 +75,47 @@ export const AdminCases: React.FC<Props> = ({ cases = [], types = [], kpis, tabs
   const [selectedType, setSelectedType] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'hearings'>('newest');
   const [previewCase, setPreviewCase] = useState<CaseRow | null>(null);
-  const [busyNo, setBusyNo] = useState<string | null>(null);
   // القضية المفتوحة نافذةُ إغلاقها — الإغلاق من القائمة يمرّ بالسبب كصفحة التفاصيل (كان يرسل `{}`)
   const [closingNo, setClosingNo] = useState<string | null>(null);
 
   // Actions
+  // قفلٌ موحّد (`useServerAction`): الإغلاق والأرشفة والتحويل للتنفيذ لا تُرسل مرّتين، و`busyNo` مفتاح
+  // القضيّة الجارية. ورسالة الرفض من الخادم (حارس الانتقال ٤٢٢ · تحقّق الحقول) عبر `firstError`.
+  const action = useServerAction();
+  const busyNo = action.busyKey as string | null;
+  const clearPreview = (no: string) => {
+    if (previewCase?.no === no) {
+      setPreviewCase(null);
+    }
+  };
+
   const close = (no: string, reason: string, notes: string) => {
-    setBusyNo(no);
     setClosingNo(null);
-    router.post(
-      `/admin/cases/${encodeURIComponent(no)}/close`,
-      { closure_reason: reason, closure_notes: notes },
-      {
-        preserveScroll: true,
-        onSuccess: () => {
-          setBusyNo(null);
-          toast('تم إغلاق القضية بنجاح ⚖️');
-
-          if (previewCase?.no === no) {
-setPreviewCase(null);
-}
-        },
-        onError: (e) => {
-          setBusyNo(null);
-          toast(serverMessage(e, 'تعذّر إغلاق القضية'), 'error');
-        },
-      }
-    );
+    void action.run(`/admin/cases/${encodeURIComponent(no)}/close`, {
+      data: { closure_reason: reason, closure_notes: notes },
+      key: no,
+      success: 'تم إغلاق القضية بنجاح ⚖️',
+      fallback: 'تعذّر إغلاق القضية',
+      onSuccess: () => clearPreview(no),
+    });
   };
 
-  const archive = (no: string) => {
-    setBusyNo(no);
-    router.post(
-      `/admin/cases/${encodeURIComponent(no)}/archive`,
-      {},
-      {
-        preserveScroll: true,
-        onSuccess: () => {
-          setBusyNo(null);
-          toast('تمت أرشفة ملف القضية في السجلات القانونية 📁');
+  const archive = (no: string) =>
+    action.run(`/admin/cases/${encodeURIComponent(no)}/archive`, {
+      key: no,
+      confirm: CONFIRM_ARCHIVE_CASE,
+      success: 'تمت أرشفة ملف القضية في السجلات القانونية 📁',
+      fallback: 'تعذّرت الأرشفة',
+      onSuccess: () => clearPreview(no),
+    });
 
-          if (previewCase?.no === no) {
-setPreviewCase(null);
-}
-        },
-        onError: (e) => {
-          setBusyNo(null);
-          toast(serverMessage(e, 'تعذّرت الأرشفة'), 'error');
-        },
-      }
-    );
-  };
-
-  const execute = (no: string) => {
-    setBusyNo(no);
-    router.post(
-      `/admin/cases/${encodeURIComponent(no)}/execute`,
-      {},
-      {
-        preserveScroll: true,
-        onSuccess: () => {
-          setBusyNo(null);
-          toast('تم فتح طلب تنفيذ رسمي للقضية ⚡');
-
-          if (previewCase?.no === no) {
-setPreviewCase(null);
-}
-        },
-        onError: (e) => {
-          setBusyNo(null);
-          toast(serverMessage(e, 'تعذّر تحويل القضية للتنفيذ'), 'error');
-        },
-      }
-    );
-  };
+  const execute = (no: string) =>
+    action.run(`/admin/cases/${encodeURIComponent(no)}/execute`, {
+      key: no,
+      success: 'تم فتح طلب تنفيذ رسمي للقضية ⚡',
+      fallback: 'تعذّر تحويل القضية للتنفيذ',
+      onSuccess: () => clearPreview(no),
+    });
 
   // KPIs
   const totalCases = cases.length;
@@ -252,7 +216,7 @@ return false;
       </div>
 
       {/* ── 2. مؤشرات الأداء الحية للقضايا (KPIs) ── */}
-      <div className="stats" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
+      <div className="stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', marginBottom: 20 }}>
         <div
           className={`stat t-blue${statusTab === 'all' ? ' sel' : ''}`}
           style={{ cursor: 'pointer', outline: statusTab === 'all' ? '2px solid var(--primary)' : 'none' }}
@@ -583,7 +547,7 @@ return false;
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr 1fr 1fr',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 110px), 1fr))',
                 gap: 10,
                 background: 'var(--paper-2)',
                 borderRadius: 'var(--r-sm)',

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Lawyer;
 
 use App\Domain\Journey\Enums\TicketOutcomeTrack;
+use App\Domain\Journey\Enums\TicketStatus;
 use App\Domain\Journey\Transitions\Ticket\AwaitAdminSummaryApproval;
 use App\Domain\Journey\Transitions\Ticket\AwaitTicketDocuments;
 use App\Domain\Journey\Transitions\Ticket\CorrectTicketStatus;
@@ -36,6 +37,7 @@ use App\Support\ConversationHandler;
 use App\Support\Live;
 use App\Support\Notify;
 use App\Support\PdfRenderer;
+use App\Support\Permissions;
 use App\Support\ReportPrint;
 use App\Support\SummaryReport;
 use App\Support\TicketDocumentRequirements;
@@ -90,12 +92,13 @@ class TicketController extends Controller
 
         $counts = [
             'total' => $tickets->count(),
-            'needStudy' => $tickets->filter(fn ($t) => ! in_array($t['status'], ['مكتملة', 'مغلقة', 'محولة لقضية']))->count(),
+            // المفتوحة بتعريف `Ticket::open()` — كانت «محولة لقضية» (نصٌّ لا وجود له) فتُعدّ المحوّلة للدراسة
+            'needStudy' => $tickets->filter(fn ($t) => ! in_array($t['status'], TicketStatus::finals(), true))->count(),
             'awaitingSummary' => $tickets->filter(fn ($t) => ($t['summaryStatus'] ?? '') === 'awaiting_lawyer')->count(),
             'urgent' => $tickets->filter(fn ($t) => in_array($t['priority'] ?? '', ['عاجلة', 'طارئة', 'عاجل جداً', 'عالية']))->count(),
             'missingDocs' => $tickets->filter(fn ($t) => $t['status'] === 'بانتظار مستندات')->count(),
             'converted' => $tickets->filter(fn ($t) => $t['converted'])->count(),
-            'completed' => $tickets->filter(fn ($t) => in_array($t['status'], ['مكتملة', 'مغلقة']))->count(),
+            'completed' => $tickets->filter(fn ($t) => in_array($t['status'], [TicketStatus::Completed->value, TicketStatus::Closed->value], true))->count(),
         ];
 
         return Inertia::render('lawyer/tickets', [
@@ -204,7 +207,7 @@ class TicketController extends Controller
         // **ما يحرسه المسار تحرسه الحمولة.** `/lawyer/execs` يشترط «إدارة القضايا والأتعاب»،
         // ولوحةُ المحامي بلا وسيط صلاحيّة (عامّة للدور) كانت تشحن صفوف التنفيذ — أسماء موكّلين
         // ومواضيع ملفّاتهم — لكلّ محامٍ ولو نُزعت عنه الصلاحيّة. الحجب في الخادم لا في الشاشة.
-        $canExecs = $lawyer->can('إدارة القضايا والأتعاب');
+        $canExecs = $lawyer->can(Permissions::MANAGE_CASES_AND_FEES);
 
         $executions = ! $canExecs ? collect() : Execution::with('user')
             ->where('assigned_lawyer_id', $lawyerId)
@@ -357,6 +360,8 @@ class TicketController extends Controller
             'correction' => $request->user()->isAdmin() ? CorrectTicketStatus::form($ticket) : null,
             // الإدارة تفتح نفس الصفحة من مسارها — الروابط تُبنى من base لا مثبّتة على /lawyer
             'base' => $request->user()->isAdmin() ? '/admin' : '/lawyer',
+            // زرّ «إعادة التحليل» بحارس `rerunSummary` نفسه — لا بشرط التعديل (`canEdit`) المختلف
+            'canRerunSummary' => $ticket->summaryRerunBlocker() === null,
         ]);
     }
 
@@ -501,13 +506,9 @@ class TicketController extends Controller
     {
         $this->guardAssigned($ticket);
         abort_unless($ticket->summary, 404);
-        if ($ticket->summary?->isApproved()) {
-            throw ValidationException::withMessages([
-                'summary' => 'لا يمكن إعادة تشغيل التحليل لملخّص تم اعتماده رسمياً.',
-            ]);
+        if (($why = $ticket->summaryRerunBlocker()) !== null) {
+            throw ValidationException::withMessages(['summary' => $why]);
         }
-
-        abort_if($ticket->summary->isLawyerApproved(), 422, 'اعتُمد هذا الملخّص من المستشار — لا يُعاد توليده.');
 
         GenerateTicketSummaryJob::dispatch($ticket, force: true);
 

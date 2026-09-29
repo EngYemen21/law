@@ -459,7 +459,7 @@ const AdminMeetReports: React.FC<{ meetings: FullMeetingCard[]; analytics: Analy
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 440px), 1fr))',
           gap: 16,
           marginBottom: 20,
         }}

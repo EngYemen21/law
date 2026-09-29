@@ -2,16 +2,26 @@ import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import { usePrompt } from '@/components/babylon/ConfirmDialog';
+import type { ConfirmRequest } from '@/components/babylon/ConfirmDialog';
 import Modal from '@/components/babylon/Modal';
 import Pagination from '@/components/babylon/Pagination';
 import type { Paginated } from '@/components/babylon/Pagination';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
+import { useServerAction } from '@/lib/use-server-action';
+
+/** تحصيلٌ يدويّ — يُسجّل السداد ويُشعر العميل ويُحرّك ملفّه، فلا يقع بنقرةٍ عابرة (قرار المالك 2026-09-27). */
+const CONFIRM_SETTLE_INVOICE: ConfirmRequest = {
+  title: 'تسجيل تحصيل الفاتورة؟',
+  message: 'تُعلَّم الفاتورة مدفوعةً ويُشعَر العميل ويتقدّم ملفّه. تأكّد من وصول المبلغ قبل التسجيل.',
+  confirmLabel: 'تسجيل التحصيل',
+  cancelLabel: 'تراجع',
+};
 
 /**
  * **المالية والمحاسبة — الشاشة الواحدة بتبويباتها الستّة** (م٣ من خطّة النظام الماليّ).
  *
- * تخلف `/admin/accounting` (الفواتير وحدها) وتضمّ محتواها كاملاً في تبويب «الفواتير».
+ * تضمّ شاشة الفواتير القديمة كاملةً في تبويب «الفواتير».
  *
  * **والواجهة لا تحسب شيئاً**: كلّ رقمٍ هنا — بطاقةً كان أو شريحةَ أعمارٍ أو مجموعَ إقرار —
  * يصل محسوباً من `App\Support\Finance\FinanceBoard`. حسابٌ في المتصفّح يعني مصدراً ثانياً
@@ -102,12 +112,12 @@ const AdminFinance: React.FC<Props> = ({
    * نجاحُ كلّ إجراءٍ يُعلنه الخادم برسالته (`flash`) ويعرضها `AppLayout` — تنبيهٌ محلّيّ فوقه كان
    * يُكرّره. والرفض (حارس الانتقال ٤٢٢ · «محصّلة مسبقاً») يبلغ `onError` برسالته نفسها؛ كان صامتاً.
    */
-  const act = (no: string, path: string, data: Record<string, string> = {}) => {
-    router.post(`/admin/invoices/${encodeURIComponent(no)}/${path}`, data, {
-      preserveScroll: true,
-      onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر تنفيذ الإجراء على الفاتورة ' + no, 'error'),
+  // قفلٌ موحّد (`useServerAction`): النقرة الثانية على «إصدار» أو «تحصيل» لا تصل الخادم
+  const { run, busyKey } = useServerAction();
+  const act = (no: string, path: string, data: Record<string, string> = {}, confirm?: ConfirmRequest) =>
+    run(`/admin/invoices/${encodeURIComponent(no)}/${path}`, {
+      data, key: no, confirm, fallback: 'تعذّر تنفيذ الإجراء على الفاتورة ' + no,
     });
-  };
 
   /** رفض إثبات التحويل بعد تأكيدٍ وسببٍ يصل العميل — الخادم يقبل `reason` ويُشعره به. */
   const rejectProof = async (no: string) => {
@@ -282,14 +292,14 @@ const AdminFinance: React.FC<Props> = ({
                             )}
                             {/* الأزرار من `Workflow::allowed` — الحارس الذي يقبل الإجراء هو من يُظهر زرّه */}
                             {v.can.includes('invoice.issue') && (
-                              <button className="btn sm" type="button" onClick={() => act(v.no, 'issue')}><Icon name="send" /> إصدار للعميل</button>
+                              <button className="btn sm" type="button" disabled={busyKey === v.no} onClick={() => act(v.no, 'issue')}><Icon name="send" /> إصدار للعميل</button>
                             )}
                             {v.can.includes('invoice.settle') && (
-                              <button className="btn sm" type="button" onClick={() => act(v.no, 'pay')}><Icon name="check" /> تحصيل</button>
+                              <button className="btn sm" type="button" disabled={busyKey === v.no} onClick={() => act(v.no, 'pay', {}, CONFIRM_SETTLE_INVOICE)}><Icon name="check" /> تحصيل</button>
                             )}
                             {/* رافع الملف الخاطئ كان يفقد زرّ الدفع نهائياً — الرفض يعيد الفاتورة للاستحقاق ويُشعره */}
                             {v.hasProof && !v.paid && (
-                              <button className="btn ghost sm" type="button" onClick={() => rejectProof(v.no)}>
+                              <button className="btn ghost sm" type="button" disabled={busyKey === v.no} onClick={() => rejectProof(v.no)}>
                                 <Icon name="close" /> رفض الإثبات
                               </button>
                             )}
@@ -384,7 +394,7 @@ const AdminFinance: React.FC<Props> = ({
 
       {tab === 'vat' && vat && (
         <>
-          <div className="stats" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
+          <div className="stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))' }}>
             <div className="stat t-blue"><div className="si"><Icon name="card" /></div><div className="num">{fmt(vat.subtotal)}</div><div className="lbl">الأساس المحصَّل في الفترة</div></div>
             <div className="stat t-cyan"><div className="si"><Icon name="scale" /></div><div className="num">{fmt(vat.vat)}</div><div className="lbl">الضريبة المستحقّة</div></div>
             <div className="stat t-green"><div className="si"><Icon name="check" /></div><div className="num">{fmt(vat.total)}</div><div className="lbl">الإجمالي ({vat.count} فاتورة)</div></div>
@@ -452,7 +462,7 @@ const AdminFinance: React.FC<Props> = ({
           <div className="card-h"><h3>التقارير</h3><span className="sub">شاشتان قائمتان</span></div>
           <div className="card-b">
             {/* لا تكرار: التقارير تعيش في شاشتيها، وهنا نقلٌ إليهما فقط */}
-            <div className="stats" style={{ gridTemplateColumns: 'repeat(2,1fr)', marginBottom: 0 }}>
+            <div className="stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', marginBottom: 0 }}>
               <div className="stat t-green" onClick={() => router.visit('/admin/revenue')} title="تقرير الإيرادات">
                 <div className="si"><Icon name="card" /></div>
                 <div className="num" style={{ fontSize: 19 }}>الإيرادات</div>

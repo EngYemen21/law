@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Domain\Journey\Enums\HearingStatus;
 use App\Models\CaseHearing;
 use App\Support\EventStatus;
 use App\Support\Notify;
@@ -22,7 +23,7 @@ class AutoLapseHearings extends Command
     {
         $count = 0;
         $lapsed = CaseHearing::with('legalCase')
-            ->where('status', 'مجدولة')
+            ->where('status', HearingStatus::Scheduled->value)
             ->whereNotNull('starts_at')
             ->where('starts_at', '<=', now()->subDay())
             ->get();

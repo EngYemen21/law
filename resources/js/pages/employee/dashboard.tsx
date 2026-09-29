@@ -1,24 +1,19 @@
-import { router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { PresenceBadge } from '@/lib/staff-presence';
+import type { EmployeeTicketCard } from '@/types';
 
 // ============================================================
 // لوحة الموظف وإدارة العمليات 360 درجة (360° Operational Command Center)
 // تتيح الإحاطة بجميع مسارات العمل القانوني والإداري: تذاكر، جلسات، قضايا، تنفيذ، وتفرغ الفريق
 // ============================================================
 
-export interface EmpTicket {
-  no: string;
-  client: string;
-  type: string;
-  dept: string;
-  lawyer: string;
-  status: string;
-  tone: string;
-}
+/** `Ticket::toEmployeeCard` — النوع المشترك (`@/types`). */
+export type EmpTicket = EmployeeTicketCard;
 
 export interface TodayAppt {
   id: string; // ext_id
@@ -355,9 +350,9 @@ const EmployeeDashboard: React.FC<Props> = ({
             {searchQuery.trim() !== '' && activeTab !== 'tickets' && (
               <div className="action-hint" style={{ margin: '8px 14px 0' }}>
                 <Icon name="info" /> البحث هنا في المعاينة المعروضة فقط.{' '}
-                <a href={({ consults: '/employee/calendar', cases: '/employee/cases', execs: '/employee/execs' } as Record<string, string>)[activeTab]}>
+                <Link href={({ consults: '/employee/calendar', cases: '/employee/cases', execs: '/employee/execs' } as Record<string, string>)[activeTab]}>
                   ابحث في القائمة الكاملة
-                </a>
+                </Link>
               </div>
             )}
 
@@ -613,6 +608,7 @@ const EmployeeDashboard: React.FC<Props> = ({
                       <div>
                         <b style={{ fontSize: 13, color: 'var(--deep)', display: 'block' }}>{l.name}</b>
                         <span style={{ fontSize: 11, color: 'var(--muted)' }}>{l.dept}</span>
+                        <PresenceBadge userId={l.id} />
                       </div>
                       <div style={{ display: 'flex', gap: 5 }}>
                         <span className="chip" style={{ fontSize: 11 }} title="تذاكر نشطة">

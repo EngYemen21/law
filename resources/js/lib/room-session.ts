@@ -36,6 +36,8 @@ interface SignaturePayload {
   userEmail: string;
   role: number;
   zak: string | null;
+  /** مفتاح حساب الطاقم لأحداث Zoom (`customer_key`) — به تُعرف حالة المحامي «في جلسة الآن» */
+  customerKey: string | null;
 }
 
 interface VideoSize { width: number; height: number }
@@ -49,7 +51,7 @@ interface ZoomClient {
     customize?: {
       video?: {
         isResizable?: boolean;
-        popper?: { disableDraggable?: boolean };
+        popper?: { disableDraggable?: boolean; anchorElement?: HTMLElement; placement?: string };
         viewSizes?: { default?: VideoSize; ribbon?: VideoSize };
       };
     };
@@ -61,6 +63,7 @@ interface ZoomClient {
     userName: string;
     userEmail?: string;
     zak?: string;
+    customerKey?: string;
   }): Promise<unknown>;
   leaveMeeting(): Promise<unknown>;
   updateVideoOptions?(opts: { viewSizes?: { default?: VideoSize } }): unknown;
@@ -259,6 +262,12 @@ function ensureHost(): HTMLDivElement {
   if (typeof ResizeObserver !== 'undefined') {
     new ResizeObserver(() => resizeVideo()).observe(host);
   }
+  // عودة التبويب من الخلفيّة: قد يعيد Zoom رسم الفيديو بمقاسه الافتراضيّ وهو مخفيّ — يُعاد القياس
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      resizeSoon();
+    }
+  });
 
   syncHost();
 
@@ -270,7 +279,17 @@ function syncHost(): void {
     return;
   }
 
-  host.dataset.view = isActivePhase(snap.phase) ? snap.view : 'hidden';
+  const next = isActivePhase(snap.phase) ? snap.view : 'hidden';
+  if (host.dataset.view !== next) {
+    host.dataset.view = next;
+    // التبديل بين `full` و`dock` يغيّر الحاوية — يُقاس بعد أن يطبّق المتصفّح التخطيط الجديد
+    resizeSoon();
+  }
+}
+
+/** إعادة القياس بعد إطارين: الأوّل يطبّق `data-view`، والثاني يضمن أنّ المقاس المقروء نهائيّ. */
+function resizeSoon(): void {
+  requestAnimationFrame(() => requestAnimationFrame(() => resizeVideo()));
 }
 
 function videoSize(): VideoSize | null {
@@ -467,8 +486,10 @@ async function join(): Promise<void> {
       customize: {
         video: {
           isResizable: false,
-          // الفيديو يملأ حاويته ولا يُسحب خارجها — الموضع تحدّده الغرفة لا المستخدم
-          popper: { disableDraggable: true },
+          // الفيديو يملأ حاويته ولا يُسحب خارجها — الموضع تحدّده الغرفة لا المستخدم.
+          // **مُرسًى على الحاوية** (`anchorElement`): بدونه يرسمه Component View نافذةً عائمة بمقاسها
+          // الافتراضيّ في زاوية الصفحة، فيُقصّ عند التبديل بين الغرفة والشريط المصغّر (ملاحظة المالك 2026-09-27)
+          popper: { disableDraggable: true, anchorElement: rootEl, placement: 'top' },
           viewSizes: size ? { default: size } : undefined,
         },
       },
@@ -495,6 +516,7 @@ async function join(): Promise<void> {
       userName: data.userName,
       userEmail: data.userEmail,
       zak: data.zak || undefined,
+      customerKey: data.customerKey || undefined,
     });
 
     if (stale()) {
@@ -537,6 +559,7 @@ function applyState(p: RoomStatePayload, fromStaffChannel: boolean): void {
     statusLabel: p.statusLabel,
     measuredDuration: p.measuredDuration ?? room.measuredDuration,
     recording: fromStaffChannel && isStaffRoom(room) && typeof p.recording === 'boolean' ? p.recording : room.recording,
+    outsiders: fromStaffChannel && isStaffRoom(room) && typeof p.outsiders === 'number' ? p.outsiders : room.outsiders,
     // شرطُ الإنهاء عند الخادم «الجلسة منعقدة» — فيتبع البثَّ نفسه بلا انتظار إعادة تحميل
     endAction: room.endAction ? { ...room.endAction, enabled: p.live && !p.ended } : null,
   };

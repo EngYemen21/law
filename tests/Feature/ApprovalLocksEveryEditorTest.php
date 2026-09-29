@@ -151,7 +151,7 @@ class ApprovalLocksEveryEditorTest extends TestCase
         $ui = file_get_contents(resource_path('js/lib/consult-ui.tsx'));
 
         $this->assertStringContainsString(
-            'disabled={busy || CONSULT_CLOSED_STATUSES.includes(c.status)}',
+            'disabled={busy || c.isClosed}',
             $ui,
             'الأولويّة أداةُ ترتيبِ عملٍ قائم — لا تُبدَّل على ملفٍّ خرج من الطابور'
         );

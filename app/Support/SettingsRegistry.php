@@ -50,7 +50,7 @@ class SettingsRegistry
      *
      * `forwardOnly` يعني: التغيير يسري على ما يُنشأ بعده وحده، وما مضى محفوظٌ على صفّه.
      *
-     * @return array<string, array{group:string,label:string,hint:string,type:'int'|'string'|'date',default:mixed,min?:int,max?:int,rules:array<int,string>,forwardOnly?:bool,gt?:string,defaultLabel?:string}>
+     * @return array<string, array{group:string,label:string,hint:string,type:'int'|'string'|'date'|'days'|'bool',default:mixed,min?:int,max?:int,rules:array<int,string>,forwardOnly?:bool,gt?:string,defaultLabel?:string}>
      */
     public static function all(): array
     {
@@ -98,6 +98,16 @@ class SettingsRegistry
             ],
 
             // ── الفواتير والسداد ──
+            // **بداية سجلّ مستحقّات الموظّفين** (`Finance\StaffEarnings`): قبل هذا الشهر لم يكن المصروف
+            // يُسجَّل، فحسابُ رواتب ونسبٍ سابقة كان سيُظهرها غيرَ مصروفةٍ وهي قد صُرفت خارج النظام.
+            'payroll_start' => [
+                'group' => 'billing',
+                'label' => 'بداية سجلّ مستحقّات الموظّفين',
+                'hint' => 'من هذا الشهر تُحسب الرواتب ونسب الأتعاب وأجور الجلسات ويُطرح منها المصروف المسجَّل؛ وما قبله يُعدّ مسوّىً خارج النظام.',
+                'type' => 'date',
+                'default' => '2026-09-01',
+                'rules' => ['required', 'date_format:Y-m-d'],
+            ],
             // مهلة كلّ فاتورةٍ كانت رقماً منقوشاً في موضع إصدارها ومعه نصٌّ عربيّ مكتوبٌ باليد
             // («خلال 3 أيام»). القارئ الوحيد الآن `Finance\InvoiceDue` — يبني التاريخ والنصّ معاً
             // من القيمة نفسها. وكلّها `forwardOnly`: الفاتورة تحمل `due_at` مجمَّداً لحظة إصدارها.
@@ -195,6 +205,33 @@ class SettingsRegistry
                 // علاقةٌ بين حقلين لا يعبّر عنها `gt:` وحده: البطاقة قد ترسل أحدهما، فيُقارن
                 // بالمحفوظ للآخر — `relationErrors()` تتولّاه.
                 'gt' => 'consult_day_start',
+            ],
+            // أيّام الدوام كانت ثابتاً في `LawyerAvailability` (الأسبوع كلّه) — صارت إعداداً مع الساعات
+            'consult_work_days' => [
+                'group' => 'consults',
+                'label' => 'أيّام دوام المكتب',
+                'hint' => 'الأيّام التي يُحجز فيها موعد الاستشارة. لا شرائح حجز في غيرها.',
+                'type' => 'days',
+                'default' => implode(',', LawyerAvailability::WORK_DAYS),
+                'rules' => ['required', 'string', 'regex:/^[0-6](,[0-6]){0,6}$/'],
+            ],
+            // قرار المالك 2026-09-28: خيار «نعم/لا» — الافتراض «لا» يُبقي الحجز المتداخل مرفوضاً كما كان
+            'consult_allow_overlap' => [
+                'group' => 'consults',
+                'label' => 'السماح بحجز استشارةٍ لمحامٍ مشغول في الوقت نفسه',
+                'hint' => '«نعم»: يُقبل الحجز فوق موعدٍ أو اجتماعٍ آخر للمحامي مع تنبيه للحاجز. جلسة المحكمة تمنع الحجز دائماً. لا يشمل دعوات الاجتماعات ولا الإسناد التلقائيّ (يختار متفرّغاً).',
+                'type' => 'bool',
+                'default' => 0,
+                'rules' => ['required', 'boolean'],
+            ],
+            // قرار المالك 2026-09-28: خيار «نعم/لا» — الافتراض «لا» يُبقي الحجز خارج الدوام مرفوضاً كما كان
+            'consult_allow_outside_office' => [
+                'group' => 'consults',
+                'label' => 'السماح بحجز استشارةٍ خارج أوقات الدوام',
+                'hint' => '«نعم»: يُقبل موعدٌ في يوم عطلة أو خارج ساعات الحجز مع تنبيه للحاجز (يُختار الوقت من «تحديد دقيقة مخصّصة»). لا يشمل دعوات الاجتماعات.',
+                'type' => 'bool',
+                'default' => 0,
+                'rules' => ['required', 'boolean'],
             ],
             // **مسافةُ حجزٍ لا عمرُ جلسة** (قرار المالك 2026-09-26): الجلسة تنتهي حين تُنهى، وهذا
             // الرقم يمنع حجز موكّلَين عند المحامي في الوقت نفسه، ويُمرَّر لـZoom والتقويم اسماً فقط.
@@ -403,7 +440,7 @@ class SettingsRegistry
             ChatSenderLabel::LAWYER => [
                 'group' => 'chat',
                 'label' => 'المحامي',
-                'hint' => 'اسمٌ بديل يظهر للعميل فوق ردود المحامين كلّهم. اتركه فارغاً ليظهر اسم المحامي مختصراً «محمد. ب».',
+                'hint' => 'اسمٌ بديل للمحامي يراه العميل في كلّ مكان: فوق الردود، وفي لوحته، وتفاصيل الجلسة، والمحضر، وتقارير PDF، والبريد. اتركه فارغاً ليظهر اسم المحامي مختصراً «محمد. ب».',
                 'type' => 'string',
                 // **الفراغ هنا معنىً لا غياب**: يعني «الاسم المختصر لكلّ محامٍ»، فلا افتراضَ نصّيّاً يحلّ محلّه
                 'default' => '',
@@ -454,6 +491,12 @@ class SettingsRegistry
         return max((int) ($field['min'] ?? PHP_INT_MIN), min((int) ($field['max'] ?? PHP_INT_MAX), $value));
     }
 
+    /** خيار «نعم/لا» — المخزَّن «1» أو «0»، والغائب يعود إلى الافتراض. */
+    public static function bool(string $key): bool
+    {
+        return (bool) (int) (self::stored()[$key] ?? self::field($key)['default']);
+    }
+
     /** نصٌّ غير فارغ — والفراغ في القاعدة يعود إلى الافتراض لا إلى سطرٍ خالٍ في المستند. */
     public static function str(string $key): string
     {
@@ -461,6 +504,33 @@ class SettingsRegistry
         $value = trim((string) (self::stored()[$key] ?? ''));
 
         return $value !== '' ? $value : (string) $field['default'];
+    }
+
+    /**
+     * **أيّام الأسبوع** (الأحد=0 … السبت=6) من نصٍّ «0,1,2» — مرتّبةً بلا تكرار. والفارغ أو الفاسد
+     * يعود إلى الافتراض: أسبوعٌ بلا يوم دوامٍ واحد يُغلق الحجز بصمت.
+     *
+     * @return list<int>
+     */
+    public static function days(string $key): array
+    {
+        $days = self::parseDays((string) (self::stored()[$key] ?? ''));
+
+        return $days !== [] ? $days : self::parseDays((string) self::field($key)['default']);
+    }
+
+    /**
+     * «4,0,1,1» ← [0,1,4]: أرقام الأيّام الصحيحة وحدها، مرتّبةً بلا تكرار — للقراءة وللحفظ معاً.
+     *
+     * @return list<int>
+     */
+    public static function parseDays(string $csv): array
+    {
+        $days = array_map('intval', array_filter(array_map('trim', explode(',', $csv)), fn (string $d) => preg_match('/^[0-6]$/', $d) === 1));
+        $days = array_values(array_unique($days));
+        sort($days);
+
+        return $days;
     }
 
     /** تاريخ `Y-m-d` — وما لا يُقرأ تاريخاً يعود إلى الافتراض بدل أن يرمي عند التحليل. */
@@ -539,6 +609,8 @@ class SettingsRegistry
             $out[$key] = match ($field['type']) {
                 'int' => self::int($key),
                 'date' => self::date($key),
+                'days' => implode(',', self::days($key)),
+                'bool' => (int) self::bool($key),
                 default => self::str($key),
             };
         }

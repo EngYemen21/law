@@ -37,7 +37,7 @@ class TicketJourneyIntegrityTest extends TestCase
     {
         return Ticket::create([
             'user_id' => User::factory()->create(['role' => Role::Client])->id,
-            'number' => 'SB-2026-'.random_int(7000, 7999), 'type' => 'تجاري', 'department' => 'القضايا التجارية',
+            'number' => 'SB-2026-'.uniqid(), 'type' => 'تجاري', 'department' => 'القضايا التجارية',
             'status' => $status, 'tone' => $tone, 'attachments' => 2,
         ]);
     }
@@ -211,7 +211,8 @@ class TicketJourneyIntegrityTest extends TestCase
     public function test_same_status_always_gets_the_same_tone_whoever_writes_it(): void
     {
         // كانت الحالة نفسها تُلوَّن لونين باختلاف كاتبها — النغمة تُشتقّ من الحالة لا تُرسَل
-        foreach (['مغلقة', 'مكتملة'] as $status) {
+        // («مغلقة» لا تُبلغ بالتصحيح — بطاقة القرار طريقها؛ راجع الاختبار التالي)
+        foreach (['بانتظار مستندات', 'مكتملة'] as $status) {
             $ticket = $this->ticket('قيد التحليل');
 
             $this->actingAs($this->admin())
@@ -221,6 +222,20 @@ class TicketJourneyIntegrityTest extends TestCase
             $this->assertSame(TicketJourney::toneFor($status), $ticket->fresh()->tone, 'النغمة تُشتقّ لا تُقبل');
             $ticket->delete();
         }
+    }
+
+    /** Zero Bypass: الإغلاق مسارٌ من بطاقة القرار — لا يُبلغ بالتصحيح بلا سببٍ مرمَّز ولا تجميد. */
+    public function test_admin_correction_cannot_close_a_ticket(): void
+    {
+        $ticket = $this->ticket('قيد التحليل');
+
+        $this->actingAs($this->admin())
+            ->post(route('admin.tickets.correct-status', $ticket), ['status' => 'مغلقة', 'reason' => 'إغلاقٌ مختصر'])
+            ->assertStatus(422);
+
+        $this->assertSame('قيد التحليل', $ticket->fresh()->status);
+        $this->assertSame(0, JourneyTransition::count());
+        $this->assertNotContains('مغلقة', array_column(CorrectTicketStatus::form($ticket)['targets'], 'value'), 'ولا تعرضها البطاقة');
     }
 
     public function test_broadcast_failure_does_not_abort_the_state_change(): void
@@ -244,7 +259,7 @@ class TicketJourneyIntegrityTest extends TestCase
     private function execFor(Ticket $ticket): Execution
     {
         return Execution::create([
-            'user_id' => $ticket->user_id, 'ticket_id' => $ticket->id, 'number' => 'EXE-2026-'.random_int(5000, 5999),
+            'user_id' => $ticket->user_id, 'ticket_id' => $ticket->id, 'number' => 'EXE-2026-'.uniqid(),
             'subject' => 'تنفيذ سند', 'status' => 'قيد الدراسة', 'tone' => 'b-blue', 'stage' => 2,
         ]);
     }
@@ -252,7 +267,7 @@ class TicketJourneyIntegrityTest extends TestCase
     private function caseFor(Ticket $ticket): LegalCase
     {
         return LegalCase::create([
-            'user_id' => $ticket->user_id, 'ticket_id' => $ticket->id, 'number' => 'CS-2026-'.random_int(5000, 5999),
+            'user_id' => $ticket->user_id, 'ticket_id' => $ticket->id, 'number' => 'CS-2026-'.uniqid(),
             'type' => 'تجاري', 'status' => 'منظورة',
         ]);
     }

@@ -89,7 +89,7 @@ final class ConversationHandler
     /**
      * المسؤول الحاليّ وسجلّ من تولّاها — الأحدث أوّلاً — لملفٍّ واحد.
      *
-     * @return array{current: array{id: int, name: string, since: ?string}|null, history: list<array{to: string, from: ?string, at: string, via: ?string}>}
+     * @return array{lawyer: ?string, current: array{id: int, name: string, since: ?string}|null, history: list<array{to: string, from: ?string, at: string, via: ?string}>}
      */
     public static function history(Model $conversation): array
     {
@@ -101,7 +101,7 @@ final class ConversationHandler
      * الملفّات كلّها في حمولةٍ واحدة.
      *
      * @param  iterable<Model>  $conversations
-     * @return array<int|string, array{current: array{id: int, name: string, since: ?string}|null, history: list<array{to: string, from: ?string, at: string, via: ?string}>}>
+     * @return array<int|string, array{lawyer: ?string, current: array{id: int, name: string, since: ?string}|null, history: list<array{to: string, from: ?string, at: string, via: ?string}>}>
      */
     public static function historiesFor(iterable $conversations): array
     {
@@ -120,13 +120,24 @@ final class ConversationHandler
         $handlers = User::whereIn('id', $conversations->map(fn (Model $c) => $c->getAttribute('handler_id'))->filter()->unique()->all())
             ->pluck('name', 'id');
 
+        /*
+         * **المحامي المُسند سطرٌ مستقلّ في البطاقة** (قرار المالك 2026-09-27). «المسؤول الآن» يقرأ مسؤول
+         * المحادثة (موظّفٌ أو مديرٌ ردّ على العميل) والمحامي خارجه عمداً — فكانت قضيّةٌ لها محامٍ ولم يردّ
+         * عليها موظّفٌ بعد تقول «لم يتولّها أحدٌ بعد». البطاقة للطاقم وحده، فالاسم حقيقيّ.
+         */
+        $lawyers = User::whereIn('id', $conversations->map(fn (Model $c) => $c->getAttribute('assigned_lawyer_id'))->filter()->unique()->all())
+            ->pluck('name', 'id');
+
         $when = fn ($at) => $at?->locale('ar')->translatedFormat('l j F · h:i A');
 
-        return $conversations->mapWithKeys(function (Model $c) use ($rows, $handlers, $when) {
+        return $conversations->mapWithKeys(function (Model $c) use ($rows, $handlers, $lawyers, $when) {
             $mine = $rows->get($c->getKey(), collect());
             $handlerId = $c->getAttribute('handler_id');
 
+            $lawyerId = $c->getAttribute('assigned_lawyer_id');
+
             return [$c->getKey() => [
+                'lawyer' => $lawyerId !== null && $lawyers->has($lawyerId) ? (string) $lawyers[$lawyerId] : null,
                 'current' => $handlerId === null || ! $handlers->has($handlerId) ? null : [
                     'id' => (int) $handlerId,
                     'name' => (string) $handlers[$handlerId],

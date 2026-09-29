@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\ConsultStatus;
 use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Invoice;
@@ -33,6 +34,29 @@ class AdminReportsTest extends TestCase
                 ->where('stats.totalTickets', 3)
                 ->where('stats.closureRate', 33) // 1 من 3
                 ->has('byDept', 2));
+    }
+
+    /**
+     * «إجمالي الاستشارات والتذاكر» كان يعرض عدد التذاكر وحده (الشاشة والـPDF). الآن رقمان مستقلّان
+     * من اللقطة الواحدة، والاستشارة الملغاة لا تُعدّ.
+     */
+    public function test_tickets_and_consults_are_counted_separately(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $client = User::factory()->create(['role' => Role::Client]);
+
+        Ticket::create(['user_id' => $client->id, 'number' => 'T1', 'type' => 'تجاري', 'department' => 'القسم التجاري', 'status' => 'قيد التحليل', 'tone' => 'b-blue']);
+        foreach ([ConsultStatus::AwaitingPricing, ConsultStatus::Ended, ConsultStatus::Cancelled] as $i => $status) {
+            Consult::create(['user_id' => $client->id, 'ref' => "CN-{$i}", 'subject' => 'استشارة', 'type' => 'عام', 'channel' => 'مرئية', 'lawyer' => '—', 'status' => $status->value]);
+        }
+
+        $this->actingAs($admin)->get(route('admin.reports'))
+            ->assertOk()
+            ->assertInertia(fn ($p) => $p->where('stats.totalTickets', 1)->where('stats.totalConsults', 2));
+
+        $pdf = (string) file_get_contents(app_path('Http/Controllers/Admin/ReportController.php'));
+        $this->assertStringNotContainsString('إجمالي الاستشارات والتذاكر', $pdf);
+        $this->assertStringContainsString("\$s['totalConsults']", $pdf);
     }
 
     public function test_revenue_shows_real_invoice_and_consult_totals(): void

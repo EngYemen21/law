@@ -56,7 +56,7 @@ final class ZatcaQr
      * قيم الوسوم الخمسة نصّاً — ما يُرمَّز بعينه. تُعرض أيضاً بجوار الرمز في المستند، فيرى القارئ
      * ما يحمله الرمز دون ماسح.
      *
-     * @return array<int, string>|null
+     * @return array<int<1, 5>, string>|null
      */
     public static function fields(Invoice $invoice): ?array
     {
@@ -84,14 +84,15 @@ final class ZatcaQr
      * بايت الطول يحتمل ٢٥٥ بايتاً فقط؛ واسم المكتب مقيَّدٌ بـ١٢٠ حرفاً (أي ٢٤٠ بايتاً عربيّاً)،
      * فالقطع هنا حارسٌ للحدّ النظريّ لا مسارٌ متوقَّع — ويقطع على حدّ حرفٍ كامل لا وسط بايتاته.
      *
-     * @param  array<int, string>  $fields
+     * @param  array<int<1, 255>, string>  $fields  الوسم بايتٌ واحد (ZATCA: 1–5)
      */
     public static function encode(array $fields): string
     {
         $tlv = '';
         foreach ($fields as $tag => $value) {
             $bytes = mb_strcut($value, 0, 255, 'UTF-8');
-            $tlv .= chr($tag).chr(strlen($bytes)).$bytes;
+            // الطول بايتٌ واحد في TLV — و`mb_strcut` أعلاه يضمن ألّا يتجاوز ٢٥٥
+            $tlv .= chr($tag).chr(min(255, strlen($bytes))).$bytes;
         }
 
         return base64_encode($tlv);

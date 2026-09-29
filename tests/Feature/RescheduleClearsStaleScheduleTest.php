@@ -38,7 +38,7 @@ class RescheduleClearsStaleScheduleTest extends TestCase
         ]);
 
         return Consult::create([
-            'user_id' => $client->id, 'ref' => 'CN-2026-'.random_int(1000, 9999), 'subject' => 'نزاع إيجار',
+            'user_id' => $client->id, 'ref' => 'CN-2026-'.uniqid(), 'subject' => 'نزاع إيجار',
             'channel' => $channel, 'lawyer' => $lawyer->name, 'assigned_lawyer_id' => $lawyer->id,
             'day' => $startsAt->format('Y-m-d'), 'time' => '16:00', 'when_label' => $startsAt->format('Y-m-d').' · 16:00',
             'session' => 'بانتظار الجلسة', 'status' => 'موعد مؤكد',

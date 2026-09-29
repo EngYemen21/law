@@ -19,6 +19,7 @@ use App\Http\Controllers\Admin\PriceController as AdminPriceController;
 use App\Http\Controllers\Admin\ReportController as AdminReportController;
 use App\Http\Controllers\Admin\SettingsController as AdminSettingsController;
 use App\Http\Controllers\Admin\StaffController;
+use App\Http\Controllers\Admin\StaffPayoutController;
 use App\Http\Controllers\Admin\TaskController as AdminTaskController;
 use App\Http\Controllers\Admin\TicketController as AdminTicketController;
 use App\Http\Controllers\AppointmentController;
@@ -38,7 +39,6 @@ use App\Http\Controllers\Employee\TicketController as EmployeeTicketController;
 use App\Http\Controllers\Employee\TransferController as EmployeeTransferController;
 use App\Http\Controllers\ExecFlowController;
 use App\Http\Controllers\InvoiceController;
-// use App\Http\Controllers\ImpersonationController; // أُلغيت معاينة اللوحات (الإمبرسنيشن) بقرار 2026-08-28
 use App\Http\Controllers\Lawyer\AssistantController as LawyerAssistantController;
 use App\Http\Controllers\Lawyer\CalendarController as LawyerCalendarController;
 use App\Http\Controllers\Lawyer\CaseController as LawyerCaseController;
@@ -53,6 +53,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Staff\ConsultController as StaffConsultController;
 use App\Http\Controllers\Staff\ConsultRecordingController as StaffConsultRecordingController;
+use App\Http\Controllers\Staff\EarningsController as StaffEarningsController;
 use App\Http\Controllers\Staff\MeetingController as StaffMeetingController;
 use App\Http\Controllers\Staff\MeetRequestController as StaffMeetRequestController;
 use App\Http\Controllers\Staff\TicketRequirementController as StaffTicketRequirementController;
@@ -61,6 +62,7 @@ use App\Http\Controllers\ZoomController;
 use App\Http\Controllers\ZoomWebhookController;
 use App\Support\ConversationFiles;
 use App\Support\DocumentVerification;
+use App\Support\Permissions;
 use Illuminate\Support\Facades\Route;
 
 // ── عام (بدون مصادقة) ──
@@ -145,8 +147,6 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
 
     // التنفيذ — تبويب موحّد (تدفّق + تنفيذات قديمة) على مسار /execs
     Route::get('/execs', [ExecFlowController::class, 'client'])->name('execs');
-    // توافق خلفيّ: المسار القديم يُحوّل للتبويب الموحّد
-    Route::redirect('/exec-preview', '/execs')->name('exec.preview');
 
     // الاستشارات — «استشاراتي» مربوطة بقاعدة البيانات؛ الجلسات المرئية عبر Zoom
     Route::get('/book', [ConsultBookingController::class, 'index'])->name('book');
@@ -200,14 +200,15 @@ Route::middleware(['auth', 'active'])->group(function () {
     // تأكيد الجوال الجديد — الرقم لا يُكتب إلا هنا (عامل المصادقة الوحيد)
     Route::post('/profile/phone/verify', [ProfileController::class, 'verifyPhoneChange'])
         ->middleware('throttle:otp-verify')->name('profile.phone.verify');
-    // أُلغيت معاينة لوحة الموظف (الإمبرسنيشن) بقرار 2026-08-28 — الإدارة مقصورة على لوحتها
-    // Route::post('/impersonate/leave', [ImpersonationController::class, 'leave'])->name('impersonate.leave');
     // توقيع تضمين Zoom (Meeting SDK) — متاح للعميل والموظف؛ التفويض في المتحكّم عبر ChannelAccess
     Route::post('/zoom/sdk-signature', [ZoomController::class, 'sdkSignature'])->name('zoom.signature');
 });
 
 // ── لوحة الموظف ── (deny-by-default: صلاحية صريحة لكل إجراء حسّاس فوق حارس الدور)
 Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name('employee.')->group(function () {
+    // «مستحقاتي» — الراتب ونصيب الأتعاب وأجر الجلسات وسجلّ الصرف (بيانات المستخدم الحاليّ وحده)
+    Route::get('/earnings', [StaffEarningsController::class, 'index'])->name('earnings');
+    Route::get('/earnings/statement.pdf', [StaffEarningsController::class, 'statement'])->name('earnings.statement');
     Route::get('/dashboard', [DashboardController::class, 'employee'])->name('dashboard'); // عام للدور
 
     // صندوق مراجعة مخرجات الذكاء — الشاشة نفسها لكل دور، والعزل داخل AiReviewInbox:
@@ -218,13 +219,13 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
     // ومنحُها له كان سيوسّع وصوله إلى **اعتماد الملخّصات القانونيّة** وهو ما لا يفعله.
     // فالحكم على «أهذا المستند ذو صلة؟» عملٌ تشغيليّ من صميم إدارة التذاكر، ويختلف
     // عن اعتماد رأيٍ قانونيّ — والعزل داخل الصندوق يمنعه من رؤية الثاني أصلاً.
-    Route::middleware('permission:إدارة التذاكر')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::MANAGE_TICKETS))->group(function () {
         Route::get('/ai-review', [AdminAiReviewController::class, 'index'])->name('ai-review');
         Route::post('/ai-review/{run}/decide', [AdminAiReviewController::class, 'decide'])->name('ai-review.decide');
     });
 
     // التذاكر — إدارة التذاكر (والرد على العملاء لمسار الردّ)
-    Route::middleware('permission:إدارة التذاكر')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::MANAGE_TICKETS))->group(function () {
         Route::get('/tickets', [EmployeeTicketController::class, 'index'])->name('tickets');
         Route::get('/tickets/{ticket}', [EmployeeTicketController::class, 'show'])->name('tickets.show');
         Route::post('/tickets/{ticket}/note', [EmployeeTicketController::class, 'note'])->name('tickets.note');
@@ -237,21 +238,21 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
         Route::post('/tickets/{ticket}/requirements', [StaffTicketRequirementController::class, 'update'])->name('tickets.requirements.update');
     });
     Route::post('/tickets/{ticket}/reply', [EmployeeTicketController::class, 'reply'])->middleware('conversation.reply')
-        ->middleware('permission:الرد على العملاء')->name('tickets.reply');
+        ->middleware(Permissions::middleware(Permissions::REPLY_TO_CLIENTS))->name('tickets.reply');
     Route::post('/tickets/{ticket}/attach', [EmployeeTicketController::class, 'attach'])->middleware('conversation.reply')
-        ->middleware('permission:الرد على العملاء')->name('tickets.attach');
+        ->middleware(Permissions::middleware(Permissions::REPLY_TO_CLIENTS))->name('tickets.attach');
     Route::post('/tickets/{ticket}/request-docs', [EmployeeTicketController::class, 'requestDocs'])->middleware('conversation.reply')
-        ->middleware('permission:الرد على العملاء')->name('tickets.reqdocs');
+        ->middleware(Permissions::middleware(Permissions::REPLY_TO_CLIENTS))->name('tickets.reqdocs');
 
     // القضايا وطلبات التنفيذ — إدارة القضايا والأتعاب
-    Route::middleware('permission:إدارة القضايا والأتعاب')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::MANAGE_CASES_AND_FEES))->group(function () {
         Route::get('/cases', [EmployeeCaseController::class, 'index'])->name('cases');
         Route::get('/cases/{case}', [EmployeeCaseController::class, 'show'])->name('cases.show');
         Route::post('/cases/{case}/reply', [EmployeeCaseController::class, 'reply'])->middleware('conversation.reply')->name('cases.reply');
         Route::post('/cases/{case}/attach', [EmployeeCaseController::class, 'attach'])->middleware('conversation.reply')->name('cases.attach');
         // إجراءات المحكمة (ناجز والجلسات والحكم) — لمن تمنحه الإدارة «إجراءات المحكمة والجلسات» من تبويب
         // الموظّفين (قرار المالك 2026-09-11)، بحرّاس المحامي نفسها (`ManagesCourtProceedings`)
-        Route::middleware('permission:إجراءات المحكمة والجلسات')->group(function () {
+        Route::middleware(Permissions::middleware(Permissions::COURT_PROCEEDINGS))->group(function () {
             Route::post('/cases/{case}/najiz/file', [EmployeeCaseController::class, 'fileNajiz'])->name('cases.najiz.file');
             Route::post('/cases/{case}/najiz/register', [EmployeeCaseController::class, 'registerNajiz'])->name('cases.najiz.register');
             Route::post('/cases/{case}/hearings', [EmployeeCaseController::class, 'addHearing'])->name('cases.hearings.add');
@@ -265,11 +266,10 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
         });
         // التنفيذ — تبويب موحّد (استقبال/إحالة) لدور الموظف
         Route::get('/execs', [ExecFlowController::class, 'employee'])->name('execs');
-        Route::redirect('/exec-preview', '/employee/execs')->name('exec.preview');
     });
 
     // رحلة الاستشارة + الاستقبال + الغرفة — استقبال الاستشارات
-    Route::middleware('permission:استقبال الاستشارات')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::RECEIVE_CONSULTS))->group(function () {
         Route::get('/consults', [StaffConsultController::class, 'index'])->name('consults');
         Route::get('/consult', [StaffConsultController::class, 'show'])->name('consult');
         Route::post('/consults/{consult}/reqdocs', [StaffConsultController::class, 'requestDocs'])->name('consults.reqdocs');
@@ -285,7 +285,7 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
          * والوسيط تجميعيّ، فالشرط الآن الصلاحيّتان معاً — لا يحلّل إلّا من يصل
          * الاستشارة أصلاً.
          */
-        Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware('permission:تشغيل تلخيص الفريق القانوني');
+        Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware(Permissions::middleware(Permissions::RUN_LEGAL_ANALYSIS));
         Route::post('/consults/{consult}/analysis', [StaffConsultController::class, 'saveAnalysis'])->name('consults.analysis');
         Route::post('/consults/{consult}/approve', [StaffConsultController::class, 'approveAnalysis'])->name('consults.approve');
         Route::post('/consults/{consult}/zoom-sync', [StaffConsultController::class, 'zoomSync'])->name('consults.zoomsync');
@@ -294,7 +294,7 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
         // كان المسار غير مسجَّل بتاتاً بينما تعرض الشاشة المشتركة محرّره، فيقع ٤٠٤
         // صامت. والصلاحيّة هي البوّابة الآن لا الدور — فمن لا يملكها يُصدّ ٤٠٣،
         // ومن منحته الإدارة إيّاها يحرّر. والاعتماد يبقى فعلاً قانونياً بالصلاحيّة نفسها.
-        Route::post('/consults/{consult}/summary', [StaffConsultController::class, 'saveSummary'])->name('consults.summary')->middleware('permission:اعتماد/تعديل ملخص الاستشارة');
+        Route::post('/consults/{consult}/summary', [StaffConsultController::class, 'saveSummary'])->name('consults.summary')->middleware(Permissions::middleware(Permissions::APPROVE_CONSULT_SUMMARY));
         // **لا اعتمادَ لملخّص الاستشارة من مجموعة الموظّف** (قرار المالك 2026-09-14): الملخّص
         // يعتمده المحامي ثمّ الإدارة. الموظّف يحرّره إن مُنح الصلاحيّة ولا يُطلقه للعميل.
         Route::get('/consultrecv', [StaffConsultController::class, 'recv'])->name('consultrecv');
@@ -309,7 +309,7 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
     });
 
     // إجراءات المواعيد المرتبطة بدورة الاستشارة — استقبال الاستشارات أو إدارة المواعيد والحجوزات
-    Route::middleware('permission:استقبال الاستشارات,إدارة المواعيد والحجوزات')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::RECEIVE_CONSULTS, Permissions::MANAGE_BOOKINGS))->group(function () {
         Route::post('/consults/{consult}/no-show', [StaffConsultController::class, 'noShow'])->name('consults.noshow');
         Route::post('/consults/{consult}/reschedule', [StaffConsultController::class, 'reschedule'])->name('consults.reschedule');
         Route::post('/consults/{consult}/reschedule-request/dismiss', [StaffConsultController::class, 'dismissRescheduleRequest'])->name('consults.reschedule-request.dismiss');
@@ -317,32 +317,34 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
 
     // أيّ من الصلاحيتين تكفي: الغرفة تُفتح من شاشة الاستقبال أيضاً — حصرها بواحدة كان يصدّ حاملي الأخرى
     Route::get('/videoroom', [StaffConsultController::class, 'room'])
-        ->middleware('permission:إجراء الجلسات المرئية,استقبال الاستشارات')->name('videoroom');
+        ->middleware(Permissions::middleware(Permissions::RUN_VIDEO_SESSIONS, Permissions::RECEIVE_CONSULTS))->name('videoroom');
 
     // التبويب الزمني الموحّد: الأحداث + لوحة المواعيد
     // يُتاح لمن يملك جدولة المواعيد أو إدارة المواعيد والحجوزات أو إجراءات المحكمة والجلسات
-    Route::middleware('permission:جدولة المواعيد,إدارة المواعيد والحجوزات,إجراءات المحكمة والجلسات')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::SCHEDULE_APPOINTMENTS, Permissions::MANAGE_BOOKINGS, Permissions::COURT_PROCEEDINGS))->group(function () {
         Route::get('/calendar', [EmployeeCalendarController::class, 'index'])->name('calendar');
+        // شرائح اليوم لشبكة التفرّغ — اطّلاعٌ لمن يرى التقويم (الحجز نفسه محروسٌ بجدولة المواعيد)
+        Route::get('/schedule/day-slots', [EmployeeScheduleController::class, 'daySlots'])->name('schedule.day-slots');
         // شاشة الجدولة المستقلّة طُويت في التقويم — تُحوَّل ولا تُحذف (روابط محفوظة/إشعارات)
         Route::get('/schedule', [EmployeeScheduleController::class, 'index'])->name('schedule');
     });
 
     // عمليات الحجز والجدولة الجديدة — تتطلب حصراً صلاحية «جدولة المواعيد»
-    Route::middleware('permission:جدولة المواعيد')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::SCHEDULE_APPOINTMENTS))->group(function () {
         Route::get('/schedule/slots', [EmployeeScheduleController::class, 'slots'])->name('schedule.slots');
         Route::post('/schedule', [EmployeeScheduleController::class, 'store'])->name('schedule.store');
         // طلب استشارة نيابةً عن العميل — يسلك التسعير والسداد قبل الحجز
         Route::post('/consults/request', [EmployeeScheduleController::class, 'requestFor'])->name('consults.request');
     });
 
-    Route::middleware('permission:تحويل التذاكر')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::TRANSFER_TICKETS))->group(function () {
         Route::get('/transfer', [EmployeeTransferController::class, 'index'])->name('transfer');
         Route::post('/transfer/bulk', [EmployeeTransferController::class, 'bulkTransfer'])->name('transfer.bulk');
         Route::post('/transfer/{ticket}', [EmployeeTransferController::class, 'transfer'])->name('transfer.do');
     });
 
     // طلبات الاجتماعات — إرسال دعوات الاجتماعات
-    Route::middleware('permission:إرسال دعوات الاجتماعات')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::SEND_MEETING_INVITES))->group(function () {
         Route::get('/meetreqs', [StaffMeetRequestController::class, 'index'])->name('meetreqs');
         Route::post('/meetreqs', [StaffMeetRequestController::class, 'store'])->name('meetreqs.store');
         Route::post('/meetreqs/{meetRequest}/cancel', [StaffMeetRequestController::class, 'cancel'])->name('meetreqs.cancel');
@@ -372,7 +374,7 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
     // محرر الصياغة القانونية للموظف — إنشاء وتحرير المستندات (الاعتماد مشروط بصلاحية خاصة)
     // أيٌّ من الصلاحيتين يكفي لفتح المحرر: «المساعد القانوني» (يحرر بلا اعتماد)
     // أو «اعتماد الصياغة القانونية» (يحرر ويعتمد). الفاصلة = OR في Spatie.
-    Route::middleware('permission:المساعد القانوني,اعتماد الصياغة القانونية')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::LEGAL_ASSISTANT, Permissions::APPROVE_DOCUMENTS))->group(function () {
         Route::get('/editor', [LawyerDocumentEditorController::class, 'index'])->name('editor');
         Route::get('/editor/create', [LawyerDocumentEditorController::class, 'create'])->name('editor.create');
         Route::get('/editor/importables', [LawyerDocumentEditorController::class, 'importables'])->name('editor.importables');
@@ -380,7 +382,7 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
         Route::get('/editor/{doc}', [LawyerDocumentEditorController::class, 'edit'])->name('editor.edit');
         Route::put('/editor/{doc}', [LawyerDocumentEditorController::class, 'update'])->name('editor.update');
         Route::post('/editor/{doc}/approve', [LawyerDocumentEditorController::class, 'approve'])
-            ->middleware('permission:اعتماد الصياغة القانونية')
+            ->middleware(Permissions::middleware(Permissions::APPROVE_DOCUMENTS))
             ->name('editor.approve');
         Route::get('/editor/{doc}/print', [LawyerDocumentEditorController::class, 'printDoc'])->name('editor.print');
         Route::get('/editor/{doc}/pdf', [LawyerDocumentEditorController::class, 'downloadPdf'])->name('editor.pdf');
@@ -390,6 +392,9 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
 
 // ── لوحة المحامي ── (deny-by-default: صلاحية صريحة لكل إجراء حسّاس فوق حارس الدور)
 Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('lawyer.')->group(function () {
+    // «مستحقاتي» — الراتب ونصيب الأتعاب وأجر الجلسات وسجلّ الصرف (بيانات المستخدم الحاليّ وحده)
+    Route::get('/earnings', [StaffEarningsController::class, 'index'])->name('earnings');
+    Route::get('/earnings/statement.pdf', [StaffEarningsController::class, 'statement'])->name('earnings.statement');
     Route::get('/dashboard', [LawyerTicketController::class, 'dashboard'])->name('dashboard'); // عام للدور
     // التذاكر المحالة — عرض عام للمحامي؛ الإجراءات الحسّاسة مُصرَّحة أدناه
     Route::get('/tickets', [LawyerTicketController::class, 'index'])->name('tickets');
@@ -403,7 +408,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
     Route::get('/calendar', [LawyerCalendarController::class, 'index'])->name('calendar');
 
     // الملخصات والاعتماد — اعتماد الملخصات
-    Route::middleware('permission:اعتماد الملخصات')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::APPROVE_SUMMARIES))->group(function () {
         Route::get('/summaries', [LawyerTicketController::class, 'summaries'])->name('summaries');
         Route::get('/summary/{ticket}', [LawyerTicketController::class, 'showSummary'])->name('summary');
         Route::post('/summary/{ticket}', [LawyerTicketController::class, 'updateSummary'])->name('summary.update');
@@ -425,7 +430,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
     });
 
     // دورة القضية + التنفيذ + المهام — إدارة القضايا والأتعاب
-    Route::middleware('permission:إدارة القضايا والأتعاب')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::MANAGE_CASES_AND_FEES))->group(function () {
         Route::post('/tickets/{ticket}/request-docs', [LawyerTicketController::class, 'requestDocs'])->middleware('conversation.reply')->name('tickets.reqdocs');
         Route::post('/tickets/{ticket}/track/propose', [LawyerTicketController::class, 'proposeTrack'])->name('tickets.track.propose');
         Route::get('/cases', [LawyerCaseController::class, 'index'])->name('cases');
@@ -456,7 +461,6 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::post('/cases/{case}/execute', [LawyerCaseController::class, 'convertToExecution'])->name('cases.execute');
         // التنفيذ — تبويب موحّد (تدفّق + تنفيذات قديمة) لدور المحامي، محصور بالمسند إليه/القابل للالتقاط
         Route::get('/execs', [ExecFlowController::class, 'lawyer'])->name('execs');
-        Route::redirect('/exec-preview', '/lawyer/execs')->name('exec.preview');
         Route::get('/tasks', [LawyerTaskController::class, 'index'])->name('tasks');
         Route::post('/tasks', [LawyerTaskController::class, 'store'])->name('tasks.store');
         Route::post('/tasks/{task}/complete', [LawyerTaskController::class, 'complete'])->name('tasks.complete');
@@ -465,8 +469,8 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
     // الاجتماعات — إدارة الاجتماعات
     // الغرفة تُفتح من دعوات الاجتماعات أيضاً — أيّ من الصلاحيتين تكفي (كانت تصدّ محامي الدعوات وحدها)
     Route::get('/meetingroom', [StaffMeetingController::class, 'room'])
-        ->middleware('permission:إدارة الاجتماعات,إرسال دعوات الاجتماعات')->name('meetingroom');
-    Route::middleware('permission:إدارة الاجتماعات')->group(function () {
+        ->middleware(Permissions::middleware(Permissions::MANAGE_MEETINGS, Permissions::SEND_MEETING_INVITES))->name('meetingroom');
+    Route::middleware(Permissions::middleware(Permissions::MANAGE_MEETINGS))->group(function () {
         Route::get('/meetings', [StaffMeetingController::class, 'index'])->name('meetings');
         Route::get('/meeting', [StaffMeetingController::class, 'show'])->name('meeting');
         Route::post('/meetings/{meeting}/summary', [StaffMeetingController::class, 'saveSummary'])->name('meetings.summary');
@@ -484,7 +488,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
     });
 
     // طلبات الاجتماعات — إرسال دعوات الاجتماعات
-    Route::middleware('permission:إرسال دعوات الاجتماعات')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::SEND_MEETING_INVITES))->group(function () {
         Route::get('/meetreqs', [StaffMeetRequestController::class, 'index'])->name('meetreqs');
         Route::post('/meetreqs', [StaffMeetRequestController::class, 'store'])->name('meetreqs.store');
         Route::post('/meetreqs/{meetRequest}/cancel', [StaffMeetRequestController::class, 'cancel'])->name('meetreqs.cancel');
@@ -496,7 +500,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
     // المساعد القانوني ومختبر الصياغة والتحليل — تسجيل واحد محروس بالصلاحية.
     // كان مسجّلاً مرتين بنفس الاسم (نسخة بلا حراسة أعلى الملف): المطابقة تأخذ الأولى
     // فيُبطَل هذا الحارس، و«artisan route:cache» يفشل بـAnother route has already been assigned name.
-    Route::middleware('permission:المساعد القانوني')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::LEGAL_ASSISTANT))->group(function () {
         Route::get('/assistant', [LawyerAssistantController::class, 'index'])->name('assistant');
         Route::post('/assistant/generate', [LawyerAssistantController::class, 'generate'])->name('assistant.generate');
         // تسليم المسودّة لمحرّر الصياغة عبر الجلسة — لا في عنوانٍ يُحقن منه نصّ
@@ -512,7 +516,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
     });
 
     // محرر الصياغة القانونية — إنشاء وتحرير المستندات المنسّقة (لوائح، مذكرات، عقود...)
-    Route::middleware('permission:المساعد القانوني')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::LEGAL_ASSISTANT))->group(function () {
         Route::get('/editor', [LawyerDocumentEditorController::class, 'index'])->name('editor');
         Route::get('/editor/create', [LawyerDocumentEditorController::class, 'create'])->name('editor.create');
         Route::get('/editor/importables', [LawyerDocumentEditorController::class, 'importables'])->name('editor.importables');
@@ -520,7 +524,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::get('/editor/{doc}', [LawyerDocumentEditorController::class, 'edit'])->name('editor.edit');
         Route::put('/editor/{doc}', [LawyerDocumentEditorController::class, 'update'])->name('editor.update');
         Route::post('/editor/{doc}/approve', [LawyerDocumentEditorController::class, 'approve'])
-            ->middleware('permission:اعتماد الصياغة القانونية')
+            ->middleware(Permissions::middleware(Permissions::APPROVE_DOCUMENTS))
             ->name('editor.approve');
         Route::get('/editor/{doc}/print', [LawyerDocumentEditorController::class, 'printDoc'])->name('editor.print');
         Route::get('/editor/{doc}/pdf', [LawyerDocumentEditorController::class, 'downloadPdf'])->name('editor.pdf');
@@ -528,7 +532,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
     });
 
     // استقبال الاستشارات + رحلة الاستشارة + الغرفة — استقبال الاستشارات (والغرفة تحتاج إجراء الجلسات)
-    Route::middleware('permission:استقبال الاستشارات')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::RECEIVE_CONSULTS))->group(function () {
         Route::get('/consults', [StaffConsultController::class, 'index'])->name('consults');
         Route::get('/consultrecv', [StaffConsultController::class, 'recv'])->name('consultrecv');
         Route::get('/consult', [StaffConsultController::class, 'show'])->name('consult');
@@ -538,12 +542,12 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::post('/consults/{consult}/reschedule', [StaffConsultController::class, 'reschedule'])->name('consults.reschedule');
         Route::post('/consults/{consult}/reschedule-request/dismiss', [StaffConsultController::class, 'dismissRescheduleRequest'])->name('consults.reschedule-request.dismiss');
         Route::post('/consults/{consult}/reqdocs', [StaffConsultController::class, 'requestDocs'])->name('consults.reqdocs');
-        Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware('permission:تشغيل تلخيص الفريق القانوني'); // انظر شرح النسخة أعلاه
+        Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware(Permissions::middleware(Permissions::RUN_LEGAL_ANALYSIS)); // انظر شرح النسخة أعلاه
         Route::post('/consults/{consult}/analysis', [StaffConsultController::class, 'saveAnalysis'])->name('consults.analysis');
         // تحرير ملخّص الجلسة قبل اعتماده — «تعديل واعتماد» كان خياراً بلا حقلٍ يستقبله
-        Route::post('/consults/{consult}/summary', [StaffConsultController::class, 'saveSummary'])->name('consults.summary')->middleware('permission:اعتماد/تعديل ملخص الاستشارة');
+        Route::post('/consults/{consult}/summary', [StaffConsultController::class, 'saveSummary'])->name('consults.summary')->middleware(Permissions::middleware(Permissions::APPROVE_CONSULT_SUMMARY));
         // الاعتماد من شاشة الملفّ — لملخّصٍ لا قيد له في `ai_runs` فلا يبلغ الصندوق أبداً.
-        Route::post('/consults/{consult}/summary/approve', [StaffConsultController::class, 'approveSummary'])->name('consults.summary.approve')->middleware('permission:اعتماد/تعديل ملخص الاستشارة');
+        Route::post('/consults/{consult}/summary/approve', [StaffConsultController::class, 'approveSummary'])->name('consults.summary.approve')->middleware(Permissions::middleware(Permissions::APPROVE_CONSULT_SUMMARY));
         Route::post('/consults/{consult}/approve', [StaffConsultController::class, 'approveAnalysis'])->name('consults.approve');
         Route::post('/consults/{consult}/zoom-sync', [StaffConsultController::class, 'zoomSync'])->name('consults.zoomsync');
         Route::post('/consults/{consult}/refer', [StaffConsultController::class, 'refer'])->name('consults.refer');
@@ -556,7 +560,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
     });
     // أيّ من الصلاحيتين تكفي: الغرفة تُفتح من شاشة الاستقبال أيضاً — حصرها بواحدة كان يصدّ حاملي الأخرى
     Route::get('/videoroom', [StaffConsultController::class, 'room'])
-        ->middleware('permission:إجراء الجلسات المرئية,استقبال الاستشارات')->name('videoroom');
+        ->middleware(Permissions::middleware(Permissions::RUN_VIDEO_SESSIONS, Permissions::RECEIVE_CONSULTS))->name('videoroom');
 });
 
 // ── لوحة الإدارة ── (الإدارة تتجاوز الصلاحيات عبر Gate::before؛ الحماية بالدور)
@@ -578,6 +582,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     // نظيرا الجدولة للوحة الإدارة — التقويم الإداري يحجز ويجلب الفترات من مساراته هو
     // (قرار 2026-08-28: لا يمرّ الأدمن عبر بوابات الأدوار الأخرى إطلاقًا)
     Route::get('/schedule/slots', [EmployeeScheduleController::class, 'slots'])->name('schedule.slots');
+    Route::get('/schedule/day-slots', [EmployeeScheduleController::class, 'daySlots'])->name('schedule.day-slots');
     Route::post('/schedule', [EmployeeScheduleController::class, 'store'])->name('schedule.store');
     Route::post('/consults/request', [EmployeeScheduleController::class, 'requestFor'])->name('consults.request');
     // اعتماد موعدٍ اقترحه موظّف — كما هو أو بعد تعديله (قرار المالك 2026-09-14)
@@ -599,44 +604,46 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/lawyers/{user}/mode', [AdminLawyerController::class, 'toggleMode'])->name('lawyers.mode');
     // رحلة الاستشارة — مربوطة بقاعدة البيانات (+ صلاحيات الإدارة: الأولوية)
     Route::get('/consults', [StaffConsultController::class, 'index'])->name('consults');
-    Route::get('/consult-requests', [StaffConsultController::class, 'requests'])->name('consult-requests')->middleware('permission:إدارة المواعيد والحجوزات');
-    Route::post('/consults/{consult}/remind-schedule', [StaffConsultController::class, 'remindSchedule'])->name('consults.remind-schedule')->middleware('permission:إدارة المواعيد والحجوزات');
-    Route::post('/consults/{consult}/cancel-request', [StaffConsultController::class, 'cancelRequest'])->name('consults.cancel-request')->middleware('permission:إدارة المواعيد والحجوزات');
-    Route::post('/consults/{consult}/price', [StaffConsultController::class, 'setPrice'])->name('consults.price')->middleware('permission:إدارة المواعيد والحجوزات');
+    Route::get('/consult-requests', [StaffConsultController::class, 'requests'])->name('consult-requests')->middleware(Permissions::middleware(Permissions::MANAGE_BOOKINGS));
+    Route::post('/consults/{consult}/remind-schedule', [StaffConsultController::class, 'remindSchedule'])->name('consults.remind-schedule')->middleware(Permissions::middleware(Permissions::MANAGE_BOOKINGS));
+    Route::post('/consults/{consult}/cancel-request', [StaffConsultController::class, 'cancelRequest'])->name('consults.cancel-request')->middleware(Permissions::middleware(Permissions::MANAGE_BOOKINGS));
+    Route::post('/consults/{consult}/price', [StaffConsultController::class, 'setPrice'])->name('consults.price')->middleware(Permissions::middleware(Permissions::MANAGE_BOOKINGS));
     // تصحيح تسعيرٍ خاطئ قبل السداد — لم يكن للمشروع مخرجٌ منه إلّا إلغاء الطلب كلّه
-    Route::post('/consults/{consult}/reprice', [StaffConsultController::class, 'reprice'])->name('consults.reprice')->middleware('permission:إدارة المواعيد والحجوزات');
+    Route::post('/consults/{consult}/reprice', [StaffConsultController::class, 'reprice'])->name('consults.reprice')->middleware(Permissions::middleware(Permissions::MANAGE_BOOKINGS));
     Route::post('/consults/{consult}/reqdocs', [StaffConsultController::class, 'requestDocs'])->name('consults.reqdocs');
-    Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware('permission:تشغيل تلخيص الفريق القانوني');
-    Route::post('/consults/{consult}/analysis', [StaffConsultController::class, 'saveAnalysis'])->name('consults.analysis')->middleware('permission:اعتماد/تعديل ملخص الاستشارة');
-    Route::post('/consults/{consult}/summary', [StaffConsultController::class, 'saveSummary'])->name('consults.summary')->middleware('permission:اعتماد/تعديل ملخص الاستشارة');
+    Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware(Permissions::middleware(Permissions::RUN_LEGAL_ANALYSIS));
+    Route::post('/consults/{consult}/analysis', [StaffConsultController::class, 'saveAnalysis'])->name('consults.analysis')->middleware(Permissions::middleware(Permissions::APPROVE_CONSULT_SUMMARY));
+    Route::post('/consults/{consult}/summary', [StaffConsultController::class, 'saveSummary'])->name('consults.summary')->middleware(Permissions::middleware(Permissions::APPROVE_CONSULT_SUMMARY));
     // الاعتماد من شاشة الملفّ — لملخّصٍ لا قيد له في `ai_runs` فلا يبلغ الصندوق أبداً.
-    Route::post('/consults/{consult}/summary/approve', [StaffConsultController::class, 'approveSummary'])->name('consults.summary.approve')->middleware('permission:اعتماد/تعديل ملخص الاستشارة');
-    Route::post('/consults/{consult}/approve', [StaffConsultController::class, 'approveAnalysis'])->name('consults.approve')->middleware('permission:اعتماد/تعديل ملخص الاستشارة');
+    Route::post('/consults/{consult}/summary/approve', [StaffConsultController::class, 'approveSummary'])->name('consults.summary.approve')->middleware(Permissions::middleware(Permissions::APPROVE_CONSULT_SUMMARY));
+    Route::post('/consults/{consult}/approve', [StaffConsultController::class, 'approveAnalysis'])->name('consults.approve')->middleware(Permissions::middleware(Permissions::APPROVE_CONSULT_SUMMARY));
     Route::post('/consults/{consult}/zoom-sync', [StaffConsultController::class, 'zoomSync'])->name('consults.zoomsync');
     Route::post('/consults/{consult}/refer', [StaffConsultController::class, 'refer'])->name('consults.refer');
     Route::post('/consults/{consult}/priority', [StaffConsultController::class, 'priority'])->name('consults.priority');
     // تسجيل الموظفين وإدارتهم (مربوط بقاعدة البيانات + spatie)
-    Route::get('/staff', [StaffController::class, 'index'])->name('staff')->middleware('permission:إدارة الموظفين');
-    Route::get('/staff/lookup', [StaffController::class, 'lookup'])->name('staff.lookup')->middleware('permission:إدارة الموظفين');
-    Route::post('/staff', [StaffController::class, 'store'])->name('staff.store')->middleware('permission:إدارة الموظفين');
-    Route::put('/staff/{user}', [StaffController::class, 'update'])->name('staff.update')->middleware('permission:إدارة الموظفين');
-    Route::post('/staff/{user}/toggle', [StaffController::class, 'toggle'])->name('staff.toggle')->middleware('permission:إدارة الموظفين');
-    // أُلغيت معاينة لوحة الموظف (الإمبرسنيشن) بقرار 2026-08-28
-    // Route::post('/staff/{user}/preview', [StaffController::class, 'preview'])->name('staff.preview')->middleware('permission:إدارة الموظفين');
-    Route::get('/archive', [AdminArchiveController::class, 'index'])->name('archive')->middleware('permission:أرشيف الاستشارات');
+    Route::get('/staff', [StaffController::class, 'index'])->name('staff')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
+    Route::get('/staff/lookup', [StaffController::class, 'lookup'])->name('staff.lookup')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
+    Route::post('/staff', [StaffController::class, 'store'])->name('staff.store')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
+    Route::put('/staff/{user}', [StaffController::class, 'update'])->name('staff.update')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
+    Route::post('/staff/{user}/toggle', [StaffController::class, 'toggle'])->name('staff.toggle')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
+    // مستحقّات الموظّف وسجلّ صرفه — القيد يُسجَّل ويُلغى، ولا تعديل ولا حذف
+    Route::get('/staff/{user}/earnings', [StaffPayoutController::class, 'show'])->name('staff.earnings')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
+    Route::post('/staff/{user}/payouts', [StaffPayoutController::class, 'store'])->name('staff.payouts.store')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
+    Route::post('/staff/{user}/payouts/{payout}/void', [StaffPayoutController::class, 'void'])->name('staff.payouts.void')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
+    Route::get('/archive', [AdminArchiveController::class, 'index'])->name('archive')->middleware(Permissions::middleware(Permissions::CONSULT_ARCHIVE));
     // مخرجات جلسة الاستشارة عبر الخادم (جلب من سحابة Zoom): فيديو/صوت + نصّ تفريغي + تشغيلٌ داخل النظام
-    Route::get('/consults/{consult}/recording.zip', [StaffConsultRecordingController::class, 'video'])->name('consults.recording')->middleware('permission:أرشيف الاستشارات');
-    Route::get('/consults/{consult}/audio.zip', [StaffConsultRecordingController::class, 'audio'])->name('consults.audio')->middleware('permission:أرشيف الاستشارات');
-    Route::get('/consults/{consult}/transcript.txt', [StaffConsultRecordingController::class, 'transcript'])->name('consults.transcript')->middleware('permission:أرشيف الاستشارات');
-    Route::get('/consults/{consult}/stream/{type}', [StaffConsultRecordingController::class, 'stream'])->whereIn('type', ['video', 'audio'])->name('consults.stream')->middleware('permission:أرشيف الاستشارات');
-    Route::get('/distribute', [AdminDistributeController::class, 'index'])->name('distribute')->middleware('permission:توزيع التذاكر');
-    Route::post('/distribute/auto', [AdminDistributeController::class, 'auto'])->name('distribute.auto')->middleware('permission:توزيع التذاكر');
+    Route::get('/consults/{consult}/recording.zip', [StaffConsultRecordingController::class, 'video'])->name('consults.recording')->middleware(Permissions::middleware(Permissions::CONSULT_ARCHIVE));
+    Route::get('/consults/{consult}/audio.zip', [StaffConsultRecordingController::class, 'audio'])->name('consults.audio')->middleware(Permissions::middleware(Permissions::CONSULT_ARCHIVE));
+    Route::get('/consults/{consult}/transcript.txt', [StaffConsultRecordingController::class, 'transcript'])->name('consults.transcript')->middleware(Permissions::middleware(Permissions::CONSULT_ARCHIVE));
+    Route::get('/consults/{consult}/stream/{type}', [StaffConsultRecordingController::class, 'stream'])->whereIn('type', ['video', 'audio'])->name('consults.stream')->middleware(Permissions::middleware(Permissions::CONSULT_ARCHIVE));
+    Route::get('/distribute', [AdminDistributeController::class, 'index'])->name('distribute')->middleware(Permissions::middleware(Permissions::DISTRIBUTE_TICKETS));
+    Route::post('/distribute/auto', [AdminDistributeController::class, 'auto'])->name('distribute.auto')->middleware(Permissions::middleware(Permissions::DISTRIBUTE_TICKETS));
     // الإسناد الجماعيّ طلبٌ واحد (قبل `/distribute/{ticket}` كي لا تُقرأ «bulk» رقمَ تذكرة)
-    Route::post('/distribute/bulk', [AdminDistributeController::class, 'bulk'])->name('distribute.bulk')->middleware('permission:توزيع التذاكر');
-    Route::post('/distribute/case/{case}', [AdminDistributeController::class, 'assignCase'])->name('distribute.assign-case')->middleware('permission:توزيع التذاكر');
-    Route::post('/distribute/execution/{execution}', [AdminDistributeController::class, 'assignExecution'])->name('distribute.assign-execution')->middleware('permission:توزيع التذاكر');
-    Route::post('/distribute/consult/{consult}', [AdminDistributeController::class, 'assignConsult'])->name('distribute.assign-consult')->middleware('permission:توزيع التذاكر');
-    Route::post('/distribute/{ticket}', [AdminDistributeController::class, 'assign'])->name('distribute.assign')->middleware('permission:توزيع التذاكر');
+    Route::post('/distribute/bulk', [AdminDistributeController::class, 'bulk'])->name('distribute.bulk')->middleware(Permissions::middleware(Permissions::DISTRIBUTE_TICKETS));
+    Route::post('/distribute/case/{case}', [AdminDistributeController::class, 'assignCase'])->name('distribute.assign-case')->middleware(Permissions::middleware(Permissions::DISTRIBUTE_TICKETS));
+    Route::post('/distribute/execution/{execution}', [AdminDistributeController::class, 'assignExecution'])->name('distribute.assign-execution')->middleware(Permissions::middleware(Permissions::DISTRIBUTE_TICKETS));
+    Route::post('/distribute/consult/{consult}', [AdminDistributeController::class, 'assignConsult'])->name('distribute.assign-consult')->middleware(Permissions::middleware(Permissions::DISTRIBUTE_TICKETS));
+    Route::post('/distribute/{ticket}', [AdminDistributeController::class, 'assign'])->name('distribute.assign')->middleware(Permissions::middleware(Permissions::DISTRIBUTE_TICKETS));
     Route::get('/casefees', [AdminCaseController::class, 'fees'])->name('casefees');
     Route::get('/cases', [AdminCaseController::class, 'index'])->name('cases');
     // تفاصيل القضيّة للإدارة — كانت بلا صفحة (المحادثة والجلسات والمستندات)
@@ -651,7 +658,6 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/cases/{case}/execute', [AdminCaseController::class, 'execute'])->name('cases.execute');
     // التنفيذ — تبويب موحّد (تدفّق + تنفيذات قديمة) لدور الإدارة العليا
     Route::get('/execs', [ExecFlowController::class, 'admin'])->name('execs');
-    Route::redirect('/exec-preview', '/admin/execs')->name('exec.preview');
     Route::get('/tasks', [AdminTaskController::class, 'index'])->name('tasks');
     Route::post('/tasks', [AdminTaskController::class, 'store'])->name('tasks.store');
     // إنجاز أي مهمة + إعادة إسنادها — المهمة المسندة لغير محامٍ كانت لا تُغلق من أي شاشة
@@ -666,14 +672,14 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/meetreqs/{meetRequest}/start', [StaffMeetRequestController::class, 'start'])->name('meetreqs.start');
     Route::post('/meetreqs/{meetRequest}/resend', [StaffMeetRequestController::class, 'resend'])->name('meetreqs.resend');
     // موافقة الإدارة على دعوة معلّقة (بوّابة النشر) — بنفس صلاحية اعتماد الاجتماعات
-    Route::post('/meetreqs/{meetRequest}/approve', [StaffMeetRequestController::class, 'approve'])->name('meetreqs.approve')->middleware('permission:اعتماد الاجتماعات');
+    Route::post('/meetreqs/{meetRequest}/approve', [StaffMeetRequestController::class, 'approve'])->name('meetreqs.approve')->middleware(Permissions::middleware(Permissions::APPROVE_MEETINGS));
     Route::get('/meetreqs/availability', [StaffMeetRequestController::class, 'availability'])->name('meetreqs.availability');
-    Route::get('/meetlog', [StaffMeetingController::class, 'log'])->name('meetlog')->middleware('permission:تقارير الاجتماعات');
+    Route::get('/meetlog', [StaffMeetingController::class, 'log'])->name('meetlog')->middleware(Permissions::middleware(Permissions::MEETING_REPORTS));
     Route::get('/meetings', [StaffMeetingController::class, 'index'])->name('meetings');
     Route::get('/meetingroom', [StaffMeetingController::class, 'room'])->name('meetingroom');
     Route::post('/meetings/{meeting}/summary', [StaffMeetingController::class, 'saveSummary'])->name('meetings.summary');
     Route::post('/meetings/{meeting}/minutes', [StaffMeetingController::class, 'saveMinutes'])->name('meetings.minutes');
-    Route::post('/meetings/{meeting}/approve', [StaffMeetingController::class, 'approve'])->name('meetings.approve')->middleware('permission:اعتماد الاجتماعات');
+    Route::post('/meetings/{meeting}/approve', [StaffMeetingController::class, 'approve'])->name('meetings.approve')->middleware(Permissions::middleware(Permissions::APPROVE_MEETINGS));
     Route::post('/meetings/{meeting}/start', [StaffMeetingController::class, 'start'])->name('meetings.start');
     Route::post('/meetings/{meeting}/end', [StaffMeetingController::class, 'end'])->name('meetings.end');
     Route::post('/meetings/{meeting}/reschedule', [StaffMeetingController::class, 'reschedule'])->name('meetings.reschedule');
@@ -691,7 +697,6 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/approvals/reject', [AdminApprovalsController::class, 'reject'])->name('approvals.reject');
     // «استبعاد» بلا سبب أُزيل (2026-09-26): لا تناديه الواجهة، وكان يُعيد المقترح/الملخّص/المحضر بلا سببٍ
     // ولا إبلاغ — مسار التفافٍ على الرفض المسبَّب (`approvals.reject`)
-    Route::get('/summaries', [AdminTicketController::class, 'summaries'])->name('summaries');
     // مراجعة/اعتماد/تعديل ملخص الملف (إشراف الإدارة العليا — صلاحيات مطلقة)
     Route::get('/summary/{ticket}', [LawyerTicketController::class, 'showSummary'])->name('summary');
     Route::post('/summary/{ticket}', [LawyerTicketController::class, 'updateSummary'])->name('summary.update');
@@ -713,12 +718,12 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::get('/editor/{doc}/print', [LawyerDocumentEditorController::class, 'printDoc'])->name('editor.print');
     Route::get('/editor/{doc}/pdf', [LawyerDocumentEditorController::class, 'downloadPdf'])->name('editor.pdf');
     Route::post('/editor/ai-assist', [LawyerDocumentEditorController::class, 'aiAssist'])->name('editor.ai-assist');
-    Route::get('/revenue', [AdminReportController::class, 'revenue'])->name('revenue')->middleware('permission:التقارير والإيرادات');
+    Route::get('/revenue', [AdminReportController::class, 'revenue'])->name('revenue')->middleware(Permissions::middleware(Permissions::REPORTS_AND_REVENUE));
     // تصدير PDF — كانت الشاشتان بلا أي تصدير أو طباعة
-    Route::get('/reports.pdf', [AdminReportController::class, 'reportsPdf'])->name('reports.pdf')->middleware('permission:التقارير والإيرادات');
-    Route::get('/revenue.pdf', [AdminReportController::class, 'revenuePdf'])->name('revenue.pdf')->middleware('permission:التقارير والإيرادات');
-    Route::get('/prices', [AdminPriceController::class, 'index'])->name('prices')->middleware('permission:تحديد أسعار الاستشارات');
-    Route::post('/prices', [AdminPriceController::class, 'update'])->name('prices.update')->middleware('permission:تحديد أسعار الاستشارات');
+    Route::get('/reports.pdf', [AdminReportController::class, 'reportsPdf'])->name('reports.pdf')->middleware(Permissions::middleware(Permissions::REPORTS_AND_REVENUE));
+    Route::get('/revenue.pdf', [AdminReportController::class, 'revenuePdf'])->name('revenue.pdf')->middleware(Permissions::middleware(Permissions::REPORTS_AND_REVENUE));
+    Route::get('/prices', [AdminPriceController::class, 'index'])->name('prices')->middleware(Permissions::middleware(Permissions::SET_CONSULT_PRICES));
+    Route::post('/prices', [AdminPriceController::class, 'update'])->name('prices.update')->middleware(Permissions::middleware(Permissions::SET_CONSULT_PRICES));
     // إعدادات النظام — متغيّرات كانت ثوابتَ في الشيفرة أو صفوفاً بلا شاشة (أظهرها
     // `exec_working_days_from`: إعدادٌ مقصود ولا باب لكتابته إلّا SQL على الإنتاج).
     // **بلا صلاحيّة مستحدثة**: `Gate::before` يجعل الأدمن يتجاوز كلّ `permission:`، فصلاحيّةٌ
@@ -755,8 +760,6 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     // ومتى حُسم ق٩ (هل يرى المحامي أرقام موكّلي غيره؟) تُستحدث الصلاحيّة **مع** مسارٍ خارج
     // `role:admin` يقابلها، لا قبله.
     Route::get('/finance', [AdminFinanceController::class, 'index'])->name('finance');
-    // المسار القديم يبقى مسجَّلاً ويُعيد التوجيه — روابطُه محفوظةٌ ومكتوبةٌ في إشعاراتٍ أُرسلت (خ٨)
-    Route::get('/accounting', [AdminFinanceController::class, 'legacyAccounting'])->name('accounting');
     Route::post('/invoices/{invoice}/pay', [AdminFinanceController::class, 'pay'])->name('invoices.pay');
     // دورة حياة الفاتورة من الشاشة — كلٌّ ينادي انتقاله فيُسجَّل في `journey_transitions` (م٢)
     Route::post('/invoices/{invoice}/issue', [AdminFinanceController::class, 'issue'])->name('invoices.issue');
@@ -781,15 +784,15 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     // سجل الرقابة والتدقيق الأمني (Audit Logs & Activity Trail) — صلاحية مستقلة كنمط
     // بقية الصفحات الإدارية الحساسة (يحوي IPs الجميع وتصدير CSV)
     Route::get('/audit-logs', [AdminAuditLogController::class, 'index'])
-        ->middleware('permission:سجل التدقيق الأمني')->name('audit-logs');
+        ->middleware(Permissions::middleware(Permissions::SECURITY_AUDIT_LOG))->name('audit-logs');
     Route::get('/audit-logs/export', [AdminAuditLogController::class, 'export'])
-        ->middleware('permission:سجل التدقيق الأمني')->name('audit-logs.export');
+        ->middleware(Permissions::middleware(Permissions::SECURITY_AUDIT_LOG))->name('audit-logs.export');
 
     // سجل انتقالات الرحلة والحالات الموحد (Workflow Journey Transitions Log)
     Route::get('/journey-transitions', [AdminJourneyTransitionController::class, 'index'])
-        ->middleware('permission:سجل التدقيق الأمني')->name('journey-transitions');
+        ->middleware(Permissions::middleware(Permissions::SECURITY_AUDIT_LOG))->name('journey-transitions');
     Route::get('/journey-transitions/export', [AdminJourneyTransitionController::class, 'export'])
-        ->middleware('permission:سجل التدقيق الأمني')->name('journey-transitions.export');
+        ->middleware(Permissions::middleware(Permissions::SECURITY_AUDIT_LOG))->name('journey-transitions.export');
 
     // الجلسات القضائية وتواريخ المحاكم — الإدارة العليا
     Route::get('/hearings', [AdminCourtHearingController::class, 'index'])->name('hearings');
@@ -798,7 +801,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     // تشغيل الذكاء وحوكمته — المؤشّرات ومعايرة العتبة والأسعار ومدد الاحتفاظ.
     // قرارات مكتب لا هندسة: العتبة قانونيّة والأسعار محاسبيّة والاحتفاظ نظاميّ،
     // فلا يصحّ أن يلزمها تعديل كود ونشر.
-    Route::middleware('permission:التقارير والإيرادات')->group(function () {
+    Route::middleware(Permissions::middleware(Permissions::REPORTS_AND_REVENUE))->group(function () {
         Route::get('/ai-ops', [AdminAiOpsController::class, 'index'])->name('ai-ops');
         Route::post('/ai-ops/threshold', [AdminAiOpsController::class, 'saveThreshold'])->name('ai-ops.threshold');
         Route::post('/ai-ops/pricing', [AdminAiOpsController::class, 'savePricing'])->name('ai-ops.pricing');
@@ -812,29 +815,29 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     // المصادر القانونيّة المعتمدة — الاعتماد فعلٌ قانونيّ، فيُحرَس بصلاحية المساعد
     // القانونيّ. بلا هذه الشاشة تدخل المصادر «مسودة» ولا سبيل لتفعيلها إطلاقاً.
     Route::get('/legal-sources', [AdminLegalSourceController::class, 'index'])
-        ->middleware('permission:المساعد القانوني')->name('legal-sources');
+        ->middleware(Permissions::middleware(Permissions::LEGAL_ASSISTANT))->name('legal-sources');
     Route::post('/legal-sources/{source}/approve', [AdminLegalSourceController::class, 'approve'])
-        ->middleware('permission:المساعد القانوني')->name('legal-sources.approve');
+        ->middleware(Permissions::middleware(Permissions::LEGAL_ASSISTANT))->name('legal-sources.approve');
     // اعتماد نظامٍ كامل: مئات المواد لا تُعتمد بمئات النقرات
     Route::post('/legal-sources/approve-system', [AdminLegalSourceController::class, 'approveSystem'])
-        ->middleware('permission:المساعد القانوني')->name('legal-sources.approve-system');
+        ->middleware(Permissions::middleware(Permissions::LEGAL_ASSISTANT))->name('legal-sources.approve-system');
     Route::post('/legal-sources/{source}/suspend', [AdminLegalSourceController::class, 'suspend'])
-        ->middleware('permission:المساعد القانوني')->name('legal-sources.suspend');
+        ->middleware(Permissions::middleware(Permissions::LEGAL_ASSISTANT))->name('legal-sources.suspend');
 
     // صندوق مراجعة مخرجات الذكاء (P3) — محروس بصلاحية «اعتماد الملخصات»:
     // مراجعة مخرج قانونيّ فعلُ اعتماد، فيُحرَس بما يُحرَس به الاعتماد لا بأقلّ منه.
     Route::get('/ai-review', [AdminAiReviewController::class, 'index'])
-        ->middleware('permission:اعتماد الملخصات')->name('ai-review');
+        ->middleware(Permissions::middleware(Permissions::APPROVE_SUMMARIES))->name('ai-review');
     Route::post('/ai-review/{run}/decide', [AdminAiReviewController::class, 'decide'])
-        ->middleware('permission:اعتماد الملخصات')->name('ai-review.decide');
+        ->middleware(Permissions::middleware(Permissions::APPROVE_SUMMARIES))->name('ai-review.decide');
 
     // الطبقة الثالثة: عيّنة عمياء يحكم عليها محامٍ قبل كشف مصدرها
     Route::get('/ai-blind-review', [AdminAiBlindReviewController::class, 'index'])
-        ->middleware('permission:اعتماد الملخصات')->name('ai-blind-review');
+        ->middleware(Permissions::middleware(Permissions::APPROVE_SUMMARIES))->name('ai-blind-review');
     Route::post('/ai-blind-review/draw', [AdminAiBlindReviewController::class, 'draw'])
-        ->middleware('permission:اعتماد الملخصات')->name('ai-blind-review.draw');
+        ->middleware(Permissions::middleware(Permissions::APPROVE_SUMMARIES))->name('ai-blind-review.draw');
     Route::post('/ai-blind-review/{review}/judge', [AdminAiBlindReviewController::class, 'judge'])
-        ->middleware('permission:اعتماد الملخصات')->name('ai-blind-review.judge');
+        ->middleware(Permissions::middleware(Permissions::APPROVE_SUMMARIES))->name('ai-blind-review.judge');
 });
 
 /*

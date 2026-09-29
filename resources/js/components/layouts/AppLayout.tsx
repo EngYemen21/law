@@ -3,7 +3,6 @@ import React, { useEffect, useState } from 'react';
 import { useToast } from '@/components/babylon/Toast';
 import Sidebar from '@/components/navigation/Sidebar';
 import Topbar from '@/components/navigation/Topbar';
-// import ImpersonationBanner from '@/components/navigation/ImpersonationBanner'; // أُلغيت المعاينة 2026-08-28
 import { echo } from '@/lib/echo';
 
 interface AppLayoutProps {
@@ -14,9 +13,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const toast = useToast();
   const props = usePage().props as {
-    auth?: { user?: { id?: number } };
+    auth?: { user?: { id?: number; role?: string } };
   };
   const userId = props.auth?.user?.id;
+  const isStaff = !!userId && props.auth?.user?.role !== 'client';
 
   // إشعارات لحظية: قناة المستخدم الخاصّة — تنبيه فوريّ + تحديث نقطة الجرس وقائمة الإشعارات بلا إعادة تحميل
   useEffect(() => {
@@ -35,6 +35,23 @@ return;
 };
   }, [userId]);
 
+  // **حالة الطاقم لحظيّاً** (في جلسة Zoom الآن / متاح): الخادم يبثّ الخريطة كاملةً عند كلّ دخولٍ أو خروج
+  // (`StaffPresenceChanged`)، فتُستبدل الخاصّيّة `inSession` في مكانها بلا طلب — وكلّ الشارات والقوائم
+  // تقرؤها (`lib/staff-presence`).
+  useEffect(() => {
+    if (!isStaff) {
+      return;
+    }
+
+    echo.private('staff.presence').listen('.presence', (e: { inSession: Record<number, string> }) => {
+      router.replaceProp('inSession', e.inSession);
+    });
+
+    return () => {
+      echo.leave('staff.presence');
+    };
+  }, [isStaff]);
+
   // رسائل الخادم (flash.error / flash.success) انتقلت إلى `ServerFeedback.tsx`: كانت هنا فلا تصل
   // صفحةَ الدخول (مستقلّة بلا تخطيط)، وتُطلق بتغيّر النصّ فيضيع الرفض نفسه في المرّة الثانية.
 
@@ -49,7 +66,6 @@ return;
       />
 
       <div className="main">
-        {/* <ImpersonationBanner /> — أُلغيت معاينة اللوحات 2026-08-28 */}
         <Topbar onMenuToggle={() => setSidebarOpen(!sidebarOpen)} />
         <div className="content" id="content">
           <div className="view">{children}</div>

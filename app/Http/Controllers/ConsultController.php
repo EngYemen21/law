@@ -10,6 +10,7 @@ use App\Support\ConsultReport;
 use App\Support\Notify;
 use App\Support\PaymentReconciler;
 use App\Support\PdfRenderer;
+use App\Support\Permissions;
 use App\Support\ReportPrint;
 use App\Support\RoomDetails;
 use Illuminate\Http\RedirectResponse;
@@ -143,7 +144,7 @@ class ConsultController extends Controller
         // والمحامي معزول بإسناده وحده — وهو العزل الذي كان مكسوراً هنا.
         $isOwner = $consult->user_id === $user->id;
         $isAssignedLawyer = $user->isLawyer() && $consult->assigned_lawyer_id === $user->id;
-        $isPermittedEmployee = $user->isEmployee() && $user->can('استقبال الاستشارات');
+        $isPermittedEmployee = $user->isEmployee() && $user->can(Permissions::RECEIVE_CONSULTS);
 
         abort_unless($isOwner || $isAssignedLawyer || $isPermittedEmployee || $user->isAdmin(), 403);
 

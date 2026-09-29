@@ -2,16 +2,17 @@ import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
-import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
-import { maskClient } from '@/lib/admin-data';
+import ConsultOnBehalfButton from '@/components/consult/ConsultOnBehalfButton';
 import { CONFIRM_CANCEL_CONSULT_REQUEST } from '@/lib/consult-ui';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { CONSULT_BOOKING_STATUSES, CONSULT_CHANNEL_OPTIONS, crChannelIcon, crChannelTone, cTone, DEFAULT_CONSULT_CHANNEL } from '@/lib/employee-data';
+import { CONSULT_CHANNEL_OPTIONS, crChannelIcon, crChannelTone, DEFAULT_CONSULT_CHANNEL, maskClient } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useSettings } from '@/lib/settings';
+import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
+import { useServerAction } from '@/lib/use-server-action';
 import { humanDuration } from '@/lib/utils';
 
 interface AdminConsultRequestsProps {
@@ -27,8 +28,6 @@ interface AdminConsultRequestsProps {
 type ViewMode = 'pipeline' | 'table';
 type CategoryFilter = 'all' | 'pricing' | 'payment' | 'scheduling' | 'approval' | 'late';
 
-/** مرحلة الحجز بعد السداد: لم يُحجز الموعد، أو حجزه موظّفٌ وينتظر اعتماد الإدارة (قرار المالك 2026-09-14). */
-const SCHEDULE_STAGE = ['بانتظار تحديد الموعد', 'بانتظار اعتماد الموعد'];
 const CHANNEL_KEY: Record<string, string> = { 'حضورية': 'office', 'مرئية': 'video', 'هاتفية': 'phone' };
 
 /*
@@ -40,8 +39,9 @@ type DrawerTab = 'pricing' | 'details' | 'actions' | 'audit';
 
 /*
  * **خريطة النغمات المحلّيّة أُزيلت.** كانت تعطي «بانتظار السداد» أزرقَ و«بانتظار تحديد
- * الموعد» سماويّاً، بينما `cTone` المشترك يعطيهما كهرمانيّاً — فالطلب الواحد يُعرض
- * بلونين بين هذه الشاشة وشاشة «إدارة الاستشارات» التي تعرض الطلبات نفسها.
+ * الموعد» سماويّاً، بينما اللون المشترك يعطيهما كهرمانيّاً — فالطلب الواحد يُعرض
+ * بلونين بين هذه الشاشة وشاشة «إدارة الاستشارات» التي تعرض الطلبات نفسها. واللون اليوم من
+ * الخادم (`c.tone` ← `ConsultStatus::tone`)، فلا خريطة في أيّ شاشة.
  *
  * و`PRE_SESSION_STATUSES` كانت **نسخةً ثالثة** يدويّة من قائمةٍ يحملها النموذج
  * (`Consult::PRE_SESSION_STATUSES`) ويصدّرها `employee-data` — فأوّل تعديلٍ خادميّ
@@ -64,7 +64,7 @@ export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
   suggestedPrices = {},
   lawyers = [],
 }) => {
-  const ask = useConfirm();
+  const inSession = useInSession();
   const toast = useToast();
   const { consult_request_late_minutes: lateAfterMins } = useSettings();
   const lateAfterText = humanDuration(lateAfterMins) ?? '';
@@ -88,7 +88,8 @@ export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
   // Inline Drawer Pricing Input & Action State
   // لا «600» افتراضيّةً: السعر من الإعدادات بحسب القناة حين يُفتح الطلب، أو فارغٌ يُكتب
   const [inputPrice, setInputPrice] = useState<string>('');
-  const [isProcessing, setIsProcessingAction] = useState(false);
+  // قفلٌ موحّد لكلّ أفعال الشاشة (`useServerAction`) — `isProcessing` يعطّل أزرارها أثناء الطلب
+  const { run, busy: isProcessing } = useServerAction();
 
   // Fast Pricing Modal (for Table view quick clicks)
   const [pricingModalConsult, setPricingModalConsult] = useState<ConsultCard | null>(null);
@@ -147,7 +148,7 @@ export const AdminConsultRequests: React.FC<AdminConsultRequestsProps> = ({
 
   // Live active pre-session intake requests
   const liveItems = useMemo(() => {
-    return items.filter((c) => CONSULT_BOOKING_STATUSES.includes(c.status));
+    return items.filter((c) => c.bookingStage != null);
   }, [items]);
 
   // Currently active consult in the slide-over drawer
@@ -158,6 +159,11 @@ return null;
 
     return liveItems.find((c) => c.ref === drawerRef) || null;
   }, [liveItems, drawerRef]);
+
+  // **التبويب الفعّال مشتقٌّ من علم الخادم** — «حاسبة التسعير» لما ينتظر التسعير وحده (`needsPricing`):
+  // كان يُفتح لطلبٍ مسعَّر فيُرفض زرّه ٤٢٢، وتصحيح السعر له زرّ «إعادة التسعير» في الإجراءات.
+  const canPrice = Boolean(drawerConsult?.needsPricing);
+  const activeTab: DrawerTab = drawerTab === 'pricing' && !canPrice ? 'actions' : drawerTab;
 
   // قفل تمرير الصفحة عبر العدّاد المشترك مع Modal — «القيمة السابقة» كانت تجمّد الصفحة عند تراكب الطبقات
   useBodyScrollLock(!!drawerRef);
@@ -195,11 +201,11 @@ return null;
 
     // Financial volume calculations
     const pendingPaymentAmount = liveItems
-      .filter((c) => c.status === 'بانتظار السداد')
+      .filter((c) => c.bookingStage === 'payment')
       .reduce((sum, c) => sum + (Number(c.total) || 0), 0);
 
     const paidCollectedAmount = liveItems
-      .filter((c) => c.status === 'بانتظار تحديد الموعد' || c.paid)
+      .filter((c) => c.bookingStage === 'scheduling' || c.paid)
       .reduce((sum, c) => sum + (Number(c.total) || 0), 0);
 
     /*
@@ -304,6 +310,15 @@ return (a.total || 0) - (b.total || 0);
       });
   }, [liveItems, categoryFilter, channelFilter, specialtyFilter, searchQuery, sortBy, lateAfterMins]);
 
+  // **أعمدة الكانبان من مرحلة الحجز (`bookingStage`)** — كانت ثلاث مقارناتٍ لنصّ الحالة لكلّ عمود
+  // وقائمةٌ محلّيّة لعمود الجدولة؛ والعمود الثالث يضمّ ما بعد السداد: لم يُحجز، أو حُجز وينتظر
+  // اعتماد الإدارة (قرار المالك 2026-09-14).
+  const kanban = useMemo(() => ({
+    pricing: filteredItems.filter((c) => c.bookingStage === 'pricing'),
+    payment: filteredItems.filter((c) => c.bookingStage === 'payment'),
+    scheduling: filteredItems.filter((c) => c.bookingStage === 'scheduling' || c.bookingStage === 'approval'),
+  }), [filteredItems]);
+
   // Submit Pricing Action (Base + VAT + Channel)
   const handlePricingSubmit = (consult: ConsultCard, priceStr: string, channelToSet?: string) => {
     const priceNum = parseInt(priceStr, 10);
@@ -316,44 +331,19 @@ return (a.total || 0) - (b.total || 0);
       return;
     }
 
-    setIsProcessingAction(true);
-    router.post(
-      `/admin/consults/${consult.id}/price`,
-      { price: priceNum, channel: channelToSet },
-      {
-        preserveScroll: true,
-        onSuccess: () => {
-          setIsProcessingAction(false);
-          toast('✅ تم تسعير الاستشارة وإصدار الفاتورة وإشعار العميل بنجاح');
-          setPricingModalConsult(null);
-        },
-        onError: (err) => {
-          setIsProcessingAction(false);
-          toast(`⚠️ ${Object.values(err)[0] || 'تعذر تحديد السعر'}`);
-        },
-      }
-    );
+    run(`/admin/consults/${consult.id}/price`, {
+      data: { price: priceNum, channel: channelToSet },
+      success: '✅ تم تسعير الاستشارة وإصدار الفاتورة وإشعار العميل بنجاح',
+      fallback: 'تعذر تحديد السعر',
+      onSuccess: () => setPricingModalConsult(null),
+    });
   };
 
   // Submit Reminder for slot scheduling
-  const handleRemindSchedule = (consult: ConsultCard) => {
-    // نقرتان متتاليتان كانتا تُرسلان إشعارين للعميل وقيدَي تدقيق — لا تعطيل ولا حالة
-    if (isProcessing) {
-      return;
-    }
-
-    setIsProcessingAction(true);
-    router.post(
-      `/admin/consults/${consult.id}/remind-schedule`,
-      {},
-      {
-        preserveScroll: true,
-        onFinish: () => setIsProcessingAction(false),
-        onSuccess: () => toast('🔔 تم تذكير فريق المواعيد بحجز الموعد'),
-        onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذر الإرسال'}`),
-      }
-    );
-  };
+  // نقرتان متتاليتان كانتا تُرسلان إشعارين وقيدَي تدقيق — القفل الموحّد يُسقط الثانية.
+  // التذكير يصل فريق المواعيد لا العميل (الحجز بيد الطاقم)، ونصّ النجاح من الخادم (`flash`) وحده
+  const handleRemindSchedule = (consult: ConsultCard) =>
+    run(`/admin/consults/${consult.id}/remind-schedule`, { fallback: 'تعذر الإرسال' });
 
   // **اعتماد موعدٍ اقترحه موظّف — كما هو أو بعد تعديله** (قرار المالك 2026-09-14):
   // الإدارة لا ترفض الاقتراح، تعدّله إن لزم ثمّ تعتمده فيُرسل للعميل ويُشعَر الموظّف بما تغيّر.
@@ -376,28 +366,17 @@ return (a.total || 0) - (b.total || 0);
     }));
   };
 
-  const handleApproveAppointment = (consult: ConsultCard) => {
-    if (isProcessing) {
-      return;
-    }
-
-    setIsProcessingAction(true);
-    router.post(
-      `/admin/consults/${consult.id}/appointment/approve`,
-      {
+  const handleApproveAppointment = (consult: ConsultCard) =>
+    run(`/admin/consults/${consult.id}/appointment/approve`, {
+      data: {
         date: approval.date || null,
         time: approval.time || null,
         lawyer_id: approval.lawyerId ? Number(approval.lawyerId) : null,
         type: approval.type || null,
       },
-      {
-        preserveScroll: true,
-        onFinish: () => setIsProcessingAction(false),
-        onSuccess: () => toast('✅ اعتُمد الموعد وأُرسل للعميل'),
-        onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذّر اعتماد الموعد'}`),
-      }
-    );
-  };
+      success: '✅ اعتُمد الموعد وأُرسل للعميل',
+      fallback: 'تعذّر اعتماد الموعد',
+    });
 
   /**
    * **تصحيح تسعيرٍ خاطئ.**
@@ -406,36 +385,21 @@ return (a.total || 0) - (b.total || 0);
    * «بانتظار التسعير» وأوّلُ تسعيرٍ يقفلها. فرقمٌ خاطئ في فاتورةٍ وصلت عميلاً لم يكن
    * له مخرجٌ إلّا إلغاء الطلب كلّه.
    */
-  const handleReprice = async (consult: ConsultCard) => {
-    if (isProcessing) {
-      return;
-    }
-
-    const ok = await ask({
-      title: 'إعادة تسعير الطلب',
-      message: `ستُلغى فاتورة (${consult.ref}) ويُشعَر العميل، ويعود الطلب إلى التسعير.`,
-      confirmLabel: 'إلغاء الفاتورة وإعادة التسعير',
-      tone: 'danger',
-    });
-
-    if (!ok) {
-      return;
-    }
-
-    setIsProcessingAction(true);
-    router.post(`/admin/consults/${consult.id}/reprice`, {}, {
-      preserveScroll: true,
-      onSuccess: () => {
-        toast('أُلغيت الفاتورة — الطلب عاد إلى التسعير');
-        openDrawer(consult.ref, 'pricing');
+  const handleReprice = (consult: ConsultCard) =>
+    run(`/admin/consults/${consult.id}/reprice`, {
+      confirm: {
+        title: 'إعادة تسعير الطلب',
+        message: `ستُلغى فاتورة (${consult.ref}) ويُشعَر العميل، ويعود الطلب إلى التسعير.`,
+        confirmLabel: 'إلغاء الفاتورة وإعادة التسعير',
+        tone: 'danger',
       },
-      onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذّر تصحيح السعر'}`),
-      onFinish: () => setIsProcessingAction(false),
+      success: 'أُلغيت الفاتورة — الطلب عاد إلى التسعير',
+      fallback: 'تعذّر تصحيح السعر',
+      onSuccess: () => openDrawer(consult.ref, 'pricing'),
     });
-  };
 
   // Submit Cancel Request
-  const handleCancelRequest = async () => {
+  const handleCancelRequest = () => {
     if (!cancelTargetConsult) {
       return;
     }
@@ -446,39 +410,24 @@ return (a.total || 0) - (b.total || 0);
       return;
     }
 
-    if (isProcessing) {
-      return;
-    }
-
-    // تأكيدٌ يقول الأثر قبل الإرسال (قرار المالك 2026-09-26) — الإلغاء لا يُتراجع عنه
-    if (!(await ask(CONFIRM_CANCEL_CONSULT_REQUEST))) {
-      return;
-    }
-
-    setIsProcessingAction(true);
     const finalReason = cancelReason === 'أخرى (توضيح في الملاحظات)'
       ? (cancelNotes.trim() || 'أخرى')
       : (cancelNotes.trim() ? `${cancelReason} — ${cancelNotes.trim()}` : cancelReason);
 
-    router.post(
-      `/admin/consults/${cancelTargetConsult.id}/cancel-request`,
-      { reason: finalReason },
-      {
-        preserveScroll: true,
-        onFinish: () => setIsProcessingAction(false),
-        onSuccess: () => {
-          // يخرج من هذه الشاشة (طابورُ ما قبل الجلسة) — فلتقل أين ذهب لا أن يختفي
-          toast('✅ أُلغي الطلب وأُشعر العميل — تجده في «الاستشارات» ضمن «منتهية ومغلقة»');
-          setCancelTargetConsult(null);
-          setCancelReason('');
-          setCancelNotes('');
-          closeDrawer();
-        },
-        onError: (err) => {
-          toast(`⚠️ ${Object.values(err)[0] || 'تعذر إلغاء الطلب'}`);
-        },
-      }
-    );
+    // تأكيدٌ يقول الأثر قبل الإرسال (قرار المالك 2026-09-26) — الإلغاء لا يُتراجع عنه
+    run(`/admin/consults/${cancelTargetConsult.id}/cancel-request`, {
+      data: { reason: finalReason },
+      confirm: CONFIRM_CANCEL_CONSULT_REQUEST,
+      // يخرج من هذه الشاشة (طابورُ ما قبل الجلسة) — فلتقل أين ذهب لا أن يختفي
+      success: '✅ أُلغي الطلب وأُشعر العميل — تجده في «الاستشارات» ضمن «منتهية ومغلقة»',
+      fallback: 'تعذر إلغاء الطلب',
+      onSuccess: () => {
+        setCancelTargetConsult(null);
+        setCancelReason('');
+        setCancelNotes('');
+        closeDrawer();
+      },
+    });
   };
 
   // Helper VAT computations for the pricing engine
@@ -597,6 +546,7 @@ return (a.total || 0) - (b.total || 0);
           inset: 0 !important;
           width: 100vw !important;
           height: 100vh !important;
+          height: 100dvh !important;
           z-index: 99990 !important;
           background: rgba(10, 25, 45, 0.6) !important;
           backdrop-filter: blur(4px) !important;
@@ -610,6 +560,7 @@ return (a.total || 0) - (b.total || 0);
           width: 100% !important;
           max-width: 580px !important;
           height: 100vh !important;
+          height: 100dvh !important;
           background: #fff !important;
           box-shadow: -10px 0 35px rgba(0,0,0,0.35) !important;
           display: flex !important;
@@ -702,6 +653,9 @@ return (a.total || 0) - (b.total || 0);
           <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13 }}>
             مراجعة طلبات الاستشارات الواردة، حساب الضريبة وإصدار الفواتير الفورية، وتتبع سداد العملاء وحجز المواعيد.
           </p>
+          <div style={{ marginTop: 10 }}>
+            <ConsultOnBehalfButton className="btn sm" />
+          </div>
         </div>
 
         {/* مبدل العرض المتكيف */}
@@ -981,14 +935,13 @@ return (a.total || 0) - (b.total || 0);
                   fontWeight: 800,
                 }}
               >
-                {filteredItems.filter((c) => c.status === 'بانتظار التسعير').length}
+                {kanban.pricing.length}
               </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {filteredItems.filter((c) => c.status === 'بانتظار التسعير').length > 0 ? (
-                filteredItems
-                  .filter((c) => c.status === 'بانتظار التسعير')
+              {kanban.pricing.length > 0 ? (
+                kanban.pricing
                   .map((c) => (
                     <div
                       key={c.id}
@@ -1111,14 +1064,13 @@ return (a.total || 0) - (b.total || 0);
                   fontWeight: 800,
                 }}
               >
-                {filteredItems.filter((c) => c.status === 'بانتظار السداد').length}
+                {kanban.payment.length}
               </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {filteredItems.filter((c) => c.status === 'بانتظار السداد').length > 0 ? (
-                filteredItems
-                  .filter((c) => c.status === 'بانتظار السداد')
+              {kanban.payment.length > 0 ? (
+                kanban.payment
                   .map((c) => (
                     <div
                       key={c.id}
@@ -1259,14 +1211,13 @@ return (a.total || 0) - (b.total || 0);
                   fontWeight: 800,
                 }}
               >
-                {filteredItems.filter((c) => SCHEDULE_STAGE.includes(c.status)).length}
+                {kanban.scheduling.length}
               </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {filteredItems.filter((c) => SCHEDULE_STAGE.includes(c.status)).length > 0 ? (
-                filteredItems
-                  .filter((c) => SCHEDULE_STAGE.includes(c.status))
+              {kanban.scheduling.length > 0 ? (
+                kanban.scheduling
                   .map((c) => (
                     <div
                       key={c.id}
@@ -1294,7 +1245,7 @@ return (a.total || 0) - (b.total || 0);
                           <Icon name={crChannelIcon(c.channel)} />
                           <b style={{ color: 'var(--primary)', fontSize: 13.5 }}>{c.ref}</b>
                         </div>
-                        <Badge text={c.status === 'بانتظار اعتماد الموعد' ? 'بانتظار اعتماد الموعد' : 'مُسددة'} tone={c.status === 'بانتظار اعتماد الموعد' ? 'b-amber' : 'b-green'} />
+                        <Badge text={c.bookingStage === 'approval' ? 'بانتظار اعتماد الموعد' : 'مُسددة'} tone={c.bookingStage === 'approval' ? 'b-amber' : 'b-green'} />
                       </div>
 
                       <div style={{ fontSize: 13, fontWeight: 700, marginTop: 6, color: '#13314F' }}>
@@ -1330,17 +1281,19 @@ return (a.total || 0) - (b.total || 0);
                           gap: 6,
                         }}
                       >
-                        <button
-                          className="btn primary sm"
-                          type="button"
-                          style={{ flex: 1, justifyContent: 'center' }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemindSchedule(c);
-                          }}
-                        >
-                          <Icon name="bell" /> تذكير العميل بالحجز
-                        </button>
+                        {c.canRemindSchedule && (
+                          <button
+                            className="btn primary sm"
+                            type="button"
+                            style={{ flex: 1, justifyContent: 'center' }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemindSchedule(c);
+                            }}
+                          >
+                            <Icon name="bell" /> تذكير فريق المواعيد
+                          </button>
+                        )}
                         <button
                           className="btn soft sm"
                           type="button"
@@ -1481,7 +1434,7 @@ return (a.total || 0) - (b.total || 0);
 
                       {/* الحالة */}
                       <td style={{ padding: '12px 14px' }}>
-                        <Badge text={c.status} tone={cTone(c.status)} />
+                        <Badge text={c.status} tone={c.tone} />
                         {c.paidAgo && (
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
                             دُفع {c.paidAgo}
@@ -1495,7 +1448,7 @@ return (a.total || 0) - (b.total || 0);
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                          {c.status === 'بانتظار التسعير' && (
+                          {c.needsPricing && (
                             <button
                               className="btn primary sm"
                               type="button"
@@ -1509,7 +1462,7 @@ return (a.total || 0) - (b.total || 0);
                               <Icon name="card" /> تسعير
                             </button>
                           )}
-                          {c.status === 'بانتظار تحديد الموعد' && (
+                          {c.canRemindSchedule && (
                             <button
                               className="btn soft sm"
                               type="button"
@@ -1518,7 +1471,7 @@ return (a.total || 0) - (b.total || 0);
                               <Icon name="bell" /> تذكير
                             </button>
                           )}
-                          {c.status === 'بانتظار اعتماد الموعد' && (
+                          {c.bookingStage === 'approval' && (
                             <button className="btn sm" type="button" onClick={() => openDrawer(c.ref, 'actions')}>
                               <Icon name="check" /> اعتماد الموعد
                             </button>
@@ -1582,7 +1535,7 @@ return (a.total || 0) - (b.total || 0);
                         <div style={{ fontSize: 12, color: 'var(--muted)' }}>{maskClient(c.client)}</div>
                       </div>
                     </div>
-                    <Badge text={c.status} tone={cTone(c.status)} />
+                    <Badge text={c.status} tone={c.tone} />
                   </div>
 
                   <div style={{ fontSize: 12.5, margin: '8px 0', lineHeight: 1.5, color: '#333' }}>
@@ -1699,7 +1652,7 @@ return (a.total || 0) - (b.total || 0);
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <h3 style={{ margin: 0, color: 'var(--primary)', fontSize: 17 }}>{drawerConsult.ref}</h3>
                   <Badge text={`استشارة ${drawerConsult.channel}`} tone={crChannelTone(drawerConsult.channel)} />
-                  <Badge text={drawerConsult.status} tone={cTone(drawerConsult.status)} />
+                  <Badge text={drawerConsult.status} tone={drawerConsult.tone} />
                 </div>
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                   العميل: {maskClient(drawerConsult.client)}
@@ -1746,7 +1699,7 @@ return (a.total || 0) - (b.total || 0);
                   ['actions', 'الإجراءات والمتابعة', 'exec'],
                   ['audit', 'سجل التدقيق', 'clock'],
                 ] as const
-              ).map(([tabKey, label, iconName]) => (
+              ).filter(([tabKey]) => tabKey !== 'pricing' || canPrice).map(([tabKey, label, iconName]) => (
                 <button
                   key={tabKey}
                   type="button"
@@ -1756,9 +1709,9 @@ return (a.total || 0) - (b.total || 0);
                     padding: '12px 10px',
                     border: 'none',
                     background: 'none',
-                    borderBottom: drawerTab === tabKey ? '3px solid var(--primary)' : '3px solid transparent',
-                    color: drawerTab === tabKey ? 'var(--primary)' : 'var(--muted)',
-                    fontWeight: drawerTab === tabKey ? 700 : 500,
+                    borderBottom: activeTab === tabKey ? '3px solid var(--primary)' : '3px solid transparent',
+                    color: activeTab === tabKey ? 'var(--primary)' : 'var(--muted)',
+                    fontWeight: activeTab === tabKey ? 700 : 500,
                     fontSize: 12.5,
                     cursor: 'pointer',
                     display: 'flex',
@@ -1776,7 +1729,7 @@ return (a.total || 0) - (b.total || 0);
             {/* محتوى لسان التبويب */}
             <div className="c360-drawer-body" style={{ padding: 20, flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
               {/* Tab 1: حاسبة التسعير والفاتورة الذكية */}
-              {drawerTab === 'pricing' && (
+              {activeTab === 'pricing' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   {/* البطاقة الإرشادية */}
                   <div
@@ -1799,7 +1752,7 @@ return (a.total || 0) - (b.total || 0);
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 8 }}>
                       قناة الاستشارة المعتمدة للتسعير:
                     </label>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 110px), 1fr))', gap: 8 }}>
                       {CONSULT_CHANNEL_OPTIONS.map((label) => {
                         const icon = crChannelIcon(label);
                         const isSelected = drawerChannel === label;
@@ -1934,7 +1887,7 @@ return (a.total || 0) - (b.total || 0);
                       {isProcessing ? 'جاري إصدار الفاتورة...' : 'إصدار الفاتورة وتأكيد السعر وإشعار العميل'}
                     </button>
 
-                    {CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && (
+                    {drawerConsult.bookingStage != null && (
                       <button
                         className="btn soft sm"
                         style={{ width: '100%', justifyContent: 'center', color: '#C0392B', marginTop: 8 }}
@@ -1950,7 +1903,7 @@ return (a.total || 0) - (b.total || 0);
               )}
 
               {/* Tab 2: تفاصيل وبيانات الطلب */}
-              {drawerTab === 'details' && (
+              {activeTab === 'details' && (
                 <>
                   <div className="card" style={{ margin: 0, padding: 14 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 6 }}>
@@ -1960,7 +1913,7 @@ return (a.total || 0) - (b.total || 0);
                     <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                       <Badge text={drawerConsult.specialty || drawerConsult.type} tone="b-blue" />
                       <Badge text={`قناة ${drawerConsult.channel}`} tone={crChannelTone(drawerConsult.channel)} />
-                      <Badge text={drawerConsult.status} tone={cTone(drawerConsult.status)} />
+                      <Badge text={drawerConsult.status} tone={drawerConsult.tone} />
                     </div>
                   </div>
 
@@ -2002,10 +1955,10 @@ return (a.total || 0) - (b.total || 0);
               )}
 
               {/* Tab 3: الإجراءات والمتابعة */}
-              {drawerTab === 'actions' && (
+              {activeTab === 'actions' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {/* تذكير السداد أو حجز الموعد */}
-                  {drawerConsult.status === 'بانتظار تحديد الموعد' && (
+                  {drawerConsult.canRemindSchedule && (
                     <div className="card" style={{ margin: 0, padding: 14 }}>
                       <b>الاستشارة مدفوعة ولم يُحجز موعدها:</b>
                       <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
@@ -2022,7 +1975,7 @@ return (a.total || 0) - (b.total || 0);
                     </div>
                   )}
 
-                  {drawerConsult.status === 'بانتظار اعتماد الموعد' && (
+                  {drawerConsult.bookingStage === 'approval' && (
                     <div className="card" style={{ margin: 0, padding: 14, borderRight: '4px solid #1E9D6B' }}>
                       <b>اعتماد الموعد المقترح من الموظّف:</b>
                       <p style={{ fontSize: 12.5, margin: '6px 0 4px' }}>
@@ -2045,7 +1998,7 @@ return (a.total || 0) - (b.total || 0);
                         <label>المستشار</label>
                         <select value={approval.lawyerId} onChange={(e) => editApproval({ lawyerId: e.target.value })}>
                           {lawyers.map((l) => (
-                            <option key={l.id} value={String(l.id)}>{l.name}</option>
+                            <option key={l.id} value={String(l.id)}>{l.name}{inSessionSuffix(inSession, l.id)}</option>
                           ))}
                         </select>
                       </div>
@@ -2070,7 +2023,7 @@ return (a.total || 0) - (b.total || 0);
                   )}
 
                   {/* إلغاء الطلب */}
-                  {CONSULT_BOOKING_STATUSES.includes(drawerConsult.status) && (
+                  {drawerConsult.bookingStage != null && (
                     <div className="card" style={{ margin: 0, padding: 14, borderRight: '4px solid #C0392B' }}>
                       <b style={{ color: '#C0392B' }}>إلغاء طلب الاستشارة:</b>
                       <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
@@ -2101,7 +2054,7 @@ return (a.total || 0) - (b.total || 0);
               )}
 
               {/* Tab 4: سجل التدقيق الزمني */}
-              {drawerTab === 'audit' && (
+              {activeTab === 'audit' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {drawerConsult.audit && drawerConsult.audit.length > 0 ? (
                     drawerConsult.audit.map((a, i) => (
@@ -2178,7 +2131,7 @@ return (a.total || 0) - (b.total || 0);
               <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>
                 قناة الاستشارة:
               </label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 110px), 1fr))', gap: 8 }}>
                 {CONSULT_CHANNEL_OPTIONS.map((label) => {
                   const icon = crChannelIcon(label);
                   const isSelected = modalChannel === label;

@@ -10,6 +10,7 @@ use App\Services\MailService;
 use App\Support\Audit;
 use App\Support\LawyerName;
 use App\Support\Notify;
+use App\Support\Permissions;
 use App\Support\TicketAssignment;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -32,7 +33,7 @@ class EscalateUnassignedTicketJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /** الصلاحية التي تُخوّل إسناد التذاكر يدوياً (شاشة التوزيع). */
-    private const DISTRIBUTE_PERMISSION = 'توزيع التذاكر';
+    private const DISTRIBUTE_PERMISSION = Permissions::DISTRIBUTE_TICKETS;
 
     /**
      * الاسم المعروض في حقل المحامي — لا اسم شخص: التذكرة مُصعَّدة لا مُسنَدة لمحامٍ.

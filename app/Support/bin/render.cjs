@@ -15,7 +15,9 @@ for (const candidate of candidates) {
     try {
         puppet = require(candidate);
         if (puppet) break;
-    } catch (e) {}
+    } catch {
+        // غير مثبّت في هذا المسار — يُجرَّب المرشّح التالي
+    }
 }
 
 if (!puppet) {
@@ -66,6 +68,21 @@ const watchdog = setTimeout(() => {
         });
 
         const page = await browser.newPage();
+
+        // الصفحة تحمل HTML كتبه مستخدم (محرّر المستندات) — فلا سكربت يعمل فيها، ولا طلب يخرج منها
+        // إلّا خطوط Google المعلَنة في القوالب. غير ذلك (file:// أو عناوين داخليّة كـ169.254.169.254)
+        // يُرفض: كروم الخادم ليس وسيطاً يقرأ ملفّاته أو شبكته لحساب كاتب المستند.
+        await page.setJavaScriptEnabled(false);
+        await page.setRequestInterception(true);
+        page.on('request', (request) => {
+            const url = request.url();
+            if (url.startsWith('data:') || /^https:\/\/fonts\.(googleapis|gstatic)\.com\//.test(url)) {
+                request.continue();
+            } else {
+                request.abort();
+            }
+        });
+
         await page.setContent(html, { waitUntil: 'domcontentloaded' });
 
         // Use buffer-based pdf() then write to file — identical to the

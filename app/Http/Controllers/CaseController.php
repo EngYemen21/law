@@ -11,6 +11,7 @@ use App\Services\LegalAiService;
 use App\Services\MoyasarService;
 use App\Support\CaseFee;
 use App\Support\CaseJourney;
+use App\Support\CaseTicketDocuments;
 use App\Support\ConversationFiles;
 use App\Support\LawyerName;
 use App\Support\PaymentReconciler;
@@ -85,6 +86,7 @@ class CaseController extends Controller
                 'type' => $case->type,
                 'status' => $case->status,
                 'tone' => $case->tone,
+                ...$case->stateFlags(),
                 'update' => $case->update_text,
                 'next' => $case->nextHearingLabel(),
                 'invoice' => $case->invoice_text,
@@ -102,6 +104,8 @@ class CaseController extends Controller
             'messages' => ConversationFiles::linkLegacyChips($case->messages()->visibleTo(false)->get()->map(fn (CaseMessage $m) => $m->toMessage(forClient: true))->all(), 'case', $case->documents),
             'hearings' => $case->hearings->map->toData(),
             'documents' => $case->documents->map(fn ($d) => $d->toData(auth()->user())),
+            // مرفقاته هو قبل التحويل — كانت قضيّته المحوَّلة تبدأ بلا مستند
+            'ticketDocuments' => CaseTicketDocuments::for($case, auth()->user()),
         ]);
     }
 
@@ -109,7 +113,7 @@ class CaseController extends Controller
     public function attach(Request $request, LegalCase $case): HttpResponse
     {
         $this->authorizeCase($request, $case);
-        abort_if(in_array($case->status, ['مغلقة', 'مؤرشفة'], true), 422, 'لا يمكن إرفاق مستندات على قضية مغلقة أو مؤرشفة.');
+        abort_if(! $case->isActive(), 422, 'لا يمكن إرفاق مستندات على قضية مغلقة أو مؤرشفة.');
 
         $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx']]); // حتى 10MB
 
@@ -144,7 +148,7 @@ class CaseController extends Controller
         $this->authorizeCase($request, $case);
 
         abort_if(
-            in_array($case->status, ['مغلقة', 'مؤرشفة'], true),
+            ! $case->isActive(),
             422,
             'لا يمكن إرسال رسائل على قضية مغلقة أو مؤرشفة.'
         );

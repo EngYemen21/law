@@ -6,13 +6,16 @@ import ChatThread from '@/components/babylon/ChatThread';
 import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
 import { useToast } from '@/components/babylon/Toast';
-import { EXEC_FLOW, EXEC_SANADS, EXEC_FEE_MODES, EXEC_CLOSE_REASONS, EXEC_DOC_ACCEPT, EXEC_DOC_HINT, EXEC_REQ_DOC_ACCEPT, EXEC_REQ_DOC_HINT, execTone, execMoney, procTone, execVatLabel, execAiPresentation, execStudyBasis, execUnassigned    } from '@/lib/exec-flow';
+import { matchesSearch } from '@/lib/employee-data';
+import { EXEC_FLOW, EXEC_SANADS, EXEC_FEE_MODES, EXEC_CLOSE_REASONS, EXEC_DOC_ACCEPT, EXEC_DOC_HINT, EXEC_REQ_DOC_ACCEPT, EXEC_REQ_DOC_HINT, execMoney, procTone, execVatLabel, execAiPresentation, execStudyBasis, execUnassigned    } from '@/lib/exec-flow';
 import type { ExecFeeMode, ExecInvoice } from '@/lib/exec-flow';
 import { installmentsText, useSettings } from '@/lib/settings';
-import type {ExecDoc, ExecLawyerOpt, ExecReq, Role} from '@/lib/exec-flow';
+import type {ExecBucket, ExecDoc, ExecLawyerOpt, ExecReq, Role} from '@/lib/exec-flow';
 import { ExecNajizCard } from '@/lib/exec-najiz';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
+import { useServerAction } from '@/lib/use-server-action';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // تدفّق طلب التنفيذ (المرحلة 2) — مربوط بالخادم. الحالة كلّها props من Inertia،
@@ -110,28 +113,23 @@ return 'سجّل خطوة التنفيذ في ناجز';
   return '';
 };
 
-const ExecList: React.FC<{ role: Role; execs: ExecReq[]; onNew: () => void; onOpen: (id: string) => void }> = ({ role, execs, onNew, onOpen }) => {
+const ExecList: React.FC<{ role: Role; execs: ExecReq[]; buckets: Record<ExecBucket, string>; onNew: () => void; onOpen: (id: string) => void }> = ({ role, execs, buckets, onNew, onOpen }) => {
   // الإجراء التالي للموظّف يتبع صلاحيّته لا دوره وحده
   const canCourt = useCan()('إجراءات المحكمة والجلسات');
-  const neu = execs.filter((r) => r.stage <= 1).length;
-  const study = execs.filter((r) => r.stage >= 2 && r.stage <= 4).length;
-  const offer = execs.filter((r) => r.stage >= 5 && r.stage <= 6 && !r.paid).length;
-  const active = execs.filter((r) => r.stage >= 7 && !r.closed).length;
-  const closed = execs.filter((r) => r.closed).length;
+  // تبويب المجموعة + بحث — المجموعة من الخادم (`r.bucket`)، والبحث بمطابقةٍ تتسامح مع الهمزات والتاء المربوطة
+  const [tab, setTab] = useState<ExecBucket | 'all'>('all');
+  const [search, setSearch] = useState('');
+  // «دراسة/أتعاب» شأنٌ داخليّ لا يُعرض للعميل تبويباً
+  const tabs = (Object.keys(buckets) as ExecBucket[]).filter((k) => role !== 'client' || k !== 'study');
+  const count = (k: ExecBucket) => execs.filter((r) => r.bucket === k).length;
+  const shown = execs.filter((r) => (tab === 'all' || r.bucket === tab)
+    && matchesSearch(search, r.id, r.subject, r.client, r.defendant, r.execNo, r.sanad));
 
   return (
     <>
       <div className="greet">
         <h2>{role === 'client' ? 'طلبات التنفيذ' : 'ملفات التنفيذ'}</h2>
         <p>إدارة طلبات التنفيذ إلكترونياً من التقديم حتى إغلاق الملف، مع تحديد الأتعاب واعتمادها قبل بدء العمل.</p>
-      </div>
-
-      <div className="stat-strip">
-        <span className="stat-pill"><span className="pd" style={{ background: '#607689' }} /><b>{neu}</b> جديدة/تحليل</span>
-        {role !== 'client' && <span className="stat-pill"><span className="pd" style={{ background: '#0E5C9C' }} /><b>{study}</b> دراسة/أتعاب</span>}
-        <span className="stat-pill"><span className="pd" style={{ background: '#C0832B' }} /><b>{offer}</b> عروض/سداد</span>
-        <span className="stat-pill"><span className="pd" style={{ background: '#1E9D6B' }} /><b>{active}</b> قيد التنفيذ</span>
-        <span className="stat-pill"><span className="pd" style={{ background: '#8895a7' }} /><b>{closed}</b> مغلقة</span>
       </div>
 
       {role === 'client' && (
@@ -141,9 +139,27 @@ const ExecList: React.FC<{ role: Role; execs: ExecReq[]; onNew: () => void; onOp
       )}
 
       <div className="card">
-        <div className="card-h"><h3>الطلبات</h3><span className="sub">{execs.length}</span></div>
+        <div className="card-h" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div className="tabs" style={{ margin: 0 }}>
+            <button className={`tab${tab === 'all' ? ' on' : ''}`} type="button" onClick={() => setTab('all')}>الكل ({execs.length})</button>
+            {tabs.map((k) => (
+              <button key={k} className={`tab${tab === k ? ' on' : ''}`} type="button" onClick={() => setTab(k)}>
+                {buckets[k]} ({count(k)})
+              </button>
+            ))}
+          </div>
+          <input
+            className="input"
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={role === 'client' ? 'ابحث برقم الطلب أو الموضوع أو المنفَّذ ضده…' : 'ابحث برقم الملف أو العميل أو المنفَّذ ضده…'}
+            style={{ maxWidth: 300 }}
+            aria-label="بحث في ملفات التنفيذ"
+          />
+        </div>
         <div className="card-b" style={{ padding: '14px 16px' }}>
-          {execs.length ? execs.map((r) => (
+          {shown.length ? shown.map((r) => (
             <div key={r.id} className="agd-c" style={{ borderRightColor: STAGE_COLOR(r.stage), marginBottom: 10, cursor: 'pointer' }} onClick={() => onOpen(r.id)}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
                 <div style={{ minWidth: 0 }}>
@@ -153,7 +169,7 @@ const ExecList: React.FC<{ role: Role; execs: ExecReq[]; onNew: () => void; onOp
                     مطالبة {execMoney(r.amount)} ريال{r.execNo ? ` · تنفيذ ${r.execNo}` : ''}
                   </div>
                 </div>
-                <Badge text={EXEC_FLOW[r.stage]} tone={execTone(r.stage)} />
+                <Badge text={r.stageLabel} tone={r.tone} />
               </div>
               <div className="agd-meta">
                 <span><Icon name="scale" /> {r.defendant || '—'}</span>
@@ -162,7 +178,7 @@ const ExecList: React.FC<{ role: Role; execs: ExecReq[]; onNew: () => void; onOp
                 {role !== 'client' && nextAction(role, r, canCourt) ? <span style={{ color: STAGE_COLOR(r.stage), fontWeight: 700 }}><Icon name="info" /> {nextAction(role, r, canCourt)}</span> : null}
               </div>
             </div>
-          )) : <div className="empty"><Icon name="exec" /><b>لا طلبات تنفيذ</b></div>}
+          )) : <div className="empty"><Icon name="exec" /><b>{execs.length ? 'لا ملفات مطابقة للبحث أو التبويب' : 'لا طلبات تنفيذ'}</b></div>}
         </div>
       </div>
     </>
@@ -359,6 +375,26 @@ return;
 type ActFn = (action: string, payload?: Record<string, unknown>) => void;
 
 // ── بطاقة الإجراء المقيّدة بالدور (تطابق actions 1965‑1967) ──
+/**
+ * **نسبة المحامي من أتعاب الملفّ** — حقلٌ واحد لبطاقتي الاعتماد والتسعير (الإدارة وحدها). القيمة
+ * المبدئيّة من الخادم: نسبة الملفّ المحفوظة، وإلّا نسبة ملفّ المحامي (`LawyerShare`).
+ */
+const initialLawyerPct = (r: ExecReq): string => String(r.lawyerPct ?? r.lawyerDefaultPct ?? '');
+
+const LawyerPctField: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => (
+  <div className="field">
+    <label>نسبة المحامي من الأتعاب (%)</label>
+    <input className="input" inputMode="numeric" value={value} onChange={(e) => onChange(e.target.value)} placeholder="مثال: 20" />
+  </div>
+);
+
+/** النسبة المرسلة: عددٌ صحيح بين 0 و100، والفراغ ⇒ لا شيء (الخادم يعتمد المحفوظة ثمّ الافتراض). */
+const lawyerPctPayload = (v: string): { lawyerPct?: number } => {
+  const n = Number(v);
+
+  return v.trim() !== '' && Number.isInteger(n) && n >= 0 && n <= 100 ? { lawyerPct: n } : {};
+};
+
 const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r, act }) => {
   const [fee, setFee] = useState('');
   const [dur, setDur] = useState('');
@@ -366,6 +402,7 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
   const [collectPct, setCollectPct] = useState('');
   const [proc, setProc] = useState('');
   const [feeAdj, setFeeAdj] = useState('');
+  const [lawyerPct, setLawyerPct] = useState(() => initialLawyerPct(r));
   // سبب أرشفة الملفّ المرفوض — «أخرى» افتراضاً، والقائمة تُرسَل كما يقبلها الخادم
   const [rejectedReason, setRejectedReason] = useState('أخرى');
   // عدد الدفعات من إعدادات الإدارة لا «3» منقوشة — الخادم يقسّم بـ`installments_count`
@@ -483,11 +520,13 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
         <div className="action-hint" style={{ marginBottom: 8 }}>
           <Icon name="info" /> نموذج الأتعاب: نسبة من المحصّل — <b>{r.collectionFeePct ?? 0}%</b> من كل مبلغ يُحصَّل، بلا مبلغ مقدَّم. لتغيير النسبة أعد التسعير من بطاقة التسعير.
         </div>
-        <button className="btn" type="button" onClick={() => act('approveFee')}><Icon name="check" /> اعتماد وإرسال العرض</button>
+        <LawyerPctField value={lawyerPct} onChange={setLawyerPct} />
+        <button className="btn" type="button" onClick={() => act('approveFee', lawyerPctPayload(lawyerPct))}><Icon name="check" /> اعتماد وإرسال العرض</button>
       </>) : (<>
         <div className="action-hint" style={{ marginBottom: 8 }}><Icon name="info" /> مراجعة الأتعاب واعتمادها قبل إرسال العرض. بعد الاعتماد لا تُعدَّل إلا بصلاحية الإدارة.</div>
         <div className="field"><label>تعديل الأتعاب (اختياري)</label><input className="input" value={feeAdj} onChange={(e) => setFeeAdj(e.target.value)} placeholder={String(r.fee)} /></div>
-        <button className="btn" type="button" onClick={() => act('approveFee', { fee: parseInt(feeAdj || '0', 10) || 0 })}><Icon name="check" /> اعتماد وإرسال العرض</button>
+        <LawyerPctField value={lawyerPct} onChange={setLawyerPct} />
+        <button className="btn" type="button" onClick={() => act('approveFee', { fee: parseInt(feeAdj || '0', 10) || 0, ...lawyerPctPayload(lawyerPct) })}><Icon name="check" /> اعتماد وإرسال العرض</button>
       </>);
     } else if (r.stage >= 7 && !r.closed) {
       body = (<>
@@ -777,7 +816,7 @@ return;
       </div>
 
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="card-h"><h3>طلب التنفيذ {r.id}</h3><Badge text={EXEC_FLOW[r.stage]} tone={execTone(r.stage)} /></div>
+        <div className="card-h"><h3>طلب التنفيذ {r.id}</h3><Badge text={r.stageLabel} tone={r.tone} /></div>
         <div className="card-b" style={{ padding: 16 }}>
           <FlowLine steps={EXEC_FLOW} cur={r.stage} />
         </div>
@@ -958,6 +997,7 @@ const ExecStudyCard: React.FC<{ r: ExecReq }> = ({ r }) => {
 // ملفٌّ بلا محامٍ حالةٌ يصلحها المكتب لا يتعايش معها: الخادم يردّ التسعير عليه.
 // يُعرض لمن يملك `canAssign` وحده (إدارةٌ دائماً، وموظّفٌ بصلاحيّة «إجراءات المحكمة والجلسات»).
 const ExecAssignCard: React.FC<{ r: ExecReq; lawyers: ExecLawyerOpt[]; act: ActFn }> = ({ r, lawyers, act }) => {
+  const inSession = useInSession();
   const unassigned = execUnassigned(r);
   const [sel, setSel] = useState<string>(r.lawyerId ? String(r.lawyerId) : '');
 
@@ -973,7 +1013,7 @@ const ExecAssignCard: React.FC<{ r: ExecReq; lawyers: ExecLawyerOpt[]; act: ActF
           <div style={{ display: 'flex', gap: 6 }}>
             <select className="input" value={sel} onChange={(e) => setSel(e.target.value)} style={{ flex: 1 }}>
               <option value="">— اختر محامياً —</option>
-              {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}{inSessionSuffix(inSession, l.id)}</option>)}
             </select>
             <button className="btn sm" type="button" disabled={!sel} onClick={() => act('assignLawyer', { lawyer_id: Number(sel) })}>
               <Icon name="check" /> {unassigned ? 'إسناد' : 'إعادة الإسناد'}
@@ -996,6 +1036,7 @@ const PricingCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
   // التسعير كان يعود إلى «مبلغ ثابت» صامتاً، و`writeFee` يمسح النسبة المخزَّنة معه.
   const [feeMode, setFeeMode] = useState<ExecFeeMode>(r.feeMode === 'percent' ? 'percent' : 'fixed');
   const [collectPct, setCollectPct] = useState(r.collectionFeePct ? String(r.collectionFeePct) : '');
+  const [lawyerPct, setLawyerPct] = useState(() => initialLawyerPct(r));
 
   // عدد الدفعات وسقف النسبة من إعدادات الإدارة — كانا «ثلاث» و«50» منقوشين، والخادم يتحقّق بالإعداد
   const { installments_count: installments, exec_max_collection_pct: maxPct } = useSettings();
@@ -1010,8 +1051,8 @@ const PricingCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
   const submit = () => {
  if (ready) {
 act('setFee', percent
-      ? { feeMode: 'percent', feePct: collectPctNum, duration: dur }
-      : { feeMode: 'fixed', fee, duration: dur });
+      ? { feeMode: 'percent', feePct: collectPctNum, duration: dur, ...lawyerPctPayload(lawyerPct) }
+      : { feeMode: 'fixed', fee, duration: dur, ...lawyerPctPayload(lawyerPct) });
 } 
 };
 
@@ -1052,6 +1093,7 @@ act('setFee', percent
           <KpiRow total t={<b>الإجمالي بعد الضريبة ({vatRate}%)</b>} v={<b>{execMoney(fee + vat)} ريال</b>} />
           <div className="action-hint" style={{ margin: '8px 0' }}><Icon name="info" /> يختار العميل عند السداد: كاملاً أو على {installmentsText(installments)}.</div>
         </>)}
+        <LawyerPctField value={lawyerPct} onChange={setLawyerPct} />
         <div className="action-hint" style={{ margin: '8px 0' }}><Icon name="info" /> تحديد الأتعاب واعتمادها من صلاحيات الإدارة العليا؛ بعد الاعتماد يُرسَل العرض للعميل.</div>
         <button className="btn block" type="button" disabled={!ready} onClick={submit}><Icon name="check" /> اعتماد الأتعاب وإرسال العرض للعميل</button>
       </div>
@@ -1154,7 +1196,7 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
               <Icon name="reply" /> رجوع
             </button>
             <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>طلب تنفيذ #{r.id}</span>
-            <Badge text={EXEC_FLOW[r.stage]} tone={execTone(r.stage)} />
+            <Badge text={r.stageLabel} tone={r.tone} />
             {r.closed && <Badge text="مغلق" tone="b-grey" />}
             {r.execNo && <span className="chip" style={{ fontSize: 11.5 }}>رقم التنفيذ: {r.execNo}</span>}
           </div>
@@ -1272,7 +1314,7 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
                 </div>
               ) : (
                 <div className="card" style={{ marginBottom: 12 }}>
-                  <div className="card-h"><h3>موقف طلب التنفيذ</h3><Badge text={EXEC_FLOW[r.stage]} tone={execTone(r.stage)} /></div>
+                  <div className="card-h"><h3>موقف طلب التنفيذ</h3><Badge text={r.stageLabel} tone={r.tone} /></div>
                   <div className="card-b" style={{ padding: 16 }}>
                     <div className="mtg-pend">
                       <Icon name="info" />
@@ -1395,7 +1437,7 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
               <CellRow cells={[['نوع السند', r.sanad || '—'], ['قيمة المطالبة', execMoney(r.amount) + ' ريال']]} />
               <CellRow cells={[['طالب التنفيذ', r.client], ['المنفَّذ ضده', r.defendant || '—']]} />
               {role !== 'client' && r.lawyer && <CellRow cells={[['محامي التنفيذ', r.lawyer], ['حالة القرار', r.decision || 'قيد الدراسة']]} />}
-              {r.execNo && <CellRow cells={[['رقم ملف التنفيذ', r.execNo], ['المرحلة', EXEC_FLOW[r.stage]]]} />}
+              {r.execNo && <CellRow cells={[['رقم ملف التنفيذ', r.execNo], ['المرحلة', r.stageLabel]]} />}
             </div>
           </div>
 
@@ -1438,11 +1480,14 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
 const ExecFlow: React.FC<{
   role: Role;
   execs: ExecReq[];
+  /** أسماء مجموعات القائمة من الخادم (`ExecFlow::BUCKETS`) */
+  buckets: Record<ExecBucket, string>;
   lawyers?: ExecLawyerOpt[];
   initialId?: string | number | null;
   initialTab?: string | null;
-}> = ({ role, execs, lawyers = [], initialId, initialTab }) => {
+}> = ({ role, execs, buckets, lawyers = [], initialId, initialTab }) => {
   const toast = useToast();
+  const execAction = useServerAction();
 
   const resolveTarget = (idVal?: string | number | null, tabVal?: string | null) => {
     let targetId: string | null = idVal !== undefined && idVal !== null ? String(idVal) : null;
@@ -1545,6 +1590,8 @@ const ExecFlow: React.FC<{
     }
   };
 
+  // **كلّ أفعال الملفّ من موزّعٍ واحد** (اعتماد العرض · السداد · خطوات المسار) — فالقفل الموحّد هنا
+  // يُسقط النقرة الثانية على أيٍّ منها، ولو لم يعرف الزرّ في المكوّن الفرعيّ بحالة الانشغال
   const act: ActFn = (action, payload = {}) => {
     if (!currentId) {
       return;
@@ -1555,7 +1602,7 @@ const ExecFlow: React.FC<{
     // السداد يمرّ ببوّابة ميسّر (يوجّه المتصفّح لصفحة الدفع)؛ باقي الإجراءات تُحدّث الحالة محليّاً.
     // و`plan` قرار العميل: كاملاً أو ثلاث دفعات — يقرؤه الخادم فيقسّم الفاتورة قبل التوجيه.
     if (action === 'pay') {
-      router.post(`/exec-flow/${id}/pay`, { plan: String(payload.plan ?? 'full') }, { onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر بدء الدفع') });
+      void execAction.run(`/exec-flow/${id}/pay`, { data: { plan: String(payload.plan ?? 'full') }, fallback: 'تعذّر بدء الدفع' });
 
       return;
     }
@@ -1563,18 +1610,15 @@ const ExecFlow: React.FC<{
     // فواتير ما بعد فتح الملفّ (الدفعتان 2 و3، وفواتير الأتعاب عن التحصيل) تمرّ بمسار
     // الفواتير العامّ: ردُّه يطابق **الفاتورة المعنيّة** بمرجعها، لا أحدث فاتورة على الملفّ.
     if (action === 'payInvoice') {
-      router.post(`/invoices/${encodeURIComponent(String(payload.no ?? ''))}/checkout`, {}, {
-        onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر بدء الدفع'),
-      });
+      void execAction.run(`/invoices/${encodeURIComponent(String(payload.no ?? ''))}/checkout`, { fallback: 'تعذّر بدء الدفع' });
 
       return;
     }
 
-    router.post(`/exec-flow/${id}/action`, { action, ...payload }, {
-      preserveScroll: true,
-      preserveState: true,
-      onSuccess: () => toast('تم تنفيذ الإجراء'),
-      onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر تنفيذ الإجراء'),
+    void execAction.run(`/exec-flow/${id}/action`, {
+      data: { action, ...payload },
+      success: 'تم تنفيذ الإجراء',
+      fallback: 'تعذّر تنفيذ الإجراء',
     });
   };
 
@@ -1605,7 +1649,7 @@ const ExecFlow: React.FC<{
 
   return (
     <div className="tflow">
-      {view === 'list' && <ExecList role={role} execs={execs} onNew={() => { setView('new'); syncUrl(null, null, true); }} onOpen={open} />}
+      {view === 'list' && <ExecList role={role} execs={execs} buckets={buckets} onNew={() => { setView('new'); syncUrl(null, null, true); }} onOpen={open} />}
       {view === 'new' && <ExecNew onSubmit={submitNew} onBack={backToList} busy={busy} />}
       {view === 'detail' && current && (role === 'client'
         ? <ClientExecDetail r={current} onBack={backToList} act={act} />

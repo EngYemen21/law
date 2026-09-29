@@ -1,5 +1,6 @@
 <?php
 
+use App\Events\StaffPresenceChanged;
 use App\Models\Consult;
 use App\Models\Execution;
 use App\Models\LegalCase;
@@ -13,6 +14,9 @@ use Illuminate\Support\Facades\Broadcast;
  * تفويض قنوات البثّ الخاصة بقاعدة موحّدة (App\Support\ChannelAccess): العميل المالك، أو الإدارة،
  * أو المحامي المسند، أو موظف المكتب. يمنع اشتراك عميل بقناة داخلية أو محامٍ بسجلٍّ غير مسنَد إليه.
  */
+
+// حالة الطاقم الحيّة (في جلسة Zoom الآن / متاح) — للطاقم وحده، لا العميل (`StaffPresenceChanged`)
+Broadcast::channel(StaffPresenceChanged::CHANNEL, fn (User $user) => ! $user->isClient());
 
 // قناة إشعارات المستخدم — يشترك المستخدم بقناته وحده (لا يرى إشعارات غيره)
 Broadcast::channel('notifications.{userId}', fn (User $user, int $userId) => (int) $userId === (int) $user->id);

@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\TicketStatus;
 use App\Enums\Role;
 use App\Models\LegalCatalogueAlias;
 use App\Models\LegalDepartment;
@@ -30,9 +31,6 @@ class LegalCatalogueEditor
 {
     /** تصنيف قيود التدقيق — تعديل الكتالوج قرارٌ إداريّ كبقيّة إجراءات الإدارة العليا. */
     private const AUDIT_CATEGORY = 'الإدارة العليا';
-
-    /** حالات التذكرة المنتهية — لا تُعدّ في أثر إيقاف قسم. */
-    private const CLOSED_TICKET_STATUSES = ['مكتملة', 'مغلقة'];
 
     // ── الأقسام القانونيّة ─────────────────────────────────
 
@@ -105,7 +103,8 @@ class LegalCatalogueEditor
     public static function suspensionImpacts(): array
     {
         $openTickets = DB::table('tickets')->whereNotNull('legal_department_id')
-            ->whereNotIn('status', self::CLOSED_TICKET_STATUSES)
+            // المنتهية (`TicketStatus::finals`) لا تُعدّ في أثر إيقاف قسم
+            ->whereNotIn('status', TicketStatus::finals())
             ->selectRaw('legal_department_id, count(*) as total')
             ->groupBy('legal_department_id')
             ->pluck('total', 'legal_department_id');

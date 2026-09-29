@@ -671,7 +671,7 @@ setActiveLogId(null);
             style={{
               width: '100%',
               maxWidth: 580,
-              height: '100vh',
+              height: '100dvh',
               background: '#fff',
               boxShadow: '-8px 0 32px rgba(0,0,0,0.2)',
               display: 'flex',
@@ -749,7 +749,7 @@ setActiveLogId(null);
                     <b style={{ color: 'var(--primary)', fontSize: 13.5, display: 'block', marginBottom: 12 }}>
                       بيانات الفاعل والمورد المرتبط:
                     </b>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, fontSize: 12.5 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: 12, fontSize: 12.5 }}>
                       <div>
                         <span style={{ color: 'var(--muted)', fontSize: 11 }}>المستخدم:</span>
                         <div style={{ fontWeight: 700, marginTop: 2 }}>{activeLog.userName}</div>
@@ -785,7 +785,7 @@ setActiveLogId(null);
               {/* Tab 2: مقارنة التغييرات */}
               {drawerTab === 'diff' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: 12 }}>
                     {/* قبل */}
                     <div style={{ background: 'rgba(220, 38, 38, 0.04)', border: '1px solid rgba(220, 38, 38, 0.2)', borderRadius: 10, padding: 14 }}>
                       <b style={{ color: '#dc2626', fontSize: 12.5, display: 'block', marginBottom: 8 }}>

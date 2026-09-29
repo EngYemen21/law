@@ -8,7 +8,6 @@ use App\Support\Finance\RevenueSnapshot;
 use App\Support\PdfRenderer;
 use App\Support\ReportPrint;
 use App\Support\Reports\PerformanceSnapshot;
-use App\Support\SettingsRegistry;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -74,13 +73,14 @@ class ReportController extends Controller
                 [
                     'title' => '١. المؤشرات التنفيذية الرئيسية (Executive Scorecard)',
                     'cellRows' => [
-                        [['إجمالي الاستشارات والتذاكر', (string) $s['totalTickets']], ['معدل التحويل لقضايا', $s['conversionRate'].'%']],
-                        [['القضايا النشطة', (string) $s['activeCases']], ['الأحكام الصادرة', (string) $s['ruledCases']]],
-                        [['طلبات التنفيذ القضائي', (string) $s['totalExecutions']], ['نسبة نجاح التحصيل', $s['collectionSuccessRate'].'%']],
+                        [['إجمالي التذاكر', (string) $s['totalTickets']], ['إجمالي الاستشارات (عدا الملغاة)', (string) $s['totalConsults']]],
+                        [['معدل تحويل التذاكر لقضايا', $s['conversionRate'].'%'], ['القضايا النشطة', (string) $s['activeCases']]],
+                        [['الأحكام الصادرة', (string) $s['ruledCases']], ['طلبات التنفيذ القضائي', (string) $s['totalExecutions']]],
+                        [['نسبة نجاح التحصيل', $s['collectionSuccessRate'].'%']],
                     ],
                 ],
                 [
-                    'title' => '٢. التذاكر والاستشارات حسب القسم',
+                    'title' => '٢. التذاكر حسب القسم',
                     'cellRows' => array_map(fn (array $r) => [[$r['dept'], $r['c'].' تذكرة']], $snap->ticketsByDept),
                 ],
                 [
@@ -95,8 +95,6 @@ class ReportController extends Controller
                     ],
                 ],
             ],
-            // اسم المكتب من الإعدادات لا منقوشاً — التذييل كان يعلو على ما تضبطه الإدارة
-            'footer' => SettingsRegistry::str('office_name').' — تقرير الأداء العام الداخلي',
         ]);
 
         return PdfRenderer::render($html, 'reports-'.now()->format('Y-m-d').'.pdf');
@@ -132,11 +130,11 @@ class ReportController extends Controller
                     'title' => '٤. الرواتب الثابتة الشهرية',
                     'cellRows' => array_merge(
                         [[['إجمالي الرواتب', number_format($snap->salaryTotal).' ر.س'], ['عدد الموظفين', (string) count($snap->salaries).' موظف']]],
+                        [[['المصروف للموظفين (سجلّ الصرف)', number_format($snap->staffPaidTotal).' ر.س']]],
                         array_map(fn (array $u) => [[$u['name'], number_format($u['salary']).' ر.س']], $snap->salaries)
                     ),
                 ],
             ],
-            'footer' => SettingsRegistry::str('office_name').' — تقرير ماليّ ورقابي داخلي',
         ]);
 
         return PdfRenderer::render($html, 'revenue-'.now()->format('Y-m-d').'.pdf');

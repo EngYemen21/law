@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\PayType;
 use App\Enums\Role;
 use App\Support\LawyerSpecialties;
 use Database\Factories\UserFactory;
@@ -15,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Traits\HasRoles;
 
 /**
@@ -112,6 +114,33 @@ class User extends Authenticatable
     }
 
     /**
+     * **الإيقاف والتفعيل من موضعٍ واحد** — الحالة وفترة الإيقاف معاً (`StaffSuspension`)، فيعرف حساب
+     * المستحقّات أيّ الأيّام كان فيها الموظّف موقوفاً ولا يُحسب له راتبها.
+     */
+    public function setSuspended(bool $suspended): void
+    {
+        if ($suspended === ! $this->isActive()) {
+            return;
+        }
+
+        DB::transaction(function () use ($suspended) {
+            $this->update(['status' => $suspended ? 'suspended' : 'active']);
+
+            if ($suspended) {
+                StaffSuspension::create(['user_id' => $this->id, 'starts_on' => today()]);
+            } else {
+                StaffSuspension::where('user_id', $this->id)->whereNull('ends_on')->update(['ends_on' => today()]);
+            }
+        });
+    }
+
+    /** فترات الإيقاف — `Finance\StaffEarnings` يُسقط أيّامها من الراتب. */
+    public function suspensions(): HasMany
+    {
+        return $this->hasMany(StaffSuspension::class);
+    }
+
+    /**
      * **المحامون الذين يقبلهم `ActiveLawyer`** — قائمةُ الاختيار في النماذج تُبنى من هنا، فلا يُعرض
      * محامٍ موقوف ثمّ يُردّ اختياره بـ«غير نشط». (القاعدة نفسها: `isActive` = غير موقوف.)
      *
@@ -123,15 +152,23 @@ class User extends Authenticatable
         return $query->where('role', Role::Lawyer)->where('status', '!=', 'suspended');
     }
 
+    /** نوع الأجر مصنَّفاً — `null` لموظّفٍ لم يُضبط أجره. */
+    public function payType(): ?PayType
+    {
+        return PayType::tryFrom((string) $this->pay_type);
+    }
+
     // وصف الأجر (يطابق payLabel في staff.tsx)
     public function payLabel(): string
     {
-        return match ($this->pay_type) {
-            'salary' => 'راتب ثابت: '.number_format($this->salary).' ر.س/شهري',
-            'pct' => 'نسبة: '.rtrim(rtrim((string) $this->pay_pct, '0'), '.').'%',
-            'both' => 'راتب '.number_format($this->salary).' ر.س + نسبة '.rtrim(rtrim((string) $this->pay_pct, '0'), '.').'%',
-            'session' => 'بالجلسة: '.number_format((int) $this->session_fee).' ر.س/جلسة',
-            default => '—',
+        $pct = rtrim(rtrim((string) $this->pay_pct, '0'), '.');
+
+        return match ($this->payType()) {
+            PayType::Salary => 'راتب ثابت: '.number_format($this->salary).' ر.س/شهري',
+            PayType::Percent => 'نسبة: '.$pct.'%',
+            PayType::SalaryAndPercent => 'راتب '.number_format($this->salary).' ر.س + نسبة '.$pct.'%',
+            PayType::Session => 'بالجلسة: '.number_format((int) $this->session_fee).' ر.س/جلسة',
+            null => '—',
         };
     }
 

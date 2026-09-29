@@ -14,32 +14,28 @@ import TicketActionsPanel from '@/components/babylon/TicketActionsPanel';
 import TicketDetailsCard from '@/components/babylon/TicketDetailsCard';
 import TicketOpsModals, { type TicketOpsKind } from '@/components/babylon/TicketOpsModals';
 import TicketRequirementsCard from '@/components/babylon/TicketRequirementsCard';
-import TicketTrackDecisionCard, { TrackGovernanceData } from '@/components/babylon/TicketTrackDecisionCard';
+import TicketTrackDecisionCard from '@/components/babylon/TicketTrackDecisionCard';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
+import type { TimeSlotItem } from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { ALLOWED_DOC_ACCEPT, TKT_LIFE, nowClock, tktStage, type Message } from '@/lib/chat';
 import { useConsultSlots } from '@/lib/consult-slots';
 import { echo } from '@/lib/echo';
 import { useCan } from '@/lib/permissions';
 import { todayISO } from '@/lib/local-date';
-
-// الموظّف يُحيل الملفّ إلى المستشار في هذه المراحل وحدها (Employee\TicketController::advance)
-const REFERRABLE = ['جديدة', 'قيد التحليل', 'محالة للقسم القانوني', 'بانتظار مستندات'];
+import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
+import { useServerAction } from '@/lib/use-server-action';
+import type { EmployeeTicketCard } from '@/types';
 
 // محادثة التذكرة (لوحة الموظف) — مزامنة لحظية مع العميل (Reverb) بلا إعادة تحميل
 
-interface EmpTicket {
-  no: string; client: string; type: string; dept: string; lawyer: string; status: string; tone: string;
-  clientId?: number; lawyerId?: number; caseRef?: string | null; summaryApproved?: boolean;
-  subject?: string | null; priority?: string | null; mobile?: string | null; openedAt?: string | null;
-  isFrozen?: boolean; isTerminal?: boolean;
-  hasCase?: boolean;
-  caseNumber?: string | null;
-  hasExecution?: boolean;
-  executionNumber?: string | null;
-  closureReasonCode?: string | null;
-  closureNotes?: string | null;
-  trackGovernance?: TrackGovernanceData | null;
+/** `Ticket::toEmployeeCard` (`@/types`) وما تُلحقه هذه الصفحة. */
+interface EmpTicket extends EmployeeTicketCard {
+  caseRef?: string | null;
+  summaryApproved?: boolean;
+  canRerunSummary?: boolean;
+  mobile?: string | null;
+  openedAt?: string | null;
   /** اقتراح النظام لمحامي تذكرةٍ غير مسنَدة (مختصّ/غير مختصّ) — لمودال التحويل */
   lawyerSuggestion?: LawyerSuggestionData | null;
 }
@@ -92,7 +88,10 @@ const EmployeeTicketChat: React.FC<{
   catalogueDepartments?: string[]; // أقسام مودال التحويل من الكتالوج الفعّال
   /** من يتولّى المحادثة ومن تولّاها قبله — `ConversationHandler::history`. */
   conversation?: ConversationHistory | null;
-}> = ({ ticket, channel, messages, lawyers, clientStats, catalogueDepartments = [], conversation }) => {
+  /** مراحل إحالة الموظّف (`TicketTriage::REFERRABLE`) — يقارنها الزرّ بالحالة الحيّة. */
+  referrable: string[];
+}> = ({ ticket, channel, messages, lawyers, clientStats, catalogueDepartments = [], conversation, referrable }) => {
+  const inSession = useInSession();
   const toast = useToast();
   const can = useCan();
   // الأزرار تُخفى بحسب الصلاحية التفصيلية — كانت تُعرض للجميع ثم يُبتلع رفض الخادم
@@ -117,10 +116,10 @@ const EmployeeTicketChat: React.FC<{
   const [schedTime, setSchedTime] = useState('');
   const [schedBusy, setSchedBusy] = useState(false);
   // الفترات المتاحة: تُجلب من API عند تغيير المحامي أو التاريخ
-  const [slots, setSlots] = useState<{ time: string; taken: boolean }[]>([]);
+  const [slots, setSlots] = useState<TimeSlotItem[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   // قبل اختيار المستشار: شبكة ساعات الحجز من إعدادات الخادم — لا شبكة المنتقي العامّة (٠٨–٢٢ بنصف ساعة)
-  const { grid: consultGrid } = useConsultSlots();
+  const { gridOn, allowOverlap } = useConsultSlots();
 
   const fetchSlots = (lawyerId: string, date: string) => {
     if (!lawyerId || !date) { setSlots([]); return; }
@@ -227,14 +226,13 @@ const EmployeeTicketChat: React.FC<{
       .finally(() => setAttachBusy(false));
   };
 
-  const rerunAi = () => {
-    axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/rerun`)
-      .then(() => toast('تمت إعادة تشغيل التحليل الذكي للملخّص'))
-      .catch((err) => {
-        const msg = err.response?.data?.message || 'تعذّر إعادة تشغيل التحليل حالياً';
-        toast(`⚠️ ${msg}`);
-      });
-  };
+  // زيارة Inertia بقفلٍ موحّد لا axios: الردّ يُعيد تحميل التذكرة فيتحدّث `canRerunSummary`،
+  // والنقرة الثانية لا تُطلق توليدَين
+  const rerun = useServerAction();
+  const rerunAi = () =>
+    rerun.run(`/employee/tickets/${encodeURIComponent(ticket.no)}/rerun`, {
+      fallback: 'تعذّر إعادة تشغيل التحليل حالياً',
+    });
   const advance = () => {
     axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/advance`)
       .catch((err) => {
@@ -257,7 +255,8 @@ const EmployeeTicketChat: React.FC<{
   };
   const waiting = WAITING[status.status];
   // الإحالة وحدها بيد الموظّف؛ وإكمال التذكرة باعتماد الإدارة لملخّص الجلسة (قرار المالك 2026-09-14)
-  const canRefer = REFERRABLE.includes(status.status);
+  // مراحل الإحالة من الخادم (`TicketTriage::REFERRABLE`) — حارس `advance` نفسه
+  const canRefer = referrable.includes(status.status);
 
   return (
     <div className="tflow">
@@ -271,7 +270,7 @@ const EmployeeTicketChat: React.FC<{
           >
             <option value="">توزيع تلقائي</option>
             {lawyers.map((l) => (
-              <option key={l.id} value={String(l.id)}>{l.name}</option>
+              <option key={l.id} value={String(l.id)}>{l.name}{inSessionSuffix(inSession, l.id)}</option>
             ))}
           </select>
         </div>
@@ -289,7 +288,7 @@ const EmployeeTicketChat: React.FC<{
             className="input"
             type="date"
             value={schedDate}
-            min={new Date().toISOString().split('T')[0]}
+            min={todayISO()}
             onChange={(e) => { setSchedDate(e.target.value); fetchSlots(schedLawyerId, e.target.value); }}
           />
         </div>
@@ -298,8 +297,10 @@ const EmployeeTicketChat: React.FC<{
           value={schedTime}
           onChange={setSchedTime}
           date={schedDate}
-          slots={schedLawyerId && slots.length > 0 ? slots : consultGrid}
+          slots={schedLawyerId && slots.length > 0 ? slots : gridOn(schedDate)}
           label={schedLawyerId ? 'الوقت المتاح للمستشار' : 'وقت الموعد المقترح'}
+          emptyText="لا مواعيد للحجز في هذا اليوم — خارج أيّام دوام المكتب."
+          allowTaken={allowOverlap}
           helperText={slotsLoading ? 'جاري التحقق من أوقات المستشار المتاحة...' : undefined}
           required
           allowCustom
@@ -514,7 +515,10 @@ const EmployeeTicketChat: React.FC<{
                 الحالة الحاليّة: <b>{status.status}</b> — تتقدّم التذكرة بالإجراءات، وتصحيحها الاستثنائيّ للإدارة.
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <button className="btn soft sm" type="button" onClick={rerunAi}><Icon name="sparkles" /> إعادة التحليل الذكي للملخص</button>
+                {/* بحارس الخادم (`Ticket::summaryRerunBlocker`) — كان ظاهراً دائماً ويُرفض بعد الاعتماد */}
+                {ticket.canRerunSummary && (
+                  <button className="btn soft sm" type="button" disabled={rerun.busy} onClick={rerunAi}><Icon name="sparkles" /> إعادة التحليل الذكي للملخص</button>
+                )}
               </div>
             </div>
           </div>

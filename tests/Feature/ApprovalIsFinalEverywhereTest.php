@@ -32,7 +32,7 @@ class ApprovalIsFinalEverywhereTest extends TestCase
 
         return Consult::create([
             'user_id' => $client->id,
-            'ref' => 'CN-FIN-'.random_int(100, 999),
+            'ref' => 'CN-FIN-'.uniqid(),
             'subject' => 'نزاع تجاري',
             'type' => 'استشارة',
             'channel' => 'مرئية',

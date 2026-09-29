@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Domain\Journey\Enums\AppointmentStatus;
 use App\Domain\Journey\Transitions\Consult\LapseAppointment;
 use App\Domain\Journey\Workflow;
 use App\Models\Appointment;
@@ -33,7 +34,7 @@ class AutoLapseAppointments extends Command
         Appointment::with('consult')
             ->whereIn('when_kind', ['up', 'today'])
             // الاقتراح غير المعتمد ليس موعداً فات — يُعتمد بوقتٍ لاحق أو يُعدَّل
-            ->where('status', '!=', 'بانتظار الاعتماد')
+            ->where('status', '!=', AppointmentStatus::PendingApproval->value)
             ->whereNotNull('starts_at')
             ->where('starts_at', '<', now())
             ->orderBy('starts_at')

@@ -28,6 +28,12 @@ export interface SharedSettings {
   consult_day_start: number;
   /** ساعة انتهاء آخر شريحة (1–24). */
   consult_day_end: number;
+  /** أيّام الدوام «0,1,2,3,4» (الأحد=0) — لا شرائح حجز في غيرها (`isWorkDay` في `consult-slots.ts`). */
+  consult_work_days: string;
+  /** ١ = يُقبل حجز الاستشارة فوق انشغالٍ آخر للمحامي بتنبيه (عدا جلسة المحكمة)، ٠ = يُرفض. */
+  consult_allow_overlap: number;
+  /** ١ = يُقبل حجز الاستشارة خارج أيّام الدوام وساعاته بتنبيه — شبكة يوم العطلة تُعرض للحجز، ٠ = يُرفض. */
+  consult_allow_outside_office: number;
   /** طول الشريحة ومدّة الاستشارة بالدقائق. */
   consult_slot_minutes: number;
   /** عمر الطلب المفتوح بالدقائق الذي يُعدّ بعده «متأخّراً» في شاشتي الاستشارات. */

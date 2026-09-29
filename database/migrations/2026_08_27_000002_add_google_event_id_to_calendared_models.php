@@ -11,19 +11,19 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if (Schema::hasTable('consults') && !Schema::hasColumn('consults', 'google_event_id')) {
+        if (Schema::hasTable('consults') && ! Schema::hasColumn('consults', 'google_event_id')) {
             Schema::table('consults', function (Blueprint $table) {
                 $table->string('google_event_id')->nullable();
             });
         }
 
-        if (Schema::hasTable('meetings') && !Schema::hasColumn('meetings', 'google_event_id')) {
+        if (Schema::hasTable('meetings') && ! Schema::hasColumn('meetings', 'google_event_id')) {
             Schema::table('meetings', function (Blueprint $table) {
                 $table->string('google_event_id')->nullable();
             });
         }
 
-        if (Schema::hasTable('appointments') && !Schema::hasColumn('appointments', 'google_event_id')) {
+        if (Schema::hasTable('appointments') && ! Schema::hasColumn('appointments', 'google_event_id')) {
             Schema::table('appointments', function (Blueprint $table) {
                 $table->string('google_event_id')->nullable();
             });

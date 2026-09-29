@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\CaseStatus;
+use App\Domain\Journey\Enums\ExecutionStatus;
 use App\Support\CaseJourney;
 use App\Support\ExecFlow;
 use App\Support\TicketJourney;
@@ -54,7 +56,8 @@ class StatusToneConsistencyTest extends TestCase
      */
     public function test_every_exec_status_the_server_writes_has_a_declared_tone(): void
     {
-        foreach (ExecFlow::FLOW as $stage => $status) {
+        foreach (range(0, 9) as $stage) {
+            $status = ExecutionStatus::fromStage($stage)->value;
             $this->assertNotEmpty($status);
             $this->assertSame($status, ExecFlow::label($stage), "المرحلة {$stage} تُسمّى «{$status}»");
             $this->assertStringStartsWith('b-', ExecFlow::tone($stage), "نغمة «{$status}» يجب أن تكون من مفردات الشارات");
@@ -63,10 +66,11 @@ class StatusToneConsistencyTest extends TestCase
 
     public function test_stage_and_tone_come_from_one_map_so_they_cannot_drift(): void
     {
-        // المرحلة والنغمة تُقرآن من الخريطة نفسها — لا قائمتان تتباعدان
+        // المرحلة من خريطة المسار، والنغمة من الـEnum وحده — لا نسختان تتباعدان
         foreach (CaseJourney::STATUSES as $status => $meta) {
             $this->assertSame($meta['at'], CaseJourney::stage($status));
-            $this->assertSame($meta['tone'], CaseJourney::toneFor($status));
+            $this->assertSame(CaseStatus::from($status)->tone(), CaseJourney::toneFor($status));
+            $this->assertArrayNotHasKey('tone', $meta, 'عادت نسخة الألوان الثانية إلى CaseJourney');
         }
     }
 
@@ -77,9 +81,10 @@ class StatusToneConsistencyTest extends TestCase
             $this->assertLessThan(count(CaseJourney::LIFE), $meta['at'], "مرحلة «{$status}» خارج CASE_LIFE");
         }
 
-        // ومسار التنفيذ: «مغلق» آخر خطوةٍ معروضة، والفهرس الخارج يسقط على الأولى لا على فراغ
-        $this->assertSame('مغلق', ExecFlow::FLOW[count(ExecFlow::FLOW) - 1]);
-        $this->assertSame(ExecFlow::FLOW[0], ExecFlow::label(count(ExecFlow::FLOW)));
+        // ومسار التنفيذ: الاسم من `ExecutionStatus` وحده — و«مغلق» لما بعد التنفيذ (مرحلةٌ قديمة 10) لا «طلب جديد»
+        $this->assertSame('مغلق', ExecFlow::label(9));
+        $this->assertSame('مغلق', ExecFlow::label(10));
+        $this->assertSame('طلب جديد', ExecFlow::label(0));
 
         foreach (TicketJourney::statuses() as $status) {
             $this->assertLessThan(count(TicketJourney::STAGES), TicketJourney::indexOf($status));

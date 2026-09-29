@@ -14,6 +14,8 @@ import type { Hearing } from '@/lib/case-ui';
 import type { Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
+import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
+import type { CaseDocumentCard, TicketDocumentCard } from '@/types';
 
 /**
  * **تفاصيل القضيّة للإدارة العليا** (قرار المالك 2026-09-11).
@@ -35,13 +37,14 @@ interface CaseInfo {
   /** حكم انتقال `ReopenCase` (حالته المصدر + صلاحيّة الفاعل) — لا مقارنة بنصّ الحالة هنا. */
   canReopen: boolean;
 }
-interface CaseDoc {
-  id: number; name: string; by: string; status: string; docType: string; summary: string; date: string; downloadUrl?: string | null;
-  hearingId?: number | null; hearingTitle?: string | null;
-}
+/** مرفقٌ من التذكرة قبل التحويل (`CaseTicketDocuments`). */
+/** `CaseTicketDocuments::for` — النوع المشترك (`@/types`). */
+type TicketDoc = TicketDocumentCard;
+/** `CaseDocument::toData` — النوع المشترك (`@/types`). */
+type CaseDoc = CaseDocumentCard;
 interface LawyerOpt { id: number; name: string }
 interface Props {
-  case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[];
+  case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[]; ticketDocuments?: TicketDoc[];
   convertedExec?: boolean; lawyers: LawyerOpt[];
   /** أسباب الإغلاق من الكتالوج (`ClosureCaseReasonCode::options`) — كانت نسخةً مكتوبةً هنا */
   closureReasons: ClosureReasonOption[];
@@ -49,7 +52,8 @@ interface Props {
   conversation?: ConversationHistory | null;
 }
 
-const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, lawyers, conversation, closureReasons }) => {
+const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, ticketDocuments = [], convertedExec, lawyers, conversation, closureReasons }) => {
+  const inSession = useInSession();
   const toast = useToast();
   const base = `/admin/cases/${encodeURIComponent(c.no)}`;
   const [msgs, setMsgs] = useState<Message[]>(messages);
@@ -180,7 +184,7 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
                   <div style={{ display: 'flex', gap: 6 }}>
                     <select className="input" value={lawyerId} onChange={(e) => setLawyerId(e.target.value)} style={{ flex: 1 }}>
                       <option value="">— اختر محامياً —</option>
-                      {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                      {lawyers.map((l) => <option key={l.id} value={l.id}>{l.name}{inSessionSuffix(inSession, l.id)}</option>)}
                     </select>
                     <button className="btn sm soft" type="button" disabled={busy || !lawyerId} onClick={reassign}>إعادة الإسناد</button>
                   </div>
@@ -229,6 +233,28 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
               )}
             </div>
           </div>
+
+          {/* مرفقات الطلب قبل التحويل — من التذكرة نفسها (`CaseTicketDocuments`)، بلا المرفوض «غير مرتبط» */}
+          {ticketDocuments.length > 0 && (
+            <div className="card">
+              <div className="card-h"><h3>مرفقات الطلب قبل التحويل</h3><span className="sub">{ticketDocuments.length} مستند</span></div>
+              <div className="card-b">
+                {ticketDocuments.map((d) => (
+                  <div key={`t-${d.id}`} className="item">
+                    <div className="iico"><Icon name="doc" /></div>
+                    <div className="imeta">
+                      <b>{d.name}</b>
+                      <span>{d.by} · {d.date}{d.docType ? ` · ${d.docType}` : ''}</span>
+                      {d.summary && <span style={{ display: 'block', marginTop: 3, fontSize: 11.5, color: 'var(--muted)' }}>{d.summary}</span>}
+                    </div>
+                    {d.downloadUrl && (
+                      <a className="btn soft sm" href={d.downloadUrl} title="تنزيل المستند"><Icon name="download" /> تنزيل</a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <HearingsCard hearings={hearings} documents={documents} />
 

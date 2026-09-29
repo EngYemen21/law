@@ -22,3 +22,16 @@ export function serverMessage(error: unknown, fallback: string): string {
 
   return fallback;
 }
+
+/**
+ * **أوّل خطأٍ في حقيبة أخطاء Inertia (`onError`) — أو النصّ الاحتياطيّ.**
+ *
+ * نظيرُ `serverMessage` لنداءات `router.*`: الخادم يضع سبب الرفض في `errors.message` (`ErrorResponse`)
+ * أو في حقل التحقّق. كانت ستُّ نسخٍ محلّيّة بأسماء مختلفة (`reason` · `firstError` · `firstErr` ·
+ * `serverError`) تكتب السطر نفسه.
+ */
+export function firstError(errors: Record<string, string> | null | undefined, fallback: string): string {
+  const first = errors ? Object.values(errors)[0] : undefined;
+
+  return typeof first === 'string' && first.trim() !== '' ? first : fallback;
+}

@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\LegalAiService;
 use App\Support\AppointmentCard;
 use App\Support\ConsultBooking;
+use App\Support\ReferenceNumber;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -36,6 +37,9 @@ final class PublishAppointment extends Transition
     private ?TicketMessage $card = null;
 
     private bool $ticketMoved = false;
+
+    /** قُبل الموعد فوق انشغالٍ آخر للمحامي (خيار الحجز المتداخل) — يُسجَّل في الرحلة ويُنبَّه به الحاجز. */
+    private bool $overlap = false;
 
     public function name(): string
     {
@@ -90,7 +94,7 @@ final class PublishAppointment extends Transition
 
         // **الاقتراح لا يتعارض مع نفسه:** يُخلى وقته قبل فحص التعارض، وتُرجعه المعاملة إن رُفض.
         $appointment?->update(['starts_at' => null]);
-        ConsultBooking::guardNoConflict($lawyerId, $startsAt, $duration);
+        $this->overlap = ConsultBooking::guardNoConflict($lawyerId, $startsAt, $duration);
 
         $values = [
             'user_id' => $entity->user_id,
@@ -115,7 +119,7 @@ final class PublishAppointment extends Transition
         if ($appointment !== null) {
             $appointment->update($values);
         } else {
-            $appointment = Appointment::create($values + ['ext_id' => 'AP-'.now()->format('y').'-'.random_int(1000, 9999)]);
+            $appointment = Appointment::create($values + ['ext_id' => ReferenceNumber::next(Appointment::class, 'ext_id', 'AP')]);
         }
 
         $zoom = is_array($payload['zoom'] ?? null) ? $payload['zoom'] : null;
@@ -178,6 +182,12 @@ final class PublishAppointment extends Transition
         )];
     }
 
+    /** قُبل الموعد فوق انشغالٍ آخر للمحامي — يقرؤه `ConsultAppointments` بعد `Workflow::run`. */
+    public function overlapped(): bool
+    {
+        return $this->overlap;
+    }
+
     public function record(array $payload): array
     {
         return [
@@ -185,6 +195,8 @@ final class PublishAppointment extends Transition
             'day' => $payload['day'] ?? null,
             'time' => $payload['time'] ?? null,
             'type' => $payload['type'] ?? null,
+            'overlap' => $this->overlap,
+            'off_hours' => (bool) ($payload['off_hours'] ?? false),
             'changes' => $payload['changes'] ?? [],
         ];
     }

@@ -47,7 +47,7 @@ final class RoomDetails
     /**
      * **الحال الحيّة** — ما تحمّله الصفحة وما يبثّه `RoomStateChanged` بالمفاتيح نفسها.
      *
-     * @return array{live: bool, ended: bool, statusLabel: string, measuredDuration: ?string, participants: ?int, recording?: bool}
+     * @return array{live: bool, ended: bool, statusLabel: string, measuredDuration: ?string, participants: ?int, recording?: bool, outsiders?: int}
      */
     public static function state(Consult|Meeting $session, bool $staff): array
     {
@@ -64,6 +64,8 @@ final class RoomDetails
 
         if ($staff) {
             $state['recording'] = $live && RoomPresence::recording($session);
+            // من دخل من خارج المنصّة (بلا مفتاحها) — تنبيهٌ للطاقم في الغرفة
+            $state['outsiders'] = $live ? RoomPresence::outsiders($session) : 0;
         }
 
         return $state;
@@ -86,15 +88,15 @@ final class RoomDetails
             'ended' => $state['ended'],
             'rows' => self::rows($session, $staff),
             'recording' => $staff ? $state['recording'] : false,
+            'outsiders' => $staff ? $state['outsiders'] : 0,
             'measuredDuration' => $state['measuredDuration'],
             'endAction' => $staff ? self::endAction($session, $viewer, $state['live']) : null,
             'summaryHref' => $state['ended'] && self::wasHeld($session) ? self::summaryHref($session, $viewer) : null,
             'back' => self::back($session, $viewer),
             'channel' => self::channel($session),
             'staffChannel' => $staff ? self::staffChannel($session) : null,
-            // ملاذٌ أخير للطاقم حين يتعذّر التضمين: فتح الغرفة في Zoom مضيفاً. رابط المضيف لا يصل
-            // العميل أبداً (يحمل صلاحيّة المضيف)، ولا يُعطى لجلسةٍ انتهت
-            'hostUrl' => $staff && ! $state['ended'] && filled($session->host_link) ? (string) $session->host_link : null,
+            // لا `hostUrl`: كان ملاذاً للطاقم يفتح الغرفة في Zoom خارج المنصّة — والدخول من غرفة المنصّة
+            // وحدها (قرار المالك 2026-09-29). رابط المضيف لا يغادر الخادم
         ];
     }
 

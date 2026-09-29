@@ -49,7 +49,7 @@ class ZoomLifecycleTest extends TestCase
         $consult = ConsultAppointments::publish($consult, $this->journeyAdmin(), [
             'type' => 'video', 'lawyer_id' => $lawyer->id,
             'date' => $starts->toDateString(), 'time' => '11:00',
-        ]);
+        ])->consult;
 
         $this->assertSame('987654321', $consult->meet_id);
         $this->assertSame('pw', $consult->meet_password);

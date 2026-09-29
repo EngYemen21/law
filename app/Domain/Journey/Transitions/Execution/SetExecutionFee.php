@@ -11,6 +11,7 @@ use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\User;
 use App\Support\ExecFee;
+use App\Support\Finance\LawyerShare;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -115,6 +116,8 @@ final class SetExecutionFee extends Transition
         $entity->fee_approved = $isAdmin;
         if ($isAdmin) {
             $entity->offer_status = null;
+            // نصيب المحامي قرار الإدارة وحدها — تسعير المحامي لا يمسّه، ويُحسب عند اعتماده
+            LawyerShare::applyToExecution($entity, isset($payload['lawyer_pct']) ? (int) $payload['lawyer_pct'] : null);
         }
 
         $entity->stage = $targetStatus->stage();
@@ -132,6 +135,7 @@ final class SetExecutionFee extends Transition
             'fee_mode' => $payload['fee_mode'] ?? 'fixed',
             'collection_fee_pct' => $payload['collection_fee_pct'] ?? null,
             'duration' => $payload['duration'] ?? null,
+            'lawyer_pct' => $payload['lawyer_pct'] ?? null,
         ];
     }
 }

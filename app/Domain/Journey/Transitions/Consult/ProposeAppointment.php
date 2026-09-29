@@ -10,6 +10,7 @@ use App\Models\Appointment;
 use App\Models\Consult;
 use App\Models\User;
 use App\Support\ConsultBooking;
+use App\Support\ReferenceNumber;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -27,6 +28,9 @@ use Illuminate\Database\Eloquent\Model;
 final class ProposeAppointment extends Transition
 {
     private ?Appointment $appointment = null;
+
+    /** قُبل الموعد فوق انشغالٍ آخر للمحامي (خيار الحجز المتداخل) — يُسجَّل في الرحلة ويُنبَّه به الحاجز. */
+    private bool $overlap = false;
 
     public function name(): string
     {
@@ -56,12 +60,13 @@ final class ProposeAppointment extends Transition
     {
         $meta = ConsultBooking::meta((string) $payload['type']);
 
-        ConsultBooking::guardNoConflict((int) $payload['lawyer_id'], $payload['starts_at'], (int) $payload['duration']);
+        $this->overlap = ConsultBooking::guardNoConflict((int) $payload['lawyer_id'], $payload['starts_at'], (int) $payload['duration']);
 
         $this->appointment = Appointment::create([
             'user_id' => $entity->user_id,
             'ticket_id' => $entity->ticket_id,
-            'ext_id' => 'AP-'.now()->format('y').'-'.random_int(1000, 9999),
+            // مفتاح المسار (`Appointment::getRouteKeyName`) — المولّد الموحّد يمنع رقمين لموعدين فيُفتح غير المقصود
+            'ext_id' => ReferenceNumber::next(Appointment::class, 'ext_id', 'AP'),
             'type' => 'استشارة '.$meta['label'],
             'ico' => $meta['ico'],
             'lawyer' => (string) $payload['lawyer'],
@@ -90,6 +95,12 @@ final class ProposeAppointment extends Transition
         return $this->appointment === null ? [] : [new AppointmentProposed($entity, $this->appointment, $actor->name ?? 'النظام')];
     }
 
+    /** قُبل الموعد فوق انشغالٍ آخر للمحامي — يقرؤه `ConsultAppointments` بعد `Workflow::run`. */
+    public function overlapped(): bool
+    {
+        return $this->overlap;
+    }
+
     public function record(array $payload): array
     {
         return [
@@ -97,6 +108,8 @@ final class ProposeAppointment extends Transition
             'day' => $payload['day'] ?? null,
             'time' => $payload['time'] ?? null,
             'type' => $payload['type'] ?? null,
+            'overlap' => $this->overlap,
+            'off_hours' => (bool) ($payload['off_hours'] ?? false),
         ];
     }
 }

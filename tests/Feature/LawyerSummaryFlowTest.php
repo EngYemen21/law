@@ -173,7 +173,9 @@ class LawyerSummaryFlowTest extends TestCase
         $this->actingAs($admin)->get(route('admin.tickets'))
             ->assertOk()->assertInertia(fn ($p) => $p->component('admin/tickets')->has('tickets.data', 1));
 
-        $this->actingAs($admin)->get(route('admin.summaries'))
-            ->assertOk()->assertInertia(fn ($p) => $p->component('admin/summaries')->has('summaries', 1));
+        // سجلّ الملخّصات عند الإدارة تبويبٌ في مركز الاعتمادات — صفحة `/admin/summaries` المكرّرة حُذفت
+        $this->actingAs($admin)->get(route('admin.approvals', ['tab' => 'history']))
+            ->assertOk()->assertInertia(fn ($p) => $p->component('admin/approvals'));
+        $this->actingAs($admin)->get('/admin/summaries')->assertNotFound();
     }
 }

@@ -18,6 +18,58 @@ namespace App\Support;
 class Permissions
 {
     /*
+     * **ثابتٌ لكلّ صلاحيّة — الاسم العربيّ يُكتب هنا مرّةً واحدة** (خطّة «إزالة التعارض» — المرحلة ٣).
+     * كان الاسم يُكتب حرفيّاً في نحو ١٣٠ موضعاً (المسارات والمتحكّمات والكتالوج نفسه)، فخطأٌ إملائيّ
+     * واحد يُسقط الحارس صامتاً: `can()` لاسمٍ غير موجود تُرجع false ولا تشكو. والواجهة تحرسها
+     * `PermissionNamesTest` (كلّ اسمٍ مستعمَل موجودٌ في الكتالوج).
+     */
+    public const MANAGE_TICKETS = 'إدارة التذاكر';
+
+    public const REPLY_TO_CLIENTS = 'الرد على العملاء';
+
+    public const DISTRIBUTE_TICKETS = 'توزيع التذاكر';
+
+    public const TRANSFER_TICKETS = 'تحويل التذاكر';
+
+    public const SCHEDULE_APPOINTMENTS = 'جدولة المواعيد';
+
+    public const RECEIVE_CONSULTS = 'استقبال الاستشارات';
+
+    public const RUN_VIDEO_SESSIONS = 'إجراء الجلسات المرئية';
+
+    public const RUN_LEGAL_ANALYSIS = 'تشغيل تلخيص الفريق القانوني';
+
+    public const APPROVE_CONSULT_SUMMARY = 'اعتماد/تعديل ملخص الاستشارة';
+
+    public const LEGAL_ASSISTANT = 'المساعد القانوني';
+
+    public const APPROVE_SUMMARIES = 'اعتماد الملخصات';
+
+    public const CONSULT_ARCHIVE = 'أرشيف الاستشارات';
+
+    public const MANAGE_MEETINGS = 'إدارة الاجتماعات';
+
+    public const SEND_MEETING_INVITES = 'إرسال دعوات الاجتماعات';
+
+    public const APPROVE_MEETINGS = 'اعتماد الاجتماعات';
+
+    public const MEETING_REPORTS = 'تقارير الاجتماعات';
+
+    public const MANAGE_BOOKINGS = 'إدارة المواعيد والحجوزات';
+
+    public const MANAGE_CASES_AND_FEES = 'إدارة القضايا والأتعاب';
+
+    public const COURT_PROCEEDINGS = 'إجراءات المحكمة والجلسات';
+
+    public const SET_CONSULT_PRICES = 'تحديد أسعار الاستشارات';
+
+    public const REPORTS_AND_REVENUE = 'التقارير والإيرادات';
+
+    public const MANAGE_STAFF = 'إدارة الموظفين';
+
+    public const SECURITY_AUDIT_LOG = 'سجل التدقيق الأمني';
+
+    /*
      * **صلاحيّاتٌ تضيّق ما كان مفتوحاً للموظّف بصلاحيّةٍ أوسع** (قرار المالك 2026-09-18).
      * كان موظّفٌ بصلاحيّةٍ واحدة يسجّل حكماً على أيّ قضيّة، وينزّل مرفقات المكتب كلّه، ويشغّل
      * كلّ التسجيلات — ولا عمودَ يربط الموظّف بملفٍّ بعينه ليُعزل به. فصارت كلٌّ منها صلاحيّةً
@@ -39,14 +91,14 @@ class Permissions
 
     /** المجموعات الخمس (27 صلاحية). */
     public const GROUPS = [
-        'التذاكر والعملاء' => ['إدارة التذاكر', 'الرد على العملاء', 'توزيع التذاكر', 'تحويل التذاكر', 'جدولة المواعيد'],
-        'الاستشارات والفيديو والفريق القانوني' => ['استقبال الاستشارات', 'إجراء الجلسات المرئية', 'تشغيل تلخيص الفريق القانوني', 'اعتماد/تعديل ملخص الاستشارة', 'المساعد القانوني', self::APPROVE_DOCUMENTS, 'اعتماد الملخصات', 'أرشيف الاستشارات', self::PLAY_RECORDINGS],
-        'الاجتماعات' => ['إدارة الاجتماعات', 'إرسال دعوات الاجتماعات', 'اعتماد الاجتماعات', 'تقارير الاجتماعات'],
+        'التذاكر والعملاء' => [self::MANAGE_TICKETS, self::REPLY_TO_CLIENTS, self::DISTRIBUTE_TICKETS, self::TRANSFER_TICKETS, self::SCHEDULE_APPOINTMENTS],
+        'الاستشارات والفيديو والفريق القانوني' => [self::RECEIVE_CONSULTS, self::RUN_VIDEO_SESSIONS, self::RUN_LEGAL_ANALYSIS, self::APPROVE_CONSULT_SUMMARY, self::LEGAL_ASSISTANT, self::APPROVE_DOCUMENTS, self::APPROVE_SUMMARIES, self::CONSULT_ARCHIVE, self::PLAY_RECORDINGS],
+        'الاجتماعات' => [self::MANAGE_MEETINGS, self::SEND_MEETING_INVITES, self::APPROVE_MEETINGS, self::MEETING_REPORTS],
         // حُذفت «إشعارات العملاء» (2026-09-24): شاشتها ومتحكّمها ومساراتها الثلاثة أُزيلت، ولا
         // موضع في النظام يكتب فيه إداريٌّ إشعاراً لعميلٍ بعينه — فبقاؤها مربّعٌ مؤشَّر يفتح باباً
         // معدوماً. تحذفها من القاعدة مهاجرة `2026_09_24_..._drop_client_notifications_permission`.
-        'العملاء والإشعارات والمواعيد' => ['إدارة المواعيد والحجوزات'],
-        'القضايا والمالية والإدارة' => ['إدارة القضايا والأتعاب', 'إجراءات المحكمة والجلسات', self::RECORD_RULINGS, self::DOWNLOAD_FILES, 'تحديد أسعار الاستشارات', 'التقارير والإيرادات', 'إدارة الموظفين', 'سجل التدقيق الأمني'],
+        'العملاء والإشعارات والمواعيد' => [self::MANAGE_BOOKINGS],
+        'القضايا والمالية والإدارة' => [self::MANAGE_CASES_AND_FEES, self::COURT_PROCEEDINGS, self::RECORD_RULINGS, self::DOWNLOAD_FILES, self::SET_CONSULT_PRICES, self::REPORTS_AND_REVENUE, self::MANAGE_STAFF, self::SECURITY_AUDIT_LOG],
     ];
 
     /**
@@ -62,17 +114,17 @@ class Permissions
         // مفتاحُ استثناءٍ لموظّفٍ بعينه. وهي غائبةٌ عن قالب «خدمة عملاء» وعن بذرة
         // الموظّف، فلا ينالها أحدٌ تلقائياً.
         'employee' => [
-            'إدارة التذاكر', 'الرد على العملاء', 'توزيع التذاكر', 'تحويل التذاكر', 'جدولة المواعيد',
-            'استقبال الاستشارات', 'إجراء الجلسات المرئية', 'تشغيل تلخيص الفريق القانوني',
-            'المساعد القانوني', self::APPROVE_DOCUMENTS,
-            'إرسال دعوات الاجتماعات',
-            'إدارة المواعيد والحجوزات',
-            'إدارة القضايا والأتعاب',
+            self::MANAGE_TICKETS, self::REPLY_TO_CLIENTS, self::DISTRIBUTE_TICKETS, self::TRANSFER_TICKETS, self::SCHEDULE_APPOINTMENTS,
+            self::RECEIVE_CONSULTS, self::RUN_VIDEO_SESSIONS, self::RUN_LEGAL_ANALYSIS,
+            self::LEGAL_ASSISTANT, self::APPROVE_DOCUMENTS,
+            self::SEND_MEETING_INVITES,
+            self::MANAGE_BOOKINGS,
+            self::MANAGE_CASES_AND_FEES,
             // **«إجراءات المحكمة والجلسات» تمنحها الإدارة من تبويب الموظّفين** (قرار المالك 2026-09-11):
             // تسجيل الرفع في ناجز والقيد، وجدولة الجلسات وتحديثها، وتسجيل الحكم. سقفٌ لا منح —
             // غائبةٌ عن قالب «خدمة عملاء» وعن بذرة الموظّف، فلا ينالها إلا من تختاره الإدارة.
             // والمحامي لا يحتاجها: يباشر هذه الإجراءات بإسناده للقضيّة.
-            'إجراءات المحكمة والجلسات',
+            self::COURT_PROCEEDINGS,
             // سقوفٌ لا منح (انظر أعلى الصنف): تظهر مربّعاتٍ في شاشة صلاحيّات الموظّف
             self::RECORD_RULINGS, self::DOWNLOAD_FILES, self::PLAY_RECORDINGS,
         ],
@@ -85,28 +137,38 @@ class Permissions
         // وتفريغاتٍ لموكّلي محامين آخرين. وفتحُه يحتاج تصفيةً بالإسناد — قرارُ منتجٍ لا
         // إصلاحُ عطل.
         'lawyer' => [
-            'المساعد القانوني', self::APPROVE_DOCUMENTS, 'اعتماد الملخصات', 'اعتماد/تعديل ملخص الاستشارة', 'تشغيل تلخيص الفريق القانوني',
-            'إدارة القضايا والأتعاب',
-            'استقبال الاستشارات', 'إجراء الجلسات المرئية',
-            'إدارة الاجتماعات', 'إرسال دعوات الاجتماعات', 'اعتماد الاجتماعات', 'تقارير الاجتماعات',
+            self::LEGAL_ASSISTANT, self::APPROVE_DOCUMENTS, self::APPROVE_SUMMARIES, self::APPROVE_CONSULT_SUMMARY, self::RUN_LEGAL_ANALYSIS,
+            self::MANAGE_CASES_AND_FEES,
+            self::RECEIVE_CONSULTS, self::RUN_VIDEO_SESSIONS,
+            self::MANAGE_MEETINGS, self::SEND_MEETING_INVITES, self::APPROVE_MEETINGS, self::MEETING_REPORTS,
         ],
         'admin' => 'ALL',
     ];
 
     /** القوالب الجاهزة (تُنشأ كأدوار spatie). */
     public const PRESETS = [
-        'خدمة عملاء' => ['إدارة التذاكر', 'الرد على العملاء', 'جدولة المواعيد', 'تحويل التذاكر', 'استقبال الاستشارات', 'إدارة المواعيد والحجوزات', 'إرسال دعوات الاجتماعات'],
+        'خدمة عملاء' => [self::MANAGE_TICKETS, self::REPLY_TO_CLIENTS, self::SCHEDULE_APPOINTMENTS, self::TRANSFER_TICKETS, self::RECEIVE_CONSULTS, self::MANAGE_BOOKINGS, self::SEND_MEETING_INVITES],
         // «اعتماد/تعديل ملخص الاستشارة» و«أرشيف الاستشارات» كانتا في `ROLE_PERMISSIONS`
         // للمحامي وغائبتين عن قالبه الجاهز، ومسارا `consults.summary` و`summary/approve`
         // يشترطان الأولى. فمحامٍ يُنشأ بالقالب يرى محرّر التقرير وزرّ الاعتماد ثمّ يُصدّ.
         // (محامو القاعدة الحاليّون يملكونها لأنهم أُنشئوا بمسارٍ آخر — الخطر على من يأتي.)
         // و«إرسال دعوات الاجتماعات» كشفها الحارس نفسه: مجموعةُ طلبات الاجتماعات
         // كاملةً تشترطها، وكانت خارج القالب.
-        'محامٍ' => ['المساعد القانوني', self::APPROVE_DOCUMENTS, 'اعتماد الملخصات', 'اعتماد/تعديل ملخص الاستشارة', 'إدارة القضايا والأتعاب', 'استقبال الاستشارات', 'إجراء الجلسات المرئية', 'تشغيل تلخيص الفريق القانوني', 'إدارة الاجتماعات', 'إرسال دعوات الاجتماعات'],
-        'إداري' => ['توزيع التذاكر', 'إدارة الموظفين', 'التقارير والإيرادات', 'أرشيف الاستشارات', 'استقبال الاستشارات', 'إدارة الاجتماعات', 'اعتماد الاجتماعات', 'تقارير الاجتماعات', 'إدارة المواعيد والحجوزات'],
+        'محامٍ' => [self::LEGAL_ASSISTANT, self::APPROVE_DOCUMENTS, self::APPROVE_SUMMARIES, self::APPROVE_CONSULT_SUMMARY, self::MANAGE_CASES_AND_FEES, self::RECEIVE_CONSULTS, self::RUN_VIDEO_SESSIONS, self::RUN_LEGAL_ANALYSIS, self::MANAGE_MEETINGS, self::SEND_MEETING_INVITES],
+        'إداري' => [self::DISTRIBUTE_TICKETS, self::MANAGE_STAFF, self::REPORTS_AND_REVENUE, self::CONSULT_ARCHIVE, self::RECEIVE_CONSULTS, self::MANAGE_MEETINGS, self::APPROVE_MEETINGS, self::MEETING_REPORTS, self::MANAGE_BOOKINGS],
         'الإدارة العليا' => 'ALL',
         'مدير' => 'ALL',
     ];
+
+    /**
+     * **وسيط المسار من الثوابت** — `Route::middleware(Permissions::middleware(self::A, self::B))`
+     * يُنتج `permission:A,B` حرفاً بحرف (أيٌّ منها يكفي — `EnsurePermission`)، فخريطة `viewMap`
+     * التي تُبنى من نصوص الوسائط وقت التشغيل لا تتغيّر.
+     */
+    public static function middleware(string ...$names): string
+    {
+        return 'permission:'.implode(',', $names);
+    }
 
     /** قائمة مسطّحة بكل الصلاحيات (27). */
     public static function all(): array

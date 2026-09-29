@@ -19,26 +19,47 @@ use InvalidArgumentException;
 final class TicketEntity
 {
     private ?int $id;
+
     private TicketNumber $number;
+
     private int $userId;
+
     private TicketType $type;
+
     private ?string $subject;
+
     private TicketStatus $status;
+
     private string $priority;
+
     private ?string $department;
+
     private ?int $assignedLawyerId;
+
     private ?string $assignedLawyerName;
+
     private string $tone;
+
     private bool $isFrozen;
+
     private ?ClosureReason $closureReason;
+
     private ?float $claimAmount;
+
     private ?string $courtName;
+
     private ?string $opponentName;
+
     private ?string $opponentId;
+
     private ?string $lastMessage;
+
     private ?int $legalDepartmentId;
+
     private ?int $legalServiceId;
+
     private ?DateTimeImmutable $createdAt;
+
     private ?DateTimeImmutable $updatedAt;
 
     public function __construct(
@@ -219,7 +240,7 @@ final class TicketEntity
     public function freeze(): void
     {
         $this->isFrozen = true;
-        $this->updatedAt = new DateTimeImmutable();
+        $this->updatedAt = new DateTimeImmutable;
     }
 
     /**
@@ -254,7 +275,7 @@ final class TicketEntity
         if ($lawyerName !== null) {
             $this->assignedLawyerName = trim($lawyerName);
         }
-        $this->updatedAt = new DateTimeImmutable();
+        $this->updatedAt = new DateTimeImmutable;
     }
 
     /**
@@ -272,7 +293,7 @@ final class TicketEntity
         if ($targetStatus->isTerminal()) {
             $this->freeze();
         } else {
-            $this->updatedAt = new DateTimeImmutable();
+            $this->updatedAt = new DateTimeImmutable;
         }
     }
 
@@ -299,7 +320,6 @@ final class TicketEntity
                 TicketStatus::Referred,
                 TicketStatus::AwaitingDocs,
             ], true),
-            'can_rerun_ai' => ! $this->isFrozen && $this->status === TicketStatus::Analyzing,
         ];
     }
 

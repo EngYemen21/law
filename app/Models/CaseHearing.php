@@ -60,6 +60,15 @@ class CaseHearing extends Model
         return HearingStatus::of($this->status);
     }
 
+    /**
+     * **لون الجلسة الحيّ** — الفائتة حمراء وإن بقيت «مجدولة» مخزَّنة، وغيرها بلون حالتها
+     * (`HearingStatus::tone`). المصدر الواحد لشاشة جلسات الإدارة والتقويم الزمنيّ.
+     */
+    public function liveTone(): string
+    {
+        return ($this->isLapsed() ? HearingStatus::Lapsed : ($this->statusEnum() ?? HearingStatus::Scheduled))->tone();
+    }
+
     public function documents(): HasMany
     {
         return $this->hasMany(CaseDocument::class, 'hearing_id');

@@ -35,7 +35,7 @@ class ConsultJourneyHonestyTest extends TestCase
 
         return Consult::create(array_merge([
             'user_id' => $client->id,
-            'ref' => 'CN-JRN-'.random_int(100, 999),
+            'ref' => 'CN-JRN-'.uniqid(),
             'subject' => 'نزاع تجاري',
             'type' => 'استشارة',
             'channel' => 'مرئية',
@@ -116,8 +116,9 @@ class ConsultJourneyHonestyTest extends TestCase
 
         $ui = $this->ui();
         $this->assertStringContainsString('const referBlocked = ', $ui);
-        $this->assertStringContainsString('CONSULT_CLOSED_STATUSES.includes(c.status)', $ui);
-        $this->assertStringContainsString('CONSULT_BOOKING_STATUSES.includes(c.status)', $ui);
+        // من أعلام الخادم (`isClosed` · `bookingStage`) لا من قوائم منسوخة
+        $this->assertStringContainsString(': c.isClosed', $ui);
+        $this->assertStringContainsString(': c.bookingStage != null', $ui);
         // ولا إحالةَ بلا اختيارٍ صريح — الخادم يسقط إلى النائب النصّيّ «المستشار القانوني»
         $this->assertStringContainsString('disabled={busy || !lawyerId || !!referBlocked}', $ui);
     }
@@ -126,7 +127,7 @@ class ConsultJourneyHonestyTest extends TestCase
     {
         $ui = $this->ui();
 
-        $this->assertStringContainsString('const analyzeBlocked = CONSULT_CLOSED_STATUSES.includes(c.status);', $ui);
+        $this->assertStringContainsString('const analyzeBlocked = c.isClosed;', $ui);
         $this->assertStringContainsString('{mayAnalyze && !analyzeBlocked && (', $ui);
         // و«حفظ التعديلات» يفرض الخادمُ فيه aiLawyer مطلوباً
         $this->assertStringContainsString('disabled={busy || !lawyerName}', $ui);
@@ -169,7 +170,8 @@ class ConsultJourneyHonestyTest extends TestCase
 
     public function test_the_server_does_not_ask_a_consult_for_meeting_minutes(): void
     {
-        $src = file_get_contents(app_path('Http/Controllers/Staff/ConsultController.php'));
+        // الرسالة في شروط الاعتماد الموحّدة (`Consult::summaryApprovalBlocker`) التي يقرؤها المسار
+        $src = file_get_contents(app_path('Models/Consult.php'));
 
         // الاستشارة لها ملخّصٌ وتدوينُ جلسة — لا محضر
         $this->assertStringNotContainsString('دوّن محضر الجلسة أو اكتب التقرير', $src);

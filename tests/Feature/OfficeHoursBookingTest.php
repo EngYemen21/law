@@ -1,0 +1,183 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Enums\Role;
+use App\Http\Middleware\HandleInertiaRequests;
+use App\Models\JourneyTransition;
+use App\Models\Meeting;
+use App\Models\Setting;
+use App\Models\User;
+use App\Support\ConsultBooking;
+use App\Support\LawyerAvailability;
+use App\Support\SettingsRegistry;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\File;
+use Tests\Concerns\BuildsConsultJourney;
+use Tests\TestCase;
+
+/**
+ * **الحجز بدوام المكتب** (قرار المالك 2026-09-28): ٠٩:٠٠–٢٢:٠٠، الأحد–الخميس — إعداداتٌ تضبطها الإدارة
+ * (`consult_day_start`/`consult_day_end`/`consult_work_days`)، ويقرؤها المحرّك والشبكات والحارس معاً.
+ */
+class OfficeHoursBookingTest extends TestCase
+{
+    use BuildsConsultJourney;
+    use RefreshDatabase;
+
+    private function lawyer(): User
+    {
+        return User::factory()->create(['role' => Role::Lawyer, 'status' => 'active', 'department' => 'القضايا التجارية']);
+    }
+
+    private function nextWeek(int $weekday): string
+    {
+        return now()->startOfWeek(Carbon::SUNDAY)->addDays(7 + $weekday)->toDateString();
+    }
+
+    public function test_the_defaults_are_the_office_hours_and_days(): void
+    {
+        $this->assertSame([9, 22], LawyerAvailability::workHours());
+        $this->assertSame([0, 1, 2, 3, 4], LawyerAvailability::workDays());
+        $this->assertSame('0,1,2,3,4', HandleInertiaRequests::sharedSettings()['consult_work_days'], 'الشبكات تقرأ الأيّام من الخادم');
+    }
+
+    public function test_a_day_off_has_no_slots_instead_of_the_next_days_slots(): void
+    {
+        // كان `slotsFor` ينقل الجمعة صامتاً إلى الأحد فتعرض شبكة الجمعة شرائح الأحد
+        $this->assertSame([], LawyerAvailability::slotsFor($this->lawyer()->id, $this->nextWeek(5)));
+    }
+
+    public function test_the_server_refuses_a_booking_outside_the_office_days_or_hours(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+        $this->lawyer();
+        $consult = $this->requestPricedAndPaid($client, $this->ticketWithApprovedOpinion($client, ['status' => 'بانتظار حجز الاستشارة']), 'video');
+
+        $this->adminPublishes($consult, ['date' => $this->nextWeek(5), 'time' => '10:00'])
+            ->assertStatus(422)->assertJsonPath('errors.time.0', 'هذا اليوم خارج أيّام دوام المكتب — اختر يوماً من أيّام الدوام.');
+        $this->adminPublishes($consult, ['date' => $this->nextWeek(1), 'time' => '08:30'])->assertStatus(422);
+        // آخر بدايةٍ تنتهي شريحتها (٦٠د) قبل ٢٢:٠٠
+        $this->adminPublishes($consult, ['date' => $this->nextWeek(1), 'time' => '21:30'])
+            ->assertStatus(422)->assertJsonPath('errors.time.0', 'الموعد خارج ساعات دوام المكتب (09:00–22:00).');
+
+        $this->adminPublishes($consult, ['date' => $this->nextWeek(1), 'time' => '21:00'])->assertOk();
+    }
+
+    public function test_the_admin_sets_the_days_and_they_are_stored_sorted_once(): void
+    {
+        $admin = User::factory()->create(['role' => Role::Admin]);
+
+        $this->actingAs($admin)->post(route('admin.settings.update'), ['consult_work_days' => '6,0,1,1'])->assertSessionHasNoErrors();
+        $this->assertSame('0,1,6', Setting::get('consult_work_days'));
+        $this->assertSame([0, 1, 6], LawyerAvailability::workDays());
+
+        $this->actingAs($admin)->post(route('admin.settings.update'), ['consult_work_days' => '7'])->assertSessionHasErrors('consult_work_days');
+        $this->actingAs($admin)->post(route('admin.settings.update'), ['consult_work_days' => ''])->assertSessionHasErrors('consult_work_days');
+    }
+
+    public function test_a_corrupt_stored_value_falls_back_instead_of_closing_booking(): void
+    {
+        Setting::put('consult_work_days', 'x,9');
+        SettingsRegistry::flush();
+
+        $this->assertSame(LawyerAvailability::WORK_DAYS, LawyerAvailability::workDays());
+    }
+
+    public function test_the_booking_screens_read_the_days_from_one_hook(): void
+    {
+        $hook = (string) file_get_contents(resource_path('js/lib/consult-slots.ts'));
+        $this->assertStringContainsString('consult_work_days', $hook);
+
+        foreach (['employee/schedule', 'employee/ticketchat'] as $page) {
+            $src = (string) file_get_contents(resource_path("js/pages/{$page}.tsx"));
+            $this->assertStringContainsString('gridOn(', $src, $page);
+            $this->assertStringContainsString('emptyText=', $src, "{$page}: يوم العطلة لا يعرض الشبكة العامّة");
+        }
+    }
+
+    /** يوم العطلة في شبكة المستشارين: شارة «عطلة» لا «مكتمل اليوم»، ولا «NaN%» في بطاقة المستشار الواحد. */
+    public function test_the_day_off_is_not_shown_as_fully_booked(): void
+    {
+        $src = (string) file_get_contents(resource_path('js/pages/employee/schedule.tsx'));
+
+        $this->assertStringContainsString('{dayHours.length === 0 ? (', $src);
+        $this->assertStringContainsString('stats.total > 0 ? Math.round((stats.free / stats.total) * 100) : 0', $src);
+    }
+
+    /** «لم يُختر يوم» ليس «يوم عطلة» — منتقي محادثة التذكرة يعرض شبكة الدوام قبل التاريخ. */
+    public function test_no_date_yet_shows_the_office_grid(): void
+    {
+        $this->assertStringContainsString("dateISO === '' || allowOffHours || isWorkDay(", (string) file_get_contents(resource_path('js/lib/consult-slots.ts')));
+    }
+
+    /** الجمعة ومحامٍ مشغول: الرفض بسبب الدوام أوّلاً — الرسالة لا تتبع ترتيب الفحوص عشوائيّاً. */
+    public function test_a_day_off_is_refused_for_office_hours_before_the_lawyer_being_busy(): void
+    {
+        $friday = Carbon::parse($this->nextWeek(5).' 10:00');
+        $lawyer = $this->lawyer();
+        Meeting::create([
+            'user_id' => null, 'ref' => 'M-OH-1', 'title' => 'اجتماع', 'when_label' => 'x', 'status' => 'قادم',
+            'assigned_lawyer_id' => $lawyer->id, 'starts_at' => $friday, 'dur' => '60 دقيقة',
+        ]);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $consult = $this->requestPricedAndPaid($client, $this->ticketWithApprovedOpinion($client, ['status' => 'بانتظار حجز الاستشارة']), 'video');
+
+        $this->adminPublishes($consult, ['date' => $friday->toDateString(), 'time' => '10:00', 'lawyer_id' => $lawyer->id])
+            ->assertStatus(422)->assertJsonPath('errors.time.0', 'هذا اليوم خارج أيّام دوام المكتب — اختر يوماً من أيّام الدوام.');
+    }
+
+    /** أسماء الأيّام تعريفٌ واحد (`lib/local-date.ts`) — كانت نسختين في التقويم والإعدادات. */
+    public function test_week_day_names_are_defined_once(): void
+    {
+        $copies = collect(File::allFiles(resource_path('js')))
+            ->filter(fn ($f) => str_contains($f->getContents(), "['الأحد', 'الاثنين'"))
+            ->map(fn ($f) => str_replace(resource_path('js').'/', '', $f->getPathname()))
+            ->values()->all();
+
+        $this->assertSame(['lib/local-date.ts'], $copies);
+    }
+
+    /**
+     * **خيار «السماح بالحجز خارج الدوام»** (`consult_allow_outside_office`، قرار المالك 2026-09-28): «نعم» يقبل
+     * موعد العطلة أو خارج الساعات بتنبيه ويسجّله في الرحلة، وتُعرض شبكة يوم العطلة للحجز.
+     */
+    public function test_off_hours_booking_is_accepted_with_a_notice_when_allowed(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => Role::Admin]))
+            ->post(route('admin.settings.update'), ['consult_allow_outside_office' => '1'])->assertSessionHasNoErrors();
+        $lawyer = $this->lawyer();
+        $client = User::factory()->create(['role' => Role::Client]);
+        $friday = $this->requestPricedAndPaid($client, $this->ticketWithApprovedOpinion($client, ['status' => 'بانتظار حجز الاستشارة']), 'video');
+
+        $this->adminPublishes($friday, ['date' => $this->nextWeek(5), 'time' => '10:00', 'lawyer_id' => $lawyer->id])
+            ->assertOk()->assertJsonPath('message', fn (string $m) => str_ends_with($m, ConsultBooking::OFF_HOURS_NOTICE));
+        $this->assertDatabaseHas('journey_transitions', ['entity_id' => $friday->id, 'transition' => 'consult.publish-appointment']);
+        $this->assertTrue(JourneyTransition::where('entity_id', $friday->id)->where('transition', 'consult.publish-appointment')->first()->payload['off_hours']);
+
+        // دقيقةٌ مخصّصة قبل بداية الساعات في يوم عمل
+        $early = $this->requestPricedAndPaid($client, $this->ticketWithApprovedOpinion($client, ['status' => 'بانتظار حجز الاستشارة']), 'video');
+        $this->adminPublishes($early, ['date' => $this->nextWeek(1), 'time' => '07:30', 'lawyer_id' => $lawyer->id])->assertOk();
+
+        // وشبكة يوم العطلة تُعرض للطاقم
+        $this->assertCount(13, LawyerAvailability::slotsFor($lawyer->id, $this->nextWeek(6)));
+    }
+
+    public function test_within_office_hours_there_is_no_off_hours_notice(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => Role::Admin]))
+            ->post(route('admin.settings.update'), ['consult_allow_outside_office' => '1'])->assertSessionHasNoErrors();
+        $client = User::factory()->create(['role' => Role::Client]);
+        $consult = $this->requestPricedAndPaid($client, $this->ticketWithApprovedOpinion($client, ['status' => 'بانتظار حجز الاستشارة']), 'video');
+
+        $this->adminPublishes($consult, ['date' => $this->nextWeek(1), 'time' => '10:00', 'lawyer_id' => $this->lawyer()->id])
+            ->assertOk()->assertJsonPath('message', fn (string $m) => ! str_contains($m, ConsultBooking::OFF_HOURS_NOTICE));
+    }
+
+    public function test_the_booking_screens_open_a_day_off_when_allowed(): void
+    {
+        $this->assertStringContainsString("dateISO === '' || allowOffHours || isWorkDay(", (string) file_get_contents(resource_path('js/lib/consult-slots.ts')));
+        $this->assertArrayHasKey('consult_allow_outside_office', HandleInertiaRequests::sharedSettings());
+    }
+}

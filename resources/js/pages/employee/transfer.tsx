@@ -6,24 +6,16 @@ import LawyerSuggestionHint, { type LawyerSuggestionData } from '@/components/ba
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import { foldSearch, isUrgentTicket } from '@/lib/employee-data';
+import { inSessionSuffix, PresenceBadge, useInSession } from '@/lib/staff-presence';
+import type { EmployeeTicketCard } from '@/types';
 
 // ============================================================
 // لوحة تحويل التذاكر وتوزيع أعباء العمل للموظف (Smart Re-assignment Hub)
 // رادار سعة المستشارين، تحويل جماعي وفردي، سجل تدقيق، وفلاتر ذكية
 // ============================================================
 
-export interface EmpTransferTicket {
-  no: string;
-  client: string;
-  clientId?: number;
-  type: string;
-  subject?: string;
-  priority?: string;
-  dept: string;
-  lawyer: string;
-  lawyerId?: number | null;
-  status: string;
-  tone: string;
+/** `Ticket::toEmployeeCard` (`@/types`) وما تُلحقه هذه الصفحة. */
+export interface EmpTransferTicket extends EmployeeTicketCard {
   isUnassigned?: boolean;
   /** اقتراح النظام لغير المسنَدة، موسوماً بالتخصّص (يؤكّده الموظّف) */
   suggestion?: LawyerSuggestionData | null;
@@ -69,6 +61,7 @@ const EmployeeTransfer: React.FC<Props> = ({
   departments = [],
   recentTransfers = [],
 }) => {
+  const inSession = useInSession();
   const toast = useToast();
 
   // التبويب النشط
@@ -281,6 +274,7 @@ const EmployeeTransfer: React.FC<Props> = ({
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <b style={{ fontSize: 13.5, color: 'var(--ink)' }}>{l.name}</b>
+                    <PresenceBadge userId={l.id} showFree />
                     <Badge text={capLabel} tone={capTone} />
                   </div>
 
@@ -534,7 +528,7 @@ const EmployeeTransfer: React.FC<Props> = ({
                           >
                             {lawyers.map((l) => (
                               <option key={l.id} value={l.id}>
-                                {l.name} ({l.activeTickets} تذاكر)
+                                {l.name} ({l.activeTickets} تذاكر){inSessionSuffix(inSession, l.id)}
                               </option>
                             ))}
                           </select>
@@ -612,7 +606,7 @@ const EmployeeTransfer: React.FC<Props> = ({
               >
                 {lawyers.map((l) => (
                   <option key={l.id} value={l.id}>
-                    {l.name} ({l.activeTickets} تذاكر)
+                    {l.name} ({l.activeTickets} تذاكر){inSessionSuffix(inSession, l.id)}
                   </option>
                 ))}
               </select>

@@ -19,8 +19,6 @@ use Illuminate\Support\Facades\DB;
 
 class AdminDashboardService
 {
-    private const CLOSED_CASES = ['مغلقة', 'مؤرشفة'];
-
     // v3: التحصيل بـ`paid_at` والرادار من `AdminApprovalQueue` — الشكل تغيّر، فمفتاحٌ جديد يتخطّى المخزَّن
     public const CACHE_KEY = 'admin:dashboard:360:metrics_v3';
 
@@ -46,19 +44,14 @@ class AdminDashboardService
         $endOfPrevMonth = $now->copy()->subMonth()->endOfMonth();
 
         // 1. المالية (Invoices)
-        $invoiceStats = DB::table('invoices')
-            ->selectRaw('
-                COALESCE(SUM(amount), 0) as total_billed,
-                COALESCE(SUM(CASE WHEN paid = 1 THEN amount ELSE 0 END), 0) as total_collected,
-                COALESCE(SUM(CASE WHEN paid = 0 THEN amount ELSE 0 END), 0) as total_unpaid,
-                COUNT(CASE WHEN paid = 0 AND due_at IS NOT NULL AND due_at < ? THEN 1 END) as overdue_count
-            ', [$now->toDateString()])
-            ->first();
-
-        $totalBilled = (int) ($invoiceStats->total_billed ?? 0);
-        $totalCollected = (int) ($invoiceStats->total_collected ?? 0);
-        $totalUnpaid = (int) ($invoiceStats->total_unpaid ?? 0);
-        $overdueCount = (int) ($invoiceStats->overdue_count ?? 0);
+        // **الصادر بنطاق النموذج** (`Invoice::issued` — تعريف تقرير الإيرادات وشاشة المالية نفسه):
+        // كان يجمع الملغاة فيكبر المقام وتظهر نسبة التحصيل أدنى من حقيقتها.
+        $totalBilled = (int) Invoice::issued()->sum('amount');
+        $totalCollected = (int) Invoice::issued()->where('paid', true)->sum('amount');
+        // **الذمّة والتأخّر بنطاقَي النموذج** — كان الشرط `paid = 0` وحده، فتُعدّ الملغاة والمعدومة
+        // ديناً ومتأخّرة، ويختلف الرقم عن شاشة المالية وعن شارة «متأخرة» على الفاتورة نفسها.
+        $totalUnpaid = (int) Invoice::outstanding()->sum('amount');
+        $overdueCount = Invoice::overdue()->count();
         /*
          * **المحصَّل في شهرٍ = ما سُدّد فيه** (`paid_at`) — من المصدر الواحد للتقارير الماليّة
          * (`RevenueSnapshot::collectedBetween`). كان يُقاس بـ`updated_at`: أيّ تعديلٍ لاحق على فاتورةٍ
@@ -86,13 +79,14 @@ class AdminDashboardService
         ];
 
         // 3. القضايا
-        $caseStats = DB::table('cases')
-            ->selectRaw("
-                COUNT(*) as total_cases,
-                COUNT(CASE WHEN status NOT IN ('مغلقة', 'مؤرشفة') THEN 1 END) as active_cases,
-                COUNT(CASE WHEN status IN ('مغلقة', 'مؤرشفة') THEN 1 END) as closed_cases
-            ")
-            ->first();
+        // «النشطة» بنطاق النموذج (`LegalCase::active`) — المصدر نفسه لعدّادات اللوحات الأخرى
+        $totalCases = LegalCase::count();
+        $activeCases = LegalCase::active()->count();
+        $caseStats = (object) [
+            'total_cases' => $totalCases,
+            'active_cases' => $activeCases,
+            'closed_cases' => $totalCases - $activeCases,
+        ];
 
         // 4. التنفيذ
         // **الطلب المرفوض ليس ملفّاً نشطاً.** `ExecService::reject` يكتب القرار ولا ينقل المرحلة
@@ -274,7 +268,7 @@ class AdminDashboardService
             ->get()
             ->map(function (User $lawyer) {
                 $activeCases = LegalCase::where('assigned_lawyer_id', $lawyer->id)
-                    ->whereNotIn('status', self::CLOSED_CASES)
+                    ->active()
                     ->count();
 
                 $activeTickets = Ticket::where('assigned_lawyer_id', $lawyer->id)

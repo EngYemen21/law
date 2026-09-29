@@ -135,6 +135,34 @@ class ZoomWebhookController extends Controller
         return null;
     }
 
+    /**
+     * **حسابُ الداخل على المنصّة** — غرفة المنصّة تعرّف كلّ داخلٍ لـZoom بـ`customerKey` = `u{id}`
+     * (`ZoomController::sdkSignature`) فيعود في الحدث `customer_key`. الحمولة موقَّعة (HMAC أعلاه).
+     * `null` = دخل بلا مفتاح المنصّة: تطبيق Zoom أو رقم الاجتماع مباشرةً — لا يُخمَّن شخص.
+     */
+    private function platformUser(Request $request): ?User
+    {
+        $key = (string) $request->input('payload.object.participant.customer_key', '');
+
+        return preg_match('/^u(\d+)$/', $key, $m) ? User::find((int) $m[1]) : null;
+    }
+
+    /** الجلسات تُعقد داخل المنصّة وحدها (قرار المالك 2026-09-29) — فالدخول من خارجها يُسجَّل للمراجعة. */
+    private function auditOutsideJoin(Consult|Meeting $model, Request $request): void
+    {
+        $name = trim((string) $request->input('payload.object.participant.user_name', '')) ?: 'مجهول';
+        $what = $model instanceof Consult ? 'الاستشارة' : 'الاجتماع';
+
+        Audit::log(
+            action: 'دخول جلسة من خارج المنصّة',
+            description: "دخل «{$name}» {$what} {$model->ref} عبر Zoom مباشرةً دون غرفة المنصّة.",
+            category: 'أمن وحماية',
+            severity: 'warning',
+            auditable: $model,
+            auditableRef: (string) $model->ref,
+        );
+    }
+
     // التسجيل/النصّ ثقيلان نسبياً — يُنزَّلان بعد إرسال الاستجابة (الـwebhook يردّ 200 فوراً)
     private function recording(Model $model, Request $request): void
     {
@@ -147,7 +175,11 @@ class ZoomWebhookController extends Controller
     {
         // من في الغرفة الآن — يُحسب لكلّ دخول (لا الأوّل وحده) ويُبثّ لصفحة الغرفة لحظيّاً
         if (($key = $this->participantKey($request)) !== null) {
-            RoomPresence::participantJoined($model, $key);
+            $user = $this->platformUser($request);
+            $new = RoomPresence::participantJoined($model, $key, $user?->isClient() === false ? $user->id : null, $user === null);
+            if ($user === null && $new) {
+                $this->auditOutsideJoin($model, $request);
+            }
         }
 
         $join = $request->input('payload.object.participant.join_time');

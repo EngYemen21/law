@@ -15,6 +15,7 @@ use App\Models\UserNotification;
 use App\Services\Ai\AiReviewInbox;
 use App\Support\AdminApprovalQueue;
 use App\Support\Permissions;
+use App\Support\RoomPresence;
 use App\Support\SettingsRegistry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -54,6 +55,9 @@ class HandleInertiaRequests extends Middleware
         // ساعات الحجز وطول الشريحة — شبكة الموظّف ومنتقي الوقت يرسمان ما يولّده المحرّك
         'consult_day_start',
         'consult_day_end',
+        'consult_work_days',
+        'consult_allow_overlap',
+        'consult_allow_outside_office',
         'consult_slot_minutes',
         // حدّ «متأخّر» في شاشتي الاستشارات — كانتا تحملان 100 و120 للطلبات نفسها
         'consult_request_late_minutes',
@@ -92,8 +96,6 @@ class HandleInertiaRequests extends Middleware
     public function share(Request $request): array
     {
         $user = $request->user();
-        // أُلغيت معاينة اللوحات (الإمبرسنيشن) 2026-08-28 — لا قراءة لمفتاح الجلسة القديم
-        // $impersonatorId = $request->session()->get('impersonator_id');
 
         return [
             ...parent::share($request),
@@ -121,8 +123,6 @@ class HandleInertiaRequests extends Middleware
                         : [],
                 ] : null,
             ],
-            // أُلغيت لافتة معاينة لوحة الموظف (الإمبرسنيشن) بقرار 2026-08-28
-            // 'impersonating' => ($impersonatorId && $user) ? ['name' => $user->name] : null,
             // كتالوج الصلاحيات (المصدر الوحيد من الخادم) — للتصفية وشاشة الموظفين
             'permCatalog' => $user ? Permissions::catalog() : null,
             // متغيّرات النظام التي تعرضها الواجهات (الدفعات، الضريبة، هويّة المكتب) — من مصدرها
@@ -135,6 +135,9 @@ class HandleInertiaRequests extends Middleware
                 // السقف النافذ من الإعدادات (`consult_reschedule_limit`) — القارئ نفسه الذي يحرس الانتقال
                 'limit' => RescheduleConsult::limit(),
             ] : null,
+            // **مَن من الطاقم في جلسة Zoom الآن** [معرّف ⇒ رقم الجلسة] — من أحداث Zoom (`RoomPresence`)،
+            // قراءةٌ واحدة تغذّي كلّ قوائم المحامين في الصفحة (`lib/staff-presence`). للطاقم وحده، وللعرض فقط.
+            'inSession' => fn () => ($user && $user->role !== Role::Client) ? (object) RoomPresence::staffInSession() : null,
             // عدّ الإشعارات غير المقروءة الحقيقي (كسول) — يغذّي نقطة الجرس وشارة «الإشعارات»
             'unreadNotifications' => fn () => $user
                 ? UserNotification::where('user_id', $user->id)->where('is_read', false)->count()
@@ -162,7 +165,8 @@ class HandleInertiaRequests extends Middleware
                     '/calendar' => Appointment::with('consult')->where('user_id', $user->id)
                         ->where('status', '!=', 'بانتظار الاعتماد')
                         ->get()->filter(fn (Appointment $a) => $a->liveState()[0] === 'up')->count(),
-                    '/invoices' => Invoice::where('user_id', $user->id)->where('paid', false)->count(),
+                    // ما يُطالَب به فعلاً (`owedByClient`) — لا الملغاة ولا المعدومة ولا المسوّدة
+                    '/invoices' => Invoice::where('user_id', $user->id)->owedByClient()->count(),
                 ]
                 : []),
             // المفتاحان مقبولان: with('success', …) وwith('flash', …) — الأخير مستعمل في 17 متحكّماً

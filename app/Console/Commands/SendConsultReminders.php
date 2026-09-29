@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Domain\Journey\Enums\SessionState;
 use App\Jobs\SendSmsJob;
 use App\Mail\ConsultReminderMail;
 use App\Models\Consult;
@@ -40,7 +41,7 @@ class SendConsultReminders extends Command
         // القادمة المحجوزة والمسدَّدة خلال الأفق الأقصى (24 ساعة).
         // paid_at صريح: الرسالة النصّية تكلّف مالاً فلا تُنفَق على طلب غير مسدَّد.
         $consults = Consult::with('user')
-            ->where('session', 'بانتظار الجلسة')
+            ->where('session', SessionState::Waiting->value)
             ->whereNotNull('paid_at')
             ->whereNotNull('starts_at')
             ->where('starts_at', '>', $now)

@@ -16,6 +16,7 @@ use App\Support\ReportPrint;
 use App\Support\SummaryReport;
 use App\Support\TicketDocumentRequirements;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Symfony\Component\Finder\Finder;
 use Tests\TestCase;
 
 /**
@@ -197,5 +198,25 @@ class DocumentAndMetricHonestyTest extends TestCase
         // وبعد تنقيح النموذج فعلاً
         $refined = ClassifyConvertedCaseJob::analysisBody($ticket, $analysis, refined: true);
         $this->assertStringContainsString('تحليل ذكي للطلب', $refined);
+    }
+
+    /**
+     * **الشعار هويّة الوثيقة الوحيدة — لا شريط تذييل** (طلب المالك 2026-09-28). كان أسفل كلّ PDF
+     * شريطٌ أزرق «اسم المكتب — …» بنصٍّ يختلف من وثيقةٍ لأخرى؛ فلا يعود من المولّد المشترك ولا
+     * من أيّ مستدعٍ يمرّر نصّه.
+     */
+    public function test_pdf_documents_carry_no_footer_strip(): void
+    {
+        $html = ReportPrint::html(['title' => 'ت', 'subtitle' => 'ف', 'ref' => 'R-1', 'blocks' => []]);
+        $this->assertStringNotContainsString('cf-foot', $html);
+        $this->assertStringNotContainsString('صادر إلكترونياً', $html);
+
+        $offenders = [];
+        foreach ((new Finder)->files()->in(app_path())->name('*.php') as $file) {
+            if (preg_match("/'footer'\s*=>/", $file->getContents())) {
+                $offenders[] = $file->getRelativePathname();
+            }
+        }
+        $this->assertSame([], $offenders, 'مولّدٌ يمرّر نصّ تذييلٍ إلى الوثيقة — الشعار وحده هويّتها.');
     }
 }

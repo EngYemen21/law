@@ -8,6 +8,7 @@ use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -21,7 +22,7 @@ class ExecutionCreation
     {
         // «مغلقة» أيضاً (قرار المالك 2026-09-11): الإغلاق بعد الحكم كان يمنع فتح التنفيذ
         // نهائياً، ونصُّه يقول «بعد صدور الحكم وتنفيذه» ولو لم يُفتح تنفيذ. والمؤرشفة لا.
-        return in_array($case->status, ['صدر الحكم', 'مغلقة'], true) && ! $case->execution()->exists();
+        return in_array($case->status, CaseJourney::POST_JUDGMENT, true) && ! $case->execution()->exists();
     }
 
     public static function fromCase(LegalCase $case, User $actor): Execution
@@ -144,7 +145,7 @@ class ExecutionCreation
                 'defendant' => (string) ($ticket->opponent_name ?? ''),
                 'amount' => (int) ($ticket->claim_amount ?? 0),
                 'notes' => $notes,
-                'docs' => $ticket->documents->map(fn ($d) => (string) ($d->doc_type ?: $d->name))->filter()->unique()->values()->all(),
+                'docs' => self::carriedDocuments($ticket)->map(fn ($d) => (string) ($d->doc_type ?: $d->name))->filter()->unique()->values()->all(),
                 'assigned_lawyer' => $lawyer->name,
                 'assigned_lawyer_id' => $lawyer->id,
                 'decision' => 'مقبول',
@@ -154,7 +155,7 @@ class ExecutionCreation
                 'last_action' => 'فتح طلب التنفيذ بعد اعتماد مسار التنفيذ — بانتظار تحديد الأتعاب',
             ]), $actor, array_filter(['ticket' => $ticket->number, 'reason' => $reason]));
 
-            self::migrateTicketDocuments($exec, $ticket->documents);
+            self::migrateTicketDocuments($exec, self::carriedDocuments($ticket));
             $exec->load('documents');
 
             $exec->messages()->create([
@@ -197,6 +198,16 @@ class ExecutionCreation
         );
 
         return $exec;
+    }
+
+    /**
+     * مستندات التذكرة التي تنتقل إلى ملفّ التنفيذ — **بلا ما رفضه الفحص «غير مرتبط»**. كان يُنسخ كلّ
+     * مرفقٍ ويُختم «مرفوع»، فيدخل ملفَّ التنفيذ مستندٌ قرّر الفحص أنّه لا يخصّ الطلب. القاعدة نفسها
+     * في مرفقات القضيّة (`CaseTicketDocuments`).
+     */
+    private static function carriedDocuments(Ticket $ticket): Collection
+    {
+        return $ticket->documents->reject(fn ($d) => $d->status === CaseTicketDocuments::UNRELATED)->values();
     }
 
     /**

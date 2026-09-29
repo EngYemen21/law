@@ -128,7 +128,7 @@ export const AdminPrices: React.FC<Props> = ({ prices }) => {
       </div>
 
       {/* ── 2. محاكاة الأسعار والفاتورة الحية (Live Price Matrix Preview) ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, margin: '20px 0' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: 16, margin: '20px 0' }}>
         {channelCards.map((card) => (
           <div
             key={card.key}
@@ -262,7 +262,7 @@ export const AdminPrices: React.FC<Props> = ({ prices }) => {
           <h3>إعدادات الضريبة والقواعد النظامية</h3>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20, alignItems: 'center' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 20, alignItems: 'center' }}>
           <div>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--muted)', marginBottom: 8 }}>
               نسبة ضريبة القيمة المضافة VAT (%):

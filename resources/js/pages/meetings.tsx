@@ -5,7 +5,6 @@ import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { RichText } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { sessTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useSettings } from '@/lib/settings';
 
@@ -44,6 +43,8 @@ export interface VideoConsult {
   joinLink: string;
   status: string;
   session: string;
+  /** `SessionState::tone()` من الخادم. */
+  sessionTone: string;
   lawyer: string;
 }
 
@@ -242,10 +243,7 @@ return;
           </div>
 
           <div className="hero-cta" style={{ margin: 0 }}>
-            <button className="hero-b" onClick={() => router.visit('/book')} type="button">
-              <Icon name="calplus" /> حجز استشارة جديدة
-            </button>
-            <button className="hero-b ghost" onClick={() => router.visit('/calendar')} type="button">
+            <button className="hero-b" onClick={() => router.visit('/calendar')} type="button">
               <Icon name="cal" /> المواعيد والتقويم
             </button>
             <button className="hero-b ghost" onClick={() => router.visit('/cases')} type="button">
@@ -599,7 +597,7 @@ return;
                       </div>
 
                       <div className="iact">
-                        <Badge text={c.session || c.status} tone={sessTone(c.session || '')} />
+                        <Badge text={c.session || c.status} tone={c.sessionTone} />
                         {c.canJoin ? (
                           <button
                             className="btn sm"

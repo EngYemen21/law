@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
 import Pagination from '@/components/babylon/Pagination';
 import type { Paginated } from '@/components/babylon/Pagination';
+import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
 import { truncateWords } from '@/lib/utils';
 
@@ -80,6 +81,7 @@ export const AdminJourneyTransitions: React.FC<Props> = ({
   // Slide-over Drawer
   const [activeItem, setActiveItem] = useState<JourneyTransitionRow | null>(null);
   const [copied, setCopied] = useState(false);
+  const toast = useToast();
   const [showDevLog, setShowDevLog] = useState(false);
 
   const rows = useMemo(() => transitions?.data ?? [], [transitions]);
@@ -123,11 +125,16 @@ export const AdminJourneyTransitions: React.FC<Props> = ({
     window.location.href = `/admin/journey-transitions/export?${params.toString()}`;
   };
 
+  // ينسخ ما يُعرض في السجلّ التقنيّ نفسه (الانتقال + الحمولة) — والحافظة قد تُمنع (صفحةٌ غير آمنة)
+  const devLogText = (item: JourneyTransitionRow) => JSON.stringify({ transition: item.transition, payload: item.payload }, null, 2);
   const copyPayload = () => {
     if (!activeItem?.payload) return;
-    navigator.clipboard.writeText(JSON.stringify(activeItem.payload, null, 2));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    navigator.clipboard?.writeText(devLogText(activeItem))
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => toast('⚠️ تعذّر النسخ — المتصفّح منع الوصول إلى الحافظة؛ حدّد النصّ وانسخه يدوياً.'));
   };
 
   const hasActiveFilters = Boolean(
@@ -696,8 +703,13 @@ export const AdminJourneyTransitions: React.FC<Props> = ({
                       </button>
                       {showDevLog && (
                         <div style={{ marginTop: 8, textAlign: 'left', direction: 'ltr' }}>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+                            <button type="button" className="btn soft sm" onClick={copyPayload}>
+                              <Icon name={copied ? 'check' : 'doc'} /> {copied ? 'نُسخ' : 'نسخ السجلّ'}
+                            </button>
+                          </div>
                           <pre style={{ background: '#0f172a', color: '#38bdf8', padding: 12, borderRadius: 6, fontSize: 11, maxHeight: 200, overflowY: 'auto', margin: 0 }}>
-                            {JSON.stringify({ transition: activeItem.transition, payload: activeItem.payload }, null, 2)}
+                            {devLogText(activeItem)}
                           </pre>
                         </div>
                       )}

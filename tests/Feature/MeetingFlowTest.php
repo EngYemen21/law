@@ -121,7 +121,7 @@ class MeetingFlowTest extends TestCase
             'dur' => '45 دقيقة',
             'client_id' => $client->id,
             'lawyer_id' => $lawyer->id,
-            'day' => '2026-07-08',
+            'day' => now()->addDays(3)->toDateString(),
             'time' => '10:00',
         ])->assertRedirect();
 

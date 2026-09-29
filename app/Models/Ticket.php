@@ -12,6 +12,7 @@ use App\Models\Concerns\PurgesDocumentFiles;
 use App\Support\LawyerName;
 use App\Support\TicketJourney;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -171,6 +172,8 @@ class Ticket extends Model
             'approvedTrackAt' => $this->approved_track_at?->format('Y-m-d H:i'),
             // سبب تعطيل رفع المقترح/الاعتماد من مصدر الحارس نفسه — لا تعيد البطاقة اشتقاقه (ث٥)
             'outcomeBlocker' => OutcomeSummaryGate::blocker($this),
+            // استشارةٌ قائمة تمنع القرار كلّه — مانعٌ بلا تجاوز، فلا تعرض له البطاقة حقل سبب
+            'consultBlocker' => OutcomeSummaryGate::consultBlocker($this),
             // سبب التجاوز الذي دوّنه هذا المشاهِد حين رفع المقترح — فلا تطلبه البطاقة ثانيةً
             'inheritedWaiver' => OutcomeSummaryGate::inheritedWaiver($this, auth()->user()),
         ];
@@ -198,7 +201,7 @@ class Ticket extends Model
             'statusCode' => $entity->status()->name,
             'actions' => $actions,
             'phase' => TicketJourney::clientPhase((string) $this->status),
-            'tone' => $this->tone ?: TicketJourney::toneFor($this->status),
+            'tone' => $this->tone,
             'last' => $this->last_message,
             // «الآن» المخزّنة كانت تتجمّد للأبد — الاشتقاق الحيّ من آخر تحديث (العمود يبقى للتوافق)
             'date' => $this->updated_at?->locale('ar')->diffForHumans() ?? $this->date_label,
@@ -347,5 +350,40 @@ class Ticket extends Model
     public function isClosed(): bool
     {
         return $this->isTerminal();
+    }
+
+    /**
+     * **سبب منع «إعادة التحليل الذكي للملخّص»، أو `null` إن جازت** — القاعدة الواحدة لمسارَي
+     * الموظّف والمستشار/الإدارة ولزرّيهما (قرار المالك 2026-09-27). كانت ثلاث قواعد مختلفة:
+     * مسار الموظّف يقبلها على تذكرةٍ مجمَّدة، ومسار المستشار يمنعها بعد اعتماده، وعلمُ الكيان
+     * يشترط «قيد التحليل» ولا ينظر في الملخّص.
+     */
+    public function summaryRerunBlocker(): ?string
+    {
+        $summary = $this->summary;
+
+        return match (true) {
+            $summary === null => 'لا ملخّص لإعادة تحليله بعد.',
+            $summary->isApproved() => 'لا يمكن إعادة تشغيل التحليل لملخّص تم اعتماده رسمياً.',
+            $summary->isLawyerApproved() => 'اعتُمد هذا الملخّص من المستشار — لا يُعاد توليده.',
+            (bool) $this->is_frozen => 'حُسم مسار التذكرة — لا يُعاد تحليل ملخّصها.',
+            default => null,
+        };
+    }
+
+    /** `scopeOpen` مطبَّقاً على صفٍّ محمَّل — لتصفية مجموعةٍ جُلبت أصلاً دون استعلامٍ ثانٍ. */
+    public function isOpen(): bool
+    {
+        return ! in_array($this->status, TicketStatus::finals(), true);
+    }
+
+    /**
+     * **اللون يُحسب من الحالة عند القراءة (`TicketJourney::toneFor`)** — العمود المخزَّن يُكتب مع الانتقال
+     * لكنّه لا يُقرأ: كانت حمولاتٌ ترسله خاماً وأخرى تحسبه، وصفوفٌ قديمة تحمل لوناً غير لون
+     * حالتها، وشاشة التوزيع تسدّ فراغه بألوانٍ لا يُنتجها الخادم. فكلّ `->tone` الآن هو لون الحالة.
+     */
+    protected function tone(): Attribute
+    {
+        return Attribute::get(fn () => TicketJourney::toneFor((string) $this->status));
     }
 }

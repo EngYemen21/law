@@ -39,6 +39,7 @@ class CalendarController extends Controller
                 'time' => $h->time,
                 'where' => $h->court,
                 'status' => EventStatus::forHearing($h),
+                'statusTone' => EventStatus::toneForHearing($h),
                 'startsAt' => $h->startMoment()?->toIso8601String(),
                 // المدّة المتوقّعة إن أُدخلت — وإلا لا مدّة تُعرض (لا نهاية مختلَقة للجلسة)
                 'durationMin' => $h->duration_min,
@@ -46,7 +47,7 @@ class CalendarController extends Controller
 
         // 2. اجتماعات المحامي
         // بالإسناد وحده: `created_by` نصُّ اسمٍ يشاركه الزملاء فيُدخل اجتماعات غيره
-        $meetings = Meeting::where('assigned_lawyer_id', $lawyerId)->where($window)->orderByRaw('starts_at is null')->orderBy('starts_at')->limit(CalendarWindow::LIMIT)->get()
+        $meetings = Meeting::visibleToLawyer($lawyerId)->where($window)->orderByRaw('starts_at is null')->orderBy('starts_at')->limit(CalendarWindow::LIMIT)->get()
             ->map(function (Meeting $m) {
                 return [
                     'kind' => 'اجتماع',
@@ -57,6 +58,7 @@ class CalendarController extends Controller
                     'time' => null,
                     'where' => $m->client_name ?: 'داخلي',
                     'status' => EventStatus::forMeeting($m),
+                    'statusTone' => EventStatus::toneForMeeting($m),
                     'startsAt' => $m->starts_at?->toIso8601String(),
                 ];
             });
@@ -75,6 +77,7 @@ class CalendarController extends Controller
                     'time' => $c->time,
                     'where' => $c->channel === 'حضورية' ? $c->placeLabel() : 'جلسة مرئية بالمنصة',
                     'status' => EventStatus::forConsult($c),
+                    'statusTone' => EventStatus::toneForConsult($c),
                     'startsAt' => $start?->toIso8601String(),
                 ];
             });

@@ -72,11 +72,10 @@ class ConsultReport
                     ['title' => '٢. بياناتك', 'cellRows' => [[['اسم العميل', $clientName], ['الحالة', 'عميل نشط']]]],
                     ['title' => '٣. مقدّم الخدمة', 'cellRows' => [[['الجهة', 'المكتب القانوني'], ['المحامي المسؤول', auth()->user()?->isClient() ? LawyerName::forClient($consult->assigned_lawyer_id ? $consult->assignedLawyer : null, $consult->lawyer, '—') : ($consult->lawyer ?: '—')]]]],
                 ],
-                ['title' => '٤. ملخص الاستشارة', 'lines' => match (true) {
-                    $consult->summaryApproved() => $consult->summary,
-                    blank($consult->summary) => self::AWAITING_DRAFT,
-                    default => self::AWAITING_APPROVAL,
-                }],
+                // الملخّص المعتمد بفقراته وقوائمه (`SummaryText` — قواعد `RichText` نفسها)، والانتظار نصٌّ عاديّ
+                $consult->summaryApproved()
+                    ? ['title' => '٤. ملخص الاستشارة', 'rich' => (string) $consult->summary]
+                    : ['title' => '٤. ملخص الاستشارة', 'lines' => blank($consult->summary) ? self::AWAITING_DRAFT : self::AWAITING_APPROVAL],
                 [
                     'title' => '٥. الفاتورة والسداد',
                     'cellRows' => [[
@@ -102,8 +101,6 @@ class ConsultReport
                 ],
             ],
             'note' => 'هذا التقرير يلخّص استشارتك القانونية ولا يُعدّ بذاته مرافعة أو مستنداً قضائياً. للاستفسار يمكنك فتح تذكرة من بوابتك.',
-            // اسم المكتب من الإعدادات — التذييل المنقوش كان يعلو على ما تضبطه الإدارة
-            'footer' => SettingsRegistry::str('office_name').' — نسخة العميل · صادرة إلكترونياً',
         ];
     }
 }

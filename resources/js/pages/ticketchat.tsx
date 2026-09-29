@@ -9,38 +9,12 @@ import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
 import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
+import { useServerAction } from '@/lib/use-server-action';
+// بطاقة العميل من النوع المشترك (`Ticket::toCard`) — كانت مُعرَّفةً هنا وفي الصفحة الأخرى
+import type { ClientTicketCard as TicketCard } from '@/types';
 
 // يطابق clientTicketView + خطوات حجز الاستشارة (tfChooseConsult→tfInvoice→tfPaid→tfChooseSlot→tfConfirm)
 // دورة الحجز مقودة من الخادم عبر حالة الاستشارة المرتبطة (consult): تسعير الإدارة → فاتورة → دفع محاكى → موعد.
-
-export interface TicketActions {
-  can_request_consult?: boolean;
-  can_convert_case?: boolean;
-  can_convert_exec?: boolean;
-  can_close?: boolean;
-  can_request_docs?: boolean;
-  can_rerun_ai?: boolean;
-}
-
-interface TicketCard {
-  no: string;
-  type: string;
-  status: string;
-  statusCode?: string;
-  tone: string;
-  isFrozen?: boolean;
-  isTerminal?: boolean;
-  actions?: TicketActions;
-  hasCase?: boolean;
-  caseNumber?: string | null;
-  hasExecution?: boolean;
-  executionNumber?: string | null;
-  /** ما نُشر للعميل من قرار المآل وحده — `Ticket::publishedTrackDecision`. */
-  trackGovernance?: {
-    approvedTrack?: string | null;
-    approvedTrackReason?: string | null;
-  };
-}
 interface ConsultLink {
   id: number; ref: string; status: string; channel: string; statusCode?: string;
   price?: number; vat?: number; total?: number; priced?: boolean; paid?: boolean; invoiceNo?: string | null;
@@ -58,7 +32,10 @@ const TYPES: { key: string; label: string; ico: string; sub: string }[] = [
 const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ no, consult }) => {
   const toast = useToast();
   const [type, setType] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [requesting, setBusy] = useState(false);
+  // قفلٌ موحّد للدفع — نقرتان لا تفتحان جلستَي دفع
+  const payment = useServerAction();
+  const busy = requesting || payment.busy;
   const cardRef = useRef<HTMLDivElement>(null);
 
   // بثّ لحظي لتقدّم الاستشارة (تسعير الإدارة/السداد) — يعيد تحميل الحقول من الخادم
@@ -88,14 +65,9 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
 
   const pay = () => {
     if (!consult) return;
-    setBusy(true);
     // النجاح = تحويل المتصفّح لصفحة ميسّر (Inertia::location) — لا توست «تم السداد» هنا،
     // فـ back()->with('error') عند تعذّر بدء الدفع استجابة ناجحة أيضاً وكانت تُظهر نجاحاً كاذباً.
-    router.post(`/consults/${consult.id}/pay`, {}, {
-      preserveScroll: true,
-      onError: (errors) => toast(Object.values(errors)[0] ?? 'تعذّر بدء الدفع، حاول بعد قليل'),
-      onFinish: () => setBusy(false),
-    });
+    void payment.run(`/consults/${consult.id}/pay`, { fallback: 'تعذّر بدء الدفع، حاول بعد قليل' });
   };
 
   const badge = !status ? 'اختر النوع'
@@ -167,13 +139,13 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
 
 const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Message[]; consult?: ConsultLink | null }> = ({ ticket, channel, messages, consult }) => {
   // الحالة لحظية: تتحدّث عبر بثّ القناة فيتقدّم المسار دون إعادة تحميل
-  const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone });
+  const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone, isTerminal: Boolean(ticket.isTerminal) });
 
   // عند بثّ حالة التذكرة (تقدّم المسار خادميّاً) نعيد جلب الاستشارة المرتبطة أيضاً — فتصل حقول
   // الفاتورة/السداد لحظياً ويُفعَّل زر «الدفع عبر ميسّر» دون إعادة تحميل يدوي للصفحة.
   // القناة مشتركة مع الطاقم: `status` داخليّ، والعميل يقرأ `clientStatus` (قيد إعداد الرأي القانوني…)
-  const onStatus = (s: { status: string; tone: string; clientStatus?: string }) => {
-    setStatus({ status: s.clientStatus ?? s.status, tone: s.tone });
+  const onStatus = (s: { status: string; tone: string; clientStatus?: string; isTerminal?: boolean }) => {
+    setStatus({ status: s.clientStatus ?? s.status, tone: s.tone, isTerminal: Boolean(s.isTerminal) });
     router.reload({ only: ['consult'] });
   };
 
@@ -186,7 +158,9 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
   );
   const showBooking = canRequest || !!bookingActive;
 
-  const isTerminal = Boolean(ticket.isTerminal || ticket.isFrozen || ['مكتملة', 'مغلقة', 'محولة إلى قضية', 'محولة إلى تنفيذ'].includes(status.status));
+  // حكم الخادم (`TicketStatus::isTerminal`) — من الصفحة ثمّ من البثّ. كانت قائمةٌ داخليّة تُقارَن بتسمية
+  // العميل (`clientStatus`) فلا تصدق أبداً
+  const isTerminal = Boolean(status.isTerminal || ticket.isFrozen);
 
   const topExtra = (
     <>
