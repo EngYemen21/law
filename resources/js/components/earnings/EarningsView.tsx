@@ -19,6 +19,8 @@ interface Props {
     onMonth: (month: string) => void;
     statementHref?: string;
     payoutAction?: (p: PayoutRow) => React.ReactNode;
+    /** رابط سند صرف القيد — الإدارة من مسار الموظّف، والموظّف من «مستحقاتي». */
+    voucherHref?: (p: PayoutRow) => string;
 }
 
 export const sar = (n: number | null | undefined): string =>
@@ -55,6 +57,7 @@ const EarningsView: React.FC<Props> = ({
     onMonth,
     statementHref,
     payoutAction,
+    voucherHref,
 }) => {
     const t = e.totals;
 
@@ -385,6 +388,7 @@ const EarningsView: React.FC<Props> = ({
                                     <th>الملفّ</th>
                                     <th className="n">المبلغ</th>
                                     <th>ملاحظة</th>
+                                    {voucherHref && <th>سند الصرف</th>}
                                     {payoutAction && <th />}
                                 </tr>
                             </thead>
@@ -418,6 +422,20 @@ const EarningsView: React.FC<Props> = ({
                                                 </div>
                                             )}
                                         </td>
+                                        {voucherHref && (
+                                            <td style={{ textDecoration: 'none' }}>
+                                                {p.voucherNo && (
+                                                    <a
+                                                        className="btn soft sm"
+                                                        href={voucherHref(p)}
+                                                        download
+                                                    >
+                                                        <Icon name="download" />{' '}
+                                                        {p.voucherNo}
+                                                    </a>
+                                                )}
+                                            </td>
+                                        )}
                                         {payoutAction && (
                                             <td>
                                                 {p.voided

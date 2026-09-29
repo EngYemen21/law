@@ -27,6 +27,7 @@ const Earnings: React.FC<Props> = ({ earnings, base }) => (
                 )
             }
             statementHref={`${base}/earnings/statement.pdf?month=${earnings.month}`}
+            voucherHref={(p) => `${base}/earnings/payouts/${p.id}/voucher.pdf`}
         />
     </>
 );

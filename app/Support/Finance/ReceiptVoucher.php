@@ -34,7 +34,7 @@ final class ReceiptVoucher
         ]);
 
         for ($try = 1; ; $try++) {
-            $payment->receipt_no = VoucherNumber::next(self::PREFIX, Payment::class, 'receipt_no', $receivedAt);
+            $payment->receipt_no = VoucherNumber::next(self::PREFIX, [[Payment::class, 'receipt_no']], $receivedAt);
 
             try {
                 $payment->save();

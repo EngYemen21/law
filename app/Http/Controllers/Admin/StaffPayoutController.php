@@ -9,10 +9,15 @@ use App\Models\LegalCase;
 use App\Models\StaffPayout;
 use App\Models\User;
 use App\Support\Audit;
+use App\Support\Finance\PaymentVoucher;
+use App\Support\Finance\PaymentVoucherDocument;
 use App\Support\Finance\StaffEarnings;
+use App\Support\PdfRenderer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * **مستحقّات الموظّف وسجلّ صرفه — درج الإدارة** (تبويب الموظّفين، صلاحيّة `إدارة الموظفين`).
@@ -51,7 +56,8 @@ class StaffPayoutController extends Controller
         $file = $kind->needsFile() ? self::fileOf($user, $kind, (int) ($data['file_id'] ?? 0), $data['period']) : null;
         abort_if($kind->needsFile() && $file === null, 422, 'اختر '.($kind === PayoutKind::CaseShare ? 'القضيّة' : 'ملفّ التنفيذ').' التي للموظّف نصيبٌ فيها.');
 
-        $payout = StaffPayout::create([
+        // القيد وسند صرفه معاً — لا قيدَ بلا سند (دفتر سندات الصرف واحدٌ مع المصروفات)
+        $payout = DB::transaction(fn () => PaymentVoucher::issue(StaffPayout::create([
             'user_id' => $user->id,
             'kind' => $kind,
             'amount' => (int) $data['amount'],
@@ -61,7 +67,7 @@ class StaffPayoutController extends Controller
             'note' => $data['note'] ?? null,
             'paid_at' => $data['paid_at'] ?? today(),
             'recorded_by' => $request->user()->id,
-        ]);
+        ])));
 
         Audit::log(
             action: 'تسجيل صرف لموظف',
@@ -107,6 +113,15 @@ class StaffPayoutController extends Controller
         );
 
         return response()->json(self::payload($user, $payout->period) + ['message' => 'أُلغي القيد.']);
+    }
+
+    /** سند صرف القيد PDF — والملغى يُطبع بحالته وسببه. */
+    public function voucher(User $user, StaffPayout $payout): Response
+    {
+        self::guardStaff($user);
+        abort_unless($payout->user_id === $user->id && $payout->voucher_no !== null, 404);
+
+        return PdfRenderer::render(PaymentVoucherDocument::forPayout($payout), $payout->voucher_no.'.pdf');
     }
 
     /** المستحقّات لموظّفٍ أو محامٍ وحدهما — لا عميل ولا إدارة. */

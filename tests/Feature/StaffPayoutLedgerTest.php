@@ -90,7 +90,9 @@ class StaffPayoutLedgerTest extends TestCase
         $this->assertTrue(AuditLog::where('action', 'إلغاء قيد صرف')->exists());
 
         $routes = collect(Route::getRoutes()->getRoutes())->filter(fn ($r) => str_contains($r->uri(), 'payouts'));
-        $this->assertEqualsCanonicalizing([['POST'], ['POST']], $routes->map(fn ($r) => array_values(array_diff($r->methods(), ['HEAD'])))->values()->all(), 'لا تعديل ولا حذف لقيد الصرف');
+        // الكتابة على القيد مساران لا غير (تسجيلٌ وإلغاء) — وما عداهما قراءةٌ (تنزيل سند الصرف)
+        $writes = $routes->flatMap(fn ($r) => array_diff($r->methods(), ['GET', 'HEAD']))->values()->all();
+        $this->assertEqualsCanonicalizing(['POST', 'POST'], $writes, 'لا تعديل ولا حذف لقيد الصرف');
     }
 
     public function test_a_payout_of_another_staff_member_cannot_be_voided_through_this_one(): void

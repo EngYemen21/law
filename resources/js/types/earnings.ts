@@ -46,6 +46,8 @@ export interface SessionRow {
 
 export interface PayoutRow {
     id: number;
+    /** رقم سند الصرف (`PV-…`) — دفترٌ واحد مع المصروفات. */
+    voucherNo: string | null;
     kind: PayoutKindId;
     kindLabel: string;
     amount: number;

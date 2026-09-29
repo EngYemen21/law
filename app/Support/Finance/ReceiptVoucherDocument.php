@@ -6,8 +6,6 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\ReportPrint;
-use Carbon\Carbon;
-use Carbon\CarbonInterface;
 
 /**
  * **سند القبض مطبوعاً** — بتصميم مستندات المكتب نفسه (`ReportPrint`) وبيانات المكتب نفسها التي
@@ -41,7 +39,7 @@ final class ReceiptVoucherDocument
                 [
                     'title' => '٣. المبلغ',
                     'cellRows' => [
-                        [['المبلغ', number_format($halalas / 100, 2).' ر.س']],
+                        [['المبلغ', VoucherFormat::sar($halalas)]],
                         [['المبلغ كتابةً', ArabicAmount::riyals($halalas)]],
                     ],
                 ],
@@ -60,23 +58,10 @@ final class ReceiptVoucherDocument
                 'title' => 'الاستلام',
                 'rows' => [
                     ['المستلِم', $payment->receiverLabel()],
-                    ['تاريخ القبض', self::dateText($receivedAt)],
+                    ['تاريخ القبض', VoucherFormat::date($receivedAt)],
                 ],
             ],
             'note' => 'هذا السند إثباتٌ لاستلام المبلغ المذكور أعلاه، ولا يُغني عن الفاتورة الضريبيّة.',
         ]);
-    }
-
-    private static function dateText(?CarbonInterface $at): string
-    {
-        if ($at === null) {
-            return '—';
-        }
-
-        // `locale()` بمعاملٍ يضبط لغة النسخة (ويُنمَّط «نسخة أو نصّ» فلا يُسلسَل)
-        $date = Carbon::instance($at);
-        $date->locale('ar');
-
-        return $date->translatedFormat('d F Y');
     }
 }

@@ -87,7 +87,10 @@ class Permissions
     /** اعتماد لوائح ومستندات محرر الصياغة القانونية — سقف للموظف، ويُمنح للمحامي والإدارة. */
     public const APPROVE_DOCUMENTS = 'اعتماد الصياغة القانونية';
 
-    /** المجموعات الخمس (27 صلاحية). */
+    /** تسجيل مصروفٍ يبقى بانتظار اعتماد الإدارة (`/employee/expenses`) — سقفٌ للموظّف لا منح (2026-09-29). */
+    public const RECORD_EXPENSES = 'تسجيل المصروفات';
+
+    /** المجموعات الخمس — العدد من `all()` لا من تعليق. */
     public const GROUPS = [
         'التذاكر والعملاء' => [self::MANAGE_TICKETS, self::REPLY_TO_CLIENTS, self::DISTRIBUTE_TICKETS, self::TRANSFER_TICKETS, self::SCHEDULE_APPOINTMENTS],
         'الاستشارات والفيديو والفريق القانوني' => [self::RECEIVE_CONSULTS, self::RUN_VIDEO_SESSIONS, self::RUN_LEGAL_ANALYSIS, self::APPROVE_CONSULT_SUMMARY, self::LEGAL_ASSISTANT, self::APPROVE_DOCUMENTS, self::APPROVE_SUMMARIES, self::CONSULT_ARCHIVE, self::PLAY_RECORDINGS],
@@ -96,7 +99,7 @@ class Permissions
         // موضع في النظام يكتب فيه إداريٌّ إشعاراً لعميلٍ بعينه — فبقاؤها مربّعٌ مؤشَّر يفتح باباً
         // معدوماً. تحذفها من القاعدة مهاجرة `2026_09_24_..._drop_client_notifications_permission`.
         'العملاء والإشعارات والمواعيد' => [self::MANAGE_BOOKINGS],
-        'القضايا والمالية والإدارة' => [self::MANAGE_CASES_AND_FEES, self::COURT_PROCEEDINGS, self::RECORD_RULINGS, self::DOWNLOAD_FILES, self::REPORTS_AND_REVENUE, self::MANAGE_STAFF, self::SECURITY_AUDIT_LOG],
+        'القضايا والمالية والإدارة' => [self::MANAGE_CASES_AND_FEES, self::COURT_PROCEEDINGS, self::RECORD_RULINGS, self::DOWNLOAD_FILES, self::REPORTS_AND_REVENUE, self::MANAGE_STAFF, self::SECURITY_AUDIT_LOG, self::RECORD_EXPENSES],
     ];
 
     /**
@@ -125,6 +128,8 @@ class Permissions
             self::COURT_PROCEEDINGS,
             // سقوفٌ لا منح (انظر أعلى الصنف): تظهر مربّعاتٍ في شاشة صلاحيّات الموظّف
             self::RECORD_RULINGS, self::DOWNLOAD_FILES, self::PLAY_RECORDINGS,
+            // مصروفٌ يسجّله الموظّف ولا يُحسب حتى تعتمده الإدارة (قرار المالك 2026-09-29)
+            self::RECORD_EXPENSES,
         ],
         // **«أرشيف الاستشارات» أُزيلت من دور المحامي.** كانت ممنوحةً له وكلُّ مساراتها
         // الأربعة داخل مجموعة `role:admin`، و`EnsureRole` يحجب غيرَ الإدارة **بلا أيّ

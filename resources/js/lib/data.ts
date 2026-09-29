@@ -211,6 +211,8 @@ const EMPLOYEE_NAV: SideGroup[] = [
   ] },
   { g: 'حسابي', items: [
     { icon: 'card', label: 'مستحقاتي', route: '/employee/earnings' },
+    // بصلاحيّة «تسجيل المصروفات» وحدها — `viewMap` من المسار يخفيه عمّن لا يملكها
+    { icon: 'doc', label: 'المصروفات', route: '/employee/expenses' },
   ] },
 ];
 
@@ -337,6 +339,7 @@ const EMPLOYEE_TITLES: Record<string, [string, string]> = {
   '/employee/schedule': ['التقويم والمواعيد', 'لوحة الموظف'],
   '/employee/calendar': ['التقويم والمواعيد', 'لوحة الموظف'],
   '/employee/transfer': ['التحويلات', 'لوحة الموظف'],
+  '/employee/expenses': ['المصروفات', 'لوحة الموظف'],
   '/employee/meetreqs': ['طلبات الاجتماعات', 'لوحة الموظف'],
   '/employee/meetings': ['الاجتماعات', 'لوحة الموظف'],
   '/employee/meeting': ['تفاصيل الاجتماع', 'لوحة الموظف'],

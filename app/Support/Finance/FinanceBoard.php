@@ -3,6 +3,9 @@
 namespace App\Support\Finance;
 
 use App\Domain\Journey\Enums\InvoiceStatus;
+use App\Enums\ExpenseCategory;
+use App\Enums\ExpenseStatus;
+use App\Models\Expense;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\Ticket;
@@ -55,6 +58,7 @@ final class FinanceBoard
         'dashboard' => 'لوحة المالية',
         'invoices' => 'الفواتير',
         'receipts' => 'المقبوضات',
+        'expenses' => 'المصروفات',
         'aging' => 'الذمم والأعمار',
         'vat' => 'الضريبة',
         'reports' => 'التقارير',
@@ -269,6 +273,77 @@ final class FinanceBoard
             // من قيَّده: التحصيل اليدويّ يحفظ اسم المحصِّل في `raw.actor`؛ والبوّابة لا فاعلَ
             // بشريّاً لها — فتُسمّى باسمها بدل أن يُنسب القيد إلى أحد
             'actor' => $payment->receiverLabel(),
+        ];
+    }
+
+    // ─────────────────────────────── المصروفات (المرحلة ب) ───────────────────────────────
+
+    /**
+     * جدول المصروفات بالفترة (بتاريخ الصرف) والحالة والتصنيف. و**«بانتظار الاعتماد» بلا فترة**:
+     * ما ينتظر قراراً يُعرض كلّه، لا ما وقع في الشهر الجاري وحده.
+     *
+     * @param  array{from:CarbonInterface, to:CarbonInterface, ...}  $period
+     * @return LengthAwarePaginator<int, Expense>
+     */
+    public static function expenses(array $period, string $status, string $category): LengthAwarePaginator
+    {
+        $status = ExpenseStatus::tryFrom($status);
+
+        return Expense::with(['creator:id,name', 'approver:id,name'])
+            ->when($status !== ExpenseStatus::Pending, fn ($q) => $q->whereBetween('spent_on', [$period['from']->toDateString(), $period['to']->toDateString()]))
+            ->when($status !== null, fn ($q) => $q->where('status', $status->value))
+            ->when(ExpenseCategory::tryFrom($category) !== null, fn ($q) => $q->where('category', $category))
+            ->latest('spent_on')->latest('id')
+            ->paginate(self::PER_PAGE)
+            ->withQueryString();
+    }
+
+    /**
+     * أرقام رأس التبويب: المعتمد في الفترة (وضريبته)، وما ينتظر الاعتماد الآن.
+     *
+     * @param  array{from:CarbonInterface, to:CarbonInterface, ...}  $period
+     * @return array{approved: float, approvedVat: float, pending: int}
+     */
+    public static function expensesSummary(array $period): array
+    {
+        $approved = Expense::counted()->whereBetween('spent_on', [$period['from']->toDateString(), $period['to']->toDateString()]);
+
+        return [
+            'approved' => self::riyals((int) (clone $approved)->sum('amount_halalas')),
+            'approvedVat' => self::riyals((int) $approved->sum('vat_halalas')),
+            'pending' => Expense::where('status', ExpenseStatus::Pending->value)->count(),
+        ];
+    }
+
+    /**
+     * صفّ المصروف كما تعرضه الواجهة. و`can` حكم الخادم للإدارة وحدها (الموظّف يرى حالة ما سجّله).
+     *
+     * @return array<string, mixed>
+     */
+    public static function expenseRow(Expense $expense, bool $forAdmin = false): array
+    {
+        return [
+            'id' => $expense->id,
+            'voucherNo' => $expense->voucher_no,
+            'date' => VoucherFormat::date($expense->spent_on),
+            'category' => $expense->category->label(),
+            'description' => $expense->description,
+            'vendor' => $expense->vendor,
+            'amount' => self::riyals($expense->amount_halalas),
+            'vat' => self::riyals($expense->vat_halalas),
+            'paidFrom' => $expense->paidFromLabel(),
+            'reference' => $expense->reference,
+            'status' => $expense->status->label(),
+            'tone' => $expense->status->tone(),
+            'creator' => $expense->creator->name ?? '—',
+            'approver' => $expense->approver->name ?? null,
+            'reason' => $expense->reject_reason ?? $expense->void_reason,
+            'hasDocument' => $expense->document_path !== null,
+            'can' => $forAdmin ? array_keys(array_filter([
+                'approve' => $expense->isPending(),
+                'reject' => $expense->isPending(),
+                'void' => $expense->isApproved(),
+            ])) : [],
         ];
     }
 

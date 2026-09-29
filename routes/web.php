@@ -33,6 +33,7 @@ use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\DocumentVerificationController;
 use App\Http\Controllers\Employee\CalendarController as EmployeeCalendarController;
 use App\Http\Controllers\Employee\CaseController as EmployeeCaseController;
+use App\Http\Controllers\Employee\ExpenseController as EmployeeExpenseController;
 use App\Http\Controllers\Employee\ScheduleController as EmployeeScheduleController;
 use App\Http\Controllers\Employee\TicketController as EmployeeTicketController;
 use App\Http\Controllers\Employee\TransferController as EmployeeTransferController;
@@ -206,6 +207,11 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
     // «مستحقاتي» — الراتب ونصيب الأتعاب وأجر الجلسات وسجلّ الصرف (بيانات المستخدم الحاليّ وحده)
     Route::get('/earnings', [StaffEarningsController::class, 'index'])->name('earnings');
     Route::get('/earnings/statement.pdf', [StaffEarningsController::class, 'statement'])->name('earnings.statement');
+    Route::get('/earnings/payouts/{payout}/voucher.pdf', [StaffEarningsController::class, 'voucher'])->name('earnings.voucher');
+    // المصروفات — يسجّلها الموظّف بصلاحيّتها فتنتظر اعتماد الإدارة (قرار المالك 2026-09-29)
+    Route::get('/expenses', [EmployeeExpenseController::class, 'index'])->name('expenses')->middleware(Permissions::middleware(Permissions::RECORD_EXPENSES));
+    Route::post('/expenses', [EmployeeExpenseController::class, 'store'])->name('expenses.store')->middleware(Permissions::middleware(Permissions::RECORD_EXPENSES));
+    Route::get('/expenses/{expense}/document', [EmployeeExpenseController::class, 'document'])->name('expenses.document')->middleware(Permissions::middleware(Permissions::RECORD_EXPENSES));
     Route::get('/dashboard', [DashboardController::class, 'employee'])->name('dashboard'); // عام للدور
 
     // صندوق مراجعة مخرجات الذكاء — الشاشة نفسها لكل دور، والعزل داخل AiReviewInbox:
@@ -392,6 +398,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
     // «مستحقاتي» — الراتب ونصيب الأتعاب وأجر الجلسات وسجلّ الصرف (بيانات المستخدم الحاليّ وحده)
     Route::get('/earnings', [StaffEarningsController::class, 'index'])->name('earnings');
     Route::get('/earnings/statement.pdf', [StaffEarningsController::class, 'statement'])->name('earnings.statement');
+    Route::get('/earnings/payouts/{payout}/voucher.pdf', [StaffEarningsController::class, 'voucher'])->name('earnings.voucher');
     Route::get('/dashboard', [LawyerTicketController::class, 'dashboard'])->name('dashboard'); // عام للدور
     // التذاكر المحالة — عرض عام للمحامي؛ الإجراءات الحسّاسة مُصرَّحة أدناه
     Route::get('/tickets', [LawyerTicketController::class, 'index'])->name('tickets');
@@ -627,6 +634,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::get('/staff/{user}/earnings', [StaffPayoutController::class, 'show'])->name('staff.earnings')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::post('/staff/{user}/payouts', [StaffPayoutController::class, 'store'])->name('staff.payouts.store')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::post('/staff/{user}/payouts/{payout}/void', [StaffPayoutController::class, 'void'])->name('staff.payouts.void')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
+    Route::get('/staff/{user}/payouts/{payout}/voucher.pdf', [StaffPayoutController::class, 'voucher'])->name('staff.payouts.voucher')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::get('/archive', [AdminArchiveController::class, 'index'])->name('archive')->middleware(Permissions::middleware(Permissions::CONSULT_ARCHIVE));
     // مخرجات جلسة الاستشارة عبر الخادم (جلب من سحابة Zoom): فيديو/صوت + نصّ تفريغي + تشغيلٌ داخل النظام
     Route::get('/consults/{consult}/recording.zip', [StaffConsultRecordingController::class, 'video'])->name('consults.recording')->middleware(Permissions::middleware(Permissions::CONSULT_ARCHIVE));
@@ -762,6 +770,13 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/invoices/{invoice}/write-off', [AdminFinanceController::class, 'writeOff'])->name('invoices.write-off');
     Route::get('/invoices/{invoice}/proof', [AdminFinanceController::class, 'proof'])->name('invoices.proof');
     Route::get('/receipts/{payment}/pdf', [AdminFinanceController::class, 'receipt'])->name('receipts.pdf');
+    // المصروفات (المرحلة ب): الإدارة تسجّل فيُعتمد فوراً، وتعتمد ما سجّله الموظّف أو ترفضه، وتلغي المعتمد بسبب
+    Route::post('/expenses', [AdminFinanceController::class, 'storeExpense'])->name('expenses.store');
+    Route::post('/expenses/{expense}/approve', [AdminFinanceController::class, 'approveExpense'])->name('expenses.approve');
+    Route::post('/expenses/{expense}/reject', [AdminFinanceController::class, 'rejectExpense'])->name('expenses.reject');
+    Route::post('/expenses/{expense}/void', [AdminFinanceController::class, 'voidExpense'])->name('expenses.void');
+    Route::get('/expenses/{expense}/document', [AdminFinanceController::class, 'expenseDocument'])->name('expenses.document');
+    Route::get('/expenses/{expense}/voucher.pdf', [AdminFinanceController::class, 'expenseVoucher'])->name('expenses.voucher');
     // رفض الإثبات يعيد الفاتورة للاستحقاق — رافع الملف الخاطئ كان يفقد زرّ الدفع نهائياً
     Route::post('/invoices/{invoice}/proof/reject', [AdminFinanceController::class, 'rejectProof'])->name('invoices.proof.reject');
     Route::get('/meetreports', [StaffMeetingController::class, 'reports'])->name('meetreports');

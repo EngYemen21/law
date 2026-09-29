@@ -12,6 +12,7 @@ use Illuminate\Support\Carbon;
  * قيد صرفٍ للموظّف — يُسجَّل ويُلغى، ولا يُعدَّل ولا يُحذف (`Admin\StaffPayoutController`).
  *
  * @property int $id
+ * @property string|null $voucher_no
  * @property int $user_id
  * @property PayoutKind $kind
  * @property int $amount
@@ -26,7 +27,7 @@ use Illuminate\Support\Carbon;
 class StaffPayout extends Model
 {
     protected $fillable = [
-        'user_id', 'kind', 'amount', 'period', 'case_id', 'execution_id', 'note', 'paid_at', 'recorded_by',
+        'voucher_no', 'user_id', 'kind', 'amount', 'period', 'case_id', 'execution_id', 'note', 'paid_at', 'recorded_by',
         'voided_at', 'void_reason', 'voided_by',
     ];
 

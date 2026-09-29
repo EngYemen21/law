@@ -6,6 +6,8 @@ import Modal from '@/components/babylon/Modal';
 import Pagination from '@/components/babylon/Pagination';
 import type { Paginated } from '@/components/babylon/Pagination';
 import { useToast } from '@/components/babylon/Toast';
+import { ExpenseForm, ExpensesTable, sar } from '@/components/finance/expenses';
+import type { ExpenseOpt, ExpenseRow } from '@/components/finance/expenses';
 import Icon from '@/lib/icons';
 import { useServerAction } from '@/lib/use-server-action';
 
@@ -68,16 +70,22 @@ interface Props {
   };
   invoices: null | Paginated<Inv>;
   receipts: null | { rows: Paginated<Receipt>; total: number };
+  expenses: null | {
+    rows: Paginated<ExpenseRow>;
+    summary: { approved: number; approvedVat: number; pending: number };
+    status: string; category: string;
+    statuses: ExpenseOpt[]; categories: ExpenseOpt[]; paidFrom: ExpenseOpt[];
+  };
   aging: null | { rows: Debtor[] };
   vat: null | { total: number; vat: number; subtotal: number; count: number; months: MonthRow[]; invoices: Paginated<Inv> };
 }
 
 /** التبويبات التي تحتمل الفترة — الذمم والأعمار رصيدُ اللحظة لا تدفّقُ فترة، والتقارير روابط. */
-const PERIOD_TABS = ['dashboard', 'invoices', 'receipts', 'vat'];
+const PERIOD_TABS = ['dashboard', 'invoices', 'receipts', 'expenses', 'vat'];
 
 const AdminFinance: React.FC<Props> = ({
   tab, tabs, periods, period, status, kind, statuses, kinds, buckets,
-  dashboard, invoices, receipts, aging, vat,
+  dashboard, invoices, receipts, expenses, aging, vat,
 }) => {
   const toast = useToast();
   const askFor = usePrompt();
@@ -134,6 +142,36 @@ const AdminFinance: React.FC<Props> = ({
     if (method) {
       act(no, 'pay', { method });
     }
+  };
+
+  // ── المصروفات: مرشّحاها في العنوان (`estatus` · `category`)، والإجراء بحكم الخادم (`r.can`) ──
+  const [newExpense, setNewExpense] = useState(false);
+  const goExpenses = (patch: Record<string, string>) =>
+    go({ estatus: expenses?.status ?? 'all', category: expenses?.category ?? 'all', ...patch });
+  const expenseAct = async (r: ExpenseRow, action: 'approve' | 'reject' | 'void') => {
+    let data: Record<string, string> = {};
+
+    if (action !== 'approve') {
+      const why = await askFor({
+        title: action === 'reject' ? 'رفض المصروف؟' : 'إلغاء المصروف المعتمد؟',
+        message: action === 'reject'
+          ? 'يُبلَغ من سجّله بالسبب، ولا يُحسب المصروف.'
+          : 'يخرج من التقارير، ويبقى سند صرفه في الدفتر مطبوعاً «ملغى» بسببه.',
+        label: 'السبب',
+        multiline: true,
+        rows: 3,
+        confirmLabel: action === 'reject' ? 'تأكيد الرفض' : 'تأكيد الإلغاء',
+        cancelLabel: 'تراجع',
+      });
+
+      if (!why) {
+        return;
+      }
+
+      data = { reason: why.trim() };
+    }
+
+    run(`/admin/expenses/${r.id}/${action}`, { data, key: `exp-${r.id}`, fallback: 'تعذّر تنفيذ الإجراء على المصروف' });
   };
 
   /** رفض إثبات التحويل بعد تأكيدٍ وسببٍ يصل العميل — الخادم يقبل `reason` ويُشعره به. */
@@ -377,6 +415,75 @@ const AdminFinance: React.FC<Props> = ({
             <Pagination meta={receipts.rows.meta} />
           </div>
         </div>
+      )}
+
+      {tab === 'expenses' && expenses && (
+        <>
+          <div className="stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))' }}>
+            <div className="stat t-red">
+              <div className="si"><Icon name="card" /></div>
+              <div className="num" style={{ fontSize: 19 }}>{sar(expenses.summary.approved)}</div>
+              <div className="lbl">المصروف المعتمد في الفترة</div>
+            </div>
+            <div className="stat t-blue">
+              <div className="si"><Icon name="scale" /></div>
+              <div className="num" style={{ fontSize: 19 }}>{sar(expenses.summary.approvedVat)}</div>
+              <div className="lbl">منها ضريبة مشتريات</div>
+            </div>
+            <div className="stat t-amber" onClick={() => goExpenses({ estatus: 'pending' })} title="عرض ما ينتظر الاعتماد">
+              <div className="si"><Icon name="clock" /></div>
+              <div className="num" style={{ fontSize: 19 }}>{expenses.summary.pending}</div>
+              <div className="lbl">بانتظار الاعتماد</div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-h" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div><h3>المصروفات</h3><span className="sub">الرواتب ومستحقّات الموظّفين من «المستحقّات والصرف»، لا من هنا</span></div>
+              <button className="btn sm" type="button" onClick={() => setNewExpense(true)}><Icon name="plus" /> مصروف جديد</button>
+            </div>
+            <div className="card-b">
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+                <div className="mtabs filter-pills" style={{ margin: 0 }}>
+                  {[{ value: 'all', label: 'الكل' }, ...expenses.statuses].map((o) => (
+                    <button key={o.value} className={`mtab ${expenses.status === o.value ? 'on' : ''}`} type="button" onClick={() => goExpenses({ estatus: o.value })}>{o.label}</button>
+                  ))}
+                </div>
+                <select className="input" value={expenses.category} onChange={(e) => goExpenses({ category: e.target.value })} style={{ width: 220 }} aria-label="التصنيف">
+                  <option value="all">كلّ التصنيفات</option>
+                  {expenses.categories.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </select>
+              </div>
+              {expenses.rows.data.length ? (
+                <ExpensesTable
+                  rows={expenses.rows.data}
+                  documentHref={(r) => `/admin/expenses/${r.id}/document`}
+                  voucherHref={(r) => `/admin/expenses/${r.id}/voucher.pdf`}
+                  actions={(r) => (
+                    <>
+                      {r.can.includes('approve') && (
+                        <button className="btn sm" type="button" disabled={busyKey === `exp-${r.id}`} onClick={() => expenseAct(r, 'approve')}><Icon name="check" /> اعتماد</button>
+                      )}
+                      {r.can.includes('reject') && (
+                        <button className="btn soft sm" type="button" disabled={busyKey === `exp-${r.id}`} onClick={() => expenseAct(r, 'reject')}><Icon name="close" /> رفض</button>
+                      )}
+                      {r.can.includes('void') && (
+                        <button className="btn soft sm" type="button" disabled={busyKey === `exp-${r.id}`} onClick={() => expenseAct(r, 'void')}><Icon name="close" /> إلغاء</button>
+                      )}
+                    </>
+                  )}
+                />
+              ) : (
+                <div className="empty"><Icon name="card" /><b>لا مصروفات بهذه التصفية</b></div>
+              )}
+              <Pagination meta={expenses.rows.meta} />
+            </div>
+          </div>
+
+          <Modal title="مصروف جديد" subtitle="ما تسجّله الإدارة معتمدٌ فوراً ويصدر له سند صرف." open={newExpense} onClose={() => setNewExpense(false)} maxWidth={720}>
+            <ExpenseForm action="/admin/expenses" categories={expenses.categories} paidFrom={expenses.paidFrom} submitLabel="تسجيل واعتماد" onDone={() => setNewExpense(false)} />
+          </Modal>
+        </>
       )}
 
       {tab === 'aging' && aging && (

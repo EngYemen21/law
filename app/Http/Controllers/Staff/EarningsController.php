@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Staff;
 
 use App\Http\Controllers\Controller;
+use App\Models\StaffPayout;
+use App\Support\Finance\PaymentVoucherDocument;
 use App\Support\Finance\StaffEarnings;
 use App\Support\Finance\StaffStatement;
 use App\Support\PdfRenderer;
@@ -34,5 +36,13 @@ class EarningsController extends Controller
         $earnings = StaffEarnings::for($user, $request->query('month'));
 
         return PdfRenderer::render(StaffStatement::html($user, $earnings), "statement-{$earnings['month']}.pdf");
+    }
+
+    /** سند صرف قيدٍ من قيود الموظّف نفسه — لا يبلغ قيد غيره. */
+    public function voucher(Request $request, StaffPayout $payout): HttpResponse
+    {
+        abort_unless($payout->user_id === $request->user()->id && $payout->voucher_no !== null, 404);
+
+        return PdfRenderer::render(PaymentVoucherDocument::forPayout($payout), $payout->voucher_no.'.pdf');
     }
 }
