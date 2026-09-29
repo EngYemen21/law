@@ -111,45 +111,25 @@ class MultiAccountAuthTest extends TestCase
             ->assertInertia(fn ($p) => $p->where('auth.user.accounts', fn ($a) => count($a) === 1));
     }
 
-    // 🟠 أمنيّ: التجاوز التطويريّ معطّل خارج local/testing (مثل staging)
-    public function test_dev_bypass_disabled_outside_local_and_testing(): void
-    {
-        config(['services.auth_dev_otp' => '1234']);
-
-        $this->assertTrue(app(OtpService::class)->devBypass()); // بيئة testing
-
-        $this->app['env'] = 'staging';
-        $this->assertFalse(app(OtpService::class)->devBypass());
-        $this->assertFalse(app(EmailOtpService::class)->devBypass());
-    }
-
     /**
-     * 🔴 الثغرة التي كان الحارس أعمى عنها: شرطه كان APP_ENV نفسه، وهو المتغيّر الذي يحرس منه.
-     * خادم إنتاجيّ وصله APP_ENV=local كان يفتح الدخول بالرمز الثابت لأي رقم هويّة.
+     * **رمز الجوال الثابت يعمل أينما ضُبط AUTH_DEV_OTP** (قرار المالك 2026-09-29: كما كان قبل `14c8f8a`،
+     * لتجربة الدخول على سيرفر الاختبار) — وتجاوز البريد باقٍ محصوراً في التطوير كما كان.
      */
-    public function test_dev_bypass_is_refused_when_the_host_looks_like_production(): void
+    public function test_sms_dev_bypass_works_wherever_configured_while_email_stays_dev_only(): void
     {
         config([
             'services.auth_dev_otp' => '1234',
             'app.url' => 'https://salaselbabel.net',
-            'app.debug' => true,
-        ]);
-        $this->app['env'] = 'local'; // الخطأ الكلاسيكي على الخادم
-
-        $this->assertFalse(app(OtpService::class)->devBypass(), 'التجاوز انفتح على مضيف إنتاجيّ.');
-        $this->assertFalse(app(EmailOtpService::class)->devBypass(), 'تجاوز البريد انفتح على مضيف إنتاجيّ.');
-    }
-
-    /** APP_DEBUG=false وحده كافٍ لاعتبار البيئة إنتاجيّة مهما قال APP_ENV. */
-    public function test_dev_bypass_is_refused_when_debug_is_off(): void
-    {
-        config([
-            'services.auth_dev_otp' => '1234',
-            'app.url' => 'https://law-laravel-office-new.test',
             'app.debug' => false,
         ]);
-        $this->app['env'] = 'local';
+        $this->app['env'] = 'production';
 
+        $this->assertTrue(app(OtpService::class)->devBypass(), 'الرمز الثابت للجوال لم يعمل على الخادم.');
+        $this->assertTrue(OtpService::productionLike(), 'التنبيه في السجلّ يعتمد على كشف المضيف الإنتاجيّ');
+        $this->assertFalse(app(EmailOtpService::class)->devBypass(), 'تجاوز البريد انفتح خارج التطوير.');
+
+        // وبلا المتغيّر لا تجاوز — يمرّ الدخول بمزوّد الرسائل
+        config(['services.auth_dev_otp' => null]);
         $this->assertFalse(app(OtpService::class)->devBypass());
     }
 

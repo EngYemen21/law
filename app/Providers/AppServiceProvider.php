@@ -64,14 +64,13 @@ class AppServiceProvider extends ServiceProvider
         // بشريّاً له، فلا يُنسب لصاحب الطلب. التتبّع هنا والقاعدة في `MessageSender`.
         MessageSender::trackJobs();
 
-        // تجاوز OTP التطويري (رمز ثابت لأي هوية): خارج التطوير يُطفئه `devBypass` نفسه، وهنا
-        // يُنبَّه المشغّل إلى متغيّرٍ منسيّ في ملف البيئة. تنبيهٌ لا استثناء — الاستثناء يُسقط
-        // الموقع كلّه بسبب متغيّرٍ صار أصلاً بلا أثر. وفي الطرفيّة وحدها (النشر يشغّل artisan)
-        // كي لا يُكتب مع كلّ طلب ويب.
-        if ($this->app->runningInConsole() && OtpService::isDevOtpConfigured() && ! app(OtpService::class)->devBypass()) {
-            Log::critical('otp.dev_bypass_configured_outside_dev', [
+        // الرمز الثابت (AUTH_DEV_OTP) يعمل أينما ضُبط (قرار المالك 2026-09-29) — فيُنبَّه المشغّل حين يكون
+        // فعّالاً على مضيفٍ يبدو إنتاجيّاً، كي لا يبقى منسيّاً عند الانتقال للإنتاج. في الطرفيّة وحدها
+        // (النشر يشغّل artisan) كي لا يُكتب مع كلّ طلب ويب.
+        if ($this->app->runningInConsole() && OtpService::isDevOtpConfigured() && OtpService::productionLike()) {
+            Log::critical('otp.dev_bypass_active_on_production_like_host', [
                 'env' => app()->environment(),
-                'hint' => 'AUTH_DEV_OTP مضبوط خارج بيئة التطوير — التجاوز معطّل، أزِله من ملف البيئة.',
+                'hint' => 'AUTH_DEV_OTP مضبوط — الدخول بالرمز الثابت مفتوحٌ لأيّ رقم هويّة. أفرغه قبل الإنتاج.',
             ]);
         }
 
