@@ -205,9 +205,11 @@ const hmToMin = (hm: string) => {
  * `LawyerAvailability`، ومعه ما مضى من اليوم)، والتعارض بمسافة الحجز نفسها التي يفحص بها الخادم.
  * كانت نسختين هنا، والثانية تعلّم `busy` لا `taken` فيعرض منتقي إعادة الإرسال المحجوزَ متاحاً.
  */
-export function useLawyerDaySlots(base: string, lawyerId: number | '' | null | undefined, day: string): TimeSlotItem[] {
+export function useLawyerDaySlots(base: string, lawyerId: number | '' | null | undefined, day: string, meetingId?: number): TimeSlotItem[] {
     const { consult_slot_minutes: spacing } = useSettings();
-    const key = lawyerId && day ? `${lawyerId}|${day}` : '';
+    // `meetingId` (إعادة الجدولة): انشغال مسؤول الاجتماع ومشاركيه، والاجتماع لا يحجب نفسه
+    const who = meetingId ? `m${meetingId}` : lawyerId;
+    const key = who && day ? `${who}|${day}` : '';
     // الانشغال مقروناً بمفتاحه — فلا يُعرض انشغالُ محامٍ أو يومٍ سابق ريثما يصل الجديد
     const [loaded, setLoaded] = useState<{ key: string; busy: [string, string][] }>({ key: '', busy: [] });
 
@@ -217,14 +219,14 @@ export function useLawyerDaySlots(base: string, lawyerId: number | '' | null | u
         }
 
         let alive = true;
-        axios.get(`${base}/meetreqs/availability`, { params: { lawyer_id: lawyerId, day } })
+        axios.get(`${base}/meetreqs/availability`, { params: meetingId ? { meeting_id: meetingId, day } : { lawyer_id: lawyerId, day } })
             .then((r) => alive && setLoaded({ key, busy: r.data?.busy ?? [] }))
             .catch(() => alive && setLoaded({ key, busy: [] }));
 
         return () => {
             alive = false;
         };
-    }, [base, key, lawyerId, day]);
+    }, [base, key, lawyerId, meetingId, day]);
 
     return useMemo(() => {
         const busy = loaded.key === key ? loaded.busy : [];
@@ -662,6 +664,8 @@ const MeetingRescheduleDialog: React.FC<{ meeting: FullMeetingCard; base: string
     // الخادم يرفض الماضي (٤٢٢)؛ التنبيه هنا كي لا يكتشفه المستخدم بعد الإرسال
     const past = !postpone && day !== '' && time !== '' && `${day} ${time}` <= `${todayISO()} ${new Date().toTimeString().slice(0, 5)}`;
     const dated = day !== '' && time !== '' && !past;
+    // الأوقات المشغولة لأهل الاجتماع قبل الإرسال — الحكم نفسه الذي يرفض به الخادم النقل
+    const slots = useLawyerDaySlots(base, null, day, m.dbId);
 
     return (
         <RescheduleDialog
@@ -715,6 +719,7 @@ const MeetingRescheduleDialog: React.FC<{ meeting: FullMeetingCard; base: string
                         value={time}
                         onChange={setTime}
                         date={day}
+                        slots={slots}
                         label="الوقت الجديد للاجتماع"
                         required
                         allowCustom

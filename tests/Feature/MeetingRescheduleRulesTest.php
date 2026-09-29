@@ -213,4 +213,32 @@ class MeetingRescheduleRulesTest extends TestCase
         $move($busy, '10:15')->assertSessionHasNoErrors();
         $this->assertSame('10:15', $busy->fresh()->starts_at->format('H:i'));
     }
+
+    public function test_the_reschedule_grid_shows_the_same_busy_times_the_guard_refuses(): void
+    {
+        $owner = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $participant = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $outsider = User::factory()->create(['role' => Role::Lawyer, 'status' => 'active']);
+        $day = now()->addDays(2)->toDateString();
+
+        $moving = $this->meeting(['assigned_lawyer_id' => $owner->id, 'starts_at' => "{$day} 12:00"]);
+        $moving->participantUsers()->sync([$participant->id]);
+        // المشارك مشغولٌ 10:00 باجتماعٍ لا يخصّ المسؤول
+        $this->meeting(['assigned_lawyer_id' => $outsider->id, 'starts_at' => "{$day} 10:00"])->participantUsers()->sync([$participant->id]);
+
+        $busy = $this->actingAs($this->admin())
+            ->getJson(route('admin.meetreqs.availability', ['meeting_id' => $moving->id, 'day' => $day]))
+            ->assertOk()->json('busy');
+        $starts = array_column($busy, 0);
+        $this->assertContains('10:00', $starts, 'انشغال المشارك لا يظهر في شبكة إعادة الجدولة');
+        $this->assertNotContains('12:00', $starts, 'الاجتماع يحجب موعده هو');
+
+        // المحامي لا يطّلع على انشغال اجتماعٍ لا صلة له به
+        $this->actingAs($outsider)
+            ->getJson(route('lawyer.meetreqs.availability', ['meeting_id' => $moving->id, 'day' => $day]))
+            ->assertForbidden();
+        $this->actingAs($participant)
+            ->getJson(route('lawyer.meetreqs.availability', ['meeting_id' => $moving->id, 'day' => $day]))
+            ->assertOk();
+    }
 }

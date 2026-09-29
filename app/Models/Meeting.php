@@ -100,6 +100,20 @@ class Meeting extends Model
             || $this->participantUsers()->whereKey($user->id)->exists();
     }
 
+    /**
+     * **أهل الاجتماع من الكادر:** المسؤول والمشاركون — مَن يُحجب وقته به (`LawyerAvailability`)،
+     * فيفحصهم حارس إعادة الجدولة وشبكتها.
+     *
+     * @return array<int,int>
+     */
+    public function staffIds(): array
+    {
+        return array_values(array_unique(array_filter([
+            (int) $this->assigned_lawyer_id,
+            ...$this->participantUsers()->pluck('users.id')->map('intval')->all(),
+        ])));
+    }
+
     /** أسماء المشاركين للعرض: الحسابات، وإلا النصّ القديم لاجتماعٍ لم يُربط. */
     public function participantsLabel(): ?string
     {

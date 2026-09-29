@@ -468,8 +468,7 @@ class MeetingController extends Controller
         // **ولا فوق ارتباطٍ آخر للمسؤول أو المشاركين** — كحارس الإنشاء (ثبت بالاختبار 2026-09-28 أنّ النقل
         // كان يقبل ما يرفضه الإنشاء). والاجتماع نفسه لا يحجب موعده الجديد.
         if ($startsAt) {
-            $people = [(int) $meeting->assigned_lawyer_id, ...$meeting->participantUsers()->pluck('users.id')->map('intval')->all()];
-            if ($busy = LawyerAvailability::busyAmong(array_filter($people), Carbon::parse($startsAt), null, $meeting->id)) {
+            if ($busy = LawyerAvailability::busyAmong($meeting->staffIds(), Carbon::parse($startsAt), null, $meeting->id)) {
                 $names = User::whereKey($busy)->pluck('name')->implode('، ');
                 throw ValidationException::withMessages(['time' => "مشغولٌ في هذا الوقت: {$names} — اختر وقتاً آخر."]);
             }

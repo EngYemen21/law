@@ -84,7 +84,7 @@ class MeetingCreateGuardsTest extends TestCase
         $this->assertStringContainsString("useLawyerDaySlots('/admin', lawyerId, day)", $page);
 
         $ui = (string) file_get_contents(resource_path('js/lib/meeting-ui.tsx'));
-        $this->assertSame(2, substr_count($ui, '= useLawyerDaySlots(base'), 'الدعوة وإعادة الإرسال من المصدر نفسه');
+        $this->assertSame(3, substr_count($ui, '= useLawyerDaySlots(base'), 'الدعوة وإعادة الإرسال وإعادة جدولة الاجتماع من المصدر نفسه');
         $this->assertStringNotContainsString('{ time: s, busy: isBusy }', $ui, 'منتقي إعادة الإرسال كان يقرأ busy لا taken');
     }
 }
