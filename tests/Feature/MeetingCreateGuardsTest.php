@@ -85,6 +85,9 @@ class MeetingCreateGuardsTest extends TestCase
 
         $ui = (string) file_get_contents(resource_path('js/lib/meeting-ui.tsx'));
         $this->assertSame(3, substr_count($ui, '= useLawyerDaySlots(base'), 'الدعوة وإعادة الإرسال وإعادة جدولة الاجتماع من المصدر نفسه');
+        // شبكة الدوام من الإعدادات لا شبكةٌ ثابتة 09:00–20:30 (قرار المالك 2026-09-29)
+        $this->assertStringNotContainsString('MI_SLOTS', $ui);
+        $this->assertStringContainsString('return gridOn(day).map((time) => {', $ui);
         $this->assertStringNotContainsString('{ time: s, busy: isBusy }', $ui, 'منتقي إعادة الإرسال كان يقرأ busy لا taken');
     }
 }

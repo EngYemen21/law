@@ -13,11 +13,11 @@ import type { TimeSlotItem } from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { todayISO } from '@/lib/local-date';
 import { nowClock, todayDate } from '@/lib/chat';
+import { useConsultSlots } from '@/lib/consult-slots';
 import { openMeeting, RichText } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { MR_FLOW } from '@/lib/employee-data';
 import { useMasker } from '@/lib/permissions';
-import { useSettings } from '@/lib/settings';
 import Icon from '@/lib/icons';
 import { meetingMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
 import type { SessionMedia } from '@/lib/recording-ui';
@@ -186,16 +186,6 @@ export interface ClientDirEntry { id: number; name: string; items: ClientFileOpt
 // يطابق meetReqsView + sendMeetInvite/mrCancel
 // ============================================================
 
-// شبكة مواعيد ضمن ساعات العمل (09:00–20:30) كل 30 دقيقة
-const MI_SLOTS: string[] = (() => {
-    const out: string[] = [];
-
-    for (let m = 9 * 60; m <= 20 * 60 + 30; m += 30) {
-out.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
-}
-
-    return out;
-})();
 const hmToMin = (hm: string) => {
  const [h, m] = hm.split(':').map(Number);
 
@@ -209,7 +199,9 @@ const hmToMin = (hm: string) => {
  * كانت نسختين هنا، والثانية تعلّم `busy` لا `taken` فيعرض منتقي إعادة الإرسال المحجوزَ متاحاً.
  */
 export function useLawyerDaySlots(base: string, lawyerId: number | '' | null | undefined, day: string, meetingId?: number): TimeSlotItem[] {
-    const { consult_slot_minutes: spacing } = useSettings();
+    // **شبكة الدوام من الإعدادات** (قرار المالك 2026-09-29) — كانت شبكةً ثابتة 09:00–20:30 كلّ 30 دقيقة
+    // لا تعرف ساعات الدوام ولا أيّامه. والدقيقة المخصّصة (`allowCustom`) باقيةٌ لما خارجها.
+    const { gridOn, slotMinutes: spacing } = useConsultSlots();
     // `meetingId` (إعادة الجدولة): انشغال مسؤول الاجتماع ومشاركيه، والاجتماع لا يحجب نفسه
     const who = meetingId ? `m${meetingId}` : lawyerId;
     const key = who && day ? `${who}|${day}` : '';
@@ -234,13 +226,13 @@ export function useLawyerDaySlots(base: string, lawyerId: number | '' | null | u
     return useMemo(() => {
         const busy = loaded.key === key ? loaded.busy : [];
 
-        return MI_SLOTS.map((time) => {
+        return gridOn(day).map((time) => {
             const cs = hmToMin(time);
             const taken = busy.some(([a, b]) => cs < hmToMin(b) && hmToMin(a) < cs + spacing);
 
             return { time, taken, label: taken ? 'محجوز' : undefined };
         });
-    }, [loaded, key, spacing]);
+    }, [loaded, key, spacing, gridOn, day]);
 }
 
 export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDirEntry[]; lawyers: { id: number; name: string }[]; selfLawyerId?: number | null; base: string }> = ({ requests, clients, lawyers, selfLawyerId, base }) => {
