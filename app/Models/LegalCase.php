@@ -7,6 +7,7 @@ use App\Domain\Journey\GuardsJourneyState;
 use App\Models\Concerns\ClipsPreviewText;
 use App\Models\Concerns\LinksLegalDepartment;
 use App\Models\Concerns\PurgesDocumentFiles;
+use App\Models\Concerns\TracksRevisions;
 use App\Support\CaseJourney;
 use App\Support\LawyerName;
 use Illuminate\Database\Eloquent\Builder;
@@ -21,6 +22,7 @@ class LegalCase extends Model
     use ClipsPreviewText, PurgesDocumentFiles;
     use GuardsJourneyState;
     use LinksLegalDepartment;
+    use TracksRevisions;
 
     /** سطر المعاينة في بطاقات القوائم — varchar(255) يستقبل نصّ المستخدم بلا سقف. */
     protected array $previewText = ['update_text'];
@@ -295,5 +297,16 @@ class LegalCase extends Model
     protected function tone(): Attribute
     {
         return Attribute::get(fn () => CaseJourney::toneFor((string) $this->status));
+    }
+
+    /** تصنيف القضيّة الآليّ — ومسودّة اللائحة نسخُها من رسائلها (`CaseMessage`). */
+    public function revisionKinds(): array
+    {
+        return ['case_classification' => ['ai_classification']];
+    }
+
+    public function revisionOwner(): ?Model
+    {
+        return $this;
     }
 }

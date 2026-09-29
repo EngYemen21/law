@@ -18,6 +18,13 @@ class MeetingSummary
      */
     public static function pull(Meeting $meeting, ZoomService $zoom, ?array $payload = null): bool
     {
+        // نصوص Zoom تُنسب لمصدرها في سجلّ النسخ وإن سُحبت بزرٍّ من الطاقم (`ContentRevisions::machine`)
+        return ContentRevisions::machine('zoom', fn () => self::pullFromZoom($meeting, $zoom, $payload));
+    }
+
+    /** @param  array<string, mixed>|null  $payload */
+    private static function pullFromZoom(Meeting $meeting, ZoomService $zoom, ?array $payload): bool
+    {
         if (empty($meeting->meet_id)) {
             return false;
         }

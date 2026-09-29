@@ -7,6 +7,7 @@ use App\Domain\Journey\Transitions\Meeting\CancelMeeting;
 use App\Domain\Journey\Transitions\Meeting\EndMeeting;
 use App\Domain\Journey\Transitions\Meeting\StartMeeting;
 use App\Enums\Role;
+use App\Models\Concerns\TracksRevisions;
 use App\Support\LawyerName;
 use App\Support\MeetingTime;
 use App\Support\RecordingArchive;
@@ -24,6 +25,8 @@ use Illuminate\Support\Carbon;
  */
 class Meeting extends Model
 {
+    use TracksRevisions;
+
     protected $fillable = [
         'user_id', 'ref', 'title', 'type', 'client_name', 'when_label', 'starts_at', 'reminder_sent_at',
         // `dur`: عمودٌ تاريخيّ — ما حُفظ فيه يبقى مسافةً محجوزة على تقويم المحامي (`LawyerAvailability`)،
@@ -568,5 +571,16 @@ class Meeting extends Model
             'zoomParticipantsLog' => $this->zoom_participants_log ?? [],
             'zoomAiNextSteps' => $this->zoom_ai_next_steps ?? [],
         ];
+    }
+
+    /** الملخّص والمحضر — نسخٌ على الاجتماع نفسه (`ContentRevisions`). */
+    public function revisionKinds(): array
+    {
+        return ['meeting_summary' => ['summary'], 'meeting_minutes' => ['minutes']];
+    }
+
+    public function revisionOwner(): ?Model
+    {
+        return $this;
     }
 }

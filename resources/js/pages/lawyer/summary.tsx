@@ -3,6 +3,7 @@ import axios from 'axios';
 import React, { useState, useMemo } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
+import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
 import { useToast } from '@/components/babylon/Toast';
 import { type SummaryData } from '@/lib/lawyer-data';
 import { firstError } from '@/lib/server-message';
@@ -392,6 +393,10 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
                   <Icon name="edit" />
                   <span>تنسيق في المحرر ⚖️</span>
                 </Link>
+
+                {/* كلّ نسخ الملخّص: الآلة والقالب وتعديلات المحامي والإدارة (طلب المالك 2026-09-29) */}
+                <RevisionHistoryButton kind="ticket_summary" refKey={ticket.no} className="btn soft" />
+                <RevisionHistoryButton kind="ticket_result" refKey={ticket.no} className="btn soft" label="سجل نسخ الرأي" />
 
                 <button
                   type="button"

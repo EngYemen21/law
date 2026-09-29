@@ -58,6 +58,7 @@ use App\Http\Controllers\Staff\ConsultRecordingController as StaffConsultRecordi
 use App\Http\Controllers\Staff\EarningsController as StaffEarningsController;
 use App\Http\Controllers\Staff\MeetingController as StaffMeetingController;
 use App\Http\Controllers\Staff\MeetRequestController as StaffMeetRequestController;
+use App\Http\Controllers\Staff\RevisionController as StaffRevisionController;
 use App\Http\Controllers\Staff\TicketRequirementController as StaffTicketRequirementController;
 use App\Http\Controllers\TicketController;
 use App\Http\Controllers\ZoomController;
@@ -105,6 +106,8 @@ Route::post('/auth/switch-account', [AuthController::class, 'switchAccount'])->m
 
 // تدفّق طلب التنفيذ (المرحلة 2) — تقديم العميل + موزّع الإجراءات (يحرس الدور/الملكيّة داخليّاً)
 Route::middleware(['auth', 'active'])->group(function () {
+    // سجلّ نسخ التحليلات والملخّصات — للطاقم وحده، والحارس في المتحكّم بصلاحيّة رؤية الملفّ (طلب المالك 2026-09-29)
+    Route::get('/revisions/{kind}/{ref}', [StaffRevisionController::class, 'index'])->name('revisions.index');
     Route::post('/exec-flow/{execution}/action', [ExecFlowController::class, 'act'])->name('exec-flow.act');
     Route::post('/exec-flow/{execution}/pay', [ExecFlowController::class, 'pay'])->name('exec-flow.pay');
     Route::get('/exec-flow/{execution}/pay/callback', [ExecFlowController::class, 'payCallback'])->name('exec-flow.pay.callback');

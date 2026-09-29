@@ -20,6 +20,13 @@ class ConsultSummary
      */
     public static function pull(Consult $consult, ZoomService $zoom, ?array $payload = null): bool
     {
+        // نصوص Zoom تُنسب لمصدرها في سجلّ النسخ وإن سُحبت بزرٍّ من الطاقم (`ContentRevisions::machine`)
+        return ContentRevisions::machine('zoom', fn () => self::pullFromZoom($consult, $zoom, $payload));
+    }
+
+    /** @param  array<string, mixed>|null  $payload */
+    private static function pullFromZoom(Consult $consult, ZoomService $zoom, ?array $payload): bool
+    {
         if (empty($consult->meet_id)) {
             return false;
         }

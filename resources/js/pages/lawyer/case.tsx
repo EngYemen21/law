@@ -8,6 +8,7 @@ import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
 import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
+import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
 import { useToast } from '@/components/babylon/Toast';
 import { AppealCard, AttachDocModal, HearingUpdatesCard, NajizFilingCard, RulingCard, ScheduleHearingCard } from '@/lib/case-court';
 import type { AppealData, Filing } from '@/lib/case-court';
@@ -283,7 +284,13 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
           {/* اعتماد اللائحة */}
           {c.pleadingStatus === 'pending_lawyer' && (
             <div className="card">
-              <div className="card-h"><h3>اعتماد اللائحة</h3><Badge text="بانتظار اعتمادك" tone="b-amber" /></div>
+              <div className="card-h">
+                <h3>اعتماد اللائحة</h3>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <RevisionHistoryButton kind="case_pleading" refKey={c.no} />
+                  <Badge text="بانتظار اعتمادك" tone="b-amber" />
+                </div>
+              </div>
               <div className="card-b" style={{ padding: 14 }}>
                 <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 10 }}>
                   حرّر لائحة الدعوى ثم احفظها — تبقى محجوبة عن العميل. الاعتماد النهائيّ يُقفل التعديل ويُتيحها له، ثم تُرفع في ناجز.

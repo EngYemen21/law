@@ -87,7 +87,8 @@ final class MessageSender
         Event::listen(JobExceptionOccurred::class, $leave);
     }
 
-    private static function insideJob(): bool
+    /** داخل مهمّة طابور (عاملٌ أو متزامنة) الآن؟ — يقرؤه أيضاً سجلّ نسخ المحتوى (`ContentRevisions`). */
+    public static function insideJob(): bool
     {
         return self::depth() > 0;
     }

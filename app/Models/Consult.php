@@ -11,6 +11,7 @@ use App\Domain\Journey\Transitions\Consult\MarkNoShow;
 use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
 use App\Enums\Role;
 use App\Models\Concerns\LinksLegalDepartment;
+use App\Models\Concerns\TracksRevisions;
 use App\Support\ArabicCount;
 use App\Support\Finance\InvoiceFactory;
 use App\Support\LawyerName;
@@ -30,6 +31,7 @@ class Consult extends Model
 {
     use GuardsJourneyState;
     use LinksLegalDepartment;
+    use TracksRevisions;
 
     // حالات دورة الحجز قبل الجلسة (تسعير → سداد → اختيار موعد) — تُستثنى من شاشة استقبال الجلسات
     /**
@@ -808,5 +810,20 @@ class Consult extends Model
         // كانت تفرز عليها فتعرض «أحدث عشرة» بترتيبٍ مقلوب.
         $entry = ['user' => $user, 'field' => $field, 'before' => $before, 'after' => $after, 'time' => $stamp, 'at' => $now->toIso8601String()];
         $this->audit = array_merge([$entry], $this->audit ?? []);
+    }
+
+    /** تحليل الطلب وملخّص الجلسة وملاحظاتها — نسخٌ على الاستشارة نفسها (`ContentRevisions`). */
+    public function revisionKinds(): array
+    {
+        return [
+            'consult_analysis' => ['ai_class', 'ai_summary', 'ai_lawyer'],
+            'consult_summary' => ['summary'],
+            'consult_notes' => ['session_notes'],
+        ];
+    }
+
+    public function revisionOwner(): ?Model
+    {
+        return $this;
     }
 }

@@ -36,6 +36,7 @@ use App\Support\ConsultAppointments;
 use App\Support\ConsultBooking;
 use App\Support\ConsultSessionOutcome;
 use App\Support\ConsultSummary;
+use App\Support\ContentRevisions;
 use App\Support\DecisionTasks;
 use App\Support\LawyerSpecialties;
 use App\Support\Live;
@@ -247,7 +248,8 @@ class ConsultController extends Controller
         $source = AiSource::tryFrom((string) ($ai['source'] ?? AiSource::AiSuccess->value)) ?? AiSource::AiSuccess;
         $isRealAnalysis = $source->isRealAnalysis();
 
-        Workflow::run($transition, $consult, $request->user(), [
+        // مخرج النموذج يُكتب في هذا الطلب — يُنسب للذكاء الاصطناعي في سجلّ النسخ، ويُذكر من أطلقه
+        ContentRevisions::machine('ai', fn () => Workflow::run($transition, $consult, $request->user(), [
             'class' => $ai['class'],
             'summary' => $ai['summary'],
             'lawyer' => $ai['lawyer'],
@@ -255,7 +257,7 @@ class ConsultController extends Controller
             'done' => $isRealAnalysis,
             'source' => $source->value,
             'missing' => $ai['missing'] ?? [],
-        ]);
+        ]));
 
         $meta = is_array($ai['meta'] ?? null) ? $ai['meta'] : [];
         // رأيٌ قانونيّ: عالي الحساسيّة ⇒ «يتطلّب مراجعة» دائماً ولو نجح التحليل.

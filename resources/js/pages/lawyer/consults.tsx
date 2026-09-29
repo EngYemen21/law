@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
 import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
+import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
 import { useToast } from '@/components/babylon/Toast';
 // اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
 import { stageChanged, staffPatch } from '@/lib/consult-live';
@@ -1035,9 +1036,12 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                       </div>
 
                       <div>
-                        <label className="field-lbl" style={{ fontWeight: 700 }}>
-                          تدوين ملاحظات ومحضر الجلسة:
-                        </label>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <label className="field-lbl" style={{ fontWeight: 700 }}>
+                            تدوين ملاحظات ومحضر الجلسة:
+                          </label>
+                          <RevisionHistoryButton kind="consult_notes" refKey={drawerConsult.id} label="نسخ الملاحظات" />
+                        </div>
                         <textarea
                           rows={4}
                           value={sessionNotes}
@@ -1072,7 +1076,12 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         </h4>
                         {/* الشارة المشتركة: تضيف **مصدر النصّ** — وتعثّرُ الصياغة
                             الآليّة كان غير مرئيّ في الشاشتين معاً. */}
-                        <SummaryStateBadge consult={drawerConsult} />
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                          {/* نسخ التقرير والتحليل: الآلة وZoom وتعديلات الطاقم (طلب المالك 2026-09-29) */}
+                          <RevisionHistoryButton kind="consult_summary" refKey={drawerConsult.id} />
+                          <RevisionHistoryButton kind="consult_analysis" refKey={drawerConsult.id} label="نسخ التحليل" />
+                          <SummaryStateBadge consult={drawerConsult} />
+                        </div>
                       </div>
 
                       <p style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--muted)' }}>

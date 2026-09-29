@@ -1,6 +1,7 @@
 import { Link, router } from '@inertiajs/react';
 import React, { useEffect, useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
 import CaseClosureModal from '@/components/babylon/CaseClosureModal';
 import type { ClosureReasonOption } from '@/components/babylon/CaseClosureModal';
 import { useConfirm, usePrompt } from '@/components/babylon/ConfirmDialog';
@@ -228,6 +229,12 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
                 </button>
               )}
               {convertedExec && <Badge text="محوّل لتنفيذ" tone="b-cyan" />}
+
+              {/* نسخ مسودّة اللائحة والتصنيف الآليّ — الآلة وتعديلات المحامي (طلب المالك 2026-09-29) */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <RevisionHistoryButton kind="case_pleading" refKey={c.no} label="سجل نسخ اللائحة" />
+                <RevisionHistoryButton kind="case_classification" refKey={c.no} label="سجل نسخ التصنيف" />
+              </div>
 
               {c.canReassign && (
                 <div className="field" style={{ margin: 0 }}>
