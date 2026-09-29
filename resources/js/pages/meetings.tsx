@@ -21,6 +21,10 @@ export interface ClientMeeting {
   status: string;
   tone: string;
   canJoin: boolean;
+  /** يطلب تغيير الموعد الآن (`Meeting::changeRequestBlocker` = null) */
+  canRequestChange: boolean;
+  /** سبب المنع حين يعني العميل: طلبٌ قيد المراجعة أو سقفٌ بُلغ */
+  changeRequestNote: string | null;
   approved: boolean;
   ref: string;
   link: string;
@@ -527,8 +531,11 @@ return;
                             <Icon name="clock" /> الدخول (قبل الموعد بـ 5د)
                           </button>
                         )}
-                        {/* لم تكن للعميل أي قناة بشأن الموعد — طلبٌ يُشعر المكتب وإعادة الجدولة قراره */}
-                        {['قادم', 'مؤجل'].includes(m.status) && (
+                        {/* طلب تغيير الموعد — الخادم يقرّر إتاحته (لا طلبَ قائم ولا سقفَ بُلغ)، ويُعلَن سبب المنع */}
+                        {m.changeRequestNote && (
+                          <span className="sub" style={{ fontSize: 12 }}><Icon name="clock" /> {m.changeRequestNote}</span>
+                        )}
+                        {m.canRequestChange && (
                           <button
                             className="btn soft sm"
                             type="button"

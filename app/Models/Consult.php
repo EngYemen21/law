@@ -286,6 +286,8 @@ class Consult extends Model
 
         return match (true) {
             $this->reschedule_requested_at !== null => 'طلبك السابق قيد المعالجة — سيتواصل معك المكتب.',
+            // بلغت سقف إعادة الجدولة (`consult_reschedule_limit`) — ما بعده للإدارة العليا (قرار المالك 2026-09-29)
+            (int) $this->reschedule_count >= RescheduleConsult::limit() => 'بلغت الاستشارة الحدّ الأقصى لتغيير الموعد — تواصل مع المكتب مباشرةً.',
             $status?->isClosed() === true, $this->session === SessionState::Ended->value => 'انتهت الاستشارة — لا موعد يُغيَّر.',
             $this->session === SessionState::Live->value => 'الجلسة منعقدة الآن.',
             $status?->isPreSession() === true => 'لم يُحدَّد موعد جلستك بعد — يصلك إشعارٌ به فور تحديده.',

@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
 use App\Models\Consult;
+use App\Models\Meeting;
 use App\Models\Setting;
 use Carbon\Carbon;
 
@@ -259,6 +260,16 @@ class SettingsRegistry
                 'max' => 120,
                 'rules' => ['required', 'integer', 'min:15', 'max:120'],
                 'forwardOnly' => true,
+            ],
+            'meeting_reschedule_limit' => [
+                'group' => 'consults',
+                'label' => 'سقف إعادة جدولة الاجتماع',
+                'hint' => 'عدد المرّات التي يُغيَّر فيها موعد اجتماعٍ واحد (بطلب العميل أو من الطاقم) — وما بعدها للإدارة العليا وحدها، ولا يطلب العميل تغييراً آخر. 0 = للإدارة العليا دائماً.',
+                'type' => 'int',
+                'default' => Meeting::RESCHEDULE_LIMIT,
+                'min' => 0,
+                'max' => 10,
+                'rules' => ['required', 'integer', 'min:0', 'max:10'],
             ],
             'consult_reschedule_limit' => [
                 'group' => 'consults',

@@ -444,6 +444,10 @@ class MeetingController extends Controller
         // **ولا ما انعقد فعلاً وإن لم تُحدَّث حالته بعد.** إعادة الجدولة تُصفّر بيانات جلسة Zoom
         // (أدناه) — وفي اجتماعٍ وقع، تلك البيانات هي تسجيله ودليل حضوره، فتُمحى بلا رجعة.
         abort_if($meeting->wasHeld(), 422, 'انعقد هذا الاجتماع — أنشئ اجتماعاً جديداً بدل إعادة جدولته.');
+        // **سقف إعادة الجدولة** (قرار المالك 2026-09-29، `meeting_reschedule_limit`) — ما بعده للإدارة العليا
+        // وحدها، كنظيره في الاستشارة (`RescheduleConsult::deny`)
+        abort_if(! $request->user()->isAdmin() && $meeting->reachedRescheduleLimit(), 422,
+            'بلغ الاجتماع الحدّ الأقصى لإعادة الجدولة ('.Meeting::rescheduleLimit().') — إعادة جدولته بعد ذلك للإدارة العليا وحدها.');
         // **موعدٌ مفهوم لا سلسلة حرّة.** كانت إعادة الجدولة تقبل أيّ نصّ،
         // فتُنتج `starts_at = null` وحالةً «مؤجّل» — واجتماعٌ بلا طابع زمنيّ
         // لا يصله تذكيرٌ أبداً (`meetings:send-reminders` يشترطه).
@@ -487,6 +491,9 @@ class MeetingController extends Controller
             'leave_time' => null,
             'duration_sec' => null,
             'attend' => 0, // العمود غير قابل لـnull — صفر يعني «لم يُسجَّل حضور بعد»
+            // تُعدّ إعادة الجدولة، ويُطوى طلب العميل القائم — فقد أُجيب
+            'reschedule_count' => (int) $meeting->reschedule_count + 1,
+            'reschedule_requested_at' => null,
         ]);
 
         // **Zoom يتبع الموعد** (ومدّته الاسميّة من `SessionWindow` — لا يُنهي الاجتماع بها).
