@@ -46,6 +46,7 @@ class LegalCase extends Model
     ];
 
     protected $casts = [
+        'execution_requested_at' => 'datetime',
         'ai_classification' => 'array',
         'filed_at' => 'date',
         'registered_at' => 'date',

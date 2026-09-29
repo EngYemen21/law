@@ -12,6 +12,7 @@ use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Services\Ai\AiReviewOutcome;
 use App\Support\Audit;
+use App\Support\CaseExecutionRequest;
 use App\Support\CaseFiling;
 use App\Support\CaseJourney;
 use App\Support\CasePleading;
@@ -105,8 +106,9 @@ class CaseController extends Controller
             'pleadingBlock' => CasePleading::blockReason($case),
             // نصّ أحدث مسودّة للمحرّر، ومن كتبها (آلة أم إنسان)
             'pleadingDraft' => CasePleading::draftText(CasePleading::latestDraft($case)),
-            // من الخادم لا من مقارنةٍ باليد: التنفيذ صار يُفتح من «مغلقة» أيضاً
-            'canExecute' => ExecutionCreation::isEligible($case),
+            // فتح التنفيذ بطلبٍ تعتمده الإدارة العليا (قرار المالك 2026-09-29) — من الخادم لا من مقارنةٍ باليد
+            'executionRequest' => CaseExecutionRequest::pending($case),
+            'canRequestExecution' => ExecutionCreation::isEligible($case) && $case->execution_requested_at === null,
         ]);
     }
 
@@ -176,14 +178,17 @@ class CaseController extends Controller
     }
 
     // فتح طلب تنفيذ من قضية بلغت «صدر الحكم» (تنفيذ الحكم)
-    public function convertToExecution(Request $request, LegalCase $case): RedirectResponse
+    /**
+     * **طلب فتح تنفيذ الحكم يُرفع للإدارة العليا** (قرار المالك 2026-09-29) — كان المحامي يفتح الملفّ مباشرةً.
+     */
+    public function requestExecution(Request $request, LegalCase $case): RedirectResponse
     {
         $this->guardAssigned($case);
-        abort_unless(ExecutionCreation::isEligible($case), 422, 'لا يُفتح طلب تنفيذٍ من هذه القضية: يلزم أن يصدر الحكم، وألّا يكون لها طلب تنفيذٍ قائم.');
+        $data = $request->validate(['reason' => ['required', 'string', 'max:1000']]);
 
-        ExecutionCreation::fromCase($case, $request->user());
+        CaseExecutionRequest::request($case, $request->user(), $data['reason']);
 
-        return redirect()->route('lawyer.execs');
+        return back()->with('flash', 'رُفع طلب فتح التنفيذ للإدارة العليا — يُفتح الملفّ فور اعتماده.');
     }
 
     // اعتماد اللائحة → القضية منظورة (يطابق cfApprove → cfTrack)

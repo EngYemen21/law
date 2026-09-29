@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import CaseClosureModal from '@/components/babylon/CaseClosureModal';
 import type { ClosureReasonOption } from '@/components/babylon/CaseClosureModal';
-import { useConfirm } from '@/components/babylon/ConfirmDialog';
+import { useConfirm, usePrompt } from '@/components/babylon/ConfirmDialog';
 import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
 import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
@@ -37,6 +37,8 @@ interface CaseInfo {
   canClose: boolean; canArchive: boolean; canExecute: boolean; canReassign: boolean; feePending: boolean;
   /** حكم انتقال `ReopenCase` (حالته المصدر + صلاحيّة الفاعل) — لا مقارنة بنصّ الحالة هنا. */
   canReopen: boolean;
+  /** طلب فتح التنفيذ القائم من المحامي/الموظّف (`CaseExecutionRequest::pending`) — يعتمده المدير أو يرفضه. */
+  executionRequest?: { at: string | null; by: string; reason: string } | null;
 }
 /** مرفقٌ من التذكرة قبل التحويل (`CaseTicketDocuments`). */
 /** `CaseTicketDocuments::for` — النوع المشترك (`@/types`). */
@@ -112,6 +114,35 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
     }
   };
 
+  // فتح التنفيذ قرار الإدارة (قرار المالك 2026-09-29): يُؤكَّد قبل الفتح، ويعتمد طلباً قائماً إن وُجد
+  const askReason = usePrompt();
+  const openExecution = async () => {
+    const pending = c.executionRequest;
+
+    if (await ask({
+      title: pending ? 'اعتماد طلب التنفيذ وفتح الملف؟' : 'فتح طلب تنفيذ الحكم؟',
+      message: pending ? `رفعه ${pending.by} — السبب: ${pending.reason}` : 'يُفتح ملفّ تنفيذ الحكم ويُسند لمحامي القضية، ويُبلَّغ العميل بعرض الأتعاب القادم.',
+      confirmLabel: pending ? 'اعتماد وفتح الملف' : 'فتح الملف',
+      cancelLabel: 'تراجع',
+    })) {
+      act(pending ? 'execution-request/approve' : 'execute', {}, 'فُتح ملفّ تنفيذ الحكم');
+    }
+  };
+  const rejectExecution = async () => {
+    const reason = (await askReason({
+      title: 'رفض طلب فتح التنفيذ',
+      message: 'يصل السبب رافعَ الطلب في إشعار.',
+      label: 'سبب الرفض',
+      multiline: true,
+      confirmLabel: 'رفض الطلب',
+      cancelLabel: 'تراجع',
+    }))?.trim();
+
+    if (reason) {
+      act('execution-request/reject', { reason }, 'رُفض طلب فتح التنفيذ');
+    }
+  };
+
   const reassign = () => {
     if (!lawyerId || Number(lawyerId) === c.lawyerId) {
       toast('اختر محامياً غير المسنَد حالياً');
@@ -175,9 +206,20 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
                   <Icon name="reply" /> إعادة فتح القضية
                 </button>
               )}
+              {c.executionRequest && (
+                <div className="action-hint" style={{ margin: 0 }}>
+                  <b>طلب فتح تنفيذ الحكم بانتظار قرارك</b>
+                  <div className="sub">رفعه {c.executionRequest.by}{c.executionRequest.at ? ` ${c.executionRequest.at}` : ''} — السبب: {c.executionRequest.reason}</div>
+                </div>
+              )}
               {c.canExecute && (
-                <button className="btn sm soft" type="button" disabled={busy} onClick={() => act('execute', {}, 'فُتح طلب تنفيذ الحكم')}>
-                  <Icon name="exec" /> فتح طلب تنفيذ الحكم
+                <button className="btn sm soft" type="button" disabled={busy} onClick={openExecution}>
+                  <Icon name="exec" /> {c.executionRequest ? 'اعتماد طلب التنفيذ وفتح الملف' : 'فتح طلب تنفيذ الحكم'}
+                </button>
+              )}
+              {c.executionRequest && (
+                <button className="btn sm soft" type="button" disabled={busy} onClick={rejectExecution}>
+                  <Icon name="close" /> رفض طلب التنفيذ
                 </button>
               )}
               {c.canArchive && (

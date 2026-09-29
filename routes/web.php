@@ -258,6 +258,8 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
         Route::get('/cases/{case}', [EmployeeCaseController::class, 'show'])->name('cases.show');
         Route::post('/cases/{case}/reply', [EmployeeCaseController::class, 'reply'])->middleware('conversation.reply')->name('cases.reply');
         Route::post('/cases/{case}/attach', [EmployeeCaseController::class, 'attach'])->middleware('conversation.reply')->name('cases.attach');
+        // رفع طلب فتح تنفيذ الحكم للإدارة العليا (قرار المالك 2026-09-29)
+        Route::post('/cases/{case}/execution-request', [EmployeeCaseController::class, 'requestExecution'])->name('cases.execution-request');
         // إجراءات المحكمة (ناجز والجلسات والحكم) — لمن تمنحه الإدارة «إجراءات المحكمة والجلسات» من تبويب
         // الموظّفين (قرار المالك 2026-09-11)، بحرّاس المحامي نفسها (`ManagesCourtProceedings`)
         Route::middleware(Permissions::middleware(Permissions::COURT_PROCEEDINGS))->group(function () {
@@ -467,7 +469,8 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::post('/cases/{case}/ruling/correct', [LawyerCaseController::class, 'correctRuling'])->name('cases.ruling.correct');
         Route::post('/cases/{case}/appeal', [LawyerCaseController::class, 'recordAppeal'])->name('cases.appeal');
         Route::post('/cases/{case}/appeal/ruling', [LawyerCaseController::class, 'recordAppealRuling'])->name('cases.appeal.ruling');
-        Route::post('/cases/{case}/execute', [LawyerCaseController::class, 'convertToExecution'])->name('cases.execute');
+        // فتح تنفيذ الحكم بطلبٍ تعتمده الإدارة العليا (قرار المالك 2026-09-29) — لا فتحَ مباشراً من المحامي
+        Route::post('/cases/{case}/execution-request', [LawyerCaseController::class, 'requestExecution'])->name('cases.execution-request');
         // التنفيذ — تبويب موحّد (تدفّق + تنفيذات قديمة) لدور المحامي، محصور بالمسند إليه/القابل للالتقاط
         Route::get('/execs', [ExecFlowController::class, 'lawyer'])->name('execs');
         Route::get('/tasks', [LawyerTaskController::class, 'index'])->name('tasks');
@@ -668,6 +671,8 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/cases/{case}/lawyer', [AdminCaseController::class, 'reassignLawyer'])->name('cases.lawyer');
     // الدالّة اسمها execute — الإشارة إلى convertToExecution (اسم نظيرتها لدى المحامي) كانت ترمي 500 دوماً
     Route::post('/cases/{case}/execute', [AdminCaseController::class, 'execute'])->name('cases.execute');
+    Route::post('/cases/{case}/execution-request/approve', [AdminCaseController::class, 'approveExecutionRequest'])->name('cases.execution-request.approve');
+    Route::post('/cases/{case}/execution-request/reject', [AdminCaseController::class, 'rejectExecutionRequest'])->name('cases.execution-request.reject');
     // التنفيذ — تبويب موحّد (تدفّق + تنفيذات قديمة) لدور الإدارة العليا
     Route::get('/execs', [ExecFlowController::class, 'admin'])->name('execs');
     Route::get('/tasks', [AdminTaskController::class, 'index'])->name('tasks');

@@ -13,9 +13,12 @@ use App\Domain\Journey\Transitions\Ticket\ReturnTicketSummary;
 use App\Domain\Journey\Workflow;
 use App\Http\Controllers\Controller;
 use App\Models\Consult;
+use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\TicketSummary;
+use App\Models\User;
 use App\Support\AdminApprovalQueue;
+use App\Support\CaseExecutionRequest;
 use App\Support\Notify;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -146,13 +149,25 @@ class ApprovalsController extends Controller
                 ]);
             })->values();
 
+        // (هـ) طلبات فتح تنفيذ الأحكام — من المحامي أو الموظّف (قرار المالك 2026-09-29)
+        $pendingCases = AdminApprovalQueue::executionRequests()->orderByDesc('execution_requested_at')->get();
+        $clientNames = User::whereIn('id', $pendingCases->pluck('user_id'))->pluck('name', 'id');
+        $executionRequests = $pendingCases
+            ->map(fn (LegalCase $c) => [
+                'no' => $c->number,
+                'client' => (string) ($clientNames[$c->user_id] ?? '—'),
+                'type' => $c->type,
+                'lawyer' => $c->assigned_lawyer ?: '—',
+            ] + (CaseExecutionRequest::pending($c) ?? ['at' => null, 'by' => '—', 'reason' => '']))->values();
+
         $counts = [
+            'executions' => $executionRequests->count(),
             'proposals' => $ticketTrackProposals->count(),
             'summaries' => $ticketSummaries->count(),
             'sessions' => $sessionSummaries->count(),
             'appointments' => $appointments->count(),
             'history' => $approvedHistory->count(),
-            'totalPending' => $ticketTrackProposals->count() + $ticketSummaries->count() + $sessionSummaries->count() + $appointments->count(),
+            'totalPending' => $ticketTrackProposals->count() + $ticketSummaries->count() + $sessionSummaries->count() + $appointments->count() + $executionRequests->count(),
         ];
 
         return Inertia::render('admin/approvals', [
@@ -160,6 +175,7 @@ class ApprovalsController extends Controller
             'ticketTrackProposals' => $ticketTrackProposals,
             'sessionSummaries' => $sessionSummaries,
             'appointments' => $appointments,
+            'executionRequests' => $executionRequests,
             'approvedHistory' => $approvedHistory,
             'counts' => $counts,
             // أسباب الإغلاق من الكتالوج — يختار المدير أحدها حين يعتمد مسار «إغلاق» (كان يُكتب `NoLegalMerit` صامتاً)

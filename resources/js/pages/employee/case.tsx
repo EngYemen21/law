@@ -3,6 +3,8 @@ import axios from 'axios';
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
+import CaseExecutionRequestCard from '@/components/babylon/CaseExecutionRequestCard';
+import type { CaseExecutionRequestData } from '@/components/babylon/CaseExecutionRequestCard';
 import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
 import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
@@ -65,6 +67,10 @@ interface Props {
   canRule?: boolean;
   /** من يتولّى المحادثة ومن تولّاها قبله — `ConversationHandler::history`. */
   conversation?: ConversationHistory | null;
+  /** رفع طلب فتح تنفيذ الحكم للإدارة العليا (قرار المالك 2026-09-29) */
+  canRequestExecution?: boolean;
+  executionRequest?: CaseExecutionRequestData | null;
+  convertedExec?: boolean;
 }
 
 const EmployeeCase: React.FC<Props> = ({
@@ -79,6 +85,9 @@ const EmployeeCase: React.FC<Props> = ({
   canCourt = false,
   canRule = false,
   conversation,
+  canRequestExecution = false,
+  executionRequest = null,
+  convertedExec = false,
 }) => {
   const toast = useToast();
   const base = `/employee/cases/${encodeURIComponent(c.no)}`;
@@ -282,6 +291,8 @@ const EmployeeCase: React.FC<Props> = ({
           {canCourt && hearings.length > 0 && live.isActive && <HearingUpdatesCard base={base} hearings={hearings} />}
 
           {/* بطاقة الجلسات القضائية */}
+          <CaseExecutionRequestCard base={base} canRequest={canRequestExecution} pending={executionRequest} converted={convertedExec} />
+
           <HearingsCard hearings={hearings} documents={documents} />
 
           {/* سجل مستندات القضية (بيانات وصفية فقط دون روابط تحميل للموظف) */}

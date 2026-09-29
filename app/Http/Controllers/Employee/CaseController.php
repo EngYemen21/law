@@ -10,11 +10,13 @@ use App\Jobs\AnalyzeCaseDocumentJob;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\CaseExecutionRequest;
 use App\Support\CaseFiling;
 use App\Support\CaseJourney;
 use App\Support\CaseTicketDocuments;
 use App\Support\ConversationFiles;
 use App\Support\ConversationHandler;
+use App\Support\ExecutionCreation;
 use App\Support\Notify;
 use App\Support\Permissions;
 use Illuminate\Http\RedirectResponse;
@@ -156,6 +158,10 @@ class CaseController extends Controller
                 'appeal' => $case->appealCard(),
             ],
             'canCourt' => $canCourt,
+            // فتح تنفيذ الحكم بطلبٍ تعتمده الإدارة العليا (قرار المالك 2026-09-29)
+            'executionRequest' => CaseExecutionRequest::pending($case),
+            'canRequestExecution' => ExecutionCreation::isEligible($case) && $case->execution_requested_at === null,
+            'convertedExec' => $case->execution()->exists(),
             // الحكم وتصحيحه وحكم الاستئناف — تُخفى نماذجها عمّن يصدّه `guardRulingAccess`
             'canRule' => $canCourt && (bool) auth()->user()?->can(Permissions::RECORD_RULINGS),
             // رفع الدعوى في ناجز والقيد — ما يجوز الآن من الحرّاس نفسها، لمن يملك الصلاحيّة
@@ -215,6 +221,16 @@ class CaseController extends Controller
     }
 
     // ردّ خدمة العملاء للعميل داخل القضية (بثّ لحظي)
+    /** رفع طلب فتح تنفيذ الحكم للإدارة العليا (قرار المالك 2026-09-29) — كالمحامي المسنَد. */
+    public function requestExecution(Request $request, LegalCase $case): RedirectResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'max:1000']]);
+
+        CaseExecutionRequest::request($case, $request->user(), $data['reason']);
+
+        return back()->with('flash', 'رُفع طلب فتح التنفيذ للإدارة العليا — يُفتح الملفّ فور اعتماده.');
+    }
+
     public function reply(Request $request, LegalCase $case): \Illuminate\Http\Response
     {
         // الأرشيف للقراءة — كان الإرفاق يُرفض عليه والردّ يمرّ

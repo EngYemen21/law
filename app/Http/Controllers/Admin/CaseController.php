@@ -20,6 +20,7 @@ use App\Models\User;
 use App\Rules\ActiveLawyer;
 use App\Services\MailService;
 use App\Support\Audit;
+use App\Support\CaseExecutionRequest;
 use App\Support\CaseFee;
 use App\Support\CaseJourney;
 use App\Support\CaseTicketDocuments;
@@ -275,6 +276,8 @@ class CaseController extends Controller
                 'canReopen' => (new ReopenCaseTransition)->accepts((string) $case->status)
                     && (new ReopenCaseTransition)->deny($case, $request->user()) === null,
                 'canExecute' => ExecutionCreation::isEligible($case),
+                // طلب فتح التنفيذ القائم (من المحامي/الموظّف) — يعتمده المدير أو يرفضه من هنا
+                'executionRequest' => CaseExecutionRequest::pending($case),
                 'canReassign' => $case->status !== CaseStatus::Archived->value,
                 'feePending' => $case->status === 'بانتظار اعتماد الأتعاب',
             ],
@@ -470,11 +473,32 @@ class CaseController extends Controller
     {
         abort_unless(ExecutionCreation::isEligible($case), 422, 'التحويل للتنفيذ متاح للقضايا الصادر حكمها ولم يُفتح لها تنفيذ بعد.');
 
-        $exec = ExecutionCreation::fromCase($case, $request->user());
+        // طلبٌ قائمٌ من المحامي أو الموظّف يُعتمد بفتح الإدارة نفسها — فلا يبقى معلّقاً بعد الفتح
+        $exec = $case->execution_requested_at !== null
+            ? CaseExecutionRequest::approve($case, $request->user())
+            : ExecutionCreation::fromCase($case, $request->user());
 
         // وجهة الملف المفتوح لا الصفحة السابقة — نظير مسار المحامي (lawyer.execs)، والعقد موثّق باختبار
         // `?id=` يفتح الملفّ نفسه (`execflow.resolveTarget`) — بدونه تهبط الإدارة على القائمة كلّها
         return redirect()->route('admin.execs', ['id' => $exec->number])->with('flash', "فُتح طلب التنفيذ {$exec->number} للقضية {$case->number}.");
+    }
+
+    /** اعتماد طلب فتح التنفيذ المرفوع من المحامي أو الموظّف (قرار المالك 2026-09-29) — يفتح الملفّ. */
+    public function approveExecutionRequest(Request $request, LegalCase $case): RedirectResponse
+    {
+        $exec = CaseExecutionRequest::approve($case, $request->user());
+
+        return redirect()->route('admin.execs', ['id' => $exec->number])->with('flash', "اعتُمد الطلب وفُتح ملفّ التنفيذ {$exec->number} للقضية {$case->number}.");
+    }
+
+    /** رفض طلب فتح التنفيذ بسببٍ يصل رافعه. */
+    public function rejectExecutionRequest(Request $request, LegalCase $case): RedirectResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:1000']]);
+
+        CaseExecutionRequest::reject($case, $request->user(), $data['reason']);
+
+        return back()->with('flash', 'رُفض طلب فتح التنفيذ وأُبلغ رافعه بالسبب.');
     }
 
     private function clock(): string

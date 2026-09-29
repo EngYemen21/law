@@ -2,6 +2,8 @@ import { Link, router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
+import ExecutionRequestsTable from '@/components/babylon/ExecutionRequestsTable';
+import type { ExecutionRequestRow } from '@/components/babylon/ExecutionRequestsTable';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
 import { type SummaryData } from '@/lib/lawyer-data';
@@ -95,6 +97,7 @@ interface CountsData {
     summaries: number;
     sessions: number;
     appointments: number;
+    executions: number;
     history: number;
     totalPending: number;
 }
@@ -104,13 +107,15 @@ interface Props {
     ticketTrackProposals?: TicketTrackProposalRow[];
     sessionSummaries: SessionSummaryRow[];
     appointments: AppointmentRow[];
+    /** طلبات فتح تنفيذ الأحكام (قرار المالك 2026-09-29) */
+    executionRequests?: ExecutionRequestRow[];
     approvedHistory?: HistorySummaryItem[];
     counts?: CountsData;
     /** أسباب الإغلاق من الكتالوج (`ClosureReasonCode::options`) — لاعتماد مسار «إغلاق». */
     closureReasons?: { code: string; label: string }[];
 }
 
-type TabKey = 'all' | 'tracks' | 'summaries' | 'sessions' | 'appointments' | 'history';
+type TabKey = 'all' | 'tracks' | 'summaries' | 'sessions' | 'appointments' | 'executions' | 'history';
 type ActionType = 'approve' | 'reject' | 'view';
 type ItemCategory = 'track' | 'summary' | 'session' | 'appointment' | 'history';
 
@@ -125,6 +130,7 @@ const AdminApprovals: React.FC<Props> = ({
     ticketTrackProposals = [],
     sessionSummaries = [],
     appointments = [],
+    executionRequests = [],
     approvedHistory = [],
     counts,
     closureReasons = [],
@@ -174,10 +180,11 @@ const AdminApprovals: React.FC<Props> = ({
             summaries: s,
             sessions: sess,
             appointments: a,
+            executions: executionRequests.length,
             history: h,
-            totalPending: p + s + sess + a,
+            totalPending: p + s + sess + a + executionRequests.length,
         };
-    }, [counts, ticketTrackProposals, ticketSummaries, sessionSummaries, appointments, approvedHistory]);
+    }, [counts, ticketTrackProposals, ticketSummaries, sessionSummaries, appointments, executionRequests, approvedHistory]);
 
     // فتح نافذة الإجراء
     const openModal = (action: ActionType, item: any, category: ItemCategory) => {
@@ -552,6 +559,7 @@ const AdminApprovals: React.FC<Props> = ({
         { key: 'summaries', label: 'ملخصات التذاكر', count: metricCounts.summaries, icon: '📄' },
         { key: 'sessions', label: 'محاضر الجلسات', count: metricCounts.sessions, icon: '⚖️' },
         { key: 'appointments', label: 'المواعيد', count: metricCounts.appointments, icon: '📅' },
+        { key: 'executions', label: 'طلبات التنفيذ', count: metricCounts.executions, icon: '⚡' },
         { key: 'history', label: 'سجل المعتمد والنتائج', count: metricCounts.history, icon: '🏛️' },
     ];
 
@@ -1120,6 +1128,11 @@ const AdminApprovals: React.FC<Props> = ({
                             )}
                         </div>
                     </div>
+                )}
+
+                {/* طلبات فتح تنفيذ الأحكام (قرار المالك 2026-09-29) */}
+                {(activeTab === 'executions' || (activeTab === 'all' && executionRequests.length > 0)) && (
+                    <ExecutionRequestsTable rows={executionRequests} />
                 )}
 
                 {/* (هـ) جدول سجل الملخصات والنتائج التاريخية ومسار المراجعة (بدون FlowLine وبلا شادو) */}

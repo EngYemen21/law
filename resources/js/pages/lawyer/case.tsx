@@ -2,6 +2,8 @@ import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import CaseExecutionRequestCard from '@/components/babylon/CaseExecutionRequestCard';
+import type { CaseExecutionRequestData } from '@/components/babylon/CaseExecutionRequestCard';
 import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
 import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
@@ -14,7 +16,6 @@ import type { Hearing } from '@/lib/case-ui';
 import type { Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
-import { useServerAction } from '@/lib/use-server-action';
 import type { CaseDocumentCard, TicketDocumentCard } from '@/types';
 
 interface CaseInfo {
@@ -32,7 +33,7 @@ interface FileFacts { summary?: string | null; facts?: string | null; keyPoints?
 interface ReadinessItem { label: string; ok: boolean; hint?: string | null }
 interface Props {
   case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[];
-  convertedExec?: boolean; pleadingBlock?: string | null; pleadingDraft?: string | null; canExecute?: boolean;
+  convertedExec?: boolean; pleadingBlock?: string | null; pleadingDraft?: string | null; canRequestExecution: boolean; executionRequest: CaseExecutionRequestData | null;
   ticketDocuments?: CaseDoc[]; fileInfo?: FileInfo; fileFacts?: FileFacts | null; readiness?: ReadinessItem[]; filing?: Filing;
   /** من يتولّى المحادثة ومن تولّاها قبله — `ConversationHandler::history`. */
   conversation?: ConversationHistory | null;
@@ -51,7 +52,7 @@ function docState(d: CaseDoc): [string, string] {
   return d.summary ? ['محلَّل', 'b-green'] : ['بانتظار التحليل', 'b-amber'];
 }
 
-const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, pleadingBlock, pleadingDraft, canExecute, ticketDocuments = [], fileInfo = {}, fileFacts = null, readiness = [], filing = { canFile: false, canRegister: false, data: null }, conversation }) => {
+const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, pleadingBlock, pleadingDraft, canRequestExecution, executionRequest, ticketDocuments = [], fileInfo = {}, fileFacts = null, readiness = [], filing = { canFile: false, canRegister: false, data: null }, conversation }) => {
   const ask = useConfirm();
   const toast = useToast();
   const base = `/lawyer/cases/${encodeURIComponent(c.no)}`;
@@ -190,10 +191,6 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
     pleadingPost('pleading', {}, 'اعتُمدت اللائحة نهائياً — ارفعها الآن في ناجز وسجّل رقم الطلب');
   };
   // الرفع في ناجز والقيد والجلسات والحكم: بطاقات `case-court` — مشتركةٌ مع الموظّف
-  // الأداة الموحّدة: قفلٌ ضدّ النقرتين، ورسالة الرفض تُسمع — كان الطلب يُرسل بلا قفلٍ ولا رسالة خطأ
-  const execAction = useServerAction();
-  const convertToExec = () =>
-    execAction.run(`${base}/execute`, { success: 'تم فتح طلب تنفيذ الحكم', fallback: 'تعذّر فتح طلب تنفيذ الحكم' });
 
   const active = live.inCourt;
 
@@ -410,21 +407,8 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
           {/* إدارة الجلسات — المغلقة والمؤرشفة للقراءة، والخادم يرفض تحريك جلساتهما */}
           {hearings.length > 0 && live.isActive && <HearingUpdatesCard base={base} hearings={hearings} />}
 
-          {(canExecute || convertedExec) && (
-            <div className="card">
-              <div className="card-h"><h3>تنفيذ الحكم</h3>{convertedExec && <Badge text="محوّل لتنفيذ" tone="b-cyan" />}</div>
-              <div className="card-b" style={{ padding: 14 }}>
-                {convertedExec ? (
-                  <div className="empty"><Icon name="exec" /><b>فُتح طلب تنفيذ لهذا الحكم</b></div>
-                ) : (
-                  <>
-                    <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>صدر الحكم. يمكنك فتح طلب تنفيذ لتحصيل الحق لدى محكمة التنفيذ.</div>
-                    <button className="btn sm" type="button" disabled={execAction.busy} onClick={convertToExec}><Icon name="exec" /> فتح طلب تنفيذ الحكم</button>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
+          {/* تنفيذ الحكم بطلبٍ تعتمده الإدارة العليا (قرار المالك 2026-09-29) — لا فتحَ مباشراً */}
+          <CaseExecutionRequestCard base={base} canRequest={canRequestExecution} pending={executionRequest} converted={Boolean(convertedExec)} />
 
           <HearingsCard hearings={hearings} documents={documents} />
         </aside>
