@@ -633,7 +633,7 @@ const AdminApprovals: React.FC<Props> = ({
                 }}
             >
                 {/* التبويبات المستقرة تماماً بدون كلاس btn أو انميشن */}
-                <div
+                <div className="filter-pills"
                     style={{
                         display: 'flex',
                         alignItems: 'center',

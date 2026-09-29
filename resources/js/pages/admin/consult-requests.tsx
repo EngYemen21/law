@@ -612,8 +612,12 @@ return (a.total || 0) - (b.total || 0);
             grid-template-columns: repeat(2, 1fr);
             gap: 8px;
           }
+          /* على الهاتف: قائمتان في كلّ صفّ، والبحث بعرض السطر فوقهما (قرار المالك 2026-09-29) */
           .cr360-filter-grid {
-            grid-template-columns: 1fr;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .cr360-filter-grid > :first-child {
+            grid-column: 1 / -1;
           }
 
           /* تحويل الجدول إلى كروت لمس ذكية وتفاعلية على الشاشات الصغيرة */

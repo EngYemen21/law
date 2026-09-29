@@ -333,7 +333,7 @@ return false;
 
           {/* تصفية أنواع القضايا */}
           {types.length > 0 && (
-            <div className="chips" style={{ marginTop: 12 }}>
+            <div className="chips filter-pills" style={{ marginTop: 12 }}>
               <button
                 type="button"
                 className={`chip${selectedType === 'all' ? '' : ' muted'} sel-toggle${selectedType === 'all' ? ' on' : ''}`}

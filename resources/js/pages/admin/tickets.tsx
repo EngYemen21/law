@@ -184,7 +184,7 @@ const AdminTickets: React.FC<Props> = ({
             </div>
 
             {/* أزرار الحالة السريعة */}
-            <div style={{ display: 'flex', gap: 4, marginRight: 8, flexWrap: 'wrap' }}>
+            <div className="filter-pills" style={{ display: 'flex', gap: 4, marginRight: 8, flexWrap: 'wrap' }}>
               <button
                 type="button"
                 className={`btn sm ${!status ? '' : 'soft'}`}

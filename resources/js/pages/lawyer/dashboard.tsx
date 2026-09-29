@@ -499,7 +499,7 @@ setActiveTab('tasks');
           <div className="card">
             {/* رأس مساحة العمل وتبديل التبويبات */}
             <div className="card-h" style={{ flexWrap: 'wrap', gap: 12, padding: '14px 18px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div className="filter-pills" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <button
                   className={`btn sm ${activeTab === 'tickets' ? '' : 'soft'}`}
                   onClick={() => setActiveTab('tickets')}

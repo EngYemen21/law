@@ -200,8 +200,10 @@ html {
 }
 
 @media (max-width: 640px) {
+  /* قائمتان في كلّ صفّ لا واحدة (قرار المالك 2026-09-29) — والثالثة تأخذ السطر وحدها */
   .tickets-toolbar select.select-field {
-    flex: 1 1 100%;
+    flex: 1 1 calc(50% - 5px);
+    min-width: 0;
     width: 100% !important;
   }
   .tickets-toolbar .view-switcher {

@@ -459,7 +459,7 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
           )}
 
           {/* تبويبات حالات القضايا */}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line-soft)' }}>
+          <div className="filter-pills" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line-soft)' }}>
             <button
               type="button"
               className={`chip ${statusFilter === 'all' ? 'active' : ''}`}

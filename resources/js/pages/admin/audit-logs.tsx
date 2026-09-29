@@ -244,7 +244,7 @@ export const AdminAuditLogs: React.FC<Props> = ({
       {/* ── 3. شريط الفلاتر الذكية والبحث المتعدد ── */}
       <div className="card" style={{ padding: 14, marginBottom: 16 }}>
         {/* صف البحث والحقول السريعة */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 2fr) repeat(auto-fit, minmax(140px, 1fr)) auto', gap: 10, alignItems: 'center' }}>
+        <div className="filter-selects" style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 2fr) repeat(auto-fit, minmax(140px, 1fr)) auto', gap: 10, alignItems: 'center' }}>
           {/* حقل البحث */}
           <div style={{ position: 'relative' }}>
             <input
@@ -350,7 +350,7 @@ export const AdminAuditLogs: React.FC<Props> = ({
         </div>
 
         {/* كبسولات الفئات السريعة */}
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12, paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+        <div className="filter-pills" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12, paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
           <button
             type="button"
             className={`btn sm ${selectedCategory === 'all' ? 'primary' : 'soft'}`}

@@ -375,7 +375,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
           )}
 
           {/* الصف الثالث: تبويبات الحالات العامة السريعة */}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line-soft)' }}>
+          <div className="filter-pills" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line-soft)' }}>
             <button
               type="button"
               className={`chip ${statusFilter === 'all' && specificStatus === 'all' ? 'active' : ''}`}

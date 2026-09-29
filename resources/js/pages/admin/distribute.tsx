@@ -491,7 +491,7 @@ export const AdminDistribute: React.FC<Props> = ({
       <div className="card" style={{ marginBottom: 18 }}>
         <div className="card-b" style={{ padding: '14px 18px' }}>
           {/* تبويبات فئات الأعمال الأساسية (تذاكر · قضايا · تنفيذ · استشارات) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid var(--line-soft)', paddingBottom: 12, marginBottom: 14, overflowX: 'auto' }}>
+          <div className="filter-pills" style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid var(--line-soft)', paddingBottom: 12, marginBottom: 14, overflowX: 'auto' }}>
             <button
               type="button"
               className={`chip sel-toggle${kindFilter === 'all' ? ' on' : ' muted'}`}
@@ -582,7 +582,7 @@ export const AdminDistribute: React.FC<Props> = ({
 
           {/* فلاتر الأقسام */}
           {departments.length > 0 && (
-            <div className="chips" style={{ marginTop: 12 }}>
+            <div className="chips filter-pills" style={{ marginTop: 12 }}>
               <button
                 type="button"
                 className={`chip${deptFilter === 'all' ? '' : ' muted'} sel-toggle${deptFilter === 'all' ? ' on' : ''}`}

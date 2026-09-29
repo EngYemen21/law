@@ -1669,7 +1669,7 @@ export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: str
 
             <div className="card" style={{ marginBottom: 18 }}>
                 <div className="card-b" style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderBottom: '1px solid var(--line-soft)', paddingBottom: 12 }}>
+                    <div className="filter-pills" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderBottom: '1px solid var(--line-soft)', paddingBottom: 12 }}>
                         {TABS.map(([key, icon, label, n]) => (
                             <button
                                 key={key}

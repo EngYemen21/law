@@ -438,7 +438,7 @@ return list;
           }}
         >
           {/* أزرار التبويبات */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div className="filter-pills" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button
               className={`btn sm ${activeTab === 'upcoming' ? '' : 'ghost'}`}
               type="button"
