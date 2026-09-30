@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\ExecutionOfferStatus;
 use App\Domain\Journey\Transitions\Execution\ApplyExecutionAnalysis;
 use App\Domain\Journey\Transitions\Execution\ApplyExecutionMeasures;
 use App\Domain\Journey\Transitions\Execution\ApproveExecutionFee;
@@ -22,7 +23,6 @@ use App\Events\ExecStatusBroadcast;
 use App\Jobs\AnalyzeExecutionJob;
 use App\Mail\ExecutionEventMail;
 use App\Models\Execution;
-use App\Models\Setting;
 use App\Models\User;
 use App\Services\Ai\AiRunLogger;
 use App\Services\MailService;
@@ -274,7 +274,7 @@ class ExecService
             return [];
         }
 
-        return in_array($exec->offer_status, ['مرفوض', 'استفسار'], true) || $exec->effectiveStage() === 6
+        return in_array($exec->offer_status, [ExecutionOfferStatus::Rejected->value, ExecutionOfferStatus::Inquiry->value], true) || $exec->effectiveStage() === 6
             ? [2, 3, 4, 5, 6]
             : [2, 3, 4];
     }
@@ -365,28 +365,6 @@ class ExecService
         Live::push(new ExecStatusBroadcast($exec->fresh()));
     }
 
-    /**
-     * **كتابة التسعير — النموذج والعنوان معاً فلا يتناقضان.** كان `pay_method` نصّاً حرّاً
-     * يُخزَّن ويُعرض ولا يقرؤه محرّك: يختار المكتب «دفعات» فتصدر فاتورةٌ واحدة كاملة، فتَعِد
-     * الشاشةُ العميلَ بما لا يقع. الآن النموذج عمودٌ يقرؤه `ExecFee`، والعنوان مشتقٌّ منه.
-     *
-     * وفي النموذج النسبيّ لا مبلغ ولا ضريبة على العرض: الأتعاب تُحسب مع كلّ تحصيل.
-     */
-    private static function writeFee(Execution $exec, int $fee, string $duration, string $feeMode, ?float $feePct): void
-    {
-        $percent = $feeMode === 'percent';
-        $exec->update([
-            'fee' => $percent ? 0 : $fee,
-            'vat' => $percent ? 0 : Setting::vatOn($fee),
-            'fee_mode' => $percent ? 'percent' : 'fixed',
-            'collection_fee_pct' => $percent ? $feePct : null,
-            // الخطّة قرارُ العميل عند السداد؛ وتغييرُ النموذج يُسقط خطّةً اختيرت على عرضٍ سابق
-            'pay_plan' => null,
-            'duration' => $duration ?: '30-45 يوم',
-        ]);
-        $exec->update(['pay_method' => ExecFee::payMethodLabel($exec->fresh())]);
-    }
-
     public static function saveFee(Execution $exec, int $fee, string $duration, string $feeMode = 'fixed', ?float $feePct = null, ?User $actor = null): void
     {
         self::guard($exec, [3], 'لا يمكن تحديد الأتعاب في مرحلته الحالية.');
@@ -442,7 +420,7 @@ class ExecService
         self::guard($exec, [5, 6], 'لا يوجد عرض للاستفسار عنه.');
         abort_if($exec->paid, 422, 'تم سداد أتعاب هذا الملف بالفعل.');
 
-        $exec->update(['offer_status' => 'استفسار']);
+        $exec->update(['offer_status' => ExecutionOfferStatus::Inquiry->value]);
         $exec->messages()->create([
             'who' => 'client', 'name' => 'أنت', 'role' => 'العميل',
             'body' => '<p>لديّ استفسار حول عرض خدمة التنفيذ.</p>', 'time_label' => self::clock(),
@@ -569,7 +547,7 @@ class ExecService
         $actor ??= auth()->user();
 
         $isRejected = ($exec->decision === 'مرفوض' && in_array($exec->effectiveStage(), [2, 3], true))
-            || ($exec->effectiveStage() === 5 && $exec->offer_status === 'مرفوض');
+            || ($exec->effectiveStage() === 5 && $exec->isOfferRejected());
 
         if ($isRejected) {
             abort_unless(

@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\CaseStatus;
 use App\Domain\Journey\TransitionDenied;
 use App\Domain\Journey\Transitions\Invoice\SettleInvoice;
 use App\Domain\Journey\Transitions\LegalCase\ActivateCase as ActivateCaseTransition;
@@ -102,10 +103,7 @@ class CaseFee
      */
     public static function nextPayable(LegalCase $case): ?Invoice
     {
-        return self::nextInstallment($case)
-            ?: Invoice::where('case_id', $case->id)
-                ->outstanding()
-                ->orderBy('id')->first();
+        return InstallmentPlan::nextPayable('case_id', $case->id);
     }
 
     /**
@@ -339,7 +337,7 @@ class CaseFee
         }
 
         $prevStatus = $case->status;
-        if ($case->status !== 'قيد التحضير') {
+        if ($case->status !== CaseStatus::InPreparation->value) {
             Workflow::run(new ActivateCaseTransition, $case, auth()->user() ?? $case->user, [
                 'fee_status' => $case->fee_status,
                 'pay_plan' => $case->pay_plan,

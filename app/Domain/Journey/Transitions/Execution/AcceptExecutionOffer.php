@@ -2,6 +2,7 @@
 
 namespace App\Domain\Journey\Transitions\Execution;
 
+use App\Domain\Journey\Enums\ExecutionOfferStatus;
 use App\Domain\Journey\Enums\ExecutionStatus;
 use App\Domain\Journey\Transition;
 use App\Models\Execution;
@@ -65,7 +66,7 @@ final class AcceptExecutionOffer extends Transition
     public function apply(Model $entity, ?User $actor, array $payload): void
     {
         /** @var Execution $entity */
-        $entity->offer_status = 'مقبول';
+        $entity->offer_status = ExecutionOfferStatus::Accepted->value;
 
         if ($entity->feeMode() === 'percent') {
             $entity->paid = true;

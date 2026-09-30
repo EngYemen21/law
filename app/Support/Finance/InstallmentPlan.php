@@ -63,6 +63,16 @@ final class InstallmentPlan
     }
 
     /**
+     * **أوّل فاتورةٍ قابلة للسداد على المالك** — دفعةُ الخطّة أوّلاً متى وُجدت، وإلّا أقدمُ فاتورةٍ مستحقّة (فاتورةُ
+     * السداد الكامل ليست من الخطّة). كانت `latest('id')` تعيد الدفعة الأخيرة فيسدّدها العميل وتبقى الأولى.
+     */
+    public static function nextPayable(string $owner, int $ownerId): ?Invoice
+    {
+        return self::next($owner, $ownerId)
+            ?: Invoice::where($owner, $ownerId)->outstanding()->orderBy('id')->first();
+    }
+
+    /**
      * تقدّم الخطّة **من فواتيرها** لا من عدّادٍ يُزاد: المدفوع، والعدد الفعليّ (المدفوع + المستحقّ؛ الملغى
      * والمعدوم خارجه)، واكتمالها.
      *

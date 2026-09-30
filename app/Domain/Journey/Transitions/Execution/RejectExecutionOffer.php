@@ -2,6 +2,7 @@
 
 namespace App\Domain\Journey\Transitions\Execution;
 
+use App\Domain\Journey\Enums\ExecutionOfferStatus;
 use App\Domain\Journey\Enums\ExecutionStatus;
 use App\Domain\Journey\Transition;
 use App\Domain\Journey\Transitions\Invoice\CancelInvoice;
@@ -72,7 +73,7 @@ final class RejectExecutionOffer extends Transition
         $entity->stage = $status->stage();
         $entity->status = $status->value;
         $entity->tone = $status->tone();
-        $entity->offer_status = 'مرفوض';
+        $entity->offer_status = ExecutionOfferStatus::Rejected->value;
         $entity->pay_plan = null;
         $entity->installments_total = 1;
         $entity->installments_paid = 0;

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\Enums\ExecutionOfferStatus;
 use App\Domain\Journey\Enums\ExecutionStatus;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Enums\Role;
@@ -409,7 +410,7 @@ class Execution extends Model
     /** رفض العميل عرض الأتعاب؟ */
     public function isOfferRejected(): bool
     {
-        return $this->offer_status === 'مرفوض';
+        return $this->offer_status === ExecutionOfferStatus::Rejected->value;
     }
 
     /**

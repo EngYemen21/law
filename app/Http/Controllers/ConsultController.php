@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Journey\Enums\ConsultStatus;
 use App\Models\Consult;
 use App\Models\Invoice;
 use App\Services\Payments\GatewayCallback;
@@ -70,7 +71,7 @@ class ConsultController extends Controller
     public function pay(Request $request, Consult $consult): \Symfony\Component\HttpFoundation\Response
     {
         abort_unless($consult->user_id === $request->user()->id, 403);
-        abort_unless($consult->status === 'بانتظار السداد', 422, 'لا يوجد مبلغ مستحق للسداد على هذه الاستشارة.');
+        abort_unless($consult->status === ConsultStatus::AwaitingPayment->value, 422, 'لا يوجد مبلغ مستحق للسداد على هذه الاستشارة.');
         abort_unless(app(PaymentGateways::class)->default()->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
 
         // رابط العودة من أصل الطلب نفسه (لا APP_URL) — فيعود المتصفّح لنفس النطاق وتبقى الجلسة صالحة

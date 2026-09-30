@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\ExecutionOfferStatus;
 use App\Domain\Journey\TransitionDenied;
 use App\Domain\Journey\Transitions\Execution\AcceptExecutionOffer;
 use App\Domain\Journey\Transitions\Execution\ActivateExecution;
@@ -74,7 +75,7 @@ class ExecFee
         $exec->update(['pay_method' => self::payMethodLabel($exec)]);
 
         if ($exec->feeMode() === 'percent') {
-            $exec->update(['offer_status' => 'مقبول', 'pay_plan' => null, 'invoice_no' => null]);
+            $exec->update(['offer_status' => ExecutionOfferStatus::Accepted->value, 'pay_plan' => null, 'invoice_no' => null]);
             self::openFile($exec->fresh(), 'قُبل العرض بنموذج نسبة من المحصّل — يُرفع الطلب في ناجز');
 
             return;
@@ -96,7 +97,7 @@ class ExecFee
             // مفتاح عدم التكرار هو `offer_status` نفسه الذي يكتبه النداء الأوّل داخل القفل
             // (نظير `effectiveStage() >= 7` في `openFile`) — لا المرحلة: حارسُها في
             // `ExecService::acceptOffer`، وتكرارُه هنا يمنع منادياً مشروعاً بلغ المرحلة 6.
-            if ($locked === null || $locked->paid || $locked->offer_status === 'مقبول') {
+            if ($locked === null || $locked->paid || $locked->offer_status === ExecutionOfferStatus::Accepted->value) {
                 return false;
             }
 
@@ -111,7 +112,7 @@ class ExecFee
                 ...InvoiceDue::execFee(), // المهلة من الإعدادات — التاريخ ونصّه من رقمٍ واحد
             ]);
             // الخطّة تبقى معلّقة حتى يختارها العميل عند السداد؛ والمجموع 1 حتى يُقسَّط
-            $locked->update(['offer_status' => 'مقبول', 'invoice_no' => $number, 'installments_total' => 1]);
+            $locked->update(['offer_status' => ExecutionOfferStatus::Accepted->value, 'invoice_no' => $number, 'installments_total' => 1]);
 
             return true;
         });
@@ -183,10 +184,7 @@ class ExecFee
      */
     public static function nextPayable(Execution $exec): ?Invoice
     {
-        return self::nextInstallment($exec)
-            ?: Invoice::where('exec_id', $exec->id)
-                ->outstanding()
-                ->orderBy('id')->first();
+        return InstallmentPlan::nextPayable('exec_id', $exec->id);
     }
 
     /**
