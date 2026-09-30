@@ -412,10 +412,11 @@ const ClientFlowCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
   }
 
   // عرض خدمة التنفيذ — بانتظار قبول العميل
-  if (r.stage === 5 && r.feeApproved && !r.paid && !['مقبول', 'مرفوض'].includes(r.offerStatus)) {
+  // أعلام الخادم لا نصوص الحالة (قاعدة CLAUDE.md): العرض بانتظار العميل ما لم يُقبل ولم يُرفض
+  if (r.stage === 5 && r.feeApproved && !r.paid && !r.offerAccepted && !r.offerRejected) {
     return (
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="card-h"><h3>عرض خدمة التنفيذ</h3><Badge text={r.offerStatus === 'استفسار' ? 'بانتظار الرد على استفسارك' : 'بانتظار قبولك'} tone="b-amber" /></div>
+        <div className="card-h"><h3>عرض خدمة التنفيذ</h3><Badge text={r.offerInquiry ? 'بانتظار الرد على استفسارك' : 'بانتظار قبولك'} tone="b-amber" /></div>
         <div className="card-b" style={{ padding: 16 }}>
           {/* **النموذج النسبيّ بلا أرقام** (قرار المالك): لا مبلغ اليوم ولا تقديرَ لما سيُحصَّل،
               فطبعُ إجماليٍّ مقدَّر يُقرأ التزاماً. النسبة وحدها هي العرض. */}

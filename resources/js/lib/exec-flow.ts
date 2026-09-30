@@ -202,6 +202,9 @@ export interface ExecReq {
   isRejected: boolean;
   /** رفض العميل عرض الأتعاب (`Execution::isOfferRejected`) */
   offerRejected: boolean;
+  /** أعلام العرض من الخادم (`ExecutionOfferStatus`) — لا مقارنة نصّ الحالة العربيّ في الواجهة. */
+  offerAccepted?: boolean;
+  offerInquiry?: boolean;
   /** مرفوضٌ مفتوح مخرجُه إنهاء الإدارة (`Execution::isRejectedOpen` — حارس `CloseExecution` نفسه) */
   rejectedOpen: boolean;
   /** يجوز تسعيره الآن (`ExecService::canPrice` — حارس `setFee` نفسه) */

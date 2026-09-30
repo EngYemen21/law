@@ -269,6 +269,8 @@ class Execution extends Model
             // أعلامٌ من الخادم بدل مقارنة «مرفوض» نصّاً في الواجهة (`execflow.tsx`)
             'isRejected' => $this->isRejectedAfterStudy(),
             'offerRejected' => $this->isOfferRejected(),
+            'offerAccepted' => $this->isOfferAccepted(),
+            'offerInquiry' => $this->isOfferInquiry(),
             'rejectedOpen' => $this->isRejectedOpen(),
             // حارس التسعير نفسه (`ExecService::canPrice`) — لا شرطٌ ثانٍ في الواجهة يفترق عنه
             'canReprice' => ExecService::canPrice($this),
@@ -424,6 +426,17 @@ class Execution extends Model
     public function isOfferRejected(): bool
     {
         return $this->offer_status === ExecutionOfferStatus::Rejected->value;
+    }
+
+    public function isOfferAccepted(): bool
+    {
+        return $this->offer_status === ExecutionOfferStatus::Accepted->value;
+    }
+
+    /** استفسر العميل عن العرض وينتظر ردّ المكتب. */
+    public function isOfferInquiry(): bool
+    {
+        return $this->offer_status === ExecutionOfferStatus::Inquiry->value;
     }
 
     /**
