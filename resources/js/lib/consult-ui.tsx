@@ -110,7 +110,7 @@ export interface ConsultCard {
   place: string;
   phone: string;
   slink: string;
-  canJoin?: boolean; // زر الدخول مفعّل؟ (بعد إطلاق الرابط قبل الموعد بـ5د)
+  canJoin?: boolean; // زر الدخول مفعّل؟ (بعد إطلاق الرابط قبل الموعد بـ`session_join_opens_minutes`)
   missed?: boolean; // فات موعدها بلا جلسة (يشتقه الخادم)
   /** سُجّلت «لم تُعقد» — علمٌ مستقلّ عن `missed` في البطاقتين (قرار المالك 2026-09-27). */
   notHeld?: boolean;

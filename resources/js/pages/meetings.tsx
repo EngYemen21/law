@@ -6,7 +6,7 @@ import { useToast } from '@/components/babylon/Toast';
 import { RichText } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
-import { useSettings } from '@/lib/settings';
+import { useJoinOpensText, useSettings } from '@/lib/settings';
 
 // ============================================================
 // لوحة اجتماعات وجلسات العميل 360 درجة (360° Client Meetings Command Center)
@@ -76,6 +76,7 @@ const Meetings: React.FC<Props> = ({
   const toast = useToast();
   // اسم المكتب من الإعدادات — كان رأس المحضر يحمل اسماً ثالثاً منقوشاً لا يطابق مستندات المكتب
   const { office_name: officeName } = useSettings();
+  const joinOpens = useJoinOpensText();
   const [items, setItems] = useState<ClientMeeting[]>(meetings);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past' | 'consults'>('upcoming');
   const [searchQuery, setSearchQuery] = useState('');
@@ -390,7 +391,7 @@ return;
                     }}
                   >
                     <Icon name="clock" />
-                    <span>يُفعَّل رابط الدخول التلقائي قبل الموعد بـ 5 دقائق</span>
+                    <span>يُفعَّل رابط الدخول التلقائي قبل الموعد بـ{joinOpens}</span>
                   </div>
                 )}
               </div>
@@ -526,9 +527,9 @@ return;
                             type="button"
                             disabled
                             style={{ opacity: 0.65, cursor: 'not-allowed', fontSize: 12 }}
-                            title="يُفعَّل الدخول قبل الموعد بـ 5 دقائق"
+                            title={`يُفعَّل الدخول قبل الموعد بـ${joinOpens}`}
                           >
-                            <Icon name="clock" /> الدخول (قبل الموعد بـ 5د)
+                            <Icon name="clock" /> الدخول (قبل الموعد بـ{joinOpens})
                           </button>
                         )}
                         {/* طلب تغيير الموعد — الخادم يقرّر إتاحته (لا طلبَ قائم ولا سقفَ بُلغ)، ويُعلَن سبب المنع */}

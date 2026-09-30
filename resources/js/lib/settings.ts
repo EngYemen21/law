@@ -1,4 +1,5 @@
 import { usePage } from '@inertiajs/react';
+import { humanDuration } from '@/lib/human-duration';
 
 /**
  * **متغيّرات النظام كما يرسلها الخادم — القارئ الواحد في الواجهة.**
@@ -38,6 +39,8 @@ export interface SharedSettings {
   consult_slot_minutes: number;
   /** عمر الطلب المفتوح بالدقائق الذي يُعدّ بعده «متأخّراً» في شاشتي الاستشارات. */
   consult_request_late_minutes: number;
+  /** يُفعَّل زرّ الدخول للجلسة المرئيّة قبل الموعد بهذه الدقائق — النصّ منها بـ`joinOpensText`. */
+  session_join_opens_minutes: number;
 }
 
 /** متغيّرات النظام من الخاصيّة المشتركة. */
@@ -51,4 +54,9 @@ export function useSettings(): SharedSettings {
  */
 export function installmentsText(count: number): string {
   return count === 2 ? 'دفعتين' : `${count} دفعات`;
+}
+
+/** «5 دقائق» — مهلة فتح الدخول بوحدتها الطبيعيّة، لكلّ نصٍّ يعلنها للعميل (نظير `SessionWindow::joinOpensLabel`). */
+export function useJoinOpensText(): string {
+  return humanDuration(useSettings().session_join_opens_minutes) ?? '';
 }

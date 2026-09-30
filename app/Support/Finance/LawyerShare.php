@@ -6,12 +6,13 @@ use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\User;
+use App\Support\SettingsRegistry;
 
 /**
  * **نصيب المحامي من الأتعاب — القاعدة الواحدة للقضيّة والتنفيذ.**
  *
  * - **النسبة** تُحدَّد لكلّ ملفّ عند اعتماد أتعابه (`cases.lawyer_pct` · `executions.lawyer_pct`)، وافتراضها
- *   نسبة ملفّ المحامي (`users.pay_pct`)، وإلّا `DEFAULT_PCT`.
+ *   نسبة ملفّ المحامي (`users.pay_pct`)، وإلّا إعداد `lawyer_default_share_pct` (افتراضه `DEFAULT_PCT`).
  * - **النصيب الكلّيّ** = الأتعاب قبل الضريبة × النسبة.
  * - **المستحقّ** = المحصَّل فعلاً قبل الضريبة × النسبة، ولا يتجاوز النصيب الكلّيّ (قرار المالك: يُستحقّ عند
  *   سداد العميل وبقدر ما سدّد — فالأقساط تُحسب تلقائيّاً).
@@ -20,19 +21,20 @@ use App\Models\User;
  */
 final class LawyerShare
 {
-    /** النسبة حين لا نسبة في ملفّ المحامي — كانت «20» منقوشةً في شاشة أتعاب القضايا. */
+    /** **الافتراض المُعلَن** لـ`lawyer_default_share_pct` — كانت «20» منقوشةً في شاشة أتعاب القضايا. */
     public const DEFAULT_PCT = 20;
 
     /** النسبة الافتراضيّة لملفٍّ يُسند إلى هذا المحامي. */
     public static function defaultPctFor(?User $lawyer): int
     {
+        $fallback = SettingsRegistry::int('lawyer_default_share_pct');
         if ($lawyer === null || ! $lawyer->isLawyer() || ! $lawyer->payType()?->hasPercent()) {
-            return self::DEFAULT_PCT;
+            return $fallback;
         }
 
         $pct = (int) round((float) $lawyer->pay_pct);
 
-        return $pct > 0 ? min(100, $pct) : self::DEFAULT_PCT;
+        return $pct > 0 ? min(100, $pct) : $fallback;
     }
 
     /** النسبة من مبلغ — `round` واحدٌ لكلّ حساب، فلا يختلف ريالٌ بين شاشة وكشف. */

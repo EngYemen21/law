@@ -9,6 +9,7 @@ import type { ClientConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { crChannelIcon, crChannelTone, foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { useJoinOpensText } from '@/lib/settings';
 
 // ============================================================
 // لوحة استشارات العميل 360 درجة (360° Client Consultations Command Center)
@@ -84,6 +85,7 @@ const MyConsults: React.FC<Props> = ({
   nextConsult: initialNextConsult,
 }) => {
   const toast = useToast();
+  const joinOpens = useJoinOpensText();
   const [items, setItems] = useState<ClientConsultCard[]>(consults);
   // الافتراضي يُشتق من البيانات: القادم من /book حالته «بانتظار التسعير/السداد» — فتح
   // upcoming دائماً كان يخفي طلبه الجديد وزرّ الدفع خلف تبويب آخر ويريه «لا توجد استشارات»
@@ -404,7 +406,7 @@ return list;
                       }}
                     >
                       <Icon name="clock" />
-                      <span>يُفعَّل رابط الدخول التلقائي قبل الموعد بـ 5 دقائق</span>
+                      <span>يُفعَّل رابط الدخول التلقائي قبل الموعد بـ{joinOpens}</span>
                     </div>
                   )
                 )}
@@ -662,9 +664,9 @@ return list;
                               type="button"
                               disabled
                               style={{ opacity: 0.65, cursor: 'not-allowed', fontSize: 12 }}
-                              title="يُفعَّل قبل الموعد بـ 5 دقائق"
+                              title={`يُفعَّل قبل الموعد بـ${joinOpens}`}
                             >
-                              <Icon name="clock" /> الدخول (قبل الموعد بـ 5د)
+                              <Icon name="clock" /> الدخول (قبل الموعد بـ{joinOpens})
                             </button>
                           )}
                         </>

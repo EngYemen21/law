@@ -13,7 +13,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Mail;
 
 /**
- * يُطلق رابط الجلسة المرئية قبل الموعد بـ5 دقائق: يضبط link_released_at، يبثّ (يفعّل زر الدخول
+ * يُطلق رابط الجلسة المرئية قبل الموعد بـ`session_join_opens_minutes` (افتراضها 5 دقائق): يضبط link_released_at، يبثّ (يفعّل زر الدخول
  * لحظياً للعميل والمحامي)، ويرسل بريد الرابط. idempotent — لا يُطلق مرتين.
  */
 class ReleaseMeetingLinks extends Command
@@ -30,7 +30,7 @@ class ReleaseMeetingLinks extends Command
             // والجارية تُطلَق أيضاً: الطاقم يبدأ قبل الموعد بربع ساعة، وبريد الرابط للعميل يلزم
             ->whereIn('session', [SessionState::Waiting->value, SessionState::Live->value])
             ->whereNotNull('starts_at')
-            ->where('starts_at', '<=', now()->addMinutes(SessionWindow::JOIN_OPENS_BEFORE_MINUTES))
+            ->where('starts_at', '<=', now()->addMinutes(SessionWindow::joinOpensBeforeMinutes()))
             // لا يُطلق رابطُ جلسةٍ فاتت دون أن تبدأ — الحدّ مهلة الفوات من البداية (`SessionWindow`)،
             // وكان ٦٠ منقوشة تطابق «المدّة» صدفةً.
             ->where('starts_at', '>=', now()->subMinutes(SessionWindow::missedAfterMinutes()))

@@ -89,6 +89,11 @@ class SettingsNotHardcodedTest extends TestCase
                     'app/Support/SettingsRegistry.php' => 1,
                 ],
             ],
+            // مهلة فتح الدخول إعدادٌ (`session_join_opens_minutes`) — النصّ يُبنى منها (`joinOpensLabel` · `useJoinOpensText`)
+            'مهلة فتح الدخول منقوشةً في نصّ' => [
+                'pattern' => '/قبل الموعد ب\s*ـ?\s*(?:5|٥)\s*(?:د|دقائق)/u',
+                'allow' => [],
+            ],
             '`APP_NAME` بديلاً عن اسم المكتب' => [
                 // `VITE_APP_NAME` نظيرُه في الواجهة: اسمٌ يُنقش في الحزمة عند البناء فلا يتبع الإعداد
                 'pattern' => '/config\(\s*[\'"]app\.name[\'"]|VITE_APP_NAME/',

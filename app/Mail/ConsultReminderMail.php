@@ -12,7 +12,7 @@ use Illuminate\Queue\SerializesModels;
 
 /**
  * تذكير بموعد الاستشارة (بريد) — يُرسَل للعميل قبل الموعد (طبقتا: نحو 24 ساعة، ونحو ساعة).
- * للجلسة المرئية: رابط الدخول يصل في بريد منفصل قبل الموعد بـ5 دقائق.
+ * للجلسة المرئية: رابط الدخول يصل في بريد منفصل قبل الموعد بـ`session_join_opens_minutes`.
  */
 class ConsultReminderMail extends Mailable implements ShouldQueue
 {

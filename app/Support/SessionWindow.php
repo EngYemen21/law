@@ -27,8 +27,11 @@ use Carbon\CarbonInterface;
  */
 final class SessionWindow
 {
-    /** يُفتح الدخول قبل الموعد بهذه الدقائق — قاعدة `zoom:release-links` ونافذة الاجتماع. */
+    /** **الافتراض المُعلَن** لـ`session_join_opens_minutes` — يُفتح الدخول قبل الموعد بها. */
     public const JOIN_OPENS_BEFORE_MINUTES = 5;
+
+    /** **الافتراض المُعلَن** لـ`consult_staff_start_minutes` — يبدأ الطاقم الاستشارة قبل الموعد بها. */
+    public const STAFF_START_BEFORE_MINUTES = 15;
 
     /** **الافتراض المُعلَن** لـ`session_missed_after_minutes` — القيمة النافذة من الإعدادات. */
     public const MISSED_AFTER_MINUTES = 60;
@@ -67,7 +70,26 @@ final class SessionWindow
     /** لم يُفتح الباب بعد — والمهلة بوحدتها الطبيعيّة من الثابت نفسه لا منقوشةً في النصّ. */
     public static function refuseNotOpen(): string
     {
-        return 'لم تُفتح الغرفة بعد — تُفتح قبل الموعد بـ'.ArabicCount::duration(self::JOIN_OPENS_BEFORE_MINUTES).'.';
+        return 'لم تُفتح الغرفة بعد — تُفتح قبل الموعد بـ'.self::joinOpensLabel().'.';
+    }
+
+    /** «5 دقائق» — مهلة فتح الدخول بوحدتها الطبيعيّة، لكلّ نصٍّ يعلنها (رسالة الرفض وقوالب البريد). */
+    public static function joinOpensLabel(): string
+    {
+        return ArabicCount::duration(self::joinOpensBeforeMinutes());
+    }
+
+    /** يُفتح الدخول (زرّ الدخول وإطلاق الرابط) قبل الموعد بهذه الدقائق — للاستشارة والاجتماع. */
+    public static function joinOpensBeforeMinutes(): int
+    {
+        return SettingsRegistry::int('session_join_opens_minutes');
+    }
+
+    /** هل يستطيع الطاقم بدء جلسةٍ موعدها هذا؟ (قبله بـ`consult_staff_start_minutes`) — بلا موعدٍ ⇒ نعم. */
+    public static function staffStartOpened(?CarbonInterface $startsAt): bool
+    {
+        return $startsAt === null
+            || now()->greaterThanOrEqualTo($startsAt->copy()->subMinutes(SettingsRegistry::int('consult_staff_start_minutes')));
     }
 
     /** مهلة الفوات بالدقائق من الموعد — للجلسة التي **لم تبدأ** وحدها. */
@@ -86,11 +108,11 @@ final class SessionWindow
             && $startsAt->copy()->addMinutes(self::missedAfterMinutes())->isPast();
     }
 
-    /** هل فُتح باب الدخول؟ (قبل الموعد بـ`JOIN_OPENS_BEFORE_MINUTES`) — بلا موعدٍ ⇒ مفتوح. */
+    /** هل فُتح باب الدخول؟ (قبل الموعد بـ`joinOpensBeforeMinutes`) — بلا موعدٍ ⇒ مفتوح. */
     public static function joinOpened(?CarbonInterface $startsAt): bool
     {
         return $startsAt === null
-            || now()->greaterThanOrEqualTo($startsAt->copy()->subMinutes(self::JOIN_OPENS_BEFORE_MINUTES));
+            || now()->greaterThanOrEqualTo($startsAt->copy()->subMinutes(self::joinOpensBeforeMinutes()));
     }
 
     /** مهلة النسيان بالدقائق — جلسةٌ بدأت ولم تُنهَ بعدها يُنبَّه الطاقم بها وتُنهى آليّاً. */

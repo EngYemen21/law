@@ -61,6 +61,8 @@ class HandleInertiaRequests extends Middleware
         'consult_slot_minutes',
         // حدّ «متأخّر» في شاشتي الاستشارات — كانتا تحملان 100 و120 للطلبات نفسها
         'consult_request_late_minutes',
+        // مهلة فتح الدخول قبل الموعد — نصوص «يُفعَّل الدخول قبل الموعد بـ…» في الاستشارات والاجتماعات
+        'session_join_opens_minutes',
     ];
 
     /**

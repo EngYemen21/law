@@ -187,7 +187,7 @@ class Consult extends Model
     ];
 
     /**
-     * هل يُفعَّل زر «الدخول إلى الجلسة»؟ للمرئية فقط، بعد إطلاق الرابط (قبل الموعد بـ5د).
+     * هل يُفعَّل زر «الدخول إلى الجلسة»؟ للمرئية فقط، بعد إطلاق الرابط (قبل الموعد بـ`session_join_opens_minutes`).
      *
      * **الجلسة تنتهي حين تُنهى لا حين تبلغ الساعةُ مدّتها** (قرار المالك 2026-09-26). كان للدخول
      * سقفان محسوبان من المدّة — «الموعد + المدة + 30د» قبل البدء و«+ 180د» أثناءه — فتُغلق غرفةٌ
@@ -524,7 +524,7 @@ class Consult extends Model
             // مكان الموعد المقترح لا يصل العميل قبل اعتماد الإدارة (`toCard` للطاقم يعرضه)
             'place' => $this->placeForClient(),
             'slink' => $this->channel === 'مرئية' ? $this->joinLink() : '',
-            'canJoin' => $this->canJoin(), // زر الدخول معطّل حتى إطلاق الرابط قبل الموعد بـ5د
+            'canJoin' => $this->canJoin(), // زر الدخول معطّل حتى إطلاق الرابط (`session_join_opens_minutes`)
             // **علمان بمعنى واحدٍ في البطاقتين** (قرار المالك 2026-09-27): `missed` فات موعدها والجلسة
             // ما زالت منتظرة، و`notHeld` سُجّلت «لم تُعقد». كانت بطاقة العميل تجمعهما في `missed`
             // وبطاقة الطاقم لا — وشاشة الإدارة تُعيد بناء تعريف العميل يدويّاً
@@ -605,8 +605,8 @@ class Consult extends Model
             && ! in_array($this->status, self::CLOSED_STATUSES, true)
             // **ولا تُبدأ جلسةُ طلبٍ في دورة الحجز** — لم يُسعَّر أو يُدفع أو يُنشر موعده (ع٤)
             && ConsultStatus::tryFrom((string) $this->status)?->isPreSession() !== true
-            && $this->session === 'بانتظار الجلسة'
-            && ($this->starts_at === null || now()->greaterThanOrEqualTo($this->starts_at->copy()->subMinutes(15)));
+            && $this->session === SessionState::Waiting->value
+            && SessionWindow::staffStartOpened($this->starts_at);
     }
 
     public function toCard(): array

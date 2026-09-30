@@ -6,6 +6,7 @@ use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
 use App\Models\Consult;
 use App\Models\Meeting;
 use App\Models\Setting;
+use App\Support\Finance\LawyerShare;
 use Carbon\Carbon;
 
 /**
@@ -40,6 +41,7 @@ class SettingsRegistry
             'billing' => 'الفواتير والسداد',
             'consults' => 'الاستشارات والمواعيد',
             'alerts' => 'المهل والتنبيهات',
+            'lawyers' => 'عبء المحامين ونصيبهم',
             'office' => 'بيانات المكتب في المستندات والبريد',
             'chat' => 'مسمّيات المتحدّثين في محادثات العميل',
         ];
@@ -193,6 +195,42 @@ class SettingsRegistry
                 'rules' => ['required', 'integer', 'min:7', 'max:90'],
                 'forwardOnly' => true,
                 'gt' => 'installment_first_due_days',
+            ],
+
+            // ── عبء المحامين ونصيبهم ──
+            'lawyer_default_share_pct' => [
+                'group' => 'lawyers',
+                'label' => 'نصيب المحامي الافتراضيّ من الأتعاب (٪)',
+                'hint' => 'يُقترح عند اعتماد أتعاب قضيّةٍ أو ملفّ تنفيذ لمحامٍ ليس في ملفّه نسبةٌ خاصّة (أو راتبه ثابت). النسبة تُحفظ على كلّ ملفٍّ عند اعتماده، فتغييرها لا يمسّ ما اعتُمد.',
+                'type' => 'int',
+                'default' => LawyerShare::DEFAULT_PCT,
+                'min' => 1,
+                'max' => 100,
+                'rules' => ['required', 'integer', 'min:1', 'max:100'],
+                'forwardOnly' => true,
+            ],
+            // عتبتا الحِمل في صفحة المحامين وشاشة التوزيع ولوحة الإدارة — تعريفٌ واحد (`LawyerWorkload`)؛
+            // كانت اللوحة تحسبه بأوزانٍ وعتباتٍ أخرى (قرار المالك 2026-09-30: يُعتمد `LawyerWorkload`).
+            'workload_moderate_from' => [
+                'group' => 'lawyers',
+                'label' => 'حِمل «متوسّط» من (نقاط)',
+                'hint' => 'نقاط الحِمل: تذكرة مفتوحة = 1، قضيّة نشطة = 2، ملفّ تنفيذ = 2، استشارة مفتوحة = 1. ما دون هذا الحدّ «متاح للتوزيع».',
+                'type' => 'int',
+                'default' => LawyerWorkload::MODERATE_FROM,
+                'min' => 1,
+                'max' => 200,
+                'rules' => ['required', 'integer', 'min:1', 'max:200'],
+            ],
+            'workload_busy_from' => [
+                'group' => 'lawyers',
+                'label' => 'حِمل «مشغول» من (نقاط)',
+                'hint' => 'من هذا الحدّ فما فوقه يُعرض المحامي «مشغولاً» في صفحة المحامين وشاشة التوزيع ولوحة الإدارة.',
+                'type' => 'int',
+                'default' => LawyerWorkload::BUSY_FROM,
+                'min' => 2,
+                'max' => 300,
+                'rules' => ['required', 'integer', 'min:2', 'max:300'],
+                'gt' => 'workload_moderate_from',
             ],
 
             // ── الاستشارات والمواعيد ──
@@ -365,6 +403,71 @@ class SettingsRegistry
                 'min' => 5,
                 'max' => 1440,
                 'rules' => ['required', 'integer', 'min:5', 'max:1440'],
+            ],
+            // ── نوافذ الدخول وطبقات التذكير — افتراضاتها ما كان منقوشاً (`SessionWindow` وأوامر التذكير) ──
+            'session_join_opens_minutes' => [
+                'group' => 'alerts',
+                'label' => 'فتح الدخول للجلسة المرئيّة قبل الموعد (دقائق)',
+                'hint' => 'متى يُفعَّل زرّ الدخول ويُرسل رابط الجلسة للعميل — للاستشارة والاجتماع. والنصوص التي تعلنها للعميل تُبنى من هذه القيمة.',
+                'type' => 'int',
+                'default' => SessionWindow::JOIN_OPENS_BEFORE_MINUTES,
+                'min' => 1,
+                'max' => 60,
+                'rules' => ['required', 'integer', 'min:1', 'max:60'],
+            ],
+            'consult_staff_start_minutes' => [
+                'group' => 'alerts',
+                'label' => 'بدء الاستشارة للطاقم قبل الموعد (دقائق)',
+                'hint' => 'متى يستطيع المحامي أو الموظّف بدء الجلسة. لا تقلّ عن «فتح الدخول» — فلا يصل العميلُ غرفةً لا يستطيع الطاقم بدأها.',
+                'type' => 'int',
+                'default' => SessionWindow::STAFF_START_BEFORE_MINUTES,
+                'min' => 1,
+                'max' => 120,
+                'rules' => ['required', 'integer', 'min:1', 'max:120'],
+                'gte' => 'session_join_opens_minutes',
+            ],
+            'consult_reminder_far_minutes' => [
+                'group' => 'alerts',
+                'label' => 'تذكير الاستشارة الأوّل بالبريد قبل (دقائق)',
+                'hint' => 'للاستشارات المسدَّدة ذات الموعد. 1440 = 24 ساعة. يجب أن يسبق التذكير النصّيّ.',
+                'type' => 'int',
+                'default' => 1440,
+                'min' => 60,
+                'max' => 4320,
+                'rules' => ['required', 'integer', 'min:60', 'max:4320'],
+                'gt' => 'consult_reminder_near_minutes',
+            ],
+            'consult_reminder_near_minutes' => [
+                'group' => 'alerts',
+                'label' => 'تذكير الاستشارة الثاني برسالة نصّيّة قبل (دقائق)',
+                'hint' => 'رسالة نصّيّة تكلّف مالاً — تُرسل مرّةً للاستشارة المسدَّدة. يجب أن يكون قبل «فتح الدخول»: ما بعده يغطّيه بريد رابط الجلسة.',
+                'type' => 'int',
+                'default' => 30,
+                'min' => 5,
+                'max' => 720,
+                'rules' => ['required', 'integer', 'min:5', 'max:720'],
+                'gt' => 'session_join_opens_minutes',
+            ],
+            'hearing_reminder_far_minutes' => [
+                'group' => 'alerts',
+                'label' => 'تذكير جلسة المحكمة الأوّل قبل (دقائق)',
+                'hint' => 'إشعار داخليّ وبريد للعميل والمحامي المسنَد. 1440 = 24 ساعة. يجب أن يسبق التذكير الثاني.',
+                'type' => 'int',
+                'default' => 1440,
+                'min' => 60,
+                'max' => 4320,
+                'rules' => ['required', 'integer', 'min:60', 'max:4320'],
+                'gt' => 'hearing_reminder_near_minutes',
+            ],
+            'hearing_reminder_near_minutes' => [
+                'group' => 'alerts',
+                'label' => 'تذكير جلسة المحكمة الثاني قبل (دقائق)',
+                'hint' => 'إشعار داخليّ وبريد ثانٍ قريبٌ من الموعد.',
+                'type' => 'int',
+                'default' => 60,
+                'min' => 10,
+                'max' => 720,
+                'rules' => ['required', 'integer', 'min:10', 'max:720'],
             ],
             'consult_request_late_minutes' => [
                 'group' => 'alerts',

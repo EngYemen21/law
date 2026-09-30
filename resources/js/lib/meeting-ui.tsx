@@ -22,6 +22,7 @@ import { useMasker } from '@/lib/permissions';
 import Icon from '@/lib/icons';
 import { meetingMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
 import type { SessionMedia } from '@/lib/recording-ui';
+import { useJoinOpensText } from '@/lib/settings';
 import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 
 // ============================================================
@@ -170,7 +171,7 @@ export interface MeetReqCard {
     meetId: string | null;
     meetLink: string | null;
     meetingRef: string | null; // مرجع الاجتماع المرتبط (M-…) للغرفة المضمّنة
-    canJoin?: boolean; // زر الدخول يُفعَّل قبل الموعد بـ5 دقائق (يرسله MeetRequest::toCard)
+    canJoin?: boolean; // زر الدخول يُفعَّل قبل الموعد بـ`session_join_opens_minutes` (يرسله MeetRequest::toCard)
 }
 
 /** خيارُ ملفٍّ للعميل: `subject` هو موضوعه في القاعدة — null إن لم يُسجَّل. */
@@ -239,6 +240,7 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
     const toast = useToast();
     const ask = useConfirm();
     const mask = useMasker();
+    const joinOpens = useJoinOpensText();
     const [open, setOpen] = useState(false);
     // إن كان المُنشئ محاميًا فهو المحامي المسؤول حصراً (لا يختار غيره)
     const selfLawyerName = selfLawyerId ? lawyers.find((l) => l.id === selfLawyerId)?.name : null;
@@ -475,8 +477,8 @@ setMiTime('');
                                 {/* كان stage===1 حصراً: بدء الجلسة يرفعها لـ2 فتختفي أزرار المكتب لحظة انعقادها */}
                                 {r.stage >= 1 && r.stage < 3 && r.meetLink && (
                                     r.canJoin === false ? (
-                                        <button className="btn sm" type="button" disabled style={{ opacity: 0.65, cursor: 'not-allowed' }} title="يُفعَّل الدخول قبل الموعد بـ 5 دقائق">
-                                            <Icon name="clock" /> الدخول (قبل الموعد بـ5 د)
+                                        <button className="btn sm" type="button" disabled style={{ opacity: 0.65, cursor: 'not-allowed' }} title={`يُفعَّل الدخول قبل الموعد بـ${joinOpens}`}>
+                                            <Icon name="clock" /> الدخول (قبل الموعد بـ{joinOpens})
                                         </button>
                                     ) : (
                                         <>

@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Support\AdminApprovalQueue;
 use App\Support\ArabicCount;
 use App\Support\Finance\RevenueSnapshot;
+use App\Support\LawyerWorkload;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -263,40 +264,23 @@ class AdminDashboardService
             ]);
 
         // 8. مصفوفة فريق المحامين
-        $lawyers = User::where('role', Role::Lawyer)
-            ->where('status', 'active')
-            ->get()
-            ->map(function (User $lawyer) {
-                $activeCases = LegalCase::where('assigned_lawyer_id', $lawyer->id)
-                    ->active()
-                    ->count();
-
-                $activeTickets = Ticket::where('assigned_lawyer_id', $lawyer->id)
-                    ->open()
-                    ->count();
-
-                // **حملٌ لا إعلان.** يُقاس بالاستشارات المفتوحة على المحامي — والمفتوحُ عملٌ
-                // قائمٌ مهما طال، فلا قيدَ زمنيّ هنا (بخلاف عدّاد «قادمة» أعلاه). وأُسقطت
-                // `'بانتظار الجلسة'`: قيمةُ عمود `session` لا `status`، فلم تكن تطابق شيئاً.
-                $openConsults = Consult::where('assigned_lawyer_id', $lawyer->id)
-                    ->whereNotIn('status', Consult::CLOSED_STATUSES)
-                    ->count();
-
-                $workloadScore = ($activeCases * 3) + ($activeTickets * 1.5) + ($openConsults * 2);
-                $status = $workloadScore < 8 ? 'available' : ($workloadScore <= 20 ? 'moderate' : 'high');
-
-                return [
-                    'id' => $lawyer->id,
-                    'name' => $lawyer->name,
-                    'jobTitle' => $lawyer->job_title ?: 'مستشار ومحامٍ',
-                    'department' => $lawyer->department ?: 'الاستشارات العامة',
-                    'initials' => $lawyer->avatar_initials ?: 'مح',
-                    'activeCases' => $activeCases,
-                    'activeTickets' => $activeTickets,
-                    'upcomingConsults' => $openConsults,
-                    'status' => $status,
-                ];
-            });
+        // **تعريف الحِمل الواحد** (`LawyerWorkload`، قرار المالك 2026-09-30): كانت اللوحة تحسبه بأوزانٍ وعتباتٍ أخرى
+        // (3/1.5/2 و8/20، بلا ملفّات التنفيذ) وبثلاثة استعلاماتٍ لكلّ محامٍ، فيُعرض المحامي نفسه «متاحاً» هنا
+        // و«متوسّطاً» في صفحة المحامين. الآن الأوزان والعتبات (من الإعدادات) واحدة في الشاشات الثلاث.
+        $activeLawyers = User::where('role', Role::Lawyer)->where('status', 'active')->get();
+        $load = LawyerWorkload::forMany($activeLawyers->pluck('id')->map(fn ($id) => (int) $id)->all());
+        $lawyers = $activeLawyers->map(fn (User $lawyer) => [
+            'id' => $lawyer->id,
+            'name' => $lawyer->name,
+            'jobTitle' => $lawyer->job_title ?: 'مستشار ومحامٍ',
+            'department' => $lawyer->department ?: 'الاستشارات العامة',
+            'initials' => $lawyer->avatar_initials ?: 'مح',
+            'activeCases' => $load[$lawyer->id]['cases'],
+            'activeTickets' => $load[$lawyer->id]['tickets'],
+            'activeExecutions' => $load[$lawyer->id]['executions'],
+            'openConsults' => $load[$lawyer->id]['consults'],
+            'status' => $load[$lawyer->id]['capacity'],
+        ]);
 
         // 9. مسار الإيرادات الشهري (6 أشهر)
         $monthlyRevenue = [];
