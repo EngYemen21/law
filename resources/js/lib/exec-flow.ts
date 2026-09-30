@@ -100,6 +100,8 @@ export interface ExecNajiz {
   measures: string[];
   collected: number;
   amount: number;
+  /** يُصحَّح مبلغ المطالبة؟ — حارس `SetExecutionClaimAmount` (غير مغلق، ولا تحصيل بعد). */
+  amountEditable?: boolean;
   closedReason: string;
   /** خيارات الخادم (`ExecFlow::MEASURES`/`CLOSE_REASONS`) — تُستهلَك متى وصلت، والثوابت أعلاه احتياطٌ لا أكثر. */
   measureOptions?: string[];

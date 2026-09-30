@@ -34,7 +34,7 @@ interface FileFacts { summary?: string | null; facts?: string | null; keyPoints?
 interface ReadinessItem { label: string; ok: boolean; hint?: string | null }
 interface Props {
   case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[];
-  convertedExec?: boolean; pleadingBlock?: string | null; pleadingDraft?: string | null; canRequestExecution: boolean; executionRequest: CaseExecutionRequestData | null;
+  convertedExec?: boolean; pleadingBlock?: string | null; pleadingDraft?: string | null; canRequestExecution: boolean; executionRequest: CaseExecutionRequestData | null; executionAmountHint?: number | null;
   ticketDocuments?: CaseDoc[]; fileInfo?: FileInfo; fileFacts?: FileFacts | null; readiness?: ReadinessItem[]; filing?: Filing;
   /** من يتولّى المحادثة ومن تولّاها قبله — `ConversationHandler::history`. */
   conversation?: ConversationHistory | null;
@@ -53,7 +53,7 @@ function docState(d: CaseDoc): [string, string] {
   return d.summary ? ['محلَّل', 'b-green'] : ['بانتظار التحليل', 'b-amber'];
 }
 
-const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, pleadingBlock, pleadingDraft, canRequestExecution, executionRequest, ticketDocuments = [], fileInfo = {}, fileFacts = null, readiness = [], filing = { canFile: false, canRegister: false, data: null }, conversation }) => {
+const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, pleadingBlock, pleadingDraft, canRequestExecution, executionRequest, executionAmountHint = null, ticketDocuments = [], fileInfo = {}, fileFacts = null, readiness = [], filing = { canFile: false, canRegister: false, data: null }, conversation }) => {
   const ask = useConfirm();
   const toast = useToast();
   const base = `/lawyer/cases/${encodeURIComponent(c.no)}`;
@@ -415,7 +415,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
           {hearings.length > 0 && live.isActive && <HearingUpdatesCard base={base} hearings={hearings} />}
 
           {/* تنفيذ الحكم بطلبٍ تعتمده الإدارة العليا (قرار المالك 2026-09-29) — لا فتحَ مباشراً */}
-          <CaseExecutionRequestCard base={base} canRequest={canRequestExecution} pending={executionRequest} converted={Boolean(convertedExec)} />
+          <CaseExecutionRequestCard base={base} canRequest={canRequestExecution} pending={executionRequest} converted={Boolean(convertedExec)} amountHint={executionAmountHint} />
 
           <HearingsCard hearings={hearings} documents={documents} />
         </aside>

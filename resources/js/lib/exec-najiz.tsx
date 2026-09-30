@@ -18,7 +18,7 @@ import { useServerAction } from '@/lib/use-server-action';
  */
 export const EXEC_MEASURES = ['منع السفر', 'إيقاف الخدمات الحكومية', 'إيقاف إصدار الوكالات', 'الإفصاح عن الأموال والحجز عليها', 'الحجز على المركبات والعقارات', 'البيع بالمزاد', 'الحبس التنفيذيّ'];
 
-type Step = 'file' | 'register' | 'notify' | 'measures' | 'collect' | 'close';
+type Step = 'file' | 'register' | 'notify' | 'measures' | 'collect' | 'amount' | 'close';
 
 
 /**
@@ -46,6 +46,7 @@ export const ExecNajizCard: React.FC<{ base: string; najiz: ExecNajiz; stage: nu
   const [notified, setNotified] = useState('');
   const [picked, setPicked] = useState<string[]>(najiz.measures ?? []);
   const [collect, setCollect] = useState({ amount: '', note: '' });
+  const [claim, setClaim] = useState({ amount: '', reason: '' });
   const [closeReason, setCloseReason] = useState('');
 
   if (stage < 7 && !najiz.requestNo) {
@@ -62,6 +63,10 @@ export const ExecNajizCard: React.FC<{ base: string; najiz: ExecNajiz; stage: nu
   const collectOk = /^\d+$/.test(collectAmount) && Number(collectAmount) > 0 && Number(collectAmount) <= remaining && remaining > 0;
   const collectNum = Number(collectAmount);
   const exceedsRemaining = /^\d+$/.test(collectAmount) && collectNum > remaining;
+  // ملفٌّ بلا مبلغ مطالبة لا يُحصَّل عليه — يُحدَّد المبلغ أوّلاً (كانت رسالة «يتجاوز المتبقي 0» تضلّل)
+  const noClaimAmount = (najiz.amount || 0) <= 0;
+  const claimAmount = normalizeDigits(claim.amount);
+  const claimOk = /^\d+$/.test(claimAmount) && Number(claimAmount) > 0 && claim.reason.trim().length >= 10;
   // ملفٌّ أُنهي أو أُرشف (المرحلة 9) لا تُسجَّل عليه خطوة — الخادم يردّها، فلا تُعرض أزرارها
   const locked = Boolean(najiz.closedReason) || stage >= 9;
 
@@ -99,6 +104,7 @@ export const ExecNajizCard: React.FC<{ base: string; najiz: ExecNajiz; stage: nu
             </div>
           )}
           {najiz.measures?.length > 0 && <div className="tc-row"><span className="k">إجراءات عدم الوفاء</span><span className="v">{najiz.measures.join(' · ')}</span></div>}
+          <div className="tc-row"><span className="k">مبلغ المطالبة</span><span className="v">{noClaimAmount ? 'لم يُحدَّد' : `${execMoney(najiz.amount)} ريال`}</span></div>
           {(najiz.amount > 0 || najiz.collected > 0) && (
             <div className="tc-row"><span className="k">المحصَّل</span><span className="v">{execMoney(najiz.collected)} من {execMoney(najiz.amount)} ريال · المتبقّي {execMoney(remaining)}</span></div>
           )}
@@ -113,6 +119,12 @@ export const ExecNajizCard: React.FC<{ base: string; najiz: ExecNajiz; stage: nu
         {!canAct && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>للاطّلاع — تسجيل خطوات ناجز من صلاحيّة المكتب المسنَد.</div>}
         {canAct && locked && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>أُنهي الملفّ — لا تُسجَّل عليه خطوات جديدة.</div>}
 
+        {canAct && !locked && noClaimAmount && (
+          <div className="action-hint" style={{ marginBottom: 10 }}>
+            <Icon name="alert" /> لم يُحدَّد مبلغ المطالبة — {canClose && najiz.amountEditable ? 'حدّده أوّلاً ليُسجَّل عليه التحصيل.' : 'يحدّده المحامي المسنَد أو الإدارة قبل تسجيل أيّ تحصيل.'}
+          </div>
+        )}
+
         {canAct && !locked && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {!najiz.requestNo && <button className="btn sm" type="button" onClick={() => setOpen(open === 'file' ? null : 'file')}><Icon name="send" /> تسجيل رفع الطلب</button>}
@@ -124,15 +136,39 @@ export const ExecNajizCard: React.FC<{ base: string; najiz: ExecNajiz; stage: nu
                 className="btn soft sm"
                 type="button"
                 onClick={() => setOpen(open === 'collect' ? null : 'collect')}
-                disabled={isFullyCollected}
-                title={isFullyCollected ? 'تم تحصيل كامل قيمة المطالبة' : undefined}
+                disabled={isFullyCollected || noClaimAmount}
+                title={isFullyCollected ? 'تم تحصيل كامل قيمة المطالبة' : noClaimAmount ? 'حدّد مبلغ المطالبة أوّلاً' : undefined}
               >
                 <Icon name="card" /> {isFullyCollected ? 'تم تحصيل كامل المطالبة' : 'تسجيل مبلغ محصَّل'}
+              </button>
+            )}
+            {/* تصحيح مبلغ المطالبة قبل أوّل تحصيل — للمحامي المسنَد والإدارة (`SetExecutionClaimAmount`) */}
+            {canClose && najiz.amountEditable && (
+              <button className="btn soft sm" type="button" onClick={() => setOpen(open === 'amount' ? null : 'amount')}>
+                <Icon name="card" /> {noClaimAmount ? 'تحديد مبلغ المطالبة' : 'تصحيح مبلغ المطالبة'}
               </button>
             )}
             {/* الإنهاء متاحٌ متى فُتح الملفّ (7 و8 كحارس الخادم)، وللمحامي والإدارة وحدهما — والموظّف يردّه الخادم */}
             {canClose && <button className="btn soft sm" type="button" onClick={() => setOpen(open === 'close' ? null : 'close')}><Icon name="folder" /> إنهاء الملفّ</button>}
           </div>
+        )}
+
+        {open === 'amount' && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              act('setClaimAmount', { amount: claimAmount, reason: claim.reason.trim() }, 'حُدِّث مبلغ المطالبة');
+            }}
+            style={{ marginTop: 10 }}
+          >
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 8 }}>المبلغ المحكوم به أو قيمة السند — عليه يُقاس كلّ تحصيل. يُصحَّح قبل أوّل تحصيل فقط.</div>
+            <div className="field">
+              <label>مبلغ المطالبة (ريال)</label>
+              <input className="input" type="text" inputMode="numeric" value={claim.amount} onChange={(e) => setClaim({ ...claim, amount: e.target.value })} placeholder={najiz.amount > 0 ? String(najiz.amount) : 'مثال: 150000'} />
+            </div>
+            <div className="field"><label>سبب التصحيح</label><input className="input" value={claim.reason} onChange={(e) => setClaim({ ...claim, reason: e.target.value })} placeholder="مثال: المبلغ المحكوم به في منطوق الحكم" /></div>
+            <button className="btn sm" type="submit" disabled={busy || !claimOk}>حفظ</button>
+          </form>
         )}
 
         {open === 'file' && (

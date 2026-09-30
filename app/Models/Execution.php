@@ -386,6 +386,8 @@ class Execution extends Model
             'measures' => array_values($this->measures ?? []),
             'collected' => (int) $this->collected,
             'amount' => (int) $this->amount,
+            // حارس `SetExecutionClaimAmount` نفسه (غير مغلق، ولا تحصيل بعد) — والدور يحرسه الخادم
+            'amountEditable' => ! $this->isClosed() && (int) $this->collected === 0,
             'closedReason' => (string) ($this->closed_reason ?? ''),
             // القوائم المسموحة من الخادم لا منسوخةً في الواجهة: التحقّق في `ExecFlowController::act`
             // يقيسها على `ExecFlow`، فنسخةٌ يدويّة في TS تتباعد عنها وتعرض خياراً يردّه الخادم.

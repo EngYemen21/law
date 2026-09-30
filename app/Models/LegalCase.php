@@ -49,6 +49,7 @@ class LegalCase extends Model
 
     protected $casts = [
         'execution_requested_at' => 'datetime',
+        'execution_request_amount' => 'integer',
         'ai_classification' => 'array',
         'filed_at' => 'date',
         'registered_at' => 'date',
@@ -78,6 +79,14 @@ class LegalCase extends Model
     public function ticket(): BelongsTo
     {
         return $this->belongsTo(Ticket::class);
+    }
+
+    /** مبلغ المطالبة في تذكرة القضيّة — اقتراح «المبلغ المحكوم به» في طلب التنفيذ؛ `null` حين لم يُدخَل. */
+    public function ticketClaimAmount(): ?int
+    {
+        $amount = $this->ticket?->getAttribute('claim_amount');
+
+        return $amount === null ? null : (int) $amount;
     }
 
     // حساب المحامي المسند (المصدر الموثوق؛ العمود النصي للعرض فقط)

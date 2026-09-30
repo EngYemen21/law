@@ -54,7 +54,7 @@ class CaseExecutionRequestTest extends TestCase
     {
         $prefix = $by->role->value;
 
-        return $this->actingAs($by)->post(route("{$prefix}.cases.execution-request", $case), ['reason' => $reason]);
+        return $this->actingAs($by)->post(route("{$prefix}.cases.execution-request", $case), ['reason' => $reason, 'amount' => 150000]);
     }
 
     public function test_lawyer_request_waits_for_admin_and_is_logged(): void

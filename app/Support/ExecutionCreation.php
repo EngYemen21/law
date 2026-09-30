@@ -29,8 +29,10 @@ class ExecutionCreation
     /**
      * @param  User|null  $lawyerFallback  محامي التنفيذ حين لا محامي للقضيّة — رافعُ الطلب حين تعتمده الإدارة
      *                                     (`CaseExecutionRequest::approve`)؛ وإلّا الفاعل نفسه.
+     * @param  int|null  $amount  المبلغ المحكوم به من طلب التنفيذ — وإلّا مبلغ التذكرة (قرار 2026-09-30: كان
+     *                            الملفّ يُفتح بصفرٍ حين لم يُدخل العميل مبلغاً، فيستحيل التحصيل)
      */
-    public static function fromCase(LegalCase $case, User $actor, ?User $lawyerFallback = null): Execution
+    public static function fromCase(LegalCase $case, User $actor, ?User $lawyerFallback = null, ?int $amount = null): Execution
     {
         // محامي التنفيذ: محامي القضية إن كان حساباً حقيقياً، وإلا المحامي الذي رفع الطلب أو فتحه
         $lawyer = $case->assignedLawyer ?? $lawyerFallback ?? $actor;
@@ -54,7 +56,7 @@ class ExecutionCreation
             $court !== '' ? 'المحكمة التي أصدرت الحكم: '.$court : '',
         ])));
 
-        $exec = DB::transaction(function () use ($case, $lawyer, $ticket, $notes, $actor) {
+        $exec = DB::transaction(function () use ($case, $lawyer, $ticket, $notes, $actor, $amount) {
             $number = ReferenceNumber::next(Execution::class, 'number', 'EXE');
 
             // يُفتح داخل المحرّك: سطرُ فتحٍ في سجلّ الانتقالات بالفاعل ومصدره
@@ -67,7 +69,7 @@ class ExecutionCreation
                 'subject' => 'تنفيذ حكم — '.$case->type,
                 'sanad' => 'حكم قضائي',
                 'defendant' => (string) ($ticket?->opponent_name ?? ''),
-                'amount' => (int) ($ticket?->claim_amount ?? 0),
+                'amount' => $amount ?? (int) ($ticket?->claim_amount ?? 0),
                 'notes' => $notes,
                 'docs' => $case->documents->map(fn ($d) => (string) ($d->doc_type ?: $d->name))->filter()->unique()->values()->all(),
                 'assigned_lawyer' => $lawyer->name,

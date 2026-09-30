@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * **رفع طلب فتح تنفيذ الحكم للإدارة العليا** (قرار المالك 2026-09-29) — من المحامي المسنَد أو الموظّف،
- * بسببٍ مكتوب. الحالة لا تتغيّر: الطلب قائمٌ على القضيّة حتى تعتمده الإدارة (فيُفتح الملفّ) أو ترفضه.
+ * بسببٍ مكتوب والمبلغ المحكوم به (قرار 2026-09-30). الحالة لا تتغيّر: الطلب قائمٌ على القضيّة حتى تعتمده الإدارة (فيُفتح الملفّ) أو ترفضه.
  *
  * @extends Transition<LegalCase>
  */
@@ -56,6 +56,10 @@ final class RequestCaseExecution extends Transition
         if (mb_strlen(trim((string) ($payload['reason'] ?? ''))) < self::REASON_MIN) {
             return 'اكتب سبب طلب التنفيذ ('.self::REASON_MIN.' أحرف على الأقل).';
         }
+        // المبلغ المحكوم به يصير «قيمة المطالبة» في ملفّ التنفيذ، وعليه يُقاس كلّ تحصيل
+        if ((int) ($payload['amount'] ?? 0) < 1) {
+            return 'أدخل المبلغ المحكوم به (ريال) — رقماً صحيحاً أكبر من صفر.';
+        }
 
         return null;
     }
@@ -67,11 +71,12 @@ final class RequestCaseExecution extends Transition
             'execution_requested_at' => now(),
             'execution_requested_by' => $actor?->id,
             'execution_request_reason' => trim((string) $payload['reason']),
+            'execution_request_amount' => (int) $payload['amount'],
         ]);
     }
 
     public function record(array $payload): array
     {
-        return ['reason' => $payload['reason'] ?? ''];
+        return ['reason' => $payload['reason'] ?? '', 'amount' => (int) ($payload['amount'] ?? 0)];
     }
 }

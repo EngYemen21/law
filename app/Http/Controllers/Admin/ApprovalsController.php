@@ -158,7 +158,7 @@ class ApprovalsController extends Controller
                 'client' => (string) ($clientNames[$c->user_id] ?? '—'),
                 'type' => $c->type,
                 'lawyer' => $c->assigned_lawyer ?: '—',
-            ] + (CaseExecutionRequest::pending($c) ?? ['at' => null, 'by' => '—', 'reason' => '']))->values();
+            ] + (CaseExecutionRequest::pending($c) ?? ['at' => null, 'by' => '—', 'reason' => '', 'amount' => null]))->values();
 
         $counts = [
             'executions' => $executionRequests->count(),

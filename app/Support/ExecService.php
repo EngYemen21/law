@@ -14,6 +14,7 @@ use App\Domain\Journey\Transitions\Execution\RecordExecutionCollection;
 use App\Domain\Journey\Transitions\Execution\ReferExecution;
 use App\Domain\Journey\Transitions\Execution\RegisterExecutionNajiz;
 use App\Domain\Journey\Transitions\Execution\RejectExecutionOffer;
+use App\Domain\Journey\Transitions\Execution\SetExecutionClaimAmount;
 use App\Domain\Journey\Transitions\Execution\SetExecutionFee;
 use App\Domain\Journey\Transitions\Execution\StudyExecution;
 use App\Domain\Journey\Workflow;
@@ -649,6 +650,23 @@ class ExecService
     }
 
     /** تحصيلٌ جزئيّ أو كامل من المنفَّذ ضدّه — يُراكَم ويُقاس عليه المتبقّي، وأثره في سجلّ الإجراءات. */
+    /**
+     * **تصحيح مبلغ المطالبة** (قرار المالك 2026-09-30) — قبل أوّل تحصيل، للمحامي المسنَد أو الإدارة، بسببٍ مكتوب.
+     * الحرّاس كلّها في الانتقال (`SetExecutionClaimAmount`)؛ وهنا أثره: سطرٌ في المحادثة وإشعار العميل والمكتب.
+     */
+    public static function setClaimAmount(Execution $exec, int $amount, string $reason, ?User $actor = null): void
+    {
+        $previous = (int) $exec->amount;
+
+        Workflow::run(new SetExecutionClaimAmount, $exec, $actor, ['amount' => $amount, 'reason' => $reason]);
+
+        $text = 'صُحّح مبلغ المطالبة من '.number_format($previous).' إلى '.number_format($amount).' ريال — السبب: '.trim($reason);
+        self::officeMsg($exec, $actor, 'مبلغ المطالبة', $text);
+        self::notify($exec, 'card', 't-blue', "صُحّح مبلغ المطالبة في طلب تنفيذك {$exec->number} إلى ".number_format($amount).' ريال.');
+        self::tellOffice($exec, $actor, 'صُحّح مبلغ المطالبة إلى '.number_format($amount).' ريال');
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
+    }
+
     public static function addCollection(Execution $exec, int $amount, string $note = '', ?User $actor = null): void
     {
         self::guard($exec, [8], 'التحصيل بعد قيد الطلب وبدء التنفيذ.');

@@ -39,7 +39,7 @@ interface CaseInfo {
   /** حكم انتقال `ReopenCase` (حالته المصدر + صلاحيّة الفاعل) — لا مقارنة بنصّ الحالة هنا. */
   canReopen: boolean;
   /** طلب فتح التنفيذ القائم من المحامي/الموظّف (`CaseExecutionRequest::pending`) — يعتمده المدير أو يرفضه. */
-  executionRequest?: { at: string | null; by: string; reason: string } | null;
+  executionRequest?: { at: string | null; by: string; reason: string; amount: number | null } | null;
 }
 /** مرفقٌ من التذكرة قبل التحويل (`CaseTicketDocuments`). */
 /** `CaseTicketDocuments::for` — النوع المشترك (`@/types`). */
@@ -211,6 +211,7 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
                 <div className="action-hint" style={{ margin: 0 }}>
                   <b>طلب فتح تنفيذ الحكم بانتظار قرارك</b>
                   <div className="sub">رفعه {c.executionRequest.by}{c.executionRequest.at ? ` ${c.executionRequest.at}` : ''} — السبب: {c.executionRequest.reason}</div>
+                  {c.executionRequest.amount ? <div className="sub">المبلغ المحكوم به: <b>{c.executionRequest.amount.toLocaleString('en-US')} ريال</b></div> : null}
                 </div>
               )}
               {c.canExecute && (

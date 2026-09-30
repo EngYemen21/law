@@ -162,6 +162,8 @@ class CaseController extends Controller
             // فتح تنفيذ الحكم بطلبٍ تعتمده الإدارة العليا (قرار المالك 2026-09-29)
             'executionRequest' => CaseExecutionRequest::pending($case),
             'canRequestExecution' => ExecutionCreation::isEligible($case) && $case->execution_requested_at === null,
+            // المبلغ المحكوم به يُقترح من مبلغ المطالبة في التذكرة — ويؤكّده رافع الطلب أو يصحّحه
+            'executionAmountHint' => $case->ticketClaimAmount(),
             'convertedExec' => $case->execution()->exists(),
             // الحكم وتصحيحه وحكم الاستئناف — تُخفى نماذجها عمّن يصدّه `guardRulingAccess`
             'canRule' => $canCourt && (bool) auth()->user()?->can(Permissions::RECORD_RULINGS),
@@ -225,9 +227,12 @@ class CaseController extends Controller
     /** رفع طلب فتح تنفيذ الحكم للإدارة العليا (قرار المالك 2026-09-29) — كالمحامي المسنَد. */
     public function requestExecution(Request $request, LegalCase $case): RedirectResponse
     {
-        $data = $request->validate(['reason' => ['required', 'string', 'max:1000']]);
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:1000'],
+            'amount' => ['required', 'integer', 'min:1', 'max:999999999999'],
+        ], ['amount.*' => 'أدخل المبلغ المحكوم به (ريال) — رقماً صحيحاً أكبر من صفر.']);
 
-        CaseExecutionRequest::request($case, $request->user(), $data['reason']);
+        CaseExecutionRequest::request($case, $request->user(), $data['reason'], (int) $data['amount']);
 
         return back()->with('flash', 'رُفع طلب فتح التنفيذ للإدارة العليا — يُفتح الملفّ فور اعتماده.');
     }

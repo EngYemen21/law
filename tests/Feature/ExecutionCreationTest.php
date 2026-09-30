@@ -37,7 +37,7 @@ class ExecutionCreationTest extends TestCase
      */
     private function requestAndApprove(User $lawyer, LegalCase $case): void
     {
-        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'امتنع المحكوم عليه عن السداد بعد القطعيّة'])->assertRedirect();
+        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'امتنع المحكوم عليه عن السداد بعد القطعيّة', 'amount' => 150000])->assertRedirect();
         $this->assertFalse(Execution::where('case_id', $case->id)->exists(), 'لا يُفتح قبل اعتماد الإدارة');
         $admin = User::where('role', Role::Admin)->first() ?? User::factory()->create(['role' => Role::Admin]);
         $this->actingAs($admin)->post(route('admin.cases.execution-request.approve', $case))->assertRedirect();
@@ -135,7 +135,7 @@ class ExecutionCreationTest extends TestCase
         $case = $this->ruledCase(User::factory()->create(['role' => Role::Client]), $lawyer);
         $case->update(['status' => 'منظورة']);
 
-        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'طلب تنفيذ قبل صدور الحكم'])->assertStatus(422);
+        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'طلب تنفيذ قبل صدور الحكم', 'amount' => 150000])->assertStatus(422);
     }
 
     public function test_cannot_open_execution_twice(): void
@@ -144,7 +144,7 @@ class ExecutionCreationTest extends TestCase
         $case = $this->ruledCase(User::factory()->create(['role' => Role::Client]), $lawyer);
 
         $this->requestAndApprove($lawyer, $case);
-        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'طلب تنفيذ ثانٍ للحكم نفسه'])->assertStatus(422);
+        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'طلب تنفيذ ثانٍ للحكم نفسه', 'amount' => 150000])->assertStatus(422);
         $this->assertSame(1, Execution::where('case_id', $case->id)->count());
     }
 }
