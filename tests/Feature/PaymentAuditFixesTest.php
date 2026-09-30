@@ -310,4 +310,25 @@ class PaymentAuditFixesTest extends TestCase
         $this->assertFalse($second->fresh()->awaitsEarlierInstallment());
         $this->assertTrue($third->fresh()->awaitsEarlierInstallment());
     }
+
+    /**
+     * **كلّ زرّ دفعٍ كما يرسله المتصفّح** (طلب Inertia): الردّ 409 بترويسة `X-Inertia-Location` — لا 500. كان
+     * «سداد الدفعة التالية» يسقط دائماً لأنّ نوع إرجاعه `RedirectResponse` (الطلب العاديّ في الاختبارات يُخفيه).
+     */
+    public function test_every_pay_button_redirects_an_inertia_request_to_the_gateway(): void
+    {
+        config(['services.moyasar.secret_key' => 'sk_test_x']);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $case = $this->payableCase($client);
+        $created = [];
+        $this->fakeHostedInvoices($created);
+        $inertia = ['X-Inertia' => 'true', 'X-Requested-With' => 'XMLHttpRequest'];
+
+        $this->actingAs($client)->post(route('cases.pay', $case), ['plan' => 'install'], $inertia)
+            ->assertStatus(409)->assertHeader('X-Inertia-Location', 'https://moyasar.test/inv_1');
+        PaymentReconciler::settleManual(CaseFee::nextInstallment($case->fresh()), 'الإدارة');
+
+        $this->actingAs($client)->post(route('cases.pay-installment', $case->fresh()), [], $inertia)
+            ->assertStatus(409)->assertHeader('X-Inertia-Location', 'https://moyasar.test/inv_2');
+    }
 }

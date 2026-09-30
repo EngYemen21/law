@@ -217,7 +217,9 @@ class CaseController extends Controller
     }
 
     // سداد دفعة تالية من الأقساط
-    public function payInstallment(Request $request, LegalCase $case): RedirectResponse
+    // `Inertia::location` يردّ 409 لطلب Inertia (المتصفّح) لا تحويلاً — فالنوع `Response` كأخواتها. كان `RedirectResponse`
+    // فيسقط كلّ نقرٍ على «سداد الدفعة التالية» بخطأ 500 بعد إنشاء فاتورة البوّابة (ثبت في اختبار المتصفّح 2026-09-30).
+    public function payInstallment(Request $request, LegalCase $case): \Symfony\Component\HttpFoundation\Response
     {
         $this->authorizeCase($request, $case);
         abort_unless($case->fee_status === 'installments', 422, 'أتعاب هذه القضية ليست مقسّطة، أو سُدّدت أقساطها كاملة.');
