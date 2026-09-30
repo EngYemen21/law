@@ -20,6 +20,9 @@ BACKUP_REMOTE="${BACKUP_REMOTE:-}"
 DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-$HOME/law-deploy}"
 SUPERVISOR_PROGRAMS="${SUPERVISOR_PROGRAMS:-salasel-worker salasel-reverb}"
 
+# git بلا تتبّع بت التنفيذ: ملفّاتٌ غيّر وضعَها `chmod` قديمٌ على الخادم ليست تعديلاً في المحتوى
+git() { command git -c core.fileMode=false "$@"; }
+
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 warn() { echo "[$(date '+%H:%M:%S')] ⚠️  $*" >&2; }
 die() { echo "[$(date '+%H:%M:%S')] ⛔ $*" >&2; exit 1; }
@@ -86,6 +89,33 @@ backup_now() {
     echo "$dir"
 }
 
+# ── استعادة القاعدة من نسخة: **على قاعدةٍ مُفرَغة** ───────────────────────────────────────────
+# النسخة تحمل جداولها وحدها: جدولٌ أنشأه النشر الفاشل بعدها يبقى إن استُوردت فوقه، ويُسقط إعادةَ النشر بـ«الجدول موجود»
+# (ثبت في التجربة 2026-09-30). فتُحذف الجداول والعروض كلّها أوّلاً ثمّ يُستورد — بصلاحيّات الجداول لا إنشاء القواعد.
+restore_db() {
+    local file="$1" conn host port user db
+    conn="$(cfg database.default)"
+    host="$(cfg "database.connections.$conn.host")"
+    port="$(cfg "database.connections.$conn.port")"
+    user="$(cfg "database.connections.$conn.username")"
+    db="$(cfg "database.connections.$conn.database")"
+    export MYSQL_PWD
+    MYSQL_PWD="$(cfg "database.connections.$conn.password")"
+
+    gzip -t "$file" || die "النسخة تالفة: $file"
+    gzip -dc "$file" | tail -n 1 | grep -q 'Dump completed' || die "النسخة ناقصة: $file"
+
+    {
+        echo "SET FOREIGN_KEY_CHECKS=0;"
+        mysql -N -h "$host" -P "$port" -u "$user" "$db" -e "SHOW FULL TABLES" \
+            | awk -F'\t' '{ printf "DROP %s IF EXISTS `%s`;\n", ($2 == "VIEW" ? "VIEW" : "TABLE"), $1 }'
+        echo "SET FOREIGN_KEY_CHECKS=1;"
+    } | mysql -h "$host" -P "$port" -u "$user" "$db"
+
+    gzip -dc "$file" | mysql -h "$host" -P "$port" -u "$user" "$db"
+    unset MYSQL_PWD
+}
+
 # ── عمّال المشروع في supervisor — بالاسم لا `all` (لا يوقف برامج غيره على الخادم) ─────────────────
 workers() {
     local action="$1" program
@@ -115,7 +145,9 @@ build_app() {
 
 cache_app() {
     mkdir -p storage/app/browsershot-tmp
-    chmod -R 775 storage || true
+    # `X` الكبيرة: تنفيذٌ للمجلّدات وحدها — `775` كانت تضيف بت التنفيذ لملفّات `.gitignore` المتتبَّعة فيراها git
+    # تعديلاً ويرفض فحصُ النظافة كلَّ نشرٍ تالٍ (ثبت في التجربة 2026-09-30)
+    chmod -R ug+rwX storage bootstrap/cache || true
     php artisan storage:link > /dev/null 2>&1 || true
     php artisan optimize:clear
     php artisan config:cache

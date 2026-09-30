@@ -105,6 +105,10 @@ build_app
 STEP="ترحيل القاعدة"
 php artisan migrate --force
 
+STEP="مزامنة الصلاحيّات"
+# متكرّرة بلا أثر (findOrCreate) وتقلّم المهجور — كانت خطوةً يدويّة تُنسى بعد ترحيلٍ يضيف صلاحيّة
+php artisan db:seed --class=PermissionSeeder --force
+
 STEP="مزامنة المصادر القانونيّة"
 # متكرّرة بلا أثر: الجديد مسودة، والمعتمد لا يُخفَّض، وملفٌّ معطوب يُسقط النشر هنا قبل أيّ كتابة
 php artisan ai:sync-sources

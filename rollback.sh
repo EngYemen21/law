@@ -42,7 +42,7 @@ trap 'on_exit $?' EXIT
 
 PREVIOUS="$(state_get previous_commit)"
 BACKUP="$(state_get last_backup)"
-[ -n "$PREVIOUS" ] || die "لا إصدار سابق مسجَّل في $DEPLOY_STATE_DIR — لم يُنشر بـdeploy.sh الجديد بعد."
+[ -n "$PREVIOUS" ] || die "لا إصدار سابق مسجَّل في $DEPLOY_STATE_DIR — لم يُنشر بـdeploy.sh الجديد بعد، أو نُفّذ التراجع مسبقاً (للتقدّم: ./deploy.sh)."
 git cat-file -e "${PREVIOUS}^{commit}" 2>/dev/null || die "الإصدار السابق ${PREVIOUS} غير موجود في المستودع — git fetch أوّلاً."
 if [ "$WITH_DB" -eq 1 ] || [ "$WITH_FILES" -eq 1 ]; then
     [ -n "$BACKUP" ] && [ -d "$BACKUP" ] || die "لا نسخة احتياطيّة مسجَّلة ($BACKUP)."
@@ -74,10 +74,7 @@ build_app
 
 if [ "$WITH_DB" -eq 1 ]; then
     STEP="استعادة القاعدة"
-    conn="$(cfg database.default)"
-    gzip -dc "$BACKUP/db.sql.gz" | MYSQL_PWD="$(cfg "database.connections.$conn.password")" mysql \
-        -h "$(cfg "database.connections.$conn.host")" -P "$(cfg "database.connections.$conn.port")" \
-        -u "$(cfg "database.connections.$conn.username")" "$(cfg "database.connections.$conn.database")"
+    restore_db "$BACKUP/db.sql.gz"
     log "✅ استُعيدت القاعدة"
 fi
 
@@ -103,7 +100,9 @@ php artisan up
 SITE_DOWN=0
 
 state_set current_commit "$PREVIOUS"
-state_set previous_commit "$FAILED_SHA"
+# يُمسح «السابق»: تراجعٌ ثانٍ كان يعود **إلى الأمام** للإصدار الفاشل، ومع --with-db يضع قاعدةَ ما قبل النشر تحت كوده
+# (ثبت في التجربة 2026-09-30). التقدّم بعد التراجع بـdeploy.sh وحده.
+state_set previous_commit ""
 state_log "OK rollback ${FAILED_SHA:0:10} -> ${PREVIOUS:0:10} db=${WITH_DB} files=${WITH_FILES}"
 log "✅ رجع الموقع إلى ${PREVIOUS:0:10}"
 }
