@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\ExecutionDecision;
 use App\Domain\Journey\Workflow;
 use App\Jobs\AnalyzeExecutionJob;
 use App\Models\Execution;
@@ -74,7 +75,7 @@ class ExecutionCreation
                 'docs' => $case->documents->map(fn ($d) => (string) ($d->doc_type ?: $d->name))->filter()->unique()->values()->all(),
                 'assigned_lawyer' => $lawyer->name,
                 'assigned_lawyer_id' => $lawyer->id,
-                'decision' => 'مقبول',
+                'decision' => ExecutionDecision::Accepted->value,
                 'stage' => 3,
                 'status' => ExecFlow::label(3),
                 'tone' => ExecFlow::tone(3),
@@ -156,7 +157,7 @@ class ExecutionCreation
                 'docs' => self::carriedDocuments($ticket)->map(fn ($d) => (string) ($d->doc_type ?: $d->name))->filter()->unique()->values()->all(),
                 'assigned_lawyer' => $lawyer->name,
                 'assigned_lawyer_id' => $lawyer->id,
-                'decision' => 'مقبول',
+                'decision' => ExecutionDecision::Accepted->value,
                 'stage' => 3,
                 'status' => ExecFlow::label(3),
                 'tone' => ExecFlow::tone(3),

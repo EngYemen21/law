@@ -50,7 +50,7 @@ final class ApproveExecutionFee extends Transition
     public function guard(Model $entity, array $payload): ?string
     {
         /** @var Execution $entity */
-        if ($entity->decision === 'مرفوض') {
+        if ($entity->isRejectedAfterStudy()) {
             return 'هذا الطلب مرفوض بعد الدراسة — لا يُسعَّر ولا يُعرَض.';
         }
 

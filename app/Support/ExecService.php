@@ -292,7 +292,7 @@ class ExecService
      */
     private static function guardNotRejected(Execution $exec, string $message = 'هذا الطلب مرفوض بعد الدراسة — لا يُسعَّر ولا يُعرَض.'): void
     {
-        abort_if($exec->decision === 'مرفوض', 422, $message);
+        abort_if($exec->isRejectedAfterStudy(), 422, $message);
     }
 
     /**
@@ -316,7 +316,7 @@ class ExecService
     public static function accept(Execution $exec, ?User $actor = null): void
     {
         self::guard($exec, [2], 'لا يمكن قبول هذا الطلب في مرحلته الحالية.');
-        abort_if($exec->decision === 'مرفوض', 422, 'هذا الطلب مرفوض بالفعل.');
+        abort_if($exec->isRejectedAfterStudy(), 422, 'هذا الطلب مرفوض بالفعل.');
 
         Workflow::run(new StudyExecution, $exec, $actor, ['action' => 'accept']);
 
@@ -369,7 +369,7 @@ class ExecService
     public static function saveFee(Execution $exec, int $fee, string $duration, string $feeMode = 'fixed', ?float $feePct = null, ?User $actor = null): void
     {
         self::guard($exec, [3], 'لا يمكن تحديد الأتعاب في مرحلته الحالية.');
-        abort_if($exec->decision === 'مرفوض', 422, 'هذا الطلب مرفوض بالفعل.');
+        abort_if($exec->isRejectedAfterStudy(), 422, 'هذا الطلب مرفوض بالفعل.');
         self::guardAssigned($exec);
 
         Workflow::run(new SetExecutionFee, $exec, $actor, [
@@ -548,10 +548,8 @@ class ExecService
     {
         $actor ??= auth()->user();
 
-        $isRejected = ($exec->decision === 'مرفوض' && in_array($exec->effectiveStage(), [2, 3], true))
-            || ($exec->effectiveStage() === 5 && $exec->isOfferRejected());
-
-        if ($isRejected) {
+        // القاعدة الواحدة في النموذج (`isRejectedOpen`) — كانت منسوخةً هنا بنصّ القرار العربيّ
+        if ($exec->isRejectedOpen()) {
             abort_unless(
                 $actor?->role === Role::Admin,
                 403,

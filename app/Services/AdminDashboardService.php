@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Domain\Journey\Enums\ExecutionDecision;
 use App\Enums\Role;
 use App\Models\CaseHearing;
 use App\Models\Consult;
@@ -96,7 +97,7 @@ class AdminDashboardService
         // فالمقارنة تُكتب NULL-safe وإلّا أسقطت كلّ طلبٍ لم يُبتّ فيه بعد.
         // والشرط مرّةً واحدة (كان مكرّراً حرفياً في العدّ والمجموع)، وحالتا الإنهاء من `Execution`.
         $closedExecs = "'".implode("','", Execution::CLOSED_STATUSES)."'";
-        $activeExec = "(stage IS NULL OR stage < 9) AND status NOT IN ({$closedExecs}) AND (decision IS NULL OR decision <> 'مرفوض')";
+        $activeExec = "(stage IS NULL OR stage < 9) AND status NOT IN ({$closedExecs}) AND (decision IS NULL OR decision <> '".ExecutionDecision::Rejected->value."')";
 
         $execStats = DB::table('executions')
             ->selectRaw("

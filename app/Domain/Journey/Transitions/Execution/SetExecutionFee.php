@@ -62,7 +62,7 @@ final class SetExecutionFee extends Transition
             return 'فُتح ملفّ التنفيذ وسُدّدت الأتعاب — لا يمكن إعادة التسعير بعد السداد.';
         }
 
-        if ($entity->decision === 'مرفوض') {
+        if ($entity->isRejectedAfterStudy()) {
             return 'هذا الطلب مرفوض بعد الدراسة — لا يُسعَّر ولا يُعرَض.';
         }
 

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\Enums\ExecutionDecision;
 use App\Domain\Journey\Enums\ExecutionOfferStatus;
 use App\Domain\Journey\Enums\ExecutionStatus;
 use App\Domain\Journey\GuardsJourneyState;
@@ -419,7 +420,7 @@ class Execution extends Model
     /** رفضه المحامي بعد الدراسة؟ — الموضع الذي يقرأ نصّ `decision` لتسأله الواجهة علَماً. */
     public function isRejectedAfterStudy(): bool
     {
-        return $this->decision === 'مرفوض';
+        return $this->decision === ExecutionDecision::Rejected->value;
     }
 
     /** رفض العميل عرض الأتعاب؟ */

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domain\Journey\Enums\ExecutionDecision;
 use App\Domain\Journey\Transitions\Consult\ReferConsult;
 use App\Domain\Journey\Workflow;
 use App\Enums\Role;
@@ -139,7 +140,7 @@ class DistributeController extends Controller
         $executions = Execution::with(['user', 'assignedLawyer'])
             ->whereNotIn('status', Execution::CLOSED_STATUSES)
             ->where(function ($q) {
-                $q->whereNull('decision')->orWhere('decision', '!=', 'مرفوض');
+                $q->whereNull('decision')->orWhere('decision', '!=', ExecutionDecision::Rejected->value);
             })
             ->latest('id')
             ->get()

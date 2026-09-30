@@ -30,7 +30,7 @@ class RetryExecutionStudies extends Command
             // الملفّ المنتهي مستثنى — والحالات القديمة تُقرأ من `isClosed` لا من عمودٍ واحد.
             // **والمرفوض معه**: قرارُه أُغلق ومرحلته لم تتحرّك، فكان يُلتقط هنا كلّ ساعة
             // فيُعاد دَرْسه ويصل العميلَ «قيد الدراسة» بعد بريد الرفض.
-            ->reject(fn (Execution $e) => $e->isClosed() || $e->decision === 'مرفوض');
+            ->reject(fn (Execution $e) => $e->isClosed() || $e->isRejectedAfterStudy());
 
         foreach ($pending as $exec) {
             AnalyzeExecutionJob::dispatch($exec);
