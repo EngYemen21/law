@@ -4,6 +4,7 @@ namespace App\Domain\Journey\Transitions\Invoice;
 
 use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\Transition;
+use App\Events\Journey\InvoiceVoided;
 use App\Models\Invoice;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -58,6 +59,13 @@ final class CancelInvoice extends Transition
         /** @var Invoice $entity */
         $entity->cancelled_at = now();
         $entity->tone = InvoiceStatus::Cancelled->tone();
+    }
+
+    /** قسطٌ يخرج من خطّةٍ قد يُكملها — `HandleInvoiceVoided` يعيد عدّها. */
+    public function events(Model $entity, string $from, ?User $actor, array $payload): array
+    {
+        /** @var Invoice $entity */
+        return [new InvoiceVoided($entity)];
     }
 
     public function record(array $payload): array
