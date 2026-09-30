@@ -15,6 +15,7 @@ use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\RichDemoSeeder;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -180,5 +181,36 @@ class EnvironmentSeparationTest extends TestCase
         config(['pdf.node_binary' => PHP_BINARY]);
 
         $this->assertSame(PHP_BINARY, PdfRenderer::resolveNodePath());
+    }
+
+    public function test_first_admin_command_creates_the_admin_once_on_a_fresh_production_install(): void
+    {
+        $this->app['env'] = 'production';
+        $this->artisan('db:seed', ['--class' => DatabaseSeeder::class, '--force' => true])->assertSuccessful();
+
+        $this->artisan('admin:first')->assertSuccessful();
+
+        $admin = User::where('national_id', '1000000001')->firstOrFail();
+        $this->assertSame(Role::Admin, $admin->role);
+        $this->assertSame('kfykfy2020@gmail.com', $admin->email);
+        $this->assertSame('+966537434000', $admin->phone);
+        $this->assertSame('active', $admin->status);
+        $this->assertFalse(Hash::check('password', $admin->password), 'لا كلمة مرورٍ موحّدة');
+
+        // مرّةٌ ثانية: مديرٌ قائم ⇒ رفضٌ بلا حسابٍ جديد
+        $this->artisan('admin:first', ['--national-id' => '1000000099', '--email' => 'other@x.sa'])->assertFailed();
+        $this->assertSame(1, User::where('role', Role::Admin)->count());
+    }
+
+    public function test_first_admin_command_never_overwrites_an_existing_account_and_validates_input(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client, 'national_id' => '1000000001']);
+
+        $this->artisan('admin:first')->assertFailed();
+        $this->assertSame(Role::Client, $client->fresh()->role);
+
+        $this->artisan('admin:first', ['--national-id' => '12', '--email' => 'a@b.sa'])->assertFailed();
+        $this->artisan('admin:first', ['--national-id' => '1000000077', '--email' => 'a@b.sa', '--phone' => 'abc'])->assertFailed();
+        $this->assertSame(0, User::where('role', Role::Admin)->count());
     }
 }

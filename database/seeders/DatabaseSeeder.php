@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Enums\Role;
 use App\Models\User;
 use App\Support\AppEnvironment;
+use App\Support\FirstAdmin;
 use App\Support\Permissions;
 use App\Support\Specialties;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
@@ -38,18 +39,15 @@ class DatabaseSeeder extends Seeder
         // يكتب فوق الموجود — فكان `db:seed` على قاعدة الإنتاج يعيد كلمات مرورها ويضع عليها بيانات تواصلٍ حقيقيّة.
         // في الإنتاج يُبذَر المرجع وحده (الصلاحيات والكتالوج) وتُنشأ الحسابات من «فريق العمل».
         if (AppEnvironment::isProduction()) {
-            $this->command->warn('بيئة إنتاج: بُذرت الصلاحيات والكتالوج فقط — الحسابات التجريبيّة الأربعة لا تُنشأ هنا.');
+            $this->command->warn('بيئة إنتاج: بُذرت الصلاحيات والكتالوج فقط — الحسابات التجريبيّة الأربعة لا تُنشأ هنا. المدير الأوّل لتثبيتٍ جديد: php artisan admin:first');
             app(PermissionRegistrar::class)->forgetCachedPermissions();
 
             return;
         }
 
         // 1) الإدارة العليا (تتجاوز الصلاحيات عبر Gate::before) — دخول: 1000000001
-        $this->makeUser([
-            'name' => 'الإدارة العليا', 'email' => 'kfykfy2020@gmail.com', 'role' => Role::Admin,
-            'avatar_initials' => 'إ ع', 'job_title' => 'مدير عام',
-            'national_id' => '1000000001', 'phone' => '+966537434000',
-        ]);
+        // بياناته من الموضع الواحد الذي يقرؤه أمر تثبيت الإنتاج `admin:first`
+        $this->makeUser(FirstAdmin::ATTRIBUTES + ['role' => Role::Admin]);
 
         // 2) المحامي — دخول: 1000000002 — كل صلاحيات دوره + دور «محامٍ» + مسنَد إليه كل الأقسام
         $lawyer = $this->makeUser([
