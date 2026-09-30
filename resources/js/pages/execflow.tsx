@@ -189,6 +189,26 @@ const ExecList: React.FC<{ role: Role; execs: ExecReq[]; buckets: Record<ExecBuc
 
 type ActFn = (action: string, payload?: Record<string, unknown>) => void;
 
+/**
+ * **رسالة نجاح كلّ فعلٍ بما وقع فعلاً** — كانت «تم تنفيذ الإجراء» واحدةً للأتعاب والاعتماد والاستفسار والرفض،
+ * فلا يتأكّد المستخدم ممّا جرى (خطوات ناجز والتحصيل لها رسائلها في `ExecNajizCard`). فعلٌ خارجها يبقى على العامّة.
+ */
+const ACT_SUCCESS: Record<string, string> = {
+  refer: 'أُحيل الطلب إلى قسم التنفيذ للدراسة',
+  accept: 'قُبل الطلب — حدّد أتعاب التنفيذ',
+  reject: 'رُفض الطلب بعد الدراسة وأُبلغ العميل',
+  requestDocs: 'أُرسل طلب المستندات للعميل',
+  saveFee: 'أُرسلت الأتعاب لاعتماد الإدارة',
+  approveFee: 'اعتُمدت الأتعاب وأُرسل العرض للعميل',
+  setFee: 'اعتُمدت الأتعاب وأُرسل العرض للعميل',
+  acceptOffer: 'قُبل عرض التنفيذ',
+  inquire: 'أُرسل استفسارك للمكتب',
+  rejectOffer: 'رُفض العرض وأُبلغ المكتب',
+  addProcedure: 'أُضيف الإجراء إلى الملفّ',
+  assignLawyer: 'أُسند الملفّ للمحامي',
+  close: 'أُنهي ملفّ التنفيذ وأُرشف',
+};
+
 // ── بطاقة الإجراء المقيّدة بالدور (تطابق actions 1965‑1967) ──
 /**
  * **نسبة المحامي من أتعاب الملفّ** — حقلٌ واحد لبطاقتي الاعتماد والتسعير (الإدارة وحدها). القيمة
@@ -1431,7 +1451,7 @@ const ExecFlow: React.FC<{
 
     void execAction.run(`/exec-flow/${id}/action`, {
       data: { action, ...payload },
-      success: 'تم تنفيذ الإجراء',
+      success: ACT_SUCCESS[action] ?? 'تم تنفيذ الإجراء',
       fallback: 'تعذّر تنفيذ الإجراء',
     });
   };
