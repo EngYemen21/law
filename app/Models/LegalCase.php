@@ -8,6 +8,7 @@ use App\Models\Concerns\ClipsPreviewText;
 use App\Models\Concerns\LinksLegalDepartment;
 use App\Models\Concerns\PurgesDocumentFiles;
 use App\Models\Concerns\TracksRevisions;
+use App\Support\CaseFee;
 use App\Support\CaseJourney;
 use App\Support\LawyerName;
 use Illuminate\Database\Eloquent\Builder;
@@ -241,6 +242,9 @@ class LegalCase extends Model
             'next' => $this->nextHearingLabel(),
             'fee' => $this->fee,
             'feeStatus' => $this->fee_status,
+            // ما يُسدَّد فعلاً بزرّ «سداد» — الفاتورة نفسها التي يفتحها (`CaseFee::nextPayable`) شاملةً الضريبة؛
+            // كان الزرّ يعرض الأتعاب قبل الضريبة (20,000) والفاتورة 23,000 (ثبت في المتصفّح 2026-09-30)
+            'amountDue' => $this->fee_status === 'pending_payment' ? CaseFee::nextPayable($this)?->amount : null,
             'invoice' => $this->invoice_text,
             'department' => $this->department,
             'createdAt' => $this->created_at?->format('Y-m-d'),
