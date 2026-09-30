@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Journey\Enums\ExecutionDocumentStatus;
 use App\Enums\Role;
 use App\Jobs\AnalyzeExecutionDocumentJob;
 use App\Models\Execution;
@@ -532,7 +533,7 @@ class ExecFlowController extends Controller
         $name = $file->getClientOriginalName();
         $doc = $execution->documents()->create([
             'label' => $name,
-            'status' => 'مرفوع',
+            'status' => ExecutionDocumentStatus::Uploaded->value,
             'path' => $file->store("exec-docs/{$execution->id}"),
             'mime' => $file->getClientMimeType(),
             'size' => (int) $file->getSize(),
@@ -565,10 +566,11 @@ class ExecFlowController extends Controller
         abort_unless($user->can(Permissions::MANAGE_CASES_AND_FEES), 403); // إجراء على ملفّ موكّل — يستوجب الصلاحية
         abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403); // عزل المحامي بالإسناد
         abort_unless($document->execution_id === $execution->id, 404);
-        abort_unless($document->status === 'مرفوع', 422, 'لا يمكن مراجعة مستند لم يُرفَع بعد.');
+        abort_unless($document->awaitsReview(), 422, 'لا يمكن مراجعة مستند لم يُرفَع بعد.');
 
         $decision = (string) $request->validate(['decision' => ['required', 'in:accept,reject']])['decision'];
-        $document->update(['status' => $decision === 'accept' ? 'مقبول' : 'مرفوض']);
+        $status = $decision === 'accept' ? ExecutionDocumentStatus::Accepted : ExecutionDocumentStatus::Rejected;
+        $document->update(['status' => $status->value]);
 
         $msg = $decision === 'accept' ? "اعتُمد مستند «{$document->label}»." : "أُعيد مستند «{$document->label}» لإعادة الرفع.";
         Notify::send($execution->user_id, 'file', $decision === 'accept' ? 't-green' : 't-amber', "$msg (ملفّ التنفيذ {$execution->number})");
@@ -580,7 +582,7 @@ class ExecFlowController extends Controller
             severity: $decision === 'accept' ? 'info' : 'warning',
             auditable: $execution,
             auditableRef: $execution->number,
-            afterState: ['المستند' => $document->label, 'القرار' => $decision === 'accept' ? 'مقبول' : 'مرفوض'],
+            afterState: ['المستند' => $document->label, 'القرار' => $status->value],
         );
 
         return back()->with('success', $msg);
@@ -689,7 +691,7 @@ class ExecFlowController extends Controller
         abort_if($execution->isClosed(), 422, 'لا يمكن رفع مستندات على ملفّ تنفيذ مغلق.');
         // الشاشة لا تعرض الرفع إلا للمطلوب والمعاد، والخادم كان يقبله على أيّ مستند: فطلبٌ
         // مباشر يستبدل مستنداً **اعتمده المكتب** بآخر، ويبقى وسمه «مقبول».
-        abort_unless(in_array($document->status, ['مطلوب', 'مرفوض'], true), 422, 'هذا المستند لا يقبل الرفع في حالته الحالية.');
+        abort_unless($document->acceptsUpload(), 422, 'هذا المستند لا يقبل الرفع في حالته الحالية.');
 
         $request->validate(['file' => ['required', 'file', UploadLimits::rule(UploadLimits::DOCUMENT_KB), 'mimes:pdf,jpg,jpeg,png,docx']], [
             'file.required' => 'يرجى اختيار ملف.',
@@ -701,7 +703,7 @@ class ExecFlowController extends Controller
         $path = $file->store("exec-docs/{$execution->id}");
 
         $document->update([
-            'status' => 'مرفوع',
+            'status' => ExecutionDocumentStatus::Uploaded->value,
             'path' => $path,
             'mime' => $file->getClientMimeType(),
             'size' => (int) $file->getSize(),

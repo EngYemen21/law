@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Domain\Journey\Enums\ExecutionDecision;
+use App\Domain\Journey\Enums\ExecutionDocumentStatus;
 use App\Domain\Journey\Workflow;
 use App\Jobs\AnalyzeExecutionJob;
 use App\Models\Execution;
@@ -252,7 +253,7 @@ class ExecutionCreation
                 'path' => $newPath,
                 'mime' => $td->mime ?? 'application/pdf',
                 'size' => (int) ($td->size ?? 0),
-                'status' => 'مرفوع',
+                'status' => ExecutionDocumentStatus::Uploaded->value,
                 // مرفقات المكتب تبقى «صادرةً إليك» بعد النسخ — لا تُنسب للعميل (`TicketDocument::isFromClient`)
                 'uploaded_by' => $td instanceof TicketDocument && ! $td->isFromClient() ? 'staff' : 'client',
                 'uploaded_at' => now(),

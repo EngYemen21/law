@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\ExecutionDocumentStatus;
 use App\Domain\Journey\Enums\ExecutionOfferStatus;
 use App\Domain\Journey\Transitions\Execution\ApplyExecutionAnalysis;
 use App\Domain\Journey\Transitions\Execution\ApplyExecutionMeasures;
@@ -345,7 +346,7 @@ class ExecService
             && (AiSource::tryFrom((string) $exec->ai_source)?->isRealAnalysis() ?? false);
         $labels = $fromAnalysis ? array_values($exec->ai_missing) : ['السند التنفيذي', 'الهوية الوطنية', 'مستند داعم'];
         foreach ($labels as $label) {
-            $exec->documents()->firstOrCreate(['label' => (string) $label], ['status' => 'مطلوب']);
+            $exec->documents()->firstOrCreate(['label' => (string) $label], ['status' => ExecutionDocumentStatus::Required->value]);
         }
 
         self::officeMsg($exec, $actor, 'نواقص', $fromAnalysis
