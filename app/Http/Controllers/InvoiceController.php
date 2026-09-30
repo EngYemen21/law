@@ -19,6 +19,9 @@ use Inertia\Response;
 
 class InvoiceController extends Controller
 {
+    /** دفعات الخطّة بترتيبها — قسطٌ لا يُسدَّد قبل سابقه (تدقيق الدفع C). */
+    private const EARLIER_FIRST = 'سدِّد الدفعة السابقة من الخطّة أوّلاً.';
+
     // قائمة فواتير العميل الحالي (تحسب الواجهة الإحصائيات والتقسيم)
     public function index(Request $request): Response
     {
@@ -43,6 +46,7 @@ class InvoiceController extends Controller
         // قبل تخزين الملفّ لا بعده: الرفض بعد التخزين يترك على القرص إثباتاً بلا فاتورة
         abort_if($invoice->paid, 422, SubmitPaymentProof::PAID);
         abort_if($invoice->isCancelled(), 422, SubmitPaymentProof::CANCELLED);
+        abort_if($invoice->awaitsEarlierInstallment(), 422, self::EARLIER_FIRST);
 
         // قائمة السماح نفسها المعتمدة في بقيّة الرفوعات — كان يقبل أي امتداد
         $request->validate(['file' => ['required', 'file', 'max:2048', 'mimes:pdf,jpg,jpeg,png,doc,docx']], [ // حتى 2MB (يطابق upload_max_filesize)
@@ -72,6 +76,7 @@ class InvoiceController extends Controller
         abort_if($status === null || ! $status->isPayable(), 422, $invoice->isCancelled()
             ? 'أُلغيت هذه الفاتورة ولا تُسدَّد.'
             : 'هذه الفاتورة لا تقبل السداد في حالتها الحاليّة.');
+        abort_if($invoice->awaitsEarlierInstallment(), 422, self::EARLIER_FIRST);
         $gateway = app(PaymentGateways::class)->default();
         abort_unless($gateway->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
 

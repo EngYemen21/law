@@ -65,6 +65,9 @@ export interface ExecInvoice {
   paid: boolean;
   /** موضعها من خطّة التقسيط — `null` لفاتورة أتعابٍ عن تحصيل. */
   installmentNo?: number | null;
+  cancelled?: boolean;
+  /** قسطٌ قبله قسطٌ مستحقّ — لا يُسدَّد قبله (`Invoice::awaitsEarlierInstallment`). */
+  awaitsEarlier?: boolean;
 }
 
 // مستند مطلوب من العميل (يطابق exDocPanel)

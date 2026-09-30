@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\GuardsJourneyState;
+use App\Support\Finance\InstallmentPlan;
 use App\Support\Finance\InvoiceFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -104,6 +105,26 @@ class Invoice extends Model
     public function scopeOverdue(Builder $query): Builder
     {
         return $query->outstanding()->whereNotNull('due_at')->whereDate('due_at', '<', today());
+    }
+
+    /**
+     * **قسطٌ قبله قسطٌ مستحقّ** — لا يسدّده العميل قبل سابقه (تدقيق الدفع C): كان سدادُ الثالثة أوّلاً يفعّل
+     * القضيّة والأولى غير مدفوعة. ولا يخصّ غيرَ دفعات الخطط، ولا المدفوعة ولا الملغاة.
+     */
+    public function awaitsEarlierInstallment(): bool
+    {
+        $owner = match (true) {
+            $this->case_id !== null => 'case_id',
+            $this->exec_id !== null => 'exec_id',
+            default => null,
+        };
+        if ($this->installment_no === null || $owner === null || ! $this->isOutstanding()) {
+            return false;
+        }
+
+        $next = InstallmentPlan::next($owner, (int) $this->getAttribute($owner));
+
+        return $next !== null && $next->id !== $this->id;
     }
 
     /** أُلغيت (إعادة تسعير أو إلغاء طلب) — لا تُسدَّد ولا يُرفع لها إثبات ولا تُحصَّل. */
@@ -214,6 +235,8 @@ class Invoice extends Model
             'receivable' => $this->isOwedByClient(),
             'hasProof' => $this->proof_path !== null,   // رُفع إثبات تحويل بانتظار المراجعة
             'installmentNo' => $this->installment_no,   // موضعها من خطّة التقسيط — null لغيرها
+            // قسطٌ قبله مستحقّ: الشاشة تُخفي سداده، والخادم يرفضه (`InvoiceController::checkout`)
+            'awaitsEarlier' => $this->awaitsEarlierInstallment(),
         ];
     }
 

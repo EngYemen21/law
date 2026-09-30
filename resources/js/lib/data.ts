@@ -12,6 +12,8 @@ export interface Invoice {
   no: string; desc: string; amount: number; status: string; tone: string; due: string; overdue?: boolean; paid: boolean; hasProof?: boolean;
   /** ملغاة — لا دفع ولا إثبات (يطابق `Invoice::isCancelled`). */
   cancelled?: boolean;
+  /** قسطٌ قبله قسطٌ مستحقّ — لا يُسدَّد قبله (`Invoice::awaitsEarlierInstallment`). */
+  awaitsEarlier?: boolean;
   /** لها سند قبضٍ مرقّم (`/invoices/{no}/receipt`) — صفحة فواتير العميل وحدها تحسبه. */
   hasReceipt?: boolean;
   /**

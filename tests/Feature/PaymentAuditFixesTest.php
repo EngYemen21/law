@@ -19,6 +19,7 @@ use App\Support\CaseFee;
 use App\Support\ExecFee;
 use App\Support\PaymentReconciler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -284,5 +285,29 @@ class PaymentAuditFixesTest extends TestCase
         $case->refresh();
         $this->assertSame(2, (int) $case->installments_paid);
         $this->assertNotSame('none', $case->pleading_status, 'القضيّة لم تُفعَّل');
+    }
+
+    /** C — كان العميل يسدّد القسط الثالث أوّلاً فتُفعَّل القضيّة والأوّل غير مدفوع. */
+    public function test_c_an_installment_cannot_be_paid_or_proven_before_the_earlier_one(): void
+    {
+        config(['services.moyasar.secret_key' => 'sk_test_x']);
+        $client = User::factory()->create(['role' => Role::Client]);
+        $case = $this->payableCase($client);
+        [$first, $second, $third] = $this->casePlan($case);
+        $created = [];
+        $this->fakeHostedInvoices($created);
+
+        $this->actingAs($client)->post(route('invoices.checkout', $third))->assertStatus(422);
+        $this->actingAs($client)->post(route('invoices.proof', $second), ['file' => UploadedFile::fake()->create('t.pdf', 10, 'application/pdf')])
+            ->assertStatus(422);
+        $this->assertSame([], $created, 'لم تُنشأ فاتورة بوّابة');
+        $this->assertSame([false, true, true], [$first->fresh()->toCard()['awaitsEarlier'], $second->fresh()->toCard()['awaitsEarlier'], $third->fresh()->toCard()['awaitsEarlier']]);
+
+        $this->actingAs($client)->post(route('invoices.checkout', $first))->assertRedirect('https://moyasar.test/inv_1');
+
+        // بعد سداد الأولى تصير الثانية هي المستحقّة
+        PaymentReconciler::settleManual($first->fresh(), 'الإدارة');
+        $this->assertFalse($second->fresh()->awaitsEarlierInstallment());
+        $this->assertTrue($third->fresh()->awaitsEarlierInstallment());
     }
 }

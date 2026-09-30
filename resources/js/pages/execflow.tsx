@@ -600,7 +600,7 @@ return null;
             </div>
             <div className="iact" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <Badge text={v.status} tone={v.tone} />
-              {canPay && !v.paid && <button className="btn soft" type="button" onClick={() => act('payInvoice', { no: v.no })}><Icon name="card" /> سداد</button>}
+              {canPay && !v.paid && !v.cancelled && !v.awaitsEarlier && <button className="btn soft" type="button" onClick={() => act('payInvoice', { no: v.no })}><Icon name="card" /> سداد</button>}
             </div>
           </div>
         ))}
