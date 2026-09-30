@@ -13,6 +13,7 @@ import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import type { TimeSlotItem } from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { todayISO } from '@/lib/local-date';
+import { keepChosenTime } from '@/lib/booking-time';
 import { nowClock, todayDate } from '@/lib/chat';
 import { useConsultSlots } from '@/lib/consult-slots';
 import { RichText } from '@/lib/consult-ui';
@@ -266,12 +267,14 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
     const caseOptions = clients.find((c) => c.id === miClient)?.items ?? [];
     // المتاح: غير المحجوز (والخادم يحجب ما مضى من اليوم — `MeetRequestController::availability`)
     const availableSlots = useMemo(() => allSlotsWithStatus.filter((x) => !x.taken).map((x) => x.time), [allSlotsWithStatus]);
-    // صفّر الوقت إن لم يعد متاحاً بعد تغيير المحامي/اليوم/المدة
+    // صفّر الوقت إن صار شريحةً محجوزة بعد تغيير المحامي/اليوم — والوقت المخصّص يبقى (كان يُمسح لحظة إدخاله)
     useEffect(() => {
- if (miTime && !availableSlots.includes(miTime)) {
-setMiTime('');
-} 
-}, [availableSlots, miTime]);
+        const kept = keepChosenTime(miTime, allSlotsWithStatus);
+
+        if (kept !== miTime) {
+            setMiTime(kept);
+        }
+    }, [allSlotsWithStatus, miTime]);
 
     const submitInvite = () => {
         if (!miClient) {

@@ -18,6 +18,7 @@ import TicketTrackDecisionCard from '@/components/babylon/TicketTrackDecisionCar
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import type { TimeSlotItem } from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
+import { keepChosenTime } from '@/lib/booking-time';
 import { ALLOWED_DOC_ACCEPT, TKT_LIFE, nowClock, tktStage, type Message } from '@/lib/chat';
 import { useConsultSlots } from '@/lib/consult-slots';
 import { echo } from '@/lib/echo';
@@ -126,7 +127,12 @@ const EmployeeTicketChat: React.FC<{
     if (!lawyerId || !date) { setSlots([]); return; }
     setSlotsLoading(true);
     axios.get('/employee/schedule/slots', { params: { lawyer_id: lawyerId, date } })
-      .then((r) => { setSlots(r.data.slots ?? []); setSchedTime(''); })
+      .then((r) => {
+        const loaded: TimeSlotItem[] = r.data.slots ?? [];
+        setSlots(loaded);
+        // يُمسح الوقت إن صار شريحةً محجوزة فقط — والمخصّص يبقى (كان يُمسح عند كلّ تحميل)
+        setSchedTime((t) => keepChosenTime(t, loaded));
+      })
       .catch(() => setSlots([]))
       .finally(() => setSlotsLoading(false));
   };
