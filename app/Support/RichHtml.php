@@ -44,6 +44,34 @@ final class RichHtml
         'href', 'target', 'rel', 'src', 'alt', 'start', 'type',
     ];
 
+    /**
+     * تحويل محتوى HTML إلى نص قضائي منظم يحافظ على فواصل الأسطر والفقرات
+     * بدلاً من `strip_tags` البحت الذي يدمج الفقرات والكلمات ببعضها. (نُقل من `DocumentEditorController`
+     * ليقرأه ملخّص التذكرة المنسّق أيضاً: نصّه العاديّ مشتقٌّ من نسخته المنسّقة.)
+     */
+    public static function toPlain(string $html): string
+    {
+        // 1. استبدال فواصل الأسطر الصريحة
+        $text = preg_replace('/<br\s*\/?>/i', "\n", $html);
+
+        // 2. تحويل نهايات وسوم الكتل (الفقرات والعناوين والصفوف) إلى أسطر جديدة
+        $text = preg_replace('/<\/(p|div|h[1-6]|tr|blockquote|li)>/i', "\n\n", (string) $text);
+
+        // 3. تحويل عناصر القوائم إلى علامات نقطية
+        $text = preg_replace('/<li[^>]*>/i', '• ', (string) $text);
+
+        // 4. فك تشفير الكيانات وتجريد بقية وسوم HTML
+        $text = html_entity_decode((string) $text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = strip_tags($text);
+
+        // 5. ضبط الفراغات وتوحيد الأسطر الزائدة (أقصى فراغ سطران فارغان)
+        $text = preg_replace("/\r\n|\r/", "\n", $text);
+        $text = preg_replace("/[ \t]+/", ' ', (string) $text);
+        $text = preg_replace("/\n{3,}/", "\n\n", (string) $text);
+
+        return trim((string) $text);
+    }
+
     public static function clean(?string $html): string
     {
         $html = (string) $html;

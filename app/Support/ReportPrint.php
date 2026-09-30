@@ -9,7 +9,7 @@ namespace App\Support;
  * مطابق تماماً لما يعرضه المتصفح — لا صورة/محاكاة.
  *
  * @phpstan-type ReportCell array{0: string, 1: string}
- * @phpstan-type ReportSection array{title: string, cellRows?: array<int, array<int, ReportCell>>, lines?: string, rich?: string, list?: array<int, string>, chips?: array<int, string>, table?: ReportTable}
+ * @phpstan-type ReportSection array{title: string, cellRows?: array<int, array<int, ReportCell>>, lines?: string, rich?: string, html?: string, list?: array<int, string>, chips?: array<int, string>, table?: ReportTable}
  * @phpstan-type ReportTable array{head: list<string>, rows: list<list<string>>, foot?: list<string>, ltr?: list<int>}
  */
 class ReportPrint
@@ -119,6 +119,10 @@ class ReportPrint
         // نصٌّ بفقراتٍ وقوائم (ملخّص الاستشارة) — `SummaryText` يهرّبه ثمّ يبني عناصره
         if (isset($s['rich'])) {
             $lines .= '<div class="cf-rich">'.SummaryText::html($s['rich']).'</div>';
+        }
+        // HTML منسّقٌ من محرّر (ملخّص التذكرة) — يُنقّى هنا أيضاً فلا يطبع كرومُ الخادم إلّا المسموح
+        if (isset($s['html'])) {
+            $lines .= '<div class="cf-rich">'.RichHtml::clean($s['html']).'</div>';
         }
         $list = ! empty($s['list'])
             ? '<ul class="cf-ul">'.implode('', array_map(fn ($li) => '<li><div>'.e($li).'</div></li>', $s['list'])).'</ul>'

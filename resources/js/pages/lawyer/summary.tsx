@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
+import RichTextEditor, { htmlToText } from '@/components/babylon/RichTextEditor';
 import { useToast } from '@/components/babylon/Toast';
 import { type SummaryData } from '@/lib/lawyer-data';
 import { firstError } from '@/lib/server-message';
@@ -76,11 +77,12 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
   // اعتماد المحامي يُقفل عليه؛ والإدارة تعدّل حتى تعتمد
   const canEdit = !approved && (isAdmin || !summary.lawyerApproved);
 
+  // النسخ المنسّقة تُحرَّر وتُرسل (`TicketSummary::editableInput` يشتقّ منها النصّ العاديّ)
   const [form, setForm] = useState({
-    case_summary: summary.caseSummary || '',
-    attachments_summary: summary.attachmentsSummary || '',
-    facts: summary.facts || '',
-    key_points: summary.keyPoints || '',
+    case_summary_html: summary.html?.caseSummary ?? '',
+    attachments_summary_html: summary.html?.attachmentsSummary ?? '',
+    facts_html: summary.html?.facts ?? '',
+    key_points_html: summary.html?.keyPoints ?? '',
   });
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -97,16 +99,16 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
 
   // حساب عدد الكلمات الإجمالي للملخص
   const totalWords = useMemo(() => {
-    const text = `${form.case_summary} ${form.attachments_summary} ${form.facts} ${form.key_points}`.trim();
+    const text = [form.case_summary_html, form.attachments_summary_html, form.facts_html, form.key_points_html].map(htmlToText).join(' ').trim();
     return text ? text.split(/\s+/).filter(Boolean).length : 0;
   }, [form]);
 
   const val = (key: keyof SummaryData): string => {
     switch (key) {
-      case 'caseSummary': return form.case_summary;
-      case 'attachmentsSummary': return form.attachments_summary;
-      case 'facts': return form.facts;
-      case 'keyPoints': return form.key_points;
+      case 'caseSummary': return form.case_summary_html;
+      case 'attachmentsSummary': return form.attachments_summary_html;
+      case 'facts': return form.facts_html;
+      case 'keyPoints': return form.key_points_html;
       default: return '';
     }
   };
@@ -114,9 +116,9 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
   const setVal = (key: keyof SummaryData, v: string) => {
     setForm((f) => ({
       ...f,
-      ...(key === 'caseSummary' ? { case_summary: v }
-        : key === 'attachmentsSummary' ? { attachments_summary: v }
-        : key === 'facts' ? { facts: v } : { key_points: v }),
+      ...(key === 'caseSummary' ? { case_summary_html: v }
+        : key === 'attachmentsSummary' ? { attachments_summary_html: v }
+        : key === 'facts' ? { facts_html: v } : { key_points_html: v }),
     }));
   };
 
@@ -754,7 +756,8 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
 
           {/* كروت الأقسام القانونية الأربعة */}
           {LEGAL_SECTIONS.filter((s) => activeTab === 'all' || activeTab === s.key).map((f) => {
-            const content = val(f.key);
+            const html = val(f.key);
+            const content = htmlToText(html);
             const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
             const charCount = content.length;
 
@@ -847,33 +850,11 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
 
                 {/* محرر النص الاحترافي */}
                 <div style={{ padding: '12px 16px' }}>
-                  <textarea
-                    value={content}
-                    onChange={(e) => setVal(f.key, e.target.value)}
+                  <RichTextEditor
+                    value={html}
+                    onChange={(v) => setVal(f.key, v)}
                     readOnly={!canEdit}
                     placeholder={f.placeholder}
-                    style={{
-                      width: '100%',
-                      minHeight: 110,
-                      fontSize: 13.2,
-                      lineHeight: 1.8,
-                      fontFamily: 'inherit',
-                      color: 'var(--ink)',
-                      background: canEdit ? 'var(--paper)' : 'var(--paper-2)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                      padding: 12,
-                      outline: 'none',
-                      resize: 'vertical',
-                      boxShadow: 'none',
-                      transition: 'border-color 0.15s ease',
-                    }}
-                    onFocus={(e) => {
-                      if (canEdit) e.currentTarget.style.borderColor = 'var(--primary)';
-                    }}
-                    onBlur={(e) => {
-                      if (canEdit) e.currentTarget.style.borderColor = 'var(--border)';
-                    }}
                   />
                   {!canEdit && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>

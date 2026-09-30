@@ -24,7 +24,7 @@ use Illuminate\Database\Eloquent\Model;
  */
 final class LawyerApproveTicketSummary extends Transition
 {
-    public const FIELDS = ['case_summary', 'attachments_summary', 'facts', 'key_points'];
+    public const FIELDS = TicketSummary::TEXT_FIELDS;
 
     public function name(): string
     {
@@ -79,7 +79,9 @@ final class LawyerApproveTicketSummary extends Transition
     public static function fillText(TicketSummary $summary, array $payload): void
     {
         $fields = is_array($payload['fields'] ?? null) ? $payload['fields'] : [];
-        $summary->fill(array_intersect_key($fields, array_flip(self::FIELDS)));
+        // النصّ ونسخته المنسّقة معاً (`TicketSummary::editableInput`)
+        $allowed = [...self::FIELDS, ...array_map(fn (string $f) => $f.'_html', self::FIELDS)];
+        $summary->fill(array_intersect_key($fields, array_flip($allowed)));
 
         if ($payload['edited'] ?? false) {
             $summary->edited_at = now();

@@ -6,6 +6,7 @@ import ConversationHandlerCard, { refreshConversation, refreshConversationOn } f
 import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
 import MsgMeta from '@/components/babylon/MsgMeta';
+import { RichHtmlView } from '@/components/babylon/RichTextEditor';
 import TicketActionsPanel from '@/components/babylon/TicketActionsPanel';
 import TicketDetailsCard from '@/components/babylon/TicketDetailsCard';
 import TicketRequirementsCard from '@/components/babylon/TicketRequirementsCard';
@@ -125,7 +126,7 @@ const CorrectStatusCard: React.FC<{ ticketNo: string; form: CorrectionForm }> = 
   );
 };
 
-const SUM_FIELDS: { key: keyof SummaryData; label: string }[] = [
+const SUM_FIELDS: { key: keyof NonNullable<SummaryData['html']>; label: string }[] = [
   { key: 'caseSummary', label: 'تلخيص القضية' },
   { key: 'attachmentsSummary', label: 'تلخيص المرفقات' },
   { key: 'facts', label: 'الوقائع' },
@@ -319,7 +320,8 @@ setTypingSignal((n) => n + 1);
                   {SUM_FIELDS.map((f) => (
                     <div key={f.key} style={{ marginBottom: 10 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--faint)', marginBottom: 3 }}>{f.label}</div>
-                      <div style={{ fontSize: 13, whiteSpace: 'pre-line' }}>{(summary[f.key] as string) || '—'}</div>
+                      {/* بتنسيقه كما يصل العميل (منقّى في الخادم — `TicketSummary::html`) */}
+                      {summary.html?.[f.key] ? <RichHtmlView html={summary.html[f.key]} /> : <div style={{ fontSize: 13 }}>—</div>}
                     </div>
                   ))}
                   {canApproveSummaries && (

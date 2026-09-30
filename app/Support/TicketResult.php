@@ -93,14 +93,22 @@ class TicketResult
             ? '<p>تم الانتهاء من دراسة الموضوع. ملخّص الجلسة والإجراءات المقترحة متاحة داخل التذكرة.</p>'
             : '<p>اكتملت معالجة طلبك. <b>لم تكتمل الدراسة</b> — يلزم استكمال ما هو مبيَّن أدناه.</p>';
 
-        $study = '<div class="result-sec"><div class="t">دراسة ما قبل الجلسة — الوقائع</div>'.self::list($summary?->facts ?: self::NO_FACTS).'</div>'
-            .'<div class="result-sec"><div class="t">دراسة ما قبل الجلسة — التوصيات</div>'.self::list($summary?->key_points ?: self::NO_RECOMMENDATIONS).'</div>';
+        // الوقائع والتوصيات بتنسيقها المعتمد (`TicketSummary::html`) — والغياب يُعلَن بالنصّ الثابت
+        $study = '<div class="result-sec"><div class="t">دراسة ما قبل الجلسة — الوقائع</div>'.self::studyPart($summary, 'facts', self::NO_FACTS).'</div>'
+            .'<div class="result-sec"><div class="t">دراسة ما قبل الجلسة — التوصيات</div>'.self::studyPart($summary, 'key_points', self::NO_RECOMMENDATIONS).'</div>';
 
         return $head
             .'<div class="result-card"><h3>نتيجة الملف</h3>'
             .$session
             .$study
             .'</div>';
+    }
+
+    private static function studyPart(?TicketSummary $summary, string $field, string $absent): string
+    {
+        return $summary !== null && trim((string) $summary->getAttribute($field)) !== ''
+            ? '<div class="rich-summary">'.$summary->html($field).'</div>'
+            : self::list($absent);
     }
 
     /** تحويل نقاط مفصولة بأسطر (تبدأ بـ •) إلى قائمة HTML. */

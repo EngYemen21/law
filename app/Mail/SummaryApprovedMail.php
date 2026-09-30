@@ -3,6 +3,7 @@
 namespace App\Mail;
 
 use App\Models\Ticket;
+use App\Support\RichHtml;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
@@ -20,7 +21,9 @@ class SummaryApprovedMail extends Mailable implements ShouldQueue
 
     public function __construct(
         public Ticket $ticket,
-        public ?string $opinion = null
+        public ?string $opinion = null,
+        // الرأي بتنسيق المحامي/الإدارة (`TicketSummary::html`) — يُنقّى ثانيةً عند العرض
+        public ?string $opinionHtml = null,
     ) {}
 
     public function envelope(): Envelope
@@ -35,6 +38,7 @@ class SummaryApprovedMail extends Mailable implements ShouldQueue
             with: [
                 'ticket' => $this->ticket,
                 'opinion' => $this->opinion,
+                'opinionHtml' => $this->opinionHtml !== null ? RichHtml::clean($this->opinionHtml) : null,
             ]
         );
     }

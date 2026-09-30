@@ -42,19 +42,19 @@ class SummaryReport
                 ],
                 [
                     'title' => 'أولاً: ملخص موضوع النزاع',
-                    'lines' => $summary->case_summary ?: ($ticket->details ?: '—'),
+                    ...self::part($summary, 'case_summary', ($ticket->details ?: '—')),
                 ],
                 [
                     'title' => 'ثانياً: فحص المرفقات والمستندات الثبوتية',
-                    'lines' => $summary->attachments_summary ?: self::NO_ATTACHMENT_REVIEW,
+                    ...self::part($summary, 'attachments_summary', self::NO_ATTACHMENT_REVIEW),
                 ],
                 [
                     'title' => 'ثالثاً: سرد الوقائع التعاقدية والإجرائية',
-                    'lines' => $summary->facts ?: '—',
+                    ...self::part($summary, 'facts', '—'),
                 ],
                 [
                     'title' => 'رابعاً: الرأي القانوني المعتمد والتوصيات',
-                    'lines' => $summary->key_points ?: self::NO_LEGAL_OPINION,
+                    ...self::part($summary, 'key_points', self::NO_LEGAL_OPINION),
                 ],
             ],
             'approval' => [
@@ -81,5 +81,17 @@ class SummaryReport
             // اسم المكتب من الإعدادات — كان منقوشاً هنا فيعلو على ما تضبطه الإدارة في رأس الوثيقة نفسها
             'note' => 'إشعار سرية: هذا التقرير صادر إلكترونياً من '.SettingsRegistry::str('office_name').' ويخضع للسرية المهنية والمصادقة المعتمدة.',
         ];
+    }
+
+    /**
+     * قسمٌ بتنسيقه المعتمد (`TicketSummary::html`)، وإن خلا الحقل فإعلان الغياب نصّاً.
+     *
+     * @return array{html: string}|array{lines: string}
+     */
+    private static function part(TicketSummary $summary, string $field, string $absent): array
+    {
+        return trim((string) $summary->getAttribute($field)) !== ''
+            ? ['html' => $summary->html($field)]
+            : ['lines' => $absent];
     }
 }

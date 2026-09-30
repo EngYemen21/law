@@ -3,11 +3,11 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
-use App\Http\Controllers\Lawyer\DocumentEditorController;
 use App\Models\LegalCase;
 use App\Models\LegalDocument;
 use App\Models\User;
 use App\Support\CasePleading;
+use App\Support\RichHtml;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -354,7 +354,7 @@ class DocumentEditorTest extends TestCase
     public function test_html_to_plain_text_preserves_paragraphs_and_newlines(): void
     {
         $html = '<h2>لائحة دعوى</h2><p>لدى الدائرة الموقرة</p><p>الوقائع والأسانيد:<br/>أولاً: بتاريخ 1445هـ</p><ul><li>السند الأول</li><li>السند الثاني</li></ul>';
-        $plain = DocumentEditorController::htmlToPlainText($html);
+        $plain = RichHtml::toPlain($html);
 
         $this->assertStringContainsString("لائحة دعوى\n\nلدى الدائرة الموقرة", $plain);
         $this->assertStringContainsString("الوقائع والأسانيد:\nأولاً: بتاريخ 1445هـ", $plain);

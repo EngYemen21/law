@@ -16,6 +16,8 @@ export interface SummaryData {
   attachmentsSummary?: string;
   facts?: string;
   keyPoints?: string;
+  /** النسخ المنسّقة المنقّاة في الخادم (`TicketSummary::html`) — تُحرَّر وتصل العميلَ بتنسيقها */
+  html?: { caseSummary: string; attachmentsSummary: string; facts: string; keyPoints: string };
   status: string; // awaiting_lawyer | approved
   approved: boolean;
   /** اعتمده المحامي ويُنتظر اعتماد الإدارة (قرار المالك 2026-09-14) */

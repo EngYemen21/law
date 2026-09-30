@@ -16,6 +16,7 @@ use App\Support\LegalDocStyle;
 use App\Support\LegalDocx;
 use App\Support\PdfRenderer;
 use App\Support\Permissions;
+use App\Support\RichHtml;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -264,38 +265,11 @@ class DocumentEditorController extends Controller
         if (($doc->metadata['source_type'] ?? null) === 'case_pleading' && $doc->case_id) {
             $case = LegalCase::find($doc->case_id);
             if ($case && $case->pleading_status === 'pending_lawyer') {
-                CasePleading::save($case, $request->user(), self::htmlToPlainText($doc->content_html));
+                CasePleading::save($case, $request->user(), RichHtml::toPlain($doc->content_html));
             }
         }
 
         return back()->with('success', 'تم اعتماد المستند رسمياً');
-    }
-
-    /**
-     * تحويل محتوى HTML إلى نص قضائي منظم يحافظ على فواصل الأسطر والفقرات
-     * بدلاً من `strip_tags` البحت الذي يدمج الفقرات والكلمات ببعضها.
-     */
-    public static function htmlToPlainText(string $html): string
-    {
-        // 1. استبدال فواصل الأسطر الصريحة
-        $text = preg_replace('/<br\s*\/?>/i', "\n", $html);
-
-        // 2. تحويل نهايات وسوم الكتل (الفقرات والعناوين والصفوف) إلى أسطر جديدة
-        $text = preg_replace('/<\/(p|div|h[1-6]|tr|blockquote|li)>/i', "\n\n", (string) $text);
-
-        // 3. تحويل عناصر القوائم إلى علامات نقطية
-        $text = preg_replace('/<li[^>]*>/i', '• ', (string) $text);
-
-        // 4. فك تشفير الكيانات وتجريد بقية وسوم HTML
-        $text = html_entity_decode((string) $text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $text = strip_tags($text);
-
-        // 5. ضبط الفراغات وتوحيد الأسطر الزائدة (أقصى فراغ سطران فارغان)
-        $text = preg_replace("/\r\n|\r/", "\n", $text);
-        $text = preg_replace("/[ \t]+/", ' ', (string) $text);
-        $text = preg_replace("/\n{3,}/", "\n\n", (string) $text);
-
-        return trim((string) $text);
     }
 
     /**
@@ -743,16 +717,16 @@ HTML;
         $sections = [];
 
         if ($summary->case_summary) {
-            $sections[] = '<h3 style="color: #0e5c9c;">١. ملخص الموضوع والنزاع</h3><p dir="rtl">'.nl2br(e($summary->case_summary)).'</p>';
+            $sections[] = '<h3 style="color: #0e5c9c;">١. ملخص الموضوع والنزاع</h3>'.$summary->html('case_summary');
         }
         if ($summary->facts) {
-            $sections[] = '<h3 style="color: #0e5c9c;">٢. الوقائع والأحداث المثبتة</h3><p dir="rtl">'.nl2br(e($summary->facts)).'</p>';
+            $sections[] = '<h3 style="color: #0e5c9c;">٢. الوقائع والأحداث المثبتة</h3>'.$summary->html('facts');
         }
         if ($summary->key_points) {
-            $sections[] = '<h3 style="color: #0e5c9c;">٣. الأسانيد والنقاط الجوهرية والرأي القانوني</h3><p dir="rtl">'.nl2br(e($summary->key_points)).'</p>';
+            $sections[] = '<h3 style="color: #0e5c9c;">٣. الأسانيد والنقاط الجوهرية والرأي القانوني</h3>'.$summary->html('key_points');
         }
         if ($summary->attachments_summary) {
-            $sections[] = '<h3 style="color: #0e5c9c;">٤. نتائج فحص المستندات والمرفقات</h3><p dir="rtl">'.nl2br(e($summary->attachments_summary)).'</p>';
+            $sections[] = '<h3 style="color: #0e5c9c;">٤. نتائج فحص المستندات والمرفقات</h3>'.$summary->html('attachments_summary');
         }
 
         $bodyHtml = ! empty($sections) ? implode("\n", $sections) : '<p dir="rtl">ملخص وقائع الملف قيد الإعداد والتنسيق.</p>';
