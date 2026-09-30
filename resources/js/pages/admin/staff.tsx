@@ -1,4 +1,4 @@
-import { router, usePage } from '@inertiajs/react';
+import { router } from '@inertiajs/react';
 import React, { useState, useMemo } from 'react';
 import Badge from '@/components/babylon/Badge';
 import Modal from '@/components/babylon/Modal';
@@ -21,6 +21,7 @@ type StaffRow = Staff & {
   sessionFee?: number | null;
   specialtyIds?: number[]; // تخصّصات المحامي في كتالوج الأقسام
   coversAll?: boolean; // محامٍ عامّ يغطّي كلّ الأقسام
+  active?: boolean; // علَم الحالة من الخادم — `status` تسميتها للعرض
 };
 
 interface LegalDepartmentOption { id: number; name: string }
@@ -37,25 +38,20 @@ interface PayTypeOption { id: PayType; label: string; lawyerOnly: boolean }
 
 const PAY_TYPE_ICONS: Record<PayType, string> = { salary: '💵', pct: '📈', both: '🤝', session: '⚖️' };
 
-interface Shared {
-  generatedPassword?: { email: string; password: string } | null;
-}
+/**
+ * المسمّيات الوظيفيّة — قائمةٌ واحدة تُعرض في النموذج، ومسمّيات المحامي منها تُقترح حين يُختار دوره
+ * (كانت تُقارن نصوصاً في معالجات بطاقات الدور).
+ */
+const JOB_TITLES = ['موظف خدمة عملاء', 'محامٍ', 'محامٍ مستشار', 'إداري', 'محاسب', 'مدير العمليات'];
+const LAWYER_TITLES = ['محامٍ', 'محامٍ مستشار'];
+const DEFAULT_TITLE = JOB_TITLES[0];
 
 const AdminStaff: React.FC<Props> = ({ staff, legalDepartments = [], staffDepartments = [], payTypes = [] }) => {
   const toast = useToast();
-  const { props } = usePage() as unknown as { props: Shared };
   const formRef = React.useRef<HTMLDivElement>(null);
   
   // كتالوج الصلاحيات الموحد من الخادم
   const catalog = usePermCatalog();
-
-  // كلمة المرور المولّدة المعروضة مرة واحدة فقط
-  const [cred, setCred] = useState(props.generatedPassword ?? null);
-  React.useEffect(() => {
-    if (props.generatedPassword) {
-setCred(props.generatedPassword);
-}
-  }, [props.generatedPassword]);
 
   // التبويب النشط
   const [activeTab, setActiveTab] = useState<'list' | 'form'>('list');
@@ -69,7 +65,7 @@ setCred(props.generatedPassword);
   // حقول نموذج الموظف
   const [name, setName] = useState('');
   const [roleKey, setRoleKey] = useState('employee');
-  const [role, setRole] = useState('موظف خدمة عملاء');
+  const [role, setRole] = useState(DEFAULT_TITLE);
   const [email, setEmail] = useState('');
   const [mobile, setMobile] = useState('');
   const [nid, setNid] = useState('');
@@ -165,7 +161,7 @@ setName(data.name);
     setEditingId(null);
     setName('');
     setRoleKey('employee');
-    setRole('موظف خدمة عملاء');
+    setRole(DEFAULT_TITLE);
     setEmail('');
     setMobile('');
     setNid('');
@@ -189,7 +185,7 @@ setName(data.name);
     setEditingId(s.id);
     setName(s.name);
     setRoleKey(s.roleKey ?? 'employee');
-    setRole(s.role || 'موظف خدمة عملاء');
+    setRole(s.role || DEFAULT_TITLE);
     setEmail(s.email === '—' ? '' : s.email);
     setMobile(s.mobile === '—' ? '' : s.mobile);
     setNid(s.nid === '—' ? '' : s.nid);
@@ -320,7 +316,7 @@ return false;
 return false;
 }
 
-    if (statusFilter && (s.status || 'نشط') !== statusFilter) {
+    if (statusFilter && (statusFilter === 'active') !== Boolean(s.active)) {
 return false;
 }
 
@@ -363,7 +359,7 @@ diff += 24 * 60;
 
   // دالة مساعدة لتنسيق وعرض خلية القسم المختص بأناقة ومنع التمدد الأفقي مهما تعددت التخصصات
   const renderDeptCell = (s: StaffRow) => {
-    if (s.coversAll || s.dept === 'كل الأقسام' || s.dept === 'يغطي كل الأقسام') {
+    if (s.coversAll) {
       return (
         <span
           className="badge-s b-green"
@@ -529,42 +525,6 @@ diff += 24 * 60;
         </div>
       </div>
 
-      {/* بطاقة كلمة المرور المولّدة عند إضافة موظف جديد */}
-      {cred && (
-        <div className="card" style={{ borderInlineStart: '4px solid var(--primary)', marginBottom: 16 }}>
-          <div className="card-h">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Icon name="lock" />
-              <h3 style={{ margin: 0 }}>بيانات دخول الموظف الجديد</h3>
-            </div>
-            <button className="btn soft sm" onClick={() => setCred(null)} type="button">
-              <Icon name="close" /> إخفاء
-            </button>
-          </div>
-          <div className="card-b" style={{ padding: '14px 18px' }}>
-            <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 10 }}>
-              تُعرض كلمة المرور <b>مرة واحدة فقط</b> — يرجى نسخها وتسليمها للموظف لتسجيل دخوله وتغييرها عند أول دخول.
-            </p>
-            <div className="kv"><span className="k">البريد الإلكتروني</span><span className="v mono" style={{ direction: 'ltr' }}>{cred.email}</span></div>
-            <div className="kv"><span className="k">كلمة المرور المؤقتة</span><span className="v mono" style={{ direction: 'ltr', fontWeight: 800, letterSpacing: 1, color: 'var(--primary)' }}>{cred.password}</span></div>
-            <button
-              className="btn soft sm"
-              style={{ marginTop: 8 }}
-              onClick={() => {
-                if (navigator.clipboard) {
-void navigator.clipboard.writeText(cred.password);
-}
-
-                toast('تم نسخ كلمة المرور بنجاح');
-              }}
-              type="button"
-            >
-              <Icon name="link" /> نسخ كلمة المرور
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* شريط التبديل بين قائمة الكادر ونموذج التسجيل */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, borderBottom: '1px solid var(--line-soft)', paddingBottom: 10 }}>
         <button
@@ -664,8 +624,8 @@ resetForm();
                 style={{ width: 110, fontSize: 12.5, padding: '7px 10px' }}
               >
                 <option value="">كل الحالات</option>
-                <option value="نشط">نشط</option>
-                <option value="موقوف">موقوف</option>
+                <option value="active">نشط</option>
+                <option value="suspended">موقوف</option>
               </select>
 
               {(searchQuery || roleFilter || deptFilter || statusFilter) && (
@@ -796,7 +756,7 @@ resetForm();
                         )}
                       </td>
                       <td>
-                        <Badge text={s.status || 'نشط'} tone={s.status === 'موقوف' ? 'b-grey' : 'b-green'} />
+                        <Badge text={s.status} tone={!s.active ? 'b-grey' : 'b-green'} />
                       </td>
                       <td style={{ textAlign: 'center' }}>
                         <div style={{ display: 'inline-flex', gap: 5, flexWrap: 'nowrap', justifyContent: 'center' }}>
@@ -834,14 +794,14 @@ resetForm();
                               className="btn soft sm"
                               onClick={() => toggleStaff(s)}
                               type="button"
-                              title={s.status === 'موقوف' ? 'تفعيل الحساب' : 'إيقاف الحساب'}
+                              title={!s.active ? 'تفعيل الحساب' : 'إيقاف الحساب'}
                               style={{
                                 padding: '5px 9px',
                                 fontSize: 12,
-                                color: s.status === 'موقوف' ? 'var(--green, #10b981)' : 'var(--red, #ef4444)',
+                                color: !s.active ? 'var(--green, #10b981)' : 'var(--red, #ef4444)',
                               }}
                             >
-                              {s.status === 'موقوف' ? (
+                              {!s.active ? (
                                 <><Icon name="check" /> تفعيل</>
                               ) : (
                                 <><Icon name="lock" /> إيقاف</>
@@ -899,9 +859,9 @@ resetForm();
                   onClick={() => {
                     setRoleKey('lawyer');
 
-                    if (role === 'موظف خدمة عملاء' || role === 'إداري') {
-setRole('محامٍ');
-}
+                    if (!LAWYER_TITLES.includes(role)) {
+                      setRole(LAWYER_TITLES[0]);
+                    }
                   }}
                   style={{
                     border: `1.8px solid ${roleKey === 'lawyer' ? 'var(--primary)' : 'var(--line)'}`,
@@ -928,9 +888,9 @@ setRole('محامٍ');
                   onClick={() => {
                     setRoleKey('employee');
 
-                    if (role === 'محامٍ' || role === 'محامٍ مستشار') {
-setRole('موظف خدمة عملاء');
-}
+                    if (LAWYER_TITLES.includes(role)) {
+                      setRole(DEFAULT_TITLE);
+                    }
                   }}
                   style={{
                     border: `1.8px solid ${roleKey === 'employee' ? 'var(--primary)' : 'var(--line)'}`,
@@ -994,12 +954,7 @@ setRole('موظف خدمة عملاء');
                 <div className="field">
                   <label>الصفة والمسمى الوظيفي <span style={{ color: 'var(--red)' }}>*</span></label>
                   <select value={role} onChange={(e) => setRole(e.target.value)}>
-                    <option>موظف خدمة عملاء</option>
-                    <option>محامٍ</option>
-                    <option>محامٍ مستشار</option>
-                    <option>إداري</option>
-                    <option>محاسب</option>
-                    <option>مدير العمليات</option>
+                    {JOB_TITLES.map((t) => <option key={t}>{t}</option>)}
                   </select>
                 </div>
               </div>
@@ -1377,7 +1332,7 @@ setRole('موظف خدمة عملاء');
                 </div>
 
                 <div style={{ marginTop: 14, padding: 10, background: 'rgba(14,92,156,.05)', borderRadius: 8, fontSize: 11.5, color: 'var(--muted)', textAlign: 'right' }}>
-                  💡 سيتم توليد كلمة مرور مؤقتة وتفعيل حسابه فور الضغط على زر الحفظ.
+                  💡 يُفعَّل حسابه فور الحفظ — ويدخل برقم هويّته ورمز التحقّق الذي يصل جواله.
                 </div>
               </div>
             </div>
@@ -1431,10 +1386,10 @@ setRole('موظف خدمة عملاء');
                       width: 14,
                       height: 14,
                       borderRadius: '50%',
-                      background: detail.status === 'موقوف' ? 'var(--red, #ef4444)' : 'var(--green, #10b981)',
+                      background: !detail.active ? 'var(--red, #ef4444)' : 'var(--green, #10b981)',
                       border: '2px solid #fff',
                     }}
-                    title={detail.status === 'موقوف' ? 'حساب موقوف' : 'حساب نشط'}
+                    title={!detail.active ? 'حساب موقوف' : 'حساب نشط'}
                   />
                 </div>
 
@@ -1444,8 +1399,8 @@ setRole('موظف خدمة عملاء');
                       {detail.name}
                     </h3>
                     <Badge
-                      text={detail.status || 'نشط'}
-                      tone={detail.status === 'موقوف' ? 'b-grey' : 'b-green'}
+                      text={detail.status}
+                      tone={!detail.active ? 'b-grey' : 'b-green'}
                     />
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
@@ -1488,11 +1443,11 @@ setRole('موظف خدمة عملاء');
                     type="button"
                     style={{
                       gap: 6,
-                      color: detail.status === 'موقوف' ? 'var(--green, #10b981)' : 'var(--red, #ef4444)',
+                      color: !detail.active ? 'var(--green, #10b981)' : 'var(--red, #ef4444)',
                     }}
-                    title={detail.status === 'موقوف' ? 'تفعيل حساب الموظف' : 'إيقاف حساب الموظف'}
+                    title={!detail.active ? 'تفعيل حساب الموظف' : 'إيقاف حساب الموظف'}
                   >
-                    {detail.status === 'موقوف' ? (
+                    {!detail.active ? (
                       <><Icon name="check" /> تفعيل الحساب</>
                     ) : (
                       <><Icon name="lock" /> إيقاف الحساب</>
@@ -1532,7 +1487,7 @@ setRole('موظف خدمة عملاء');
                 <div style={{ minWidth: 0 }}>
                   <span style={{ fontSize: 10.5, color: 'var(--muted)', display: 'block' }}>التخصص والأقسام</span>
                   <b style={{ fontSize: 12, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
-                    {detail.coversAll || detail.dept === 'كل الأقسام'
+                    {detail.coversAll
                       ? 'تغطية شاملة'
                       : (detail.dept || '').split(/[،,]/).length > 1
                       ? `${(detail.dept || '').split(/[،,]/).length} أقسام معتمدة`
@@ -1782,7 +1737,7 @@ setRole('موظف خدمة عملاء');
                 </div>
 
                 <div style={{ flex: 1 }}>
-                  {detail.coversAll || detail.dept === 'كل الأقسام' ? (
+                  {detail.coversAll ? (
                     <div
                       style={{
                         background: 'rgba(16, 185, 129, 0.08)',

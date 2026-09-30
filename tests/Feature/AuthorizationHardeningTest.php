@@ -217,15 +217,16 @@ class AuthorizationHardeningTest extends TestCase
 
     // ── كلمات المرور ──
 
-    public function test_store_returns_generated_password_once(): void
+    /** الدخول بالرمز وحده: كلمة المرور سرٌّ عشوائيّ لا يُعرض للإدارة (مرحلة ١ لتبويب الموظفين، 2026-09-30). */
+    public function test_store_sets_a_random_password_that_is_never_shown(): void
     {
         $admin = User::factory()->create(['role' => Role::Admin]);
 
         $this->actingAs($admin)->post(route('admin.staff.store'), [
             'name' => 'موظف جديد', 'role' => 'employee', 'job_title' => 'محاسب',
             'email' => 'new@salasel.test', 'mobile' => '0590001490', 'nid' => '1090001490',
-            'payType' => 'salary', 'salary' => 8000, 'perms' => [],
-        ])->assertRedirect()->assertSessionHas('generatedPassword');
+            'dept' => 'خدمة العملاء', 'payType' => 'salary', 'salary' => 8000, 'perms' => [],
+        ])->assertRedirect()->assertSessionMissing('generatedPassword');
 
         $created = User::where('email', 'new@salasel.test')->firstOrFail();
         // كلمة المرور ليست «password» الثابتة

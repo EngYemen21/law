@@ -186,6 +186,8 @@ class User extends Authenticatable
             'pay' => $this->payLabel(),
             'salary' => $this->salary,
             'status' => $this->isActive() ? 'نشط' : 'موقوف',
+            // علَم الحالة للشروط والفلترة — التسمية أعلاه للعرض وحده
+            'active' => $this->isActive(),
             'perms' => $this->getPermissionNames()->all(),
             'email' => $this->email,
             'mobile' => $this->phone ?? '—',

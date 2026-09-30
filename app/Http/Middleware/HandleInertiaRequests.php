@@ -187,8 +187,6 @@ class HandleInertiaRequests extends Middleware
                 // وإعادة التحميل الجزئيّة (`only`) لا تحمل `flash` فتبقى الهويّة ولا يتكرّر الإشعار.
                 'id' => fn () => $request->session()->hasAny(['error', 'success', 'flash']) ? Str::random(10) : null,
             ],
-            // كلمة المرور المولّدة للموظف الجديد (تُعرض مرة واحدة لدى الإدارة)
-            'generatedPassword' => fn () => $request->session()->get('generatedPassword'),
         ];
     }
 }

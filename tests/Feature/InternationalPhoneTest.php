@@ -56,6 +56,7 @@ class InternationalPhoneTest extends TestCase
             'email' => 'intl@salasel.test',
             'mobile' => '+967779475324',
             'nid' => '1234567890',
+            'dept' => 'خدمة العملاء',
             'payType' => 'salary',
             'salary' => 5000,
             'perms' => [],
