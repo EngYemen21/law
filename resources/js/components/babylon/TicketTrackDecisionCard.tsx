@@ -395,10 +395,10 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
               )}
             </div>
 
-            {/* أزرار الروابط المباشرة للملف الناتج */}
+            {/* أزرار الروابط المباشرة للملف الناتج — إلى الملفّ نفسه لا إلى القائمة (والقائمة احتياطاً بلا رقم) */}
             {approved === 'case' && (caseNumber || hasCase) && (
               <Link
-                href={`${base}/cases`}
+                href={caseNumber ? `${base}/cases/${encodeURIComponent(caseNumber)}` : `${base}/cases`}
                 className="btn soft sm block"
                 style={{ justifyContent: 'center' }}
               >
@@ -409,7 +409,7 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
             {approved === 'execution' && (executionNumber || hasExecution) && (
               <Link
                 // مسار التنفيذ المسجَّل لكلّ دورٍ هو `<base>/execs`؛ وكان هنا اسمٌ أطول لا وجود له في المسارات ⇒ 404
-                href={`${base}/execs`}
+                href={executionNumber ? `${base}/execs?id=${encodeURIComponent(executionNumber)}` : `${base}/execs`}
                 className="btn soft sm block"
                 style={{ justifyContent: 'center' }}
               >
