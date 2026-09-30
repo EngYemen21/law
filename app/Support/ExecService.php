@@ -570,7 +570,7 @@ class ExecService
         self::notify($exec, 'check', 't-green', "أُغلق ملف التنفيذ لطلبك {$exec->number} ({$reason}) — ".self::ref($exec).'.');
         // والمكتب يعلم أيضاً: المحامي المسنَد حين تُغلقه الإدارة، والإدارة حين يُغلقه المحامي — كان العميل وحده
         // يُشعَر (ثبت في المتصفّح 2026-09-30، EXE-2026-5518)
-        self::notifyOffice($exec, 't-green', "أُغلق ملفّ التنفيذ {$exec->number} وأُرشف ({$reason}) — أغلقه ".($actor?->name ?? 'المكتب').'.', $actor);
+        self::notifyOffice($exec, 't-green', "أُغلق ملفّ التنفيذ {$exec->number} وأُرشف ({$reason}) — أغلقه {$actor->name}.", $actor);
         self::mail($exec, 'closed');
         Live::push(new ExecStatusBroadcast($exec->fresh()));
     }
