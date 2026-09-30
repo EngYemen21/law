@@ -235,24 +235,27 @@ class ExecFlowController extends Controller
         }
 
         match ($action) {
-            'refer' => ExecService::refer($execution),
-            'accept' => ExecService::accept($execution),
-            'requestDocs' => ExecService::requestDocs($execution),
-            'reject' => ExecService::reject($execution),
+            'refer' => ExecService::refer($execution, $user),
+            'accept' => ExecService::accept($execution, $user),
+            'requestDocs' => ExecService::requestDocs($execution, $user),
+            'reject' => ExecService::reject($execution, $user),
             'saveFee' => ExecService::saveFee(
                 $execution,
                 ...self::feeInput($request),
+                actor: $user,
             ),
             // 0 أو الفراغ = «اعتمد الأتعاب كما هي» (الحقل اختياري في الواجهة) ⇒ null.
             // والتحقق يمنع السالب والنصّ اللذين كانا يمرّان عبر (int) على مُدخل حرّ.
             'approveFee' => ExecService::approveFee(
                 $execution,
                 ((int) ($request->validate(['fee' => ['nullable', 'integer', 'min:0']])['fee'] ?? 0)) ?: null,
+                actor: $user,
                 lawyerPct: self::lawyerPctInput($request),
             ),
             'setFee' => ExecService::setFee(
                 $execution,
                 ...self::feeInput($request),
+                actor: $user,
                 lawyerPct: self::lawyerPctInput($request),
             ),
             'acceptOffer' => ExecService::acceptOffer($execution),
@@ -274,20 +277,24 @@ class ExecFlowController extends Controller
                 $execution,
                 trim((string) $request->validate(['request_no' => ['required', 'string', 'max:60']])['request_no']),
                 (string) $request->validate(['filed_at' => ['required', 'date_format:Y-m-d', 'before_or_equal:today']])['filed_at'],
+                $user,
             ),
             'registerNajiz' => ExecService::registerNajiz(
                 $execution,
                 trim((string) $request->validate(['court' => ['required', 'string', 'max:160']])['court']),
                 trim((string) $request->validate(['circuit' => ['required', 'string', 'max:160']])['circuit']),
                 (string) $request->validate(['registered_at' => ['required', 'date_format:Y-m-d', 'before_or_equal:today']])['registered_at'],
+                $user,
             ),
             'notifyDebtor' => ExecService::notifyDebtor(
                 $execution,
                 (string) $request->validate(['notified_at' => ['required', 'date_format:Y-m-d', 'before_or_equal:today']])['notified_at'],
+                $user,
             ),
             'applyMeasures' => ExecService::applyMeasures(
                 $execution,
                 (array) ($request->validate(['measures' => ['array'], 'measures.*' => ['string', 'in:'.implode(',', ExecFlow::MEASURES)]])['measures'] ?? []),
+                $user,
             ),
             'addCollection' => ExecService::addCollection(
                 $execution,
@@ -416,6 +423,12 @@ class ExecFlowController extends Controller
         return $pct === null ? null : (int) $pct;
     }
 
+    /**
+     * مدخلات الأتعاب بأسماء معاملات `ExecService::saveFee/setFee` — تُمرَّر بالبسط المسمّى فلا يعتمد الاستدعاء
+     * على ترتيب المواضع.
+     *
+     * @return array{fee: int, duration: string, feeMode: string, feePct: float|null}
+     */
     private static function feeInput(Request $request): array
     {
         $mode = (string) $request->input('feeMode', '') === 'percent' ? 'percent' : 'fixed';
@@ -425,10 +438,10 @@ class ExecFlowController extends Controller
             : ['fee' => ['required', 'integer', 'min:1'], 'feePct' => ['nullable', 'numeric']]);
 
         return [
-            $mode === 'percent' ? 0 : (int) $data['fee'],
-            (string) $request->input('duration', ''),
-            $mode,
-            $mode === 'percent' ? (float) $data['feePct'] : null,
+            'fee' => $mode === 'percent' ? 0 : (int) $data['fee'],
+            'duration' => (string) $request->input('duration', ''),
+            'feeMode' => $mode,
+            'feePct' => $mode === 'percent' ? (float) $data['feePct'] : null,
         ];
     }
 

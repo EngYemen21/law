@@ -14,6 +14,7 @@ use App\Models\Meeting;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Services\AdminDashboardService;
+use App\Support\AppEnvironment;
 use App\Support\LawyerName;
 use App\Support\TicketJourney;
 use Illuminate\Http\RedirectResponse;
@@ -368,10 +369,13 @@ class DashboardController extends Controller
         ]));
     }
 
-    /** هل يُسمح بتصفير بيانات الاختبار هنا؟ شرطٌ واحد للزرّ وللمسار. */
+    /**
+     * هل يُسمح بتصفير بيانات الاختبار هنا؟ شرطٌ واحد للزرّ وللمسار — في صندوق التجربة (`AppEnvironment`)، أو
+     * بإذنٍ صريح `ALLOW_DB_RESET` (يكشفه `env:check` في الإنتاج). كان `! isProduction()` فيفتحه أيّ اسم بيئةٍ آخر.
+     */
     private static function resetAllowed(): bool
     {
-        return ! app()->isProduction() || (bool) config('app.allow_db_reset');
+        return AppEnvironment::isSandbox() || (bool) config('app.allow_db_reset');
     }
 
     /**

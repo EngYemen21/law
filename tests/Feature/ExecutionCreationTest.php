@@ -31,13 +31,25 @@ class ExecutionCreationTest extends TestCase
         ]);
     }
 
+    /**
+     * **المحامي يرفع الطلب والإدارة تعتمده** (قرار المالك 2026-09-29) — كان المحامي يفتح الملفّ مباشرةً.
+     * الاعتماد يفتحه بالمسار نفسه (`ExecutionCreation::fromCase`)، فتبقى فحوص الملفّ المفتوح كما هي.
+     */
+    private function requestAndApprove(User $lawyer, LegalCase $case): void
+    {
+        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'امتنع المحكوم عليه عن السداد بعد القطعيّة'])->assertRedirect();
+        $this->assertFalse(Execution::where('case_id', $case->id)->exists(), 'لا يُفتح قبل اعتماد الإدارة');
+        $admin = User::where('role', Role::Admin)->first() ?? User::factory()->create(['role' => Role::Admin]);
+        $this->actingAs($admin)->post(route('admin.cases.execution-request.approve', $case))->assertRedirect();
+    }
+
     public function test_lawyer_opens_execution_from_ruled_case(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $case = $this->ruledCase($client, $lawyer);
 
-        $this->actingAs($lawyer)->post(route('lawyer.cases.execute', $case))->assertRedirect();
+        $this->requestAndApprove($lawyer, $case);
 
         $exec = Execution::where('case_id', $case->id)->first();
         $this->assertNotNull($exec);
@@ -52,7 +64,7 @@ class ExecutionCreationTest extends TestCase
         $this->assertSame($lawyer->name, $exec->assigned_lawyer);
         $this->assertSame($lawyer->id, $exec->assigned_lawyer_id);
 
-        // إشعار للعميل + رسالة في محادثة القضية + ظهوره لدى العميل
+        // إشعار للعميل عند الفتح وحده (الطلب والقرار داخليّان) + رسالة في محادثة القضية + ظهوره لدى العميل
         $this->assertSame(1, UserNotification::where('user_id', $client->id)->count());
         $this->assertTrue($case->messages->contains(fn ($m) => $m->role === 'تنفيذ'));
         $this->actingAs($client)->get(route('execs'))
@@ -86,8 +98,8 @@ class ExecutionCreationTest extends TestCase
         $caseLawyer = User::factory()->create(['role' => Role::Lawyer]);
         $case = $this->ruledCase(User::factory()->create(['role' => Role::Client]), $caseLawyer);
 
-        // العزل: محامي القضية وحده يفتح تنفيذها، فيرث الطلب محامي القضية المخزّن
-        $this->actingAs($caseLawyer)->post(route('lawyer.cases.execute', $case))->assertRedirect();
+        // العزل: محامي القضية وحده يرفع طلب تنفيذها، فيرث الملفّ محامي القضية المخزّن
+        $this->requestAndApprove($caseLawyer, $case);
 
         $exec = Execution::where('case_id', $case->id)->firstOrFail();
         $this->assertSame($caseLawyer->id, $exec->assigned_lawyer_id);
@@ -123,7 +135,7 @@ class ExecutionCreationTest extends TestCase
         $case = $this->ruledCase(User::factory()->create(['role' => Role::Client]), $lawyer);
         $case->update(['status' => 'منظورة']);
 
-        $this->actingAs($lawyer)->post(route('lawyer.cases.execute', $case))->assertStatus(422);
+        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'طلب تنفيذ قبل صدور الحكم'])->assertStatus(422);
     }
 
     public function test_cannot_open_execution_twice(): void
@@ -131,8 +143,8 @@ class ExecutionCreationTest extends TestCase
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $case = $this->ruledCase(User::factory()->create(['role' => Role::Client]), $lawyer);
 
-        $this->actingAs($lawyer)->post(route('lawyer.cases.execute', $case))->assertRedirect();
-        $this->actingAs($lawyer)->post(route('lawyer.cases.execute', $case))->assertStatus(422);
+        $this->requestAndApprove($lawyer, $case);
+        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'طلب تنفيذ ثانٍ للحكم نفسه'])->assertStatus(422);
         $this->assertSame(1, Execution::where('case_id', $case->id)->count());
     }
 }

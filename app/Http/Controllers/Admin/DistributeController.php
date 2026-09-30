@@ -15,6 +15,8 @@ use App\Models\Ticket;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
 use App\Support\Audit;
+use App\Support\ExecService;
+use App\Support\LawyerWorkload;
 use App\Support\LegalCatalogue;
 use App\Support\Live;
 use App\Support\TicketAssignment;
@@ -31,42 +33,28 @@ class DistributeController extends Controller
 {
     public function index(): Response
     {
-        $lawyers = User::where('role', Role::Lawyer)
-            ->where('status', 'active')
-            ->orderBy('name')
-            ->get()
-            ->map(function (User $u) {
-                $activeTicketsCount = Ticket::where('assigned_lawyer_id', $u->id)
-                    ->open()
-                    ->count();
-                $activeCasesCount = LegalCase::where('assigned_lawyer_id', $u->id)
-                    ->active()
-                    ->count();
-                $activeExecutionsCount = Execution::where('assigned_lawyer_id', $u->id)
-                    ->whereNotIn('status', Execution::CLOSED_STATUSES)
-                    ->count();
-                $activeConsultsCount = Consult::where('assigned_lawyer_id', $u->id)
-                    ->whereNotIn('status', ['منتهية', 'لم يحضر', 'ملغاة'])
-                    ->count();
+        // الحِمل من المصدر الواحد (`LawyerWorkload`) الذي تقرؤه صفحة «المحامون» — كان يُحسب هنا بخمسة
+        // استعلاماتٍ لكلّ محامٍ وبقائمة حالاتٍ عربيّة تُسقط الاستشارة التي «لم يحضر» عميلها وهي مفتوحة
+        $activeLawyers = User::where('role', Role::Lawyer)->where('status', 'active')->orderBy('name')->get();
+        $workload = LawyerWorkload::forMany($activeLawyers->pluck('id')->map(fn ($id) => (int) $id)->all());
+        $lawyers = $activeLawyers->map(function (User $u) use ($workload) {
+            $load = $workload[(int) $u->id];
 
-                $totalLoad = $activeTicketsCount + ($activeCasesCount * 2) + ($activeExecutionsCount * 2) + $activeConsultsCount;
-                $capacityStatus = $totalLoad < 5 ? 'available' : ($totalLoad <= 14 ? 'moderate' : 'busy');
-
-                return [
-                    'id' => $u->id,
-                    'name' => $u->name,
-                    'department' => $u->department ?: 'الاستشارات العامة',
-                    'jobTitle' => $u->job_title ?: 'مستشار قانوني ومحامٍ',
-                    'initials' => $u->avatar_initials ?: 'مح',
-                    'distributionMode' => $u->distribution_mode ?: 'auto',
-                    'activeTicketsCount' => $activeTicketsCount,
-                    'activeCasesCount' => $activeCasesCount,
-                    'activeExecutionsCount' => $activeExecutionsCount,
-                    'activeConsultsCount' => $activeConsultsCount,
-                    'totalLoad' => $totalLoad,
-                    'capacityStatus' => $capacityStatus,
-                ];
-            });
+            return [
+                'id' => $u->id,
+                'name' => $u->name,
+                'department' => $u->department ?: 'الاستشارات العامة',
+                'jobTitle' => $u->job_title ?: 'مستشار قانوني ومحامٍ',
+                'initials' => $u->avatar_initials ?: 'مح',
+                'distributionMode' => $u->distribution_mode ?: 'auto',
+                'activeTicketsCount' => $load['tickets'],
+                'activeCasesCount' => $load['cases'],
+                'activeExecutionsCount' => $load['executions'],
+                'activeConsultsCount' => $load['consults'],
+                'totalLoad' => $load['total'],
+                'capacityStatus' => $load['capacity'],
+            ];
+        });
 
         // 1. التذاكر والطلبات
         $openTickets = Ticket::with(['user', 'assignedLawyer'])
@@ -418,13 +406,9 @@ class DistributeController extends Controller
 
     private function assignExecutionTo(Execution $execution, User $lawyer, User $actor): string
     {
-        abort_if($execution->isClosed(), 422, 'ملفّ التنفيذ منتهٍ أو مغلق — لا يُسنَد بعد إغلاقه.');
-        abort_if($execution->decision === 'مرفوض', 422, 'هذا الطلب مرفوض بعد الدراسة — لا يُسنَد إليه محامٍ.');
-
-        $execution->update([
-            'assigned_lawyer_id' => $lawyer->id,
-            'assigned_lawyer' => $lawyer->name,
-        ]);
+        // مسار الإسناد الواحد (`ExecService::assignLawyer`): حرّاسه (المغلق والمرفوض)، وانتقالُ الرحلة بفاعله،
+        // ورسالة الملفّ، وإشعار المحامي وبريده — كان هنا تحديثٌ مباشر بلا شيءٍ من ذلك (تدقيق 2026-09-29)
+        ExecService::assignLawyer($execution, $lawyer, $actor);
 
         Audit::log(
             action: 'إسناد ملف تنفيذ',

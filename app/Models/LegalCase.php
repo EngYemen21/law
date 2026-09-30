@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\Enums\CaseStatus;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Models\Concerns\ClipsPreviewText;
 use App\Models\Concerns\LinksLegalDepartment;
 use App\Models\Concerns\PurgesDocumentFiles;
+use App\Models\Concerns\TracksRevisions;
 use App\Support\CaseJourney;
 use App\Support\LawyerName;
 use Illuminate\Database\Eloquent\Builder;
@@ -20,6 +22,7 @@ class LegalCase extends Model
     use ClipsPreviewText, PurgesDocumentFiles;
     use GuardsJourneyState;
     use LinksLegalDepartment;
+    use TracksRevisions;
 
     /** سطر المعاينة في بطاقات القوائم — varchar(255) يستقبل نصّ المستخدم بلا سقف. */
     protected array $previewText = ['update_text'];
@@ -45,6 +48,7 @@ class LegalCase extends Model
     ];
 
     protected $casts = [
+        'execution_requested_at' => 'datetime',
         'ai_classification' => 'array',
         'filed_at' => 'date',
         'registered_at' => 'date',
@@ -278,6 +282,10 @@ class LegalCase extends Model
         return [
             'isActive' => $this->isActive(),
             'postJudgment' => in_array($this->status, CaseJourney::POST_JUDGMENT, true),
+            // الأرشيف للقراءة فقط — علمٌ من التعداد تقرؤه الواجهة بدل مقارنة نصّ الحالة «مؤرشفة»
+            'isArchived' => $this->status === CaseStatus::Archived->value,
+            // منظورةٌ أمام المحكمة — تُجدول فيها الجلسات ويُسجَّل الحكم
+            'inCourt' => $this->status === CaseStatus::InCourt->value,
         ];
     }
 
@@ -289,5 +297,16 @@ class LegalCase extends Model
     protected function tone(): Attribute
     {
         return Attribute::get(fn () => CaseJourney::toneFor((string) $this->status));
+    }
+
+    /** تصنيف القضيّة الآليّ — ومسودّة اللائحة نسخُها من رسائلها (`CaseMessage`). */
+    public function revisionKinds(): array
+    {
+        return ['case_classification' => ['ai_classification']];
+    }
+
+    public function revisionOwner(): ?Model
+    {
+        return $this;
     }
 }

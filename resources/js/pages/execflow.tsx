@@ -5,6 +5,7 @@ import Badge from '@/components/babylon/Badge';
 import ChatThread from '@/components/babylon/ChatThread';
 import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
+import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
 import { useToast } from '@/components/babylon/Toast';
 import { matchesSearch } from '@/lib/employee-data';
 import { EXEC_FLOW, EXEC_FEE_MODES, EXEC_CLOSE_REASONS, EXEC_DOC_ACCEPT, EXEC_DOC_HINT, EXEC_REQ_DOC_ACCEPT, EXEC_REQ_DOC_HINT, execMoney, procTone, execVatLabel, execAiPresentation, execStudyBasis, execUnassigned    } from '@/lib/exec-flow';
@@ -1155,7 +1156,7 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
 
                 return (
                   <div className="card" style={{ marginBottom: 12, borderInlineStart: `3px solid ${ai.accent}` }}>
-                    <div className="card-h"><h3>{ai.title}</h3></div>
+                    <div className="card-h"><h3>{ai.title}</h3><RevisionHistoryButton kind="exec_study" refKey={r.id} /></div>
                     <div className="card-b" style={{ padding: '14px 16px' }}>
                       {ai.notice && <div className="mtg-pend" style={{ marginBottom: 8 }}><Icon name="info" /> {ai.notice}</div>}
                       <p style={{ margin: '0 0 8px' }}>{r.aiSummary}</p>

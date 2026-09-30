@@ -6,6 +6,7 @@ import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import FlowLine from '@/components/babylon/FlowLine';
 import Modal from '@/components/babylon/Modal';
 import RescheduleDialog from '@/components/babylon/RescheduleDialog';
+import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
 import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
@@ -1345,6 +1346,8 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                                 حفظ المسودّة
                             </button>
                         )}
+                        {/* نسخ الملخّص: الآلة وZoom وتعديلات الطاقم (طلب المالك 2026-09-29) */}
+                        <RevisionHistoryButton kind="meeting_summary" refKey={m.dbId} />
                     </div>
                 </div>
                 <div style={{ padding: '14px 18px' }}>
@@ -1424,6 +1427,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                             حفظ المسودّة
                         </button>
                     )}
+                    <RevisionHistoryButton kind="meeting_minutes" refKey={m.dbId} />
                 </div>
                 <div style={{ padding: '14px 18px' }}>
                     <textarea

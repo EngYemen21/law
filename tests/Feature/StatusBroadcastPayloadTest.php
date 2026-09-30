@@ -26,7 +26,7 @@ class StatusBroadcastPayloadTest extends TestCase
         $payload = (new CaseStatusBroadcast($case))->broadcastWith();
 
         // والعلمان (`LegalCase::stateFlags`) تقرؤهما صفحات القضيّة الثلاث حين تتقدّم الحالة — لا حِمل ميّت
-        $this->assertSame(['status', 'tone', 'isActive', 'postJudgment'], array_keys($payload));
+        $this->assertSame(['status', 'tone', 'isActive', 'postJudgment', 'isArchived', 'inCourt'], array_keys($payload));
         $this->assertTrue($payload['isActive']);
         $this->assertFalse($payload['postJudgment']);
         $this->assertArrayNotHasKey('next', $payload);

@@ -69,7 +69,8 @@ final class SetFee extends Transition
             $entity->invoice_text = 'قضية بلا أتعاب';
             $entity->update_text = 'اعتمدت الإدارة القضية بلا أتعاب';
             $entity->tone = CaseJourney::toneFor(CaseStatus::InPreparation->value);
-            $entity->pleading_status = 'pending_lawyer';
+            // حالة اللائحة يضبطها `CaseFee::activate` الذي يتلو هذا الانتقال — ضبطُها هنا كان يجعله يظنّ
+            // القضيّة مفعّلةً سابقاً فيعود بلا مسوّدة لائحة ولا رسالة تفعيل ولا تدقيق (تدقيق 2026-09-29)
         } else {
             $vat = (int) ($payload['vat'] ?? 0);
             $total = (int) ($payload['total'] ?? ($fee + $vat));

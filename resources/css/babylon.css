@@ -1228,3 +1228,60 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 .fr-warn>div{display:flex;align-items:flex-start;gap:6px}
 .fr-warn svg{width:16px;height:16px;flex-shrink:0;margin-top:2px}
 .stat .fr-prev{font-size:12px;color:var(--muted);margin-top:4px}
+
+/* سجلّ النسخ — قائمة النسخ بجانب نصّ المختارة، وعلى الهاتف فوقه */
+.rev-grid{display:grid;grid-template-columns:240px 1fr;gap:14px;min-height:320px}
+.rev-list{display:flex;flex-direction:column;gap:6px;max-height:60vh;overflow:auto}
+.rev-item{text-align:start;border:1px solid var(--line,#E1E8EE);background:#fff;border-radius:10px;padding:8px 10px;cursor:pointer;font:inherit}
+.rev-item.on{border-color:var(--primary,#0E5C9C);background:#F2F8FC}
+.rev-body{max-height:60vh;overflow:auto}
+.rev-field{border:1px solid var(--line,#E1E8EE);border-radius:10px;padding:10px 12px;margin-bottom:10px}
+.rev-field.changed{border-color:#F0DDB0;background:#FFFCF5}
+.rev-field-h{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}
+.rev-text{white-space:pre-wrap;font-size:13px;line-height:1.9;word-break:break-word}
+@media (max-width:720px){.rev-grid{grid-template-columns:1fr;min-height:0}.rev-list{max-height:30vh}.rev-body{max-height:none}}
+/* صفحة «المحامون» (2026-09-29) — التصفية، وملفّ المحامي، وصفوفٌ تصير بطاقاتٍ على الهاتف */
+.lw-filters{display:flex;gap:8px;flex-wrap:wrap;padding:12px 18px 0}
+.lw-filters .input{flex:1 1 180px;width:auto}
+.lw-name{background:none;border:0;padding:0;font:inherit;font-weight:700;color:var(--primary,#0E5C9C);cursor:pointer;text-align:start}
+.lw-name:hover{text-decoration:underline}
+.nowrap{white-space:nowrap}
+.txt-overdue{font-size:12px;font-weight:700;color:var(--danger,#C0392B)}
+.lw-links{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.lw-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.lw-group{border:1px solid var(--line,#E1E8EE);border-radius:10px;padding:10px 12px}
+.lw-group-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.lw-items{list-style:none;margin:0;padding:0;max-height:220px;overflow:auto}
+.lw-items li{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;padding:6px 0;border-top:1px solid var(--line,#E1E8EE);font-size:13px}
+.lw-items li:first-child{border-top:0}
+.lw-items li .sub{grid-column:1/-1;font-size:12px}
+.lw-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:720px){.lw-groups{grid-template-columns:1fr}}
+td.tc-actions > div{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+/* **جدولٌ يصير بطاقاتٍ على الهاتف** (`tbl-cards`) — كلّ خليّةٍ بعنوانها من `data-label`، وخليّة الرأس
+   (`tc-head`) بلا عنوان، وخليّة الأزرار (`tc-actions`) بعرض البطاقة. تستعمله «المحامون» و«أتعاب القضايا». */
+@media (max-width:720px){
+  .tbl-cards thead{display:none}
+  .tbl-cards,.tbl-cards tbody,.tbl-cards tr,.tbl-cards td{display:block;width:100%}
+  .tbl-cards tr{border:1px solid var(--line,#E1E8EE);border-radius:12px;padding:10px 12px;margin-bottom:10px}
+  .tbl-cards td{border:0;padding:4px 0;display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .tbl-cards td[data-label]::before{content:attr(data-label);font-size:12px;color:var(--muted);font-weight:600}
+  .tbl-cards td.tc-head{flex-wrap:wrap;justify-content:flex-start}
+  .tbl-cards td.tc-head::before{display:none}
+  .tbl-cards td.tc-actions{padding-top:8px}
+  .tbl-cards td.tc-actions > div{width:100%}
+  .tbl-cards td.tc-actions .btn{flex:1}
+}
+/* «أتعاب القضايا» (2026-09-29) — البحث، وفواتير القضيّة تحت صفّها، وشريحة فلتر القضيّة في المالية */
+.cf-search{display:flex;gap:8px;margin-top:10px}
+.cf-search .input{flex:1;width:auto}
+.cf-invoices td{background:var(--paper-2,#F7F9FB)}
+.cf-inv-list{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.cf-inv{display:grid;grid-template-columns:140px 110px 110px 1fr auto;gap:8px;align-items:center;font-size:13px;padding:6px 10px;border:1px solid var(--line,#E1E8EE);border-radius:8px;background:#fff}
+.chip-x{background:none;border:0;padding:0 0 0 2px;margin:0;cursor:pointer;color:inherit;font:inherit;line-height:1}
+@media (max-width:720px){
+  .cf-inv{grid-template-columns:1fr 1fr}
+  .tbl-cards tr.cf-invoices td{display:block}
+}
+/* شارة «بيئة تجربة» (فصل البيئات 2026-09-29) — زاويةٌ ثابتة لا تلتقط النقر ولا تغطّي المحتوى */
+.env-badge{position:fixed;bottom:10px;left:10px;z-index:95;pointer-events:none;font-size:11.5px;font-weight:700;color:#7a4a00;background:#fff4d6;border:1px solid #f0cf7a;border-radius:999px;padding:4px 11px;box-shadow:0 2px 8px rgba(0,0,0,.08);opacity:.92}

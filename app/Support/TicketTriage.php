@@ -475,17 +475,20 @@ class TicketTriage
                     'ai_generated' => false, // نائب قالبي — تُرقّيه المهمّة لتحليل حقيقي
                 ];
 
-                if ($existing === null) {
-                    // ميلاد الملخّص أوّل سطرٍ في رحلته — يُفتح بالمحرّك بحالته الأولى
-                    Workflow::open(
-                        'ticket_summary.opened',
-                        fn () => $locked->summary()->create($draft + ['status' => 'awaiting_lawyer']),
-                        $actor,
-                    );
-                } else {
-                    // قائمٌ «بانتظار المستشار» أصلاً (ما سواه عاد أعلاه) — يُستبدل نصّه والحالة كما هي
-                    $existing->update($draft);
-                }
+                // نصّ القالب يُنسب لمصدره في سجلّ النسخ لا للموظّف الذي أحال (`ContentRevisions::machine`)
+                ContentRevisions::machine('template', function () use ($existing, $locked, $draft, $actor) {
+                    if ($existing === null) {
+                        // ميلاد الملخّص أوّل سطرٍ في رحلته — يُفتح بالمحرّك بحالته الأولى
+                        Workflow::open(
+                            'ticket_summary.opened',
+                            fn () => $locked->summary()->create($draft + ['status' => 'awaiting_lawyer']),
+                            $actor,
+                        );
+                    } else {
+                        // قائمٌ «بانتظار المستشار» أصلاً (ما سواه عاد أعلاه) — يُستبدل نصّه والحالة كما هي
+                        $existing->update($draft);
+                    }
+                });
                 $upgrade = true;
             }
 

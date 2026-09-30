@@ -11,6 +11,7 @@ use App\Domain\Journey\Transitions\Consult\MarkNoShow;
 use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
 use App\Enums\Role;
 use App\Models\Concerns\LinksLegalDepartment;
+use App\Models\Concerns\TracksRevisions;
 use App\Support\ArabicCount;
 use App\Support\Finance\InvoiceFactory;
 use App\Support\LawyerName;
@@ -30,6 +31,7 @@ class Consult extends Model
 {
     use GuardsJourneyState;
     use LinksLegalDepartment;
+    use TracksRevisions;
 
     // حالات دورة الحجز قبل الجلسة (تسعير → سداد → اختيار موعد) — تُستثنى من شاشة استقبال الجلسات
     /**
@@ -286,6 +288,8 @@ class Consult extends Model
 
         return match (true) {
             $this->reschedule_requested_at !== null => 'طلبك السابق قيد المعالجة — سيتواصل معك المكتب.',
+            // بلغت سقف إعادة الجدولة (`consult_reschedule_limit`) — ما بعده للإدارة العليا (قرار المالك 2026-09-29)
+            (int) $this->reschedule_count >= RescheduleConsult::limit() => 'بلغت الاستشارة الحدّ الأقصى لتغيير الموعد — تواصل مع المكتب مباشرةً.',
             $status?->isClosed() === true, $this->session === SessionState::Ended->value => 'انتهت الاستشارة — لا موعد يُغيَّر.',
             $this->session === SessionState::Live->value => 'الجلسة منعقدة الآن.',
             $status?->isPreSession() === true => 'لم يُحدَّد موعد جلستك بعد — يصلك إشعارٌ به فور تحديده.',
@@ -806,5 +810,20 @@ class Consult extends Model
         // كانت تفرز عليها فتعرض «أحدث عشرة» بترتيبٍ مقلوب.
         $entry = ['user' => $user, 'field' => $field, 'before' => $before, 'after' => $after, 'time' => $stamp, 'at' => $now->toIso8601String()];
         $this->audit = array_merge([$entry], $this->audit ?? []);
+    }
+
+    /** تحليل الطلب وملخّص الجلسة وملاحظاتها — نسخٌ على الاستشارة نفسها (`ContentRevisions`). */
+    public function revisionKinds(): array
+    {
+        return [
+            'consult_analysis' => ['ai_class', 'ai_summary', 'ai_lawyer'],
+            'consult_summary' => ['summary'],
+            'consult_notes' => ['session_notes'],
+        ];
+    }
+
+    public function revisionOwner(): ?Model
+    {
+        return $this;
     }
 }

@@ -26,10 +26,14 @@ class ExecutionCreation
         return in_array($case->status, CaseJourney::POST_JUDGMENT, true) && ! $case->execution()->exists();
     }
 
-    public static function fromCase(LegalCase $case, User $actor): Execution
+    /**
+     * @param  User|null  $lawyerFallback  محامي التنفيذ حين لا محامي للقضيّة — رافعُ الطلب حين تعتمده الإدارة
+     *                                     (`CaseExecutionRequest::approve`)؛ وإلّا الفاعل نفسه.
+     */
+    public static function fromCase(LegalCase $case, User $actor, ?User $lawyerFallback = null): Execution
     {
-        // محامي التنفيذ: محامي القضية إن كان حساباً حقيقياً، وإلا المحامي الذي فتح الطلب
-        $lawyer = $case->assignedLawyer ?? $actor;
+        // محامي التنفيذ: محامي القضية إن كان حساباً حقيقياً، وإلا المحامي الذي رفع الطلب أو فتحه
+        $lawyer = $case->assignedLawyer ?? $lawyerFallback ?? $actor;
 
         /*
          * **جوهر القضيّة ينتقل مع ملفّها إلى التنفيذ.**

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domain\Journey\Enums\CaseStatus;
 use App\Domain\Journey\Enums\ClosureCaseReasonCode;
 use App\Domain\Journey\Transitions\LegalCase\ArchiveCase as ArchiveCaseTransition;
 use App\Domain\Journey\Transitions\LegalCase\CloseCase as CloseCaseTransition;
@@ -19,12 +20,14 @@ use App\Models\User;
 use App\Rules\ActiveLawyer;
 use App\Services\MailService;
 use App\Support\Audit;
+use App\Support\CaseExecutionRequest;
 use App\Support\CaseFee;
 use App\Support\CaseJourney;
 use App\Support\CaseTicketDocuments;
 use App\Support\ConversationFiles;
 use App\Support\ConversationHandler;
 use App\Support\ExecutionCreation;
+use App\Support\Finance\CaseFeeBoard;
 use App\Support\Finance\InvoiceDue;
 use App\Support\Finance\InvoiceFactory;
 use App\Support\Finance\LawyerShare;
@@ -42,11 +45,19 @@ use Inertia\Response;
  */
 class CaseController extends Controller
 {
-    public function fees(): Response
+    public function fees(Request $request): Response
     {
-        $cases = LegalCase::with(['user', 'hearings', 'assignedLawyer'])->latest('id')->paginate(50)->withQueryString();
+        $tab = CaseFeeBoard::tab($request->query('tab'));
+        $search = trim((string) $request->query('q', ''));
+        $actor = $request->user();
+        $cases = CaseFeeBoard::query($tab, $search)->with(['user', 'assignedLawyer', 'invoices'])->paginate(50)->withQueryString();
 
         return Inertia::render('admin/casefees', [
+            'tab' => $tab,
+            'q' => $search,
+            'tabs' => collect(CaseFeeBoard::TABS)->map(fn (string $label, string $key) => ['k' => $key, 'label' => $label])->values(),
+            'counts' => CaseFeeBoard::counts(),
+            'totals' => CaseFeeBoard::totals(),
             'cases' => Paginate::shape($cases, fn (LegalCase $c) => [
                 'no' => $c->number,
                 'type' => $c->type,
@@ -61,12 +72,12 @@ class CaseController extends Controller
                 'lawyerDefaultPct' => LawyerShare::defaultPctFor($c->assignedLawyer),
                 'feeStatus' => $c->fee_status,
                 // حكم انتقال `SetFee` (حالته المصدر + صلاحيّة الفاعل) — كانت الواجهة تقارن نصّ الحالة
-                'canSetFee' => $c->fee_status === 'none'
-                    && (new SetFeeTransition)->accepts((string) $c->status)
-                    && (new SetFeeTransition)->deny($c, auth()->user()) === null,
+                'canSetFee' => CaseFeeBoard::canSetFee($c, $actor),
                 // خطّة التقسيط — كانت `installments` بلا فرعٍ في الشاشة فتقع على «لا إجراء مطلوب»
                 'installmentsTotal' => $c->installments_total,
                 'installmentsPaid' => $c->installments_paid,
+                // المفوتَر والمسدَّد والمتبقّي وفواتيرها — من تعريفات الفاتورة الواحدة
+                'money' => CaseFeeBoard::money($c),
             ]),
         ]);
     }
@@ -74,7 +85,8 @@ class CaseController extends Controller
     // تحديد قيمة الأتعاب → القضية بانتظار سداد العميل
     public function setFee(Request $request, LegalCase $case): RedirectResponse
     {
-        abort_unless($case->status === 'بانتظار اعتماد الأتعاب', 422, 'تُحدَّد الأتعاب والقضية بانتظار اعتمادها فقط — حدّث الصفحة لترى حالتها الحاليّة.');
+        // حالة المصدر يحرسها انتقال `SetFee` نفسه (٤٢٢ برسالته) قبل أيّ فاتورةٍ أو رسالة — كانت تُقارَن هنا
+        // بنصّ الحالة العربيّ مرّةً ثانية
 
         $data = $request->validate([
             'fee' => ['required', 'integer', 'min:0', 'max:10000000'],
@@ -274,8 +286,11 @@ class CaseController extends Controller
                 'canReopen' => (new ReopenCaseTransition)->accepts((string) $case->status)
                     && (new ReopenCaseTransition)->deny($case, $request->user()) === null,
                 'canExecute' => ExecutionCreation::isEligible($case),
-                'canReassign' => $case->status !== 'مؤرشفة',
-                'feePending' => $case->status === 'بانتظار اعتماد الأتعاب',
+                // طلب فتح التنفيذ القائم (من المحامي/الموظّف) — يعتمده المدير أو يرفضه من هنا
+                'executionRequest' => CaseExecutionRequest::pending($case),
+                'canReassign' => $case->status !== CaseStatus::Archived->value,
+                // الحكم الواحد مع صفحة الأتعاب (`CaseFeeBoard::canSetFee`) — كانت مقارنةً بنصّ الحالة
+                'feePending' => CaseFeeBoard::canSetFee($case, $request->user()),
             ],
             'channel' => 'case.'.$case->id,
             // الإدارة ترى ما يراه المكتب: الملاحظات الداخليّة والمحجوب بانتظار الاعتماد
@@ -432,7 +447,7 @@ class CaseController extends Controller
      */
     public function reassignLawyer(Request $request, LegalCase $case): RedirectResponse
     {
-        abort_if($case->status === 'مؤرشفة', 422, 'القضية مؤرشفة — لا يُعاد إسنادها.');
+        abort_if($case->status === CaseStatus::Archived->value, 422, 'القضية مؤرشفة — لا يُعاد إسنادها.');
 
         $data = $request->validate(['lawyer_id' => ['required', 'integer', new ActiveLawyer]]);
         $lawyer = User::findOrFail($data['lawyer_id']);
@@ -469,11 +484,32 @@ class CaseController extends Controller
     {
         abort_unless(ExecutionCreation::isEligible($case), 422, 'التحويل للتنفيذ متاح للقضايا الصادر حكمها ولم يُفتح لها تنفيذ بعد.');
 
-        $exec = ExecutionCreation::fromCase($case, $request->user());
+        // طلبٌ قائمٌ من المحامي أو الموظّف يُعتمد بفتح الإدارة نفسها — فلا يبقى معلّقاً بعد الفتح
+        $exec = $case->execution_requested_at !== null
+            ? CaseExecutionRequest::approve($case, $request->user())
+            : ExecutionCreation::fromCase($case, $request->user());
 
         // وجهة الملف المفتوح لا الصفحة السابقة — نظير مسار المحامي (lawyer.execs)، والعقد موثّق باختبار
         // `?id=` يفتح الملفّ نفسه (`execflow.resolveTarget`) — بدونه تهبط الإدارة على القائمة كلّها
         return redirect()->route('admin.execs', ['id' => $exec->number])->with('flash', "فُتح طلب التنفيذ {$exec->number} للقضية {$case->number}.");
+    }
+
+    /** اعتماد طلب فتح التنفيذ المرفوع من المحامي أو الموظّف (قرار المالك 2026-09-29) — يفتح الملفّ. */
+    public function approveExecutionRequest(Request $request, LegalCase $case): RedirectResponse
+    {
+        $exec = CaseExecutionRequest::approve($case, $request->user());
+
+        return redirect()->route('admin.execs', ['id' => $exec->number])->with('flash', "اعتُمد الطلب وفُتح ملفّ التنفيذ {$exec->number} للقضية {$case->number}.");
+    }
+
+    /** رفض طلب فتح التنفيذ بسببٍ يصل رافعه. */
+    public function rejectExecutionRequest(Request $request, LegalCase $case): RedirectResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:1000']]);
+
+        CaseExecutionRequest::reject($case, $request->user(), $data['reason']);
+
+        return back()->with('flash', 'رُفض طلب فتح التنفيذ وأُبلغ رافعه بالسبب.');
     }
 
     private function clock(): string

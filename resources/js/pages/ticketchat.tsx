@@ -187,10 +187,10 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
                 </span>
               </div>
             </div>
-            {/* رابط عميق لملف التنفيذ بمكون Link التابع لـ Inertia */}
+            {/* رابط عميق لملف التنفيذ — صفحة التنفيذ تفتح الملفّ بـ`?id=` رقمه (لا مسار `/execs/{no}`) */}
             {ticket.executionNumber ? (
               <Link
-                href={`/execs/${encodeURIComponent(ticket.executionNumber)}`}
+                href={`/execs?id=${encodeURIComponent(ticket.executionNumber)}`}
                 className="btn sm"
                 style={{ whiteSpace: 'nowrap', background: '#d97706', color: '#fff', border: 'none', flexShrink: 0 }}
               >

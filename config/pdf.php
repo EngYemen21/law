@@ -14,4 +14,8 @@
 return [
     'engine' => env('PDF_ENGINE', 'auto'),
     'timeout' => (int) env('PDF_TIMEOUT', 20),
+    // مسارا Node وكروم الصريحان (اختياريّان — وإلّا يُكتشفان من المواضع المعتادة). كانا يُقرآن بـ`env()` داخل
+    // `PdfRenderer` فيعودان فارغين بعد `config:cache` الذي يشغّله النشر (فصل البيئات 2026-09-29)
+    'node_binary' => env('NODE_BINARY') ?: env('NODE_PATH'),
+    'chrome_path' => env('CHROME_PATH') ?: env('PUPPETEER_EXECUTABLE_PATH'),
 ];

@@ -10,6 +10,7 @@ use App\Models\LegalService;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\Ai\AiGateway;
+use App\Support\AppEnvironment;
 use App\Support\LegalCatalogue;
 use App\Support\MessageSender;
 use App\Support\OtpService;
@@ -64,13 +65,12 @@ class AppServiceProvider extends ServiceProvider
         // بشريّاً له، فلا يُنسب لصاحب الطلب. التتبّع هنا والقاعدة في `MessageSender`.
         MessageSender::trackJobs();
 
-        // الرمز الثابت (AUTH_DEV_OTP) يعمل أينما ضُبط (قرار المالك 2026-09-29) — فيُنبَّه المشغّل حين يكون
-        // فعّالاً على مضيفٍ يبدو إنتاجيّاً، كي لا يبقى منسيّاً عند الانتقال للإنتاج. في الطرفيّة وحدها
-        // (النشر يشغّل artisan) كي لا يُكتب مع كلّ طلب ويب.
-        if ($this->app->runningInConsole() && OtpService::isDevOtpConfigured() && OtpService::productionLike()) {
-            Log::critical('otp.dev_bypass_active_on_production_like_host', [
+        // الرمز الثابت (AUTH_DEV_OTP) لا يعمل خارج صندوق التجربة (`OtpService::devBypass`) — فمضبوطٌ في الإنتاج
+        // مُتجاهَل، ويُنبَّه المشغّل ليُفرغه. في الطرفيّة وحدها (النشر يشغّل artisan) كي لا يُكتب مع كلّ طلب ويب.
+        if ($this->app->runningInConsole() && OtpService::isDevOtpConfigured() && AppEnvironment::isProduction()) {
+            Log::critical('otp.dev_bypass_configured_in_production', [
                 'env' => app()->environment(),
-                'hint' => 'AUTH_DEV_OTP مضبوط — الدخول بالرمز الثابت مفتوحٌ لأيّ رقم هويّة. أفرغه قبل الإنتاج.',
+                'hint' => 'AUTH_DEV_OTP مضبوط في الإنتاج ومُتجاهَل — أفرغه (php artisan env:check).',
             ]);
         }
 
@@ -139,11 +139,13 @@ class AppServiceProvider extends ServiceProvider
     {
         Date::use(CarbonImmutable::class);
 
+        // «ما لم يُعلَن صندوقَ تجربةٍ فهو إنتاج» (`AppEnvironment`) — كان `isProduction()` حرفيّاً فيُرخي
+        // القواعد لأيّ اسم بيئةٍ آخر
         DB::prohibitDestructiveCommands(
-            app()->isProduction(),
+            AppEnvironment::isProduction(),
         );
 
-        Password::defaults(fn (): ?Password => app()->isProduction()
+        Password::defaults(fn (): ?Password => AppEnvironment::isProduction()
             ? Password::min(12)
                 ->mixedCase()
                 ->letters()

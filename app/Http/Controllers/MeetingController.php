@@ -99,7 +99,11 @@ class MeetingController extends Controller
     public function changeRequest(Request $request, Meeting $meeting): RedirectResponse
     {
         abort_unless($meeting->user_id === $request->user()->id, 403);
-        abort_unless(in_array($meeting->status, ['قادم', 'مؤجل'], true), 422, 'طلب تغيير الموعد متاح للاجتماعات القادمة فقط.');
+        // لا يتكرّر وهو قيد المعالجة، ولا بعد سقف إعادة الجدولة (قرار المالك 2026-09-29) — `Meeting::changeRequestBlocker`
+        if (($blocker = $meeting->changeRequestBlocker()) !== null) {
+            abort(422, $blocker);
+        }
+        $meeting->forceFill(['reschedule_requested_at' => now()])->save();
 
         $message = "طلب العميل تغيير موعد الاجتماع «{$meeting->title}» ({$meeting->ref}) — {$meeting->when_label}. أعد جدولته من صفحة الاجتماع.";
         if ($meeting->assigned_lawyer_id) {

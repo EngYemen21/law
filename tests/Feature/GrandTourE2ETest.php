@@ -166,8 +166,9 @@ class GrandTourE2ETest extends TestCase
         $this->actingAs($lawyer)->post(route('lawyer.cases.ruling', $case), ['ruling' => 'إلزام المدّعى عليه بالمبلغ.'])->assertRedirect();
         $this->assertSame('صدر الحكم', $case->fresh()->status);
 
-        // ── المرحلة 6: زر «تحويل لتنفيذ» بعد الحكم ثم إغلاق الإدارة ──
-        $this->actingAs($lawyer)->post(route('lawyer.cases.execute', $case))->assertRedirect();
+        // ── المرحلة 6: طلب «تحويل لتنفيذ» بعد الحكم يعتمده المدير (قرار المالك 2026-09-29) ثم إغلاق الإدارة ──
+        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'امتنع المحكوم عليه عن السداد'])->assertRedirect();
+        $this->actingAs($admin)->post(route('admin.cases.execution-request.approve', $case))->assertRedirect();
         $exec = Execution::where('case_id', $case->id)->firstOrFail();
         $this->assertSame($lawyer->id, $exec->assigned_lawyer_id);
         $this->actingAs($client)->get(route('execs'))->assertInertia(fn ($p) => $p->has('execs', 1));

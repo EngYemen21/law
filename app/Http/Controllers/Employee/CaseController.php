@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Employee;
 
+use App\Domain\Journey\Enums\CaseStatus;
 use App\Enums\Role;
 use App\Http\Controllers\Concerns\ManagesCourtProceedings;
 use App\Http\Controllers\Controller;
@@ -9,11 +10,13 @@ use App\Jobs\AnalyzeCaseDocumentJob;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\CaseExecutionRequest;
 use App\Support\CaseFiling;
 use App\Support\CaseJourney;
 use App\Support\CaseTicketDocuments;
 use App\Support\ConversationFiles;
 use App\Support\ConversationHandler;
+use App\Support\ExecutionCreation;
 use App\Support\Notify;
 use App\Support\Permissions;
 use Illuminate\Http\RedirectResponse;
@@ -155,6 +158,10 @@ class CaseController extends Controller
                 'appeal' => $case->appealCard(),
             ],
             'canCourt' => $canCourt,
+            // فتح تنفيذ الحكم بطلبٍ تعتمده الإدارة العليا (قرار المالك 2026-09-29)
+            'executionRequest' => CaseExecutionRequest::pending($case),
+            'canRequestExecution' => ExecutionCreation::isEligible($case) && $case->execution_requested_at === null,
+            'convertedExec' => $case->execution()->exists(),
             // الحكم وتصحيحه وحكم الاستئناف — تُخفى نماذجها عمّن يصدّه `guardRulingAccess`
             'canRule' => $canCourt && (bool) auth()->user()?->can(Permissions::RECORD_RULINGS),
             // رفع الدعوى في ناجز والقيد — ما يجوز الآن من الحرّاس نفسها، لمن يملك الصلاحيّة
@@ -174,7 +181,7 @@ class CaseController extends Controller
     // كانت صفحة قضية الموظف بلا مستندات ولا إرفاق (عدم تماثل مع بقية الأدوار).
     public function attach(Request $request, LegalCase $case): RedirectResponse
     {
-        abort_if($case->status === 'مؤرشفة', 422, 'لا يمكن إرفاق مستندات على قضية مؤرشفة.');
+        abort_if($case->status === CaseStatus::Archived->value, 422, 'لا يمكن إرفاق مستندات على قضية مؤرشفة.');
 
         $data = $request->validate([
             'file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx'],
@@ -214,10 +221,20 @@ class CaseController extends Controller
     }
 
     // ردّ خدمة العملاء للعميل داخل القضية (بثّ لحظي)
+    /** رفع طلب فتح تنفيذ الحكم للإدارة العليا (قرار المالك 2026-09-29) — كالمحامي المسنَد. */
+    public function requestExecution(Request $request, LegalCase $case): RedirectResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'max:1000']]);
+
+        CaseExecutionRequest::request($case, $request->user(), $data['reason']);
+
+        return back()->with('flash', 'رُفع طلب فتح التنفيذ للإدارة العليا — يُفتح الملفّ فور اعتماده.');
+    }
+
     public function reply(Request $request, LegalCase $case): \Illuminate\Http\Response
     {
         // الأرشيف للقراءة — كان الإرفاق يُرفض عليه والردّ يمرّ
-        abort_if($case->status === 'مؤرشفة', 422, 'القضية مؤرشفة — ملفها للقراءة فقط.');
+        abort_if($case->status === CaseStatus::Archived->value, 422, 'القضية مؤرشفة — ملفها للقراءة فقط.');
         $data = $request->validate(['body' => ['required', 'string']]);
 
         $case->messages()->create([

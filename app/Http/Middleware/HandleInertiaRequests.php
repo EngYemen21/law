@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Models\UserNotification;
 use App\Services\Ai\AiReviewInbox;
 use App\Support\AdminApprovalQueue;
+use App\Support\AppEnvironment;
 use App\Support\Permissions;
 use App\Support\RoomPresence;
 use App\Support\SettingsRegistry;
@@ -100,6 +101,8 @@ class HandleInertiaRequests extends Middleware
         return [
             ...parent::share($request),
             'name' => config('app.name'),
+            // بيئة التشغيل لشارة «بيئة تجربة» (`EnvironmentBadge`) — لا تُعرض في الإنتاج
+            'appEnv' => ['sandbox' => AppEnvironment::isSandbox(), 'name' => (string) app()->environment()],
             'auth' => [
                 'user' => $user ? [
                     'id' => $user->id,

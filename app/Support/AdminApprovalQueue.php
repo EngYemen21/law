@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Domain\Journey\Enums\ConsultStatus;
 use App\Domain\Journey\Enums\TicketStatus;
 use App\Models\Consult;
+use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\TicketSummary;
 use Illuminate\Database\Eloquent\Builder;
@@ -63,9 +64,19 @@ final class AdminApprovalQueue
     }
 
     /**
+     * طلبات فتح تنفيذ الأحكام من المحامي أو الموظّف (قرار المالك 2026-09-29).
+     *
+     * @return Builder<LegalCase>
+     */
+    public static function executionRequests(): Builder
+    {
+        return LegalCase::query()->whereNotNull('execution_requested_at');
+    }
+
+    /**
      * العدّادات الأربعة ومجموعها — الأرقام نفسها التي تعرضها قوائم مركز الاعتمادات.
      *
-     * @return array{proposals: int, summaries: int, sessions: int, appointments: int, totalPending: int}
+     * @return array{proposals: int, summaries: int, sessions: int, appointments: int, executions: int, totalPending: int}
      */
     public static function counts(): array
     {
@@ -74,6 +85,7 @@ final class AdminApprovalQueue
             'summaries' => self::ticketSummaries()->count(),
             'sessions' => self::sessionSummaries()->count(),
             'appointments' => self::appointments()->count(),
+            'executions' => self::executionRequests()->count(),
         ];
 
         return $counts + ['totalPending' => array_sum($counts)];

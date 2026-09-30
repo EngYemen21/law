@@ -7,10 +7,12 @@ use App\Domain\Journey\Transitions\Meeting\CancelMeeting;
 use App\Domain\Journey\Transitions\Meeting\EndMeeting;
 use App\Domain\Journey\Transitions\Meeting\StartMeeting;
 use App\Enums\Role;
+use App\Models\Concerns\TracksRevisions;
 use App\Support\LawyerName;
 use App\Support\MeetingTime;
 use App\Support\RecordingArchive;
 use App\Support\SessionWindow;
+use App\Support\SettingsRegistry;
 use App\Support\ZoomSummaryText;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -23,6 +25,8 @@ use Illuminate\Support\Carbon;
  */
 class Meeting extends Model
 {
+    use TracksRevisions;
+
     protected $fillable = [
         'user_id', 'ref', 'title', 'type', 'client_name', 'when_label', 'starts_at', 'reminder_sent_at',
         // `dur`: عمودٌ تاريخيّ — ما حُفظ فيه يبقى مسافةً محجوزة على تقويم المحامي (`LawyerAvailability`)،
@@ -32,6 +36,7 @@ class Meeting extends Model
         'summary', 'sum_approved', 'minutes', 'participants', 'case_ref',
         'decisions', 'tasks_created', 'suggested_tasks',
         'meet_id', 'meet_link', 'host_link', 'meet_password', 'created_by',
+        'reschedule_requested_at', 'reschedule_count',
         'assigned_lawyer_id',
         // is_up مهجور (deprecated): «القادم» يُشتق حيّاً من liveState/isUpcoming — لم يعد يُكتب ولا يُقرأ
         'is_up', 'has_link', 'has_minutes', 'has_summary',
@@ -42,6 +47,8 @@ class Meeting extends Model
 
     protected $casts = [
         'starts_at' => 'datetime',
+        'reschedule_requested_at' => 'datetime',
+        'reschedule_count' => 'integer',
         'reminder_sent_at' => 'datetime',
         'zoom_summary_at' => 'datetime',
         'join_time' => 'datetime',
@@ -411,6 +418,36 @@ class Meeting extends Model
         };
     }
 
+    /** سقف إعادة جدولة الاجتماع الافتراضيّ — ما بعده للإدارة العليا وحدها (`meeting_reschedule_limit`). */
+    public const RESCHEDULE_LIMIT = 2;
+
+    public static function rescheduleLimit(): int
+    {
+        return SettingsRegistry::int('meeting_reschedule_limit');
+    }
+
+    /** بلغ الاجتماع سقف إعادة الجدولة — فلا يطلب العميل تغييره ولا يعيد جدولته غير الإدارة العليا. */
+    public function reachedRescheduleLimit(): bool
+    {
+        return (int) $this->reschedule_count >= self::rescheduleLimit();
+    }
+
+    /**
+     * **لماذا لا يطلب العميل تغيير الموعد الآن؟** — `null` = يطلب. الطلب القائم لا يتكرّر (كان كلّ ضغطٍ
+     * يُرسل إشعاراً جديداً للمحامي والإدارة)، وبعد السقف يتواصل مع المكتب (قرار المالك 2026-09-29).
+     */
+    public function changeRequestBlocker(): ?string
+    {
+        $status = MeetingStatus::tryFrom((string) $this->status);
+
+        return match (true) {
+            ! in_array($status, [MeetingStatus::Upcoming, MeetingStatus::Postponed], true) => 'طلب تغيير الموعد متاح للاجتماعات القادمة فقط.',
+            $this->reschedule_requested_at !== null => 'طلبك السابق قيد المراجعة — سيتواصل معك المكتب.',
+            $this->reachedRescheduleLimit() => 'بلغ الاجتماع الحدّ الأقصى لتغيير الموعد — تواصل مع المكتب مباشرةً.',
+            default => null,
+        };
+    }
+
     // بطاقة العميل (يطابق DATA.meetings + viewMeetings) — المحضر/الملخص بعد اعتماد الإدارة فقط
     public function toCard(): array
     {
@@ -427,6 +464,11 @@ class Meeting extends Model
             'status' => $status,
             'tone' => $tone,
             'canJoin' => $canJoin,
+            // طلب تغيير الموعد: متاحٌ أم لا، وسبب المنع حين يعني العميلَ (طلبٌ قائم أو سقفٌ بُلغ) — لا للمنتهي
+            'canRequestChange' => $this->changeRequestBlocker() === null,
+            'changeRequestNote' => $this->reschedule_requested_at !== null || ($this->reachedRescheduleLimit() && in_array(MeetingStatus::tryFrom((string) $this->status), [MeetingStatus::Upcoming, MeetingStatus::Postponed], true))
+                ? $this->changeRequestBlocker()
+                : null,
             // شارة الاعتماد للعميل — يعرف أنّ المحضر/الملخص الظاهرين معتمدان من الإدارة
             'approved' => $approved,
             'ref' => $this->ref ?: 'M-'.$this->id,
@@ -529,5 +571,16 @@ class Meeting extends Model
             'zoomParticipantsLog' => $this->zoom_participants_log ?? [],
             'zoomAiNextSteps' => $this->zoom_ai_next_steps ?? [],
         ];
+    }
+
+    /** الملخّص والمحضر — نسخٌ على الاجتماع نفسه (`ContentRevisions`). */
+    public function revisionKinds(): array
+    {
+        return ['meeting_summary' => ['summary'], 'meeting_minutes' => ['minutes']];
+    }
+
+    public function revisionOwner(): ?Model
+    {
+        return $this;
     }
 }

@@ -59,6 +59,7 @@ const EmployeeTickets: React.FC<Props> = ({
   const can = useCan();
   const canTransfer = can('تحويل التذاكر');
   const canReqDocs = can('الرد على العملاء');
+  const canSchedule = can('جدولة المواعيد');
 
   // التبويب النشط
   const [activeTab, setActiveTab] = useState<'active' | 'urgent' | 'needAction' | 'missingDocs' | 'referred' | 'completed'>('active');
@@ -157,12 +158,17 @@ const EmployeeTickets: React.FC<Props> = ({
           <p>مركز الفرز والمتابعة لطلبات العملاء، توجيه المعاملات للمستشارين، وطلب استكمال المستندات.</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button className="btn ghost" onClick={() => router.visit('/employee/transfer')} type="button">
-            <Icon name="reply" /> تحويل التذاكر
-          </button>
-          <button className="btn" onClick={() => router.visit('/employee/schedule')} type="button">
-            <Icon name="calplus" /> حجز موعد استشارة
-          </button>
+          {/* الزرّ لمن يفتح له الخادم وجهته — كانا يظهران للجميع ثمّ يُردّ من لا صلاحيّة له (تدقيق 2026-09-29) */}
+          {canTransfer && (
+            <button className="btn ghost" onClick={() => router.visit('/employee/transfer')} type="button">
+              <Icon name="reply" /> تحويل التذاكر
+            </button>
+          )}
+          {canSchedule && (
+            <button className="btn" onClick={() => router.visit('/employee/schedule')} type="button">
+              <Icon name="calplus" /> حجز موعد استشارة
+            </button>
+          )}
         </div>
       </div>
 

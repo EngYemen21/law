@@ -3,6 +3,8 @@ import axios from 'axios';
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
+import CaseExecutionRequestCard from '@/components/babylon/CaseExecutionRequestCard';
+import type { CaseExecutionRequestData } from '@/components/babylon/CaseExecutionRequestCard';
 import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
 import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
@@ -27,6 +29,7 @@ interface CaseInfo {
   /** أعلام الحالة من الخادم (`LegalCase::stateFlags`) — في البطاقة والبثّ. */
   isActive: boolean;
   postJudgment: boolean;
+  isArchived: boolean; inCourt: boolean;
   next?: string | null;
   // بيانات الرفع والقيد في ناجز (الخطّة ب) — للاطّلاع
   najiz?: { requestNo?: string | null; filedAt?: string | null; caseNo?: string | null; court?: string | null; circuit?: string | null; registeredAt?: string | null } | null;
@@ -64,6 +67,10 @@ interface Props {
   canRule?: boolean;
   /** من يتولّى المحادثة ومن تولّاها قبله — `ConversationHandler::history`. */
   conversation?: ConversationHistory | null;
+  /** رفع طلب فتح تنفيذ الحكم للإدارة العليا (قرار المالك 2026-09-29) */
+  canRequestExecution?: boolean;
+  executionRequest?: CaseExecutionRequestData | null;
+  convertedExec?: boolean;
 }
 
 const EmployeeCase: React.FC<Props> = ({
@@ -78,6 +85,9 @@ const EmployeeCase: React.FC<Props> = ({
   canCourt = false,
   canRule = false,
   conversation,
+  canRequestExecution = false,
+  executionRequest = null,
+  convertedExec = false,
 }) => {
   const toast = useToast();
   const base = `/employee/cases/${encodeURIComponent(c.no)}`;
@@ -85,14 +95,14 @@ const EmployeeCase: React.FC<Props> = ({
 
   const [reply, setReply] = useState('');
   const [msgs, setMsgs] = useState<Message[]>(messages);
-  const [live, setLive] = useState({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment });
+  const [live, setLive] = useState({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment, isArchived: c.isArchived, inCourt: c.inCourt });
   const seen = useRef<Set<number>>(new Set(messages.map((m) => m.id).filter(Boolean) as number[]));
   const [propsFrom, setPropsFrom] = useState({ status: c.status, messages });
 
   // الحالة والمحادثة تتبعان الخادم بعد كلّ إجراء — لا البثّ وحده (الموظّف صار يسجّل القيد والجلسات والحكم)
   if (c.status !== propsFrom.status || messages !== propsFrom.messages) {
     setPropsFrom({ status: c.status, messages });
-    setLive({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment });
+    setLive({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment, isArchived: c.isArchived, inCourt: c.inCourt });
     setMsgs(messages);
   }
 
@@ -112,7 +122,7 @@ const EmployeeCase: React.FC<Props> = ({
     ch.listen('.message', append);
     // الملاحظات الداخليّة تُبثّ على قناة الطاقم وحدها — لا على القناة التي يسمعها العميل
     echo.private(`${channel}.staff`).listen('.message', append);
-    ch.listen('.status', (e: { status: string; tone: string; isActive: boolean; postJudgment: boolean }) => setLive({ status: e.status, tone: e.tone, isActive: e.isActive, postJudgment: e.postJudgment }));
+    ch.listen('.status', (e: { status: string; tone: string; isActive: boolean; postJudgment: boolean; isArchived: boolean; inCourt: boolean }) => setLive({ status: e.status, tone: e.tone, isActive: e.isActive, postJudgment: e.postJudgment, isArchived: e.isArchived, inCourt: e.inCourt }));
     return () => { echo.leave(channel); echo.leave(`${channel}.staff`); };
   }, [channel]);
 
@@ -166,46 +176,51 @@ const EmployeeCase: React.FC<Props> = ({
               {msgs.map((m, i) => <CaseMsgRow key={m.id ?? i} m={m} />)}
             </div>
 
-            <div className="composer">
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Icon name="reply" cls="ic sm" />
-                <span>رد خدمة العملاء (يظهر للعميل مباشرة):</span>
-              </div>
-              <form onSubmit={send}>
-                <textarea
-                  value={reply}
-                  onChange={(e) => setReply(e.target.value)}
-                  placeholder="اكتب رسالة التحديث أو الإفادة للعميل…"
-                />
-                <div className="crow">
-                  <button className="btn" type="submit">
-                    <Icon name="send" /> إرسال الرد
-                  </button>
-                  {live.status !== 'مؤرشفة' && (
-                    <button
-                      className="btn soft"
-                      type="button"
-                      onClick={() => setAttachOpen(true)}
-                      title="إرفاق مستند جديد إلى ملف القضية"
-                    >
-                      <Icon name="upload" /> إرفاق مستند
-                    </button>
-                  )}
+            {/* الأرشيف للقراءة — الخادم يردّ الردّ عليه، فلا صندوقَ يُكتب فيه ثمّ يُرفض */}
+            {live.isArchived ? (
+              <div className="composer sub">القضية مؤرشفة — ملفّها للقراءة فقط.</div>
+            ) : (
+              <div className="composer">
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="reply" cls="ic sm" />
+                  <span>رد خدمة العملاء (يظهر للعميل مباشرة):</span>
                 </div>
-              </form>
-            </div>
+                <form onSubmit={send}>
+                  <textarea
+                    value={reply}
+                    onChange={(e) => setReply(e.target.value)}
+                    placeholder="اكتب رسالة التحديث أو الإفادة للعميل…"
+                  />
+                  <div className="crow">
+                    <button className="btn" type="submit">
+                      <Icon name="send" /> إرسال الرد
+                    </button>
+                    {!live.isArchived && (
+                      <button
+                        className="btn soft"
+                        type="button"
+                        onClick={() => setAttachOpen(true)}
+                        title="إرفاق مستند جديد إلى ملف القضية"
+                      >
+                        <Icon name="upload" /> إرفاق مستند
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </div>
+            )}
           </div>
 
           {/* جدولة الجلسات — لمن منحته الإدارة الصلاحيّة، والقضيّة منظورة */}
-          {canCourt && live.status === 'منظورة' && <ScheduleHearingCard base={base} />}
+          {canCourt && live.inCourt && <ScheduleHearingCard base={base} />}
 
           {/* تسجيل الحكم أو عرضه مع إتاحة التصحيح */}
-          {(canCourt || c.ruling) && (live.status === 'منظورة' || c.ruling) && (
+          {(canCourt || c.ruling) && (live.inCourt || c.ruling) && (
             <RulingCard
               base={base}
               ruling={c.ruling}
               canRecord={canRule}
-              canCorrect={canRule && !['مؤرشفة'].includes(live.status)}
+              canCorrect={canRule && !live.isArchived}
             />
           )}
 
@@ -214,8 +229,8 @@ const EmployeeCase: React.FC<Props> = ({
             <AppealCard
               base={base}
               appeal={c.appeal}
-              canAct={canCourt && !['مؤرشفة'].includes(live.status)}
-              canRule={canRule && !['مؤرشفة'].includes(live.status)}
+              canAct={canCourt && !live.isArchived}
+              canRule={canRule && !live.isArchived}
               defaultCourt={c.court ?? ''}
             />
           )}
@@ -276,6 +291,8 @@ const EmployeeCase: React.FC<Props> = ({
           {canCourt && hearings.length > 0 && live.isActive && <HearingUpdatesCard base={base} hearings={hearings} />}
 
           {/* بطاقة الجلسات القضائية */}
+          <CaseExecutionRequestCard base={base} canRequest={canRequestExecution} pending={executionRequest} converted={convertedExec} />
+
           <HearingsCard hearings={hearings} documents={documents} />
 
           {/* سجل مستندات القضية (بيانات وصفية فقط دون روابط تحميل للموظف) */}

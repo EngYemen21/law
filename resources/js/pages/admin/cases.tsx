@@ -112,6 +112,13 @@ export const AdminCases: React.FC<Props> = ({ cases = [], types = [], kpis, tabs
   const execute = (no: string) =>
     action.run(`/admin/cases/${encodeURIComponent(no)}/execute`, {
       key: no,
+      // فتح التنفيذ قرارٌ لا يقع بنقرةٍ عابرة (قرار المالك 2026-09-29)
+      confirm: {
+        title: 'فتح طلب تنفيذ الحكم؟',
+        message: 'يُفتح ملفّ تنفيذ الحكم ويُسند لمحامي القضية، ويُعتمد طلب التنفيذ القائم إن وُجد.',
+        confirmLabel: 'فتح الملف',
+        cancelLabel: 'تراجع',
+      },
       success: 'تم فتح طلب تنفيذ رسمي للقضية ⚡',
       fallback: 'تعذّر تحويل القضية للتنفيذ',
       onSuccess: () => clearPreview(no),

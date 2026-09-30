@@ -2,10 +2,13 @@ import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import CaseExecutionRequestCard from '@/components/babylon/CaseExecutionRequestCard';
+import type { CaseExecutionRequestData } from '@/components/babylon/CaseExecutionRequestCard';
 import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
 import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
+import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
 import { useToast } from '@/components/babylon/Toast';
 import { AppealCard, AttachDocModal, HearingUpdatesCard, NajizFilingCard, RulingCard, ScheduleHearingCard } from '@/lib/case-court';
 import type { AppealData, Filing } from '@/lib/case-court';
@@ -20,7 +23,7 @@ interface CaseInfo {
   no: string; client: string; type: string; dept: string; lawyer: string;
   status: string; tone: string; next?: string | null; pleadingStatus: string; ruling?: string | null;
   /** أعلام الحالة من الخادم (`LegalCase::stateFlags`) — في البطاقة والبثّ. */
-  isActive: boolean; postJudgment: boolean;
+  isActive: boolean; postJudgment: boolean; isArchived: boolean; inCourt: boolean;
 
   appeal?: AppealData | null;
 }
@@ -31,7 +34,7 @@ interface FileFacts { summary?: string | null; facts?: string | null; keyPoints?
 interface ReadinessItem { label: string; ok: boolean; hint?: string | null }
 interface Props {
   case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[];
-  convertedExec?: boolean; pleadingBlock?: string | null; pleadingDraft?: string | null; canExecute?: boolean;
+  convertedExec?: boolean; pleadingBlock?: string | null; pleadingDraft?: string | null; canRequestExecution: boolean; executionRequest: CaseExecutionRequestData | null;
   ticketDocuments?: CaseDoc[]; fileInfo?: FileInfo; fileFacts?: FileFacts | null; readiness?: ReadinessItem[]; filing?: Filing;
   /** من يتولّى المحادثة ومن تولّاها قبله — `ConversationHandler::history`. */
   conversation?: ConversationHistory | null;
@@ -50,14 +53,14 @@ function docState(d: CaseDoc): [string, string] {
   return d.summary ? ['محلَّل', 'b-green'] : ['بانتظار التحليل', 'b-amber'];
 }
 
-const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, pleadingBlock, pleadingDraft, canExecute, ticketDocuments = [], fileInfo = {}, fileFacts = null, readiness = [], filing = { canFile: false, canRegister: false, data: null }, conversation }) => {
+const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, pleadingBlock, pleadingDraft, canRequestExecution, executionRequest, ticketDocuments = [], fileInfo = {}, fileFacts = null, readiness = [], filing = { canFile: false, canRegister: false, data: null }, conversation }) => {
   const ask = useConfirm();
   const toast = useToast();
   const base = `/lawyer/cases/${encodeURIComponent(c.no)}`;
   const [attachOpen, setAttachOpen] = useState(false);
   const [msgs, setMsgs] = useState<Message[]>(messages);
   const [reply, setReply] = useState('');
-  const [live, setLive] = useState({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment });
+  const [live, setLive] = useState({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment, isArchived: c.isArchived, inCourt: c.inCourt });
   const [propsFrom, setPropsFrom] = useState({ status: c.status, messages });
   // محرّر اللائحة — يتبع أحدث مسودّة من الخادم (بعد الحفظ أو إعادة التوليد)
   const [draft, setDraft] = useState(pleadingDraft ?? '');
@@ -94,7 +97,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
   // والشارة تبقى «قيد التحضير» ورسالة القيد لا تظهر حتى إعادة التحميل (قيسَ في المتصفّح 2026-09-11).
   if (c.status !== propsFrom.status || messages !== propsFrom.messages) {
     setPropsFrom({ status: c.status, messages });
-    setLive({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment });
+    setLive({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment, isArchived: c.isArchived, inCourt: c.inCourt });
     setMsgs(messages);
   }
 
@@ -121,8 +124,8 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
     ch.listen('.message', append);
     // الملاحظات الداخليّة تُبثّ على قناة الطاقم وحدها — لا على القناة التي يسمعها العميل
     echo.private(`${channel}.staff`).listen('.message', append);
-    ch.listen('.status', (e: { status: string; tone: string; isActive: boolean; postJudgment: boolean }) => {
-      setLive({ status: e.status, tone: e.tone, isActive: e.isActive, postJudgment: e.postJudgment });
+    ch.listen('.status', (e: { status: string; tone: string; isActive: boolean; postJudgment: boolean; isArchived: boolean; inCourt: boolean }) => {
+      setLive({ status: e.status, tone: e.tone, isActive: e.isActive, postJudgment: e.postJudgment, isArchived: e.isArchived, inCourt: e.inCourt });
       // مسودّةٌ جهزت بالطابور (المحجوب لا يُبثّ) — يُحدَّث المحرّر وسببُ المنع
       router.reload({ only: ['pleadingDraft', 'pleadingBlock'] });
     });
@@ -189,10 +192,8 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
     pleadingPost('pleading', {}, 'اعتُمدت اللائحة نهائياً — ارفعها الآن في ناجز وسجّل رقم الطلب');
   };
   // الرفع في ناجز والقيد والجلسات والحكم: بطاقات `case-court` — مشتركةٌ مع الموظّف
-  const convertToExec = () =>
-    router.post(`${base}/execute`, {}, { onSuccess: () => toast('تم فتح طلب تنفيذ الحكم') });
 
-  const active = c.status === 'منظورة';
+  const active = live.inCourt;
 
   return (
     <div className="tflow">
@@ -210,13 +211,18 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
           <div className="card">
             <div className="card-h"><h3>محادثة القضية</h3></div>
             <div className="thread">{msgs.map((m, i) => <CaseMsgRow key={m.id ?? i} m={m} />)}</div>
-            <div className="composer">
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--faint)', marginBottom: 8 }}>ردّ للعميل (المستشار القانوني):</div>
-              <form onSubmit={send}>
-                <textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="اكتب ردّك للعميل…" />
-                <div className="crow"><button className="btn" type="submit"><Icon name="send" /> إرسال</button></div>
-              </form>
-            </div>
+            {/* الأرشيف للقراءة — الخادم يردّ الردّ عليه، فلا صندوقَ يُكتب فيه ثمّ يُرفض */}
+            {live.isArchived ? (
+              <div className="composer sub">القضية مؤرشفة — ملفّها للقراءة فقط.</div>
+            ) : (
+              <div className="composer">
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--faint)', marginBottom: 8 }}>ردّ للعميل (المستشار القانوني):</div>
+                <form onSubmit={send}>
+                  <textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="اكتب ردّك للعميل…" />
+                  <div className="crow"><button className="btn" type="submit"><Icon name="send" /> إرسال</button></div>
+                </form>
+              </div>
+            )}
           </div>
 
           {/* جدولة الجلسات — والقضيّة منظورة */}
@@ -235,7 +241,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
           <AppealCard
             base={base}
             appeal={c.appeal}
-            canAct={!['مؤرشفة'].includes(live.status)}
+            canAct={!live.isArchived}
             defaultCourt={fileInfo.court ?? ''}
           />
         </div>
@@ -278,7 +284,13 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
           {/* اعتماد اللائحة */}
           {c.pleadingStatus === 'pending_lawyer' && (
             <div className="card">
-              <div className="card-h"><h3>اعتماد اللائحة</h3><Badge text="بانتظار اعتمادك" tone="b-amber" /></div>
+              <div className="card-h">
+                <h3>اعتماد اللائحة</h3>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <RevisionHistoryButton kind="case_pleading" refKey={c.no} />
+                  <Badge text="بانتظار اعتمادك" tone="b-amber" />
+                </div>
+              </div>
               <div className="card-b" style={{ padding: 14 }}>
                 <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 10 }}>
                   حرّر لائحة الدعوى ثم احفظها — تبقى محجوبة عن العميل. الاعتماد النهائيّ يُقفل التعديل ويُتيحها له، ثم تُرفع في ناجز.
@@ -331,7 +343,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
           <div className="card">
             <div className="card-h">
               <h3>مستندات القضية</h3>
-              {c.status !== 'مؤرشفة' && (
+              {!live.isArchived && (
                 <button className="btn soft sm" type="button" onClick={() => setAttachOpen(true)}>
                   <Icon name="upload" /> إرفاق مستند
                 </button>
@@ -402,21 +414,8 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
           {/* إدارة الجلسات — المغلقة والمؤرشفة للقراءة، والخادم يرفض تحريك جلساتهما */}
           {hearings.length > 0 && live.isActive && <HearingUpdatesCard base={base} hearings={hearings} />}
 
-          {(canExecute || convertedExec) && (
-            <div className="card">
-              <div className="card-h"><h3>تنفيذ الحكم</h3>{convertedExec && <Badge text="محوّل لتنفيذ" tone="b-cyan" />}</div>
-              <div className="card-b" style={{ padding: 14 }}>
-                {convertedExec ? (
-                  <div className="empty"><Icon name="exec" /><b>فُتح طلب تنفيذ لهذا الحكم</b></div>
-                ) : (
-                  <>
-                    <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>صدر الحكم. يمكنك فتح طلب تنفيذ لتحصيل الحق لدى محكمة التنفيذ.</div>
-                    <button className="btn sm" type="button" onClick={convertToExec}><Icon name="exec" /> فتح طلب تنفيذ الحكم</button>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
+          {/* تنفيذ الحكم بطلبٍ تعتمده الإدارة العليا (قرار المالك 2026-09-29) — لا فتحَ مباشراً */}
+          <CaseExecutionRequestCard base={base} canRequest={canRequestExecution} pending={executionRequest} converted={Boolean(convertedExec)} />
 
           <HearingsCard hearings={hearings} documents={documents} />
         </aside>

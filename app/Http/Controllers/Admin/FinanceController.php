@@ -76,6 +76,8 @@ class FinanceController extends Controller
         $status = (string) $request->query('status', 'all');
         $kind = (string) $request->query('kind', 'all');
         $kind = isset(FinanceBoard::KINDS[$kind]) ? $kind : 'all';
+        // فواتير قضيّةٍ واحدة بكلّ فتراتها — يفتحها رابط «فتح في المالية» من «أتعاب القضايا»
+        $case = trim((string) $request->query('case', '')) ?: null;
 
         return Inertia::render('admin/finance', [
             'tab' => $tab,
@@ -89,10 +91,11 @@ class FinanceController extends Controller
             ],
             'status' => $status,
             'kind' => $kind,
+            'caseFilter' => $case,
             'statuses' => FinanceBoard::statusFilters(),
             'kinds' => self::asList(FinanceBoard::KINDS),
             'buckets' => FinanceBoard::AGING_BUCKETS,
-        ] + $this->payloadFor($tab, $request, $period, $status, $kind));
+        ] + $this->payloadFor($tab, $request, $period, $status, $kind, $case));
     }
 
     /**
@@ -100,10 +103,10 @@ class FinanceController extends Controller
      *
      * @param  array{from:CarbonInterface, to:CarbonInterface, ...}  $period
      */
-    private function payloadFor(string $tab, Request $request, array $period, string $status, string $kind): array
+    private function payloadFor(string $tab, Request $request, array $period, string $status, string $kind, ?string $case): array
     {
         $payload = match ($tab) {
-            'invoices' => ['invoices' => $this->invoicesPayload($request, $period, $status, $kind)],
+            'invoices' => ['invoices' => $this->invoicesPayload($request, $period, $status, $kind, $case)],
             'receipts' => ['receipts' => [
                 'rows' => Paginate::shape(
                     FinanceBoard::receipts($period),
@@ -164,13 +167,13 @@ class FinanceController extends Controller
      *
      * @param  array{from:CarbonInterface, to:CarbonInterface, ...}  $period
      */
-    private function invoicesPayload(Request $request, array $period, string $status, string $kind): array
+    private function invoicesPayload(Request $request, array $period, string $status, string $kind, ?string $case): array
     {
         $transitions = [new IssueInvoice, new SettleInvoice, new CancelInvoice, new WriteOffInvoice];
         $actor = $request->user();
 
         return Paginate::shape(
-            FinanceBoard::invoices($period, $status, $kind),
+            FinanceBoard::invoices($period, $status, $kind, $case),
             fn (Invoice $v) => FinanceBoard::invoiceRow($v, Workflow::allowed($v, $actor, $transitions)),
         );
     }

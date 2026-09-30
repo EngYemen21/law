@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Domain\Journey\GuardsJourneyState;
+use App\Models\Concerns\TracksRevisions;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -14,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class TicketSummary extends Model
 {
     use GuardsJourneyState;
+    use TracksRevisions;
 
     protected $fillable = [
         'ticket_id', 'lawyer_id', 'case_summary', 'attachments_summary', 'facts', 'key_points', 'status', 'approved_at',
@@ -67,5 +69,19 @@ class TicketSummary extends Model
             'result' => $this->result,
             'resultStatus' => $this->result_status,
         ];
+    }
+
+    /** نصوص الملخّص والرأي — نسخٌ على التذكرة المالكة (`ContentRevisions`). */
+    public function revisionKinds(): array
+    {
+        return [
+            'ticket_summary' => ['case_summary', 'attachments_summary', 'facts', 'key_points'],
+            'ticket_result' => ['result'],
+        ];
+    }
+
+    public function revisionOwner(): ?Model
+    {
+        return $this->ticket_id ? Ticket::find($this->ticket_id) : null;
     }
 }

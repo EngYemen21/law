@@ -3,6 +3,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import AppLayout from '@/components/layouts/AppLayout';
 import { ConfirmDialogProvider } from '@/components/babylon/ConfirmDialog';
+import EnvironmentBadge from '@/components/babylon/EnvironmentBadge';
 import { ServerFeedback } from '@/components/babylon/ServerFeedback';
 import { ToastProvider } from '@/components/babylon/Toast';
 import '@/lib/echo';
@@ -53,6 +54,8 @@ createInertiaApp({
                     {/* رسائل الخادم (رفضٌ/نجاح/خطأ) إشعاراً لكلّ الصفحات — خارج <App> ليشمل صفحات
                         الدخول وصفحة الخطأ، لا تخطيط اللوحة وحده (انظر `ServerFeedback.tsx`) */}
                     <ServerFeedback initialPage={props.initialPage} />
+                    {/* شارة «بيئة تجربة» خارج الإنتاج — على كلّ الصفحات ومنها الدخول */}
+                    <EnvironmentBadge initialPage={props.initialPage} />
                     {/* الشريط العائم للجلسة المرئيّة — خارج <App> عمداً: لا يُفكَّك مع أيّ تنقّل أو
                         تبدّل تخطيط، فتبقى المكالمة حيّةً بين الصفحات (انظر `lib/room-session.ts`) */}
                     <RoomDock />

@@ -4,6 +4,7 @@ import Badge from '@/components/babylon/Badge';
 import { usePrompt } from '@/components/babylon/ConfirmDialog';
 import type { ConfirmRequest } from '@/components/babylon/ConfirmDialog';
 import Modal from '@/components/babylon/Modal';
+import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
 import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
@@ -1530,7 +1531,12 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                   <Icon name="doc" />
                   <span>محضر وخلاصة الاستشارة الرسمية</span>
                 </div>
-                <SummaryStateBadge consult={c} />
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {/* نسخ الملخّص: الآلة وZoom وتعديلات الطاقم (طلب المالك 2026-09-29) */}
+                  <RevisionHistoryButton kind="consult_summary" refKey={c.id} />
+                  <RevisionHistoryButton kind="consult_notes" refKey={c.id} label="نسخ الملاحظات" />
+                  <SummaryStateBadge consult={c} />
+                </div>
               </div>
 
               <div className="csd-paper-body">
@@ -1793,6 +1799,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                   <button className="btn soft sm" onClick={saveAI} disabled={busy || !lawyerName} type="button">
                     <Icon name="check" /> حفظ
                   </button>
+                  <RevisionHistoryButton kind="consult_analysis" refKey={c.id} />
                   {showApprove && (
                     <button className="btn sm" onClick={approveAI} disabled={busy} type="button">
                       <Icon name="check" /> اعتماد التحليل

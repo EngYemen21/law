@@ -7,6 +7,7 @@ use App\Domain\Journey\GuardsJourneyState;
 use App\Enums\Role;
 use App\Models\Concerns\ClipsPreviewText;
 use App\Models\Concerns\PurgesDocumentFiles;
+use App\Models\Concerns\TracksRevisions;
 use App\Support\ConversationFiles;
 use App\Support\ExecFlow;
 use App\Support\ExecService;
@@ -20,6 +21,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Execution extends Model
 {
     use ClipsPreviewText, GuardsJourneyState, PurgesDocumentFiles;
+    use TracksRevisions;
 
     /**
      * **حالة الإنهاء على الصفوف القديمة** (stage=null، من البذور وتحويل قضية→تنفيذ): «مغلق» يكتبها
@@ -452,5 +454,16 @@ class Execution extends Model
     protected function tone(): Attribute
     {
         return Attribute::get(fn () => ExecFlow::tone($this->effectiveStage()));
+    }
+
+    /** دراسة الطلب الآليّة — نسخٌ على الملفّ نفسه (`ContentRevisions`). */
+    public function revisionKinds(): array
+    {
+        return ['exec_study' => ['ai_summary', 'ai_study', 'ai_missing', 'ai_procedures']];
+    }
+
+    public function revisionOwner(): ?Model
+    {
+        return $this;
     }
 }

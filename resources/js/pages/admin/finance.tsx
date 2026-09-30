@@ -61,6 +61,8 @@ interface Props {
   period: Period;
   status: string;
   kind: string;
+  /** فواتير قضيّةٍ واحدة بكلّ فتراتها (`?case=`) — يفتحها «فتح في المالية» من «أتعاب القضايا» */
+  caseFilter: string | null;
   statuses: StatusOpt[];
   kinds: Opt[];
   buckets: Bucket[];
@@ -84,7 +86,7 @@ interface Props {
 const PERIOD_TABS = ['dashboard', 'invoices', 'receipts', 'expenses', 'vat'];
 
 const AdminFinance: React.FC<Props> = ({
-  tab, tabs, periods, period, status, kind, statuses, kinds, buckets,
+  tab, tabs, periods, period, status, kind, caseFilter, statuses, kinds, buckets,
   dashboard, invoices, receipts, expenses, aging, vat,
 }) => {
   const toast = useToast();
@@ -97,6 +99,10 @@ const AdminFinance: React.FC<Props> = ({
   /** كلّ تنقّلٍ في هذه الشاشة يمرّ من هنا: العنوان هو الحالة، فلا حالةٌ محلّيّة تكذب مع الترقيم. */
   const go = (patch: Record<string, string | null>) => {
     const q: Record<string, string> = { tab, period: period.key, status, kind };
+
+    if (caseFilter) {
+      q.case = caseFilter;
+    }
 
     if (period.key === 'custom') {
       q.from = period.from;
@@ -310,7 +316,14 @@ const AdminFinance: React.FC<Props> = ({
               <select className="input" value={kind} onChange={(e) => go({ kind: e.target.value })} style={{ width: 170 }}>
                 {kinds.map((k) => <option key={k.k} value={k.k}>{k.label}</option>)}
               </select>
-              <span className="sub">الفترة بتاريخ إصدار الفاتورة</span>
+              {caseFilter ? (
+                <span className="chip">
+                  فواتير القضية {caseFilter} — كل الفترات
+                  <button type="button" className="chip-x" onClick={() => go({ case: null })} title="إزالة التصفية" aria-label="إزالة تصفية القضية">✕</button>
+                </span>
+              ) : (
+                <span className="sub">الفترة بتاريخ إصدار الفاتورة</span>
+              )}
             </div>
             {invoices.data.length ? (
               <div className="t-wrap">

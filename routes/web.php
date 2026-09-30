@@ -58,6 +58,7 @@ use App\Http\Controllers\Staff\ConsultRecordingController as StaffConsultRecordi
 use App\Http\Controllers\Staff\EarningsController as StaffEarningsController;
 use App\Http\Controllers\Staff\MeetingController as StaffMeetingController;
 use App\Http\Controllers\Staff\MeetRequestController as StaffMeetRequestController;
+use App\Http\Controllers\Staff\RevisionController as StaffRevisionController;
 use App\Http\Controllers\Staff\TicketRequirementController as StaffTicketRequirementController;
 use App\Http\Controllers\TicketController;
 use App\Http\Controllers\ZoomController;
@@ -105,6 +106,8 @@ Route::post('/auth/switch-account', [AuthController::class, 'switchAccount'])->m
 
 // تدفّق طلب التنفيذ (المرحلة 2) — تقديم العميل + موزّع الإجراءات (يحرس الدور/الملكيّة داخليّاً)
 Route::middleware(['auth', 'active'])->group(function () {
+    // سجلّ نسخ التحليلات والملخّصات — للطاقم وحده، والحارس في المتحكّم بصلاحيّة رؤية الملفّ (طلب المالك 2026-09-29)
+    Route::get('/revisions/{kind}/{ref}', [StaffRevisionController::class, 'index'])->name('revisions.index');
     Route::post('/exec-flow/{execution}/action', [ExecFlowController::class, 'act'])->name('exec-flow.act');
     Route::post('/exec-flow/{execution}/pay', [ExecFlowController::class, 'pay'])->name('exec-flow.pay');
     Route::get('/exec-flow/{execution}/pay/callback', [ExecFlowController::class, 'payCallback'])->name('exec-flow.pay.callback');
@@ -152,7 +155,7 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
     Route::get('/book', [ConsultBookingController::class, 'index'])->name('book');
     Route::post('/book', [ConsultBookingController::class, 'store'])->name('book.store');
     Route::get('/myconsults', [ConsultController::class, 'index'])->name('myconsults');
-    // دورة الحجز المطابقة للتصميم: دفع محاكى (يفتح اختيار الموعد) ثم جدولة الموعد بعد السداد
+    // دورة الحجز المطابقة للتصميم: الدفع عبر ميسّر (503 بلا مفاتيح — لا محاكاة) ثم جدولة الموعد بعد السداد
     Route::post('/consults/{consult}/pay', [ConsultController::class, 'pay'])->name('consults.pay');
     Route::get('/consults/{consult}/pay/callback', [ConsultController::class, 'payCallback'])->name('consults.pay.callback');
     Route::post('/consults/{consult}/schedule', [ConsultController::class, 'schedule'])->name('consults.schedule');
@@ -258,6 +261,8 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
         Route::get('/cases/{case}', [EmployeeCaseController::class, 'show'])->name('cases.show');
         Route::post('/cases/{case}/reply', [EmployeeCaseController::class, 'reply'])->middleware('conversation.reply')->name('cases.reply');
         Route::post('/cases/{case}/attach', [EmployeeCaseController::class, 'attach'])->middleware('conversation.reply')->name('cases.attach');
+        // رفع طلب فتح تنفيذ الحكم للإدارة العليا (قرار المالك 2026-09-29)
+        Route::post('/cases/{case}/execution-request', [EmployeeCaseController::class, 'requestExecution'])->name('cases.execution-request');
         // إجراءات المحكمة (ناجز والجلسات والحكم) — لمن تمنحه الإدارة «إجراءات المحكمة والجلسات» من تبويب
         // الموظّفين (قرار المالك 2026-09-11)، بحرّاس المحامي نفسها (`ManagesCourtProceedings`)
         Route::middleware(Permissions::middleware(Permissions::COURT_PROCEEDINGS))->group(function () {
@@ -467,7 +472,8 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::post('/cases/{case}/ruling/correct', [LawyerCaseController::class, 'correctRuling'])->name('cases.ruling.correct');
         Route::post('/cases/{case}/appeal', [LawyerCaseController::class, 'recordAppeal'])->name('cases.appeal');
         Route::post('/cases/{case}/appeal/ruling', [LawyerCaseController::class, 'recordAppealRuling'])->name('cases.appeal.ruling');
-        Route::post('/cases/{case}/execute', [LawyerCaseController::class, 'convertToExecution'])->name('cases.execute');
+        // فتح تنفيذ الحكم بطلبٍ تعتمده الإدارة العليا (قرار المالك 2026-09-29) — لا فتحَ مباشراً من المحامي
+        Route::post('/cases/{case}/execution-request', [LawyerCaseController::class, 'requestExecution'])->name('cases.execution-request');
         // التنفيذ — تبويب موحّد (تدفّق + تنفيذات قديمة) لدور المحامي، محصور بالمسند إليه/القابل للالتقاط
         Route::get('/execs', [ExecFlowController::class, 'lawyer'])->name('execs');
         Route::get('/tasks', [LawyerTaskController::class, 'index'])->name('tasks');
@@ -612,6 +618,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/tickets/{ticket}/track/propose', [AdminTicketController::class, 'proposeTrack'])->name('tickets.track.propose');
     Route::post('/tickets/{ticket}/track/approve', [AdminTicketController::class, 'approveTrack'])->name('tickets.track.approve');
     Route::get('/lawyers', [AdminLawyerController::class, 'index'])->name('lawyers');
+    Route::get('/lawyers/{user}', [AdminLawyerController::class, 'show'])->whereNumber('user')->name('lawyers.show');
     Route::post('/lawyers/{user}/mode', [AdminLawyerController::class, 'toggleMode'])->name('lawyers.mode');
     // رحلة الاستشارة — مربوطة بقاعدة البيانات (+ صلاحيات الإدارة: الأولوية)
     Route::get('/consults', [StaffConsultController::class, 'index'])->name('consults');
@@ -668,6 +675,8 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/cases/{case}/lawyer', [AdminCaseController::class, 'reassignLawyer'])->name('cases.lawyer');
     // الدالّة اسمها execute — الإشارة إلى convertToExecution (اسم نظيرتها لدى المحامي) كانت ترمي 500 دوماً
     Route::post('/cases/{case}/execute', [AdminCaseController::class, 'execute'])->name('cases.execute');
+    Route::post('/cases/{case}/execution-request/approve', [AdminCaseController::class, 'approveExecutionRequest'])->name('cases.execution-request.approve');
+    Route::post('/cases/{case}/execution-request/reject', [AdminCaseController::class, 'rejectExecutionRequest'])->name('cases.execution-request.reject');
     // التنفيذ — تبويب موحّد (تدفّق + تنفيذات قديمة) لدور الإدارة العليا
     Route::get('/execs', [ExecFlowController::class, 'admin'])->name('execs');
     Route::get('/tasks', [AdminTaskController::class, 'index'])->name('tasks');

@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Events\CaseMessageBroadcast;
 use App\Models\Concerns\RecordsSender;
+use App\Models\Concerns\TracksRevisions;
+use App\Support\CasePleading;
 use App\Support\Live;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -12,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class CaseMessage extends Model
 {
     use RecordsSender;
+    use TracksRevisions;
 
     protected $fillable = ['case_id', 'who', 'name', 'role', 'body', 'time_label', 'withheld_at'];
 
@@ -71,5 +74,16 @@ class CaseMessage extends Model
             'text' => $this->body,
             'time' => $this->time_label,
         ] + $this->senderIpField($forClient);
+    }
+
+    /** مسودّة اللائحة وحدها من رسائل القضيّة تُحفظ نسخاً — على القضيّة المالكة (`ContentRevisions`). */
+    public function revisionKinds(): array
+    {
+        return $this->role === CasePleading::DRAFT_ROLE ? ['case_pleading' => ['body']] : [];
+    }
+
+    public function revisionOwner(): ?Model
+    {
+        return $this->case_id ? LegalCase::find($this->case_id) : null;
     }
 }
