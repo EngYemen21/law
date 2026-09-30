@@ -454,11 +454,14 @@ class ExecFlowController extends Controller
         // **أيّ فاتورةٍ لهذا الطلب، لا الأحدث.** مع خطّة تقسيطٍ من ثلاث فواتير كانت
         // `latest('id')` هي الدفعة الثالثة، فعودةُ العميل من سداد الأولى لا تطابق مرجعاً
         // فيقرأ «تعذّر تأكيد الدفع» وقد خُصم منه المبلغ.
+        // يعود العميل إلى **الملفّ نفسه** لا إلى قائمة التنفيذ (`?id=` يفتحه في الصفحة)
+        $back = redirect()->route('execs', ['id' => $execution->number]);
+
         if (GatewayCallback::confirm($request, Invoice::where('exec_id', $execution->id))) {
-            return redirect()->route('execs')->with('success', 'تم تأكيد سداد أتعاب التنفيذ وفتح الملف.');
+            return $back->with('success', 'تم تأكيد سداد أتعاب التنفيذ وفتح الملف.');
         }
 
-        return redirect()->route('execs')->with('error', 'تعذّر تأكيد الدفع. إن كان قد خُصم فسيُحدَّث تلقائياً، أو حاول مجدداً.');
+        return $back->with('error', 'تعذّر تأكيد الدفع. إن كان قد خُصم فسيُحدَّث تلقائياً، أو حاول مجدداً.');
     }
 
     // ── محادثة ملف التنفيذ (العميل ↔ المكتب) — بلا ردّ AI، إشعار للمكتب + بثّ لحظيّ ──

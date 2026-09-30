@@ -89,11 +89,15 @@ class InvoiceController extends Controller
     {
         abort_unless($invoice->user_id === $request->user()->id, 403);
 
-        // إن نشأت الفاتورة من استشارة مرتبطة بتذكرة، يعود العميل لدردشة التذكرة (لاختيار الموعد)؛ وإلا لصفحة الفواتير.
+        // يعود العميل إلى حيث بدأ الدفع: فاتورة استشارةٍ من تذكرة ← دردشة التذكرة (لاختيار الموعد)؛ فاتورة ملفّ
+        // تنفيذ (الدفعتان ٢ و٣ وأتعاب التحصيل تُدفع من الملفّ) ← الملفّ نفسه؛ وإلّا ← صفحة الفواتير.
         $ticket = $invoice->consult?->ticket;
-        $back = fn (): RedirectResponse => $ticket
-            ? redirect()->route('tickets.show', $ticket)
-            : redirect()->route('invoices');
+        $execution = $invoice->execution;
+        $back = fn (): RedirectResponse => match (true) {
+            $ticket !== null => redirect()->route('tickets.show', $ticket),
+            $execution !== null => redirect()->route('execs', ['id' => $execution->number]),
+            default => redirect()->route('invoices'),
+        };
 
         if (GatewayCallback::confirm($request, Invoice::whereKey($invoice->id))) {
             return $back()->with('success', 'تم تأكيد الدفع.');

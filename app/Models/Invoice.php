@@ -159,6 +159,12 @@ class Invoice extends Model
         return $this->belongsTo(Consult::class);
     }
 
+    /** @return BelongsTo<Execution, $this> */
+    public function execution(): BelongsTo
+    {
+        return $this->belongsTo(Execution::class, 'exec_id');
+    }
+
     /** دفتر مدفوعات البوّابة لهذه الفاتورة (سجلّ تدقيق لكلّ حدث دفع). */
     public function payments(): HasMany
     {
