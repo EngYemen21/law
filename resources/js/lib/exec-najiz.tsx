@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import { normalizeDigits } from '@/lib/digits';
 import { EXEC_CLOSE_REASONS, execMoney } from '@/lib/exec-flow';
 import type { ExecNajiz } from '@/lib/exec-flow';
 import Icon from '@/lib/icons';
@@ -19,17 +20,6 @@ import { useServerAction } from '@/lib/use-server-action';
 export const EXEC_MEASURES = ['منع السفر', 'إيقاف الخدمات الحكومية', 'إيقاف إصدار الوكالات', 'الإفصاح عن الأموال والحجز عليها', 'الحجز على المركبات والعقارات', 'البيع بالمزاد', 'الحبس التنفيذيّ'];
 
 type Step = 'file' | 'register' | 'notify' | 'measures' | 'collect' | 'amount' | 'close';
-
-
-/**
- * «25,000» والأرقام العربيّة-الهنديّة كانت تُرسَل كما كُتبت، فيردّها `integer` في الخادم
- * بـ422 عامٍّ لا يدلّ المستخدم على خطئه. تُطبَّع هنا قبل الإرسال.
- */
-const normalizeDigits = (raw: string): string => raw
-  .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
-  .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
-  .replace(/[,،٫٬\s]/g, '')
-  .trim();
 
 /**
  * `canAct`: المحامي المسنَد أو المكتب المصرَّح له — والخادم يرفض من سواه بالرسالة نفسها.

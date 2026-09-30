@@ -4,6 +4,7 @@ namespace App\Domain\Journey\Transitions\LegalCase;
 
 use App\Domain\Journey\Transition;
 use App\Enums\Role;
+use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\User;
 use App\Support\CaseJourney;
@@ -59,6 +60,10 @@ final class RequestCaseExecution extends Transition
         // المبلغ المحكوم به يصير «قيمة المطالبة» في ملفّ التنفيذ، وعليه يُقاس كلّ تحصيل
         if ((int) ($payload['amount'] ?? 0) < 1) {
             return 'أدخل المبلغ المحكوم به (ريال) — رقماً صحيحاً أكبر من صفر.';
+        }
+        // يصير مبلغ ملفّ التنفيذ عند الاعتماد — فلا يُقبل ما لا يتّسع له الملفّ
+        if ((int) $payload['amount'] > Execution::MAX_CLAIM_AMOUNT) {
+            return 'المبلغ المحكوم به يتجاوز الحدّ الأعلى ('.number_format(Execution::MAX_CLAIM_AMOUNT).' ريال).';
         }
 
         return null;

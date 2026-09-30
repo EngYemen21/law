@@ -86,6 +86,25 @@ class TicketReassignGuardTest extends TestCase
         $this->assertNull($ticket->fresh()->assigned_lawyer_id);
     }
 
+    /** زرّ «تحويل» يقرأ علَم الخادم نفسه الذي يقيسه الحارس — كان يقيس `isTerminal` فيظهر على «مكتملة». */
+    #[DataProvider('lockedTickets')]
+    public function test_the_card_flag_hides_transfer_on_a_locked_ticket(string $status, bool $frozen): void
+    {
+        $this->assertFalse($this->ticket($status, $frozen)->toEmployeeCard()['isReassignable']);
+    }
+
+    public function test_the_card_flag_allows_transfer_on_an_open_ticket_and_the_ui_reads_it(): void
+    {
+        $this->assertTrue($this->ticket('قيد التحليل')->toEmployeeCard()['isReassignable']);
+
+        $list = (string) file_get_contents(resource_path('js/pages/employee/tickets.tsx'));
+        $this->assertStringNotContainsString('!t.isTerminal && !t.isFrozen', $list);
+        $this->assertStringContainsString('t.isReassignable', $list);
+        $this->assertStringContainsString('ticket.isReassignable', (string) file_get_contents(resource_path('js/pages/employee/ticketchat.tsx')));
+        // الحارس يسأل النموذج (`isOpen`) لا نسخةً من قائمة الحالات النهائيّة
+        $this->assertStringNotContainsString('TicketStatus::finals()', (string) file_get_contents(app_path('Support/TicketAssignment.php')));
+    }
+
     public function test_bulk_transfer_moves_the_open_tickets_and_names_the_refused(): void
     {
         $open = $this->ticket('قيد التحليل');
@@ -94,11 +113,13 @@ class TicketReassignGuardTest extends TestCase
         $this->actingAs($this->employee)->post(route('employee.transfer.bulk'), [
             'tickets' => [$open->number, $closed->number],
             'lawyer_id' => $this->lawyer->id,
-        ])->assertRedirect()->assertSessionHasErrors('message');
+        ])->assertRedirect()->assertSessionHasNoErrors();
 
         $this->assertSame($this->lawyer->id, $open->fresh()->assigned_lawyer_id);
         $this->assertNull($closed->fresh()->assigned_lawyer_id);
-        $this->assertStringContainsString($closed->number, (string) session('errors')->first('message'));
+        // نجاحٌ جزئيّ لا خطأ: الواجهة تُفرغ التحديد (فلا يُعاد تحويل ما حُوِّل)، والمرفوضة تُذكر بسببها
+        $this->assertStringContainsString('تم تحويل 1 تذكرة', (string) session('flash'));
+        $this->assertStringContainsString($closed->number, (string) session('error'));
 
         $notice = UserNotification::where('user_id', $this->lawyer->id)->sole();
         $this->assertStringContainsString($open->number, $notice->body);

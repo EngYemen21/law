@@ -61,6 +61,9 @@ final class SetExecutionClaimAmount extends Transition
         if ($amount < 1) {
             return 'أدخل مبلغ المطالبة (ريال) — رقماً صحيحاً أكبر من صفر.';
         }
+        if ($amount > Execution::MAX_CLAIM_AMOUNT) {
+            return 'مبلغ المطالبة يتجاوز الحدّ الأعلى ('.number_format(Execution::MAX_CLAIM_AMOUNT).' ريال).';
+        }
         if ($amount === (int) $entity->amount) {
             return 'المبلغ المدخل هو مبلغ المطالبة الحاليّ.';
         }

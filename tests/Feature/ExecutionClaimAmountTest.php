@@ -176,6 +176,39 @@ class ExecutionClaimAmountTest extends TestCase
         $this->assertSame(0, (int) $exec->fresh()->amount);
     }
 
+    /**
+     * **الحدّ الواحد للمبلغ = سعة عمود `executions.amount`** (int unsigned). كان التحقّق يقبل حتى 999,999,999,999
+     * فيُسقط الحفظُ على MySQL بـ500 (ثبت في المتصفّح 2026-09-30)، وطلبٌ بمبلغٍ أكبر يُحفظ ثمّ لا يُعتمد أبداً.
+     */
+    public function test_an_amount_beyond_the_column_is_refused_on_both_paths(): void
+    {
+        $this->assertSame(4294967295, Execution::MAX_CLAIM_AMOUNT, 'سعة int unsigned');
+
+        $exec = $this->openExec(amount: 0);
+        $this->setAmount($this->lawyer, $exec, Execution::MAX_CLAIM_AMOUNT + 1)->assertStatus(422);
+        $this->assertSame(0, (int) $exec->fresh()->amount);
+        $this->setAmount($this->lawyer, $exec, Execution::MAX_CLAIM_AMOUNT)->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertSame(Execution::MAX_CLAIM_AMOUNT, (int) $exec->fresh()->amount);
+
+        $case = $this->ruledCase();
+        $this->actingAs($this->lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'امتنع المحكوم عليه عن السداد', 'amount' => Execution::MAX_CLAIM_AMOUNT + 1])
+            ->assertStatus(422);
+        $this->assertNull($case->fresh()->execution_requested_at, 'لا طلبَ يتعذّر اعتماده');
+    }
+
+    /** الأرقام العربيّة والفواصل تُطبَّع في حقلَي المبلغ بدالّةٍ واحدة — كان حقل طلب التنفيذ يرفض «١٥٠٠٠٠». */
+    public function test_both_amount_fields_share_one_digit_normalizer(): void
+    {
+        $lib = (string) file_get_contents(resource_path('js/lib/digits.ts'));
+        $this->assertStringContainsString('export function normalizeDigits', $lib);
+
+        foreach (['js/lib/exec-najiz.tsx', 'js/components/babylon/CaseExecutionRequestCard.tsx'] as $file) {
+            $src = (string) file_get_contents(resource_path($file));
+            $this->assertStringContainsString("import { normalizeDigits } from '@/lib/digits';", $src, $file);
+            $this->assertStringNotContainsString('const normalizeDigits', $src, $file);
+        }
+    }
+
     public function test_the_najiz_card_says_whether_the_amount_is_editable(): void
     {
         $this->assertTrue($this->openExec(amount: 0)->najizCard()['amountEditable']);

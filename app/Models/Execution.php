@@ -34,6 +34,13 @@ class Execution extends Model
      */
     public const CLOSED_STATUSES = ['مغلق'];
 
+    /**
+     * **أعلى مبلغ مطالبة يقبله الملفّ — سعة عمود `amount` (int unsigned).** الحدّ الواحد لمساري المبلغ
+     * (طلب التنفيذ من القضيّة وتصحيحه على الملفّ): كان التحقّق يقبل حتى 999,999,999,999، فيُسقط MySQL
+     * الحفظ بـ500، ويُحفظ طلبٌ بمبلغٍ أكبر ثمّ لا يُعتمد أبداً.
+     */
+    public const MAX_CLAIM_AMOUNT = 4294967295;
+
     /** سطر المعاينة في بطاقات القوائم — varchar(255) يستقبل نصّ المستخدم بلا سقف. */
     protected array $previewText = ['last_action'];
 

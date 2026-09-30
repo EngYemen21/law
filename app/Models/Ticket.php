@@ -295,6 +295,7 @@ class Ticket extends Model
             'closureNotes' => $this->closure_notes,
             'canDecideOutcome' => in_array($this->status, [TicketStatus::ReadyForOutcome->value, TicketStatus::Completed->value], true) && ! $hasCase && ! $hasExec,
             'isTerminal' => $entity->isTerminal(),
+            'isReassignable' => $this->isReassignable(),
             // الموظّف المسؤول عن المحادثة الآن — للطاقم وحده (بطاقة العميل `toCard` لا تحمله)
             'handler' => $this->relationLoaded('handler') ? $this->handler?->name : $this->handler()->value('name'),
             'trackGovernance' => $this->trackGovernance(),
@@ -390,6 +391,15 @@ class Ticket extends Model
     public function isOpen(): bool
     {
         return ! in_array($this->status, TicketStatus::finals(), true);
+    }
+
+    /**
+     * **يُعاد إسنادها؟** — مفتوحةٌ غير مجمّدة: قاعدة `TicketAssignment::assertReassignable` نفسها، علَماً لزرّ
+     * «تحويل» في الواجهة (كان يقيس `isTerminal` فيظهر على «مكتملة» ويردّه الخادم).
+     */
+    public function isReassignable(): bool
+    {
+        return ! (bool) $this->is_frozen && $this->isOpen();
     }
 
     /**

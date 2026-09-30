@@ -208,9 +208,9 @@ const EmployeeTransfer: React.FC<Props> = ({
       },
       {
         preserveScroll: true,
+        // العدد الفعليّ ومن رُفضت يصلان من الخادم (`flash`) — المحدَّد قد يشمل ما رفضه الحارس
         onSuccess: () => {
           setBulkBusy(false);
-          toast(`تم تحويل ${selectedNos.length} تذكرة بنجاح`);
           setSelectedNos([]);
           setBulkReason('');
         },

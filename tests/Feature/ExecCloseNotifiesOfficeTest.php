@@ -7,6 +7,7 @@ use App\Models\Execution;
 use App\Models\User;
 use App\Models\UserNotification;
 use App\Support\ExecFlow;
+use App\Support\ExecService;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
@@ -88,5 +89,17 @@ class ExecCloseNotifiesOfficeTest extends TestCase
 
         $this->assertSame(1, $this->closeNotices($this->admin, $exec));
         $this->assertSame(0, $this->closeNotices($this->lawyer, $exec));
+    }
+
+    /** إغلاقٌ من النظام بلا مستخدم يكتمل — كان سطر الإشعار يقرأ اسم الفاعل بلا فحص فيتوقّف البريد والبثّ. */
+    public function test_a_system_close_without_an_actor_completes(): void
+    {
+        $exec = $this->openExec();
+
+        ExecService::close($exec, ExecFlow::CLOSE_REASONS[0]);
+
+        $this->assertTrue($exec->fresh()->isClosed());
+        $notice = UserNotification::where('user_id', $this->lawyer->id)->where('body', 'like', "%{$exec->number}%")->sole();
+        $this->assertStringContainsString('أغلقه النظام', $notice->body);
     }
 }

@@ -514,7 +514,7 @@ const EmployeeTicketChat: React.FC<{
             // الأرشيف للقراءة فقط — والخادم يرفضها عليه (`TicketAssignment::assertReassignable` وحرّاس النواقص والحجز)
             onRequestDocs={canReply && !locked ? openReqDocs : undefined}
             onSchedule={canSchedule && !locked ? openSchedule : undefined}
-            onTransfer={canTransfer && !locked ? openTransfer : undefined}
+            onTransfer={canTransfer && !locked && ticket.isReassignable ? openTransfer : undefined}
           />
 
           <div className="card">

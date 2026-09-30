@@ -189,7 +189,7 @@ class CaseController extends Controller
         $this->guardAssigned($case);
         $data = $request->validate([
             'reason' => ['required', 'string', 'max:1000'],
-            'amount' => ['required', 'integer', 'min:1', 'max:999999999999'],
+            'amount' => ['required', 'integer', 'min:1'],
         ], ['amount.*' => 'أدخل المبلغ المحكوم به (ريال) — رقماً صحيحاً أكبر من صفر.']);
 
         CaseExecutionRequest::request($case, $request->user(), $data['reason'], (int) $data['amount']);

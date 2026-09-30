@@ -40,6 +40,8 @@ export interface EmployeeTicketCard {
     closureNotes: string | null;
     canDecideOutcome: boolean;
     isTerminal: boolean;
+    /** مفتوحةٌ غير مجمّدة — حارس إعادة الإسناد نفسه (`Ticket::isReassignable`)، فلا يظهر «تحويل» يردّه الخادم. */
+    isReassignable: boolean;
     /** الموظّف المسؤول عن المحادثة الآن (`ConversationHandler`). */
     handler: string | null;
     trackGovernance: TrackGovernanceData;

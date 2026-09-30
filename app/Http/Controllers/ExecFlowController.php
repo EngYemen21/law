@@ -301,7 +301,7 @@ class ExecFlowController extends Controller
             ),
             'setClaimAmount' => ExecService::setClaimAmount(
                 $execution,
-                (int) $request->validate(['amount' => ['required', 'integer', 'min:1', 'max:999999999999']], ['amount.*' => 'أدخل مبلغ المطالبة (ريال) — رقماً صحيحاً أكبر من صفر.'])['amount'],
+                (int) $request->validate(['amount' => ['required', 'integer', 'min:1']], ['amount.*' => 'أدخل مبلغ المطالبة (ريال) — رقماً صحيحاً أكبر من صفر.'])['amount'],
                 trim((string) $request->validate(['reason' => ['required', 'string', 'max:500']])['reason']),
                 $user,
             ),

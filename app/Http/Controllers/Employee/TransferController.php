@@ -241,9 +241,11 @@ class TransferController extends Controller
 
         $response = back()->with('flash', "تم تحويل {$count} تذكرة بنجاح إلى {$lawyer->name}.");
 
+        // نجاحٌ جزئيّ نجاحٌ لا خطأ: حقيبة الأخطاء تُبقي الواجهة على تحديدها فيُعاد تحويل ما حُوِّل
+        // (ملاحظةٌ وإشعارٌ مكرّران — ثبت في المتصفّح 2026-09-30)؛ والمرفوضة تُذكر بسببها إشعارَ خطأ
         return $refused === []
             ? $response
-            : $response->withErrors(['message' => 'لم تُحوَّل '.count($refused).' تذكرة — '.implode(' · ', $refused)]);
+            : $response->with('error', 'لم تُحوَّل '.count($refused).' تذكرة — '.implode(' · ', $refused));
     }
 
     private function clock(): string

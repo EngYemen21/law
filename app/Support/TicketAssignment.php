@@ -2,7 +2,6 @@
 
 namespace App\Support;
 
-use App\Domain\Journey\Enums\TicketStatus;
 use App\Domain\Journey\Transitions\Ticket\ReferOnAssignment;
 use App\Domain\Journey\Workflow;
 use App\Enums\Role;
@@ -72,7 +71,7 @@ class TicketAssignment
     public static function assertReassignable(Ticket $ticket): void
     {
         abort_if((bool) $ticket->is_frozen, 422, 'التذكرة مجمّدة لاعتماد مسارها النهائي — لا يُعاد إسنادها.');
-        abort_if(in_array($ticket->status, TicketStatus::finals(), true), 422, 'التذكرة نهائيّة — لا يُعاد إسنادها.');
+        abort_unless($ticket->isOpen(), 422, 'التذكرة نهائيّة — لا يُعاد إسنادها.');
     }
 
     /**

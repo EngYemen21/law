@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import { normalizeDigits } from '@/lib/digits';
 import Icon from '@/lib/icons';
 import { useServerAction } from '@/lib/use-server-action';
 
@@ -32,7 +33,9 @@ const CaseExecutionRequestCard: React.FC<{
   const [reason, setReason] = useState('');
   const [amount, setAmount] = useState(amountHint ? String(amountHint) : '');
   // رقمٌ صحيح أكبر من صفر — والخادم يرفض غيره بالرسالة نفسها (`RequestCaseExecution`)
-  const amountOk = /^\d+$/.test(amount.trim()) && Number(amount) > 0;
+  // «١٥٠٠٠٠» و«150,000» تُطبَّع كحقل تصحيح المبلغ في الملفّ (`normalizeDigits`)
+  const amountValue = normalizeDigits(amount);
+  const amountOk = /^\d+$/.test(amountValue) && Number(amountValue) > 0;
 
   if (!canRequest && !pending && !converted) {
     return null;
@@ -40,10 +43,10 @@ const CaseExecutionRequestCard: React.FC<{
 
   const submit = () =>
     action.run(`${base}/execution-request`, {
-      data: { reason: reason.trim(), amount: Number(amount) },
+      data: { reason: reason.trim(), amount: Number(amountValue) },
       confirm: {
         title: 'رفع طلب فتح تنفيذ الحكم؟',
-        message: `يُرفع الطلب بسببه ومبلغ ${Number(amount).toLocaleString('en-US')} ريال إلى الإدارة العليا، ولا يُفتح ملفّ التنفيذ إلا بعد اعتمادها.`,
+        message: `يُرفع الطلب بسببه ومبلغ ${Number(amountValue).toLocaleString('en-US')} ريال إلى الإدارة العليا، ولا يُفتح ملفّ التنفيذ إلا بعد اعتمادها.`,
         confirmLabel: 'رفع الطلب للإدارة',
         cancelLabel: 'تراجع',
       },

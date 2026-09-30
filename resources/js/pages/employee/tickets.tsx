@@ -405,7 +405,7 @@ const EmployeeTickets: React.FC<Props> = ({
                             )
                           )}
 
-                          {canTransfer && !t.isTerminal && !t.isFrozen && (
+                          {canTransfer && t.isReassignable && (
                             <button
                               className="btn soft sm"
                               onClick={() => openTransfer(t)}
@@ -456,7 +456,7 @@ const EmployeeTickets: React.FC<Props> = ({
         onTransfer={canTransfer ? (no) => {
           const t = tickets.find((x) => x.no === no);
           // حارس الخادم نفسه (`TicketAssignment::assertReassignable`) — المجمّدة والنهائيّة لا تُحوَّل
-          if (t && !t.isTerminal && !t.isFrozen) {
+          if (t && t.isReassignable) {
             setPreviewTicket(null);
             openTransfer(t);
           }
