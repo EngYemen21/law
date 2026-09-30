@@ -402,6 +402,8 @@ class Consult extends Model
      * المستحقّة مستحقّةً؛ و`PaymentReconciler` يُسوّي دفعةَ البوّابة على الملغاة؛
      * و`invoiceNo` في البطاقة والتقرير يعرض رقماً أُلغي. كشفتها دورةُ المال الكاملة
      * لا اختبارُ بابٍ منفرد — لأنّ كلّ بابٍ وحده كان سليماً.
+     *
+     * @return HasOne<Invoice, $this>
      */
     public function invoice(): HasOne
     {

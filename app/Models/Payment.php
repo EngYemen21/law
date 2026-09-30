@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Services\Payments\PaymentGateways;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * دفتر مدفوعات البوّابة (ledger): صفّ لكلّ حدث دفع يصل من ميسّر — تدقيق ومطابقة محاسبيّة.
+ * دفتر المدفوعات (ledger): صفّ لكلّ حدث دفع يصل من بوّابةٍ أو تحصيلٍ يدويّ — تدقيق ومطابقة محاسبيّة.
  * يُسجَّل تلقائيّاً من App\Support\PaymentReconciler::settle (idempotent عبر gateway_payment_id).
  *
  * **الوحدة:** `amount` مختلط — بالهللة في صفوف البوّابة وبالريال في التحصيل اليدويّ، فلا يُجمع.
@@ -19,12 +20,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class Payment extends Model
 {
-    /** الحالة التي تعني أنّ المال وصل — كما تردّها ميسّر، ويكتبها التحصيل اليدويّ. */
+    /** الحالة التي تعني أنّ المال وصل — تكتبها التسوية للدفعة الناجحة، والتحصيل اليدويّ. */
     public const PAID = 'paid';
 
     /** طرق القبض ← تسميتها على السند وفي الشاشة. */
     public const METHODS = [
-        'gateway' => 'بوّابة الدفع (ميسّر)',
+        'gateway' => 'بوّابة الدفع',
         'cash' => 'نقداً',
         'bank_transfer' => 'تحويل بنكيّ',
     ];
@@ -74,11 +75,16 @@ class Payment extends Model
         return $this->status === self::PAID;
     }
 
-    /** طريقة القبض كما تُطبع — والتحصيل اليدويّ القديم بلا طريقةٍ مسجّلة يُسمّى بما هو. */
+    /** طريقة القبض كما تُطبع — والبوّابة باسمها من الدفتر، والتحصيل اليدويّ القديم بلا طريقةٍ مسجّلة يُسمّى بما هو. */
     public function methodLabel(): string
     {
-        return self::METHODS[(string) $this->method]
-            ?? ($this->gateway === 'manual' ? 'تحصيل يدويّ' : self::METHODS['gateway']);
+        if ($this->method !== null && $this->method !== 'gateway' && isset(self::METHODS[$this->method])) {
+            return self::METHODS[$this->method];
+        }
+
+        return $this->gateway === 'manual'
+            ? 'تحصيل يدويّ'
+            : self::METHODS['gateway'].' ('.app(PaymentGateways::class)->label($this->gateway).')';
     }
 
     /** من قبض: المستخدم المسجِّل، وإلّا الاسم المحفوظ في لقطة التحصيل القديم، والبوّابة باسمها. */

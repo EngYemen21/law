@@ -6,10 +6,12 @@ use App\Enums\Role;
 use App\Jobs\AnalyzeExecutionDocumentJob;
 use App\Models\Execution;
 use App\Models\ExecutionDocument;
+use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
-use App\Services\MoyasarService;
+use App\Services\Payments\GatewayCallback;
+use App\Services\Payments\PaymentGateways;
 use App\Support\Audit;
 use App\Support\ConversationFiles;
 use App\Support\ConversationHandler;
@@ -20,7 +22,6 @@ use App\Support\ExecService;
 use App\Support\Finance\LawyerShare;
 use App\Support\LawyerName;
 use App\Support\Notify;
-use App\Support\PaymentReconciler;
 use App\Support\PdfRenderer;
 use App\Support\Permissions;
 use App\Support\ReportPrint;
@@ -369,9 +370,9 @@ class ExecFlowController extends Controller
         };
     }
 
-    // ── سداد أتعاب التنفيذ عبر بوّابة ميسّر (المرحلة 6) ──
+    // ── سداد أتعاب التنفيذ عبر بوّابة الدفع (المرحلة 6) ──
 
-    /** يبدأ الدفع عبر ميسّر ويعيد التوجيه لصفحة الدفع المستضافة. التأكيد عبر webhook/callback. */
+    /** يبدأ الدفع عبر بوّابة الدفع ويعيد التوجيه لصفحة الدفع المستضافة. التأكيد عبر webhook/callback. */
     public function pay(Request $request, Execution $execution): HttpFoundationResponse
     {
         $user = $request->user();
@@ -393,13 +394,13 @@ class ExecFlowController extends Controller
         $url = ExecService::initiatePayment($execution->fresh(), $callback); // يحرس المرحلة [6]، وnull إن تعذّر
 
         if ($url !== null) {
-            return Inertia::location($url); // Inertia يوجّه المتصفّح لصفحة ميسّر
+            return Inertia::location($url); // Inertia يوجّه المتصفّح لصفحة الدفع
         }
 
         // **العميل يقرأ سببَ التعذّر لا صفحةَ 503 خام.** كانت الترجمة هنا يدويّةً لأنّ المُحوِّل العامّ
         // كان يعرف 403/409/422 وحدها؛ صار `App\Support\ErrorResponse` يعرف كلّ رمز: زيارةُ Inertia
         // تعود برسالةٍ على الشاشة، ويبقى 503 لمن يقرأ الرمز (axios/الاختبارات).
-        abort_unless(app(MoyasarService::class)->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة — تواصل مع المكتب لإتمام السداد.');
+        abort_unless(app(PaymentGateways::class)->default()->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة — تواصل مع المكتب لإتمام السداد.');
 
         return back()->with('error', 'تعذّر بدء الدفع حالياً، حاول بعد قليل.');
     }
@@ -445,22 +446,15 @@ class ExecFlowController extends Controller
         ];
     }
 
-    /** العودة من صفحة ميسّر — تحقّق خادميّ صارم (يُعاد جلب الدفعة والتحقّق من انتمائها لفاتورة هذا الطلب). */
+    /** العودة من صفحة الدفع — تحقّق خادميّ صارم (يُعاد جلب الدفعة والتحقّق من انتمائها لفاتورة هذا الطلب). */
     public function payCallback(Request $request, Execution $execution): RedirectResponse
     {
         abort_unless($request->user()->role === Role::Client && $execution->user_id === $request->user()->id, 403);
 
-        $paymentId = (string) $request->query('id', '');
-        $payment = $paymentId !== '' ? app(MoyasarService::class)->fetchPayment($paymentId) : null;
-
         // **أيّ فاتورةٍ لهذا الطلب، لا الأحدث.** مع خطّة تقسيطٍ من ثلاث فواتير كانت
         // `latest('id')` هي الدفعة الثالثة، فعودةُ العميل من سداد الأولى لا تطابق مرجعاً
         // فيقرأ «تعذّر تأكيد الدفع» وقد خُصم منه المبلغ.
-        $ref = (string) ($payment['invoice_id'] ?? '');
-        $belongs = $payment !== null && $ref !== ''
-            && $execution->invoices()->where('gateway_ref', $ref)->exists();
-
-        if ($belongs && PaymentReconciler::settle($payment, 'callback')) {
+        if (GatewayCallback::confirm($request, Invoice::where('exec_id', $execution->id))) {
             return redirect()->route('execs')->with('success', 'تم تأكيد سداد أتعاب التنفيذ وفتح الملف.');
         }
 

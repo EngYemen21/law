@@ -13,44 +13,48 @@ use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Payment;
 use App\Models\User;
-use App\Services\MoyasarService;
+use App\Services\Payments\GatewayPayment;
+use App\Services\Payments\PaymentGateways;
+use App\Support\Finance\Money;
 use App\Support\Finance\ReceiptVoucher;
 use Illuminate\Support\Facades\Log;
 
 /**
- * يسوّي دفعة Moyasar مع فاتورة النظام ثم يحرّك حالة المجال — مصدر واحد يخدم الـwebhook والـcallback (DRY).
+ * يسوّي دفعة بوّابةٍ مع فاتورة النظام ثم يحرّك حالة المجال — مصدر واحد يخدم الإشعار والعودة والتحصيل اليدويّ.
  * دفاعيّ: يتحقّق من الحالة والمبلغ والعملة قبل التعليم، وidempotent ضدّ التكرار.
+ *
+ * **مستقلٌّ عن البوّابة:** يستقبل `GatewayPayment` الموحّد — كلّ بوّابةٍ تحوّل ردّها إليه، فلا يعرف هذا
+ * الصنف شكلَ بيانات أيّ بوّابة (مراجعة بوّابات الدفع 2026-09-30).
  */
 class PaymentReconciler
 {
     /**
-     * @param  array<string,mixed>  $payment  كائن دفعة ميسّر (data من الحدث أو ناتج fetchPayment)
+     * @param  GatewayPayment  $payment  ناتج `PaymentGateway::fetchPayment` — لا جسم إشعارٍ ولا معطيات عودة
      * @param  string  $channel  قناة ورود الحدث: webhook | callback (لتدقيق الدفتر)
      * @return bool true إن سُوّيت (أو كانت مسوّاة)، false عند تعذّر المطابقة/عدم تطابق المبلغ/حالة غير مدفوعة
      */
-    public static function settle(array $payment, string $channel = 'callback'): bool
+    public static function settle(GatewayPayment $payment, string $channel = 'callback'): bool
     {
         // سجّل الدفتر أوّلاً (قبل الحرّاس) فيلتقط حتى المحاولات المرفوضة — تدقيق ومطابقة.
         $invoice = self::resolveInvoice($payment);
         $ledger = self::record($payment, $invoice, $channel);
 
-        if (($payment['status'] ?? null) !== 'paid') {
+        if (! $payment->isPaid) {
             return false;
         }
 
         if ($invoice === null) {
-            Log::warning('moyasar.reconcile.invoice_not_found', ['payment_id' => $payment['id'] ?? null]);
+            Log::warning('payment.reconcile.invoice_not_found', ['gateway' => $payment->gateway, 'payment_id' => $payment->id]);
 
             return false;
         }
 
         // تحقّق تطابق المبلغ (بالهللة) والعملة — دفاع ضدّ التلاعب بمعطيات العودة
-        $expected = (int) round($invoice->amount * 100);
-        $paidAmount = (int) ($payment['amount'] ?? 0);
-        $currency = (string) ($payment['currency'] ?? '');
-        if ($paidAmount !== $expected || $currency !== 'SAR') {
-            Log::warning('moyasar.reconcile.amount_mismatch', [
-                'invoice' => $invoice->number, 'expected' => $expected, 'paid' => $paidAmount, 'currency' => $currency,
+        $expected = Money::halalas($invoice->amount);
+        if ($payment->amountHalalas !== $expected || $payment->currency !== Money::CURRENCY) {
+            Log::warning('payment.reconcile.amount_mismatch', [
+                'gateway' => $payment->gateway, 'invoice' => $invoice->number, 'expected' => $expected,
+                'paid' => $payment->amountHalalas, 'currency' => $payment->currency,
             ]);
 
             return false;
@@ -62,14 +66,13 @@ class PaymentReconciler
         // النظير الإداري settleManual يحرس بـ`if ($invoice->paid)` منذ البداية؛ هذا المسار
         // — وهو المعرَّض للإنترنت — كان بلا حارس.
         if ($invoice->paid) {
-            $incoming = (string) ($payment['id'] ?? '');
-
-            if ($incoming !== '' && $incoming !== (string) $invoice->gateway_payment_id) {
-                Log::error('moyasar.reconcile.duplicate_charge', [
+            if ($payment->id !== '' && $payment->id !== (string) $invoice->gateway_payment_id) {
+                Log::error('payment.reconcile.duplicate_charge', [
+                    'gateway' => $payment->gateway,
                     'invoice' => $invoice->number,
                     'settled_payment_id' => $invoice->gateway_payment_id,
-                    'duplicate_payment_id' => $incoming,
-                    'amount' => $paidAmount,
+                    'duplicate_payment_id' => $payment->id,
+                    'amount' => $payment->amountHalalas,
                     'channel' => $channel,
                 ]);
             }
@@ -77,12 +80,12 @@ class PaymentReconciler
             return true;
         }
 
-        $invoice->update(['gateway_payment_id' => (string) ($payment['id'] ?? '')]);
+        $invoice->update(['gateway_payment_id' => $payment->id]);
 
         // انتقال حالة المجال (idempotent) بحسب نوع الفاتورة: استشارة أو أتعاب قضية أو أتعاب تنفيذ.
         // **وقد يرفض:** دفعةٌ على فاتورة استشارةٍ لا تقبل السداد لا تُحيي شيئاً — تبقى في الدفتر
         // بلا تسوية وتُنبَّه الإدارة للاسترداد (ع١، ع٢).
-        if (! self::settleDomain($invoice, 'ميسّر')) {
+        if (! self::settleDomain($invoice, app(PaymentGateways::class)->label($payment->gateway))) {
             return false;
         }
 
@@ -119,8 +122,8 @@ class PaymentReconciler
                 // `amount` يبقى بالريال حرفاً كما كان (لقطةُ ما قُيّد، ومرجعُ اختباراتٍ قائمة)،
                 // و`amount_halalas` **بالهللة دائماً** فيصير العمود قابلاً للجمع مع صفوف البوّابة.
                 'amount' => (int) $invoice->amount,
-                'amount_halalas' => (int) round($invoice->amount * 100),
-                'currency' => 'SAR',
+                'amount_halalas' => Money::halalas($invoice->amount),
+                'currency' => Money::CURRENCY,
                 'source_channel' => 'admin',
                 'raw' => ['actor' => $actor, 'settled_at' => now()->toIso8601String()],
                 'reconciled_at' => now(),
@@ -154,7 +157,7 @@ class PaymentReconciler
      * **ورفضُ الانتقال رفضٌ للتسوية كلّها**: دفعةٌ تصل على فاتورةٍ لا تقبل السداد (ملغاة
      * مثلاً) كانت تُعلَّم مدفوعةً فتُحيي ما أُلغي — وهو عينُ ما عولج في فرع الاستشارات.
      */
-    public static function settleDomain(Invoice $invoice, string $actor = 'ميسّر'): bool
+    public static function settleDomain(Invoice $invoice, string $actor): bool
     {
         if ($invoice->consult_id && ($consult = Consult::find($invoice->consult_id))) {
             return self::settleConsult($invoice, $consult, $actor);
@@ -194,10 +197,12 @@ class PaymentReconciler
             return true;
         }
 
-        // السجلّ يصف قناة التحصيل: اليدويّ (`gateway=manual`) غيرُ البوّابة — والمطابقة تحتاج التمييز
-        $channel = $invoice->payments()->where('gateway', 'manual')->exists()
+        // السجلّ يصف قناة التحصيل: اليدويّ (`gateway=manual`) غيرُ البوّابة — والمطابقة تحتاج التمييز.
+        // والحكم بالعلَم لا بنصّ القناة (كان `$channel !== 'مدفوع عبر ميسّر'`).
+        $manual = $invoice->payments()->where('gateway', 'manual')->exists();
+        $channel = $manual
             ? 'مدفوع — تحصيل يدويّ بقيد الإدارة'
-            : 'مدفوع عبر ميسّر';
+            : 'مدفوع عبر '.app(PaymentGateways::class)->label($invoice->gateway);
 
         if (ConsultBooking::markPaid($consult, $actor, $channel, $invoice)) {
             return true;
@@ -210,7 +215,7 @@ class PaymentReconciler
             return true;
         }
 
-        if ($channel !== 'مدفوع عبر ميسّر') {
+        if ($manual) {
             return false; // تحصيلٌ يدويّ رُفض قبل أن يقع — لا مبلغ يُردّ
         }
 
@@ -231,30 +236,27 @@ class PaymentReconciler
 
     /**
      * يسجّل/يحدّث صفّ دفتر المدفوعات (idempotent عبر gateway_payment_id).
-     *
-     * @param  array<string,mixed>  $payment
      */
-    private static function record(array $payment, ?Invoice $invoice, string $channel): ?Payment
+    private static function record(GatewayPayment $payment, ?Invoice $invoice, string $channel): ?Payment
     {
-        $paymentId = (string) ($payment['id'] ?? '');
-        if ($paymentId === '') {
+        if ($payment->id === '') {
             return null;
         }
 
         $ledger = Payment::updateOrCreate(
-            ['gateway_payment_id' => $paymentId],
+            ['gateway_payment_id' => $payment->id],
             [
                 'invoice_id' => $invoice?->id,
-                'gateway' => 'moyasar',
-                'gateway_invoice_id' => ((string) ($payment['invoice_id'] ?? '')) ?: null,
-                'status' => (string) ($payment['status'] ?? 'unknown'),
-                // ميسّر تردّ المبلغ بالهللة، فالعمودان متطابقان هنا — والتطابق مقصود: `amount`
-                // لقطةُ البوّابة كما وردت، و`amount_halalas` الوحدةُ الموحّدة للجمع (انظر settleManual).
-                'amount' => (int) ($payment['amount'] ?? 0),
-                'amount_halalas' => (int) ($payment['amount'] ?? 0),
-                'currency' => (string) ($payment['currency'] ?? 'SAR'),
+                'gateway' => $payment->gateway,
+                'gateway_invoice_id' => $payment->gatewayInvoiceId,
+                'status' => $payment->status,
+                // صفوف البوّابة بالهللة في العمودين — والتطابق مقصود: `amount` لقطةُ البوّابة كما وردت،
+                // و`amount_halalas` الوحدةُ الموحّدة للجمع (انظر settleManual).
+                'amount' => $payment->amountHalalas,
+                'amount_halalas' => $payment->amountHalalas,
+                'currency' => $payment->currency,
                 'source_channel' => $channel,
-                'raw' => $payment,
+                'raw' => $payment->raw,
             ]
         );
 
@@ -262,49 +264,27 @@ class PaymentReconciler
         return ReceiptVoucher::issue($ledger);
     }
 
-    /** @param  array<string,mixed>  $payment */
-    private static function resolveInvoice(array $payment): ?Invoice
+    /**
+     * فاتورة المنصّة التي تخصّها الدفعة: برقمها المُرسَل مع الفاتورة ← بمرجع فاتورة البوّابة ← بالاستشارة
+     * المُرسَلة ← بمعرّف دفعةٍ سُوّيت سابقاً. (حُذف فرعٌ كان يقرأ `metadata` من فاتورة البوّابة وهي لا تُعاد —
+     * لم يعمل قطّ، كما أثبت PHPStan.)
+     */
+    private static function resolveInvoice(GatewayPayment $payment): ?Invoice
     {
-        $number = $payment['metadata']['invoice_number'] ?? null;
-        if ($number && ($inv = Invoice::where('number', $number)->first())) {
-            return $inv;
+        $number = $payment->invoiceNumber();
+        if ($number !== null && ($invoice = Invoice::where('number', $number)->first())) {
+            return $invoice;
         }
 
-        $gatewayRef = $payment['invoice_id'] ?? null;
-        if ($gatewayRef) {
-            $inv = Invoice::where('gateway_ref', $gatewayRef)->first();
-            if ($inv) {
-                return $inv;
-            }
-
-            // جلب بيانات الفاتورة من ميسّر إن غاب الربط المسبق
-            $moyasarInvoice = app(MoyasarService::class)->getInvoice((string) $gatewayRef);
-            if ($moyasarInvoice) {
-                $invNum = $moyasarInvoice['metadata']['invoice_number'] ?? null;
-                if ($invNum && ($inv = Invoice::where('number', $invNum)->first())) {
-                    $inv->update(['gateway_ref' => (string) $gatewayRef]);
-
-                    return $inv;
-                }
-                $cId = $moyasarInvoice['metadata']['consult_id'] ?? null;
-                if ($cId && ($consult = Consult::find($cId)) && $consult->invoice) {
-                    $consult->invoice->update(['gateway_ref' => (string) $gatewayRef]);
-
-                    return $consult->invoice;
-                }
-            }
+        if ($payment->gatewayInvoiceId !== null && ($invoice = Invoice::where('gateway_ref', $payment->gatewayInvoiceId)->first())) {
+            return $invoice;
         }
 
-        $consultId = $payment['metadata']['consult_id'] ?? null;
-        if ($consultId && ($consult = Consult::find($consultId)) && $consult->invoice) {
-            return $consult->invoice;
+        $consultId = $payment->consultId();
+        if ($consultId !== null && ($invoice = Consult::find($consultId)?->invoice)) {
+            return $invoice;
         }
 
-        $paymentId = $payment['id'] ?? null;
-        if ($paymentId && ($inv = Invoice::where('gateway_payment_id', $paymentId)->first())) {
-            return $inv;
-        }
-
-        return null;
+        return $payment->id !== '' ? Invoice::where('gateway_payment_id', $payment->id)->first() : null;
     }
 }

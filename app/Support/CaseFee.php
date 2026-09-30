@@ -12,7 +12,7 @@ use App\Mail\CaseFeePaidMail;
 use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Services\MailService;
-use App\Services\MoyasarService;
+use App\Services\Payments\PaymentGateways;
 use App\Support\Finance\InvoiceDue;
 use App\Support\Finance\InvoiceFactory;
 use Illuminate\Support\Facades\DB;
@@ -385,7 +385,7 @@ class CaseFee
         // والقضيّة غير مفعّلة. والأقدم غير المدفوعة هي المستحقّة فعلاً في الحالين.
         $invoice = self::nextPayable($case);
 
-        return $invoice ? app(MoyasarService::class)->hostedUrlForInvoice($invoice, $callbackUrl) : null;
+        return $invoice ? app(PaymentGateways::class)->default()->hostedUrlForInvoice($invoice, $callbackUrl) : null;
     }
 
     private static function clock(): string

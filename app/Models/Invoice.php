@@ -17,7 +17,7 @@ class Invoice extends Model
 
     protected $fillable = [
         'user_id', 'case_id', 'consult_id', 'exec_id', 'share_user_id', 'installment_no', 'number', 'description', 'amount', 'status', 'tone', 'due_label', 'due_at', 'reminder_sent_at', 'paid',
-        'gateway_ref', 'gateway_payment_id', 'proof_path', 'proof_uploaded_at',
+        'gateway', 'gateway_ref', 'gateway_payment_id', 'proof_path', 'proof_uploaded_at',
         // م١: الضريبة ومحطّات دورة الحياة — `vat_rate` مجمَّدةٌ يوم الإصدار (`Finance\InvoiceFactory`)
         'paid_at', 'subtotal', 'vat_rate', 'vat_amount',
         'issued_at', 'cancelled_at', 'written_off_at', 'written_off_reason',

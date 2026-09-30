@@ -13,6 +13,7 @@ use App\Models\Ticket;
 use App\Models\TicketSummary;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Services\Payments\MoyasarGateway;
 use App\Support\LawyerAvailability;
 use App\Support\PaymentReconciler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -93,7 +94,7 @@ class JourneyConsultLifecycleTest extends TestCase
         $invoice = Invoice::where('consult_id', $consult->id)->sole();
         $this->actingAs($this->admin)->post("/admin/consults/{$consult->id}/cancel-request");
 
-        $this->assertFalse(PaymentReconciler::settle($this->payment($invoice->fresh()), 'webhook'));
+        $this->assertFalse(PaymentReconciler::settle(MoyasarGateway::toGatewayPayment($this->payment($invoice->fresh())), 'webhook'));
 
         $this->assertSame('ملغاة', $consult->fresh()->status, 'الاستشارة الملغاة لا تعود إلى الجدولة');
         $this->assertNull($consult->fresh()->paid_at);
@@ -125,7 +126,7 @@ class JourneyConsultLifecycleTest extends TestCase
         $this->actingAs($this->admin)->post("/admin/consults/{$consult->id}/price", ['price' => 700])->assertRedirect();
         $new = Invoice::where('consult_id', $consult->id)->whereKeyNot($old->id)->sole();
 
-        $this->assertFalse(PaymentReconciler::settle($this->payment($old->fresh()), 'callback'));
+        $this->assertFalse(PaymentReconciler::settle(MoyasarGateway::toGatewayPayment($this->payment($old->fresh())), 'callback'));
 
         $this->assertFalse($old->fresh()->paid, 'الملغاة لا تُسوّى');
         $this->assertFalse($new->fresh()->paid, 'ولا تُعلَّم الجديدة مدفوعةً بدفعةٍ لم تخصّها');
@@ -141,7 +142,7 @@ class JourneyConsultLifecycleTest extends TestCase
         $this->actingAs($this->admin)->post("/admin/consults/{$consult->id}/price", ['price' => 700]);
         $new = Invoice::where('consult_id', $consult->id)->whereKeyNot($old->id)->sole();
 
-        $this->assertTrue(PaymentReconciler::settle($this->payment($new->fresh(), 'pay_lc_new'), 'webhook'));
+        $this->assertTrue(PaymentReconciler::settle(MoyasarGateway::toGatewayPayment($this->payment($new->fresh(), 'pay_lc_new')), 'webhook'));
 
         $this->assertTrue($new->fresh()->paid);
         $this->assertSame('ملغاة', $old->fresh()->status);

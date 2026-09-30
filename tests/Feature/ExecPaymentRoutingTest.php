@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\User;
+use App\Services\Payments\MoyasarGateway;
 use App\Support\ExecFee;
 use App\Support\PaymentReconciler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -62,10 +63,10 @@ class ExecPaymentRoutingTest extends TestCase
         $belongs = $exec->invoices()->where('gateway_ref', 'inv_first')->exists();
         $this->assertTrue($belongs, 'المطابقة على أيّ فاتورة لهذا الطلب لا على أحدثها');
 
-        $this->assertTrue(PaymentReconciler::settle([
+        $this->assertTrue(PaymentReconciler::settle(MoyasarGateway::toGatewayPayment([
             'id' => 'pay_cb', 'status' => 'paid', 'invoice_id' => 'inv_first',
             'amount' => (int) $first->amount * 100, 'currency' => 'SAR',
-        ], 'callback'));
+        ]), 'callback'));
 
         $exec->refresh();
         $this->assertSame(7, $exec->effectiveStage());
@@ -111,11 +112,11 @@ class ExecPaymentRoutingTest extends TestCase
         $exec = $this->planned();
         $first = $this->plan($exec)[0];
 
-        $this->assertFalse(PaymentReconciler::settle([
+        $this->assertFalse(PaymentReconciler::settle(MoyasarGateway::toGatewayPayment([
             'id' => 'pay_bad', 'status' => 'paid',
             'amount' => 100, 'currency' => 'SAR',
             'metadata' => ['invoice_number' => $first->number],
-        ], 'callback'));
+        ]), 'callback'));
 
         $exec->refresh();
         $this->assertSame(6, $exec->effectiveStage());

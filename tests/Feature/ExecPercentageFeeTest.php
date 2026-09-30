@@ -7,6 +7,7 @@ use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\Payments\MoyasarGateway;
 use App\Support\ExecService;
 use App\Support\PaymentReconciler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -128,11 +129,11 @@ class ExecPercentageFeeTest extends TestCase
         $execNo = $exec->fresh()->exec_no;
         $invoice = Invoice::where('exec_id', $exec->id)->firstOrFail();
 
-        $settled = PaymentReconciler::settle([
+        $settled = PaymentReconciler::settle(MoyasarGateway::toGatewayPayment([
             'id' => 'pay_collection', 'status' => 'paid',
             'amount' => (int) $invoice->amount * 100, 'currency' => 'SAR',
             'metadata' => ['invoice_number' => $invoice->number],
-        ], 'webhook');
+        ]), 'webhook');
 
         $this->assertTrue($settled);
         $exec->refresh();

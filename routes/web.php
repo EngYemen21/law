@@ -50,8 +50,8 @@ use App\Http\Controllers\Lawyer\TaskController as LawyerTaskController;
 use App\Http\Controllers\Lawyer\TicketController as LawyerTicketController;
 use App\Http\Controllers\MeetingController;
 use App\Http\Controllers\MeetRequestController;
-use App\Http\Controllers\MoyasarWebhookController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PaymentWebhookController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Staff\ConsultController as StaffConsultController;
 use App\Http\Controllers\Staff\ConsultRecordingController as StaffConsultRecordingController;
@@ -74,8 +74,11 @@ Route::inertia('/', 'welcome')->name('home');
 // مستقبِل أحداث Zoom (Webhooks) — عام، محميّ بتوقيع HMAC ومستثنى من CSRF (Zoom لا يرسل رمزاً)
 Route::post('/webhooks/zoom', [ZoomWebhookController::class, 'handle'])->name('webhooks.zoom');
 
-// مستقبِل إشعارات Moyasar (Webhooks) — عام، محميّ بـsecret_token ومستثنى من CSRF
-Route::post('/webhooks/moyasar', [MoyasarWebhookController::class, 'handle'])->name('webhooks.moyasar');
+// مستقبِل إشعارات بوّابات الدفع (Webhooks) — عامّ، تتحقّق كلّ بوّابةٍ من مُرسِلها، ومستثنى من CSRF.
+// مسار ميسّر باقٍ كما ضُبط في لوحتها؛ وأيّ بوّابةٍ تُسجَّل لاحقاً تستقبل على `/webhooks/payments/{اسمها}`.
+Route::post('/webhooks/moyasar', [PaymentWebhookController::class, 'handle'])->defaults('gateway', 'moyasar')->name('webhooks.moyasar');
+Route::post('/webhooks/payments/{gateway}', [PaymentWebhookController::class, 'handle'])
+    ->where('gateway', '[a-z0-9_]+')->name('webhooks.payment');
 
 // موجز التقويم الحي (RFC 5545 iCal Live Subscription Feed) — عام ومحمي برمز أمان فريد لكل مستخدم
 Route::get('/calendar/feed/{user}/{token}.ics', [CalendarController::class, 'feed'])->name('calendar.feed');

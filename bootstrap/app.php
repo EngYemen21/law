@@ -33,8 +33,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'conversation.reply' => MarksConversationReply::class,
         ]);
 
-        // Zoom/Moyasar webhooks لا ترسل رمز CSRF؛ محميّة بتوقيع/سرّ في المتحكّم
-        $middleware->validateCsrfTokens(except: ['webhooks/zoom', 'webhooks/moyasar']);
+        // إشعارات Zoom وبوّابات الدفع لا ترسل رمز CSRF؛ محميّة بتوقيع/سرّ في المتحكّم
+        $middleware->validateCsrfTokens(except: ['webhooks/zoom', 'webhooks/moyasar', 'webhooks/payments/*']);
 
         // الثقة بترويسات الوسيط (X-Forwarded-*) — **من الخادم نفسه وحده.**
         //

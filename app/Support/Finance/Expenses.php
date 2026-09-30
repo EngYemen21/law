@@ -34,8 +34,8 @@ final class Expenses
                 'spent_on' => $data['spent_on'],
                 'category' => ExpenseCategory::from($data['category']),
                 'description' => $data['description'],
-                'amount_halalas' => self::halalas($data['amount']),
-                'vat_halalas' => self::halalas($data['vat'] ?? 0),
+                'amount_halalas' => Money::halalas($data['amount']),
+                'vat_halalas' => Money::halalas($data['vat'] ?? 0),
                 'vendor' => $data['vendor'] ?? null,
                 'paid_from' => $data['paid_from'],
                 'reference' => $data['reference'] ?? null,
@@ -164,12 +164,6 @@ final class Expenses
             'description.required' => 'اكتب بيان المصروف.',
             'document.mimes' => 'المرفق PDF أو صورة.',
         ]];
-    }
-
-    /** ريالٌ بكسره (نصّاً أو رقماً) ← هللات — المدخل مُتحقَّقٌ منه بمنزلتين عشريّتين. */
-    public static function halalas(string|float|int|null $riyals): int
-    {
-        return (int) round(((float) $riyals) * 100);
     }
 
     private static function markApproved(Expense $expense, User $admin): void

@@ -7,10 +7,10 @@ use App\Domain\Journey\Transitions\Invoice\SubmitPaymentProof;
 use App\Domain\Journey\Workflow;
 use App\Models\Invoice;
 use App\Models\Payment;
-use App\Services\MoyasarService;
+use App\Services\Payments\GatewayCallback;
+use App\Services\Payments\PaymentGateways;
 use App\Support\Finance\ReceiptVoucherDocument;
 use App\Support\Finance\TaxInvoiceDocument;
-use App\Support\PaymentReconciler;
 use App\Support\PdfRenderer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -59,7 +59,7 @@ class InvoiceController extends Controller
         return back()->with('success', 'تم استلام إثبات التحويل وسيُراجَع.');
     }
 
-    // دفع فاتورة حقيقي عبر بوّابة ميسّر → يعيد التوجيه لصفحة الدفع المستضافة.
+    // دفع فاتورة حقيقي عبر بوّابة الدفع → يعيد التوجيه لصفحة الدفع المستضافة.
     // التأكيد عبر webhook/callback (مصدر الحقيقة عبر PaymentReconciler) — لا دفع بلا بوّابة مهيّأة.
     public function checkout(Request $request, Invoice $invoice): \Symfony\Component\HttpFoundation\Response
     {
@@ -72,10 +72,11 @@ class InvoiceController extends Controller
         abort_if($status === null || ! $status->isPayable(), 422, $invoice->isCancelled()
             ? 'أُلغيت هذه الفاتورة ولا تُسدَّد.'
             : 'هذه الفاتورة لا تقبل السداد في حالتها الحاليّة.');
-        abort_unless(app(MoyasarService::class)->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
+        $gateway = app(PaymentGateways::class)->default();
+        abort_unless($gateway->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
 
         $callback = $request->getSchemeAndHttpHost().route('invoices.checkout.callback', $invoice, absolute: false);
-        $url = app(MoyasarService::class)->hostedUrlForInvoice($invoice, $callback);
+        $url = $gateway->hostedUrlForInvoice($invoice, $callback);
         if ($url === null) {
             return back()->with('error', 'تعذّر بدء الدفع حالياً، حاول بعد قليل.');
         }
@@ -83,7 +84,7 @@ class InvoiceController extends Controller
         return Inertia::location($url);
     }
 
-    // العودة من صفحة ميسّر — تحقّق خادميّ صارم (لا يُوثَق بمعطيات الـURL): يُعاد جلب الدفعة والتحقّق منها.
+    // العودة من صفحة الدفع — تحقّق خادميّ صارم (لا يُوثَق بمعطيات الـURL): يُعاد جلب الدفعة والتحقّق منها.
     public function checkoutCallback(Request $request, Invoice $invoice): RedirectResponse
     {
         abort_unless($invoice->user_id === $request->user()->id, 403);
@@ -94,15 +95,7 @@ class InvoiceController extends Controller
             ? redirect()->route('tickets.show', $ticket)
             : redirect()->route('invoices');
 
-        $paymentId = (string) $request->query('id', '');
-        $payment = $paymentId !== '' ? app(MoyasarService::class)->fetchPayment($paymentId) : null;
-
-        $belongs = $payment !== null && (
-            ($invoice->gateway_ref !== null && (string) ($payment['invoice_id'] ?? '') === (string) $invoice->gateway_ref) ||
-            ($invoice->gateway_ref === null && (string) ($payment['metadata']['invoice_number'] ?? '') === (string) $invoice->number)
-        );
-
-        if ($belongs && PaymentReconciler::settle($payment, 'callback')) {
+        if (GatewayCallback::confirm($request, Invoice::whereKey($invoice->id))) {
             return $back()->with('success', 'تم تأكيد الدفع.');
         }
 

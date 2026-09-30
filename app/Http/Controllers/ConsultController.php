@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Consult;
-use App\Services\MoyasarService;
+use App\Models\Invoice;
+use App\Services\Payments\GatewayCallback;
+use App\Services\Payments\PaymentGateways;
 use App\Support\Booking\BookingStaff;
 use App\Support\ConsultBooking;
 use App\Support\ConsultReport;
@@ -21,7 +23,7 @@ use Spatie\Browsershot\Browsershot;
 
 /**
  * استشارات العميل — «استشاراتي» (يطابق myConsultsView) وغرفة الجلسة المرئية،
- * ودورة الحجز المطابقة للتصميم: دفع الفاتورة عبر ميسّر (بوّابة حقيقيّة) ثم اختيار الموعد بعد السداد.
+ * ودورة الحجز المطابقة للتصميم: دفع الفاتورة عبر بوّابة الدفع ثم اختيار الموعد بعد السداد.
  */
 class ConsultController extends Controller
 {
@@ -63,13 +65,13 @@ class ConsultController extends Controller
         ]);
     }
 
-    // دفع فاتورة الاستشارة عبر بوّابة ميسّر → يعيد التوجيه لصفحة الدفع المستضافة.
+    // دفع فاتورة الاستشارة عبر بوّابة الدفع → يعيد التوجيه لصفحة الدفع المستضافة.
     // التأكيد عبر webhook/callback (مصدر الحقيقة)؛ لا دفع بلا بوّابة مهيّأة.
     public function pay(Request $request, Consult $consult): \Symfony\Component\HttpFoundation\Response
     {
         abort_unless($consult->user_id === $request->user()->id, 403);
         abort_unless($consult->status === 'بانتظار السداد', 422, 'لا يوجد مبلغ مستحق للسداد على هذه الاستشارة.');
-        abort_unless(app(MoyasarService::class)->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
+        abort_unless(app(PaymentGateways::class)->default()->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
 
         // رابط العودة من أصل الطلب نفسه (لا APP_URL) — فيعود المتصفّح لنفس النطاق وتبقى الجلسة صالحة
         $callback = $request->getSchemeAndHttpHost().route('consults.pay.callback', $consult, absolute: false);
@@ -78,11 +80,11 @@ class ConsultController extends Controller
             return back()->with('error', 'تعذّر بدء الدفع حالياً، حاول بعد قليل.');
         }
 
-        // يعيد Inertia توجيه المتصفّح لصفحة ميسّر (X-Inertia-Location) — الاستشارة تبقى بانتظار السداد حتى التأكيد
+        // يعيد Inertia توجيه المتصفّح لصفحة الدفع (X-Inertia-Location) — الاستشارة تبقى بانتظار السداد حتى التأكيد
         return Inertia::location($url);
     }
 
-    // العودة من صفحة ميسّر — تحقّق خادميّ صارم (لا يُوثَق بمعطيات الـURL): يُعاد جلب الدفعة والتحقّق منها.
+    // العودة من صفحة الدفع — تحقّق خادميّ صارم (لا يُوثَق بمعطيات الـURL): يُعاد جلب الدفعة والتحقّق منها.
     public function payCallback(Request $request, Consult $consult): RedirectResponse
     {
         abort_unless($consult->user_id === $request->user()->id, 403);
@@ -92,17 +94,8 @@ class ConsultController extends Controller
             ? redirect()->route('tickets.show', $consult->ticket)
             : redirect()->route('myconsults');
 
-        $paymentId = (string) $request->query('id', '');
-        $payment = $paymentId !== '' ? app(MoyasarService::class)->fetchPayment($paymentId) : null;
-
         // اربط الدفعة بفاتورة هذه الاستشارة تحديدًا (لا تسوية دفعة تخصّ فاتورة أخرى)
-        $ref = $consult->invoice?->gateway_ref;
-        $belongs = $payment !== null && (
-            ($ref !== null && (string) ($payment['invoice_id'] ?? '') === (string) $ref) ||
-            ($ref === null && (string) ($payment['metadata']['invoice_number'] ?? '') === (string) ($consult->invoice?->number ?? ''))
-        );
-
-        if ($belongs && PaymentReconciler::settle($payment, 'callback')) {
+        if (GatewayCallback::confirm($request, Invoice::whereKey($consult->invoice?->id))) {
             return $back()->with('success', 'تم تأكيد الدفع — سوف يتم تحديد موعد جلستك مع المستشار المختص ويصلك إشعار به.');
         }
 

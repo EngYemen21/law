@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\User;
+use App\Services\Payments\MoyasarGateway;
 use App\Support\ExecFee;
 use App\Support\PaymentReconciler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -44,13 +45,13 @@ class ExecInstallmentPlanTest extends TestCase
     /** يسوّي فاتورةً عبر مسار البوّابة الحقيقيّ — لا `update(paid)` يدويّ يتجاوز المُسوّي. */
     private function settle(Invoice $invoice, string $paymentId): bool
     {
-        return PaymentReconciler::settle([
+        return PaymentReconciler::settle(MoyasarGateway::toGatewayPayment([
             'id' => $paymentId,
             'status' => 'paid',
             'amount' => (int) $invoice->amount * 100,
             'currency' => 'SAR',
             'metadata' => ['invoice_number' => $invoice->number],
-        ], 'webhook');
+        ]), 'webhook');
     }
 
     /** @return Collection<int, Invoice> */

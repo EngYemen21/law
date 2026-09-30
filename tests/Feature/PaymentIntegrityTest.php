@@ -8,7 +8,7 @@ use App\Models\Consult;
 use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\User;
-use App\Services\MoyasarService;
+use App\Services\Payments\MoyasarGateway;
 use App\Support\CaseFee;
 use App\Support\InvoiceNumber;
 use App\Support\PaymentReconciler;
@@ -36,10 +36,10 @@ class PaymentIntegrityTest extends TestCase
         ]);
 
         // التسوية الأولى (الدفعة الحقيقية)
-        PaymentReconciler::settle([
+        PaymentReconciler::settle(MoyasarGateway::toGatewayPayment([
             'id' => $paymentId, 'status' => 'paid', 'amount' => 51800, 'currency' => 'SAR',
             'metadata' => ['invoice_number' => 'INV-DUP-1'],
-        ], 'webhook');
+        ]), 'webhook');
 
         return $invoice->fresh();
     }
@@ -60,10 +60,10 @@ class PaymentIntegrityTest extends TestCase
         Log::spy();
 
         // شحنة ثانية بمعرّف مختلف على نفس الفاتورة
-        PaymentReconciler::settle([
+        PaymentReconciler::settle(MoyasarGateway::toGatewayPayment([
             'id' => 'pay_second', 'status' => 'paid', 'amount' => 51800, 'currency' => 'SAR',
             'metadata' => ['invoice_number' => 'INV-DUP-1'],
-        ], 'webhook');
+        ]), 'webhook');
 
         $this->assertSame(
             'pay_first',
@@ -85,7 +85,7 @@ class PaymentIntegrityTest extends TestCase
 
         Http::fake(['api.moyasar.com/*' => Http::response(['id' => 'inv_new', 'url' => 'https://moyasar.test/x'], 201)]);
 
-        $url = app(MoyasarService::class)->hostedUrlForInvoice($invoice, 'https://app.test/callback');
+        $url = app(MoyasarGateway::class)->hostedUrlForInvoice($invoice, 'https://app.test/callback');
 
         $this->assertNull($url, 'أُنشئت فاتورة بوّابة جديدة لفاتورة مدفوعة.');
         Http::assertNothingSent();
@@ -146,10 +146,10 @@ class PaymentIntegrityTest extends TestCase
             'due_label' => '—', 'paid' => false,
         ]);
 
-        PaymentReconciler::settle([
+        PaymentReconciler::settle(MoyasarGateway::toGatewayPayment([
             'id' => 'pay_rec_1', 'status' => 'paid', 'amount' => 100000, 'currency' => 'SAR',
             'metadata' => ['invoice_number' => 'INV-REC-A'],
-        ], 'webhook');
+        ]), 'webhook');
 
         $this->assertTrue($target->fresh()->paid);
         $this->assertFalse($extra->fresh()->paid, 'الفاتورة التكميلية شُطبت بلا سداد.');
@@ -204,10 +204,10 @@ class PaymentIntegrityTest extends TestCase
             'amount' => 518, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال 3 أيام', 'paid' => false,
         ]);
 
-        PaymentReconciler::settle([
+        PaymentReconciler::settle(MoyasarGateway::toGatewayPayment([
             'id' => 'pay_race', 'status' => 'paid', 'amount' => 51800, 'currency' => 'SAR',
             'metadata' => ['invoice_number' => 'INV-RACE-1'],
-        ], 'webhook');
+        ]), 'webhook');
         $this->assertTrue($stale->fresh()->paid);
 
         $settleConsult = new \ReflectionMethod(PaymentReconciler::class, 'settleConsult');

@@ -26,7 +26,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Services\Ai\AiRunLogger;
 use App\Services\MailService;
-use App\Services\MoyasarService;
+use App\Services\Payments\PaymentGateways;
 use Carbon\Carbon;
 use Illuminate\Validation\ValidationException;
 
@@ -533,7 +533,7 @@ class ExecService
         // الدفعة الثالثة: يسدّدها العميل ويبقى الأوّل مستحقّاً والملفّ مغلقاً.
         $invoice = ExecFee::nextPayable($exec);
 
-        return $invoice ? app(MoyasarService::class)->hostedUrlForInvoice($invoice, $callbackUrl) : null;
+        return $invoice ? app(PaymentGateways::class)->default()->hostedUrlForInvoice($invoice, $callbackUrl) : null;
     }
 
     // ── إجراءات ما بعد فتح الملف (محامي/إدارة) ──

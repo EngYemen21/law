@@ -7,6 +7,7 @@ use App\Models\Consult;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\User;
+use App\Services\Payments\MoyasarGateway;
 use App\Support\Finance\ArabicAmount;
 use App\Support\Finance\FinanceBoard;
 use App\Support\Finance\ReceiptVoucherDocument;
@@ -117,14 +118,14 @@ class ReceiptVoucherTest extends TestCase
         $meta = ['invoice_number' => 'INV-RV-GW', 'consult_id' => (string) $consult->id];
 
         // محاولةٌ فاشلة أوّلاً: في الدفتر للتدقيق، بلا سند، ولا تُعدّ مقبوضاً
-        PaymentReconciler::settle(['id' => 'pay_rv_fail', 'status' => 'failed', 'amount' => 51800, 'currency' => 'SAR', 'metadata' => $meta], 'callback');
+        PaymentReconciler::settle(MoyasarGateway::toGatewayPayment(['id' => 'pay_rv_fail', 'status' => 'failed', 'amount' => 51800, 'currency' => 'SAR', 'metadata' => $meta]), 'callback');
         $failed = Payment::where('gateway_payment_id', 'pay_rv_fail')->sole();
         $this->assertNull($failed->receipt_no);
 
         // ثمّ الناجحة، ويصل إشعارها وعودتها معاً
         Http::fake(['api.moyasar.com/v1/payments/*' => Http::response(['id' => 'pay_rv_ok', 'status' => 'paid', 'amount' => 51800, 'currency' => 'SAR', 'metadata' => $meta], 200)]);
         $this->postJson(route('webhooks.moyasar'), ['secret_token' => 'whsec_1', 'data' => ['id' => 'pay_rv_ok']])->assertOk();
-        PaymentReconciler::settle(['id' => 'pay_rv_ok', 'status' => 'paid', 'amount' => 51800, 'currency' => 'SAR', 'metadata' => $meta], 'callback');
+        PaymentReconciler::settle(MoyasarGateway::toGatewayPayment(['id' => 'pay_rv_ok', 'status' => 'paid', 'amount' => 51800, 'currency' => 'SAR', 'metadata' => $meta]), 'callback');
 
         $paid = Payment::where('gateway_payment_id', 'pay_rv_ok')->sole();
         $this->assertSame('RV-'.now()->format('Y').'-00001', $paid->receipt_no, 'سندٌ واحد مهما تكرّر الوصول');
