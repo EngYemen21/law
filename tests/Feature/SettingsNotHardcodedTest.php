@@ -59,8 +59,8 @@ class SettingsNotHardcodedTest extends TestCase
             ],
             'افتراض «15» لنسبة الضريبة' => [
                 'pattern' => '/(?:vat\w*|rate)\s*(?:\?\?|\|\||=)\s*15\b|vat_rate\'\s*,\s*15\b/i',
-                // المصدر نفسه: افتراض الإعداد حين لم تُضبط النسبة قطّ
-                'allow' => ['app/Models/Setting.php' => 1],
+                // لا استثناء: `Setting::vatRate()` صار يقرأ افتراض السجلّ، فلا 15 منقوشة في أيّ ملفّ
+                'allow' => [],
             ],
             'نسبة الضريبة كسراً منقوشاً' => [
                 'pattern' => '/vat\w*\s*[:=]\s*0\.15\b|\*\s*0\.15\b|\b0\.15\s*\*/i',

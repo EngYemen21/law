@@ -60,7 +60,8 @@ final class ZatcaQr
      */
     public static function fields(Invoice $invoice): ?array
     {
-        $vatNumber = SettingsRegistry::str('office_vat_number');
+        // البائع **كما صدرت به الفاتورة** (مجمَّد على صفّها) لا الإعداد الحاليّ
+        $vatNumber = $invoice->sellerVatNumber();
         $issuedAt = $invoice->issued_at ?? $invoice->created_at;
 
         if ($vatNumber === '' || $issuedAt === null || $invoice->isCancelled()) {
@@ -70,7 +71,7 @@ final class ZatcaQr
         $money = $invoice->taxBreakdown();
 
         return [
-            self::TAG_SELLER => SettingsRegistry::str('office_name'),
+            self::TAG_SELLER => $invoice->sellerName(),
             self::TAG_VAT_NUMBER => $vatNumber,
             self::TAG_TIMESTAMP => Carbon::instance($issuedAt)->utc()->format('Y-m-d\TH:i:s\Z'),
             self::TAG_TOTAL => number_format($money['amount'], 2, '.', ''),

@@ -13,6 +13,7 @@ use App\Services\LegalAiService;
 use App\Support\CasePleading;
 use App\Support\PdfRenderer;
 use App\Support\Permissions;
+use App\Support\SettingsRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -458,7 +459,7 @@ class DocumentEditorController extends Controller
     {
         $header = $doc->header_config ?? LegalDocument::defaultHeader();
         $showHeader = ! empty($header['showHeader']);
-        $officeName = e($header['officeName'] ?? 'مكتب المحاماة والاستشارات القانونية');
+        $officeName = e(($header['officeName'] ?? '') ?: SettingsRegistry::str('office_name'));
         $officeNameEn = e($header['officeNameEn'] ?? '');
         $licenseNo = e($header['licenseNo'] ?? '');
         $phone = e($header['phone'] ?? '');

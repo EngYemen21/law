@@ -38,7 +38,7 @@ final class TaxInvoiceDocument
             'subtitle' => $invoice->liveStatus()[0],
             'ref' => (string) $invoice->number,
             'blocks' => [
-                ['title' => '١. بيانات المكتب', 'cellRows' => [self::officeCells($issuedAt)]],
+                ['title' => '١. بيانات المكتب', 'cellRows' => [self::officeCells($issuedAt, $invoice->sellerName(), $invoice->sellerVatNumber())]],
                 [
                     'title' => '٢. بيانات العميل',
                     'cellRows' => [array_values(array_filter([
@@ -116,11 +116,12 @@ final class TaxInvoiceDocument
      *
      * @return list<array{0:string,1:string}>
      */
-    public static function officeCells(?\DateTimeInterface $issuedAt): array
+    public static function officeCells(?\DateTimeInterface $issuedAt, ?string $sellerName = null, ?string $vatNumber = null): array
     {
-        $cells = [['اسم المكتب', SettingsRegistry::str('office_name')]];
+        // الفاتورة تمرّر بائعها المجمَّد؛ السندات وكشف الحساب تصدر الآن فتأخذ الحاليّ
+        $cells = [['اسم المكتب', $sellerName ?? SettingsRegistry::str('office_name')]];
 
-        $vatNumber = SettingsRegistry::str('office_vat_number');
+        $vatNumber ??= SettingsRegistry::str('office_vat_number');
         if ($vatNumber !== '') {
             $cells[] = [self::VAT_NUMBER_LABEL, $vatNumber];
         }

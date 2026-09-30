@@ -633,7 +633,7 @@ class ExecFlowController extends Controller
                 ],
                 [
                     ['title' => '٢. بيانات العميل', 'cellRows' => [[['اسم العميل', $execution->user?->name ?: '—']]]],
-                    ['title' => '٣. مقدّم الخدمة', 'cellRows' => [[['الجهة', 'المكتب القانوني'], ['المحامي المسؤول', $lawyer]]]],
+                    ['title' => '٣. مقدّم الخدمة', 'cellRows' => [[['الجهة', SettingsRegistry::str('office_name')], ['المحامي المسؤول', $lawyer]]]],
                 ],
                 [
                     'title' => '٤. التفاصيل المالية',
@@ -648,7 +648,7 @@ class ExecFlowController extends Controller
                         ]
                         : [
                             ['أتعاب التنفيذ', number_format((int) $execution->fee).' ر.س'],
-                            ['ضريبة القيمة المضافة ('.Setting::vatRate().'٪)', number_format((int) $execution->vat).' ر.س'],
+                            ['ضريبة القيمة المضافة ('.$execution->vatRate().'٪)', number_format((int) $execution->vat).' ر.س'],
                             ['الإجمالي المستحق', number_format($total).' ر.س'],
                             ['طريقة السداد', $execution->pay_method ?: '—'],
                         ],

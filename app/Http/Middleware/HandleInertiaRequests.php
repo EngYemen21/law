@@ -43,7 +43,6 @@ class HandleInertiaRequests extends Middleware
      * **لإضافة مفتاح**: أضِف اسمه هنا كما هو في `SettingsRegistry::all()`، ثمّ حقله في النوع
      * `SharedSettings` في `resources/js/lib/settings.ts` — لا شيء غير ذلك. والقائمةُ قائمةُ سماحٍ
      * عمداً لا «كلّ السجلّ»: ما يُشارَك يصل كلَّ زائرٍ ولو ضيفاً، فلا يخرج متغيّرٌ داخليّ بالخطأ.
-     * (والضريبة خارج السجلّ لأنّ مالكها شاشة الأسعار — تُضاف في `sharedSettings()` من `Setting::vatRate()`.)
      *
      * @var list<string>
      */

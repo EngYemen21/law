@@ -51,7 +51,7 @@ class SettingsRegistry
      *
      * `forwardOnly` يعني: التغيير يسري على ما يُنشأ بعده وحده، وما مضى محفوظٌ على صفّه.
      *
-     * @return array<string, array{group:string,label:string,hint:string,type:'int'|'string'|'date'|'days'|'bool',default:mixed,min?:int,max?:int,rules:array<int,string>,forwardOnly?:bool,gt?:string,defaultLabel?:string}>
+     * @return array<string, array{group:string,label:string,hint:string,type:'int'|'string'|'date'|'days'|'bool',default:mixed,min?:int,max?:int,rules:array<int,string>,forwardOnly?:bool,gt?:string,gte?:string,defaultLabel?:string}>
      */
     public static function all(): array
     {
@@ -192,6 +192,7 @@ class SettingsRegistry
                 'max' => 90,
                 'rules' => ['required', 'integer', 'min:7', 'max:90'],
                 'forwardOnly' => true,
+                'gt' => 'installment_first_due_days',
             ],
 
             // ── الاستشارات والمواعيد ──
@@ -313,12 +314,13 @@ class SettingsRegistry
             'consult_autoclose_minutes' => [
                 'group' => 'alerts',
                 'label' => 'إغلاق الاستشارة الفائتة بعد (دقائق)',
-                'hint' => 'الدقائق بعد موعد الجلسة التي تُوسَم بعدها الاستشارة التي لم تُعقد «لم يحضر» آلياً. 720 = 12 ساعة.',
+                'hint' => 'الدقائق بعد موعد الجلسة التي تُوسَم بعدها الاستشارة التي لم تُعقد «لم يحضر» آلياً. 720 = 12 ساعة. لا تقلّ عن «عدّ الجلسة التي لم تبدأ فائتةً بعد» — فلا تُغلق قبل أن تُعدّ فائتة.',
                 'type' => 'int',
                 'default' => 720,
                 'min' => 5,
                 'max' => 4320,
                 'rules' => ['required', 'integer', 'min:5', 'max:4320'],
+                'gte' => 'session_missed_after_minutes',
             ],
             // ── نهاية الجلسة حدثٌ لا حساب (قرار المالك 2026-09-26) — `SessionWindow` ──
             // الثلاثة تُقاس من **البداية**، ولا يُنهي أيٌّ منها جلسةً بدأت — وشبكةُ النسيان تنبّه
@@ -336,12 +338,13 @@ class SettingsRegistry
             'meeting_autoclose_minutes' => [
                 'group' => 'alerts',
                 'label' => 'إغلاق الاجتماع الذي لم ينعقد بعد (دقائق)',
-                'hint' => 'الدقائق بعد موعد الاجتماع التي يُوسَم بعدها «لم ينعقد» آلياً إن لم يدخله أحد، وتنتهي صلاحية دعوته. 720 = 12 ساعة.',
+                'hint' => 'الدقائق بعد موعد الاجتماع التي يُوسَم بعدها «لم ينعقد» آلياً إن لم يدخله أحد، وتنتهي صلاحية دعوته. 720 = 12 ساعة. لا تقلّ عن «عدّ الجلسة التي لم تبدأ فائتةً بعد» — فلا تُغلق قبل أن تُعدّ فائتة.',
                 'type' => 'int',
                 'default' => SessionWindow::MEETING_AUTOCLOSE_MINUTES,
                 'min' => 5,
                 'max' => 4320,
                 'rules' => ['required', 'integer', 'min:5', 'max:4320'],
+                'gte' => 'session_missed_after_minutes',
             ],
             'session_stale_minutes' => [
                 'group' => 'alerts',
@@ -384,7 +387,7 @@ class SettingsRegistry
                 // الصفحة الترويجيّة وصفحة الدخول وعنوان التبويب وشعار القائمة وتعليمات النموذج،
                 // فلا تغيّره الإدارة إلّا بنشر كود. صار هذا الحقل مصدره الوحيد — لا حقل «اسم نظام» ثانٍ.
                 'label' => 'اسم المكتب',
-                'hint' => 'الاسم الواحد للمكتب في كلّ مكان: رأس مستندات PDF، ورسائل البريد، والصفحة الترويجيّة وصفحة الدخول، وعنوان تبويب المتصفّح، والقائمة الجانبيّة، والاسم الذي يُعرّف به المساعدُ الذكيّ المكتب.',
+                'hint' => 'الاسم الواحد للمكتب في كلّ مكان: رأس مستندات PDF وترويسة المستندات القانونيّة، ونصّ رسائل البريد وعناوينها (أمّا «اسم المرسل» الذي يظهر في صندوق البريد فمن شاشة مفاتيح الخدمات الخارجيّة)، والصفحة الترويجيّة وصفحة الدخول، وعنوان تبويب المتصفّح، والقائمة الجانبيّة، والاسم الذي يُعرّف به المساعدُ الذكيّ المكتب.',
                 'type' => 'string',
                 // **النصّ المنقوش سابقاً لا `config('app.name')`.** الاثنان يختلفان بحرف:
                 // الكود يكتبها «المحاماة» في خمسةٍ وأربعين موضعاً (ومنها رأس PDF قبل هذا
@@ -589,7 +592,8 @@ class SettingsRegistry
     }
 
     /**
-     * **أخطاء العلاقة بين حقلين** (`gt`: هذا أكبر من ذاك) — بعد تحقّق كلّ حقلٍ بمفرده.
+     * **أخطاء العلاقة بين حقلين** (`gt`: هذا أكبر من ذاك · `gte`: لا يقلّ عنه) — بعد تحقّق كلّ حقلٍ بمفرده،
+     * ثمّ اتّساع طول الشريحة في ساعات الحجز.
      *
      * `gt:` في قواعد لارافيل يفشل إن غاب الحقل الآخر عن الطلب، والبطاقة قد ترسل أحدهما
      * وحده؛ فالمقارنة هنا بالقيمة **النافذة** للآخر: المرسَلة إن أُرسلت، وإلّا المحفوظة.
@@ -603,19 +607,33 @@ class SettingsRegistry
         $current = self::values();
         $errors = [];
 
+        $value = fn (string $key): int => (int) ($data[$key] ?? $current[$key]);
+        $touched = fn (string ...$keys): bool => array_intersect($keys, array_keys($data)) !== [];
+
         foreach (self::all() as $key => $field) {
-            $other = $field['gt'] ?? null;
+            foreach (['gt', 'gte'] as $relation) {
+                $other = $field[$relation] ?? null;
+                if ($other === null || ! $touched($key, $other)) {
+                    continue;
+                }
 
-            if ($other === null || (! array_key_exists($key, $data) && ! array_key_exists($other, $data))) {
-                continue;
+                $mine = $value($key);
+                $theirs = $value($other);
+                if ($relation === 'gt' && $mine <= $theirs) {
+                    $errors[$key] = '«'.$field['label'].'» يجب أن تكون بعد «'.self::field($other)['label'].'» ('.$theirs.').';
+                } elseif ($relation === 'gte' && $mine < $theirs) {
+                    $errors[$key] = '«'.$field['label'].'» لا تقلّ عن «'.self::field($other)['label'].'» ('.$theirs.') — ما دونها بلا أثر.';
+                }
             }
+        }
 
-            $mine = (int) ($data[$key] ?? $current[$key]);
-            $theirs = (int) ($data[$other] ?? $current[$other]);
-
-            if ($mine <= $theirs) {
-                $errors[$key] = '«'.$field['label'].'» يجب أن تكون بعد «'.self::field($other)['label'].'» ('.$theirs.').';
-            }
+        // **طول الشريحة يتّسع في ساعات الحجز**: شريحة 120 دقيقة في نافذة ساعةٍ واحدة كانت تُحفظ ثمّ لا يُعرض موعدٌ واحد
+        // في أيّ يوم بلا أيّ تنبيه (تدقيق الإعدادات 2026-09-30).
+        if ($touched('consult_slot_minutes', 'consult_day_start', 'consult_day_end')
+            && ! isset($errors['consult_day_end'])
+            && $value('consult_slot_minutes') > ($value('consult_day_end') - $value('consult_day_start')) * 60) {
+            $errors['consult_slot_minutes'] = '«'.self::field('consult_slot_minutes')['label'].'» أطول من ساعات الحجز ('
+                .$value('consult_day_start').'–'.$value('consult_day_end').') — لن يُعرض أيّ موعد.';
         }
 
         return $errors;

@@ -509,7 +509,7 @@ const LawyerEditor: React.FC<Props> = ({
             </td>
             <td style="width: 50%; text-align: center; vertical-align: middle; border: none; padding: 0;">
               <div style="color: #0a2a55; font-size: 17pt; font-weight: bold; font-family: 'Amiri', 'Traditional Arabic', serif;">
-                ${headerConfig.officeName || 'مكتب المحاماة والاستشارات القانونية'}
+                ${headerConfig.officeName || defaultHeader.officeName}
               </div>
               ${headerConfig.officeNameEn ? `<div style="color: #607689; font-size: 10.5pt; margin-top: 3pt; font-family: Arial, sans-serif;">${headerConfig.officeNameEn}</div>` : ''}
               ${headerConfig.licenseNo ? `<div style="color: #607689; font-size: 9.5pt; margin-top: 2pt;">ترخيص رقم: ${headerConfig.licenseNo}</div>` : ''}
@@ -1374,7 +1374,7 @@ const LawyerEditor: React.FC<Props> = ({
               <img src={headerConfig.logoUrl || '/images/021.png'} alt="شعار المكتب" style={{ maxHeight: 52 }} />
             </div>
             <div className="legal-header-info">
-              <div style={{ fontWeight: 800, fontSize: 17, color: '#0a2a55' }}>{headerConfig.officeName || 'مكتب المحاماة والاستشارات'}</div>
+              <div style={{ fontWeight: 800, fontSize: 17, color: '#0a2a55' }}>{headerConfig.officeName || defaultHeader.officeName}</div>
               {headerConfig.officeNameEn && (
                 <div style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'sans-serif' }}>{headerConfig.officeNameEn}</div>
               )}

@@ -12,6 +12,7 @@ use App\Models\Concerns\TracksRevisions;
 use App\Support\ConversationFiles;
 use App\Support\ExecFlow;
 use App\Support\ExecService;
+use App\Support\Finance\InvoiceFactory;
 use App\Support\LawyerName;
 use App\Support\Permissions;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -233,8 +234,10 @@ class Execution extends Model
             'decision' => $this->decision ?? '',
             'fee' => (int) $this->fee,
             'vat' => (int) $this->vat,
-            // نسبة الضريبة من الإعدادات — الواجهة كانت تحسبها 15% ثابتة فتخالف الفاتورة إن غُيّرت
-            'vatRate' => Setting::vatRate(),
+            // نسبة الضريبة **المجمَّدة مع أتعاب الملفّ** (من الأتعاب والضريبة المحفوظتين) — كانت نسبة الإعداد الحاليّة، فيقرأ
+            // العميل «الضريبة (5٪): 150» على ملفٍّ حُسبت ضريبته بـ15٪ (تدقيق الإعدادات 2026-09-30). والنسبيّ لا ضريبة
+            // مجمَّدة له: تُضاف على كلّ فاتورة تحصيلٍ بنسبة يومها. وتسعيرٌ جديد يقرأ نسبة اليوم من `settings.vat_rate`.
+            'vatRate' => $this->vatRate(),
             'duration' => $this->duration ?? '',
             // مشتقٌّ من النموذج والخطّة لا نصّاً حرّاً — الشاشة لا تستطيع أن تَعِد بما لا يقع
             'payMethod' => $this->pay_method ?? '',
@@ -399,6 +402,14 @@ class Execution extends Model
     public function isClosed(): bool
     {
         return $this->effectiveStage() >= 9 || in_array($this->status, self::CLOSED_STATUSES, true);
+    }
+
+    /** نسبة ضريبة الملفّ: المجمَّدة مع أتعابه الثابتة، أو نسبة اليوم للنسبيّ ولما لم يُسعَّر بعد. */
+    public function vatRate(): int
+    {
+        return $this->feeMode() === 'fixed' && (int) $this->fee > 0
+            ? InvoiceFactory::taxFromFrozen((int) $this->fee, (int) $this->vat)['vat_rate']
+            : Setting::vatRate();
     }
 
     /** رفضه المحامي بعد الدراسة؟ — الموضع الذي يقرأ نصّ `decision` لتسأله الواجهة علَماً. */

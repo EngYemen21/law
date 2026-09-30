@@ -3,7 +3,7 @@ import { usePage } from '@inertiajs/react';
 /**
  * **متغيّرات النظام كما يرسلها الخادم — القارئ الواحد في الواجهة.**
  *
- * مصدرها `SettingsRegistry` (و`Setting::vatRate()` لشاشة الأسعار)، مشارَكةً في كلّ صفحة تحت
+ * مصدرها `SettingsRegistry` (ونسبة الضريبة عبر `Setting::vatRate()`)، مشارَكةً في كلّ صفحة تحت
  * `settings` من `HandleInertiaRequests::SHARED_SETTINGS`. كانت الشاشات تنقش نسخها («٣ دفعات»،
  * «(15%)»، اسم المكتب وهاتفه) فيغيّرها المدير ولا يتغيّر ما يقرؤه العميل — ويحرس عودتها
  * `SettingsNotHardcodedTest`.

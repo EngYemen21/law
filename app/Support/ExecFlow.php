@@ -50,7 +50,7 @@ class ExecFlow
         // وتعديلُها لاحقاً لا يزحزح مهلةَ ملفٍّ أُبلغ قبله.
         $days = SettingsRegistry::int('exec_pay_days');
 
-        if (! self::countsWorkingDays()) {
+        if (! self::countsWorkingDays($notifiedAt)) {
             return $due->addDays($days);
         }
 
@@ -64,12 +64,15 @@ class ExecFlow
         return $due;
     }
 
-    /** هل بدأ العمل بالنظام الجديد (فتُحسب المهلة بأيام العمل)؟ */
-    public static function countsWorkingDays(): bool
+    /**
+     * هل يخضع **إبلاغٌ في هذا التاريخ** للنظام الجديد (فتُحسب مهلته بأيام العمل)؟ الحكم بتاريخ الإبلاغ لا بيوم إدخاله:
+     * كان `now()` فيُعطي الإبلاغُ الواحد مهلتين بحسب يوم تسجيله (تدقيق الإعدادات 2026-09-30).
+     */
+    public static function countsWorkingDays(?CarbonInterface $on = null): bool
     {
         $from = SettingsRegistry::date('exec_working_days_from');
 
-        return $from !== '' && now()->startOfDay()->gte(Carbon::parse($from)->startOfDay());
+        return $from !== '' && ($on ?? now())->copy()->startOfDay()->gte(Carbon::parse($from)->startOfDay());
     }
 
     /** نغمة الشارة حسب المرحلة (تطابق execTone) */

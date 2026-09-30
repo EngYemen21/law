@@ -70,7 +70,7 @@ class ConsultReport
                 ],
                 [
                     ['title' => '٢. بياناتك', 'cellRows' => [[['اسم العميل', $clientName], ['الحالة', 'عميل نشط']]]],
-                    ['title' => '٣. مقدّم الخدمة', 'cellRows' => [[['الجهة', 'المكتب القانوني'], ['المحامي المسؤول', auth()->user()?->isClient() ? LawyerName::forClient($consult->assigned_lawyer_id ? $consult->assignedLawyer : null, $consult->lawyer, '—') : ($consult->lawyer ?: '—')]]]],
+                    ['title' => '٣. مقدّم الخدمة', 'cellRows' => [[['الجهة', SettingsRegistry::str('office_name')], ['المحامي المسؤول', auth()->user()?->isClient() ? LawyerName::forClient($consult->assigned_lawyer_id ? $consult->assignedLawyer : null, $consult->lawyer, '—') : ($consult->lawyer ?: '—')]]]],
                 ],
                 // الملخّص المعتمد بفقراته وقوائمه (`SummaryText` — قواعد `RichText` نفسها)، والانتظار نصٌّ عاديّ
                 $consult->summaryApproved()

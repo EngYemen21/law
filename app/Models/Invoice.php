@@ -6,6 +6,7 @@ use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Support\Finance\InstallmentPlan;
 use App\Support\Finance\InvoiceFactory;
+use App\Support\SettingsRegistry;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
@@ -20,7 +21,7 @@ class Invoice extends Model
         'user_id', 'case_id', 'consult_id', 'exec_id', 'share_user_id', 'installment_no', 'number', 'description', 'amount', 'status', 'tone', 'due_label', 'due_at', 'reminder_sent_at', 'paid',
         'gateway', 'gateway_ref', 'gateway_payment_id', 'proof_path', 'proof_uploaded_at',
         // م١: الضريبة ومحطّات دورة الحياة — `vat_rate` مجمَّدةٌ يوم الإصدار (`Finance\InvoiceFactory`)
-        'paid_at', 'subtotal', 'vat_rate', 'vat_amount',
+        'paid_at', 'subtotal', 'vat_rate', 'vat_amount', 'seller_name', 'seller_vat_number',
         'issued_at', 'cancelled_at', 'written_off_at', 'written_off_reason',
     ];
 
@@ -105,6 +106,32 @@ class Invoice extends Model
     public function scopeOverdue(Builder $query): Builder
     {
         return $query->outstanding()->whereNotNull('due_at')->whereDate('due_at', '<', today());
+    }
+
+    /**
+     * **بيانات البائع تُجمَّد لحظة الإصدار** (`issued_at`) — في كلّ مسارٍ يُصدر فاتورة (المصنع، واعتماد المسوّدة). كانت
+     * الفاتورة الضريبيّة ورمز ZATCA يقرآن اسم المكتب ورقمه الضريبيّ لحظة العرض، فيغيّر تعديلُهما فواتيرَ صدرت.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (Invoice $invoice): void {
+            if ($invoice->issued_at !== null && $invoice->seller_name === null) {
+                $invoice->seller_name = SettingsRegistry::str('office_name');
+                $invoice->seller_vat_number = SettingsRegistry::str('office_vat_number');
+            }
+        });
+    }
+
+    /** اسم البائع كما صدرت به — والصفّ القديم غير المجمَّد يأخذ الحاليّ. */
+    public function sellerName(): string
+    {
+        return $this->seller_name ?? SettingsRegistry::str('office_name');
+    }
+
+    /** الرقم الضريبيّ كما صدرت به ('' = صدرت والمكتب غير مسجَّل) — والقديم غير المجمَّد يأخذ الحاليّ. */
+    public function sellerVatNumber(): string
+    {
+        return $this->seller_vat_number ?? SettingsRegistry::str('office_vat_number');
     }
 
     /**

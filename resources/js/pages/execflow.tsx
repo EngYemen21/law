@@ -854,12 +854,12 @@ const PricingCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
   const [lawyerPct, setLawyerPct] = useState(() => initialLawyerPct(r));
 
   // عدد الدفعات وسقف النسبة من إعدادات الإدارة — كانا «ثلاث» و«50» منقوشين، والخادم يتحقّق بالإعداد
-  const { installments_count: installments, exec_max_collection_pct: maxPct } = useSettings();
+  // والتسعير الجديد بنسبة ضريبة **اليوم** (`vat_rate`) — الخادم يحسب بها (Setting::vatOn)؛ و`r.vatRate` هي المجمَّدة مع
+  // أتعاب الملفّ القائمة، للعرض لا للتسعير.
+  const { installments_count: installments, exec_max_collection_pct: maxPct, vat_rate: vatRate } = useSettings();
   const percent = feeMode === 'percent';
   const collectPctNum = parseFloat(collectPct || '0') || 0;
   const fee = basisMode === 'fixed' ? (parseInt(fixed || '0', 10) || 0) : Math.round((r.amount * (parseFloat(pct || '0') || 0)) / 100);
-  // نسبة الإدارة لا 15% ثابتة — الخادم يحسب الضريبة بها (Setting::vatOn)، فكان المعروض يخالف الفاتورة
-  const vatRate = r.vatRate;
   const vat = Math.round((fee * vatRate) / 100);
   const basis = execStudyBasis(r.study);
   const ready = percent ? collectPctNum >= 0.01 && collectPctNum <= maxPct : fee >= 1;

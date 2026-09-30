@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Support\RichHtml;
+use App\Support\SettingsRegistry;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -134,16 +135,17 @@ class LegalDocument extends Model
 
     // ── ترويسة افتراضية ──
 
+    /** بيانات المكتب من إعدادات النظام — فتعديلها هناك يبلغ كلّ مستندٍ جديد. */
     public static function defaultHeader(): array
     {
         return [
             'showHeader' => true,
-            'officeName' => 'مكتب المحاماة',
+            'officeName' => SettingsRegistry::str('office_name'),
             'officeNameEn' => 'Law Office',
             'logoUrl' => '/images/021.png',
-            'address' => '',
-            'phone' => '',
-            'email' => '',
+            'address' => SettingsRegistry::str('office_address'),
+            'phone' => SettingsRegistry::str('office_phone'),
+            'email' => SettingsRegistry::str('office_email'),
             'licenseNo' => '',
         ];
     }
