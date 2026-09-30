@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Enums\Role;
 use App\Models\User;
+use App\Support\AppEnvironment;
 use App\Support\Permissions;
 use App\Support\Specialties;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
@@ -32,6 +33,16 @@ class DatabaseSeeder extends Seeder
 
         // كتالوج الأقسام والخدمات (إضافيّ — تزرعه الهجرة أيضاً، ولا يكتب فوق تعديلات الإدارة)
         $this->call(LegalCatalogueSeeder::class);
+
+        // **الحسابات الأربعة لصندوق التجربة وحده** (فصل البيئات 2026-09-29): كلمة مرورها `password`، و`makeUser`
+        // يكتب فوق الموجود — فكان `db:seed` على قاعدة الإنتاج يعيد كلمات مرورها ويضع عليها بيانات تواصلٍ حقيقيّة.
+        // في الإنتاج يُبذَر المرجع وحده (الصلاحيات والكتالوج) وتُنشأ الحسابات من «فريق العمل».
+        if (AppEnvironment::isProduction()) {
+            $this->command->warn('بيئة إنتاج: بُذرت الصلاحيات والكتالوج فقط — الحسابات التجريبيّة الأربعة لا تُنشأ هنا.');
+            app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+            return;
+        }
 
         // 1) الإدارة العليا (تتجاوز الصلاحيات عبر Gate::before) — دخول: 1000000001
         $this->makeUser([

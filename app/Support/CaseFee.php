@@ -18,7 +18,7 @@ use App\Support\Finance\InvoiceFactory;
 use Illuminate\Support\Facades\DB;
 
 /**
- * دورة سداد أتعاب القضية وتفعيلها — مصدر موحّد يخدم الدفع المحاكى ودفع Moyasar (webhook/callback).
+ * دورة سداد أتعاب القضية وتفعيلها — مصدر موحّد يخدم دفع Moyasar (webhook/callback) والتحصيل اليدويّ من المالية.
  * markPaid وactivate كلاهما idempotent (تكرار إشعار البوّابة لا يُحدث أثرًا مزدوجًا).
  */
 class CaseFee

@@ -131,8 +131,8 @@ return [
         'sms_endpoint' => env('TAQNYAT_SMS_ENDPOINT', '/v1/messages'),
     ],
 
-    // تجاوز تطويريّ مؤقّت لرمز التحقّق (OTP) عند تعطّل المزوّد: رمز ثابت للدخول/التسجيل.
-    // ⚠️ يعمل في غير الإنتاج فقط (يُتجاهَل تماماً حين APP_ENV=production). اتركه فارغاً لإيقافه.
+    // رمز تحقّقٍ ثابت للتجربة بلا مزوّد رسائل: يعمل في صندوق التجربة وحده (local/testing/staging —
+    // `AppEnvironment`) ويُتجاهَل في أيّ بيئةٍ أخرى؛ و`php artisan env:check` يكشفه إن ضُبط في الإنتاج.
     'auth_dev_otp' => env('AUTH_DEV_OTP'),
 
 ];

@@ -155,7 +155,7 @@ Route::middleware(['auth', 'active', 'role:client'])->group(function () {
     Route::get('/book', [ConsultBookingController::class, 'index'])->name('book');
     Route::post('/book', [ConsultBookingController::class, 'store'])->name('book.store');
     Route::get('/myconsults', [ConsultController::class, 'index'])->name('myconsults');
-    // دورة الحجز المطابقة للتصميم: دفع محاكى (يفتح اختيار الموعد) ثم جدولة الموعد بعد السداد
+    // دورة الحجز المطابقة للتصميم: الدفع عبر ميسّر (503 بلا مفاتيح — لا محاكاة) ثم جدولة الموعد بعد السداد
     Route::post('/consults/{consult}/pay', [ConsultController::class, 'pay'])->name('consults.pay');
     Route::get('/consults/{consult}/pay/callback', [ConsultController::class, 'payCallback'])->name('consults.pay.callback');
     Route::post('/consults/{consult}/schedule', [ConsultController::class, 'schedule'])->name('consults.schedule');

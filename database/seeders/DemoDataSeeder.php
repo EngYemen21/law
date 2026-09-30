@@ -13,6 +13,7 @@ use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
+use App\Support\AppEnvironment;
 use App\Support\Permissions;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -22,6 +23,13 @@ class DemoDataSeeder extends Seeder
 {
     public function run(): void
     {
+        // بياناتٌ تجريبيّة (حسابات بكلمة مرورٍ موحّدة وسجلّاتٌ وهميّة) — لا تُحقن في قاعدة الإنتاج أبداً
+        if (AppEnvironment::isProduction()) {
+            $this->command->error('بيئة إنتاج: البيانات التجريبيّة لا تُبذَر هنا.');
+
+            return;
+        }
+
         // ── 1. إنشاء وتحديث حسابات المستخدمين (محامون، موظفون، عملاء) ──
         $password = Hash::make('password');
 

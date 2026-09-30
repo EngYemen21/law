@@ -192,7 +192,7 @@ class PdfRenderer
      */
     public static function resolveNodePath(): ?string
     {
-        $explicit = env('NODE_BINARY') ?: env('NODE_PATH');
+        $explicit = (string) config('pdf.node_binary');
         if ($explicit && (is_executable($explicit) || file_exists($explicit))) {
             return $explicit;
         }
@@ -220,7 +220,7 @@ class PdfRenderer
      */
     public static function resolveChromePath(): ?string
     {
-        $explicit = env('CHROME_PATH') ?: env('PUPPETEER_EXECUTABLE_PATH');
+        $explicit = (string) config('pdf.chrome_path');
         if ($explicit && (is_executable($explicit) || file_exists($explicit))) {
             return $explicit;
         }

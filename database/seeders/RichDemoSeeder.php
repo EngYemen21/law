@@ -18,6 +18,7 @@ use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Support\AppEnvironment;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
@@ -38,6 +39,13 @@ class RichDemoSeeder extends Seeder
 {
     public function run(): void
     {
+        // بياناتٌ تجريبيّة (حسابات بكلمة مرورٍ موحّدة وسجلّاتٌ وهميّة) — لا تُحقن في قاعدة الإنتاج أبداً
+        if (AppEnvironment::isProduction()) {
+            $this->command->error('بيئة إنتاج: البيانات التجريبيّة لا تُبذَر هنا.');
+
+            return;
+        }
+
         // ── 0. الحسابات المرجعية ──
         $mainLawyer = User::where('national_id', '1000000002')->firstOrFail();
         $employee = User::where('national_id', '1000000003')->firstOrFail();
