@@ -6,6 +6,7 @@ import { useToast } from '@/components/babylon/Toast';
 import { RichText } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 import { useJoinOpensText, useSettings } from '@/lib/settings';
 
 // ============================================================
@@ -543,7 +544,7 @@ return;
                             onClick={() => router.post(`/meetings/${m.id}/change-request`, {}, {
                               preserveScroll: true,
                               onSuccess: () => toast('أُرسل طلبك للمكتب — سيتواصل معك فريقنا بشأن الموعد'),
-                              onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر إرسال الطلب')),
+                              onError: (e) => toast(firstError(e, 'تعذّر إرسال الطلب')),
                             })}
                           >
                             <Icon name="cal" /> طلب تغيير الموعد

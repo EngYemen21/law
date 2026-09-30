@@ -3,6 +3,7 @@ import React, { useRef, useState } from 'react';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
 import { type DocItem } from '@/lib/data';
+import { firstError } from '@/lib/server-message';
 import { DOCUMENT_MB, mbToBytes } from '@/lib/upload-limits';
 
 // يطابق viewDocs في index (82).html — رفع/تنزيل حقيقيّان
@@ -44,7 +45,7 @@ const Documents: React.FC<{ docsOut: DocItem[]; docsUp: DocItem[] }> = ({ docsOu
       forceFormData: true,
       preserveScroll: true,
       onSuccess: () => toast('تم رفع المستند'),
-      onError: (err) => toast((Object.values(err)[0] as string) || 'تعذّر رفع المستند'),
+      onError: (err) => toast(firstError(err, 'تعذّر رفع المستند')),
       onFinish: () => { setBusy(false); if (fileRef.current) fileRef.current.value = ''; },
     });
   };

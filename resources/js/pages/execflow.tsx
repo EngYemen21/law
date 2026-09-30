@@ -15,6 +15,7 @@ import type {ExecBucket, ExecDoc, ExecLawyerOpt, ExecReq, Role} from '@/lib/exec
 import { ExecNajizCard } from '@/lib/exec-najiz';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+import { firstError } from '@/lib/server-message';
 import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 import { useServerAction } from '@/lib/use-server-action';
 
@@ -559,7 +560,7 @@ return;
 
     router.post(`/exec-flow/${encodeURIComponent(execId)}/documents/${id}`, { file }, {
       forceFormData: true, preserveScroll: true,
-      onError: (errs) => toast(Object.values(errs)[0] ?? 'تعذّر رفع المستند'),
+      onError: (errs) => toast(firstError(errs, 'تعذّر رفع المستند')),
     });
   };
 

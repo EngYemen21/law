@@ -9,6 +9,7 @@ import type { ClientConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { crChannelIcon, crChannelTone, foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 import { useJoinOpensText } from '@/lib/settings';
 
 // ============================================================
@@ -68,7 +69,7 @@ const RescheduleRequestControl: React.FC<{ consult: ClientConsultCard }> = ({ co
     router.post(`/consults/${consult.id}/reschedule-request`, { note }, {
       preserveScroll: true,
       onSuccess: () => toast('أُرسل طلبك للمكتب — سيتواصل معك بموعدٍ جديد', 'success'),
-      onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر إرسال الطلب'), 'error'),
+      onError: (e) => toast(firstError(e, 'تعذّر إرسال الطلب'), 'error'),
     });
   };
 

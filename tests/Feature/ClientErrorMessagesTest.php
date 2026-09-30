@@ -30,6 +30,19 @@ class ClientErrorMessagesTest extends TestCase
         $this->assertStringNotContainsString('errors?.type?.[0]', $book);
     }
 
+    /** لا نسخ يدويّة لـ`firstError` في صفحات العميل — كانت سبعٌ تكتب `Object.values(err)[0]` بأشكالٍ مختلفة. */
+    public function test_client_pages_use_the_shared_first_error_helper(): void
+    {
+        $offenders = [];
+        foreach (['documents', 'execflow', 'invoices', 'meetings', 'myconsults', 'profile', 'book', 'newticket'] as $page) {
+            if (preg_match('/Object\.values\((e|err|errs|errors)\)\[0\]/', (string) file_get_contents(resource_path("js/pages/{$page}.tsx")))) {
+                $offenders[] = $page;
+            }
+        }
+
+        $this->assertSame([], $offenders);
+    }
+
     /** سبب رفض المرفق باسمه العربيّ — كان «يجب أن يكون files.0 ملفّاً من نوع…». */
     public function test_a_rejected_attachment_is_named_in_arabic(): void
     {

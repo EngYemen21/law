@@ -6,6 +6,7 @@ import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import type {Invoice} from '@/lib/data';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 import { DOCUMENT_MB, mbToBytes } from '@/lib/upload-limits';
 import { useServerAction } from '@/lib/use-server-action';
 
@@ -45,7 +46,7 @@ fileRef.current.value = '';
       forceFormData: true,
       preserveScroll: true,
       onSuccess: () => toast('تم استلام إثبات التحويل وسيُراجَع'),
-      onError: (err) => toast((Object.values(err)[0] as string) || 'تعذّر رفع الإثبات'),
+      onError: (err) => toast(firstError(err, 'تعذّر رفع الإثبات')),
       onFinish: () => {
  setBusy(false);
 
