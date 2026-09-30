@@ -24,7 +24,7 @@ use Illuminate\Database\Eloquent\Model;
  */
 final class LawyerApproveTicketSummary extends Transition
 {
-    public const FIELDS = TicketSummary::TEXT_FIELDS;
+    public const FIELDS = TicketSummary::RICH_TEXT_FIELDS;
 
     public function name(): string
     {

@@ -135,6 +135,7 @@ class Ticket extends Model
     }
 
     // استشارات هذه التذكرة (تُنشأ عند طلب حجز استشارة من داخل المحادثة)
+    /** @return HasMany<Consult, $this> */
     public function consults(): HasMany
     {
         return $this->hasMany(Consult::class);

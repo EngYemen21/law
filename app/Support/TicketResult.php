@@ -78,8 +78,9 @@ class TicketResult
 
         $session = '';
         if ($consult) {
+            // بالتنسيق نفسه الذي في «استشاراتي» (`HasRichText::html`)
             $session = '<div class="result-sec"><div class="t">ملخّص الجلسة</div>'
-                .self::list((string) $consult->summary).'</div>';
+                .'<div class="rich-summary">'.$consult->html('summary').'</div></div>';
 
             $decisions = array_values(array_filter((array) ($consult->decisions ?? [])));
             if ($decisions !== []) {

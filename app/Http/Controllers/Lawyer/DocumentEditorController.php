@@ -751,12 +751,13 @@ HTML;
         // المحضر يُطبع ويُرسل للعميل — فالاسم كما يراه العميل (`LawyerName::forClient` عبر الإعداد)، لا الخام
         $lawyer = e($consult->lawyerForClient('المستشار القانوني'));
         $subject = e($consult->subject ?: 'جلسة استشارة نظامية');
-        $summary = nl2br(e($consult->summary ?: 'خلاصة وتوصيات الجلسة.'));
+        // بتنسيق المحامي/الإدارة (`HasRichText::html`)
+        $summary = filled($consult->summary) ? $consult->html('summary') : '<p dir="rtl">خلاصة وتوصيات الجلسة.</p>';
 
-        $decisionsHtml = '';
-        if ($consult->decisions) {
-            $decisionsHtml = '<h3 style="color: #0e5c9c;">القرارات والتوجيهات الموصى بها</h3><p dir="rtl">'.nl2br(e($consult->decisions)).'</p>';
-        }
+        // القرارات قائمةٌ (`decisions` مصفوفة) — كانت تُمرَّر إلى `e()` فينهار الاستيراد بـTypeError
+        $decisions = array_values(array_filter(array_map('strval', (array) ($consult->decisions ?? []))));
+        $decisionsHtml = $decisions === [] ? '' : '<h3 style="color: #0e5c9c;">القرارات والتوجيهات الموصى بها</h3><ul>'
+            .implode('', array_map(fn (string $d) => '<li>'.e($d).'</li>', $decisions)).'</ul>';
 
         return <<<HTML
 <h2 style="text-align: center; color: #0a2a55;">محضر وخلاصة جلسة استشارة قانونية</h2>
@@ -767,7 +768,7 @@ HTML;
 <h3 style="color: #0e5c9c;">موضوع الاستشارة</h3>
 <p dir="rtl">{$subject}</p>
 <h3 style="color: #0e5c9c;">خلاصة المشورة والتحليل النظامي</h3>
-<p dir="rtl">{$summary}</p>
+{$summary}
 {$decisionsHtml}
 HTML;
     }

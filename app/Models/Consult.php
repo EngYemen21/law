@@ -10,6 +10,7 @@ use App\Domain\Journey\Transitions\Consult\ApproveConsultAnalysis;
 use App\Domain\Journey\Transitions\Consult\MarkNoShow;
 use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
 use App\Enums\Role;
+use App\Models\Concerns\HasRichText;
 use App\Models\Concerns\LinksLegalDepartment;
 use App\Models\Concerns\TracksRevisions;
 use App\Support\ArabicCount;
@@ -30,6 +31,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Consult extends Model
 {
     use GuardsJourneyState;
+    use HasRichText;
     use LinksLegalDepartment;
     use TracksRevisions;
 
@@ -141,6 +143,9 @@ class Consult extends Model
      */
     public const CHANNELS = ['حضورية', 'مرئية', 'هاتفية'];
 
+    /** ملخّص الجلسة يُحرَّر منسّقاً ويصل الموكّلَ بتنسيقه (`HasRichText`). */
+    public const RICH_TEXT_FIELDS = ['summary'];
+
     protected $fillable = [
         'user_id', 'ticket_id', 'appointment_id', 'ref', 'subject', 'details', 'type', 'priority', 'channel',
         'lawyer', 'assigned_lawyer_id', 'specialty', 'employee', 'day', 'time', 'when_label', 'received_label', 'phone',
@@ -150,7 +155,7 @@ class Consult extends Model
         'meet_id', 'meet_link', 'host_link', 'meet_password',
         'link_released_at', 'reminder_24h_sent_at', 'reminder_30m_sent_at', 'join_time', 'leave_time', 'duration_sec', 'transcript', 'recording_url', 'transcript_path', 'zoom_summary_at',
         'zoom_uuid', 'zoom_share_url', 'zoom_audio_url', 'zoom_participants_log', 'zoom_ai_next_steps',
-        'status', 'session', 'session_notes', 'summary', 'summary_ai_original', 'summary_approved_at', 'summary_approved_by',
+        'status', 'session', 'session_notes', 'summary', 'summary_html', 'summary_ai_original', 'summary_approved_at', 'summary_approved_by',
         'summary_lawyer_approved_at', 'summary_lawyer_approved_by',
         'summary_edited_at', 'summary_edited_by', 'summary_ai_source', 'session_finalized_at', 'zoom_summary', 'duration_label',
         'decisions', 'tasks_created', 'suggested_tasks',
@@ -557,6 +562,8 @@ class Consult extends Model
             // والحجب هنا لا في الواجهة: حجبٌ واجهيّ يبقى النصّ فيه في حمولة
             // المتصفّح، فيُقرأ بأدوات المطوّر ويصل من لا يجوز أن يصله.
             'summary' => $this->summaryApproved() ? $this->summary : null,
+            // بتنسيق المحامي/الإدارة — منقّى، ومحجوبٌ قبل الاعتماد كالنصّ
+            'summaryHtml' => $this->summaryApproved() ? $this->html('summary') : null,
             'summaryPending' => $this->summary !== null && ! $this->summaryApproved(),
             'summaryApproved' => $this->summaryApproved(),
             'duration' => $this->duration_label,
@@ -705,6 +712,7 @@ class Consult extends Model
                 ? $this->appointment->starts_at->locale('ar')->translatedFormat('l d F Y · h:i A')
                 : null,
             'summary' => $this->summary,
+            'summaryHtml' => $this->summary !== null ? $this->html('summary') : null,
             // الطاقم يرى النصّ قبل الاعتماد ليراجعه — ويرى **أنّه** غير معتمَد
             'summaryApproved' => $this->summaryApproved(),
             // اعتمده المحامي ويُنتظر اعتماد الإدارة (قرار المالك 2026-09-14)

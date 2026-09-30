@@ -115,6 +115,7 @@ return;
             session: string;
             status: string;
             summary: string | null;
+            summaryHtml?: string | null;
             summaryPending?: boolean;
             summaryApproved?: boolean;
             duration: string | null;
@@ -137,6 +138,7 @@ return;
                       // `??` يُبقي القيمة البائتة: لو بُثّ سحبُ الاعتماد (summary=null)
                       // بقي النصّ المعروض في المتصفّح. الحضور في الحمولة هو الحكم.
                       summary: 'summary' in e ? e.summary : x.summary,
+                      summaryHtml: 'summaryHtml' in e ? e.summaryHtml : x.summaryHtml,
                       summaryPending: e.summaryPending ?? x.summaryPending,
                       summaryApproved: e.summaryApproved ?? x.summaryApproved,
                       duration: e.duration ?? x.duration,

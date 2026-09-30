@@ -5,6 +5,7 @@ import { usePrompt } from '@/components/babylon/ConfirmDialog';
 import type { ConfirmRequest } from '@/components/babylon/ConfirmDialog';
 import Modal from '@/components/babylon/Modal';
 import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
+import RichTextEditor, { htmlToText, RichHtmlView } from '@/components/babylon/RichTextEditor';
 import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
@@ -137,6 +138,8 @@ export interface ConsultCard {
   session: string; // بانتظار الجلسة / جلسة جارية / منتهية
   status: string;
   summary: string | null;
+  /** الملخّص بتنسيق المحامي/الإدارة — منقّى في الخادم (`HasRichText::html`) */
+  summaryHtml?: string | null;
   /** الملخّص محجوبٌ عن العميل حتى يعتمده محامٍ — انظر `Consult::toClientCard`. */
   summaryPending?: boolean;
   summaryApproved?: boolean;
@@ -251,6 +254,8 @@ export interface ClientConsultCard {
   missing?: string[];
   /** `null` ما لم يعتمده محامٍ — الحجب في الخادم لا في الواجهة. */
   summary: string | null;
+  /** الملخّص بتنسيق المحامي/الإدارة — منقّى في الخادم (`HasRichText::html`) */
+  summaryHtml?: string | null;
   summaryPending?: boolean;
   summaryApproved?: boolean;
   duration: string | null;
@@ -490,6 +495,10 @@ export const RichText: React.FC<{ text?: string | null; fallback?: string }> = (
   );
 };
 
+/** ملخّص الجلسة كما يصل الموكّل: بتنسيقه إن حُرّر منسّقاً، وإلّا نصّه فقراتٍ وقوائم (`RichText`). */
+export const ConsultSummaryText: React.FC<{ consult: { summary?: string | null; summaryHtml?: string | null }; fallback?: string }> = ({ consult, fallback }) =>
+  consult.summaryHtml ? <RichHtmlView html={consult.summaryHtml} /> : <RichText text={consult.summary} fallback={fallback} />;
+
 export const SummaryStateBadge: React.FC<{ consult: ConsultCard }> = ({ consult }) => {
   const state = summaryState(consult);
 
@@ -664,7 +673,7 @@ export const SummaryModal: React.FC<{
 
           {consult.summary && consult.summary.trim() !== '' ? (
             <div className="csd-paper-body">
-              <RichText text={consult.summary} />
+              <ConsultSummaryText consult={consult} />
             </div>
           ) : (
             <div className="csd-paper-empty">
@@ -1110,7 +1119,7 @@ void navigator.clipboard.writeText(c.slink);
 
 export interface LawyerOpt { id: number; name: string; dept: string; }
 
-export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; isAdmin?: boolean; lawyers: LawyerOpt[] }> = ({ consult: c, base, isAdmin, lawyers }) => {
+export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; isAdmin?: boolean; lawyers: LawyerOpt[]; canApproveSummary: boolean }> = ({ consult: c, base, isAdmin, lawyers, canApproveSummary }) => {
   const inSession = useInSession();
   const askFor = usePrompt();
   const toast = useToast();
@@ -1210,7 +1219,8 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
 
   // محرّر ملخّص الجلسة — النصّ الذي سيصل العميل. كان «تعديل واعتماد» خياراً في
   // صندوق المراجعة **بلا حقلٍ يستقبله**، فيُسجّل «عدّل» والمنشور نصّ النموذج حرفياً.
-  const [sessionSummary, setSessionSummary] = useState(c.summary ?? '');
+  // النسخة المنسّقة تُحرَّر وتُرسل (`HasRichText::editableInput` يشتقّ منها النصّ)
+  const [sessionSummary, setSessionSummary] = useState(c.summaryHtml ?? '');
 
   // نصّ الموكّل يحرّره ويعتمده **من يملك الصلاحيّة** — لا من يفتح الصفحة.
   const mayEditSummary = useCan()('اعتماد/تعديل ملخص الاستشارة');
@@ -1230,10 +1240,10 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
   const mayAnalyze = useCan()('تشغيل تلخيص الفريق القانوني');
 
   useEffect(() => {
-    setSessionSummary(c.summary ?? '');
-  }, [c.summary]);
+    setSessionSummary(c.summaryHtml ?? '');
+  }, [c.summaryHtml]);
 
-  const saveSessionSummary = () => post('summary', { summary: sessionSummary }, 'حُفظ الملخّص المحرّر — يصل العميل بعد اعتماده');
+  const saveSessionSummary = () => post('summary', { summary_html: sessionSummary }, 'حُفظ الملخّص المحرّر — يصل العميل بعد اعتماده');
   // المستشار يعتمد ويرفع للإدارة؛ والإدارة تعتمد فيُنشر للعميل وتكتمل التذكرة (قرار المالك 2026-09-14)
   const approveSessionSummary = () => post('summary/approve', {}, 'اعتُمد الملخّص');
 
@@ -1544,7 +1554,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
               <div className="csd-paper-body">
                 {c.summaryApproved ? (
                   <>
-                    <RichText text={c.summary} />
+                    <ConsultSummaryText consult={c} />
                     <p className="action-hint" style={{ marginTop: 14 }}>
                       <Icon name="info" /> اعتُمد هذا المحضر رسمياً وقرأه الموكّل — تعديله الآن يتطلب قراراً جديداً يُشعر به العميل.
                     </p>
@@ -1557,36 +1567,27 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                           <label style={{ fontSize: 12.5, fontWeight: 700 }}>
                             النص الذي سيصل الموكّل بعد الاعتماد:
                           </label>
-                          <textarea
-                            className="input"
-                            rows={8}
+                          {/* ما يُكتب هنا بتنسيقه هو ما يقرؤه الموكّل — المحرّر نفسه معاينةٌ */}
+                          <RichTextEditor
                             value={sessionSummary}
-                            onChange={(ev) => setSessionSummary(ev.target.value)}
+                            onChange={setSessionSummary}
                             placeholder="اكتب خلاصة الرأي القانوني وتوجيهات الجلسة هنا..."
-                            style={{ lineHeight: 1.8 }}
                           />
-                          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
-                            التنسيق: سطرٌ فارغ بين الفقرات · «- » لقائمة نقطيّة · «1. » لقائمة مرقّمة · **نص** للعريض · ### لعنوان
-                          </div>
                         </div>
-                        {/* معاينة بالمُصيِّر نفسه الذي يقرأ به الموكّل — لا مفاجأة بعد الاعتماد */}
-                        {sessionSummary.trim() !== '' && (
-                          <div style={{ border: '1px dashed var(--line, #e2e8f0)', borderRadius: 8, padding: '10px 12px', background: 'var(--paper-2, #f8fafc)' }}>
-                            <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', marginBottom: 6 }}>معاينة كما يراها الموكّل</div>
-                            <RichText text={sessionSummary} />
-                          </div>
-                        )}
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          <button className="btn soft sm" onClick={saveSessionSummary} disabled={busy || sessionSummary.trim() === ''} type="button">
+                          <button className="btn soft sm" onClick={saveSessionSummary} disabled={busy || htmlToText(sessionSummary) === ''} type="button">
                             <Icon name="check" /> حفظ الملخص المحرر
                           </button>
-                          <button className="btn sm" onClick={approveSessionSummary} disabled={busy} type="button">
-                            <Icon name="scale" /> اعتماد وإرسال للعميل
-                          </button>
+                          {/* لا مسار اعتمادٍ للموظّف (قرار المالك 2026-09-14) — كان الزرّ يظهر له فيقع ٤٠٤ */}
+                          {canApproveSummary && (
+                            <button className="btn sm" onClick={approveSessionSummary} disabled={busy} type="button">
+                              <Icon name="scale" /> اعتماد وإرسال للعميل
+                            </button>
+                          )}
                         </div>
                       </div>
                     ) : (
-                      <RichText text={c.summary} />
+                      <ConsultSummaryText consult={c} />
                     )}
 
                     {c.zoomSummary && (

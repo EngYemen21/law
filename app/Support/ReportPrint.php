@@ -9,7 +9,7 @@ namespace App\Support;
  * مطابق تماماً لما يعرضه المتصفح — لا صورة/محاكاة.
  *
  * @phpstan-type ReportCell array{0: string, 1: string}
- * @phpstan-type ReportSection array{title: string, cellRows?: array<int, array<int, ReportCell>>, lines?: string, rich?: string, html?: string, list?: array<int, string>, chips?: array<int, string>, table?: ReportTable}
+ * @phpstan-type ReportSection array{title: string, cellRows?: array<int, array<int, ReportCell>>, lines?: string, html?: string, list?: array<int, string>, chips?: array<int, string>, table?: ReportTable}
  * @phpstan-type ReportTable array{head: list<string>, rows: list<list<string>>, foot?: list<string>, ltr?: list<int>}
  */
 class ReportPrint
@@ -116,11 +116,8 @@ class ReportPrint
     {
         $cells = implode('', array_map(fn ($row) => self::renderCells($row), $s['cellRows'] ?? []));
         $lines = isset($s['lines']) ? '<div class="cf-lines">'.e($s['lines']).'</div>' : '';
-        // نصٌّ بفقراتٍ وقوائم (ملخّص الاستشارة) — `SummaryText` يهرّبه ثمّ يبني عناصره
-        if (isset($s['rich'])) {
-            $lines .= '<div class="cf-rich">'.SummaryText::html($s['rich']).'</div>';
-        }
-        // HTML منسّقٌ من محرّر (ملخّص التذكرة) — يُنقّى هنا أيضاً فلا يطبع كرومُ الخادم إلّا المسموح
+        // HTML منسّقٌ من محرّر (ملخّص التذكرة والاستشارة — `HasRichText::html`) — يُنقّى هنا أيضاً فلا يطبع كرومُ
+        // الخادم إلّا المسموح
         if (isset($s['html'])) {
             $lines .= '<div class="cf-rich">'.RichHtml::clean($s['html']).'</div>';
         }

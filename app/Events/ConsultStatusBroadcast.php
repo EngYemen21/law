@@ -41,6 +41,7 @@ class ConsultStatusBroadcast implements ShouldBroadcastNow
             // الحجب الخادميّ في `Consult::toClientCard`: يُحجب في الحمولة الأولى
             // ثم يصل عبر البثّ لحظة كتابته بالنموذج قبل أن يمرّ به إنسان.
             'summary' => $this->consult->summaryApproved() ? $this->consult->summary : null,
+            'summaryHtml' => $this->consult->summaryApproved() ? $this->consult->html('summary') : null,
             'summaryPending' => $this->consult->summary !== null && ! $this->consult->summaryApproved(),
             'summaryApproved' => $this->consult->summaryApproved(),
             'summaryEdited' => $this->consult->summary_edited_at !== null,
