@@ -86,6 +86,11 @@ final class FakePaymentGateway implements PaymentGateway
         return is_string($id) && $id !== '' ? $id : null;
     }
 
+    public function paymentIdFromInvoiceNotification(Request $request): ?string
+    {
+        return null;
+    }
+
     public function auditFindings(bool $production): array
     {
         return [];

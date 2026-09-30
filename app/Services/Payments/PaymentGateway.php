@@ -46,6 +46,12 @@ interface PaymentGateway
     public function paymentIdFromWebhook(Request $request): ?string;
 
     /**
+     * **إشعار الفاتورة المستضافة** (نداء البوّابة الخادميّ حين تُدفع فاتورتها) — معرّف الدفعة المدفوعة كما تراها
+     * البوّابة **بعد إعادة جلب فاتورتها** بالمفتاح السرّيّ، لا من جسم الطلب. null: لا فاتورة ولا دفعة مدفوعة.
+     */
+    public function paymentIdFromInvoiceNotification(Request $request): ?string;
+
+    /**
      * مخالفات إعدادها لـ`env:check` (`EnvironmentAudit`).
      *
      * @return list<array{level: 'fail'|'warn', key: string, message: string}>

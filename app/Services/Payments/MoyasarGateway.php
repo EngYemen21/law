@@ -178,20 +178,29 @@ final class MoyasarGateway implements PaymentGateway
         return hash_equals($secret, $token);
     }
 
-    /** حدث فاتورةٍ (`inv_…`) يحمل دفعاتها — آخرها هي المعنيّة؛ وحدث الدفعة يحمل معرّفها مباشرة. */
+    /**
+     * إشعار لوحة ميسّر: `data` هو **كائن الدفعة** (أحداثها كلّها أحداث دفع). كان هنا فرعٌ لمعرّفٍ يبدأ بـ`inv_`
+     * — ومعرّفات ميسّر UUID فلم يتحقّق قطّ؛ وإشعار الفاتورة له مستقبِله (`paymentIdFromInvoiceNotification`).
+     */
     public function paymentIdFromWebhook(Request $request): ?string
     {
         $data = $request->input('data') ?: ($this->webhookBody($request)['data'] ?? []);
         $id = (string) (data_get($data, 'id') ?: '');
 
-        if (str_starts_with($id, 'inv_')) {
-            $payments = data_get($data, 'payments');
-            $last = is_array($payments) && $payments !== [] ? end($payments) : null;
-
-            return is_array($last) && ! empty($last['id']) ? (string) $last['id'] : null;
-        }
-
         return $id !== '' ? $id : null;
+    }
+
+    /**
+     * `callback_url` الفاتورة: ميسّر ترسل إليه **كائن الفاتورة** حين تُدفع — إشعارٌ خادميّ لا تحويلُ متصفّح (توثيق
+     * Create Invoice). بلا `secret_token` فيه، فلا يُوثق إلّا بمعرّفه: تُعاد جلب الفاتورة بالمفتاح السرّيّ ودفعتُها
+     * المدفوعة منها، فطلبٌ مزوَّر لا يرى إلّا ما تراه ميسّر فعلاً.
+     */
+    public function paymentIdFromInvoiceNotification(Request $request): ?string
+    {
+        $id = (string) ($request->input('id') ?: ($this->webhookBody($request)['id'] ?? ''));
+        $invoice = $id !== '' ? $this->findInvoice($id) : null;
+
+        return $invoice['paidPaymentId'] ?? null;
     }
 
     public function auditFindings(bool $production): array
@@ -237,7 +246,9 @@ final class MoyasarGateway implements PaymentGateway
                 'amount' => Money::halalas($invoice->amount),
                 'currency' => Money::CURRENCY,
                 'description' => (string) $invoice->description,
-                'callback_url' => $callbackUrl,
+                // `callback_url` إشعارٌ خادميّ من ميسّر حين تُدفع الفاتورة — لا تحويلُ المتصفّح (كان رابطَ عودة العميل
+                // نفسه: مسار GET يتطلّب الدخول، فيُرفض الإشعار وتُسقطه ميسّر بعد خمس محاولات). والعميل يعود بـ`success_url`.
+                'callback_url' => route('webhooks.payment.invoice', self::NAME),
                 'back_url' => $callbackUrl,
                 'success_url' => $callbackUrl,
                 'metadata' => [

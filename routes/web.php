@@ -77,6 +77,10 @@ Route::post('/webhooks/zoom', [ZoomWebhookController::class, 'handle'])->name('w
 // مستقبِل إشعارات بوّابات الدفع (Webhooks) — عامّ، تتحقّق كلّ بوّابةٍ من مُرسِلها، ومستثنى من CSRF.
 // مسار ميسّر باقٍ كما ضُبط في لوحتها؛ وأيّ بوّابةٍ تُسجَّل لاحقاً تستقبل على `/webhooks/payments/{اسمها}`.
 Route::post('/webhooks/moyasar', [PaymentWebhookController::class, 'handle'])->defaults('gateway', 'moyasar')->name('webhooks.moyasar');
+// `callback_url` الفاتورة المستضافة: إشعارٌ خادميّ بلا سرّ — يُعاد جلب كلّ شيء من البوّابة، ويُحدّ معدّله لأنّ كلّ
+// طلبٍ يستدعي البوّابة مرّتين
+Route::post('/webhooks/payments/{gateway}/invoice', [PaymentWebhookController::class, 'invoice'])
+    ->where('gateway', '[a-z0-9_]+')->middleware('throttle:60,1')->name('webhooks.payment.invoice');
 Route::post('/webhooks/payments/{gateway}', [PaymentWebhookController::class, 'handle'])
     ->where('gateway', '[a-z0-9_]+')->name('webhooks.payment');
 

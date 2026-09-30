@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Payments\PaymentGateway;
 use App\Services\Payments\PaymentGateways;
 use App\Support\PaymentReconciler;
 use Illuminate\Http\JsonResponse;
@@ -17,10 +18,7 @@ class PaymentWebhookController extends Controller
 {
     public function handle(Request $request, string $gateway): JsonResponse
     {
-        // بوّابةٌ غير مسجّلة في الإعداد ⇒ لا مستقبِل (404) — لا استثناء ولا كشفٌ لما هو مسجّل
-        $gateways = app(PaymentGateways::class);
-        abort_unless(in_array($gateway, $gateways->names(), true), 404);
-        $driver = $gateways->get($gateway);
+        $driver = $this->driver($gateway);
 
         Log::info('payment.webhook.hit', [
             'gateway' => $gateway,
@@ -49,5 +47,36 @@ class PaymentWebhookController extends Controller
         PaymentReconciler::settle($payment, 'webhook');
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * **إشعار الفاتورة المستضافة** (`callback_url`) — بلا سرٍّ من البوّابة، فالأمان كلّه في إعادة الجلب: الفاتورة
+     * ودفعتها تُجلبان بالمفتاح السرّيّ، ولا يُقرأ من الجسم إلّا معرّفٌ يُبحث عنه. لا دفعة مدفوعة ⇒ 200 بلا أثر
+     * (إشعار لوحة البوّابة وعودة العميل مساران آخران للتسوية نفسها).
+     */
+    public function invoice(Request $request, string $gateway): JsonResponse
+    {
+        $driver = $this->driver($gateway);
+        abort_unless($driver->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
+
+        $paymentId = $driver->paymentIdFromInvoiceNotification($request);
+        $payment = $paymentId !== null ? $driver->fetchPayment($paymentId) : null;
+
+        Log::info('payment.invoice_notice.hit', ['gateway' => $gateway, 'id' => $request->input('id'), 'payment_id' => $paymentId, 'ip' => $request->ip()]);
+
+        if ($payment !== null) {
+            PaymentReconciler::settle($payment, 'invoice_notice');
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    /** بوّابةٌ غير مسجّلة في الإعداد ⇒ لا مستقبِل (404) — لا استثناء ولا كشفٌ لما هو مسجّل. */
+    private function driver(string $gateway): PaymentGateway
+    {
+        $gateways = app(PaymentGateways::class);
+        abort_unless(in_array($gateway, $gateways->names(), true), 404);
+
+        return $gateways->get($gateway);
     }
 }
