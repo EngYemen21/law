@@ -57,6 +57,12 @@ class LegalDocument extends Model
         );
     }
 
+    /** المعتمد لا يُعدَّل ولا يُعاد اعتماده (`DocumentEditorController::update/approve`). */
+    public function isApproved(): bool
+    {
+        return $this->status === 'approved';
+    }
+
     // ── العلاقات ──
 
     /** @return BelongsTo<User, $this> */
@@ -119,7 +125,7 @@ class LegalDocument extends Model
             'caseNo' => $this->legalCase?->number,
             'updatedAt' => $this->updated_at?->translatedFormat('d M Y · h:i A'),
             'createdAt' => $this->created_at?->translatedFormat('d M Y'),
-            'approved' => $this->status === 'approved',
+            'approved' => $this->isApproved(),
             'approvedBy' => $this->approver?->name,
             'approvedAt' => $this->approved_at?->translatedFormat('d M Y · h:i A'),
         ];

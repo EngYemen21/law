@@ -148,6 +148,8 @@ const LawyerEditor: React.FC<Props> = ({
       ? '/employee'
       : '/lawyer';
   const isNew = !doc;
+  // المعتمد لا يُعدَّل (الخادم يرفض الحفظ 422) — المحرّر للقراءة: لا كتابة ولا حفظ ولا أدوات تحرير
+  const locked = !!doc?.approved;
 
   const matchedTemplate = incomingTemplate
     ? LEGAL_TEMPLATES.find((t) => t.id === incomingTemplate)
@@ -271,6 +273,7 @@ const LawyerEditor: React.FC<Props> = ({
 
   // ── TipTap editor ──
   const editor = useEditor({
+    editable: !locked,
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4] },
@@ -347,10 +350,14 @@ const LawyerEditor: React.FC<Props> = ({
     }
   }, [doc, editor, defaultHeader, ticket, initialCase]);
 
+  useEffect(() => {
+    editor?.setEditable(!locked);
+  }, [editor, locked]);
+
   // ── حفظ تلقائي يقرأ أحدث القيم من الـ Refs لتفادي أي كتابة فوق العنوان الجديد ──
   const autoSave = useCallback(async () => {
     const currentDoc = docRef.current;
-    if (!editor || !currentDoc || isNewRef.current) return;
+    if (!editor || !currentDoc || isNewRef.current || currentDoc.approved) return;
     try {
       const { data } = await axios.put(`${base}/editor/${currentDoc.id}`, {
         title: titleRef.current || 'بدون عنوان',
@@ -602,6 +609,13 @@ const LawyerEditor: React.FC<Props> = ({
             </span>
           )}
 
+          {locked && (
+            <span className="chip" style={{ height: 32, fontSize: 12, background: 'rgba(30, 157, 107, 0.1)', border: '1px solid rgba(30, 157, 107, 0.3)', color: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '0 10px', fontWeight: 700 }}>
+              <Icon name="lock" style={{ width: 13, height: 13 }} /> معتمد — للقراءة فقط
+            </span>
+          )}
+
+          {!locked && (<>
           {/* زر المساعد الذكي */}
           <button
             type="button"
@@ -651,6 +665,7 @@ const LawyerEditor: React.FC<Props> = ({
           <button type="button" className="btn soft sm" onClick={save} disabled={isSaving} style={{ height: 32, fontSize: 12 }}>
             <Icon name="check" /> {isSaving ? 'جارٍ الحفظ...' : 'حفظ'}
           </button>
+          </>)}
 
           {/* زر تصدير Word */}
           <button type="button" className="btn soft sm" onClick={exportToWord} style={{ height: 32, fontSize: 12, gap: 5 }} title="تنزيل كملف Word">
@@ -720,11 +735,13 @@ const LawyerEditor: React.FC<Props> = ({
           placeholder="عنوان المستند أو اللائحة..."
           value={title}
           onChange={(e) => setTitle(e.target.value)}
+          readOnly={locked}
         />
         <select
           className="select sm"
           value={type}
           onChange={(e) => setType(e.target.value)}
+          disabled={locked}
           style={{ minWidth: 160 }}
         >
           {Object.entries(types).map(([k, v]) => (
@@ -736,6 +753,7 @@ const LawyerEditor: React.FC<Props> = ({
           type="button"
           className={`btn ${showHeaderSettings ? 'primary' : 'soft'} sm`}
           onClick={() => setShowHeaderSettings(!showHeaderSettings)}
+          disabled={locked}
           style={{ height: 32, fontSize: 12, gap: 5 }}
         >
           <Icon name="compass" /> {headerConfig.showHeader ? 'الترويسة (مفعلة)' : 'الترويسة (مخفية)'}
@@ -755,7 +773,7 @@ const LawyerEditor: React.FC<Props> = ({
       </div>
 
       {/* ── 2.5. لوحة إعدادات الترويسة ── */}
-      {showHeaderSettings && (
+      {showHeaderSettings && !locked && (
         <div className="legal-editor-header-settings">
           <div className="gl" style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>إعدادات الترويسة الرسمية وشعار المنصة</span>
@@ -811,6 +829,7 @@ const LawyerEditor: React.FC<Props> = ({
       )}
 
       {/* ── 3. شريط أدوات التنسيق (Toolbar) ── */}
+      {!locked && (
       <div className="legal-editor-toolbar">
         {/* ملف مخفي لرفع الصور والأختام من الجهاز */}
         <input
@@ -1253,6 +1272,7 @@ const LawyerEditor: React.FC<Props> = ({
           </>
         )}
       </div>
+      )}
 
       {/* ── 4. ترويسة المستند الرسمية ── */}
       {headerConfig.showHeader && (
@@ -1287,7 +1307,7 @@ const LawyerEditor: React.FC<Props> = ({
         <span>📝 <strong>{wordCount}</strong> كلمة</span>
         {doc && <span>الحالة: <strong style={{ color: doc.approved ? 'var(--green)' : 'var(--amber)' }}>{doc.statusLabel}</strong></span>}
         {doc?.approved && <span style={{ color: 'var(--green)', fontWeight: 700 }}>✓ معتمد رسمياً</span>}
-        <span>💾 حفظ تلقائي مفعّل</span>
+        <span>{locked ? '🔒 مقفل — لا يُعدَّل بعد الاعتماد' : '💾 حفظ تلقائي مفعّل'}</span>
       </div>
 
       {/* ── 7. لوحة المساعد الذكي المدمج (AI Assistant Drawer) ── */}

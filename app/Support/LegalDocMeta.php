@@ -73,7 +73,7 @@ final class LegalDocMeta
         return [
             'date' => ($doc->created_at ?? now())->translatedFormat('d M Y'),
             'author' => (string) ($doc->user->name ?? 'المحامي المختص'),
-            'approved' => $doc->status === 'approved'
+            'approved' => $doc->isApproved()
                 ? ['by' => (string) ($doc->approver->name ?? 'الإدارة'), 'at' => $doc->approved_at ? $doc->approved_at->translatedFormat('d M Y') : '']
                 : null,
         ];

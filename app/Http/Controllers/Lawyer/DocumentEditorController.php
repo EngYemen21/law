@@ -212,6 +212,9 @@ class DocumentEditorController extends Controller
     public function update(Request $request, LegalDocument $doc)
     {
         $this->guardAccess($request, $doc);
+        // قاعدة المنظومة (`ApprovalLocksEveryEditorTest`): المعتمد لا يُعدَّل — لأحدٍ ولا الإدارة.
+        // كان الحفظ التلقائيّ يستبدل نصّه وتبقى شارة «معتمد رسمياً» على نصٍّ لم يُعتمد.
+        abort_if($doc->isApproved(), 422, 'المستند معتمد — لا يُعدَّل بعد الاعتماد.');
 
         $data = $request->validate([
             'title' => ['required', 'string', 'max:255'],
@@ -248,6 +251,8 @@ class DocumentEditorController extends Controller
         if ($doc->case_id && ! self::canUseCase($user, LegalCase::find($doc->case_id))) {
             abort(403, 'هذه القضية غير مُسندة إليك.');
         }
+        // اعتمادٌ ثانٍ كان يغيّر المعتمِد وتاريخه ويكتب لائحة القضيّة مرّةً أخرى
+        abort_if($doc->isApproved(), 422, 'المستند معتمد من قبل.');
 
         $doc->update([
             'status' => 'approved',
