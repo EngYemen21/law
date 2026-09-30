@@ -85,6 +85,12 @@ final class SessionWindow
         return SettingsRegistry::int('session_join_opens_minutes');
     }
 
+    /** «15 دقيقة» — نافذة بدء الطاقم بوحدتها الطبيعيّة، لرسالة الرفض. */
+    public static function staffStartLabel(): string
+    {
+        return ArabicCount::duration(SettingsRegistry::int('consult_staff_start_minutes'));
+    }
+
     /** هل يستطيع الطاقم بدء جلسةٍ موعدها هذا؟ (قبله بـ`consult_staff_start_minutes`) — بلا موعدٍ ⇒ نعم. */
     public static function staffStartOpened(?CarbonInterface $startsAt): bool
     {

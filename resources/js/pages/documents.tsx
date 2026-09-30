@@ -3,6 +3,7 @@ import React, { useRef, useState } from 'react';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
 import { type DocItem } from '@/lib/data';
+import { DOCUMENT_MB, mbToBytes } from '@/lib/upload-limits';
 
 // يطابق viewDocs في index (82).html — رفع/تنزيل حقيقيّان
 
@@ -33,8 +34,8 @@ const Documents: React.FC<{ docsOut: DocItem[]; docsUp: DocItem[] }> = ({ docsOu
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      toast('حجم الملف يتجاوز الحدّ المسموح (2 ميجابايت)');
+    if (file.size > mbToBytes(DOCUMENT_MB)) {
+      toast(`حجم الملف يتجاوز الحدّ المسموح (${DOCUMENT_MB} ميجابايت)`);
       if (fileRef.current) fileRef.current.value = '';
       return;
     }

@@ -63,6 +63,10 @@ class HandleInertiaRequests extends Middleware
         'consult_request_late_minutes',
         // مهلة فتح الدخول قبل الموعد — نصوص «يُفعَّل الدخول قبل الموعد بـ…» في الاستشارات والاجتماعات
         'session_join_opens_minutes',
+        // نافذة بدء الطاقم — نصوص «البدء قبل الموعد بـ…» في شاشات الاستشارات
+        'consult_staff_start_minutes',
+        // «يُرجى الحضور قبل الموعد بـ…» في بطاقة الموعد — ونظيرها PDF يقرأ الإعداد نفسه
+        'office_arrival_minutes',
     ];
 
     /**

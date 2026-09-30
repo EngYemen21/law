@@ -89,9 +89,15 @@ class SettingsNotHardcodedTest extends TestCase
                     'app/Support/SettingsRegistry.php' => 1,
                 ],
             ],
-            // مهلة فتح الدخول إعدادٌ (`session_join_opens_minutes`) — النصّ يُبنى منها (`joinOpensLabel` · `useJoinOpensText`)
-            'مهلة فتح الدخول منقوشةً في نصّ' => [
-                'pattern' => '/قبل الموعد ب\s*ـ?\s*(?:5|٥)\s*(?:د|دقائق)/u',
+            // نوافذ الموعد إعدادات (`session_join_opens_minutes` · `consult_staff_start_minutes` · `office_arrival_minutes`) —
+            // النصّ يُبنى منها. النمط يلتقط الرقم والكلمة معاً: فاتت المرحلةَ الثانية «بخمس دقائق» و«بربع ساعة» لأنّها التقطت الرقم وحده
+            'نافذة موعدٍ منقوشةً في نصّ' => [
+                'pattern' => '/قبل (?:الموعد|موعدها) ب\s*ـ?\s*(?:5|٥|15|١٥)\s*(?:د|دقائق|دقيقة)|بخمس دقائق|بربع ساعة|ربع ساعة قبل/u',
+                'allow' => [],
+            ],
+            // حدّ الرفع ثابتٌ واحد (`UploadLimits` ونظيره `upload-limits.ts`) لا رقمٌ في كلّ متحكّم (قرار المالك 2026-09-30)
+            'حدّ رفعٍ منقوش' => [
+                'pattern' => '/max:(?:10240|2048)\b|\b(?:2|10) \* 1024 \* 1024|حتى (?:2|10) ?MB/u',
                 'allow' => [],
             ],
             '`APP_NAME` بديلاً عن اسم المكتب' => [

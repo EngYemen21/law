@@ -1,4 +1,6 @@
 import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
+import { type Message } from '@/lib/chat';
+import { ATTACHMENT_MB, DOCUMENT_MB } from '@/lib/upload-limits';
 // ─────────────────────────────────────────────────────────────────────────────
 // ثوابت وأنواع تدفّق طلب التنفيذ (نظير EXEC_FLOW في index (21).html).
 // المرحلة 2: لا بيانات وهميّة ولا منطق محلّي — الحالة كلّها من الخادم عبر Inertia،
@@ -40,14 +42,13 @@ export function execVatLabel(rate: number): string {
 
 // صيغ الإرفاق في محادثة التنفيذ — تطابق ExecFlowController::attach (يضيف XLSX عن نظيرتها في التذاكر/القضايا)
 export const EXEC_DOC_ACCEPT = '.pdf,.jpg,.jpeg,.png,.doc,.docx,.xlsx';
-export const EXEC_DOC_HINT = 'الصيغ المسموحة: PDF، JPG، PNG، DOC، DOCX، XLSX — حتى 10MB لكل ملف';
+export const EXEC_DOC_HINT = `الصيغ المسموحة: PDF، JPG، PNG، DOC، DOCX، XLSX — حتى ${ATTACHMENT_MB}MB لكل ملف`;
 
-// رفع المستند **المطلوب** أضيق من إرفاق المحادثة (ExecFlowController::uploadDocument: 2MB وبلا DOC/XLSX)،
+// رفع المستند **المطلوب** أضيق من إرفاق المحادثة (ExecFlowController::uploadDocument: `DOCUMENT_MB` وبلا DOC/XLSX)،
 // وكانت الشاشة تصمت عن الحدّ فيُردّ رفع العميل بـ422 بعد انتظار الرفع كلّه.
 export const EXEC_REQ_DOC_ACCEPT = '.pdf,.jpg,.jpeg,.png,.docx';
-export const EXEC_REQ_DOC_HINT = 'الصيغ المسموحة: PDF، JPG، PNG، DOCX — حتى 2MB لكل مستند';
+export const EXEC_REQ_DOC_HINT = `الصيغ المسموحة: PDF، JPG، PNG، DOCX — حتى ${DOCUMENT_MB}MB لكل مستند`;
 
-import { type Message } from '@/lib/chat';
 
 export type Role = 'client' | 'lawyer' | 'admin' | 'employee';
 

@@ -19,6 +19,7 @@ import {
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+import { useJoinOpensText, useStaffStartText } from '@/lib/settings';
 import { useServerAction } from '@/lib/use-server-action';
 
 export type LawyerKanbanCol = 'waiting' | 'live' | 'drafting' | 'completed';
@@ -64,6 +65,8 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
 }) => {
   const ask = useConfirm();
   const reschedule = useConsultReschedule('/lawyer');
+  const joinOpens = useJoinOpensText();
+  const staffStart = useStaffStartText();
   const toast = useToast();
 
   // ── الحالة الأساسية ومزامنة البيانات ──
@@ -220,7 +223,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   // ── الإجراءات الميدانية للمحامي ──
 
   // بدء الجلسة
-  // رسالة الخادم لا نصّ ثابت: «فات الموعد» و«قبل الموعد بربع ساعة» سببان مختلفان
+  // رسالة الخادم لا نصّ ثابت: «فات الموعد» و«خارج نافذة البدء» سببان مختلفان
   const handleStart = (consult: ConsultCard) =>
     action.run(`/lawyer/consults/${consult.id}/start`, {
       confirm: CONFIRM_START_CONSULT,
@@ -961,7 +964,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
                           {drawerConsult.canJoin === false ? (
                             <p className="action-hint" style={{ margin: 0 }}>
-                              <Icon name="info" /> يُفتح رابط الغرفة قبل الموعد بخمس دقائق.
+                              <Icon name="info" /> يُفتح رابط الغرفة قبل الموعد بـ{joinOpens}.
                             </p>
                           ) : (
                             <Link href={drawerConsult.slink} className="btn primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -982,7 +985,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                             type="button"
                             className="btn primary sm"
                             disabled={isProcessing || drawerConsult.startable === false}
-                            title={drawerConsult.startable === false ? 'خارج نافذة البدء (ربع ساعة قبل الموعد)' : undefined}
+                            title={drawerConsult.startable === false ? `خارج نافذة البدء (${staffStart} قبل الموعد)` : undefined}
                             onClick={() => handleStart(drawerConsult)}
                           >
                             <Icon name="check" /> بدء الجلسة الآن

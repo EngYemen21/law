@@ -41,6 +41,10 @@ export interface SharedSettings {
   consult_request_late_minutes: number;
   /** يُفعَّل زرّ الدخول للجلسة المرئيّة قبل الموعد بهذه الدقائق — النصّ منها بـ`joinOpensText`. */
   session_join_opens_minutes: number;
+  /** يستطيع الطاقم بدء الاستشارة قبل الموعد بهذه الدقائق — النصّ منها بـ`useStaffStartText`. */
+  consult_staff_start_minutes: number;
+  /** الحضور قبل الموعد الحضوريّ بالدقائق — نصّ بطاقة الموعد (ونظيرها `AppointmentCardPdf`). */
+  office_arrival_minutes: number;
 }
 
 /** متغيّرات النظام من الخاصيّة المشتركة. */
@@ -59,4 +63,9 @@ export function installmentsText(count: number): string {
 /** «5 دقائق» — مهلة فتح الدخول بوحدتها الطبيعيّة، لكلّ نصٍّ يعلنها للعميل (نظير `SessionWindow::joinOpensLabel`). */
 export function useJoinOpensText(): string {
   return humanDuration(useSettings().session_join_opens_minutes) ?? '';
+}
+
+/** «15 دقيقة» — نافذة بدء الطاقم بوحدتها الطبيعيّة (نظير `SessionWindow::staffStartLabel`). */
+export function useStaffStartText(): string {
+  return humanDuration(useSettings().consult_staff_start_minutes) ?? '';
 }

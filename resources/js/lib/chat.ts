@@ -1,3 +1,5 @@
+import { ATTACHMENT_MB } from '@/lib/upload-limits';
+
 // ============================================================
 // منطق المحادثات — مستخرج من index (82).html
 // convGet / ctRenderMsg / dvSend / flowHTML ... إلخ
@@ -19,7 +21,7 @@ export const CLIENT_NAME = 'عبدالله العتيبي';
 
 // امتدادات المستندات المسموح رفعها من العميل — يطابق TicketController::ALLOWED_DOC_MIMES بالخادم
 export const ALLOWED_DOC_ACCEPT = '.pdf,.jpg,.jpeg,.png,.doc,.docx';
-export const ALLOWED_DOC_HINT = 'الصيغ المسموحة: PDF، JPG، PNG، DOC، DOCX — حتى 10MB لكل ملف';
+export const ALLOWED_DOC_HINT = `الصيغ المسموحة: PDF، JPG، PNG، DOC، DOCX — حتى ${ATTACHMENT_MB}MB لكل ملف`;
 
 // يطابق nowClock()
 export function nowClock(): string {

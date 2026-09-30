@@ -26,6 +26,7 @@ use App\Support\PdfRenderer;
 use App\Support\Permissions;
 use App\Support\ReportPrint;
 use App\Support\SettingsRegistry;
+use App\Support\UploadLimits;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -518,7 +519,7 @@ class ExecFlowController extends Controller
         abort_unless($user->role === Role::Client && $execution->user_id === $user->id, 403);
         abort_if($execution->isClosed(), 422, 'لا يمكن إرفاق مستندات على ملفّ تنفيذ مغلق.');
 
-        $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx,xlsx']]); // حتى 10MB
+        $request->validate(['file' => ['required', 'file', UploadLimits::rule(UploadLimits::ATTACHMENT_KB), 'mimes:pdf,jpg,jpeg,png,doc,docx,xlsx']]);
 
         $file = $request->file('file');
         $name = $file->getClientOriginalName();
@@ -683,9 +684,9 @@ class ExecFlowController extends Controller
         // مباشر يستبدل مستنداً **اعتمده المكتب** بآخر، ويبقى وسمه «مقبول».
         abort_unless(in_array($document->status, ['مطلوب', 'مرفوض'], true), 422, 'هذا المستند لا يقبل الرفع في حالته الحالية.');
 
-        $request->validate(['file' => ['required', 'file', 'max:2048', 'mimes:pdf,jpg,jpeg,png,docx']], [
+        $request->validate(['file' => ['required', 'file', UploadLimits::rule(UploadLimits::DOCUMENT_KB), 'mimes:pdf,jpg,jpeg,png,docx']], [
             'file.required' => 'يرجى اختيار ملف.',
-            'file.max' => 'حجم الملف يتجاوز الحدّ المسموح (2 ميجابايت).',
+            'file.max' => 'حجم الملف يتجاوز الحدّ المسموح ('.UploadLimits::label(UploadLimits::DOCUMENT_KB).').',
             'file.mimes' => 'الصيغة غير مدعومة (المسموح: PDF, JPG, PNG, DOCX).',
         ]);
 

@@ -29,6 +29,7 @@ use App\Support\TicketDocumentRequirements;
 use App\Support\TicketJourney;
 use App\Support\TicketTriage;
 use App\Support\TicketWritePolicy;
+use App\Support\UploadLimits;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -176,12 +177,12 @@ class TicketController extends Controller
         return response()->noContent();
     }
 
-    // إرفاق مستند من الموظف بالتذكرة (يراه العميل) — نفس قيود رفع العميل (10MB + الصيغ المسموحة)
+    // إرفاق مستند من الموظف بالتذكرة (يراه العميل) — نفس قيود رفع العميل (`UploadLimits::ATTACHMENT_KB` + الصيغ المسموحة)
     public function attach(Request $request, Ticket $ticket): HttpResponse
     {
         TicketWritePolicy::assertWritable($ticket);
 
-        $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx']]);
+        $request->validate(['file' => ['required', 'file', UploadLimits::rule(UploadLimits::ATTACHMENT_KB), 'mimes:pdf,jpg,jpeg,png,doc,docx']]);
 
         $file = $request->file('file');
         $name = $file->getClientOriginalName();

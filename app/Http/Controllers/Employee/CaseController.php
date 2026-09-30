@@ -19,6 +19,7 @@ use App\Support\ConversationHandler;
 use App\Support\ExecutionCreation;
 use App\Support\Notify;
 use App\Support\Permissions;
+use App\Support\UploadLimits;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -184,7 +185,7 @@ class CaseController extends Controller
         abort_if($case->status === CaseStatus::Archived->value, 422, 'لا يمكن إرفاق مستندات على قضية مؤرشفة.');
 
         $data = $request->validate([
-            'file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx'],
+            'file' => ['required', 'file', UploadLimits::rule(UploadLimits::ATTACHMENT_KB), 'mimes:pdf,jpg,jpeg,png,doc,docx'],
             'hearing_id' => ['nullable', 'integer', 'exists:case_hearings,id'],
         ]);
 

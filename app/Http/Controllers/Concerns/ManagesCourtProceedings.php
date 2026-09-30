@@ -19,6 +19,7 @@ use App\Support\CaseJourney;
 use App\Support\Live;
 use App\Support\MeetingTime;
 use App\Support\Notify;
+use App\Support\UploadLimits;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -92,7 +93,7 @@ trait ManagesCourtProceedings
             'hearing_time' => ['required', 'date_format:H:i'],
             'hearing_mode' => ['required', 'in:حضورية,عن بُعد'],
             'hearing_duration_min' => CaseHearing::durationRule(),
-            'file' => ['nullable', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png'],
+            'file' => ['nullable', 'file', UploadLimits::rule(UploadLimits::ATTACHMENT_KB), 'mimes:pdf,jpg,jpeg,png'],
         ], [
             'case_no.required' => 'أدخل رقم القضية كما صدر من ناجز.',
             'circuit.required' => 'أدخل اسم الدائرة القضائية.',

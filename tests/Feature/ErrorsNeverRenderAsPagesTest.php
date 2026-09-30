@@ -8,6 +8,7 @@ use App\Http\Middleware\HandleInertiaRequests;
 use App\Models\Consult;
 use App\Models\User;
 use App\Support\ErrorResponse;
+use App\Support\SessionWindow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Session\TokenMismatchException;
 use Illuminate\Support\Facades\Route;
@@ -58,7 +59,7 @@ class ErrorsNeverRenderAsPagesTest extends TestCase
         $response = $this->actingAs($lawyer)->withHeader('X-Inertia', 'true')
             ->post("/lawyer/consults/{$consult->id}/start");
 
-        $this->assertActionRefused($response, 'ربع ساعة');
+        $this->assertActionRefused($response, SessionWindow::staffStartLabel());
         $this->assertSame('بانتظار الجلسة', $consult->fresh()->session, 'والحارس ما زال يمنع');
     }
 
@@ -242,7 +243,7 @@ class ErrorsNeverRenderAsPagesTest extends TestCase
 
         $this->actingAs($lawyer)->postJson("/lawyer/consults/{$consult->id}/start")
             ->assertStatus(422)
-            ->assertJsonPath('message', fn (string $m) => str_contains($m, 'ربع ساعة'));
+            ->assertJsonPath('message', fn (string $m) => str_contains($m, SessionWindow::staffStartLabel()));
     }
 
     public function test_json_framework_defaults_are_translated(): void
@@ -288,7 +289,7 @@ class ErrorsNeverRenderAsPagesTest extends TestCase
         $response = $this->actingAs($lawyer)->post("/lawyer/consults/{$consult->id}/start");
 
         $response->assertStatus(422);
-        $response->assertSee('ربع ساعة');
+        $response->assertSee(SessionWindow::staffStartLabel());
         $this->assertDoesNotMatchRegularExpression(self::ENGLISH_ERROR_WORDS, strip_tags((string) $response->getContent()));
     }
 

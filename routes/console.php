@@ -20,7 +20,7 @@ Schedule::command('zoom:pull-recordings')->everyFifteenMinutes()->withoutOverlap
 // تذكير بالاجتماعات القادمة عبر البريد قبل الموعد بـ60د (يحتاج `schedule:run` عبر cron)
 Schedule::command('meetings:send-reminders')->everyMinute()->withoutOverlapping();
 
-// تذكير بمواعيد الاستشارات عبر البريد (طبقتا: قبل 24 ساعة، وقبل ساعة) (يحتاج `schedule:run` عبر cron)
+// تذكير بمواعيد الاستشارات (بريد ثمّ رسالة نصّيّة — المدّتان من الإعدادات `consult_reminder_*`) (يحتاج `schedule:run` عبر cron)
 Schedule::command('consults:send-reminders')->everyMinute()->withoutOverlapping();
 
 // تذكير بجلسات القضايا — إشعار داخلي + بريد (طبقتا: قبل 24 ساعة، وقبل ساعة) (يحتاج `schedule:run` عبر cron)

@@ -6,6 +6,7 @@ use App\Models\CaseDocument;
 use App\Models\Document;
 use App\Models\ExecutionDocument;
 use App\Models\TicketDocument;
+use App\Support\UploadLimits;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -113,11 +114,11 @@ class DocumentController extends Controller
     {
         // قائمة السماح نفسها المعتمدة في بقيّة الرفوعات — كان هذا المسار (وإثبات السداد)
         // يقبل أي امتداد بما فيه التنفيذيّ والمضغوط، خلافاً لسياسة المشروع المعلنة.
-        $request->validate(['file' => ['required', 'file', 'max:2048', 'mimes:'.self::ALLOWED_DOC_MIMES]], [
+        $request->validate(['file' => ['required', 'file', UploadLimits::rule(UploadLimits::DOCUMENT_KB), 'mimes:'.self::ALLOWED_DOC_MIMES]], [
             'file.required' => 'يرجى اختيار ملف.',
             'file.file' => 'الملف غير صالح.',
             'file.mimes' => 'صيغة الملف غير مسموحة (المسموح: PDF أو صورة أو مستند Word).',
-            'file.max' => 'حجم الملف يتجاوز الحدّ المسموح (2 ميجابايت).',
+            'file.max' => 'حجم الملف يتجاوز الحدّ المسموح ('.UploadLimits::label(UploadLimits::DOCUMENT_KB).').',
         ]);
 
         $file = $request->file('file');

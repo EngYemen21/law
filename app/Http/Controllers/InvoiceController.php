@@ -12,6 +12,7 @@ use App\Services\Payments\PaymentGateways;
 use App\Support\Finance\ReceiptVoucherDocument;
 use App\Support\Finance\TaxInvoiceDocument;
 use App\Support\PdfRenderer;
+use App\Support\UploadLimits;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -49,11 +50,11 @@ class InvoiceController extends Controller
         abort_if($invoice->awaitsEarlierInstallment(), 422, self::EARLIER_FIRST);
 
         // قائمة السماح نفسها المعتمدة في بقيّة الرفوعات — كان يقبل أي امتداد
-        $request->validate(['file' => ['required', 'file', 'max:2048', 'mimes:pdf,jpg,jpeg,png,doc,docx']], [ // حتى 2MB (يطابق upload_max_filesize)
+        $request->validate(['file' => ['required', 'file', UploadLimits::rule(UploadLimits::DOCUMENT_KB), 'mimes:pdf,jpg,jpeg,png,doc,docx']], [ // الحدّ يطابق upload_max_filesize — `UploadLimits::DOCUMENT_KB`
             'file.required' => 'يرجى اختيار ملف.',
             'file.file' => 'الملف غير صالح.',
             'file.mimes' => 'صيغة الملف غير مسموحة (المسموح: PDF أو صورة أو مستند Word).',
-            'file.max' => 'حجم الملف يتجاوز الحدّ المسموح (2 ميجابايت).',
+            'file.max' => 'حجم الملف يتجاوز الحدّ المسموح ('.UploadLimits::label(UploadLimits::DOCUMENT_KB).').',
         ]);
 
         $path = $request->file('file')->store("invoice-proofs/{$request->user()->id}");

@@ -100,7 +100,7 @@ class AppointmentCardPdf
             // لا صفَّ سدادٍ بلا فاتورةٍ يُسأل عنها — كان يُطبع «بانتظار السداد» لموعدٍ لا استشارة له
             .($a['payLabel'] !== null ? '<div class="apptx-row"><div class="ri">'.self::icon('card').'</div><div class="rc"><div class="rl">حالة السداد</div><div class="rv"><span class="apptx-pay '.$payTone.'">'.self::icon('check').' '.e($a['payLabel']).'</span></div></div></div>' : '')
             .'</div></div>'
-            .'<div class="apptx-foot"><span>'.e($officeContact).'</span><span>يُرجى الحضور قبل الموعد بـ15 دقيقة وإحضار المستندات المطلوبة</span></div>'
+            .'<div class="apptx-foot"><span>'.e($officeContact).'</span><span>يُرجى الحضور قبل الموعد بـ'.e(ArabicCount::duration(SettingsRegistry::int('office_arrival_minutes'))).' وإحضار المستندات المطلوبة</span></div>'
             .'</div></body></html>';
     }
 

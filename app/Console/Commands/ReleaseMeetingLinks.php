@@ -27,7 +27,7 @@ class ReleaseMeetingLinks extends Command
         $due = Consult::with('user')
             ->where('channel', 'مرئية')
             ->whereNull('link_released_at')
-            // والجارية تُطلَق أيضاً: الطاقم يبدأ قبل الموعد بربع ساعة، وبريد الرابط للعميل يلزم
+            // والجارية تُطلَق أيضاً: الطاقم يبدأ قبل الموعد بـ`consult_staff_start_minutes`، وبريد الرابط للعميل يلزم
             ->whereIn('session', [SessionState::Waiting->value, SessionState::Live->value])
             ->whereNotNull('starts_at')
             ->where('starts_at', '<=', now()->addMinutes(SessionWindow::joinOpensBeforeMinutes()))

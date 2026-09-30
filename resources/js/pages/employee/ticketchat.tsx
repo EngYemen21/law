@@ -24,6 +24,7 @@ import { echo } from '@/lib/echo';
 import { useCan } from '@/lib/permissions';
 import { todayISO } from '@/lib/local-date';
 import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
+import { ATTACHMENT_MB } from '@/lib/upload-limits';
 import { useServerAction } from '@/lib/use-server-action';
 import type { EmployeeTicketCard } from '@/types';
 
@@ -210,7 +211,7 @@ const EmployeeTicketChat: React.FC<{
         toast(`⚠️ ${msg}`);
       });
   };
-  // إرفاق مستند من الموظف — نفس قيود رفع العميل (الصيغ + 10MB)؛ الرسالة تصل عبر البثّ
+  // إرفاق مستند من الموظف — نفس قيود رفع العميل (الصيغ + `ATTACHMENT_MB`)؛ الرسالة تصل عبر البثّ
   const fileRef = useRef<HTMLInputElement>(null);
   const [attachBusy, setAttachBusy] = useState(false);
   const attachFile = (f: File) => {
@@ -220,7 +221,7 @@ const EmployeeTicketChat: React.FC<{
     axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/attach`, fd)
       .then(() => toast('✅ تم إرفاق المستند بالتذكرة'))
       .catch((err) => {
-        const msg = err.response?.data?.message || 'تعذّر إرفاق المستند (الصيغ المسموحة: PDF/JPG/PNG/DOC — حتى 10MB)';
+        const msg = err.response?.data?.message || `تعذّر إرفاق المستند (الصيغ المسموحة: PDF/JPG/PNG/DOC — حتى ${ATTACHMENT_MB}MB)`;
         toast(`⚠️ ${msg}`);
       })
       .finally(() => setAttachBusy(false));

@@ -15,6 +15,7 @@ use App\Support\CaseJourney;
 use App\Support\CaseTicketDocuments;
 use App\Support\ConversationFiles;
 use App\Support\LawyerName;
+use App\Support\UploadLimits;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -115,7 +116,7 @@ class CaseController extends Controller
         $this->authorizeCase($request, $case);
         abort_if(! $case->isActive(), 422, 'لا يمكن إرفاق مستندات على قضية مغلقة أو مؤرشفة.');
 
-        $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx']]); // حتى 10MB
+        $request->validate(['file' => ['required', 'file', UploadLimits::rule(UploadLimits::ATTACHMENT_KB), 'mimes:pdf,jpg,jpeg,png,doc,docx']]);
 
         $file = $request->file('file');
         $name = $file->getClientOriginalName();

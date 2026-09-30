@@ -300,7 +300,8 @@ class ConsultBillingSettingsTest extends TestCase
         $rules = [
             // مهلة الفاتورة: التاريخ ونصّه يُبنيان في `InvoiceDue` وحده
             'نصّ مهلة فاتورة منقوش' => ['/[\'"]due_label[\'"]\s*=>\s*[\'"]خلال/u', ['app/Support/Finance/InvoiceDue.php' => 1]],
-            'تاريخ استحقاق منقوش' => ['/[\'"]due_at[\'"]\s*=>\s*now\(\)->addDays\(/', ['app/Support/Finance/InvoiceDue.php' => 1]],
+            // `DecisionTasks`: أيّام استحقاق مهامّ القرارات من الإعداد `decision_task_due_days` (تدقيق الإعدادات — المرحلة ٣)
+            'تاريخ استحقاق منقوش' => ['/[\'"]due_at[\'"]\s*=>\s*now\(\)->addDays\(/', ['app/Support/Finance/InvoiceDue.php' => 1, 'app/Support/DecisionTasks.php' => 1]],
             // العنوان والمدينة: السجلّ وحده يقرأ ملفّ الإعداد (افتراضاً)
             'قراءة config(office.*) مباشرة' => ['/config\(\s*[\'"]office\./', ['app/Support/SettingsRegistry.php' => 2]],
             'بريد المنظِّم منقوش' => ['/no-reply@salasel\.sa/', ['app/Support/SettingsRegistry.php' => 1]],

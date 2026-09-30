@@ -6,6 +6,7 @@ import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import type {Invoice} from '@/lib/data';
 import Icon from '@/lib/icons';
+import { DOCUMENT_MB, mbToBytes } from '@/lib/upload-limits';
 import { useServerAction } from '@/lib/use-server-action';
 
 // يطابق viewInvoices في index (82).html — دفع حقيقي عبر ميسّر + رفع إثبات + PDF حقيقي (Browsershot)
@@ -29,8 +30,8 @@ const InvRow: React.FC<{ v: Invoice }> = ({ v }) => {
 return;
 }
 
-    if (file.size > 2 * 1024 * 1024) {
-      toast('حجم الملف يتجاوز الحدّ المسموح (2 ميجابايت)');
+    if (file.size > mbToBytes(DOCUMENT_MB)) {
+      toast(`حجم الملف يتجاوز الحدّ المسموح (${DOCUMENT_MB} ميجابايت)`);
 
       if (fileRef.current) {
 fileRef.current.value = '';

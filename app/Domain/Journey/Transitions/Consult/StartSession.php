@@ -9,6 +9,7 @@ use App\Events\Journey\ConsultSessionStarted;
 use App\Events\RoomStateChanged;
 use App\Models\Consult;
 use App\Models\User;
+use App\Support\SessionWindow;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -54,7 +55,7 @@ final class StartSession extends Transition
 
         return $entity->isMissed()
             ? 'فات موعد هذه الجلسة — سجّل «لم يحضر» أو أعد جدولتها.'
-            : 'الجلسة تُبدأ قبل موعدها بربع ساعة فأقرب.';
+            : 'الجلسة تُبدأ قبل موعدها بـ'.SessionWindow::staffStartLabel().' فأقرب.';
     }
 
     public function apply(Model $entity, ?User $actor, array $payload): void

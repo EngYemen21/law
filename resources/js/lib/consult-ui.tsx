@@ -20,6 +20,7 @@ import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
 import { consultMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
 import type { SessionMedia } from '@/lib/recording-ui';
+import { useStaffStartText } from '@/lib/settings';
 import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 import { useServerAction } from '@/lib/use-server-action';
 
@@ -756,6 +757,7 @@ export const SummaryModal: React.FC<{
 
 export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }> = ({ consults, base }) => {
   const rescheduleFlow = useConsultReschedule(base);
+  const staffStart = useStaffStartText();
   const toast = useToast();
   const [filter, setFilter] = useState('all');
   const [summaryOf, setSummaryOf] = useState<ConsultCard | null>(null);
@@ -865,7 +867,7 @@ counts[c.channel]++;
     const room = `${base}/videoroom?ref=${encodeURIComponent(c.ref)}`;
 
     if (c.session === 'بانتظار الجلسة') {
-      // سبب الرفض من الخادم: «فات الموعد» و«قبل الموعد بربع ساعة» فعلان مختلفان.
+      // سبب الرفض من الخادم: «فات الموعد» و«خارج نافذة البدء» فعلان مختلفان.
       void action.run(`${base}/consults/${c.id}/start`, {
         key: c.id, confirm: CONFIRM_START_CONSULT, fallback: 'تعذّر بدء الجلسة',
         onSuccess: () => router.visit(room),
@@ -979,7 +981,7 @@ void navigator.clipboard.writeText(c.slink);
                     c.startable === false ? (
                       /* موعد مستقبلي خارج نافذة البدء — الخادم يسمح بإعادة جدولته والزرّ كان محصوراً بالفائتة */
                       <>
-                        <Badge text="مجدولة — البدء قبل الموعد بـ15د" tone="b-grey" />
+                        <Badge text={`مجدولة — البدء قبل الموعد بـ${staffStart}`} tone="b-grey" />
                         {c.canReschedule && (
                           <button className="btn soft sm" onClick={() => reschedule(c)} type="button">
                             <Icon name="cal" /> إعادة جدولة

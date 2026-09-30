@@ -141,12 +141,12 @@ class LegalDocument extends Model
         return [
             'showHeader' => true,
             'officeName' => SettingsRegistry::str('office_name'),
-            'officeNameEn' => 'Law Office',
+            'officeNameEn' => SettingsRegistry::str('office_name_en'),
             'logoUrl' => '/images/021.png',
             'address' => SettingsRegistry::str('office_address'),
             'phone' => SettingsRegistry::str('office_phone'),
             'email' => SettingsRegistry::str('office_email'),
-            'licenseNo' => '',
+            'licenseNo' => SettingsRegistry::str('office_license_no'),
         ];
     }
 }

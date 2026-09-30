@@ -1579,6 +1579,7 @@ const needsOutput = (m: FullMeetingCard) => m.statusKey === 'ended' && (!m.summa
 const needsApproval = (m: FullMeetingCard) => m.canApprove;
 
 export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: string }> = ({ meetings, base }) => {
+    const joinOpens = useJoinOpensText();
     const openPage = (id: string) => router.visit(`${base}/meeting?id=${encodeURIComponent(id)}`);
     // يُفتح على «قادمة»، وإن لم يكن ثمّة قادمٌ فعلى «المنتهية» — لا شاشةٍ فارغةٍ
     // والقائمةُ مليئة. (تهيئةٌ كسولة لا تأثيرٌ جانبيّ: بلا إعادة تصيير.)
@@ -1743,7 +1744,7 @@ export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: str
                                     <Icon name="video" /> دخول اجتماع Zoom
                                 </button>
                             ) : m.up ? (
-                                <span className="chip muted"><Icon name="clock" /> يُفتح الدخول قبل الموعد بخمس دقائق</span>
+                                <span className="chip muted"><Icon name="clock" /> يُفتح الدخول قبل الموعد بـ{joinOpens}</span>
                             ) : null}
                             <button className="btn soft sm" onClick={() => openPage(m.id)} type="button">
                                 <Icon name="doc" /> فتح الصفحة
