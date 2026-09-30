@@ -80,15 +80,18 @@ class ExecutionCreationTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $lawyer = User::factory()->create(['role' => Role::Lawyer]);
         $admin = User::factory()->create(['role' => Role::Admin]);
+        $colleague = User::factory()->create(['role' => Role::Admin]);
         $case = $this->ruledCase($client, $lawyer);
 
-        $this->actingAs($admin)->post(route('admin.cases.execute', $case))->assertRedirect();
+        $this->actingAs($admin)->post(route('admin.cases.execute', $case), ['amount' => 150000])->assertRedirect();
 
         $exec = Execution::where('case_id', $case->id)->firstOrFail();
         $this->assertSame(3, (int) $exec->stage);
         // المحامي المسنَد يُبلَّغ بأنّ عليه التسعير، والإدارة بأنّها ستعتمده
         $this->assertTrue(UserNotification::where('user_id', $lawyer->id)->where('body', 'like', '%بانتظار تحديد الأتعاب%')->exists());
-        $this->assertTrue(UserNotification::where('user_id', $admin->id)->where('body', 'like', '%بانتظار تحديد الأتعاب واعتمادها%')->exists());
+        // الإدارة (سوى الفاتح نفسه — لا يُشعَر بفعله، قرار المالك 2026-09-30)
+        $this->assertTrue(UserNotification::where('user_id', $colleague->id)->where('body', 'like', '%بانتظار تحديد الأتعاب واعتمادها%')->exists());
+        $this->assertFalse(UserNotification::where('user_id', $admin->id)->where('body', 'like', '%بانتظار تحديد الأتعاب واعتمادها%')->exists());
         // والعميل يُبلَّغ أنّ عرض الأتعاب قادم — لا أنّ التنفيذ جارٍ
         $this->assertTrue(UserNotification::where('user_id', $client->id)->where('body', 'like', '%عرض أتعاب التنفيذ%')->exists());
     }
@@ -112,7 +115,7 @@ class ExecutionCreationTest extends TestCase
         $admin = User::factory()->create(['role' => Role::Admin]);
         $case = $this->ruledCase(User::factory()->create(['role' => Role::Client]));
 
-        $res = $this->actingAs($admin)->post(route('admin.cases.execute', $case));
+        $res = $this->actingAs($admin)->post(route('admin.cases.execute', $case), ['amount' => 150000]);
 
         $exec = Execution::where('case_id', $case->id)->first();
         $this->assertNotNull($exec);

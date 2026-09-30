@@ -10,6 +10,7 @@ use App\Jobs\GenerateTicketReplyJob;
 use App\Jobs\TriageDocumentJob;
 use App\Jobs\TriageTicketOnOpenJob;
 use App\Mail\TicketOpenedMail;
+use App\Models\Execution;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
@@ -107,7 +108,7 @@ class TicketController extends Controller
             'details' => ['nullable', 'string'],
             'opponent_name' => ['nullable', 'string', 'max:190'],
             'opponent_id' => ['nullable', 'string', 'max:60'],
-            'claim_amount' => ['nullable', 'integer', 'min:0'],
+            'claim_amount' => ['nullable', 'integer', 'min:0', 'max:'.Execution::MAX_CLAIM_AMOUNT],
             'exec_sanad' => ['nullable', 'string', Rule::in(ExecFlow::SANADS)],
             'court_name' => ['nullable', 'string', 'max:190'],
             // من الكتالوج لا نصّاً حرّاً: `max:20` كان يقبل أيّ مفردة فتدخل القاعدة قيمةٌ لا يعرفها مرشّح

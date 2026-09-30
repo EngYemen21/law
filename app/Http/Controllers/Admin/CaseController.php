@@ -13,6 +13,7 @@ use App\Enums\Role;
 use App\Events\CaseStatusBroadcast;
 use App\Http\Controllers\Controller;
 use App\Mail\CaseFeeSetMail;
+use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\Setting;
 use App\Models\Ticket;
@@ -288,6 +289,8 @@ class CaseController extends Controller
                 'canExecute' => ExecutionCreation::isEligible($case),
                 // طلب فتح التنفيذ القائم (من المحامي/الموظّف) — يعتمده المدير أو يرفضه من هنا
                 'executionRequest' => CaseExecutionRequest::pending($case),
+                // اقتراح خانة «المبلغ المحكوم به» عند الفتح المباشر — المفتاح نفسه في صفحتي المحامي والموظّف
+                'executionAmountHint' => $case->ticketClaimAmount(),
                 'canReassign' => $case->status !== CaseStatus::Archived->value,
                 // الحكم الواحد مع صفحة الأتعاب (`CaseFeeBoard::canSetFee`) — كانت مقارنةً بنصّ الحالة
                 'feePending' => CaseFeeBoard::canSetFee($case, $request->user()),
@@ -485,9 +488,16 @@ class CaseController extends Controller
         abort_unless(ExecutionCreation::isEligible($case), 422, 'التحويل للتنفيذ متاح للقضايا الصادر حكمها ولم يُفتح لها تنفيذ بعد.');
 
         // طلبٌ قائمٌ من المحامي أو الموظّف يُعتمد بفتح الإدارة نفسها — فلا يبقى معلّقاً بعد الفتح
+        // وبلا طلب: الإدارة تؤكّد المبلغ المحكوم به أو تصحّحه (قرار المالك 2026-09-30: «خانة المبلغ دائماً») —
+        // كان يُفتح بمبلغ التذكرة، وبلا مبلغٍ فيها يُفتح بصفرٍ فيتوقّف التحصيل
         $exec = $case->execution_requested_at !== null
             ? CaseExecutionRequest::approve($case, $request->user())
-            : ExecutionCreation::fromCase($case, $request->user());
+            : ExecutionCreation::fromCase($case, $request->user(), null, (int) $request->validate([
+                'amount' => ['required', 'integer', 'min:1', 'max:'.Execution::MAX_CLAIM_AMOUNT],
+            ], [
+                'amount.max' => 'المبلغ المحكوم به يتجاوز الحدّ الأعلى ('.number_format(Execution::MAX_CLAIM_AMOUNT).' ريال).',
+                'amount.*' => 'أدخل المبلغ المحكوم به (ريال) — رقماً صحيحاً أكبر من صفر.',
+            ])['amount']);
 
         // وجهة الملف المفتوح لا الصفحة السابقة — نظير مسار المحامي (lawyer.execs)، والعقد موثّق باختبار
         // `?id=` يفتح الملفّ نفسه (`execflow.resolveTarget`) — بدونه تهبط الإدارة على القائمة كلّها

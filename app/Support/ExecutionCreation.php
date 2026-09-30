@@ -71,7 +71,7 @@ class ExecutionCreation
                 'subject' => 'تنفيذ حكم — '.$case->type,
                 'sanad' => 'حكم قضائي',
                 'defendant' => (string) ($ticket?->opponent_name ?? ''),
-                'amount' => $amount ?? (int) ($ticket?->claim_amount ?? 0),
+                'amount' => $amount ?? Execution::fitClaimAmount($case->ticketClaimAmount()),
                 'notes' => $notes,
                 'docs' => $case->documents->map(fn ($d) => (string) ($d->doc_type ?: $d->name))->filter()->unique()->values()->all(),
                 'assigned_lawyer' => $lawyer->name,
@@ -108,7 +108,8 @@ class ExecutionCreation
             Notify::send($lawyer->id, 'exec', 't-blue', "أُسند إليك طلب تنفيذ الحكم {$exec->number} — بانتظار تحديد الأتعاب.");
             ExecService::mailAssignedLawyer($exec);
         }
-        ExecService::notifyAdmins($exec, 't-blue', "فُتح طلب تنفيذ الحكم {$exec->number} من القضية {$case->number} — بانتظار تحديد الأتعاب واعتمادها.");
+        // الإداريّ الفاتح لا يُشعَر بفعله — زملاؤه وحدهم
+        ExecService::notifyAdmins($exec, 't-blue', "فُتح طلب تنفيذ الحكم {$exec->number} من القضية {$case->number} — بانتظار تحديد الأتعاب واعتمادها.", $actor);
 
         Audit::log(
             action: 'تحويل قضية إلى تنفيذ',
@@ -153,7 +154,7 @@ class ExecutionCreation
                 'subject' => 'تنفيذ سند — '.($ticket->subject ?: $ticket->type),
                 'sanad' => $sanad,
                 'defendant' => (string) ($ticket->opponent_name ?? ''),
-                'amount' => (int) ($ticket->claim_amount ?? 0),
+                'amount' => Execution::fitClaimAmount($ticket->claim_amount === null ? null : (int) $ticket->claim_amount),
                 'notes' => $notes,
                 'docs' => self::carriedDocuments($ticket)->map(fn ($d) => (string) ($d->doc_type ?: $d->name))->filter()->unique()->values()->all(),
                 'assigned_lawyer' => $lawyer->name,
@@ -192,7 +193,7 @@ class ExecutionCreation
                 Notify::send($lawyer->id, 'exec', 't-amber', "أُسند إليك ملف التنفيذ {$exec->number} (محال من التذكرة {$ticket->number}) — بانتظار تحديد الأتعاب.");
                 ExecService::mailAssignedLawyer($exec);
             }
-            ExecService::notifyAdmins($exec, 't-amber', "فُتح ملف التنفيذ {$exec->number} من التذكرة {$ticket->number} — بانتظار تحديد الأتعاب.");
+            ExecService::notifyAdmins($exec, 't-amber', "فُتح ملف التنفيذ {$exec->number} من التذكرة {$ticket->number} — بانتظار تحديد الأتعاب.", $actor);
         });
 
         Audit::log(

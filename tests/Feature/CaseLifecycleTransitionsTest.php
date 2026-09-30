@@ -62,7 +62,7 @@ class CaseLifecycleTransitionsTest extends TestCase
         $this->assertStringNotContainsString('وتنفيذه', $closing, 'لم يُفتح تنفيذ — فلا يُقال «وتنفيذه»');
 
         // الإغلاق قبل التنفيذ لم يعد يمنعه نهائياً
-        $this->actingAs($admin)->post(route('admin.cases.execute', $case->fresh()))->assertRedirect();
+        $this->actingAs($admin)->post(route('admin.cases.execute', $case->fresh()), ['amount' => 150000])->assertRedirect();
         $this->assertTrue(Execution::where('case_id', $case->id)->exists());
 
         $archived = $this->caseOf(['status' => 'مؤرشفة']);

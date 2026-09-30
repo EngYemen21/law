@@ -10,6 +10,7 @@ use App\Models\Ticket;
 use App\Models\User;
 use App\Models\UserNotification;
 use App\Support\ExecFlow;
+use App\Support\ExecutionCreation;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
@@ -103,13 +104,74 @@ class ExecutionClaimAmountTest extends TestCase
             ->assertInertia(fn ($page) => $page->where('executionAmountHint', 90000));
     }
 
-    public function test_the_admin_opening_directly_keeps_the_ticket_amount(): void
+    /**
+     * **الفتح المباشر من الإدارة يطلب المبلغ المحكوم به** (قرار المالك 2026-09-30: «خانة المبلغ دائماً»).
+     * كان يُفتح بمبلغ التذكرة، وبلا مبلغٍ فيها يُفتح بصفرٍ فيتوقّف التحصيل — ثبت في المتصفّح (EXE-2026-7694).
+     */
+    public function test_the_admin_opening_directly_needs_the_ruled_amount(): void
     {
         $case = $this->ruledCase(claimAmount: 90000);
 
-        $this->actingAs($this->admin)->post(route('admin.cases.execute', $case))->assertRedirect();
+        $this->actingAs($this->admin)->get(route('admin.cases.show', $case))
+            ->assertInertia(fn ($page) => $page->where('case.executionAmountHint', 90000));
 
-        $this->assertSame(90000, (int) Execution::where('case_id', $case->id)->sole()->amount);
+        $this->actingAs($this->admin)->post(route('admin.cases.execute', $case))->assertSessionHasErrors('amount');
+        $this->actingAs($this->admin)->post(route('admin.cases.execute', $case), ['amount' => Execution::MAX_CLAIM_AMOUNT + 1])->assertSessionHasErrors('amount');
+        $this->assertSame(0, Execution::where('case_id', $case->id)->count(), 'لا ملفّ بلا مبلغٍ صالح');
+
+        $this->actingAs($this->admin)->post(route('admin.cases.execute', $case), ['amount' => 120000])->assertRedirect();
+        $this->assertSame(120000, (int) Execution::where('case_id', $case->id)->sole()->amount, 'ما أكّدته الإدارة لا مبلغ التذكرة');
+    }
+
+    /** الإداريّ الذي فتح الملفّ لا يُشعَر بفعله، وزميله يُشعَر — في الفتح من القضيّة ومن التذكرة. */
+    public function test_the_opening_admin_is_not_told_of_his_own_act(): void
+    {
+        $colleague = User::factory()->create(['role' => Role::Admin]);
+        $case = $this->ruledCase();
+
+        $this->actingAs($this->admin)->post(route('admin.cases.execute', $case), ['amount' => 120000])->assertRedirect();
+        $fromCase = Execution::where('case_id', $case->id)->sole();
+
+        $ticket = Ticket::create([
+            'user_id' => $this->client->id, 'number' => 'SB-CA-'.uniqid(), 'type' => 'تنفيذ', 'status' => 'بانتظار قرار المآل',
+            'tone' => 'b-grey', 'assigned_lawyer_id' => $this->lawyer->id, 'assigned_lawyer' => $this->lawyer->name,
+        ]);
+        $fromTicket = ExecutionCreation::fromTicket($ticket, $this->admin, 'سندٌ لأمر مستحقّ');
+
+        foreach ([$fromCase, $fromTicket] as $exec) {
+            $notices = fn (User $u) => UserNotification::where('user_id', $u->id)->where('body', 'like', "%{$exec->number}%")->where('body', 'like', 'فُتح%')->count();
+            $this->assertSame(0, $notices($this->admin), $exec->number);
+            $this->assertSame(1, $notices($colleague), $exec->number);
+        }
+    }
+
+    /** مبلغ التذكرة بالحدّ الواحد نفسه، واسمه عربيّ في رسالة الرفض. */
+    public function test_the_ticket_amount_has_the_same_ceiling(): void
+    {
+        $message = (string) $this->actingAs($this->client)->postJson('/tickets', [
+            'type' => 'تنفيذ سند', 'subject' => 'حدّ المبلغ', 'details' => 'نصّ', 'claim_amount' => Execution::MAX_CLAIM_AMOUNT + 1,
+        ])->assertStatus(422)->json('errors.claim_amount.0');
+
+        $this->assertStringContainsString('مبلغ المطالبة', $message);
+        $this->assertStringNotContainsString('claim', $message);
+    }
+
+    /** تذكرةٌ قديمة بمبلغٍ لا يتّسع له الملفّ تُحوَّل بلا 500 — «لم يُحدَّد» ثمّ يُصحَّح بالمسار القائم. */
+    public function test_an_oversized_legacy_ticket_amount_opens_the_file_without_an_amount(): void
+    {
+        $ticket = Ticket::create([
+            'user_id' => $this->client->id, 'number' => 'SB-CA-'.uniqid(), 'type' => 'تنفيذ', 'status' => 'بانتظار قرار المآل',
+            'tone' => 'b-grey', 'claim_amount' => Execution::MAX_CLAIM_AMOUNT + 1,
+            'assigned_lawyer_id' => $this->lawyer->id, 'assigned_lawyer' => $this->lawyer->name,
+        ]);
+        $this->assertSame(0, (int) ExecutionCreation::fromTicket($ticket, $this->admin)->amount);
+
+        $case = $this->ruledCase(claimAmount: Execution::MAX_CLAIM_AMOUNT + 1);
+        $this->assertSame(0, (int) ExecutionCreation::fromCase($case, $this->admin)->amount);
+
+        $this->assertSame(90000, Execution::fitClaimAmount(90000));
+        $this->assertSame(0, Execution::fitClaimAmount(null));
+        $this->assertSame(0, Execution::fitClaimAmount(0));
     }
 
     public function test_the_assigned_lawyer_sets_a_missing_amount_and_collection_works(): void

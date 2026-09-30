@@ -41,6 +41,15 @@ class Execution extends Model
      */
     public const MAX_CLAIM_AMOUNT = 4294967295;
 
+    /**
+     * مبلغ التذكرة كما يُنقل إلى ملفٍّ جديد: صالحٌ (1 حتى الحدّ) أو 0 = «لم يُحدَّد». تذكرةٌ قديمة بمبلغٍ لا يتّسع
+     * له العمود كانت تُسقط الفتح بـ500؛ الآن يُفتح الملفّ ويُصحَّح مبلغه بالمسار القائم (`SetExecutionClaimAmount`).
+     */
+    public static function fitClaimAmount(?int $amount): int
+    {
+        return $amount !== null && $amount >= 1 && $amount <= self::MAX_CLAIM_AMOUNT ? $amount : 0;
+    }
+
     /** سطر المعاينة في بطاقات القوائم — varchar(255) يستقبل نصّ المستخدم بلا سقف. */
     protected array $previewText = ['last_action'];
 
