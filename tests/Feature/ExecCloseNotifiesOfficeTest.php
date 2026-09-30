@@ -68,6 +68,18 @@ class ExecCloseNotifiesOfficeTest extends TestCase
         $this->assertSame(1, $this->closeNotices($this->client, $exec), 'العميل برسالته كما كان');
     }
 
+    /** الإداريّ الفاعل لا يُشعَر بفعله، وزميله الإداريّ يُشعَر. */
+    public function test_the_acting_admin_is_not_told_of_his_own_act(): void
+    {
+        $colleague = User::factory()->create(['role' => Role::Admin]);
+        $exec = $this->openExec();
+
+        $this->closeBy($this->admin, $exec);
+
+        $this->assertSame(0, $this->closeNotices($this->admin, $exec));
+        $this->assertSame(1, $this->closeNotices($colleague, $exec));
+    }
+
     public function test_the_admin_learns_that_the_lawyer_closed_the_file_and_the_lawyer_is_not_told_of_his_own_act(): void
     {
         $exec = $this->openExec();

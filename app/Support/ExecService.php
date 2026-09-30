@@ -460,7 +460,7 @@ class ExecService
             Notify::send($exec->assigned_lawyer_id, 'exec', $tone, $body);
         }
 
-        self::notifyAdmins($exec, $tone, $body);
+        self::notifyAdmins($exec, $tone, $body, $actor);
     }
 
     /**
@@ -477,9 +477,10 @@ class ExecService
     }
 
     /** إشعار الإدارة العليا — قرارات الأتعاب والعرض عندها (يناديه أيضاً فتحُ التنفيذ من قضيّة). */
-    public static function notifyAdmins(Execution $exec, string $tone, string $body): void
+    public static function notifyAdmins(Execution $exec, string $tone, string $body, ?User $except = null): void
     {
-        foreach (User::where('role', Role::Admin)->pluck('id') as $id) {
+        // الإداريّ الفاعل لا يُشعَر بفعله — نظير المحامي في `notifyOffice` (كان يصله إشعار ما أغلقه أو سجّله بنفسه)
+        foreach (User::where('role', Role::Admin)->when($except !== null, fn ($q) => $q->whereKeyNot($except->id))->pluck('id') as $id) {
             Notify::send((int) $id, 'exec', $tone, $body);
         }
     }
