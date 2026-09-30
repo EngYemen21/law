@@ -1,0 +1,46 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Enums\Role;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Tests\TestCase;
+
+/**
+ * **T6 — العميل يقرأ سبب الرفض من الخادم لا «تعذّر…» عامّة** (ثبت في المتصفّح 2026-09-30).
+ *
+ * «فتح تذكرة» كان يعرض «تعذّر إرسال التذكرة…» وإن جاء سببٌ محدّد (مرفقٌ مرفوض بلا حقلٍ ظاهر له)، وصفحة الحجز
+ * تستخرج السبب بسلاسل يدويّة تقرأ حقلاً واحداً. المصدر الواحد: `serverMessage`/`firstError` (`lib/server-message.ts`).
+ */
+class ClientErrorMessagesTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_client_forms_surface_the_server_reason_through_the_shared_helpers(): void
+    {
+        $newTicket = (string) file_get_contents(resource_path('js/pages/newticket.tsx'));
+        $this->assertStringContainsString("firstError(errors as Record<string, string>, 'تعذّر إرسال التذكرة", $newTicket);
+        $this->assertStringNotContainsString("toast('تعذّر إرسال التذكرة، تحقّق من البيانات والمرفقات')", $newTicket);
+
+        $book = (string) file_get_contents(resource_path('js/pages/book.tsx'));
+        $this->assertStringContainsString("serverMessage(e, 'تعذّر إرسال الطلب')", $book);
+        $this->assertStringContainsString("firstError(e, 'تعذّر إرسال الطلب')", $book);
+        $this->assertStringNotContainsString('errors?.type?.[0]', $book);
+    }
+
+    /** سبب رفض المرفق باسمه العربيّ — كان «يجب أن يكون files.0 ملفّاً من نوع…». */
+    public function test_a_rejected_attachment_is_named_in_arabic(): void
+    {
+        $client = User::factory()->create(['role' => Role::Client]);
+
+        $message = (string) $this->actingAs($client)->postJson('/tickets', [
+            'type' => 'استشارة', 'subject' => 'اختبار', 'details' => 'نصّ',
+            'files' => [UploadedFile::fake()->create('bad.exe', 10, 'application/x-msdownload')],
+        ])->assertStatus(422)->json('errors')['files.0'][0];
+
+        $this->assertStringContainsString('المرفق', $message);
+        $this->assertStringNotContainsString('files.0', $message);
+    }
+}
