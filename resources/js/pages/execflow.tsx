@@ -1016,8 +1016,10 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
   // الإنهاء بقي للمحامي والإدارة وحدهما — لا يُعرض للموظّف أصلاً
   const canCloseFile = (role === 'lawyer' || role === 'admin') && !r.closed;
   const sendMsg = (text: string) => axios.post(`/exec-flow/${encodeURIComponent(r.id)}/messages`, { body: text });
+  // قفلٌ ورسالة رفض (`useServerAction`) — كان الرفض صامتاً فيظنّ المراجِع أنّ قراره سُجّل
+  const reviewAction = useServerAction();
   const reviewDoc = (docId: number, decision: 'accept' | 'reject') => {
-    router.post(`/exec-flow/${encodeURIComponent(r.id)}/documents/${docId}/review`, { decision }, { preserveScroll: true });
+    reviewAction.run(`/exec-flow/${encodeURIComponent(r.id)}/documents/${docId}/review`, { data: { decision }, key: docId, fallback: 'تعذّر تسجيل مراجعة المستند' });
   };
 
   const next = nextAction(role, r, canCourt);

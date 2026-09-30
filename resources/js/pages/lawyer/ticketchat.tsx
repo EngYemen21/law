@@ -20,6 +20,7 @@ import Icon from '@/lib/icons';
 import type {SummaryData} from '@/lib/lawyer-data';
 import { useCan } from '@/lib/permissions';
 import { firstError } from '@/lib/server-message';
+import { useServerAction } from '@/lib/use-server-action';
 import type { EmployeeTicketCard } from '@/types';
 
 // دراسة التذكرة لدى المستشار — محادثة العميل (سياق حيّ + رد مباشر) + ملخص الملف + الاعتماد
@@ -186,8 +187,9 @@ seen.current.add(m.id);
 }, [msgs]);
 
   const no = encodeURIComponent(ticket.no);
-  const fail = (fallback: string) => (errors: Record<string, string>) =>
-    toast(`⚠️ ${firstError(errors, fallback)}`);
+  const action = useServerAction();
+  const sendingRef = useRef(false);
+  const [sending, setSending] = useState(false);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -197,6 +199,13 @@ seen.current.add(m.id);
 return;
 }
 
+    // قفلٌ متزامن — كانت النقرة المزدوجة ترسل الردّ مرّتين (تدقيق P4، 2026-09-30)
+    if (sendingRef.current) {
+      return;
+    }
+
+    sendingRef.current = true;
+    setSending(true);
     const endpoint = mode === 'reply' ? 'reply' : 'note';
     // لا يُمسح النص إلا بعد نجاح الإرسال فعلاً — لا يضيع عند فشل (صلاحية/تحقّق/خادم)
     axios.post(`${base}/tickets/${no}/${endpoint}`, { body: v })
@@ -211,21 +220,22 @@ return;
       .catch((err) => {
         const msg = err.response?.data?.message || 'تعذّر الإرسال';
         toast(`⚠️ ${msg}`);
+      })
+      .finally(() => {
+        sendingRef.current = false;
+        setSending(false);
       });
   };
 
   // رسالة النجاح في الفعلين من الخادم (flash) يعرضها التخطيط — لا إشعار ثانٍ هنا
-  const approve = () =>
-    router.post(`${base}/summary/${no}/approve`, {}, {
-      preserveScroll: true,
-      onError: fail('لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — حرّره يدوياً أولاً.'),
-    });
+  // قفلٌ موحّد (`useServerAction`) — كانت نقرتان تعتمدان مرّتين أو تطلبان النواقص مرّتين
+  const approve = () => {
+    action.run(`${base}/summary/${no}/approve`, { fallback: 'لا يمكن اعتماد ملخّص لم يكتمل تحليله الذكي — حرّره يدوياً أولاً.' });
+  };
 
-  const requestDocs = () =>
-    router.post(`${base}/tickets/${no}/request-docs`, {}, {
-      preserveScroll: true,
-      onError: fail('تعذّر طلب مستندات إضافية'),
-    });
+  const requestDocs = () => {
+    action.run(`${base}/tickets/${no}/request-docs`, { fallback: 'تعذّر طلب مستندات إضافية' });
+  };
 
   const cur = tktStage(status.status);
   // من الخادم لا من قائمة حالاتٍ هنا (`Ticket::toEmployeeCard`) — ويُعاد تحميلها مع بثّ الحالة أعلاه
@@ -287,7 +297,7 @@ setTypingSignal((n) => n + 1);
                     placeholder={mode === 'reply' ? 'اكتب ردّك المباشر للعميل…' : 'اكتب ملاحظة داخلية لا يراها العميل…'}
                   />
                   <div className="crow">
-                    <button className={mode === 'reply' ? 'btn' : 'btn soft'} type="submit">
+                    <button className={mode === 'reply' ? 'btn' : 'btn soft'} type="submit" disabled={sending}>
                       <Icon name={mode === 'reply' ? 'send' : 'doc'} /> {mode === 'reply' ? 'إرسال الرد' : 'حفظ الملاحظة'}
                     </button>
                   </div>
@@ -335,7 +345,7 @@ setTypingSignal((n) => n + 1);
                         <Icon name="doc" /> {summary.approved ? 'عرض الملخّص المعتمد' : 'تعديل الملخص'}
                       </Link>
                       {!summary.approved && (base === '/admin' || !summary.lawyerApproved) && (
-                        <button className="btn sm" onClick={approve} type="button">
+                        <button className="btn sm" onClick={approve} type="button" disabled={action.busy}>
                           <Icon name="check" /> {base === '/admin' ? 'اعتماد نهائي وإرسال للعميل' : 'اعتماد ورفع للإدارة'}
                         </button>
                       )}

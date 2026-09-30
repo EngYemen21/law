@@ -17,7 +17,7 @@ import type { Hearing } from '@/lib/case-ui';
 import type { Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
-import { firstError } from '@/lib/server-message';
+import { firstError, serverMessage } from '@/lib/server-message';
 import type { CaseDocumentCard, TicketDocumentCard } from '@/types';
 
 interface CaseInfo {
@@ -137,18 +137,27 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
     };
   }, [channel]);
 
-  // ردّ المستشار على موكّله داخل الملفّ — لا يُمسح النصّ إلا بعد نجاح الإرسال
+  // ردّ المستشار على موكّله داخل الملفّ — لا يُمسح النصّ إلا بعد نجاح الإرسال. وقفلٌ متزامن: كانت النقرة
+  // المزدوجة ترسل الردّ مرّتين، والرفض يُعرض نصّاً عامّاً بلا سبب الخادم (تدقيق P4، 2026-09-30)
+  const sendingRef = useRef(false);
+  const [sending, setSending] = useState(false);
   const send = (e: React.FormEvent) => {
     e.preventDefault();
     const v = reply.trim();
 
-    if (!v) {
+    if (!v || sendingRef.current) {
       return;
     }
 
+    sendingRef.current = true;
+    setSending(true);
     axios.post(`${base}/reply`, { body: v })
       .then(() => setReply(''))
-      .catch(() => toast('⚠️ تعذّر إرسال الردّ، حاول مجدداً'));
+      .catch((err) => toast(`⚠️ ${serverMessage(err, 'تعذّر إرسال الردّ، حاول مجدداً')}`))
+      .finally(() => {
+        sendingRef.current = false;
+        setSending(false);
+      });
   };
 
   const pleadingPost = (path: string, data: Record<string, string>, ok: string, after?: () => void) => {
@@ -220,7 +229,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--faint)', marginBottom: 8 }}>ردّ للعميل (المستشار القانوني):</div>
                 <form onSubmit={send}>
                   <textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="اكتب ردّك للعميل…" />
-                  <div className="crow"><button className="btn" type="submit"><Icon name="send" /> إرسال</button></div>
+                  <div className="crow"><button className="btn" type="submit" disabled={sending}><Icon name="send" /> إرسال</button></div>
                 </form>
               </div>
             )}

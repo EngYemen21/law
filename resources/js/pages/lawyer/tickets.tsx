@@ -23,6 +23,8 @@ export interface EmpTicket extends EmployeeTicketCard {
   summaryRecommendation?: string;
   summaryFacts?: string;
   converted?: boolean;
+  /** نوع الملفّ الذي صارت إليه — `Lawyer\\TicketController` (قضيّة أو تنفيذ). */
+  convertedType?: 'case' | 'execution' | null;
   caseRef?: string;
   awaitingSummary?: boolean;
   updatedAgo?: string;
@@ -494,10 +496,11 @@ const LawyerTickets: React.FC<Props> = ({
                           >
                             <Icon name="scale" /> دراسة ومحادثة
                           </button>
-                          {(t.isTerminal || t.status === 'مكتملة') && (
+                          {/* رمز الحالة من الخادم لا نصّها (قاعدة CLAUDE.md)، والشارة بنوع الملفّ — كانت «لقضية» حتى للتنفيذ */}
+                          {(t.isTerminal || t.statusCode === 'Completed') && (
                             t.converted ? (
                               <span className="badge-s b-cyan" style={{ fontSize: 11 }}>
-                                <span className="d" /> محوّلة لقضية
+                                <span className="d" /> {t.convertedType === 'execution' ? 'محوّلة لتنفيذ' : 'محوّلة لقضية'}
                               </span>
                             ) : canManageCases && (
                               <button

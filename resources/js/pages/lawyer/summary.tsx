@@ -7,6 +7,7 @@ import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
 import RichTextEditor, { htmlToText } from '@/components/babylon/RichTextEditor';
 import { useToast } from '@/components/babylon/Toast';
 import { type SummaryData } from '@/lib/lawyer-data';
+import { useCan } from '@/lib/permissions';
 import { firstError } from '@/lib/server-message';
 import type { EmployeeTicketCard } from '@/types';
 
@@ -72,6 +73,8 @@ const LEGAL_SECTIONS: FieldMeta[] = [
 
 const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', canRerunSummary = false }) => {
   const toast = useToast();
+  // المحرّر محروسٌ بـ«المساعد القانوني» (web.php) — روابطه لمن يملكه، وإلّا يُصدّ عند فتحها
+  const canUseEditor = useCan()('المساعد القانوني');
   const approved = Boolean(summary.approved);
   const isAdmin = base === '/admin';
   // من أين فُتح الملخّص: الإدارة من «مركز الاعتمادات»، والمحامي من «الملخصات القانونية» — لا مركز اعتماداتٍ له
@@ -267,14 +270,16 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
             <Icon name="upload" /> {approved ? 'طباعة تقرير معتمد' : 'تصدير المسودة'}
           </button>
 
-          <Link
-            href={`${base}/editor/create?ticket=${encodeURIComponent(ticket.no)}&type=summary`}
-            className="btn soft sm"
-            style={{ height: 32, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
-            title="فتح هذا الملخص في محرر الصياغة لتنسيقه وتصميمه كـ Word"
-          >
-            <Icon name="doc" /> محرر الصياغة
-          </Link>
+          {canUseEditor && (
+            <Link
+              href={`${base}/editor/create?ticket=${encodeURIComponent(ticket.no)}&type=summary`}
+              className="btn soft sm"
+              style={{ height: 32, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+              title="فتح هذا الملخص في محرر الصياغة لتنسيقه وتصميمه كـ Word"
+            >
+              <Icon name="doc" /> محرر الصياغة
+            </Link>
+          )}
 
           <button
             type="button"
@@ -379,26 +384,28 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
           <div className="summary-header-actions">
             {canEdit ? (
               <>
-                <Link
-                  href={`${isAdmin ? '/admin' : '/lawyer'}/editor/create?importType=ticket_summary&id=${summary.id}`}
-                  className="btn soft"
-                  style={{
-                    height: 36,
-                    fontSize: 12.5,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    textDecoration: 'none',
-                    background: 'rgba(14, 92, 156, 0.08)',
-                    borderColor: 'rgba(14, 92, 156, 0.3)',
-                    color: '#0e5c9c',
-                    fontWeight: 700,
-                  }}
-                  title="فتح وتنسيق هذا الملخص كـ Word في محرر المستندات القانونية"
-                >
-                  <Icon name="edit" />
-                  <span>تنسيق في المحرر ⚖️</span>
-                </Link>
+                {canUseEditor && (
+                  <Link
+                    href={`${isAdmin ? '/admin' : '/lawyer'}/editor/create?importType=ticket_summary&id=${summary.id}`}
+                    className="btn soft"
+                    style={{
+                      height: 36,
+                      fontSize: 12.5,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      textDecoration: 'none',
+                      background: 'rgba(14, 92, 156, 0.08)',
+                      borderColor: 'rgba(14, 92, 156, 0.3)',
+                      color: '#0e5c9c',
+                      fontWeight: 700,
+                    }}
+                    title="فتح وتنسيق هذا الملخص كـ Word في محرر المستندات القانونية"
+                  >
+                    <Icon name="edit" />
+                    <span>تنسيق في المحرر ⚖️</span>
+                  </Link>
+                )}
 
                 {/* كلّ نسخ الملخّص: الآلة والقالب وتعديلات المحامي والإدارة (طلب المالك 2026-09-29) */}
                 <RevisionHistoryButton kind="ticket_summary" refKey={ticket.no} className="btn soft" />

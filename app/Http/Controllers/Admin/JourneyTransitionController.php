@@ -8,7 +8,13 @@ use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\Enums\SessionState;
 use App\Enums\Role;
 use App\Http\Controllers\Controller;
+use App\Models\Consult;
+use App\Models\Execution;
+use App\Models\Invoice;
 use App\Models\JourneyTransition;
+use App\Models\LegalCase;
+use App\Models\Ticket;
+use App\Models\TicketSummary;
 use App\Models\User;
 use App\Support\CaseJourney;
 use App\Support\Paginate;
@@ -17,6 +23,7 @@ use App\Support\TicketJourney;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -42,6 +49,16 @@ class JourneyTransitionController extends Controller
         'Invoice' => 'فاتورة مالية',
         'invoice' => 'فاتورة مالية',
         'TicketSummary' => 'ملخص تذكرة',
+    ];
+
+    /** نموذج كلّ نوعٍ في السجلّ — لمعرفة الباقي من ملفّاته (`liveEntities`). */
+    private const ENTITY_MODELS = [
+        'Ticket' => Ticket::class,
+        'Consult' => Consult::class,
+        'LegalCase' => LegalCase::class,
+        'Execution' => Execution::class,
+        'Invoice' => Invoice::class,
+        'TicketSummary' => TicketSummary::class,
     ];
 
     /** ألوان ونغمات الكيانات */
@@ -108,8 +125,10 @@ class JourneyTransitionController extends Controller
             ])
             ->all();
 
+        $live = self::liveEntities($paginated->getCollection());
+
         return Inertia::render('admin/journey-transitions', [
-            'transitions' => Paginate::shape($paginated, fn (JourneyTransition $row) => $this->shapeRow($row)),
+            'transitions' => Paginate::shape($paginated, fn (JourneyTransition $row) => $this->shapeRow($row, $live)),
             'stats' => $stats,
             'filters' => [
                 'search' => $request->input('search', ''),
@@ -145,7 +164,29 @@ class JourneyTransitionController extends Controller
         };
     }
 
-    private function shapeRow(JourneyTransition $row): array
+    /**
+     * **الملفّات الباقية من صفحة السجلّ** — استعلامٌ واحد لكلّ نوع. السجلّ يبقى بعد حذف ملفّه (بياناتٌ تجريبيّة
+     * حُذفت)، فكان رابطه يقود إلى ٤٠٤ (تدقيق P2، 2026-09-30: `/admin/consult?ref=CN-2026-4947`).
+     *
+     * @param  Collection<int, JourneyTransition>  $rows
+     * @return array<string, array<int, true>> نوع ← معرّفاتٌ باقية
+     */
+    private static function liveEntities(Collection $rows): array
+    {
+        $live = [];
+
+        foreach ($rows->groupBy(fn (JourneyTransition $r) => class_basename((string) $r->entity_type)) as $type => $group) {
+            $model = self::ENTITY_MODELS[$type] ?? null;
+            if ($model !== null) {
+                $live[$type] = array_fill_keys($model::whereKey($group->pluck('entity_id')->filter()->all())->pluck('id')->all(), true);
+            }
+        }
+
+        return $live;
+    }
+
+    /** @param  array<string, array<int, true>>  $live */
+    private function shapeRow(JourneyTransition $row, array $live = []): array
     {
         $entityType = (string) $row->entity_type;
         $cleanType = class_basename($entityType);
@@ -158,7 +199,10 @@ class JourneyTransitionController extends Controller
             'entityTone' => self::ENTITY_TONES[$cleanType] ?? 'b-grey',
             'entityId' => $row->entity_id,
             'entityRef' => $ref,
-            'url' => $this->resolveEntityUrl($cleanType, $row->entity_ref, $row->entity_id),
+            // ملفٌّ حُذف: لا رابط (نوعٌ لا نعرف نموذجه يبقى رابطُه كما كان)
+            'url' => isset(self::ENTITY_MODELS[$cleanType]) && ! isset($live[$cleanType][(int) $row->entity_id])
+                ? null
+                : $this->resolveEntityUrl($cleanType, $row->entity_ref, $row->entity_id),
             'transition' => $row->transition,
             'transitionLabel' => self::humanTransitionName($row->transition),
             'fromState' => self::humanStateName($row->from_state),
