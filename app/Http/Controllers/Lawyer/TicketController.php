@@ -461,6 +461,8 @@ class TicketController extends Controller
             'summary' => $ticket->summary->toData(),
             // الإدارة تراجع/تعتمد من مسارها الخاص (صلاحيات مطلقة)؛ المحامي من مساره
             'base' => $request->user()->isAdmin() ? '/admin' : '/lawyer',
+            // زرّا «إعادة التحليل الذكي» في الصفحة — الحكم نفسه في صفحتَي التذكرة ومسار `rerunSummary`
+            'canRerunSummary' => $ticket->summaryRerunBlocker() === null,
         ]);
     }
 
