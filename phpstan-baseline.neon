@@ -2677,18 +2677,6 @@ parameters:
 			path: app/Http/Controllers/Employee/TransferController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\User\|Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\User\>\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Employee/TransferController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\User\|Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\User\>\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 12
-			path: app/Http/Controllers/Employee/TransferController.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$number\.$#'
 			identifier: property.notFound
 			count: 1

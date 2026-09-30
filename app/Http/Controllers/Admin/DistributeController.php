@@ -350,13 +350,13 @@ class DistributeController extends Controller
     /** إسناد تذكرة — المصدر الواحد للإسناد الفرديّ والجماعيّ. يرمي 422 برسالةٍ مقروءة إن رُفض. */
     private function assignTicketTo(Ticket $ticket, User $lawyer, User $actor): string
     {
-        abort_if($ticket->is_frozen, 422, 'التذكرة مجمّدة لاعتماد مسارها النهائي — لا يُعاد إسنادها.');
-        abort_if($ticket->isTerminal(), 422, 'التذكرة مغلقة — لا يُعاد إسنادها.');
+        TicketAssignment::assertReassignable($ticket);
 
         // الإسناد وقفزة «محالة» من مصدرٍ واحد مع الإسناد الآليّ، والقفزة بالمحرّك باسم الإداريّ
         TicketAssignment::write($ticket, $lawyer->id, $lawyer->name, $actor);
         TicketAssignment::syncRelatedConsults($ticket->fresh());
         Live::push(new TicketStatusBroadcast($ticket));
+        TicketAssignment::notifyAssigned($ticket, $lawyer, $actor);
 
         $ticket->messages()->create([
             'who' => 'note', 'name' => $actor->name, 'role' => 'توزيع',

@@ -511,9 +511,10 @@ const EmployeeTicketChat: React.FC<{
             status={status.status}
             caseRef={ticket.caseRef ?? null}
             role="employee"
-            onRequestDocs={canReply ? openReqDocs : undefined}
-            onSchedule={canSchedule ? openSchedule : undefined}
-            onTransfer={canTransfer ? openTransfer : undefined}
+            // الأرشيف للقراءة فقط — والخادم يرفضها عليه (`TicketAssignment::assertReassignable` وحرّاس النواقص والحجز)
+            onRequestDocs={canReply && !locked ? openReqDocs : undefined}
+            onSchedule={canSchedule && !locked ? openSchedule : undefined}
+            onTransfer={canTransfer && !locked ? openTransfer : undefined}
           />
 
           <div className="card">

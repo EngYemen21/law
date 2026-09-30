@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\TicketStatus;
 use App\Domain\Journey\Transitions\Ticket\ReferOnAssignment;
 use App\Domain\Journey\Workflow;
 use App\Enums\Role;
@@ -10,6 +11,7 @@ use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * إسناد التذكرة إلى محامٍ — **حتميّ بالكامل، بلا أيّ نداء ذكاء اصطناعيّ**.
@@ -58,6 +60,32 @@ class TicketAssignment
             'assigned_lawyer' => $lawyerName,
             'assigned_lawyer_id' => $lawyerId,
         ]);
+    }
+
+    /**
+     * **حارس إعادة الإسناد — واحدٌ للإدارة («توزيع التذاكر») والموظّف («تحويل التذاكر»)** (قرار المالك 2026-09-30).
+     *
+     * كان تحويل الموظّف بلا حارس، فيُسنِد تذكرةً مغلقة أو محوّلة لقضيّة/تنفيذ (ثبت في المتصفّح: SB-2026-4316
+     * المغلقة صار لها محامٍ)؛ وحارس الإدارة يقيس `isTerminal()` فيُسنِد «مكتملة». القاعدة الآن قاعدة
+     * `TicketWritePolicy` نفسها: المجمّدة وكلّ الحالات النهائيّة لا يُعاد إسنادها.
+     */
+    public static function assertReassignable(Ticket $ticket): void
+    {
+        abort_if((bool) $ticket->is_frozen, 422, 'التذكرة مجمّدة لاعتماد مسارها النهائي — لا يُعاد إسنادها.');
+        abort_if(in_array($ticket->status, TicketStatus::finals(), true), 422, 'التذكرة نهائيّة — لا يُعاد إسنادها.');
+    }
+
+    /**
+     * المحامي الذي أُسندت إليه التذكرة يعلم بها — إلّا إن كان هو من أسندها. بعد ختم الحفظ: الإسناد
+     * الجماعيّ في معاملةٍ لكلّ عنصر، ولا يصل إشعارٌ عن إسنادٍ أُلغي.
+     */
+    public static function notifyAssigned(Ticket $ticket, User $lawyer, User $actor): void
+    {
+        if ((int) $lawyer->id === (int) $actor->id) {
+            return;
+        }
+
+        DB::afterCommit(fn () => Notify::send($lawyer->id, 'folder', 't-blue', "أُسندت إليك التذكرة {$ticket->number} — {$ticket->type}. تابعها من «التذاكر»."));
     }
 
     // منطق التصعيد (الإسناد للإدارة العليا + الإشعار + البريد) انتقل إلى
