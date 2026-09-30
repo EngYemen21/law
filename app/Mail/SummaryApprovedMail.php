@@ -38,7 +38,7 @@ class SummaryApprovedMail extends Mailable implements ShouldQueue
             with: [
                 'ticket' => $this->ticket,
                 'opinion' => $this->opinion,
-                'opinionHtml' => $this->opinionHtml !== null ? RichHtml::clean($this->opinionHtml) : null,
+                'opinionHtml' => $this->opinionHtml !== null ? RichHtml::cleanSummary($this->opinionHtml) : null,
             ]
         );
     }

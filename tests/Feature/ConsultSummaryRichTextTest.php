@@ -156,4 +156,21 @@ class ConsultSummaryRichTextTest extends TestCase
                     && str_contains((string) $html, '<strong>بالتسوية الودّيّة</strong>'))
             );
     }
+
+    /** حفظٌ بلا تغييرٍ عمّا عُرض لا يفعل شيئاً — لا يمسح القرارات ولا يَسِم الملخّص محرَّراً. */
+    public function test_saving_without_changes_does_nothing(): void
+    {
+        $this->consult->update(['decisions' => ['قرار']]);
+        Queue::fake();
+
+        $this->actingAs($this->lawyer)->post("/lawyer/consults/{$this->consult->id}/summary", [
+            'summary_html' => $this->consult->fresh()->toCard()['summaryHtml'],
+        ])->assertRedirect();
+
+        $c = $this->consult->fresh();
+        $this->assertSame(['قرار'], $c->decisions);
+        $this->assertNull($c->summary_edited_at);
+        $this->assertNull($c->summary_html);
+        Queue::assertNotPushed(ExtractConsultDecisionsJob::class);
+    }
 }

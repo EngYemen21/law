@@ -335,7 +335,11 @@ class ConsultController extends Controller
             'summary' => ['required_without:summary_html', 'nullable', 'string', 'max:8000'],
             'summary_html' => ['nullable', 'string', 'max:30000'],
         ]);
-        $input = Consult::editableInput($data);
+        // حفظٌ بلا تغييرٍ عمّا عُرض لا يفعل شيئاً — كان يمسح القرارات ويَسِم الملخّص «محرَّراً»
+        $input = $consult->changedInput($data);
+        if ($input === []) {
+            return back();
+        }
         $summary = trim((string) ($input['summary'] ?? ''));
         if ($summary === '') {
             throw ValidationException::withMessages(['summary' => 'اكتب نصّ الملخّص قبل حفظه.']);

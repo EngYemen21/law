@@ -468,7 +468,8 @@ class TicketController extends Controller
     public function updateSummary(Request $request, Ticket $ticket): RedirectResponse
     {
         $this->guardAssigned($ticket);
-        abort_unless($ticket->summary, 404);
+        $summary = $ticket->summary;
+        abort_unless($summary instanceof TicketSummary, 404);
 
         /*
          * **الاعتماد نهائيّ — والحفظ قبله مسوّدة.**
@@ -502,7 +503,7 @@ class TicketController extends Controller
             'key_points_html' => ['nullable', 'string', 'max:20000'],
         ]);
         // «حُرّر بيد المستشار» — فلا تكتب فوقه إعادة التوليد الآليّة (ع٢٦)
-        $ticket->summary->update(TicketSummary::editableInput($data) + ['edited_at' => now()]);
+        $summary->update($summary->changedInput($data) + ['edited_at' => now()]);
 
         return back();
     }
@@ -546,7 +547,8 @@ class TicketController extends Controller
             'key_points_html' => ['nullable', 'string', 'max:20000'],
         ]);
 
-        $input = TicketSummary::editableInput($request->all());
+        // ما تغيّر فعلاً ممّا عُرض — غير الملموس لا يُعدّ تحريراً (حارس الصدق وقياس الحوكمة كما كانا)
+        $input = $summary->changedInput($request->all());
         $before = $summary->only(array_keys($input));
         $summary->fill($input);
         $edited = $summary->only(array_keys($input)) != $before;

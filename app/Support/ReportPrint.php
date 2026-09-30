@@ -119,7 +119,7 @@ class ReportPrint
         // HTML منسّقٌ من محرّر (ملخّص التذكرة والاستشارة — `HasRichText::html`) — يُنقّى هنا أيضاً فلا يطبع كرومُ
         // الخادم إلّا المسموح
         if (isset($s['html'])) {
-            $lines .= '<div class="cf-rich">'.RichHtml::clean($s['html']).'</div>';
+            $lines .= '<div class="cf-rich">'.RichHtml::cleanSummary($s['html']).'</div>';
         }
         $list = ! empty($s['list'])
             ? '<ul class="cf-ul">'.implode('', array_map(fn ($li) => '<li><div>'.e($li).'</div></li>', $s['list'])).'</ul>'

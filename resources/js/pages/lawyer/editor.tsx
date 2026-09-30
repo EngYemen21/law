@@ -350,8 +350,9 @@ const LawyerEditor: React.FC<Props> = ({
     }
   }, [doc, editor, defaultHeader, ticket, initialCase]);
 
+  // `false`: بلا حدث تحديث — وإلّا أطلق فتحُ كلّ مستندٍ حفظاً تلقائيّاً بلا تحرير
   useEffect(() => {
-    editor?.setEditable(!locked);
+    editor?.setEditable(!locked, false);
   }, [editor, locked]);
 
   // ── حفظ تلقائي يقرأ أحدث القيم من الـ Refs لتفادي أي كتابة فوق العنوان الجديد ──

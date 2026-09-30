@@ -2,12 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Enums\AiSource;
 use App\Enums\Role;
 use App\Jobs\GenerateTicketSummaryJob;
 use App\Mail\SummaryApprovedMail;
+use App\Models\AiRun;
 use App\Models\Ticket;
 use App\Models\TicketSummary;
 use App\Models\User;
+use App\Services\Ai\AiReviewAction;
 use App\Support\SummaryReport;
 use App\Support\TicketResult;
 use Database\Seeders\PermissionSeeder;
@@ -161,5 +164,63 @@ class TicketSummaryRichTextTest extends TestCase
         $page = (string) file_get_contents(resource_path('js/pages/lawyer/summary.tsx'));
         $this->assertStringContainsString('<RichTextEditor', $page);
         $this->assertStringNotContainsString('setVal(f.key, e.target.value)', $page, 'حقول الملخّص لم تعد مربّعات نصٍّ عاديّ');
+
+        // المحرّر لا يُطلق «تحديثاً» عند التحميل — كان `setEditable` يُطلقه افتراضيّاً فيصل النموذجَ نصٌّ
+        // أعاد المحرّر تشكيله كأنّه تحرير (ثبت في المتصفّح: قالبٌ لم يُلمس اعتُمد)
+        $component = (string) file_get_contents(resource_path('js/components/babylon/RichTextEditor.tsx'));
+        $this->assertStringContainsString('setEditable(!readOnly, false)', $component);
+        $this->assertStringContainsString('setEditable(!locked, false)', (string) file_get_contents(resource_path('js/pages/lawyer/editor.tsx')));
+    }
+
+    /** ما ترسله الواجهة حين لا يلمس المحامي شيئاً: النسخ المنسّقة كما قدّمها الخادم. */
+    private function untouched(): array
+    {
+        $h = $this->summary()->toData()['html'];
+
+        return ['case_summary_html' => $h['caseSummary'], 'attachments_summary_html' => $h['attachmentsSummary'], 'facts_html' => $h['facts'], 'key_points_html' => $h['keyPoints']];
+    }
+
+    /** حارس الصدق باقٍ: قالبٌ لم يُحلَّل ولم يُحرَّر لا يُعتمد — ولو أرسلت الواجهة نسخه المنسّقة كما عُرضت. */
+    public function test_an_untouched_template_is_still_refused(): void
+    {
+        $this->summary()->update(['ai_generated' => false]);
+
+        $this->actingAs($this->lawyer)->post("/lawyer/summary/{$this->ticket->number}/approve", $this->untouched())
+            ->assertSessionHasErrors('case_summary');
+
+        $this->assertFalse($this->summary()->isLawyerApproved());
+    }
+
+    /** اعتمادٌ بلا لمسٍ يُسجَّل «قَبِل» لا «عدّل»، ولا يَسِم الملخّص محرَّراً ولا يعيد كتابة نصّه. */
+    public function test_an_untouched_approval_is_recorded_as_accept(): void
+    {
+        $run = AiRun::create(['task_type' => 'ticket.summary', 'entity_ref' => $this->ticket->number, 'source' => AiSource::AiSuccess, 'status' => AiRun::STATUS_NEEDS_REVIEW]);
+
+        $this->actingAs($this->lawyer)->post("/lawyer/summary/{$this->ticket->number}/approve", $this->untouched())->assertRedirect();
+
+        $s = $this->summary();
+        $this->assertTrue($s->isLawyerApproved());
+        $this->assertSame(AiReviewAction::Accept, $run->fresh()->review_action);
+        $this->assertNull($s->edited_at);
+        $this->assertSame("• واقعة أولى\n• واقعة ثانية", $s->facts, 'النصّ كما ولّده التحليل');
+        $this->assertNull($s->facts_html);
+    }
+
+    /** ما يصل العميل: وسوم التنسيق ولونٌ ومحاذاةٌ فقط — لا طبقةٌ تغطّي الصفحة ولا صورةٌ ولا رابطٌ خارجيّ. */
+    public function test_only_formatting_reaches_the_client(): void
+    {
+        $evil = '<p style="text-align:center">نص</p><div class="modal-bg show" style="position:fixed;inset:0;z-index:99999">غطاء</div>'
+            .'<img src="https://evil.example/pixel.png"><a href="https://evil.example/login">اضغط هنا</a><table><tr><td>جدول</td></tr></table>'
+            .'<span style="color: #c0392b; background: #000">لون</span>';
+
+        $this->actingAs($this->admin)->post("/admin/summary/{$this->ticket->number}/approve", ['key_points_html' => $evil])->assertRedirect();
+
+        $body = $this->ticket->messages()->latest('id')->firstOrFail()->body;
+        foreach (['position', 'modal-bg', 'class="modal', '<img', 'evil.example', '<a ', '<table', 'background'] as $bad) {
+            $this->assertStringNotContainsString($bad, $body, $bad);
+        }
+        $this->assertStringContainsString('<p style="text-align: center;">نص</p>', $body);
+        $this->assertStringContainsString('<span style="color: #c0392b;">لون</span>', $body);
+        $this->assertStringContainsString('اضغط هنا', $body, 'النصّ يبقى، والرابط يسقط');
     }
 }

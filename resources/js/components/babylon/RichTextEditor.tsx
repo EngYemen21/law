@@ -45,8 +45,10 @@ const RichTextEditor: React.FC<Props> = ({ value, onChange, readOnly = false, pl
     onTransaction: () => setTick((t) => t + 1),
   });
 
+  // `false`: بلا حدث تحديث — كان `setEditable` يُطلقه افتراضيّاً عند التحميل، فيصل النموذجَ نصُّ المحرّر المُعاد
+  // تشكيله (محاذاةٌ صريحة، فقرةٌ داخل عنصر القائمة) كأنّ المستخدم حرّره: فيُجاز قالبٌ لم يلمسه أحد، ويُعدّ «تعديلاً»
   useEffect(() => {
-    editor?.setEditable(!readOnly);
+    editor?.setEditable(!readOnly, false);
   }, [editor, readOnly]);
 
   // قيمةٌ جاءت من خارج المحرّر (إعادة توليد، تحميل) — لا تُعاد عند كتابة المستخدم نفسه
