@@ -1,120 +1,143 @@
 #!/bin/bash
-set -e
+# ════════════════════════════════════════════════════════════════════════════
+# النشر الآمن على الإنتاج (فصل البيئات، المرحلة ٢ — 2026-09-30)
+#
+#   ./deploy.sh            ينشر آخر main (origin/main)
+#   ./deploy.sh v1.4.0     ينشر وسماً (tag) أو فرعاً أو commit بعينه
+#
+# الضمانات:
+#   • يتوقّف عند أوّل خطأ (set -Eeuo pipefail) ويبقى الموقع **في الصيانة** — لا يُفتح على كودٍ مختلط.
+#   • النسخة الاحتياطيّة (القاعدة + الملفّات المرفوعة) **بعد** إيقاف الموقع والعمّال، مضغوطةً مفحوصةً مدوّرة.
+#   • يُسجَّل الإصدار السابق في $DEPLOY_STATE_DIR فيعيده ./rollback.sh.
+#   • php artisan env:check وفحص /up عبر رابطٍ سرّيّ **قبل** الإتاحة للعملاء.
+#   • يوقف عمّال المشروع بأسمائهم (SUPERVISOR_PROGRAMS) لا كلّ برامج الخادم.
+# المتغيّرات القابلة للضبط: انظر deploy/lib.sh.
+# ════════════════════════════════════════════════════════════════════════════
+set -Eeuo pipefail
+cd "$(dirname "$0")"
+# shellcheck source=deploy/lib.sh
+source deploy/lib.sh
 
-echo "=========================================="
-echo "🚀 Starting Automated Deployment..."
-echo "=========================================="
+# الجسم كلّه داخل دالّةٍ تُنادى في آخر سطر: bash يقرأ السكربت قطعةً قطعة أثناء التنفيذ، و`git checkout` أدناه
+# يبدّل هذا الملفّ نفسه على القرص — فبلا الدالّة قد يُنفَّذ خليطٌ من نسختين. هكذا يُقرأ كاملاً قبل أيّ تنفيذ.
+main() {
+TARGET="${1:-origin/main}"
+STEP="التحضير"
+SITE_DOWN=0
 
-# أي إخفاق (set -e) كان يترك الموقع في وضع الصيانة أبداً — هذا يعيده دائماً
-trap 'php artisan up || true' EXIT
+# عند أيّ خروجٍ غير ناجح — خطأ أمرٍ (set -e) أو رفضٍ صريح (die) — يُطبع أين توقّف وما العمل.
+# (فخّ EXIT لا ERR: `die` تخرج بـexit فلا يلتقطها ERR)
+on_exit() {
+    local status="$1"
+    [ "$status" -eq 0 ] && return 0
+    echo
+    echo "════════════════════════════════════════════════════════════"
+    echo "⛔ فشل النشر عند: ${STEP}"
+    if [ "$SITE_DOWN" -eq 1 ]; then
+        echo "   الموقع **ما زال في الصيانة** عمداً — لم يُفتح على نشرٍ ناقص."
+        echo "   • أصلح السبب ثمّ أعد: ./deploy.sh ${TARGET}"
+        echo "   • أو ارجع للإصدار السابق: ./rollback.sh          (الكود فقط)"
+        echo "                              ./rollback.sh --with-db (والقاعدة من نسخة ما قبل النشر)"
+        echo "   • آخر نسخة احتياطيّة: $(state_get last_backup)"
+    else
+        echo "   لم يتغيّر شيء — الموقع ما زال يعمل بالإصدار الحاليّ."
+    fi
+    echo "════════════════════════════════════════════════════════════"
+    state_log "FAILED deploy ${TARGET} at: ${STEP}"
+}
+trap 'on_exit $?' EXIT
 
-# 0. نسخة احتياطية قبل أي ترحيل — المهاجرات قد تُسقط أعمدة/جداول بلا رجعة
-BACKUP_DIR="${BACKUP_DIR:-$HOME/law-backups}"
-mkdir -p "$BACKUP_DIR"
-BACKUP_FILE="$BACKUP_DIR/law-$(date +%Y%m%d-%H%M%S).sql"
-if command -v mysqldump &> /dev/null; then
-    DB_NAME=$(php artisan tinker --execute='echo config("database.connections.".config("database.default").".database");' 2>/dev/null | tail -n1)
-    DB_USER=$(php artisan tinker --execute='echo config("database.connections.".config("database.default").".username");' 2>/dev/null | tail -n1)
-    DB_PASS=$(php artisan tinker --execute='echo config("database.connections.".config("database.default").".password");' 2>/dev/null | tail -n1)
-    echo "💾 Backing up $DB_NAME -> $BACKUP_FILE"
-    MYSQL_PWD="$DB_PASS" mysqldump --no-tablespaces --single-transaction -u "$DB_USER" "$DB_NAME" > "$BACKUP_FILE"
-    echo "✅ Backup written ($(du -h "$BACKUP_FILE" | cut -f1))"
-else
-    echo "⛔ mysqldump غير متوفّر — أوقف النشر وخذ نسخة احتياطية يدوياً قبل الترحيل."
-    exit 1
-fi
+log "🚀 النشر الآمن — الهدف: ${TARGET}"
 
-# 1. تفعيل وضع الصيانة المؤقت
-php artisan down || true
+# ── ١. التحضير (الموقع يعمل؛ أيّ رفضٍ هنا لا يغيّر شيئاً) ─────────────────────────────────────
+STEP="التحضير: جلب الإصدار"
+git fetch --tags --prune origin
+TARGET_SHA="$(git rev-parse --verify "${TARGET}^{commit}")"
+CURRENT_SHA="$(git rev-parse HEAD)"
+log "الحاليّ: ${CURRENT_SHA:0:10} ← الهدف: ${TARGET_SHA:0:10}"
 
-# 2. سحب آخر التحديثات من الفرع الرئيسي
-# ملفّا القفل لا يُعدَّلان على الخادم أبداً — نسختهما من المستودع هي الحقّ. محاولة `npm ci` فاشلة سابقة
-# عدّلت package-lock.json محلّياً فرفض `git pull` السحب وبقي الموقع على نصف تحديث (2026-09-26)
+STEP="التحضير: نظافة نسخة الخادم"
+# ملفّا القفل لا يُعدَّلان على الخادم أبداً — نسختهما من المستودع هي الحقّ (npm ci فاشل عدّلهما مرّة، 2026-09-26)
 git checkout -- package-lock.json composer.lock 2>/dev/null || true
-git pull origin main
-
-# 3. تحديث حزم Composer للإنتاج
-composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
-
-# 4. تثبيت حزم الواجهة ومحرك طباعة التقارير PDF
-# `npm ci` وحده: يثبّت ملفّ القفل كما هو أو يفشل — لا يعدّله. كان الملفّ غير متزامن مع package.json
-# («Missing: @emnapi/core …») فيرفضه npm 10 و11 كلاهما، فاستُعمل `npm install` مع npm 10؛ أُعيد توليده
-# (2026-09-27) فصار `npm ci` يقبله بالإصدارين.
-npm ci
-if ! npx puppeteer browsers installed | grep -q "chrome"; then
-    npx puppeteer browsers install chrome || true
-fi
-npm run build
-
-# 5. إيقاف العمّال قبل الترحيل — عامل يعمل بالكود القديم يضرب أعمدة مُرحَّلة (SQLSTATE 42S22)
-php artisan queue:restart
-if command -v supervisorctl &> /dev/null && [ "$EUID" -eq 0 ]; then
-    supervisorctl stop all || true
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    git status --short --untracked-files=no
+    die "تعديلاتٌ محلّيّة على ملفّات المستودع في الخادم — لا يُكتب فوقها. احفظها أو تخلّص منها ثمّ أعد النشر."
 fi
 
-# 6. ترحيل قواعد البيانات
+STEP="التحضير: فحص إعداد البيئة (الكود الحاليّ)"
+if php artisan list --raw 2>/dev/null | grep -q '^env:check'; then
+    php artisan env:check
+fi
+
+# ── ٢. الصيانة ثمّ إيقاف العمّال ثمّ النسخة (لا كتابة بين النسخة والترحيل) ───────────────────────
+STEP="تفعيل الصيانة"
+SECRET="$(random_secret)"
+php artisan down --secret="$SECRET" --retry=60
+SITE_DOWN=1
+
+STEP="إيقاف العمّال"
+workers stop
+
+STEP="النسخة الاحتياطيّة"
+BACKUP="$(backup_now predeploy)"
+state_set last_backup "$BACKUP"
+log "💾 النسخة: $BACKUP"
+
+# ── ٣. الكود الجديد ───────────────────────────────────────────────────────────────────────
+STEP="تسجيل الإصدار السابق"
+state_set previous_commit "$CURRENT_SHA"
+
+STEP="التحويل إلى الإصدار الهدف"
+git checkout --quiet --detach "$TARGET_SHA"
+
+STEP="البناء (composer/npm)"
+build_app
+
+# ── ٤. القاعدة والإعداد ───────────────────────────────────────────────────────────────────
+STEP="ترحيل القاعدة"
 php artisan migrate --force
 
-# 6-ب. مزامنة المصادر القانونيّة المشحونة في database/legal-sources — متكرّرة بلا أثر:
-# الجديد مسودة، والمعتمد لا يُخفَّض، وملفٌّ معطوب يُسقط النشر هنا قبل أيّ كتابة (set -e)
+STEP="مزامنة المصادر القانونيّة"
+# متكرّرة بلا أثر: الجديد مسودة، والمعتمد لا يُخفَّض، وملفٌّ معطوب يُسقط النشر هنا قبل أيّ كتابة
 php artisan ai:sync-sources
 
-# 6. إعداد مجلدات التخزين والمؤقت لتقارير PDF
-mkdir -p storage/app/browsershot-tmp
-chmod -R 775 storage || true
-php artisan storage:link || true
+STEP="الكاشات"
+cache_app
 
-# 7. تفريغ وإعادة بناء الكاشات لتحقيق أعلى سرعة
-php artisan optimize:clear
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
-php artisan event:cache
+STEP="فحص إعداد البيئة (الكود الجديد)"
+php artisan env:check
 
-# 8. إعادة تشغيل طوابير الانتظار وخدمات البث بالكود الجديد
-php artisan queue:restart
-if command -v supervisorctl &> /dev/null && [ "$EUID" -eq 0 ]; then
-    supervisorctl start all || true
-    supervisorctl restart all || true
-fi
+# ── ٥. التحقّق قبل الإتاحة ثمّ الإتاحة ──────────────────────────────────────────────────────
+STEP="فحص الصحّة (من خلف الصيانة)"
+health_check "$SECRET"
 
-# 9. إتاحة الموقع للزوار
+STEP="تشغيل العمّال"
+workers start
+
+STEP="إتاحة الموقع"
 php artisan up
-trap - EXIT
+SITE_DOWN=0
 
-# 10. تحقّق صحّة بعد الإتاحة (نقطة /up المسجّلة في bootstrap/app.php)
-APP_URL_LOCAL=$(php artisan tinker --execute='echo config("app.url");' 2>/dev/null | tail -n1)
-if command -v curl &> /dev/null && [ -n "$APP_URL_LOCAL" ]; then
-    HEALTH=$(curl -s -o /dev/null -w '%{http_code}' "$APP_URL_LOCAL/up" || echo 000)
-    if [ "$HEALTH" != "200" ]; then
-        echo "⚠️  فحص الصحّة أعاد $HEALTH — راجع السجلّات فوراً (النسخة الاحتياطية: $BACKUP_FILE)"
-        exit 1
-    fi
-    echo "✅ Health check: 200"
-fi
+state_set current_commit "$TARGET_SHA"
+state_log "OK deploy ${TARGET} ${CURRENT_SHA:0:10} -> ${TARGET_SHA:0:10} backup=${BACKUP}"
 
-# 11. تحقّق من عامل الطابور: بلا عامل حيّ تُبنى أرشيفات Zoom داخل الطلب ⇒ 504
-QUEUE_DRIVER=$(php artisan tinker --execute='echo config("queue.default");' 2>/dev/null | tail -n1)
-if [ "$QUEUE_DRIVER" = "sync" ]; then
-    echo "⚠️  QUEUE_CONNECTION=sync في الإنتاج — كل مهمة تُنفَّذ داخل طلب المستخدم."
-    echo "    اضبطه على database (أو redis) وشغّل عاملاً: php artisan queue:work"
+# ── ٦. تنبيهات تشغيليّة (لا تُفشل النشر) ─────────────────────────────────────────────────────
+if [ "$(cfg queue.default)" = "sync" ]; then
+    warn "QUEUE_CONNECTION=sync في الإنتاج — كلّ مهمّة تُنفَّذ داخل طلب المستخدم. اضبطه database وشغّل عاملاً."
 elif ! pgrep -f "artisan queue:work" > /dev/null 2>&1; then
-    echo "⚠️  لا عامل طابور يعمل (artisan queue:work) — تسجيلات Zoom والإشعارات لن تُنفَّذ."
-    echo "    راجع supervisorctl status، أو شغّله يدوياً: php artisan queue:work --tries=2"
+    warn "لا عامل طابور يعمل — تسجيلات Zoom والإشعارات لن تُنفَّذ. راجع: supervisorctl status"
 else
-    echo "✅ عامل الطابور يعمل ($QUEUE_DRIVER)"
+    log "✅ عامل الطابور يعمل"
 fi
 
-# 12. تحقّق من المجدول (cron): بدونه لا تُطلَق روابط الجلسات ولا تُرسَل التذكيرات ولا
-# تُحسم الاجتماعات الفائتة — والأعطال صامتة تماماً: لا خطأ في أي سجلّ، فقط لا شيء يحدث.
-if crontab -l 2>/dev/null | grep -q "schedule:run"; then
-    echo "✅ المجدول مسجَّل في crontab"
-elif [ -f /etc/cron.d/laravel ] && grep -q "schedule:run" /etc/cron.d/laravel 2>/dev/null; then
-    echo "✅ المجدول مسجَّل في /etc/cron.d/laravel"
+# بلا المجدول لا تُطلَق روابط الجلسات ولا التذكيرات — والعطل صامتٌ تماماً
+if crontab -l 2>/dev/null | grep -q "schedule:run" || grep -qs "schedule:run" /etc/cron.d/*; then
+    log "✅ المجدول مسجَّل في cron"
 else
-    echo "⚠️  لا مدخل cron لـschedule:run — لن تُطلَق روابط الجلسات ولا التذكيرات."
-    echo "    أضِفه: * * * * * cd $(pwd) && php artisan schedule:run >> /dev/null 2>&1"
+    warn "لا مدخل cron لـschedule:run — أضِفه: * * * * * cd $(pwd) && php artisan schedule:run >> /dev/null 2>&1"
 fi
-echo "=========================================="
-echo "✅ Deployment Completed Successfully!"
-echo "=========================================="
+
+log "✅ اكتمل النشر: ${TARGET_SHA:0:10} — للتراجع: ./rollback.sh"
+}
+
+main "$@"

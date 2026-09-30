@@ -213,4 +213,18 @@ class EnvironmentSeparationTest extends TestCase
         $this->artisan('admin:first', ['--national-id' => '1000000077', '--email' => 'a@b.sa', '--phone' => 'abc'])->assertFailed();
         $this->assertSame(0, User::where('role', Role::Admin)->count());
     }
+
+    public function test_a_declared_temporary_exception_turns_that_violation_into_a_warning_only(): void
+    {
+        $this->healthyProduction();
+        config(['services.moyasar.secret_key' => 'sk_test_abc', 'services.moyasar.publishable_key' => 'pk_test_abc', 'app.debug' => true]);
+        config(['app.env_check_allow' => ['MOYASAR_SECRET_KEY']]);
+
+        // ميسّر صار تنبيهاً، والتصحيح المفتوح غير المستثنى ما زال يُفشل
+        $this->assertSame(['APP_DEBUG'], $this->failingKeys());
+        $this->assertContains('MOYASAR_SECRET_KEY', array_column(EnvironmentAudit::findings(), 'key'));
+
+        config(['app.debug' => false]);
+        $this->artisan('env:check')->assertSuccessful();
+    }
 }

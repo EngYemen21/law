@@ -19,7 +19,13 @@ final class EnvironmentAudit
      */
     public static function findings(): array
     {
-        return AppEnvironment::isSandbox() ? self::sandbox() : self::production();
+        $allowed = (array) config('app.env_check_allow', []);
+        $findings = AppEnvironment::isSandbox() ? self::sandbox() : self::production();
+
+        // الاستثناء المؤقّت المعلَن (`ENV_CHECK_ALLOW`) يُبقي المخالفة ظاهرةً لكن لا يُفشل الفحص
+        return array_map(fn (array $f) => $f['level'] === 'fail' && in_array($f['key'], $allowed, true)
+            ? ['level' => 'warn', 'key' => $f['key'], 'message' => $f['message'].' (مستثناة مؤقّتاً بـENV_CHECK_ALLOW)']
+            : $f, $findings);
     }
 
     /** @return list<array{level: 'fail'|'warn', key: string, message: string}> */
