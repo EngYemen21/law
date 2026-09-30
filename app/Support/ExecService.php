@@ -673,12 +673,9 @@ class ExecService
         // الرسالة تَعِد بالقيد والحارس يفحص المرحلة وحدها: فيُسجَّل تحصيلٌ و`registered_at` فارغ —
         // مبلغٌ محصَّل على ملفٍّ لم يُقيَّد لدى محكمة التنفيذ بعد. الحارس الآن يطابق ما تقوله الرسالة.
         abort_if($exec->registered_at === null, 422, 'سجّل قيد الطلب لدى محكمة التنفيذ أوّلاً.');
-        abort_if($amount < 1, 422, 'أدخل مبلغاً صحيحاً.');
 
-        $remaining = max(0, (int) $exec->amount - (int) $exec->collected);
-        abort_if($remaining <= 0, 422, 'تم تحصيل كامل قيمة المطالبة لهذا الملف بالفعل.');
-        abort_if($amount > $remaining, 422, 'مبلغ التحصيل يتجاوز المتبقي من قيمة المطالبة (المتبقي: '.number_format($remaining).' ريال).');
-
+        // المبلغ وسقف المتبقّي يحرسهما الانتقال وحده (`RecordExecutionCollection::guard`) — على الصفّ المقفول،
+        // فتحصيلان متزامنان لا يتجاوزان المطالبة؛ ونسخةٌ ثانية هنا كانت تكرّر الشروط والرسائل نفسها
         Workflow::run(new RecordExecutionCollection, $exec, $actor, [
             'amount' => $amount,
             'note' => $note,
