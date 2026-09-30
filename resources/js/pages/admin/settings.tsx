@@ -172,7 +172,7 @@ const AdminSettings: React.FC<Props> = ({ groups, fields, values }) => {
           متغيّرات التشغيل التي كانت تحتاج تعديل شيفرةٍ ونشراً لتُضبط: مهل التنفيذ والأتعاب،
           ومهل سداد الفواتير، وساعات حجز الاستشارات وسياسة إعادة جدولتها، ومهل التنبيهات الآليّة، وبيانات المكتب في المستندات والبريد، ومسمّيات المتحدّثين كما يراها
           العميل في محادثاته. ولا مفاتيح أسرار هنا —
-          تلك في بيئة الخادم وحدها.
+          تلك في «مفاتيح الخدمات الخارجيّة»، مشفّرةً.
         </p>
       </div>
 
@@ -203,6 +203,9 @@ const AdminSettings: React.FC<Props> = ({ groups, fields, values }) => {
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <Link className="btn soft sm" href="/admin/ai-ops">
               <Icon name="compass" /> حوكمة الذكاء الاصطناعي
+            </Link>
+            <Link className="btn soft sm" href="/admin/integrations">
+              <Icon name="lock" /> مفاتيح الخدمات الخارجيّة
             </Link>
           </div>
         </div>

@@ -413,6 +413,7 @@ const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/approvals': ['مركز الاعتمادات والقرارات', 'لوحة الإدارة'],
   '/admin/revenue': ['الإيرادات', 'لوحة الإدارة'],
   '/admin/settings': ['إعدادات النظام', 'الإدارة العليا'],
+  '/admin/integrations': ['مفاتيح الخدمات الخارجيّة', 'إعدادات النظام'],
   '/admin/catalogue': ['الأقسام والخدمات', 'الإدارة العليا'],
   '/admin/finance': ['المالية والمحاسبة', 'الإدارة العليا'],
   '/admin/financial-reports': ['التقارير الماليّة', 'الإدارة العليا'],

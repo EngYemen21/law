@@ -13,6 +13,7 @@ use App\Http\Controllers\Admin\CourtHearingController as AdminCourtHearingContro
 use App\Http\Controllers\Admin\DistributeController as AdminDistributeController;
 use App\Http\Controllers\Admin\FinanceController as AdminFinanceController;
 use App\Http\Controllers\Admin\FinancialReportController as AdminFinancialReportController;
+use App\Http\Controllers\Admin\IntegrationSettingsController as AdminIntegrationSettingsController;
 use App\Http\Controllers\Admin\JourneyTransitionController as AdminJourneyTransitionController;
 use App\Http\Controllers\Admin\LawyerController as AdminLawyerController;
 use App\Http\Controllers\Admin\LegalSourceController as AdminLegalSourceController;
@@ -757,6 +758,9 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     // المسار داخل `role:admin` فلا يبلغه سواه.
     Route::get('/settings', [AdminSettingsController::class, 'index'])->name('settings');
     Route::post('/settings', [AdminSettingsController::class, 'update'])->name('settings.update');
+    // مفاتيح الخدمات الخارجيّة (ميسّر، Zoom، البريد، تقنيات، الذكاء) — مشفّرة، والأسرار لا تُرسل إلى المتصفّح
+    Route::get('/integrations', [AdminIntegrationSettingsController::class, 'index'])->name('integrations');
+    Route::post('/integrations', [AdminIntegrationSettingsController::class, 'update'])->name('integrations.update');
     // «الأقسام والخدمات» — كتالوج الأقسام القانونيّة وخدماتها والأقسام الإداريّة (قرار المالك 2026-09-14).
     // بلا صلاحيّة مستحدثة للتعليل نفسه أعلاه. لا حذف: إيقافٌ يُبقي السجلّات.
     Route::get('/catalogue', [AdminCatalogueController::class, 'index'])->name('catalogue');

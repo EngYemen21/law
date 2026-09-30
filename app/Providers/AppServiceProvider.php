@@ -11,6 +11,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Services\Ai\AiGateway;
 use App\Support\AppEnvironment;
+use App\Support\Integrations\IntegrationSecrets;
 use App\Support\LegalCatalogue;
 use App\Support\MessageSender;
 use App\Support\OtpService;
@@ -57,6 +58,9 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+
+        // مفاتيح الخدمات الخارجيّة من شاشة الإدارة (مشفّرة) تتقدّم على `.env` متى ضُبطت — قبل أيّ خدمةٍ تقرؤها
+        IntegrationSecrets::apply();
 
         // ربط {doc} بنموذج LegalDocument صراحةً — لتفادي أي تعارض مع Document الحالي
         Route::model('doc', LegalDocument::class);
