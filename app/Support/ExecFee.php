@@ -160,6 +160,9 @@ class ExecFee
             // المهل من الإعدادات (`InvoiceDue::installment`) — نظير `CaseFee::openInstallmentPlan` بالقارئ نفسه.
             $master->update(array_merge(InvoiceFactory::taxFromTotal($first), [
                 'installment_no' => 1,
+                // رابط البوّابة القديم صدر بالمبلغ الكامل — لا يصلح للدفعة الأولى
+                'gateway' => null,
+                'gateway_ref' => null,
                 'description' => self::installmentLabel($locked, 1, $count),
                 ...InvoiceDue::installment(1),
             ]));

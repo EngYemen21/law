@@ -24,8 +24,9 @@ interface PaymentGateway
     public function isConfigured(): bool;
 
     /**
-     * رابط صفحة الدفع المستضافة لفاتورة المنصّة — يعيد استعمال فاتورة البوّابة المفتوحة، ويكتب مرجعها
-     * في `gateway_ref` و`gateway`. **لا يُعيد فاتورةً مدفوعة إلى البوّابة إطلاقاً.** null عند التعذّر.
+     * رابط صفحة الدفع المستضافة لفاتورة المنصّة — يعيد استعمال فاتورة البوّابة المفتوحة **بمبلغها الحاليّ**،
+     * ويكتب مرجعها في `gateway_ref` و`gateway`. **لا يُعيد فاتورةً مدفوعة إلى البوّابة إطلاقاً**، وفاتورةُ
+     * بوّابةٍ دُفعت ولم يصل إشعارها يُعاد فيها `$callbackUrl` بدفعتها لتُسوّى. null عند التعذّر.
      */
     public function hostedUrlForInvoice(Invoice $invoice, string $callbackUrl): ?string;
 

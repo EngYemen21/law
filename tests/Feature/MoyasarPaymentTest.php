@@ -226,7 +226,8 @@ class MoyasarPaymentTest extends TestCase
         $consult = $this->pendingConsult($client);
         $consult->invoice->update(['gateway_ref' => 'inv_existing']);
         Http::fake([
-            'api.moyasar.com/v1/invoices/inv_existing' => Http::response(['id' => 'inv_existing', 'url' => 'https://moyasar.test/pay/inv_existing', 'status' => 'initiated'], 200),
+            // ميسّر تردّ مبلغ فاتورتها — ويُعاد استعمالها لأنّه مبلغ الفاتورة نفسه (518 ريالاً)
+            'api.moyasar.com/v1/invoices/inv_existing' => Http::response(['id' => 'inv_existing', 'url' => 'https://moyasar.test/pay/inv_existing', 'status' => 'initiated', 'amount' => 51800], 200),
             'api.moyasar.com/v1/invoices' => Http::response(['id' => 'inv_NEW', 'url' => 'https://moyasar.test/pay/inv_NEW'], 201),
         ]);
 

@@ -68,9 +68,20 @@ final class MoyasarGateway implements PaymentGateway
             return null;
         }
 
+        // يُعاد استعمال فاتورة البوّابة المفتوحة **بمبلغها الحاليّ فقط**: فتحُ خطّة تقسيطٍ يصغّر مبلغ الفاتورة،
+        // فكان العميل يُوجَّه إلى رابط المبلغ الكامل القديم، فيُخصم كاملاً ولا يُسوّى (مراجعة الدفع 2026-09-30).
         if (! empty($invoice->gateway_ref) && in_array($invoice->gateway, [null, self::NAME], true)) {
             $existing = $this->findInvoice((string) $invoice->gateway_ref);
-            if ($existing !== null && in_array($existing['status'], self::OPEN_INVOICE_STATUSES, true)) {
+
+            // **دُفعت لدى البوّابة ولم يصل إشعارها بعد** (يدفع العميل ثمّ يعود فيضغط الدفع ثانيةً): كانت تُنشأ
+            // فاتورةُ بوّابةٍ جديدة فيُخصم مرّتين. الآن يُعاد إلى صفحة العودة بدفعته فتُسوّى — لا رابطَ جديد.
+            if ($existing !== null && $existing['paidPaymentId'] !== null) {
+                return $callbackUrl.(str_contains($callbackUrl, '?') ? '&' : '?').'id='.urlencode($existing['paidPaymentId']);
+            }
+
+            if ($existing !== null
+                && in_array($existing['status'], self::OPEN_INVOICE_STATUSES, true)
+                && $existing['amount'] === Money::halalas($invoice->amount)) {
                 return $existing['url'];
             }
         }
@@ -256,7 +267,7 @@ final class MoyasarGateway implements PaymentGateway
     /**
      * فاتورة ميسّر بمعرّفها — لإعادة استعمال رابطها بدل إنشاء نسخة مكرّرة.
      *
-     * @return array{id: string, url: string, status: string}|null
+     * @return array{id: string, url: string, status: string, amount: int, paidPaymentId: ?string}|null
      */
     private function findInvoice(string $invoiceId): ?array
     {
@@ -269,7 +280,14 @@ final class MoyasarGateway implements PaymentGateway
             $data = $response->json();
 
             if ($response->successful() && ! empty($data['id']) && ! empty($data['url'])) {
-                return ['id' => (string) $data['id'], 'url' => (string) $data['url'], 'status' => (string) ($data['status'] ?? '')];
+                $paid = collect(is_array($data['payments'] ?? null) ? $data['payments'] : [])
+                    ->first(fn ($p) => is_array($p) && ($p['status'] ?? null) === 'paid' && ! empty($p['id']));
+
+                return [
+                    'id' => (string) $data['id'], 'url' => (string) $data['url'],
+                    'status' => (string) ($data['status'] ?? ''), 'amount' => (int) ($data['amount'] ?? 0),
+                    'paidPaymentId' => $paid !== null ? (string) $paid['id'] : null,
+                ];
             }
         } catch (\Throwable $e) {
             Log::warning('moyasar.getInvoice.exception', ['invoice_id' => $invoiceId, 'message' => $e->getMessage()]);

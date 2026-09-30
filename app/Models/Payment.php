@@ -35,7 +35,7 @@ class Payment extends Model
 
     protected $fillable = [
         'invoice_id', 'gateway', 'method', 'gateway_invoice_id', 'gateway_payment_id', 'receipt_no',
-        'status', 'amount', 'amount_halalas', 'currency', 'source_channel', 'raw', 'reconciled_at',
+        'status', 'amount', 'amount_halalas', 'currency', 'source_channel', 'raw', 'reconciled_at', 'refund_required_at',
         'received_at', 'actor_id', 'note',
     ];
 
@@ -44,6 +44,7 @@ class Payment extends Model
         'amount_halalas' => 'integer',
         'raw' => 'array',
         'reconciled_at' => 'datetime',
+        'refund_required_at' => 'datetime',
         'received_at' => 'datetime',
     ];
 

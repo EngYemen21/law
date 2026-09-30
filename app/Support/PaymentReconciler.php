@@ -43,8 +43,10 @@ class PaymentReconciler
             return false;
         }
 
+        // من هنا **المال وصل**: كلّ رفضٍ بعده مالٌ خُصم ولم يُطبَّق — يُنبَّه له بالاسترداد في كلّ الفروع
+        // (كان فرع الاستشارات وحده يُنبّه، والقضايا والتنفيذ يكتبان سطر سجلٍّ لا يراه أحد).
         if ($invoice === null) {
-            Log::warning('payment.reconcile.invoice_not_found', ['gateway' => $payment->gateway, 'payment_id' => $payment->id]);
+            self::flagRefund($ledger, null, 'وصلت دفعة لا تُطابق أيّ فاتورة', 'invoice_not_found');
 
             return false;
         }
@@ -52,42 +54,32 @@ class PaymentReconciler
         // تحقّق تطابق المبلغ (بالهللة) والعملة — دفاع ضدّ التلاعب بمعطيات العودة
         $expected = Money::halalas($invoice->amount);
         if ($payment->amountHalalas !== $expected || $payment->currency !== Money::CURRENCY) {
-            Log::warning('payment.reconcile.amount_mismatch', [
-                'gateway' => $payment->gateway, 'invoice' => $invoice->number, 'expected' => $expected,
-                'paid' => $payment->amountHalalas, 'currency' => $payment->currency,
-            ]);
+            self::flagRefund($ledger, $invoice, 'مبلغ الدفعة '.number_format($payment->amountHalalas / 100, 2).' '.$payment->currency
+                .' لا يطابق مبلغ الفاتورة '.number_format($expected / 100, 2).' '.Money::CURRENCY, 'amount_mismatch');
 
             return false;
         }
 
-        // فاتورة مدفوعة أصلاً: التسوية تمّت. لا نطمس مرجع الدفعة الأولى — طمسه يُضيّع أثر
-        // المبلغ المحصَّل فعلاً. وإن اختلف معرّف الدفعة فهذه **شحنة ثانية حقيقية** على نفس
-        // الفاتورة (يدفع العميل ثم يعيد المحاولة قبل وصول الويبهوك)، وتلزمها تسوية بشرية.
-        // النظير الإداري settleManual يحرس بـ`if ($invoice->paid)` منذ البداية؛ هذا المسار
-        // — وهو المعرَّض للإنترنت — كان بلا حارس.
+        // فاتورة مدفوعة أصلاً: التسوية تمّت — وإن اختلف معرّف الدفعة فهذه **شحنة ثانية حقيقيّة**.
         if ($invoice->paid) {
-            if ($payment->id !== '' && $payment->id !== (string) $invoice->gateway_payment_id) {
-                Log::error('payment.reconcile.duplicate_charge', [
-                    'gateway' => $payment->gateway,
-                    'invoice' => $invoice->number,
-                    'settled_payment_id' => $invoice->gateway_payment_id,
-                    'duplicate_payment_id' => $payment->id,
-                    'amount' => $payment->amountHalalas,
-                    'channel' => $channel,
-                ]);
-            }
-
-            return true;
+            return self::alreadySettled($invoice, $payment, $ledger);
         }
-
-        $invoice->update(['gateway_payment_id' => $payment->id]);
 
         // انتقال حالة المجال (idempotent) بحسب نوع الفاتورة: استشارة أو أتعاب قضية أو أتعاب تنفيذ.
-        // **وقد يرفض:** دفعةٌ على فاتورة استشارةٍ لا تقبل السداد لا تُحيي شيئاً — تبقى في الدفتر
-        // بلا تسوية وتُنبَّه الإدارة للاسترداد (ع١، ع٢).
         if (! self::settleDomain($invoice, app(PaymentGateways::class)->label($payment->gateway))) {
+            // **سباق الإشعار والعودة:** كلاهما قرأ الفاتورة غير مدفوعة، فسوّاها الأوّل ورُفض الثاني —
+            // نجاحٌ مكرّر لا فشل (كان فرعا القضايا والتنفيذ يُقرئان العميل «تعذّر تأكيد الدفع»).
+            $fresh = $invoice->fresh();
+            if ($fresh?->paid) {
+                return self::alreadySettled($fresh, $payment, $ledger);
+            }
+
+            self::flagRefund($ledger, $invoice, 'الفاتورة لا تقبل السداد في حالتها الحاليّة', 'not_payable');
+
             return false;
         }
+
+        self::claimPayment($invoice, $payment);
 
         // اختم أوّل تسوية للدفتر (لا تُدهَس عند تكرار webhook/callback).
         if ($ledger !== null && $ledger->reconciled_at === null) {
@@ -95,6 +87,82 @@ class PaymentReconciler
         }
 
         return true;
+    }
+
+    /**
+     * الفاتورة مسوّاة: الدفعة نفسها (إشعارٌ وعودةٌ معاً) نجاحٌ مكرّر؛ ودفعةٌ **أخرى** شحنةٌ ثانيةٌ حقيقيّة
+     * على فاتورةٍ واحدة (يدفع العميل ثمّ يعيد قبل وصول الإشعار) — تُنبَّه الإدارة لردّها.
+     */
+    private static function alreadySettled(Invoice $invoice, GatewayPayment $payment, ?Payment $ledger): bool
+    {
+        self::claimPayment($invoice, $payment);
+
+        if ($payment->id !== (string) $invoice->fresh()?->gateway_payment_id) {
+            self::flagRefund($ledger, $invoice, 'دفعة ثانية على فاتورة سُدّدت من قبل', 'duplicate_charge');
+        }
+
+        return true;
+    }
+
+    /**
+     * يربط الفاتورة بدفعتها **مرّةً واحدة** — أوّل دفعةٍ تُسجَّل تبقى. كانت الكتابة قبل التسوية وبلا شرط،
+     * فخاسرُ سباقٍ بدفعةٍ أخرى يطمس مرجع الدفعة التي سُوّيت بها الفاتورة.
+     */
+    private static function claimPayment(Invoice $invoice, GatewayPayment $payment): void
+    {
+        if ($payment->id === '') {
+            return;
+        }
+
+        Invoice::whereKey($invoice->id)
+            ->where(fn ($q) => $q->whereNull('gateway_payment_id')->orWhere('gateway_payment_id', ''))
+            ->update(['gateway_payment_id' => $payment->id]);
+    }
+
+    /**
+     * **مالٌ خُصم ولم يُطبَّق — يتطلّب استرداداً.** قيدٌ حرج في التدقيق وتنبيهٌ لكلّ مدير، مرّةً واحدة لكلّ
+     * دفعة: `refund_required_at` يُختم ذرّيّاً، فالإشعار والعودة الواصلان معاً لا يُنبّهان مرّتين.
+     */
+    private static function flagRefund(?Payment $ledger, ?Invoice $invoice, string $reason, string $code): void
+    {
+        Log::error("payment.reconcile.{$code}", [
+            'payment_id' => $ledger?->gateway_payment_id, 'gateway' => $ledger?->gateway, 'invoice' => $invoice?->number,
+            'settled_payment_id' => $invoice?->fresh()?->gateway_payment_id, 'amount' => $ledger?->amount_halalas,
+        ]);
+
+        if ($ledger !== null
+            && Payment::whereKey($ledger->id)->whereNull('refund_required_at')->update(['refund_required_at' => now()]) === 0) {
+            return; // نُبّه لها سابقاً
+        }
+
+        $ref = self::ownerRef($invoice);
+        $paymentId = (string) ($ledger->gateway_payment_id ?? '—');
+        $where = $invoice !== null ? "على الفاتورة {$invoice->number}".($ref !== null ? " ({$ref})" : '') : 'بلا فاتورة مطابقة';
+
+        Audit::log(
+            action: 'دفعة لم تُطبَّق وتتطلّب استرداداً',
+            description: "وصلت الدفعة {$paymentId} {$where} — {$reason}. لم تُطبَّق، وتتطلّب استرداداً للعميل.",
+            category: 'مالية وفواتير',
+            severity: 'critical',
+            auditable: $invoice,
+            auditableRef: $invoice?->number,
+        );
+
+        foreach (User::where('role', Role::Admin)->pluck('id') as $adminId) {
+            Notify::send($adminId, 'card', 't-red', "دفعة وصلت {$where} ولم تُطبَّق ({$reason}) — تتطلّب استرداداً للعميل.");
+        }
+    }
+
+    /** رقم الملفّ الذي تخصّه الفاتورة — ليعرف المدير من يردّ إليه. */
+    private static function ownerRef(?Invoice $invoice): ?string
+    {
+        return match (true) {
+            $invoice === null => null,
+            $invoice->consult_id !== null => Consult::whereKey($invoice->consult_id)->value('ref'),
+            $invoice->case_id !== null => LegalCase::whereKey($invoice->case_id)->value('number'),
+            $invoice->exec_id !== null => Execution::whereKey($invoice->exec_id)->value('number'),
+            default => null,
+        };
     }
 
     /**
@@ -188,8 +256,7 @@ class PaymentReconciler
      * **فاتورة الاستشارة تُسوّى عبر `SettlePayment` — أو لا تُسوّى.**
      *
      * كانت الفاتورة تُعلَّم مدفوعةً قبل النظر في الاستشارة، ثمّ `markPaid` يُحيي ما أُلغي.
-     * الآن: فاتورةٌ مسوّاة ⇒ لا شيء؛ ملفٌّ يقبل السداد ⇒ يُسوّى؛ وإلّا ⇒ المبلغ حُصّل ولم يُطبَّق،
-     * فتُنبَّه الإدارة لتردّه ويبقى الأثر في سجلّ التدقيق.
+     * الآن: فاتورةٌ مسوّاة ⇒ لا شيء؛ ملفٌّ يقبل السداد ⇒ يُسوّى؛ وإلّا ⇒ رفض، وتنبيه الاسترداد في `settle`.
      */
     private static function settleConsult(Invoice $invoice, Consult $consult, string $actor): bool
     {
@@ -208,29 +275,7 @@ class PaymentReconciler
             return true;
         }
 
-        // **سباق الخطّاف والعودة:** كلاهما قرأ الفاتورة غير مدفوعة بلا قفل، فسدّد الأوّلُ وانتقل
-        // بالاستشارة، ورُفض انتقالُ الثاني لأنّها غادرت «بانتظار السداد». الفاتورة نفسها مدفوعةٌ
-        // الآن ⇒ نجاحٌ مكرّر لا دفعةٌ تتطلّب استرداداً (كان `markPaid` قبل المحرّك يقفل ويعيد الفحص).
-        if ($invoice->fresh()?->paid) {
-            return true;
-        }
-
-        if ($manual) {
-            return false; // تحصيلٌ يدويّ رُفض قبل أن يقع — لا مبلغ يُردّ
-        }
-
-        Audit::log(
-            action: 'دفعة على فاتورة لا تقبل السداد',
-            description: "وصلت دفعة على الفاتورة {$invoice->number} للاستشارة {$consult->ref} وحالتها «{$consult->status}» والفاتورة «{$invoice->status}» — لم تُطبَّق وتتطلّب استرداداً.",
-            category: 'مالية وفواتير',
-            severity: 'critical',
-            auditable: $consult,
-        );
-
-        foreach (User::where('role', Role::Admin)->pluck('id') as $adminId) {
-            Notify::send($adminId, 'card', 't-red', "دفعة وصلت على الفاتورة {$invoice->number} ({$consult->ref}) وهي لا تقبل السداد — لم تُطبَّق، وتتطلّب استرداداً للعميل.");
-        }
-
+        // رفضٌ — ومسار البوّابة (`settle`) يفرّق بين خاسر سباقٍ على فاتورةٍ سُوّيت ومالٍ يتطلّب استرداداً
         return false;
     }
 
