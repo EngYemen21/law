@@ -194,10 +194,11 @@ class MeetInviteAutofillTest extends TestCase
     {
         $ui = file_get_contents(resource_path('js/lib/meeting-ui.tsx'));
 
-        // المرحلة ١ لها فرعُها: نجاحٌ لا انتظار
+        // المرحلة ١ لها حالتُها: نجاحٌ لا انتظار — الشارة الواحدة من `mrState` (تحسين التصميم 2026-09-30)
         $this->assertStringNotContainsString(') : r.stage < 2 ? (', $ui, 'المرحلة ١ ما زالت تُعرض «بانتظار موافقة الإدارة»');
-        $this->assertStringContainsString(') : r.stage === 1 ? (', $ui);
-        $this->assertStringContainsString('<Badge text={MR_FLOW[1]} tone="b-green" />', $ui);
+        $this->assertStringContainsString("case 0: return { label: MR_FLOW[0], tone: 'b-amber', group: 'pending' };", $ui);
+        $this->assertStringContainsString("case 1: return { label: MR_FLOW[1], tone: 'b-green', group: 'published' };", $ui);
+        $this->assertStringContainsString('<Badge text={state.label} tone={state.tone} />', $ui);
 
         // والرفض يُسمَع: كان يسقط صامتاً فتُنقر الموافقة مرّتين بلا أثر
         $this->assertStringContainsString("onError: (e) => toast(Object.values(e)[0] ?? 'الموافقة متاحة للدعوات المعلّقة فقط')", $ui);

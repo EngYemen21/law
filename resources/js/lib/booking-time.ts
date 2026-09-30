@@ -56,3 +56,62 @@ export function bookingClientId(
 
   return current !== '' ? current : (clientIds[0] ?? '');
 }
+
+/**
+ * «HH:MM» بصيغة ٢٤ ساعة من أيّ صيغةٍ مخزَّنة: الجديدة «14:20»، والقديمة «02:00 PM» أو «2:00 م».
+ * كانت القائمة تعرض الخامّ فيُقرأ «PM 02:00» مقلوباً في السطر العربيّ. ما لا يُفهم يُعاد كما هو.
+ */
+export function to24h(time: string): string {
+  const m = /^\s*(\d{1,2}):(\d{2})\s*(AM|PM|ص|م)?\s*$/i.exec(time ?? '');
+
+  if (!m) {
+    return (time ?? '').trim();
+  }
+
+  let hour = parseInt(m[1], 10);
+  const suffix = (m[3] ?? '').toUpperCase();
+
+  if ((suffix === 'PM' || suffix === 'م') && hour < 12) {
+    hour += 12;
+  } else if ((suffix === 'AM' || suffix === 'ص') && hour === 12) {
+    hour = 0;
+  }
+
+  return `${String(hour).padStart(2, '0')}:${m[2]}`;
+}
+
+/** اسم الشهر واليوم بالعربيّة من مُنسِّق المتصفّح (تقويمٌ ميلاديّ) — لا قائمة أسماءٍ ثانية بجانب `WEEK_DAY_NAMES`. */
+const arDate = (date: Date, part: 'month' | 'weekday'): string =>
+  new Intl.DateTimeFormat('ar-u-ca-gregory-nu-latn', { timeZone: 'UTC', [part]: 'long' }).format(date);
+
+export interface WhenParts {
+  /** مفتاح ترتيب «YYYY-MM-DD HH:MM» — '' حين لا تاريخ مفهوماً */
+  key: string;
+  day: string;
+  month: string;
+  weekday: string;
+  /** «2:00 م» */
+  time: string;
+}
+
+/** أجزاء الموعد للعرض — من يومٍ «YYYY-MM-DD» ووقتٍ بأيّ صيغةٍ مخزَّنة. */
+export function whenParts(day: string, time: string): WhenParts {
+  const hhmm = to24h(time);
+  const t = /^(\d{2}):(\d{2})$/.exec(hhmm);
+  const label = t ? `${parseInt(t[1], 10) % 12 === 0 ? 12 : parseInt(t[1], 10) % 12}:${t[2]} ${parseInt(t[1], 10) >= 12 ? 'م' : 'ص'}` : hhmm;
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec((day ?? '').trim());
+
+  if (!d) {
+    return { key: '', day: '—', month: (day ?? '').trim(), weekday: '', time: label };
+  }
+
+  const date = new Date(Date.UTC(+d[1], +d[2] - 1, +d[3]));
+
+  return {
+    key: `${d[1]}-${d[2]}-${d[3]} ${t ? hhmm : '00:00'}`,
+    day: String(+d[3]),
+    month: arDate(date, 'month'),
+    weekday: arDate(date, 'weekday'),
+    time: label,
+  };
+}

@@ -3,7 +3,6 @@ import axios from 'axios';
 import React, { useEffect, useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import { useConfirm } from '@/components/babylon/ConfirmDialog';
-import FlowLine from '@/components/babylon/FlowLine';
 import Modal from '@/components/babylon/Modal';
 import RescheduleDialog from '@/components/babylon/RescheduleDialog';
 import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
@@ -13,12 +12,12 @@ import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import type { TimeSlotItem } from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { todayISO } from '@/lib/local-date';
-import { keepChosenTime } from '@/lib/booking-time';
+import { keepChosenTime, whenParts } from '@/lib/booking-time';
 import { nowClock, todayDate } from '@/lib/chat';
 import { useConsultSlots } from '@/lib/consult-slots';
 import { RichText } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { MR_FLOW } from '@/lib/employee-data';
+import { foldSearch, MR_FLOW } from '@/lib/employee-data';
 import { useMasker } from '@/lib/permissions';
 import Icon from '@/lib/icons';
 import { meetingMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
@@ -182,6 +181,30 @@ export interface ClientDirEntry { id: number; name: string; items: ClientFileOpt
 // غرفة الاجتماع لدور المكتب: انتقلت إلى الغرفة الواحدة `RoomPage` (`lib/zoom-room.tsx`) — تفاصيلها
 // وزرُّ إنهائها من عقد الخادم `room`، والإنهاء داخل الغرفة لا بطاقةٌ تحتها (قرار المالك 2026-09-26).
 
+/** تصفية قائمة الدعوات — التبويبات الثلاث ومؤشّرات الأعلى. */
+type MrFilter = 'active' | 'all' | 'archive' | 'pending' | 'published' | 'held' | 'today';
+
+/** حالة الدعوة للعرض: شارةٌ واحدة ومجموعتها — بدل مسار المراحل الأربع مكرّراً في كلّ صفّ. */
+function mrState(stage: number): { label: string; tone: string; group: 'pending' | 'published' | 'held' | 'archive' } {
+    switch (stage) {
+        case 0: return { label: MR_FLOW[0], tone: 'b-amber', group: 'pending' };
+        case 1: return { label: MR_FLOW[1], tone: 'b-green', group: 'published' };
+        case 2: return { label: MR_FLOW[2], tone: 'b-blue', group: 'held' };
+        case 3: return { label: 'معتمد', tone: 'b-green', group: 'held' };
+        case 4: return { label: 'منتهية الصلاحية', tone: 'b-red', group: 'archive' };
+        default: return { label: 'أُلغيت', tone: 'b-grey', group: 'archive' };
+    }
+}
+
+/** أيقونة بحسب نوع اللقاء — كانت أيقونة الفيديو للحضوريّ والهاتفيّ أيضاً. */
+function mrTypeIcon(type: string): string {
+    if (type.includes('حضور')) {
+        return 'office';
+    }
+
+    return type.includes('هاتف') ? 'phone' : 'video';
+}
+
 // ============================================================
 // طلبات الاجتماعات — صفحة مشتركة للموظف/المحامي/الإدارة
 // يطابق meetReqsView + sendMeetInvite/mrCancel
@@ -242,6 +265,9 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
     const ask = useConfirm();
     const mask = useMasker();
     const joinOpens = useJoinOpensText();
+    // التبويب الافتراضيّ «النشطة»: الملغاة والمنتهية في «الأرشيف» (قرار المالك 2026-09-30)
+    const [filter, setFilter] = useState<MrFilter>('active');
+    const [search, setSearch] = useState('');
     const [open, setOpen] = useState(false);
     // إن كان المُنشئ محاميًا فهو المحامي المسؤول حصراً (لا يختار غيره)
     const selfLawyerName = selfLawyerId ? lawyers.find((l) => l.id === selfLawyerId)?.name : null;
@@ -398,106 +424,157 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
         toast('تم نسخ رابط الاجتماع');
     };
 
+    // ── العرض: مؤشّرات قابلة للنقر، وتبويبات، وبحث، والقادم أوّلاً (تحسين التصميم 2026-09-30) ──
+    const nowKey = `${todayISO()} ${new Date().toTimeString().slice(0, 5)}`;
+    const rowsAll = useMemo(() => requests.map((r) => ({ r, when: whenParts(r.day, r.time), state: mrState(r.stage) })), [requests]);
+    const todayKey = todayISO();
+    const matches: Record<MrFilter, (x: (typeof rowsAll)[number]) => boolean> = {
+        active: (x) => x.state.group !== 'archive',
+        all: () => true,
+        archive: (x) => x.state.group === 'archive',
+        pending: (x) => x.r.stage === 0,
+        published: (x) => x.r.stage === 1,
+        held: (x) => x.state.group === 'held',
+        today: (x) => x.state.group !== 'archive' && x.when.key.startsWith(todayKey),
+    };
+    const q = search.trim();
+    const rows = rowsAll
+        .filter(matches[filter])
+        .filter((x) => q === '' || foldSearch(`${x.r.id} ${mask(x.r.client)} ${x.r.service} ${x.r.caseRef ?? ''}`).includes(foldSearch(q)))
+        // القادم أوّلاً بأقرب موعد، ثمّ ما مضى بأحدثه
+        .sort((a, b) => {
+            const au = a.when.key >= nowKey;
+            const bu = b.when.key >= nowKey;
+
+            if (au !== bu) {
+                return au ? -1 : 1;
+            }
+
+            return au ? a.when.key.localeCompare(b.when.key) : b.when.key.localeCompare(a.when.key);
+        });
+    const count = (f: MrFilter) => rowsAll.filter(matches[f]).length;
+    const statFilters: MrFilter[] = ['pending', 'published', 'today', 'held', 'archive'];
+    const stats: StatItem[] = [
+        ['t-amber', 'clock', count('pending'), 'بانتظار موافقة الإدارة'],
+        ['t-green', 'send', count('published'), 'منشورة للعميل'],
+        ['t-blue', 'cal', count('today'), 'مواعيد اليوم'],
+        ['t-cyan', 'check', count('held'), 'نُفِّذت'],
+        ['t-red', 'out', count('archive'), 'منتهية أو ملغاة'],
+    ];
+    const narrowed = !['active', 'all', 'archive'].includes(filter);
+
     return (
         <>
-            <div className="ai-banner">
-                <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
-                <p>
-                    يرسل الموظف/المحامي الدعوة فتمرّ بموافقة الإدارة العليا قبل نشرها للعميل. <b>المسار:</b> بانتظار موافقة الإدارة ← نشر الدعوة للعميل ← تنفيذ الجلسة ← اعتماد المحضر والملخص.
-                </p>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
-                <button className="btn" onClick={() => setOpen(true)} type="button">
-                    <Icon name="send" /> إرسال دعوة اجتماع للعميل
-                </button>
+            <div className="mr-stats">
+                <StatRow items={stats} onSelect={(i) => setFilter(statFilters[i])} />
             </div>
 
             <div className="card">
-                <div className="card-h">
-                    <h3>طلبات الاجتماعات</h3>
-                    <span className="sub">{requests.length} دعوة</span>
+                <div className="card-h mr-head">
+                    <div>
+                        <h3>طلبات الاجتماعات</h3>
+                        <span className="sub">تمرّ الدعوة بموافقة الإدارة ثمّ تُنشر للعميل، وبعد الجلسة يُعتمد المحضر والملخّص.</span>
+                    </div>
+                    <button className="btn" onClick={() => setOpen(true)} type="button">
+                        <Icon name="send" /> إرسال دعوة اجتماع للعميل
+                    </button>
                 </div>
-                <div className="card-b">
-                    {requests.length ? requests.map((r) => (
-                        <div key={r.id} className="item">
-                            <div className="iico"><Icon name="video" /></div>
-                            <div className="imeta">
-                                <b>{r.id} — {mask(r.client)}</b>
-                                <span style={{ display: 'block', margin: '3px 0' }}>
-                                    {r.type} · {r.service} · {r.day} {r.time} · أرسلها: {r.by || 'المكتب'}
-                                </span>
 
-                                {r.stage < 4 && (
-                                    <span><FlowLine steps={MR_FLOW} cur={r.stage} /></span>
+                <div className="mr-tools">
+                    <div className="mtabs" role="tablist">
+                        {([['active', 'النشطة'], ['all', 'الكلّ'], ['archive', 'الأرشيف']] as [MrFilter, string][]).map(([k, label]) => (
+                            <button key={k} type="button" role="tab" aria-selected={filter === k} className={`mtab ${filter === k ? 'on' : ''}`} onClick={() => setFilter(k)}>
+                                {label} <span className="sub">({count(k)})</span>
+                            </button>
+                        ))}
+                        {narrowed && (
+                            <span className="chip">
+                                {stats[statFilters.indexOf(filter)][3]}
+                                <button type="button" className="chip-x" onClick={() => setFilter('active')} aria-label="إزالة التصفية">✕</button>
+                            </span>
+                        )}
+                    </div>
+                    <input className="input" type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث باسم العميل أو رقم الدعوة أو الملفّ…" />
+                </div>
+
+                <div className="card-b">
+                    {rows.length ? rows.map(({ r, when, state }) => (
+                        <div key={r.id} className={`mr-row ${state.group === 'archive' ? 'is-archived' : ''}`}>
+                            <div className="mr-date" title={`${when.weekday} ${when.day} ${when.month}`}>
+                                <b>{when.day}</b>
+                                <span>{when.month}</span>
+                                <small>{when.weekday}</small>
+                            </div>
+
+                            <div className="mr-main">
+                                <div className="mr-top">
+                                    <b className="mr-client">{mask(r.client)}</b>
+                                    <Badge text={state.label} tone={state.tone} />
+                                </div>
+                                <div className="mr-sub">
+                                    <Icon name={mrTypeIcon(r.type)} /> {r.type}
+                                    <span className="mr-dot">·</span> <span className="mr-time">{when.time}</span>
+                                    {r.service && <><span className="mr-dot">·</span> {r.service}</>}
+                                </div>
+                                <div className="mr-foot">
+                                    <span className="mono">{r.id}</span>
+                                    {r.caseRef && <span className="chip muted">{r.caseRef}</span>}
+                                    <span>أرسلها: {r.by || 'المكتب'}</span>
+                                    {r.stage < 4 && (
+                                        <span className="mr-steps" title={`المرحلة: ${MR_FLOW[r.stage]}`} aria-label={`المرحلة ${r.stage + 1} من ${MR_FLOW.length}: ${MR_FLOW[r.stage]}`}>
+                                            {MR_FLOW.map((step, i) => <i key={step} className={i <= r.stage ? 'on' : ''} />)}
+                                        </span>
+                                    )}
+                                </div>
+                                {r.stage >= 1 && r.stage < 3 && r.meetLink && r.canJoin === false && when.key >= nowKey && (
+                                    <div className="mr-hint"><Icon name="clock" /> يُفتح الدخول قبل الموعد بـ{joinOpens}</div>
                                 )}
                             </div>
-                            <div className="iact">
-                                {r.stage === 5 ? (
-                                    /* أُلغيت — سجلّ تاريخي بلا أي إجراء (كان الحذف الصلب يُخفيها بلا أثر) */
-                                    <Badge text="أُلغيت" tone="b-red" />
-                                ) : r.stage === 4 ? (
-                                    <>
-                                        <Badge text="منتهية الصلاحية" tone="b-red" />
-                                        <button className="btn sm" onClick={() => {
- setResendOf(r); setRsDay(todayISO()); setRsTime(''); 
-}} type="button">
-                                            <Icon name="send" /> إعادة إرسال بموعد جديد
-                                        </button>
-                                    </>
-                                ) : r.stage >= 3 ? (
-                                    <Badge text="معتمد" tone="b-green" />
-                                ) : r.stage === 0 ? (
-                                    <>
-                                        <span className="chip muted">بانتظار موافقة الإدارة</span>
-                                        {/* بوّابة النشر: الإدارة وحدها توافق فتُنشأ الجلسة ويُشعر العميل */}
-                                        {base === '/admin' && (
-                                            <button className="btn sm" onClick={() => approveReq(r)} type="button">
-                                                <Icon name="check" /> موافقة ونشر
-                                            </button>
-                                        )}
-                                        <button className="btn soft sm" onClick={() => cancel(r)} type="button">
-                                            <Icon name="out" /> إلغاء
-                                        </button>
-                                    </>
-                                ) : r.stage === 1 ? (
-                                    /*
-                                     * **المرحلة ١ نجاحٌ لا انتظار.** كان الشرط `stage < 2` يبتلعها،
-                                     * فبعد الموافقة تُعاد البطاقة «بانتظار موافقة الإدارة» وزرُّ
-                                     * «موافقة ونشر» قائم — فتُنقر ثانيةً ويردّ الخادم ٤٢٢ صامتاً.
-                                     * و`MR_FLOW[1]` نفسها تقول: «معتمدة ومنشورة للعميل».
-                                     */
-                                    <>
-                                        <Badge text={MR_FLOW[1]} tone="b-green" />
-                                        {/* الإلغاء يبقى متاحاً قبل الانعقاد — والخادم يشترط stage < 2 */}
-                                        <button className="btn soft sm" onClick={() => cancel(r)} type="button">
-                                            <Icon name="out" /> إلغاء
-                                        </button>
-                                    </>
-                                ) : (
-                                    <span className="chip muted">{MR_FLOW[r.stage] ?? 'قيد المعالجة'}</span>
+
+                            <div className="mr-act">
+                                {r.stage === 4 && (
+                                    <button className="btn sm" onClick={() => {
+                                        setResendOf(r); setRsDay(todayISO()); setRsTime('');
+                                    }} type="button">
+                                        <Icon name="send" /> إعادة إرسال بموعد جديد
+                                    </button>
+                                )}
+                                {/* بوّابة النشر: الإدارة وحدها توافق فتُنشأ الجلسة ويُشعر العميل */}
+                                {r.stage === 0 && base === '/admin' && (
+                                    <button className="btn sm" onClick={() => approveReq(r)} type="button">
+                                        <Icon name="check" /> موافقة ونشر
+                                    </button>
                                 )}
                                 {/* كان stage===1 حصراً: بدء الجلسة يرفعها لـ2 فتختفي أزرار المكتب لحظة انعقادها */}
-                                {r.stage >= 1 && r.stage < 3 && r.meetLink && (
-                                    r.canJoin === false ? (
-                                        <button className="btn sm" type="button" disabled style={{ opacity: 0.65, cursor: 'not-allowed' }} title={`يُفعَّل الدخول قبل الموعد بـ${joinOpens}`}>
-                                            <Icon name="clock" /> الدخول (قبل الموعد بـ{joinOpens})
+                                {r.stage >= 1 && r.stage < 3 && r.meetLink && r.canJoin !== false && (
+                                    <>
+                                        <button className="btn sm" onClick={() => enterRoom(r)} type="button">
+                                            <Icon name="video" /> {r.type.indexOf('مرئية') >= 0 ? 'دخول جلسة Zoom' : 'دخول'}
                                         </button>
-                                    ) : (
-                                        <>
-                                            <button className="btn soft sm" onClick={() => copyLink(r)} type="button">
-                                                <Icon name="link" /> نسخ الرابط
-                                            </button>
-                                            <button className="btn sm" onClick={() => enterRoom(r)} type="button">
-                                                <Icon name="video" /> {r.type.indexOf('مرئية') >= 0 ? 'دخول جلسة Zoom' : 'دخول'}
-                                            </button>
-                                        </>
-                                    )
+                                        <button className="btn soft sm" onClick={() => copyLink(r)} type="button">
+                                            <Icon name="link" /> نسخ الرابط
+                                        </button>
+                                    </>
+                                )}
+                                {/* الإلغاء قبل الانعقاد وحده — والخادم يشترط stage < 2 */}
+                                {r.stage < 2 && (
+                                    <button className="btn soft sm mr-cancel" onClick={() => cancel(r)} type="button">
+                                        <Icon name="out" /> إلغاء
+                                    </button>
                                 )}
                             </div>
                         </div>
                     )) : (
-                        <div className="empty"><Icon name="video" /><b>لا دعوات اجتماعات حالياً</b></div>
+                        <div className="empty">
+                            <Icon name="video" />
+                            <b>{requests.length ? 'لا دعوات مطابقة' : 'لا دعوات اجتماعات حالياً'}</b>
+                            {requests.length > 0 && (
+                                <button className="btn soft sm" type="button" onClick={() => {
+                                    setFilter('all');
+                                    setSearch('');
+                                }}>عرض كلّ الدعوات</button>
+                            )}
+                        </div>
                     )}
                 </div>
             </div>

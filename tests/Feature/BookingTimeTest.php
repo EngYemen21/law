@@ -22,7 +22,7 @@ class BookingTimeTest extends TestCase
         }
 
         $module = 'file:///'.ltrim(str_replace(chr(92), '/', resource_path('js/lib/booking-time.ts')), '/');
-        $script = 'import { keepChosenTime, periodOf, bookingClientId } from '.json_encode($module).';'
+        $script = 'import { keepChosenTime, periodOf, bookingClientId, to24h, whenParts } from '.json_encode($module).';'
             .' process.stdout.write(JSON.stringify('.$body.'));';
 
         $result = Process::run(['node', '--input-type=module', '-e', $script]);
@@ -76,6 +76,23 @@ class BookingTimeTest extends TestCase
         $this->assertSame(4, $out['noneAwaiting']);
         $this->assertSame(5, $out['keepsChoice']);
         $this->assertSame('', $out['noClients']);
+    }
+
+    /** «طلبات الاجتماعات» كانت تعرض الوقت خاماً فيُقرأ «PM 02:00» مقلوباً — الصيغتان المخزَّنتان تُطبَّعان. */
+    public function test_stored_times_in_either_format_read_as_arabic_times(): void
+    {
+        $out = $this->evalTs('{
+            legacyPm: to24h("02:00 PM"), legacyNoon: to24h("12:00 PM"), legacyMidnight: to24h("12:30 AM"),
+            arabic: to24h("2:00 م"), modern: to24h("14:20"), junk: to24h("قريباً"),
+            when: whenParts("2026-10-01", "02:00 PM"), whenModern: whenParts("2026-09-30", "11:20"), noDay: whenParts("", "10:00")
+        }');
+
+        $this->assertSame(['14:00', '12:00', '00:30', '14:00', '14:20', 'قريباً'],
+            [$out['legacyPm'], $out['legacyNoon'], $out['legacyMidnight'], $out['arabic'], $out['modern'], $out['junk']]);
+        $this->assertSame(['key' => '2026-10-01 14:00', 'day' => '1', 'month' => 'أكتوبر', 'weekday' => 'الخميس', 'time' => '2:00 م'], $out['when']);
+        $this->assertSame('11:20 ص', $out['whenModern']['time']);
+        $this->assertSame('الأربعاء', $out['whenModern']['weekday']);
+        $this->assertSame('', $out['noDay']['key'], 'بلا تاريخٍ مفهوم لا مفتاح ترتيبٍ مختلَق');
     }
 
     /** النوافذ الثلاث تقرأ القرار من الملفّ الواحد — لا نسخةَ تمسح المخصّص بشرط «ليس في الشرائح». */
