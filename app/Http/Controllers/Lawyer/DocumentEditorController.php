@@ -438,6 +438,8 @@ class DocumentEditorController extends Controller
 
         return Inertia::render('lawyer/editor-print', [
             'document' => $doc->toEditorData(),
+            // اسم المكتب والخاتمة من مصدر PDF وWord نفسه — لا قيمٌ احتياطيّة منقوشة في الصفحة
+            'meta' => LegalDocMeta::forPrintPage($doc),
         ]);
     }
 

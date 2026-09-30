@@ -28,15 +28,50 @@ final class LegalDocMeta
 
         return [
             'showHeader' => ! empty($header['showHeader']),
-            'officeName' => (string) (($header['officeName'] ?? '') ?: SettingsRegistry::str('office_name')),
+            'officeName' => self::officeName($header),
             'licenseNo' => (string) ($header['licenseNo'] ?? ''),
             'phone' => (string) ($header['phone'] ?? ''),
             'email' => (string) ($header['email'] ?? ''),
             'address' => (string) ($header['address'] ?? ''),
             'logoPath' => $logoPath,
             'logoDataUri' => $logoData ?? ($logoPath !== null ? self::dataUri($logoPath) : null),
-            'date' => $doc->created_at ? $doc->created_at->translatedFormat('d M Y') : now()->translatedFormat('d M Y'),
             'title' => (string) $doc->title,
+            ...self::signoff($doc),
+        ];
+    }
+
+    /**
+     * ما تعرضه صفحة الطباعة من هذه البيانات — القيم نفسها التي في PDF وWord (بلا مسار الشعار ولا بياناته).
+     *
+     * @return array{officeName: string, date: string, author: string, approved: ?array{by: string, at: string}}
+     */
+    public static function forPrintPage(LegalDocument $doc): array
+    {
+        return [
+            'officeName' => self::officeName($doc->header_config ?? LegalDocument::defaultHeader()),
+            ...self::signoff($doc),
+        ];
+    }
+
+    /**
+     * اسم المكتب المحفوظ في ترويسة المستند، وإلّا إعداد `office_name`.
+     *
+     * @param  array<string, mixed>  $header
+     */
+    private static function officeName(array $header): string
+    {
+        return (string) (($header['officeName'] ?? '') ?: SettingsRegistry::str('office_name'));
+    }
+
+    /**
+     * خاتمة المستند: تاريخ تحريره، ومحرّره، واعتماده — التواريخ بلا ساعة.
+     *
+     * @return array{date: string, author: string, approved: ?array{by: string, at: string}}
+     */
+    private static function signoff(LegalDocument $doc): array
+    {
+        return [
+            'date' => ($doc->created_at ?? now())->translatedFormat('d M Y'),
             'author' => (string) ($doc->user->name ?? 'المحامي المختص'),
             'approved' => $doc->status === 'approved'
                 ? ['by' => (string) ($doc->approver->name ?? 'الإدارة'), 'at' => $doc->approved_at ? $doc->approved_at->translatedFormat('d M Y') : '']

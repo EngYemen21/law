@@ -9,23 +9,9 @@ import Icon from '@/lib/icons';
 interface DocData {
   id: number;
   title: string;
-  type: string;
-  typeLabel: string;
-  status: string;
-  statusLabel: string;
-  author: string;
-  ticketNo: string | null;
-  caseNo?: string | null;
-  updatedAt: string;
-  createdAt: string;
-  approved: boolean;
-  approvedBy: string | null;
-  approvedAt: string | null;
   contentHtml: string;
   headerConfig: {
     showHeader: boolean;
-    officeName: string;
-    officeNameEn: string;
     logoUrl: string;
     address: string;
     phone: string;
@@ -34,27 +20,27 @@ interface DocData {
   };
 }
 
-interface Props {
-  document: DocData;
+/** اسم المكتب والخاتمة من الخادم (`LegalDocMeta::forPrintPage`) — القيم نفسها في PDF وWord. */
+interface PrintMeta {
+  officeName: string;
+  date: string;
+  author: string;
+  approved: { by: string; at: string } | null;
 }
 
-const EditorPrint: React.FC<Props> = ({ document: doc }) => {
+interface Props {
+  document: DocData;
+  meta: PrintMeta;
+}
+
+const EditorPrint: React.FC<Props> = ({ document: doc, meta }) => {
   const { url } = usePage();
   const base = (url as string).startsWith('/admin')
     ? '/admin'
     : (url as string).startsWith('/employee')
       ? '/employee'
       : '/lawyer';
-  const header = doc.headerConfig || {
-    showHeader: true,
-    officeName: 'مكتب المحاماة',
-    officeNameEn: 'Law Office',
-    logoUrl: '/images/021.png',
-    address: '',
-    phone: '',
-    email: '',
-    licenseNo: '',
-  };
+  const header = doc.headerConfig;
 
   useEffect(() => {
     // تركيز الصفحة للطباعة السريعة إن رغب المستخدم
@@ -151,7 +137,7 @@ const EditorPrint: React.FC<Props> = ({ document: doc }) => {
               {/* اسم المكتب */}
               <div style={{ textAlign: 'center', flex: 1 }}>
                 <div style={{ fontSize: 18, fontWeight: 800, color: '#0a2a55', marginBottom: 2 }}>
-                  {header.officeName || 'مكتب المحاماة والاستشارات القانونية'}
+                  {meta.officeName}
                 </div>
                 {header.licenseNo && (
                   <div style={{ fontSize: 11.5, color: '#607689', marginTop: 3 }}>
@@ -170,21 +156,6 @@ const EditorPrint: React.FC<Props> = ({ document: doc }) => {
           </div>
         )}
 
-        {/* ── عنوان المستند الرئيسي ── */}
-        {/* <h1
-          style={{
-            textAlign: 'center',
-            fontSize: 22,
-            fontWeight: 800,
-            color: '#0a2a55',
-            margin: '0 0 28px',
-            paddingBottom: 8,
-            borderBottom: '1px solid #edf2f6',
-          }}
-        >
-          {doc.title}
-        </h1> */}
-
         {/* ── متن المستند (المحتوى المنسق) ── */}
         <div
           className="legal-editor-content legal-doc"
@@ -198,13 +169,13 @@ const EditorPrint: React.FC<Props> = ({ document: doc }) => {
             <div>
               <div style={{ fontSize: 12, color: '#607689' }}>حرر بواسطة:</div>
               <div style={{ fontSize: 14, fontWeight: 700, color: '#13314f', marginTop: 4 }}>
-                {doc.author || 'المحامي المختص'}
+                {meta.author}
               </div>
-              {doc.createdAt && <div style={{ fontSize: 12, color: '#607689', marginTop: 4 }}>التاريخ: {doc.createdAt}</div>}
+              <div style={{ fontSize: 12, color: '#607689', marginTop: 4 }}>التاريخ: {meta.date}</div>
             </div>
 
             {/* ختم الاعتماد الرسمي إن كان معتمداً */}
-            {doc.approved && (
+            {meta.approved && (
               <div
                 style={{
                   border: '2px solid #1e9d6b',
@@ -216,8 +187,8 @@ const EditorPrint: React.FC<Props> = ({ document: doc }) => {
                 }}
               >
                 <div style={{ fontSize: 13, fontWeight: 800 }}>✓ معتمد رسمياً من الإدارة</div>
-                {doc.approvedBy && <div style={{ fontSize: 11, marginTop: 2 }}>المعتمد: {doc.approvedBy}</div>}
-                {doc.approvedAt && <div style={{ fontSize: 10, marginTop: 1 }}>بتاريخ: {doc.approvedAt}</div>}
+                <div style={{ fontSize: 11, marginTop: 2 }}>المعتمد: {meta.approved.by}</div>
+                {meta.approved.at && <div style={{ fontSize: 10, marginTop: 1 }}>بتاريخ: {meta.approved.at}</div>}
               </div>
             )}
 

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Http\Controllers\Lawyer\DocumentEditorController;
 use App\Models\LegalDocument;
+use App\Models\Setting;
 use App\Models\User;
 use App\Support\LegalDocMeta;
 use App\Support\LegalDocStyle;
@@ -199,6 +200,35 @@ class LegalDocumentExportTest extends TestCase
         $this->assertStringNotContainsString('الرقم المرجعي', $print, 'لا كتلة معطَّلة لسطر المراجع');
         $this->assertStringNotContainsString('>{headerConfig.officeNameEn}<', $editor, 'معاينة الترويسة في المحرّر كالمستند');
         $this->assertStringContainsString('placeholder="اسم المكتب (إنجليزي)"', $editor, 'الحقل باقٍ في المحرّر (قرار المالك)');
+    }
+
+    /**
+     * صفحة الطباعة تعرض اسم المكتب والخاتمة من مصدر PDF وWord — كانت تنقش اسماً احتياطيّاً ثالثاً
+     * («مكتب المحاماة والاستشارات القانونية») وتاريخ اعتمادٍ بالساعة.
+     */
+    public function test_print_page_shows_the_same_office_name_and_signoff_as_pdf(): void
+    {
+        Setting::put('office_name', 'مكتب الاختبار للمحاماة');
+        $admin = User::factory()->create(['role' => Role::Admin, 'name' => 'مدير الاعتماد']);
+        $doc = $this->doc(['officeName' => '']);
+        $doc->update(['status' => 'approved', 'approved_by' => $admin->id, 'approved_at' => now()->setTime(10, 15)]);
+        $m = LegalDocMeta::of($doc->fresh());
+
+        $this->actingAs($this->lawyer)->get("/lawyer/editor/{$doc->id}/print")
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('lawyer/editor-print')
+                ->where('meta.officeName', 'مكتب الاختبار للمحاماة')
+                ->where('meta.date', $m['date'])
+                ->where('meta.author', $m['author'])
+                ->where('meta.approved.by', 'مدير الاعتماد')
+                ->where('meta.approved.at', now()->translatedFormat('d M Y'))
+            );
+
+        $print = (string) file_get_contents(resource_path('js/pages/lawyer/editor-print.tsx'));
+        $this->assertStringNotContainsString("'مكتب المحاماة", $print, 'لا اسم مكتبٍ منقوش');
+        $this->assertStringNotContainsString("'Law Office'", $print);
+        $this->assertStringNotContainsString('{/* <h1', $print, 'لا كتلة عنوانٍ معطَّلة');
     }
 
     public function test_font_obfuscation_follows_the_spec_and_is_reversible(): void
