@@ -141,12 +141,26 @@ final class MoyasarGateway implements PaymentGateway
             gatewayInvoiceId: $invoiceId !== '' ? $invoiceId : null,
             metadata: is_array($metadata) ? $metadata : [],
             raw: $data,
+            isFailed: ($data['status'] ?? null) === 'failed',
         );
     }
 
+    /**
+     * `?id=` في عنوان العودة. التوثيق يُلحق به معرّف **الدفعة** في الدفع المباشر ولا يصرّح بما يُلحق بعد دفع
+     * **الفاتورة** المستضافة — فإن كان معرّفَ فاتورة بوّابةٍ من فواتيرنا تُجلب من ميسّر ودفعتُها المدفوعة منها. كان
+     * العميل يقرأ «تعذّر تأكيد الدفع» وقد سدّد (ثبت في اختبار المتصفّح 2026-09-30).
+     */
     public function paymentIdFromCallback(Request $request): string
     {
-        return (string) $request->query('id', '');
+        $id = (string) $request->query('id', '');
+        if ($id !== '' && Invoice::where('gateway_ref', $id)->exists()) {
+            // المدفوعة إن وُجدت، وإلّا آخر محاولة — كي تُسجَّل البطاقة المرفوضة ويُقال للعميل إنّه لم يُخصم شيء
+            $invoice = $this->findInvoice($id);
+
+            return (string) ($invoice['paidPaymentId'] ?? $invoice['lastPaymentId'] ?? '');
+        }
+
+        return $id;
     }
 
     public function webhookConfigured(): bool
@@ -165,9 +179,11 @@ final class MoyasarGateway implements PaymentGateway
             return false;
         }
 
+        // من الجسم أو الترويسة **وحدهما**: `$request->input()` يدمج سلسلة الاستعلام، فكان `?secret_token=` يُقبل
+        // (ثبت في اختبار 2026-09-30) — والسرّ في العنوان يُسجَّل في access.log وكلّ وسيط.
         $body = $this->webhookBody($request);
         $token = (string) (
-            $request->input('secret_token')
+            $request->request->get('secret_token')
             ?: ($body['secret_token'] ?? '')
             ?: $request->header('X-Moyasar-Secret-Token')
             ?: $request->header('X-Secret-Token')
@@ -278,7 +294,7 @@ final class MoyasarGateway implements PaymentGateway
     /**
      * فاتورة ميسّر بمعرّفها — لإعادة استعمال رابطها بدل إنشاء نسخة مكرّرة.
      *
-     * @return array{id: string, url: string, status: string, amount: int, paidPaymentId: ?string}|null
+     * @return array{id: string, url: string, status: string, amount: int, paidPaymentId: ?string, lastPaymentId: ?string}|null
      */
     private function findInvoice(string $invoiceId): ?array
     {
@@ -291,13 +307,16 @@ final class MoyasarGateway implements PaymentGateway
             $data = $response->json();
 
             if ($response->successful() && ! empty($data['id']) && ! empty($data['url'])) {
-                $paid = collect(is_array($data['payments'] ?? null) ? $data['payments'] : [])
-                    ->first(fn ($p) => is_array($p) && ($p['status'] ?? null) === 'paid' && ! empty($p['id']));
+                $payments = collect(is_array($data['payments'] ?? null) ? $data['payments'] : [])
+                    ->filter(fn ($p) => is_array($p) && ! empty($p['id']));
+                $paid = $payments->first(fn (array $p) => ($p['status'] ?? null) === 'paid');
+                $last = $payments->last();
 
                 return [
                     'id' => (string) $data['id'], 'url' => (string) $data['url'],
                     'status' => (string) ($data['status'] ?? ''), 'amount' => (int) ($data['amount'] ?? 0),
                     'paidPaymentId' => $paid !== null ? (string) $paid['id'] : null,
+                    'lastPaymentId' => $last !== null ? (string) $last['id'] : null,
                 ];
             }
         } catch (\Throwable $e) {

@@ -15,6 +15,7 @@ final readonly class GatewayPayment
      * @param  string|null  $gatewayInvoiceId  مرجع فاتورة البوّابة (= `invoices.gateway_ref`)
      * @param  array<string, mixed>  $metadata  ما أرسلته المنصّة مع الفاتورة وعاد مع الدفعة (رقم الفاتورة …)
      * @param  array<string, mixed>  $raw  الردّ الخامّ — لقطة الدفتر
+     * @param  bool  $isFailed  رفضتها البوّابة نهائيّاً (بطاقة مرفوضة…) — لم يُخصم شيء
      */
     public function __construct(
         public string $gateway,
@@ -26,6 +27,7 @@ final readonly class GatewayPayment
         public ?string $gatewayInvoiceId,
         public array $metadata,
         public array $raw,
+        public bool $isFailed = false,
     ) {}
 
     public function invoiceNumber(): ?string

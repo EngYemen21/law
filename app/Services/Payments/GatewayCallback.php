@@ -18,17 +18,23 @@ final class GatewayCallback
 {
     /**
      * @param  Builder<Invoice>  $invoices  فواتير صاحب الصفحة (فاتورةٌ واحدة، أو كلّ فواتير القضيّة/الطلب)
-     * @return bool سُوّيت الدفعة (أو كانت مسوّاة)
      */
-    public static function confirm(Request $request, Builder $invoices): bool
+    public static function confirm(Request $request, Builder $invoices): CallbackOutcome
     {
         $gateway = app(PaymentGateways::class)->default();
         $paymentId = $gateway->paymentIdFromCallback($request);
         $payment = $paymentId !== '' ? $gateway->fetchPayment($paymentId) : null;
 
-        return $payment !== null
-            && self::belongs($payment, $invoices)
-            && PaymentReconciler::settle($payment, 'callback');
+        if ($payment === null || ! self::belongs($payment, $invoices)) {
+            return CallbackOutcome::Unconfirmed;
+        }
+
+        // التسوية تسجّل الدفتر حتى للمرفوضة (تدقيق) — ثمّ يُقرأ الرفض ليُقال للعميل إنّه لم يُخصم شيء
+        return match (true) {
+            PaymentReconciler::settle($payment, 'callback') => CallbackOutcome::Settled,
+            $payment->isFailed => CallbackOutcome::Declined,
+            default => CallbackOutcome::Unconfirmed,
+        };
     }
 
     /** @param  Builder<Invoice>  $invoices */

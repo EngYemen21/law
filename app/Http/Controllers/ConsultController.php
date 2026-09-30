@@ -96,7 +96,8 @@ class ConsultController extends Controller
             : redirect()->route('myconsults');
 
         // اربط الدفعة بفاتورة هذه الاستشارة تحديدًا (لا تسوية دفعة تخصّ فاتورة أخرى)
-        if (GatewayCallback::confirm($request, Invoice::whereKey($consult->invoice?->id))) {
+        $outcome = GatewayCallback::confirm($request, Invoice::whereKey($consult->invoice?->id));
+        if ($outcome->settled()) {
             return $back()->with('success', 'تم تأكيد الدفع — سوف يتم تحديد موعد جلستك مع المستشار المختص ويصلك إشعار به.');
         }
 
@@ -110,7 +111,7 @@ class ConsultController extends Controller
         }
 
         // الـwebhook مصدر الحقيقة؛ إن خُصم المبلغ سيُحدَّث تلقائياً
-        return $back()->with('error', 'تعذّر تأكيد الدفع. إن كان قد خُصم فسيُحدَّث تلقائياً، أو حاول مجدداً.');
+        return $back()->with('error', $outcome->failureMessage());
     }
 
     // اختيار موعد الاستشارة بعد السداد (محظور قبل الدفع) → يُنشئ الموعد ويؤكّد المسار مع أقفال التزامن

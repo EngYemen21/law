@@ -288,8 +288,9 @@ class PaymentReconciler
             return null;
         }
 
-        $ledger = Payment::updateOrCreate(
-            ['gateway_payment_id' => $payment->id],
+        // **القناة الأولى تبقى**: الإشعار والعودة يصلان للدفعة نفسها، وكان آخرهما يدهس قناة أوّلهما في الدفتر
+        $ledger = Payment::firstOrNew(['gateway_payment_id' => $payment->id], ['source_channel' => $channel]);
+        $ledger->fill(
             [
                 'invoice_id' => $invoice?->id,
                 'gateway' => $payment->gateway,
@@ -300,10 +301,9 @@ class PaymentReconciler
                 'amount' => $payment->amountHalalas,
                 'amount_halalas' => $payment->amountHalalas,
                 'currency' => $payment->currency,
-                'source_channel' => $channel,
                 'raw' => $payment->raw,
             ]
-        );
+        )->save();
 
         // المال وصل ⇒ سند قبض (مرّةً واحدة — الإشعار والعودة قد يصلان معاً)؛ والمحاولة الفاشلة بلا سند
         return ReceiptVoucher::issue($ledger);

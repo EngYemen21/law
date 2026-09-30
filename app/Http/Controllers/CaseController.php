@@ -209,11 +209,18 @@ class CaseController extends Controller
         // للقضيّة ثلاث فواتير، فيعود العميل من سداد الدفعة الأولى ومرجعُ البوّابة على
         // فاتورتها بينما `latest('id')` هي الثالثة — فلا يُطابَق، ويُقال له «تعذّر تأكيد
         // الدفع» على مالٍ خُصم فعلاً.
-        if (GatewayCallback::confirm($request, Invoice::where('case_id', $case->id))) {
-            return redirect()->route('cases.show', $case)->with('success', 'تم تأكيد سداد الأتعاب وتفعيل القضية.');
+        $outcome = GatewayCallback::confirm($request, Invoice::where('case_id', $case->id));
+        if ($outcome->settled()) {
+            // الرسالة تصف ما وقع: سدادٌ كامل، أو دفعةٌ من الخطّة (كانت «تم تأكيد سداد الأتعاب» على الدفعة 1 من 3)
+            $case->refresh();
+            $message = $case->fee_status === 'paid'
+                ? 'تم تأكيد سداد الأتعاب وتفعيل القضية.'
+                : "تم تأكيد سداد الدفعة {$case->installments_paid} من {$case->installments_total}".($case->installments_paid === 1 ? ' وتفعيل القضية.' : '.');
+
+            return redirect()->route('cases.show', $case)->with('success', $message);
         }
 
-        return redirect()->route('cases.show', $case)->with('error', 'تعذّر تأكيد الدفع. إن كان قد خُصم فسيُحدَّث تلقائياً، أو حاول مجدداً.');
+        return redirect()->route('cases.show', $case)->with('error', $outcome->failureMessage());
     }
 
     // سداد دفعة تالية من الأقساط

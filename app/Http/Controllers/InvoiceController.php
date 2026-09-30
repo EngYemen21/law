@@ -104,7 +104,8 @@ class InvoiceController extends Controller
             default => redirect()->route('invoices'),
         };
 
-        if (GatewayCallback::confirm($request, Invoice::whereKey($invoice->id))) {
+        $outcome = GatewayCallback::confirm($request, Invoice::whereKey($invoice->id));
+        if ($outcome->settled()) {
             return $back()->with('success', 'تم تأكيد الدفع.');
         }
 
@@ -112,7 +113,7 @@ class InvoiceController extends Controller
             return $back()->with('success', 'تم تأكيد الدفع.');
         }
 
-        return $back()->with('error', 'تعذّر تأكيد الدفع. إن كان قد خُصم فسيُحدَّث تلقائياً، أو حاول مجدداً.');
+        return $back()->with('error', $outcome->failureMessage());
     }
 
     /**

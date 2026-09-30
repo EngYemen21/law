@@ -457,11 +457,16 @@ class ExecFlowController extends Controller
         // يعود العميل إلى **الملفّ نفسه** لا إلى قائمة التنفيذ (`?id=` يفتحه في الصفحة)
         $back = redirect()->route('execs', ['id' => $execution->number]);
 
-        if (GatewayCallback::confirm($request, Invoice::where('exec_id', $execution->id))) {
-            return $back->with('success', 'تم تأكيد سداد أتعاب التنفيذ وفتح الملف.');
+        $outcome = GatewayCallback::confirm($request, Invoice::where('exec_id', $execution->id));
+        if ($outcome->settled()) {
+            $execution->refresh();
+
+            return $back->with('success', $execution->feeFullySettled()
+                ? 'تم تأكيد سداد أتعاب التنفيذ وفتح الملف.'
+                : "تم تأكيد سداد الدفعة {$execution->installments_paid} من {$execution->installments_total} من أتعاب التنفيذ وفُتح الملف.");
         }
 
-        return $back->with('error', 'تعذّر تأكيد الدفع. إن كان قد خُصم فسيُحدَّث تلقائياً، أو حاول مجدداً.');
+        return $back->with('error', $outcome->failureMessage());
     }
 
     // ── محادثة ملف التنفيذ (العميل ↔ المكتب) — بلا ردّ AI، إشعار للمكتب + بثّ لحظيّ ──

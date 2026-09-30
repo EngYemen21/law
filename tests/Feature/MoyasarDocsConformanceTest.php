@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Payment;
 use App\Models\User;
+use App\Support\CaseFee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -138,5 +139,90 @@ class MoyasarDocsConformanceTest extends TestCase
         ])->assertOk();
 
         $this->assertTrue((bool) $invoice->fresh()->paid);
+    }
+
+    /** البند ٢ — السرّ من الجسم أو الترويسة وحدهما؛ كان `?secret_token=` في العنوان يُقبل. */
+    public function test_the_webhook_secret_is_refused_from_the_query_string(): void
+    {
+        [, $invoice] = $this->caseWithGatewayInvoice();
+        Http::fake(['api.moyasar.com/v1/payments/*' => Http::response($this->paidPayment())]);
+
+        $this->postJson(route('webhooks.moyasar').'?secret_token=whsec_docs', ['type' => 'payment_paid', 'data' => $this->paidPayment()])
+            ->assertForbidden();
+        $this->assertFalse((bool) $invoice->fresh()->paid);
+
+        $this->postJson(route('webhooks.moyasar'), ['type' => 'payment_paid', 'data' => $this->paidPayment()], ['X-Moyasar-Secret-Token' => 'whsec_docs'])
+            ->assertOk();
+        $this->assertTrue((bool) $invoice->fresh()->paid);
+    }
+
+    /** البند ٣ — العودة تحمل معرّف **الفاتورة** لا الدفعة: تُجلب الفاتورة ودفعتها المدفوعة، ويُقال للعميل الصحيح. */
+    public function test_a_return_carrying_the_gateway_invoice_id_is_confirmed(): void
+    {
+        [$case, , $client] = $this->caseWithGatewayInvoice();
+        Http::fake([
+            'api.moyasar.com/v1/invoices/'.self::INVOICE_ID => Http::response($this->gatewayInvoice('paid', [$this->paidPayment()])),
+            'api.moyasar.com/v1/payments/'.self::PAYMENT_ID => Http::response($this->paidPayment()),
+        ]);
+
+        $this->actingAs($client)->get(route('cases.pay.callback', $case).'?id='.self::INVOICE_ID.'&status=paid&message=Succeeded')
+            ->assertSessionHas('success', 'تم تأكيد سداد الأتعاب وتفعيل القضية.');
+        $this->assertSame('paid', $case->fresh()->fee_status);
+    }
+
+    /** البند ٤ — بطاقةٌ مرفوضة: «لم يُخصم أيّ مبلغ» لا «إن كان قد خُصم…»، والمحاولة في الدفتر بلا سند. */
+    public function test_a_declined_card_tells_the_client_nothing_was_charged(): void
+    {
+        [$case, , $client] = $this->caseWithGatewayInvoice();
+        Http::fake(['api.moyasar.com/v1/payments/*' => Http::response(['status' => 'failed'] + $this->paidPayment())]);
+
+        $this->actingAs($client)->get(route('cases.pay.callback', $case).'?id='.self::PAYMENT_ID.'&status=failed')
+            ->assertSessionHas('error', 'رُفضت عملية الدفع ولم يُخصم أيّ مبلغ — يمكنك المحاولة مجدداً.');
+
+        $ledger = Payment::where('gateway_payment_id', self::PAYMENT_ID)->sole();
+        $this->assertSame('failed', $ledger->status);
+        $this->assertNull($ledger->receipt_no);
+    }
+
+    /** البند ٥ — الدفعة الأولى من خطّة: الرسالة تسمّيها، لا «تم تأكيد سداد الأتعاب». */
+    public function test_the_first_installment_return_names_the_installment(): void
+    {
+        [$case, $invoice, $client] = $this->caseWithGatewayInvoice();
+        $this->assertNotNull(CaseFee::openInstallmentPlan($case));
+        $first = $invoice->fresh();
+        $first->update(['gateway' => 'moyasar', 'gateway_ref' => self::INVOICE_ID]);
+        $payment = ['amount' => (int) $first->amount * 100, 'metadata' => ['invoice_number' => $first->number]] + $this->paidPayment();
+        Http::fake(['api.moyasar.com/v1/payments/*' => Http::response($payment)]);
+
+        $this->actingAs($client)->get(route('cases.pay.callback', $case).'?id='.self::PAYMENT_ID)
+            ->assertSessionHas('success', 'تم تأكيد سداد الدفعة 1 من 3 وتفعيل القضية.');
+    }
+
+    /** البند ٦ — الإشعار سبق العودة: الدفتر يبقى على قناته الأولى. */
+    public function test_the_ledger_keeps_the_first_channel_that_reported_the_payment(): void
+    {
+        [$case, , $client] = $this->caseWithGatewayInvoice();
+        Http::fake(['api.moyasar.com/v1/payments/*' => Http::response($this->paidPayment())]);
+
+        $this->postJson(route('webhooks.moyasar'), ['secret_token' => 'whsec_docs', 'type' => 'payment_paid', 'data' => $this->paidPayment()])->assertOk();
+        $this->actingAs($client)->get(route('cases.pay.callback', $case).'?id='.self::PAYMENT_ID)->assertSessionHas('success');
+
+        $this->assertSame('webhook', Payment::where('gateway_payment_id', self::PAYMENT_ID)->sole()->source_channel);
+    }
+
+    /** وإن رُفضت البطاقة والعودة تحمل معرّف الفاتورة: تُقرأ آخر محاولةٍ منها فتُسجَّل ويُقال للعميل إنّه لم يُخصم شيء. */
+    public function test_a_declined_card_returning_with_the_invoice_id_is_reported_as_declined(): void
+    {
+        [$case, , $client] = $this->caseWithGatewayInvoice();
+        $failed = ['status' => 'failed'] + $this->paidPayment();
+        Http::fake([
+            'api.moyasar.com/v1/invoices/'.self::INVOICE_ID => Http::response($this->gatewayInvoice('initiated', [$failed])),
+            'api.moyasar.com/v1/payments/'.self::PAYMENT_ID => Http::response($failed),
+        ]);
+
+        $this->actingAs($client)->get(route('cases.pay.callback', $case).'?id='.self::INVOICE_ID.'&status=failed')
+            ->assertSessionHas('error', 'رُفضت عملية الدفع ولم يُخصم أيّ مبلغ — يمكنك المحاولة مجدداً.');
+        $this->assertSame('failed', Payment::where('gateway_payment_id', self::PAYMENT_ID)->sole()->status);
+        $this->assertSame('pending_payment', $case->fresh()->fee_status);
     }
 }
