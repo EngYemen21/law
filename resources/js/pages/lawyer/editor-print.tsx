@@ -228,7 +228,7 @@ const EditorPrint: React.FC<Props> = ({ document: doc }) => {
 
         {/* ── متن المستند (المحتوى المنسق) ── */}
         <div
-          className="legal-editor-content"
+          className="legal-editor-content legal-doc"
           style={{ flex: 1, minHeight: 600 }}
           dangerouslySetInnerHTML={{ __html: doc.contentHtml }}
         />

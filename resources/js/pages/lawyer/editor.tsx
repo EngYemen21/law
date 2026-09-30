@@ -304,7 +304,8 @@ const LawyerEditor: React.FC<Props> = ({
             : '<p dir="rtl"></p>',
     editorProps: {
       attributes: {
-        class: 'legal-editor-content',
+        // `legal-doc`: تنسيق المستند الواحد مع PDF وWord (resources/css/legal-document.css)
+        class: 'legal-editor-content legal-doc',
         dir: 'rtl',
       },
     },
@@ -374,7 +375,10 @@ const LawyerEditor: React.FC<Props> = ({
   /** أوّل رسالة من أخطاء الخادم، أو بديلٌ حين لا رسالة */
 
   // ── حفظ يدوي ──
-  const save = () => {
+  const save = () => persist();
+
+  /** يحفظ ثمّ ينفّذ `after` عند النجاح — التنزيل يأخذ المحفوظ، فيُحفظ ما على الشاشة قبله. */
+  const persist = (after?: () => void) => {
     if (!editor) return;
     setIsSaving(true);
     const payload = {
@@ -398,7 +402,10 @@ const LawyerEditor: React.FC<Props> = ({
     } else {
       router.put(`${base}/editor/${doc!.id}`, payload as any, {
         preserveScroll: true,
-        onSuccess: () => setLastSaved('الآن'),
+        onSuccess: () => {
+          setLastSaved('الآن');
+          after?.();
+        },
         onError: (errs) => toast(`⚠️ ${firstError(errs, 'تعذّر حفظ المستند')}`, 'error'),
         onFinish: () => setIsSaving(false),
       });
@@ -480,139 +487,20 @@ const LawyerEditor: React.FC<Props> = ({
     }
   };
 
-  // ── تحميل المستند كملف PDF حقيقي عبر Browsershot ──
-  const downloadPdf = () => {
+  // ── التنزيل: PDF وWord من الخادم، من المحفوظ نفسه وبتنسيق المحرّر (legal-document.css · LegalDocx) ──
+  // كان PDF يأخذ آخر محفوظ وWord ما على الشاشة (صفحة HTML باسم ‎.doc) فيختلفان — الآن يُحفظ أوّلاً ثمّ يُنزَّل الاثنان من الخادم.
+  const download = (format: 'pdf' | 'docx') => {
     if (isNew || !doc) {
-      toast('يرجى حفظ المستند أولاً لتوليد ملف الـ PDF الرسمي');
+      toast('يرجى حفظ المستند أولاً ثمّ تنزيله');
       return;
     }
-    toast('⏳ جارٍ تجهيز وتحميل ملف الـ PDF...');
-    window.location.href = `${base}/editor/${doc.id}/pdf`;
+    toast(format === 'pdf' ? '⏳ جارٍ حفظ المستند وتجهيز ملف PDF…' : '⏳ جارٍ حفظ المستند وتجهيز ملف Word…');
+    persist(() => {
+      window.location.href = `${base}/editor/${doc.id}/${format}`;
+    });
   };
-
-  // ── تصدير ملف Word (.doc) ──
-  const exportToWord = () => {
-    if (!editor) return;
-
-    const logoSrc = headerConfig.logoUrl
-      ? (headerConfig.logoUrl.startsWith('http') || headerConfig.logoUrl.startsWith('data:')
-          ? headerConfig.logoUrl
-          : `${window.location.origin}${headerConfig.logoUrl}`)
-      : `${window.location.origin}/images/021.png`;
-
-    const headerHtml = headerConfig.showHeader
-      ? `
-        <table style="width: 100%; border-collapse: collapse; border-bottom: 2.5pt solid #0e5c9c; margin-bottom: 18pt; padding-bottom: 12pt;">
-          <tr>
-            <td style="width: 25%; text-align: right; vertical-align: middle; border: none; padding: 0;">
-              <img src="${logoSrc}" alt="شعار المكتب" style="max-height: 54pt; max-width: 140pt; height: auto;" />
-            </td>
-            <td style="width: 50%; text-align: center; vertical-align: middle; border: none; padding: 0;">
-              <div style="color: #0a2a55; font-size: 17pt; font-weight: bold; font-family: 'Amiri', 'Traditional Arabic', serif;">
-                ${headerConfig.officeName || defaultHeader.officeName}
-              </div>
-              ${headerConfig.officeNameEn ? `<div style="color: #607689; font-size: 10.5pt; margin-top: 3pt; font-family: Arial, sans-serif;">${headerConfig.officeNameEn}</div>` : ''}
-              ${headerConfig.licenseNo ? `<div style="color: #607689; font-size: 9.5pt; margin-top: 2pt;">ترخيص رقم: ${headerConfig.licenseNo}</div>` : ''}
-            </td>
-            <td style="width: 25%; text-align: left; vertical-align: middle; border: none; padding: 0; font-size: 9.5pt; color: #607689; line-height: 1.5;">
-              ${headerConfig.phone ? `<div>هاتف: ${headerConfig.phone}</div>` : ''}
-              ${headerConfig.email ? `<div>بريد: ${headerConfig.email}</div>` : ''}
-              ${headerConfig.address ? `<div>${headerConfig.address}</div>` : ''}
-            </td>
-          </tr>
-        </table>
-      `
-      : '';
-
-    const refBarHtml = `
-      <table style="width: 100%; border-collapse: collapse; background-color: #f8fafc; border: 1pt solid #cbd5e1; margin-bottom: 20pt; font-size: 10.5pt;">
-        <tr>
-          <td style="padding: 6pt 10pt; border: none; text-align: right; color: #475569;">
-            الرقم المرجعي: <strong style="color: #0a2a55;">DOC-${(doc?.id || 'NEW').toString().padStart(5, '0')}</strong>
-          </td>
-          <td style="padding: 6pt 10pt; border: none; text-align: center; color: #475569;">
-            التصنيف: <strong style="color: #0e5c9c;">${types[type] || type}</strong>
-          </td>
-          ${linkedCase ? `<td style="padding: 6pt 10pt; border: none; text-align: center; color: #475569;">القضية: <strong style="color: #0e5c9c;">${linkedCase.no}</strong></td>` : ''}
-          ${linkedTicket ? `<td style="padding: 6pt 10pt; border: none; text-align: center; color: #475569;">التذكرة: <strong style="color: #0a2a55;">${linkedTicket.no}</strong></td>` : ''}
-          <td style="padding: 6pt 10pt; border: none; text-align: left; color: #475569;">
-            التاريخ: <strong>${new Date().toLocaleDateString('ar-SA')}</strong>
-          </td>
-        </tr>
-      </table>
-    `;
-
-    const footerHtml = `
-      <div style="margin-top: 40pt; padding-top: 14pt; border-top: 1pt solid #cbd5e1; text-align: center; font-size: 9.5pt; color: #94a3b8;">
-        مستند رسمي صادر من المنصة القانونية — سري ومحمي بموجب الأنظمة واللوائح المرعية © ${new Date().getFullYear()}
-      </div>
-    `;
-
-    const fullHtml = `
-      <!DOCTYPE html>
-      <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-      <head>
-        <meta charset='utf-8'>
-        <title>${title || 'مستند قانوني'}</title>
-        <!--[if gte mso 9]>
-        <xml>
-          <w:WordDocument>
-            <w:View>Print</w:View>
-            <w:Zoom>100</w:Zoom>
-            <w:DoNotOptimizeForBrowser/>
-          </w:WordDocument>
-        </xml>
-        <![endif]-->
-        <style>
-          @page {
-            size: A4;
-            margin: 20mm 15mm 20mm 15mm;
-            mso-header-margin: 10mm;
-            mso-footer-margin: 10mm;
-          }
-          body {
-            font-family: 'Amiri', 'Traditional Arabic', 'Tajawal', Arial, sans-serif;
-            direction: rtl;
-            text-align: right;
-            font-size: 14pt;
-            line-height: 1.85;
-            color: #13314f;
-          }
-          h1 { font-size: 20pt; color: #0a2a55; text-align: center; margin-top: 10pt; margin-bottom: 18pt; }
-          h2 { font-size: 16pt; color: #0a2a55; margin-top: 16pt; margin-bottom: 6pt; }
-          h3 { font-size: 14pt; color: #0e5c9c; margin-top: 12pt; margin-bottom: 4pt; }
-          h4 { font-size: 12pt; color: #1e293b; margin-top: 10pt; margin-bottom: 3pt; }
-          p { margin-bottom: 8pt; }
-          table { width: 100%; border-collapse: collapse; margin: 12pt 0; }
-          th, td { border: 1pt solid #cbd5e1; padding: 6pt 10pt; text-align: right; }
-          th { background: #f1f5f9; font-weight: bold; color: #0a2a55; }
-          blockquote { border-right: 4pt solid #0e5c9c; padding: 6pt 12pt; background: #f8fafc; margin: 10pt 0; color: #334155; }
-          ul, ol { margin: 8pt 0; padding-right: 20pt; }
-          li { margin-bottom: 4pt; }
-          img { max-width: 100%; height: auto; margin: 10pt auto; }
-        </style>
-      </head>
-      <body>
-        ${headerHtml}
-        ${refBarHtml}
-        <h1 style="text-align: center; color: #0a2a55;">${title || 'مستند قانوني'}</h1>
-        ${editor.getHTML()}
-        ${footerHtml}
-      </body>
-      </html>
-    `;
-
-    const blob = new Blob(['\ufeff' + fullHtml], { type: 'application/msword' });
-    const fileUrl = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = fileUrl;
-    a.download = `${title || 'مستند_قانوني'}.doc`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(fileUrl);
-    toast('✅ تم تصدير المستند كملف Word بنجاح');
-  };
+  const downloadPdf = () => download('pdf');
+  const exportToWord = () => download('docx');
 
   // ── نسخ المحتوى لناجز ──
   const copyContent = () => {

@@ -407,6 +407,7 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
             ->name('editor.approve');
         Route::get('/editor/{doc}/print', [LawyerDocumentEditorController::class, 'printDoc'])->name('editor.print');
         Route::get('/editor/{doc}/pdf', [LawyerDocumentEditorController::class, 'downloadPdf'])->name('editor.pdf');
+        Route::get('/editor/{doc}/docx', [LawyerDocumentEditorController::class, 'downloadDocx'])->name('editor.docx');
         Route::post('/editor/ai-assist', [LawyerDocumentEditorController::class, 'aiAssist'])->name('editor.ai-assist');
     });
 });
@@ -551,6 +552,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
             ->name('editor.approve');
         Route::get('/editor/{doc}/print', [LawyerDocumentEditorController::class, 'printDoc'])->name('editor.print');
         Route::get('/editor/{doc}/pdf', [LawyerDocumentEditorController::class, 'downloadPdf'])->name('editor.pdf');
+        Route::get('/editor/{doc}/docx', [LawyerDocumentEditorController::class, 'downloadDocx'])->name('editor.docx');
         Route::post('/editor/ai-assist', [LawyerDocumentEditorController::class, 'aiAssist'])->name('editor.ai-assist');
     });
 
@@ -746,6 +748,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/editor/{doc}/approve', [LawyerDocumentEditorController::class, 'approve'])->name('editor.approve');
     Route::get('/editor/{doc}/print', [LawyerDocumentEditorController::class, 'printDoc'])->name('editor.print');
     Route::get('/editor/{doc}/pdf', [LawyerDocumentEditorController::class, 'downloadPdf'])->name('editor.pdf');
+    Route::get('/editor/{doc}/docx', [LawyerDocumentEditorController::class, 'downloadDocx'])->name('editor.docx');
     Route::post('/editor/ai-assist', [LawyerDocumentEditorController::class, 'aiAssist'])->name('editor.ai-assist');
     Route::get('/revenue', [AdminReportController::class, 'revenue'])->name('revenue')->middleware(Permissions::middleware(Permissions::REPORTS_AND_REVENUE));
     // تصدير PDF — كانت الشاشتان بلا أي تصدير أو طباعة

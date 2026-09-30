@@ -11,11 +11,14 @@ use App\Models\TicketSummary;
 use App\Models\User;
 use App\Services\LegalAiService;
 use App\Support\CasePleading;
+use App\Support\LegalDocMeta;
+use App\Support\LegalDocStyle;
+use App\Support\LegalDocx;
 use App\Support\PdfRenderer;
 use App\Support\Permissions;
-use App\Support\SettingsRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response as HttpResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -453,55 +456,52 @@ class DocumentEditorController extends Controller
     }
 
     /**
+     * تحميل المستند ملفَّ Word حقيقيّاً (‎.docx) — من المحتوى المحفوظ نفسه الذي يصيّره PDF (`LegalDocx`).
+     */
+    public function downloadDocx(Request $request, LegalDocument $doc): HttpResponse
+    {
+        $this->guardAccess($request, $doc);
+
+        $safeTitle = preg_replace('/[^\p{Arabic}\p{L}\p{N}\-_ ]/u', '', $doc->title) ?: 'document';
+
+        return response(LegalDocx::build($doc), 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'Content-Disposition' => "attachment; filename*=UTF-8''".rawurlencode($safeTitle.'.docx'),
+        ]);
+    }
+
+    /**
      * بناء HTML متكامل للمستند القانوني لتصييره إلى PDF حقيقي عبر Browsershot.
+     *
+     * التنسيق من المصدر الواحد (`LegalDocStyle::css()` ⇐ `resources/css/legal-document.css`) الذي يقرؤه المحرّر نفسه،
+     * وخطوطه مضمَّنة — كان للقالب تنسيقه الخاصّ ويطلب الخطوط من Google فيخرج بخطٍّ بديل تتفرّق فيه الحركات.
+     * ورأس المستند وتذييله من `LegalDocMeta` الذي يقرؤه ملفّ Word أيضاً.
      */
     public function buildDocumentPdfHtml(LegalDocument $doc): string
     {
-        $header = $doc->header_config ?? LegalDocument::defaultHeader();
-        $showHeader = ! empty($header['showHeader']);
-        $officeName = e(($header['officeName'] ?? '') ?: SettingsRegistry::str('office_name'));
-        $officeNameEn = e($header['officeNameEn'] ?? '');
-        $licenseNo = e($header['licenseNo'] ?? '');
-        $phone = e($header['phone'] ?? '');
-        $email = e($header['email'] ?? '');
-        $address = e($header['address'] ?? '');
-
-        // معالجة الشعار كـ Data URI لضمان ظهوره في PDF بلا حاجة لطلب شبكة
-        $logoDataUri = null;
-        if (! empty($header['logoUrl'])) {
-            $logoUrl = $header['logoUrl'];
-            if (str_starts_with($logoUrl, 'data:image')) {
-                $logoDataUri = $logoUrl;
-            } elseif (($localPath = self::publicImagePath((string) $logoUrl)) !== null) {
-                $mime = str_ends_with($localPath, '.svg') ? 'image/svg+xml' : (str_ends_with($localPath, '.png') ? 'image/png' : 'image/jpeg');
-                $logoDataUri = 'data:'.$mime.';base64,'.base64_encode((string) file_get_contents($localPath));
-            }
-        }
-        if (! $logoDataUri) {
-            $defaultLogo = public_path('images/021.png');
-            if (is_file($defaultLogo)) {
-                $logoDataUri = 'data:image/png;base64,'.base64_encode((string) file_get_contents($defaultLogo));
-            }
-        }
+        $m = LegalDocMeta::of($doc);
+        $e = fn (?string $v): string => e((string) $v);
 
         $headerHtml = '';
-        if ($showHeader) {
+        if ($m['showHeader']) {
+            $logo = $m['logoDataUri'] ? '<img src="'.$m['logoDataUri'].'" alt="شعار" style="max-height: 52px; max-width: 140px; object-fit: contain;" />' : '';
+            // سطر الترخيص حين يوجد رقمه وحده — كان يُطبع «ترخيص رقم:» فارغاً
+            $license = $m['licenseNo'] !== '' ? '<div style="font-size: 10.5px; color: #607689; margin-top: 2px;">ترخيص رقم: '.$e($m['licenseNo']).'</div>' : '';
+            $officeEn = $m['officeNameEn'] !== '' ? '<div style="font-size: 11px; color: #607689; margin-top: 2px;">'.$e($m['officeNameEn']).'</div>' : '';
             $headerHtml = <<<HTML
             <div class="legal-header" style="margin-bottom: 20px; border-bottom: 2.5px solid #0e5c9c; padding-bottom: 12px;">
                 <table style="width: 100%; border-collapse: collapse;">
                     <tr>
-                        <td style="width: 25%; text-align: right; vertical-align: middle; border: none;">
-                            <img src="{$logoDataUri}" alt="شعار" style="max-height: 52px; max-width: 140px; object-fit: contain;" />
-                        </td>
+                        <td style="width: 25%; text-align: right; vertical-align: middle; border: none;">{$logo}</td>
                         <td style="width: 50%; text-align: center; vertical-align: middle; border: none;">
-                            <div style="font-size: 17px; font-weight: 800; color: #0a2a55;">{$officeName}</div>
-                            <div style="font-size: 11px; color: #607689; font-family: sans-serif; margin-top: 2px;">{$officeNameEn}</div>
-                            <div style="font-size: 10.5px; color: #607689; margin-top: 2px;">ترخيص رقم: {$licenseNo}</div>
+                            <div style="font-size: 17px; font-weight: 700; color: #0a2a55;">{$e($m['officeName'])}</div>
+                            {$officeEn}
+                            {$license}
                         </td>
                         <td style="width: 25%; text-align: left; vertical-align: middle; border: none; font-size: 10px; color: #607689; line-height: 1.6;">
-                            <div>{$phone}</div>
-                            <div>{$email}</div>
-                            <div>{$address}</div>
+                            <div>{$e($m['phone'])}</div>
+                            <div>{$e($m['email'])}</div>
+                            <div>{$e($m['address'])}</div>
                         </td>
                     </tr>
                 </table>
@@ -509,163 +509,56 @@ class DocumentEditorController extends Controller
 HTML;
         }
 
-        $refNo = 'DOC-'.str_pad((string) $doc->id, 5, '0', STR_PAD_LEFT);
-        $typeLabel = e(LegalDocument::TYPES[$doc->type] ?? $doc->type);
-        $caseNoHtml = $doc->legalCase ? '<div>القضية: <strong style="color: #0e5c9c;">'.e($doc->legalCase->number).'</strong></div>' : '';
-        $ticketNoHtml = $doc->ticket ? '<div>التذكرة: <strong style="color: #13314f;">'.e($doc->ticket->number).'</strong></div>' : '';
-        $dateStr = $doc->created_at ? $doc->created_at->translatedFormat('d M Y') : date('Y-m-d');
-        $title = e($doc->title);
-        $author = e($doc->user?->name ?? 'المحامي المختص');
+        $caseNoHtml = $m['caseNo'] ? '<div>القضية: <strong style="color: #0e5c9c;">'.$e($m['caseNo']).'</strong></div>' : '';
+        $ticketNoHtml = $m['ticketNo'] ? '<div>التذكرة: <strong style="color: #13314f;">'.$e($m['ticketNo']).'</strong></div>' : '';
         $approvedBadge = '';
-        if ($doc->status === 'approved') {
-            $approver = e($doc->approver?->name ?? 'الإدارة');
-            $approvedAt = $doc->approved_at ? $doc->approved_at->translatedFormat('d M Y') : '';
+        if ($m['approved'] !== null) {
             $approvedBadge = <<<HTML
             <div style="border: 2px solid #1e9d6b; border-radius: 8px; padding: 6px 14px; text-align: center; background: #e7f6ef; color: #1e9d6b;">
-                <div style="font-size: 12px; font-weight: 800;">✓ معتمد رسمياً من الإدارة</div>
-                <div style="font-size: 10.5px;">المعتمد: {$approver}</div>
-                <div style="font-size: 9.5px;">بتاريخ: {$approvedAt}</div>
+                <div style="font-size: 12px; font-weight: 700;">✓ معتمد رسمياً من الإدارة</div>
+                <div style="font-size: 10.5px;">المعتمد: {$e($m['approved']['by'])}</div>
+                <div style="font-size: 9.5px;">بتاريخ: {$e($m['approved']['at'])}</div>
             </div>
 HTML;
         }
 
-        $year = date('Y');
+        $docCss = LegalDocStyle::css();
+        $margins = LegalDocStyle::pageMargins();
+        $titlePt = LegalDocStyle::TITLE_PT;
+        $titleColor = '#'.LegalDocStyle::TITLE_COLOR;
 
         return <<<HTML
 <!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
     <meta charset="utf-8">
-    <title>{$title}</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Cairo:wght@400;600;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <title>{$e($m['title'])}</title>
+    <style>{$docCss}</style>
     <style>
         * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        @page {
-            size: A4 portrait;
-            margin: 14mm 14mm 18mm 14mm;
-        }
-        body {
-            margin: 0;
-            padding: 0;
-            background: #ffffff;
-            font-family: 'Tajawal', 'Traditional Arabic', Arial, sans-serif;
-            font-size: 13.5pt;
-            line-height: 1.85;
-            color: #13314f;
-            direction: rtl;
-            text-align: right;
-        }
-        .container {
-            width: 100%;
-            max-width: 800px;
-            margin: 0 auto;
-        }
-        .ref-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: #f8fafc;
-            border: 1px solid #edf2f6;
-            border-radius: 6px;
-            padding: 6px 14px;
-            margin-bottom: 22px;
-            font-size: 11px;
-            color: #607689;
-        }
-        h1.doc-title {
-            text-align: center;
-            font-size: 21pt;
-            font-weight: 800;
-            color: #0a2a55;
-            margin: 0 0 24px;
-            padding-bottom: 8px;
-            border-bottom: 1.5px solid #edf2f6;
-        }
-        .content {
-            min-height: 500px;
-        }
-        .content p { margin-bottom: 0.85em; }
-        .content h1, .content h2, .content h3, .content h4 {
-            color: #0a2a55;
-            page-break-after: avoid;
-            break-after: avoid;
-        }
-        .content h1 { font-size: 20pt; }
-        .content h2 { font-size: 17pt; color: #0e5c9c; margin-top: 1em; }
-        .content h3 { font-size: 15pt; color: #13314f; margin-top: 0.85em; }
-        .content h4 { font-size: 13.5pt; margin-top: 0.7em; }
-        .content table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 1.2em 0;
-            page-break-inside: avoid;
-            break-inside: avoid;
-        }
-        .content th, .content td {
-            border: 1px solid #ccd7e0;
-            padding: 8px 12px;
-            text-align: right;
-            vertical-align: top;
-        }
-        .content th {
-            background: #f1f5f8;
-            font-weight: bold;
-            color: #0a2a55;
-        }
-        .content blockquote {
-            border-right: 4px solid #0e5c9c;
-            padding: 8px 14px;
-            background: #f8fafc;
-            margin: 1em 0;
-            page-break-inside: avoid;
-            break-inside: avoid;
-        }
-        .content img {
-            max-width: 100%;
-            height: auto;
-            page-break-inside: avoid;
-            break-inside: avoid;
-        }
-        .doc-footer-block {
-            margin-top: 40px;
-            padding-top: 18px;
-            border-top: 1px solid #e1e8ee;
-            page-break-inside: avoid;
-            break-inside: avoid;
-        }
-        .footer-closing {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-end;
-            gap: 20px;
-        }
-        .copyright-line {
-            text-align: center;
-            font-size: 9.5pt;
-            color: #90a2b2;
-            margin-top: 20px;
-            padding-top: 10px;
-            border-top: 1px solid #edf2f6;
-        }
+        @page { size: A4 portrait; margin: {$margins}; }
+        body { margin: 0; padding: 0; background: #ffffff; font-family: 'Tajawal', 'Traditional Arabic', Arial, sans-serif; color: #13314f; direction: rtl; text-align: right; }
+        .ref-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: #f8fafc; border: 1px solid #edf2f6; border-radius: 6px; padding: 6px 14px; margin-bottom: 22px; font-size: 11px; color: #607689; }
+        h1.doc-title { text-align: center; font-size: {$titlePt}pt; font-weight: 700; color: {$titleColor}; margin: 0 0 24px; padding-bottom: 8px; border-bottom: 1.5px solid #edf2f6; }
+        .doc-footer-block { margin-top: 40px; padding-top: 18px; border-top: 1px solid #e1e8ee; break-inside: avoid; page-break-inside: avoid; }
+        .footer-closing { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; }
+        .copyright-line { text-align: center; font-size: 9.5pt; color: #90a2b2; margin-top: 20px; padding-top: 10px; border-top: 1px solid #edf2f6; }
     </style>
 </head>
 <body>
-<div class="container">
     {$headerHtml}
 
     <div class="ref-bar">
-        <div>الرقم المرجعي: <strong style="color: #13314f;">{$refNo}</strong></div>
-        <div>التصنيف: <strong style="color: #0e5c9c;">{$typeLabel}</strong></div>
+        <div>الرقم المرجعي: <strong style="color: #13314f;">{$e($m['refNo'])}</strong></div>
+        <div>التصنيف: <strong style="color: #0e5c9c;">{$e($m['typeLabel'])}</strong></div>
         {$caseNoHtml}
         {$ticketNoHtml}
-        <div>التاريخ: <strong style="color: #13314f;">{$dateStr}</strong></div>
+        <div>التاريخ: <strong style="color: #13314f;">{$e($m['date'])}</strong></div>
     </div>
 
-    <h1 class="doc-title">{$title}</h1>
+    <h1 class="doc-title">{$e($m['title'])}</h1>
 
-    <div class="content">
+    <div class="legal-doc">
         {$doc->content_html}
     </div>
 
@@ -673,7 +566,7 @@ HTML;
         <div class="footer-closing">
             <div>
                 <div style="font-size: 11px; color: #607689;">حرر بواسطة:</div>
-                <div style="font-size: 13px; font-weight: 700; color: #13314f; margin-top: 3px;">{$author}</div>
+                <div style="font-size: 13px; font-weight: 700; color: #13314f; margin-top: 3px;">{$e($m['author'])}</div>
             </div>
             {$approvedBadge}
             <div style="text-align: left;">
@@ -681,11 +574,8 @@ HTML;
                 <div style="height: 38px; width: 120px; border-bottom: 1px dashed #90a2b2; margin-top: 6px;"></div>
             </div>
         </div>
-        <div class="copyright-line">
-            هذا المستند صادر من المنصة القانونية — سري ومحمي بموجب الأنظمة المرعية © {$year}
-        </div>
+        <div class="copyright-line">{$e($m['notice'])}</div>
     </div>
-</div>
 </body>
 </html>
 HTML;
@@ -772,28 +662,6 @@ HTML;
         }
 
         return $data;
-    }
-
-    /**
-     * مسار صورة الشعار على القرص — **داخل `public/` حصراً وبامتداد صورة**، أو `null`.
-     *
-     * `logoUrl` يكتبه صاحب المستند في ترويسته؛ وكان يُمرَّر إلى `public_path()` كما هو، فـ`/../.env`
-     * يقرأ ملف البيئة ويضمّنه في الـPDF (مفتاح التطبيق وكلمات المرور). `realpath` يحلّ `..` والروابط
-     * الرمزيّة، ثم يُشترط أن يبقى الناتج تحت `public/`.
-     */
-    public static function publicImagePath(string $url): ?string
-    {
-        $path = (string) parse_url($url, PHP_URL_PATH);
-        if (! preg_match('/\.(png|jpe?g|svg)$/i', $path)) {
-            return null;
-        }
-
-        $root = realpath(public_path());
-        $real = realpath(public_path(ltrim($path, '/')));
-
-        return ($root !== false && $real !== false && is_file($real) && str_starts_with($real, $root.DIRECTORY_SEPARATOR))
-            ? $real
-            : null;
     }
 
     /**

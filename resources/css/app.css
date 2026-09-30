@@ -3,6 +3,8 @@
 /* نظام تصميم منصة سلاسل بابل — مستخرج حرفياً من index (82).html
    هذا هو مصدر التطابق 1:1 مع الأصل. */
 @import './babylon.css';
+/* تنسيق المستند القانونيّ — المصدر الواحد للمحرّر وPDF وWord */
+@import './legal-document.css';
 
 /* اتجاه الصفحة من اليمين لليسار ومنع اهتزاز الشاشة عند ظهور/اختفاء شريط التمرير */
 html {
@@ -716,7 +718,8 @@ height: 100dvh;
 
 /* ── ورقة المستند (A4 Simulation) ── */
 .legal-editor-paper {
-  max-width: 860px;
+  /* عرض المحتوى = عرض محتوى صفحة A4 بهوامش PDF (210 − 2×14 = 182mm) فيلتفّ السطر كما في الملفّ */
+  max-width: calc(182mm + 96px);
   margin: 0 auto;
   width: 100%;
   min-height: 980px;
@@ -733,112 +736,11 @@ height: 100dvh;
 }
 
 /* ── محتوى المحرر (TipTap Content) ── */
+/* التنسيق الطباعيّ كلّه من `.legal-doc` (resources/css/legal-document.css) — المصدر الواحد مع PDF وWord.
+   هنا ما يخصّ سطح التحرير وحده. */
 .legal-editor-content {
   min-height: 700px;
   outline: none;
-  direction: rtl;
-  text-align: right;
-  font-family: 'Tajawal', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 1.85;
-  color: #13314f;
-}
-
-.legal-editor-content p {
-  margin-bottom: 0.85em;
-}
-
-.legal-editor-content h1 {
-  font-size: 24px;
-  font-weight: 800;
-  color: var(--deep);
-  margin-top: 1.2em;
-  margin-bottom: 0.5em;
-  border-bottom: 1.5px solid var(--line-soft);
-  padding-bottom: 6px;
-}
-
-.legal-editor-content h2 {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--primary);
-  margin-top: 1em;
-  margin-bottom: 0.4em;
-}
-
-.legal-editor-content h3 {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--ink);
-  margin-top: 0.85em;
-  margin-bottom: 0.3em;
-}
-
-.legal-editor-content h4 {
-  font-size: 15.5px;
-  font-weight: 700;
-  margin-top: 0.7em;
-  margin-bottom: 0.3em;
-}
-
-.legal-editor-content ul,
-.legal-editor-content ol {
-  padding-inline-start: 26px;
-  margin-bottom: 0.85em;
-}
-
-.legal-editor-content li {
-  margin-bottom: 0.3em;
-}
-
-.legal-editor-content blockquote {
-  border-right: 4px solid var(--primary);
-  padding: 8px 16px;
-  background: rgba(14, 92, 156, 0.04);
-  border-radius: 0 6px 6px 0;
-  margin: 1em 0;
-  font-style: normal;
-  color: var(--ink);
-}
-
-.legal-editor-content table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1.2em 0;
-  table-layout: fixed;
-}
-
-.legal-editor-content th,
-.legal-editor-content td {
-  border: 1px solid #ccd7e0;
-  padding: 9px 12px;
-  text-align: right;
-  vertical-align: top;
-}
-
-.legal-editor-content th {
-  background: #f1f5f8;
-  font-weight: 700;
-  color: var(--deep);
-}
-
-.legal-editor-content hr {
-  border: none;
-  border-top: 1.5px solid var(--line);
-  margin: 24px 0;
-}
-
-.legal-editor-content img {
-  max-width: 100%;
-  height: auto;
-  border-radius: 6px;
-  display: block;
-  margin: 12px auto;
-}
-
-.legal-editor-content a {
-  color: var(--primary);
-  text-decoration: underline;
 }
 
 .legal-editor-content p.is-editor-empty:first-child::before {
@@ -914,11 +816,6 @@ height: 100dvh;
     min-height: auto !important;
   }
 
-  .legal-editor-content {
-    font-size: 13.5pt;
-    line-height: 1.8;
-  }
-
   .legal-editor-content table,
   .legal-editor-content blockquote,
   .legal-editor-content img,
@@ -934,9 +831,10 @@ height: 100dvh;
     break-after: avoid;
   }
 
+  /* هوامش PDF نفسها (`LegalDocStyle::PAGE_MARGINS_MM`) — الطباعة من المتصفّح تطابق الملفّ */
   @page {
     size: A4 portrait;
-    margin: 15mm 15mm 20mm 15mm;
+    margin: 14mm 14mm 18mm 14mm;
   }
 }
 

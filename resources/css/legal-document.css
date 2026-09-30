@@ -1,0 +1,42 @@
+/*
+ * **تنسيق المستند القانونيّ — المصدر الواحد** (محرّر الصياغة ⇄ PDF ⇄ Word، 2026-09-30).
+ *
+ * كان لكلّ مخرَجٍ تنسيقه: المحرّر Tajawal 12pt، وPDF ‏Tajawal 13.5pt، وWord الأميري 14pt، والعناوين بألوانٍ وأحجامٍ
+ * مختلفة — فيرى المحامي شيئاً ويخرج غيره. الآن:
+ *   • المحرّر يضع `legal-doc` على محتواه فيقرأ هذا الملفّ عبر Vite.
+ *   • PDF يُضمِّن هذا الملفّ نفسه في قالبه (`LegalDocStyle::css()`) — والخطوط بياناتٍ داخله لا طلباً لـGoogle وقت التوليد.
+ *   • Word ‏(‎.docx) يأخذ القيم نفسها من `App\Support\LegalDocStyle`، ويحرس تطابقهما `LegalDocumentExportTest`.
+ *
+ * الخطوط محلّيّة (`public/fonts/legal`، رخصة OFL) — كان قالب PDF يطلبها من Google فإن تعذّر الطلب خرج بخطٍّ بديل
+ * تتفرّق فيه الشدّة والحركات. والوحدات بالنقطة (pt) كي يطابق المحرّرُ الصفحةَ المطبوعة.
+ */
+
+@font-face { font-family: 'Tajawal'; font-weight: 400; font-display: swap; src: url('/fonts/legal/tajawal-arabic-400-normal.woff2') format('woff2'); unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC; }
+@font-face { font-family: 'Tajawal'; font-weight: 700; font-display: swap; src: url('/fonts/legal/tajawal-arabic-700-normal.woff2') format('woff2'); unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC; }
+@font-face { font-family: 'Tajawal'; font-weight: 400; font-display: swap; src: url('/fonts/legal/tajawal-latin-400-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Tajawal'; font-weight: 700; font-display: swap; src: url('/fonts/legal/tajawal-latin-700-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Amiri'; font-weight: 400; font-display: swap; src: url('/fonts/legal/amiri-arabic-400-normal.woff2') format('woff2'); unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC; }
+@font-face { font-family: 'Amiri'; font-weight: 700; font-display: swap; src: url('/fonts/legal/amiri-arabic-700-normal.woff2') format('woff2'); unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC; }
+@font-face { font-family: 'Amiri'; font-weight: 400; font-display: swap; src: url('/fonts/legal/amiri-latin-400-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Amiri'; font-weight: 700; font-display: swap; src: url('/fonts/legal/amiri-latin-700-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
+.legal-doc { font-family: 'Tajawal', 'Traditional Arabic', Arial, sans-serif; font-size: 14pt; line-height: 1.85; color: #13314f; direction: rtl; text-align: right; }
+.legal-doc p { margin: 0 0 0.85em; }
+.legal-doc h1, .legal-doc h2, .legal-doc h3, .legal-doc h4 { font-weight: 700; line-height: 1.5; margin: 1em 0 0.45em; break-after: avoid; page-break-after: avoid; }
+.legal-doc h1 { font-size: 20pt; color: #0a2a55; }
+.legal-doc h2 { font-size: 17pt; color: #0e5c9c; }
+.legal-doc h3 { font-size: 15pt; color: #13314f; }
+.legal-doc h4 { font-size: 14pt; color: #0a2a55; }
+/* الأرقام والنقاط — تصفير Tailwind (`ol,ul{list-style:none}`) كان يُخفيها في المحرّر وحده */
+.legal-doc ul { list-style: disc; }
+.legal-doc ol { list-style: decimal; }
+.legal-doc ul, .legal-doc ol { padding-inline-start: 1.6em; margin: 0 0 0.85em; }
+.legal-doc li { margin-bottom: 0.3em; }
+.legal-doc li p, .legal-doc th p, .legal-doc td p { margin: 0; }
+.legal-doc blockquote { border-right: 4px solid #0e5c9c; background: #f8fafc; padding: 8px 14px; margin: 1em 0; break-inside: avoid; }
+.legal-doc table { width: 100%; border-collapse: collapse; margin: 1.2em 0; table-layout: fixed; break-inside: avoid; }
+.legal-doc th, .legal-doc td { border: 1px solid #ccd7e0; padding: 8px 12px; text-align: right; vertical-align: top; }
+.legal-doc th { background: #f1f5f8; font-weight: 700; color: #0a2a55; }
+.legal-doc hr { border: 0; border-top: 1.5px solid #ccd7e0; margin: 1.5em 0; }
+.legal-doc img { max-width: 100%; height: auto; break-inside: avoid; }
+.legal-doc a { color: #0e5c9c; text-decoration: underline; }

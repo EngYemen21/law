@@ -14,6 +14,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  *
  * جدول legal_documents مستقل عن documents (مرفقات العملاء).
  * يحتوي على محتوى HTML للعرض + JSON لإعادة التحرير عبر TipTap.
+ *
+ * @property ?string $content_html
  */
 class LegalDocument extends Model
 {
@@ -57,21 +59,25 @@ class LegalDocument extends Model
 
     // ── العلاقات ──
 
+    /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
+    /** @return BelongsTo<Ticket, $this> */
     public function ticket(): BelongsTo
     {
         return $this->belongsTo(Ticket::class);
     }
 
+    /** @return BelongsTo<User, $this> */
     public function approver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
     }
 
+    /** @return BelongsTo<LegalCase, $this> */
     public function legalCase(): BelongsTo
     {
         return $this->belongsTo(LegalCase::class, 'case_id');

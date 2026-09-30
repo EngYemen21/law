@@ -8,6 +8,7 @@ use App\Models\LegalCase;
 use App\Models\LegalDocument;
 use App\Models\User;
 use App\Support\CasePleading;
+use App\Support\LegalDocMeta;
 use App\Support\RichHtml;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -45,10 +46,10 @@ class DocumentEditorSecurityTest extends TestCase
         file_put_contents($outside, 'SECRET');
 
         try {
-            $this->assertNull(DocumentEditorController::publicImagePath('/../.env'));
-            $this->assertNull(DocumentEditorController::publicImagePath('/../storage/framework/testing/secret-logo.png'));
-            $this->assertNull(DocumentEditorController::publicImagePath('/index.php'), 'ليس ملفّ صورة');
-            $this->assertNotNull(DocumentEditorController::publicImagePath('/images/021.png'), 'الشعار الافتراضيّ يبقى يعمل');
+            $this->assertNull(LegalDocMeta::publicImagePath('/../.env'));
+            $this->assertNull(LegalDocMeta::publicImagePath('/../storage/framework/testing/secret-logo.png'));
+            $this->assertNull(LegalDocMeta::publicImagePath('/index.php'), 'ليس ملفّ صورة');
+            $this->assertNotNull(LegalDocMeta::publicImagePath('/images/021.png'), 'الشعار الافتراضيّ يبقى يعمل');
         } finally {
             @unlink($outside);
         }
