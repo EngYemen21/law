@@ -16,6 +16,11 @@ interface Props {
     earnings: StaffEarnings;
     /** بادئة لوحة القارئ لروابط الملفّات: `/lawyer` · `/employee` · `/admin` */
     base: string;
+    /**
+     * الإدارة تفتح أيّ ملفّ. صاحب «مستحقاتي» يفتح ملفّاته الجارية فقط: ما أُسند لغيره (`current: false`)
+     * يُعرض رقمه نصّاً، لأنّ رابطه كان يفتح «لا تملك صلاحية».
+     */
+    opensAnyFile?: boolean;
     onMonth: (month: string) => void;
     statementHref?: string;
     payoutAction?: (p: PayoutRow) => React.ReactNode;
@@ -54,6 +59,7 @@ const Empty: React.FC<{ text: string }> = ({ text }) => (
 const EarningsView: React.FC<Props> = ({
     earnings: e,
     base,
+    opensAnyFile = false,
     onMonth,
     statementHref,
     payoutAction,
@@ -270,9 +276,15 @@ const EarningsView: React.FC<Props> = ({
                                     {e.shares.map((r) => (
                                         <tr key={`${r.kind}-${r.id}`}>
                                             <td>
-                                                <Link href={fileHref(base, r)}>
-                                                    {r.ref}
-                                                </Link>
+                                                {opensAnyFile || r.current ? (
+                                                    <Link
+                                                        href={fileHref(base, r)}
+                                                    >
+                                                        {r.ref}
+                                                    </Link>
+                                                ) : (
+                                                    <span>{r.ref}</span>
+                                                )}
                                                 <div
                                                     style={{
                                                         fontSize: 11,

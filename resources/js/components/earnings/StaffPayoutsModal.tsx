@@ -238,6 +238,7 @@ const PayoutsPanel: React.FC<{ staffId: number }> = ({ staffId }) => {
             <EarningsView
                 earnings={data.earnings}
                 base="/admin"
+                opensAnyFile
                 onMonth={load}
                 voucherHref={(p) =>
                     `/admin/staff/${staffId}/payouts/${p.id}/voucher.pdf`
