@@ -153,11 +153,6 @@ const EditorPrint: React.FC<Props> = ({ document: doc }) => {
                 <div style={{ fontSize: 18, fontWeight: 800, color: '#0a2a55', marginBottom: 2 }}>
                   {header.officeName || 'مكتب المحاماة والاستشارات القانونية'}
                 </div>
-                {/* {header.officeNameEn && (
-                  <div style={{ fontSize: 12, color: '#607689', fontFamily: 'sans-serif', letterSpacing: 0.5 }}>
-                    {header.officeNameEn}
-                  </div>
-                )} */}
                 {header.licenseNo && (
                   <div style={{ fontSize: 11.5, color: '#607689', marginTop: 3 }}>
                     ترخيص رقم: {header.licenseNo}
@@ -174,42 +169,6 @@ const EditorPrint: React.FC<Props> = ({ document: doc }) => {
             </div>
           </div>
         )}
-
-        {/* ── شريط المراجع والتوثيق ── */}
-        {/* <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            fontSize: 12,
-            color: '#607689',
-            background: '#f8fafc',
-            border: '1px solid #edf2f6',
-            borderRadius: 6,
-            padding: '6px 14px',
-            marginBottom: 24,
-          }}
-        >
-          <div>
-            الرقم المرجعي: <strong style={{ color: '#13314f' }}>DOC-{doc.id.toString().padStart(5, '0')}</strong>
-          </div>
-          <div>
-            التصنيف: <strong style={{ color: '#0e5c9c' }}>{doc.typeLabel}</strong>
-          </div>
-          {doc.caseNo && (
-            <div>
-              القضية: <strong style={{ color: '#0e5c9c' }}>{doc.caseNo}</strong>
-            </div>
-          )}
-          {doc.ticketNo && (
-            <div>
-              التذكرة: <strong style={{ color: '#13314f' }}>{doc.ticketNo}</strong>
-            </div>
-          )}
-          <div>
-            التاريخ: <strong style={{ color: '#13314f' }}>{doc.createdAt}</strong>
-          </div>
-        </div> */}
 
         {/* ── عنوان المستند الرئيسي ── */}
         {/* <h1
@@ -241,6 +200,7 @@ const EditorPrint: React.FC<Props> = ({ document: doc }) => {
               <div style={{ fontSize: 14, fontWeight: 700, color: '#13314f', marginTop: 4 }}>
                 {doc.author || 'المحامي المختص'}
               </div>
+              {doc.createdAt && <div style={{ fontSize: 12, color: '#607689', marginTop: 4 }}>التاريخ: {doc.createdAt}</div>}
             </div>
 
             {/* ختم الاعتماد الرسمي إن كان معتمداً */}

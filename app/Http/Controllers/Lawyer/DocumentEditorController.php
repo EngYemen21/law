@@ -487,7 +487,6 @@ class DocumentEditorController extends Controller
             $logo = $m['logoDataUri'] ? '<img src="'.$m['logoDataUri'].'" alt="شعار" style="max-height: 52px; max-width: 140px; object-fit: contain;" />' : '';
             // سطر الترخيص حين يوجد رقمه وحده — كان يُطبع «ترخيص رقم:» فارغاً
             $license = $m['licenseNo'] !== '' ? '<div style="font-size: 10.5px; color: #607689; margin-top: 2px;">ترخيص رقم: '.$e($m['licenseNo']).'</div>' : '';
-            $officeEn = $m['officeNameEn'] !== '' ? '<div style="font-size: 11px; color: #607689; margin-top: 2px;">'.$e($m['officeNameEn']).'</div>' : '';
             $headerHtml = <<<HTML
             <div class="legal-header" style="margin-bottom: 20px; border-bottom: 2.5px solid #0e5c9c; padding-bottom: 12px;">
                 <table style="width: 100%; border-collapse: collapse;">
@@ -495,7 +494,6 @@ class DocumentEditorController extends Controller
                         <td style="width: 25%; text-align: right; vertical-align: middle; border: none;">{$logo}</td>
                         <td style="width: 50%; text-align: center; vertical-align: middle; border: none;">
                             <div style="font-size: 17px; font-weight: 700; color: #0a2a55;">{$e($m['officeName'])}</div>
-                            {$officeEn}
                             {$license}
                         </td>
                         <td style="width: 25%; text-align: left; vertical-align: middle; border: none; font-size: 10px; color: #607689; line-height: 1.6;">
@@ -509,8 +507,6 @@ class DocumentEditorController extends Controller
 HTML;
         }
 
-        $caseNoHtml = $m['caseNo'] ? '<div>القضية: <strong style="color: #0e5c9c;">'.$e($m['caseNo']).'</strong></div>' : '';
-        $ticketNoHtml = $m['ticketNo'] ? '<div>التذكرة: <strong style="color: #13314f;">'.$e($m['ticketNo']).'</strong></div>' : '';
         $approvedBadge = '';
         if ($m['approved'] !== null) {
             $approvedBadge = <<<HTML
@@ -538,23 +534,13 @@ HTML;
         * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         @page { size: A4 portrait; margin: {$margins}; }
         body { margin: 0; padding: 0; background: #ffffff; font-family: 'Tajawal', 'Traditional Arabic', Arial, sans-serif; color: #13314f; direction: rtl; text-align: right; }
-        .ref-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: #f8fafc; border: 1px solid #edf2f6; border-radius: 6px; padding: 6px 14px; margin-bottom: 22px; font-size: 11px; color: #607689; }
         h1.doc-title { text-align: center; font-size: {$titlePt}pt; font-weight: 700; color: {$titleColor}; margin: 0 0 24px; padding-bottom: 8px; border-bottom: 1.5px solid #edf2f6; }
         .doc-footer-block { margin-top: 40px; padding-top: 18px; border-top: 1px solid #e1e8ee; break-inside: avoid; page-break-inside: avoid; }
         .footer-closing { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; }
-        .copyright-line { text-align: center; font-size: 9.5pt; color: #90a2b2; margin-top: 20px; padding-top: 10px; border-top: 1px solid #edf2f6; }
     </style>
 </head>
 <body>
     {$headerHtml}
-
-    <div class="ref-bar">
-        <div>الرقم المرجعي: <strong style="color: #13314f;">{$e($m['refNo'])}</strong></div>
-        <div>التصنيف: <strong style="color: #0e5c9c;">{$e($m['typeLabel'])}</strong></div>
-        {$caseNoHtml}
-        {$ticketNoHtml}
-        <div>التاريخ: <strong style="color: #13314f;">{$e($m['date'])}</strong></div>
-    </div>
 
     <h1 class="doc-title">{$e($m['title'])}</h1>
 
@@ -567,6 +553,7 @@ HTML;
             <div>
                 <div style="font-size: 11px; color: #607689;">حرر بواسطة:</div>
                 <div style="font-size: 13px; font-weight: 700; color: #13314f; margin-top: 3px;">{$e($m['author'])}</div>
+                <div style="font-size: 11px; color: #607689; margin-top: 4px;">التاريخ: {$e($m['date'])}</div>
             </div>
             {$approvedBadge}
             <div style="text-align: left;">
@@ -574,7 +561,6 @@ HTML;
                 <div style="height: 38px; width: 120px; border-bottom: 1px dashed #90a2b2; margin-top: 6px;"></div>
             </div>
         </div>
-        <div class="copyright-line">{$e($m['notice'])}</div>
     </div>
 </body>
 </html>

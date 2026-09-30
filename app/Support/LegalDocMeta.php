@@ -10,9 +10,12 @@ use App\Models\LegalDocument;
  * كان ملفّ Word يبني رأسه وتذييله في المتصفّح بقيمٍ غير قيم PDF: تاريخ اليوم هجريّاً مقابل تاريخ الإنشاء ميلاديّاً،
  * ونصّ تذييلٍ مختلف، وبلا «حرّر بواسطة» ولا خانة التوقيع. الآن يقرأ المخرجان هذه البيانات نفسها.
  *
+ * **بقرار المالك (2026-09-30):** لا اسمَ إنجليزيّاً تحت اسم المكتب، ولا سطرَ مراجع (الرقم المرجعي · التصنيف ·
+ * القضية · التذكرة · التاريخ)، ولا عبارةَ «صادر من المنصة… سري ومحمي» — والتاريخ بجانب «حرّر بواسطة».
+ *
  * القيم نصّيّةٌ خامّ (غير مُهرَّبة) — يهرّبها كلّ مخرَجٍ بطريقته.
  *
- * @phpstan-type Meta array{officeName: string, officeNameEn: string, licenseNo: string, phone: string, email: string, address: string, showHeader: bool, logoPath: ?string, logoDataUri: ?string, refNo: string, typeLabel: string, caseNo: ?string, ticketNo: ?string, date: string, title: string, author: string, approved: ?array{by: string, at: string}, notice: string}
+ * @phpstan-type Meta array{officeName: string, licenseNo: string, phone: string, email: string, address: string, showHeader: bool, logoPath: ?string, logoDataUri: ?string, date: string, title: string, author: string, approved: ?array{by: string, at: string}}
  */
 final class LegalDocMeta
 {
@@ -26,25 +29,18 @@ final class LegalDocMeta
         return [
             'showHeader' => ! empty($header['showHeader']),
             'officeName' => (string) (($header['officeName'] ?? '') ?: SettingsRegistry::str('office_name')),
-            'officeNameEn' => (string) ($header['officeNameEn'] ?? ''),
             'licenseNo' => (string) ($header['licenseNo'] ?? ''),
             'phone' => (string) ($header['phone'] ?? ''),
             'email' => (string) ($header['email'] ?? ''),
             'address' => (string) ($header['address'] ?? ''),
             'logoPath' => $logoPath,
             'logoDataUri' => $logoData ?? ($logoPath !== null ? self::dataUri($logoPath) : null),
-            'refNo' => 'DOC-'.str_pad((string) $doc->id, 5, '0', STR_PAD_LEFT),
-            'typeLabel' => (string) (LegalDocument::TYPES[$doc->type] ?? $doc->type),
-            'caseNo' => $doc->legalCase?->number,
-            'ticketNo' => $doc->ticket?->number,
             'date' => $doc->created_at ? $doc->created_at->translatedFormat('d M Y') : now()->translatedFormat('d M Y'),
             'title' => (string) $doc->title,
             'author' => (string) ($doc->user->name ?? 'المحامي المختص'),
             'approved' => $doc->status === 'approved'
                 ? ['by' => (string) ($doc->approver->name ?? 'الإدارة'), 'at' => $doc->approved_at ? $doc->approved_at->translatedFormat('d M Y') : '']
                 : null,
-            // عبارة السرّيّة في ختام المستند (كانت في قالب PDF قبل التوحيد) — لا شريط تذييلٍ باسم المكتب (DocumentAndMetricHonestyTest)
-            'notice' => 'هذا المستند صادر من المنصة القانونية — سري ومحمي بموجب الأنظمة المرعية © '.date('Y'),
         ];
     }
 

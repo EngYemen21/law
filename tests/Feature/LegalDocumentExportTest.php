@@ -143,6 +143,7 @@ class LegalDocumentExportTest extends TestCase
         $this->assertStringContainsString('<w:rtl', $xml, 'نصّ عربيّ');
         $this->assertStringContainsString('<w:bidiVisual', $xml, 'جداول من اليمين');
         $this->assertStringContainsString('<w:numPr>', $xml, 'قوائم مرقّمة حقيقيّة');
+        $this->assertStringContainsString('<w:cantSplit', $xml, 'صفّ الجدول لا ينقسم بين صفحتين (كـPDF)');
         $this->assertStringContainsString('w:val="both"', $xml, 'الضبط (justify)');
         $this->assertStringContainsString('<w:sz w:val="'.(LegalDocStyle::BODY_PT * 2).'"', $xml, 'حجم المتن');
         $this->assertStringNotContainsString('ترخيص رقم', $xml);
@@ -157,7 +158,7 @@ class LegalDocumentExportTest extends TestCase
         $this->assertMatchesRegularExpression('#<w:settings[^>]*><w:embedTrueTypeFonts/>#', $files['word/settings.xml']);
     }
 
-    public function test_word_and_pdf_share_the_same_header_date_and_closing_notice(): void
+    public function test_word_and_pdf_share_the_same_date_and_author(): void
     {
         $doc = $this->doc();
         $m = LegalDocMeta::of($doc);
@@ -165,10 +166,39 @@ class LegalDocumentExportTest extends TestCase
         $pdf = app(DocumentEditorController::class)->buildDocumentPdfHtml($doc);
         $xml = $this->unzip(LegalDocx::build($doc))['word/document.xml'];
 
-        foreach (['date', 'refNo', 'notice', 'author'] as $key) {
-            $this->assertStringContainsString(e($m[$key]), $pdf, "PDF: {$key}");
-            $this->assertStringContainsString(htmlspecialchars($m[$key], ENT_XML1), $xml, "Word: {$key}");
+        // التاريخ بجانب «حرّر بواسطة» (قرار المالك 2026-09-30)
+        $this->assertStringContainsString('التاريخ: '.e($m['date']), $pdf);
+        $this->assertStringContainsString('التاريخ: '.htmlspecialchars($m['date'], ENT_XML1), $xml);
+        $this->assertStringContainsString(e($m['author']), $pdf);
+        $this->assertStringContainsString(htmlspecialchars($m['author'], ENT_XML1), $xml);
+    }
+
+    /**
+     * **بقرار المالك (2026-09-30):** لا اسم إنجليزيّ تحت اسم المكتب، ولا سطر «الرقم المرجعي · التصنيف · التاريخ»،
+     * ولا عبارة «صادر من المنصة القانونية — سري ومحمي» — في PDF وWord وصفحة الطباعة ومعاينة المحرّر.
+     */
+    public function test_documents_carry_no_english_name_reference_bar_or_platform_notice(): void
+    {
+        $doc = $this->doc(['officeNameEn' => 'Test Law Firm']);
+
+        $pdf = app(DocumentEditorController::class)->buildDocumentPdfHtml($doc);
+        $xml = $this->unzip(LegalDocx::build($doc))['word/document.xml'];
+        $print = (string) file_get_contents(resource_path('js/pages/lawyer/editor-print.tsx'));
+        $editor = (string) file_get_contents(resource_path('js/pages/lawyer/editor.tsx'));
+
+        foreach (['PDF' => $pdf, 'Word' => $xml] as $name => $out) {
+            $this->assertStringNotContainsString('Test Law Firm', $out, "{$name}: الاسم الإنجليزيّ");
+            $this->assertStringNotContainsString('الرقم المرجعي', $out, "{$name}: سطر المراجع");
+            $this->assertStringNotContainsString('التصنيف', $out, "{$name}: سطر المراجع");
+            $this->assertStringNotContainsString('DOC-', $out, "{$name}: سطر المراجع");
+            $this->assertStringNotContainsString('صادر من المنصة', $out, "{$name}: عبارة المنصّة");
+            $this->assertStringNotContainsString('سري ومحمي', $out, "{$name}: عبارة المنصّة");
         }
+
+        $this->assertStringNotContainsString('header.officeNameEn}', $print, 'لا كتلة معطَّلة للاسم الإنجليزيّ');
+        $this->assertStringNotContainsString('الرقم المرجعي', $print, 'لا كتلة معطَّلة لسطر المراجع');
+        $this->assertStringNotContainsString('>{headerConfig.officeNameEn}<', $editor, 'معاينة الترويسة في المحرّر كالمستند');
+        $this->assertStringContainsString('placeholder="اسم المكتب (إنجليزي)"', $editor, 'الحقل باقٍ في المحرّر (قرار المالك)');
     }
 
     public function test_font_obfuscation_follows_the_spec_and_is_reversible(): void

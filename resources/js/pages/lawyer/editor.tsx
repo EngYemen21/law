@@ -1263,9 +1263,6 @@ const LawyerEditor: React.FC<Props> = ({
             </div>
             <div className="legal-header-info">
               <div style={{ fontWeight: 800, fontSize: 17, color: '#0a2a55' }}>{headerConfig.officeName || defaultHeader.officeName}</div>
-              {headerConfig.officeNameEn && (
-                <div style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'sans-serif' }}>{headerConfig.officeNameEn}</div>
-              )}
               {headerConfig.licenseNo && (
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>ترخيص رقم: {headerConfig.licenseNo}</div>
               )}

@@ -75,7 +75,6 @@ final class LegalDocx
         if ($m['showHeader']) {
             $this->header($section, $m);
         }
-        $this->refBar($section, $m);
 
         $section->addText($this->clean($m['title']), $this->font(['size' => LegalDocStyle::TITLE_PT, 'bold' => true, 'color' => LegalDocStyle::TITLE_COLOR], $m['title']), [
             'bidi' => true, 'alignment' => Jc::CENTER, 'spaceAfter' => 360,
@@ -116,7 +115,8 @@ final class LegalDocx
 
         $center = $table->addCell($third * 2, ['valign' => 'center']);
         $center->addText($this->clean($m['officeName']), $this->font(['size' => 13, 'bold' => true, 'color' => '0a2a55'], $m['officeName']), ['bidi' => true, 'alignment' => Jc::CENTER, 'spaceAfter' => 0]);
-        foreach (array_filter([$m['officeNameEn'], $m['licenseNo'] !== '' ? 'ترخيص رقم: '.$m['licenseNo'] : '']) as $line) {
+        if ($m['licenseNo'] !== '') {
+            $line = 'ترخيص رقم: '.$m['licenseNo'];
             $center->addText($this->clean($line), $this->font(['size' => 8.5, 'color' => '607689'], $line), ['bidi' => true, 'alignment' => Jc::CENTER, 'spaceAfter' => 0]);
         }
 
@@ -126,29 +126,6 @@ final class LegalDocx
         }
 
         $section->addText('', [], ['spaceAfter' => 200]);
-    }
-
-    /** @param array<string, mixed> $m */
-    private function refBar(AbstractContainer $section, array $m): void
-    {
-        $items = array_filter([
-            ['الرقم المرجعي: ', $m['refNo']],
-            ['التصنيف: ', $m['typeLabel']],
-            $m['caseNo'] ? ['القضية: ', $m['caseNo']] : null,
-            $m['ticketNo'] ? ['التذكرة: ', $m['ticketNo']] : null,
-            ['التاريخ: ', $m['date']],
-        ]);
-
-        $table = $section->addTable(['bidiVisual' => true, 'width' => 5000, 'unit' => 'pct', 'borderSize' => 4, 'borderColor' => 'edf2f6', 'cellMargin' => 60]);
-        $table->addRow();
-        $width = (int) (Converter::cmToTwip(self::CONTENT_MM / 10) / max(1, count($items)));
-        foreach ($items as [$label, $value]) {
-            $run = $table->addCell($width, ['bgColor' => 'f8fafc'])->addTextRun(['bidi' => true, 'alignment' => Jc::CENTER, 'spaceAfter' => 0]);
-            $run->addText($this->clean($label), $this->font(['size' => 8.5, 'color' => '607689'], $label));
-            $run->addText($this->clean((string) $value), $this->font(['size' => 8.5, 'bold' => true, 'color' => '13314f'], (string) $value));
-        }
-
-        $section->addText('', [], ['spaceAfter' => 240]);
     }
 
     /** @param array<string, mixed> $m */
@@ -163,6 +140,8 @@ final class LegalDocx
         $author = $table->addCell($col);
         $author->addText('حرر بواسطة:', $this->font(['size' => 8.5, 'color' => '607689'], 'ح'), ['bidi' => true, 'spaceAfter' => 0]);
         $author->addText($this->clean($m['author']), $this->font(['size' => 10, 'bold' => true], $m['author']), ['bidi' => true, 'spaceAfter' => 0]);
+        $date = 'التاريخ: '.$m['date'];
+        $author->addText($this->clean($date), $this->font(['size' => 8.5, 'color' => '607689'], $date), ['bidi' => true, 'spaceBefore' => 40, 'spaceAfter' => 0]);
 
         $approved = $table->addCell($col);
         if ($m['approved'] !== null) {
@@ -174,10 +153,6 @@ final class LegalDocx
         $sign = $table->addCell($col);
         $sign->addText('التوقيع والختم', $this->font(['size' => 8.5, 'color' => '607689'], 'ت'), ['bidi' => true, 'alignment' => Jc::END, 'spaceAfter' => 360]);
         $sign->addText('', [], ['alignment' => Jc::END, 'borderBottomSize' => 4, 'borderBottomColor' => '90a2b2', 'spaceAfter' => 0]);
-
-        $section->addText($this->clean($m['notice']), $this->font(['size' => 7.5, 'color' => '90a2b2'], $m['notice']), [
-            'bidi' => true, 'alignment' => Jc::CENTER, 'spaceBefore' => 300, 'borderTopSize' => 4, 'borderTopColor' => 'edf2f6',
-        ]);
     }
 
     // ── المحتوى: HTML المحرّر (TipTap) عنصراً عنصراً ──
@@ -298,8 +273,10 @@ final class LegalDocx
             'bidiVisual' => true, 'width' => 5000, 'unit' => 'pct', 'layout' => 'fixed',
             'borderSize' => 6, 'borderColor' => LegalDocStyle::TABLE_BORDER, 'cellMargin' => 110,
         ]);
-        foreach ($rows as $tr) {
-            $table->addRow();
+        // الجدول كتلةٌ واحدة كما `break-inside: avoid` في PDF: لا ينقسم صفّ، ويلتصق كلّ صفٍّ بتاليه (keepNext)
+        $last = count($rows) - 1;
+        foreach ($rows as $i => $tr) {
+            $table->addRow(null, ['cantSplit' => true]);
             foreach ($tr->childNodes as $cellNode) {
                 if (! $cellNode instanceof DOMElement || ! in_array(strtolower($cellNode->tagName), ['td', 'th'], true)) {
                     continue;
@@ -311,13 +288,13 @@ final class LegalDocx
                     'bgColor' => $head ? LegalDocStyle::TABLE_HEAD_BG : null,
                     'valign' => 'top',
                 ]));
-                $this->cellContent($cellNode, $cell, $head);
+                $this->cellContent($cellNode, $cell, $head, $i < $last);
             }
         }
         $container->addText('', [], ['spaceAfter' => 120]);
     }
 
-    private function cellContent(DOMElement $node, Cell $cell, bool $head): void
+    private function cellContent(DOMElement $node, Cell $cell, bool $head, bool $keepNext): void
     {
         $hasBlock = false;
         foreach ($node->childNodes as $child) {
@@ -328,14 +305,14 @@ final class LegalDocx
 
         $base = $head ? ['bold' => true, 'color' => '0a2a55'] + $this->baseFont() : $this->baseFont();
         if (! $hasBlock) {
-            $this->inlineChildren($node, $cell->addTextRun($this->paragraph(null, ['spaceAfter' => 0])), $base);
+            $this->inlineChildren($node, $cell->addTextRun($this->paragraph(null, ['spaceAfter' => 0, 'keepNext' => $keepNext])), $base);
 
             return;
         }
 
         foreach ($node->childNodes as $child) {
             if ($child instanceof DOMElement && strtolower($child->tagName) === 'p') {
-                $this->inlineChildren($child, $cell->addTextRun($this->paragraph($child, ['spaceAfter' => 0])), $this->fontFrom($this->styles($child), $base));
+                $this->inlineChildren($child, $cell->addTextRun($this->paragraph($child, ['spaceAfter' => 0, 'keepNext' => $keepNext])), $this->fontFrom($this->styles($child), $base));
             } elseif ($child instanceof DOMElement) {
                 $wrapper = $child->ownerDocument?->createElement('div');
                 if ($wrapper !== null) {
