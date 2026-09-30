@@ -73,6 +73,10 @@ class DocumentEditorController extends Controller
         $ticket = $ticketNo
             ? Ticket::where('number', $ticketNo)->first()
             : null;
+        // الربط المقترح بتذكرةٍ لمن يملكها — كحارس الحفظ (`guardLinks`)
+        if ($ticket !== null && ! self::canUseTicket($user, $ticket)) {
+            $ticket = null;
+        }
 
         // **مسودّة المساعد من الجلسة لا من العنوان.** كان `?draft=` يُقرأ ويُدخله المحرّر كما هو إن
         // بدأ بـ`<` — فرابطٌ مصنوع يحقن وسوماً في محرّر محامٍ. الآن لا مصدر للمسودّة الحرّة إلّا ما
@@ -128,7 +132,7 @@ class DocumentEditorController extends Controller
                     ? Consult::with(['user', 'ticket'])->find($importId)
                     : Consult::with(['user', 'ticket'])->where('ref', $importId)->first();
 
-                if ($consult && ($isAdmin || $consult->assigned_lawyer_id === $user->id || $consult->lawyer === $user->name)) {
+                if ($consult && ($isAdmin || (int) $consult->assigned_lawyer_id === (int) $user->id)) {
                     $incomingDraft = $this->formatConsultSummaryHtml($consult);
                     $incomingTitle = "محضر وخلاصة جلسة استشارة — {$consult->ref}";
                     $incomingType = 'summary';
@@ -174,7 +178,7 @@ class DocumentEditorController extends Controller
             'metadata' => ['nullable', 'array'],
             'header_config' => ['nullable', 'array'],
         ]);
-        $data = $this->guardCaseLink($request, $data);
+        $data = $this->guardLinks($request, $data);
 
         $doc = LegalDocument::create([
             ...$data,
@@ -226,7 +230,7 @@ class DocumentEditorController extends Controller
             'metadata' => ['nullable', 'array'],
             'header_config' => ['nullable', 'array'],
         ]);
-        $data = $this->guardCaseLink($request, $data, $doc);
+        $data = $this->guardLinks($request, $data, $doc);
 
         $doc->update($data);
 
@@ -372,10 +376,9 @@ class DocumentEditorController extends Controller
             ->latest('updated_at');
 
         if (! $isAdmin) {
-            $consultQuery->where(function ($q) use ($user) {
-                $q->where('assigned_lawyer_id', $user->id)
-                    ->orWhere('lawyer', $user->name);
-            });
+            // العزل بالإسناد وحده — كان يقبل تطابق **الاسم** المكتوب على الاستشارة، فيرى محامٍ محضرَ
+            // موكّلِ زميلٍ يشاركه الاسم (تدقيق P4، 2026-09-30)
+            $consultQuery->where('assigned_lawyer_id', $user->id);
         }
 
         foreach ($consultQuery->take(25)->get() as $consult) {
@@ -608,6 +611,12 @@ HTML;
         return $case !== null && ($user->isAdmin() || (int) $case->assigned_lawyer_id === (int) $user->id);
     }
 
+    /** التذكرة كالقضيّة: الإدارة أو المحامي المُسندة إليه. */
+    private static function canUseTicket(User $user, ?Ticket $ticket): bool
+    {
+        return $ticket !== null && ($user->isAdmin() || (int) $ticket->getAttribute('assigned_lawyer_id') === (int) $user->id);
+    }
+
     /**
      * ربط المستند بقضية حكمُ الخادم لا الطلب.
      *
@@ -616,11 +625,21 @@ HTML;
      * لمن يملكها وإلّا 403، و`source_type=case_pleading` لا يبقى إلّا مطابقاً للقضية المربوطة.
      * الحفظ على الربط القائم نفسه لا يُعاد فحصه (أُعيد إسناد القضية؟ يبقى المسودّة حفظها،
      * والاعتماد وحده يُحرس في `approve`).
+     *
+     * **والتذكرة بالقاعدة نفسها** (تدقيق P4، 2026-09-30): كان `ticket_id` يُقبل بـ`exists` وحده، فيربط المحامي
+     * مستنده بتذكرةٍ ليست له ويظهر له رقمها.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
      */
-    private function guardCaseLink(Request $request, array $data, ?LegalDocument $doc = null): array
+    private function guardLinks(Request $request, array $data, ?LegalDocument $doc = null): array
     {
         if (! empty($data['case_id']) && (int) $data['case_id'] !== (int) $doc?->case_id) {
             abort_unless(self::canUseCase($request->user(), LegalCase::find($data['case_id'])), 403, 'هذه القضية غير مُسندة إليك.');
+        }
+
+        if (! empty($data['ticket_id']) && (int) $data['ticket_id'] !== (int) $doc?->ticket_id) {
+            abort_unless(self::canUseTicket($request->user(), Ticket::whereKey($data['ticket_id'])->first()), 403, 'هذه التذكرة غير مُسندة إليك.');
         }
 
         if (is_array($data['metadata'] ?? null) && ($data['metadata']['source_type'] ?? null) === 'case_pleading'

@@ -12,6 +12,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Support\ExecFee;
 use App\Support\Finance\LawyerShare;
+use App\Support\Finance\Money;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -75,6 +76,10 @@ final class SetExecutionFee extends Transition
 
         if ($feeMode === 'fixed' && $fee <= 0) {
             return 'مبلغ الأتعاب الثابتة يجب أن يكون أكبر من الصفر.';
+        }
+        // الحدّ الواحد للأتعاب — كانت بلا حدّ فتُسقط فاتورتها الحفظ بـ500 فوق سعة العمود
+        if ($feeMode === 'fixed' && $fee > Money::MAX_FEE) {
+            return Money::feeCeilingMessage();
         }
 
         return null;

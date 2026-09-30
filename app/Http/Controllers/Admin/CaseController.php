@@ -32,6 +32,7 @@ use App\Support\Finance\CaseFeeBoard;
 use App\Support\Finance\InvoiceDue;
 use App\Support\Finance\InvoiceFactory;
 use App\Support\Finance\LawyerShare;
+use App\Support\Finance\Money;
 use App\Support\Live;
 use App\Support\Notify;
 use App\Support\Paginate;
@@ -90,7 +91,7 @@ class CaseController extends Controller
         // بنصّ الحالة العربيّ مرّةً ثانية
 
         $data = $request->validate([
-            'fee' => ['required', 'integer', 'min:0', 'max:10000000'],
+            'fee' => ['required', 'integer', 'min:0', 'max:'.Money::MAX_FEE],
             'lawyer_pct' => ['nullable', 'integer', 'min:0', 'max:100'],
         ]);
 

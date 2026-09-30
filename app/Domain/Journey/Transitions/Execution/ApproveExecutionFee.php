@@ -8,6 +8,7 @@ use App\Models\Execution;
 use App\Models\Setting;
 use App\Models\User;
 use App\Support\Finance\LawyerShare;
+use App\Support\Finance\Money;
 use App\Support\SettingsRegistry;
 use Illuminate\Database\Eloquent\Model;
 
@@ -73,6 +74,9 @@ final class ApproveExecutionFee extends Transition
         } else {
             if ($adjustedFee < 1) {
                 return 'حدّد أتعاب التنفيذ قبل اعتماد العرض.';
+            }
+            if ($adjustedFee > Money::MAX_FEE) {
+                return Money::feeCeilingMessage();
             }
         }
 

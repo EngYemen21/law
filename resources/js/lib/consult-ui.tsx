@@ -1225,6 +1225,10 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
 
   // نصّ الموكّل يحرّره ويعتمده **من يملك الصلاحيّة** — لا من يفتح الصفحة.
   const mayEditSummary = useCan()('اعتماد/تعديل ملخص الاستشارة');
+  // اعتمده المحامي ورُفع للإدارة — يُقفل عليه والإدارة تعدّله (`Staff/ConsultController::saveSummary`).
+  // كان المحرّر وزرّ الاعتماد يبقيان له فيردّهما الخادم ٤٢٢ (تدقيق P4، 2026-09-30)
+  const lockedForMe = !isAdmin && Boolean(c.summaryLawyerApproved);
+  const canEditHere = mayEditSummary && !lockedForMe;
 
   /*
    * **زرُّ التحليل يُخفى لمن لا يملك إطلاقه — لا يُترك ليفشل.**
@@ -1562,7 +1566,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                   </>
                 ) : c.summary ? (
                   <>
-                    {mayEditSummary ? (
+                    {canEditHere ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                         <div className="field" style={{ margin: 0 }}>
                           <label style={{ fontSize: 12.5, fontWeight: 700 }}>
@@ -1582,7 +1586,8 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                           {/* لا مسار اعتمادٍ للموظّف (قرار المالك 2026-09-14) — كان الزرّ يظهر له فيقع ٤٠٤ */}
                           {canApproveSummary && (
                             <button className="btn sm" onClick={approveSessionSummary} disabled={busy} type="button">
-                              <Icon name="scale" /> اعتماد وإرسال للعميل
+                              {/* اعتماد المحامي يرفعه للإدارة ولا يرسله للموكّل — الإرسال باعتماد الإدارة */}
+                              <Icon name="scale" /> {isAdmin ? 'اعتماد وإرسال للعميل' : 'اعتماد ورفع للإدارة'}
                             </button>
                           )}
                         </div>
@@ -1603,9 +1608,11 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                     )}
 
                     <p className="action-hint" style={{ marginTop: 12 }}>
-                      <Icon name="info" /> {mayEditSummary
-                        ? 'حفظ الملخص لا يُطلقه للعميل — الإطلاق يتم بالاعتماد الرسمي.'
-                        : 'هذا النص محجوب عن العميل حتى يعتمده المحامي المختص أو الإدارة.'}
+                      <Icon name="info" /> {lockedForMe
+                        ? 'اعتمدتَ هذا الملخّص ورُفع للإدارة لاعتماده النهائيّ قبل إرساله للموكّل.'
+                        : canEditHere
+                          ? 'حفظ الملخص لا يُطلقه للعميل — الإطلاق يتم بالاعتماد الرسمي.'
+                          : 'هذا النص محجوب عن العميل حتى يعتمده المحامي المختص أو الإدارة.'}
                     </p>
                   </>
                 ) : (
