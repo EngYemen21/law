@@ -357,7 +357,9 @@ class MeetingApprovalLockTest extends TestCase
         $ui = file_get_contents(resource_path('js/lib/meeting-ui.tsx'));
 
         // قاعدةُ النافذة لا تُعاد كتابتها في JS — تُقرأ من البطاقة
-        $this->assertStringContainsString('{m.canJoin ? (', $ui);
+        // (زرّ الدخول يظهر بحكم `canJoin` وحده — تصميم القائمة 2026-09-30)
+        $this->assertStringContainsString('{m.canJoin && (', $ui);
+        $this->assertStringContainsString('{m.up && !m.canJoin && (', $ui);
         // والفرز بالموعد لا بترتيب الإنشاء
         $this->assertStringContainsString('new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime()', $ui);
         // شيفرةٌ ميّتة لا تعود: قوائم «قبل/أثناء/بعد» المختلقة عُلّقت 2026-08-26 وبقيت سنةً

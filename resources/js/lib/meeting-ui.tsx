@@ -1747,110 +1747,109 @@ export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: str
 
     return (
         <>
-            <div className="ai-banner">
-                <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
-                <p>تابع جدول اجتماعات المكتب، وأعِدّ محاضرها وملخّصاتها، واعرضها على الإدارة لاعتمادها — وبالاعتماد تصل الموكّل.</p>
+            <div className="mr-stats">
+                <StatRow items={stats} onSelect={(i) => setTab(STAT_TABS[i])} />
             </div>
 
-            <StatRow items={stats} onSelect={(i) => setTab(STAT_TABS[i])} />
+            <div className="card">
+                <div className="card-h mr-head">
+                    <div>
+                        <h3>جدول الاجتماعات</h3>
+                        <span className="sub">تابع اجتماعات المكتب، وأعِدّ محاضرها وملخّصاتها، واعرضها على الإدارة لاعتمادها — وبالاعتماد تصل الموكّل.</span>
+                    </div>
+                </div>
 
-            <div className="card" style={{ marginBottom: 18 }}>
-                <div className="card-b" style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div className="filter-pills" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderBottom: '1px solid var(--line-soft)', paddingBottom: 12 }}>
-                        {TABS.map(([key, icon, label, n]) => (
-                            <button
-                                key={key}
-                                type="button"
-                                className={`btn sm ${tab === key ? '' : 'soft'}`}
-                                style={{ boxShadow: tab === key ? undefined : 'none' }}
-                                onClick={() => setTab(key)}
-                            >
-                                <Icon name={icon} /> {label} ({n})
+                <div className="mr-tools">
+                    <div className="mtabs" role="tablist">
+                        {TABS.map(([key, , label, n]) => (
+                            <button key={key} type="button" role="tab" aria-selected={tab === key} className={`mtab ${tab === key ? 'on' : ''}`} onClick={() => setTab(key)}>
+                                {label} <span className="sub">({n})</span>
                             </button>
                         ))}
                     </div>
-                    <div className="search" style={{ maxWidth: 320, padding: '7px 12px' }}>
-                        <Icon name="search" />
-                        <input
-                            placeholder="بحث بالعنوان أو الموكّل أو المستشار أو المرجع…"
-                            value={q}
-                            onChange={(e) => setQ(e.target.value)}
-                        />
-                        {q && (
-                            <button type="button" onClick={() => setQ('')} style={{ color: 'var(--faint)' }}>
-                                <Icon name="close" />
-                            </button>
-                        )}
-                    </div>
+                    <input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث بالعنوان أو الموكّل أو المستشار أو المرجع…" />
                 </div>
-            </div>
 
-            {shown.length ? shown.map((m) => (
-                <div key={m.id} className="card">
-                    <div className="card-h">
-                        <h3>{m.title}</h3>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                            {/* شارة الحالة الحيّة — كانت البطاقة بلا حالة فلا يُفرَّق القادم عن «لم ينعقد» */}
-                            <Badge text={m.status} tone={meetStatusTone(m.status)} />
-                            <Badge text={m.approve} tone={m.approved ? 'b-green' : 'b-amber'} />
-                        </div>
-                    </div>
-                    <div className="card-b" style={{ padding: '14px 18px' }}>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-                            <span className="chip muted">{m.type}</span>
-                            <span className="chip muted">{m.client}</span>
-                            <span className="chip muted">{m.when}</span>
-                            {m.lawyer !== '—' && <span className="chip muted"><Icon name="user" /> {m.lawyer}</span>}
-                            {m.caseRef && <span className="chip muted"><Icon name="scale" /> {m.caseRef}</span>}
-                        </div>
+                <div className="card-b">
+                    {shown.length ? shown.map((m) => {
+                        // الموعد من `startsAt` (ISO بإزاحة المكتب) — كان النصّ الخامّ «PM 01:00 · 2026-09-27» مقلوباً
+                        const when = m.startsAt ? whenParts(m.startsAt.slice(0, 10), m.startsAt.slice(11, 16)) : whenParts('', '');
+                        // المخرجات والاعتماد بعد الانعقاد وحده — «بلا محضر» على اجتماعٍ قادم تشويشٌ لا معلومة
+                        const held = !m.up && m.statusKey !== 'cancelled' && m.statusKey !== 'missed';
+                        const attendance = attendanceLabel(m);
 
-                        {/* ما لدى الاجتماع من مخرجات — يُعرف الناقصُ بلا فتح كلّ ملفّ */}
-                        <div className="prot-list" style={{ marginBottom: 12 }}>
-                            <span className="chip" style={{ opacity: m.summary ? 1 : 0.5 }}>{m.summary ? '✓ ملخّص' : 'بلا ملخّص'}</span>
-                            <span className="chip" style={{ opacity: m.minutes ? 1 : 0.5 }}>{m.minutes ? '✓ محضر' : 'بلا محضر'}</span>
-                            <span className="chip" style={{ opacity: m.decisions.length ? 1 : 0.5 }}>
-                                {m.decisions.length ? `✓ قرارات (${m.decisions.length})` : 'بلا قرارات'}
-                            </span>
-                            {m.transcript && <span className="chip">✓ نصّ حرفيّ</span>}
-                            {m.recording && <span className="chip">✓ تسجيل</span>}
-                            {/* الحضور من سجلّ Zoom — وما لم يُقَس لا يُذكر */}
-                            {attendanceLabel(m) && <span className="chip"><Icon name="user" /> {attendanceLabel(m)}</span>}
-                        </div>
+                        return (
+                            <div key={m.id} className={`mr-row ${m.statusKey === 'cancelled' ? 'is-archived' : ''}`}>
+                                <div className="mr-date">
+                                    <b>{when.day}</b>
+                                    <span>{when.month}</span>
+                                    <small>{when.weekday}</small>
+                                </div>
 
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                            {/* نافذة الدخول من الخادم (canJoin) — كما تحترمها بطاقة الموكّل تماماً */}
-                            {m.canJoin ? (
-                                <button className="btn sm" onClick={() => router.visit(`${base}/meetingroom?ref=${encodeURIComponent(m.id)}`)} type="button">
-                                    <Icon name="video" /> دخول اجتماع Zoom
+                                <div className="mr-main">
+                                    <div className="mr-top">
+                                        <button type="button" className="mr-client mr-link" onClick={() => openPage(m.id)}>{m.title}</button>
+                                        {/* شارة الحالة الحيّة — كانت البطاقة بلا حالة فلا يُفرَّق القادم عن «لم ينعقد» */}
+                                        <Badge text={m.status} tone={meetStatusTone(m.status)} />
+                                        {held && <Badge text={m.approve} tone={m.approved ? 'b-green' : 'b-amber'} />}
+                                    </div>
+                                    <div className="mr-sub">
+                                        <Icon name={mrTypeIcon(m.type)} /> {m.type}
+                                        {m.startsAt && <><span className="mr-dot">·</span> <span className="mr-time">{when.time}</span></>}
+                                        {/* الداخليّ: النوع والموكّل كلاهما «داخلي» — كان يُكتب مرّتين */}
+                                        {m.client !== m.type && <><span className="mr-dot">·</span> {m.client}</>}
+                                    </div>
+                                    <div className="mr-foot">
+                                        <span className="mono">{m.id}</span>
+                                        {m.lawyer !== '—' && <span><Icon name="user" /> {m.lawyer}</span>}
+                                        {m.caseRef && <span className="chip muted">{m.caseRef}</span>}
+                                    </div>
+                                    {held && (
+                                        <div className="mt-out">
+                                            <span className={m.summary ? 'on' : ''}>{m.summary ? '✓' : '—'} ملخّص</span>
+                                            <span className={m.minutes ? 'on' : ''}>{m.minutes ? '✓' : '—'} محضر</span>
+                                            <span className={m.decisions.length ? 'on' : ''}>{m.decisions.length ? `✓ قرارات (${m.decisions.length})` : '— قرارات'}</span>
+                                            {m.transcript && <span className="on">✓ نصّ حرفيّ</span>}
+                                            {m.recording && <span className="on">✓ تسجيل</span>}
+                                            {/* الحضور من سجلّ Zoom — وما لم يُقَس لا يُذكر */}
+                                            {attendance && <span className="on">{attendance}</span>}
+                                        </div>
+                                    )}
+                                    {m.up && !m.canJoin && (
+                                        <div className="mr-hint"><Icon name="clock" /> يُفتح الدخول قبل الموعد بـ{joinOpens}</div>
+                                    )}
+                                    {m.statusKey === 'missed' && (
+                                        <div className="mr-hint mr-hint-warn"><Icon name="calplus" /> فات موعده — أعِد جدولته من صفحته</div>
+                                    )}
+                                </div>
+
+                                <div className="mr-act">
+                                    {/* نافذة الدخول من الخادم (canJoin) — كما تحترمها بطاقة الموكّل تماماً */}
+                                    {m.canJoin && (
+                                        <button className="btn sm" onClick={() => router.visit(`${base}/meetingroom?ref=${encodeURIComponent(m.id)}`)} type="button">
+                                            <Icon name="video" /> دخول اجتماع Zoom
+                                        </button>
+                                    )}
+                                    <button className="btn soft sm" onClick={() => openPage(m.id)} type="button">
+                                        <Icon name="doc" /> فتح الصفحة
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    }) : (
+                        <div className="empty">
+                            <Icon name="video" />
+                            <b>{meetings.length ? 'لا اجتماع يطابق هذا الترشيح' : 'لا اجتماعات بعد'}</b>
+                            {!meetings.length && (
+                                <button className="btn sm" style={{ marginTop: 12 }} type="button"
+                                    onClick={() => router.visit(`${base}/meetreqs`)}>
+                                    <Icon name="send" /> أرسِل دعوة اجتماع لموكّل
                                 </button>
-                            ) : m.up ? (
-                                <span className="chip muted"><Icon name="clock" /> يُفتح الدخول قبل الموعد بـ{joinOpens}</span>
-                            ) : null}
-                            <button className="btn soft sm" onClick={() => openPage(m.id)} type="button">
-                                <Icon name="doc" /> فتح الصفحة
-                            </button>
-                            {m.statusKey === 'missed' && (
-                                <span className="chip" style={{ color: 'var(--amber)' }}>
-                                    <Icon name="calplus" /> فات موعده — أعِد جدولته من صفحته
-                                </span>
                             )}
                         </div>
-                    </div>
+                    )}
                 </div>
-            )) : (
-                <div className="card"><div className="card-b">
-                    <div className="empty">
-                        <Icon name="video" />
-                        <b>{meetings.length ? 'لا اجتماع يطابق هذا الترشيح' : 'لا اجتماعات بعد'}</b>
-                        {!meetings.length && (
-                            <button className="btn sm" style={{ marginTop: 12 }} type="button"
-                                onClick={() => router.visit(`${base}/meetreqs`)}>
-                                <Icon name="send" /> أرسِل دعوة اجتماع لموكّل
-                            </button>
-                        )}
-                    </div>
-                </div></div>
-            )}
+            </div>
         </>
     );
 };
