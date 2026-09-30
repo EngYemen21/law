@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\LegalAiService;
 use App\Services\MailService;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -114,6 +115,12 @@ class CaseConversion
         }
 
         ClassifyConvertedCaseJob::dispatch($case)->afterCommit();
+
+        // المحامي يعلم بالقضيّة المسنَدة إليه — نظير فتح التنفيذ من التذكرة (`ExecutionCreation::fromTicket`)؛
+        // كان العميل وحده يُشعَر (ثبت في المتصفّح 2026-09-30). بعد ختم المعاملة: لا إشعار عن قضيّةٍ أُلغي فتحها.
+        if ((int) $lawyer->id !== (int) $actor->id) {
+            DB::afterCommit(fn () => Notify::send($lawyer->id, 'scale', 't-cyan', "أُسندت إليك القضية {$case->number} (محوّلة من التذكرة {$ticket->number}) — بانتظار اعتماد الإدارة للأتعاب."));
+        }
 
         Audit::log(
             action: 'تحويل تذكرة إلى قضية',
