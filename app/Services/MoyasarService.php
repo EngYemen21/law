@@ -3,13 +3,15 @@
 namespace App\Services;
 
 use App\Models\Invoice;
+use App\Support\AppEnvironment;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
  * تكامل بوّابة الدفع Moyasar (ميسّر) — نظام الفواتير المستضاف (Invoices API).
- * بلا مفتاح سرّي في .env يبقى الدفع محاكى (اختبارات/تطوير محلي بلا شبكة).
+ * بلا مفتاح سرّي في .env لا دفع (المتحكّمات تردّ 503) — لا محاكاة. وفي صندوق التجربة يُرفض المفتاح الحقيقيّ
+ * (`sk_live_`) فلا تُخصم بطاقاتٌ حقيقيّة من التطوير؛ مفاتيح التجربة `sk_test_` هناك (فصل البيئات 2026-09-29).
  *
  * أمان: secret_key خادميّ فقط ولا يُسجَّل قط؛ لا تمرّ بيانات بطاقة بالخادم (الدفع على صفحة ميسّر).
  */
@@ -17,7 +19,21 @@ class MoyasarService
 {
     public function isConfigured(): bool
     {
-        return ! empty(config('services.moyasar.secret_key'));
+        $key = (string) config('services.moyasar.secret_key');
+
+        return $key !== '' && ! (AppEnvironment::isSandbox() && self::isLiveKey($key));
+    }
+
+    /** مفتاحٌ حقيقيّ يخصم بطاقات — ميسّر يميّز الوضع ببادئة المفتاح وحدها. */
+    public static function isLiveKey(string $key): bool
+    {
+        return str_starts_with($key, 'sk_live_') || str_starts_with($key, 'pk_live_');
+    }
+
+    /** مفتاحٌ تجريبيّ لا يُحصّل مالاً — لا مكان له في الإنتاج. */
+    public static function isTestKey(string $key): bool
+    {
+        return str_starts_with($key, 'sk_test_') || str_starts_with($key, 'pk_test_');
     }
 
     /**

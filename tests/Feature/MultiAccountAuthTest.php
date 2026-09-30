@@ -112,10 +112,10 @@ class MultiAccountAuthTest extends TestCase
     }
 
     /**
-     * **رمز الجوال الثابت يعمل أينما ضُبط AUTH_DEV_OTP** (قرار المالك 2026-09-29: كما كان قبل `14c8f8a`،
-     * لتجربة الدخول على سيرفر الاختبار) — وتجاوز البريد باقٍ محصوراً في التطوير كما كان.
+     * **رمز الجوال الثابت في صندوق التجربة وحده** (قرار المالك 2026-09-29 بفصل البيئات — يحلّ محلّ «يعمل
+     * أينما ضُبط»): في الإنتاج يُتجاهَل ولو ضُبط، وتجاوز البريد باقٍ محصوراً في التطوير كما كان.
      */
-    public function test_sms_dev_bypass_works_wherever_configured_while_email_stays_dev_only(): void
+    public function test_sms_dev_bypass_is_ignored_in_production_while_email_stays_dev_only(): void
     {
         config([
             'services.auth_dev_otp' => '1234',
@@ -124,11 +124,12 @@ class MultiAccountAuthTest extends TestCase
         ]);
         $this->app['env'] = 'production';
 
-        $this->assertTrue(app(OtpService::class)->devBypass(), 'الرمز الثابت للجوال لم يعمل على الخادم.');
-        $this->assertTrue(OtpService::productionLike(), 'التنبيه في السجلّ يعتمد على كشف المضيف الإنتاجيّ');
+        $this->assertFalse(app(OtpService::class)->devBypass(), 'الرمز الثابت للجوال عمل في الإنتاج.');
         $this->assertFalse(app(EmailOtpService::class)->devBypass(), 'تجاوز البريد انفتح خارج التطوير.');
 
-        // وبلا المتغيّر لا تجاوز — يمرّ الدخول بمزوّد الرسائل
+        // وفي صندوق التجربة يعمل — وبلا المتغيّر لا تجاوز فيمرّ الدخول بمزوّد الرسائل
+        $this->app['env'] = 'local';
+        $this->assertTrue(app(OtpService::class)->devBypass());
         config(['services.auth_dev_otp' => null]);
         $this->assertFalse(app(OtpService::class)->devBypass());
     }
