@@ -74,6 +74,10 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
   const toast = useToast();
   const approved = Boolean(summary.approved);
   const isAdmin = base === '/admin';
+  // من أين فُتح الملخّص: الإدارة من «مركز الاعتمادات»، والمحامي من «الملخصات القانونية» — لا مركز اعتماداتٍ له
+  const origin = isAdmin
+    ? { href: '/admin/approvals', label: 'مركز الاعتمادات والقرارات', back: 'رجوع للمركز' }
+    : { href: '/lawyer/summaries', label: 'الملخصات القانونية', back: 'رجوع للملخّصات' };
   // اعتماد المحامي يُقفل عليه؛ والإدارة تعدّل حتى تعتمد
   const canEdit = !approved && (isAdmin || !summary.lawyerApproved);
 
@@ -236,8 +240,8 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
             <Icon name="home" /> الرئيسية
           </Link>
           <span>/</span>
-          <Link href={`${base}/approvals`} style={{ color: 'var(--muted)' }}>
-            مركز الاعتمادات والقرارات
+          <Link href={origin.href} style={{ color: 'var(--muted)' }}>
+            {origin.label}
           </Link>
           <span>/</span>
           <span style={{ color: 'var(--primary)', fontWeight: 700 }}>ملخص ملف {ticket.no}</span>
@@ -246,11 +250,11 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
         {/* أزرار الإجراءات العلوية السريعة */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <Link
-            href={`${base}/approvals`}
+            href={origin.href}
             className="btn soft sm"
             style={{ height: 32, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
           >
-            <Icon name="reply" /> رجوع للمركز
+            <Icon name="reply" /> {origin.back}
           </Link>
 
           <button
