@@ -201,6 +201,6 @@ class MeetInviteAutofillTest extends TestCase
         $this->assertStringContainsString('<Badge text={state.label} tone={state.tone} />', $ui);
 
         // والرفض يُسمَع: كان يسقط صامتاً فتُنقر الموافقة مرّتين بلا أثر
-        $this->assertStringContainsString("onError: (e) => toast(Object.values(e)[0] ?? 'الموافقة متاحة للدعوات المعلّقة فقط')", $ui);
+        $this->assertStringContainsString("onError: (e) => toast(firstError(e, 'الموافقة متاحة للدعوات المعلّقة فقط'))", $ui);
     }
 }

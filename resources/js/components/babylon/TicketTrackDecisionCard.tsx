@@ -4,6 +4,7 @@ import Badge from '@/components/babylon/Badge';
 import { CLOSURE_REASONS } from '@/components/babylon/CloseTicketModal';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 
 export interface TrackGovernanceData {
   aiSuggestedTrack?: string | null;
@@ -166,7 +167,7 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
           setIsEditing(false);
         },
         onError: (errs) => {
-          const msg = Object.values(errs)[0] || 'تعذّر رفع مقترح المسار';
+          const msg = firstError(errs, 'تعذّر رفع مقترح المسار');
           toast(`⚠️ ${msg}`);
         },
         onFinish: () => setBusy(false),
@@ -208,7 +209,7 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
           setIsEditing(false);
         },
         onError: (errs) => {
-          const msg = Object.values(errs)[0] || 'تعذّر اعتماد المسار';
+          const msg = firstError(errs, 'تعذّر اعتماد المسار');
           toast(`⚠️ ${msg}`);
         },
         onFinish: () => setBusy(false),

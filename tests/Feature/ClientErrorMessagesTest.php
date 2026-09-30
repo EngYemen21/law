@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Symfony\Component\Finder\Finder;
 use Tests\TestCase;
 
 /**
@@ -37,6 +38,22 @@ class ClientErrorMessagesTest extends TestCase
         foreach (['documents', 'execflow', 'invoices', 'meetings', 'myconsults', 'profile', 'book', 'newticket'] as $page) {
             if (preg_match('/Object\.values\((e|err|errs|errors)\)\[0\]/', (string) file_get_contents(resource_path("js/pages/{$page}.tsx")))) {
                 $offenders[] = $page;
+            }
+        }
+
+        $this->assertSame([], $offenders);
+    }
+
+    /**
+     * ولا في أيّ ملفٍّ من الواجهة — كانت ٥٢ نسخةً أخرى في ٢٩ ملفّاً من صفحات الطاقم والإدارة ومكوّناتها
+     * (`?? fb` · `|| fb` · `String(…)` · `e.message || …`)، والمصدر الواحد `firstError` (`lib/server-message.ts`).
+     */
+    public function test_no_hand_rolled_first_error_anywhere_in_the_frontend(): void
+    {
+        $offenders = [];
+        foreach ((new Finder)->files()->in(resource_path('js'))->name(['*.ts', '*.tsx'])->notName('server-message.ts') as $file) {
+            if (preg_match('/Object\.values\((e|err|errs|errors)\)\[0\]/', $file->getContents())) {
+                $offenders[] = $file->getRelativePathname();
             }
         }
 

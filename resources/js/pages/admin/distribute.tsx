@@ -7,6 +7,7 @@ import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import { useToast } from '@/components/babylon/Toast';
 import { foldSearch, isUrgentTicket, TICKET_PRIORITIES } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 import { inSessionSuffix, PresenceBadge, useInSession } from '@/lib/staff-presence';
 
 /* ─────────────────────────────────────────────────────────────
@@ -238,8 +239,7 @@ export const AdminDistribute: React.FC<Props> = ({
         onError: (errors) => {
           setAssigningKey(null);
           const msg =
-            (errors && (errors.message || Object.values(errors)[0])) ||
-            'تعذّر الإسناد، تحقق من صلاحية المعاملة أو حالة المستشار';
+            firstError(errors, 'تعذّر الإسناد، تحقق من صلاحية المعاملة أو حالة المستشار');
           toast(String(msg), 'error');
         },
       }
@@ -262,8 +262,7 @@ export const AdminDistribute: React.FC<Props> = ({
       // الخادم يقول ما وقع فعلاً («جارٍ توزيع N في الخلفية») — لا «اكتمل» مختلَقة هنا
       onError: (errors) => {
         const msg =
-          (errors && (errors.message || Object.values(errors)[0])) ||
-          'فشل التوزيع التلقائي، يرجى المحاولة لاحقاً';
+          firstError(errors, 'فشل التوزيع التلقائي، يرجى المحاولة لاحقاً');
         toast(String(msg), 'error');
       },
       onFinish: () => setAutoBusy(false),
@@ -293,7 +292,7 @@ export const AdminDistribute: React.FC<Props> = ({
         onSuccess: () => setSelectedKeys([]),
         onError: (errors) => {
           // ما أُسند منها خرج من القائمة بعد إعادة التحميل — ويبقى المرفوض مختاراً لإعادة المحاولة
-          toast(String(errors.message ?? Object.values(errors)[0] ?? 'تعذّر الإسناد الجماعي'), 'error');
+          toast(firstError(errors, 'تعذّر الإسناد الجماعي'), 'error');
         },
         onFinish: () => setBulkBusy(false),
       }

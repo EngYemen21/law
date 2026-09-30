@@ -84,8 +84,8 @@ class ConsultJourneyHonestyTest extends TestCase
     {
         $ui = $this->ui();
 
-        $this->assertStringContainsString("?? 'تعذّر تنفيذ الإجراء')),", $ui);
-        $this->assertStringContainsString("?? 'تعذّر إنشاء المهامّ')),", $ui);
+        $this->assertStringContainsString("firstError(e, 'تعذّر تنفيذ الإجراء')", $ui);
+        $this->assertStringContainsString("firstError(e, 'تعذّر إنشاء المهامّ')", $ui);
     }
 
     // ————— ٣ · لا يُعرض فعلٌ يردّه الخادم —————

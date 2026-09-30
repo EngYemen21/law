@@ -8,6 +8,7 @@ import { foldSearch } from '@/lib/employee-data';
 import type {Staff} from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { usePermCatalog } from '@/lib/permissions';
+import { firstError } from '@/lib/server-message';
 import { PresenceBadge } from '@/lib/staff-presence';
 
 type PayType = 'salary' | 'pct' | 'both' | 'session';
@@ -258,7 +259,7 @@ setName(data.name);
     };
     const opts = {
       preserveScroll: true,
-      onError: (e: Record<string, string>) => toast((Object.values(e)[0] as string) || 'تعذّر الحفظ'),
+      onError: (e: Record<string, string>) => toast(firstError(e, 'تعذّر الحفظ')),
       onFinish: () => setBusy(false),
     };
 
@@ -298,7 +299,7 @@ setName(data.name);
           const fresh = ((page.props as unknown as Props).staff ?? []).find((x) => x.id === s.id);
           setDetail((prev) => (prev && prev.id === s.id && fresh ? fresh : prev));
         },
-        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تغيير حالة الحساب'}`, 'error'),
+        onError: (errors) => toast(`⚠️ ${firstError(errors, 'تعذّر تغيير حالة الحساب')}`, 'error'),
       }
     );
 

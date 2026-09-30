@@ -17,6 +17,7 @@ import type { Hearing } from '@/lib/case-ui';
 import type { Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 import type { CaseDocumentCard, TicketDocumentCard } from '@/types';
 
 interface CaseInfo {
@@ -158,7 +159,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
         toast(ok);
         after?.();
       },
-      onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر تنفيذ الإجراء')),
+      onError: (e) => toast(firstError(e, 'تعذّر تنفيذ الإجراء')),
       onFinish: () => setPBusy(false),
     });
   };

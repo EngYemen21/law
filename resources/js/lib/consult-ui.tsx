@@ -21,6 +21,7 @@ import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
 import { consultMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
 import type { SessionMedia } from '@/lib/recording-ui';
+import { firstError } from '@/lib/server-message';
 import { useStaffStartText } from '@/lib/settings';
 import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 import { useServerAction } from '@/lib/use-server-action';
@@ -1162,7 +1163,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
     router.post(`${base}/consults/${c.id}/${action}`, data, {
       preserveScroll: true,
       onSuccess: () => toast(msg),
-      onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر تنفيذ الإجراء')),
+      onError: (e) => toast(firstError(e, 'تعذّر تنفيذ الإجراء')),
       onFinish: () => {
         setBusy(false);
         setRunning(null);
@@ -1211,7 +1212,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
       onSuccess: () => {
  setTasksDone(true); toast(`تم تحويل ${c.decisions.length} قرار إلى مهام`); 
 },
-      onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر إنشاء المهامّ')),
+      onError: (e) => toast(firstError(e, 'تعذّر إنشاء المهامّ')),
       onFinish: () => setBusy(false),
     });
   };

@@ -6,6 +6,7 @@ import { CAPACITY } from '@/components/babylon/LawyerFileModal';
 import type { LawyerLoad } from '@/components/babylon/LawyerFileModal';
 import { useToast } from '@/components/babylon/Toast';
 import { countNoun, NOUN } from '@/lib/arabic-count';
+import { firstError } from '@/lib/server-message';
 import { useSettings } from '@/lib/settings';
 
 // ============================================================
@@ -194,7 +195,7 @@ const AdminDashboard: React.FC<Props> = ({
       '/admin/reset-database',
       { confirm: typed.trim() },
       {
-        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تصفير قاعدة البيانات'}`, 'error'),
+        onError: (errors) => toast(`⚠️ ${firstError(errors, 'تعذّر تصفير قاعدة البيانات')}`, 'error'),
         onFinish: () => setBusy(false),
       }
     );

@@ -4,6 +4,7 @@ import { usePrompt } from '@/components/babylon/ConfirmDialog';
 import RescheduleDialog from '@/components/babylon/RescheduleDialog';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 
 /**
  * أقلّ ما يلزم لإعادة الجدولة — تفي به بطاقة الاستشارة كما هي، وبطاقة الموعد في لوحة المواعيد
@@ -61,7 +62,7 @@ export function useConsultReschedule(base: string): { open: (consult: Reschedule
               setTarget(null);
               done.current?.();
             },
-            onError: (errors) => toast(String(Object.values(errors)[0] ?? 'تعذّرت إعادة الجدولة'), 'error'),
+            onError: (errors) => toast(firstError(errors, 'تعذّرت إعادة الجدولة'), 'error'),
             onFinish: () => resolve(),
           });
         })
@@ -108,7 +109,7 @@ export const RescheduleRequestNotice: React.FC<{
     router.post(`${base}/consults/${consult.id}/reschedule-request/dismiss`, { reason }, {
       preserveScroll: true,
       onSuccess: () => toast('رُفض الطلب وأُبلغ العميل بسببه', 'success'),
-      onError: (errors) => toast(String(Object.values(errors)[0] ?? 'تعذّر رفض الطلب'), 'error'),
+      onError: (errors) => toast(firstError(errors, 'تعذّر رفض الطلب'), 'error'),
     });
   };
 

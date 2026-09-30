@@ -22,6 +22,7 @@ import { useMasker } from '@/lib/permissions';
 import Icon from '@/lib/icons';
 import { meetingMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
 import type { SessionMedia } from '@/lib/recording-ui';
+import { firstError } from '@/lib/server-message';
 import { useJoinOpensText } from '@/lib/settings';
 import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 
@@ -354,7 +355,7 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
         router.post(`${base}/meetreqs/${r.dbId}/cancel`, {}, {
             preserveScroll: true,
             onSuccess: () => toast('أُلغيت الدعوة واجتماعها'),
-            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر إلغاء الدعوة'),
+            onError: (e) => toast(firstError(e, 'تعذّر إلغاء الدعوة')),
         });
     };
 
@@ -363,7 +364,7 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
         router.post(`${base}/meetreqs/${r.dbId}/approve`, {}, {
             preserveScroll: true,
             onSuccess: () => toast('تمت الموافقة على الدعوة ونشرها للعميل'),
-            onError: (e) => toast(Object.values(e)[0] ?? 'الموافقة متاحة للدعوات المعلّقة فقط'),
+            onError: (e) => toast(firstError(e, 'الموافقة متاحة للدعوات المعلّقة فقط')),
         });
 
     // دخول الغرفة المضمّنة كمضيف ويعلّم «تنفيذ الجلسة»
@@ -772,7 +773,7 @@ const MeetingRescheduleDialog: React.FC<{ meeting: FullMeetingCard; base: string
                             toast(postpone ? 'أُجّل الاجتماع بلا موعد' : 'أُعيدت جدولة الاجتماع', 'success');
                             onClose();
                         },
-                        onError: (errors) => toast(String(Object.values(errors)[0] ?? 'تعذّرت إعادة الجدولة'), 'error'),
+                        onError: (errors) => toast(firstError(errors, 'تعذّرت إعادة الجدولة'), 'error'),
                         onFinish: () => resolve(),
                     });
                 })
@@ -913,7 +914,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
         router.post(`${base}/meetings/${m.dbId}/summary`, { summary }, {
             preserveScroll: true,
             onSuccess: () => toast('تم حفظ الملخص'),
-            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر حفظ الملخص'),
+            onError: (e) => toast(firstError(e, 'تعذّر حفظ الملخص')),
         });
     };
     const saveMinutes = () => {
@@ -926,7 +927,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
         router.post(`${base}/meetings/${m.dbId}/minutes`, { minutes }, {
             preserveScroll: true,
             onSuccess: () => toast('تم حفظ المحضر'),
-            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر حفظ المحضر'),
+            onError: (e) => toast(firstError(e, 'تعذّر حفظ المحضر')),
         });
     };
 
@@ -970,7 +971,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
         router.post(`${base}/meetings/${m.dbId}/start`, {}, {
             preserveScroll: true,
             onSuccess: () => toast('بدأت الجلسة'),
-            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر بدء الاجتماع'),
+            onError: (e) => toast(firstError(e, 'تعذّر بدء الاجتماع')),
         });
     // الإنهاء والإلغاء بعد تأكيدٍ يقول أثره (قرار المالك 2026-09-26) — لا يُتراجع عنهما
     const submitEnd = async () => {
@@ -989,7 +990,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
             onSuccess: () => {
                 setLcMode(null); toast('أُنهي الاجتماع وأُغلقت غرفته');
             },
-            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر إنهاء الاجتماع'),
+            onError: (e) => toast(firstError(e, 'تعذّر إنهاء الاجتماع')),
         });
     };
     const cancelMeeting = async () => {
@@ -1006,7 +1007,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
         router.post(`${base}/meetings/${m.dbId}/cancel`, {}, {
             preserveScroll: true,
             onSuccess: () => toast('أُلغي الاجتماع وحُذفت غرفته'),
-            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر إلغاء الاجتماع'),
+            onError: (e) => toast(firstError(e, 'تعذّر إلغاء الاجتماع')),
         });
     };
 
@@ -1016,7 +1017,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
             preserveScroll: true,
             // الحالة الجديدة تصل بإعادة تحميل البطاقة من الخادم (والبثّ) — لا نصّ «معتمد» يُكتب هنا
             onSuccess: () => toast('اعتُمد الاجتماع — وصل المحضر والملخص للعميل'),
-            onError: (e) => toast(Object.values(e)[0] ?? 'الاعتماد متاح بعد انتهاء الاجتماع ووصول ملخص Zoom أو التدوين اليدوي'),
+            onError: (e) => toast(firstError(e, 'الاعتماد متاح بعد انتهاء الاجتماع ووصول ملخص Zoom أو التدوين اليدوي')),
         });
 
     // ألوان حالة الاجتماع — مبنية على CSS variables المنصة (--deep / --primary / --cyan / --amber / --success / --red / --muted)

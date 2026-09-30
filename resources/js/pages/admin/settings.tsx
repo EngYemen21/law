@@ -4,6 +4,7 @@ import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
 import { WEEK_DAY_NAMES } from '@/lib/local-date';
+import { firstError } from '@/lib/server-message';
 
 /** وصف المتغيّر كما يعلنه `SettingsRegistry` — الشاشة لا تعرّف حقلاً ولا افتراضاً. */
 interface Field {
@@ -106,7 +107,7 @@ const AdminSettings: React.FC<Props> = ({ groups, fields, values }) => {
         },
         onError: (errs) => {
           setErrors(errs as Record<string, string>);
-          toast(`⚠️ ${Object.values(errs)[0] ?? 'تعذّر الحفظ — راجع القيم المدخلة'}`, 'error');
+          toast(`⚠️ ${firstError(errs, 'تعذّر الحفظ — راجع القيم المدخلة')}`, 'error');
         },
         onFinish: () => setBusy(null),
       },

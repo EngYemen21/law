@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useToast } from '@/components/babylon/Toast';
 import { panelBase } from '@/lib/data';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 
 /** مصدر قانونيّ ببياناته الحاكمة — يُعرض نصّه كاملاً كي يعتمد المحامي ما قرأه. */
 interface Source {
@@ -57,7 +58,7 @@ interface Props {
 
 const LegalSources: React.FC<Props> = ({ sources, systems, stats, filters, pagination, statusOptions }) => {
   const toast = useToast();
-  const showError = (errs: Record<string, string>, fallback: string) => toast(`⚠️ ${Object.values(errs)[0] ?? fallback}`, 'error');
+  const showError = (errs: Record<string, string>, fallback: string) => toast(`⚠️ ${firstError(errs, fallback)}`, 'error');
   // بادئة لوحة الدور: الشاشة مشتركة بين الإدارة والمحامي، وتثبيت `/admin` في
   // الإرسال يجعلها تُعرض للمحامي ثم تُمنع عند الحفظ بـ403 — شاشةٌ لا تعمل.
   const base = panelBase((usePage().url as string).split('?')[0]);

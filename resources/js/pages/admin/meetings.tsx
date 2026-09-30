@@ -5,6 +5,7 @@ import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
 import { attendanceLabel, fmtActualDuration  } from '@/lib/meeting-ui';
 import type {FullMeetingCard} from '@/lib/meeting-ui';
+import { firstError } from '@/lib/server-message';
 
 // يطابق adMeetings + mApprove في index (82).html — الاعتماد حقيقي (يصل المحضر والملخص للعميل)
 
@@ -16,7 +17,7 @@ const AdminMeetings: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) 
       preserveScroll: true,
       onSuccess: () => toast('تم اعتماد الاجتماع ومحضره'),
       // الحارس الخادمي يرفض غير المكتمل/بلا مخرجات بـ422 — بلا onError كان الفشل صامتاً تماماً
-      onError: (e) => toast(Object.values(e)[0] ?? 'الاعتماد متاح بعد انتهاء الاجتماع وتوفر الملخص أو المحضر'),
+      onError: (e) => toast(firstError(e, 'الاعتماد متاح بعد انتهاء الاجتماع وتوفر الملخص أو المحضر')),
     });
 
   // الاعتماد يُطلب بعد انعقاد الاجتماع وحده — مفتاح الحالة من الخادم لا نصّها العربيّ

@@ -20,6 +20,7 @@ import {
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+import { firstError } from '@/lib/server-message';
 import { useJoinOpensText, useStaffStartText } from '@/lib/settings';
 import { useServerAction } from '@/lib/use-server-action';
 
@@ -275,7 +276,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
           // لا قيد له في `ai_runs` فلا يبلغ الصندوق قطّ. الوعد كان يُخفي الحجب.
           toast('حُفظت المسودّة — لم تصل الموكّل بعد؛ الإرسال يقع بالاعتماد');
         },
-        onError: (e) => toast(e.message || Object.values(e)[0] || 'تعذر حفظ التقرير'),
+        onError: (e) => toast(firstError(e, 'تعذر حفظ التقرير')),
         onFinish: () => setIsProcessing(false),
       }
     );
@@ -313,7 +314,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
     router.post(`/lawyer/consults/${consult.id}/summary/approve`, {}, {
       preserveScroll: true,
       onSuccess: () => toast('اعتُمد الملخّص ورُفع للإدارة لاعتماده النهائيّ'),
-      onError: (errors) => toast(Object.values(errors)[0] || 'تعذّر اعتماد الملخّص'),
+      onError: (errors) => toast(firstError(errors, 'تعذّر اعتماد الملخّص')),
       onFinish: () => setIsProcessing(false),
     });
   };
@@ -332,7 +333,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
       {
         preserveScroll: true,
         onSuccess: () => toast('تم تحويل قرارات الجلسة إلى مهام عمل تنفيذية بنجاح'),
-        onError: (e) => toast(e.message || Object.values(e)[0] || 'تعذر تحويل القرارات إلى مهام'),
+        onError: (e) => toast(firstError(e, 'تعذر تحويل القرارات إلى مهام')),
         onFinish: () => setIsProcessing(false),
       }
     );

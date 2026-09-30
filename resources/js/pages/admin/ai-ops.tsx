@@ -2,6 +2,7 @@ import { router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 
 interface Metrics {
   total: number;
@@ -156,7 +157,7 @@ const AiOps: React.FC<Props> = ({ days, metrics, alerts, failureCodes, currency,
       onSuccess: () => setErrors({}),
       onError: (errs) => {
         setErrors(errs as Record<string, string>);
-        toast(`⚠️ ${Object.values(errs)[0] ?? 'تعذّر الحفظ'}`, 'error');
+        toast(`⚠️ ${firstError(errs, 'تعذّر الحفظ')}`, 'error');
       },
       onFinish: () => setBusy(false),
     });

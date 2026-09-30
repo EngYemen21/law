@@ -149,7 +149,7 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
     router.post(`${base}/summary/${encodeURIComponent(ticket.no)}`, form, {
       preserveScroll: true,
       onSuccess: () => toast('تم حفظ تعديلات الملخص بنجاح'),
-      onError: (e) => toast(e.message || Object.values(e)[0] || 'تعذر حفظ التعديلات حالياً'),
+      onError: (e) => toast(firstError(e, 'تعذر حفظ التعديلات حالياً')),
       onFinish: () => setIsSaving(false),
     });
   };
@@ -160,7 +160,7 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
     router.post(`${base}/summary/${encodeURIComponent(ticket.no)}/rerun`, {}, {
       preserveScroll: true,
       onSuccess: () => toast('✨ تمت إعادة تشغيل التحليل الذكي للملخّص وتحديث البنود'),
-      onError: (e) => toast(e.message || Object.values(e)[0] || 'تعذّر إعادة تشغيل التحليل حالياً'),
+      onError: (e) => toast(firstError(e, 'تعذّر إعادة تشغيل التحليل حالياً')),
       onFinish: () => setIsRerunning(false),
     });
   };

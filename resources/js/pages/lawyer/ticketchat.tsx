@@ -19,6 +19,7 @@ import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
 import type {SummaryData} from '@/lib/lawyer-data';
 import { useCan } from '@/lib/permissions';
+import { firstError } from '@/lib/server-message';
 import type { EmployeeTicketCard } from '@/types';
 
 // دراسة التذكرة لدى المستشار — محادثة العميل (سياق حيّ + رد مباشر) + ملخص الملف + الاعتماد
@@ -87,7 +88,7 @@ const CorrectStatusCard: React.FC<{ ticketNo: string; form: CorrectionForm }> = 
         setTarget('');
         setReason('');
       },
-      onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تصحيح الحالة'}`),
+      onError: (errors) => toast(`⚠️ ${firstError(errors, 'تعذّر تصحيح الحالة')}`),
       onFinish: () => setBusy(false),
     });
   };
@@ -186,7 +187,7 @@ seen.current.add(m.id);
 
   const no = encodeURIComponent(ticket.no);
   const fail = (fallback: string) => (errors: Record<string, string>) =>
-    toast(`⚠️ ${Object.values(errors)[0] ?? fallback}`);
+    toast(`⚠️ ${firstError(errors, fallback)}`);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();

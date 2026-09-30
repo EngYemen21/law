@@ -18,6 +18,7 @@ import {
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { consultMediaUrls, SessionMediaPanel } from '@/lib/recording-ui';
+import { firstError } from '@/lib/server-message';
 import { useServerAction } from '@/lib/use-server-action';
 
 /**
@@ -573,7 +574,7 @@ return false;
       {
         preserveScroll: true,
         onSuccess: () => toast(`تم تحديث الأولوية إلى «${priority}»`),
-        onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذر تغيير الأولوية'}`),
+        onError: (err) => toast(`⚠️ ${firstError(err, 'تعذر تغيير الأولوية')}`),
       }
     );
   };

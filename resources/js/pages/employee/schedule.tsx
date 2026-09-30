@@ -16,6 +16,7 @@ import { CONFIRM_NO_SHOW } from '@/lib/consult-ui';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
+import { firstError } from '@/lib/server-message';
 import { inSessionSuffix, PresenceBadge, useInSession } from '@/lib/staff-presence';
 import { useServerAction } from '@/lib/use-server-action';
 import { truncateWords } from '@/lib/utils';
@@ -1784,7 +1785,7 @@ return lawyers;
                       toast('✅ تم اعتماد الموعد وإرساله للعميل بنجاح');
                       setSelectedAppt(null);
                     },
-                    onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر اعتماد الموعد')),
+                    onError: (e) => toast(firstError(e, 'تعذّر اعتماد الموعد')),
                   })}
                 >
                   <Icon name="check" /> اعتماد الموعد وإرساله للعميل فوراً
