@@ -9,6 +9,7 @@ import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
 import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
+import { serverMessage } from '@/lib/server-message';
 import { useServerAction } from '@/lib/use-server-action';
 // بطاقة العميل من النوع المشترك (`Ticket::toCard`) — كانت مُعرَّفةً هنا وفي الصفحة الأخرى
 import type { ClientTicketCard as TicketCard } from '@/types';
@@ -60,7 +61,8 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
     setBusy(true);
     axios.post(`/tickets/${encodeURIComponent(no)}/book`, { type })
       .then(() => { toast('تم إرسال طلبك للتسعير'); router.reload({ only: ['consult', 'messages', 'ticket'] }); })
-      .catch(() => { setBusy(false); toast('تعذّر إرسال الطلب، حاول مجدداً'); });
+      // سبب الرفض من الخادم (مثل «تُطلب الاستشارة بعد…») — لا نصٌّ عامّ لا يدلّ العميل على شيء
+      .catch((error) => { setBusy(false); toast(serverMessage(error, 'تعذّر إرسال الطلب، حاول مجدداً')); });
   };
 
   const pay = () => {
