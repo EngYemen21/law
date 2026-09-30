@@ -111,6 +111,25 @@ class AdminSettingsTest extends TestCase
         $this->assertSame(ExecFlow::PAY_DAYS, SettingsRegistry::int('exec_pay_days'));
     }
 
+    /** سبب الرفض باسم الحقل العربيّ من السجلّ — كان «يجب أن تكون قيمة exec pay days 1 على الأقلّ.» */
+    public function test_a_refused_value_is_named_by_its_registry_label(): void
+    {
+        $this->app->setLocale('ar');
+
+        $this->actingAs($this->admin())
+            ->post(route('admin.settings.update'), ['exec_pay_days' => 99, 'office_url' => 'x'])
+            ->assertSessionHasErrors('exec_pay_days');
+
+        $errors = session('errors')->getBag('default');
+        $this->assertStringContainsString('مهلة الوفاء بأمر التنفيذ', $errors->first('exec_pay_days'));
+        $this->assertStringNotContainsString('exec pay days', $errors->first('exec_pay_days'));
+        $this->assertStringContainsString('موقع المكتب', $errors->first('office_url'));
+
+        foreach (SettingsRegistry::all() as $key => $field) {
+            $this->assertMatchesRegularExpression('/\p{Arabic}/u', SettingsRegistry::attributes()[$key] ?? '', $key);
+        }
+    }
+
     // ── ٥ — الحارس الأهمّ: الافتراض في السجلّ هو الثابت في الشيفرة ──
     public function test_registry_defaults_match_the_constants_they_replace(): void
     {

@@ -756,6 +756,17 @@ class SettingsRegistry
     }
 
     /**
+     * أسماء الحقول في رسائل `validate` — تسميةُ كلّ متغيّرٍ من السجلّ نفسه. كانت الرسالة تطبع
+     * المفتاح («يجب أن تكون قيمة exec pay days 1 على الأقلّ.»).
+     *
+     * @return array<string, string>
+     */
+    public static function attributes(): array
+    {
+        return array_map(fn (array $field) => $field['label'], self::all());
+    }
+
+    /**
      * **أخطاء العلاقة بين حقلين** (`gt`: هذا أكبر من ذاك · `gte`: لا يقلّ عنه) — بعد تحقّق كلّ حقلٍ بمفرده،
      * ثمّ اتّساع طول الشريحة في ساعات الحجز.
      *

@@ -34,7 +34,7 @@ class SettingsController extends Controller
 
     public function update(Request $request): RedirectResponse
     {
-        $data = $request->validate(SettingsRegistry::rulesFor());
+        $data = $request->validate(SettingsRegistry::rulesFor(), [], SettingsRegistry::attributes());
 
         // العلاقات بين الحقول (نهاية الساعات بعد بدايتها) معلنةٌ في السجلّ أيضاً — ولا كتابةَ
         // لأيّ حقلٍ إن فشلت، فلا يُحفظ نصف بطاقة.
