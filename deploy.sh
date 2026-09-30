@@ -24,6 +24,8 @@ main() {
 TARGET="${1:-origin/main}"
 STEP="التحضير"
 SITE_DOWN=0
+CHANGED=0
+BACKUP=""
 
 # عند أيّ خروجٍ غير ناجح — خطأ أمرٍ (set -e) أو رفضٍ صريح (die) — يُطبع أين توقّف وما العمل.
 # (فخّ EXIT لا ERR: `die` تخرج بـexit فلا يلتقطها ERR)
@@ -33,12 +35,17 @@ on_exit() {
     echo
     echo "════════════════════════════════════════════════════════════"
     echo "⛔ فشل النشر عند: ${STEP}"
-    if [ "$SITE_DOWN" -eq 1 ]; then
+    if [ "$SITE_DOWN" -eq 1 ] && [ "$CHANGED" -eq 0 ]; then
+        # لم يُمسّ الكود ولا القاعدة بعد (فشلٌ قبل التحويل: النسخة الاحتياطيّة مثلاً) — يُعاد الموقع كما كان
+        workers start || true
+        php artisan up || true
+        echo "   لم يتغيّر الكود ولا القاعدة — أُعيد تشغيل العمّال وفُتح الموقع بالإصدار الحاليّ."
+    elif [ "$SITE_DOWN" -eq 1 ]; then
         echo "   الموقع **ما زال في الصيانة** عمداً — لم يُفتح على نشرٍ ناقص."
         echo "   • أصلح السبب ثمّ أعد: ./deploy.sh ${TARGET}"
         echo "   • أو ارجع للإصدار السابق: ./rollback.sh          (الكود فقط)"
-        echo "                              ./rollback.sh --with-db (والقاعدة من نسخة ما قبل النشر)"
-        echo "   • آخر نسخة احتياطيّة: $(state_get last_backup)"
+        echo "                              ./rollback.sh --with-db (والقاعدة من نسخة ما قبل هذا النشر)"
+        echo "   • نسخة ما قبل هذا النشر: ${BACKUP}"
     else
         echo "   لم يتغيّر شيء — الموقع ما زال يعمل بالإصدار الحاليّ."
     fi
@@ -88,6 +95,7 @@ STEP="تسجيل الإصدار السابق"
 state_set previous_commit "$CURRENT_SHA"
 
 STEP="التحويل إلى الإصدار الهدف"
+CHANGED=1
 git checkout --quiet --detach "$TARGET_SHA"
 
 STEP="البناء (composer/npm)"

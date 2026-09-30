@@ -11,6 +11,9 @@
 #   SUPERVISOR_PROGRAMS  برامج المشروع في supervisor          ("salasel-worker salasel-reverb")
 # ════════════════════════════════════════════════════════════════════════════
 
+# `set -e` يسري داخل `$(...)` أيضاً (لا يُورَّث افتراضيّاً في bash)
+shopt -s inherit_errexit
+
 BACKUP_DIR="${BACKUP_DIR:-$HOME/law-backups}"
 BACKUP_KEEP="${BACKUP_KEEP:-14}"
 BACKUP_REMOTE="${BACKUP_REMOTE:-}"
@@ -50,16 +53,21 @@ backup_now() {
     mkdir -p "$dir"
     chmod 700 "$BACKUP_DIR" "$dir"
 
-    MYSQL_PWD="$(cfg "database.connections.$conn.password")" mysqldump \
+    # فحصٌ صريح لا اعتمادٌ على `set -e`: هذه الدالّة تُنادى داخل `$(...)` حيث لا يُورَّث — فشلُ mysqldump
+    # (صلاحيّة مرفوضة مثلاً) كان يمرّ ويُكتب ملفٌّ برأسٍ فارغ، فيمضي النشر بلا نسخة (ثبت في التجربة 2026-09-30)
+    if ! MYSQL_PWD="$(cfg "database.connections.$conn.password")" mysqldump \
         --no-tablespaces --single-transaction --routines --triggers \
         -h "$(cfg "database.connections.$conn.host")" -P "$(cfg "database.connections.$conn.port")" \
         -u "$(cfg "database.connections.$conn.username")" "$(cfg "database.connections.$conn.database")" \
-        | gzip -9 > "$dir/db.sql.gz"
+        | gzip -9 > "$dir/db.sql.gz"; then
+        die "فشل mysqldump — لا نشر بلا نسخةٍ احتياطيّة سليمة."
+    fi
     gzip -t "$dir/db.sql.gz" || die "النسخة الاحتياطيّة للقاعدة تالفة: $dir/db.sql.gz"
-    [ "$(gzip -dc "$dir/db.sql.gz" | head -c 2048 | wc -c)" -gt 0 ] || die "النسخة الاحتياطيّة للقاعدة فارغة."
+    # mysqldump يختم بـ«Dump completed» عند النجاح وحده — نسخةٌ مبتورة لا تحمله
+    gzip -dc "$dir/db.sql.gz" | tail -n 1 | grep -q 'Dump completed' || die "النسخة الاحتياطيّة للقاعدة ناقصة: $dir/db.sql.gz"
 
     # الملفّات المرفوعة (مرفقات الطلبات والقضايا والتسجيلات) — بلا المؤقّت
-    tar --exclude='storage/app/browsershot-tmp' -czf "$dir/files.tar.gz" storage/app
+    tar --exclude='storage/app/browsershot-tmp' -czf "$dir/files.tar.gz" storage/app || die "تعذّر نسخ الملفّات المرفوعة."
     tar -tzf "$dir/files.tar.gz" > /dev/null || die "النسخة الاحتياطيّة للملفّات تالفة: $dir/files.tar.gz"
 
     git rev-parse HEAD > "$dir/commit.txt" 2>/dev/null || true

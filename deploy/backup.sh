@@ -9,4 +9,6 @@ cd "$(dirname "$0")/.."
 # shellcheck source=deploy/lib.sh
 source deploy/lib.sh
 
-log "💾 النسخة اليوميّة: $(backup_now daily)"
+# الإسناد أوّلاً: فشلُ الاستبدال داخل وسيطِ أمرٍ آخر (log) لا يُوقف السكربت — ويُوقفه في الإسناد
+dir="$(backup_now daily)"
+log "💾 النسخة اليوميّة: $dir"
