@@ -13,7 +13,7 @@ import TicketRequirementsCard from '@/components/babylon/TicketRequirementsCard'
 import TicketTalkingNotice from '@/components/babylon/TicketTalkingNotice';
 import TicketTrackDecisionCard from '@/components/babylon/TicketTrackDecisionCard';
 import { useToast } from '@/components/babylon/Toast';
-import { TKT_LIFE, tktStage  } from '@/lib/chat';
+import { TKT_LIFE } from '@/lib/chat';
 import type {Message} from '@/lib/chat';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
@@ -142,7 +142,7 @@ const LawyerTicketChat: React.FC<Props> = ({ ticket, channel, messages, summary,
   const canApproveSummaries = can('اعتماد الملخصات');
   const canManageCases = can('إدارة القضايا والأتعاب');
   const [msgs, setMsgs] = useState<Message[]>(messages);
-  const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone });
+  const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone, step: ticket.step });
   // مؤلّف بمبدّل وضع: ردّ للعميل ⇄ ملاحظة داخلية للمستشار
   const [mode, setMode] = useState<'reply' | 'note'>('reply');
   const [body, setBody] = useState('');
@@ -168,8 +168,8 @@ seen.current.add(m.id);
     };
     const ch = echo.private(channel);
     ch.listen('.message', append);
-    ch.listen('.status', (e: { status: string; tone: string }) => {
-      setStatus(e);
+    ch.listen('.status', (e: { status: string; tone: string; step: number }) => {
+      setStatus({ status: e.status, tone: e.tone, step: e.step });
       // البثّ يحمل الحالة ولونها وحدهما — أمّا «مجمَّدة/نهائيّة» ونموذج التصحيح وبطاقة المآل فمن
       // الخادم؛ فتُعاد قراءتها بدل اشتقاقها هنا من نصّ الحالة
       router.reload({ only: ['ticket', 'correction', 'summary'] });
@@ -237,7 +237,7 @@ return;
     action.run(`${base}/tickets/${no}/request-docs`, { fallback: 'تعذّر طلب مستندات إضافية' });
   };
 
-  const cur = tktStage(status.status);
+  const cur = status.step;
   // من الخادم لا من قائمة حالاتٍ هنا (`Ticket::toEmployeeCard`) — ويُعاد تحميلها مع بثّ الحالة أعلاه
   const isFrozen = !!ticket.isFrozen || !!ticket.isTerminal;
 

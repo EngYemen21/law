@@ -29,6 +29,8 @@ export interface EmployeeTicketCard {
     status: string;
     /** اسم حالة الـEnum (`TicketStatus::…->name`) — `AwaitingDocs` لا `awaiting_docs`. */
     statusCode: string;
+    /** مرحلة «مسار المعالجة» (0–6) من `TicketJourney::indexOf` على الخادم. */
+    step: number;
     actions: TicketActions;
     tone: string;
     isFrozen: boolean;

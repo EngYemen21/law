@@ -4,6 +4,7 @@ namespace App\Events;
 
 use App\Domain\Journey\Enums\TicketStatus;
 use App\Models\Ticket;
+use App\Support\TicketJourney;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
@@ -38,6 +39,8 @@ class TicketStatusBroadcast implements ShouldBroadcastNow
             'clientStatus' => TicketStatus::labelForClient($this->ticket->status),
             // «انتهت؟» حكمُ الخادم لا مقارنةٌ بنصّ — الشاشة تقرؤه حين تتقدّم الحالة وهي مفتوحة
             'isTerminal' => $this->ticket->isTerminal(),
+            // مرحلة «مسار المعالجة» — حكم الخادم (`TicketJourney::indexOf`) لا اشتقاقٌ من نصّ الحالة في الواجهة
+            'step' => TicketJourney::indexOf($this->ticket->status),
         ];
     }
 }

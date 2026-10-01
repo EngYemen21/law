@@ -7,7 +7,7 @@ import FlowLine from '@/components/babylon/FlowLine';
 import Badge from '@/components/babylon/Badge';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
-import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
+import { TKT_LIFE, type Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
 import { serverMessage } from '@/lib/server-message';
 import { useServerAction } from '@/lib/use-server-action';
@@ -141,13 +141,14 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
 
 const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Message[]; consult?: ConsultLink | null }> = ({ ticket, channel, messages, consult }) => {
   // الحالة لحظية: تتحدّث عبر بثّ القناة فيتقدّم المسار دون إعادة تحميل
-  const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone, isTerminal: Boolean(ticket.isTerminal) });
+  const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone, isTerminal: Boolean(ticket.isTerminal), step: ticket.step });
 
   // عند بثّ حالة التذكرة (تقدّم المسار خادميّاً) نعيد جلب الاستشارة المرتبطة أيضاً — فتصل حقول
   // الفاتورة/السداد لحظياً ويُفعَّل زر «الدفع عبر ميسّر» دون إعادة تحميل يدوي للصفحة.
   // القناة مشتركة مع الطاقم: `status` داخليّ، والعميل يقرأ `clientStatus` (قيد إعداد الرأي القانوني…)
-  const onStatus = (s: { status: string; tone: string; clientStatus?: string; isTerminal?: boolean }) => {
-    setStatus({ status: s.clientStatus ?? s.status, tone: s.tone, isTerminal: Boolean(s.isTerminal) });
+  const onStatus = (s: { status: string; tone: string; clientStatus?: string; isTerminal?: boolean; step?: number }) => {
+    // `step` يحمله بثّ الحالة دائماً (`TicketStatusBroadcast`)؛ وغيابه لا يُرجع المسار إلى الصفر
+    setStatus((prev) => ({ status: s.clientStatus ?? s.status, tone: s.tone, isTerminal: Boolean(s.isTerminal), step: s.step ?? prev.step }));
     router.reload({ only: ['consult'] });
   };
 
@@ -172,7 +173,7 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
           <Badge text={status.status} tone={status.tone} />
         </div>
         <div className="card-b" style={{ padding: '16px 18px' }}>
-          <FlowLine steps={TKT_LIFE} cur={tktStage(status.status)} />
+          <FlowLine steps={TKT_LIFE} cur={status.step} />
         </div>
       </div>
 

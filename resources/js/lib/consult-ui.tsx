@@ -107,6 +107,8 @@ export interface ConsultCard {
   client: string;
   subject: string;
   specialty?: string; // تخصّص الاستشارة (لتصفية منتقي المستشارين عند اختيار الموعد)
+  /** خانة «التخصص» للعرض — التخصّص أو النوع، من الخادم (`Consult::specialtyLabel`). */
+  specialtyLabel: string;
   channel: string; // مرئية / حضورية / هاتفية
   lawyer: string;
   when: string;
@@ -1409,9 +1411,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
 
           <div className="cj-matrix-item">
             <span className="cj-matrix-label"><Icon name="folder" /> التخصص</span>
-            <span className="cj-matrix-val" title={(c.specialty && c.specialty !== 'كل الأقسام') ? c.specialty : c.type}>
-              {(c.specialty && c.specialty !== 'كل الأقسام') ? c.specialty : c.type}
-            </span>
+            <span className="cj-matrix-val" title={c.specialtyLabel}>{c.specialtyLabel}</span>
           </div>
 
           <div className="cj-matrix-item">

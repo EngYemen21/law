@@ -282,6 +282,8 @@ class Ticket extends Model
             'lawyerId' => $this->assigned_lawyer_id,
             'status' => $this->status,
             'statusCode' => $entity->status()->name,
+            // مرحلة «مسار المعالجة» من الخادم — كانت الواجهة تشتقّها من نصّ الحالة العربيّ (`tktStage`)
+            'step' => TicketJourney::indexOf($this->status),
             'actions' => $actions,
             'tone' => $this->tone,
             'isFrozen' => (bool) $this->is_frozen,

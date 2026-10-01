@@ -19,7 +19,7 @@ import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import type { TimeSlotItem } from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { keepChosenTime } from '@/lib/booking-time';
-import { ALLOWED_DOC_ACCEPT, TKT_LIFE, nowClock, tktStage, type Message } from '@/lib/chat';
+import { ALLOWED_DOC_ACCEPT, TKT_LIFE, nowClock, type Message } from '@/lib/chat';
 import { useConsultSlots } from '@/lib/consult-slots';
 import { echo } from '@/lib/echo';
 import { useCan } from '@/lib/permissions';
@@ -101,7 +101,7 @@ const EmployeeTicketChat: React.FC<{
   const canSchedule = can('جدولة المواعيد');
   const canTransfer = can('تحويل التذاكر');
   const [msgs, setMsgs] = useState<Message[]>(messages);
-  const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone, isTerminal: Boolean(ticket.isTerminal) });
+  const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone, isTerminal: Boolean(ticket.isTerminal), step: ticket.step });
   // مؤلّف بمبدّل وضع (يطابق التصميم): ردّ للعميل ⇄ ملاحظة داخلية — صندوق واحد
   const [mode, setMode] = useState<'reply' | 'note'>(canReply ? 'reply' : 'note');
   const [body, setBody] = useState('');
@@ -189,7 +189,7 @@ const EmployeeTicketChat: React.FC<{
     };
     const ch = echo.private(channel);
     ch.listen('.message', append);
-    ch.listen('.status', (e: { status: string; tone: string; isTerminal?: boolean }) => setStatus({ status: e.status, tone: e.tone, isTerminal: Boolean(e.isTerminal) }));
+    ch.listen('.status', (e: { status: string; tone: string; isTerminal?: boolean; step: number }) => setStatus({ status: e.status, tone: e.tone, isTerminal: Boolean(e.isTerminal), step: e.step }));
     echo.private(`${channel}.staff`).listen('.message', append);
     return () => { echo.leave(channel); echo.leave(`${channel}.staff`); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -249,7 +249,7 @@ const EmployeeTicketChat: React.FC<{
   };
   // أرشيف للقراءة فقط: حكم الخادم (`TicketStatus::isTerminal` والتجميد) — من الصفحة ثمّ من البثّ، لا نصوص الحالات
   const locked = Boolean(ticket.isFrozen || status.isTerminal);
-  const cur = tktStage(status.status);
+  const cur = status.step;
   const isLast = cur >= TKT_LIFE.length - 1;
   // مراحل بيد المحامي/الإدارة/العميل — لا يتقدّم الموظف فيها
   // يطابق TicketJourney::AWAITING_OTHERS على الخادم

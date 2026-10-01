@@ -19,6 +19,7 @@ use App\Support\LawyerName;
 use App\Support\RecordingArchive;
 use App\Support\SessionWindow;
 use App\Support\SettingsRegistry;
+use App\Support\Specialties;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -616,6 +617,14 @@ class Consult extends Model
             && SessionWindow::staffStartOpened($this->starts_at);
     }
 
+    /** تسمية خانة «التخصص»: التخصّص الفعليّ، وإلّا نوع الاستشارة («كل الأقسام» ليس تخصّصاً يُعرض). */
+    public static function specialtyLabel(?string $specialty, ?string $type): string
+    {
+        $specialty = trim((string) $specialty);
+
+        return $specialty !== '' && $specialty !== Specialties::ALL_DEPARTMENTS ? $specialty : (string) $type;
+    }
+
     public function toCard(): array
     {
         return [
@@ -626,6 +635,9 @@ class Consult extends Model
             // وقائع العميل كما كتبها عند الحجز — للمسعّر والمحامي (لا تُدمج في الموضوع)
             'details' => $this->details,
             'specialty' => $this->specialty ?? $this->type ?? '',
+            // خانة «التخصص» في رحلة الاستشارة: التخصّص، أو النوع حين لا تخصّص أو كان «كل الأقسام» — حكم الخادم
+            // بثابته الواحد (`Specialties::ALL_DEPARTMENTS`) لا مقارنةٌ بالنصّ في الواجهة
+            'specialtyLabel' => self::specialtyLabel($this->specialty, $this->type),
             'channel' => $this->channel,
             'lawyer' => $this->lawyer,
             /*
