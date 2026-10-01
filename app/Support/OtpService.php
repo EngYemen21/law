@@ -16,6 +16,13 @@ class OtpService
 {
     public const RESEND_SECONDS = 60;
 
+    /**
+     * **صلاحيّة رمز التحقّق — الافتراض المُعلَن** (`otp_ttl_minutes`، قرار المالك 2026-10-01: ٥ دقائق بدل ١٠).
+     * واحدةٌ لرمز الجوال (دخول · تسجيل · تغيير الجوال) ورمز البريد. ورمز الجوال تولّده «تقنيات» وتتحقّق منه
+     * بلا مدّةٍ نضبطها في واجهتها، فالحدّ نفرضه نحن من وقت الإرسال المحفوظ في الجلسة.
+     */
+    public const TTL_MINUTES = 5;
+
     /** سقف محاولات الرمز على حمولة الجلسة الواحدة — نظير EmailOtpService::MAX_ATTEMPTS. */
     public const MAX_ATTEMPTS = 5;
 
@@ -27,6 +34,18 @@ class OtpService
     public const MAX_ISSUES = 4;
 
     /** طلب رمز دخول لمستخدم قائم — يرسله لجواله المسجّل عبر تقنيات. */
+    /** الصلاحيّة النافذة بالدقائق — من الإعدادات. */
+    public static function ttlMinutes(): int
+    {
+        return SettingsRegistry::int('otp_ttl_minutes');
+    }
+
+    /** لحظة انتهاء رمزٍ يُرسل الآن — تُحفظ في حمولة الجلسة. */
+    public static function expiresAt(): string
+    {
+        return now()->addMinutes(self::ttlMinutes())->toIso8601String();
+    }
+
     public function request(User $user): array
     {
         return $this->issue((string) $user->phone);

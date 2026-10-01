@@ -44,6 +44,8 @@ class SettingsRegistry
             'meetings' => 'الاجتماعات',
             'alerts' => 'المهل والتنبيهات',
             'lawyers' => 'عبء المحامين ونصيبهم',
+            // صلاحيّة رمز التحقّق (قرار المالك 2026-10-01) — كانت ١٠ منقوشةً في ثلاثة مواضع
+            'security' => 'الدخول والتحقّق',
             'office' => 'بيانات المكتب في المستندات والبريد',
             'chat' => 'مسمّيات المتحدّثين في محادثات العميل',
         ];
@@ -60,6 +62,18 @@ class SettingsRegistry
     public static function all(): array
     {
         return [
+            // ── الدخول والتحقّق ──
+            'otp_ttl_minutes' => [
+                'group' => 'security',
+                'label' => 'صلاحيّة رمز التحقّق (دقائق)',
+                'hint' => 'بعدها يُرفض الرمز المُرسَل ويُطلب رمزٌ جديد — لرمز الجوال في الدخول والتسجيل وتغيير الجوال، ولرمز البريد. 5 = خمس دقائق.',
+                'type' => 'int',
+                'default' => OtpService::TTL_MINUTES,
+                'min' => 2,
+                'max' => 30,
+                'rules' => ['required', 'integer', 'min:2', 'max:30'],
+            ],
+
             // ── التنفيذ والأتعاب ──
             'exec_working_days_from' => [
                 'group' => 'exec',

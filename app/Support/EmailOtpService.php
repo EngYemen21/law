@@ -13,8 +13,6 @@ use Illuminate\Support\Facades\Hash;
  */
 class EmailOtpService
 {
-    public const TTL_MINUTES = 10;
-
     public const MAX_ATTEMPTS = 5;
 
     // أقصى عدد إصدارات لرمز البريد في تسجيل واحد (يحدّ التخمين عبر إعادة الإرسال — 4×5=20 محاولة كحدّ)
@@ -40,7 +38,7 @@ class EmailOtpService
                 'channel' => 'email',
                 'email' => $email,
                 'code_hash' => Hash::make($code),
-                'expires_at' => now()->addMinutes(self::TTL_MINUTES)->toIso8601String(),
+                'expires_at' => OtpService::expiresAt(),
                 'attempts' => 0,
                 'masked' => $this->mask($email),
                 'sent' => true,
@@ -51,14 +49,14 @@ class EmailOtpService
 
         $sent = app(MailService::class)->send(
             $email,
-            new VerificationCodeMail($code, $name, 'تأكيد بريدك الإلكتروني', self::TTL_MINUTES)
+            new VerificationCodeMail($code, $name, 'تأكيد بريدك الإلكتروني', OtpService::ttlMinutes())
         );
 
         return [
             'channel' => 'email',
             'email' => $email,
             'code_hash' => Hash::make($code),
-            'expires_at' => now()->addMinutes(self::TTL_MINUTES)->toIso8601String(),
+            'expires_at' => OtpService::expiresAt(),
             'attempts' => 0,
             'masked' => $this->mask($email),
             'sent' => $sent,
