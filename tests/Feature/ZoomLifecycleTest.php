@@ -106,7 +106,7 @@ class ZoomLifecycleTest extends TestCase
         $consult = Consult::create([
             'user_id' => $client->id, 'ref' => 'CN-2026-7002', 'subject' => 'نزاع', 'channel' => 'مرئية',
             'lawyer' => 'محامٍ', 'day' => 'غداً', 'time' => '11:00', 'when_label' => 'غداً',
-            'session' => 'بانتظار الجلسة', 'starts_at' => now()->addHours(3), // أبعد من 5 دقائق
+            'session' => 'بانتظار الجلسة', 'starts_at' => now()->addHours(3), // أبعد من نافذة فتح الدخول
         ]);
 
         $this->artisan('zoom:release-links')->assertExitCode(0);

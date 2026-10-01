@@ -14,13 +14,15 @@ use App\Models\User;
 use App\Services\MailService;
 use App\Support\Live;
 use App\Support\Notify;
+use App\Support\SessionLinkSms;
 use App\Support\SessionWindow;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Mail;
 
 /**
- * يُطلق رابط الجلسة المرئية قبل الموعد بـ`session_join_opens_minutes` (افتراضها 5 دقائق): يضبط link_released_at، يبثّ (يفعّل زر الدخول
- * لحظياً للعميل والمحامي)، ويرسل بريد الرابط. idempotent — لا يُطلق مرتين.
+ * يُطلق رابط الجلسة المرئية قبل الموعد بـ`session_join_opens_minutes` (افتراضها ربع ساعة): يضبط link_released_at، يبثّ (يفعّل زر الدخول
+ * لحظياً للعميل والمحامي)، ويرسل بريد الرابط **ورسالةً نصّيّة للعميل بتاريخ الجلسة ووقتها ورابطها** (`SessionLinkSms`،
+ * قرار المالك 2026-10-01). idempotent — لا يُطلق مرتين، فلا تتكرّر الرسالة.
  *
  * **والاجتماع كالاستشارة** (قرار المالك 2026-10-01): كان الإعداد يعلن «يُرسل رابط الجلسة للعميل — للاستشارة
  * والاجتماع» والأمر يمرّ بالاستشارات وحدها. الآن يُطلَق للاجتماع أيضاً (`releaseMeetings`).
@@ -29,12 +31,12 @@ class ReleaseMeetingLinks extends Command
 {
     protected $signature = 'zoom:release-links';
 
-    protected $description = 'إطلاق روابط الجلسات المرئية المستحقّة (قبل 5د) وتفعيل الدخول';
+    protected $description = 'إطلاق روابط الجلسات المرئية المستحقّة (عند فتح الدخول) وتفعيل الدخول ورسالة الرابط للعميل';
 
     public function handle(): int
     {
         $due = Consult::with('user')
-            ->where('channel', 'مرئية')
+            ->where('channel', Consult::CHANNEL_VIDEO)
             ->whereNull('link_released_at')
             // والجارية تُطلَق أيضاً: الطاقم يبدأ قبل الموعد بـ`consult_staff_start_minutes`، وبريد الرابط للعميل يلزم
             ->whereIn('session', [SessionState::Waiting->value, SessionState::Live->value])
@@ -54,6 +56,11 @@ class ReleaseMeetingLinks extends Command
                 Mail::to($consult->user->email)->send(new MeetingLinkReady($consult, forLawyer: false));
             }
 
+            // ورسالته النصّيّة — للمسدَّدة وحدها كتذكيرها السابق: الرسالة تكلّف مالاً
+            if ($consult->user && $consult->paid_at) {
+                SessionLinkSms::consult($consult, $consult->user);
+            }
+
             // 2. بريد المحامي المسند
             $lawyerUser = $consult->assignedLawyer ?? ($consult->assigned_lawyer_id ? User::find($consult->assigned_lawyer_id) : null);
             if ($lawyerUser?->email && $lawyerUser->id !== $consult->user_id) {
@@ -70,7 +77,7 @@ class ReleaseMeetingLinks extends Command
 
     /**
      * روابط الاجتماعات المستحقّة: نافذة الدخول نفسها (`session_join_opens_minutes` قبل الموعد، وحتى مهلة
-     * الفوات بعده). إشعارٌ في الحساب وبريدٌ بزرّ غرفة المنصّة للعميل، وبريدٌ للمحامي المسنَد، وبثٌّ يفعّل
+     * الفوات بعده). إشعارٌ في الحساب وبريدٌ بزرّ غرفة المنصّة ورسالةٌ نصّيّة بموعده ورابطه للعميل، وبريدٌ للمحامي المسنَد، وبثٌّ يفعّل
      * زرّ الدخول لحظيّاً. ختم `link_released_at` يمنع التكرار، ونقل الموعد يُصفّره (`BookingMoved::markers`).
      */
     private function releaseMeetings(): int
@@ -92,6 +99,7 @@ class ReleaseMeetingLinks extends Command
             if ($meeting->user) {
                 Notify::send($meeting->user->id, 'video', 't-cyan', "فُتح باب الدخول لاجتماع «{$meeting->title}» — ادخل الغرفة من قسم الاجتماعات بالمنصّة.");
                 $mail->send($meeting->user, new MeetingReminderMail($meeting->user->name, $meeting->title, $when, $meeting->joinLink($meeting->user), SessionWindow::joinOpensLabel()));
+                SessionLinkSms::meeting($meeting, $meeting->user);
             }
             if ($meeting->assignedLawyer) {
                 $mail->send($meeting->assignedLawyer, new MeetingReminderMail($meeting->assignedLawyer->name, $meeting->title, $when, $meeting->joinLink($meeting->assignedLawyer), SessionWindow::joinOpensLabel()));

@@ -7,6 +7,8 @@ use App\Jobs\SendSmsJob;
 use App\Mail\ConsultReminderMail;
 use App\Models\Consult;
 use App\Models\User;
+use App\Models\UserNotification;
+use App\Support\SessionLinkSms;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Mail;
@@ -16,20 +18,20 @@ use Tests\TestCase;
  * تذكيرات مواعيد الاستشارات — لم يكن لها اختبار واحد قبل اليوم (الاجتماعات وجلسات
  * المحاكم مغطّاة، والاستشارات لا).
  *
- * الطبقتان: بريد قبل 24 ساعة · رسالة نصّية قبل 30 دقيقة. وآخر 5 دقائق يغطّيها
- * zoom:release-links فلا يرسل هذا الأمر شيئاً فيها.
+ * الطبقتان: بريد قبل 24 ساعة · قبل 30 دقيقة رسالةٌ نصّيّة للحضوريّة والهاتفيّة، وإشعارٌ في الحساب
+ * للمرئيّة (رسالتها عند فتح الدخول — قرار «ب»). وما بعد فتح الدخول يغطّيه zoom:release-links.
  */
 class ConsultReminderTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function scheduledConsult(User $client, int $minutesAway, bool $paid = true): Consult
+    private function scheduledConsult(User $client, int $minutesAway, bool $paid = true, string $channel = 'حضورية'): Consult
     {
         return Consult::create([
             'user_id' => $client->id,
             'ref' => 'CN-REM-'.$minutesAway,
             'subject' => 'نزاع تجاري',
-            'channel' => 'مرئية',
+            'channel' => $channel,
             'lawyer' => 'أ. سارة',
             'status' => 'جديدة',
             'session' => 'بانتظار الجلسة',
@@ -56,7 +58,8 @@ class ConsultReminderTest extends TestCase
         Bus::assertDispatched(SendSmsJob::class, function (SendSmsJob $job) use ($consult) {
             return $job->intlPhone === '966555550001'
                 && str_contains($job->body, $consult->ref)
-                && str_contains($job->body, 'تذكير');
+                && str_contains($job->body, 'تذكير')
+                && str_contains($job->body, SessionLinkSms::when($consult->starts_at)); // التاريخ والوقت
         });
         $this->assertNotNull($consult->fresh()->reminder_30m_sent_at);
 
@@ -127,8 +130,24 @@ class ConsultReminderTest extends TestCase
         $this->assertNull($fresh->reminder_30m_sent_at);
     }
 
-    /** آخر 5 دقائق ليست مسؤوليّة هذا الأمر — يغطّيها إطلاق رابط الجلسة. */
-    public function test_last_five_minutes_are_left_to_link_release(): void
+    /** قرار «ب»: المرئيّة يصلها قبل 30 دقيقة إشعارٌ لا رسالة — رسالتها واحدةٌ عند فتح الدخول. */
+    public function test_video_consult_near_layer_is_a_notification_not_an_sms(): void
+    {
+        Bus::fake();
+        $this->configureTaqnyat();
+        $client = User::factory()->create(['role' => Role::Client, 'phone' => '+966555550006']);
+        $consult = $this->scheduledConsult($client, 25, channel: Consult::CHANNEL_VIDEO);
+
+        $this->artisan('consults:send-reminders')->assertSuccessful();
+        $this->artisan('consults:send-reminders')->assertSuccessful();
+
+        Bus::assertNotDispatched(SendSmsJob::class);
+        $this->assertNotNull($consult->fresh()->reminder_30m_sent_at);
+        $this->assertSame(1, UserNotification::where('user_id', $client->id)->where('body', 'like', '%'.$consult->ref.'%')->count());
+    }
+
+    /** ما بعد فتح الدخول ليس مسؤوليّة هذا الأمر — يغطّيه إطلاق رابط الجلسة. */
+    public function test_last_minutes_are_left_to_link_release(): void
     {
         Bus::fake();
         Mail::fake();
