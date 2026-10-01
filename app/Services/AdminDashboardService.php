@@ -126,9 +126,8 @@ class AdminDashboardService
             ", [now()])
             ->first();
 
-        $pendingMeetingApprovals = Meeting::where('approve', '!=', 'معتمد')
-            ->where('status', 'منتهٍ')
-            ->count();
+        // ما يُعتمد فعلاً (`Meeting::canApprove`) — لا «كلّ منتهٍ غير معتمد» ومنه ما لا مخرجات له
+        $pendingMeetingApprovals = Meeting::awaitingApprovalCount();
 
         // ما ينتظر الإدارة وحدها — من تعريف مركز الاعتمادات نفسه (`AdminApprovalQueue`)، فلا يقول
         // الرادار «لا توجد طلبات» ومقترحُ مسارٍ أو محضرُ جلسةٍ أو موعدٌ ينتظر في المركز

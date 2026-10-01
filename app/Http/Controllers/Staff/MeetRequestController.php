@@ -46,7 +46,8 @@ class MeetRequestController extends Controller
     {
         // الموظّف يرى كلّ دعوات المكتب (قرار المالك 2026-09-14)، والمحامي ما أُسند إليه، والإدارة الكل.
         // (الإجراءات — إلغاء/بدء/إعادة إرسال — ما زالت محروسةً بالمُرسِل في `guardOwner`.)
-        $query = MeetRequest::with('user')->latest('id');
+        // `meeting` لنافذة الدخول (`canJoin`) ومرجع الغرفة في البطاقة — كان يُجلب لكلّ دعوةٍ على حدة (N+1)
+        $query = MeetRequest::with(['user', 'meeting'])->latest('id');
         if ($request->user()->role === Role::Lawyer) {
             $query->where('assigned_lawyer_id', $request->user()->id);
         }

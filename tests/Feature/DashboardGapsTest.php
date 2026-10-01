@@ -76,7 +76,7 @@ class DashboardGapsTest extends TestCase
     public function test_admin_pending_meetings_counts_ended_only(): void
     {
         $admin = User::factory()->create(['role' => Role::Admin]);
-        Meeting::create(['ref' => 'M-B-1', 'title' => 'منتهٍ', 'when_label' => 'أمس', 'status' => 'منتهٍ', 'approve' => 'بانتظار الاعتماد']);
+        Meeting::create(['ref' => 'M-B-1', 'title' => 'منتهٍ', 'when_label' => 'أمس', 'status' => 'منتهٍ', 'approve' => 'بانتظار الاعتماد', 'summary' => 'ملخّص الجلسة']); // له مخرجات فيُعتمد (`canApprove`)
         Meeting::create(['ref' => 'M-B-2', 'title' => 'قادم', 'when_label' => 'غد', 'status' => 'قادم', 'approve' => 'بانتظار الاعتماد']);
 
         $this->actingAs($admin)->get(route('admin.dashboard'))

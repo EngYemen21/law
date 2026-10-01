@@ -20,8 +20,8 @@ const AdminMeetings: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) 
       onError: (e) => toast(firstError(e, 'الاعتماد متاح بعد انتهاء الاجتماع وتوفر الملخص أو المحضر')),
     });
 
-  // الاعتماد يُطلب بعد انعقاد الاجتماع وحده — مفتاح الحالة من الخادم لا نصّها العربيّ
-  const pending = meetings.filter((m) => !m.approved && m.statusKey === 'ended').length;
+  // حكم حارس الاعتماد نفسه (`canApprove`) الذي يشرط الزرّ — كان «منتهٍ غير معتمد» يعدّ ما لا مخرجات له
+  const pending = meetings.filter((m) => m.canApprove).length;
 
   return (
     <>

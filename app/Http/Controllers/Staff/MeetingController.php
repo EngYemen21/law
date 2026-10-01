@@ -157,9 +157,13 @@ class MeetingController extends Controller
             // المشاركون من الكادر بمعرّفاتهم (`meeting_participants`) — كانوا نصّاً يُطابَق بالاسم
             'participant_ids' => ['nullable', 'array', 'max:50'],
             'participant_ids.*' => ['integer', Rule::exists('users', 'id')->whereIn('role', [Role::Lawyer->value, Role::Employee->value, Role::Admin->value])],
-            'client_id' => ['nullable', 'integer', 'exists:users,id'],
+            // حساب **عميل** حصراً (نظير `MeetRequestController::store`) — كان أيّ حساب يُقبل فيُرسَل لمحامٍ دعوةُ عميل
+            'client_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where('role', Role::Client->value)],
             'case_ref' => ['nullable', 'string', 'max:120'],
             'lawyer_id' => ['nullable', 'integer', new ActiveLawyer],
+        ], [
+            // رسالةٌ تُفهم بدل «client id المختار غير موجود» — الحساب موجودٌ لكنّه ليس عميلاً
+            'client_id.exists' => 'الحساب المختار ليس حساب عميل.',
         ]);
 
         $client = ! empty($data['client_id']) ? User::find($data['client_id']) : null;
@@ -370,6 +374,14 @@ class MeetingController extends Controller
             MeetRequest::where('meeting_id', $meeting->id)
                 ->where('stage', '<', MeetRequest::STAGE_APPROVED)
                 ->update(['stage' => MeetRequest::STAGE_APPROVED]);
+            // قيد تدقيق للاعتماد (قرار المالك 2026-10-01) — كان اعتماد المحضر وحده بلا أثر في السجلّ
+            // بينما اعتماد الدعوة (`MeetRequestController::approve`) يُسجَّل؛ وهو ما يكشف المحضر للعميل.
+            Audit::log(
+                action: 'اعتماد محضر اجتماع',
+                description: "اعتمد {$request->user()->name} محضر وملخص الاجتماع «{$meeting->title}» ({$meeting->ref}) — صارا متاحين للعميل.",
+                category: 'اجتماعات',
+                auditable: $meeting,
+            );
 
             if ($meeting->user_id && $meeting->user) {
                 Notify::send($meeting->user_id, 'doc', 't-green', "اعتمدت الإدارة محضر وملخص اجتماع «{$meeting->title}» — متاحان الآن في صفحة الاجتماعات.");
@@ -727,7 +739,8 @@ class MeetingController extends Controller
     // بطاقات الاجتماعات معزولة بالدور (تكشف hostLink/الملخص/المحضر — لا تُبثّ للكل)
     private function cards(Request $request)
     {
-        return $this->scopedQuery($request)->with(['assignedLawyer', 'participantUsers'])
+        // `user` لعدّ المدعوّين (`invitedCount`) — كان يُجلب لكلّ اجتماعٍ باستعلامٍ مستقلّ (N+1)
+        return $this->scopedQuery($request)->with(['user', 'assignedLawyer', 'participantUsers'])
             ->latest('id')->get()->map(fn (Meeting $m) => $m->toFullCard());
     }
 

@@ -361,6 +361,22 @@ class Meeting extends Model
     }
 
     /**
+     * **عدد ما ينتظر الاعتماد فعلاً** — منتهٍ غير معتمد، ثمّ حكم `canApprove` نفسه (المخرجات الحقيقيّة
+     * لا تُقرَّر في SQL: القوالب الفارغة نصٌّ غير فارغ). كان رادار اللوحة يعدّ كلّ منتهٍ غير معتمد،
+     * فيعرض «محضراً بانتظار الاعتماد» لا زرّ اعتمادٍ له (قرار المالك 2026-10-01).
+     */
+    public static function awaitingApprovalCount(): int
+    {
+        return static::query()
+            ->where('status', MeetingStatus::Ended->value)
+            // المعتمد لا يُجلب أصلاً — العمود غير قابلٍ لـnull فالمقارنة لا تُسقط صفّاً
+            ->where('approve', '!=', self::APPROVED)
+            ->get(['id', 'status', 'approve', 'summary', 'minutes'])
+            ->filter(fn (Meeting $m) => $m->canApprove())
+            ->count();
+    }
+
+    /**
      * هل يُفعَّل زر «الدخول للاجتماع»؟
      *
      * - **جارٍ** ⇒ مفتوح حتى يُنهى — لا سقف «المدة + 30د» يُغلق غرفةً منعقدة.
