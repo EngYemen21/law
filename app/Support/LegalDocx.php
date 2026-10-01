@@ -607,7 +607,8 @@ final class LegalDocx
     {
         $key = strrev((string) hex2bin(str_replace(['{', '}', '-'], '', $guid)));
         for ($i = 0; $i < 32 && $i < strlen($font); $i++) {
-            $font[$i] = chr(ord($font[$i]) ^ ord($key[$i % 16]));
+            // XOR بايتين لا يتجاوز 255 — والقناع يصرّح بالمدى لمحلّل PHP 8.5 (`chr` يشترط int<0,255>) بلا تغيير قيمة
+            $font[$i] = chr((ord($font[$i]) ^ ord($key[$i % 16])) & 0xFF);
         }
 
         return $font;
