@@ -67,6 +67,8 @@ class HandleInertiaRequests extends Middleware
         'consult_staff_start_minutes',
         // «يُرجى الحضور قبل الموعد بـ…» في بطاقة الموعد — ونظيرها PDF يقرأ الإعداد نفسه
         'office_arrival_minutes',
+        // مهلة الاستئناف — نصّ تأكيد تسجيل الحكم وتقرير القضايا
+        'appeal_deadline_days',
     ];
 
     /**

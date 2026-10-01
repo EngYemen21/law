@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
+use App\Domain\Journey\Transitions\LegalCase\RecordRuling;
 use App\Models\Consult;
 use App\Models\Meeting;
 use App\Models\Setting;
@@ -38,6 +39,8 @@ class SettingsRegistry
     {
         return [
             'exec' => 'التنفيذ والأتعاب',
+            // مهلة الاستئناف (قرار المالك 2026-10-01) — كانت ٣٠ يوماً منقوشةً في تسجيل الحكم
+            'cases' => 'القضايا والأحكام',
             'billing' => 'الفواتير والسداد',
             'consults' => 'الاستشارات والمواعيد',
             // إعدادات الاجتماع مجتمعةً (قرار المالك 2026-10-01) — كانت موزّعةً بين «الاستشارات» و«المهل»
@@ -72,6 +75,19 @@ class SettingsRegistry
                 'min' => 2,
                 'max' => 30,
                 'rules' => ['required', 'integer', 'min:2', 'max:30'],
+            ],
+
+            // ── القضايا والأحكام ──
+            'appeal_deadline_days' => [
+                'group' => 'cases',
+                'label' => 'مهلة الاستئناف بعد صدور الحكم (أيّام)',
+                'hint' => 'تُحسب منها «تنتهي مهلة تقديم لائحة الاعتراض بتاريخ…» عند تسجيل الحكم، ويُنبَّه بالمتبقّي منها. يسري على الأحكام التي تُسجَّل بعد التغيير؛ والمسجَّلة قبله تحفظ تاريخها.',
+                'type' => 'int',
+                'default' => RecordRuling::APPEAL_DAYS,
+                'min' => 1,
+                'max' => 90,
+                'rules' => ['required', 'integer', 'min:1', 'max:90'],
+                'forwardOnly' => true,
             ],
 
             // ── التنفيذ والأتعاب ──

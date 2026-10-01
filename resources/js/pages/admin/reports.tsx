@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Bars, BarChart } from '@/components/babylon/admin-charts';
 import type { BarDatum } from '@/lib/admin-data';
 import Icon from '@/lib/icons';
+import { useAppealDaysText } from '@/lib/settings';
 
 interface Props {
   stats: {
@@ -57,6 +58,7 @@ const AdminReports: React.FC<Props> = ({
   recentTransitions = [],
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'triage' | 'cases' | 'executions' | 'audit'>('overview');
+  const appealDays = useAppealDaysText();
 
   const convertedCount = stats.convertedToCase ?? 0;
   const conversionPct = stats.conversionRate ?? 0;
@@ -316,7 +318,7 @@ const AdminReports: React.FC<Props> = ({
                 <span className="v" style={{ color: 'var(--c-green, #10b981)', fontWeight: 800 }}>{ruledCount} حكم ({rulingPct}%)</span>
               </div>
               <div className="kpi-row">
-                <span className="t">قضايا مقيد فيها مسار استئناف (مهلة 30 يوماً)</span>
+                <span className="t">قضايا مقيد فيها مسار استئناف (مهلة {appealDays})</span>
                 <span className="v" style={{ color: 'var(--c-amber, #f59e0b)' }}>{stats.appealedCases ?? 0} قضية</span>
               </div>
             </div>

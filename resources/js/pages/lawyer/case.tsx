@@ -247,7 +247,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
             />
           )}
 
-          {/* مسار الاستئناف والاعتراض (مهلة الاعتراض 30 يوماً / قيد الاستئناف / حكم الاستئناف) */}
+          {/* مسار الاستئناف والاعتراض (مهلة الاعتراض — `appeal_deadline_days` / قيد الاستئناف / حكم الاستئناف) */}
           <AppealCard
             base={base}
             appeal={c.appeal}

@@ -45,6 +45,8 @@ export interface SharedSettings {
   consult_staff_start_minutes: number;
   /** الحضور قبل الموعد الحضوريّ بالدقائق — نصّ بطاقة الموعد (ونظيرها `AppointmentCardPdf`). */
   office_arrival_minutes: number;
+  /** مهلة الاستئناف بالأيّام للأحكام التي تُسجَّل الآن — النصّ منها بـ`useAppealDaysText`. */
+  appeal_deadline_days: number;
 }
 
 /** متغيّرات النظام من الخاصيّة المشتركة. */
@@ -63,6 +65,11 @@ export function installmentsText(count: number): string {
 /** «5 دقائق» — مهلة فتح الدخول بوحدتها الطبيعيّة، لكلّ نصٍّ يعلنها للعميل (نظير `SessionWindow::joinOpensLabel`). */
 export function useJoinOpensText(): string {
   return humanDuration(useSettings().session_join_opens_minutes) ?? '';
+}
+
+/** «30 يوماً» — مهلة الاستئناف بوحدتها (نظير `RecordRuling` حين يكتب `update_text`). */
+export function useAppealDaysText(): string {
+  return humanDuration(useSettings().appeal_deadline_days * 1440) ?? '';
 }
 
 /** «15 دقيقة» — نافذة بدء الطاقم بوحدتها الطبيعيّة (نظير `SessionWindow::staffStartLabel`). */

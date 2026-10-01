@@ -6,7 +6,9 @@ use App\Domain\Journey\Enums\CaseStatus;
 use App\Domain\Journey\Transition;
 use App\Models\LegalCase;
 use App\Models\User;
+use App\Support\ArabicCount;
 use App\Support\CaseJourney;
+use App\Support\SettingsRegistry;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -16,6 +18,9 @@ use Illuminate\Database\Eloquent\Model;
  */
 final class RecordRuling extends Transition
 {
+    /** مهلة الاستئناف بالأيّام — الافتراض المُعلَن لـ`appeal_deadline_days` (قرار المالك 2026-10-01؛ كانت ٣٠ منقوشة). */
+    public const APPEAL_DAYS = 30;
+
     public function name(): string
     {
         return 'case.record_ruling';
@@ -57,9 +62,10 @@ final class RecordRuling extends Transition
         /** @var LegalCase $entity */
         $entity->ruling = (string) $payload['ruling'];
         $entity->appeal_status = 'pending_appeal';
-        $entity->appeal_deadline_at = now()->addDays(30)->toDateString();
+        $days = SettingsRegistry::int('appeal_deadline_days');
+        $entity->appeal_deadline_at = now()->addDays($days)->toDateString();
         $entity->tone = CaseJourney::toneFor(CaseStatus::Judged->value);
-        $entity->update_text = 'صدر الحكم في القضية — بدأت مهلة الاستئناف (30 يوماً)';
+        $entity->update_text = 'صدر الحكم في القضية — بدأت مهلة الاستئناف ('.ArabicCount::days($days).')';
     }
 
     public function record(array $payload): array

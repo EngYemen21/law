@@ -9,6 +9,7 @@ import { HEARING_DURATION, hearingDurationLabel, type Hearing } from '@/lib/case
 import Icon from '@/lib/icons';
 import { todayISO } from '@/lib/local-date';
 import { firstError } from '@/lib/server-message';
+import { useAppealDaysText } from '@/lib/settings';
 import { useServerAction } from '@/lib/use-server-action';
 
 // ============================================================
@@ -204,6 +205,7 @@ export const RulingCard: React.FC<{ base: string; ruling?: string | null; canCor
   const [correcting, setCorrecting] = useState(false);
   const [newRuling, setNewRuling] = useState(initialRuling ?? '');
   const [reasonText, setReasonText] = useState('');
+  const appealDays = useAppealDaysText();
   // قفلٌ موحّد: تسجيل الحكم وتصحيحه لا يُرسلان مرّتين (الحكم ينقل القضيّة ويفتح مهلة الاعتراض)
   const action = useServerAction();
   const busy = action.busy;
@@ -220,7 +222,7 @@ export const RulingCard: React.FC<{ base: string; ruling?: string | null; canCor
       data: { ruling },
       confirm: {
         title: 'تسجيل منطوق الحكم',
-        message: 'تسجيل الحكم ينقل القضيّة إلى «صدر الحكم» ويفتح مسار الاستئناف ومهلة الاعتراض النظامية (30 يوماً).',
+        message: `تسجيل الحكم ينقل القضيّة إلى «صدر الحكم» ويفتح مسار الاستئناف ومهلة الاعتراض النظامية (${appealDays}).`,
         confirmLabel: 'تسجيل الحكم',
         tone: 'danger',
       },
@@ -400,7 +402,7 @@ export const AppealCard: React.FC<{
           <div>
             <div style={{ padding: '12px 14px', background: appeal.isDeadlineOver ? 'var(--red-soft, #fee2e2)' : 'var(--amber-soft, #fef3c7)', borderRadius: 8, marginBottom: 12, border: '1px solid var(--line-soft)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <b style={{ color: appeal.isDeadlineOver ? 'var(--red)' : 'var(--ink)' }}>مهلة الاعتراض النظامية (30 يوماً):</b>
+                <b style={{ color: appeal.isDeadlineOver ? 'var(--red)' : 'var(--ink)' }}>مهلة الاعتراض النظامية:</b>
                 <Badge
                   text={appeal.isDeadlineOver ? 'انقضت المهلة' : `متبقّي ${appeal.daysRemaining} يوم`}
                   tone={appeal.isDeadlineOver ? 'b-red' : 'b-amber'}
