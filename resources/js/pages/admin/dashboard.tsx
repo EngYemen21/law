@@ -2,8 +2,11 @@ import { router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import Icon from '@/lib/icons';
 import { usePrompt } from '@/components/babylon/ConfirmDialog';
+import { CAPACITY } from '@/components/babylon/LawyerFileModal';
+import type { LawyerLoad } from '@/components/babylon/LawyerFileModal';
 import { useToast } from '@/components/babylon/Toast';
 import { countNoun, NOUN } from '@/lib/arabic-count';
+import { firstError } from '@/lib/server-message';
 import { useSettings } from '@/lib/settings';
 
 // ============================================================
@@ -69,8 +72,10 @@ export interface LawyerWorkload {
   initials: string;
   activeCases: number;
   activeTickets: number;
-  upcomingConsults: number;
-  status: 'available' | 'moderate' | 'high';
+  activeExecutions: number;
+  openConsults: number;
+  /** من `LawyerWorkload::capacity` — التعريف الواحد للحِمل في اللوحة وصفحة المحامين وشاشة التوزيع. */
+  status: LawyerLoad['capacity'];
 }
 
 export interface RevenuePoint {
@@ -165,9 +170,11 @@ const AdminDashboard: React.FC<Props> = ({
       title: 'تأكيد تصفير بيانات الاختبار',
       message: (
         <div style={{ fontSize: 13, lineHeight: 1.6, color: '#991b1b' }}>
-          <strong>تحذير:</strong> سيُحذف نهائياً كلّ ما في الجداول التشغيلية: التذاكر ومحادثاتها ومستنداتها والملخّصات،
-          والقضايا وجلساتها وفواتيرها، وملفات التنفيذ، والاستشارات ومواعيدها والاجتماعات والمهام.
-          <div style={{ marginTop: 6, color: '#15803d', fontWeight: 700 }}>✓ يُبقى على حسابات المستخدمين وأدوارهم وصلاحياتهم.</div>
+          <strong>تحذير:</strong> سيُحذف نهائياً <b>كلّ شيء</b>: التذاكر والقضايا والتنفيذ والاستشارات والاجتماعات والمواعيد
+          والفواتير والمدفوعات والمصروفات والمستحقّات والمهام والإشعارات وسجلّ التدقيق، والمرفقات كلّها.
+          <div style={{ marginTop: 6, color: '#15803d', fontWeight: 700 }}>
+            ✓ يبقى فقط: المستخدمون وأدوارهم وصلاحيّاتهم، وإعدادات النظام ومفاتيح الخدمات، والأقسام والخدمات القانونيّة، وأقسام الموظّفين وتخصّصات المحامين.
+          </div>
         </div>
       ),
       label: 'اكتب RESET بأحرفٍ لاتينيّة كبيرة للتأكيد',
@@ -190,7 +197,7 @@ const AdminDashboard: React.FC<Props> = ({
       '/admin/reset-database',
       { confirm: typed.trim() },
       {
-        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تصفير قاعدة البيانات'}`, 'error'),
+        onError: (errors) => toast(`⚠️ ${firstError(errors, 'تعذّر تصفير قاعدة البيانات')}`, 'error'),
         onFinish: () => setBusy(false),
       }
     );
@@ -464,8 +471,7 @@ const AdminDashboard: React.FC<Props> = ({
             {lawyersWorkload.length > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 {lawyersWorkload.map((lawyer) => {
-                  const isAvail = lawyer.status === 'available';
-                  const isHigh = lawyer.status === 'high';
+                  const capacity = CAPACITY[lawyer.status];
                   return (
                     <div
                       key={lawyer.id}
@@ -483,17 +489,17 @@ const AdminDashboard: React.FC<Props> = ({
                             <span style={{ fontSize: 11, color: 'var(--faint)' }}>({lawyer.department || 'القسم القانوني'})</span>
                           </div>
                           <span>
-                            {lawyer.activeCases} قضايا · {lawyer.activeTickets} تذاكر · {lawyer.upcomingConsults} استشارات
+                            {lawyer.activeCases} قضايا · {lawyer.activeTickets} تذاكر · {lawyer.activeExecutions} تنفيذ · {lawyer.openConsults} استشارات
                           </span>
                         </div>
                       </div>
                       <div className="iact">
                         <span
-                          className={`badge-s ${isAvail ? 'b-green' : isHigh ? 'b-red' : 'b-amber'}`}
+                          className={`badge-s ${capacity.tone}`}
                           style={{ fontSize: 11.5 }}
                         >
                           <span className="d" />
-                          {isAvail ? 'متاح للتوزيع' : isHigh ? 'ضغط عالي' : 'عبء معتدل'}
+                          {capacity.label}
                         </span>
                       </div>
                     </div>
@@ -720,7 +726,7 @@ const AdminDashboard: React.FC<Props> = ({
                   أداة تصفير بيانات الاختبار (Reset Test Database)
                 </b>
                 <p style={{ margin: 0, fontSize: 12, color: '#7f1d1d' }}>
-                  حذف السجلات التشغيلية التجريبية (التذاكر، القضايا، الفواتير، الاستشارات) مع الاحتفاظ الكامل بحسابات المستخدمين وصلاحياتهم.
+                  حذف كلّ البيانات والمرفقات عدا المستخدمين والصلاحيّات والإعدادات والمفاتيح والأقسام والخدمات القانونيّة وأقسام الموظّفين وتخصّصات المحامين.
                 </p>
               </div>
               <button

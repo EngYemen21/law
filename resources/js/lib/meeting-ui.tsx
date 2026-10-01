@@ -3,7 +3,6 @@ import axios from 'axios';
 import React, { useEffect, useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import { useConfirm } from '@/components/babylon/ConfirmDialog';
-import FlowLine from '@/components/babylon/FlowLine';
 import Modal from '@/components/babylon/Modal';
 import RescheduleDialog from '@/components/babylon/RescheduleDialog';
 import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
@@ -13,15 +12,18 @@ import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import type { TimeSlotItem } from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { todayISO } from '@/lib/local-date';
+import { keepChosenTime, whenParts } from '@/lib/booking-time';
 import { nowClock, todayDate } from '@/lib/chat';
 import { useConsultSlots } from '@/lib/consult-slots';
 import { RichText } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
-import { MR_FLOW } from '@/lib/employee-data';
+import { foldSearch, MR_FLOW } from '@/lib/employee-data';
 import { useMasker } from '@/lib/permissions';
 import Icon from '@/lib/icons';
 import { meetingMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
 import type { SessionMedia } from '@/lib/recording-ui';
+import { firstError } from '@/lib/server-message';
+import { useJoinOpensText } from '@/lib/settings';
 import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 
 // ============================================================
@@ -99,9 +101,6 @@ export interface FullMeetingCard {
     lawyerId: number | null;
     when: string;
     approve: string;
-    before: string[];
-    during: string[];
-    after: string[];
     status: string;  // قادم/جارٍ/منتهٍ/مؤجل/ملغى — للعرض وحده
     /** مفتاح الحالة الحيّة للمنطق (`MeetingStatus::key`) — لا مقارنة بالنصّ العربيّ المعروض. */
     statusKey: MeetingStatusKey;
@@ -109,8 +108,16 @@ export interface FullMeetingCard {
     approved: boolean;
     /** حكم حارس الاعتماد نفسه (`Meeting::approvalBlocker`) — القالبيّ ليس مخرجاً فلا يُعرض زرٌّ يُردّ بـ٤٢٢. */
     canApprove: boolean;
+    /**
+     * حكم الخادم على المشاهِد (`MeetingController::staffCard`، قرار المالك 2026-10-01): `canAct` أفعال الاجتماع
+     * ومحضره، و`canEnter` الغرفة والتسجيل — الموظّف بلا صلةٍ يطّلع فقط. غائبان ⇒ مسموح (بطاقات لا تمرّ بالمتحكّم).
+     */
+    canAct?: boolean;
+    canEnter?: boolean;
     priority: string;
     conf: string;
+    /** اجتماعٌ سرّيّ؟ (`Meeting::isConfidential`) — الشارة تقرأ العلَم لا نصّ `conf`. */
+    confidential: boolean;
     attend: number;
     // القياس من سجلّ Zoom — null تعني «لم يُقَس» لا صفراً
     attendedCount: number | null;
@@ -170,7 +177,7 @@ export interface MeetReqCard {
     meetId: string | null;
     meetLink: string | null;
     meetingRef: string | null; // مرجع الاجتماع المرتبط (M-…) للغرفة المضمّنة
-    canJoin?: boolean; // زر الدخول يُفعَّل قبل الموعد بـ5 دقائق (يرسله MeetRequest::toCard)
+    canJoin?: boolean; // زر الدخول يُفعَّل قبل الموعد بـ`session_join_opens_minutes` (يرسله MeetRequest::toCard)
 }
 
 /** خيارُ ملفٍّ للعميل: `subject` هو موضوعه في القاعدة — null إن لم يُسجَّل. */
@@ -179,6 +186,30 @@ export interface ClientDirEntry { id: number; name: string; items: ClientFileOpt
 
 // غرفة الاجتماع لدور المكتب: انتقلت إلى الغرفة الواحدة `RoomPage` (`lib/zoom-room.tsx`) — تفاصيلها
 // وزرُّ إنهائها من عقد الخادم `room`، والإنهاء داخل الغرفة لا بطاقةٌ تحتها (قرار المالك 2026-09-26).
+
+/** تصفية قائمة الدعوات — التبويبات الثلاث ومؤشّرات الأعلى. */
+type MrFilter = 'active' | 'all' | 'archive' | 'pending' | 'published' | 'held' | 'today';
+
+/** حالة الدعوة للعرض: شارةٌ واحدة ومجموعتها — بدل مسار المراحل الأربع مكرّراً في كلّ صفّ. */
+function mrState(stage: number): { label: string; tone: string; group: 'pending' | 'published' | 'held' | 'archive' } {
+    switch (stage) {
+        case 0: return { label: MR_FLOW[0], tone: 'b-amber', group: 'pending' };
+        case 1: return { label: MR_FLOW[1], tone: 'b-green', group: 'published' };
+        case 2: return { label: MR_FLOW[2], tone: 'b-blue', group: 'held' };
+        case 3: return { label: 'معتمد', tone: 'b-green', group: 'held' };
+        case 4: return { label: 'منتهية الصلاحية', tone: 'b-red', group: 'archive' };
+        default: return { label: 'أُلغيت', tone: 'b-grey', group: 'archive' };
+    }
+}
+
+/** أيقونة بحسب نوع اللقاء — كانت أيقونة الفيديو للحضوريّ والهاتفيّ أيضاً. */
+function mrTypeIcon(type: string): string {
+    if (type.includes('حضور')) {
+        return 'office';
+    }
+
+    return type.includes('هاتف') ? 'phone' : 'video';
+}
 
 // ============================================================
 // طلبات الاجتماعات — صفحة مشتركة للموظف/المحامي/الإدارة
@@ -239,6 +270,10 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
     const toast = useToast();
     const ask = useConfirm();
     const mask = useMasker();
+    const joinOpens = useJoinOpensText();
+    // التبويب الافتراضيّ «النشطة»: الملغاة والمنتهية في «الأرشيف» (قرار المالك 2026-09-30)
+    const [filter, setFilter] = useState<MrFilter>('active');
+    const [search, setSearch] = useState('');
     const [open, setOpen] = useState(false);
     // إن كان المُنشئ محاميًا فهو المحامي المسؤول حصراً (لا يختار غيره)
     const selfLawyerName = selfLawyerId ? lawyers.find((l) => l.id === selfLawyerId)?.name : null;
@@ -264,12 +299,14 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
     const caseOptions = clients.find((c) => c.id === miClient)?.items ?? [];
     // المتاح: غير المحجوز (والخادم يحجب ما مضى من اليوم — `MeetRequestController::availability`)
     const availableSlots = useMemo(() => allSlotsWithStatus.filter((x) => !x.taken).map((x) => x.time), [allSlotsWithStatus]);
-    // صفّر الوقت إن لم يعد متاحاً بعد تغيير المحامي/اليوم/المدة
+    // صفّر الوقت إن صار شريحةً محجوزة بعد تغيير المحامي/اليوم — والوقت المخصّص يبقى (كان يُمسح لحظة إدخاله)
     useEffect(() => {
- if (miTime && !availableSlots.includes(miTime)) {
-setMiTime('');
-} 
-}, [availableSlots, miTime]);
+        const kept = keepChosenTime(miTime, allSlotsWithStatus);
+
+        if (kept !== miTime) {
+            setMiTime(kept);
+        }
+    }, [allSlotsWithStatus, miTime]);
 
     const submitInvite = () => {
         if (!miClient) {
@@ -290,7 +327,6 @@ setMiTime('');
  return; 
 }
 
-        const name = clients.find((c) => c.id === miClient)?.name ?? '';
         router.post(`${base}/meetreqs`, {
             client_id: miClient, lawyer_id: miLawyer, service: miService, type: miType,
             case_ref: miCase, day: miDay, time: miTime,
@@ -299,7 +335,8 @@ setMiTime('');
             onSuccess: () => {
                 setOpen(false);
                 setMiService(''); setMiTime('');
-                toast(`تم إرسال الدعوة وإشعارها إلى العميل: ${name}`);
+                // لا إشعار هنا: الخادم يقول ما وقع (نُشرت للعميل أم تنتظر موافقة الإدارة) عبر
+                // `flash.success` فيعرضه `ServerFeedback` — كان النصّ الثابت يدّعي وصولها للعميل.
             },
             onError: (e) => toast(e.time || e.day || e.lawyer_id || e.message || 'تعذّر إرسال الدعوة'),
         });
@@ -323,7 +360,7 @@ setMiTime('');
         router.post(`${base}/meetreqs/${r.dbId}/cancel`, {}, {
             preserveScroll: true,
             onSuccess: () => toast('أُلغيت الدعوة واجتماعها'),
-            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر إلغاء الدعوة'),
+            onError: (e) => toast(firstError(e, 'تعذّر إلغاء الدعوة')),
         });
     };
 
@@ -332,7 +369,7 @@ setMiTime('');
         router.post(`${base}/meetreqs/${r.dbId}/approve`, {}, {
             preserveScroll: true,
             onSuccess: () => toast('تمت الموافقة على الدعوة ونشرها للعميل'),
-            onError: (e) => toast(Object.values(e)[0] ?? 'الموافقة متاحة للدعوات المعلّقة فقط'),
+            onError: (e) => toast(firstError(e, 'الموافقة متاحة للدعوات المعلّقة فقط')),
         });
 
     // دخول الغرفة المضمّنة كمضيف ويعلّم «تنفيذ الجلسة»
@@ -393,106 +430,157 @@ setMiTime('');
         toast('تم نسخ رابط الاجتماع');
     };
 
+    // ── العرض: مؤشّرات قابلة للنقر، وتبويبات، وبحث، والقادم أوّلاً (تحسين التصميم 2026-09-30) ──
+    const nowKey = `${todayISO()} ${new Date().toTimeString().slice(0, 5)}`;
+    const rowsAll = useMemo(() => requests.map((r) => ({ r, when: whenParts(r.day, r.time), state: mrState(r.stage) })), [requests]);
+    const todayKey = todayISO();
+    const matches: Record<MrFilter, (x: (typeof rowsAll)[number]) => boolean> = {
+        active: (x) => x.state.group !== 'archive',
+        all: () => true,
+        archive: (x) => x.state.group === 'archive',
+        pending: (x) => x.r.stage === 0,
+        published: (x) => x.r.stage === 1,
+        held: (x) => x.state.group === 'held',
+        today: (x) => x.state.group !== 'archive' && x.when.key.startsWith(todayKey),
+    };
+    const q = search.trim();
+    const rows = rowsAll
+        .filter(matches[filter])
+        .filter((x) => q === '' || foldSearch(`${x.r.id} ${mask(x.r.client)} ${x.r.service} ${x.r.caseRef ?? ''}`).includes(foldSearch(q)))
+        // القادم أوّلاً بأقرب موعد، ثمّ ما مضى بأحدثه
+        .sort((a, b) => {
+            const au = a.when.key >= nowKey;
+            const bu = b.when.key >= nowKey;
+
+            if (au !== bu) {
+                return au ? -1 : 1;
+            }
+
+            return au ? a.when.key.localeCompare(b.when.key) : b.when.key.localeCompare(a.when.key);
+        });
+    const count = (f: MrFilter) => rowsAll.filter(matches[f]).length;
+    const statFilters: MrFilter[] = ['pending', 'published', 'today', 'held', 'archive'];
+    const stats: StatItem[] = [
+        ['t-amber', 'clock', count('pending'), 'بانتظار موافقة الإدارة'],
+        ['t-green', 'send', count('published'), 'منشورة للعميل'],
+        ['t-blue', 'cal', count('today'), 'مواعيد اليوم'],
+        ['t-cyan', 'check', count('held'), 'نُفِّذت'],
+        ['t-red', 'out', count('archive'), 'منتهية أو ملغاة'],
+    ];
+    const narrowed = !['active', 'all', 'archive'].includes(filter);
+
     return (
         <>
-            <div className="ai-banner">
-                <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
-                <p>
-                    يرسل الموظف/المحامي الدعوة فتمرّ بموافقة الإدارة العليا قبل نشرها للعميل. <b>المسار:</b> بانتظار موافقة الإدارة ← نشر الدعوة للعميل ← تنفيذ الجلسة ← اعتماد المحضر والملخص.
-                </p>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
-                <button className="btn" onClick={() => setOpen(true)} type="button">
-                    <Icon name="send" /> إرسال دعوة اجتماع للعميل
-                </button>
+            <div className="mr-stats">
+                <StatRow items={stats} onSelect={(i) => setFilter(statFilters[i])} />
             </div>
 
             <div className="card">
-                <div className="card-h">
-                    <h3>طلبات الاجتماعات</h3>
-                    <span className="sub">{requests.length} دعوة</span>
+                <div className="card-h mr-head">
+                    <div>
+                        <h3>طلبات الاجتماعات</h3>
+                        <span className="sub">تمرّ الدعوة بموافقة الإدارة ثمّ تُنشر للعميل، وبعد الجلسة يُعتمد المحضر والملخّص.</span>
+                    </div>
+                    <button className="btn" onClick={() => setOpen(true)} type="button">
+                        <Icon name="send" /> إرسال دعوة اجتماع للعميل
+                    </button>
                 </div>
-                <div className="card-b">
-                    {requests.length ? requests.map((r) => (
-                        <div key={r.id} className="item">
-                            <div className="iico"><Icon name="video" /></div>
-                            <div className="imeta">
-                                <b>{r.id} — {mask(r.client)}</b>
-                                <span style={{ display: 'block', margin: '3px 0' }}>
-                                    {r.type} · {r.service} · {r.day} {r.time} · أرسلها: {r.by || 'المكتب'}
-                                </span>
 
-                                {r.stage < 4 && (
-                                    <span><FlowLine steps={MR_FLOW} cur={r.stage} /></span>
+                <div className="mr-tools">
+                    <div className="mtabs" role="tablist">
+                        {([['active', 'النشطة'], ['all', 'الكلّ'], ['archive', 'الأرشيف']] as [MrFilter, string][]).map(([k, label]) => (
+                            <button key={k} type="button" role="tab" aria-selected={filter === k} className={`mtab ${filter === k ? 'on' : ''}`} onClick={() => setFilter(k)}>
+                                {label} <span className="sub">({count(k)})</span>
+                            </button>
+                        ))}
+                        {narrowed && (
+                            <span className="chip">
+                                {stats[statFilters.indexOf(filter)][3]}
+                                <button type="button" className="chip-x" onClick={() => setFilter('active')} aria-label="إزالة التصفية">✕</button>
+                            </span>
+                        )}
+                    </div>
+                    <input className="input" type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث باسم العميل أو رقم الدعوة أو الملفّ…" />
+                </div>
+
+                <div className="card-b">
+                    {rows.length ? rows.map(({ r, when, state }) => (
+                        <div key={r.id} className={`mr-row ${state.group === 'archive' ? 'is-archived' : ''}`}>
+                            <div className="mr-date" title={`${when.weekday} ${when.day} ${when.month}`}>
+                                <b>{when.day}</b>
+                                <span>{when.month}</span>
+                                <small>{when.weekday}</small>
+                            </div>
+
+                            <div className="mr-main">
+                                <div className="mr-top">
+                                    <b className="mr-client">{mask(r.client)}</b>
+                                    <Badge text={state.label} tone={state.tone} />
+                                </div>
+                                <div className="mr-sub">
+                                    <Icon name={mrTypeIcon(r.type)} /> {r.type}
+                                    <span className="mr-dot">·</span> <span className="mr-time">{when.time}</span>
+                                    {r.service && <><span className="mr-dot">·</span> {r.service}</>}
+                                </div>
+                                <div className="mr-foot">
+                                    <span className="mono">{r.id}</span>
+                                    {r.caseRef && <span className="chip muted">{r.caseRef}</span>}
+                                    <span>أرسلها: {r.by || 'المكتب'}</span>
+                                    {r.stage < 4 && (
+                                        <span className="mr-steps" title={`المرحلة: ${MR_FLOW[r.stage]}`} aria-label={`المرحلة ${r.stage + 1} من ${MR_FLOW.length}: ${MR_FLOW[r.stage]}`}>
+                                            {MR_FLOW.map((step, i) => <i key={step} className={i <= r.stage ? 'on' : ''} />)}
+                                        </span>
+                                    )}
+                                </div>
+                                {r.stage >= 1 && r.stage < 3 && r.meetLink && r.canJoin === false && when.key >= nowKey && (
+                                    <div className="mr-hint"><Icon name="clock" /> يُفتح الدخول قبل الموعد بـ{joinOpens}</div>
                                 )}
                             </div>
-                            <div className="iact">
-                                {r.stage === 5 ? (
-                                    /* أُلغيت — سجلّ تاريخي بلا أي إجراء (كان الحذف الصلب يُخفيها بلا أثر) */
-                                    <Badge text="أُلغيت" tone="b-red" />
-                                ) : r.stage === 4 ? (
-                                    <>
-                                        <Badge text="منتهية الصلاحية" tone="b-red" />
-                                        <button className="btn sm" onClick={() => {
- setResendOf(r); setRsDay(todayISO()); setRsTime(''); 
-}} type="button">
-                                            <Icon name="send" /> إعادة إرسال بموعد جديد
-                                        </button>
-                                    </>
-                                ) : r.stage >= 3 ? (
-                                    <Badge text="معتمد" tone="b-green" />
-                                ) : r.stage === 0 ? (
-                                    <>
-                                        <span className="chip muted">بانتظار موافقة الإدارة</span>
-                                        {/* بوّابة النشر: الإدارة وحدها توافق فتُنشأ الجلسة ويُشعر العميل */}
-                                        {base === '/admin' && (
-                                            <button className="btn sm" onClick={() => approveReq(r)} type="button">
-                                                <Icon name="check" /> موافقة ونشر
-                                            </button>
-                                        )}
-                                        <button className="btn soft sm" onClick={() => cancel(r)} type="button">
-                                            <Icon name="out" /> إلغاء
-                                        </button>
-                                    </>
-                                ) : r.stage === 1 ? (
-                                    /*
-                                     * **المرحلة ١ نجاحٌ لا انتظار.** كان الشرط `stage < 2` يبتلعها،
-                                     * فبعد الموافقة تُعاد البطاقة «بانتظار موافقة الإدارة» وزرُّ
-                                     * «موافقة ونشر» قائم — فتُنقر ثانيةً ويردّ الخادم ٤٢٢ صامتاً.
-                                     * و`MR_FLOW[1]` نفسها تقول: «معتمدة ومنشورة للعميل».
-                                     */
-                                    <>
-                                        <Badge text={MR_FLOW[1]} tone="b-green" />
-                                        {/* الإلغاء يبقى متاحاً قبل الانعقاد — والخادم يشترط stage < 2 */}
-                                        <button className="btn soft sm" onClick={() => cancel(r)} type="button">
-                                            <Icon name="out" /> إلغاء
-                                        </button>
-                                    </>
-                                ) : (
-                                    <span className="chip muted">{MR_FLOW[r.stage] ?? 'قيد المعالجة'}</span>
+
+                            <div className="mr-act">
+                                {r.stage === 4 && (
+                                    <button className="btn sm" onClick={() => {
+                                        setResendOf(r); setRsDay(todayISO()); setRsTime('');
+                                    }} type="button">
+                                        <Icon name="send" /> إعادة إرسال بموعد جديد
+                                    </button>
+                                )}
+                                {/* بوّابة النشر: الإدارة وحدها توافق فتُنشأ الجلسة ويُشعر العميل */}
+                                {r.stage === 0 && base === '/admin' && (
+                                    <button className="btn sm" onClick={() => approveReq(r)} type="button">
+                                        <Icon name="check" /> موافقة ونشر
+                                    </button>
                                 )}
                                 {/* كان stage===1 حصراً: بدء الجلسة يرفعها لـ2 فتختفي أزرار المكتب لحظة انعقادها */}
-                                {r.stage >= 1 && r.stage < 3 && r.meetLink && (
-                                    r.canJoin === false ? (
-                                        <button className="btn sm" type="button" disabled style={{ opacity: 0.65, cursor: 'not-allowed' }} title="يُفعَّل الدخول قبل الموعد بـ 5 دقائق">
-                                            <Icon name="clock" /> الدخول (قبل الموعد بـ5 د)
+                                {r.stage >= 1 && r.stage < 3 && r.meetLink && r.canJoin !== false && (
+                                    <>
+                                        <button className="btn sm" onClick={() => enterRoom(r)} type="button">
+                                            <Icon name="video" /> {r.type.indexOf('مرئية') >= 0 ? 'دخول جلسة Zoom' : 'دخول'}
                                         </button>
-                                    ) : (
-                                        <>
-                                            <button className="btn soft sm" onClick={() => copyLink(r)} type="button">
-                                                <Icon name="link" /> نسخ الرابط
-                                            </button>
-                                            <button className="btn sm" onClick={() => enterRoom(r)} type="button">
-                                                <Icon name="video" /> {r.type.indexOf('مرئية') >= 0 ? 'دخول جلسة Zoom' : 'دخول'}
-                                            </button>
-                                        </>
-                                    )
+                                        <button className="btn soft sm" onClick={() => copyLink(r)} type="button">
+                                            <Icon name="link" /> نسخ الرابط
+                                        </button>
+                                    </>
+                                )}
+                                {/* الإلغاء قبل الانعقاد وحده — والخادم يشترط stage < 2 */}
+                                {r.stage < 2 && (
+                                    <button className="btn soft sm mr-cancel" onClick={() => cancel(r)} type="button">
+                                        <Icon name="out" /> إلغاء
+                                    </button>
                                 )}
                             </div>
                         </div>
                     )) : (
-                        <div className="empty"><Icon name="video" /><b>لا دعوات اجتماعات حالياً</b></div>
+                        <div className="empty">
+                            <Icon name="video" />
+                            <b>{requests.length ? 'لا دعوات مطابقة' : 'لا دعوات اجتماعات حالياً'}</b>
+                            {requests.length > 0 && (
+                                <button className="btn soft sm" type="button" onClick={() => {
+                                    setFilter('all');
+                                    setSearch('');
+                                }}>عرض كلّ الدعوات</button>
+                            )}
+                        </div>
                     )}
                 </div>
             </div>
@@ -630,18 +718,6 @@ setMiTime('');
 // تفاصيل الاجتماع — مشتركة للمحامي/الإدارة (يطابق meetingView)
 // ============================================================
 
-// عُلّقت (قرار: لا قالب وهمي) — كانت تحشو الحقول بنصّ مركَّب من قوائم افتراضية فيُحفَظ كأنه محضر
-/* function defaultMinutes(m: FullMeetingCard): string {
-    return `محضر اجتماع: ${m.title}\nالنوع: ${m.type}\nالتاريخ: ${m.when}\n\n` +
-        `أبرز ما دار:\n- ${m.during.join('\n- ')}\n\n` +
-        `القرارات والمهام:\n- ${m.after.join('\n- ')}`;
-}
-
-function defaultSummary(m: FullMeetingCard): string {
-    return `ملخص اجتماع: ${m.title} — ${m.type}. أبرز ما دار: ${m.during.join(' ، ')}. ` +
-        `الخلاصة والقرارات: ${m.after.join(' ، ')}.`;
-} */
-
 /**
  * **إعادة جدولة الاجتماع — بالنافذة المشتركة وسببٍ إلزاميّ.**
  *
@@ -690,7 +766,7 @@ const MeetingRescheduleDialog: React.FC<{ meeting: FullMeetingCard; base: string
                             toast(postpone ? 'أُجّل الاجتماع بلا موعد' : 'أُعيدت جدولة الاجتماع', 'success');
                             onClose();
                         },
-                        onError: (errors) => toast(String(Object.values(errors)[0] ?? 'تعذّرت إعادة الجدولة'), 'error'),
+                        onError: (errors) => toast(firstError(errors, 'تعذّرت إعادة الجدولة'), 'error'),
                         onFinish: () => resolve(),
                     });
                 })
@@ -751,6 +827,10 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
      * وقبل الاعتماد النصّ **مسوّدة** تُحفظ وتُعدَّل بحرّية — الحفظ ليس اعتماداً.
      */
     const locked = approved || m.sumApproved;
+    // للاطّلاع فقط: موظّفٌ لا صلة له بالاجتماع — لا حفظ ولا أفعال ولا غرفة (الخادم يردّها بالسبب نفسه)
+    const canAct = m.canAct !== false;
+    const canEnter = m.canEnter !== false;
+    const readOnly = locked || !canAct;
 
     // لا قالب وهمي (قرار صاحب المنتج): الحقول تبدأ بمحتواها الفعلي أو فارغة —
     // التلميح في placeholder لا في القيمة، فلا يُحفَظ نصّ مركَّب لم يكتبه أحد
@@ -831,7 +911,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
         router.post(`${base}/meetings/${m.dbId}/summary`, { summary }, {
             preserveScroll: true,
             onSuccess: () => toast('تم حفظ الملخص'),
-            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر حفظ الملخص'),
+            onError: (e) => toast(firstError(e, 'تعذّر حفظ الملخص')),
         });
     };
     const saveMinutes = () => {
@@ -844,7 +924,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
         router.post(`${base}/meetings/${m.dbId}/minutes`, { minutes }, {
             preserveScroll: true,
             onSuccess: () => toast('تم حفظ المحضر'),
-            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر حفظ المحضر'),
+            onError: (e) => toast(firstError(e, 'تعذّر حفظ المحضر')),
         });
     };
 
@@ -888,7 +968,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
         router.post(`${base}/meetings/${m.dbId}/start`, {}, {
             preserveScroll: true,
             onSuccess: () => toast('بدأت الجلسة'),
-            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر بدء الاجتماع'),
+            onError: (e) => toast(firstError(e, 'تعذّر بدء الاجتماع')),
         });
     // الإنهاء والإلغاء بعد تأكيدٍ يقول أثره (قرار المالك 2026-09-26) — لا يُتراجع عنهما
     const submitEnd = async () => {
@@ -907,7 +987,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
             onSuccess: () => {
                 setLcMode(null); toast('أُنهي الاجتماع وأُغلقت غرفته');
             },
-            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر إنهاء الاجتماع'),
+            onError: (e) => toast(firstError(e, 'تعذّر إنهاء الاجتماع')),
         });
     };
     const cancelMeeting = async () => {
@@ -924,7 +1004,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
         router.post(`${base}/meetings/${m.dbId}/cancel`, {}, {
             preserveScroll: true,
             onSuccess: () => toast('أُلغي الاجتماع وحُذفت غرفته'),
-            onError: (e) => toast(Object.values(e)[0] ?? 'تعذّر إلغاء الاجتماع'),
+            onError: (e) => toast(firstError(e, 'تعذّر إلغاء الاجتماع')),
         });
     };
 
@@ -934,7 +1014,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
             preserveScroll: true,
             // الحالة الجديدة تصل بإعادة تحميل البطاقة من الخادم (والبثّ) — لا نصّ «معتمد» يُكتب هنا
             onSuccess: () => toast('اعتُمد الاجتماع — وصل المحضر والملخص للعميل'),
-            onError: (e) => toast(Object.values(e)[0] ?? 'الاعتماد متاح بعد انتهاء الاجتماع ووصول ملخص Zoom أو التدوين اليدوي'),
+            onError: (e) => toast(firstError(e, 'الاعتماد متاح بعد انتهاء الاجتماع ووصول ملخص Zoom أو التدوين اليدوي')),
         });
 
     // ألوان حالة الاجتماع — مبنية على CSS variables المنصة (--deep / --primary / --cyan / --amber / --success / --red / --muted)
@@ -1019,7 +1099,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                             <Badge text={status} tone={meetStatusTone(status)} />
                             <Badge text={approve} tone={approved ? 'b-green' : 'b-amber'} />
-                            {m.conf === 'سري' && (
+                            {m.confidential && (
                                 <span style={{
                                     display: 'inline-flex', alignItems: 'center', gap: 4,
                                     background: 'rgba(192,57,43,0.85)', borderRadius: 8,
@@ -1053,7 +1133,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                 </div>
 
                 {/* شريط الإجراءات السريعة */}
-                {(m.meetLink && manageable) && (
+                {(m.meetLink && manageable && canEnter) && (
                     <div style={{
                         marginTop: 20, paddingTop: 16,
                         borderTop: '1px solid rgba(255,255,255,0.2)',
@@ -1092,7 +1172,12 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
             {/* ═══════════════════════════════════════
                 🎮  إدارة دورة حياة الاجتماع
             ════════════════════════════════════════ */}
-            {canReschedule && (
+            {!canAct && (
+                <div className="card" style={{ marginBottom: 18, padding: '12px 16px', color: 'var(--muted)', fontSize: 13 }}>
+                    <Icon name="info" /> للاطّلاع فقط — يتصرّف في هذا الاجتماع المسؤول عنه والمشاركون ومرسل دعوته.
+                </div>
+            )}
+            {canReschedule && canAct && (
                 <div className="card" style={{ marginBottom: 18 }}>
                     <div className="card-h">
                         <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1239,9 +1324,9 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
 
                         {/* مخرجات الجلسة عبر الخادم — تشغيلٌ وتنزيلٌ داخل النظام، لا نافذةَ سحابة Zoom */}
                         <div style={{ padding: '12px 16px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                            <SessionMediaPanel media={m.media} urls={meetingMediaUrls(base, m.dbId)} />
+                            {canEnter && <SessionMediaPanel media={m.media} urls={meetingMediaUrls(base, m.dbId)} />}
                             {/* النصّ يُجلب من مسار التسجيلات نفسه — يُخفى عمّن لا يملك «تشغيل تسجيلات الجلسات» */}
-                            {(m.transcript || statusKey === 'ended') && !m.media?.locked && (
+                            {canEnter && (m.transcript || statusKey === 'ended') && !m.media?.locked && (
                                 <button type="button" onClick={openTranscript}
                                     style={{
                                         display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -1254,7 +1339,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                                 </button>
                             )}
                             {/* المزامنة تُغيّر القرارات والمشاركين، وهما ممّا يشمله الاعتماد — فتُمنع بعده */}
-                            {statusKey === 'ended' && !locked && (
+                            {statusKey === 'ended' && !readOnly && (
                                 <button type="button" onClick={syncFromZoom} disabled={syncing}
                                     style={{
                                         display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -1334,9 +1419,9 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                     </div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         {locked && <Badge text="الملخص معتمد ومُرسل للعميل" tone="b-green" />}
-                        {locked ? (
+                        {readOnly ? (
                             <span style={{ fontSize: '11.5px', color: 'var(--muted)' }}>
-                                اعتمدت الإدارة هذا النصّ ووصل العميل — لا يُعدَّل
+                                {locked ? 'اعتمدت الإدارة هذا النصّ ووصل العميل — لا يُعدَّل' : 'للاطّلاع فقط'}
                             </span>
                         ) : (
                             <button
@@ -1353,13 +1438,13 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                 <div style={{ padding: '14px 18px' }}>
                     <textarea
                         value={summary}
-                        readOnly={locked}
+                        readOnly={readOnly}
                         placeholder="بانتظار ملخص الجلسة من Zoom — أو دوّن الملخص يدوياً هنا"
                         onChange={(e) => setSummary(e.target.value)}
                         style={{
                             width: '100%', minHeight: 120,
                             opacity: locked ? 0.75 : 1,
-                            cursor: locked ? 'not-allowed' : 'auto',
+                            cursor: readOnly ? 'not-allowed' : 'auto',
                             border: '1px solid var(--line-soft)',
                             borderRadius: 10, padding: '10px 14px',
                             fontSize: '13.5px', lineHeight: 1.7,
@@ -1415,9 +1500,9 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                             {locked ? '✓ معتمد' : 'مسودة'}
                         </span>
                     </div>
-                        {locked ? (
+                        {readOnly ? (
                             <span style={{ fontSize: '11.5px', color: 'var(--muted)' }}>
-                                اعتمدت الإدارة هذا النصّ ووصل العميل — لا يُعدَّل
+                                {locked ? 'اعتمدت الإدارة هذا النصّ ووصل العميل — لا يُعدَّل' : 'للاطّلاع فقط'}
                             </span>
                         ) : (
                         <button
@@ -1432,13 +1517,13 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                 <div style={{ padding: '14px 18px' }}>
                     <textarea
                         value={minutes}
-                        readOnly={locked}
+                        readOnly={readOnly}
                         placeholder="بانتظار ملخص الجلسة من Zoom — أو دوّن أبرز ما دار والقرارات يدوياً هنا"
                         onChange={(e) => setMinutes(e.target.value)}
                         style={{
                             width: '100%', minHeight: 160,
                             opacity: locked ? 0.75 : 1,
-                            cursor: locked ? 'not-allowed' : 'auto',
+                            cursor: readOnly ? 'not-allowed' : 'auto',
                             border: '1px solid var(--line-soft)',
                             borderRadius: 10, padding: '10px 14px',
                             fontSize: '13.5px', lineHeight: 1.7,
@@ -1463,13 +1548,13 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                         }}><Icon name="check" /></span>
                         القرارات والمهام
                     </h3>
-                    <button
+                    {canAct && <button
                         className="btn soft sm" onClick={decisionsToTasks} type="button"
                         disabled={tasksDone || decisions.length === 0}
                         style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                     >
                         <Icon name="check" /> {tasksDone ? '✓ حُوّلت إلى مهام' : 'تحويل القرارات إلى مهام'}
-                    </button>
+                    </button>}
                 </div>
                 <div className="card-b" style={{ padding: '14px 18px' }}>
                     {decisions.length ? (
@@ -1577,6 +1662,7 @@ const needsOutput = (m: FullMeetingCard) => m.statusKey === 'ended' && (!m.summa
 const needsApproval = (m: FullMeetingCard) => m.canApprove;
 
 export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: string }> = ({ meetings, base }) => {
+    const joinOpens = useJoinOpensText();
     const openPage = (id: string) => router.visit(`${base}/meeting?id=${encodeURIComponent(id)}`);
     // يُفتح على «قادمة»، وإن لم يكن ثمّة قادمٌ فعلى «المنتهية» — لا شاشةٍ فارغةٍ
     // والقائمةُ مليئة. (تهيئةٌ كسولة لا تأثيرٌ جانبيّ: بلا إعادة تصيير.)
@@ -1664,110 +1750,109 @@ export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: str
 
     return (
         <>
-            <div className="ai-banner">
-                <div className="ab"><img src="/images/mono.jpg" alt="" /></div>
-                <p>تابع جدول اجتماعات المكتب، وأعِدّ محاضرها وملخّصاتها، واعرضها على الإدارة لاعتمادها — وبالاعتماد تصل الموكّل.</p>
+            <div className="mr-stats">
+                <StatRow items={stats} onSelect={(i) => setTab(STAT_TABS[i])} />
             </div>
 
-            <StatRow items={stats} onSelect={(i) => setTab(STAT_TABS[i])} />
+            <div className="card">
+                <div className="card-h mr-head">
+                    <div>
+                        <h3>جدول الاجتماعات</h3>
+                        <span className="sub">تابع اجتماعات المكتب، وأعِدّ محاضرها وملخّصاتها، واعرضها على الإدارة لاعتمادها — وبالاعتماد تصل الموكّل.</span>
+                    </div>
+                </div>
 
-            <div className="card" style={{ marginBottom: 18 }}>
-                <div className="card-b" style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div className="filter-pills" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderBottom: '1px solid var(--line-soft)', paddingBottom: 12 }}>
-                        {TABS.map(([key, icon, label, n]) => (
-                            <button
-                                key={key}
-                                type="button"
-                                className={`btn sm ${tab === key ? '' : 'soft'}`}
-                                style={{ boxShadow: tab === key ? undefined : 'none' }}
-                                onClick={() => setTab(key)}
-                            >
-                                <Icon name={icon} /> {label} ({n})
+                <div className="mr-tools">
+                    <div className="mtabs" role="tablist">
+                        {TABS.map(([key, , label, n]) => (
+                            <button key={key} type="button" role="tab" aria-selected={tab === key} className={`mtab ${tab === key ? 'on' : ''}`} onClick={() => setTab(key)}>
+                                {label} <span className="sub">({n})</span>
                             </button>
                         ))}
                     </div>
-                    <div className="search" style={{ maxWidth: 320, padding: '7px 12px' }}>
-                        <Icon name="search" />
-                        <input
-                            placeholder="بحث بالعنوان أو الموكّل أو المستشار أو المرجع…"
-                            value={q}
-                            onChange={(e) => setQ(e.target.value)}
-                        />
-                        {q && (
-                            <button type="button" onClick={() => setQ('')} style={{ color: 'var(--faint)' }}>
-                                <Icon name="close" />
-                            </button>
-                        )}
-                    </div>
+                    <input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث بالعنوان أو الموكّل أو المستشار أو المرجع…" />
                 </div>
-            </div>
 
-            {shown.length ? shown.map((m) => (
-                <div key={m.id} className="card">
-                    <div className="card-h">
-                        <h3>{m.title}</h3>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                            {/* شارة الحالة الحيّة — كانت البطاقة بلا حالة فلا يُفرَّق القادم عن «لم ينعقد» */}
-                            <Badge text={m.status} tone={meetStatusTone(m.status)} />
-                            <Badge text={m.approve} tone={m.approved ? 'b-green' : 'b-amber'} />
-                        </div>
-                    </div>
-                    <div className="card-b" style={{ padding: '14px 18px' }}>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-                            <span className="chip muted">{m.type}</span>
-                            <span className="chip muted">{m.client}</span>
-                            <span className="chip muted">{m.when}</span>
-                            {m.lawyer !== '—' && <span className="chip muted"><Icon name="user" /> {m.lawyer}</span>}
-                            {m.caseRef && <span className="chip muted"><Icon name="scale" /> {m.caseRef}</span>}
-                        </div>
+                <div className="card-b">
+                    {shown.length ? shown.map((m) => {
+                        // الموعد من `startsAt` (ISO بإزاحة المكتب) — كان النصّ الخامّ «PM 01:00 · 2026-09-27» مقلوباً
+                        const when = m.startsAt ? whenParts(m.startsAt.slice(0, 10), m.startsAt.slice(11, 16)) : whenParts('', '');
+                        // المخرجات والاعتماد بعد الانعقاد وحده — «بلا محضر» على اجتماعٍ قادم تشويشٌ لا معلومة
+                        const held = !m.up && m.statusKey !== 'cancelled' && m.statusKey !== 'missed';
+                        const attendance = attendanceLabel(m);
 
-                        {/* ما لدى الاجتماع من مخرجات — يُعرف الناقصُ بلا فتح كلّ ملفّ */}
-                        <div className="prot-list" style={{ marginBottom: 12 }}>
-                            <span className="chip" style={{ opacity: m.summary ? 1 : 0.5 }}>{m.summary ? '✓ ملخّص' : 'بلا ملخّص'}</span>
-                            <span className="chip" style={{ opacity: m.minutes ? 1 : 0.5 }}>{m.minutes ? '✓ محضر' : 'بلا محضر'}</span>
-                            <span className="chip" style={{ opacity: m.decisions.length ? 1 : 0.5 }}>
-                                {m.decisions.length ? `✓ قرارات (${m.decisions.length})` : 'بلا قرارات'}
-                            </span>
-                            {m.transcript && <span className="chip">✓ نصّ حرفيّ</span>}
-                            {m.recording && <span className="chip">✓ تسجيل</span>}
-                            {/* الحضور من سجلّ Zoom — وما لم يُقَس لا يُذكر */}
-                            {attendanceLabel(m) && <span className="chip"><Icon name="user" /> {attendanceLabel(m)}</span>}
-                        </div>
+                        return (
+                            <div key={m.id} className={`mr-row ${m.statusKey === 'cancelled' ? 'is-archived' : ''}`}>
+                                <div className="mr-date">
+                                    <b>{when.day}</b>
+                                    <span>{when.month}</span>
+                                    <small>{when.weekday}</small>
+                                </div>
 
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                            {/* نافذة الدخول من الخادم (canJoin) — كما تحترمها بطاقة الموكّل تماماً */}
-                            {m.canJoin ? (
-                                <button className="btn sm" onClick={() => router.visit(`${base}/meetingroom?ref=${encodeURIComponent(m.id)}`)} type="button">
-                                    <Icon name="video" /> دخول اجتماع Zoom
+                                <div className="mr-main">
+                                    <div className="mr-top">
+                                        <button type="button" className="mr-client mr-link" onClick={() => openPage(m.id)}>{m.title}</button>
+                                        {/* شارة الحالة الحيّة — كانت البطاقة بلا حالة فلا يُفرَّق القادم عن «لم ينعقد» */}
+                                        <Badge text={m.status} tone={meetStatusTone(m.status)} />
+                                        {held && <Badge text={m.approve} tone={m.approved ? 'b-green' : 'b-amber'} />}
+                                    </div>
+                                    <div className="mr-sub">
+                                        <Icon name={mrTypeIcon(m.type)} /> {m.type}
+                                        {m.startsAt && <><span className="mr-dot">·</span> <span className="mr-time">{when.time}</span></>}
+                                        {/* الداخليّ: النوع والموكّل كلاهما «داخلي» — كان يُكتب مرّتين */}
+                                        {m.client !== m.type && <><span className="mr-dot">·</span> {m.client}</>}
+                                    </div>
+                                    <div className="mr-foot">
+                                        <span className="mono">{m.id}</span>
+                                        {m.lawyer !== '—' && <span><Icon name="user" /> {m.lawyer}</span>}
+                                        {m.caseRef && <span className="chip muted">{m.caseRef}</span>}
+                                    </div>
+                                    {held && (
+                                        <div className="mt-out">
+                                            <span className={m.summary ? 'on' : ''}>{m.summary ? '✓' : '—'} ملخّص</span>
+                                            <span className={m.minutes ? 'on' : ''}>{m.minutes ? '✓' : '—'} محضر</span>
+                                            <span className={m.decisions.length ? 'on' : ''}>{m.decisions.length ? `✓ قرارات (${m.decisions.length})` : '— قرارات'}</span>
+                                            {m.transcript && <span className="on">✓ نصّ حرفيّ</span>}
+                                            {m.recording && <span className="on">✓ تسجيل</span>}
+                                            {/* الحضور من سجلّ Zoom — وما لم يُقَس لا يُذكر */}
+                                            {attendance && <span className="on">{attendance}</span>}
+                                        </div>
+                                    )}
+                                    {m.up && !m.canJoin && (
+                                        <div className="mr-hint"><Icon name="clock" /> يُفتح الدخول قبل الموعد بـ{joinOpens}</div>
+                                    )}
+                                    {m.statusKey === 'missed' && (
+                                        <div className="mr-hint mr-hint-warn"><Icon name="calplus" /> فات موعده — أعِد جدولته من صفحته</div>
+                                    )}
+                                </div>
+
+                                <div className="mr-act">
+                                    {/* نافذة الدخول من الخادم (canJoin) — كما تحترمها بطاقة الموكّل تماماً */}
+                                    {m.canJoin && m.canEnter !== false && (
+                                        <button className="btn sm" onClick={() => router.visit(`${base}/meetingroom?ref=${encodeURIComponent(m.id)}`)} type="button">
+                                            <Icon name="video" /> دخول اجتماع Zoom
+                                        </button>
+                                    )}
+                                    <button className="btn soft sm" onClick={() => openPage(m.id)} type="button">
+                                        <Icon name="doc" /> فتح الصفحة
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    }) : (
+                        <div className="empty">
+                            <Icon name="video" />
+                            <b>{meetings.length ? 'لا اجتماع يطابق هذا الترشيح' : 'لا اجتماعات بعد'}</b>
+                            {!meetings.length && (
+                                <button className="btn sm" style={{ marginTop: 12 }} type="button"
+                                    onClick={() => router.visit(`${base}/meetreqs`)}>
+                                    <Icon name="send" /> أرسِل دعوة اجتماع لموكّل
                                 </button>
-                            ) : m.up ? (
-                                <span className="chip muted"><Icon name="clock" /> يُفتح الدخول قبل الموعد بخمس دقائق</span>
-                            ) : null}
-                            <button className="btn soft sm" onClick={() => openPage(m.id)} type="button">
-                                <Icon name="doc" /> فتح الصفحة
-                            </button>
-                            {m.statusKey === 'missed' && (
-                                <span className="chip" style={{ color: 'var(--amber)' }}>
-                                    <Icon name="calplus" /> فات موعده — أعِد جدولته من صفحته
-                                </span>
                             )}
                         </div>
-                    </div>
+                    )}
                 </div>
-            )) : (
-                <div className="card"><div className="card-b">
-                    <div className="empty">
-                        <Icon name="video" />
-                        <b>{meetings.length ? 'لا اجتماع يطابق هذا الترشيح' : 'لا اجتماعات بعد'}</b>
-                        {!meetings.length && (
-                            <button className="btn sm" style={{ marginTop: 12 }} type="button"
-                                onClick={() => router.visit(`${base}/meetreqs`)}>
-                                <Icon name="send" /> أرسِل دعوة اجتماع لموكّل
-                            </button>
-                        )}
-                    </div>
-                </div></div>
-            )}
+            </div>
         </>
     );
 };

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\User;
+use App\Support\Specialties;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -84,8 +85,8 @@ class ConsultJourneyHonestyTest extends TestCase
     {
         $ui = $this->ui();
 
-        $this->assertStringContainsString("?? 'تعذّر تنفيذ الإجراء')),", $ui);
-        $this->assertStringContainsString("?? 'تعذّر إنشاء المهامّ')),", $ui);
+        $this->assertStringContainsString("firstError(e, 'تعذّر تنفيذ الإجراء')", $ui);
+        $this->assertStringContainsString("firstError(e, 'تعذّر إنشاء المهامّ')", $ui);
     }
 
     // ————— ٣ · لا يُعرض فعلٌ يردّه الخادم —————
@@ -160,12 +161,12 @@ class ConsultJourneyHonestyTest extends TestCase
         $this->assertStringNotContainsString('fontSize: 11 }}>{a.time}</span>', $ui);
     }
 
+    /** الحكم في الخادم بالثابت الواحد (`Consult::specialtyLabel`) — لا مقارنةٌ بالنصّ في الواجهة. */
     public function test_the_all_departments_sentinel_is_not_shown_as_a_specialty(): void
     {
-        $this->assertStringContainsString(
-            "(c.specialty && c.specialty !== 'كل الأقسام') ? c.specialty : c.type",
-            $this->ui()
-        );
+        $this->assertSame('استشارة', Consult::specialtyLabel(Specialties::ALL_DEPARTMENTS, 'استشارة'));
+        $this->assertStringContainsString('{c.specialtyLabel}', $this->ui());
+        $this->assertStringNotContainsString("'كل الأقسام'", $this->ui());
     }
 
     public function test_the_server_does_not_ask_a_consult_for_meeting_minutes(): void

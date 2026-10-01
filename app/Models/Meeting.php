@@ -8,8 +8,10 @@ use App\Domain\Journey\Transitions\Meeting\EndMeeting;
 use App\Domain\Journey\Transitions\Meeting\StartMeeting;
 use App\Enums\Role;
 use App\Models\Concerns\TracksRevisions;
+use App\Support\ArabicCount;
 use App\Support\LawyerName;
 use App\Support\MeetingTime;
+use App\Support\Permissions;
 use App\Support\RecordingArchive;
 use App\Support\SessionWindow;
 use App\Support\SettingsRegistry;
@@ -27,19 +29,27 @@ class Meeting extends Model
 {
     use TracksRevisions;
 
+    /**
+     * نصّا العمودين `approve` و`conf` كما يُخزَّنان — الموضع الواحد لهما (قرار المالك 2026-10-01).
+     * المنطق يقرأ `isApproved()` / `isConfidential()` والواجهة علَمَي `approved` / `confidential`، لا النصّ.
+     */
+    public const APPROVED = 'معتمد';
+
+    public const CONF_SECRET = 'سري';
+
     protected $fillable = [
         'user_id', 'ref', 'title', 'type', 'client_name', 'when_label', 'starts_at', 'reminder_sent_at',
+        'reminder_near_sent_at', 'link_released_at',
         // `dur`: عمودٌ تاريخيّ — ما حُفظ فيه يبقى مسافةً محجوزة على تقويم المحامي (`LawyerAvailability`)،
         // ولا يُكتب جديداً ولا يُنهي الاجتماع (قرار المالك 2026-09-26).
         'status', 'priority', 'conf', 'attend', 'dur', 'approve',
-        'before_items', 'during_items', 'after_items',
         'summary', 'sum_approved', 'minutes', 'participants', 'case_ref',
         'decisions', 'tasks_created', 'suggested_tasks',
         'meet_id', 'meet_link', 'host_link', 'meet_password', 'created_by',
         'reschedule_requested_at', 'reschedule_count',
         'assigned_lawyer_id',
-        // is_up مهجور (deprecated): «القادم» يُشتق حيّاً من liveState/isUpcoming — لم يعد يُكتب ولا يُقرأ
-        'is_up', 'has_link', 'has_minutes', 'has_summary',
+        // «القادم» يُشتقّ حيّاً من liveState/isUpcoming (عمود is_up المهجور حُذف 2026-10-01)
+        'has_link', 'has_minutes', 'has_summary',
         'zoom_summary', 'zoom_summary_at',
         'recording_url', 'transcript_path', 'join_time', 'leave_time', 'duration_sec',
         'zoom_uuid', 'zoom_share_url', 'zoom_audio_url', 'zoom_participants_log', 'zoom_ai_next_steps',
@@ -50,30 +60,30 @@ class Meeting extends Model
         'reschedule_requested_at' => 'datetime',
         'reschedule_count' => 'integer',
         'reminder_sent_at' => 'datetime',
+        'reminder_near_sent_at' => 'datetime',
+        'link_released_at' => 'datetime',
         'zoom_summary_at' => 'datetime',
         'join_time' => 'datetime',
         'leave_time' => 'datetime',
-        'is_up' => 'boolean',
         'has_link' => 'boolean',
         'has_minutes' => 'boolean',
         'has_summary' => 'boolean',
         'sum_approved' => 'boolean',
         'tasks_created' => 'boolean',
-        'before_items' => 'array',
-        'during_items' => 'array',
-        'after_items' => 'array',
         'decisions' => 'array',
         'suggested_tasks' => 'array',
         'zoom_participants_log' => 'array',
         'zoom_ai_next_steps' => 'array',
     ];
 
+    /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
     // المحامي المسند بالمعرّف (لعزل الرؤية والبثّ)
+    /** @return BelongsTo<User, $this> */
     public function assignedLawyer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_lawyer_id');
@@ -105,6 +115,32 @@ class Meeting extends Model
     {
         return (int) $this->assigned_lawyer_id === (int) $user->id
             || $this->participantUsers()->whereKey($user->id)->exists();
+    }
+
+    /**
+     * **هل للموظّف صلةٌ تخوّله التصرّف في الاجتماع؟** (قرار المالك 2026-10-01) — كان أيّ موظّفٍ بصلاحيّة
+     * «إرسال دعوات الاجتماعات» يبدأ ويُنهي ويلغي ويعيد جدولة **كلّ** اجتماعات المكتب ويدخل غرفها
+     * (ثبت بالمتصفّح: ألغى موظّفٌ اجتماعاً لمحامٍ آخر). الصلة: مشاركٌ، أو مرسلُ دعوته — ومن مُنح
+     * «إدارة الاجتماعات» مشرفٌ على الكلّ. والاطّلاع على الاجتماع باقٍ للجميع (خدمة العملاء تجيب عن موعده).
+     *
+     * @param  array<int, int>|null  $invitedMeetingIds  معرّفات اجتماعات دعواته مجلوبةً مرّةً للقائمة كلّها (لا استعلام لكلّ صفّ)
+     */
+    public function employeeCanAct(User $user, ?array $invitedMeetingIds = null): bool
+    {
+        if ($user->can(Permissions::MANAGE_MEETINGS) || (int) $this->assigned_lawyer_id === (int) $user->id) {
+            return true;
+        }
+
+        $participant = $this->relationLoaded('participantUsers')
+            ? $this->participantUsers->contains('id', $user->id)
+            : $this->participantUsers()->whereKey($user->id)->exists();
+        if ($participant) {
+            return true;
+        }
+
+        return $invitedMeetingIds !== null
+            ? in_array((int) $this->id, $invitedMeetingIds, true)
+            : MeetRequest::where('meeting_id', $this->id)->where('sent_by_id', $user->id)->exists();
     }
 
     /**
@@ -305,7 +341,19 @@ class Meeting extends Model
     /** اعتمدت الإدارة المحضر والملخص؟ — الموضع الوحيد الذي يقرأ نصّ العمود `approve`. */
     public function isApproved(): bool
     {
-        return $this->approve === 'معتمد';
+        return $this->approve === self::APPROVED;
+    }
+
+    /** اجتماعٌ سرّيّ؟ — يقرؤه إنشاء جلسة Zoom (`createMeeting`) وعلَم `confidential` في البطاقة. */
+    public function isConfidential(): bool
+    {
+        return self::isConfidentialLevel($this->conf);
+    }
+
+    /** مستوى السرّيّة المُرسَل (قبل وجود الاجتماع) سرّيّ؟ — المقارنة الواحدة بالثابت. */
+    public static function isConfidentialLevel(?string $conf): bool
+    {
+        return $conf === self::CONF_SECRET;
     }
 
     /**
@@ -340,10 +388,26 @@ class Meeting extends Model
     }
 
     /**
+     * **عدد ما ينتظر الاعتماد فعلاً** — منتهٍ غير معتمد، ثمّ حكم `canApprove` نفسه (المخرجات الحقيقيّة
+     * لا تُقرَّر في SQL: القوالب الفارغة نصٌّ غير فارغ). كان رادار اللوحة يعدّ كلّ منتهٍ غير معتمد،
+     * فيعرض «محضراً بانتظار الاعتماد» لا زرّ اعتمادٍ له (قرار المالك 2026-10-01).
+     */
+    public static function awaitingApprovalCount(): int
+    {
+        return static::query()
+            ->where('status', MeetingStatus::Ended->value)
+            // المعتمد لا يُجلب أصلاً — العمود غير قابلٍ لـnull فالمقارنة لا تُسقط صفّاً
+            ->where('approve', '!=', self::APPROVED)
+            ->get(['id', 'status', 'approve', 'summary', 'minutes'])
+            ->filter(fn (Meeting $m) => $m->canApprove())
+            ->count();
+    }
+
+    /**
      * هل يُفعَّل زر «الدخول للاجتماع»؟
      *
      * - **جارٍ** ⇒ مفتوح حتى يُنهى — لا سقف «المدة + 30د» يُغلق غرفةً منعقدة.
-     * - **لم يبدأ** ⇒ من قبل الموعد بـ5 دقائق حتى يفوت دون أن يبدأ (`liveState` تُخرجه من «القادمة»
+     * - **لم يبدأ** ⇒ من فتح الدخول قبل الموعد (`session_join_opens_minutes`) حتى يفوت دون أن يبدأ (`liveState` تُخرجه من «القادمة»
      *   حينها) — فالنافذة مغلقة الطرفين ولا يبقى الزرّ فعّالاً للأبد بعد فوات الموعد.
      * بلا موعدٍ قابل للتحليل ⇒ يُحسم بالحالة وحدها (السلوك السابق).
      */
@@ -418,6 +482,11 @@ class Meeting extends Model
         };
     }
 
+    /** افتراضا طبقتي التذكير (`meeting_reminder_lead` · `meeting_reminder_near_minutes`) — بريدٌ ثمّ إشعارٌ ورسالة للعميل. */
+    public const REMINDER_FAR_MINUTES = 60;
+
+    public const REMINDER_NEAR_MINUTES = 30;
+
     /** سقف إعادة جدولة الاجتماع الافتراضيّ — ما بعده للإدارة العليا وحدها (`meeting_reschedule_limit`). */
     public const RESCHEDULE_LIMIT = 2;
 
@@ -438,14 +507,24 @@ class Meeting extends Model
      */
     public function changeRequestBlocker(): ?string
     {
-        $status = MeetingStatus::tryFrom((string) $this->status);
+        // **مهلة الطلب كالاستشارة** (`consult_reschedule_notice_minutes`، قرار المالك 2026-10-01) — كان العميل
+        // يطلب تغيير اجتماعٍ يبدأ بعد دقائق، والإعداد يقول إنّ ذلك للمكتب مباشرةً.
+        $notice = SettingsRegistry::int('consult_reschedule_notice_minutes');
+        $noticeEdge = now()->addMinutes($notice);
 
         return match (true) {
-            ! in_array($status, [MeetingStatus::Upcoming, MeetingStatus::Postponed], true) => 'طلب تغيير الموعد متاح للاجتماعات القادمة فقط.',
+            ! $this->isAwaitingSession() => 'طلب تغيير الموعد متاح للاجتماعات القادمة فقط.',
             $this->reschedule_requested_at !== null => 'طلبك السابق قيد المراجعة — سيتواصل معك المكتب.',
             $this->reachedRescheduleLimit() => 'بلغ الاجتماع الحدّ الأقصى لتغيير الموعد — تواصل مع المكتب مباشرةً.',
+            $this->starts_at !== null && $this->starts_at->lt($noticeEdge) => 'موعد الاجتماع خلال أقلّ من '.ArabicCount::duration($notice).' — لتغييره تواصل مع المكتب مباشرةً.',
             default => null,
         };
+    }
+
+    /** قادمٌ أو مؤجّل — الحالتان اللتان يُطلب فيهما تغيير الموعد ويُعرض سبب منعه. */
+    private function isAwaitingSession(): bool
+    {
+        return in_array(MeetingStatus::tryFrom((string) $this->status), [MeetingStatus::Upcoming, MeetingStatus::Postponed], true);
     }
 
     // بطاقة العميل (يطابق DATA.meetings + viewMeetings) — المحضر/الملخص بعد اعتماد الإدارة فقط
@@ -466,9 +545,7 @@ class Meeting extends Model
             'canJoin' => $canJoin,
             // طلب تغيير الموعد: متاحٌ أم لا، وسبب المنع حين يعني العميلَ (طلبٌ قائم أو سقفٌ بُلغ) — لا للمنتهي
             'canRequestChange' => $this->changeRequestBlocker() === null,
-            'changeRequestNote' => $this->reschedule_requested_at !== null || ($this->reachedRescheduleLimit() && in_array(MeetingStatus::tryFrom((string) $this->status), [MeetingStatus::Upcoming, MeetingStatus::Postponed], true))
-                ? $this->changeRequestBlocker()
-                : null,
+            'changeRequestNote' => $this->isAwaitingSession() ? $this->changeRequestBlocker() : null,
             // شارة الاعتماد للعميل — يعرف أنّ المحضر/الملخص الظاهرين معتمدان من الإدارة
             'approved' => $approved,
             'ref' => $this->ref ?: 'M-'.$this->id,
@@ -512,9 +589,6 @@ class Meeting extends Model
             'lawyerId' => $this->assigned_lawyer_id,
             'when' => $this->when_label,
             'approve' => $this->approve,
-            'before' => $this->before_items ?? [],
-            'during' => $this->during_items ?? [],
-            'after' => $this->after_items ?? [],
             // الحالة الحيّة المشتقّة (لا المخزّنة) — «قادم» الفائت يظهر «لم ينعقد» فوراً
             'status' => $this->liveState()[1],
             // مفتاحها اللاتينيّ للمنطق (`MeetingStatus::key`) — النصّ للعرض وحده
@@ -534,6 +608,8 @@ class Meeting extends Model
             'actions' => $this->lifecycleActions(),
             'priority' => $this->priority,
             'conf' => $this->conf,
+            // علَمٌ لا نصّ: الواجهة كانت تقارن `conf === 'سري'` لتختار الأيقونة/الشارة
+            'confidential' => $this->isConfidential(),
             // المُدخَل يدوياً — يبقى للتعبئة المسبقة في نافذة الإنهاء ولعرضه موسوماً
             // «مُدخَل يدوياً» حين لا سجلّ Zoom. ليس قياساً ولا يُعرض كأنّه قياس.
             'attend' => $this->attend,

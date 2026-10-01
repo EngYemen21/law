@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Domain\Journey\Enums\TicketStatus;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Domain\Journey\Transitions\Ticket\OutcomeSummaryGate;
@@ -135,6 +136,7 @@ class Ticket extends Model
     }
 
     // استشارات هذه التذكرة (تُنشأ عند طلب حجز استشارة من داخل المحادثة)
+    /** @return HasMany<Consult, $this> */
     public function consults(): HasMany
     {
         return $this->hasMany(Consult::class);
@@ -237,6 +239,31 @@ class Ticket extends Model
             'isFrozen' => (bool) $this->is_frozen,
             'isTerminal' => $entity->isTerminal(),
             'trackGovernance' => $this->publishedTrackDecision(),
+            'outcomeCards' => $this->outcomeCards($hasExec),
+        ];
+    }
+
+    /**
+     * **بطاقات المآل في محادثة العميل — حكم الخادم.**
+     *
+     * كانت الصفحة تقارن `status.status` بالحالة الداخليّة («مغلقة»، «محولة إلى قضية/تنفيذ»)، والعميل
+     * يستلم تسميته («طلب مكتمل ومغلق»…) فلا تصدق المقارنة أبداً، وتبقى البطاقة على `approved_track`
+     * وحده. وتذكرةٌ أُغلقت أو حُوّلت قبل حقول الحوكمة (2026-09-17) بلا `approved_track` تخسر بطاقتها.
+     * فالحكم هنا بالحالة الداخليّة **أو** المسار المعتمد **أو** وجود ملفّ التنفيذ.
+     *
+     * @return array{execution: bool, case: bool, closure: bool}
+     */
+    public function outcomeCards(bool $hasExecution): array
+    {
+        $status = TicketStatus::tryFrom((string) $this->status);
+        $track = TicketOutcomeTrack::tryFrom((string) $this->approved_track);
+        $execution = $hasExecution || $status === TicketStatus::ConvertedToExecution || $track === TicketOutcomeTrack::Execution;
+
+        return [
+            'execution' => $execution,
+            // ملفّ التنفيذ يحلّ محلّ بطاقة القضيّة (طلب تنفيذ الحكم يفتحه من القضيّة نفسها)
+            'case' => ! $execution && ($status === TicketStatus::ConvertedToCase || $track === TicketOutcomeTrack::Case),
+            'closure' => $status === TicketStatus::Closed || $track === TicketOutcomeTrack::Close,
         ];
     }
 
@@ -281,6 +308,8 @@ class Ticket extends Model
             'lawyerId' => $this->assigned_lawyer_id,
             'status' => $this->status,
             'statusCode' => $entity->status()->name,
+            // مرحلة «مسار المعالجة» من الخادم — كانت الواجهة تشتقّها من نصّ الحالة العربيّ (`tktStage`)
+            'step' => TicketJourney::indexOf($this->status),
             'actions' => $actions,
             'tone' => $this->tone,
             'isFrozen' => (bool) $this->is_frozen,
@@ -294,6 +323,7 @@ class Ticket extends Model
             'closureNotes' => $this->closure_notes,
             'canDecideOutcome' => in_array($this->status, [TicketStatus::ReadyForOutcome->value, TicketStatus::Completed->value], true) && ! $hasCase && ! $hasExec,
             'isTerminal' => $entity->isTerminal(),
+            'isReassignable' => $this->isReassignable(),
             // الموظّف المسؤول عن المحادثة الآن — للطاقم وحده (بطاقة العميل `toCard` لا تحمله)
             'handler' => $this->relationLoaded('handler') ? $this->handler?->name : $this->handler()->value('name'),
             'trackGovernance' => $this->trackGovernance(),
@@ -389,6 +419,15 @@ class Ticket extends Model
     public function isOpen(): bool
     {
         return ! in_array($this->status, TicketStatus::finals(), true);
+    }
+
+    /**
+     * **يُعاد إسنادها؟** — مفتوحةٌ غير مجمّدة: قاعدة `TicketAssignment::assertReassignable` نفسها، علَماً لزرّ
+     * «تحويل» في الواجهة (كان يقيس `isTerminal` فيظهر على «مكتملة» ويردّه الخادم).
+     */
+    public function isReassignable(): bool
+    {
+        return ! (bool) $this->is_frozen && $this->isOpen();
     }
 
     /**

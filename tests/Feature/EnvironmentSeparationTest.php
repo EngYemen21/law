@@ -6,7 +6,7 @@ use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Enums\Role;
 use App\Models\Invoice;
 use App\Models\User;
-use App\Services\MoyasarService;
+use App\Services\Payments\MoyasarGateway;
 use App\Support\AppEnvironment;
 use App\Support\EnvironmentAudit;
 use App\Support\OtpService;
@@ -126,15 +126,15 @@ class EnvironmentSeparationTest extends TestCase
     public function test_live_payment_key_is_refused_in_the_sandbox_only(): void
     {
         config(['services.moyasar.secret_key' => 'sk_live_abc']);
-        $this->assertFalse(app(MoyasarService::class)->isConfigured());
+        $this->assertFalse(app(MoyasarGateway::class)->isConfigured());
         $this->assertSame(['MOYASAR_SECRET_KEY'], $this->failingKeys());
 
         config(['services.moyasar.secret_key' => 'sk_test_abc']);
-        $this->assertTrue(app(MoyasarService::class)->isConfigured());
+        $this->assertTrue(app(MoyasarGateway::class)->isConfigured());
 
         $this->app['env'] = 'production';
         config(['services.moyasar.secret_key' => 'sk_live_abc']);
-        $this->assertTrue(app(MoyasarService::class)->isConfigured());
+        $this->assertTrue(app(MoyasarGateway::class)->isConfigured());
     }
 
     public function test_webhook_never_settles_from_its_own_body_when_the_fetch_fails(): void

@@ -29,6 +29,8 @@ export interface EmployeeTicketCard {
     status: string;
     /** اسم حالة الـEnum (`TicketStatus::…->name`) — `AwaitingDocs` لا `awaiting_docs`. */
     statusCode: string;
+    /** مرحلة «مسار المعالجة» (0–6) من `TicketJourney::indexOf` على الخادم. */
+    step: number;
     actions: TicketActions;
     tone: string;
     isFrozen: boolean;
@@ -40,6 +42,8 @@ export interface EmployeeTicketCard {
     closureNotes: string | null;
     canDecideOutcome: boolean;
     isTerminal: boolean;
+    /** مفتوحةٌ غير مجمّدة — حارس إعادة الإسناد نفسه (`Ticket::isReassignable`)، فلا يظهر «تحويل» يردّه الخادم. */
+    isReassignable: boolean;
     /** الموظّف المسؤول عن المحادثة الآن (`ConversationHandler`). */
     handler: string | null;
     trackGovernance: TrackGovernanceData;
@@ -81,4 +85,12 @@ export interface ClientTicketCard {
         approvedTrack: string | null;
         approvedTrackReason: string | null;
     };
+    /** بطاقات المآل في محادثة العميل — حكم الخادم (`Ticket::outcomeCards`). */
+    outcomeCards: OutcomeCards;
+}
+
+export interface OutcomeCards {
+    execution: boolean;
+    case: boolean;
+    closure: boolean;
 }

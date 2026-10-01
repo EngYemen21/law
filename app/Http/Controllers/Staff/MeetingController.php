@@ -77,7 +77,7 @@ class MeetingController extends Controller
         $this->guardMeetingView($request, $meeting);
 
         return Inertia::render($this->prefix($request).'/meeting', [
-            'meeting' => $meeting->toFullCard(),
+            'meeting' => $this->staffCard($request->user(), $meeting),
         ]);
     }
 
@@ -85,7 +85,7 @@ class MeetingController extends Controller
     public function room(Request $request): Response|RedirectResponse
     {
         $meeting = Meeting::where('ref', (string) $request->query('ref'))->firstOrFail();
-        $this->guardMeetingView($request, $meeting);
+        $this->guardMeetingEntry($request, $meeting);
         // القاعدة الواحدة للغرف الأربع (`RoomDetails::entryBlocker`) — المنتهي والفائت والملغى
         // يُصَدّ بسببه الحقيقيّ؛ وإخفاء الزرّ في الواجهة وحده يُلتفّ عليه بالرابط المباشر.
         if (($why = RoomDetails::entryBlocker($meeting, $request->user())) !== null) {
@@ -128,7 +128,7 @@ class MeetingController extends Controller
     {
         $refs = Meeting::query()->pluck('ref')->all();
         $totalTasks = $refs !== [] ? Task::whereIn('ref', $refs)->count() : 0;
-        $doneTasks = $refs !== [] ? Task::whereIn('ref', $refs)->where('status', 'منجزة')->count() : 0;
+        $doneTasks = $refs !== [] ? Task::whereIn('ref', $refs)->where('status', Task::DONE)->count() : 0;
 
         $durations = Meeting::where('status', MeetingStatus::Ended->value)->whereNotNull('duration_sec')->pluck('duration_sec');
 
@@ -157,9 +157,13 @@ class MeetingController extends Controller
             // المشاركون من الكادر بمعرّفاتهم (`meeting_participants`) — كانوا نصّاً يُطابَق بالاسم
             'participant_ids' => ['nullable', 'array', 'max:50'],
             'participant_ids.*' => ['integer', Rule::exists('users', 'id')->whereIn('role', [Role::Lawyer->value, Role::Employee->value, Role::Admin->value])],
-            'client_id' => ['nullable', 'integer', 'exists:users,id'],
+            // حساب **عميل** حصراً (نظير `MeetRequestController::store`) — كان أيّ حساب يُقبل فيُرسَل لمحامٍ دعوةُ عميل
+            'client_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where('role', Role::Client->value)],
             'case_ref' => ['nullable', 'string', 'max:120'],
             'lawyer_id' => ['nullable', 'integer', new ActiveLawyer],
+        ], [
+            // رسالةٌ تُفهم بدل «client id المختار غير موجود» — الحساب موجودٌ لكنّه ليس عميلاً
+            'client_id.exists' => 'الحساب المختار ليس حساب عميل.',
         ]);
 
         $client = ! empty($data['client_id']) ? User::find($data['client_id']) : null;
@@ -189,7 +193,7 @@ class MeetingController extends Controller
         }
 
         // Zoom يشترط `duration` — رقمٌ اسميّ لا يُنهي الاجتماع به (`SessionWindow::nominalMinutes`)
-        $zoom = $this->zoom->createMeeting($data['title'], SessionWindow::nominalMinutes(), ($data['conf'] ?? '') === 'سري', $startsAt);
+        $zoom = $this->zoom->createMeeting($data['title'], SessionWindow::nominalMinutes(), Meeting::isConfidentialLevel($data['conf'] ?? null), $startsAt);
         if (empty($zoom['join_url'])) {
             // لا يُصمت: الاجتماع يُحفظ بلا رابط، والرسالة تقول ذلك (كانت تقول «أُنشئ بجلسة Zoom»)
             Log::error('Zoom: تعذّر إنشاء جلسة الاجتماع — يُحفظ بلا رابط', ['title' => $data['title']]);
@@ -310,7 +314,7 @@ class MeetingController extends Controller
         $this->guardMeeting($request, $meeting);
         // الاعتماد نهائيّ: المعتمد وصل العميل بشهادة الإدارة، فتعديله بعدها
         // يجعل الشهادة تصف نصّاً لا وجود له. والحفظ قبل الاعتماد مسوّدة تُعدَّل بحرّية.
-        abort_if($meeting->approve === 'معتمد', 422, 'المحضر والملخص معتمدان نهائيًّا من الإدارة — لا يُعدَّلان بعد الاعتماد.');
+        abort_if($meeting->isApproved(), 422, 'المحضر والملخص معتمدان نهائيًّا من الإدارة — لا يُعدَّلان بعد الاعتماد.');
         $data = $request->validate(['summary' => ['required', 'string', 'max:6000']]);
         $meeting->update(['summary' => $data['summary']]);
 
@@ -323,7 +327,7 @@ class MeetingController extends Controller
         $this->guardMeeting($request, $meeting);
         // الاعتماد نهائيّ: المعتمد وصل العميل بشهادة الإدارة، فتعديله بعدها
         // يجعل الشهادة تصف نصّاً لا وجود له. والحفظ قبل الاعتماد مسوّدة تُعدَّل بحرّية.
-        abort_if($meeting->approve === 'معتمد', 422, 'المحضر والملخص معتمدان نهائيًّا من الإدارة — لا يُعدَّلان بعد الاعتماد.');
+        abort_if($meeting->isApproved(), 422, 'المحضر والملخص معتمدان نهائيًّا من الإدارة — لا يُعدَّلان بعد الاعتماد.');
         $data = $request->validate(['minutes' => ['required', 'string', 'max:8000']]);
         $meeting->update(['minutes' => $data['minutes']]);
 
@@ -341,7 +345,7 @@ class MeetingController extends Controller
         // الاعتماد نهائيّ: المزامنة تكتب `decisions` عبر DecisionTasks::suggest، وtoCard
         // يُرسل القرارات للعميل متى كان الاجتماع معتمداً — فمزامنةٌ بعد الاعتماد تُبلغه
         // قراراتٍ لم تعتمدها الإدارة. وتُعيد كتابة `participants` الذي يُبنى عليه عدد المدعوّين.
-        abort_if($meeting->approve === 'معتمد', 422, 'الاجتماع معتمد نهائيًّا — لا تُحدَّث بياناته من Zoom بعد الاعتماد.');
+        abort_if($meeting->isApproved(), 422, 'الاجتماع معتمد نهائيًّا — لا تُحدَّث بياناته من Zoom بعد الاعتماد.');
 
         $pulled = MeetingSummary::pull($meeting, $this->zoom);
 
@@ -362,7 +366,7 @@ class MeetingController extends Controller
             $why = $meeting->approvalBlocker();
             abort_if($why !== null, 422, (string) $why);
             $meeting->update([
-                'approve' => 'معتمد',
+                'approve' => Meeting::APPROVED,
                 'sum_approved' => true,
                 'has_minutes' => filled($meeting->minutes),
                 'has_summary' => filled($meeting->summary),
@@ -370,6 +374,14 @@ class MeetingController extends Controller
             MeetRequest::where('meeting_id', $meeting->id)
                 ->where('stage', '<', MeetRequest::STAGE_APPROVED)
                 ->update(['stage' => MeetRequest::STAGE_APPROVED]);
+            // قيد تدقيق للاعتماد (قرار المالك 2026-10-01) — كان اعتماد المحضر وحده بلا أثر في السجلّ
+            // بينما اعتماد الدعوة (`MeetRequestController::approve`) يُسجَّل؛ وهو ما يكشف المحضر للعميل.
+            Audit::log(
+                action: 'اعتماد محضر اجتماع',
+                description: "اعتمد {$request->user()->name} محضر وملخص الاجتماع «{$meeting->title}» ({$meeting->ref}) — صارا متاحين للعميل.",
+                category: 'اجتماعات',
+                auditable: $meeting,
+            );
 
             if ($meeting->user_id && $meeting->user) {
                 Notify::send($meeting->user_id, 'doc', 't-green', "اعتمدت الإدارة محضر وملخص اجتماع «{$meeting->title}» — متاحان الآن في صفحة الاجتماعات.");
@@ -485,7 +497,8 @@ class MeetingController extends Controller
             'status' => ($startsAt ? MeetingStatus::Upcoming : MeetingStatus::Postponed)->value,
             'when_label' => $when,
             'starts_at' => $startsAt,
-            'reminder_sent_at' => null, // إعادة تسليح التذكير للموعد الجديد
+            // إعادة تسليح التذكير وإطلاق الرابط للموعد الجديد — الأختام نفسها التي يُصفّرها نقل الموعد
+            ...BookingMoved::markers($meeting),
             // بقايا جلسةٍ لم تنعقد (خروجٌ/مدّةٌ/حضورٌ يدويّ) لا تخصّ الموعد الجديد. ولا يُمسّ
             // `join_time` ولا `recording_url`: حارس «انعقد» أعلاه يضمن خلوّهما، ومحوهما كان يُضيع تسجيلاً.
             'leave_time' => null,
@@ -688,7 +701,7 @@ class MeetingController extends Controller
         // 6. معدل تنفيذ القرارات وتحويلها لمهام
         $refs = $this->scopedQuery($request)->pluck('ref')->all();
         $totalTasks = $refs !== [] ? Task::whereIn('ref', $refs)->count() : 0;
-        $doneTasks = $refs !== [] ? Task::whereIn('ref', $refs)->where('status', 'منجزة')->count() : 0;
+        $doneTasks = $refs !== [] ? Task::whereIn('ref', $refs)->where('status', Task::DONE)->count() : 0;
 
         return [
             'monthlyTrend' => $months,
@@ -726,8 +739,15 @@ class MeetingController extends Controller
     // بطاقات الاجتماعات معزولة بالدور (تكشف hostLink/الملخص/المحضر — لا تُبثّ للكل)
     private function cards(Request $request)
     {
-        return $this->scopedQuery($request)->with(['assignedLawyer', 'participantUsers'])
-            ->latest('id')->get()->map(fn (Meeting $m) => $m->toFullCard());
+        // `user` لعدّ المدعوّين (`invitedCount`) — كان يُجلب لكلّ اجتماعٍ باستعلامٍ مستقلّ (N+1)
+        $user = $request->user();
+        // اجتماعات دعوات الموظّف مجلوبةً مرّةً للقائمة كلّها — لا استعلام صلةٍ لكلّ صفّ
+        $invited = $user->role === Role::Employee
+            ? MeetRequest::where('sent_by_id', $user->id)->whereNotNull('meeting_id')->pluck('meeting_id')->map(fn ($id) => (int) $id)->all()
+            : null;
+
+        return $this->scopedQuery($request)->with(['user', 'assignedLawyer', 'participantUsers'])
+            ->latest('id')->get()->map(fn (Meeting $m) => $this->staffCard($user, $m, $invited));
     }
 
     /**
@@ -737,7 +757,7 @@ class MeetingController extends Controller
     // تنزيل نصّ الاجتماع الكامل (المحلي إن وُجد وإلا يُجلب من سحابة Zoom ويُحفظ) — معزول بالدور
     public function transcript(Request $request, Meeting $meeting): StreamedResponse
     {
-        $this->guardMeetingView($request, $meeting);
+        $this->guardMeetingEntry($request, $meeting);
         RecordingArchive::guardViewer($request->user());
 
         return RecordingArchive::transcript($meeting);
@@ -746,7 +766,7 @@ class MeetingController extends Controller
     // فيديو جلسة الاجتماع مضغوطاً ZIP (جلب خادمي من سحابة Zoom) — معزول بالدور
     public function recordingZip(Request $request, Meeting $meeting): StreamedResponse|RedirectResponse
     {
-        $this->guardMeetingView($request, $meeting);
+        $this->guardMeetingEntry($request, $meeting);
         RecordingArchive::guardViewer($request->user());
 
         return RecordingArchive::download($meeting, 'video');
@@ -755,7 +775,7 @@ class MeetingController extends Controller
     // صوت جلسة الاجتماع (M4A) مضغوطاً ZIP — معزول بالدور
     public function audioZip(Request $request, Meeting $meeting): StreamedResponse|RedirectResponse
     {
-        $this->guardMeetingView($request, $meeting);
+        $this->guardMeetingEntry($request, $meeting);
         RecordingArchive::guardViewer($request->user());
 
         return RecordingArchive::download($meeting, 'audio');
@@ -764,18 +784,52 @@ class MeetingController extends Controller
     // تشغيل فيديو الاجتماع أو صوته داخل الصفحة من الملفّ المحفوظ — بديلُ فتح سحابة Zoom خارج النظام
     public function stream(Request $request, Meeting $meeting, string $type): BinaryFileResponse
     {
-        $this->guardMeetingView($request, $meeting);
+        $this->guardMeetingEntry($request, $meeting);
         RecordingArchive::guardViewer($request->user());
 
         return RecordingArchive::stream($meeting, $type);
     }
 
-    /** أفعال الإدارة على الاجتماع (المحضر، البدء، الإنهاء، إعادة الجدولة، الإلغاء…) — للمسؤول وحده من المحامين. */
+    /**
+     * أفعال الإدارة على الاجتماع (المحضر، البدء، الإنهاء، إعادة الجدولة، الإلغاء…) — للمسؤول وحده من المحامين،
+     * ولمن له صلةٌ به من الموظّفين (`Meeting::employeeCanAct`، قرار المالك 2026-10-01).
+     */
     private function guardMeeting(Request $request, Meeting $meeting): void
     {
-        if ($request->user()->role === Role::Lawyer) {
+        $user = $request->user();
+        if ($user->role === Role::Lawyer) {
             $this->guardAssigned($meeting);
         }
+        abort_if($user->role === Role::Employee && ! $meeting->employeeCanAct($user), 403, self::NOT_YOURS);
+    }
+
+    /** رسالة رفض الموظّف الذي لا صلة له بالاجتماع. */
+    private const NOT_YOURS = 'لا صلة لك بهذا الاجتماع — يتصرّف فيه المسؤول عنه والمشاركون ومرسل دعوته.';
+
+    /** الغرفة والتسجيل والنصّ — للمحامي المسؤول أو المشارك، وللموظّف ذي الصلة؛ والاطّلاع وحده (`guardMeetingView`) أوسع. */
+    private function guardMeetingEntry(Request $request, Meeting $meeting): void
+    {
+        $this->guardMeetingView($request, $meeting);
+        $user = $request->user();
+        abort_if($user->role === Role::Employee && ! $meeting->employeeCanAct($user), 403, self::NOT_YOURS);
+    }
+
+    /**
+     * بطاقة المكتب مع حكم الخادم على المشاهِد: `canAct` (أفعال الاجتماع ومحضره) و`canEnter` (الغرفة والتسجيل) —
+     * فلا يُعرض لموظّفٍ لا صلة له زرٌّ يردّه الخادم. الاطّلاع نفسه باقٍ.
+     *
+     * @param  array<int, int>|null  $invited
+     * @return array<string, mixed>
+     */
+    private function staffCard(User $user, Meeting $meeting, ?array $invited = null): array
+    {
+        [$act, $enter] = match ($user->role) {
+            Role::Lawyer => [(int) $meeting->assigned_lawyer_id === (int) $user->id, true],
+            Role::Employee => array_fill(0, 2, $meeting->employeeCanAct($user, $invited)),
+            default => [true, true],
+        };
+
+        return $meeting->toFullCard() + ['canAct' => $act, 'canEnter' => $enter];
     }
 
     /** الاطّلاع والدخول (الصفحة، الغرفة، التسجيل والنصّ) — للمسؤول وللمشارك (`Meeting::involves`). */

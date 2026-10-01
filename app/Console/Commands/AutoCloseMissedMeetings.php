@@ -9,6 +9,7 @@ use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Support\MeetingTime;
 use App\Support\SessionWindow;
+use App\Support\SettingsRegistry;
 use Illuminate\Console\Command;
 
 /**
@@ -33,10 +34,11 @@ class AutoCloseMissedMeetings extends Command
         // 1. حسم دعوات الاجتماعات المعلقة القديمة
         $expiredRequestsCount = 0;
         $pendingRequests = MeetRequest::where('stage', MeetRequest::STAGE_SENT)->get();
+        $inviteExpiry = SettingsRegistry::int('meet_invite_expire_minutes');
 
         foreach ($pendingRequests as $req) {
             $dt = MeetingTime::parse($req->day, $req->time);
-            if ($dt && $dt->addHours(6)->isPast()) {
+            if ($dt && $dt->copy()->addMinutes($inviteExpiry)->isPast()) {
                 $req->update(['stage' => MeetRequest::STAGE_EXPIRED]);
                 $expiredRequestsCount++;
             }

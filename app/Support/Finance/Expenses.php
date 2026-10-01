@@ -9,6 +9,7 @@ use App\Models\Expense;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\Notify;
+use App\Support\UploadLimits;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -34,8 +35,8 @@ final class Expenses
                 'spent_on' => $data['spent_on'],
                 'category' => ExpenseCategory::from($data['category']),
                 'description' => $data['description'],
-                'amount_halalas' => self::halalas($data['amount']),
-                'vat_halalas' => self::halalas($data['vat'] ?? 0),
+                'amount_halalas' => Money::halalas($data['amount']),
+                'vat_halalas' => Money::halalas($data['vat'] ?? 0),
                 'vendor' => $data['vendor'] ?? null,
                 'paid_from' => $data['paid_from'],
                 'reference' => $data['reference'] ?? null,
@@ -155,7 +156,7 @@ final class Expenses
             'vendor' => ['nullable', 'string', 'max:150'],
             'paid_from' => ['required', Rule::in(array_keys(Expense::PAID_FROM))],
             'reference' => ['nullable', 'string', 'max:100'],
-            'document' => ['nullable', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png'],
+            'document' => ['nullable', 'file', UploadLimits::rule(UploadLimits::ATTACHMENT_KB), 'mimes:pdf,jpg,jpeg,png'],
         ], [
             'spent_on.before_or_equal' => 'تاريخ الصرف لا يكون في المستقبل.',
             'amount.min' => 'المبلغ يجب أن يكون أكبر من صفر.',
@@ -164,12 +165,6 @@ final class Expenses
             'description.required' => 'اكتب بيان المصروف.',
             'document.mimes' => 'المرفق PDF أو صورة.',
         ]];
-    }
-
-    /** ريالٌ بكسره (نصّاً أو رقماً) ← هللات — المدخل مُتحقَّقٌ منه بمنزلتين عشريّتين. */
-    public static function halalas(string|float|int|null $riyals): int
-    {
-        return (int) round(((float) $riyals) * 100);
     }
 
     private static function markApproved(Expense $expense, User $admin): void

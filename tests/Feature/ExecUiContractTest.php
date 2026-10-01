@@ -141,7 +141,8 @@ class ExecUiContractTest extends TestCase
         $lib = $this->ui('js/lib/exec-flow.ts');
         $ui = $this->ui('js/pages/execflow.tsx');
 
-        $this->assertStringContainsString('2MB', $lib);
+        // الحدّ من المصدر الواحد (`upload-limits.ts` ← `UploadLimits::DOCUMENT_KB`) لا رقماً منقوشاً
+        $this->assertStringContainsString('${DOCUMENT_MB}MB', $lib);
         $this->assertStringContainsString("EXEC_REQ_DOC_ACCEPT = '.pdf,.jpg,.jpeg,.png,.docx'", $lib);
         $this->assertStringContainsString('{EXEC_REQ_DOC_HINT}', $ui);
         $this->assertStringContainsString('accept={EXEC_REQ_DOC_ACCEPT}', $ui);

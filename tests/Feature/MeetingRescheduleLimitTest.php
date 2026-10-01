@@ -80,6 +80,8 @@ class MeetingRescheduleLimitTest extends TestCase
         $employee->syncPermissions(Permission::whereIn('name', ['إرسال دعوات الاجتماعات'])->get());
         $admin = User::factory()->create(['role' => Role::Admin]);
         $meeting = $this->meeting();
+        // الموظّف يتصرّف في اجتماعٍ له صلةٌ به وحده (قرار المالك 2026-10-01) — مشاركٌ هنا
+        $meeting->participantUsers()->sync([$employee->id]);
 
         $this->actingAs($this->client)->post(route('meetings.change-request', $meeting))->assertRedirect();
         $this->reschedule($employee, $meeting)->assertRedirect();

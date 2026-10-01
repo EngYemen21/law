@@ -3,8 +3,8 @@ import { type ConsultCard, ConsultJourneyPage, type LawyerOpt } from '@/lib/cons
 
 // يطابق consultView (دور الموظف) — رحلة الاستشارة حقيقية من الخادم
 
-const EmployeeConsult: React.FC<{ consult: ConsultCard; lawyers: LawyerOpt[] }> = ({ consult, lawyers }) => (
-  <ConsultJourneyPage consult={consult} base="/employee" lawyers={lawyers} />
+const EmployeeConsult: React.FC<{ consult: ConsultCard; lawyers: LawyerOpt[]; canApproveSummary: boolean }> = ({ consult, lawyers, canApproveSummary }) => (
+  <ConsultJourneyPage consult={consult} base="/employee" lawyers={lawyers} canApproveSummary={canApproveSummary} />
 );
 
 export default EmployeeConsult;

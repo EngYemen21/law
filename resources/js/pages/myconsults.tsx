@@ -9,6 +9,8 @@ import type { ClientConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { crChannelIcon, crChannelTone, foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
+import { useJoinOpensText } from '@/lib/settings';
 
 // ============================================================
 // لوحة استشارات العميل 360 درجة (360° Client Consultations Command Center)
@@ -67,7 +69,7 @@ const RescheduleRequestControl: React.FC<{ consult: ClientConsultCard }> = ({ co
     router.post(`/consults/${consult.id}/reschedule-request`, { note }, {
       preserveScroll: true,
       onSuccess: () => toast('أُرسل طلبك للمكتب — سيتواصل معك بموعدٍ جديد', 'success'),
-      onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر إرسال الطلب'), 'error'),
+      onError: (e) => toast(firstError(e, 'تعذّر إرسال الطلب'), 'error'),
     });
   };
 
@@ -84,6 +86,7 @@ const MyConsults: React.FC<Props> = ({
   nextConsult: initialNextConsult,
 }) => {
   const toast = useToast();
+  const joinOpens = useJoinOpensText();
   const [items, setItems] = useState<ClientConsultCard[]>(consults);
   // الافتراضي يُشتق من البيانات: القادم من /book حالته «بانتظار التسعير/السداد» — فتح
   // upcoming دائماً كان يخفي طلبه الجديد وزرّ الدفع خلف تبويب آخر ويريه «لا توجد استشارات»
@@ -113,6 +116,7 @@ return;
             session: string;
             status: string;
             summary: string | null;
+            summaryHtml?: string | null;
             summaryPending?: boolean;
             summaryApproved?: boolean;
             duration: string | null;
@@ -135,6 +139,7 @@ return;
                       // `??` يُبقي القيمة البائتة: لو بُثّ سحبُ الاعتماد (summary=null)
                       // بقي النصّ المعروض في المتصفّح. الحضور في الحمولة هو الحكم.
                       summary: 'summary' in e ? e.summary : x.summary,
+                      summaryHtml: 'summaryHtml' in e ? e.summaryHtml : x.summaryHtml,
                       summaryPending: e.summaryPending ?? x.summaryPending,
                       summaryApproved: e.summaryApproved ?? x.summaryApproved,
                       duration: e.duration ?? x.duration,
@@ -404,7 +409,7 @@ return list;
                       }}
                     >
                       <Icon name="clock" />
-                      <span>يُفعَّل رابط الدخول التلقائي قبل الموعد بـ 5 دقائق</span>
+                      <span>يُفعَّل رابط الدخول التلقائي قبل الموعد بـ{joinOpens}</span>
                     </div>
                   )
                 )}
@@ -662,9 +667,9 @@ return list;
                               type="button"
                               disabled
                               style={{ opacity: 0.65, cursor: 'not-allowed', fontSize: 12 }}
-                              title="يُفعَّل قبل الموعد بـ 5 دقائق"
+                              title={`يُفعَّل قبل الموعد بـ${joinOpens}`}
                             >
-                              <Icon name="clock" /> الدخول (قبل الموعد بـ 5د)
+                              <Icon name="clock" /> الدخول (قبل الموعد بـ{joinOpens})
                             </button>
                           )}
                         </>

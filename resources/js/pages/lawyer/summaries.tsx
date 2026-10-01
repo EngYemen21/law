@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import Icon from '@/lib/icons';
 import FlowLine from '@/components/babylon/FlowLine';
 import { SUM_FLOW, type SummaryData, sumStage } from '@/lib/lawyer-data';
+import { useCan } from '@/lib/permissions';
 
 // قائمة ملخصات الملفات الواردة من الفريق القانوني — بيانات حقيقية من الخادم
 
@@ -20,6 +21,8 @@ const EMPTY: Record<Tab, string> = {
 };
 
 const LawyerSummaries: React.FC<Props> = ({ summaries }) => {
+  // المحرّر محروسٌ بـ«المساعد القانوني» — رابط «تنسيق» لمن يملكه
+  const canUseEditor = useCan()('المساعد القانوني');
   const [tab, setTab] = useState<Tab>('pending');
   // الاعتماد مرحلتان (قرار المالك 2026-09-14): ما اعتمده المحامي ورفعه للإدارة ليس «بانتظار اعتمادي»
   const pend = summaries.filter((s) => !s.approved && !s.lawyerApproved);
@@ -53,24 +56,26 @@ const LawyerSummaries: React.FC<Props> = ({ summaries }) => {
               <span><FlowLine steps={SUM_FLOW} cur={sumStage(s)} /></span>
             </div>
             <div className="iact" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <Link
-                href={`/lawyer/editor/create?importType=ticket_summary&id=${s.id}`}
-                className="btn soft sm"
-                style={{
-                  height: 30,
-                  fontSize: 12,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  textDecoration: 'none',
-                  color: '#0e5c9c',
-                  background: 'rgba(14, 92, 156, 0.08)',
-                  borderColor: 'rgba(14, 92, 156, 0.25)',
-                }}
-                title="تنسيق وصياغة في المحرر القانوني ⚖️"
-              >
-                <Icon name="edit" /> تنسيق
-              </Link>
+              {canUseEditor && (
+                <Link
+                  href={`/lawyer/editor/create?importType=ticket_summary&id=${s.id}`}
+                  className="btn soft sm"
+                  style={{
+                    height: 30,
+                    fontSize: 12,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    textDecoration: 'none',
+                    color: '#0e5c9c',
+                    background: 'rgba(14, 92, 156, 0.08)',
+                    borderColor: 'rgba(14, 92, 156, 0.25)',
+                  }}
+                  title="تنسيق وصياغة في المحرر القانوني ⚖️"
+                >
+                  <Icon name="edit" /> تنسيق
+                </Link>
+              )}
               <button className="btn sm" onClick={() => openSummary(s.ref!)} type="button">
                 <Icon name="doc" /> فتح الملخص
               </button>

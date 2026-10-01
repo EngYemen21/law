@@ -12,6 +12,8 @@ export interface Invoice {
   no: string; desc: string; amount: number; status: string; tone: string; due: string; overdue?: boolean; paid: boolean; hasProof?: boolean;
   /** ملغاة — لا دفع ولا إثبات (يطابق `Invoice::isCancelled`). */
   cancelled?: boolean;
+  /** قسطٌ قبله قسطٌ مستحقّ — لا يُسدَّد قبله (`Invoice::awaitsEarlierInstallment`). */
+  awaitsEarlier?: boolean;
   /** لها سند قبضٍ مرقّم (`/invoices/{no}/receipt`) — صفحة فواتير العميل وحدها تحسبه. */
   hasReceipt?: boolean;
   /**
@@ -411,6 +413,7 @@ const ADMIN_TITLES: Record<string, [string, string]> = {
   '/admin/approvals': ['مركز الاعتمادات والقرارات', 'لوحة الإدارة'],
   '/admin/revenue': ['الإيرادات', 'لوحة الإدارة'],
   '/admin/settings': ['إعدادات النظام', 'الإدارة العليا'],
+  '/admin/integrations': ['مفاتيح الخدمات الخارجيّة', 'إعدادات النظام'],
   '/admin/catalogue': ['الأقسام والخدمات', 'الإدارة العليا'],
   '/admin/finance': ['المالية والمحاسبة', 'الإدارة العليا'],
   '/admin/financial-reports': ['التقارير الماليّة', 'الإدارة العليا'],

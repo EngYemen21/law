@@ -11,7 +11,7 @@ use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
 /**
- * بريد «رابط الجلسة جاهز» — يُرسَل قبل الموعد بـ5 دقائق مع تفعيل زر الدخول في المنصّة.
+ * بريد «رابط الجلسة جاهز» — يُرسَل قبل الموعد بـ`session_join_opens_minutes` مع تفعيل زر الدخول في المنصّة.
  */
 class MeetingLinkReady extends Mailable implements ShouldQueue
 {

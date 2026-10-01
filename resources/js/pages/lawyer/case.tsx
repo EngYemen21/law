@@ -17,6 +17,7 @@ import type { Hearing } from '@/lib/case-ui';
 import type { Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
+import { firstError, serverMessage } from '@/lib/server-message';
 import type { CaseDocumentCard, TicketDocumentCard } from '@/types';
 
 interface CaseInfo {
@@ -34,7 +35,7 @@ interface FileFacts { summary?: string | null; facts?: string | null; keyPoints?
 interface ReadinessItem { label: string; ok: boolean; hint?: string | null }
 interface Props {
   case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[];
-  convertedExec?: boolean; pleadingBlock?: string | null; pleadingDraft?: string | null; canRequestExecution: boolean; executionRequest: CaseExecutionRequestData | null;
+  convertedExec?: boolean; pleadingBlock?: string | null; pleadingDraft?: string | null; canRequestExecution: boolean; executionRequest: CaseExecutionRequestData | null; executionAmountHint?: number | null;
   ticketDocuments?: CaseDoc[]; fileInfo?: FileInfo; fileFacts?: FileFacts | null; readiness?: ReadinessItem[]; filing?: Filing;
   /** من يتولّى المحادثة ومن تولّاها قبله — `ConversationHandler::history`. */
   conversation?: ConversationHistory | null;
@@ -53,7 +54,7 @@ function docState(d: CaseDoc): [string, string] {
   return d.summary ? ['محلَّل', 'b-green'] : ['بانتظار التحليل', 'b-amber'];
 }
 
-const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, pleadingBlock, pleadingDraft, canRequestExecution, executionRequest, ticketDocuments = [], fileInfo = {}, fileFacts = null, readiness = [], filing = { canFile: false, canRegister: false, data: null }, conversation }) => {
+const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, pleadingBlock, pleadingDraft, canRequestExecution, executionRequest, executionAmountHint = null, ticketDocuments = [], fileInfo = {}, fileFacts = null, readiness = [], filing = { canFile: false, canRegister: false, data: null }, conversation }) => {
   const ask = useConfirm();
   const toast = useToast();
   const base = `/lawyer/cases/${encodeURIComponent(c.no)}`;
@@ -136,18 +137,27 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
     };
   }, [channel]);
 
-  // ردّ المستشار على موكّله داخل الملفّ — لا يُمسح النصّ إلا بعد نجاح الإرسال
+  // ردّ المستشار على موكّله داخل الملفّ — لا يُمسح النصّ إلا بعد نجاح الإرسال. وقفلٌ متزامن: كانت النقرة
+  // المزدوجة ترسل الردّ مرّتين، والرفض يُعرض نصّاً عامّاً بلا سبب الخادم (تدقيق P4، 2026-09-30)
+  const sendingRef = useRef(false);
+  const [sending, setSending] = useState(false);
   const send = (e: React.FormEvent) => {
     e.preventDefault();
     const v = reply.trim();
 
-    if (!v) {
+    if (!v || sendingRef.current) {
       return;
     }
 
+    sendingRef.current = true;
+    setSending(true);
     axios.post(`${base}/reply`, { body: v })
       .then(() => setReply(''))
-      .catch(() => toast('⚠️ تعذّر إرسال الردّ، حاول مجدداً'));
+      .catch((err) => toast(`⚠️ ${serverMessage(err, 'تعذّر إرسال الردّ، حاول مجدداً')}`))
+      .finally(() => {
+        sendingRef.current = false;
+        setSending(false);
+      });
   };
 
   const pleadingPost = (path: string, data: Record<string, string>, ok: string, after?: () => void) => {
@@ -158,7 +168,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
         toast(ok);
         after?.();
       },
-      onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر تنفيذ الإجراء')),
+      onError: (e) => toast(firstError(e, 'تعذّر تنفيذ الإجراء')),
       onFinish: () => setPBusy(false),
     });
   };
@@ -219,7 +229,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--faint)', marginBottom: 8 }}>ردّ للعميل (المستشار القانوني):</div>
                 <form onSubmit={send}>
                   <textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="اكتب ردّك للعميل…" />
-                  <div className="crow"><button className="btn" type="submit"><Icon name="send" /> إرسال</button></div>
+                  <div className="crow"><button className="btn" type="submit" disabled={sending}><Icon name="send" /> إرسال</button></div>
                 </form>
               </div>
             )}
@@ -237,7 +247,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
             />
           )}
 
-          {/* مسار الاستئناف والاعتراض (مهلة الاعتراض 30 يوماً / قيد الاستئناف / حكم الاستئناف) */}
+          {/* مسار الاستئناف والاعتراض (مهلة الاعتراض — `appeal_deadline_days` / قيد الاستئناف / حكم الاستئناف) */}
           <AppealCard
             base={base}
             appeal={c.appeal}
@@ -415,7 +425,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
           {hearings.length > 0 && live.isActive && <HearingUpdatesCard base={base} hearings={hearings} />}
 
           {/* تنفيذ الحكم بطلبٍ تعتمده الإدارة العليا (قرار المالك 2026-09-29) — لا فتحَ مباشراً */}
-          <CaseExecutionRequestCard base={base} canRequest={canRequestExecution} pending={executionRequest} converted={Boolean(convertedExec)} />
+          <CaseExecutionRequestCard base={base} canRequest={canRequestExecution} pending={executionRequest} converted={Boolean(convertedExec)} amountHint={executionAmountHint} />
 
           <HearingsCard hearings={hearings} documents={documents} />
         </aside>

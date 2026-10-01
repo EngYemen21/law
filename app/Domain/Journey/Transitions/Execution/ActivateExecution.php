@@ -2,6 +2,7 @@
 
 namespace App\Domain\Journey\Transitions\Execution;
 
+use App\Domain\Journey\Enums\ExecutionOfferStatus;
 use App\Domain\Journey\Enums\ExecutionStatus;
 use App\Domain\Journey\Transition;
 use App\Models\Execution;
@@ -55,7 +56,7 @@ final class ActivateExecution extends Transition
         $entity->paid_at = now();
         // ⚠️ رقمٌ داخليّ لا صادرٌ عن جهة قضائيّة — مولّدٌ يفحص التفرّد، لا عشوائيّ بمدى ثلاثين
         $entity->exec_no = $entity->exec_no ?: ReferenceNumber::next(Execution::class, 'exec_no', 'EXE-TN');
-        $entity->offer_status = 'مقبول';
+        $entity->offer_status = ExecutionOfferStatus::Accepted->value;
 
         $status = ExecutionStatus::PendingNajiz;
         $entity->stage = $status->stage();

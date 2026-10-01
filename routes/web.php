@@ -13,6 +13,7 @@ use App\Http\Controllers\Admin\CourtHearingController as AdminCourtHearingContro
 use App\Http\Controllers\Admin\DistributeController as AdminDistributeController;
 use App\Http\Controllers\Admin\FinanceController as AdminFinanceController;
 use App\Http\Controllers\Admin\FinancialReportController as AdminFinancialReportController;
+use App\Http\Controllers\Admin\IntegrationSettingsController as AdminIntegrationSettingsController;
 use App\Http\Controllers\Admin\JourneyTransitionController as AdminJourneyTransitionController;
 use App\Http\Controllers\Admin\LawyerController as AdminLawyerController;
 use App\Http\Controllers\Admin\LegalSourceController as AdminLegalSourceController;
@@ -50,8 +51,8 @@ use App\Http\Controllers\Lawyer\TaskController as LawyerTaskController;
 use App\Http\Controllers\Lawyer\TicketController as LawyerTicketController;
 use App\Http\Controllers\MeetingController;
 use App\Http\Controllers\MeetRequestController;
-use App\Http\Controllers\MoyasarWebhookController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PaymentWebhookController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Staff\ConsultController as StaffConsultController;
 use App\Http\Controllers\Staff\ConsultRecordingController as StaffConsultRecordingController;
@@ -74,8 +75,15 @@ Route::inertia('/', 'welcome')->name('home');
 // مستقبِل أحداث Zoom (Webhooks) — عام، محميّ بتوقيع HMAC ومستثنى من CSRF (Zoom لا يرسل رمزاً)
 Route::post('/webhooks/zoom', [ZoomWebhookController::class, 'handle'])->name('webhooks.zoom');
 
-// مستقبِل إشعارات Moyasar (Webhooks) — عام، محميّ بـsecret_token ومستثنى من CSRF
-Route::post('/webhooks/moyasar', [MoyasarWebhookController::class, 'handle'])->name('webhooks.moyasar');
+// مستقبِل إشعارات بوّابات الدفع (Webhooks) — عامّ، تتحقّق كلّ بوّابةٍ من مُرسِلها، ومستثنى من CSRF.
+// مسار ميسّر باقٍ كما ضُبط في لوحتها؛ وأيّ بوّابةٍ تُسجَّل لاحقاً تستقبل على `/webhooks/payments/{اسمها}`.
+Route::post('/webhooks/moyasar', [PaymentWebhookController::class, 'handle'])->defaults('gateway', 'moyasar')->name('webhooks.moyasar');
+// `callback_url` الفاتورة المستضافة: إشعارٌ خادميّ بلا سرّ — يُعاد جلب كلّ شيء من البوّابة، ويُحدّ معدّله لأنّ كلّ
+// طلبٍ يستدعي البوّابة مرّتين
+Route::post('/webhooks/payments/{gateway}/invoice', [PaymentWebhookController::class, 'invoice'])
+    ->where('gateway', '[a-z0-9_]+')->middleware('throttle:60,1')->name('webhooks.payment.invoice');
+Route::post('/webhooks/payments/{gateway}', [PaymentWebhookController::class, 'handle'])
+    ->where('gateway', '[a-z0-9_]+')->name('webhooks.payment');
 
 // موجز التقويم الحي (RFC 5545 iCal Live Subscription Feed) — عام ومحمي برمز أمان فريد لكل مستخدم
 Route::get('/calendar/feed/{user}/{token}.ics', [CalendarController::class, 'feed'])->name('calendar.feed');
@@ -242,7 +250,7 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
         Route::post('/tickets/{ticket}/note', [EmployeeTicketController::class, 'note'])->name('tickets.note');
         Route::post('/tickets/{ticket}/status', [EmployeeTicketController::class, 'status'])->name('tickets.status');
         Route::post('/tickets/{ticket}/advance', [EmployeeTicketController::class, 'advance'])->name('tickets.advance');
-        Route::post('/tickets/{ticket}/rerun', [EmployeeTicketController::class, 'rerunSummary'])->name('tickets.rerun');
+        Route::post('/tickets/{ticket}/rerun', [EmployeeTicketController::class, 'rerunSummary'])->name('tickets.rerun')->middleware('throttle:ai-calls');
         Route::post('/tickets/{ticket}/track/propose', [EmployeeTicketController::class, 'proposeTrack'])->name('tickets.track.propose');
         // قائمة مستندات القسم للتذكرة: ما استُوفي وما لم يُتحقّق، والتأكيد/الإلغاء اليدويّ (قرار المالك 2026-09-26)
         Route::get('/tickets/{ticket}/requirements', [StaffTicketRequirementController::class, 'show'])->name('tickets.requirements');
@@ -298,7 +306,7 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
          * والوسيط تجميعيّ، فالشرط الآن الصلاحيّتان معاً — لا يحلّل إلّا من يصل
          * الاستشارة أصلاً.
          */
-        Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware(Permissions::middleware(Permissions::RUN_LEGAL_ANALYSIS));
+        Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware(Permissions::middleware(Permissions::RUN_LEGAL_ANALYSIS))->middleware('throttle:ai-calls');
         Route::post('/consults/{consult}/analysis', [StaffConsultController::class, 'saveAnalysis'])->name('consults.analysis');
         Route::post('/consults/{consult}/approve', [StaffConsultController::class, 'approveAnalysis'])->name('consults.approve');
         Route::post('/consults/{consult}/zoom-sync', [StaffConsultController::class, 'zoomSync'])->name('consults.zoomsync');
@@ -399,7 +407,8 @@ Route::middleware(['auth', 'active', 'role:employee'])->prefix('employee')->name
             ->name('editor.approve');
         Route::get('/editor/{doc}/print', [LawyerDocumentEditorController::class, 'printDoc'])->name('editor.print');
         Route::get('/editor/{doc}/pdf', [LawyerDocumentEditorController::class, 'downloadPdf'])->name('editor.pdf');
-        Route::post('/editor/ai-assist', [LawyerDocumentEditorController::class, 'aiAssist'])->name('editor.ai-assist');
+        Route::get('/editor/{doc}/docx', [LawyerDocumentEditorController::class, 'downloadDocx'])->name('editor.docx');
+        Route::post('/editor/ai-assist', [LawyerDocumentEditorController::class, 'aiAssist'])->name('editor.ai-assist')->middleware('throttle:ai-calls');
     });
 });
 
@@ -427,8 +436,8 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::get('/summary/{ticket}', [LawyerTicketController::class, 'showSummary'])->name('summary');
         Route::post('/summary/{ticket}', [LawyerTicketController::class, 'updateSummary'])->name('summary.update');
         Route::post('/summary/{ticket}/approve', [LawyerTicketController::class, 'approveSummary'])->name('summary.approve');
-        Route::post('/summary/{ticket}/rerun', [LawyerTicketController::class, 'rerunSummary'])->name('summary.rerun');
-        Route::post('/summary/{ticket}/najiz', [LawyerTicketController::class, 'generateNajizDraft'])->name('summary.najiz');
+        Route::post('/summary/{ticket}/rerun', [LawyerTicketController::class, 'rerunSummary'])->name('summary.rerun')->middleware('throttle:ai-calls');
+        Route::post('/summary/{ticket}/najiz', [LawyerTicketController::class, 'generateNajizDraft'])->name('summary.najiz')->middleware('throttle:ai-calls');
         Route::get('/summary/{ticket}/print', [LawyerTicketController::class, 'printSummary'])->name('summary.print');
         // صندوق مراجعة مخرجات الذكاء — الشاشة نفسها لكل دور، والعزل داخل
         // AiReviewInbox: المحامي يرى ما صُعِّد إليه، والموظّف التذاكر والاستشارات.
@@ -517,7 +526,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
     // فيُبطَل هذا الحارس، و«artisan route:cache» يفشل بـAnother route has already been assigned name.
     Route::middleware(Permissions::middleware(Permissions::LEGAL_ASSISTANT))->group(function () {
         Route::get('/assistant', [LawyerAssistantController::class, 'index'])->name('assistant');
-        Route::post('/assistant/generate', [LawyerAssistantController::class, 'generate'])->name('assistant.generate');
+        Route::post('/assistant/generate', [LawyerAssistantController::class, 'generate'])->name('assistant.generate')->middleware('throttle:ai-calls');
         // تسليم المسودّة لمحرّر الصياغة عبر الجلسة — لا في عنوانٍ يُحقن منه نصّ
         Route::post('/assistant/to-editor', [LawyerAssistantController::class, 'toEditor'])->name('assistant.to-editor');
 
@@ -543,7 +552,8 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
             ->name('editor.approve');
         Route::get('/editor/{doc}/print', [LawyerDocumentEditorController::class, 'printDoc'])->name('editor.print');
         Route::get('/editor/{doc}/pdf', [LawyerDocumentEditorController::class, 'downloadPdf'])->name('editor.pdf');
-        Route::post('/editor/ai-assist', [LawyerDocumentEditorController::class, 'aiAssist'])->name('editor.ai-assist');
+        Route::get('/editor/{doc}/docx', [LawyerDocumentEditorController::class, 'downloadDocx'])->name('editor.docx');
+        Route::post('/editor/ai-assist', [LawyerDocumentEditorController::class, 'aiAssist'])->name('editor.ai-assist')->middleware('throttle:ai-calls');
     });
 
     // استقبال الاستشارات + رحلة الاستشارة + الغرفة — استقبال الاستشارات (والغرفة تحتاج إجراء الجلسات)
@@ -557,7 +567,7 @@ Route::middleware(['auth', 'active', 'role:lawyer'])->prefix('lawyer')->name('la
         Route::post('/consults/{consult}/reschedule', [StaffConsultController::class, 'reschedule'])->name('consults.reschedule');
         Route::post('/consults/{consult}/reschedule-request/dismiss', [StaffConsultController::class, 'dismissRescheduleRequest'])->name('consults.reschedule-request.dismiss');
         Route::post('/consults/{consult}/reqdocs', [StaffConsultController::class, 'requestDocs'])->name('consults.reqdocs');
-        Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware(Permissions::middleware(Permissions::RUN_LEGAL_ANALYSIS)); // انظر شرح النسخة أعلاه
+        Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware(Permissions::middleware(Permissions::RUN_LEGAL_ANALYSIS))->middleware('throttle:ai-calls'); // انظر شرح النسخة أعلاه
         Route::post('/consults/{consult}/analysis', [StaffConsultController::class, 'saveAnalysis'])->name('consults.analysis');
         // تحرير ملخّص الجلسة قبل اعتماده — «تعديل واعتماد» كان خياراً بلا حقلٍ يستقبله
         Route::post('/consults/{consult}/summary', [StaffConsultController::class, 'saveSummary'])->name('consults.summary')->middleware(Permissions::middleware(Permissions::APPROVE_CONSULT_SUMMARY));
@@ -629,7 +639,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     // تصحيح تسعيرٍ خاطئ قبل السداد — لم يكن للمشروع مخرجٌ منه إلّا إلغاء الطلب كلّه
     Route::post('/consults/{consult}/reprice', [StaffConsultController::class, 'reprice'])->name('consults.reprice')->middleware(Permissions::middleware(Permissions::MANAGE_BOOKINGS));
     Route::post('/consults/{consult}/reqdocs', [StaffConsultController::class, 'requestDocs'])->name('consults.reqdocs');
-    Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware(Permissions::middleware(Permissions::RUN_LEGAL_ANALYSIS));
+    Route::post('/consults/{consult}/analyze', [StaffConsultController::class, 'analyze'])->name('consults.analyze')->middleware(Permissions::middleware(Permissions::RUN_LEGAL_ANALYSIS))->middleware('throttle:ai-calls');
     Route::post('/consults/{consult}/analysis', [StaffConsultController::class, 'saveAnalysis'])->name('consults.analysis')->middleware(Permissions::middleware(Permissions::APPROVE_CONSULT_SUMMARY));
     Route::post('/consults/{consult}/summary', [StaffConsultController::class, 'saveSummary'])->name('consults.summary')->middleware(Permissions::middleware(Permissions::APPROVE_CONSULT_SUMMARY));
     // الاعتماد من شاشة الملفّ — لملخّصٍ لا قيد له في `ai_runs` فلا يبلغ الصندوق أبداً.
@@ -644,6 +654,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/staff', [StaffController::class, 'store'])->name('staff.store')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::put('/staff/{user}', [StaffController::class, 'update'])->name('staff.update')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::post('/staff/{user}/toggle', [StaffController::class, 'toggle'])->name('staff.toggle')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
+    Route::get('/staff/{user}/activity', [StaffController::class, 'activity'])->name('staff.activity')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     // مستحقّات الموظّف وسجلّ صرفه — القيد يُسجَّل ويُلغى، ولا تعديل ولا حذف
     Route::get('/staff/{user}/earnings', [StaffPayoutController::class, 'show'])->name('staff.earnings')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::post('/staff/{user}/payouts', [StaffPayoutController::class, 'store'])->name('staff.payouts.store')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
@@ -722,11 +733,11 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::get('/summary/{ticket}', [LawyerTicketController::class, 'showSummary'])->name('summary');
     Route::post('/summary/{ticket}', [LawyerTicketController::class, 'updateSummary'])->name('summary.update');
     Route::post('/summary/{ticket}/approve', [LawyerTicketController::class, 'approveSummary'])->name('summary.approve');
-    Route::post('/summary/{ticket}/rerun', [LawyerTicketController::class, 'rerunSummary'])->name('summary.rerun');
-    Route::post('/summary/{ticket}/najiz', [LawyerTicketController::class, 'generateNajizDraft'])->name('summary.najiz');
+    Route::post('/summary/{ticket}/rerun', [LawyerTicketController::class, 'rerunSummary'])->name('summary.rerun')->middleware('throttle:ai-calls');
+    Route::post('/summary/{ticket}/najiz', [LawyerTicketController::class, 'generateNajizDraft'])->name('summary.najiz')->middleware('throttle:ai-calls');
     Route::get('/summary/{ticket}/print', [LawyerTicketController::class, 'printSummary'])->name('summary.print');
     Route::get('/assistant', [LawyerAssistantController::class, 'index'])->name('assistant');
-    Route::post('/assistant/generate', [LawyerAssistantController::class, 'generate'])->name('assistant.generate');
+    Route::post('/assistant/generate', [LawyerAssistantController::class, 'generate'])->name('assistant.generate')->middleware('throttle:ai-calls');
     Route::post('/assistant/to-editor', [LawyerAssistantController::class, 'toEditor'])->name('assistant.to-editor');
     // محرر الصياغة القانونية — نسخة الإدارة العليا (ترى كل المستندات)
     Route::get('/editor', [LawyerDocumentEditorController::class, 'index'])->name('editor');
@@ -738,7 +749,8 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/editor/{doc}/approve', [LawyerDocumentEditorController::class, 'approve'])->name('editor.approve');
     Route::get('/editor/{doc}/print', [LawyerDocumentEditorController::class, 'printDoc'])->name('editor.print');
     Route::get('/editor/{doc}/pdf', [LawyerDocumentEditorController::class, 'downloadPdf'])->name('editor.pdf');
-    Route::post('/editor/ai-assist', [LawyerDocumentEditorController::class, 'aiAssist'])->name('editor.ai-assist');
+    Route::get('/editor/{doc}/docx', [LawyerDocumentEditorController::class, 'downloadDocx'])->name('editor.docx');
+    Route::post('/editor/ai-assist', [LawyerDocumentEditorController::class, 'aiAssist'])->name('editor.ai-assist')->middleware('throttle:ai-calls');
     Route::get('/revenue', [AdminReportController::class, 'revenue'])->name('revenue')->middleware(Permissions::middleware(Permissions::REPORTS_AND_REVENUE));
     // تصدير PDF — كانت الشاشتان بلا أي تصدير أو طباعة
     Route::get('/reports.pdf', [AdminReportController::class, 'reportsPdf'])->name('reports.pdf')->middleware(Permissions::middleware(Permissions::REPORTS_AND_REVENUE));
@@ -750,6 +762,9 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     // المسار داخل `role:admin` فلا يبلغه سواه.
     Route::get('/settings', [AdminSettingsController::class, 'index'])->name('settings');
     Route::post('/settings', [AdminSettingsController::class, 'update'])->name('settings.update');
+    // مفاتيح الخدمات الخارجيّة (ميسّر، Zoom، البريد، تقنيات، الذكاء) — مشفّرة، والأسرار لا تُرسل إلى المتصفّح
+    Route::get('/integrations', [AdminIntegrationSettingsController::class, 'index'])->name('integrations');
+    Route::post('/integrations', [AdminIntegrationSettingsController::class, 'update'])->name('integrations.update');
     // «الأقسام والخدمات» — كتالوج الأقسام القانونيّة وخدماتها والأقسام الإداريّة (قرار المالك 2026-09-14).
     // بلا صلاحيّة مستحدثة للتعليل نفسه أعلاه. لا حذف: إيقافٌ يُبقي السجلّات.
     Route::get('/catalogue', [AdminCatalogueController::class, 'index'])->name('catalogue');
@@ -840,7 +855,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
         Route::post('/ai-ops/tasks', [AdminAiOpsController::class, 'saveTasks'])->name('ai-ops.tasks');
         Route::post('/ai-ops/retention', [AdminAiOpsController::class, 'saveRetention'])->name('ai-ops.retention');
         // التقييم يُطلَق من الشاشة؛ الأمر ai:evaluate يبقى للجدولة وخطّ التكامل
-        Route::post('/ai-ops/evaluate', [AdminAiOpsController::class, 'evaluate'])->name('ai-ops.evaluate');
+        Route::post('/ai-ops/evaluate', [AdminAiOpsController::class, 'evaluate'])->name('ai-ops.evaluate')->middleware('throttle:ai-calls');
     });
 
     // المصادر القانونيّة المعتمدة — الاعتماد فعلٌ قانونيّ، فيُحرَس بصلاحية المساعد

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\User;
+use App\Support\SessionWindow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\ViewErrorBag;
 use Tests\TestCase;
@@ -76,7 +77,7 @@ class RefusalMessageReachesTheUserTest extends TestCase
         $response->assertSessionHasErrors('message');
 
         $this->assertStringContainsString(
-            'ربع ساعة',
+            SessionWindow::staffStartLabel(),
             $this->refusalMessage(),
             'النصّ هو نصّ `abort` نفسه — لا رسالةً عامّة تُخفي السبب'
         );

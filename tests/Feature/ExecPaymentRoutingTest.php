@@ -6,10 +6,12 @@ use App\Enums\Role;
 use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\User;
+use App\Services\Payments\MoyasarGateway;
 use App\Support\ExecFee;
 use App\Support\PaymentReconciler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
@@ -62,10 +64,10 @@ class ExecPaymentRoutingTest extends TestCase
         $belongs = $exec->invoices()->where('gateway_ref', 'inv_first')->exists();
         $this->assertTrue($belongs, 'المطابقة على أيّ فاتورة لهذا الطلب لا على أحدثها');
 
-        $this->assertTrue(PaymentReconciler::settle([
+        $this->assertTrue(PaymentReconciler::settle(MoyasarGateway::toGatewayPayment([
             'id' => 'pay_cb', 'status' => 'paid', 'invoice_id' => 'inv_first',
             'amount' => (int) $first->amount * 100, 'currency' => 'SAR',
-        ], 'callback'));
+        ]), 'callback'));
 
         $exec->refresh();
         $this->assertSame(7, $exec->effectiveStage());
@@ -92,6 +94,46 @@ class ExecPaymentRoutingTest extends TestCase
         $this->assertNotContains($response->getStatusCode(), [403, 404]);
     }
 
+    /** العودة من سداد الدفعة الأولى تفتح **الملفّ نفسه** — كانت تعيد إلى قائمة التنفيذ بلا رقم الملفّ. */
+    public function test_returning_from_the_first_payment_reopens_the_same_execution_file(): void
+    {
+        config(['services.moyasar.secret_key' => 'sk_test_x']);
+        $exec = $this->planned();
+        $first = $this->plan($exec)[0];
+        $first->update(['gateway_ref' => 'inv_first']);
+        Http::fake(['api.moyasar.com/v1/payments/*' => Http::response([
+            'id' => 'pay_back1', 'status' => 'paid', 'invoice_id' => 'inv_first',
+            'amount' => (int) $first->amount * 100, 'currency' => 'SAR',
+        ])]);
+
+        $this->actingAs(User::find($exec->user_id))
+            ->get(route('exec-flow.pay.callback', $exec).'?id=pay_back1')
+            ->assertRedirect(route('execs', ['id' => $exec->number]))->assertSessionHas('success');
+    }
+
+    /** والدفعة التالية (مسار الفواتير العامّ) تعود إلى الملفّ لا إلى صفحة الفواتير — نجاحاً أو تعذّراً. */
+    public function test_returning_from_a_later_installment_reopens_the_same_execution_file(): void
+    {
+        config(['services.moyasar.secret_key' => 'sk_test_x']);
+        $exec = $this->planned();
+        $plan = $this->plan($exec);
+        PaymentReconciler::settleManual($plan[0], 'الإدارة');
+        $second = $plan[1]->fresh();
+        $second->update(['gateway_ref' => 'inv_second']);
+        Http::fake(['api.moyasar.com/v1/payments/*' => Http::sequence()
+            ->push(['id' => 'pay_back2', 'status' => 'paid', 'invoice_id' => 'inv_second', 'amount' => (int) $second->amount * 100, 'currency' => 'SAR'])
+            ->push([], 500)]);
+        $owner = User::find($exec->user_id);
+        $fileUrl = route('execs', ['id' => $exec->number]);
+
+        $this->actingAs($owner)->get(route('invoices.checkout.callback', $second).'?id=pay_back2')
+            ->assertRedirect($fileUrl)->assertSessionHas('success');
+        $this->assertTrue((bool) $second->fresh()->paid);
+
+        $this->actingAs($owner)->get(route('invoices.checkout.callback', $plan[2]).'?id=pay_none')
+            ->assertRedirect($fileUrl)->assertSessionHas('error');
+    }
+
     /** والفاتورة المسدَّدة لا تُسدَّد مرّتين من هذا المسار. */
     public function test_a_settled_installment_is_refused_by_the_checkout(): void
     {
@@ -111,11 +153,11 @@ class ExecPaymentRoutingTest extends TestCase
         $exec = $this->planned();
         $first = $this->plan($exec)[0];
 
-        $this->assertFalse(PaymentReconciler::settle([
+        $this->assertFalse(PaymentReconciler::settle(MoyasarGateway::toGatewayPayment([
             'id' => 'pay_bad', 'status' => 'paid',
             'amount' => 100, 'currency' => 'SAR',
             'metadata' => ['invoice_number' => $first->number],
-        ], 'callback'));
+        ]), 'callback'));
 
         $exec->refresh();
         $this->assertSame(6, $exec->effectiveStage());

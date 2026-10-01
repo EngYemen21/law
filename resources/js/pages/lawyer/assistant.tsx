@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useToast } from '@/components/babylon/Toast';
 import { panelBase } from '@/lib/data';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 
 // مختبر التحليل والصياغة القانونية للمحامي والمستشار — Legal Analysis & Drafting Lab
 
@@ -317,7 +318,7 @@ return;
                 onClick={() => {
                   setOpening(true);
                   router.post(`${base}/assistant/to-editor`, { draft, title: type }, {
-                    onError: (errs) => toast(`⚠️ ${Object.values(errs)[0] ?? 'تعذّر فتح المحرّر'}`, 'error'),
+                    onError: (errs) => toast(`⚠️ ${firstError(errs, 'تعذّر فتح المحرّر')}`, 'error'),
                     onFinish: () => setOpening(false),
                   });
                 }}

@@ -70,6 +70,7 @@ interface Props {
   /** رفع طلب فتح تنفيذ الحكم للإدارة العليا (قرار المالك 2026-09-29) */
   canRequestExecution?: boolean;
   executionRequest?: CaseExecutionRequestData | null;
+  executionAmountHint?: number | null;
   convertedExec?: boolean;
 }
 
@@ -87,6 +88,7 @@ const EmployeeCase: React.FC<Props> = ({
   conversation,
   canRequestExecution = false,
   executionRequest = null,
+  executionAmountHint = null,
   convertedExec = false,
 }) => {
   const toast = useToast();
@@ -291,7 +293,7 @@ const EmployeeCase: React.FC<Props> = ({
           {canCourt && hearings.length > 0 && live.isActive && <HearingUpdatesCard base={base} hearings={hearings} />}
 
           {/* بطاقة الجلسات القضائية */}
-          <CaseExecutionRequestCard base={base} canRequest={canRequestExecution} pending={executionRequest} converted={convertedExec} />
+          <CaseExecutionRequestCard base={base} canRequest={canRequestExecution} pending={executionRequest} converted={convertedExec} amountHint={executionAmountHint} />
 
           <HearingsCard hearings={hearings} documents={documents} />
 

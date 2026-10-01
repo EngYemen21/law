@@ -48,7 +48,7 @@
         @include('emails.partials.alert', [
             'type' => 'info',
             'title' => '🗓️ الموعد المعدّل',
-            'slot' => 'تم اعتماد الموعد الجديد للاجتماع، يُرجى التواجد قبل الموعد بـ 5 دقائق.'
+            'slot' => 'تم اعتماد الموعد الجديد للاجتماع، يُرجى التواجد قبل الموعد بـ'.\App\Support\SessionWindow::joinOpensLabel().'.'
         ])
     @endif
 

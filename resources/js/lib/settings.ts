@@ -1,9 +1,10 @@
 import { usePage } from '@inertiajs/react';
+import { humanDuration } from '@/lib/human-duration';
 
 /**
  * **متغيّرات النظام كما يرسلها الخادم — القارئ الواحد في الواجهة.**
  *
- * مصدرها `SettingsRegistry` (و`Setting::vatRate()` لشاشة الأسعار)، مشارَكةً في كلّ صفحة تحت
+ * مصدرها `SettingsRegistry` (ونسبة الضريبة عبر `Setting::vatRate()`)، مشارَكةً في كلّ صفحة تحت
  * `settings` من `HandleInertiaRequests::SHARED_SETTINGS`. كانت الشاشات تنقش نسخها («٣ دفعات»،
  * «(15%)»، اسم المكتب وهاتفه) فيغيّرها المدير ولا يتغيّر ما يقرؤه العميل — ويحرس عودتها
  * `SettingsNotHardcodedTest`.
@@ -38,6 +39,14 @@ export interface SharedSettings {
   consult_slot_minutes: number;
   /** عمر الطلب المفتوح بالدقائق الذي يُعدّ بعده «متأخّراً» في شاشتي الاستشارات. */
   consult_request_late_minutes: number;
+  /** يُفعَّل زرّ الدخول للجلسة المرئيّة قبل الموعد بهذه الدقائق — النصّ منها بـ`joinOpensText`. */
+  session_join_opens_minutes: number;
+  /** يستطيع الطاقم بدء الاستشارة قبل الموعد بهذه الدقائق — النصّ منها بـ`useStaffStartText`. */
+  consult_staff_start_minutes: number;
+  /** الحضور قبل الموعد الحضوريّ بالدقائق — نصّ بطاقة الموعد (ونظيرها `AppointmentCardPdf`). */
+  office_arrival_minutes: number;
+  /** مهلة الاستئناف بالأيّام للأحكام التي تُسجَّل الآن — النصّ منها بـ`useAppealDaysText`. */
+  appeal_deadline_days: number;
 }
 
 /** متغيّرات النظام من الخاصيّة المشتركة. */
@@ -51,4 +60,19 @@ export function useSettings(): SharedSettings {
  */
 export function installmentsText(count: number): string {
   return count === 2 ? 'دفعتين' : `${count} دفعات`;
+}
+
+/** «5 دقائق» — مهلة فتح الدخول بوحدتها الطبيعيّة، لكلّ نصٍّ يعلنها للعميل (نظير `SessionWindow::joinOpensLabel`). */
+export function useJoinOpensText(): string {
+  return humanDuration(useSettings().session_join_opens_minutes) ?? '';
+}
+
+/** «30 يوماً» — مهلة الاستئناف بوحدتها (نظير `RecordRuling` حين يكتب `update_text`). */
+export function useAppealDaysText(): string {
+  return humanDuration(useSettings().appeal_deadline_days * 1440) ?? '';
+}
+
+/** «15 دقيقة» — نافذة بدء الطاقم بوحدتها الطبيعيّة (نظير `SessionWindow::staffStartLabel`). */
+export function useStaffStartText(): string {
+  return humanDuration(useSettings().consult_staff_start_minutes) ?? '';
 }

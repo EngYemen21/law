@@ -8,6 +8,7 @@ import StatRow from '@/components/babylon/StatRow';
 import type { StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 import { useSettings } from '@/lib/settings';
 
 // أتعاب القضايا المحوّلة — بيانات حقيقية من الخادم (الإدارة تحدّد الأتعاب لتفعيل القضية)،
@@ -145,7 +146,7 @@ const AdminCaseFees: React.FC<Props> = ({ cases, tab, q, tabs, counts, totals })
     router.post(`/admin/cases/${encodeURIComponent(no)}/fee`, { fee, lawyer_pct }, {
       preserveScroll: true,
       onSuccess: () => toast(fee === 0 ? 'فُعّلت القضية بلا أتعاب' : 'تم اعتماد الأتعاب وإصدار الفاتورة للعميل'),
-      onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر اعتماد الأتعاب')),
+      onError: (e) => toast(firstError(e, 'تعذّر اعتماد الأتعاب')),
     });
   };
 

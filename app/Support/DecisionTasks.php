@@ -100,6 +100,7 @@ class DecisionTasks
         }
 
         $ref = (string) ($model->ref ?: $model->getKey());
+        $dueDays = SettingsRegistry::int('decision_task_due_days');
         foreach ($decisions as $item) {
             $taskTitle = is_array($item) ? ($item['title'] ?? json_encode($item, JSON_UNESCAPED_UNICODE)) : (string) $item;
             if (trim($taskTitle) === '') {
@@ -109,8 +110,9 @@ class DecisionTasks
                 'assigned_to' => $owner->id,
                 'title' => $taskTitle,
                 'ref' => $ref,
-                'due' => 'خلال أسبوع',
-                'due_at' => now()->addWeek()->toDateString(),
+                // النصّ والتاريخ من الرقم نفسه — كانا «خلال أسبوع» و`addWeek()` في سطرين
+                'due' => 'خلال '.ArabicCount::days($dueDays),
+                'due_at' => now()->addDays($dueDays)->toDateString(),
                 'status' => 'مفتوحة',
                 'tone' => 'b-amber',
             ]);

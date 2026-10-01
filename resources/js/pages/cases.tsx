@@ -22,6 +22,8 @@ export interface CaseCard {
   next?: string;
   fee?: number | null;
   feeStatus?: string;
+  /** ما يُسدَّد الآن شاملاً الضريبة — مبلغ الفاتورة التي يفتحها زرّ السداد (`CaseFee::nextPayable`). */
+  amountDue?: number | null;
   invoice?: string | null;
   department?: string;
   createdAt?: string;
@@ -639,7 +641,7 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
                       disabled={payment.busyKey === c.no}
                       onClick={() => pay(c.no)}
                     >
-                      <Icon name="card" /> سداد الأتعاب {c.fee ? `(${c.fee.toLocaleString()} ريال)` : ''}
+                      <Icon name="card" /> سداد الأتعاب {c.amountDue ? `(${c.amountDue.toLocaleString()} ريال)` : ''}
                     </button>
                     {/* السداد لا يقفل الملف: بلا هذا الزرّ كانت القضية غير المسدَّدة بلا أي طريق لفتح ملفها في نمط البطاقات */}
                     <button
@@ -719,7 +721,7 @@ const Cases: React.FC<Props> = ({ cases = [], counts, upcomingHearings = [], tab
                           disabled={payment.busyKey === c.no}
                           onClick={(e) => { e.stopPropagation(); pay(c.no); }}
                         >
-                          <Icon name="card" /> سداد {c.fee ? `(${c.fee.toLocaleString()} ر.س)` : ''}
+                          <Icon name="card" /> سداد {c.amountDue ? `(${c.amountDue.toLocaleString()} ر.س)` : ''}
                         </button>
                       ) : (
                         <button className="btn soft sm" type="button" style={{ whiteSpace: 'nowrap' }}>

@@ -319,7 +319,9 @@ class MeetingApprovalLockTest extends TestCase
         $ui = file_get_contents(resource_path('js/lib/meeting-ui.tsx'));
 
         // بمفتاح الحالة من الخادم (`statusKey`) لا بالنصّ العربيّ — الحارس نفسه: لا مزامنة بعد الاعتماد
-        $this->assertStringContainsString("{statusKey === 'ended' && !locked && (", $ui);
+        // `readOnly` = معتمد **أو** موظّفٌ لا صلة له (قرار المالك 2026-10-01) — والاعتماد منه
+        $this->assertStringContainsString('const readOnly = locked || !canAct;', $ui);
+        $this->assertStringContainsString("{statusKey === 'ended' && !readOnly && (", $ui);
     }
 
     // ————— ٧ · القائمة تفرز بالموعد وتحترم نافذة الدخول —————
@@ -357,7 +359,10 @@ class MeetingApprovalLockTest extends TestCase
         $ui = file_get_contents(resource_path('js/lib/meeting-ui.tsx'));
 
         // قاعدةُ النافذة لا تُعاد كتابتها في JS — تُقرأ من البطاقة
-        $this->assertStringContainsString('{m.canJoin ? (', $ui);
+        // (زرّ الدخول يظهر بحكم `canJoin` وحده — تصميم القائمة 2026-09-30)
+        // ومعه حكم الخادم على المشاهِد (`canEnter`) — الموظّف بلا صلةٍ لا يدخل الغرفة
+        $this->assertStringContainsString('{m.canJoin && m.canEnter !== false && (', $ui);
+        $this->assertStringContainsString('{m.up && !m.canJoin && (', $ui);
         // والفرز بالموعد لا بترتيب الإنشاء
         $this->assertStringContainsString('new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime()', $ui);
         // شيفرةٌ ميّتة لا تعود: قوائم «قبل/أثناء/بعد» المختلقة عُلّقت 2026-08-26 وبقيت سنةً

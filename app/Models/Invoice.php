@@ -4,7 +4,9 @@ namespace App\Models;
 
 use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\GuardsJourneyState;
+use App\Support\Finance\InstallmentPlan;
 use App\Support\Finance\InvoiceFactory;
+use App\Support\SettingsRegistry;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
@@ -17,9 +19,9 @@ class Invoice extends Model
 
     protected $fillable = [
         'user_id', 'case_id', 'consult_id', 'exec_id', 'share_user_id', 'installment_no', 'number', 'description', 'amount', 'status', 'tone', 'due_label', 'due_at', 'reminder_sent_at', 'paid',
-        'gateway_ref', 'gateway_payment_id', 'proof_path', 'proof_uploaded_at',
+        'gateway', 'gateway_ref', 'gateway_payment_id', 'proof_path', 'proof_uploaded_at',
         // م١: الضريبة ومحطّات دورة الحياة — `vat_rate` مجمَّدةٌ يوم الإصدار (`Finance\InvoiceFactory`)
-        'paid_at', 'subtotal', 'vat_rate', 'vat_amount',
+        'paid_at', 'subtotal', 'vat_rate', 'vat_amount', 'seller_name', 'seller_vat_number',
         'issued_at', 'cancelled_at', 'written_off_at', 'written_off_reason',
     ];
 
@@ -106,6 +108,52 @@ class Invoice extends Model
         return $query->outstanding()->whereNotNull('due_at')->whereDate('due_at', '<', today());
     }
 
+    /**
+     * **بيانات البائع تُجمَّد لحظة الإصدار** (`issued_at`) — في كلّ مسارٍ يُصدر فاتورة (المصنع، واعتماد المسوّدة). كانت
+     * الفاتورة الضريبيّة ورمز ZATCA يقرآن اسم المكتب ورقمه الضريبيّ لحظة العرض، فيغيّر تعديلُهما فواتيرَ صدرت.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (Invoice $invoice): void {
+            if ($invoice->issued_at !== null && $invoice->seller_name === null) {
+                $invoice->seller_name = SettingsRegistry::str('office_name');
+                $invoice->seller_vat_number = SettingsRegistry::str('office_vat_number');
+            }
+        });
+    }
+
+    /** اسم البائع كما صدرت به — والصفّ القديم غير المجمَّد يأخذ الحاليّ. */
+    public function sellerName(): string
+    {
+        return $this->seller_name ?? SettingsRegistry::str('office_name');
+    }
+
+    /** الرقم الضريبيّ كما صدرت به ('' = صدرت والمكتب غير مسجَّل) — والقديم غير المجمَّد يأخذ الحاليّ. */
+    public function sellerVatNumber(): string
+    {
+        return $this->seller_vat_number ?? SettingsRegistry::str('office_vat_number');
+    }
+
+    /**
+     * **قسطٌ قبله قسطٌ مستحقّ** — لا يسدّده العميل قبل سابقه (تدقيق الدفع C): كان سدادُ الثالثة أوّلاً يفعّل
+     * القضيّة والأولى غير مدفوعة. ولا يخصّ غيرَ دفعات الخطط، ولا المدفوعة ولا الملغاة.
+     */
+    public function awaitsEarlierInstallment(): bool
+    {
+        $owner = match (true) {
+            $this->case_id !== null => 'case_id',
+            $this->exec_id !== null => 'exec_id',
+            default => null,
+        };
+        if ($this->installment_no === null || $owner === null || ! $this->isOutstanding()) {
+            return false;
+        }
+
+        $next = InstallmentPlan::next($owner, (int) $this->getAttribute($owner));
+
+        return $next !== null && $next->id !== $this->id;
+    }
+
     /** أُلغيت (إعادة تسعير أو إلغاء طلب) — لا تُسدَّد ولا يُرفع لها إثبات ولا تُحصَّل. */
     public function isCancelled(): bool
     {
@@ -159,6 +207,12 @@ class Invoice extends Model
         return $this->belongsTo(Consult::class);
     }
 
+    /** @return BelongsTo<Execution, $this> */
+    public function execution(): BelongsTo
+    {
+        return $this->belongsTo(Execution::class, 'exec_id');
+    }
+
     /** دفتر مدفوعات البوّابة لهذه الفاتورة (سجلّ تدقيق لكلّ حدث دفع). */
     public function payments(): HasMany
     {
@@ -208,6 +262,8 @@ class Invoice extends Model
             'receivable' => $this->isOwedByClient(),
             'hasProof' => $this->proof_path !== null,   // رُفع إثبات تحويل بانتظار المراجعة
             'installmentNo' => $this->installment_no,   // موضعها من خطّة التقسيط — null لغيرها
+            // قسطٌ قبله مستحقّ: الشاشة تُخفي سداده، والخادم يرفضه (`InvoiceController::checkout`)
+            'awaitsEarlier' => $this->awaitsEarlierInstallment(),
         ];
     }
 

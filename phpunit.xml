@@ -18,41 +18,43 @@
         </include>
     </source>
     <php>
+        <!-- force="true": متغيّرٌ في بيئة الجهاز (مفاتيح ميسّر/Zoom الحقيقيّة، DB_CONNECTION) لا يتسرّب إلى الاختبارات — بدونه
+             تُهمَل القيمة هنا حين يكون المتغيّر مضبوطاً في البيئة (ثبت 2026-09-30: مفتاح ميسّر التجريبيّ جعل «البوّابة غير مهيّأة» مهيّأة). -->
         <ini name="memory_limit" value="1024M"/>
-        <env name="APP_ENV" value="testing"/>
+        <env name="APP_ENV" value="testing" force="true"/>
         <!-- throw: أيّ كتابة حالة جديدة خارج Workflow تُفشل الاختبار (المدرجون في LEGACY_WRITERS مستثنون). للجرد: record + JOURNEY_RECORD_LEGACY=true -->
-        <env name="JOURNEY_GUARD" value="throw"/>
-        <env name="GLM_API_KEY" value=""/>
-        <env name="AI_TICKET_AGENT" value="false"/>
-        <env name="GEMINI_API_KEY" value=""/>
-        <env name="ZOOM_ACCOUNT_ID" value=""/>
-        <env name="ZOOM_CLIENT_ID" value=""/>
-        <env name="ZOOM_CLIENT_SECRET" value=""/>
-        <env name="ZOOM_SDK_KEY" value=""/>
-        <env name="ZOOM_SDK_SECRET" value=""/>
-        <env name="ZOOM_WEBHOOK_SECRET" value=""/>
-        <env name="RESEND_API_KEY" value=""/>
-        <env name="AWS_ACCESS_KEY_ID" value=""/>
-        <env name="AWS_SECRET_ACCESS_KEY" value=""/>
-        <env name="AWS_BUCKET" value=""/>
-        <env name="MOYASAR_SECRET_KEY" value=""/>
-        <env name="MOYASAR_PUBLISHABLE_KEY" value=""/>
-        <env name="MOYASAR_WEBHOOK_SECRET" value=""/>
-        <env name="TAQNYAT_API_KEY" value=""/>
-        <env name="TAQNYAT_SENDER" value=""/>
-        <env name="AUTH_DEV_OTP" value=""/>
-        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
-        <env name="BCRYPT_ROUNDS" value="4"/>
-        <env name="BROADCAST_CONNECTION" value="null"/>
-        <env name="CACHE_STORE" value="array"/>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
-        <env name="DB_URL" value=""/>
-        <env name="MAIL_MAILER" value="array"/>
-        <env name="QUEUE_CONNECTION" value="sync"/>
-        <env name="SESSION_DRIVER" value="array"/>
-        <env name="PULSE_ENABLED" value="false"/>
-        <env name="TELESCOPE_ENABLED" value="false"/>
-        <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <env name="JOURNEY_GUARD" value="throw" force="true"/>
+        <env name="GLM_API_KEY" value="" force="true"/>
+        <env name="AI_TICKET_AGENT" value="false" force="true"/>
+        <env name="GEMINI_API_KEY" value="" force="true"/>
+        <env name="ZOOM_ACCOUNT_ID" value="" force="true"/>
+        <env name="ZOOM_CLIENT_ID" value="" force="true"/>
+        <env name="ZOOM_CLIENT_SECRET" value="" force="true"/>
+        <env name="ZOOM_SDK_KEY" value="" force="true"/>
+        <env name="ZOOM_SDK_SECRET" value="" force="true"/>
+        <env name="ZOOM_WEBHOOK_SECRET" value="" force="true"/>
+        <env name="RESEND_API_KEY" value="" force="true"/>
+        <env name="AWS_ACCESS_KEY_ID" value="" force="true"/>
+        <env name="AWS_SECRET_ACCESS_KEY" value="" force="true"/>
+        <env name="AWS_BUCKET" value="" force="true"/>
+        <env name="MOYASAR_SECRET_KEY" value="" force="true"/>
+        <env name="MOYASAR_PUBLISHABLE_KEY" value="" force="true"/>
+        <env name="MOYASAR_WEBHOOK_SECRET" value="" force="true"/>
+        <env name="TAQNYAT_API_KEY" value="" force="true"/>
+        <env name="TAQNYAT_SENDER" value="" force="true"/>
+        <env name="AUTH_DEV_OTP" value="" force="true"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file" force="true"/>
+        <env name="BCRYPT_ROUNDS" value="4" force="true"/>
+        <env name="BROADCAST_CONNECTION" value="null" force="true"/>
+        <env name="CACHE_STORE" value="array" force="true"/>
+        <env name="DB_CONNECTION" value="sqlite" force="true"/>
+        <env name="DB_DATABASE" value=":memory:" force="true"/>
+        <env name="DB_URL" value="" force="true"/>
+        <env name="MAIL_MAILER" value="array" force="true"/>
+        <env name="QUEUE_CONNECTION" value="sync" force="true"/>
+        <env name="SESSION_DRIVER" value="array" force="true"/>
+        <env name="PULSE_ENABLED" value="false" force="true"/>
+        <env name="TELESCOPE_ENABLED" value="false" force="true"/>
+        <env name="NIGHTWATCH_ENABLED" value="false" force="true"/>
     </php>
 </phpunit>

@@ -4,8 +4,10 @@ import React, { useState, useMemo } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
+import RichTextEditor, { htmlToText } from '@/components/babylon/RichTextEditor';
 import { useToast } from '@/components/babylon/Toast';
 import { type SummaryData } from '@/lib/lawyer-data';
+import { useCan } from '@/lib/permissions';
 import { firstError } from '@/lib/server-message';
 import type { EmployeeTicketCard } from '@/types';
 
@@ -71,16 +73,23 @@ const LEGAL_SECTIONS: FieldMeta[] = [
 
 const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', canRerunSummary = false }) => {
   const toast = useToast();
+  // المحرّر محروسٌ بـ«المساعد القانوني» (web.php) — روابطه لمن يملكه، وإلّا يُصدّ عند فتحها
+  const canUseEditor = useCan()('المساعد القانوني');
   const approved = Boolean(summary.approved);
   const isAdmin = base === '/admin';
+  // من أين فُتح الملخّص: الإدارة من «مركز الاعتمادات»، والمحامي من «الملخصات القانونية» — لا مركز اعتماداتٍ له
+  const origin = isAdmin
+    ? { href: '/admin/approvals', label: 'مركز الاعتمادات والقرارات', back: 'رجوع للمركز' }
+    : { href: '/lawyer/summaries', label: 'الملخصات القانونية', back: 'رجوع للملخّصات' };
   // اعتماد المحامي يُقفل عليه؛ والإدارة تعدّل حتى تعتمد
   const canEdit = !approved && (isAdmin || !summary.lawyerApproved);
 
+  // النسخ المنسّقة تُحرَّر وتُرسل (`TicketSummary::editableInput` يشتقّ منها النصّ العاديّ)
   const [form, setForm] = useState({
-    case_summary: summary.caseSummary || '',
-    attachments_summary: summary.attachmentsSummary || '',
-    facts: summary.facts || '',
-    key_points: summary.keyPoints || '',
+    case_summary_html: summary.html?.caseSummary ?? '',
+    attachments_summary_html: summary.html?.attachmentsSummary ?? '',
+    facts_html: summary.html?.facts ?? '',
+    key_points_html: summary.html?.keyPoints ?? '',
   });
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -97,16 +106,16 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
 
   // حساب عدد الكلمات الإجمالي للملخص
   const totalWords = useMemo(() => {
-    const text = `${form.case_summary} ${form.attachments_summary} ${form.facts} ${form.key_points}`.trim();
+    const text = [form.case_summary_html, form.attachments_summary_html, form.facts_html, form.key_points_html].map(htmlToText).join(' ').trim();
     return text ? text.split(/\s+/).filter(Boolean).length : 0;
   }, [form]);
 
   const val = (key: keyof SummaryData): string => {
     switch (key) {
-      case 'caseSummary': return form.case_summary;
-      case 'attachmentsSummary': return form.attachments_summary;
-      case 'facts': return form.facts;
-      case 'keyPoints': return form.key_points;
+      case 'caseSummary': return form.case_summary_html;
+      case 'attachmentsSummary': return form.attachments_summary_html;
+      case 'facts': return form.facts_html;
+      case 'keyPoints': return form.key_points_html;
       default: return '';
     }
   };
@@ -114,9 +123,9 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
   const setVal = (key: keyof SummaryData, v: string) => {
     setForm((f) => ({
       ...f,
-      ...(key === 'caseSummary' ? { case_summary: v }
-        : key === 'attachmentsSummary' ? { attachments_summary: v }
-        : key === 'facts' ? { facts: v } : { key_points: v }),
+      ...(key === 'caseSummary' ? { case_summary_html: v }
+        : key === 'attachmentsSummary' ? { attachments_summary_html: v }
+        : key === 'facts' ? { facts_html: v } : { key_points_html: v }),
     }));
   };
 
@@ -143,7 +152,7 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
     router.post(`${base}/summary/${encodeURIComponent(ticket.no)}`, form, {
       preserveScroll: true,
       onSuccess: () => toast('تم حفظ تعديلات الملخص بنجاح'),
-      onError: (e) => toast(e.message || Object.values(e)[0] || 'تعذر حفظ التعديلات حالياً'),
+      onError: (e) => toast(firstError(e, 'تعذر حفظ التعديلات حالياً')),
       onFinish: () => setIsSaving(false),
     });
   };
@@ -154,7 +163,7 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
     router.post(`${base}/summary/${encodeURIComponent(ticket.no)}/rerun`, {}, {
       preserveScroll: true,
       onSuccess: () => toast('✨ تمت إعادة تشغيل التحليل الذكي للملخّص وتحديث البنود'),
-      onError: (e) => toast(e.message || Object.values(e)[0] || 'تعذّر إعادة تشغيل التحليل حالياً'),
+      onError: (e) => toast(firstError(e, 'تعذّر إعادة تشغيل التحليل حالياً')),
       onFinish: () => setIsRerunning(false),
     });
   };
@@ -234,8 +243,8 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
             <Icon name="home" /> الرئيسية
           </Link>
           <span>/</span>
-          <Link href={`${base}/approvals`} style={{ color: 'var(--muted)' }}>
-            مركز الاعتمادات والقرارات
+          <Link href={origin.href} style={{ color: 'var(--muted)' }}>
+            {origin.label}
           </Link>
           <span>/</span>
           <span style={{ color: 'var(--primary)', fontWeight: 700 }}>ملخص ملف {ticket.no}</span>
@@ -244,11 +253,11 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
         {/* أزرار الإجراءات العلوية السريعة */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <Link
-            href={`${base}/approvals`}
+            href={origin.href}
             className="btn soft sm"
             style={{ height: 32, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
           >
-            <Icon name="reply" /> رجوع للمركز
+            <Icon name="reply" /> {origin.back}
           </Link>
 
           <button
@@ -261,14 +270,16 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
             <Icon name="upload" /> {approved ? 'طباعة تقرير معتمد' : 'تصدير المسودة'}
           </button>
 
-          <Link
-            href={`${base}/editor/create?ticket=${encodeURIComponent(ticket.no)}&type=summary`}
-            className="btn soft sm"
-            style={{ height: 32, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
-            title="فتح هذا الملخص في محرر الصياغة لتنسيقه وتصميمه كـ Word"
-          >
-            <Icon name="doc" /> محرر الصياغة
-          </Link>
+          {canUseEditor && (
+            <Link
+              href={`${base}/editor/create?ticket=${encodeURIComponent(ticket.no)}&type=summary`}
+              className="btn soft sm"
+              style={{ height: 32, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+              title="فتح هذا الملخص في محرر الصياغة لتنسيقه وتصميمه كـ Word"
+            >
+              <Icon name="doc" /> محرر الصياغة
+            </Link>
+          )}
 
           <button
             type="button"
@@ -373,26 +384,28 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
           <div className="summary-header-actions">
             {canEdit ? (
               <>
-                <Link
-                  href={`${isAdmin ? '/admin' : '/lawyer'}/editor/create?importType=ticket_summary&id=${summary.id}`}
-                  className="btn soft"
-                  style={{
-                    height: 36,
-                    fontSize: 12.5,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    textDecoration: 'none',
-                    background: 'rgba(14, 92, 156, 0.08)',
-                    borderColor: 'rgba(14, 92, 156, 0.3)',
-                    color: '#0e5c9c',
-                    fontWeight: 700,
-                  }}
-                  title="فتح وتنسيق هذا الملخص كـ Word في محرر المستندات القانونية"
-                >
-                  <Icon name="edit" />
-                  <span>تنسيق في المحرر ⚖️</span>
-                </Link>
+                {canUseEditor && (
+                  <Link
+                    href={`${isAdmin ? '/admin' : '/lawyer'}/editor/create?importType=ticket_summary&id=${summary.id}`}
+                    className="btn soft"
+                    style={{
+                      height: 36,
+                      fontSize: 12.5,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      textDecoration: 'none',
+                      background: 'rgba(14, 92, 156, 0.08)',
+                      borderColor: 'rgba(14, 92, 156, 0.3)',
+                      color: '#0e5c9c',
+                      fontWeight: 700,
+                    }}
+                    title="فتح وتنسيق هذا الملخص كـ Word في محرر المستندات القانونية"
+                  >
+                    <Icon name="edit" />
+                    <span>تنسيق في المحرر ⚖️</span>
+                  </Link>
+                )}
 
                 {/* كلّ نسخ الملخّص: الآلة والقالب وتعديلات المحامي والإدارة (طلب المالك 2026-09-29) */}
                 <RevisionHistoryButton kind="ticket_summary" refKey={ticket.no} className="btn soft" />
@@ -754,7 +767,8 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
 
           {/* كروت الأقسام القانونية الأربعة */}
           {LEGAL_SECTIONS.filter((s) => activeTab === 'all' || activeTab === s.key).map((f) => {
-            const content = val(f.key);
+            const html = val(f.key);
+            const content = htmlToText(html);
             const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
             const charCount = content.length;
 
@@ -847,33 +861,11 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
 
                 {/* محرر النص الاحترافي */}
                 <div style={{ padding: '12px 16px' }}>
-                  <textarea
-                    value={content}
-                    onChange={(e) => setVal(f.key, e.target.value)}
+                  <RichTextEditor
+                    value={html}
+                    onChange={(v) => setVal(f.key, v)}
                     readOnly={!canEdit}
                     placeholder={f.placeholder}
-                    style={{
-                      width: '100%',
-                      minHeight: 110,
-                      fontSize: 13.2,
-                      lineHeight: 1.8,
-                      fontFamily: 'inherit',
-                      color: 'var(--ink)',
-                      background: canEdit ? 'var(--paper)' : 'var(--paper-2)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                      padding: 12,
-                      outline: 'none',
-                      resize: 'vertical',
-                      boxShadow: 'none',
-                      transition: 'border-color 0.15s ease',
-                    }}
-                    onFocus={(e) => {
-                      if (canEdit) e.currentTarget.style.borderColor = 'var(--primary)';
-                    }}
-                    onBlur={(e) => {
-                      if (canEdit) e.currentTarget.style.borderColor = 'var(--border)';
-                    }}
                   />
                   {!canEdit && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>

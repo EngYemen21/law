@@ -7,6 +7,7 @@ import type { ExecutionRequestRow } from '@/components/babylon/ExecutionRequests
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
 import { type SummaryData } from '@/lib/lawyer-data';
+import { firstError } from '@/lib/server-message';
 
 // ============================================================================
 // مركز الاعتمادات والقرارات الإدارية (Executive Approval & Decision Hub)
@@ -205,7 +206,7 @@ const AdminApprovals: React.FC<Props> = ({
      * موعدٌ فات، محضرٌ اعتُمد). ورسالة النجاح من الخادم (flash) يعرضها التخطيط — لا إشعار ثانٍ هنا.
      */
     const failWith = (fallback: string) => (errors: Record<string, string>) =>
-        toast(`⚠️ ${Object.values(errors)[0] ?? fallback}`, 'error');
+        toast(`⚠️ ${firstError(errors, fallback)}`, 'error');
 
     const post = (url: string, data: Record<string, unknown>, fallback: string) =>
         router.post(url, data as never, {

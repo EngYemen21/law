@@ -27,9 +27,10 @@ final class LawyerWorkload
     /** وزن كلّ نوعٍ في الحِمل — القضيّة والتنفيذ أثقل من التذكرة والاستشارة. */
     public const WEIGHTS = ['tickets' => 1, 'cases' => 2, 'executions' => 2, 'consults' => 1];
 
-    /** أقلّ من هذا «متاح»، وحتى `BUSY_FROM - 1` «متوسّط»، وما فوقه «مشغول». */
+    /** **الافتراض المُعلَن** لـ`workload_moderate_from` — أقلّ منه «متاح». */
     public const MODERATE_FROM = 5;
 
+    /** **الافتراض المُعلَن** لـ`workload_busy_from` — منه فما فوق «مشغول»، وما بينهما «متوسّط». */
     public const BUSY_FROM = 15;
 
     /**
@@ -79,8 +80,8 @@ final class LawyerWorkload
     public static function capacity(int $total): string
     {
         return match (true) {
-            $total < self::MODERATE_FROM => 'available',
-            $total < self::BUSY_FROM => 'moderate',
+            $total < SettingsRegistry::int('workload_moderate_from') => 'available',
+            $total < SettingsRegistry::int('workload_busy_from') => 'moderate',
             default => 'busy',
         };
     }

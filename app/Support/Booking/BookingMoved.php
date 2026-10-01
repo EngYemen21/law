@@ -131,7 +131,12 @@ class BookingMoved
                 'reminder_24h_sent_at' => null,
                 'reminder_30m_sent_at' => null,
             ],
-            $entity instanceof Meeting => ['reminder_sent_at' => null],
+            // طبقتا التذكير وإطلاق الرابط (2026-10-01) — موعدٌ جديد يستحقّها من جديد
+            $entity instanceof Meeting => [
+                'reminder_sent_at' => null,
+                'reminder_near_sent_at' => null,
+                'link_released_at' => null,
+            ],
             $entity instanceof CaseHearing => [
                 'reminder_24h_sent_at' => null,
                 'reminder_1h_sent_at' => null,

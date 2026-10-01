@@ -7,16 +7,19 @@ import FlowLine from '@/components/babylon/FlowLine';
 import Badge from '@/components/babylon/Badge';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
-import { TKT_LIFE, tktStage, type Message } from '@/lib/chat';
+import { TKT_LIFE, type Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
+import { serverMessage } from '@/lib/server-message';
 import { useServerAction } from '@/lib/use-server-action';
 // بطاقة العميل من النوع المشترك (`Ticket::toCard`) — كانت مُعرَّفةً هنا وفي الصفحة الأخرى
-import type { ClientTicketCard as TicketCard } from '@/types';
+import type { ClientTicketCard as TicketCard, OutcomeCards } from '@/types';
 
 // يطابق clientTicketView + خطوات حجز الاستشارة (tfChooseConsult→tfInvoice→tfPaid→tfChooseSlot→tfConfirm)
 // دورة الحجز مقودة من الخادم عبر حالة الاستشارة المرتبطة (consult): تسعير الإدارة → فاتورة → دفع محاكى → موعد.
 interface ConsultLink {
   id: number; ref: string; status: string; channel: string; statusCode?: string;
+  /** مرحلة دورة الحجز بمفتاحٍ ثابت (`Consult::toClientCard`) — `null` لما تجاوزها. */
+  bookingStage: 'pricing' | 'payment' | 'scheduling' | null;
   price?: number; vat?: number; total?: number; priced?: boolean; paid?: boolean; invoiceNo?: string | null;
   /** النسبة المطبَّقة على هذه الاستشارة (`Consult::vatRate`) — لا «15%» منقوشة تخالف مبلغ الضريبة. */
   vatRate?: number | null;
@@ -46,13 +49,15 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
   }, [consult?.id]);
 
   const status = consult?.status ?? null;
+  // المراحل بمفتاح الخادم لا بنصّ الحالة — والنصّ للعرض وحده
+  const stage = consult?.bookingStage ?? null;
 
   // عند وصول خطوة اختيار الموعد (بعد الدفع) — التمرير لأعلى ليظهر قسم حجز الموعد بدل بقاء الشاشة أسفل الدردشة
   useEffect(() => {
-    if (status === 'بانتظار تحديد الموعد') {
+    if (stage === 'scheduling') {
       cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-  }, [status]);
+  }, [stage]);
 
   // الخطوة 1: طلب الاستشارة (النوع فقط) → يُرسل للتسعير
   const requestConsult = () => {
@@ -60,7 +65,8 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
     setBusy(true);
     axios.post(`/tickets/${encodeURIComponent(no)}/book`, { type })
       .then(() => { toast('تم إرسال طلبك للتسعير'); router.reload({ only: ['consult', 'messages', 'ticket'] }); })
-      .catch(() => { setBusy(false); toast('تعذّر إرسال الطلب، حاول مجدداً'); });
+      // سبب الرفض من الخادم (مثل «تُطلب الاستشارة بعد…») — لا نصٌّ عامّ لا يدلّ العميل على شيء
+      .catch((error) => { setBusy(false); toast(serverMessage(error, 'تعذّر إرسال الطلب، حاول مجدداً')); });
   };
 
   const pay = () => {
@@ -71,8 +77,8 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
   };
 
   const badge = !status ? 'اختر النوع'
-    : status === 'بانتظار التسعير' ? 'بانتظار التسعير'
-      : status === 'بانتظار السداد' ? 'بانتظار السداد' : 'قيد تحديد الموعد';
+    : stage === 'pricing' ? 'بانتظار التسعير'
+      : stage === 'payment' ? 'بانتظار السداد' : 'قيد تحديد الموعد';
 
   // المعرّف book-consult هو هدف تمرير زرّ «حجز موعد الاستشارة» في بطاقة قرار الإدارة أعلى الصفحة
   return (
@@ -102,14 +108,14 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
         )}
 
         {/* بانتظار تسعير المكتب */}
-        {status === 'بانتظار التسعير' && (
+        {stage === 'pricing' && (
           <div className="action-hint" style={{ textAlign: 'center', padding: 14 }}>
             <Icon name="clock" /> طلبك ({consult?.ref}) قيد المراجعة لدى المكتب لتحديد سعر الاستشارة. ستصلك الفاتورة فور تحديده.
           </div>
         )}
 
         {/* الفاتورة + الدفع المحاكى */}
-        {status === 'بانتظار السداد' && (
+        {stage === 'payment' && (
           <>
             <div className="invoice">
               <div className="inv-head"><b>فاتورة استشارة قانونية</b><span>{consult?.invoiceNo ?? consult?.ref}</span></div>
@@ -126,7 +132,7 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
         )}
 
         {/* بعد السداد: المكتب يحدّد الموعد (قرار المالك 2026-09-14) — لا جدول حجز للعميل */}
-        {status === 'بانتظار تحديد الموعد' && (
+        {stage === 'scheduling' && (
           <div className="action-hint" style={{ textAlign: 'center', padding: 14 }}>
             <Icon name="clock" /> سوف يتم تحديد موعد جلسة استشارية مع المستشار المختص وثمّ تزويدك بالموعد المحدد
           </div>
@@ -139,24 +145,23 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
 
 const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Message[]; consult?: ConsultLink | null }> = ({ ticket, channel, messages, consult }) => {
   // الحالة لحظية: تتحدّث عبر بثّ القناة فيتقدّم المسار دون إعادة تحميل
-  const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone, isTerminal: Boolean(ticket.isTerminal) });
+  const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone, isTerminal: Boolean(ticket.isTerminal), step: ticket.step, cards: ticket.outcomeCards });
 
   // عند بثّ حالة التذكرة (تقدّم المسار خادميّاً) نعيد جلب الاستشارة المرتبطة أيضاً — فتصل حقول
   // الفاتورة/السداد لحظياً ويُفعَّل زر «الدفع عبر ميسّر» دون إعادة تحميل يدوي للصفحة.
   // القناة مشتركة مع الطاقم: `status` داخليّ، والعميل يقرأ `clientStatus` (قيد إعداد الرأي القانوني…)
-  const onStatus = (s: { status: string; tone: string; clientStatus?: string; isTerminal?: boolean }) => {
-    setStatus({ status: s.clientStatus ?? s.status, tone: s.tone, isTerminal: Boolean(s.isTerminal) });
+  const onStatus = (s: { status: string; tone: string; clientStatus?: string; isTerminal?: boolean; step?: number; outcomeCards?: OutcomeCards }) => {
+    // `step` و`outcomeCards` يحملهما بثّ الحالة دائماً (`TicketStatusBroadcast`)؛ وغيابهما لا يُسقط ما ظهر
+    setStatus((prev) => ({ status: s.clientStatus ?? s.status, tone: s.tone, isTerminal: Boolean(s.isTerminal), step: s.step ?? prev.step, cards: s.outcomeCards ?? prev.cards }));
     router.reload({ only: ['consult'] });
   };
 
   // تُعرض لوحة الحجز بعد نشر الرأي القانونيّ المبدئيّ (يُطلب منها)، أو ما دامت هناك استشارة قيد
   // التسعير/السداد/تحديد الموعد — «المرحلة التالية» لم تعد تنقل التذكرة إلى «بانتظار حجز الاستشارة».
-  const bookingActive = consult && ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'].includes(consult.status);
-  const canRequest = ticket.actions?.can_request_consult ?? (
-    ['الرأي القانوني', 'بانتظار حجز الاستشارة'].includes(status.status)
-    && (!consult || ['منتهية', 'ملغاة', 'لم يحضر'].includes(consult.status))
-  );
-  const showBooking = canRequest || !!bookingActive;
+  const bookingActive = consult?.bookingStage != null;
+  // حكم الخادم (`actionsMatrix`) — تحمله بطاقة العميل دائماً، فلا بديلَ يقارن نصوص الحالة
+  const canRequest = ticket.actions.can_request_consult;
+  const showBooking = canRequest || bookingActive;
 
   // حكم الخادم (`TicketStatus::isTerminal`) — من الصفحة ثمّ من البثّ. كانت قائمةٌ داخليّة تُقارَن بتسمية
   // العميل (`clientStatus`) فلا تصدق أبداً
@@ -170,12 +175,13 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
           <Badge text={status.status} tone={status.tone} />
         </div>
         <div className="card-b" style={{ padding: '16px 18px' }}>
-          <FlowLine steps={TKT_LIFE} cur={tktStage(status.status)} />
+          <FlowLine steps={TKT_LIFE} cur={status.step} />
         </div>
       </div>
 
       {/* ── بطاقات توجيه وقرارات الإدارة العليا المعتمدة للعميل مع بيان السبب الحقيقي ── */}
-      {(ticket.trackGovernance?.approvedTrack === 'execution' || status.status === 'محولة إلى تنفيذ' || ticket.hasExecution) && (
+      {/* أيّ بطاقة تظهر: حكم الخادم (`Ticket::outcomeCards`) — العميل يستلم تسمية حالته فلا تُقارَن هنا */}
+      {status.cards.execution && (
         <div className="card" style={{ marginBottom: 16, borderInlineStart: '4px solid var(--amber, #d97706)', background: '#fffbeb' }}>
           <div className="card-b" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: '1 1 240px' }}>
@@ -209,7 +215,7 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
         </div>
       )}
 
-      {(status.status === 'محولة إلى قضية' || ticket.trackGovernance?.approvedTrack === 'case') && !ticket.hasExecution && status.status !== 'محولة إلى تنفيذ' && (
+      {status.cards.case && (
         <div className="card" style={{ marginBottom: 16, borderInlineStart: '4px solid var(--primary, #0e5c9c)' }}>
           <div className="card-b" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: '1 1 240px' }}>
@@ -272,7 +278,7 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
         </div>
       )}
 
-      {(status.status === 'مغلقة' || ticket.trackGovernance?.approvedTrack === 'close') && (
+      {status.cards.closure && (
         <div className="card" style={{ marginBottom: 16, borderInlineStart: '4px solid var(--muted, #64748b)' }}>
           <div className="card-b" style={{ padding: '14px 18px', display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0 }}>
             <div style={{ flexShrink: 0, marginTop: 2 }}><Icon name="check" /></div>

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\Consult;
 use App\Models\User;
+use App\Support\DayRange;
 use App\Support\Paginate;
 use App\Support\SearchText;
 use Carbon\Carbon;
@@ -36,7 +37,7 @@ class AuditLogController extends Controller
         // و`today` منذ بداية اليوم و`activeActors` آخر ٢٤ ساعة: عنواناهما في الشاشة يقولان ذلك نصّاً.
         $stats = [
             'total' => AuditLog::count(),
-            'today' => AuditLog::whereDate('created_at', $today)->count(),
+            'today' => DayRange::on(AuditLog::query(), 'created_at', $today->toImmutable())->count(),
             'critical' => AuditLog::whereIn('severity', ['warning', 'critical'])->count(),
             'financial' => AuditLog::where('category', 'مالية وفواتير')->count(),
             'activeActors' => AuditLog::where('created_at', '>=', now()->subHours(24))->distinct('user_name')->count('user_name'),
@@ -132,13 +133,7 @@ class AuditLogController extends Controller
             }
         }
 
-        if ($fromDate = $request->input('from_date')) {
-            $query->whereDate('created_at', '>=', $fromDate);
-        }
-
-        if ($toDate = $request->input('to_date')) {
-            $query->whereDate('created_at', '<=', $toDate);
-        }
+        DayRange::apply($query, 'created_at', $request->input('from_date'), $request->input('to_date'));
 
         return $query;
     }

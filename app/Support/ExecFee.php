@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\ExecutionOfferStatus;
 use App\Domain\Journey\TransitionDenied;
 use App\Domain\Journey\Transitions\Execution\AcceptExecutionOffer;
 use App\Domain\Journey\Transitions\Execution\ActivateExecution;
@@ -10,6 +11,7 @@ use App\Domain\Journey\Workflow;
 use App\Events\ExecStatusBroadcast;
 use App\Models\Execution;
 use App\Models\Invoice;
+use App\Support\Finance\InstallmentPlan;
 use App\Support\Finance\InvoiceDue;
 use App\Support\Finance\InvoiceFactory;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -73,7 +75,7 @@ class ExecFee
         $exec->update(['pay_method' => self::payMethodLabel($exec)]);
 
         if ($exec->feeMode() === 'percent') {
-            $exec->update(['offer_status' => 'مقبول', 'pay_plan' => null, 'invoice_no' => null]);
+            $exec->update(['offer_status' => ExecutionOfferStatus::Accepted->value, 'pay_plan' => null, 'invoice_no' => null]);
             self::openFile($exec->fresh(), 'قُبل العرض بنموذج نسبة من المحصّل — يُرفع الطلب في ناجز');
 
             return;
@@ -95,7 +97,7 @@ class ExecFee
             // مفتاح عدم التكرار هو `offer_status` نفسه الذي يكتبه النداء الأوّل داخل القفل
             // (نظير `effectiveStage() >= 7` في `openFile`) — لا المرحلة: حارسُها في
             // `ExecService::acceptOffer`، وتكرارُه هنا يمنع منادياً مشروعاً بلغ المرحلة 6.
-            if ($locked === null || $locked->paid || $locked->offer_status === 'مقبول') {
+            if ($locked === null || $locked->paid || $locked->offer_status === ExecutionOfferStatus::Accepted->value) {
                 return false;
             }
 
@@ -110,7 +112,7 @@ class ExecFee
                 ...InvoiceDue::execFee(), // المهلة من الإعدادات — التاريخ ونصّه من رقمٍ واحد
             ]);
             // الخطّة تبقى معلّقة حتى يختارها العميل عند السداد؛ والمجموع 1 حتى يُقسَّط
-            $locked->update(['offer_status' => 'مقبول', 'invoice_no' => $number, 'installments_total' => 1]);
+            $locked->update(['offer_status' => ExecutionOfferStatus::Accepted->value, 'invoice_no' => $number, 'installments_total' => 1]);
 
             return true;
         });
@@ -151,27 +153,10 @@ class ExecFee
             // المفتوحة تُقرأ من صفّها لا من الإعداد، فتغييره لا يزحزح دفعاتِ ملفٍّ قائم.
             $count = SettingsRegistry::int('installments_count');
 
-            $total = (int) $master->amount;
-            $share = intdiv($total, $count);
-            $first = $total - ($share * ($count - 1));
-
-            // الضريبة تُقسَّم مع المبلغ — نظير `CaseFee::openInstallmentPlan`: الأمّ كانت تحمل
-            // ضريبة الأتعاب كاملةً، فتقليصُ `amount` وحده يكسر `subtotal + vat_amount = amount`.
-            // المهل من الإعدادات (`InvoiceDue::installment`) — نظير `CaseFee::openInstallmentPlan` بالقارئ نفسه.
-            $master->update(array_merge(InvoiceFactory::taxFromTotal($first), [
-                'installment_no' => 1,
-                'description' => self::installmentLabel($locked, 1, $count),
-                ...InvoiceDue::installment(1),
-            ]));
-
-            for ($n = 2; $n <= $count; $n++) {
-                InvoiceFactory::fromTotal($share, [
-                    'user_id' => $locked->user_id,
-                    'exec_id' => $locked->id,
-                    'installment_no' => $n,
-                    'description' => self::installmentLabel($locked, $n, $count),
-                    ...InvoiceDue::installment($n),
-                ]);
+            // التقسيم والضريبة والمهل — `Finance\InstallmentPlan` (مصدرٌ واحد مع القضايا). ومبلغٌ لا يتّسع
+            // لعدد الأقساط لا تُفتح له خطّة.
+            if (! InstallmentPlan::open($master, $count, 'exec_id', fn (int $n, int $of) => self::installmentLabel($locked, $n, $of))) {
+                return null;
             }
 
             $locked->update([
@@ -189,9 +174,7 @@ class ExecFee
     /** الدفعة التالية في الخطّة — الأقدم غير المدفوعة **بترتيب الخطّة** لا بالأحدث. */
     public static function nextInstallment(Execution $exec): ?Invoice
     {
-        return Invoice::where('exec_id', $exec->id)->whereNotNull('installment_no')
-            ->outstanding()
-            ->orderBy('installment_no')->orderBy('id')->first();
+        return InstallmentPlan::next('exec_id', $exec->id);
     }
 
     /**
@@ -201,10 +184,7 @@ class ExecFee
      */
     public static function nextPayable(Execution $exec): ?Invoice
     {
-        return self::nextInstallment($exec)
-            ?: Invoice::where('exec_id', $exec->id)
-                ->outstanding()
-                ->orderBy('id')->first();
+        return InstallmentPlan::nextPayable('exec_id', $exec->id);
     }
 
     /**
@@ -253,24 +233,8 @@ class ExecFee
      */
     public static function markInstallmentPaid(Execution $exec): void
     {
-        $result = DB::transaction(function () use ($exec) {
-            $locked = Execution::whereKey($exec->id)->lockForUpdate()->first();
-            if ($locked === null) {
-                return null;
-            }
-
-            $paid = Invoice::where('exec_id', $locked->id)->whereNotNull('installment_no')
-                ->where('paid', true)->count();
-            $total = max(1, (int) $locked->installments_total);
-            $done = $paid >= $total;
-            $isFirst = $paid === 1 && (int) $locked->installments_paid === 0;
-
-            $locked->update(['installments_paid' => $paid]);
-
-            return ['paid' => $paid, 'total' => $total, 'done' => $done, 'first' => $isFirst];
-        });
-
-        if ($result === null || $result['paid'] === 0) {
+        $result = self::recountPlan($exec);
+        if ($result === null) {
             return;
         }
 
@@ -291,10 +255,61 @@ class ExecFee
         }
 
         ExecService::notifyOffice($exec, 't-green', "سُدّدت الدفعة {$result['paid']} من {$result['total']} من أتعاب التنفيذ {$exec->number}.");
-        if ($result['done']) {
+        if ($result['done'] && ! $result['wasDone']) {
             ExecService::mail($exec, 'feePaidInFull');
         }
         Live::push(new ExecStatusBroadcast($exec->fresh()));
+    }
+
+    /**
+     * **قسطٌ أُلغي أو أُعدم** (`HandleInvoiceVoided`) — يُعاد عدّ الخطّة: فإن لم يبقَ فيها مستحقٌّ اكتملت (تدقيق
+     * الدفع B؛ كانت تبقى «2 من 3» إلى الأبد).
+     */
+    public static function syncInstallmentPlan(Execution $exec): void
+    {
+        $result = self::recountPlan($exec);
+        if ($result === null || ! $result['done'] || $result['wasDone']) {
+            return;
+        }
+
+        $exec->refresh();
+        $exec->messages()->create([
+            'who' => 'system', 'name' => 'النظام', 'role' => 'سداد',
+            'body' => '<p>اكتملت أتعاب التنفيذ — سُدّدت دفعاتها وأُسقط الباقي.</p>',
+            'time_label' => ExecService::clock(),
+        ]);
+        ExecService::notifyOffice($exec, 't-green', "اكتملت أتعاب التنفيذ {$exec->number} بعد إسقاط الدفعات الباقية.");
+        ExecService::mail($exec, 'feePaidInFull');
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
+    }
+
+    /**
+     * يعيد عدّ الخطّة من فواتيرها تحت قفل الصفّ — **لا يُزاد يدويّاً**، فلا تقدّمها نقرةٌ ولا ويبهوكٌ مكرّر، و
+     * `installment_no` يمنع فاتورةَ تحصيلٍ من أن تُحسب دفعة.
+     *
+     * @return array{paid: int, total: int, done: bool, first: bool, wasDone: bool}|null null بلا دفعةٍ مسدّدة
+     */
+    private static function recountPlan(Execution $exec): ?array
+    {
+        return DB::transaction(function () use ($exec) {
+            $locked = Execution::whereKey($exec->id)->lockForUpdate()->first();
+            if ($locked === null) {
+                return null;
+            }
+
+            $progress = InstallmentPlan::progress('exec_id', $locked->id);
+            if ($progress['paid'] === 0) {
+                return null;
+            }
+
+            $wasDone = $locked->feeFullySettled();
+            // أوّل دفعةٍ لم يُسجَّل قبلها شيء — لا «المدفوع = 1» (تدقيق الدفع G، انظر `CaseFee::recountPlan`)
+            $isFirst = (int) $locked->installments_paid === 0;
+
+            $locked->update(['installments_paid' => $progress['paid'], 'installments_total' => $progress['total']]);
+
+            return [...$progress, 'first' => $isFirst, 'wasDone' => $wasDone];
+        });
     }
 
     /**

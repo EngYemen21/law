@@ -134,9 +134,11 @@ class ClientTicketStatusLabelsTest extends TestCase
         $chat = (string) file_get_contents(resource_path('js/pages/ticketchat.tsx'));
         $this->assertStringContainsString('clientStatus', $chat);
 
-        // مسار الرحلة يعرف تسمية العميل فلا يرتدّ إلى الصفر
-        $stage = (string) file_get_contents(resource_path('js/lib/chat.ts'));
-        $this->assertStringContainsString("'قيد إعداد الرأي القانوني': 2", $stage);
-        $this->assertStringContainsString("'جارٍ إعداد ملخّص الجلسة': 5", $stage);
+        // مسار الرحلة لا يُشتقّ من التسمية: المرحلة `step` من الخادم بالحالة الداخليّة، فلا يرتدّ إلى الصفر
+        $this->assertStringContainsString('cur={status.step}', $chat);
+        $client = User::factory()->create(['role' => Role::Client]);
+        foreach (['محالة للقسم القانوني' => 2, 'بانتظار ملخّص الجلسة' => 5] as $internal => $stage) {
+            $this->assertSame($stage, (new TicketStatusBroadcast($this->ticketFor($client, $internal)))->broadcastWith()['step'], $internal);
+        }
     }
 }

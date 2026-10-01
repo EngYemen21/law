@@ -18,12 +18,14 @@ import TicketTrackDecisionCard from '@/components/babylon/TicketTrackDecisionCar
 import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import type { TimeSlotItem } from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
-import { ALLOWED_DOC_ACCEPT, TKT_LIFE, nowClock, tktStage, type Message } from '@/lib/chat';
+import { keepChosenTime } from '@/lib/booking-time';
+import { ALLOWED_DOC_ACCEPT, TKT_LIFE, nowClock, type Message } from '@/lib/chat';
 import { useConsultSlots } from '@/lib/consult-slots';
 import { echo } from '@/lib/echo';
 import { useCan } from '@/lib/permissions';
 import { todayISO } from '@/lib/local-date';
 import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
+import { ATTACHMENT_MB } from '@/lib/upload-limits';
 import { useServerAction } from '@/lib/use-server-action';
 import type { EmployeeTicketCard } from '@/types';
 
@@ -99,7 +101,7 @@ const EmployeeTicketChat: React.FC<{
   const canSchedule = can('جدولة المواعيد');
   const canTransfer = can('تحويل التذاكر');
   const [msgs, setMsgs] = useState<Message[]>(messages);
-  const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone, isTerminal: Boolean(ticket.isTerminal) });
+  const [status, setStatus] = useState({ status: ticket.status, tone: ticket.tone, isTerminal: Boolean(ticket.isTerminal), step: ticket.step });
   // مؤلّف بمبدّل وضع (يطابق التصميم): ردّ للعميل ⇄ ملاحظة داخلية — صندوق واحد
   const [mode, setMode] = useState<'reply' | 'note'>(canReply ? 'reply' : 'note');
   const [body, setBody] = useState('');
@@ -125,7 +127,12 @@ const EmployeeTicketChat: React.FC<{
     if (!lawyerId || !date) { setSlots([]); return; }
     setSlotsLoading(true);
     axios.get('/employee/schedule/slots', { params: { lawyer_id: lawyerId, date } })
-      .then((r) => { setSlots(r.data.slots ?? []); setSchedTime(''); })
+      .then((r) => {
+        const loaded: TimeSlotItem[] = r.data.slots ?? [];
+        setSlots(loaded);
+        // يُمسح الوقت إن صار شريحةً محجوزة فقط — والمخصّص يبقى (كان يُمسح عند كلّ تحميل)
+        setSchedTime((t) => keepChosenTime(t, loaded));
+      })
       .catch(() => setSlots([]))
       .finally(() => setSlotsLoading(false));
   };
@@ -182,7 +189,7 @@ const EmployeeTicketChat: React.FC<{
     };
     const ch = echo.private(channel);
     ch.listen('.message', append);
-    ch.listen('.status', (e: { status: string; tone: string; isTerminal?: boolean }) => setStatus({ status: e.status, tone: e.tone, isTerminal: Boolean(e.isTerminal) }));
+    ch.listen('.status', (e: { status: string; tone: string; isTerminal?: boolean; step: number }) => setStatus({ status: e.status, tone: e.tone, isTerminal: Boolean(e.isTerminal), step: e.step }));
     echo.private(`${channel}.staff`).listen('.message', append);
     return () => { echo.leave(channel); echo.leave(`${channel}.staff`); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -210,7 +217,7 @@ const EmployeeTicketChat: React.FC<{
         toast(`⚠️ ${msg}`);
       });
   };
-  // إرفاق مستند من الموظف — نفس قيود رفع العميل (الصيغ + 10MB)؛ الرسالة تصل عبر البثّ
+  // إرفاق مستند من الموظف — نفس قيود رفع العميل (الصيغ + `ATTACHMENT_MB`)؛ الرسالة تصل عبر البثّ
   const fileRef = useRef<HTMLInputElement>(null);
   const [attachBusy, setAttachBusy] = useState(false);
   const attachFile = (f: File) => {
@@ -220,7 +227,7 @@ const EmployeeTicketChat: React.FC<{
     axios.post(`/employee/tickets/${encodeURIComponent(ticket.no)}/attach`, fd)
       .then(() => toast('✅ تم إرفاق المستند بالتذكرة'))
       .catch((err) => {
-        const msg = err.response?.data?.message || 'تعذّر إرفاق المستند (الصيغ المسموحة: PDF/JPG/PNG/DOC — حتى 10MB)';
+        const msg = err.response?.data?.message || `تعذّر إرفاق المستند (الصيغ المسموحة: PDF/JPG/PNG/DOC — حتى ${ATTACHMENT_MB}MB)`;
         toast(`⚠️ ${msg}`);
       })
       .finally(() => setAttachBusy(false));
@@ -242,7 +249,7 @@ const EmployeeTicketChat: React.FC<{
   };
   // أرشيف للقراءة فقط: حكم الخادم (`TicketStatus::isTerminal` والتجميد) — من الصفحة ثمّ من البثّ، لا نصوص الحالات
   const locked = Boolean(ticket.isFrozen || status.isTerminal);
-  const cur = tktStage(status.status);
+  const cur = status.step;
   const isLast = cur >= TKT_LIFE.length - 1;
   // مراحل بيد المحامي/الإدارة/العميل — لا يتقدّم الموظف فيها
   // يطابق TicketJourney::AWAITING_OTHERS على الخادم
@@ -504,9 +511,10 @@ const EmployeeTicketChat: React.FC<{
             status={status.status}
             caseRef={ticket.caseRef ?? null}
             role="employee"
-            onRequestDocs={canReply ? openReqDocs : undefined}
-            onSchedule={canSchedule ? openSchedule : undefined}
-            onTransfer={canTransfer ? openTransfer : undefined}
+            // الأرشيف للقراءة فقط — والخادم يرفضها عليه (`TicketAssignment::assertReassignable` وحرّاس النواقص والحجز)
+            onRequestDocs={canReply && !locked ? openReqDocs : undefined}
+            onSchedule={canSchedule && !locked ? openSchedule : undefined}
+            onTransfer={canTransfer && !locked && ticket.isReassignable ? openTransfer : undefined}
           />
 
           <div className="card">

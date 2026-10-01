@@ -152,11 +152,12 @@ class ExecNajizTrackingTest extends TestCase
         $lawyer = $this->lawyer();
         $exec = $this->openFile($client, $lawyer, ['stage' => 8, 'najiz_request_no' => 'NJ-9', 'registered_at' => now()->subDays(3)->toDateString()]);
 
-        Setting::put('exec_working_days_from', now()->subDay()->toDateString()); // النظام نافذ
-        $this->assertTrue(ExecFlow::countsWorkingDays());
-
         // الإبلاغ يوم أربعاء: خمسة أيام عمل تتخطّى الجمعة والسبت ⇒ الأربعاء التالي
         $wednesday = now()->subWeek()->startOfWeek()->addDays(2);
+
+        // النظام نافذ **يوم الإبلاغ** — الحكم بتاريخ الإبلاغ لا بيوم التسجيل (تدقيق الإعدادات 2026-09-30)
+        Setting::put('exec_working_days_from', $wednesday->copy()->subDay()->toDateString());
+        $this->assertTrue(ExecFlow::countsWorkingDays($wednesday));
         $this->act($lawyer, $exec, 'notifyDebtor', ['notified_at' => $wednesday->toDateString()])->assertRedirect();
 
         $due = $exec->fresh()->pay_due_at;

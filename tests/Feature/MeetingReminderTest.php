@@ -41,7 +41,8 @@ class MeetingReminderTest extends TestCase
         $meeting = Meeting::create([
             'user_id' => $client->id, 'assigned_lawyer_id' => $lawyer->id,
             'ref' => 'M-8000', 'title' => 'جلسة مرافعة', 'when_label' => 'اليوم',
-            'starts_at' => now()->addMinutes(30), 'status' => 'قادم',
+            // داخل الطبقة البعيدة (60د) وقبل القريبة (30د) — ما دون نصف الساعة إشعارٌ ورسالة لا بريد (2026-10-01)
+            'starts_at' => now()->addMinutes(45), 'status' => 'قادم',
         ]);
 
         $this->artisan('meetings:send-reminders')->assertSuccessful();

@@ -14,8 +14,10 @@ import { AppealCard, type AppealData } from '@/lib/case-court';
 import { CASE_LIFE, CONFIRM_ARCHIVE_CASE, caseStage, HearingsCard, CaseMsgRow } from '@/lib/case-ui';
 import type { Hearing } from '@/lib/case-ui';
 import type { Message } from '@/lib/chat';
+import { normalizeDigits } from '@/lib/digits';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 import type { CaseDocumentCard, TicketDocumentCard } from '@/types';
 
@@ -39,7 +41,9 @@ interface CaseInfo {
   /** حكم انتقال `ReopenCase` (حالته المصدر + صلاحيّة الفاعل) — لا مقارنة بنصّ الحالة هنا. */
   canReopen: boolean;
   /** طلب فتح التنفيذ القائم من المحامي/الموظّف (`CaseExecutionRequest::pending`) — يعتمده المدير أو يرفضه. */
-  executionRequest?: { at: string | null; by: string; reason: string } | null;
+  executionRequest?: { at: string | null; by: string; reason: string; amount: number | null } | null;
+  /** مبلغ المطالبة في التذكرة — القيمة الأوّليّة لخانة «المبلغ المحكوم به» عند الفتح المباشر. */
+  executionAmountHint?: number | null;
 }
 /** مرفقٌ من التذكرة قبل التحويل (`CaseTicketDocuments`). */
 /** `CaseTicketDocuments::for` — النوع المشترك (`@/types`). */
@@ -102,7 +106,7 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
     router.post(`${base}/${path}`, data, {
       preserveScroll: true,
       onSuccess: () => toast(ok),
-      onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر تنفيذ الإجراء')),
+      onError: (e) => toast(firstError(e, 'تعذّر تنفيذ الإجراء')),
       onFinish: () => setBusy(false),
     });
   };
@@ -120,13 +124,33 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
   const openExecution = async () => {
     const pending = c.executionRequest;
 
-    if (await ask({
-      title: pending ? 'اعتماد طلب التنفيذ وفتح الملف؟' : 'فتح طلب تنفيذ الحكم؟',
-      message: pending ? `رفعه ${pending.by} — السبب: ${pending.reason}` : 'يُفتح ملفّ تنفيذ الحكم ويُسند لمحامي القضية، ويُبلَّغ العميل بعرض الأتعاب القادم.',
-      confirmLabel: pending ? 'اعتماد وفتح الملف' : 'فتح الملف',
+    if (pending) {
+      if (await ask({
+        title: 'اعتماد طلب التنفيذ وفتح الملف؟',
+        message: `رفعه ${pending.by} — السبب: ${pending.reason}`,
+        confirmLabel: 'اعتماد وفتح الملف',
+        cancelLabel: 'تراجع',
+      })) {
+        act('execution-request/approve', {}, 'فُتح ملفّ تنفيذ الحكم');
+      }
+
+      return;
+    }
+
+    // بلا طلب: الإدارة تؤكّد المبلغ المحكوم به أو تصحّحه — عليه يُقاس كلّ تحصيل (قرار المالك 2026-09-30).
+    // كان الملفّ يُفتح بمبلغ التذكرة، وبلا مبلغٍ فيها بصفرٍ يوقف التحصيل. والخادم يتحقّق من المبلغ وحدّه.
+    const amount = await askReason({
+      title: 'فتح طلب تنفيذ الحكم؟',
+      message: 'يُفتح ملفّ تنفيذ الحكم ويُسند لمحامي القضية، ويُبلَّغ العميل بعرض الأتعاب القادم.',
+      label: 'المبلغ المحكوم به (ريال)',
+      placeholder: 'مثال: 150000',
+      defaultValue: c.executionAmountHint ? String(c.executionAmountHint) : '',
+      confirmLabel: 'فتح الملف',
       cancelLabel: 'تراجع',
-    })) {
-      act(pending ? 'execution-request/approve' : 'execute', {}, 'فُتح ملفّ تنفيذ الحكم');
+    });
+
+    if (amount !== null) {
+      act('execute', { amount: normalizeDigits(amount) }, 'فُتح ملفّ تنفيذ الحكم');
     }
   };
   const rejectExecution = async () => {
@@ -211,6 +235,7 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
                 <div className="action-hint" style={{ margin: 0 }}>
                   <b>طلب فتح تنفيذ الحكم بانتظار قرارك</b>
                   <div className="sub">رفعه {c.executionRequest.by}{c.executionRequest.at ? ` ${c.executionRequest.at}` : ''} — السبب: {c.executionRequest.reason}</div>
+                  {c.executionRequest.amount ? <div className="sub">المبلغ المحكوم به: <b>{c.executionRequest.amount.toLocaleString('en-US')} ريال</b></div> : null}
                 </div>
               )}
               {c.canExecute && (

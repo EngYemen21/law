@@ -10,42 +10,45 @@ use App\Services\MailService;
 use App\Services\TaqnyatSmsService;
 use App\Support\Phone;
 use App\Support\ReminderLayer;
+use App\Support\SessionWindow;
 use App\Support\SettingsRegistry;
 use Illuminate\Console\Command;
 
 /**
- * تذكير بمواعيد الاستشارات المدفوعة القادمة — طبقتان مستقلّتان لكلٍّ ختمها وقناتها:
- *   • نحو 24 ساعة قبل الموعد — بريد إلكتروني (reminder_24h_sent_at)
- *   • نحو 30 دقيقة قبل الموعد — رسالة نصّية SMS (reminder_30m_sent_at)
+ * تذكير بمواعيد الاستشارات المدفوعة القادمة — طبقتان مستقلّتان لكلٍّ ختمها وقناتها، ومدّتاهما من الإعدادات:
+ *   • `consult_reminder_far_minutes` (افتراضها 24 ساعة) — بريد إلكتروني (reminder_24h_sent_at)
+ *   • `consult_reminder_near_minutes` (افتراضها 30 دقيقة) — رسالة نصّية SMS (reminder_30m_sent_at)
+ * عمودا الختم باسميهما التاريخيّين: يختمان الطبقة لا مدّتها.
  *
  * كانت الطبقة القريبة «قبل ساعة» بالبريد؛ صارت 30 دقيقة برسالة نصّية لأن البريد قد لا
  * يُفتح قبيل الموعد. ونافذة الساعة كانت تبتلع الثلاثين دقيقة، فإضافة طبقة ثالثة كانت
  * ستُنتج تذكيرين متقاربين — لذا استُبدلت لا أُضيفت.
  *
- * آخر 5 دقائق ليست من مسؤولية هذا الأمر: يغطّيها zoom:release-links بإطلاق رابط الجلسة.
+ * ما بعد فتح الدخول (`session_join_opens_minutes`) ليس من مسؤولية هذا الأمر: يغطّيه zoom:release-links بإطلاق الرابط.
  * ويعمل فقط على استشارات **مدفوعة** لها starts_at (الرسالة تكلّف مالاً).
  */
 class SendConsultReminders extends Command
 {
     protected $signature = 'consults:send-reminders';
 
-    protected $description = 'إرسال تذكيرات مواعيد الاستشارات (بريد قبل 24 ساعة · SMS قبل 30 دقيقة)';
+    protected $description = 'إرسال تذكيرات مواعيد الاستشارات (بريد ثمّ رسالة نصّيّة — المدّتان من الإعدادات)';
 
     public function handle(MailService $mail, TaqnyatSmsService $sms): int
     {
         $now = now();
 
-        $far = new ReminderLayer('reminder_24h_sent_at', upperMinutes: 1440, lowerMinutes: 30);
-        $near = new ReminderLayer('reminder_30m_sent_at', upperMinutes: 30, lowerMinutes: 5);
+        $nearMinutes = SettingsRegistry::int('consult_reminder_near_minutes');
+        $far = new ReminderLayer('reminder_24h_sent_at', upperMinutes: SettingsRegistry::int('consult_reminder_far_minutes'), lowerMinutes: $nearMinutes);
+        $near = new ReminderLayer('reminder_30m_sent_at', upperMinutes: $nearMinutes, lowerMinutes: SessionWindow::joinOpensBeforeMinutes());
 
-        // القادمة المحجوزة والمسدَّدة خلال الأفق الأقصى (24 ساعة).
+        // القادمة المحجوزة والمسدَّدة خلال أفق الطبقة البعيدة.
         // paid_at صريح: الرسالة النصّية تكلّف مالاً فلا تُنفَق على طلب غير مسدَّد.
         $consults = Consult::with('user')
             ->where('session', SessionState::Waiting->value)
             ->whereNotNull('paid_at')
             ->whereNotNull('starts_at')
             ->where('starts_at', '>', $now)
-            ->where('starts_at', '<=', $now->copy()->addDay())
+            ->where('starts_at', '<=', $now->copy()->addMinutes((int) $far->upperMinutes))
             ->get();
 
         $mails = 0;

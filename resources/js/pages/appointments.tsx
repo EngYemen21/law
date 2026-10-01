@@ -3,6 +3,7 @@ import Badge from '@/components/babylon/Badge';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import type {Appt} from '@/lib/data';
+import { humanDuration } from '@/lib/human-duration';
 import Icon from '@/lib/icons';
 import { useSettings } from '@/lib/settings';
 
@@ -26,7 +27,7 @@ function apptPlace(a: Appt) {
 const ApptCard: React.FC<{ a: Appt }> = ({ a }) => {
   const toast = useToast();
   // هويّة المكتب من الإعدادات — كانت نسخةً منقوشة من بطاقة PDF (`AppointmentCardPdf`) تتخلّف عنها
-  const { office_name, office_url, office_phone } = useSettings();
+  const { office_name, office_url, office_phone, office_arrival_minutes } = useSettings();
   const p = apptPlace(a);
   const paid = a.pay === 'مدفوع';
   // رابط الجلسة المرئية الحقيقي بالمنصّة — كان يُنسخ رابط مختلق (salaselbabel.net/APT-…) لا مسار له
@@ -119,7 +120,7 @@ return;
         </div>
         <div className="apptx-foot">
           <span>{office_url} · {office_phone}</span>
-          <span>يُرجى الحضور قبل الموعد بـ15 دقيقة وإحضار المستندات المطلوبة</span>
+          <span>يُرجى الحضور قبل الموعد بـ{humanDuration(office_arrival_minutes)} وإحضار المستندات المطلوبة</span>
         </div>
       </div>
       <div className="apptx-actions">

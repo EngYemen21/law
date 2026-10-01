@@ -15,6 +15,7 @@ import type {ExecBucket, ExecDoc, ExecLawyerOpt, ExecReq, Role} from '@/lib/exec
 import { ExecNajizCard } from '@/lib/exec-najiz';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+import { firstError } from '@/lib/server-message';
 import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 import { useServerAction } from '@/lib/use-server-action';
 
@@ -188,6 +189,26 @@ const ExecList: React.FC<{ role: Role; execs: ExecReq[]; buckets: Record<ExecBuc
 };
 
 type ActFn = (action: string, payload?: Record<string, unknown>) => void;
+
+/**
+ * **رسالة نجاح كلّ فعلٍ بما وقع فعلاً** — كانت «تم تنفيذ الإجراء» واحدةً للأتعاب والاعتماد والاستفسار والرفض،
+ * فلا يتأكّد المستخدم ممّا جرى (خطوات ناجز والتحصيل لها رسائلها في `ExecNajizCard`). فعلٌ خارجها يبقى على العامّة.
+ */
+const ACT_SUCCESS: Record<string, string> = {
+  refer: 'أُحيل الطلب إلى قسم التنفيذ للدراسة',
+  accept: 'قُبل الطلب — حدّد أتعاب التنفيذ',
+  reject: 'رُفض الطلب بعد الدراسة وأُبلغ العميل',
+  requestDocs: 'أُرسل طلب المستندات للعميل',
+  saveFee: 'أُرسلت الأتعاب لاعتماد الإدارة',
+  approveFee: 'اعتُمدت الأتعاب وأُرسل العرض للعميل',
+  setFee: 'اعتُمدت الأتعاب وأُرسل العرض للعميل',
+  acceptOffer: 'قُبل عرض التنفيذ',
+  inquire: 'أُرسل استفسارك للمكتب',
+  rejectOffer: 'رُفض العرض وأُبلغ المكتب',
+  addProcedure: 'أُضيف الإجراء إلى الملفّ',
+  assignLawyer: 'أُسند الملفّ للمحامي',
+  close: 'أُنهي ملفّ التنفيذ وأُرشف',
+};
 
 // ── بطاقة الإجراء المقيّدة بالدور (تطابق actions 1965‑1967) ──
 /**
@@ -412,10 +433,11 @@ const ClientFlowCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
   }
 
   // عرض خدمة التنفيذ — بانتظار قبول العميل
-  if (r.stage === 5 && r.feeApproved && !r.paid && !['مقبول', 'مرفوض'].includes(r.offerStatus)) {
+  // أعلام الخادم لا نصوص الحالة (قاعدة CLAUDE.md): العرض بانتظار العميل ما لم يُقبل ولم يُرفض
+  if (r.stage === 5 && r.feeApproved && !r.paid && !r.offerAccepted && !r.offerRejected) {
     return (
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="card-h"><h3>عرض خدمة التنفيذ</h3><Badge text={r.offerStatus === 'استفسار' ? 'بانتظار الرد على استفسارك' : 'بانتظار قبولك'} tone="b-amber" /></div>
+        <div className="card-h"><h3>عرض خدمة التنفيذ</h3><Badge text={r.offerInquiry ? 'بانتظار الرد على استفسارك' : 'بانتظار قبولك'} tone="b-amber" /></div>
         <div className="card-b" style={{ padding: 16 }}>
           {/* **النموذج النسبيّ بلا أرقام** (قرار المالك): لا مبلغ اليوم ولا تقديرَ لما سيُحصَّل،
               فطبعُ إجماليٍّ مقدَّر يُقرأ التزاماً. النسبة وحدها هي العرض. */}
@@ -538,7 +560,7 @@ return;
 
     router.post(`/exec-flow/${encodeURIComponent(execId)}/documents/${id}`, { file }, {
       forceFormData: true, preserveScroll: true,
-      onError: (errs) => toast(Object.values(errs)[0] ?? 'تعذّر رفع المستند'),
+      onError: (errs) => toast(firstError(errs, 'تعذّر رفع المستند')),
     });
   };
 
@@ -600,7 +622,7 @@ return null;
             </div>
             <div className="iact" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <Badge text={v.status} tone={v.tone} />
-              {canPay && !v.paid && <button className="btn soft" type="button" onClick={() => act('payInvoice', { no: v.no })}><Icon name="card" /> سداد</button>}
+              {canPay && !v.paid && !v.cancelled && !v.awaitsEarlier && <button className="btn soft" type="button" onClick={() => act('payInvoice', { no: v.no })}><Icon name="card" /> سداد</button>}
             </div>
           </div>
         ))}
@@ -854,12 +876,12 @@ const PricingCard: React.FC<{ r: ExecReq; act: ActFn }> = ({ r, act }) => {
   const [lawyerPct, setLawyerPct] = useState(() => initialLawyerPct(r));
 
   // عدد الدفعات وسقف النسبة من إعدادات الإدارة — كانا «ثلاث» و«50» منقوشين، والخادم يتحقّق بالإعداد
-  const { installments_count: installments, exec_max_collection_pct: maxPct } = useSettings();
+  // والتسعير الجديد بنسبة ضريبة **اليوم** (`vat_rate`) — الخادم يحسب بها (Setting::vatOn)؛ و`r.vatRate` هي المجمَّدة مع
+  // أتعاب الملفّ القائمة، للعرض لا للتسعير.
+  const { installments_count: installments, exec_max_collection_pct: maxPct, vat_rate: vatRate } = useSettings();
   const percent = feeMode === 'percent';
   const collectPctNum = parseFloat(collectPct || '0') || 0;
   const fee = basisMode === 'fixed' ? (parseInt(fixed || '0', 10) || 0) : Math.round((r.amount * (parseFloat(pct || '0') || 0)) / 100);
-  // نسبة الإدارة لا 15% ثابتة — الخادم يحسب الضريبة بها (Setting::vatOn)، فكان المعروض يخالف الفاتورة
-  const vatRate = r.vatRate;
   const vat = Math.round((fee * vatRate) / 100);
   const basis = execStudyBasis(r.study);
   const ready = percent ? collectPctNum >= 0.01 && collectPctNum <= maxPct : fee >= 1;
@@ -994,8 +1016,10 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
   // الإنهاء بقي للمحامي والإدارة وحدهما — لا يُعرض للموظّف أصلاً
   const canCloseFile = (role === 'lawyer' || role === 'admin') && !r.closed;
   const sendMsg = (text: string) => axios.post(`/exec-flow/${encodeURIComponent(r.id)}/messages`, { body: text });
+  // قفلٌ ورسالة رفض (`useServerAction`) — كان الرفض صامتاً فيظنّ المراجِع أنّ قراره سُجّل
+  const reviewAction = useServerAction();
   const reviewDoc = (docId: number, decision: 'accept' | 'reject') => {
-    router.post(`/exec-flow/${encodeURIComponent(r.id)}/documents/${docId}/review`, { decision }, { preserveScroll: true });
+    reviewAction.run(`/exec-flow/${encodeURIComponent(r.id)}/documents/${docId}/review`, { data: { decision }, key: docId, fallback: 'تعذّر تسجيل مراجعة المستند' });
   };
 
   const next = nextAction(role, r, canCourt);
@@ -1430,7 +1454,7 @@ const ExecFlow: React.FC<{
 
     void execAction.run(`/exec-flow/${id}/action`, {
       data: { action, ...payload },
-      success: 'تم تنفيذ الإجراء',
+      success: ACT_SUCCESS[action] ?? 'تم تنفيذ الإجراء',
       fallback: 'تعذّر تنفيذ الإجراء',
     });
   };

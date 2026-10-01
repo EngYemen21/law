@@ -17,6 +17,7 @@ import {
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+import { firstError } from '@/lib/server-message';
 
 interface EmployeeConsultsProps {
   consults: ConsultCard[];
@@ -379,7 +380,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
           toast('تم إرسال إشعار طلب المستندات إلى العميل فوراً');
           setMissingDocInput('');
         },
-        onError: (e) => toast(e.message || Object.values(e)[0] || 'تعذر إرسال طلب المستندات'),
+        onError: (e) => toast(firstError(e, 'تعذر إرسال طلب المستندات')),
         onFinish: () => setIsProcessingAction(false),
       }
     );
@@ -408,7 +409,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
         onSuccess: () => {
           toast(`تم إسناد الاستشارة (${consult.ref}) للمحامي: ${lawyerName}`);
         },
-        onError: (e) => toast(e.message || Object.values(e)[0] || 'تعذر إسناد الاستشارة للمحامي'),
+        onError: (e) => toast(firstError(e, 'تعذر إسناد الاستشارة للمحامي')),
         onFinish: () => setIsProcessingAction(false),
       }
     );
@@ -422,7 +423,7 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
       {
         preserveScroll: true,
         onSuccess: () => toast('تم تحديث ومزامنة بيانات الجلسة من سحابة Zoom بنجاح'),
-        onError: (e) => toast(e.message || Object.values(e)[0] || 'تعذر مزامنة بيانات Zoom'),
+        onError: (e) => toast(firstError(e, 'تعذر مزامنة بيانات Zoom')),
         onFinish: () => setIsProcessingAction(false),
       }
     );

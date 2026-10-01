@@ -6,7 +6,8 @@ import { useToast } from '@/components/babylon/Toast';
 import { RichText } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
-import { useSettings } from '@/lib/settings';
+import { firstError } from '@/lib/server-message';
+import { useJoinOpensText, useSettings } from '@/lib/settings';
 
 // ============================================================
 // لوحة اجتماعات وجلسات العميل 360 درجة (360° Client Meetings Command Center)
@@ -76,6 +77,7 @@ const Meetings: React.FC<Props> = ({
   const toast = useToast();
   // اسم المكتب من الإعدادات — كان رأس المحضر يحمل اسماً ثالثاً منقوشاً لا يطابق مستندات المكتب
   const { office_name: officeName } = useSettings();
+  const joinOpens = useJoinOpensText();
   const [items, setItems] = useState<ClientMeeting[]>(meetings);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past' | 'consults'>('upcoming');
   const [searchQuery, setSearchQuery] = useState('');
@@ -114,6 +116,7 @@ return;
             summary: string | null;
             minutes: string | null;
             approve?: string;
+            approved?: boolean;
           }) => {
             setItems((prev) =>
               prev.map((x) =>
@@ -122,7 +125,8 @@ return;
                       ...x,
                       summary: e.summary ?? x.summary,
                       minutes: e.minutes ?? x.minutes,
-                      up: e.up ?? (e.status === 'قادم' || e.status === 'جارٍ'),
+                      // البثّ يحمل `up` دائماً (`MeetingStatusBroadcast`) — لا استنتاج من النصّ العربيّ
+                      up: e.up ?? x.up,
                       status: e.liveStatus ?? x.status,
                       tone: e.tone ?? x.tone,
                       canJoin: e.canJoin ?? x.canJoin,
@@ -130,9 +134,10 @@ return;
                        * **الاعتماد يُقرأ من البثّ لا يُستنتَج من وجود نصّ.** كان
                        * `!!(minutes || summary)` — سليمٌ اليوم لأنّ البثّ يحجب النصّ
                        * قبل الاعتماد، لكنّه يربط حقيقةً بأثرها: يوم يُبثّ نصٌّ غير
-                       * معتمد لسببٍ آخر تصير الشارة كاذبة. والحمولة تحمل `approve`.
+                       * معتمد لسببٍ آخر تصير الشارة كاذبة. والحمولة تحمل علَم `approved`
+                       * (`isApproved()` في الخادم) — لا مقارنة بنصّ «معتمد» هنا.
                        */
-                      approved: e.approve !== undefined ? e.approve === 'معتمد' : x.approved,
+                      approved: e.approved ?? x.approved,
                     }
                   : x
               )
@@ -390,7 +395,7 @@ return;
                     }}
                   >
                     <Icon name="clock" />
-                    <span>يُفعَّل رابط الدخول التلقائي قبل الموعد بـ 5 دقائق</span>
+                    <span>يُفعَّل رابط الدخول التلقائي قبل الموعد بـ{joinOpens}</span>
                   </div>
                 )}
               </div>
@@ -526,9 +531,9 @@ return;
                             type="button"
                             disabled
                             style={{ opacity: 0.65, cursor: 'not-allowed', fontSize: 12 }}
-                            title="يُفعَّل الدخول قبل الموعد بـ 5 دقائق"
+                            title={`يُفعَّل الدخول قبل الموعد بـ${joinOpens}`}
                           >
-                            <Icon name="clock" /> الدخول (قبل الموعد بـ 5د)
+                            <Icon name="clock" /> الدخول (قبل الموعد بـ{joinOpens})
                           </button>
                         )}
                         {/* طلب تغيير الموعد — الخادم يقرّر إتاحته (لا طلبَ قائم ولا سقفَ بُلغ)، ويُعلَن سبب المنع */}
@@ -542,7 +547,7 @@ return;
                             onClick={() => router.post(`/meetings/${m.id}/change-request`, {}, {
                               preserveScroll: true,
                               onSuccess: () => toast('أُرسل طلبك للمكتب — سيتواصل معك فريقنا بشأن الموعد'),
-                              onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر إرسال الطلب')),
+                              onError: (e) => toast(firstError(e, 'تعذّر إرسال الطلب')),
                             })}
                           >
                             <Icon name="cal" /> طلب تغيير الموعد

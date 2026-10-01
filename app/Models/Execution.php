@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\Enums\ExecutionDecision;
+use App\Domain\Journey\Enums\ExecutionOfferStatus;
 use App\Domain\Journey\Enums\ExecutionStatus;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Enums\Role;
@@ -11,6 +13,7 @@ use App\Models\Concerns\TracksRevisions;
 use App\Support\ConversationFiles;
 use App\Support\ExecFlow;
 use App\Support\ExecService;
+use App\Support\Finance\InvoiceFactory;
 use App\Support\LawyerName;
 use App\Support\Permissions;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -31,6 +34,22 @@ class Execution extends Model
      */
     public const CLOSED_STATUSES = ['مغلق'];
 
+    /**
+     * **أعلى مبلغ مطالبة يقبله الملفّ — سعة عمود `amount` (int unsigned).** الحدّ الواحد لمساري المبلغ
+     * (طلب التنفيذ من القضيّة وتصحيحه على الملفّ): كان التحقّق يقبل حتى 999,999,999,999، فيُسقط MySQL
+     * الحفظ بـ500، ويُحفظ طلبٌ بمبلغٍ أكبر ثمّ لا يُعتمد أبداً.
+     */
+    public const MAX_CLAIM_AMOUNT = 4294967295;
+
+    /**
+     * مبلغ التذكرة كما يُنقل إلى ملفٍّ جديد: صالحٌ (1 حتى الحدّ) أو 0 = «لم يُحدَّد». تذكرةٌ قديمة بمبلغٍ لا يتّسع
+     * له العمود كانت تُسقط الفتح بـ500؛ الآن يُفتح الملفّ ويُصحَّح مبلغه بالمسار القائم (`SetExecutionClaimAmount`).
+     */
+    public static function fitClaimAmount(?int $amount): int
+    {
+        return $amount !== null && $amount >= 1 && $amount <= self::MAX_CLAIM_AMOUNT ? $amount : 0;
+    }
+
     /** سطر المعاينة في بطاقات القوائم — varchar(255) يستقبل نصّ المستخدم بلا سقف. */
     protected array $previewText = ['last_action'];
 
@@ -42,7 +61,7 @@ class Execution extends Model
         'decision', 'fee', 'vat', 'duration', 'pay_method', 'fee_approved', 'offer_status',
         // نماذج الأتعاب: نموذج المكتب (ثابت/نسبة) وخطّة العميل (كامل/تقسيط)
         'fee_mode', 'collection_fee_pct', 'lawyer_pct', 'lawyer_fee', 'pay_plan', 'installments_total', 'installments_paid',
-        'invoice_no', 'paid', 'paid_at', 'exec_no', 'payment_reminder_sent_at',
+        'invoice_no', 'paid', 'paid_at', 'exec_no',
         // مسار ناجز داخل المرحلتين 7 و8 (قرار المالك 2026-09-12) وسبب الإنهاء
         'najiz_request_no', 'najiz_filed_at', 'circuit', 'registered_at', 'notified_at', 'pay_due_at',
         'measures', 'collected', 'closed_reason', 'pay_due_alert_sent_at',
@@ -69,7 +88,6 @@ class Execution extends Model
         'installments_paid' => 'integer',
         'paid' => 'boolean',
         'paid_at' => 'datetime',
-        'payment_reminder_sent_at' => 'datetime',
         'najiz_filed_at' => 'date',
         'registered_at' => 'date',
         'notified_at' => 'date',
@@ -232,8 +250,10 @@ class Execution extends Model
             'decision' => $this->decision ?? '',
             'fee' => (int) $this->fee,
             'vat' => (int) $this->vat,
-            // نسبة الضريبة من الإعدادات — الواجهة كانت تحسبها 15% ثابتة فتخالف الفاتورة إن غُيّرت
-            'vatRate' => Setting::vatRate(),
+            // نسبة الضريبة **المجمَّدة مع أتعاب الملفّ** (من الأتعاب والضريبة المحفوظتين) — كانت نسبة الإعداد الحاليّة، فيقرأ
+            // العميل «الضريبة (5٪): 150» على ملفٍّ حُسبت ضريبته بـ15٪ (تدقيق الإعدادات 2026-09-30). والنسبيّ لا ضريبة
+            // مجمَّدة له: تُضاف على كلّ فاتورة تحصيلٍ بنسبة يومها. وتسعيرٌ جديد يقرأ نسبة اليوم من `settings.vat_rate`.
+            'vatRate' => $this->vatRate(),
             'duration' => $this->duration ?? '',
             // مشتقٌّ من النموذج والخطّة لا نصّاً حرّاً — الشاشة لا تستطيع أن تَعِد بما لا يقع
             'payMethod' => $this->pay_method ?? '',
@@ -265,6 +285,8 @@ class Execution extends Model
             // أعلامٌ من الخادم بدل مقارنة «مرفوض» نصّاً في الواجهة (`execflow.tsx`)
             'isRejected' => $this->isRejectedAfterStudy(),
             'offerRejected' => $this->isOfferRejected(),
+            'offerAccepted' => $this->isOfferAccepted(),
+            'offerInquiry' => $this->isOfferInquiry(),
             'rejectedOpen' => $this->isRejectedOpen(),
             // حارس التسعير نفسه (`ExecService::canPrice`) — لا شرطٌ ثانٍ في الواجهة يفترق عنه
             'canReprice' => ExecService::canPrice($this),
@@ -382,6 +404,8 @@ class Execution extends Model
             'measures' => array_values($this->measures ?? []),
             'collected' => (int) $this->collected,
             'amount' => (int) $this->amount,
+            // حارس `SetExecutionClaimAmount` نفسه (غير مغلق، ولا تحصيل بعد) — والدور يحرسه الخادم
+            'amountEditable' => ! $this->isClosed() && (int) $this->collected === 0,
             'closedReason' => (string) ($this->closed_reason ?? ''),
             // القوائم المسموحة من الخادم لا منسوخةً في الواجهة: التحقّق في `ExecFlowController::act`
             // يقيسها على `ExecFlow`، فنسخةٌ يدويّة في TS تتباعد عنها وتعرض خياراً يردّه الخادم.
@@ -400,16 +424,35 @@ class Execution extends Model
         return $this->effectiveStage() >= 9 || in_array($this->status, self::CLOSED_STATUSES, true);
     }
 
+    /** نسبة ضريبة الملفّ: المجمَّدة مع أتعابه الثابتة، أو نسبة اليوم للنسبيّ ولما لم يُسعَّر بعد. */
+    public function vatRate(): int
+    {
+        return $this->feeMode() === 'fixed' && (int) $this->fee > 0
+            ? InvoiceFactory::taxFromFrozen((int) $this->fee, (int) $this->vat)['vat_rate']
+            : Setting::vatRate();
+    }
+
     /** رفضه المحامي بعد الدراسة؟ — الموضع الذي يقرأ نصّ `decision` لتسأله الواجهة علَماً. */
     public function isRejectedAfterStudy(): bool
     {
-        return $this->decision === 'مرفوض';
+        return $this->decision === ExecutionDecision::Rejected->value;
     }
 
     /** رفض العميل عرض الأتعاب؟ */
     public function isOfferRejected(): bool
     {
-        return $this->offer_status === 'مرفوض';
+        return $this->offer_status === ExecutionOfferStatus::Rejected->value;
+    }
+
+    public function isOfferAccepted(): bool
+    {
+        return $this->offer_status === ExecutionOfferStatus::Accepted->value;
+    }
+
+    /** استفسر العميل عن العرض وينتظر ردّ المكتب. */
+    public function isOfferInquiry(): bool
+    {
+        return $this->offer_status === ExecutionOfferStatus::Inquiry->value;
     }
 
     /**

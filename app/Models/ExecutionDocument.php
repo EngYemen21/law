@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\Enums\ExecutionDocumentStatus;
 use App\Models\Concerns\PurgesStoredFile;
 use App\Support\ConversationFiles;
 use Illuminate\Database\Eloquent\Model;
@@ -39,15 +40,15 @@ class ExecutionDocument extends Model
             'id' => $this->id,
             'label' => $this->label,
             'status' => $this->status,
-            'tone' => self::statusTone($this->status),
+            'tone' => $this->statusEnum()?->tone() ?? 'b-amber',
             'fileName' => $this->path ? basename((string) $this->path) : null,
             // الموظّف بلا «تنزيل مرفقات الملفات» يرى الاسم بلا رابطٍ يردّه الخادم (`downloadDocument`)
             'canDownload' => $this->path !== null && self::viewerMayDownload(),
-            'canUpload' => in_array($this->status, ['مطلوب', 'مرفوض'], true),
+            'canUpload' => $this->acceptsUpload(),
             // حارس `ExecFlowController::reviewDocument` نفسه — الواجهة كانت تقارن «مرفوع» نصّاً
-            'canReview' => $this->status === 'مرفوع',
+            'canReview' => $this->awaitsReview(),
             // وصل المكتبَ (رُفع أو قُبل) — لعدّاد «المستوفى» في لوحة المستندات
-            'provided' => in_array($this->status, ['مقبول', 'مرفوع'], true),
+            'provided' => (bool) $this->statusEnum()?->provided(),
             'docType' => $this->doc_type ?? '',
             'summary' => $this->summary ?? '',
         ];
@@ -61,14 +62,20 @@ class ExecutionDocument extends Model
         return $viewer === null || ! $viewer->isEmployee() || ConversationFiles::employeeMayDownload($viewer);
     }
 
-    // نغمة حالة المستند (يطابق exDocStatusTone)
-    private static function statusTone(string $status): string
+    public function statusEnum(): ?ExecutionDocumentStatus
     {
-        return match ($status) {
-            'مقبول' => 'b-green',
-            'مرفوع' => 'b-blue',
-            'مرفوض' => 'b-red',
-            default => 'b-amber',
-        };
+        return ExecutionDocumentStatus::tryFrom((string) $this->status);
+    }
+
+    /** يقبل رفع العميل؟ — حكم الشاشة (`canUpload`) وحارس `ExecFlowController::uploadDocument` معاً. */
+    public function acceptsUpload(): bool
+    {
+        return (bool) $this->statusEnum()?->acceptsUpload();
+    }
+
+    /** بانتظار مراجعة المكتب؟ — حكم الشاشة (`canReview`) وحارس `ExecFlowController::reviewDocument` معاً. */
+    public function awaitsReview(): bool
+    {
+        return (bool) $this->statusEnum()?->awaitsReview();
     }
 }

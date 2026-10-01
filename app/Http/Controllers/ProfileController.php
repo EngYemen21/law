@@ -60,7 +60,8 @@ class ProfileController extends Controller
                 'phone' => Phone::intl($newPhone),
                 'request_id' => $res['request_id'],
                 'user_id' => $user->id,
-                'expires_at' => now()->addMinutes(10)->timestamp,
+                // صلاحيّة رمز التحقّق الواحدة (`otp_ttl_minutes`)
+                'expires_at' => now()->addMinutes(OtpService::ttlMinutes())->timestamp,
             ]);
             $phonePending = true;
         }
@@ -94,7 +95,7 @@ class ProfileController extends Controller
             throw ValidationException::withMessages(['code' => 'الرمز غير صحيح.']);
         }
 
-        // إعادة فحص التفرّد عند الكتابة لا عند الطلب: قد يُسجَّل الرقم لغيره خلال العشر دقائق
+        // إعادة فحص التفرّد عند الكتابة لا عند الطلب: قد يُسجَّل الرقم لغيره خلال مهلة الرمز
         $taken = User::where('phone', $pending['phone'])->where('role', $user->role->value)
             ->where('id', '!=', $user->id)->exists();
         if ($taken) {

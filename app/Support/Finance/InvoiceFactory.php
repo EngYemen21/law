@@ -85,6 +85,18 @@ final class InvoiceFactory
     }
 
     /**
+     * **إصدارٌ من تفصيلٍ ماليٍّ جاهز** (الأساس والنسبة والضريبة والإجماليّ) — لحصّةٍ من فاتورةٍ قائمة تُقسَّم
+     * بأرقامها هي لا بنسبة اليوم (`InstallmentPlan`).
+     *
+     * @param  array{amount:int, subtotal:int, vat_rate:int, vat_amount:int}  $money
+     * @param  array<string, mixed>  $attributes
+     */
+    public static function fromMoney(array $money, array $attributes, ?User $actor = null): Invoice
+    {
+        return self::issue($money, $attributes, $actor);
+    }
+
+    /**
      * حقول المال من أساسٍ وضريبةٍ مجمَّدتين — بلا إنشاء.
      *
      * **والنسبة تُستنتَج من الرقمين لا من الإعداد**: هي النسبة التي طُبّقت فعلاً يوم التسعير،

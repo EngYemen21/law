@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Support\OtpService;
 use App\Support\SettingsRegistry;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
@@ -20,7 +21,7 @@ class VerificationCodeMail extends Mailable
         public string $code,
         public ?string $name = null,
         public string $purpose = 'تأكيد بريدك الإلكتروني',
-        public int $ttlMinutes = 10,
+        public int $ttlMinutes = OtpService::TTL_MINUTES,
     ) {}
 
     public function envelope(): Envelope

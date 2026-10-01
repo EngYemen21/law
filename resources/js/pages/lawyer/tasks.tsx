@@ -1,4 +1,3 @@
-import { router } from '@inertiajs/react';
 import React, { useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import Modal from '@/components/babylon/Modal';
@@ -6,6 +5,7 @@ import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
 import { dateISOAfter } from '@/lib/local-date';
+import { useServerAction } from '@/lib/use-server-action';
 import { truncateWords } from '@/lib/utils';
 
 // مهام المحامي — متابعة المهام المسندة والذاتية وإنجازها
@@ -27,6 +27,7 @@ interface Props {
 
 const LawyerTasks: React.FC<Props> = ({ tasks = [] }) => {
   const toast = useToast();
+  const action = useServerAction();
 
   // نمط العرض: جدول | كانبان
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
@@ -81,31 +82,22 @@ const LawyerTasks: React.FC<Props> = ({ tasks = [] }) => {
       return;
     }
 
-    router.post(
-      '/lawyer/tasks',
-      { title: title.trim(), ref: ref.trim(), due: due.trim() },
-      {
-        preserveScroll: true,
-        onSuccess: () => {
-          setTitle('');
-          setRef('');
-          setDue('');
-          setModalOpen(false);
-          toast('تمت إضافة المهمة بنجاح إلى جدول مهامك');
-        },
-      }
-    );
+    // قفلٌ ورسالة رفض (`useServerAction`) — كانت بلا أيّهما: نقرتان تُنشئان مهمّتين، والرفض صامت
+    action.run('/lawyer/tasks', {
+      data: { title: title.trim(), ref: ref.trim(), due: due.trim() },
+      fallback: 'تعذّر إضافة المهمة',
+      success: 'تمت إضافة المهمة بنجاح إلى جدول مهامك',
+      onSuccess: () => {
+        setTitle('');
+        setRef('');
+        setDue('');
+        setModalOpen(false);
+      },
+    });
   };
 
   const completeTask = (id: number) => {
-    router.post(
-      `/lawyer/tasks/${id}/complete`,
-      {},
-      {
-        preserveScroll: true,
-        onSuccess: () => toast('تم إنجاز المهمة بنجاح! أحسنت'),
-      }
-    );
+    action.run(`/lawyer/tasks/${id}/complete`, { key: id, fallback: 'تعذّر إنجاز المهمة', success: 'تم إنجاز المهمة بنجاح! أحسنت' });
   };
 
   return (
@@ -714,6 +706,7 @@ const LawyerTasks: React.FC<Props> = ({ tasks = [] }) => {
               type="button"
               className="btn"
               onClick={addTask}
+              disabled={action.busy}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
             >
               <Icon name="check" /> حفظ المهمة

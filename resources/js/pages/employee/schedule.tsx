@@ -9,12 +9,14 @@ import type { TimeSlotItem } from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import ConsultOnBehalfButton from '@/components/consult/ConsultOnBehalfButton';
 import { todayISO } from '@/lib/local-date';
+import { bookingClientId, periodOf } from '@/lib/booking-time';
 import { useConsultReschedule } from '@/lib/consult-reschedule';
 import { slotEnd, useConsultSlots } from '@/lib/consult-slots';
 import { CONFIRM_NO_SHOW } from '@/lib/consult-ui';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
+import { firstError } from '@/lib/server-message';
 import { inSessionSuffix, PresenceBadge, useInSession } from '@/lib/staff-presence';
 import { useServerAction } from '@/lib/use-server-action';
 import { truncateWords } from '@/lib/utils';
@@ -135,14 +137,6 @@ const getInitials = (name: string): string => {
   return name.slice(0, 2);
 };
 
-/** وصف الفترة الزمنية باللغة العربية */
-const formatPeriod = (h: string): string => {
-  const hourNum = parseInt(h.split(':')[0], 10);
-  if (hourNum < 12) return 'صباحاً';
-  if (hourNum === 12) return 'ظهراً';
-  return 'مساءً';
-};
-
 const EmployeeSchedule: React.FC<Props> = ({
   clients = [],
   lawyers = [],
@@ -187,7 +181,8 @@ const EmployeeSchedule: React.FC<Props> = ({
 
   // مودال حجز موعد جديد
   const [bookOpen, setBookOpen] = useState(false);
-  const [clientId, setClientId] = useState<number | ''>(clients[0]?.id ?? '');
+  // فارغٌ حتى تُفتح النافذة فيختار `bookingClientId` — كان أوّل عميلٍ في القائمة فلا يعمل اختيار صاحب الاستشارة المدفوعة
+  const [clientId, setClientId] = useState<number | ''>('');
   const [clientSearch, setClientSearch] = useState('');
   const [lawyerId, setLawyerId] = useState<number | ''>(lawyers[0]?.id ?? '');
   const [type, setType] = useState('office');
@@ -225,8 +220,9 @@ const EmployeeSchedule: React.FC<Props> = ({
     selectConsult(awaitingConsults.find((c) => c.clientId === id), withLawyer);
   };
 
-  /** العميل المبدئيّ: أوّل من له استشارة بانتظار موعد، وإلّا أوّل عميل. */
-  const defaultClientId = (): number | '' => awaitingConsults[0]?.clientId ?? clients[0]?.id ?? '';
+  /** العميل الذي تُفتح عليه النافذة: المختار إن كانت له استشارة مدفوعة بانتظار موعد، وإلّا أوّل من له ذلك. */
+  const initialClientId = (): number | '' =>
+    bookingClientId(clientId, awaitingConsults.map((c) => c.clientId), clients.map((c) => c.id));
 
   // الفترات المتاحة للمستشار في المودال
   const [slots, setSlots] = useState<TimeSlotItem[]>([]);
@@ -274,7 +270,7 @@ setSlotsLoading(false);
   // فتح نافذة الحجز مع تحديد المحامي واليوم والوقت مسبقاً من الشبكة
   const openBookingForSlot = (targetLawyerId: number, targetDate: string, targetTime: string) => {
     // المحامي والوقت من خانة الشبكة — الاستشارة لا تغيّر المحامي هنا
-    const initialClient = clientId === '' ? defaultClientId() : clientId;
+    const initialClient = initialClientId();
 
     if (initialClient !== '') {
       pickClient(initialClient, false);
@@ -287,7 +283,7 @@ setSlotsLoading(false);
   };
 
   const openNewBooking = () => {
-    const initialClient = clientId === '' ? defaultClientId() : clientId;
+    const initialClient = initialClientId();
 
     if (lawyers.length > 0 && lawyerId === '') {
       setLawyerId(lawyers[0].id);
@@ -1143,7 +1139,8 @@ return lawyers;
                     const isOfficeRow = dayHours.includes(hourStr);
                     const isSlotPast = selectedDay === todayISO() && hourStr <= nowHM();
                     const endH = slotEnd(hourStr, slotMinutes);
-                    const period = formatPeriod(hourStr);
+                    // فترة **وقت النهاية المعروض** — كانت من ساعة البداية فتُكتب «12:20 صباحاً»
+                    const period = periodOf(endH);
 
                     return (
                       <tr key={hourStr} style={{ borderBottom: '1px solid var(--line-soft)' }}>
@@ -1788,7 +1785,7 @@ return lawyers;
                       toast('✅ تم اعتماد الموعد وإرساله للعميل بنجاح');
                       setSelectedAppt(null);
                     },
-                    onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر اعتماد الموعد')),
+                    onError: (e) => toast(firstError(e, 'تعذّر اعتماد الموعد')),
                   })}
                 >
                   <Icon name="check" /> اعتماد الموعد وإرساله للعميل فوراً

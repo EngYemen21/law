@@ -6,6 +6,8 @@ import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import type {Invoice} from '@/lib/data';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
+import { DOCUMENT_MB, mbToBytes } from '@/lib/upload-limits';
 import { useServerAction } from '@/lib/use-server-action';
 
 // يطابق viewInvoices في index (82).html — دفع حقيقي عبر ميسّر + رفع إثبات + PDF حقيقي (Browsershot)
@@ -29,8 +31,8 @@ const InvRow: React.FC<{ v: Invoice }> = ({ v }) => {
 return;
 }
 
-    if (file.size > 2 * 1024 * 1024) {
-      toast('حجم الملف يتجاوز الحدّ المسموح (2 ميجابايت)');
+    if (file.size > mbToBytes(DOCUMENT_MB)) {
+      toast(`حجم الملف يتجاوز الحدّ المسموح (${DOCUMENT_MB} ميجابايت)`);
 
       if (fileRef.current) {
 fileRef.current.value = '';
@@ -44,7 +46,7 @@ fileRef.current.value = '';
       forceFormData: true,
       preserveScroll: true,
       onSuccess: () => toast('تم استلام إثبات التحويل وسيُراجَع'),
-      onError: (err) => toast((Object.values(err)[0] as string) || 'تعذّر رفع الإثبات'),
+      onError: (err) => toast(firstError(err, 'تعذّر رفع الإثبات')),
       onFinish: () => {
  setBusy(false);
 
@@ -87,6 +89,8 @@ fileRef.current.value = '';
         ) : v.cancelled ? (
           // لا دفع ولا إثبات لملغاة — كان الزرّان ظاهرين والخادم يرفض الدفع ويقبل الإثبات فيُحيي الإلغاء
           <span className="action-hint" style={{ margin: 0 }}>أُلغيت ولا تُسدَّد — ادفع الفاتورة المحدَّثة</span>
+        ) : v.awaitsEarlier ? (
+          <span className="action-hint" style={{ margin: 0 }}>تُسدَّد بعد الدفعة السابقة من الخطّة</span>
         ) : v.hasProof ? (
           <span className="action-hint" style={{ margin: 0 }}><Icon name="check" /> بانتظار المراجعة</span>
         ) : (

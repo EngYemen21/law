@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\ExecutionDecision;
+use App\Domain\Journey\Enums\ExecutionDocumentStatus;
 use App\Domain\Journey\Workflow;
 use App\Jobs\AnalyzeExecutionJob;
 use App\Models\Execution;
@@ -29,8 +31,10 @@ class ExecutionCreation
     /**
      * @param  User|null  $lawyerFallback  محامي التنفيذ حين لا محامي للقضيّة — رافعُ الطلب حين تعتمده الإدارة
      *                                     (`CaseExecutionRequest::approve`)؛ وإلّا الفاعل نفسه.
+     * @param  int|null  $amount  المبلغ المحكوم به من طلب التنفيذ — وإلّا مبلغ التذكرة (قرار 2026-09-30: كان
+     *                            الملفّ يُفتح بصفرٍ حين لم يُدخل العميل مبلغاً، فيستحيل التحصيل)
      */
-    public static function fromCase(LegalCase $case, User $actor, ?User $lawyerFallback = null): Execution
+    public static function fromCase(LegalCase $case, User $actor, ?User $lawyerFallback = null, ?int $amount = null): Execution
     {
         // محامي التنفيذ: محامي القضية إن كان حساباً حقيقياً، وإلا المحامي الذي رفع الطلب أو فتحه
         $lawyer = $case->assignedLawyer ?? $lawyerFallback ?? $actor;
@@ -54,7 +58,7 @@ class ExecutionCreation
             $court !== '' ? 'المحكمة التي أصدرت الحكم: '.$court : '',
         ])));
 
-        $exec = DB::transaction(function () use ($case, $lawyer, $ticket, $notes, $actor) {
+        $exec = DB::transaction(function () use ($case, $lawyer, $ticket, $notes, $actor, $amount) {
             $number = ReferenceNumber::next(Execution::class, 'number', 'EXE');
 
             // يُفتح داخل المحرّك: سطرُ فتحٍ في سجلّ الانتقالات بالفاعل ومصدره
@@ -67,12 +71,12 @@ class ExecutionCreation
                 'subject' => 'تنفيذ حكم — '.$case->type,
                 'sanad' => 'حكم قضائي',
                 'defendant' => (string) ($ticket?->opponent_name ?? ''),
-                'amount' => (int) ($ticket?->claim_amount ?? 0),
+                'amount' => $amount ?? Execution::fitClaimAmount($case->ticketClaimAmount()),
                 'notes' => $notes,
                 'docs' => $case->documents->map(fn ($d) => (string) ($d->doc_type ?: $d->name))->filter()->unique()->values()->all(),
                 'assigned_lawyer' => $lawyer->name,
                 'assigned_lawyer_id' => $lawyer->id,
-                'decision' => 'مقبول',
+                'decision' => ExecutionDecision::Accepted->value,
                 'stage' => 3,
                 'status' => ExecFlow::label(3),
                 'tone' => ExecFlow::tone(3),
@@ -104,7 +108,8 @@ class ExecutionCreation
             Notify::send($lawyer->id, 'exec', 't-blue', "أُسند إليك طلب تنفيذ الحكم {$exec->number} — بانتظار تحديد الأتعاب.");
             ExecService::mailAssignedLawyer($exec);
         }
-        ExecService::notifyAdmins($exec, 't-blue', "فُتح طلب تنفيذ الحكم {$exec->number} من القضية {$case->number} — بانتظار تحديد الأتعاب واعتمادها.");
+        // الإداريّ الفاتح لا يُشعَر بفعله — زملاؤه وحدهم
+        ExecService::notifyAdmins($exec, 't-blue', "فُتح طلب تنفيذ الحكم {$exec->number} من القضية {$case->number} — بانتظار تحديد الأتعاب واعتمادها.", $actor);
 
         Audit::log(
             action: 'تحويل قضية إلى تنفيذ',
@@ -149,12 +154,12 @@ class ExecutionCreation
                 'subject' => 'تنفيذ سند — '.($ticket->subject ?: $ticket->type),
                 'sanad' => $sanad,
                 'defendant' => (string) ($ticket->opponent_name ?? ''),
-                'amount' => (int) ($ticket->claim_amount ?? 0),
+                'amount' => Execution::fitClaimAmount($ticket->claim_amount === null ? null : (int) $ticket->claim_amount),
                 'notes' => $notes,
                 'docs' => self::carriedDocuments($ticket)->map(fn ($d) => (string) ($d->doc_type ?: $d->name))->filter()->unique()->values()->all(),
                 'assigned_lawyer' => $lawyer->name,
                 'assigned_lawyer_id' => $lawyer->id,
-                'decision' => 'مقبول',
+                'decision' => ExecutionDecision::Accepted->value,
                 'stage' => 3,
                 'status' => ExecFlow::label(3),
                 'tone' => ExecFlow::tone(3),
@@ -188,7 +193,7 @@ class ExecutionCreation
                 Notify::send($lawyer->id, 'exec', 't-amber', "أُسند إليك ملف التنفيذ {$exec->number} (محال من التذكرة {$ticket->number}) — بانتظار تحديد الأتعاب.");
                 ExecService::mailAssignedLawyer($exec);
             }
-            ExecService::notifyAdmins($exec, 't-amber', "فُتح ملف التنفيذ {$exec->number} من التذكرة {$ticket->number} — بانتظار تحديد الأتعاب.");
+            ExecService::notifyAdmins($exec, 't-amber', "فُتح ملف التنفيذ {$exec->number} من التذكرة {$ticket->number} — بانتظار تحديد الأتعاب.", $actor);
         });
 
         Audit::log(
@@ -249,7 +254,7 @@ class ExecutionCreation
                 'path' => $newPath,
                 'mime' => $td->mime ?? 'application/pdf',
                 'size' => (int) ($td->size ?? 0),
-                'status' => 'مرفوع',
+                'status' => ExecutionDocumentStatus::Uploaded->value,
                 // مرفقات المكتب تبقى «صادرةً إليك» بعد النسخ — لا تُنسب للعميل (`TicketDocument::isFromClient`)
                 'uploaded_by' => $td instanceof TicketDocument && ! $td->isFromClient() ? 'staff' : 'client',
                 'uploaded_at' => now(),

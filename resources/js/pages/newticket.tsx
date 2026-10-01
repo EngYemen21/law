@@ -3,6 +3,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
 import { ALLOWED_DOC_ACCEPT } from '@/lib/chat';
+import { firstError } from '@/lib/server-message';
 
 // نموذج «فتح تذكرة جديدة» — يطابق ticketFormView في التصميم المرجعي (babel-system.html).
 // بطاقة واحدة بسيطة: بيانات العميل (readonly) + موضوع + قسم→خدمة + أهمية + رسالة + مستندات.
@@ -100,7 +101,8 @@ const NewTicket: React.FC = () => {
       forceFormData: true,
       onError: (errors) => {
         setServerErrors(errors as Record<string, string>);
-        toast('تعذّر إرسال التذكرة، تحقّق من البيانات والمرفقات');
+        // سبب الرفض نفسه (مثل حجم مرفقٍ أو نوعه) — الأخطاء تحت حقولها أيضاً، ومنها ما لا حقل ظاهراً له
+        toast(firstError(errors as Record<string, string>, 'تعذّر إرسال التذكرة، تحقّق من البيانات والمرفقات'));
       },
       onFinish: () => setSubmitting(false),
     });

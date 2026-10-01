@@ -20,7 +20,7 @@ use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\User;
-use App\Services\MoyasarService;
+use App\Services\Payments\PaymentGateways;
 use App\Services\ZoomService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -280,7 +280,7 @@ class ConsultBooking
     {
         $invoice = $consult->invoice;
 
-        return $invoice ? app(MoyasarService::class)->hostedUrlForInvoice($invoice, $callbackUrl) : null;
+        return $invoice ? app(PaymentGateways::class)->default()->hostedUrlForInvoice($invoice, $callbackUrl) : null;
     }
 
     /** إرسال إشعارات البريد الإلكتروني لتأكيد الموعد للعميل والمحامي المسند */

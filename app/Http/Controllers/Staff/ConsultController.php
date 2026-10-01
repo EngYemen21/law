@@ -46,7 +46,9 @@ use App\Support\RoomDetails;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -134,6 +136,9 @@ class ConsultController extends Controller
         return Inertia::render($this->prefix($request).'/consult', [
             'consult' => $consult->toCard(),
             'lawyers' => $this->lawyerOptions($consult),
+            // زرّ «اعتماد الملخّص» يتبع وجود مساره لهذه المجموعة — كان يظهر للموظّف صاحب الصلاحيّة فيقع ٤٠٤
+            // (لا مسار اعتمادٍ للموظّف بقرار المالك 2026-09-14)
+            'canApproveSummary' => Route::has($this->prefix($request).'.consults.summary.approve'),
         ]);
     }
 
@@ -325,27 +330,43 @@ class ConsultController extends Controller
             'اعتمدتَ هذا الملخّص ورُفع للإدارة لاعتماده النهائيّ — لا يُعدَّل من جهتك.'
         );
 
-        $data = $request->validate(['summary' => ['required', 'string', 'max:8000']]);
-        $summary = trim($data['summary']);
+        // المنسّق من المحرّر (`summary_html`) أصلٌ يُشتقّ منه النصّ؛ والنصّ العاديّ وحده ما زال مقبولاً
+        $data = $request->validate([
+            'summary' => ['required_without:summary_html', 'nullable', 'string', 'max:8000'],
+            'summary_html' => ['nullable', 'string', 'max:30000'],
+        ]);
+        // حفظٌ بلا تغييرٍ عمّا عُرض لا يفعل شيئاً — كان يمسح القرارات ويَسِم الملخّص «محرَّراً»
+        $input = $consult->changedInput($data);
+        if ($input === []) {
+            return back();
+        }
+        $summary = trim((string) ($input['summary'] ?? ''));
+        if ($summary === '') {
+            throw ValidationException::withMessages(['summary' => 'اكتب نصّ الملخّص قبل حفظه.']);
+        }
 
-        if ($summary === (string) $consult->summary) {
+        $textChanged = $summary !== (string) $consult->summary;
+        if (! $textChanged && ($input['summary_html'] ?? $consult->summary_html) === $consult->summary_html) {
             return back();
         }
 
         $consult->update([
             // أوّل تحرير يُجمّد مخرج النموذج؛ وما بعده تحريرٌ على تحرير فلا يدهسه
             'summary_ai_original' => $consult->summary_ai_original ?? $consult->summary,
+            ...$input,
             'summary' => $summary,
             'summary_edited_at' => now(),
             'summary_edited_by' => $request->user()->id,
-            // قرارات النصّ القديم لا تبقى تحت نصٍّ جديد — تُستخرج من المحرَّر (ع٢٣)
-            'decisions' => [],
+            // قرارات النصّ القديم لا تبقى تحت نصٍّ جديد — تُستخرج من المحرَّر (ع٢٣)؛ وتغييرُ التنسيق وحده لا يمسّها
+            ...($textChanged ? ['decisions' => []] : []),
         ]);
 
         $consult->logAudit($request->user()->name, 'ملخص الجلسة', '(نص النموذج)', '(نص محرَّر)');
         $consult->save();
 
-        ExtractConsultDecisionsJob::dispatch($consult->fresh(), $summary);
+        if ($textChanged) {
+            ExtractConsultDecisionsJob::dispatch($consult->fresh(), $summary);
+        }
 
         return back()->with('flash', 'حُفظ الملخّص المحرَّر — يصل العميل بعد اعتماده.');
     }

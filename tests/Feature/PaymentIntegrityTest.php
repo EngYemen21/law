@@ -7,8 +7,9 @@ use App\Models\AuditLog;
 use App\Models\Consult;
 use App\Models\Invoice;
 use App\Models\LegalCase;
+use App\Models\Payment;
 use App\Models\User;
-use App\Services\MoyasarService;
+use App\Services\Payments\MoyasarGateway;
 use App\Support\CaseFee;
 use App\Support\InvoiceNumber;
 use App\Support\PaymentReconciler;
@@ -36,10 +37,10 @@ class PaymentIntegrityTest extends TestCase
         ]);
 
         // التسوية الأولى (الدفعة الحقيقية)
-        PaymentReconciler::settle([
+        PaymentReconciler::settle(MoyasarGateway::toGatewayPayment([
             'id' => $paymentId, 'status' => 'paid', 'amount' => 51800, 'currency' => 'SAR',
             'metadata' => ['invoice_number' => 'INV-DUP-1'],
-        ], 'webhook');
+        ]), 'webhook');
 
         return $invoice->fresh();
     }
@@ -60,10 +61,10 @@ class PaymentIntegrityTest extends TestCase
         Log::spy();
 
         // شحنة ثانية بمعرّف مختلف على نفس الفاتورة
-        PaymentReconciler::settle([
+        PaymentReconciler::settle(MoyasarGateway::toGatewayPayment([
             'id' => 'pay_second', 'status' => 'paid', 'amount' => 51800, 'currency' => 'SAR',
             'metadata' => ['invoice_number' => 'INV-DUP-1'],
-        ], 'webhook');
+        ]), 'webhook');
 
         $this->assertSame(
             'pay_first',
@@ -85,7 +86,7 @@ class PaymentIntegrityTest extends TestCase
 
         Http::fake(['api.moyasar.com/*' => Http::response(['id' => 'inv_new', 'url' => 'https://moyasar.test/x'], 201)]);
 
-        $url = app(MoyasarService::class)->hostedUrlForInvoice($invoice, 'https://app.test/callback');
+        $url = app(MoyasarGateway::class)->hostedUrlForInvoice($invoice, 'https://app.test/callback');
 
         $this->assertNull($url, 'أُنشئت فاتورة بوّابة جديدة لفاتورة مدفوعة.');
         Http::assertNothingSent();
@@ -146,10 +147,10 @@ class PaymentIntegrityTest extends TestCase
             'due_label' => '—', 'paid' => false,
         ]);
 
-        PaymentReconciler::settle([
+        PaymentReconciler::settle(MoyasarGateway::toGatewayPayment([
             'id' => 'pay_rec_1', 'status' => 'paid', 'amount' => 100000, 'currency' => 'SAR',
             'metadata' => ['invoice_number' => 'INV-REC-A'],
-        ], 'webhook');
+        ]), 'webhook');
 
         $this->assertTrue($target->fresh()->paid);
         $this->assertFalse($extra->fresh()->paid, 'الفاتورة التكميلية شُطبت بلا سداد.');
@@ -187,9 +188,10 @@ class PaymentIntegrityTest extends TestCase
     }
 
     /**
-     * **سباق الخطّاف والعودة على فاتورة الاستشارة:** كلاهما قرأ الفاتورة غير مدفوعة، فسدّد الأوّل
-     * وانتقل بالاستشارة، ورُفض انتقال الثاني. كان الثاني يكتب قيداً حرجاً «تتطلّب استرداداً» ويُنبّه
-     * الإدارة على دفعةٍ سليمة. هنا: نسخةٌ قديمة من الفاتورة (قبل التسوية) تُسوّى بعد أن سُدّدت.
+     * **سباق الخطّاف والعودة:** كلاهما قرأ الفاتورة غير مدفوعة، فسدّد الأوّل ورُفض انتقال الثاني. كان
+     * الثاني يكتب قيداً حرجاً «تتطلّب استرداداً» على دفعةٍ سليمة (الاستشارة)، أو يُقرئ العميل «تعذّر
+     * تأكيد الدفع» (القضيّة والتنفيذ — تدقيق الدفع F). المحاكاة: لحظةَ يسجّل الثاني دفتره — بعد أن قرأ
+     * الفاتورة — يُسوّيها الأوّل بالدفعة نفسها.
      */
     public function test_the_losing_side_of_a_webhook_callback_race_is_not_a_refund(): void
     {
@@ -199,20 +201,41 @@ class PaymentIntegrityTest extends TestCase
             'user_id' => $client->id, 'ref' => 'CN-RACE-1', 'subject' => 'نزاع', 'channel' => 'مرئية',
             'lawyer' => 'مستشار', 'status' => 'بانتظار السداد', 'price' => 450, 'vat' => 68, 'total' => 518,
         ]);
-        $stale = $consult->invoice()->create([
+        $consult->invoice()->create([
             'user_id' => $client->id, 'number' => 'INV-RACE-1', 'description' => 'استشارة',
             'amount' => 518, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => 'خلال 3 أيام', 'paid' => false,
         ]);
+        $case = LegalCase::create([
+            'user_id' => $client->id, 'number' => 'CASE-RACE-1', 'type' => 'نزاع', 'department' => 'القسم التجاري',
+            'assigned_lawyer' => 'أ. سارة', 'status' => 'بانتظار سداد الأتعاب', 'tone' => 'b-amber',
+            'fee' => 900, 'fee_status' => 'pending_payment', 'pleading_status' => 'none',
+        ]);
+        Invoice::create([
+            'user_id' => $client->id, 'case_id' => $case->id, 'number' => 'INV-RACE-2', 'description' => 'أتعاب',
+            'amount' => 1035, 'status' => 'مستحقة', 'tone' => 'b-amber', 'due_label' => '—', 'paid' => false,
+        ]);
 
-        PaymentReconciler::settle([
-            'id' => 'pay_race', 'status' => 'paid', 'amount' => 51800, 'currency' => 'SAR',
-            'metadata' => ['invoice_number' => 'INV-RACE-1'],
-        ], 'webhook');
-        $this->assertTrue($stale->fresh()->paid);
+        foreach (['INV-RACE-1' => 51800, 'INV-RACE-2' => 103500] as $number => $halalas) {
+            $payment = MoyasarGateway::toGatewayPayment([
+                'id' => 'pay_'.$number, 'status' => 'paid', 'amount' => $halalas, 'currency' => 'SAR',
+                'metadata' => ['invoice_number' => $number],
+            ]);
+            $winnerRan = false;
+            Payment::saved(function () use (&$winnerRan, $payment) {
+                if (! $winnerRan) {
+                    $winnerRan = true;
+                    PaymentReconciler::settle($payment, 'webhook'); // الأوّل يسبق بين قراءة الثاني وتسويته
+                }
+            });
 
-        $settleConsult = new \ReflectionMethod(PaymentReconciler::class, 'settleConsult');
-        $this->assertTrue($settleConsult->invoke(null, $stale, $consult->fresh(), 'callback'), 'الخاسر في السباق نجاحٌ مكرّر');
+            $this->assertTrue(PaymentReconciler::settle($payment, 'callback'), "{$number}: الخاسر في السباق نجاحٌ مكرّر");
+            $this->assertTrue($winnerRan);
+            $this->assertTrue(Invoice::where('number', $number)->value('paid'));
+            $this->assertSame('pay_'.$number, Invoice::where('number', $number)->value('gateway_payment_id'));
+            Payment::flushEventListeners();
+        }
 
-        $this->assertSame(0, AuditLog::where('action', 'دفعة على فاتورة لا تقبل السداد')->count(), 'لا قيد استردادٍ على دفعةٍ سليمة');
+        $this->assertSame(0, AuditLog::where('action', 'دفعة لم تُطبَّق وتتطلّب استرداداً')->count(), 'لا قيد استردادٍ على دفعةٍ سليمة');
+        $this->assertSame('paid', $case->fresh()->fee_status);
     }
 }

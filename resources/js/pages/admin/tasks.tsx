@@ -6,6 +6,7 @@ import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
 import { dateISOAfter } from '@/lib/local-date';
+import { firstError } from '@/lib/server-message';
 import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 import { truncateWords } from '@/lib/utils';
 
@@ -132,7 +133,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
           setDue('');
           setModalOpen(false);
         },
-        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر إسناد المهمة'}`, 'error'),
+        onError: (errors) => toast(`⚠️ ${firstError(errors, 'تعذّر إسناد المهمة')}`, 'error'),
       }
     );
   };
@@ -145,7 +146,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
       {
         preserveScroll: true,
         // نصّ النجاح من الخادم (flash) — لا إشعار ثانٍ هنا
-        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر إنجاز المهمة'}`, 'error'),
+        onError: (errors) => toast(`⚠️ ${firstError(errors, 'تعذّر إنجاز المهمة')}`, 'error'),
       }
     );
   };
@@ -158,7 +159,7 @@ const AdminTasks: React.FC<Props> = ({ tasks = [], lawyers = [] }) => {
       { assigned_to: newLawyerId },
       {
         preserveScroll: true,
-        onError: (errors) => toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّرت إعادة الإسناد'}`, 'error'),
+        onError: (errors) => toast(`⚠️ ${firstError(errors, 'تعذّرت إعادة الإسناد')}`, 'error'),
       }
     );
   };

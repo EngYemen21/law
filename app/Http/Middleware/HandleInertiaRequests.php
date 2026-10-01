@@ -43,7 +43,6 @@ class HandleInertiaRequests extends Middleware
      * **لإضافة مفتاح**: أضِف اسمه هنا كما هو في `SettingsRegistry::all()`، ثمّ حقله في النوع
      * `SharedSettings` في `resources/js/lib/settings.ts` — لا شيء غير ذلك. والقائمةُ قائمةُ سماحٍ
      * عمداً لا «كلّ السجلّ»: ما يُشارَك يصل كلَّ زائرٍ ولو ضيفاً، فلا يخرج متغيّرٌ داخليّ بالخطأ.
-     * (والضريبة خارج السجلّ لأنّ مالكها شاشة الأسعار — تُضاف في `sharedSettings()` من `Setting::vatRate()`.)
      *
      * @var list<string>
      */
@@ -62,6 +61,14 @@ class HandleInertiaRequests extends Middleware
         'consult_slot_minutes',
         // حدّ «متأخّر» في شاشتي الاستشارات — كانتا تحملان 100 و120 للطلبات نفسها
         'consult_request_late_minutes',
+        // مهلة فتح الدخول قبل الموعد — نصوص «يُفعَّل الدخول قبل الموعد بـ…» في الاستشارات والاجتماعات
+        'session_join_opens_minutes',
+        // نافذة بدء الطاقم — نصوص «البدء قبل الموعد بـ…» في شاشات الاستشارات
+        'consult_staff_start_minutes',
+        // «يُرجى الحضور قبل الموعد بـ…» في بطاقة الموعد — ونظيرها PDF يقرأ الإعداد نفسه
+        'office_arrival_minutes',
+        // مهلة الاستئناف — نصّ تأكيد تسجيل الحكم وتقرير القضايا
+        'appeal_deadline_days',
     ];
 
     /**
@@ -182,8 +189,6 @@ class HandleInertiaRequests extends Middleware
                 // وإعادة التحميل الجزئيّة (`only`) لا تحمل `flash` فتبقى الهويّة ولا يتكرّر الإشعار.
                 'id' => fn () => $request->session()->hasAny(['error', 'success', 'flash']) ? Str::random(10) : null,
             ],
-            // كلمة المرور المولّدة للموظف الجديد (تُعرض مرة واحدة لدى الإدارة)
-            'generatedPassword' => fn () => $request->session()->get('generatedPassword'),
         ];
     }
 }

@@ -2,7 +2,7 @@
 
 namespace App\Support;
 
-use App\Services\MoyasarService;
+use App\Services\Payments\PaymentGateways;
 use Illuminate\Support\Str;
 
 /**
@@ -60,14 +60,9 @@ final class EnvironmentAudit
             $fail('TAQNYAT_API_KEY', 'مفتاح تقنيات فارغ — لا دخول ولا تسجيل في الإنتاج (الرمز الثابت لا يعمل هنا).');
         }
 
-        $secret = (string) config('services.moyasar.secret_key');
-        $publishable = (string) config('services.moyasar.publishable_key');
-        if (MoyasarService::isTestKey($secret) || MoyasarService::isTestKey($publishable)) {
-            $fail('MOYASAR_SECRET_KEY', 'مفتاح ميسّر تجريبيّ (sk_test_/pk_test_) في الإنتاج — لا يُحصَّل مالٌ حقيقيّ.');
-        }
-        if ($secret !== '' && blank(config('services.moyasar.webhook_secret'))) {
-            $fail('MOYASAR_WEBHOOK_SECRET', 'سرّ إشعارات ميسّر فارغ — لا تُسوّى الفواتير المدفوعة آليّاً.');
-        }
+        // كلّ بوّابة دفعٍ تفحص مفاتيحها بنفسها (`PaymentGateway::auditFindings`)
+        array_push($out, ...self::gatewayFindings(production: true));
+
         if (filled(config('services.zoom.client_id')) && blank(config('services.zoom.webhook_secret'))) {
             $fail('ZOOM_WEBHOOK_SECRET', 'سرّ إشعارات Zoom فارغ — لا تصل أحداث الاجتماعات والتسجيلات.');
         }
@@ -82,12 +77,15 @@ final class EnvironmentAudit
     /** @return list<array{level: 'fail'|'warn', key: string, message: string}> */
     private static function sandbox(): array
     {
-        $out = [];
+        return self::gatewayFindings(production: false);
+    }
 
-        foreach (['secret_key' => 'MOYASAR_SECRET_KEY', 'publishable_key' => 'MOYASAR_PUBLISHABLE_KEY'] as $field => $key) {
-            if (MoyasarService::isLiveKey((string) config("services.moyasar.{$field}"))) {
-                $out[] = ['level' => 'fail', 'key' => $key, 'message' => 'مفتاح ميسّر حقيقيّ (live) في بيئة تجربة — ضع مفتاح sk_test_/pk_test_. الدفع معطّلٌ هنا حتى ذلك.'];
-            }
+    /** @return list<array{level: 'fail'|'warn', key: string, message: string}> */
+    private static function gatewayFindings(bool $production): array
+    {
+        $out = [];
+        foreach (app(PaymentGateways::class)->all() as $gateway) {
+            array_push($out, ...$gateway->auditFindings($production));
         }
 
         return $out;

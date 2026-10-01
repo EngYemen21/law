@@ -2,6 +2,7 @@
 
 namespace App\Domain\Journey\Transitions\Execution;
 
+use App\Domain\Journey\Enums\ExecutionDecision;
 use App\Domain\Journey\Enums\ExecutionStatus;
 use App\Domain\Journey\Transition;
 use App\Models\Execution;
@@ -61,14 +62,14 @@ final class StudyExecution extends Transition
             if ($entity->effectiveStage() !== 2) {
                 return 'لا يمكن قبول هذا الطلب في مرحلته الحالية.';
             }
-            if ($entity->decision === 'مرفوض') {
+            if ($entity->isRejectedAfterStudy()) {
                 return 'هذا الطلب مرفوض بالفعل.';
             }
         } elseif ($action === 'requestDocs') {
             if (! in_array($entity->effectiveStage(), [0, 1, 2, 3], true)) {
                 return 'لا يمكن طلب مستندات في مرحلته الحالية.';
             }
-            if ($entity->decision === 'مرفوض') {
+            if ($entity->isRejectedAfterStudy()) {
                 return 'هذا الطلب مرفوض بعد الدراسة — لا تُطلب عليه مستندات.';
             }
         } elseif ($action === 'reject') {
@@ -91,14 +92,14 @@ final class StudyExecution extends Transition
                 $entity->stage = $status->stage();
                 $entity->status = $status->value;
                 $entity->tone = $status->tone();
-                $entity->decision = 'مقبول';
+                $entity->decision = ExecutionDecision::Accepted->value;
                 $entity->last_action = 'قبل المحامي الطلب — بانتظار تحديد الأتعاب';
             })(),
             'requestDocs' => (function () {
                 // المرحلة والحالة لا تتغير في طلب النواقص
             })(),
             'reject' => (function () use ($entity) {
-                $entity->decision = 'مرفوض';
+                $entity->decision = ExecutionDecision::Rejected->value;
                 $entity->last_action = 'رُفض الطلب بعد الدراسة';
             })(),
         };

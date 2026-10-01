@@ -11,6 +11,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Services\Ai\AiGateway;
 use App\Support\AppEnvironment;
+use App\Support\Integrations\IntegrationSecrets;
 use App\Support\LegalCatalogue;
 use App\Support\MessageSender;
 use App\Support\OtpService;
@@ -58,6 +59,9 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
 
+        // مفاتيح الخدمات الخارجيّة من شاشة الإدارة (مشفّرة) تتقدّم على `.env` متى ضُبطت — قبل أيّ خدمةٍ تقرؤها
+        IntegrationSecrets::apply();
+
         // ربط {doc} بنموذج LegalDocument صراحةً — لتفادي أي تعارض مع Document الحالي
         Route::model('doc', LegalDocument::class);
 
@@ -95,6 +99,12 @@ class AppServiceProvider extends ServiceProvider
         // فكان تدويرها يمنح حصّةً جديدة لكل طلب. (الثقة صارت للخادم نفسه وحده — والمرساة تبقى
         // بعيدةً عن الـIP: دفاعٌ لا يتّكئ على إعدادٍ قد يتغيّر.) والجلسة وحدها لا تكفي: من يبدأ من جديد يأخذ جلسةً
         // جديدة — لذا حدٌّ بالدقيقة وبالساعة لكلّ هويّة ولكلّ جوالٍ يُرسَل إليه، أيّاً كانت الجلسة.
+        // **نداءات الذكاء المدفوعة عند الطلب** (قرار المالك 2026-09-30): ٥ كلّ ١٠ دقائق لكلّ مستخدمٍ ولكلّ فعل
+        // (المساعد، المساعدة الذكيّة في المحرّر، إعادة تحليل الملخّص، مسوّدة ناجز، تحليل الاستشارة، تقييم الإدارة).
+        // كانت بلا حدّ — نقرٌ متكرّر كلفةٌ مباشرة. ما يطلقه الرفع أو الرسائل آليّاً خارجها: حدُّه يوقف عملاً مشروعاً.
+        RateLimiter::for('ai-calls', fn (Request $request) => Limit::perMinutes(10, 5)
+            ->by(($request->user()?->getAuthIdentifier() ?? $request->ip()).'|'.($request->route()?->getName() ?? $request->path())));
+
         RateLimiter::for('otp-request', function (Request $request) {
             $session = $request->session();
             $text = fn ($value) => is_string($value) ? trim($value) : '';

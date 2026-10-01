@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Employee;
 
 use App\Enums\Role;
+use App\Events\TicketStatusBroadcast;
 use App\Http\Controllers\Controller;
 use App\Models\LegalCase;
 use App\Models\Ticket;
@@ -12,6 +13,8 @@ use App\Rules\ActiveLawyer;
 use App\Rules\ActiveLegalDepartment;
 use App\Support\Audit;
 use App\Support\LegalCatalogue;
+use App\Support\Live;
+use App\Support\Notify;
 use App\Support\TicketAssignment;
 use App\Support\TicketJourney;
 use Illuminate\Http\JsonResponse;
@@ -20,6 +23,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 /**
  * تحويل التذاكر وإدارة أعباء العمل — الموظف يحوّل التذاكر فردياً أو جماعياً.
@@ -28,8 +32,9 @@ class TransferController extends Controller
 {
     public function index(): Response
     {
+        // ما يُحوَّل فقط — المجمّدة تُستبعد كقائمة «توزيع التذاكر» (`TicketAssignment::assertReassignable`)
         $allTickets = Ticket::with(['user', 'assignedLawyer'])
-            ->open()
+            ->distributable()
             ->latest('id')->get();
 
         // اقتراح النظام لغير المسنَدة، موسوماً بالتخصّص — يؤكّده الموظّف ولا يُكتب شيء (قرار 2026-09-20)
@@ -112,7 +117,9 @@ class TransferController extends Controller
             'department' => ['nullable', 'string', 'max:190', new ActiveLegalDepartment],
         ]);
 
-        $lawyer = User::findOrFail($data['lawyer_id']);
+        TicketAssignment::assertReassignable($ticket);
+
+        $lawyer = User::whereKey($data['lawyer_id'])->firstOrFail();
         $from = $ticket->assigned_lawyer ?: '—';
         $fromDept = $ticket->department;
         $toDept = LegalCatalogue::fromInput($data['department'] ?? null)?->name;
@@ -145,6 +152,9 @@ class TransferController extends Controller
             afterState: ['المحامي' => $lawyer->name, 'القسم' => $toDept ?: ($fromDept ?: '—')],
         );
 
+        Live::push(new TicketStatusBroadcast($ticket));
+        TicketAssignment::notifyAssigned($ticket, $lawyer, $request->user());
+
         if ($request->expectsJson()) {
             return response()->json(['ok' => true, 'lawyer' => $lawyer->name]);
         }
@@ -165,9 +175,24 @@ class TransferController extends Controller
             'department' => ['nullable', 'string', 'max:190', new ActiveLegalDepartment],
         ]);
 
-        $lawyer = User::findOrFail($data['lawyer_id']);
-        $tickets = Ticket::whereIn('number', $data['tickets'])->get();
+        $lawyer = User::whereKey($data['lawyer_id'])->firstOrFail();
         $data['department'] = LegalCatalogue::fromInput($data['department'] ?? null)?->name;
+
+        // حارس الفرديّ نفسه لكلّ تذكرة — المرفوضة تُذكر بسببها ولا تُسقط غيرها
+        $refused = [];
+        $tickets = Ticket::whereIn('number', $data['tickets'])->get()->filter(function (Ticket $ticket) use (&$refused) {
+            try {
+                TicketAssignment::assertReassignable($ticket);
+
+                return true;
+            } catch (HttpExceptionInterface $e) {
+                $refused[] = "{$ticket->number}: {$e->getMessage()}";
+
+                return false;
+            }
+        })->values();
+
+        abort_if($tickets->isEmpty(), 422, 'لم تُحوَّل أيّ تذكرة — '.implode(' · ', $refused));
 
         DB::transaction(function () use ($tickets, $lawyer, $data, $request) {
             foreach ($tickets as $ticket) {
@@ -205,11 +230,22 @@ class TransferController extends Controller
             afterState: ['المحامي' => $lawyer->name, 'التذاكر' => $tickets->pluck('number')->all()],
         );
 
-        if ($request->expectsJson()) {
-            return response()->json(['ok' => true, 'count' => $count, 'lawyer' => $lawyer->name]);
+        $tickets->each(fn (Ticket $ticket) => Live::push(new TicketStatusBroadcast($ticket)));
+        if ((int) $lawyer->id !== (int) $request->user()->id) {
+            Notify::send($lawyer->id, 'folder', 't-blue', "أُسندت إليك {$count} تذكرة: ".$tickets->pluck('number')->implode('، ').'. تابعها من «التذاكر».');
         }
 
-        return back()->with('flash', "تم تحويل {$count} تذكرة بنجاح إلى {$lawyer->name}.");
+        if ($request->expectsJson()) {
+            return response()->json(['ok' => true, 'count' => $count, 'lawyer' => $lawyer->name, 'refused' => $refused]);
+        }
+
+        $response = back()->with('flash', "تم تحويل {$count} تذكرة بنجاح إلى {$lawyer->name}.");
+
+        // نجاحٌ جزئيّ نجاحٌ لا خطأ: حقيبة الأخطاء تُبقي الواجهة على تحديدها فيُعاد تحويل ما حُوِّل
+        // (ملاحظةٌ وإشعارٌ مكرّران — ثبت في المتصفّح 2026-09-30)؛ والمرفوضة تُذكر بسببها إشعارَ خطأ
+        return $refused === []
+            ? $response
+            : $response->with('error', 'لم تُحوَّل '.count($refused).' تذكرة — '.implode(' · ', $refused));
     }
 
     private function clock(): string

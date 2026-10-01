@@ -5,7 +5,7 @@ import Badge from '@/components/babylon/Badge';
 import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { stageChanged, staffPatch } from '@/lib/consult-live';
-import { CONFIRM_APPROVE_CONSULT_SUMMARY, CONFIRM_CANCEL_CONSULT_REQUEST, RichText, SummaryStateBadge } from '@/lib/consult-ui';
+import { CONFIRM_APPROVE_CONSULT_SUMMARY, CONFIRM_CANCEL_CONSULT_REQUEST, ConsultSummaryText, RichText, SummaryStateBadge } from '@/lib/consult-ui';
 import type {ConsultCard, LawyerOpt} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { useSettings } from '@/lib/settings';
@@ -18,6 +18,7 @@ import {
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { consultMediaUrls, SessionMediaPanel } from '@/lib/recording-ui';
+import { firstError } from '@/lib/server-message';
 import { useServerAction } from '@/lib/use-server-action';
 
 /**
@@ -573,7 +574,7 @@ return false;
       {
         preserveScroll: true,
         onSuccess: () => toast(`تم تحديث الأولوية إلى «${priority}»`),
-        onError: (err) => toast(`⚠️ ${Object.values(err)[0] || 'تعذر تغيير الأولوية'}`),
+        onError: (err) => toast(`⚠️ ${firstError(err, 'تعذر تغيير الأولوية')}`),
       }
     );
   };
@@ -1914,7 +1915,7 @@ return false;
                         <SummaryStateBadge consult={drawerConsult} />
                       </div>
                       <div style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
-                        <RichText text={drawerConsult.summary} />
+                        <ConsultSummaryText consult={drawerConsult} />
                       </div>
                     </div>
                   )}

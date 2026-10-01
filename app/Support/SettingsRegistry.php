@@ -3,9 +3,11 @@
 namespace App\Support;
 
 use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
+use App\Domain\Journey\Transitions\LegalCase\RecordRuling;
 use App\Models\Consult;
 use App\Models\Meeting;
 use App\Models\Setting;
+use App\Support\Finance\LawyerShare;
 use Carbon\Carbon;
 
 /**
@@ -37,9 +39,16 @@ class SettingsRegistry
     {
         return [
             'exec' => 'التنفيذ والأتعاب',
+            // مهلة الاستئناف (قرار المالك 2026-10-01) — كانت ٣٠ يوماً منقوشةً في تسجيل الحكم
+            'cases' => 'القضايا والأحكام',
             'billing' => 'الفواتير والسداد',
             'consults' => 'الاستشارات والمواعيد',
+            // إعدادات الاجتماع مجتمعةً (قرار المالك 2026-10-01) — كانت موزّعةً بين «الاستشارات» و«المهل»
+            'meetings' => 'الاجتماعات',
             'alerts' => 'المهل والتنبيهات',
+            'lawyers' => 'عبء المحامين ونصيبهم',
+            // صلاحيّة رمز التحقّق (قرار المالك 2026-10-01) — كانت ١٠ منقوشةً في ثلاثة مواضع
+            'security' => 'الدخول والتحقّق',
             'office' => 'بيانات المكتب في المستندات والبريد',
             'chat' => 'مسمّيات المتحدّثين في محادثات العميل',
         ];
@@ -51,11 +60,36 @@ class SettingsRegistry
      *
      * `forwardOnly` يعني: التغيير يسري على ما يُنشأ بعده وحده، وما مضى محفوظٌ على صفّه.
      *
-     * @return array<string, array{group:string,label:string,hint:string,type:'int'|'string'|'date'|'days'|'bool',default:mixed,min?:int,max?:int,rules:array<int,string>,forwardOnly?:bool,gt?:string,defaultLabel?:string}>
+     * @return array<string, array{group:string,label:string,hint:string,type:'int'|'string'|'date'|'days'|'bool',default:mixed,min?:int,max?:int,rules:array<int,string>,forwardOnly?:bool,gt?:string,gte?:string,defaultLabel?:string}>
      */
     public static function all(): array
     {
         return [
+            // ── الدخول والتحقّق ──
+            'otp_ttl_minutes' => [
+                'group' => 'security',
+                'label' => 'صلاحيّة رمز التحقّق (دقائق)',
+                'hint' => 'بعدها يُرفض الرمز المُرسَل ويُطلب رمزٌ جديد — لرمز الجوال في الدخول والتسجيل وتغيير الجوال، ولرمز البريد. 5 = خمس دقائق.',
+                'type' => 'int',
+                'default' => OtpService::TTL_MINUTES,
+                'min' => 2,
+                'max' => 30,
+                'rules' => ['required', 'integer', 'min:2', 'max:30'],
+            ],
+
+            // ── القضايا والأحكام ──
+            'appeal_deadline_days' => [
+                'group' => 'cases',
+                'label' => 'مهلة الاستئناف بعد صدور الحكم (أيّام)',
+                'hint' => 'تُحسب منها «تنتهي مهلة تقديم لائحة الاعتراض بتاريخ…» عند تسجيل الحكم، ويُنبَّه بالمتبقّي منها. يسري على الأحكام التي تُسجَّل بعد التغيير؛ والمسجَّلة قبله تحفظ تاريخها.',
+                'type' => 'int',
+                'default' => RecordRuling::APPEAL_DAYS,
+                'min' => 1,
+                'max' => 90,
+                'rules' => ['required', 'integer', 'min:1', 'max:90'],
+                'forwardOnly' => true,
+            ],
+
             // ── التنفيذ والأتعاب ──
             'exec_working_days_from' => [
                 'group' => 'exec',
@@ -192,6 +226,43 @@ class SettingsRegistry
                 'max' => 90,
                 'rules' => ['required', 'integer', 'min:7', 'max:90'],
                 'forwardOnly' => true,
+                'gt' => 'installment_first_due_days',
+            ],
+
+            // ── عبء المحامين ونصيبهم ──
+            'lawyer_default_share_pct' => [
+                'group' => 'lawyers',
+                'label' => 'نصيب المحامي الافتراضيّ من الأتعاب (٪)',
+                'hint' => 'يُقترح عند اعتماد أتعاب قضيّةٍ أو ملفّ تنفيذ لمحامٍ ليس في ملفّه نسبةٌ خاصّة (أو راتبه ثابت). النسبة تُحفظ على كلّ ملفٍّ عند اعتماده، فتغييرها لا يمسّ ما اعتُمد.',
+                'type' => 'int',
+                'default' => LawyerShare::DEFAULT_PCT,
+                'min' => 1,
+                'max' => 100,
+                'rules' => ['required', 'integer', 'min:1', 'max:100'],
+                'forwardOnly' => true,
+            ],
+            // عتبتا الحِمل في صفحة المحامين وشاشة التوزيع ولوحة الإدارة — تعريفٌ واحد (`LawyerWorkload`)؛
+            // كانت اللوحة تحسبه بأوزانٍ وعتباتٍ أخرى (قرار المالك 2026-09-30: يُعتمد `LawyerWorkload`).
+            'workload_moderate_from' => [
+                'group' => 'lawyers',
+                'label' => 'حِمل «متوسّط» من (نقاط)',
+                'hint' => 'نقاط الحِمل: تذكرة مفتوحة = 1، قضيّة نشطة = 2، ملفّ تنفيذ = 2، استشارة مفتوحة = 1. ما دون هذا الحدّ «متاح للتوزيع».',
+                'type' => 'int',
+                'default' => LawyerWorkload::MODERATE_FROM,
+                'min' => 1,
+                'max' => 200,
+                'rules' => ['required', 'integer', 'min:1', 'max:200'],
+            ],
+            'workload_busy_from' => [
+                'group' => 'lawyers',
+                'label' => 'حِمل «مشغول» من (نقاط)',
+                'hint' => 'من هذا الحدّ فما فوقه يُعرض المحامي «مشغولاً» في صفحة المحامين وشاشة التوزيع ولوحة الإدارة.',
+                'type' => 'int',
+                'default' => LawyerWorkload::BUSY_FROM,
+                'min' => 2,
+                'max' => 300,
+                'rules' => ['required', 'integer', 'min:2', 'max:300'],
+                'gt' => 'workload_moderate_from',
             ],
 
             // ── الاستشارات والمواعيد ──
@@ -262,7 +333,7 @@ class SettingsRegistry
                 'forwardOnly' => true,
             ],
             'meeting_reschedule_limit' => [
-                'group' => 'consults',
+                'group' => 'meetings',
                 'label' => 'سقف إعادة جدولة الاجتماع',
                 'hint' => 'عدد المرّات التي يُغيَّر فيها موعد اجتماعٍ واحد (بطلب العميل أو من الطاقم) — وما بعدها للإدارة العليا وحدها، ولا يطلب العميل تغييراً آخر. 0 = للإدارة العليا دائماً.',
                 'type' => 'int',
@@ -289,7 +360,8 @@ class SettingsRegistry
             'consult_reschedule_notice_minutes' => [
                 'group' => 'consults',
                 'label' => 'أقلّ مهلة لطلب العميل تغيير موعده (دقائق)',
-                'hint' => 'موعدٌ يبدأ خلال هذه الدقائق لا يطلب العميل تغييره من حسابه — يتّصل بالمكتب مباشرةً. 1440 = يوم واحد. 0 = يطلب في أيّ وقت.',
+                // للاستشارة والاجتماع معاً (قرار المالك 2026-10-01) — `Meeting::changeRequestBlocker`
+                'hint' => 'استشارةٌ أو اجتماعٌ يبدأ خلال هذه الدقائق لا يطلب العميل تغيير موعده من حسابه — يتّصل بالمكتب مباشرةً. 1440 = يوم واحد. 0 = يطلب في أيّ وقت.',
                 'type' => 'int',
                 'default' => Consult::RESCHEDULE_REQUEST_NOTICE_MINUTES,
                 'min' => 0,
@@ -313,12 +385,13 @@ class SettingsRegistry
             'consult_autoclose_minutes' => [
                 'group' => 'alerts',
                 'label' => 'إغلاق الاستشارة الفائتة بعد (دقائق)',
-                'hint' => 'الدقائق بعد موعد الجلسة التي تُوسَم بعدها الاستشارة التي لم تُعقد «لم يحضر» آلياً. 720 = 12 ساعة.',
+                'hint' => 'الدقائق بعد موعد الجلسة التي تُوسَم بعدها الاستشارة التي لم تُعقد «لم يحضر» آلياً. 720 = 12 ساعة. لا تقلّ عن «عدّ الجلسة التي لم تبدأ فائتةً بعد» — فلا تُغلق قبل أن تُعدّ فائتة.',
                 'type' => 'int',
                 'default' => 720,
                 'min' => 5,
                 'max' => 4320,
                 'rules' => ['required', 'integer', 'min:5', 'max:4320'],
+                'gte' => 'session_missed_after_minutes',
             ],
             // ── نهاية الجلسة حدثٌ لا حساب (قرار المالك 2026-09-26) — `SessionWindow` ──
             // الثلاثة تُقاس من **البداية**، ولا يُنهي أيٌّ منها جلسةً بدأت — وشبكةُ النسيان تنبّه
@@ -334,14 +407,15 @@ class SettingsRegistry
                 'rules' => ['required', 'integer', 'min:10', 'max:240'],
             ],
             'meeting_autoclose_minutes' => [
-                'group' => 'alerts',
+                'group' => 'meetings',
                 'label' => 'إغلاق الاجتماع الذي لم ينعقد بعد (دقائق)',
-                'hint' => 'الدقائق بعد موعد الاجتماع التي يُوسَم بعدها «لم ينعقد» آلياً إن لم يدخله أحد، وتنتهي صلاحية دعوته. 720 = 12 ساعة.',
+                'hint' => 'الدقائق بعد موعد الاجتماع التي يُوسَم بعدها «لم ينعقد» آلياً إن لم يدخله أحد. 720 = 12 ساعة. لا تقلّ عن «عدّ الجلسة التي لم تبدأ فائتةً بعد» — فلا تُغلق قبل أن تُعدّ فائتة.',
                 'type' => 'int',
                 'default' => SessionWindow::MEETING_AUTOCLOSE_MINUTES,
                 'min' => 5,
                 'max' => 4320,
                 'rules' => ['required', 'integer', 'min:5', 'max:4320'],
+                'gte' => 'session_missed_after_minutes',
             ],
             'session_stale_minutes' => [
                 'group' => 'alerts',
@@ -353,15 +427,128 @@ class SettingsRegistry
                 'max' => 2880,
                 'rules' => ['required', 'integer', 'min:5', 'max:2880'],
             ],
+            // ── طبقتا تذكير الاجتماع (قرار المالك 2026-10-01) — نظيرُ طبقتي الاستشارة ──
             'meeting_reminder_lead' => [
+                'group' => 'meetings',
+                'label' => 'تذكير الاجتماع الأوّل بالبريد قبل (دقائق)',
+                'hint' => 'بريدٌ للعميل والمحامي المسنَد والمشاركين من الكادر. يجب أن يسبق التذكير الثاني.',
+                'type' => 'int',
+                'default' => Meeting::REMINDER_FAR_MINUTES,
+                'min' => 10,
+                'max' => 1440,
+                'rules' => ['required', 'integer', 'min:10', 'max:1440'],
+                'gt' => 'meeting_reminder_near_minutes',
+            ],
+            'meeting_reminder_near_minutes' => [
+                'group' => 'meetings',
+                'label' => 'تذكير الاجتماع الثاني للعميل قبل (دقائق)',
+                'hint' => 'إشعارٌ في حساب العميل ورسالةٌ نصّيّة إلى جواله (متى كان مزوّد الرسائل مهيّأً). 30 = نصف ساعة. يجب أن يكون قبل «فتح الدخول»: ما بعده يغطّيه إطلاق رابط الجلسة.',
+                'type' => 'int',
+                'default' => Meeting::REMINDER_NEAR_MINUTES,
+                'min' => 5,
+                'max' => 720,
+                'rules' => ['required', 'integer', 'min:5', 'max:720'],
+                'gt' => 'session_join_opens_minutes',
+            ],
+            // ── نوافذ الدخول وطبقات التذكير — افتراضاتها ما كان منقوشاً (`SessionWindow` وأوامر التذكير) ──
+            'session_join_opens_minutes' => [
                 'group' => 'alerts',
-                'label' => 'تنبيه الاجتماع قبل (دقائق)',
-                'hint' => 'كم دقيقة قبل موعد الاجتماع يصل تذكير البريد للعميل والمحامي المسنَد.',
+                'label' => 'فتح الدخول للجلسة المرئيّة قبل الموعد (دقائق)',
+                'hint' => 'متى يُفعَّل زرّ الدخول ويُرسل رابط الجلسة للعميل — للاستشارة والاجتماع. والنصوص التي تعلنها للعميل تُبنى من هذه القيمة.',
+                'type' => 'int',
+                'default' => SessionWindow::JOIN_OPENS_BEFORE_MINUTES,
+                'min' => 1,
+                'max' => 60,
+                'rules' => ['required', 'integer', 'min:1', 'max:60'],
+            ],
+            'consult_staff_start_minutes' => [
+                'group' => 'alerts',
+                // للاستشارة والاجتماع معاً (قرار المالك 2026-10-01) — `StartMeeting::guard`. المفتاح باقٍ كما هو
+                // (قيمه المحفوظة تُقرأ به)، والاسم المعروض هو ما تغيّر.
+                'label' => 'بدء الجلسة للطاقم قبل الموعد (دقائق)',
+                'hint' => 'متى يستطيع المحامي أو الموظّف بدء الاستشارة أو الاجتماع — لا قبل ذلك. لا تقلّ عن «فتح الدخول» — فلا يصل العميلُ غرفةً لا يستطيع الطاقم بدأها.',
+                'type' => 'int',
+                'default' => SessionWindow::STAFF_START_BEFORE_MINUTES,
+                'min' => 1,
+                'max' => 120,
+                'rules' => ['required', 'integer', 'min:1', 'max:120'],
+                'gte' => 'session_join_opens_minutes',
+            ],
+            'consult_reminder_far_minutes' => [
+                'group' => 'alerts',
+                'label' => 'تذكير الاستشارة الأوّل بالبريد قبل (دقائق)',
+                'hint' => 'للاستشارات المسدَّدة ذات الموعد. 1440 = 24 ساعة. يجب أن يسبق التذكير النصّيّ.',
+                'type' => 'int',
+                'default' => 1440,
+                'min' => 60,
+                'max' => 4320,
+                'rules' => ['required', 'integer', 'min:60', 'max:4320'],
+                'gt' => 'consult_reminder_near_minutes',
+            ],
+            'consult_reminder_near_minutes' => [
+                'group' => 'alerts',
+                'label' => 'تذكير الاستشارة الثاني برسالة نصّيّة قبل (دقائق)',
+                'hint' => 'رسالة نصّيّة تكلّف مالاً — تُرسل مرّةً للاستشارة المسدَّدة. يجب أن يكون قبل «فتح الدخول»: ما بعده يغطّيه بريد رابط الجلسة.',
+                'type' => 'int',
+                'default' => 30,
+                'min' => 5,
+                'max' => 720,
+                'rules' => ['required', 'integer', 'min:5', 'max:720'],
+                'gt' => 'session_join_opens_minutes',
+            ],
+            'hearing_reminder_far_minutes' => [
+                'group' => 'alerts',
+                'label' => 'تذكير جلسة المحكمة الأوّل قبل (دقائق)',
+                'hint' => 'إشعار داخليّ وبريد للعميل والمحامي المسنَد. 1440 = 24 ساعة. يجب أن يسبق التذكير الثاني.',
+                'type' => 'int',
+                'default' => 1440,
+                'min' => 60,
+                'max' => 4320,
+                'rules' => ['required', 'integer', 'min:60', 'max:4320'],
+                'gt' => 'hearing_reminder_near_minutes',
+            ],
+            'hearing_reminder_near_minutes' => [
+                'group' => 'alerts',
+                'label' => 'تذكير جلسة المحكمة الثاني قبل (دقائق)',
+                'hint' => 'إشعار داخليّ وبريد ثانٍ قريبٌ من الموعد.',
                 'type' => 'int',
                 'default' => 60,
-                'min' => 5,
-                'max' => 1440,
-                'rules' => ['required', 'integer', 'min:5', 'max:1440'],
+                'min' => 10,
+                'max' => 720,
+                'rules' => ['required', 'integer', 'min:10', 'max:720'],
+            ],
+            // ── ما كان منقوشاً في أوامر المجدول وتوليد المهامّ (تدقيق الإعدادات — المرحلة ٣) ──
+            'hearing_lapse_after_minutes' => [
+                'group' => 'alerts',
+                'label' => 'عدّ جلسة المحكمة فائتةً بلا نتيجة بعد (دقائق)',
+                'hint' => 'بعد هذه الدقائق من موعد الجلسة المجدولة التي لم تُسجَّل نتيجتها تصير «بانتظار تسجيل النتيجة» ويُنبَّه المحامي المسنَد. 1440 = 24 ساعة.',
+                'type' => 'int',
+                'default' => 1440,
+                'min' => 60,
+                'max' => 10080,
+                'rules' => ['required', 'integer', 'min:60', 'max:10080'],
+            ],
+            'meet_invite_expire_minutes' => [
+                'group' => 'meetings',
+                // تأكيد العميل أُلغي — الدعوة المعلّقة تنتظر **موافقة الإدارة** (قرار المالك 2026-10-01)
+                'label' => 'انتهاء الدعوة التي لم توافق عليها الإدارة بعد (دقائق)',
+                'hint' => 'دعوةٌ أرسلها الموظّف أو المحامي ولم توافق عليها الإدارة تصير «منتهية الصلاحيّة» بعد هذه الدقائق من موعدها، ويُعاد إرسالها بموعدٍ جديد. ولا تُعتمد دعوةٌ فات موعدها في أيّ حال. 360 = 6 ساعات.',
+                'type' => 'int',
+                'default' => 360,
+                'min' => 30,
+                'max' => 4320,
+                'rules' => ['required', 'integer', 'min:30', 'max:4320'],
+            ],
+            'decision_task_due_days' => [
+                'group' => 'meetings',
+                'label' => 'استحقاق مهامّ قرارات الاجتماع (أيّام)',
+                'hint' => 'المهامّ التي تُولَّد للمحامي من قرارات محضر الاجتماع تستحقّ بعد هذه الأيّام، ويُكتب نصّ استحقاقها منها. يسري على المهامّ الجديدة.',
+                'type' => 'int',
+                'default' => 7,
+                'min' => 1,
+                'max' => 60,
+                'rules' => ['required', 'integer', 'min:1', 'max:60'],
+                'forwardOnly' => true,
             ],
             'consult_request_late_minutes' => [
                 'group' => 'alerts',
@@ -384,7 +571,7 @@ class SettingsRegistry
                 // الصفحة الترويجيّة وصفحة الدخول وعنوان التبويب وشعار القائمة وتعليمات النموذج،
                 // فلا تغيّره الإدارة إلّا بنشر كود. صار هذا الحقل مصدره الوحيد — لا حقل «اسم نظام» ثانٍ.
                 'label' => 'اسم المكتب',
-                'hint' => 'الاسم الواحد للمكتب في كلّ مكان: رأس مستندات PDF، ورسائل البريد، والصفحة الترويجيّة وصفحة الدخول، وعنوان تبويب المتصفّح، والقائمة الجانبيّة، والاسم الذي يُعرّف به المساعدُ الذكيّ المكتب.',
+                'hint' => 'الاسم الواحد للمكتب في كلّ مكان: رأس مستندات PDF وترويسة المستندات القانونيّة، ونصّ رسائل البريد وعناوينها (أمّا «اسم المرسل» الذي يظهر في صندوق البريد فمن شاشة مفاتيح الخدمات الخارجيّة)، والصفحة الترويجيّة وصفحة الدخول، وعنوان تبويب المتصفّح، والقائمة الجانبيّة، والاسم الذي يُعرّف به المساعدُ الذكيّ المكتب.',
                 'type' => 'string',
                 // **النصّ المنقوش سابقاً لا `config('app.name')`.** الاثنان يختلفان بحرف:
                 // الكود يكتبها «المحاماة» في خمسةٍ وأربعين موضعاً (ومنها رأس PDF قبل هذا
@@ -449,6 +636,35 @@ class SettingsRegistry
                 'type' => 'string',
                 'default' => 'no-reply@salasel.sa',
                 'rules' => ['required', 'string', 'max:120', 'email'],
+            ],
+            'office_name_en' => [
+                'group' => 'office',
+                'label' => 'اسم المكتب بالإنجليزيّة',
+                'hint' => 'يظهر تحت الاسم العربيّ في ترويسة المستندات القانونيّة الجديدة (ويعدّله المحرّر لكلّ مستند).',
+                'type' => 'string',
+                // ما كان منقوشاً في `LegalDocument::defaultHeader`
+                'default' => 'Law Office',
+                'rules' => ['required', 'string', 'max:120'],
+            ],
+            'office_license_no' => [
+                'group' => 'office',
+                'label' => 'رقم ترخيص المكتب',
+                'hint' => 'يُطبع «ترخيص رقم: …» في ترويسة المستندات القانونيّة الجديدة. اتركه فارغاً فلا يُطبع سطره.',
+                'type' => 'string',
+                // فارغٌ كالرقم الضريبيّ: رقمٌ رسميّ منقوشٌ افتراضاً يصير رقماً كاذباً باسم المكتب
+                'default' => '',
+                'defaultLabel' => 'فارغ — لا يُطبع سطر الترخيص',
+                'rules' => ['nullable', 'string', 'max:40'],
+            ],
+            'office_arrival_minutes' => [
+                'group' => 'office',
+                'label' => 'الحضور قبل الموعد الحضوريّ (دقائق)',
+                'hint' => 'يُكتب في بطاقة الموعد (الشاشة وملفّ PDF): «يُرجى الحضور قبل الموعد بـ…».',
+                'type' => 'int',
+                'default' => 15,
+                'min' => 5,
+                'max' => 120,
+                'rules' => ['required', 'integer', 'min:5', 'max:120'],
             ],
 
             // ── مسمّيات المتحدّثين (طلب المالك 2026-09-25) ──
@@ -589,7 +805,19 @@ class SettingsRegistry
     }
 
     /**
-     * **أخطاء العلاقة بين حقلين** (`gt`: هذا أكبر من ذاك) — بعد تحقّق كلّ حقلٍ بمفرده.
+     * أسماء الحقول في رسائل `validate` — تسميةُ كلّ متغيّرٍ من السجلّ نفسه. كانت الرسالة تطبع
+     * المفتاح («يجب أن تكون قيمة exec pay days 1 على الأقلّ.»).
+     *
+     * @return array<string, string>
+     */
+    public static function attributes(): array
+    {
+        return array_map(fn (array $field) => $field['label'], self::all());
+    }
+
+    /**
+     * **أخطاء العلاقة بين حقلين** (`gt`: هذا أكبر من ذاك · `gte`: لا يقلّ عنه) — بعد تحقّق كلّ حقلٍ بمفرده،
+     * ثمّ اتّساع طول الشريحة في ساعات الحجز.
      *
      * `gt:` في قواعد لارافيل يفشل إن غاب الحقل الآخر عن الطلب، والبطاقة قد ترسل أحدهما
      * وحده؛ فالمقارنة هنا بالقيمة **النافذة** للآخر: المرسَلة إن أُرسلت، وإلّا المحفوظة.
@@ -603,19 +831,33 @@ class SettingsRegistry
         $current = self::values();
         $errors = [];
 
+        $value = fn (string $key): int => (int) ($data[$key] ?? $current[$key]);
+        $touched = fn (string ...$keys): bool => array_intersect($keys, array_keys($data)) !== [];
+
         foreach (self::all() as $key => $field) {
-            $other = $field['gt'] ?? null;
+            foreach (['gt', 'gte'] as $relation) {
+                $other = $field[$relation] ?? null;
+                if ($other === null || ! $touched($key, $other)) {
+                    continue;
+                }
 
-            if ($other === null || (! array_key_exists($key, $data) && ! array_key_exists($other, $data))) {
-                continue;
+                $mine = $value($key);
+                $theirs = $value($other);
+                if ($relation === 'gt' && $mine <= $theirs) {
+                    $errors[$key] = '«'.$field['label'].'» يجب أن تكون بعد «'.self::field($other)['label'].'» ('.$theirs.').';
+                } elseif ($relation === 'gte' && $mine < $theirs) {
+                    $errors[$key] = '«'.$field['label'].'» لا تقلّ عن «'.self::field($other)['label'].'» ('.$theirs.') — ما دونها بلا أثر.';
+                }
             }
+        }
 
-            $mine = (int) ($data[$key] ?? $current[$key]);
-            $theirs = (int) ($data[$other] ?? $current[$other]);
-
-            if ($mine <= $theirs) {
-                $errors[$key] = '«'.$field['label'].'» يجب أن تكون بعد «'.self::field($other)['label'].'» ('.$theirs.').';
-            }
+        // **طول الشريحة يتّسع في ساعات الحجز**: شريحة 120 دقيقة في نافذة ساعةٍ واحدة كانت تُحفظ ثمّ لا يُعرض موعدٌ واحد
+        // في أيّ يوم بلا أيّ تنبيه (تدقيق الإعدادات 2026-09-30).
+        if ($touched('consult_slot_minutes', 'consult_day_start', 'consult_day_end')
+            && ! isset($errors['consult_day_end'])
+            && $value('consult_slot_minutes') > ($value('consult_day_end') - $value('consult_day_start')) * 60) {
+            $errors['consult_slot_minutes'] = '«'.self::field('consult_slot_minutes')['label'].'» أطول من ساعات الحجز ('
+                .$value('consult_day_start').'–'.$value('consult_day_end').') — لن يُعرض أيّ موعد.';
         }
 
         return $errors;

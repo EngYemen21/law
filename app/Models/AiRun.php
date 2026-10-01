@@ -27,7 +27,7 @@ class AiRun extends Model
     protected $fillable = [
         'task_type', 'entity_type', 'entity_id', 'entity_ref',
         'source', 'status', 'confidence', 'confidence_signals', 'outbound_audit',
-        'model', 'model_version', 'prompt_version',
+        'model', 'prompt_version',
         'trace_id', 'failure_code', 'duration_ms',
         'input_tokens', 'output_tokens', 'estimated_cost',
         'reviewed_by', 'reviewed_at',

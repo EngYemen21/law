@@ -2,14 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Journey\Enums\ExecutionDocumentStatus;
 use App\Enums\Role;
 use App\Jobs\AnalyzeExecutionDocumentJob;
 use App\Models\Execution;
 use App\Models\ExecutionDocument;
+use App\Models\Invoice;
 use App\Models\Setting;
 use App\Models\User;
 use App\Rules\ActiveLawyer;
-use App\Services\MoyasarService;
+use App\Services\Payments\GatewayCallback;
+use App\Services\Payments\PaymentGateways;
 use App\Support\Audit;
 use App\Support\ConversationFiles;
 use App\Support\ConversationHandler;
@@ -20,11 +23,11 @@ use App\Support\ExecService;
 use App\Support\Finance\LawyerShare;
 use App\Support\LawyerName;
 use App\Support\Notify;
-use App\Support\PaymentReconciler;
 use App\Support\PdfRenderer;
 use App\Support\Permissions;
 use App\Support\ReportPrint;
 use App\Support\SettingsRegistry;
+use App\Support\UploadLimits;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -163,7 +166,7 @@ class ExecFlowController extends Controller
         $intakeActions = ['refer', 'requestDocs'];            // الاستقبال — الموظف أو المكتب
         $lawyerPickup = ['accept', 'reject', 'saveFee'];     // المحامي (التقاط/عزل)
         // محامي أو إدارة وحدهما — إغلاق الملفّ وتوثيق الإجراء يبقيان لهما
-        $staffProcActions = ['addProcedure', 'close'];
+        $staffProcActions = ['addProcedure', 'close', 'setClaimAmount'];
         // خطوات ناجز (الرفع/القيد/الإبلاغ/الإجراءات/التحصيل) — يسجّلها الموظّف أيضاً بصلاحيّتها
         $najizActions = ['fileNajiz', 'registerNajiz', 'notifyDebtor', 'applyMeasures', 'addCollection'];
         // الإسناد — الإدارة وحدها تُعيد، والموظّف المخوَّل يُسند غير المسنَد (تفصيله في حارسه أدناه)
@@ -296,6 +299,12 @@ class ExecFlowController extends Controller
                 (array) ($request->validate(['measures' => ['array'], 'measures.*' => ['string', 'in:'.implode(',', ExecFlow::MEASURES)]])['measures'] ?? []),
                 $user,
             ),
+            'setClaimAmount' => ExecService::setClaimAmount(
+                $execution,
+                (int) $request->validate(['amount' => ['required', 'integer', 'min:1']], ['amount.*' => 'أدخل مبلغ المطالبة (ريال) — رقماً صحيحاً أكبر من صفر.'])['amount'],
+                trim((string) $request->validate(['reason' => ['required', 'string', 'max:500']])['reason']),
+                $user,
+            ),
             'addCollection' => ExecService::addCollection(
                 $execution,
                 (int) $request->validate(['amount' => ['required', 'integer', 'min:1']])['amount'],
@@ -323,7 +332,7 @@ class ExecFlowController extends Controller
             action: 'إجراء على ملف تنفيذ: '.$action,
             description: "نفّذ {$user->name} إجراء «{$action}» على ملف التنفيذ {$execution->number} — حالته الآن: {$fresh->status}.",
             category: 'قضايا وتنفيذ',
-            severity: in_array($action, ['approveFee', 'setFee', 'close', 'reject', 'rejectOffer'], true) ? 'warning' : 'info',
+            severity: in_array($action, ['approveFee', 'setFee', 'close', 'reject', 'rejectOffer', 'setClaimAmount'], true) ? 'warning' : 'info',
             auditable: $execution,
             auditableRef: $execution->number,
             afterState: ['الحالة' => $fresh->status, 'المرحلة' => $fresh->effectiveStage()] + self::actionAudit($action, $fresh),
@@ -361,6 +370,7 @@ class ExecFlowController extends Controller
             'applyMeasures' => [
                 'إجراءات عدم الوفاء' => implode(' · ', $fresh->measures ?? []) ?: 'رُفعت الإجراءات',
             ],
+            'setClaimAmount' => ['مبلغ المطالبة' => (int) $fresh->amount],
             'addCollection' => [
                 'إجمالي المحصَّل' => (int) $fresh->collected,
                 'المتبقّي' => max(0, (int) $fresh->amount - (int) $fresh->collected),
@@ -369,9 +379,9 @@ class ExecFlowController extends Controller
         };
     }
 
-    // ── سداد أتعاب التنفيذ عبر بوّابة ميسّر (المرحلة 6) ──
+    // ── سداد أتعاب التنفيذ عبر بوّابة الدفع (المرحلة 6) ──
 
-    /** يبدأ الدفع عبر ميسّر ويعيد التوجيه لصفحة الدفع المستضافة. التأكيد عبر webhook/callback. */
+    /** يبدأ الدفع عبر بوّابة الدفع ويعيد التوجيه لصفحة الدفع المستضافة. التأكيد عبر webhook/callback. */
     public function pay(Request $request, Execution $execution): HttpFoundationResponse
     {
         $user = $request->user();
@@ -393,13 +403,13 @@ class ExecFlowController extends Controller
         $url = ExecService::initiatePayment($execution->fresh(), $callback); // يحرس المرحلة [6]، وnull إن تعذّر
 
         if ($url !== null) {
-            return Inertia::location($url); // Inertia يوجّه المتصفّح لصفحة ميسّر
+            return Inertia::location($url); // Inertia يوجّه المتصفّح لصفحة الدفع
         }
 
         // **العميل يقرأ سببَ التعذّر لا صفحةَ 503 خام.** كانت الترجمة هنا يدويّةً لأنّ المُحوِّل العامّ
         // كان يعرف 403/409/422 وحدها؛ صار `App\Support\ErrorResponse` يعرف كلّ رمز: زيارةُ Inertia
         // تعود برسالةٍ على الشاشة، ويبقى 503 لمن يقرأ الرمز (axios/الاختبارات).
-        abort_unless(app(MoyasarService::class)->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة — تواصل مع المكتب لإتمام السداد.');
+        abort_unless(app(PaymentGateways::class)->default()->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة — تواصل مع المكتب لإتمام السداد.');
 
         return back()->with('error', 'تعذّر بدء الدفع حالياً، حاول بعد قليل.');
     }
@@ -445,26 +455,27 @@ class ExecFlowController extends Controller
         ];
     }
 
-    /** العودة من صفحة ميسّر — تحقّق خادميّ صارم (يُعاد جلب الدفعة والتحقّق من انتمائها لفاتورة هذا الطلب). */
+    /** العودة من صفحة الدفع — تحقّق خادميّ صارم (يُعاد جلب الدفعة والتحقّق من انتمائها لفاتورة هذا الطلب). */
     public function payCallback(Request $request, Execution $execution): RedirectResponse
     {
         abort_unless($request->user()->role === Role::Client && $execution->user_id === $request->user()->id, 403);
 
-        $paymentId = (string) $request->query('id', '');
-        $payment = $paymentId !== '' ? app(MoyasarService::class)->fetchPayment($paymentId) : null;
-
         // **أيّ فاتورةٍ لهذا الطلب، لا الأحدث.** مع خطّة تقسيطٍ من ثلاث فواتير كانت
         // `latest('id')` هي الدفعة الثالثة، فعودةُ العميل من سداد الأولى لا تطابق مرجعاً
         // فيقرأ «تعذّر تأكيد الدفع» وقد خُصم منه المبلغ.
-        $ref = (string) ($payment['invoice_id'] ?? '');
-        $belongs = $payment !== null && $ref !== ''
-            && $execution->invoices()->where('gateway_ref', $ref)->exists();
+        // يعود العميل إلى **الملفّ نفسه** لا إلى قائمة التنفيذ (`?id=` يفتحه في الصفحة)
+        $back = redirect()->route('execs', ['id' => $execution->number]);
 
-        if ($belongs && PaymentReconciler::settle($payment, 'callback')) {
-            return redirect()->route('execs')->with('success', 'تم تأكيد سداد أتعاب التنفيذ وفتح الملف.');
+        $outcome = GatewayCallback::confirm($request, Invoice::where('exec_id', $execution->id));
+        if ($outcome->settled()) {
+            $execution->refresh();
+
+            return $back->with('success', $execution->feeFullySettled()
+                ? 'تم تأكيد سداد أتعاب التنفيذ وفتح الملف.'
+                : "تم تأكيد سداد الدفعة {$execution->installments_paid} من {$execution->installments_total} من أتعاب التنفيذ وفُتح الملف.");
         }
 
-        return redirect()->route('execs')->with('error', 'تعذّر تأكيد الدفع. إن كان قد خُصم فسيُحدَّث تلقائياً، أو حاول مجدداً.');
+        return $back->with('error', $outcome->failureMessage());
     }
 
     // ── محادثة ملف التنفيذ (العميل ↔ المكتب) — بلا ردّ AI، إشعار للمكتب + بثّ لحظيّ ──
@@ -516,13 +527,13 @@ class ExecFlowController extends Controller
         abort_unless($user->role === Role::Client && $execution->user_id === $user->id, 403);
         abort_if($execution->isClosed(), 422, 'لا يمكن إرفاق مستندات على ملفّ تنفيذ مغلق.');
 
-        $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx,xlsx']]); // حتى 10MB
+        $request->validate(['file' => ['required', 'file', UploadLimits::rule(UploadLimits::ATTACHMENT_KB), 'mimes:pdf,jpg,jpeg,png,doc,docx,xlsx']]);
 
         $file = $request->file('file');
         $name = $file->getClientOriginalName();
         $doc = $execution->documents()->create([
             'label' => $name,
-            'status' => 'مرفوع',
+            'status' => ExecutionDocumentStatus::Uploaded->value,
             'path' => $file->store("exec-docs/{$execution->id}"),
             'mime' => $file->getClientMimeType(),
             'size' => (int) $file->getSize(),
@@ -555,10 +566,11 @@ class ExecFlowController extends Controller
         abort_unless($user->can(Permissions::MANAGE_CASES_AND_FEES), 403); // إجراء على ملفّ موكّل — يستوجب الصلاحية
         abort_if($user->role === Role::Lawyer && $execution->assigned_lawyer_id !== null && $execution->assigned_lawyer_id !== $user->id, 403); // عزل المحامي بالإسناد
         abort_unless($document->execution_id === $execution->id, 404);
-        abort_unless($document->status === 'مرفوع', 422, 'لا يمكن مراجعة مستند لم يُرفَع بعد.');
+        abort_unless($document->awaitsReview(), 422, 'لا يمكن مراجعة مستند لم يُرفَع بعد.');
 
         $decision = (string) $request->validate(['decision' => ['required', 'in:accept,reject']])['decision'];
-        $document->update(['status' => $decision === 'accept' ? 'مقبول' : 'مرفوض']);
+        $status = $decision === 'accept' ? ExecutionDocumentStatus::Accepted : ExecutionDocumentStatus::Rejected;
+        $document->update(['status' => $status->value]);
 
         $msg = $decision === 'accept' ? "اعتُمد مستند «{$document->label}»." : "أُعيد مستند «{$document->label}» لإعادة الرفع.";
         Notify::send($execution->user_id, 'file', $decision === 'accept' ? 't-green' : 't-amber', "$msg (ملفّ التنفيذ {$execution->number})");
@@ -570,7 +582,7 @@ class ExecFlowController extends Controller
             severity: $decision === 'accept' ? 'info' : 'warning',
             auditable: $execution,
             auditableRef: $execution->number,
-            afterState: ['المستند' => $document->label, 'القرار' => $decision === 'accept' ? 'مقبول' : 'مرفوض'],
+            afterState: ['المستند' => $document->label, 'القرار' => $status->value],
         );
 
         return back()->with('success', $msg);
@@ -631,7 +643,7 @@ class ExecFlowController extends Controller
                 ],
                 [
                     ['title' => '٢. بيانات العميل', 'cellRows' => [[['اسم العميل', $execution->user?->name ?: '—']]]],
-                    ['title' => '٣. مقدّم الخدمة', 'cellRows' => [[['الجهة', 'المكتب القانوني'], ['المحامي المسؤول', $lawyer]]]],
+                    ['title' => '٣. مقدّم الخدمة', 'cellRows' => [[['الجهة', SettingsRegistry::str('office_name')], ['المحامي المسؤول', $lawyer]]]],
                 ],
                 [
                     'title' => '٤. التفاصيل المالية',
@@ -646,7 +658,7 @@ class ExecFlowController extends Controller
                         ]
                         : [
                             ['أتعاب التنفيذ', number_format((int) $execution->fee).' ر.س'],
-                            ['ضريبة القيمة المضافة ('.Setting::vatRate().'٪)', number_format((int) $execution->vat).' ر.س'],
+                            ['ضريبة القيمة المضافة ('.$execution->vatRate().'٪)', number_format((int) $execution->vat).' ر.س'],
                             ['الإجمالي المستحق', number_format($total).' ر.س'],
                             ['طريقة السداد', $execution->pay_method ?: '—'],
                         ],
@@ -679,11 +691,11 @@ class ExecFlowController extends Controller
         abort_if($execution->isClosed(), 422, 'لا يمكن رفع مستندات على ملفّ تنفيذ مغلق.');
         // الشاشة لا تعرض الرفع إلا للمطلوب والمعاد، والخادم كان يقبله على أيّ مستند: فطلبٌ
         // مباشر يستبدل مستنداً **اعتمده المكتب** بآخر، ويبقى وسمه «مقبول».
-        abort_unless(in_array($document->status, ['مطلوب', 'مرفوض'], true), 422, 'هذا المستند لا يقبل الرفع في حالته الحالية.');
+        abort_unless($document->acceptsUpload(), 422, 'هذا المستند لا يقبل الرفع في حالته الحالية.');
 
-        $request->validate(['file' => ['required', 'file', 'max:2048', 'mimes:pdf,jpg,jpeg,png,docx']], [
+        $request->validate(['file' => ['required', 'file', UploadLimits::rule(UploadLimits::DOCUMENT_KB), 'mimes:pdf,jpg,jpeg,png,docx']], [
             'file.required' => 'يرجى اختيار ملف.',
-            'file.max' => 'حجم الملف يتجاوز الحدّ المسموح (2 ميجابايت).',
+            'file.max' => 'حجم الملف يتجاوز الحدّ المسموح ('.UploadLimits::label(UploadLimits::DOCUMENT_KB).').',
             'file.mimes' => 'الصيغة غير مدعومة (المسموح: PDF, JPG, PNG, DOCX).',
         ]);
 
@@ -691,7 +703,7 @@ class ExecFlowController extends Controller
         $path = $file->store("exec-docs/{$execution->id}");
 
         $document->update([
-            'status' => 'مرفوع',
+            'status' => ExecutionDocumentStatus::Uploaded->value,
             'path' => $path,
             'mime' => $file->getClientMimeType(),
             'size' => (int) $file->getSize(),

@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\MeetingStatus;
 use App\Mail\MeetingScheduledMail;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
@@ -44,7 +45,7 @@ class MeetInvitation
         if ($existing) {
             $meeting = $existing;
             $meeting->update([
-                'status' => 'قادم',
+                'status' => MeetingStatus::Upcoming->value,
                 // الموعد يُحدَّث أيضاً: إعادة الإرسال بموعد جديد كانت تُبقي الاجتماع على موعده القديم
                 'when_label' => $req->day.' · '.$req->time,
                 'starts_at' => $startsAt,
@@ -70,7 +71,7 @@ class MeetInvitation
                 'client_name' => $client->name,
                 'when_label' => $req->day.' · '.$req->time,
                 'starts_at' => $startsAt,
-                'status' => 'قادم',
+                'status' => MeetingStatus::Upcoming->value,
                 'case_ref' => $req->case_ref,
                 // لا `dur`: الاجتماع بلا مدّةٍ ثابتة — ينتهي حين يُنهى (قرار المالك 2026-09-26)
                 'assigned_lawyer_id' => $req->assigned_lawyer_id,
@@ -79,10 +80,6 @@ class MeetInvitation
                 'host_link' => $zoom['start_url'] ?? null,
                 'meet_password' => $zoom['password'] ?? null,
                 'created_by' => $req->sent_by,
-                // عُلّق بطلب صاحب المنتج (2026-08-26): قوائم «قبل/أثناء/بعد الاجتماع» نصّ ثابت مختلق لا بيانات حقيقية
-                // 'before_items' => ['مراجعة موضوع الدعوة: '.$req->service, 'قراءة المستندات ذات الصلة', 'تجهيز جدول الأعمال'],
-                // 'during_items' => ['تسجيل الجلسة', 'تحويل الصوت إلى نص', 'استخراج القرارات'],
-                // 'after_items' => ['إنشاء الملخص', 'إعداد المحضر', 'تحويل القرارات إلى مهام'],
                 'has_link' => true,
             ]);
         }

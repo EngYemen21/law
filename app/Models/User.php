@@ -38,8 +38,6 @@ use Spatie\Permission\Traits\HasRoles;
  * @property int|null $session_fee
  * @property string|null $national_id
  * @property Carbon|null $join_date
- * @property string|null $work_start
- * @property string|null $work_end
  * @property Carbon|null $email_verified_at
  * @property string $password
  * @property string|null $remember_token
@@ -50,7 +48,7 @@ use Spatie\Permission\Traits\HasRoles;
     'name', 'email', 'password', 'role', 'avatar_initials', 'title', 'phone', 'phone_verified_at', 'email_verified_at',
     'status', 'department', 'distribution_mode', 'job_title',
     'pay_type', 'salary', 'pay_pct', 'session_fee',
-    'national_id', 'join_date', 'work_start', 'work_end',
+    'national_id', 'join_date',
     'covers_all_departments',
 ])]
 #[Hidden(['password', 'remember_token'])]
@@ -186,13 +184,13 @@ class User extends Authenticatable
             'pay' => $this->payLabel(),
             'salary' => $this->salary,
             'status' => $this->isActive() ? 'نشط' : 'موقوف',
+            // علَم الحالة للشروط والفلترة — التسمية أعلاه للعرض وحده
+            'active' => $this->isActive(),
             'perms' => $this->getPermissionNames()->all(),
             'email' => $this->email,
             'mobile' => $this->phone ?? '—',
             'nid' => $this->national_id ?? '—',
             'join' => $this->join_date?->format('Y-m-d') ?? '—',
-            'start' => $this->work_start ?? '—',
-            'end' => $this->work_end ?? '—',
             // قيم خام لتعبئة نموذج التعديل
             'roleKey' => $this->role->value,
             'payType' => $this->pay_type,

@@ -6,6 +6,7 @@ import LawyerSuggestionHint, { type LawyerSuggestionData } from '@/components/ba
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import { foldSearch, isUrgentTicket } from '@/lib/employee-data';
+import { firstError } from '@/lib/server-message';
 import { inSessionSuffix, PresenceBadge, useInSession } from '@/lib/staff-presence';
 import type { EmployeeTicketCard } from '@/types';
 
@@ -179,7 +180,7 @@ const EmployeeTransfer: React.FC<Props> = ({
         },
         onError: (errors) => {
           setTransferringNo(null);
-          toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر تحويل التذكرة'}`);
+          toast(`⚠️ ${firstError(errors, 'تعذّر تحويل التذكرة')}`);
         },
       }
     );
@@ -207,15 +208,15 @@ const EmployeeTransfer: React.FC<Props> = ({
       },
       {
         preserveScroll: true,
+        // العدد الفعليّ ومن رُفضت يصلان من الخادم (`flash`) — المحدَّد قد يشمل ما رفضه الحارس
         onSuccess: () => {
           setBulkBusy(false);
-          toast(`تم تحويل ${selectedNos.length} تذكرة بنجاح`);
           setSelectedNos([]);
           setBulkReason('');
         },
         onError: (errors) => {
           setBulkBusy(false);
-          toast(`⚠️ ${Object.values(errors)[0] ?? 'تعذّر إتمام التحويل الجماعي'}`);
+          toast(`⚠️ ${firstError(errors, 'تعذّر إتمام التحويل الجماعي')}`);
         },
       }
     );

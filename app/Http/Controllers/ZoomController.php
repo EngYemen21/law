@@ -34,6 +34,8 @@ class ZoomController extends Controller
 
         $user = $request->user();
         abort_unless(ChannelAccess::ownerOrStaff($user, $joinable), 403);
+        // توقيع الدخول لغرفة الاجتماع لأهلها وحدهم — الموظّف بلا صلةٍ يطّلع ولا يدخل (`ChannelAccess::roomMember`)
+        abort_if($joinable instanceof Meeting && ! ChannelAccess::roomMember($user, $joinable), 403);
         // القناة المرئية شرط للاستشارة فقط (اجتماع المكتب مرئيّ دائماً)
         abort_if($joinable instanceof Consult && $joinable->channel !== 'مرئية', 422, SessionWindow::REFUSE_NOT_VIDEO);
         // نافذة الدخول تُفرض خادمياً هنا أيضاً — تعطيل الزر في الواجهة وحده يُلتفّ عليه بطلب مباشر.

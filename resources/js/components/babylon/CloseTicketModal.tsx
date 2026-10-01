@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 
 export const CLOSURE_REASONS = [
   { code: 'OPINION_SATISFIED', label: 'اكتفاء بالرأي القانوني دون وجود نزاع' },
@@ -53,7 +54,7 @@ const CloseTicketModal: React.FC<Props> = ({ open, ticketNo, role, onClose, onSu
           onSuccess?.();
         },
         onError: (errors) => {
-          const msg = Object.values(errors)[0] ?? 'تعذّر إغلاق التذكرة';
+          const msg = firstError(errors, 'تعذّر إغلاق التذكرة');
           toast(`⚠️ ${msg}`);
         },
         onFinish: () => setBusy(false),

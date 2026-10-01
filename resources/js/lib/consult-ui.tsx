@@ -5,6 +5,7 @@ import { usePrompt } from '@/components/babylon/ConfirmDialog';
 import type { ConfirmRequest } from '@/components/babylon/ConfirmDialog';
 import Modal from '@/components/babylon/Modal';
 import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
+import RichTextEditor, { htmlToText, RichHtmlView } from '@/components/babylon/RichTextEditor';
 import StatRow from '@/components/babylon/StatRow';
 import type {StatItem} from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
@@ -20,6 +21,8 @@ import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
 import { consultMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
 import type { SessionMedia } from '@/lib/recording-ui';
+import { firstError } from '@/lib/server-message';
+import { useStaffStartText } from '@/lib/settings';
 import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
 import { useServerAction } from '@/lib/use-server-action';
 
@@ -104,13 +107,15 @@ export interface ConsultCard {
   client: string;
   subject: string;
   specialty?: string; // تخصّص الاستشارة (لتصفية منتقي المستشارين عند اختيار الموعد)
+  /** خانة «التخصص» للعرض — التخصّص أو النوع، من الخادم (`Consult::specialtyLabel`). */
+  specialtyLabel: string;
   channel: string; // مرئية / حضورية / هاتفية
   lawyer: string;
   when: string;
   place: string;
   phone: string;
   slink: string;
-  canJoin?: boolean; // زر الدخول مفعّل؟ (بعد إطلاق الرابط قبل الموعد بـ5د)
+  canJoin?: boolean; // زر الدخول مفعّل؟ (بعد إطلاق الرابط قبل الموعد بـ`session_join_opens_minutes`)
   missed?: boolean; // فات موعدها بلا جلسة (يشتقه الخادم)
   /** سُجّلت «لم تُعقد» — علمٌ مستقلّ عن `missed` في البطاقتين (قرار المالك 2026-09-27). */
   notHeld?: boolean;
@@ -136,6 +141,8 @@ export interface ConsultCard {
   session: string; // بانتظار الجلسة / جلسة جارية / منتهية
   status: string;
   summary: string | null;
+  /** الملخّص بتنسيق المحامي/الإدارة — منقّى في الخادم (`HasRichText::html`) */
+  summaryHtml?: string | null;
   /** الملخّص محجوبٌ عن العميل حتى يعتمده محامٍ — انظر `Consult::toClientCard`. */
   summaryPending?: boolean;
   summaryApproved?: boolean;
@@ -250,6 +257,8 @@ export interface ClientConsultCard {
   missing?: string[];
   /** `null` ما لم يعتمده محامٍ — الحجب في الخادم لا في الواجهة. */
   summary: string | null;
+  /** الملخّص بتنسيق المحامي/الإدارة — منقّى في الخادم (`HasRichText::html`) */
+  summaryHtml?: string | null;
   summaryPending?: boolean;
   summaryApproved?: boolean;
   duration: string | null;
@@ -489,6 +498,10 @@ export const RichText: React.FC<{ text?: string | null; fallback?: string }> = (
   );
 };
 
+/** ملخّص الجلسة كما يصل الموكّل: بتنسيقه إن حُرّر منسّقاً، وإلّا نصّه فقراتٍ وقوائم (`RichText`). */
+export const ConsultSummaryText: React.FC<{ consult: { summary?: string | null; summaryHtml?: string | null }; fallback?: string }> = ({ consult, fallback }) =>
+  consult.summaryHtml ? <RichHtmlView html={consult.summaryHtml} /> : <RichText text={consult.summary} fallback={fallback} />;
+
 export const SummaryStateBadge: React.FC<{ consult: ConsultCard }> = ({ consult }) => {
   const state = summaryState(consult);
 
@@ -663,7 +676,7 @@ export const SummaryModal: React.FC<{
 
           {consult.summary && consult.summary.trim() !== '' ? (
             <div className="csd-paper-body">
-              <RichText text={consult.summary} />
+              <ConsultSummaryText consult={consult} />
             </div>
           ) : (
             <div className="csd-paper-empty">
@@ -756,6 +769,7 @@ export const SummaryModal: React.FC<{
 
 export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }> = ({ consults, base }) => {
   const rescheduleFlow = useConsultReschedule(base);
+  const staffStart = useStaffStartText();
   const toast = useToast();
   const [filter, setFilter] = useState('all');
   const [summaryOf, setSummaryOf] = useState<ConsultCard | null>(null);
@@ -865,7 +879,7 @@ counts[c.channel]++;
     const room = `${base}/videoroom?ref=${encodeURIComponent(c.ref)}`;
 
     if (c.session === 'بانتظار الجلسة') {
-      // سبب الرفض من الخادم: «فات الموعد» و«قبل الموعد بربع ساعة» فعلان مختلفان.
+      // سبب الرفض من الخادم: «فات الموعد» و«خارج نافذة البدء» فعلان مختلفان.
       void action.run(`${base}/consults/${c.id}/start`, {
         key: c.id, confirm: CONFIRM_START_CONSULT, fallback: 'تعذّر بدء الجلسة',
         onSuccess: () => router.visit(room),
@@ -979,7 +993,7 @@ void navigator.clipboard.writeText(c.slink);
                     c.startable === false ? (
                       /* موعد مستقبلي خارج نافذة البدء — الخادم يسمح بإعادة جدولته والزرّ كان محصوراً بالفائتة */
                       <>
-                        <Badge text="مجدولة — البدء قبل الموعد بـ15د" tone="b-grey" />
+                        <Badge text={`مجدولة — البدء قبل الموعد بـ${staffStart}`} tone="b-grey" />
                         {c.canReschedule && (
                           <button className="btn soft sm" onClick={() => reschedule(c)} type="button">
                             <Icon name="cal" /> إعادة جدولة
@@ -1108,7 +1122,7 @@ void navigator.clipboard.writeText(c.slink);
 
 export interface LawyerOpt { id: number; name: string; dept: string; }
 
-export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; isAdmin?: boolean; lawyers: LawyerOpt[] }> = ({ consult: c, base, isAdmin, lawyers }) => {
+export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; isAdmin?: boolean; lawyers: LawyerOpt[]; canApproveSummary: boolean }> = ({ consult: c, base, isAdmin, lawyers, canApproveSummary }) => {
   const inSession = useInSession();
   const askFor = usePrompt();
   const toast = useToast();
@@ -1151,7 +1165,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
     router.post(`${base}/consults/${c.id}/${action}`, data, {
       preserveScroll: true,
       onSuccess: () => toast(msg),
-      onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر تنفيذ الإجراء')),
+      onError: (e) => toast(firstError(e, 'تعذّر تنفيذ الإجراء')),
       onFinish: () => {
         setBusy(false);
         setRunning(null);
@@ -1200,7 +1214,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
       onSuccess: () => {
  setTasksDone(true); toast(`تم تحويل ${c.decisions.length} قرار إلى مهام`); 
 },
-      onError: (e) => toast(String(Object.values(e)[0] ?? 'تعذّر إنشاء المهامّ')),
+      onError: (e) => toast(firstError(e, 'تعذّر إنشاء المهامّ')),
       onFinish: () => setBusy(false),
     });
   };
@@ -1208,10 +1222,15 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
 
   // محرّر ملخّص الجلسة — النصّ الذي سيصل العميل. كان «تعديل واعتماد» خياراً في
   // صندوق المراجعة **بلا حقلٍ يستقبله**، فيُسجّل «عدّل» والمنشور نصّ النموذج حرفياً.
-  const [sessionSummary, setSessionSummary] = useState(c.summary ?? '');
+  // النسخة المنسّقة تُحرَّر وتُرسل (`HasRichText::editableInput` يشتقّ منها النصّ)
+  const [sessionSummary, setSessionSummary] = useState(c.summaryHtml ?? '');
 
   // نصّ الموكّل يحرّره ويعتمده **من يملك الصلاحيّة** — لا من يفتح الصفحة.
   const mayEditSummary = useCan()('اعتماد/تعديل ملخص الاستشارة');
+  // اعتمده المحامي ورُفع للإدارة — يُقفل عليه والإدارة تعدّله (`Staff/ConsultController::saveSummary`).
+  // كان المحرّر وزرّ الاعتماد يبقيان له فيردّهما الخادم ٤٢٢ (تدقيق P4، 2026-09-30)
+  const lockedForMe = !isAdmin && Boolean(c.summaryLawyerApproved);
+  const canEditHere = mayEditSummary && !lockedForMe;
 
   /*
    * **زرُّ التحليل يُخفى لمن لا يملك إطلاقه — لا يُترك ليفشل.**
@@ -1228,10 +1247,10 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
   const mayAnalyze = useCan()('تشغيل تلخيص الفريق القانوني');
 
   useEffect(() => {
-    setSessionSummary(c.summary ?? '');
-  }, [c.summary]);
+    setSessionSummary(c.summaryHtml ?? '');
+  }, [c.summaryHtml]);
 
-  const saveSessionSummary = () => post('summary', { summary: sessionSummary }, 'حُفظ الملخّص المحرّر — يصل العميل بعد اعتماده');
+  const saveSessionSummary = () => post('summary', { summary_html: sessionSummary }, 'حُفظ الملخّص المحرّر — يصل العميل بعد اعتماده');
   // المستشار يعتمد ويرفع للإدارة؛ والإدارة تعتمد فيُنشر للعميل وتكتمل التذكرة (قرار المالك 2026-09-14)
   const approveSessionSummary = () => post('summary/approve', {}, 'اعتُمد الملخّص');
 
@@ -1392,9 +1411,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
 
           <div className="cj-matrix-item">
             <span className="cj-matrix-label"><Icon name="folder" /> التخصص</span>
-            <span className="cj-matrix-val" title={(c.specialty && c.specialty !== 'كل الأقسام') ? c.specialty : c.type}>
-              {(c.specialty && c.specialty !== 'كل الأقسام') ? c.specialty : c.type}
-            </span>
+            <span className="cj-matrix-val" title={c.specialtyLabel}>{c.specialtyLabel}</span>
           </div>
 
           <div className="cj-matrix-item">
@@ -1542,49 +1559,41 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
               <div className="csd-paper-body">
                 {c.summaryApproved ? (
                   <>
-                    <RichText text={c.summary} />
+                    <ConsultSummaryText consult={c} />
                     <p className="action-hint" style={{ marginTop: 14 }}>
                       <Icon name="info" /> اعتُمد هذا المحضر رسمياً وقرأه الموكّل — تعديله الآن يتطلب قراراً جديداً يُشعر به العميل.
                     </p>
                   </>
                 ) : c.summary ? (
                   <>
-                    {mayEditSummary ? (
+                    {canEditHere ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                         <div className="field" style={{ margin: 0 }}>
                           <label style={{ fontSize: 12.5, fontWeight: 700 }}>
                             النص الذي سيصل الموكّل بعد الاعتماد:
                           </label>
-                          <textarea
-                            className="input"
-                            rows={8}
+                          {/* ما يُكتب هنا بتنسيقه هو ما يقرؤه الموكّل — المحرّر نفسه معاينةٌ */}
+                          <RichTextEditor
                             value={sessionSummary}
-                            onChange={(ev) => setSessionSummary(ev.target.value)}
+                            onChange={setSessionSummary}
                             placeholder="اكتب خلاصة الرأي القانوني وتوجيهات الجلسة هنا..."
-                            style={{ lineHeight: 1.8 }}
                           />
-                          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
-                            التنسيق: سطرٌ فارغ بين الفقرات · «- » لقائمة نقطيّة · «1. » لقائمة مرقّمة · **نص** للعريض · ### لعنوان
-                          </div>
                         </div>
-                        {/* معاينة بالمُصيِّر نفسه الذي يقرأ به الموكّل — لا مفاجأة بعد الاعتماد */}
-                        {sessionSummary.trim() !== '' && (
-                          <div style={{ border: '1px dashed var(--line, #e2e8f0)', borderRadius: 8, padding: '10px 12px', background: 'var(--paper-2, #f8fafc)' }}>
-                            <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', marginBottom: 6 }}>معاينة كما يراها الموكّل</div>
-                            <RichText text={sessionSummary} />
-                          </div>
-                        )}
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          <button className="btn soft sm" onClick={saveSessionSummary} disabled={busy || sessionSummary.trim() === ''} type="button">
+                          <button className="btn soft sm" onClick={saveSessionSummary} disabled={busy || htmlToText(sessionSummary) === ''} type="button">
                             <Icon name="check" /> حفظ الملخص المحرر
                           </button>
-                          <button className="btn sm" onClick={approveSessionSummary} disabled={busy} type="button">
-                            <Icon name="scale" /> اعتماد وإرسال للعميل
-                          </button>
+                          {/* لا مسار اعتمادٍ للموظّف (قرار المالك 2026-09-14) — كان الزرّ يظهر له فيقع ٤٠٤ */}
+                          {canApproveSummary && (
+                            <button className="btn sm" onClick={approveSessionSummary} disabled={busy} type="button">
+                              {/* اعتماد المحامي يرفعه للإدارة ولا يرسله للموكّل — الإرسال باعتماد الإدارة */}
+                              <Icon name="scale" /> {isAdmin ? 'اعتماد وإرسال للعميل' : 'اعتماد ورفع للإدارة'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     ) : (
-                      <RichText text={c.summary} />
+                      <ConsultSummaryText consult={c} />
                     )}
 
                     {c.zoomSummary && (
@@ -1599,9 +1608,11 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                     )}
 
                     <p className="action-hint" style={{ marginTop: 12 }}>
-                      <Icon name="info" /> {mayEditSummary
-                        ? 'حفظ الملخص لا يُطلقه للعميل — الإطلاق يتم بالاعتماد الرسمي.'
-                        : 'هذا النص محجوب عن العميل حتى يعتمده المحامي المختص أو الإدارة.'}
+                      <Icon name="info" /> {lockedForMe
+                        ? 'اعتمدتَ هذا الملخّص ورُفع للإدارة لاعتماده النهائيّ قبل إرساله للموكّل.'
+                        : canEditHere
+                          ? 'حفظ الملخص لا يُطلقه للعميل — الإطلاق يتم بالاعتماد الرسمي.'
+                          : 'هذا النص محجوب عن العميل حتى يعتمده المحامي المختص أو الإدارة.'}
                     </p>
                   </>
                 ) : (

@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\CaseStatus;
 use App\Domain\Journey\TransitionDenied;
 use App\Domain\Journey\Transitions\Invoice\SettleInvoice;
 use App\Domain\Journey\Transitions\LegalCase\ActivateCase as ActivateCaseTransition;
@@ -12,9 +13,8 @@ use App\Mail\CaseFeePaidMail;
 use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Services\MailService;
-use App\Services\MoyasarService;
-use App\Support\Finance\InvoiceDue;
-use App\Support\Finance\InvoiceFactory;
+use App\Services\Payments\PaymentGateways;
+use App\Support\Finance\InstallmentPlan;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -62,34 +62,10 @@ class CaseFee
             // فتغييرُه لاحقاً لا يمسّ خطّةً مفتوحة: تلك تُقرأ من صفّها لا من الإعداد.
             $count = SettingsRegistry::int('installments_count');
 
-            $total = (int) $master->amount;
-            $share = intdiv($total, $count);
-
-            // الدفعة الأولى تأخذ الكسر المتبقّي كي يساوي المجموع الأتعاب بالضبط
-            $first = $total - ($share * ($count - 1));
-
-            // **ووسمُ موضعها من الخطّة** (`installment_no`) — العمود أُضيف على `invoices` ووسمته
-            // فواتيرُ التنفيذ وحدها، فبقي فرعُ القضايا يعدّ كلَّ مدفوعةٍ على القضيّة دفعةً:
-            // فاتورةٌ تكميليّة تُسدَّد فتقدّم الخطّة بلا دفعةٍ منها. الوسم هو ما يفصل النوعين.
-            // **والضريبة تُقسَّم مع المبلغ.** الأمّ كانت تحمل ضريبة الأتعاب كاملةً، فتقليصُ
-            // `amount` وحده يترك `subtotal + vat_amount` أكبر من الإجماليّ — أي فاتورةً
-            // ضريبيّةً لا تتوازن. والحصّة إجماليٌّ معلومٌ لا أساس، فتُعكَس حساباً.
-            // المهل من الإعدادات (`InvoiceDue::installment`): الأولى بمهلة «الدفعة الأولى» التي تحدّدها
-            // الإدارة، وما بعدها بمضاعفات الفاصل بين الدفعات.
-            $master->update(array_merge(InvoiceFactory::taxFromTotal($first), [
-                'installment_no' => 1,
-                'description' => self::installmentLabel($case, 1, $count),
-                ...InvoiceDue::installment(1),
-            ]));
-
-            for ($n = 2; $n <= $count; $n++) {
-                InvoiceFactory::fromTotal($share, [
-                    'user_id' => $locked->user_id,
-                    'case_id' => $locked->id,
-                    'installment_no' => $n,
-                    'description' => self::installmentLabel($case, $n, $count),
-                    ...InvoiceDue::installment($n),
-                ]);
+            // التقسيم ووسمُ كلّ دفعةٍ بموضعها (`installment_no`) وضريبتُها ومهلتُها — `Finance\InstallmentPlan`
+            // (مصدرٌ واحد مع التنفيذ). ومبلغٌ لا يتّسع لعدد الأقساط لا تُفتح له خطّة.
+            if (! InstallmentPlan::open($master, $count, 'case_id', fn (int $n, int $of) => self::installmentLabel($case, $n, $of))) {
+                return null;
             }
 
             $locked->update([
@@ -115,9 +91,7 @@ class CaseFee
      */
     public static function nextInstallment(LegalCase $case): ?Invoice
     {
-        return Invoice::where('case_id', $case->id)->whereNotNull('installment_no')
-            ->outstanding()
-            ->orderBy('installment_no')->orderBy('id')->first();
+        return InstallmentPlan::next('case_id', $case->id);
     }
 
     /**
@@ -129,10 +103,7 @@ class CaseFee
      */
     public static function nextPayable(LegalCase $case): ?Invoice
     {
-        return self::nextInstallment($case)
-            ?: Invoice::where('case_id', $case->id)
-                ->outstanding()
-                ->orderBy('id')->first();
+        return InstallmentPlan::nextPayable('case_id', $case->id);
     }
 
     /**
@@ -156,38 +127,7 @@ class CaseFee
      */
     public static function markInstallmentPaid(LegalCase $case): void
     {
-        $result = DB::transaction(function () use ($case) {
-            $locked = LegalCase::whereKey($case->id)->lockForUpdate()->first();
-            if ($locked === null) {
-                return null;
-            }
-
-            // العدّ على دفعات الخطّة وحدها: فاتورةٌ تكميليّة تُسدَّد كانت تقدّم الخطّة بلا
-            // دفعةٍ منها — وقد تُنهيها.
-            $paid = Invoice::where('case_id', $locked->id)->whereNotNull('installment_no')
-                ->where('paid', true)->count();
-
-            // **ولا تقدُّم بلا دفعةٍ من الخطّة** (نظير `ExecFee::markInstallmentPaid`): تسويةُ
-            // فاتورةٍ خارج الخطّة كانت تكتب «دفعة 0 من 3» على سطر الحالة وترسل رسالةً بذلك.
-            if ($paid === 0) {
-                return null;
-            }
-
-            $total = max(1, (int) $locked->installments_total);
-            $done = $paid >= $total;
-            $isFirst = $paid === 1 && $locked->installments_paid === 0;
-
-            $locked->update([
-                'installments_paid' => $paid,
-                'fee_status' => $done ? 'paid' : 'installments',
-                'paid_text' => $done
-                    ? 'تم سداد كامل الأتعاب'
-                    : "دفعة {$paid} من {$total} مدفوعة",
-            ]);
-
-            return ['paid' => $paid, 'total' => $total, 'done' => $done, 'first' => $isFirst];
-        });
-
+        $result = self::recountPlan($case);
         if ($result === null) {
             return;
         }
@@ -201,9 +141,86 @@ class CaseFee
             'time_label' => self::clock(),
         ]);
 
+        self::auditPlan($case, $result, $result['done'] ? 'سداد الدفعة الأخيرة واكتمال أتعاب القضية' : 'سداد دفعة أتعاب',
+            "تم سداد الدفعة {$result['paid']} من {$result['total']} لأتعاب القضية {$case->number}.");
+
+        // التفعيل عند أوّل دفعة **مسوّاة فعلاً** لا عند اختيار الخطّة
+        if ($result['first']) {
+            self::activate($case);
+        }
+
+        if ($result['done'] && ! $result['wasDone']) {
+            self::mailPaidInFull($case);
+        }
+    }
+
+    /**
+     * **قسطٌ أُلغي أو أُعدم** (`HandleInvoiceVoided`) — يُعاد عدّ الخطّة: فإن لم يبقَ فيها مستحقٌّ اكتملت. كانت
+     * تبقى «دفعة 2 من 3» إلى الأبد وزرُّ الدفعة التالية يردّ «لا توجد دفعة مستحقّة» (تدقيق الدفع B).
+     */
+    public static function syncInstallmentPlan(LegalCase $case): void
+    {
+        $result = self::recountPlan($case);
+        if ($result === null || ! $result['done'] || $result['wasDone']) {
+            return;
+        }
+
+        $case->refresh();
+        $case->messages()->create([
+            'who' => 'system', 'name' => 'النظام', 'role' => 'سداد',
+            'body' => '<p>اكتملت أتعاب القضية — سُدّدت دفعاتها وأُسقط الباقي.</p>',
+            'time_label' => self::clock(),
+        ]);
+        self::auditPlan($case, $result, 'اكتمال أتعاب القضية بإسقاط الدفعات الباقية',
+            "اكتملت أتعاب القضية {$case->number} بعد سداد {$result['paid']} دفعة وإسقاط الباقي.");
+        self::mailPaidInFull($case);
+    }
+
+    /**
+     * يعيد عدّ الخطّة من فواتيرها تحت قفل الصفّ، ويكتب العدّادين والحالة.
+     *
+     * @return array{paid: int, total: int, done: bool, first: bool, wasDone: bool}|null null بلا دفعةٍ مسدّدة
+     */
+    private static function recountPlan(LegalCase $case): ?array
+    {
+        return DB::transaction(function () use ($case) {
+            $locked = LegalCase::whereKey($case->id)->lockForUpdate()->first();
+            if ($locked === null) {
+                return null;
+            }
+
+            // العدّ على دفعات الخطّة وحدها — فاتورةٌ تكميليّة تُسدَّد لا تقدّم الخطّة.
+            $progress = InstallmentPlan::progress('case_id', $locked->id);
+
+            // **ولا تقدُّم بلا دفعةٍ من الخطّة** (نظير `ExecFee::markInstallmentPaid`)
+            if ($progress['paid'] === 0) {
+                return null;
+            }
+
+            $wasDone = $locked->fee_status === 'paid';
+            // **أوّل دفعةٍ لم يُسجَّل قبلها شيء** لا «المدفوع = 1»: دفعتان تُسوَّيان معاً تُريان المدفوعَ 2 عند
+            // كليهما فلا تُفعَّل القضيّة أبداً (تدقيق الدفع G). والتفعيل نفسه لا يتكرّر أثره.
+            $isFirst = (int) $locked->installments_paid === 0;
+
+            $locked->update([
+                'installments_paid' => $progress['paid'],
+                'installments_total' => $progress['total'],
+                'fee_status' => $progress['done'] ? 'paid' : 'installments',
+                'paid_text' => $progress['done']
+                    ? 'تم سداد كامل الأتعاب'
+                    : "دفعة {$progress['paid']} من {$progress['total']} مدفوعة",
+            ]);
+
+            return [...$progress, 'first' => $isFirst, 'wasDone' => $wasDone];
+        });
+    }
+
+    /** @param  array{paid: int, total: int, done: bool}  $result */
+    private static function auditPlan(LegalCase $case, array $result, string $action, string $description): void
+    {
         Audit::log(
-            action: $result['done'] ? 'سداد الدفعة الأخيرة واكتمال أتعاب القضية' : 'سداد دفعة أتعاب',
-            description: "تم سداد الدفعة {$result['paid']} من {$result['total']} لأتعاب القضية {$case->number}.",
+            action: $action,
+            description: $description,
             category: 'مالية وفواتير',
             auditable: $case,
             auditableRef: $case->number,
@@ -214,17 +231,13 @@ class CaseFee
                 'حالة_الأتعاب' => $result['done'] ? 'paid' : 'installments',
             ],
         );
+    }
 
-        // التفعيل عند أوّل دفعة **مسوّاة فعلاً** لا عند اختيار الخطّة
-        if ($result['first']) {
-            self::activate($case);
-        }
-
-        if ($result['done']) {
-            $case->loadMissing('user');
-            if ($case->user?->email) {
-                app(MailService::class)->send($case->user, new CaseFeePaidMail($case));
-            }
+    private static function mailPaidInFull(LegalCase $case): void
+    {
+        $case->loadMissing('user');
+        if ($case->user?->email) {
+            app(MailService::class)->send($case->user, new CaseFeePaidMail($case));
         }
     }
 
@@ -283,10 +296,7 @@ class CaseFee
         self::activate($case);
 
         // بريد للعميل بتأكيد سداد الأتعاب وتفعيل القضية (أفضل-جهد — لا يعطّل مسار الدفع إن فشل)
-        $case->loadMissing('user');
-        if ($case->user?->email) {
-            app(MailService::class)->send($case->user, new CaseFeePaidMail($case));
-        }
+        self::mailPaidInFull($case);
     }
 
     /**
@@ -327,7 +337,7 @@ class CaseFee
         }
 
         $prevStatus = $case->status;
-        if ($case->status !== 'قيد التحضير') {
+        if ($case->status !== CaseStatus::InPreparation->value) {
             Workflow::run(new ActivateCaseTransition, $case, auth()->user() ?? $case->user, [
                 'fee_status' => $case->fee_status,
                 'pay_plan' => $case->pay_plan,
@@ -385,7 +395,7 @@ class CaseFee
         // والقضيّة غير مفعّلة. والأقدم غير المدفوعة هي المستحقّة فعلاً في الحالين.
         $invoice = self::nextPayable($case);
 
-        return $invoice ? app(MoyasarService::class)->hostedUrlForInvoice($invoice, $callbackUrl) : null;
+        return $invoice ? app(PaymentGateways::class)->default()->hostedUrlForInvoice($invoice, $callbackUrl) : null;
     }
 
     private static function clock(): string

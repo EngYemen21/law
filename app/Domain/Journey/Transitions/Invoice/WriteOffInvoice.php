@@ -4,6 +4,7 @@ namespace App\Domain\Journey\Transitions\Invoice;
 
 use App\Domain\Journey\Enums\InvoiceStatus;
 use App\Domain\Journey\Transition;
+use App\Events\Journey\InvoiceVoided;
 use App\Models\Invoice;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -74,6 +75,13 @@ final class WriteOffInvoice extends Transition
         // 300 حرفاً هو حدّ العمود — والقصّ هنا أصدق من استثناءٍ يُجهض قراراً إداريّاً وقع
         $entity->written_off_reason = mb_substr(trim((string) ($payload['reason'] ?? '')), 0, 300);
         $entity->tone = InvoiceStatus::WrittenOff->tone();
+    }
+
+    /** قسطٌ يخرج من خطّةٍ قد يُكملها — `HandleInvoiceVoided` يعيد عدّها. */
+    public function events(Model $entity, string $from, ?User $actor, array $payload): array
+    {
+        /** @var Invoice $entity */
+        return [new InvoiceVoided($entity)];
     }
 
     public function record(array $payload): array

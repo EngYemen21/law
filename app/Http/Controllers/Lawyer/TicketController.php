@@ -26,6 +26,7 @@ use App\Models\LegalCase;
 use App\Models\Meeting;
 use App\Models\Task;
 use App\Models\Ticket;
+use App\Models\TicketSummary;
 use App\Models\User;
 use App\Services\Ai\AiReviewOutcome;
 use App\Services\Ai\AiRunLogger;
@@ -460,6 +461,8 @@ class TicketController extends Controller
             'summary' => $ticket->summary->toData(),
             // الإدارة تراجع/تعتمد من مسارها الخاص (صلاحيات مطلقة)؛ المحامي من مساره
             'base' => $request->user()->isAdmin() ? '/admin' : '/lawyer',
+            // زرّا «إعادة التحليل الذكي» في الصفحة — الحكم نفسه في صفحتَي التذكرة ومسار `rerunSummary`
+            'canRerunSummary' => $ticket->summaryRerunBlocker() === null,
         ]);
     }
 
@@ -467,7 +470,8 @@ class TicketController extends Controller
     public function updateSummary(Request $request, Ticket $ticket): RedirectResponse
     {
         $this->guardAssigned($ticket);
-        abort_unless($ticket->summary, 404);
+        $summary = $ticket->summary;
+        abort_unless($summary instanceof TicketSummary, 404);
 
         /*
          * **الاعتماد نهائيّ — والحفظ قبله مسوّدة.**
@@ -494,9 +498,14 @@ class TicketController extends Controller
             'attachments_summary' => ['nullable', 'string', 'max:5000'],
             'facts' => ['nullable', 'string', 'max:5000'],
             'key_points' => ['nullable', 'string', 'max:5000'],
+            // النسخ المنسّقة من محرّر الملخّص — تُنقّى ويُشتقّ منها النصّ (`TicketSummary::editableInput`)
+            'case_summary_html' => ['nullable', 'string', 'max:20000'],
+            'attachments_summary_html' => ['nullable', 'string', 'max:20000'],
+            'facts_html' => ['nullable', 'string', 'max:20000'],
+            'key_points_html' => ['nullable', 'string', 'max:20000'],
         ]);
         // «حُرّر بيد المستشار» — فلا تكتب فوقه إعادة التوليد الآليّة (ع٢٦)
-        $ticket->summary->update($data + ['edited_at' => now()]);
+        $summary->update($summary->changedInput($data) + ['edited_at' => now()]);
 
         return back();
     }
@@ -520,7 +529,7 @@ class TicketController extends Controller
     {
         $this->guardAssigned($ticket);
         $summary = $ticket->summary;
-        abort_unless($summary, 404);
+        abort_unless($summary instanceof TicketSummary, 404);
         $actor = $request->user();
         $isAdmin = $actor->isAdmin();
 
@@ -533,12 +542,18 @@ class TicketController extends Controller
             'attachments_summary' => ['nullable', 'string', 'max:5000'],
             'facts' => ['nullable', 'string', 'max:5000'],
             'key_points' => ['nullable', 'string', 'max:5000'],
+            // النسخ المنسّقة من محرّر الملخّص — تُنقّى ويُشتقّ منها النصّ (`TicketSummary::editableInput`)
+            'case_summary_html' => ['nullable', 'string', 'max:20000'],
+            'attachments_summary_html' => ['nullable', 'string', 'max:20000'],
+            'facts_html' => ['nullable', 'string', 'max:20000'],
+            'key_points_html' => ['nullable', 'string', 'max:20000'],
         ]);
 
-        $fields = ['case_summary', 'attachments_summary', 'facts', 'key_points'];
-        $before = $summary->only($fields);
-        $summary->fill($request->only($fields));
-        $edited = $summary->only($fields) != $before;
+        // ما تغيّر فعلاً ممّا عُرض — غير الملموس لا يُعدّ تحريراً (حارس الصدق وقياس الحوكمة كما كانا)
+        $input = $summary->changedInput($request->all());
+        $before = $summary->only(array_keys($input));
+        $summary->fill($input);
+        $edited = $summary->only(array_keys($input)) != $before;
 
         // حارس الصدق: لا يُعتمد قالبٌ لم يُحلَّل ولم يحرّره أحد (SB-2026-1451)
         if (! $summary->ai_generated && ! $edited && $summary->edited_at === null && ! $summary->isLawyerApproved()) {
@@ -556,7 +571,7 @@ class TicketController extends Controller
 
         // النصّ والأختام تُحفظ داخل انتقال الملخّص — المحرّك يعيد قراءة الصفّ مقفولاً، فما مُلئ
         // هنا لقياس «هل حُرّر؟» يصله في الحمولة لا على هذه النسخة
-        $approval = ['fields' => $request->only($fields), 'edited' => $edited];
+        $approval = ['fields' => $input, 'edited' => $edited];
 
         // ── المرحلة الأولى: المستشار يعتمد ويرفع للإدارة — لا يصل العميلَ شيء ──
         if (! $isAdmin) {
@@ -594,7 +609,8 @@ class TicketController extends Controller
 
         // الغياب يُعلَن ولا يُملأ — والنمط من `TicketResult::NO_RECOMMENDATIONS`
         $body = '<p>تم اعتماد ملخص ملفكم، وفيما يلي الرأي القانوني المبدئي:</p>'
-            .'<div class="doc-list" style="flex-direction:column">'.nl2br(e($summary->key_points)).'</div>'
+            // بتنسيق المحامي/الإدارة كما حُرّر (منقّى — `TicketSummary::html`)
+            .'<div class="rich-summary">'.$summary->html('key_points').'</div>'
             .'<p>ولإبداء الرأي الكامل ومناقشة التفاصيل نأمل طلب استشارة قانونية من داخل التذكرة.</p>';
 
         // **لا ترتدّ التذكرة** — كان يكتب «الرأي القانوني» بلا شرط فوق موعدٍ قائم (ج٩)
@@ -617,7 +633,7 @@ class TicketController extends Controller
 
         $ticket->loadMissing('user');
         if ($ticket->user?->email) {
-            app(MailService::class)->send($ticket->user, new SummaryApprovedMail($ticket, $summary->key_points));
+            app(MailService::class)->send($ticket->user, new SummaryApprovedMail($ticket, $summary->key_points, $summary->html('key_points')));
         }
 
         if ($summary->lawyer_approved_by && $summary->lawyer_approved_by !== $actor->id) {

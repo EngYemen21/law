@@ -19,6 +19,7 @@ import {
   syncRoom,
   useRoomSession,
 } from '@/lib/room-session';
+import { firstError } from '@/lib/server-message';
 import { useSettings } from '@/lib/settings';
 
 // ============================================================
@@ -156,7 +157,7 @@ export const RoomPage: React.FC<{ room: Room }> = ({ room: serverRoom }) => {
           router.visit(end.redirect);
         }
       },
-      onError: (errors) => toast(String(Object.values(errors)[0] ?? ROOM_TEXT.endFailed), 'error'),
+      onError: (errors) => toast(firstError(errors, ROOM_TEXT.endFailed), 'error'),
     });
   };
 

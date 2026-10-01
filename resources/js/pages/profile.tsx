@@ -2,6 +2,7 @@ import { router, usePage } from '@inertiajs/react';
 import React, { useState } from 'react';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 
 // يطابق viewProfile في index (82).html — بيانات حقيقية من auth.user
 
@@ -56,7 +57,7 @@ const Profile: React.FC = () => {
           toast('تم حفظ بياناتك');
         }
       },
-      onError: (e) => toast((Object.values(e)[0] as string) || 'تعذّر حفظ البيانات'),
+      onError: (e) => toast(firstError(e, 'تعذّر حفظ البيانات')),
       onFinish: () => setSaveBusy(false),
     });
   };
@@ -72,7 +73,7 @@ const Profile: React.FC = () => {
       onSuccess: () => {
  setCurPw(''); setNewPw(''); setNewPw2(''); toast('تم تغيير كلمة المرور'); 
 },
-      onError: (e) => toast((Object.values(e)[0] as string) || 'تعذّر تغيير كلمة المرور'),
+      onError: (e) => toast(firstError(e, 'تعذّر تغيير كلمة المرور')),
       onFinish: () => setPwBusy(false),
     });
   };

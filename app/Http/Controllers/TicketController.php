@@ -10,6 +10,7 @@ use App\Jobs\GenerateTicketReplyJob;
 use App\Jobs\TriageDocumentJob;
 use App\Jobs\TriageTicketOnOpenJob;
 use App\Mail\TicketOpenedMail;
+use App\Models\Execution;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
@@ -28,6 +29,7 @@ use App\Support\ReferenceNumber;
 use App\Support\TicketAssignment;
 use App\Support\TicketJourney;
 use App\Support\TicketTriage;
+use App\Support\UploadLimits;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -106,13 +108,13 @@ class TicketController extends Controller
             'details' => ['nullable', 'string'],
             'opponent_name' => ['nullable', 'string', 'max:190'],
             'opponent_id' => ['nullable', 'string', 'max:60'],
-            'claim_amount' => ['nullable', 'integer', 'min:0'],
+            'claim_amount' => ['nullable', 'integer', 'min:0', 'max:'.Execution::MAX_CLAIM_AMOUNT],
             'exec_sanad' => ['nullable', 'string', Rule::in(ExecFlow::SANADS)],
             'court_name' => ['nullable', 'string', 'max:190'],
             // من الكتالوج لا نصّاً حرّاً: `max:20` كان يقبل أيّ مفردة فتدخل القاعدة قيمةٌ لا يعرفها مرشّح
             'priority' => ['nullable', 'string', Rule::in(TicketJourney::PRIORITIES)],
             'files' => ['nullable', 'array', 'max:10'],
-            'files.*' => ['file', 'max:10240', 'mimes:'.self::ALLOWED_DOC_MIMES], // حتى 10MB لكل ملف
+            'files.*' => ['file', UploadLimits::rule(UploadLimits::ATTACHMENT_KB), 'mimes:'.self::ALLOWED_DOC_MIMES], // الحدّ من `UploadLimits`
         ], [
             'service_id.required_with' => 'اختر الخدمة المتعلقة بالتذكرة.',
             'type.required_without' => 'اختر الخدمة المتعلقة بالتذكرة.',
@@ -322,7 +324,7 @@ class TicketController extends Controller
             ]);
         }
 
-        $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:'.self::ALLOWED_DOC_MIMES]]); // حتى 10MB
+        $request->validate(['file' => ['required', 'file', UploadLimits::rule(UploadLimits::ATTACHMENT_KB), 'mimes:'.self::ALLOWED_DOC_MIMES]]);
 
         $file = $request->file('file');
         $name = $file->getClientOriginalName();

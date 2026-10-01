@@ -41,12 +41,10 @@ class StaffManagementTest extends TestCase
             'nid' => '1088776655',
             'dept' => 'خدمة العملاء',
             'join' => '2026-07-01',
-            'start' => '08:00',
-            'end' => '16:00',
             'payType' => 'salary',
             'salary' => 8000,
             'perms' => ['إدارة التذاكر', 'الرد على العملاء'],
-        ])->assertRedirect()->assertSessionHas('generatedPassword');
+        ])->assertRedirect()->assertSessionMissing('generatedPassword');
 
         $user = User::where('email', 'salma@salasel.test')->firstOrFail();
         $this->assertSame(Role::Employee, $user->role);
@@ -77,7 +75,7 @@ class StaffManagementTest extends TestCase
 
         // الدور «الإدارة العليا» صراحةً → Admin
         $this->actingAs($admin)->post(route('admin.staff.store'), [
-            'name' => 'مدير النظام', 'role' => 'admin', 'job_title' => 'مدير', 'email' => 'mgr@salasel.test',
+            'name' => 'مدير النظام', 'role' => 'admin', 'job_title' => 'مدير', 'email' => 'mgr@salasel.test', 'dept' => 'خدمة العملاء',
             'mobile' => '0590000080', 'nid' => '1090000080',
             'payType' => 'salary', 'salary' => 20000, 'perms' => [],
         ])->assertRedirect();
@@ -85,7 +83,7 @@ class StaffManagementTest extends TestCase
 
         // صفة «إداري» مع دور «موظف» تبقى Employee (لا تتحوّل لمشرف — يمنع تكرار الثغرة)
         $this->actingAs($admin)->post(route('admin.staff.store'), [
-            'name' => 'أحمد الإداري', 'role' => 'employee', 'job_title' => 'إداري', 'email' => 'idari@salasel.test',
+            'name' => 'أحمد الإداري', 'role' => 'employee', 'job_title' => 'إداري', 'email' => 'idari@salasel.test', 'dept' => 'خدمة العملاء',
             'mobile' => '0590000087', 'nid' => '1090000087',
             'payType' => 'salary', 'salary' => 9000, 'perms' => ['توزيع التذاكر'],
         ])->assertRedirect();
@@ -191,7 +189,7 @@ class StaffManagementTest extends TestCase
         // الموظّف بعد إضافة محرّر الصياغة إلى مساراته (`/employee/editor`) — فلم تعد تُقصّ.
         // والحارس يبقى حيّاً بمثالٍ ما زال خارج السقف: «سجل التدقيق الأمني» للإدارة وحدها.
         $this->actingAs($admin)->post(route('admin.staff.store'), [
-            'name' => 'موظف', 'role' => 'employee', 'job_title' => 'موظف خدمة عملاء',
+            'name' => 'موظف', 'role' => 'employee', 'job_title' => 'موظف خدمة عملاء', 'dept' => 'خدمة العملاء',
             'email' => 'scoped@salasel.test', 'mobile' => '0590000190', 'nid' => '1090000190',
             'payType' => 'salary', 'salary' => 6000,
             'perms' => ['إدارة التذاكر', 'سجل التدقيق الأمني'], // الثانية خارج صلاحيات الموظف
@@ -258,7 +256,7 @@ class StaffManagementTest extends TestCase
 
         // نفس الهُويّة/الجوال بدور موظف (بريد مختلف) → ينجح
         $this->actingAs($admin)->post(route('admin.staff.store'), [
-            'name' => 'شخص بدورين', 'role' => 'employee', 'job_title' => 'موظف',
+            'name' => 'شخص بدورين', 'role' => 'employee', 'job_title' => 'موظف', 'dept' => 'خدمة العملاء',
             'email' => 'p.employee@salasel.test', 'mobile' => '0577001100', 'nid' => '1077001100',
             'payType' => 'salary', 'salary' => 7000, 'perms' => [],
         ])->assertRedirect()->assertSessionHasNoErrors();

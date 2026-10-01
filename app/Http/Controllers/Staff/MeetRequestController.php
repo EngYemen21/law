@@ -21,6 +21,7 @@ use App\Services\MailService;
 use App\Support\Audit;
 use App\Support\ClientDirectory;
 use App\Support\LawyerAvailability;
+use App\Support\MeetingTime;
 use App\Support\MeetInvitation;
 use App\Support\Notify;
 use App\Support\ReferenceNumber;
@@ -45,7 +46,8 @@ class MeetRequestController extends Controller
     {
         // الموظّف يرى كلّ دعوات المكتب (قرار المالك 2026-09-14)، والمحامي ما أُسند إليه، والإدارة الكل.
         // (الإجراءات — إلغاء/بدء/إعادة إرسال — ما زالت محروسةً بالمُرسِل في `guardOwner`.)
-        $query = MeetRequest::with('user')->latest('id');
+        // `meeting` لنافذة الدخول (`canJoin`) ومرجع الغرفة في البطاقة — كان يُجلب لكلّ دعوةٍ على حدة (N+1)
+        $query = MeetRequest::with(['user', 'meeting'])->latest('id');
         if ($request->user()->role === Role::Lawyer) {
             $query->where('assigned_lawyer_id', $request->user()->id);
         }
@@ -76,7 +78,7 @@ class MeetRequestController extends Controller
             // لا «مدة» (قرار المالك 2026-09-26): الاجتماع ينتهي حين يُنهى، والتعارض بمسافة الحجز
         ]);
 
-        $client = User::findOrFail($data['client_id']);
+        $client = User::findOrFail($request->integer('client_id'));
         abort_unless($client->role === Role::Client, 422, 'الحساب المختار ليس حساب عميل.');
 
         // المحامي المُنشئ يُسنِد نفسه حصراً؛ الموظف/الإدارة يختار المحامي المسؤول
@@ -111,14 +113,19 @@ class MeetRequestController extends Controller
         // قبل النشر — لا Zoom ولا اجتماع ولا إشعار للعميل حتى الموافقة (STAGE_SENT).
         // دعوة الإدارة نفسها تُنشر فوراً (موافقتها ضمنية).
         // (تأكيد العميل يبقى ملغى: الموافقة تلد الدعوة مؤكَّدة مباشرة.)
+        // **الرسالة من الخادم لا من الواجهة** (قرار المالك 2026-10-01): كانت الواجهة تقول للموظف/المحامي
+        // «تم إرسال الدعوة وإشعارها إلى العميل» ودعوته لم تصل العميل بعد — تنتظر موافقة الإدارة.
+        // الخادم وحده يعرف أيّ المسارين وقع، فيقول ما وقع فعلاً (`flash.success` ← `ServerFeedback`).
         if ($request->user()->role === Role::Admin) {
             $meeting = MeetInvitation::schedule($req, $client);
             MeetInvitation::announce($req, $meeting, $client);
-        } else {
-            $this->notifyAdmins("دعوة اجتماع جديدة ({$req->ref}) من {$req->sent_by} بانتظار موافقتكم — {$req->day} · {$req->time}.");
+
+            return back()->with('success', "تم إرسال الدعوة ({$req->ref}) ونشرها — وصل الإشعار إلى العميل: {$client->name}");
         }
 
-        return back();
+        $this->notifyAdmins("دعوة اجتماع جديدة ({$req->ref}) من {$req->sent_by} بانتظار موافقتكم — {$req->day} · {$req->time}.");
+
+        return back()->with('success', "أُرسلت الدعوة ({$req->ref}) إلى الإدارة العليا بانتظار موافقتها — لا تصل العميل {$client->name} إلا بعد الاعتماد.");
     }
 
     /**
@@ -131,6 +138,17 @@ class MeetRequestController extends Controller
 
         $client = $meetRequest->user;
         abort_unless($client !== null, 422, 'عميل الدعوة غير موجود.');
+
+        // **لا تُعتمد دعوةٌ فات موعدها** (قرار المالك 2026-10-01). كانت تُقبل حتى تنقضي مهلة انتهائها
+        // (`meet_invite_expire_minutes` بعد الموعد)، فيُبلَّغ العميل «اجتماع مجدول» بموعدٍ مضى. تُوسَم
+        // منتهيةً (والوسم يبقى، فالحفظ قبل الرمي بلا معاملة) — فيظهر زرّ «إعادة الإرسال» بموعدٍ جديد بدل الانتظار حتى يمرّ المجدول.
+        $startsAt = MeetingTime::parse($meetRequest->day, $meetRequest->time);
+        if ($startsAt !== null && $startsAt->isPast()) {
+            $meetRequest->update(['stage' => MeetRequest::STAGE_EXPIRED]);
+
+            // خطأُ تحقّقٍ لا تحويلٌ بـflash: الواجهة تعلن النجاح على كلّ تحويل (`onSuccess`)
+            throw ValidationException::withMessages(['approve' => "فات موعد الدعوة {$meetRequest->ref} قبل اعتمادها — صارت منتهية الصلاحيّة، أعد إرسالها بموعدٍ جديد."]);
+        }
 
         $meeting = MeetInvitation::schedule($meetRequest, $client);
         MeetInvitation::announce($meetRequest, $meeting, $client);

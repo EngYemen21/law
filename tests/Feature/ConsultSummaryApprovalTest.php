@@ -114,8 +114,9 @@ class ConsultSummaryApprovalTest extends TestCase
         $doc = ConsultReport::doc($consult->fresh(), $client->name);
         $section = collect($doc['blocks'])->first(fn ($b) => ($b['title'] ?? '') === '٤. ملخص الاستشارة');
 
-        // المعتمد يُطبع نصّاً منسّقاً (`rich` ← `SummaryText`) — وما قبل الاعتماد سطرُ انتظارٍ في `lines`
-        $this->assertSame($consult->summary, $section['rich']);
+        // المعتمد يُطبع بتنسيقه (`html` ← `HasRichText::html`) — وما قبل الاعتماد سطرُ انتظارٍ في `lines`
+        $this->assertSame($consult->fresh()->html('summary'), $section['html']);
+        $this->assertStringContainsString(e(strtok((string) $consult->summary, "\n")), $section['html']);
         $this->assertArrayNotHasKey('lines', $section);
     }
 

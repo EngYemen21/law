@@ -54,7 +54,7 @@ class DatabaseSeeder extends Seeder
             'name' => 'المحامي', 'email' => 'law@salasel.sa', 'role' => Role::Lawyer,
             'title' => 'أ.', 'job_title' => 'محامٍ',
             'department' => Specialties::ALL_DEPARTMENTS,
-            'work_start' => '09:00', 'work_end' => '17:00', 'avatar_initials' => 'مح',
+            'avatar_initials' => 'مح',
             'national_id' => '1000000002', 'phone' => '+966537434000',
         ]);
         $lawyer->syncRoles(['محامٍ']);
@@ -68,7 +68,7 @@ class DatabaseSeeder extends Seeder
             'name' => 'الموظف', 'email' => 'emp@salasel.sa', 'role' => Role::Employee,
             'job_title' => 'موظف خدمة عملاء',
             'department' => 'خدمة العملاء',
-            'work_start' => '08:00', 'work_end' => '16:00', 'avatar_initials' => 'مو',
+            'avatar_initials' => 'مو',
             'national_id' => '1000000003', 'phone' => '+966537434000',
         ]);
         $employee->syncRoles(['خدمة عملاء']);

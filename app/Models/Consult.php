@@ -10,6 +10,7 @@ use App\Domain\Journey\Transitions\Consult\ApproveConsultAnalysis;
 use App\Domain\Journey\Transitions\Consult\MarkNoShow;
 use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
 use App\Enums\Role;
+use App\Models\Concerns\HasRichText;
 use App\Models\Concerns\LinksLegalDepartment;
 use App\Models\Concerns\TracksRevisions;
 use App\Support\ArabicCount;
@@ -18,6 +19,7 @@ use App\Support\LawyerName;
 use App\Support\RecordingArchive;
 use App\Support\SessionWindow;
 use App\Support\SettingsRegistry;
+use App\Support\Specialties;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -30,6 +32,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Consult extends Model
 {
     use GuardsJourneyState;
+    use HasRichText;
     use LinksLegalDepartment;
     use TracksRevisions;
 
@@ -141,6 +144,9 @@ class Consult extends Model
      */
     public const CHANNELS = ['حضورية', 'مرئية', 'هاتفية'];
 
+    /** ملخّص الجلسة يُحرَّر منسّقاً ويصل الموكّلَ بتنسيقه (`HasRichText`). */
+    public const RICH_TEXT_FIELDS = ['summary'];
+
     protected $fillable = [
         'user_id', 'ticket_id', 'appointment_id', 'ref', 'subject', 'details', 'type', 'priority', 'channel',
         'lawyer', 'assigned_lawyer_id', 'specialty', 'employee', 'day', 'time', 'when_label', 'received_label', 'phone',
@@ -150,7 +156,7 @@ class Consult extends Model
         'meet_id', 'meet_link', 'host_link', 'meet_password',
         'link_released_at', 'reminder_24h_sent_at', 'reminder_30m_sent_at', 'join_time', 'leave_time', 'duration_sec', 'transcript', 'recording_url', 'transcript_path', 'zoom_summary_at',
         'zoom_uuid', 'zoom_share_url', 'zoom_audio_url', 'zoom_participants_log', 'zoom_ai_next_steps',
-        'status', 'session', 'session_notes', 'summary', 'summary_ai_original', 'summary_approved_at', 'summary_approved_by',
+        'status', 'session', 'session_notes', 'summary', 'summary_html', 'summary_ai_original', 'summary_approved_at', 'summary_approved_by',
         'summary_lawyer_approved_at', 'summary_lawyer_approved_by',
         'summary_edited_at', 'summary_edited_by', 'summary_ai_source', 'session_finalized_at', 'zoom_summary', 'duration_label',
         'decisions', 'tasks_created', 'suggested_tasks',
@@ -187,7 +193,7 @@ class Consult extends Model
     ];
 
     /**
-     * هل يُفعَّل زر «الدخول إلى الجلسة»؟ للمرئية فقط، بعد إطلاق الرابط (قبل الموعد بـ5د).
+     * هل يُفعَّل زر «الدخول إلى الجلسة»؟ للمرئية فقط، بعد إطلاق الرابط (قبل الموعد بـ`session_join_opens_minutes`).
      *
      * **الجلسة تنتهي حين تُنهى لا حين تبلغ الساعةُ مدّتها** (قرار المالك 2026-09-26). كان للدخول
      * سقفان محسوبان من المدّة — «الموعد + المدة + 30د» قبل البدء و«+ 180د» أثناءه — فتُغلق غرفةٌ
@@ -402,6 +408,8 @@ class Consult extends Model
      * المستحقّة مستحقّةً؛ و`PaymentReconciler` يُسوّي دفعةَ البوّابة على الملغاة؛
      * و`invoiceNo` في البطاقة والتقرير يعرض رقماً أُلغي. كشفتها دورةُ المال الكاملة
      * لا اختبارُ بابٍ منفرد — لأنّ كلّ بابٍ وحده كان سليماً.
+     *
+     * @return HasOne<Invoice, $this>
      */
     public function invoice(): HasOne
     {
@@ -507,6 +515,18 @@ class Consult extends Model
         return InvoiceFactory::taxFromFrozen((int) $this->price, (int) $this->vat)['vat_rate'];
     }
 
+    /** مرحلة دورة الحجز بمفتاحٍ ثابت (التسعير ← السداد ← الموعد ← اعتماده)، و`null` لما تجاوزها. */
+    public function bookingStage(): ?string
+    {
+        return match ($this->status) {
+            ConsultStatus::AwaitingPricing->value => 'pricing',
+            ConsultStatus::AwaitingPayment->value => 'payment',
+            ConsultStatus::AwaitingSchedule->value => 'scheduling',
+            ConsultStatus::AwaitingAppointmentApproval->value => 'approval',
+            default => null,
+        };
+    }
+
     public function toClientCard(): array
     {
         return [
@@ -522,7 +542,7 @@ class Consult extends Model
             // مكان الموعد المقترح لا يصل العميل قبل اعتماد الإدارة (`toCard` للطاقم يعرضه)
             'place' => $this->placeForClient(),
             'slink' => $this->channel === 'مرئية' ? $this->joinLink() : '',
-            'canJoin' => $this->canJoin(), // زر الدخول معطّل حتى إطلاق الرابط قبل الموعد بـ5د
+            'canJoin' => $this->canJoin(), // زر الدخول معطّل حتى إطلاق الرابط (`session_join_opens_minutes`)
             // **علمان بمعنى واحدٍ في البطاقتين** (قرار المالك 2026-09-27): `missed` فات موعدها والجلسة
             // ما زالت منتظرة، و`notHeld` سُجّلت «لم تُعقد». كانت بطاقة العميل تجمعهما في `missed`
             // وبطاقة الطاقم لا — وشاشة الإدارة تُعيد بناء تعريف العميل يدويّاً
@@ -532,6 +552,9 @@ class Consult extends Model
             'sessionTone' => $this->sessionTone(),
             // في دورة الحجز (تسعير · سداد · موعد) — علمٌ لا مرحلة: `bookingStage` يكشف «اعتماد الموعد» الداخليّ
             'inBooking' => in_array($this->status, self::PRE_SESSION_STATUSES, true),
+            // لوحة الحجز في محادثة التذكرة تُبنى عليه بدل مقارنة نصوص الحالة؛ واعتماد الموعد شأنٌ داخليّ
+            // يقرؤه العميل «تحديد الموعد» كما تقرؤه تسميته
+            'bookingStage' => $this->bookingStage() === 'approval' ? 'scheduling' : $this->bookingStage(),
             // طلب تغيير الموعد: هل يُتاح، وهل طلبٌ سابقٌ معلّق، ولماذا يُحجب — من `rescheduleRequestBlocker` وحده
             'rescheduleRequest' => [
                 'pending' => $this->reschedule_requested_at !== null,
@@ -555,6 +578,8 @@ class Consult extends Model
             // والحجب هنا لا في الواجهة: حجبٌ واجهيّ يبقى النصّ فيه في حمولة
             // المتصفّح، فيُقرأ بأدوات المطوّر ويصل من لا يجوز أن يصله.
             'summary' => $this->summaryApproved() ? $this->summary : null,
+            // بتنسيق المحامي/الإدارة — منقّى، ومحجوبٌ قبل الاعتماد كالنصّ
+            'summaryHtml' => $this->summaryApproved() ? $this->html('summary') : null,
             'summaryPending' => $this->summary !== null && ! $this->summaryApproved(),
             'summaryApproved' => $this->summaryApproved(),
             'duration' => $this->duration_label,
@@ -603,8 +628,16 @@ class Consult extends Model
             && ! in_array($this->status, self::CLOSED_STATUSES, true)
             // **ولا تُبدأ جلسةُ طلبٍ في دورة الحجز** — لم يُسعَّر أو يُدفع أو يُنشر موعده (ع٤)
             && ConsultStatus::tryFrom((string) $this->status)?->isPreSession() !== true
-            && $this->session === 'بانتظار الجلسة'
-            && ($this->starts_at === null || now()->greaterThanOrEqualTo($this->starts_at->copy()->subMinutes(15)));
+            && $this->session === SessionState::Waiting->value
+            && SessionWindow::staffStartOpened($this->starts_at);
+    }
+
+    /** تسمية خانة «التخصص»: التخصّص الفعليّ، وإلّا نوع الاستشارة («كل الأقسام» ليس تخصّصاً يُعرض). */
+    public static function specialtyLabel(?string $specialty, ?string $type): string
+    {
+        $specialty = trim((string) $specialty);
+
+        return $specialty !== '' && $specialty !== Specialties::ALL_DEPARTMENTS ? $specialty : (string) $type;
     }
 
     public function toCard(): array
@@ -617,6 +650,9 @@ class Consult extends Model
             // وقائع العميل كما كتبها عند الحجز — للمسعّر والمحامي (لا تُدمج في الموضوع)
             'details' => $this->details,
             'specialty' => $this->specialty ?? $this->type ?? '',
+            // خانة «التخصص» في رحلة الاستشارة: التخصّص، أو النوع حين لا تخصّص أو كان «كل الأقسام» — حكم الخادم
+            // بثابته الواحد (`Specialties::ALL_DEPARTMENTS`) لا مقارنةٌ بالنصّ في الواجهة
+            'specialtyLabel' => self::specialtyLabel($this->specialty, $this->type),
             'channel' => $this->channel,
             'lawyer' => $this->lawyer,
             /*
@@ -661,13 +697,7 @@ class Consult extends Model
             'canApproveAnalysis' => (new ApproveConsultAnalysis)->accepts((string) $this->status),
             // مرحلة دورة الحجز (التسعير ← السداد ← الموعد ← اعتماده) — مفتاحٌ ثابت تُجمَّع به شاشة
             // «طلبات الاستشارات» بدل مقارنة أربعة نصوص عربيّة؛ و`null` لما تجاوز دورة الحجز
-            'bookingStage' => match ($this->status) {
-                ConsultStatus::AwaitingPricing->value => 'pricing',
-                ConsultStatus::AwaitingPayment->value => 'payment',
-                ConsultStatus::AwaitingSchedule->value => 'scheduling',
-                ConsultStatus::AwaitingAppointmentApproval->value => 'approval',
-                default => null,
-            },
+            'bookingStage' => $this->bookingStage(),
             'clientRescheduleRequest' => $this->reschedule_requested_at === null ? null : [
                 'at' => $this->reschedule_requested_at->toIso8601String(),
                 'note' => $this->reschedule_request_note,
@@ -703,6 +733,7 @@ class Consult extends Model
                 ? $this->appointment->starts_at->locale('ar')->translatedFormat('l d F Y · h:i A')
                 : null,
             'summary' => $this->summary,
+            'summaryHtml' => $this->summary !== null ? $this->html('summary') : null,
             // الطاقم يرى النصّ قبل الاعتماد ليراجعه — ويرى **أنّه** غير معتمَد
             'summaryApproved' => $this->summaryApproved(),
             // اعتمده المحامي ويُنتظر اعتماد الإدارة (قرار المالك 2026-09-14)

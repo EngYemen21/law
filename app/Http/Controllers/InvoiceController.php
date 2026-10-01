@@ -7,11 +7,12 @@ use App\Domain\Journey\Transitions\Invoice\SubmitPaymentProof;
 use App\Domain\Journey\Workflow;
 use App\Models\Invoice;
 use App\Models\Payment;
-use App\Services\MoyasarService;
+use App\Services\Payments\GatewayCallback;
+use App\Services\Payments\PaymentGateways;
 use App\Support\Finance\ReceiptVoucherDocument;
 use App\Support\Finance\TaxInvoiceDocument;
-use App\Support\PaymentReconciler;
 use App\Support\PdfRenderer;
+use App\Support\UploadLimits;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -19,6 +20,9 @@ use Inertia\Response;
 
 class InvoiceController extends Controller
 {
+    /** دفعات الخطّة بترتيبها — قسطٌ لا يُسدَّد قبل سابقه (تدقيق الدفع C). */
+    private const EARLIER_FIRST = 'سدِّد الدفعة السابقة من الخطّة أوّلاً.';
+
     // قائمة فواتير العميل الحالي (تحسب الواجهة الإحصائيات والتقسيم)
     public function index(Request $request): Response
     {
@@ -43,13 +47,14 @@ class InvoiceController extends Controller
         // قبل تخزين الملفّ لا بعده: الرفض بعد التخزين يترك على القرص إثباتاً بلا فاتورة
         abort_if($invoice->paid, 422, SubmitPaymentProof::PAID);
         abort_if($invoice->isCancelled(), 422, SubmitPaymentProof::CANCELLED);
+        abort_if($invoice->awaitsEarlierInstallment(), 422, self::EARLIER_FIRST);
 
         // قائمة السماح نفسها المعتمدة في بقيّة الرفوعات — كان يقبل أي امتداد
-        $request->validate(['file' => ['required', 'file', 'max:2048', 'mimes:pdf,jpg,jpeg,png,doc,docx']], [ // حتى 2MB (يطابق upload_max_filesize)
+        $request->validate(['file' => ['required', 'file', UploadLimits::rule(UploadLimits::DOCUMENT_KB), 'mimes:pdf,jpg,jpeg,png,doc,docx']], [ // الحدّ يطابق upload_max_filesize — `UploadLimits::DOCUMENT_KB`
             'file.required' => 'يرجى اختيار ملف.',
             'file.file' => 'الملف غير صالح.',
             'file.mimes' => 'صيغة الملف غير مسموحة (المسموح: PDF أو صورة أو مستند Word).',
-            'file.max' => 'حجم الملف يتجاوز الحدّ المسموح (2 ميجابايت).',
+            'file.max' => 'حجم الملف يتجاوز الحدّ المسموح ('.UploadLimits::label(UploadLimits::DOCUMENT_KB).').',
         ]);
 
         $path = $request->file('file')->store("invoice-proofs/{$request->user()->id}");
@@ -59,7 +64,7 @@ class InvoiceController extends Controller
         return back()->with('success', 'تم استلام إثبات التحويل وسيُراجَع.');
     }
 
-    // دفع فاتورة حقيقي عبر بوّابة ميسّر → يعيد التوجيه لصفحة الدفع المستضافة.
+    // دفع فاتورة حقيقي عبر بوّابة الدفع → يعيد التوجيه لصفحة الدفع المستضافة.
     // التأكيد عبر webhook/callback (مصدر الحقيقة عبر PaymentReconciler) — لا دفع بلا بوّابة مهيّأة.
     public function checkout(Request $request, Invoice $invoice): \Symfony\Component\HttpFoundation\Response
     {
@@ -72,10 +77,12 @@ class InvoiceController extends Controller
         abort_if($status === null || ! $status->isPayable(), 422, $invoice->isCancelled()
             ? 'أُلغيت هذه الفاتورة ولا تُسدَّد.'
             : 'هذه الفاتورة لا تقبل السداد في حالتها الحاليّة.');
-        abort_unless(app(MoyasarService::class)->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
+        abort_if($invoice->awaitsEarlierInstallment(), 422, self::EARLIER_FIRST);
+        $gateway = app(PaymentGateways::class)->default();
+        abort_unless($gateway->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
 
         $callback = $request->getSchemeAndHttpHost().route('invoices.checkout.callback', $invoice, absolute: false);
-        $url = app(MoyasarService::class)->hostedUrlForInvoice($invoice, $callback);
+        $url = $gateway->hostedUrlForInvoice($invoice, $callback);
         if ($url === null) {
             return back()->with('error', 'تعذّر بدء الدفع حالياً، حاول بعد قليل.');
         }
@@ -83,26 +90,23 @@ class InvoiceController extends Controller
         return Inertia::location($url);
     }
 
-    // العودة من صفحة ميسّر — تحقّق خادميّ صارم (لا يُوثَق بمعطيات الـURL): يُعاد جلب الدفعة والتحقّق منها.
+    // العودة من صفحة الدفع — تحقّق خادميّ صارم (لا يُوثَق بمعطيات الـURL): يُعاد جلب الدفعة والتحقّق منها.
     public function checkoutCallback(Request $request, Invoice $invoice): RedirectResponse
     {
         abort_unless($invoice->user_id === $request->user()->id, 403);
 
-        // إن نشأت الفاتورة من استشارة مرتبطة بتذكرة، يعود العميل لدردشة التذكرة (لاختيار الموعد)؛ وإلا لصفحة الفواتير.
+        // يعود العميل إلى حيث بدأ الدفع: فاتورة استشارةٍ من تذكرة ← دردشة التذكرة (لاختيار الموعد)؛ فاتورة ملفّ
+        // تنفيذ (الدفعتان ٢ و٣ وأتعاب التحصيل تُدفع من الملفّ) ← الملفّ نفسه؛ وإلّا ← صفحة الفواتير.
         $ticket = $invoice->consult?->ticket;
-        $back = fn (): RedirectResponse => $ticket
-            ? redirect()->route('tickets.show', $ticket)
-            : redirect()->route('invoices');
+        $execution = $invoice->execution;
+        $back = fn (): RedirectResponse => match (true) {
+            $ticket !== null => redirect()->route('tickets.show', $ticket),
+            $execution !== null => redirect()->route('execs', ['id' => $execution->number]),
+            default => redirect()->route('invoices'),
+        };
 
-        $paymentId = (string) $request->query('id', '');
-        $payment = $paymentId !== '' ? app(MoyasarService::class)->fetchPayment($paymentId) : null;
-
-        $belongs = $payment !== null && (
-            ($invoice->gateway_ref !== null && (string) ($payment['invoice_id'] ?? '') === (string) $invoice->gateway_ref) ||
-            ($invoice->gateway_ref === null && (string) ($payment['metadata']['invoice_number'] ?? '') === (string) $invoice->number)
-        );
-
-        if ($belongs && PaymentReconciler::settle($payment, 'callback')) {
+        $outcome = GatewayCallback::confirm($request, Invoice::whereKey($invoice->id));
+        if ($outcome->settled()) {
             return $back()->with('success', 'تم تأكيد الدفع.');
         }
 
@@ -110,7 +114,7 @@ class InvoiceController extends Controller
             return $back()->with('success', 'تم تأكيد الدفع.');
         }
 
-        return $back()->with('error', 'تعذّر تأكيد الدفع. إن كان قد خُصم فسيُحدَّث تلقائياً، أو حاول مجدداً.');
+        return $back()->with('error', $outcome->failureMessage());
     }
 
     /**

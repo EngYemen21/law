@@ -14,6 +14,7 @@ export interface ExecutionRequestRow {
   at: string | null;
   by: string;
   reason: string;
+  amount: number | null;
 }
 
 /**
@@ -29,7 +30,7 @@ const ExecutionRequestsTable: React.FC<{ rows: ExecutionRequestRow[] }> = ({ row
       key: r.no,
       confirm: {
         title: `اعتماد طلب تنفيذ الحكم في ${r.no}؟`,
-        message: `رفعه ${r.by} — السبب: ${r.reason}`,
+        message: `رفعه ${r.by} — المبلغ المحكوم به: ${r.amount ? `${r.amount.toLocaleString('en-US')} ريال` : 'غير محدّد'} — السبب: ${r.reason}`,
         confirmLabel: 'اعتماد وفتح الملف',
         cancelLabel: 'تراجع',
       },
@@ -71,7 +72,7 @@ const ExecutionRequestsTable: React.FC<{ rows: ExecutionRequestRow[] }> = ({ row
           <table className="tbl" style={{ width: '100%', minWidth: 820 }}>
             <thead>
               <tr>
-                <th>القضية</th><th>العميل</th><th>المحامي</th><th>رفعه</th><th>السبب</th><th>منذ</th><th style={{ textAlign: 'center' }}>الإجراء</th>
+                <th>القضية</th><th>العميل</th><th>المحامي</th><th>رفعه</th><th>المبلغ</th><th>السبب</th><th>منذ</th><th style={{ textAlign: 'center' }}>الإجراء</th>
               </tr>
             </thead>
             <tbody>
@@ -81,6 +82,7 @@ const ExecutionRequestsTable: React.FC<{ rows: ExecutionRequestRow[] }> = ({ row
                   <td>{r.client}</td>
                   <td>{r.lawyer}</td>
                   <td><b>{r.by}</b></td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{r.amount ? `${r.amount.toLocaleString('en-US')} ريال` : '—'}</td>
                   <td style={{ maxWidth: 280, whiteSpace: 'pre-line' }}>{r.reason}</td>
                   <td className="muted">{r.at ?? '—'}</td>
                   <td>

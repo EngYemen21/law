@@ -5,12 +5,13 @@ import Badge from '@/components/babylon/Badge';
 import { useConfirm } from '@/components/babylon/ConfirmDialog';
 import { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
+import RichTextEditor, { htmlToText } from '@/components/babylon/RichTextEditor';
 import { useToast } from '@/components/babylon/Toast';
 // اسم العميل صريحٌ في لوحات الطاقم (قرار المالك 2026-09-11) — `maskClient` صارت تمريراً.
 import { stageChanged, staffPatch } from '@/lib/consult-live';
 import { maskClient } from '@/lib/employee-data';
 import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-reschedule';
-import { CONFIRM_END_CONSULT, CONFIRM_NO_SHOW, CONFIRM_START_CONSULT, RichText, SummaryStateBadge } from '@/lib/consult-ui';
+import { CONFIRM_END_CONSULT, CONFIRM_NO_SHOW, CONFIRM_START_CONSULT, ConsultSummaryText, RichText, SummaryStateBadge } from '@/lib/consult-ui';
 import type { ConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import {
@@ -19,6 +20,8 @@ import {
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+import { firstError } from '@/lib/server-message';
+import { useJoinOpensText, useStaffStartText } from '@/lib/settings';
 import { useServerAction } from '@/lib/use-server-action';
 
 export type LawyerKanbanCol = 'waiting' | 'live' | 'drafting' | 'completed';
@@ -64,6 +67,8 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
 }) => {
   const ask = useConfirm();
   const reschedule = useConsultReschedule('/lawyer');
+  const joinOpens = useJoinOpensText();
+  const staffStart = useStaffStartText();
   const toast = useToast();
 
   // ── الحالة الأساسية ومزامنة البيانات ──
@@ -146,7 +151,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
       // كان يقرأ `notes` ولا تُرسلها البطاقة، فيفتح المحامي الدرج فيرى حقلاً فارغاً
       // وتدوينُه محفوظ — فيظنّه ضائعاً أو يكتب فوقه.
       setSessionNotes(drawerConsult.sessionNotes || '');
-      setClientReport(drawerConsult.summary || '');
+      setClientReport(drawerConsult.summaryHtml || '');
     }
   }, [drawerConsult]);
 
@@ -220,7 +225,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
   // ── الإجراءات الميدانية للمحامي ──
 
   // بدء الجلسة
-  // رسالة الخادم لا نصّ ثابت: «فات الموعد» و«قبل الموعد بربع ساعة» سببان مختلفان
+  // رسالة الخادم لا نصّ ثابت: «فات الموعد» و«خارج نافذة البدء» سببان مختلفان
   const handleStart = (consult: ConsultCard) =>
     action.run(`/lawyer/consults/${consult.id}/start`, {
       confirm: CONFIRM_START_CONSULT,
@@ -254,7 +259,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
 
   // حفظ مسودة التقرير النهائي للعميل
   const handleSaveReport = (consult: ConsultCard) => {
-    if (!clientReport.trim()) {
+    if (!htmlToText(clientReport)) {
       toast('يرجى كتابة نص التقرير أو الرأي القانوني');
       return;
     }
@@ -262,7 +267,8 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
     setIsProcessing(true);
     router.post(
       `/lawyer/consults/${consult.id}/summary`,
-      { summary: clientReport.trim() },
+      // المنسّق يُرسل، والخادم يشتقّ منه النصّ (`HasRichText::editableInput`)
+      { summary_html: clientReport },
       {
         preserveScroll: true,
         onSuccess: () => {
@@ -270,7 +276,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
           // لا قيد له في `ai_runs` فلا يبلغ الصندوق قطّ. الوعد كان يُخفي الحجب.
           toast('حُفظت المسودّة — لم تصل الموكّل بعد؛ الإرسال يقع بالاعتماد');
         },
-        onError: (e) => toast(e.message || Object.values(e)[0] || 'تعذر حفظ التقرير'),
+        onError: (e) => toast(firstError(e, 'تعذر حفظ التقرير')),
         onFinish: () => setIsProcessing(false),
       }
     );
@@ -285,7 +291,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
      * والمحرّر قد يحمل تحريراً لم يُحفظ — فمن يُحرّر ثمّ يضغط «اعتماد» يُرسل إلى
      * الموكّل النصّ **القديم** وهو يقرأ الجديد على الشاشة. فيُنبَّه صراحةً.
      */
-    const unsaved = clientReport.trim() !== (consult.summary ?? '').trim();
+    const unsaved = clientReport !== (consult.summaryHtml ?? '');
 
     if (unsaved) {
       toast('لديك تحريرٌ لم يُحفظ — احفظ المسودّة أوّلاً، فالاعتماد يُرسل النصّ المحفوظ');
@@ -308,7 +314,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
     router.post(`/lawyer/consults/${consult.id}/summary/approve`, {}, {
       preserveScroll: true,
       onSuccess: () => toast('اعتُمد الملخّص ورُفع للإدارة لاعتماده النهائيّ'),
-      onError: (errors) => toast(Object.values(errors)[0] || 'تعذّر اعتماد الملخّص'),
+      onError: (errors) => toast(firstError(errors, 'تعذّر اعتماد الملخّص')),
       onFinish: () => setIsProcessing(false),
     });
   };
@@ -327,7 +333,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
       {
         preserveScroll: true,
         onSuccess: () => toast('تم تحويل قرارات الجلسة إلى مهام عمل تنفيذية بنجاح'),
-        onError: (e) => toast(e.message || Object.values(e)[0] || 'تعذر تحويل القرارات إلى مهام'),
+        onError: (e) => toast(firstError(e, 'تعذر تحويل القرارات إلى مهام')),
         onFinish: () => setIsProcessing(false),
       }
     );
@@ -961,7 +967,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
                           {drawerConsult.canJoin === false ? (
                             <p className="action-hint" style={{ margin: 0 }}>
-                              <Icon name="info" /> يُفتح رابط الغرفة قبل الموعد بخمس دقائق.
+                              <Icon name="info" /> يُفتح رابط الغرفة قبل الموعد بـ{joinOpens}.
                             </p>
                           ) : (
                             <Link href={drawerConsult.slink} className="btn primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -982,7 +988,7 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                             type="button"
                             className="btn primary sm"
                             disabled={isProcessing || drawerConsult.startable === false}
-                            title={drawerConsult.startable === false ? 'خارج نافذة البدء (ربع ساعة قبل الموعد)' : undefined}
+                            title={drawerConsult.startable === false ? `خارج نافذة البدء (${staffStart} قبل الموعد)` : undefined}
                             onClick={() => handleStart(drawerConsult)}
                           >
                             <Icon name="check" /> بدء الجلسة الآن
@@ -1100,18 +1106,13 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         ووصل العميل»، والفقرة أعلاه تقول إنّه المعتمَد ثمّ تدعو لحفظه.
                       */}
                       {mayEditSummary && ! drawerConsult.summaryApproved ? (
-                        <textarea
-                          rows={10}
+                        <RichTextEditor
                           value={clientReport}
-                          onChange={(e) => setClientReport(e.target.value)}
+                          onChange={setClientReport}
                           placeholder="اكتب هنا التكييف النظامي، الرأي القانوني المعتمد، والتوصيات للموكل..."
-                          className="emp-search-input"
-                          style={{ width: '100%', lineHeight: 1.8, fontSize: 13.5, resize: 'vertical' }}
                         />
                       ) : (
-                        <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, fontSize: 13.5 }}>
-                          <RichText text={drawerConsult.summary} fallback="— لا مسودّة بعد —" />
-                        </div>
+                        <ConsultSummaryText consult={drawerConsult} fallback="— لا مسودّة بعد —" />
                       )}
 
                       <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>

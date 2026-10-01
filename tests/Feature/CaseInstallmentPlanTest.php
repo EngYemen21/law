@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\Payment;
 use App\Models\User;
+use App\Services\Payments\MoyasarGateway;
 use App\Support\PaymentReconciler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -104,10 +105,10 @@ class CaseInstallmentPlanTest extends TestCase
 
         $first = Invoice::where('case_id', $case->id)->orderBy('id')->first();
 
-        PaymentReconciler::settle([
+        PaymentReconciler::settle(MoyasarGateway::toGatewayPayment([
             'id' => 'pay_i1', 'status' => 'paid', 'amount' => $first->amount * 100, 'currency' => 'SAR',
             'metadata' => ['invoice_number' => $first->number],
-        ], 'webhook');
+        ]), 'webhook');
 
         $case->refresh();
         $this->assertSame('قيد التحضير', $case->status, 'لم تُفعَّل القضية بعد سداد الدفعة الأولى.');
@@ -124,10 +125,10 @@ class CaseInstallmentPlanTest extends TestCase
         $this->actingAs($client)->post(route('cases.pay', $case), ['plan' => 'install']);
 
         foreach (Invoice::where('case_id', $case->id)->orderBy('id')->get() as $i => $invoice) {
-            PaymentReconciler::settle([
+            PaymentReconciler::settle(MoyasarGateway::toGatewayPayment([
                 'id' => 'pay_x'.$i, 'status' => 'paid', 'amount' => $invoice->amount * 100, 'currency' => 'SAR',
                 'metadata' => ['invoice_number' => $invoice->number],
-            ], 'webhook');
+            ]), 'webhook');
         }
 
         $case->refresh();

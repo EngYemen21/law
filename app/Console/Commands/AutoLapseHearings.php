@@ -6,6 +6,7 @@ use App\Domain\Journey\Enums\HearingStatus;
 use App\Models\CaseHearing;
 use App\Support\EventStatus;
 use App\Support\Notify;
+use App\Support\SettingsRegistry;
 use Illuminate\Console\Command;
 
 /**
@@ -25,7 +26,7 @@ class AutoLapseHearings extends Command
         $lapsed = CaseHearing::with('legalCase')
             ->where('status', HearingStatus::Scheduled->value)
             ->whereNotNull('starts_at')
-            ->where('starts_at', '<=', now()->subDay())
+            ->where('starts_at', '<=', now()->subMinutes(SettingsRegistry::int('hearing_lapse_after_minutes')))
             ->get();
 
         foreach ($lapsed as $hearing) {

@@ -84,7 +84,7 @@ class TimelineCard
             'day' => $c['when'], 'time' => null, 'where' => $c['place'],
             'status' => $status, 'statusTone' => EventStatus::toneForConsult($co),
             'when' => ($co->starts_at && $co->starts_at->isFuture()) ? 'up' : 'past',
-            // canJoin من البانِي: الرابط لا يُعرض قبل إطلاقه (‏5 دقائق قبل الموعد)
+            // canJoin من البانِي: الرابط لا يُعرض قبل إطلاقه (قبل الموعد بـ`session_join_opens_minutes`)
             'joinLink' => $c['canJoin'] ? $c['slink'] : '',
         ];
     }

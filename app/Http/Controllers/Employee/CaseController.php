@@ -19,6 +19,7 @@ use App\Support\ConversationHandler;
 use App\Support\ExecutionCreation;
 use App\Support\Notify;
 use App\Support\Permissions;
+use App\Support\UploadLimits;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -156,11 +157,16 @@ class CaseController extends Controller
                 // بيانات الرفع والقيد في ناجز — يسجّلها الموظّف كالمحامي (قرار المالك 2026-09-11)
                 'najiz' => $case->najizCard(),
                 'appeal' => $case->appealCard(),
+                // منطوق الحكم — بطاقته تعرضه وتصحّحه (نظير صفحة المحامي)؛ كان غائباً فتختفي البطاقة بعد صدور الحكم
+                // عن موظّفٍ يملك «تسجيل الأحكام» (ثبت في المتصفّح 2026-09-30)
+                'ruling' => $case->ruling,
             ],
             'canCourt' => $canCourt,
             // فتح تنفيذ الحكم بطلبٍ تعتمده الإدارة العليا (قرار المالك 2026-09-29)
             'executionRequest' => CaseExecutionRequest::pending($case),
             'canRequestExecution' => ExecutionCreation::isEligible($case) && $case->execution_requested_at === null,
+            // المبلغ المحكوم به يُقترح من مبلغ المطالبة في التذكرة — ويؤكّده رافع الطلب أو يصحّحه
+            'executionAmountHint' => $case->ticketClaimAmount(),
             'convertedExec' => $case->execution()->exists(),
             // الحكم وتصحيحه وحكم الاستئناف — تُخفى نماذجها عمّن يصدّه `guardRulingAccess`
             'canRule' => $canCourt && (bool) auth()->user()?->can(Permissions::RECORD_RULINGS),
@@ -184,7 +190,7 @@ class CaseController extends Controller
         abort_if($case->status === CaseStatus::Archived->value, 422, 'لا يمكن إرفاق مستندات على قضية مؤرشفة.');
 
         $data = $request->validate([
-            'file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx'],
+            'file' => ['required', 'file', UploadLimits::rule(UploadLimits::ATTACHMENT_KB), 'mimes:pdf,jpg,jpeg,png,doc,docx'],
             'hearing_id' => ['nullable', 'integer', 'exists:case_hearings,id'],
         ]);
 
@@ -224,9 +230,12 @@ class CaseController extends Controller
     /** رفع طلب فتح تنفيذ الحكم للإدارة العليا (قرار المالك 2026-09-29) — كالمحامي المسنَد. */
     public function requestExecution(Request $request, LegalCase $case): RedirectResponse
     {
-        $data = $request->validate(['reason' => ['required', 'string', 'max:1000']]);
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:1000'],
+            'amount' => ['required', 'integer', 'min:1'],
+        ], ['amount.*' => 'أدخل المبلغ المحكوم به (ريال) — رقماً صحيحاً أكبر من صفر.']);
 
-        CaseExecutionRequest::request($case, $request->user(), $data['reason']);
+        CaseExecutionRequest::request($case, $request->user(), $data['reason'], (int) $data['amount']);
 
         return back()->with('flash', 'رُفع طلب فتح التنفيذ للإدارة العليا — يُفتح الملفّ فور اعتماده.');
     }

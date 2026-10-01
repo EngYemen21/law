@@ -9,6 +9,7 @@ import { echo } from '@/lib/echo';
 import { crChannelIcon, crChannelTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { arabicCount, NOUN } from '@/lib/arabic-count';
+import { firstError, serverMessage } from '@/lib/server-message';
 
 // ============================================================
 // بوابة حجز الاستشارات القانونية 360 درجة (360° Consultations Booking Command Center)
@@ -123,7 +124,7 @@ const Book: React.FC<Props> = ({
           toast(`تم إرسال طلب استشارة التذكرة ${linked.number} — بانتظار تسعير المكتب، وبعد السداد يحدّد المكتب الموعد ويُبلغك به.`);
           router.visit('/myconsults');
         })
-        .catch((e) => toast(e?.response?.data?.errors?.type?.[0] ?? e?.response?.data?.message ?? 'تعذّر إرسال الطلب', 'error'))
+        .catch((e) => toast(serverMessage(e, 'تعذّر إرسال الطلب'), 'error'))
         .finally(() => setBusy(false));
 
       return;
@@ -152,7 +153,7 @@ const Book: React.FC<Props> = ({
       {
         onFinish: () => setBusy(false),
         // رسالة النجاح من الخادم (flash) — لا ثانيةَ هنا
-        onError: (e) => toast(e.type || e.specialty || e.subject || e.details || e.message || 'تعذّر إرسال الطلب', 'error'),
+        onError: (e) => toast(firstError(e, 'تعذّر إرسال الطلب'), 'error'),
       }
     );
   };

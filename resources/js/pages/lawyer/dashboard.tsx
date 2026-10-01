@@ -9,6 +9,7 @@ import type { ConsultCard } from '@/lib/consult-ui';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+import { firstError } from '@/lib/server-message';
 import type { EmployeeTicketCard } from '@/types';
 
 // ============================================================
@@ -310,7 +311,7 @@ return tasks;
           setTaskDue('');
           toast('✅ تمت إضافة المهمة القانونية بنجاح');
         },
-        onError: (e) => toast(e.message || Object.values(e)[0] || '⚠️ تعذّرت إضافة المهمة، يرجى المحاولة لاحقاً'),
+        onError: (e) => toast(firstError(e, '⚠️ تعذّرت إضافة المهمة، يرجى المحاولة لاحقاً')),
         onFinish: () => setTaskBusy(false),
       }
     );

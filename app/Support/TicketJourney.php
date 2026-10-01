@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Models\Ticket;
 
 /**
@@ -138,7 +139,20 @@ class TicketJourney
             return 'تُطلب الاستشارة بعد اعتماد الرأي القانوني المبدئيّ للملفّ.';
         }
 
-        return $ticket->summary?->isApproved() ? null : 'تُطلب الاستشارة بعد اعتماد الإدارة لملخّص الملفّ.';
+        // الملخّص المعتمد، أو **قرار الإدارة العليا بمسار الاستشارة** — والقرار قد يُتّخذ بتجاوز الملخّص
+        // المسبَّب (`OutcomeSummaryGate`) فلا ملخّص معتمداً؛ كان الحارس يردّه فيعلق العميل بعد إشعاره
+        // «يمكنك الآن حجز الموعد» (ثبت في المتصفّح، قرار المالك 2026-09-30)
+        if ($ticket->summary?->isApproved() || self::consultationTrackApproved($ticket)) {
+            return null;
+        }
+
+        return 'تُطلب الاستشارة بعد اعتماد الإدارة لملخّص الملفّ.';
+    }
+
+    /** اعتمدت الإدارة العليا مسار «طلب استشارة قانونية» لهذه التذكرة (`ApproveOutcomeTrack`). */
+    private static function consultationTrackApproved(Ticket $ticket): bool
+    {
+        return $ticket->approved_track === TicketOutcomeTrack::Consultation->value && $ticket->approved_track_at !== null;
     }
 
     // فهرس المرحلة الحالية من الحالة

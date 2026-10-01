@@ -29,6 +29,9 @@ use Spatie\Permission\PermissionRegistrar;
  */
 class AuthController extends Controller
 {
+    /** نافذة اختيار الحساب بعد نجاح الرمز (هويّةٌ لها أكثر من حساب) — ليست صلاحيّة رمز، فلا تتبع `otp_ttl_minutes`. */
+    private const ACCOUNT_CHOICE_MINUTES = 10;
+
     // صفحة تسجيل الدخول — تعرض خطوة إدخال الرمز إن كانت هناك عمليّة تحقّق فعّالة في الجلسة
     public function show(Request $request): Response
     {
@@ -133,7 +136,7 @@ class AuthController extends Controller
             'national_id' => $nid,
             'phone' => $phone,
             'ids' => $accounts->pluck('id')->all(),
-            'expires_at' => now()->addMinutes(10)->toIso8601String(),
+            'expires_at' => now()->addMinutes(self::ACCOUNT_CHOICE_MINUTES)->toIso8601String(),
         ]);
 
         return redirect()->route('login');
@@ -428,6 +431,14 @@ class AuthController extends Controller
             ]);
         }
 
+        // **انتهت صلاحيّة الرمز** (`otp_ttl_minutes`) — «تقنيات» لا تقبل مدّةً نضبطها، فالحدّ هنا من وقت الإرسال.
+        // حمولةٌ بلا `expires_at` (جلسةٌ سبقت النشر) تُقبل كما كانت.
+        if (! empty($otp['expires_at']) && Carbon::parse($otp['expires_at'])->isPast()) {
+            throw ValidationException::withMessages([
+                'code' => 'انتهت صلاحية الرمز — اطلب رمزاً جديداً.',
+            ]);
+        }
+
         // عمليّة هويّةٍ بلا حسابٍ صالح (decoy) لا تنجح أبداً — وتمرّ بعدّاد المحاولات والرسالة نفسيهما
         if (empty($otp['decoy']) && app(OtpService::class)->verify($otp['requestId'], (string) $otp['phone'], $code)) {
             return;
@@ -463,6 +474,7 @@ class AuthController extends Controller
             'mode' => $purpose,
             'attempts' => 0,
             'issues' => $issues,
+            'expires_at' => OtpService::expiresAt(),
         ];
     }
 
@@ -493,6 +505,7 @@ class AuthController extends Controller
             'mode' => 'login',
             'attempts' => 0,
             'issues' => $issues,
+            'expires_at' => OtpService::expiresAt(),
             'decoy' => true,
         ];
     }

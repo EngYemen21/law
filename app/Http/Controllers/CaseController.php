@@ -8,13 +8,14 @@ use App\Models\CaseMessage;
 use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Services\LegalAiService;
-use App\Services\MoyasarService;
+use App\Services\Payments\GatewayCallback;
+use App\Services\Payments\PaymentGateways;
 use App\Support\CaseFee;
 use App\Support\CaseJourney;
 use App\Support\CaseTicketDocuments;
 use App\Support\ConversationFiles;
 use App\Support\LawyerName;
-use App\Support\PaymentReconciler;
+use App\Support\UploadLimits;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -115,7 +116,7 @@ class CaseController extends Controller
         $this->authorizeCase($request, $case);
         abort_if(! $case->isActive(), 422, 'لا يمكن إرفاق مستندات على قضية مغلقة أو مؤرشفة.');
 
-        $request->validate(['file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,doc,docx']]); // حتى 10MB
+        $request->validate(['file' => ['required', 'file', UploadLimits::rule(UploadLimits::ATTACHMENT_KB), 'mimes:pdf,jpg,jpeg,png,doc,docx']]);
 
         $file = $request->file('file');
         $name = $file->getClientOriginalName();
@@ -173,7 +174,7 @@ class CaseController extends Controller
         return response()->noContent();
     }
 
-    // سداد أتعاب القضية → تفعيلها. السداد الكامل عبر بوّابة ميسّر (503 إن غابت)؛ الأقساط ميزة مستقلّة.
+    // سداد أتعاب القضية → تفعيلها. السداد الكامل عبر بوّابة الدفع (503 إن غابت)؛ الأقساط ميزة مستقلّة.
     public function pay(Request $request, LegalCase $case): \Symfony\Component\HttpFoundation\Response
     {
         $this->authorizeCase($request, $case);
@@ -183,7 +184,7 @@ class CaseController extends Controller
 
         // كلا الخطّتين تمرّان بالبوّابة. كان التقسيط «ميزة مستقلّة» تُفعّل القضية بنقرة
         // وتكتب «تم استلام الدفعة الأولى» بلا بوّابة ولا فاتورة ولا صفّ دفع.
-        abort_unless(app(MoyasarService::class)->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
+        abort_unless(app(PaymentGateways::class)->default()->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
 
         // فتح الخطّة يُعيد هيكلة الفاتورة إلى دفعات حقيقية — بلا تفعيل: التفعيل بالسداد
         if ($plan === 'install' && CaseFee::openInstallmentPlan($case) === null) {
@@ -199,39 +200,42 @@ class CaseController extends Controller
         return Inertia::location($url);
     }
 
-    // العودة من صفحة ميسّر (سداد الأتعاب) — تحقّق خادميّ صارم ثم تسوية الفاتورة وتفعيل القضية.
+    // العودة من صفحة الدفع (سداد الأتعاب) — تحقّق خادميّ صارم ثم تسوية الفاتورة وتفعيل القضية.
     public function payCallback(Request $request, LegalCase $case): RedirectResponse
     {
         $this->authorizeCase($request, $case);
-
-        $paymentId = (string) $request->query('id', '');
-        $payment = $paymentId !== '' ? app(MoyasarService::class)->fetchPayment($paymentId) : null;
 
         // اربط الدفعة بفاتورة هذه القضية تحديدًا (لا تسوية دفعة تخصّ فاتورة أخرى).
         // **والمطابقة بأيّ فاتورةٍ لهذه القضيّة لا بأحدثها**: بعد فتح خطّة التقسيط صارت
         // للقضيّة ثلاث فواتير، فيعود العميل من سداد الدفعة الأولى ومرجعُ البوّابة على
         // فاتورتها بينما `latest('id')` هي الثالثة — فلا يُطابَق، ويُقال له «تعذّر تأكيد
         // الدفع» على مالٍ خُصم فعلاً.
-        $gatewayRef = (string) ($payment['invoice_id'] ?? '');
-        $belongs = $payment !== null && $gatewayRef !== ''
-            && Invoice::where('case_id', $case->id)->where('gateway_ref', $gatewayRef)->exists();
+        $outcome = GatewayCallback::confirm($request, Invoice::where('case_id', $case->id));
+        if ($outcome->settled()) {
+            // الرسالة تصف ما وقع: سدادٌ كامل، أو دفعةٌ من الخطّة (كانت «تم تأكيد سداد الأتعاب» على الدفعة 1 من 3)
+            $case->refresh();
+            $message = $case->fee_status === 'paid'
+                ? 'تم تأكيد سداد الأتعاب وتفعيل القضية.'
+                : "تم تأكيد سداد الدفعة {$case->installments_paid} من {$case->installments_total}".($case->installments_paid === 1 ? ' وتفعيل القضية.' : '.');
 
-        if ($belongs && PaymentReconciler::settle($payment, 'callback')) {
-            return redirect()->route('cases.show', $case)->with('success', 'تم تأكيد سداد الأتعاب وتفعيل القضية.');
+            return redirect()->route('cases.show', $case)->with('success', $message);
         }
 
-        return redirect()->route('cases.show', $case)->with('error', 'تعذّر تأكيد الدفع. إن كان قد خُصم فسيُحدَّث تلقائياً، أو حاول مجدداً.');
+        return redirect()->route('cases.show', $case)->with('error', $outcome->failureMessage());
     }
 
     // سداد دفعة تالية من الأقساط
-    public function payInstallment(Request $request, LegalCase $case): RedirectResponse
+    // `Inertia::location` يردّ 409 لطلب Inertia (المتصفّح) لا تحويلاً — فالنوع `Response` كأخواتها. كان `RedirectResponse`
+    // فيسقط كلّ نقرٍ على «سداد الدفعة التالية» بخطأ 500 بعد إنشاء فاتورة البوّابة (ثبت في اختبار المتصفّح 2026-09-30).
+    public function payInstallment(Request $request, LegalCase $case): \Symfony\Component\HttpFoundation\Response
     {
         $this->authorizeCase($request, $case);
         abort_unless($case->fee_status === 'installments', 422, 'أتعاب هذه القضية ليست مقسّطة، أو سُدّدت أقساطها كاملة.');
 
         // كان هذا الزرّ يزيد العدّاد ويكتب «تم استلام الدفعة» بلا أي سداد. الآن يبدأ دفعة
         // حقيقية على فاتورة القسط المستحقّ، والتقدّم يقع في PaymentReconciler عند التسوية.
-        abort_unless(app(MoyasarService::class)->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
+        $gateway = app(PaymentGateways::class)->default();
+        abort_unless($gateway->isConfigured(), 503, 'بوّابة الدفع غير مهيّأة.');
 
         $next = CaseFee::nextInstallment($case);
         if ($next === null) {
@@ -239,7 +243,7 @@ class CaseController extends Controller
         }
 
         $callback = $request->getSchemeAndHttpHost().route('cases.pay.callback', $case, absolute: false);
-        $url = app(MoyasarService::class)->hostedUrlForInvoice($next, $callback);
+        $url = $gateway->hostedUrlForInvoice($next, $callback);
 
         if ($url === null) {
             return back()->with('error', 'تعذّر بدء الدفع حالياً، حاول بعد قليل.');

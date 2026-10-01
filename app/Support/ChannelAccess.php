@@ -72,6 +72,12 @@ class ChannelAccess
      */
     public static function roomStaff(User $user, object $model): bool
     {
+        // غرفة الاجتماع لموظّفٍ ذي صلة وحده (`Meeting::employeeCanAct`، قرار المالك 2026-10-01) — الاطّلاع
+        // على الاجتماع وبثّ حالته (`staffCanSee`) باقيان للجميع، أمّا دخول الغرفة فلا.
+        if ($model instanceof Meeting && $user->role === Role::Employee) {
+            return self::staffCanSee($user, $model) && $model->employeeCanAct($user);
+        }
+
         return self::staffCanSee($user, $model)
             || ($model instanceof Consult && $user->role === Role::Employee && $user->can(Permissions::RUN_VIDEO_SESSIONS));
     }

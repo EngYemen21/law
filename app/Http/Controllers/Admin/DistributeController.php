@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Domain\Journey\Enums\ExecutionDecision;
 use App\Domain\Journey\Transitions\Consult\ReferConsult;
 use App\Domain\Journey\Workflow;
 use App\Enums\Role;
@@ -139,7 +140,7 @@ class DistributeController extends Controller
         $executions = Execution::with(['user', 'assignedLawyer'])
             ->whereNotIn('status', Execution::CLOSED_STATUSES)
             ->where(function ($q) {
-                $q->whereNull('decision')->orWhere('decision', '!=', 'مرفوض');
+                $q->whereNull('decision')->orWhere('decision', '!=', ExecutionDecision::Rejected->value);
             })
             ->latest('id')
             ->get()
@@ -350,13 +351,13 @@ class DistributeController extends Controller
     /** إسناد تذكرة — المصدر الواحد للإسناد الفرديّ والجماعيّ. يرمي 422 برسالةٍ مقروءة إن رُفض. */
     private function assignTicketTo(Ticket $ticket, User $lawyer, User $actor): string
     {
-        abort_if($ticket->is_frozen, 422, 'التذكرة مجمّدة لاعتماد مسارها النهائي — لا يُعاد إسنادها.');
-        abort_if($ticket->isTerminal(), 422, 'التذكرة مغلقة — لا يُعاد إسنادها.');
+        TicketAssignment::assertReassignable($ticket);
 
         // الإسناد وقفزة «محالة» من مصدرٍ واحد مع الإسناد الآليّ، والقفزة بالمحرّك باسم الإداريّ
         TicketAssignment::write($ticket, $lawyer->id, $lawyer->name, $actor);
         TicketAssignment::syncRelatedConsults($ticket->fresh());
         Live::push(new TicketStatusBroadcast($ticket));
+        TicketAssignment::notifyAssigned($ticket, $lawyer, $actor);
 
         $ticket->messages()->create([
             'who' => 'note', 'name' => $actor->name, 'role' => 'توزيع',

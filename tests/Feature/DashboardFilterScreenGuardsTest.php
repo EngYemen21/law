@@ -69,13 +69,15 @@ class DashboardFilterScreenGuardsTest extends TestCase
         $this->assertStringContainsString('selectedAppt.consultId && selectedAppt.status !== APPT_PENDING', $code);
     }
 
-    /** (٤) عدّاد «بانتظار الاعتماد» في صفحة الاجتماعات يطابق عدّاد اللوحة (المنتهية وحدها). */
+    /** (٤) عدّاد «بانتظار الاعتماد» في صفحة الاجتماعات يطابق عدّاد اللوحة (ما يُعتمد فعلاً). */
     public function test_admin_meetings_pending_count_matches_the_dashboard(): void
     {
         $code = $this->screen('pages/admin/meetings.tsx');
 
-        // المفتاح من الخادم (`statusKey`/`approved` — 2026-09-26) لا مقارنة النصّ العربيّ؛ والشرط نفسه: المنتهية غير المعتمدة
-        $this->assertStringContainsString("!m.approved && m.statusKey === 'ended'", $code);
+        // حكم الخادم نفسه (`canApprove` ← `Meeting::approvalBlocker`) الذي يعدّه رادار اللوحة
+        // (`Meeting::awaitingApprovalCount`) — لا «منتهٍ غير معتمد» ومنه ما لا مخرجات له (قرار المالك 2026-10-01)
+        $this->assertStringContainsString('meetings.filter((m) => m.canApprove).length', $code);
+        $this->assertStringNotContainsString("!m.approved && m.statusKey === 'ended'", $code);
     }
 
     /** (٥) ملخّصٌ رفعه المحامي للإدارة له تسميةٌ وخيار مرشّح عنده. */

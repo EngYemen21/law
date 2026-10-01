@@ -1,5 +1,7 @@
 <?php
 
+use App\Services\Payments\MoyasarGateway;
+
 return [
 
     /*
@@ -106,7 +108,16 @@ return [
         'webhook_secret' => env('ZOOM_WEBHOOK_SECRET'),
     ],
 
-    // بوّابة الدفع Moyasar (ميسّر) — نظام الفواتير المستضاف. بلا مفاتيح يبقى الدفع محاكى.
+    // بوّابات الدفع المسجّلة (الاسم ← الصنف المطبّق لـApp\Services\Payments\PaymentGateway) والافتراضيّة
+    // التي تُنشأ بها روابط الدفع. إضافة بوّابة = صنفٌ + سطرٌ هنا + مفاتيحها في كتلتها أدناه.
+    'payments' => [
+        'default' => env('PAYMENT_GATEWAY', 'moyasar'),
+        'gateways' => [
+            'moyasar' => MoyasarGateway::class,
+        ],
+    ],
+
+    // بوّابة الدفع Moyasar (ميسّر) — نظام الفواتير المستضاف. بلا مفتاح سرّيّ لا دفع (503).
     // وضع test/live يُحدَّد ببادئة المفتاح نفسه (sk_test_/sk_live_) — طابِق المفاتيح مع بيئتك.
     'moyasar' => [
         // خادميّ فقط — لا يُسرَّب في props/الواجهة/الـLogs

@@ -77,7 +77,7 @@ class AnalyzeExecutionJob implements ShouldQueue
         // **والمرفوض مثله** — و`isClosed` لا يلتقطه: `reject` يكتب القرار ولا ينقل المرحلة
         // (المرفوض ليس مؤرشفاً)، فكان الطابور يعيد دراسته ويصل العميلَ إشعار «طلبك قيد
         // الدراسة» بعد أن بلغه بريدُ الرفض. والخروج صامتٌ لا استثناء: هذا مسار طابورٍ لا نداء.
-        if ($exec === null || $exec->ai_done || $exec->isClosed() || $exec->decision === 'مرفوض'
+        if ($exec === null || $exec->ai_done || $exec->isClosed() || $exec->isRejectedAfterStudy()
             || (int) $exec->ai_attempts >= self::MAX_ATTEMPTS) {
             return;
         }

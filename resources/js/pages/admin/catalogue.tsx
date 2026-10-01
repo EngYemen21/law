@@ -6,6 +6,7 @@ import Modal from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { firstError } from '@/lib/server-message';
 
 // «الأقسام والخدمات» — كتالوج الأقسام القانونيّة وخدماتها، والأقسام الإداريّة للموظّفين.
 // كلّ ما هنا يكتبه الخادم عبر LegalCatalogueEditor: إعادة التسمية تظهر في التذاكر والقضايا القديمة
@@ -125,7 +126,7 @@ const AdminCatalogue: React.FC<Props> = ({ departments, staffDepartments, defaul
       },
       onError: (errs: Errors) => {
         setErrors({ form, errs });
-        toast('⚠️ ' + (Object.values(errs)[0] ?? 'تعذّر الحفظ'), 'error');
+        toast('⚠️ ' + firstError(errs, 'تعذّر الحفظ'), 'error');
       },
       onFinish: () => setBusy(false),
     };

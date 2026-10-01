@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\ExecutionDocumentStatus;
+use App\Domain\Journey\Enums\ExecutionOfferStatus;
 use App\Domain\Journey\Transitions\Execution\ApplyExecutionAnalysis;
 use App\Domain\Journey\Transitions\Execution\ApplyExecutionMeasures;
 use App\Domain\Journey\Transitions\Execution\ApproveExecutionFee;
@@ -13,6 +15,7 @@ use App\Domain\Journey\Transitions\Execution\RecordExecutionCollection;
 use App\Domain\Journey\Transitions\Execution\ReferExecution;
 use App\Domain\Journey\Transitions\Execution\RegisterExecutionNajiz;
 use App\Domain\Journey\Transitions\Execution\RejectExecutionOffer;
+use App\Domain\Journey\Transitions\Execution\SetExecutionClaimAmount;
 use App\Domain\Journey\Transitions\Execution\SetExecutionFee;
 use App\Domain\Journey\Transitions\Execution\StudyExecution;
 use App\Domain\Journey\Workflow;
@@ -22,11 +25,10 @@ use App\Events\ExecStatusBroadcast;
 use App\Jobs\AnalyzeExecutionJob;
 use App\Mail\ExecutionEventMail;
 use App\Models\Execution;
-use App\Models\Setting;
 use App\Models\User;
 use App\Services\Ai\AiRunLogger;
 use App\Services\MailService;
-use App\Services\MoyasarService;
+use App\Services\Payments\PaymentGateways;
 use Carbon\Carbon;
 use Illuminate\Validation\ValidationException;
 
@@ -274,7 +276,7 @@ class ExecService
             return [];
         }
 
-        return in_array($exec->offer_status, ['مرفوض', 'استفسار'], true) || $exec->effectiveStage() === 6
+        return in_array($exec->offer_status, [ExecutionOfferStatus::Rejected->value, ExecutionOfferStatus::Inquiry->value], true) || $exec->effectiveStage() === 6
             ? [2, 3, 4, 5, 6]
             : [2, 3, 4];
     }
@@ -291,7 +293,7 @@ class ExecService
      */
     private static function guardNotRejected(Execution $exec, string $message = 'هذا الطلب مرفوض بعد الدراسة — لا يُسعَّر ولا يُعرَض.'): void
     {
-        abort_if($exec->decision === 'مرفوض', 422, $message);
+        abort_if($exec->isRejectedAfterStudy(), 422, $message);
     }
 
     /**
@@ -315,7 +317,7 @@ class ExecService
     public static function accept(Execution $exec, ?User $actor = null): void
     {
         self::guard($exec, [2], 'لا يمكن قبول هذا الطلب في مرحلته الحالية.');
-        abort_if($exec->decision === 'مرفوض', 422, 'هذا الطلب مرفوض بالفعل.');
+        abort_if($exec->isRejectedAfterStudy(), 422, 'هذا الطلب مرفوض بالفعل.');
 
         Workflow::run(new StudyExecution, $exec, $actor, ['action' => 'accept']);
 
@@ -344,7 +346,7 @@ class ExecService
             && (AiSource::tryFrom((string) $exec->ai_source)?->isRealAnalysis() ?? false);
         $labels = $fromAnalysis ? array_values($exec->ai_missing) : ['السند التنفيذي', 'الهوية الوطنية', 'مستند داعم'];
         foreach ($labels as $label) {
-            $exec->documents()->firstOrCreate(['label' => (string) $label], ['status' => 'مطلوب']);
+            $exec->documents()->firstOrCreate(['label' => (string) $label], ['status' => ExecutionDocumentStatus::Required->value]);
         }
 
         self::officeMsg($exec, $actor, 'نواقص', $fromAnalysis
@@ -365,32 +367,10 @@ class ExecService
         Live::push(new ExecStatusBroadcast($exec->fresh()));
     }
 
-    /**
-     * **كتابة التسعير — النموذج والعنوان معاً فلا يتناقضان.** كان `pay_method` نصّاً حرّاً
-     * يُخزَّن ويُعرض ولا يقرؤه محرّك: يختار المكتب «دفعات» فتصدر فاتورةٌ واحدة كاملة، فتَعِد
-     * الشاشةُ العميلَ بما لا يقع. الآن النموذج عمودٌ يقرؤه `ExecFee`، والعنوان مشتقٌّ منه.
-     *
-     * وفي النموذج النسبيّ لا مبلغ ولا ضريبة على العرض: الأتعاب تُحسب مع كلّ تحصيل.
-     */
-    private static function writeFee(Execution $exec, int $fee, string $duration, string $feeMode, ?float $feePct): void
-    {
-        $percent = $feeMode === 'percent';
-        $exec->update([
-            'fee' => $percent ? 0 : $fee,
-            'vat' => $percent ? 0 : Setting::vatOn($fee),
-            'fee_mode' => $percent ? 'percent' : 'fixed',
-            'collection_fee_pct' => $percent ? $feePct : null,
-            // الخطّة قرارُ العميل عند السداد؛ وتغييرُ النموذج يُسقط خطّةً اختيرت على عرضٍ سابق
-            'pay_plan' => null,
-            'duration' => $duration ?: '30-45 يوم',
-        ]);
-        $exec->update(['pay_method' => ExecFee::payMethodLabel($exec->fresh())]);
-    }
-
     public static function saveFee(Execution $exec, int $fee, string $duration, string $feeMode = 'fixed', ?float $feePct = null, ?User $actor = null): void
     {
         self::guard($exec, [3], 'لا يمكن تحديد الأتعاب في مرحلته الحالية.');
-        abort_if($exec->decision === 'مرفوض', 422, 'هذا الطلب مرفوض بالفعل.');
+        abort_if($exec->isRejectedAfterStudy(), 422, 'هذا الطلب مرفوض بالفعل.');
         self::guardAssigned($exec);
 
         Workflow::run(new SetExecutionFee, $exec, $actor, [
@@ -442,7 +422,7 @@ class ExecService
         self::guard($exec, [5, 6], 'لا يوجد عرض للاستفسار عنه.');
         abort_if($exec->paid, 422, 'تم سداد أتعاب هذا الملف بالفعل.');
 
-        $exec->update(['offer_status' => 'استفسار']);
+        $exec->update(['offer_status' => ExecutionOfferStatus::Inquiry->value]);
         $exec->messages()->create([
             'who' => 'client', 'name' => 'أنت', 'role' => 'العميل',
             'body' => '<p>لديّ استفسار حول عرض خدمة التنفيذ.</p>', 'time_label' => self::clock(),
@@ -481,7 +461,7 @@ class ExecService
             Notify::send($exec->assigned_lawyer_id, 'exec', $tone, $body);
         }
 
-        self::notifyAdmins($exec, $tone, $body);
+        self::notifyAdmins($exec, $tone, $body, $actor);
     }
 
     /**
@@ -498,9 +478,10 @@ class ExecService
     }
 
     /** إشعار الإدارة العليا — قرارات الأتعاب والعرض عندها (يناديه أيضاً فتحُ التنفيذ من قضيّة). */
-    public static function notifyAdmins(Execution $exec, string $tone, string $body): void
+    public static function notifyAdmins(Execution $exec, string $tone, string $body, ?User $except = null): void
     {
-        foreach (User::where('role', Role::Admin)->pluck('id') as $id) {
+        // الإداريّ الفاعل لا يُشعَر بفعله — نظير المحامي في `notifyOffice` (كان يصله إشعار ما أغلقه أو سجّله بنفسه)
+        foreach (User::where('role', Role::Admin)->when($except !== null, fn ($q) => $q->whereKeyNot($except->id))->pluck('id') as $id) {
             Notify::send((int) $id, 'exec', $tone, $body);
         }
     }
@@ -533,7 +514,7 @@ class ExecService
         // الدفعة الثالثة: يسدّدها العميل ويبقى الأوّل مستحقّاً والملفّ مغلقاً.
         $invoice = ExecFee::nextPayable($exec);
 
-        return $invoice ? app(MoyasarService::class)->hostedUrlForInvoice($invoice, $callbackUrl) : null;
+        return $invoice ? app(PaymentGateways::class)->default()->hostedUrlForInvoice($invoice, $callbackUrl) : null;
     }
 
     // ── إجراءات ما بعد فتح الملف (محامي/إدارة) ──
@@ -568,10 +549,8 @@ class ExecService
     {
         $actor ??= auth()->user();
 
-        $isRejected = ($exec->decision === 'مرفوض' && in_array($exec->effectiveStage(), [2, 3], true))
-            || ($exec->effectiveStage() === 5 && $exec->offer_status === 'مرفوض');
-
-        if ($isRejected) {
+        // القاعدة الواحدة في النموذج (`isRejectedOpen`) — كانت منسوخةً هنا بنصّ القرار العربيّ
+        if ($exec->isRejectedOpen()) {
             abort_unless(
                 $actor?->role === Role::Admin,
                 403,
@@ -589,6 +568,11 @@ class ExecService
 
         self::officeMsg($exec, $actor, 'إغلاق', "أُغلق ملف التنفيذ وأُرشف — السبب: {$reason}.");
         self::notify($exec, 'check', 't-green', "أُغلق ملف التنفيذ لطلبك {$exec->number} ({$reason}) — ".self::ref($exec).'.');
+        // والمكتب يعلم أيضاً: المحامي المسنَد حين تُغلقه الإدارة، والإدارة حين يُغلقه المحامي — كان العميل وحده
+        // يُشعَر (ثبت في المتصفّح 2026-09-30، EXE-2026-5518)
+        // الإغلاق بلا فاعلٍ جائز (النظام — `CloseExecution::deny`)، فلا يُقرأ اسمه بلا فحص
+        $closer = $actor instanceof User ? $actor->name : 'النظام';
+        self::notifyOffice($exec, 't-green', "أُغلق ملفّ التنفيذ {$exec->number} وأُرشف ({$reason}) — أغلقه {$closer}.", $actor);
         self::mail($exec, 'closed');
         Live::push(new ExecStatusBroadcast($exec->fresh()));
     }
@@ -671,18 +655,32 @@ class ExecService
     }
 
     /** تحصيلٌ جزئيّ أو كامل من المنفَّذ ضدّه — يُراكَم ويُقاس عليه المتبقّي، وأثره في سجلّ الإجراءات. */
+    /**
+     * **تصحيح مبلغ المطالبة** (قرار المالك 2026-09-30) — قبل أوّل تحصيل، للمحامي المسنَد أو الإدارة، بسببٍ مكتوب.
+     * الحرّاس كلّها في الانتقال (`SetExecutionClaimAmount`)؛ وهنا أثره: سطرٌ في المحادثة وإشعار العميل والمكتب.
+     */
+    public static function setClaimAmount(Execution $exec, int $amount, string $reason, ?User $actor = null): void
+    {
+        $previous = (int) $exec->amount;
+
+        Workflow::run(new SetExecutionClaimAmount, $exec, $actor, ['amount' => $amount, 'reason' => $reason]);
+
+        $text = 'صُحّح مبلغ المطالبة من '.number_format($previous).' إلى '.number_format($amount).' ريال — السبب: '.trim($reason);
+        self::officeMsg($exec, $actor, 'مبلغ المطالبة', $text);
+        self::notify($exec, 'card', 't-blue', "صُحّح مبلغ المطالبة في طلب تنفيذك {$exec->number} إلى ".number_format($amount).' ريال.');
+        self::tellOffice($exec, $actor, 'صُحّح مبلغ المطالبة إلى '.number_format($amount).' ريال');
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
+    }
+
     public static function addCollection(Execution $exec, int $amount, string $note = '', ?User $actor = null): void
     {
         self::guard($exec, [8], 'التحصيل بعد قيد الطلب وبدء التنفيذ.');
         // الرسالة تَعِد بالقيد والحارس يفحص المرحلة وحدها: فيُسجَّل تحصيلٌ و`registered_at` فارغ —
         // مبلغٌ محصَّل على ملفٍّ لم يُقيَّد لدى محكمة التنفيذ بعد. الحارس الآن يطابق ما تقوله الرسالة.
         abort_if($exec->registered_at === null, 422, 'سجّل قيد الطلب لدى محكمة التنفيذ أوّلاً.');
-        abort_if($amount < 1, 422, 'أدخل مبلغاً صحيحاً.');
 
-        $remaining = max(0, (int) $exec->amount - (int) $exec->collected);
-        abort_if($remaining <= 0, 422, 'تم تحصيل كامل قيمة المطالبة لهذا الملف بالفعل.');
-        abort_if($amount > $remaining, 422, 'مبلغ التحصيل يتجاوز المتبقي من قيمة المطالبة (المتبقي: '.number_format($remaining).' ريال).');
-
+        // المبلغ وسقف المتبقّي يحرسهما الانتقال وحده (`RecordExecutionCollection::guard`) — على الصفّ المقفول،
+        // فتحصيلان متزامنان لا يتجاوزان المطالبة؛ ونسخةٌ ثانية هنا كانت تكرّر الشروط والرسائل نفسها
         Workflow::run(new RecordExecutionCollection, $exec, $actor, [
             'amount' => $amount,
             'note' => $note,

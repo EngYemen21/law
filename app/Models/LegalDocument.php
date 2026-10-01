@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Support\RichHtml;
+use App\Support\SettingsRegistry;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,6 +14,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  *
  * جدول legal_documents مستقل عن documents (مرفقات العملاء).
  * يحتوي على محتوى HTML للعرض + JSON لإعادة التحرير عبر TipTap.
+ *
+ * @property ?string $content_html
  */
 class LegalDocument extends Model
 {
@@ -54,23 +57,33 @@ class LegalDocument extends Model
         );
     }
 
+    /** المعتمد لا يُعدَّل ولا يُعاد اعتماده (`DocumentEditorController::update/approve`). */
+    public function isApproved(): bool
+    {
+        return $this->status === 'approved';
+    }
+
     // ── العلاقات ──
 
+    /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
+    /** @return BelongsTo<Ticket, $this> */
     public function ticket(): BelongsTo
     {
         return $this->belongsTo(Ticket::class);
     }
 
+    /** @return BelongsTo<User, $this> */
     public function approver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
     }
 
+    /** @return BelongsTo<LegalCase, $this> */
     public function legalCase(): BelongsTo
     {
         return $this->belongsTo(LegalCase::class, 'case_id');
@@ -112,7 +125,7 @@ class LegalDocument extends Model
             'caseNo' => $this->legalCase?->number,
             'updatedAt' => $this->updated_at?->translatedFormat('d M Y · h:i A'),
             'createdAt' => $this->created_at?->translatedFormat('d M Y'),
-            'approved' => $this->status === 'approved',
+            'approved' => $this->isApproved(),
             'approvedBy' => $this->approver?->name,
             'approvedAt' => $this->approved_at?->translatedFormat('d M Y · h:i A'),
         ];
@@ -134,17 +147,18 @@ class LegalDocument extends Model
 
     // ── ترويسة افتراضية ──
 
+    /** بيانات المكتب من إعدادات النظام — فتعديلها هناك يبلغ كلّ مستندٍ جديد. */
     public static function defaultHeader(): array
     {
         return [
             'showHeader' => true,
-            'officeName' => 'مكتب المحاماة',
-            'officeNameEn' => 'Law Office',
+            'officeName' => SettingsRegistry::str('office_name'),
+            'officeNameEn' => SettingsRegistry::str('office_name_en'),
             'logoUrl' => '/images/021.png',
-            'address' => '',
-            'phone' => '',
-            'email' => '',
-            'licenseNo' => '',
+            'address' => SettingsRegistry::str('office_address'),
+            'phone' => SettingsRegistry::str('office_phone'),
+            'email' => SettingsRegistry::str('office_email'),
+            'licenseNo' => SettingsRegistry::str('office_license_no'),
         ];
     }
 }
