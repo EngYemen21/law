@@ -124,17 +124,6 @@ class BookingContractTest extends TestCase
         }
     }
 
-    /** وساعات دوام المحامي في ملفّه للعرض — الحجز بدوام المكتب وحده (قرار المالك 2026-09-28). */
-    public function test_the_lawyers_own_hours_do_not_narrow_booking(): void
-    {
-        $lawyer = $this->lawyer();
-        $lawyer->forceFill(['work_start' => '10:00', 'work_end' => '14:00'])->save();
-
-        $slots = LawyerAvailability::slotsFor($lawyer->fresh()->id, now()->addDays(2)->toDateString());
-
-        $this->assertCount(13, $slots, 'مصدرٌ واحد للحجز: دوام المكتب');
-    }
-
     /**
      * **قُلِب في الدفعة ١ — المولّد صار واحداً.**
      *

@@ -10,7 +10,7 @@
 export interface Staff {
   name: string; role: string; dept: string; pay: string;
   salary: number; status: string; perms: string[]; email: string;
-  mobile: string; nid: string; join: string; start: string; end: string;
+  mobile: string; nid: string; join: string;
 }
 
 // ── دعوات الاجتماعات (MEET_REQUESTS) ──

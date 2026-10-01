@@ -174,7 +174,6 @@ class StaffController extends Controller
             'النسبة' => $u->pay_pct !== null ? (float) $u->pay_pct : null,
             'أجر الجلسة' => $u->session_fee !== null ? (int) $u->session_fee : null,
             'تاريخ المباشرة' => $u->join_date?->format('Y-m-d'),
-            'الدوام' => $u->work_start || $u->work_end ? ($u->work_start ?? '—').'–'.($u->work_end ?? '—') : null,
             'الصلاحيّات' => $u->getPermissionNames()->sort()->values()->all(),
         ];
     }
@@ -244,8 +243,6 @@ class StaffController extends Controller
             'specialties.*' => ['integer', Rule::exists('legal_departments', 'id')->where('status', LegalDepartment::STATUS_ACTIVE)],
             'coversAll' => ['nullable', 'boolean'],
             'join' => ['nullable', 'date'],
-            'start' => ['nullable', 'string', 'max:8'],
-            'end' => ['nullable', 'string', 'max:8'],
             // النسبة والجلسة للمحامي وحده (قرار المالك 2026-09-28) — لا يُحفظ أجرٌ لا مصدر له يُحسب منه
             'payType' => ['required', 'string', Rule::in(PayType::values()), function (string $attr, mixed $value, \Closure $fail) use ($role) {
                 $type = PayType::tryFrom((string) $value);
@@ -329,8 +326,6 @@ class StaffController extends Controller
             'phone' => $data['mobile'] ?? null,
             'national_id' => $data['nid'] ?? null,
             'join_date' => $data['join'] ?? null,
-            'work_start' => $data['start'] ?? null,
-            'work_end' => $data['end'] ?? null,
             'pay_type' => ($pay = PayType::from($data['payType']))->value,
             'salary' => $pay->hasSalary() ? ($data['salary'] ?? 0) : 0,
             'pay_pct' => $pay->hasPercent() ? ($data['pct'] ?? null) : null,

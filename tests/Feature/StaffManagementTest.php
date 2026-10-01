@@ -41,8 +41,6 @@ class StaffManagementTest extends TestCase
             'nid' => '1088776655',
             'dept' => 'خدمة العملاء',
             'join' => '2026-07-01',
-            'start' => '08:00',
-            'end' => '16:00',
             'payType' => 'salary',
             'salary' => 8000,
             'perms' => ['إدارة التذاكر', 'الرد على العملاء'],

@@ -77,8 +77,6 @@ const AdminStaff: React.FC<Props> = ({ staff, legalDepartments = [], staffDepart
   const toggleSpecialty = (id: number) =>
     setSpecialtyIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   const [join, setJoin] = useState('');
-  const [start, setStart] = useState('08:00');
-  const [end, setEnd] = useState('16:00');
   const [payTypeChoice, setPayType] = useState<PayType>('salary');
   const [salary, setSalary] = useState('');
   const [pct, setPct] = useState('');
@@ -170,8 +168,6 @@ setName(data.name);
     setSpecialtyIds([]);
     setCoversAll(false);
     setJoin('');
-    setStart('08:00');
-    setEnd('16:00');
     setPayType('salary');
     setSalary('');
     setPct('');
@@ -194,8 +190,6 @@ setName(data.name);
     setSpecialtyIds([...(s.specialtyIds ?? [])]);
     setCoversAll(Boolean(s.coversAll));
     setJoin(s.join === '—' ? '' : s.join);
-    setStart(s.start && s.start !== '—' ? s.start : '08:00');
-    setEnd(s.end && s.end !== '—' ? s.end : '16:00');
     setPayType((s.payType as PayType) ?? 'salary');
     setSalary(s.salary ? String(s.salary) : '');
     setPct(s.pct != null ? String(s.pct) : '');
@@ -245,8 +239,6 @@ setName(data.name);
       specialties: roleKey === 'lawyer' && !coversAll ? specialtyIds : [],
       coversAll: roleKey === 'lawyer' && coversAll,
       join,
-      start,
-      end,
       payType,
       salary,
       pct,
@@ -336,26 +328,6 @@ return false;
 
     return true;
   });
-
-  // حساب ساعات العمل اليومية للعرض
-  const workHoursText = useMemo(() => {
-    if (!start || !end) {
-return '—';
-}
-
-    const [sh, sm] = start.split(':').map(Number);
-    const [eh, em] = end.split(':').map(Number);
-    let diff = (eh * 60 + em) - (sh * 60 + sm);
-
-    if (diff < 0) {
-diff += 24 * 60;
-}
-
-    const hours = Math.floor(diff / 60);
-    const mins = diff % 60;
-
-    return `${hours} ساعة ${mins > 0 ? `و ${mins} دقيقة` : ''}`;
-  }, [start, end]);
 
   // دالة مساعدة لتنسيق وعرض خلية القسم المختص بأناقة ومنع التمدد الأفقي مهما تعددت التخصصات
   const renderDeptCell = (s: StaffRow) => {
@@ -656,7 +628,6 @@ resetForm();
                     <th style={{ minWidth: 200 }}>الموظف والصفة</th>
                     <th style={{ minWidth: 170, maxWidth: 240 }}>القسم المختص</th>
                     <th style={{ minWidth: 120 }}>آلية الأجر</th>
-                    <th style={{ minWidth: 130 }}>أوقات الدوام</th>
                     <th style={{ minWidth: 110 }}>الصلاحيات</th>
                     <th style={{ minWidth: 90 }}>الحالة</th>
                     <th style={{ minWidth: 160, textAlign: 'center' }}>الإجراءات</th>
@@ -704,18 +675,6 @@ resetForm();
                               {s.pay.includes('نسبة') ? '📊' : s.pay.includes('جلسة') ? '⚖️' : '💵'}
                             </span>
                             <span>{s.pay}</span>
-                          </div>
-                        ) : (
-                          <span className="muted">—</span>
-                        )}
-                      </td>
-                      <td style={{ fontSize: 12 }}>
-                        {s.start && s.end && s.start !== '—' ? (
-                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--ink)' }}>
-                            <Icon name="clock" cls="ic sm" style={{ color: 'var(--faint)' }} />
-                            <span dir="ltr" style={{ fontWeight: 600 }}>
-                              {s.start} – {s.end}
-                            </span>
                           </div>
                         ) : (
                           <span className="muted">—</span>
@@ -1045,10 +1004,10 @@ resetForm();
               </div>
 
               {/* ------------------------------------------------------------- */}
-              {/* القسم الثالث: بيانات العمل والدوام */}
+              {/* القسم الثالث: تاريخ المباشرة */}
               {/* ------------------------------------------------------------- */}
               <div className="form-sec-h">
-                <span className="si"><Icon name="folder" /></span> 2. المباشرة وأوقات الدوام الرسمي
+                <span className="si"><Icon name="folder" /></span> 2. تاريخ المباشرة
               </div>
 
               <div className="picker-grid">
@@ -1060,30 +1019,6 @@ resetForm();
                     value={join}
                     onChange={(e) => setJoin(e.target.value)}
                   />
-                </div>
-
-                <div className="field">
-                  <label>ساعات الدوام اليومي (المدة: {workHoursText})</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: 10 }}>
-                    <div>
-                      <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>من (البداية):</span>
-                      <input
-                        className="input mono"
-                        type="time"
-                        value={start}
-                        onChange={(e) => setStart(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>إلى (النهاية):</span>
-                      <input
-                        className="input mono"
-                        type="time"
-                        value={end}
-                        onChange={(e) => setEnd(e.target.value)}
-                      />
-                    </div>
-                  </div>
                 </div>
               </div>
 
@@ -1313,10 +1248,6 @@ resetForm();
                     <span className="v badge-s b-blue" style={{ fontSize: 11, padding: '2px 6px' }}>{dept}</span>
                   </div>
                   <div className="kv" style={{ padding: '4px 0' }}>
-                    <span className="k">الدوام</span>
-                    <span className="v mono">{start} – {end}</span>
-                  </div>
-                  <div className="kv" style={{ padding: '4px 0' }}>
                     <span className="k">آلية الأجر</span>
                     <span className="v mono">
                       {payType === 'salary' && `${salary || 0} ر.س شهرياً`}
@@ -1525,39 +1456,6 @@ resetForm();
                   <span style={{ fontSize: 10.5, color: 'var(--muted)', display: 'block' }}>التعاقد والأجر</span>
                   <b style={{ fontSize: 12, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
                     {detail.pay || '—'}
-                  </b>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  background: '#fff',
-                  border: '1px solid var(--line, #e2e8f0)',
-                  borderRadius: 10,
-                  padding: '10px 12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                }}
-              >
-                <div
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 8,
-                    background: 'rgba(245, 158, 11, 0.08)',
-                    color: '#d97706',
-                    display: 'grid',
-                    placeItems: 'center',
-                    flex: '0 0 34px',
-                  }}
-                >
-                  <Icon name="clock" />
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <span style={{ fontSize: 10.5, color: 'var(--muted)', display: 'block' }}>الدوام اليومي</span>
-                  <b style={{ fontSize: 12, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
-                    {detail.start && detail.end && detail.start !== '—' ? `${detail.start} – ${detail.end}` : '—'}
                   </b>
                 </div>
               </div>
