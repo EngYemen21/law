@@ -61,7 +61,7 @@ class Execution extends Model
         'decision', 'fee', 'vat', 'duration', 'pay_method', 'fee_approved', 'offer_status',
         // نماذج الأتعاب: نموذج المكتب (ثابت/نسبة) وخطّة العميل (كامل/تقسيط)
         'fee_mode', 'collection_fee_pct', 'lawyer_pct', 'lawyer_fee', 'pay_plan', 'installments_total', 'installments_paid',
-        'invoice_no', 'paid', 'paid_at', 'exec_no', 'payment_reminder_sent_at',
+        'invoice_no', 'paid', 'paid_at', 'exec_no',
         // مسار ناجز داخل المرحلتين 7 و8 (قرار المالك 2026-09-12) وسبب الإنهاء
         'najiz_request_no', 'najiz_filed_at', 'circuit', 'registered_at', 'notified_at', 'pay_due_at',
         'measures', 'collected', 'closed_reason', 'pay_due_alert_sent_at',
@@ -88,7 +88,6 @@ class Execution extends Model
         'installments_paid' => 'integer',
         'paid' => 'boolean',
         'paid_at' => 'datetime',
-        'payment_reminder_sent_at' => 'datetime',
         'najiz_filed_at' => 'date',
         'registered_at' => 'date',
         'notified_at' => 'date',

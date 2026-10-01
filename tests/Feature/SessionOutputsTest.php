@@ -29,7 +29,7 @@ class SessionOutputsTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $meeting = Meeting::create([
             'user_id' => $client->id, 'ref' => 'M-9001', 'title' => 'اجتماع مراجعة عقد',
-            'client_name' => $client->name, 'when_label' => 'اليوم', 'status' => 'جارٍ', 'is_up' => true,
+            'client_name' => $client->name, 'when_label' => 'اليوم', 'status' => 'جارٍ',
             'assigned_lawyer_id' => $lawyer->id,
         ]);
 
@@ -69,7 +69,7 @@ class SessionOutputsTest extends TestCase
         $client = User::factory()->create(['role' => Role::Client]);
         $meeting = Meeting::create([
             'user_id' => $client->id, 'ref' => 'M-9003', 'title' => 'اجتماع',
-            'when_label' => 'اليوم', 'status' => 'منتهٍ', 'is_up' => false,
+            'when_label' => 'اليوم', 'status' => 'منتهٍ',
             'summary' => 'ملخص الاجتماع', 'minutes' => 'محضر الاجتماع',
         ]);
 

@@ -17,6 +17,7 @@ use App\Models\Ticket;
 use App\Models\TicketSummary;
 use App\Models\User;
 use App\Support\CaseJourney;
+use App\Support\DayRange;
 use App\Support\Paginate;
 use App\Support\SearchText;
 use App\Support\TicketJourney;
@@ -82,7 +83,7 @@ class JourneyTransitionController extends Controller
         $today = Carbon::today();
         $stats = [
             'total' => JourneyTransition::count(),
-            'today' => JourneyTransition::whereDate('created_at', $today)->count(),
+            'today' => DayRange::on(JourneyTransition::query(), 'created_at', $today->toImmutable())->count(),
             'withReason' => JourneyTransition::whereNotNull('reason')->where('reason', '!=', '')->count(),
             'byEntity' => [
                 'tickets' => JourneyTransition::whereIn('entity_type', ['Ticket', 'ticket'])->count(),
@@ -327,12 +328,7 @@ class JourneyTransitionController extends Controller
             $actorId === 'system' ? $query->whereNull('actor_id') : $query->where('actor_id', (int) $actorId);
         }
 
-        if ($fromDate = $request->input('from_date')) {
-            $query->whereDate('created_at', '>=', $fromDate);
-        }
-        if ($toDate = $request->input('to_date')) {
-            $query->whereDate('created_at', '<=', $toDate);
-        }
+        DayRange::apply($query, 'created_at', $request->input('from_date'), $request->input('to_date'));
 
         return $query;
     }

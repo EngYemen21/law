@@ -195,7 +195,7 @@ class MeetingLifecycleTest extends TestCase
         $this->configureS2S();
         $this->fakeZoom();
         $admin = User::factory()->create(['role' => Role::Admin]);
-        $meeting = $this->meeting(null, ['status' => 'جارٍ', 'is_up' => true]);
+        $meeting = $this->meeting(null, ['status' => 'جارٍ']);
 
         $this->actingAs($admin)->post(route('admin.meetings.end', $meeting), ['attend' => 90])->assertRedirect();
 

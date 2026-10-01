@@ -101,9 +101,6 @@ export interface FullMeetingCard {
     lawyerId: number | null;
     when: string;
     approve: string;
-    before: string[];
-    during: string[];
-    after: string[];
     status: string;  // قادم/جارٍ/منتهٍ/مؤجل/ملغى — للعرض وحده
     /** مفتاح الحالة الحيّة للمنطق (`MeetingStatus::key`) — لا مقارنة بالنصّ العربيّ المعروض. */
     statusKey: MeetingStatusKey;
@@ -712,18 +709,6 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
 // ============================================================
 // تفاصيل الاجتماع — مشتركة للمحامي/الإدارة (يطابق meetingView)
 // ============================================================
-
-// عُلّقت (قرار: لا قالب وهمي) — كانت تحشو الحقول بنصّ مركَّب من قوائم افتراضية فيُحفَظ كأنه محضر
-/* function defaultMinutes(m: FullMeetingCard): string {
-    return `محضر اجتماع: ${m.title}\nالنوع: ${m.type}\nالتاريخ: ${m.when}\n\n` +
-        `أبرز ما دار:\n- ${m.during.join('\n- ')}\n\n` +
-        `القرارات والمهام:\n- ${m.after.join('\n- ')}`;
-}
-
-function defaultSummary(m: FullMeetingCard): string {
-    return `ملخص اجتماع: ${m.title} — ${m.type}. أبرز ما دار: ${m.during.join(' ، ')}. ` +
-        `الخلاصة والقرارات: ${m.after.join(' ، ')}.`;
-} */
 
 /**
  * **إعادة جدولة الاجتماع — بالنافذة المشتركة وسببٍ إلزاميّ.**

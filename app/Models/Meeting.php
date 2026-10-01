@@ -32,14 +32,13 @@ class Meeting extends Model
         // `dur`: عمودٌ تاريخيّ — ما حُفظ فيه يبقى مسافةً محجوزة على تقويم المحامي (`LawyerAvailability`)،
         // ولا يُكتب جديداً ولا يُنهي الاجتماع (قرار المالك 2026-09-26).
         'status', 'priority', 'conf', 'attend', 'dur', 'approve',
-        'before_items', 'during_items', 'after_items',
         'summary', 'sum_approved', 'minutes', 'participants', 'case_ref',
         'decisions', 'tasks_created', 'suggested_tasks',
         'meet_id', 'meet_link', 'host_link', 'meet_password', 'created_by',
         'reschedule_requested_at', 'reschedule_count',
         'assigned_lawyer_id',
-        // is_up مهجور (deprecated): «القادم» يُشتق حيّاً من liveState/isUpcoming — لم يعد يُكتب ولا يُقرأ
-        'is_up', 'has_link', 'has_minutes', 'has_summary',
+        // «القادم» يُشتقّ حيّاً من liveState/isUpcoming (عمود is_up المهجور حُذف 2026-10-01)
+        'has_link', 'has_minutes', 'has_summary',
         'zoom_summary', 'zoom_summary_at',
         'recording_url', 'transcript_path', 'join_time', 'leave_time', 'duration_sec',
         'zoom_uuid', 'zoom_share_url', 'zoom_audio_url', 'zoom_participants_log', 'zoom_ai_next_steps',
@@ -53,15 +52,11 @@ class Meeting extends Model
         'zoom_summary_at' => 'datetime',
         'join_time' => 'datetime',
         'leave_time' => 'datetime',
-        'is_up' => 'boolean',
         'has_link' => 'boolean',
         'has_minutes' => 'boolean',
         'has_summary' => 'boolean',
         'sum_approved' => 'boolean',
         'tasks_created' => 'boolean',
-        'before_items' => 'array',
-        'during_items' => 'array',
-        'after_items' => 'array',
         'decisions' => 'array',
         'suggested_tasks' => 'array',
         'zoom_participants_log' => 'array',
@@ -512,9 +507,6 @@ class Meeting extends Model
             'lawyerId' => $this->assigned_lawyer_id,
             'when' => $this->when_label,
             'approve' => $this->approve,
-            'before' => $this->before_items ?? [],
-            'during' => $this->during_items ?? [],
-            'after' => $this->after_items ?? [],
             // الحالة الحيّة المشتقّة (لا المخزّنة) — «قادم» الفائت يظهر «لم ينعقد» فوراً
             'status' => $this->liveState()[1],
             // مفتاحها اللاتينيّ للمنطق (`MeetingStatus::key`) — النصّ للعرض وحده
