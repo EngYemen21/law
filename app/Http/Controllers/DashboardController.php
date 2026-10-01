@@ -15,14 +15,13 @@ use App\Models\Ticket;
 use App\Models\User;
 use App\Services\AdminDashboardService;
 use App\Support\AppEnvironment;
+use App\Support\Audit;
 use App\Support\LawyerName;
+use App\Support\TestDataReset;
 use App\Support\TicketJourney;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -398,57 +397,18 @@ class DashboardController extends Controller
             'ip' => $request->ip(),
         ]);
 
-        Schema::disableForeignKeyConstraints();
+        // كلّ شيءٍ عدا ما يُحفظ صراحةً (`TestDataReset::KEEP`، قرار المالك 2026-10-01) — والمرفقات كلّها
+        $cleared = TestDataReset::run();
 
-        $tablesToTruncate = [
-            'appointments',
-            'case_documents',
-            'case_hearings',
-            'case_messages',
-            'cases',
-            'consults',
-            'documents',
-            'execution_documents',
-            'execution_messages',
-            'execution_procedures',
-            'executions',
-            'invoices',
-            'meet_requests',
-            'meetings',
-            'payments',
-            'tasks',
-            'ticket_documents',
-            'ticket_messages',
-            'ticket_summaries',
-            'tickets',
-            'user_notifications',
-            'jobs',
-            'failed_jobs',
-            'job_batches',
-        ];
+        // سطرٌ واحد يبقى في سجلّ التدقيق بعد تفريغه: من صفّر القاعدة ومتى
+        Audit::log(
+            action: 'تصفير بيانات الاختبار',
+            description: "صفّر {$request->user()->name} بيانات الاختبار — فُرّغ ".count($cleared).' جدولاً وحُذفت المرفقات، وبقي المستخدمون والصلاحيّات والإعدادات والأقسام والخدمات القانونيّة.',
+            category: 'أمن وحماية',
+            severity: 'critical',
+        );
 
-        foreach ($tablesToTruncate as $table) {
-            if (Schema::hasTable($table)) {
-                DB::table($table)->truncate();
-            }
-        }
-
-        Schema::enableForeignKeyConstraints();
-
-        // تنظيف الملفات المؤقتة للاختبار
-        // كانت ثلاثة من سبعة: exec-docs و client-docs و invoice-proofs و recordings تبقى
-        // على القرص بعد التصفير بلا صفوف تدلّ عليها. لاحظ الفخّ: ExecService يكتب في
-        // `executions/{id}` بينما ExecFlowController يكتب في `exec-docs/{id}` — الاثنان لازمان.
-        foreach ([
-            'ticket-docs', 'case-docs', 'executions', 'exec-docs',
-            'client-docs', 'invoice-proofs', 'recordings', 'transcripts',
-        ] as $directory) {
-            Storage::disk('local')->deleteDirectory($directory);
-        }
-
-        cache()->flush();
-
-        return redirect()->route('admin.dashboard')->with('flash', 'تم تصفير جميع بيانات الاختبار بنجاح مع الاحتفاظ بالمستخدمين.');
+        return redirect()->route('admin.dashboard')->with('flash', 'صُفّرت بيانات الاختبار — بقي المستخدمون والصلاحيّات والإعدادات والمفاتيح والأقسام والخدمات القانونيّة وأقسام الموظّفين وتخصّصات المحامين.');
     }
 
     /** حرفا الصورة الرمزيّة من الاسم **المعروض** («محمد. ب» ⇐ «مب») — فلا تحمل أكثر ممّا يحمله الاسم. */
