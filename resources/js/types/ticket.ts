@@ -85,4 +85,12 @@ export interface ClientTicketCard {
         approvedTrack: string | null;
         approvedTrackReason: string | null;
     };
+    /** بطاقات المآل في محادثة العميل — حكم الخادم (`Ticket::outcomeCards`). */
+    outcomeCards: OutcomeCards;
+}
+
+export interface OutcomeCards {
+    execution: boolean;
+    case: boolean;
+    closure: boolean;
 }

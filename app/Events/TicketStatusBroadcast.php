@@ -41,6 +41,8 @@ class TicketStatusBroadcast implements ShouldBroadcastNow
             'isTerminal' => $this->ticket->isTerminal(),
             // مرحلة «مسار المعالجة» — حكم الخادم (`TicketJourney::indexOf`) لا اشتقاقٌ من نصّ الحالة في الواجهة
             'step' => TicketJourney::indexOf($this->ticket->status),
+            // بطاقات المآل لمحادثة العميل — تظهر لحظة اعتماد القرار بلا إعادة تحميل
+            'outcomeCards' => $this->ticket->outcomeCards($this->ticket->execution()->exists()),
         ];
     }
 }
