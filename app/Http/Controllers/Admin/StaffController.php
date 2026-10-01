@@ -15,6 +15,7 @@ use App\Support\LawyerWorkload;
 use App\Support\LegalCatalogue;
 use App\Support\Permissions;
 use App\Support\Phone;
+use App\Support\Staff\StaffActivity;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -333,6 +334,14 @@ class StaffController extends Controller
         ]
             // قسم المحامي تكتبه مزامنة تخصّصاته (syncSpecialties)، ولغيره قسمه الإداريّ
             + ($data['role'] === Role::Lawyer->value ? [] : ['department' => $data['dept'] ?? null]);
+    }
+
+    /** ملفّ نشاط الموظّف لنافذة «ملفّ النشاط» — يُحمَّل عند فتحها (`StaffActivity`). */
+    public function activity(User $user): JsonResponse
+    {
+        abort_if($user->role === Role::Client, 404);
+
+        return response()->json(StaffActivity::for($user));
     }
 
     // تفعيل/إيقاف الموظف (يطابق toggleStaff) — للموظفين فقط (لا عملاء ولا إدارة)

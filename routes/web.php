@@ -654,6 +654,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/staff', [StaffController::class, 'store'])->name('staff.store')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::put('/staff/{user}', [StaffController::class, 'update'])->name('staff.update')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::post('/staff/{user}/toggle', [StaffController::class, 'toggle'])->name('staff.toggle')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
+    Route::get('/staff/{user}/activity', [StaffController::class, 'activity'])->name('staff.activity')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     // مستحقّات الموظّف وسجلّ صرفه — القيد يُسجَّل ويُلغى، ولا تعديل ولا حذف
     Route::get('/staff/{user}/earnings', [StaffPayoutController::class, 'show'])->name('staff.earnings')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
     Route::post('/staff/{user}/payouts', [StaffPayoutController::class, 'store'])->name('staff.payouts.store')->middleware(Permissions::middleware(Permissions::MANAGE_STAFF));
