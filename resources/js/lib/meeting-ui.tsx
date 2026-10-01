@@ -110,6 +110,8 @@ export interface FullMeetingCard {
     canApprove: boolean;
     priority: string;
     conf: string;
+    /** اجتماعٌ سرّيّ؟ (`Meeting::isConfidential`) — الشارة تقرأ العلَم لا نصّ `conf`. */
+    confidential: boolean;
     attend: number;
     // القياس من سجلّ Zoom — null تعني «لم يُقَس» لا صفراً
     attendedCount: number | null;
@@ -319,7 +321,6 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
  return; 
 }
 
-        const name = clients.find((c) => c.id === miClient)?.name ?? '';
         router.post(`${base}/meetreqs`, {
             client_id: miClient, lawyer_id: miLawyer, service: miService, type: miType,
             case_ref: miCase, day: miDay, time: miTime,
@@ -328,7 +329,8 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
             onSuccess: () => {
                 setOpen(false);
                 setMiService(''); setMiTime('');
-                toast(`تم إرسال الدعوة وإشعارها إلى العميل: ${name}`);
+                // لا إشعار هنا: الخادم يقول ما وقع (نُشرت للعميل أم تنتظر موافقة الإدارة) عبر
+                // `flash.success` فيعرضه `ServerFeedback` — كان النصّ الثابت يدّعي وصولها للعميل.
             },
             onError: (e) => toast(e.time || e.day || e.lawyer_id || e.message || 'تعذّر إرسال الدعوة'),
         });
@@ -1087,7 +1089,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                             <Badge text={status} tone={meetStatusTone(status)} />
                             <Badge text={approve} tone={approved ? 'b-green' : 'b-amber'} />
-                            {m.conf === 'سري' && (
+                            {m.confidential && (
                                 <span style={{
                                     display: 'inline-flex', alignItems: 'center', gap: 4,
                                     background: 'rgba(192,57,43,0.85)', borderRadius: 8,

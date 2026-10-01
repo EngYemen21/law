@@ -28,6 +28,14 @@ class Meeting extends Model
 {
     use TracksRevisions;
 
+    /**
+     * نصّا العمودين `approve` و`conf` كما يُخزَّنان — الموضع الواحد لهما (قرار المالك 2026-10-01).
+     * المنطق يقرأ `isApproved()` / `isConfidential()` والواجهة علَمَي `approved` / `confidential`، لا النصّ.
+     */
+    public const APPROVED = 'معتمد';
+
+    public const CONF_SECRET = 'سري';
+
     protected $fillable = [
         'user_id', 'ref', 'title', 'type', 'client_name', 'when_label', 'starts_at', 'reminder_sent_at',
         'reminder_near_sent_at', 'link_released_at',
@@ -306,7 +314,19 @@ class Meeting extends Model
     /** اعتمدت الإدارة المحضر والملخص؟ — الموضع الوحيد الذي يقرأ نصّ العمود `approve`. */
     public function isApproved(): bool
     {
-        return $this->approve === 'معتمد';
+        return $this->approve === self::APPROVED;
+    }
+
+    /** اجتماعٌ سرّيّ؟ — يقرؤه إنشاء جلسة Zoom (`createMeeting`) وعلَم `confidential` في البطاقة. */
+    public function isConfidential(): bool
+    {
+        return self::isConfidentialLevel($this->conf);
+    }
+
+    /** مستوى السرّيّة المُرسَل (قبل وجود الاجتماع) سرّيّ؟ — المقارنة الواحدة بالثابت. */
+    public static function isConfidentialLevel(?string $conf): bool
+    {
+        return $conf === self::CONF_SECRET;
     }
 
     /**
@@ -545,6 +565,8 @@ class Meeting extends Model
             'actions' => $this->lifecycleActions(),
             'priority' => $this->priority,
             'conf' => $this->conf,
+            // علَمٌ لا نصّ: الواجهة كانت تقارن `conf === 'سري'` لتختار الأيقونة/الشارة
+            'confidential' => $this->isConfidential(),
             // المُدخَل يدوياً — يبقى للتعبئة المسبقة في نافذة الإنهاء ولعرضه موسوماً
             // «مُدخَل يدوياً» حين لا سجلّ Zoom. ليس قياساً ولا يُعرض كأنّه قياس.
             'attend' => $this->attend,

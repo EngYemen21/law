@@ -116,6 +116,7 @@ return;
             summary: string | null;
             minutes: string | null;
             approve?: string;
+            approved?: boolean;
           }) => {
             setItems((prev) =>
               prev.map((x) =>
@@ -124,7 +125,8 @@ return;
                       ...x,
                       summary: e.summary ?? x.summary,
                       minutes: e.minutes ?? x.minutes,
-                      up: e.up ?? (e.status === 'قادم' || e.status === 'جارٍ'),
+                      // البثّ يحمل `up` دائماً (`MeetingStatusBroadcast`) — لا استنتاج من النصّ العربيّ
+                      up: e.up ?? x.up,
                       status: e.liveStatus ?? x.status,
                       tone: e.tone ?? x.tone,
                       canJoin: e.canJoin ?? x.canJoin,
@@ -132,9 +134,10 @@ return;
                        * **الاعتماد يُقرأ من البثّ لا يُستنتَج من وجود نصّ.** كان
                        * `!!(minutes || summary)` — سليمٌ اليوم لأنّ البثّ يحجب النصّ
                        * قبل الاعتماد، لكنّه يربط حقيقةً بأثرها: يوم يُبثّ نصٌّ غير
-                       * معتمد لسببٍ آخر تصير الشارة كاذبة. والحمولة تحمل `approve`.
+                       * معتمد لسببٍ آخر تصير الشارة كاذبة. والحمولة تحمل علَم `approved`
+                       * (`isApproved()` في الخادم) — لا مقارنة بنصّ «معتمد» هنا.
                        */
-                      approved: e.approve !== undefined ? e.approve === 'معتمد' : x.approved,
+                      approved: e.approved ?? x.approved,
                     }
                   : x
               )

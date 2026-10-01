@@ -136,10 +136,8 @@ class ApprovalIsFinalEverywhereTest extends TestCase
         $ui = file_get_contents(resource_path('js/pages/meetings.tsx'));
 
         $this->assertStringNotContainsString('approved: !!(e.minutes || e.summary || x.approved)', $ui);
-        $this->assertStringContainsString(
-            "approved: e.approve !== undefined ? e.approve === 'معتمد' : x.approved,",
-            $ui
-        );
+        // العلَم الخادميّ `approved` (`Meeting::isApproved`) — لا مقارنة بنصّ «معتمد» (قرار المالك 2026-10-01)
+        $this->assertStringContainsString('approved: e.approved ?? x.approved,', $ui);
     }
 
     public function test_the_admin_zoom_tab_shows_the_session_material_it_holds(): void

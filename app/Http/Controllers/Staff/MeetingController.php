@@ -128,7 +128,7 @@ class MeetingController extends Controller
     {
         $refs = Meeting::query()->pluck('ref')->all();
         $totalTasks = $refs !== [] ? Task::whereIn('ref', $refs)->count() : 0;
-        $doneTasks = $refs !== [] ? Task::whereIn('ref', $refs)->where('status', 'منجزة')->count() : 0;
+        $doneTasks = $refs !== [] ? Task::whereIn('ref', $refs)->where('status', Task::DONE)->count() : 0;
 
         $durations = Meeting::where('status', MeetingStatus::Ended->value)->whereNotNull('duration_sec')->pluck('duration_sec');
 
@@ -189,7 +189,7 @@ class MeetingController extends Controller
         }
 
         // Zoom يشترط `duration` — رقمٌ اسميّ لا يُنهي الاجتماع به (`SessionWindow::nominalMinutes`)
-        $zoom = $this->zoom->createMeeting($data['title'], SessionWindow::nominalMinutes(), ($data['conf'] ?? '') === 'سري', $startsAt);
+        $zoom = $this->zoom->createMeeting($data['title'], SessionWindow::nominalMinutes(), Meeting::isConfidentialLevel($data['conf'] ?? null), $startsAt);
         if (empty($zoom['join_url'])) {
             // لا يُصمت: الاجتماع يُحفظ بلا رابط، والرسالة تقول ذلك (كانت تقول «أُنشئ بجلسة Zoom»)
             Log::error('Zoom: تعذّر إنشاء جلسة الاجتماع — يُحفظ بلا رابط', ['title' => $data['title']]);
@@ -310,7 +310,7 @@ class MeetingController extends Controller
         $this->guardMeeting($request, $meeting);
         // الاعتماد نهائيّ: المعتمد وصل العميل بشهادة الإدارة، فتعديله بعدها
         // يجعل الشهادة تصف نصّاً لا وجود له. والحفظ قبل الاعتماد مسوّدة تُعدَّل بحرّية.
-        abort_if($meeting->approve === 'معتمد', 422, 'المحضر والملخص معتمدان نهائيًّا من الإدارة — لا يُعدَّلان بعد الاعتماد.');
+        abort_if($meeting->isApproved(), 422, 'المحضر والملخص معتمدان نهائيًّا من الإدارة — لا يُعدَّلان بعد الاعتماد.');
         $data = $request->validate(['summary' => ['required', 'string', 'max:6000']]);
         $meeting->update(['summary' => $data['summary']]);
 
@@ -323,7 +323,7 @@ class MeetingController extends Controller
         $this->guardMeeting($request, $meeting);
         // الاعتماد نهائيّ: المعتمد وصل العميل بشهادة الإدارة، فتعديله بعدها
         // يجعل الشهادة تصف نصّاً لا وجود له. والحفظ قبل الاعتماد مسوّدة تُعدَّل بحرّية.
-        abort_if($meeting->approve === 'معتمد', 422, 'المحضر والملخص معتمدان نهائيًّا من الإدارة — لا يُعدَّلان بعد الاعتماد.');
+        abort_if($meeting->isApproved(), 422, 'المحضر والملخص معتمدان نهائيًّا من الإدارة — لا يُعدَّلان بعد الاعتماد.');
         $data = $request->validate(['minutes' => ['required', 'string', 'max:8000']]);
         $meeting->update(['minutes' => $data['minutes']]);
 
@@ -341,7 +341,7 @@ class MeetingController extends Controller
         // الاعتماد نهائيّ: المزامنة تكتب `decisions` عبر DecisionTasks::suggest، وtoCard
         // يُرسل القرارات للعميل متى كان الاجتماع معتمداً — فمزامنةٌ بعد الاعتماد تُبلغه
         // قراراتٍ لم تعتمدها الإدارة. وتُعيد كتابة `participants` الذي يُبنى عليه عدد المدعوّين.
-        abort_if($meeting->approve === 'معتمد', 422, 'الاجتماع معتمد نهائيًّا — لا تُحدَّث بياناته من Zoom بعد الاعتماد.');
+        abort_if($meeting->isApproved(), 422, 'الاجتماع معتمد نهائيًّا — لا تُحدَّث بياناته من Zoom بعد الاعتماد.');
 
         $pulled = MeetingSummary::pull($meeting, $this->zoom);
 
@@ -362,7 +362,7 @@ class MeetingController extends Controller
             $why = $meeting->approvalBlocker();
             abort_if($why !== null, 422, (string) $why);
             $meeting->update([
-                'approve' => 'معتمد',
+                'approve' => Meeting::APPROVED,
                 'sum_approved' => true,
                 'has_minutes' => filled($meeting->minutes),
                 'has_summary' => filled($meeting->summary),
@@ -689,7 +689,7 @@ class MeetingController extends Controller
         // 6. معدل تنفيذ القرارات وتحويلها لمهام
         $refs = $this->scopedQuery($request)->pluck('ref')->all();
         $totalTasks = $refs !== [] ? Task::whereIn('ref', $refs)->count() : 0;
-        $doneTasks = $refs !== [] ? Task::whereIn('ref', $refs)->where('status', 'منجزة')->count() : 0;
+        $doneTasks = $refs !== [] ? Task::whereIn('ref', $refs)->where('status', Task::DONE)->count() : 0;
 
         return [
             'monthlyTrend' => $months,

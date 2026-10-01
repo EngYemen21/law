@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Domain\Journey\Enums\MeetingStatus;
 use App\Mail\MeetingScheduledMail;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
@@ -44,7 +45,7 @@ class MeetInvitation
         if ($existing) {
             $meeting = $existing;
             $meeting->update([
-                'status' => 'قادم',
+                'status' => MeetingStatus::Upcoming->value,
                 // الموعد يُحدَّث أيضاً: إعادة الإرسال بموعد جديد كانت تُبقي الاجتماع على موعده القديم
                 'when_label' => $req->day.' · '.$req->time,
                 'starts_at' => $startsAt,
@@ -70,7 +71,7 @@ class MeetInvitation
                 'client_name' => $client->name,
                 'when_label' => $req->day.' · '.$req->time,
                 'starts_at' => $startsAt,
-                'status' => 'قادم',
+                'status' => MeetingStatus::Upcoming->value,
                 'case_ref' => $req->case_ref,
                 // لا `dur`: الاجتماع بلا مدّةٍ ثابتة — ينتهي حين يُنهى (قرار المالك 2026-09-26)
                 'assigned_lawyer_id' => $req->assigned_lawyer_id,

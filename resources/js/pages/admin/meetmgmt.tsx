@@ -315,7 +315,7 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                 <div className="imeta" style={{ flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <b style={{ fontSize: '14.5px', color: 'var(--ink)' }}>{m.title}</b>
-                    {m.conf === 'سري' && (
+                    {m.confidential && (
                       <span style={{ fontSize: '11px', background: '#FDEAE7', color: '#C0392B', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>
                         <Icon name="lock" /> سري جداً
                       </span>
