@@ -42,7 +42,8 @@ class StaffWorkHoursRemovedTest extends TestCase
         $this->assertArrayNotHasKey('start', $card);
         $this->assertArrayNotHasKey('end', $card);
 
-        $page = (string) file_get_contents(resource_path('js/pages/admin/staff.tsx'));
+        // الصفحة ومكوّناتها المفصولة عنها (`components/staff/`) — فلا يفلت ما نُقل من الحارس
+        $page = implode("\n", array_map('file_get_contents', [resource_path('js/pages/admin/staff.tsx'), ...glob(resource_path('js/components/staff/*'))]));
         foreach (['أوقات الدوام', 'ساعات الدوام', 'الدوام اليومي', 'workHoursText'] as $gone) {
             $this->assertStringNotContainsString($gone, $page, $gone);
         }

@@ -44,7 +44,8 @@ class StaffPhaseOneTest extends TestCase
         $this->actingAs($admin)->post(route('admin.staff.store'), $this->payload())
             ->assertRedirect()->assertSessionMissing('generatedPassword');
 
-        $page = (string) file_get_contents(resource_path('js/pages/admin/staff.tsx'));
+        // الصفحة ومكوّناتها المفصولة عنها (`components/staff/`) — فلا يفلت ما نُقل من الحارس
+        $page = implode("\n", array_map('file_get_contents', [resource_path('js/pages/admin/staff.tsx'), ...glob(resource_path('js/components/staff/*'))]));
         $this->assertStringNotContainsString('generatedPassword', $page);
         $this->assertStringNotContainsString('كلمة مرور', $page);
         $this->assertStringNotContainsString('generatedPassword', (string) file_get_contents(app_path('Http/Middleware/HandleInertiaRequests.php')));
@@ -117,7 +118,8 @@ class StaffPhaseOneTest extends TestCase
         $this->actingAs($admin)->get(route('admin.staff'))
             ->assertInertia(fn ($page) => $page->where('staff.0.active', true));
 
-        $page = (string) file_get_contents(resource_path('js/pages/admin/staff.tsx'));
+        // الصفحة ومكوّناتها المفصولة عنها (`components/staff/`) — فلا يفلت ما نُقل من الحارس
+        $page = implode("\n", array_map('file_get_contents', [resource_path('js/pages/admin/staff.tsx'), ...glob(resource_path('js/components/staff/*'))]));
         foreach (["=== 'موقوف'", "|| 'نشط'", "=== 'كل الأقسام'", "=== 'يغطي كل الأقسام'", "role === 'موظف خدمة عملاء'", "role === 'محامٍ'"] as $literal) {
             $this->assertStringNotContainsString($literal, $page, $literal);
         }
