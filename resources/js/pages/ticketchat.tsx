@@ -18,6 +18,8 @@ import type { ClientTicketCard as TicketCard, OutcomeCards } from '@/types';
 // دورة الحجز مقودة من الخادم عبر حالة الاستشارة المرتبطة (consult): تسعير الإدارة → فاتورة → دفع محاكى → موعد.
 interface ConsultLink {
   id: number; ref: string; status: string; channel: string; statusCode?: string;
+  /** مرحلة دورة الحجز بمفتاحٍ ثابت (`Consult::toClientCard`) — `null` لما تجاوزها. */
+  bookingStage: 'pricing' | 'payment' | 'scheduling' | null;
   price?: number; vat?: number; total?: number; priced?: boolean; paid?: boolean; invoiceNo?: string | null;
   /** النسبة المطبَّقة على هذه الاستشارة (`Consult::vatRate`) — لا «15%» منقوشة تخالف مبلغ الضريبة. */
   vatRate?: number | null;
@@ -47,13 +49,15 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
   }, [consult?.id]);
 
   const status = consult?.status ?? null;
+  // المراحل بمفتاح الخادم لا بنصّ الحالة — والنصّ للعرض وحده
+  const stage = consult?.bookingStage ?? null;
 
   // عند وصول خطوة اختيار الموعد (بعد الدفع) — التمرير لأعلى ليظهر قسم حجز الموعد بدل بقاء الشاشة أسفل الدردشة
   useEffect(() => {
-    if (status === 'بانتظار تحديد الموعد') {
+    if (stage === 'scheduling') {
       cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-  }, [status]);
+  }, [stage]);
 
   // الخطوة 1: طلب الاستشارة (النوع فقط) → يُرسل للتسعير
   const requestConsult = () => {
@@ -73,8 +77,8 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
   };
 
   const badge = !status ? 'اختر النوع'
-    : status === 'بانتظار التسعير' ? 'بانتظار التسعير'
-      : status === 'بانتظار السداد' ? 'بانتظار السداد' : 'قيد تحديد الموعد';
+    : stage === 'pricing' ? 'بانتظار التسعير'
+      : stage === 'payment' ? 'بانتظار السداد' : 'قيد تحديد الموعد';
 
   // المعرّف book-consult هو هدف تمرير زرّ «حجز موعد الاستشارة» في بطاقة قرار الإدارة أعلى الصفحة
   return (
@@ -104,14 +108,14 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
         )}
 
         {/* بانتظار تسعير المكتب */}
-        {status === 'بانتظار التسعير' && (
+        {stage === 'pricing' && (
           <div className="action-hint" style={{ textAlign: 'center', padding: 14 }}>
             <Icon name="clock" /> طلبك ({consult?.ref}) قيد المراجعة لدى المكتب لتحديد سعر الاستشارة. ستصلك الفاتورة فور تحديده.
           </div>
         )}
 
         {/* الفاتورة + الدفع المحاكى */}
-        {status === 'بانتظار السداد' && (
+        {stage === 'payment' && (
           <>
             <div className="invoice">
               <div className="inv-head"><b>فاتورة استشارة قانونية</b><span>{consult?.invoiceNo ?? consult?.ref}</span></div>
@@ -128,7 +132,7 @@ const BookConsult: React.FC<{ no: string; consult?: ConsultLink | null }> = ({ n
         )}
 
         {/* بعد السداد: المكتب يحدّد الموعد (قرار المالك 2026-09-14) — لا جدول حجز للعميل */}
-        {status === 'بانتظار تحديد الموعد' && (
+        {stage === 'scheduling' && (
           <div className="action-hint" style={{ textAlign: 'center', padding: 14 }}>
             <Icon name="clock" /> سوف يتم تحديد موعد جلسة استشارية مع المستشار المختص وثمّ تزويدك بالموعد المحدد
           </div>
@@ -154,10 +158,10 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
 
   // تُعرض لوحة الحجز بعد نشر الرأي القانونيّ المبدئيّ (يُطلب منها)، أو ما دامت هناك استشارة قيد
   // التسعير/السداد/تحديد الموعد — «المرحلة التالية» لم تعد تنقل التذكرة إلى «بانتظار حجز الاستشارة».
-  const bookingActive = consult && ['بانتظار التسعير', 'بانتظار السداد', 'بانتظار تحديد الموعد'].includes(consult.status);
+  const bookingActive = consult?.bookingStage != null;
   // حكم الخادم (`actionsMatrix`) — تحمله بطاقة العميل دائماً، فلا بديلَ يقارن نصوص الحالة
   const canRequest = ticket.actions.can_request_consult;
-  const showBooking = canRequest || !!bookingActive;
+  const showBooking = canRequest || bookingActive;
 
   // حكم الخادم (`TicketStatus::isTerminal`) — من الصفحة ثمّ من البثّ. كانت قائمةٌ داخليّة تُقارَن بتسمية
   // العميل (`clientStatus`) فلا تصدق أبداً

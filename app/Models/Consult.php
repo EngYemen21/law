@@ -515,6 +515,18 @@ class Consult extends Model
         return InvoiceFactory::taxFromFrozen((int) $this->price, (int) $this->vat)['vat_rate'];
     }
 
+    /** مرحلة دورة الحجز بمفتاحٍ ثابت (التسعير ← السداد ← الموعد ← اعتماده)، و`null` لما تجاوزها. */
+    public function bookingStage(): ?string
+    {
+        return match ($this->status) {
+            ConsultStatus::AwaitingPricing->value => 'pricing',
+            ConsultStatus::AwaitingPayment->value => 'payment',
+            ConsultStatus::AwaitingSchedule->value => 'scheduling',
+            ConsultStatus::AwaitingAppointmentApproval->value => 'approval',
+            default => null,
+        };
+    }
+
     public function toClientCard(): array
     {
         return [
@@ -540,6 +552,9 @@ class Consult extends Model
             'sessionTone' => $this->sessionTone(),
             // في دورة الحجز (تسعير · سداد · موعد) — علمٌ لا مرحلة: `bookingStage` يكشف «اعتماد الموعد» الداخليّ
             'inBooking' => in_array($this->status, self::PRE_SESSION_STATUSES, true),
+            // لوحة الحجز في محادثة التذكرة تُبنى عليه بدل مقارنة نصوص الحالة؛ واعتماد الموعد شأنٌ داخليّ
+            // يقرؤه العميل «تحديد الموعد» كما تقرؤه تسميته
+            'bookingStage' => $this->bookingStage() === 'approval' ? 'scheduling' : $this->bookingStage(),
             // طلب تغيير الموعد: هل يُتاح، وهل طلبٌ سابقٌ معلّق، ولماذا يُحجب — من `rescheduleRequestBlocker` وحده
             'rescheduleRequest' => [
                 'pending' => $this->reschedule_requested_at !== null,
@@ -682,13 +697,7 @@ class Consult extends Model
             'canApproveAnalysis' => (new ApproveConsultAnalysis)->accepts((string) $this->status),
             // مرحلة دورة الحجز (التسعير ← السداد ← الموعد ← اعتماده) — مفتاحٌ ثابت تُجمَّع به شاشة
             // «طلبات الاستشارات» بدل مقارنة أربعة نصوص عربيّة؛ و`null` لما تجاوز دورة الحجز
-            'bookingStage' => match ($this->status) {
-                ConsultStatus::AwaitingPricing->value => 'pricing',
-                ConsultStatus::AwaitingPayment->value => 'payment',
-                ConsultStatus::AwaitingSchedule->value => 'scheduling',
-                ConsultStatus::AwaitingAppointmentApproval->value => 'approval',
-                default => null,
-            },
+            'bookingStage' => $this->bookingStage(),
             'clientRescheduleRequest' => $this->reschedule_requested_at === null ? null : [
                 'at' => $this->reschedule_requested_at->toIso8601String(),
                 'note' => $this->reschedule_request_note,
