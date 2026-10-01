@@ -8,6 +8,7 @@ use App\Domain\Journey\Transitions\Meeting\EndMeeting;
 use App\Domain\Journey\Transitions\Meeting\StartMeeting;
 use App\Enums\Role;
 use App\Models\Concerns\TracksRevisions;
+use App\Support\ArabicCount;
 use App\Support\LawyerName;
 use App\Support\MeetingTime;
 use App\Support\RecordingArchive;
@@ -29,6 +30,7 @@ class Meeting extends Model
 
     protected $fillable = [
         'user_id', 'ref', 'title', 'type', 'client_name', 'when_label', 'starts_at', 'reminder_sent_at',
+        'reminder_near_sent_at', 'link_released_at',
         // `dur`: عمودٌ تاريخيّ — ما حُفظ فيه يبقى مسافةً محجوزة على تقويم المحامي (`LawyerAvailability`)،
         // ولا يُكتب جديداً ولا يُنهي الاجتماع (قرار المالك 2026-09-26).
         'status', 'priority', 'conf', 'attend', 'dur', 'approve',
@@ -49,6 +51,8 @@ class Meeting extends Model
         'reschedule_requested_at' => 'datetime',
         'reschedule_count' => 'integer',
         'reminder_sent_at' => 'datetime',
+        'reminder_near_sent_at' => 'datetime',
+        'link_released_at' => 'datetime',
         'zoom_summary_at' => 'datetime',
         'join_time' => 'datetime',
         'leave_time' => 'datetime',
@@ -63,12 +67,14 @@ class Meeting extends Model
         'zoom_ai_next_steps' => 'array',
     ];
 
+    /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
     // المحامي المسند بالمعرّف (لعزل الرؤية والبثّ)
+    /** @return BelongsTo<User, $this> */
     public function assignedLawyer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_lawyer_id');
@@ -413,6 +419,11 @@ class Meeting extends Model
         };
     }
 
+    /** افتراضا طبقتي التذكير (`meeting_reminder_lead` · `meeting_reminder_near_minutes`) — بريدٌ ثمّ إشعارٌ ورسالة للعميل. */
+    public const REMINDER_FAR_MINUTES = 60;
+
+    public const REMINDER_NEAR_MINUTES = 30;
+
     /** سقف إعادة جدولة الاجتماع الافتراضيّ — ما بعده للإدارة العليا وحدها (`meeting_reschedule_limit`). */
     public const RESCHEDULE_LIMIT = 2;
 
@@ -433,14 +444,24 @@ class Meeting extends Model
      */
     public function changeRequestBlocker(): ?string
     {
-        $status = MeetingStatus::tryFrom((string) $this->status);
+        // **مهلة الطلب كالاستشارة** (`consult_reschedule_notice_minutes`، قرار المالك 2026-10-01) — كان العميل
+        // يطلب تغيير اجتماعٍ يبدأ بعد دقائق، والإعداد يقول إنّ ذلك للمكتب مباشرةً.
+        $notice = SettingsRegistry::int('consult_reschedule_notice_minutes');
+        $noticeEdge = now()->addMinutes($notice);
 
         return match (true) {
-            ! in_array($status, [MeetingStatus::Upcoming, MeetingStatus::Postponed], true) => 'طلب تغيير الموعد متاح للاجتماعات القادمة فقط.',
+            ! $this->isAwaitingSession() => 'طلب تغيير الموعد متاح للاجتماعات القادمة فقط.',
             $this->reschedule_requested_at !== null => 'طلبك السابق قيد المراجعة — سيتواصل معك المكتب.',
             $this->reachedRescheduleLimit() => 'بلغ الاجتماع الحدّ الأقصى لتغيير الموعد — تواصل مع المكتب مباشرةً.',
+            $this->starts_at !== null && $this->starts_at->lt($noticeEdge) => 'موعد الاجتماع خلال أقلّ من '.ArabicCount::duration($notice).' — لتغييره تواصل مع المكتب مباشرةً.',
             default => null,
         };
+    }
+
+    /** قادمٌ أو مؤجّل — الحالتان اللتان يُطلب فيهما تغيير الموعد ويُعرض سبب منعه. */
+    private function isAwaitingSession(): bool
+    {
+        return in_array(MeetingStatus::tryFrom((string) $this->status), [MeetingStatus::Upcoming, MeetingStatus::Postponed], true);
     }
 
     // بطاقة العميل (يطابق DATA.meetings + viewMeetings) — المحضر/الملخص بعد اعتماد الإدارة فقط
@@ -461,9 +482,7 @@ class Meeting extends Model
             'canJoin' => $canJoin,
             // طلب تغيير الموعد: متاحٌ أم لا، وسبب المنع حين يعني العميلَ (طلبٌ قائم أو سقفٌ بُلغ) — لا للمنتهي
             'canRequestChange' => $this->changeRequestBlocker() === null,
-            'changeRequestNote' => $this->reschedule_requested_at !== null || ($this->reachedRescheduleLimit() && in_array(MeetingStatus::tryFrom((string) $this->status), [MeetingStatus::Upcoming, MeetingStatus::Postponed], true))
-                ? $this->changeRequestBlocker()
-                : null,
+            'changeRequestNote' => $this->isAwaitingSession() ? $this->changeRequestBlocker() : null,
             // شارة الاعتماد للعميل — يعرف أنّ المحضر/الملخص الظاهرين معتمدان من الإدارة
             'approved' => $approved,
             'ref' => $this->ref ?: 'M-'.$this->id,

@@ -21,6 +21,7 @@ use App\Services\MailService;
 use App\Support\Audit;
 use App\Support\ClientDirectory;
 use App\Support\LawyerAvailability;
+use App\Support\MeetingTime;
 use App\Support\MeetInvitation;
 use App\Support\Notify;
 use App\Support\ReferenceNumber;
@@ -131,6 +132,17 @@ class MeetRequestController extends Controller
 
         $client = $meetRequest->user;
         abort_unless($client !== null, 422, 'عميل الدعوة غير موجود.');
+
+        // **لا تُعتمد دعوةٌ فات موعدها** (قرار المالك 2026-10-01). كانت تُقبل حتى تنقضي مهلة انتهائها
+        // (`meet_invite_expire_minutes` بعد الموعد)، فيُبلَّغ العميل «اجتماع مجدول» بموعدٍ مضى. تُوسَم
+        // منتهيةً (والوسم يبقى، فالحفظ قبل الرمي بلا معاملة) — فيظهر زرّ «إعادة الإرسال» بموعدٍ جديد بدل الانتظار حتى يمرّ المجدول.
+        $startsAt = MeetingTime::parse($meetRequest->day, $meetRequest->time);
+        if ($startsAt !== null && $startsAt->isPast()) {
+            $meetRequest->update(['stage' => MeetRequest::STAGE_EXPIRED]);
+
+            // خطأُ تحقّقٍ لا تحويلٌ بـflash: الواجهة تعلن النجاح على كلّ تحويل (`onSuccess`)
+            throw ValidationException::withMessages(['approve' => "فات موعد الدعوة {$meetRequest->ref} قبل اعتمادها — صارت منتهية الصلاحيّة، أعد إرسالها بموعدٍ جديد."]);
+        }
 
         $meeting = MeetInvitation::schedule($meetRequest, $client);
         MeetInvitation::announce($meetRequest, $meeting, $client);

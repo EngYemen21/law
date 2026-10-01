@@ -10,6 +10,7 @@ use App\Events\RoomStateChanged;
 use App\Models\Meeting;
 use App\Models\MeetRequest;
 use App\Models\User;
+use App\Support\SessionWindow;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -61,9 +62,15 @@ final class StartMeeting extends Transition
             return null;
         }
 
-        return in_array($status, [MeetingStatus::Upcoming, MeetingStatus::Postponed], true)
+        if (! in_array($status, [MeetingStatus::Upcoming, MeetingStatus::Postponed], true)) {
+            return 'لا يُبدأ إلّا اجتماعٌ قادم — إن فات موعده فأعد جدولته.';
+        }
+
+        // **ولا قبل نافذة بدء الطاقم** (`consult_staff_start_minutes`، قرار المالك 2026-10-01) — كان اجتماعٌ
+        // موعده بعد أيّامٍ يُبدأ الآن ويُبلَّغ العميل «يمكنك الدخول الآن». بلا موعدٍ (مؤجّل) ⇒ يُبدأ.
+        return SessionWindow::staffStartOpened($entity->startsAtResolved())
             ? null
-            : 'لا يُبدأ إلّا اجتماعٌ قادم — إن فات موعده فأعد جدولته.';
+            : 'لم يحن موعد الاجتماع — يُبدأ قبل موعده بـ'.SessionWindow::staffStartLabel().'.';
     }
 
     public function apply(Model $entity, ?User $actor, array $payload): void

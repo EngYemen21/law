@@ -485,7 +485,8 @@ class MeetingController extends Controller
             'status' => ($startsAt ? MeetingStatus::Upcoming : MeetingStatus::Postponed)->value,
             'when_label' => $when,
             'starts_at' => $startsAt,
-            'reminder_sent_at' => null, // إعادة تسليح التذكير للموعد الجديد
+            // إعادة تسليح التذكير وإطلاق الرابط للموعد الجديد — الأختام نفسها التي يُصفّرها نقل الموعد
+            ...BookingMoved::markers($meeting),
             // بقايا جلسةٍ لم تنعقد (خروجٌ/مدّةٌ/حضورٌ يدويّ) لا تخصّ الموعد الجديد. ولا يُمسّ
             // `join_time` ولا `recording_url`: حارس «انعقد» أعلاه يضمن خلوّهما، ومحوهما كان يُضيع تسجيلاً.
             'leave_time' => null,
