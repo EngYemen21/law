@@ -22,7 +22,8 @@ use Tests\TestCase;
  * للاجتماع ولا يطبّقه، أو يطبّقه للاستشارة وحدها:
  *
  * 1. مهلة طلب العميل تغيير الموعد · 2. نافذة بدء الطاقم · 3. لا اعتماد لدعوةٍ فات موعدها ·
- * 4. إطلاق رابط الاجتماع · 5. قسم «الاجتماعات» · 6. تذكير المشاركين · 7. تذكير العميل الثاني (30د).
+ * 4. إطلاق رابط الاجتماع · 5. قسم «الاجتماعات» · 6. تذكير المشاركين · 7. تذكير العميل الثاني (30د) —
+ *    إشعارٌ في الحساب وحده؛ والرسالة النصّيّة عند فتح الدخول (`SessionLinkReminderTest`، قرار «ب»).
  */
 class MeetingSettingsAlignmentTest extends TestCase
 {
@@ -198,7 +199,8 @@ class MeetingSettingsAlignmentTest extends TestCase
         Mail::assertQueued(MeetingReminderMail::class, fn ($mail) => $mail->hasTo('e@example.com'));
     }
 
-    public function test_client_gets_second_reminder_half_an_hour_before(): void
+    /** قرار «ب»: تذكير الثلاثين دقيقة إشعارٌ بلا رسالة نصّيّة — الرسالة واحدةٌ عند فتح الدخول. */
+    public function test_client_gets_second_reminder_half_an_hour_before_as_notification_only(): void
     {
         Mail::fake();
         Bus::fake([SendSmsJob::class]);
@@ -210,26 +212,11 @@ class MeetingSettingsAlignmentTest extends TestCase
 
         $this->assertNotNull($m->fresh()->reminder_near_sent_at);
         $this->assertSame(1, UserNotification::where('user_id', $client->id)->where('body', 'like', '%تذكير: اجتماعك%')->count());
-        Bus::assertDispatched(SendSmsJob::class, fn (SendSmsJob $job) => $job->intlPhone === '966555550001' && str_contains($job->body, $m->ref));
+        Bus::assertNotDispatched(SendSmsJob::class);
         Mail::assertNothingQueued();
 
         // مرّةً واحدة
-        Bus::fake([SendSmsJob::class]);
         $this->artisan('meetings:send-reminders')->assertSuccessful();
-        Bus::assertNotDispatched(SendSmsJob::class);
-        $this->assertSame(1, UserNotification::where('user_id', $client->id)->where('body', 'like', '%تذكير: اجتماعك%')->count());
-    }
-
-    public function test_second_reminder_without_sms_provider_still_notifies(): void
-    {
-        Bus::fake([SendSmsJob::class]);
-        config(['services.taqnyat.api_key' => null]);
-        $client = User::factory()->create(['role' => Role::Client, 'phone' => '+966555550001']);
-        $this->meeting(['user_id' => $client->id, 'starts_at' => now()->addMinutes(25)]);
-
-        $this->artisan('meetings:send-reminders')->assertSuccessful();
-
-        Bus::assertNotDispatched(SendSmsJob::class);
         $this->assertSame(1, UserNotification::where('user_id', $client->id)->where('body', 'like', '%تذكير: اجتماعك%')->count());
     }
 }

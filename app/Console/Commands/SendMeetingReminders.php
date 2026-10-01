@@ -3,14 +3,11 @@
 namespace App\Console\Commands;
 
 use App\Domain\Journey\Enums\MeetingStatus;
-use App\Jobs\SendSmsJob;
 use App\Mail\MeetingReminderMail;
 use App\Models\Meeting;
 use App\Models\User;
 use App\Services\MailService;
-use App\Services\TaqnyatSmsService;
 use App\Support\Notify;
-use App\Support\Phone;
 use App\Support\ReminderLayer;
 use App\Support\SessionWindow;
 use App\Support\SettingsRegistry;
@@ -21,10 +18,10 @@ use Illuminate\Console\Command;
  *
  * 1. **البعيدة** (`meeting_reminder_lead`، 60د): بريدٌ للعميل والمحامي المسنَد **والمشاركين من الكادر** —
  *    كان المشارك يُشعَر عند الإنشاء ثمّ لا يُذكَّر. ختمها `reminder_sent_at`.
- * 2. **القريبة** (`meeting_reminder_near_minutes`، 30د): للعميل وحده — إشعارٌ في حسابه، ورسالةٌ نصّيّة
- *    إلى جواله متى كان المزوّد مهيّأً والرقم صالحاً. ختمها `reminder_near_sent_at`.
+ * 2. **القريبة** (`meeting_reminder_near_minutes`، 30د): للعميل وحده — إشعارٌ في حسابه. ختمها `reminder_near_sent_at`.
+ *    كانت معه رسالةٌ نصّيّة؛ صارت الرسالة واحدةً عند فتح الدخول فيها الموعد والرابط (قرار المالك 2026-10-01، «ب»).
  *
- * وما دون «فتح الدخول» يغطّيه إطلاق الرابط (`zoom:release-links`). والأختام تُصفَّر بنقل الموعد
+ * وما دون «فتح الدخول» يغطّيه إطلاق الرابط (`zoom:release-links`) ورسالته النصّيّة (`SessionLinkSms`). والأختام تُصفَّر بنقل الموعد
  * (`BookingMoved::markers`). بلا `starts_at` ⇒ لا تذكير.
  */
 class SendMeetingReminders extends Command
@@ -32,9 +29,9 @@ class SendMeetingReminders extends Command
     // بلا افتراضٍ في التوقيع: الافتراض من الإعدادات كي تضبطه الإدارة بلا نشر كود
     protected $signature = 'meetings:send-reminders {--lead= : فترة التذكير الأوّل قبل الموعد بالدقائق (الافتراض من الإعدادات)}';
 
-    protected $description = 'تذكير الاجتماعات القادمة: بريدٌ أوّل للأطراف، ثمّ إشعارٌ ورسالة نصّيّة للعميل (المدّتان من الإعدادات)';
+    protected $description = 'تذكير الاجتماعات القادمة: بريدٌ أوّل للأطراف، ثمّ إشعارٌ للعميل (المدّتان من الإعدادات)';
 
-    public function handle(MailService $mail, TaqnyatSmsService $sms): int
+    public function handle(MailService $mail): int
     {
         $now = now();
         $option = $this->option('lead');
@@ -69,7 +66,7 @@ class SendMeetingReminders extends Command
             }
 
             if ($meeting->user && $near->isDue($now, $startsAt, $meeting->reminder_near_sent_at)) {
-                $this->nudgeClient($sms, $meeting, $meeting->user, $remaining);
+                $this->nudgeClient($meeting, $meeting->user, $remaining);
                 $meeting->update(['reminder_near_sent_at' => now()]);
                 $nudges++;
             }
@@ -99,18 +96,9 @@ class SendMeetingReminders extends Command
         return $ok;
     }
 
-    /**
-     * الطبقة القريبة للعميل: إشعارٌ في حسابه دائماً، ورسالةٌ نصّيّة حين يصحّ إرسالها. والرسالة لا تُرسل
-     * إلّا إلى جوال العميل المسجَّل وبرقمٍ صالح (`Phone::isSendable`) — لا رقمٌ من خارج حسابه.
-     */
-    private function nudgeClient(TaqnyatSmsService $sms, Meeting $meeting, User $client, string $remaining): void
+    /** الطبقة القريبة للعميل: إشعارٌ في حسابه — والرسالة النصّيّة واحدةٌ عند فتح الدخول (`SessionLinkSms`). */
+    private function nudgeClient(Meeting $meeting, User $client, string $remaining): void
     {
-        Notify::send($client->id, 'cal', 't-amber', "تذكير: اجتماعك «{$meeting->title}» بعد {$remaining} — تدخل غرفته من قسم الاجتماعات بالمنصّة.");
-
-        $phone = (string) ($client->phone ?? '');
-        if ($phone !== '' && Phone::isSendable($phone) && $sms->isConfigured()) {
-            // قصيرٌ عمداً: الرسائل تُحاسَب بعدد المقاطع. والتوقيع اسم المكتب من الإعدادات.
-            SendSmsJob::dispatch(Phone::intl($phone), "تذكير: اجتماعك {$meeting->ref} بعد {$remaining}. ".SettingsRegistry::str('office_name'));
-        }
+        Notify::send($client->id, 'cal', 't-amber', "تذكير: اجتماعك «{$meeting->title}» بعد {$remaining} — يُفتح الدخول قبل الموعد بـ".SessionWindow::joinOpensLabel().'، ويصلك رابطه برسالةٍ نصّيّة حينها.');
     }
 }

@@ -27,8 +27,11 @@ use Carbon\CarbonInterface;
  */
 final class SessionWindow
 {
-    /** **الافتراض المُعلَن** لـ`session_join_opens_minutes` — يُفتح الدخول قبل الموعد بها. */
-    public const JOIN_OPENS_BEFORE_MINUTES = 5;
+    /**
+     * **الافتراض المُعلَن** لـ`session_join_opens_minutes` — يُفتح الدخول قبل الموعد بها، وفيها تُرسل
+     * رسالة رابط الجلسة للعميل (`SessionLinkSms`). كانت 5؛ صارت ربع ساعة (قرار المالك 2026-10-01).
+     */
+    public const JOIN_OPENS_BEFORE_MINUTES = 15;
 
     /** **الافتراض المُعلَن** لـ`consult_staff_start_minutes` — يبدأ الطاقم الاستشارة قبل الموعد بها. */
     public const STAFF_START_BEFORE_MINUTES = 15;
@@ -73,7 +76,7 @@ final class SessionWindow
         return 'لم تُفتح الغرفة بعد — تُفتح قبل الموعد بـ'.self::joinOpensLabel().'.';
     }
 
-    /** «5 دقائق» — مهلة فتح الدخول بوحدتها الطبيعيّة، لكلّ نصٍّ يعلنها (رسالة الرفض وقوالب البريد). */
+    /** «15 دقيقة» — مهلة فتح الدخول بوحدتها الطبيعيّة، لكلّ نصٍّ يعلنها (رسالة الرفض وقوالب البريد). */
     public static function joinOpensLabel(): string
     {
         return ArabicCount::duration(self::joinOpensBeforeMinutes());

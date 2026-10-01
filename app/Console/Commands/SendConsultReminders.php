@@ -8,8 +8,10 @@ use App\Mail\ConsultReminderMail;
 use App\Models\Consult;
 use App\Services\MailService;
 use App\Services\TaqnyatSmsService;
+use App\Support\Notify;
 use App\Support\Phone;
 use App\Support\ReminderLayer;
+use App\Support\SessionLinkSms;
 use App\Support\SessionWindow;
 use App\Support\SettingsRegistry;
 use Illuminate\Console\Command;
@@ -17,7 +19,10 @@ use Illuminate\Console\Command;
 /**
  * تذكير بمواعيد الاستشارات المدفوعة القادمة — طبقتان مستقلّتان لكلٍّ ختمها وقناتها، ومدّتاهما من الإعدادات:
  *   • `consult_reminder_far_minutes` (افتراضها 24 ساعة) — بريد إلكتروني (reminder_24h_sent_at)
- *   • `consult_reminder_near_minutes` (افتراضها 30 دقيقة) — رسالة نصّية SMS (reminder_30m_sent_at)
+ *   • `consult_reminder_near_minutes` (افتراضها 30 دقيقة) — (reminder_30m_sent_at):
+ *       – **المرئيّة**: إشعارٌ في الحساب وحده. رسالتها النصّيّة واحدةٌ عند فتح الدخول فيها الموعد والرابط
+ *         (`zoom:release-links` · `SessionLinkSms`) — قرار المالك 2026-10-01 «ب»: لا رسالتين متقاربتين.
+ *       – **الحضوريّة والهاتفيّة**: رسالة نصّيّة بالموعد والمكان — لا رابط لها فلا رسالة عند فتح الدخول.
  * عمودا الختم باسميهما التاريخيّين: يختمان الطبقة لا مدّتها.
  *
  * كانت الطبقة القريبة «قبل ساعة» بالبريد؛ صارت 30 دقيقة برسالة نصّية لأن البريد قد لا
@@ -68,9 +73,12 @@ class SendConsultReminders extends Command
                 continue; // لا طبقتين في تشغيل واحد
             }
 
-            // الطبقة القريبة — رسالة نصّية
+            // الطبقة القريبة — إشعارٌ للمرئيّة (رسالتها عند فتح الدخول)، ورسالة نصّيّة لغيرها
             if ($near->isDue($now, $startsAt, $consult->reminder_30m_sent_at)) {
-                if ($this->textReminder($sms, $consult, $remaining)) {
+                if ($consult->isVideo() && $consult->user) {
+                    Notify::send($consult->user->id, 'cal', 't-amber', "تذكير: استشارتك المرئيّة {$consult->ref} بعد {$remaining} — يُفتح الدخول قبل الموعد بـ".SessionWindow::joinOpensLabel().'، ويصلك رابطها برسالةٍ نصّيّة حينها.');
+                    $consult->update([$near->stampColumn => now()]);
+                } elseif ($this->textReminder($sms, $consult, $remaining)) {
                     $consult->update([$near->stampColumn => now()]);
                     $texts++;
                 }
@@ -103,10 +111,11 @@ class SendConsultReminders extends Command
     private function smsBody(Consult $consult, string $remaining): string
     {
         $place = $consult->channel === 'حضورية' ? $consult->placeLabel() : $consult->channel;
+        $when = $consult->starts_at ? ' — '.SessionLinkSms::when($consult->starts_at) : '';
 
         // التوقيع اسم المكتب من الإعدادات لا `APP_NAME` — ذاك اسمٌ تقنيّ في البيئة يُكتب بغير
         // تهجئة المستندات، والعميل يقرأ الاسم الذي تضبطه الإدارة لا ما في ملفّ النشر.
-        return "تذكير: موعد استشارتك {$consult->ref} بعد {$remaining} ({$place}). "
+        return "تذكير: موعد استشارتك {$consult->ref} بعد {$remaining}{$when} ({$place}). "
             .SettingsRegistry::str('office_name');
     }
 }

@@ -144,6 +144,9 @@ class Consult extends Model
      */
     public const CHANNELS = ['حضورية', 'مرئية', 'هاتفية'];
 
+    /** القناة التي لها غرفة ورابط دخول — من `CHANNELS`. */
+    public const CHANNEL_VIDEO = 'مرئية';
+
     /** ملخّص الجلسة يُحرَّر منسّقاً ويصل الموكّلَ بتنسيقه (`HasRichText`). */
     public const RICH_TEXT_FIELDS = ['summary'];
 
@@ -217,7 +220,7 @@ class Consult extends Model
         $session = SessionState::tryFrom((string) $this->session);
 
         return match (true) {
-            $this->channel !== 'مرئية' => SessionWindow::REFUSE_NOT_VIDEO,
+            ! $this->isVideo() => SessionWindow::REFUSE_NOT_VIDEO,
             $session === SessionState::Ended => SessionWindow::REFUSE_ENDED,
             $session === SessionState::NotHeld => SessionWindow::REFUSE_MISSED,
             $session === SessionState::Live => null,
@@ -234,6 +237,12 @@ class Consult extends Model
      * **جاريةٌ الآن؟** — القاعدة الواحدة لـ«يجوز إنهاؤها» (`EndSession` لغير Zoom) ولعلَم `live`
      * في عقد الغرفة (`RoomDetails`) — نظيرُها `Meeting::isLive()`.
      */
+    /** استشارةٌ مرئيّة: لها غرفة ورابط دخول (وغيرها حضوريّة أو هاتفيّة بلا رابط). */
+    public function isVideo(): bool
+    {
+        return $this->channel === self::CHANNEL_VIDEO;
+    }
+
     public function isLive(): bool
     {
         return $this->session === SessionState::Live->value;
@@ -313,6 +322,7 @@ class Consult extends Model
         return 'specialty';
     }
 
+    /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

@@ -91,13 +91,13 @@ class SettingsConstantsStageTwoTest extends TestCase
 
     public function test_the_join_window_and_its_text_follow_the_setting(): void
     {
-        $in8 = now()->addMinutes(8);
-        $this->assertFalse(SessionWindow::joinOpened($in8));
-        $this->assertStringContainsString('5 دقائق', SessionWindow::refuseNotOpen());
+        $in12 = now()->addMinutes(12);
+        $this->assertTrue(SessionWindow::joinOpened($in12), 'الافتراض ربع ساعة (قرار المالك 2026-10-01)');
+        $this->assertStringContainsString('15 دقيقة', SessionWindow::refuseNotOpen());
 
         $this->set('session_join_opens_minutes', 10);
 
-        $this->assertTrue(SessionWindow::joinOpened($in8));
+        $this->assertFalse(SessionWindow::joinOpened($in12));
         $this->assertStringContainsString('10 دقائق', SessionWindow::refuseNotOpen());
         $this->assertSame(10, $this->get(route('login'))->viewData('page')['props']['settings']['session_join_opens_minutes']);
     }
@@ -124,7 +124,8 @@ class SettingsConstantsStageTwoTest extends TestCase
         config(['services.taqnyat.api_key' => 'tok_test', 'services.taqnyat.sender' => 'Salasel']);
         $client = User::factory()->create(['role' => Role::Client, 'phone' => '+966555550091']);
         $consult = Consult::create([
-            'user_id' => $client->id, 'ref' => 'CN-REM-45', 'subject' => 'نزاع', 'channel' => 'مرئية', 'lawyer' => 'أ. سارة',
+            // حضوريّة: المرئيّة تذكيرها القريب إشعارٌ ورسالتها عند فتح الدخول (قرار «ب»)
+            'user_id' => $client->id, 'ref' => 'CN-REM-45', 'subject' => 'نزاع', 'channel' => 'حضورية', 'lawyer' => 'أ. سارة',
             'status' => 'جديدة', 'session' => 'بانتظار الجلسة', 'starts_at' => now()->addMinutes(45), 'when_label' => 'اليوم',
             'paid_at' => now()->subDay(), 'reminder_24h_sent_at' => now()->subHour(),
         ]);
