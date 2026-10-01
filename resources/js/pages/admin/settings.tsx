@@ -2,6 +2,7 @@ import { Link, router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
+import { humanDuration } from '@/lib/human-duration';
 import Icon from '@/lib/icons';
 import { WEEK_DAY_NAMES } from '@/lib/local-date';
 import { firstError } from '@/lib/server-message';
@@ -43,6 +44,33 @@ const YesNoInput: React.FC<{ id: string; value: string; onChange: (v: string) =>
     ))}
   </div>
 );
+
+/**
+ * **القيمة الافتراضيّة مقروءةً** (قرار المالك 2026-10-01) — كانت تلميحاً على زرّ «إعادة إلى الافتراض» وحده،
+ * فلا يعرف المدير بعد تعديل القيمة ما كان افتراضها. والدقائق من ساعةٍ فأكثر تُذكر بوحدتها أيضاً («720 (12 ساعة)»).
+ */
+function defaultText(field: Field): string {
+  if (field.defaultLabel) {
+    return field.defaultLabel;
+  }
+
+  const raw = String(field.default);
+
+  switch (field.type) {
+    case 'bool':
+      return raw === '1' ? 'نعم' : 'لا';
+    case 'days':
+      return raw.split(',').filter((d) => d !== '').map((d) => WEEK_DAY_NAMES[Number(d)]).join('، ');
+    case 'int': {
+      const n = Number(raw);
+      const unit = field.label.includes('(دقائق)') && n >= 60 ? humanDuration(n) : null;
+
+      return unit ? `${n} (${unit})` : raw;
+    }
+    default:
+      return raw === '' ? 'فارغ' : raw;
+  }
+}
 
 /** إعداد من نوع «أيّام»: أزرار تبديل تكتب النصّ «0,1,4» مرتّباً — ولا يُفرَّغ آخر يوم. */
 const DaysInput: React.FC<{ id: string; value: string; onChange: (v: string) => void }> = ({ id, value, onChange }) => {
@@ -159,6 +187,10 @@ const AdminSettings: React.FC<Props> = ({ groups, fields, values }) => {
         </div>
 
         <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 5 }}>{field.hint}</div>
+        <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 3 }}>
+          القيمة الافتراضيّة: <b style={{ color: 'var(--ink)' }}>{defaultText(field)}</b>
+          {!isDefault && <span style={{ marginInlineStart: 8 }}><Badge text="معدَّلة" tone="b-amber" /></span>}
+        </div>
 
         {errors[key] && <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 4 }}>{errors[key]}</div>}
       </div>
