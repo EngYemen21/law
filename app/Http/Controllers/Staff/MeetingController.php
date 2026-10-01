@@ -77,7 +77,7 @@ class MeetingController extends Controller
         $this->guardMeetingView($request, $meeting);
 
         return Inertia::render($this->prefix($request).'/meeting', [
-            'meeting' => $meeting->toFullCard(),
+            'meeting' => $this->staffCard($request->user(), $meeting),
         ]);
     }
 
@@ -85,7 +85,7 @@ class MeetingController extends Controller
     public function room(Request $request): Response|RedirectResponse
     {
         $meeting = Meeting::where('ref', (string) $request->query('ref'))->firstOrFail();
-        $this->guardMeetingView($request, $meeting);
+        $this->guardMeetingEntry($request, $meeting);
         // القاعدة الواحدة للغرف الأربع (`RoomDetails::entryBlocker`) — المنتهي والفائت والملغى
         // يُصَدّ بسببه الحقيقيّ؛ وإخفاء الزرّ في الواجهة وحده يُلتفّ عليه بالرابط المباشر.
         if (($why = RoomDetails::entryBlocker($meeting, $request->user())) !== null) {
@@ -740,8 +740,14 @@ class MeetingController extends Controller
     private function cards(Request $request)
     {
         // `user` لعدّ المدعوّين (`invitedCount`) — كان يُجلب لكلّ اجتماعٍ باستعلامٍ مستقلّ (N+1)
+        $user = $request->user();
+        // اجتماعات دعوات الموظّف مجلوبةً مرّةً للقائمة كلّها — لا استعلام صلةٍ لكلّ صفّ
+        $invited = $user->role === Role::Employee
+            ? MeetRequest::where('sent_by_id', $user->id)->whereNotNull('meeting_id')->pluck('meeting_id')->map(fn ($id) => (int) $id)->all()
+            : null;
+
         return $this->scopedQuery($request)->with(['user', 'assignedLawyer', 'participantUsers'])
-            ->latest('id')->get()->map(fn (Meeting $m) => $m->toFullCard());
+            ->latest('id')->get()->map(fn (Meeting $m) => $this->staffCard($user, $m, $invited));
     }
 
     /**
@@ -751,7 +757,7 @@ class MeetingController extends Controller
     // تنزيل نصّ الاجتماع الكامل (المحلي إن وُجد وإلا يُجلب من سحابة Zoom ويُحفظ) — معزول بالدور
     public function transcript(Request $request, Meeting $meeting): StreamedResponse
     {
-        $this->guardMeetingView($request, $meeting);
+        $this->guardMeetingEntry($request, $meeting);
         RecordingArchive::guardViewer($request->user());
 
         return RecordingArchive::transcript($meeting);
@@ -760,7 +766,7 @@ class MeetingController extends Controller
     // فيديو جلسة الاجتماع مضغوطاً ZIP (جلب خادمي من سحابة Zoom) — معزول بالدور
     public function recordingZip(Request $request, Meeting $meeting): StreamedResponse|RedirectResponse
     {
-        $this->guardMeetingView($request, $meeting);
+        $this->guardMeetingEntry($request, $meeting);
         RecordingArchive::guardViewer($request->user());
 
         return RecordingArchive::download($meeting, 'video');
@@ -769,7 +775,7 @@ class MeetingController extends Controller
     // صوت جلسة الاجتماع (M4A) مضغوطاً ZIP — معزول بالدور
     public function audioZip(Request $request, Meeting $meeting): StreamedResponse|RedirectResponse
     {
-        $this->guardMeetingView($request, $meeting);
+        $this->guardMeetingEntry($request, $meeting);
         RecordingArchive::guardViewer($request->user());
 
         return RecordingArchive::download($meeting, 'audio');
@@ -778,18 +784,52 @@ class MeetingController extends Controller
     // تشغيل فيديو الاجتماع أو صوته داخل الصفحة من الملفّ المحفوظ — بديلُ فتح سحابة Zoom خارج النظام
     public function stream(Request $request, Meeting $meeting, string $type): BinaryFileResponse
     {
-        $this->guardMeetingView($request, $meeting);
+        $this->guardMeetingEntry($request, $meeting);
         RecordingArchive::guardViewer($request->user());
 
         return RecordingArchive::stream($meeting, $type);
     }
 
-    /** أفعال الإدارة على الاجتماع (المحضر، البدء، الإنهاء، إعادة الجدولة، الإلغاء…) — للمسؤول وحده من المحامين. */
+    /**
+     * أفعال الإدارة على الاجتماع (المحضر، البدء، الإنهاء، إعادة الجدولة، الإلغاء…) — للمسؤول وحده من المحامين،
+     * ولمن له صلةٌ به من الموظّفين (`Meeting::employeeCanAct`، قرار المالك 2026-10-01).
+     */
     private function guardMeeting(Request $request, Meeting $meeting): void
     {
-        if ($request->user()->role === Role::Lawyer) {
+        $user = $request->user();
+        if ($user->role === Role::Lawyer) {
             $this->guardAssigned($meeting);
         }
+        abort_if($user->role === Role::Employee && ! $meeting->employeeCanAct($user), 403, self::NOT_YOURS);
+    }
+
+    /** رسالة رفض الموظّف الذي لا صلة له بالاجتماع. */
+    private const NOT_YOURS = 'لا صلة لك بهذا الاجتماع — يتصرّف فيه المسؤول عنه والمشاركون ومرسل دعوته.';
+
+    /** الغرفة والتسجيل والنصّ — للمحامي المسؤول أو المشارك، وللموظّف ذي الصلة؛ والاطّلاع وحده (`guardMeetingView`) أوسع. */
+    private function guardMeetingEntry(Request $request, Meeting $meeting): void
+    {
+        $this->guardMeetingView($request, $meeting);
+        $user = $request->user();
+        abort_if($user->role === Role::Employee && ! $meeting->employeeCanAct($user), 403, self::NOT_YOURS);
+    }
+
+    /**
+     * بطاقة المكتب مع حكم الخادم على المشاهِد: `canAct` (أفعال الاجتماع ومحضره) و`canEnter` (الغرفة والتسجيل) —
+     * فلا يُعرض لموظّفٍ لا صلة له زرٌّ يردّه الخادم. الاطّلاع نفسه باقٍ.
+     *
+     * @param  array<int, int>|null  $invited
+     * @return array<string, mixed>
+     */
+    private function staffCard(User $user, Meeting $meeting, ?array $invited = null): array
+    {
+        [$act, $enter] = match ($user->role) {
+            Role::Lawyer => [(int) $meeting->assigned_lawyer_id === (int) $user->id, true],
+            Role::Employee => array_fill(0, 2, $meeting->employeeCanAct($user, $invited)),
+            default => [true, true],
+        };
+
+        return $meeting->toFullCard() + ['canAct' => $act, 'canEnter' => $enter];
     }
 
     /** الاطّلاع والدخول (الصفحة، الغرفة، التسجيل والنصّ) — للمسؤول وللمشارك (`Meeting::involves`). */

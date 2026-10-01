@@ -108,6 +108,12 @@ export interface FullMeetingCard {
     approved: boolean;
     /** حكم حارس الاعتماد نفسه (`Meeting::approvalBlocker`) — القالبيّ ليس مخرجاً فلا يُعرض زرٌّ يُردّ بـ٤٢٢. */
     canApprove: boolean;
+    /**
+     * حكم الخادم على المشاهِد (`MeetingController::staffCard`، قرار المالك 2026-10-01): `canAct` أفعال الاجتماع
+     * ومحضره، و`canEnter` الغرفة والتسجيل — الموظّف بلا صلةٍ يطّلع فقط. غائبان ⇒ مسموح (بطاقات لا تمرّ بالمتحكّم).
+     */
+    canAct?: boolean;
+    canEnter?: boolean;
     priority: string;
     conf: string;
     /** اجتماعٌ سرّيّ؟ (`Meeting::isConfidential`) — الشارة تقرأ العلَم لا نصّ `conf`. */
@@ -821,6 +827,10 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
      * وقبل الاعتماد النصّ **مسوّدة** تُحفظ وتُعدَّل بحرّية — الحفظ ليس اعتماداً.
      */
     const locked = approved || m.sumApproved;
+    // للاطّلاع فقط: موظّفٌ لا صلة له بالاجتماع — لا حفظ ولا أفعال ولا غرفة (الخادم يردّها بالسبب نفسه)
+    const canAct = m.canAct !== false;
+    const canEnter = m.canEnter !== false;
+    const readOnly = locked || !canAct;
 
     // لا قالب وهمي (قرار صاحب المنتج): الحقول تبدأ بمحتواها الفعلي أو فارغة —
     // التلميح في placeholder لا في القيمة، فلا يُحفَظ نصّ مركَّب لم يكتبه أحد
@@ -1123,7 +1133,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                 </div>
 
                 {/* شريط الإجراءات السريعة */}
-                {(m.meetLink && manageable) && (
+                {(m.meetLink && manageable && canEnter) && (
                     <div style={{
                         marginTop: 20, paddingTop: 16,
                         borderTop: '1px solid rgba(255,255,255,0.2)',
@@ -1162,7 +1172,12 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
             {/* ═══════════════════════════════════════
                 🎮  إدارة دورة حياة الاجتماع
             ════════════════════════════════════════ */}
-            {canReschedule && (
+            {!canAct && (
+                <div className="card" style={{ marginBottom: 18, padding: '12px 16px', color: 'var(--muted)', fontSize: 13 }}>
+                    <Icon name="info" /> للاطّلاع فقط — يتصرّف في هذا الاجتماع المسؤول عنه والمشاركون ومرسل دعوته.
+                </div>
+            )}
+            {canReschedule && canAct && (
                 <div className="card" style={{ marginBottom: 18 }}>
                     <div className="card-h">
                         <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1309,9 +1324,9 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
 
                         {/* مخرجات الجلسة عبر الخادم — تشغيلٌ وتنزيلٌ داخل النظام، لا نافذةَ سحابة Zoom */}
                         <div style={{ padding: '12px 16px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                            <SessionMediaPanel media={m.media} urls={meetingMediaUrls(base, m.dbId)} />
+                            {canEnter && <SessionMediaPanel media={m.media} urls={meetingMediaUrls(base, m.dbId)} />}
                             {/* النصّ يُجلب من مسار التسجيلات نفسه — يُخفى عمّن لا يملك «تشغيل تسجيلات الجلسات» */}
-                            {(m.transcript || statusKey === 'ended') && !m.media?.locked && (
+                            {canEnter && (m.transcript || statusKey === 'ended') && !m.media?.locked && (
                                 <button type="button" onClick={openTranscript}
                                     style={{
                                         display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -1324,7 +1339,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                                 </button>
                             )}
                             {/* المزامنة تُغيّر القرارات والمشاركين، وهما ممّا يشمله الاعتماد — فتُمنع بعده */}
-                            {statusKey === 'ended' && !locked && (
+                            {statusKey === 'ended' && !readOnly && (
                                 <button type="button" onClick={syncFromZoom} disabled={syncing}
                                     style={{
                                         display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -1404,9 +1419,9 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                     </div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         {locked && <Badge text="الملخص معتمد ومُرسل للعميل" tone="b-green" />}
-                        {locked ? (
+                        {readOnly ? (
                             <span style={{ fontSize: '11.5px', color: 'var(--muted)' }}>
-                                اعتمدت الإدارة هذا النصّ ووصل العميل — لا يُعدَّل
+                                {locked ? 'اعتمدت الإدارة هذا النصّ ووصل العميل — لا يُعدَّل' : 'للاطّلاع فقط'}
                             </span>
                         ) : (
                             <button
@@ -1423,13 +1438,13 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                 <div style={{ padding: '14px 18px' }}>
                     <textarea
                         value={summary}
-                        readOnly={locked}
+                        readOnly={readOnly}
                         placeholder="بانتظار ملخص الجلسة من Zoom — أو دوّن الملخص يدوياً هنا"
                         onChange={(e) => setSummary(e.target.value)}
                         style={{
                             width: '100%', minHeight: 120,
                             opacity: locked ? 0.75 : 1,
-                            cursor: locked ? 'not-allowed' : 'auto',
+                            cursor: readOnly ? 'not-allowed' : 'auto',
                             border: '1px solid var(--line-soft)',
                             borderRadius: 10, padding: '10px 14px',
                             fontSize: '13.5px', lineHeight: 1.7,
@@ -1485,9 +1500,9 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                             {locked ? '✓ معتمد' : 'مسودة'}
                         </span>
                     </div>
-                        {locked ? (
+                        {readOnly ? (
                             <span style={{ fontSize: '11.5px', color: 'var(--muted)' }}>
-                                اعتمدت الإدارة هذا النصّ ووصل العميل — لا يُعدَّل
+                                {locked ? 'اعتمدت الإدارة هذا النصّ ووصل العميل — لا يُعدَّل' : 'للاطّلاع فقط'}
                             </span>
                         ) : (
                         <button
@@ -1502,13 +1517,13 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                 <div style={{ padding: '14px 18px' }}>
                     <textarea
                         value={minutes}
-                        readOnly={locked}
+                        readOnly={readOnly}
                         placeholder="بانتظار ملخص الجلسة من Zoom — أو دوّن أبرز ما دار والقرارات يدوياً هنا"
                         onChange={(e) => setMinutes(e.target.value)}
                         style={{
                             width: '100%', minHeight: 160,
                             opacity: locked ? 0.75 : 1,
-                            cursor: locked ? 'not-allowed' : 'auto',
+                            cursor: readOnly ? 'not-allowed' : 'auto',
                             border: '1px solid var(--line-soft)',
                             borderRadius: 10, padding: '10px 14px',
                             fontSize: '13.5px', lineHeight: 1.7,
@@ -1533,13 +1548,13 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                         }}><Icon name="check" /></span>
                         القرارات والمهام
                     </h3>
-                    <button
+                    {canAct && <button
                         className="btn soft sm" onClick={decisionsToTasks} type="button"
                         disabled={tasksDone || decisions.length === 0}
                         style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                     >
                         <Icon name="check" /> {tasksDone ? '✓ حُوّلت إلى مهام' : 'تحويل القرارات إلى مهام'}
-                    </button>
+                    </button>}
                 </div>
                 <div className="card-b" style={{ padding: '14px 18px' }}>
                     {decisions.length ? (
@@ -1813,7 +1828,7 @@ export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: str
 
                                 <div className="mr-act">
                                     {/* نافذة الدخول من الخادم (canJoin) — كما تحترمها بطاقة الموكّل تماماً */}
-                                    {m.canJoin && (
+                                    {m.canJoin && m.canEnter !== false && (
                                         <button className="btn sm" onClick={() => router.visit(`${base}/meetingroom?ref=${encodeURIComponent(m.id)}`)} type="button">
                                             <Icon name="video" /> دخول اجتماع Zoom
                                         </button>

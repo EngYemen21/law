@@ -11,6 +11,7 @@ use App\Models\Concerns\TracksRevisions;
 use App\Support\ArabicCount;
 use App\Support\LawyerName;
 use App\Support\MeetingTime;
+use App\Support\Permissions;
 use App\Support\RecordingArchive;
 use App\Support\SessionWindow;
 use App\Support\SettingsRegistry;
@@ -114,6 +115,32 @@ class Meeting extends Model
     {
         return (int) $this->assigned_lawyer_id === (int) $user->id
             || $this->participantUsers()->whereKey($user->id)->exists();
+    }
+
+    /**
+     * **هل للموظّف صلةٌ تخوّله التصرّف في الاجتماع؟** (قرار المالك 2026-10-01) — كان أيّ موظّفٍ بصلاحيّة
+     * «إرسال دعوات الاجتماعات» يبدأ ويُنهي ويلغي ويعيد جدولة **كلّ** اجتماعات المكتب ويدخل غرفها
+     * (ثبت بالمتصفّح: ألغى موظّفٌ اجتماعاً لمحامٍ آخر). الصلة: مشاركٌ، أو مرسلُ دعوته — ومن مُنح
+     * «إدارة الاجتماعات» مشرفٌ على الكلّ. والاطّلاع على الاجتماع باقٍ للجميع (خدمة العملاء تجيب عن موعده).
+     *
+     * @param  array<int, int>|null  $invitedMeetingIds  معرّفات اجتماعات دعواته مجلوبةً مرّةً للقائمة كلّها (لا استعلام لكلّ صفّ)
+     */
+    public function employeeCanAct(User $user, ?array $invitedMeetingIds = null): bool
+    {
+        if ($user->can(Permissions::MANAGE_MEETINGS) || (int) $this->assigned_lawyer_id === (int) $user->id) {
+            return true;
+        }
+
+        $participant = $this->relationLoaded('participantUsers')
+            ? $this->participantUsers->contains('id', $user->id)
+            : $this->participantUsers()->whereKey($user->id)->exists();
+        if ($participant) {
+            return true;
+        }
+
+        return $invitedMeetingIds !== null
+            ? in_array((int) $this->id, $invitedMeetingIds, true)
+            : MeetRequest::where('meeting_id', $this->id)->where('sent_by_id', $user->id)->exists();
     }
 
     /**
