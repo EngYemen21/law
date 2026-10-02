@@ -198,6 +198,8 @@ export interface ExecReq {
   /** خطوات ناجز — تصل بعد فتح الملفّ (المرحلة 7)، وقبلها `null`. */
   najiz?: ExecNajiz | null;
   closed: boolean;
+  /** شارة «مغلق» بجوار شارة المرحلة — حين لا تقولها المرحلة نفسها (`Execution::toFlowCard`). */
+  closedBadge?: boolean;
   /** رفضه المحامي بعد الدراسة (`Execution::isRejectedAfterStudy`) — لا مقارنة بـ«مرفوض» هنا */
   isRejected: boolean;
   /** رفض العميل عرض الأتعاب (`Execution::isOfferRejected`) */

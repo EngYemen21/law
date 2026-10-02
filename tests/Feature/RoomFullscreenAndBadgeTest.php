@@ -121,4 +121,17 @@ class RoomFullscreenAndBadgeTest extends TestCase
         $page = $this->src('js/pages/execflow.tsx');
         $this->assertStringContainsString("<bdi style={{ whiteSpace: 'nowrap' }}>#{r.id}</bdi>", $page, 'رقم الملفّ لا ينكسر');
     }
+
+    /**
+     * **ترويسة ملفّ التنفيذ تلتفّ** — من صورة المالك (393px، ملفٌّ مغلق له رقم تنفيذ): سطر «رجوع + الرقم + الشارات +
+     * رقم التنفيذ» لا يلتفّ فتعرض الصفحة كلّها أعرض من الهاتف، و«مغلق» مرّتين (شارة المرحلة وشارة الإغلاق).
+     */
+    public function test_the_exec_header_wraps_and_says_closed_once(): void
+    {
+        $page = $this->src('js/pages/execflow.tsx');
+        $this->assertStringContainsString("<div style={{ flex: '1 1 260px', minWidth: 0 }}>", $page);
+        $this->assertStringContainsString("marginBottom: 6, flexWrap: 'wrap' }}>", $page);
+        $this->assertStringContainsString('{r.closedBadge && <Badge text="مغلق"', $page);
+        $this->assertStringNotContainsString('{r.closed && <Badge text="مغلق"', $page);
+    }
 }
