@@ -65,4 +65,11 @@ class RoomFullscreenAndBadgeTest extends TestCase
         $this->assertStringContainsString('.tflow .tf-grid.tf-chat>.tf-aside{position:static}', $css);
         $this->assertMatchesRegularExpression('/@media\(min-width:1081px\)\{\s*\.tflow \.tf-grid\.tf-chat/', $css, 'الضيّق عمودٌ واحد بلا تثبيت');
     }
+
+    /** بنود دراسة التنفيذ جملٌ طويلة — تلتفّ داخل الإطار لا تتجاوزه (909px في إطارٍ 651px قبلُ). */
+    public function test_exec_study_items_wrap_inside_their_card(): void
+    {
+        $this->assertStringContainsString('className="chip chip-wrap"', $this->src('js/pages/execflow.tsx'));
+        $this->assertStringContainsString('.chip.chip-wrap{white-space:normal;max-width:100%', $this->src('css/babylon.css'));
+    }
 }

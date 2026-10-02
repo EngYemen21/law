@@ -760,7 +760,8 @@ const StudyChips: React.FC<{ label: string; items?: string[] }> = ({ label, item
     <div style={{ marginTop: 8 }}>
       <div className="cl" style={{ marginBottom: 4 }}>{label}</div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {items.map((t) => <span key={t} className="chip">{t}</span>)}
+        {/* بنود الدراسة جملٌ لا وسوم — `chip-wrap` يلفّها داخل الإطار (كانت تتجاوزه وتُقصّ، ملاحظة المالك 2026-10-02) */}
+        {items.map((t) => <span key={t} className="chip chip-wrap">{t}</span>)}
       </div>
     </div>
   );

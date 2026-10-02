@@ -517,6 +517,8 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 .chip.muted{color:var(--muted);background:#eef2f5;border-color:var(--line)}
 .chip.sel-toggle{cursor:pointer;user-select:none}
 .chip.sel-toggle.on{background:var(--brand);color:#fff;border-color:transparent}
+/* شريحةٌ تحمل جملةً لا وسماً (بنود دراسة التنفيذ): تلتفّ داخل إطارها — `.chip` العامّة `nowrap` للوسوم القصيرة */
+.chip.chip-wrap{white-space:normal;max-width:100%;border-radius:10px;line-height:1.7;text-align:start;overflow-wrap:anywhere}
 /* tabs */
 .tabs{display:flex;gap:4px;background:var(--paper-2);border:1px solid var(--line);border-radius:11px;padding:4px;margin-bottom:16px;flex-wrap:wrap}
 .tab{padding:8px 15px;border-radius:8px;font-size:13px;font-weight:700;color:var(--muted);transition:.13s}
