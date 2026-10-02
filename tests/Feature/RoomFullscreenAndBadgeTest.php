@@ -89,4 +89,21 @@ class RoomFullscreenAndBadgeTest extends TestCase
         $client = substr($exec, strpos($exec, 'const ClientExecDetail'), 6000);
         $this->assertStringNotContainsString('staffNotes', $client);
     }
+
+    /**
+     * **صندوق المحادثة مضغوطٌ على الهاتف** — كان الملتصق بأسفل الشاشة يأخذ نصفها (عنوان + ثلاثة أسطر + أزرار + سطر
+     * الصيغ) فتمرّ الرسائل تحته مقصوصة؛ وشارة البيئة تغطّي زرّ الإرسال. ثبت بالمتصفّح على 390px: 420px ⇒ 69px.
+     */
+    public function test_the_chat_composer_is_compact_on_phones(): void
+    {
+        $thread = $this->src('js/components/babylon/ChatThread.tsx');
+        $this->assertStringContainsString('className="composer chat-composer"', $thread);
+        $this->assertStringContainsString('<span className="btn-txt">إرسال</span>', $thread);
+        $this->assertStringContainsString('title={hint}', $thread, 'الصيغ المسموحة تبقى في تلميح زرّ الإرفاق');
+
+        $css = $this->src('css/babylon.css');
+        $this->assertStringContainsString('.composer.chat-composer{display:flex;align-items:flex-end', $css);
+        $this->assertStringContainsString('.chat-composer .composer-label,.chat-composer .composer-hint{display:none}', $css);
+        $this->assertStringContainsString('.env-badge{bottom:auto;top:4px', $css, 'الشارة أعلى الشاشة على الهاتف لا فوق زرّ الإرسال');
+    }
 }

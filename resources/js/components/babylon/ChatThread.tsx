@@ -92,6 +92,19 @@ interface ChatThreadProps {
 }
 
 // يطابق سلوك ctSend / ctAttach مع مؤشر الكتابة والرد التلقائي
+/**
+ * مربّع الكتابة يطول مع النصّ — يبدأ سطراً واحداً على الهاتف ويقف عند `max-height` في CSS (ثمّ يمرّر)،
+ * ويعود لطوله الأوّل بعد الإرسال. على الحاسوب يحكمه `min-height` كما كان.
+ */
+function growInput(el: HTMLTextAreaElement | null): void {
+  if (!el) {
+    return;
+  }
+
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight + 2}px`;
+}
+
 const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكتب رسالتك لخدمة العملاء…', onSend, onAttach, channel, onStatus, readOnly = false, accept = ALLOWED_DOC_ACCEPT, hint = ALLOWED_DOC_HINT, composerLabel = 'اكتب هنا:', staffNotes = false }) => {
   const toast = useToast();
   const serverMode = !!onSend;
@@ -103,9 +116,15 @@ const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكت�
   const [attachN, setAttachN] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const seen = useRef<Set<number>>(new Set(initial.map((m) => m.id).filter(Boolean) as number[]));
 
   const messages = liveMode ? live : serverMode ? initial : local;
+
+  // كلّ تغيّرٍ في النصّ — كتابةً أو تفريغاً بعد الإرسال أو استعادةً بعد فشله — يعيد قياس المربّع
+  useEffect(() => {
+    growInput(inputRef.current);
+  }, [reply]);
 
   // الاشتراك في قناة التذكرة (Reverb) وإلحاق الرسائل الواردة لحظياً
   useEffect(() => {
@@ -211,27 +230,30 @@ const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكت�
           انتهت هذه المحادثة — السجلّ متاح للاطّلاع فقط.
         </div>
       ) : (
-        <div className="composer">
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--faint)', marginBottom: 8 }}>
-            {composerLabel}
-          </div>
+        // `chat-composer`: على الهاتف صفٌّ واحد مضغوط (`babylon.css`) — كان الصندوق الملتصق بأسفل الشاشة يأخذ
+        // نصف ارتفاعها (عنوان + ثلاثة أسطر + أزرار + سطر الصيغ) فتمرّ الرسائل تحته مقصوصة
+        <div className="composer chat-composer">
+          <div className="composer-label">{composerLabel}</div>
           <textarea
+            ref={inputRef}
             value={reply}
+            rows={1}
             onChange={(e) => setReply(e.target.value)}
             placeholder={placeholder}
+            aria-label={placeholder}
           />
           <div className="crow">
-            <button className="btn" onClick={send} type="button">
-              <Icon name="send" /> إرسال
+            <button className="btn" onClick={send} type="button" aria-label="إرسال">
+              <Icon name="send" /> <span className="btn-txt">إرسال</span>
             </button>
             {onAttach && (
-              <button className="btn soft" onClick={attach} type="button">
-                <Icon name="upload" /> إرفاق مستند
+              <button className="btn soft" onClick={attach} type="button" aria-label="إرفاق مستند" title={hint}>
+                <Icon name="upload" /> <span className="btn-txt">إرفاق مستند</span>
               </button>
             )}
             <input ref={fileRef} type="file" hidden accept={accept} onChange={onFilePicked} />
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>{hint}</div>
+          <div className="composer-hint">{hint}</div>
         </div>
       )}
     </>
