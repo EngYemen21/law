@@ -1,5 +1,6 @@
 import { router, usePage } from '@inertiajs/react';
 import React, { useEffect, useState } from 'react';
+import EnvironmentBadge from '@/components/babylon/EnvironmentBadge';
 import { useToast } from '@/components/babylon/Toast';
 import Sidebar from '@/components/navigation/Sidebar';
 import Topbar from '@/components/navigation/Topbar';
@@ -71,6 +72,9 @@ return;
           <div className="view">{children}</div>
         </div>
       </div>
+
+      {/* شارة «بيئة تجربة» خارج الإنتاج — في لوحة التحكّم وحدها (لا الرئيسيّة ولا الدخول ولا الغرفة) */}
+      <EnvironmentBadge />
     </div>
   );
 };

@@ -395,7 +395,9 @@ html {
   flex-direction: column;
   gap: 14px;
   min-height: 100vh;
-height: 100dvh;
+  /* حدٌّ أدنى لا ارتفاعٌ ثابت: كان `height: 100dvh` فتضغط الحاوية (عموديّةٌ بـflex) بطاقةَ العنوان إلى 32px
+     ويتراكب عليها ما تحتها (ملاحظة المالك 2026-10-02) */
+  min-height: 100dvh;
   padding-bottom: 60px;
   width: 100%;
   max-width: 100%;

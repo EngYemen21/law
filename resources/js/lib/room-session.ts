@@ -51,8 +51,10 @@ interface ZoomClient {
     customize?: {
       video?: {
         isResizable?: boolean;
-        popper?: { disableDraggable?: boolean; anchorElement?: HTMLElement; placement?: string };
+        // `VideoPopperStyle` في تعريفات SDK 6.2.0 يستثني `anchorElement` و`placement` — لا يُقبلان للفيديو
+        popper?: { disableDraggable?: boolean };
         viewSizes?: { default?: VideoSize; ribbon?: VideoSize };
+        defaultViewType?: 'speaker' | 'gallery' | 'ribbon' | 'minimized' | 'active';
       };
     };
   }): Promise<unknown>;
@@ -66,7 +68,7 @@ interface ZoomClient {
     customerKey?: string;
   }): Promise<unknown>;
   leaveMeeting(): Promise<unknown>;
-  updateVideoOptions?(opts: { viewSizes?: { default?: VideoSize } }): unknown;
+  updateVideoOptions?(opts: { viewSizes?: { default?: VideoSize; ribbon?: VideoSize } }): unknown;
   on?(event: string, callback: (payload: { state?: string }) => void): void;
 }
 interface ZoomEmbedded {
@@ -310,7 +312,8 @@ function resizeVideo(): void {
   }
 
   try {
-    void client.updateVideoOptions?.({ viewSizes: { default: size } });
+    // و`ribbon` بالمقاس نفسه: إن انتقل Zoom إليه (مشاركة شاشة أو اختيار المستخدم) بقي مالئاً للغرفة لا عموداً في زاويتها
+    void client.updateVideoOptions?.({ viewSizes: { default: size, ribbon: size } });
   } catch {
     /* واجهة الخيارات قد تختلف بين إصدارات SDK — الحجم الافتراضيّ يبقى */
   }
@@ -486,11 +489,14 @@ async function join(): Promise<void> {
       customize: {
         video: {
           isResizable: false,
-          // الفيديو يملأ حاويته ولا يُسحب خارجها — الموضع تحدّده الغرفة لا المستخدم.
-          // **مُرسًى على الحاوية** (`anchorElement`): بدونه يرسمه Component View نافذةً عائمة بمقاسها
-          // الافتراضيّ في زاوية الصفحة، فيُقصّ عند التبديل بين الغرفة والشريط المصغّر (ملاحظة المالك 2026-09-27)
-          popper: { disableDraggable: true, anchorElement: rootEl, placement: 'top' },
-          viewSizes: size ? { default: size } : undefined,
+          // الفيديو يملأ حاويته ولا يُسحب خارجها — الموضع تحدّده الغرفة لا المستخدم، ويثبّته CSS في أصل
+          // الحاوية (`.mroom-zoom-root .react-draggable`). كان هنا `anchorElement`/`placement` ولا يقبلهما
+          // Zoom للفيديو (تعريفات 6.2.0) فيُتجاهلان.
+          popper: { disableDraggable: true },
+          // **عرض «المتحدّث» مالئاً للشاشة الزرقاء** (ملاحظة المالك 2026-10-02): بلا نوعٍ افتراضيّ ظهر الاجتماع
+          // عموداً ضيّقاً (ribbon) في الزاوية. والمقاسان معاً كي لا يصغر إن تبدّل العرض.
+          defaultViewType: 'speaker',
+          viewSizes: size ? { default: size, ribbon: size } : undefined,
         },
       },
     });
