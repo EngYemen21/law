@@ -352,7 +352,7 @@ const EmployeeTicketChat: React.FC<{
         </div>
       </div>
 
-      <div className="tf-grid">
+      <div className="tf-grid tf-chat">
         <div>
           <div className="card">
             <div className="card-h">

@@ -165,7 +165,7 @@ const EmployeeCase: React.FC<Props> = ({
         </div>
       </div>
 
-      <div className="tf-grid">
+      <div className="tf-grid tf-chat">
         {/* عمود المحادثة */}
         <div>
           <div className="card">

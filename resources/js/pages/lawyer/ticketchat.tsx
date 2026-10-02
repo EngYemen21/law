@@ -254,7 +254,7 @@ return;
         <div className="card-b" style={{ padding: '16px 18px' }}><FlowLine steps={TKT_LIFE} cur={cur} /></div>
       </div>
 
-      <div className="tf-grid">
+      <div className="tf-grid tf-chat">
         <div>
           <div className="card">
             <div className="card-h"><h3>محادثة التذكرة {ticket.no}</h3><Badge text={status.status} tone={status.tone} /></div>

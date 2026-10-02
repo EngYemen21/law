@@ -189,7 +189,7 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
         <div className="card-b" style={{ padding: '16px 18px' }}><FlowLine steps={CASE_LIFE} cur={caseStage(live.status)} /></div>
       </div>
 
-      <div className="tf-grid">
+      <div className="tf-grid tf-chat">
         <div>
           <div className="card">
             <div className="card-h"><h3>محادثة القضية</h3><span className="sub">اطّلاع — تشمل الملاحظات الداخليّة والمحجوب بانتظار الاعتماد</span></div>

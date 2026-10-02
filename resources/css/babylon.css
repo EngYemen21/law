@@ -310,6 +310,13 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 .tflow .tf-grid{display:grid;grid-template-columns:minmax(0,1fr) 312px;gap:18px;align-items:start}
 .tflow .tf-grid>*{min-width:0}
 .tflow .tf-aside{position:sticky;top:84px;display:flex;flex-direction:column;gap:16px}
+/* صفحات المحادثة (القضيّة · التذكرة): **المحادثة تثبت والقائمة الجانبيّة تنزل** (ملاحظة المالك 2026-10-02). كانت القائمة
+   ثابتةً وهي أطول من الشاشة (1267px مقابل 319px للمحادثة) فتصعد المحادثة وتختفي ولا يُبلغ آخر القائمة («مرفقات الطلب
+   قبل التحويل»). الآن العمود الرئيس يثبت بارتفاع الشاشة ويتمرّر داخله إن طال، والقائمة تنزل مع الصفحة. والضيّق كما هو. */
+@media(min-width:1081px){
+.tflow .tf-grid.tf-chat>:first-child{position:sticky;top:84px;max-height:calc(100vh - 100px);overflow-y:auto}
+.tflow .tf-grid.tf-chat>.tf-aside{position:static}
+}
 .tflow .tc-top{background:var(--deep);color:#fff;padding:14px 18px;background-image:radial-gradient(160px 90px at 90% 0,rgba(17,160,200,.4),transparent)}
 .tflow .tc-top .lbl{font-size:11px;opacity:.7;font-weight:600}
 .tflow .tc-top .num{font-size:18px;font-weight:800;margin-top:2px;direction:ltr;text-align:right}
