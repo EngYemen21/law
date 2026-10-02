@@ -10,6 +10,7 @@ import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { crChannelIcon, crChannelTone, maskClient } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { openRoomTab } from '@/lib/room';
 import { useServerAction } from '@/lib/use-server-action';
 
 interface Props {
@@ -258,13 +259,13 @@ return false;
     if (c.session === 'بانتظار الجلسة') {
       void action.run(`/admin/consults/${c.id}/start`, {
         key: c.id, confirm: CONFIRM_START_CONSULT, fallback: 'تعذّر بدء الجلسة',
-        onSuccess: () => router.visit(room),
+        onSuccess: () => openRoomTab(room),
       });
 
       return;
     }
 
-    router.visit(room);
+    openRoomTab(room);
   };
 
   const handleNoShow = (c: ConsultCard, e?: React.MouseEvent) => {

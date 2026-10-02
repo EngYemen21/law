@@ -5,6 +5,7 @@ import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import Icon from '@/lib/icons';
 import { TILES, VIEW_ROUTE } from '@/lib/data';
 import type { Appt, Invoice } from '@/lib/data';
+import { visitHref } from '@/lib/room';
 
 // ============================================================
 // لوحة العميل الرقمية والكونسيرج القانوني 360 درجة
@@ -225,8 +226,9 @@ const Dashboard: React.FC<Props> = ({
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
-                <a
-                  href={alert.link}
+                <button
+                  type="button"
+                  onClick={() => visitHref(alert.link)}
                   className={`btn sm ${alert.tone === 'b-red' ? '' : 'soft'}`}
                   style={{
                     textDecoration: 'none',
@@ -238,7 +240,7 @@ const Dashboard: React.FC<Props> = ({
                   }}
                 >
                   {alert.cta}
-                </a>
+                </button>
               </div>
             </div>
           ))}

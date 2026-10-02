@@ -9,6 +9,7 @@ import type { ConsultCard } from '@/lib/consult-ui';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+import { openRoomTab, visitHref } from '@/lib/room';
 import { firstError } from '@/lib/server-message';
 import type { EmployeeTicketCard } from '@/types';
 
@@ -456,7 +457,7 @@ return tasks;
                 <button
                   className={`btn sm ${alert.tone === 'b-red' ? '' : 'soft'}`}
                   style={alert.tone === 'b-red' ? { background: '#ef4444', color: '#fff', boxShadow: 'none' } : {}}
-                  onClick={() => router.visit(alert.link)}
+                  onClick={() => visitHref(alert.link)}
                   type="button"
                 >
                   {alert.cta} <Icon name="send" />
@@ -805,7 +806,7 @@ setActiveTab('tasks');
                               <button
                                 className="btn sm"
                                 style={{ background: '#059669', color: '#fff' }}
-                                onClick={() => router.visit(c.joinLink!)}
+                                onClick={() => openRoomTab(c.joinLink!)}
                                 type="button"
                               >
                                 <Icon name="video" /> دخول الجلسة

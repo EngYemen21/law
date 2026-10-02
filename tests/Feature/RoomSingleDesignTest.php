@@ -122,16 +122,54 @@ class RoomSingleDesignTest extends TestCase
         $this->assertStringContainsString('fail(refusalMessage(e))', $session);
     }
 
-    // ————— ٦ · المكالمة تعيش خارج الصفحات —————
+    // ————— ٦ · الجلسة في صفحتها المستقلّة بتبويبها (قرار المالك 2026-10-03) —————
 
-    public function test_the_call_survives_navigation(): void
+    /**
+     * Component View يُلحق نوافذه وقوائمه بـ`body` بـ`z-index` تلقائيّ أو `2` (توثيق Zoom import-sdk، وثبت في
+     * حزمة 6.2.0)، وفريق Zoom يمنع تغيير طبقاته. فكانت النافذة المصغّرة وطبقات الغرفة (80–87) فوقها: موافقة
+     * التسجيل وقائمة «End Meeting for All» لا تُنقر. الآن: صفحةٌ مستقلّة — «Dedicated route… recommended».
+     */
+    public function test_the_room_is_a_dedicated_page_without_a_floating_player(): void
     {
         $session = $this->src('js/lib/room-session.ts');
+        $room = $this->src('js/lib/zoom-room.tsx');
         $app = $this->src('js/app.tsx');
 
-        $this->assertStringContainsString('document.body.appendChild(host)', $session, 'حاوية Zoom داخل الصفحة تُفكَّك مع التنقّل');
+        $this->assertStringNotContainsString('RoomDock', $app, 'لا نافذة مصغّرة فوق الصفحات');
+        $this->assertStringNotContainsString('RoomDock', $room);
+        $this->assertStringNotContainsString('createPortal', $room, 'الغرفة في تدفّق صفحتها لا طبقةٌ على body');
+        $this->assertStringNotContainsString('document.body.appendChild', $session, 'حاوية Zoom في مساحة الصفحة');
+        $this->assertStringContainsString('ref={mountZoom}', $room);
+        $this->assertStringContainsString('RoomRoute.layout = (page) => page;', $room, 'بلا تخطيط اللوحة');
+        $this->assertStringContainsString('leaveOnPageUnload: true', $session, 'مغادرة الصفحة مغادرةٌ للاجتماع');
+        $this->assertStringContainsString('return () => unmountRoom();', $room);
         $this->assertStringContainsString("addEventListener('beforeunload'", $session);
-        $this->assertStringContainsString('<RoomDock />', $app, 'بلا الشريط العائم في الجذر لا عودة إلى الجلسة من صفحةٍ أخرى');
+    }
+
+    /**
+     * كلّ دخولٍ إلى غرفة يفتح تبويب الجلسة — يُفحص **كلّ** ملفّ واجهة لا قائمةٌ ثابتة (فاتت جولةَ البحث الأولى
+     * أزرارُ `slink` في صفحة المحامي، وكشفها المتصفّح). وروابط الخادم العامّة (الإشعارات والتنبيهات) تمرّ بـ`visitHref`.
+     */
+    public function test_every_entry_opens_the_room_tab(): void
+    {
+        $it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(resource_path('js')));
+        $checked = 0;
+
+        foreach ($it as $file) {
+            $path = str_replace('\\', '/', $file->getPathname());
+            if (! preg_match('/\.tsx?$/', $path) || str_contains($path, '/js/actions/') || str_contains($path, '/js/routes/') || str_contains($path, '/js/wayfinder/')) {
+                continue;
+            }
+            $src = (string) file_get_contents($path);
+            $checked++;
+            $this->assertDoesNotMatchRegularExpression('/router\.visit\([^)]*(videoroom|meetingroom|consults\/room|joinLink|slink|meetLink)/', $src, "دخولٌ بالانتقال داخل التبويب في {$path}");
+            $this->assertDoesNotMatchRegularExpression('/href=\{[^}]*(joinLink|slink|meetLink|videoroom|meetingroom|consults\/room)/', $src, "رابط دخولٍ لا يمرّ بتبويب الجلسة في {$path}");
+        }
+
+        $this->assertGreaterThan(100, $checked);
+        $this->assertStringContainsString('visitHref(item.link)', $this->src('js/components/navigation/NotificationDropdown.tsx'));
+        $this->assertStringContainsString('visitHref(alert.link)', $this->src('js/pages/dashboard.tsx'));
+        $this->assertStringContainsString('visitHref(alert.link)', $this->src('js/pages/lawyer/dashboard.tsx'));
     }
 
     // ————— ٧ · الأنماط —————
@@ -143,6 +181,10 @@ class RoomSingleDesignTest extends TestCase
         $this->assertMatchesRegularExpression('/\.mroom-row \.v\{[^}]*text-align:end/u', $css);
         $this->assertDoesNotMatchRegularExpression('/\.mroom[^{]*\{[^}]*text-align:left/u', $css, 'محاذاةٌ يساريّة ثابتة تكسر الاتّجاه');
         $this->assertDoesNotMatchRegularExpression('/\.mroom[^{]*\{[^}]*min-height:520px/u', $css);
-        $this->assertStringNotContainsString('.mroom-grid', $css, 'عمودٌ جانبيّ يقلّص الفيديو — التفاصيل درجٌ فوقه');
+        // لا طبقة فوق Zoom: نوافذه على body بـz-index تلقائيّ — أيّ z-index في الغرفة يعلوها
+        $room = substr($css, (int) strpos($css, '.mroom-page{'), (int) strpos($css, '.mroom-row .v{') - (int) strpos($css, '.mroom-page{'));
+        $this->assertDoesNotMatchRegularExpression('/z-index/', $room, 'طبقةٌ فوق نوافذ Zoom');
+        $this->assertDoesNotMatchRegularExpression('/position:fixed/', $room);
+        $this->assertStringNotContainsString('.mroom-dock', $css);
     }
 }

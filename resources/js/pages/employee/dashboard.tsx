@@ -4,6 +4,7 @@ import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { openRoomTab } from '@/lib/room';
 import { PresenceBadge } from '@/lib/staff-presence';
 import type { EmployeeTicketCard } from '@/types';
 
@@ -448,9 +449,9 @@ const EmployeeDashboard: React.FC<Props> = ({
                           <td>
                             <div style={{ display: 'flex', gap: 6 }}>
                               {a.joinLink && (
-                                <a className="btn sm" href={a.joinLink} target="_blank" rel="noopener noreferrer">
+                                <button type="button" className="btn sm" onClick={() => openRoomTab(a.joinLink)}>
                                   <Icon name="video" /> دخول الجلسة
-                                </a>
+                                </button>
                               )}
                               <button className="btn soft sm" onClick={openSchedule} type="button">
                                 <Icon name="cal" /> الجدولة

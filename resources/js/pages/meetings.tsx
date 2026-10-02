@@ -6,6 +6,7 @@ import { useToast } from '@/components/babylon/Toast';
 import { RichText } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
+import { openRoomTab } from '@/lib/room';
 import { firstError } from '@/lib/server-message';
 import { useJoinOpensText, useSettings } from '@/lib/settings';
 
@@ -369,7 +370,7 @@ return;
                   <button
                     className="btn"
                     type="button"
-                    onClick={() => router.visit(`/meetingroom?ref=${encodeURIComponent(nextUp.ref)}`)}
+                    onClick={() => openRoomTab(`/meetingroom?ref=${encodeURIComponent(nextUp.ref)}`)}
                     style={{
                       padding: '12px 24px',
                       fontSize: 14.5,
@@ -520,7 +521,7 @@ return;
                           <button
                             className="btn sm"
                             type="button"
-                            onClick={() => router.visit(`/meetingroom?ref=${encodeURIComponent(m.ref)}`)}
+                            onClick={() => openRoomTab(`/meetingroom?ref=${encodeURIComponent(m.ref)}`)}
                             style={{ fontWeight: 800 }}
                           >
                             <Icon name="video" /> دخول الجلسة الآن
@@ -614,7 +615,7 @@ return;
                           <button
                             className="btn sm"
                             type="button"
-                            onClick={() => router.visit(c.joinLink || `/consults/room?ref=${encodeURIComponent(c.ref)}`)}
+                            onClick={() => openRoomTab(c.joinLink || `/consults/room?ref=${encodeURIComponent(c.ref)}`)}
                             style={{ fontWeight: 800 }}
                           >
                             <Icon name="video" /> دخول الاستشارة
