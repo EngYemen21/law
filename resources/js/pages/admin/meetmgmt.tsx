@@ -8,7 +8,7 @@ import TimeSlotPicker from '@/components/babylon/TimeSlotPicker';
 import { useToast } from '@/components/babylon/Toast';
 import { MEET_STATUSES, MEET_TYPES_FULL, MEET_TEMPLATES } from '@/lib/admin-data';
 import { dateISOAfter, todayISO } from '@/lib/local-date';
-import { meetStatusTone, attendanceLabel, fmtActualDuration, useLawyerDaySlots, type ClientDirEntry, type FullMeetingCard } from '@/lib/meeting-ui';
+import { meetStatusTone, attendanceLabel, fmtActualDuration, useLawyerDaySlots, MeetingApprovalBadge, type ClientDirEntry, type FullMeetingCard } from '@/lib/meeting-ui';
 import { inSessionSuffix, PresenceBadge, useInSession } from '@/lib/staff-presence';
 import { useServerAction } from '@/lib/use-server-action';
 
@@ -328,8 +328,10 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                     {m.caseRef && <span>⚖️ {m.caseRef}</span>}
                   </div>
 
+                  {/* سطرٌ لكلٍّ منهما — كان «العميل · المحامي» سطراً واحداً ينكسر فتبقى النقطة الفاصلة معلّقة */}
                   <div style={{ fontSize: '12px', color: 'var(--ink-soft, #475569)' }}>
-                    <b>العميل:</b> {m.client} · <b>المحامي:</b> {m.lawyer !== '—' ? m.lawyer : 'غير مسند'} <PresenceBadge userId={m.lawyerId} />
+                    <div><b>العميل:</b> {m.client}</div>
+                    <b>المحامي:</b> {m.lawyer !== '—' ? m.lawyer : 'غير مسند'} <PresenceBadge userId={m.lawyerId} />
                     {m.statusKey === 'ended' && (attendanceLabel(m) || fmtActualDuration(m.durationSec)) && (
                       <span style={{ color: 'var(--primary)', fontWeight: 700, marginRight: 8 }}>
                         · {attendanceLabel(m) ?? ''}
@@ -344,8 +346,8 @@ const AdminMeetMgmt: React.FC<Props> = ({ meetings, clients, lawyers, staff = []
                     {m.priority}
                   </span>
                   <Badge text={m.status} tone={meetStatusTone(m.status)} />
-                  {/* شارة الاعتماد — كانت حالة الاعتماد غائبة عن القائمة فلا يُعرف ما ينتظر الإدارة */}
-                  <Badge text={m.approve} tone={m.approved ? 'b-green' : 'b-amber'} />
+                  {/* شارة اعتماد المحضر — لما انتهى وحده (`Meeting::approvalState`) */}
+                  <MeetingApprovalBadge approval={m.approval} />
                   <button
                     className="btn soft sm"
                     onClick={() => router.visit(`/admin/meeting?id=${encodeURIComponent(m.id)}`)}

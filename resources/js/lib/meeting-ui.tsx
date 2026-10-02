@@ -37,6 +37,19 @@ import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
  * كانت خريطتان متناقضتان: قائمة الإدارة تلوّن «جارٍ» عنبرياً وصفحة التفاصيل أزرق،
  * و«قادم» أزرق في القائمة ورمادي في التفاصيل — لنفس الاجتماع.
  */
+/**
+ * **شارة اعتماد المحضر من الخادم** (`Meeting::approvalState`) — `null` لما لا اعتماد له (قادم، جارٍ، ملغى،
+ * لم ينعقد). كانت الشاشات تعرض نصّ العمود كما هو فتظهر «بانتظار اعتماد الإدارة» على كلّ اجتماع.
+ */
+export interface MeetingApprovalState {
+    key: 'awaiting_minutes' | 'awaiting_approval' | 'approved';
+    label: string;
+    tone: string;
+}
+
+export const MeetingApprovalBadge: React.FC<{ approval: MeetingApprovalState | null }> = ({ approval }) =>
+    approval ? <Badge text={approval.label} tone={approval.tone} /> : null;
+
 export function meetStatusTone(status: string): string {
     const m: Record<string, string> = {
         'قادم': 'b-blue', 'جارٍ': 'b-amber', 'منتهٍ': 'b-green', 'مؤجل': 'b-grey', 'ملغى': 'b-red', 'لم ينعقد': 'b-grey',
@@ -100,7 +113,8 @@ export interface FullMeetingCard {
     /** المحامي المسؤول — لشارة «في جلسة الآن» (`PresenceBadge`) */
     lawyerId: number | null;
     when: string;
-    approve: string;
+    /** شارة اعتماد المحضر — `null` لاجتماعٍ لا اعتماد له بعد (`Meeting::approvalState`). */
+    approval: MeetingApprovalState | null;
     status: string;  // قادم/جارٍ/منتهٍ/مؤجل/ملغى — للعرض وحده
     /** مفتاح الحالة الحيّة للمنطق (`MeetingStatus::key`) — لا مقارنة بالنصّ العربيّ المعروض. */
     statusKey: MeetingStatusKey;
@@ -817,7 +831,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
     const [statusKey, setStatusKey] = useState<MeetingStatusKey>(m.statusKey);
     // أزرار البدء/الإنهاء/الإلغاء بحكم الخادم (`Meeting::lifecycleActions`) — تتحدّث بالبثّ أيضاً
     const [actions, setActions] = useState(m.actions);
-    const [approve, setApprove] = useState(m.approve);
+    const [approval, setApproval] = useState(m.approval);
     const [approved, setApproved] = useState(m.approved);
     // زرّ الاعتماد بحكم حارسه (`Meeting::approvalBlocker`) — «النصّ غير فارغ» كان يُظهره لقالبٍ يردّه الخادم
     const [canApprove, setCanApprove] = useState(m.canApprove);
@@ -856,18 +870,18 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
     const openTranscript = () => setTranscriptOpen(true);
     useEffect(() => {
         setSummary(m.summary || ''); setMinutes(m.minutes || '');
-        setDecisions(m.decisions ?? []); setTasksDone(m.tasksCreated); setStatus(m.status); setApprove(m.approve);
+        setDecisions(m.decisions ?? []); setTasksDone(m.tasksCreated); setStatus(m.status); setApproval(m.approval);
         setStatusKey(m.statusKey); setApproved(m.approved); setCanApprove(m.canApprove); setActions(m.actions);
-    }, [m.summary, m.minutes, m.decisions, m.tasksCreated, m.status, m.statusKey, m.approve, m.approved, m.canApprove, m.actions]);
+    }, [m.summary, m.minutes, m.decisions, m.tasksCreated, m.status, m.statusKey, m.approval, m.approved, m.canApprove, m.actions]);
 
     // بثّ لحظي لحالة الاجتماع (جارٍ→منتهٍ→معتمد + المخرجات بعد الاعتماد)
     useEffect(() => {
         const ch = echo.private(`meeting.${m.dbId}`).listen('.status', (e: {
-            status: string; liveStatus?: string; statusKey?: MeetingStatusKey; approve: string; approved?: boolean; canApprove?: boolean;
+            status: string; liveStatus?: string; statusKey?: MeetingStatusKey; approval?: MeetingApprovalState | null; approved?: boolean; canApprove?: boolean;
             summary: string | null; minutes: string | null; actions?: FullMeetingCard['actions'];
         }) => {
             // الحالة الحيّة المشتقّة كالبطاقة — المخزّنة تتأخّر («قادم» فات يُعرض «لم ينعقد»)
-            setStatus(e.liveStatus ?? e.status); setApprove(e.approve);
+            setStatus(e.liveStatus ?? e.status); setApproval(e.approval ?? null);
 
             if (e.statusKey) {
                 setStatusKey(e.statusKey);
@@ -1098,7 +1112,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10, flexShrink: 0 }}>
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                             <Badge text={status} tone={meetStatusTone(status)} />
-                            <Badge text={approve} tone={approved ? 'b-green' : 'b-amber'} />
+                            <MeetingApprovalBadge approval={approval} />
                             {m.confidential && (
                                 <span style={{
                                     display: 'inline-flex', alignItems: 'center', gap: 4,
@@ -1794,7 +1808,7 @@ export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: str
                                         <button type="button" className="mr-client mr-link" onClick={() => openPage(m.id)}>{m.title}</button>
                                         {/* شارة الحالة الحيّة — كانت البطاقة بلا حالة فلا يُفرَّق القادم عن «لم ينعقد» */}
                                         <Badge text={m.status} tone={meetStatusTone(m.status)} />
-                                        {held && <Badge text={m.approve} tone={m.approved ? 'b-green' : 'b-amber'} />}
+                                        <MeetingApprovalBadge approval={m.approval} />
                                     </div>
                                     <div className="mr-sub">
                                         <Icon name={mrTypeIcon(m.type)} /> {m.type}
