@@ -1025,14 +1025,15 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
             <button className="btn soft sm" type="button" onClick={onBack} title="رجوع للقائمة">
               <Icon name="reply" /> رجوع
             </button>
-            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>طلب تنفيذ #{r.id}</span>
+            {/* رقم الملفّ وحدةٌ لا تنكسر — على الشاشات الضيّقة كان ينقسم «#EXE-» / «2026-1312» */}
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>طلب تنفيذ <bdi style={{ whiteSpace: 'nowrap' }}>#{r.id}</bdi></span>
             <Badge text={r.stageLabel} tone={r.tone} />
             {r.closed && <Badge text="مغلق" tone="b-grey" />}
             {r.execNo && <span className="chip" style={{ fontSize: 11.5 }}>رقم التنفيذ: {r.execNo}</span>}
           </div>
           <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: 'var(--ink)' }}>{r.subject}</h2>
           <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4 }}>
-            طالب التنفيذ: <b style={{ color: 'var(--ink)' }}>{r.client}</b> · السند: <b style={{ color: 'var(--ink)' }}>{r.sanad || '—'}</b> · المطالبة: <b style={{ color: 'var(--primary)' }}>{execMoney(r.amount)} ريال</b>
+            طالب التنفيذ: <b style={{ color: 'var(--ink)' }}>{r.client}</b> · السند: <b style={{ color: 'var(--ink)' }}>{r.sanad || '—'}</b> · المطالبة: <b style={{ color: 'var(--primary)', whiteSpace: 'nowrap' }}>{execMoney(r.amount)} ريال</b>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

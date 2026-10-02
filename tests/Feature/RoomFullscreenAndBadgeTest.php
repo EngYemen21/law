@@ -106,4 +106,19 @@ class RoomFullscreenAndBadgeTest extends TestCase
         $this->assertStringContainsString('.chat-composer .composer-label,.chat-composer .composer-hint{display:none}', $css);
         $this->assertStringContainsString('.env-badge{bottom:auto;top:4px', $css, 'الشارة أعلى الشاشة على الهاتف لا فوق زرّ الإرسال');
     }
+
+    /**
+     * **تبويبات ملفّ التنفيذ تلتفّ بعرض حاويتها** — كانت صفّاً واحداً بتمريرٍ أفقيّ مخفيّ، فعلى الهاتف وفي عمود
+     * الـ1024 يخرج التبويب النشط «المحادثة» من الإطار (ثبت بالمتصفّح على 320–414 و1024 للمحامي والإدارة).
+     */
+    public function test_exec_tabs_wrap_to_their_container(): void
+    {
+        $css = $this->src('css/babylon.css');
+        $this->assertStringContainsString('grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));', $css);
+        $tabs = substr($css, strpos($css, '.exec-tabs {'), 400);
+        $this->assertStringNotContainsString('overflow-x: auto', $tabs, 'لا تمرير أفقيّ يخفي التبويب النشط');
+
+        $page = $this->src('js/pages/execflow.tsx');
+        $this->assertStringContainsString("<bdi style={{ whiteSpace: 'nowrap' }}>#{r.id}</bdi>", $page, 'رقم الملفّ لا ينكسر');
+    }
 }

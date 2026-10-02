@@ -1200,19 +1200,21 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
     grid-template-columns: minmax(0, 1fr) !important;
   }
 }
+/* **التبويبات تلتفّ بعرض حاويتها** — كانت صفّاً واحداً بتمريرٍ أفقيّ مخفيّ: على الهاتف وفي عمود الـ1024 (بجوار
+   القائمة الجانبيّة) يخرج التبويب النشط «المحادثة» من الإطار ويُقصّ «الأتعاب والفواتير» بلا ما يدلّ على
+   التمرير. الشبكة تضع الأربعة صفّاً حين يتّسع المكان، وصفّين حين يضيق — بعرض الحاوية لا الشاشة. */
 .exec-tabs {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 6px;
   background: var(--paper-2, #F1F5F9);
   border: 1px solid var(--line, #E2E8F0);
   border-radius: 12px;
   padding: 4px;
   margin-bottom: 16px;
-  overflow-x: auto;
 }
 .exec-tab {
-  flex: 1;
-  min-width: 120px;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1226,7 +1228,8 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
   border: none;
   cursor: pointer;
   transition: all 0.15s ease;
-  white-space: nowrap;
+  text-align: center;
+  line-height: 1.4;
 }
 .exec-tab:hover {
   color: var(--ink);
