@@ -1179,11 +1179,8 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
                       {ai.notice && <div className="mtg-pend" style={{ marginBottom: 8 }}><Icon name="info" /> {ai.notice}</div>}
                       <p style={{ margin: '0 0 8px' }}>{r.aiSummary}</p>
                       {r.aiMissing.length > 0 && <div className="mtg-pend"><Icon name="info" /> نواقص مطلوبة: {r.aiMissing.join(' · ')}</div>}
-                      {r.aiProcedures.length > 0 && (
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                          {r.aiProcedures.map((p) => <span key={p} className="chip">{p}</span>)}
-                        </div>
-                      )}
+                      {/* المكوّن نفسه الذي في «دراسة التنفيذ» — كانت نسخةً بـ`chip` لا يلتفّ فتخرج الجمل الطويلة من البطاقة */}
+                      <StudyChips label="الإجراءات المقترحة" items={r.aiProcedures} />
                     </div>
                   </div>
                 );

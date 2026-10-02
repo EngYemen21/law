@@ -134,4 +134,15 @@ class RoomFullscreenAndBadgeTest extends TestCase
         $this->assertStringContainsString('{r.closedBadge && <Badge text="مغلق"', $page);
         $this->assertStringNotContainsString('{r.closed && <Badge text="مغلق"', $page);
     }
+
+    /**
+     * **بنود «الملخّص الذكيّ» تلتفّ كبنود «دراسة التنفيذ»** — من صورة المالك (`tab=docs`): الإجراءات المقترحة في بطاقة
+     * الملخّص نسخةٌ ثانية بـ`chip` لا يلتفّ، فتخرج الجملة الطويلة من البطاقة. الآن مكوّنٌ واحد (`StudyChips`).
+     */
+    public function test_the_ai_summary_procedures_use_the_wrapping_component(): void
+    {
+        $page = $this->src('js/pages/execflow.tsx');
+        $this->assertStringContainsString('<StudyChips label="الإجراءات المقترحة" items={r.aiProcedures} />', $page);
+        $this->assertStringNotContainsString('r.aiProcedures.map((p) => <span key={p} className="chip">', $page);
+    }
 }
