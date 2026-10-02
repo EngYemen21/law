@@ -72,4 +72,21 @@ class RoomFullscreenAndBadgeTest extends TestCase
         $this->assertStringContainsString('className="chip chip-wrap"', $this->src('js/pages/execflow.tsx'));
         $this->assertStringContainsString('.chip.chip-wrap{white-space:normal;max-width:100%', $this->src('css/babylon.css'));
     }
+
+    /**
+     * محادثة التنفيذ عند الطاقم تعرض الملاحظات الداخليّة وتستقبلها لحظيّاً من قناة `.staff` — والعميل لا
+     * (كانت مخفيّةً عن الطاقم نفسه لا لحظيّاً ولا بعد التحديث).
+     */
+    public function test_exec_chat_shows_internal_notes_to_staff_only(): void
+    {
+        $thread = $this->src('js/components/babylon/ChatThread.tsx');
+        $this->assertStringContainsString('if (!staffNotes) return null;', $thread, 'العميل وصفحاته بلا ملاحظات');
+        $this->assertStringContainsString('echo.private(staffChannel).listen(\'.message\', append);', $thread);
+        $this->assertStringContainsString('<MsgRow key={i} m={m} staffNotes={staffNotes} />', $thread);
+
+        $exec = $this->src('js/pages/execflow.tsx');
+        $this->assertSame(1, substr_count($exec, 'staffNotes'), 'تبويب محادثة الطاقم وحده — لا صفحة العميل (`ClientExecDetail`)');
+        $client = substr($exec, strpos($exec, 'const ClientExecDetail'), 6000);
+        $this->assertStringNotContainsString('staffNotes', $client);
+    }
 }

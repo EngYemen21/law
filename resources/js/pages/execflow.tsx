@@ -1258,6 +1258,7 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
                 <ChatThread
                   initial={r.messages}
                   channel={r.channel}
+                  staffNotes
                   onSend={sendMsg}
                   onStatus={() => router.reload({ only: ['execs'] })}
                   readOnly={r.closed}
