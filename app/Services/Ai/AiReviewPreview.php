@@ -8,6 +8,7 @@ use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\CasePleading;
 
 /**
  * معاينة مخرج النداء في صندوق المراجعة — **للقراءة فقط**.
@@ -206,12 +207,7 @@ class AiReviewPreview
         // `reorder` قبل `latest`: العلاقة مرتّبة تصاعدياً في تعريفها، و`latest` تُلحق ترتيباً
         // ثانياً لا تستبدل الأوّل — فتعود **أقدم** رسالة لا أحدثها. وقد أوقعني هذا في قراءة
         // مسودّة بائتة والحكم عليها بأنّها لم تتغيّر.
-        $body = $case?->messages()->where('role', 'مسودة اللائحة')->reorder('id', 'desc')->first()?->body;
-        if ($body === null) {
-            return null;
-        }
-
-        // إزالة وسوم HTML إذا كانت المسودة مغلفة بـ <div class="draft"> وفك تشفير الكيانات
-        return html_entity_decode(strip_tags($body), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        // النصّ المشتقّ نفسه الذي يقرؤه كلّ من يحتاج اللائحة نصّاً (`CasePleading::draftText`) — بفقراتها
+        return $case === null ? null : CasePleading::draftText(CasePleading::latestDraft($case));
     }
 }

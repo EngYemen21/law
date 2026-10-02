@@ -100,6 +100,6 @@ class PleadingGenerationTest extends TestCase
         $ui = (string) file_get_contents(resource_path('js/pages/lawyer/case.tsx'));
 
         $this->assertStringContainsString("router.reload({ only: ['pleadingDraft', 'pleadingBlock'] })", $ui);
-        $this->assertStringContainsString('if (!wasDirty)', $ui, 'مسودّةٌ جديدة لا تمسح تعديلاً لم يُحفظ');
+        $this->assertStringContainsString('if (!dirty)', $ui, 'مسودّةٌ جديدة لا تمسح تعديلاً لم يُحفظ');
     }
 }

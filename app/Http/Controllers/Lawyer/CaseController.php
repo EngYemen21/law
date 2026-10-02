@@ -22,9 +22,11 @@ use App\Support\ConversationFiles;
 use App\Support\ConversationHandler;
 use App\Support\ExecutionCreation;
 use App\Support\Notify;
+use App\Support\RichHtml;
 use App\Support\UploadLimits;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -106,8 +108,9 @@ class CaseController extends Controller
             'convertedExec' => $case->execution()->exists(),
             // زرّ الاعتماد يُعرض حين يجوز، وإلا فسببُ تعذّره — والخادم يرفض بالسبب نفسه
             'pleadingBlock' => CasePleading::blockReason($case),
-            // نصّ أحدث مسودّة للمحرّر، ومن كتبها (آلة أم إنسان)
-            'pleadingDraft' => CasePleading::draftText(CasePleading::latestDraft($case)),
+            // أحدث مسودّة منسّقةً للمحرّر — والمستند الكامل من محرّر الصياغة يُعرض هنا للقراءة ويُحرَّر هناك
+            'pleadingDraft' => CasePleading::draftHtml($draft),
+            'pleadingIsDocument' => CasePleading::isDocument($draft),
             // فتح التنفيذ بطلبٍ تعتمده الإدارة العليا (قرار المالك 2026-09-29) — من الخادم لا من مقارنةٍ باليد
             'executionRequest' => CaseExecutionRequest::pending($case),
             'canRequestExecution' => ExecutionCreation::isEligible($case) && $case->execution_requested_at === null,
@@ -234,10 +237,16 @@ class CaseController extends Controller
         $this->guardAssigned($case);
         abort_unless($case->pleading_status === 'pending_lawyer', 422, 'اعتُمدت اللائحة نهائياً — لا تُعدَّل بعد الاعتماد.');
 
-        $data = $request->validate(['body' => ['required', 'string', 'min:20', 'max:30000']], [
+        // المستند الكامل يُحرَّر في محرّر الصياغة وحده — محرّر البطاقة لا يحمل جداول القالب ولا عنوانه الرئيس
+        abort_if(CasePleading::isDocument(CasePleading::latestDraft($case)), 422, 'اللائحة منسّقة في محرّر الصياغة — عدّلها من هناك.');
+
+        $data = $request->validate(['body' => ['required', 'string', 'max:60000']], [
             'body.required' => 'اكتب نصّ اللائحة قبل الحفظ.',
-            'body.min' => 'نصّ اللائحة أقصر من أن يكون لائحة دعوى.',
         ]);
+        // الطول بالنصّ لا بوسوم التنسيق
+        if (mb_strlen(RichHtml::toPlain($data['body'])) < 20) {
+            throw ValidationException::withMessages(['body' => 'نصّ اللائحة أقصر من أن يكون لائحة دعوى.']);
+        }
 
         CasePleading::save($case, $request->user(), $data['body']);
 

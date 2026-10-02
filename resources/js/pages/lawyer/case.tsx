@@ -9,6 +9,7 @@ import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCar
 import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
 import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
+import RichTextEditor, { htmlToText } from '@/components/babylon/RichTextEditor';
 import { useToast } from '@/components/babylon/Toast';
 import { AppealCard, AttachDocModal, HearingUpdatesCard, NajizFilingCard, RulingCard, ScheduleHearingCard } from '@/lib/case-court';
 import type { AppealData, Filing } from '@/lib/case-court';
@@ -35,7 +36,7 @@ interface FileFacts { summary?: string | null; facts?: string | null; keyPoints?
 interface ReadinessItem { label: string; ok: boolean; hint?: string | null }
 interface Props {
   case: CaseInfo; channel: string; messages: Message[]; hearings: Hearing[]; documents: CaseDoc[];
-  convertedExec?: boolean; pleadingBlock?: string | null; pleadingDraft?: string | null; canRequestExecution: boolean; executionRequest: CaseExecutionRequestData | null; executionAmountHint?: number | null; executionDefendantHint?: string | null;
+  convertedExec?: boolean; pleadingBlock?: string | null; pleadingDraft?: string | null; pleadingIsDocument?: boolean; canRequestExecution: boolean; executionRequest: CaseExecutionRequestData | null; executionAmountHint?: number | null; executionDefendantHint?: string | null;
   ticketDocuments?: CaseDoc[]; fileInfo?: FileInfo; fileFacts?: FileFacts | null; readiness?: ReadinessItem[]; filing?: Filing;
   /** من يتولّى المحادثة ومن تولّاها قبله — `ConversationHandler::history`. */
   conversation?: ConversationHistory | null;
@@ -54,7 +55,7 @@ function docState(d: CaseDoc): [string, string] {
   return d.summary ? ['محلَّل', 'b-green'] : ['بانتظار التحليل', 'b-amber'];
 }
 
-const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, pleadingBlock, pleadingDraft, canRequestExecution, executionRequest, executionAmountHint = null, executionDefendantHint = null, ticketDocuments = [], fileInfo = {}, fileFacts = null, readiness = [], filing = { canFile: false, canRegister: false, data: null }, conversation }) => {
+const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, pleadingBlock, pleadingDraft, pleadingIsDocument = false, canRequestExecution, executionRequest, executionAmountHint = null, executionDefendantHint = null, ticketDocuments = [], fileInfo = {}, fileFacts = null, readiness = [], filing = { canFile: false, canRegister: false, data: null }, conversation }) => {
   const ask = useConfirm();
   const toast = useToast();
   const base = `/lawyer/cases/${encodeURIComponent(c.no)}`;
@@ -63,9 +64,11 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
   const [reply, setReply] = useState('');
   const [live, setLive] = useState({ status: c.status, tone: c.tone, isActive: c.isActive, postJudgment: c.postJudgment, isArchived: c.isArchived, inCourt: c.inCourt });
   const [propsFrom, setPropsFrom] = useState({ status: c.status, messages });
-  // محرّر اللائحة — يتبع أحدث مسودّة من الخادم (بعد الحفظ أو إعادة التوليد)
+  // محرّر اللائحة المنسّق — يتبع أحدث مسودّة من الخادم (بعد الحفظ أو إعادة التوليد). «غير محفوظ» علَمُ تحريرٍ
+  // لا مقارنةُ نصّين: المحرّر يعيد تشكيل HTML والخادم ينقّيه، فيختلف النصّان وهما مضمونٌ واحد
   const [draft, setDraft] = useState(pleadingDraft ?? '');
   const [draftFrom, setDraftFrom] = useState(pleadingDraft ?? '');
+  const [dirty, setDirty] = useState(false);
   const [pBusy, setPBusy] = useState(false);
   const [regenPending, setRegenPending] = useState(false);
   // مستندات الملفّ كلّه: القضيّة أوّلاً (الأحدث عملاً) ثم مرفقات الطلب — كلٌّ بالأحدث
@@ -80,18 +83,15 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
 
   // مسودّةٌ جديدة من الخادم (بعد الحفظ أو إعادة التوليد) تُحمَّل في المحرّر — ضبطٌ أثناء العرض لا في effect
   if ((pleadingDraft ?? '') !== draftFrom) {
-    const wasDirty = draft.trim() !== draftFrom.trim();
-
     setDraftFrom(pleadingDraft ?? '');
     setRegenPending(false);
 
     // تعديلٌ لم يُحفظ لا يُمسح بمسودّةٍ وصلت — يبقى، وتنبّه إليه عبارة «تعديلٌ غير محفوظ»
-    if (!wasDirty) {
+    if (!dirty) {
       setDraft(pleadingDraft ?? '');
     }
   }
 
-  const dirty = draft.trim() !== (pleadingDraft ?? '').trim();
   const seen = useRef<Set<number>>(new Set(messages.map((m) => m.id).filter(Boolean) as number[]));
 
   // **الحالة والمحادثة تتبعان الخادم بعد كلّ إجراء** — لا البثّ وحده. كان الرفع في ناجز يُسجَّل
@@ -172,7 +172,7 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
       onFinish: () => setPBusy(false),
     });
   };
-  const savePleading = () => pleadingPost('pleading/save', { body: draft }, 'حُفظت المسودّة — محجوبة عن العميل حتى الاعتماد النهائيّ');
+  const savePleading = () => pleadingPost('pleading/save', { body: draft }, 'حُفظت المسودّة — محجوبة عن العميل حتى الاعتماد النهائيّ', () => setDirty(false));
   const regeneratePleading = async () => {
     const ok = await ask({
       title: 'إعادة توليد اللائحة',
@@ -302,21 +302,35 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
                 </div>
               </div>
               <div className="card-b" style={{ padding: 14 }}>
-                <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 10 }}>
-                  حرّر لائحة الدعوى ثم احفظها — تبقى محجوبة عن العميل. الاعتماد النهائيّ يُقفل التعديل ويُتيحها له، ثم تُرفع في ناجز.
-                </div>
-                <textarea
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  placeholder="نصّ لائحة الدعوى…"
-                  rows={14}
-                  style={{ width: '100%', minHeight: 260, whiteSpace: 'pre-wrap' }}
-                  aria-label="نصّ لائحة الدعوى"
-                />
+                {pleadingIsDocument ? (
+                  // مستندٌ كامل اعتُمد في محرّر الصياغة (بترويسته وجداوله) — يُعرض هنا ويُحرَّر هناك وحده
+                  <>
+                    <div className="action-hint" style={{ marginBottom: 10 }}>
+                      <Icon name="info" /> اللائحة منسّقة في محرّر الصياغة — تُعرض هنا كما ستصل العميل، وتُعدَّل من «تنسيق اللائحة في المحرر».
+                    </div>
+                    <div className="draft draft-rich" aria-label="نصّ لائحة الدعوى" dangerouslySetInnerHTML={{ __html: draft }} />
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 10 }}>
+                      حرّر لائحة الدعوى ثم احفظها — تبقى محجوبة عن العميل. الاعتماد النهائيّ يُقفل التعديل ويُتيحها له، ثم تُرفع في ناجز.
+                    </div>
+                    <RichTextEditor
+                      value={draft}
+                      onChange={(v) => {
+                        setDraft(v);
+                        setDirty(true);
+                      }}
+                      placeholder="نصّ لائحة الدعوى…"
+                    />
+                  </>
+                )}
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-                  <button className="btn soft sm" type="button" disabled={pBusy || !dirty || !draft.trim()} onClick={savePleading}>
-                    <Icon name="doc" /> حفظ المسودّة
-                  </button>
+                  {!pleadingIsDocument && (
+                    <button className="btn soft sm" type="button" disabled={pBusy || !dirty || !htmlToText(draft).trim()} onClick={savePleading}>
+                      <Icon name="doc" /> حفظ المسودّة
+                    </button>
+                  )}
                   <button className="btn soft sm" type="button" disabled={pBusy || regenPending} onClick={regeneratePleading}>
                     <Icon name="reply" /> {regenPending ? 'جارٍ التوليد…' : 'إعادة التوليد'}
                   </button>

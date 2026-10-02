@@ -362,6 +362,7 @@ class DocumentEditorTest extends TestCase
         $this->assertStringNotContainsString('لائحة دعوىلدى', $plain, 'لا تلتصق الكلمات ببعضها كما في strip_tags');
     }
 
+    /** التنسيق يصل القضيّة كما اعتُمد (قرار المالك 2026-10-02) — والنصّ العاديّ مشتقٌّ منه بفقراته. */
     public function test_approving_imported_case_pleading_saves_clean_formatted_text_to_case(): void
     {
         $client = User::factory()->create(['name' => 'العميل']);
@@ -393,8 +394,9 @@ class DocumentEditorTest extends TestCase
 
         $draft = CasePleading::latestDraft($case);
         $this->assertNotNull($draft);
-        $this->assertStringContainsString("صحيفة الدعوى\n\nالوقائع والأسانيد:\n\nأولاً: ثبت تخلف المدعى عليه.", $draft->body);
-        $this->assertStringNotContainsString('صحيفة الدعوىالوقائع والأسانيد:أولاً:', $draft->body);
+        $this->assertStringContainsString('<h2>صحيفة الدعوى</h2><p>الوقائع والأسانيد:</p>', $draft->body);
+        $this->assertTrue(CasePleading::isDocument($draft));
+        $this->assertSame("صحيفة الدعوى\n\nالوقائع والأسانيد:\n\nأولاً: ثبت تخلف المدعى عليه.", CasePleading::draftText($draft));
     }
 
     public function test_lawyer_can_open_print_preview_with_case_number_and_document_data(): void
