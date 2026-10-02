@@ -30,6 +30,8 @@ interface ReviewItem {
   traceId: string | null;
   /** نصّ المخرج للقراءة فقط — التحرير في شاشة الملفّ. `null` = لا مخرج محفوظ. */
   preview: { text: string; fullText?: string; truncated: boolean; label: string; href: string | null } | null;
+  /** حالة الملفّ الآن (`AiReviewEntityState`)، و`stale` أثرُ القبول حين لا يصل العميل — كلاهما من الخادم. */
+  entityState: { status: string | null; stale: string | null };
   createdAt: string | null;
 }
 
@@ -631,6 +633,7 @@ export const AiReview: React.FC<{
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <b style={{ fontSize: 15, color: 'var(--primary)' }}>{item.entityRef}</b>
                   <Badge text={item.taskLabel} tone="b-blue" />
+                  {item.entityState.status && <Badge text={`حالة الملف: ${item.entityState.status}`} tone={item.entityState.stale ? 'b-amber' : 'b-grey'} />}
                   {item.sourceLabel && (
                     <span style={{ fontSize: 12, color: 'var(--muted)' }}>
                       المصدر: <b>{item.sourceLabel}</b>
@@ -646,6 +649,11 @@ export const AiReview: React.FC<{
 
               {/* جسم الكرت */}
               <div className="air-card-content">
+                {item.entityState.stale && (
+                  <div className="mtg-pend" role="note" style={{ marginBottom: 10 }}>
+                    <Icon name="info" /> {item.entityState.stale}
+                  </div>
+                )}
                 {/* شريط البيانات الفنية الأساسية */}
                 <div className="air-meta-strip">
                   <span>النموذج المولد: <b>{item.model}</b></span>

@@ -33,6 +33,11 @@ return Application::configure(basePath: dirname(__DIR__))
             'conversation.reply' => MarksConversationReply::class,
         ]);
 
+        // **بنية مستند المحرّر لا تُقَصّ** (2026-10-02): `TrimStrings` يقصّ كلّ نصٍّ متداخل، ونصوص `content_json`
+        // عُقَدٌ تنتهي بمسافةٍ قبل الكلمة المنسّقة («كلمة ␣» ثمّ «**عريضة**») — فيُعاد تحميل المستند من بنيته
+        // والكلمات ملتصقة، ويحفظها الحفظ التلقائيّ كذلك في HTML المستند ولائحة القضيّة.
+        $middleware->trimStrings(except: ['content_json.*']);
+
         // إشعارات Zoom وبوّابات الدفع لا ترسل رمز CSRF؛ محميّة بتوقيع/سرّ في المتحكّم
         $middleware->validateCsrfTokens(except: ['webhooks/zoom', 'webhooks/moyasar', 'webhooks/payments/*']);
 

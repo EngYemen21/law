@@ -31,6 +31,17 @@ final class CasePleading
     public const WARNING_MARK = '⚠️';
 
     /**
+     * **علامة المستند الكامل** (قرار المالك 2026-10-02): لائحةٌ اعتُمدت في محرّر الصياغة تحمل ترويسة القالب
+     * وتحيّته وخاتمته — فلا يُلفّ بها القالب مرّةً ثانية عند فتحها في المحرّر، ولا تُحرَّر في بطاقة القضيّة
+     * (محرّرها المنسّق لا يحمل جداول القالب ولا عنوانه الرئيس). تُكتب على الغلاف الذي يبنيه الخادم، لا في
+     * المحتوى المنقّى، فلا يزوّرها نصٌّ مُرسَل.
+     */
+    private const DOCUMENT_ATTR = 'data-pleading="document"';
+
+    /** غلاف المسودّة المنسّقة — `draft-rich` يُسقط `pre-wrap` الذي يلزم المسودّة النصّيّة القديمة وحدها. */
+    private const RICH_OPEN = '<div class="draft draft-rich"';
+
+    /**
      * هل تحمل أحدث مسودّة تنبيهاً داخلياً؟ التنبيه موجَّهٌ للمحامي — واعتمادُه يُرسله للعميل
      * مع اللائحة ويُقدَّم للمحكمة. يُعالَج ما يشير إليه ثم يُحذف ويُحفظ.
      */
@@ -62,9 +73,14 @@ final class CasePleading
      *   نفسه**، فكان اعتمادُه يُطلقه للعميل بوصفه لائحة الدعوى ويرفع الدعوى به (كشفه تتبّعٌ
      *   لمسار المسودّة في 2026-09-11).
      * - **رُفضت في صندوق المراجعة:** قرارُ الرفض لا يُتجاوَز بزرٍّ في شاشة الملفّ.
+     * - **القضيّة مغلقة أو مؤرشفة** (قرار المالك 2026-10-02): لا تُطلَق لعميلها لائحةٌ ولا يُبلَّغ باعتمادها.
      */
     public static function blockReason(LegalCase $case): ?string
     {
+        if (! $case->isOpenForClient()) {
+            return 'القضيّة مغلقة — لا تُعتمد لائحتها ولا تُطلَق للعميل.';
+        }
+
         $draft = self::latestDraft($case);
 
         if ($draft === null) {
@@ -101,24 +117,52 @@ final class CasePleading
         return $draft->who !== 'ai';
     }
 
-    /** نصّ المسودّة للمحرّر — بلا وسومٍ ولا كياناتٍ مرمَّزة (نظير `AiReviewPreview::pleading`). */
+    /**
+     * **نصّ المسودّة العاديّ** — لما يقرأ نصّاً (معاينة صندوق المراجعة، معاينة الاستيراد): مشتقٌّ من المنسّقة
+     * بفقراتها (`RichHtml::toPlain`)، ويقرأ المسودّة النصّيّة القديمة كما هي.
+     */
     public static function draftText(?CaseMessage $draft): ?string
+    {
+        return $draft === null ? null : RichHtml::toPlain((string) $draft->body);
+    }
+
+    /**
+     * **المسودّة منسّقةً للتحرير** — محتوى الغلاف كما حُفظ؛ والمسودّة النصّيّة (الآليّة، أو ما حُفظ قبل التنسيق)
+     * تُحوَّل سطورها فقراتٍ مُهرَّبة، فتُفتح في المحرّر المنسّق بلا تحويلٍ في القاعدة.
+     */
+    public static function draftHtml(?CaseMessage $draft): ?string
     {
         if ($draft === null) {
             return null;
         }
 
-        return trim(html_entity_decode(strip_tags((string) $draft->body), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $body = (string) $draft->body;
+        if (str_starts_with($body, self::RICH_OPEN)) {
+            return (string) preg_replace('~^<div class="draft draft-rich"[^>]*>(.*)</div>$~s', '$1', $body);
+        }
+
+        $lines = array_filter(array_map('trim', explode("\n", (string) self::draftText($draft))), fn (string $l) => $l !== '');
+
+        return $lines === [] ? '' : '<p>'.implode('</p><p>', array_map('e', $lines)).'</p>';
+    }
+
+    /** هل المسودّة مستندٌ كاملٌ اعتُمد في محرّر الصياغة (`DOCUMENT_ATTR`)؟ */
+    public static function isDocument(?CaseMessage $draft): bool
+    {
+        return $draft !== null && str_starts_with((string) $draft->body, self::RICH_OPEN.' '.self::DOCUMENT_ATTR);
     }
 
     /**
      * **حفظ المسودّة — تبقى محجوبةً وقابلةً للتعديل.** (قاعدة المنظومة: الحفظ مسودّة، والاعتماد
      * النهائيّ يقفل.) تُحرَّر أحدثُ مسودّةٍ محجوبة في مكانها — فتصير نصّاً بشرياً — أو تُنشأ
      * واحدةٌ إن لم تكن. ولا تحرير بعد الاعتماد: الخادم يرفض قبل أن يصل هنا.
+     *
+     * تُحفظ **منسّقةً** بعد تنقيتها بقائمة ما يصل العميل (`RichHtml::cleanPleading`) — كانت تُحوَّل نصّاً عاديّاً
+     * فيضيع تنسيق المحرّر. و`$document`: مستندٌ كامل من محرّر الصياغة يحمل القالب (`DOCUMENT_ATTR`).
      */
-    public static function save(LegalCase $case, User $author, string $text): CaseMessage
+    public static function save(LegalCase $case, User $author, string $html, bool $document = false): CaseMessage
     {
-        $body = '<div class="draft" style="white-space:pre-line">'.e($text).'</div>';
+        $body = self::RICH_OPEN.($document ? ' '.self::DOCUMENT_ATTR : '').'>'.RichHtml::cleanPleading($html).'</div>';
         $draft = self::latestDraft($case);
 
         if ($draft !== null && $draft->withheld_at !== null) {

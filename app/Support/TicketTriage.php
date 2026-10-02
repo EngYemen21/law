@@ -98,7 +98,7 @@ class TicketTriage
 
         self::move(new AwaitTicketDocuments, $ticket, 'بانتظار إرفاق المستندات المطلوبة', 'triage.greeting');
         $msg = $ticket->messages()->create([
-            'who' => 'ai',
+            'who' => AiClientVoice::who($ticket),
             'name' => LegalAiService::AGENT_NAME,
             'role' => LegalAiService::AGENT_ROLE,
             // الترحيب نفسه يطلب المستندات — فلا مقدّمة ثانية قبل القائمة
@@ -146,7 +146,7 @@ class TicketTriage
                 // `ai` لا `staff`: النصّ مولَّد آلياً (`acknowledgeDocs`) ولم يكتبه موظّف.
                 // كان الوسم يجعل العميل يقرأ ردّاً آلياً منسوباً إلى فريقٍ بشريّ —
                 // وهو ما يمنعه مبدأ صدق المصدر.
-                'who' => 'ai',
+                'who' => AiClientVoice::who($ticket),
                 'name' => LegalAiService::AGENT_NAME,
                 'role' => 'خدمة العملاء',
                 'body' => '<p>'.nl2br(e($ack)).'</p>',
@@ -168,7 +168,7 @@ class TicketTriage
         if ($analyzedAny) {
             self::move(new AwaitTicketDocuments, $ticket, 'بانتظار إرفاق المستندات الصحيحة', 'triage.unrelated_documents');
             $msg = $ticket->messages()->create([
-                'who' => 'ai',
+                'who' => AiClientVoice::who($ticket),
                 'name' => LegalAiService::AGENT_NAME,
                 'role' => 'نواقص',
                 'body' => TicketDocumentRequirements::requestHtml(
@@ -188,7 +188,7 @@ class TicketTriage
         // (ج) تعذّر فحص كل المرفقات — إقرار بالاستلام (دون إعادة طلب بجفاء) + مراجعة يدوية
         self::move(new AwaitTicketDocuments, $ticket, 'المستندات المرفقة قيد المراجعة', 'triage.unreadable_documents');
         $msg = $ticket->messages()->create([
-            'who' => 'ai',
+            'who' => AiClientVoice::who($ticket),
             'name' => LegalAiService::AGENT_NAME,
             'role' => LegalAiService::AGENT_ROLE,
             'body' => '<p>شكراً لك، وصلنا طلبك والمستندات المرفقة وهي قيد المراجعة، وسيوافيك الفريق المختص بالمستجدات قريباً.</p>',
@@ -280,7 +280,7 @@ class TicketTriage
         // مستند غير مرتبط بالموضوع — رفض مع التوضيح وطلب المستندات الصحيحة
         if (! $analysis['related']) {
             $msg = $ticket->messages()->create([
-                'who' => 'ai',
+                'who' => AiClientVoice::who($ticket),
                 'name' => LegalAiService::AGENT_NAME,
                 'role' => 'نواقص',
                 'body' => TicketDocumentRequirements::requestHtml(
@@ -362,7 +362,7 @@ class TicketTriage
     private static function sendDocSummary(Ticket $ticket, TicketDocument $doc): void
     {
         $msg = $ticket->messages()->create([
-            'who' => 'ai',
+            'who' => AiClientVoice::who($ticket),
             'name' => LegalAiService::AGENT_NAME,
             'role' => 'تحليل المستند',
             'body' => '<p>تم فحص المستند «'.e($doc->name).'» والتحقق من محتواه.</p>'

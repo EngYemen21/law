@@ -37,7 +37,7 @@ class ExecutionCreationTest extends TestCase
      */
     private function requestAndApprove(User $lawyer, LegalCase $case): void
     {
-        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'امتنع المحكوم عليه عن السداد بعد القطعيّة', 'amount' => 150000])->assertRedirect();
+        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'امتنع المحكوم عليه عن السداد بعد القطعيّة', 'amount' => 150000, 'defendant' => 'شركة المدين التجاريّة'])->assertRedirect();
         $this->assertFalse(Execution::where('case_id', $case->id)->exists(), 'لا يُفتح قبل اعتماد الإدارة');
         $admin = User::where('role', Role::Admin)->first() ?? User::factory()->create(['role' => Role::Admin]);
         $this->actingAs($admin)->post(route('admin.cases.execution-request.approve', $case))->assertRedirect();
@@ -83,7 +83,7 @@ class ExecutionCreationTest extends TestCase
         $colleague = User::factory()->create(['role' => Role::Admin]);
         $case = $this->ruledCase($client, $lawyer);
 
-        $this->actingAs($admin)->post(route('admin.cases.execute', $case), ['amount' => 150000])->assertRedirect();
+        $this->actingAs($admin)->post(route('admin.cases.execute', $case), ['amount' => 150000, 'defendant' => 'شركة المدين التجاريّة'])->assertRedirect();
 
         $exec = Execution::where('case_id', $case->id)->firstOrFail();
         $this->assertSame(3, (int) $exec->stage);
@@ -115,7 +115,7 @@ class ExecutionCreationTest extends TestCase
         $admin = User::factory()->create(['role' => Role::Admin]);
         $case = $this->ruledCase(User::factory()->create(['role' => Role::Client]));
 
-        $res = $this->actingAs($admin)->post(route('admin.cases.execute', $case), ['amount' => 150000]);
+        $res = $this->actingAs($admin)->post(route('admin.cases.execute', $case), ['amount' => 150000, 'defendant' => 'شركة المدين التجاريّة']);
 
         $exec = Execution::where('case_id', $case->id)->first();
         $this->assertNotNull($exec);
@@ -138,7 +138,7 @@ class ExecutionCreationTest extends TestCase
         $case = $this->ruledCase(User::factory()->create(['role' => Role::Client]), $lawyer);
         $case->update(['status' => 'منظورة']);
 
-        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'طلب تنفيذ قبل صدور الحكم', 'amount' => 150000])->assertStatus(422);
+        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'طلب تنفيذ قبل صدور الحكم', 'amount' => 150000, 'defendant' => 'شركة المدين التجاريّة'])->assertStatus(422);
     }
 
     public function test_cannot_open_execution_twice(): void
@@ -147,7 +147,7 @@ class ExecutionCreationTest extends TestCase
         $case = $this->ruledCase(User::factory()->create(['role' => Role::Client]), $lawyer);
 
         $this->requestAndApprove($lawyer, $case);
-        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'طلب تنفيذ ثانٍ للحكم نفسه', 'amount' => 150000])->assertStatus(422);
+        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'طلب تنفيذ ثانٍ للحكم نفسه', 'amount' => 150000, 'defendant' => 'شركة المدين التجاريّة'])->assertStatus(422);
         $this->assertSame(1, Execution::where('case_id', $case->id)->count());
     }
 }

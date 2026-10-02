@@ -166,7 +166,7 @@ class ExecFlowController extends Controller
         $intakeActions = ['refer', 'requestDocs'];            // الاستقبال — الموظف أو المكتب
         $lawyerPickup = ['accept', 'reject', 'saveFee'];     // المحامي (التقاط/عزل)
         // محامي أو إدارة وحدهما — إغلاق الملفّ وتوثيق الإجراء يبقيان لهما
-        $staffProcActions = ['addProcedure', 'close', 'setClaimAmount'];
+        $staffProcActions = ['addProcedure', 'close', 'setClaimAmount', 'setDefendant'];
         // خطوات ناجز (الرفع/القيد/الإبلاغ/الإجراءات/التحصيل) — يسجّلها الموظّف أيضاً بصلاحيّتها
         $najizActions = ['fileNajiz', 'registerNajiz', 'notifyDebtor', 'applyMeasures', 'addCollection'];
         // الإسناد — الإدارة وحدها تُعيد، والموظّف المخوَّل يُسند غير المسنَد (تفصيله في حارسه أدناه)
@@ -305,6 +305,12 @@ class ExecFlowController extends Controller
                 trim((string) $request->validate(['reason' => ['required', 'string', 'max:500']])['reason']),
                 $user,
             ),
+            'setDefendant' => ExecService::setDefendant(
+                $execution,
+                (string) $request->validate(['defendant' => ['required', 'string', 'max:'.Execution::DEFENDANT_MAX]], ['defendant.*' => 'أدخل اسم المنفَّذ ضده (فرداً أو جهة).'])['defendant'],
+                (string) ($request->validate(['reason' => ['nullable', 'string', 'max:500']])['reason'] ?? ''),
+                $user,
+            ),
             'addCollection' => ExecService::addCollection(
                 $execution,
                 (int) $request->validate(['amount' => ['required', 'integer', 'min:1']])['amount'],
@@ -332,7 +338,7 @@ class ExecFlowController extends Controller
             action: 'إجراء على ملف تنفيذ: '.$action,
             description: "نفّذ {$user->name} إجراء «{$action}» على ملف التنفيذ {$execution->number} — حالته الآن: {$fresh->status}.",
             category: 'قضايا وتنفيذ',
-            severity: in_array($action, ['approveFee', 'setFee', 'close', 'reject', 'rejectOffer', 'setClaimAmount'], true) ? 'warning' : 'info',
+            severity: in_array($action, ['approveFee', 'setFee', 'close', 'reject', 'rejectOffer', 'setClaimAmount', 'setDefendant'], true) ? 'warning' : 'info',
             auditable: $execution,
             auditableRef: $execution->number,
             afterState: ['الحالة' => $fresh->status, 'المرحلة' => $fresh->effectiveStage()] + self::actionAudit($action, $fresh),
@@ -371,6 +377,7 @@ class ExecFlowController extends Controller
                 'إجراءات عدم الوفاء' => implode(' · ', $fresh->measures ?? []) ?: 'رُفعت الإجراءات',
             ],
             'setClaimAmount' => ['مبلغ المطالبة' => (int) $fresh->amount],
+            'setDefendant' => ['المنفَّذ ضده' => (string) $fresh->defendant],
             'addCollection' => [
                 'إجمالي المحصَّل' => (int) $fresh->collected,
                 'المتبقّي' => max(0, (int) $fresh->amount - (int) $fresh->collected),

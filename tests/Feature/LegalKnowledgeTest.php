@@ -473,6 +473,8 @@ class LegalKnowledgeTest extends TestCase
             'claims' => [['text' => 'ادّعاء.', 'source_id' => 'LS-REAL', 'source_excerpt' => 'نصّ']],
             'unsupported_claims' => [],
         ], JSON_UNESCAPED_UNICODE));
+        // المهمّة تعمل للّائحة المنتظرة وحدها (`DraftCasePleadingJob` — لا مسودّة بعد الاعتماد أو الإغلاق)
+        $case->update(['pleading_status' => 'pending_lawyer']);
 
         (new DraftCasePleadingJob($case))->handle(app(LegalAiService::class));
 

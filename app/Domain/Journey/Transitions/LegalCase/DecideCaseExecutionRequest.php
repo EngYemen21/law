@@ -53,11 +53,11 @@ final class DecideCaseExecutionRequest extends Transition
     public function apply(Model $entity, ?User $actor, array $payload): void
     {
         /** @var LegalCase $entity */
-        $entity->forceFill(['execution_requested_at' => null, 'execution_requested_by' => null, 'execution_request_reason' => null, 'execution_request_amount' => null]);
+        $entity->forceFill(['execution_requested_at' => null, 'execution_requested_by' => null, 'execution_request_reason' => null, 'execution_request_amount' => null, 'execution_request_defendant' => null]);
     }
 
     public function record(array $payload): array
     {
-        return array_filter(['reason' => $payload['reason'] ?? null, 'requested_by' => $payload['requested_by'] ?? null, 'request_reason' => $payload['request_reason'] ?? null, 'request_amount' => $payload['request_amount'] ?? null]);
+        return array_filter(['reason' => $payload['reason'] ?? null, 'requested_by' => $payload['requested_by'] ?? null, 'request_reason' => $payload['request_reason'] ?? null, 'request_amount' => $payload['request_amount'] ?? null, 'request_defendant' => $payload['request_defendant'] ?? null]);
     }
 }

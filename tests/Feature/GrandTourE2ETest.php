@@ -167,7 +167,7 @@ class GrandTourE2ETest extends TestCase
         $this->assertSame('صدر الحكم', $case->fresh()->status);
 
         // ── المرحلة 6: طلب «تحويل لتنفيذ» بعد الحكم يعتمده المدير (قرار المالك 2026-09-29) ثم إغلاق الإدارة ──
-        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'امتنع المحكوم عليه عن السداد', 'amount' => 150000])->assertRedirect();
+        $this->actingAs($lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'امتنع المحكوم عليه عن السداد', 'amount' => 150000, 'defendant' => 'شركة المدين التجاريّة'])->assertRedirect();
         $this->actingAs($admin)->post(route('admin.cases.execution-request.approve', $case))->assertRedirect();
         $exec = Execution::where('case_id', $case->id)->firstOrFail();
         $this->assertSame($lawyer->id, $exec->assigned_lawyer_id);

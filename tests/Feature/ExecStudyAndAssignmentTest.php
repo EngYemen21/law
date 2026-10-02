@@ -314,8 +314,10 @@ class ExecStudyAndAssignmentTest extends TestCase
         $this->assertTrue($staff['pending']);
         $this->assertFalse($staff['approved']);
 
-        // الاعتماد يُطلقها
+        // النشر يُطلقها — والاعتماد وحده لا (`ai_released_at`: الاعتماد بعد تجاوز المرحلة داخليّ)
         $exec->update(['ai_approved_at' => now(), 'ai_approved_by' => $lawyer->id]);
+        $this->assertNull($exec->fresh()->toFlowCard(false, false)['study'], 'معتمدةٌ غير منشورة لا تصل العميل');
+        $exec->update(['ai_released_at' => now()]);
         $released = $exec->fresh()->toFlowCard(false, false)['study'];
         $this->assertNotNull($released);
         $this->assertSame('إعسار محتمل', $released['risks'][0]);

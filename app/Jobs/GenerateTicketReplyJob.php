@@ -7,6 +7,7 @@ use App\Models\Ticket;
 use App\Services\Ai\AiQueue;
 use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
+use App\Support\AiClientVoice;
 use App\Support\Live;
 use App\Support\Notify;
 use App\Support\TicketJourney;
@@ -50,6 +51,14 @@ class GenerateTicketReplyJob implements ShouldQueue
         // منع AI تماماً من الرد على الموظف أو المحامي أو الإدارة العليا — الرد الآلي للعميل فقط
         $lastMsg = $ticket->messages()->reorder('id', 'desc')->first();
         if ($lastMsg && $lastMsg->who !== 'client') {
+            return;
+        }
+
+        // **ولا ردَّ آليّاً بعد تدخّل إنسانٍ من المكتب** (قرار المالك 2026-10-02): ما إن يكتب موظّفٌ أو محامٍ أو
+        // الإدارة في المحادثة يتولّى البشر الحوار، ويبقى للذكاء التحليلُ وحده. رسالة العميل تصل المكتب بإشعارها المعتاد.
+        if (AiClientVoice::humanIntervened($ticket)) {
+            AiClientVoice::handOff($ticket, "التذكرة {$ticket->number}");
+
             return;
         }
 

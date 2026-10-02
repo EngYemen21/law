@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Lawyer;
 
 use App\Http\Controllers\Controller;
+use App\Models\CaseMessage;
 use App\Models\Consult;
 use App\Models\LegalCase;
 use App\Models\LegalDocument;
@@ -16,7 +17,6 @@ use App\Support\LegalDocStyle;
 use App\Support\LegalDocx;
 use App\Support\PdfRenderer;
 use App\Support\Permissions;
-use App\Support\RichHtml;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -100,8 +100,7 @@ class DocumentEditorController extends Controller
                     : LegalCase::with(['user', 'assignedLawyer'])->where('number', $importId)->first();
 
                 if ($case && ($isAdmin || $case->assigned_lawyer_id === $user->id)) {
-                    $draftText = CasePleading::draftText(CasePleading::latestDraft($case));
-                    $incomingDraft = $this->formatPleadingHtml($case, $draftText);
+                    $incomingDraft = $this->formatPleadingHtml($case, CasePleading::latestDraft($case));
                     $incomingTitle = "لائحة دعوى — قضية رقم {$case->number}".($case->type ? " ({$case->type})" : '');
                     $incomingType = 'lawsuit';
                     $incomingCase = ['id' => $case->id, 'no' => $case->number];
@@ -269,7 +268,8 @@ class DocumentEditorController extends Controller
         if (($doc->metadata['source_type'] ?? null) === 'case_pleading' && $doc->case_id) {
             $case = LegalCase::find($doc->case_id);
             if ($case && $case->pleading_status === 'pending_lawyer') {
-                CasePleading::save($case, $request->user(), RichHtml::toPlain($doc->content_html));
+                // منسّقاً كما اعتُمد، وبعلامة المستند الكامل — فلا يُلفّ بالقالب مرّةً ثانية
+                CasePleading::save($case, $request->user(), (string) $doc->content_html, document: true);
             }
         }
 
@@ -296,7 +296,8 @@ class DocumentEditorController extends Controller
         }
 
         foreach ($caseQuery->take(25)->get() as $case) {
-            $draftText = CasePleading::draftText(CasePleading::latestDraft($case));
+            $draft = CasePleading::latestDraft($case);
+            $draftText = CasePleading::draftText($draft);
             $items[] = [
                 'id' => "case_pleading_{$case->id}",
                 'sourceType' => 'case_pleading',
@@ -310,7 +311,7 @@ class DocumentEditorController extends Controller
                 'docType' => 'lawsuit',
                 'date' => $case->updated_at?->locale('ar')->diffForHumans() ?? 'الآن',
                 'preview' => mb_substr($draftText ?: 'مسودة لائحة دعوى جاهزة للصياغة والتنسيق', 0, 160),
-                'contentHtml' => $this->formatPleadingHtml($case, $draftText),
+                'contentHtml' => $this->formatPleadingHtml($case, $draft),
                 'caseId' => $case->id,
                 'caseNo' => $case->number,
                 'ticketId' => null,
@@ -698,16 +699,23 @@ HTML;
     /**
      * تنسيق لائحة الدعوى إلى HTML قانوني منسّق للمحرر.
      */
-    private function formatPleadingHtml(LegalCase $case, ?string $draft): string
+    /**
+     * **القالب يُلفّ مرّةً واحدة** (قرار المالك 2026-10-02): الترويسة والتحيّة والخاتمة يملكها القالب وحده؛
+     * ومسودّةٌ اعتُمدت في المحرّر من قبل تحملها فتُستورد كما هي (`CasePleading::isDocument`).
+     */
+    private function formatPleadingHtml(LegalCase $case, ?CaseMessage $draft): string
     {
+        if (CasePleading::isDocument($draft)) {
+            return (string) CasePleading::draftHtml($draft);
+        }
+
         $caseNo = e($case->number);
         $caseType = e($case->type ?: 'قضية عامة');
         $court = e($case->department ?: 'المحكمة المختصة');
         $client = e($case->user?->name ?? 'المدعي');
 
-        $body = $draft
-            ? '<p dir="rtl">'.implode('</p><p dir="rtl">', array_filter(explode("\n", e(trim($draft))))).'</p>'
-            : '<p dir="rtl"><b>الوقائع والأسانيد:</b></p><p dir="rtl">اكتب وقائع وأسانيد الدعوى هنا...</p>';
+        $body = CasePleading::draftHtml($draft)
+            ?: '<p dir="rtl"><b>الوقائع والأسانيد:</b></p><p dir="rtl">اكتب وقائع وأسانيد الدعوى هنا...</p>';
 
         return <<<HTML
 <h2 style="text-align: center; color: #0a2a55;">لائحة دعوى</h2>

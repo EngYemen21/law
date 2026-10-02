@@ -71,6 +71,7 @@ interface Props {
   canRequestExecution?: boolean;
   executionRequest?: CaseExecutionRequestData | null;
   executionAmountHint?: number | null;
+  executionDefendantHint?: string | null;
   convertedExec?: boolean;
 }
 
@@ -89,6 +90,7 @@ const EmployeeCase: React.FC<Props> = ({
   canRequestExecution = false,
   executionRequest = null,
   executionAmountHint = null,
+  executionDefendantHint = null,
   convertedExec = false,
 }) => {
   const toast = useToast();
@@ -293,7 +295,7 @@ const EmployeeCase: React.FC<Props> = ({
           {canCourt && hearings.length > 0 && live.isActive && <HearingUpdatesCard base={base} hearings={hearings} />}
 
           {/* بطاقة الجلسات القضائية */}
-          <CaseExecutionRequestCard base={base} canRequest={canRequestExecution} pending={executionRequest} converted={convertedExec} amountHint={executionAmountHint} />
+          <CaseExecutionRequestCard base={base} canRequest={canRequestExecution} pending={executionRequest} converted={convertedExec} amountHint={executionAmountHint} defendantHint={executionDefendantHint} />
 
           <HearingsCard hearings={hearings} documents={documents} />
 

@@ -85,6 +85,20 @@ class User extends Authenticatable
         return $this->belongsToMany(LegalDepartment::class, 'lawyer_specialties')->withTimestamps();
     }
 
+    /**
+     * **رمز المرسِل في محادثات الملفّات** (`admin` · `lawyer` · `staff` · `client`) — وتسميته أمام العميل من
+     * «إعدادات النظام» عبر `ChatSenderLabel` بحساب المرسِل.
+     */
+    public function chatWho(): string
+    {
+        return match (true) {
+            $this->isAdmin() => 'admin',
+            $this->isLawyer() => 'lawyer',
+            $this->isClient() => 'client',
+            default => 'staff',
+        };
+    }
+
     public function isAdmin(): bool
     {
         return $this->role === Role::Admin;

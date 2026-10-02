@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * **رفع طلب فتح تنفيذ الحكم للإدارة العليا** (قرار المالك 2026-09-29) — من المحامي المسنَد أو الموظّف،
- * بسببٍ مكتوب والمبلغ المحكوم به (قرار 2026-09-30). الحالة لا تتغيّر: الطلب قائمٌ على القضيّة حتى تعتمده الإدارة (فيُفتح الملفّ) أو ترفضه.
+ * بسببٍ مكتوب والمبلغ المحكوم به (قرار 2026-09-30) والمنفَّذ ضده (قرار 2026-10-02). الحالة لا تتغيّر: الطلب قائمٌ على القضيّة حتى تعتمده الإدارة (فيُفتح الملفّ) أو ترفضه.
  *
  * @extends Transition<LegalCase>
  */
@@ -66,7 +66,8 @@ final class RequestCaseExecution extends Transition
             return 'المبلغ المحكوم به يتجاوز الحدّ الأعلى ('.number_format(Execution::MAX_CLAIM_AMOUNT).' ريال).';
         }
 
-        return null;
+        // يصير «المنفَّذ ضده» في ملفّ التنفيذ — القاعدة الواحدة لاسمه (`Execution::defendantError`)
+        return Execution::defendantError((string) ($payload['defendant'] ?? ''));
     }
 
     public function apply(Model $entity, ?User $actor, array $payload): void
@@ -77,11 +78,12 @@ final class RequestCaseExecution extends Transition
             'execution_requested_by' => $actor?->id,
             'execution_request_reason' => trim((string) $payload['reason']),
             'execution_request_amount' => (int) $payload['amount'],
+            'execution_request_defendant' => trim((string) $payload['defendant']),
         ]);
     }
 
     public function record(array $payload): array
     {
-        return ['reason' => $payload['reason'] ?? '', 'amount' => (int) ($payload['amount'] ?? 0)];
+        return ['reason' => $payload['reason'] ?? '', 'amount' => (int) ($payload['amount'] ?? 0), 'defendant' => trim((string) ($payload['defendant'] ?? ''))];
     }
 }

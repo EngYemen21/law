@@ -16,8 +16,23 @@ import {
 import { serverMessage } from '@/lib/server-message';
 
 // يطابق ctRenderMsg + metaLine
-const MsgRow: React.FC<{ m: Message }> = ({ m }) => {
-  if (m.who === 'note') return null;
+const MsgRow: React.FC<{ m: Message; staffNotes?: boolean }> = ({ m, staffNotes = false }) => {
+  if (m.who === 'note') {
+    // الملاحظة الداخليّة للطاقم وحده (`staffNotes`) — بشكلها في محادثة التذكرة عند الطاقم. والعميل لا تصله أصلاً:
+    // الخادم يحجبها من حمولته (`Execution::flowMessages`) وقناتها `.staff` لا يُصرَّح له بها.
+    if (!staffNotes) return null;
+
+    return (
+      <div className="msg" style={{ justifyContent: 'center' }}>
+        <div style={{ background: '#FBF1E0', border: '1px solid #F0DDB0', color: '#8a6d2f', borderRadius: 11, padding: '9px 13px', fontSize: 12.5, maxWidth: '85%' }}>
+          <b>🔒 ملاحظة داخلية — {m.name}</b>
+          <div style={{ marginTop: 4 }} dangerouslySetInnerHTML={{ __html: m.text }} />
+          <time style={{ display: 'block', marginTop: 4, color: '#b08d4a', fontSize: 11 }}>{m.time}</time>
+        </div>
+      </div>
+    );
+  }
+
   const isClient = m.who === 'client' || m.who === 'me';
   const actor = isClient ? 'me' : 'ai';
   const isAuto = m.who === 'ai';
@@ -68,10 +83,16 @@ interface ChatThreadProps {
   hint?: string;
   // ملصق منطقة الكتابة — التذكرة تمرّر «اكتب في التذكرة:» (يطابق المرجع)
   composerLabel?: string;
+  /**
+   * **عرضُ الملاحظات الداخليّة واستقبالها لحظيّاً — للطاقم وحده** (ملاحظة المالك 2026-10-02): محادثة التنفيذ عند
+   * الطاقم تمرّ بهذا المكوّن المشترك، وكان يُخفي الملاحظة ولا يستمع لقناة `.staff` — فلا يرى المحامي ملاحظة
+   * «تحليل — بانتظار اعتماد المحامي» لا لحظيّاً ولا بعد التحديث. وصفحات القضيّة والتذكرة تعرضها بمكوّناتها.
+   */
+  staffNotes?: boolean;
 }
 
 // يطابق سلوك ctSend / ctAttach مع مؤشر الكتابة والرد التلقائي
-const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكتب رسالتك لخدمة العملاء…', onSend, onAttach, channel, onStatus, readOnly = false, accept = ALLOWED_DOC_ACCEPT, hint = ALLOWED_DOC_HINT, composerLabel = 'اكتب هنا:' }) => {
+const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكتب رسالتك لخدمة العملاء…', onSend, onAttach, channel, onStatus, readOnly = false, accept = ALLOWED_DOC_ACCEPT, hint = ALLOWED_DOC_HINT, composerLabel = 'اكتب هنا:', staffNotes = false }) => {
   const toast = useToast();
   const serverMode = !!onSend;
   const liveMode = !!channel;
@@ -90,17 +111,28 @@ const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكت�
   useEffect(() => {
     if (!channel) return;
     const ch = echo.private(channel);
-    ch.listen('.message', (e: { message: Message }) => {
+    const append = (e: { message: Message }) => {
       const m = e.message;
       if (m.id && seen.current.has(m.id)) return;
       if (m.id) seen.current.add(m.id);
       setLive((prev) => [...prev, m]);
       if (m.who === 'ai' || m.who === 'staff' || m.who === 'lawyer') setTyping(false);
-    });
+    };
+    ch.listen('.message', append);
     ch.listen('.status', (e: { status: string; tone: string }) => onStatus?.(e));
-    return () => { echo.leave(channel); };
+    // الملاحظات الداخليّة تُبثّ على قناة الطاقم وحدها (`RecordsSender::broadcastChannelName`)
+    const staffChannel = `${channel}.staff`;
+    if (staffNotes) {
+      echo.private(staffChannel).listen('.message', append);
+    }
+    return () => {
+      echo.leave(channel);
+      if (staffNotes) {
+        echo.leave(staffChannel);
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channel]);
+  }, [channel, staffNotes]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -161,7 +193,7 @@ const ChatThread: React.FC<ChatThreadProps> = ({ initial, placeholder = 'اكت�
   return (
     <>
       <div className="thread">
-        {messages.map((m, i) => <MsgRow key={i} m={m} />)}
+        {messages.map((m, i) => <MsgRow key={i} m={m} staffNotes={staffNotes} />)}
         {typing && (
           <div className="msg ai">
             <div className="av ai"><img src="/images/mono.jpg" alt="" /></div>

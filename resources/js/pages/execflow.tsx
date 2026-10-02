@@ -2,6 +2,7 @@ import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
+import CellRow from '@/components/babylon/CellRow';
 import ChatThread from '@/components/babylon/ChatThread';
 import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
 import FlowLine from '@/components/babylon/FlowLine';
@@ -13,6 +14,7 @@ import type { ExecFeeMode, ExecInvoice } from '@/lib/exec-flow';
 import { installmentsText, useSettings } from '@/lib/settings';
 import type {ExecBucket, ExecDoc, ExecLawyerOpt, ExecReq, Role} from '@/lib/exec-flow';
 import { ExecNajizCard } from '@/lib/exec-najiz';
+import { ExecPartiesCard } from '@/lib/exec-parties';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
 import { firstError } from '@/lib/server-message';
@@ -28,18 +30,6 @@ import { useServerAction } from '@/lib/use-server-action';
 const STAGE_COLOR = (s: number) => (s >= 9 ? '#607689' : s >= 7 ? '#1E9D6B' : s >= 5 ? '#C0832B' : '#0E5C9C');
 
 type View = 'list' | 'detail';
-
-// صفّ بيانات (تطابق cellRow → .lwf-cells)
-const CellRow: React.FC<{ cells: [string, string][] }> = ({ cells }) => (
-  <div className="lwf-cells">
-    {cells.map((c, i) => (
-      <div className="cell" key={i}>
-        <div className="cl">{c[0]}</div>
-        <div className="cv">{c[1]}</div>
-      </div>
-    ))}
-  </div>
-);
 
 // ── القائمة (تطابق execList) — البيانات مُصفّاة ومُقنّعة من الخادم حسب الدور ──
 // الإجراء التالي المطلوب على البطاقة حسب الدور (تطابق execNextAction)
@@ -1258,6 +1248,7 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
                 <ChatThread
                   initial={r.messages}
                   channel={r.channel}
+                  staffNotes
                   onSend={sendMsg}
                   onStatus={() => router.reload({ only: ['execs'] })}
                   readOnly={r.closed}
@@ -1270,16 +1261,8 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
 
         {/* العمود الجانبي (Side Rail) */}
         <div style={{ minWidth: 0 }}>
-          {/* بطاقة بيانات السند والطلب الأساسية */}
-          <div className="card" style={{ marginBottom: 14 }}>
-            <div className="card-h"><h3>بيانات السند والأطراف</h3></div>
-            <div className="card-b">
-              <CellRow cells={[['نوع السند', r.sanad || '—'], ['قيمة المطالبة', execMoney(r.amount) + ' ريال']]} />
-              <CellRow cells={[['طالب التنفيذ', r.client], ['المنفَّذ ضده', r.defendant || '—']]} />
-              {role !== 'client' && r.lawyer && <CellRow cells={[['محامي التنفيذ', r.lawyer], ['حالة القرار', r.decision || 'قيد الدراسة']]} />}
-              {r.execNo && <CellRow cells={[['رقم ملف التنفيذ', r.execNo], ['المرحلة', r.stageLabel]]} />}
-            </div>
-          </div>
+          {/* بطاقة بيانات السند والأطراف — وفيها تحديد المنفَّذ ضده أو تصحيحه للمحامي المسنَد والإدارة */}
+          <ExecPartiesCard r={r} staff={role !== 'client'} />
 
           {/* الإسناد: للمكتب المصرَّح له وحده، ولا يُعرض على ملفٍّ أُغلق (الخادم يردّ الإجراء عليه) */}
           {role !== 'client' && r.canAssign && !r.closed && <ExecAssignCard r={r} lawyers={lawyers} act={act} />}

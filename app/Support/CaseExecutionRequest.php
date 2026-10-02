@@ -22,14 +22,15 @@ use Illuminate\Support\Facades\DB;
  */
 final class CaseExecutionRequest
 {
-    public static function request(LegalCase $case, User $actor, string $reason, int $amount): void
+    public static function request(LegalCase $case, User $actor, string $reason, int $amount, string $defendant): void
     {
         abort_unless(ExecutionCreation::isEligible($case), 422, 'لا يُطلب تنفيذٌ لهذه القضية: يلزم أن يصدر الحكم، وألّا يكون لها طلب تنفيذٍ قائم.');
         $reason = trim($reason);
+        $defendant = trim($defendant);
 
-        Workflow::run(new RequestCaseExecution, $case, $actor, ['reason' => $reason, 'amount' => $amount]);
+        Workflow::run(new RequestCaseExecution, $case, $actor, ['reason' => $reason, 'amount' => $amount, 'defendant' => $defendant]);
 
-        self::note($case, $actor, "رفع {$actor->name} طلب فتح تنفيذ الحكم للإدارة العليا بمبلغ ".number_format($amount).' ريال — السبب: '.$reason);
+        self::note($case, $actor, "رفع {$actor->name} طلب فتح تنفيذ الحكم للإدارة العليا بمبلغ ".number_format($amount)." ريال على {$defendant} — السبب: ".$reason);
         foreach (User::where('role', Role::Admin)->pluck('id') as $adminId) {
             Notify::send((int) $adminId, 'exec', 't-amber', "طلب فتح تنفيذ الحكم في القضية {$case->number} بانتظار اعتمادك — رفعه {$actor->name}.");
         }
@@ -39,7 +40,7 @@ final class CaseExecutionRequest
             category: 'قضايا وتنفيذ',
             auditable: $case,
             auditableRef: $case->number,
-            afterState: ['الطلب' => 'مرفوعٌ للإدارة العليا', 'المبلغ المحكوم به' => $amount, 'السبب' => $reason],
+            afterState: ['الطلب' => 'مرفوعٌ للإدارة العليا', 'المبلغ المحكوم به' => $amount, 'المنفَّذ ضده' => $defendant, 'السبب' => $reason],
         );
     }
 
@@ -49,15 +50,17 @@ final class CaseExecutionRequest
         abort_unless(ExecutionCreation::isEligible($case), 422, 'لا يُفتح تنفيذٌ لهذه القضية: يلزم أن يصدر الحكم، وألّا يكون لها طلب تنفيذٍ قائم.');
         $requester = $case->execution_requested_by !== null ? User::find($case->execution_requested_by) : null;
         $requestReason = (string) $case->execution_request_reason;
-        // يُقرأ قبل القرار — القرار يُفرغ حقول الطلب، والمبلغ يُنقل لملفّ التنفيذ صراحةً
+        // يُقرأ قبل القرار — القرار يُفرغ حقول الطلب، والمبلغ والمنفَّذ ضده يُنقلان لملفّ التنفيذ صراحةً
         $requestAmount = $case->execution_request_amount;
+        $requestDefendant = $case->execution_request_defendant;
 
-        $exec = DB::transaction(function () use ($case, $admin, $requester, $requestReason, $requestAmount) {
+        $exec = DB::transaction(function () use ($case, $admin, $requester, $requestReason, $requestAmount, $requestDefendant) {
             Workflow::run(new DecideCaseExecutionRequest(approve: true), $case, $admin, [
                 'requested_by' => $requester?->name, 'request_reason' => $requestReason, 'request_amount' => $requestAmount,
+                'request_defendant' => $requestDefendant,
             ]);
 
-            return ExecutionCreation::fromCase($case->fresh(), $admin, $requester?->role === Role::Lawyer ? $requester : null, $requestAmount);
+            return ExecutionCreation::fromCase($case->fresh(), $admin, $requester?->role === Role::Lawyer ? $requester : null, $requestAmount, $requestDefendant);
         });
 
         self::note($case, $admin, "اعتمدت الإدارة العليا طلب تنفيذ الحكم وفُتح ملفّ التنفيذ {$exec->number}.");
@@ -75,7 +78,7 @@ final class CaseExecutionRequest
 
         Workflow::run(new DecideCaseExecutionRequest(approve: false), $case, $admin, [
             'reason' => $reason, 'requested_by' => $requester?->name, 'request_reason' => $case->execution_request_reason,
-            'request_amount' => $case->execution_request_amount,
+            'request_amount' => $case->execution_request_amount, 'request_defendant' => $case->execution_request_defendant,
         ]);
 
         self::note($case, $admin, 'رفضت الإدارة العليا طلب فتح تنفيذ الحكم — السبب: '.$reason);
@@ -96,7 +99,7 @@ final class CaseExecutionRequest
     /**
      * حالة الطلب لبطاقة القضيّة عند الطاقم — `null` بلا طلبٍ قائم.
      *
-     * @return array{at: string|null, by: string, reason: string, amount: int|null}|null
+     * @return array{at: string|null, by: string, reason: string, amount: int|null, defendant: string|null}|null
      */
     public static function pending(LegalCase $case): ?array
     {
@@ -112,6 +115,7 @@ final class CaseExecutionRequest
             'by' => $case->execution_requested_by !== null ? (string) User::whereKey($case->execution_requested_by)->value('name') : '—',
             'reason' => (string) $case->execution_request_reason,
             'amount' => $case->execution_request_amount,
+            'defendant' => $case->execution_request_defendant,
         ];
     }
 

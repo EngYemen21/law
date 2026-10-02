@@ -10,6 +10,7 @@ use App\Services\Ai\AiFailure;
 use App\Services\Ai\AiOpsMetrics;
 use App\Services\Ai\AiPromptRegistry;
 use App\Services\Ai\AiReviewAction;
+use App\Services\Ai\AiReviewEntityState;
 use App\Services\Ai\AiReviewInbox;
 use App\Services\Ai\AiReviewOutcome;
 use App\Services\Ai\AiReviewPreview;
@@ -59,6 +60,8 @@ class AiReviewController extends Controller
                 // **النصّ نفسه** لا بياناته وحدها: كان الاعتماد يقع على المصدر
                 // والثقة والنموذج بلا رؤية ما سيقرؤه الإنسان. `null` = لا مخرج محفوظ.
                 'preview' => AiReviewPreview::for($run, $request->user()),
+                // حالة الملفّ الآن وأثرُ القبول إن لم يصل العميل — فلا يُعتمد مخرجٌ لملفٍّ تجاوزه دون علم
+                'entityState' => AiReviewEntityState::for($run),
                 'createdAt' => $run->created_at?->locale('ar')->translatedFormat('d F Y · h:i A'),
             ])->values(),
             'actions' => AiReviewAction::options(),

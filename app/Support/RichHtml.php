@@ -38,6 +38,22 @@ final class RichHtml
      */
     private const SUMMARY_TAGS = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'h3', 'h4', 'ul', 'ol', 'li', 'span'];
 
+    /**
+     * **لائحة الدعوى التي تصل العميل** (قرار المالك 2026-10-02) — قواعد الملخّص نفسها (لا صور ولا روابط ولا أصناف،
+     * و`style` لونٌ ومحاذاةٌ فقط)، ومعها ما يحتاجه مستندٌ قضائيّ من قالب محرّر الصياغة: عنوانٌ رئيس وفاصلٌ واقتباسٌ
+     * لسندٍ نظاميّ وجدول.
+     */
+    private const PLEADING_TAGS = [
+        ...self::SUMMARY_TAGS,
+        'h2', 'hr', 'blockquote', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    ];
+
+    private const PROFILE_EDITOR = 'editor';
+
+    private const PROFILE_SUMMARY = 'summary';
+
+    private const PROFILE_PLEADING = 'pleading';
+
     /** تُحذف بمحتواها — لا يُفَكّ غلافها فيبقى نصّ سكربتٍ ظاهراً. */
     private const DROPPED_TAGS = [
         'script', 'style', 'iframe', 'frame', 'frameset', 'object', 'embed', 'applet',
@@ -68,9 +84,9 @@ final class RichHtml
         // 3. تحويل عناصر القوائم إلى علامات نقطية
         $text = preg_replace('/<li[^>]*>/i', '• ', (string) $text);
 
-        // 4. فك تشفير الكيانات وتجريد بقية وسوم HTML
-        $text = html_entity_decode((string) $text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $text = strip_tags($text);
+        // 4. تجريد بقية الوسوم **ثمّ** فكّ الكيانات — بالعكس يصير نصٌّ كتبه المستخدم («&lt;b&gt;») وسماً فيُحذف
+        $text = strip_tags((string) $text);
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
         // 5. ضبط الفراغات وتوحيد الأسطر الزائدة (أقصى فراغ سطران فارغان)
         $text = preg_replace("/\r\n|\r/", "\n", $text);
@@ -82,16 +98,22 @@ final class RichHtml
 
     public static function clean(?string $html): string
     {
-        return self::sanitize((string) $html, summary: false);
+        return self::sanitize((string) $html, self::PROFILE_EDITOR);
     }
 
     /** تنقية الملخّص الذي يصل العميل — القائمة الضيّقة (`SUMMARY_TAGS`، لونٌ ومحاذاةٌ فقط). */
     public static function cleanSummary(?string $html): string
     {
-        return self::sanitize((string) $html, summary: true);
+        return self::sanitize((string) $html, self::PROFILE_SUMMARY);
     }
 
-    private static function sanitize(string $html, bool $summary): string
+    /** تنقية لائحة الدعوى التي تصل العميل — قواعد الملخّص وعناصر المستند القضائيّ (`PLEADING_TAGS`). */
+    public static function cleanPleading(?string $html): string
+    {
+        return self::sanitize((string) $html, self::PROFILE_PLEADING);
+    }
+
+    private static function sanitize(string $html, string $profile): string
     {
         if (trim($html) === '') {
             return $html;
@@ -111,7 +133,7 @@ final class RichHtml
             return e(strip_tags($html));
         }
 
-        self::walk($root, $summary);
+        self::walk($root, $profile);
 
         $out = '';
         foreach (iterator_to_array($root->childNodes) as $child) {
@@ -121,7 +143,7 @@ final class RichHtml
         return $out;
     }
 
-    private static function walk(DOMNode $node, bool $summary): void
+    private static function walk(DOMNode $node, string $profile): void
     {
         foreach (iterator_to_array($node->childNodes) as $child) {
             if ($child->nodeType === XML_COMMENT_NODE || $child->nodeType === XML_PI_NODE) {
@@ -141,9 +163,14 @@ final class RichHtml
                 continue;
             }
 
-            self::walk($child, $summary);
+            self::walk($child, $profile);
 
-            if (! in_array($tag, $summary ? self::SUMMARY_TAGS : self::ALLOWED_TAGS, true)) {
+            $allowed = match ($profile) {
+                self::PROFILE_SUMMARY => self::SUMMARY_TAGS,
+                self::PROFILE_PLEADING => self::PLEADING_TAGS,
+                default => self::ALLOWED_TAGS,
+            };
+            if (! in_array($tag, $allowed, true)) {
                 while ($child->firstChild) {
                     $node->insertBefore($child->firstChild, $child);
                 }
@@ -152,17 +179,30 @@ final class RichHtml
                 continue;
             }
 
-            if ($summary) {
-                self::summaryAttributes($child);
-            } else {
+            if ($profile === self::PROFILE_EDITOR) {
                 self::cleanAttributes($child, $tag);
+            } else {
+                self::summaryAttributes($child, $tag);
             }
         }
     }
 
-    /** في الملخّص: `style` وحده، ومنه اللون (سداسيّ أو rgb) والمحاذاة فقط — يُعاد بناؤه لا يُقبل كما هو. */
-    private static function summaryAttributes(DOMElement $el): void
+    /**
+     * في الملخّص واللائحة: `style` وحده، ومنه اللون (سداسيّ أو rgb) والمحاذاة فقط — يُعاد بناؤه لا يُقبل كما هو.
+     * وخليّة الجدول تحتفظ بامتداد أعمدتها وصفوفها رقماً صحيحاً.
+     */
+    private static function summaryAttributes(DOMElement $el, string $tag): void
     {
+        $span = [];
+        if ($tag === 'td' || $tag === 'th') {
+            foreach (['colspan', 'rowspan'] as $name) {
+                $value = trim($el->getAttribute($name));
+                if (preg_match('/^[1-9]\d?$/', $value)) {
+                    $span[$name] = $value;
+                }
+            }
+        }
+
         $style = '';
         foreach (explode(';', $el->getAttribute('style')) as $decl) {
             [$prop, $value] = array_map('trim', explode(':', $decl, 2) + [1 => '']);
@@ -179,6 +219,9 @@ final class RichHtml
         }
         if ($style !== '') {
             $el->setAttribute('style', rtrim($style));
+        }
+        foreach ($span as $name => $value) {
+            $el->setAttribute($name, $value);
         }
     }
 

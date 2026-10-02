@@ -402,6 +402,8 @@ class JourneyTransitionController extends Controller
             'exec.apply_measures' => 'تطبيق إجراءات المادة 46 الجبرية',
             'exec.notify_debtor' => 'إشعار المنفذ ضده بالمطالبة',
             'exec.add_collection' => 'قيد تحصيل مالي جزئي/كلي',
+            'exec.set_claim_amount' => 'تصحيح مبلغ المطالبة',
+            'exec.set_defendant' => 'تحديد المنفَّذ ضده أو تصحيحه',
             'exec.close' => 'إغلاق ملف التنفيذ',
 
             'invoice.opened' => 'إصدار الفاتورة',
