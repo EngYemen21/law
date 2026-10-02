@@ -8,6 +8,7 @@ use App\Models\ExecutionDocument;
 use App\Services\Ai\AiQueue;
 use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
+use App\Support\AiClientVoice;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -86,9 +87,10 @@ class AnalyzeExecutionDocumentJob implements ShouldQueue
             'summary' => $analysis['summary'],
         ]);
 
-        // ملخّص التحليل كرسالة مرئية في محادثة التنفيذ (تُبثّ لحظياً عبر ExecutionMessage::booted)
+        // ملخّص التحليل في محادثة التنفيذ (تُبثّ لحظياً عبر ExecutionMessage::booted) — للعميل أو للطاقم وحده
+        // بحسب `AiClientVoice`: ملفٌّ قائم، ومستندٌ من رفعه، ولا تدخّل بشريّ من المكتب.
         $this->execution->messages()->create([
-            'who' => 'ai',
+            'who' => AiClientVoice::who($this->execution, $doc->isFromClient()),
             'name' => 'الفريق القانوني',
             'role' => 'تحليل المستند',
             'body' => '<p>تم فحص المستند «'.e($doc->label).'» وتلخيص محتواه.</p>'

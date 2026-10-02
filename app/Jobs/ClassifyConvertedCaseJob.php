@@ -57,7 +57,7 @@ class ClassifyConvertedCaseJob implements ShouldQueue
     public function handle(LegalAiService $ai): void
     {
         $case = $this->case->fresh();
-        if ($case === null || $case->ticket === null) {
+        if ($case === null || $case->ticket === null || ! $case->acceptsReclassification()) {
             return;
         }
 

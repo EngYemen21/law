@@ -8,6 +8,7 @@ use App\Models\LegalCase;
 use App\Services\Ai\AiQueue;
 use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
+use App\Support\AiClientVoice;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -93,9 +94,10 @@ class AnalyzeCaseDocumentJob implements ShouldQueue
             'summary' => $analysis['summary'],
         ]);
 
-        // ملخّص التحليل كرسالة مرئية في محادثة القضية (تُبثّ لحظياً عبر CaseMessage::booted)
+        // ملخّص التحليل في محادثة القضية (تُبثّ لحظياً عبر CaseMessage::booted) — للعميل أو للطاقم وحده
+        // بحسب `AiClientVoice`: قضيّةٌ قائمة، ومستندٌ من رفعه، ولا تدخّل بشريّ من المكتب.
         $this->case->messages()->create([
-            'who' => 'ai',
+            'who' => AiClientVoice::who($this->case, $doc->isFromClient()),
             'name' => 'الفريق القانوني',
             'role' => 'تحليل المستند',
             'body' => '<p>تم فحص المستند «'.e($doc->name).'» وتلخيص محتواه.</p>'

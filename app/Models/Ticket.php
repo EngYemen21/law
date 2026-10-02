@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Contracts\ClientConversation;
 use App\Domain\Journey\Enums\TicketOutcomeTrack;
 use App\Domain\Journey\Enums\TicketStatus;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Domain\Journey\Transitions\Ticket\OutcomeSummaryGate;
 use App\Infrastructure\Repositories\EloquentTicketRepository;
 use App\Models\Concerns\ClipsPreviewText;
+use App\Models\Concerns\HasClientConversation;
 use App\Models\Concerns\LinksLegalDepartment;
 use App\Models\Concerns\PurgesDocumentFiles;
 use App\Support\LawyerName;
@@ -19,9 +21,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
-class Ticket extends Model
+class Ticket extends Model implements ClientConversation
 {
-    use ClipsPreviewText, PurgesDocumentFiles;
+    use ClipsPreviewText, HasClientConversation, PurgesDocumentFiles;
     use GuardsJourneyState;
     use LinksLegalDepartment;
 
@@ -386,6 +388,12 @@ class Ticket extends Model
     }
 
     /** هل التذكرة في حالة نهائية استناداً إلى كائن الدومين الصافي */
+    /** `ClientConversation`: التذكرة المنتهية لا يُخاطَب فيها العميل آليّاً. */
+    public function isOpenForClient(): bool
+    {
+        return ! $this->isTerminal();
+    }
+
     public function isTerminal(): bool
     {
         return app(EloquentTicketRepository::class)->toEntity($this)->isTerminal();

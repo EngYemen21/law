@@ -6,6 +6,7 @@ use App\Models\LegalCase;
 use App\Services\Ai\AiQueue;
 use App\Services\Ai\AiRunLogger;
 use App\Services\LegalAiService;
+use App\Support\AiClientVoice;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -46,6 +47,14 @@ class GenerateCaseReplyJob implements ShouldQueue
         // منع AI من الرد على الموظف أو المحامي أو الإدارة — الرد الآلي للعميل فقط
         $lastMsg = $case->messages()->reorder('id', 'desc')->first();
         if ($lastMsg && $lastMsg->who !== 'client') {
+            return;
+        }
+
+        // **ولا ردَّ آليّاً بعد تدخّل إنسانٍ من المكتب** (قرار المالك 2026-10-02) — البشر يتولّون الحوار
+        // والذكاء يبقى للتحليل (فحص المستندات وما إليه، ملاحظاتٍ للطاقم إن لزم — `AiClientVoice`).
+        if (AiClientVoice::humanIntervened($case)) {
+            AiClientVoice::handOff($case, "القضية {$case->number}");
+
             return;
         }
 

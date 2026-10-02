@@ -2,9 +2,11 @@
 
 namespace App\Models;
 
+use App\Contracts\ClientConversation;
 use App\Domain\Journey\Enums\CaseStatus;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Models\Concerns\ClipsPreviewText;
+use App\Models\Concerns\HasClientConversation;
 use App\Models\Concerns\LinksLegalDepartment;
 use App\Models\Concerns\PurgesDocumentFiles;
 use App\Models\Concerns\TracksRevisions;
@@ -18,9 +20,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
-class LegalCase extends Model
+class LegalCase extends Model implements ClientConversation
 {
-    use ClipsPreviewText, PurgesDocumentFiles;
+    use ClipsPreviewText, HasClientConversation, PurgesDocumentFiles;
     use GuardsJourneyState;
     use LinksLegalDepartment;
     use TracksRevisions;
@@ -277,6 +279,21 @@ class LegalCase extends Model
     public function scopeActive(Builder $query): Builder
     {
         return $query->whereNotIn('status', CaseJourney::CLOSED);
+    }
+
+    /** `ClientConversation`: القضيّة المغلقة أو المؤرشفة لا يُخاطَب فيها العميل آليّاً. */
+    public function isOpenForClient(): bool
+    {
+        return $this->isActive();
+    }
+
+    /**
+     * **هل يُعاد تصنيف القضيّة (نوعها وقسمها)؟** (قرار المالك 2026-10-02) — قبل صدور الحكم وعلى قضيّةٍ قائمة.
+     * بعدها يكون الملفّ قد حُسم بتصنيفه، وتغييرُه يعيد كتابة رسالة «التحليل» التي قرأها العميل بلا مسوّغ.
+     */
+    public function acceptsReclassification(): bool
+    {
+        return $this->isOpenForClient() && $this->status !== CaseStatus::Judged->value;
     }
 
     public function isActive(): bool

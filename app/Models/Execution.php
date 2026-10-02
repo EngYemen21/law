@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Contracts\ClientConversation;
 use App\Domain\Journey\Enums\ExecutionDecision;
 use App\Domain\Journey\Enums\ExecutionOfferStatus;
 use App\Domain\Journey\Enums\ExecutionStatus;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Enums\Role;
 use App\Models\Concerns\ClipsPreviewText;
+use App\Models\Concerns\HasClientConversation;
 use App\Models\Concerns\PurgesDocumentFiles;
 use App\Models\Concerns\TracksRevisions;
 use App\Support\ConversationFiles;
@@ -21,9 +23,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class Execution extends Model
+class Execution extends Model implements ClientConversation
 {
-    use ClipsPreviewText, GuardsJourneyState, PurgesDocumentFiles;
+    use ClipsPreviewText, GuardsJourneyState, HasClientConversation, PurgesDocumentFiles;
     use TracksRevisions;
 
     /**
@@ -57,7 +59,7 @@ class Execution extends Model
         'user_id', 'case_id', 'ticket_id', 'number', 'subject', 'assigned_lawyer', 'assigned_lawyer_id', 'court', 'status', 'tone', 'last_action',
         // تدفّق التنفيذ التجاريّ (10 مراحل)
         'stage', 'sanad', 'defendant', 'amount', 'notes', 'docs', 'client_code',
-        'ai_done', 'ai_source', 'ai_summary', 'ai_missing', 'ai_procedures', 'ai_study', 'ai_approved_at', 'ai_approved_by',
+        'ai_done', 'ai_source', 'ai_summary', 'ai_missing', 'ai_procedures', 'ai_study', 'ai_approved_at', 'ai_approved_by', 'ai_released_at',
         'decision', 'fee', 'vat', 'duration', 'pay_method', 'fee_approved', 'offer_status',
         // نماذج الأتعاب: نموذج المكتب (ثابت/نسبة) وخطّة العميل (كامل/تقسيط)
         'fee_mode', 'collection_fee_pct', 'lawyer_pct', 'lawyer_fee', 'pay_plan', 'installments_total', 'installments_paid',
@@ -78,6 +80,7 @@ class Execution extends Model
         'ai_done' => 'boolean',
         'ai_missing' => 'array',
         'ai_approved_at' => 'datetime',
+        'ai_released_at' => 'datetime',
         'ai_procedures' => 'array',
         'ai_study' => 'array',
         'fee_approved' => 'boolean',
@@ -161,6 +164,22 @@ class Execution extends Model
         return $this->ai_approved_at !== null;
     }
 
+    /** نُشرت الدراسة للعميل؟ (`AiReviewOutcome::releaseExecutionAnalysis`) */
+    public function aiReleased(): bool
+    {
+        return $this->ai_released_at !== null;
+    }
+
+    /**
+     * **هل لنشر الدراسة للعميل معنى الآن؟** (قرار المالك 2026-10-02) — في مرحلة الدراسة فما دون، وعلى ملفٍّ قائم.
+     * بعدها (التسعير فما بعده، ومنه الملفّ المفتوح من قضيّة عند المرحلة 3) تُطلب منه «نواقص» تجاوزها ملفّه،
+     * والمرفوض والمغلق لا يُخاطَب بدراسته. فالاعتماد حينها يُسجَّل للمكتب وحده.
+     */
+    public function studyPublishable(): bool
+    {
+        return $this->effectiveStage() <= 2 && $this->isOpenForClient();
+    }
+
     /**
      * نموذج الأتعاب الذي يقرؤه المحرّك — `fixed` للصفوف السابقة للعمود، وهو ما كانت
      * تفعله فعلاً (فاتورةٌ واحدة بكامل الأتعاب) فالافتراضُ يصف الماضي لا يفترضه.
@@ -200,7 +219,8 @@ class Execution extends Model
     {
         $client = $this->user?->name ?? '—';
         $stage = $this->effectiveStage();
-        $showAi = $internal || $this->aiApproved();
+        // العميل يرى الدراسة **منشورةً** لا معتمَدةً فحسب — الاعتماد بعد تجاوز الملفّ مرحلتها داخليٌّ (`studyPublishable`)
+        $showAi = $internal || $this->aiReleased();
 
         return [
             'id' => $this->number,
@@ -419,6 +439,12 @@ class Execution extends Model
      * وحدها، والخادم يرفض الحالة المغلقة أيضاً: فصفٌّ قديم «مغلق» (بلا `stage`) كان يظهر مفتوحاً
      * ومحادثته قابلة للكتابة، ثمّ يردّ الخادم 422 عند أوّل رسالة.
      */
+    /** `ClientConversation`: الملفّ المغلق أو المرفوض بعد الدراسة لا يُخاطَب فيه العميل آليّاً. */
+    public function isOpenForClient(): bool
+    {
+        return ! $this->isClosed() && ! $this->isRejectedAfterStudy();
+    }
+
     public function isClosed(): bool
     {
         return $this->effectiveStage() >= 9 || in_array($this->status, self::CLOSED_STATUSES, true);

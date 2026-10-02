@@ -316,14 +316,36 @@ class AiReviewOutcome
             return;
         }
 
-        $exec->update(['ai_approved_at' => now(), 'ai_approved_by' => $reviewer->id]);
+        // **ملفٌّ تجاوز مرحلة الدراسة أو انتهى: الاعتماد داخليٌّ وحده** (قرار المالك 2026-10-02، الخيار «أ»).
+        // كان يُنشر للعميل «دراسة معتمدة · نواقص مطلوبة» وملفّه «قيد التنفيذ». فلا رسالة له ولا إشعار، ولا تنكشف
+        // له البطاقة (`ai_released_at` يبقى فارغاً — `Execution::aiReleased`).
+        $publish = $exec->studyPublishable();
+        $exec->update([
+            'ai_approved_at' => now(),
+            'ai_approved_by' => $reviewer->id,
+            'ai_released_at' => $publish ? now() : null,
+        ]);
+
+        if (! $publish) {
+            $exec->messages()->create([
+                'who' => 'note',
+                'name' => $reviewer->name,
+                'role' => 'دراسة معتمدة',
+                'body' => '<p>اعتُمدت دراسة الملفّ بعد تجاوزه مرحلة الدراسة ('.e((string) $exec->status).') — سُجّل الاعتماد للمكتب ولم تُنشر للعميل.</p>',
+                'time_label' => now()->format('h:i').' '.(now()->hour < 12 ? 'ص' : 'م'),
+            ]);
+
+            return;
+        }
 
         // الدراسة تُكتب ملاحظةً داخليّة عند إنتاجها (`ExecService::applyAnalysis`)، فالاعتماد هو
-        // الذي ينشرها في المحادثة — كما يُطلق اعتمادُ اللائحة مسودّتَها للعميل.
+        // الذي ينشرها في المحادثة — كما يُطلق اعتمادُ اللائحة مسودّتَها للعميل. **وباسم المعتمِد لا الذكاء**:
+        // نصٌّ قرأه إنسانٌ واعتمده يُنسب لدوره، ويظهر للعميل بتسمية ذلك الدور من «إعدادات النظام»
+        // (`ChatSenderLabel` · `chat_label_lawyer|employee|admin`) — كان يظهر «خدمة العملاء» تسميةَ الردّ الآليّ.
         $missing = is_array($exec->ai_missing) ? array_values($exec->ai_missing) : [];
         $exec->messages()->create([
-            'who' => 'ai',
-            'name' => 'المساعد القانوني',
+            'who' => $reviewer->chatWho(),
+            'name' => $reviewer->name,
             'role' => 'دراسة معتمدة',
             'body' => '<p>'.e((string) $exec->ai_summary).'</p>'
                 .($missing ? '<p><b>نواقص مطلوبة:</b> '.e(implode(' · ', $missing)).'</p>' : ''),
@@ -364,7 +386,9 @@ class AiReviewOutcome
         // زرُّ المحامي أيضاً. كان القبول هنا يُطلق النصّ ويترك القضيّة «قيد التحضير»،
         // والزرُّ ينقلها إلى «منظورة» ويترك النصّ محجوباً.
         // ولا نصٌّ يحمل تنبيهاً داخلياً (أسانيد غير مُتحقَّقة…) — يُعالَج في محرّر اللائحة أوّلاً
-        if ($case !== null && ! CasePleading::hasWarnings($case)) {
+        // وشروط الاعتماد كلّها من مصدرها الواحد (`blockReason`: تنبيهٌ باقٍ، رفضٌ سابق، قضيّةٌ مغلقة) —
+        // كان هنا فحصُ التنبيه وحده، فيُطلَق من الصندوق ما يرفضه زرُّ المحامي
+        if ($case !== null && CasePleading::blockReason($case) === null) {
             CasePleading::approve($case, $reviewer);
         }
     }
@@ -383,6 +407,13 @@ class AiReviewOutcome
 
         $proposal = $case?->ai_classification;
         if ($case === null || ! is_array($proposal) || blank($proposal['type'] ?? null) || blank($proposal['department'] ?? null)) {
+            return;
+        }
+
+        // قضيّةٌ حُسمت (حكمٌ أو إغلاق) لا يُغيَّر تصنيفها ولا رسالتها — يُسقط المقترح ولا يُطبَّق
+        if (! $case->acceptsReclassification()) {
+            $case->update(['ai_classification' => null]);
+
             return;
         }
 

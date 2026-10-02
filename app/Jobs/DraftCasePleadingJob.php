@@ -40,6 +40,13 @@ class DraftCasePleadingJob implements ShouldQueue
 
     public function handle(LegalAiService $ai): void
     {
+        // **لا مسودّة بعد الاعتماد أو الإغلاق** (قرار المالك 2026-10-02): المهمّة بالطابور قد تصل متأخّرة، ومسودّةٌ
+        // تُكتب بعد اعتماد المحامي نصّه تصير «أحدث مسودّة» فيُطلقها الصندوق مكان النصّ المعتمَد المرفوع في ناجز.
+        $case = $this->case->fresh();
+        if ($case === null || $case->pleading_status !== 'pending_lawyer' || ! $case->isOpenForClient()) {
+            return;
+        }
+
         $result = $ai->draftPleadingResult($this->case);
         $draft = $result['draft'];
         $meta = $result['meta'];
