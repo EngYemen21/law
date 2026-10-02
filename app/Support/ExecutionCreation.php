@@ -33,8 +33,9 @@ class ExecutionCreation
      *                                     (`CaseExecutionRequest::approve`)؛ وإلّا الفاعل نفسه.
      * @param  int|null  $amount  المبلغ المحكوم به من طلب التنفيذ — وإلّا مبلغ التذكرة (قرار 2026-09-30: كان
      *                            الملفّ يُفتح بصفرٍ حين لم يُدخل العميل مبلغاً، فيستحيل التحصيل)
+     * @param  string|null  $defendant  المنفَّذ ضده من طلب التنفيذ — وإلّا خصم التذكرة (قرار 2026-10-02)
      */
-    public static function fromCase(LegalCase $case, User $actor, ?User $lawyerFallback = null, ?int $amount = null): Execution
+    public static function fromCase(LegalCase $case, User $actor, ?User $lawyerFallback = null, ?int $amount = null, ?string $defendant = null): Execution
     {
         // محامي التنفيذ: محامي القضية إن كان حساباً حقيقياً، وإلا المحامي الذي رفع الطلب أو فتحه
         $lawyer = $case->assignedLawyer ?? $lawyerFallback ?? $actor;
@@ -58,7 +59,9 @@ class ExecutionCreation
             $court !== '' ? 'المحكمة التي أصدرت الحكم: '.$court : '',
         ])));
 
-        $exec = DB::transaction(function () use ($case, $lawyer, $ticket, $notes, $actor, $amount) {
+        $defendant = trim((string) $defendant) ?: (string) $case->ticketOpponentName();
+
+        $exec = DB::transaction(function () use ($case, $lawyer, $ticket, $notes, $actor, $amount, $defendant) {
             $number = ReferenceNumber::next(Execution::class, 'number', 'EXE');
 
             // يُفتح داخل المحرّك: سطرُ فتحٍ في سجلّ الانتقالات بالفاعل ومصدره
@@ -70,7 +73,7 @@ class ExecutionCreation
                 'number' => $number,
                 'subject' => 'تنفيذ حكم — '.$case->type,
                 'sanad' => 'حكم قضائي',
-                'defendant' => (string) ($ticket?->opponent_name ?? ''),
+                'defendant' => $defendant,
                 'amount' => $amount ?? Execution::fitClaimAmount($case->ticketClaimAmount()),
                 'notes' => $notes,
                 'docs' => $case->documents->map(fn ($d) => (string) ($d->doc_type ?: $d->name))->filter()->unique()->values()->all(),

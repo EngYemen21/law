@@ -84,6 +84,14 @@ class LegalCase extends Model implements ClientConversation
         return $this->belongsTo(Ticket::class);
     }
 
+    /** الخصم في تذكرة القضيّة — اقتراح «المنفَّذ ضده» في طلب التنفيذ؛ `null` حين لم يُدخَل. */
+    public function ticketOpponentName(): ?string
+    {
+        $name = trim((string) $this->ticket?->getAttribute('opponent_name'));
+
+        return $name === '' ? null : $name;
+    }
+
     /** مبلغ المطالبة في تذكرة القضيّة — اقتراح «المبلغ المحكوم به» في طلب التنفيذ؛ `null` حين لم يُدخَل. */
     public function ticketClaimAmount(): ?int
     {

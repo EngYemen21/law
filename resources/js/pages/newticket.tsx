@@ -95,7 +95,9 @@ const NewTicket: React.FC = () => {
       subject: subject.trim(),
       details: body.trim(),
       priority,
-      ...(isEnforcement ? { exec_sanad: sanad, claim_amount: claimAmount || null, opponent_name: opponent.trim() || null } : {}),
+      // الخصم لكلّ الأقسام (قرار المالك 2026-10-02): ينتقل إلى القضيّة ثمّ «المنفَّذ ضده» في ملفّ التنفيذ
+      opponent_name: opponent.trim() || null,
+      ...(isEnforcement ? { exec_sanad: sanad, claim_amount: claimAmount || null } : {}),
       files,
     }, {
       forceFormData: true,
@@ -178,7 +180,18 @@ const NewTicket: React.FC = () => {
                 {serverErrors.claim_amount && <div style={fieldErr}>{serverErrors.claim_amount}</div>}
               </div>
               <div style={{ flex: 2, minWidth: 240 }}><label style={lbl} htmlFor="nt-opponent">المنفَّذ ضده (إن وجد)</label>
-                <input id="nt-opponent" style={fld} value={opponent} onChange={(e) => setOpponent(e.target.value)} placeholder="اسم الطرف الآخر" />
+                <input id="nt-opponent" style={fld} maxLength={190} value={opponent} onChange={(e) => setOpponent(e.target.value)} placeholder="اسم الطرف الآخر" />
+                {serverErrors.opponent_name && <div style={fieldErr}>{serverErrors.opponent_name}</div>}
+              </div>
+            </div>
+          )}
+
+          {/* بقيّة الأقسام: الخصم إن وُجد — كان حقلاً لقسم التنفيذ وحده، فتنشأ القضيّة بلا خصمٍ ويُفتح تنفيذ حكمها بلا منفَّذٍ ضده */}
+          {!isEnforcement && (
+            <div style={rowStyle}>
+              <div style={{ flex: 1, minWidth: 240 }}><label style={lbl} htmlFor="nt-opponent">الطرف الآخر / الخصم (إن وجد)</label>
+                <input id="nt-opponent" style={fld} maxLength={190} value={opponent} onChange={(e) => setOpponent(e.target.value)} placeholder="اسم الفرد أو الجهة" />
+                {serverErrors.opponent_name && <div style={fieldErr}>{serverErrors.opponent_name}</div>}
               </div>
             </div>
           )}

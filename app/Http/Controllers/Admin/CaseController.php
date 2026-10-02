@@ -292,6 +292,7 @@ class CaseController extends Controller
                 'executionRequest' => CaseExecutionRequest::pending($case),
                 // اقتراح خانة «المبلغ المحكوم به» عند الفتح المباشر — المفتاح نفسه في صفحتي المحامي والموظّف
                 'executionAmountHint' => $case->ticketClaimAmount(),
+                'executionDefendantHint' => $case->ticketOpponentName(),
                 'canReassign' => $case->status !== CaseStatus::Archived->value,
                 // الحكم الواحد مع صفحة الأتعاب (`CaseFeeBoard::canSetFee`) — كانت مقارنةً بنصّ الحالة
                 'feePending' => CaseFeeBoard::canSetFee($case, $request->user()),
@@ -489,16 +490,21 @@ class CaseController extends Controller
         abort_unless(ExecutionCreation::isEligible($case), 422, 'التحويل للتنفيذ متاح للقضايا الصادر حكمها ولم يُفتح لها تنفيذ بعد.');
 
         // طلبٌ قائمٌ من المحامي أو الموظّف يُعتمد بفتح الإدارة نفسها — فلا يبقى معلّقاً بعد الفتح
-        // وبلا طلب: الإدارة تؤكّد المبلغ المحكوم به أو تصحّحه (قرار المالك 2026-09-30: «خانة المبلغ دائماً») —
-        // كان يُفتح بمبلغ التذكرة، وبلا مبلغٍ فيها يُفتح بصفرٍ فيتوقّف التحصيل
-        $exec = $case->execution_requested_at !== null
-            ? CaseExecutionRequest::approve($case, $request->user())
-            : ExecutionCreation::fromCase($case, $request->user(), null, (int) $request->validate([
+        // وبلا طلب: الإدارة تؤكّد المبلغ المحكوم به (قرار المالك 2026-09-30: «خانة المبلغ دائماً») والمنفَّذ ضده
+        // (قرار 2026-10-02) أو تصحّحهما — كانا يُنسخان من التذكرة، وبلا قيمةٍ فيها يُفتح الملفّ بصفرٍ و«—»
+        if ($case->execution_requested_at !== null) {
+            $exec = CaseExecutionRequest::approve($case, $request->user());
+        } else {
+            $data = $request->validate([
                 'amount' => ['required', 'integer', 'min:1', 'max:'.Execution::MAX_CLAIM_AMOUNT],
+                'defendant' => ['required', 'string', 'min:2', 'max:'.Execution::DEFENDANT_MAX],
             ], [
                 'amount.max' => 'المبلغ المحكوم به يتجاوز الحدّ الأعلى ('.number_format(Execution::MAX_CLAIM_AMOUNT).' ريال).',
                 'amount.*' => 'أدخل المبلغ المحكوم به (ريال) — رقماً صحيحاً أكبر من صفر.',
-            ])['amount']);
+                'defendant.*' => 'أدخل اسم المنفَّذ ضده (فرداً أو جهة).',
+            ]);
+            $exec = ExecutionCreation::fromCase($case, $request->user(), null, (int) $data['amount'], $data['defendant']);
+        }
 
         // وجهة الملف المفتوح لا الصفحة السابقة — نظير مسار المحامي (lawyer.execs)، والعقد موثّق باختبار
         // `?id=` يفتح الملفّ نفسه (`execflow.resolveTarget`) — بدونه تهبط الإدارة على القائمة كلّها

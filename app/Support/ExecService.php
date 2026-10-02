@@ -16,6 +16,7 @@ use App\Domain\Journey\Transitions\Execution\ReferExecution;
 use App\Domain\Journey\Transitions\Execution\RegisterExecutionNajiz;
 use App\Domain\Journey\Transitions\Execution\RejectExecutionOffer;
 use App\Domain\Journey\Transitions\Execution\SetExecutionClaimAmount;
+use App\Domain\Journey\Transitions\Execution\SetExecutionDefendant;
 use App\Domain\Journey\Transitions\Execution\SetExecutionFee;
 use App\Domain\Journey\Transitions\Execution\StudyExecution;
 use App\Domain\Journey\Workflow;
@@ -669,6 +670,27 @@ class ExecService
         self::officeMsg($exec, $actor, 'مبلغ المطالبة', $text);
         self::notify($exec, 'card', 't-blue', "صُحّح مبلغ المطالبة في طلب تنفيذك {$exec->number} إلى ".number_format($amount).' ريال.');
         self::tellOffice($exec, $actor, 'صُحّح مبلغ المطالبة إلى '.number_format($amount).' ريال');
+        Live::push(new ExecStatusBroadcast($exec->fresh()));
+    }
+
+    /**
+     * **تحديد المنفَّذ ضده أو تصحيحه** (قرار المالك 2026-10-02) — للمحامي المسنَد أو الإدارة على ملفٍّ مفتوح.
+     * الحرّاس في الانتقال (`SetExecutionDefendant`)؛ وأثره ملاحظةٌ داخليّة للمكتب لا رسالةٌ للعميل — فهي
+     * بيانات ملفٍّ لا ردٌّ في حوار، ورسالةٌ ظاهرة باسم المحامي توقف ردود المساعد (`AiClientVoice`).
+     */
+    public static function setDefendant(Execution $exec, string $defendant, string $reason, User $actor): void
+    {
+        $previous = trim((string) $exec->defendant);
+        $defendant = trim($defendant);
+        $reason = trim($reason);
+
+        Workflow::run(new SetExecutionDefendant, $exec, $actor, ['defendant' => $defendant, 'reason' => $reason]);
+
+        $text = $previous === ''
+            ? "حدّد {$actor->name} المنفَّذ ضده: {$defendant}."
+            : "صحّح {$actor->name} المنفَّذ ضده من «{$previous}» إلى «{$defendant}» — السبب: {$reason}";
+        $exec->messages()->create(['who' => 'note', 'name' => $actor->name, 'role' => 'بيانات الأطراف', 'body' => '<p>'.e($text).'</p>', 'time_label' => self::clock()]);
+        self::tellOffice($exec, $actor, $previous === '' ? 'حُدِّد المنفَّذ ضده' : 'صُحّح المنفَّذ ضده');
         Live::push(new ExecStatusBroadcast($exec->fresh()));
     }
 

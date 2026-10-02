@@ -43,6 +43,24 @@ class Execution extends Model implements ClientConversation
      */
     public const MAX_CLAIM_AMOUNT = 4294967295;
 
+    /** أطول اسمٍ للمنفَّذ ضده — حدّ «الخصم» في نموذج التذكرة (`opponent_name`) الذي يُنقل منه. */
+    public const DEFENDANT_MAX = 190;
+
+    /**
+     * **قاعدة اسم المنفَّذ ضده الواحدة** — لطلب التنفيذ من القضيّة (`RequestCaseExecution`) ولتصحيحه
+     * على الملفّ (`SetExecutionDefendant`): `null` إن صلح، وإلّا رسالة الرفض.
+     */
+    public static function defendantError(string $name): ?string
+    {
+        $length = mb_strlen(trim($name));
+
+        if ($length < 2) {
+            return 'أدخل اسم المنفَّذ ضده (فرداً أو جهة).';
+        }
+
+        return $length > self::DEFENDANT_MAX ? 'اسم المنفَّذ ضده أطول من '.self::DEFENDANT_MAX.' حرفاً.' : null;
+    }
+
     /**
      * مبلغ التذكرة كما يُنقل إلى ملفٍّ جديد: صالحٌ (1 حتى الحدّ) أو 0 = «لم يُحدَّد». تذكرةٌ قديمة بمبلغٍ لا يتّسع
      * له العمود كانت تُسقط الفتح بـ500؛ الآن يُفتح الملفّ ويُصحَّح مبلغه بالمسار القائم (`SetExecutionClaimAmount`).
@@ -267,6 +285,7 @@ class Execution extends Model implements ClientConversation
             // (`LawyerName::forClient`)، فتمريرُ المعرّف إليه ينقض التقنيع بجدول واحد.
             'lawyerId' => $internal ? $this->assigned_lawyer_id : null,
             'canAssign' => self::viewerCanAssign($this),
+            'canEditParties' => self::viewerCanEditParties($this),
             'decision' => $this->decision ?? '',
             'fee' => (int) $this->fee,
             'vat' => (int) $this->vat,
@@ -358,6 +377,21 @@ class Execution extends Model implements ClientConversation
      * ثمّ يردّه الخادم بـ403 أسوأ من زرٍّ لا يظهر. فإعادةُ الإسناد للإدارة وحدها (الموظّف
      * يُسند غير المسنَد لا ينزع ملفّاً من محامٍ)، والملفّ المنتهي لا يُسنَد.
      */
+    /**
+     * يصحّح بيانات المنفَّذ ضده؟ — المحامي المسنَد أو الإدارة على ملفٍّ مفتوح، بصلاحيّة «إدارة القضايا والأتعاب»
+     * (حارس `ExecFlowController::act` وانتقال `SetExecutionDefendant` نفساهما).
+     */
+    private static function viewerCanEditParties(self $exec): bool
+    {
+        $viewer = auth()->user();
+
+        if ($viewer === null || $exec->isClosed() || ! $viewer->can(Permissions::MANAGE_CASES_AND_FEES)) {
+            return false;
+        }
+
+        return $viewer->isAdmin() || ($viewer->isLawyer() && (int) $exec->getAttribute('assigned_lawyer_id') === (int) $viewer->id);
+    }
+
     private static function viewerCanAssign(self $exec): bool
     {
         $viewer = auth()->user();

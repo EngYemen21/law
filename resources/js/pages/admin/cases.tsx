@@ -109,21 +109,6 @@ export const AdminCases: React.FC<Props> = ({ cases = [], types = [], kpis, tabs
       onSuccess: () => clearPreview(no),
     });
 
-  const execute = (no: string) =>
-    action.run(`/admin/cases/${encodeURIComponent(no)}/execute`, {
-      key: no,
-      // فتح التنفيذ قرارٌ لا يقع بنقرةٍ عابرة (قرار المالك 2026-09-29)
-      confirm: {
-        title: 'فتح طلب تنفيذ الحكم؟',
-        message: 'يُفتح ملفّ تنفيذ الحكم ويُسند لمحامي القضية، ويُعتمد طلب التنفيذ القائم إن وُجد.',
-        confirmLabel: 'فتح الملف',
-        cancelLabel: 'تراجع',
-      },
-      success: 'تم فتح طلب تنفيذ رسمي للقضية ⚡',
-      fallback: 'تعذّر تحويل القضية للتنفيذ',
-      onSuccess: () => clearPreview(no),
-    });
-
   // KPIs
   const totalCases = cases.length;
   const activeCases = useMemo(
@@ -477,16 +462,11 @@ return false;
                               <Icon name="check" /> {isBusy ? '…' : 'إغلاق'}
                             </button>
                           )}
+                          {/* الفتح من صفحة القضيّة وحدها: فيها خانتا المبلغ المحكوم به والمنفَّذ ضده */}
                           {c.canExecute && (
-                            <button
-                              className="btn sm soft"
-                              type="button"
-                              disabled={isBusy}
-                              onClick={() => execute(c.no)}
-                              title="فتح طلب تنفيذ قضائي للحكم الصادر"
-                            >
-                              <Icon name="exec" /> {isBusy ? '…' : 'تحويل لتنفيذ'}
-                            </button>
+                            <Link className="btn sm soft" href={`/admin/cases/${encodeURIComponent(c.no)}`} title="فتح طلب تنفيذ قضائي للحكم الصادر">
+                              <Icon name="exec" /> تحويل لتنفيذ
+                            </Link>
                           )}
                           {c.canArchive && (
                             <button
@@ -641,15 +621,9 @@ return false;
                 </button>
               )}
               {previewCase.canExecute && (
-                <button
-                  type="button"
-                  className="btn soft"
-                  style={{ flex: 1 }}
-                  disabled={busyNo === previewCase.no}
-                  onClick={() => execute(previewCase.no)}
-                >
+                <Link className="btn soft" style={{ flex: 1 }} href={`/admin/cases/${encodeURIComponent(previewCase.no)}`}>
                   <Icon name="exec" /> فتح ملف تنفيذ للحكم
-                </button>
+                </Link>
               )}
               {previewCase.canArchive && (
                 <button

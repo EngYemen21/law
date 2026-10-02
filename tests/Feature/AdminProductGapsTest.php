@@ -92,7 +92,7 @@ class AdminProductGapsTest extends TestCase
             'status' => 'صدر الحكم', 'tone' => 'b-green',
         ]);
 
-        $this->actingAs($admin)->post(route('admin.cases.execute', $case), ['amount' => 150000])
+        $this->actingAs($admin)->post(route('admin.cases.execute', $case), ['amount' => 150000, 'defendant' => 'شركة المدين التجاريّة'])
             ->assertRedirect()->assertSessionHas('flash');
 
         $this->assertTrue($case->execution()->exists(), 'فُتح ملف التنفيذ للقضية');

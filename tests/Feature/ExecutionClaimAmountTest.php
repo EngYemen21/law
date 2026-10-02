@@ -79,11 +79,11 @@ class ExecutionClaimAmountTest extends TestCase
     {
         $case = $this->ruledCase(claimAmount: null);
 
-        $this->actingAs($this->lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'امتنع المحكوم عليه عن السداد'])
+        $this->actingAs($this->lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'امتنع المحكوم عليه عن السداد', 'defendant' => 'شركة المدين التجاريّة'])
             ->assertSessionHasErrors('amount');
         $this->assertNull($case->fresh()->execution_requested_at, 'لا طلب بلا مبلغ');
 
-        $this->actingAs($this->lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'امتنع المحكوم عليه عن السداد', 'amount' => 150000])
+        $this->actingAs($this->lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'امتنع المحكوم عليه عن السداد', 'amount' => 150000, 'defendant' => 'شركة المدين التجاريّة'])
             ->assertRedirect();
         $this->assertSame(150000, $case->fresh()->execution_request_amount);
 
@@ -116,10 +116,10 @@ class ExecutionClaimAmountTest extends TestCase
             ->assertInertia(fn ($page) => $page->where('case.executionAmountHint', 90000));
 
         $this->actingAs($this->admin)->post(route('admin.cases.execute', $case))->assertSessionHasErrors('amount');
-        $this->actingAs($this->admin)->post(route('admin.cases.execute', $case), ['amount' => Execution::MAX_CLAIM_AMOUNT + 1])->assertSessionHasErrors('amount');
+        $this->actingAs($this->admin)->post(route('admin.cases.execute', $case), ['amount' => Execution::MAX_CLAIM_AMOUNT + 1, 'defendant' => 'شركة المدين التجاريّة'])->assertSessionHasErrors('amount');
         $this->assertSame(0, Execution::where('case_id', $case->id)->count(), 'لا ملفّ بلا مبلغٍ صالح');
 
-        $this->actingAs($this->admin)->post(route('admin.cases.execute', $case), ['amount' => 120000])->assertRedirect();
+        $this->actingAs($this->admin)->post(route('admin.cases.execute', $case), ['amount' => 120000, 'defendant' => 'شركة المدين التجاريّة'])->assertRedirect();
         $this->assertSame(120000, (int) Execution::where('case_id', $case->id)->sole()->amount, 'ما أكّدته الإدارة لا مبلغ التذكرة');
     }
 
@@ -129,7 +129,7 @@ class ExecutionClaimAmountTest extends TestCase
         $colleague = User::factory()->create(['role' => Role::Admin]);
         $case = $this->ruledCase();
 
-        $this->actingAs($this->admin)->post(route('admin.cases.execute', $case), ['amount' => 120000])->assertRedirect();
+        $this->actingAs($this->admin)->post(route('admin.cases.execute', $case), ['amount' => 120000, 'defendant' => 'شركة المدين التجاريّة'])->assertRedirect();
         $fromCase = Execution::where('case_id', $case->id)->sole();
 
         $ticket = Ticket::create([
@@ -253,7 +253,7 @@ class ExecutionClaimAmountTest extends TestCase
         $this->assertSame(Execution::MAX_CLAIM_AMOUNT, (int) $exec->fresh()->amount);
 
         $case = $this->ruledCase();
-        $this->actingAs($this->lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'امتنع المحكوم عليه عن السداد', 'amount' => Execution::MAX_CLAIM_AMOUNT + 1])
+        $this->actingAs($this->lawyer)->post(route('lawyer.cases.execution-request', $case), ['reason' => 'امتنع المحكوم عليه عن السداد', 'amount' => Execution::MAX_CLAIM_AMOUNT + 1, 'defendant' => 'شركة المدين التجاريّة'])
             ->assertStatus(422);
         $this->assertNull($case->fresh()->execution_requested_at, 'لا طلبَ يتعذّر اعتماده');
     }

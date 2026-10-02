@@ -213,6 +213,8 @@ export interface ExecReq {
   study?: ExecStudy | null;
   /** هل يملك الناظر إسناد محامٍ؟ (إدارةٌ دائماً، وموظّفٌ بصلاحيّة «إجراءات المحكمة والجلسات») */
   canAssign?: boolean;
+  /** يحدّد المنفَّذ ضده أو يصحّحه؟ — المحامي المسنَد أو الإدارة على ملفٍّ مفتوح (`Execution::viewerCanEditParties`). */
+  canEditParties?: boolean;
   /** معرّف المحامي المسنَد — `null` يعني ملفّاً بلا مالك، وقبل هجرة العقد يصل `undefined`. */
   lawyerId?: number | null;
 }

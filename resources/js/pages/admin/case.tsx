@@ -4,6 +4,7 @@ import Badge from '@/components/babylon/Badge';
 import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
 import CaseClosureModal from '@/components/babylon/CaseClosureModal';
 import type { ClosureReasonOption } from '@/components/babylon/CaseClosureModal';
+import type { CaseExecutionRequestData } from '@/components/babylon/CaseExecutionRequestCard';
 import { useConfirm, usePrompt } from '@/components/babylon/ConfirmDialog';
 import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCard';
 import type { ConversationHistory } from '@/components/babylon/ConversationHandlerCard';
@@ -41,9 +42,11 @@ interface CaseInfo {
   /** حكم انتقال `ReopenCase` (حالته المصدر + صلاحيّة الفاعل) — لا مقارنة بنصّ الحالة هنا. */
   canReopen: boolean;
   /** طلب فتح التنفيذ القائم من المحامي/الموظّف (`CaseExecutionRequest::pending`) — يعتمده المدير أو يرفضه. */
-  executionRequest?: { at: string | null; by: string; reason: string; amount: number | null } | null;
+  executionRequest?: CaseExecutionRequestData | null;
   /** مبلغ المطالبة في التذكرة — القيمة الأوّليّة لخانة «المبلغ المحكوم به» عند الفتح المباشر. */
   executionAmountHint?: number | null;
+  /** الخصم في التذكرة — القيمة الأوّليّة لخانة «المنفَّذ ضده» عند الفتح المباشر. */
+  executionDefendantHint?: string | null;
 }
 /** مرفقٌ من التذكرة قبل التحويل (`CaseTicketDocuments`). */
 /** `CaseTicketDocuments::for` — النوع المشترك (`@/types`). */
@@ -127,7 +130,7 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
     if (pending) {
       if (await ask({
         title: 'اعتماد طلب التنفيذ وفتح الملف؟',
-        message: `رفعه ${pending.by} — السبب: ${pending.reason}`,
+        message: `رفعه ${pending.by}${pending.defendant ? ` — على: ${pending.defendant}` : ''} — السبب: ${pending.reason}`,
         confirmLabel: 'اعتماد وفتح الملف',
         cancelLabel: 'تراجع',
       })) {
@@ -145,12 +148,27 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
       label: 'المبلغ المحكوم به (ريال)',
       placeholder: 'مثال: 150000',
       defaultValue: c.executionAmountHint ? String(c.executionAmountHint) : '',
+      confirmLabel: 'التالي',
+      cancelLabel: 'تراجع',
+    });
+
+    if (amount === null) {
+      return;
+    }
+
+    // والمنفَّذ ضده كذلك (قرار المالك 2026-10-02) — كان يُنسخ من خصم التذكرة، وهو فارغٌ في أغلب القضايا
+    const defendant = await askReason({
+      title: 'المنفَّذ ضده',
+      message: 'المحكوم عليه كما ورد في الحكم — يظهر في «بيانات السند والأطراف» بملفّ التنفيذ.',
+      label: 'المنفَّذ ضده',
+      placeholder: 'اسم الفرد أو الجهة',
+      defaultValue: c.executionDefendantHint ?? '',
       confirmLabel: 'فتح الملف',
       cancelLabel: 'تراجع',
     });
 
-    if (amount !== null) {
-      act('execute', { amount: normalizeDigits(amount) }, 'فُتح ملفّ تنفيذ الحكم');
+    if (defendant !== null) {
+      act('execute', { amount: normalizeDigits(amount), defendant: defendant.trim() }, 'فُتح ملفّ تنفيذ الحكم');
     }
   };
   const rejectExecution = async () => {
@@ -236,6 +254,7 @@ const AdminCase: React.FC<Props> = ({ case: c, channel, messages, hearings, docu
                   <b>طلب فتح تنفيذ الحكم بانتظار قرارك</b>
                   <div className="sub">رفعه {c.executionRequest.by}{c.executionRequest.at ? ` ${c.executionRequest.at}` : ''} — السبب: {c.executionRequest.reason}</div>
                   {c.executionRequest.amount ? <div className="sub">المبلغ المحكوم به: <b>{c.executionRequest.amount.toLocaleString('en-US')} ريال</b></div> : null}
+                  {c.executionRequest.defendant ? <div className="sub">المنفَّذ ضده: <b>{c.executionRequest.defendant}</b></div> : null}
                 </div>
               )}
               {c.canExecute && (

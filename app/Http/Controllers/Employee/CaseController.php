@@ -7,6 +7,7 @@ use App\Enums\Role;
 use App\Http\Controllers\Concerns\ManagesCourtProceedings;
 use App\Http\Controllers\Controller;
 use App\Jobs\AnalyzeCaseDocumentJob;
+use App\Models\Execution;
 use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\User;
@@ -167,6 +168,7 @@ class CaseController extends Controller
             'canRequestExecution' => ExecutionCreation::isEligible($case) && $case->execution_requested_at === null,
             // المبلغ المحكوم به يُقترح من مبلغ المطالبة في التذكرة — ويؤكّده رافع الطلب أو يصحّحه
             'executionAmountHint' => $case->ticketClaimAmount(),
+            'executionDefendantHint' => $case->ticketOpponentName(),
             'convertedExec' => $case->execution()->exists(),
             // الحكم وتصحيحه وحكم الاستئناف — تُخفى نماذجها عمّن يصدّه `guardRulingAccess`
             'canRule' => $canCourt && (bool) auth()->user()?->can(Permissions::RECORD_RULINGS),
@@ -233,9 +235,13 @@ class CaseController extends Controller
         $data = $request->validate([
             'reason' => ['required', 'string', 'max:1000'],
             'amount' => ['required', 'integer', 'min:1'],
-        ], ['amount.*' => 'أدخل المبلغ المحكوم به (ريال) — رقماً صحيحاً أكبر من صفر.']);
+            'defendant' => ['required', 'string', 'max:'.Execution::DEFENDANT_MAX],
+        ], [
+            'amount.*' => 'أدخل المبلغ المحكوم به (ريال) — رقماً صحيحاً أكبر من صفر.',
+            'defendant.*' => 'أدخل اسم المنفَّذ ضده (فرداً أو جهة).',
+        ]);
 
-        CaseExecutionRequest::request($case, $request->user(), $data['reason'], (int) $data['amount']);
+        CaseExecutionRequest::request($case, $request->user(), $data['reason'], (int) $data['amount'], $data['defendant']);
 
         return back()->with('flash', 'رُفع طلب فتح التنفيذ للإدارة العليا — يُفتح الملفّ فور اعتماده.');
     }
