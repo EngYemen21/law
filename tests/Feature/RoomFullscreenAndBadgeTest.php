@@ -52,4 +52,24 @@ class RoomFullscreenAndBadgeTest extends TestCase
         );
         $this->assertDoesNotMatchRegularExpression('/\.summary-page-container \{[^}]*[^-]height: 100dvh;/', $this->src('css/app.css'));
     }
+
+    /** صفحات المحادثة (القضيّة · التذكرة): المحادثة تثبت والقائمة الجانبيّة تنزل مع الصفحة — على الحاسوب وحده. */
+    public function test_chat_pages_pin_the_chat_and_let_the_side_list_scroll(): void
+    {
+        foreach (['admin/case', 'employee/case', 'lawyer/case', 'employee/ticketchat', 'lawyer/ticketchat'] as $page) {
+            $this->assertStringContainsString('className="tf-grid tf-chat"', $this->src("js/pages/{$page}.tsx"), $page);
+        }
+
+        $css = $this->src('css/babylon.css');
+        $this->assertStringContainsString('.tflow .tf-grid.tf-chat>:first-child{position:sticky;top:84px;max-height:calc(100vh - 100px);overflow-y:auto}', $css);
+        $this->assertStringContainsString('.tflow .tf-grid.tf-chat>.tf-aside{position:static}', $css);
+        $this->assertMatchesRegularExpression('/@media\(min-width:1081px\)\{\s*\.tflow \.tf-grid\.tf-chat/', $css, 'الضيّق عمودٌ واحد بلا تثبيت');
+    }
+
+    /** بنود دراسة التنفيذ جملٌ طويلة — تلتفّ داخل الإطار لا تتجاوزه (909px في إطارٍ 651px قبلُ). */
+    public function test_exec_study_items_wrap_inside_their_card(): void
+    {
+        $this->assertStringContainsString('className="chip chip-wrap"', $this->src('js/pages/execflow.tsx'));
+        $this->assertStringContainsString('.chip.chip-wrap{white-space:normal;max-width:100%', $this->src('css/babylon.css'));
+    }
 }

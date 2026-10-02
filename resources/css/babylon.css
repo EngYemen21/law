@@ -310,6 +310,13 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 .tflow .tf-grid{display:grid;grid-template-columns:minmax(0,1fr) 312px;gap:18px;align-items:start}
 .tflow .tf-grid>*{min-width:0}
 .tflow .tf-aside{position:sticky;top:84px;display:flex;flex-direction:column;gap:16px}
+/* صفحات المحادثة (القضيّة · التذكرة): **المحادثة تثبت والقائمة الجانبيّة تنزل** (ملاحظة المالك 2026-10-02). كانت القائمة
+   ثابتةً وهي أطول من الشاشة (1267px مقابل 319px للمحادثة) فتصعد المحادثة وتختفي ولا يُبلغ آخر القائمة («مرفقات الطلب
+   قبل التحويل»). الآن العمود الرئيس يثبت بارتفاع الشاشة ويتمرّر داخله إن طال، والقائمة تنزل مع الصفحة. والضيّق كما هو. */
+@media(min-width:1081px){
+.tflow .tf-grid.tf-chat>:first-child{position:sticky;top:84px;max-height:calc(100vh - 100px);overflow-y:auto}
+.tflow .tf-grid.tf-chat>.tf-aside{position:static}
+}
 .tflow .tc-top{background:var(--deep);color:#fff;padding:14px 18px;background-image:radial-gradient(160px 90px at 90% 0,rgba(17,160,200,.4),transparent)}
 .tflow .tc-top .lbl{font-size:11px;opacity:.7;font-weight:600}
 .tflow .tc-top .num{font-size:18px;font-weight:800;margin-top:2px;direction:ltr;text-align:right}
@@ -510,6 +517,8 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 .chip.muted{color:var(--muted);background:#eef2f5;border-color:var(--line)}
 .chip.sel-toggle{cursor:pointer;user-select:none}
 .chip.sel-toggle.on{background:var(--brand);color:#fff;border-color:transparent}
+/* شريحةٌ تحمل جملةً لا وسماً (بنود دراسة التنفيذ): تلتفّ داخل إطارها — `.chip` العامّة `nowrap` للوسوم القصيرة */
+.chip.chip-wrap{white-space:normal;max-width:100%;border-radius:10px;line-height:1.7;text-align:start;overflow-wrap:anywhere}
 /* tabs */
 .tabs{display:flex;gap:4px;background:var(--paper-2);border:1px solid var(--line);border-radius:11px;padding:4px;margin-bottom:16px;flex-wrap:wrap}
 .tab{padding:8px 15px;border-radius:8px;font-size:13px;font-weight:700;color:var(--muted);transition:.13s}
