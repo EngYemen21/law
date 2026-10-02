@@ -47,7 +47,7 @@ class SettingsWideLimitsTest extends TestCase
     {
         $this->save(['exec_pay_days' => 999999])->assertSessionHasErrors('exec_pay_days');
         $this->save(['exec_pay_days' => 120])->assertSessionHasNoErrors();
-        $this->save(['otp_ttl_minutes' => 31])->assertSessionHasErrors('otp_ttl_minutes');
+        $this->save(['otp_ttl_minutes' => 6])->assertSessionHasErrors('otp_ttl_minutes');
         $this->save(['otp_ttl_minutes' => 1])->assertSessionHasNoErrors();
     }
 

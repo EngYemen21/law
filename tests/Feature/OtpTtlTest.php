@@ -56,14 +56,26 @@ class OtpTtlTest extends TestCase
 
     public function test_window_follows_the_setting(): void
     {
-        Setting::put('otp_ttl_minutes', 10);
+        Setting::put('otp_ttl_minutes', 3);
         User::factory()->create(['role' => Role::Client, 'national_id' => '1077700003', 'phone' => '0555700003']);
         $this->fakeTaqnyatVerify('1234');
 
         $this->post('/auth/otp/request', ['national_id' => '1077700003']);
-        $this->travel(8)->minutes();
+        $this->travel(4)->minutes();
 
-        $this->post('/auth/otp/verify', ['code' => '1234'])->assertRedirect('/dashboard');
+        $this->post('/auth/otp/verify', ['code' => '1234'])->assertSessionHasErrors(['code' => 'انتهت صلاحية الرمز — اطلب رمزاً جديداً.']);
+        $this->assertGuest();
+    }
+
+    /** خمس دقائق سقفٌ أمنيّ (قرار المالك 2026-10-02): لا يُحفظ ما فوقها، وقيمةٌ أقدم في القاعدة تُقيَّد بها. */
+    public function test_the_window_never_exceeds_five_minutes(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => Role::Admin]))
+            ->post(route('admin.settings.update'), ['otp_ttl_minutes' => 6])->assertSessionHasErrors('otp_ttl_minutes');
+
+        Setting::put('otp_ttl_minutes', 10);
+        SettingsRegistry::flush();
+        $this->assertSame(5, OtpService::ttlMinutes());
     }
 
     public function test_email_code_uses_the_same_window_and_says_so(): void
