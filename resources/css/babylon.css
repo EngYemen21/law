@@ -846,7 +846,8 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 /*
  * غرفة الجلسة المرئيّة — ملءَ التبويب، تصميمٌ واحد للجميع (قرار المالك ٢٠٢٦-٠٩-٢٦).
  * الطبقات إخوةٌ ثابتة على body بلا غلافٍ ذي z-index (انظر `zoom-room.tsx` و`room-session.ts`):
- *   80 الخلفيّة · 81 حاوية Zoom · 82 الشاشات والعلامة المائيّة · 83 الترويسة · 84–85 الدرج · 86–87 الشريط العائم.
+ *   80 الخلفيّة وشاشة الانتظار · 81 حاوية Zoom ونوافذه · 82 الشاشات والعلامة المائيّة · 83 الترويسة · 84–85 الدرج · 86–87 الشريط العائم.
+ * شاشة الانتظار (`.mroom-under`) تحت Zoom عمداً: نوافذه أثناء الانضمام (موافقة التسجيل) تُرى وتُنقر.
  * تحت الإشعارات (90) والنوافذ (100000) — فنافذة الإنهاء وتنبيهاتها تظهر فوق الغرفة.
  * الارتفاع بـdvh: شريط عنوان متصفّح الهاتف لا يقصّ أسفل الفيديو؛ ولا ارتفاعَ أدنى ثابتاً.
  */
@@ -866,7 +867,7 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 .mroom-btn:disabled{opacity:.45;cursor:not-allowed}
 .mroom-zoom{position:fixed;z-index:81;overflow:hidden;direction:ltr;background:#0A2A55}
 .mroom-zoom[data-view="hidden"]{display:none}
-.mroom-zoom[data-view="full"]{top:var(--mroom-head);inset-inline:0;bottom:0;overflow:visible}
+.mroom-zoom[data-view="full"]{top:var(--mroom-head);inset-inline:0;bottom:0;overflow:visible;background:transparent}
 /* نوافذ Zoom وقوائمه (موافقة التسجيل · المغادرة · الإعدادات) — عرضها الأدنى في الحزمة 480px (`.zoom-MuiDialog-paper`)
    فتتجاوز شاشة الهاتف وتُقصّ أزرارها (ملاحظة المالك 2026-10-02). تُحصر في عرض الشاشة. */
 .zoom-MuiDialog-paper{min-width:0!important;max-width:calc(100vw - 24px)!important;margin:12px!important;box-sizing:border-box}
@@ -881,6 +882,8 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
    فلا تُقصّ عند التبديل بين الغرفة والشريط المصغّر (ملاحظة المالك 2026-09-27) */
 .mroom-zoom-root .react-draggable{transform:none!important;inset:0 auto auto 0!important;max-width:100%;max-height:100%}
 .mroom-stage{position:fixed;top:var(--mroom-head);inset-inline:0;bottom:0;z-index:82;pointer-events:none}
+.mroom-under{position:fixed;top:var(--mroom-head);inset-inline:0;bottom:0;z-index:80;pointer-events:none}
+.mroom-under .mroom-overlay{pointer-events:none;background:none}
 .mroom-overlay{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:#fff;padding:26px;pointer-events:auto;background:radial-gradient(circle at 50% 34%,#16427d,#0A2A55 72%)}
 .mroom-overlay .oi{width:66px;height:66px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.1);margin:0 auto 4px}
 .mroom-overlay .oi .ic{width:30px;height:30px}

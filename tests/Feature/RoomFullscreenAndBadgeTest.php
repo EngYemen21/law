@@ -33,7 +33,24 @@ class RoomFullscreenAndBadgeTest extends TestCase
         $css = $this->src('css/babylon.css');
 
         $this->assertMatchesRegularExpression('/\.zoom-MuiDialog-paper\{min-width:0!important;max-width:calc\(100vw - 24px\)!important/', $css);
-        $this->assertStringContainsString('.mroom-zoom[data-view="full"]{top:var(--mroom-head);inset-inline:0;bottom:0;overflow:visible}', $css);
+        $this->assertStringContainsString('.mroom-zoom[data-view="full"]{top:var(--mroom-head);inset-inline:0;bottom:0;overflow:visible;background:transparent}', $css);
+    }
+
+    /**
+     * **شاشة الانتظار تحت Zoom لا فوقه** (قرار المالك 2026-10-03): نوافذ Zoom أثناء الانضمام (موافقة التسجيل —
+     * إلزاميّة في حسابات Pro، Zoom KB0068228) تُرسم في حاويته (81)، وكانت شاشتنا (82) فوقها فلا تُنقر.
+     */
+    public function test_the_waiting_screen_sits_under_zoom_so_its_dialogs_can_be_clicked(): void
+    {
+        $css = $this->src('css/babylon.css');
+        $room = $this->src('js/lib/zoom-room.tsx');
+
+        $this->assertStringContainsString('.mroom-under{position:fixed;top:var(--mroom-head);inset-inline:0;bottom:0;z-index:80;pointer-events:none}', $css);
+        $this->assertStringContainsString('.mroom-zoom{position:fixed;z-index:81;', $css);
+        $this->assertStringContainsString('<div className="mroom-under">{waiting}</div>', $room);
+        // الانضمام لا يُرسم في طبقة الشاشات (82) فوق الحاوية
+        $overlay = substr($room, (int) strpos($room, 'const overlay = (() => {'), 4000);
+        $this->assertStringNotContainsString("phase === 'joining'", substr($overlay, 0, (int) strpos($overlay, '})();')));
     }
 
     public function test_environment_badge_lives_in_the_dashboard_only(): void

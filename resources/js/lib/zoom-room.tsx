@@ -179,16 +179,6 @@ export const RoomPage: React.FC<{ room: Room }> = ({ room: serverRoom }) => {
       );
     }
 
-    if (phase === 'idle' || phase === 'loading' || phase === 'joining') {
-      return (
-        <div className="mroom-overlay"><div>
-          <div className="mroom-spin" />
-          <b>{phase === 'joining' ? ROOM_TEXT.joining : ROOM_TEXT.preparing}</b>
-          <div className="os">{room.title}</div>
-        </div></div>
-      );
-    }
-
     if (phase === 'ended') {
       return (
         <div className="mroom-overlay"><div>
@@ -238,6 +228,20 @@ export const RoomPage: React.FC<{ room: Room }> = ({ room: serverRoom }) => {
     return null;
   })();
 
+  /*
+   * **شاشة الانتظار تحت Zoom لا فوقه** (قرار المالك 2026-10-03). كانت في `.mroom-stage` (82) فوق حاوية Zoom (81)
+   * طوال الانضمام، ونوافذ Zoom التي تسبق اكتماله — موافقة التسجيل وإخلاءاته، وهي إلزاميّةٌ لا تُعطَّل في حسابات
+   * Pro (Zoom KB0068228) ولا خيارَ لإخفائها في SDK الويب — تُرسم داخل الحاوية فتبقى تحتها: لا تُرى ولا تُنقر،
+   * ولا يكتمل الانضمام بدونها. الآن تُرسم في `.mroom-under` (80) خلف حاويةٍ شفّافة، فكلّ ما يرسمه Zoom فوقها.
+   */
+  const waiting = !busy && (phase === 'idle' || phase === 'loading' || phase === 'joining') ? (
+    <div className="mroom-overlay"><div>
+      <div className="mroom-spin" />
+      <b>{phase === 'joining' ? ROOM_TEXT.joining : ROOM_TEXT.preparing}</b>
+      <div className="os">{room.title}</div>
+    </div></div>
+  ) : null;
+
   if (typeof document === 'undefined') {
     return null;
   }
@@ -250,6 +254,7 @@ export const RoomPage: React.FC<{ room: Room }> = ({ room: serverRoom }) => {
   return createPortal(
     <div className="mroom-layer" data-kind={room.kind}>
       <div className="mroom-bg" />
+      <div className="mroom-under">{waiting}</div>
       <header className="mroom-head">
         <span className="brand"><Icon name="video" /> <span className="lbl">{officeName}</span></span>
         <span className="ttl">
