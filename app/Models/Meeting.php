@@ -501,9 +501,9 @@ class Meeting extends Model
     }
 
     /** افتراضا طبقتي التذكير (`meeting_reminder_lead` · `meeting_reminder_near_minutes`) — بريدٌ ثمّ إشعارٌ ورسالة للعميل. */
-    public const REMINDER_FAR_MINUTES = 60;
+    public const REMINDER_FAR_MINUTES = 720;
 
-    public const REMINDER_NEAR_MINUTES = 30;
+    public const REMINDER_NEAR_MINUTES = 10;
 
     /** سقف إعادة جدولة الاجتماع الافتراضيّ — ما بعده للإدارة العليا وحدها (`meeting_reschedule_limit`). */
     public const RESCHEDULE_LIMIT = 2;

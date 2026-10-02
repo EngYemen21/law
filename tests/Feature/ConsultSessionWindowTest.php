@@ -72,7 +72,7 @@ class ConsultSessionWindowTest extends TestCase
     /** وداخل النافذة تُبدأ — وإلّا كان «الإصلاح» تعطيلاً. */
     public function test_a_session_inside_the_window_still_starts(): void
     {
-        [$consult, $lawyer] = $this->consult(['starts_at' => now()->addMinutes(10)]);
+        [$consult, $lawyer] = $this->consult(['starts_at' => now()->addMinutes(4)]);
 
         $this->assertTrue($consult->toCard()['startable']);
 

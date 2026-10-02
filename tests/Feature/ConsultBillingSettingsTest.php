@@ -209,7 +209,8 @@ class ConsultBillingSettingsTest extends TestCase
             'starts_at' => now()->subMinutes(50),
         ]);
 
-        $this->assertFalse($consult->isMissed(), 'موعدها قبل ٥٠ دقيقة ومهلة الفوات ٦٠ — لم تفُت بعد');
+        Setting::put('session_missed_after_minutes', 60);
+        $this->assertFalse($consult->fresh()->isMissed(), 'موعدها قبل ٥٠ دقيقة ومهلة الفوات ٦٠ — لم تفُت بعد');
 
         Setting::put('consult_slot_minutes', 30);
         $this->assertFalse($consult->fresh()->isMissed(), 'تقصير مسافة الحجز لا يجعلها فائتة');
@@ -243,8 +244,8 @@ class ConsultBillingSettingsTest extends TestCase
             'starts_at' => now()->addHours(5), 'day' => now()->format('Y-m-d'),
         ]);
 
-        // الافتراض يوم (1440 دقيقة) — والنصّ بوحدته الطبيعيّة لا بدقائقه
-        $this->assertStringContainsString('أقلّ من يوم واحد', (string) $consult->rescheduleRequestBlocker());
+        // الافتراض نصف يوم (720 دقيقة، قرار المالك 2026-10-02) — والنصّ بوحدته الطبيعيّة لا بدقائقه
+        $this->assertStringContainsString('أقلّ من 12 ساعة', (string) $consult->rescheduleRequestBlocker());
 
         Setting::put('consult_reschedule_notice_minutes', 180);
         $this->assertNull($consult->fresh()->rescheduleRequestBlocker(), 'موعدٌ بعد خمس ساعات ومهلةٌ ثلاث — يُطلب تغييره');

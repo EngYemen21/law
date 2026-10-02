@@ -91,7 +91,7 @@ class MeetingSettingsAlignmentTest extends TestCase
     public function test_staff_can_start_inside_window(): void
     {
         $admin = User::factory()->create(['role' => Role::Admin]);
-        $m = $this->meeting(['starts_at' => now()->addMinutes(10)]); // النافذة 15د
+        $m = $this->meeting(['starts_at' => now()->addMinutes(4)]); // النافذة 5د
 
         $this->assertTrue($m->lifecycleActions()['start']);
         $this->actingAs($admin)->post(route('admin.meetings.start', $m))->assertRedirect();
@@ -173,7 +173,7 @@ class MeetingSettingsAlignmentTest extends TestCase
             $this->assertSame('meetings', SettingsRegistry::field($key)['group'], $key);
         }
         $this->assertStringNotContainsString('غير المؤكَّدة', SettingsRegistry::field('meet_invite_expire_minutes')['label']);
-        $this->assertSame(30, SettingsRegistry::int('meeting_reminder_near_minutes'));
+        $this->assertSame(10, SettingsRegistry::int('meeting_reminder_near_minutes'));
     }
 
     public function test_first_reminder_must_precede_the_second(): void
@@ -199,14 +199,14 @@ class MeetingSettingsAlignmentTest extends TestCase
         Mail::assertQueued(MeetingReminderMail::class, fn ($mail) => $mail->hasTo('e@example.com'));
     }
 
-    /** قرار «ب»: تذكير الثلاثين دقيقة إشعارٌ بلا رسالة نصّيّة — الرسالة واحدةٌ عند فتح الدخول. */
-    public function test_client_gets_second_reminder_half_an_hour_before_as_notification_only(): void
+    /** قرار «ب»: التذكير الثاني (10د افتراضاً) إشعارٌ بلا رسالة نصّيّة — الرسالة واحدةٌ عند فتح الدخول. */
+    public function test_client_gets_second_reminder_as_notification_only(): void
     {
         Mail::fake();
         Bus::fake([SendSmsJob::class]);
         config(['services.taqnyat.api_key' => 'tok_test', 'services.taqnyat.sender' => 'Salasel']);
         $client = User::factory()->create(['role' => Role::Client, 'phone' => '+966555550001']);
-        $m = $this->meeting(['user_id' => $client->id, 'starts_at' => now()->addMinutes(25), 'reminder_sent_at' => now()->subMinutes(30)]);
+        $m = $this->meeting(['user_id' => $client->id, 'starts_at' => now()->addMinutes(8), 'reminder_sent_at' => now()->subMinutes(30)]);
 
         $this->artisan('meetings:send-reminders')->assertSuccessful();
 

@@ -159,11 +159,11 @@ class SessionEndsByEventTest extends TestCase
 
     public function test_a_session_that_never_started_is_missed_by_the_start_based_setting(): void
     {
-        $consult = $this->consult(['session' => 'بانتظار الجلسة', 'status' => 'جديدة', 'starts_at' => now()->subMinutes(40), 'link_released_at' => now()->subMinutes(45)]);
+        $consult = $this->consult(['session' => 'بانتظار الجلسة', 'status' => 'جديدة', 'starts_at' => now()->subMinutes(8), 'link_released_at' => now()->subMinutes(13)]);
         $this->assertFalse($consult->isMissed());
         $this->assertTrue($consult->canJoin());
 
-        Setting::put('session_missed_after_minutes', 30);
+        Setting::put('session_missed_after_minutes', 5);
         $consult = $consult->fresh();
         $this->assertTrue($consult->isMissed());
         $this->assertFalse($consult->canJoin(), 'فاتت دون أن تبدأ — يُغلق بابها');

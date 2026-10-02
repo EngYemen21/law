@@ -283,7 +283,7 @@ class Consult extends Model
      * **الافتراض المُعلَن لا القيمة النافذة**: الإدارة تضبطها (`consult_reschedule_notice_minutes`) —
      * بالدقائق منذ 2026-09-26. يوم واحد.
      */
-    public const RESCHEDULE_REQUEST_NOTICE_MINUTES = 1440;
+    public const RESCHEDULE_REQUEST_NOTICE_MINUTES = 720;
 
     /**
      * **لماذا لا يستطيع العميل طلب تغيير موعده الآن — `null` = يستطيع.**

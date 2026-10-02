@@ -44,7 +44,7 @@ class DashboardStaleBannerTest extends TestCase
         // الحزمة قرب منتصف الليل، فيصير تأكيد «لا بنر اليوم» خاوياً يمرّ بلا أن يقيس شيئاً
         // (كشفه اختبارُ الطفرة). الظهيرة تضمن أن الموعد «اليوم» وأنّ خانته لم تنقضِ بعد.
         $this->travelTo(now()->startOfDay()->addHours(12)->addMinutes(20));
-        $startsAt = now()->copy()->subMinutes(20);   // بدأت قبل عشرين دقيقة، وخانتها ساعة
+        $startsAt = now()->copy()->subMinutes(5);   // بدأت قبل خمس دقائق — داخل مهلة الفوات (10) وخانتها ساعة
 
         // الربط `consults.appointment_id` — الموعد يُنشأ أوّلاً ثمّ تشير إليه الاستشارة
         $appt = Appointment::create(array_merge([

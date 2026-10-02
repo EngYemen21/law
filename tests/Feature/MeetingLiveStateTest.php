@@ -96,8 +96,8 @@ class MeetingLiveStateTest extends TestCase
         $inWindow = $this->meeting(['starts_at' => now()->addMinutes(3)]);
         $this->assertTrue($inWindow->canJoin());
 
-        $justAfter = $this->meeting(['starts_at' => now()->subMinutes(30)]);
-        // موعده قبل 30د ولم يبدأ — لم يفُت بعد (مهلة الفوات من البداية، ٦٠ افتراضاً) — الدخول متاح
+        $justAfter = $this->meeting(['starts_at' => now()->subMinutes(5)]);
+        // موعده قبل 5د ولم يبدأ — لم يفُت بعد (مهلة الفوات من البداية، ١٠ افتراضاً) — الدخول متاح
         $this->assertTrue($justAfter->canJoin());
 
         $wayAfter = $this->meeting(['starts_at' => now()->subHours(2)]);

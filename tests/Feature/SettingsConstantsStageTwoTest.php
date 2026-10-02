@@ -91,13 +91,13 @@ class SettingsConstantsStageTwoTest extends TestCase
 
     public function test_the_join_window_and_its_text_follow_the_setting(): void
     {
-        $in12 = now()->addMinutes(12);
-        $this->assertTrue(SessionWindow::joinOpened($in12), 'الافتراض ربع ساعة (قرار المالك 2026-10-01)');
-        $this->assertStringContainsString('15 دقيقة', SessionWindow::refuseNotOpen());
+        $in8 = now()->addMinutes(8);
+        $this->assertFalse(SessionWindow::joinOpened($in8), 'الافتراض خمس دقائق (قرار المالك 2026-10-02)');
+        $this->assertStringContainsString('5 دقائق', SessionWindow::refuseNotOpen());
 
         $this->set('session_join_opens_minutes', 10);
 
-        $this->assertFalse(SessionWindow::joinOpened($in12));
+        $this->assertTrue(SessionWindow::joinOpened($in8));
         $this->assertStringContainsString('10 دقائق', SessionWindow::refuseNotOpen());
         $this->assertSame(10, $this->get(route('login'))->viewData('page')['props']['settings']['session_join_opens_minutes']);
     }

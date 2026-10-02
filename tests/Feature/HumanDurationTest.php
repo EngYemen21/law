@@ -93,9 +93,9 @@ class HumanDurationTest extends TestCase
         foreach (['consult_reschedule_notice_minutes', 'consult_autoclose_minutes', 'meeting_autoclose_minutes', 'session_stale_minutes'] as $key) {
             $this->assertStringContainsString('(دقائق)', SettingsRegistry::field($key)['label'], $key);
         }
-        // الافتراضات القديمة × ٦٠ — السلوك قبل التحويل هو السلوك بعده
+        // الافتراضات بالدقائق (قرار المالك 2026-10-02: نصف يوم · عشر دقائق · عشر دقائق · ست ساعات)
         $this->assertSame(
-            [1440, 720, 720, 360],
+            [720, 10, 10, 360],
             array_map(fn ($k) => SettingsRegistry::int($k), ['consult_reschedule_notice_minutes', 'consult_autoclose_minutes', 'meeting_autoclose_minutes', 'session_stale_minutes']),
         );
     }

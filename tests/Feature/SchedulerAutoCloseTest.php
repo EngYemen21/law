@@ -38,7 +38,7 @@ class SchedulerAutoCloseTest extends TestCase
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $stale = $this->consult($client, ['starts_at' => now()->subHours(13)]);
-        $recent = $this->consult($client, ['starts_at' => now()->subHours(2)]);   // فائتة لكن لم تبلغ 12 ساعة
+        $recent = $this->consult($client, ['starts_at' => now()->subMinutes(5)]);   // لم تبلغ مهلة الإغلاق (10 دقائق افتراضاً)
         $live = $this->consult($client, ['starts_at' => now()->subHours(13), 'session' => 'جلسة جارية']);
         $unscheduled = $this->consult($client, ['starts_at' => null, 'status' => 'بانتظار التسعير']);
 
