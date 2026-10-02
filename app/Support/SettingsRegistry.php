@@ -34,6 +34,20 @@ class SettingsRegistry
      */
     private const CACHE = 'support.settings-registry.values';
 
+    /**
+     * **سقوفٌ واسعة لا حدودٌ تشغيليّة** (قرار المالك 2026-10-02): المدد والأعداد تقبل من 1 فما فوق،
+     * والسقف يصدّ خطأ الكتابة وحده (999999 بدل 99). والصفر مرفوض لأنّه يعطّل المنطق لا لأنّه اختيار:
+     * شريحةٌ صفريّة لا تولّد موعداً، ومهلةٌ صفريّة تؤخّر الفاتورة لحظة صدورها.
+     * أمّا ما للصفر فيه معنى (سقف إعادة الجدولة، مهلة الإشعار) والنسب والساعات فلها حدودها في حقلها.
+     */
+    private const MAX_DAYS = 365;
+
+    private const MAX_MINUTES = 525600; // سنة
+
+    private const MINUTES_PER_DAY = 1440;
+
+    private const MAX_COUNT = 1000;
+
     /** مجموعات العرض — ترتيبها ترتيبُ البطاقات في الشاشة. */
     public static function groups(): array
     {
@@ -60,7 +74,9 @@ class SettingsRegistry
      *
      * `forwardOnly` يعني: التغيير يسري على ما يُنشأ بعده وحده، وما مضى محفوظٌ على صفّه.
      *
-     * @return array<string, array{group:string,label:string,hint:string,type:'int'|'string'|'date'|'days'|'bool',default:mixed,min?:int,max?:int,rules:array<int,string>,forwardOnly?:bool,gt?:string,gte?:string,defaultLabel?:string}>
+     * العدد (`int`) يُعلن `min`/`max` ويُشتقّ تحقّقه منهما (`rulesFor`)، وغيره يُعلن `rules`.
+     *
+     * @return array<string, array{group:string,label:string,hint:string,type:'int',default:mixed,min:int,max:int,forwardOnly?:bool,gt?:string,gte?:string,defaultLabel?:string}|array{group:string,label:string,hint:string,type:'string'|'date'|'days'|'bool',default:mixed,rules:array<int,string>,forwardOnly?:bool,defaultLabel?:string}>
      */
     public static function all(): array
     {
@@ -72,9 +88,8 @@ class SettingsRegistry
                 'hint' => 'بعدها يُرفض الرمز المُرسَل ويُطلب رمزٌ جديد — لرمز الجوال في الدخول والتسجيل وتغيير الجوال، ولرمز البريد. 5 = خمس دقائق.',
                 'type' => 'int',
                 'default' => OtpService::TTL_MINUTES,
-                'min' => 2,
+                'min' => 1,
                 'max' => 30,
-                'rules' => ['required', 'integer', 'min:2', 'max:30'],
             ],
 
             // ── القضايا والأحكام ──
@@ -85,8 +100,7 @@ class SettingsRegistry
                 'type' => 'int',
                 'default' => RecordRuling::APPEAL_DAYS,
                 'min' => 1,
-                'max' => 90,
-                'rules' => ['required', 'integer', 'min:1', 'max:90'],
+                'max' => self::MAX_DAYS,
                 'forwardOnly' => true,
             ],
 
@@ -106,8 +120,7 @@ class SettingsRegistry
                 'type' => 'int',
                 'default' => ExecFlow::PAY_DAYS,
                 'min' => 1,
-                'max' => 30,
-                'rules' => ['required', 'integer', 'min:1', 'max:30'],
+                'max' => self::MAX_DAYS,
                 'forwardOnly' => true,
             ],
             'exec_max_collection_pct' => [
@@ -118,7 +131,6 @@ class SettingsRegistry
                 'default' => (int) ExecFee::MAX_PCT,
                 'min' => 1,
                 'max' => 100,
-                'rules' => ['required', 'integer', 'min:1', 'max:100'],
             ],
             'installments_count' => [
                 'group' => 'exec',
@@ -127,8 +139,7 @@ class SettingsRegistry
                 'type' => 'int',
                 'default' => CaseFee::INSTALLMENTS,
                 'min' => 2,
-                'max' => 6,
-                'rules' => ['required', 'integer', 'min:2', 'max:6'],
+                'max' => self::MAX_COUNT,
                 'forwardOnly' => true,
             ],
 
@@ -144,7 +155,6 @@ class SettingsRegistry
                 'default' => 15,
                 'min' => 0,
                 'max' => 100,
-                'rules' => ['required', 'integer', 'min:0', 'max:100'],
                 'forwardOnly' => true,
             ],
             // **بداية سجلّ مستحقّات الموظّفين** (`Finance\StaffEarnings`): قبل هذا الشهر لم يكن المصروف
@@ -167,8 +177,7 @@ class SettingsRegistry
                 'type' => 'int',
                 'default' => 3,
                 'min' => 1,
-                'max' => 30,
-                'rules' => ['required', 'integer', 'min:1', 'max:30'],
+                'max' => self::MAX_DAYS,
                 'forwardOnly' => true,
             ],
             'invoice_due_days_case' => [
@@ -178,8 +187,7 @@ class SettingsRegistry
                 'type' => 'int',
                 'default' => 14,
                 'min' => 1,
-                'max' => 60,
-                'rules' => ['required', 'integer', 'min:1', 'max:60'],
+                'max' => self::MAX_DAYS,
                 'forwardOnly' => true,
             ],
             'invoice_due_days_exec' => [
@@ -189,8 +197,7 @@ class SettingsRegistry
                 'type' => 'int',
                 'default' => 3,
                 'min' => 1,
-                'max' => 30,
-                'rules' => ['required', 'integer', 'min:1', 'max:30'],
+                'max' => self::MAX_DAYS,
                 'forwardOnly' => true,
             ],
             'invoice_due_days_collection' => [
@@ -200,8 +207,7 @@ class SettingsRegistry
                 'type' => 'int',
                 'default' => 7,
                 'min' => 1,
-                'max' => 30,
-                'rules' => ['required', 'integer', 'min:1', 'max:30'],
+                'max' => self::MAX_DAYS,
                 'forwardOnly' => true,
             ],
             'installment_first_due_days' => [
@@ -212,8 +218,7 @@ class SettingsRegistry
                 // ما كان منقوشاً قبل أن تصير المهل إعدادات — فلا يتغيّر شيءٌ حتى تغيّره الإدارة
                 'default' => 3,
                 'min' => 1,
-                'max' => 60,
-                'rules' => ['required', 'integer', 'min:1', 'max:60'],
+                'max' => self::MAX_DAYS,
                 'forwardOnly' => true,
             ],
             'installment_interval_days' => [
@@ -222,9 +227,8 @@ class SettingsRegistry
                 'hint' => 'الدفعة الثانية تستحقّ بعد هذا الفاصل من فتح الخطّة، والثالثة بعد ضعفه، وهكذا — في القضايا والتنفيذ.',
                 'type' => 'int',
                 'default' => 30,
-                'min' => 7,
-                'max' => 90,
-                'rules' => ['required', 'integer', 'min:7', 'max:90'],
+                'min' => 1,
+                'max' => self::MAX_DAYS,
                 'forwardOnly' => true,
                 'gt' => 'installment_first_due_days',
             ],
@@ -238,7 +242,6 @@ class SettingsRegistry
                 'default' => LawyerShare::DEFAULT_PCT,
                 'min' => 1,
                 'max' => 100,
-                'rules' => ['required', 'integer', 'min:1', 'max:100'],
                 'forwardOnly' => true,
             ],
             // عتبتا الحِمل في صفحة المحامين وشاشة التوزيع ولوحة الإدارة — تعريفٌ واحد (`LawyerWorkload`)؛
@@ -250,8 +253,7 @@ class SettingsRegistry
                 'type' => 'int',
                 'default' => LawyerWorkload::MODERATE_FROM,
                 'min' => 1,
-                'max' => 200,
-                'rules' => ['required', 'integer', 'min:1', 'max:200'],
+                'max' => self::MAX_COUNT,
             ],
             'workload_busy_from' => [
                 'group' => 'lawyers',
@@ -259,9 +261,8 @@ class SettingsRegistry
                 'hint' => 'من هذا الحدّ فما فوقه يُعرض المحامي «مشغولاً» في صفحة المحامين وشاشة التوزيع ولوحة الإدارة.',
                 'type' => 'int',
                 'default' => LawyerWorkload::BUSY_FROM,
-                'min' => 2,
-                'max' => 300,
-                'rules' => ['required', 'integer', 'min:2', 'max:300'],
+                'min' => 1,
+                'max' => self::MAX_COUNT,
                 'gt' => 'workload_moderate_from',
             ],
 
@@ -277,7 +278,6 @@ class SettingsRegistry
                 'default' => LawyerAvailability::WORK_START,
                 'min' => 0,
                 'max' => 23,
-                'rules' => ['required', 'integer', 'min:0', 'max:23'],
             ],
             'consult_day_end' => [
                 'group' => 'consults',
@@ -287,7 +287,6 @@ class SettingsRegistry
                 'default' => LawyerAvailability::WORK_END,
                 'min' => 1,
                 'max' => 24,
-                'rules' => ['required', 'integer', 'min:1', 'max:24'],
                 // علاقةٌ بين حقلين لا يعبّر عنها `gt:` وحده: البطاقة قد ترسل أحدهما، فيُقارن
                 // بالمحفوظ للآخر — `relationErrors()` تتولّاه.
                 'gt' => 'consult_day_start',
@@ -327,9 +326,8 @@ class SettingsRegistry
                 'hint' => 'طول شريحة الحجز: لا يُحجز للمحامي موعدان داخل هذه المسافة. لا يُنهي الجلسة — الاستشارة والاجتماع ينتهيان حين يُنهيهما الطاقم أو يُنهى اجتماع Zoom.',
                 'type' => 'int',
                 'default' => LawyerAvailability::SLOT_MIN,
-                'min' => 15,
-                'max' => 120,
-                'rules' => ['required', 'integer', 'min:15', 'max:120'],
+                'min' => 1,
+                'max' => self::MINUTES_PER_DAY,
                 'forwardOnly' => true,
             ],
             'meeting_reschedule_limit' => [
@@ -340,7 +338,6 @@ class SettingsRegistry
                 'default' => Meeting::RESCHEDULE_LIMIT,
                 'min' => 0,
                 'max' => 10,
-                'rules' => ['required', 'integer', 'min:0', 'max:10'],
             ],
             'consult_reschedule_limit' => [
                 'group' => 'consults',
@@ -350,7 +347,6 @@ class SettingsRegistry
                 'default' => RescheduleConsult::LIMIT,
                 'min' => 0,
                 'max' => 10,
-                'rules' => ['required', 'integer', 'min:0', 'max:10'],
             ],
             // **المهل بالدقائق** (قرار المالك 2026-09-26): كانت أربعٌ منها بالساعات، فلا تُضبط مهلةٌ
             // من ٥ أو ١٠ دقائق. والشاشة تأخذ دقائق، وكلُّ نصٍّ يقرؤه إنسانٌ يُصاغ منها بوحدتها
@@ -366,7 +362,6 @@ class SettingsRegistry
                 'default' => Consult::RESCHEDULE_REQUEST_NOTICE_MINUTES,
                 'min' => 0,
                 'max' => 10080,
-                'rules' => ['required', 'integer', 'min:0', 'max:10080'],
             ],
 
             // ── المهل والتنبيهات ──
@@ -378,9 +373,8 @@ class SettingsRegistry
                 'hint' => 'عمر التذكرة المفتوحة بلا محامٍ مسنَد قبل تصعيدها إلى الإدارة العليا وإسنادها لها.',
                 'type' => 'int',
                 'default' => 120,
-                'min' => 5,
-                'max' => 240,
-                'rules' => ['required', 'integer', 'min:5', 'max:240'],
+                'min' => 1,
+                'max' => self::MAX_MINUTES,
             ],
             'consult_autoclose_minutes' => [
                 'group' => 'alerts',
@@ -388,9 +382,8 @@ class SettingsRegistry
                 'hint' => 'الدقائق بعد موعد الجلسة التي تُوسَم بعدها الاستشارة التي لم تُعقد «لم يحضر» آلياً. 720 = 12 ساعة. لا تقلّ عن «عدّ الجلسة التي لم تبدأ فائتةً بعد» — فلا تُغلق قبل أن تُعدّ فائتة.',
                 'type' => 'int',
                 'default' => 720,
-                'min' => 5,
-                'max' => 4320,
-                'rules' => ['required', 'integer', 'min:5', 'max:4320'],
+                'min' => 1,
+                'max' => self::MAX_MINUTES,
                 'gte' => 'session_missed_after_minutes',
             ],
             // ── نهاية الجلسة حدثٌ لا حساب (قرار المالك 2026-09-26) — `SessionWindow` ──
@@ -402,9 +395,8 @@ class SettingsRegistry
                 'hint' => 'استشارةٌ أو اجتماعٌ لم يبدأ بعد هذه الدقائق من موعده يُعرض «فائتاً» ويُغلق باب دخوله، ويجوز تسجيل «لم يحضر». لا يمسّ جلسةً بدأت — تلك لا تنتهي إلّا بإنهائها.',
                 'type' => 'int',
                 'default' => SessionWindow::MISSED_AFTER_MINUTES,
-                'min' => 10,
-                'max' => 240,
-                'rules' => ['required', 'integer', 'min:10', 'max:240'],
+                'min' => 1,
+                'max' => self::MAX_MINUTES,
             ],
             'meeting_autoclose_minutes' => [
                 'group' => 'meetings',
@@ -412,9 +404,8 @@ class SettingsRegistry
                 'hint' => 'الدقائق بعد موعد الاجتماع التي يُوسَم بعدها «لم ينعقد» آلياً إن لم يدخله أحد. 720 = 12 ساعة. لا تقلّ عن «عدّ الجلسة التي لم تبدأ فائتةً بعد» — فلا تُغلق قبل أن تُعدّ فائتة.',
                 'type' => 'int',
                 'default' => SessionWindow::MEETING_AUTOCLOSE_MINUTES,
-                'min' => 5,
-                'max' => 4320,
-                'rules' => ['required', 'integer', 'min:5', 'max:4320'],
+                'min' => 1,
+                'max' => self::MAX_MINUTES,
                 'gte' => 'session_missed_after_minutes',
             ],
             'session_stale_minutes' => [
@@ -423,9 +414,8 @@ class SettingsRegistry
                 'hint' => 'جلسةٌ بدأت ولم يُنهها أحد: بعد هذه الدقائق من بدئها يُنبَّه الطاقم وتُنهى الجلسة في النظام وفي Zoom. شبكة أمانٍ للنسيان، لا مدّةٌ للجلسة. 360 = 6 ساعات.',
                 'type' => 'int',
                 'default' => SessionWindow::STALE_AFTER_MINUTES,
-                'min' => 5,
-                'max' => 2880,
-                'rules' => ['required', 'integer', 'min:5', 'max:2880'],
+                'min' => 1,
+                'max' => self::MAX_MINUTES,
             ],
             // ── طبقتا تذكير الاجتماع (قرار المالك 2026-10-01) — نظيرُ طبقتي الاستشارة ──
             'meeting_reminder_lead' => [
@@ -434,9 +424,8 @@ class SettingsRegistry
                 'hint' => 'بريدٌ للعميل والمحامي المسنَد والمشاركين من الكادر. يجب أن يسبق التذكير الثاني.',
                 'type' => 'int',
                 'default' => Meeting::REMINDER_FAR_MINUTES,
-                'min' => 10,
-                'max' => 1440,
-                'rules' => ['required', 'integer', 'min:10', 'max:1440'],
+                'min' => 1,
+                'max' => self::MAX_MINUTES,
                 'gt' => 'meeting_reminder_near_minutes',
             ],
             'meeting_reminder_near_minutes' => [
@@ -445,9 +434,8 @@ class SettingsRegistry
                 'hint' => 'إشعارٌ في حساب العميل. 30 = نصف ساعة. والرسالة النصّيّة واحدةٌ عند «فتح الدخول» فيها تاريخ الاجتماع ووقته ورابطه. يجب أن يكون قبل «فتح الدخول».',
                 'type' => 'int',
                 'default' => Meeting::REMINDER_NEAR_MINUTES,
-                'min' => 5,
-                'max' => 720,
-                'rules' => ['required', 'integer', 'min:5', 'max:720'],
+                'min' => 1,
+                'max' => self::MAX_MINUTES,
                 'gt' => 'session_join_opens_minutes',
             ],
             // ── نوافذ الدخول وطبقات التذكير — افتراضاتها ما كان منقوشاً (`SessionWindow` وأوامر التذكير) ──
@@ -458,8 +446,7 @@ class SettingsRegistry
                 'type' => 'int',
                 'default' => SessionWindow::JOIN_OPENS_BEFORE_MINUTES,
                 'min' => 1,
-                'max' => 60,
-                'rules' => ['required', 'integer', 'min:1', 'max:60'],
+                'max' => self::MAX_MINUTES,
             ],
             'consult_staff_start_minutes' => [
                 'group' => 'alerts',
@@ -470,8 +457,7 @@ class SettingsRegistry
                 'type' => 'int',
                 'default' => SessionWindow::STAFF_START_BEFORE_MINUTES,
                 'min' => 1,
-                'max' => 120,
-                'rules' => ['required', 'integer', 'min:1', 'max:120'],
+                'max' => self::MAX_MINUTES,
                 'gte' => 'session_join_opens_minutes',
             ],
             'consult_reminder_far_minutes' => [
@@ -480,9 +466,8 @@ class SettingsRegistry
                 'hint' => 'للاستشارات المسدَّدة ذات الموعد. 1440 = 24 ساعة. يجب أن يسبق التذكير النصّيّ.',
                 'type' => 'int',
                 'default' => 1440,
-                'min' => 60,
-                'max' => 4320,
-                'rules' => ['required', 'integer', 'min:60', 'max:4320'],
+                'min' => 1,
+                'max' => self::MAX_MINUTES,
                 'gt' => 'consult_reminder_near_minutes',
             ],
             'consult_reminder_near_minutes' => [
@@ -491,9 +476,8 @@ class SettingsRegistry
                 'hint' => 'للاستشارة المسدَّدة: المرئيّة يصلها إشعارٌ في الحساب (ورسالتها النصّيّة رسالةُ الرابط عند «فتح الدخول»)، والحضوريّة والهاتفيّة تصلها رسالةٌ نصّيّة بالموعد والمكان. يجب أن يكون قبل «فتح الدخول».',
                 'type' => 'int',
                 'default' => 30,
-                'min' => 5,
-                'max' => 720,
-                'rules' => ['required', 'integer', 'min:5', 'max:720'],
+                'min' => 1,
+                'max' => self::MAX_MINUTES,
                 'gt' => 'session_join_opens_minutes',
             ],
             'hearing_reminder_far_minutes' => [
@@ -502,9 +486,8 @@ class SettingsRegistry
                 'hint' => 'إشعار داخليّ وبريد للعميل والمحامي المسنَد. 1440 = 24 ساعة. يجب أن يسبق التذكير الثاني.',
                 'type' => 'int',
                 'default' => 1440,
-                'min' => 60,
-                'max' => 4320,
-                'rules' => ['required', 'integer', 'min:60', 'max:4320'],
+                'min' => 1,
+                'max' => self::MAX_MINUTES,
                 'gt' => 'hearing_reminder_near_minutes',
             ],
             'hearing_reminder_near_minutes' => [
@@ -513,9 +496,8 @@ class SettingsRegistry
                 'hint' => 'إشعار داخليّ وبريد ثانٍ قريبٌ من الموعد.',
                 'type' => 'int',
                 'default' => 60,
-                'min' => 10,
-                'max' => 720,
-                'rules' => ['required', 'integer', 'min:10', 'max:720'],
+                'min' => 1,
+                'max' => self::MAX_MINUTES,
             ],
             // ── ما كان منقوشاً في أوامر المجدول وتوليد المهامّ (تدقيق الإعدادات — المرحلة ٣) ──
             'hearing_lapse_after_minutes' => [
@@ -524,9 +506,8 @@ class SettingsRegistry
                 'hint' => 'بعد هذه الدقائق من موعد الجلسة المجدولة التي لم تُسجَّل نتيجتها تصير «بانتظار تسجيل النتيجة» ويُنبَّه المحامي المسنَد. 1440 = 24 ساعة.',
                 'type' => 'int',
                 'default' => 1440,
-                'min' => 60,
-                'max' => 10080,
-                'rules' => ['required', 'integer', 'min:60', 'max:10080'],
+                'min' => 1,
+                'max' => self::MAX_MINUTES,
             ],
             'meet_invite_expire_minutes' => [
                 'group' => 'meetings',
@@ -535,9 +516,8 @@ class SettingsRegistry
                 'hint' => 'دعوةٌ أرسلها الموظّف أو المحامي ولم توافق عليها الإدارة تصير «منتهية الصلاحيّة» بعد هذه الدقائق من موعدها، ويُعاد إرسالها بموعدٍ جديد. ولا تُعتمد دعوةٌ فات موعدها في أيّ حال. 360 = 6 ساعات.',
                 'type' => 'int',
                 'default' => 360,
-                'min' => 30,
-                'max' => 4320,
-                'rules' => ['required', 'integer', 'min:30', 'max:4320'],
+                'min' => 1,
+                'max' => self::MAX_MINUTES,
             ],
             'decision_task_due_days' => [
                 'group' => 'meetings',
@@ -546,8 +526,7 @@ class SettingsRegistry
                 'type' => 'int',
                 'default' => 7,
                 'min' => 1,
-                'max' => 60,
-                'rules' => ['required', 'integer', 'min:1', 'max:60'],
+                'max' => self::MAX_DAYS,
                 'forwardOnly' => true,
             ],
             'consult_request_late_minutes' => [
@@ -559,9 +538,8 @@ class SettingsRegistry
                 // «متأخّر» في شاشةٍ و«في الوقت» في جارتها. اختير 120 — ساعتان، ما تعلنه
                 // تسمية فلتر «متأخرة (> ساعتين)» وما يطابق مهلة تصعيد التذكرة.
                 'default' => 120,
-                'min' => 15,
-                'max' => 1440,
-                'rules' => ['required', 'integer', 'min:15', 'max:1440'],
+                'min' => 1,
+                'max' => self::MAX_MINUTES,
             ],
 
             // ── بيانات المكتب ──
@@ -662,9 +640,8 @@ class SettingsRegistry
                 'hint' => 'يُكتب في بطاقة الموعد (الشاشة وملفّ PDF): «يُرجى الحضور قبل الموعد بـ…».',
                 'type' => 'int',
                 'default' => 15,
-                'min' => 5,
-                'max' => 120,
-                'rules' => ['required', 'integer', 'min:5', 'max:120'],
+                'min' => 1,
+                'max' => self::MAX_MINUTES,
             ],
 
             // ── مسمّيات المتحدّثين (طلب المالك 2026-09-25) ──
@@ -798,7 +775,10 @@ class SettingsRegistry
         $rules = [];
 
         foreach (self::all() as $key => $field) {
-            $rules[$key] = array_merge(['sometimes'], $field['rules']);
+            // العدد يُشتقّ تحقّقه من `min`/`max` نفسيهما — مصدرٌ واحد للشاشة والتحقّق والقيد عند القراءة
+            $rules[$key] = array_merge(['sometimes'], $field['type'] === 'int'
+                ? ['required', 'integer', 'min:'.$field['min'], 'max:'.$field['max']]
+                : $field['rules']);
         }
 
         return $rules;

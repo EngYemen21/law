@@ -104,7 +104,7 @@ class AdminSettingsTest extends TestCase
     public function test_a_value_out_of_range_is_refused_and_nothing_is_written(): void
     {
         $this->actingAs($this->admin())
-            ->post(route('admin.settings.update'), ['exec_pay_days' => 99])
+            ->post(route('admin.settings.update'), ['exec_pay_days' => 0])
             ->assertSessionHasErrors('exec_pay_days');
 
         $this->assertNull(Setting::get('exec_pay_days'));
@@ -117,7 +117,7 @@ class AdminSettingsTest extends TestCase
         $this->app->setLocale('ar');
 
         $this->actingAs($this->admin())
-            ->post(route('admin.settings.update'), ['exec_pay_days' => 99, 'office_url' => 'x'])
+            ->post(route('admin.settings.update'), ['exec_pay_days' => 0, 'office_url' => 'x'])
             ->assertSessionHasErrors('exec_pay_days');
 
         $errors = session('errors')->getBag('default');
@@ -184,8 +184,11 @@ class AdminSettingsTest extends TestCase
         $this->assertSame('011 462 2277', SettingsRegistry::str('office_phone'));
 
         // وقيمةٌ فاسدة في القاعدة تُقيَّد بمداها بدل أن توقف ميزة
-        Setting::put('installments_count', '900');
-        $this->assertSame(6, SettingsRegistry::int('installments_count'));
+        Setting::put('installments_count', '999999');
+        $this->assertSame(SettingsRegistry::field('installments_count')['max'], SettingsRegistry::int('installments_count'));
+        Setting::put('consult_slot_minutes', '0');
+        SettingsRegistry::flush();
+        $this->assertSame(1, SettingsRegistry::int('consult_slot_minutes'));
     }
 
     // ── ٨ ──
