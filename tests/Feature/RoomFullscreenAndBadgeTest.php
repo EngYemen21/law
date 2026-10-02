@@ -42,4 +42,14 @@ class RoomFullscreenAndBadgeTest extends TestCase
         $this->assertStringContainsString('<EnvironmentBadge />', $this->src('js/components/layouts/AppLayout.tsx'));
         $this->assertStringContainsString('body:has(.mroom-head) .env-badge{display:none}', $this->src('css/babylon.css'));
     }
+
+    /** حاوية صفحة الملخّص بحدٍّ أدنى لا ارتفاعٍ ثابت — الثابت ضغط بطاقة العنوان فتراكب عليها ما تحتها. */
+    public function test_summary_page_container_is_not_fixed_height(): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/\.summary-page-container \{[^}]*min-height: 100dvh;[^}]*\}/',
+            $this->src('css/app.css'),
+        );
+        $this->assertDoesNotMatchRegularExpression('/\.summary-page-container \{[^}]*[^-]height: 100dvh;/', $this->src('css/app.css'));
+    }
 }
