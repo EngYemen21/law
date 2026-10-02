@@ -405,6 +405,19 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 .composer textarea{width:100%;font-family:inherit;font-size:14px;border:1.4px solid var(--line);border-radius:var(--r-sm);padding:11px;resize:vertical;min-height:74px;outline:none}
 .composer textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(14,92,156,.12)}
 .composer .crow{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.composer-label{font-size:12px;font-weight:700;color:var(--faint);margin-bottom:8px}
+.composer-hint{font-size:11.5px;color:var(--muted);margin-top:6px}
+/* **صندوق محادثةٍ مضغوط على الهاتف** (`ChatThread`) — صفٌّ واحد: مربّعٌ يبدأ سطراً ويطول حتى ١٢٠px، وزرّا الإرسال
+   والإرفاق أيقونتان. كان الصندوق الملتصق يأخذ نصف الشاشة فتمرّ الرسائل تحته مقصوصة. الصيغ المسموحة تبقى في تلميح
+   زرّ الإرفاق ورسالة الرفض. */
+@media(max-width:640px){
+  .composer.chat-composer{display:flex;align-items:flex-end;gap:8px;padding:8px 10px}
+  .chat-composer .composer-label,.chat-composer .composer-hint{display:none}
+  .chat-composer textarea{flex:1;min-width:0;min-height:44px;max-height:120px;resize:none;overflow-y:auto;padding:10px 11px}
+  .chat-composer .crow{margin-top:0;flex-wrap:nowrap;gap:6px}
+  .chat-composer .crow .btn{width:44px;height:44px;padding:0;justify-content:center;flex-shrink:0}
+  .chat-composer .crow .btn-txt{display:none}
+}
 .ov-intro{font-size:13.5px;color:var(--muted);margin-bottom:16px;line-height:1.8}
 .ov-h{font-size:13px;font-weight:800;color:var(--deep);margin:18px 0 10px}
 .ov-roles{display:grid;grid-template-columns:1fr 1fr;gap:11px}
@@ -1187,19 +1200,21 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
     grid-template-columns: minmax(0, 1fr) !important;
   }
 }
+/* **التبويبات تلتفّ بعرض حاويتها** — كانت صفّاً واحداً بتمريرٍ أفقيّ مخفيّ: على الهاتف وفي عمود الـ1024 (بجوار
+   القائمة الجانبيّة) يخرج التبويب النشط «المحادثة» من الإطار ويُقصّ «الأتعاب والفواتير» بلا ما يدلّ على
+   التمرير. الشبكة تضع الأربعة صفّاً حين يتّسع المكان، وصفّين حين يضيق — بعرض الحاوية لا الشاشة. */
 .exec-tabs {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 6px;
   background: var(--paper-2, #F1F5F9);
   border: 1px solid var(--line, #E2E8F0);
   border-radius: 12px;
   padding: 4px;
   margin-bottom: 16px;
-  overflow-x: auto;
 }
 .exec-tab {
-  flex: 1;
-  min-width: 120px;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1213,7 +1228,8 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
   border: none;
   cursor: pointer;
   transition: all 0.15s ease;
-  white-space: nowrap;
+  text-align: center;
+  line-height: 1.4;
 }
 .exec-tab:hover {
   color: var(--ink);
@@ -1314,6 +1330,8 @@ td.tc-actions > div{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end
 /* شارة «بيئة تجربة» (فصل البيئات 2026-09-29) — زاويةٌ ثابتة لا تلتقط النقر ولا تغطّي المحتوى */
 body:has(.mroom-head) .env-badge{display:none}
 .env-badge{position:fixed;bottom:10px;left:10px;z-index:95;pointer-events:none;font-size:11.5px;font-weight:700;color:#7a4a00;background:#fff4d6;border:1px solid #f0cf7a;border-radius:999px;padding:4px 11px;box-shadow:0 2px 8px rgba(0,0,0,.08);opacity:.92}
+/* على الهاتف أشرطة الأفعال في الأسفل (صندوق المحادثة، أزرار الحفظ) — فالشارة أعلى الشاشة في وسطها لا فوق زرّ الإرسال */
+@media(max-width:640px){.env-badge{bottom:auto;top:4px;left:50%;transform:translateX(-50%);font-size:10.5px;padding:2px 9px}}
 /* «طلبات الاجتماعات» (تحسين التصميم 2026-09-30) — مربّع تاريخ، وشارة حالةٍ واحدة، ومراحل نقاطاً، وبطاقاتٌ مضغوطة على الهاتف */
 .mr-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 .mr-head .sub{display:block;margin-top:3px}

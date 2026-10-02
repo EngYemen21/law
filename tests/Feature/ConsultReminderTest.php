@@ -51,7 +51,7 @@ class ConsultReminderTest extends TestCase
         Bus::fake();
         $this->configureTaqnyat();
         $client = User::factory()->create(['role' => Role::Client, 'phone' => '+966555550001']);
-        $consult = $this->scheduledConsult($client, 20);
+        $consult = $this->scheduledConsult($client, 8);   // داخل الطبقة القريبة (10د افتراضاً)
 
         $this->artisan('consults:send-reminders')->assertSuccessful();
 
@@ -130,13 +130,13 @@ class ConsultReminderTest extends TestCase
         $this->assertNull($fresh->reminder_30m_sent_at);
     }
 
-    /** قرار «ب»: المرئيّة يصلها قبل 30 دقيقة إشعارٌ لا رسالة — رسالتها واحدةٌ عند فتح الدخول. */
+    /** قرار «ب»: المرئيّة يصلها في الطبقة القريبة إشعارٌ لا رسالة — رسالتها واحدةٌ عند فتح الدخول. */
     public function test_video_consult_near_layer_is_a_notification_not_an_sms(): void
     {
         Bus::fake();
         $this->configureTaqnyat();
         $client = User::factory()->create(['role' => Role::Client, 'phone' => '+966555550006']);
-        $consult = $this->scheduledConsult($client, 25, channel: Consult::CHANNEL_VIDEO);
+        $consult = $this->scheduledConsult($client, 8, channel: Consult::CHANNEL_VIDEO);
 
         $this->artisan('consults:send-reminders')->assertSuccessful();
         $this->artisan('consults:send-reminders')->assertSuccessful();

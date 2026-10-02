@@ -41,7 +41,7 @@ class MeetingReminderTest extends TestCase
         $meeting = Meeting::create([
             'user_id' => $client->id, 'assigned_lawyer_id' => $lawyer->id,
             'ref' => 'M-8000', 'title' => 'جلسة مرافعة', 'when_label' => 'اليوم',
-            // داخل الطبقة البعيدة (60د) وقبل القريبة (30د) — ما دون نصف الساعة إشعارٌ ورسالة لا بريد (2026-10-01)
+            // داخل الطبقة البعيدة (720د) وقبل القريبة (10د) — ما دون نصف الساعة إشعارٌ ورسالة لا بريد (2026-10-01)
             'starts_at' => now()->addMinutes(45), 'status' => 'قادم',
         ]);
 
@@ -62,9 +62,9 @@ class MeetingReminderTest extends TestCase
         Mail::fake();
         $client = User::factory()->create(['role' => Role::Client, 'email' => 'c@example.com']);
 
-        // بعيد (خارج نافذة 60د)
+        // بعيد (خارج نافذة 720د)
         Meeting::create(['user_id' => $client->id, 'ref' => 'M-8001', 'title' => 'بعيد', 'when_label' => 'غداً',
-            'starts_at' => now()->addHours(5), 'status' => 'قادم']);
+            'starts_at' => now()->addHours(13), 'status' => 'قادم']);
         // بلا starts_at (تعذّر تحليل الموعد)
         Meeting::create(['user_id' => $client->id, 'ref' => 'M-8002', 'title' => 'بلا موعد', 'when_label' => 'الاثنين',
             'starts_at' => null, 'status' => 'قادم']);

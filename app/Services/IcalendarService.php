@@ -239,8 +239,7 @@ class IcalendarService
         $startCarbon = Carbon::parse($startsAt)->utc();
         $startUtc = $startCarbon->format('Ymd\THis\Z');
         // null ⇒ لا `DTEND`: حدثٌ عند لحظة بدايته (جلسة محكمة بلا مدّةٍ مُدخلة) بدل نهايةٍ مختلَقة.
-        // وبلا أرضيّة ١٥ دقيقة: مدّة الجلسة المُدخلة تُكتب كما هي، والرقم الاسميّ للاستشارة أرضيّته
-        // ١٥ في الإعدادات أصلاً (`consult_slot_minutes`)
+        // وبلا أرضيّة: المدّة المُدخلة تُكتب كما هي، والرقم الاسميّ للاستشارة دقيقةٌ فأكثر (`consult_slot_minutes`)
         $endLine = $durationMinutes === null
             ? ''
             : 'DTEND:'.$startCarbon->copy()->addMinutes($durationMinutes)->format('Ymd\THis\Z')."\r\n";

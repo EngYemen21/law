@@ -1,7 +1,7 @@
 import { Link, router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Icon from '@/lib/icons';
-import { attendanceLabel, fmtActualDuration, type FullMeetingCard } from '@/lib/meeting-ui';
+import { attendanceLabel, fmtActualDuration, MeetingApprovalBadge, type FullMeetingCard } from '@/lib/meeting-ui';
 import { MediaButton, meetingMediaUrls } from '@/lib/recording-ui';
 
 // يطابق meetLogView في index (82).html — الأرشيف حقيقي من الخادم (بيانات Zoom/الويبهوك فقط)
@@ -93,10 +93,8 @@ const AdminMeetLog: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) =
                     {(attendanceLabel(m) || actual) && (
                       <span className="chip"><Icon name="user" /> {[attendanceLabel(m), actual].filter(Boolean).join(' · ')}</span>
                     )}
-                    {/* شارة الاعتماد — يعرف المدقّق أيّ السجلات لم تُعتمد محاضرها بعد */}
-                    <span className="chip" style={m.approved ? undefined : { color: 'var(--amber, #b45309)' }}>
-                      <Icon name="check" /> {m.approved ? m.approve : 'بانتظار الاعتماد'}
-                    </span>
+                    {/* شارة اعتماد المحضر — يعرف المدقّق أيّ السجلات لم تُعتمد محاضرها بعد، ولا شارة لملغى أو لم ينعقد */}
+                    <MeetingApprovalBadge approval={m.approval} />
                   </div>
                 </div>
                 <div className="iact">

@@ -57,24 +57,25 @@ class SessionLinkReminderTest extends TestCase
         ]);
     }
 
-    public function test_join_opens_a_quarter_hour_before_by_default(): void
+    /** خمس دقائق افتراضاً (قرار المالك 2026-10-02؛ كانت ربع ساعة). */
+    public function test_join_opens_five_minutes_before_by_default(): void
     {
-        $this->assertSame(15, SessionWindow::JOIN_OPENS_BEFORE_MINUTES);
-        $this->assertSame(15, SettingsRegistry::int('session_join_opens_minutes'));
+        $this->assertSame(5, SessionWindow::JOIN_OPENS_BEFORE_MINUTES);
+        $this->assertSame(5, SettingsRegistry::int('session_join_opens_minutes'));
         $this->assertSame([], SettingsRegistry::relationErrors([]), 'الافتراضات متّسقة: بدء الطاقم ≥ فتح الدخول < التذكير القريب');
 
-        $this->assertFalse(SessionWindow::joinOpened(now()->addMinutes(16)), 'قبل 16 دقيقة: الزرّ مغلق');
-        $this->assertTrue(SessionWindow::joinOpened(now()->addMinutes(15)), 'قبل 15 دقيقة: الزرّ مفتوح');
+        $this->assertFalse(SessionWindow::joinOpened(now()->addMinutes(6)), 'قبل 6 دقائق: الزرّ مغلق');
+        $this->assertTrue(SessionWindow::joinOpened(now()->addMinutes(5)), 'قبل 5 دقائق: الزرّ مفتوح');
 
         $client = $this->client();
-        $this->assertFalse($this->meeting($client, 16)->canJoin());
-        $this->assertTrue($this->meeting($client, 14)->canJoin());
+        $this->assertFalse($this->meeting($client, 6)->canJoin());
+        $this->assertTrue($this->meeting($client, 4)->canJoin());
     }
 
     public function test_meeting_sms_carries_date_time_and_platform_room_link_once(): void
     {
         $client = $this->client();
-        $m = $this->meeting($client, 14);
+        $m = $this->meeting($client, 4);
         $later = $this->meeting($client, 20);
 
         $this->artisan('zoom:release-links')->assertSuccessful();
@@ -86,13 +87,13 @@ class SessionLinkReminderTest extends TestCase
             && str_contains($job->body, SessionLinkSms::when($m->starts_at))
             && str_contains($job->body, $m->joinLink($client))
             && ! str_contains($job->body, 'zoom.us'));
-        $this->assertNull($later->fresh()->link_released_at, 'قبل ربع الساعة لا إطلاق ولا رسالة');
+        $this->assertNull($later->fresh()->link_released_at, 'قبل فتح الدخول لا إطلاق ولا رسالة');
     }
 
     public function test_video_consult_sms_carries_date_time_and_room_link(): void
     {
         $client = $this->client('+966555550102');
-        $c = $this->consult($client, 10);
+        $c = $this->consult($client, 4);
 
         $this->artisan('zoom:release-links')->assertSuccessful();
 

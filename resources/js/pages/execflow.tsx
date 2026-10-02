@@ -1020,19 +1020,22 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
     <>
       {/* شريط الإجراءات والترويسة التنفيذية المتطورة */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        {/* العمود يتقلّص وسطرُ الشارات يلتفّ — كان سطراً لا يلتفّ (رجوع + الرقم + الشارات + رقم التنفيذ) فتعرض
+            الصفحة كلّها أعرض من الهاتف على ملفٍّ مغلقٍ له رقم تنفيذ */}
+        <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
             <button className="btn soft sm" type="button" onClick={onBack} title="رجوع للقائمة">
               <Icon name="reply" /> رجوع
             </button>
-            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>طلب تنفيذ #{r.id}</span>
+            {/* رقم الملفّ وحدةٌ لا تنكسر — على الشاشات الضيّقة كان ينقسم «#EXE-» / «2026-1312» */}
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>طلب تنفيذ <bdi style={{ whiteSpace: 'nowrap' }}>#{r.id}</bdi></span>
             <Badge text={r.stageLabel} tone={r.tone} />
-            {r.closed && <Badge text="مغلق" tone="b-grey" />}
-            {r.execNo && <span className="chip" style={{ fontSize: 11.5 }}>رقم التنفيذ: {r.execNo}</span>}
+            {r.closedBadge && <Badge text="مغلق" tone="b-grey" />}
+            {r.execNo && <span className="chip" style={{ fontSize: 11.5 }}>رقم التنفيذ: <bdi style={{ whiteSpace: 'nowrap' }}>{r.execNo}</bdi></span>}
           </div>
           <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: 'var(--ink)' }}>{r.subject}</h2>
           <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4 }}>
-            طالب التنفيذ: <b style={{ color: 'var(--ink)' }}>{r.client}</b> · السند: <b style={{ color: 'var(--ink)' }}>{r.sanad || '—'}</b> · المطالبة: <b style={{ color: 'var(--primary)' }}>{execMoney(r.amount)} ريال</b>
+            طالب التنفيذ: <b style={{ color: 'var(--ink)' }}>{r.client}</b> · السند: <b style={{ color: 'var(--ink)' }}>{r.sanad || '—'}</b> · المطالبة: <b style={{ color: 'var(--primary)', whiteSpace: 'nowrap' }}>{execMoney(r.amount)} ريال</b>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1176,11 +1179,8 @@ const ExecDetail: React.FC<ExecDetailProps> = ({ role, r, lawyers, onBack, act, 
                       {ai.notice && <div className="mtg-pend" style={{ marginBottom: 8 }}><Icon name="info" /> {ai.notice}</div>}
                       <p style={{ margin: '0 0 8px' }}>{r.aiSummary}</p>
                       {r.aiMissing.length > 0 && <div className="mtg-pend"><Icon name="info" /> نواقص مطلوبة: {r.aiMissing.join(' · ')}</div>}
-                      {r.aiProcedures.length > 0 && (
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                          {r.aiProcedures.map((p) => <span key={p} className="chip">{p}</span>)}
-                        </div>
-                      )}
+                      {/* المكوّن نفسه الذي في «دراسة التنفيذ» — كانت نسخةً بـ`chip` لا يلتفّ فتخرج الجمل الطويلة من البطاقة */}
+                      <StudyChips label="الإجراءات المقترحة" items={r.aiProcedures} />
                     </div>
                   </div>
                 );

@@ -29,21 +29,24 @@ final class SessionWindow
 {
     /**
      * **الافتراض المُعلَن** لـ`session_join_opens_minutes` — يُفتح الدخول قبل الموعد بها، وفيها تُرسل
-     * رسالة رابط الجلسة للعميل (`SessionLinkSms`). كانت 5؛ صارت ربع ساعة (قرار المالك 2026-10-01).
+     * رسالة رابط الجلسة للعميل (`SessionLinkSms`). خمس دقائق (قرار المالك 2026-10-02؛ كانت ربع ساعة).
      */
-    public const JOIN_OPENS_BEFORE_MINUTES = 15;
+    public const JOIN_OPENS_BEFORE_MINUTES = 5;
 
     /** **الافتراض المُعلَن** لـ`consult_staff_start_minutes` — يبدأ الطاقم الاستشارة قبل الموعد بها. */
-    public const STAFF_START_BEFORE_MINUTES = 15;
+    public const STAFF_START_BEFORE_MINUTES = 5;
 
-    /** **الافتراض المُعلَن** لـ`session_missed_after_minutes` — القيمة النافذة من الإعدادات. */
-    public const MISSED_AFTER_MINUTES = 60;
+    /**
+     * **الافتراض المُعلَن** لـ`session_missed_after_minutes` — عشر دقائق مهلةُ تأخّرٍ قبل أن يُغلق باب الدخول
+     * (قرار المالك 2026-10-02: الحسم سريع، والمتأخّر دقيقتين لا يُعدّ غائباً).
+     */
+    public const MISSED_AFTER_MINUTES = 10;
 
     /** **الافتراض المُعلَن** لـ`session_stale_minutes` — ست ساعات. */
     public const STALE_AFTER_MINUTES = 360;
 
-    /** **الافتراض المُعلَن** لـ`meeting_autoclose_minutes` — ١٢ ساعة (كانت منقوشةً في `zoom:auto-close-missed`). */
-    public const MEETING_AUTOCLOSE_MINUTES = 720;
+    /** **الافتراض المُعلَن** لـ`meeting_autoclose_minutes` — مع مهلة الفوات نفسها (كانت ١٢ ساعة). */
+    public const MEETING_AUTOCLOSE_MINUTES = self::MISSED_AFTER_MINUTES;
 
     /** السبب المكتوب في سطر التنبيه بسجلّ الرحلة وفي نصّ تنبيه الطاقم. */
     public const STALE_ALERT_REASON = 'بدأت الجلسة ولم يُنهها أحد';

@@ -143,6 +143,17 @@ class ExecutionDefendantTest extends TestCase
         $this->assertFalse($flag(User::factory()->create(['role' => Role::Lawyer, 'status' => 'active'])));
     }
 
+    /** «مغلق» مرّةً واحدة في ترويسة الملفّ — شارة المرحلة تقولها في المرحلة 9، والشارة الإضافيّة لما أُغلق قبلها. */
+    public function test_the_closed_badge_is_not_repeated(): void
+    {
+        $this->actingAs($this->admin);
+        $atStage = $this->openExec(stage: 9);
+        $this->assertTrue($atStage->toFlowCard(internal: true)['closed']);
+        $this->assertFalse($atStage->toFlowCard(internal: true)['closedBadge']);
+        $this->assertTrue($this->openExec(stage: 8)->forceFill(['status' => Execution::CLOSED_STATUSES[0]])->toFlowCard(internal: true)['closedBadge']);
+        $this->assertFalse($this->openExec(stage: 8)->toFlowCard(internal: true)['closedBadge']);
+    }
+
     // ── (ب) مع طلب فتح التنفيذ من القضيّة ──
 
     public function test_the_request_carries_the_defendant_into_the_file(): void

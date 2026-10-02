@@ -121,9 +121,9 @@ class TicketAssignment
      */
     public static function suggest(Ticket $ticket): LawyerSuggestion
     {
-        [$lawyers, $openCounts] = self::pool();
+        [$lawyers, $loads] = self::pool();
 
-        return self::choose($ticket, $lawyers, $openCounts);
+        return self::choose($ticket, $lawyers, $loads);
     }
 
     /**
@@ -134,11 +134,19 @@ class TicketAssignment
      */
     public static function suggestMany(iterable $tickets): array
     {
-        [$lawyers, $openCounts] = self::pool();
+        [$lawyers, $loads] = self::pool();
 
         $out = [];
         foreach ($tickets as $ticket) {
-            $out[$ticket->id] = self::choose($ticket, $lawyers, $openCounts);
+            $suggestion = self::choose($ticket, $lawyers, $loads);
+            $out[$ticket->id] = $suggestion;
+
+            // **الدفعة تتوزّع لا تتكدّس** (قرار المالك 2026-10-02): كلّ اقتراحٍ يزيد حِمل صاحبه بوزن التذكرة،
+            // فالتذكرة التالية تُقارَن بالحِمل بعد الاقتراح — كانت التذاكر كلّها تُقترح لأقلّهم حِملاً قبل الدفعة
+            if ($suggestion->lawyer !== null) {
+                $id = (int) $suggestion->lawyer->id;
+                $loads[$id] = ($loads[$id] ?? 0) + LawyerWorkload::WEIGHTS['tickets'];
+            }
         }
 
         return $out;
@@ -176,9 +184,10 @@ class TicketAssignment
 
     /**
      * مسبح الاقتراح: المحامون النشطون في وضع التوزيع التلقائي فقط (الـ manual يُسنَد يدوياً)،
-     * مع عدد التذاكر المفتوحة لكلٍّ منهم (لموازنة الحمل).
+     * مع **حِملهم الكامل** (`LawyerWorkload`: تذاكر وقضايا وتنفيذ واستشارات بأوزانها) — المقياس الذي
+     * تعرضه شاشة التوزيع. كان عددَ التذاكر وحده، فمحامٍ مثقلٌ بالقضايا يبدو فارغاً (قرار المالك 2026-10-02).
      *
-     * @return array{0: Collection<int, User>, 1: Collection<int|string, mixed>}
+     * @return array{0: Collection<int, User>, 1: array<int, int>} المحامون، والحِمل مفهرساً بالمعرّف
      */
     private static function pool(): array
     {
@@ -188,20 +197,16 @@ class TicketAssignment
             ->with('specialties')
             ->get();
 
-        $openCounts = $lawyers->isEmpty() ? collect() : Ticket::whereIn('assigned_lawyer_id', $lawyers->pluck('id'))
-            ->open()
-            ->selectRaw('assigned_lawyer_id, count(*) as c')
-            ->groupBy('assigned_lawyer_id')
-            ->pluck('c', 'assigned_lawyer_id');
+        $loads = array_map(fn (array $w) => $w['total'], LawyerWorkload::forMany($lawyers->pluck('id')->map(fn ($id) => (int) $id)->all()));
 
-        return [$lawyers, $openCounts];
+        return [$lawyers, $loads];
     }
 
     /**
      * @param  Collection<int, User>  $lawyers
-     * @param  Collection<int|string, mixed>  $openCounts
+     * @param  array<int, int>  $loads
      */
-    private static function choose(Ticket $ticket, Collection $lawyers, Collection $openCounts): LawyerSuggestion
+    private static function choose(Ticket $ticket, Collection $lawyers, array $loads): LawyerSuggestion
     {
         $dept = $ticket->department;
         if ($lawyers->isEmpty()) {
@@ -229,8 +234,8 @@ class TicketAssignment
 
         $pool = $deptMatched->isNotEmpty() ? $deptMatched : $lawyers;
 
-        // ترتيب حتمي: الأقل حملاً ثم الأقدم معرّفاً
-        $ordered = $pool->sortBy(fn ($u) => sprintf('%09d-%09d', (int) ($openCounts[$u->id] ?? 0), $u->id))->values();
+        // ترتيب حتمي: الأقل حِملاً كاملاً ثم الأقدم معرّفاً
+        $ordered = $pool->sortBy(fn ($u) => sprintf('%09d-%09d', $loads[(int) $u->id] ?? 0, $u->id))->values();
 
         // ⚠️ نداء chooseLawyer أُحيل للتقاعد. ثلاثة أسباب:
         // (1) الكلفة: run() أوّل ما يفعل WebTimeLimit::raise(150) — فطلب فتح التذكرة

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Domain\Journey\Enums\MeetingApproval;
 use App\Domain\Journey\Enums\MeetingStatus;
 use App\Domain\Journey\Transitions\Meeting\CancelMeeting;
 use App\Domain\Journey\Transitions\Meeting\EndMeeting;
@@ -388,6 +389,23 @@ class Meeting extends Model
     }
 
     /**
+     * **حالة اعتماد المحضر المعروضة** — `null` لما لا اعتماد له (قادم، جارٍ، ملغى، لم ينعقد). مصدر شارة
+     * الاعتماد الوحيد في البطاقة والبثّ: كانت الشاشات تعرض نصّ العمود `approve` وقيمته الافتراضيّة
+     * «بانتظار اعتماد الإدارة» على كلّ اجتماع. والقاعدة قاعدة `approvalBlocker` نفسها: منتهٍ وله مخرجات.
+     * والانتهاء يُسأل **أوّلاً**: الاعتماد لا يقع إلّا على منتهٍ، فسجلٌّ قديم يحمل «معتمد» على ملغى أو قادم
+     * لا يُعرض معتمداً.
+     */
+    public function approvalState(): ?MeetingApproval
+    {
+        return match (true) {
+            $this->status !== MeetingStatus::Ended->value => null,
+            $this->isApproved() => MeetingApproval::Approved,
+            $this->hasRealOutput() => MeetingApproval::AwaitingApproval,
+            default => MeetingApproval::AwaitingMinutes,
+        };
+    }
+
+    /**
      * **عدد ما ينتظر الاعتماد فعلاً** — منتهٍ غير معتمد، ثمّ حكم `canApprove` نفسه (المخرجات الحقيقيّة
      * لا تُقرَّر في SQL: القوالب الفارغة نصٌّ غير فارغ). كان رادار اللوحة يعدّ كلّ منتهٍ غير معتمد،
      * فيعرض «محضراً بانتظار الاعتماد» لا زرّ اعتمادٍ له (قرار المالك 2026-10-01).
@@ -483,9 +501,9 @@ class Meeting extends Model
     }
 
     /** افتراضا طبقتي التذكير (`meeting_reminder_lead` · `meeting_reminder_near_minutes`) — بريدٌ ثمّ إشعارٌ ورسالة للعميل. */
-    public const REMINDER_FAR_MINUTES = 60;
+    public const REMINDER_FAR_MINUTES = 720;
 
-    public const REMINDER_NEAR_MINUTES = 30;
+    public const REMINDER_NEAR_MINUTES = 10;
 
     /** سقف إعادة جدولة الاجتماع الافتراضيّ — ما بعده للإدارة العليا وحدها (`meeting_reschedule_limit`). */
     public const RESCHEDULE_LIMIT = 2;
@@ -588,7 +606,8 @@ class Meeting extends Model
             'lawyer' => $this->assignedLawyer?->name ?: '—',
             'lawyerId' => $this->assigned_lawyer_id,
             'when' => $this->when_label,
-            'approve' => $this->approve,
+            // شارة اعتماد المحضر من الخادم (`approvalState`) — لا نصّ العمود الذي يحمل الافتراض على كلّ اجتماع
+            'approval' => $this->approvalState()?->toCard(),
             // الحالة الحيّة المشتقّة (لا المخزّنة) — «قادم» الفائت يظهر «لم ينعقد» فوراً
             'status' => $this->liveState()[1],
             // مفتاحها اللاتينيّ للمنطق (`MeetingStatus::key`) — النصّ للعرض وحده

@@ -1,9 +1,8 @@
 import { router } from '@inertiajs/react';
 import React from 'react';
-import Badge from '@/components/babylon/Badge';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
-import { attendanceLabel, fmtActualDuration  } from '@/lib/meeting-ui';
+import { attendanceLabel, fmtActualDuration, MeetingApprovalBadge } from '@/lib/meeting-ui';
 import type {FullMeetingCard} from '@/lib/meeting-ui';
 import { firstError } from '@/lib/server-message';
 
@@ -53,15 +52,11 @@ const AdminMeetings: React.FC<{ meetings: FullMeetingCard[] }> = ({ meetings }) 
                 <button className="btn soft sm" onClick={() => router.visit(`/admin/meeting?id=${encodeURIComponent(m.id)}`)} type="button">
                   <Icon name="out" /> فتح الصفحة
                 </button>
-                {m.approved ? (
-                  <Badge text={m.approve} tone="b-green" />
-                ) : m.canApprove ? (
-                  /* حكم حارس الاعتماد نفسه (`Meeting::approvalBlocker`) — القالبيّ ليس مخرجاً فلا زرّ يُردّ بـ٤٢٢ */
-                  <button className="btn sm" onClick={() => approve(m)} type="button"><Icon name="check" /> اعتماد</button>
-                ) : (
-                  /* الاعتماد بعد الانتهاء وتوفر المخرجات فقط — كما تفعل صفحة التفاصيل */
-                  <span className="chip muted">بانتظار المخرجات</span>
-                )}
+                {/* حكم حارس الاعتماد نفسه (`Meeting::approvalBlocker`) — القالبيّ ليس مخرجاً فلا زرّ يُردّ بـ٤٢٢؛
+                    وما عداه شارة الخادم (`approvalState`): معتمد، أو بانتظار المحضر — ولا شيء لقادمٍ أو ملغى */}
+                {m.canApprove
+                  ? <button className="btn sm" onClick={() => approve(m)} type="button"><Icon name="check" /> اعتماد</button>
+                  : <MeetingApprovalBadge approval={m.approval} />}
               </div>
             </div>
           )) : (

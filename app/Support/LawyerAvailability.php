@@ -59,7 +59,11 @@ class LawyerAvailability
     private const CLOSED_EXECS = Execution::CLOSED_STATUSES;
 
     /**
-     * المحامون المتخصّصون مرتّبون بأولوية الذكاء الاصطناعي، مع سجلّ النجاح والتفرّغ ليوم مُعطى.
+     * المحامون المتخصّصون مرتّبين **بالحِمل الكامل أوّلاً** (`LawyerWorkload`)، ثمّ بسجلّ الإنجاز بين
+     * المتساوين، مع التفرّغ ليوم مُعطى.
+     *
+     * كان الترتيب بالإنجاز أوّلاً، فالمحامي الأقدم يأخذ كلّ استشارةٍ ولو كان حِمله 49 والجديد صفراً —
+     * ولا يصل الجديدَ شيءٌ إلّا حين ينشغل الأقدم في الساعة نفسها (ثبت في التوزيع، قرار المالك 2026-10-02).
      *
      * @return array<int, array{id:int,name:string,dept:string,success:array,load:int,slots:array,freeCount:int}>
      */
@@ -89,8 +93,10 @@ class LawyerAvailability
             ? self::busyIntervalsForMany($ids, $day->toDateString())
             : [];
 
+        $workload = LawyerWorkload::forMany($ids);
+
         // وسم كل مرشّح بسجلّ النجاح والحمل من البيانات المجمّعة (بلا استعلام لكل محامٍ)
-        $rows = $pool->map(function ($u) use ($tickets, $cases, $execs) {
+        $rows = $pool->map(function ($u) use ($tickets, $cases, $execs, $workload) {
             $id = (int) $u->id;
             $t = $tickets->get($id, collect());
             $c = $cases->get($id, collect());
@@ -109,13 +115,13 @@ class LawyerAvailability
                     'closed' => $closed,
                     'total' => $total,
                 ],
-                'load' => $t->whereNotIn('status', TicketStatus::finals())->count(),
+                'load' => $workload[$id]['total'] ?? 0,
             ];
-        })->sort(fn ($a, $b) => [$b['success']['closed'], $b['success']['rate'], $a['load'], $a['id']]
-            <=> [$a['success']['closed'], $a['success']['rate'], $b['load'], $b['id']]
+        })->sort(fn ($a, $b) => [$a['load'], $b['success']['closed'], $b['success']['rate'], $a['id']]
+            <=> [$b['load'], $a['success']['closed'], $a['success']['rate'], $b['id']]
         )->values();
 
-        // ترتيب حتميّ فوري (الأكثر إنجازاً ← الأقل حملاً) — بلا نداء AI متزامن على نقطة تفاعلية
+        // ترتيب حتميّ فوري (الأقلّ حِملاً ← الأكثر إنجازاً بين المتساوين) — بلا نداء AI متزامن على نقطة تفاعلية
         // (كان rankLawyers يعلّق طلب اختيار الموعد حتى 150ث؛ الترتيب الحتميّ سريع وسليم).
         return $rows->map(function (array $row) use ($intervalsByLawyer, $isWorkDay, $day) {
             $slots = $isWorkDay

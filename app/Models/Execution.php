@@ -319,6 +319,8 @@ class Execution extends Model implements ClientConversation
             ])->values()->all(),
             'najiz' => $this->najizCard(),
             'closed' => $this->isClosed(),
+            // شارة «مغلق» إضافيّة لملفٍّ أُغلق قبل مرحلة الإغلاق وحده — وإلّا فشارة المرحلة تقولها («مغلق» مرّتين)
+            'closedBadge' => $this->isClosed() && $stage < 9,
             // مجموعة الملفّ في تبويبات القائمة (`ExecFlow::BUCKETS`) — لا شروطَ مرحلةٍ في الواجهة
             'bucket' => ExecFlow::bucket($stage, (bool) $this->paid, $this->isClosed()),
             // أعلامٌ من الخادم بدل مقارنة «مرفوض» نصّاً في الواجهة (`execflow.tsx`)

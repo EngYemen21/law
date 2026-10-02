@@ -89,4 +89,60 @@ class RoomFullscreenAndBadgeTest extends TestCase
         $client = substr($exec, strpos($exec, 'const ClientExecDetail'), 6000);
         $this->assertStringNotContainsString('staffNotes', $client);
     }
+
+    /**
+     * **صندوق المحادثة مضغوطٌ على الهاتف** — كان الملتصق بأسفل الشاشة يأخذ نصفها (عنوان + ثلاثة أسطر + أزرار + سطر
+     * الصيغ) فتمرّ الرسائل تحته مقصوصة؛ وشارة البيئة تغطّي زرّ الإرسال. ثبت بالمتصفّح على 390px: 420px ⇒ 69px.
+     */
+    public function test_the_chat_composer_is_compact_on_phones(): void
+    {
+        $thread = $this->src('js/components/babylon/ChatThread.tsx');
+        $this->assertStringContainsString('className="composer chat-composer"', $thread);
+        $this->assertStringContainsString('<span className="btn-txt">إرسال</span>', $thread);
+        $this->assertStringContainsString('title={hint}', $thread, 'الصيغ المسموحة تبقى في تلميح زرّ الإرفاق');
+
+        $css = $this->src('css/babylon.css');
+        $this->assertStringContainsString('.composer.chat-composer{display:flex;align-items:flex-end', $css);
+        $this->assertStringContainsString('.chat-composer .composer-label,.chat-composer .composer-hint{display:none}', $css);
+        $this->assertStringContainsString('.env-badge{bottom:auto;top:4px', $css, 'الشارة أعلى الشاشة على الهاتف لا فوق زرّ الإرسال');
+    }
+
+    /**
+     * **تبويبات ملفّ التنفيذ تلتفّ بعرض حاويتها** — كانت صفّاً واحداً بتمريرٍ أفقيّ مخفيّ، فعلى الهاتف وفي عمود
+     * الـ1024 يخرج التبويب النشط «المحادثة» من الإطار (ثبت بالمتصفّح على 320–414 و1024 للمحامي والإدارة).
+     */
+    public function test_exec_tabs_wrap_to_their_container(): void
+    {
+        $css = $this->src('css/babylon.css');
+        $this->assertStringContainsString('grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));', $css);
+        $tabs = substr($css, strpos($css, '.exec-tabs {'), 400);
+        $this->assertStringNotContainsString('overflow-x: auto', $tabs, 'لا تمرير أفقيّ يخفي التبويب النشط');
+
+        $page = $this->src('js/pages/execflow.tsx');
+        $this->assertStringContainsString("<bdi style={{ whiteSpace: 'nowrap' }}>#{r.id}</bdi>", $page, 'رقم الملفّ لا ينكسر');
+    }
+
+    /**
+     * **ترويسة ملفّ التنفيذ تلتفّ** — من صورة المالك (393px، ملفٌّ مغلق له رقم تنفيذ): سطر «رجوع + الرقم + الشارات +
+     * رقم التنفيذ» لا يلتفّ فتعرض الصفحة كلّها أعرض من الهاتف، و«مغلق» مرّتين (شارة المرحلة وشارة الإغلاق).
+     */
+    public function test_the_exec_header_wraps_and_says_closed_once(): void
+    {
+        $page = $this->src('js/pages/execflow.tsx');
+        $this->assertStringContainsString("<div style={{ flex: '1 1 260px', minWidth: 0 }}>", $page);
+        $this->assertStringContainsString("marginBottom: 6, flexWrap: 'wrap' }}>", $page);
+        $this->assertStringContainsString('{r.closedBadge && <Badge text="مغلق"', $page);
+        $this->assertStringNotContainsString('{r.closed && <Badge text="مغلق"', $page);
+    }
+
+    /**
+     * **بنود «الملخّص الذكيّ» تلتفّ كبنود «دراسة التنفيذ»** — من صورة المالك (`tab=docs`): الإجراءات المقترحة في بطاقة
+     * الملخّص نسخةٌ ثانية بـ`chip` لا يلتفّ، فتخرج الجملة الطويلة من البطاقة. الآن مكوّنٌ واحد (`StudyChips`).
+     */
+    public function test_the_ai_summary_procedures_use_the_wrapping_component(): void
+    {
+        $page = $this->src('js/pages/execflow.tsx');
+        $this->assertStringContainsString('<StudyChips label="الإجراءات المقترحة" items={r.aiProcedures} />', $page);
+        $this->assertStringNotContainsString('r.aiProcedures.map((p) => <span key={p} className="chip">', $page);
+    }
 }

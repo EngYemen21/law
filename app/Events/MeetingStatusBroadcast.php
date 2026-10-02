@@ -45,7 +45,7 @@ class MeetingStatusBroadcast implements ShouldBroadcastNow
             'canJoin' => $this->meeting->canJoin(),
             // أزرار البدء/الإنهاء/الإلغاء تتبع الحالة لحظيّاً — بحراس الانتقالات لا بقائمةٍ في الواجهة
             'actions' => $this->meeting->lifecycleActions(),
-            'approve' => $this->meeting->approve,
+            'approval' => $this->meeting->approvalState()?->toCard(),
             // مفتاح الحالة وعلَما الاعتماد — الصفحة تشرط أزرارها بها لا بالنصّ العربيّ (نظير `toFullCard`)
             'statusKey' => MeetingStatus::keyOf($liveStatus),
             'approved' => $approved,

@@ -52,10 +52,10 @@ class ManualAssignmentOnlyTest extends TestCase
         return Ticket::latest('id')->firstOrFail();
     }
 
-    /** المهلة ساعتان: نافذةُ عملٍ للطاقم لا سباقٌ مع إسنادٍ آليّ. */
-    public function test_the_escalation_window_is_two_hours(): void
+    /** المهلة نصف ساعة (قرار المالك 2026-10-02؛ كانت ساعتين): نافذةُ عملٍ للطاقم لا سباقٌ مع إسنادٍ آليّ. */
+    public function test_the_escalation_window_is_half_an_hour(): void
     {
-        $this->assertSame(120, SettingsRegistry::int('ticket_escalate_minutes'));
+        $this->assertSame(30, SettingsRegistry::int('ticket_escalate_minutes'));
     }
 
     public function test_opening_a_ticket_leaves_it_unassigned(): void
