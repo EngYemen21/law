@@ -1,17 +1,21 @@
+import { usePage } from '@inertiajs/react';
 import React from 'react';
 
-/** بيئة التشغيل من الخادم (`HandleInertiaRequests` ← `AppEnvironment`) — ثابتةٌ طوال عمر الصفحة. */
+/** بيئة التشغيل من الخادم (`HandleInertiaRequests` ← `AppEnvironment`). */
 export interface AppEnvShared {
   sandbox: boolean;
   name: string;
 }
 
 /**
- * **شارة «بيئة تجربة»** (فصل البيئات 2026-09-29) — ثابتةٌ في زاوية كلّ صفحة (الدخول واللوحات) خارج الإنتاج،
- * كي لا يُخلط بين نسخة التجربة ونسخة العملاء. لا تُعرض في الإنتاج، ولا تلتقط النقر.
+ * **شارة «بيئة تجربة»** (فصل البيئات 2026-09-29) — خارج الإنتاج، كي لا يُخلط بين نسخة التجربة ونسخة العملاء.
+ *
+ * **في لوحة التحكّم وحدها** (ملاحظة المالك 2026-10-02): كانت في جذر التطبيق فتظهر على الصفحة الرئيسيّة العامّة
+ * وصفحة الدخول، وفوق أدوات Zoom في الغرفة. صارت داخل `AppLayout`، وتُخفى في الغرفة بالأنماط
+ * (`body:has(.mroom-head) .env-badge` — الغرفة تُرسم في `body` بـ`createPortal`). لا تُعرض في الإنتاج، ولا تلتقط النقر.
  */
-const EnvironmentBadge: React.FC<{ initialPage: { props: unknown } }> = ({ initialPage }) => {
-  const env = (initialPage.props as { appEnv?: AppEnvShared }).appEnv;
+const EnvironmentBadge: React.FC = () => {
+  const env = (usePage().props as { appEnv?: AppEnvShared }).appEnv;
 
   if (!env?.sandbox) {
     return null;

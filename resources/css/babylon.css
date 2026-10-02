@@ -830,7 +830,12 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 .mroom-btn:disabled{opacity:.45;cursor:not-allowed}
 .mroom-zoom{position:fixed;z-index:81;overflow:hidden;direction:ltr;background:#0A2A55}
 .mroom-zoom[data-view="hidden"]{display:none}
-.mroom-zoom[data-view="full"]{top:var(--mroom-head);inset-inline:0;bottom:0}
+.mroom-zoom[data-view="full"]{top:var(--mroom-head);inset-inline:0;bottom:0;overflow:visible}
+/* نوافذ Zoom وقوائمه (موافقة التسجيل · المغادرة · الإعدادات) — عرضها الأدنى في الحزمة 480px (`.zoom-MuiDialog-paper`)
+   فتتجاوز شاشة الهاتف وتُقصّ أزرارها (ملاحظة المالك 2026-10-02). تُحصر في عرض الشاشة. */
+.zoom-MuiDialog-paper{min-width:0!important;max-width:calc(100vw - 24px)!important;margin:12px!important;box-sizing:border-box}
+.zoom-MuiDialog-paper *{overflow-wrap:anywhere}
+.zoom-MuiPopover-paper,.zoom-MuiMenu-paper{max-width:calc(100vw - 16px)!important}
 /* الشريط المصغّر: \`left\` لا \`inset-inline-end\` — الحاوية \`direction:ltr\` (يشترطه Zoom) فكان «نهاية السطر» فيها يمينَ
    الصفحة، بينما شريط التحكّم (\`.mroom-dock\`) في صفحةٍ RTL نهايتُه يسارها: الفيديو في زاوية وأزراره في الأخرى
    (ملاحظة المالك 2026-09-27، الصورة ١) */
@@ -1284,6 +1289,7 @@ td.tc-actions > div{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end
   .tbl-cards tr.cf-invoices td{display:block}
 }
 /* شارة «بيئة تجربة» (فصل البيئات 2026-09-29) — زاويةٌ ثابتة لا تلتقط النقر ولا تغطّي المحتوى */
+body:has(.mroom-head) .env-badge{display:none}
 .env-badge{position:fixed;bottom:10px;left:10px;z-index:95;pointer-events:none;font-size:11.5px;font-weight:700;color:#7a4a00;background:#fff4d6;border:1px solid #f0cf7a;border-radius:999px;padding:4px 11px;box-shadow:0 2px 8px rgba(0,0,0,.08);opacity:.92}
 /* «طلبات الاجتماعات» (تحسين التصميم 2026-09-30) — مربّع تاريخ، وشارة حالةٍ واحدة، ومراحل نقاطاً، وبطاقاتٌ مضغوطة على الهاتف */
 .mr-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
