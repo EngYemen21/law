@@ -395,13 +395,37 @@ class ZoomService
 
         $parsed = self::parseSummary($object);
 
-        // لا نُرجع ملخّصاً فارغاً (كي لا يُختم zoom_summary_at ويُحجب جلب حقيقي لاحق)
-        $hasContent = trim($parsed['content']) !== ''
-            || trim($parsed['overview']) !== ''
-            || $parsed['details'] !== []
-            || $parsed['next_steps'] !== [];
+        return self::summaryHasContent($parsed) ? $parsed : null;
+    }
 
-        return $hasContent ? $parsed : null;
+    /**
+     * **هل في ملخّص Zoom محتوى؟ — الموضع الواحد للحكم، للويبهوك وللاستعلام.**
+     *
+     * Zoom يُكمل ملخّص الجلسة القصيرة أو الصامتة بحقولٍ فارغة. كان الاستعلام (`meetingSummary`) يقبله فيُختم
+     * `zoom_summary_at` على عنوانٍ بلا نصّ، فيتوقّف الجلب، ويُرسَل العنوان وحده لاستخراج القرارات فيختلق النموذج
+     * قراراتٍ ومهامّ لاجتماعٍ لم يُقل فيه شيء (M-2026-3390 · M-2026-5888، 2026-10-03). الفارغ ⇒ «لم يصل».
+     *
+     * @param  array{content: string, overview: string, details: array<int, array{label: string, summary: string}>, next_steps: array<int, string>}  $s
+     */
+    public static function summaryHasContent(array $s): bool
+    {
+        if (trim($s['content']) !== '' || trim($s['overview']) !== '') {
+            return true;
+        }
+
+        foreach ($s['details'] as $d) {
+            if (trim($d['summary']) !== '') {
+                return true;
+            }
+        }
+
+        foreach ($s['next_steps'] as $step) {
+            if (trim($step) !== '') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -613,8 +637,14 @@ class ZoomService
 
                 if ($response->successful()) {
                     $data = (array) $response->json();
+                    $parsed = self::parseSummary($data);
 
-                    return ['uuid' => $data['meeting_uuid'] ?? $uuid] + self::parseSummary($data);
+                    // ملخّصٌ بلا محتوى لا يُعدّ وصولاً (`summaryHasContent`) — يبقى الجلب الدوريّ يحاول
+                    if (! self::summaryHasContent($parsed)) {
+                        continue;
+                    }
+
+                    return ['uuid' => $data['meeting_uuid'] ?? $uuid] + $parsed;
                 }
             }
         } catch (\Throwable $e) {
