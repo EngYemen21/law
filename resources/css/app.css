@@ -1739,9 +1739,11 @@ html {
   padding: 16px 20px;
 }
 
+/* الاسم تحت الدائرة لا بجانبها: سبعُ مراحل (رحلة الاستقبال بجلستها وملخّصها، 2026-10-04) لا تتّسع صفّاً واحداً
+   بأسمائها الجانبيّة فتُقصّ آخرها — والموصِّل على مستوى منتصف الدائرة */
 .cj-stepper-track {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   position: relative;
   gap: 8px;
@@ -1751,9 +1753,13 @@ html {
 
 .cj-step-item {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 56px;
+  max-width: 112px;
+  text-align: center;
 }
 
 .cj-step-node {
@@ -1788,6 +1794,7 @@ html {
 .cj-step-name {
   font-size: 12.5px;
   font-weight: 600;
+  line-height: 1.4;
   color: var(--muted);
 }
 
@@ -1800,7 +1807,8 @@ html {
   flex: 1;
   height: 2px;
   background: var(--line);
-  min-width: 24px;
+  min-width: 12px;
+  margin-top: 13px;
 }
 
 .cj-step-connector.done {
