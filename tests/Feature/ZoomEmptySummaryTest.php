@@ -92,4 +92,31 @@ class ZoomEmptySummaryTest extends TestCase
 
         $this->assertStringContainsString('إغلاق القضية', (string) app(ZoomService::class)->meetingSummary('81282041476')['content']);
     }
+
+    /** ما خلّفه الملخّص الفارغ قبل الإصلاح يُنظَّف — وما سواه لا يُمسّ. */
+    public function test_the_migration_clears_only_heading_only_summaries(): void
+    {
+        $invented = ['إعداد مسودة جدول أعمال الاجتماع القادم', 'مراجعة الملاحظات من الاجتماعات السابقة'];
+        $make = fn (string $ref, string $zoomSummary, bool $tasks = false) => Meeting::create([
+            'ref' => $ref, 'title' => 'إغلاق قضية', 'type' => 'اجتماع', 'when_label' => 'اليوم', 'starts_at' => now()->subHour(),
+            'status' => MeetingStatus::Ended->value, 'meet_id' => '1', 'zoom_summary' => $zoomSummary, 'zoom_summary_at' => now(),
+            'has_summary' => true, 'decisions' => $invented, 'suggested_tasks' => $invented, 'tasks_created' => $tasks,
+        ]);
+        $empty = $make('M-2026-3390', 'ملخص الاجتماع — M-2026-3390');
+        $real = $make('M-2026-0001', "ملخص الاجتماع — M-2026-0001\n\nناقش الطرفان إغلاق القضية.");
+        $tasked = $make('M-2026-0002', 'ملخص الاجتماع — M-2026-0002', true);
+
+        (require database_path('migrations/2026_10_03_100000_clear_empty_zoom_summaries.php'))->up();
+
+        $e = $empty->fresh();
+        $this->assertNull($e->zoom_summary);
+        $this->assertNull($e->zoom_summary_at);
+        $this->assertEmpty($e->decisions);
+        $this->assertEmpty($e->suggested_tasks);
+        $this->assertFalse((bool) $e->has_summary);
+
+        $this->assertNotNull($real->fresh()->zoom_summary_at, 'ملخّصٌ حقيقيّ لا يُمسّ');
+        $this->assertSame($invented, $real->fresh()->decisions);
+        $this->assertNotNull($tasked->fresh()->zoom_summary_at, 'ما أُنشئت منه مهامّ لا يُمسّ — يُراجع يدويّاً');
+    }
 }
