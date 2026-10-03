@@ -147,6 +147,8 @@ export interface ConsultCard {
   /** الملخّص محجوبٌ عن العميل حتى يعتمده محامٍ — انظر `Consult::toClientCard`. */
   summaryPending?: boolean;
   summaryApproved?: boolean;
+  /** يجوز الاستعلام اليدويّ من Zoom (`Consult::zoomSyncBlocker`) — بطاقة المكتب وحدها */
+  zoomSyncable?: boolean;
   /** حُرّر الملخّص بيد إنسان قبل الاعتماد (بطاقة المكتب وحدها). */
   summaryEdited?: boolean;
   /** ختم الاعتماد (ISO) — `null` يعني لم يُعتمد بعد. */
@@ -528,10 +530,21 @@ export type SummaryModalConsult =
   | (Partial<ConsultCard> & Partial<ClientConsultCard> & { ref: string; summary: string | null })
   | null;
 
+/**
+ * **ملفّ القضيّة المرتبطة بحسب الدور** — `/cases/{no}` صفحة العميل وحده (`role:client`)، والطاقم يفتحها تحت
+ * لوحته (`/admin|/lawyer|/employee/cases/{no}`). كانت روابط القضيّة في صفحات الاستشارة تفتح صفحة العميل
+ * للطاقم كلّه فيُعاد إلى لوحته (جرد الأزرار 2026-10-03، البند ١). `base` فارغ ⇐ العميل.
+ */
+export function caseHref(base: string, caseNo: string): string {
+  return `${base}/cases/${encodeURIComponent(caseNo)}`;
+}
+
 export const SummaryModal: React.FC<{
   consult: SummaryModalConsult;
   onClose: () => void;
-}> = ({ consult, onClose }) => {
+  /** لوحة الطاقم (`/admin` …) — فارغٌ للعميل */
+  base?: string;
+}> = ({ consult, onClose, base = '' }) => {
   const toast = useToast();
   const [copied, setCopied] = useState(false);
 
@@ -642,7 +655,7 @@ export const SummaryModal: React.FC<{
         {(consult.caseNo || consult.ticketNo) && (
           <div className="csd-linked-strip">
             {consult.caseNo && (
-              <Link href={`/cases/${consult.caseNo}`} className="csd-linked-pill" title="الانتقال إلى ملف القضية المرتبطة">
+              <Link href={caseHref(base, consult.caseNo)} className="csd-linked-pill" title="الانتقال إلى ملف القضية المرتبطة">
                 <Icon name="scale" /> قضية مرتبطة: <b>#{consult.caseNo}</b>
               </Link>
             )}
@@ -768,6 +781,47 @@ export const SummaryModal: React.FC<{
 // يطابق consultRecvView + crStart/crEnd/crSetFilter
 // ============================================================
 
+/**
+ * **نافذة إنهاء الجلسة والتدوين — مصدرٌ واحد** لاستقبال الاستشارات (الطاقم) ولنظيرتها عند الإدارة.
+ * كانت منسوخةً في الموضعين وزرّاها يستدعيان الدالّة نفسها، فـ«إنهاء بلا تدوين» يحفظ ما كُتب (جرد الأزرار
+ * 2026-10-03، البند ٢ — ثبت في المتصفّح). الآن كلّ زرٍّ يقول ما يرسل: التدوين، أو لا شيء. `key` من المستدعي
+ * بمعرّف الاستشارة فيبدأ التدوين فارغاً لكلّ جلسة.
+ */
+export const EndSessionModal: React.FC<{
+  consult: Pick<ConsultCard, 'ref'> | null;
+  busy: boolean;
+  onClose: () => void;
+  onEnd: (notes: string) => void;
+}> = ({ consult, busy, onClose, onEnd }) => {
+  const [notes, setNotes] = useState('');
+
+  return (
+    <Modal title={`إنهاء الجلسة وتدوين ما دار — ${consult?.ref ?? ''}`} open={consult !== null} onClose={onClose}>
+      <div className="field">
+        <label>ما دار في الجلسة (وقائع العميل، ما طُلب، ما تقرّر)</label>
+        <textarea
+          className="input"
+          rows={9}
+          value={notes}
+          onChange={(ev) => setNotes(ev.target.value)}
+          placeholder="مثال: العميل مقاول من الباطن، لم يُصرَف له مستخلصان منذ أربعة أشهر، ويريد وقف العمل والمطالبة…"
+        />
+      </div>
+      <p className="action-hint">
+        <Icon name="info" /> الملخّص يُبنى على التدوين وحده — وبلا تدوين لا يُكتب شيء، لأنّ ما يُكتب من عنوان الموضوع وحده محضرٌ مختلَق.
+      </p>
+      <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
+        <button className="btn" onClick={() => onEnd(notes.trim())} disabled={busy || notes.trim() === ''} type="button">
+          <Icon name="doc" /> إنهاء وحفظ التدوين
+        </button>
+        <button className="btn soft" onClick={() => onEnd('')} disabled={busy} type="button">
+          <Icon name="check" /> إنهاء بلا تدوين
+        </button>
+      </div>
+    </Modal>
+  );
+};
+
 export const ConsultRecvPage: React.FC<{ consults: ConsultCard[]; base: string }> = ({ consults, base }) => {
   const rescheduleFlow = useConsultReschedule(base);
   const staffStart = useStaffStartText();
@@ -849,14 +903,11 @@ counts[c.channel]++;
   // والهاتفية تنتهيان دائماً بلا مادّة. وبعد حارس «بلا مادّة ⇒ لا نداء» صارت
   // النافذة شرطاً لا تحسيناً: بلا تدوين لا ملخّص أصلاً.
   const [endingOf, setEndingOf] = useState<ConsultCard | null>(null);
-  const [endNotes, setEndNotes] = useState('');
 
-  const end = async () => {
+  const end = async (notes: string) => {
     if (endingOf === null) {
       return;
     }
-
-    const notes = endNotes.trim();
 
     // تأكيدٌ يقول الأثر قبل الإرسال (قرار المالك 2026-09-26) — الختم لا يُتراجع عنه
     await action.run(`${base}/consults/${endingOf.id}/end`, {
@@ -867,10 +918,7 @@ counts[c.channel]++;
         ? 'خُتمت الجلسة بلا تدوين — لا ملخّص حتّى تُدوّن ما دار فيها'
         : 'خُتمت الجلسة وحُفظ تدوينك — يُعدّ الملخّص لاعتمادك',
       fallback: 'تعذّر إنهاء الجلسة',
-      onSuccess: () => {
-        setEndingOf(null);
-        setEndNotes('');
-      },
+      onSuccess: () => setEndingOf(null),
     });
   };
 
@@ -1027,7 +1075,7 @@ void navigator.clipboard.writeText(c.slink);
                           <Icon name="video" /> دخول جلسة Zoom
                         </button>
                       )}
-                      <button className="btn sm" onClick={() => { setEndingOf(c); setEndNotes(''); }} type="button">
+                      <button className="btn sm" onClick={() => setEndingOf(c)} type="button">
                         <Icon name="doc" /> إنهاء وكتابة الملخص
                       </button>
                     </>
@@ -1066,35 +1114,9 @@ void navigator.clipboard.writeText(c.slink);
       </div>
 
       {/* نافذة التدوين — مادّة الملخّص الوحيدة للقنوات غير المرئية */}
-      <Modal
-        title={`إنهاء الجلسة وتدوين ما دار — ${endingOf?.ref ?? ''}`}
-        open={!!endingOf}
-        onClose={() => setEndingOf(null)}
-      >
-        <div className="field">
-          <label>ما دار في الجلسة (وقائع العميل، ما طُلب، ما تقرّر)</label>
-          <textarea
-            className="input"
-            rows={9}
-            value={endNotes}
-            onChange={(ev) => setEndNotes(ev.target.value)}
-            placeholder="مثال: العميل مقاول من الباطن، لم يُصرَف له مستخلصان منذ أربعة أشهر، ويريد وقف العمل والمطالبة…"
-          />
-        </div>
-        <p className="action-hint">
-          <Icon name="info" /> الملخّص يُبنى على تدوينك وحده — وبلا تدوين لا يُكتب شيء، لأنّ ما يُكتب من عنوان الموضوع وحده محضرٌ مختلَق.
-        </p>
-        <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
-          <button className="btn" onClick={end} disabled={action.busy || endNotes.trim() === ''} type="button">
-            <Icon name="doc" /> إنهاء وحفظ التدوين
-          </button>
-          <button className="btn soft" onClick={end} disabled={action.busy} type="button">
-            <Icon name="check" /> إنهاء بلا تدوين
-          </button>
-        </div>
-      </Modal>
+      <EndSessionModal key={endingOf?.id ?? 'none'} consult={endingOf} busy={action.busy} onClose={() => setEndingOf(null)} onEnd={(notes) => void end(notes)} />
 
-      <SummaryModal consult={summaryOf} onClose={() => setSummaryOf(null)} />
+      <SummaryModal consult={summaryOf} onClose={() => setSummaryOf(null)} base={base} />
     </>
   );
 };
@@ -1324,7 +1346,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
               <span>تقرير الاستشارة (PDF)</span>
             </a>
           )}
-          {c.session === 'منتهية' && c.channel === 'مرئية' && !c.summaryApproved && (
+          {c.zoomSyncable && (
             <button
               type="button"
               className="btn soft sm"
@@ -1378,7 +1400,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                 </span>
               )}
               {c.caseNo && (
-                <Link href={`/cases/${c.caseNo}`} className="csd-chip" title="القضية المرتبطة">
+                <Link href={caseHref(base, c.caseNo)} className="csd-chip" title="القضية المرتبطة">
                   قضية: #{c.caseNo}
                 </Link>
               )}
@@ -1904,7 +1926,7 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
               </div>
               <div className="card-b" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {c.caseNo && (
-                  <Link href={`/cases/${c.caseNo}`} className="csd-linked-pill" style={{ justifyContent: 'space-between' }}>
+                  <Link href={caseHref(base, c.caseNo)} className="csd-linked-pill" style={{ justifyContent: 'space-between' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                       <Icon name="scale" /> ملف القضية
                     </span>

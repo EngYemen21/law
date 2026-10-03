@@ -13,6 +13,8 @@ export interface TicketPreviewData {
   status: string;
   tone: string;
   converted?: boolean;
+  /** تقبل التحويل الآن (`Ticket::isReassignable` — المجمّدة والنهائيّة لا تُحوَّل) */
+  isReassignable?: boolean;
 }
 
 interface Props {
@@ -63,7 +65,8 @@ const QuickTicketModal: React.FC<Props> = ({
       </div>
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-        {onTransfer && (
+        {/* يُرسم حيث يقبل الخادم التحويل وحده — كان يظهر لكلّ تذكرة ولا يفعل شيئاً للمغلقة (جرد الأزرار 2026-10-03، البند ١٠) */}
+        {onTransfer && ticket.isReassignable && (
           <button
             className="btn soft sm"
             type="button"

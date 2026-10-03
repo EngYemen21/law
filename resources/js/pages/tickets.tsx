@@ -566,7 +566,7 @@ const Tickets: React.FC<Props> = ({ tickets = [], availableStatuses = [], counts
                       className="btn sm"
                       style={{ flex: 1 }}
                       type="button"
-                      onClick={() => router.visit('/book')}
+                      onClick={() => router.visit(`/book?ticket=${encodeURIComponent(t.no)}`)}
                     >
                       <Icon name="calplus" /> حجز جلسة الاستشارة
                     </button>

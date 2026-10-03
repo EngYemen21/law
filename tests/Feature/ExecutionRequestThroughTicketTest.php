@@ -62,7 +62,9 @@ class ExecutionRequestThroughTicketTest extends TestCase
 
         // والزرّ في صفحة التنفيذ رابطٌ إليه — لا نموذج مباشر
         $page = (string) file_get_contents(resource_path('js/pages/execflow.tsx'));
-        $this->assertStringContainsString('href="/tickets/new?department=enforcement"', $page);
+        // المسار مصدرٌ واحد (`VIEW_ROUTE.execrequest`) تقرؤه هذه الصفحة وأزرار لوحة العميل (جرد الأزرار 2026-10-03)
+        $this->assertStringContainsString('href={VIEW_ROUTE.execrequest}', $page);
+        $this->assertStringContainsString("execrequest: '/tickets/new?department=enforcement'", (string) file_get_contents(resource_path('js/lib/data.ts')));
         $this->assertStringNotContainsString("router.post('/exec-flow'", $page);
     }
 

@@ -52,12 +52,15 @@ interface Props {
   pending: ConsultCard[];
   specialties?: string[];
   tickets?: BookableTicket[];
+  /** تذكرةٌ جاء العميل منها (`/book?ticket=`) — من قائمته الجائزة وحدها، وإلّا null */
+  selectedTicket?: string | null;
 }
 
 const Book: React.FC<Props> = ({
   pending = [],
   specialties = [],
   tickets = [],
+  selectedTicket = null,
 }) => {
   const toast = useToast();
   const [channel, setChannel] = useState('video');
@@ -67,7 +70,7 @@ const Book: React.FC<Props> = ({
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
   // طلبٌ متعلّق بتذكرة (اختياريّ): الحقول منها للعرض، والإرسال عبر مسار التذكرة فتُربط الاستشارة بها
-  const [ticketNo, setTicketNo] = useState('');
+  const [ticketNo, setTicketNo] = useState(selectedTicket ?? '');
   const linked = tickets.find((t) => t.number === ticketNo);
   const [items, setItems] = useState<ConsultCard[]>(pending);
 

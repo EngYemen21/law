@@ -168,7 +168,7 @@ const Dashboard: React.FC<Props> = ({
             <button className="hero-b ghost" onClick={() => go('newticket')} type="button">
               <Icon name="plus" /> فتح تذكرة جديدة
             </button>
-            <button className="hero-b ghost" onClick={() => go('execs')} type="button">
+            <button className="hero-b ghost" onClick={() => go('execrequest')} type="button">
               <Icon name="exec" /> طلب تنفيذ قضائي
             </button>
           </div>
@@ -439,7 +439,7 @@ const Dashboard: React.FC<Props> = ({
                   <div className="nx-empty" style={{ padding: '36px 16px', textAlign: 'center' }}>
                     <Icon name="exec" />
                     <b style={{ display: 'block', margin: '8px 0 4px', fontSize: 14 }}>لا توجد ملفات تنفيذ قضائي جارية</b>
-                    <button className="btn sm" onClick={() => go('execs')} style={{ marginTop: 10 }} type="button">
+                    <button className="btn sm" onClick={() => go('execrequest')} style={{ marginTop: 10 }} type="button">
                       <Icon name="exec" /> تقديم طلب تنفيذ
                     </button>
                   </div>

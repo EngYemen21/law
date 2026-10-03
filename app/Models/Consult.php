@@ -515,6 +515,24 @@ class Consult extends Model
     }
 
     /**
+     * **لماذا لا تُستعلم بيانات الجلسة من Zoom يدوياً — `null` = تُستعلم.** مصدرٌ واحد يحرس به الخادم
+     * (`Staff\ConsultController::zoomSync`) ويُرسل لبطاقة الطاقم (`zoomSyncable`)، فلا يُرسم الزرّ حيث يُرفض.
+     * كان الدرج يعرضه لكلّ استشارةٍ مرئيّة بشرطٍ نصّيٍّ في الواجهة، والخادم يرفضه بلا اجتماعٍ أو بعد الاعتماد
+     * (جرد الأزرار 2026-10-03، البند ٩ — ثبت في المتصفّح). ولا تسجيل ولا ملخّص في Zoom قبل انتهاء الجلسة —
+     * الشرط الذي كانت تحمله صفحة الاستشارة وحدها.
+     */
+    public function zoomSyncBlocker(): ?string
+    {
+        return match (true) {
+            empty($this->meet_id) => 'لا جلسة Zoom مرتبطة بهذه الاستشارة.',
+            $this->session !== SessionState::Ended->value => 'لم تنتهِ الجلسة بعد — لا تسجيل ولا ملخّص في Zoom قبل انتهائها.',
+            // الاعتماد نهائيّ: المزامنة تكتب القرارات، و`toClientCard` يُرسلها للعميل بعد الاعتماد
+            $this->summaryApproved() => 'اعتُمد ملخّص هذه الاستشارة ووصل العميل — لا تُحدَّث بياناتها من Zoom بعد الاعتماد.',
+            default => null,
+        };
+    }
+
+    /**
      * **نسبة الضريبة التي طُبّقت على هذه الاستشارة** — مستنتجةً من السعر والضريبة المجمَّدين
      * (`InvoiceFactory::taxFromFrozen`) لا من الإعداد الحاليّ. كانت الفاتورة والتقرير يكتبان
      * «(15%)» نصّاً، فلو غيّرت الإدارة النسبة لعرضا نسبةً تخالف المبلغ المطبوع بجوارها.
@@ -752,6 +770,7 @@ class Consult extends Model
             'summaryHtml' => $this->summary !== null ? $this->html('summary') : null,
             // الطاقم يرى النصّ قبل الاعتماد ليراجعه — ويرى **أنّه** غير معتمَد
             'summaryApproved' => $this->summaryApproved(),
+            'zoomSyncable' => $this->zoomSyncBlocker() === null,
             // اعتمده المحامي ويُنتظر اعتماد الإدارة (قرار المالك 2026-09-14)
             'summaryLawyerApproved' => $this->summary_lawyer_approved_at !== null,
             'summaryPending' => $this->summary !== null && ! $this->summaryApproved(),

@@ -268,7 +268,7 @@ const TicketChat: React.FC<{ ticket: TicketCard; channel: string; messages: Mess
                 if (card) {
                   card.scrollIntoView({ behavior: 'smooth' });
                 } else {
-                  router.visit('/book');
+                  router.visit(`/book?ticket=${encodeURIComponent(ticket.no)}`);
                 }
               }}
             >

@@ -272,7 +272,9 @@ const LawyerSummary: React.FC<Props> = ({ ticket, summary, base = '/lawyer', can
 
           {canUseEditor && (
             <Link
-              href={`${base}/editor/create?ticket=${encodeURIComponent(ticket.no)}&type=summary`}
+              // استيراد هذا الملخّص نفسه — كان `?ticket=…&type=summary` والخادم لا يقرأ `type` فيفتح محرّراً فارغاً
+              // (جرد الأزرار 2026-10-03، البند ٨ — ثبت في المتصفّح)؛ الرابط الآن رابط زرّ الاستيراد في رأس الملخّص نفسه
+              href={`${base}/editor/create?importType=ticket_summary&id=${summary.id}`}
               className="btn soft sm"
               style={{ height: 32, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
               title="فتح هذا الملخص في محرر الصياغة لتنسيقه وتصميمه كـ Word"

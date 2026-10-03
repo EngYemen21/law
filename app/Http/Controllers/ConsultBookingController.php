@@ -29,10 +29,17 @@ class ConsultBookingController extends Controller
             ->latest('id')->get()
             ->map(fn (Consult $c) => $c->toClientCard());
 
+        $tickets = $this->bookableTickets($request->user());
+        // **الحجز من تذكرةٍ بعينها** (`/book?ticket=SB-…`): كان زرّا «حجز جلسة الاستشارة» في «طلباتي» ومحادثة التذكرة
+        // يفتحان `/book` بلا رقمها، فيُرسَل طلبٌ عامّ غير مربوط بها ما لم يُعِد العميل اختيارها (جرد الأزرار 2026-10-03،
+        // البند ٧ — ثبت في المتصفّح). يُختار سلفاً ما كان من قائمته الجائزة وحدها — رقمٌ لغيره أو لا يُحجز له يُهمَل.
+        $requested = (string) $request->query('ticket', '');
+
         return Inertia::render('book', [
             'specialties' => Specialties::all(),
             'pending' => $pending,
-            'tickets' => $this->bookableTickets($request->user()),
+            'tickets' => $tickets,
+            'selectedTicket' => in_array($requested, array_column($tickets, 'number'), true) ? $requested : null,
         ]);
     }
 
