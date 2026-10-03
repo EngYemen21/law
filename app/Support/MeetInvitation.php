@@ -113,5 +113,7 @@ class MeetInvitation
             'داخل '.SettingsRegistry::str('office_name').' (قسم الاجتماعات)',
             'الاجتماع مجدول ومؤكَّد. لأسباب السرية، يرجى تسجيل الدخول إلى حسابك بالمنصة عند موعد الجلسة.'
         ));
+
+        MeetingBookedSms::send($meeting, $client);
     }
 }
