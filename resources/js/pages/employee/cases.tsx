@@ -5,6 +5,7 @@ import StatRow from '@/components/babylon/StatRow';
 import type { StatItem } from '@/components/babylon/StatRow';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { useCanVisit } from '@/lib/permissions';
 import { truncateWords } from '@/lib/utils';
 
 // ============================================================
@@ -65,6 +66,8 @@ const EmployeeCases: React.FC<Props> = ({
   types = [],
   lawyers = [],
 }) => {
+  // أزرار الرأس تُرسم لمن تُفتح له صفحتها وحده (`useCanVisit`) — جرد الأزرار 2026-10-03، المرحلة ٢
+  const canVisit = useCanVisit();
   // التبويب النشط
   const [activeTab, setActiveTab] = useState<'active' | 'hearings' | 'preparing' | 'awaiting' | 'inCourt' | 'ruled' | 'closed'>('active');
 
@@ -174,12 +177,16 @@ const EmployeeCases: React.FC<Props> = ({
           <p>مركز التنسيق الإداري لملفات القضايا، متابعة الجلسات والمذكرات، والتواصل اللحظي مع العملاء.</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button className="btn ghost" onClick={() => router.visit('/employee/schedule')} type="button">
-            <Icon name="cal" /> مواعيد وجلسات اليوم
-          </button>
-          <button className="btn" onClick={() => router.visit('/employee/tickets')} type="button">
-            <Icon name="ticket" /> تذاكر العملاء
-          </button>
+          {canVisit('/employee/schedule') && (
+            <button className="btn ghost" onClick={() => router.visit('/employee/schedule')} type="button">
+              <Icon name="cal" /> مواعيد وجلسات اليوم
+            </button>
+          )}
+          {canVisit('/employee/tickets') && (
+            <button className="btn" onClick={() => router.visit('/employee/tickets')} type="button">
+              <Icon name="ticket" /> تذاكر العملاء
+            </button>
+          )}
         </div>
       </div>
 

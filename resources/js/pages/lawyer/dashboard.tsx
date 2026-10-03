@@ -8,7 +8,7 @@ import { useToast } from '@/components/babylon/Toast';
 import type { ConsultCard } from '@/lib/consult-ui';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
-import { useCan } from '@/lib/permissions';
+import { useCan, useCanVisit } from '@/lib/permissions';
 import { openRoomTab, visitHref } from '@/lib/room';
 import { firstError } from '@/lib/server-message';
 import type { EmployeeTicketCard } from '@/types';
@@ -148,6 +148,7 @@ const LawyerDashboard: React.FC<Props> = ({
   // overdueTasks: legacyOverdueTasks = 0, ← مع finalOverdueTasks المعلّق
 }) => {
   const can = useCan();
+  const canVisit = useCanVisit();
   const toast = useToast();
   // مسارات المهامّ (`/lawyer/tasks` إضافةً وإنجازاً) خلف «إدارة القضايا والأتعاب» — فأزرارها لمن يملكها وحده
   const canManageTasks = can('إدارة القضايا والأتعاب');
@@ -948,74 +949,77 @@ setActiveTab('tasks');
 
         {/* العمود الجانبي: الجناح الذكي وأدوات المساعد القانوني */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {/* بطاقة المساعد الذكي السريع */}
-          <div className="card" style={{ borderTop: '3px solid #0E5C9C' }}>
-            <div className="card-h">
-              <h3>
-                <Icon name="sparkles" /> المساعد القانوني الذكي
-              </h3>
-              <span className="chip b-blue" style={{ fontSize: 11 }}>AI Lab</span>
+          {/* بطاقة المساعد تُرسم لمن يُفتح له المساعد وحده (`useCanVisit`) — كانت أزرارها الأربعة تظهر لكلّ محامٍ
+              فيُعاد من لا يملك صلاحيّته برسالة «لا تملك صلاحية» (جرد الأزرار 2026-10-03، المرحلة ٢) */}
+          {canVisit('/lawyer/assistant') && (
+            <div className="card" style={{ borderTop: '3px solid #0E5C9C' }}>
+              <div className="card-h">
+                <h3>
+                  <Icon name="sparkles" /> المساعد القانوني الذكي
+                </h3>
+                <span className="chip b-blue" style={{ fontSize: 11 }}>AI Lab</span>
+              </div>
+              <div className="card-b" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <p style={{ fontSize: 12.5, color: '#607689', margin: 0 }}>
+                  مختبر الذكاء الاصطناعي لصياغة المذكرات وتدقيق العقود وتحليل الدفوع:
+                </p>
+  
+                <button
+                  className="tile"
+                  style={{ minHeight: 'auto', padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+                  onClick={() => router.visit('/lawyer/assistant?action=reply_memo')}
+                  type="button"
+                >
+                  <div className="ti" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0 }}>
+                    <Icon name="reply" />
+                  </div>
+                  <div style={{ textAlign: 'start' }}>
+                    <b style={{ fontSize: 13, display: 'block' }}>صياغة مذكرة رد ناجز</b>
+                    <span style={{ fontSize: 11.5 }}>إعداد دفاع ودحض ادعاءات الخصم</span>
+                  </div>
+                </button>
+  
+                <button
+                  className="tile"
+                  style={{ minHeight: 'auto', padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+                  onClick={() => router.visit('/lawyer/assistant?action=contract_check')}
+                  type="button"
+                >
+                  <div className="ti" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0 }}>
+                    <Icon name="doc" />
+                  </div>
+                  <div style={{ textAlign: 'start' }}>
+                    <b style={{ fontSize: 13, display: 'block' }}>فحص وتدقيق عقد</b>
+                    <span style={{ fontSize: 11.5 }}>كشف الثغرات والشروط الباطلة</span>
+                  </div>
+                </button>
+  
+                <button
+                  className="tile"
+                  style={{ minHeight: 'auto', padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+                  onClick={() => router.visit('/lawyer/assistant?action=strengths_weaknesses')}
+                  type="button"
+                >
+                  <div className="ti" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0 }}>
+                    <Icon name="scale" />
+                  </div>
+                  <div style={{ textAlign: 'start' }}>
+                    <b style={{ fontSize: 13, display: 'block' }}>نقاط القوة والضعف</b>
+                    <span style={{ fontSize: 11.5 }}>تحليل الموقف القضائي والأدلة</span>
+                  </div>
+                </button>
+  
+                <button
+                  className="btn block"
+                  onClick={openAssistant}
+                  type="button"
+                  style={{ marginTop: 4 }}
+                >
+                  <Icon name="sparkles" /> فتح مختبر الصياغة الشامل
+                </button>
+              </div>
             </div>
-            <div className="card-b" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <p style={{ fontSize: 12.5, color: '#607689', margin: 0 }}>
-                مختبر الذكاء الاصطناعي لصياغة المذكرات وتدقيق العقود وتحليل الدفوع:
-              </p>
-
-              <button
-                className="tile"
-                style={{ minHeight: 'auto', padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}
-                onClick={() => router.visit('/lawyer/assistant?action=reply_memo')}
-                type="button"
-              >
-                <div className="ti" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0 }}>
-                  <Icon name="reply" />
-                </div>
-                <div style={{ textAlign: 'start' }}>
-                  <b style={{ fontSize: 13, display: 'block' }}>صياغة مذكرة رد ناجز</b>
-                  <span style={{ fontSize: 11.5 }}>إعداد دفاع ودحض ادعاءات الخصم</span>
-                </div>
-              </button>
-
-              <button
-                className="tile"
-                style={{ minHeight: 'auto', padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}
-                onClick={() => router.visit('/lawyer/assistant?action=contract_check')}
-                type="button"
-              >
-                <div className="ti" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0 }}>
-                  <Icon name="doc" />
-                </div>
-                <div style={{ textAlign: 'start' }}>
-                  <b style={{ fontSize: 13, display: 'block' }}>فحص وتدقيق عقد</b>
-                  <span style={{ fontSize: 11.5 }}>كشف الثغرات والشروط الباطلة</span>
-                </div>
-              </button>
-
-              <button
-                className="tile"
-                style={{ minHeight: 'auto', padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}
-                onClick={() => router.visit('/lawyer/assistant?action=strengths_weaknesses')}
-                type="button"
-              >
-                <div className="ti" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0 }}>
-                  <Icon name="scale" />
-                </div>
-                <div style={{ textAlign: 'start' }}>
-                  <b style={{ fontSize: 13, display: 'block' }}>نقاط القوة والضعف</b>
-                  <span style={{ fontSize: 11.5 }}>تحليل الموقف القضائي والأدلة</span>
-                </div>
-              </button>
-
-              <button
-                className="btn block"
-                onClick={openAssistant}
-                type="button"
-                style={{ marginTop: 4 }}
-              >
-                <Icon name="sparkles" /> فتح مختبر الصياغة الشامل
-              </button>
-            </div>
-          </div>
+          )}
 
           {/* مصغر جلسات المحاكم القادمة */}
           <div className="card">
@@ -1129,14 +1133,16 @@ setActiveTab('tasks');
                       )}
                     </div>
                   ))}
-                  <button
-                    className="btn soft sm block"
-                    onClick={openTasks}
-                    type="button"
-                    style={{ marginTop: 6 }}
-                  >
-                    عرض جميع المهام ({tasks.length})
-                  </button>
+                  {canVisit('/lawyer/tasks') && (
+                    <button
+                      className="btn soft sm block"
+                      onClick={openTasks}
+                      type="button"
+                      style={{ marginTop: 6 }}
+                    >
+                      عرض جميع المهام ({tasks.length})
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div style={{ padding: '20px 0', textAlign: 'center', color: '#607689', fontSize: 13 }}>

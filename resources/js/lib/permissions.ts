@@ -75,3 +75,19 @@ export function useMasker(): (name: string) => string {
 
   return props.auth?.user?.isSuper ? (n: string) => n || '—' : maskClient;
 }
+
+/**
+ * **هل يُفتح هذا الرابط لهذا المستخدم؟** — خريطة الخادم نفسها (`Permissions::viewMap`، مشتقّة من وسائط المسارات)
+ * التي يحرس بها المسار ويصفّي بها الشريط الجانبيّ. لكلّ زرٍّ ينتقل إلى صفحة: يُخفى حيث يُعاد صاحبه برسالة
+ * «لا تملك صلاحية الوصول» — كانت أزرار اللوحات تظهر لكلّ موظّف ومحامٍ أيّاً كانت صلاحيّاته (جرد الأزرار
+ * 2026-10-03، المرحلة ٢ — ثبت في المتصفّح). لا اسم صلاحيّةٍ منسوخ في الواجهة: الرابط وحده يكفي.
+ */
+export function useCanVisit(): (href: string) => boolean {
+  const { props } = usePage() as unknown as {
+    props: { auth?: { user?: { isSuper?: boolean; permissions?: string[] } | null }; permCatalog?: PermCatalog | null };
+  };
+  const user = props.auth?.user;
+  const viewMap = props.permCatalog?.viewMap ?? {};
+
+  return (href: string) => canViewRoute(href.split(/[?#]/)[0], user?.permissions ?? [], Boolean(user?.isSuper), viewMap);
+}
