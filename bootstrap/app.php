@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureActive;
+use App\Http\Middleware\EnsureEmailVerified;
 use App\Http\Middleware\EnsurePermission;
 use App\Http\Middleware\EnsureRole;
 use App\Http\Middleware\HandleInertiaRequests;
@@ -23,6 +24,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
+            // العميل غير المؤكَّد بريدُه يُوجَّه إلى «أكّد بريدك» قبل أيّ صفحة (قرار المالك 2026-10-03)
+            EnsureEmailVerified::class,
         ]);
 
         $middleware->alias([

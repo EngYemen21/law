@@ -16,6 +16,7 @@ use App\Models\TicketDocument;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\ClientAccount;
+use App\Support\EmailVerification;
 use App\Support\Paginate;
 use App\Support\Phone;
 use App\Support\SearchText;
@@ -157,6 +158,34 @@ class ClientController extends Controller
         );
 
         return redirect()->route('admin.clients.show', $client)->with('success', 'تم إنشاء حساب العميل — يدخل برقم هويّته ورمزٍ يصل إلى جواله.');
+    }
+
+    /**
+     * **إرسال رمز تأكيد البريد من ملفّ العميل** — لعميلٍ لم يصله رمزه أو طلبه من المكتب. الرمز نفسه الذي
+     * يُدخله العميل في صفحة «أكّد بريدك» بعد دخوله (`EmailVerification`)، وبحدّ الإرسال نفسه.
+     */
+    public function sendEmailCode(User $client): RedirectResponse
+    {
+        abort_unless($client->role === Role::Client, 404);
+
+        if ($client->email_verified_at !== null) {
+            return back()->with('success', 'بريد العميل مؤكَّد — لا حاجة لرمز.');
+        }
+
+        $result = EmailVerification::send($client);
+        if (! $result['sent']) {
+            throw ValidationException::withMessages(['email' => $result['error']]);
+        }
+
+        Audit::log(
+            action: 'إرسال رمز تأكيد البريد',
+            description: "أرسلت الإدارة رمز تأكيد البريد إلى العميل {$client->name}.",
+            category: ClientAccount::AUDIT_CATEGORY,
+            auditable: $client,
+            auditableRef: $client->email,
+        );
+
+        return back()->with('success', 'أُرسل رمز التأكيد إلى بريد العميل — يُدخله بعد دخوله إلى حسابه.');
     }
 
     /**

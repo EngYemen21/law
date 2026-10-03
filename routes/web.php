@@ -34,6 +34,7 @@ use App\Http\Controllers\ConversationFileController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\DocumentVerificationController;
+use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\Employee\CalendarController as EmployeeCalendarController;
 use App\Http\Controllers\Employee\CaseController as EmployeeCaseController;
 use App\Http\Controllers\Employee\ExpenseController as EmployeeExpenseController;
@@ -109,6 +110,13 @@ Route::middleware('guest')->group(function () {
     Route::post('/auth/choose-account', [AuthController::class, 'chooseAccount'])->middleware('throttle:otp-verify')->name('auth.choose-account');
 });
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth')->name('logout');
+// «أكّد بريدك» — إلزاميّ للعميل غير المؤكَّد بريدُه قبل استعمال حسابه (EnsureEmailVerified)
+Route::middleware(['auth', 'active'])->group(function () {
+    Route::get('/verify-email', [EmailVerificationController::class, 'show'])->name('email.verify');
+    Route::post('/verify-email', [EmailVerificationController::class, 'confirm'])->middleware('throttle:otp-verify')->name('email.verify.confirm');
+    Route::post('/verify-email/send', [EmailVerificationController::class, 'send'])->middleware('throttle:otp-request')->name('email.verify.send');
+    Route::post('/verify-email/change', [EmailVerificationController::class, 'change'])->middleware('throttle:otp-request')->name('email.verify.change');
+});
 // تبديل الحساب داخل المنصّة — بين حسابات نفس الشخص (نفس الهُويّة + الجوال)
 Route::post('/auth/switch-account', [AuthController::class, 'switchAccount'])->middleware(['auth', 'active', 'throttle:otp-verify'])->name('auth.switch-account');
 
@@ -594,6 +602,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::post('/reset-database', [DashboardController::class, 'resetDatabase'])->name('reset-database');
     Route::get('/clients', [AdminClientController::class, 'index'])->name('clients');
     Route::post('/clients', [AdminClientController::class, 'store'])->name('clients.store');
+    Route::post('/clients/{client}/verify-email/send', [AdminClientController::class, 'sendEmailCode'])->name('clients.verify-email.send');
     Route::get('/clients/{client}', [AdminClientController::class, 'show'])->name('clients.show');
     // نظائر admin لتنزيلات ملف العميل وPDF الفاتورة — كانت روابط الإدارة تمرّ عبر بوابة
     // دور العميل (قرار 2026-08-28: مسارات خاصة بالأدمن؛ التفويض داخل المتحكّمَين يسمح للإدارة)

@@ -196,6 +196,12 @@ class AuthController extends Controller
     /** إتمام الدخول لحساب محدّد (تجديد الجلسة + التوجيه للوحته). */
     private function loginInto(Request $request, User $user): RedirectResponse
     {
+        // الرمز وصل جوال هذا الحساب نفسه (الحساب يُحلّ بالهويّة **والجوال** معاً) — فالجوال مؤكَّد. يلزم حساباً
+        // أنشأته الإدارة: كان جواله يبقى «غير مؤكَّد» بعد دخول صاحبه (قرار المالك 2026-10-03)
+        if ($user->phone_verified_at === null) {
+            $user->forceFill(['phone_verified_at' => now()])->save();
+        }
+
         Auth::login($user);
         $request->session()->regenerate();
 

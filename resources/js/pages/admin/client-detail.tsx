@@ -140,6 +140,17 @@ const AdminClientDetail: React.FC<Props> = ({
 }) => {
   const ask = useConfirm();
   const toast = useToast();
+  const [sendingCode, setSendingCode] = useState(false);
+
+  // رمز تأكيد البريد إلى العميل — يُدخله في صفحة «أكّد بريدك» بعد دخوله (EmailVerification)
+  const sendEmailCode = () => {
+    setSendingCode(true);
+    router.post(`/admin/clients/${client.id}/verify-email/send`, {}, {
+      preserveScroll: true,
+      onError: (errs) => toast(firstError(errs, 'تعذّر إرسال الرمز')),
+      onFinish: () => setSendingCode(false),
+    });
+  };
 
   // نموذج التعديل
   const [name, setName] = useState(client.name);
@@ -793,10 +804,27 @@ const AdminClientDetail: React.FC<Props> = ({
                   <span className="k">الجوال</span>
                   <span className="v mono" style={{ direction: 'ltr' }}>{client.phone || '—'}</span>
                 </div>
+                {!client.phoneVerifiedAt && (
+                  <div className="tc-row">
+                    <span className="k" />
+                    <span className="v"><Badge text="الجوال غير مؤكَّد — يُؤكَّد بأوّل دخول" tone="b-amber" /></span>
+                  </div>
+                )}
                 <div className="tc-row">
                   <span className="k">البريد</span>
                   <span className="v mono" style={{ fontSize: 12 }}>{client.email}</span>
                 </div>
+                {!client.emailVerifiedAt && (
+                  <div className="tc-row" style={{ flexWrap: 'wrap', gap: 6 }}>
+                    <span className="k" />
+                    <span className="v" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+                      <Badge text="البريد غير مؤكَّد" tone="b-amber" />
+                      <button type="button" className="btn sm soft" disabled={sendingCode} onClick={sendEmailCode}>
+                        <Icon name="mail" /> {sendingCode ? 'جارٍ الإرسال...' : 'إرسال رمز التأكيد'}
+                      </button>
+                    </span>
+                  </div>
+                )}
                 <div className="tc-row">
                   <span className="k">الحالة</span>
                   <span className="v">
