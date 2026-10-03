@@ -27,11 +27,11 @@ class SettingsWideLimitsTest extends TestCase
 
     public function test_small_durations_the_owner_chooses_are_accepted(): void
     {
-        $this->save(['consult_slot_minutes' => 2])->assertSessionHasNoErrors();
+        $this->save(['consult_slot_minutes' => 15])->assertSessionHasNoErrors();
         $this->save(['session_missed_after_minutes' => 1, 'meeting_autoclose_minutes' => 1, 'consult_autoclose_minutes' => 1])->assertSessionHasNoErrors();
 
         SettingsRegistry::flush();
-        $this->assertSame(2, SettingsRegistry::int('consult_slot_minutes'));
+        $this->assertSame(15, SettingsRegistry::int('consult_slot_minutes'));
         $this->assertSame(1, SettingsRegistry::int('meeting_autoclose_minutes'));
     }
 
@@ -104,5 +104,21 @@ class SettingsWideLimitsTest extends TestCase
     {
         $this->save(['meet_invite_expire_minutes' => 0])->assertSessionHasNoErrors();
         $this->save(['meet_invite_expire_minutes' => -1])->assertSessionHasErrors('meet_invite_expire_minutes');
+    }
+
+    /**
+     * **المسافة بين مواعيد الحجز لا تقلّ عن 15 دقيقة** (قرار المالك 2026-10-03). ثبت على الخادم 3 دقائق: شبكة اجتماعات
+     * من 340 موعداً، وفحص انشغالٍ يقبل موعدين للمحامي بفارق 3 دقائق.
+     */
+    public function test_the_booking_slot_has_an_operational_floor(): void
+    {
+        $this->save(['consult_slot_minutes' => 3])->assertSessionHasErrors('consult_slot_minutes');
+        $this->save(['consult_slot_minutes' => 14])->assertSessionHasErrors('consult_slot_minutes');
+        $this->save(['consult_slot_minutes' => 15])->assertSessionHasNoErrors();
+
+        // قيمةٌ محفوظة قبل الحدّ تُقرأ 15 — فالخادم يُصلح نفسه بالنشر
+        Setting::put('consult_slot_minutes', 3);
+        SettingsRegistry::flush();
+        $this->assertSame(15, SettingsRegistry::int('consult_slot_minutes'));
     }
 }

@@ -183,6 +183,8 @@ class RoomSingleDesignTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/\.mroom[^{]*\{[^}]*min-height:520px/u', $css);
         // لا طبقة فوق Zoom: نوافذه على body بـz-index تلقائيّ — أيّ z-index في الغرفة يعلوها
         $room = substr($css, (int) strpos($css, '.mroom-page{'), (int) strpos($css, '.mroom-row .v{') - (int) strpos($css, '.mroom-page{'));
+        // قواعد نوافذ Zoom نفسها (`.zoom-Mui*`) ليست طبقةً من الغرفة — تثبيتُ لوحاته داخل الشاشة يحرسه RoomZoomPanelsInsideTest
+        $room = (string) preg_replace('#/\*.*?\*/|[^{}]*\.zoom-Mui[^{]*\{[^}]*\}#su', '', $room);
         $this->assertDoesNotMatchRegularExpression('/z-index/', $room, 'طبقةٌ فوق نوافذ Zoom');
         $this->assertDoesNotMatchRegularExpression('/position:fixed/', $room);
         $this->assertStringNotContainsString('.mroom-dock', $css);

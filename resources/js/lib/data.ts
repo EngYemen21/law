@@ -105,6 +105,8 @@ export const VIEW_ROUTE: Record<string, string> = {
   tickets: '/tickets',
   cases: '/cases',
   execs: '/execs',
+  // طلب تنفيذٍ جديد = تذكرةٌ في قسم التنفيذ (قرار المالك 2026-09-29) — «execs» قائمة المتابعة لا نموذج الطلب
+  execrequest: '/tickets/new?department=enforcement',
   book: '/book',
   myconsults: '/myconsults',
   // appts: '/appointments',  ← طُوي في calendar؛ المسار نفسه ما زال حيّاً ويُحوّل إليه

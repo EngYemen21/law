@@ -4,6 +4,7 @@ import Badge from '@/components/babylon/Badge';
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { useCanVisit } from '@/lib/permissions';
 import { openRoomTab } from '@/lib/room';
 import { PresenceBadge } from '@/lib/staff-presence';
 import type { EmployeeTicketCard } from '@/types';
@@ -94,6 +95,18 @@ interface Props {
   counts: Counts;
 }
 
+/** صفحات اللوحة — الرابط نفسه يُفتح به ويُسأل عنه `useCanVisit`. */
+const R = {
+  tickets: '/employee/tickets',
+  cases: '/employee/cases',
+  execs: '/employee/execs',
+  calendar: '/employee/calendar',
+  schedule: '/employee/schedule',
+  transfer: '/employee/transfer',
+  consultrecv: '/employee/consultrecv',
+  meetreqs: '/employee/meetreqs',
+};
+
 const EmployeeDashboard: React.FC<Props> = ({
   name,
   tickets = [],
@@ -110,13 +123,17 @@ const EmployeeDashboard: React.FC<Props> = ({
   const [searchQuery, setSearchQuery] = useState('');
 
   // التنقلات السريعة
-  const openTicket = (no: string) => router.visit(`/employee/tickets/${encodeURIComponent(no)}`);
-  const openCase = (no: string) => router.visit(`/employee/cases?q=${encodeURIComponent(no)}`);
-  const openExec = () => router.visit('/employee/execs');
-  const openSchedule = () => router.visit('/employee/schedule');
-  const openTransfer = () => router.visit('/employee/transfer');
-  const openMeetReqs = () => router.visit('/employee/meetreqs');
-  const openConsultRecv = () => router.visit('/employee/consultrecv');
+  // كلّ زرٍّ وصفٍّ ينتقل إلى صفحة يُرسم لمن تُفتح له وحده (`useCanVisit` — خريطة الخادم): كانت أزرار اللوحة
+  // تظهر لكلّ موظّف، فيُعاد من لا يملك صلاحيّتها برسالة «لا تملك صلاحية» (جرد الأزرار 2026-10-03، المرحلة ٢)
+  const canVisit = useCanVisit();
+  const openTicket = (no: string) => router.visit(`${R.tickets}/${encodeURIComponent(no)}`);
+  const openCase = (no: string) => router.visit(`${R.cases}?q=${encodeURIComponent(no)}`);
+  const openExec = () => router.visit(R.execs);
+  const openSchedule = () => router.visit(R.schedule);
+  const openTransfer = () => router.visit(R.transfer);
+  const openMeetReqs = () => router.visit(R.meetreqs);
+  const openConsultRecv = () => router.visit(R.consultrecv);
+  const fullList: Record<string, string> = { consults: R.calendar, cases: R.cases, execs: R.execs };
 
   // إحصائيات النبض التشغيلي 360°
   const stats: StatItem[] = [
@@ -268,18 +285,26 @@ const EmployeeDashboard: React.FC<Props> = ({
           نظرة شاملة 360° على كافة مسارات المكتب: متابعة تذاكر العملاء، إدارة جلسات واستشارات اليوم، مراقبة جلسات المحاكم، وتوزيع المهام على المستشارين.
         </p>
         <div className="hero-cta">
-          <button className="hero-b" onClick={openSchedule} type="button">
-            <Icon name="calplus" /> حجز موعد
-          </button>
-          <button className="hero-b ghost" onClick={openTransfer} type="button">
-            <Icon name="reply" /> تحويل التذاكر
-          </button>
-          <button className="hero-b ghost" onClick={openConsultRecv} type="button">
-            <Icon name="video" /> استقبال الاستشارات
-          </button>
-          <button className="hero-b ghost" onClick={openMeetReqs} type="button">
-            <Icon name="send" /> دعوات الاجتماعات
-          </button>
+          {canVisit(R.schedule) && (
+            <button className="hero-b" onClick={openSchedule} type="button">
+              <Icon name="calplus" /> حجز موعد
+            </button>
+          )}
+          {canVisit(R.transfer) && (
+            <button className="hero-b ghost" onClick={openTransfer} type="button">
+              <Icon name="reply" /> تحويل التذاكر
+            </button>
+          )}
+          {canVisit(R.consultrecv) && (
+            <button className="hero-b ghost" onClick={openConsultRecv} type="button">
+              <Icon name="video" /> استقبال الاستشارات
+            </button>
+          )}
+          {canVisit(R.meetreqs) && (
+            <button className="hero-b ghost" onClick={openMeetReqs} type="button">
+              <Icon name="send" /> دعوات الاجتماعات
+            </button>
+          )}
         </div>
       </div>
 
@@ -351,9 +376,7 @@ const EmployeeDashboard: React.FC<Props> = ({
             {searchQuery.trim() !== '' && activeTab !== 'tickets' && (
               <div className="action-hint" style={{ margin: '8px 14px 0' }}>
                 <Icon name="info" /> البحث هنا في المعاينة المعروضة فقط.{' '}
-                <Link href={({ consults: '/employee/calendar', cases: '/employee/cases', execs: '/employee/execs' } as Record<string, string>)[activeTab]}>
-                  ابحث في القائمة الكاملة
-                </Link>
+                {canVisit(fullList[activeTab]) && <Link href={fullList[activeTab]}>ابحث في القائمة الكاملة</Link>}
               </div>
             )}
 
@@ -373,23 +396,25 @@ const EmployeeDashboard: React.FC<Props> = ({
                     </thead>
                     <tbody>
                       {filteredTickets.map((t) => (
-                        <tr key={t.no} className="click" onClick={() => openTicket(t.no)}>
+                        <tr key={t.no} className={canVisit(R.tickets) ? 'click' : undefined} onClick={canVisit(R.tickets) ? () => openTicket(t.no) : undefined}>
                           <td className="mono">{t.no}</td>
                           <td><b>{t.client}</b></td>
                           <td className="muted">{t.type}</td>
                           <td><b>{t.lawyer || '—'}</b></td>
                           <td><Badge text={t.status} tone={t.tone} /></td>
                           <td>
-                            <button
-                              className="btn sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openTicket(t.no);
-                              }}
-                              type="button"
-                            >
-                              <Icon name="reply" /> فتح المحادثة
-                            </button>
+                            {canVisit(R.tickets) && (
+                              <button
+                                className="btn sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openTicket(t.no);
+                                }}
+                                type="button"
+                              >
+                                <Icon name="reply" /> فتح المحادثة
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -453,9 +478,11 @@ const EmployeeDashboard: React.FC<Props> = ({
                                   <Icon name="video" /> دخول الجلسة
                                 </button>
                               )}
-                              <button className="btn soft sm" onClick={openSchedule} type="button">
-                                <Icon name="cal" /> الجدولة
-                              </button>
+                              {canVisit(R.schedule) && (
+                                <button className="btn soft sm" onClick={openSchedule} type="button">
+                                  <Icon name="cal" /> الجدولة
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -466,9 +493,11 @@ const EmployeeDashboard: React.FC<Props> = ({
                   <div className="empty">
                     <Icon name="cal" />
                     <b>لا توجد جلسات أو استشارات مقررة لليوم</b>
-                    <button className="btn soft sm" style={{ marginTop: 8 }} onClick={openSchedule} type="button">
-                      + حجز موعد جديد
-                    </button>
+                    {canVisit(R.schedule) && (
+                      <button className="btn soft sm" style={{ marginTop: 8 }} onClick={openSchedule} type="button">
+                        + حجز موعد جديد
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -492,7 +521,7 @@ const EmployeeDashboard: React.FC<Props> = ({
                     </thead>
                     <tbody>
                       {filteredCases.map((c) => (
-                        <tr key={c.no} className="click" onClick={() => openCase(c.no)}>
+                        <tr key={c.no} className={canVisit(R.cases) ? 'click' : undefined} onClick={canVisit(R.cases) ? () => openCase(c.no) : undefined}>
                           <td className="mono">{c.no}</td>
                           <td>
                             <b>{c.client}</b>
@@ -505,16 +534,18 @@ const EmployeeDashboard: React.FC<Props> = ({
                           <td><span className="muted">{c.court}</span></td>
                           <td><Badge text={c.status} tone={c.tone} /></td>
                           <td>
-                            <button
-                              className="btn soft sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openCase(c.no);
-                              }}
-                              type="button"
-                            >
-                              <Icon name="scale" /> التفاصيل
-                            </button>
+                            {canVisit(R.cases) && (
+                              <button
+                                className="btn soft sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openCase(c.no);
+                                }}
+                                type="button"
+                              >
+                                <Icon name="scale" /> التفاصيل
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -547,7 +578,7 @@ const EmployeeDashboard: React.FC<Props> = ({
                     </thead>
                     <tbody>
                       {filteredExecs.map((e) => (
-                        <tr key={e.no} className="click" onClick={() => openExec()}>
+                        <tr key={e.no} className={canVisit(R.execs) ? 'click' : undefined} onClick={canVisit(R.execs) ? () => openExec() : undefined}>
                           <td className="mono">{e.no}</td>
                           <td><b>{e.client}</b></td>
                           <td className="muted">{e.subject}</td>
@@ -555,16 +586,18 @@ const EmployeeDashboard: React.FC<Props> = ({
                           <td><b>{e.amount ? `${e.amount.toLocaleString()} ر.س` : '—'}</b></td>
                           <td><Badge text={e.status} tone={e.tone} /></td>
                           <td>
-                            <button
-                              className="btn soft sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openExec();
-                              }}
-                              type="button"
-                            >
-                              <Icon name="exec" /> متابعة
-                            </button>
+                            {canVisit(R.execs) && (
+                              <button
+                                className="btn soft sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openExec();
+                                }}
+                                type="button"
+                              >
+                                <Icon name="exec" /> متابعة
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}

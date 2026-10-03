@@ -454,9 +454,9 @@ const EmployeeTickets: React.FC<Props> = ({
         role="employee"
         onClose={() => setPreviewTicket(null)}
         onTransfer={canTransfer ? (no) => {
+          // الزرّ لا يُرسم إلّا لتذكرةٍ تقبل التحويل (`isReassignable` من الخادم) — انظر `QuickTicketModal`
           const t = tickets.find((x) => x.no === no);
-          // حارس الخادم نفسه (`TicketAssignment::assertReassignable`) — المجمّدة والنهائيّة لا تُحوَّل
-          if (t && t.isReassignable) {
+          if (t) {
             setPreviewTicket(null);
             openTransfer(t);
           }

@@ -1760,7 +1760,8 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                       <h4 style={{ margin: 0, fontSize: 14, color: 'var(--primary)' }}>
                         🎥 موعد وقناة الانعقاد
                       </h4>
-                      {drawerConsult.channel === 'مرئية' && (
+                      {/* الحكم من الخادم (`zoomSyncable`) — كان يظهر لكلّ مرئيّة والخادم يرفضه بلا اجتماعٍ أو بعد الاعتماد */}
+                      {drawerConsult.zoomSyncable && (
                         <button
                           type="button"
                           className="btn soft sm"

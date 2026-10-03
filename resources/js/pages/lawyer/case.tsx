@@ -18,6 +18,7 @@ import type { Hearing } from '@/lib/case-ui';
 import type { Message } from '@/lib/chat';
 import { echo } from '@/lib/echo';
 import Icon from '@/lib/icons';
+import { useCanVisit } from '@/lib/permissions';
 import { firstError, serverMessage } from '@/lib/server-message';
 import type { CaseDocumentCard, TicketDocumentCard } from '@/types';
 
@@ -56,6 +57,7 @@ function docState(d: CaseDoc): [string, string] {
 }
 
 const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, documents, convertedExec, pleadingBlock, pleadingDraft, pleadingIsDocument = false, canRequestExecution, executionRequest, executionAmountHint = null, executionDefendantHint = null, ticketDocuments = [], fileInfo = {}, fileFacts = null, readiness = [], filing = { canFile: false, canRegister: false, data: null }, conversation }) => {
+  const canVisit = useCanVisit();
   const ask = useConfirm();
   const toast = useToast();
   const base = `/lawyer/cases/${encodeURIComponent(c.no)}`;
@@ -334,21 +336,24 @@ const LawyerCase: React.FC<Props> = ({ case: c, channel, messages, hearings, doc
                   <button className="btn soft sm" type="button" disabled={pBusy || regenPending} onClick={regeneratePleading}>
                     <Icon name="reply" /> {regenPending ? 'جارٍ التوليد…' : 'إعادة التوليد'}
                   </button>
-                  <Link
-                    href={`/lawyer/editor/create?importType=case_pleading&id=${encodeURIComponent(c.no)}`}
-                    className="btn soft sm"
-                    style={{
-                      textDecoration: 'none',
-                      gap: 5,
-                      background: 'rgba(14, 92, 156, 0.08)',
-                      borderColor: 'rgba(14, 92, 156, 0.3)',
-                      color: '#0e5c9c',
-                      fontWeight: 700,
-                    }}
-                    title="فتح وتنسيق اللائحة في محرر المستندات الرسمي Word"
-                  >
-                    <Icon name="edit" /> تنسيق اللائحة في المحرر ⚖️
-                  </Link>
+                  {/* المحرّر خلف «المساعد القانوني» — يُرسم لمن يُفتح له وحده (`useCanVisit`؛ جرد الأزرار 2026-10-03، المرحلة ٢) */}
+                  {canVisit('/lawyer/editor/create') && (
+                    <Link
+                      href={`/lawyer/editor/create?importType=case_pleading&id=${encodeURIComponent(c.no)}`}
+                      className="btn soft sm"
+                      style={{
+                        textDecoration: 'none',
+                        gap: 5,
+                        background: 'rgba(14, 92, 156, 0.08)',
+                        borderColor: 'rgba(14, 92, 156, 0.3)',
+                        color: '#0e5c9c',
+                        fontWeight: 700,
+                      }}
+                      title="فتح وتنسيق اللائحة في محرر المستندات الرسمي Word"
+                    >
+                      <Icon name="edit" /> تنسيق اللائحة في المحرر ⚖️
+                    </Link>
+                  )}
                   {/* الاعتماد يُطلق ما حُفظ — فالتعديل غير المحفوظ يُحفظ أولاً */}
                   <button className="btn sm" type="button" disabled={pBusy || dirty || !!pleadingBlock} onClick={approvePleading}>
                     <Icon name="check" /> الاعتماد النهائيّ للّائحة

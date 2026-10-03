@@ -803,10 +803,9 @@ class ConsultController extends Controller
     public function zoomSync(Request $request, Consult $consult): RedirectResponse
     {
         $this->guardConsult($request, $consult);
-        abort_if(empty($consult->meet_id), 422, 'لا جلسة Zoom مرتبطة بهذه الاستشارة.');
-        // الاعتماد نهائيّ: المزامنة تكتب القرارات، و`toClientCard` يُرسلها للعميل
-        // بعد الاعتماد — فمزامنةٌ لاحقة تُبلغه ما لم تعتمده الإدارة.
-        abort_if($consult->summary_approved_at !== null, 422, 'اعتُمد ملخّص هذه الاستشارة ووصل العميل — لا تُحدَّث بياناتها من Zoom بعد الاعتماد.');
+        // الحكم الواحد مع زرّ الواجهة (`Consult::zoomSyncBlocker` ⇐ `zoomSyncable`)
+        $blocker = $consult->zoomSyncBlocker();
+        abort_if($blocker !== null, 422, (string) $blocker);
 
         $pulled = ConsultSummary::pull($consult, app(ZoomService::class));
 

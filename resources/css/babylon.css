@@ -881,6 +881,12 @@ a.doc-chip-link:hover{background:rgba(14,92,156,.07);border-color:rgba(14,92,156
 .zoom-MuiDialog-paper{min-width:0!important;max-width:calc(100vw - 24px)!important;margin:12px!important;box-sizing:border-box}
 .zoom-MuiDialog-paper *{overflow-wrap:anywhere}
 .zoom-MuiPopover-paper,.zoom-MuiMenu-paper{max-width:calc(100vw - 16px)!important}
+/* لوحات Zoom المجاورة للفيديو (Mpe → MUI Popper على body بـ placement:"left-start" ثابتٍ في 6.2.0، منها «Meeting Summary has been
+   enabled» ولا يُضبط موضعها من `customize`): الفيديو يملأ الغرفة فلا مكان بجواره، فخرجت خارج الشاشة ومدّت الصفحة أفقيّاً
+   (ملاحظة المالك 2026-10-03). تُثبَّت داخل الغرفة تحت شريطها — `!important` يغلب أنماط popper.js المضمّنة. التلميحات وقوائم
+   الشريط (placement top/bottom) خارجها. */
+body:has(.mroom-page)>.zoom-MuiPopper-root[role="dialog"]:is([data-popper-placement^="left"],[data-popper-placement^="right"]){position:fixed!important;inset:62px auto auto 8px!important;transform:none!important;max-width:calc(100vw - 16px);max-height:calc(100dvh - 70px);overflow:auto;direction:ltr}
+body:has(.mroom-page)>.zoom-MuiPopper-root[role="dialog"]:is([data-popper-placement^="left"],[data-popper-placement^="right"]) *{min-width:0!important;max-width:100%;box-sizing:border-box}
 .mroom-wm{position:absolute;bottom:12px;inset-inline-end:14px;color:rgba(255,255,255,.34);font-size:10.5px;font-weight:700;pointer-events:none;direction:ltr;letter-spacing:.3px}
 .mroom-spin{width:42px;height:42px;border-radius:50%;border:3px solid rgba(255,255,255,.22);border-top-color:#fff;animation:mroomspin .85s linear infinite;margin:0 auto 12px}
 @keyframes mroomspin{to{transform:rotate(360deg)}}

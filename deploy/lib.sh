@@ -9,6 +9,7 @@
 #   BACKUP_REMOTE        وجهة نسخةٍ خارج الخادم لـscp/rsync، مثل user@host:/backups/law (فارغ = بلا)
 #   DEPLOY_STATE_DIR     سجلّ الإصدارات (السابق/الحاليّ/آخر نسخة) ($HOME/law-deploy)
 #   SUPERVISOR_PROGRAMS  برامج المشروع في supervisor          ("salasel-worker salasel-reverb")
+#   CRON_USER            مستخدم الويب الذي يحمل cron المجدول عادةً (www-data)
 # ════════════════════════════════════════════════════════════════════════════
 
 # `set -e` يسري داخل `$(...)` أيضاً (لا يُورَّث افتراضيّاً في bash)
@@ -19,6 +20,7 @@ BACKUP_KEEP="${BACKUP_KEEP:-14}"
 BACKUP_REMOTE="${BACKUP_REMOTE:-}"
 DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-$HOME/law-deploy}"
 SUPERVISOR_PROGRAMS="${SUPERVISOR_PROGRAMS:-salasel-worker salasel-reverb}"
+CRON_USER="${CRON_USER:-www-data}"
 
 # git بلا تتبّع بت التنفيذ: ملفّاتٌ غيّر وضعَها `chmod` قديمٌ على الخادم ليست تعديلاً في المحتوى
 git() { command git -c core.fileMode=false "$@"; }
@@ -167,6 +169,21 @@ health_check() {
     rm -f "$jar"
     [ "$code" = "200" ] || die "فحص الصحّة أعاد $code على $url/up."
     log "✅ فحص الصحّة: 200"
+}
+
+# مصادر cron التي تُشغّل `schedule:run` — سطرٌ لكلّ مصدر: جدول المستخدم الحاليّ، وجدول مستخدم الويب (CRON_USER)،
+# وملفّات النظام. كان الفحص يقرأ جدول المستخدم الحاليّ وحده، والنشر بـsudo يقرأ جدول root، فينبّه «لا مدخل cron»
+# والمجدول مسجَّلٌ عند www-data ويعمل (ثبت على الخادم 2026-10-03). الأسطر المعلّقة (#) لا تُحسب.
+scheduler_cron_sources() {
+    local me f
+    me="$(id -un)"
+    if crontab -l 2>/dev/null | grep -v '^[[:space:]]*#' | grep -q 'schedule:run'; then echo "crontab:$me"; fi
+    if [ "$CRON_USER" != "$me" ] && crontab -l -u "$CRON_USER" 2>/dev/null | grep -v '^[[:space:]]*#' | grep -q 'schedule:run'; then
+        echo "crontab:$CRON_USER"
+    fi
+    for f in /etc/crontab /etc/cron.d/*; do
+        if [ -f "$f" ] && grep -v '^[[:space:]]*#' "$f" | grep -q 'schedule:run'; then echo "$f"; fi
+    done
 }
 
 random_secret() { php -r 'echo bin2hex(random_bytes(16));'; }

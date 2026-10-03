@@ -188,7 +188,7 @@ class AdminSettingsTest extends TestCase
         $this->assertSame(SettingsRegistry::field('installments_count')['max'], SettingsRegistry::int('installments_count'));
         Setting::put('consult_slot_minutes', '0');
         SettingsRegistry::flush();
-        $this->assertSame(1, SettingsRegistry::int('consult_slot_minutes'));
+        $this->assertSame(SettingsRegistry::MIN_SLOT_MINUTES, SettingsRegistry::int('consult_slot_minutes'));
     }
 
     // ── ٨ ──

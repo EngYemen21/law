@@ -1,7 +1,7 @@
 import { Link, router } from '@inertiajs/react';
 import React, { useState } from 'react';
 import Badge from '@/components/babylon/Badge';
-import { CLOSURE_REASONS } from '@/components/babylon/CloseTicketModal';
+import { CLOSURE_REASONS } from '@/lib/closure-reasons';
 import { useToast } from '@/components/babylon/Toast';
 import Icon from '@/lib/icons';
 import { firstError } from '@/lib/server-message';
@@ -468,15 +468,29 @@ const TicketTrackDecisionCard: React.FC<TicketTrackProps> = ({
 
             {isAdmin ? (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="btn sm"
-                  style={{ flex: 1, justifyContent: 'center' }}
-                  disabled={busy || !waiverReady}
-                  onClick={() => submitApproval(governance?.proposedTrack || undefined, governance?.proposedTrackReason || undefined)}
-                >
-                  <Icon name="check" /> اعتماد ونشر للعميل
-                </button>
+                {/* مقترح «إغلاق» بلا تصنيف سبب: الاعتماد السريع كان ينتهي برسالة «اختر تصنيف سبب الإغلاق» ولا يُرسل
+                    (جرد الأزرار 2026-10-03، البند ٣ — ثبت في المتصفّح)؛ والتصنيف يُختار في نموذج الاعتماد وحده، فالزرّ يفتحه */}
+                {governance?.proposedTrack === 'close' && !closureCode ? (
+                  <button
+                    type="button"
+                    className="btn sm"
+                    style={{ flex: 1, justifyContent: 'center' }}
+                    disabled={busy}
+                    onClick={() => setIsEditing(true)}
+                  >
+                    <Icon name="check" /> اختيار سبب الإغلاق والاعتماد
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn sm"
+                    style={{ flex: 1, justifyContent: 'center' }}
+                    disabled={busy || !waiverReady}
+                    onClick={() => submitApproval(governance?.proposedTrack || undefined, governance?.proposedTrackReason || undefined)}
+                  >
+                    <Icon name="check" /> اعتماد ونشر للعميل
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn soft sm"

@@ -2,10 +2,10 @@ import { router } from '@inertiajs/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Badge from '@/components/babylon/Badge';
-import Modal, { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
+import { useBodyScrollLock, useEscapeLayer } from '@/components/babylon/Modal';
 import { useToast } from '@/components/babylon/Toast';
 import { RescheduleRequestNotice, useConsultReschedule } from '@/lib/consult-reschedule';
-import { CONFIRM_END_CONSULT, CONFIRM_NO_SHOW, CONFIRM_START_CONSULT } from '@/lib/consult-ui';
+import { CONFIRM_END_CONSULT, CONFIRM_NO_SHOW, CONFIRM_START_CONSULT, EndSessionModal } from '@/lib/consult-ui';
 import type {ConsultCard} from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { crChannelIcon, crChannelTone, maskClient } from '@/lib/employee-data';
@@ -38,7 +38,6 @@ export const AdminConsultRecv: React.FC<Props> = ({ consults = [] }) => {
 
   // نافذة التدوين عند إنهاء الجلسة — مادّة الملخّص الوحيدة
   const [endingOf, setEndingOf] = useState<ConsultCard | null>(null);
-  const [endNotes, setEndNotes] = useState('');
 
   // إعادة الجدولة من مسارها الواحد — كانت هنا نافذةٌ خاصّة من مئتي سطر تقول للمستخدم
   // «يُشعَر العميل لاختيار موعد جديد عبر حسابه» والعميل لا يختار موعده (قرار 2026-09-14)
@@ -230,10 +229,9 @@ return false;
   const handleEnd = (c: ConsultCard, e?: React.MouseEvent) => {
     e?.stopPropagation();
     setEndingOf(c);
-    setEndNotes('');
   };
 
-  const submitEnd = async () => {
+  const submitEnd = async (notes: string) => {
     if (endingOf === null) {
       return;
     }
@@ -241,14 +239,11 @@ return false;
     // تأكيدٌ يقول الأثر قبل الإرسال — النصّ الواحد من `consult-ui` (قرار المالك 2026-09-26)
     // ونصّ النجاح من الخادم (`RoomDetails::afterEnd` ⇐ flash) — لا إشعار ثانٍ هنا
     await action.run(`/admin/consults/${endingOf.id}/end`, {
-      data: { notes: endNotes.trim() },
+      data: { notes },
       key: endingOf.id,
       confirm: CONFIRM_END_CONSULT,
       fallback: 'تعذّر إنهاء الجلسة',
-      onSuccess: () => {
-        setEndingOf(null);
-        setEndNotes('');
-      },
+      onSuccess: () => setEndingOf(null),
     });
   };
 
@@ -1610,33 +1605,8 @@ return false;
         document.body
       )}
 
-      {/* نافذة التدوين — مادّة الملخّص الوحيدة (نظير `ConsultRecvPage`) */}
-      <Modal
-        title={`إنهاء الجلسة وتدوين ما دار — ${endingOf?.ref ?? ''}`}
-        open={!!endingOf}
-        onClose={() => setEndingOf(null)}
-      >
-        <div className="field">
-          <label>ما دار في الجلسة (وقائع العميل، ما طُلب، ما تقرّر)</label>
-          <textarea
-            className="input"
-            rows={9}
-            value={endNotes}
-            onChange={(ev) => setEndNotes(ev.target.value)}
-          />
-        </div>
-        <p className="action-hint">
-          <Icon name="info" /> الملخّص يُبنى على التدوين وحده — وبلا تدوين لا يُكتب شيء، لأنّ ما يُكتب من عنوان الموضوع وحده محضرٌ مختلَق.
-        </p>
-        <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
-          <button className="btn" onClick={submitEnd} disabled={action.busy || endNotes.trim() === ''} type="button">
-            <Icon name="doc" /> إنهاء وحفظ التدوين
-          </button>
-          <button className="btn soft" onClick={submitEnd} disabled={action.busy} type="button">
-            <Icon name="check" /> إنهاء بلا تدوين
-          </button>
-        </div>
-      </Modal>
+      {/* نافذة التدوين — المكوّن الواحد مع `ConsultRecvPage` */}
+      <EndSessionModal key={endingOf?.id ?? 'none'} consult={endingOf} busy={action.busy} onClose={() => setEndingOf(null)} onEnd={(notes) => void submitEnd(notes)} />
 
     </div>
   );

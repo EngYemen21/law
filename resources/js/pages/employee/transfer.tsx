@@ -6,6 +6,7 @@ import LawyerSuggestionHint, { type LawyerSuggestionData } from '@/components/ba
 import StatRow, { type StatItem } from '@/components/babylon/StatRow';
 import { useToast } from '@/components/babylon/Toast';
 import { foldSearch, isUrgentTicket } from '@/lib/employee-data';
+import { useCanVisit } from '@/lib/permissions';
 import { firstError } from '@/lib/server-message';
 import { inSessionSuffix, PresenceBadge, useInSession } from '@/lib/staff-presence';
 import type { EmployeeTicketCard } from '@/types';
@@ -62,6 +63,8 @@ const EmployeeTransfer: React.FC<Props> = ({
   departments = [],
   recentTransfers = [],
 }) => {
+  // أزرار الرأس تُرسم لمن تُفتح له صفحتها وحده (`useCanVisit`) — جرد الأزرار 2026-10-03، المرحلة ٢
+  const canVisit = useCanVisit();
   const inSession = useInSession();
   const toast = useToast();
 
@@ -231,12 +234,16 @@ const EmployeeTransfer: React.FC<Props> = ({
           <p>موازنة ضغط العمل على المستشارين، إسناد التذاكر غير الموزعة، ومتابعة سجل التحويلات.</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button className="btn ghost" onClick={() => router.visit('/employee/tickets')} type="button">
-            <Icon name="ticket" /> قائمة كل التذاكر
-          </button>
-          <button className="btn" onClick={() => router.visit('/employee/schedule')} type="button">
-            <Icon name="calplus" /> جدول المواعيد
-          </button>
+          {canVisit('/employee/tickets') && (
+            <button className="btn ghost" onClick={() => router.visit('/employee/tickets')} type="button">
+              <Icon name="ticket" /> قائمة كل التذاكر
+            </button>
+          )}
+          {canVisit('/employee/schedule') && (
+            <button className="btn" onClick={() => router.visit('/employee/schedule')} type="button">
+              <Icon name="calplus" /> جدول المواعيد
+            </button>
+          )}
         </div>
       </div>
 

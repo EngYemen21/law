@@ -8,6 +8,7 @@ import ConversationHandlerCard from '@/components/babylon/ConversationHandlerCar
 import FlowLine from '@/components/babylon/FlowLine';
 import RevisionHistoryButton from '@/components/babylon/RevisionHistoryButton';
 import { useToast } from '@/components/babylon/Toast';
+import { VIEW_ROUTE } from '@/lib/data';
 import { matchesSearch } from '@/lib/employee-data';
 import { EXEC_FLOW, EXEC_FEE_MODES, EXEC_CLOSE_REASONS, EXEC_DOC_ACCEPT, EXEC_DOC_HINT, EXEC_REQ_DOC_ACCEPT, EXEC_REQ_DOC_HINT, execMoney, procTone, execVatLabel, execAiPresentation, execStudyBasis, execUnassigned    } from '@/lib/exec-flow';
 import type { ExecFeeMode, ExecInvoice } from '@/lib/exec-flow';
@@ -127,7 +128,7 @@ const ExecList: React.FC<{ role: Role; execs: ExecReq[]; buckets: Record<ExecBuc
       {role === 'client' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '4px 0 12px' }}>
           {/* طلب التنفيذ يُفتح تذكرةً في قسم التنفيذ (قرار المالك 2026-09-29) — بابٌ واحد وحوكمةٌ واحدة: بطاقة القرار ثمّ اعتماد المسار */}
-          <Link className="btn" href="/tickets/new?department=enforcement"><Icon name="plus" /> طلب تنفيذ جديد</Link>
+          <Link className="btn" href={VIEW_ROUTE.execrequest}><Icon name="plus" /> طلب تنفيذ جديد</Link>
         </div>
       )}
 
@@ -231,32 +232,13 @@ const ActionCard: React.FC<{ role: Role; r: ExecReq; act: ActFn }> = ({ role, r,
   const [lawyerPct, setLawyerPct] = useState(() => initialLawyerPct(r));
   // سبب أرشفة الملفّ المرفوض — «أخرى» افتراضاً، والقائمة تُرسَل كما يقبلها الخادم
   const [rejectedReason, setRejectedReason] = useState('أخرى');
-  // عدد الدفعات من إعدادات الإدارة لا «3» منقوشة — الخادم يقسّم بـ`installments_count`
-  const { installments_count: installments } = useSettings();
-  const total = r.fee + r.vat;
   const basis = execStudyBasis(r.study);
 
   let body: React.ReactNode = null;
 
-  if (role === 'client') {
-    if (r.stage === 5 && r.feeApproved) {
-      body = (<>
-        <button className="btn" type="button" onClick={() => act('acceptOffer')}><Icon name="check" /> قبول العرض</button>
-        <button className="btn soft" type="button" onClick={() => act('inquire')}><Icon name="info" /> طلب استفسار</button>
-        <button className="btn soft" type="button" onClick={() => act('rejectOffer')}><Icon name="out" /> رفض العرض</button>
-      </>);
-    } else if (r.stage === 6 && !r.paid) {
-      const onPlan = r.payPlan === 'install';
-      body = (<>
-        <div className="action-hint" style={{ marginBottom: 8 }}><Icon name="card" /> الفاتورة {r.invoiceNo} — {onPlan ? `الدفعة الأولى ${execMoney(r.invoices?.[0]?.amount ?? 0)} ريال` : `الإجمالي ${execMoney(total)} ريال`}</div>
-        <button className="btn" type="button" onClick={() => act('pay', { plan: onPlan ? 'install' : 'full' })}><Icon name="card" /> دفع الآن</button>
-        {/* خطّة التقسيط قرار العميل، وتُفتح مرّةً واحدة — بعدها الأزرار تسدّد دفعاتها */}
-        {!onPlan && <button className="btn soft" type="button" onClick={() => act('pay', { plan: 'install' })}><Icon name="card" /> تقسيط على {installmentsText(installments)}</button>}
-        <button className="btn soft" type="button" onClick={() => act('inquire')}><Icon name="info" /> طلب استفسار</button>
-        <button className="btn soft" type="button" onClick={() => act('rejectOffer')}><Icon name="out" /> رفض العرض</button>
-      </>);
-    }
-  } else if (role === 'lawyer') {
+  // بطاقة الطاقم وحدها: `ActionCard` لا تُرسم إلّا داخل `ExecDetail`، والعميل يُرسم له `ClientExecDetail` ⇐ `ClientFlowCard`.
+  // كان هنا فرعٌ للعميل لا يبلغه شيء (جرد الأزرار 2026-10-03، البند ١١) — نسخةٌ ثانية من أزرار العرض والدفع، حُذفت.
+  if (role === 'lawyer') {
     if (r.isRejected) {
       body = <div className="action-hint"><Icon name="info" /> رُفض هذا الطلب — لا مزيد من الإجراءات عليه.</div>;
     } else if (r.stage === 2) {

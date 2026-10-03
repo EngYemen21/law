@@ -102,7 +102,9 @@ class ConsultJourneyHonestyTest extends TestCase
 
         $this->actingAs($admin)->post("/admin/consults/{$approved->id}/zoom-sync")->assertStatus(422);
 
-        $this->assertStringContainsString("c.channel === 'مرئية' && !c.summaryApproved", $this->ui());
+        // الحكم من الخادم وحده (`Consult::zoomSyncBlocker` ⇐ `zoomSyncable`) — لا شرطٌ نصّيّ في الواجهة (جرد الأزرار 2026-10-03)
+        $this->assertFalse($approved->toCard()['zoomSyncable']);
+        $this->assertStringContainsString('c.zoomSyncable &&', $this->ui());
     }
 
     public function test_refer_is_gated_by_the_same_three_server_guards(): void

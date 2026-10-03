@@ -346,6 +346,8 @@ sudo crontab -u www-data -e
 # أضِف:
 * * * * * cd /var/www/salasel && php artisan schedule:run >> /dev/null 2>&1
 ```
+> مدخلٌ واحد فقط، عند مستخدم الويب — لا تُضِفه لـroot أيضاً فيعمل المجدول مرّتين. `./deploy.sh` يفحص جدول المستخدم الحاليّ وجدول `CRON_USER` (افتراضه `www-data`) و`/etc/cron.d`، وينبّه إن غاب المدخل أو تكرّر.
+>
 > هذا يشغّل الأوامر المجدولة في `routes/console.php`: `meetings:send-reminders` (كل دقيقة)، `zoom:release-links` (كل دقيقة)، `zoom:pull-summaries` (كل 5د).
 
 ---
