@@ -143,10 +143,15 @@ else
 fi
 
 # بلا المجدول لا تُطلَق روابط الجلسات ولا التذكيرات — والعطل صامتٌ تماماً
-if crontab -l 2>/dev/null | grep -q "schedule:run" || grep -qs "schedule:run" /etc/cron.d/*; then
-    log "✅ المجدول مسجَّل في cron"
+# ومصدران يعني تشغيلين كلّ دقيقة — تنبيهٌ لا رفض (withoutOverlapping يحجب التداخل، لكنّ المضاعفة بلا داعٍ)
+CRON_SOURCES="$(scheduler_cron_sources)"
+CRON_COUNT="$(printf '%s' "$CRON_SOURCES" | grep -c . || true)"
+if [ "$CRON_COUNT" -eq 0 ]; then
+    warn "لا مدخل cron لـschedule:run — أضِفه لمستخدم الويب (sudo crontab -u ${CRON_USER} -e): * * * * * cd $(pwd) && php artisan schedule:run >> /dev/null 2>&1"
+elif [ "$CRON_COUNT" -gt 1 ]; then
+    warn "المجدول مسجَّل في أكثر من مصدر ($(echo "$CRON_SOURCES" | paste -sd' ')) — يعمل مرّتين كلّ دقيقة؛ أبقِ واحداً"
 else
-    warn "لا مدخل cron لـschedule:run — أضِفه: * * * * * cd $(pwd) && php artisan schedule:run >> /dev/null 2>&1"
+    log "✅ المجدول مسجَّل في cron (${CRON_SOURCES})"
 fi
 
 log "✅ اكتمل النشر: ${TARGET_SHA:0:10} — للتراجع: ./rollback.sh"
