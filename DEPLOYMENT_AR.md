@@ -311,30 +311,30 @@ INERTIA_SSR_ENABLED=false
 > معالجة الذكاء صامتةً: لا خطأ ولا سجلّ، فقط مهامّ في طوابير لا يستمع لها أحد.
 > والمفتاح مُطفأ افتراضياً، فالنشر بلا تغيير آمن.
 
-`/etc/supervisor/conf.d/salasel-worker.conf`:
+`/etc/supervisor/conf.d/law-worker.conf`:
 ```ini
-[program:salasel-worker]
+[program:law-worker]
 process_name=%(program_name)s_%(process_num)02d
-command=php /var/www/salasel/artisan queue:work --queue=ai-low-risk,ai-documents,ai-legal-review,default --tries=3 --max-time=3600 --sleep=3
+command=php /var/www/law/artisan queue:work --queue=ai-low-risk,ai-documents,ai-legal-review,default --tries=3 --max-time=3600 --sleep=3
 autostart=true
 autorestart=true
 user=www-data
 numprocs=2
 redirect_stderr=true
-stdout_logfile=/var/www/salasel/storage/logs/worker.log
+stdout_logfile=/var/www/law/storage/logs/worker.log
 stopwaitsecs=3600
 ```
 
 ### ب) Reverb (خادم WebSockets للبثّ الحيّ)
-`/etc/supervisor/conf.d/salasel-reverb.conf`:
+`/etc/supervisor/conf.d/law-reverb.conf`:
 ```ini
-[program:salasel-reverb]
-command=php /var/www/salasel/artisan reverb:start --host=0.0.0.0 --port=8080
+[program:law-reverb]
+command=php /var/www/law/artisan reverb:start --host=0.0.0.0 --port=8080
 autostart=true
 autorestart=true
 user=www-data
 redirect_stderr=true
-stdout_logfile=/var/www/salasel/storage/logs/reverb.log
+stdout_logfile=/var/www/law/storage/logs/reverb.log
 ```
 ```bash
 sudo supervisorctl reread && sudo supervisorctl update && sudo supervisorctl start all
@@ -344,7 +344,7 @@ sudo supervisorctl reread && sudo supervisorctl update && sudo supervisorctl sta
 ```bash
 sudo crontab -u www-data -e
 # أضِف:
-* * * * * cd /var/www/salasel && php artisan schedule:run >> /dev/null 2>&1
+* * * * * cd /var/www/law && php artisan schedule:run >> /dev/null 2>&1
 ```
 > مدخلٌ واحد فقط، عند مستخدم الويب — لا تُضِفه لـroot أيضاً فيعمل المجدول مرّتين. `./deploy.sh` يفحص جدول المستخدم الحاليّ وجدول `CRON_USER` (افتراضه `www-data`) و`/etc/cron.d`، وينبّه إن غاب المدخل أو تكرّر.
 >
@@ -358,7 +358,7 @@ sudo crontab -u www-data -e
 server {
     listen 80;
     server_name DOMAIN;
-    root /var/www/salasel/public;
+    root /var/www/law/public;
     index index.php;
 
     location / { try_files $uri $uri/ /index.php?$query_string; }
@@ -558,7 +558,7 @@ sudo ./rollback.sh --with-db  # والقاعدة من نسخة ما قبل ال�
   `30 3 * * * /var/www/law/deploy/backup.sh >> /var/log/law-backup.log 2>&1`
 - **نسخة خارج الخادم (موصى بشدّة):** اضبط `BACKUP_REMOTE=user@host:/backups/law` في بيئة cron والنشر (rsync أو scp بمفتاح SSH).
 - متغيّرات السكربتات: `BACKUP_DIR` (`~/law-backups`)، `BACKUP_KEEP` (١٤)، `DEPLOY_STATE_DIR` (`~/law-deploy`)،
-  `SUPERVISOR_PROGRAMS` (`salasel-worker salasel-reverb`) — التفاصيل أعلى `deploy/lib.sh`.
+  `SUPERVISOR_PROGRAMS` (`law-worker law-reverb`) — التفاصيل أعلى `deploy/lib.sh`.
 - راقب: `storage/logs/laravel.log`، `worker.log`، `reverb.log`، و`queue:failed`.
 
 ---
