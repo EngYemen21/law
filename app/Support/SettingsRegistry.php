@@ -476,7 +476,7 @@ class SettingsRegistry
                 'label' => 'تذكير الاستشارة الثاني قبل (دقائق)',
                 'hint' => 'للاستشارة المسدَّدة: المرئيّة يصلها إشعارٌ في الحساب (ورسالتها النصّيّة رسالةُ الرابط عند «فتح الدخول»)، والحضوريّة والهاتفيّة تصلها رسالةٌ نصّيّة بالموعد والمكان. يجب أن يكون قبل «فتح الدخول».',
                 'type' => 'int',
-                'default' => 10,
+                'default' => Consult::REMINDER_NEAR_MINUTES,
                 'min' => 1,
                 'max' => self::MAX_MINUTES,
                 'gt' => 'session_join_opens_minutes',

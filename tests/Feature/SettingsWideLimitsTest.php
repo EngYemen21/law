@@ -87,7 +87,7 @@ class SettingsWideLimitsTest extends TestCase
             'session_missed_after_minutes' => 60, 'consult_autoclose_minutes' => 60, 'meeting_autoclose_minutes' => 60,
             'session_stale_minutes' => 360, 'meeting_reminder_lead' => 720, 'meeting_reminder_near_minutes' => 10,
             'session_join_opens_minutes' => 5, 'consult_staff_start_minutes' => 5, 'consult_reminder_far_minutes' => 720,
-            'consult_reminder_near_minutes' => 10, 'meet_invite_expire_minutes' => 0, 'consult_request_late_minutes' => 5,
+            'consult_reminder_near_minutes' => 30, 'meet_invite_expire_minutes' => 0, 'consult_request_late_minutes' => 5,
         ], array_map(fn (string $key) => SettingsRegistry::int($key), array_combine($keys = [
             'consult_slot_minutes', 'consult_reschedule_notice_minutes', 'ticket_escalate_minutes',
             'session_missed_after_minutes', 'consult_autoclose_minutes', 'meeting_autoclose_minutes',

@@ -2,17 +2,15 @@
 
 namespace App\Support;
 
-use App\Jobs\SendSmsJob;
 use App\Models\Consult;
 use App\Models\Meeting;
 use App\Models\User;
-use App\Services\TaqnyatSmsService;
 use Carbon\CarbonInterface;
 
 /**
  * **رسالة العميل النصّيّة عند فتح الدخول** (قرار المالك 2026-10-01، الخيار «ب»): رسالةٌ واحدة للجلسة
- * فيها تاريخها ووقتها ورابط غرفتها، تُرسل حين يُفتح زرّ الدخول (`session_join_opens_minutes`، ربع ساعة)
- * — من `zoom:release-links`، وختمُ `link_released_at` يمنع تكرارها. وتذكير الثلاثين دقيقة صار إشعاراً
+ * فيها تاريخها ووقتها ورابط غرفتها، تُرسل حين يُفتح زرّ الدخول (`session_join_opens_minutes`)
+ * — من `zoom:release-links`، وختمُ `link_released_at` يمنع تكرارها. والتذكير القريب للمرئيّة إشعارٌ
  * في الحساب بلا رسالة، فلا يصل العميلَ رسالتان متقاربتان.
  *
  * **الرابط رابط غرفة المنصّة لا رابط Zoom:** الدخول يمرّ بتسجيل الدخول وحرّاس الغرفة، فرسالةٌ تصل
@@ -49,13 +47,6 @@ final class SessionLinkSms
             return false;
         }
 
-        $phone = (string) ($client->phone ?? '');
-        if ($phone === '' || ! Phone::isSendable($phone) || ! app(TaqnyatSmsService::class)->isConfigured()) {
-            return false;
-        }
-
-        SendSmsJob::dispatch(Phone::intl($phone), self::body($subject, $startsAt, $link));
-
-        return true;
+        return ClientSms::send($client, self::body($subject, $startsAt, $link));
     }
 }
