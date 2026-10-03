@@ -2,21 +2,18 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\Role;
 use App\Models\User;
 use App\Services\TaqnyatVerifyService;
 use App\Support\Audit;
+use App\Support\ClientAccount;
 use App\Support\EmailOtpService;
 use App\Support\OtpService;
-use App\Support\Phone;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -217,35 +214,14 @@ class AuthController extends Controller
     // (3) تسجيل عميل جديد: التحقّق من البيانات ثمّ إرسال OTP لتأكيد الجوال عبر تقنيات
     public function register(Request $request): RedirectResponse
     {
-        $data = $request->validate([
-            'name' => ['required', 'string', 'max:255', 'regex:/^\S+\s+\S+/u'],
-            // التفرّد ضمن دور العميل (يسمح بأن يكون للشخص حساب موظف/محامٍ بنفس الهُويّة)
-            'national_id' => ['required', 'regex:/^\d{10}$/', Rule::unique('users', 'national_id')->where('role', Role::Client->value)],
-            'phone' => ['required', Phone::RULE, Rule::unique('users', 'phone')->where('role', Role::Client->value)],
-            'email' => ['required', 'email:rfc', 'max:255', 'unique:users,email'],
-        ], [
-            'name.required' => 'أدخل الاسم الكامل.',
-            'name.regex' => 'أدخل الاسم كاملاً (كلمتان على الأقل).',
-            'name.max' => 'الاسم طويل جداً.',
-            'national_id.required' => 'أدخل رقم الهوية.',
-            'national_id.regex' => 'رقم الهوية يجب أن يتكوّن من 10 أرقام.',
-            'national_id.unique' => 'يوجد حساب عميل مسجّل بهذه الهوية، سجّل الدخول بدلاً من ذلك.',
-            'phone.required' => 'أدخل رقم الجوال.',
-            'phone.regex' => 'رقم الجوال غير صالح — محليّ 05XXXXXXXX أو دوليّ ‎+9665XXXXXXXX.',
-            'phone.unique' => 'يوجد حساب مسجّل بهذا الجوال، سجّل الدخول بدلاً من ذلك.',
-            'email.required' => 'أدخل البريد الإلكتروني.',
-            'email.email' => 'أدخل بريداً إلكترونياً صحيحاً.',
-            'email.max' => 'البريد الإلكتروني طويل جداً.',
-            'email.unique' => 'يوجد حساب مسجّل بهذا البريد الإلكتروني.',
-        ]);
+        $data = $request->validate(
+            ClientAccount::rules('يوجد حساب مسجّل بهذا الجوال، سجّل الدخول بدلاً من ذلك.'),
+            ['national_id.unique' => 'يوجد حساب عميل مسجّل بهذه الهوية، سجّل الدخول بدلاً من ذلك.'] + ClientAccount::messages(),
+        );
 
-        // دفاع عميق: امنع التسجيل الذاتي بهُويّة/جوال يخصّان حساب موظف/محامٍ/إدارة
+        // دفاع عميق: امنع التسجيل الذاتيّ بهُويّة/جوال يخصّان حساب موظف/محامٍ/إدارة
         // (الإضافة الحقيقيّة للأدوار تكون عبر الإدارة فقط) — يسدّ انتحال هُويّة الطاقم.
-        $staffExists = User::where(fn ($q) => $q->where('national_id', $data['national_id'])->orWhere('phone', $data['phone']))
-            ->whereIn('role', [Role::Employee->value, Role::Lawyer->value, Role::Admin->value])
-            ->exists();
-
-        if ($staffExists) {
+        if (ClientAccount::belongsToStaff($data['national_id'], $data['phone'])) {
             throw ValidationException::withMessages(['national_id' => 'هذا الرقم مسجّل لدى المكتب، يرجى مراجعة الإدارة.']);
         }
 
@@ -304,19 +280,7 @@ class AuthController extends Controller
         }
 
         try {
-            $user = User::create([
-                'name' => $reg['name'],
-                'email' => $reg['email'],
-                'national_id' => $reg['national_id'],
-                'phone' => $reg['phone'],
-                'role' => Role::Client,
-                'status' => 'active',
-                'avatar_initials' => $this->initials($reg['name']),
-                'phone_verified_at' => now(),
-                'email_verified_at' => now(),
-                // كلمة مرور عشوائيّة مُجزّأة لتلبية العمود — الدخول بالـOTP لا بها
-                'password' => Hash::make(Str::password(32)),
-            ]);
+            $user = ClientAccount::create($reg, verified: true);
         } catch (QueryException) {
             // سباق نادر: طلب متزامن سبق بنفس الهوية/الجوال/البريد → رسالة عربيّة بدل خطأ 500
             $request->session()->forget(['otp', 'reg']);
@@ -522,13 +486,5 @@ class AuthController extends Controller
         }
 
         return $next;
-    }
-
-    /** الأحرف الأولى من أوّل كلمتين للأفاتار (مثل «ع ع»). */
-    private function initials(string $name): string
-    {
-        $parts = preg_split('/\s+/', trim($name)) ?: [];
-
-        return mb_substr($parts[0] ?? '', 0, 1).' '.mb_substr($parts[1] ?? '', 0, 1);
     }
 }

@@ -14,12 +14,16 @@ use App\Models\LegalCase;
 use App\Models\Ticket;
 use App\Models\TicketDocument;
 use App\Models\User;
+use App\Support\Audit;
+use App\Support\ClientAccount;
 use App\Support\Paginate;
 use App\Support\Phone;
 use App\Support\SearchText;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -122,6 +126,37 @@ class ClientController extends Controller
                 'suspended' => User::where('role', Role::Client)->where('status', 'suspended')->count(),
             ],
         ]);
+    }
+
+    /**
+     * **إنشاء حساب عميل من الإدارة** — بقواعد التسجيل الذاتيّ نفسها (`ClientAccount`): لا هويّة ولا جوال ولا
+     * بريد مكرَّر، ولا هويّة أو جوال يخصّان الطاقم. يدخل العميل بهويّته ورمزٍ إلى جواله — فلا كلمة مرور تُسلَّم،
+     * والجوال والبريد غير مؤكَّدين حتى يدخل صاحبهما. والعمليّة في سجلّ التدقيق باسم منشئها.
+     */
+    public function store(Request $request): RedirectResponse
+    {
+        $data = $request->validate(ClientAccount::rules(), ClientAccount::messages());
+
+        if (ClientAccount::belongsToStaff($data['national_id'], $data['phone'])) {
+            throw ValidationException::withMessages(['national_id' => 'هذه الهويّة أو الجوال لحسابٍ من الطاقم — لا يُنشأ عليها حساب عميل.']);
+        }
+
+        try {
+            $client = ClientAccount::create($data, verified: false);
+        } catch (QueryException) {
+            // سباقٌ نادر: حسابٌ بالبيانات نفسها أُنشئ بين التحقّق والحفظ — رسالةٌ لا خطأ 500
+            throw ValidationException::withMessages(['national_id' => 'يوجد حساب مسجّل بهذه البيانات.']);
+        }
+
+        Audit::log(
+            action: 'إنشاء حساب عميل',
+            description: "أنشأت الإدارة حساب العميل {$client->name} (CL-".str_pad((string) $client->id, 5, '0', STR_PAD_LEFT).').',
+            category: ClientAccount::AUDIT_CATEGORY,
+            auditable: $client,
+            afterState: ['الاسم' => $client->name, 'الهوية' => $client->national_id, 'الجوال' => Phone::mask((string) $client->phone), 'البريد' => $client->email],
+        );
+
+        return redirect()->route('admin.clients.show', $client)->with('success', 'تم إنشاء حساب العميل — يدخل برقم هويّته ورمزٍ يصل إلى جواله.');
     }
 
     /**

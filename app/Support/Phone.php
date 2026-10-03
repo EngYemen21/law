@@ -34,6 +34,24 @@ class Phone
         return $p;
     }
 
+    /**
+     * **صيغ الرقم الواحد كما قد تُحفظ** — `0555555555` و`966555555555` و`+966555555555` جوالٌ واحد. الجوال يُحفظ
+     * كما أُدخل، فكشفُ التكرار يسأل عن صيغه كلّها لا عن النصّ الحرفيّ وحده.
+     *
+     * @return list<string>
+     */
+    public static function variants(string $phone): array
+    {
+        $intl = self::intl($phone);
+        $out = [trim($phone), $intl, '+'.$intl];
+
+        if (str_starts_with($intl, '966')) {
+            $out[] = '0'.substr($intl, 3);
+        }
+
+        return array_values(array_unique(array_filter($out, fn (string $p) => $p !== '' && $p !== '+')));
+    }
+
     /** هل الرقم بصيغة صالحة للإرسال (بعد التطبيع)؟ */
     public static function isSendable(string $phone): bool
     {

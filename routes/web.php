@@ -593,6 +593,7 @@ Route::middleware(['auth', 'active', 'role:admin'])->prefix('admin')->name('admi
     Route::get('/dashboard', [DashboardController::class, 'admin'])->name('dashboard');
     Route::post('/reset-database', [DashboardController::class, 'resetDatabase'])->name('reset-database');
     Route::get('/clients', [AdminClientController::class, 'index'])->name('clients');
+    Route::post('/clients', [AdminClientController::class, 'store'])->name('clients.store');
     Route::get('/clients/{client}', [AdminClientController::class, 'show'])->name('clients.show');
     // نظائر admin لتنزيلات ملف العميل وPDF الفاتورة — كانت روابط الإدارة تمرّ عبر بوابة
     // دور العميل (قرار 2026-08-28: مسارات خاصة بالأدمن؛ التفويض داخل المتحكّمَين يسمح للإدارة)
