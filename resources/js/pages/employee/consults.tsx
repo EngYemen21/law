@@ -1785,59 +1785,63 @@ const EmployeeConsults: React.FC<EmployeeConsultsProps> = ({
                         tone={drawerConsult.lawyerTentative ? 'b-amber' : 'b-blue'}
                       />
                     </div>
-                    <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
-                      اختر المستشار القانوني المطابق للتخصص ثم اضغط تأكيد لتحديث الإسناد ومزامنة التذكرة المرتبطة.
-                    </p>
+                    {/* **الملفّ المقفل يُعرض قراءةً لا نموذجاً** (CN-2026-1032، 2026-10-04): كانت القائمة والزرّ يبقيان
+                        معطّلَين مع «الملفّ مقفل» — إجراءٌ لن يُتاح أبداً. المنتهية والملغاة نهايةٌ لا انتظار */}
+                    {isClosed ? (
+                      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: 0 }}>
+                        الملفّ مقفل — لا يُعاد الإسناد بعد انتهاء الجلسة أو إلغائها.
+                      </p>
+                    ) : (
+                      <>
+                      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
+                        اختر المستشار القانوني المطابق للتخصص ثم اضغط تأكيد لتحديث الإسناد ومزامنة التذكرة المرتبطة.
+                      </p>
 
-                    {drawerConsult.assignBlocker && (
-                      <div style={{ padding: '10px 14px', background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: 8, color: '#b45309', fontSize: 12.5, marginBottom: 12 }}>
-                        {drawerConsult.assignBlocker}
-                      </div>
-                    )}
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      <select
-                        value={selectedLawyerId}
-                        onChange={(e) => setSelectedLawyerId(e.target.value ? Number(e.target.value) : '')}
-                        style={{
-                          width: '100%',
-                          padding: '10px 12px',
-                          borderRadius: 8,
-                          border: '1px solid rgba(0,0,0,0.15)',
-                          fontSize: 13.5,
-                          background: '#fff',
-                        }}
-                        disabled={isClosed || Boolean(drawerConsult.assignBlocker)}
-                      >
-                        <option value="">-- اختر مستشاراً قانونياً --</option>
-                        {lawyersList.map((l) => (
-                          <option key={l.id || l.name} value={l.id}>
-                            {l.name} {l.dept !== '—' ? `(${l.dept})` : ''}
-                          </option>
-                        ))}
-                      </select>
-
-                      <button
-                        type="button"
-                        className="btn primary"
-                        disabled={
-                          isProcessingAction ||
-                          !selectedLawyerId ||
-                          // `refer` يمنع النهايات المُقفَلة على الخادم — فلا يُعرض الزرّ فاعلاً
-                          isClosed ||
-                          Boolean(drawerConsult.assignBlocker)
-                        }
-                        onClick={() => handleRefer(drawerConsult)}
-                        style={{ padding: '9px 16px', fontSize: 13, justifyContent: 'center' }}
-                      >
-                        تأكيد الإسناد وإشعار العميل والمحامي
-                      </button>
-                      {isClosed && (
-                        <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-                          الملفّ مقفل — لا يُعاد الإسناد بعد انتهاء الجلسة أو إلغائها.
-                        </p>
+                      {drawerConsult.assignBlocker && (
+                        <div style={{ padding: '10px 14px', background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: 8, color: '#b45309', fontSize: 12.5, marginBottom: 12 }}>
+                          {drawerConsult.assignBlocker}
+                        </div>
                       )}
-                    </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <select
+                          value={selectedLawyerId}
+                          onChange={(e) => setSelectedLawyerId(e.target.value ? Number(e.target.value) : '')}
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            borderRadius: 8,
+                            border: '1px solid rgba(0,0,0,0.15)',
+                            fontSize: 13.5,
+                            background: '#fff',
+                          }}
+                          disabled={Boolean(drawerConsult.assignBlocker)}
+                        >
+                          <option value="">-- اختر مستشاراً قانونياً --</option>
+                          {lawyersList.map((l) => (
+                            <option key={l.id || l.name} value={l.id}>
+                              {l.name} {l.dept !== '—' ? `(${l.dept})` : ''}
+                            </option>
+                          ))}
+                        </select>
+
+                        <button
+                          type="button"
+                          className="btn primary"
+                          disabled={
+                            isProcessingAction ||
+                            !selectedLawyerId ||
+                            // سببُ المنع من حارس الإحالة على الخادم (`assignBlocker`) — لا زرٌّ فاعلٌ يردّه ٤٢٢
+                            Boolean(drawerConsult.assignBlocker)
+                          }
+                          onClick={() => handleRefer(drawerConsult)}
+                          style={{ padding: '9px 16px', fontSize: 13, justifyContent: 'center' }}
+                        >
+                          تأكيد الإسناد وإشعار العميل والمحامي
+                        </button>
+                      </div>
+                      </>
+                    )}
                   </div>
                 </div>
               )}

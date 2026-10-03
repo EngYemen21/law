@@ -104,7 +104,9 @@ class ConsultSummaryRenderTest extends TestCase
         // «مقفلة» علمٌ من الخادم (`Consult::toCard.isClosed`) لا قائمةٌ منسوخة
         $this->assertStringContainsString('const isClosed = drawerConsult != null && drawerConsult.isClosed;', $code);
         $this->assertStringContainsString('isClosed ?', $code, 'نموذج طلب المستندات مشروط');
-        $this->assertStringContainsString('isClosed ||', $code, 'زرّ الإسناد معطَّل');
+        // الملفّ المقفل لا يعرض نموذج الإسناد أصلاً (2026-10-04) — والزرّ في غيره معطَّلٌ بحكم الخادم `assignBlocker`
+        $this->assertStringContainsString("{isClosed ? (\n                      <p", $code, 'نموذج الإسناد غائبٌ عن المقفل');
+        $this->assertStringContainsString('Boolean(drawerConsult.assignBlocker)', $code, 'زرّ الإسناد معطَّل بحكم الخادم');
     }
 
     /**

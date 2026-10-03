@@ -118,10 +118,10 @@ class ConsultJourneyHonestyTest extends TestCase
             ->assertStatus(422);
 
         $ui = $this->ui();
-        $this->assertStringContainsString('const referBlocked = ', $ui);
-        // من أعلام الخادم (`isClosed` · `bookingStage`) لا من قوائم منسوخة
-        $this->assertStringContainsString(': c.isClosed', $ui);
-        $this->assertStringContainsString(': c.bookingStage != null', $ui);
+        // من حارس الخادم نفسه (`assignBlocker` ← `ReferConsult::guard`) لا من شروطٍ منسوخة — وقد كانت تنقصها
+        // حالة «التحليل غير المعتمد» (2026-10-04)
+        $this->assertStringContainsString('const referBlocked = c.assignBlocker ?? null;', $ui);
+        $this->assertNotNull($closed->toCard()['assignBlocker'], 'المقفل ممنوعٌ بحكم الخادم');
         // ولا إحالةَ بلا اختيارٍ صريح — الخادم يسقط إلى النائب النصّيّ «المستشار القانوني»
         $this->assertStringContainsString('disabled={busy || !lawyerId || !!referBlocked}', $ui);
     }

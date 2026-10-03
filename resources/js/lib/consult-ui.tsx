@@ -1281,16 +1281,10 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
     || c.status === 'بانتظار استكمال البيانات';
   const showRefer = c.status === 'جاهزة للمحامي';
   /**
-   * سببُ تعذّر الإحالة — يطابق حرّاس `Staff\ConsultController::refer` الثلاثة.
-   * كان الزرّان معروضَين بلا شرط حالة، فيُعرضان على استشارةٍ منتهيةٍ يردّها الخادم ٤٢٢.
+   * سببُ تعذّر الإحالة — **من حارس الخادم نفسه** (`assignBlocker` ← `ReferConsult::guard`). كانت تُعاد كتابته هنا
+   * بثلاثة شروطٍ منسوخة، وينقصها «التحليل غير المعتمد» فيُضغط زرٌّ يردّه الخادم ٤٢٢.
    */
-  const referBlocked = c.session === 'جلسة جارية'
-    ? 'الجلسة منعقدة الآن — أنهِها قبل تغيير المستشار.'
-    : c.isClosed
-      ? 'الاستشارة انتهت أو أُلغيت — لا تُحال إلى محامٍ.'
-      : c.bookingStage != null
-        ? `ما زالت في دورة الحجز — حالتها «${c.status}». أكمل التسعير والسداد واختيار الموعد أوّلاً.`
-        : null;
+  const referBlocked = c.assignBlocker ?? null;
   /** «إعادة التحليل» يردّها الخادم على المنتهية والملغاة (`analyze`). */
   const analyzeBlocked = c.isClosed;
   // البطاقة سطح تحرير الموظّف — تبقى ظاهرة عند تعذّر التحليل (فهو حينها من يكتب الرأي)،
@@ -1313,9 +1307,12 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
   const [transcriptOpen, setTranscriptOpen] = useState(false);
 
   const journeySteps = isBooking ? CONSULT_BOOKING_FLOW : CONSULT_FLOW;
-  const currentStage = isBooking
-    ? cBookingStage(c.status, c.session)
-    : (cHasStage(c.status) ? cStage(c.status) : 0);
+  // الملخّص المعتمد آخرُ الرحلة في المسارين — فتكتمل المراحل كلّها بدل الوقوف عند «الملخّص والاعتماد»
+  const currentStage = c.summaryApproved
+    ? journeySteps.length
+    : isBooking
+      ? cBookingStage(c.status, c.session)
+      : (cHasStage(c.status) ? cStage(c.status) : 0);
 
   return (
     <div className="cj-page-container">
@@ -1412,7 +1409,8 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
 
           <div className="cj-badges-cluster">
             <Badge text={c.status} tone={c.tone} />
-            {c.session ? <Badge text={c.session} tone={c.sessionTone} /> : null}
+            {/* شارة الجلسة حين تقول غير ما تقوله الحالة — «منتهية» للملفّ و«منتهية» للجلسة كانتا تتجاوران (2026-10-04) */}
+            {c.session && c.session !== c.status ? <Badge text={c.session} tone={c.sessionTone} /> : null}
             {c.channel ? <Badge text={c.channel} tone={crChannelTone(c.channel)} /> : null}
             <Badge
               text={`أولوية: ${c.priority}`}
@@ -1588,7 +1586,12 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                       <Icon name="info" /> اعتُمد هذا المحضر رسمياً وقرأه الموكّل — تعديله الآن يتطلب قراراً جديداً يُشعر به العميل.
                     </p>
                   </>
-                ) : c.summary ? (
+                ) : c.summary || (canEditHere && c.sessionEnded) ? (
+                  /*
+                   * **المحرّر يظهر لمن يكتب الملخّص ولو لم يُولَّد** (CN-2026-1032، 2026-10-04): جلسةٌ انتهت بلا
+                   * ملاحظاتٍ ولا ملخّص Zoom لا يُولَّد لها نصّ، وكان المحرّر لا يظهر إلّا لملخّصٍ قائم — فيرى المحامي
+                   * رسالةَ العميل «قيد المراجعة… سيصلك إشعار» ولا موضعَ يكتب فيه. والعميل يبقى على رسالته.
+                   */
                   <>
                     {canEditHere ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1608,7 +1611,8 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                             <Icon name="check" /> حفظ الملخص المحرر
                           </button>
                           {/* لا مسار اعتمادٍ للموظّف (قرار المالك 2026-09-14) — كان الزرّ يظهر له فيقع ٤٠٤ */}
-                          {canApproveSummary && (
+                          {/* الاعتماد لنصٍّ محفوظ — الخادم يرفض اعتماد الفارغ (`summaryApprovalBlocker`) */}
+                          {canApproveSummary && Boolean(c.summary) && (
                             <button className="btn sm" onClick={approveSessionSummary} disabled={busy} type="button">
                               {/* اعتماد المحامي يرفعه للإدارة ولا يرسله للموكّل — الإرسال باعتماد الإدارة */}
                               <Icon name="scale" /> {isAdmin ? 'اعتماد وإرسال للعميل' : 'اعتماد ورفع للإدارة'}
@@ -1635,7 +1639,9 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
                       <Icon name="info" /> {lockedForMe
                         ? 'اعتمدتَ هذا الملخّص ورُفع للإدارة لاعتماده النهائيّ قبل إرساله للموكّل.'
                         : canEditHere
-                          ? 'حفظ الملخص لا يُطلقه للعميل — الإطلاق يتم بالاعتماد الرسمي.'
+                          ? (c.summary
+                            ? 'حفظ الملخص لا يُطلقه للعميل — الإطلاق يتم بالاعتماد الرسمي.'
+                            : 'لم يُولَّد ملخّصٌ آليّاً لهذه الجلسة (لا ملاحظات مدوّنة ولا ملخّص من Zoom) — اكتبه هنا ثمّ احفظه واعتمده.')
                           : 'هذا النص محجوب عن العميل حتى يعتمده المحامي المختص أو الإدارة.'}
                     </p>
                   </>

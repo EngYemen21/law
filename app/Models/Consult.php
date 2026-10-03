@@ -8,6 +8,7 @@ use App\Domain\Journey\Enums\SessionState;
 use App\Domain\Journey\GuardsJourneyState;
 use App\Domain\Journey\Transitions\Consult\ApproveConsultAnalysis;
 use App\Domain\Journey\Transitions\Consult\MarkNoShow;
+use App\Domain\Journey\Transitions\Consult\ReferConsult;
 use App\Domain\Journey\Transitions\Consult\RescheduleConsult;
 use App\Enums\Role;
 use App\Models\Concerns\HasRichText;
@@ -701,7 +702,9 @@ class Consult extends Model
             'lawyerId' => $this->assigned_lawyer_id,
             'when' => $this->whenLabel(),
             'place' => $this->placeForCard(),
-            'phone' => $this->phone ?? '',
+            // جوال الاستشارة يُحفظ للهاتفيّة وحدها (`ConsultBooking::request`) — ولغيرها جوالُ حساب العميل،
+            // وإلّا عرضت لوحات الطاقم «هاتف العميل: —» لعميلٍ جوالُه في حسابه (CN-2026-1032، 2026-10-04)
+            'phone' => $this->phone ?: ($this->user->phone ?? ''),
             'canJoin' => $this->canJoin(),
             // رابط غرفة المنصّة الداخليّ (`joinLink`) — الطريق الوحيد إلى الجلسة
             'slink' => $this->channel === 'مرئية' ? $this->joinLink() : '',
@@ -758,7 +761,9 @@ class Consult extends Model
                 ConsultStatus::AwaitingPayment->value => 'سُعّرت الاستشارة وبانتظار سداد العميل — يُسند المحامي مع اعتماد الموعد.',
                 ConsultStatus::AwaitingSchedule->value => 'سدّد العميل ✓ — بانتظار تحديد الموعد، ويُسند المحامي مع اعتماده.',
                 ConsultStatus::AwaitingAppointmentApproval->value => 'سدّد العميل ✓ — الموعد المقترح بانتظار اعتماد الإدارة، ويُسند المحامي عند اعتماده.',
-                default => null,
+                // **وما بعد دورة الحجز من حارس الإحالة نفسه** (`ReferConsult::guard`): الجلسة الجارية والملفّ المقفل
+                // والتحليل غير المعتمد — كانت الواجهة تعيد بناء ثلاثةٍ منها وتنسى التحليل، فيُضغط زرٌّ يردّه الخادم ٤٢٢
+                default => (new ReferConsult)->guard($this, []),
             },
             // في دورة الحجز المحامي **مرشَّحٌ** من التذكرة لا مُسنَد
             'lawyerTentative' => ConsultStatus::tryFrom((string) $this->status)?->isPreSession() === true,
