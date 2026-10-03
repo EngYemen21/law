@@ -16,6 +16,7 @@ import { CONFIRM_NO_SHOW } from '@/lib/consult-ui';
 import { foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
+import { openRoomTab } from '@/lib/room';
 import { firstError } from '@/lib/server-message';
 import { inSessionSuffix, PresenceBadge, useInSession } from '@/lib/staff-presence';
 import { useServerAction } from '@/lib/use-server-action';
@@ -1456,15 +1457,14 @@ return lawyers;
                             <Icon name="info" /> التفاصيل
                           </button>
                           {canVideo && a.joinLink && (
-                            <a
+                            <button
+                              type="button"
                               className="btn sm"
-                              href={a.joinLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                              onClick={() => openRoomTab(a.joinLink)}
                               title="الدخول إلى غرفة الجلسة المرئية"
                             >
                               <Icon name="video" /> الغرفة
-                            </a>
+                            </button>
                           )}
                         </div>
                       </td>
@@ -1719,15 +1719,14 @@ return lawyers;
 
             {canVideo && selectedAppt.joinLink && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-                <a
+                <button
+                  type="button"
                   className="btn block"
-                  href={selectedAppt.joinLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  onClick={() => openRoomTab(selectedAppt.joinLink)}
                   style={{ flex: 1 }}
                 >
                   <Icon name="video" /> دخول غرفة الجلسة المرئية
-                </a>
+                </button>
               </div>
             )}
 

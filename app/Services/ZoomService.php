@@ -2,12 +2,14 @@
 
 namespace App\Services;
 
+use App\Support\RichHtml;
 use App\Support\WebTimeLimit;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * تكامل Zoom (Server-to-Server OAuth) — إنشاء اجتماعات الاستشارات المرئية تلقائياً.
@@ -383,7 +385,7 @@ class ZoomService
      * إعادة طلبه بمعرّف رقمي ترفضه Zoom للاجتماعات المنتهية (خطأ 400 «Invalid meeting id»).
      *
      * @param  array<string, mixed>|null  $object  محتوى payload.object من الحدث
-     * @return array{overview: string, details: array<int, array{label: string, summary: string}>, next_steps: array<int, string>}|null
+     * @return array{content: string, overview: string, details: array<int, array{label: string, summary: string}>, next_steps: array<int, string>}|null
      */
     public static function summaryFromPayload(?array $object): ?array
     {
@@ -391,17 +393,11 @@ class ZoomService
             return null;
         }
 
-        $parsed = [
-            'overview' => (string) ($object['summary_overview'] ?? ''),
-            'details' => array_values(array_map(
-                fn ($d) => ['label' => (string) ($d['label'] ?? ''), 'summary' => (string) ($d['summary'] ?? '')],
-                (array) ($object['summary_details'] ?? []),
-            )),
-            'next_steps' => array_values(array_map('strval', (array) ($object['next_steps'] ?? []))),
-        ];
+        $parsed = self::parseSummary($object);
 
         // لا نُرجع ملخّصاً فارغاً (كي لا يُختم zoom_summary_at ويُحجب جلب حقيقي لاحق)
-        $hasContent = trim($parsed['overview']) !== ''
+        $hasContent = trim($parsed['content']) !== ''
+            || trim($parsed['overview']) !== ''
             || $parsed['details'] !== []
             || $parsed['next_steps'] !== [];
 
@@ -409,11 +405,31 @@ class ZoomService
     }
 
     /**
-     * ملخّص AI Companion من Zoom لاجتماع منتهٍ (خطة Pro) — نظرة عامّة + تفاصيل + خطوات تالية.
-     * يدعم الجلب بـ Meeting ID أو UUID المشفّر مباشرةً.
+     * **قراءة ملخّص Zoom — موضعٌ واحد للاستعلام وللويبهوك.**
      *
-     * @return array{overview: string, details: array<int, array{label: string, summary: string}>, next_steps: array<int, string>, uuid: ?string}|null
+     * `summary_content` (Markdown) هو الحقل الموحّد بحسب مرجع API («Get a meeting or webinar summary»): الحقول
+     * `summary_overview` و`summary_details` و`next_steps` «deprecated and will not be supported in the future».
+     * يُحوَّل نصّاً بفقراته (`Str::markdown` ثمّ `RichHtml::toPlain`)، والحقول القديمة تبقى ما دامت تَرِد — احتياطاً
+     * لحسابٍ لا يرسل الموحّد، ومصدراً لـ`next_steps` الذي تقرؤه مهامّ القرارات.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array{content: string, overview: string, details: array<int, array{label: string, summary: string}>, next_steps: array<int, string>}
      */
+    public static function parseSummary(array $data): array
+    {
+        $markdown = trim((string) ($data['summary_content'] ?? ''));
+
+        return [
+            'content' => $markdown === '' ? '' : RichHtml::toPlain(Str::markdown($markdown, ['html_input' => 'strip', 'allow_unsafe_links' => false])),
+            'overview' => (string) ($data['summary_overview'] ?? ''),
+            'details' => array_values(array_map(
+                fn ($d) => ['label' => (string) ($d['label'] ?? ''), 'summary' => (string) ($d['summary'] ?? '')],
+                (array) ($data['summary_details'] ?? []),
+            )),
+            'next_steps' => array_values(array_map('strval', (array) ($data['next_steps'] ?? []))),
+        ];
+    }
+
     /**
      * كل انعقادات الاجتماع (الجلسة قد تنقطع ويُعاد الدخول ⇒ عدّة uuid لنفس المعرّف)
      * مرتّبة زمنياً تصاعدياً: [['uuid' => ..., 'start_time' => ...], ...].
@@ -459,6 +475,8 @@ class ZoomService
      * الجلسة المنقطعة المعاد دخولها تصير عدّة انعقادات بعدّة ملخصات، وسحب الأخير وحده
      * كان يعرض ملخص إعادة الدخول (ثوانٍ من التحيات) ويُسقط ملخص النقاش الفعلي —
      * فيبدو الملخص «محرَّفاً» عن بريد Zoom الذي يستلمه المضيف (حادثة M-26753).
+     *
+     * @return array{uuid: ?string, content: string, overview: string, details: array<int, array{label: string, summary: string}>, next_steps: array<int, string>}|null
      */
     public function fullMeetingSummary(string $meetingId, ?string $fallbackUuid = null): ?array
     {
@@ -485,6 +503,7 @@ class ZoomService
 
         // دمج حرفي بترتيب الانعقاد: كل جزء يُعنون بوقته المحلي، والنصوص كما وردت بلا تعديل
         $overview = '';
+        $content = '';
         $details = [];
         $steps = [];
         foreach ($parts as $n => $p) {
@@ -494,6 +513,9 @@ class ZoomService
             $label = 'الجزء '.($n + 1).(count($parts) > 1 && $when !== '' ? " ({$when})" : '');
             if (trim($p['summary']['overview']) !== '') {
                 $overview .= ($overview !== '' ? "\n\n" : '')."— {$label} —\n".trim($p['summary']['overview']);
+            }
+            if (trim($p['summary']['content']) !== '') {
+                $content .= ($content !== '' ? "\n\n" : '')."— {$label} —\n".trim($p['summary']['content']);
             }
             foreach ($p['summary']['details'] as $d) {
                 $details[] = $d;
@@ -505,6 +527,7 @@ class ZoomService
 
         return [
             'uuid' => end($parts)['summary']['uuid'] ?? null,
+            'content' => $content,
             'overview' => $overview,
             'details' => $details,
             'next_steps' => array_values(array_unique($steps)),
@@ -554,6 +577,12 @@ class ZoomService
         return $agg;
     }
 
+    /**
+     * ملخّص AI Companion من Zoom لاجتماع منتهٍ (خطة Pro) — نظرة عامّة + تفاصيل + خطوات تالية.
+     * يدعم الجلب بـ Meeting ID أو UUID المشفّر مباشرةً.
+     *
+     * @return array{uuid: ?string, content: string, overview: string, details: array<int, array{label: string, summary: string}>, next_steps: array<int, string>}|null
+     */
     public function meetingSummary(string $meetingId, ?string $uuid = null): ?array
     {
         if (! $this->isConfigured() || ($meetingId === '' && ! $uuid)) {
@@ -583,17 +612,9 @@ class ZoomService
                     ->get("https://api.zoom.us/v2/meetings/{$id}/meeting_summary");
 
                 if ($response->successful()) {
-                    $data = $response->json();
+                    $data = (array) $response->json();
 
-                    return [
-                        'uuid' => $data['meeting_uuid'] ?? $uuid,
-                        'overview' => (string) ($data['summary_overview'] ?? ''),
-                        'details' => array_values(array_map(
-                            fn ($d) => ['label' => (string) ($d['label'] ?? ''), 'summary' => (string) ($d['summary'] ?? '')],
-                            (array) ($data['summary_details'] ?? []),
-                        )),
-                        'next_steps' => array_values(array_map('strval', (array) ($data['next_steps'] ?? []))),
-                    ];
+                    return ['uuid' => $data['meeting_uuid'] ?? $uuid] + self::parseSummary($data);
                 }
             }
         } catch (\Throwable $e) {

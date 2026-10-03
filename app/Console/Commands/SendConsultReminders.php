@@ -3,13 +3,11 @@
 namespace App\Console\Commands;
 
 use App\Domain\Journey\Enums\SessionState;
-use App\Jobs\SendSmsJob;
 use App\Mail\ConsultReminderMail;
 use App\Models\Consult;
 use App\Services\MailService;
-use App\Services\TaqnyatSmsService;
+use App\Support\ClientSms;
 use App\Support\Notify;
-use App\Support\Phone;
 use App\Support\ReminderLayer;
 use App\Support\SessionLinkSms;
 use App\Support\SessionWindow;
@@ -18,8 +16,8 @@ use Illuminate\Console\Command;
 
 /**
  * تذكير بمواعيد الاستشارات المدفوعة القادمة — طبقتان مستقلّتان لكلٍّ ختمها وقناتها، ومدّتاهما من الإعدادات:
- *   • `consult_reminder_far_minutes` (افتراضها 24 ساعة) — بريد إلكتروني (reminder_24h_sent_at)
- *   • `consult_reminder_near_minutes` (افتراضها 30 دقيقة) — (reminder_30m_sent_at):
+ *   • `consult_reminder_far_minutes` (افتراضها 12 ساعة) — بريد إلكتروني (reminder_24h_sent_at)
+ *   • `consult_reminder_near_minutes` (افتراضها 30 دقيقة — قرار المالك 2026-10-03) — (reminder_30m_sent_at):
  *       – **المرئيّة**: إشعارٌ في الحساب وحده. رسالتها النصّيّة واحدةٌ عند فتح الدخول فيها الموعد والرابط
  *         (`zoom:release-links` · `SessionLinkSms`) — قرار المالك 2026-10-01 «ب»: لا رسالتين متقاربتين.
  *       – **الحضوريّة والهاتفيّة**: رسالة نصّيّة بالموعد والمكان — لا رابط لها فلا رسالة عند فتح الدخول.
@@ -38,7 +36,7 @@ class SendConsultReminders extends Command
 
     protected $description = 'إرسال تذكيرات مواعيد الاستشارات (بريد ثمّ رسالة نصّيّة — المدّتان من الإعدادات)';
 
-    public function handle(MailService $mail, TaqnyatSmsService $sms): int
+    public function handle(MailService $mail): int
     {
         $now = now();
 
@@ -78,7 +76,7 @@ class SendConsultReminders extends Command
                 if ($consult->isVideo() && $consult->user) {
                     Notify::send($consult->user->id, 'cal', 't-amber', "تذكير: استشارتك المرئيّة {$consult->ref} بعد {$remaining} — يُفتح الدخول قبل الموعد بـ".SessionWindow::joinOpensLabel().'، ويصلك رابطها برسالةٍ نصّيّة حينها.');
                     $consult->update([$near->stampColumn => now()]);
-                } elseif ($this->textReminder($sms, $consult, $remaining)) {
+                } elseif ($this->textReminder($consult, $remaining)) {
                     $consult->update([$near->stampColumn => now()]);
                     $texts++;
                 }
@@ -94,17 +92,9 @@ class SendConsultReminders extends Command
      * يجدول الرسالة النصّية. يعيد false بلا ختم حين يتعذّر الإرسال (لا جوال أو مزوّد غير
      * مهيّأ) كي يُعاد في التشغيل التالي بدل أن يُفقد التذكير صامتاً.
      */
-    private function textReminder(TaqnyatSmsService $sms, Consult $consult, string $remaining): bool
+    private function textReminder(Consult $consult, string $remaining): bool
     {
-        $phone = (string) ($consult->user?->phone ?? '');
-
-        if ($phone === '' || ! Phone::isSendable($phone) || ! $sms->isConfigured()) {
-            return false;
-        }
-
-        SendSmsJob::dispatch(Phone::intl($phone), $this->smsBody($consult, $remaining));
-
-        return true;
+        return ClientSms::send($consult->user, $this->smsBody($consult, $remaining));
     }
 
     /** نصّ الرسالة — قصير عمداً: الرسائل تُحاسَب بعدد المقاطع. */

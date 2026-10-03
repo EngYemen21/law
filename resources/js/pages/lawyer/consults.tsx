@@ -20,9 +20,16 @@ import {
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { useCan } from '@/lib/permissions';
+import { openRoomTab } from '@/lib/room';
 import { firstError } from '@/lib/server-message';
 import { useJoinOpensText, useStaffStartText } from '@/lib/settings';
 import { useServerAction } from '@/lib/use-server-action';
+
+/**
+ * غرفة المحامي لاستشارته — لا `slink`: ذاك رابط **العميل** (`Consult::joinLink()` بلا مستخدم ⇒ `/consults/room`) للنسخ
+ * والإرسال، وغرفة العميل محروسة بدوره فكان زرّ المحامي يعيده إلى لوحته (ثبت في المتصفّح 2026-10-03).
+ */
+const lawyerRoom = (ref: string): string => `/lawyer/videoroom?ref=${encodeURIComponent(ref)}`;
 
 export type LawyerKanbanCol = 'waiting' | 'live' | 'drafting' | 'completed';
 
@@ -660,9 +667,9 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                         {/* **الدخول من غرفة المنصّة وحدها** (قرار المالك 2026-09-29): كان يفتح `start_url`
                             الخارجيّ في تبويب Zoom فيتجاوز حارس `sdkSignature` وتعريف المحامي لحالته. */}
                         {c.channel === 'مرئية' && c.canJoin !== false && c.slink && (
-                          <Link href={c.slink} className="btn primary sm" style={{ padding: '3px 8px', fontSize: 11.5 }}>
+                          <button type="button" className="btn primary sm" style={{ padding: '3px 8px', fontSize: 11.5 }} onClick={() => openRoomTab(lawyerRoom(c.ref))}>
                             <Icon name="video" /> دخول الغرفة
-                          </Link>
+                          </button>
                         )}
                         <button
                           type="button"
@@ -747,9 +754,17 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                     <div className="card-foot">
                       {c.slink ? (
                         c.canJoin !== false && (
-                          <Link href={c.slink} className="btn primary sm" style={{ padding: '2px 8px', fontSize: 11 }} onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            className="btn primary sm"
+                            style={{ padding: '2px 8px', fontSize: 11 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openRoomTab(lawyerRoom(c.ref));
+                            }}
+                          >
                             دخول الغرفة
-                          </Link>
+                          </button>
                         )
                       ) : (
                         <span style={{ fontSize: 11, color: '#15803d' }}>جلسة مكتبية</span>
@@ -970,9 +985,9 @@ export const LawyerConsults: React.FC<LawyerConsultsProps> = ({
                               <Icon name="info" /> يُفتح رابط الغرفة قبل الموعد بـ{joinOpens}.
                             </p>
                           ) : (
-                            <Link href={drawerConsult.slink} className="btn primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            <button type="button" onClick={() => openRoomTab(lawyerRoom(drawerConsult.ref))} className="btn primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                               <Icon name="video" /> دخول غرفة الاجتماع المرئية
-                            </Link>
+                            </button>
                           )}
                         </div>
                       )}

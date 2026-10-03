@@ -82,7 +82,7 @@ class ConsultSummary
                     // مادّة الجلسة تُحفظ **دائماً** في عمودها — نظير `meetings.zoom_summary`
                     'zoom_summary' => $text,
                     'zoom_summary_at' => now(),
-                    'zoom_ai_next_steps' => $summary['next_steps'] ?? [],
+                    'zoom_ai_next_steps' => $summary['next_steps'],
                 ];
 
                 // أمّا حقل العميل فلا يُلمس إلّا إن كان قالبياً أو فارغاً. كان يُكتب
@@ -97,7 +97,9 @@ class ConsultSummary
                 // المطبَّقة في `MeetingSummary::pull` بعد قرار «الاعتماد نهائيّ».
                 $approved = $consult->summary_approved_at !== null;
 
-                if (! $approved && ZoomSummaryText::isPlaceholderSummary($consult->summary)) {
+                // **وما كتبه Zoom بغير العربيّة لا يصل العميل** (قرار المالك 2026-10-03): يبقى في `zoom_summary`
+                // للطاقم، والملخّص بانتظار المستشار — `ZoomSummaryText::isArabic`
+                if (! $approved && ZoomSummaryText::isArabic($summary) && ZoomSummaryText::isPlaceholderSummary($consult->summary)) {
                     $updateData['summary'] = $text;
                 }
 

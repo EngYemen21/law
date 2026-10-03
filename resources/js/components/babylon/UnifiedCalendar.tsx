@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import Badge from '@/components/babylon/Badge';
 import Icon from '@/lib/icons';
 import { WEEK_DAY_NAMES } from '@/lib/local-date';
+import { openRoomTab } from '@/lib/room';
 
 // ============================================================
 // المكون الموحد للتقويم والمواعيد والأجندة الذكية (Unified Responsive Calendar)
@@ -464,16 +465,15 @@ export const UnifiedCalendar: React.FC<UnifiedCalendarProps> = ({
                                             <td style={{ textAlign: 'center' }}>
                                                 <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
                                                     {item.joinLink && (
-                                                        <a
+                                                        <button
+                                                            type="button"
                                                             className="btn pri sm"
-                                                            href={item.joinLink}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
+                                                            onClick={() => openRoomTab(item.joinLink)}
                                                             title="دخول الجلسة"
                                                             style={{ padding: '3px 8px', fontSize: 11 }}
                                                         >
                                                             <Icon name="video" /> الغرفة
-                                                        </a>
+                                                        </button>
                                                     )}
                                                     {item.cardUrl && (
                                                         <a
@@ -888,15 +888,14 @@ export const UnifiedCalendar: React.FC<UnifiedCalendarProps> = ({
                                                     onClick={(e) => e.stopPropagation()}
                                                 >
                                                     {item.joinLink && (
-                                                        <a
+                                                        <button
+                                                            type="button"
                                                             className="btn pri sm"
-                                                            href={item.joinLink}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
+                                                            onClick={() => openRoomTab(item.joinLink)}
                                                             style={{ fontSize: 11.5, padding: '4px 10px' }}
                                                         >
                                                             <Icon name="video" /> دخول الجلسة
-                                                        </a>
+                                                        </button>
                                                     )}
                                                     {item.cardUrl && (
                                                         <a

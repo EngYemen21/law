@@ -37,15 +37,15 @@ final class SessionWindow
     public const STAFF_START_BEFORE_MINUTES = 5;
 
     /**
-     * **الافتراض المُعلَن** لـ`session_missed_after_minutes` — عشر دقائق مهلةُ تأخّرٍ قبل أن يُغلق باب الدخول
-     * (قرار المالك 2026-10-02: الحسم سريع، والمتأخّر دقيقتين لا يُعدّ غائباً).
+     * **الافتراض المُعلَن** لـ`session_missed_after_minutes` — ساعةٌ مهلةُ تأخّرٍ قبل أن يُغلق باب الدخول
+     * (قرار المالك 2026-10-03: كانت عشر دقائق فتُغلق الباب على محامٍ تأخّر قليلاً).
      */
-    public const MISSED_AFTER_MINUTES = 10;
+    public const MISSED_AFTER_MINUTES = 60;
 
     /** **الافتراض المُعلَن** لـ`session_stale_minutes` — ست ساعات. */
     public const STALE_AFTER_MINUTES = 360;
 
-    /** **الافتراض المُعلَن** لـ`meeting_autoclose_minutes` — مع مهلة الفوات نفسها (كانت ١٢ ساعة). */
+    /** **الافتراض المُعلَن** لـ`meeting_autoclose_minutes` — مع مهلة الفوات نفسها، ساعة (قرار المالك 2026-10-03). */
     public const MEETING_AUTOCLOSE_MINUTES = self::MISSED_AFTER_MINUTES;
 
     /** السبب المكتوب في سطر التنبيه بسجلّ الرحلة وفي نصّ تنبيه الطاقم. */

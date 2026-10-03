@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import Icon from '@/lib/icons';
 import Badge from '@/components/babylon/Badge';
 import Pagination, { type Paginated } from '@/components/babylon/Pagination';
+import CreateClientModal from '@/components/clients/CreateClientModal';
 
 interface ClientRow {
   id: number;
@@ -47,6 +48,7 @@ const AdminClients: React.FC<Props> = ({ clients, filters = {}, summaryStats }) 
   const [dateFrom, setDateFrom] = useState(filters.date_from || '');
   const [dateTo, setDateTo] = useState(filters.date_to || '');
   const [sort, setSort] = useState(filters.sort || 'latest');
+  const [creating, setCreating] = useState(false);
   const [showFilters, setShowFilters] = useState(
     Boolean(filters.status || filters.activity || filters.date_from || filters.date_to || (filters.sort && filters.sort !== 'latest'))
   );
@@ -263,6 +265,10 @@ const AdminClients: React.FC<Props> = ({ clients, filters = {}, summaryStats }) 
                 إلغاء الفلاتر
               </button>
             )}
+
+            <button type="button" className="btn sm" onClick={() => setCreating(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="plus" /> إنشاء حساب عميل
+            </button>
           </div>
         </div>
 
@@ -426,6 +432,8 @@ const AdminClients: React.FC<Props> = ({ clients, filters = {}, summaryStats }) 
           <Pagination meta={clients.meta} only={['clients']} />
         </div>
       </div>
+
+      <CreateClientModal open={creating} onClose={() => setCreating(false)} action="/admin/clients" />
     </>
   );
 };

@@ -33,7 +33,18 @@ class RoomFullscreenAndBadgeTest extends TestCase
         $css = $this->src('css/babylon.css');
 
         $this->assertMatchesRegularExpression('/\.zoom-MuiDialog-paper\{min-width:0!important;max-width:calc\(100vw - 24px\)!important/', $css);
-        $this->assertStringContainsString('.mroom-zoom[data-view="full"]{top:var(--mroom-head);inset-inline:0;bottom:0;overflow:visible}', $css);
+        $this->assertStringContainsString('.mroom-zoom{position:absolute;inset:0;direction:ltr}', $css);
+    }
+
+    /** شاشة الغرفة قبل مساحة Zoom بترتيب العناصر — والمساحة مخفيّة إلّا والمكالمة قائمة. */
+    public function test_the_room_screen_comes_before_the_zoom_area(): void
+    {
+        $room = $this->src('js/lib/zoom-room.tsx');
+
+        $this->assertLessThan(strpos($room, '<div className="mroom-zoom" ref={mountZoom} />'), strpos($room, '{screen && <div className="mroom-screen">{screen}</div>}'));
+        // و«منضمّ» بلا شاشة: الحاوية شفّافة، فشاشة «تعذّر البدء» خلفها كانت تُرى من فراغات الفيديو (ثبت في المتصفّح)
+        $this->assertStringContainsString("if (phase === 'joined') {\n      return null;", $room);
+        $this->assertStringContainsString('.mroom-zoom[data-active="0"]{display:none}', $this->src('css/babylon.css'));
     }
 
     public function test_environment_badge_lives_in_the_dashboard_only(): void

@@ -9,12 +9,17 @@ class ZoomSummaryText
 {
     /**
      * @param  string  $heading  السطر الأول، مثل «ملخص الاستشارة — CN-…» أو «ملخص الاجتماع — M-…»
-     * @param  array{overview: string, details: array<int, array{label: string, summary: string}>, next_steps: array<int, string>}  $s
+     * @param  array{content?: string, overview: string, details: array<int, array{label: string, summary: string}>, next_steps: array<int, string>}  $s
      */
     public static function format(string $heading, array $s): string
     {
         // لا نكشف للعميل أنّ الملخّص مُولّد آلياً — عنوان محايد فقط
         $out = $heading."\n";
+
+        // الحقل الموحّد (`summary_content`) يحمل الملخّص كاملاً بعناوينه — فلا تُضاف إليه الحقول القديمة فتتكرّر
+        if (trim($s['content'] ?? '') !== '') {
+            return rtrim($out."\n".trim($s['content']));
+        }
 
         if (trim($s['overview']) !== '') {
             $out .= "\nنظرة عامة:\n".trim($s['overview'])."\n";
@@ -48,7 +53,9 @@ class ZoomSummaryText
             $out .= "الحاضرون: {$participants}\n";
         }
 
-        if ($s['details'] !== []) {
+        if (trim($s['content'] ?? '') !== '') {
+            $out .= "\nأبرز ما دار في الاجتماع:\n".trim($s['content'])."\n";
+        } elseif ($s['details'] !== []) {
             $out .= "\nأبرز ما دار في الاجتماع:\n";
             foreach ($s['details'] as $d) {
                 $body = trim($d['summary']);
@@ -61,11 +68,36 @@ class ZoomSummaryText
         }
 
         $steps = array_values(array_filter(array_map('trim', $s['next_steps'] ?? []), fn ($x) => $x !== ''));
-        if ($steps !== []) {
+        if ($steps !== [] && trim($s['content'] ?? '') === '') {
             $out .= "\nالقرارات والخطوات التالية:\n".implode("\n", array_map(fn ($x) => '• '.$x, $steps))."\n";
         }
 
         return rtrim($out);
+    }
+
+    /**
+     * **هل كتب Zoom الملخّص بالعربيّة؟** — يُفحص نصّ Zoom وحده لا عناويننا العربيّة حوله.
+     *
+     * لغة الملخّص عند Zoom لغةُ أغلب المتحدّثين كما التقطها التعرّف على الكلام، ولغة الكلام الافتراضيّة
+     * الإنجليزيّة ما لم تُضبط (Zoom KB0058013 · KB0062813) — فكلامٌ عربيّ يُفرَّغ إنجليزيّاً مشوّهاً ويُلخَّص
+     * إنجليزيّاً. ثبت على CN-2026-6349 (قرار المالك 2026-10-03): ملخّصٌ كهذا لا يُنشر للعميل تلقائيّاً.
+     * الحكم بأغلبيّة الحروف: العربيّة أكثر من اللاتينيّة.
+     *
+     * @param  array{content?: string, overview: string, details: array<int, array{label: string, summary: string}>, next_steps: array<int, string>}  $s
+     */
+    public static function isArabic(array $s): bool
+    {
+        $text = implode(' ', [
+            $s['content'] ?? '',
+            $s['overview'],
+            ...array_map(fn (array $d) => $d['label'].' '.$d['summary'], $s['details']),
+            ...$s['next_steps'],
+        ]);
+
+        $arabic = preg_match_all('/\p{Arabic}/u', $text);
+        $latin = preg_match_all('/\p{Latin}/u', $text);
+
+        return $arabic > 0 && $arabic > $latin;
     }
 
     /** فحص ما إذا كان محضر الاجتماع يحتوي نصاً قالبياً افتراضياً. */

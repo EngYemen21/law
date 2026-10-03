@@ -18,6 +18,7 @@ import {
 } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
 import { consultMediaUrls, SessionMediaPanel } from '@/lib/recording-ui';
+import { openRoomTab } from '@/lib/room';
 import { firstError } from '@/lib/server-message';
 import { useServerAction } from '@/lib/use-server-action';
 
@@ -988,7 +989,7 @@ return false;
                   <button
                     className="btn primary sm"
                     type="button"
-                    onClick={() => router.visit(`/admin/videoroom?ref=${encodeURIComponent(c.ref)}`)}
+                    onClick={() => openRoomTab(`/admin/videoroom?ref=${encodeURIComponent(c.ref)}`)}
                   >
                     <Icon name="video" /> دخول الغرفة كمشرف
                   </button>
@@ -1324,7 +1325,7 @@ return false;
                             <button
                               className="btn primary sm"
                               type="button"
-                              onClick={() => router.visit(`/admin/videoroom?ref=${encodeURIComponent(c.ref)}`)}
+                              onClick={() => openRoomTab(`/admin/videoroom?ref=${encodeURIComponent(c.ref)}`)}
                             >
                               <Icon name="video" /> انضمام
                             </button>

@@ -53,7 +53,7 @@ class SettingsWideLimitsTest extends TestCase
 
     public function test_the_ordering_rules_still_hold(): void
     {
-        // «إغلاق الاجتماع» لا يسبق «عدّ الجلسة فائتة» (10 افتراضاً) — يُخفَض ذاك أوّلاً
+        // «إغلاق الاجتماع» لا يسبق «عدّ الجلسة فائتة» (ساعة افتراضاً) — يُخفَض ذاك أوّلاً
         $this->save(['meeting_autoclose_minutes' => 1])->assertSessionHasErrors('meeting_autoclose_minutes');
         $this->save(['installment_first_due_days' => 3, 'installment_interval_days' => 2])->assertSessionHasErrors('installment_interval_days');
     }
@@ -79,15 +79,15 @@ class SettingsWideLimitsTest extends TestCase
         }
     }
 
-    /** افتراضات المالك (2026-10-02) — ومتّسقةٌ مع قواعد الترتيب بلا ضبطٍ من الإدارة. */
+    /** افتراضات المالك (2026-10-02، والفوات ساعة 2026-10-03) — ومتّسقةٌ مع قواعد الترتيب بلا ضبطٍ من الإدارة. */
     public function test_the_owner_defaults_hold_together(): void
     {
         $this->assertSame([
             'consult_slot_minutes' => 60, 'consult_reschedule_notice_minutes' => 720, 'ticket_escalate_minutes' => 30,
-            'session_missed_after_minutes' => 10, 'consult_autoclose_minutes' => 10, 'meeting_autoclose_minutes' => 10,
+            'session_missed_after_minutes' => 60, 'consult_autoclose_minutes' => 60, 'meeting_autoclose_minutes' => 60,
             'session_stale_minutes' => 360, 'meeting_reminder_lead' => 720, 'meeting_reminder_near_minutes' => 10,
             'session_join_opens_minutes' => 5, 'consult_staff_start_minutes' => 5, 'consult_reminder_far_minutes' => 720,
-            'consult_reminder_near_minutes' => 10, 'meet_invite_expire_minutes' => 0, 'consult_request_late_minutes' => 5,
+            'consult_reminder_near_minutes' => 30, 'meet_invite_expire_minutes' => 0, 'consult_request_late_minutes' => 5,
         ], array_map(fn (string $key) => SettingsRegistry::int($key), array_combine($keys = [
             'consult_slot_minutes', 'consult_reschedule_notice_minutes', 'ticket_escalate_minutes',
             'session_missed_after_minutes', 'consult_autoclose_minutes', 'meeting_autoclose_minutes',

@@ -5,24 +5,22 @@ import { isStaffRoom, ROOM_TEXT, roomKey } from '@/lib/room';
 import type { Room, RoomStatePayload } from '@/lib/room';
 
 /**
- * **جلسةُ الغرفة الحيّة — واحدةٌ للتبويب كلّه، تعيش خارج الصفحات.**
+ * **جلسةُ الغرفة الحيّة — في صفحتها المستقلّة وحدها** (قرار المالك 2026-10-03).
  *
- * كانت كلّ صفحة غرفة تركّب عميل Zoom داخل شجرتها، فالتنقّل بـInertia إلى أيّ صفحةٍ أخرى يفكّك
- * المكوّن ويُسقط المكالمة — يفتح المحامي ملفّ القضية ليجيب سؤالاً فيخرج من الجلسة. فصار كلُّ ما يخصّ
- * المكالمة هنا، في وحدةٍ لا تُفكَّك ما دام التبويب مفتوحاً:
+ * Component View يرسم نوافذه وقوائمه (موافقة التسجيل، قائمة المغادرة، الإعدادات، المشاركون، لوحة التطبيقات)
+ * على `body` بـ`z-index` تلقائيّ أو `2` — ثبت في حزمة 6.2.0 ويقوله توثيق Zoom («injects… overlay nodes directly
+ * into `<body>`»، import-sdk). وفريق Zoom: «we do not support changing z-index… will likely break the UI, popup,
+ * and/or disable button clicks». فكانت طبقات الغرفة (80–87) والنافذة المصغّرة فوق تلك النوافذ: لا تُرى ولا تُنقر.
+ * والتصميم الآن ما يوصي به التوثيق («Dedicated route… recommended»):
  *
- * - **حاويةُ Zoom عقدةٌ واحدة** تُلحَق بـ`document.body` مرّةً ولا تنتقل أبداً. Component View يركّب
- *   شجرته (React 18 خاصّته) داخلها، ونقلُ عقدته بين حاوياتٍ يخاطر بلوحات الفيديو؛ فالموضع يتغيّر
- *   بـCSS وحده: `data-view="full"` تملأ التبويب تحت الترويسة، و`dock` نافذةٌ مصغّرة عائمة.
- * - **العميلُ والتوقيعُ والاشتراكُ اللحظيّ** هنا لا في الصفحة: صفحة الغرفة تفتح الجلسة وتعرضها،
- *   وتفكيكها يصغّرها ولا يُنهيها. والصفحات الأخرى يرسم فوقها `RoomDock` (من `app.tsx`) شريطاً
- *   بزرّي «العودة إلى الجلسة» و«مغادرة».
- * - **المغادرة ليست إنهاءً:** لا نستدعي `endMeeting` أبداً — `leaveMeeting` يُخرجك وحدك وتبقى الجلسة
- *   للآخرين ولو كنتَ المضيف. الإنهاء للجميع فعلُ الخادم وحده عبر `room.endAction`.
- * - **إعادة التحميل الكاملة** تقطع المكالمة حتماً (سياق JavaScript جديد)؛ فيُحذَّر منها بـ`beforeunload`،
- *   وإن وقعت عرض الشريط دعوةً للعودة من `sessionStorage`.
+ * - **الغرفة صفحةٌ مستقلّة بتبويبها** (`openRoomTab`) — لا نافذة مصغّرة؛ تصفّح النظام في التبويب الأصليّ.
+ * - **حاوية Zoom عقدةٌ في مساحة الصفحة** (`mountZoom`) في التدفّق العاديّ بلا `z-index` — فنوافذ Zoom الملحقة
+ *   بـ`body` بعدها تعلو كلّ ما في الصفحة.
+ * - **مغادرة الصفحة مغادرةٌ للاجتماع** (`unmountRoom`، و`leaveOnPageUnload` كعيّنة Zoom الرسميّة) — لا `endMeeting`
+ *   أبداً: الإنهاء للجميع فعلُ الخادم وحده عبر `room.endAction`.
+ * - **إعادة التحميل** تقطع المكالمة حتماً؛ فيُحذَّر منها بـ`beforeunload`، والصفحة تعيد الانضمام عند تحميلها.
  *
- * والحالةُ مخزنٌ خارجيّ يُقرأ بـ`useSyncExternalStore` — لا سياقَ React يُفقد بتبدّل التخطيط.
+ * والحالةُ مخزنٌ خارجيّ يُقرأ بـ`useSyncExternalStore`.
  */
 
 // ——————————————————————— مكتبة Zoom ———————————————————————
@@ -57,6 +55,7 @@ interface ZoomClient {
         defaultViewType?: 'speaker' | 'gallery' | 'ribbon' | 'minimized' | 'active';
       };
     };
+    leaveOnPageUnload?: boolean;
   }): Promise<unknown>;
   join(opts: {
     signature: string;
@@ -167,62 +166,37 @@ function loadZoomSdk(): Promise<ZoomEmbedded> {
  * - `ended`: أنهاها الخادم (بثّ `.room.state` أو `room.ended`) — تُعرض المدّة المقيسة.
  */
 export type RoomPhase = 'idle' | 'loading' | 'joining' | 'joined' | 'left' | 'ended' | 'error';
-/** `full`: صفحة الغرفة معروضة · `dock`: صفحةٌ أخرى والجلسة مصغّرة. */
-export type RoomView = 'full' | 'dock';
-
-export interface RoomResume { key: string; title: string; href: string }
 
 export interface RoomSnapshot {
   room: Room | null;
-  /** عنوان صفحة الغرفة — وجهة «العودة إلى الجلسة». */
-  href: string | null;
   phase: RoomPhase;
   message: string;
   userName: string;
   /** لحظة الانضمام (للمؤقّت التصاعديّ) — لا مدّة رسميّة؛ تلك `measuredDuration`. */
   joinedAt: number | null;
   participants: number | null;
-  view: RoomView;
-  /** جلسةٌ قُطعت بإعادة التحميل — تُعرض دعوةً للعودة. */
-  resume: RoomResume | null;
 }
 
 const IDLE: RoomSnapshot = {
   room: null,
-  href: null,
   phase: 'idle',
   message: '',
   userName: '',
   joinedAt: null,
   participants: null,
-  view: 'full',
-  resume: null,
 };
 
 /** الأطوار التي تعني مكالمةً قائمة أو في الطريق. */
 export const isActivePhase = (phase: RoomPhase): boolean =>
   phase === 'loading' || phase === 'joining' || phase === 'joined';
 
-const RESUME_KEY = 'room.active';
-
-function readResume(): RoomResume | null {
-  try {
-    const raw = window.sessionStorage.getItem(RESUME_KEY);
-
-    return raw ? (JSON.parse(raw) as RoomResume) : null;
-  } catch {
-    return null;
-  }
-}
-
-let snap: RoomSnapshot = typeof window === 'undefined' ? IDLE : { ...IDLE, resume: readResume() };
+let snap: RoomSnapshot = IDLE;
 const listeners = new Set<() => void>();
 
 function set(patch: Partial<RoomSnapshot>): void {
   snap = { ...snap, ...patch };
   syncHost();
   syncUnload();
-  syncResume();
   listeners.forEach((l) => l());
 }
 
@@ -234,58 +208,51 @@ function subscribe(l: () => void): () => void {
   };
 }
 
-/** قراءة الجلسة الحيّة في أيّ مكوّن — الصفحة والشريط العائم يقرآن المصدر نفسه. */
+/** قراءة الجلسة الحيّة في صفحة الغرفة. */
 export function useRoomSession(): RoomSnapshot {
   return useSyncExternalStore(subscribe, () => snap, () => IDLE);
 }
 
-// ——————————————————————— حاوية Zoom الثابتة ———————————————————————
+// ——————————————————————— حاوية Zoom في مساحة الصفحة ———————————————————————
 
-let host: HTMLDivElement | null = null;
+let host: HTMLElement | null = null;
 let zoomRoot: HTMLDivElement | null = null;
-/** عميل Zoom الحيّ ومكتبته — واحدٌ للتبويب. */
+let resizer: ResizeObserver | null = null;
+/** عميل Zoom الحيّ ومكتبته — واحدٌ للصفحة. */
 let client: ZoomClient | null = null;
 let embedded: ZoomEmbedded | null = null;
 
-function ensureHost(): HTMLDivElement {
-  if (host && zoomRoot) {
-    return zoomRoot;
-  }
-
-  host = document.createElement('div');
-  host.className = 'mroom-zoom';
-  host.dataset.view = 'hidden';
-  zoomRoot = document.createElement('div');
-  zoomRoot.className = 'mroom-zoom-root';
-  host.appendChild(zoomRoot);
-  document.body.appendChild(host);
-
-  // مقاس الفيديو يتبع الحاوية: ملءُ التبويب، ودورانُ الهاتف، والتصغير إلى الشريط العائم
-  if (typeof ResizeObserver !== 'undefined') {
-    new ResizeObserver(() => resizeVideo()).observe(host);
-  }
-  // عودة التبويب من الخلفيّة: قد يعيد Zoom رسم الفيديو بمقاسه الافتراضيّ وهو مخفيّ — يُعاد القياس
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      resizeSoon();
-    }
-  });
-
-  syncHost();
-
-  return zoomRoot;
-}
-
-function syncHost(): void {
-  if (!host) {
+/**
+ * صفحة الغرفة تسلّم مساحة Zoom (`.mroom-zoom`) قبل الانضمام. الجذر يُنشأ داخلها مرّةً ولا ينتقل؛ ومقاس الفيديو
+ * يتبع المساحة (`updateVideoOptions` — توثيق Zoom «Resizing»): فتحُ لوحة التفاصيل ودورانُ الشاشة يعيدان القياس.
+ */
+export function mountZoom(el: HTMLElement | null): void {
+  if (!el || el === host) {
     return;
   }
 
-  const next = isActivePhase(snap.phase) ? snap.view : 'hidden';
-  if (host.dataset.view !== next) {
-    host.dataset.view = next;
-    // التبديل بين `full` و`dock` يغيّر الحاوية — يُقاس بعد أن يطبّق المتصفّح التخطيط الجديد
-    resizeSoon();
+  resizer?.disconnect();
+  host = el;
+  zoomRoot = document.createElement('div');
+  zoomRoot.className = 'mroom-zoom-root';
+  el.replaceChildren(zoomRoot);
+
+  if (typeof ResizeObserver !== 'undefined') {
+    resizer = new ResizeObserver(() => resizeVideo());
+    resizer.observe(el);
+  }
+
+  syncHost();
+}
+
+function ensureHost(): HTMLDivElement | null {
+  return zoomRoot;
+}
+
+/** المساحة ظاهرةٌ ما دامت المكالمة قائمةً أو في الطريق — وإلّا تُخفى وتظهر شاشة الغرفة مكانها. */
+function syncHost(): void {
+  if (host) {
+    host.dataset.active = isActivePhase(snap.phase) ? '1' : '0';
   }
 }
 
@@ -344,19 +311,6 @@ function syncUnload(): void {
     window.addEventListener('beforeunload', onBeforeUnload);
   } else {
     window.removeEventListener('beforeunload', onBeforeUnload);
-  }
-}
-
-function syncResume(): void {
-  try {
-    if (snap.phase === 'joined' && snap.room && snap.href) {
-      const r: RoomResume = { key: roomKey(snap.room), title: snap.room.title, href: snap.href };
-      window.sessionStorage.setItem(RESUME_KEY, JSON.stringify(r));
-    } else if (!isActivePhase(snap.phase) && !snap.resume) {
-      window.sessionStorage.removeItem(RESUME_KEY);
-    }
-  } catch {
-    /* التخزين محجوب (نافذة خاصّة) — تفقد الدعوة بعد إعادة التحميل ولا يتعطّل شيء */
   }
 }
 
@@ -475,6 +429,13 @@ async function join(): Promise<void> {
 
   // ٣) التهيئة والانضمام — الحاوية تظهر قبل init ليقيس Zoom مساحةً حقيقيّة
   const rootEl = ensureHost();
+
+  if (!rootEl) {
+    fail(ROOM_TEXT.prepareFailed);
+
+    return;
+  }
+
   set({ phase: 'joining', userName: data.userName || '' });
 
   try {
@@ -486,6 +447,8 @@ async function join(): Promise<void> {
       zoomAppRoot: rootEl,
       language: ZOOM_LANGUAGE,
       patchJsMedia: true,
+      // مغادرة الصفحة (إغلاق التبويب أو تحميلها من جديد) مغادرةٌ للاجتماع — كعيّنة Zoom الرسميّة (meetingsdk-react-sample)
+      leaveOnPageUnload: true,
       customize: {
         video: {
           isResizable: false,
@@ -620,34 +583,16 @@ function detachChannels(): void {
 
 // ——————————————————————— الأفعال ———————————————————————
 
-/**
- * صفحة الغرفة تُفتح: تُعرض الجلسة ملءَ التبويب. إن كانت هي نفسها قائمةً (عودةٌ من الشريط) لا يُعاد
- * الانضمام. وإن كانت جلسةٌ أخرى قائمة لا تُهدم بصمت — تُردّ `busy` والصفحة تعرض الخيار.
- */
-export function openRoom(room: Room, href: string): 'ok' | 'busy' {
-  const cur = snap.room;
-  const active = isActivePhase(snap.phase);
-
-  if (cur && active && roomKey(cur) !== roomKey(room)) {
-    return 'busy';
-  }
-
-  if (cur && active) {
-    set({ room, href, view: 'full', resume: null });
-
-    return 'ok';
-  }
-
+/** صفحة الغرفة تُفتح: تُهيَّأ الجلسة وتبدأ محاولة الانضمام (بعد أن تسلّم الصفحة مساحة Zoom بـ`mountZoom`). */
+export function openRoom(room: Room): void {
   teardownSdk();
   detachChannels();
-  set({ ...IDLE, room, href, view: 'full', phase: room.ended ? 'ended' : 'idle' });
+  set({ ...IDLE, room, phase: room.ended ? 'ended' : 'idle' });
   attachChannels(room);
 
   if (!room.ended) {
     void join();
   }
-
-  return 'ok';
 }
 
 /** خصائص الصفحة تجدّدت (إعادة تحميلٍ جزئيّة) — تُعتمد لنفس الجلسة، والانتهاء يُنهي الواجهة. */
@@ -666,27 +611,8 @@ export function syncRoom(room: Room): void {
   set({ room });
 }
 
-/** صفحة الغرفة فُكّكت (تنقّل): المكالمة القائمة تُصغَّر، وما سواها يُطوى. */
-export function closeView(room: Room): void {
-  if (!snap.room || roomKey(snap.room) !== roomKey(room)) {
-    return;
-  }
-
-  if (isActivePhase(snap.phase)) {
-    set({ view: 'dock' });
-  } else {
-    resetRoom();
-  }
-}
-
-/** «مغادرة»: تخرج أنت وحدك. في الغرفة تبقى الشاشة تعرض «الانضمام من جديد»؛ وفي الشريط يُطوى. */
+/** «مغادرة»: تخرج أنت وحدك والجلسة قائمة للآخرين — الشاشة تعرض «الانضمام من جديد». */
 export function leaveRoom(): void {
-  if (snap.view === 'dock') {
-    resetRoom();
-
-    return;
-  }
-
   teardownSdk();
   set({ phase: 'left', joinedAt: null });
 }
@@ -711,14 +637,13 @@ export function markRoomEnded(): void {
   }
 }
 
-/** طيُّ الجلسة كلّها: المكالمة والاشتراك والشريط ودعوة العودة. */
-export function resetRoom(): void {
+/** صفحة الغرفة فُكّكت (تنقّل): تغادر المكالمة وتُطوى الجلسة والاشتراك — لا مكالمة خارج صفحتها. */
+export function unmountRoom(): void {
   teardownSdk();
   detachChannels();
+  resizer?.disconnect();
+  resizer = null;
+  host = null;
+  zoomRoot = null;
   set({ ...IDLE });
-}
-
-/** إخفاء دعوة العودة بعد إعادة التحميل. */
-export function dismissResume(): void {
-  set({ resume: null });
 }

@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useEscapeLayer } from '@/components/babylon/Modal';
 import Icon from '@/lib/icons';
 import { useToast } from '@/components/babylon/Toast';
+import { visitHref } from '@/lib/room';
 import { serverMessage } from '@/lib/server-message';
 
 export interface DropdownNotificationItem {
@@ -116,7 +117,7 @@ const NotificationDropdown: React.FC = () => {
                 preserveScroll: true,
                 onFinish: () => {
                     if (item.link) {
-                        router.visit(item.link);
+                        visitHref(item.link);
                     }
                 },
             });
@@ -125,7 +126,7 @@ const NotificationDropdown: React.FC = () => {
         }
 
         if (item.link) {
-            router.visit(item.link);
+            visitHref(item.link);
         }
     };
 

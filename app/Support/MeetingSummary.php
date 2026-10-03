@@ -77,7 +77,7 @@ class MeetingSummary
                 $updateData = [
                     'zoom_summary' => ZoomSummaryText::format("ملخص الاجتماع — {$meeting->ref}", $summary),
                     'zoom_summary_at' => now(),
-                    'zoom_ai_next_steps' => $summary['next_steps'] ?? [],
+                    'zoom_ai_next_steps' => $summary['next_steps'],
                     'has_summary' => true,
                 ];
 
@@ -86,14 +86,18 @@ class MeetingSummary
                 // zoom_summary) تبقى تُحدَّث: وقائعُ لا يشملها الاعتماد.
                 $approved = $meeting->isApproved();
 
+                // **وما كتبه Zoom بغير العربيّة لا يُنشر ملخّصاً ولا محضراً** (قرار المالك 2026-10-03): يبقى في
+                // `zoom_summary` للطاقم، والمحضر بانتظار من يدوّنه — `ZoomSummaryText::isArabic`
+                $publishable = ! $approved && ZoomSummaryText::isArabic($summary);
+
                 // الملخص المعروض للعميل (toCard يقرأ summary لا zoom_summary): القالبي/الفارغ
                 // يُستبدل بمحتوى Zoom الحقيقي — كما تفعل الاستشارات تماماً. المكتوب فعلاً يُحترم.
-                if (! $approved && ZoomSummaryText::isPlaceholderSummary($meeting->summary)) {
+                if ($publishable && ZoomSummaryText::isPlaceholderSummary($meeting->summary)) {
                     $updateData['summary'] = ZoomSummaryText::format("ملخص الاجتماع — {$meeting->ref}", $summary);
                 }
 
                 // إذا كان المحضر فارغاً أو يحتوي نصاً قالبياً افتراضياً: استبداله بالأنصعة الحقيقية من Zoom AI
-                if (! $approved && ZoomSummaryText::isPlaceholderMinutes($meeting->minutes)) {
+                if ($publishable && ZoomSummaryText::isPlaceholderMinutes($meeting->minutes)) {
                     $updateData['minutes'] = ZoomSummaryText::formatMinutes(
                         $meeting->title,
                         $meeting->when_label ?: $meeting->starts_at?->format('Y-m-d H:i'),

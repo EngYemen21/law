@@ -7,12 +7,13 @@ use App\Events\Journey\AppointmentPublished;
 use App\Events\TicketMessageBroadcast;
 use App\Events\TicketStatusBroadcast;
 use App\Support\Audit;
+use App\Support\ConsultBookedSms;
 use App\Support\ConsultBooking;
 use App\Support\Live;
 use App\Support\Notify;
 
 /**
- * نشر الموعد بعد التزامه: بريد الحجز للعميل والمحامي، وإشعار العميل، وإشعار
+ * نشر الموعد بعد التزامه: بريد الحجز للعميل والمحامي، ورسالة تأكيدٍ نصّيّة للعميل، وإشعار العميل، وإشعار
  * الموظّف صاحب الاقتراح بما اعتُمد أو عُدّل، والبثّ اللحظيّ، وأثر التدقيق.
  */
 final class HandleAppointmentPublished
@@ -23,6 +24,7 @@ final class HandleAppointmentPublished
         $label = $consult->channel ?: 'استشارة';
 
         ConsultBooking::sendBookingEmails($consult);
+        ConsultBookedSms::send($consult);
 
         Notify::send(
             $consult->user_id,

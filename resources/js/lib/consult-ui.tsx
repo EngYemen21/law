@@ -21,6 +21,7 @@ import Icon from '@/lib/icons';
 import { useCan, useMasker } from '@/lib/permissions';
 import { consultMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
 import type { SessionMedia } from '@/lib/recording-ui';
+import { openRoomTab } from '@/lib/room';
 import { firstError } from '@/lib/server-message';
 import { useStaffStartText } from '@/lib/settings';
 import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
@@ -882,13 +883,13 @@ counts[c.channel]++;
       // سبب الرفض من الخادم: «فات الموعد» و«خارج نافذة البدء» فعلان مختلفان.
       void action.run(`${base}/consults/${c.id}/start`, {
         key: c.id, confirm: CONFIRM_START_CONSULT, fallback: 'تعذّر بدء الجلسة',
-        onSuccess: () => router.visit(room),
+        onSuccess: () => openRoomTab(room),
       });
 
       return;
     }
 
-    router.visit(room);
+    openRoomTab(room);
   };
 
   // وسم «لم يحضر» لاستشارة فائتة — كانت الحيلة الوحيدة (بدء+إنهاء فوري) تزوّر السجل جلسةً منعقدة
@@ -1022,7 +1023,7 @@ void navigator.clipboard.writeText(c.slink);
                     <>
                       <Badge text="جلسة جارية" tone="b-amber" />
                       {c.channel === 'مرئية' && (
-                        <button className="btn soft sm" onClick={() => router.visit(`${base}/videoroom?ref=${encodeURIComponent(c.ref)}`)} type="button">
+                        <button className="btn soft sm" onClick={() => openRoomTab(`${base}/videoroom?ref=${encodeURIComponent(c.ref)}`)} type="button">
                           <Icon name="video" /> دخول جلسة Zoom
                         </button>
                       )}
@@ -1336,14 +1337,15 @@ export const ConsultJourneyPage: React.FC<{ consult: ConsultCard; base: string; 
             </button>
           )}
           {c.channel === 'مرئية' && c.session === 'جلسة جارية' && (
-            <Link
-              href={`${base}/videoroom?ref=${encodeURIComponent(c.ref)}`}
+            <button
+              type="button"
+              onClick={() => openRoomTab(`${base}/videoroom?ref=${encodeURIComponent(c.ref)}`)}
               className="btn sm"
               style={{ fontWeight: 800 }}
             >
               <Icon name="video" />
               <span>دخول جلسة Zoom</span>
-            </Link>
+            </button>
           )}
         </div>
       </div>

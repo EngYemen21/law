@@ -22,6 +22,7 @@ import { useMasker } from '@/lib/permissions';
 import Icon from '@/lib/icons';
 import { meetingMediaUrls, SessionMediaPanel, TranscriptModal } from '@/lib/recording-ui';
 import type { SessionMedia } from '@/lib/recording-ui';
+import { openRoomTab } from '@/lib/room';
 import { firstError } from '@/lib/server-message';
 import { useJoinOpensText } from '@/lib/settings';
 import { inSessionSuffix, useInSession } from '@/lib/staff-presence';
@@ -398,7 +399,7 @@ export const MeetReqsPage: React.FC<{ requests: MeetReqCard[]; clients: ClientDi
             return;
         }
 
-        const go = () => router.visit(`${base}/meetingroom?ref=${encodeURIComponent(meetingRef)}`);
+        const go = () => openRoomTab(`${base}/meetingroom?ref=${encodeURIComponent(meetingRef)}`);
 
         if (r.stage === 1) {
             // onSuccess ثم الانتقال — كان visit يُجهض طلب البدء (سباق Inertia) فيدخل المضيف والجلسة لم تُعلَّم «جارية»
@@ -1168,7 +1169,7 @@ export const MeetingDetailPage: React.FC<{ meeting: FullMeetingCard; base: strin
                         </button>
                         <button
                             type="button"
-                            onClick={() => router.visit(`${base}/meetingroom?ref=${encodeURIComponent(m.id)}`)}
+                            onClick={() => openRoomTab(`${base}/meetingroom?ref=${encodeURIComponent(m.id)}`)}
                             style={{
                                 display: 'inline-flex', alignItems: 'center', gap: 6,
                                 background: '#fff', border: 'none',
@@ -1843,7 +1844,7 @@ export const MeetingsListPage: React.FC<{ meetings: FullMeetingCard[]; base: str
                                 <div className="mr-act">
                                     {/* نافذة الدخول من الخادم (canJoin) — كما تحترمها بطاقة الموكّل تماماً */}
                                     {m.canJoin && m.canEnter !== false && (
-                                        <button className="btn sm" onClick={() => router.visit(`${base}/meetingroom?ref=${encodeURIComponent(m.id)}`)} type="button">
+                                        <button className="btn sm" onClick={() => openRoomTab(`${base}/meetingroom?ref=${encodeURIComponent(m.id)}`)} type="button">
                                             <Icon name="video" /> دخول اجتماع Zoom
                                         </button>
                                     )}

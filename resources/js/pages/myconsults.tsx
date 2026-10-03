@@ -9,6 +9,7 @@ import type { ClientConsultCard } from '@/lib/consult-ui';
 import { echo } from '@/lib/echo';
 import { crChannelIcon, crChannelTone, foldSearch } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
+import { openRoomTab } from '@/lib/room';
 import { firstError } from '@/lib/server-message';
 import { useJoinOpensText } from '@/lib/settings';
 
@@ -166,7 +167,7 @@ return;
   }, [consults]);
 
   // الانضمام يفتح غرفة الجلسة المضمّنة داخل المنصّة (Zoom Meeting SDK)
-  const enterRoom = (c: ClientConsultCard) => router.visit(`/consults/room?ref=${encodeURIComponent(c.ref)}`);
+  const enterRoom = (c: ClientConsultCard) => openRoomTab(`/consults/room?ref=${encodeURIComponent(c.ref)}`);
 
   const copyLink = (c: ClientConsultCard) => {
     if (navigator.clipboard && c.slink) {
