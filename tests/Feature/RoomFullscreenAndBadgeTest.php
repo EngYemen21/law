@@ -41,7 +41,9 @@ class RoomFullscreenAndBadgeTest extends TestCase
     {
         $room = $this->src('js/lib/zoom-room.tsx');
 
-        $this->assertLessThan(strpos($room, '<div className="mroom-zoom" ref={mountZoom} />'), strpos($room, '<div className="mroom-screen">{screen}</div>'));
+        $this->assertLessThan(strpos($room, '<div className="mroom-zoom" ref={mountZoom} />'), strpos($room, '{screen && <div className="mroom-screen">{screen}</div>}'));
+        // و«منضمّ» بلا شاشة: الحاوية شفّافة، فشاشة «تعذّر البدء» خلفها كانت تُرى من فراغات الفيديو (ثبت في المتصفّح)
+        $this->assertStringContainsString("if (phase === 'joined') {\n      return null;", $room);
         $this->assertStringContainsString('.mroom-zoom[data-active="0"]{display:none}', $this->src('css/babylon.css'));
     }
 

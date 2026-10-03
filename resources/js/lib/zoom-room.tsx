@@ -173,7 +173,12 @@ export const RoomPage: React.FC<{ room: Room }> = ({ room: serverRoom }) => {
     router.visit(room.back);
   };
 
+  // شاشة الغرفة لكلّ طورٍ عدا «منضمّ» — حينها مساحة Zoom وحدها (حاويته شفّافة، فشاشةٌ خلفها تُرى من فراغات الفيديو)
   const screen = (() => {
+    if (phase === 'joined') {
+      return null;
+    }
+
     if (phase === 'idle' || phase === 'loading' || phase === 'joining') {
       return (
         <div><div className="mroom-spin" />
@@ -266,7 +271,7 @@ export const RoomPage: React.FC<{ room: Room }> = ({ room: serverRoom }) => {
       <div className="mroom-body">
         <main className="mroom-stage">
           {/* شاشة الغرفة أوّلاً ثمّ مساحة Zoom فوقها بترتيب العناصر — بلا z-index */}
-          <div className="mroom-screen">{screen}</div>
+          {screen && <div className="mroom-screen">{screen}</div>}
           <div className="mroom-zoom" ref={mountZoom} />
           {phase === 'joined' && s.userName && <div className="mroom-wm">{s.userName} · {room.ref}</div>}
         </main>
