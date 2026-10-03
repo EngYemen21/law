@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Services\Payments\GatewayCallback;
 use App\Services\Payments\PaymentGateways;
+use App\Support\Finance\PaymentNotices;
 use App\Support\Finance\ReceiptVoucherDocument;
 use App\Support\Finance\TaxInvoiceDocument;
 use App\Support\PdfRenderer;
@@ -60,6 +61,7 @@ class InvoiceController extends Controller
         $path = $request->file('file')->store("invoice-proofs/{$request->user()->id}");
 
         Workflow::run(new SubmitPaymentProof, $invoice, $request->user(), ['proof_path' => $path]);
+        PaymentNotices::proofSubmitted($invoice);
 
         return back()->with('success', 'تم استلام إثبات التحويل وسيُراجَع.');
     }

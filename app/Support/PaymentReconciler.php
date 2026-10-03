@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\Payments\GatewayPayment;
 use App\Services\Payments\PaymentGateways;
 use App\Support\Finance\Money;
+use App\Support\Finance\PaymentNotices;
 use App\Support\Finance\ReceiptVoucher;
 use Illuminate\Support\Facades\Log;
 
@@ -248,6 +249,9 @@ class PaymentReconciler
             // تعرف وحدها أهي دفعة من خطّة تقسيط، أم سداد كامل، أم فاتورة أتعابٍ عن تحصيل
             ExecFee::settleInvoice($exec, $invoice);
         }
+
+        // العميل يُبلَّغ باعتماد دفعته — فاتورة الاستشارة لها رسائلها (`HandleConsultPaid`) فلا تمرّ من هنا
+        PaymentNotices::settled($invoice);
 
         return true;
     }
