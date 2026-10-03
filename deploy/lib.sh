@@ -8,7 +8,7 @@
 #   BACKUP_KEEP          عدد النسخ المحفوظة قبل حذف الأقدم   (14)
 #   BACKUP_REMOTE        وجهة نسخةٍ خارج الخادم لـscp/rsync، مثل user@host:/backups/law (فارغ = بلا)
 #   DEPLOY_STATE_DIR     سجلّ الإصدارات (السابق/الحاليّ/آخر نسخة) ($HOME/law-deploy)
-#   SUPERVISOR_PROGRAMS  برامج المشروع في supervisor          ("salasel-worker salasel-reverb")
+#   SUPERVISOR_PROGRAMS  برامج المشروع في supervisor          ("law-worker law-reverb")
 #   CRON_USER            مستخدم الويب الذي يحمل cron المجدول عادةً (www-data)
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -19,7 +19,7 @@ BACKUP_DIR="${BACKUP_DIR:-$HOME/law-backups}"
 BACKUP_KEEP="${BACKUP_KEEP:-14}"
 BACKUP_REMOTE="${BACKUP_REMOTE:-}"
 DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-$HOME/law-deploy}"
-SUPERVISOR_PROGRAMS="${SUPERVISOR_PROGRAMS:-salasel-worker salasel-reverb}"
+SUPERVISOR_PROGRAMS="${SUPERVISOR_PROGRAMS:-law-worker law-reverb}"
 CRON_USER="${CRON_USER:-www-data}"
 
 # git بلا تتبّع بت التنفيذ: ملفّاتٌ غيّر وضعَها `chmod` قديمٌ على الخادم ليست تعديلاً في المحتوى

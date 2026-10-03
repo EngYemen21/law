@@ -34,6 +34,7 @@ use App\Support\ClientDirectory;
 use App\Support\DecisionTasks;
 use App\Support\LawyerAvailability;
 use App\Support\Live;
+use App\Support\MeetingBookedSms;
 use App\Support\MeetingSummary;
 use App\Support\Notify;
 use App\Support\RecordingArchive;
@@ -166,7 +167,7 @@ class MeetingController extends Controller
             'client_id.exists' => 'الحساب المختار ليس حساب عميل.',
         ]);
 
-        $client = ! empty($data['client_id']) ? User::find($data['client_id']) : null;
+        $client = ! empty($data['client_id']) ? User::find((int) $data['client_id']) : null;
         // المحامي المسؤول: المختار صراحةً (يراه في قائمته)، وإلا المنشئ إن كان محامياً
         $assignedLawyer = ! empty($data['lawyer_id'])
             ? User::where('role', Role::Lawyer)->find((int) $data['lawyer_id'])
@@ -268,6 +269,7 @@ class MeetingController extends Controller
             // إشعار بموعد مجدول لا بطلب تأكيد
             Notify::send($client->id, 'video', 't-blue', "اجتماع مجدول: «{$meeting->title}» ({$when}) — تجده في قسم الاجتماعات بالمنصة.");
             app(MailService::class)->send($client, new MeetInviteMail($meetRequest));
+            MeetingBookedSms::send($meeting, $client);
         }
 
         if ($assignedLawyer) {
