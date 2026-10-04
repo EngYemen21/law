@@ -5,11 +5,14 @@ namespace Tests\Feature;
 use App\Domain\Journey\Enums\ConsultStatus;
 use App\Enums\DocumentDirection;
 use App\Enums\Role;
+use App\Mail\ConsultRescheduledMail;
+use App\Models\AuditLog;
 use App\Models\Consult;
 use App\Models\Document;
 use App\Models\User;
 use App\Support\ConsultReport;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\BuildsConsultJourney;
 use Tests\TestCase;
@@ -25,6 +28,7 @@ use Tests\TestCase;
  * ٦) «تتبع القرار» يفتح ملفّ التنفيذ نفسه لا قائمة التنفيذ.
  * ٧) استشارةٌ قائمة «حتى تكتمل أو تُلغى» — لا طلبَ ثانٍ فوق موعدٍ مؤكَّد ولو صُحّحت التذكرة يدويّاً.
  * ٨) تقرير الاستشارة يقرأ الموعد من `starts_at` (`whenLabel`) لا النصّ المخزَّن `when_label` القديم.
+ * ٩) ورسالة إعادة الجدولة («الموعد الملغى» في البريد والتدقيق) كذلك.
  */
 class ClientTabsOwnershipTest extends TestCase
 {
@@ -176,5 +180,23 @@ class ClientTabsOwnershipTest extends TestCase
         $cells = collect(ConsultReport::doc($consult, $client->name)['blocks'][0]['cellRows'])->flatten(1)->pluck(1, 0);
         $this->assertSame($consult->whenLabel(), $cells['الموعد'], 'موعد «استشاراتي» نفسه');
         $this->assertStringNotContainsString('09-29', (string) $cells['الموعد']);
+    }
+
+    public function test_9_the_reschedule_message_names_the_real_cancelled_time(): void
+    {
+        Mail::fake();
+        $client = $this->client();
+        $consult = Consult::create([
+            'user_id' => $client->id, 'ref' => 'CN-RES-'.uniqid(), 'subject' => 'نزاع', 'channel' => 'مرئية', 'lawyer' => 'محامٍ',
+            'session' => 'بانتظار الجلسة', 'status' => ConsultStatus::ReadyForLawyer->value,
+            'starts_at' => now()->addDays(2)->setTime(16, 0), 'when_label' => '2026-09-29 · 10:00 AM',
+        ]);
+        $real = $consult->whenLabel();
+
+        $this->actingAs($this->journeyAdmin())->post(route('admin.consults.reschedule', $consult), ['reason' => 'client_request'])
+            ->assertRedirect();
+
+        Mail::assertQueued(ConsultRescheduledMail::class, fn (ConsultRescheduledMail $m) => $m->oldWhen === $real);
+        $this->assertTrue(AuditLog::where('description', 'like', "%كان موعدها: {$real}%")->exists(), 'وسجلّ التدقيق بالموعد نفسه');
     }
 }

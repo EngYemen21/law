@@ -129,7 +129,9 @@ final class RescheduleConsult extends Transition
     {
         $reasonLine = (string) ($payload['reason'] ?? 'غير محدَّد');
         $this->oldMeetId = filled($entity->meet_id) ? (string) $entity->meet_id : null;
-        $this->oldWhen = $entity->when_label ?: '—';
+        // الموعد الملغى كما عرفه العميل — من مصدره الواحد (`whenLabel` على `starts_at`) لا النصّ المخزَّن الذي قد
+        // يبقى على موعدٍ أسبق؛ يُكتب في بريد الإلغاء وسجلّ التدقيق والتاريخ (جرد تبويبات العميل 2026-10-04)
+        $this->oldWhen = $entity->whenLabel() ?: '—';
 
         // الموعد الملغى يبقى في سجلّ الاستشارة بسببه — لا يُحذف ولا يُنسى
         $entity->appointment?->update([
