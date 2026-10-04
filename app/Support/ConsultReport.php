@@ -62,9 +62,11 @@ class ConsultReport
             'ref' => $consult->ref,
             'blocks' => [
                 [
+                    // الموعد من مصدره الواحد (`Consult::whenLabel` على `starts_at`) لا النصّ المخزَّن `when_label`
+                    // — قد يبقى على موعدٍ سابق فيخالف «استشاراتي» (جرد تبويبات العميل 2026-10-04)
                     'title' => '١. بيانات الاستشارة',
                     'cellRows' => [
-                        [['رقم الاستشارة', $consult->ref], ['نوع الاستشارة', $consult->channel], ['التخصّص', $consult->specialty ?: '—'], ['الموعد', $consult->when_label ?: '—']],
+                        [['رقم الاستشارة', $consult->ref], ['نوع الاستشارة', $consult->channel], ['التخصّص', $consult->specialty ?: '—'], ['الموعد', $consult->whenLabel() ?: '—']],
                         [['المكان', $forClient && $consult->appointmentAwaitingApproval() ? '—' : $consult->placeLabel()], ['حالة الجلسة', $consult->session ?: '—'], ['حالة السداد', $payLabel], ['رقم الفاتورة', $consult->invoice?->number ?: '—']],
                     ],
                 ],

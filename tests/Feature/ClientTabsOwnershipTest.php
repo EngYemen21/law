@@ -8,6 +8,7 @@ use App\Enums\Role;
 use App\Models\Consult;
 use App\Models\Document;
 use App\Models\User;
+use App\Support\ConsultReport;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\BuildsConsultJourney;
@@ -23,6 +24,7 @@ use Tests\TestCase;
  * ٥) التقويم بطبقة تصفيةٍ واحدة (الخادم) — كانت شرائح المكوّن وبحثه يصفّيان الصفحة المعروضة وحدها فوق شريط الخادم.
  * ٦) «تتبع القرار» يفتح ملفّ التنفيذ نفسه لا قائمة التنفيذ.
  * ٧) استشارةٌ قائمة «حتى تكتمل أو تُلغى» — لا طلبَ ثانٍ فوق موعدٍ مؤكَّد ولو صُحّحت التذكرة يدويّاً.
+ * ٨) تقرير الاستشارة يقرأ الموعد من `starts_at` (`whenLabel`) لا النصّ المخزَّن `when_label` القديم.
  */
 class ClientTabsOwnershipTest extends TestCase
 {
@@ -160,5 +162,19 @@ class ClientTabsOwnershipTest extends TestCase
         $consult->forceFill(['status' => ConsultStatus::Cancelled->value])->save();
         $this->assertFalse($ticket->fresh()->hasPendingConsult());
         $this->assertTrue($ticket->fresh()->awaitsConsultRequest());
+    }
+
+    public function test_8_the_consult_report_reads_the_real_appointment_time(): void
+    {
+        $client = $this->client();
+        $consult = Consult::create([
+            'user_id' => $client->id, 'ref' => 'CN-REP-'.uniqid(), 'subject' => 'نزاع', 'channel' => 'مرئية', 'lawyer' => 'محامٍ',
+            'session' => 'بانتظار الجلسة', 'status' => ConsultStatus::ReadyForLawyer->value,
+            'starts_at' => now()->setDate(2026, 10, 3)->setTime(3, 17), 'when_label' => '2026-09-29 · 10:00 AM',
+        ]);
+
+        $cells = collect(ConsultReport::doc($consult, $client->name)['blocks'][0]['cellRows'])->flatten(1)->pluck(1, 0);
+        $this->assertSame($consult->whenLabel(), $cells['الموعد'], 'موعد «استشاراتي» نفسه');
+        $this->assertStringNotContainsString('09-29', (string) $cells['الموعد']);
     }
 }
