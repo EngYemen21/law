@@ -78,7 +78,8 @@ class ButtonsAuditPhaseOneTest extends TestCase
 
         $dash = $this->src('js/pages/dashboard.tsx');
         $this->assertSame(2, substr_count($dash, "go('execrequest')"), '«طلب تنفيذ قضائي» و«تقديم طلب تنفيذ»');
-        $this->assertSame(1, substr_count($dash, "go('execs')"), 'يبقى «تتبع القرار» وحده إلى قائمة المتابعة');
+        // و«تتبع القرار» صار يفتح الملفّ نفسه لا القائمة (جرد تبويبات العميل 2026-10-04 — `ClientTabsOwnershipTest`)
+        $this->assertSame(0, substr_count($dash, "go('execs')"), 'لا زرّ في الرئيسيّة يفتح قائمة التنفيذ عوض ملفّه');
     }
 
     // ── ٧ ──

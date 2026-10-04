@@ -29,7 +29,6 @@ const ClientCalendar: React.FC<Props> = ({
   events, meta, counts, statuses, filters, appointments,
 }) => {
   const [view, setView] = useState<'calendar' | 'cards'>('calendar');
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   // تحويل الأحداث إلى النمط الموحد التفاعلي للتقويم والجدول
   const calendarItems: UnifiedCalendarItem[] = useMemo(() => {
@@ -86,21 +85,8 @@ const ClientCalendar: React.FC<Props> = ({
           title="التقويم والمواعيد"
           subtitle="مواعيدك واستشاراتك وجلساتك القضائية في مكان واحد منظم وسهل الوصول."
           emptyMessage="لا توجد مواعيد أو جلسات مسجلة في تقويمك"
-          headerActions={
-            <button
-              type="button"
-              className={`btn sm ${showAdvancedFilters ? 'pri' : 'soft'}`}
-              onClick={() => setShowAdvancedFilters((prev) => !prev)}
-              title="خيارات الفلترة المتقدمة والمدى الزمني"
-            >
-              <Icon name="search" /> {showAdvancedFilters ? 'إخفاء التصفية المتقدمة' : 'تصفية وبحث متقدم'}
-            </button>
-          }
-          filterToolbar={
-            showAdvancedFilters ? (
-              <TimelineToolbar filters={filters} counts={counts} statuses={statuses} />
-            ) : undefined
-          }
+          // شريط تصفية الخادم ظاهرٌ دائماً — وهو وحده يصفّي (شرائح المكوّن الداخليّة تُطوى معه)
+          filterToolbar={<TimelineToolbar filters={filters} counts={counts} statuses={statuses} />}
           pager={<TimelinePager meta={meta} filters={filters} />}
         />
       ) : (

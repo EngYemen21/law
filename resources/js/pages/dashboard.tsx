@@ -465,7 +465,8 @@ const Dashboard: React.FC<Props> = ({
                           {e.lastAction && <div style={{ fontSize: 11.5, color: 'var(--primary)', marginTop: 2 }}>{e.lastAction}</div>}
                         </div>
 
-                        <button className="btn soft sm" onClick={() => go('execs')} type="button">
+                        {/* ملفّ التنفيذ نفسه لا القائمة — الرابط العميق نفسه في محادثة التذكرة وبطاقة القرار */}
+                        <button className="btn soft sm" onClick={() => router.visit(`/execs?id=${encodeURIComponent(e.number)}`)} type="button">
                           تتبع القرار
                         </button>
                       </div>

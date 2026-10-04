@@ -99,9 +99,18 @@ export const UnifiedCalendar: React.FC<UnifiedCalendarProps> = ({
 
     const todayKey = useMemo(() => toDateKey(new Date()), []);
 
+    // **مصدر تصفيةٍ واحد** (جرد تبويبات العميل 2026-10-04): متى مرّرت الصفحة شريط تصفية الخادم (`filterToolbar`)
+    // فهو الحَكَم — يصفّي كلّ السجلّ لا الصفحة المعروضة وحدها. فلا شرائح نوعٍ ولا بحثَ داخليّان فوقه؛ كانا طبقةً
+    // ثانية بنتائج مختلفة (بلا نوع «المواعيد»). ويبقيان لمن لا شريط خادمٍ له (تقويم الطاقم).
+    const serverFiltered = Boolean(filterToolbar);
+
     // تصفية الأحداث بحسب نوع الفلتر والبحث السريع
     const filteredItems = useMemo(() => {
         let list = items;
+
+        if (serverFiltered) {
+            return list;
+        }
         if (filterKind !== 'all') {
             list = list.filter((item) => item.kindKey === filterKind);
         }
@@ -117,7 +126,7 @@ export const UnifiedCalendar: React.FC<UnifiedCalendarProps> = ({
             );
         }
         return list;
-    }, [items, filterKind, searchQuery]);
+    }, [items, filterKind, searchQuery, serverFiltered]);
 
     // تجميع الأحداث حسب يوم التاريخ YYYY-MM-DD
     const itemsByDay = useMemo(() => {
@@ -294,77 +303,81 @@ export const UnifiedCalendar: React.FC<UnifiedCalendarProps> = ({
                 }}
             >
                 {/* أزرار تصفية النوع السريعة */}
-                <div className="filter-pills" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <button
-                        type="button"
-                        className={filterKind === 'all' ? 'chip b-blue' : 'chip'}
-                        style={{ cursor: 'pointer', fontWeight: filterKind === 'all' ? 700 : 500 }}
-                        onClick={() => setFilterKind('all')}
-                    >
-                        الكل ({counts.all})
-                    </button>
-                    <button
-                        type="button"
-                        className={filterKind === 'hearing' ? 'chip b-blue' : 'chip'}
-                        style={{ cursor: 'pointer', fontWeight: filterKind === 'hearing' ? 700 : 500 }}
-                        onClick={() => setFilterKind('hearing')}
-                    >
-                        🏛️ جلسات المحاكم ({counts.hearing})
-                    </button>
-                    <button
-                        type="button"
-                        className={filterKind === 'consult' || filterKind === 'appointment' ? 'chip b-green' : 'chip'}
-                        style={{ cursor: 'pointer', fontWeight: filterKind === 'consult' ? 700 : 500 }}
-                        onClick={() => setFilterKind('consult')}
-                    >
-                        ⚖️ الاستشارات والمواعيد ({counts.consult})
-                    </button>
-                    {counts.meeting > 0 && (
+                {!serverFiltered && (
+                    <div className="filter-pills" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                         <button
                             type="button"
-                            className={filterKind === 'meeting' ? 'chip b-cyan' : 'chip'}
-                            style={{ cursor: 'pointer', fontWeight: filterKind === 'meeting' ? 700 : 500 }}
-                            onClick={() => setFilterKind('meeting')}
+                            className={filterKind === 'all' ? 'chip b-blue' : 'chip'}
+                            style={{ cursor: 'pointer', fontWeight: filterKind === 'all' ? 700 : 500 }}
+                            onClick={() => setFilterKind('all')}
                         >
-                            🤝 اجتماعات العمل ({counts.meeting})
+                            الكل ({counts.all})
                         </button>
-                    )}
-                </div>
+                        <button
+                            type="button"
+                            className={filterKind === 'hearing' ? 'chip b-blue' : 'chip'}
+                            style={{ cursor: 'pointer', fontWeight: filterKind === 'hearing' ? 700 : 500 }}
+                            onClick={() => setFilterKind('hearing')}
+                        >
+                            🏛️ جلسات المحاكم ({counts.hearing})
+                        </button>
+                        <button
+                            type="button"
+                            className={filterKind === 'consult' || filterKind === 'appointment' ? 'chip b-green' : 'chip'}
+                            style={{ cursor: 'pointer', fontWeight: filterKind === 'consult' ? 700 : 500 }}
+                            onClick={() => setFilterKind('consult')}
+                        >
+                            ⚖️ الاستشارات والمواعيد ({counts.consult})
+                        </button>
+                        {counts.meeting > 0 && (
+                            <button
+                                type="button"
+                                className={filterKind === 'meeting' ? 'chip b-cyan' : 'chip'}
+                                style={{ cursor: 'pointer', fontWeight: filterKind === 'meeting' ? 700 : 500 }}
+                                onClick={() => setFilterKind('meeting')}
+                            >
+                                🤝 اجتماعات العمل ({counts.meeting})
+                            </button>
+                        )}
+                    </div>
+                )}
 
                 {/* البحث السريع ومبدل نمط العرض (الجديد vs القديم) */}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                     {/* حقل البحث السريع */}
-                    <div style={{ position: 'relative', minWidth: 190 }}>
-                        <span
-                            style={{
-                                position: 'absolute',
-                                right: 9,
-                                top: '50%',
-                                transform: 'translateY(-50%)',
-                                color: 'var(--muted)',
-                                pointerEvents: 'none',
-                                display: 'flex',
-                                alignItems: 'center',
-                            }}
-                        >
-                            <Icon name="search" />
-                        </span>
-                        <input
-                            type="search"
-                            placeholder="بحث في الارتباطات..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            style={{
-                                width: '100%',
-                                padding: '6px 30px 6px 10px',
-                                fontSize: 12.5,
-                                borderRadius: 8,
-                                border: '1px solid var(--line-soft)',
-                                background: 'var(--paper-2)',
-                                color: 'var(--ink)',
-                            }}
-                        />
-                    </div>
+                    {!serverFiltered && (
+                        <div style={{ position: 'relative', minWidth: 190 }}>
+                            <span
+                                style={{
+                                    position: 'absolute',
+                                    right: 9,
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    color: 'var(--muted)',
+                                    pointerEvents: 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                }}
+                            >
+                                <Icon name="search" />
+                            </span>
+                            <input
+                                type="search"
+                                placeholder="بحث في الارتباطات..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '6px 30px 6px 10px',
+                                    fontSize: 12.5,
+                                    borderRadius: 8,
+                                    border: '1px solid var(--line-soft)',
+                                    background: 'var(--paper-2)',
+                                    color: 'var(--ink)',
+                                }}
+                            />
+                        </div>
+                    )}
 
                     {/* مبدل نمط العرض (Segmented Toggle) */}
                     <div

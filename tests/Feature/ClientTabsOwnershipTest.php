@@ -18,6 +18,8 @@ use Tests\TestCase;
  * ٢) «حجز استشارة» نموذجٌ وحده — كانت قائمة الطلبات الجارية وزرّ دفعها نسخةً ثانية من «استشاراتي».
  * ٣) «أحدث الوثائق الصادرة» صادرةٌ فعلاً — كانت تعرض ما رفعه العميل، وقيمة الاتّجاه نصٌّ حرّ.
  * ٤) «حجز الموعد الآن» بحكم الخادم نفسه — كان يبقى بعد طلب الاستشارة ويفتح الحجز بلا رقم التذكرة.
+ * ٥) التقويم بطبقة تصفيةٍ واحدة (الخادم) — كانت شرائح المكوّن وبحثه يصفّيان الصفحة المعروضة وحدها فوق شريط الخادم.
+ * ٦) «تتبع القرار» يفتح ملفّ التنفيذ نفسه لا قائمة التنفيذ.
  */
 class ClientTabsOwnershipTest extends TestCase
 {
@@ -107,5 +109,26 @@ class ClientTabsOwnershipTest extends TestCase
         $this->assertFalse($fresh->awaitsConsultRequest(), 'طُلبت الاستشارة — لا يُطلب حجزها ثانيةً');
         $this->assertFalse($fresh->toCard()['needsBooking']);
         $this->assertCount(0, $alerts(), 'لا تنبيه «حجز الموعد الآن» لطلبٍ قائم');
+    }
+
+    public function test_5_the_client_calendar_has_one_filter_layer_from_the_server(): void
+    {
+        $page = (string) file_get_contents(resource_path('js/pages/calendar.tsx'));
+        $this->assertStringContainsString('filterToolbar={<TimelineToolbar', $page, 'شريط الخادم ظاهرٌ دائماً');
+        $this->assertStringNotContainsString('showAdvancedFilters', $page, 'لا زرّ يُخفيه');
+
+        $calendar = (string) file_get_contents(resource_path('js/components/babylon/UnifiedCalendar.tsx'));
+        $this->assertStringContainsString('const serverFiltered = Boolean(filterToolbar);', $calendar);
+        $this->assertSame(2, substr_count($calendar, '{!serverFiltered && ('), 'الشرائح والبحث الداخليّان يُطويان مع شريط الخادم');
+
+        $this->actingAs($this->client())->get(route('calendar'))->assertOk()
+            ->assertInertia(fn ($p) => $p->component('calendar')->has('filters')->has('counts')->has('statuses'));
+    }
+
+    public function test_6_track_decision_opens_the_execution_file(): void
+    {
+        $page = (string) file_get_contents(resource_path('js/pages/dashboard.tsx'));
+        $this->assertStringContainsString('router.visit(`/execs?id=${encodeURIComponent(e.number)}`)', $page);
+        $this->assertStringNotContainsString("onClick={() => go('execs')}", $page);
     }
 }
