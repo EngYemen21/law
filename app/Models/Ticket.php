@@ -152,10 +152,16 @@ class Ticket extends Model implements ClientConversation
         return $first instanceof TicketMessage ? trim(html_entity_decode(strip_tags((string) $first->body))) : '';
     }
 
-    /** طلبُ استشارةٍ قائم لم تنعقد جلسته — طلبٌ واحد لكلّ تذكرة حتى يكتمل أو يُلغى. */
+    /**
+     * **استشارةٌ قائمة على التذكرة — طلبٌ واحد لكلّ تذكرة حتى يكتمل أو يُلغى.**
+     *
+     * كان يعدّ حالات ما قبل الموعد وحدها (`PRE_SESSION_STATUSES`) خلافاً لهذا العقد: فتذكرةٌ صحّحتها الإدارة إلى
+     * «بانتظار حجز الاستشارة» واستشارتها مؤكَّدة الموعد («جاهزة للمحامي»…) كانت تقبل طلباً ثانياً فوقها. الآن كلّ
+     * استشارةٍ لم تبلغ نهايتها (`TERMINAL_STATUSES`: منتهية · لم يحضر · ملغاة) قائمة (قرار المالك 2026-10-04).
+     */
     public function hasPendingConsult(): bool
     {
-        return $this->consults()->whereIn('status', Consult::PRE_SESSION_STATUSES)->exists();
+        return $this->consults()->whereNotIn('status', Consult::TERMINAL_STATUSES)->exists();
     }
 
     /**

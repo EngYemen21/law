@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Journey\Enums\ConsultStatus;
 use App\Enums\DocumentDirection;
 use App\Enums\Role;
+use App\Models\Consult;
 use App\Models\Document;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -20,6 +22,7 @@ use Tests\TestCase;
  * ٤) «حجز الموعد الآن» بحكم الخادم نفسه — كان يبقى بعد طلب الاستشارة ويفتح الحجز بلا رقم التذكرة.
  * ٥) التقويم بطبقة تصفيةٍ واحدة (الخادم) — كانت شرائح المكوّن وبحثه يصفّيان الصفحة المعروضة وحدها فوق شريط الخادم.
  * ٦) «تتبع القرار» يفتح ملفّ التنفيذ نفسه لا قائمة التنفيذ.
+ * ٧) استشارةٌ قائمة «حتى تكتمل أو تُلغى» — لا طلبَ ثانٍ فوق موعدٍ مؤكَّد ولو صُحّحت التذكرة يدويّاً.
  */
 class ClientTabsOwnershipTest extends TestCase
 {
@@ -130,5 +133,32 @@ class ClientTabsOwnershipTest extends TestCase
         $page = (string) file_get_contents(resource_path('js/pages/dashboard.tsx'));
         $this->assertStringContainsString('router.visit(`/execs?id=${encodeURIComponent(e.number)}`)', $page);
         $this->assertStringNotContainsString("onClick={() => go('execs')}", $page);
+    }
+
+    public function test_7_a_confirmed_consult_blocks_a_second_request_even_after_a_manual_correction(): void
+    {
+        $client = $this->client();
+        $ticket = $this->ticketWithApprovedOpinion($client, ['status' => 'موعد مؤكد', 'approved_track' => 'consultation', 'approved_track_at' => now()]);
+        $consult = Consult::create([
+            'user_id' => $client->id, 'ticket_id' => $ticket->id, 'ref' => 'CN-LIVE-'.uniqid(), 'subject' => 'نزاع', 'channel' => 'مرئية', 'lawyer' => 'محامٍ',
+            'session' => 'بانتظار الجلسة', 'status' => ConsultStatus::ReadyForLawyer->value, 'starts_at' => now()->addDay(),
+        ]);
+
+        // الباب الإداريّ الاستثنائيّ نفسه: تصحيحٌ مسبَّب إلى «بانتظار حجز الاستشارة»
+        $this->actingAs($this->journeyAdmin())->post(route('admin.tickets.correct-status', $ticket), [
+            'status' => 'بانتظار حجز الاستشارة', 'reason' => 'تصحيح حالة بعد مراجعة',
+        ])->assertSessionHasNoErrors();
+        $this->assertSame('بانتظار حجز الاستشارة', $ticket->fresh()->status);
+
+        $this->assertTrue($ticket->fresh()->hasPendingConsult());
+        $this->assertFalse($ticket->fresh()->awaitsConsultRequest(), 'لا «حجز الموعد الآن» وموعدها قائم');
+        $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'video'])
+            ->assertSessionHasErrors(['type' => 'يوجد طلب استشارة قائم لهذه التذكرة.']);
+        $this->assertSame(1, $ticket->consults()->count(), 'لا استشارة ثانية');
+
+        // انتهت أو أُلغيت ⇒ يجوز طلبٌ جديد كما كان
+        $consult->forceFill(['status' => ConsultStatus::Cancelled->value])->save();
+        $this->assertFalse($ticket->fresh()->hasPendingConsult());
+        $this->assertTrue($ticket->fresh()->awaitsConsultRequest());
     }
 }
