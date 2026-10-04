@@ -1,14 +1,8 @@
 import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
-import React, { useEffect, useState } from 'react';
-import Badge from '@/components/babylon/Badge';
-import BookingActions from '@/components/babylon/BookingActions';
+import React, { useState } from 'react';
 import { useToast } from '@/components/babylon/Toast';
-import type { ConsultCard } from '@/lib/consult-ui';
-import { echo } from '@/lib/echo';
-import { crChannelIcon, crChannelTone } from '@/lib/employee-data';
 import Icon from '@/lib/icons';
-import { arabicCount, NOUN } from '@/lib/arabic-count';
 import { firstError, serverMessage } from '@/lib/server-message';
 
 // ============================================================
@@ -49,7 +43,6 @@ interface BookableTicket {
 }
 
 interface Props {
-  pending: ConsultCard[];
   specialties?: string[];
   tickets?: BookableTicket[];
   /** تذكرةٌ جاء العميل منها (`/book?ticket=`) — من قائمته الجائزة وحدها، وإلّا null */
@@ -57,7 +50,6 @@ interface Props {
 }
 
 const Book: React.FC<Props> = ({
-  pending = [],
   specialties = [],
   tickets = [],
   selectedTicket = null,
@@ -72,46 +64,6 @@ const Book: React.FC<Props> = ({
   // طلبٌ متعلّق بتذكرة (اختياريّ): الحقول منها للعرض، والإرسال عبر مسار التذكرة فتُربط الاستشارة بها
   const [ticketNo, setTicketNo] = useState(selectedTicket ?? '');
   const linked = tickets.find((t) => t.number === ticketNo);
-  const [items, setItems] = useState<ConsultCard[]>(pending);
-
-  // تزامن لحظي: تسعير الإدارة/تأكيد الدفع يصلان فوراً
-  useEffect(() => {
-    setItems(pending);
-    pending.forEach((c) => {
-      echo.private(`consult.${c.id}`).listen(
-        '.status',
-        (e: {
-          status?: string;
-          price?: number;
-          vat?: number;
-          total?: number;
-          priced?: boolean;
-          paid?: boolean;
-          invoiceNo?: string | null;
-        }) => {
-          setItems((prev) =>
-            prev.map((x) =>
-              x.id === c.id
-                ? {
-                    ...x,
-                    status: e.status ?? x.status,
-                    price: e.price ?? x.price,
-                    vat: e.vat ?? x.vat,
-                    total: e.total ?? x.total,
-                    priced: e.priced ?? x.priced,
-                    paid: e.paid ?? x.paid,
-                    invoiceNo: e.invoiceNo ?? x.invoiceNo,
-                  }
-                : x
-            )
-          );
-        }
-      );
-    });
-    return () => {
-      pending.forEach((c) => echo.leave(`consult.${c.id}`));
-    };
-  }, [pending]);
 
   const submit = () => {
     if (!channel) {
@@ -279,55 +231,8 @@ const Book: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* 3. طلبات الاستشارة الجارية بدورة الحجز (إن وجدت)
-          شعار المنصّة في الترويسة (طلب المالك 2026-09-26) — كانت أيقونة ساعةٍ بصنفِ لونٍ وحده (`cls="text-amber"`)
-          يُسقط صنفها الأساسيّ `ic`، فتُرسم بلا حجمٍ ولا حدٍّ وتُملأ سوداء: «دائرة سوداء» بجانب العنوان. */}
-      {items.length > 0 && (
-        <div className="card book-pending" style={{ marginBottom: 22 }}>
-          <div className="card-h book-pending-h">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-              <span className="book-pending-mark">
-                <img src="/images/sb-mark.png" alt="" width={320} height={303} />
-              </span>
-              <div style={{ minWidth: 0 }}>
-                <h3>طلبات استشاراتك قيد المتابعة والإجراء</h3>
-                <span className="sub">نتابع كلّ طلبٍ حتى انعقاد جلسته — والخطوة التالية مكتوبةٌ بجانبه</span>
-              </div>
-            </div>
-            <span className="badge-s b-amber">{arabicCount(items.length, NOUN.request)}</span>
-          </div>
-          <div className="card-b" style={{ padding: '6px 18px 14px' }}>
-            {items.map((c) => (
-              <div key={c.ref} className="item book-pending-item">
-                <div className="item-top">
-                  <div className={`iico ${crChannelTone(c.channel)}`}>
-                    <Icon name={crChannelIcon(c.channel)} />
-                  </div>
-                  <div className="imeta">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-                      <b>{c.subject || 'طلب استشارة'}</b>
-                      <span className="chip" style={{ fontSize: 11, direction: 'ltr' }}>{c.ref}</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--muted)' }}>
-                      <Badge text={c.channel} tone={crChannelTone(c.channel)} />
-                      {c.priced ? (
-                        <span className={`badge-s ${c.paid ? 'b-green' : 'b-amber'}`}>
-                          {c.total} ر.س · {c.paid ? 'مسدَّد' : 'بانتظار السداد'}
-                        </span>
-                      ) : (
-                        <span className="badge-s b-amber">بانتظار تسعير الإدارة العليا</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className="iact">
-                  <BookingActions c={c} toast={toast} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* لا قائمة «طلبات قيد المتابعة» هنا: الطلب ودفعه ومتابعته في «استشاراتي» — وإليها يُنقل العميل بعد الإرسال
+          (جرد تبويبات العميل 2026-10-04، قرار المالك). */}
 
       {/* 4. النموذج الذكي لحجز استشارة جديدة */}
       <div className="card" style={{ marginBottom: 24 }}>

@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Enums\DocumentDirection;
 use App\Enums\Role;
 use App\Models\Appointment;
 use App\Models\CaseHearing;
@@ -445,10 +446,10 @@ class RichDemoSeeder extends Seeder
 
         // ── 10. المستندات: 8 (واردة وصادرة بملفّات فعلية) ──
         $docDefs = [
-            ['صك ملكية الأرض — مخطط 2841', 'in'], ['عقد تأسيس الشركة موثّقاً', 'in'],
-            ['كشف حساب بنكي — الربع الثاني', 'in'], ['صورة الهوية والسجل التجاري', 'in'],
-            ['مذكرة الدفاع الجوابية — نهائية', 'out'], ['اتفاقية أتعاب موقّعة', 'out'],
-            ['اللائحة الاعتراضية على الحكم', 'out'], ['ملخص الاستشارة والتوصيات', 'out'],
+            ['صك ملكية الأرض — مخطط 2841', DocumentDirection::Up], ['عقد تأسيس الشركة موثّقاً', DocumentDirection::Up],
+            ['كشف حساب بنكي — الربع الثاني', DocumentDirection::Up], ['صورة الهوية والسجل التجاري', DocumentDirection::Up],
+            ['مذكرة الدفاع الجوابية — نهائية', DocumentDirection::Out], ['اتفاقية أتعاب موقّعة', DocumentDirection::Out],
+            ['اللائحة الاعتراضية على الحكم', DocumentDirection::Out], ['ملخص الاستشارة والتوصيات', DocumentDirection::Out],
         ];
         foreach ($docDefs as $i => $d) {
             $path = 'documents/demo-doc-'.($i + 1).'.txt';
@@ -458,7 +459,7 @@ class RichDemoSeeder extends Seeder
             Document::updateOrCreate(
                 ['user_id' => $C($i)->id, 'name' => $d[0]],
                 [
-                    'meta' => ($d[1] === 'in' ? 'وارد من العميل' : 'صادر من المكتب').' · '.now()->subDays($i * 4)->format('Y-m-d'),
+                    'meta' => $d[1]->label().' · '.now()->subDays($i * 4)->format('Y-m-d'),
                     'direction' => $d[1], 'path' => $path, 'mime' => 'text/plain', 'size' => Storage::size($path),
                 ]
             );

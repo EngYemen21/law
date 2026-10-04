@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\DocumentDirection;
 use App\Enums\Role;
 use App\Models\Document;
 use App\Models\Invoice;
@@ -69,7 +70,7 @@ class ClientAccountActionsTest extends TestCase
 
         $doc = Document::where('user_id', $client->id)->first();
         $this->assertNotNull($doc);
-        $this->assertSame('up', $doc->direction);
+        $this->assertSame(DocumentDirection::Up, $doc->direction);
         $this->assertNotNull($doc->path);
         Storage::disk('local')->assertExists($doc->path);
 

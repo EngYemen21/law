@@ -77,7 +77,7 @@ export interface AdvisorInfo {
 }
 
 export interface RecentDoc {
-  id?: number;
+  id?: number | string;
   name: string;
   meta: string;
   canDownload?: boolean;

@@ -2,12 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Domain\Journey\Enums\ConsultStatus;
 use App\Enums\Role;
-use App\Models\Consult;
 use App\Models\Meeting;
 use App\Models\User;
-use App\Support\LawyerName;
 use App\Support\Notify;
 use App\Support\RoomDetails;
 use Illuminate\Http\RedirectResponse;
@@ -33,43 +30,21 @@ class MeetingController extends Controller
         // الاجتماع الأقرب القادم
         $nextMeeting = $upcoming->first();
 
-        // الاستشارات المرئية للعميل لإعطاء رؤية 360 متكاملة لكافة الجلسات
-        $videoConsults = Consult::where('user_id', $userId)
-            // مرئية فعلاً: التبويب اسمه «الاستشارات المرئية» وكان يعرض الهاتفية والحضورية أيضاً
-            ->where('channel', 'مرئية')
-            ->whereIn('session', ['بانتظار الجلسة', 'جلسة جارية'])
-            // طلبٌ في دورة الحجز (تسعير/سداد/موعدٌ لم يُنشر) ليس جلسةً قادمة — جلسته «بانتظار الجلسة» منذ إنشائه
-            ->whereNotIn('status', Consult::PRE_SESSION_STATUSES)
-            ->latest('id')->take(4)->get()
-            ->map(fn (Consult $c) => [
-                'id' => $c->id,
-                'ref' => $c->ref,
-                'subject' => $c->subject ?: 'استشارة قانونية',
-                'channel' => $c->channel,
-                'when' => $c->when_label ?: 'بانتظار تحديد الموعد',
-                'canJoin' => $c->canJoin(),
-                'joinLink' => $c->joinLink($request->user()),
-                'status' => ConsultStatus::tryFrom((string) $c->status)?->clientLabel() ?? $c->status,
-                'session' => $c->session,
-                'sessionTone' => $c->sessionTone(),
-                // البديل يصف الغياب: «مستشار معتمد» كانت تُستعمل مكان **لا محامي
-                // مُسنَد**، فتقرأ اعتماداً حيث لا إسناد أصلاً.
-                'lawyer' => LawyerName::forClient($c->assigned_lawyer_id ? $c->assignedLawyer : null, $c->lawyer, 'لم يُسنَد بعد'),
-            ]);
+        // **الاجتماعات وحدها** (جرد تبويبات العميل 2026-10-04، قرار المالك): كان هنا تبويب «الاستشارات المرئية»
+        // يكرّر ما في «استشاراتي» — وبموعدٍ من النصّ المخزَّن `when_label` لا من `starts_at`، فعرض لـCN-2026-906
+        // «29-09 · 10:00» و«استشاراتي» «03-10 · 03:17». الاستشارة وأزرارها (الدخول والتفاصيل) في «استشاراتي» والتقويم.
 
         $stats = [
             'total' => $meetings->count(),
             'upcoming' => $upcoming->count(),
             'past' => $past->count(),
             'approvedMinutes' => $meetings->filter(fn ($m) => ! empty($m['minutes']) || ! empty($m['summary']))->count(),
-            'videoConsultsCount' => $videoConsults->count(),
         ];
 
         return Inertia::render('meetings', [
             'meetings' => $meetings,
             'stats' => $stats,
             'nextMeeting' => $nextMeeting,
-            'videoConsults' => $videoConsults,
         ]);
     }
 

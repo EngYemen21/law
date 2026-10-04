@@ -128,7 +128,8 @@ class NewestFirstOrderingTest extends TestCase
     public function test_merged_document_tables_are_sorted_before_being_shown(): void
     {
         foreach ([
-            app_path('Http/Controllers/DocumentController.php'),
+            // تجميع «المستندات» انتقل إلى مصدرٍ واحد تقرؤه الرئيسيّة أيضاً (جرد تبويبات العميل 2026-10-04)
+            app_path('Support/ClientDocuments.php'),
             app_path('Http/Controllers/Admin/ClientController.php'),
         ] as $file) {
             $this->assertStringContainsString(

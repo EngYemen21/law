@@ -1,0 +1,111 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Enums\DocumentDirection;
+use App\Enums\Role;
+use App\Models\Document;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
+use Tests\Concerns\BuildsConsultJourney;
+use Tests\TestCase;
+
+/**
+ * **كلّ تبويبٍ للعميل يعرض ما يخصّه** (جرد تبويبات العميل 2026-10-04، قرار المالك).
+ *
+ * ١) «الاجتماعات» لا تحمل استشاراتٍ — كان تبويب «الاستشارات المرئية» يكرّر «استشاراتي» بموعدٍ من نصٍّ مخزَّن قديم.
+ * ٢) «حجز استشارة» نموذجٌ وحده — كانت قائمة الطلبات الجارية وزرّ دفعها نسخةً ثانية من «استشاراتي».
+ * ٣) «أحدث الوثائق الصادرة» صادرةٌ فعلاً — كانت تعرض ما رفعه العميل، وقيمة الاتّجاه نصٌّ حرّ.
+ * ٤) «حجز الموعد الآن» بحكم الخادم نفسه — كان يبقى بعد طلب الاستشارة ويفتح الحجز بلا رقم التذكرة.
+ */
+class ClientTabsOwnershipTest extends TestCase
+{
+    use BuildsConsultJourney;
+    use RefreshDatabase;
+
+    private function client(): User
+    {
+        return User::factory()->create(['role' => Role::Client]);
+    }
+
+    public function test_1_meetings_page_carries_no_consults(): void
+    {
+        $this->actingAs($this->client())->get(route('meetings'))->assertOk()
+            ->assertInertia(fn ($p) => $p->component('meetings')->missing('videoConsults')->missing('stats.videoConsultsCount'));
+
+        $page = (string) file_get_contents(resource_path('js/pages/meetings.tsx'));
+        $this->assertStringNotContainsString("setActiveTab('consults')", $page);
+        $this->assertStringNotContainsString('Consult::', (string) file_get_contents(app_path('Http/Controllers/MeetingController.php')));
+    }
+
+    public function test_2_book_page_is_the_form_only_and_requests_live_in_my_consults(): void
+    {
+        $client = $this->client();
+        $this->actingAs($client)->post(route('book.store'), [
+            'type' => 'video', 'specialty' => 'القضايا التجارية', 'subject' => 'هيكلة شراكة',
+        ])->assertRedirect(route('myconsults'));
+
+        $this->actingAs($client)->get(route('book'))->assertOk()
+            ->assertInertia(fn ($p) => $p->component('book')->missing('pending'));
+        $this->actingAs($client)->get(route('myconsults'))
+            ->assertInertia(fn ($p) => $p->has('consults', 1)->where('stats.pendingBooking', 1));
+
+        $this->assertStringNotContainsString('BookingActions', (string) file_get_contents(resource_path('js/pages/book.tsx')));
+    }
+
+    public function test_3_dashboard_recent_documents_are_issued_ones_from_the_documents_source(): void
+    {
+        Storage::fake('local');
+        $client = $this->client();
+        Document::create(['user_id' => $client->id, 'name' => 'صك ملكية رفعه العميل', 'meta' => '—', 'direction' => DocumentDirection::Up, 'path' => 'd/1.pdf']);
+        Document::create(['user_id' => $client->id, 'name' => 'مذكرة صادرة من المكتب', 'meta' => '—', 'direction' => DocumentDirection::Out, 'path' => 'd/2.pdf']);
+
+        $this->actingAs($client)->get(route('dashboard'))
+            ->assertInertia(fn ($p) => $p->has('recentDocs', 1)->where('recentDocs.0.name', 'مذكرة صادرة من المكتب'));
+
+        $this->actingAs($client)->get(route('documents'))
+            ->assertInertia(fn ($p) => $p->has('docsOut', 1)->has('docsUp', 1)->where('docsUp.0.name', 'صك ملكية رفعه العميل'));
+    }
+
+    /** القيمة الشاذّة `in` (بيانات التجربة) تصير «مرفوعاً» فتظهر في «مستنداتك المرفوعة» ولا تضيع. */
+    public function test_3b_the_migration_moves_legacy_in_documents_to_uploaded(): void
+    {
+        $client = $this->client();
+        $row = fn (string $name, string $direction) => \DB::table('documents')->insertGetId([
+            'user_id' => $client->id, 'name' => $name, 'meta' => '—', 'direction' => $direction, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $id = $row('صك قديم', 'in');
+        $ar = $row('عقد وارد', 'وارد');
+        $out = $row('مذكرة', 'صادر');
+
+        (require database_path('migrations/2026_10_04_100000_normalize_document_direction.php'))->up();
+
+        $this->assertSame(DocumentDirection::Up, Document::findOrFail($id)->direction);
+        $this->assertSame(DocumentDirection::Up, Document::findOrFail($ar)->direction);
+        $this->assertSame(DocumentDirection::Out, Document::findOrFail($out)->direction);
+        $this->actingAs($client)->get(route('documents'))
+            ->assertInertia(fn ($p) => $p->has('docsUp', 2)->has('docsOut', 1));
+    }
+
+    public function test_4_booking_alert_follows_the_server_guard_and_carries_the_ticket(): void
+    {
+        $client = $this->client();
+        $ticket = $this->ticketWithApprovedOpinion($client, ['status' => 'بانتظار حجز الاستشارة']);
+
+        $alerts = fn () => collect($this->actingAs($client)->get(route('dashboard'))->inertiaProps('actionAlerts'))
+            ->where('type', 'needs_booking')->values();
+
+        $this->assertTrue($ticket->fresh()->awaitsConsultRequest());
+        $this->assertSame('/book?ticket='.$ticket->number, $alerts()->first()['link'], 'الحجز يُفتح مربوطاً بالتذكرة');
+
+        // طلب الاستشارة من محادثة التذكرة (المسار الحقيقيّ) — التذكرة باقية «بانتظار حجز الاستشارة» حتى السداد
+        $this->actingAs($client)->post(route('tickets.book', $ticket), ['type' => 'video'])->assertNoContent();
+        $fresh = $ticket->fresh();
+        $this->assertSame('بانتظار حجز الاستشارة', $fresh->status);
+
+        $this->assertFalse($fresh->awaitsConsultRequest(), 'طُلبت الاستشارة — لا يُطلب حجزها ثانيةً');
+        $this->assertFalse($fresh->toCard()['needsBooking']);
+        $this->assertCount(0, $alerts(), 'لا تنبيه «حجز الموعد الآن» لطلبٍ قائم');
+    }
+}

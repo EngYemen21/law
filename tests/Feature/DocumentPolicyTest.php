@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\DocumentDirection;
 use App\Enums\Role;
 use App\Models\Document;
 use App\Models\User;
@@ -25,7 +26,7 @@ class DocumentPolicyTest extends TestCase
             'user_id' => $client->id,
             'name' => 'صك ملكية.pdf',
             'meta' => 'PDF · 1 ميجابايت',
-            'direction' => 'وارد',
+            'direction' => DocumentDirection::Up,
             'path' => 'client-docs/1/x.pdf',
             'mime' => 'application/pdf',
             'size' => 1024,

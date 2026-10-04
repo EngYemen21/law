@@ -6,7 +6,6 @@ use App\Domain\Journey\Enums\TicketStatus;
 use App\Enums\Role;
 use App\Models\Appointment;
 use App\Models\Consult;
-use App\Models\Document;
 use App\Models\Execution;
 use App\Models\Invoice;
 use App\Models\LegalCase;
@@ -16,6 +15,7 @@ use App\Models\User;
 use App\Services\AdminDashboardService;
 use App\Support\AppEnvironment;
 use App\Support\Audit;
+use App\Support\ClientDocuments;
 use App\Support\LawyerName;
 use App\Support\TestDataReset;
 use App\Support\TicketJourney;
@@ -63,9 +63,9 @@ class DashboardController extends Controller
         $myMeetings = Meeting::where('user_id', $uid)->get();
         $upcomingMeetings = $myMeetings->filter(fn (Meeting $m) => $m->isUpcoming())->values();
 
-        // 7. المستندات والتقارير الصادرة
-        $recentDocs = Document::where('user_id', $uid)->latest('id')->take(4)->get()
-            ->map(fn (Document $d) => $d->toCard());
+        // 7. أحدث الوثائق **الصادرة** — من مصدر «المستندات» نفسه (`ClientDocuments`): كانت تقرأ جدول
+        // `documents` بلا تمييز اتّجاه فتعرض ما رفعه العميل «صادراً» (جرد تبويبات العميل 2026-10-04)
+        $recentDocs = ClientDocuments::for($user)['out']->take(4)->values();
 
         // 8. المستشار القانوني المخصص (من القضايا أو التذاكر الحالية)
         //
@@ -141,15 +141,16 @@ class DashboardController extends Controller
             ];
         }
 
-        // ج) تذاكر بانتظار حجز موعد الاستشارة من العميل
-        foreach ($activeTickets->where('status', 'بانتظار حجز الاستشارة') as $ticket) {
+        // ج) تذاكر تنتظر من العميل طلب استشارتها — بحكم الخادم نفسه (`Ticket::awaitsConsultRequest`)، لا بالحالة
+        // وحدها: كان التنبيه يبقى بعد الطلب حتى السداد، ويفتح `/book` بلا رقم التذكرة فيُرسَل طلبٌ عامّ غير مربوط بها
+        foreach ($activeTickets->filter(fn (Ticket $t) => $t->awaitsConsultRequest()) as $ticket) {
             $actionAlerts[] = [
                 'id' => 'book-'.$ticket->id,
                 'type' => 'needs_booking',
                 'title' => 'بانتظار حجز موعد الاستشارة 📅',
                 'desc' => "تذكرة {$ticket->number} — تمت الدراسة المبدئية، يرجى حجز موعد الاستشارة لمناقشة الرأي القانوني",
                 'cta' => 'حجز الموعد الآن',
-                'link' => '/book',
+                'link' => '/book?ticket='.rawurlencode($ticket->number),
                 'tone' => 'b-blue',
             ];
         }

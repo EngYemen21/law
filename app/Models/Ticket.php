@@ -158,6 +158,21 @@ class Ticket extends Model implements ClientConversation
         return $this->consults()->whereIn('status', Consult::PRE_SESSION_STATUSES)->exists();
     }
 
+    /**
+     * **ينتظر من العميل طلبَ استشارته الآن** — تذكرةٌ في «بانتظار حجز الاستشارة» يجوز طلبها
+     * (`TicketJourney::consultRequestBlocker`) ولا طلبَ قائم لها (`hasPendingConsult`).
+     *
+     * الحكم نفسه الذي يحرس الطلب في الخادم (`TicketController::book`) ويبني قائمة «حجز استشارة»؛ كانت
+     * شارة «حجز جلسة الاستشارة» وتنبيه الرئيسيّة «حجز الموعد الآن» يُقرآن من الحالة وحدها، فيبقيان بعد
+     * طلب الاستشارة حتى سدادها — ويُحوَّل العميل إلى صفحةٍ تُسقط التذكرة (جرد تبويبات العميل 2026-10-04).
+     */
+    public function awaitsConsultRequest(): bool
+    {
+        return $this->status === TicketStatus::AwaitingBooking->value
+            && TicketJourney::consultRequestBlocker($this) === null
+            && ! $this->hasPendingConsult();
+    }
+
     // ربط المسار برقم التذكرة بدل المعرّف
     public function getRouteKeyName(): string
     {
@@ -227,7 +242,7 @@ class Ticket extends Model implements ClientConversation
             'lawyer' => LawyerName::forClient($this->assigned_lawyer_id ? $this->assignedLawyer : null, $this->assigned_lawyer, 'المستشار المخصص'),
             'step' => TicketJourney::indexOf($this->status),
             'needsDoc' => in_array($this->status, ['بانتظار مستندات', TicketStatus::AwaitingDocs->value], true),
-            'needsBooking' => in_array($this->status, ['بانتظار حجز الاستشارة', TicketStatus::AwaitingBooking->value], true),
+            'needsBooking' => $this->awaitsConsultRequest(),
             'hasCase' => $hasCase,
             'caseNumber' => $caseNo,
             'hasExecution' => $hasExec,

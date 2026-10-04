@@ -86,7 +86,7 @@ class DirectBookingTest extends TestCase
         $this->assertNotNull($consult->starts_at); // وقت حقيقي (لا نصّ) — يفعّل منع التعارض وجدولة Zoom
     }
 
-    public function test_book_page_lists_only_current_client_pending_requests(): void
+    public function test_my_consults_lists_only_current_client_pending_requests(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
         $other = User::factory()->create(['role' => Role::Client]);
@@ -101,13 +101,13 @@ class DirectBookingTest extends TestCase
             'type' => 'video', 'specialty' => 'القضايا التجارية', 'subject' => 'استشارة أخرى',
         ])->assertRedirect();
 
-        $this->actingAs($client)->get(route('book'))
+        // الطلبات الجارية مكانها «استشاراتي» — صفحة الحجز نموذجٌ وحده (جرد التبويبات 2026-10-04)
+        $this->actingAs($client)->get(route('myconsults'))
             ->assertOk()
-            ->assertInertia(fn ($p) => $p->component('book')
-                ->has('pending', 1)
-                ->where('pending.0.status', 'بانتظار التسعير')
-                // يُمرَّر التخصّص للعميل حتى يُصفّي منتقي الأوقات بالمختصّين لا كل المحامين
-                ->where('pending.0.specialty', 'القضايا التجارية'));
+            ->assertInertia(fn ($p) => $p->component('myconsults')
+                ->has('consults', 1)
+                ->where('consults.0.status', 'بانتظار التسعير')
+                ->where('consults.0.specialty', 'القضايا التجارية'));
     }
 
     public function test_admin_finance_shows_real_invoices_and_marks_paid(): void

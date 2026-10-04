@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\DocumentDirection;
 use App\Enums\Role;
 use App\Http\Controllers\Controller;
 use App\Models\CaseDocument;
@@ -292,8 +293,8 @@ class ClientController extends Controller
             ->map(fn (Document $d) => [
                 'id' => 'doc-'.$d->id,
                 'name' => $d->name,
-                'meta' => $d->meta ?: ($d->direction === 'up' ? 'مرفوع من العميل' : 'صادر من المكتب'),
-                'type' => $d->direction === 'up' ? 'مرفوع' : 'صادر',
+                'meta' => $d->meta ?: $d->direction->label(),
+                'type' => $d->direction === DocumentDirection::Up ? 'مرفوع' : 'صادر',
                 'hasFile' => ! empty($d->path),
                 'downloadUrl' => ! empty($d->path) ? route('admin.documents.download', $d->id) : null,
                 'date' => $d->created_at?->format('Y-m-d') ?: '—',

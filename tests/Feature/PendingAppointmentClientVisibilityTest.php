@@ -55,6 +55,7 @@ class PendingAppointmentClientVisibilityTest extends TestCase
             ->assertInertia(fn ($p) => $p->where('navBadges./calendar', 0));
     }
 
+    /** الاجتماعات لا تحمل استشاراتٍ أصلاً (جرد التبويبات 2026-10-04) — والطلب المسدَّد في «استشاراتي» بانتظار موعده. */
     public function test_video_consults_on_the_meetings_page_exclude_pre_session_requests(): void
     {
         $client = User::factory()->create(['role' => Role::Client]);
@@ -65,7 +66,10 @@ class PendingAppointmentClientVisibilityTest extends TestCase
 
         $this->actingAs($client)->get(route('meetings'))
             ->assertOk()
-            ->assertInertia(fn ($p) => $p->has('videoConsults', 0)->where('stats.videoConsultsCount', 0));
+            ->assertInertia(fn ($p) => $p->missing('videoConsults')->missing('stats.videoConsultsCount'));
+
+        $this->actingAs($client)->get(route('myconsults'))
+            ->assertInertia(fn ($p) => $p->has('consults', 1)->where('consults.0.ref', $consult->ref)->where('stats.pendingBooking', 1));
     }
 
     public function test_client_calendar_status_filter_uses_client_labels(): void

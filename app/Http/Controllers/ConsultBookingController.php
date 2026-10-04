@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Domain\Journey\Enums\TicketStatus;
-use App\Models\Consult;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Support\ConsultBooking;
@@ -23,12 +22,8 @@ class ConsultBookingController extends Controller
 {
     public function index(Request $request): Response
     {
-        // طلبات العميل في دورة الحجز (بانتظار التسعير/السداد/تحديد الموعد) — تُعرض فوق النموذج
-        $pending = Consult::where('user_id', $request->user()->id)
-            ->whereIn('status', Consult::PRE_SESSION_STATUSES)
-            ->latest('id')->get()
-            ->map(fn (Consult $c) => $c->toClientCard());
-
+        // **صفحة الحجز نموذجٌ وحده** (جرد تبويبات العميل 2026-10-04، قرار المالك): كانت تعرض فوق النموذج طلبات
+        // العميل الجارية وزرّ دفعها — نسخةً ثانية من «استشاراتي ← بانتظار الإجراء والسداد». الإرسال يُنقل إليها.
         $tickets = $this->bookableTickets($request->user());
         // **الحجز من تذكرةٍ بعينها** (`/book?ticket=SB-…`): كان زرّا «حجز جلسة الاستشارة» في «طلباتي» ومحادثة التذكرة
         // يفتحان `/book` بلا رقمها، فيُرسَل طلبٌ عامّ غير مربوط بها ما لم يُعِد العميل اختيارها (جرد الأزرار 2026-10-03،
@@ -37,7 +32,6 @@ class ConsultBookingController extends Controller
 
         return Inertia::render('book', [
             'specialties' => Specialties::all(),
-            'pending' => $pending,
             'tickets' => $tickets,
             'selectedTicket' => in_array($requested, array_column($tickets, 'number'), true) ? $requested : null,
         ]);

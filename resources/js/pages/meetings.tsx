@@ -39,48 +39,30 @@ export interface ClientMeeting {
   startsAt?: string | null;
 }
 
-export interface VideoConsult {
-  id: number;
-  ref: string;
-  subject: string;
-  channel: string;
-  when: string;
-  canJoin: boolean;
-  joinLink: string;
-  status: string;
-  session: string;
-  /** `SessionState::tone()` من الخادم. */
-  sessionTone: string;
-  lawyer: string;
-}
-
 export interface MeetingStats {
   total: number;
   upcoming: number;
   past: number;
   approvedMinutes: number;
-  videoConsultsCount: number;
 }
 
 interface Props {
   meetings: ClientMeeting[];
   stats?: MeetingStats;
   nextMeeting?: ClientMeeting | null;
-  videoConsults?: VideoConsult[];
 }
 
 const Meetings: React.FC<Props> = ({
   meetings = [],
   stats,
   nextMeeting: initialNextMeeting,
-  videoConsults = [],
 }) => {
   const toast = useToast();
   // اسم المكتب من الإعدادات — كان رأس المحضر يحمل اسماً ثالثاً منقوشاً لا يطابق مستندات المكتب
   const { office_name: officeName } = useSettings();
   const joinOpens = useJoinOpensText();
   const [items, setItems] = useState<ClientMeeting[]>(meetings);
-  const [activeTab, setActiveTab] = useState<'upcoming' | 'past' | 'consults'>('upcoming');
+  const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeDoc, setActiveDoc] = useState<{
     title: string;
@@ -195,21 +177,6 @@ return pastMeetings;
     );
   }, [pastMeetings, searchQuery]);
 
-  const filteredConsults = useMemo(() => {
-    if (!searchQuery.trim()) {
-return videoConsults;
-}
-
-    const q = searchQuery.toLowerCase();
-
-    return videoConsults.filter(
-      (c) =>
-        c.subject.toLowerCase().includes(q) ||
-        c.ref.toLowerCase().includes(q) ||
-        c.lawyer.toLowerCase().includes(q)
-    );
-  }, [videoConsults, searchQuery]);
-
   // نسخ المحضر
   const copyDoc = () => {
     if (!activeDoc) {
@@ -269,13 +236,6 @@ return;
           <div className="si"><Icon name="video" /></div>
           <div className="num">{stats?.upcoming ?? upcomingMeetings.length}</div>
           <div className="lbl">اجتماعات قادمة مجدولة</div>
-          <div className="go"><Icon name="out" /></div>
-        </div>
-
-        <div className="stat t-cyan" onClick={() => setActiveTab('consults')}>
-          <div className="si"><Icon name="clock" /></div>
-          <div className="num">{stats?.videoConsultsCount ?? videoConsults.length}</div>
-          <div className="lbl">استشارات مرئية نشطة</div>
           <div className="go"><Icon name="out" /></div>
         </div>
 
@@ -429,14 +389,6 @@ return;
               <Icon name="video" /> الاجتماعات القادمة ({upcomingMeetings.length})
             </button>
             <button
-              className={`btn sm ${activeTab === 'consults' ? '' : 'ghost'}`}
-              type="button"
-              onClick={() => setActiveTab('consults')}
-              style={{ fontWeight: 700 }}
-            >
-              <Icon name="clock" /> الاستشارات المرئية ({videoConsults.length})
-            </button>
-            <button
               className={`btn sm ${activeTab === 'past' ? '' : 'ghost'}`}
               type="button"
               onClick={() => setActiveTab('past')}
@@ -578,73 +530,7 @@ return;
             </div>
           )}
 
-          {/* تبويب الاستشارات المرئية */}
-          {activeTab === 'consults' && (
-            <div>
-              {filteredConsults.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  {filteredConsults.map((c) => (
-                    <div key={c.id} className="item" style={{ padding: '14px 0' }}>
-                      <div className="item-top">
-                        <div className="iico file-ico">
-                          <Icon name="video" />
-                        </div>
-                        <div className="imeta">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                            <b>{c.subject}</b>
-                            <span className="chip" style={{ fontSize: 11 }}>
-                              {c.channel || 'مرئية'}
-                            </span>
-                            <span className="chip" style={{ fontSize: 11, color: 'var(--faint)' }}>
-                              {c.ref}
-                            </span>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'var(--muted)' }}>
-                            <span style={{ fontWeight: 600, color: 'var(--ink)' }}>
-                              <Icon name="cal" /> {c.when}
-                            </span>
-                            <span>·</span>
-                            <span>المستشار: {c.lawyer}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="iact">
-                        <Badge text={c.session || c.status} tone={c.sessionTone} />
-                        {c.canJoin ? (
-                          <button
-                            className="btn sm"
-                            type="button"
-                            onClick={() => openRoomTab(c.joinLink || `/consults/room?ref=${encodeURIComponent(c.ref)}`)}
-                            style={{ fontWeight: 800 }}
-                          >
-                            <Icon name="video" /> دخول الاستشارة
-                          </button>
-                        ) : (
-                          <button
-                            className="btn sm soft"
-                            type="button"
-                            onClick={() => router.visit('/myconsults')}
-                          >
-                            تفاصيل الاستشارة
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="empty" style={{ padding: '36px 16px' }}>
-                  <Icon name="clock" />
-                  <b>لا توجد استشارات مرئية نشطة حالياً</b>
-                  <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
-                    جميع طلبات الاستشارة الخاصة بك ستظهر هنا مع روابط الدخول والتقارير.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
+          {/* لا تبويب «استشارات مرئية» هنا — الاستشارة وأزرارها في «استشاراتي» (جرد التبويبات 2026-10-04) */}
           {/* تبويب الاجتماعات السابقة والمحاضر المعتمدة */}
           {activeTab === 'past' && (
             <div>
